@@ -178,6 +178,49 @@ export class AudioEngine {
     if (g) g.denied(g.now());
   }
 
+  // ---- the super splat (src/audio/superSfx.ts)
+  /** Charging starts; it will be full in `full` s: riser + heartbeat. */
+  superChargeStart(full: number): void {
+    const g = this.live();
+    if (g) g.superFx.chargeStart(g.now(), full);
+  }
+
+  /** The charge ends: fired (cut) or cancelled (power-down). */
+  superChargeStop(fired: boolean): void {
+    const g = this.live();
+    if (g) g.superFx.chargeStop(g.now(), fired);
+  }
+
+  /** A mega blast leaves at charge k (0..1): thunder under its boom. */
+  superMega(k: number): void {
+    const g = this.live();
+    if (g) g.superFx.mega(g.now(), k);
+  }
+
+  /** The firehose pours for `seconds`: roaring bed + crescendo. */
+  superFirehose(seconds: number): void {
+    const g = this.live();
+    if (g) g.superFx.firehose(g.now(), seconds);
+  }
+
+  /** One firehose impact rings the next note of a climbing arpeggio (capped). */
+  superHoseHit(): void {
+    const g = this.live();
+    if (g) g.superFx.hoseHit(g.now());
+  }
+
+  /** Held while cooling down: "not yet". */
+  superFizzle(): void {
+    const g = this.live();
+    if (g) g.superFx.fizzle(g.now());
+  }
+
+  /** The super is ready again: chime. */
+  superReady(): void {
+    const g = this.live();
+    if (g) g.superFx.ready(g.now());
+  }
+
   /** A street sign springs out of the ground. */
   signPop(): void {
     const g = this.live();
