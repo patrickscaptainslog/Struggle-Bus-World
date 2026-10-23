@@ -24,6 +24,9 @@ export interface FrameIn {
   altitude: number;
   paintNearby: number;
   fogBank: number;
+  high?: number;
+  fogBelow?: number;
+  strain?: number;
 }
 
 const HUM_GAIN = 0.06;
@@ -69,6 +72,8 @@ export class SoundGraph {
   private altN = 0.3;
   private paint = 0;
   private fog = 0;
+  private high = 0;
+  private fogBelow = 0;
   private first = true;
   // schedulers (context time)
   private pushAcc = 1;
@@ -182,7 +187,10 @@ export class SoundGraph {
     const tune = audioTune;
     const speedN = clamp01(fin(f.speed) / 115);
     const surge = clamp01(fin(f.surge));
-    const full = clamp01(fin(f.fullness, 1));
+    // straining under the ceiling wheezes like a full belly
+    const full = Math.max(clamp01(fin(f.fullness, 1)), 0.95 * clamp01(fin(f.strain ?? 0)));
+    const high = clamp01(fin(f.high ?? 0));
+    const fogBelow = clamp01(fin(f.fogBelow ?? 0));
     const altN = clamp01(fin(f.altitude, 30) / 120);
     const paint = clamp01(fin(f.paintNearby));
     const fog = clamp01(fin(f.fogBank));
@@ -194,7 +202,11 @@ export class SoundGraph {
       this.altN = altN;
       this.paint = paint;
       this.fog = fog;
+      this.high = high;
+      this.fogBelow = fogBelow;
     } else {
+      this.high += (high - this.high) * (1 - Math.exp(-dt / 0.8));
+      this.fogBelow += (fogBelow - this.fogBelow) * (1 - Math.exp(-dt / 1.2));
       this.speedN += (speedN - this.speedN) * (1 - Math.exp(-dt / 0.25));
       this.surge += (surge - this.surge) * (1 - Math.exp(-dt / 0.12));
       this.fullness += (full - this.fullness) * (1 - Math.exp(-dt / 0.35));
@@ -213,7 +225,7 @@ export class SoundGraph {
     this.lastNow = now;
     const running = !this.isRealtime || (this.ctx as AudioContext).state === 'running';
 
-    this.wind.update(now, dt, this.speedN, this.altN, this.surge, this.paint, this.fog, tune, false);
+    this.wind.update(now, dt, this.speedN, this.altN, this.surge, this.paint, this.fog, tune, false, this.high);
     this.bus.update(now, dt, this.speedN, this.surge, this.fullness, tune, false);
     if (!running) return;
 
@@ -229,7 +241,8 @@ export class SoundGraph {
     if (now >= this.nextHorn) {
       this.foghorn(now + LOOKAHEAD, true);
       const lo = Math.max(2, tune.foghornMin);
-      this.nextHorn = now + this.rng.range(lo, Math.max(lo + 1, tune.foghornMax));
+      // above the marine layer the horns carry up through it more often
+      this.nextHorn = now + this.rng.range(lo, Math.max(lo + 1, tune.foghornMax)) * (1 - 0.35 * this.fogBelow);
     }
     if (this.paint > 0.12 && now >= this.nextTwinkle) {
       if (now - this.lastBloom > 2) {
@@ -254,7 +267,7 @@ export class SoundGraph {
         this.hum.setChord(this.currentChord, now, tr);
       }
     }
-    this.wind.update(now, 0, this.speedN, this.altN, this.surge, this.paint, this.fog, tune, true);
+    this.wind.update(now, 0, this.speedN, this.altN, this.surge, this.paint, this.fog, tune, true, this.high);
     this.bus.update(now, 0, this.speedN, this.surge, this.fullness, tune, true);
     const humLvl = HUM_GAIN * tune.hum * Math.pow(this.paint, 1.3) * (1 - 0.3 * this.fog);
     this.hum.set(now, humLvl, 0.25 + 0.75 * this.paint);
@@ -359,11 +372,14 @@ export class SoundGraph {
   /** A distant foghorn blast (sometimes answered by the far station). */
   foghorn(t: number, maybeAnswer: boolean): void {
     const tune = audioTune;
-    const lvl = tune.foghorn * (1 - 0.75 * this.paint) * (0.85 + 0.45 * this.fog);
+    // from above the layer: the horns rise from under the fog sea, muffled, centered, a little louder
+    const below = this.fogBelow;
+    const lvl = tune.foghorn * (1 - 0.75 * this.paint) * (0.85 + 0.45 * this.fog) * (1 + 0.3 * below);
     const tr = this.transpose;
-    this.horn.blast(t, mtof(50 + tr), mtof(45 + tr), lvl, this.rng.range(-0.6, -0.2));
-    if (maybeAnswer && this.rng.next() < 0.45) {
-      this.horn.blast(t + this.rng.range(3.4, 5.6), mtof(45 + tr), mtof(40 + tr), lvl * 0.55, this.rng.range(0.3, 0.7));
+    const pan = (p: number) => p * (1 - 0.7 * below);
+    this.horn.blast(t, mtof(50 + tr), mtof(45 + tr), lvl, pan(this.rng.range(-0.6, -0.2)), below);
+    if (maybeAnswer && this.rng.next() < 0.45 + 0.3 * below) {
+      this.horn.blast(t + this.rng.range(3.4, 5.6), mtof(45 + tr), mtof(40 + tr), lvl * 0.55, pan(this.rng.range(0.3, 0.7)), below);
     }
   }
 

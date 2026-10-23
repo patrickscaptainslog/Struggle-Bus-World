@@ -54,7 +54,8 @@ export class Wind {
   }
 
   /** Advance gusts (every frame); push params when `push`. Inputs 0..1. */
-  update(t: number, dt: number, speedN: number, altN: number, surge: number, paint: number, fog: number, tune: AudioTune, push: boolean): void {
+  /** `high` 0..1: climbed high above the city (stronger wind, a thin-air whistle, less muffled). */
+  update(t: number, dt: number, speedN: number, altN: number, surge: number, paint: number, fog: number, tune: AudioTune, push: boolean, high = 0): void {
     // Ornstein-Uhlenbeck gusts: slow, organic, independent per side.
     const r = this.kit.rng;
     const sq = Math.sqrt(dt);
@@ -68,17 +69,17 @@ export class Wind {
 
     const w = tune.wind;
     const hush = 1 - 0.45 * fog; // the opening fog bank is still air
-    const base = w * hush * (0.32 + 0.6 * speedN + 0.4 * altN + 0.25 * this.swell) * (1 - 0.25 * paint);
-    target(this.rumble.gain, Math.max(0, base * 0.12), t, 0.25);
+    const base = w * hush * (0.32 + 0.6 * speedN + 0.4 * altN + 0.55 * high + 0.25 * this.swell * (1 + high)) * (1 - 0.25 * paint);
+    target(this.rumble.gain, Math.max(0, base * 0.12 * (1 + 0.6 * high)), t, 0.25);
     for (let i = 0; i < 2; i++) {
       const g = clamp01(0.5 + 0.5 * this.gust[i]);
-      target(this.howlG[i].gain, Math.max(0, base * (0.2 + 0.5 * g * g)), t, 0.18);
-      target(this.howlF[i].frequency, (i ? 430 : 330) + 520 * g + 380 * speedN, t, 0.3);
+      target(this.howlG[i].gain, Math.max(0, base * (0.2 + 0.5 * g * g) * (1 + 0.5 * high)), t, 0.18);
+      target(this.howlF[i].frequency, (i ? 430 : 330) + 520 * g + 380 * speedN + 260 * high, t, 0.3);
     }
-    const rush = w * hush * (0.55 * speedN * speedN + 0.35 * surge * speedN);
+    const rush = w * hush * (0.55 * speedN * speedN + 0.35 * surge * speedN + 0.18 * high);
     target(this.rushG.gain, rush * 0.11, t, 0.2);
-    target(this.rushF.frequency, 900 + 1700 * speedN, t, 0.3);
-    target(this.muffle.frequency, (900 + 2300 * speedN + 1200 * paint) * (1 - 0.4 * fog), t, 0.3);
+    target(this.rushF.frequency, 900 + 1700 * speedN + 900 * high, t, 0.3);
+    target(this.muffle.frequency, (900 + 2300 * speedN + 1200 * paint + 1400 * high) * (1 - 0.4 * fog), t, 0.3);
   }
 }
 
@@ -130,14 +131,16 @@ export class Foghorn {
     merger.connect(wet).connect(out);
   }
 
-  /** One blast. level ~0..1 (already scaled by paint/fog), pan -1..1. Lasts ~3 s (+ tail). */
-  blast(t: number, fHi: number, fLo: number, level: number, pan: number): void {
+  /** One blast. level ~0..1 (already scaled by paint/fog), pan -1..1. Lasts ~3 s (+ tail).
+   * `under` 0..1: heard from above the marine layer, rising from under the fog (darker, more echo). */
+  blast(t: number, fHi: number, fLo: number, level: number, pan: number, under = 0): void {
     const ctx = this.kit.ctx;
     if (level <= 0.001) return;
     const A = level * 0.2;
     const env = mkGain(ctx, 0);
     const am = mkGain(ctx, 1);
     const p = mkPan(ctx, pan);
+    const thru = mkFilter(ctx, 'lowpass', 2400 - 2050 * clamp01(under), 0.5);
     const o1 = mkOsc(ctx, 'sawtooth', fHi);
     const o2 = mkOsc(ctx, 'square', fHi);
     const o2g = mkGain(ctx, 0.45);
@@ -161,12 +164,12 @@ export class Foghorn {
     lfo.connect(lfoG).connect(am.gain);
     o1.connect(env);
     o2.connect(o2g).connect(env);
-    env.connect(am).connect(p).connect(this.input);
+    env.connect(am).connect(thru).connect(p).connect(this.input);
     const end = t + 4.4;
     for (const o of [o1, o2, lfo]) {
       o.start(t);
       o.stop(end);
     }
-    disposeOnEnd(o1, [o1, o2, o2g, lfo, lfoG, env, am, p]);
+    disposeOnEnd(o1, [o1, o2, o2g, lfo, lfoG, env, am, thru, p]);
   }
 }

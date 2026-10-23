@@ -29,6 +29,12 @@ export interface AudioFrame {
   paintNearby: number;
   /** 0..1, 1 inside the opening fog bank */
   fogBank: number;
+  /** 0..1 how high above the rooftops the bus has climbed (wind rises, thin-air whistle) */
+  high?: number;
+  /** 0..1 the marine layer is below us: foghorns sound from under it */
+  fogBelow?: number;
+  /** 0..1 the bus straining against the ceiling (wheezes harder) */
+  strain?: number;
 }
 
 type AudioCtor = new (opts?: AudioContextOptions) => AudioContext;

@@ -453,7 +453,8 @@ async function boot() {
     pose.mouth = 0; // the breath comes out of the bus's face, not the side door
     pose.fullness = flight.fullness;
     pose.speed = flight.speed;
-    pose.wheeze = flight.barfT >= 0 ? 0 : flight.fullness * 0.8;
+    // (and when it strains against the ceiling: the struggle bus)
+    pose.wheeze = flight.barfT >= 0 ? 0 : Math.max(flight.fullness * 0.8, flight.strain);
     pose.eye = barfing ? 0.25 : flight.relief > 0 ? 1 : 0.55 + 0.45 * (1 - flight.fullness * 0.6);
     bus.update(dt, simTime, pose);
     eul.set(flight.pitch, -flight.heading, -flight.bank, 'YXZ');
@@ -539,7 +540,7 @@ async function boot() {
     // the struggle: a wheezy exhaust sputter, more of it when the belly is full
     puffTimer -= dt;
     if (puffTimer <= 0 && dt > 0) {
-      puffTimer = 0.35 + 0.9 * (1 - flight.fullness) + Math.random() * 0.25;
+      puffTimer = (0.35 + 0.9 * (1 - flight.fullness) + Math.random() * 0.25) * (1 - 0.7 * flight.strain);
       bus.root.localToWorld(puffPos.copy(bus.exhaustLocal));
       puffVel.set(-flight.fx * 4 + (Math.random() - 0.5) * 2, 1.2 + Math.random(), -flight.fz * 4 + (Math.random() - 0.5) * 2);
       particles.puff(puffPos, puffVel);
@@ -558,6 +559,9 @@ async function boot() {
       altitude: flight.y - flight.groundUnder,
       paintNearby: near.length ? painted / near.length : 0,
       fogBank: clamp((globals.uFogBank.value - 1) / Math.max(0.001, config.fog.openingBank - 1), 0, 1),
+      high: clamp(flight.lift / 420, 0, 1),
+      fogBelow: globals.uFogLayer2.value.w,
+      strain: flight.strain,
     });
     // ambient twinkles on painted buildings near the bus
     if (painted && Math.random() < dt * 6) {
