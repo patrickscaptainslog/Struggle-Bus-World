@@ -4,8 +4,13 @@
 
 export const config = {
   render: {
-    /** Target width of the low-res framebuffer in game pixels (portrait). */
-    pixelWidth: 240,
+    /**
+     * Target width of the low-res framebuffer in game pixels (portrait). 390 = one game pixel
+     * per iPhone point (an integer 3x upscale on a 1179 px wide screen); it was 240 (5x), which the
+     * producer found too low-res. ?px=<n> overrides it (e.g. ?px=240 the old look, ?px=295 4x,
+     * ?px=590 2x) to compare on the phone.
+     */
+    pixelWidth: 390,
     /** Hard cap on device pixels per game pixel (keeps pixels chunky on tablets). */
     maxPixelScale: 8,
     /** Width of the dithered band between two ramp steps (0 = hard bands, 0.5 = full dither). */
@@ -20,8 +25,8 @@ export const config = {
     creaseHighlight: 0.75,
     /** Distance at which outlines have fully faded out (m). */
     outlineFadeEnd: 520,
-    /** Shadow map size (texels). */
-    shadowMapSize: 1024,
+    /** Shadow map size (texels): 2048 keeps a shadow texel near one game pixel at 390 px wide. */
+    shadowMapSize: 2048,
     /** World-space extent of the shadow map around the camera focus (m). */
     shadowExtent: 520,
     /** At full vista (high above the city) the shadow window widens to this (m) and softens to this strength (0..1)... */
@@ -49,6 +54,13 @@ export const config = {
   },
 
   fog: {
+    /**
+     * Fog and the marine layer (clouds) on or off. Off for now (producer: "just remove the
+     * clouds/fog for now"); ?fog turns it back on. Off keeps only a far fade (clearFarFull) so
+     * the far plane and the horizon hills never end in a hard cut.
+     */
+    enabled: false,
+    clearFarFull: 20000,
     /** Distance fog density (1/m). */
     density: 0.00125,
     /** Height falloff: fog thins with altitude above this (m). */
@@ -109,11 +121,11 @@ export const config = {
      *  1 = the slow diorama still looks out far enough to keep the horizon in frame. */
     lookAheadSlow: 1,
     /** Position lag spring frequency (Hz) and damping ratio. */
-    followHz: 1.1,
+    followHz: 1.6,
     followDamping: 1.0,
     /** Yaw lag spring frequency (Hz) — lower = turns sweep more. */
-    yawHz: 0.75,
-    yawDamping: 0.92,
+    yawHz: 1.6,
+    yawDamping: 1.0,
     /** Vista camera: blends in as the bus climbs above its rooftop floor, from vistaStart to vistaFull (m). */
     vistaStart: 25,
     vistaFull: 400,
@@ -169,12 +181,12 @@ export const config = {
     ceiling: 520,
     ceilingSoft: 150,
     /** How fast speed chases its target (Hz). */
-    speedHz: 0.9,
+    speedHz: 1.4,
     /** Max yaw rate at full sideways stretch (rad/s) at cruise speed. */
     maxYawRate: 1.35,
     /** Bungee: steering spring frequency (Hz) and damping (<1 overshoots). */
-    bungeeHz: 1.6,
-    bungeeDamping: 0.52,
+    bungeeHz: 2.4,
+    bungeeDamping: 0.75,
     /** Thumb stretch (CSS px) that counts as full deflection. */
     stretchPx: 78,
     /** Dead zone (CSS px). */
@@ -189,14 +201,18 @@ export const config = {
     altitudeLookAhead: 1.6,
     /** Climb spring (Hz) — rises early and smoothly over hills. */
     climbHz: 1.1,
+    /** The rooftop floor's rises are eased at this rate before the climb spring sees them (Hz; 0 = raw): no lurch at roof edges. */
+    climbSmoothHz: 1.2,
     /** Max sink rate after cresting a hill (m/s) — gives hang time. */
     maxSink: 9,
-    /** Bank angle per unit of lateral acceleration (rad per m/s²). */
-    bankPerAccel: 0.06,
-    maxBank: 0.62,
+    /** Bank: maxBank * tanh((lateral accel * bankPerAccel + yaw rate * bankPerYaw) / maxBank): proportional
+     *  to the stick, never saturated (rad per m/s², rad per rad/s; maxBank is a soft asymptote, rad). */
+    bankPerAccel: 0.014,
+    bankPerYaw: 0.2,
+    maxBank: 0.7,
     /** Bank spring (Hz, damping) — the wobble you see when straightening out. */
     bankHz: 1.7,
-    bankDamping: 0.42,
+    bankDamping: 0.48,
     /** Obstacles taller than cruise altitude by this much are steered around, not over (m). */
     avoidTallerThan: 45,
     /** Strength of the soft push away from tall towers. */
@@ -216,7 +232,7 @@ export const config = {
     /** Where the projectile lands: meters ahead of the bus at rest, plus seconds of travel at speed. */
     range: 72,
     rangePerSpeed: 0.5,
-    /** Time from tap to first impact (s), at the short range. */
+    /** Time from tap to first impact (s), at the short range (the inhale included). */
     impactDelay: 0.42,
     /** From altitude the breath flies along a forward-down ray this many degrees below the heading (deg)... */
     aimDown: 20,
@@ -226,8 +242,41 @@ export const config = {
     maxRange: 1600,
     /** From up high a shot that would miss snaps to the nearest roof within snapRadius * (1 + drop / 150), up to this (m). */
     snapReachMax: 120,
-    /** Search radius around the aim point for the target building (m). */
+    /** Search radius around the aim point for the target building (m): true distance to its footprint. */
     snapRadius: 28,
+    /** Buildings lower than this are never the target (sheds, slivers) (m). */
+    minTargetHeight: 2.5,
+    /** A shot that snaps onto a big building lands on its nearest edge this far in (m); onto a house-sized one
+     *  (all of it within smallRad of its centroid, m) at its centroid, as ever (the blast reaches houses by
+     *  their centroid less their half-size too, big footprints by true distance). */
+    landInset: 4,
+    smallRad: 25,
+    /** Aim hold: the glinting building stays the target while the aim point is within this of it (m; more from high up). */
+    aimHold: 10,
+    /** ...and while it is within aimHold of the last aimHoldAlong m of the line of fire (m): it doesn't strobe at speed. */
+    aimHoldAlong: 40,
+    /** A building in the line of fire takes the shot if it stands this far above the jet's path (m), unless it is
+     *  within wallSkip of where the jet lands (the jet is as wide as a house there) (m). */
+    wallClear: 1.5,
+    wallSkip: 8,
+    /** Aim latch: lifting the thumb (or touching down) to tap freezes the glinting target this long (s), while it
+     *  stays within the pick radius or this cone of the line of fire (lateral m per m of range). */
+    aimLatch: 0.5,
+    aimLatchCone: 0.2,
+    /** Aim glint: light lift on the target (0.125 = one ramp step), the sweep's extra lift, sweeps per second. */
+    glintLift: 0.13,
+    glintSweep: 0.2,
+    glintRate: 2,
+    /** Inhale: the bus squashes and gulps on the tap frame; the jet leaves this much later (s, inside impactDelay). */
+    inhale: 0.09,
+    /** A breath that comes down on nothing (open water, under this height) is a miss; it refunds this much belly. */
+    missWaterY: 0.8,
+    missRefund: 0.5,
+    /** Steering while breathing: x this much until the impact (the dragon plants itself), easing back over breathSteerEase s. */
+    breathSteer: 0.5,
+    breathSteerEase: 0.2,
+    /** Authored rear-up while breathing (rad, nose up), its rise and its settle. */
+    rearUp: 0.2,
     /** Blast radius around the impact with no drop (m): every building inside blooms. */
     blastRadius: 60,
     /** Radius multiplier at 300 m of drop (bus height above the impact); grows linearly with drop. */
@@ -296,6 +345,8 @@ export const config = {
     overshoot: 0.13,
     /** How fast color floods up the facade (m/s). */
     floodSpeed: 55,
+    /** Head start of the flood (m from the roof): the impact and hit-stop frames already show the hit. */
+    floodHead: 6,
     /** Painted wall wobble amplitude (m) and speed. */
     wobbleAmp: 0.32,
     wobbleSpeed: 1.1,

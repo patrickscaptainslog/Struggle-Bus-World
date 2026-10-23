@@ -68,6 +68,13 @@ export const fxTune = {
   forwardOut: 95,
   /** Upward kick at launch (m/s): the jet lifts a little before it arcs down onto the roofs ahead. */
   doorUp: 12,
+  /** Jet speed out of the mouth / at impact, relative to its mean (chord / travel): fastest at the face,
+   *  still moving when it slams in (a blast, not a lob), and the extra downward speed at impact (m/s). */
+  jetOut: 1.5,
+  jetIn: 0.8,
+  jetDrop: 12,
+  /** The jet leaves the face bent toward its target by at most this (rad): a turning bus never curls it. */
+  aimBend: 0.6,
   /** Coherent ribbon flutter: amplitude (m) and frequency (Hz). */
   wobbleAmp: 0.32,
   wobbleHz: 1.9,
@@ -151,7 +158,7 @@ export const fxTune = {
 registerTunables('Particles', fxTune, {
   ribbonRate: [100, 2500, 10],
   halfWidth0: [0.2, 4, 0.05],
-  halfWidth1: [0.2, 6, 0.05],
+  halfWidth1: [0.2, 10, 0.05],
   depth: [0, 1.5, 0.05],
   blobSize: [0.2, 2.5, 0.05],
   blobMouth: [0.2, 1.5, 0.02],
@@ -167,6 +174,10 @@ registerTunables('Particles', fxTune, {
   doorOut: [0, 90, 1],
   forwardOut: [0, 220, 1],
   doorUp: [-20, 40, 0.5],
+  jetOut: [0.5, 3, 0.05],
+  jetIn: [0, 1.5, 0.05],
+  jetDrop: [0, 60, 0.5],
+  aimBend: [0, 1.5, 0.01],
   wobbleAmp: [0, 2, 0.02],
   wobbleHz: [0, 6, 0.1],
   ribbonGlow: [0, 1, 0.01],
@@ -274,6 +285,11 @@ interface Emitter {
   right: THREE.Vector3;
   /** Last good door direction (bus right, horizontal). */
   door: THREE.Vector3;
+  /** Launch direction (horizontal unit): the nose, bent toward the target by at most aimBend. */
+  aimX: number;
+  aimZ: number;
+  /** Flow left once the nose has swung far off the target (0..1). */
+  aimFlow: number;
 }
 
 const rnd = Math.random;
@@ -755,6 +771,9 @@ export class Particles {
         lastT: 0,
         right: new THREE.Vector3(1, 0, 0),
         door: new THREE.Vector3(1, 0, 0),
+        aimX: 0,
+        aimZ: -1,
+        aimFlow: 1,
       });
     }
     this.syncUniforms();
@@ -855,13 +874,36 @@ export class Particles {
     // door direction: the bus's right side, from its heading (kept when hovering)
     const sp = Math.hypot(V.x, V.z);
     if (sp > 0.5) e.door.set(-V.z / sp, 0, V.x / sp);
+    // launch along the nose, bent toward the target (a turning bus doesn't curl the jet like a hose);
+    // once the nose has swung far past it the breath tapers off instead of bending across the screen
+    {
+      const fx = e.door.z, fz = -e.door.x;
+      const P1 = e.targets[0];
+      let ax = P1.x - S.x, az = P1.z - S.z;
+      const al = Math.hypot(ax, az);
+      if (al > 1e-3) {
+        ax /= al;
+        az /= al;
+        const off = Math.atan2(fx * az - fz * ax, fx * ax + fz * az);
+        const bend = Math.max(-T.aimBend, Math.min(T.aimBend, off));
+        const c = Math.cos(bend), sn = Math.sin(bend);
+        e.aimX = fx * c - fz * sn;
+        e.aimZ = fx * sn + fz * c;
+        const u = Math.max(0, Math.min(1, (1.15 - Math.abs(off)) / 0.35));
+        e.aimFlow = u * u * (3 - 2 * u);
+      } else {
+        e.aimX = fx;
+        e.aimZ = fz;
+        e.aimFlow = 1;
+      }
+    }
     if (b > a) {
       const span = t1 - e.lastT;
       const xm = ((a + b) * 0.5 - e.start) / e.duration;
       // gush at the start, thinning dribble at the end
       const gush = xm < 0.12 ? 1 - xm / 0.12 : 0;
       const tail = xm > 0.7 ? (xm - 0.7) / 0.3 : 0;
-      const rate = T.ribbonRate * (1 + 0.9 * gush - 0.72 * tail);
+      const rate = T.ribbonRate * (1 + 0.9 * gush - 0.72 * tail) * e.aimFlow;
       let nf = rate * (b - a) + e.carry;
       let count = Math.floor(nf);
       e.carry = nf - count;
@@ -871,7 +913,7 @@ export class Particles {
         this.emitRibbon(e, tj, f, S, V, (tj - e.start) / e.duration);
       }
       // droplets flicked off the flanks
-      nf = T.flickRate * (b - a) * (1 + gush - 0.5 * tail) + e.carryFlick;
+      nf = T.flickRate * (b - a) * (1 + gush - 0.5 * tail) * e.aimFlow + e.carryFlick;
       count = Math.floor(nf);
       e.carryFlick = nf - count;
       for (let j = 0; j < count; j++) {
@@ -949,7 +991,6 @@ export class Particles {
     s[1] = my + (rnd() - 0.5) * jit;
     s[2] = mz + (rnd() - 0.5) * jit;
     s[3] = tj;
-    this.launch(e, V, 1 + 0.15 * gush);
     let tt = e.travel;
     let px = P1.x;
     let pz = P1.z;
@@ -973,9 +1014,18 @@ export class Particles {
     s[9] = P1.y;
     s[10] = pz;
     s[11] = tt;
-    s[12] = V.x * T.inherit * 0.25;
-    s[13] = -T.arrive;
-    s[14] = V.z * T.inherit * 0.25;
+    // the jet's tangents come from its chord (s[4..6], s[12..14] are velocities; the path's D = v * tt):
+    // out of the face at jetOut x the mean speed along the (bent) nose, slowing smoothly to jetIn x at the
+    // impact, so it is fastest at the mouth and still moving when it slams in (no lob braking over the roof)
+    const cdx = px - s[0], cdy = P1.y - s[1], cdz = pz - s[2];
+    const ch = Math.hypot(cdx, cdz) / tt;
+    const g = 1 + 0.15 * gush;
+    s[4] = e.aimX * ch * T.jetOut * g;
+    s[5] = (cdy / tt) * T.jetOut + T.doorUp * g;
+    s[6] = e.aimZ * ch * T.jetOut * g;
+    s[12] = (cdx / tt) * T.jetIn;
+    s[13] = (cdy / tt) * T.jetIn - T.jetDrop;
+    s[14] = (cdz / tt) * T.jetIn;
     s[15] = K_RIBBON;
     s[16] = HUE_RAMPS[hue];
     s[17] = size;

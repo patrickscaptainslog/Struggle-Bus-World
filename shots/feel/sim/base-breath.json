@@ -1,0 +1,121 @@
+{
+ "anticipation": {
+  "30": {
+   "tapFrameSquash": 1,
+   "squashMin": 0.803,
+   "squashMinAt": 0.1,
+   "squashAt01": 0.803,
+   "squashAt02": 1.008,
+   "events": [
+    [
+     "geyser",
+     0
+    ],
+    [
+     "impact",
+     0.433
+    ],
+    [
+     "hitstop",
+     0.433
+    ],
+    [
+     "primary",
+     0.433
+    ]
+   ]
+  },
+  "60": {
+   "tapFrameSquash": 1,
+   "squashMin": 0.803,
+   "squashMinAt": 0.133,
+   "squashAt01": 0.828,
+   "squashAt02": 0.93,
+   "events": [
+    [
+     "geyser",
+     0
+    ],
+    [
+     "impact",
+     0.433
+    ],
+    [
+     "hitstop",
+     0.433
+    ],
+    [
+     "primary",
+     0.433
+    ]
+   ]
+  },
+  "120": {
+   "tapFrameSquash": 1,
+   "squashMin": 0.805,
+   "squashMinAt": 0.133,
+   "squashAt01": 0.841,
+   "squashAt02": 0.911,
+   "events": [
+    [
+     "geyser",
+     0
+    ],
+    [
+     "impact",
+     0.425
+    ],
+    [
+     "hitstop",
+     0.425
+    ],
+    [
+     "primary",
+     0.425
+    ]
+   ]
+  }
+ },
+ "jet": {
+  "cruise": {
+   "speed": [
+    117,
+    253,
+    282,
+    201,
+    34
+   ],
+   "bulgeM": 2.5
+  },
+  "surge": {
+   "speed": [
+    174,
+    369,
+    410,
+    294,
+    39
+   ],
+   "bulgeM": 2.5
+  },
+  "hover": {
+   "speed": [
+    106,
+    231,
+    256,
+    182,
+    34
+   ],
+   "bulgeM": 2.5
+  },
+  "altitude250": {
+   "speed": [
+    117,
+    912,
+    1166,
+    868,
+    34
+   ],
+   "bulgeM": 5.6
+  }
+ }
+}

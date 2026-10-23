@@ -82,6 +82,37 @@ export function treeHeight(kind: number, size: number): number {
   return top * treeScale(k, size) * 1.06;
 }
 
+/** Variants a tree kind can become (street tree; eucalyptus or Monterey pine; cypress). */
+const KIND_VARIANTS = [[0], [1, 2], [3]];
+let crownExt: number[] | null = null;
+/**
+ * Crown envelope of a tree, m above its base at its model scale: `top` (the
+ * crown top, as treeHeight), `mid` (the height of its widest ring) and `r`
+ * (the farthest lobe reach from the trunk). The flight's obstacle field takes
+ * the dome through these, so the bus skims a park canopy instead of its trunks.
+ */
+export function treeCrown(kind: number, size: number, out: { top: number; mid: number; r: number }): { top: number; mid: number; r: number } {
+  if (!crownExt) {
+    // (after the park widening below has been applied to the tables)
+    crownExt = [0, 1, 2, 3].map((v) => {
+      let e = MASS[v][1];
+      for (let i = v * 5; i < v * 5 + 5; i++) e = Math.max(e, Math.hypot(LOBES[i][0], LOBES[i][2]) + LOBES[i][3]);
+      return e * 1.08; // per-tree lobe jitter
+    });
+  }
+  const k = Math.max(0, Math.min(2, Math.round(kind)));
+  const sc = treeScale(k, size);
+  let r = 0, mid = Infinity;
+  for (const v of KIND_VARIANTS[k]) {
+    r = Math.max(r, crownExt[v]);
+    mid = Math.min(mid, MASS[v][0]);
+  }
+  out.top = treeHeight(k, size);
+  out.mid = Math.min(mid * sc, out.top * 0.8);
+  out.r = r * sc;
+  return out;
+}
+
 // park crowns are wide so the baked ~15 m spacing closes into a canopy
 for (let i = 5; i < 15; i++) {
   LOBES[i][0] *= 1.25;

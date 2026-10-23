@@ -23,7 +23,8 @@ call), this is what we chose and why.
   mid-screen, where the chase camera can see it (a straight-down barf was
   hidden by the bus's own body).
 - **Aim cue without a HUD**: while a breath is loaded, the building in the line
-  of fire glints with a slow sweep of light.
+  of fire glints (a full palette step lighter, with a band of light sweeping up
+  it); it is exactly the building the tap hits (see Feel polish).
 - ~~Smart spill + Painted Ladies fan~~ (superseded by the explosive blast, below):
   the splat used to paint the target plus at most 4 *unpainted* neighbors one by
   one. Paint is still saved per building (smart persistence) and the blast's
@@ -280,6 +281,175 @@ call), this is what we chose and why.
   the ceiling too, at one draw per painted tile seen. The flash runs after the
   fog-sea pick in the resolve shader. Follow-up if a heavily painted city
   costs too many draws from altitude: a per-region mask atlas.
+
+## Feel polish (producer: "phenomenally flawless flying and splatting physics")
+Every number below is measured with the offline harness `tools/feel-sim` (the
+real City / Flight / Splatter / Aimer / CameraRig code on the real baked city,
+no browser; before = the pre-polish main.ts loop replayed on the same data) and
+cross-checked in the browser with `tools/feel.mjs`.
+- **One source of truth for the aim** (`src/game/Aim.ts`). The glint used to
+  refresh every 0.1 s and the tap re-picked on its own, so the building that
+  glinted was not the one hit on 21 of 200 floor taps and 17 of 54 taps from
+  altitude, and when a one-thumb player lifted the thumb to tap (the bus
+  straightens and slows under them) on 64 of 80. Now the target is picked every
+  frame and the tap hands that very building to `Splatter.barf` (`target`):
+  glint != hit on 0 of 200 floor taps (30, 60 and 120 fps) and 0 of 54 from
+  120 m / 250 m / the ceiling. Lift-then-tap (the glint when the thumb lifted
+  vs the hit): 3 of 80 at 60 and 120 fps, 8 at 30 fps, each a downtown tower
+  stepping into the line of fire as the bus straightened (the glint moves to it
+  before the tap, so what glints is still what's hit) or a shot into a park.
+  - **Hold**: the target stays while the aim point is within 10 m (`aimHold`,
+    more from high up) of it over the last 40 m of the line of fire
+    (`aimHoldAlong`): at surge a building used to glint for one 0.1 s tick; a
+    held one stays until the bus has closed 40 m on it. Glint changes per second
+    while loaded, before / after: cruise 0.6-2.5 / 0.4-1.8, surge 1.8-3.7 /
+    1.2-2.7; in hard turns the line of fire sweeps 100+ m/s across the roofs, so
+    the glint follows it like a searchlight (2-8/s).
+  - **Latch**: lifting the steering thumb (or touching down for a tap, `Input.
+    onPress`) freezes the glinting building for 0.5 s (`aimLatch`: a 230 ms tap
+    plus the thumb's trip back down), while it stays within the pick radius or a
+    0.2 cone of the nose (from altitude the bungee settles a few degrees after
+    the lift, 100 m at 1 km).
+  - **Line of fire**: near the rooftops the breath is a straight blast from the
+    mouth to its landing, so a building standing in between clearly above that
+    path (1.5 m, `wallClear`; never one within 8 m of the landing, where the jet
+    is as wide as a house) takes it on its wall face. A tower you fly at is hit,
+    not flown through.
+- **Pick by the footprint, not the centroid** (`City.buildingAt`,
+  `edgeDistance`, `nearestBuilding`, an area index of every footprint's bounds
+  in 32 m cells). Aim points inside footprints that picked something else or
+  nothing: FiDi 26 %, SoMa 24 %, Mission Bay 35 %, Dogpatch 24 %, Alamo 3 % of
+  roof area -> 0 everywhere; aimed dead-on into a tower > 40 m, FiDi missed 1,346
+  of 4,564 -> 0. The snap (28 m, more from altitude) is the true distance to the
+  nearest wall. A big building (any part more than 25 m from its centroid,
+  `smallRad`) is hit right where you aimed if that is on it, else on its nearest
+  edge 4 m in (`landInset`), never at a centroid 100 m away, and the blast
+  centers there and reaches big footprints by their true edge distance (a block
+  half inside blooms wherever its centroid is). A house is hit at its centroid
+  and reached by its centroid less its half-size, exactly as the approved blast:
+  the Painted Ladies tap still blooms the same 15 buildings (76 from 300 m) from
+  the same impact point. Pick costs ~2 us in node.
+- **A miss is a miss**: a breath into open water (nothing in reach, ground under
+  0.8 m) used to splash red on the tap frame and then play a full impact with
+  the previous hue and hit-stop on nothing. Now: no flash, no boom, no hit-stop;
+  a splash of the next hue when the jet comes down; half the belly comes back
+  (`missRefund`). A park or a beach still takes a ground blast (it paints).
+- **The glint can be seen**: +0.06 light (half a ramp step flat walls snap away)
+  and a 1.1 s sweep that rarely showed within a dwell -> +0.13 (a full step,
+  also on painted buildings) and a sweep every 0.5 s that starts the moment the
+  building becomes the target (`glintLift`, `glintSweep`, `glintRate`).
+- **Anticipation**: the tap squashes the bus on the same frame (1.0 -> 0.8; it
+  used to bottom out 6 frames later), it inhales for 0.09 s (`inhale`; the gulp
+  reaches the mouth then), then the jet leaves; first impact still 0.42 s after
+  the tap. The squash spring is substepped and its squash -> stretch switch is
+  timed per substep: identical at 30, 60 and 120 fps (0.786 at 0.1 s, 0.941 at
+  0.2 s; it was 0.80 / 1.01 at 30 and 0.83 / 0.93 at 60).
+- **A blast, not a lob**: the jet's Hermite tangents came from a 95 m/s muzzle
+  plus 70 % of the bus's speed and a 34 m/s drop at the end, so it left slowly,
+  peaked mid-flight and braked to a stop over the roof (cruise 117 -> 282 -> 34
+  m/s). They now come from its chord: 1.5x the mean speed out of the face along
+  the nose (bent toward the target by at most 0.6 rad, `aimBend`), 0.8x at
+  impact, monotonic (cruise 397 -> 245 -> 214 m/s, from 250 m 1,322 -> 818 ->
+  712). Once the nose has swung more than ~66 degrees off the target the breath
+  tapers off instead of curling across the screen.
+- **The hit reads on the frozen frames**: the splat ran after the city's paint
+  upload, so every bloom reached the GPU a frame late and the impact frame
+  showed nothing. It runs first now, and the color flood starts 6 m down from
+  the roof (`floodHead`): the impact frame (with the blast's flash) and the 4
+  hit-stop frames already show the hit; the flood itself is unchanged. The
+  blast's flash, kick and 4-frame hit-stop are kept as they are.
+- **The bus plants itself to breathe**: steering used the stalled speed, so the
+  recoil added 28 % turn authority, and a breath with the stick held whipped
+  the bus 38 degrees before impact and 99 over the breath. Steering now uses the
+  speed at the tap and halves until the impact, easing back over 0.2 s
+  (`breathSteer`, `breathSteerEase`): 21 / 61 degrees. A tap, re-grab and carve
+  the other way still reaches 0.8 rad/s in 0.28 s (0.12 before).
+- **The release is visible**: the belly band stayed full for the whole breath
+  and emptied in one frame; on the tap frame the full-belly sag vanished, a
+  6.5 m step the climb spring met at 310 m/s^2 (the bus hopped 16 m/s and reared
+  0.48 rad). The belly now drains over the breath (the "loaded" cues drop at the
+  blast, the sag lifts as it pours out), the wallow still cuts on the tap, and
+  the rear-up is an authored envelope (0.2 rad, `rearUp`; up in 0.1 s, settling
+  from 0.6 s; its own lift adds nothing): pitch peak 0.48 -> 0.26, rise in the
+  first 0.1 s 1.1 m -> 0, on-screen height of the bus (real chase camera)
+  1.32x -> 1.22x at most. Pitch is floored at 24 m/s (a stalled bus no longer
+  noses down hard).
+- **Bank is proportional and bounded**: maxBank x tanh((lateral x 0.014 + yaw
+  rate x 0.2) / maxBank), maxBank 0.70, damping 0.48 (the verifier's "tunedA").
+  Steady bank at 10 / 30 / 60 / 100 % stick at cruise 0.23 / 0.62 / 0.62 / 0.62
+  -> 0.08 / 0.24 / 0.42 / 0.58; surge 0.44 / 0.62 / 0.62 / 0.62 -> 0.12 / 0.32 /
+  0.47 / 0.55; on the yoke's climb 0.15 / 0.46 / 0.62 / 0.62 -> 0.07 / 0.21 /
+  0.34 / 0.46 and dive -> 0.12 / 0.32 / 0.46 / 0.54. Letting go after a full
+  carve counter-rolls 25 % of the bank (was 60 %, a wrong-way lean), slalom peak
+  0.96 -> 0.80. The full-belly wallow fades as the carve grows, so a nudge reads
+  as a nudge.
+- **Nothing to fly through**: the flight's obstacle grid (8 m cells) knew only
+  the bake's flat roofs and one 16 m x size post per tree. Now each tree crown is
+  a dome over its whole reach at its real height (`treeCrown`), every vertex of
+  a detailed (LOD 0) tile mesh lifts its own cell and a single-part house lifts
+  every cell within 3 m of it to its mesh top (gable ridges, chimneys,
+  parapets, rooftop clutter on towers and podiums), and a rooftop garden or a
+  Hundertwasser crown lifts its roof to its top (`RoofSprouts.set` returns it,
+  `City.raiseRoof`). Measured against the rendered surfaces (the tile meshes
+  rasterized at 1 m, crown domes, every garden element): frames with the bus's
+  underside inside something, 19 routes x 3 speeds through hills, Twin Peaks,
+  downtown, Buena Vista and Golden Gate Park: 93 -> 0 (min clearance -1.26 ->
+  +1.53 m); 64 passes straight over level-3 roofs: 1,405 of 9,600 frames
+  (min -7.8 m) -> 0 (min +3.4 m). The bus rides higher over a painted level-3
+  block by about a dome.
+- **No lurch at roof edges**: the floor's rises (a roof entering the 1.6 s
+  look-ahead steps it by whole storeys) are eased at 1.2 Hz before the climb
+  spring sees them (`climbSmoothHz`); falls stay immediate. Peak per-frame climb
+  acceleration (m/s^2, cruise / half / surge): Western Addition hills 273 / 194 /
+  1,096 -> 101 / 50 / 210, Twin Peaks 252 / 304 / 900 -> 83 / 150 / 479, Buena
+  Vista 404 / 706 / 429 -> 120 / 260 / 180, downtown 59 / 2,944 / 1,775 -> 64 /
+  778 / 812 (still the worst: an 80 m tower entering the look-ahead needs
+  > 60 m/s^2 even planned perfectly). Lower rates (0.6, 0.9 Hz)
+  start touching the hard floor at surge; 1.2 never does. The yoke's climb, dive
+  and hold paths are untouched (they don't chase the floor spring).
+- **Frame-rate independence**: flight, squash, aim and clearance results match
+  at 30 / 60 / 120 fps (route clearances within 0.1 m, aim glint == hit at all
+  three); only event times quantize to the frame (impact at 0.433 s at 30/60
+  fps, 0.425 at 120).
+- **Smaller fixes**: the drop shadow sits on the roof of the part under the bus
+  (it was buried 2.5 m inside every roof, `top - 3`); saved paint thins the fog
+  once per building per session (each tile reload bumped it again); painted
+  trees come back after a reload at the level of the house beside them (the
+  blast's ground persistence already restored them, at level 1); building paint
+  is saved on pagehide / visibilitychange (the 0.8 s debounce runs in rAF, which
+  stops when the app is hidden), ground paint on visibilitychange too; every
+  lat/lon goes through one transverse-Mercator helper matching the bake
+  (`src/game/geo.ts`; the old formula was 10-30 m off away from the origin,
+  sub-millimeter now); the breath and the exhaust leave from this frame's bus
+  matrix (one frame stale: 1.9 m at surge); a failed level-of-detail swap backs
+  off 3 s doubling to 30 s (it re-requested every frame while offline).
+- **In the browser** (`tools/feel.mjs`): 7 of 7 real taps through Input's tap
+  path glint == hit and paint it (floor cruise, surge, a second-finger tap while
+  turning that hit a wall, lift-then-tap, 120 m, 250 m, the ceiling), impacts at
+  0.47-0.54 across and 0.51-0.60 down the screen; the strip
+  (`shots/feel/strip.png`) shows the glint before the tap, the jet leaving at
+  0.10 s, the palette flash on the impact frame and the jet slamming in on the
+  4 hit-stop frames. Regression shots vs main (`shots/merge2/regress`): the same
+  views; the drop shadow now lies on the ground under the bus over a park and
+  on the water in the opening (it used to float at a guessed canopy height or
+  15 m above the sea), and the painted shot differs by its random first hue.
+- **Not changed (already fixed or out of scope)**: the blast replaced the smart
+  spill and the per-neighbor streams (the spill parts of the old findings are
+  moot); LiDAR stable ids are derived and checked (`check-stable-ids.mjs`), so
+  the "paint keyed by rank, no epoch" finding is handled there; the old hit
+  review's FOV punch, white uFlash and global splash/roofRadius changes were
+  dropped by its own verifier (the blast's palette flash and kick cover the
+  punch); the camera rig's dead `barfTilt` is polish/look's file.
+- **Cost**: the aim runs every frame now (was every 0.1 s): 10-60 us per frame
+  in node (the ray it shares with the old aim 3-50 us; the line-of-fire test
+  only ring-tests buildings that could stand above the jet's path), pick ~2 us.
+  The obstacle lifts run once per tile adoption (one pass over the tile mesh's
+  vertices). In the browser (`tools/feel.mjs perf`, the same script against the
+  pre-polish build and this one): Alamo Square floor 129 / 129 draws, 1,196,510
+  / 1,196,510 triangles; at 250 m 198 / 197, 1.785M / 1.783M; FiDi floor 114 /
+  114, 714.7k / 715.7k; FiDi 250 m 117 / 116, 820.5k / 820.5k. CPU work per
+  frame 4.9 / 3.4, 3.8 / 4.3, 2.8 / 3.7, 2.5 / 2.9 ms (median of 11 frames on a
+  SwiftShader host at load ~26: inside its noise).
 
 ## Data
 - **DataSF and the USGS elevation APIs are blocked by this environment's network
