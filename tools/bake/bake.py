@@ -1783,8 +1783,9 @@ def main():
             v = ends - mids[ii]
             vl = np.hypot(v[:, 0], v[:, 1])
             ok = (L[ii] >= 3.0) & (vl > 1e-6) & ((v * nrm[ii]).sum(axis=1) >= 0.7 * vl) & (vl - road_half[jj] <= 14.0)
-            for k in np.argsort(-L[ii][ok], kind='stable'):
-                e = ii[ok][k]
+            # (the masked arrays once: indexing ii[ok] inside the loop copied it per edge, quadratic in a city)
+            eok = ii[ok]
+            for e in eok[np.argsort(-L[eok], kind='stable')]:
                 front_cache[id(plist[owner[e]])][1].append(int(local[e]))
 
         def frontage_edges(p):
@@ -2294,6 +2295,18 @@ def main():
     tiles = defaultdict(list)
     for b in buildings:
         tiles[(b['tx'], b['tz'])].append(b)
+    # the flight obstacles: every part at its own height (the bus clears a podium and steers around the tower on
+    # it); tall parts grow by half a cell diagonal (an 8 m cell that only grazes a 300 m wall must hold it), and a
+    # pitched roof or a dome is an obstacle most of the way up
+    obst_geoms, obst_top = [], []
+    for b in buildings:
+        for q in b['parts']:
+            top = q['roofY'] + 0.8 * q.get('roofH', 0.0)
+            obst_geoms.append(q['poly'].buffer(6.0 if top - b['baseY'] > 40.0 else 3.0))
+            obst_top.append(top)
+    obst_geoms = np.array(obst_geoms, dtype=object)
+    obst_top = np.array(obst_top, dtype=np.float64)
+    obst_tree = STRtree(obst_geoms) if len(obst_geoms) else None
     tree_tiles = defaultdict(list)
     for t in trees:
         tree_tiles[(int(math.floor(t[0] / TILE)), int(math.floor(t[1] / TILE)))].append(t)
@@ -2404,27 +2417,21 @@ def main():
         tbytes = hq.tobytes() + cl.astype(np.uint8).tobytes()
         tbytes += b'\0' * ((-(len(hdr) + len(tbytes))) % 4)
         obst_off = len(hdr) + len(tbytes)
-        # rasterize buildings in this and neighboring tiles into obstacle cells
-        neigh = []
-        for ddx in (-1, 0, 1):
-            for ddz in (-1, 0, 1):
-                neigh += tiles.get((tx + ddx, tz + ddz), [])
-        if neigh:
-            otr = rasterio.Affine(oc, 0, x0, 0, oc, z0)
-            # every part at its own height: the bus clears a podium and steers around the tower on it.
-            # Tall parts grow by half a cell diagonal: an 8 m cell that only grazes a 300 m wall must hold it
-            # (a pitched roof or a dome is an obstacle most of the way up)
-            order = sorted([(q, q['roofY'] + 0.8 * q.get('roofH', 0.0) - b['baseY']) for b in neigh for q in b['parts']], key=lambda t: t[0]['roofY'] + 0.8 * t[0].get('roofH', 0.0))
-            roof = rasterize([(q['poly'].buffer(6.0 if hq > 40.0 else 3.0), float(q['roofY'] + 0.8 * q.get('roofH', 0.0))) for q, hq in order], out_shape=(OBST_N, OBST_N),
-                             transform=otr, fill=-1e9, dtype=np.float32, merge_alg=rasterio.enums.MergeAlg.replace)
-            obst = np.maximum(obst, roof)
+        # buildings into obstacle cells: the highest grown part over each cell's center (as rasterizing them in
+        # height order did, built once for the city: per tile that re-buffered every neighbour, ~0.5 s a tile)
+        if len(obst_geoms):
+            ci, pi = obst_tree.query(shapely.points(OX.ravel(), OZ.ravel()), predicate='intersects')
+            if len(ci):
+                roof = np.full(OX.size, -1e9, dtype=np.float64)
+                np.maximum.at(roof, ci, obst_top[pi])
+                obst = np.maximum(obst, roof.reshape(OX.shape).astype(np.float32))
         oq = np.clip(np.round(obst * 10), -32000, 32000).astype(np.int16)
         tbytes2 = oq.tobytes()
         tb = struct.pack('<HH', len(tl), 0)
         tr = b''
-        for (x, z, s, k) in tl:
-            y = float(dem_at([x], [z])[0])
-            tr += struct.pack('<hhhBB', int(round((x - x0) * 10)), int(round((z - z0) * 10)), int(round(y * 10)), int(min(255, s * 100)), k)
+        ty = dem_at([t[0] for t in tl], [t[1] for t in tl]) if tl else []
+        for (x, z, s, k), y in zip(tl, ty):
+            tr += struct.pack('<hhhBB', int(round((x - x0) * 10)), int(round((z - z0) * 10)), int(round(float(y) * 10)), int(min(255, s * 100)), k)
         # 2 m ground-class texture (texel centers)
         cx = x0 + (np.arange(CLASS_N) + 0.5) * (TILE / CLASS_N)
         cz = z0 + (np.arange(CLASS_N) + 0.5) * (TILE / CLASS_N)
