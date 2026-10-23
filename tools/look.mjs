@@ -15,7 +15,8 @@
 //   perf      renderer cost per frame (exact draw calls / triangles of the frame, CPU work of the last
 //             frames) at the Painted Ladies cruise, a FiDi surge and 250 m up (perf.json)
 // --seq adds frame pairs exactly 1/30 s apart (<scene>-seq-0/1.png) at ladies
-// cruise, dolores cruise and alt120 for shimmer counts (tools/lookstat.py).
+// cruise, dolores cruise and alt120 for shimmer counts (tools/lookstat.py);
+// --seqn=N captures N consecutive frames instead (N-1 pairs, averaged by lookstat).
 // --tune sets the tuning panel's saved overrides (sb.tuning.v1 config paths)
 // before load: try numbers without a rebuild.
 // SwiftShader renders ~1.5 fps: everything waits on the game clock, never wall time.
@@ -27,7 +28,7 @@ const pos = args.filter((a) => !a.startsWith('--'));
 const opt = Object.fromEntries(args.filter((a) => a.startsWith('--')).map((a) => [a.slice(2).split('=')[0], a.split('=').slice(1).join('=') || '1']));
 const [base = 'http://127.0.0.1:4741/', out = 'shots/look', ...sceneArgs] = pos;
 const scenes = new Set(sceneArgs.length ? sceneArgs : ['ladies', 'dolores', 'twinpeaks', 'fidi', 'alt120', 'opening', 'sign']);
-const withSeq = !!opt.seq;
+const withSeq = !!opt.seq || !!opt.seqn;
 const tune = opt.tune ? JSON.parse(opt.tune) : null;
 mkdirSync(out, { recursive: true });
 
@@ -74,13 +75,16 @@ async function shot(page, name) {
   report[name] = info;
   console.log('shot', name, JSON.stringify(info));
 }
-/** Two frames exactly one game step apart, starting at the frame held now. */
+/** Consecutive frames exactly one game step apart (2, or --seqn), starting at the frame held now. */
 async function pair(page, name) {
   if (!withSeq) return;
+  const n = Math.max(2, Number(opt.seqn ?? 2));
   await shot(page, `${name}-seq-0`);
-  const t = await clock(page);
-  await holdAt(page, t + DT * 0.5);
-  await shot(page, `${name}-seq-1`);
+  for (let i = 1; i < n; i++) {
+    const t = await clock(page);
+    await holdAt(page, t + DT * 0.5);
+    await shot(page, `${name}-seq-${i}`);
+  }
 }
 /** Keep the stick where it is and run `s` seconds of game time from now, then hold. */
 async function runHold(page, s) {

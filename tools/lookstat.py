@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Shimmer by region on a frame pair exactly 1/30 s apart (tools/look.mjs --seq):
-#   python3 -I tools/lookstat.py <prefix>        (reads <prefix>-seq-0.png, <prefix>-seq-1.png)
+#   python3 -I tools/lookstat.py <prefix> ...    (reads <prefix>-seq-0.png, <prefix>-seq-1.png, ...: every
+#                                                 consecutive pair found, then their mean)
 # Reduces both to game pixels and removes the camera's motion with the best integer shift per
 # horizontal band (as tools/shimmer.py), then reports the share of pixels that still changed:
 #   all       every pixel
@@ -39,9 +40,9 @@ def dilate(m, r):
             out |= np.roll(np.roll(m, dy, 0), dx, 1)
     return out
 
-def main(pre, bands=8, m=4):
-    A = sh.game_px(f'{pre}-seq-0.png')
-    B = sh.game_px(f'{pre}-seq-1.png')
+def main(pre, k=0, bands=8, m=4, quiet=False):
+    A = sh.game_px(f'{pre}-seq-{k}.png')
+    B = sh.game_px(f'{pre}-seq-{k + 1}.png')
     h = min(A.shape[0], B.shape[0]); w = min(A.shape[1], B.shape[1])
     KA, KB = key(A[:h, :w]), key(B[:h, :w])
     res = np.zeros((h, w), bool)
@@ -95,10 +96,20 @@ def main(pre, bands=8, m=4):
         mb = msk & validb
         out[name] = (round(100.0 * float(res[msk].mean()), 2) if n else None, round(100.0 * float(resb[mb].mean()), 2) if mb.sum() else None,
                      round(100.0 * float(resv[mb].mean()), 2) if mb.sum() else None, n)
-    print(pre + ':  region band-shift% / block-matched% / visible% (pixels)')
-    print('   ' + '  '.join(f'{k} {v[0]} / {v[1]} / {v[2]} ({v[3]})' for k, v in out.items()))
+    if not quiet:
+        print(f'{pre} [{k}->{k + 1}]:  region band-shift% / block-matched% / visible% (pixels)')
+        print('   ' + '  '.join(f'{k} {v[0]} / {v[1]} / {v[2]} ({v[3]})' for k, v in out.items()))
     return out
 
 if __name__ == '__main__':
+    import os
     for p in sys.argv[1:]:
-        main(p)
+        n = 0
+        while os.path.exists(f'{p}-seq-{n + 1}.png'):
+            n += 1
+        rows = [main(p, i, quiet=n > 1) for i in range(n)]
+        if n > 1:
+            keys = rows[0].keys()
+            mean = lambda k, j: round(sum((r[k][j] or 0) for r in rows) / n, 2)
+            print(f'{p}: mean of {n} pairs  region band-shift% / block-matched% / visible% (pixels)')
+            print('   ' + '  '.join(f'{k} {mean(k, 0)} / {mean(k, 1)} / {mean(k, 2)} ({rows[0][k][3]})' for k in keys))
