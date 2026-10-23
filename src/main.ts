@@ -502,7 +502,8 @@ async function boot() {
       return;
     }
     const t0 = performance.now();
-    let dt = fixedDt || Math.min(0.05, (now - last) / 1000);
+    // (never negative: the first frame's timestamp can predate `last`, by the whole prewarm on a slow GPU)
+    let dt = fixedDt || Math.min(0.05, Math.max(0, (now - last) / 1000));
     const realDt = dt;
     last = now;
     if (hitStop > 0) {
