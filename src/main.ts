@@ -16,9 +16,9 @@ import { Particles } from './fx/Particles';
 import { StreetSigns } from './fx/StreetSign';
 import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
+import { paintLandmark, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
 import { Tuner, applySavedTuning } from './ui/Tuner';
 import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles } from './world/Bridges';
-import { paintLandmark, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
 import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
 
@@ -235,6 +235,13 @@ async function boot() {
       }
     pdTex.needsUpdate = true;
   }
+  /** A landmark blooms: its sparkles hug its shape, its garden grows in its own shader (no rooftop sprouts on a spire). */
+  const landmarkBloom = (ref: BuildingRef, hue: number, level: number): boolean => {
+    const slices = landmarkSparkles(ref);
+    if (!slices) return false;
+    for (const s of slices) particles.sparkles(s.center, s.radius, s.height, [hue, (hue + 1) % 6, (hue + 5) % 6], 10 + level * 4);
+    return true;
+  };
 
   /**
    * Is a tile (rect, tallest point) buried so deep in the fog sea that, from the
@@ -320,13 +327,10 @@ async function boot() {
       bumpPaint(b.spec.x, b.spec.z, Math.min(255, 30 + 5 * b.count));
     },
     bloom: (ref, _order, _total, hue, level, roof) => {
+      if (landmarkBloom(ref, hue, level)) return;
       const h = ref.roofY - ref.baseY;
-      const hues = [hue, (hue + 1) % 6, (hue + 5) % 6];
-      // a landmark grows its garden in its own shader (no rooftop sprouts on a spire); its sparkles hug its shape
-      const lmSlices = landmarkSparkles(ref);
-      if (lmSlices) for (const s of lmSlices) particles.sparkles(s.center, s.radius, s.height, hues, 10 + level * 4);
-      else particles.sparkles(roof, Math.sqrt(ref.area) * 0.6 + 2, h, hues, 14 + level * 8);
-      if (level >= 2 && !lmSlices) sprouts.set(ref.index, city.roofRect(ref), hue, level, globals.uTime.value);
+      particles.sparkles(roof, Math.sqrt(ref.area) * 0.6 + 2, h, [hue, (hue + 1) % 6, (hue + 5) % 6], 14 + level * 8);
+      if (level >= 2) sprouts.set(ref.index, city.roofRect(ref), hue, level, globals.uTime.value);
     },
     primary: (ref, hue) => showSign(ref, hue),
     hitStop: (frames) => (hitStop = frames / 60),

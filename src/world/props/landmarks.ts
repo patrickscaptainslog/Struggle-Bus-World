@@ -1,16 +1,14 @@
 import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT, SHADOW_LAYER } from '../../render/materials';
 import { Ramp } from '../../render/palette';
-import { tuneUniform } from './common';
 import { GLSL_LM_PAINT_FS, GLSL_LM_PAINT_VS, LM_DOME, LM_FLAG, landmarkPaintUniforms, type LandmarkLook } from './landmarkPaint';
+import { tuneUniform } from './common';
 
 // Two hand-built landmarks, chunky enough to read as silhouettes from 1-4 km
 // through the fog, with detail that only resolves up close: Sutro Tower's
 // lattice legs (see-through when the bus is near) and the Transamerica
 // Pyramid's floor-by-floor window bands. Detail fades with the on-screen size
-// of a meter (fwidth), so far away nothing crawls. Every landmark is
-// paintable (landmarkPaint.ts): register it where it is placed with
-// paintLandmark(city, 'lm:<name>', object); `k.build(look)` sets its accents.
+// of a meter (fwidth), so far away nothing crawls.
 
 const enum Pat {
   PLAIN = 0,
@@ -166,7 +164,9 @@ class LandmarkKit {
 }
 
 // One material per landmark (its own paint texel and accents in uniforms); the
-// shader source is shared, so they all run one program.
+// shader source is shared, so they all run one program. Every landmark is
+// paintable (landmarkPaint.ts): register it where it is placed with
+// paintLandmark(city, 'lm:<name>', object); `k.build(look)` sets its accents.
 function landmarkMaterial(look?: LandmarkLook): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,

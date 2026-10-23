@@ -931,6 +931,8 @@ export class City {
     }
     cx /= 3 * area;
     cz /= 3 * area;
+    let rad = 0; // (its reach from the centroid)
+    for (const [x, z] of lb.ring) rad = Math.max(rad, Math.hypot(x - cx, z - cz));
     let hood = 0, best = Infinity;
     const hoods = this.manifest.neighborhoods;
     for (let i = 0; i < hoods.length; i++) {
@@ -969,7 +971,7 @@ export class City {
       xz,
     };
     const ref: BuildingRef = { index, stableId: -1 - k, tile, local: 0, parts: 1, top: 0, cx, cz, baseY: lb.baseY, roofY: lb.roofY, area: Math.abs(area) / 2, hood };
-    this.landmarks.push({ ref, x0, z0, x1, z1, heightAt: lb.heightAt ?? null });
+    this.landmarks.push({ ref, x0, z0, x1, z1, rad, heightAt: lb.heightAt ?? null });
     this.indexRef(ref);
     this.paint.register(index, lb.key);
     return ref;
@@ -1152,9 +1154,11 @@ export interface LandmarkBuilding {
 
 interface LandmarkRec {
   ref: BuildingRef;
+  /** its footprint bounds and reach from the centroid (m) */
   x0: number;
   z0: number;
   x1: number;
   z1: number;
+  rad: number;
   heightAt: ((x: number, z: number) => number) | null;
 }
