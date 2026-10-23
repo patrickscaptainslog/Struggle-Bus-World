@@ -415,8 +415,8 @@ export class TiltControl {
       window.clearTimeout(this.timer);
       this.timer = window.setTimeout(() => {
         if (this.status === 'waiting') {
-          this.stop();
           this.set('unavailable');
+          this.stop();
         }
       }, Math.max(100, config.tilt.eventTimeout * 1000));
     });
