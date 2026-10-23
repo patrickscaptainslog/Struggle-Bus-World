@@ -291,6 +291,7 @@ async function boot() {
   // nose, and the classic range ahead wins (exactly the old aim).
   const aim = { x: 0, y: 0, z: 0, dist: 0, travel: 0, drop: 0 };
   const F_CLEAR = 12; // the classic shot drops about this far onto the roofs (m)
+  const aimNear: Array<{ ref: BuildingRef; d: number }> = [];
   const aimPoint = (): [number, number] => {
     const S = config.splat;
     const r0 = S.range + S.rangePerSpeed * flight.speed;
@@ -319,7 +320,20 @@ async function boot() {
     aim.x = x0 + fx * horiz;
     aim.z = z0 + fz * horiz;
     aim.y = city.surfaceAt(aim.x, aim.z);
-    aim.dist = Math.hypot(horiz, y0 - aim.y);
+    // from up high a pixel is meters wide: a long shot that would come down in a park or a wood
+    // snaps to the nearest roof within a reach that grows with the drop (aim stays forgiving)
+    const drop0 = y0 - aim.y;
+    if (drop0 > 40) {
+      const reach = Math.min(S.snapReachMax, S.snapRadius * (1 + drop0 / 150));
+      const near = city.buildingsNear(aim.x, aim.z, reach, aimNear);
+      if (near.length && near[0].d > S.snapRadius) {
+        aim.x = near[0].ref.cx;
+        aim.z = near[0].ref.cz;
+        aim.y = city.surfaceAt(aim.x, aim.z);
+      }
+    }
+    const hx = aim.x - x0, hz = aim.z - z0;
+    aim.dist = Math.hypot(hx, hz, y0 - aim.y);
     // the classic short shot lands after impactDelay; past it the projectile flies on at a
     // constant speed, so a long shot from altitude takes longer and matches the visible jet
     aim.travel = S.impactDelay + Math.max(0, aim.dist - Math.hypot(r0, F_CLEAR)) / Math.max(20, S.projectileSpeed);
