@@ -54,8 +54,9 @@ call), this is what we chose and why.
 - **Vista camera**, blended by the height above the (smoothed) rooftop floor,
   25 → 400 m: pulls back 175 → 270 m, widens 24° → 38°, rises 31° → 44°
   above the bus, but moves the look point ahead so the view pitch stays at
-  30°: the horizon and the sky stay in the top of the frame, never a
-  top-down map. The bus grows to 1.55x so the hero still reads (~22 px).
+  30° (and, while the blend is still rising, never so steep that the
+  horizon leaves the top of the frame: 3° of sky): the horizon and the sky
+  stay in the top of the frame, never a top-down map. The bus grows to 1.55x so the hero still reads (~22 px).
   A dead band on the blend keeps the lens from breathing with rooftops.
 - **Marine layer.** The fog is a layer with a top (175 m ASL over the ocean,
   the west and the Golden Gate, 120 m over the bay, a 25 m ground haze over

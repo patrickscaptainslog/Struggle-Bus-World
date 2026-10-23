@@ -88,9 +88,12 @@ export class CameraRig {
     }
     let la = C.lookAhead * (0.6 + 0.4 * clamp(sp / F.cruiseSpeed, 0, 2)) * (1 - 0.65 * barf);
     if (v > 0) {
-      // far enough ahead that the view pitches down by pitchVista: the horizon stays in frame
-      const laV = (Math.sin(el) * dist + 4) / Math.tan(THREE.MathUtils.degToRad(C.pitchVista)) - Math.cos(el) * dist;
-      la += (Math.max(la, laV) - la) * v;
+      // far enough ahead that the view pitches down by pitchVista, and never so far down that
+      // the horizon leaves the top of the frame (3 deg of sky) while the rig is still rising
+      const halfV = cam.fov / 2; // the lens as the pipeline set it (portrait or landscape)
+      const pitch = THREE.MathUtils.degToRad(clamp(Math.min(C.pitchVista, halfV - 3), 5, 60));
+      const laV = (Math.sin(el) * dist + 4) / Math.tan(pitch) - Math.cos(el) * dist;
+      la += (Math.max(la, laV) - la) * smooth01(0, 0.35, v);
     }
     const lookTarget = this.lookTarget.set(bus.x + fx * la * (1 + 2 * low), bus.y - 4 + 14 * low, bus.z + fz * la * (1 + 2 * low));
     if (this.look.lengthSq() === 0) this.look.copy(lookTarget);
