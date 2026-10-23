@@ -135,6 +135,7 @@ export class City {
   private pending = new Map<number, { key: string; lod: 0 | 1 }>();
   private regionLod = new Map<string, 0 | 1>();
   private retryAt = new Map<string, number>();
+  private failCount = new Map<string, number>();
   private regionsLoaded = new Set<string>();
   private regionsRequested = new Set<string>();
   private regionAvailable = new Set<string>();
@@ -404,6 +405,8 @@ export class City {
     for (const key of this.regionsLoaded) {
       const lod = this.regionLod.get(key);
       if (lod === undefined || this.isPending(key)) continue;
+      // (a failed level-of-detail swap backs off like a failed first load: no request per frame while offline)
+      if ((this.retryAt.get(key) ?? 0) > performance.now()) continue;
       const [rx, rz] = key.split(',').map(Number);
       const cx = (rx + 0.5) * R, cz = (rz + 0.5) * R;
       const d = Math.hypot(Math.max(Math.abs(focus.x - cx) - R / 2, 0), Math.max(Math.abs(focus.z - cz) - R / 2, 0));
@@ -712,10 +715,14 @@ export class City {
     if (msg.error) {
       console.warn('region failed', key, msg.error);
       if (!this.regionsLoaded.has(key)) this.regionsRequested.delete(key);
-      // back off: a flaky network shouldn't turn into a request storm
-      this.retryAt.set(key, performance.now() + 3000);
+      // back off (3 s, doubling up to 30 s): a flaky network shouldn't turn into a request storm
+      const n = (this.failCount.get(key) ?? 0) + 1;
+      this.failCount.set(key, n);
+      this.retryAt.set(key, performance.now() + Math.min(30000, 3000 * 2 ** (n - 1)));
       return;
     }
+    this.failCount.delete(key);
+    this.retryAt.delete(key);
     if (!this.regionsRequested.has(key)) return; // unloaded while in flight
     // an already-loaded region switches level of detail in one go; a new one adopts its tiles a few per frame
     if (this.regionsLoaded.has(key)) this.adopt.push({ kind: 'swap', key, msg });
