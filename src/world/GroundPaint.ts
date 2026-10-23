@@ -45,8 +45,9 @@ float sbRingHash(vec2 p) { return fract(sin(dot(p, vec2(41.31, 289.17))) * 43758
 // true where the ring covers this point: ramp / light / glow out
 bool sbRing(vec3 wp, vec3 n, out float ramp, out float light, out float glow) {
   float age = uTime - uBlastRing.z;
-  if (age < 0.0 || n.y < 0.35) return false;
   float R = uBlastRing2.w;
+  // (uniform early-out: before the impact and once the wave has died, ~5 time constants)
+  if (age < 0.0 || age * uBlastRing2.z > 5.0 * R || n.y < 0.35) return false;
   float r = R * (1.0 - exp(-age * uBlastRing2.z / R));
   float k = r / R;
   if (k > 0.97) return false;
@@ -125,7 +126,10 @@ interface TileMask {
   oz: number;
   data: Uint8Array;
   tex: THREE.DataTexture;
-  /** dirty rect in texels (x0 > x1 = clean) */
+  /** dirty rect in texels (x0 > x1 = clean); queued in GroundPaint.dirty */
+  dirty: boolean;
+  /** its tile streamed out (texture disposed) */
+  gone: boolean;
   x0: number;
   z0: number;
   x1: number;
@@ -148,13 +152,20 @@ interface JobTile {
   deferred: number[];
 }
 
-/** A blast in flight: its ground paint is drawn while the projectile flies. */
+/**
+ * A blast being drawn: live (in flight, serial > 0, drawn while the
+ * projectile flies, landed at impact) or a replay of a saved blast onto one
+ * tile that just streamed in (serial null, settled). Jobs run in order, so
+ * paint always stacks chronologically.
+ */
 export interface GroundJob {
   spec: BlastSpec;
   tImpact: number;
-  serial: number;
+  serial: number | null;
   p: Prepared | null;
   tiles: JobTile[];
+  /** replay: the one tile it redraws */
+  only: string | null;
 }
 
 interface Prepared {
@@ -189,6 +200,12 @@ export class GroundPaint {
   private readonly serialTiles = new Map<number, string[]>();
   private liveSlot = 0;
   private readonly jobs: GroundJob[] = [];
+  /** masks with a dirty rect to upload (no Map iteration per frame) */
+  private readonly dirty: TileMask[] = [];
+  /** tile key -> replays still queued for it (its mask is shown once they are all drawn) */
+  private readonly replaying = new Map<string, number>();
+  /** A tile's saved paint has been redrawn (trees standing in it can be painted now). */
+  onTileReady: ((tx: number, tz: number) => void) | null = null;
 
   constructor(tileSize: number) {
     this.tileSize = tileSize;
@@ -217,25 +234,33 @@ export class GroundPaint {
     return { tGround: { value: this.empty }, uGroundOn: { value: 0 }, uGroundLive: blastUniforms.uGroundLive };
   }
 
-  /** A terrain tile streamed in: redraw its saved paint. */
+  /**
+   * A terrain tile streamed in: queue its saved paint for redrawing (spread
+   * over frames by work(): a much-painted tile can hold dozens of blasts, and
+   * a tile load must not hitch). The mask shows once they are all drawn.
+   */
   attach(tx: number, tz: number, ox: number, oz: number, uniforms: { tGround: THREE.IUniform; uGroundOn: THREE.IUniform }) {
     const key = `${tx},${tz}`;
     this.loaded.set(key, { ox, oz, uniforms });
     const list = this.byTile.get(key);
-    if (!list) return;
-    const m = this.mask(key);
-    if (!m) return;
-    for (const i of list) this.raster(m, this.prepare(this.saved[i]));
+    if (!list || !list.length) return;
+    this.replaying.set(key, list.length);
+    if (!this.mask(key)) return;
+    for (const i of list) this.jobs.push({ spec: this.saved[i], tImpact: 0, serial: null, p: null, tiles: [], only: key });
   }
 
   detach(tx: number, tz: number) {
     const key = `${tx},${tz}`;
     this.loaded.delete(key);
+    this.replaying.delete(key);
     const m = this.masks.get(key);
     if (m) {
+      m.gone = true;
       m.tex.dispose();
       this.masks.delete(key);
     }
+    // queued replays of this tile are dropped (they redraw when it comes back)
+    for (let i = this.jobs.length - 1; i >= 0; i--) if (this.jobs[i].only === key) this.jobs.splice(i, 1);
   }
 
   /** True if the tile has any ground paint. */
@@ -270,58 +295,63 @@ export class GroundPaint {
     if (this.liveSlot === 0) L.set(ser, tImpact, L.z, L.w);
     else L.set(L.x, L.y, ser, tImpact);
     this.liveSlot ^= 1;
-    const job: GroundJob = { spec, tImpact, serial: ser, p: null, tiles: [] };
+    const job: GroundJob = { spec, tImpact, serial: ser, p: null, tiles: [], only: null };
     this.jobs.push(job);
     return job;
   }
 
-  /** Draws a slice of the blasts in flight (call once per frame): about `budget` texels. */
-  work(budget = 900) {
-    for (const job of this.jobs) {
+  /** Draws a slice of the queued jobs (call once per frame): about `budget` texels' worth. */
+  work(budget = 2400) {
+    for (let n = 0; n < this.jobs.length && budget > 0; ) {
+      const job = this.jobs[n];
       if (!job.p) {
         this.start(job);
-        return; // shape + dots are this frame's slice
+        budget -= 600; // shape + dots
+        continue;
       }
-      for (const t of job.tiles) {
-        if (this.masks.get(t.key) !== t.m) continue; // tile streamed out
-        while (t.j <= t.j1 && budget > 0) {
-          this.rows(t.m, job.p, job.serial, t.j, t.j, t.deferred);
-          budget -= t.i1 - t.i0 + 1;
-          t.j++;
-        }
-        if (t.j > t.j1 && !t.dots) {
-          this.dots(t.m, job.p, job.serial, t.deferred);
-          t.dots = true;
-          budget -= 200;
-        }
-        if (budget <= 0) return;
-      }
+      // a live blast waits on tiles still redrawing saved paint (older paint goes underneath)
+      budget = this.step(job, budget, job.serial !== null);
+      if (job.serial === null && this.finished(job)) {
+        // a replay is done: off the queue, and its tile may be ready
+        this.jobs.splice(n, 1);
+        this.replayed(job);
+      } else n++;
     }
   }
 
   /**
-   * The blast lands: finish drawing it, apply the over-paint, mark the
-   * touched tiles for one upload each, remember it for reloads. Returns its
-   * spatter dots so the particles can fling blobs onto exactly those spots.
+   * The blast lands: finish drawing it (and anything queued before it, so
+   * paint stacks in order), apply the over-paint, mark the touched tiles for
+   * one upload each, remember it for reloads. Returns its spatter dots so the
+   * particles can fling blobs onto exactly those spots.
    */
   land(job: GroundJob): BlastDot[] {
+    if (!job.p) this.start(job);
+    const keys = new Set(job.tiles.map((t) => t.key));
+    for (let k = 0; k < this.jobs.length; ) {
+      const j = this.jobs[k];
+      // replays still queued on this blast's tiles go first (older paint underneath)
+      if (j !== job && j.serial === null && j.only !== null && keys.has(j.only)) {
+        this.jobs.splice(k, 1);
+        if (!j.p) this.start(j);
+        this.step(j, Infinity, false);
+        this.replayed(j);
+      } else k++;
+    }
     const i = this.jobs.indexOf(job);
     if (i >= 0) this.jobs.splice(i, 1);
-    if (!job.p) this.start(job);
+    this.step(job, Infinity, false);
     const p = job.p!;
     const touched: string[] = [];
     for (const t of job.tiles) {
       if (this.masks.get(t.key) !== t.m) continue;
-      for (; t.j <= t.j1; t.j++) this.rows(t.m, p, job.serial, t.j, t.j, t.deferred);
-      if (!t.dots) this.dots(t.m, p, job.serial, t.deferred);
-      t.dots = true;
       const d = t.m.data, q = t.deferred;
       for (let k = 0; k < q.length; k += 3) this.put(d, q[k], q[k + 1], q[k + 2], 0, null, false, null);
       q.length = 0;
       this.markDirty(t.m, p);
       touched.push(t.key);
     }
-    this.serialTiles.set(job.serial, touched);
+    if (job.serial !== null) this.serialTiles.set(job.serial, touched);
     this.addSaved(job.spec);
     this.saveTimer = 0.8;
     return p.dots;
@@ -338,15 +368,19 @@ export class GroundPaint {
       this.saveTimer -= dt;
       if (this.saveTimer <= 0) this.persist();
     }
+    if (!this.dirty.length) return;
     const gl = renderer.getContext() as WebGL2RenderingContext;
-    for (const m of this.masks.values()) {
-      if (m.x0 > m.x1) continue;
+    for (let k = 0; k < this.dirty.length; k++) {
+      const m = this.dirty[k];
+      m.dirty = false;
+      if (m.x0 > m.x1 || m.gone) continue;
       if (!uploadRect(renderer, m.tex, m.x0, m.z0, m.x1 - m.x0 + 1, m.z1 - m.z0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, 4)) m.tex.needsUpdate = true;
       m.x0 = GROUND_N;
       m.z0 = GROUND_N;
       m.x1 = -1;
       m.z1 = -1;
     }
+    this.dirty.length = 0;
   }
 
   resetAll() {
@@ -417,7 +451,7 @@ export class GroundPaint {
     job.p = p;
     const cs = this.cell;
     const R = p.max + 3;
-    for (const key of this.tilesOf(p)) {
+    for (const key of job.only ? [job.only] : this.tilesOf(p)) {
       if (!this.loaded.has(key)) continue;
       const m = this.mask(key);
       if (!m) continue;
@@ -426,6 +460,58 @@ export class GroundPaint {
       const j0 = Math.max(0, Math.floor((s.z - R - m.oz) / cs)), j1 = Math.min(GROUND_N - 1, Math.floor((s.z + R - m.oz) / cs));
       job.tiles.push({ key, m, j: j0, j1: i0 > i1 ? j0 - 1 : j1, i0, i1, dots: false, deferred: [] });
     }
+  }
+
+  /** Draw up to `budget` texels of a started job (skipping tiles still replaying if asked); returns the budget left. */
+  private step(job: GroundJob, budget: number, waitReplays: boolean): number {
+    const p = job.p!;
+    for (const t of job.tiles) {
+      if (this.masks.get(t.key) !== t.m) continue; // tile streamed out
+      if (waitReplays && this.replaying.has(t.key)) continue;
+      while (t.j <= t.j1 && budget > 0) {
+        this.rows(t.m, p, job.serial, t.j, t.j, job.serial === null ? null : t.deferred);
+        budget -= t.i1 - t.i0 + 1;
+        t.j++;
+      }
+      if (t.j <= t.j1) return budget;
+      if (!t.dots) {
+        this.dots(t.m, p, job.serial, job.serial === null ? null : t.deferred);
+        t.dots = true;
+        budget -= 150;
+      }
+    }
+    return budget;
+  }
+
+  /** Every tile of the job drawn (or gone). */
+  private finished(job: GroundJob): boolean {
+    for (const t of job.tiles) if (this.masks.get(t.key) === t.m && (t.j <= t.j1 || !t.dots)) return false;
+    return true;
+  }
+
+  /** A replay finished: show its tile's mask once nothing more is queued for it. */
+  private replayed(job: GroundJob) {
+    const key = job.only;
+    if (!key) return;
+    for (const t of job.tiles) if (this.masks.get(t.key) === t.m) this.markDirty(t.m, job.p!);
+    const left = (this.replaying.get(key) ?? 1) - 1;
+    if (left > 0) {
+      this.replaying.set(key, left);
+      return;
+    }
+    this.replaying.delete(key);
+    const m = this.masks.get(key);
+    if (!m) return;
+    this.publish(key, m);
+    const c = key.indexOf(',');
+    this.onTileReady?.(Number(key.slice(0, c)), Number(key.slice(c + 1)));
+  }
+
+  private publish(key: string, m: TileMask) {
+    const u = this.loaded.get(key)?.uniforms;
+    if (!u) return;
+    u.tGround.value = m.tex;
+    u.uGroundOn.value = 1;
   }
 
   private mask(key: string): TileMask | null {
@@ -438,12 +524,10 @@ export class GroundPaint {
     tex.minFilter = tex.magFilter = THREE.NearestFilter;
     tex.generateMipmaps = false;
     tex.needsUpdate = true;
-    m = { ox: t.ox, oz: t.oz, data, tex, x0: GROUND_N, z0: GROUND_N, x1: -1, z1: -1, uniforms: t.uniforms };
-    if (t.uniforms) {
-      t.uniforms.tGround.value = tex;
-      t.uniforms.uGroundOn.value = 1;
-    }
+    m = { ox: t.ox, oz: t.oz, data, tex, dirty: false, gone: false, x0: GROUND_N, z0: GROUND_N, x1: -1, z1: -1, uniforms: t.uniforms };
     this.masks.set(key, m);
+    // a tile still redrawing its saved paint shows it only when complete
+    if (!this.replaying.has(key)) this.publish(key, m);
     return m;
   }
 
@@ -456,13 +540,7 @@ export class GroundPaint {
     m.z0 = 0;
     m.x1 = GROUND_N - 1;
     m.z1 = GROUND_N - 1;
-  }
-
-  /** Draw one whole blast into one tile mask, settled (a replay). */
-  private raster(m: TileMask, p: Prepared) {
-    this.rows(m, p, null, 0, GROUND_N - 1, null);
-    this.dots(m, p, null, null);
-    this.markDirty(m, p);
+    this.queueDirty(m);
   }
 
   /** Main splat, rows ja..jb of one tile. serial = null: settled. deferred: hold over-paint back (live). */
@@ -553,6 +631,13 @@ export class GroundPaint {
     m.x1 = Math.max(m.x1, x1);
     m.z0 = Math.min(m.z0, z0);
     m.z1 = Math.max(m.z1, z1);
+    this.queueDirty(m);
+  }
+
+  private queueDirty(m: TileMask) {
+    if (m.dirty) return;
+    m.dirty = true;
+    this.dirty.push(m);
   }
 
   /** Write one texel of new paint over whatever is there. */

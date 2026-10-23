@@ -101,12 +101,6 @@ async function boot() {
       scene.add(tf.object);
       treeFields.set(`${tx},${tz}`, tf);
       treeIndex.set(`${tx},${tz}`, list);
-      // trees standing in saved ground paint come back painted
-      if (city.ground.has(tx, tz))
-        for (let i = 0; i < list.length; i++) {
-          const g = city.ground.sample(list[i].x, list[i].z);
-          if (g && g.cov >= 0.5) tf.setPaint(i, g.hue, 1, -100);
-        }
     }
     // saved paint: regrow rooftop gardens and thin the fog again
     for (const ref of refs) {
@@ -115,6 +109,17 @@ async function boot() {
         bumpPaint(ref.cx, ref.cz, 40);
         if (lv >= 2) sprouts.set(ref.index, city.roofRect(ref), city.paint.get(ref.index).color, lv, -100);
       }
+    }
+  };
+  // trees standing in saved ground paint come back painted once their tile's paint is redrawn
+  city.ground.onTileReady = (tx, tz) => {
+    const k = `${tx},${tz}`;
+    const tf = treeFields.get(k);
+    const list = treeIndex.get(k);
+    if (!tf || !list) return;
+    for (let i = 0; i < list.length; i++) {
+      const g = city.ground.sample(list[i].x, list[i].z);
+      if (g && g.cov >= 0.5 && tf.paintLevel(i) === 0) tf.setPaint(i, g.hue, 1, -100);
     }
   };
   city.onTileUnload = (tx, tz) => {
