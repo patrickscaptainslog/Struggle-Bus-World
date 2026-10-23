@@ -31,6 +31,9 @@ export const Ramp = {
   SIGN_GREEN: 17,
   WHITE: 18,
   ROOF_DARK: 19, // tar roofs
+  GLASS: 20, // tower curtain walls: blue-silver, the bright end is the fog sky they mirror
+  STONE: 21, // pre-war masonry and terracotta: pale warm stone, rose-violet shadows
+  GRANITE: 22, // polished dark granite (555 California): near-black plum grey
 } as const;
 
 export type RampId = (typeof Ramp)[keyof typeof Ramp];
@@ -67,6 +70,9 @@ const RAMPS: Record<number, string[]> = {
   [Ramp.SIGN_GREEN]: ['#08241a', '#0c3a28', '#12523a', '#1a6a4a', '#24845a', '#3aa06e', '#64be8c', '#a6dcbc'],
   [Ramp.WHITE]: ['#5c626b', '#787e86', '#959aa0', '#b1b5b9', '#cbced0', '#e0e2e2', '#f0f1ef', '#ffffff'],
   [Ramp.ROOF_DARK]: ['#101419', '#171d24', '#20272f', '#2a323c', '#36404b', '#454f5a', '#58626c', '#6f7882'],
+  [Ramp.GLASS]: ['#0f1620', '#17212d', '#212e3d', '#2d3e50', '#3e5266', '#566c80', '#7a90a2', '#aebfcb'],
+  [Ramp.STONE]: ['#24222a', '#33303a', '#46424c', '#5d5961', '#77727a', '#938e92', '#b1aca8', '#cfcac1'],
+  [Ramp.GRANITE]: ['#0c0b11', '#14121a', '#1d1a24', '#28232f', '#352e3c', '#463d4d', '#5c5163', '#7b6e80'],
 };
 
 export const RAMP_COUNT = 32; // texture rows (room to grow; unused rows are black)
