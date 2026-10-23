@@ -537,7 +537,7 @@ async function boot() {
     city.viewHeight = flight.lift;
     city.detailScale = Math.tan(THREE.MathUtils.degToRad(config.camera.hfovPortrait / 2)) / Math.tan(THREE.MathUtils.degToRad(rig.hfov / 2));
     const R = config.render;
-    const sAhead = 700 * vista;
+    const sAhead = R.shadowAheadVista * vista;
     const sx0 = focus.x + camFwd.x * sAhead, sz0 = focus.z + camFwd.z * sAhead;
     pipeline.shadowFocusOn = true;
     pipeline.shadowFocus.set(sx0, focus.y + (city.groundAt(sx0, sz0) - focus.y) * vista, sz0);

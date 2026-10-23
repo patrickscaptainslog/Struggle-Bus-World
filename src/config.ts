@@ -21,7 +21,9 @@ export const config = {
     /** World-space extent of the shadow map around the camera focus (m). */
     shadowExtent: 520,
     /** At full vista (high above the city) the shadow window widens to this (m) and softens to this strength (0..1)... */
-    shadowExtentVista: 2000,
+    shadowExtentVista: 1600,
+    /** ...centered this far ahead of the bus, on the ground under the view (m). */
+    shadowAheadVista: 600,
     shadowStrengthVista: 0.85,
     /** ...and its edge fade (fraction of the window) stays narrow: a wide fade sliding with the window boils. */
     shadowEdgeVista: 0.14,
