@@ -1,1 +1,337 @@
-export {};
+import * as THREE from 'three';
+import { config } from './config';
+import { PixelPipeline } from './render/PixelPipeline';
+import { globals, makeRampMaterial } from './render/materials';
+import { Ramp, HUE_RAMPS } from './render/palette';
+import { City, type BuildingRef } from './world/City';
+import type { CityManifest } from './world/tiles';
+import { Flight } from './game/Flight';
+import { CameraRig } from './game/CameraRig';
+import { Splatter } from './game/Splat';
+import { Input } from './game/Input';
+import { BusModel, type BusPose } from './bus/BusModel';
+import { Particles } from './fx/Particles';
+import { StreetSigns } from './fx/StreetSign';
+import { AudioEngine } from './audio/AudioEngine';
+import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
+import { Tuner, applySavedTuning } from './ui/Tuner';
+import { Perf } from './ui/Perf';
+import { clamp } from './game/springs';
+
+// Struggle Bus — Phase 1 (real SF, solo).
+
+type Manifest = CityManifest & { regions: Array<[number, number, number]>; regionSize: number };
+
+const params = new URLSearchParams(location.search);
+applySavedTuning();
+
+const canvas = document.getElementById('game') as HTMLCanvasElement;
+const pipeline = new PixelPipeline(canvas);
+const renderer = pipeline.renderer;
+const scene = new THREE.Scene();
+const camera = pipeline.camera;
+
+// --- sun: late-afternoon, low, from the WSW
+function updateSun() {
+  const az = config.light.sunAzimuth;
+  const el = config.light.sunElevation;
+  globals.uSunDir.value.set(Math.cos(az) * Math.cos(el), Math.sin(el), -Math.sin(az) * Math.cos(el)).normalize();
+  globals.uLight.value.set(config.light.sunStrength, config.light.ambient, config.light.skyBounce);
+  globals.uFog.value.set(config.fog.density, config.fog.heightFalloff, config.fog.farFull, 1);
+  globals.uPaintClearing.value = config.fog.paintClearing;
+}
+updateSun();
+
+const slug = params.get('city') ?? 'sf';
+const base = `./city/${slug}`;
+
+async function boot() {
+  const manifest = (await (await fetch(`${base}/city.json`)).json()) as Manifest;
+  const city = new City(manifest, base);
+  scene.add(city.root);
+  const farP = city.loadFar();
+
+  // ---- props: trees stream with tiles, landmarks are placed once
+  const treeFields = new Map<string, TreeField>();
+  const treeIndex = new Map<string, TreeInstance[]>();
+  const sprouts = new RoofSprouts();
+  scene.add(sprouts.object);
+  city.onTile = ({ tx, tz, terrain, refs }) => {
+    if (terrain && terrain.trees.length) {
+      const list: TreeInstance[] = terrain.trees.map((t) => ({ x: t.x, y: t.y, z: t.z, size: t.size, kind: t.kind }));
+      const tf = new TreeField(list);
+      scene.add(tf.object);
+      treeFields.set(`${tx},${tz}`, tf);
+      treeIndex.set(`${tx},${tz}`, list);
+    }
+    // saved paint: regrow rooftop gardens and thin the fog again
+    for (const ref of refs) {
+      const lv = city.paint.level(ref.index);
+      if (lv > 0.5) {
+        bumpPaint(ref.cx, ref.cz, 40);
+        if (lv >= 2) sprouts.set(ref.index, city.roofRect(ref), city.paint.get(ref.index).color, lv, -100);
+      }
+    }
+  };
+  city.onTileUnload = (tx, tz) => {
+    const k = `${tx},${tz}`;
+    const tf = treeFields.get(k);
+    if (tf) {
+      scene.remove(tf.object);
+      treeFields.delete(k);
+      treeIndex.delete(k);
+    }
+  };
+  for (const lm of manifest.landmarks) {
+    const obj = lm.kind === 'sutro' ? makeSutroTower() : lm.kind === 'transamerica' ? makeTransamerica() : null;
+    if (!obj) continue;
+    obj.position.set(lm.x, lm.y, lm.z);
+    scene.add(obj);
+  }
+
+  // ---- the hero
+  const bus = new BusModel();
+  scene.add(bus.root);
+  const flight = new Flight();
+  flight.x = manifest.start.x;
+  flight.z = manifest.start.z;
+  flight.heading = manifest.start.heading;
+  if (params.has('lat') && params.has('lon')) {
+    const [lat0, lon0] = manifest.origin;
+    flight.x = (Number(params.get('lon')) - lon0) * 111320 * Math.cos((lat0 * Math.PI) / 180);
+    flight.z = -(Number(params.get('lat')) - lat0) * 110574;
+  }
+  if (params.has('heading')) flight.heading = THREE.MathUtils.degToRad(Number(params.get('heading')));
+  const rig = new CameraRig();
+  const focus = new THREE.Vector3(flight.x, 60, flight.z);
+
+  // drop shadow straight below the bus: the aim reticle
+  const shadowGeo = new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2);
+  const shadowMat = makeRampMaterial({ ramp: Ramp.INK, lightOffset: -0.2, noOutline: true, shadowMul: 0 });
+  shadowMat.depthWrite = false;
+  shadowMat.polygonOffset = true;
+  shadowMat.polygonOffsetFactor = -2;
+  shadowMat.polygonOffsetUnits = -4;
+  const dropShadow = new THREE.Mesh(shadowGeo, shadowMat);
+  dropShadow.renderOrder = 2;
+  scene.add(dropShadow);
+
+  const particles = new Particles();
+  scene.add(particles.object);
+  const signs = new StreetSigns();
+  scene.add(signs.object);
+  const audio = new AudioEngine();
+  audio.setVolumes(config.audio);
+
+  // ---- paint-density map for fog clearing over painted neighborhoods
+  const [minX, minZ, maxX, maxZ] = manifest.bounds;
+  const PD = 64; // m per cell
+  const pdW = Math.ceil((maxX - minX) / PD), pdH = Math.ceil((maxZ - minZ) / PD);
+  const pdData = new Uint8Array(pdW * pdH);
+  const pdTex = new THREE.DataTexture(pdData, pdW, pdH, THREE.RedFormat, THREE.UnsignedByteType);
+  pdTex.minFilter = pdTex.magFilter = THREE.LinearFilter;
+  pdTex.needsUpdate = true;
+  globals.uPaintFog.value = pdTex;
+  globals.uPaintFogRect.value.set(minX, minZ, 1 / (maxX - minX), 1 / (maxZ - minZ));
+  function bumpPaint(x: number, z: number, amt: number) {
+    const cx = (x - minX) / PD, cz = (z - minZ) / PD;
+    for (let dz = -2; dz <= 2; dz++)
+      for (let dx = -2; dx <= 2; dx++) {
+        const ix = Math.floor(cx) + dx, iz = Math.floor(cz) + dz;
+        if (ix < 0 || iz < 0 || ix >= pdW || iz >= pdH) continue;
+        const w = Math.max(0, 1 - Math.hypot(dx, dz) / 2.6);
+        pdData[iz * pdW + ix] = Math.min(255, pdData[iz * pdW + ix] + Math.round(amt * w));
+      }
+    pdTex.needsUpdate = true;
+  }
+
+  // ---- splat orchestration
+  let hitStop = 0;
+  const mouthTmp = new THREE.Vector3();
+  const velTmp = new THREE.Vector3();
+  const mouthWorld = () => bus.root.localToWorld(mouthTmp.copy(bus.mouthLocal));
+  const busVel = () => velTmp.set(flight.fx * flight.speed, flight.vy, flight.fz * flight.speed);
+  const splatter = new Splatter(city, {
+    geyser: (targets, hues) => particles.geyser({ source: mouthWorld, sourceVel: busVel, targets, duration: config.splat.duration, travelTime: config.splat.impactDelay, hues }),
+    impact: (pos, hue, strength) => {
+      particles.splash(pos, hue, strength);
+      audio.splatImpact(strength);
+    },
+    bloom: (ref, order, total, hue, level, roof) => {
+      const h = ref.roofY - ref.baseY;
+      particles.sparkles(roof, Math.sqrt(ref.area) * 0.6 + 2, h, [hue, (hue + 1) % 6, (hue + 5) % 6], 18 + level * 8);
+      audio.bloomNote(order, total, hue, level);
+      if (level >= 2) sprouts.set(ref.index, city.roofRect(ref), hue, level, globals.uTime.value);
+      // trees beside a painted house bloom too
+      const reach = Math.sqrt(ref.area) * 0.5 + 9;
+      for (const [k, list] of treeIndex) {
+        const tf = treeFields.get(k);
+        if (!tf) continue;
+        for (let i = 0; i < list.length; i++) {
+          const t = list[i];
+          if (Math.abs(t.x - ref.cx) < reach && Math.abs(t.z - ref.cz) < reach) tf.setPaint(i, hue, level, globals.uTime.value + 0.1);
+        }
+      }
+    },
+    primary: (ref, hue) => showSign(ref, hue),
+    hitStop: (frames) => (hitStop = frames / 60),
+    miss: (pos) => particles.splash(pos, 0, 0.6),
+  });
+  splatter.onPainted = (ref) => bumpPaint(ref.cx, ref.cz, 40);
+
+  function showSign(ref: BuildingRef, hue: number) {
+    const f = city.frontOf(ref);
+    const gx = f.x + f.nx * 4.5, gz = f.z + f.nz * 4.5;
+    signs.show({ text: city.neighborhoodName(ref.hood).toUpperCase(), position: new THREE.Vector3(gx, city.groundAt(gx, gz), gz), facing: Math.atan2(f.nx, f.nz), hue });
+    audio.signPop();
+  }
+
+  // ---- input
+  const input = new Input(canvas);
+  const tuner = new Tuner();
+  const perf = new Perf(renderer);
+  perf.setVisible(params.has('fps'));
+  tuner.onResetPaint = () => {
+    city.paint.resetAll();
+    location.reload();
+  };
+  if (params.has('tune')) tuner.toggle();
+  input.onTripleFinger = () => tuner.toggle();
+  input.onFirstGesture = () => audio.unlock();
+  input.onTap = () => {
+    if (tuner.visible) return;
+    if (flight.tryBarf()) {
+      audio.heave();
+      // dive-bomb: aim where the shadow will be when the barf arrives
+      const lead = flight.speed * config.splat.stallSpeed * config.splat.impactDelay;
+      splatter.barf(flight.x + flight.fx * lead, flight.z + flight.fz * lead);
+    } else audio.denied();
+  };
+
+  // ---- resize
+  const onResize = () => {
+    pipeline.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1);
+    particles.setViewportHeight(pipeline.info.height);
+  };
+  window.addEventListener('resize', onResize);
+  window.visualViewport?.addEventListener('resize', onResize);
+  onResize();
+
+  await farP;
+  globals.uFogBank.value = config.fog.openingBank;
+  rig.openingPull = 140;
+
+  // ---- the loop
+  let last = performance.now();
+  let simTime = 0;
+  let wasFull = true;
+  let opening = params.has('skipintro') ? config.fog.openingDuration : 0;
+  const pose: BusPose = { squash: 1, eye: 1, fullness: 1, mouth: 0, speed: 0, wheeze: 0, heave: 0 };
+  let squashV = 0;
+  const q = new THREE.Quaternion();
+  const eul = new THREE.Euler(0, 0, 0, 'YXZ');
+  const sparkPos = new THREE.Vector3();
+  const nearTmp: Array<{ ref: BuildingRef; d: number }> = [];
+
+  function frame(now: number) {
+    requestAnimationFrame(frame);
+    const t0 = performance.now();
+    let dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (hitStop > 0) {
+      hitStop -= dt;
+      dt = 0; // freeze everything: two frames of awe
+    }
+    simTime += dt;
+    globals.uTime.value = simTime;
+
+    // opening: the bus emerges from a fog bank while the city streams in behind it
+    if (opening < config.fog.openingDuration) {
+      const loaded = city.loadedRegionCount() > 0;
+      opening = loaded ? opening + dt : Math.min(opening + dt, config.fog.openingDuration * 0.15);
+      const k = clamp(opening / config.fog.openingDuration, 0, 1);
+      globals.uFogBank.value = 1 + (config.fog.openingBank - 1) * Math.pow(1 - k, 2);
+      rig.openingPull = 140 * Math.pow(1 - k, 2);
+    } else {
+      globals.uFogBank.value = 1;
+      rig.openingPull = 0;
+    }
+
+    // input -> flight (substeps keep springs stable on slow frames)
+    input.update(dt);
+    const st = input.state;
+    const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
+    for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx: st.stretch.x, sy: st.stretch.y, dragging: st.dragging }, city);
+    if (!wasFull && flight.fullness >= 1) audio.ready();
+    wasFull = flight.fullness >= 1;
+
+    // bus pose: squash on the tap frame, heave while barfing, wheeze when full
+    const barfing = flight.barfing;
+    const sqTarget = barfing ? (flight.barfT < 0.12 ? 0.78 : 1.06) : 1;
+    squashV += ((sqTarget - pose.squash) * 260 - squashV * 16) * dt;
+    pose.squash += squashV * dt;
+    pose.heave = barfing ? Math.max(0, 1 - flight.barfT / config.splat.duration) : 0;
+    pose.mouth = barfing ? 1 : Math.max(0, pose.mouth - dt * 4);
+    pose.fullness = flight.fullness;
+    pose.speed = flight.speed;
+    pose.wheeze = flight.barfT >= 0 ? 0 : flight.fullness * 0.8;
+    pose.eye = barfing ? 0.25 : flight.relief > 0 ? 1 : 0.55 + 0.45 * (1 - flight.fullness * 0.6);
+    bus.update(dt, simTime, pose);
+    eul.set(flight.pitch, -flight.heading, -flight.bank, 'YXZ');
+    q.setFromEuler(eul);
+    bus.root.quaternion.copy(q);
+    bus.root.position.set(flight.x, flight.y, flight.z);
+
+    // drop shadow on whatever is below (roof or street)
+    const top = city.obstacleAt(flight.x, flight.z);
+    const below = Math.max(flight.groundUnder, top - 3.0);
+    dropShadow.position.set(flight.x, below + 0.25, flight.z);
+    const sz = 6.5 * (flight.fullness >= 1 ? 1.12 : 0.9);
+    dropShadow.scale.set(sz * 0.5, 1, sz);
+    dropShadow.rotation.y = -flight.heading;
+
+    rig.update(camera, focus, flight, dt);
+    pipeline.focus.copy(focus);
+    globals.uGroundRef.value = flight.groundUnder - 30;
+
+    city.update(focus, renderer, dt);
+    splatter.update(dt, simTime);
+    particles.update(dt);
+    signs.update(dt, camera);
+
+    // painted neighborhoods hum
+    const near = city.buildingsNear(flight.x, flight.z, 90, nearTmp);
+    let painted = 0;
+    for (const n of near) if (city.paint.level(n.ref.index) > 0.5) painted++;
+    audio.update(dt, {
+      speed: flight.speed,
+      surge: flight.surge,
+      fullness: flight.fullness,
+      altitude: flight.y - flight.groundUnder,
+      paintNearby: near.length ? painted / near.length : 0,
+      fogBank: clamp((globals.uFogBank.value - 1) / Math.max(0.001, config.fog.openingBank - 1), 0, 1),
+    });
+    // ambient twinkles on painted buildings near the bus
+    if (painted && Math.random() < dt * 6) {
+      const pick = near[Math.floor(Math.random() * near.length)];
+      if (pick && city.paint.level(pick.ref.index) > 0.5) {
+        const r = pick.ref;
+        sparkPos.set(r.cx + (Math.random() - 0.5) * 6, r.baseY + Math.random() * (r.roofY - r.baseY + 2), r.cz + (Math.random() - 0.5) * 6);
+        particles.ambientSparkle(sparkPos, city.paint.get(r.index).color);
+      }
+    }
+
+    pipeline.render(scene);
+    perf.frame(dt * 1000, performance.now() - t0);
+    (window as unknown as { __shotReady?: boolean }).__shotReady = city.loadedRegionCount() > 0 && !city.busy && opening >= config.fog.openingDuration;
+  }
+  requestAnimationFrame(frame);
+
+  // debug hooks for scripted screenshots / QA
+  (window as unknown as Record<string, unknown>).__game = { flight, city, splatter, input, audio, rig, camera, tuner, HUE_RAMPS, tapSplat: () => input.onTap?.() };
+}
+
+boot().catch((e) => {
+  console.error(e);
+  document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;inset:auto 0 0 0;color:#fff;font:12px monospace;padding:12px;background:#0008">${String(e)}</pre>`);
+});

@@ -1,0 +1,131 @@
+import * as THREE from 'three';
+import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
+import { Ramp } from '../render/palette';
+import { Ground } from './tiles';
+
+// Ground: asphalt streets, lighter sidewalks, grey lawns, still water.
+// The 2 m class texture is resolved with smooth per-class masks so street
+// edges are clean diagonals instead of 2 m stair steps.
+
+const VS = /* glsl */ `
+  ${GLSL_COMMON}
+  uniform vec4 uTileRect; // originX, originZ, 1/size, 0
+  out vec3 vWorldPos;
+  out vec3 vWorldNormal;
+  out vec3 vViewNormal;
+  out vec2 vClassUv;
+  void main() {
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vWorldPos = wp.xyz;
+    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    vViewNormal = normalize(mat3(viewMatrix) * vWorldNormal);
+    vClassUv = (wp.xz - uTileRect.xy) * uTileRect.z;
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }
+`;
+
+const FS = /* glsl */ `
+  ${GLSL_COMMON}
+  precision highp usampler2D;
+  uniform sampler2D tClass;
+  uniform float uClassN;
+  uniform float uLift;
+  in vec3 vWorldPos;
+  in vec3 vWorldNormal;
+  in vec3 vViewNormal;
+  in vec2 vClassUv;
+  ${GLSL_OUT}
+  float cls(ivec2 p) {
+    p = clamp(p, ivec2(0), ivec2(int(uClassN) - 1));
+    return floor(texelFetch(tClass, p, 0).r * 255.0 + 0.5);
+  }
+  void main() {
+    // smooth class masks via manual bilinear on per-class indicators
+    vec2 t = vClassUv * uClassN - 0.5;
+    ivec2 i0 = ivec2(floor(t));
+    vec2 f = fract(t);
+    float c00 = cls(i0), c10 = cls(i0 + ivec2(1, 0)), c01 = cls(i0 + ivec2(0, 1)), c11 = cls(i0 + ivec2(1, 1));
+    vec4 w = vec4((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y);
+    float best = -1.0; float bc = 0.0;
+    for (int k = 0; k < 4; k++) {
+      float c = k == 0 ? c00 : k == 1 ? c10 : k == 2 ? c01 : c11;
+      float m = (c00 == c ? w.x : 0.0) + (c10 == c ? w.y : 0.0) + (c01 == c ? w.z : 0.0) + (c11 == c ? w.w : 0.0);
+      if (m > best) { best = m; bc = c; }
+    }
+    float ramp = ${Ramp.GREY}.0;
+    float lo = -0.1;
+    if (bc == ${Ground.SIDEWALK}.0) { ramp = ${Ramp.GREY_LIGHT}.0; lo = -0.04; }
+    else if (bc == ${Ground.GRASS}.0) { ramp = ${Ramp.GREEN_GREY}.0; lo = 0.02; }
+    else if (bc == ${Ground.WATER}.0) { ramp = ${Ramp.WATER}.0; lo = 0.0; }
+    vec3 n = normalize(vWorldNormal);
+    float light = sbLight(vWorldPos, n, lo + uLift, 1.0);
+    // ground reads calmer than buildings: compress its sun/slope contrast (shadows stay crisp)
+    float flatL = sbLight(vWorldPos, vec3(0.0, 1.0, 0.0), lo + uLift, 1.0);
+    light = mix(light, flatL, 0.55);
+    if (bc == ${Ground.WATER}.0) light = 0.32 + 0.25 * pow(max(dot(reflect(-uSunDir, vec3(0.0, 1.0, 0.0)), normalize(cameraPosition - vWorldPos)), 0.0), 4.0);
+    float fog = sbFog(vWorldPos);
+    sbWrite(ramp, light, fog, 0.0, vViewNormal, 0.01, 1.0);
+  }
+`;
+
+export function makeTerrainMaterial(classTex: THREE.Texture, originX: number, originZ: number, size: number, classN: number, lift = 0): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3,
+    uniforms: {
+      ...globals,
+      tClass: { value: classTex },
+      uClassN: { value: classN },
+      uTileRect: { value: new THREE.Vector4(originX, originZ, 1 / size, 0) },
+      uLift: { value: lift },
+    },
+    vertexShader: VS,
+    fragmentShader: FS,
+  });
+}
+
+/** Grid mesh from a height array (row-major z rows, x cols). `step` subsamples. */
+export function makeHeightGrid(heights: Float32Array, n: number, cell: number, originX: number, originZ: number, step: number, yOffset = 0): THREE.BufferGeometry {
+  const m = Math.floor((n - 1) / step) + 1;
+  const pos = new Float32Array(m * m * 3);
+  const nrm = new Float32Array(m * m * 3);
+  const h = (ix: number, iz: number) => heights[Math.min(n - 1, Math.max(0, iz)) * n + Math.min(n - 1, Math.max(0, ix))];
+  for (let j = 0; j < m; j++) {
+    for (let i = 0; i < m; i++) {
+      const ix = i * step;
+      const iz = j * step;
+      const k = (j * m + i) * 3;
+      pos[k] = originX + ix * cell;
+      pos[k + 1] = h(ix, iz) + yOffset;
+      pos[k + 2] = originZ + iz * cell;
+      // wide-footprint slopes: the bare-earth DEM is bumpy, and every bump
+      // would otherwise become a dithered smudge under a low sun
+      const sp = Math.max(2, step * 2);
+      const dx = (h(ix + sp, iz) - h(ix - sp, iz)) / (2 * sp * cell);
+      const dz = (h(ix, iz + sp) - h(ix, iz - sp)) / (2 * sp * cell);
+      const l = Math.hypot(dx, 1, dz);
+      nrm[k] = -dx / l;
+      nrm[k + 1] = 1 / l;
+      nrm[k + 2] = -dz / l;
+    }
+  }
+  const idx = new Uint32Array((m - 1) * (m - 1) * 6);
+  let q = 0;
+  for (let j = 0; j < m - 1; j++) {
+    for (let i = 0; i < m - 1; i++) {
+      const a = j * m + i;
+      const b = a + 1;
+      const c = a + m;
+      const d = c + 1;
+      // +Y facing with +Z south: (a, c, b) / (b, c, d)
+      idx[q++] = a; idx[q++] = c; idx[q++] = b;
+      idx[q++] = b; idx[q++] = c; idx[q++] = d;
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  g.computeBoundingSphere();
+  g.computeBoundingBox();
+  return g;
+}

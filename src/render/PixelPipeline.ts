@@ -555,7 +555,7 @@ void main() {
           if (convex < -0.05 && n.z > nq.z) crease = max(crease, 1.0);
         }
         // seam between two different surfaces at the same depth (row houses)
-        if (abs(aq.b - a.b) > 0.001 && aq.a > 0.75 && i < 2) edgeDark = max(edgeDark, 0.5);
+        if (abs(aq.b - a.b) > 0.001 && aq.a > 0.75) edgeDark = max(edgeDark, 0.5);
       }
     }
   }
@@ -566,7 +566,7 @@ void main() {
   // brightness inside the surface's own ramp, then hands over to the fog ramp
   // through a narrow dithered band — never a sprinkle of dots up close.
   float sl = skyLight(normalize(vec3(dir.x, max(dir.y, -0.02) * 0.2, dir.z)));
-  light = mix(light, sl, smoothstep(0.08, 0.7, fog) * 0.75);
+  light = mix(light, sl, smoothstep(0.08, 0.66, fog) * 0.9);
   // flat surfaces (identical light bytes all around) never dither: no
   // checkerboards on walls that happen to sit on a step boundary.
   float lb = g.g * 255.0;
@@ -575,7 +575,7 @@ void main() {
                 && abs(texelFetch(tColor, p + ivec2(0, 1), 0).g * 255.0 - lb) < 0.5
                 && abs(texelFetch(tColor, p + ivec2(0, -1), 0).g * 255.0 - lb) < 0.5;
   float step = rampStep(light, flatLight ? 0.5 : d);
-  float fogBand = clamp((fog - 0.62) / 0.22, 0.0, 1.0);
+  float fogBand = clamp((fog - 0.66) / 0.12, 0.0, 1.0);
   bool fogged = fogBand > d2;
   vec3 col = pal(ramp, step);
 
