@@ -139,6 +139,7 @@ export class PixelPipeline {
         uFogBillow: globals.uFogBillow,
         uCamPos: { value: new THREE.Vector3() },
         uCalm: { value: 0 },
+        uHaze: { value: new THREE.Vector2(config.render.ditherHazeFrom, config.render.ditherHazeTo) },
         uFlash: { value: new THREE.Vector4() },
       },
       vertexShader: QUAD_VS,
@@ -436,6 +437,7 @@ export class PixelPipeline {
     ru.uCamPos.value.copy(this.snapCam.position);
     ru.uCalm.value = Math.min(1, Math.max(0, this.calm));
     ru.uDitherWidth.value = config.render.ditherWidth;
+    ru.uHaze.value.set(config.render.ditherHazeFrom, Math.max(config.render.ditherHazeFrom + 0.01, config.render.ditherHazeTo));
     ru.uOutline.value.set(config.render.outlineDepth, config.render.creaseHighlight, config.render.outlineFadeEnd);
     if (this.flashLeft > 0) {
       ru.uFlash.value.copy(this.flashU);
@@ -534,6 +536,7 @@ uniform vec4 uFogLayer2;
 uniform vec2 uFogBillow;
 uniform vec3 uCamPos;
 uniform float uCalm;
+uniform vec2 uHaze;      // fog over which surface dither fades to plain rounding
 uniform vec4 uFlash;     // impact flash: buffer uv, strength, white-hot radius (fraction of the height)
 in vec2 vUv;
 layout(location = 0) out vec4 outColor;
@@ -655,10 +658,12 @@ void main() {
   ivec2 dp = p + ivec2(uDitherOrigin);
   float d = bayer4(dp);
   float d2 = bayer4(dp + ivec2(2, 1));
-  // up high (calm) the sky and the fog sea dither in screen space: they change only with the view's
-  // rotation, so a pattern anchored to the snapped grid would flip them at every snap step
+  // the sky (and up high the fog sea) dithers in screen space: it changes only with the view's
+  // rotation, so a pattern anchored to the snapped grid would slide through its bands at every snap
+  // step (at the floor that is every frame of a cruise)
   bool calmV = uCalm > 0.5;
-  float ds = calmV ? bayer4(p) : d;
+  float dsk = bayer4(p);
+  float ds = calmV ? dsk : d;
   float ds2 = calmV ? bayer4(p + ivec2(2, 1)) : d2;
   // surfaces: the dither's reach shrinks to plain rounding as the view calms
   float dc = mix(d, 0.5, uCalm);
@@ -687,12 +692,14 @@ void main() {
     }
     // narrow dithered band where the warm glow begins; the sky gets tighter dither bands (tighter
     // still up high, where its gradient spans more of the frame: calm bands, not dotted stripes)
-    vec3 sc = pal(warmS > ds ? RAMP_SKY_WARM : RAMP_FOG, rampStepW(skyL, ds, 0.09 - 0.04 * uCalm));
+    vec3 sc = pal(warmS > dsk ? RAMP_SKY_WARM : RAMP_FOG, rampStepW(skyL, dsk, 0.09 - 0.04 * uCalm));
     vec3 halo = texture(tGlow, vUv).rgb;
     float hAmt = max(halo.r, max(halo.g, halo.b));
-    if (hAmt > 0.1 && hAmt > d2 * 1.1) sc = haloTint(halo / hAmt);
-    if (uFlash.z > 0.0) sc = pal(${Ramp.GLOW_WHITE}.0, flashK > 0.45 ? 7.0 : 6.0 + floor(flashK * 2.0));
-    outColor = vec4(sc, 1.0);
+    // (alpha 0 marks plain sky: the upscale leaves it unshifted, it holds still on the screen)
+    float skyA = 0.0;
+    if (hAmt > 0.1 && hAmt > d2 * 1.1) { sc = haloTint(halo / hAmt); skyA = 1.0; }
+    if (uFlash.z > 0.0) { sc = pal(${Ramp.GLOW_WHITE}.0, flashK > 0.45 ? 7.0 : 6.0 + floor(flashK * 2.0)); skyA = 1.0; }
+    outColor = vec4(sc, skyA);
     return;
   }
   vec4 g = texelFetch(tColor, p, 0);
@@ -761,7 +768,9 @@ void main() {
                 && abs(texelFetch(tColor, p + ivec2(-1, 0), 0).g * 255.0 - lb) < 1.5
                 && abs(texelFetch(tColor, p + ivec2(0, 1), 0).g * 255.0 - lb) < 1.5
                 && abs(texelFetch(tColor, p + ivec2(0, -1), 0).g * 255.0 - lb) < 1.5;
-  float step = rampStep(light, flatLight ? 0.5 : dc);
+  // into the haze the dither's reach shrinks too: the ordered pattern is anchored to the grid snapped
+  // at the bus, and far shapes slide across it with parallax (a crawl); hazy, compressed surfaces round
+  float step = rampStep(light, flatLight ? 0.5 : mix(dc, 0.5, smoothstep(uHaze.x, uHaze.y, fog)));
   // outlines: silhouettes two steps darker, seams between houses one step,
   // convex creases (roof edges, cornices, bay corners) one step lighter
   if (edgeDark > 0.75) step = max(step - 2.0, 0.0);
@@ -785,6 +794,12 @@ void main() {
   // stand a step darker than the bright haze, so the horizon reads as a silhouette, not a fade)
   float silL = sl - (1.0 - fog) * 0.55 * (1.0 - 0.8 * sea) - 0.03 - 0.1 * uCalm * (1.0 - sea) * smoothstep(0.75, 0.95, fog);
   vec3 col = pal(ramp, step);
+  // at street level the handover is value-matched: at the band every surface turns into the FOG step
+  // nearest its own luminance (FOG luma is linear, 0.3955 + 0.071 k), so the switch is a change of hue,
+  // not a jump to pale dots; deeper in, the shapes flatten into the silhouettes a little darker than
+  // the sky. (Up high the old contour stays: calm, and the fog sea's lit top.)
+  float kMatch = clamp((dot(col, vec3(0.299, 0.587, 0.114)) - 0.3955) / 0.071, 0.0, 7.0) / 7.0;
+  silL = mix(kMatch, silL, max(smoothstep(0.62, 0.82, fog), max(uCalm, uFogLayer2.w)));
   float oRamp = ramp;
   float oStep = step;
 
@@ -797,8 +812,9 @@ void main() {
     else { oStep = min(step + 2.0, 7.0); col = pal(ramp, oStep); }
   }
 
-  // (the fog sea's long light gradients get the sky's tight dither bands)
-  if (fogged) { oRamp = fogRamp; oStep = sea > 0.5 ? rampStepW(silL, ds, 0.09) : rampStep(silL, dc); col = pal(oRamp, oStep); }
+  // (the fog sea's long light gradients get the sky's tight dither bands; silhouettes round, so the
+  // far skyline is flat shapes, not dotted boxes that crawl)
+  if (fogged) { oRamp = fogRamp; oStep = sea > 0.5 ? rampStepW(silL, ds, 0.09) : rampStep(silL, 0.5); col = pal(oRamp, oStep); }
   // impact flash: white-hot near the blast (shapes kept by their own light),
   // everything else jumps two or three steps up its own ramp
   if (uFlash.z > 0.0) {
@@ -821,6 +837,13 @@ layout(location = 0) out vec4 outColor;
 void main() {
   vec2 src = gl_FragCoord.xy / uScale + uOffset;
   ivec2 t = ivec2(floor(src));
-  outColor = vec4(texelFetch(tSrc, t, 0).rgb, 1.0);
+  vec4 c = texelFetch(tSrc, t, 0);
+  // plain sky (alpha 0) only turns with the view: the snap's sub-pixel shift is for the world at the
+  // focus, so the sky takes the unshifted texel (where both are sky) and holds perfectly still
+  if (c.a < 0.5) {
+    vec4 c0 = texelFetch(tSrc, ivec2(floor(gl_FragCoord.xy / uScale + vec2(${MARGIN}.0))), 0);
+    if (c0.a < 0.5) c = c0;
+  }
+  outColor = vec4(c.rgb, 1.0);
 }
 `;

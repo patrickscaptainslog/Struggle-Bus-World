@@ -10,6 +10,10 @@ export const config = {
     maxPixelScale: 8,
     /** Width of the dithered band between two ramp steps (0 = hard bands, 0.5 = full dither). */
     ditherWidth: 0.22,
+    /** Into the haze surfaces stop dithering: from this fog amount to this one the dither fades to plain
+     *  rounding (the pattern is anchored at the bus's depth; far shapes crawl across it with parallax). */
+    ditherHazeFrom: 0.3,
+    ditherHazeTo: 0.6,
     /** Depth-discontinuity threshold for silhouette outlines (fraction of depth). */
     outlineDepth: 0.035,
     /** Crease highlight strength on convex edges (0..1). */
