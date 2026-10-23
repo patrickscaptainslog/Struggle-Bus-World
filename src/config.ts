@@ -156,11 +156,16 @@ export const config = {
     /** Buildings' hues start this many steps past the layout / center hue (and never match the paint under them). */
     roofHueShift: 1,
     /** Ground splat edge radius (fraction of the blast radius) and raggedness of its edge (0..1). */
-    groundRadius: 0.9,
-    groundRagged: 0.2,
+    groundRadius: 0.8,
+    groundRagged: 0.26,
     /** Splash rays shooting past the edge: count and max length (fraction of the radius). */
-    groundRays: 9,
-    rayLength: 0.42,
+    groundRays: 13,
+    rayLength: 0.5,
+    /** Ground paint tone: light offset (lower = deeper than the walls), sidewalks' lift over the
+     *  street, and the curb line (class-blend weight under which paint leaves the curb grey; 0.5 = off). */
+    groundLight: -0.14,
+    groundSidewalk: 0.12,
+    groundCurb: 0.7,
     /** Spatter dots beyond the edge: how far out (fraction of the radius) and how many sit still. */
     spatterReach: 1.6,
     spatterDots: 46,

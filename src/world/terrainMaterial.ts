@@ -70,14 +70,18 @@ const FS = /* glsl */ `
     if (bc == ${Ground.WATER}.0) light = 0.32 + 0.25 * pow(max(dot(reflect(-uSunDir, vec3(0.0, 1.0, 0.0)), normalize(cameraPosition - vWorldPos)), 0.0), 4.0);
     float glow = 0.0;
     float pr, pEdge, pWet, pFresh;
-    if (bc != ${Ground.WATER}.0 && sbGroundPaint(vWorldPos, vClassUv, pr, pEdge, pWet, pFresh)) {
-      // paint lives in the saturated middle of its ramp (like painted walls);
-      // sidewalks stay a step lighter than the street so the curbs still read,
-      // a darker rim outlines every splat, wet blotches catch the light
+    // curbs (where two ground classes blend) stay grey through the paint: the street plan still reads
+    if (bc != ${Ground.WATER}.0 && best >= uGroundTone.z && sbGroundPaint(vWorldPos, vClassUv, pr, pEdge, pWet, pFresh)) {
+      // figure / ground: paint on the ground sits a couple of steps below the
+      // painted walls (houses stand out of their splat); sidewalks a step
+      // lighter than the street so the blocks still read; warm hues keep their
+      // lighter steps (orange's deep steps turn red, yellow's orange); a darker
+      // rim outlines every splat, wet blotches catch the light
       ramp = pr;
-      float clsLo = bc == ${Ground.SIDEWALK}.0 ? 0.07 : bc == ${Ground.GRASS}.0 ? 0.03 : -0.02;
-      light = 0.11 + flatL * 0.5 + clsLo; // a step deeper than the sunlit roofs: houses stand out of their splat
-      if (pr == ${Ramp.YELLOW}.0) light += 0.12; // yellow's deep steps are orange: keep it yellow
+      float clsLo = bc == ${Ground.SIDEWALK}.0 ? uGroundTone.y : bc == ${Ground.GRASS}.0 ? uGroundTone.y * 0.5 : 0.0;
+      light = max(0.11 + uGroundTone.x + flatL * 0.5 + clsLo, 0.28); // never near-black in shadow
+      if (pr == ${Ramp.YELLOW}.0) light = max(light + 0.1, 0.6); // amber, never orange
+      else if (pr == ${Ramp.ORANGE}.0) light = max(light + 0.05, 0.45); // vermillion, never brick
       if (pEdge < 0.07) light -= 0.11;
       else light += 0.1 * pWet;
       glow = 0.55 * pFresh;
@@ -104,6 +108,7 @@ export function makeTerrainMaterial(
       uGroundOn: { value: 0 },
       uGroundLive: blastUniforms.uGroundLive,
       uGroundLive2: blastUniforms.uGroundLive2,
+      uGroundTone: blastUniforms.uGroundTone,
       ...(ground ?? {}),
       tClass: { value: classTex },
       uClassN: { value: classN },

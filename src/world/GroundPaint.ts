@@ -43,6 +43,8 @@ export const blastUniforms = {
   /** live ground reveals, 4 slots (blasts can overlap in flight): serial, impact time, serial, impact time */
   uGroundLive: { value: new THREE.Vector4(-1, -1000, -1, -1000) },
   uGroundLive2: { value: new THREE.Vector4(-1, -1000, -1, -1000) },
+  /** ground paint tone (config.splat): light offset, sidewalk lift, curb weight, - */
+  uGroundTone: { value: new THREE.Vector4(-0.14, 0.12, 0.7, 0) },
 };
 
 const HUES = HUE_RAMPS.map((r) => r.toFixed(1)).join(', ');
@@ -82,6 +84,7 @@ uniform sampler2D tGround;
 uniform float uGroundOn;
 uniform vec4 uGroundLive;
 uniform vec4 uGroundLive2;
+uniform vec4 uGroundTone;
 const float SB_GROUND_HUES[6] = float[6](${HUES});
 float sbgHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float sbgNoise(vec2 p) {
@@ -353,8 +356,9 @@ export class GroundPaint {
   }
 
   /** Uniforms a terrain tile material needs (call before creating it). */
-  tileUniforms(): { tGround: THREE.IUniform; uGroundOn: THREE.IUniform; uGroundLive: THREE.IUniform; uGroundLive2: THREE.IUniform } {
-    return { tGround: { value: this.empty }, uGroundOn: { value: 0 }, uGroundLive: blastUniforms.uGroundLive, uGroundLive2: blastUniforms.uGroundLive2 };
+  tileUniforms(): Record<'tGround' | 'uGroundOn' | 'uGroundLive' | 'uGroundLive2' | 'uGroundTone', THREE.IUniform> {
+    const u = blastUniforms;
+    return { tGround: { value: this.empty }, uGroundOn: { value: 0 }, uGroundLive: u.uGroundLive, uGroundLive2: u.uGroundLive2, uGroundTone: u.uGroundTone };
   }
 
   /**
@@ -496,6 +500,8 @@ export class GroundPaint {
 
   /** Upload dirty masks (one texSubImage2D each); save changed tiles, one per frame, on a debounce. */
   flush(renderer: THREE.WebGLRenderer, dt: number) {
+    const S = config.splat;
+    blastUniforms.uGroundTone.value.set(S.groundLight, S.groundSidewalk, S.groundCurb, 0);
     if (this.saveTimer > 0) this.saveTimer -= dt;
     else if (this.saveQueue.length) {
       // a tile still drawing replays saves once they're done
