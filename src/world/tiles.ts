@@ -47,7 +47,7 @@ export interface CityManifest {
  *   u8 arch[count], u8 floors[count], u8 front[count], u8 front2[count], u8 hood[count], u8 seed[count],
  *   u8 tier[count] (0 = ground tier),
  *   u8 taper[count] (0 = vertical walls; else the part's top outline is its base ring scaled by
- *                    1 - taper/255 about the ring's vertex centroid: Salesforce Tower's taper), pad to 4,
+ *                    1 - taper/255 about the ring's area centroid: Salesforce Tower's taper), pad to 4,
  *   i16 vx[vertCount], i16 vz[vertCount]   (decimeters relative to origin; rings CCW in (x, z))
  * 'SBB1': the same without groundY, tier and taper (every record is a one-part building: groundY = baseY, tier = 0, taper = 0).
  */

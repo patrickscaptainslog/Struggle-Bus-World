@@ -612,6 +612,15 @@ export class City {
     return false;
   }
 
+  /** Roof height of ref right at (x, z): the highest of its parts covering the point (a tiered
+   * tower's podium roof is not the top of its tower), or ref.roofY if none does. */
+  roofAtPart(ref: BuildingRef, x: number, z: number): number {
+    const b = ref.tile;
+    let y = -Infinity;
+    for (let k = ref.local; k < ref.local + ref.parts; k++) if (b.roofY[k] > y && ringContains(b, k, x, z)) y = b.roofY[k];
+    return y > -Infinity ? y : ref.roofY;
+  }
+
   /** Street-facing edge of a building (its ground tier): midpoint, outward normal, length. */
   frontOf(ref: BuildingRef): { x: number; z: number; nx: number; nz: number; len: number } {
     const b = ref.tile;
