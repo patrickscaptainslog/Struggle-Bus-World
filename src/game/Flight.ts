@@ -1,6 +1,11 @@
 import { config } from '../config';
 import { clamp, spring } from './springs';
 
+const ss = (a: number, b: number, x: number) => {
+  const t = clamp((x - a) / (b - a), 0, 1);
+  return t * t * (3 - 2 * t);
+};
+
 // The bus's body: a springy bungee steering model, automatic terrain-following
 // altitude with hang time, and the struggle -> release rhythm of the belly.
 //
@@ -76,9 +81,17 @@ export class Flight {
   strain = 0;
   /** current yoke mode (0 floor, 1 hold, 2 climb, 3 dive) */
   mode: number = Yoke.Floor;
+  /** belly left after this breath ends (a miss refunds part of it), else 0 */
+  refund = 0;
+  /** 0..1: how full the belly reads right now (drains over the breath: the release is visible as it pours out) */
+  belly = 1;
   private t = 0;
   private vyYoke = 0;
   private floorSmooth = 60;
+  /** the rooftop floor the vertical spring chases: rises eased (no lurch at every roof edge), falls at once */
+  private floorRise = NaN;
+  /** speed when the breath started: the stall is a recoil, it must not add steering authority */
+  private preBarfSpeed = config.flight.cruiseSpeed;
 
   get fx() {
     return Math.sin(this.heading);
@@ -91,6 +104,8 @@ export class Flight {
   tryBarf(): boolean {
     if (this.barfT >= 0 || this.fullness < 0.999) return false;
     this.barfT = 0;
+    this.preBarfSpeed = this.speed;
+    this.refund = 0;
     return true;
   }
 
@@ -111,14 +126,20 @@ export class Flight {
         this.barfT = -1;
         this.vy += S.recoilUp;
         this.relief = S.reliefSeconds;
-        this.fullness = 0;
+        this.fullness = clamp(this.refund, 0, 1);
+        this.refund = 0;
       }
     } else if (this.fullness < 1) {
       this.fullness = Math.min(1, this.fullness + dt / Math.max(0.05, S.recharge));
     }
     if (this.relief > 0) this.relief = Math.max(0, this.relief - dt);
     const reliefK = this.relief > 0 ? this.relief / S.reliefSeconds : 0;
-    const heavy = this.barfT >= 0 ? 0 : this.fullness;
+    // the belly drains over the breath (the sag lifts as it pours out, no 6 m hop on the tap frame)
+    const drain = this.barfT >= 0 ? 1 - ss(S.inhale, S.duration, this.barfT) : 1;
+    const heavy = this.fullness * drain;
+    this.belly = heavy;
+    // (the wallow still cuts on the tap frame)
+    const wallowK = this.barfT >= 0 ? 0 : this.fullness;
 
     // ---- the yoke: thumb down = pull back (climb), thumb up = nose down (dive / surge)
     const sy = inp.dragging ? inp.sy : 0;
@@ -142,8 +163,13 @@ export class Flight {
 
     // ---- steering on a springy bungee
     const sx = inp.dragging ? inp.sx : 0;
-    const vScale = clamp(Math.sqrt(F.cruiseSpeed / Math.max(this.speed, 4)), 0.55, 1.35);
+    const vScale = clamp(Math.sqrt(F.cruiseSpeed / Math.max(this.barfing ? this.preBarfSpeed : this.speed, 4)), 0.55, 1.35);
     let yawTarget = sx * F.maxYawRate * vScale;
+    if (this.barfing) {
+      // the dragon plants itself to breathe: half the carve until the impact, then it eases back
+      const u = clamp((this.barfT - S.impactDelay) / Math.max(0.01, S.breathSteerEase), 0, 1);
+      yawTarget *= S.breathSteer + (1 - S.breathSteer) * u * u * (3 - 2 * u);
+    }
     // soft push away from towers taller than we're willing to climb
     yawTarget += this.avoid(world);
     [this.yawRate, this.yawAcc] = spring(this.yawRate, this.yawAcc, yawTarget, F.bungeeHz, F.bungeeDamping, dt);
@@ -173,6 +199,11 @@ export class Flight {
     const clearance = F.clearance + belly;
     const floor = top + clearance;
     this.floorY = floor;
+    // the vertical spring chases a floor whose rises are eased (a roof edge entering the look-ahead
+    // steps it by whole storeys; chased raw, that kicked vy by up to 30 m/s in one frame); it falls at once
+    if (Number.isNaN(this.floorRise) || floor <= this.floorRise || F.climbSmoothHz <= 0) this.floorRise = floor;
+    else this.floorRise += (floor - this.floorRise) * (1 - Math.exp(-2 * Math.PI * F.climbSmoothHz * dt));
+    const floorV = this.floorRise;
     const hardFloor = this.obstacleUnder + 3.5;
 
     // soft ceiling, lowered under a bridge deck so a climb never punches through it
@@ -180,11 +211,11 @@ export class Flight {
     const ceil = Math.min(F.ceiling, over - 5);
     // the classic floor-following vertical speed (rise early, hang after crests)
     const vyFloor = (v: number) => {
-      if (floor > this.y) {
+      if (floorV > this.y) {
         const w = 2 * Math.PI * F.climbHz;
-        return v + (w * w * (floor - this.y) - 2 * w * v) * dt;
+        return v + (w * w * (floorV - this.y) - 2 * w * v) * dt;
       }
-      const want = -Math.min(F.maxSink, (this.y - floor) * 0.9);
+      const want = -Math.min(F.maxSink, (this.y - floorV) * 0.9);
       return v + (want - v) * (1 - Math.exp(-1.6 * dt));
     };
 
@@ -258,13 +289,19 @@ export class Flight {
     this.height = Math.max(0, this.y - this.groundBroad);
 
     // ---- bank & pitch (visual)
+    // bank: proportional to the carve, bounded (tanh), so the stretch you hold shows on the bus
     const lateral = this.speed * this.yawRate;
-    let bankTarget = clamp(lateral * F.bankPerAccel, -F.maxBank, F.maxBank);
-    bankTarget += Math.sin(this.t * Math.PI * 2 * F.wallowHz) * F.wallowAmp * heavy;
+    const mb = Math.max(0.05, F.maxBank);
+    let bankTarget = mb * Math.tanh((lateral * F.bankPerAccel + this.yawRate * F.bankPerYaw) / mb);
+    // (the full-belly wallow fades as the carve takes over, so a gentle nudge still reads as a nudge)
+    bankTarget += Math.sin(this.t * Math.PI * 2 * F.wallowHz) * F.wallowAmp * wallowK * (1 - Math.abs(bankTarget) / mb);
     [this.bank, this.bankVel] = spring(this.bank, this.bankVel, bankTarget, F.bankHz, F.bankDamping, dt);
-    // breathing rainbow: the bus rears back like a dragon, nose up
-    const pitchTarget = clamp(Math.atan2(this.vy, Math.max(this.speed, 8)) * 0.8, -0.35, 0.4) + (this.barfing ? 0.16 : 0);
-    this.pitch += (pitchTarget - this.pitch) * (1 - Math.exp(-5 * dt));
+    // pitch follows the climb (floored at 24 m/s: a slow bus mustn't stand on its nose); breathing rainbow,
+    // the bus rears back like a dragon on an authored envelope (its own lift during the breath adds nothing)
+    const climb = clamp(Math.atan2(this.vy, Math.max(this.speed, 24)) * 0.8, -0.35, 0.4);
+    const rear = this.barfing ? S.rearUp * ss(0, 0.1, this.barfT) * (1 - ss(0.6, S.duration, this.barfT)) : 0;
+    const pitchTarget = (this.barfing ? Math.min(climb, 0.06) : climb) + rear;
+    this.pitch += (pitchTarget - this.pitch) * (1 - Math.exp(-(this.barfing ? 10 : 5) * dt));
   }
 
   private avoid(world: WorldQuery): number {

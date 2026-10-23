@@ -166,14 +166,18 @@ export const config = {
     altitudeLookAhead: 1.6,
     /** Climb spring (Hz) — rises early and smoothly over hills. */
     climbHz: 1.1,
+    /** The rooftop floor's rises are eased at this rate before the climb spring sees them (Hz; 0 = raw): no lurch at roof edges. */
+    climbSmoothHz: 1.2,
     /** Max sink rate after cresting a hill (m/s) — gives hang time. */
     maxSink: 9,
-    /** Bank angle per unit of lateral acceleration (rad per m/s²). */
-    bankPerAccel: 0.06,
-    maxBank: 0.62,
+    /** Bank: maxBank * tanh((lateral accel * bankPerAccel + yaw rate * bankPerYaw) / maxBank): proportional
+     *  to the stick, never saturated (rad per m/s², rad per rad/s; maxBank is a soft asymptote, rad). */
+    bankPerAccel: 0.014,
+    bankPerYaw: 0.2,
+    maxBank: 0.7,
     /** Bank spring (Hz, damping) — the wobble you see when straightening out. */
     bankHz: 1.7,
-    bankDamping: 0.42,
+    bankDamping: 0.48,
     /** Obstacles taller than cruise altitude by this much are steered around, not over (m). */
     avoidTallerThan: 45,
     /** Strength of the soft push away from tall towers. */
