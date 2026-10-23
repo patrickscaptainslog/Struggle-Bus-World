@@ -138,6 +138,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         float frontW = vBld2.y;
         vec3 n = normalize(vWorldNormal);
         vec2 f = vFacade;
+        // meters per game pixel here (taken before any branch: derivatives need uniform flow)
+        float mpp = max(length(dFdx(vWorldPos)), length(dFdy(vWorldPos)));
 
         // ---- paint state + flood front (color pours down from the roof with drips)
         float level = vPaint.g;
@@ -205,11 +207,20 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           }
         }
 
+        // seen from high above, windows shrink under ~2 game pixels and alias into
+        // moire (leaving no flat wall to keep the dither off): melt them into a
+        // slightly darker wall tone, building by building (no visible ring)
+        bool melt = isWall && uFogLayer2.w > 0.001 && mpp * uFogLayer2.w > 1.1 * (0.8 + 0.4 * fract(seed * 0.377));
+        if (melt) {
+          if (glass > 0.5 || ramp == ${Ramp.WINDOW}.0) { glass = 0.0; ramp = ${Ramp.GREY}.0; }
+          lo -= 0.05;
+        }
+
         // SF roofs: a patchwork of pale tar-and-gravel, dark membrane and silvery paint
         float roofKind = fract(seed * 0.4141);
         // Victorian articulation: light window frames + floor belt courses on facades
         float trimMask = 0.0;
-        if (isWall && glass < 0.5 && (arch == ${Arch.VICTORIAN}.0 || arch == ${Arch.FLATS}.0 || arch == ${Arch.MARINA}.0)) {
+        if (isWall && glass < 0.5 && !melt && (arch == ${Arch.VICTORIAN}.0 || arch == ${Arch.FLATS}.0 || arch == ${Arch.MARINA}.0)) {
           vec2 c2;
           float fh = arch == ${Arch.VICTORIAN}.0 ? 3.5 : 3.0;
           float sp = arch == ${Arch.VICTORIAN}.0 ? (part == ${Part.BAY}.0 ? 1.25 : 1.9) : (part == ${Part.BAY}.0 ? 1.3 : 2.2);

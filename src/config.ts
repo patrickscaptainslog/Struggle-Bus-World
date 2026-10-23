@@ -92,6 +92,19 @@ export const config = {
     /** Yaw lag spring frequency (Hz) — lower = turns sweep more. */
     yawHz: 0.75,
     yawDamping: 0.92,
+    /** Vista camera: blends in as the bus climbs above its rooftop floor, from vistaStart to vistaFull (m). */
+    vistaStart: 25,
+    vistaFull: 400,
+    /** At full vista: horizontal fov (deg), distance behind the bus (m), elevation above it (deg). */
+    hfovVista: 38,
+    distanceVista: 270,
+    elevationVista: 44,
+    /** At full vista the look point sits ahead of the bus so the view pitches down this much (deg): horizon stays in frame. */
+    pitchVista: 30,
+    /** The bus grows a little at altitude so the hero stays readable (scale at full vista). */
+    heroScaleVista: 1.55,
+    /** How fast the vista blend follows the altitude (1/s). */
+    vistaRate: 0.9,
   },
 
   flight: {

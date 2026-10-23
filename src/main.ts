@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { config } from './config';
 import { PixelPipeline } from './render/PixelPipeline';
-import { globals, GLSL_COMMON, GLSL_OUT } from './render/materials';
+import { globals, GLSL_COMMON, GLSL_OUT, layerTopBase } from './render/materials';
 import { Ramp, HUE_RAMPS } from './render/palette';
 import { City, type BuildingRef } from './world/City';
 import { paintUniforms } from './world/buildingMaterial';
@@ -217,6 +217,29 @@ async function boot() {
     pdTex.needsUpdate = true;
   }
 
+  /**
+   * Is a tile (rect, tallest point) buried so deep in the fog sea that, from the
+   * camera, even its nearest, highest point is solid fog? (A lower bound on the
+   * optical depth the fog shader would find: lowest billow, no soft band, the
+   * tile's own paint thinning.) Hysteresis via `was`.
+   */
+  const buriedTile = (x0: number, z0: number, x1: number, z1: number, maxY: number, was: boolean): boolean => {
+    const Fg = config.fog;
+    const cp = camera.position;
+    const top = Math.min(layerTopBase(x0, z0), layerTopBase(x1, z0), layerTopBase(x0, z1), layerTopBase(x1, z1)) - Fg.layerBillow - Fg.layerSoft;
+    const dv = cp.y - maxY;
+    if (maxY >= top || dv <= 0) return false;
+    const dh = Math.hypot(cp.x - clamp(cp.x, x0, x1), cp.z - clamp(cp.z, z0, z1));
+    const path = (Math.hypot(dh, dv) * (top - maxY)) / dv;
+    let paint = 0;
+    const i0 = Math.max(0, Math.floor((x0 - minX) / PD) - 1), i1 = Math.min(pdW - 1, Math.floor((x1 - minX) / PD) + 1);
+    const j0 = Math.max(0, Math.floor((z0 - minZ) / PD) - 1), j1 = Math.min(pdH - 1, Math.floor((z1 - minZ) / PD) + 1);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) paint = Math.max(paint, pdData[j * pdW + i] / 255);
+    const od = path * Fg.layerDensity * (1 - Fg.paintClearing * paint);
+    // (past ~87% fog a pixel is solid fog-sea color: nothing of the tile would show)
+    return od > (was ? 1.8 : 2.1);
+  };
+
   // ---- splat orchestration
   let hitStop = 0;
   const mouthTmp = new THREE.Vector3();
@@ -319,6 +342,8 @@ async function boot() {
   const eul = new THREE.Euler(0, 0, 0, 'YXZ');
   const sparkPos = new THREE.Vector3();
   const nearTmp: Array<{ ref: BuildingRef; d: number }> = [];
+  const camFwd = new THREE.Vector3();
+  const streamCenter = new THREE.Vector3();
 
   function frame(now: number) {
     requestAnimationFrame(frame);
@@ -386,7 +411,7 @@ async function boot() {
     const top = city.obstacleAt(flight.x, flight.z);
     const below = Math.max(flight.groundUnder, top - 3.0);
     dropShadow.position.set(flight.x, below + 0.25, flight.z);
-    const sz = 5.6 * (flight.fullness >= 1 ? 1.1 : 0.9);
+    const sz = 5.6 * (flight.fullness >= 1 ? 1.1 : 0.9) * rig.heroScale;
     shadowMat.uniforms.uReady.value = flight.fullness >= 1 ? 1 : 0;
     dropShadow.scale.set(sz * 0.5, 1, sz);
     dropShadow.rotation.y = -flight.heading;
@@ -413,17 +438,47 @@ async function boot() {
     pipeline.focus.copy(focus);
     globals.uGroundRef.value = flight.groundUnder - 30;
 
-    city.update(focus, renderer, dt);
-    // tree LOD by tile distance (fog eats far groves anyway)
+    // ---- altitude: the vista lens, the hero's scale, the marine layer seen from above,
+    // streaming ahead under the view, a wider (softer) shadow window
+    const vista = rig.vista;
+    pipeline.setHfov(rig.hfov);
+    bus.root.scale.setScalar(rig.heroScale);
+    const Fg = config.fog;
+    const camY = camera.position.y;
+    const layerMix = clamp((camY - Fg.layerTop - Fg.layerViewStart) / Math.max(1, Fg.layerViewFull - Fg.layerViewStart), 0, 1);
+    globals.uFogLayer2.value.w = layerMix * layerMix * (3 - 2 * layerMix);
+    camera.getWorldDirection(camFwd);
+    camFwd.y = 0;
+    if (camFwd.lengthSq() < 1e-6) camFwd.set(flight.fx, 0, flight.fz);
+    camFwd.normalize();
+    const hk = clamp(flight.lift / 450, 0, 1);
+    streamCenter.set(focus.x + camFwd.x * 950 * hk, focus.y, focus.z + camFwd.z * 950 * hk);
+    city.viewHeight = flight.lift;
+    city.detailScale = Math.tan(THREE.MathUtils.degToRad(config.camera.hfovPortrait / 2)) / Math.tan(THREE.MathUtils.degToRad(rig.hfov / 2));
+    const R = config.render;
+    const sAhead = 700 * vista;
+    const sx0 = focus.x + camFwd.x * sAhead, sz0 = focus.z + camFwd.z * sAhead;
+    pipeline.shadowFocusOn = true;
+    pipeline.shadowFocus.set(sx0, focus.y + (city.groundAt(sx0, sz0) - focus.y) * vista, sz0);
+    pipeline.shadowScale = 1 + (R.shadowExtentVista / Math.max(1, R.shadowExtent) - 1) * vista;
+    pipeline.shadowStrength = 1 + (R.shadowStrengthVista - 1) * vista;
+    pipeline.shadowEdge = 0.08 + 0.3 * vista;
+
+    city.update(streamCenter, renderer, dt);
+    // tree LOD by distance from the lens (fog eats far groves anyway; a wider view keeps simple canopies farther)
     lodTimer -= dt;
     if (lodTimer <= 0) {
       lodTimer = 0.25;
+      // high above the marine layer, tiles buried in solid fog skip their draws
+      city.cullBuried(globals.uFogLayer2.value.w > 0.99 ? buriedTile : null);
       const ts = manifest.tileSize;
+      const far1 = 900 * (1 + 0.8 * vista);
       for (const [k, tf] of treeFields) {
         const c = k.indexOf(',');
         const tx = Number(k.slice(0, c)), tz = Number(k.slice(c + 1));
-        const d = Math.hypot((tx + 0.5) * ts - camera.position.x, (tz + 0.5) * ts - camera.position.z);
-        tf.setLod(d < 350 ? 0 : d < 900 ? 1 : 2);
+        const cx = (tx + 0.5) * ts, cz = (tz + 0.5) * ts;
+        const d = Math.hypot(cx - camera.position.x, cz - camera.position.z, Math.max(0, camY - city.groundAt(cx, cz) - 120));
+        tf.setLod(city.tileHidden(tx, tz) ? 2 : d < 350 ? 0 : d < far1 ? 1 : 2);
       }
     }
     splatter.update(dt, simTime);
