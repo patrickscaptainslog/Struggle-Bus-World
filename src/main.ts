@@ -4,7 +4,7 @@ import { PixelPipeline } from './render/PixelPipeline';
 import { globals, GLSL_COMMON, GLSL_OUT, layerTopBase } from './render/materials';
 import { Ramp, HUE_RAMPS } from './render/palette';
 import { City, type BuildingRef } from './world/City';
-import { paintUniforms } from './world/buildingMaterial';
+import { paintUniforms, setFacadeView } from './world/buildingMaterial';
 import type { CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
 import { CameraRig } from './game/CameraRig';
@@ -20,6 +20,7 @@ import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { Tuner, applySavedTuning } from './ui/Tuner';
 import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles } from './world/Bridges';
+import { heroLandmarks, SpireRide } from './world/props/landmarks';
 import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
 
@@ -112,7 +113,11 @@ async function boot() {
     const rect = city.roofRect(ref);
     const top = sprouts.set(ref.index, rect, hue, level, start);
     if (top > 0) city.raiseRoof(rect, rect.y + top);
+    // a tower's own setback gardens, trees and onion domes (baked in its mesh) grow too
+    city.growTo(ref, level);
   };
+  /** 181 Fremont's spire, once its tower streams in: it rides the tower's pop and wobble */
+  let spire: SpireRide | null = null;
   city.onTile = ({ tx, tz, terrain, refs }) => {
     if (terrain && terrain.trees.length) {
       const list: TreeInstance[] = terrain.trees.map((t) => ({ x: t.x, y: t.y, z: t.z, size: t.size, kind: t.kind }));
@@ -120,6 +125,12 @@ async function boot() {
       scene.add(tf.object);
       treeFields.set(`${tx},${tz}`, tf);
       treeIndex.set(`${tx},${tz}`, list);
+    }
+    // 181 Fremont's spire binds to its tower (and the roof under it) when the tower's tile arrives
+    if (spire && !spire.bound) {
+      const sp = spire.object.position;
+      const ref = city.buildingAt(sp.x, sp.z);
+      if (ref && ref.roofY - ref.baseY > 150) spire.bind(ref, city.roofAtPart(ref, sp.x, sp.z));
     }
     // saved paint: regrow rooftop gardens and thin the fog again
     for (const ref of refs) {
@@ -174,6 +185,14 @@ async function boot() {
       obj.position.set(lm.x, lm.y, lm.z);
       scene.add(obj);
     }
+  }
+  // the hand-built heroes the footprints can't draw: Coit Tower, the Ferry Building, 181 Fremont's spire
+  for (const h of heroLandmarks(manifest.origin)) {
+    scene.add(h.object);
+    city.addObstacles(h.posts);
+    // the footprints a prop replaces leave the obstacle grid; its own surface takes their cells
+    if (h.clear) city.setPropObstacles(h.clear, h.boxes);
+    if (h.kind === 'fremont181-spire') spire = new SpireRide(h.object);
   }
 
   // ---- the hero
@@ -592,7 +611,8 @@ async function boot() {
     // (gated by the vista, i.e. by the height above the ground: skimming the floor over Twin Peaks the
     // camera is 380 m above the sea but the fog must stay exactly the street-level Hopper fog)
     const layerMix = clamp((camY - Fg.layerTop - Fg.layerViewStart) / Math.max(1, Fg.layerViewFull - Fg.layerViewStart), 0, 1) * clamp(vista / 0.3, 0, 1);
-    globals.uFogLayer2.value.w = Fg.enabled ? layerMix * layerMix * (3 - 2 * layerMix) : 0;
+    const layerS = layerMix * layerMix * (3 - 2 * layerMix);
+    globals.uFogLayer2.value.w = Fg.enabled ? layerS : 0;
     camera.getWorldDirection(camFwd);
     camFwd.y = 0;
     if (camFwd.lengthSq() < 1e-6) camFwd.set(flight.fx, 0, flight.fz);
@@ -610,6 +630,9 @@ async function boot() {
     pipeline.shadowStrength = 1 + (R.shadowStrengthVista - 1) * vista;
     pipeline.shadowEdge = 0.08 + (R.shadowEdgeVista - 0.08) * vista;
     pipeline.calm = clamp(vista / Math.max(0.01, config.render.calmVista), 0, 1);
+    // tower facades: the up-high anti-crawl guard follows the view's height (with fog on or off), and their
+    // mirror of the resolve's sky light needs its calm term
+    setFacadeView(layerS, pipeline.calm);
 
     // the splat before the city's paint upload: the impact frame itself already shows the hit (and the
     // hit-stop frames hold it), instead of the paint reaching the GPU a frame late
@@ -620,6 +643,7 @@ async function boot() {
       jet = null;
     }
     city.update(streamCenter, renderer, dt);
+    spire?.update(city.paint.data, globals.uTime.value);
     // tree LOD by distance from the lens (fog eats far groves anyway; a wider view keeps simple canopies farther)
     lodTimer -= dt;
     if (lodTimer <= 0) {

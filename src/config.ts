@@ -314,6 +314,25 @@ export const config = {
     reliefSeconds: 2.6,
   },
 
+  facade: {
+    /** Tower facades show their columns while a column module is at least this many game pixels wide on screen... */
+    colPx: 3,
+    /** ...and their floors while a floor is at least this tall (game px); below both they are a flat wall tone. */
+    floorPx: 4,
+    /** Per-building spread of those switches (fraction of the distance), so the change never draws a ring. */
+    lodJitter: 0.24,
+    /** House windows: one glass band per floor beyond this size of a game pixel at the house (m), a flat wall beyond the second. */
+    houseRibbon: 0.6,
+    houseFlat: 1.15,
+    /** Glow of lit tower crowns and of Salesforce Tower's LED crown (0..1). */
+    crownGlow: 0.3,
+    /** Glow of painted stained glass at levels 1-2 (0.12 stays under the halo threshold: no dust) and at level 3. */
+    glassGlow: 0.12,
+    glassGlow3: 0.38,
+    /** Sky-reflection banding on curtain walls (light amplitude of the bands). */
+    glassBands: 0.06,
+  },
+
   bloom: {
     /** Duration of the squash/stretch pop (s). */
     popDuration: 0.55,
