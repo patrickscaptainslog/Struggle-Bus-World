@@ -12,13 +12,15 @@
 //   sign      a real tap at the Painted Ladies: impact +0.15 / +0.6 / +1.4 / +3 s;
 //             then the same block escalated to level 3 (+1.4 / +3 s)
 //   eye       the headlight: full belly, squinting mid-breath (+0.3 s), wide on the relief (+1.3 s)
+//   perf      renderer cost per frame (exact draw calls / triangles of the frame, CPU work of the last
+//             frames) at the Painted Ladies cruise, a FiDi surge and 250 m up (perf.json)
 // --seq adds frame pairs exactly 1/30 s apart (<scene>-seq-0/1.png) at ladies
 // cruise, dolores cruise and alt120 for shimmer counts (tools/lookstat.py).
 // --tune sets the tuning panel's saved overrides (sb.tuning.v1 config paths)
 // before load: try numbers without a rebuild.
 // SwiftShader renders ~1.5 fps: everything waits on the game clock, never wall time.
 import { chromium } from 'playwright-core';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 const args = process.argv.slice(2);
 const pos = args.filter((a) => !a.startsWith('--'));
@@ -66,7 +68,8 @@ async function shot(page, name) {
   await page.screenshot({ path: `${out}/${name}.png` });
   const info = await page.evaluate(() => {
     const g = window.__game, f = g.flight, c = g.camera.position;
-    return { t: +g.clock().toFixed(3), bus: [+f.x.toFixed(1), +f.y.toFixed(1), +f.z.toFixed(1)], speed: +f.speed.toFixed(1), cam: [+c.x.toFixed(1), +c.y.toFixed(1), +c.z.toFixed(1)], vista: +g.rig.vista.toFixed(3), stats: window.__stats ?? null };
+    // (the held frame's exact draw calls / triangles; __stats is a one-second window)
+    return { t: +g.clock().toFixed(3), bus: [+f.x.toFixed(1), +f.y.toFixed(1), +f.z.toFixed(1)], speed: +f.speed.toFixed(1), cam: [+c.x.toFixed(1), +c.y.toFixed(1), +c.z.toFixed(1)], vista: +g.rig.vista.toFixed(3), calls: g.perf.calls, tris: g.perf.tris, stats: window.__stats ?? null };
   });
   report[name] = info;
   console.log('shot', name, JSON.stringify(info));
@@ -197,6 +200,52 @@ if (scenes.has('sign')) {
   await p2.close();
 }
 
+if (scenes.has('perf')) {
+  const sample = async (page, label) => {
+    const rows = [];
+    for (let i = 0; i < 8; i++) {
+      const t = await clock(page);
+      await holdAt(page, t + DT * 2.5);
+      rows.push(await page.evaluate(() => {
+        const p = window.__game.perf;
+        const ring = p.workRing, n = ring.length;
+        return { calls: p.calls, tris: p.tris, work: ring[(p.ringI - 1 + n) % n] };
+      }));
+      await release(page);
+    }
+    const med = (k) => { const v = rows.map((r) => r[k]).sort((a, b) => a - b); return v[v.length >> 1]; };
+    const res = { calls: med('calls'), tris: med('tris'), workMs: +med('work').toFixed(2), workMin: +Math.min(...rows.map((r) => r.work)).toFixed(2) };
+    perfOut[label] = res;
+    console.log('perf', label, JSON.stringify(res));
+  };
+  const perfOut = {};
+  let page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro');
+  await noStick(page);
+  await runHold(page, 3);
+  await release(page);
+  await sample(page, 'ladies-cruise');
+  await page.close();
+  page = await open('?lat=37.7790&lon=-122.4005&heading=0&skipintro');
+  await stick(page, 0, 1);
+  await runHold(page, 2.5);
+  await release(page);
+  await sample(page, 'fidi-surge');
+  await page.close();
+  page = await open('?lat=37.7700&lon=-122.4300&heading=45&skipintro');
+  await stick(page, 0, -1);
+  await page.evaluate(() => {
+    const q = window.__qa, g = window.__game;
+    const tick = () => { const f = g.flight; if (f.height + Math.max(0, f.vy) / 1.7 >= 250 || g.clock() > 50) { delete q.sx; delete q.sy; return; } requestAnimationFrame(tick); };
+    tick();
+  });
+  await page.waitForFunction(() => window.__qa.sy === undefined, null, { timeout: 600000, polling: 300 });
+  await runHold(page, 3.5);
+  await release(page);
+  await sample(page, 'climb-250m');
+  await page.close();
+  writeFileSync(`${out}/perf.json`, JSON.stringify(perfOut, null, 1));
+}
+
 if (scenes.has('eye')) {
   const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro');
   await noStick(page);
@@ -212,6 +261,9 @@ if (scenes.has('eye')) {
   await page.close();
 }
 
-writeFileSync(`${out}/look.json`, JSON.stringify(report, null, 1));
+// (merged into an existing look.json, so scenes shot in separate runs keep their numbers)
+let prev = {};
+try { prev = JSON.parse(readFileSync(`${out}/look.json`, 'utf8')); } catch {}
+writeFileSync(`${out}/look.json`, JSON.stringify({ ...prev, ...report }, null, 1));
 await browser.close();
 console.log('saved to', out);
