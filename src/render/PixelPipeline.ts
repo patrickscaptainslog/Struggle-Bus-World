@@ -807,10 +807,10 @@ void main() {
   // checkerboards on walls that happen to sit on a step boundary.
   float lb = g.g * 255.0;
   // (slow gradients count as flat too: a clean band edge beats a dotted contour)
-  bool flatLight = abs(texelFetch(tColor, p + ivec2(1, 0), 0).g * 255.0 - lb) < 1.5
-                && abs(texelFetch(tColor, p + ivec2(-1, 0), 0).g * 255.0 - lb) < 1.5
-                && abs(texelFetch(tColor, p + ivec2(0, 1), 0).g * 255.0 - lb) < 1.5
-                && abs(texelFetch(tColor, p + ivec2(0, -1), 0).g * 255.0 - lb) < 1.5;
+  vec4 gR = texelFetch(tColor, p + ivec2(1, 0), 0), gL = texelFetch(tColor, p + ivec2(-1, 0), 0);
+  vec4 gU = texelFetch(tColor, p + ivec2(0, 1), 0), gD = texelFetch(tColor, p + ivec2(0, -1), 0);
+  bool flatLight = abs(gR.g * 255.0 - lb) < 1.5 && abs(gL.g * 255.0 - lb) < 1.5
+                && abs(gU.g * 255.0 - lb) < 1.5 && abs(gD.g * 255.0 - lb) < 1.5;
   // into the haze the dither's reach shrinks too: the ordered pattern is anchored to the grid snapped
   // at the bus, and far shapes slide across it with parallax (a crawl); hazy, compressed surfaces round
   float step = rampStep(light, flatLight ? 0.5 : mix(dc, 0.5, smoothstep(uHaze.x, uHaze.y, fog)));
@@ -824,15 +824,12 @@ void main() {
   bool busY = abs(ramp - RAMP_BUS_YELLOW) < 0.5;
   bool heroEdge = edgeDark > 0.75 && (busY || abs(ramp - RAMP_BUS_BLACK) < 0.5);
   if (heroEdge) step = busY ? 1.0 : min(step, 1.0);
-  float bandW = 0.06;
-  if (uFogLayer2.w > 0.001) {
-    // seen from high up the fog changes slowly across the screen, so a fixed
-    // band would dither wide areas: narrow it to the fog's own gradient (a
-    // clean contour where the city meets the fog sea)
-    float gf = max(abs(texelFetch(tColor, p + ivec2(1, 0), 0).b - fog), abs(texelFetch(tColor, p + ivec2(0, 1), 0).b - fog));
-    gf = max(gf, max(abs(texelFetch(tColor, p - ivec2(1, 0), 0).b - fog), abs(texelFetch(tColor, p - ivec2(0, 1), 0).b - fog)));
-    bandW = mix(0.06, clamp(gf * 2.5, 0.004, 0.06), uFogLayer2.w);
-  }
+  // the handover band follows the fog's own gradient, so it is a few pixels wide wherever it is: a
+  // fixed band was a wide dithered zipper that reshuffled as the camera dollied (the fog contour
+  // slides through the grid). At street level it keeps a floor of 0.015 (the value-matched colors
+  // make its dots a hue flip); seen from high up, over the fog sea, a clean contour
+  float gf = max(max(abs(gR.b - fog), abs(gU.b - fog)), max(abs(gL.b - fog), abs(gD.b - fog)));
+  float bandW = clamp(gf * 2.5, mix(0.015, 0.004, uFogLayer2.w), 0.06);
   float fogBand = clamp((fog - 0.65 + bandW * 0.5) / bandW, 0.0, 1.0);
   bool fogged = fogBand > mix(d2, 0.5, uCalm);
   // deep in the fog things become solid silhouettes a little darker than the
