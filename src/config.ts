@@ -109,6 +109,8 @@ export const config = {
     heroScaleVista: 1.55,
     /** How fast the vista blend follows the altitude while climbing or diving (1/s); holding an altitude freezes it. */
     vistaRate: 0.9,
+    /** ...and how fast it settles once the yoke lets go (1/s), then it holds perfectly still. */
+    vistaSettle: 2.4,
     /** The opening: the yoke can't climb until the bus is this far past the Golden Gate (m), so the low camera clears the deck. */
     openingClimbAfter: 230,
   },

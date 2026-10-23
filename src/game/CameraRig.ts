@@ -72,9 +72,10 @@ export class CameraRig {
     if (f.holdY < -1e8) this.vistaTarget = 0;
     else if (f.mode === 2 || f.mode === 3) this.vistaTarget = smooth01(C.vistaStart, Math.max(C.vistaStart + 1, C.vistaFull), f.height);
     const dv = this.vistaTarget - this.vista;
-    // (settles exactly, so a held lens is perfectly still)
-    if (Math.abs(dv) < 0.002) this.vista = this.vistaTarget;
-    else this.vista += dv * (1 - Math.exp(-C.vistaRate * dt));
+    // (once the yoke lets go it settles briskly and exactly, so a held lens is perfectly still within ~2 s)
+    const moving = f.mode === 2 || f.mode === 3;
+    if (Math.abs(dv) < 0.003) this.vista = this.vistaTarget;
+    else this.vista += dv * (1 - Math.exp(-(moving ? C.vistaRate : Math.max(C.vistaRate, C.vistaSettle)) * dt));
     const low = this.openingLow;
     const v = this.vista * (1 - low);
     this.hfov = C.hfovPortrait + (C.hfovVista - C.hfovPortrait) * v;

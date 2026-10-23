@@ -658,8 +658,9 @@ void main() {
       skyL = mix(skyL, sh.x - 0.03, uFogLayer2.w);
       warmS = mix(warmS, clamp((sh.y - 0.5) / 0.12, 0.0, 1.0), uFogLayer2.w);
     }
-    // narrow dithered band where the warm glow begins; the sky gets tighter dither bands
-    vec3 sc = pal(warmS > ds ? RAMP_SKY_WARM : RAMP_FOG, rampStepW(skyL, ds, 0.09));
+    // narrow dithered band where the warm glow begins; the sky gets tighter dither bands (tighter
+    // still up high, where its gradient spans more of the frame: calm bands, not dotted stripes)
+    vec3 sc = pal(warmS > ds ? RAMP_SKY_WARM : RAMP_FOG, rampStepW(skyL, ds, 0.09 - 0.04 * uCalm));
     vec3 halo = texture(tGlow, vUv).rgb;
     float hAmt = max(halo.r, max(halo.g, halo.b));
     if (hAmt > 0.1 && hAmt > d2 * 1.1) sc = haloTint(halo / hAmt);
