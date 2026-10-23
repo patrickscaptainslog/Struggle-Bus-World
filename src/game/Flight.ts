@@ -120,7 +120,9 @@ export class Flight {
     const sy = inp.dragging ? inp.sy : 0;
     const dz = clamp(F.yokeDead, 0, 0.9);
     const pull = clamp((-sy - dz) / (1 - dz), 0, 1);
-    const push = Math.max(0, sy);
+    // at the floor any push surges (as ever); up high the push is the yoke's nose-down and gets the same
+    // dead band as the pull, so a carving thumb's upward drift doesn't dive and speed up a held altitude
+    const push = this.holdY > -1e8 ? clamp((sy - dz) / (1 - dz), 0, 1) : Math.max(0, sy);
     this.surge = push;
 
     // ---- speed
