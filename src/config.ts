@@ -19,6 +19,9 @@ export const config = {
      *  rounding (the pattern is anchored at the bus's depth; far shapes crawl across it with parallax). */
     ditherHazeFrom: 0.3,
     ditherHazeTo: 0.6,
+    /** The fog handover band follows the fog's own gradient, but never narrower than this at street
+     *  level (fog units; 0.06 = the old fixed band). */
+    fogBandMin: 0.015,
     /** Depth-discontinuity threshold for silhouette outlines (fraction of depth). */
     outlineDepth: 0.035,
     /** Crease highlight strength on convex edges (0..1). */

@@ -146,7 +146,7 @@ export class PixelPipeline {
         uFogBillow: globals.uFogBillow,
         uCamPos: { value: new THREE.Vector3() },
         uCalm: { value: 0 },
-        uHaze: { value: new THREE.Vector2(config.render.ditherHazeFrom, config.render.ditherHazeTo) },
+        uHaze: { value: new THREE.Vector3(config.render.ditherHazeFrom, config.render.ditherHazeTo, config.render.fogBandMin) },
         uBeam: { value: new THREE.Vector4() },
         uBeamShape: { value: new THREE.Vector4() },
         uFlash: { value: new THREE.Vector4() },
@@ -460,7 +460,7 @@ export class PixelPipeline {
     ru.uCamPos.value.copy(this.snapCam.position);
     ru.uCalm.value = Math.min(1, Math.max(0, this.calm));
     ru.uDitherWidth.value = config.render.ditherWidth;
-    ru.uHaze.value.set(config.render.ditherHazeFrom, Math.max(config.render.ditherHazeFrom + 0.01, config.render.ditherHazeTo));
+    ru.uHaze.value.set(config.render.ditherHazeFrom, Math.max(config.render.ditherHazeFrom + 0.01, config.render.ditherHazeTo), Math.max(0.004, config.render.fogBandMin));
     ru.uOutline.value.set(config.render.outlineDepth, config.render.creaseHighlight, config.render.outlineFadeEnd);
     if (this.beamK > 0.001) {
       // the beam in buffer pixels, projected with the snapped camera (what the buffer was rendered with)
@@ -571,7 +571,7 @@ uniform vec4 uFogLayer2;
 uniform vec2 uFogBillow;
 uniform vec3 uCamPos;
 uniform float uCalm;
-uniform vec2 uHaze;      // fog over which surface dither fades to plain rounding
+uniform vec3 uHaze;      // fog over which surface dither fades to plain rounding; the handover band's floor
 uniform vec4 uBeam;      // hero headlight: lens (buffer px), axis to the tip (px)
 uniform vec4 uBeamShape; // half width at the lens / at the tip (px), strength, lens view depth (m)
 uniform vec4 uFlash;     // impact flash: buffer uv, strength, white-hot radius (fraction of the height)
@@ -677,6 +677,14 @@ vec2 seaShade(vec3 dir, float sl) {
   // (the billows carry far, flattening into the streaks a cloud deck makes toward the horizon)
   float far = smoothstep(2500.0, 18000.0, t);
   return vec2(clamp(mix(l, sl, far), 0.0, 1.0), warm * (1.0 - far));
+}
+
+// A neighbor's fog says whether it stands out of the fog (at the floor): a nearer surface (not the
+// clear sky, fog 0), the handover, or a silhouette rounding darker than the buried step.
+bool stands(float f, float sl, float bur) {
+  if (f < 0.002) return false;
+  if (f < 0.76) return true;
+  return rampStep(sl - (1.0 - f) * 0.55 - 0.03 - 0.1 * uCalm * smoothstep(0.75, 0.95, f), 0.5) < bur;
 }
 
 // nearest bright tint among the six hues + glow white
@@ -830,10 +838,10 @@ void main() {
   if (heroEdge) step = busY ? 1.0 : min(step, 1.0);
   // the handover band follows the fog's own gradient, so it is a few pixels wide wherever it is: a
   // fixed band was a wide dithered zipper that reshuffled as the camera dollied (the fog contour
-  // slides through the grid). At street level it keeps a floor of 0.015 (the value-matched colors
-  // make its dots a hue flip); seen from high up, over the fog sea, a clean contour
+  // slides through the grid). At street level it keeps a floor (config.render.fogBandMin; the
+  // value-matched colors make its dots a hue flip); seen from high up, over the fog sea, a clean contour
   float gf = max(max(abs(gR.b - fog), abs(gU.b - fog)), max(abs(gL.b - fog), abs(gD.b - fog)));
-  float bandW = clamp(gf * 2.5, mix(0.015, 0.004, uFogLayer2.w), 0.06);
+  float bandW = clamp(gf * 2.5, mix(uHaze.z, 0.004, uFogLayer2.w), 0.06);
   float fogBand = clamp((fog - 0.65 + bandW * 0.5) / bandW, 0.0, 1.0);
   bool fogged = fogBand > mix(d2, 0.5, uCalm);
   // deep in the fog things become solid silhouettes a little darker than the
@@ -865,7 +873,31 @@ void main() {
 
   // (the fog sea's long light gradients get the sky's tight dither bands; silhouettes round, so the
   // far skyline is flat shapes, not dotted boxes that crawl)
-  if (fogged) { oRamp = fogRamp; oStep = sea > 0.5 ? rampStepW(silL, ds, 0.09) : rampStep(silL, 0.5); col = pal(oRamp, oStep); }
+  if (fogged) {
+    oRamp = fogRamp;
+    oStep = sea > 0.5 ? rampStepW(silL, ds, 0.09) : rampStep(silL, 0.5);
+    // a shape standing out of the fog stands at least ~0.45 deg tall (4 px at 240 px wide, 6 at 390): shorter, it
+    // is a sliver (the top of a roof just over the fog ceiling's contour, a dash of a far ridge)
+    // floating in the sky band as debris, so it is buried with the rest. (The vertical run through this
+    // pixel; nearer surfaces and the handover count as ground under it.)
+    if (sea < 0.5) {
+      float bur = rampStep(sl - 0.03 - 0.1 * uCalm, 0.5);
+      if (oStep < bur) {
+        int K = clamp(int(uSize.y / 140.0 + 0.5), 3, 8);
+        int run = 1;
+        for (int i = 1; i < 8; i++) {
+          if (i >= K || !stands(texelFetch(tColor, p + ivec2(0, i), 0).b, sl, bur)) break;
+          run++;
+        }
+        for (int i = 1; i < 8; i++) {
+          if (run >= K || !stands(texelFetch(tColor, p - ivec2(0, i), 0).b, sl, bur)) break;
+          run++;
+        }
+        if (run < K) oStep = bur;
+      }
+    }
+    col = pal(oRamp, oStep);
+  }
   // the hero's headlight: what lies ahead of the lens (beyond the bus) is lit a step or two up its own
   // ramp, a warm core at the lens; a lift, not a drawn shape, so it reads as light in the haze. The
   // beam rides with the bus, which holds still on screen: its dithered falloff is screen-anchored.
