@@ -7,6 +7,7 @@ import { PaintState } from './PaintState';
 import type { ObstaclePost } from './Bridges';
 import { parseFar, type CityManifest, type FarData, type BuildingTile, type TerrainTile } from './tiles';
 import { loadRegion, type RegionRequest, type RegionResponse, type TileResult } from './regionLoader';
+import type { MeshArrays } from './BuildingMesher';
 
 // Streams the baked city around the bus: region bundles are fetched and
 // meshed in a worker, tiles appear inside the fog, far ones are dropped.
@@ -35,7 +36,28 @@ interface LoadedTile {
   buildingData: BuildingTile | null;
   refs: BuildingRef[];
   classTex: THREE.DataTexture | null;
+  /** tallest thing in the tile (m ASL) */
+  maxY: number;
+  /** hidden because it's buried in solid fog (seen from above the marine layer) */
+  hidden: boolean;
 }
+
+/** A coarse region drawn as two meshes (its tiles keep their data for gameplay queries). */
+interface RegionMesh {
+  buildings: THREE.Mesh | null;
+  terrain: THREE.Mesh | null;
+  classTex: THREE.DataTexture | null;
+  hidden: boolean;
+}
+
+/** Work queued for adoption, a few items per frame. */
+type Adopt =
+  /** one tile of a newly arrived region (coarse: its meshes come with the region item) */
+  | { kind: 'tile'; key: string; t: TileResult; coarse: boolean }
+  /** after a coarse region's tiles: its merged meshes */
+  | { kind: 'coarse'; key: string; merged: MeshArrays | null }
+  /** an adopted region switching level of detail, all at once */
+  | { kind: 'swap'; key: string; msg: RegionResponse };
 
 async function maybeInflate(buf: ArrayBuffer): Promise<ArrayBuffer> {
   const h = new Uint8Array(buf, 0, 2);
@@ -47,6 +69,13 @@ async function maybeInflate(buf: ArrayBuffer): Promise<ArrayBuffer> {
 const LOAD_RADIUS = 1500; // m: regions whose center is within this get loaded
 const DETAIL_RADIUS = 650; // m: regions nearer than this get full-detail meshes (bays, cornices, stoops)
 const UNLOAD_RADIUS = 2300;
+// at altitude (viewHeight ~500 m) the circle widens; detail is judged by distance from the lens
+// (and its fov), so high up everything is the coarse mesh
+const LOAD_RADIUS_HIGH = 1900;
+const UNLOAD_RADIUS_HIGH = 2800;
+// arrived tiles adopted per frame: at least this many, more while under this many ms
+const ADOPT_MIN = 2;
+const ADOPT_MS = 2.5;
 const HASH_CELL = 32;
 
 export class City {
@@ -77,6 +106,14 @@ export class City {
   onTile: ((t: { tx: number; tz: number; terrain: TerrainTile | null; refs: BuildingRef[] }) => void) | null = null;
   onTileUnload: ((tx: number, tz: number) => void) | null = null;
   readonly loadedRegionCount = () => this.regionsLoaded.size;
+  /** Height of the view above the ground (m), set by the game each frame: widens streaming, coarsens detail. */
+  viewHeight = 0;
+  /** Detail scale of the lens: tan(cruise half-fov) / tan(current half-fov) (a wider lens needs less detail). */
+  detailScale = 1;
+  private want: Array<[number, number, number, 0 | 1]> = [];
+  private adopt: Adopt[] = [];
+  /** coarse (LOD 1) regions: all their buildings / all their ground as one mesh each */
+  private regionMeshes = new Map<string, RegionMesh>();
 
   constructor(readonly manifest: CityManifest & { regions: Array<[number, number, number]>; regionSize: number }, readonly baseUrl: string) {
     this.paint = new PaintState(manifest.buildingCount);
@@ -267,14 +304,22 @@ export class City {
     }
   }
 
-  /** Stream regions around a point. */
+  /** Stream regions around a point (at altitude the game passes a point ahead of the bus, under the view). */
   update(focus: THREE.Vector3, renderer: THREE.WebGLRenderer, dt: number) {
     const R = this.regionSize * this.manifest.tileSize;
-    const rx0 = Math.floor((focus.x - LOAD_RADIUS) / R);
-    const rx1 = Math.floor((focus.x + LOAD_RADIUS) / R);
-    const rz0 = Math.floor((focus.z - LOAD_RADIUS) / R);
-    const rz1 = Math.floor((focus.z + LOAD_RADIUS) / R);
-    const want: Array<[number, number, number]> = [];
+    // at altitude: a wider circle of coarse regions, detail only where pixels are still small
+    const hk = Math.min(1, Math.max(0, (this.viewHeight - 40) / 460));
+    const loadR = LOAD_RADIUS + (LOAD_RADIUS_HIGH - LOAD_RADIUS) * hk;
+    const unloadR = UNLOAD_RADIUS + (UNLOAD_RADIUS_HIGH - UNLOAD_RADIUS) * hk;
+    const lift = Math.max(0, this.viewHeight - 30);
+    const ds = Math.max(0.2, this.detailScale);
+    const detailD = (d: number) => (lift > 0 ? Math.hypot(d, lift) : d) / ds;
+    const rx0 = Math.floor((focus.x - loadR) / R);
+    const rx1 = Math.floor((focus.x + loadR) / R);
+    const rz0 = Math.floor((focus.z - loadR) / R);
+    const rz1 = Math.floor((focus.z + loadR) / R);
+    const want = this.want;
+    want.length = 0;
     for (let rz = rz0; rz <= rz1; rz++)
       for (let rx = rx0; rx <= rx1; rx++) {
         const key = `${rx},${rz}`;
@@ -285,21 +330,22 @@ export class City {
         const dx = Math.max(Math.abs(focus.x - cx) - R / 2, 0);
         const dz = Math.max(Math.abs(focus.z - cz) - R / 2, 0);
         const d = Math.hypot(dx, dz);
-        if (d < LOAD_RADIUS) want.push([rx, rz, d]);
+        if (d < loadR) want.push([rx, rz, d, detailD(d) < DETAIL_RADIUS ? 0 : 1]);
       }
-    // upgrade already-loaded coarse regions that are now close
+    // upgrade already-loaded coarse regions that are now close; coarsen detailed ones the view rose above
     for (const key of this.regionsLoaded) {
-      if (this.regionLod.get(key) !== 1 || this.isPending(key)) continue;
+      const lod = this.regionLod.get(key);
+      if (lod === undefined || this.isPending(key)) continue;
       const [rx, rz] = key.split(',').map(Number);
       const cx = (rx + 0.5) * R, cz = (rz + 0.5) * R;
       const d = Math.hypot(Math.max(Math.abs(focus.x - cx) - R / 2, 0), Math.max(Math.abs(focus.z - cz) - R / 2, 0));
-      if (d < DETAIL_RADIUS * 0.8) want.push([rx, rz, d - 10000]);
+      if (lod === 1 && detailD(d) < DETAIL_RADIUS * 0.8) want.push([rx, rz, d - 10000, 0]);
+      else if (lod === 0 && detailD(d) > DETAIL_RADIUS * 1.4) want.push([rx, rz, d + 10000, 1]);
     }
     want.sort((a, b) => a[2] - b[2]);
-    for (const [rx, rz, d] of want) {
+    for (const [rx, rz, , lod] of want) {
       if (this.pending.size >= 2) break;
       const key = `${rx},${rz}`;
-      const lod: 0 | 1 = d < DETAIL_RADIUS ? 0 : 1;
       this.regionsRequested.add(key);
       const id = this.nextId++;
       this.pending.set(id, { key, lod });
@@ -313,13 +359,207 @@ export class City {
       const cx = (rx + 0.5) * R, cz = (rz + 0.5) * R;
       const dx = Math.max(Math.abs(focus.x - cx) - R / 2, 0);
       const dz = Math.max(Math.abs(focus.z - cz) - R / 2, 0);
-      if (Math.hypot(dx, dz) > UNLOAD_RADIUS) this.unloadRegion(rx, rz);
+      if (Math.hypot(dx, dz) > unloadR) this.unloadRegion(rx, rz);
+    }
+    // adopt arrived tiles a few per frame: a region landing never hitches one frame
+    const t0 = performance.now();
+    let n = 0;
+    while (this.adopt.length && (n < ADOPT_MIN || performance.now() - t0 < ADOPT_MS)) {
+      const a = this.adopt.shift()!;
+      n++;
+      if (!this.regionsLoaded.has(a.key)) continue; // unloaded while queued
+      if (a.kind === 'tile') {
+        this.addTile(a.t, a.coarse);
+        this.loadedMask.needsUpdate = true;
+      } else if (a.kind === 'coarse') this.buildRegionMesh(a.key, a.merged);
+      else this.swapRegion(a.key, a.msg);
     }
     this.paint.flush(renderer, dt);
   }
 
+  private tileKeysOf(key: string): string[] {
+    const [rx, rz] = key.split(',').map(Number);
+    const rs = this.regionSize;
+    const out: string[] = [];
+    for (let tz = rz * rs; tz < (rz + 1) * rs; tz++) for (let tx = rx * rs; tx < (rx + 1) * rs; tx++) out.push(`${tx},${tz}`);
+    return out;
+  }
+
+  private setMask(tx: number, tz: number, v: number) {
+    const [minX, minZ] = this.manifest.bounds;
+    const ts = this.manifest.tileSize;
+    const mx = Math.round((tx * ts - minX) / ts);
+    const mz = Math.round((tz * ts - minZ) / ts);
+    if (mx >= 0 && mz >= 0 && mx < this.maskW && mz < this.maskH) (this.loadedMask.image.data as Uint8Array)[mz * this.maskW + mx] = v;
+  }
+
+  /** A coarse region's two meshes: its merged buildings and its ground (one grid, one class texture). */
+  private buildRegionMesh(key: string, merged: MeshArrays | null) {
+    this.disposeRegionMesh(key);
+    const [rx, rz] = key.split(',').map(Number);
+    const rs = this.regionSize;
+    const ts = this.manifest.tileSize;
+    const cn = this.manifest.classN;
+    const N = cn * rs;
+    const cls = new Uint8Array(N * N);
+    const pos: number[] = [];
+    const nrm: number[] = [];
+    const idx: number[] = [];
+    let any = false;
+    for (let tz = rz * rs; tz < (rz + 1) * rs; tz++)
+      for (let tx = rx * rs; tx < (rx + 1) * rs; tx++) {
+        const lt = this.tiles.get(`${tx},${tz}`);
+        const tr = lt?.terrainData;
+        if (!tr) continue;
+        any = true;
+        const ox = (tx - rx * rs) * cn, oz = (tz - rz * rs) * cn;
+        for (let j = 0; j < cn; j++) cls.set(tr.cls.subarray(j * cn, j * cn + cn), (oz + j) * N + ox);
+        // coarse ground: an 8 m grid (the class texture keeps every street edge)
+        const g = makeHeightGrid(tr.heights, tr.n, tr.cell, tr.originX, tr.originZ, 4);
+        const base = pos.length / 3;
+        const p = g.getAttribute('position').array, q = g.getAttribute('normal').array, ii = g.getIndex()!.array;
+        for (let k = 0; k < p.length; k++) pos.push(p[k]);
+        for (let k = 0; k < q.length; k++) nrm.push(q[k]);
+        for (let k = 0; k < ii.length; k++) idx.push(ii[k] + base);
+        g.dispose();
+        this.setMask(tx, tz, 255);
+      }
+    const rm: RegionMesh = { buildings: merged ? this.makeBuildingMesh(merged) : null, terrain: null, classTex: null, hidden: false };
+    if (any) {
+      const tex = new THREE.DataTexture(cls, N, N, THREE.RedFormat, THREE.UnsignedByteType);
+      tex.minFilter = tex.magFilter = THREE.NearestFilter;
+      tex.generateMipmaps = false;
+      tex.needsUpdate = true;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nrm), 3));
+      g.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
+      g.computeBoundingSphere();
+      // (far ground doesn't cast: the shadow window is near the view, and buildings carry the shadows up high)
+      const mesh = new THREE.Mesh(g, makeTerrainMaterial(tex, rx * rs * ts, rz * rs * ts, rs * ts, N));
+      mesh.matrixAutoUpdate = false;
+      this.root.add(mesh);
+      rm.terrain = mesh;
+      rm.classTex = tex;
+    }
+    this.regionMeshes.set(key, rm);
+    this.loadedMask.needsUpdate = true;
+  }
+
+  private disposeRegionMesh(key: string) {
+    const rm = this.regionMeshes.get(key);
+    if (!rm) return;
+    this.regionMeshes.delete(key);
+    if (rm.buildings) {
+      this.root.remove(rm.buildings);
+      rm.buildings.geometry.dispose();
+    }
+    if (rm.terrain) {
+      this.root.remove(rm.terrain);
+      rm.terrain.geometry.dispose();
+      (rm.terrain.material as THREE.Material).dispose();
+    }
+    rm.classTex?.dispose();
+  }
+
+  /** Switch an adopted region to its other level of detail in one go (no holes in between). */
+  private swapRegion(key: string, msg: RegionResponse) {
+    if (msg.lod === 1) {
+      this.buildRegionMesh(key, msg.merged ?? null);
+      for (const k of this.tileKeysOf(key)) {
+        const lt = this.tiles.get(k);
+        if (lt) this.dropTileMeshes(lt);
+      }
+      return;
+    }
+    for (const t of msg.tiles) {
+      const lt = this.tiles.get(`${t.tx},${t.tz}`);
+      if (!lt) continue;
+      if (lt.buildings) {
+        this.root.remove(lt.buildings);
+        lt.buildings.geometry.dispose();
+        lt.buildings = null;
+      }
+      if (t.mesh) lt.buildings = this.makeBuildingMesh(t.mesh);
+      if (!lt.terrain) this.makeTileTerrain(lt);
+      if (lt.buildings) lt.buildings.visible = !lt.hidden;
+      if (lt.terrain) lt.terrain.visible = !lt.hidden;
+    }
+    this.disposeRegionMesh(key);
+  }
+
+  private dropTileMeshes(lt: LoadedTile) {
+    if (lt.buildings) {
+      this.root.remove(lt.buildings);
+      lt.buildings.geometry.dispose();
+      lt.buildings = null;
+    }
+    if (lt.terrain) {
+      this.root.remove(lt.terrain);
+      lt.terrain.geometry.dispose();
+      (lt.terrain.material as THREE.Material).dispose();
+      lt.terrain = null;
+    }
+    lt.classTex?.dispose();
+    lt.classTex = null;
+  }
+
+  /** A detailed tile's own ground mesh (4 m grid, casts shadows). */
+  private makeTileTerrain(lt: LoadedTile) {
+    const tr = lt.terrainData;
+    if (!tr) return;
+    const tex = new THREE.DataTexture(tr.cls, tr.classN, tr.classN, THREE.RedFormat, THREE.UnsignedByteType);
+    tex.minFilter = tex.magFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    tex.needsUpdate = true;
+    lt.classTex = tex;
+    const geo = makeHeightGrid(tr.heights, tr.n, tr.cell, tr.originX, tr.originZ, 2);
+    const mesh = new THREE.Mesh(geo, makeTerrainMaterial(tex, tr.originX, tr.originZ, this.manifest.tileSize, tr.classN));
+    mesh.layers.enable(SHADOW_LAYER);
+    mesh.matrixAutoUpdate = false;
+    this.root.add(mesh);
+    lt.terrain = mesh;
+  }
+
+  /**
+   * Hide tiles the predicate calls buried (high above the marine layer they'd
+   * render as solid fog anyway, so they only cost draws); show them again when
+   * it says so. Pass null to show everything.
+   */
+  cullBuried(buried: ((x0: number, z0: number, x1: number, z1: number, maxY: number, wasHidden: boolean) => boolean) | null) {
+    const ts = this.manifest.tileSize;
+    for (const lt of this.tiles.values()) {
+      const h = buried ? buried(lt.tx * ts, lt.tz * ts, (lt.tx + 1) * ts, (lt.tz + 1) * ts, lt.maxY, lt.hidden) : false;
+      if (h === lt.hidden) continue;
+      lt.hidden = h;
+      if (lt.buildings) lt.buildings.visible = !h;
+      if (lt.terrain) lt.terrain.visible = !h;
+    }
+    // a coarse region hides only when every one of its tiles is buried
+    for (const [key, rm] of this.regionMeshes) {
+      let h = !!buried;
+      if (h)
+        for (const k of this.tileKeysOf(key)) {
+          const lt = this.tiles.get(k);
+          if (lt && !lt.hidden) {
+            h = false;
+            break;
+          }
+        }
+      if (h === rm.hidden) continue;
+      rm.hidden = h;
+      if (rm.buildings) rm.buildings.visible = !h;
+      if (rm.terrain) rm.terrain.visible = !h;
+    }
+  }
+
+  /** True if tile (tx, tz) is hidden in the fog sea (its trees should hide too). */
+  tileHidden(tx: number, tz: number): boolean {
+    return this.tiles.get(`${tx},${tz}`)?.hidden ?? false;
+  }
+
   get busy(): boolean {
-    return this.pending.size > 0;
+    return this.pending.size > 0 || this.adopt.length > 0;
   }
 
   private isPending(key: string): boolean {
@@ -340,22 +580,13 @@ export class City {
       return;
     }
     if (!this.regionsRequested.has(key)) return; // unloaded while in flight
-    const upgrade = this.regionsLoaded.has(key);
-    if (upgrade) {
-      // swap coarse building meshes for detailed ones in place
-      for (const t of msg.tiles) {
-        const lt = this.tiles.get(`${t.tx},${t.tz}`);
-        if (!lt || !t.mesh) continue;
-        if (lt.buildings) {
-          this.root.remove(lt.buildings);
-          lt.buildings.geometry.dispose();
-        }
-        lt.buildings = this.makeBuildingMesh(t.mesh);
-      }
-    } else {
+    // an already-loaded region switches level of detail in one go; a new one adopts its tiles a few per frame
+    if (this.regionsLoaded.has(key)) this.adopt.push({ kind: 'swap', key, msg });
+    else {
       this.regionsLoaded.add(key);
-      for (const t of msg.tiles) this.addTile(t);
-      this.loadedMask.needsUpdate = true;
+      const coarse = msg.lod === 1;
+      for (const t of msg.tiles) this.adopt.push({ kind: 'tile', key, t, coarse });
+      if (coarse) this.adopt.push({ kind: 'coarse', key, merged: msg.merged ?? null });
     }
     this.regionLod.set(key, msg.lod);
   }
@@ -380,12 +611,12 @@ export class City {
     return mesh;
   }
 
-  private addTile(t: TileResult) {
+  /** Adopt one tile: gameplay data always; its own meshes unless it's part of a coarse region (drawn whole). */
+  private addTile(t: TileResult, coarse = false) {
     const key = `${t.tx},${t.tz}`;
     if (this.tiles.has(key)) return;
-    const lt: LoadedTile = { tx: t.tx, tz: t.tz, buildings: null, terrain: null, terrainData: t.terrain, buildingData: t.building, refs: [], classTex: null };
-    const ts = this.manifest.tileSize;
-    if (t.mesh) lt.buildings = this.makeBuildingMesh(t.mesh);
+    const lt: LoadedTile = { tx: t.tx, tz: t.tz, buildings: null, terrain: null, terrainData: t.terrain, buildingData: t.building, refs: [], classTex: null, maxY: -Infinity, hidden: false };
+    if (t.mesh && !coarse) lt.buildings = this.makeBuildingMesh(t.mesh);
     if (t.building) {
       const b = t.building;
       for (let i = 0; i < b.count; i++) {
@@ -401,6 +632,7 @@ export class City {
         cz /= e - s;
         const ref: BuildingRef = { index: b.index[i], stableId: b.stableId[i], tile: b, local: i, cx, cz, baseY: b.baseY[i], roofY: b.roofY[i], area: Math.abs(area) / 2, hood: b.hood[i] };
         lt.refs.push(ref);
+        if (ref.roofY + 6 > lt.maxY) lt.maxY = ref.roofY + 6;
         const hk = this.hashKey(cx, cz);
         let list = this.hash.get(hk);
         if (!list) this.hash.set(hk, (list = []));
@@ -419,21 +651,13 @@ export class City {
         const k = iz * tr.obstN + ix;
         if (top > tr.obst[k]) tr.obst[k] = top;
       }
-      const tex = new THREE.DataTexture(tr.cls, tr.classN, tr.classN, THREE.RedFormat, THREE.UnsignedByteType);
-      tex.minFilter = tex.magFilter = THREE.NearestFilter;
-      tex.generateMipmaps = false;
-      tex.needsUpdate = true;
-      lt.classTex = tex;
-      const geo = makeHeightGrid(tr.heights, tr.n, tr.cell, tr.originX, tr.originZ, 2);
-      const mesh = new THREE.Mesh(geo, makeTerrainMaterial(tex, tr.originX, tr.originZ, ts, tr.classN));
-      mesh.layers.enable(SHADOW_LAYER);
-      mesh.matrixAutoUpdate = false;
-      this.root.add(mesh);
-      lt.terrain = mesh;
-      const [minX, minZ] = this.manifest.bounds;
-      const mx = Math.round((tr.originX - minX) / ts);
-      const mz = Math.round((tr.originZ - minZ) / ts);
-      if (mx >= 0 && mz >= 0 && mx < this.maskW && mz < this.maskH) (this.loadedMask.image.data as Uint8Array)[mz * this.maskW + mx] = 255;
+      for (let k = 0; k < tr.obst.length; k++) if (tr.obst[k] > lt.maxY) lt.maxY = tr.obst[k];
+      for (let k = 0; k < tr.heights.length; k++) if (tr.heights[k] > lt.maxY) lt.maxY = tr.heights[k];
+      if (!coarse) {
+        this.makeTileTerrain(lt);
+        // (a coarse region masks the far skyline when its own meshes land)
+        this.setMask(t.tx, t.tz, 255);
+      }
     }
     this.tiles.set(key, lt);
     this.onTile?.({ tx: t.tx, tz: t.tz, terrain: t.terrain, refs: lt.refs });
@@ -444,6 +668,8 @@ export class City {
     this.regionsLoaded.delete(key);
     this.regionsRequested.delete(key);
     this.regionLod.delete(key);
+    if (this.adopt.length) this.adopt = this.adopt.filter((a) => a.key !== key);
+    this.disposeRegionMesh(key);
     const rs = this.regionSize;
     const [minX, minZ] = this.manifest.bounds;
     const ts = this.manifest.tileSize;
@@ -452,16 +678,7 @@ export class City {
         const k = `${tx},${tz}`;
         const lt = this.tiles.get(k);
         if (!lt) continue;
-        if (lt.buildings) {
-          this.root.remove(lt.buildings);
-          lt.buildings.geometry.dispose();
-        }
-        if (lt.terrain) {
-          this.root.remove(lt.terrain);
-          lt.terrain.geometry.dispose();
-          (lt.terrain.material as THREE.Material).dispose();
-        }
-        lt.classTex?.dispose();
+        this.dropTileMeshes(lt);
         for (const ref of lt.refs) {
           const hk = this.hashKey(ref.cx, ref.cz);
           const list = this.hash.get(hk);

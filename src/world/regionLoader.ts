@@ -1,7 +1,7 @@
 // Fetch + inflate + parse + mesh one region bundle. Runs inside the city
 // worker, or on the main thread when a sandbox forbids workers.
 import { parseBuildingTile, parseTerrainTile } from './tiles';
-import { meshBuildingTile } from './BuildingMesher';
+import { meshBuildingTile, type MeshArrays } from './BuildingMesher';
 
 export interface RegionRequest {
   type: 'region';
@@ -24,7 +24,41 @@ export interface RegionResponse {
   id: number;
   tiles: TileResult[];
   lod: 0 | 1;
+  /** coarse (lod 1) regions: every tile's buildings merged into one mesh (tiles[].mesh is then null) */
+  merged?: MeshArrays | null;
   error?: string;
+}
+
+/** Concatenate building meshes (one draw for a whole coarse region). */
+function mergeMeshes(list: MeshArrays[]): MeshArrays {
+  let vc = 0, ic = 0;
+  for (const m of list) {
+    vc += m.vertexCount;
+    ic += m.index.length;
+  }
+  const out: MeshArrays = {
+    position: new Float32Array(vc * 3),
+    normal: new Int8Array(vc * 3),
+    facade: new Float32Array(vc * 2),
+    meta: new Uint8Array(vc * 4),
+    bld: new Float32Array(vc * 4),
+    bld2: new Float32Array(vc * 2),
+    index: new Uint32Array(ic),
+    vertexCount: vc,
+  };
+  let vo = 0, io = 0;
+  for (const m of list) {
+    out.position.set(m.position, vo * 3);
+    out.normal.set(m.normal, vo * 3);
+    out.facade.set(m.facade, vo * 2);
+    out.meta.set(m.meta, vo * 4);
+    out.bld.set(m.bld, vo * 4);
+    out.bld2.set(m.bld2, vo * 2);
+    for (let i = 0; i < m.index.length; i++) out.index[io + i] = m.index[i] + vo;
+    vo += m.vertexCount;
+    io += m.index.length;
+  }
+  return out;
 }
 
 async function inflate(buf: ArrayBuffer): Promise<ArrayBuffer> {
@@ -58,7 +92,7 @@ export async function loadRegion(req: RegionRequest, transfer: Transferable[] = 
       if (bLen > 0) {
         building = parseBuildingTile(buf.slice(bOff, bOff + bLen));
         mesh = meshBuildingTile(building, { lod: req.lod });
-        transfer.push(mesh.position.buffer, mesh.normal.buffer, mesh.facade.buffer, mesh.meta.buffer, mesh.bld.buffer, mesh.bld2.buffer, mesh.index.buffer);
+        if (req.lod === 0) transfer.push(mesh.position.buffer, mesh.normal.buffer, mesh.facade.buffer, mesh.meta.buffer, mesh.bld.buffer, mesh.bld2.buffer, mesh.index.buffer);
       }
       if (tLen > 0) {
         terrain = parseTerrainTile(buf.slice(tOff, tOff + tLen), req.classN);
@@ -66,7 +100,18 @@ export async function loadRegion(req: RegionRequest, transfer: Transferable[] = 
       }
       tiles.push({ tx, tz, building, mesh, terrain });
     }
-    return { type: 'region', id: req.id, tiles, lod: req.lod };
+    let merged: MeshArrays | null = null;
+    if (req.lod === 1) {
+      // coarse regions draw as one mesh: far away (or high up) per-tile culling isn't worth 16 draws
+      const list: MeshArrays[] = [];
+      for (const t of tiles) {
+        if (t.mesh && t.mesh.vertexCount > 0) list.push(t.mesh);
+        t.mesh = null;
+      }
+      merged = mergeMeshes(list);
+      transfer.push(merged.position.buffer, merged.normal.buffer, merged.facade.buffer, merged.meta.buffer, merged.bld.buffer, merged.bld2.buffer, merged.index.buffer);
+    }
+    return { type: 'region', id: req.id, tiles, lod: req.lod, merged };
   } catch (e) {
     return { type: 'region', id: req.id, tiles: [], lod: req.lod, error: String(e) };
   }
