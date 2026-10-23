@@ -169,6 +169,9 @@ const HORIZON_CHUNK = 16384;
 const tileKeyNum = (tx: number, tz: number) => (tx + 4096) * 8192 + (tz + 4096);
 /** far terrain chunks span this many regions a side (4 km: seen from the ceiling, 2 km chunks cost ~20 more draws than they saved) */
 const FAR_CHUNK_REGIONS = 4;
+/** view height (m above the floor) above which the far terrain and horizon draw as one mesh each, and below which they go back to chunks */
+const FAR_WHOLE_ABOVE = 80;
+const FAR_WHOLE_BELOW = 60;
 
 /**
  * Let a streamed mesh's arrays go once they're on the GPU: three keeps a JS
@@ -242,6 +245,10 @@ export class City {
   private farChunks = new Map<string, { mesh: THREE.Mesh; regions: string[] }>();
   /** region ("rx,rz") -> the far chunk its far quads are in */
   private regionFar = new Map<string, string>();
+  private horizonChunks: THREE.Mesh[] = [];
+  /** the far terrain and the horizon as one mesh each, drawn instead of the chunks while the view is high */
+  private farWhole: THREE.Mesh[] = [];
+  private farHigh = false;
   /** tiles of a newly arrived region still waiting in the adoption queue */
   private adoptLeft = new Map<string, number>();
   private restoreHooked = false;
@@ -356,16 +363,26 @@ export class City {
         land[k] = y > 0.5 ? 1 : 0;
       }
     const [bx0, bz0, bx1, bz1] = this.manifest.bounds;
-    // (16 km chunks, culled: the chase camera looks down, so it rarely sees any of them)
+    // (16 km chunks, culled: the chase camera looks down, so it rarely sees any of them; up high one mesh)
     const mat = makeRampMaterial({ vertexRamp: true, shadowMul: 0 });
-    for (const mesh of chunkGrid(w, h, { position: pos, normal: nrm, ramp, lightOffset: lo, glow: gl }, HORIZON_CHUNK, (a, b, c, d) => {
+    const at = { position: pos, normal: nrm, ramp, lightOffset: lo, glow: gl };
+    const keep = (a: number, b: number, c: number, d: number) => {
       if (!(land[a] || land[b] || land[c] || land[d])) return false;
       const x = pos[a * 3], z = pos[a * 3 + 2];
       // the city's own far grid covers its frame
       return !(x >= bx0 && x + step * cell <= bx1 && z >= bz0 && z + step * cell <= bz1);
-    }).values()) {
+    };
+    for (const mesh of chunkGrid(w, h, at, HORIZON_CHUNK, keep).values()) {
       mesh.material = mat;
+      mesh.visible = !this.farHigh;
       this.farGroup.add(mesh);
+      this.horizonChunks.push(mesh);
+    }
+    for (const mesh of chunkGrid(w, h, at, Infinity, keep).values()) {
+      mesh.material = mat;
+      mesh.visible = this.farHigh;
+      this.farGroup.add(mesh);
+      this.farWhole.push(mesh);
     }
   }
 
@@ -406,10 +423,18 @@ export class City {
     const C = R * FAR_CHUNK_REGIONS;
     const land = (a: number, b: number, c: number, d: number) => !(ramp[a] === Ramp.WATER && ramp[b] === Ramp.WATER && ramp[c] === Ramp.WATER && ramp[d] === Ramp.WATER);
     const mat = makeRampMaterial({ vertexRamp: true, shadowMul: 1 });
-    for (const [key, mesh] of chunkGrid(W, H, { position: pos, normal: nrm, ramp, lightOffset: lo, glow: gl }, C, land)) {
+    const at = { position: pos, normal: nrm, ramp, lightOffset: lo, glow: gl };
+    for (const [key, mesh] of chunkGrid(W, H, at, C, land)) {
       mesh.material = mat;
       this.farGroup.add(mesh);
       this.farChunks.set(key, { mesh, regions: [] });
+    }
+    // seen from high up most chunks are in view: there it's one mesh (one draw instead of a dozen)
+    for (const mesh of chunkGrid(W, H, at, Infinity, land).values()) {
+      mesh.material = mat;
+      mesh.visible = this.farHigh;
+      this.farGroup.add(mesh);
+      this.farWhole.push(mesh);
     }
     // which regions each chunk's quads lie in
     for (let j = 0; j < H - 1; j++)
@@ -573,6 +598,14 @@ export class City {
           this.refreshFarChunk(a.key);
         }
       }
+    }
+    // far terrain and horizon: culled chunks near the rooftops, one mesh each from high up
+    const high = this.viewHeight > (this.farHigh ? FAR_WHOLE_BELOW : FAR_WHOLE_ABOVE);
+    if (high !== this.farHigh) {
+      this.farHigh = high;
+      for (const m of this.farWhole) m.visible = high;
+      for (const m of this.horizonChunks) m.visible = !high;
+      for (const ch of this.farChunks.values()) this.showFarChunk(ch);
     }
     this.paint.flush(renderer, dt);
     this.ground.work();
@@ -1090,10 +1123,13 @@ export class City {
   private refreshFarChunk(key: string) {
     const ck = this.regionFar.get(key);
     const ch = ck !== undefined ? this.farChunks.get(ck) : undefined;
-    if (!ch) return;
+    if (ch) this.showFarChunk(ch);
+  }
+
+  private showFarChunk(ch: { mesh: THREE.Mesh; regions: string[] }) {
     let covered = true;
-    for (const r of ch.regions) if (!(covered = this.groundIn(r))) break;
-    ch.mesh.visible = !covered;
+    if (!this.farHigh) for (const r of ch.regions) if (!(covered = this.groundIn(r))) break;
+    ch.mesh.visible = !this.farHigh && !covered;
   }
 
   /** True if a region's own ground is all in (loaded, adopted, none of it hidden in the fog sea). */
