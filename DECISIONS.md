@@ -72,6 +72,21 @@ call), this is what we chose and why.
   footprints (far smaller than shipping meshes); far skyline = boxes for every
   building ≥16 m + a 64 m terrain grid, hidden under loaded tiles.
 
+## Opening + landmarks
+- **The opening is the brief's shot**: the bus glides out of a fog bank over the
+  ocean west of the Golden Gate, threads the gap 85 m north of the south tower
+  (so the tower fills the narrow portrait lens), passes under the deck on a low,
+  level cinematic camera, then rises into the normal chase view over the bay.
+  The fog bank doubles as the loading screen.
+- Golden Gate Bridge and Bay Bridge (west span) are hand-built from real tower
+  and anchorage coordinates; Sutro Tower and the Transamerica Pyramid are props.
+  They stay grey (landmarks aren't paintable in Phase 1).
+- The horizon (Marin Headlands, East Bay hills, San Bruno Mountain) comes from
+  the USGS 3DEP 1/3 arc-second DEM, read remotely from the COG's overviews; the
+  Marin Headlands near the bridge are baked at 2 m from the same DEM so the
+  opening never shows low-poly hills up close.
+- Trees: none on steep grassy hills (Twin Peaks, Bernal, the Headlands are bare).
+
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
   local repo until `patrickscaptainslog/struggle-bus` exists.

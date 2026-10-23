@@ -5,7 +5,7 @@ import { makeBuildingMaterial, paintUniforms } from './buildingMaterial';
 import { makeHeightGrid, makeTerrainMaterial, makeWaterMaterial } from './terrainMaterial';
 import { PaintState } from './PaintState';
 import { parseFar, type CityManifest, type FarData, type BuildingTile, type TerrainTile } from './tiles';
-import type { RegionRequest, RegionResponse, TileResult } from './cityWorker';
+import { loadRegion, type RegionRequest, type RegionResponse, type TileResult } from './regionLoader';
 
 // Streams the baked city around the bus: region bundles are fetched and
 // meshed in a worker, tiles appear inside the fog, far ones are dropped.
@@ -45,7 +45,7 @@ export class City {
   readonly root = new THREE.Group();
   readonly paint: PaintState;
   readonly buildingMaterial = makeBuildingMaterial();
-  private worker: Worker;
+  private worker: Worker | null = null;
   private nextId = 1;
   private pending = new Map<number, { key: string; lod: 0 | 1 }>();
   private regionLod = new Map<string, 0 | 1>();
@@ -72,8 +72,20 @@ export class City {
     paintUniforms.uPaintW.value = this.paint.width;
     this.regionSize = manifest.regionSize;
     for (const [rx, rz] of manifest.regions) this.regionAvailable.add(`${rx},${rz}`);
-    this.worker = new Worker(new URL('./cityWorker.ts', import.meta.url), { type: 'module' });
-    this.worker.onmessage = (ev: MessageEvent<RegionResponse>) => this.onRegion(ev.data);
+    try {
+      this.worker = new Worker(new URL('./cityWorker.ts', import.meta.url), { type: 'module' });
+      this.worker.onmessage = (ev: MessageEvent<RegionResponse>) => this.onRegion(ev.data);
+      this.worker.onerror = () => {
+        // sandboxed hosts can refuse module workers: fall back to the main thread
+        this.worker = null;
+        for (const [id, p] of this.pending) {
+          this.pending.delete(id);
+          this.regionsRequested.delete(p.key);
+        }
+      };
+    } catch {
+      this.worker = null;
+    }
     const [minX, minZ, maxX, maxZ] = manifest.bounds;
     this.maskW = Math.round((maxX - minX) / manifest.tileSize);
     this.maskH = Math.round((maxZ - minZ) / manifest.tileSize);
@@ -280,7 +292,8 @@ export class City {
       const id = this.nextId++;
       this.pending.set(id, { key, lod });
       const msg: RegionRequest = { type: 'region', id, url: new URL(`${this.baseUrl}/r_${rx}_${rz}.bin`, location.href).href, classN: this.manifest.classN, lod };
-      this.worker.postMessage(msg);
+      if (this.worker) this.worker.postMessage(msg);
+      else void loadRegion(msg).then((r) => this.onRegion(r));
     }
     // unload far regions
     for (const key of this.regionsLoaded) {

@@ -290,8 +290,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
             float wh = level > 2.5 ? floor(h21(cell + vec2(bIdx * 0.13, 3.0)) * 6.0) : 0.0;
             float accent = mod(seed, 2.0) < 1.0 ? 2.0 : 4.0;
             ramp = hueRamp(hue + accent + wh);
-            light = 0.6 + 0.12 * h21(cell + 11.0);
-            glow = 0.8;
+            light = 0.62 + 0.1 * h21(cell + 11.0);
+            glow = 0.38; // a soft glow, not a halo storm across the facade
           } else {
             ramp = ${Ramp.WINDOW}.0;
             light = 0.22 + 0.2 * sky + 0.55 * glint * sbShadow(vWorldPos, n);

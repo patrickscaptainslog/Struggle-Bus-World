@@ -59,7 +59,7 @@ export const config = {
     /** Elevation angle of the camera above the bus when cruising (deg). */
     elevationCruise: 31,
     /** Elevation when slow / hovering to aim (deg) — tilts toward diorama. */
-    elevationSlow: 44,
+    elevationSlow: 39,
     /** Elevation at full surge (deg) — levels toward the horizon. */
     elevationSurge: 24,
     /** Look-ahead in front of the bus (m), keeps the bus above the thumb zone. */

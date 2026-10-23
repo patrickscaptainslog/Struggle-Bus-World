@@ -453,10 +453,25 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1) {
     const chTop = (gable ? roofY + 2.6 : roofY + 1.7) + r() * 0.6;
     B.prism(ccw([[px - hw, pz - hw], [px + hw, pz - hw], [px + hw, pz + hw], [px - hw, pz + hw]]), roofY - 0.2, chTop, Part.CLUTTER);
   }
-  clutter(B, pts, cx, cz, roofY, arch, r);
+  if (!gable) clutter(B, pts, cx, cz, roofY, arch, r);
 }
 
 function clutter(B: Builder, pts: Array<[number, number]>, cx: number, cz: number, roofY: number, arch: number, r: () => number) {
+  if (arch === Arch.VICTORIAN || arch === Arch.STUCCO || arch === Arch.MARINA) {
+    // small-house roofs: a skylight or a roof hatch + a vent stack (texture from above)
+    let rad = Infinity;
+    for (const p of pts) rad = Math.min(rad, Math.hypot(p[0] - cx, p[1] - cz));
+    if (rad < 2.2) return;
+    const n = r() < 0.55 ? 1 : 2;
+    for (let k = 0; k < n; k++) {
+      const ang = r() * Math.PI * 2;
+      const d = rad * 0.45 * r();
+      const px = cx + Math.cos(ang) * d, pz = cz + Math.sin(ang) * d;
+      const w = 0.9 + r() * 0.9, dd = 0.9 + r() * 1.1, h = 0.35 + r() * 0.5;
+      B.prism(ccw([[px - w / 2, pz - dd / 2], [px + w / 2, pz - dd / 2], [px + w / 2, pz + dd / 2], [px - w / 2, pz + dd / 2]]), roofY - 0.05, roofY + h, Part.CLUTTER);
+    }
+    return;
+  }
   if (!(arch === Arch.FLATS || arch === Arch.COMMERCIAL || arch === Arch.TOWER || arch === Arch.CIVIC)) return;
   // rough inscribed extent: distance from center to nearest vertex
   let rad = Infinity;

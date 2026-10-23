@@ -595,7 +595,7 @@ void main() {
   // this surface's own ramp, or (close to the source) the glowing hue's tint.
   vec3 halo = texture(tGlow, vUv).rgb;
   float hAmt = max(halo.r, max(halo.g, halo.b));
-  if (glow < 0.05 && hAmt > 0.06 && hAmt * 1.2 > d2) {
+  if (glow < 0.05 && hAmt > 0.11 && hAmt * 1.1 > d2) {
     if (hAmt > 0.42 && hAmt > d * 1.25) col = haloTint(halo / hAmt);
     else col = pal(ramp, min(step + 2.0, 7.0));
   }
