@@ -144,13 +144,16 @@ export const config = {
     maxBuildingsCap: 96,
     /** Hue layout: 0 = pinwheel by angle, 1 = rings by distance, 2 = spiral (pinwheel + rings). */
     hueLayout: 0,
-    /** Pinwheel sectors around the impact (a multiple of 6 closes the rainbow). */
-    hueSectors: 12,
+    /** Ground pinwheel sectors around the impact (6 = one rainbow turn: opposite sides complementary). */
+    hueSectors: 6,
+    /** Building hues: 1 = dealt in rainbow order by angle around the impact (every hue, equal shares),
+     *  2 = dealt in equal contiguous wedges, 0 = the layout hue at the building. */
+    hueDeal: 1,
     /** Ring width for the distance layouts (m). */
     hueRing: 16,
     /** Pinwheel twist (rad per m): the sectors swirl like a catherine wheel. */
     hueTwist: 0.01,
-    /** Buildings take the layout hue shifted by this many steps, so a house never melts into the paint around it. */
+    /** Buildings' hues start this many steps past the layout / center hue (and never match the paint under them). */
     roofHueShift: 1,
     /** Ground splat edge radius (fraction of the blast radius) and raggedness of its edge (0..1). */
     groundRadius: 0.9,

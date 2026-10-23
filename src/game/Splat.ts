@@ -11,8 +11,11 @@ import { arrival, blastRadiusFor, layoutHue, makeBlastSpec, waveMax, wrapHue, ty
 // EXPLODES: every building within the blast radius blooms as the shockwave
 // reaches it (~0.3 s for the whole blast), already-painted ones escalate a
 // level (bloom -> rooftop garden -> Hundertwasser), and the ground around
-// them is splattered too (GroundPaint). Hues fan out around the impact
-// (blastLayout: pinwheel by default) and neighbors never share a hue.
+// them is splattered too (GroundPaint). The ground takes a rainbow pinwheel
+// around the impact (blastLayout); the fresh buildings are dealt the rainbow
+// in order of angle around it, so every blast of six or more shows all six
+// hues and a row of houses through the impact reads as a rainbow. Touching
+// neighbors never share a hue, and a house avoids the hue of the paint under it.
 //
 // The whole wave is written to the paint texture at impact (one upload): each
 // building's bloomTime is its arrival time, and the shader holds the pop and
@@ -51,6 +54,9 @@ interface Scheduled {
   hue: number;
   level: number;
   keep: boolean;
+  /** dealing: angle around the impact (swirled), preferred hue (-1 = not dealt yet) */
+  ang: number;
+  pref: number;
 }
 
 interface PendingBlast {
@@ -69,6 +75,7 @@ export class Splatter {
   private pending: PendingBlast[] = [];
   private near: Array<{ ref: BuildingRef; d: number }> = [];
   private reachList: Array<{ ref: BuildingRef; d: number; e: number }> = [];
+  private fresh: Scheduled[] = [];
   private t = 0;
   private seed = (Math.random() * 0xffffffff) >>> 0;
 
@@ -129,14 +136,13 @@ export class Splatter {
       const lv = paint.level(ref.index);
       const was = lv > 0.5;
       const level = was ? Math.min(3, Math.round(lv) + 1) : 1;
-      let h: number;
-      if (was) h = wrapHue(paint.get(ref.index).color);
-      else if (ref === primary) h = hue;
-      else h = this.freeHue(layoutHue(spec, ref.cx - cx, ref.cz - cz) + Math.round(S.roofHueShift), ref, plan);
+      // escalating buildings keep their hue, the primary takes the blast's; the rest are dealt below
+      const h = was ? wrapHue(paint.get(ref.index).color) : ref === primary ? hue : -1;
       maxLevel = Math.max(maxLevel, level);
       // it pops when the shockwave reaches its near edge
-      plan.push({ at: tImpact + arrival(ref === primary ? 0 : Math.max(0, n.e), r), ref, order: plan.length, total: 0, hue: h, level, keep: was });
+      plan.push({ at: tImpact + arrival(ref === primary ? 0 : Math.max(0, n.e), r), ref, order: plan.length, total: 0, hue: h, level, keep: was, ang: 0, pref: 0 });
     }
+    this.deal(plan, spec);
     for (const p of plan) p.total = plan.length;
     const pos = primary ? new THREE.Vector3(cx, primary.roofY + 0.5, cz) : new THREE.Vector3(x, city.groundAt(x, z), z);
     const ground = city.ground.begin(spec, tImpact);
@@ -145,11 +151,41 @@ export class Splatter {
     return tImpact;
   }
 
-  /** The layout's hue unless a touching neighbor already has it: then the nearest free hue. */
-  private freeHue(pref: number, ref: BuildingRef, plan: Scheduled[]): number {
+  /**
+   * Hues for the fresh buildings. Dealt (hueDeal 1): sorted by swirled angle
+   * around the impact, they take the rainbow in turn after the center hue, so
+   * a blast shows every hue in equal shares; 2 = equal contiguous wedges;
+   * 0 = the layout hue at the building (shifted). Then, nearest first, each
+   * takes the nearest hue no touching neighbor has and the ground under it hasn't.
+   */
+  private deal(plan: Scheduled[], spec: BlastSpec) {
+    const S = config.splat;
+    const mode = Math.round(S.hueDeal);
+    const shift = Math.round(S.roofHueShift);
+    const fresh = this.fresh;
+    fresh.length = 0;
+    for (const p of plan) {
+      if (p.hue >= 0) continue;
+      const dx = p.ref.cx - spec.x, dz = p.ref.cz - spec.z;
+      const a = Math.atan2(dz, dx) + spec.twist * Math.hypot(dx, dz);
+      p.ang = a - Math.floor(a / (Math.PI * 2)) * Math.PI * 2;
+      p.pref = wrapHue(layoutHue(spec, dx, dz) + shift);
+      fresh.push(p);
+    }
+    if (mode > 0) {
+      fresh.sort((a, b) => a.ang - b.ang);
+      const n = fresh.length;
+      for (let k = 0; k < n; k++) fresh[k].pref = wrapHue(spec.hue + shift + (mode === 1 ? k : Math.floor((k * HUE_COUNT) / n)));
+    }
+    for (const p of plan) if (p.hue < 0) p.hue = this.freeHue(p.pref, p.ref, plan, layoutHue(spec, p.ref.cx - spec.x, p.ref.cz - spec.z));
+  }
+
+  /** The preferred hue unless a touching neighbor already has it (or it's the ground's): then the nearest free hue. */
+  private freeHue(pref: number, ref: BuildingRef, plan: Scheduled[], ground: number): number {
     const ra = Math.sqrt(ref.area) * 0.5;
     for (const off of HUE_TRY) {
       const h = wrapHue(pref + off);
+      if (h === ground) continue;
       let clash = false;
       for (const p of plan) {
         if (p.hue !== h) continue;

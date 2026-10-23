@@ -16,6 +16,11 @@
 //           Painted Ladies, reloads, checks the paint is on screen at once (no
 //           redraw queue), then blasts straight away and records the frames (heavy.json)
 //   heavyctl  the same with 1 seeded blast (control)
+//   row     the chase view along the Painted Ladies row (from Alamo Square, looking
+//           east): one blast, then an escalation; the row's hues (row.json)
+//   deal    building hue dealing bake-off (12-sector layout hue = the first
+//           build, 6 sectors dealt in rainbow order, 6 sectors in wedges):
+//           chase + top-down each, and the hue of every bloomed building (deal.json)
 //
 // SwiftShader fps is meaningless; workMs, calls and triangles are what count.
 import { chromium } from 'playwright-core';
@@ -298,6 +303,76 @@ for (const [mode, seeds] of [['heavy', 150], ['heavyctl', 1]]) {
   console.log(mode, 'impact frames', JSON.stringify(['first', 'second'].map((k) => raw[k].filter((r) => r.t > 0.38 && r.t < 0.62).map((r) => r.work))));
   await page.screenshot({ path: `${out}/${mode}-end.png` });
   await page.close();
+}
+
+if (modes.has('row')) {
+  const page = await open('?lat=37.7762&lon=-122.4347&heading=90&skipintro&fixeddt=0.0333');
+  await hover(page);
+  await runFor(page, 1.0);
+  await page.screenshot({ path: `${out}/row-grey.png` });
+  const rowHues = () => page.evaluate(() => {
+    const g = window.__game;
+    const out = [];
+    for (let id = 76774; id <= 76783; id++) {
+      for (const [, lt] of g.city.tiles) for (const r of lt.refs) if (r.stableId === id) out.push(g.city.paint.level(r.index) > 0.5 ? g.city.paint.get(r.index).color : -1);
+    }
+    return out;
+  });
+  for (const k of [1, 2]) {
+    const t = await barf(page);
+    for (const m of [0.3, 2.5]) {
+      await page.evaluate((at) => (window.__qa.holdAt = at), t + m);
+      await page.waitForFunction(() => window.__qa.held === true, null, { timeout: 300000 });
+      await page.screenshot({ path: `${out}/row-${k}-${m.toFixed(2)}.png` });
+      await page.evaluate(() => {
+        window.__qa.holdAt = undefined;
+        window.__qa.held = false;
+      });
+    }
+    console.log(`row after blast ${k}: Steiner 76774-76783 hues`, JSON.stringify(await rowHues()));
+  }
+  await page.close();
+}
+
+if (modes.has('deal')) {
+  const variants = [
+    ['old', { 'splat.hueSectors': 12, 'splat.hueDeal': 0 }],
+    ['deal1', { 'splat.hueSectors': 6, 'splat.hueDeal': 1 }],
+    ['deal2', { 'splat.hueSectors': 6, 'splat.hueDeal': 2 }],
+  ];
+  const report = {};
+  for (const [name, cfg] of variants) {
+    await ctx.close();
+    ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
+    await ctx.addInitScript((c) => localStorage.setItem('sb.tuning.v1', JSON.stringify({ config: c, groups: {} })), cfg);
+    const page = await open(START + '&fixeddt=0.0333');
+    await hover(page);
+    await runFor(page, 1.0);
+    await barf(page);
+    await runFor(page, 2.5);
+    await page.screenshot({ path: `${out}/deal-${name}-chase.png` });
+    report[name] = await page.evaluate(([la, lo]) => {
+      const g = window.__game;
+      const [lat0, lon0] = g.city.manifest.origin;
+      const x = (lo - lon0) * 111320 * Math.cos((lat0 * Math.PI) / 180);
+      const z = -(la - lat0) * 110574;
+      const out = [];
+      for (const n of g.city.buildingsNear(x, z, 140, [])) {
+        const lv = g.city.paint.level(n.ref.index);
+        if (lv > 0.5) out.push({ id: n.ref.stableId, dx: Math.round(n.ref.cx - x), dz: Math.round(n.ref.cz - z), hue: g.city.paint.get(n.ref.index).color });
+      }
+      return out;
+    }, IMPACT);
+    const counts = [0, 0, 0, 0, 0, 0];
+    for (const b of report[name]) counts[b.hue]++;
+    const row = report[name].filter((b) => b.id >= 76774 && b.id <= 76783).sort((a, b) => a.id - b.id).map((b) => b.hue);
+    console.log(name, 'buildings', report[name].length, 'hue counts', JSON.stringify(counts), 'Steiner row 76774-76783', JSON.stringify(row));
+    await page.evaluate(([la, lo]) => (window.__qa.topDown = { lat: la, lon: lo, height: 420 }), IMPACT);
+    await runFor(page, 0.2);
+    await page.screenshot({ path: `${out}/deal-${name}-top.png` });
+    await page.close();
+  }
+  writeFileSync(`${out}/deal.json`, JSON.stringify(report, null, 1));
 }
 
 await browser.close();
