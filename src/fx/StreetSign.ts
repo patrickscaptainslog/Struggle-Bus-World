@@ -91,6 +91,18 @@ export const signTune = {
    * (looking over the roof at its back): the sign stretches up to peek over.
    */
   peekHeight: 6,
+  /**
+   * Placement beside a blast (the game's showSign): the sign rises this long (s)
+   * after the shockwave has reached the blast's edge, so the impact and the
+   * bloom are seen clean; it stands on open ground this far (m) past the blast's
+   * far side as the camera sees it, offset sideways by this fraction of the
+   * radius (off the flight line, where the next target glints), and grows so a
+   * font pixel stays at least this many game pixels at that distance.
+   */
+  showDelay: 0.35,
+  besideOut: 10,
+  besideSide: 0.45,
+  minFontPx: 1.15,
 };
 registerTunables('Signs', signTune, {
   texelW: [0.25, 0.8, 0.01],
@@ -122,6 +134,10 @@ registerTunables('Signs', signTune, {
   depthBias: [0, 60, 1],
   biasDelay: [0, 4, 0.05],
   peekHeight: [0, 20, 0.5],
+  showDelay: [0, 2, 0.05],
+  besideOut: [-40, 80, 1],
+  besideSide: [0, 1.5, 0.01],
+  minFontPx: [0.5, 3, 0.05],
 });
 
 export interface StreetSignOptions {
@@ -133,6 +149,10 @@ export interface StreetSignOptions {
   facing: number;
   /** Rainbow hue 0..5 for the flipped side. */
   hue: number;
+  /** Uniform size multiplier (a sign standing farther away grows to stay legible). Default 1. */
+  scale?: number;
+  /** Pull the depth toward the camera from the start (the sign stands clear of the bus). */
+  biasNow?: boolean;
 }
 
 const MAX_SIGNS = 4;
@@ -190,6 +210,7 @@ interface Sign {
   pendingHue: number;
   wobbleDir: number;
   text: string;
+  scale: number;
 }
 
 const tmpM = new THREE.Matrix4();
@@ -313,6 +334,7 @@ export class StreetSigns {
         peekK: 0,
         wobbleDir: i % 2 ? 1 : -1,
         text: '',
+        scale: 1,
       });
       this.mesh.setMatrixAt(i, ZERO_M);
       this.shadowMesh.setMatrixAt(i * 2, ZERO_M);
@@ -346,7 +368,7 @@ export class StreetSigns {
     const T = signTune;
     const tFlip = T.riseTime + T.holdGreen;
     const tSink = tFlip + T.flipTime + T.holdRainbow;
-    s.sinceShow = 0;
+    s.sinceShow = opts.biasNow ? T.biasDelay : 0;
     if (wasActive && s.text === text && s.age > T.riseTime * 0.6 && s.age < tSink) {
       // re-splat of the same block while its sign stands: no re-pop, it flips (again) into the new paint.
       // A double-sided blade at spin 180 deg looks the same as at 0, so rewinding into the flip is seamless.
@@ -364,7 +386,8 @@ export class StreetSigns {
     s.age = 0;
     s.text = text;
     s.pendingHue = -1;
-    if (!wasActive) s.biasK = 0;
+    if (!wasActive) s.biasK = opts.biasNow ? 1 : 0;
+    s.scale = Math.max(0.1, opts.scale ?? 1);
     s.pos.copy(opts.position);
     s.facing = opts.facing;
     s.hue = hue;
@@ -567,7 +590,7 @@ export class StreetSigns {
 
       // ---- write instance data
       tmpQ.setFromAxisAngle(UP, s.yaw + spin);
-      tmpS.set(1, 1, 1);
+      tmpS.set(s.scale, s.scale, s.scale);
       tmpM.compose(tmpV.set(s.pos.x, s.pos.y + rootY, s.pos.z), tmpQ, tmpS);
       this.mesh.setMatrixAt(i, tmpM);
       const o = i * 4;

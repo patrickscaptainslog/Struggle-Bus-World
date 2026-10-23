@@ -13,7 +13,7 @@ import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blast
 import { Input } from './game/Input';
 import { BusModel, type BusPose } from './bus/BusModel';
 import { Particles } from './fx/Particles';
-import { StreetSigns } from './fx/StreetSign';
+import { StreetSigns, signTune } from './fx/StreetSign';
 import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { Tuner, applySavedTuning } from './ui/Tuner';
@@ -343,11 +343,16 @@ async function boot() {
         }
       }
   };
+  /** the blast being shown (impact fires right before its primary's bloom, in the same update) */
+  const lastBlast = { x: 0, z: 0, r: config.splat.blastRadius };
   const splatter = new Splatter(city, {
     geyser: (targets, hues) => particles.geyser({ source: mouthWorld, sourceVel: busVel, targets, duration: config.splat.duration, travelTime: breathTravel ?? config.splat.impactDelay, hues }),
     impact: (b) => {
       const S = config.splat;
       const k = b.strength;
+      lastBlast.x = b.spec.x;
+      lastBlast.z = b.spec.z;
+      lastBlast.r = b.spec.r;
       particles.splash(b.pos, b.spec.hue, 2.2 * Math.sqrt(k));
       particles.burst(b.pos, b.spec.hue, k, city.groundAt(b.pos.x, b.pos.z));
       // paint blobs flung far out, each landing on a spatter dot the ground paint already holds
@@ -371,14 +376,70 @@ async function boot() {
       particles.sparkles(roof, Math.sqrt(ref.area) * 0.6 + 2, h, [hue, (hue + 1) % 6, (hue + 5) % 6], 14 + level * 8);
       if (level >= 2) sprouts.set(ref.index, city.roofRect(ref), hue, level, globals.uTime.value);
     },
-    primary: (ref, hue) => showSign(ref, hue),
+    // the street sign waits until the shockwave has bloomed the whole blast (game clock: hit-stop holds it)
+    primary: (ref, hue) => {
+      const r = lastBlast.r;
+      pendingSigns.push({ ref, hue, cx: lastBlast.x, cz: lastBlast.z, r, at: simTime + arrival(r, r) + signTune.showDelay });
+    },
     hitStop: (frames) => (hitStop = frames / 60),
   });
 
-  function showSign(ref: BuildingRef, hue: number) {
-    const f = city.frontOf(ref);
-    const gx = f.x + f.nx * 4.5, gz = f.z + f.nz * 4.5;
-    signs.show({ text: city.neighborhoodName(ref.hood).toUpperCase(), position: new THREE.Vector3(gx, city.groundAt(gx, gz), gz), facing: Math.atan2(f.nx, f.nz), hue });
+  // ---- the street sign stands beside the blast, never over it: the impact and the bloom are the money
+  // shot. It rises once the wave has reached the edge, on open ground past the blast's far side as the
+  // camera sees it, off the flight line (that's where the next target glints), and grows so its letters
+  // keep a game pixel at that distance. A re-splat of the same block flips the same sign.
+  const pendingSigns: Array<{ ref: BuildingRef; hue: number; cx: number; cz: number; r: number; at: number }> = [];
+  let signSpot: { x: number; y: number; z: number; facing: number; scale: number; bias: boolean; cx: number; cz: number; r: number; text: string; until: number } | null = null;
+  const signPos = new THREE.Vector3();
+  const signNdc = new THREE.Vector3();
+  const signFwd = new THREE.Vector3();
+  const SIGN_RING: ReadonlyArray<readonly [number, number]> = [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6], [12, 0], [-12, 0], [0, 12], [0, -12], [9, 9], [-9, 9], [9, -9], [-9, -9]];
+  function showSign(ref: BuildingRef, hue: number, cx: number, cz: number, r: number) {
+    const T = signTune;
+    const text = city.neighborhoodName(ref.hood).toUpperCase();
+    const life = T.riseTime + T.holdGreen + T.flipTime + T.holdRainbow + T.sinkTime;
+    const same = signSpot && simTime < signSpot.until && signSpot.text === text && Math.hypot(cx - signSpot.cx, cz - signSpot.cz) < signSpot.r;
+    if (!same) {
+      camera.getWorldDirection(signFwd);
+      const fl = Math.hypot(signFwd.x, signFwd.z);
+      const fx = fl > 1e-3 ? signFwd.x / fl : flight.fx, fz = fl > 1e-3 ? signFwd.z / fl : flight.fz;
+      const sx = -fz, sz = fx; // the view's right
+      // off the flight line: away from a turn, else on the side the blast already sits
+      const lat = (cx - camera.position.x) * sx + (cz - camera.position.z) * sz;
+      const pref = Math.abs(flight.yawRate) > 0.05 ? -Math.sign(flight.yawRate) : lat >= 0 ? 1 : -1;
+      let found: typeof signSpot = null;
+      for (const k of [1, 0.75, 0.5]) {
+        for (const side of [pref, -pref]) {
+          const out = r + T.besideOut, sd = T.besideSide * r * side;
+          const bx = cx + (fx * out + sx * sd) * k, bz = cz + (fz * out + sz * sd) * k;
+          for (const [ox, oz] of SIGN_RING) {
+            const x = bx + ox, z = bz + oz;
+            if (city.roofAt(x, z) !== null) continue; // the pole stands on the street, a sidewalk or a lawn
+            const y = city.groundAt(x, z);
+            // the blade must land inside the frame, below the top band (the sky and the horizon)
+            signNdc.set(x, y + T.poleHeight + 5, z).project(camera);
+            if (Math.abs(signNdc.x) > 0.72 || signNdc.y > 0.7 || signNdc.y < -0.6 || signNdc.z > 1) continue;
+            const dist = camera.position.distanceTo(signPos.set(x, y + T.poleHeight + 5, z));
+            const scale = clamp((T.minFontPx * pipeline.pixelWorldSize(dist)) / Math.max(0.05, T.texelW), 1, 2.2);
+            found = { x, y, z, facing: Math.atan2(-fx, -fz), scale, bias: true, cx, cz, r, text, until: 0 };
+            break;
+          }
+          if (found) break;
+        }
+        if (found) break;
+      }
+      if (!found) {
+        // nowhere open in frame: the old spot, in front of the primary's facade (the bus may still be
+        // between it and the camera there: the depth bias waits, as before)
+        const f = city.frontOf(ref);
+        const gx = f.x + f.nx * 4.5, gz = f.z + f.nz * 4.5;
+        found = { x: gx, y: city.groundAt(gx, gz), z: gz, facing: Math.atan2(f.nx, f.nz), scale: 1, bias: false, cx, cz, r, text, until: 0 };
+      }
+      signSpot = found;
+    }
+    const sp = signSpot!;
+    sp.until = simTime + life;
+    signs.show({ text, position: signPos.set(sp.x, sp.y, sp.z), facing: sp.facing, hue, scale: sp.scale, biasNow: sp.bias });
     audio.signPop();
   }
 
@@ -690,6 +751,12 @@ async function boot() {
       }
     }
     splatter.update(dt);
+    for (let i = pendingSigns.length - 1; i >= 0; i--) {
+      const ps = pendingSigns[i];
+      if (simTime < ps.at) continue;
+      pendingSigns.splice(i, 1);
+      showSign(ps.ref, ps.hue, ps.cx, ps.cz, ps.r);
+    }
     // the struggle: a wheezy exhaust sputter, more of it when the belly is full
     puffTimer -= dt;
     if (puffTimer <= 0 && dt > 0) {
