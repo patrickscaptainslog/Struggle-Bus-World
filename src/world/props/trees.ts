@@ -400,16 +400,19 @@ void main() {
       }
     }
   }
-  float light = sbLight(wp, n, lo, 1.0);
-  // painted crowns are rainbow-tinted: their shadow side turns to the paint's hue
-  ivec2 fc = ivec2(gl_FragCoord.xy);
-  float dz = float((fc.x + fc.y) & 1) * 0.03 + float(fc.y & 1) * 0.015;
-  if (painted && !trunk && !blossom && light + dz < uTint) {
+  // crisp light bands: a lobe's smooth analytic light dithered across its whole face and churned as
+  // the view moved. Snapped to the lower quarter of a ramp step, a band is flat (the resolve rounds it)
+  // and its edge falls where the step changes; the leaf-clump noise keeps the band edges leafy.
+  float light0 = sbLight(wp, n, lo, 1.0);
+  float light = (floor(light0 * 7.0) + 0.25) / 7.0;
+  // painted crowns are rainbow-tinted: their shadow side turns to the paint's hue (a clean contour: the
+  // screen-anchored checker that softened this edge crawled over the moving crown; -0.02 is its mean)
+  if (painted && !trunk && !blossom && light0 + 0.02 < uTint) {
     float tr = propHueRamp(hueSlot - 1.0);
     ramp = tr == ${Ramp.GREEN}.0 ? ${Ramp.BLUE}.0 : tr;
     // keep the tint in the saturated middle of its ramp: the deepest steps of
     // the warm hues read brown on a whole dark crown (a cypress)
-    light = 0.4 + 0.4 * light;
+    light = (floor((0.4 + 0.4 * light) * 7.0) + 0.25) / 7.0;
   }
   light = max(light, glow);
   float fog = sbFog(wp);
