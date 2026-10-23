@@ -281,72 +281,6 @@ call), this is what we chose and why.
   fog-sea pick in the resolve shader. Follow-up if a heavily painted city
   costs too many draws from altitude: a per-region mask atlas.
 
-## Paintable landmarks (producer: "the Transamerica building appears unable to get splattered")
-- **Why it couldn't be**: the landmarks are hand-built props and the bake keeps
-  the footprints under them low on purpose (no doubled towers), so there was no
-  paintable building there: the pick, the blast wave and the aim glint saw only
-  the 8 m lots inside the pyramid's base, and its material had no paint.
-- **A landmark is a first-class building now, generically**: one call where a
-  prop is placed (`paintLandmark(city, 'lm:<name>', object)`) registers its base
-  ring (the prop's convex hull in plan), its top and a 2 m height field of its
-  real surface (rasterized from its own triangles) as a normal `BuildingRef`,
-  with a paint texel from a fixed reserve past the baked buildings (32 slots; the
-  texture keeps its 138 rows), in every spatial index (`City.indexRef`). No bake
-  change, no city data change. Its tile is a one-record tile of its own, so every
-  query that takes a ref works unchanged.
-- **Saved under a string key** (`'lm:transamerica'`, `'lm:sutro'`) in the same
-  `strugglebus.paint.v1` object: no numeric stableId can ever collide with it and
-  old saves load as before (they just have no `lm:` entries).
-- **Hit where you aim**: the breath lands on the landmark's real surface, never
-  at its centroid (the top of the spire, out of the chase view): from altitude
-  the aim ray meets the height field (`surfaceAt`); the classic short shot from
-  the rooftops slams into the face in its way (its chord against the height
-  field). It wins over the low lots under it (the tallest containing footprint).
-  A blast whose radius reaches the base blooms it with the wave (by its near
-  edge, like a big block), and painted landmarks escalate L1 -> L2 -> L3.
-- **The look**, in the palette (ramp + light) like the buildings: the color
-  pours down from the top over 1.1 s (`config.bloom.landmarkFlood`: at the
-  buildings' 55 m/s a 260 m pyramid took ~5 s, and from the chase camera only
-  its bottom 100 m are in frame) with fingers of paint running ahead, while a
-  splash spreads 34 m from where the breath hit (so the impact frame already
-  shows the hit). The hue's ramp in its saturated middle, white trim (gilt at
-  L3), stained-glass window bands that melt into the wall window by window as
-  they shrink under ~2 pixels (no ring), the lobby in deep shadow of its hue,
-  the pyramid's upper spire lit (glow), Sutro's beacons as blinking rainbow rings
-  up the masts, and Sutro's red/white bands as rainbow bands (every band the next
-  hue: six hues at L1 already). L2 is a garden: vines climb from the ground (big
-  leafy lobes, never under ~2 pixels; a spiral up Sutro's narrow legs), the
-  pyramid's two wings are planted, every ledge turns to turf. L3 is
-  Hundertwasser: wavy six-hue bands, every window its own hue, and real accents:
-  a golden onion skewered by the pyramid's spire, onion turrets on the corners
-  of its base with bunting along it; golden onions where Sutro's masts leave the
-  arms and bunting strung between its legs at 72 and 126 m. The pop is the
-  buildings' at 0.3x (an 18 % squash of a 260 m tower was a lot of tower).
-- **Accents cost nothing until level 3**: they are the last vertices of the
-  prop's own mesh and its draw range stops before them until its texel says
-  level 3 (set in `onBeforeRender`): no extra draw call ever, no triangles before.
-- **Rooftop sprouts stay off landmarks** (a garden rect at the top of a spire
-  floats in the air); their gardens are in the shader. Bloom sparkles follow the
-  landmark's shape (four slices up its height, each as wide as the prop there).
-- The bridges stay unpaintable for now (brief).
-- **Measured** (tools/landmarks.mjs in the real game): from the rooftops the
-  classic shot hits the pyramid's west face at the bus's height (55-95 m up) and
-  the glint lights it; from 428 m the 20-degree ray lands 214 m up its face
-  (drop 208 m: the blast x1.7); a blast landing 40 m from its base blooms it
-  (0.18 s after the impact, with the wave); taps escalate both landmarks
-  L1 -> L2 -> L3 (hue kept); after a reload both are back at level 3, saved as
-  `lm:transamerica: [1, 5, 3]` and `lm:sutro: [1, 0, 3]` among the numeric ids.
-- **Cost** (the pyramid's chase view, everything streamed in, interleaved with
-  the branch point a3b3fa2, two runs each, SwiftShader at load ~25): draw calls
-  122-134 in both, triangles 843,608 in both (grey); painted at level 3 the same
-  draws and +2k triangles (the accents, main + sun pass); CPU work median 5.1 /
-  4.2 ms grey and 3.3 / 2.8 ms painted against 3.1 / 4.5 ms at the base: inside
-  the noise. One shader program for every landmark material, as before; the
-  paint texture keeps its 138 rows; the hull and the height field are built once
-  at boot; no per-frame allocation (the accent draw range is set in
-  onBeforeRender from the texel, the aim's landmark tests are bounding-box
-  checks).
-
 ## Data
 - **DataSF and the USGS elevation APIs are blocked by this environment's network
   policy.** We used sources that are reachable *and* license-clean (public domain):
@@ -527,13 +461,79 @@ call), this is what we chose and why.
   The fog bank doubles as the loading screen.
 - Golden Gate Bridge and Bay Bridge (west span) are hand-built from real tower
   and anchorage coordinates; Sutro Tower and the Transamerica Pyramid are props.
-  ~~They stay grey (landmarks aren't paintable in Phase 1).~~ The landmark props
-  are paintable now (see Paintable landmarks); the bridges stay grey.
+  They stay grey (landmarks aren't paintable in Phase 1).
 - The horizon (Marin Headlands, East Bay hills, San Bruno Mountain) comes from
   the USGS 3DEP 1/3 arc-second DEM, read remotely from the COG's overviews; the
   Marin Headlands near the bridge are baked at 2 m from the same DEM so the
   opening never shows low-poly hills up close.
 - Trees: none on steep grassy hills (Twin Peaks, Bernal, the Headlands are bare).
+
+## Paintable landmarks (producer: "the Transamerica building appears unable to get splattered")
+- **Why it couldn't be**: the landmarks are hand-built props and the bake keeps
+  the footprints under them low on purpose (no doubled towers), so there was no
+  paintable building there: the pick, the blast wave and the aim glint saw only
+  the 8 m lots inside the pyramid's base, and its material had no paint.
+- **A landmark is a first-class building now, generically**: one call where a
+  prop is placed (`paintLandmark(city, 'lm:<name>', object)`) registers its base
+  ring (the prop's convex hull in plan), its top and a 2 m height field of its
+  real surface (rasterized from its own triangles) as a normal `BuildingRef`,
+  with a paint texel from a fixed reserve past the baked buildings (32 slots; the
+  texture keeps its 138 rows), in every spatial index (`City.indexRef`). No bake
+  change, no city data change. Its tile is a one-record tile of its own, so every
+  query that takes a ref works unchanged.
+- **Saved under a string key** (`'lm:transamerica'`, `'lm:sutro'`) in the same
+  `strugglebus.paint.v1` object: no numeric stableId can ever collide with it and
+  old saves load as before (they just have no `lm:` entries).
+- **Hit where you aim**: the breath lands on the landmark's real surface, never
+  at its centroid (the top of the spire, out of the chase view): from altitude
+  the aim ray meets the height field (`surfaceAt`); the classic short shot from
+  the rooftops slams into the face in its way (its chord against the height
+  field). It wins over the low lots under it (the tallest containing footprint).
+  A blast whose radius reaches the base blooms it with the wave (by its near
+  edge, like a big block), and painted landmarks escalate L1 -> L2 -> L3.
+- **The look**, in the palette (ramp + light) like the buildings: the color
+  pours down from the top over 1.1 s (`config.bloom.landmarkFlood`: at the
+  buildings' 55 m/s a 260 m pyramid took ~5 s, and from the chase camera only
+  its bottom 100 m are in frame) with fingers of paint running ahead, while a
+  splash spreads 34 m from where the breath hit (so the impact frame already
+  shows the hit). The hue's ramp in its saturated middle, white trim (gilt at
+  L3), stained-glass window bands that melt into the wall window by window as
+  they shrink under ~2 pixels (no ring), the lobby in deep shadow of its hue,
+  the pyramid's upper spire lit (glow), Sutro's beacons as blinking rainbow rings
+  up the masts, and Sutro's red/white bands as rainbow bands (every band the next
+  hue: six hues at L1 already). L2 is a garden: vines climb from the ground (big
+  leafy lobes, never under ~2 pixels; a spiral up Sutro's narrow legs), the
+  pyramid's two wings are planted, every ledge turns to turf. L3 is
+  Hundertwasser: wavy six-hue bands, every window its own hue, and real accents:
+  a golden onion skewered by the pyramid's spire, onion turrets on the corners
+  of its base with bunting along it; golden onions where Sutro's masts leave the
+  arms and bunting strung between its legs at 72 and 126 m. The pop is the
+  buildings' at 0.3x (an 18 % squash of a 260 m tower was a lot of tower).
+- **Accents cost nothing until level 3**: they are the last vertices of the
+  prop's own mesh and its draw range stops before them until its texel says
+  level 3 (set in `onBeforeRender`): no extra draw call ever, no triangles before.
+- **Rooftop sprouts stay off landmarks** (a garden rect at the top of a spire
+  floats in the air); their gardens are in the shader. Bloom sparkles follow the
+  landmark's shape (four slices up its height, each as wide as the prop there).
+- The bridges stay unpaintable for now (brief); this supersedes "landmarks
+  aren't paintable in Phase 1" under Opening + landmarks for the props.
+- **Measured** (tools/landmarks.mjs in the real game): from the rooftops the
+  classic shot hits the pyramid's west face at the bus's height (55-95 m up) and
+  the glint lights it; from 428 m the 20-degree ray lands 214 m up its face
+  (drop 208 m: the blast x1.7); a blast landing 40 m from its base blooms it
+  (0.18 s after the impact, with the wave); taps escalate both landmarks
+  L1 -> L2 -> L3 (hue kept); after a reload both are back at level 3, saved as
+  `lm:transamerica: [1, 5, 3]` and `lm:sutro: [1, 0, 3]` among the numeric ids.
+- **Cost** (the pyramid's chase view, everything streamed in, interleaved with
+  the branch point a3b3fa2, two runs each, SwiftShader at load ~25): draw calls
+  122-134 in both, triangles 843,608 in both (grey); painted at level 3 the same
+  draws and +2k triangles (the accents, main + sun pass); CPU work median 5.1 /
+  4.2 ms grey and 3.3 / 2.8 ms painted against 3.1 / 4.5 ms at the base: inside
+  the noise. One shader program for every landmark material, as before; the
+  paint texture keeps its 138 rows; the hull and the height field are built once
+  at boot; no per-frame allocation (the accent draw range is set in
+  onBeforeRender from the texel, the aim's landmark tests are bounding-box
+  checks).
 
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
