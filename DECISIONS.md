@@ -451,6 +451,100 @@ cross-checked in the browser with `tools/feel.mjs`.
   SwiftShader host at load ~26: inside its noise).
 
 ## Data
+- **OpenStreetMap, as much as possible** (producer: "Use OpenStreetMap as much
+  as possible to ensure we create the highest quality game"; the earlier "no
+  OpenStreetMap" rule is lifted, we comply with the ODbL instead). The OSM
+  servers (openstreetmap.org, Overpass, Geofabrik) are blocked by this
+  environment's network policy; **Overture Maps' GeoParquet release on S3 is
+  reachable and is OpenStreetMap** for buildings, streets, land, water and
+  names (plus a few other open sources it records per feature).
+  `tools/bake/overture.py` reads every file's footer once (cached), then only
+  the row groups whose bbox statistics touch the city (HTTP range reads via
+  pyarrow's S3 filesystem; DuckDB's httpfs / spatial extensions can't be
+  downloaded here): SF's ten feature types in ~2 min, 83 MB.
+- **Footprints from OSM** (SF: the city's own parcel-accurate building import):
+  real lot lines, real row houses, the real Painted Ladies, instead of USA
+  Structures' merged rows cut into synthetic ~25 ft lots. Conflation: OSM /
+  Overture footprint first; a USA Structures row only where OSM footprints cover
+  less than a quarter of it (SF: @USAROWS@ rows, @USAPCT@ % of the built area),
+  and only if the LiDAR doesn't see bare ground there (@DEMOL@ such rows were
+  demolished since: dropped). Under OSM footprints USA Structures still gives
+  occupancy (OSM tags it on few SF buildings) and a height fallback.
+  Overture's own non-OSM footprints (Microsoft ML, Esri: @OVT@) stay where OSM
+  has nothing. Skipped: building=roof canopies (no walls), underground ones,
+  floating min_height ones without parts. A multipolygon's separate pieces are
+  separate buildings; courtyards >= 60 m^2 stay open (the footprint is cut
+  through them into flat-roofed pieces of one building), light wells are filled.
+- **Heights**: the LiDAR rooftops win where they agree with the footprint (the
+  same rules as before: coverage, tree crowns, slivers); else OSM height, else
+  OSM building:levels x 3.2 m + 1 m, else the USA Structures row under it, else
+  the neighbours' median, else a default by class. SF by source: @HSRC@.
+- **Building parts** (building:part=*, SF: @NPARTS@ parts on @NPB@ buildings) drive
+  the massing where they agree with the LiDAR: the parts model (each part its
+  own base, top and roof; a dome counts at mid-rise) is rasterized on the 1 m
+  raster and compared with the rooftops; the parts win when their mean height
+  error is within 5 % of the best LiDAR model (tiers or a flat roof) and under
+  25 %. SF: @PUSED@ buildings take their parts (555 California, 50 California,
+  100 Pine, City Hall's dome...), @PREJ@ keep the LiDAR tiers (Salesforce
+  Tower's taper, Embarcadero Center's notched corners and most towers: their
+  parts are coarser than the tuned tiers or misregistered). Without LiDAR the
+  parts are the massing (Amsterdam: @AMSPARTS@).
+- **Roofs** from OSM roof:shape / roof:height / roof:direction /
+  roof:orientation, per part, into the tiles ('SBB3'): flat, gabled, hipped,
+  pyramidal, skillion, dome, onion, round, gambrel, mansard, half-hipped,
+  saltbox, cone. BuildingMesher builds a planar roof as the lowest of a few
+  planes in the roof's frame (each face is the footprint clipped to where its
+  plane is lowest; the walls rise to the roof at the gable ends, with their
+  windows), domes / onions / cones by revolving the footprint ring. SF has few
+  tagged roofs (@SFROOFS@, the Painted Ladies on Steiner among them); untagged
+  Victorians keep the procedural front gables. A roof shape from the 2 m LiDAR
+  was tried and dropped: a gabled Painted Lady fits a gable only ~20 % better
+  than a flat plane at 2 m (1,271 of 1,282 Alamo Square houses read flat).
+  A config can default untagged small houses (Amsterdam: gabled).
+- **Colours and materials** (building:colour, roof:colour, building:material,
+  roof:material) are carried into the tiles for the painted world. The grey
+  city stays grey: a mapped facade colour only picks the building's seed so its
+  grey tone follows the colour's lightness.
+- **Ground from OSM** (2 m class texture): streets by class and width, a 3.5 m
+  sidewalk beside every street that has them (mapped sidewalks too), plazas,
+  piers and hard pitches, footways and park paths, rail, parks / grass, woods,
+  sand, rock, garden yards inside residential blocks (paved lots inside
+  commercial ones), lakes, ponds, pools, and the **real coastline**: the sea is
+  what OSM's land polygons leave out where the DEM is low. Pier decks over the
+  water are raised to 2.5 m (the bare-earth DEM has water there). Bridges,
+  tunnels, indoor and elevated ways are left off the ground.
+- **Trees**: OSM's mapped trees (SF: @MAPPED@, species -> cypress / pine /
+  street tree, height -> size); procedural park trees only inside real parks,
+  cemeteries, gardens and woods (never on pitches, fairways or playgrounds);
+  procedural street trees on the sidewalks where no mapped tree stands.
+- **Names**: every named street centerline is stored per terrain tile ('SBT2')
+  and the street sign at an impact shows the nearest real street ("HAIGHT ST":
+  US suffixes abbreviated like the real blades), the neighbourhood when no
+  street is in reach. Neighbourhoods come from OSM divisions (polygons where
+  mapped, label points else; plazas mapped as microhoods left out), plus the
+  config's hand-placed ones OSM lacks.
+- **Stable ids from OSM ids** (FNV-1a of 'w123' / 'r45', ranges per source, see
+  ARCHITECTURE): a building keeps its id across re-bakes whatever else changes,
+  the key a shared-paint server will use. Saved paint from the old rank ids
+  can't map: the stores moved to strugglebus.paint.v2 / strugglebus.ground.v3
+  and the old ones are dropped on load, never misapplied.
+- **Licensing**: the tiles are a derivative database under the ODbL 1.0
+  (`public/city/DATA_LICENSE.md`). The game credits "© OpenStreetMap
+  contributors, Overture Maps Foundation" small, while the opening plays
+  (gone after ~7 s, never a HUD) and in the tuner.
+- **City-agnostic**: `tools/bake/cities/amsterdam.json` (the Jordaan, 2.4 x 2 km,
+  no LiDAR, no DEM: a flat 1 m city with the canals carved to -0.9 m) bakes from
+  the same code: @AMS@. Play it with `?city=amsterdam`. Copernicus GLO-30 on S3
+  is a surface model (roofs and trees in it); a flat ground is truer for a
+  canal city.
+- Terrain: **USGS 3DEP 1 m DEM** (2023 SF lidar project), read straight from the
+  USGS S3 bucket (public domain), and the 1/3 arc-second DEM around it.
+- Building style still comes from occupancy + size + district (Sunset/Parkside/
+  Outer Richmond/Excelsior -> stucco row houses; Marina -> Mediterranean;
+  everywhere else narrow residential -> Victorian); occupancy is OSM's where
+  tagged.
+
+### Before OpenStreetMap (superseded, kept for the record)
 - **DataSF and the USGS elevation APIs are blocked by this environment's network
   policy.** We used sources that are reachable *and* license-clean (public domain):
   - Terrain: **USGS 3DEP 1 m DEM** (2023 SF lidar project), read straight from the

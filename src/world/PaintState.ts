@@ -9,10 +9,15 @@ import { uploadRect } from '../render/upload';
 //   blast writes its whole wave at impact and the shader times each bloom),
 //   a = faction (0 none, 1 Rainbow) + 2 when the building was already painted
 //   (an escalation: it stays painted until its new pop instead of going grey)
-// Persistence: localStorage, keyed by the building's stable id (dataset id + lot),
+// Persistence: localStorage, keyed by the building's stable id (from its OSM id; see bake.py ID_RANGES),
 //   value = [faction, color, level]. Applied as tiles stream in.
 
-const STORE_KEY = 'strugglebus.paint.v1';
+// v2: stable ids from OpenStreetMap ids (the OSM re-bake); v1 saves keyed the old USA Structures ranks
+// and are dropped, never applied to whatever building holds that number now. Other cities: v2:<slug>.
+const STORE_V1 = 'strugglebus.paint.v1';
+function storeKey(slug: string): string {
+  return slug === 'sf' ? 'strugglebus.paint.v2' : `strugglebus.paint.v2:${slug}`;
+}
 export const FACTION_RAINBOW = 1;
 
 export interface PaintRecord {
@@ -38,7 +43,10 @@ export class PaintState {
   private indexToStable = new Map<number, number>();
   paintedCount = 0;
 
-  constructor(buildingCount: number) {
+  private readonly key: string;
+
+  constructor(buildingCount: number, slug = 'sf') {
+    this.key = storeKey(slug);
     this.height = Math.max(1, Math.ceil(buildingCount / this.width));
     this.data = new Float32Array(this.width * this.height * 4);
     this.texture = new THREE.DataTexture(this.data, this.width, this.height, THREE.RGBAFormat, THREE.FloatType);
@@ -47,7 +55,8 @@ export class PaintState {
     this.texture.generateMipmaps = false;
     this.texture.needsUpdate = true;
     try {
-      const raw = localStorage.getItem(STORE_KEY);
+      localStorage.removeItem(STORE_V1);
+      const raw = localStorage.getItem(this.key);
       if (raw) this.saved = JSON.parse(raw) ?? {};
     } catch {
       this.saved = {};
@@ -120,7 +129,7 @@ export class PaintState {
     this.texture.needsUpdate = true;
     this.dirty.clear();
     try {
-      localStorage.removeItem(STORE_KEY);
+      localStorage.removeItem(this.key);
     } catch {
       /* private mode */
     }
@@ -149,7 +158,7 @@ export class PaintState {
 
   persist() {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(this.saved));
+      localStorage.setItem(this.key, JSON.stringify(this.saved));
     } catch {
       /* storage full or blocked: paint still works this session */
     }

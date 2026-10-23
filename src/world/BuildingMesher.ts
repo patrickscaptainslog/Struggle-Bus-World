@@ -21,7 +21,7 @@
 //   aBld2     vec2   building top y, front width of this part (m)
 
 import type { BuildingTile } from './tiles';
-import { Arch } from './tiles';
+import { Arch, RoofShape } from './tiles';
 
 export const Part = {
   SIDE: 0,
@@ -304,7 +304,7 @@ export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): MeshArrays
     g.cx = cx / Math.max(1, e - s);
     g.cz = cz / Math.max(1, e - s);
     g.top = 0;
-    for (let k = i; k < j; k++) g.top = Math.max(g.top, t.roofY[k], t.baseY[k] + 2.5);
+    for (let k = i; k < j; k++) g.top = Math.max(g.top, t.roofY[k] + t.roofH[k], t.baseY[k] + 2.5);
     for (let k = i; k < j; k++) meshBuilding(B, t, k, opts.lod, g);
     i = j;
   }
@@ -412,10 +412,15 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
   }
   const rectArea = (s1 - s0) * (t1 - t0);
   const rectangularity = rectArea > 0 ? Math.abs(area) / 2 / rectArea : 0;
-  const gable = lod === 0 && single && isVic && frontW > 4.5 && frontW < 11 && rectangularity > 0.82 && (seed % 100) < 38 && H < 15;
+  // a mapped roof shape (OSM roof:shape): its own roof; untagged Victorians keep the procedural front gables
+  const shape = t.roofShape[i];
+  const shaped = shape >= RoofShape.GABLED && t.roofH[i] > 0.3 && topScale >= 1;
+  const gable = lod === 0 && single && isVic && shape === RoofShape.NONE && frontW > 4.5 && frontW < 11 && rectangularity > 0.82 && (seed % 100) < 38 && H < 15;
   // no parapet where the tier above rises flush from this edge
   const flush = !single && front !== 255 && flushAbove(t, g, i, fa[0], fa[1], fb[0], fb[1]);
-  const parapet = lod === 0 && !gable && !flush && front !== 255 && topScale >= 1 ? (isVic ? 1.3 : isFlats ? 0.9 : arch === Arch.COMMERCIAL || arch === Arch.CIVIC ? 0.7 : arch === Arch.TOWER ? 1.2 : 0.5) : 0;
+  // (built first: a footprint it can't roof keeps its parapet and flat roof)
+  const builtShape = shaped && shapedRoof(B, pts, roofY, t.roofH[i], shape, t.roofDir[i], front !== 255 ? front : 0, front, front2, streetY, corner);
+  const parapet = lod === 0 && !gable && !builtShape && !flush && front !== 255 && topScale >= 1 ? (isVic ? 1.3 : isFlats ? 0.9 : arch === Arch.COMMERCIAL || arch === Arch.CIVIC ? 0.7 : arch === Arch.TOWER ? 1.2 : 0.5) : 0;
 
   // ---- walls
   // perimeter u starts at the front edge so the facade pattern lines up with it
@@ -470,7 +475,9 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
   }
 
   // ---- roof
-  if (gable) {
+  if (builtShape) {
+    // (the roof covers the footprint)
+  } else if (gable) {
     const over = 0.35;
     const rise = Math.min(4.5, (s1 - s0) * 0.5 * 0.78);
     const sm = (s0 + s1) / 2;
@@ -510,7 +517,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
   // rooftop clutter: only on roof that is open to the sky
   const open = single ? null : (x: number, z: number) => !covered(t, g, i, x, z);
   if (lod === 1 || front === 255) {
-    if (lod === 0) clutter(B, pts, cx, cz, roofY, arch, r, open);
+    if (lod === 0 && !builtShape) clutter(B, pts, cx, cz, roofY, arch, r, open);
     return;
   }
 
@@ -601,7 +608,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
     const chTop = (gable ? roofY + 2.6 : roofY + 1.7) + r() * 0.6;
     B.prism(ccw([[px - hw, pz - hw], [px + hw, pz - hw], [px + hw, pz + hw], [px - hw, pz + hw]]), roofY - 0.2, chTop, Part.CLUTTER);
   }
-  if (!gable) clutter(B, pts, cx, cz, roofY, arch, r, open);
+  if (!gable && !builtShape) clutter(B, pts, cx, cz, roofY, arch, r, open);
 }
 
 function clutter(B: Builder, pts: Array<[number, number]>, cx: number, cz: number, roofY: number, arch: number, r: () => number, open: ((x: number, z: number) => boolean) | null) {
@@ -661,4 +668,228 @@ function ccw(ring: Array<[number, number]>): Array<[number, number]> {
     a += p[0] * q[1] - q[0] * p[1];
   }
   return a < 0 ? ring.slice().reverse() : ring;
+}
+
+// ---- shaped roofs (OpenStreetMap roof:shape, 'SBB3')
+// A planar roof is a height field over the footprint: the lowest of a few planes in the roof's frame
+// (s along the ridge, t across it, the direction byte says which way the main face looks). Each plane's
+// face is the footprint clipped to where that plane is the lowest; the walls rise above the eave where
+// the roof does (gable ends, a skillion's high side). Domes, onions, cones and pyramids on round or
+// irregular footprints are revolved: the footprint ring scaled toward its centroid, band by band.
+
+/** Planes h = a*s + b*t + c (meters above the eave) of a planar roof shape over extents [s0, s1] x [t0, t1]. */
+function roofPlanes(shape: number, s0: number, s1: number, t0: number, t1: number, R: number): number[] | null {
+  const W = t1 - t0, L = s1 - s0;
+  const kt = (2 * R) / W; // pitch of a face rising from the long side to the ridge
+  const P: number[] = [];
+  const add = (a: number, b: number, c: number) => P.push(a, b, c);
+  const front = (k: number, off = 0) => add(0, k, off - k * t0); // rises from t0
+  const back = (k: number, off = 0) => add(0, -k, off + k * t1); // rises from t1
+  const left = (k: number, off = 0) => add(k, 0, off - k * s0);
+  const right = (k: number, off = 0) => add(-k, 0, off + k * s1);
+  switch (shape) {
+    case RoofShape.GABLED: front(kt); back(kt); break;
+    case RoofShape.HIPPED: front(kt); back(kt); left(kt); right(kt); break;
+    case RoofShape.PYRAMIDAL: front(kt); back(kt); left((2 * R) / L); right((2 * R) / L); break;
+    case RoofShape.SKILLION: back(R / W); break;
+    case RoofShape.HALF_HIPPED: front(kt); back(kt); left(kt, 0.6 * R); right(kt, 0.6 * R); break;
+    case RoofShape.SALTBOX: front(R / (0.62 * W)); back(R / (0.38 * W)); break;
+    case RoofShape.GAMBREL: {
+      // a steep lower slope to 3/4 of the rise over the outer 18 % of the width, a gentle one above
+      const ks = (0.75 * R) / (0.18 * W), kg = (0.25 * R) / (0.32 * W);
+      front(ks); back(ks); front(kg, 0.75 * R - kg * 0.18 * W); back(kg, 0.75 * R - kg * 0.18 * W);
+      break;
+    }
+    case RoofShape.MANSARD: {
+      const k = R / (0.18 * Math.min(W, L));
+      front(k); back(k); left(k); right(k); add(0, 0, R);
+      break;
+    }
+    case RoofShape.ROUND: {
+      // a barrel vault: tangents of the half-ellipse across the width
+      const tm = (t0 + t1) / 2, hw = W / 2;
+      for (let j = 0; j < 6; j++) {
+        const ph = ((j + 0.5) / 6) * Math.PI;
+        const sn = Math.sin(ph), cs = Math.cos(ph);
+        // y = (R / sin) (1 - (t - tm) cos / hw)
+        add(0, (-R * cs) / (sn * hw), (R / sn) * (1 + (tm * cs) / hw));
+      }
+      break;
+    }
+    default:
+      return null;
+  }
+  return P;
+}
+
+/** Sutherland-Hodgman: the part of polygon (flat s, t pairs) where a*s + b*t + c <= 0. */
+function clipHalf(poly: number[], a: number, b: number, c: number): number[] {
+  const out: number[] = [];
+  const m = poly.length / 2;
+  for (let k = 0; k < m; k++) {
+    const s1 = poly[k * 2], t1 = poly[k * 2 + 1];
+    const k2 = (k + 1) % m;
+    const s2 = poly[k2 * 2], t2 = poly[k2 * 2 + 1];
+    const f1 = a * s1 + b * t1 + c, f2 = a * s2 + b * t2 + c;
+    if (f1 <= 1e-9) out.push(s1, t1);
+    if ((f1 < -1e-9 && f2 > 1e-9) || (f1 > 1e-9 && f2 < -1e-9)) {
+      const u = f1 / (f1 - f2);
+      out.push(s1 + (s2 - s1) * u, t1 + (t2 - t1) * u);
+    }
+  }
+  return out;
+}
+
+const DOME: Array<[number, number]> = [[1, 0], [0.924, 0.383], [0.707, 0.707], [0.383, 0.924], [0, 1]];
+const ONION: Array<[number, number]> = [[1, 0], [1.14, 0.16], [1.12, 0.33], [0.86, 0.52], [0.48, 0.7], [0.18, 0.86], [0, 1]];
+const CONE: Array<[number, number]> = [[1, 0], [0, 1]];
+
+/**
+ * A shaped roof on the ring pts (positive shoelace in x, z), eave at y, rising R m. Returns false when the
+ * shape can't be built here (the caller draws its usual roof). startK / front / front2: the walls' facade
+ * layout (u along the facade from the front edge), so gable-end walls continue the windows below.
+ */
+function shapedRoof(B: Builder, pts: Array<[number, number]>, y: number, R: number, shape: number, dirByte: number,
+  startK: number, front: number, front2: number, streetY: number, corner: number): boolean {
+  const n = pts.length;
+  if (n < 3 || R < 0.3) return false;
+  const th = (dirByte / 256) * Math.PI * 2;
+  const Dx = Math.cos(th), Dz = Math.sin(th); // across the ridge (the main face looks this way)
+  const Sx = -Dz, Sz = Dx; // along the ridge
+  let cx = 0, cz = 0;
+  for (const p of pts) { cx += p[0]; cz += p[1]; }
+  cx /= n; cz /= n;
+  const st: number[] = [];
+  let s0 = Infinity, s1 = -Infinity, t0 = Infinity, t1 = -Infinity, area2 = 0;
+  for (let k = 0; k < n; k++) {
+    const p = pts[k], q = pts[(k + 1) % n];
+    area2 += p[0] * q[1] - q[0] * p[1];
+    const s = (p[0] - cx) * Sx + (p[1] - cz) * Sz, t = (p[0] - cx) * Dx + (p[1] - cz) * Dz;
+    st.push(s, t);
+    s0 = Math.min(s0, s); s1 = Math.max(s1, s); t0 = Math.min(t0, t); t1 = Math.max(t1, t);
+  }
+  const W = t1 - t0, L = s1 - s0;
+  if (W < 1 || L < 1) return false;
+  const rect = Math.abs(area2) / 2 / (W * L);
+  if (shape === RoofShape.DOME || shape === RoofShape.ONION || shape === RoofShape.CONE || (shape === RoofShape.PYRAMIDAL && rect < 0.8)) {
+    revolve(B, pts, y, R, shape === RoofShape.DOME ? DOME : shape === RoofShape.ONION ? ONION : CONE);
+    return true;
+  }
+  if (rect < 0.55) return false; // a planar roof over a far-from-rectangular footprint would cross courtyards
+  const P = roofPlanes(shape, s0, s1, t0, t1, R);
+  if (!P) return false;
+  const np = P.length / 3;
+  const H = (s: number, t: number) => {
+    let h = Infinity;
+    for (let k = 0; k < np; k++) h = Math.min(h, P[k * 3] * s + P[k * 3 + 1] * t + P[k * 3 + 2]);
+    return Math.max(0, h);
+  };
+  // the faces: each plane where it is the lowest
+  for (let k = 0; k < np; k++) {
+    let poly = st;
+    for (let j = 0; j < np && poly.length >= 6; j++) {
+      if (j !== k) poly = clipHalf(poly, P[k * 3] - P[j * 3], P[k * 3 + 1] - P[j * 3 + 1], P[k * 3 + 2] - P[j * 3 + 2]);
+    }
+    const m = poly.length / 2;
+    if (m < 3) continue;
+    const xz: number[] = [];
+    let a2 = 0;
+    for (let q = 0; q < m; q++) {
+      const s = poly[q * 2], t = poly[q * 2 + 1];
+      xz.push(cx + s * Sx + t * Dx, cz + s * Sz + t * Dz);
+    }
+    for (let q = 0; q < m; q++) {
+      const q2 = (q + 1) % m;
+      a2 += xz[q * 2] * xz[q2 * 2 + 1] - xz[q2 * 2] * xz[q * 2 + 1];
+    }
+    if (Math.abs(a2) < 0.05) continue;
+    const a = P[k * 3], b = P[k * 3 + 1];
+    const hx = a * Sx + b * Dx, hz = a * Sz + b * Dz;
+    const nl = Math.hypot(hx, 1, hz);
+    const part = Math.hypot(hx, hz) > 0.12 ? Part.ROOF_SLOPE : Part.ROOF;
+    const tris = triangulate(xz);
+    const base = B.vc;
+    for (let q = 0; q < m; q++) {
+      const h = Math.max(0, a * poly[q * 2] + b * poly[q * 2 + 1] + P[k * 3 + 2]);
+      B.vert(xz[q * 2], y + h, xz[q * 2 + 1], -hx / nl, 1 / nl, -hz / nl, xz[q * 2], xz[q * 2 + 1], part);
+    }
+    for (let q = 0; q < tris.length; q += 3) {
+      if (a2 > 0) B.idx.push(base + tris[q], base + tris[q + 2], base + tris[q + 1]);
+      else B.idx.push(base + tris[q], base + tris[q + 1], base + tris[q + 2]);
+    }
+  }
+  // the walls above the eave: wherever the roof meets an outer wall above the eave (gable ends)
+  let u = 0;
+  const us: number[] = [];
+  for (let j = 0; j < n; j++) {
+    const k = (startK + j) % n, k2 = (k + 1) % n;
+    const ax = pts[k][0], az = pts[k][1], bx = pts[k2][0], bz = pts[k2][1];
+    const L2 = Math.hypot(bx - ax, bz - az);
+    if (L2 < 0.05) continue;
+    const sa = st[k * 2], ta = st[k * 2 + 1], sb = st[k2 * 2], tb = st[k2 * 2 + 1];
+    us.length = 0;
+    us.push(0, 1);
+    for (let p = 0; p < np; p++)
+      for (let q = p + 1; q < np; q++) {
+        const da = (P[p * 3] - P[q * 3]) * sa + (P[p * 3 + 1] - P[q * 3 + 1]) * ta + (P[p * 3 + 2] - P[q * 3 + 2]);
+        const db = (P[p * 3] - P[q * 3]) * sb + (P[p * 3 + 1] - P[q * 3 + 1]) * tb + (P[p * 3 + 2] - P[q * 3 + 2]);
+        if (da * db < 0) us.push(da / (da - db));
+      }
+    // (and where the roof leaves the eave: a plane crossing zero)
+    for (let p = 0; p < np; p++) {
+      const da = P[p * 3] * sa + P[p * 3 + 1] * ta + P[p * 3 + 2], db = P[p * 3] * sb + P[p * 3 + 1] * tb + P[p * 3 + 2];
+      if (da * db < 0) us.push(da / (da - db));
+    }
+    us.sort((x, z) => x - z);
+    const isFront = k === front || k === front2;
+    const part = isFront ? Part.FRONT : Part.SIDE;
+    const flags = (isFront ? 1 : 0) | corner;
+    const want: V3 = [(bz - az) / L2, 0, -(bx - ax) / L2];
+    for (let q = 0; q + 1 < us.length; q++) {
+      const u0 = us[q], u1 = us[q + 1];
+      if (u1 - u0 < 1e-4) continue;
+      const h0 = H(sa + (sb - sa) * u0, ta + (tb - ta) * u0), h1 = H(sa + (sb - sa) * u1, ta + (tb - ta) * u1);
+      if (Math.max(h0, h1) < 0.03) continue;
+      const p0x = ax + (bx - ax) * u0, p0z = az + (bz - az) * u0, p1x = ax + (bx - ax) * u1, p1z = az + (bz - az) * u1;
+      const fu0 = u + L2 * u0, fu1 = u + L2 * u1, v0 = y - streetY;
+      if (h0 > 0.03 && h1 > 0.03) {
+        B.quadF([p0x, y, p0z], [p1x, y, p1z], [p1x, y + h1, p1z], [p0x, y + h0, p0z], [fu0, v0, fu1, v0, fu1, v0 + h1, fu0, v0 + h0], part, want, flags);
+      } else if (h1 > 0.03) {
+        B.triF([p0x, y, p0z], [p1x, y, p1z], [p1x, y + h1, p1z], [fu0, v0, fu1, v0, fu1, v0 + h1], part, want, flags);
+      } else {
+        B.triF([p0x, y, p0z], [p1x, y, p1z], [p0x, y + h0, p0z], [fu0, v0, fu1, v0, fu0, v0 + h0], part, want, flags);
+      }
+    }
+    u += L2;
+  }
+  return true;
+}
+
+/** A roof of revolution: the ring scaled toward its area centroid by profile[j][0] at y + R * profile[j][1]. */
+function revolve(B: Builder, pts: Array<[number, number]>, y: number, R: number, profile: Array<[number, number]>) {
+  const n = pts.length;
+  let ac = 0, acx = 0, acz = 0;
+  for (let k = 0; k < n; k++) {
+    const a = pts[k], b = pts[(k + 1) % n];
+    const cr = a[0] * b[1] - b[0] * a[1];
+    ac += cr; acx += (a[0] + b[0]) * cr; acz += (a[1] + b[1]) * cr;
+  }
+  let cx = 0, cz = 0;
+  for (const p of pts) { cx += p[0]; cz += p[1]; }
+  cx /= n; cz /= n;
+  if (Math.abs(ac) > 1e-6) { cx = acx / (3 * ac); cz = acz / (3 * ac); }
+  const P = (k: number, j: number): V3 => {
+    const sg = profile[j][0];
+    return [cx + (pts[k % n][0] - cx) * sg, y + R * profile[j][1], cz + (pts[k % n][1] - cz) * sg];
+  };
+  for (let j = 0; j + 1 < profile.length; j++) {
+    for (let k = 0; k < n; k++) {
+      const mx = (pts[k][0] + pts[(k + 1) % n][0]) / 2 - cx, mz = (pts[k][1] + pts[(k + 1) % n][1]) / 2 - cz;
+      const ml = Math.hypot(mx, mz) || 1;
+      const want: V3 = [mx / ml, 0.35, mz / ml];
+      const a = P(k, j), b = P(k + 1, j), c = P(k + 1, j + 1), d = P(k, j + 1);
+      if (profile[j + 1][0] <= 1e-6) B.triF(a, b, c, [0, 0, 1, 0, 0.5, 1], Part.ROOF_SLOPE, want);
+      else B.quadF(a, b, c, d, [0, 0, 1, 0, 1, 1, 0, 1], Part.ROOF_SLOPE, want);
+    }
+  }
 }

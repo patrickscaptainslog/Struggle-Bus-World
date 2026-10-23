@@ -4,7 +4,8 @@ import { Ramp } from '../render/palette';
 import { Ground } from './tiles';
 import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from './GroundPaint';
 
-// Ground: asphalt streets, lighter sidewalks, grey lawns, still water.
+// Ground: asphalt streets, lighter sidewalks, grey lawns, still water; with OpenStreetMap also pale
+// plazas and park paths, darker woods and garden yards, warm pale sand, dark rail beds, light rock.
 // The 2 m class texture is resolved with smooth per-class masks so street
 // edges are clean diagonals instead of 2 m stair steps.
 // Blasts splatter it (GroundPaint: a per-tile mask, organic edges, spatter
@@ -62,6 +63,13 @@ const FS = /* glsl */ `
     if (bc == ${Ground.SIDEWALK}.0) { ramp = ${Ramp.GREY_LIGHT}.0; lo = -0.04; }
     else if (bc == ${Ground.GRASS}.0) { ramp = ${Ramp.GREEN_GREY}.0; lo = 0.02; }
     else if (bc == ${Ground.WATER}.0) { ramp = ${Ramp.WATER}.0; lo = 0.0; }
+    else if (bc == ${Ground.PLAZA}.0) { ramp = ${Ramp.GREY_LIGHT}.0; lo = 0.03; }
+    else if (bc == ${Ground.PATH}.0) { ramp = ${Ramp.GREY_LIGHT}.0; lo = 0.0; }
+    else if (bc == ${Ground.YARD}.0) { ramp = ${Ramp.GREEN_GREY}.0; lo = -0.06; }
+    else if (bc == ${Ground.FOREST}.0) { ramp = ${Ramp.GREEN_GREY}.0; lo = -0.1; }
+    else if (bc == ${Ground.SAND}.0) { ramp = ${Ramp.SKY_WARM}.0; lo = -0.1; }
+    else if (bc == ${Ground.RAIL}.0) { ramp = ${Ramp.ROOF_DARK}.0; lo = -0.04; }
+    else if (bc == ${Ground.ROCK}.0) { ramp = ${Ramp.GREY}.0; lo = 0.06; }
     vec3 n = normalize(vWorldNormal);
     float light = sbLight(vWorldPos, n, lo + uLift, 1.0);
     // ground reads calmer than buildings: compress its sun/slope contrast (shadows stay crisp)
@@ -78,7 +86,8 @@ const FS = /* glsl */ `
       // lighter steps (orange's deep steps turn red, yellow's orange); a darker
       // rim outlines every splat, wet blotches catch the light
       ramp = pr;
-      float clsLo = bc == ${Ground.SIDEWALK}.0 ? uGroundTone.y : bc == ${Ground.GRASS}.0 ? uGroundTone.y * 0.5 : 0.0;
+      float clsLo = (bc == ${Ground.SIDEWALK}.0 || bc == ${Ground.PLAZA}.0 || bc == ${Ground.PATH}.0) ? uGroundTone.y
+        : (bc == ${Ground.GRASS}.0 || bc == ${Ground.YARD}.0 || bc == ${Ground.FOREST}.0) ? uGroundTone.y * 0.5 : 0.0;
       light = max(0.11 + uGroundTone.x + flatL * 0.5 + clsLo, 0.28); // never near-black in shadow
       if (pr == ${Ramp.YELLOW}.0) light = max(light + 0.1, 0.6); // amber, never orange
       else if (pr == ${Ramp.ORANGE}.0) light = max(light + 0.05, 0.45); // vermillion, never brick

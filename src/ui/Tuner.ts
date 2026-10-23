@@ -225,6 +225,8 @@ export class Tuner {
   onResetPaint: (() => void) | null = null;
   /** Called with 'open', 'close', 'copy', 'resetPaint', 'resetAll', 'fps'. */
   onAction: ((name: string) => void) | null = null;
+  /** Data credits listed at the top of the sheet (the city's ODbL attribution). */
+  credits = '';
 
   private root: HTMLDivElement | null = null;
   private sheet!: HTMLElement;
@@ -392,6 +394,12 @@ export class Tuner {
     hint.className = 'sbt-hint';
     hint.textContent = 'Drag a row sideways · hold − + to nudge · double-tap resets';
     this.scroller.appendChild(hint);
+    if (this.credits) {
+      const cr = document.createElement('div');
+      cr.className = 'sbt-hint';
+      cr.textContent = this.credits;
+      this.scroller.appendChild(cr);
+    }
 
     // config blocks
     const bySection = new Map<string, Array<{ obj: Record<string, unknown>; key: string; path: string }>>();

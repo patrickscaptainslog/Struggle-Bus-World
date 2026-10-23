@@ -16,6 +16,7 @@ import { Input } from './game/Input';
 import { BusModel, type BusPose } from './bus/BusModel';
 import { Particles } from './fx/Particles';
 import { StreetSigns } from './fx/StreetSign';
+import { showCredits } from './ui/Credits';
 import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { Tuner, applySavedTuning } from './ui/Tuner';
@@ -349,7 +350,9 @@ async function boot() {
   function showSign(ref: BuildingRef, hue: number) {
     const f = city.frontOf(ref);
     const gx = f.x + f.nx * 4.5, gz = f.z + f.nz * 4.5;
-    signs.show({ text: city.neighborhoodName(ref.hood).toUpperCase(), position: new THREE.Vector3(gx, city.groundAt(gx, gz), gz), facing: Math.atan2(f.nx, f.nz), hue });
+    // the real street in front (OpenStreetMap), else the neighbourhood
+    const text = city.streetNameAt(gx, gz) ?? city.neighborhoodName(ref.hood);
+    signs.show({ text: text.toUpperCase(), position: new THREE.Vector3(gx, city.groundAt(gx, gz), gz), facing: Math.atan2(f.nx, f.nz), hue });
     audio.signPop();
   }
 
@@ -376,6 +379,7 @@ async function boot() {
   // ---- input
   const input = new Input(canvas);
   const tuner = new Tuner();
+  tuner.credits = manifest.attribution ? `Map data ${manifest.attribution} (ODbL)` : '';
   const perf = new Perf(renderer);
   perf.setVisible(params.has('fps'));
   tuner.onAction = (name) => {
@@ -428,6 +432,8 @@ async function boot() {
   let last = performance.now();
   let wasFull = true;
   let opening = params.has('skipintro') ? config.fog.openingDuration : 0;
+  // the data credit (ODbL), small, while the opening plays
+  if (!params.has('skipintro') && manifest.attribution) showCredits(manifest.attribution);
   // QA: ?fixeddt=<s> steps the game by exactly that much per rendered frame (deterministic captures)
   const fixedDt = params.has('fixeddt') ? Math.max(0.001, Number(params.get('fixeddt')) || 1 / 60) : 0;
   let lodTimer = 0;

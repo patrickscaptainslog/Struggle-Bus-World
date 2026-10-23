@@ -4,10 +4,19 @@
 City-agnostic: everything city-specific lives in tools/bake/cities/<slug>.json.
 
 Inputs (per city config):
+  overture    {"release": ...}: OpenStreetMap via Overture Maps (tools/bake/overture.py extracts,
+              read by tools/bake/osm.py). Then the footprints are OSM's (real lot lines, courtyards
+              cut into pieces), with OSM heights / floors, building parts (tower massing, domes),
+              roof shapes / heights / directions, facade + roof colours and materials, names and
+              OSM ids (the stable-id key); the ground is OSM's streets by class and width,
+              sidewalks, plazas, paths, rail, parks, forest, sand, rock, water and the coastline;
+              trees are OSM's mapped trees (+ procedural ones inside real parks); street and
+              neighbourhood names go into the terrain tiles for the street sign. ODbL 1.0.
   structures  GeoParquet of building footprints (EPSG:4326) with HEIGHT,
-              OCC_CLS, PRIM_OCC, BUILD_ID (FEMA/ORNL USA Structures schema).
-              Swap-in point for DataSF footprints when that host is reachable.
-  dem         USGS 3DEP 1 m DEM GeoTIFFs (any CRS).
+              OCC_CLS, PRIM_OCC, BUILD_ID (FEMA/ORNL USA Structures schema). With "overture":
+              only where OSM has nothing (the fallback footprints), and for occupancy + a
+              height fallback under OSM footprints. Without: the footprints (rows split into lots).
+  dem         USGS 3DEP 1 m DEM GeoTIFFs (any CRS); [] + "groundLevel": a flat city (no DEM).
   lidar       optional {"ept": url, ...}: a USGS 3DEP point cloud (Entwine
               Point Tile), fetched + rasterized by tools/bake/lidar.py. Then
               every building's height comes from its rooftops (tree crowns
@@ -19,10 +28,12 @@ Inputs (per city config):
               buildings never move to another building.
 
 Outputs (public/city/<slug>/):
-  city.json        manifest (tiles, neighborhoods, landmarks, start pose)
+  city.json        manifest (tiles, neighborhoods, landmarks, start pose, attribution)
   b_<tx>_<tz>.bin  buildings in a 256 m tile: one record per building part
-                   (tier), footprint rings, heights, style ('SBB2')
+                   (tier), footprint rings, heights, style, roof shape, colours,
+                   materials, data source ('SBB3'; 'SBB2' without "overture")
   t_<tx>_<tz>.bin  terrain heights (4 m), ground class, obstacle tops (8 m), trees
+                   (+ street names and the neighbourhood grid: 'SBT2' with "overture")
   far.bin          skyline LOD (tall buildings as boxes) + 32 m terrain for the
                    whole city, so distant hills and towers loom through the fog
 
@@ -152,13 +163,17 @@ MASSING = {
 }
 
 
-def load_lidar_module():
+def load_module(name):
     import importlib.util
     sys.dont_write_bytecode = True  # (no __pycache__ in tools/bake)
-    spec = importlib.util.spec_from_file_location('sb_lidar', os.path.join(HERE, 'lidar.py'))
+    spec = importlib.util.spec_from_file_location('sb_' + name, os.path.join(HERE, name + '.py'))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def load_lidar_module():
+    return load_module('lidar')
 
 
 def grid_angle(p):
@@ -327,6 +342,19 @@ class Massing:
                 else:
                     out['lowGround'] = True
         return out
+
+    def bare(self, w):
+        """The LiDAR covers the footprint and sees (almost) no roof on it: bare ground (demolished since)."""
+        P = self.P
+        mask = w['mask']
+        inner = ndimage.binary_erosion(mask)
+        if inner.sum() < max(3, 0.25 * mask.sum()):
+            inner = mask
+        Z, G = w['Z'][inner], w['G'][inner]
+        ok = ~np.isnan(Z)
+        if ok.mean() < P['minCoverage']:
+            return False
+        return float(((Z[ok] - G[ok]) > P['groundAbove']).mean()) < 0.2
 
     def top_level(self, w, gref):
         """Height above gref of the highest level that still holds a real tower floor plate
@@ -885,6 +913,163 @@ NEW_SPLIT_BASE = 1 << 30   # stableIds of buildings only a LiDAR bake has: piece
 SPLIT_SLOTS = 64           # ...(64 ids per parent footprint)...
 NEW_LIDAR_BASE = 3 << 30   # ...and towers the footprint data lacks (both far above any footprint rank)
 
+# Stable ids with OpenStreetMap footprints ("overture" configs): derived from what each building is (its
+# source record), never from a rank, so a re-bake keeps every id on its building even when buildings
+# come and go around it (what a shared paint server will key on):
+#   [0, 2^31)                 OSM buildings: FNV-1a of the OSM id ('w123', 'r45', no version)
+#   [2^31, 2^31 + 2^29)       Overture footprints from other sources (Microsoft ML, Esri): of the GERS id
+#   [2^31 + 2^29, 3 * 2^30)   USA Structures fallback lots ('u<BUILD_ID>:<lot>') and pieces LiDAR splits off them
+#   [3 * 2^30, 2^32)          LiDAR-only towers (NEW_LIDAR_BASE + a hash of their 8 m-grid position, as before)
+# A collision probes to the next free id in its range, in key order (deterministic for the same data).
+ID_RANGES = {'osm': (0, 1 << 31), 'ovt': (1 << 31, 1 << 29), 'usa': ((1 << 31) + (1 << 29), 1 << 29)}
+
+
+def fnv_str(s):
+    h = 2166136261
+    for b in s.encode('utf-8'):
+        h ^= b
+        h = (h * 16777619) & 0xFFFFFFFF
+    return h
+
+
+class IdAlloc:
+    def __init__(self):
+        self.used = set()
+        self.collisions = 0
+
+    def take(self, src, key):
+        lo, n = ID_RANGES[src]
+        h = fnv_str(key) % n
+        while lo + h in self.used:
+            h = (h + 1) % n
+            self.collisions += 1
+        self.used.add(lo + h)
+        return lo + h
+
+
+# roof shapes (osm.ROOF_SHAPES codes): default rise as a fraction of the footprint's short side
+ROOF_RISE = {2: 0.32, 3: 0.32, 4: 0.42, 5: 0.12, 6: 0.5, 7: 0.9, 8: 0.35, 9: 0.36, 10: 0.24, 11: 0.32, 12: 0.32, 13: 0.8}
+ROOF_TOWERISH = (4, 6, 7, 13)  # pyramids, domes, onions and cones may be most of a part's height
+
+
+def roof_for(poly, roof, top, base, median):
+    """(shape, rise m, direction byte, eave Y) for one part. roof: {'shape', 'height', 'direction', 'orientation'};
+    top: the part's top (absolute); median: the height is a LiDAR median roof (mid-pitch), not the ridge.
+    direction byte: angle (local frame, atan2(dz, dx), 256 = full turn) of the way the main roof face looks
+    (downhill); the ridge runs perpendicular to it. Untagged / flat roofs: (shape, 0, 0, top)."""
+    shape = roof.get('shape', 0) if roof else 0
+    if shape in (0, 1):
+        return shape, 0.0, 0, top
+    mrr = poly.minimum_rotated_rectangle
+    cc = np.asarray(mrr.exterior.coords)
+    e0, e1 = cc[1] - cc[0], cc[2] - cc[1]
+    l0, l1 = float(np.hypot(*e0)), float(np.hypot(*e1))
+    W = min(l0, l1)
+    longv = e0 if l0 >= l1 else e1
+    R = roof.get('height')
+    if not R or R <= 0:
+        R = ROOF_RISE.get(shape, 0.3) * W
+        if shape in (2, 3, 9, 11, 12):
+            R = float(np.clip(R, 1.0, 7.0))
+    H = top - base
+    R = float(min(R, H * (0.9 if shape in ROOF_TOWERISH else 0.6)))
+    if R < 0.4:
+        return 1, 0.0, 0, top
+    if median:
+        top = top + R / 2  # a LiDAR median roof is mid-pitch
+    eave = top - R
+    d = roof.get('direction')
+    if d is not None:
+        b = math.radians(d)  # compass bearing the roof face looks toward -> local (+x east, +z south)
+        ang = math.atan2(-math.cos(b), math.sin(b))
+    else:
+        ridge = math.atan2(longv[1], longv[0])
+        if roof.get('orientation') == 'across':
+            ridge += math.pi / 2
+        ang = ridge + math.pi / 2
+    return shape, R, int(round(ang / (2 * math.pi) * 256)) % 256, eave
+
+
+def parts_massing(b, plist, maxparts=24):
+    """OSM building parts -> [{poly, base, top (above the ground), tier, par, roof, colours...}] (tier 0 = parts on
+    the ground, the biggest first), or None when they don't describe the building (they cover too little of it)."""
+    recs = []
+    for part in plist:
+        base = part['minH'] if part['minH'] is not None else (part['minFloor'] * 3.2 if part['minFloor'] else 0.0)
+        top = part['h']
+        if top is None and part['floors']:
+            top = base + part['floors'] * 3.2 + 0.6
+        if top is None:
+            top = b['h']
+        if top - base < 0.5:
+            continue
+        for q in part['polys']:
+            recs.append(dict(part, poly=shapely.geometry.polygon.orient(q, 1.0), base=float(base), top=float(top)))
+    if not recs:
+        return None
+    try:
+        cover = shapely.unary_union([r['poly'] for r in recs]).intersection(b['poly']).area
+    except shapely.errors.GEOSException:
+        return None
+    if cover < 0.75 * b['poly'].area:
+        return None
+    # a part above the ground stands on another part (its base within 3 m of that part's top, overlapping
+    # it by 30 %), else it floats (an overhang, a skybridge: nothing under it) and goes
+    recs.sort(key=lambda r: (r['base'], -r['poly'].area))
+    kept = []
+    for r in recs:
+        if r['base'] < 1.0:
+            r['tier'], r['par'] = 0, -1
+            kept.append(r)
+            continue
+        try:
+            sup = [k for k, o in enumerate(kept) if abs(o['top'] - r['base']) <= 3.0 and o['poly'].intersection(r['poly']).area >= 0.3 * r['poly'].area]
+        except shapely.errors.GEOSException:
+            sup = []
+        if not sup:
+            continue
+        r['par'] = max(sup, key=lambda k: kept[k]['poly'].intersection(r['poly']).area)
+        r['tier'] = min(250, kept[r['par']]['tier'] + 1)
+        kept.append(r)
+    if not kept or kept[0]['tier'] != 0:
+        return None
+    # the budget goes by volume: the smallest pieces nothing stands on go first
+    while len(kept) > maxparts:
+        kids = {r['par'] for r in kept}
+        k = min((k for k in range(1, len(kept)) if k not in kids), key=lambda k: kept[k]['poly'].area * (kept[k]['top'] - kept[k]['base']), default=None)
+        if k is None:
+            break
+        del kept[k]
+        for r in kept:
+            if r['par'] > k:
+                r['par'] -= 1
+    return sorted([r for r in kept if r['tier'] == 0], key=lambda r: -r['poly'].area) + sorted([r for r in kept if r['tier'] > 0], key=lambda r: (r['tier'], -r['poly'].area))
+
+
+def model_error(massing, w, shapes, gref):
+    """Mean |model - LiDAR| roof height over the footprint, relative to the LiDAR's mean height. shapes: [(poly,
+    top above gref)], drawn in order (later ones win)."""
+    from rasterio.features import rasterize
+    R = massing.rel_heights(w, gref)
+    m = w['mask']
+    if m.sum() < 3:
+        return None
+    shapes = [(q, float(t)) for q, t in shapes if q is not None and not q.is_empty]
+    M = (rasterize(shapes, out_shape=R.shape, transform=w['tr'], fill=0.0, dtype=np.float32, merge_alg=rasterio.enums.MergeAlg.replace)
+         if shapes else np.zeros(R.shape, np.float32))
+    return float(np.abs(M[m] - R[m]).mean() / max(float(R[m].mean()), 3.0))
+
+
+def with_holes(b):
+    """A building's footprint with its courtyards (OSM path), else its footprint."""
+    if not b.get('holes'):
+        return b['poly']
+    try:
+        q = shapely.make_valid(Polygon(b['poly'].exterior.coords, [h.exterior.coords for h in b['holes']]))
+        return q if q.geom_type in ('Polygon', 'MultiPolygon') else b['poly']
+    except (shapely.errors.GEOSException, ValueError):
+        return b['poly']
+
 
 def ground_stats_at(dem_at, p):
     """(lowest, mean) ground under a footprint's ring and centroid."""
@@ -894,7 +1079,23 @@ def ground_stats_at(dem_at, p):
     return float(min(gy.min(), cy)), float((gy.mean() + cy) * 0.5)
 
 
-def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
+SRC_CODE = {'osm': 0, 'ovt': 1, 'usa': 2, 'lidar': 3}
+HSRC_CODE = {'default': 0, 'lidar': 1, 'osm': 2, 'floors': 3, 'usa': 4, 'neighbors': 5}
+
+
+def source_byte(b, q):
+    """SBB3 source byte: bits 0-2 the footprint (0 OSM, 1 Overture other, 2 USA Structures, 3 LiDAR only),
+    bits 3-5 the height (0 default, 1 LiDAR, 2 OSM height, 3 OSM floors, 4 USA Structures, 5 neighbours),
+    bit 6 massing from OSM building parts, bit 7 LiDAR tiers."""
+    v = SRC_CODE.get(b.get('src'), 2) | (HSRC_CODE.get(b.get('hsrc') or 'default', 0) << 3)
+    if b.get('osmParts'):
+        v |= 64
+    elif b.get('tiered'):
+        v |= 128
+    return v
+
+
+def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log, ids=None, parts_of=None):
     """LiDAR rooftops for the ranked buildings; returns the new list (it shrinks and grows):
       1. row lots of one source footprint standing under one tall roof merge back into one building
          (an apartment block the lot splitter cut into 8 m stripes, each painting on its own)
@@ -906,7 +1107,12 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
     Stable ids: existing buildings keep theirs; a merged building keeps its biggest lot's (the other
     lots' ids retire with them). New ids derive from what the building is, never from a counter, so a
     re-bake gives the same building the same id: split pieces NEW_SPLIT_BASE + parent * 64 + a hash of
-    their position, LiDAR-only towers NEW_LIDAR_BASE + a hash of their position (8 m grid)."""
+    their position, LiDAR-only towers NEW_LIDAR_BASE + a hash of their position (8 m grid).
+    With OSM footprints (ids: an IdAlloc): only USA Structures fallback rows are merged or split (OSM's
+    footprints are real buildings), split pieces take ids from the allocator ('<key>/s<slot>'), a fallback
+    footprint the LiDAR sees as bare ground is dropped (demolished since), and buildings with OSM building
+    parts (parts_of: {GERS id: parts}) take their massing from the parts where those agree with the LiDAR
+    (else the LiDAR tiers below)."""
     from rasterio.features import rasterize
     P = massing.P
     gs = lambda p: ground_stats_at(dem_at, p)
@@ -1003,6 +1209,8 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
     for b in sorted(buildings, key=lambda b: b['stable']):
         if b.get('landmark') or b['poly'].area < P['splitMinArea'] or b['occ'] in ('Residential', ''):
             continue
+        if ids is not None and b.get('src') != 'usa':
+            continue
         w = massing.window(b['poly'], True) or massing.window(b['poly'], False)
         if w is None:
             continue
@@ -1026,7 +1234,7 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
             slots.add(hk)
             nb = dict(b)
             nb['poly'] = orient(q)
-            nb['stable'] = NEW_SPLIT_BASE + b['stable'] * SPLIT_SLOTS + hk
+            nb['stable'] = ids.take('usa', f"{b['key']}/s{hk}") if ids is not None else NEW_SPLIT_BASE + b['stable'] * SPLIT_SLOTS + hk
             nb['srckey'] = (b['srckey'][0], b['srckey'][1], hk + 1)
             extra.append(nb)
     buildings += extra
@@ -1034,6 +1242,7 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
 
     # 3) every building's height from its rooftops
     dh, nfix, ncanopy, nhouse, nsliver = [], 0, 0, 0, 0
+    demolished = set()
     for b in buildings:
         if b.get('landmark'):
             continue
@@ -1045,6 +1254,8 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
             continue
         r = massing.roof(w)
         if r is None:
+            if ids is not None and b.get('src') == 'usa' and massing.bare(w):
+                demolished.add(id(b))  # a fallback footprint OSM doesn't have and the LiDAR sees as bare ground
             continue
         h_top = max(3.0, r['top'] - gmean)
         if h_top > b['h'] + 6.0:
@@ -1070,11 +1281,15 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
             nhouse += 1
         dh.append(h_new - b['h'])
         b['h'] = h_new
+        b['hsrc'] = 'lidar'
         b['topH'] = massing.top_level(w, gmin) if top_h is None else top_h
         nfix += 1
     dh = np.array(dh) if dh else np.zeros(1)
     log(f'lidar: corrected {nfix}/{len(buildings)} heights (median change {np.median(dh):+.1f} m, |change| > 3 m: '
         f'{int((np.abs(dh) > 3).sum())}); {ncanopy} under tree crowns, {nhouse} small houses capped, {nsliver} slivers of a taller blob')
+    if demolished:
+        buildings = [b for b in buildings if id(b) not in demolished]
+        log(f'lidar: {len(demolished)} fallback footprints dropped (bare ground in the LiDAR: demolished since)')
 
     # 4) towers the footprint data never had (built since), from the 1 m LiDAR alone
     covered = [(b['poly'], max(b['h'], b.get('topH', b['h']))) for b in buildings if not b.get('sliver')]
@@ -1096,7 +1311,8 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
         used.add(sid)
         _, gmean = gs(q)
         buildings.append({'poly': q, 'h': max(3.0, roof - gmean), 'occ': 'Commercial', 'prim': '', 'srckey': (-1, k),
-                          'front_edge_hint': None, 'stable': sid, 'parts': None, 'lidarOnly': True, 'topH': roof - gmean})
+                          'front_edge_hint': None, 'stable': sid, 'parts': None, 'lidarOnly': True, 'topH': roof - gmean,
+                          'src': 'lidar', 'hsrc': 'lidar', 'key': f'lidar:{hk}'})
 
     # 5) tall buildings: real outline + tiers (decided by their top: a slim tower on a broad podium is a tower)
     # (slivers aren't neighbors: a tower's outline must not be trimmed off the lots it stands over)
@@ -1113,8 +1329,55 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
             return shapely.unary_union([shapely.make_valid(polys_n[i]).buffer(0.01) for i in idx])
 
     ntier, nparts, nout, nbad, nflat = 0, 0, 0, 0, 0
+    npused, nprej, npnolidar = 0, 0, 0
     for b in buildings:
-        if b.get('landmark') or b.get('sliver') or 'topH' not in b:
+        if b.get('landmark') or not (parts_of and b.get('hasParts') and b.get('gers') in parts_of):
+            continue
+        # OSM building parts: the mapped massing (setbacks, domes, spires), checked against the LiDAR; where
+        # they disagree badly with the rooftops the LiDAR tiers below take over
+        p = b['poly']
+        gmin, gmean = gs(p)
+        recs = parts_massing(b, parts_of[b['gers']])
+        if not recs:
+            continue
+        w = massing.window(p, True) or massing.window(p, False)
+        if w is None:
+            b['osmParts'] = recs
+            npnolidar += 1
+            continue
+
+        def tops(r):  # (a pitched / domed roof counts at mid-rise)
+            sh, R, _, eave = roof_for(r['poly'], r['roof'], gmin + r['top'], gmin + r['base'], False)
+            return eave + 0.5 * R - gmin
+        e_p = model_error(massing, w, [(r['poly'], tops(r)) for r in sorted(recs, key=tops)], gmin)
+        e_t = None
+        hi = max(b['h'], b.get('topH', b['h']))
+        if (hi >= P['tierMinHeight'] or (in_fine(p) and hi >= P['tierMinHeightFine'])) and p.area >= P['tierMinArea']:
+            w1 = massing.window(p, True)
+            try:
+                tiers = massing.tiers(w1, p, gmin, massing.top_level(w1, gmin)) if w1 is not None else None
+            except shapely.errors.GEOSException:
+                tiers = None
+            if tiers:
+                e_t = model_error(massing, w1, [(q, tp - gmin) for q, tp, _, _, _ in sorted(tiers, key=lambda t: t[1])], gmin)
+        flat_e = model_error(massing, w, [(p, b['h'])], gmin)
+        ref = min([e for e in (e_t, flat_e) if e is not None], default=None)
+        b['partsErr'] = (e_p, e_t, flat_e)
+        # "agree": the parts explain the rooftops about as well as the best LiDAR model does (within 5 % of the
+        # mean height) and never worse than 25 %
+        if e_p is not None and e_p <= min(0.25, (ref if ref is not None else 0.2) + 0.05):
+            b['osmParts'] = recs
+            npused += 1
+        else:
+            nprej += 1
+    log(f'osm parts: {npused} buildings take their massing from OSM building parts (LiDAR agrees), {npnolidar} without LiDAR to check, '
+        f'{nprej} rejected (the LiDAR tiers / plain roof fit the rooftops better)')
+    fmt = lambda e: '-' if e is None else f'{e:.2f}'
+    for b in sorted([b for b in buildings if 'partsErr' in b], key=lambda b: -b['h'])[:16]:
+        e_p, e_t, e_f = b['partsErr']
+        log(f"  parts {'USED' if b.get('osmParts') else 'rejected'}: {b.get('name') or b['key']} {b['h']:.0f} m: parts err {fmt(e_p)}, LiDAR tiers {fmt(e_t)}, flat {fmt(e_f)}")
+    for b in buildings:
+        if b.get('landmark') or b.get('sliver') or 'topH' not in b or b.get('osmParts'):
             continue
         p = b['poly']
         hi = max(b['h'], b['topH'])
@@ -1135,6 +1398,7 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
             w2 = massing.window(q, True)
             if w2 is not None:
                 b['poly'], p, w = q, q, w2
+                b['holes'] = None  # (the LiDAR outline: OSM's courtyards may not sit in it)
                 gmin, gmean = gs(p)
                 nout += 1
         try:
@@ -1143,6 +1407,7 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
             tiers, nbad = None, nbad + 1
         if tiers:
             b['parts'] = tiers
+            b['tiered'] = True
             b['h'] = max(t[1] for t in tiers) - gmean
             ntier += 1
             nparts += len(tiers)
@@ -1217,6 +1482,8 @@ def main():
             m = ~np.isnan(tmp)
             dem[m] = tmp[m]
             log('dem', os.path.basename(path), int(m.sum()))
+    if not cfg['dem'] and not cfg.get('dem_fallback'):
+        dem[:] = float(cfg.get('groundLevel', 1.0))  # a flat city (no DEM): OSM's water is carved into it later
     nodata = np.isnan(dem)
     log('dem nodata fraction', float(nodata.mean()))
     # water = nodata; give it sea level, and smooth the coast a bit
@@ -1239,29 +1506,32 @@ def main():
         return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz
 
     # ---------------------------------------------------------- structures
-    df = gpd.read_parquet(cfg['structures'])
-    if 'FIPS' in df.columns and cfg.get('fips'):
-        df = df[df['FIPS'] == cfg['fips']]
-    df = df.cx[lon_a:lon_b, lat_a:lat_b]
-    df = df.to_crs(proj)
-    log('structures', len(df))
+    use_osm = bool(cfg.get('overture'))
+    osm = load_module('osm').OSM(cfg, slug, to_local, log) if use_osm else None
+    if use_osm:
+        osm.set_frame(minX, minZ, maxX, maxZ)
+        # piers and quays out over the water: the bare-earth DEM has water there, the deck stands above it
+        from rasterio.features import rasterize as _rz
+        _, _, piers = osm.water()
+        if piers:
+            pm = _rz([(q, 1) for q in piers], out_shape=(H, W), transform=rasterio.Affine(DEM_RES, 0, minX, 0, DEM_RES, minZ), fill=0, dtype=np.uint8) > 0
+            deck = float(osm.P.get('pierDeck', 2.5))
+            low = pm & (nodata | (dem_filled < 0.5))  # (only out over the water: quays on land stay)
+            dem_filled[low] = deck
+            log(f'piers: {len(piers)} decks, {int(low.sum()) * DEM_RES * DEM_RES / 1e4:.1f} ha raised to {deck} m')
+    df = None
+    if cfg.get('structures') and os.path.exists(cfg['structures']):
+        df = gpd.read_parquet(cfg['structures'])
+        if 'FIPS' in df.columns and cfg.get('fips'):
+            df = df[df['FIPS'] == cfg['fips']]
+        df = df.cx[lon_a:lon_b, lat_a:lat_b]
+        df = df.to_crs(proj)
+        log('structures', len(df))
+    elif not use_osm:
+        raise SystemExit('no footprints: the city config needs "overture" or "structures"')
 
-    # ------------------------------------------------------------- LiDAR rooftops
-    lidar_rasters = None
-    if cfg.get('lidar') and flags.get('lidar', '1') != '0':
-        lidar = load_lidar_module()
-        fine_ch, coarse_ch = lidar.plan_chunks(cfg, df.geometry.values, df['HEIGHT'].astype(float).values, proj)
-        frame = lidar.Frame(proj, minX, minZ, maxX, maxZ)
-        lidar_rasters = lidar.build_rasters(dict(cfg, slug=slug), frame, set(), coarse_ch, log=log)
-        # the 1 m plan also covers tall roofs the footprint heights don't know about
-        extra = lidar.tall_chunks(lidar_rasters['coarse'], dem_at, fine_ch)
-        log(f'lidar: {len(extra)} more 1 m chunks where the 2 m raster sees tall roofs the footprints miss')
-        fine_r = lidar.build_rasters(dict(cfg, slug=slug), frame, fine_ch | extra, set(), log=log)
-        lidar_rasters.update(fine=fine_r['fine'], fineLow=fine_r['fineLow'])
-        massing = Massing(cfg['lidar'].get('massing'), lidar.Heights(lidar_rasters), dem_at, lidar.NODATA)
-
-    polys, attrs = [], []
-    for row in df.itertuples(index=False):
+    usa_polys, usa_attrs = [], []
+    for row in (df.itertuples(index=False) if df is not None else []):
         g = row.geometry
         if g is None or g.is_empty:
             continue
@@ -1281,23 +1551,119 @@ def main():
             if q.is_empty or q.area < 12:
                 continue
             h = float(row.HEIGHT) if row.HEIGHT == row.HEIGHT and row.HEIGHT is not None else float('nan')
-            polys.append(q)
-            attrs.append({
+            usa_polys.append(q)
+            usa_attrs.append({
                 'id': int(row.BUILD_ID) * 4 + k,
                 'occ': str(row.OCC_CLS or ''),
                 'prim': str(row.PRIM_OCC or ''),
                 'h': h,
             })
-    log('polygons', len(polys))
+    log('polygons', len(usa_polys))
+
+    # ---------------------------------------------- OpenStreetMap footprints (conflated)
+    from scipy.spatial import cKDTree
+    osm_b, parts_of, counts = [], None, {}
+    if use_osm:
+        osm_b = osm.buildings()
+        parts_of = osm.parts()
+        for b in osm_b:
+            b['poly'] = shapely.geometry.polygon.orient(b['poly'], 1.0)
+        counts['osm'] = sum(b['src'] == 'osm' for b in osm_b)
+        counts['ovt'] = sum(b['src'] == 'ovt' for b in osm_b)
+        if usa_polys:
+            best, best_f, usa_cov = osm.conflate([b['poly'] for b in osm_b], usa_polys)
+        else:
+            best, best_f, usa_cov = np.full(len(osm_b), -1), np.zeros(len(osm_b)), np.zeros(0)
+        # USA Structures only where OSM has nothing (less than a quarter of the row under OSM footprints)
+        keep_usa = [i for i in range(len(usa_polys)) if usa_cov[i] < 0.25]
+        counts['usaRows'] = len(keep_usa)
+        counts['usaArea'] = float(sum(usa_polys[i].area for i in keep_usa))
+        counts['osmArea'] = float(sum(b['poly'].area for b in osm_b))
+        log(f'conflation: {len(osm_b)} OSM/Overture footprints; {len(keep_usa)} of {len(usa_polys)} USA Structures rows have no '
+            f'OSM footprint ({counts["usaArea"] / max(1.0, counts["usaArea"] + counts["osmArea"]) * 100:.1f} % of the built area): fallback')
+        # occupancy: OSM's class / subtype, else the USA Structures row under it
+        occ_of = {'house': 'Residential', 'detached': 'Residential', 'semidetached_house': 'Residential', 'terrace': 'Residential',
+                  'apartments': 'Residential', 'residential': 'Residential', 'bungalow': 'Residential', 'dormitory': 'Residential',
+                  'commercial': 'Commercial', 'retail': 'Commercial', 'office': 'Commercial', 'hotel': 'Commercial', 'supermarket': 'Commercial',
+                  'warehouse': 'Industrial', 'industrial': 'Industrial', 'service': 'Industrial', 'transportation': 'Industrial',
+                  'school': 'Education', 'university': 'Education', 'college': 'Education', 'kindergarten': 'Education', 'education': 'Education',
+                  'civic': 'Government', 'government': 'Government', 'public': 'Government', 'fire_station': 'Government', 'military': 'Government',
+                  'church': 'Assembly', 'cathedral': 'Assembly', 'chapel': 'Assembly', 'religious': 'Assembly', 'temple': 'Assembly',
+                  'mosque': 'Assembly', 'synagogue': 'Assembly', 'entertainment': 'Assembly', 'stadium': 'Assembly', 'sports_hall': 'Assembly',
+                  'hospital': 'Commercial', 'medical': 'Commercial', 'garage': 'Outbuilding', 'garages': 'Outbuilding', 'shed': 'Outbuilding',
+                  'carport': 'Outbuilding', 'hut': 'Outbuilding', 'outbuilding': 'Outbuilding', 'cabin': 'Outbuilding', 'greenhouse': 'Outbuilding'}
+        nsrc = defaultdict(int)
+        for i, b in enumerate(osm_b):
+            u = int(best[i]) if best_f[i] >= 0.3 else -1
+            b['usa'] = u
+            b['occ'] = occ_of.get(b['cls']) or occ_of.get(b['subtype']) or (usa_attrs[u]['occ'] if u >= 0 else '')
+            b['prim'] = usa_attrs[u]['prim'] if u >= 0 else ''
+            # height before the LiDAR: OSM height, else floors, else the USA Structures row (where it covers this footprint)
+            if b['h'] is not None and b['h'] > 2.0:
+                b['hsrc'] = 'osm'
+            elif b['floors']:
+                b['h'], b['hsrc'] = b['floors'] * 3.2 + 1.0, 'floors'
+            elif u >= 0 and best_f[i] >= 0.4 and usa_attrs[u]['h'] == usa_attrs[u]['h'] and usa_attrs[u]['h'] > 2.0:
+                b['h'], b['hsrc'] = usa_attrs[u]['h'], 'usa'
+            else:
+                b['h'], b['hsrc'] = float('nan'), None
+        cent_o = np.array([[b['poly'].centroid.x, b['poly'].centroid.y] for b in osm_b]) if osm_b else np.zeros((0, 2))
+        hs_o = np.array([b['h'] for b in osm_b], dtype=np.float64)
+        known_o = ~np.isnan(hs_o)
+        kt_o = cKDTree(cent_o[known_o]) if known_o.any() else None
+        defaults = {'Outbuilding': 3.2, 'Residential': 8.0, 'Commercial': 8.0, 'Industrial': 7.0, 'Assembly': 10.0, 'Government': 10.0, 'Education': 9.0}
+        for i in np.where(~known_o)[0]:
+            b = osm_b[i]
+            idx = kt_o.query_ball_point(cent_o[i], 40.0) if kt_o is not None else []
+            if idx and b['occ'] != 'Outbuilding':
+                b['h'], b['hsrc'] = float(np.median(hs_o[known_o][idx])), 'neighbors'
+            else:
+                b['h'], b['hsrc'] = defaults.get(b['occ'], 6.0), 'default'
+            if b['poly'].area < 400:
+                b['h'] = min(b['h'], 14.0)
+            b['h'] = max(3.0, b['h'])
+        for b in osm_b:
+            nsrc[b['hsrc']] += 1
+        log('heights before the LiDAR: ' + ', '.join(f'{k} {v}' for k, v in sorted(nsrc.items())))
+        polys = [usa_polys[i] for i in keep_usa]
+        attrs = [usa_attrs[i] for i in keep_usa]
+    else:
+        polys, attrs = usa_polys, usa_attrs
+
+    # ------------------------------------------------------------- LiDAR rooftops
+    lidar_rasters = None
+    if cfg.get('lidar') and flags.get('lidar', '1') != '0':
+        lidar = load_lidar_module()
+        if df is not None:
+            fine_ch, coarse_ch = lidar.plan_chunks(cfg, df.geometry.values, df['HEIGHT'].astype(float).values, proj)
+        else:
+            fine_ch, coarse_ch = set(), set()
+        frame = lidar.Frame(proj, minX, minZ, maxX, maxZ)
+        lidar_rasters = lidar.build_rasters(dict(cfg, slug=slug), frame, set(), coarse_ch, log=log)
+        # the 1 m plan also covers tall roofs the footprint heights don't know about
+        extra = lidar.tall_chunks(lidar_rasters['coarse'], dem_at, fine_ch)
+        log(f'lidar: {len(extra)} more 1 m chunks where the 2 m raster sees tall roofs the footprints miss')
+        fine_r = lidar.build_rasters(dict(cfg, slug=slug), frame, fine_ch | extra, set(), log=log)
+        lidar_rasters.update(fine=fine_r['fine'], fineLow=fine_r['fineLow'])
+        if use_osm and osm_b:
+            # chunks only the OSM footprints need (the plan above is the USA Structures one, so its rasters stay cached)
+            flip = lambda q: Polygon(np.asarray(q.exterior.coords) * [1.0, -1.0])
+            f_o, c_o = lidar.plan_chunks(cfg, [flip(b['poly']) for b in osm_b], np.array([b['h'] for b in osm_b], dtype=np.float64), proj)
+            f_x, c_x = f_o - (fine_ch | extra), c_o - coarse_ch
+            if f_x or c_x:
+                log(f'lidar: {len(c_x)} more 2 m and {len(f_x)} more 1 m chunks for OSM footprints')
+                more = lidar.build_rasters(dict(cfg, slug=slug), frame, f_x, c_x, log=log)
+                for k in ('coarse', 'coarseLow', 'fine', 'fineLow'):
+                    lidar_rasters[k].update(more.get(k, {}))
+        massing = Massing(cfg['lidar'].get('massing'), lidar.Heights(lidar_rasters), dem_at, lidar.NODATA)
 
     # fill missing heights from neighbors (median within 40 m), else occupancy default
-    cent = np.array([[p.centroid.x, p.centroid.y] for p in polys])
-    hs = np.array([a['h'] for a in attrs])
-    from scipy.spatial import cKDTree
+    cent = np.array([[p.centroid.x, p.centroid.y] for p in polys]) if polys else np.zeros((0, 2))
+    hs = np.array([a['h'] for a in attrs], dtype=np.float64)
     known = ~np.isnan(hs) & (hs > 2.0)
-    kt = cKDTree(cent[known])
+    kt = cKDTree(cent[known]) if known.any() else None
     for i in np.where(~known)[0]:
-        idx = kt.query_ball_point(cent[i], 40.0)
+        idx = kt.query_ball_point(cent[i], 40.0) if kt is not None else []
         if idx:
             hs[i] = float(np.median(hs[known][idx]))
         else:
@@ -1307,31 +1673,81 @@ def main():
         attrs[i]['h'] = float(hs[i])
 
     # -------------------------------------------------- blocks (street walls)
-    log('closing blocks')
-    tree_all = STRtree(polys)
-    closed = shapely.unary_union([p.buffer(9.0, join_style='mitre', mitre_limit=2.0) for p in polys])
-    closed = closed.buffer(-9.0, join_style='mitre', mitre_limit=2.0)
-    block_geoms = list(closed.geoms) if isinstance(closed, MultiPolygon) else [closed]
-    block_rings = [shapely.LineString(b.exterior.coords) for b in block_geoms if not b.is_empty]
-    ring_tree = STRtree(block_rings)
-    log('blocks', len(block_rings))
+    segs = None
+    if use_osm:
+        # fronts face the real streets: an edge whose outward side looks at a street centerline no farther than
+        # a front yard beyond the curb (row houses: the street end; corners: both; party walls: neither)
+        O = load_module('osm')
+        segs = osm.segments()
+        rl = [(ln, w) for ln, k, w, _, c in segs if k in (O.PAVED, O.PLAZA) and c not in ('service', 'track')]
+        road_geoms = np.array([ln for ln, _ in rl], dtype=object)
+        road_half = np.array([w / 2.0 for _, w in rl])
+        road_tree = STRtree(road_geoms)
 
-    def frontage_edges(p):
-        """edges of polygon p that lie on a block's street wall, longest first"""
-        c = np.asarray(p.exterior.coords)[:-1]
-        n = len(c)
-        mids = [(c[i] + c[(i + 1) % n]) * 0.5 for i in range(n)]
-        pts = shapely.points(np.array(mids))
-        near = ring_tree.query_nearest(pts, max_distance=3.0, return_distance=True)
-        on = set(int(i) for i in near[0][0])
-        edges = []
-        for i in range(n):
-            a, b = c[i], c[(i + 1) % n]
-            L = float(np.hypot(*(b - a)))
-            if i in on and L >= 4.0:
-                edges.append((L, i))
-        edges.sort(reverse=True)
-        return [i for _, i in edges]
+        front_cache = {}
+
+        def frontage_batch(plist):
+            """Street-facing edges of many polygons at once (one nearest-street query for all their edges)."""
+            plist = [p for p in plist if id(p) not in front_cache]
+            if not plist:
+                return
+            rings = [np.asarray(p.exterior.coords)[:-1] for p in plist]
+            cnt = np.array([len(r) for r in rings])
+            for p in plist:
+                front_cache[id(p)] = (p, [])
+            if not len(road_geoms) or not cnt.sum():
+                return
+            a = np.concatenate(rings)
+            b2 = np.concatenate([np.roll(r, -1, axis=0) for r in rings])
+            owner = np.repeat(np.arange(len(plist)), cnt)
+            local = np.concatenate([np.arange(n) for n in cnt])
+            cr = a[:, 0] * b2[:, 1] - b2[:, 0] * a[:, 1]
+            sgn = np.where(np.bincount(owner, weights=cr, minlength=len(plist)) > 0, 1.0, -1.0)[owner]
+            d = b2 - a
+            L = np.hypot(d[:, 0], d[:, 1])
+            nrm = np.column_stack([d[:, 1], -d[:, 0]]) / np.maximum(L, 1e-9)[:, None] * sgn[:, None]
+            mids = (a + b2) * 0.5
+            pts = shapely.points(mids + nrm * 0.3)
+            (ii, jj), _ = road_tree.query_nearest(pts, max_distance=30.0, return_distance=True, all_matches=False)
+            ends = shapely.get_coordinates(shapely.get_point(shapely.shortest_line(pts[ii], road_geoms[jj]), 1))
+            v = ends - mids[ii]
+            vl = np.hypot(v[:, 0], v[:, 1])
+            ok = (L[ii] >= 3.0) & (vl > 1e-6) & ((v * nrm[ii]).sum(axis=1) >= 0.7 * vl) & (vl - road_half[jj] <= 14.0)
+            for k in np.argsort(-L[ii][ok], kind='stable'):
+                e = ii[ok][k]
+                front_cache[id(plist[owner[e]])][1].append(int(local[e]))
+
+        def frontage_edges(p):
+            """edges of polygon p that face a street (the street ahead of them, within a front yard), longest first"""
+            if id(p) not in front_cache or front_cache[id(p)][0] is not p:
+                front_cache.pop(id(p), None)
+                frontage_batch([p])
+            return list(front_cache[id(p)][1])
+    else:
+        log('closing blocks')
+        closed = shapely.unary_union([p.buffer(9.0, join_style='mitre', mitre_limit=2.0) for p in polys])
+        closed = closed.buffer(-9.0, join_style='mitre', mitre_limit=2.0)
+        block_geoms = list(closed.geoms) if isinstance(closed, MultiPolygon) else [closed]
+        block_rings = [shapely.LineString(b.exterior.coords) for b in block_geoms if not b.is_empty]
+        ring_tree = STRtree(block_rings)
+        log('blocks', len(block_rings))
+
+        def frontage_edges(p):
+            """edges of polygon p that lie on a block's street wall, longest first"""
+            c = np.asarray(p.exterior.coords)[:-1]
+            n = len(c)
+            mids = [(c[i] + c[(i + 1) % n]) * 0.5 for i in range(n)]
+            pts = shapely.points(np.array(mids))
+            near = ring_tree.query_nearest(pts, max_distance=3.0, return_distance=True)
+            on = set(int(i) for i in near[0][0])
+            edges = []
+            for i in range(n):
+                a, b = c[i], c[(i + 1) % n]
+                L = float(np.hypot(*(b - a)))
+                if i in on and L >= 4.0:
+                    edges.append((L, i))
+            edges.sort(reverse=True)
+            return [i for _, i in edges]
 
     # ------------------------------------------------------- split rows into lots
     LOT_WIDTHS = [6.1, 7.0, 7.6, 7.6, 7.6, 7.6, 8.2, 8.5, 9.1, 10.0, 7.6, 7.3]
@@ -1446,7 +1862,7 @@ def main():
     # Merged rows can carry a block-wide height (e.g. a whole Victorian block at 23 m).
     # Prefer the median of nearby small, single-house footprints for big merged rows.
     areas = np.array([p.area for p in polys])
-    small = (areas < 400) & np.array([a['occ'] == 'Residential' for a in attrs]) & ~np.isnan(hs) & (hs > 3)
+    small = (areas < 400) & np.array([a['occ'] == 'Residential' for a in attrs], dtype=bool) & ~np.isnan(hs) & (hs > 3)
     small_tree = cKDTree(cent[small]) if small.any() else None
     small_h = hs[small]
     buildings = []  # dicts
@@ -1472,14 +1888,33 @@ def main():
                 if rnd.next() < 0.12:
                     hh *= 0.78  # the odd two-story among three-story neighbors
             buildings.append({'poly': q, 'h': max(3.0, hh), 'occ': occ, 'prim': a['prim'],
-                              'srckey': (a['id'], k), 'front_edge_hint': fe})
+                              'srckey': (a['id'], k), 'front_edge_hint': fe, 'src': 'usa', 'key': f"u{a['id']}:{k}",
+                              'hsrc': 'usa' if a['h'] == a['h'] else 'neighbors'})
     log('buildings after split', len(buildings))
-    # stable ids: rank in (source id, lot) order. Unique by construction, and
-    # stable across re-bakes of the same source data (the paint array keys on it).
-    for rank, b in enumerate(sorted(buildings, key=lambda b: b['srckey'])):
-        b['stable'] = rank
+    ids = None
+    if use_osm:
+        counts['usaLots'] = len(buildings)
+        # the OSM footprints (no lot splitting: they are the real lots); srckeys unique per footprint, after the
+        # fallback rows' (USA BUILD_ID * 4 + part), so no OSM footprint ever merges with another
+        base_key = max([b['srckey'][0] for b in buildings], default=0) + 1
+        for i, ob in enumerate(osm_b):
+            buildings.append({'poly': ob['poly'], 'holes': ob['holes'], 'h': ob['h'], 'hsrc': ob['hsrc'], 'occ': ob['occ'],
+                              'prim': ob['prim'], 'srckey': (base_key + i, 0), 'front_edge_hint': None, 'src': ob['src'],
+                              'key': ob['key'], 'gers': ob['gers'], 'hasParts': ob['hasParts'], 'roof': ob['roof'],
+                              'facadeColor': ob['facadeColor'], 'roofColor': ob['roofColor'], 'facadeMat': ob['facadeMat'],
+                              'roofMat': ob['roofMat'], 'osmClass': ob['cls'] or ob['subtype'], 'minH': ob['minH'], 'name': ob['name']})
+        # stable ids from what each building is (see ID_RANGES): never a rank
+        ids = IdAlloc()
+        for b in sorted(buildings, key=lambda b: (b['src'], b['key'])):
+            b['stable'] = ids.take(b['src'], b['key'])
+        log(f'stable ids: {len(buildings)} from source ids ({ids.collisions} hash collisions probed)')
+    else:
+        # stable ids: rank in (source id, lot) order. Unique by construction, and
+        # stable across re-bakes of the same source data (the paint array keys on it).
+        for rank, b in enumerate(sorted(buildings, key=lambda b: b['srckey'])):
+            b['stable'] = rank
     # Everything below may change heights, merge lots, split blocks and add tiers, but never
-    # the ranking above (see lidar_pass for the ids of buildings a LiDAR bake adds).
+    # the ids above (see lidar_pass for the ids of buildings a LiDAR bake adds).
 
     # landmarks are hand-built props: footprints under them stay low (no doubled towers)
     for b in buildings:
@@ -1493,10 +1928,32 @@ def main():
                     b['landmark'] = True
 
     if lidar_rasters is not None:
-        buildings = lidar_pass(buildings, cfg, massing, lidar_rasters['fine'], ll2xz, dem_at, log)
+        buildings = lidar_pass(buildings, cfg, massing, lidar_rasters['fine'], ll2xz, dem_at, log, ids=ids, parts_of=parts_of)
+    elif parts_of:
+        # no LiDAR to check them against: the mapped parts are the massing
+        npu = 0
+        for b in buildings:
+            if not b.get('landmark') and b.get('hasParts') and b.get('gers') in parts_of:
+                recs = parts_massing(b, parts_of[b['gers']])
+                if recs:
+                    b['osmParts'] = recs
+                    npu += 1
+        log(f'osm parts: {npu} buildings take their massing from OSM building parts (no LiDAR)')
 
     def ground_stats(p):
         return ground_stats_at(dem_at, p)
+
+    # ------------------------------------------------------- ground classes (OSM)
+    ground = None
+    if use_osm:
+        log('ground classes')
+        bpolys = [with_holes(b) for b in buildings]
+        bres = [b['occ'] in ('Residential', 'Unclassified', '', 'Outbuilding') for b in buildings]
+        ground, pier_mask, treeable = osm.ground_raster(H, W, minX, minZ, DEM_RES, nodata, dem_filled, bpolys, bres, segs)
+        if not cfg['dem'] and not cfg.get('dem_fallback'):
+            # a flat city: the water sits a step below the quays
+            dem_filled[ground == O.WATER] = float(cfg.get('waterLevel', -0.8))
+        del bpolys, bres
 
     # ---------------------------------------------------------- classify + ground
     log('classifying')
@@ -1515,30 +1972,101 @@ def main():
                 f2 = fronts[1]
         return min(255, f1), min(255, f2)
 
-    for b in buildings:
+    hood_names = [n for n, _, _ in cfg.get('neighborhoods', [])]
+    hood_label = [ll2xz(lo, la) for _, la, lo in cfg.get('neighborhoods', [])]
+    hoods_b = None
+    if use_osm:
+        names, pts, hpolys = osm.hoods(extra=[(n, *ll2xz(lo, la)) for n, la, lo in cfg.get('neighborhoods', [])])
+        hood_index = O.HoodIndex(names, pts, hpolys)
+        hood_names, hood_label = names, [(x, z) for x, z, _ in pts]
+        bc = np.array([[b['poly'].centroid.x, b['poly'].centroid.y] for b in buildings])
+        hoods_b = hood_index.at(bc[:, 0], bc[:, 1]) if len(bc) else np.zeros(0, np.int64)
+        log(f'neighbourhoods: {len(names)} names ({len(hpolys)} mapped areas)')
+    hood_tree = cKDTree(np.array(hood_label)) if hood_label else None
+    roof_defaults = {k: O.ROOF_SHAPES.get(v, 0) for k, v in osm.P['roofDefaults'].items()} if use_osm else {}
+
+    def seed_for(b):
+        """The per-building seed (window jitter, grey tone...). A mapped facade colour picks a seed whose grey
+        tone (buildingMaterial: (fract(seed * 0.61803) - 0.5) * 0.12) follows the colour's lightness: in the grey
+        city colours only shift value."""
+        base = hash32(b['stable']) & 0xFF
+        col = b.get('facadeColor', 0)
+        if not col:
+            return base
+        L = float(np.clip(O.luminance(col), 0.05, 0.95))
+        cands = [k for k in range(256) if abs(((k * 0.61803) % 1.0) - L) < 0.03]
+        return cands[hash32(b['stable'], 5) % len(cands)] if cands else base
+
+    if use_osm:
+        # every footprint's and part's street-facing edges in one batch (a query per polygon took minutes)
+        frontage_batch([b['poly'] for b in buildings] + [r['poly'] for b in buildings for r in (b.get('osmParts') or [])]
+                       + [ring_ccw(t[0]) for b in buildings if b.get('parts') and not b.get('osmParts') for t in b['parts'][1:]])
+    nroof = defaultdict(int)
+    for bi, b in enumerate(buildings):
         p = b['poly']
         c = np.asarray(p.exterior.coords)[:-1]
         gmin, gmean = ground_stats(p)
         b['baseY'] = gmin - 0.4
         b['roofY'] = gmean + b['h']
         b['front'], b['front2'] = fronts_of(p)
-        # parts: the footprint (tier 0), then LiDAR tiers stacked on the tier below
-        if b['parts']:
+        none = {'roofShape': 0, 'roofH': 0.0, 'roofDir': 0}
+        cols = {'facadeColor': b.get('facadeColor', 0), 'roofColor': b.get('roofColor', 0), 'facadeMat': b.get('facadeMat', 0), 'roofMat': b.get('roofMat', 0)}
+        # parts: the footprint (tier 0), then LiDAR tiers stacked on the tier below; or OSM's building parts
+        if b.get('osmParts'):
+            parts = []
+            for r in b['osmParts']:
+                q = r['poly']
+                f1, f2 = fronts_of(q)
+                base = b['baseY'] if r['tier'] == 0 else gmin + r['base']
+                shape, R, rdir, eave = roof_for(q, r['roof'], gmin + r['top'], base, False)
+                parts.append({'poly': q, 'baseY': base, 'roofY': max(eave, base + 1.0), 'tier': r['tier'], 'front': f1, 'front2': f2, 'taper': 0,
+                              'roofShape': shape, 'roofH': R, 'roofDir': rdir,
+                              'facadeColor': r['facadeColor'] or cols['facadeColor'], 'roofColor': r['roofColor'] or cols['roofColor'],
+                              'facadeMat': r['facadeMat'] or cols['facadeMat'], 'roofMat': r['roofMat'] or cols['roofMat']})
+                nroof[shape] += 1
+            b['parts'] = parts
+            b['roofY'] = max(q['roofY'] + q['roofH'] for q in parts)
+            b['h'] = b['roofY'] - gmean
+        elif b['parts']:
             parts = []
             for q, top, tier, par, sc in b['parts']:
                 taper = int(round((1.0 - sc) * 255))
                 if tier == 0:
-                    parts.append({'poly': p, 'baseY': b['baseY'], 'roofY': max(top, gmean + 3.0), 'tier': 0, 'front': b['front'], 'front2': b['front2'], 'taper': taper})
+                    parts.append(dict({'poly': p, 'baseY': b['baseY'], 'roofY': max(top, gmean + 3.0), 'tier': 0, 'front': b['front'], 'front2': b['front2'], 'taper': taper}, **none, **cols))
                     continue
                 q = ring_ccw(q)
                 f1, f2 = fronts_of(q)
                 base = parts[par]['roofY']
-                parts.append({'poly': q, 'baseY': base, 'roofY': max(top, base + 2.0), 'tier': tier, 'front': f1, 'front2': f2, 'taper': taper})
+                parts.append(dict({'poly': q, 'baseY': base, 'roofY': max(top, base + 2.0), 'tier': tier, 'front': f1, 'front2': f2, 'taper': taper}, **none, **cols))
             b['parts'] = parts
             b['roofY'] = max(q['roofY'] for q in parts)
             b['h'] = b['roofY'] - gmean
         else:
-            b['parts'] = [{'poly': p, 'baseY': b['baseY'], 'roofY': b['roofY'], 'tier': 0, 'front': b['front'], 'front2': b['front2'], 'taper': 0}]
+            roof = dict(b.get('roof') or {})
+            if not roof.get('shape') and roof_defaults and p.area < 400 and roof_defaults.get(b.get('osmClass', '')):
+                roof['shape'] = roof_defaults[b['osmClass']]
+            if b.get('landmark'):
+                roof = {}
+            shape, R, rdir, eave = roof_for(p, roof, b['roofY'], b['baseY'], b.get('hsrc') == 'lidar')
+            b['parts'] = [dict({'poly': p, 'baseY': b['baseY'], 'roofY': max(eave, b['baseY'] + 2.0), 'tier': 0, 'front': b['front'], 'front2': b['front2'], 'taper': 0,
+                                'roofShape': shape, 'roofH': R, 'roofDir': rdir}, **cols)]
+            nroof[shape] += 1
+            b['roofY'] = b['parts'][0]['roofY'] + R
+            b['h'] = b['roofY'] - gmean
+        if b.get('holes') and len(b['parts']) == 1:
+            # courtyards: the footprint is cut through them into pieces, all tier 0 (the first keeps the front),
+            # flat-roofed (a pitched roof over a ring of pieces would cross the courtyard)
+            pcs = [ring_ccw(q) for q in O.OSM.pieces(with_holes(b))]
+            if len(pcs) > 1:
+                t0 = b['parts'][0]
+                ex = []
+                for q in pcs:
+                    f1, f2 = fronts_of(q)
+                    ex.append(dict(t0, poly=q, front=f1, front2=f2, roofShape=1 if t0['roofShape'] else 0, roofH=0.0, roofDir=0, taper=0))
+                b['parts'] = ex
+                b['roofY'] = t0['roofY']
+                b['h'] = b['roofY'] - gmean
+                b['cut'] = True
         # frontage width
         if b['front'] != 255:
             a0 = c[b['front']]
@@ -1557,6 +2085,8 @@ def main():
             arch = 'commercial'
         elif occ in ('Government', 'Assembly', 'Education'):
             arch = 'civic' if h >= 9 else 'commercial'
+        elif occ == 'Outbuilding':
+            arch = 'shed' if h < 6.0 else 'commercial'
         elif h < 4.2 or p.area < 30:
             arch = 'shed'
         elif h >= 17 or fw > 14 or p.area > 900:
@@ -1566,11 +2096,17 @@ def main():
         b['arch'] = ARCH[arch]
         floor_h = 3.6 if arch == 'victorian' else (3.1 if arch in ('stucco', 'marina') else 3.3)
         b['floors'] = int(max(1, min(250, round(h / floor_h))))
-        if hood_tree is not None:
+        if hoods_b is not None:
+            b['hood'] = int(min(254, hoods_b[bi]))
+        elif hood_tree is not None:
             b['hood'] = int(hood_tree.query([p.centroid.x, p.centroid.y])[1])
         else:
             b['hood'] = 0
-        b['seed'] = hash32(b['stable']) & 0xFF
+        b['seed'] = seed_for(b) if use_osm else hash32(b['stable']) & 0xFF
+    if use_osm:
+        names_r = {v: k for k, v in reversed(list(O.ROOF_SHAPES.items()))}  # (the first name of each code)
+        log('roof shapes (parts): ' + ', '.join(f'{names_r.get(k, "untagged") if k else "untagged"} {v}' for k, v in sorted(nroof.items())))
+        counts['roofShapes'] = {(names_r.get(k, '?') if k else 'untagged'): v for k, v in nroof.items()}
 
     # stable dense index: sort by tile then by stable id
     for b in buildings:
@@ -1582,31 +2118,41 @@ def main():
 
     # ----------------------------------------------------------- ground class
     log('ground classes + trees')
-    cov = np.zeros((H, W), dtype=bool)
-    shapes = [(b['poly'], 1) for b in buildings]
+    shapes = [(with_holes(b), 1) for b in buildings]
     from rasterio.features import rasterize
     # rasterize in local frame: transform maps (col,row) -> (x, z) via proj coords; use z directly
     local_transform = rasterio.Affine(DEM_RES, 0, minX, 0, DEM_RES, minZ)
     cov = rasterize(shapes, out_shape=(H, W), transform=local_transform, fill=0, dtype=np.uint8).astype(bool)
-    dist = ndimage.distance_transform_edt(~cov) * DEM_RES
-    water = nodata | (dem_filled < 0.3)
-    water = ndimage.binary_opening(water, iterations=2)
-    grass = (dist > 17.0) & ~water
-    grass = ndimage.binary_opening(grass, iterations=2)
-    ground = np.zeros((H, W), dtype=np.uint8)
-    # sidewalks: a 3.5 m band in front of buildings that isn't grass or water
-    ground[(dist > 0) & (dist <= 3.6)] = GROUND_SIDEWALK
-    ground[cov] = GROUND_SIDEWALK
-    ground[grass] = GROUND_GRASS
-    ground[water] = GROUND_WATER
+    dist = (ndimage.distance_transform_edt(~cov) * DEM_RES).astype(np.float32)
+    if ground is None:
+        water = nodata | (dem_filled < 0.3)
+        water = ndimage.binary_opening(water, iterations=2)
+        grass = (dist > 17.0) & ~water
+        grass = ndimage.binary_opening(grass, iterations=2)
+        ground = np.zeros((H, W), dtype=np.uint8)
+        # sidewalks: a 3.5 m band in front of buildings that isn't grass or water
+        ground[(dist > 0) & (dist <= 3.6)] = GROUND_SIDEWALK
+        ground[cov] = GROUND_SIDEWALK
+        ground[grass] = GROUND_GRASS
+        ground[water] = GROUND_WATER
+        treeable = None
+    del cov
 
     def ground_at(x, z):
         ix = np.clip(((np.asarray(x) - minX) / DEM_RES).astype(int), 0, W - 1)
         iz = np.clip(((np.asarray(z) - minZ) / DEM_RES).astype(int), 0, H - 1)
         return ground[iz, ix], dist[iz, ix]
 
-    # trees: park trees on a jittered grid in grass, street trees along frontages
+    # trees: (OSM) every mapped tree; park trees on a jittered grid in grass (OSM: only inside real parks,
+    # woods and cemeteries, not on pitches or fairways; denser in woods), street trees along frontages
     trees = []
+    real = []
+    if use_osm:
+        real = [(x, z, k, s) for x, z, k, s in osm.trees() if minX <= x < maxX and minZ <= z < maxZ]
+        rcl, _ = ground_at([t[0] for t in real], [t[1] for t in real])
+        real = [t for t, c in zip(real, rcl) if c != O.WATER]
+        trees += [(float(x), float(z), float(s), int(k)) for x, z, k, s in real]
+    real_tree = cKDTree(np.array([[t[0], t[1]] for t in real])) if real else None
     rng = np.random.default_rng(1234)
     gx = np.arange(minX + 5, maxX, 11.0)
     gz = np.arange(minZ + 5, maxZ, 11.0)
@@ -1621,10 +2167,21 @@ def main():
     slope = np.hypot(sx_, sz_)
     tree_lat_max = cfg.get('treeLatMax', 90)
     _, lat_r = to_local.transform(gxr, -gzr, direction='INVERSE')
-    keep = (cls == GROUND_GRASS) & (dd > 20) & (rng.uniform(size=cls.shape) < 0.55) & (slope < 0.2) & (lat_r < tree_lat_max)
+    u = rng.uniform(size=cls.shape)
+    if treeable is not None:
+        ix = np.clip(((gxr - minX) / DEM_RES).astype(int), 0, W - 1)
+        iz = np.clip(((gzr - minZ) / DEM_RES).astype(int), 0, H - 1)
+        tz_ = treeable[iz, ix]
+        keep = (((tz_ == 1) & (u < 0.55)) | ((tz_ == 2) & (u < 0.85))) & np.isin(cls, (O.GRASS, O.FOREST)) & (dd > 12) & (slope < 0.2) & (lat_r < tree_lat_max)
+        if real_tree is not None:
+            nd_, _ = real_tree.query(np.column_stack([gxr, gzr]))
+            keep &= nd_ > 7.0  # a mapped tree stands here already
+    else:
+        keep = (cls == GROUND_GRASS) & (dd > 20) & (u < 0.55) & (slope < 0.2) & (lat_r < tree_lat_max)
     for x, z in zip(GX.ravel()[keep], GZ.ravel()[keep]):
         kind = 2 if rng.uniform() < 0.18 else 1
         trees.append((float(x), float(z), 0.75 + 0.7 * rng.uniform(), kind))
+    nstreet = 0
     for b in buildings:
         if b['front'] == 255 or b['arch'] not in (ARCH['victorian'], ARCH['flats'], ARCH['stucco'], ARCH['marina']):
             continue
@@ -1646,9 +2203,16 @@ def main():
             nrm = -nrm
         pt = mid + nrm * 3.2
         cl, dd1 = ground_at([pt[0]], [pt[1]])
-        if cl[0] == GROUND_PAVED and dd1[0] > 2.0:
-            trees.append((float(pt[0]), float(pt[1]), 0.55 + 0.35 * rr.next(), 0))
-    log('trees', len(trees))
+        if use_osm:
+            # on the sidewalk, and not where the mapped street trees already stand
+            if cl[0] not in (O.SIDEWALK, O.YARD) or dd1[0] <= 2.0 or (real_tree is not None and real_tree.query(pt)[0] < 9.0):
+                continue
+        elif not (cl[0] == GROUND_PAVED and dd1[0] > 2.0):
+            continue
+        trees.append((float(pt[0]), float(pt[1]), 0.55 + 0.35 * rr.next(), 0))
+        nstreet += 1
+    log(f'trees {len(trees)} ({len(real)} mapped, {nstreet} along frontages, the rest in parks)')
+    counts['trees'] = {'mapped': len(real), 'street': nstreet, 'park': len(trees) - len(real) - nstreet} if use_osm else None
 
     # ------------------------------------------------------------ tile output
     tiles = defaultdict(list)
@@ -1657,6 +2221,15 @@ def main():
     tree_tiles = defaultdict(list)
     for t in trees:
         tree_tiles[(int(math.floor(t[0] / TILE)), int(math.floor(t[1] / TILE)))].append(t)
+
+    street_tree = None
+    if use_osm:
+        sl = osm.street_lines(segs)
+        street_geoms = [ln for ln, _, _ in sl]
+        street_names = [nm for _, nm, _ in sl]
+        street_rank = [rk for _, _, rk in sl]
+        street_tree = STRtree(street_geoms) if street_geoms else None
+        log(f'street names: {len(sl)} named segments, {len(set(street_names))} names')
 
     manifest_tiles = []
     for old in os.listdir(out_dir):
@@ -1691,7 +2264,7 @@ def main():
                 vstart[i + 1] = vstart[i] + len(r)
             vx = np.concatenate([r[:, 0] for r in rings]).astype(np.int16)
             vz = np.concatenate([r[:, 1] for r in rings]).astype(np.int16)
-            hdr = struct.pack('<4sIIffI', b'SBB2', len(recs), int(vstart[-1]), x0, z0, 0)
+            hdr = struct.pack('<4sIIffI', b'SBB3' if use_osm else b'SBB2', len(recs), int(vstart[-1]), x0, z0, 0)
             body = b''.join([
                 np.array([b['index'] for b, _ in recs], dtype=np.uint32).tobytes(),
                 np.array([b['stable'] for b, _ in recs], dtype=np.uint32).tobytes(),
@@ -1700,6 +2273,14 @@ def main():
                 np.array([q['roofY'] for _, q in recs], dtype=np.float32).tobytes(),
                 np.array([b['baseY'] for b, _ in recs], dtype=np.float32).tobytes(),  # groundY: the building's true ground
             ])
+            if use_osm:
+                # SBB3: colours (0xFFRRGGBB, 0 = not mapped), roof rise (dm), then the u8 rows below + roof shape,
+                # roof direction, facade / roof material and the data source (see src/world/tiles.ts)
+                body += b''.join([
+                    np.array([q.get('facadeColor', 0) for _, q in recs], dtype=np.uint32).tobytes(),
+                    np.array([q.get('roofColor', 0) for _, q in recs], dtype=np.uint32).tobytes(),
+                    np.array([min(65535, int(round(q.get('roofH', 0.0) * 10))) for _, q in recs], dtype=np.uint16).tobytes(),
+                ])
             u8 = b''.join([
                 np.array([b['arch'] for b, _ in recs], dtype=np.uint8).tobytes(),
                 np.array([b['floors'] for b, _ in recs], dtype=np.uint8).tobytes(),
@@ -1710,7 +2291,15 @@ def main():
                 np.array([q['tier'] for _, q in recs], dtype=np.uint8).tobytes(),
                 np.array([q['taper'] for _, q in recs], dtype=np.uint8).tobytes(),
             ])
-            pad = (-len(u8)) % 4
+            if use_osm:
+                u8 += b''.join([
+                    np.array([q.get('roofShape', 0) for _, q in recs], dtype=np.uint8).tobytes(),
+                    np.array([q.get('roofDir', 0) for _, q in recs], dtype=np.uint8).tobytes(),
+                    np.array([q.get('facadeMat', 0) for _, q in recs], dtype=np.uint8).tobytes(),
+                    np.array([q.get('roofMat', 0) for _, q in recs], dtype=np.uint8).tobytes(),
+                    np.array([source_byte(b, q) for b, q in recs], dtype=np.uint8).tobytes(),
+                ])
+            pad = (-(len(hdr) + len(body) + len(u8))) % 4
             data = hdr + body + u8 + b'\0' * pad + vx.tobytes() + vz.tobytes()
             with open(os.path.join(out_dir, f'b_{tx}_{tz}.bin'), 'wb') as f:
                 f.write(data)
@@ -1735,7 +2324,7 @@ def main():
                 gmax = np.maximum(gmax, dem_at((OX + dx * oc).ravel(), (OZ + dz * oc).ravel()).reshape(OX.shape))
         obst = gmax
         tl = trees_here = tree_tiles.get((tx, tz), [])
-        hdr = struct.pack('<4siiHHfff', b'SBT1', tx, tz, TERRAIN_N, OBST_N, TERRAIN_CELL, x0, z0)
+        hdr = struct.pack('<4siiHHfff', b'SBT2' if use_osm else b'SBT1', tx, tz, TERRAIN_N, OBST_N, TERRAIN_CELL, x0, z0)
         tbytes = hq.tobytes() + cl.astype(np.uint8).tobytes()
         tbytes += b'\0' * ((-(len(hdr) + len(tbytes))) % 4)
         obst_off = len(hdr) + len(tbytes)
@@ -1748,8 +2337,9 @@ def main():
             otr = rasterio.Affine(oc, 0, x0, 0, oc, z0)
             # every part at its own height: the bus clears a podium and steers around the tower on it.
             # Tall parts grow by half a cell diagonal: an 8 m cell that only grazes a 300 m wall must hold it
-            order = sorted([(q, q['roofY'] - b['baseY']) for b in neigh for q in b['parts']], key=lambda t: t[0]['roofY'])
-            roof = rasterize([(q['poly'].buffer(6.0 if hq > 40.0 else 3.0), float(q['roofY'])) for q, hq in order], out_shape=(OBST_N, OBST_N),
+            # (a pitched roof or a dome is an obstacle most of the way up)
+            order = sorted([(q, q['roofY'] + 0.8 * q.get('roofH', 0.0) - b['baseY']) for b in neigh for q in b['parts']], key=lambda t: t[0]['roofY'] + 0.8 * t[0].get('roofH', 0.0))
+            roof = rasterize([(q['poly'].buffer(6.0 if hq > 40.0 else 3.0), float(q['roofY'] + 0.8 * q.get('roofH', 0.0))) for q, hq in order], out_shape=(OBST_N, OBST_N),
                              transform=otr, fill=-1e9, dtype=np.float32, merge_alg=rasterio.enums.MergeAlg.replace)
             obst = np.maximum(obst, roof)
         oq = np.clip(np.round(obst * 10), -32000, 32000).astype(np.int16)
@@ -1766,6 +2356,10 @@ def main():
         ccl, _ = ground_at(CX.ravel(), CZ.ravel())
         tr += b'\0' * ((-(len(hdr) + len(tbytes) + len(tbytes2) + len(tb) + len(tr))) % 4)
         data = hdr + tbytes + tbytes2 + tb + tr + ccl.astype(np.uint8).tobytes()
+        if use_osm:
+            # SBT2: the street-name section (osm.names_section)
+            data += b'\0' * ((-len(data)) % 4)
+            data += O.names_section(tx, tz, x0, z0, TILE, street_tree, street_geoms, street_names, street_rank, hood_index)
         with open(os.path.join(out_dir, f't_{tx}_{tz}.bin'), 'wb') as f:
             f.write(data)
         total_bytes += len(data)
@@ -1793,7 +2387,7 @@ def main():
             major = sorted(major, key=lambda q: -q['poly'].area * (q['roofY'] - q['baseY']))[:FAR_MAX_BOXES]
         else:
             # one box: the footprint up to the top of its main mass (a part covering half of it)
-            main_top = max([q['roofY'] for q in parts if q['poly'].area >= 0.5 * a0] or [parts[0]['roofY']])
+            main_top = max([q['roofY'] + 0.5 * q.get('roofH', 0.0) for q in parts if q['poly'].area >= 0.5 * a0] or [parts[0]['roofY']])
             major = [dict(parts[0], roofY=main_top, taper=0)]
         for q in major:
             mrr = q['poly'].minimum_rotated_rectangle
@@ -1826,12 +2420,30 @@ def main():
         'bounds': [minX, minZ, maxX, maxZ],
         'buildingCount': len(buildings),
         'tiles': manifest_tiles,
-        'neighborhoods': [{'name': n, 'x': float(x), 'z': float(z)} for (n, _, _), (x, z) in zip(hood_ll, hood_xz)],
+        'neighborhoods': [{'name': n, 'x': float(x), 'z': float(z)} for n, (x, z) in zip(hood_names, hood_label)],
         'landmarks': lms,
         'start': {'x': sx, 'z': sz, 'heading': math.radians(cfg['start']['heading_deg']), 'speed': cfg['start'].get('speed', 30), 'opening': cfg['start'].get('opening', '')},
         'source': 'FEMA/ORNL USA Structures (public domain) + USGS 3DEP 1 m DEM (public domain); rows split into ~25 ft lots'
                   + ('; rooftops (heights, tiers) from the USGS 3DEP lidar point cloud (public domain)' if lidar_rasters is not None else ''),
     }
+    if use_osm:
+        dem_src = 'USGS 3DEP DEM (public domain)' if cfg['dem'] or cfg.get('dem_fallback') else 'flat ground (no DEM)'
+        manifest['source'] = ('OpenStreetMap via Overture Maps (' + osm.release + '; ODbL 1.0): footprints, building parts, roofs, '
+                              'streets, land, water, trees, names'
+                              + ('; FEMA/ORNL USA Structures (public domain) where OSM has no footprint' if df is not None else '')
+                              + '; ' + dem_src
+                              + ('; rooftops (heights, tiers) from the USGS 3DEP lidar point cloud (public domain)' if lidar_rasters is not None else ''))
+        manifest['attribution'] = '\u00a9 OpenStreetMap contributors, Overture Maps Foundation'
+        manifest['license'] = 'ODbL-1.0'
+        hs = defaultdict(int)
+        for b in buildings:
+            hs[b.get('hsrc') or 'default'] += 1
+        counts['heights'] = dict(hs)
+        counts['buildings'] = {k: sum(1 for b in buildings if b.get('src') == k) for k in ('osm', 'ovt', 'usa', 'lidar')}
+        counts['osmParts'] = sum(1 for b in buildings if b.get('osmParts'))
+        counts['lidarTiers'] = sum(1 for b in buildings if b.get('tiered') and not b.get('osmParts'))
+        manifest['stats'] = counts
+        log('stats: ' + json.dumps(counts))
     with open(os.path.join(out_dir, 'city.json'), 'w') as f:
         json.dump(manifest, f)
     log(f'done: {len(buildings)} buildings, {len(manifest_tiles)} tiles, {total_bytes/1e6:.1f} MB raw')

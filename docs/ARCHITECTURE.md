@@ -80,6 +80,82 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
 `tools/bake/bake.py <slug>` turns footprints + DEM (+ an optional LiDAR point
 cloud via `tools/bake/lidar.py`) into 256 m tiles; `tools/bake/pack.py` bundles
 them into gzip'd 1 km regions. Layouts live in `src/world/tiles.ts`.
+**The footprints, streets, land, water, trees and names are OpenStreetMap**
+(feat/osm): `tools/bake/overture.py <slug>` extracts the city's bbox from the
+Overture Maps GeoParquet release on S3 (row groups by their bbox statistics,
+cached under `$SB_OVERTURE_CACHE`, default `/tmp/claude-0/sbdata/overture/`),
+`tools/bake/osm.py` reads the extracts (buildings, parts, ground raster, trees,
+names) and `bake.py` conflates them (OSM first; USA Structures only where OSM
+has no footprint; LiDAR heights where they agree). A city config with
+`"overture": {...}` bakes the OSM formats below; without it the old path
+(USA Structures, 'SBB2' / 'SBT1') is unchanged. The tiles are a derivative
+database under the ODbL (`public/city/DATA_LICENSE.md`); `city.json` carries
+`attribution` ("© OpenStreetMap contributors, Overture Maps Foundation"),
+`license` and `stats` (counts per source, heights by source, roofs, trees).
+QA without a browser: `tools/bake/citydata.py` reads a baked city in Python,
+`tools/bake/plot.py` draws top-down comparisons (classes, lot lines, heights,
+roof shapes, trees, street names) of any number of bakes side by side.
+- **'SBB3' building tiles** (OSM bakes; 'SBB1'/'SBB2' still read): SBB2 plus
+  `u32 facadeColor[]`, `u32 roofColor[]` (0xFFRRGGBB as mapped, 0 = none) and
+  `u16 roofH[]` (dm) after `groundY`, and `u8 roofShape[]`, `u8 roofDir[]`,
+  `u8 facadeMat[]`, `u8 roofMat[]`, `u8 source[]` after `taper`; then pad to 4
+  from the tile start (SBB2's pad was the same, its offsets were aligned) and
+  the rings. `roofShape` (`RoofShape` in tiles.ts: 0 untagged, 1 flat, 2 gabled,
+  3 hipped, 4 pyramidal, 5 skillion, 6 dome, 7 onion, 8 round, 9 gambrel,
+  10 mansard, 11 half-hipped, 12 saltbox, 13 cone): with a shape, **roofY is
+  the eave** (top of the walls) and the roof rises `roofH` m above it; untagged
+  and flat parts keep roofY = their top as before. `roofDir`: the way the main
+  roof face looks (downhill), `atan2(dz, dx)` in the local frame, 256 = a full
+  turn; the ridge runs across it (the bake always sets it for shaped roofs:
+  OSM roof:direction, else the ridge along the footprint's long side, across
+  with roof:orientation=across). `source`: bits 0-2 footprint (0 OSM, 1 other
+  Overture, 2 USA Structures, 3 LiDAR only), bits 3-5 height (0 default,
+  1 LiDAR, 2 OSM height, 3 OSM levels, 4 USA Structures, 5 neighbours), bit 6
+  massing from OSM building parts, bit 7 LiDAR tiers. A building may hold
+  several tier-0 records: OSM building parts on the ground (the biggest
+  first), or pieces cut through a courtyard (flat-roofed). Consumers that
+  assume "record `local` is the whole footprint" are wrong for those (City's
+  `contains`, `edgeDistance` and bounds already walk every tier-0 record).
+- **Shaped roofs in BuildingMesher** (`shapedRoof`, `roofPlanes`, `clipHalf`,
+  `revolve`, appended at the end of the file): a part with `roofShape >= 2`
+  and `roofH > 0.3` (not tapering) gets its roof built first, before the walls,
+  so a footprint it can't roof (a planar roof over a footprint < 55 % of its
+  rectangle) keeps its parapet and flat cap. Planar roofs are the lowest of a
+  few planes in the roof frame (s along the ridge, t across, from `roofDir`):
+  each face is the footprint clipped to where its plane is lowest
+  (Sutherland-Hodgman, ear-clipped), Part.ROOF_SLOPE (Part.ROOF where flat:
+  a mansard's top); where the roof meets an outer wall above the eave (gable
+  ends, a skillion's high side) the wall continues up to it as FRONT / SIDE
+  quads and triangles with the facade's u and v, so windows run on; domes,
+  onions, cones and pyramids on non-rectangular footprints revolve the ring
+  about its area centroid. With a built shape there is no parapet, no
+  rooftop clutter and no procedural Victorian gable (that stays for untagged
+  parts only); `Group.top` (the flood / pop top) includes `roofH`. LOD 1 builds
+  the same roofs.
+- **'SBT2' terrain tiles** (OSM bakes): SBT1, pad to 4, then the street-name
+  section: `u8 hood[8*8]` (32 m cells: an index into `manifest.neighborhoods`,
+  255 none), `u16 nameCount, u16 lineCount`, names `{u8 len, utf-8}` (as
+  signed: 'Haight St'), pad to 2, lines `{u16 name, u8 rank (0 street,
+  1 path/plaza), u8 n, i16 x, z dm from the tile origin * n}`. Parsed into
+  `TerrainTile.streetNames / streets / hoodGrid`; `City.streetNameAt(x, z,
+  maxDist = 45)` (nearest named street, paths only when no street is in
+  reach) and `City.hoodAt(x, z)`. The region bundle ('SBR1') is unchanged.
+- **Ground classes** (2 m class texture, `Ground` in tiles.ts): 0 PAVED,
+  1 GRASS, 2 WATER, 3 SIDEWALK as before, and with OSM 4 PLAZA (pedestrian
+  areas, squares, piers, hard pitches), 5 PATH (footways, cycleways, steps,
+  tracks), 6 SAND, 7 RAIL, 8 FOREST, 9 YARD (block interiors: gardens,
+  unmapped land), 10 ROCK. Streets are their centerlines buffered to their
+  class width (`osm.OSM_DEFAULTS.roadWidth`), sidewalks 3.5 m beside streets
+  that have them, the sea is what OSM's coastline land polygons leave out
+  (where the DEM is low), blocks of mostly non-residential buildings are
+  PAVED lots instead of yards; under buildings: SIDEWALK, as before.
+  `terrainMaterial.ts` shades the new classes with existing ramps (palette
+  unchanged); the far grid ('SBF1') carries the same codes (only WATER is read).
+- Trees ('SBT1/2' records unchanged): OSM natural=tree points and tree rows
+  (species -> kind: cypress / pine and eucalyptus / street tree, height ->
+  size), procedural park trees only inside OSM parks, cemeteries, gardens and
+  woods (none on pitches, fairways, playgrounds, or north of `treeLatMax`), and
+  procedural street trees on sidewalks where no mapped tree stands within 9 m.
 - **Buildings are groups of parts.** A building tile ('SBB2') holds one record
   per *part*: a plain building is one part; a LiDAR-tiered tower is several
   (podium, setbacks, tapering shaft, crown, rooftop boxes), consecutive, tier 0
@@ -115,13 +191,63 @@ them into gzip'd 1 km regions. Layouts live in `src/world/tiles.ts`.
   `roofAt` (the part's roof under a point). Never test hits by centroid
   distance: big footprints reach 100+ m from their centroid.
   `buildingsNear` (centroid within r) stays for "what's around here" questions.
-- **stableIds** key saved paint. Footprint buildings keep the rank of their
-  source footprint (LiDAR work happens after ranking); row lots merged back into
-  one building keep one lot's id and retire the others. Buildings only a LiDAR
-  bake has get ids >= 2^30 derived from what they are (split pieces: parent id
-  and rank; LiDAR-only towers: a hash of their position), so re-bakes agree.
+- **stableIds** key saved paint. OSM bakes (`bake.py` `ID_RANGES`, `IdAlloc`):
+  every id derives from its source record, never a rank: [0, 2^31) FNV-1a of
+  the OSM id ('w123', 'r45'; a multipolygon's separate pieces 'r45#1'...),
+  [2^31, 2^31 + 2^29) other Overture footprints (GERS id), [2^31 + 2^29,
+  3 * 2^30) USA Structures fallback lots 'u<BUILD_ID>:<lot>' and pieces LiDAR
+  splits off them, [3 * 2^30, 2^32) LiDAR-only towers (a hash of their 8 m-grid
+  position, as before); a hash collision probes to the next free id of its
+  range in key order. So a building keeps its id across re-bakes and other
+  buildings coming or going never shift it: the key a shared-paint server can
+  use. The paint store is `strugglebus.paint.v2` (SF; other cities
+  `strugglebus.paint.v2:<slug>`), the ground paint `strugglebus.ground.v3:`
+  (other cities `strugglebus.ground.v3.<slug>:`): v1 / v2 saves keyed the old
+  ids and are dropped on load, never applied. Old (non-OSM) bakes: footprint
+  buildings keep the rank of their source footprint; row lots merged back into
+  one building keep one lot's id and retire the others; LiDAR-only ids >= 2^30.
   `node tools/check-stable-ids.mjs <old city dir> <new city dir>` checks a
-  re-bake (also LiDAR bake against LiDAR bake).
+  re-bake of either kind (it refuses to compare an OSM bake with an old one).
+
+## Merging feat/osm (notes for the other workstreams)
+- **Data**: `public/city/sf/` is re-baked wholesale (its own commit); don't
+  hand-merge it, take ours. Re-baking needs the Overture extract
+  (`python3 -I tools/bake/overture.py sf`, ~2 min, cached under
+  `$SB_OVERTURE_CACHE`) and the shared LiDAR cache
+  (`SB_LIDAR_CACHE=/home/user/struggle-bus/tools/bake/.cache/lidar`): the
+  USA Structures LiDAR plan is still built first, so its cached rasters hit,
+  and only the chunks OSM adds are rasterized on top (their own cache files).
+  A region format change (polish/perf) only needs `pack.py` re-run on the raw
+  tiles in `tools/bake/.cache/sf/`.
+- **feat/facade** (BuildingMesher facade / roof / crown features,
+  buildingMaterial.ts, towerStyles.ts): our BuildingMesher diff is the roof
+  path only: `RoofShape` import, `Group.top` + `roofH`, `shaped` / `builtShape`
+  computed right after `flush` (before `parapet`), `gable` requires
+  `roofShape === NONE`, the roof section starts `if (builtShape) {} else if
+  (gable)`, clutter is skipped when `builtShape`, and the roof functions
+  appended at the end. Facade features, crowns and parapets should skip parts
+  with `builtShape` (a mapped roof: OSM parts' pyramids and domes, City Hall's
+  dome), like they skip procedural gables. `BuildingTile.facadeMat` /
+  `facadeColor` / `roofMat` / `roofColor` are there for tower styles and the
+  painted world (glass, brick, stone...); buildingMaterial.ts is untouched.
+- **fix/landmarks**: the keep-outs are unchanged (footprints within a
+  landmark's `clearRadius` capped at 8 m, no LiDAR, no parts, no roof shape),
+  but every stableId changed (OSM ids): ids a landmark prop takes must stay out
+  of `ID_RANGES` (e.g. derive them from the OSM id of the landmark's footprint,
+  Transamerica = 'w24222973', Coit Tower, Ferry Building), and paint for them
+  saves in `strugglebus.paint.v2`.
+- **polish/perf** (City.ts streaming, regionLoader / cityWorker, wall
+  subdivision, shadow LOD): City.ts gains `streetNameAt` / `hoodAt` (after
+  `neighborhoodName`) and passes `manifest.slug` to `PaintState` /
+  `GroundPaint`; regionLoader is untouched (`TerrainTile.streets` /
+  `streetNames` / `hoodGrid` are structured-cloned, not in the transfer
+  list: a few KB per tile). Gable-end walls are `quadF` / `triF`, not `wall()`,
+  so wall subdivision doesn't reach them (they're small). OSM bakes have more,
+  smaller buildings (no lot splitting, but every shed): see the perf numbers in
+  DECISIONS (Data).
+- **polish/look** (water / sky / bridges): terrainMaterial.ts only gains the
+  class branches; the coastline is now OSM's (water class), piers are PLAZA
+  decks at 2.5 m; the water plane (-0.6 m) is unchanged.
 
 ## Tunables
 Expose module constants via `registerTunables('Name', obj, ranges?)` from

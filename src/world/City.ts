@@ -177,8 +177,8 @@ export class City {
   eager = false;
 
   constructor(readonly manifest: CityManifest & { regions: Array<[number, number, number]>; regionSize: number }, readonly baseUrl: string) {
-    this.paint = new PaintState(manifest.buildingCount);
-    this.ground = new GroundPaint(manifest.tileSize);
+    this.paint = new PaintState(manifest.buildingCount, manifest.slug);
+    this.ground = new GroundPaint(manifest.tileSize, manifest.slug);
     // a blast's tiles get their own ground mesh first, so a coarse region (seen from altitude) shows the paint
     this.ground.onTilesTouched = (keys) => {
       for (const k of keys) {
@@ -1294,6 +1294,45 @@ export class City {
 
   neighborhoodName(hood: number): string {
     return this.manifest.neighborhoods[hood]?.name ?? this.manifest.name;
+  }
+
+  /**
+   * The nearest named street to (x, z) within maxDist (m), as signed ('Haight St'), from the loaded tiles'
+   * OpenStreetMap centerlines ('SBT2'); paths and plazas only when no street is near. null: none / old bake.
+   */
+  streetNameAt(x: number, z: number, maxDist = 45): string | null {
+    const ts = this.manifest.tileSize;
+    let best = Infinity;
+    let name: string | null = null;
+    for (let tz = Math.floor((z - maxDist) / ts); tz <= Math.floor((z + maxDist) / ts); tz++)
+      for (let tx = Math.floor((x - maxDist) / ts); tx <= Math.floor((x + maxDist) / ts); tx++) {
+        const tr = this.tiles.get(`${tx},${tz}`)?.terrainData;
+        if (!tr || !tr.streets.length) continue;
+        for (const ln of tr.streets) {
+          const xz = ln.xz;
+          const pen = ln.rank ? 20 : 0; // (a footway's name only where no street is in reach)
+          for (let k = 0; k + 3 < xz.length; k += 2) {
+            const d = segDist(xz[k], xz[k + 1], xz[k + 2], xz[k + 3], x, z) + pen;
+            if (d < best && d <= maxDist) {
+              best = d;
+              name = tr.streetNames[ln.name] ?? null;
+            }
+          }
+        }
+      }
+    return name;
+  }
+
+  /** The neighbourhood (an index into manifest.neighborhoods) at (x, z) from the tiles' hood grid ('SBT2'), or -1. */
+  hoodAt(x: number, z: number): number {
+    const ts = this.manifest.tileSize;
+    const tx = Math.floor(x / ts), tz = Math.floor(z / ts);
+    const g = this.tiles.get(`${tx},${tz}`)?.terrainData?.hoodGrid;
+    if (!g) return -1;
+    const i = Math.min(7, Math.max(0, Math.floor(((x - tx * ts) / ts) * 8)));
+    const j = Math.min(7, Math.max(0, Math.floor(((z - tz * ts) / ts) * 8)));
+    const h = g[j * 8 + i];
+    return h === 255 ? -1 : h;
   }
 
   /** Every currently loaded building ref (for ambient sparkles etc.). */

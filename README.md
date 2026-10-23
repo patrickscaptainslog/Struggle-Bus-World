@@ -58,16 +58,25 @@ Altitude QA (climb shots, flight log, taps, perf at cruise vs ceiling):
 changes between them (shimmer).
 
 ## City data (city-agnostic pipeline)
-`tools/bake/` turns a city config (`tools/bake/cities/sf.json`) into compact
-gzip'd binary region bundles in `public/city/<slug>/`:
+`tools/bake/` turns a city config (`tools/bake/cities/<slug>.json`) into compact
+gzip'd binary region bundles in `public/city/<slug>/`, from **OpenStreetMap**
+(read through Overture Maps' GeoParquet release on S3):
 ```
-python3 -m pip install geopandas pyogrio pyarrow rasterio pyproj scipy shapely
-python3 -I tools/bake/bake.py sf       # footprints + 1 m DEM -> tiles
+python3 -m pip install geopandas pyogrio pyarrow rasterio pyproj scipy shapely laspy matplotlib
+python3 -I tools/bake/overture.py sf   # OSM via Overture: buildings, parts, streets, land, water, trees, names
+python3 -I tools/bake/bake.py sf       # footprints + heights + roofs + ground + names -> tiles
 python3 -I tools/bake/pack.py sf       # tiles -> 1 km gzip regions
 python3 -I tools/bake/horizon.py sf    # hills around the city
+python3 -I tools/bake/plot.py out.png --at=37.7763,-122.4328 old=public/city/sf  # top-down QA plot
 ```
-Sources: USGS 3DEP 1 m and 1/3 arc-second DEMs; FEMA/ORNL USA Structures
-footprints (public domain). See `DECISIONS.md` for every call we made.
+Any city Overture covers bakes the same way: `tools/bake/cities/amsterdam.json`
+(the Jordaan, no LiDAR, no DEM) is played with `?city=amsterdam`.
+Sources: OpenStreetMap via Overture Maps (ODbL 1.0); USGS 3DEP 1 m and 1/3
+arc-second DEMs and the 3DEP lidar point cloud; FEMA/ORNL USA Structures where
+OSM has no footprint (public domain). The baked tiles are a derivative database
+under the ODbL: see `public/city/DATA_LICENSE.md`; the game credits
+"© OpenStreetMap contributors, Overture Maps Foundation" during the opening and
+in the tuner. See `DECISIONS.md` for every call we made.
 
 Paint state is a separate per-building array (faction, color, level, bloom
 time) keyed by a stable building id, so a server can own it in Phase 2.
