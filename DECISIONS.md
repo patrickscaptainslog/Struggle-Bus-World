@@ -29,8 +29,9 @@ call), this is what we chose and why.
   one. Paint is still saved per building (smart persistence) and the blast's
   center still takes the next hue.
 - **Re-splat escalates**: level 1 full bloom → 2 rooftop garden → 3 Hundertwasser.
-- **Telephoto vista camera** (24° horizontal FOV, 175 m back) that tilts toward a
-  diorama when slow and levels toward the horizon when surging.
+- **Telephoto vista camera** (24° horizontal FOV, 155 m back; was 175) that tilts toward a
+  diorama when slow and levels toward the horizon when surging (see Look polish:
+  it now always keeps a sky band and the horizon at the top of the frame).
 - **Late-afternoon sun through thin fog** instead of flat light: flat light makes
   low-res 3D melt into one grey. Painted neighborhoods thin the fog above them.
 - **No HUD.** Belly glow = recharge. Place names appear on a diegetic street sign.
@@ -440,17 +441,158 @@ call), this is what we chose and why.
 - **Dither only on gradients.** Flat surfaces whose light sits on a step boundary
   snap instead of dithering (no checkerboard walls).
 - **Fog = atmospheric perspective first**, then a narrow dithered handover to the
-  fog ramp — no sprinkle of fog dots up close.
+  fog ramp — no sprinkle of fog dots up close. The handover is value-matched
+  and tall far shapes stand out of the fog (see Look polish).
 - Shimmer: camera translation snapped to the game-pixel grid at the focus depth,
   sub-pixel remainder applied at upscale; dither anchored to the snapped grid;
   telephoto lens to minimize parallax; shadow map snapped to its texel grid;
   outlines fade with distance.
 - The bus does not cast a sun shadow (with a low sun it would land 40 m away);
-  it casts a straight-down **drop shadow**, which is the aim reticle.
+  it casts a straight-down **drop shadow** (it grounds the hero; since the
+  dragon breath it is no longer the aim reticle, the glint is).
 - City streaming: 1 km gzip region bundles (17 MB for all of SF), inflated and
   meshed in a worker; buildings are generated on the phone from compact
   footprints (far smaller than shipping meshes); far skyline = boxes for every
   building ≥16 m + a 64 m terrain grid, hidden under loaded tiles.
+
+## Look polish (the frame-level beauty review, polish/look)
+- **A sky band and the horizon at the top of every chase frame.** The chase
+  camera put the horizon on the top edge (cruise: 0.1° of sky) and the slow
+  diorama had none at all, so frames read as a map. Lowering the camera alone
+  shrank the hero ~30% (the review's verifier measured it), so elevation,
+  distance and the slow look-ahead move together: elevation 29 / 24 / 20°
+  (slow / cruise / surge; was 39 / 31 / 24), distance 155 m (was 175), and the
+  look-ahead no longer shrinks when slow (`lookAheadSlow` 1; it was 0.6, which
+  tipped the diorama straight down). Modelled and then shot: the horizon sits
+  ~5 / 13 / 19% from the top (was off-frame / 0.2 / 16%), the bus ~62 / 60 /
+  58% down (was 61 / 62 / 62%), the breath's impact mid-screen (50 / 49 / 45%),
+  and the bus's projected size is ~97-103% of before in height, ~110% in
+  width. The vista camera still takes over above the rooftops (its pitch is
+  now only ~3° steeper than the floor's, so the blend is gentler).
+- **The skyline stands out of the fog.** Past 2.6 km everything was a white
+  wall (Twin Peaks to downtown: nothing but the pyramid). `sbFog` now has a
+  fog ceiling gated by absolute height (`config.fog.standFog` 0.78 from
+  `standFrom` 50 to `standTo` 160 m ASL, fading back to full fog from 5 to
+  `standFade` 10 km): towers, hilltops, the Headlands read as pale layered
+  silhouettes with their bases melting into the fog. It is in the shared fog
+  function, so the far skyline boxes and the real tiles always agree (no
+  inversion where a region streams in); everything below 50 m, the streaming
+  edge among it, is buried exactly as before; it is off while the opening's
+  fog bank is up (`uFogBank` >= 2) and density, farFull and paint clearing are
+  untouched (the verifier's caveats: the loading-screen bank and the paint
+  payoff keep their contrast). Landmarks multiply their fog by 0.8
+  (landmarks.ts, not touched here): a capped far landmark sits at ~0.62, the
+  lower edge of the 0.62-0.68 handover band, so it keeps its own compressed
+  colors with at most a few hue-only flips (the handover is value-matched);
+  the verifier's clamp in landmarks.ts can follow with feat/facade.
+- **The fog handover is value-matched; the sky holds still.** The handover
+  jumped every surface (compressed onto step 6 of its own ramp: GREY6, ROOF_DARK6,
+  WINDOW6 at luma 0.38-0.56) to pale FOG5 (0.75) through a dithered band that
+  slid with the camera: a full-width zipper. Now each surface hands over to the
+  FOG step nearest its own luminance (FOG's luma is linear, 0.3955 + 0.071 k)
+  and flattens into the silhouette tone between fog 0.62 and 0.76 (flat under
+  the fog ceiling: a far tower's one-pixel window grid crawled); silhouettes
+  round instead of dithering (no dotted far boxes). The band itself follows
+  the fog's own gradient (a few pixels wide; street-level floor 0.015, a
+  quarter of the old fixed 0.06): the review's verifier kept the wide band so
+  facades wouldn't pop whole as fog crossed it, but with matched values its
+  reshuffling dots were the only churn left in it, and a whole facade
+  switching is now a hue change of the same value. The sky dithers in screen
+  space at every height (it was anchored to the snapped grid: at the floor its
+  dots slid every frame of a cruise) and is written with alpha 0, which the
+  upscale reads as "don't shift": the sky only turns with the view, so it no
+  longer saws by a pixel with the snap's remainder. Surfaces also stop
+  dithering as their fog rises (`config.render.ditherHazeFrom/To` 0.3-0.6):
+  the ordered pattern is anchored at the bus's depth and far shapes crawled
+  across it with parallax. Up high (calm) nothing changes.
+- **The street sign stands beside the blast.** It sprang up over the impact
+  and covered the bloom (the money shot), level 3 included. It now waits on
+  the game clock until the shockwave has reached the blast's edge (+0.35 s),
+  then stands on open ground past the blast's far side as the camera sees it
+  (radius + 10 m out, 0.45 x radius to the side, away from a turn: off the
+  flight line, where the next target glints), searching a small ring for a
+  spot off any roof and inside the frame, else the old spot. It grows so a
+  font pixel stays >= 1.15 game pixels at that distance (~1.0-1.4x at the
+  rooftops, up to 4x from the vista, where it used to be sub-pixel text), and its
+  depth bias is on at once (the bus isn't between it and the camera there).
+  Re-splats of the same area reuse the spot, so the standing sign flips.
+  holdGreen stays 2.2 s (the verifier: once it doesn't cover the paint,
+  cutting it only costs reading time).
+- **The hero separates.** Its silhouette used its own ramp two steps down
+  (#d8722a beside an orange house: contrast 1.28). The bus's ramps
+  (BUS_YELLOW, BUS_BLACK) are its own, so the resolve gives their silhouette
+  pixels plum ink (BUS_YELLOW step 1, #5e2232: 4.6-8.7:1 against every paint
+  hue, warm on the grey) and keeps glow halos off that edge. Detecting the
+  hero by its surface id would also have matched 1 in 255 buildings (8-bit id).
+- **The one eye reads from behind**: its headlight beam is light, not a
+  shape. In the resolve pass, what lies ahead of the lens (beyond the bus) is
+  lifted one or two steps up its own ramp in crisp nested bands, with a warm
+  core at the lens (`PixelPipeline.setHeroBeam`, projected with the snapped
+  camera; no mesh, no draw call): 42 m ahead, 14 m wide at the end x the
+  eye's openness, 6° down. It squints to a sliver while barfing and widens on
+  the relief. A dithered mesh wedge was tried first: it read as a
+  checkerboard (and its glow halo churned the roofs under it); a ground pool
+  24 m ahead (the review's first idea) lands inside the bus's own footprint.
+- **No more blobs trailing the hero.** The exhaust puff was a white FOG-ramp
+  ball (the brightest thing on screen) dissolving through a screen-anchored
+  dither; it is now a small sooty GREY wisp (light -0.3, 0.75 m growing 2.2x)
+  that thins by shrinking. The drop shadow was a near-black INK blob wider
+  than the bus with a checkered halo crawling over the roofs; it is one solid
+  cool-grey oval about the bus's own size (GREY step 3, a step deeper when a
+  breath is loaded) that pales a step and shrinks as the gap below the bus
+  grows (14 -> 50 m), as a real shadow softens with height.
+- **The Golden Gate is International Orange**, muted, even in the grey world
+  (it is never painted, so color still comes from paint): `Ramp.BRIDGE_ORANGE`
+  (appended), shadows to rose and plum, the upper steps dusty (the fog
+  compresses distant parts onto them, so they are what reads at range); towers,
+  truss, cables and suspenders orange, the roadway asphalt grey, piers and
+  anchorages concrete. The review's first ramp was a bright salmon that
+  outshouted the bus; its top three steps were dulled.
+- **The opening's water mirrors the fog.** It was a dark slab (WATER steps
+  1-3) under the bright sky with a hard checkered waterline. The water's light
+  is 0.3 + 0.66 x fresnel (was 0.2 + 0.42 x), on both the bay plane and the
+  tiles' water class (they match at the shore), and the WATER ramp's upper
+  steps climb toward the fog in even luma steps (0.23 .. 0.67, was 0.21 .. 0.49);
+  with the value-matched handover the waterline melts into the fog bank.
+- **Tree crowns band instead of dithering.** Their analytic light is snapped to
+  the lower quarter of a ramp step, so a band is flat (the resolve rounds it)
+  and the leaf-clump noise keeps the band edges leafy; the painted crowns'
+  tint edge is a contour (its screen-anchored checker crawled over the
+  moving crown).
+- **One-pixel features keep their color.** A silhouette pixel with background
+  on both sides (cables, suspenders, poles) is no longer darkened: the
+  darkening fired on some stair steps of a thin diagonal and not others, so
+  cables beaded. The Golden Gate's suspenders are 1.2 m every ~48 m (were
+  0.7 m every 32 m: 0.3-0.8 px lines that flickered in and out).
+- **Shimmer, measured** (tools/look.mjs --seqn=5 + tools/lookstat.py: four
+  pairs of frames exactly 1/30 s apart per view, the camera's motion removed
+  per 12-px block, counting changes of more than half a ramp step; main ->
+  this branch): Painted Ladies cruise, everything 11.9 -> 9.4%, the fog band
+  16.6 -> 12.5%, the top of the frame 1.06 -> 0.10%, tree crowns 13.4 ->
+  13.1%; Dolores 12.1 -> 9.2%, fog band 23.3 -> 16.8%, plain sky 1.38 ->
+  0.46%, crowns 17.6 -> 14.2%, top 1.38 -> 0.05%; 120 m up 11.2 -> 10.3%, top
+  0.49 -> 0%, but the fog band 17.6 -> 19.0% and crowns 14.7 -> 16.1% (a
+  different framing; the zipper itself is gone, what is left is the edges of
+  the newly visible silhouettes sliding with parallax). With main's camera
+  on both builds (the shader changes alone): Dolores 12.1 -> 10.9%, crowns
+  17.6 -> 13.2%, fog band 23.3 -> 20.1%; Painted Ladies crowns 13.4 -> 13.3%
+  (near crowns are big: their band edges move with the dolly like any edge),
+  fog band 16.6 -> 15.6%, but its top band 1.06 -> 1.41% (in that framing the
+  top is now skyline silhouettes, whose edges a 1/30 s dolly moves, where it
+  used to be blank fog). What remains is edges moving (a dolly can't be
+  snapped), not dither.
+- **Cost** (tools/look.mjs perf: the exact draw calls and triangles of held
+  frames and the CPU work of the last frames, main vs this branch, same
+  frames): Painted Ladies cruise 125 / 1,198,782 vs 125 / 1,198,782 (the
+  lower camera sees the same tiles), FiDi surge 124 / 834k vs 124 / 828k,
+  250 m up 168 / 1.546M vs 168 / 1.546M; CPU work 2.7 / 2.7 / 3.2 ms vs
+  2.5 / 1.8 / 1.9 ms on the loaded SwiftShader host (noise; nothing here adds
+  CPU work but a handful of matrix ops per frame and a few projections per
+  blast). No draw call was added (the beam is lit in the resolve; the mesh
+  beam it replaced was one). GPU: the fog ceiling adds two smoothsteps per
+  fragment, the resolve a few ALU ops (value match, beam, thin-feature test)
+  and shares the handover's neighbor fetches with the flat-light test (four
+  fewer fetches per pixel up high), the upscale one extra fetch on sky pixels.
 
 ## Opening + landmarks
 - **The opening is the brief's shot**: the bus glides out of a fog bank over the
@@ -460,7 +602,8 @@ call), this is what we chose and why.
   The fog bank doubles as the loading screen.
 - Golden Gate Bridge and Bay Bridge (west span) are hand-built from real tower
   and anchorage coordinates; Sutro Tower and the Transamerica Pyramid are props.
-  They stay grey (landmarks aren't paintable in Phase 1).
+  Landmarks aren't paintable in Phase 1; they stay grey, except the Golden Gate,
+  which is its muted International Orange even in the grey world (Look polish).
 - The horizon (Marin Headlands, East Bay hills, San Bruno Mountain) comes from
   the USGS 3DEP 1/3 arc-second DEM, read remotely from the COG's overviews; the
   Marin Headlands near the bridge are baked at 2 m from the same DEM so the

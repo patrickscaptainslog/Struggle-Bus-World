@@ -32,15 +32,30 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   - `light` 0..1 → ramp step (0 darkest, 1 lightest). Use `sbLight()`.
   - `fog` 0..1 → use `sbFog(worldPos)`. It includes the marine layer seen
     from above (`uFogLayer*`, `sbLayerTop()` in `GLSL_LAYER_TOP`, mirrored on
-    the CPU by `layerTopBase()`): materials get it for free; the resolve pass
-    lights the fog sea's top. Never hand-roll fog.
+    the CPU by `layerTopBase()`) and the fog ceiling of tall distant shapes
+    (`uFogStand`: anything above ~50-160 m ASL gets at most `config.fog.standFog`
+    out to ~5 km, so towers and hilltops stand out of the low fog while
+    everything low, the streaming edge included, is buried as before):
+    materials get it for free; the resolve pass lights the fog sea's top.
+    Never hand-roll fog, and don't multiply it below ~0.7 for far objects (the
+    handover band sits at 0.62-0.68).
   - `glow` 0..1 → emissive; glowing pixels bloom a dithered halo.
   - `flags`: 1.0 normal (gets outlines), 0.5 = no outline (particles, cards).
+  - Outlines: a silhouette pixel is two steps darker, except a one-pixel
+    feature with background on both sides (a cable, a pole), which keeps its
+    own color. `Ramp.BUS_YELLOW` / `Ramp.BUS_BLACK` belong to the bus alone:
+    the resolve gives their silhouette a plum ink edge (the hero separates
+    from every paint hue). Don't use them elsewhere.
+  - The hero's headlight is light, not geometry: `pipeline.setHeroBeam(eye,
+    tip, halfNear, halfFar, strength)` each frame (after `snap()`), and the
+    resolve lifts what lies beyond the bus inside that wedge one or two steps
+    up its own ramp, a warm core at the lens.
 - Every scene material must write both outputs (`gColor`, `gAux`).
 - Objects that cast sun shadows: `obj.layers.enable(SHADOW_LAYER)`.
   The bus and particles must NOT cast (the bus has its own drop shadow).
 - Pixel budget: the portrait framebuffer is ~240 game pixels wide. At gameplay
-  camera distance (~175 m, 24° horizontal FOV) one game pixel ≈ 0.3 m at the
+  camera distance (~155 m, 24° horizontal FOV, 24° above the bus at cruise: the
+  horizon ~13% from the top, the bus ~60% down) one game pixel ≈ 0.28 m at the
   bus and ≈ 0.6–1 m at mid-distance. Details smaller than ~2 game pixels
   disappear or shimmer — design silhouettes and big color shapes, not
   greebles. Avoid single-pixel-wide high-contrast stripes (they crawl).
@@ -57,8 +72,15 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   belong although the grid snapped at the city's depth. Anything new that
   sits near the bus and must not jitter up high needs the same.
 - `pipeline.calm` (0..1): surfaces round to their ramp step instead of the
-  ordered dither, the fog handover is a hard contour, and the sky / fog sea
-  dither in screen space. Materials don't change; it is all in the resolve.
+  ordered dither, the fog handover is a hard contour, and the fog sea dithers
+  in screen space. Materials don't change; it is all in the resolve. At every
+  height the sky dithers in screen space and is written with alpha 0, which
+  the upscale reads as "plain sky: don't apply the snap's sub-pixel shift"
+  (the sky only turns with the view, so it holds perfectly still); surfaces
+  also round instead of dithering as their fog rises (`config.render.ditherHaze*`),
+  and at street level the fog handover is value-matched (each surface turns
+  into the FOG step nearest its own luminance, then flattens into a
+  silhouette) through a band as narrow as the fog's own gradient.
 - Coarse regions are drawn as ONE building mesh + ONE ground mesh per 1 km
   region (`City.regionMeshes`); detailed regions keep per-tile meshes. Code
   that walks tiles for rendering must handle both. A tile marked with
@@ -74,7 +96,9 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   `opts.travel` (`tImpact = this.t + (opts?.travel ?? S.impactDelay)`), and
   main's geyser lambda keeps `travelTime: breathTravel ?? config.splat.impactDelay`.
 - Palette: 8-step ramps. Warm hues shadow toward rose/violet, never brown.
-  There is no brown in the palette and there never will be.
+  There is no brown in the palette and there never will be. New ramps are
+  appended at the end (`Ramp.BRIDGE_ORANGE` = the Golden Gate) and referenced by
+  name.
 
 ## City data (bake -> tiles -> meshes)
 `tools/bake/bake.py <slug>` turns footprints + DEM (+ an optional LiDAR point
@@ -151,6 +175,14 @@ UI or camera code.
   reach an unloaded tile wait on its entry and replay when it arrives.
   `GLSL_BLAST_RING` (shockwave on up-facing surfaces: terrain + roofs) and
   `GLSL_GROUND_PAINT` (terrain) with `blastUniforms`.
+- The street sign (`SplatFx.primary` -> `showSign` in main.ts) never stands over
+  the blast: it is queued on the game clock until the wave has reached the
+  blast's edge (+ `signTune.showDelay`), then placed on open ground past the
+  blast's far side as the camera sees it, off the flight line
+  (`signTune.besideOut/besideSide`), scaled (`StreetSignOptions.scale`) so a
+  font pixel stays >= `signTune.minFontPx` game pixels, with its depth bias on
+  from the start (`biasNow`). A re-splat of the same blast area reuses the spot,
+  so the standing sign flips.
 - `PixelPipeline.flash(u, v, frames, strength)`: palette flash in the resolve
   pass. `CameraRig.kick(m)` + `applyKick(cam, realDt)`: translation-only kick
   (the pixel snap handles it).
