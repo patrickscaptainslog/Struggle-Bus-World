@@ -35,6 +35,11 @@ const withSeq = !!opt.seq || !!opt.seqn;
 const tune = opt.tune ? JSON.parse(opt.tune) : null;
 const tuneg = opt.tuneg ? JSON.parse(opt.tuneg) : {};
 const extraQ = opt.q ? '&' + opt.q : '';
+// --variants='[{"name":"fine0","groups":{"Props":{"treeFine":0}},"defaults":{"Props":{"treeFine":0.2}},
+// "config":{"fog.enabled":true}}]': every shot is also rendered again, the same frozen frame, with each
+// variant's values (saved to <out>/<name>/); group values go back to "defaults", config paths are undone
+const variants = opt.variants ? JSON.parse(opt.variants) : [];
+for (const v of variants) mkdirSync(`${out}/${v.name}`, { recursive: true });
 mkdirSync(out, { recursive: true });
 
 // (PW_WS: connect to a running tools/pw-server.mjs instead of launching a browser)
@@ -80,6 +85,28 @@ async function shot(page, name) {
   });
   report[name] = info;
   console.log('shot', name, JSON.stringify(info));
+  for (const v of variants) {
+    await page.evaluate((v) => {
+      const g = window.__game;
+      const undo = [];
+      for (const [grp, vals] of Object.entries(v.groups ?? {})) for (const [k, x] of Object.entries(vals)) g.tuneGroup(grp, k, x);
+      for (const [path, x] of Object.entries(v.config ?? {})) {
+        const ks = path.split('.'); let o = g.config;
+        for (const k of ks.slice(0, -1)) o = o[k];
+        undo.push(['c', o, ks[ks.length - 1], o[ks[ks.length - 1]]]);
+        o[ks[ks.length - 1]] = x;
+      }
+      g.renderAgain();
+      window.__variantUndo = undo;
+    }, v);
+    await page.screenshot({ path: `${out}/${v.name}/${name}.png` });
+    await page.evaluate((v) => {
+      const g = window.__game;
+      for (const [grp, vals] of Object.entries(v.defaults ?? {})) for (const [k, x] of Object.entries(vals)) g.tuneGroup(grp, k, x);
+      for (const u of window.__variantUndo) if (u[0] === 'c') u[1][u[2]] = u[3];
+      g.renderAgain();
+    }, v);
+  }
 }
 /** Consecutive frames exactly one game step apart (2, or --seqn), starting at the frame held now. */
 async function pair(page, name) {

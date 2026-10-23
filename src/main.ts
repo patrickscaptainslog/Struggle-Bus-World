@@ -22,6 +22,7 @@ import { Tuner, applySavedTuning } from './ui/Tuner';
 import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles } from './world/Bridges';
 import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
+import { tunableGroups } from './ui/tunables';
 
 // Struggle Bus — Phase 1 (real SF, solo).
 
@@ -784,6 +785,16 @@ async function boot() {
       return r ? { index: r.index, cx: r.cx, cz: r.cz, roofY: r.roofY, since: aimer.shownSince } : null;
     },
     aimer,
+    /** QA: set a registered tunable (group name, key) live, e.g. ('Props', 'treeFine', 0) */
+    tuneGroup: (name: string, key: string, v: number | boolean) => {
+      const g = tunableGroups().find((x) => x.name === name);
+      if (g && key in g.values) (g.values as Record<string, unknown>)[key] = v;
+    },
+    /** QA: render the frozen frame again (after a tunable change: the same frame, another variant) */
+    renderAgain: () => {
+      updateSun();
+      pipeline.render(scene);
+    },
     lastShot: () => lastShot,
     /** QA: how much of the marine layer's seen-from-above fog is on (0 = the street-level fog exactly) */
     fogLayerMix: () => globals.uFogLayer2.value.w,
