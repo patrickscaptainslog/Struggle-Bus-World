@@ -132,23 +132,29 @@ export function blastEdge(s: BlastSpec): { lut: Float32Array; max: number } {
   const harm = [2, 3, 5, 7, 11, 17];
   const amp = [0.35, 0.3, 0.22, 0.16, 0.1, 0.07];
   const ph = harm.map(() => rand() * Math.PI * 2);
-  const rays: Array<[number, number, number]> = [];
-  for (let i = 0; i < s.rays; i++) rays.push([rand() * Math.PI * 2, s.rayLen * (0.35 + 0.65 * rand()) * s.r, 0.05 + 0.07 * rand()]);
   const lut = new Float32Array(SHAPE_LUT);
-  let max = 0;
   for (let k = 0; k < SHAPE_LUT; k++) {
     const a = (k / SHAPE_LUT) * Math.PI * 2;
     let n = 0;
     for (let h = 0; h < harm.length; h++) n += amp[h] * Math.sin(harm[h] * a + ph[h]);
-    let rr = base * (1 + s.ragged * n);
-    for (const [ra, len, w] of rays) {
-      let da = Math.abs(a - ra);
-      if (da > Math.PI) da = Math.PI * 2 - da;
-      if (da < w) rr = Math.max(rr, base + len * Math.pow(1 - da / w, 1.6));
-    }
-    lut[k] = rr;
-    if (rr > max) max = rr;
+    lut[k] = base * (1 + s.ragged * n);
   }
+  // splash rays: each only touches the few LUT entries within its half-width
+  // (this runs once per blast, cold: keep it to a few hundred steps)
+  const step = (Math.PI * 2) / SHAPE_LUT;
+  for (let i = 0; i < s.rays; i++) {
+    const ra = rand() * Math.PI * 2, len = s.rayLen * (0.35 + 0.65 * rand()) * s.r, w = 0.05 + 0.07 * rand();
+    const kc = Math.round(ra / step), kw = Math.ceil(w / step);
+    for (let q = kc - kw; q <= kc + kw; q++) {
+      const da = Math.abs(q * step - ra);
+      if (da >= w) continue;
+      const k = ((q % SHAPE_LUT) + SHAPE_LUT) % SHAPE_LUT;
+      const rr = base + len * Math.pow(1 - da / w, 1.6);
+      if (rr > lut[k]) lut[k] = rr;
+    }
+  }
+  let max = 0;
+  for (let k = 0; k < SHAPE_LUT; k++) if (lut[k] > max) max = lut[k];
   return { lut, max };
 }
 

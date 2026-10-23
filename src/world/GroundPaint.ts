@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { config } from '../config';
+import { globals } from '../render/materials';
 import { HUE_RAMPS, Ramp } from '../render/palette';
 import { uploadRect } from '../render/upload';
-import { arrival, blastDots, blastEdge, makeBlastSpec, SHAPE_LUT, specFromArray, specToArray, type BlastDot, type BlastSpec } from '../game/blastLayout';
+import { arrival, blastDots, blastEdge, SHAPE_LUT, specFromArray, specToArray, type BlastDot, type BlastSpec } from '../game/blastLayout';
 
 // Paint on the ground: streets, sidewalks and parks splattered by blasts.
 //
@@ -337,7 +338,6 @@ export class GroundPaint {
       /* private mode / blocked: paint lives for this session only */
     }
     if (typeof window !== 'undefined') window.addEventListener('pagehide', () => this.persist());
-    this.warm();
   }
 
   /** Painted tiles in storage. */
@@ -437,8 +437,12 @@ export class GroundPaint {
     return job;
   }
 
-  /** Draws a slice of the queued jobs (call once per frame): about `budget` texels' worth. */
-  work(budget = 2400) {
+  /**
+   * Draws a slice of the queued jobs (call once per frame): about `budget`
+   * texels' worth, more if a live blast would otherwise not be drawn by its
+   * impact at 30 fps.
+   */
+  work(budget = 1500) {
     if (this.ready.length) {
       for (const key of this.ready) {
         if (!this.loaded.has(key)) continue;
@@ -454,6 +458,7 @@ export class GroundPaint {
         this.start(job);
         return;
       }
+      if (job.serial !== null) budget = Math.max(budget, this.left(job) / Math.max(1, (job.tImpact - globals.uTime.value) * 30));
       budget = this.step(job, budget);
       if (job.serial === null && this.finished(job)) {
         // a replay is done: off the queue, its tile shows it and saves
@@ -634,19 +639,6 @@ export class GroundPaint {
     }
   }
 
-  /** Run the rasterizer and codec once on a scratch mask, so the first real blast doesn't pay for cold code. */
-  private warm() {
-    const p = this.prepare(makeBlastSpec(0, 0, config.splat.blastRadius, 0, 0x5eed));
-    const h = this.tileSize / 2;
-    const m: TileMask = { ox: -h, oz: -h, data: new Uint8Array(TEXELS * 4), tex: this.empty, dirty: false, gone: true, x0: 0, z0: 0, x1: -1, z1: -1, uniforms: null };
-    const q: number[] = [];
-    this.rows(m, p, 1, 0, GROUND_N - 1, q, false);
-    this.rows(m, p, 1, 0, GROUND_N - 1, q, false); // over its own paint: the deferred path
-    this.rows(m, p, null, 0, GROUND_N - 1, null, true);
-    this.dots(m, p, 1, q);
-    decodeMask(encodeMask(m.data), m.data);
-  }
-
   private tilesOf(p: { minX: number; minZ: number; maxX: number; maxZ: number }): string[] {
     const ts = this.tileSize;
     const out: string[] = [];
@@ -706,6 +698,13 @@ export class GroundPaint {
       }
     }
     return budget;
+  }
+
+  /** Texels a started job still has to draw. */
+  private left(job: GroundJob): number {
+    let n = 0;
+    for (const t of job.tiles) if (this.masks.get(t.key) === t.m) n += Math.max(0, t.j1 - t.j + 1) * (t.i1 - t.i0 + 1) + (t.dots ? 0 : 150);
+    return n;
   }
 
   /** Every tile of the job drawn (or gone). */
