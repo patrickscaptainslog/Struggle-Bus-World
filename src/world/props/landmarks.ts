@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT, SHADOW_LAYER } from '../../render/materials';
 import { Ramp } from '../../render/palette';
 import { tuneUniform } from './common';
-import { HERO_PROPS, SF_ORIGIN, llToLocal, type HeroProp } from '../towerStyles';
+import { HERO_PROPS, HIDDEN, isSfOrigin, llToLocal, type HeroProp, type Hidden, type PropBox } from '../towerStyles';
 import type { ObstaclePost } from '../Bridges';
+import type { BuildingRef } from '../City';
+import { paintUniforms } from '../buildingMaterial';
 
 // Hand-built landmarks, chunky enough to read as silhouettes from 1-4 km
 // through the fog, with detail that only resolves up close: Sutro Tower's
@@ -311,6 +313,25 @@ export function makeCoitTower(): THREE.Object3D {
  * axis of Market Street. Local frame: +z along the building, the front (city
  * side) faces -x. Origin at the center of the footprint, at the ground.
  */
+const FERRY_BAY = 37;
+
+/**
+ * The props' collision surfaces in their own frame (x0, z0, x1, z1, top above their base): what the
+ * flight's obstacle grid holds over the footprints they hide (City.setPropObstacles).
+ */
+const COIT_BOXES: Array<[number, number, number, number, number]> = [
+  [-12.6, -12.6, 12.6, 12.6, 8.4],
+  [-6.6, -6.6, 6.6, 6.6, 64],
+];
+const FERRY_BOXES: Array<[number, number, number, number, number]> = [
+  [-35, -99, 9, 99, 14.6], // the hall
+  [-22.5, -93, -3.5, 93, 21.5], // the nave
+  [-35.4, -99, 9.4, -85, 16.5], // the pavilions
+  [-35.4, 85, 9.4, 99, 16.5],
+  [9, -95.4, FERRY_BAY + 0.5, 95.4, 13.3], // the bay-side wing
+  [-43.1, -7.6, -27.9, 7.6, 75.5], // the clock tower
+];
+
 export function makeFerryBuilding(): THREE.Object3D {
   const k = new LandmarkKit();
   const W = Ramp.GREY_LIGHT;
@@ -323,12 +344,16 @@ export function makeFerryBuilding(): THREE.Object3D {
   k.box(nx0, 14, -L + 6, nx1, 17.5, L - 6, W, 0.0, Pat.WINDOWS);
   const R0 = V(nx0 - 0.5, 17.5, -L + 6), R1 = V(nx1 + 0.5, 17.5, -L + 6), R2 = V(nx1 + 0.5, 17.5, L - 6), R3 = V(nx0 - 0.5, 17.5, L - 6);
   const T0 = V(nm, 21.5, -L + 6), T1 = V(nm, 21.5, L - 6);
-  k.quad(R3, R0, T0, T1, Ramp.ROOF_DARK, 0.06, Pat.PLAIN, [0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0]);
-  k.quad(R1, R2, T1, T0, Ramp.ROOF_DARK, 0.06, Pat.PLAIN, [0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0]);
+  // (roofs on one ramp, as the baked ones: the dark membrane is GREY_LIGHT - 0.34)
+  k.quad(R3, R0, T0, T1, W, -0.34, Pat.PLAIN, [0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0]);
+  k.quad(R1, R2, T1, T0, W, -0.34, Pat.PLAIN, [0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0]);
   k.tri(R0, R1, T0, W, 0.04);
   k.tri(R2, R3, T1, W, 0.04);
   // pavilions at the ends, a little taller
   for (const zc of [-L + 7, L - 7]) k.box(x0 - 0.4, 0, zc - 7, x1 + 0.4, 16.5, zc + 7, W, 0.07, Pat.FERRY);
+  // the bay side: a lower two-storey wing out to where the footprints end (x = +37), between the pavilions
+  k.box(x1, -2, -L + 4, FERRY_BAY, 12.6, L - 4, W, 0.03, Pat.FERRY);
+  k.box(x1, 12.6, -L + 3.6, FERRY_BAY + 0.5, 13.3, L - 3.6, W, 0.1, Pat.PLAIN);
   // the clock tower (after the Giralda in Seville): shaft, clock stage, two open stages, cupola
   const tx = x0 - 0.5;
   k.box(tx - 6.6, -2, -6.6, tx + 6.6, 40, 6.6, W, 0.06, Pat.WINDOWS);
@@ -364,9 +389,18 @@ export function makeFremontSpire(): THREE.Object3D {
  * placed by lat/lon through the bake's projection, each with the collision
  * posts the flight steers around. Only for the city the table is written for.
  */
-export function heroLandmarks(origin: [number, number]): Array<{ object: THREE.Object3D; posts: ObstaclePost[] }> {
-  if (Math.abs(origin[0] - SF_ORIGIN[0]) > 1e-6 || Math.abs(origin[1] - SF_ORIGIN[1]) > 1e-6) return [];
-  const out: Array<{ object: THREE.Object3D; posts: ObstaclePost[] }> = [];
+export interface HeroLandmark {
+  kind: HeroProp['kind'];
+  object: THREE.Object3D;
+  posts: ObstaclePost[];
+  /** the footprints it replaces (towerStyles HIDDEN) and its own collision boxes (local m, m ASL) */
+  clear: Hidden | null;
+  boxes: PropBox[];
+}
+
+export function heroLandmarks(origin: [number, number]): HeroLandmark[] {
+  if (!isSfOrigin(origin)) return [];
+  const out: HeroLandmark[] = [];
   const make = (h: HeroProp) => (h.kind === 'coit' ? makeCoitTower() : h.kind === 'ferry' ? makeFerryBuilding() : makeFremontSpire());
   for (const h of HERO_PROPS) {
     const [x, z] = llToLocal(h.lat, h.lon, origin);
@@ -375,15 +409,86 @@ export function heroLandmarks(origin: [number, number]): Array<{ object: THREE.O
     object.rotation.y = h.yaw;
     object.updateMatrixWorld(true);
     const posts: ObstaclePost[] = [];
-    if (h.kind === 'coit') posts.push({ x, z, r: 9, top: h.baseY + 67, under: -Infinity });
-    else if (h.kind === 'ferry') {
-      // the clock tower (the hall itself is still in the footprints' obstacle grid)
+    // (a box in the prop's frame to local meters: its +z is (sin yaw, cos yaw), its +x (cos yaw, -sin yaw))
+    const sy = Math.sin(h.yaw), cy = Math.cos(h.yaw);
+    const box = ([x0, z0, x1, z1, top]: [number, number, number, number, number]): PropBox => {
+      const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
+      return { cx: x + mx * cy + mz * sy, cz: z - mx * sy + mz * cy, ax: sy, az: cy, halfL: (z1 - z0) / 2, halfW: (x1 - x0) / 2, top: h.baseY + top, pad: top > 40 ? 6 : 3 };
+    };
+    let clear: Hidden | null = null;
+    let boxes: PropBox[] = [];
+    if (h.kind === 'coit') {
+      posts.push({ x, z, r: 9, top: h.baseY + 67, under: -Infinity });
+      clear = HIDDEN.find((d) => d.name === 'Coit Tower') ?? null;
+      boxes = COIT_BOXES.map(box);
+    } else if (h.kind === 'ferry') {
+      // the clock tower; the rest of the building is its boxes in the obstacle grid
       const t = new THREE.Vector3(-35.5, 0, 0).applyMatrix4(object.matrixWorld);
       posts.push({ x: t.x, z: t.z, r: 10, top: h.baseY + 78, under: -Infinity });
+      clear = HIDDEN.find((d) => d.name === 'Ferry Building') ?? null;
+      boxes = FERRY_BOXES.map(box);
     } else posts.push({ x, z, r: 3, top: h.baseY + 19, under: -Infinity });
-    out.push({ object, posts });
+    out.push({ kind: h.kind, object, posts, clear, boxes });
   }
   return out;
+}
+
+/**
+ * 181 Fremont's spire rides its tower: a painted building squashes and stretches about its ground (the
+ * pop) and wobbles in the vertex shader, which a prop on its roof doesn't see. bind() gives it the tower
+ * (its streamed ref) and the roof under the spire; update() mirrors buildingMaterial.ts's pop and wobble
+ * for that one point every frame (no allocation). Unpainted, it rests on the roof.
+ */
+export class SpireRide {
+  private ref: BuildingRef | null = null;
+  private seed = 0;
+  private x0 = 0;
+  private y0 = 0;
+  private z0 = 0;
+  constructor(readonly object: THREE.Object3D) {}
+
+  get bound(): boolean {
+    return this.ref !== null;
+  }
+
+  bind(ref: BuildingRef, roofY: number) {
+    this.ref = ref;
+    this.seed = ref.tile.seed[ref.local];
+    this.x0 = this.object.position.x;
+    this.z0 = this.object.position.z;
+    this.y0 = roofY;
+    this.object.position.y = roofY;
+  }
+
+  /** paint = PaintState.data, time = globals.uTime */
+  update(paint: Float32Array, time: number) {
+    const r = this.ref;
+    if (!r) return;
+    const o = r.index * 4;
+    let x = this.x0, y = this.y0, z = this.z0;
+    const tb = time - paint[o + 2];
+    if (paint[o + 1] > 0.5 && tb >= 0) {
+      const B = paintUniforms.uBloom.value, Wb = paintUniforms.uWobble.value;
+      let pop = 0;
+      if (tb < B.x * 1.6) {
+        const k = tb / B.x;
+        pop = -B.y * Math.exp(-7 * k) * Math.cos(10.5 * k) + B.z * Math.exp(-5 * k) * Math.sin(10.5 * k);
+      }
+      const sy = 1 + pop;
+      const sxz = 1 / Math.sqrt(Math.max(sy, 0.4));
+      y = r.baseY + (this.y0 - r.baseY) * sy;
+      x = r.cx + (this.x0 - r.cx) * sxz;
+      z = r.cz + (this.z0 - r.cz) * sxz;
+      const h01 = Math.min(1, Math.max(0, (this.y0 - r.baseY) / Math.max(r.roofY - r.baseY, 1)));
+      const u = Math.min(1, tb / 0.6);
+      const w = Wb.x * h01 * u * u * (3 - 2 * u);
+      const t = time * Wb.y;
+      const sd = this.seed * 0.137;
+      x += w * Math.sin(this.y0 * 0.33 + this.z0 * 0.21 + t + sd);
+      z += w * Math.sin(this.y0 * 0.29 + this.x0 * 0.23 + t * 0.87 + sd * 1.7);
+    }
+    this.object.position.set(x, y, z);
+  }
 }
 
 /**

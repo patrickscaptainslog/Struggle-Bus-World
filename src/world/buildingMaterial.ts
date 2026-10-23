@@ -56,7 +56,18 @@ const facadeUniforms = {
   uGlassGlow: { get value() { return F().glassGlow; } },
   uGlassGlow3: { get value() { return F().glassGlow3; } },
   uGlassBands: { get value() { return F().glassBands; } },
+  /** 0..1: the view is up high (the vista over the marine layer's height, whether or not fog is on): detail
+   * needs 1.5x the room and rhythm lines 2x the spacing there (the whole view drifts by sub-pixels) */
+  uHigh: { value: 0 },
+  /** the resolve's pipeline.calm (its skyLight gets + 0.04 * calm: mirrored in skyMirror's use) */
+  uCalmF: { value: 0 },
 };
+
+/** Per frame from the game: how high the view is (0..1, the marine-layer view's mix) and pipeline.calm. */
+export function setFacadeView(high: number, calm: number) {
+  facadeUniforms.uHigh.value = high;
+  facadeUniforms.uCalmF.value = calm;
+}
 
 const HUES = HUE_RAMPS.map((r) => r.toFixed(1)).join(', ');
 const R = (r: number) => r.toFixed(1);
@@ -169,6 +180,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       uniform float uGlassGlow;
       uniform float uGlassGlow3;
       uniform float uGlassBands;
+      uniform float uHigh;
+      uniform float uCalmF;
       ${GLSL_BLAST_RING}
       in vec2 vFacade;
       flat in vec4 vMeta;
@@ -238,10 +251,12 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       // one-pixel line that hops a row counts as crawl; none beyond 3 m per game pixel)
       float gMpp = 0.3;
       float rhythm(float x, float period, float scale, float dx, float minPx) {
-        float mp = minPx * (1.0 + max(gMpp - 0.9, 0.0)) * (1.0 + uFogLayer2.w);
+        float mp = minPx * (1.0 + max(gMpp - 0.9, 0.0)) * (1.0 + uHigh);
         float per = period;
         for (int q = 0; q < 3; q++) if (per * scale < mp) per *= 2.0;
-        return per * scale >= mp && gAF < 0.65 && gMpp < 3.0 ? lineAt(x, per, dx) : 0.0;
+        // (and on this face itself at least 2.5 px apart: past a grazing face's silhouette the per-building
+        // estimate undercounts, and lines one pixel apart there turn into dotted edges)
+        return per * scale >= mp && per >= 2.5 * dx && gAF < 0.65 && gMpp < 3.0 ? lineAt(x, per, dx) : 0.0;
       }
 
       // ---- tower facades. Out: ramp, step delta d on a base: b = 0 the wall's light, 1 the glass
@@ -266,7 +281,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         float colPx = sp * fu / mpp;
         float rowPx = fh * fvE / mpp;
         // (up high, where the whole view drifts by sub-pixels with the bus's bob, detail needs more room)
-        float hi = 1.0 + 0.5 * uFogLayer2.w;
+        float hi = 1.0 + 0.5 * uHigh;
         bool showV = colPx >= uColPx * hi;
         bool showH = rowPx >= uFloorPx * hi;
         bool nearV = showV && showH;
@@ -667,11 +682,19 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         }
 
         float light;
+        // aim glint: the building a tap would hit lifts a full ramp step (flat walls can't snap it away,
+        // painted ones too), and a band of light sweeps up it, starting the moment it became the target
+        bool tgt = abs(bIdx - uTarget) < 0.5;
+        float sweep = smoothstep(0.55, 1.0, fract((uTime - uTargetT) * uGlint.z - (vWorldPos.y - vBld.z) * 0.035));
         if (famWall) {
           // ---- a tower facade, in whole ramp steps after the atmospheric perspective
           vec3 dv = normalize(vWorldPos - cameraPosition);
-          gSL = skyMirror(normalize(vec3(dv.x, max(dv.y, -0.02) * 0.2, dv.z)));
+          gSL = skyMirror(normalize(vec3(dv.x, max(dv.y, -0.02) * 0.2, dv.z))) + 0.04 * uCalmF;
           gAF = smoothstep(0.08, 0.66, floor(clamp(fog, 0.0, 1.0) * 255.0 + 0.5) / 255.0) * 0.9;
+          // (seen from above the marine layer the resolve converges fogged pixels on the fog sea's lit top
+          // (seaShade), which isn't mirrored here: those facades write plain steps and dither like the rest)
+          if (uFogLayer2.w > 0.001 && cameraPosition.y > uFogLayer.x && dv.y < -0.001 && fog > 0.06
+              && vWorldPos.y < sbLayerTop(vWorldPos.xz) + uFogLayer.w) gAF = 0.0;
           gMpp = mppB;
           float bTop = roofY;
           float bH = max(bTop - vBld.z, 1.0);
@@ -701,7 +724,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           if (fr == ${R(Ramp.WINDOW)}) gl -= 0.04;
           gl += tone * 0.5; // (the aim glint lifts every surface after lighting, below)
           float wlo = lo + (fam == ${R(Fam.MASONRY)} ? 0.03 : fam == ${R(Fam.GRANITE)} ? -0.02 : fam == ${R(Fam.PRECAST)} ? 0.06 : 0.04);
-          float lw = sbLight(vWorldPos, n, wlo, 1.0);
+          // (sbLight() inlined with the shadow sample above: one shadow-map lookup per facade pixel, not two)
+          float lw = clamp(uLight.y + uLight.z * (0.5 + 0.5 * n.y) + uLight.x * max(dot(n, uSunDir), 0.0) * sh + wlo, 0.0, 1.0);
           ramp = fr;
           glow = fglow;
           if (painted) {
@@ -744,17 +768,35 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
               ramp = calm ? body : hueRamp(h3);
               fd = min(fd, 0.0) + (calm ? 0.0 : -1.0);
             }
-            // level 2+: hanging gardens, a planter band of flowers on every third floor
+            // level 2+: hanging gardens on every third floor: a white planter rail under a band of green with
+            // flowers in the hues opposite the tower's (its stained-glass ribbon is the hue and its two
+            // neighbors, and a green line alone vanished into it); far away a two-pixel band, white under green
             float pv = f.y - 8.0;
             bool inCrown = crownP && dTop < 7.0;
             if (level > 1.5 && f.y > 9.0 && !inCrown && !pent) {
-              bool wide = 1.1 * fv / mppB >= 1.5;
-              bool band = wide ? fract(pv / 11.4) * 11.4 < 1.1 : rhythm(pv, 11.4, fv / mppB, dF.y, 4.0) > 0.5;
-              if (band) {
-                // (flowers only where the band is wider than a pixel: far away it is one green line)
+              float dvB = mppB / max(fv, 0.25); // meters per game pixel up the wall (per building)
+              float q = -1.0, rail = 0.0;
+              bool wide = 1.6 / dvB >= 3.0; // (flowers only on the near band: far away it is two lines)
+              if (wide) {
+                q = fract(pv / 11.4) * 11.4;
+                rail = 0.5;
+                if (q >= 1.6) q = -1.0;
+              } else if (gAF < 0.65 && gMpp < 3.0) {
+                float per = 11.4;
+                float mp = 5.0 * (1.0 + uHigh);
+                for (int k = 0; k < 3; k++) if (per / dvB < mp) per *= 2.0;
+                if (per / dvB >= mp) {
+                  q = fract(pv / per) * per;
+                  rail = dF.y;
+                  if (q >= 2.0 * dF.y) q = -1.0;
+                }
+              }
+              if (q >= 0.0) {
                 float fl2 = wide ? h21(floor(f * vec2(0.8, 1.0)) + bIdx) : 0.0;
-                ramp = fl2 > 0.75 ? hueRamp(hue + (fl2 > 0.88 ? 1.0 : 5.0)) : ${R(Ramp.GREEN)};
-                fbase = 0.0; fd = fl2 > 0.75 ? 1.0 : 0.0; glow = 0.0;
+                if (q < rail) { ramp = ${R(Ramp.WHITE)}; fd = 1.0; }
+                else if (fl2 > 0.72) { ramp = hueRamp(hue + (fl2 > 0.86 ? 3.0 : 4.0)); fd = 1.0; }
+                else { ramp = ${R(Ramp.GREEN)}; fd = 0.0; }
+                fbase = 0.0; glow = 0.0;
               }
             }
             // level 3: vines and flowers spill down the walls under every setback
@@ -768,6 +810,9 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
             }
           }
           float S = fbase > 1.5 ? floor(stepPos(fd / 7.0) + 0.5) : floor(stepPos(fbase > 0.5 ? gl : lw) + 0.5) + fogSteps(fd);
+          // (a tower facade takes the glint in whole steps of the fogged ramp too: added to its light after
+          // lightAtStep it would be 0.91 of a pre-fog step, which fog rounds away or dithers)
+          if (tgt) S += max(1.0, floor(uGlint.x * 7.0 + 0.5)) + floor(uGlint.y * 7.0 * sweep + 0.5);
           light = lightAtStep(S);
         } else if (glass > 0.5) {
           vec3 v = normalize(cameraPosition - vWorldPos);
@@ -792,12 +837,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           // paint lives in the saturated middle of each ramp: explosive, not pastel
           if (painted || (grown && part < ${R(Part.DOME - 0.5)})) light = 0.2 + light * 0.52;
         }
-        // aim glint: the building a tap would hit lifts a full ramp step (flat walls can't snap it away,
-        // painted ones too), and a band of light sweeps up it, starting the moment it became the target
-        if (abs(bIdx - uTarget) < 0.5) {
-          float sweep = fract((uTime - uTargetT) * uGlint.z - (vWorldPos.y - vBld.z) * 0.035);
-          light += uGlint.x + uGlint.y * smoothstep(0.55, 1.0, sweep);
-        }
+        if (tgt && !famWall) light += uGlint.x + uGlint.y * sweep;
         if (!gl_FrontFacing) n = -n;
         // the blast's shockwave ring races across the roofs
         float rr, rl, rg;

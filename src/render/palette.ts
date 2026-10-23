@@ -32,7 +32,7 @@ export const Ramp = {
   WHITE: 18,
   ROOF_DARK: 19, // tar roofs
   GLASS: 20, // tower curtain walls: blue-silver, the bright end is the fog sky they mirror
-  STONE: 21, // pre-war masonry and terracotta: pale warm stone, rose-violet shadows
+  STONE: 21, // pre-war masonry and terracotta: pale buff stone in the sun, cool violet-grey in shade
   GRANITE: 22, // polished dark granite (555 California): near-black plum grey
 } as const;
 
@@ -71,7 +71,9 @@ const RAMPS: Record<number, string[]> = {
   [Ramp.WHITE]: ['#5c626b', '#787e86', '#959aa0', '#b1b5b9', '#cbced0', '#e0e2e2', '#f0f1ef', '#ffffff'],
   [Ramp.ROOF_DARK]: ['#101419', '#171d24', '#20272f', '#2a323c', '#36404b', '#454f5a', '#58626c', '#6f7882'],
   [Ramp.GLASS]: ['#0f1620', '#17212d', '#212e3d', '#2d3e50', '#3e5266', '#566c80', '#7a90a2', '#aebfcb'],
-  [Ramp.STONE]: ['#25242b', '#353339', '#4a4649', '#625d5e', '#7c7774', '#98938c', '#b6b0a6', '#d4cdc0'],
+  // (buff only in the top two steps, the sunlit stone; in shade a cool violet-grey (chroma ~4, hue 273-303):
+  // the old near-neutral warm mid steps read taupe and rust next to the blue-grey city, rose read pink)
+  [Ramp.STONE]: ['#23262c', '#33353b', '#45464d', '#5d5e65', '#77767d', '#949298', '#b6b0a6', '#d4cdc0'],
   [Ramp.GRANITE]: ['#0c0b11', '#14121a', '#1d1a24', '#28232f', '#352e3c', '#463d4d', '#5c5163', '#7b6e80'],
 };
 

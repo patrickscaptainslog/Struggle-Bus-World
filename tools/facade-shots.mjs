@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 // Tower facade QA from the real game (index.html), iPhone 15 portrait viewport.
 //   node tools/facade-shots.mjs <baseUrl> <outDir> [--only=a,b] [--seq] [--paint] [--perf]
-// chase-<name>.png : the gameplay chase camera over a downtown district.
+// chase-<name>.png : the gameplay chase camera over a downtown district. The game clock is
+//                    frozen (0.05 ms per frame) from the first frame while the city streams
+//                    in, then the bus flies 4 s in fixed 1/30 s steps and the clock freezes
+//                    again for the shot, so two builds' chase frames line up.
 // hero-<name>.png  : a fixed telephoto view of one icon (the rig is overridden for the
 //                    shot only), so two builds' shots line up exactly. All hero views
-//                    share one page (the bus teleports between them).
+//                    share one page (the bus teleports between them); every grey hero is
+//                    shot before any --paint sequence, so no grey view holds earlier paint.
 // alt-<name>.png   : the vista camera after a real yoke climb (~250 m) over downtown.
 // --seq            : chase and alt views also capture frames exactly 1/30 s apart
 //                    (<view>-seq-<i>.png; python3 -I tools/seqstat.py <out>/<view>-seq 3).
@@ -14,10 +18,12 @@
 // --only=ladies    : the Painted Ladies row (shots.mjs' painted camera), one blast per
 //                    level: ladies-L1/L2/L3.png (the calm Painted Ladies, then the riot).
 // --perf           : renderer stats per view (draw calls, triangles, CPU workMs), the median of
-//                    8 frames; perf.json (without --perf: 2 frames).
-// SwiftShader renders ~1.5 fps: everything waits on the game clock, never wall time.
+//                    8 frames; merged into <outDir>/perf.json (without --perf: 2 frames).
+// The browser comes from tools/browser.mjs (the real GPU off the cloud machine, SwiftShader
+// at ~1.5 fps in the cloud): everything waits on the game clock, never wall time.
 import { chromium } from 'playwright-core';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { browserOptions } from './browser.mjs';
 
 const args = process.argv.slice(2);
 const pos = args.filter((a) => !a.startsWith('--'));
@@ -54,12 +60,14 @@ const HERO = [
 const ALT = [{ name: 'downtown250', lat: 37.7835, lon: -122.4085, heading: 45, y: 250 }];
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
+  ...browserOptions([]),
 });
 const perf = {};
 
-async function open(query) {
+// game clock frozen: a rendered frame advances it 0.05 ms (dt ~0, like a hit-stop frame), streaming goes on
+const FROZEN = 0.05;
+
+async function open(query, frozen = false) {
   const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
   page.on('pageerror', (e) => console.log('[pageerror]', e.message));
   page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.log('[console]', m.text()));
@@ -80,6 +88,7 @@ async function open(query) {
       return raf(runF);
     };
   });
+  if (frozen) await page.addInitScript((f) => { window.__rv.step = f; }, FROZEN);
   await page.goto(base + query, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000 });
   return page;
@@ -103,6 +112,13 @@ async function settle(page) {
   await runFor(page, 1.2);
   await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 300000 });
   await runFor(page, 1.0);
+}
+
+// streaming done and adopted, then 20 more rendered frames (any clock)
+async function streamed(page) {
+  await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 300000 });
+  await page.evaluate(() => new Promise((res) => { let n = 20; const tick = () => (--n <= 0 ? res(null) : requestAnimationFrame(tick)); tick(); }));
+  await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 300000 });
 }
 
 // renderer stats per frame (draw calls, triangles, CPU workMs): a hook on perf.frame() reads
@@ -148,10 +164,15 @@ async function seq(page, name, n = Number(opt.seqn ?? 3)) {
 // ---- chase views
 for (const v of CHASE) {
   if (!want(`chase-${v.name}`) && !want('chase')) continue;
-  const page = await open(`?lat=${v.lat}&lon=${v.lon}&heading=${v.heading}&skipintro`);
+  // the clock stands still while the city streams in (settle() waits on streaming, which takes a different
+  // time on every build), then the same 4 s of flight in fixed 1/30 s steps, frozen again for the shot
+  const page = await open(`?lat=${v.lat}&lon=${v.lon}&heading=${v.heading}&skipintro`, true);
   await page.evaluate(() => (window.__qa = { sx: 0, sy: -0.15 }));
-  await runFor(page, 2.0);
-  await settle(page);
+  await streamed(page);
+  await page.evaluate(() => (window.__rv.step = 1000 / 30));
+  await runFor(page, 4.0);
+  await page.evaluate((f) => (window.__rv.step = f), FROZEN);
+  await streamed(page);
   await page.screenshot({ path: `${out}/chase-${v.name}.png` });
   perf[`chase-${v.name}`] = await snap(page);
   console.log('saved', `${out}/chase-${v.name}.png`, JSON.stringify(perf[`chase-${v.name}`]));
@@ -175,34 +196,36 @@ for (const v of ALT) {
   await page.close();
 }
 
-// ---- hero views: one page, the bus teleports
+// ---- hero views: one page, the bus teleports; every grey view first, then the paint sequences
 const heroes = HERO.filter((v) => want(`hero-${v.name}`) || want('hero'));
+const aimHero = (page, v) =>
+  page.evaluate((v) => {
+    const g = window.__game;
+    const [lat0, lon0] = g.city.manifest.origin;
+    const tx = (v.lon - lon0) * 111320 * Math.cos((lat0 * Math.PI) / 180);
+    const tz = -(v.lat - lat0) * 110574;
+    const ty = g.city.groundAt(tx, tz) + v.look;
+    const a = (v.az * Math.PI) / 180;
+    const cx = tx + Math.sin(a) * v.dist, cz = tz - Math.cos(a) * v.dist;
+    g.flight.x = tx + Math.sin(a) * (v.dist + 60);
+    g.flight.z = tz - Math.cos(a) * (v.dist + 60);
+    window.__qa = { sx: 0, sy: -1 };
+    // the drift (for the sequence) slides the camera sideways, keeping its aim direction
+    window.__drift = 0;
+    const rx = Math.cos(a), rz = Math.sin(a);
+    g.rig.update = (cam, focusOut) => {
+      const d = window.__drift * (g.clock() - window.__drift0);
+      cam.position.set(cx + rx * d, v.camY, cz + rz * d);
+      cam.up.set(0, 1, 0);
+      cam.lookAt(tx + rx * d, ty, tz + rz * d);
+      focusOut.set(tx + rx * d, ty, tz + rz * d);
+    };
+    window.__drift0 = g.clock();
+  }, v);
 if (heroes.length) {
   const page = await open(`?lat=${heroes[0].lat}&lon=${heroes[0].lon}&heading=0&skipintro`);
   for (const v of heroes) {
-    await page.evaluate((v) => {
-      const g = window.__game;
-      const [lat0, lon0] = g.city.manifest.origin;
-      const tx = (v.lon - lon0) * 111320 * Math.cos((lat0 * Math.PI) / 180);
-      const tz = -(v.lat - lat0) * 110574;
-      const ty = g.city.groundAt(tx, tz) + v.look;
-      const a = (v.az * Math.PI) / 180;
-      const cx = tx + Math.sin(a) * v.dist, cz = tz - Math.cos(a) * v.dist;
-      g.flight.x = tx + Math.sin(a) * (v.dist + 60);
-      g.flight.z = tz - Math.cos(a) * (v.dist + 60);
-      window.__qa = { sx: 0, sy: -1 };
-      // the drift (for the sequence) slides the camera sideways, keeping its aim direction
-      window.__drift = 0;
-      const rx = Math.cos(a), rz = Math.sin(a);
-      g.rig.update = (cam, focusOut) => {
-        const d = window.__drift * (g.clock() - window.__drift0);
-        cam.position.set(cx + rx * d, v.camY, cz + rz * d);
-        cam.up.set(0, 1, 0);
-        cam.lookAt(tx + rx * d, ty, tz + rz * d);
-        focusOut.set(tx + rx * d, ty, tz + rz * d);
-      };
-      window.__drift0 = g.clock();
-    }, v);
+    await aimHero(page, v);
     await runFor(page, 1.5);
     await settle(page);
     await page.screenshot({ path: `${out}/hero-${v.name}.png` });
@@ -213,13 +236,16 @@ if (heroes.length) {
       await seq(page, `hero-${v.name}`);
       await page.evaluate(() => { window.__drift = 0; });
     }
-    if (opt.paint) {
-      for (const L of [1, 2, 3]) {
-        await page.evaluate((v) => window.__game.barfAtLatLon(v.lat, v.lon), v);
-        await runFor(page, L === 1 ? 7.5 : 4.5);
-        await page.screenshot({ path: `${out}/paint-${v.name}-L${L}.png` });
-        console.log('saved', `${out}/paint-${v.name}-L${L}.png`);
-      }
+  }
+  for (const v of opt.paint ? heroes : []) {
+    await aimHero(page, v);
+    await runFor(page, 1.5);
+    await settle(page);
+    for (const L of [1, 2, 3]) {
+      await page.evaluate((v) => window.__game.barfAtLatLon(v.lat, v.lon), v);
+      await runFor(page, L === 1 ? 7.5 : 4.5);
+      await page.screenshot({ path: `${out}/paint-${v.name}-L${L}.png` });
+      console.log('saved', `${out}/paint-${v.name}-L${L}.png`);
     }
   }
   await page.close();
@@ -239,5 +265,10 @@ if (want('ladies')) {
   await page.close();
 }
 
-writeFileSync(`${out}/perf.json`, JSON.stringify(perf, null, 2));
+// (merged into an earlier run's perf.json: an --only pass never wipes the other views' numbers)
+if (Object.keys(perf).length) {
+  let prev = {};
+  try { if (existsSync(`${out}/perf.json`)) prev = JSON.parse(readFileSync(`${out}/perf.json`, 'utf8')); } catch { prev = {}; }
+  writeFileSync(`${out}/perf.json`, JSON.stringify({ ...prev, ...perf }, null, 2));
+}
 await browser.close();

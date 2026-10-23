@@ -59,7 +59,14 @@ export interface MeshArrays {
   bld2: Float32Array;
   index: Uint32Array;
   vertexCount: number;
+  /** index count of everything but the collapsed growth (Part.GARDEN / DOME), whose triangles come last:
+   * drawn with setDrawRange(0, solidIndexCount) until a building of the mesh grows them (no vertex work) */
+  solidIndexCount: number;
 }
+
+/** Per collapsed growth element, GROWN_STRIDE floats: building index, paint level it needs, center x, z,
+ * radius and grown top (m, with the growth's overshoot): what the flight's obstacle field must rise over. */
+export const GROWN_STRIDE = 6;
 
 class Builder {
   pos: number[] = [];
@@ -69,6 +76,10 @@ class Builder {
   bld: number[] = [];
   bld2: number[] = [];
   idx: number[] = [];
+  /** triangles of collapsed growth (appended after idx) */
+  gidx: number[] = [];
+  /** GROWN_STRIDE floats per growth element */
+  grown: number[] = [];
   vc = 0;
   // current building context
   cur = { index: 0, cx: 0, cz: 0, baseY: 0, roofY: 0, arch: 0, seed: 0, flags: 0, frontW: 0, ext: 0 };
@@ -250,19 +261,32 @@ class Builder {
     const a = this.grownVert(ax, ay, az, p0[0], p0[1], p0[2], n[0], n[1], n[2], part, flags);
     const b = this.grownVert(ax, ay, az, p1[0], p1[1], p1[2], n[0], n[1], n[2], part, flags);
     const d = this.grownVert(ax, ay, az, p2[0], p2[1], p2[2], n[0], n[1], n[2], part, flags);
-    this.idx.push(a, b, d);
+    this.gidx.push(a, b, d);
   }
 
-  finish(): MeshArrays {
+  /** Record a growth element for the flight's obstacle field (see GROWN_STRIDE). The vertex shader's growth
+   * overshoots by up to ~12 % (1 - e^-5k cos 7.5k peaks at 1.123). */
+  grownElement(x: number, z: number, r: number, anchorY: number, height: number, flags: number) {
+    this.grown.push(this.cur.index, (flags >> 2) & 3, x, z, r, anchorY + height * 1.13);
+  }
+
+  finish(): { mesh: MeshArrays; grown: Float32Array } {
+    const index = new Uint32Array(this.idx.length + this.gidx.length);
+    index.set(this.idx);
+    index.set(this.gidx, this.idx.length);
     return {
-      position: new Float32Array(this.pos),
-      normal: new Int8Array(this.nrm),
-      facade: new Float32Array(this.fac),
-      meta: new Uint8Array(this.meta),
-      bld: new Float32Array(this.bld),
-      bld2: new Float32Array(this.bld2),
-      index: new Uint32Array(this.idx),
-      vertexCount: this.vc,
+      mesh: {
+        position: new Float32Array(this.pos),
+        normal: new Int8Array(this.nrm),
+        facade: new Float32Array(this.fac),
+        meta: new Uint8Array(this.meta),
+        bld: new Float32Array(this.bld),
+        bld2: new Float32Array(this.bld2),
+        index,
+        vertexCount: this.vc,
+        solidIndexCount: this.idx.length,
+      },
+      grown: new Float32Array(this.grown),
     };
   }
 }
@@ -339,6 +363,8 @@ function triangulate(xz: number[]): number[] {
 export interface MeshOptions {
   /** 0 = full detail, 1 = simple extrusion (far tiles). */
   lod: 0 | 1;
+  /** the city is San Francisco (the icons and HIDDEN tables are written in its local meters) */
+  sf: boolean;
 }
 
 /** The building a part belongs to: records [first, end) of the tile. */
@@ -400,7 +426,7 @@ function partRoles(t: BuildingTile, g: Group, st: TowerStyle) {
   }
 }
 
-export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): MeshArrays {
+export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): { mesh: MeshArrays; grown: Float32Array } {
   const B = new Builder();
   const g: Group = { first: 0, end: 0, cx: 0, cz: 0, top: 0, style: null, fam: [], ext: [], domes: 0, garden: 0 };
   for (let i = 0; i < t.count; ) {
@@ -418,12 +444,12 @@ export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): MeshArrays
     for (let k = i; k < j; k++) g.top = Math.max(g.top, t.roofY[k], t.baseY[k] + 2.5);
     const H = g.top - t.groundY[i];
     // footprints a hand-built prop draws instead (the Ferry Building's row of "Victorian" lots)
-    if (hiddenAt(g.cx, g.cz, H)) { i = j; continue; }
+    if (opts.sf && hiddenAt(g.cx, g.cz, H)) { i = j; continue; }
     const first = i, end = j;
     g.style = styleFor(t.arch[i], H, ringArea(t, i), g.cx, g.cz, t.stableId[i], (x, z) => {
       for (let k = first; k < end; k++) if (ringContains(t, k, x, z)) return true;
       return false;
-    });
+    }, opts.sf);
     if (g.style) partRoles(t, g, g.style);
     // (baked collapsed, they still cost triangles: a few per tower)
     g.domes = 3;
@@ -758,6 +784,7 @@ function blob(B: Builder, ax: number, ay: number, az: number, c: V3, rx: number,
   const ca = Math.cos(yaw), sa = Math.sin(yaw);
   const P = (x: number, y: number, z: number): V3 => [c[0] + x * ca - z * sa, c[1] + y, c[2] + x * sa + z * ca];
   const X = P(rx, 0, 0), NX = P(-rx, 0, 0), Y = P(0, ry, 0), NY = P(0, -ry, 0), Z = P(0, 0, rz), NZ = P(0, 0, -rz);
+  B.grownElement(ax + c[0] * 1.13, az + c[2] * 1.13, Math.max(rx, rz) * 1.13, ay, c[1] + ry, flags);
   B.grownTri(ax, ay, az, X, Y, Z, part, flags);
   B.grownTri(ax, ay, az, Z, Y, NX, part, flags);
   B.grownTri(ax, ay, az, NX, Y, NZ, part, flags);
@@ -773,6 +800,7 @@ const ONION: Array<[number, number]> = [[0.8, 0], [0.8, 0.5], [1.1, 1.05], [0.5,
 
 function onionDome(B: Builder, ax: number, ay: number, az: number, rd: number, flags: number) {
   const seg = 6;
+  B.grownElement(ax, az, 1.1 * rd * 1.13, ay, ONION[ONION.length - 1][1] * rd, flags);
   for (let q = 0; q < ONION.length - 1; q++) {
     const [r0, h0] = ONION[q], [r1, h1] = ONION[q + 1];
     for (let s = 0; s < seg; s++) {

@@ -109,7 +109,11 @@ export const ICONS: Icon[] = [
   { name: 'Hyatt Regency', lat: 37.7944, lon: -122.3958, minTop: 50, style: S(Fam.BANDS, Crown.MECH) },
 ];
 
-/** Footprints replaced by a hand-built prop (drawn by the prop, still there for flight and paint). */
+/**
+ * Footprints replaced by a hand-built prop: not meshed, not a building ref (no aim, pick, paint or
+ * blast lands on what nobody can see), and their cells of the flight's obstacle grid are the prop's
+ * own surface (City.setPropObstacles) instead of the lots'.
+ */
 export interface Hidden {
   name: string;
   /** center, unit axis along the long side, half length / half width (local m) */
@@ -123,12 +127,19 @@ export interface Hidden {
   maxTop: number;
 }
 
-/**
- * The Ferry Building: the footprints carry it as two rows of 8 m "Victorian"
- * lots (the bake's row splitter cut it), drawn with bays and stoops. A prop
- * (props/landmarks.ts) draws it instead.
- */
-export const HIDDEN: Hidden[] = [{ name: 'Ferry Building', cx: 2285.7, cz: -2287.5, ax: 0.65444, az: 0.75611, halfL: 106, halfW: 39, maxTop: 22 }];
+/** An oriented box of a prop's collision surface (local m): the cells it covers stand `top` m ASL. */
+export interface PropBox {
+  cx: number;
+  cz: number;
+  /** unit axis of the half length (the other half is across it) */
+  ax: number;
+  az: number;
+  halfL: number;
+  halfW: number;
+  top: number;
+  /** grown by this much in the obstacle grid (m): 3, or 6 for a part over 40 m, as the bake's roofs */
+  pad: number;
+}
 
 /** Hand-built hero props (props/landmarks.ts), placed by lat/lon, with collision posts. */
 export interface HeroProp {
@@ -151,6 +162,11 @@ export const HERO_PROPS: HeroProp[] = [
 
 /** City origin the icon table is written for (the SF bake's tmerc origin). */
 export const SF_ORIGIN: [number, number] = [37.7749, -122.4194];
+
+/** True if a city's origin is the one the SF tables (icons, HIDDEN, HERO_PROPS) are written for. */
+export function isSfOrigin(origin: [number, number]): boolean {
+  return Math.abs(origin[0] - SF_ORIGIN[0]) < 1e-6 && Math.abs(origin[1] - SF_ORIGIN[1]) < 1e-6;
+}
 
 /**
  * WGS84 lat/lon -> local game meters (+x east, +z south) through the bake's
@@ -180,6 +196,21 @@ export function llToLocal(lat: number, lon: number, origin: [number, number] = S
   const y = M(phi) - M(origin[0] * d2r) + N * (s / c) * ((A * A) / 2 + ((5 - T + 9 * C + 4 * C * C) * A ** 4) / 24 + ((61 - 58 * T + T * T + 600 * C - 330 * ep2) * A ** 6) / 720);
   return [x, -y];
 }
+
+const COIT = llToLocal(HERO_PROPS[0].lat, HERO_PROPS[0].lon);
+const FERRY = llToLocal(HERO_PROPS[1].lat, HERO_PROPS[1].lon);
+
+/**
+ * The Ferry Building: the footprints carry it as two rows of 8 m "Victorian"
+ * lots (the bake's row splitter cut it), drawn with bays and stoops. Coit Tower:
+ * a 13 m "Victorian" box (stable id 132089) stands in for it at the summit,
+ * 7-19 m from the column's axis. The props (props/landmarks.ts) draw both.
+ * (The FLATS lot 132088 beside Coit's base, centroid 27 m from the axis, stays.)
+ */
+export const HIDDEN: Hidden[] = [
+  { name: 'Ferry Building', cx: FERRY[0], cz: FERRY[1], ax: Math.sin(HERO_PROPS[1].yaw), az: Math.cos(HERO_PROPS[1].yaw), halfL: 106, halfW: 39, maxTop: 22 },
+  { name: 'Coit Tower', cx: COIT[0], cz: COIT[1], ax: 1, az: 0, halfL: 16, halfW: 16, maxTop: 15 },
+];
 
 let iconsLocal: Array<{ x: number; z: number; icon: Icon }> | null = null;
 /** The icons in local meters (SF origin). */
@@ -236,13 +267,14 @@ const G = Fam.GLASS, MA = Fam.MASONRY, BA = Fam.BANDS, FI = Fam.FINS, GR = Fam.G
 function weights(h: number, d: number, civic: boolean, bigSlab: boolean): Array<[number, number]> {
   let w: Array<[number, number]>;
   if (h >= 120) {
-    if (d === District.FIDI) w = [[GR, 0.2], [BA, 0.25], [FI, 0.2], [G, 0.2], [PR, 0.15]];
+    // (granite stays rare: 555 California is the dark one, 345 California its icon-table cousin)
+    if (d === District.FIDI) w = [[GR, 0.05], [BA, 0.3], [FI, 0.25], [G, 0.25], [PR, 0.15]];
     else if (d === District.RINCON) w = [[G, 0.75], [FI, 0.15], [BA, 0.1]];
     else if (d === District.SOMA) w = [[G, 0.5], [BA, 0.25], [FI, 0.15], [MA, 0.1]];
     else if (d === District.UNION_SQ || d === District.CIVIC) w = [[BA, 0.35], [G, 0.25], [MA, 0.25], [PR, 0.15]];
     else w = [[G, 0.5], [BA, 0.3], [PR, 0.2]];
   } else if (h >= 40) {
-    if (d === District.FIDI) w = [[MA, 0.4], [BA, 0.25], [GR, 0.1], [FI, 0.1], [G, 0.1], [PR, 0.05]];
+    if (d === District.FIDI) w = [[MA, 0.42], [BA, 0.28], [GR, 0.03], [FI, 0.1], [G, 0.12], [PR, 0.05]];
     else if (d === District.RINCON) w = [[G, 0.55], [BA, 0.2], [MA, 0.15], [FI, 0.1]];
     else if (d === District.SOMA) w = [[MA, 0.35], [BA, 0.3], [G, 0.25], [FI, 0.1]];
     else if (d === District.UNION_SQ || d === District.CIVIC) w = [[MA, 0.6], [BA, 0.25], [PR, 0.1], [G, 0.05]];
@@ -251,8 +283,8 @@ function weights(h: number, d: number, civic: boolean, bigSlab: boolean): Array<
   } else {
     if (d === District.FIDI || d === District.UNION_SQ || d === District.CIVIC) w = [[MA, 0.65], [BA, 0.3], [G, 0.05]];
     else if (d === District.SOMA) w = [[MA, 0.55], [BA, 0.35], [G, 0.1]];
-    else if (d === District.RINCON || d === District.MISSION_BAY) w = [[G, 0.4], [BA, 0.35], [MA, 0.25]];
-    else w = [[MA, 0.5], [BA, 0.45], [G, 0.05]];
+    // Rincon / Transbay, Mission Bay (outside downtown styleFor keeps blocks under 40 m classic)
+    else w = [[G, 0.4], [BA, 0.35], [MA, 0.25]];
   }
   if (civic && h < 60) w = [[MA, 0.75], [BA, 0.25]];
   if (bigSlab) w = w.map(([f, v]) => [f, f === BA ? v + 0.2 : v] as [number, number]);
@@ -279,9 +311,10 @@ export function wantsFamily(arch: number, top: number): boolean {
  */
 export function styleFor(
   arch: number, top: number, area0: number, cx: number, cz: number, stableId: number,
-  inside: (x: number, z: number) => boolean,
+  inside: (x: number, z: number) => boolean, sf: boolean,
 ): TowerStyle | null {
-  if (top >= 40) {
+  // (the icons table is San Francisco's, in SF local meters: never on another city)
+  if (sf && top >= 40) {
     for (const p of iconPoints()) {
       if (Math.abs(p.x - cx) > 120 || Math.abs(p.z - cz) > 120) continue;
       if (top >= p.icon.minTop && inside(p.x, p.z)) return p.icon.style;
@@ -289,6 +322,10 @@ export function styleFor(
   }
   if (!wantsFamily(arch, top)) return null;
   const d = district(cx, cz);
+  // outside downtown, blocks under 40 m keep the classic archetype look: they stand among the houses of the
+  // battleship-grey city, where a pale stone or glass box reads as an intruder (review: a cream masonry
+  // school by Alamo Square)
+  if (d === District.OTHER && top < 40) return null;
   const r = hash01(stableId, 1);
   const fam = pick(r, weights(top, d, arch === Arch.CIVIC, area0 > 6000 && top < 80));
   const r2 = hash01(stableId, 2);

@@ -2,15 +2,32 @@
 # (game_px() / main() reduce a 3x-DPR screenshot to game pixels; usage: shimmer.py a.png b.png [diff.png])
 # Shimmer check on two frames 1/30 s apart: reduce to game pixels, find the best integer
 # shift per horizontal band (camera translation), report what the shift can't explain.
+import os
 import sys
 import numpy as np
 from PIL import Image
 
-def game_px(path, S=5):
+def block_size(dx):
+    # device px per game px: the block size whose boundaries carry the neighbor differences (the smallest
+    # of the best, so a multiple of it doesn't win). The 390 px frame on a 393x852 @3x viewport is 3; the
+    # old 240 px frame was 5. SB_PX_SCALE=<n> overrides.
+    env = os.environ.get('SB_PX_SCALE')
+    if env:
+        return int(env)
+    tot = dx.sum() + 1e-9
+    score = {S: max(dx[k::S].sum() for k in range(S)) * S / tot for S in range(2, 9)}
+    best = max(score.values())
+    if best < 1.5:
+        return 3
+    return min(S for S, v in score.items() if v >= 0.85 * best)
+
+def game_px(path, S=None):
     a = np.asarray(Image.open(path).convert('RGB')).astype(np.int32)
     # find the pixel-grid phase: block boundaries have the largest neighbor differences
     dx = np.abs(np.diff(a, axis=1)).sum(axis=(0, 2))
     dy = np.abs(np.diff(a, axis=0)).sum(axis=(1, 2))
+    if S is None:
+        S = block_size(dx)
     ox = int(np.argmax([dx[k::S].sum() for k in range(S)]))
     oy = int(np.argmax([dy[k::S].sum() for k in range(S)]))
     # boundary between col ox and ox+1 -> block starts at ox+1; sample block centers
