@@ -150,7 +150,8 @@ export class Flight {
     let bankTarget = clamp(lateral * F.bankPerAccel, -F.maxBank, F.maxBank);
     bankTarget += Math.sin(this.t * Math.PI * 2 * F.wallowHz) * F.wallowAmp * heavy;
     [this.bank, this.bankVel] = spring(this.bank, this.bankVel, bankTarget, F.bankHz, F.bankDamping, dt);
-    const pitchTarget = clamp(Math.atan2(this.vy, Math.max(this.speed, 8)) * 0.8, -0.35, 0.4) + (this.barfing ? -0.18 : 0);
+    // breathing rainbow: the bus rears back like a dragon, nose up
+    const pitchTarget = clamp(Math.atan2(this.vy, Math.max(this.speed, 8)) * 0.8, -0.35, 0.4) + (this.barfing ? 0.16 : 0);
     this.pitch += (pitchTarget - this.pitch) * (1 - Math.exp(-5 * dt));
   }
 

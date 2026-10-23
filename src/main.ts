@@ -4,6 +4,7 @@ import { PixelPipeline } from './render/PixelPipeline';
 import { globals, GLSL_COMMON, GLSL_OUT } from './render/materials';
 import { Ramp, HUE_RAMPS } from './render/palette';
 import { City, type BuildingRef } from './world/City';
+import { paintUniforms } from './world/buildingMaterial';
 import type { CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
 import { CameraRig } from './game/CameraRig';
@@ -215,12 +216,14 @@ async function boot() {
   let hitStop = 0;
   const mouthTmp = new THREE.Vector3();
   const velTmp = new THREE.Vector3();
-  const mouthWorld = () => bus.root.localToWorld(mouthTmp.copy(bus.mouthLocal));
+  // the projectile leaves from the front of the bus (its one-eyed face), not the side door
+  const frontLocal = new THREE.Vector3(0, 0.4, -bus.length * 0.5 - 0.6);
+  const mouthWorld = () => bus.root.localToWorld(mouthTmp.copy(frontLocal));
   const busVel = () => velTmp.set(flight.fx * flight.speed, flight.vy, flight.fz * flight.speed);
   const splatter = new Splatter(city, {
     geyser: (targets, hues) => particles.geyser({ source: mouthWorld, sourceVel: busVel, targets, duration: config.splat.duration, travelTime: config.splat.impactDelay, hues }),
     impact: (pos, hue, strength) => {
-      particles.splash(pos, hue, strength);
+      particles.splash(pos, hue, strength * 1.5);
       audio.splatImpact(strength);
     },
     bloom: (ref, order, total, hue, level, roof) => {
@@ -252,6 +255,11 @@ async function boot() {
     audio.signPop();
   }
 
+  const aimPoint = (): [number, number] => {
+    const r = config.splat.range + config.splat.rangePerSpeed * flight.speed;
+    return [flight.x + flight.fx * r, flight.z + flight.fz * r];
+  };
+
   // ---- input
   const input = new Input(canvas);
   const tuner = new Tuner();
@@ -271,10 +279,9 @@ async function boot() {
     if (tuner.visible) return;
     if (flight.tryBarf()) {
       audio.heave();
-      // dive-bomb: aim where the shadow will be when the barf arrives
-      // (plus a little extra so the splash lands just past the nose, where the camera can see it)
-      const lead = flight.speed * config.splat.stallSpeed * config.splat.impactDelay + 9;
-      splatter.barf(flight.x + flight.fx * lead, flight.z + flight.fz * lead);
+      // dragon breath: the projectile flies ahead and explodes on the buildings in front
+      const [ax, az] = aimPoint();
+      splatter.barf(ax, az);
     } else audio.denied();
   };
 
@@ -299,6 +306,7 @@ async function boot() {
   const pose: BusPose = { squash: 1, eye: 1, fullness: 1, mouth: 0, speed: 0, wheeze: 0, heave: 0 };
   let squashV = 0;
   let lodTimer = 0;
+  let aimTimer = 0;
   let puffTimer = 0;
   const puffPos = new THREE.Vector3();
   const puffVel = new THREE.Vector3();
@@ -358,7 +366,7 @@ async function boot() {
     squashV += ((sqTarget - pose.squash) * 260 - squashV * 16) * dt;
     pose.squash += squashV * dt;
     pose.heave = barfing ? Math.max(0, 1 - flight.barfT / config.splat.duration) : 0;
-    pose.mouth = barfing ? 1 : Math.max(0, pose.mouth - dt * 4);
+    pose.mouth = 0; // the breath comes out of the bus's face, not the side door
     pose.fullness = flight.fullness;
     pose.speed = flight.speed;
     pose.wheeze = flight.barfT >= 0 ? 0 : flight.fullness * 0.8;
@@ -388,7 +396,14 @@ async function boot() {
         openingBridge = null;
       }
     }
-    rig.barfTilt += ((flight.barfing ? 1 : 0) - rig.barfTilt) * (1 - Math.exp(-(flight.barfing ? 7 : 1.6) * dt));
+    // aim glint on the building in the line of fire, only while a breath is loaded
+    aimTimer -= dt;
+    if (aimTimer <= 0) {
+      aimTimer = 0.1;
+      const [ax, az] = aimPoint();
+      const tgt = flight.fullness >= 1 && !flight.barfing ? splatter.pick(ax, az) : null;
+      paintUniforms.uTarget.value = tgt ? tgt.index : -1;
+    }
     rig.update(camera, focus, flight, dt);
     pipeline.focus.copy(focus);
     globals.uGroundRef.value = flight.groundUnder - 30;

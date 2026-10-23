@@ -13,8 +13,15 @@ call), this is what we chose and why.
   (~90 s across SF). Altitude auto-follows roofs 2–3 stories up, rises early
   over hills with hang time after crests, and soft-steers around towers that are
   much taller than the bus instead of yanking it up and over.
-- **Dive-bomb splat.** The bus squashes on the tap frame, heaves and stalls for
-  the 1 s geyser; first impact ~0.35 s after the tap; 2 frames of hit-stop.
+- **Dragon-breath splat** (producer's call, replacing the dive-bomb): the tap
+  squashes the bus on the same frame, then it rears back (nose up, recoil slows
+  it to half speed) and blasts a rainbow projectile forward out of its face. It
+  explodes on the building ~60–105 m ahead (farther at speed, snapping to the
+  nearest building, so aim is forgiving); first impact ~0.35 s after the tap;
+  2 frames of hit-stop. The impact lands mid-screen, where the chase camera can
+  see it (a straight-down barf was hidden by the bus's own body).
+- **Aim cue without a HUD**: while a breath is loaded, the building in the line
+  of fire glints with a slow sweep of light.
 - **Smart spill + Painted Ladies fan.** The building under the shadow is always
   painted; paint spills only onto *unpainted* neighbors (so Phase 2 pixel art is
   never overwritten); the primary takes the next hue, neighbors take adjacent hues

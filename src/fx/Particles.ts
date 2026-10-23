@@ -38,14 +38,14 @@ import { registerTunables } from '../ui/tunables';
 export const fxTune = {
   // --- geyser ribbon
   /** Ribbon particles per second at full flow. */
-  ribbonRate: 1400,
+  ribbonRate: 2300,
   /** Ribbon half-width at the mouth / at the landing (m). */
-  halfWidth0: 1.5,
-  halfWidth1: 3.8,
+  halfWidth0: 2.2,
+  halfWidth1: 7.5,
   /** Depth (toward-camera) thickness relative to the width; the center bulges forward. */
   depth: 0.45,
   /** Blob size at the landing (m). <= 3 game px at the 175 m chase distance (0.315 m / px). */
-  blobSize: 0.92,
+  blobSize: 1.25,
   /** Blob size multiplier at the mouth (blobs grow as the ribbon flares). */
   blobMouth: 0.62,
   /** Width of the center (primary hue) band relative to the others. */
@@ -56,17 +56,19 @@ export const fxTune = {
   sprayFrac: 0.1,
   sprayScatter: 2.6,
   /** Droplets flicked off the ribbon's flanks per second (ballistic). */
-  flickRate: 150,
-  flickOut: 6,
+  flickRate: 260,
+  flickOut: 9,
   /** Initial downward blast and arrival speed (m/s) — shapes the Hermite path. */
-  blast: 12,
-  arrive: 30,
+  blast: 0,
+  arrive: 34,
   /** Fraction of the bus velocity the barf inherits (curls the ribbon behind a moving bus). */
   inherit: 0.7,
-  /** Sideways blast out of the door (m/s, toward the bus's right): arcs the ribbon out beside the bus. */
-  doorOut: 52,
-  /** Upward kick out of the door (m/s): a little fountain lip before it plunges. */
-  doorUp: 9,
+  /** Sideways blast out of the door (m/s, toward the bus's right). 0 = straight ahead (dragon breath). */
+  doorOut: 0,
+  /** Forward blast out of the front of the bus (m/s): the dragon-breath projectile. */
+  forwardOut: 95,
+  /** Upward kick at launch (m/s): the jet lifts a little before it arcs down onto the roofs ahead. */
+  doorUp: 12,
   /** Coherent ribbon flutter: amplitude (m) and frequency (Hz). */
   wobbleAmp: 0.32,
   wobbleHz: 1.9,
@@ -149,6 +151,7 @@ registerTunables('Particles', fxTune, {
   arrive: [0, 80, 0.5],
   inherit: [0, 1.5, 0.05],
   doorOut: [0, 90, 1],
+  forwardOut: [0, 220, 1],
   doorUp: [-20, 40, 0.5],
   wobbleAmp: [0, 2, 0.02],
   wobbleHz: [0, 6, 0.1],
@@ -875,9 +878,11 @@ export class Particles {
     const T = fxTune;
     const s = this.s;
     const D = e.door;
-    s[4] = V.x * T.inherit + D.x * T.doorOut * mul;
+    // forward = the bus's heading (door is its right side): forward = (door.z, -door.x)
+    const fx = D.z, fz = -D.x;
+    s[4] = V.x * T.inherit + D.x * T.doorOut * mul + fx * T.forwardOut * mul;
     s[5] = V.y * T.inherit * 0.5 + T.doorUp * mul - T.blast;
-    s[6] = V.z * T.inherit + D.z * T.doorOut * mul;
+    s[6] = V.z * T.inherit + D.z * T.doorOut * mul + fz * T.forwardOut * mul;
   }
 
   private emitRibbon(e: Emitter, tj: number, f: number, S: THREE.Vector3, V: THREE.Vector3, x: number) {

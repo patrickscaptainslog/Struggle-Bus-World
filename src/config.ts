@@ -122,11 +122,14 @@ export const config = {
     recharge: 1.6,
     /** Duration of the geyser (s). */
     duration: 1.0,
-    /** Bus speed multiplier while barfing (dive-bomb stall). */
-    stallSpeed: 0.28,
+    /** Bus speed multiplier while breathing rainbow (the recoil of a forward blast). */
+    stallSpeed: 0.5,
+    /** Where the projectile lands: meters ahead of the bus at rest, plus seconds of travel at speed. */
+    range: 72,
+    rangePerSpeed: 0.5,
     /** Time from tap to first impact (s). */
-    impactDelay: 0.35,
-    /** Search radius under the shadow for the target building (m). */
+    impactDelay: 0.42,
+    /** Search radius around the aim point for the target building (m). */
     snapRadius: 28,
     /** Spill radius around the primary target (m). */
     spillRadius: 22,

@@ -17,6 +17,8 @@ export const paintUniforms = {
   uPaintW: { value: 1024 },
   uBloom: { value: new THREE.Vector4(config.bloom.popDuration, config.bloom.squash, config.bloom.overshoot, config.bloom.floodSpeed) },
   uWobble: { value: new THREE.Vector2(config.bloom.wobbleAmp, config.bloom.wobbleSpeed) },
+  /** building index the loaded projectile would hit (-1 = none): it glints (the only aim cue; no HUD) */
+  uTarget: { value: -1 },
 };
 
 const HUES = HUE_RAMPS.map((r) => r.toFixed(1)).join(', ');
@@ -94,6 +96,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
     fragmentShader: /* glsl */ `
       ${GLSL_COMMON}
       uniform vec4 uBloom;
+      uniform float uTarget;
       in vec2 vFacade;
       flat in vec4 vMeta;
       flat in vec4 vPaint;
@@ -280,6 +283,11 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           }
         }
 
+        // aim glint: the building in the line of fire shimmers (a slow sweep of light)
+        if (abs(bIdx - uTarget) < 0.5) {
+          float sweep = fract(uTime * 0.9 - (vWorldPos.y - vBld.z) * 0.035);
+          lo += 0.06 + 0.12 * smoothstep(0.75, 1.0, sweep);
+        }
         float light;
         if (glass > 0.5) {
           vec3 v = normalize(cameraPosition - vWorldPos);

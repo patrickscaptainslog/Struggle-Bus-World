@@ -4,8 +4,8 @@ import { HUE_COUNT } from '../render/palette';
 import type { City, BuildingRef } from '../world/City';
 import { FACTION_RAINBOW } from '../world/PaintState';
 
-// The barf -> bloom pipeline. Dive-bomb splat: targets snap to the building
-// under the shadow; paint spills only onto unpainted neighbors ("smart
+// The barf -> bloom pipeline. Dragon breath: the bus blasts a rainbow
+// projectile forward; it snaps to the building at the aim point ahead; paint spills only onto unpainted neighbors ("smart
 // spill", so nobody's art gets overwritten); a painted primary escalates.
 // Colors fan Painted-Ladies style: the primary takes the next hue, neighbors
 // take adjacent hues by which side of it they're on.
@@ -41,26 +41,21 @@ export class Splatter {
 
   constructor(private city: City, private fx: SplatFx) {}
 
-  /** Choose targets for a barf landing at (x, z) and schedule the cascade. */
-  barf(x: number, z: number) {
+  /** The building a projectile aimed at (x, z) would hit (snaps, so aim is forgiving). */
+  pick(x: number, z: number): BuildingRef | null {
     const S = config.splat;
     const city = this.city;
     const near = city.buildingsNear(x, z, S.snapRadius + 12, this.near);
-    let primary: BuildingRef | null = null;
-    for (const n of near) {
-      if (city.contains(n.ref, x, z)) {
-        primary = n.ref;
-        break;
-      }
-    }
-    if (!primary) {
-      for (const n of near) {
-        if (n.d <= S.snapRadius) {
-          primary = n.ref;
-          break;
-        }
-      }
-    }
+    for (const n of near) if (city.contains(n.ref, x, z)) return n.ref;
+    for (const n of near) if (n.d <= S.snapRadius) return n.ref;
+    return null;
+  }
+
+  /** Choose targets for a projectile landing at (x, z) and schedule the cascade. */
+  barf(x: number, z: number) {
+    const S = config.splat;
+    const city = this.city;
+    const primary = this.pick(x, z);
     const tImpact = this.t + S.impactDelay;
     if (!primary) {
       this.impactAt = tImpact;
