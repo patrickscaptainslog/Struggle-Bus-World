@@ -71,18 +71,22 @@ impact; the radius is `blastRadiusFor(drop)` = `config.splat.blastRadius` x
 pass nothing get the base blast. `Splatter.radius(drop)` answers the same for
 UI or camera code.
 
-- `src/game/blastLayout.ts`: `BlastSpec` (everything a blast paints, persisted
-  as a flat number array), `arrival(d, r)` (shockwave timing), `layoutHue`
+- `src/game/blastLayout.ts`: `BlastSpec` (everything a blast paints, a flat
+  number array when saved), `arrival(d, r)` (shockwave timing), `layoutHue`
   (pinwheel / rings / spiral), seeded splat edge + spatter dots.
-- `src/game/Splat.ts`: picks every building the blast reaches, assigns hues
-  (touching neighbors differ), escalates painted ones, writes the whole wave to
+- `src/game/Splat.ts`: picks every building the blast reaches, deals the fresh
+  ones the rainbow by angle around the impact (touching neighbors differ, never
+  the ground's hue under them), escalates painted ones, writes the whole wave to
   the paint texture at impact, starts/lands the ground job, sets the ring
   uniforms, calls `SplatFx.impact(blast)` once and `bloom(...)` per building at
   its arrival time.
 - `src/world/GroundPaint.ts` (owned by `City`, `city.ground`): one RGBA8 mask
   per terrain tile on the class grid, `begin` (at the tap) -> `work` (rows per
   frame) -> `land` (at impact, one upload per tile); `sample(x, z)` for CPU
-  queries (trees); saved blast list under `strugglebus.ground.v1`.
+  queries (trees). Saved per tile as its settled mask (`encodeMask` /
+  `decodeMask`: 5-bit coverage + 3-bit hue, run-length, base64) under
+  `strugglebus.ground.v2:<tx>,<tz>`, decoded when the tile attaches; blasts that
+  reach an unloaded tile wait on its entry and replay when it arrives.
   `GLSL_BLAST_RING` (shockwave on up-facing surfaces: terrain + roofs) and
   `GLSL_GROUND_PAINT` (terrain) with `blastUniforms`.
 - `PixelPipeline.flash(u, v, frames, strength)`: palette flash in the resolve
@@ -95,7 +99,9 @@ QA hooks: `?fixeddt=<s>` steps the game by a fixed dt per rendered frame;
 `window.__qa.holdAt = <game time>` freezes on the first frame at/after it
 (`__qa.held` turns true); `__qa.topDown = { lat, lon, height }` looks straight
 down; `__game.barfAtLatLon(lat, lon, drop?)` returns the impact time;
-`__game.paintedNear(lat, lon, r)`. `tools/blast.mjs` drives all of it.
+`__game.paintedNear(lat, lon, r)`; `__game.seedGround(n, lat, lon, spread)`
+paints n saved blasts at once (a long session). `tools/blast.mjs` drives all of
+it (perf, seq, top, reload, escalate, tap, drop, layouts, row, deal, heavy).
 
 Dev pages: `dev/<module>.html` using `dev/harness.ts` (real pipeline + grey test
 blocks + turntable camera). Screenshot with

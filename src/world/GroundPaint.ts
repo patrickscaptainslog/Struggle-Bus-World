@@ -506,7 +506,7 @@ export class GroundPaint {
   /** Upload dirty masks (one texSubImage2D each); save changed tiles, one per frame, on a debounce. */
   flush(renderer: THREE.WebGLRenderer, dt: number) {
     const S = config.splat;
-    blastUniforms.uGroundTone.value.set(S.groundLight, S.groundSidewalk, S.groundCurb, 0);
+    blastUniforms.uGroundTone.value.set(S.groundLight, S.groundSidewalk, Math.min(1, S.groundCurb), 0);
     if (this.saveTimer > 0) this.saveTimer -= dt;
     else if (this.saveQueue.length) {
       // a tile still drawing replays saves once they're done

@@ -47,27 +47,70 @@ call), this is what we chose and why.
   garden, L3 Hundertwasser), keeping their hue. They stay painted while the wave
   travels to them (PaintState `keep` flag on the GPU texel; never saved), then
   re-pop.
-- **Hue layout: pinwheel, by screenshots.** Pinwheel (12 rainbow sectors around
+- **Hue layout: pinwheel, by screenshots.** Pinwheel (rainbow sectors around
   the impact with a slight swirl), rings by distance, and a spiral of both were
   shot from the chase camera and from straight above (tools/blast.mjs layouts).
   Rings read as a 3-hue bullseye (a 60 m blast only holds ~3 rings); the spiral
-  was noisy; the pinwheel shows all six hues from both views. Buildings take the
-  pinwheel hue **shifted one step** and the ground paint sits **one ramp step
-  deeper** than sunlit roofs, so a house never melts into the splat around it.
-  Touching neighbors never share a hue (greedy pick of the nearest free hue).
+  was noisy; the pinwheel shows all six hues from both views.
+- **One rainbow turn on the ground, the rainbow dealt to the buildings**
+  (review fix). The first build used 12 sectors, so the rainbow went round
+  twice: opposite sides of the impact shared a hue and the Painted Ladies row,
+  a straight line through the impact, came out as two alternating hues (row
+  76774-76783: 4,5,4,5,4,0,4,5,4,5; ~60% of a blast in two hues). Now the
+  ground pinwheel is **6 sectors** (opposite sides complementary) and the
+  fresh buildings are **dealt the rainbow in order of swirled angle** around
+  the impact (`hueDeal` 1): every blast of six or more shows all six hues in
+  near-equal shares, and the row reads as a rainbow (5,4,1,2,3,5,0,1,2,3).
+  Dealing in equal contiguous wedges (`hueDeal` 2) put 2-3 neighbors of the
+  row in one wedge, so it still stuttered; the old per-building layout hue is
+  `hueDeal` 0. Touching neighbors never share a hue (nearest free hue, checked
+  against every settled neighbor), and a house never takes the hue of the
+  ground paint under it (no red house on red ground).
 - **The ground gets splattered** (streets, sidewalks, parks; trees standing in the
   paint bloom). A per-terrain-tile RGBA8 mask on the tile's own 2 m class grid,
   created only when paint lands there; the shader reads coverage bilinearly
   through a noise warp with a noise threshold (organic edges, a darker rim, wet
-  highlights), hue from the strongest tap. The splat is a lumpy blob with
-  splash rays; spatter dots beyond the edge, most of them made by flung paint
-  blobs that land exactly on them. Persisted as the **blast list** (16 numbers
-  per blast) under `strugglebus.ground.v1`, redrawn deterministically (seeded)
-  as tiles stream in; capped at 1500 blasts (oldest wash away). The building
-  paint key `strugglebus.paint.v1` is untouched.
+  highlights), hue from the strongest tap. The splat is a lumpy, rayed blob
+  (edge 0.8 x the radius, 13 splash rays; it was a 0.9 x disc with 9 that read
+  as a carpet); spatter dots beyond the edge, most of them made by flung paint
+  blobs that land exactly on them.
+- **Ground paint sits below the walls** (review fix: after a few blasts the
+  ground was a full-chroma carpet at the walls' own steps, so the houses lost
+  figure/ground and the street plan disappeared). It now sits about two ramp
+  steps below sunlit painted walls, never below the saturated middle in shadow;
+  sidewalks a step lighter than the street; yellow and orange keep floors so
+  they stay amber and vermillion (their deep steps are orange and brick: that
+  would muddy); curbs and park-path edges stay grey through the paint, so the
+  blocks still read. All live in config.splat (groundLight, groundSidewalk,
+  groundCurb) through one shared uniform.
+- **Ground persistence: the settled result, not the history** (review fix). The
+  first build saved the blast list and redrew it blast by blast as tiles
+  streamed in; with 150 saved blasts that meant 226 redraws queued when the bus
+  was ready (seconds of bare ground) and a 171 ms impact frame (land() finished
+  every queued redraw first). Now each painted tile is one localStorage entry,
+  `strugglebus.ground.v2:<tx>,<tz>`: its mask as coverage (5 bits) + hue
+  (3 bits) per texel, run-length coded, base64, 3-5 KB (10 KB for a tile hit a
+  dozen times). It decodes in one pass (~0.13 ms) when the tile streams in, so
+  saved paint shows with the tile; changed tiles save one per frame after a
+  0.8 s debounce (encode ~0.14 ms), on tile unload and on pagehide. Blasts that
+  reach a tile that isn't loaded wait on its entry (max 6) and draw when it
+  arrives; a newer live blast puts them underneath instead of finishing them,
+  so nothing is ever drawn synchronously at an impact. 160 tiles max (the
+  longest-untouched wash away first, also when storage is full). Measured
+  (tools/blast.mjs heavy): 150 seeded blasts = 17 tiles, 58 KB; after a reload
+  0 jobs queued and the ground fully painted at the first frame; the impact
+  frames right after match the 1-blast control. The prototype's
+  `strugglebus.ground.v1` list never shipped and is dropped on load; the
+  building paint key `strugglebus.paint.v1` is untouched.
 - **Ground paint is drawn while the projectile flies** (a few rows per frame,
   hidden by a per-texel reveal time) and lands with one texSubImage2D per touched
-  tile; already-painted ground changes hue only at impact, under the flash. The
+  tile; already-painted ground changes hue only at impact, under the flash. Four
+  reveal slots (two were enough for today's 1.6 s recharge, not for the longer
+  altitude shots). The flight slices are kept thin: setting a blast up is a
+  slice of its own and costs ~0.1 ms (the splat edge used to walk every ray for
+  every edge sample: 1.6 ms cold), then 1500 texels per frame, more only if the
+  blast would not be drawn by its impact at 30 fps. A boot warm-up of the
+  rasterizer was tried and dropped: repeated cold starts showed no gain. The
   whole building wave is also written at impact (one upload, future bloom
   times), and PaintState now uploads its dirty rectangle in one call instead of
   one call per texel.
@@ -93,10 +136,31 @@ call), this is what we chose and why.
   gardens). The impact frame does ~0.5 ms of ground work (the raster runs
   during the flight) plus the particle burst. Offline audio check passes
   (peak 0.80, no clipping).
+- **Cost after the review fixes** (tools/blast.mjs perf, per-frame CPU work
+  median, pre-blast c35a39d x3 / pre-fix 3ceb271 x2 / now x2, interleaved; the
+  host's load was 5-9 for the baseline runs and 10-16 for these, which alone
+  shows as +1 ms on the grey hover where no blast code runs): grey 3.6 / 4.4 /
+  4.6 ms, blast 4.2 / 6.0 / 5.5, settled 3.9 / 5.2 / 4.7, escalation 4.0 / 5.3 /
+  4.4, settled 4.0 / 4.6 / 4.3; flight frames (tap to impact) 4.1 / 8.9 /
+  6.2. Draw calls unchanged (138-140 in a blast, 147-149 after an escalation:
+  rooftop-garden batches are per cell, never per building). Acceptance at the
+  Painted Ladies after the fixes: one tap blooms 15 buildings and 11 trees and
+  paints 36% of the ground within 90 m (was 44%: the rayed splat), identical
+  after a reload; a 300 m drop blooms 76 buildings and 44 trees.
 - **Known:** the first blast of a session compiles the street sign's shaders
   and the first escalation the rooftop-garden shaders (pre-existing hitch, now
   more visible because every blast escalates many buildings at once). Pre-warm
   them at boot (renderer.compile on hidden instances) in a follow-up.
+- **Integration notes** (feat/altitude, feat/lidar). Keep this branch's
+  `Splat.ts` body (its `barf(x, z, { drop })` already matches altitude's call).
+  Altitude moved tile terrain into `makeTileTerrain()` / `dropTileMeshes()`:
+  `ground.attach` / `ground.detach` and the tile uniforms (`tileUniforms()`:
+  tGround, uGroundOn, uGroundLive, uGroundLive2, uGroundTone) move with them;
+  detach saves the tile first and attach decodes it in one pass, so LOD churn
+  is cheap. Altitude's coarse regions are one ground mesh with no per-tile
+  mask: either accept unpainted ground at altitude or give them a city-wide
+  low-res paint texture (follow-up). In the resolve shader, run the flash after
+  the fog-sea pick. feat/lidar only conflicts in `City.ts` (tile build).
 
 ## Data
 - **DataSF and the USGS elevation APIs are blocked by this environment's network
