@@ -104,15 +104,17 @@ export class Splatter {
    * later. `drop` = meters the bus is above the impact; the blast grows with
    * it (about x2 at 300 m). Returns the game-clock time of the impact.
    */
-  barf(x: number, z: number, opts?: { /** height of the bus above the impact (m) */ drop?: number; /** the projectile's flight time (s), default config.splat.impactDelay */ travel?: number }): number {
+  barf(x: number, z: number, opts?: { /** height of the bus above the impact (m) */ drop?: number; /** the projectile's flight time (s), default config.splat.impactDelay */ travel?: number; /** impact height (m): where the breath met a landmark's surface */ y?: number }): number {
     const S = config.splat;
     const city = this.city;
     const paint = city.paint;
     const primary = this.pick(x, z);
     const tImpact = this.t + (opts?.travel ?? S.impactDelay);
     const r = blastRadiusFor(opts?.drop ?? 0);
-    const cx = primary ? primary.cx : x;
-    const cz = primary ? primary.cz : z;
+    // a landmark is hit where the breath met it (on its surface), never at its centroid (the top of a spire)
+    const onLm = primary !== null && city.isLandmark(primary);
+    const cx = primary && !onLm ? primary.cx : x;
+    const cz = primary && !onLm ? primary.cz : z;
     // the blast's center hue: an escalating primary keeps its color, a fresh one takes the next hue
     const pRec = primary ? paint.get(primary.index) : null;
     const hue = pRec && pRec.level > 0.5 ? wrapHue(pRec.color) : this.nextHue;
@@ -147,7 +149,7 @@ export class Splatter {
     }
     this.deal(plan, spec);
     for (const p of plan) p.total = plan.length;
-    const pos = primary ? new THREE.Vector3(cx, primary.roofY + 0.5, cz) : new THREE.Vector3(x, city.groundAt(x, z), z);
+    const pos = primary ? new THREE.Vector3(cx, (onLm ? (opts?.y ?? city.roofAtPart(primary, x, z)) : primary.roofY) + 0.5, cz) : new THREE.Vector3(x, city.groundAt(x, z), z);
     const ground = city.ground.begin(spec, tImpact);
     this.pending.push({ at: tImpact, plan, ground, blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [] } });
     this.fx.geyser([pos.clone()], [hue]);

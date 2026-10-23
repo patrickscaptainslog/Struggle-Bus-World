@@ -18,6 +18,7 @@ import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { Tuner, applySavedTuning } from './ui/Tuner';
 import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles } from './world/Bridges';
+import { paintLandmark, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
 import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
 
@@ -59,6 +60,8 @@ function makeDropShadowMaterial(): THREE.ShaderMaterial {
 }
 
 type Manifest = CityManifest & { regions: Array<[number, number, number]>; regionSize: number };
+/** What the street sign says when a landmark is hit. */
+const LANDMARK_NAMES: Record<string, string> = { sutro: 'Sutro Tower', transamerica: 'Transamerica' };
 
 const params = new URLSearchParams(location.search);
 applySavedTuning();
@@ -152,6 +155,9 @@ async function boot() {
       if (!obj) continue;
       obj.position.set(lm.x, lm.y, lm.z);
       scene.add(obj);
+      // a first-class paintable building (its paint saved under 'lm:<kind>'); saved paint thins the fog again
+      const ref = paintLandmark(city, `lm:${lm.kind}`, obj, { name: LANDMARK_NAMES[lm.kind] });
+      if (ref && city.paint.level(ref.index) > 0.5) bumpPaint(ref.cx, ref.cz, 40);
     }
   }
 
@@ -304,6 +310,7 @@ async function boot() {
         particles.fling(flingFrom, flingTo, blobFlight(dot), dot.hue, 0.7 + dot.rad * 0.5);
       }
       paintTrees(b);
+      landmarkHit(city, b.pos, b.t);
       audio.splatImpact(k);
       audio.bloomBurst(b.count, b.spec.hue, b.maxLevel);
       // one white-hot frame centered on the blast, a kick, and the fog thins over it
@@ -314,8 +321,12 @@ async function boot() {
     },
     bloom: (ref, _order, _total, hue, level, roof) => {
       const h = ref.roofY - ref.baseY;
-      particles.sparkles(roof, Math.sqrt(ref.area) * 0.6 + 2, h, [hue, (hue + 1) % 6, (hue + 5) % 6], 14 + level * 8);
-      if (level >= 2) sprouts.set(ref.index, city.roofRect(ref), hue, level, globals.uTime.value);
+      const hues = [hue, (hue + 1) % 6, (hue + 5) % 6];
+      // a landmark grows its garden in its own shader (no rooftop sprouts on a spire); its sparkles hug its shape
+      const lmSlices = landmarkSparkles(ref);
+      if (lmSlices) for (const s of lmSlices) particles.sparkles(s.center, s.radius, s.height, hues, 10 + level * 4);
+      else particles.sparkles(roof, Math.sqrt(ref.area) * 0.6 + 2, h, hues, 14 + level * 8);
+      if (level >= 2 && !lmSlices) sprouts.set(ref.index, city.roofRect(ref), hue, level, globals.uTime.value);
     },
     primary: (ref, hue) => showSign(ref, hue),
     hitStop: (frames) => (hitStop = frames / 60),
@@ -332,7 +343,7 @@ async function boot() {
   // against rooftops and terrain, so from altitude the breath lands mid-screen
   // where the player is looking. Near the rooftops the ray lands under the bus's
   // nose, and the classic range ahead wins (exactly the old aim).
-  const aim = { x: 0, y: 0, z: 0, dist: 0, travel: 0, drop: 0 };
+  const aim = { x: 0, y: 0, z: 0, dist: 0, travel: 0, drop: 0, lm: false };
   const F_CLEAR = 12; // the classic shot drops about this far onto the roofs (m)
   const aimNear: Array<{ ref: BuildingRef; d: number }> = [];
   const aimPoint = (): [number, number] => {
@@ -341,7 +352,7 @@ async function boot() {
     const a = THREE.MathUtils.degToRad(clamp(S.aimDown, 2, 80));
     const ca = Math.cos(a), sa = Math.sin(a);
     const x0 = flight.x, y0 = flight.y, z0 = flight.z, fx = flight.fx, fz = flight.fz;
-    // (roofs, trees and ground only: a landmark's collision post or a bridge deck isn't what the breath lands on)
+    // (roofs, trees, ground and landmarks' surfaces: a landmark's collision post or a bridge deck isn't what the breath lands on)
     const below = (t: number) => y0 - t * sa <= city.surfaceAt(x0 + fx * t * ca, z0 + fz * t * ca);
     const maxT = Math.max(r0, S.maxRange) / ca;
     let t = 0, prev = 0, hit = -1;
@@ -375,6 +386,32 @@ async function boot() {
         aim.y = city.surfaceAt(aim.x, aim.z);
       }
     }
+    // a landmark stands on the aim (its surface is in surfaceAt): the breath lands on it there; the classic
+    // short shot, flying level onto the roofs ahead, slams into a landmark's face in its way instead
+    aim.lm = city.landmarkSurfaceAt(aim.x, aim.z) >= aim.y - 0.01;
+    if (hit < 0 || hit * ca <= r0) {
+      const L = Math.hypot(aim.x - x0, aim.z - z0);
+      const yEnd = y0 - F_CLEAR;
+      let lo = 0, hi = -1;
+      for (let s = 8; s <= L; s += 2) {
+        if (city.landmarkSurfaceAt(x0 + fx * s, z0 + fz * s) > y0 + (yEnd - y0) * (s / L)) {
+          hi = s;
+          break;
+        }
+        lo = s;
+      }
+      if (hi > 0) {
+        for (let i = 0; i < 5; i++) {
+          const m = (lo + hi) * 0.5;
+          if (city.landmarkSurfaceAt(x0 + fx * m, z0 + fz * m) > y0 + (yEnd - y0) * (m / L)) hi = m;
+          else lo = m;
+        }
+        aim.x = x0 + fx * hi;
+        aim.z = z0 + fz * hi;
+        aim.y = y0 + (yEnd - y0) * (hi / L);
+        aim.lm = true;
+      }
+    }
     const hx = aim.x - x0, hz = aim.z - z0;
     aim.dist = Math.hypot(hx, hz, y0 - aim.y);
     // the classic short shot lands after impactDelay; past it the projectile flies on at a
@@ -387,7 +424,7 @@ async function boot() {
   const breathe = (ax: number, az: number) => {
     breathTravel = aim.travel;
     try {
-      splatter.barf(ax, az, { drop: aim.drop, travel: aim.travel });
+      splatter.barf(ax, az, { drop: aim.drop, travel: aim.travel, y: aim.lm ? aim.y : undefined });
     } finally {
       breathTravel = null;
     }
