@@ -61,6 +61,7 @@ function makeDropShadowMaterial(): THREE.ShaderMaterial {
 type Manifest = CityManifest & { regions: Array<[number, number, number]>; regionSize: number };
 
 const params = new URLSearchParams(location.search);
+if (params.has('fog')) config.fog.enabled = true;
 applySavedTuning();
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -75,12 +76,14 @@ function updateSun() {
   const el = config.light.sunElevation;
   globals.uSunDir.value.set(Math.cos(az) * Math.cos(el), Math.sin(el), -Math.sin(az) * Math.cos(el)).normalize();
   globals.uLight.value.set(config.light.sunStrength, config.light.ambient, config.light.skyBounce);
-  globals.uFog.value.set(config.fog.density, config.fog.heightFalloff, config.fog.farFull, 1);
-  globals.uPaintClearing.value = config.fog.paintClearing;
   const Fg = config.fog;
+  const fogOn = Fg.enabled;
+  // (fog off: no density, no marine layer; only a far fade so the far plane never cuts hard)
+  globals.uFog.value.set(fogOn ? Fg.density : 0, Fg.heightFalloff, fogOn ? Fg.farFull : Fg.clearFarFull, 1);
+  globals.uPaintClearing.value = Fg.paintClearing;
   globals.uFogLayer.value.set(Fg.layerTop, Fg.layerTopBay, Fg.layerTopEast, Fg.layerSoft);
   const L2 = globals.uFogLayer2.value;
-  L2.set(Fg.layerDensity, Fg.layerHaze, Fg.layerFarFull, L2.w);
+  L2.set(Fg.layerDensity, Fg.layerHaze, Fg.layerFarFull, fogOn ? L2.w : 0);
   globals.uFogBillow.value.set(Fg.layerBillow, 1 / Math.max(10, Fg.layerBillowSize));
 }
 updateSun();
@@ -594,7 +597,7 @@ async function boot() {
     // (gated by the vista, i.e. by the height above the ground: skimming the floor over Twin Peaks the
     // camera is 380 m above the sea but the fog must stay exactly the street-level Hopper fog)
     const layerMix = clamp((camY - Fg.layerTop - Fg.layerViewStart) / Math.max(1, Fg.layerViewFull - Fg.layerViewStart), 0, 1) * clamp(vista / 0.3, 0, 1);
-    globals.uFogLayer2.value.w = layerMix * layerMix * (3 - 2 * layerMix);
+    globals.uFogLayer2.value.w = Fg.enabled ? layerMix * layerMix * (3 - 2 * layerMix) : 0;
     camera.getWorldDirection(camFwd);
     camFwd.y = 0;
     if (camFwd.lengthSq() < 1e-6) camFwd.set(flight.fx, 0, flight.fz);

@@ -45,6 +45,13 @@ export const config = {
   },
 
   fog: {
+    /**
+     * Fog and the marine layer (clouds) on or off. Off for now (producer: "just remove the
+     * clouds/fog for now"); ?fog turns it back on. Off keeps only a far fade (clearFarFull) so
+     * the far plane and the horizon hills never end in a hard cut.
+     */
+    enabled: false,
+    clearFarFull: 20000,
     /** Distance fog density (1/m). */
     density: 0.00125,
     /** Height falloff: fog thins with altitude above this (m). */
