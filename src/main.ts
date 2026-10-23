@@ -448,12 +448,12 @@ async function boot() {
     const qa = (window as unknown as { __qa?: { sx: number; sy: number } | null }).__qa;
     let sx = qa ? qa.sx : st.stretch.x;
     let sy = qa ? qa.sy : st.stretch.y;
-    // the opening: near the Golden Gate the yoke can't climb until the bus (and the low camera
-    // trailing 150 m behind it) is clear of the bridge, so the bus always threads under the deck
-    // and the camera never rises through the cables
+    // the opening: the yoke can't climb until the bus (and the low camera trailing 150 m behind
+    // it) is clear of the Golden Gate, so the bus always threads under the deck and the camera
+    // never rises through the cables (turning away ends it: `along` is along the heading)
     const gateAlong = openingBridge ? (flight.x - openingBridge[0]) * flight.fx + (flight.z - openingBridge[1]) * flight.fz : 0;
     const gateDist = openingBridge ? Math.hypot(flight.x - openingBridge[0], flight.z - openingBridge[1]) : Infinity;
-    if (openingBridge && gateDist < 320 && gateAlong < config.camera.openingClimbAfter) sy = Math.max(0, sy);
+    if (openingBridge && gateAlong < config.camera.openingClimbAfter) sy = Math.max(0, sy);
     const dragging = qa ? true : st.dragging;
     // past the edge of the map the bus homes back toward the city, gently
     const ex = Math.max(minX - flight.x, flight.x - maxX, 0), ez = Math.max(minZ - flight.z, flight.z - maxZ, 0);
