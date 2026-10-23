@@ -52,11 +52,11 @@ export class Splatter {
   }
 
   /** Choose targets for a projectile landing at (x, z) and schedule the cascade. */
-  barf(x: number, z: number, _opts?: { /** height of the bus above the impact (m) */ drop?: number }) {
+  barf(x: number, z: number, opts?: { /** height of the bus above the impact (m) */ drop?: number; /** the projectile's flight time (s), default config.splat.impactDelay */ travel?: number }) {
     const S = config.splat;
     const city = this.city;
     const primary = this.pick(x, z);
-    const tImpact = this.t + S.impactDelay;
+    const tImpact = this.t + (opts?.travel ?? S.impactDelay);
     if (!primary) {
       this.impactAt = tImpact;
       this.impactPos.set(x, city.groundAt(x, z), z);

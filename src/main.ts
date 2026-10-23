@@ -248,8 +248,10 @@ async function boot() {
   const frontLocal = new THREE.Vector3(0, 0.4, -bus.length * 0.5 - 0.6);
   const mouthWorld = () => bus.root.localToWorld(mouthTmp.copy(frontLocal));
   const busVel = () => velTmp.set(flight.fx * flight.speed, flight.vy, flight.fz * flight.speed);
+  /** this breath's flight time while Splatter schedules it (null = the classic config.splat.impactDelay) */
+  let breathTravel: number | null = null;
   const splatter = new Splatter(city, {
-    geyser: (targets, hues) => particles.geyser({ source: mouthWorld, sourceVel: busVel, targets, duration: config.splat.duration, travelTime: config.splat.impactDelay, hues }),
+    geyser: (targets, hues) => particles.geyser({ source: mouthWorld, sourceVel: busVel, targets, duration: config.splat.duration, travelTime: breathTravel ?? config.splat.impactDelay, hues }),
     impact: (pos, hue, strength) => {
       particles.splash(pos, hue, strength * 1.5);
       audio.splatImpact(strength);
@@ -295,7 +297,8 @@ async function boot() {
     const a = THREE.MathUtils.degToRad(clamp(S.aimDown, 2, 80));
     const ca = Math.cos(a), sa = Math.sin(a);
     const x0 = flight.x, y0 = flight.y, z0 = flight.z, fx = flight.fx, fz = flight.fz;
-    const below = (t: number) => y0 - t * sa <= city.obstacleAt(x0 + fx * t * ca, z0 + fz * t * ca);
+    // (roofs, trees and ground only: a landmark's collision post or a bridge deck isn't what the breath lands on)
+    const below = (t: number) => y0 - t * sa <= city.surfaceAt(x0 + fx * t * ca, z0 + fz * t * ca);
     const maxT = Math.max(r0, S.maxRange) / ca;
     let t = 0, prev = 0, hit = -1;
     while (t < maxT) {
@@ -315,7 +318,7 @@ async function boot() {
     const horiz = Math.max(r0, hit > 0 ? hit * ca : S.maxRange);
     aim.x = x0 + fx * horiz;
     aim.z = z0 + fz * horiz;
-    aim.y = city.obstacleAt(aim.x, aim.z);
+    aim.y = city.surfaceAt(aim.x, aim.z);
     aim.dist = Math.hypot(horiz, y0 - aim.y);
     // the classic short shot lands after impactDelay; past it the projectile flies on at a
     // constant speed, so a long shot from altitude takes longer and matches the visible jet
@@ -323,17 +326,13 @@ async function boot() {
     aim.drop = Math.max(0, y0 - aim.y);
     return [aim.x, aim.z];
   };
-  /** Barf along the aim with the impact timed to the projectile's flight. */
+  /** Barf along the aim with the impact (and the visible jet) timed to the projectile's flight. */
   const breathe = (ax: number, az: number) => {
-    // Splatter (and the geyser's travel time) read config.splat.impactDelay while scheduling:
-    // lend it this shot's flight time for the duration of the call
-    const S = config.splat;
-    const saved = S.impactDelay;
-    S.impactDelay = aim.travel;
+    breathTravel = aim.travel;
     try {
-      splatter.barf(ax, az, { drop: aim.drop });
+      splatter.barf(ax, az, { drop: aim.drop, travel: aim.travel });
     } finally {
-      S.impactDelay = saved;
+      breathTravel = null;
     }
   };
 
