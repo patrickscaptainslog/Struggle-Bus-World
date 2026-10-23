@@ -1,0 +1,14 @@
+{
+ "perf": {
+  "grey": {
+   "tag": "grey",
+   "frames": 34,
+   "workMedian": 3.1,
+   "workMean": 13.99,
+   "callsMax": 135,
+   "callsMin": 122,
+   "trisMax": 845656
+  },
+  "painted": null
+ }
+}
