@@ -34,14 +34,19 @@ export interface Blast {
   strength: number;
   /** spatter dots on the ground; the blob ones each get a flung paint blob */
   dots: BlastDot[];
+  /** a firehose impact (BarfOpts.hose): the caller plays its lighter fx */
+  hose: boolean;
+  /** the building it hit, or null */
+  primary: BuildingRef | null;
 }
 
 export interface SplatFx {
   geyser(targets: THREE.Vector3[], hues: number[]): void;
   /** The projectile explodes: flash, ring, kick, boom, blobs, trees. */
   impact(b: Blast): void;
-  /** One building pops (at its arrival time). */
-  bloom(ref: BuildingRef, order: number, total: number, hue: number, level: number, roof: THREE.Vector3): void;
+  /** One building pops (at its arrival time). flags: BLOOM_HOSE = a firehose impact's (lighter fx),
+   * BLOOM_REPOP = it re-pops at the level it already had (no new rooftop garden to grow). */
+  bloom(ref: BuildingRef, order: number, total: number, hue: number, level: number, roof: THREE.Vector3, flags: number): void;
   primary(ref: BuildingRef, hue: number): void;
   hitStop(frames: number): void;
   /** The breath came down on nothing paintable (open water): a splash, at the moment it lands. */
@@ -60,7 +65,20 @@ export interface BarfOpts {
   y?: number;
   /** land exactly at (x, z) (a wall face), instead of on the target's footprint nearest to it */
   exact?: boolean;
+  /** blast radius (m), default blastRadiusFor(drop): the super splat's mega blast and firehose */
+  radius?: number;
+  /** the caller draws the stream itself (the firehose): no geyser */
+  stream?: boolean;
+  /** a firehose impact: no hit-stop or street sign, lighter fx (Blast.hose), and a building that popped
+   * less than config.splat.firehoseRepop s ago (or is still waiting for a pop) is left alone */
+  hose?: boolean;
+  /** hit-stop frames at the impact, default config.splat.hitStopFrames */
+  hitStop?: number;
 }
+
+/** SplatFx.bloom flags. */
+export const BLOOM_HOSE = 1;
+export const BLOOM_REPOP = 2;
 
 interface Scheduled {
   at: number;
@@ -75,6 +93,8 @@ interface Scheduled {
   pref: number;
   /** where the breath hit (the primary only) */
   at0?: THREE.Vector3;
+  /** SplatFx.bloom flags */
+  flags: number;
 }
 
 interface PendingBlast {
@@ -83,6 +103,7 @@ interface PendingBlast {
   plan: Scheduled[];
   /** its ground paint, drawn while the projectile flies */
   ground: GroundJob;
+  hitStop: number;
 }
 
 const HUE_TRY = [0, 1, -1, 2, -2, 3];
@@ -100,6 +121,8 @@ export class Splatter {
   private seed = (Math.random() * 0xffffffff) >>> 0;
   /** The last barf came down on nothing paintable (the caller refunds part of the belly). */
   lastMiss = false;
+  /** per building (dense index): game time until which firehose impacts leave it alone */
+  private hoseUntil: Float32Array | null = null;
 
   constructor(private city: City, private fx: SplatFx) {}
 
@@ -136,7 +159,9 @@ export class Splatter {
     const drop = opts?.drop ?? 0;
     const primary = opts?.target !== undefined ? opts.target : this.pick(x, z, this.pickRadius(drop));
     const tImpact = this.t + (opts?.travel ?? S.impactDelay);
-    const r = blastRadiusFor(drop);
+    const r = opts?.radius ?? blastRadiusFor(drop);
+    const hose = !!opts?.hose;
+    const stream = hose || !!opts?.stream;
     // where it lands: the aim point if it is on the building, else the building's nearest edge, a few
     // meters in (a big block is hit where you aimed, not at a centroid 100 m away)
     const land = primary && !opts?.exact ? city.landingOn(primary, x, z, S.landInset, this.land, S.smallRad) : null;
@@ -165,7 +190,7 @@ export class Splatter {
     this.lastMiss = reach.length === 0 && city.groundAt(x, z) < S.missWaterY;
     if (this.lastMiss) {
       this.misses.push({ at: tImpact, pos, hue: this.nextHue });
-      this.fx.geyser([pos.clone()], [this.nextHue]);
+      if (!stream) this.fx.geyser([pos.clone()], [this.nextHue]);
       return tImpact;
     }
     if (!pRec || pRec.level < 0.5) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
@@ -173,9 +198,13 @@ export class Splatter {
     const spec = makeBlastSpec(cx, cz, r, hue, this.seed);
     const plan: Scheduled[] = [];
     let maxLevel = 1;
+    const busy = hose ? this.hoseBusy(paint.data.length >> 2) : null;
     for (const n of reach) {
       if (plan.length >= cap) break;
       const ref = n.ref;
+      // (the stream hits the same block a dozen times a second: each building pops, and escalates, at most
+      // every firehoseRepop s, and never while an earlier impact's pop is still on its way to it)
+      if (busy && busy[ref.index] > this.t) continue;
       const lv = paint.level(ref.index);
       const was = lv > 0.5;
       const level = was ? Math.min(3, Math.round(lv) + 1) : 1;
@@ -183,13 +212,20 @@ export class Splatter {
       const h = was ? wrapHue(paint.get(ref.index).color) : ref === primary ? hue : -1;
       maxLevel = Math.max(maxLevel, level);
       // it pops when the shockwave reaches its near edge
-      plan.push({ at: tImpact + arrival(ref === primary ? 0 : Math.max(0, n.e), r), ref, order: plan.length, total: 0, hue: h, level, keep: was, ang: 0, pref: 0, at0: ref === primary ? pos : undefined });
+      const flags = (hose ? BLOOM_HOSE : 0) | (was && level <= Math.round(lv) ? BLOOM_REPOP : 0);
+      plan.push({ at: tImpact + arrival(ref === primary ? 0 : Math.max(0, n.e), r), ref, order: plan.length, total: 0, hue: h, level, keep: was, ang: 0, pref: 0, at0: ref === primary ? pos : undefined, flags });
     }
     this.deal(plan, spec);
-    for (const p of plan) p.total = plan.length;
+    for (const p of plan) {
+      p.total = plan.length;
+      if (busy) busy[p.ref.index] = p.at + S.firehoseRepop;
+    }
     const ground = city.ground.begin(spec, tImpact);
-    this.pending.push({ at: tImpact, plan, ground, blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [] } });
-    this.fx.geyser([pos.clone()], [hue]);
+    this.pending.push({
+      at: tImpact, plan, ground, hitStop: hose ? 0 : opts?.hitStop ?? S.hitStopFrames,
+      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, primary },
+    });
+    if (!stream) this.fx.geyser([pos.clone()], [hue]);
     return tImpact;
   }
 
@@ -268,7 +304,7 @@ export class Splatter {
       blastUniforms.uBlastRing.value.set(b.spec.x, b.spec.z, b.t, b.spec.r);
       blastUniforms.uBlastRing2.value.set(b.spec.hue, S.ringWidth * Math.sqrt(b.strength), S.waveSpeed, waveMax(b.spec.r));
       this.fx.impact(b);
-      this.fx.hitStop(S.hitStopFrames);
+      if (p.hitStop > 0) this.fx.hitStop(p.hitStop);
       for (const s of p.plan) this.queue.push(s);
     }
     for (let i = 0; i < this.queue.length; ) {
@@ -276,10 +312,15 @@ export class Splatter {
       if (this.t >= s.at) {
         this.queue.splice(i, 1);
         // (the primary's sparkles start where the breath hit it)
-        this.fx.bloom(s.ref, s.order, s.total, s.hue, s.level, s.at0 ? s.at0.clone() : new THREE.Vector3(s.ref.cx, s.ref.roofY, s.ref.cz));
-        if (s.order === 0) this.fx.primary(s.ref, s.hue);
+        this.fx.bloom(s.ref, s.order, s.total, s.hue, s.level, s.at0 ? s.at0.clone() : new THREE.Vector3(s.ref.cx, s.ref.roofY, s.ref.cz), s.flags);
+        if (s.order === 0 && !(s.flags & BLOOM_HOSE)) this.fx.primary(s.ref, s.hue);
       } else i++;
     }
+  }
+
+  private hoseBusy(n: number): Float32Array {
+    if (!this.hoseUntil || this.hoseUntil.length < n) this.hoseUntil = new Float32Array(n);
+    return this.hoseUntil;
   }
 
   /** Game clock (s), the same clock as globals.uTime. */

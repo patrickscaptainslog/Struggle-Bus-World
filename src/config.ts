@@ -312,6 +312,46 @@ export const config = {
     recoilUp: 7,
     reliefBoost: 1.45,
     reliefSeconds: 2.6,
+    // ---- the super splat: hold to charge (src/game/SuperSplat.ts)
+    /** A press held this long (s) without turning into a steer starts charging the super splat; shorter is a tap. */
+    holdThreshold: 0.3,
+    /** Seconds of holding for a full charge: it lets go on its own as the FIREHOSE. */
+    superCharge: 10,
+    /** Released below this share of the charge: just a normal splat (no cooldown). */
+    superMin: 0.3,
+    /** Seconds until the super is ready again after a firehose (after a mega blast: x its charge). */
+    superCooldown: 60,
+    /** Mega blast (released early): radius x this at a full charge (x1 at superMin), its jet's width x, hit-stop frames. */
+    megaGain: 2.6,
+    megaWidth: 2.4,
+    megaHitStop: 9,
+    /** Charging weighs the bus down: speed x this at a full charge. */
+    chargeSlow: 0.6,
+    /** The camera creeps in while charging: distance x (1 - this) at a full charge. */
+    chargeCreep: 0.2,
+    /** Firehose: how long it pours (s), impacts per second (each a full blast of this radius, m; it grows with the drop like a tap's). */
+    firehoseDuration: 4,
+    firehoseRate: 12,
+    firehoseRadius: 45,
+    /** ...near the rooftops it reaches this many times the breath's range (a turn sweeps a wide arc); from up high it
+     *  pours down along the aim ray, where the player looks. */
+    firehoseReach: 1.7,
+    /** ...the torrent's width x the breath's, and its particle rate x. */
+    firehoseWidth: 2.6,
+    firehoseFlow: 1.9,
+    /** Recoil: the bus is knocked back to this share of its speed, then held at firehoseSlow while it pours. */
+    firehoseKick: 0.3,
+    firehoseSlow: 0.4,
+    /** A building the stream already bloomed re-pops (and escalates a level) at most this often (s). */
+    firehoseRepop: 0.4,
+    /** Camera shake per impact (m, translation only: the pixel snap holds) and flashes per second at most. */
+    firehoseShake: 0.9,
+    firehoseFlashes: 3,
+    /** The closing blast where the stream ends: radius x firehoseRadius, hit-stop frames. */
+    firehoseFinale: 2,
+    firehoseFinaleHitStop: 8,
+    /** After a firehose the bus is spent (smoke, wheeze, dim belly, limping speed) for this long (s). */
+    superSpent: 4,
   },
 
   bloom: {

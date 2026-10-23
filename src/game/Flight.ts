@@ -85,6 +85,8 @@ export class Flight {
   refund = 0;
   /** 0..1: how full the belly reads right now (drains over the breath: the release is visible as it pours out) */
   belly = 1;
+  /** speed multiplier set from outside (the super splat: a charge weighs the bus down, the firehose's recoil) */
+  speedScale = 1;
   private t = 0;
   private vyYoke = 0;
   private floorSmooth = 60;
@@ -158,7 +160,8 @@ export class Flight {
     targetSpeed *= 1 - 0.12 * heavy;
     targetSpeed *= 1 + (S.reliefBoost - 1) * reliefK * reliefK;
     if (this.barfing) targetSpeed *= S.stallSpeed;
-    const sk = this.barfing ? 6 : F.speedHz * 2.2;
+    targetSpeed *= this.speedScale;
+    const sk = this.barfing || this.speedScale < 0.98 ? 6 : F.speedHz * 2.2;
     this.speed += (targetSpeed - this.speed) * (1 - Math.exp(-sk * dt));
 
     // ---- steering on a springy bungee
