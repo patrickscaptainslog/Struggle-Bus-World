@@ -77,6 +77,7 @@ const FS = /* glsl */ `
       ramp = pr;
       float clsLo = bc == ${Ground.SIDEWALK}.0 ? 0.07 : bc == ${Ground.GRASS}.0 ? 0.03 : -0.02;
       light = 0.11 + flatL * 0.5 + clsLo; // a step deeper than the sunlit roofs: houses stand out of their splat
+      if (pr == ${Ramp.YELLOW}.0) light += 0.12; // yellow's deep steps are orange: keep it yellow
       if (pEdge < 0.07) light -= 0.11;
       else light += 0.1 * pWet;
       glow = 0.55 * pFresh;
