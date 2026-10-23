@@ -29,7 +29,7 @@ import { clamp } from './game/springs';
 function makeDropShadowMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
-    uniforms: { ...globals, uReady: { value: 0 } },
+    uniforms: { ...globals, uReady: { value: 0 }, uFar: { value: 0 } },
     vertexShader: /* glsl */ `
       ${GLSL_COMMON}
       out vec2 vLocal;
@@ -44,6 +44,7 @@ function makeDropShadowMaterial(): THREE.ShaderMaterial {
     fragmentShader: /* glsl */ `
       ${GLSL_COMMON}
       uniform float uReady;
+      uniform float uFar;
       in vec2 vLocal;
       in vec3 vWorldPos;
       ${GLSL_OUT}
@@ -51,8 +52,8 @@ function makeDropShadowMaterial(): THREE.ShaderMaterial {
         float r = length(vLocal);
         if (r > 0.85) discard;
         float fog = sbFog(vWorldPos);
-        // (a breath loaded: a step deeper)
-        sbWrite(${Ramp.GREY}.0, 0.36 - 0.12 * uReady, fog, 0.0, vec3(0.0, 0.0, 1.0), 0.97, 0.5);
+        // (a breath loaded: a step deeper; far above the surface it pales, as a real shadow softens)
+        sbWrite(${Ramp.GREY}.0, 0.36 - 0.12 * uReady + 0.16 * uFar, fog, 0.0, vec3(0.0, 0.0, 1.0), 0.97, 0.5);
       }
     `,
   });
@@ -611,9 +612,11 @@ async function boot() {
     const top = city.obstacleAt(flight.x, flight.z);
     const below = Math.max(flight.groundUnder, top - 3.0);
     dropShadow.position.set(flight.x, below + 0.25, flight.z);
-    // (r <= 0.85 of the disc: ~bus width x 0.6 bus length)
-    const sz = 0.38 * bus.length * (flight.fullness >= 1 ? 1.05 : 0.95) * rig.heroScale;
+    // (r <= 0.85 of the disc: ~bus width x 0.6 bus length; it shrinks and pales with the gap below)
+    const shadowFar = clamp((flight.y - below - 14) / 36, 0, 1);
+    const sz = 0.38 * bus.length * (flight.fullness >= 1 ? 1.05 : 0.95) * rig.heroScale * (1 - 0.3 * shadowFar);
     shadowMat.uniforms.uReady.value = flight.fullness >= 1 ? 1 : 0;
+    shadowMat.uniforms.uFar.value = shadowFar;
     dropShadow.scale.set(sz * 0.42, 1, sz);
     dropShadow.rotation.y = -flight.heading;
 
