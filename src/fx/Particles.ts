@@ -126,12 +126,12 @@ export const fxTune = {
   sparkGlow: 1,
   /** Share of sparkles that are GLOW_WHITE (the rest take the bloom hues). */
   sparkWhite: 0.4,
-  // --- puffs
-  puffSize: 1.1,
-  puffGrow: 1.5,
+  // --- puffs (sooty grey wisps of a wheezing engine: never the brightest thing on screen)
+  puffSize: 0.75,
+  puffGrow: 2.2,
   puffLife: 0.95,
   /** Puff light offset (ramp units) and how much they take the sun shadow. */
-  puffLight: 0.02,
+  puffLight: -0.3,
   puffShadow: 0.7,
   // --- look
   /** Ramp step of each rainbow hue's body color (R, O, Y, G, B, V). */
@@ -498,6 +498,9 @@ void main() {
     p = aP0.xyz + aV0.xyz * ((1.0 - exp(-k * age)) / k) + vec3(0.0, aP1.y * age, 0.0);
     size *= 1.0 + aP1.z * (1.0 - (1.0 - x) * (1.0 - x));
     keep = 1.0 - smoothstep(0.3, 1.0, x);
+    // it thins away by shrinking (a dither pattern anchored to the screen crawled over the moving puff)
+    size *= keep;
+    if (keep < 0.08) { cull(); return; }
     shape = 2.0;
     glow = 0.0;
     fogMul = uLand.w;
@@ -618,7 +621,6 @@ void main() {
     float R2 = N * 0.5;
     float q2 = dot(c, c);
     if (N > 2.5 && q2 > R2 * R2 - 0.3) discard;
-    if (bayer4(ivec2(gl_FragCoord.xy)) > vB.y) discard;
     vec2 nn = c / max(R2, 1.0);
     vec3 nv = vec3(nn.x, -nn.y, sqrt(max(0.0, 1.0 - dot(nn, nn))));
     vec3 nw = normalize(nv * mat3(viewMatrix));
@@ -1326,7 +1328,7 @@ export class Particles {
 
   // ------------------------------------------------------------------ puffs
 
-  puff(pos: THREE.Vector3, vel: THREE.Vector3, ramp: number = Ramp.FOG): void {
+  puff(pos: THREE.Vector3, vel: THREE.Vector3, ramp: number = Ramp.GREY): void {
     const T = fxTune;
     const s = this.s;
     const life = T.puffLife * (0.8 + 0.4 * rnd());

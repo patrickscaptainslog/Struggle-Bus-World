@@ -23,7 +23,9 @@ import { clamp } from './game/springs';
 
 // Struggle Bus — Phase 1 (real SF, solo).
 
-/** Pixel-art drop shadow: a small solid core inside a stippled (checker) halo. */
+/** Pixel-art drop shadow: one solid cool-grey oval about the bus's own size (no stippled halo: a checker
+ *  anchored to the screen crawled as the shadow slid over the roofs, and the near-black blob was the
+ *  darkest, loudest shape in every frame). */
 function makeDropShadowMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
@@ -47,12 +49,52 @@ function makeDropShadowMaterial(): THREE.ShaderMaterial {
       ${GLSL_OUT}
       void main() {
         float r = length(vLocal);
-        ivec2 q = ivec2(gl_FragCoord.xy);
-        bool checker = ((q.x + q.y) & 1) == 0;
-        if (r > 0.62 && !checker) discard;
-        if (r > 1.0) discard;
+        if (r > 0.85) discard;
         float fog = sbFog(vWorldPos);
-        sbWrite(${Ramp.INK}.0, r > 0.62 ? 0.35 : 0.15 + 0.1 * uReady, fog, 0.0, vec3(0.0, 0.0, 1.0), 0.97, 0.5);
+        // (a breath loaded: a step deeper)
+        sbWrite(${Ramp.GREY}.0, 0.36 - 0.12 * uReady, fog, 0.0, vec3(0.0, 0.0, 1.0), 0.97, 0.5);
+      }
+    `,
+  });
+}
+
+/**
+ * The bus's one eye, seen from behind: a warm beam of dithered light reaching ahead of its face through
+ * the fog. A unit quad (x across -0.5..0.5, z 0..-1 ahead); the beam narrows to the lens and fades out
+ * toward its far end. `uEye` = the eye's openness (squints to a sliver while barfing, wide on relief).
+ */
+function makeHeadBeamMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3,
+    uniforms: { ...globals, uEye: { value: 1 } },
+    vertexShader: /* glsl */ `
+      ${GLSL_COMMON}
+      out vec2 vLocal;
+      out vec3 vWorldPos;
+      void main() {
+        vLocal = vec2(position.x * 2.0, -position.z);
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      ${GLSL_COMMON}
+      uniform float uEye;
+      in vec2 vLocal;
+      in vec3 vWorldPos;
+      ${GLSL_OUT}
+      void main() {
+        float t = vLocal.y;
+        float s = abs(vLocal.x) / mix(0.12, 1.0, sqrt(t));
+        if (s > 1.0) discard;
+        float a = pow(1.0 - t, 0.7) * (1.0 - s * s) * (0.2 + 0.38 * uEye);
+        // dithered coverage in screen space (the beam rides with the bus, which holds still on screen)
+        ivec2 q = ivec2(gl_FragCoord.xy) & 3;
+        int m[16] = int[16](0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5);
+        if (a <= (float(m[q.y * 4 + q.x]) + 0.5) / 16.0) discard;
+        // (no glow: a halo around a moving source dithered the roofs under it into churn)
+        sbWrite(${Ramp.SKY_WARM}.0, 0.72 + 0.2 * a, sbFog(vWorldPos), 0.0, vec3(0.0, 0.0, 1.0), 0.5, 0.5);
       }
     `,
   });
@@ -190,7 +232,7 @@ async function boot() {
   if (openingBridge) rig.openingLow = 1;
   const focus = new THREE.Vector3(flight.x, 60, flight.z);
 
-  // drop shadow straight below the bus: the aim reticle
+  // drop shadow straight below the bus: grounds the hero (how high it flies)
   const shadowGeo = new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2);
   const shadowMat = makeDropShadowMaterial();
   shadowMat.depthWrite = false;
@@ -200,6 +242,17 @@ async function boot() {
   const dropShadow = new THREE.Mesh(shadowGeo, shadowMat);
   dropShadow.renderOrder = 2;
   scene.add(dropShadow);
+  // the headlight beam (the eye): parented to the bus, from the lens forward, pitched a little down
+  const beamGeo = new THREE.BufferGeometry();
+  beamGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-0.5, 0, 0, 0.5, 0, 0, -0.5, 0, -1, 0.5, 0, -1]), 3));
+  beamGeo.setIndex([0, 1, 2, 2, 1, 3]);
+  const beamMat = makeHeadBeamMaterial();
+  beamMat.side = THREE.DoubleSide;
+  const headBeam = new THREE.Mesh(beamGeo, beamMat);
+  headBeam.frustumCulled = false;
+  headBeam.position.copy(bus.eyeLocal);
+  headBeam.rotation.x = -THREE.MathUtils.degToRad(config.camera.headBeamPitch);
+  bus.root.add(headBeam);
 
   // the blast needs headroom: geyser + crown splash + flung blobs + a sparkle crown per bloom
   const particles = new Particles(8000);
@@ -537,6 +590,10 @@ async function boot() {
     pose.wheeze = flight.barfT >= 0 ? 0 : Math.max(flight.fullness * 0.8, flight.strain);
     pose.eye = barfing ? 0.25 : flight.relief > 0 ? 1 : 0.55 + 0.45 * (1 - flight.fullness * 0.6);
     bus.update(dt, simTime, pose);
+    // the eye's beam: wide open on relief, a sliver while barfing (it squints)
+    beamMat.uniforms.uEye.value = pose.eye;
+    headBeam.scale.set(config.camera.headBeamWidth * (0.3 + 0.7 * pose.eye), 1, config.camera.headBeamLength);
+    headBeam.rotation.x = -THREE.MathUtils.degToRad(config.camera.headBeamPitch);
     eul.set(flight.pitch, -flight.heading, -flight.bank, 'YXZ');
     q.setFromEuler(eul);
     bus.root.quaternion.copy(q);
@@ -546,9 +603,10 @@ async function boot() {
     const top = city.obstacleAt(flight.x, flight.z);
     const below = Math.max(flight.groundUnder, top - 3.0);
     dropShadow.position.set(flight.x, below + 0.25, flight.z);
-    const sz = 5.6 * (flight.fullness >= 1 ? 1.1 : 0.9) * rig.heroScale;
+    // (r <= 0.85 of the disc: ~bus width x 0.6 bus length)
+    const sz = 0.38 * bus.length * (flight.fullness >= 1 ? 1.05 : 0.95) * rig.heroScale;
     shadowMat.uniforms.uReady.value = flight.fullness >= 1 ? 1 : 0;
-    dropShadow.scale.set(sz * 0.5, 1, sz);
+    dropShadow.scale.set(sz * 0.42, 1, sz);
     dropShadow.rotation.y = -flight.heading;
 
     if (openingBridge) {
