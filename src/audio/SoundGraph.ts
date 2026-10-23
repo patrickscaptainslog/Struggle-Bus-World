@@ -172,6 +172,11 @@ export class SoundGraph {
     this.lastNow = t;
   }
 
+  /** The synth kit (context, noise, sfx buses) for voices in other files (src/audio/turboVoice.ts). */
+  get voiceKit(): Kit {
+    return this.kit;
+  }
+
   /** Start time for an event triggered now. */
   now(): number {
     return this.ctx.currentTime + LOOKAHEAD;
