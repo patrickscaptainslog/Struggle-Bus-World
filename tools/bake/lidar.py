@@ -5,24 +5,35 @@ City-agnostic: the dataset comes from the city config,
   "lidar": {"ept": "https://.../ept.json", "fine": [[lon0, lat0, lon1, lat1], ...], ...}
 and the bake (tools/bake/bake.py) says where it needs heights.
 
-Two max-height rasters in the bake's local frame (+X east, +Z south, meters):
+Rasters in the bake's local frame (+X east, +Z south, meters), at two resolutions:
   fine    1 m, around tall footprints and inside the "fine" boxes (downtown):
           octree nodes down to fineDepth (~9 pts/m^2 in SF), drives tiered massing
   coarse  2 m, every 128 m chunk that holds a building: nodes down to
           coarseDepth (~2 pts/m^2), corrects every building's height
-Each cell holds the highest kept point (absolute elevation, the DEM's vertical
-datum: 3DEP EPT keeps NAVD88). Kept points: building class (6) when the
-dataset classifies buildings, else first returns; noise (7, 18) and withheld
-points never count. The bake subtracts its own DEM to get height above ground.
+and two statistics per cell (absolute elevation, the DEM's vertical datum:
+3DEP EPT keeps NAVD88):
+  top     the highest first return: rooftops, parapets, crowns, edges (and tree
+          crowns): outlines and tiers come from it
+  low     the lowest last return: a pulse that gets through a tree crown ends on
+          the roof (or the ground) under it, so a house under a tree reads as
+          the house; where top and low disagree by meters, something leafy is
+          in the way and the bake keeps a small house's own height. Only below
+          tower heights: glass towers scatter multipath ghost points into and
+          under themselves, so downtown the lowest return means nothing
+Kept points: building class (6) when the dataset classifies buildings (both
+statistics), else first returns (top) / last returns (low); noise (7, 18) and
+withheld points never count. The bake subtracts its own DEM to get height
+above ground.
 
 Only the octree nodes that touch the requested chunks are fetched. Everything
 is cached under $SB_LIDAR_CACHE (default tools/bake/.cache/lidar):
   <dataset>/ept.json, <dataset>/h/<key>.json   hierarchy
   <dataset>/d/<key>.laz                         point data (never re-downloaded)
-  <slug>_<fine|coarse>_<hash>.npz               rasters for one request
+  <slug>_<fine|coarse>_<hash>.npz               rasters for one request (top + low)
 Every download is logged (nodes, points, bytes, seconds).
 
-usage (the bake calls plan_chunks + build_rasters itself; these just run it ahead):
+usage (the bake calls plan_chunks + build_rasters itself, and adds tall_chunks to the 1 m plan once
+the 2 m raster and its DEM are in; these just run the footprint plan ahead):
   python3 -I tools/bake/lidar.py sf --plan      # what a bake would fetch (nodes, points, MB)
   python3 -I tools/bake/lidar.py sf --fetch     # fetch + rasterize into the cache
 """
@@ -97,6 +108,10 @@ class Ept:
         self._load_hier('0-0-0-0')
         self.bytes = 0
         self.fetched = 0
+        if not any(f.endswith('.laz') for f in os.listdir(os.path.join(self.dir, 'd'))):
+            # (a worktree without SB_LIDAR_CACHE gets its own empty cache next to the script)
+            log(f'WARNING: no cached point data in {self.dir}: a full city fetch is ~1.4 GB. '
+                'Set SB_LIDAR_CACHE to an existing cache to reuse it.')
 
     def _load_hier(self, key):
         p = os.path.join(self.dir, 'h', f'{key}.json')
@@ -191,6 +206,7 @@ class Frame:
 
 
 def _read_points(path, building_class):
+    """x, y, z of the kept points + masks: top (first returns) and low (last returns)."""
     import laspy
     las = laspy.read(path)
     cls = np.asarray(las.classification)
@@ -201,9 +217,14 @@ def _read_points(path, building_class):
         pass
     if building_class:
         keep &= cls == BUILDING
+        top = low = np.ones(int(keep.sum()), bool)
     else:
-        keep &= np.asarray(las.return_number) <= 1
-    return np.asarray(las.x)[keep], np.asarray(las.y)[keep], np.asarray(las.z)[keep]
+        rn, nr = np.asarray(las.return_number)[keep], np.asarray(las.number_of_returns)[keep]
+        top, low = rn <= 1, rn >= nr
+        keep_any = top | low
+        top, low = top[keep_any], low[keep_any]
+        keep[np.nonzero(keep)[0][~keep_any]] = False
+    return np.asarray(las.x)[keep], np.asarray(las.y)[keep], np.asarray(las.z)[keep], top, low
 
 
 def _bin_max(chunks, res, xs, zs, vals):
@@ -239,8 +260,9 @@ def _bin_max(chunks, res, xs, zs, vals):
 def build_rasters(cfg, frame, fine_chunks, coarse_chunks, log=_log, plan_only=False):
     """Fetch + rasterize. fine_chunks / coarse_chunks: sets of (cx, cz) 128 m chunk keys.
 
-    Returns {'fine': {(cx, cz): int16[128, 128] dm}, 'coarse': {(cx, cz): int16[64, 64] dm}, 'stats': {...}}
-    (absolute max elevation per cell, NODATA where no kept point fell)."""
+    Returns {'fine': {(cx, cz): int16[128, 128] dm}, 'coarse': {(cx, cz): int16[64, 64] dm},
+    'fineLow': {...}, 'coarseLow': {...}, 'stats': {...}}: absolute elevation per cell (top: highest
+    first return; low: lowest last return), NODATA where no kept point fell."""
     L = cfg['lidar']
     ept = Ept(L['ept'], log)
     fine_depth = int(L.get('fineDepth', 7))
@@ -266,48 +288,57 @@ def build_rasters(cfg, frame, fine_chunks, coarse_chunks, log=_log, plan_only=Fa
         f'{len(allk)} nodes, {pts / 1e6:.1f} M points, ~{pts * 9.1 / 1e6:.0f} MB laz; hierarchy walk {time.time() - t0:.0f} s')
     stats = {'nodes': len(allk), 'points': pts, 'coarseNodes': len(coarse_nodes), 'fineNodes': len(fine_nodes)}
     if plan_only:
-        return {'fine': {}, 'coarse': {}, 'stats': stats}
+        return {'fine': {}, 'coarse': {}, 'fineLow': {}, 'coarseLow': {}, 'stats': stats}
 
     out = {}
     for kind, chunks, nodes, res in (('coarse', coarse_chunks, coarse_nodes, 2.0), ('fine', fine_chunks, fine_nodes, 1.0)):
         if not chunks:
-            out[kind] = {}
+            out[kind] = out[kind + 'Low'] = {}
             continue
-        h = hashlib.sha1(json.dumps([ept.url, sorted(chunks), sorted(nodes), res, building_class, frame.proj]).encode()).hexdigest()[:12]
+        h = hashlib.sha1(json.dumps([ept.url, sorted(chunks), sorted(nodes), res, building_class, frame.proj, 'top+low']).encode()).hexdigest()[:12]
         cpath = os.path.join(CACHE, f'{cfg.get("slug", "city")}_{kind}_{h}.npz')
         if os.path.exists(cpath):
             with np.load(cpath) as z:
-                keys, data = z['keys'], z['data']  # (read each member once: npz members decompress on access)
+                keys, data, low = z['keys'], z['data'], z['low']  # (read each member once: npz members decompress on access)
             out[kind] = {(int(a), int(b)): data[i] for i, (a, b) in enumerate(keys)}
+            out[kind + 'Low'] = {(int(a), int(b)): low[i] for i, (a, b) in enumerate(keys)}
             log(f'{kind}: cached raster {os.path.basename(cpath)} ({len(keys)} chunks)')
             continue
         ept.fetch(sorted(nodes))
         n = int(round(CHUNK / res))
         rast = {k: np.full((n, n), NODATA, dtype=np.int16) for k in chunks}
+        nlow = {k: np.full((n, n), NODATA, dtype=np.int16) for k in chunks}  # max of -z: the lowest last return
         t1 = time.time()
         kept = 0
         for i, key in enumerate(sorted(nodes)):
             try:
-                x, y, z = _read_points(ept.path(key), building_class)
+                x, y, z, top, low = _read_points(ept.path(key), building_class)
             except Exception as e:  # noqa: BLE001 (a truncated download from an older run: fetch it again)
                 log(f'  {key}: unreadable ({e}), re-fetching')
                 os.remove(ept.path(key))
                 ept.fetch([key])
-                x, y, z = _read_points(ept.path(key), building_class)
+                x, y, z, top, low = _read_points(ept.path(key), building_class)
             if not len(x):
                 continue
             rx0, ry0, ax, az = frame.affine_from_wm(ept.node_rect(key))
             dx, dy = x - rx0, y - ry0
             lx = ax[0] * dx + ax[1] * dy + ax[2]
             lz = az[0] * dx + az[1] * dy + az[2]
-            _bin_max(rast, res, lx, lz, z)
+            if top.any():
+                _bin_max(rast, res, lx[top], lz[top], z[top])
+            if low.any():
+                _bin_max(nlow, res, lx[low], lz[low], -z[low])
             kept += len(x)
             if i % 250 == 249:
                 log(f'  {kind}: rasterized {i + 1}/{len(nodes)} nodes, {kept / 1e6:.1f} M points kept')
+        for k, a in nlow.items():
+            a[a != NODATA] *= -1
         log(f'{kind}: {len(nodes)} nodes, {kept / 1e6:.1f} M points kept, rasterized in {time.time() - t1:.0f} s')
         keys = np.array(sorted(rast.keys()), dtype=np.int32).reshape(-1, 2)
-        np.savez_compressed(cpath, keys=keys, data=np.stack([rast[tuple(k)] for k in keys]) if len(keys) else np.zeros((0, n, n), np.int16))
+        stack = (lambda r: np.stack([r[tuple(k)] for k in keys]) if len(keys) else np.zeros((0, n, n), np.int16))
+        np.savez_compressed(cpath, keys=keys, data=stack(rast), low=stack(nlow))
         out[kind] = rast
+        out[kind + 'Low'] = nlow
     stats['downloadedBytes'] = ept.bytes
     stats['downloadedNodes'] = ept.fetched
     out['stats'] = stats
@@ -319,15 +350,17 @@ class Heights:
     """Height lookups over the rasters, for one footprint window at a time."""
 
     def __init__(self, rasters):
+        self.rasters = rasters
         self.fine = rasters.get('fine', {})
         self.coarse = rasters.get('coarse', {})
 
-    def window(self, bounds, fine=True):
+    def window(self, bounds, fine=True, low=False):
         """(Z int16-dm array [rows=z, cols=x], x0, z0, res) covering bounds=(minx, minz, maxx, maxz), or None.
 
-        Uses the 1 m raster when every chunk under the window has it (fine=True), else the 2 m one."""
+        Uses the 1 m raster when every chunk under the window has it (fine=True), else the 2 m one.
+        low: the lowest-last-return statistic instead of the highest first return."""
         for kind, res in ((('fine', 1.0),) if fine else ()) + (('coarse', 2.0),):
-            src = self.fine if kind == 'fine' else self.coarse
+            src = self.rasters.get(kind + ('Low' if low else ''), {})
             n = int(round(CHUNK / res))
             c0x, c0z = int(math.floor(bounds[0] / CHUNK)), int(math.floor(bounds[1] / CHUNK))
             c1x, c1z = int(math.floor(bounds[2] / CHUNK)), int(math.floor(bounds[3] / CHUNK))
@@ -367,6 +400,32 @@ def main():
     frame = Frame(proj, 0, 0, 0, 0)
     fine, coarse = plan_chunks(cfg, df.geometry.values, df['HEIGHT'].astype(float).values, proj)
     build_rasters(cfg, frame, fine, coarse, plan_only='--plan' in sys.argv)
+
+
+def tall_chunks(coarse, dem_at, have, min_height=30.0, min_area=200.0):
+    """Chunks of the 2 m raster, outside `have`, holding a roof this tall (smooth: tree crowns are
+    rough) over at least min_area m^2, plus the neighbors holding the rest of those roofs. Towers whose
+    footprints are missing or wrong (1550 Mission stands on lots that were houses) are invisible to a
+    plan made from footprint heights: the bake fetches the 1 m raster here too."""
+    from scipy import ndimage
+    n = next(iter(coarse.values())).shape[0] if coarse else 64
+    res = CHUNK / n
+    cc = (np.arange(n) + 0.5) * res
+    found, part = set(), set()
+    for (cx, cz), a in coarse.items():
+        if (cx, cz) in have:
+            continue
+        Z = np.where(a == NODATA, np.nan, a / 10.0)
+        X, Zc = np.meshgrid(cx * CHUNK + cc, cz * CHUNK + cc)
+        H = np.nan_to_num(Z - np.asarray(dem_at(X.ravel(), Zc.ravel())).reshape(Z.shape), nan=0.0)
+        rough = ndimage.maximum_filter(H, size=3) - ndimage.minimum_filter(H, size=3)
+        tall = ndimage.binary_opening((H >= min_height) & (rough < 2.0))
+        area = float(tall.sum()) * res * res
+        if area >= min_area:
+            found.add((cx, cz))
+        elif area >= 20.0:
+            part.add((cx, cz))
+    return found | {(cx + dx, cz + dz) for cx, cz in found for dx in (-1, 0, 1) for dz in (-1, 0, 1) if (cx + dx, cz + dz) in part}
 
 
 def plan_chunks(cfg, geoms_ne, heights, proj):
