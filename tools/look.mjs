@@ -11,6 +11,7 @@
 //   opening   the Golden Gate opening at 2 s and 8 s
 //   sign      a real tap at the Painted Ladies: impact +0.15 / +0.6 / +1.4 / +3 s;
 //             then the same block escalated to level 3 (+1.4 / +3 s)
+//   eye       the headlight: full belly, squinting mid-breath (+0.3 s), wide on the relief (+1.3 s)
 // --seq adds frame pairs exactly 1/30 s apart (<scene>-seq-0/1.png) at ladies
 // cruise, dolores cruise and alt120 for shimmer counts (tools/lookstat.py).
 // --tune sets the tuning panel's saved overrides (sb.tuning.v1 config paths)
@@ -194,6 +195,21 @@ if (scenes.has('sign')) {
     }
   }
   await p2.close();
+}
+
+if (scenes.has('eye')) {
+  const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro');
+  await noStick(page);
+  await runHold(page, 2);
+  await shot(page, 'eye-full');
+  await release(page);
+  const t = await page.evaluate(() => { const g = window.__game; g.forceReady(); g.tapSplat(); return g.clock(); });
+  await holdAt(page, t + 0.3);
+  await shot(page, 'eye-barf');
+  await release(page);
+  await holdAt(page, t + 1.3);
+  await shot(page, 'eye-relief');
+  await page.close();
 }
 
 writeFileSync(`${out}/look.json`, JSON.stringify(report, null, 1));

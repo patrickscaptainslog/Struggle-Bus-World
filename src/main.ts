@@ -58,48 +58,6 @@ function makeDropShadowMaterial(): THREE.ShaderMaterial {
   });
 }
 
-/**
- * The bus's one eye, seen from behind: a warm beam of dithered light reaching ahead of its face through
- * the fog. A unit quad (x across -0.5..0.5, z 0..-1 ahead); the beam narrows to the lens and fades out
- * toward its far end. `uEye` = the eye's openness (squints to a sliver while barfing, wide on relief).
- */
-function makeHeadBeamMaterial(): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    glslVersion: THREE.GLSL3,
-    uniforms: { ...globals, uEye: { value: 1 } },
-    vertexShader: /* glsl */ `
-      ${GLSL_COMMON}
-      out vec2 vLocal;
-      out vec3 vWorldPos;
-      void main() {
-        vLocal = vec2(position.x * 2.0, -position.z);
-        vec4 wp = modelMatrix * vec4(position, 1.0);
-        vWorldPos = wp.xyz;
-        gl_Position = projectionMatrix * viewMatrix * wp;
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      ${GLSL_COMMON}
-      uniform float uEye;
-      in vec2 vLocal;
-      in vec3 vWorldPos;
-      ${GLSL_OUT}
-      void main() {
-        float t = vLocal.y;
-        float s = abs(vLocal.x) / mix(0.12, 1.0, sqrt(t));
-        if (s > 1.0) discard;
-        float a = pow(1.0 - t, 0.7) * (1.0 - s * s) * (0.2 + 0.38 * uEye);
-        // dithered coverage in screen space (the beam rides with the bus, which holds still on screen)
-        ivec2 q = ivec2(gl_FragCoord.xy) & 3;
-        int m[16] = int[16](0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5);
-        if (a <= (float(m[q.y * 4 + q.x]) + 0.5) / 16.0) discard;
-        // (no glow: a halo around a moving source dithered the roofs under it into churn)
-        sbWrite(${Ramp.SKY_WARM}.0, 0.72 + 0.2 * a, sbFog(vWorldPos), 0.0, vec3(0.0, 0.0, 1.0), 0.5, 0.5);
-      }
-    `,
-  });
-}
-
 type Manifest = CityManifest & { regions: Array<[number, number, number]>; regionSize: number };
 
 const params = new URLSearchParams(location.search);
@@ -242,17 +200,10 @@ async function boot() {
   const dropShadow = new THREE.Mesh(shadowGeo, shadowMat);
   dropShadow.renderOrder = 2;
   scene.add(dropShadow);
-  // the headlight beam (the eye): parented to the bus, from the lens forward, pitched a little down
-  const beamGeo = new THREE.BufferGeometry();
-  beamGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-0.5, 0, 0, 0.5, 0, 0, -0.5, 0, -1, 0.5, 0, -1]), 3));
-  beamGeo.setIndex([0, 1, 2, 2, 1, 3]);
-  const beamMat = makeHeadBeamMaterial();
-  beamMat.side = THREE.DoubleSide;
-  const headBeam = new THREE.Mesh(beamGeo, beamMat);
-  headBeam.frustumCulled = false;
-  headBeam.position.copy(bus.eyeLocal);
-  headBeam.rotation.x = -THREE.MathUtils.degToRad(config.camera.headBeamPitch);
-  bus.root.add(headBeam);
+  // the headlight beam (the eye): lit in the resolve pass from the lens forward (see PixelPipeline.setHeroBeam)
+  const beamEye = new THREE.Vector3();
+  const beamTip = new THREE.Vector3();
+  const beamFwd = new THREE.Vector3();
 
   // the blast needs headroom: geyser + crown splash + flung blobs + a sparkle crown per bloom
   const particles = new Particles(8000);
@@ -651,10 +602,6 @@ async function boot() {
     pose.wheeze = flight.barfT >= 0 ? 0 : Math.max(flight.fullness * 0.8, flight.strain);
     pose.eye = barfing ? 0.25 : flight.relief > 0 ? 1 : 0.55 + 0.45 * (1 - flight.fullness * 0.6);
     bus.update(dt, simTime, pose);
-    // the eye's beam: wide open on relief, a sliver while barfing (it squints)
-    beamMat.uniforms.uEye.value = pose.eye;
-    headBeam.scale.set(config.camera.headBeamWidth * (0.3 + 0.7 * pose.eye), 1, config.camera.headBeamLength);
-    headBeam.rotation.x = -THREE.MathUtils.degToRad(config.camera.headBeamPitch);
     eul.set(flight.pitch, -flight.heading, -flight.bank, 'YXZ');
     q.setFromEuler(eul);
     bus.root.quaternion.copy(q);
@@ -810,6 +757,17 @@ async function boot() {
       dropShadow.position.add(pipeline.snapCompensation(dropShadow.position, compTmp));
       pipeline.snapCompensation(bus.root.position, particles.object.position);
     } else particles.object.position.set(0, 0, 0);
+    // the eye's beam, from the lens along the nose, a little down: wide open on relief, a sliver
+    // while barfing (it squints); the bus's matrix is final here
+    {
+      const Cb = config.camera;
+      bus.root.updateMatrixWorld();
+      bus.root.localToWorld(beamEye.copy(bus.eyeLocal));
+      beamFwd.set(0, -Math.tan(THREE.MathUtils.degToRad(Cb.headBeamPitch)), -1).transformDirection(bus.root.matrixWorld);
+      beamTip.copy(beamEye).addScaledVector(beamFwd, Cb.headBeamLength * rig.heroScale);
+      const open = 0.3 + 0.7 * pose.eye;
+      pipeline.setHeroBeam(beamEye, beamTip, 0.5 * rig.heroScale, 0.5 * Cb.headBeamWidth * open * rig.heroScale, Cb.headBeamLength > 0 ? Cb.headBeamStrength * (0.35 + 0.65 * pose.eye) : 0);
+    }
     pipeline.render(scene);
     perf.frame(dt * 1000, performance.now() - t0);
     const ready = city.loadedRegionCount() > 0 && !city.busy && (opening >= config.fog.openingDuration || params.has('openingshot'));

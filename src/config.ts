@@ -124,11 +124,13 @@ export const config = {
     pitchVista: 22,
     /** The bus grows a little at altitude so the hero stays readable (scale at full vista). */
     heroScaleVista: 1.55,
-    /** The bus's one eye seen from behind: a warm dithered headlight beam ahead of its face, this long,
-     *  this wide at its far end (m, x the eye's openness) and pitched this far down (deg). 0 length = off. */
-    headBeamLength: 36,
-    headBeamWidth: 12,
-    headBeamPitch: 4,
+    /** The bus's one eye seen from behind: its headlight beam lights what lies ahead of its face a step
+     *  or two brighter, this long, this wide at its far end (m, x the eye's openness), pitched this far
+     *  down (deg), this strong (0..1, x the eye's openness; 0 = off). */
+    headBeamLength: 42,
+    headBeamWidth: 14,
+    headBeamPitch: 6,
+    headBeamStrength: 0.9,
     /** How fast the vista blend follows the altitude while climbing or diving (1/s); holding an altitude freezes it. */
     vistaRate: 0.9,
     /** ...and how fast it settles once the yoke lets go (1/s), then it holds perfectly still. */

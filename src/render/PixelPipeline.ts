@@ -93,6 +93,13 @@ export class PixelPipeline {
   /** impact flash: rendered frames left, and (buffer uv x, y, strength, radius) */
   private flashLeft = 0;
   private readonly flashU = new THREE.Vector4();
+  /** the hero's headlight beam (world lens, world tip, half widths m, strength 0..1; 0 = off) */
+  private readonly beamEye = new THREE.Vector3();
+  private readonly beamTip = new THREE.Vector3();
+  private readonly beamTmp = new THREE.Vector3();
+  private beamHalf0 = 0;
+  private beamHalf1 = 0;
+  private beamK = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -140,6 +147,8 @@ export class PixelPipeline {
         uCamPos: { value: new THREE.Vector3() },
         uCalm: { value: 0 },
         uHaze: { value: new THREE.Vector2(config.render.ditherHazeFrom, config.render.ditherHazeTo) },
+        uBeam: { value: new THREE.Vector4() },
+        uBeamShape: { value: new THREE.Vector4() },
         uFlash: { value: new THREE.Vector4() },
       },
       vertexShader: QUAD_VS,
@@ -293,6 +302,20 @@ export class PixelPipeline {
     this.flashU.set((MARGIN + u * w) / W, (MARGIN + v * h) / H, strength, 0.075);
   }
 
+  /**
+   * The hero's headlight beam for the next render: what lies ahead of the lens
+   * (from `eye` toward `tip`, half width `halfNear` m at the lens to `halfFar` m
+   * at the tip) is lit a step or two up its own ramp in the resolve pass, a warm
+   * core at the lens; nothing is drawn, so it costs no draw call. strength 0 = off.
+   */
+  setHeroBeam(eye: THREE.Vector3, tip: THREE.Vector3, halfNear: number, halfFar: number, strength: number) {
+    this.beamEye.copy(eye);
+    this.beamTip.copy(tip);
+    this.beamHalf0 = halfNear;
+    this.beamHalf1 = halfFar;
+    this.beamK = Math.max(0, Math.min(1, strength));
+  }
+
   /** World-space size of one game pixel at a given distance from the camera. */
   pixelWorldSize(distance: number): number {
     const H = this.info.height + MARGIN * 2;
@@ -439,6 +462,18 @@ export class PixelPipeline {
     ru.uDitherWidth.value = config.render.ditherWidth;
     ru.uHaze.value.set(config.render.ditherHazeFrom, Math.max(config.render.ditherHazeFrom + 0.01, config.render.ditherHazeTo));
     ru.uOutline.value.set(config.render.outlineDepth, config.render.creaseHighlight, config.render.outlineFadeEnd);
+    if (this.beamK > 0.001) {
+      // the beam in buffer pixels, projected with the snapped camera (what the buffer was rendered with)
+      const W = this.gbuf.width, H = this.gbuf.height, sc = this.snapCam;
+      const e = this.beamTmp.copy(this.beamEye).project(sc);
+      const ex = (e.x * 0.5 + 0.5) * W, ey = (e.y * 0.5 + 0.5) * H;
+      const t = this.beamTmp.copy(this.beamTip).project(sc);
+      const tx = (t.x * 0.5 + 0.5) * W, ty = (t.y * 0.5 + 0.5) * H;
+      const dE = sc.position.distanceTo(this.beamEye), dT = sc.position.distanceTo(this.beamTip);
+      const eyeDepth = -this.beamTmp.copy(this.beamEye).applyMatrix4(sc.matrixWorldInverse).z;
+      ru.uBeam.value.set(ex, ey, tx - ex, ty - ey);
+      ru.uBeamShape.value.set(this.beamHalf0 / this.pixelWorldSize(dE), this.beamHalf1 / this.pixelWorldSize(dT), this.beamK, eyeDepth + 2);
+    } else ru.uBeamShape.value.z = 0;
     if (this.flashLeft > 0) {
       ru.uFlash.value.copy(this.flashU);
       this.flashLeft--;
@@ -537,6 +572,8 @@ uniform vec2 uFogBillow;
 uniform vec3 uCamPos;
 uniform float uCalm;
 uniform vec2 uHaze;      // fog over which surface dither fades to plain rounding
+uniform vec4 uBeam;      // hero headlight: lens (buffer px), axis to the tip (px)
+uniform vec4 uBeamShape; // half width at the lens / at the tip (px), strength, lens view depth (m)
 uniform vec4 uFlash;     // impact flash: buffer uv, strength, white-hot radius (fraction of the height)
 in vec2 vUv;
 layout(location = 0) out vec4 outColor;
@@ -826,6 +863,28 @@ void main() {
   // (the fog sea's long light gradients get the sky's tight dither bands; silhouettes round, so the
   // far skyline is flat shapes, not dotted boxes that crawl)
   if (fogged) { oRamp = fogRamp; oStep = sea > 0.5 ? rampStepW(silL, ds, 0.09) : rampStep(silL, 0.5); col = pal(oRamp, oStep); }
+  // the hero's headlight: what lies ahead of the lens (beyond the bus) is lit a step or two up its own
+  // ramp, a warm core at the lens; a lift, not a drawn shape, so it reads as light in the haze. The
+  // beam rides with the bus, which holds still on screen: its dithered falloff is screen-anchored.
+  if (uBeamShape.z > 0.0 && depth > uBeamShape.w && !(busY || abs(ramp - RAMP_BUS_BLACK) < 0.5)) {
+    vec2 bv = gl_FragCoord.xy - uBeam.xy;
+    float bl = max(length(uBeam.zw), 1.0);
+    vec2 ba = uBeam.zw / bl;
+    float bt = dot(bv, ba) / bl;
+    float bs = abs(bv.x * ba.y - bv.y * ba.x) / max(mix(uBeamShape.x, uBeamShape.y, clamp(bt, 0.0, 1.0)), 0.75);
+    if (bt > 0.0 && bt < 1.0 && bs < 1.0) {
+      float ba2 = uBeamShape.z * pow(1.0 - bt, 0.75) * (1.0 - bs * bs);
+      // crisp nested bands (+1 step, +2 steps), dithered only in a narrow band at their edges
+      float bk = ba2 * 2.6;
+      float lift = floor(bk) + (clamp((fract(bk) - 0.38) / 0.24, 0.0, 1.0) > dsk ? 1.0 : 0.0);
+      if (lift > 0.5) {
+        if (ba2 > 0.62) { oRamp = RAMP_SKY_WARM; oStep = max(oStep, 5.0) + (ba2 > 0.8 ? 1.0 : 0.0); }
+        else oStep += lift;
+        oStep = min(oStep, 7.0);
+        col = pal(oRamp, oStep);
+      }
+    }
+  }
   // impact flash: white-hot near the blast (shapes kept by their own light),
   // everything else jumps two or three steps up its own ramp
   if (uFlash.z > 0.0) {
