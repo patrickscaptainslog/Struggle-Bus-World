@@ -809,8 +809,12 @@ void main() {
   // (slow gradients count as flat too: a clean band edge beats a dotted contour)
   vec4 gR = texelFetch(tColor, p + ivec2(1, 0), 0), gL = texelFetch(tColor, p + ivec2(-1, 0), 0);
   vec4 gU = texelFetch(tColor, p + ivec2(0, 1), 0), gD = texelFetch(tColor, p + ivec2(0, -1), 0);
-  bool flatLight = abs(gR.g * 255.0 - lb) < 1.5 && abs(gL.g * 255.0 - lb) < 1.5
-                && abs(gU.g * 255.0 - lb) < 1.5 && abs(gD.g * 255.0 - lb) < 1.5;
+  // (only a neighbor on a real gradient counts: one more than the dither window away sits across an
+  // edge, a tree crown's light band, a shadow's rim, another face. A gradient that steep has no room
+  // for a dither, which only drew dots along the edge that churned as it slid through the grid)
+  vec4 dl = abs(vec4(gR.g, gL.g, gU.g, gD.g) * 255.0 - lb);
+  vec4 onGrad = vec4(greaterThanEqual(dl, vec4(1.5))) * vec4(lessThan(dl, vec4(72.86 * uDitherWidth)));
+  bool flatLight = dot(onGrad, vec4(1.0)) < 0.5;
   // into the haze the dither's reach shrinks too: the ordered pattern is anchored to the grid snapped
   // at the bus, and far shapes slide across it with parallax (a crawl); hazy, compressed surfaces round
   float step = rampStep(light, flatLight ? 0.5 : mix(dc, 0.5, smoothstep(uHaze.x, uHaze.y, fog)));
