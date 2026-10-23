@@ -14,7 +14,7 @@
 // --only=ladies    : the Painted Ladies row (shots.mjs' painted camera), one blast per
 //                    level: ladies-L1/L2/L3.png (the calm Painted Ladies, then the riot).
 // --perf           : renderer stats per view (draw calls, triangles, CPU workMs), the median of
-//                    6 samples; perf.json (without --perf: one sample).
+//                    8 frames; perf.json (without --perf: 2 frames).
 // SwiftShader renders ~1.5 fps: everything waits on the game clock, never wall time.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -33,6 +33,8 @@ const CHASE = [
   { name: 'soma', lat: 37.782, lon: -122.399, heading: 330 },
   { name: 'rincon', lat: 37.788, lon: -122.39, heading: 300 },
   { name: 'embarcadero', lat: 37.7915, lon: -122.3985, heading: 20 },
+  // the grey regression view (tools/shots.mjs): houses, not towers
+  { name: 'alamo', lat: 37.77628, lon: -122.4352, heading: 88 },
 ];
 // target (lat/lon, look height above its ground), camera azimuth from the target (deg, compass), distance, camera height (m ASL)
 const HERO = [
@@ -103,17 +105,28 @@ async function settle(page) {
   await runFor(page, 1.0);
 }
 
-// renderer stats: __stats refreshes about once per wall second; take the median of a few
+// renderer stats per frame (draw calls, triangles, CPU workMs): a hook on perf.frame() reads
+// renderer.info before the meter resets it (window.__stats only refreshes on frames < 1 s apart,
+// which SwiftShader at ~1 fps often misses); the median of the last frames
 const snap = async (page) => {
-  const rows = [];
-  for (let i = 0; i < (opt.perf ? 6 : 1); i++) {
-    if (i || opt.perf) await page.waitForTimeout(1300);
-    const s = await page.evaluate(() => window.__stats ?? null);
-    if (s) rows.push(s);
-  }
-  if (!rows.length) return null;
+  await page.evaluate(() => {
+    const g = window.__game;
+    if (g.__statsHook) return;
+    g.__statsHook = true;
+    window.__fstats = [];
+    const orig = g.perf.frame.bind(g.perf);
+    g.perf.frame = (dt, work) => {
+      const r = g.pipeline.renderer.info.render;
+      window.__fstats.push({ calls: r.calls, triangles: r.triangles, workMs: work });
+      if (window.__fstats.length > 24) window.__fstats.shift();
+      orig(dt, work);
+    };
+  });
+  const n = opt.perf ? 8 : 2;
+  await page.evaluate((n) => { window.__fstats.length = 0; return new Promise((res) => { const tick = () => (window.__fstats.length >= n ? res(null) : requestAnimationFrame(tick)); tick(); }); }, n);
+  const rows = await page.evaluate(() => window.__fstats.slice());
   const med = (k) => [...rows].map((r) => r[k]).sort((a, b) => a - b)[Math.floor(rows.length / 2)];
-  return { calls: med('calls'), triangles: med('triangles'), workMs: med('workMs'), workMaxMs: med('workMaxMs'), samples: rows.length };
+  return { calls: med('calls'), triangles: med('triangles'), workMs: +med('workMs').toFixed(2), workMaxMs: +Math.max(...rows.map((r) => r.workMs)).toFixed(2), frames: rows.length };
 };
 
 // n+1 consecutive frames exactly 1/30 s apart (--seqn=<n>, default 3)
