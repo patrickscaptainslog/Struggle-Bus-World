@@ -104,8 +104,12 @@ MASSING = {
     'tierTolerance': 0.035,     # stop adding tiers once the stepped massing is within this fraction of the LiDAR volume
     'tierToleranceLow': 0.07,   # ...looser for mid-rises (below 'outlineMinHeight'): roof gardens and HVAC aren't tiers
     'maxTiersLow': 3,
+    'maxPartsLow': 5,
+    'partMinAreaLow': 80.0,     # m^2 / m: mid-rise tier pieces (smaller rooftop stuff is the mesher's clutter)
+    'partMinWidthLow': 5.0,
+    'maxVerts': 32,             # outline vertices per part (simplified harder until it fits)
     'tierMinStep': 3.0,         # m: thinnest tier
-    'taperMinHeight': 25.0,     # m: shortest run that may taper instead of stepping
+    'taperMinHeight': 40.0,     # m: shortest run that may taper instead of stepping
     'taperMinDrop': 0.2,        # a run tapers when its area shrinks at least this much bottom to top...
     'taperMinBuilding': 60.0,   # m: only towers this tall taper
     'taperFit': 0.5,            # ...and a ramp fits the run at least this much better (SSE ratio) than a flat step
@@ -301,6 +305,30 @@ class Massing:
         R = np.where(mask, Rm, 0.0)
         return R
 
+    def clean(self, q, theta, tol):
+        """Simplify + square up one outline, keeping it under maxVerts (coarser until it is), or None."""
+        P = self.P
+        q = shapely.make_valid(q)
+        if q.geom_type in ('MultiPolygon', 'GeometryCollection'):
+            polys = [g for g in getattr(q, 'geoms', []) if g.geom_type == 'Polygon']
+            if not polys:
+                return None
+            q = max(polys, key=lambda g: g.area)
+        if q.geom_type != 'Polygon' or q.is_empty:
+            return None
+        q = Polygon(q.exterior.coords)
+        for t in (tol, tol * 1.6, tol * 2.5, tol * 4.0):
+            r = square_up(shapely.simplify(q, t, preserve_topology=True), theta, P['squareDeg'])
+            r = shapely.make_valid(r)
+            if r.geom_type == 'MultiPolygon':
+                r = max(r.geoms, key=lambda g: g.area)
+            if r.geom_type != 'Polygon' or r.is_empty:
+                return None
+            r = Polygon(r.exterior.coords)
+            if len(r.exterior.coords) - 1 <= P['maxVerts']:
+                break
+        return r
+
     def outline(self, w, poly, gref, neighbors):
         """The building's real outline from LiDAR, within 2.5 m of its footprint and off its neighbors'
         (footprints are often a rough envelope, a little offset), or None if they disagree too much."""
@@ -318,51 +346,51 @@ class Massing:
         pieces = self.polygons((R >= lev) & gm, w, grid_angle(poly), simplify=self.P['simplify'] * 0.8)
         if not pieces:
             return None
-        q = shapely.make_valid(shapely.unary_union(pieces).intersection(grow))
+        theta = grid_angle(poly)
+        q = max(pieces, key=lambda g: g.area)
+        # trim to the grown footprint and off the neighbors; snap first so nearly-coincident
+        # edges merge instead of zigzagging, then clean the result again
+        q = shapely.make_valid(shapely.snap(q, grow, 1.0).intersection(grow))
         nb = neighbors(poly)
         if nb is not None and not nb.is_empty:
-            q = shapely.make_valid(q.difference(nb))
-        if q.geom_type == 'MultiPolygon':
-            q = max(q.geoms, key=lambda g: g.area)
-        if q.geom_type != 'Polygon' or q.is_empty:
+            q = shapely.make_valid(shapely.snap(q, nb, 1.0).difference(nb))
+        q = self.clean(q, theta, P['simplify'] * 0.8)
+        if q is None:
             return None
-        q = Polygon(q.exterior.coords)
         iou = q.intersection(poly).area / max(q.union(poly).area, 1e-6)
         if iou < 0.65 or not (0.75 * poly.area <= q.area <= 1.25 * poly.area):
             return None
-        return shapely.geometry.polygon.orient(shapely.simplify(q, 0.2, preserve_topology=True), 1.0)
+        return shapely.geometry.polygon.orient(q, 1.0)
 
-    def polygons(self, m, w, theta, simplify=None):
+    def polygons(self, m, w, theta, simplify=None, low=False):
         """Polygonize a bool mask: opened (drops slivers), holes filled, simplified, squared up."""
         from rasterio.features import shapes
         P = self.P
         simplify = P['simplify'] if simplify is None else simplify
         res = w['res']
-        k = max(1, int(round(P['partMinWidth'] / res)))
+        min_area = P['partMinAreaLow'] if low else P['partMinArea']
+        k = max(1, int(round((P['partMinWidthLow'] if low else P['partMinWidth']) / res)))
         m = ndimage.binary_opening(m, structure=np.ones((k, k), bool))
         m = ndimage.binary_fill_holes(m)
-        if m.sum() * res * res < P['partMinArea']:
+        if m.sum() * res * res < min_area:
             return []
         out = []
         for geom, val in shapes(m.astype(np.uint8), mask=m, transform=w['tr']):
             if val != 1:
                 continue
             poly = Polygon(geom['coordinates'][0])
-            if poly.area < P['partMinArea']:
+            if poly.area < min_area:
                 continue
-            poly = shapely.simplify(poly, simplify, preserve_topology=True)
-            poly = square_up(poly, theta, P['squareDeg'])
-            poly = shapely.make_valid(poly)
-            if poly.geom_type == 'MultiPolygon':
-                poly = max(poly.geoms, key=lambda g: g.area)
-            if poly.geom_type != 'Polygon' or poly.area < P['partMinArea']:
+            poly = self.clean(poly, theta, simplify)
+            if poly is None or poly.area < min_area:
                 continue
-            out.append(Polygon(poly.exterior.coords))
+            out.append(poly)
         return out
 
-    def tiers(self, w, poly, gref):
+    def tiers(self, w, poly, gref, height):
         """Stacked parts [(poly, topY, tier, parent, topScale)] (part 0 = the footprint), or None for a
-        plain prism. topScale < 1: the part tapers (its top outline is its base scaled about the centroid)."""
+        plain prism. topScale < 1: the part tapers (its top outline is its base scaled about the centroid).
+        height: the building's robust (median) roof height, which decides tower vs mid-rise."""
         from rasterio.features import rasterize
         P = self.P
         res = w['res']
@@ -400,11 +428,11 @@ class Massing:
             ramp = saa - alpha * sa - beta * sta
         # tapers: tall enough, narrowing upward, and a much better fit than a flat step (not facade noise)
         ramp[(ln < Ltap) | ~(beta < 0) | ~(ramp < P['taperFit'] * flat)] = np.inf
-        if top < P['taperMinBuilding']:
+        if height < P['taperMinBuilding']:
             ramp[:] = np.inf  # (low roofs that slope are roofs, not tapers)
         cost = np.minimum(flat, ramp)
         cost[ln < Lmin] = np.inf
-        tower = top >= P['outlineMinHeight']
+        tower = height >= P['outlineMinHeight']
         tol = P['tierTolerance'] if tower else P['tierToleranceLow']
         best = None
         D = cost[0].copy()  # D[j]: best cost of covering [0, j) with k pieces
@@ -435,7 +463,7 @@ class Massing:
                     a0, a1 = max(lf[0], 1e-6), max(lf[-1], 1e-6)
                     if a1 / a0 < 1.0 - P['taperMinDrop']:
                         fit = lf
-                        sc = float(np.clip(math.sqrt(a1 / a0), 0.4, 1.0))
+                        sc = float(np.clip(math.sqrt(a1 / a0), 0.55, 1.0))
                 err += float(np.abs(seg - fit).sum())
                 segs.append((a, b, sc))
             best = segs
@@ -446,6 +474,8 @@ class Massing:
         if len(best) == 1 and best[0][2] >= 1.0:
             return None
         theta = grid_angle(poly)
+        Zw, Gw = w['Z'], w['G']
+        Rout = np.where(np.isnan(Zw) | (Zw - Gw < P['groundAbove']), 0.0, Zw - gref)  # unmasked heights
 
         def scaled(q, sc):  # a taper's top outline (the mesher scales about the same area centroid)
             return q if sc >= 1.0 else affinity.scale(q, sc, sc, origin=q.centroid)
@@ -459,17 +489,21 @@ class Massing:
             lev = min(a + 1, b - 1) if sc < 1.0 else a + int(np.argmin(np.abs(seg - seg.mean())))
             m = (R >= max(levels[lev], 0.5)) & mask
             cur = []
-            for q in self.polygons(m, w, theta):
+            for q in self.polygons(m, w, theta, low=not tower):
                 # sit on the tier below: clip to the (tapered) top of the parent piece it overlaps most
                 ov = sorted(((scaled(parts[pi][0], parts[pi][4]).intersection(q).area, pi) for pi in prev), reverse=True)
                 if not ov or ov[0][0] < 0.5 * q.area:
                     continue
                 par = ov[0][1]
                 ptop = scaled(parts[par][0], parts[par][4])
-                qq = shapely.make_valid(ptop.intersection(q))
+                # snap onto the parent first: a wall flush with the one below continues it exactly
+                qq = self.clean(ptop.intersection(shapely.snap(q, ptop, 1.0)), theta, 0.3)
+                if qq is None:
+                    continue
+                qq = shapely.make_valid(ptop.intersection(qq))
                 if qq.geom_type == 'MultiPolygon':
                     qq = max(qq.geoms, key=lambda g: g.area)
-                if qq.geom_type != 'Polygon' or qq.area < P['partMinArea'] or qq.buffer(-P['partMinWidth'] / 2).is_empty:
+                if qq.geom_type != 'Polygon' or qq.area < (P['partMinArea'] if tower else P['partMinAreaLow']) or qq.buffer(-P['partMinWidth'] / 2).is_empty:
                     continue
                 qq = shapely.simplify(Polygon(qq.exterior.coords), 0.15, preserve_topology=True)
                 if qq.area > 0.93 * ptop.area and sc >= 1.0 and parts[par][4] >= 1.0:
@@ -477,12 +511,17 @@ class Massing:
                 # each piece's own roof: robust, so a lower tower in a shared tier isn't stretched up
                 pm = rasterize([(qq, 1)], out_shape=R.shape, transform=w['tr'], fill=0, dtype=np.uint8).astype(bool) & mask
                 own = float(np.percentile(R[pm], 85)) + 0.5 if pm.any() else levels[lev]
+                if not tower and pm.any():
+                    # a neighbor's roof spilling into a misregistered footprint: it runs on, just as tall, outside
+                    out_ring = ndimage.binary_dilation(pm, iterations=3) & ~mask
+                    if out_ring.sum() >= 4 and np.median(Rout[out_ring]) >= 0.8 * own:
+                        continue
                 cur.append([qq, min(b - 0.5, own) if b < n else min(T + 0.5, own), si, par, sc])
             if not cur:
                 break
             parts += cur
             prev = list(range(len(parts) - len(cur), len(parts)))
-            if len(parts) >= P['maxParts']:
+            if len(parts) >= (P['maxParts'] if tower else P['maxPartsLow']):
                 break
         # tier tops: tier 0 tops out at the first break; every piece at least a step above its parent
         t0 = (best[1][0] if len(best) > 1 else T + 1) - 0.5
@@ -492,7 +531,7 @@ class Massing:
             if tp - (base - gref) < 2.0:
                 tp = (base - gref) + 2.0
             out.append((q, gref + tp, si, par, sc))
-        out = out[:P['maxParts']]
+        out = out[:P['maxParts'] if tower else P['maxPartsLow']]
         if len(out) == 1 and out[0][4] >= 1.0:
             return None
         return out
@@ -584,12 +623,8 @@ class Massing:
                     e0, e1 = np.hypot(*(cc[1] - cc[0])), np.hypot(*(cc[2] - cc[1]))
                     if g.area / max(mrr.area, 1e-6) < 0.6 or max(e0, e1) / max(min(e0, e1), 1e-6) > 3.5 or min(e0, e1) < 10:
                         continue  # decks, ramps, rows of trees: not a building (or not yet: try higher)
-                    theta = grid_angle(mrr)
-                    q = square_up(shapely.simplify(g, P['simplify'] * 0.8, preserve_topology=True), theta, P['squareDeg'])
-                    q = shapely.make_valid(q)
-                    if q.geom_type == 'MultiPolygon':
-                        q = max(q.geoms, key=lambda a: a.area)
-                    if q.geom_type != 'Polygon':
+                    q = self.clean(g, grid_angle(mrr), P['simplify'] * 0.8)
+                    if q is None:
                         continue
                     zz = Z[ys, xs][m]
                     roof = float(np.percentile(zz[~np.isnan(zz)], 50))
@@ -645,8 +680,9 @@ class Massing:
             geoms = [Polygon(g['coordinates'][0]) for g, v in shapes(m.astype(np.uint8), mask=m, transform=w['tr']) if v == 1]
             if not geoms:
                 return None
-            g = max(geoms, key=lambda q: q.area)
-            g = square_up(shapely.simplify(g, P['simplify'], preserve_topology=True), theta, P['squareDeg'])
+            g = self.clean(shapely.snap(max(geoms, key=lambda q: q.area), poly, 1.5), theta, P['simplify'])
+            if g is None:
+                return None
             pieces.append(g)
         # exact outer boundary from the footprint, cut lines from LiDAR; pieces tile the footprint
         out = []
@@ -1092,6 +1128,8 @@ def main():
             b['h'] = h_new
             nfix += 1
             tall = h_new >= P['tierMinHeight'] or (in_fine(p) and h_new >= P['tierMinHeightFine'])
+            if tall and w['res'] > 1.0:
+                w = massing.window(p, True) or w  # the footprint height was wrong (181 Fremont read 12 m)
             if tall and w['res'] <= 1.0 and p.area >= P['tierMinArea']:
                 q = None
                 try:
@@ -1107,7 +1145,7 @@ def main():
                         b['h'] = max(3.0, roof - gmean)
                         nout += 1
                 try:
-                    tiers = massing.tiers(w, p, gmin)
+                    tiers = massing.tiers(w, p, gmin, h_new)
                 except shapely.errors.GEOSException:
                     tiers, nbad = None, nbad + 1
                 if tiers:
