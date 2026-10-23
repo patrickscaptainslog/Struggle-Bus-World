@@ -14,9 +14,12 @@ Phase 1: single player, no server. iPhone Safari first (portrait, one thumb).
   speed; at the rooftops it surges (about 250 mph).
 - **Let go**: it cruises and holds its altitude with a wheezy bob; at the
   rooftops it skims them automatically, as ever.
-- Up high the camera pulls back into a vista: climb out of the marine layer
-  and the west side and the bay lie under a fog sea, with Sutro Tower, Twin
-  Peaks, the downtown towers and the bridge towers poking through.
+- Up high the camera pulls back into a vista (it holds perfectly still while
+  you hold your altitude): climb out of the marine layer and the west side
+  and the bay lie under a fog sea, with Sutro Tower, Twin Peaks, the
+  downtown towers and the bridge towers poking through, the hills on the
+  horizon. Over the Golden Gate the bus can't climb until it has passed
+  under the deck.
 - **Tap** (a second finger works while steering): dragon breath. The bus
   rears back and blasts a rainbow jet forward; it bursts over the building
   ahead (when the belly is full, that building glints) and spills onto its
@@ -40,7 +43,10 @@ Dev pages: `dev/city.html` (real city viewer), `dev/flight.html` (autopilot
 flight test), and one page per module (`dev/bus.html`, `dev/fx.html`, ...).
 Screenshots: `node tools/shot.mjs <url> out.png`, `node tools/shots.mjs`.
 Altitude QA (climb shots, flight log, taps, perf at cruise vs ceiling):
-`node tools/altitude.mjs <baseUrl> shots/altitude downtown|west|opening`.
+`node tools/altitude.mjs <baseUrl> shots/altitude downtown|west|gate|opening [--seq]`;
+`--seq` also captures frames exactly 1/30 s apart, and
+`python3 -I tools/seqstat.py shots/altitude/<phase>-seq-ceiling 5` counts what
+changes between them (shimmer).
 
 ## City data (city-agnostic pipeline)
 `tools/bake/` turns a city config (`tools/bake/cities/sf.json`) into compact

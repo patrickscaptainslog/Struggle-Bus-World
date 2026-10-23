@@ -48,11 +48,31 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   2–4 m on the city below: everything there is the coarse (LOD 1) mesh.
 - Altitude: the camera can sit 700 m above the ground; the far plane is
   30 km. `pipeline.setHfov()`, `shadowFocus/shadowScale/shadowStrength/
-  shadowEdge` are driven by the game per frame (keep the shadow window
-  centered on the ground under the view, never on a high bus).
+  shadowEdge` and `calm` are driven by the game per frame (keep the shadow
+  window centered on the ground under the view, never on a high bus).
+- Snapping up high: with the vista on, the game sets `pipeline.focus` to the
+  ground under the screen center and `steadySnap`, calls `pipeline.snap()`
+  before `render()`, and moves near objects (the bus, its drop shadow, its
+  particles) by `pipeline.snapCompensation(pos)` so they stay where they
+  belong although the grid snapped at the city's depth. Anything new that
+  sits near the bus and must not jitter up high needs the same.
+- `pipeline.calm` (0..1): surfaces round to their ramp step instead of the
+  ordered dither, the fog handover is a hard contour, and the sky / fog sea
+  dither in screen space. Materials don't change; it is all in the resolve.
 - Coarse regions are drawn as ONE building mesh + ONE ground mesh per 1 km
   region (`City.regionMeshes`); detailed regions keep per-tile meshes. Code
-  that walks tiles for rendering must handle both.
+  that walks tiles for rendering must handle both. A tile marked with
+  `City.setOwnGround(tx, tz)` keeps its own ground mesh inside a coarse
+  region (the merged ground skips it).
+- Per-tile ground state (feat/blast's `GroundPaint`): attach in
+  `City.makeTileTerrain` and detach in `City.dropTileTerrain` (the only two
+  places a tile's own ground mesh is made and dropped), and mark every tile
+  that has or gets ground paint with `setOwnGround` so it shows from altitude.
+  Merging feat/blast: its `addTile` terrain lines (`tileUniforms()`,
+  `makeTerrainMaterial(..., 0, gu)`, `attach`) move into `makeTileTerrain`,
+  its `unloadRegion` `detach` into `dropTileTerrain`; its `Splat.barf` takes
+  `opts.travel` (`tImpact = this.t + (opts?.travel ?? S.impactDelay)`), and
+  main's geyser lambda keeps `travelTime: breathTravel ?? config.splat.impactDelay`.
 - Palette: 8-step ramps. Warm hues shadow toward rose/violet, never brown.
   There is no brown in the palette and there never will be.
 
