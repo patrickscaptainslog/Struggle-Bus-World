@@ -10,7 +10,10 @@ import { uploadRect } from '../render/upload';
 //   a = faction (0 none, 1 Rainbow) + 2 when the building was already painted
 //   (an escalation: it stays painted until its new pop instead of going grey)
 // Persistence: localStorage, keyed by the building's stable id (dataset id + lot),
-//   value = [faction, color, level]. Applied as tiles stream in.
+//   value = [faction, color, level]. Applied as tiles stream in. Hand-built
+//   landmark props (City.addLandmarkBuilding) take texels past the baked
+//   buildings and save under a string key ('lm:transamerica'), which no
+//   numeric stableId can ever be.
 
 const STORE_KEY = 'strugglebus.paint.v1';
 export const FACTION_RAINBOW = 1;
@@ -32,10 +35,10 @@ export class PaintState {
   private saved: Record<string, [number, number, number]> = {};
   private dirty = new Set<number>();
   private saveTimer = 0;
-  /** stable id -> dense index for buildings currently known (loaded tiles) */
-  private stableToIndex = new Map<number, number>();
-  /** dense index -> stable id */
-  private indexToStable = new Map<number, number>();
+  /** stable id (or a landmark's 'lm:' key) -> dense index for buildings currently known (loaded tiles, landmarks) */
+  private stableToIndex = new Map<number | string, number>();
+  /** dense index -> stable id (or landmark key) */
+  private indexToStable = new Map<number, number | string>();
   paintedCount = 0;
 
   constructor(buildingCount: number) {
@@ -55,8 +58,8 @@ export class PaintState {
     this.paintedCount = Object.keys(this.saved).length;
   }
 
-  /** Register a streamed-in building; applies any saved paint (no pop animation). */
-  register(index: number, stableId: number): boolean {
+  /** Register a streamed-in building (or a landmark, by its string key); applies any saved paint (no pop animation). */
+  register(index: number, stableId: number | string): boolean {
     this.stableToIndex.set(stableId, index);
     this.indexToStable.set(index, stableId);
     const s = this.saved[stableId];
