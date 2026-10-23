@@ -353,6 +353,9 @@ interface Group {
   /** per part (k - first): facade family and the extra flag bits (penthouse, crown, crown type, variant) */
   fam: number[];
   ext: number[];
+  /** what's left of the building's budget of onion domes and garden blobs (painted towers) */
+  domes: number;
+  garden: number;
 }
 
 /** Signed-free area of record k's ring (m^2). */
@@ -399,7 +402,7 @@ function partRoles(t: BuildingTile, g: Group, st: TowerStyle) {
 
 export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): MeshArrays {
   const B = new Builder();
-  const g: Group = { first: 0, end: 0, cx: 0, cz: 0, top: 0, style: null, fam: [], ext: [] };
+  const g: Group = { first: 0, end: 0, cx: 0, cz: 0, top: 0, style: null, fam: [], ext: [], domes: 0, garden: 0 };
   for (let i = 0; i < t.count; ) {
     let j = i + 1;
     while (j < t.count && t.index[j] === t.index[i]) j++;
@@ -422,6 +425,9 @@ export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): MeshArrays
       return false;
     });
     if (g.style) partRoles(t, g, g.style);
+    // (baked collapsed, they still cost triangles: a few per tower)
+    g.domes = 3;
+    g.garden = 14;
     for (let k = i; k < j; k++) meshBuilding(B, t, k, opts.lod, g);
     i = j;
   }
@@ -763,7 +769,7 @@ function blob(B: Builder, ax: number, ay: number, az: number, c: V3, rx: number,
 }
 
 /** Onion dome profile (radius, height) in units of its radius: a drum, the bulb, the point. */
-const ONION: Array<[number, number]> = [[0.8, 0], [0.8, 0.5], [1.08, 0.95], [1.0, 1.35], [0.55, 1.75], [0.18, 2.1], [0, 2.6]];
+const ONION: Array<[number, number]> = [[0.8, 0], [0.8, 0.5], [1.1, 1.05], [0.5, 1.8], [0, 2.55]];
 
 function onionDome(B: Builder, ax: number, ay: number, az: number, rd: number, flags: number) {
   const seg = 6;
@@ -812,7 +818,10 @@ function towerGrowth(B: Builder, t: BuildingTile, g: Group, i: number, ring: Arr
   rcx /= n; rcz /= n;
   if (isCrown) {
     // level 3: onion domes on the crown's corners (the rooftop sprouts put their own centerpiece in the middle)
-    if (lod === 1 && H < 80) return;
+    // (the coarse mesh far away / up high: only the tallest towers keep a pair)
+    if (lod === 1 && (H < 150 || g.domes < 2)) return;
+    if (lod === 1) g.domes = 2;
+    if (g.domes <= 0) return;
     let area = 0;
     for (let k = 0; k < n; k++) area += ring[k][0] * ring[(k + 1) % n][1] - ring[(k + 1) % n][0] * ring[k][1];
     area = Math.abs(area) / 2;
@@ -829,37 +838,36 @@ function towerGrowth(B: Builder, t: BuildingTile, g: Group, i: number, ring: Arr
       if (dl < rd * 2.2) continue;
       const k = (rd + 1.2) / dl;
       const x = best[0] + dx * k, z = best[1] + dz * k;
-      if (placed.some((q) => Math.hypot(q[0] - x, q[1] - z) < rd * 2.4) || !open(x, z)) continue;
+      if (g.domes <= 0 || placed.some((q) => Math.hypot(q[0] - x, q[1] - z) < rd * 2.4) || !open(x, z)) continue;
       placed.push([x, z]);
+      g.domes--;
       onionDome(B, x, roofY, z, rd * (0.85 + 0.3 * R()), NEED3);
     }
     return;
   }
   // a setback: bushes along its edges (level 2), trees leaning out over the edge between them (level 3)
   if (lod === 1 || roofY > g.top - 3) return;
-  let budget = 40;
-  for (let k = 0; k < n && budget > 0; k++) {
+  for (let k = 0; k < n && g.garden > 0; k++) {
     const a = ring[k], b = ring[(k + 1) % n];
     const ex = b[0] - a[0], ez = b[1] - a[1];
     const L = Math.hypot(ex, ez);
     if (L < 5) continue;
     const ix = -ez / L, iz = ex / L; // inward (left of a->b)
-    const count = Math.floor(L / 5.5);
-    for (let j = 0; j < count && budget > 0; j++) {
+    const count = Math.floor(L / 8);
+    for (let j = 0; j < count && g.garden > 0; j++) {
       const f = (j + 0.5 + (R() - 0.5) * 0.3) / count;
       const px = a[0] + ex * f, pz = a[1] + ez * f;
       const tree = j % 2 === 1 || R() < 0.25;
       const inset = tree ? 1.1 : 1.6;
       const x = px + ix * inset, z = pz + iz * inset;
       if (!open(x, z) || !open(x + ix * 2, z + iz * 2)) continue;
-      budget--;
+      g.garden--;
       const yaw = R() * 6.283;
       if (tree) {
         const rt = 1.8 + 1.1 * R();
         // the crown hangs out over the edge of the setback
         const out = -0.9 - 0.6 * R();
         blob(B, x, roofY, z, [ix * out, 1.1 + rt * 0.75, iz * out], rt, rt * 0.82, rt, yaw, Part.GARDEN, NEED3 | TREE);
-        blob(B, x, roofY, z, [ix * (out - rt * 0.45) + iz * rt * 0.5, 0.6 + rt * 0.45, iz * (out - rt * 0.45) - ix * rt * 0.5], rt * 0.62, rt * 0.55, rt * 0.62, yaw + 1, Part.GARDEN, NEED3 | TREE);
       } else {
         const rb = 1.0 + 0.55 * R();
         const hb = 1.3 + 0.8 * R();
