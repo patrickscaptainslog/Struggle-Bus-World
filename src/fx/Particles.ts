@@ -274,6 +274,8 @@ export interface GeyserLive {
   travel: number;
   /** particle rate multiplier */
   rate: number;
+  /** width multiplier (replaces the geyser's own width while it pours) */
+  width: number;
 }
 
 interface Emitter {
@@ -897,6 +899,7 @@ export class Particles {
     if (e.live) {
       e.targets[0].copy(e.live.target);
       e.travel = Math.max(0.05, e.live.travel);
+      e.width = Math.max(0.1, e.live.width);
     }
     const flow = e.live ? Math.max(0, e.live.rate) : 1;
     const a = Math.max(e.start, t1 - dt);

@@ -28,8 +28,19 @@ Phase 1: single player, no server. iPhone Safari first (portrait, one thumb).
   around them splattered too. From altitude it lands where you're looking,
   mid-screen, after a longer flight, and the blast is bigger the higher you
   fire from. The belly glows fuller as the next blast recharges.
+- **Hold** (keep a finger still on the screen, or hold a second finger while
+  you steer, or hold Space): the super splat charges. The bus swells,
+  shudders and glows white-hot, rainbow energy spirals in from the city into
+  its mouth, arcs crackle, a rainbow circle spins under it, a heartbeat
+  races; the meter in the corner fills. Let go early for a MEGA blast (bigger
+  the longer you held; under 30 % it is just a normal splat). Hold the full
+  10 seconds and the FIREHOSE lets go: a colossal rainbow torrent for 4
+  seconds that paints everything it touches; steer while it pours to sweep it
+  across the city (from up high it pours down where you look). Then it needs
+  a minute to recharge: the meter counts the seconds down and chimes when
+  it's ready (taps still splat meanwhile).
 - Keyboard: arrows / WASD fly the same yoke (Down/S climbs, Up/W dives or
-  surges), Space breathes.
+  surges), Space breathes (hold it to charge the super splat).
 - Blast an already-painted block to escalate it: rooftop gardens, then full
   Hundertwasser.
 - Paint is saved on your phone.

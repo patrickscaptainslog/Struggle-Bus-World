@@ -336,8 +336,12 @@ export const config = {
     /** ...near the rooftops it reaches this many times the breath's range (a turn sweeps a wide arc); from up high it
      *  pours down along the aim ray, where the player looks. */
     firehoseReach: 1.7,
-    /** ...the torrent's width x the breath's, and its particle rate x. */
+    /** ...the torrent's width x the breath's (more from up high: x (1 + drop / firehoseWidthDrop)), and its particle rate x. */
     firehoseWidth: 2.6,
+    firehoseWidthDrop: 130,
+    /** ...it pours this many times faster than the breath's projectile past the classic range (from up high the
+     *  landing must stay near where the player looks while the bus turns). */
+    firehoseSpeed: 3,
     firehoseFlow: 1.9,
     /** Recoil: the bus is knocked back to this share of its speed, then held at firehoseSlow while it pours. */
     firehoseKick: 0.3,
