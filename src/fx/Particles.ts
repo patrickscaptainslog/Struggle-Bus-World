@@ -158,7 +158,7 @@ export const fxTune = {
 registerTunables('Particles', fxTune, {
   ribbonRate: [100, 2500, 10],
   halfWidth0: [0.2, 4, 0.05],
-  halfWidth1: [0.2, 6, 0.05],
+  halfWidth1: [0.2, 10, 0.05],
   depth: [0, 1.5, 0.05],
   blobSize: [0.2, 2.5, 0.05],
   blobMouth: [0.2, 1.5, 0.02],
