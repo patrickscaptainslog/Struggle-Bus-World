@@ -453,7 +453,7 @@ export class PixelPipeline {
     cc.updateProjectionMatrix();
     this.cullFrustum.setFromProjectionMatrix(this.cullMat.multiplyMatrices(cc.projectionMatrix, cc.matrixWorldInverse));
     this.shadowCulled = 0;
-    scene.traverseVisible(this.cullVisit);
+    this.visitCullRoots(scene, this.cullVisit);
     this.shadowCulled = this.culled.length;
   }
 
@@ -484,22 +484,39 @@ export class PixelPipeline {
     this.viewCulled.push(o);
   };
 
+  /** Walk the scene's cull roots (top-level children marked `userData.cullRoot`; the whole scene if none is). */
+  private visitCullRoots(scene: THREE.Scene, visit: (o: THREE.Object3D) => void) {
+    let any = false;
+    for (const c of scene.children)
+      if (c.userData.cullRoot) {
+        any = true;
+        c.traverseVisible(visit);
+      }
+    if (!any) scene.traverseVisible(visit);
+  }
+
   render(scene: THREE.Scene) {
     const r = this.renderer;
     if (!this.snapped) this.snap();
     this.snapped = false;
+    // one scene-graph update per frame: three updates the whole graph at every render() call, and the
+    // sun pass and the G-buffer pass both render the scene (nothing moves in between)
+    scene.updateMatrixWorld();
+    const autoWorld = scene.matrixWorldAutoUpdate;
+    scene.matrixWorldAutoUpdate = false;
     this.updateShadow(scene);
 
     // scene -> gbuffer
     const sc = this.snapCam;
     this.viewFrustum.setFromProjectionMatrix(this.cullMat.multiplyMatrices(sc.projectionMatrix, sc.matrixWorldInverse));
-    scene.traverseVisible(this.viewVisit);
+    this.visitCullRoots(scene, this.viewVisit);
     r.setRenderTarget(this.gbuf);
     r.setClearColor(0x000000, 0);
     r.clear(true, true, false);
     r.render(scene, sc);
     for (const o of this.viewCulled) o.visible = true;
     this.viewCulled.length = 0;
+    scene.matrixWorldAutoUpdate = autoWorld;
 
     // glow extract + blur (half res)
     this.glowMat.uniforms.tColor.value = this.gbuf.textures[0];

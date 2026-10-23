@@ -318,6 +318,8 @@ export class City {
     this.farGroup.matrixAutoUpdate = false;
     this.farGroup.matrixWorldAutoUpdate = false;
     this.root.add(this.farGroup);
+    // the pipeline's sun-pass and view culling walk only the city (its casters, ground and far chunks)
+    this.root.userData.cullRoot = true;
     // the bay / ocean: a huge still plane below everything
     const water = new THREE.Mesh(new THREE.PlaneGeometry(60000, 60000).rotateX(-Math.PI / 2), makeWaterMaterial());
     water.position.set((minX + maxX) / 2, -0.6, (minZ + maxZ) / 2);
@@ -730,6 +732,7 @@ export class City {
       // (far ground doesn't cast: the shadow window is near the view, and buildings carry the shadows up high)
       const mesh = new THREE.Mesh(g, makeTerrainMaterial(tex, rx * rs * ts, rz * rs * ts, rs * ts, N));
       mesh.matrixAutoUpdate = false;
+      mesh.matrixWorldAutoUpdate = false;
       mesh.visible = !rm.hidden;
       this.root.add(mesh);
       rm.terrain = mesh;
@@ -881,6 +884,7 @@ export class City {
     if (step === 2) mesh.layers.enable(SHADOW_LAYER);
     mesh.userData.sunCull = true; // (the sun pass skips it when its shadow can't reach the view)
     mesh.matrixAutoUpdate = false;
+    mesh.matrixWorldAutoUpdate = false;
     mesh.visible = !lt.hidden;
     this.root.add(mesh);
     lt.terrain = mesh;
@@ -1001,6 +1005,7 @@ export class City {
     if (cast) mesh.layers.enable(SHADOW_LAYER);
     mesh.userData.sunCull = true;
     mesh.matrixAutoUpdate = false;
+    mesh.matrixWorldAutoUpdate = false; // (static, at the origin: the graph update skips it)
     this.root.add(mesh);
     return mesh;
   }
@@ -1016,6 +1021,7 @@ export class City {
     const mesh = new THREE.Mesh(g, CASTER_MATERIAL); // (the sun pass draws it with its depth override)
     mesh.layers.set(SHADOW_LAYER);
     mesh.matrixAutoUpdate = false;
+    mesh.matrixWorldAutoUpdate = false;
     mesh.userData.sbKind = 'caster';
     mesh.userData.sunCull = true;
     this.root.add(mesh);
