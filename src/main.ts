@@ -283,10 +283,62 @@ async function boot() {
     audio.signPop();
   }
 
+  // Dragon breath aim: a forward-down ray from the bus (config.splat.aimDown) cast
+  // against rooftops and terrain, so from altitude the breath lands mid-screen
+  // where the player is looking. Near the rooftops the ray lands under the bus's
+  // nose, and the classic range ahead wins (exactly the old aim).
+  const aim = { x: 0, y: 0, z: 0, dist: 0, travel: 0, drop: 0 };
+  const F_CLEAR = 12; // the classic shot drops about this far onto the roofs (m)
   const aimPoint = (): [number, number] => {
-    const r = config.splat.range + config.splat.rangePerSpeed * flight.speed;
-    return [flight.x + flight.fx * r, flight.z + flight.fz * r];
+    const S = config.splat;
+    const r0 = S.range + S.rangePerSpeed * flight.speed;
+    const a = THREE.MathUtils.degToRad(clamp(S.aimDown, 2, 80));
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const x0 = flight.x, y0 = flight.y, z0 = flight.z, fx = flight.fx, fz = flight.fz;
+    const below = (t: number) => y0 - t * sa <= city.obstacleAt(x0 + fx * t * ca, z0 + fz * t * ca);
+    const maxT = Math.max(r0, S.maxRange) / ca;
+    let t = 0, prev = 0, hit = -1;
+    while (t < maxT) {
+      t = Math.min(maxT, t + Math.max(3, t * 0.02));
+      if (below(t)) {
+        hit = t;
+        break;
+      }
+      prev = t;
+    }
+    if (hit > 0)
+      for (let i = 0; i < 6; i++) {
+        const m = (prev + hit) * 0.5;
+        if (below(m)) hit = m;
+        else prev = m;
+      }
+    const horiz = Math.max(r0, hit > 0 ? hit * ca : S.maxRange);
+    aim.x = x0 + fx * horiz;
+    aim.z = z0 + fz * horiz;
+    aim.y = city.obstacleAt(aim.x, aim.z);
+    aim.dist = Math.hypot(horiz, y0 - aim.y);
+    // the classic short shot lands after impactDelay; past it the projectile flies on at a
+    // constant speed, so a long shot from altitude takes longer and matches the visible jet
+    aim.travel = S.impactDelay + Math.max(0, aim.dist - Math.hypot(r0, F_CLEAR)) / Math.max(20, S.projectileSpeed);
+    aim.drop = Math.max(0, y0 - aim.y);
+    return [aim.x, aim.z];
   };
+  /** Barf along the aim with the impact timed to the projectile's flight. */
+  const breathe = (ax: number, az: number) => {
+    // Splatter (and the geyser's travel time) read config.splat.impactDelay while scheduling:
+    // lend it this shot's flight time for the duration of the call
+    const S = config.splat;
+    const saved = S.impactDelay;
+    S.impactDelay = aim.travel;
+    try {
+      splatter.barf(ax, az, { drop: aim.drop });
+    } finally {
+      S.impactDelay = saved;
+    }
+  };
+
+  /** QA: the last breath (aim point, flight time, drop, the building it should bloom). */
+  let lastShot: unknown = null;
 
   // ---- input
   const input = new Input(canvas);
@@ -309,7 +361,9 @@ async function boot() {
       audio.heave();
       // dragon breath: the projectile flies ahead and explodes on the buildings in front
       const [ax, az] = aimPoint();
-      splatter.barf(ax, az);
+      const tgt = splatter.pick(ax, az);
+      lastShot = { t: simTime, aim: [aim.x, aim.y, aim.z], travel: aim.travel, drop: aim.drop, busY: flight.y, target: tgt ? { index: tgt.index, cx: tgt.cx, cz: tgt.cz, roofY: tgt.roofY } : null };
+      breathe(ax, az);
     } else audio.denied();
   };
 
@@ -523,7 +577,10 @@ async function boot() {
 
   // debug hooks for scripted screenshots / QA
   (window as unknown as Record<string, unknown>).__game = {
-    flight, city, splatter, input, audio, rig, camera, tuner, perf, HUE_RAMPS,
+    flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS,
+    /** QA: where a breath fired now would land ({x, y, z, dist, travel, drop}), and the last one fired */
+    aimNow: () => (aimPoint(), { ...aim }),
+    lastShot: () => lastShot,
     tapSplat: () => input.onTap?.(),
     forceReady: () => (flight.fullness = 1),
     /** QA: barf at a lat/lon through the real splat pipeline (cascade, bloom, sign, sound) */

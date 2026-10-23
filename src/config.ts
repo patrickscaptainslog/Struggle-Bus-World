@@ -183,8 +183,14 @@ export const config = {
     /** Where the projectile lands: meters ahead of the bus at rest, plus seconds of travel at speed. */
     range: 72,
     rangePerSpeed: 0.5,
-    /** Time from tap to first impact (s). */
+    /** Time from tap to first impact (s), at the short range. */
     impactDelay: 0.42,
+    /** From altitude the breath flies along a forward-down ray this many degrees below the heading (deg)... */
+    aimDown: 27,
+    /** ...and past the classic range flies on at this constant speed (m/s): longer shots take longer. */
+    projectileSpeed: 300,
+    /** Farthest a breath can reach (m). */
+    maxRange: 1600,
     /** Search radius around the aim point for the target building (m). */
     snapRadius: 28,
     /** Spill radius around the primary target (m). */

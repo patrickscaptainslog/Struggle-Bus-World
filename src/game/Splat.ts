@@ -52,7 +52,7 @@ export class Splatter {
   }
 
   /** Choose targets for a projectile landing at (x, z) and schedule the cascade. */
-  barf(x: number, z: number) {
+  barf(x: number, z: number, _opts?: { /** height of the bus above the impact (m) */ drop?: number }) {
     const S = config.splat;
     const city = this.city;
     const primary = this.pick(x, z);
