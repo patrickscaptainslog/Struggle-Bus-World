@@ -1,0 +1,499 @@
+{
+ "dt": 0.03333333333333333,
+ "tap": {
+  "at": [
+   -1282.3,
+   -25.4
+  ],
+  "bloomed": 11,
+  "near90": {
+   "buildings": 28,
+   "painted": 11,
+   "l3": 0,
+   "groundShare": 0.37
+  },
+  "work": {
+   "median": 0.043,
+   "max": 18.119
+  }
+ },
+ "charge": {
+  "cruise": 26.6,
+  "under": {
+   "phase": "ready",
+   "tapped": 1,
+   "cooldown": 0
+  },
+  "cancel": {
+   "phase": "ready",
+   "charge": 0.4,
+   "cooldown": 0,
+   "stop": 2
+  },
+  "mega50": {
+   "radius": 93.5,
+   "cooldown": 30.2,
+   "phase": "cooldown",
+   "bloomed": 58,
+   "hitStops": 2
+  },
+  "timeline": [
+   {
+    "t": 0.03,
+    "charge": 0.003,
+    "speed": 26.2,
+    "swell": 1,
+    "dolly": 1
+   },
+   {
+    "t": 1.27,
+    "charge": 0.127,
+    "speed": 25.3,
+    "swell": 1.009,
+    "dolly": 1
+   },
+   {
+    "t": 2.53,
+    "charge": 0.253,
+    "speed": 23.9,
+    "swell": 1.031,
+    "dolly": 1
+   },
+   {
+    "t": 3.77,
+    "charge": 0.377,
+    "speed": 22.6,
+    "swell": 1.041,
+    "dolly": 1
+   },
+   {
+    "t": 5.03,
+    "charge": 0.503,
+    "speed": 21.3,
+    "swell": 1,
+    "dolly": 1
+   }
+  ],
+  "deny": {
+   "fizzles": 1,
+   "phase": "cooldown"
+  }
+ },
+ "firehose": {
+  "startSpeed": 7.4,
+  "duration": 4.3,
+  "impacts": 49,
+  "misses": 0,
+  "impactsPerSecond": 12.3,
+  "firstImpact": 0.333,
+  "gapMedian": 0.067,
+  "gapMax": 0.1,
+  "maxLiveBlasts": 2,
+  "bloomed": 91,
+  "l3": 22,
+  "bloomEvents": 185,
+  "groundShareAlongSweep": 0.786,
+  "finale": 1,
+  "hitStops": 1,
+  "signs": 2,
+  "flashes": 11,
+  "phaseAfter": "cooldown",
+  "cooldown": 57.7,
+  "particles": {
+   "geyser": 1,
+   "splash": 49,
+   "burst": 49,
+   "fling": 628
+  },
+  "work": {
+   "median": 0.477,
+   "max": 11.812,
+   "superMedian": 0.044,
+   "splatterMedian": 0.003,
+   "cityMedian": 0.054,
+   "worst": [
+    [
+     0.03,
+     11.72,
+     0.06
+    ],
+    [
+     0.09,
+     0,
+     9.99
+    ],
+    [
+     0.02,
+     9.53,
+     0.09
+    ],
+    [
+     0.11,
+     0,
+     6.72
+    ]
+   ]
+  },
+  "path": [
+   {
+    "t": 0.03,
+    "speed": 8.3,
+    "heading": 40,
+    "aim": [
+     -1268,
+     4
+    ],
+    "drop": 0,
+    "y": 93
+   },
+   {
+    "t": 0.5,
+    "speed": 11.5,
+    "heading": 54,
+    "aim": [
+     -1251,
+     12
+    ],
+    "drop": 15,
+    "y": 97
+   },
+   {
+    "t": 1,
+    "speed": 11.2,
+    "heading": 70,
+    "aim": [
+     -1235,
+     30
+    ],
+    "drop": 22,
+    "y": 98
+   },
+   {
+    "t": 1.5,
+    "speed": 10.8,
+    "heading": 87,
+    "aim": [
+     -1226,
+     51
+    ],
+    "drop": 7,
+    "y": 98
+   },
+   {
+    "t": 2,
+    "speed": 10.6,
+    "heading": 104,
+    "aim": [
+     -1223,
+     74
+    ],
+    "drop": 8,
+    "y": 98
+   },
+   {
+    "t": 2.53,
+    "speed": 10.6,
+    "heading": 122,
+    "aim": [
+     -1227,
+     98
+    ],
+    "drop": 19,
+    "y": 97
+   },
+   {
+    "t": 3.03,
+    "speed": 10.6,
+    "heading": 138,
+    "aim": [
+     -1237,
+     118
+    ],
+    "drop": 18,
+    "y": 96
+   },
+   {
+    "t": 3.53,
+    "speed": 10.6,
+    "heading": 155,
+    "aim": [
+     -1253,
+     135
+    ],
+    "drop": 18,
+    "y": 95
+   },
+   {
+    "t": 4.03,
+    "speed": 10.6,
+    "heading": 172,
+    "aim": [
+     -1273,
+     147
+    ],
+    "drop": 35,
+    "y": 94
+   }
+  ]
+ },
+ "prof": {
+  "ground.work": {
+   "n": 4496,
+   "median": 0,
+   "max": 44.074,
+   "sum": 96.1
+  },
+  "city.buildingsWithin": {
+   "n": 50,
+   "median": 0.063,
+   "max": 2.001,
+   "sum": 5.3
+  },
+  "city.setOwnGround": {
+   "n": 123,
+   "median": 0,
+   "max": 0.009,
+   "sum": 0.1
+  },
+  "ground.begin": {
+   "n": 50,
+   "median": 0.008,
+   "max": 0.108,
+   "sum": 0.7
+  },
+  "g.prepare": {
+   "n": 50,
+   "median": 0.319,
+   "max": 9.953,
+   "sum": 50.2
+  },
+  "g.mask": {
+   "n": 123,
+   "median": 0,
+   "max": 0.072,
+   "sum": 0.1
+  },
+  "g.start": {
+   "n": 50,
+   "median": 0.329,
+   "max": 9.966,
+   "sum": 50.7
+  },
+  "g.rows": {
+   "n": 4117,
+   "median": 0.003,
+   "max": 4.542,
+   "sum": 31.5
+  },
+  "g.dots": {
+   "n": 123,
+   "median": 0.041,
+   "max": 4.928,
+   "sum": 14.3
+  },
+  "g.step": {
+   "n": 50,
+   "median": 0.352,
+   "max": 9.273,
+   "sum": 46.7
+  },
+  "ground.land": {
+   "n": 50,
+   "median": 0.398,
+   "max": 11.638,
+   "sum": 65.4
+  },
+  "g.writeTile": {
+   "n": 6,
+   "median": 0.02,
+   "max": 0.038,
+   "sum": 0.1
+  }
+ },
+ "firehose250": {
+  "startSpeed": 7.4,
+  "duration": 4.5,
+  "impacts": 49,
+  "misses": 0,
+  "impactsPerSecond": 12.3,
+  "firstImpact": 0.533,
+  "gapMedian": 0.067,
+  "gapMax": 0.1,
+  "maxLiveBlasts": 2,
+  "bloomed": 492,
+  "l3": 0,
+  "bloomEvents": 557,
+  "groundShareAlongSweep": 0.955,
+  "finale": 1,
+  "hitStops": 1,
+  "signs": 3,
+  "flashes": 11,
+  "phaseAfter": "cooldown",
+  "cooldown": 57.7,
+  "particles": {
+   "geyser": 1,
+   "splash": 49,
+   "burst": 49,
+   "fling": 628
+  },
+  "work": {
+   "median": 0.634,
+   "max": 27.428,
+   "superMedian": 0.071,
+   "splatterMedian": 0.014,
+   "cityMedian": 0.079,
+   "worst": [
+    [
+     0.03,
+     27.09,
+     0.31
+    ],
+    [
+     0.05,
+     26.56,
+     0.08
+    ],
+    [
+     0.39,
+     0.02,
+     24.66
+    ],
+    [
+     0.35,
+     0.02,
+     24.26
+    ]
+   ]
+  },
+  "path": [
+   {
+    "t": 0.03,
+    "speed": 8.3,
+    "heading": 60,
+    "aim": [
+     -1210,
+     -168
+    ],
+    "drop": 225,
+    "y": 311
+   },
+   {
+    "t": 0.5,
+    "speed": 11.5,
+    "heading": 71,
+    "aim": [
+     -1146,
+     -69
+    ],
+    "drop": 233,
+    "y": 313
+   },
+   {
+    "t": 1,
+    "speed": 11.2,
+    "heading": 84,
+    "aim": [
+     -1079,
+     69
+    ],
+    "drop": 243,
+    "y": 314
+   },
+   {
+    "t": 1.5,
+    "speed": 10.8,
+    "heading": 97,
+    "aim": [
+     -1048,
+     224
+    ],
+    "drop": 245,
+    "y": 313
+   },
+   {
+    "t": 2,
+    "speed": 10.6,
+    "heading": 110,
+    "aim": [
+     -1067,
+     383
+    ],
+    "drop": 257,
+    "y": 311
+   },
+   {
+    "t": 2.53,
+    "speed": 10.6,
+    "heading": 124,
+    "aim": [
+     -1145,
+     534
+    ],
+    "drop": 255,
+    "y": 310
+   },
+   {
+    "t": 3.03,
+    "speed": 10.6,
+    "heading": 137,
+    "aim": [
+     -1282,
+     619
+    ],
+    "drop": 235,
+    "y": 309
+   },
+   {
+    "t": 3.53,
+    "speed": 10.6,
+    "heading": 150,
+    "aim": [
+     -1412,
+     684
+    ],
+    "drop": 223,
+    "y": 310
+   },
+   {
+    "t": 4.03,
+    "speed": 10.6,
+    "heading": 163,
+    "aim": [
+     -1544,
+     724
+    ],
+    "drop": 212,
+    "y": 310
+   }
+  ]
+ },
+ "cooldown": {
+  "startedWith": 57.7,
+  "marks": [
+   {
+    "at": 0,
+    "phase": "cooldown",
+    "left": 57.63,
+    "chimes": 0
+   },
+   {
+    "at": 30,
+    "phase": "cooldown",
+    "left": 29.97,
+    "chimes": 0
+   },
+   {
+    "at": 59,
+    "phase": "cooldown",
+    "left": 0.97,
+    "chimes": 0
+   },
+   {
+    "at": 60,
+    "phase": "ready",
+    "left": 0,
+    "chimes": 1
+   }
+  ]
+ }
+}
