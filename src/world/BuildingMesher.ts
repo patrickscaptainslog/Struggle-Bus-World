@@ -420,6 +420,8 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
   // ---- walls
   // perimeter u starts at the front edge so the facade pattern lines up with it
   const startK = front !== 255 ? front : 0;
+  // wall columns only serve the painted wobble: towers' upper tiers (high, narrow faces) need fewer
+  const segLen = tier > 0 ? 6.4 : 3.2;
   let u = 0;
   if (topScale < 1) {
     // tapering tower: faces lean in to the scaled top ring; the roof below is that ring
@@ -440,7 +442,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
       const mx = (ta[0] + tb[0] - a[0] - b[0]) / 2, mz = (ta[1] + tb[1] - a[1] - b[1]) / 2;
       const roofish = Math.hypot(mx, mz) > 0.7 * (roofY - baseY);
       const part = roofish ? Part.ROOF_SLOPE : isFront ? Part.FRONT : Part.SIDE;
-      B.slantWall(a[0], a[1], b[0], b[1], ta[0], ta[1], tb[0], tb[1], baseY, roofY, u, u * topScale, (u + L) * topScale, streetY, part, (isFront && !roofish ? 1 : 0) | corner, lod === 1 ? 999 : 3.2);
+      B.slantWall(a[0], a[1], b[0], b[1], ta[0], ta[1], tb[0], tb[1], baseY, roofY, u, u * topScale, (u + L) * topScale, streetY, part, (isFront && !roofish ? 1 : 0) | corner, lod === 1 ? 999 : segLen);
       u += L;
     }
     const xz: number[] = [];
@@ -463,7 +465,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
     const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
     const isFront = k === front || k === front2;
     const top = isFront && (k === front || single || !flushAbove(t, g, i, a[0], a[1], b[0], b[1])) ? roofY + parapet : roofY;
-    B.wall(a[0], a[1], b[0], b[1], baseY, top, u, streetY, isFront ? Part.FRONT : Part.SIDE, (isFront ? 1 : 0) | corner, lod === 1 ? 999 : 3.2);
+    B.wall(a[0], a[1], b[0], b[1], baseY, top, u, streetY, isFront ? Part.FRONT : Part.SIDE, (isFront ? 1 : 0) | corner, lod === 1 ? 999 : segLen);
     u += L;
   }
 
