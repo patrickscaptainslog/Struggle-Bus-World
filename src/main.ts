@@ -64,6 +64,7 @@ type Manifest = CityManifest & { regions: Array<[number, number, number]>; regio
 
 const params = new URLSearchParams(location.search);
 if (params.has('fog')) config.fog.enabled = true;
+if (params.has('px')) config.render.pixelWidth = Math.min(1200, Math.max(120, Number(params.get('px')) || config.render.pixelWidth));
 applySavedTuning();
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;

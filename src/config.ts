@@ -4,8 +4,13 @@
 
 export const config = {
   render: {
-    /** Target width of the low-res framebuffer in game pixels (portrait). */
-    pixelWidth: 240,
+    /**
+     * Target width of the low-res framebuffer in game pixels (portrait). 390 = one game pixel
+     * per iPhone point (an integer 3x upscale on a 1179 px wide screen); it was 240 (5x), which the
+     * producer found too low-res. ?px=<n> overrides it (e.g. ?px=240 the old look, ?px=295 4x,
+     * ?px=590 2x) to compare on the phone.
+     */
+    pixelWidth: 390,
     /** Hard cap on device pixels per game pixel (keeps pixels chunky on tablets). */
     maxPixelScale: 8,
     /** Width of the dithered band between two ramp steps (0 = hard bands, 0.5 = full dither). */
@@ -16,8 +21,8 @@ export const config = {
     creaseHighlight: 0.75,
     /** Distance at which outlines have fully faded out (m). */
     outlineFadeEnd: 520,
-    /** Shadow map size (texels). */
-    shadowMapSize: 1024,
+    /** Shadow map size (texels): 2048 keeps a shadow texel near one game pixel at 390 px wide. */
+    shadowMapSize: 2048,
     /** World-space extent of the shadow map around the camera focus (m). */
     shadowExtent: 520,
     /** At full vista (high above the city) the shadow window widens to this (m) and softens to this strength (0..1)... */
@@ -100,11 +105,11 @@ export const config = {
     /** Look-ahead in front of the bus (m), keeps the bus above the thumb zone. */
     lookAhead: 55,
     /** Position lag spring frequency (Hz) and damping ratio. */
-    followHz: 1.1,
+    followHz: 1.6,
     followDamping: 1.0,
     /** Yaw lag spring frequency (Hz) — lower = turns sweep more. */
-    yawHz: 0.75,
-    yawDamping: 0.92,
+    yawHz: 1.6,
+    yawDamping: 1.0,
     /** Vista camera: blends in as the bus climbs above its rooftop floor, from vistaStart to vistaFull (m). */
     vistaStart: 25,
     vistaFull: 400,
@@ -153,12 +158,12 @@ export const config = {
     ceiling: 520,
     ceilingSoft: 150,
     /** How fast speed chases its target (Hz). */
-    speedHz: 0.9,
+    speedHz: 1.4,
     /** Max yaw rate at full sideways stretch (rad/s) at cruise speed. */
     maxYawRate: 1.35,
     /** Bungee: steering spring frequency (Hz) and damping (<1 overshoots). */
-    bungeeHz: 1.6,
-    bungeeDamping: 0.52,
+    bungeeHz: 2.4,
+    bungeeDamping: 0.75,
     /** Thumb stretch (CSS px) that counts as full deflection. */
     stretchPx: 78,
     /** Dead zone (CSS px). */
