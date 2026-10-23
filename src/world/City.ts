@@ -515,6 +515,8 @@ export class City {
     for (const key of this.regionsLoaded) {
       const lod = this.regionLod.get(key);
       if (lod === undefined || this.isPending(key)) continue;
+      // (a swap that failed backs off too: offline, it would re-request every frame)
+      if ((this.retryAt.get(key) ?? 0) > performance.now()) continue;
       const [rx, rz] = this.regionXZ.get(key)!;
       const cx = (rx + 0.5) * R, cz = (rz + 0.5) * R;
       const d = Math.hypot(Math.max(Math.abs(focus.x - cx) - R / 2, 0), Math.max(Math.abs(focus.z - cz) - R / 2, 0));
