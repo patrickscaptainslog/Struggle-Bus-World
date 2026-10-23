@@ -32,7 +32,7 @@ import shapely
 from shapely.geometry import Polygon, MultiPolygon, box
 from shapely.strtree import STRtree
 
-CACHE = os.environ.get('SB_OVERTURE_CACHE', '/tmp/claude-0/sbdata/overture')
+CACHE = os.environ.get('SB_OVERTURE_CACHE', os.path.join(os.path.dirname(os.path.abspath(__file__)), '.cache', 'overture'))
 
 # ground classes (2 m texture; src/world/tiles.ts `Ground`)
 PAVED, GRASS, WATER, SIDEWALK, PLAZA, PATH, SAND, RAIL, FOREST, YARD, ROCK = range(11)

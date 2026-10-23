@@ -12,7 +12,7 @@ City-agnostic: driven by tools/bake/cities/<slug>.json
   "bbox": [lon0, lat0, lon1, lat1]
   "overture": {"release": "2026-10-21.0", "pad": 0.004}      (pad: degrees around the bbox)
 
-Writes $SB_OVERTURE_CACHE (default /tmp/claude-0/sbdata/overture)/<release>/<slug>/<type>.parquet
+Writes $SB_OVERTURE_CACHE (default tools/bake/.cache/overture)/<release>/<slug>/<type>.parquet
 (plain parquet: WKB `geometry` + flat attribute columns; the bake reads them with pyarrow +
 shapely). Types:
   building        footprints: height, min_height, num_floors, roof_* , facade_*, names, OSM ids
@@ -40,7 +40,7 @@ import pyarrow.fs as pafs
 import pyarrow.parquet as pq
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CACHE = os.environ.get('SB_OVERTURE_CACHE', '/tmp/claude-0/sbdata/overture')
+CACHE = os.environ.get('SB_OVERTURE_CACHE', os.path.join(os.path.dirname(os.path.abspath(__file__)), '.cache', 'overture'))
 BUCKET = 'overturemaps-us-west-2'
 DEFAULT_RELEASE = '2026-10-21.0'
 
