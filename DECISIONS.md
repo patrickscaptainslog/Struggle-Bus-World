@@ -635,9 +635,11 @@ cross-checked in the browser with `tools/feel.mjs`.
   look-ahead no longer shrinks when slow (`lookAheadSlow` 1; it was 0.6, which
   tipped the diorama straight down). Modelled and then shot: the horizon sits
   ~5 / 13 / 19% from the top (was off-frame / 0.2 / 16%), the bus ~62 / 60 /
-  58% down (was 61 / 62 / 62%), the breath's impact mid-screen (50 / 49 / 45%),
-  and the bus's projected size is ~97-103% of before in height, ~110% in
-  width. The vista camera still takes over above the rooftops (its pitch is
+  58% down (was 61 / 62 / 62%), the breath's impact mid-screen (50 / 49 / 45%).
+  The bus's on-screen area is held, but not its shape (the review measured
+  it, at 240 px): its bounding box is 3-13% shorter (Painted Ladies cruise
+  167 -> 145 px, surge 122 -> 117, slow 247 -> 232) and 5-30% wider, and its
+  yellow area is 25-33% smaller, because the plum ink edge takes the rim. The vista camera still takes over above the rooftops (its pitch is
   now only ~3° steeper than the floor's, so the blend is gentler).
 - **The skyline stands out of the fog.** Past 2.6 km everything was a white
   wall (Twin Peaks to downtown: nothing but the pyramid). `sbFog` now has a
@@ -650,7 +652,12 @@ cross-checked in the browser with `tools/feel.mjs`.
   edge among it, is buried exactly as before; it is off while the opening's
   fog bank is up (`uFogBank` >= 2) and density, farFull and paint clearing are
   untouched (the verifier's caveats: the loading-screen bank and the paint
-  payoff keep their contrast). Landmarks multiply their fog by 0.8
+  payoff keep their contrast). A shape standing darker than the buried step
+  must run at least ~0.45 deg tall (4 px at 240 px wide, 6 at 390), or it is
+  buried: the tops of mid-height shapes just over the ceiling's contour hung
+  in the sky band as floating chips. All of this is fog-only: main turned the
+  fog off by default (`config.fog.enabled`, `?fog` brings it back), and with
+  it off the fog ceiling is off too. Landmarks multiply their fog by 0.8
   (landmarks.ts, not touched here): a capped far landmark sits at ~0.62, the
   lower edge of the 0.62-0.68 handover band, so it keeps its own compressed
   colors with at most a few hue-only flips (the handover is value-matched);
@@ -663,8 +670,8 @@ cross-checked in the browser with `tools/feel.mjs`.
   and flattens into the silhouette tone between fog 0.62 and 0.76 (flat under
   the fog ceiling: a far tower's one-pixel window grid crawled); silhouettes
   round instead of dithering (no dotted far boxes). The band itself follows
-  the fog's own gradient (a few pixels wide; street-level floor 0.015, a
-  quarter of the old fixed 0.06): the review's verifier kept the wide band so
+  the fog's own gradient (a few pixels wide; street-level floor
+  `config.render.fogBandMin` 0.015, a quarter of the old fixed 0.06): the review's verifier kept the wide band so
   facades wouldn't pop whole as fog crossed it, but with matched values its
   reshuffling dots were the only churn left in it, and a whole facade
   switching is now a hue change of the same value. The sky dithers in screen
@@ -683,9 +690,16 @@ cross-checked in the browser with `tools/feel.mjs`.
   flight line, where the next target glints), searching a small ring for a
   spot off any roof and inside the frame, else the old spot. It grows so a
   font pixel stays >= 1.15 game pixels at that distance (~1.0-1.4x at the
-  rooftops, up to 4x from the vista, where it used to be sub-pixel text), and its
-  depth bias is on at once (the bus isn't between it and the camera there).
-  Re-splats of the same area reuse the spot, so the standing sign flips.
+  rooftops, up to 4x from the vista, where it used to be sub-pixel text).
+  It stands at its true depth (a 1 m bias): with the old 16 m bias it drew
+  over the painted houses in front of it, and at L3 the blade covered the
+  upper storeys of the painted row. Spots inside the blast (+4 m) are never
+  used (the old fallbacks halfway out stood among the painted houses): past
+  the far side first, then beside the blast, then farther past. A spot whose
+  pole is seen to its foot wins; else the pole grows (up to 10 m) until the
+  blade clears the roofs and crowns in front, never a blade hovering over
+  the roofs with no pole. Re-splats of the same area reuse the spot, so the
+  standing sign flips.
   holdGreen stays 2.2 s (the verifier: once it doesn't cover the paint,
   cutting it only costs reading time).
 - **The hero separates.** Its silhouette used its own ramp two steps down
@@ -697,20 +711,27 @@ cross-checked in the browser with `tools/feel.mjs`.
 - **The one eye reads from behind**: its headlight beam is light, not a
   shape. In the resolve pass, what lies ahead of the lens (beyond the bus) is
   lifted one or two steps up its own ramp in crisp nested bands, with a warm
-  core at the lens (`PixelPipeline.setHeroBeam`, projected with the snapped
-  camera; no mesh, no draw call): 42 m ahead, 14 m wide at the end x the
-  eye's openness, 6° down. It squints to a sliver while barfing and widens on
+  core where it leaves the lens and a warm glint on the nose's ink edge over
+  the lens (`PixelPipeline.setHeroBeam`, projected with the snapped camera; no
+  mesh, no draw call): 42 m ahead, 20 m wide at the end x the eye's openness
+  (14 m read as a stick), 6° down. It lights only the grey world (GREY,
+  GREY_LIGHT, GREEN_GREY, WINDOW, ROOF_DARK): on the relief it laid a cream
+  streak over the freshly painted facades, the money shot. It squints to a sliver while barfing and widens on
   the relief. A dithered mesh wedge was tried first: it read as a
   checkerboard (and its glow halo churned the roofs under it); a ground pool
   24 m ahead (the review's first idea) lands inside the bus's own footprint.
 - **No more blobs trailing the hero.** The exhaust puff was a white FOG-ramp
   ball (the brightest thing on screen) dissolving through a screen-anchored
-  dither; it is now a small sooty GREY wisp (light -0.3, 0.75 m growing 2.2x)
-  that thins by shrinking. The drop shadow was a near-black INK blob wider
-  than the bus with a checkered halo crawling over the roofs; it is one solid
-  cool-grey oval about the bus's own size (GREY step 3, a step deeper when a
-  breath is loaded) that pales a step and shrinks as the gap below the bus
-  grows (14 -> 50 m), as a real shadow softens with height.
+  dither; a sooty lit GREY sphere next read as a cannonball. It is now one
+  flat mid-pale GREY tone (a step deeper in the sun's shadow), 0.6 m growing
+  2.2x over 0.75 s, thinning by shrinking. The drop shadow was a near-black
+  INK blob wider than the bus with a checkered halo crawling over the roofs;
+  a solid grey oval next was a dark hole punched into fresh paint. It is no
+  decal now: the resolve draws whatever faces up below the bus's wheels,
+  inside an oval about the bus's footprint along its heading, one step
+  darker in its own ramp (`PixelPipeline.setHeroShadow`; roof, street, lawn,
+  crown and paint alike), a little bigger with a breath loaded, shrinking as
+  the gap below grows (14 -> 50 m).
 - **The Golden Gate is International Orange**, muted, even in the grey world
   (it is never painted, so color still comes from paint): `Ramp.BRIDGE_ORANGE`
   (appended), shadows to rose and plum, the upper steps dusty (the fog
@@ -724,6 +745,8 @@ cross-checked in the browser with `tools/feel.mjs`.
   tiles' water class (they match at the shore), and the WATER ramp's upper
   steps climb toward the fog in even luma steps (0.23 .. 0.67, was 0.21 .. 0.49);
   with the value-matched handover the waterline melts into the fog bank.
+  The retune changes all water (bay plane, shore tiles, far terrain): merge
+  notes for feat/facade and fix/landmarks should re-check shorelines.
 - **Tree crowns band instead of dithering.** Their analytic light is snapped to
   the lower quarter of a ramp step, so a band is flat (the resolve rounds it)
   and the leaf-clump noise keeps the band edges leafy; the painted crowns'

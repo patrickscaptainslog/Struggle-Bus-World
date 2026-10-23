@@ -37,7 +37,9 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
     out to ~5 km, so towers and hilltops stand out of the low fog while
     everything low, the streaming edge included, is buried as before):
     materials get it for free; the resolve pass lights the fog sea's top.
-    Never hand-roll fog, and don't multiply it below ~0.7 for far objects (the
+    Fog and the marine layer are off by default (`config.fog.enabled`; `?fog`
+    brings them back): then `sbFog` is only a far fade (`clearFarFull`) and
+    the fog ceiling is off with it. Never hand-roll fog, and don't multiply it below ~0.7 for far objects (the
     handover band sits at 0.62-0.68).
   - `glow` 0..1 → emissive; glowing pixels bloom a dithered halo.
   - `flags`: 1.0 normal (gets outlines), 0.5 = no outline (particles, cards).
@@ -49,26 +51,37 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   - The hero's headlight is light, not geometry: `pipeline.setHeroBeam(eye,
     tip, halfNear, halfFar, strength)` each frame (after `snap()`), and the
     resolve lifts what lies beyond the bus inside that wedge one or two steps
-    up its own ramp, a warm core at the lens.
+    up its own ramp, a warm core at the lens and a warm glint on the nose's
+    ink edge over the lens. It lights only the grey world's ramps (GREY,
+    GREY_LIGHT, GREEN_GREY, WINDOW, ROOF_DARK): never paint, glow or halos.
+  - The hero's drop shadow is light too: `pipeline.setHeroShadow(x, z,
+    underY, fx, fz, halfLength, halfWidth, steps)` each frame (after
+    `snap()`), and the resolve draws whatever faces up below `underY` inside
+    that oval `steps` darker in its own ramp (paint included). No decal.
+  - Flat-light test: a pixel dithers only if a neighbor's light byte sits on
+    a real gradient (1.5 bytes up to the dither window, 72.86 x
+    `ditherWidth`); a whole-step jump (a crisp band edge) rounds. Materials
+    that want crisp bands (tree crowns) snap their light to a step.
 - Every scene material must write both outputs (`gColor`, `gAux`).
 - Objects that cast sun shadows: `obj.layers.enable(SHADOW_LAYER)`.
   The bus and particles must NOT cast (the bus has its own drop shadow).
-- Pixel budget: the portrait framebuffer is ~240 game pixels wide. At gameplay
+- Pixel budget: the portrait framebuffer is 390 game pixels wide
+  (`config.render.pixelWidth`; `?px=240` the old 5x look). At gameplay
   camera distance (~155 m, 24° horizontal FOV, 24° above the bus at cruise: the
-  horizon ~13% from the top, the bus ~60% down) one game pixel ≈ 0.28 m at the
-  bus and ≈ 0.6–1 m at mid-distance. Details smaller than ~2 game pixels
+  horizon ~13% from the top, the bus ~60% down) one game pixel ≈ 0.17 m at the
+  bus and ≈ 0.4–0.6 m at mid-distance. Details smaller than ~2 game pixels
   disappear or shimmer — design silhouettes and big color shapes, not
   greebles. Avoid single-pixel-wide high-contrast stripes (they crawl).
-  Up high (vista camera: 270 m, 38°) a game pixel is ≈ 1 m at the bus and
-  2–4 m on the city below: everything there is the coarse (LOD 1) mesh.
+  Up high (vista camera: 270 m, 38°) a game pixel is ≈ 0.6 m at the bus and
+  1–2.5 m on the city below: everything there is the coarse (LOD 1) mesh.
 - Altitude: the camera can sit 700 m above the ground; the far plane is
   30 km. `pipeline.setHfov()`, `shadowFocus/shadowScale/shadowStrength/
   shadowEdge` and `calm` are driven by the game per frame (keep the shadow
   window centered on the ground under the view, never on a high bus).
 - Snapping up high: with the vista on, the game sets `pipeline.focus` to the
   ground under the screen center and `steadySnap`, calls `pipeline.snap()`
-  before `render()`, and moves near objects (the bus, its drop shadow, its
-  particles) by `pipeline.snapCompensation(pos)` so they stay where they
+  before `render()`, and moves near objects (the bus, its drop shadow's
+  center, its particles) by `pipeline.snapCompensation(pos)` so they stay where they
   belong although the grid snapped at the city's depth. Anything new that
   sits near the bus and must not jitter up high needs the same.
 - `pipeline.calm` (0..1): surfaces round to their ramp step instead of the
@@ -80,7 +93,13 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   also round instead of dithering as their fog rises (`config.render.ditherHaze*`),
   and at street level the fog handover is value-matched (each surface turns
   into the FOG step nearest its own luminance, then flattens into a
-  silhouette) through a band as narrow as the fog's own gradient.
+  silhouette) through a band as narrow as the fog's own gradient
+  (`config.render.fogBandMin` at street level).
+- **Pipeline invariant (resolve -> upscale):** the resolve's alpha is 0 on
+  plain sky and 1 everywhere else, and the upscale takes the unshifted texel
+  where both it and the shifted one are plain sky. Whatever replaces the
+  upscale (e.g. CSS canvas scaling in polish/perf) must keep the sky off the
+  snap's sub-pixel shift, or the sky saws by a pixel with the remainder.
 - Coarse regions are drawn as ONE building mesh + ONE ground mesh per 1 km
   region (`City.regionMeshes`); detailed regions keep per-tile meshes. Code
   that walks tiles for rendering must handle both. A tile marked with
@@ -214,10 +233,13 @@ impact frame shows the hit.
   the blast: it is queued on the game clock until the wave has reached the
   blast's edge (+ `signTune.showDelay`), then placed on open ground past the
   blast's far side as the camera sees it, off the flight line
-  (`signTune.besideOut/besideSide`), scaled (`StreetSignOptions.scale`) so a
-  font pixel stays >= `signTune.minFontPx` game pixels, with its depth bias on
-  from the start (`biasNow`). A re-splat of the same blast area reuses the spot,
-  so the standing sign flips.
+  (`signTune.besideOut/besideSide`; then beside the blast, then farther past;
+  never inside it), scaled (`StreetSignOptions.scale`) so a font pixel stays
+  >= `signTune.minFontPx` game pixels, at its true depth (`depthBias` 1 m, on
+  from the start: what stands in front of it covers it). A spot whose pole is
+  seen to its foot wins; else `StreetSignOptions.pole` lifts the blade clear
+  of the roofs in front (up to `signTune.poleLiftMax`). A re-splat of the same
+  blast area reuses the spot, so the standing sign flips.
 - `PixelPipeline.flash(u, v, frames, strength)`: palette flash in the resolve
   pass. `CameraRig.kick(m)` + `applyKick(cam, realDt)`: translation-only kick
   (the pixel snap handles it).
