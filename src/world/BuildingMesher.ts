@@ -816,7 +816,7 @@ function towerGrowth(B: Builder, t: BuildingTile, g: Group, i: number, ring: Arr
     let area = 0;
     for (let k = 0; k < n; k++) area += ring[k][0] * ring[(k + 1) % n][1] - ring[(k + 1) % n][0] * ring[k][1];
     area = Math.abs(area) / 2;
-    const rd = Math.min(6, Math.max(2.2, 0.1 * Math.sqrt(area)));
+    const rd = Math.min(9, Math.max(3, 0.16 * Math.sqrt(area)));
     const placed: Array<[number, number]> = [];
     for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
       let best = ring[0], bv = -Infinity;

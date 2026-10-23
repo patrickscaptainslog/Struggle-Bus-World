@@ -703,21 +703,30 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
             // trims: white on 2 of 3 towers, the complementary accent on the third
             float trimR = mod(seed, 3.0) < 2.0 ? ${R(Ramp.WHITE)} : hueRamp(hue + 3.0);
             lw = 0.2 + lw * 0.52;
-            if (fbase > 0.5 && fbase < 1.5 && fd > 0.5 && fr != ${R(Ramp.WINDOW)}) {
+            bool isGlass = fbase > 0.5 && fbase < 1.5;
+            // level 3, Hundertwasser on a skyscraper: floor-tall wavy bands running through all six
+            // hues, over the walls and the glass alike
+            float wave = 1.6 * sin(f.x * 0.17 + seed) + 0.8 * sin(f.x * 0.47 + seed * 3.1);
+            float h3 = hue + mod(floor((f.y + wave) / 3.8) + floor(seed / 7.0), 6.0);
+            if (isGlass && fd > 0.5 && fr != ${R(Ramp.WINDOW)}) {
               // the curtain wall's slab lines and mullions become the stained glass's lead
-              ramp = body; fbase = 2.0; fd = 2.0; glow = 0.0;
-            } else if (fbase > 0.5 && fbase < 1.5) {
-              // stained glass: big, calm rainbow bands sweeping up the tower (the building's hue and its
-              // neighbors), not per-pane confetti; level 3: every pane its own hue
-              // (straight diagonals: a rainbow ribbon spiralling up the tower, about three floors a band)
-              float sf = (vYRest - vBld.z) / 11.7 + f.x / 19.0;
-              float k = mod(floor(sf), 4.0);
-              float off = k < 0.5 ? -1.0 : k < 1.5 ? 0.0 : k < 2.5 ? 1.0 : 0.0;
-              if (!calm) off = floor(h21(fcell + vec2(bIdx * 0.13, 3.0)) * 6.0);
-              ramp = hueRamp(hue + off);
+              ramp = calm ? body : hueRamp(h3); fbase = 2.0; fd = 2.0; glow = 0.0;
+            } else if (isGlass) {
+              if (calm) {
+                // stained glass: a rainbow ribbon of the tower's hue and its neighbors spiralling up
+                // the tower in straight diagonal bands about three floors tall (not per-pane confetti)
+                float sf = (vYRest - vBld.z) / 11.7 + f.x / 19.0;
+                float k = mod(floor(sf), 4.0);
+                float off = k < 0.5 ? -1.0 : k < 1.5 ? 0.0 : k < 2.5 ? 1.0 : 0.0;
+                ramp = hueRamp(hue + off);
+                fd = 4.0 + (fd < -0.5 ? -1.0 : fd > 0.5 ? 1.0 : 0.0) + (k > 2.5 ? 1.0 : 0.0);
+                glow = uGlassGlow;
+              } else {
+                ramp = hueRamp(h3);
+                fd = 5.0 + (fd < -0.5 ? -1.0 : 0.0);
+                glow = uGlassGlow3;
+              }
               fbase = 2.0;
-              fd = 4.0 + (fd < -0.5 ? -1.0 : fd > 0.5 ? 1.0 : 0.0) + (k > 2.5 ? 1.0 : 0.0);
-              glow = calm ? uGlassGlow : uGlassGlow3;
             } else if (fr == ${R(Ramp.GLOW_WHITE)}) {
               // crowns turn gold; Salesforce's LED crown runs the rainbow
               ramp = crownT == ${Crown.LATTICE} ? hueRamp(hue + floor(f.x / 1.5)) : ${R(Ramp.YELLOW)};
@@ -725,15 +734,21 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
             } else if (fd > 0.5) {
               ramp = trimR; fd = 0.0; lw = 0.25 + lw * 0.75;
             } else {
-              ramp = body;
-              if (!calm) {
-                // Hundertwasser on a skyscraper: wavy bands of neighboring hues, a floor tall
-                float wave = 1.4 * sin(f.x * 0.21 + seed) + 0.7 * sin(f.x * 0.53 + seed * 3.1);
-                float band = floor((f.y + wave) / 3.8);
-                float o2 = mod(band + seed, 3.0);
-                ramp = hueRamp(hue + (o2 < 1.0 ? 0.0 : o2 < 2.0 ? 1.0 : 5.0));
+              ramp = calm ? body : hueRamp(h3);
+              fd = min(fd, 0.0) + (calm ? 0.0 : -1.0);
+            }
+            // level 2+: hanging gardens, a planter band of flowers on every third floor
+            float pv = f.y - 8.0;
+            bool inCrown = crownP && dTop < 7.0;
+            if (level > 1.5 && f.y > 9.0 && !inCrown && !pent) {
+              bool wide = 1.1 * fv / mppB >= 1.5;
+              bool band = wide ? fract(pv / 11.4) * 11.4 < 1.1 : rhythm(pv, 11.4, fv / mppB, dF.y, 4.0) > 0.5;
+              if (band) {
+                // (flowers only where the band is wider than a pixel: far away it is one green line)
+                float fl2 = wide ? h21(floor(f * vec2(0.8, 1.0)) + bIdx) : 0.0;
+                ramp = fl2 > 0.75 ? hueRamp(hue + (fl2 > 0.88 ? 1.0 : 5.0)) : ${R(Ramp.GREEN)};
+                fbase = 0.0; fd = fl2 > 0.75 ? 1.0 : 0.0; glow = 0.0;
               }
-              fd = min(fd, 0.0);
             }
             // level 3: vines and flowers spill down the walls under every setback
             if (!calm && !crownP) {

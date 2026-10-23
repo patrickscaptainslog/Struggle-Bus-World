@@ -432,6 +432,74 @@ call), this is what we chose and why.
   footprints are capped at 8 m and never LiDAR'd (Sutro, Transamerica), and
   LiDAR-only detection keeps away from landmarks and bridge decks.
 
+## Tower facades (producer: "very disappointed with the details of the skyscrapers")
+- **Six facade families instead of one window grid** (`src/world/towerStyles.ts`,
+  chosen in the mesher, no re-bake): glass curtain wall (mullions, spandrels,
+  calm sky-reflection bands, a few dark / lit panes, mechanical floors every 20
+  floors), pre-war masonry (pale stone, paired punched windows, deco piers,
+  rusticated arcade base, cornice and attic, round-headed top floors),
+  1960s-70s horizontal bands, 1960s-70s vertical fins (they hide the glass when
+  seen obliquely), dark granite with bright slots (555 California) and white
+  precast with deep vertical slots (Embarcadero Center). A building is chosen by
+  height class, district (FiDi, Union Square / Nob Hill, Civic Center, Rincon /
+  Transbay, SoMa, Mission Bay, by Market Street), footprint (big slabs lean to
+  bands) and a hash of its stable id; tower-on-podium blocks can wear an older
+  podium family. Towers and commercial / civic blocks >= 16 m get one (TOWER
+  >= 14 m): 1,100 buildings in SF.
+- **Icons by lat/lon, not by id**: a small table (Salesforce, 181 Fremont, 555
+  California, Millennium, Embarcadero Center 1-4, 345 and 101 California, One
+  Rincon Hill, 50 Fremont, 44 Montgomery, One Market, the Hyatt) matched by the
+  footprint that contains the point and a minimum height, so a re-bake that
+  renumbers ids keeps them. Positions go through the bake's own tmerc
+  (`llToLocal`, exact to centimeters), not the flat-earth scale `main.ts` uses
+  for `?lat/?lon`.
+- **Every tower has a base and a top**: two tall ground floors of storefront
+  glass between piers over a dark entrance band (masonry: rusticated arcades);
+  the top is a mechanical band (louvers, no windows), a cornice (masonry), a
+  softly lit band (a quarter of the glass towers >= 60 m) or Salesforce's
+  lattice. LiDAR's small rooftop boxes are mechanical penthouses (solid,
+  louvered); setbacks get a coping line. Rows count from the true ground on every
+  tier; every wall is stretched to a whole number of column modules so corners
+  land on piers and columns run straight up the tower; a tapering face keeps its
+  columns (they converge with it: before, its u was scaled about the perimeter
+  start, which slanted every column and drew Salesforce's diagonal moire).
+- **No dither on a tower facade**: its light is chosen in whole ramp steps after
+  the resolve's atmospheric perspective (mirrored in the building shader) and
+  written so it lands exactly on them. Pattern contrast still compresses with
+  fog, by whole steps.
+- **Facade LOD by size on screen, per building and face** (never per pixel, so
+  no line crosses a wall): the size of a game pixel at the building (its axis
+  point nearest the camera, jittered +-12 % per building so no ring shows) and
+  each face's foreshortening decide: columns while a module is >= 3 game px,
+  floors while a floor is >= 4 px, then a flat wall tone. Far away a facade
+  keeps its rhythm as one-pixel lines at 2x / 4x / 8x the module (>= 3-4 px
+  apart, none in heavy fog): slab lines and mechanical floors on glass,
+  Salesforce's sunshades, ribbons on bands, slots on granite and precast, fins.
+- **Hero details the data can't draw**: Salesforce Tower's open crown is the
+  top 52 m of its tapered shaft: white fins (converging) and rings over a
+  softly glowing LED screen; 181 Fremont is dark glass wrapped in diagonal
+  bracing, with a spire prop on its top box; Coit Tower (fluted column, arched
+  lookout, on Telegraph Hill) and the Ferry Building (arcades, nave, the 75 m
+  clock tower on the axis of Market Street) are props with collision posts. The
+  footprints carried the Ferry Building as two rows of 8 m "Victorian" lots
+  (the row splitter cut it); the mesher hides them (they stay in the obstacle
+  grid and the paint tables; a landmark doesn't paint, like Sutro).
+- **Painted towers** escalate like the houses: L1 a stained-glass curtain wall,
+  a rainbow ribbon of the tower's hue and its two neighbors spiralling up in
+  straight diagonal bands about three floors tall (not per-pane confetti: panes
+  are sub-pixel from the chase camera), lead lines on the slabs and mullions;
+  stone, granite and concrete take the body hue, trims white on two of three
+  towers and the complementary on the third, crowns turn gold and Salesforce's
+  LED crown runs the rainbow. L2 hanging gardens: a planter band of flowers on
+  every third floor (a one-pixel green line far away) and roof gardens with
+  bushes along every open setback. L3 Hundertwasser on a skyscraper:
+  floor-tall wavy bands through all six hues over walls and glass alike, vines
+  and flowers spilling down under every setback, trees leaning out over the
+  edges, golden onion domes on the crown's corners. Bushes, trees and domes
+  are baked into the building mesh collapsed on their anchors (no draw call,
+  no shadow, nothing drawn) and grow out in the vertex shader once the flood
+  has passed them at their level.
+
 ## Rendering
 - **Indexed-color pipeline.** Materials output a ramp index + light level, never
   RGB; the resolve pass picks ramp steps with ordered dithering. Mixing is done
@@ -445,6 +513,23 @@ call), this is what we chose and why.
   sub-pixel remainder applied at upscale; dither anchored to the snapped grid;
   telephoto lens to minimize parallax; shadow map snapped to its texel grid;
   outlines fade with distance.
+- **Roofs on one ramp** (review: "the far field has more contrast than the
+  foreground"): pale gravel, dark membrane and silver paint are light offsets
+  on GREY_LIGHT (-0.06 / -0.34 / 0), sloped roofs -0.36, so the fog compresses
+  the patchwork with distance instead of keeping ROOF_DARK next to GREY_LIGHT
+  (about 90 luminance apart in every fog). Near roofs keep their tones (the
+  verifier's re-fit offsets).
+- **House windows LOD per building** (same review): one glass band per floor
+  beyond 0.6 m per game pixel at the house (~340 m in the chase lens), the
+  wall's average tone beyond 1.15 m (~650 m), jittered per building; trim and
+  belt courses go with the ribbons (they are sub-pixel by then). It replaces
+  the vista-only per-pixel melt. Targets (255-300 m) keep their windows.
+- **Painted Ladies are calm at levels 1-2** (review: "plaid confetti"): bays and
+  gables take the body color, trim only on belts and cornices (no sub-pixel
+  window frames), white trim on two of three houses, stained glass bright in
+  itself with glow 0.12 (under the halo threshold: no dithered dust). Level 3
+  keeps the riot (frames, neighboring-hue bays and gables, wavy bands, every
+  window its own hue, glow 0.38), so escalation reads.
 - The bus does not cast a sun shadow (with a low sun it would land 40 m away);
   it casts a straight-down **drop shadow**, which is the aim reticle.
 - City streaming: 1 km gzip region bundles (17 MB for all of SF), inflated and
