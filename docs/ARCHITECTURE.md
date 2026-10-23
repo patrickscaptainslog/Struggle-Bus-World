@@ -121,7 +121,7 @@ live in `src/config.ts`.
 | Particles | `src/fx/Particles.ts` | see `Particles` |
 | Street signs | `src/fx/StreetSign.ts`, `src/fx/pixelFont.ts` | see `StreetSigns` |
 | Input + tuner + perf | `src/game/Input.ts`, `src/ui/Tuner.ts`, `src/ui/Perf.ts` | see below |
-| Props + landmarks | `src/world/Props.ts` | trees, Sutro Tower, Transamerica, roof sprouts |
+| Props + landmarks | `src/world/Props.ts`, `src/world/props/*` | trees, Sutro Tower, Transamerica, roof sprouts; landmark paint (`props/landmarkPaint.ts`) |
 | Game glue | `src/main.ts`, `src/game/*` | flight, camera, splat, bloom, persistence |
 | Ground paint | `src/world/GroundPaint.ts`, `src/game/blastLayout.ts` | per-tile splat masks, blast shape + hue layout, shockwave ring GLSL |
 
@@ -156,6 +156,76 @@ UI or camera code.
   (the pixel snap handles it).
 - `src/render/upload.ts`: `uploadRect()` = one texSubImage2D of a DataTexture's
   dirty rectangle (PaintState, GroundPaint).
+
+## Paintable landmarks (hand-built props)
+A landmark prop (Transamerica, Sutro Tower, any `LandmarkKit` prop) is a
+first-class paintable building: picked, bloomed by the wave, escalated,
+glinted and saved like a baked one.
+
+- **One call where the prop is placed**:
+  `paintLandmark(city, 'lm:<name>', object, { name })` (`props/landmarkPaint.ts`).
+  It takes the prop's base ring (convex hull in plan), its top and a 2 m height
+  field of its real surface from its triangles, registers them with
+  `City.addLandmarkBuilding`, and binds its materials to the paint texel.
+  `name` is what the street sign says. Call it after positioning the object.
+- `City.addLandmarkBuilding({ key, ring, baseY, roofY, arch?, name?, heightAt? })`
+  makes a normal `BuildingRef`: paint index from the reserved range
+  `[buildingCount, buildingCount + LANDMARK_SLOTS)` (PaintState is sized with
+  the reserve), `stableId < 0`, its `tile` a one-record tile of its own (the
+  ring), so `contains`, `frontOf`, `roofRect`, `buildingsNear` work unchanged;
+  `roofAtPart` and `surfaceAt` follow `heightAt` (the pyramid's slope, the
+  ground between Sutro's legs; `landmarkSurfaceAt` is the landmark part alone);
+  `isLandmark(ref)`, `landmarkRefs()`. Paint is saved in
+  `strugglebus.paint.v1` under the string key (`'lm:transamerica'`), which no
+  baked stableId can collide with. Landmark refs are never unloaded.
+- **Every spatial index goes through `City.indexRef(ref)`** (today the centroid
+  hash). An index added later must be filled there too (one line).
+- **The material**: `LandmarkKit.build(look?)` gives each landmark its own
+  material (own uniforms, one shared program); its shader calls
+  `lmVertex(position, aPat)` (paint texel, the buildings' pop scaled by
+  `config.bloom.landmarkPop`, wobble) and `lmPaint(ramp, lo, type, aPat, y,
+  worldPos, n, mpp)` before `sbWrite`. A prop outside the kit spreads
+  `landmarkPaintUniforms(look)` into its uniforms and includes
+  `GLSL_LM_PAINT_VS` / `GLSL_LM_PAINT_FS`. `bindLandmarkPaint(object, ref)`
+  binds a prop to any building's texel (e.g. a spire to the tower it stands on).
+- **The look** (`LandmarkLook`, local meters, all optional): `glowFrom` (lit
+  accents above it; `blink` = rainbow beacon rings), `vines` (level-2 vines up
+  to that fraction of the height), `planted` (vertical windowed walls in that
+  band grow lush), `band` (level-3 band height), `paintBands` (the prop's own
+  paint bands become a rainbow), `domes` / `bunting` (level-3 accents). Pattern
+  ids the paint knows: 0 plain trim, 1 paint bands, 2 lattice, 3 window bands,
+  others = walls; 20 / 21 are the accents (`LM_DOME`, `LM_FLAG`).
+- **Level-3 accents cost nothing before level 3**: the kit appends them after
+  the prop's geometry and `bindLandmarkPaint` sets the draw range in
+  `onBeforeRender` from the texel's level (no extra draw call ever).
+- The game: the impact callback calls `landmarkHit(city, pos, t)` (the splash
+  starts where the breath hit); `bloom` uses `landmarkSparkles(ref)` and grows
+  no rooftop sprouts on a landmark; saved landmark paint thins the fog at boot.
+  The aim: the altitude ray hits landmark surfaces (`surfaceAt`); the classic
+  short shot's chord is tested against them (a landmark face in the way takes
+  the shot, `aim.lm`); `Splatter.barf` lands a landmark primary where the breath
+  met it (`opts.y`, else `roofAtPart` at the aim point), never at its centroid.
+- QA: `tools/landmarks.mjs` (game: probe, level sequences, altitude, Sutro,
+  reload, near, views, perf), `tools/landmark-dev-shots.mjs` + `dev/landmarks.html`
+  (one landmark, its texel from query params: level, hue, t, keep, hit, target).
+- Merging polish/feel (area index, Aimer): `City.indexRef` gets
+  `this.areaCells(ref, true);`, and the ref literal in `addLandmarkBuilding`
+  gets `x0, z0, x1, z1, rad, q: 0` (all in scope there). Its Aimer and barf
+  replace fix/landmarks' aim lines in main.ts and Splat.ts (its `landingOn` /
+  `roofAtPart` already land a landmark on its surface); in `Aimer.occlude` a
+  landmark target may take the shot on its own face:
+  `if (!ref || (ref === target && !city.isLandmark(ref)) || ...) continue;` and,
+  after `ey = city.roofAtPart(target, ex, ez) + 0.5;`,
+  `if (city.isLandmark(target)) ey = Math.min(ey, this.y0 - F_CLEAR);`. The
+  landmark glint in `GLSL_LM_PAINT_FS` then takes the buildings' new form
+  (`uTargetT` / `uGlint` from `paintUniforms`, added to the light).
+- Merging feat/facade (Coit Tower, the Ferry Building, 181 Fremont's spire): in
+  main.ts's `heroLandmarks` loop, one line per prop:
+  `paintLandmark(city, 'lm:' + h.object.name, h.object, { name: ... });`
+  (their `k.build()` already gives them the paint; `k.build(look)` adds accents).
+  The Ferry Building's hidden 8 m lots stay paintable under it and the prop's
+  hull wins the pick as the tallest footprint there (at its ends only once the
+  area index is in: the centroid hash searches 40 m around a point).
 
 QA hooks: `?fixeddt=<s>` steps the game by a fixed dt per rendered frame;
 `window.__qa.holdAt = <game time>` freezes on the first frame at/after it
