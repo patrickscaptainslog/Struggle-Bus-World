@@ -10,11 +10,13 @@ Inputs (per city config):
   dem         USGS 3DEP 1 m DEM GeoTIFFs (any CRS).
   lidar       optional {"ept": url, ...}: a USGS 3DEP point cloud (Entwine
               Point Tile), fetched + rasterized by tools/bake/lidar.py. Then
-              every building's height comes from its rooftops, tall ones get
-              their real outline and stacked tiers (setbacks, podiums, tapers,
-              crowns, rooftop boxes), merged commercial blocks split along
-              party walls, and towers missing from the footprints are added.
-              Stable ids of existing buildings never change (new ones append).
+              every building's height comes from its rooftops (tree crowns
+              kept off small houses), row lots under one tall roof merge back
+              into one building, tall ones get their real outline and stacked
+              tiers (setbacks, podiums, tapers, crowns, rooftop boxes), merged
+              commercial blocks split along party walls, and towers missing from
+              the footprints are added (see lidar_pass). Stable ids of existing
+              buildings never move to another building.
 
 Outputs (public/city/<slug>/):
   city.json        manifest (tiles, neighborhoods, landmarks, start pose)
@@ -57,6 +59,9 @@ TERRAIN_CELL = TILE / (TERRAIN_N - 1)
 OBST_N = 32              # obstacle cells per tile edge (8 m)
 DEM_RES = 2.0            # resampled DEM resolution in the local frame (m)
 FAR_CELL = 32.0
+FAR_MIN_HEIGHT = 20.0    # m: buildings in the far skyline (boxes)...
+FAR_TIER_HEIGHT = 60.0   # ...towers this tall get a box per big setback...
+FAR_MAX_BOXES = 4        # ...at most this many
 
 ARCH = {'generic': 0, 'victorian': 1, 'flats': 2, 'commercial': 3, 'tower': 4, 'stucco': 5, 'marina': 6, 'shed': 7, 'civic': 8}
 
@@ -127,6 +132,23 @@ MASSING = {
     'newMinHeight': 20.0,       # m: LiDAR-only buildings (missing from the footprints) at least this tall...
     'newMinArea': 300.0,        # m^2: ...and this big
     'newThresholds': [20.0, 30.0, 45.0, 70.0, 110.0],  # m: outline levels tried in turn
+    'towerMinArea': 120.0,      # m^2: a tower's floor plate is at least this big...
+    'towerMinFrac': 0.05,       # ...and this fraction of its footprint (its top, not its median, makes it a tower)
+    'canopyGap': 4.0,           # m: top (first returns) and low (last returns) roofs this far apart: a tree crown is in the way...
+    'canopyMaxHeight': 40.0,    # ...below this (no tree is taller; higher up, glass towers' ghost points fill the low raster)
+    'houseMaxArea': 400.0,      # m^2: small residential footprints...
+    'houseMaxRise': 6.0,        # m: ...grow at most this much over the footprint height unless the LiDAR roof is one plane:
+    'houseAgree': 0.6,          # ...this fraction of its cells within 2.5 m of the roof height
+    'needleRatio': 4.0,         # a footprint never grows taller than this x its width when the tall LiDAR blob is mostly outside it
+    'mergeMinHeight': 20.0,     # m: row lots of one source footprint under one roof this tall merge back into one building...
+    'mergeTol': 0.15,           # ...when their heights agree within this fraction (or 3 m)
+    'taperMaxDrop': 0.3,        # a taper narrows at most this much (top scale >= 0.7)...
+    'taperConvex': 0.9,         # ...and only on compact outlines: area / convex hull at least this...
+    'taperAspect': 1.6,         # ...and no longer than this x their width (slabs step, they don't taper)
+    'taperSteps': 0.6,          # ...and the ramp must beat the best 2-3 flat steps of the same run by this (SSE ratio)
+    'notchMinHeight': 120.0,    # m: towers this tall keep notched and chamfered corners (Embarcadero Center's sawtooth)...
+    'notchSimplify': 0.6,       # m: ...polygonized this finely
+    'notchMaxVerts': 48,
 }
 
 
@@ -265,10 +287,20 @@ class Massing:
         zc = oz + (np.arange(Z.shape[0]) + 0.5) * res
         XC, ZC = np.meshgrid(xc, zc)
         G = self.dem_at(XC.ravel(), ZC.ravel()).reshape(Z.shape).astype(np.float32)
-        return {'Z': Z, 'G': G, 'mask': mask, 'ox': ox, 'oz': oz, 'res': res, 'tr': tr}
+        # the lowest last returns, same cells (None for rasters cached before there was one)
+        Lw = self.heights.window((x0 - pad, z0 - pad, x1 + pad, z1 + pad), res <= 1.0, low=True)
+        L = None
+        if Lw is not None and Lw[3] == res and Lw[0].shape == Zq.shape:
+            L = Lw[0].astype(np.float32) / 10.0
+            L[Lw[0] == self.nodata] = np.nan
+        return {'Z': Z, 'L': L, 'G': G, 'mask': mask, 'ox': ox, 'oz': oz, 'res': res, 'tr': tr}
 
     def roof(self, w):
-        """Robust absolute roof elevation over the footprint, or None (no coverage / reads as ground)."""
+        """Robust roof elevations over the footprint, or None (no coverage / reads as ground):
+        {'top': median of the highest first returns (absolute),
+         'low': median of the lowest last returns, or None (no data, or they read as ground),
+         'lowGround': the last returns read as ground (a crown over a yard, or over a lot that isn't one),
+         'agree': fraction of the roof cells within 2.5 m of top (one roof, not a crown of leaves)}."""
         P = self.P
         mask = w['mask']
         inner = ndimage.binary_erosion(mask)
@@ -282,7 +314,51 @@ class Massing:
         roofish = nd > P['groundAbove']
         if roofish.mean() < 0.5:
             return None  # mostly ground: demolished since, or misregistered; keep the footprint height
-        return float(np.percentile(Z[ok][roofish], P['roofPercentile']))
+        zr = Z[ok][roofish]
+        top = float(np.percentile(zr, P['roofPercentile']))
+        out = {'top': top, 'low': None, 'lowGround': False, 'agree': float((np.abs(zr - top) <= 2.5).mean())}
+        if w.get('L') is not None:
+            Lz = w['L'][inner]
+            okl = ~np.isnan(Lz)
+            if okl.mean() >= 0.3:
+                rl = Lz[okl] - G[okl] > P['groundAbove']
+                if rl.mean() >= 0.5:
+                    out['low'] = float(np.percentile(Lz[okl][rl], P['roofPercentile']))
+                else:
+                    out['lowGround'] = True
+        return out
+
+    def top_level(self, w, gref):
+        """Height above gref of the highest level that still holds a real tower floor plate
+        (towerMinArea m^2 and towerMinFrac of the footprint): what decides tower vs mid-rise,
+        so a slim tower on a broad podium is a tower although the median roof is the podium."""
+        P = self.P
+        R = self.rel_heights(w, gref)
+        mask = w['mask']
+        cell = w['res'] ** 2
+        need = max(P['towerMinArea'], P['towerMinFrac'] * mask.sum() * cell) / cell
+        v = np.sort(R[mask])[::-1]
+        if len(v) < need:
+            return float(v[-1]) if len(v) else 0.0
+        return float(v[int(math.ceil(need)) - 1])
+
+    def blob_outside(self, poly, fine, gref, level):
+        """Area (m^2) of the LiDAR blob at >= level (above gref) that touches the footprint's own tall
+        cells, and how much of it lies outside the footprint: a lot that is a sliver of a bigger tower."""
+        w = self.window(poly, fine, pad=60.0)
+        if w is None:
+            return 0.0, 0.0
+        Z, G, mask = w['Z'], w['G'], w['mask']
+        tall = ~np.isnan(Z) & (Z - G >= self.P['groundAbove']) & (Z - gref >= level)
+        tall = ndimage.binary_opening(tall)
+        lab, nl = ndimage.label(tall)
+        ids = np.unique(lab[mask & tall])
+        ids = ids[ids > 0]
+        if not len(ids):
+            return 0.0, 0.0
+        blob = np.isin(lab, ids)
+        cell = w['res'] ** 2
+        return float(blob.sum() * cell), float((blob & ~mask).sum() * cell)
 
     def rel_heights(self, w, gref):
         """Height above gref per cell (0 = ground / outside), with the footprint's registration ring repaired."""
@@ -305,9 +381,12 @@ class Massing:
         R = np.where(mask, Rm, 0.0)
         return R
 
-    def clean(self, q, theta, tol):
-        """Simplify + square up one outline, keeping it under maxVerts (coarser until it is), or None."""
+    def clean(self, q, theta, tol, notch=False):
+        """Simplify + square up one outline, keeping it under maxVerts (coarser until it is), or None.
+        notch: a tall tower's outline: finer, short corner diagonals kept (sawtooth corners, chamfers)."""
         P = self.P
+        if notch:
+            tol = min(tol, P['notchSimplify'])
         q = shapely.make_valid(q)
         if q.geom_type in ('MultiPolygon', 'GeometryCollection'):
             polys = [g for g in getattr(q, 'geoms', []) if g.geom_type == 'Polygon']
@@ -317,19 +396,20 @@ class Massing:
         if q.geom_type != 'Polygon' or q.is_empty:
             return None
         q = Polygon(q.exterior.coords)
+        max_verts = P['notchMaxVerts'] if notch else P['maxVerts']
         for t in (tol, tol * 1.6, tol * 2.5, tol * 4.0):
-            r = square_up(shapely.simplify(q, t, preserve_topology=True), theta, P['squareDeg'])
+            r = square_up(shapely.simplify(q, t, preserve_topology=True), theta, P['squareDeg'], chamfer=0.0 if notch else 2.8)
             r = shapely.make_valid(r)
             if r.geom_type == 'MultiPolygon':
                 r = max(r.geoms, key=lambda g: g.area)
             if r.geom_type != 'Polygon' or r.is_empty:
                 return None
             r = Polygon(r.exterior.coords)
-            if len(r.exterior.coords) - 1 <= P['maxVerts']:
+            if len(r.exterior.coords) - 1 <= max_verts:
                 break
         return r
 
-    def outline(self, w, poly, gref, neighbors):
+    def outline(self, w, poly, gref, neighbors, notch=False):
         """The building's real outline from LiDAR, within 2.5 m of its footprint and off its neighbors'
         (footprints are often a rough envelope, a little offset), or None if they disagree too much."""
         from rasterio.features import rasterize
@@ -343,7 +423,7 @@ class Massing:
         lev = max(4.0, min(10.0, 0.3 * float(np.median(inner))))
         grow = poly.buffer(2.5, join_style='mitre', mitre_limit=2.0)
         gm = rasterize([(grow, 1)], out_shape=R.shape, transform=w['tr'], fill=0, dtype=np.uint8).astype(bool)
-        pieces = self.polygons((R >= lev) & gm, w, grid_angle(poly), simplify=self.P['simplify'] * 0.8)
+        pieces = self.polygons((R >= lev) & gm, w, grid_angle(poly), simplify=self.P['simplify'] * 0.8, notch=notch)
         if not pieces:
             return None
         theta = grid_angle(poly)
@@ -354,7 +434,7 @@ class Massing:
         nb = neighbors(poly)
         if nb is not None and not nb.is_empty:
             q = shapely.make_valid(shapely.snap(q, nb, 1.0).difference(nb))
-        q = self.clean(q, theta, P['simplify'] * 0.8)
+        q = self.clean(q, theta, P['simplify'] * 0.8, notch=notch)
         if q is None:
             return None
         iou = q.intersection(poly).area / max(q.union(poly).area, 1e-6)
@@ -362,14 +442,15 @@ class Massing:
             return None
         return shapely.geometry.polygon.orient(q, 1.0)
 
-    def polygons(self, m, w, theta, simplify=None, low=False):
-        """Polygonize a bool mask: opened (drops slivers), holes filled, simplified, squared up."""
+    def polygons(self, m, w, theta, simplify=None, low=False, notch=False):
+        """Polygonize a bool mask: opened (drops slivers), holes filled, simplified, squared up.
+        notch: a tall tower's tier: opened less (its corner notches are a couple of meters)."""
         from rasterio.features import shapes
         P = self.P
         simplify = P['simplify'] if simplify is None else simplify
         res = w['res']
         min_area = P['partMinAreaLow'] if low else P['partMinArea']
-        k = max(1, int(round((P['partMinWidthLow'] if low else P['partMinWidth']) / res)))
+        k = max(1, int(round((P['partMinWidthLow'] if low else P['partMinWidth']) / res)) - (1 if notch else 0))
         m = ndimage.binary_opening(m, structure=np.ones((k, k), bool))
         m = ndimage.binary_fill_holes(m)
         if m.sum() * res * res < min_area:
@@ -381,7 +462,7 @@ class Massing:
             poly = Polygon(geom['coordinates'][0])
             if poly.area < min_area:
                 continue
-            poly = self.clean(poly, theta, simplify)
+            poly = self.clean(poly, theta, simplify, notch=notch)
             if poly is None or poly.area < min_area:
                 continue
             out.append(poly)
@@ -390,7 +471,8 @@ class Massing:
     def tiers(self, w, poly, gref, height):
         """Stacked parts [(poly, topY, tier, parent, topScale)] (part 0 = the footprint), or None for a
         plain prism. topScale < 1: the part tapers (its top outline is its base scaled about the centroid).
-        height: the building's robust (median) roof height, which decides tower vs mid-rise."""
+        height: the building's top (Massing.top_level, not its median roof), which decides tower vs
+        mid-rise, whether it may taper, and whether its corners keep their notches."""
         from rasterio.features import rasterize
         P = self.P
         res = w['res']
@@ -413,6 +495,8 @@ class Massing:
         vol = float(A.sum())
         if n < Lmin * 2 or vol <= 0:
             return None
+        tower = height >= P['outlineMinHeight']
+        notch = height >= P['notchMinHeight']
         # Area-vs-height curve -> optimal k pieces, each flat (a prism) or a ramp (a taper);
         # the smallest k whose stepped/tapered massing is within tolerance of the LiDAR volume.
         t = np.arange(n, dtype=np.float64)
@@ -426,13 +510,44 @@ class Massing:
             beta = (ln * sta - st * sa) / (ln * stt - st * st)
             alpha = (sa - beta * st) / ln
             ramp = saa - alpha * sa - beta * sta
+        F = np.where(ln < Lmin, np.inf, flat)  # flat steps at least tierMinStep tall
         # tapers: tall enough, narrowing upward, and a much better fit than a flat step (not facade noise)
-        ramp[(ln < Ltap) | ~(beta < 0) | ~(ramp < P['taperFit'] * flat)] = np.inf
-        if height < P['taperMinBuilding']:
+        ramp[(ln < Ltap) | ~(beta < 0) | ~(ramp < P['taperFit'] * F)] = np.inf
+        # ...on a compact tower only (Salesforce, 181 Fremont): slabs and serrated plans step back instead
+        cc = np.asarray(poly.minimum_rotated_rectangle.exterior.coords)
+        e0, e1 = np.hypot(*(cc[1] - cc[0])), np.hypot(*(cc[2] - cc[1]))
+        compact = poly.area >= P['taperConvex'] * poly.convex_hull.area and max(e0, e1) <= P['taperAspect'] * max(min(e0, e1), 1e-6)
+        if height < P['taperMinBuilding'] or not compact:
             ramp[:] = np.inf  # (low roofs that slope are roofs, not tapers)
-        cost = np.minimum(flat, ramp)
-        cost[ln < Lmin] = np.inf
-        tower = height >= P['outlineMinHeight']
+        if np.isfinite(ramp).any():
+            # ...one shaft narrowing about its own axis: several pieces ending at staggered heights (a
+            # block of mid-rises) shrink the area curve just as smoothly, but they are steps
+            multi = np.zeros(n, bool)
+            cen = np.zeros((n, 2))
+            for li in range(n):
+                lab, nl = ndimage.label(((R >= max(levels[li], 0.5)) & mask) if li else mask)
+                if nl == 0:
+                    multi[li] = True
+                    continue
+                sz = np.bincount(lab.ravel())[1:]
+                multi[li] = (sz >= 0.1 * sz.sum()).sum() > 1
+                jj, ii = np.nonzero(lab == 1 + int(np.argmax(sz)))
+                cen[li] = (ii.mean() * res, jj.mean() * res)
+            cm = np.r_[0, np.cumsum(multi)]
+            I0, J1 = np.clip(I, 0, n - 1), np.clip(J - 1, 0, n - 1)
+            bad = (cm[J] - cm[I]) > 0
+            bad |= np.hypot(cen[J1, 0] - cen[I0, 0], cen[J1, 1] - cen[I0, 1]) > 0.15 * np.sqrt(A[I0])
+            ramp[bad] = np.inf
+        if np.isfinite(ramp).any():
+            # ...and never where 2-3 flat steps fit nearly as well: a stepped crown is steps
+            two = np.empty_like(F)
+            for i in range(n + 1):
+                two[i] = (F[i][:, None] + F).min(axis=0)
+            three = np.empty_like(F)
+            for i in range(n + 1):
+                three[i] = (two[i][:, None] + F).min(axis=0)
+            ramp[~(ramp < P['taperSteps'] * np.minimum(two, three))] = np.inf
+        cost = np.minimum(F, ramp)
         tol = P['tierTolerance'] if tower else P['tierToleranceLow']
         best = None
         D = cost[0].copy()  # D[j]: best cost of covering [0, j) with k pieces
@@ -463,7 +578,7 @@ class Massing:
                     a0, a1 = max(lf[0], 1e-6), max(lf[-1], 1e-6)
                     if a1 / a0 < 1.0 - P['taperMinDrop']:
                         fit = lf
-                        sc = float(np.clip(math.sqrt(a1 / a0), 0.55, 1.0))
+                        sc = float(np.clip(math.sqrt(a1 / a0), 1.0 - P['taperMaxDrop'], 1.0))
                 err += float(np.abs(seg - fit).sum())
                 segs.append((a, b, sc))
             best = segs
@@ -480,58 +595,91 @@ class Massing:
         def scaled(q, sc):  # a taper's top outline (the mesher scales about the same area centroid)
             return q if sc >= 1.0 else affinity.scale(q, sc, sc, origin=q.centroid)
 
-        parts = [[poly, None, 0, -1, best[0][2]]]
+        # [outline, top above gref (None: tier 0's first break), parent, top scale]
+        parts = [[poly, None, -1, best[0][2]]]
         prev = [0]
+        first_break = (best[1][0] if len(best) > 1 else T + 1) - 0.5
         for si in range(1, len(best)):
             a, b, sc = best[si]
             seg = A[a:b]
             # a taper's outline is its base; a flat tier's is its most typical level
             lev = min(a + 1, b - 1) if sc < 1.0 else a + int(np.argmin(np.abs(seg - seg.mean())))
             m = (R >= max(levels[lev], 0.5)) & mask
-            cur = []
-            for q in self.polygons(m, w, theta, low=not tower):
-                # sit on the tier below: clip to the (tapered) top of the parent piece it overlaps most
-                ov = sorted(((scaled(parts[pi][0], parts[pi][4]).intersection(q).area, pi) for pi in prev), reverse=True)
+            tier_top = b - 0.5 if b < n else T + 0.5
+            cur, cont = [], set()
+            for q in self.polygons(m, w, theta, low=not tower, notch=notch):
+                # sit on the tier below: the parent piece whose (tapered) top it overlaps most
+                ov = sorted(((scaled(parts[pi][0], parts[pi][3]).intersection(q).area, pi) for pi in prev), reverse=True)
+                if ov and ov[0][0] < 0.5 * q.area:
+                    # a "taper" whose narrowed top doesn't carry the tier above wasn't one (a stepped podium)
+                    full = max((parts[pi][0].intersection(q).area, pi) for pi in prev)
+                    if full[0] >= 0.5 * q.area and parts[full[1]][3] < 1.0:
+                        parts[full[1]][3] = 1.0
+                        ov = [full]
                 if not ov or ov[0][0] < 0.5 * q.area:
                     continue
                 par = ov[0][1]
-                ptop = scaled(parts[par][0], parts[par][4])
+                ptop = scaled(parts[par][0], parts[par][3])
                 # snap onto the parent first: a wall flush with the one below continues it exactly
-                qq = self.clean(ptop.intersection(shapely.snap(q, ptop, 1.0)), theta, 0.3)
+                qq = self.clean(ptop.intersection(shapely.snap(q, ptop, 1.0)), theta, 0.3, notch=notch)
                 if qq is None:
                     continue
                 qq = shapely.make_valid(ptop.intersection(qq))
-                if qq.geom_type == 'MultiPolygon':
-                    qq = max(qq.geoms, key=lambda g: g.area)
+                if qq.geom_type in ('MultiPolygon', 'GeometryCollection'):  # (clipping leaves stray edges and points)
+                    qq = max([g for g in qq.geoms if g.geom_type == 'Polygon'] or [qq], key=lambda g: g.area)
                 if qq.geom_type != 'Polygon' or qq.area < (P['partMinArea'] if tower else P['partMinAreaLow']) or qq.buffer(-P['partMinWidth'] / 2).is_empty:
                     continue
                 qq = shapely.simplify(Polygon(qq.exterior.coords), 0.15, preserve_topology=True)
-                if qq.area > 0.93 * ptop.area and sc >= 1.0 and parts[par][4] >= 1.0:
-                    continue  # same outline as the tier below: not a setback
                 # each piece's own roof: robust, so a lower tower in a shared tier isn't stretched up
+                # (but never below the level it was cut at)
                 pm = rasterize([(qq, 1)], out_shape=R.shape, transform=w['tr'], fill=0, dtype=np.uint8).astype(bool) & mask
-                own = float(np.percentile(R[pm], 85)) + 0.5 if pm.any() else levels[lev]
+                own = max(float(np.percentile(R[pm], 85)) if pm.any() else 0.0, levels[lev]) + 0.5
                 if not tower and pm.any():
                     # a neighbor's roof spilling into a misregistered footprint: it runs on, just as tall, outside
                     out_ring = ndimage.binary_dilation(pm, iterations=3) & ~mask
                     if out_ring.sum() >= 4 and np.median(Rout[out_ring]) >= 0.8 * own:
                         continue
-                cur.append([qq, min(b - 0.5, own) if b < n else min(T + 0.5, own), si, par, sc])
-            if not cur:
+                tp = min(tier_top, own)
+                cq = np.asarray(qq.minimum_rotated_rectangle.exterior.coords)
+                width = min(np.hypot(*(cq[1] - cq[0])), np.hypot(*(cq[2] - cq[1])))
+                if width < 8.0 and tp - (parts[par][1] or first_break) > 4.0 * width:
+                    continue  # a fin: a sliver of the tower the opening cut loose, a mast, a flue
+                if qq.area > 0.93 * ptop.area and sc >= 1.0 and parts[par][3] >= 1.0:
+                    # same outline as the piece below: not a setback, that piece just runs on up
+                    parts[par][1] = max(parts[par][1] or 0.0, tp)
+                    cont.add(par)
+                    continue
+                cur.append([qq, tp, par, sc])
+            cur = [cp for cp in cur if cp[2] not in cont]  # (slivers beside a piece that runs on are part of it)
+            if not cur and not cont:
                 break
             parts += cur
-            prev = list(range(len(parts) - len(cur), len(parts)))
-            if len(parts) >= (P['maxParts'] if tower else P['maxPartsLow']):
+            prev = sorted(cont) + list(range(len(parts) - len(cur), len(parts)))
+            if len(parts) >= 64:
                 break
-        # tier tops: tier 0 tops out at the first break; every piece at least a step above its parent
-        t0 = (best[1][0] if len(best) > 1 else T + 1) - 0.5
-        out = [(parts[0][0], gref + t0, 0, -1, parts[0][4])]
-        for q, tp, si, par, sc in parts[1:]:
+        # tier tops: tier 0 tops out at the first break (or runs on); every piece at least a step above
+        # its parent; tier = how many pieces it stands on
+        t0 = max(first_break, parts[0][1] or 0.0)
+        out = [[parts[0][0], gref + t0, 0, -1, parts[0][3]]]
+        for q, tp, par, sc in parts[1:]:
             base = out[par][1]
             if tp - (base - gref) < 2.0:
                 tp = (base - gref) + 2.0
-            out.append((q, gref + tp, si, par, sc))
-        out = out[:P['maxParts'] if tower else P['maxPartsLow']]
+            out.append([q, gref + tp, out[par][2] + 1, par, sc])
+        # the part budget goes to what reads from the street: drop the smallest rooftop boxes (leaves
+        # by volume) first, never a piece something stands on (a broad podium's HVAC can't starve its tower)
+        cap = P['maxParts'] if tower else P['maxPartsLow']
+        while len(out) > cap:
+            kids = {o[3] for o in out}
+            vol = lambda k: out[k][0].area * (out[k][1] - (out[out[k][3]][1] if out[k][3] >= 0 else gref))
+            k = min((k for k in range(1, len(out)) if k not in kids), key=vol)
+            del out[k]
+            for o in out:
+                if o[3] > k:
+                    o[3] -= 1
+        # a taper must keep its height: a crown clipped short of its run would lean like a roof
+        out = [(q, tp, ti, par, sc if sc >= 1.0 or tp - (out[par][1] if par >= 0 else gref) >= 0.75 * P['taperMinHeight'] else 1.0)
+               for q, tp, ti, par, sc in out]
         if len(out) == 1 and out[0][4] >= 1.0:
             return None
         return out
@@ -609,9 +757,12 @@ class Massing:
                     ys = slice(max(0, ys.start - 4), ys.stop + 4)
                     xs = slice(max(0, xs.start - 4), xs.stop + 4)
                     m = lab[ys, xs] == li
-                    # a sliver of a mapped building (its footprint is offset): the roof runs on into the footprint
+                    # a sliver of a mapped building (its footprint is offset): the roof runs on into the footprint.
+                    # (Only a thin blob can be one: registration is off by meters, and a tower standing next to
+                    # a mapped one, One Rincon's neighbors, has a roof as tall as its neighbor's too.)
                     rim = ndimage.binary_dilation(m, iterations=3) & ~m & cov[ys, xs]
-                    if rim.sum() > 0.15 * max(1, (ndimage.binary_dilation(m) & ~m).sum()) and np.median(nd[ys, xs][rim]) > 0.6 * np.median(nd[ys, xs][m]):
+                    if (ndimage.distance_transform_edt(m).max() < 7.0 and rim.sum() > 0.15 * max(1, (ndimage.binary_dilation(m) & ~m).sum())
+                            and np.median(nd[ys, xs][rim]) > 0.6 * np.median(nd[ys, xs][m])):
                         continue
                     trw = rasterio.Affine(1.0, 0, ox + xs.start, 0, 1.0, oz + ys.start)
                     geoms = [Polygon(g['coordinates'][0]) for g, v in shapes(m.astype(np.uint8), mask=m, transform=trw) if v == 1]
@@ -634,12 +785,14 @@ class Massing:
         return [(q, r) for q, r, _ in found]
 
     def split(self, w, poly, gref):
-        """Cut a merged block into separate buildings along LiDAR height jumps, or None if not clean."""
+        """Cut a merged block into separate buildings along LiDAR height jumps, or None if not clean.
+        Never a block with a tower in it: a tower's setbacks are height jumps too, and cutting along
+        them sliced towers into side-by-side stripes (its tiers make it one building instead)."""
         P = self.P
         res = w['res']
         R = self.rel_heights(w, gref)
         mask = w['mask']
-        if mask.sum() * res * res < P['splitMinArea']:
+        if mask.sum() * res * res < P['splitMinArea'] or self.top_level(w, gref) >= P['outlineMinHeight']:
             return None
         # party walls: big height jumps between neighboring cells
         gx = ndimage.maximum_filter(R, size=3) - ndimage.minimum_filter(R, size=3)
@@ -714,6 +867,270 @@ class Massing:
                 return None
             clean.append(q)
         return clean
+
+
+NEW_SPLIT_BASE = 1 << 30   # stableIds of buildings only a LiDAR bake has: pieces split off a block...
+NEW_LIDAR_BASE = 3 << 30   # ...and towers the footprint data lacks (both far above any footprint rank)
+
+
+def ground_stats_at(dem_at, p):
+    """(lowest, mean) ground under a footprint's ring and centroid."""
+    c = np.asarray(p.exterior.coords)[:-1]
+    gy = dem_at(c[:, 0], c[:, 1])
+    cy = float(dem_at([p.centroid.x], [p.centroid.y])[0])
+    return float(min(gy.min(), cy)), float((gy.mean() + cy) * 0.5)
+
+
+def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
+    """LiDAR rooftops for the ranked buildings; returns the new list (it shrinks and grows):
+      1. row lots of one source footprint standing under one tall roof merge back into one building
+         (an apartment block the lot splitter cut into 8 m stripes, each painting on its own)
+      2. merged commercial blocks split along party walls
+      3. every height from its rooftops, except where a tree crown is in the way (top and low rasters
+         disagree) and where a lot is a sliver of a bigger tower (that tower comes from step 4)
+      4. towers the footprint data lacks are added from the 1 m raster
+      5. tall ones (by their top, not their median roof) get their real outline and stacked tiers
+    Stable ids: existing buildings keep theirs; a merged building keeps its biggest lot's (the other
+    lots' ids retire with them). New ids derive from what the building is, never from a counter, so a
+    re-bake gives the same building the same id: split pieces NEW_SPLIT_BASE + parent * 16 + rank
+    (by position), LiDAR-only towers NEW_LIDAR_BASE + a hash of their position (8 m grid)."""
+    from rasterio.features import rasterize
+    P = massing.P
+    gs = lambda p: ground_stats_at(dem_at, p)
+    orient = lambda q: shapely.geometry.polygon.orient(q, 1.0)
+    log('lidar massing')
+    fine_boxes = []
+    for lo0, la0, lo1, la1 in cfg['lidar'].get('fine', []):
+        (xa, za), (xb, zb) = ll2xz(lo0, la0), ll2xz(lo1, la1)
+        fine_boxes.append((min(xa, xb), min(za, zb), max(xa, xb), max(za, zb)))
+
+    def in_fine(p):
+        x, z = p.centroid.x, p.centroid.y
+        return any(bx0 <= x <= bx1 and bz0 <= z <= bz1 for bx0, bz0, bx1, bz1 in fine_boxes)
+
+    # 1) row lots back into one building under one tall roof
+    rows = defaultdict(list)
+    for b in buildings:
+        if not b.get('landmark'):
+            rows[b['srckey'][0]].append(b)
+    gone, nmerge, nlots = set(), 0, 0
+    for lots in rows.values():
+        if len(lots) < 2:
+            continue
+        union = MultiPolygon([b['poly'] for b in lots])  # (only its bounds and cells: no topology needed)
+        w = massing.window(union, True) or massing.window(union, False)
+        if w is None:
+            continue
+        g_all = float(np.mean([gs(b['poly'])[1] for b in lots]))
+        r = massing.roof(w)
+        if r is None or r['top'] - g_all < 0.6 * P['mergeMinHeight']:
+            continue  # (a row of houses: most sources)
+        hs = {}
+        for b in lots:
+            m = rasterize([(b['poly'], 1)], out_shape=w['Z'].shape, transform=w['tr'], fill=0, dtype=np.uint8).astype(bool)
+            r = massing.roof(dict(w, mask=m)) if m.sum() >= 3 else None
+            if r is None:
+                continue
+            h = r['top'] - gs(b['poly'])[1]
+            # a tall flat roof; below tower heights not a tree crown (the last returns reach the roof).
+            # (Above them the lowest last return means nothing: glass towers scatter ghost points under them.)
+            leafy = r['lowGround'] or r['low'] is None or r['top'] - r['low'] > P['canopyGap']
+            if h >= P['mergeMinHeight'] and r['agree'] >= 0.5 and (h >= P['canopyMaxHeight'] or not leafy):
+                hs[id(b)] = h
+        tall = [b for b in lots if id(b) in hs]
+        if len(tall) < 2:
+            continue
+        root = {id(b): id(b) for b in tall}
+
+        def find(k):
+            while root[k] != k:
+                root[k] = root[root[k]]
+                k = root[k]
+            return k
+        for i, b1 in enumerate(tall):
+            for b2 in tall[i + 1:]:
+                h1, h2 = hs[id(b1)], hs[id(b2)]
+                if abs(h1 - h2) <= max(3.0, P['mergeTol'] * max(h1, h2)) and b1['poly'].distance(b2['poly']) < 0.3:
+                    root[find(id(b1))] = find(id(b2))
+        groups = defaultdict(list)
+        for b in tall:
+            groups[find(id(b))].append(b)
+        for grp in groups.values():
+            if len(grp) < 2:
+                continue
+            try:
+                q = shapely.unary_union([g['poly'].buffer(0.05, join_style='mitre') for g in grp]).buffer(-0.05, join_style='mitre')
+            except shapely.errors.GEOSException:
+                continue
+            if q.geom_type == 'MultiPolygon':
+                big = max(q.geoms, key=lambda g: g.area)
+                if big.area < 0.95 * q.area:
+                    continue
+                q = big
+            if q.geom_type != 'Polygon' or q.is_empty:
+                continue
+            # only a roof that stands on these lots: a tower that runs on over other lots and empty ground
+            # (one built since, on lots that were houses) is a building the footprints lack (step 4)
+            gmin = gs(q)[0]
+            blob, outside = massing.blob_outside(q, True, gmin, 0.6 * float(np.median([hs[id(g)] for g in grp])))
+            if outside > 0.35 * blob:
+                continue
+            keep = max(grp, key=lambda g: (g['poly'].area, -g['stable']))
+            keep['poly'] = orient(shapely.simplify(Polygon(q.exterior.coords), 0.2, preserve_topology=True))
+            keep['front_edge_hint'] = None
+            keep['h'] = max(hs[id(g)] for g in grp)
+            gone.update(id(g) for g in grp if g is not keep)
+            nmerge += 1
+            nlots += len(grp)
+    buildings = [b for b in buildings if id(b) not in gone]
+    log(f'lidar: merged {nlots} row lots back into {nmerge} buildings under one roof')
+
+    # 2) merged commercial blocks: split along party walls (the biggest piece keeps the block's id)
+    extra, nsplit = [], 0
+    for b in sorted(buildings, key=lambda b: b['stable']):
+        if b.get('landmark') or b['poly'].area < P['splitMinArea'] or b['occ'] in ('Residential', ''):
+            continue
+        w = massing.window(b['poly'], True) or massing.window(b['poly'], False)
+        if w is None:
+            continue
+        gmin, _ = gs(b['poly'])
+        try:
+            pieces = massing.split(w, b['poly'], gmin)
+        except shapely.errors.GEOSException:
+            pieces = None
+        if not pieces or len(pieces) > 16:
+            continue
+        nsplit += 1
+        pieces.sort(key=lambda q: -q.area)
+        b['poly'] = orient(pieces[0])
+        for rank, q in enumerate(sorted(pieces[1:], key=lambda q: (q.centroid.y, q.centroid.x)), 1):
+            nb = dict(b)
+            nb['poly'] = orient(q)
+            nb['stable'] = NEW_SPLIT_BASE + b['stable'] * 16 + rank
+            nb['srckey'] = (b['srckey'][0], b['srckey'][1], rank)
+            extra.append(nb)
+    buildings += extra
+    log(f'lidar: split {nsplit} merged blocks into {nsplit + len(extra)} buildings')
+
+    # 3) every building's height from its rooftops
+    dh, nfix, ncanopy, nhouse, nsliver = [], 0, 0, 0, 0
+    for b in buildings:
+        if b.get('landmark'):
+            continue
+        p = b['poly']
+        gmin, gmean = gs(p)
+        tall = b['h'] >= P['tierMinHeight'] or (in_fine(p) and b['h'] >= P['tierMinHeightFine'])
+        w = (massing.window(p, True) if tall else None) or massing.window(p, False)
+        if w is None:
+            continue
+        r = massing.roof(w)
+        if r is None:
+            continue
+        h_top = max(3.0, r['top'] - gmean)
+        if h_top > b['h'] + 6.0:
+            cc = np.asarray(p.minimum_rotated_rectangle.exterior.coords)
+            width = min(np.hypot(*(cc[1] - cc[0])), np.hypot(*(cc[2] - cc[1])))
+            if h_top > P['needleRatio'] * width:
+                blob, outside = massing.blob_outside(p, True, gmin, 0.6 * h_top)
+                if outside > 0.5 * blob:
+                    b['sliver'] = True  # a sliver of a taller blob: keeps its height, the blob is step 4's
+                    nsliver += 1
+                    continue
+        h_new, top_h = h_top, None
+        low = None if r['low'] is None else r['low'] - gmean
+        house = b['occ'] in ('Residential', 'Unclassified', '') and p.area < P['houseMaxArea']
+        if house and h_top < P['canopyMaxHeight'] and (r['lowGround'] or (low is not None and h_top - low > P['canopyGap'])):
+            # a small house under a tree crown (the last returns say the roof, or the yard, is meters
+            # below the first): the footprint height, within what the returns allow
+            h_new = float(np.clip(b['h'], 3.0 if low is None else max(3.0, low), h_top))
+            top_h = h_new
+            ncanopy += 1
+        elif house and h_new > b['h'] + P['houseMaxRise'] and r['agree'] < P['houseAgree']:
+            h_new = top_h = b['h'] + P['houseMaxRise']  # (a small house whose "roof" is no plane)
+            nhouse += 1
+        dh.append(h_new - b['h'])
+        b['h'] = h_new
+        b['topH'] = massing.top_level(w, gmin) if top_h is None else top_h
+        nfix += 1
+    dh = np.array(dh) if dh else np.zeros(1)
+    log(f'lidar: corrected {nfix}/{len(buildings)} heights (median change {np.median(dh):+.1f} m, |change| > 3 m: '
+        f'{int((np.abs(dh) > 3).sum())}); {ncanopy} under tree crowns, {nhouse} small houses capped, {nsliver} slivers of a taller blob')
+
+    # 4) towers the footprint data never had (built since), from the 1 m LiDAR alone
+    tree_b = STRtree([b['poly'] for b in buildings if not b.get('sliver')])
+    keep_out = []
+    for lm in cfg.get('landmarks', []):
+        if lm.get('clearRadius'):
+            keep_out.append(shapely.Point(*ll2xz(lm['lon'], lm['lat'])).buffer(float(lm['clearRadius']) + 15.0))
+        if 'points' in lm:  # bridges: their decks and towers are hand-built (the deck's width, no more:
+            # the Bay Bridge lands on Rincon Hill, among towers the footprints lack)
+            keep_out.append(shapely.LineString([ll2xz(lo, la) for la, lo in lm['points']]).buffer(20.0))
+    new = massing.new_buildings(fine_raster, tree_b, keep_out, log)
+    used = {b['stable'] for b in buildings}
+    keyed = sorted(((hash32(int(round(q.centroid.x / 8.0)), int(round(q.centroid.y / 8.0))) & 0x0FFFFFFF, q.centroid.y, q.centroid.x, q, roof)
+                    for q, roof in new), key=lambda t: t[:3])
+    for k, (hk, _, _, q, roof) in enumerate(keyed):
+        sid = NEW_LIDAR_BASE + hk
+        while sid in used:
+            sid += 1
+        used.add(sid)
+        _, gmean = gs(q)
+        buildings.append({'poly': q, 'h': max(3.0, roof - gmean), 'occ': 'Commercial', 'prim': '', 'srckey': (-1, k),
+                          'front_edge_hint': None, 'stable': sid, 'parts': None, 'lidarOnly': True, 'topH': roof - gmean})
+
+    # 5) tall buildings: real outline + tiers (decided by their top: a slim tower on a broad podium is a tower)
+    tree_n = STRtree([b['poly'] for b in buildings])
+    polys_n = [b['poly'] for b in buildings]
+
+    def neighbors(p):
+        idx = [i for i in tree_n.query(p.buffer(3.0)) if not polys_n[i].equals(p)]
+        if not idx:
+            return None
+        try:
+            return shapely.unary_union([shapely.make_valid(polys_n[i]) for i in idx])
+        except shapely.errors.GEOSException:
+            return shapely.unary_union([shapely.make_valid(polys_n[i]).buffer(0.01) for i in idx])
+
+    ntier, nparts, nout, nbad, nflat = 0, 0, 0, 0, 0
+    for b in buildings:
+        if b.get('landmark') or b.get('sliver') or 'topH' not in b:
+            continue
+        p = b['poly']
+        hi = max(b['h'], b['topH'])
+        if not (hi >= P['tierMinHeight'] or (in_fine(p) and hi >= P['tierMinHeightFine'])) or p.area < P['tierMinArea']:
+            continue
+        w = massing.window(p, True)  # (the 1 m raster: every tall footprint has it)
+        if w is None:
+            continue
+        gmin, gmean = gs(p)
+        top_h = massing.top_level(w, gmin) if b['topH'] > b['h'] else b['topH']
+        q = None
+        try:
+            if top_h >= P['outlineMinHeight']:
+                q = massing.outline(w, p, gmin, neighbors, notch=top_h >= P['notchMinHeight'])
+        except shapely.errors.GEOSException:
+            nbad += 1  # degenerate geometry: keep the footprint
+        if q is not None:
+            w2 = massing.window(q, True)
+            if w2 is not None:
+                b['poly'], p, w = q, q, w2
+                gmin, gmean = gs(p)
+                nout += 1
+        try:
+            tiers = massing.tiers(w, p, gmin, top_h)
+        except shapely.errors.GEOSException:
+            tiers, nbad = None, nbad + 1
+        if tiers:
+            b['parts'] = tiers
+            b['h'] = max(t[1] for t in tiers) - gmean
+            ntier += 1
+            nparts += len(tiers)
+        elif top_h > b['h'] + 10.0:
+            nflat += 1  # (a tall top the stacking couldn't place: drawn at its median roof)
+    if nbad:
+        log(f'lidar: {nbad} footprints with degenerate geometry kept as they were')
+    log(f'lidar: {nout} outlines from LiDAR, {ntier} tiered buildings, {nparts} parts; {nflat} tall tops left flat')
+    return buildings
 
 
 def main():
@@ -796,7 +1213,13 @@ def main():
     if cfg.get('lidar') and flags.get('lidar', '1') != '0':
         lidar = load_lidar_module()
         fine_ch, coarse_ch = lidar.plan_chunks(cfg, df.geometry.values, df['HEIGHT'].astype(float).values, proj)
-        lidar_rasters = lidar.build_rasters(dict(cfg, slug=slug), lidar.Frame(proj, minX, minZ, maxX, maxZ), fine_ch, coarse_ch, log=log)
+        frame = lidar.Frame(proj, minX, minZ, maxX, maxZ)
+        lidar_rasters = lidar.build_rasters(dict(cfg, slug=slug), frame, set(), coarse_ch, log=log)
+        # the 1 m plan also covers tall roofs the footprint heights don't know about
+        extra = lidar.tall_chunks(lidar_rasters['coarse'], dem_at, fine_ch)
+        log(f'lidar: {len(extra)} more 1 m chunks where the 2 m raster sees tall roofs the footprints miss')
+        fine_r = lidar.build_rasters(dict(cfg, slug=slug), frame, fine_ch | extra, set(), log=log)
+        lidar_rasters.update(fine=fine_r['fine'], fineLow=fine_r['fineLow'])
         massing = Massing(cfg['lidar'].get('massing'), lidar.Heights(lidar_rasters), dem_at, lidar.NODATA)
 
     polys, attrs = [], []
@@ -1017,147 +1440,25 @@ def main():
     # stable across re-bakes of the same source data (the paint array keys on it).
     for rank, b in enumerate(sorted(buildings, key=lambda b: b['srckey'])):
         b['stable'] = rank
-    # Everything below may change heights, split blocks and add tiers, but never
-    # the ranking above: new buildings (split-off pieces) get ids after the last one.
-
-    def ground_stats(p):
-        c = np.asarray(p.exterior.coords)[:-1]
-        gy = dem_at(c[:, 0], c[:, 1])
-        cy = float(dem_at([p.centroid.x], [p.centroid.y])[0])
-        return float(min(gy.min(), cy)), float((gy.mean() + cy) * 0.5)
+    # Everything below may change heights, merge lots, split blocks and add tiers, but never
+    # the ranking above (see lidar_pass for the ids of buildings a LiDAR bake adds).
 
     # landmarks are hand-built props: footprints under them stay low (no doubled towers)
-    lm_clear = []
-    for lm in cfg.get('landmarks', []):
-        if lm.get('clearRadius'):
-            lx, lz = ll2xz(lm['lon'], lm['lat'])
-            lm_clear.append((lx, lz, float(lm['clearRadius']), float(lm.get('clearHeight', 8.0))))
     for b in buildings:
         b['parts'] = None
         cx, cz = b['poly'].centroid.x, b['poly'].centroid.y
-        for lx, lz, r, ch in lm_clear:
-            if math.hypot(cx - lx, cz - lz) < r:
-                b['h'] = min(b['h'], ch)
-                b['landmark'] = True
+        for lm in cfg.get('landmarks', []):
+            if lm.get('clearRadius'):
+                lx, lz = ll2xz(lm['lon'], lm['lat'])
+                if math.hypot(cx - lx, cz - lz) < float(lm['clearRadius']):
+                    b['h'] = min(b['h'], float(lm.get('clearHeight', 8.0)))
+                    b['landmark'] = True
 
     if lidar_rasters is not None:
-        log('lidar massing')
-        P = massing.P
-        fine_boxes = []
-        for lo0, la0, lo1, la1 in cfg['lidar'].get('fine', []):
-            (xa, za), (xb, zb) = ll2xz(lo0, la0), ll2xz(lo1, la1)
-            fine_boxes.append((min(xa, xb), min(za, zb), max(xa, xb), max(za, zb)))
+        buildings = lidar_pass(buildings, cfg, massing, lidar_rasters['fine'], ll2xz, dem_at, log)
 
-        def in_fine(p):
-            x, z = p.centroid.x, p.centroid.y
-            return any(bx0 <= x <= bx1 and bz0 <= z <= bz1 for bx0, bz0, bx1, bz1 in fine_boxes)
-
-        # 1) merged commercial blocks: split along party walls (new pieces get new ids)
-        next_id = len(buildings)
-        extra = []
-        nsplit = 0
-        for b in sorted(buildings, key=lambda b: b['stable']):
-            if b.get('landmark') or b['poly'].area < P['splitMinArea'] or b['occ'] in ('Residential', ''):
-                continue
-            w = massing.window(b['poly'], True) or massing.window(b['poly'], False)
-            if w is None:
-                continue
-            gmin, _ = ground_stats(b['poly'])
-            try:
-                pieces = massing.split(w, b['poly'], gmin)
-            except shapely.errors.GEOSException:
-                pieces = None
-            if not pieces:
-                continue
-            nsplit += 1
-            # the biggest piece keeps the block's id (and any saved paint)
-            pieces.sort(key=lambda q: -q.area)
-            b['poly'] = ring_ccw(pieces[0])
-            for q in pieces[1:]:
-                nb = dict(b)
-                nb['poly'] = ring_ccw(q)
-                nb['stable'] = next_id
-                nb['srckey'] = (b['srckey'][0], b['srckey'][1], len(extra))
-                next_id += 1
-                extra.append(nb)
-        buildings += extra
-        log(f'lidar: split {nsplit} merged blocks into {nsplit + len(extra)} buildings')
-
-        # 2) towers the footprint data never had (built since), from the 1 m LiDAR alone
-        tree_b = STRtree([b['poly'] for b in buildings])
-        keep_out = [shapely.Point(lx, lz).buffer(r + 15.0) for lx, lz, r, _ in lm_clear]
-        for lm in cfg.get('landmarks', []):
-            if 'points' in lm:  # bridges: their decks and towers are hand-built
-                keep_out.append(shapely.LineString([ll2xz(lo, la) for la, lo in lm['points']]).buffer(60.0))
-        new = massing.new_buildings(lidar_rasters['fine'], tree_b, keep_out, log)
-        for k, (q, roof) in enumerate(sorted(new, key=lambda t: (round(t[0].centroid.y), round(t[0].centroid.x)))):
-            _, gmean = ground_stats(q)
-            buildings.append({'poly': q, 'h': max(3.0, roof - gmean), 'occ': 'Commercial', 'prim': '', 'srckey': (-1, k),
-                              'front_edge_hint': None, 'stable': next_id, 'parts': None, 'lidarOnly': True})
-            next_id += 1
-
-        # 3) every building: LiDAR roof height; tall ones (and downtown) get their real outline + tiers
-        tree_n = STRtree([b['poly'] for b in buildings])
-        polys_n = [b['poly'] for b in buildings]
-
-        def neighbors(p):
-            idx = [i for i in tree_n.query(p.buffer(3.0)) if not polys_n[i].equals(p)]
-            if not idx:
-                return None
-            try:
-                return shapely.unary_union([shapely.make_valid(polys_n[i]) for i in idx])
-            except shapely.errors.GEOSException:
-                return shapely.unary_union([shapely.make_valid(polys_n[i]).buffer(0.01) for i in idx])
-
-        dh, ntier, nparts, nfix, nout, nbad = [], 0, 0, 0, 0, 0
-        for b in buildings:
-            if b.get('landmark'):
-                continue
-            p = b['poly']
-            gmin, gmean = ground_stats(p)
-            tall = b['h'] >= P['tierMinHeight'] or (in_fine(p) and b['h'] >= P['tierMinHeightFine'])
-            w = massing.window(p, True) if tall else None
-            w = w or massing.window(p, False)
-            if w is None:
-                continue
-            roof = massing.roof(w)
-            if roof is None:
-                continue
-            h_new = max(3.0, roof - gmean)
-            dh.append(h_new - b['h'])
-            b['h'] = h_new
-            nfix += 1
-            tall = h_new >= P['tierMinHeight'] or (in_fine(p) and h_new >= P['tierMinHeightFine'])
-            if tall and w['res'] > 1.0:
-                w = massing.window(p, True) or w  # the footprint height was wrong (181 Fremont read 12 m)
-            if tall and w['res'] <= 1.0 and p.area >= P['tierMinArea']:
-                q = None
-                try:
-                    if h_new >= P['outlineMinHeight']:
-                        q = massing.outline(w, p, gmin, neighbors)
-                except shapely.errors.GEOSException:
-                    nbad += 1  # degenerate geometry: keep the footprint
-                if q is not None:
-                    w2 = massing.window(q, True)
-                    if w2 is not None:
-                        b['poly'], p, w = q, q, w2
-                        gmin, gmean = ground_stats(p)
-                        b['h'] = max(3.0, roof - gmean)
-                        nout += 1
-                try:
-                    tiers = massing.tiers(w, p, gmin, h_new)
-                except shapely.errors.GEOSException:
-                    tiers, nbad = None, nbad + 1
-                if tiers:
-                    b['parts'] = tiers
-                    b['h'] = max(t[1] for t in tiers) - gmean
-                    ntier += 1
-                    nparts += len(tiers)
-        if nbad:
-            log(f'lidar: {nbad} footprints with degenerate geometry kept as they were')
-        dh = np.array(dh) if dh else np.zeros(1)
-        log(f'lidar: corrected {nfix}/{len(buildings)} heights (median change {np.median(dh):+.1f} m, '
-            f'|change| > 3 m: {int((np.abs(dh) > 3).sum())}), {nout} outlines from LiDAR, {ntier} tiered buildings, {nparts} parts')
+    def ground_stats(p):
+        return ground_stats_at(dem_at, p)
 
     # ---------------------------------------------------------- classify + ground
     log('classifying')
@@ -1407,9 +1708,10 @@ def main():
                 neigh += tiles.get((tx + ddx, tz + ddz), [])
         if neigh:
             otr = rasterio.Affine(oc, 0, x0, 0, oc, z0)
-            # every part at its own height: the bus clears a podium and steers around the tower on it
-            order = sorted([q for b in neigh for q in b['parts']], key=lambda q: q['roofY'])
-            roof = rasterize([(q['poly'].buffer(3.0), float(q['roofY'])) for q in order], out_shape=(OBST_N, OBST_N),
+            # every part at its own height: the bus clears a podium and steers around the tower on it.
+            # Tall parts grow by half a cell diagonal: an 8 m cell that only grazes a 300 m wall must hold it
+            order = sorted([(q, q['roofY'] - b['baseY']) for b in neigh for q in b['parts']], key=lambda t: t[0]['roofY'])
+            roof = rasterize([(q['poly'].buffer(6.0 if hq > 40.0 else 3.0), float(q['roofY'])) for q, hq in order], out_shape=(OBST_N, OBST_N),
                              transform=otr, fill=-1e9, dtype=np.float32, merge_alg=rasterio.enums.MergeAlg.replace)
             obst = np.maximum(obst, roof)
         oq = np.clip(np.round(obst * 10), -32000, 32000).astype(np.int16)
@@ -1433,7 +1735,9 @@ def main():
 
     # ------------------------------------------------------------------- far
     log('far LOD')
-    tall = [b for b in buildings if b['h'] >= 16.0]
+    # mid-rises and up (LiDAR heights put ~3.4k buildings over 16 m, twice the old count: the box
+    # count, which the far skyline draws every frame, stays under the old 2.3k)
+    tall = [b for b in buildings if b['h'] >= FAR_MIN_HEIGHT]
     fw = int((maxX - minX) / FAR_CELL) + 1
     fh = int((maxZ - minZ) / FAR_CELL) + 1
     fxs = minX + np.arange(fw) * FAR_CELL
@@ -1443,14 +1747,25 @@ def main():
     fcl, _ = ground_at(FX.ravel(), FZ.ravel())
     fbs = []
     for b in tall:
-        for q in b['parts']:  # tiers too: the distant skyline keeps its setbacks
+        parts = b['parts']
+        a0 = parts[0]['poly'].area
+        if b['h'] >= FAR_TIER_HEIGHT and len(parts) > 1:
+            # a tower keeps its big setbacks in the distance (not its crown boxes and penthouses)
+            major = [q for q in parts if q['tier'] == 0 or q['poly'].area >= 0.15 * a0]
+            major = sorted(major, key=lambda q: -q['poly'].area * (q['roofY'] - q['baseY']))[:FAR_MAX_BOXES]
+        else:
+            # one box: the footprint up to the top of its main mass (a part covering half of it)
+            main_top = max([q['roofY'] for q in parts if q['poly'].area >= 0.5 * a0] or [parts[0]['roofY']])
+            major = [dict(parts[0], roofY=main_top, taper=0)]
+        for q in major:
             mrr = q['poly'].minimum_rotated_rectangle
             cc = np.asarray(mrr.exterior.coords)[:4]
             e0 = cc[1] - cc[0]
             e1 = cc[2] - cc[1]
             cx, cz = cc.mean(axis=0)
             yaw = math.atan2(e0[1], e0[0])
-            fbs.append((cx, cz, np.hypot(*e0) / 2, np.hypot(*e1) / 2, yaw, q['baseY'], q['roofY'], b['index']))
+            k = 1.0 - 0.5 * q['taper'] / 255.0  # a taper: its mean width
+            fbs.append((cx, cz, k * np.hypot(*e0) / 2, k * np.hypot(*e1) / 2, yaw, q['baseY'], q['roofY'], b['index']))
     hdr = struct.pack('<4sIIIfff', b'SBF1', len(fbs), fw, fh, minX, minZ, FAR_CELL)
     body = np.array([f[:7] for f in fbs], dtype=np.float32).tobytes() + np.array([f[7] for f in fbs], dtype=np.uint32).tobytes()
     body += np.clip(np.round(fhgt * 10), -32000, 32000).astype(np.int16).tobytes() + fcl.astype(np.uint8).tobytes()
