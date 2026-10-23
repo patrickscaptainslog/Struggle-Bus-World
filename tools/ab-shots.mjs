@@ -7,7 +7,7 @@
 // wobble, paint), not timing. The bus itself may sit a little apart.
 //   node tools/ab-shots.mjs <baseUrlA> <baseUrlB> <outDir> [views...]
 // views: grey (Painted Ladies, grey), painted (the Ladies row after blasts, walls
-// wobbling), fidi (downtown towers and their rooftop boxes' shadows), soma.
+// wobbling), fidi (downtown towers and their rooftop boxes' shadows), soma, d250 (a climb to ~250 m).
 // Writes <view>-A.png, <view>-B.png; then run
 //   python3 -I tools/ab-diff.py <outDir> <view>...   (diff image + changed-pixel count)
 import { chromium } from 'playwright-core';
@@ -29,6 +29,8 @@ const VIEWS = {
   },
   fidi: { q: '?lat=37.7925&lon=-122.4010&heading=0&skipintro', drift: 6, hold: 3, cam: { lat: 37.7935, lon: -122.4010, heading: 0, dist: 175, elev: 31, up: 20 } },
   soma: { q: '?lat=37.782&lon=-122.399&heading=330&skipintro', drift: 6, hold: 3, cam: { lat: 37.7832, lon: -122.3998, heading: 330, dist: 175, elev: 31, up: 20 } },
+  // from altitude the vista lens follows the climb, so this one isn't pinned (the climb is the same in game time)
+  d250: { q: '?lat=37.7700&lon=-122.4300&heading=45&skipintro', climb: [1, 7.5], hold: 14 },
 };
 const views = want.length ? want : Object.keys(VIEWS);
 
