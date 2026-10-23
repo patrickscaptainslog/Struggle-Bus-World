@@ -131,7 +131,7 @@ export class Aimer {
     if (!this.classic) return false;
     let ex = aim.x, ez = aim.z, ey = aim.y + 0.5;
     if (target) {
-      const l = city.landingOn(target, aim.x, aim.z, S.landInset, this.land);
+      const l = city.landingOn(target, aim.x, aim.z, S.landInset, this.land, S.smallRad);
       ex = l.x;
       ez = l.z;
       ey = city.roofAtPart(target, ex, ez) + 0.5;
@@ -260,7 +260,7 @@ export class Aimer {
     let x = aim.x, z = aim.z;
     const y: number | undefined = wall ? aim.y : undefined;
     if (target && !wall) {
-      const l = this.city.landingOn(target, aim.x, aim.z, config.splat.landInset, this.land);
+      const l = this.city.landingOn(target, aim.x, aim.z, config.splat.landInset, this.land, config.splat.smallRad);
       x = l.x;
       z = l.z;
     }

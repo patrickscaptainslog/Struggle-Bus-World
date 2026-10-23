@@ -1185,9 +1185,15 @@ export class City {
     return out;
   }
 
-  /** The point of ref's footprint nearest to (x, z) pulled `inset` m further in (toward its centroid),
-   * or (x, z) itself when it is inside: where a shot aimed at (x, z) lands on that building. */
-  landingOn(ref: BuildingRef, x: number, z: number, inset: number, out: { x: number; z: number }): { x: number; z: number } {
+  /** Where a shot aimed at (x, z) lands on ref: a house-sized building (every vertex within `smallRad` of
+   * its centroid) at its centroid, as ever; a big one at (x, z) itself when that is on it, else at the point
+   * of its footprint nearest to (x, z) pulled `inset` m further in (never at a centroid 100 m from the aim). */
+  landingOn(ref: BuildingRef, x: number, z: number, inset: number, out: { x: number; z: number }, smallRad = 0): { x: number; z: number } {
+    if (ref.rad <= smallRad && this.contains(ref, ref.cx, ref.cz)) {
+      out.x = ref.cx;
+      out.z = ref.cz;
+      return out;
+    }
     if (this.contains(ref, x, z)) {
       out.x = x;
       out.z = z;

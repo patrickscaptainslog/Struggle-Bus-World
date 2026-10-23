@@ -139,7 +139,7 @@ export class Splatter {
     const r = blastRadiusFor(drop);
     // where it lands: the aim point if it is on the building, else the building's nearest edge, a few
     // meters in (a big block is hit where you aimed, not at a centroid 100 m away)
-    const land = primary && !opts?.exact ? city.landingOn(primary, x, z, S.landInset, this.land) : null;
+    const land = primary && !opts?.exact ? city.landingOn(primary, x, z, S.landInset, this.land, S.smallRad) : null;
     const cx = land ? land.x : x;
     const cz = land ? land.z : z;
     const pos = new THREE.Vector3(cx, opts?.y ?? (land && primary ? city.roofAtPart(primary, cx, cz) + 0.5 : city.groundAt(x, z)), cz);
@@ -147,13 +147,17 @@ export class Splatter {
     const pRec = primary ? paint.get(primary.index) : null;
     const hue = pRec && pRec.level > 0.5 ? wrapHue(pRec.color) : this.nextHue;
 
-    // every building the blast reaches (its footprint by true edge distance: a big block half inside the
-    // radius blooms too, wherever its centroid is), nearest edge first, capped
+    // every building the blast reaches (its footprint, not its centroid: a big block half inside the radius
+    // blooms too), nearest edge first, capped: a house by its centroid less its half-size (as the approved
+    // blast), a big footprint by its true edge distance (its centroid may lie 100 m away)
     const cap = Math.min(S.maxBuildingsCap, Math.max(1, Math.round((S.maxBuildings * r) / S.blastRadius)));
-    const near = city.buildingsWithin(cx, cz, r, this.near);
+    const near = city.buildingsWithin(cx, cz, r + S.smallRad, this.near);
     const reach = this.reachList;
     reach.length = 0;
-    for (const n of near) reach.push({ ref: n.ref, d: n.d, e: n.ref === primary ? -1e9 : n.d });
+    for (const n of near) {
+      const e = n.ref.rad <= S.smallRad ? Math.hypot(n.ref.cx - cx, n.ref.cz - cz) - 0.55 * Math.sqrt(n.ref.area) : n.d;
+      if (e <= r) reach.push({ ref: n.ref, d: n.d, e: n.ref === primary ? -1e9 : e });
+    }
     if (primary && !near.some((n) => n.ref === primary)) reach.push({ ref: primary, d: 0, e: -1e9 });
     reach.sort((a, b) => a.e - b.e);
     // nothing to paint (open water, no building in reach): a miss. It doesn't fake a hit: no flash, boom

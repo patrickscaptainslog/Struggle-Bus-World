@@ -211,8 +211,11 @@ export const config = {
     snapRadius: 28,
     /** Buildings lower than this are never the target (sheds, slivers) (m). */
     minTargetHeight: 2.5,
-    /** A shot that snaps onto a building lands on its nearest edge this far in (m). */
+    /** A shot that snaps onto a big building lands on its nearest edge this far in (m); onto a house-sized one
+     *  (all of it within smallRad of its centroid, m) at its centroid, as ever (the blast reaches houses by
+     *  their centroid less their half-size too, big footprints by true distance). */
     landInset: 4,
+    smallRad: 25,
     /** Aim hold: the glinting building stays the target while the aim point is within this of it (m; more from high up). */
     aimHold: 10,
     /** ...and while it is within aimHold of the last aimHoldAlong m of the line of fire (m): it doesn't strobe at speed. */
