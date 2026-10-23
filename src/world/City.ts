@@ -165,10 +165,10 @@ function chunkGrid(w: number, h: number, at: GridAttrs, size: number, keep: (a: 
   return out;
 }
 
-const HORIZON_CHUNK = 8192;
+const HORIZON_CHUNK = 16384;
 const tileKeyNum = (tx: number, tz: number) => (tx + 4096) * 8192 + (tz + 4096);
-/** far terrain chunks span this many regions a side (2 km: the chase view sees a handful, never dozens) */
-const FAR_CHUNK_REGIONS = 2;
+/** far terrain chunks span this many regions a side (4 km: seen from the ceiling, 2 km chunks cost ~20 more draws than they saved) */
+const FAR_CHUNK_REGIONS = 4;
 
 /**
  * Let a streamed mesh's arrays go once they're on the GPU: three keeps a JS
@@ -356,7 +356,7 @@ export class City {
         land[k] = y > 0.5 ? 1 : 0;
       }
     const [bx0, bz0, bx1, bz1] = this.manifest.bounds;
-    // (8 km chunks, frustum culled: the chase camera looks down, so it rarely sees any of them)
+    // (16 km chunks, culled: the chase camera looks down, so it rarely sees any of them)
     const mat = makeRampMaterial({ vertexRamp: true, shadowMul: 0 });
     for (const mesh of chunkGrid(w, h, { position: pos, normal: nrm, ramp, lightOffset: lo, glow: gl }, HORIZON_CHUNK, (a, b, c, d) => {
       if (!(land[a] || land[b] || land[c] || land[d])) return false;
@@ -399,7 +399,7 @@ export class City {
         lo[k] = water ? -0.1 : -0.06;
       }
     }
-    // frustum-culled 2x2-region chunks (the grid's quads land exactly on region edges), each hidden once
+    // culled 4x4-region chunks (the grid's quads land exactly on region edges), each hidden once
     // every region it covers has its own ground in; quads whose four corners are water sit under the
     // bay and are never seen
     const R = this.regionSize * this.manifest.tileSize;

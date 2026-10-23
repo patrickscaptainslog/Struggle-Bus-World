@@ -68,6 +68,13 @@ async function shoot(base, name, v, file) {
       }, v.cam),
     );
   await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000 });
+  // the blast's first hue and its seed: a build that constructs a few more three.js objects at load
+  // draws a few more UUIDs from Math.random, which would shift them (different hues, not a rendering change)
+  await page.evaluate(() => {
+    const sp = window.__game.splatter;
+    sp.nextHue = 0;
+    sp.seed = 0x5eed1234;
+  });
   const holdAt = (t) =>
     page.evaluate((t) => {
       window.__qa = window.__qa ?? {};

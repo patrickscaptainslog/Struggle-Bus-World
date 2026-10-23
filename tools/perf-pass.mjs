@@ -5,9 +5,9 @@
 //   node tools/perf-pass.mjs <baseUrl> <out.json> [modes...] [--frames=8] [--label=name] [--by]
 // modes (default: views):
 //   views    the Painted Ladies and FiDi at the rooftops, downtown at 250 m and the
-//            ceiling (climbed from the altitude QA's downtown start); the bus is
-//            slowed to a near stop (0.01 m/s glide) before measuring, so both
-//            builds measure the same spot
+//            ceiling (climbed from the altitude QA's downtown start); once
+//            streaming settles the bus is put back on a fixed spot and slowed to
+//            a near stop (0.01 m/s glide), so both builds measure the same view
 //   compile  first blast + first escalation at the Painted Ladies: per-frame CPU
 //            work and WebGL programs linked per frame (a compile spike shows as
 //            a link + a long frame)
@@ -220,18 +220,39 @@ async function measure(page, label) {
 const report = { base, label: opt.label ?? base, when: new Date().toISOString(), views: [], compile: null, memory: null };
 
 const HOLD = 0.01; // m/s: the bus all but stops (the view holds still while we measure)
+// put the bus on a spot (x, z in m, heading in deg) at a near stop, let the camera and streaming settle;
+// floor: back to the rooftop floor (else it keeps holding its altitude)
+const pin = async (page, x, z, heading, s, floor = false) => {
+  await page.evaluate(
+    ([x, z, h, v, floor]) => {
+      const f = window.__game.flight;
+      window.__qa = null;
+      f.x = x;
+      f.z = z;
+      f.heading = (h * Math.PI) / 180;
+      f.speed = 0;
+      f.glideSpeed = v;
+      if (floor) f.holdY = -Infinity;
+    },
+    [x, z, heading, HOLD, floor],
+  );
+  await settle(page, s);
+};
+const llx = (lat, lon) => [(lon + 122.4194) * 111320 * Math.cos((37.7749 * Math.PI) / 180), -(lat - 37.7749) * 110574];
 if (modes.has('views')) {
   {
     const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro');
     await drift(page, HOLD);
-    await settle(page, 3);
+    await settle(page, 2);
+    await pin(page, ...llx(37.77628, -122.4352), 88, 2.5, true);
     report.views.push(await measure(page, 'ladies'));
     await page.close();
   }
   {
     const page = await open('?lat=37.7925&lon=-122.4010&heading=0&skipintro');
     await drift(page, HOLD);
-    await settle(page, 3);
+    await settle(page, 2);
+    await pin(page, ...llx(37.7925, -122.401), 0, 2.5, true);
     report.views.push(await measure(page, 'fidi'));
     await page.close();
   }
@@ -240,11 +261,13 @@ if (modes.has('views')) {
     await settle(page, 2);
     await climbTo(page, 250);
     await drift(page, HOLD);
-    await settle(page, 4);
+    await settle(page, 3);
+    await pin(page, ...llx(37.77092, -122.42883), 45, 3);
     report.views.push(await measure(page, 'downtown250'));
     await climbTo(page, 560);
     await drift(page, HOLD);
-    await settle(page, 5);
+    await settle(page, 4);
+    await pin(page, ...llx(37.77255, -122.42679), 45, 4);
     report.views.push(await measure(page, 'ceiling'));
     await page.close();
   }
