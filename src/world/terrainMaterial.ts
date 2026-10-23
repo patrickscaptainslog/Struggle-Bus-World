@@ -103,6 +103,7 @@ export function makeTerrainMaterial(
       tGround: { value: null },
       uGroundOn: { value: 0 },
       uGroundLive: blastUniforms.uGroundLive,
+      uGroundLive2: blastUniforms.uGroundLive2,
       ...(ground ?? {}),
       tClass: { value: classTex },
       uClassN: { value: classN },

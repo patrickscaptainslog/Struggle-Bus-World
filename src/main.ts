@@ -9,7 +9,7 @@ import type { CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
 import { CameraRig } from './game/CameraRig';
 import { Splatter, type Blast } from './game/Splat';
-import { arrival, blobFlight } from './game/blastLayout';
+import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blastLayout';
 import { Input } from './game/Input';
 import { BusModel, type BusPose } from './bus/BusModel';
 import { Particles } from './fx/Particles';
@@ -542,6 +542,18 @@ async function boot() {
       return splatter.barf(x, z, { drop });
     },
     clock: () => simTime,
+    /** QA: n settled blasts scattered within `spread` m of a lat/lon straight into the ground paint (and saved), like a long play session. Returns the saved tile count. */
+    seedGround: (n: number, lat: number, lon: number, spread: number) => {
+      const [lat0, lon0] = manifest.origin;
+      const x = (lon - lon0) * 111320 * Math.cos((lat0 * Math.PI) / 180);
+      const z = -(lat - lat0) * 110574;
+      let s = 12345;
+      const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+      for (let i = 0; i < n; i++)
+        city.ground.blast(makeBlastSpec(x + (rnd() - 0.5) * 2 * spread, z + (rnd() - 0.5) * 2 * spread, blastRadiusFor(rnd() < 0.2 ? 300 : 0), i % 6, (rnd() * 4294967295) >>> 0), -100);
+      city.ground.persist();
+      return city.ground.tileCount;
+    },
     /** QA: buildings painted / total within r of a lat/lon, and the share of ground painted there */
     paintedNear: (lat: number, lon: number, r: number) => {
       const [lat0, lon0] = manifest.origin;
@@ -562,7 +574,7 @@ async function boot() {
         const tf = treeFields.get(k);
         if (tf) for (let i = 0; i < list.length; i++) if (Math.hypot(list[i].x - x, list[i].z - z) < r && tf.paintLevel(i) > 0) trees++;
       }
-      return { buildings: near.length, painted, groundShare: cells ? ground / cells : 0, paintedTrees: trees, savedBlasts: city.ground.blastCount };
+      return { buildings: near.length, painted, groundShare: cells ? ground / cells : 0, paintedTrees: trees, savedTiles: city.ground.tileCount, landed: city.ground.landedCount, queued: city.ground.queued };
     },
   };
 }

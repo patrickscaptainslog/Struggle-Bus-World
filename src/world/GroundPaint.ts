@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { config } from '../config';
 import { HUE_RAMPS, Ramp } from '../render/palette';
 import { uploadRect } from '../render/upload';
-import { arrival, blastDots, blastEdge, SHAPE_LUT, specFromArray, specToArray, type BlastDot, type BlastSpec } from '../game/blastLayout';
+import { arrival, blastDots, blastEdge, makeBlastSpec, SHAPE_LUT, specFromArray, specToArray, type BlastDot, type BlastSpec } from '../game/blastLayout';
 
 // Paint on the ground: streets, sidewalks and parks splattered by blasts.
 //
@@ -17,11 +17,21 @@ import { arrival, blastDots, blastEdge, SHAPE_LUT, specFromArray, specToArray, t
 // (or the flung blob that makes that dot) arrives. Texels that were already
 // painted change hue only at the impact (under the flash).
 //
-// Persistence: the blast list (a few numbers per blast), not texels, under a
-// new localStorage key. Tiles redraw their paint from it as they stream in.
+// Persistence: the settled result, not the history. Each painted tile is one
+// localStorage entry under a new key prefix: its mask as coverage (5 bits) +
+// hue (3 bits) per texel, run-length coded, base64 (a few KB), decoded in one
+// pass (16k texels) the moment the tile streams in, so saved paint shows up
+// with the tile however many blasts made it. Blasts that reach a tile that
+// isn't loaded are kept on that tile's entry (a handful at most) and drawn
+// when it arrives. Nothing is ever redrawn synchronously at an impact.
 
-const STORE_KEY = 'strugglebus.ground.v1';
-const MAX_SAVED = 1500;
+const STORE_PREFIX = 'strugglebus.ground.v2:';
+/** The first prototype's saved blast list (feat/blast only, never shipped): dropped on load. */
+const OLD_KEY = 'strugglebus.ground.v1';
+/** Painted tiles kept in storage (a few KB each); the longest-untouched wash away first. */
+const MAX_TILES = 160;
+/** Blasts kept for a tile that wasn't loaded when they landed (oldest dropped). */
+const MAX_PENDING = 6;
 export const GROUND_N = 128;
 
 /** Uniforms every material that shows the blast shares (terrain, buildings). */
@@ -30,8 +40,9 @@ export const blastUniforms = {
   uBlastRing: { value: new THREE.Vector4(0, 0, -1000, 1) },
   /** shockwave: center hue, ring width (m), launch speed (m/s), max reach (m) */
   uBlastRing2: { value: new THREE.Vector4(0, 9, 300, 90) },
-  /** live ground reveals: serial A, impact time A, serial B, impact time B */
+  /** live ground reveals, 4 slots (blasts can overlap in flight): serial, impact time, serial, impact time */
   uGroundLive: { value: new THREE.Vector4(-1, -1000, -1, -1000) },
+  uGroundLive2: { value: new THREE.Vector4(-1, -1000, -1, -1000) },
 };
 
 const HUES = HUE_RAMPS.map((r) => r.toFixed(1)).join(', ');
@@ -70,6 +81,7 @@ export const GLSL_GROUND_PAINT = /* glsl */ `
 uniform sampler2D tGround;
 uniform float uGroundOn;
 uniform vec4 uGroundLive;
+uniform vec4 uGroundLive2;
 const float SB_GROUND_HUES[6] = float[6](${HUES});
 float sbgHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float sbgNoise(vec2 p) {
@@ -85,7 +97,8 @@ float sbgCov(vec4 s, out float age) {
   float ser = floor(s.a * 255.0 + 0.5);
   if (ser > 0.5) {
     float rv = s.b * 2.55;
-    float t = ser == uGroundLive.x ? uGroundLive.y : ser == uGroundLive.z ? uGroundLive.w : -1000.0;
+    float t = ser == uGroundLive.x ? uGroundLive.y : ser == uGroundLive.z ? uGroundLive.w
+      : ser == uGroundLive2.x ? uGroundLive2.y : ser == uGroundLive2.z ? uGroundLive2.w : -1000.0;
     age = uTime - t - rv;
     if (age < 0.0) return 0.0;
   }
@@ -137,6 +150,14 @@ interface TileMask {
   uniforms: { tGround: THREE.IUniform; uGroundOn: THREE.IUniform } | null;
 }
 
+/** One tile's saved paint: its encoded mask, and blasts that reached it while it wasn't loaded. */
+interface SavedTile {
+  /** last painted (Date.now()): the longest-untouched tiles are evicted first */
+  t: number;
+  m: string | null;
+  p: BlastSpec[];
+}
+
 const WAVE_LUT = 64;
 
 interface JobTile {
@@ -154,9 +175,11 @@ interface JobTile {
 
 /**
  * A blast being drawn: live (in flight, serial > 0, drawn while the
- * projectile flies, landed at impact) or a replay of a saved blast onto one
- * tile that just streamed in (serial null, settled). Jobs run in order, so
- * paint always stacks chronologically.
+ * projectile flies, landed at impact) or a replay of a blast that reached a
+ * tile while it wasn't loaded (serial null, settled, one tile). Replays draw
+ * in order; once a newer live blast starts on their tile they go `under` it
+ * (they only fill bare ground), so paint always stacks chronologically
+ * without anything being finished synchronously.
  */
 export interface GroundJob {
   spec: BlastSpec;
@@ -166,6 +189,7 @@ export interface GroundJob {
   tiles: JobTile[];
   /** replay: the one tile it redraws */
   only: string | null;
+  under: boolean;
 }
 
 interface Prepared {
@@ -184,15 +208,97 @@ interface Prepared {
   maxZ: number;
 }
 
+const TEXELS = GROUND_N * GROUND_N;
+/** encoder scratch: worst case one (value, run) pair per texel */
+const RLE = new Uint8Array(TEXELS * 2);
+
+/**
+ * A mask's settled paint as a short string: per texel coverage (5 bits) and
+ * hue (3 bits), run-length coded ((value, run - 1) byte pairs), base64.
+ * Empty string = nothing painted.
+ */
+export function encodeMask(d: Uint8Array): string {
+  let w = 0, prev = -1, run = 0, any = false;
+  for (let k = 0, o = 0; k < TEXELS; k++, o += 4) {
+    const q = (d[o] * 31 + 127) / 255 | 0;
+    const v = q > 0 ? (q << 3) | Math.min(5, d[o + 1] >> 5) : 0;
+    if (v === prev && run < 256) {
+      run++;
+      continue;
+    }
+    if (run) {
+      RLE[w++] = prev;
+      RLE[w++] = run - 1;
+    }
+    if (v) any = true;
+    prev = v;
+    run = 1;
+  }
+  RLE[w++] = prev;
+  RLE[w++] = run - 1;
+  if (!any) return '';
+  let bin = '';
+  for (let k = 0; k < w; k += 0x2000) bin += String.fromCharCode.apply(null, RLE.subarray(k, Math.min(w, k + 0x2000)) as unknown as number[]);
+  return btoa(bin);
+}
+
+/** Decodes encodeMask() into a mask's data (settled: no reveal, no serial). False if corrupt. */
+export function decodeMask(str: string, d: Uint8Array): boolean {
+  let bin: string;
+  try {
+    bin = atob(str);
+  } catch {
+    return false;
+  }
+  let k = 0;
+  for (let i = 0; i + 1 < bin.length; i += 2) {
+    const v = bin.charCodeAt(i);
+    const q = v >> 3;
+    const cov = q ? Math.round((q * 255) / 31) : 0;
+    const g = q ? Math.min(5, v & 7) * 32 + 16 : 0;
+    const e = k + bin.charCodeAt(i + 1) + 1;
+    if (e > TEXELS) break;
+    for (let o = k * 4; k < e; k++, o += 4) {
+      d[o] = cov;
+      d[o + 1] = g;
+      d[o + 2] = 0;
+      d[o + 3] = 0;
+    }
+  }
+  if (k === TEXELS) return true;
+  d.fill(0);
+  return false;
+}
+
+function parseTile(raw: string | null): SavedTile | null {
+  if (!raw) return null;
+  try {
+    const o = JSON.parse(raw) as { t?: number; m?: string; p?: number[][] };
+    const p: BlastSpec[] = [];
+    if (Array.isArray(o.p)) for (const a of o.p) {
+      const s = specFromArray(a);
+      if (s) p.push(s);
+    }
+    const m = typeof o.m === 'string' && o.m.length ? o.m : null;
+    if (!m && !p.length) return null;
+    return { t: typeof o.t === 'number' && Number.isFinite(o.t) ? o.t : 0, m, p };
+  } catch {
+    return null;
+  }
+}
+
 export class GroundPaint {
   private readonly tileSize: number;
   private readonly cell: number;
   private readonly masks = new Map<string, TileMask>();
   /** loaded terrain tiles: key -> origin + material uniforms (masks are created lazily) */
   private readonly loaded = new Map<string, { ox: number; oz: number; uniforms: TileMask['uniforms'] }>();
-  private saved: BlastSpec[] = [];
-  /** tile key -> indices into saved */
-  private readonly byTile = new Map<string, number[]>();
+  /** what storage holds, by tile key (mirrored in memory so a tile decodes with no storage read) */
+  private readonly store = new Map<string, SavedTile>();
+  private storageOk = false;
+  /** tiles whose mask changed since it was saved: written one per frame once saveTimer runs out */
+  private readonly saveQueue: string[] = [];
+  private readonly saveSet = new Set<string>();
   private readonly empty: THREE.DataTexture;
   private saveTimer = 0;
   private serial = 0;
@@ -202,9 +308,12 @@ export class GroundPaint {
   private readonly jobs: GroundJob[] = [];
   /** masks with a dirty rect to upload (no Map iteration per frame) */
   private readonly dirty: TileMask[] = [];
-  /** tile key -> replays still queued for it (its mask is shown once they are all drawn) */
+  /** tile key -> replays still queued for it */
   private readonly replaying = new Map<string, number>();
-  /** A tile's saved paint has been redrawn (trees standing in it can be painted now). */
+  /** tiles whose saved paint just went on screen: onTileReady fires for them on the next work() */
+  private readonly ready: string[] = [];
+  private landed = 0;
+  /** A tile's saved paint is on screen (trees standing in it can be painted now). */
   onTileReady: ((tx: number, tz: number) => void) | null = null;
 
   constructor(tileSize: number) {
@@ -213,44 +322,68 @@ export class GroundPaint {
     this.empty = new THREE.DataTexture(new Uint8Array(4), 1, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
     this.empty.needsUpdate = true;
     try {
-      const raw = localStorage.getItem(STORE_KEY);
-      const list = raw ? (JSON.parse(raw) as number[][]) : [];
-      if (Array.isArray(list)) for (const a of list) {
-        const s = specFromArray(a);
-        if (s) this.addSaved(s);
+      localStorage.removeItem(OLD_KEY);
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || !k.startsWith(STORE_PREFIX)) continue;
+        const rec = parseTile(localStorage.getItem(k));
+        if (rec) this.store.set(k.slice(STORE_PREFIX.length), rec);
       }
+      this.storageOk = true;
     } catch {
-      this.saved = [];
+      /* private mode / blocked: paint lives for this session only */
     }
+    if (typeof window !== 'undefined') window.addEventListener('pagehide', () => this.persist());
+    this.warm();
   }
 
-  /** Number of saved blasts. */
-  get blastCount(): number {
-    return this.saved.length;
+  /** Painted tiles in storage. */
+  get tileCount(): number {
+    return this.store.size;
+  }
+
+  /** Blasts landed this session. */
+  get landedCount(): number {
+    return this.landed;
+  }
+
+  /** Jobs still queued (live blasts in flight + replays), for QA. */
+  get queued(): number {
+    return this.jobs.length;
   }
 
   /** Uniforms a terrain tile material needs (call before creating it). */
-  tileUniforms(): { tGround: THREE.IUniform; uGroundOn: THREE.IUniform; uGroundLive: THREE.IUniform } {
-    return { tGround: { value: this.empty }, uGroundOn: { value: 0 }, uGroundLive: blastUniforms.uGroundLive };
+  tileUniforms(): { tGround: THREE.IUniform; uGroundOn: THREE.IUniform; uGroundLive: THREE.IUniform; uGroundLive2: THREE.IUniform } {
+    return { tGround: { value: this.empty }, uGroundOn: { value: 0 }, uGroundLive: blastUniforms.uGroundLive, uGroundLive2: blastUniforms.uGroundLive2 };
   }
 
   /**
-   * A terrain tile streamed in: queue its saved paint for redrawing (spread
-   * over frames by work(): a much-painted tile can hold dozens of blasts, and
-   * a tile load must not hitch). The mask shows once they are all drawn.
+   * A terrain tile streamed in: its saved mask is decoded at once (one pass
+   * over 16k texels) and shown with the tile; blasts that reached it while it
+   * was away are queued for work().
    */
   attach(tx: number, tz: number, ox: number, oz: number, uniforms: { tGround: THREE.IUniform; uGroundOn: THREE.IUniform }) {
     const key = `${tx},${tz}`;
     this.loaded.set(key, { ox, oz, uniforms });
-    const list = this.byTile.get(key);
-    if (!list || !list.length) return;
-    this.replaying.set(key, list.length);
-    if (!this.mask(key)) return;
-    for (const i of list) this.jobs.push({ spec: this.saved[i], tImpact: 0, serial: null, p: null, tiles: [], only: key });
+    const rec = this.store.get(key);
+    if (!rec) return;
+    const m = this.mask(key)!;
+    if (rec.m && !decodeMask(rec.m, m.data)) rec.m = null; // corrupt entry: dropped on its next save
+    if (rec.p.length) {
+      this.replaying.set(key, rec.p.length);
+      for (const s of rec.p) this.jobs.push({ spec: s, tImpact: 0, serial: null, p: null, tiles: [], only: key, under: false });
+    }
+    this.ready.push(key);
   }
 
   detach(tx: number, tz: number) {
     const key = `${tx},${tz}`;
+    // unsaved paint goes to storage before the mask is dropped
+    if (this.saveSet.has(key)) {
+      this.saveTile(key, true);
+      this.saveSet.delete(key);
+      this.saveQueue.splice(this.saveQueue.indexOf(key), 1);
+    }
     this.loaded.delete(key);
     this.replaying.delete(key);
     const m = this.masks.get(key);
@@ -259,7 +392,7 @@ export class GroundPaint {
       m.tex.dispose();
       this.masks.delete(key);
     }
-    // queued replays of this tile are dropped (they redraw when it comes back)
+    // queued replays of this tile are dropped (its entry still holds them: they redraw when it comes back)
     for (let i = this.jobs.length - 1; i >= 0; i--) if (this.jobs[i].only === key) this.jobs.splice(i, 1);
   }
 
@@ -285,34 +418,41 @@ export class GroundPaint {
    * clock): its paint is drawn by work() over the next frames, hidden.
    */
   begin(spec: BlastSpec, tImpact: number): GroundJob {
-    // live serial (1..255) in one of two uniform slots
+    // live serial (1..255) in one of four uniform slots
     this.serial = (this.serial % 255) + 1;
     const ser = this.serial;
     const stale = this.serialTiles.get(ser);
     if (stale) for (const key of stale) this.clearSerial(key, ser);
     this.serialTiles.delete(ser);
-    const L = blastUniforms.uGroundLive.value;
-    if (this.liveSlot === 0) L.set(ser, tImpact, L.z, L.w);
+    const L = this.liveSlot < 2 ? blastUniforms.uGroundLive.value : blastUniforms.uGroundLive2.value;
+    if (this.liveSlot % 2 === 0) L.set(ser, tImpact, L.z, L.w);
     else L.set(L.x, L.y, ser, tImpact);
-    this.liveSlot ^= 1;
-    const job: GroundJob = { spec, tImpact, serial: ser, p: null, tiles: [], only: null };
+    this.liveSlot = (this.liveSlot + 1) % 4;
+    const job: GroundJob = { spec, tImpact, serial: ser, p: null, tiles: [], only: null, under: false };
     this.jobs.push(job);
     return job;
   }
 
   /** Draws a slice of the queued jobs (call once per frame): about `budget` texels' worth. */
   work(budget = 2400) {
+    if (this.ready.length) {
+      for (const key of this.ready) {
+        if (!this.loaded.has(key)) continue;
+        const c = key.indexOf(',');
+        this.onTileReady?.(Number(key.slice(0, c)), Number(key.slice(c + 1)));
+      }
+      this.ready.length = 0;
+    }
     for (let n = 0; n < this.jobs.length && budget > 0; ) {
       const job = this.jobs[n];
       if (!job.p) {
+        // setting a blast up (shape, dots, tiles) is a slice of its own
         this.start(job);
-        budget -= 600; // shape + dots
-        continue;
+        return;
       }
-      // a live blast waits on tiles still redrawing saved paint (older paint goes underneath)
-      budget = this.step(job, budget, job.serial !== null);
+      budget = this.step(job, budget);
       if (job.serial === null && this.finished(job)) {
-        // a replay is done: off the queue, and its tile may be ready
+        // a replay is done: off the queue, its tile shows it and saves
         this.jobs.splice(n, 1);
         this.replayed(job);
       } else n++;
@@ -320,27 +460,17 @@ export class GroundPaint {
   }
 
   /**
-   * The blast lands: finish drawing it (and anything queued before it, so
-   * paint stacks in order), apply the over-paint, mark the touched tiles for
-   * one upload each, remember it for reloads. Returns its spatter dots so the
-   * particles can fling blobs onto exactly those spots.
+   * The blast lands: finish its own rows (normally all drawn in flight),
+   * apply the over-paint, mark the touched tiles for one upload each and for
+   * saving. Tiles it reaches that it couldn't draw (not loaded at the tap, or
+   * streamed out and back since) get it as a replay. Returns its spatter dots
+   * so the particles can fling blobs onto exactly those spots.
    */
   land(job: GroundJob): BlastDot[] {
     if (!job.p) this.start(job);
-    const keys = new Set(job.tiles.map((t) => t.key));
-    for (let k = 0; k < this.jobs.length; ) {
-      const j = this.jobs[k];
-      // replays still queued on this blast's tiles go first (older paint underneath)
-      if (j !== job && j.serial === null && j.only !== null && keys.has(j.only)) {
-        this.jobs.splice(k, 1);
-        if (!j.p) this.start(j);
-        this.step(j, Infinity, false);
-        this.replayed(j);
-      } else k++;
-    }
     const i = this.jobs.indexOf(job);
     if (i >= 0) this.jobs.splice(i, 1);
-    this.step(job, Infinity, false);
+    this.step(job, Infinity);
     const p = job.p!;
     const touched: string[] = [];
     for (const t of job.tiles) {
@@ -350,10 +480,12 @@ export class GroundPaint {
       q.length = 0;
       this.markDirty(t.m, p);
       touched.push(t.key);
+      this.queueSave(t.key);
     }
     if (job.serial !== null) this.serialTiles.set(job.serial, touched);
-    this.addSaved(job.spec);
+    for (const key of this.tilesOf(p)) if (touched.indexOf(key) < 0) this.addPending(key, job.spec);
     this.saveTimer = 0.8;
+    this.landed++;
     return p.dots;
   }
 
@@ -362,11 +494,18 @@ export class GroundPaint {
     return this.land(this.begin(spec, tImpact));
   }
 
-  /** Upload dirty masks (one texSubImage2D each) and save on a debounce. */
+  /** Upload dirty masks (one texSubImage2D each); save changed tiles, one per frame, on a debounce. */
   flush(renderer: THREE.WebGLRenderer, dt: number) {
-    if (this.saveTimer > 0) {
-      this.saveTimer -= dt;
-      if (this.saveTimer <= 0) this.persist();
+    if (this.saveTimer > 0) this.saveTimer -= dt;
+    else if (this.saveQueue.length) {
+      // a tile still drawing replays saves once they're done
+      for (let k = 0; k < this.saveQueue.length; k++) {
+        const key = this.saveQueue[k];
+        if (!this.saveTile(key, false)) continue;
+        this.saveQueue.splice(k, 1);
+        this.saveSet.delete(key);
+        break;
+      }
     }
     if (!this.dirty.length) return;
     const gl = renderer.getContext() as WebGL2RenderingContext;
@@ -384,42 +523,122 @@ export class GroundPaint {
   }
 
   resetAll() {
-    this.saved = [];
-    this.byTile.clear();
+    this.store.clear();
+    this.saveQueue.length = 0;
+    this.saveSet.clear();
     try {
-      localStorage.removeItem(STORE_KEY);
+      localStorage.removeItem(OLD_KEY);
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(STORE_PREFIX)) keys.push(k);
+      }
+      for (const k of keys) localStorage.removeItem(k);
     } catch {
       /* private mode */
     }
   }
 
+  /** Save every changed tile now (page hide). */
   persist() {
-    try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(this.saved.map(specToArray)));
-    } catch {
-      /* storage full or blocked: the ground stays painted this session */
-    }
+    for (const key of this.saveQueue) this.saveTile(key, true);
+    this.saveQueue.length = 0;
+    this.saveSet.clear();
   }
 
   // ------------------------------------------------------------------ internals
 
-  private addSaved(s: BlastSpec) {
-    if (this.saved.length >= MAX_SAVED) {
-      // oldest splats wash away first
-      this.saved.splice(0, this.saved.length - MAX_SAVED + 1);
-      this.byTile.clear();
-      for (let i = 0; i < this.saved.length; i++) this.index(i);
-    }
-    this.saved.push(s);
-    this.index(this.saved.length - 1);
+  private queueSave(key: string) {
+    if (this.saveSet.has(key)) return;
+    this.saveSet.add(key);
+    this.saveQueue.push(key);
   }
 
-  private index(i: number) {
-    for (const key of this.tilesOf(this.prepare(this.saved[i], true))) {
-      let l = this.byTile.get(key);
-      if (!l) this.byTile.set(key, (l = []));
-      l.push(i);
+  /**
+   * Write one tile's entry. A loaded tile saves its mask (and drops the blasts
+   * it has drawn); one still drawing replays waits (false) unless forced, and
+   * then keeps them. An unloaded tile writes its entry as it stands.
+   */
+  private saveTile(key: string, force: boolean): boolean {
+    const m = this.masks.get(key);
+    let rec = this.store.get(key) ?? null;
+    if (m) {
+      const busy = this.replaying.has(key);
+      if (busy && !force) return false;
+      const enc = encodeMask(m.data);
+      const p = busy && rec ? rec.p : [];
+      if (!enc && !p.length) {
+        this.dropTile(key);
+        return true;
+      }
+      rec = { t: Date.now(), m: enc || null, p };
+      this.store.set(key, rec);
     }
+    if (rec) this.writeTile(key, rec);
+    return true;
+  }
+
+  /** A blast reached a tile it couldn't draw: keep it on that tile's entry (and draw it now if the tile is here). */
+  private addPending(key: string, spec: BlastSpec) {
+    let rec = this.store.get(key);
+    if (!rec) this.store.set(key, (rec = { t: 0, m: null, p: [] }));
+    rec.t = Date.now();
+    rec.p.push(spec);
+    if (rec.p.length > MAX_PENDING) rec.p.shift();
+    if (this.loaded.has(key) && this.mask(key)) {
+      this.replaying.set(key, (this.replaying.get(key) ?? 0) + 1);
+      this.jobs.push({ spec, tImpact: 0, serial: null, p: null, tiles: [], only: key, under: false });
+    }
+    this.writeTile(key, rec);
+  }
+
+  private writeTile(key: string, rec: SavedTile) {
+    if (!this.storageOk) return;
+    // the longest-untouched tiles wash away first
+    while (this.store.size > MAX_TILES && this.evictOldest(key)) { /* evicted one */ }
+    const raw = JSON.stringify({ t: rec.t, m: rec.m ?? '', p: rec.p.map(specToArray) });
+    for (let tries = 0; tries < 6; tries++) {
+      try {
+        localStorage.setItem(STORE_PREFIX + key, raw);
+        return;
+      } catch {
+        // storage full: make room
+        if (!this.evictOldest(key)) return;
+      }
+    }
+  }
+
+  private evictOldest(except: string): boolean {
+    let best: string | null = null, bt = Infinity;
+    for (const [k, r] of this.store) if (k !== except && r.t < bt) {
+      bt = r.t;
+      best = k;
+    }
+    if (best === null) return false;
+    this.dropTile(best);
+    return true;
+  }
+
+  private dropTile(key: string) {
+    this.store.delete(key);
+    try {
+      localStorage.removeItem(STORE_PREFIX + key);
+    } catch {
+      /* blocked */
+    }
+  }
+
+  /** Run the rasterizer and codec once on a scratch mask, so the first real blast doesn't pay for cold code. */
+  private warm() {
+    const p = this.prepare(makeBlastSpec(0, 0, config.splat.blastRadius, 0, 0x5eed));
+    const h = this.tileSize / 2;
+    const m: TileMask = { ox: -h, oz: -h, data: new Uint8Array(TEXELS * 4), tex: this.empty, dirty: false, gone: true, x0: 0, z0: 0, x1: -1, z1: -1, uniforms: null };
+    const q: number[] = [];
+    this.rows(m, p, 1, 0, GROUND_N - 1, q, false);
+    this.rows(m, p, 1, 0, GROUND_N - 1, q, false); // over its own paint: the deferred path
+    this.rows(m, p, null, 0, GROUND_N - 1, null, true);
+    this.dots(m, p, 1, q);
+    decodeMask(encodeMask(m.data), m.data);
   }
 
   private tilesOf(p: { minX: number; minZ: number; maxX: number; maxZ: number }): string[] {
@@ -430,10 +649,8 @@ export class GroundPaint {
     return out;
   }
 
-  private prepare(spec: BlastSpec, boundsOnly = false): Prepared {
+  private prepare(spec: BlastSpec): Prepared {
     const reach = spec.r * Math.max(spec.reach, spec.edge * (1 + spec.ragged) + spec.rayLen) + 4;
-    const b = { minX: spec.x - reach, minZ: spec.z - reach, maxX: spec.x + reach, maxZ: spec.z + reach };
-    if (boundsOnly) return { spec, lut: new Float32Array(0), warp: new Float32Array(0), wave: new Float32Array(0), max: 0, dots: [], ...b };
     const e = blastEdge(spec);
     const warp = new Float32Array(SHAPE_LUT);
     const ph = (spec.seed % 1000) * 0.01;
@@ -443,7 +660,7 @@ export class GroundPaint {
     }
     const wave = new Float32Array(WAVE_LUT);
     for (let k = 0; k < WAVE_LUT; k++) wave[k] = arrival((k / (WAVE_LUT - 1)) * (e.max + 3), spec.r);
-    return { spec, lut: e.lut, warp, wave, max: e.max, dots: blastDots(spec, e), ...b };
+    return { spec, lut: e.lut, warp, wave, max: e.max, dots: blastDots(spec, e), minX: spec.x - reach, minZ: spec.z - reach, maxX: spec.x + reach, maxZ: spec.z + reach };
   }
 
   private start(job: GroundJob) {
@@ -455,6 +672,8 @@ export class GroundPaint {
       if (!this.loaded.has(key)) continue;
       const m = this.mask(key);
       if (!m) continue;
+      // replays still queued here are older: they go under this blast
+      if (job.serial !== null) for (const r of this.jobs) if (r.only === key) r.under = true;
       const s = job.spec;
       const i0 = Math.max(0, Math.floor((s.x - R - m.ox) / cs)), i1 = Math.min(GROUND_N - 1, Math.floor((s.x + R - m.ox) / cs));
       const j0 = Math.max(0, Math.floor((s.z - R - m.oz) / cs)), j1 = Math.min(GROUND_N - 1, Math.floor((s.z + R - m.oz) / cs));
@@ -462,20 +681,20 @@ export class GroundPaint {
     }
   }
 
-  /** Draw up to `budget` texels of a started job (skipping tiles still replaying if asked); returns the budget left. */
-  private step(job: GroundJob, budget: number, waitReplays: boolean): number {
+  /** Draw up to `budget` texels of a started job; returns the budget left. */
+  private step(job: GroundJob, budget: number): number {
     const p = job.p!;
+    const live = job.serial !== null;
     for (const t of job.tiles) {
       if (this.masks.get(t.key) !== t.m) continue; // tile streamed out
-      if (waitReplays && this.replaying.has(t.key)) continue;
       while (t.j <= t.j1 && budget > 0) {
-        this.rows(t.m, p, job.serial, t.j, t.j, job.serial === null ? null : t.deferred);
+        this.rows(t.m, p, job.serial, t.j, t.j, live ? t.deferred : null, job.under);
         budget -= t.i1 - t.i0 + 1;
         t.j++;
       }
       if (t.j <= t.j1) return budget;
       if (!t.dots) {
-        this.dots(t.m, p, job.serial, job.serial === null ? null : t.deferred);
+        this.dots(t.m, p, job.serial, live ? t.deferred : null);
         t.dots = true;
         budget -= 150;
       }
@@ -489,7 +708,7 @@ export class GroundPaint {
     return true;
   }
 
-  /** A replay finished: show its tile's mask once nothing more is queued for it. */
+  /** A replay finished: upload its rect, save the tile once nothing more is queued for it. */
   private replayed(job: GroundJob) {
     const key = job.only;
     if (!key) return;
@@ -500,18 +719,9 @@ export class GroundPaint {
       return;
     }
     this.replaying.delete(key);
-    const m = this.masks.get(key);
-    if (!m) return;
-    this.publish(key, m);
-    const c = key.indexOf(',');
-    this.onTileReady?.(Number(key.slice(0, c)), Number(key.slice(c + 1)));
-  }
-
-  private publish(key: string, m: TileMask) {
-    const u = this.loaded.get(key)?.uniforms;
-    if (!u) return;
-    u.tGround.value = m.tex;
-    u.uGroundOn.value = 1;
+    if (!this.masks.has(key)) return;
+    this.queueSave(key);
+    this.ready.push(key);
   }
 
   private mask(key: string): TileMask | null {
@@ -519,15 +729,17 @@ export class GroundPaint {
     if (m) return m;
     const t = this.loaded.get(key);
     if (!t) return null;
-    const data = new Uint8Array(GROUND_N * GROUND_N * 4);
+    const data = new Uint8Array(TEXELS * 4);
     const tex = new THREE.DataTexture(data, GROUND_N, GROUND_N, THREE.RGBAFormat, THREE.UnsignedByteType);
     tex.minFilter = tex.magFilter = THREE.NearestFilter;
     tex.generateMipmaps = false;
     tex.needsUpdate = true;
     m = { ox: t.ox, oz: t.oz, data, tex, dirty: false, gone: false, x0: GROUND_N, z0: GROUND_N, x1: -1, z1: -1, uniforms: t.uniforms };
     this.masks.set(key, m);
-    // a tile still redrawing its saved paint shows it only when complete
-    if (!this.replaying.has(key)) this.publish(key, m);
+    if (t.uniforms) {
+      t.uniforms.tGround.value = tex;
+      t.uniforms.uGroundOn.value = 1;
+    }
     return m;
   }
 
@@ -543,8 +755,8 @@ export class GroundPaint {
     this.queueDirty(m);
   }
 
-  /** Main splat, rows ja..jb of one tile. serial = null: settled. deferred: hold over-paint back (live). */
-  private rows(m: TileMask, p: Prepared, serial: number | null, ja: number, jb: number, deferred: number[] | null) {
+  /** Main splat, rows ja..jb of one tile. serial = null: settled. deferred: hold over-paint back (live). under: bare ground only. */
+  private rows(m: TileMask, p: Prepared, serial: number | null, ja: number, jb: number, deferred: number[] | null, under: boolean) {
     const s = p.spec;
     const cs = this.cell;
     const ox = m.ox, oz = m.oz;
@@ -587,7 +799,7 @@ export class GroundPaint {
           const off = s.layout === 1 ? ring : s.layout === 2 ? sector + ring : sector;
           hue = (((s.hue + off) % 6) + 6) % 6;
         }
-        this.put(d, (j * GROUND_N + i) * 4, c > 1 ? 1 : c, hue, live ? wave[Math.min(WAVE_LUT - 1, Math.round(dist * waveK))] : 0, serial, false, deferred);
+        this.put(d, (j * GROUND_N + i) * 4, c > 1 ? 1 : c, hue, live ? wave[Math.min(WAVE_LUT - 1, Math.round(dist * waveK))] : 0, serial, under, deferred);
       }
     }
   }
@@ -640,11 +852,11 @@ export class GroundPaint {
     this.dirty.push(m);
   }
 
-  /** Write one texel of new paint over whatever is there. */
-  private put(d: Uint8Array, o: number, c: number, hue: number, reveal: number, serial: number | null, dot: boolean, deferred: number[] | null) {
+  /** Write one texel of new paint over whatever is there (bareOnly: only onto bare ground). */
+  private put(d: Uint8Array, o: number, c: number, hue: number, reveal: number, serial: number | null, bareOnly: boolean, deferred: number[] | null) {
     const old = d[o] / 255;
-    // spatter only lands on bare ground (no confetti inside a splat)
-    if (dot && old >= 0.5) return;
+    // spatter only lands on bare ground (no confetti inside a splat); a replay under a newer blast likewise
+    if (bareOnly && old >= 0.5) return;
     // over old paint, a live blast changes the hue only at impact
     if (deferred && old >= 0.5) {
       deferred.push(o, c, hue);

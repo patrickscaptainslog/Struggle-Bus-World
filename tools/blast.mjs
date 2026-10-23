@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Blast QA at the Painted Ladies (real game, iPhone portrait viewport).
-//   node tools/blast.mjs <baseUrl> <outDir> [perf] [seq] [top] [reload] [escalate] [tap] [drop] [layouts]
+//   node tools/blast.mjs <baseUrl> <outDir> [perf] [seq] [top] [reload] [escalate] [tap] [drop] [layouts] [heavy]
 //
 //   perf    CPU work ms / draw calls / triangles per frame: grey hover baseline,
 //           then the frames during and after one blast and an escalation (perf.json)
@@ -12,6 +12,10 @@
 //   tap     a real tap in cruise (gameplay framing)
 //   drop    a barf dropped from 300 m (the altitude interface: twice the radius)
 //   layouts the hue-layout bake-off (pinwheel / rings / spiral), chase + top-down
+//   heavy   a long session's ground paint: seeds 150 saved blasts around the
+//           Painted Ladies, reloads, checks the paint is on screen at once (no
+//           redraw queue), then blasts straight away and records the frames (heavy.json)
+//   heavyctl  the same with 1 seeded blast (control)
 //
 // SwiftShader fps is meaningless; workMs, calls and triangles are what count.
 import { chromium } from 'playwright-core';
@@ -262,6 +266,38 @@ if (modes.has('layouts')) {
     await page.screenshot({ path: `${out}/layout${L}-top.png` });
     await page.close();
   }
+}
+
+for (const [mode, seeds] of [['heavy', 150], ['heavyctl', 1]]) {
+  if (!modes.has(mode)) continue;
+  const page = await open(START + '&fps');
+  await hover(page);
+  await runFor(page, 0.5);
+  const tiles = await page.evaluate(([n, la, lo]) => window.__game.seedGround(n, la, lo, 250), [seeds, ...IMPACT]);
+  const storage = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('strugglebus.ground')).reduce((n, k) => n + localStorage.getItem(k).length, 0));
+  console.log(`${mode}: seeded ${seeds} blasts:`, tiles, 'tiles,', (storage / 1024).toFixed(1), 'KB');
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000 });
+  const atReady = await page.evaluate(([la, lo]) => window.__game.paintedNear(la, lo, 90), IMPACT);
+  console.log('at ready', JSON.stringify(atReady));
+  await hover(page);
+  await page.evaluate(([la, lo]) => (window.__qa.topDown = { lat: la, lon: lo, height: 700 }), IMPACT);
+  await runFor(page, 0.1);
+  await page.screenshot({ path: `${out}/${mode}-reload-top.png` });
+  await page.evaluate(() => (window.__qa.topDown = null));
+  // a blast at once (first, so it also pays the sign shader compile), then a second one somewhere else
+  await barf(page);
+  const first = await sample(page, 1.6, 'first');
+  await runFor(page, 1.0);
+  await page.evaluate(([la, lo]) => window.__game.barfAtLatLon(la, lo), [IMPACT[0] + 0.0012, IMPACT[1] - 0.0016]);
+  const second = await sample(page, 1.6, 'second');
+  const report = { tiles, storageKB: +(storage / 1024).toFixed(1), atReady, first: summarize(first.rows), second: summarize(second.rows), raw: { first: first.rows, second: second.rows } };
+  writeFileSync(`${out}/${mode}.json`, JSON.stringify(report, null, 2));
+  const { raw, ...sum } = report;
+  console.log(mode, JSON.stringify(sum));
+  console.log(mode, 'impact frames', JSON.stringify(['first', 'second'].map((k) => raw[k].filter((r) => r.t > 0.38 && r.t < 0.62).map((r) => r.work))));
+  await page.screenshot({ path: `${out}/${mode}-end.png` });
+  await page.close();
 }
 
 await browser.close();
