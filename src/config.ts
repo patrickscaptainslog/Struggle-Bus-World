@@ -20,9 +20,13 @@ export const config = {
     shadowMapSize: 1024,
     /** World-space extent of the shadow map around the camera focus (m). */
     shadowExtent: 520,
-    /** At full vista (high above the city) the shadow window widens to this (m) and softens to this strength (0..1). */
-    shadowExtentVista: 1000,
-    shadowStrengthVista: 0.8,
+    /** At full vista (high above the city) the shadow window widens to this (m) and softens to this strength (0..1)... */
+    shadowExtentVista: 2000,
+    shadowStrengthVista: 0.85,
+    /** ...and its edge fade (fraction of the window) stays narrow: a wide fade sliding with the window boils. */
+    shadowEdgeVista: 0.14,
+    /** Vista blend at which the pixels are fully calm (surfaces round to their ramp step, no ordered dither). */
+    calmVista: 0.35,
   },
 
   light: {
@@ -61,9 +65,9 @@ export const config = {
     layerBillowSize: 340,
     /** Fog density inside the layer seen from above (1/m) and of the clear air above it (1/m). */
     layerDensity: 0.014,
-    layerHaze: 0.00042,
-    /** Distance at which everything is fully fogged once the camera is above the layer (m). */
-    layerFarFull: 15000,
+    layerHaze: 0.00012,
+    /** Distance at which everything is fully fogged once the camera is above the layer (m): the horizon hills still read. */
+    layerFarFull: 28000,
     /** The layer view fades in as the camera rises this far above layerTop (m): below it the street-level fog is exactly as before. */
     layerViewStart: 110,
     layerViewFull: 260,

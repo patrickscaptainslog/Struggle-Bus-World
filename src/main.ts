@@ -397,7 +397,12 @@ async function boot() {
   const sparkPos = new THREE.Vector3();
   const nearTmp: Array<{ ref: BuildingRef; d: number }> = [];
   const camFwd = new THREE.Vector3();
+  const camDir = new THREE.Vector3();
+  const snapPoint = new THREE.Vector3();
+  const compTmp = new THREE.Vector3();
   const streamCenter = new THREE.Vector3();
+  // the first ready frame adopts streamed tiles at once (as the classic streaming did); then budgeted
+  let everReady = false;
 
   function frame(now: number) {
     requestAnimationFrame(frame);
@@ -519,7 +524,8 @@ async function boot() {
     pipeline.shadowFocus.set(sx0, focus.y + (city.groundAt(sx0, sz0) - focus.y) * vista, sz0);
     pipeline.shadowScale = 1 + (R.shadowExtentVista / Math.max(1, R.shadowExtent) - 1) * vista;
     pipeline.shadowStrength = 1 + (R.shadowStrengthVista - 1) * vista;
-    pipeline.shadowEdge = 0.08 + 0.3 * vista;
+    pipeline.shadowEdge = 0.08 + (R.shadowEdgeVista - 0.08) * vista;
+    pipeline.calm = clamp(vista / Math.max(0.01, config.render.calmVista), 0, 1);
 
     city.update(streamCenter, renderer, dt);
     // tree LOD by distance from the lens (fog eats far groves anyway; a wider view keeps simple canopies farther)
@@ -575,9 +581,29 @@ async function boot() {
       }
     }
 
+    // ---- up high the city is what must hold still: the pixel grid snaps at the depth of the ground
+    // under the screen center instead of at the bus (whose snap step would resample every far roof
+    // on every frame); the bus, its drop shadow and its particles take the snap's remainder, so
+    // they stay exactly where they are
+    if (vista > 0) {
+      camera.getWorldDirection(camDir);
+      const tC = clamp((camY - flight.groundBroad) / Math.max(0.06, -camDir.y), 50, 5000);
+      snapPoint.copy(camera.position).addScaledVector(camDir, tC);
+      pipeline.focus.lerp(snapPoint, vista);
+    }
+    pipeline.steadySnap = vista > 0;
+    pipeline.snap();
+    if (vista > 0) {
+      bus.root.position.add(pipeline.snapCompensation(bus.root.position, compTmp));
+      dropShadow.position.add(pipeline.snapCompensation(dropShadow.position, compTmp));
+      pipeline.snapCompensation(bus.root.position, particles.object.position);
+    } else particles.object.position.set(0, 0, 0);
     pipeline.render(scene);
     perf.frame(dt * 1000, performance.now() - t0);
-    (window as unknown as { __shotReady?: boolean }).__shotReady = city.loadedRegionCount() > 0 && !city.busy && (opening >= config.fog.openingDuration || params.has('openingshot'));
+    const ready = city.loadedRegionCount() > 0 && !city.busy && (opening >= config.fog.openingDuration || params.has('openingshot'));
+    if (ready) everReady = true;
+    city.eager = !everReady;
+    (window as unknown as { __shotReady?: boolean }).__shotReady = ready;
   }
   requestAnimationFrame(frame);
 
