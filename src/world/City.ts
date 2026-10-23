@@ -15,16 +15,19 @@ import type { MeshArrays } from './BuildingMesher';
 // Also answers the questions gameplay asks: how high is the ground here,
 // what's the tallest thing under this point, which buildings are near.
 
+/** One building (all of its LiDAR tiers): what gameplay paints, aims at and names. */
 export interface BuildingRef {
   index: number;
   stableId: number;
   tile: BuildingTile;
-  local: number; // index within tile
+  local: number; // record of the ground tier (the footprint) within the tile
+  parts: number; // records [local, local + parts) are this building's tiers
+  top: number; // record of the highest tier
   cx: number;
   cz: number;
-  baseY: number;
-  roofY: number;
-  area: number;
+  baseY: number; // ground
+  roofY: number; // top of the highest tier
+  area: number; // footprint area
   hood: number;
 }
 
@@ -67,6 +70,28 @@ async function maybeInflate(buf: ArrayBuffer): Promise<ArrayBuffer> {
   if (h[0] !== 0x1f || h[1] !== 0x8b) return buf;
   const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'));
   return await new Response(stream).arrayBuffer();
+}
+
+/** Point-in-ring test for record k of a building tile. */
+function ringContains(b: BuildingTile, k: number, x: number, z: number): boolean {
+  const s = b.vertStart[k], e = b.vertStart[k + 1];
+  let inside = false;
+  for (let i = s, j = e - 1; i < e; j = i++) {
+    const xi = b.xz[i * 2], zi = b.xz[i * 2 + 1], xj = b.xz[j * 2], zj = b.xz[j * 2 + 1];
+    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** Area of record k's ring (m^2). */
+function ringArea(b: BuildingTile, k: number): number {
+  const s = b.vertStart[k], e = b.vertStart[k + 1];
+  let a = 0;
+  for (let i = s; i < e; i++) {
+    const j = i + 1 < e ? i + 1 : s;
+    a += b.xz[i * 2] * b.xz[j * 2 + 1] - b.xz[j * 2] * b.xz[i * 2 + 1];
+  }
+  return Math.abs(a) / 2;
 }
 
 const LOAD_RADIUS = 1500; // m: regions whose center is within this get loaded
@@ -706,7 +731,14 @@ export class City {
     if (t.mesh && !coarse) lt.buildings = this.makeBuildingMesh(t.mesh);
     if (t.building) {
       const b = t.building;
-      for (let i = 0; i < b.count; i++) {
+      for (let i = 0; i < b.count; ) {
+        // a building's tiers are consecutive records sharing its paint index: one ref for all of them
+        let j = i + 1;
+        let top = i;
+        while (j < b.count && b.index[j] === b.index[i]) {
+          if (b.roofY[j] > b.roofY[top]) top = j;
+          j++;
+        }
         const s = b.vertStart[i], e = b.vertStart[i + 1];
         let cx = 0, cz = 0, area = 0;
         for (let k = s; k < e; k++) {
@@ -717,7 +749,8 @@ export class City {
         }
         cx /= e - s;
         cz /= e - s;
-        const ref: BuildingRef = { index: b.index[i], stableId: b.stableId[i], tile: b, local: i, cx, cz, baseY: b.baseY[i], roofY: b.roofY[i], area: Math.abs(area) / 2, hood: b.hood[i] };
+        const ref: BuildingRef = { index: b.index[i], stableId: b.stableId[i], tile: b, local: i, parts: j - i, top, cx, cz, baseY: b.groundY[i], roofY: b.roofY[top], area: Math.abs(area) / 2, hood: b.hood[i] };
+        i = j;
         lt.refs.push(ref);
         if (ref.roofY + 6 > lt.maxY) lt.maxY = ref.roofY + 6;
         const hk = this.hashKey(cx, cz);
@@ -873,7 +906,8 @@ export class City {
     return this.groundAt(x, z) + 18; // unknown: assume rooftops
   }
 
-  /** Buildings whose centroid is within r of (x, z), nearest first. */
+  /** Buildings whose centroid is within r of (x, z), nearest first. One entry per building
+   * (a tiered tower is one ref; its roofY is the top of the highest tier). */
   buildingsNear(x: number, z: number, r: number, out: Array<{ ref: BuildingRef; d: number }> = []): Array<{ ref: BuildingRef; d: number }> {
     out.length = 0;
     const c0x = Math.floor((x - r) / HASH_CELL), c1x = Math.floor((x + r) / HASH_CELL);
@@ -891,31 +925,35 @@ export class City {
     return out;
   }
 
-  /** Roof height of the building whose footprint contains (x, z), or null (no allocation, no sort). */
+  /** Roof height at (x, z) of the building whose footprint contains it (its part there), or null (no allocation, no sort). */
   roofAt(x: number, z: number): number | null {
     const cx0 = Math.floor(x / HASH_CELL), cz0 = Math.floor(z / HASH_CELL);
     for (let cz = cz0 - 1; cz <= cz0 + 1; cz++)
       for (let cx = cx0 - 1; cx <= cx0 + 1; cx++) {
         const list = this.hash.get((cx + 4096) * 8192 + (cz + 4096));
         if (!list) continue;
-        for (const ref of list) if (this.contains(ref, x, z)) return ref.roofY;
+        for (const ref of list) if (this.contains(ref, x, z)) return this.roofAtPart(ref, x, z);
       }
     return null;
   }
 
-  /** True if (x, z) is inside the footprint of ref. */
+  /** True if (x, z) is inside the footprint of ref (any ground-tier part; the tiers above stand on it). */
   contains(ref: BuildingRef, x: number, z: number): boolean {
     const b = ref.tile;
-    const s = b.vertStart[ref.local], e = b.vertStart[ref.local + 1];
-    let inside = false;
-    for (let i = s, j = e - 1; i < e; j = i++) {
-      const xi = b.xz[i * 2], zi = b.xz[i * 2 + 1], xj = b.xz[j * 2], zj = b.xz[j * 2 + 1];
-      if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
-    }
-    return inside;
+    for (let k = ref.local; k < ref.local + ref.parts; k++) if (b.tier[k] === 0 && ringContains(b, k, x, z)) return true;
+    return false;
   }
 
-  /** Street-facing edge of a building: midpoint, outward normal, length. */
+  /** Roof height of ref right at (x, z): the highest of its parts covering the point (a tiered
+   * tower's podium roof is not the top of its tower), or ref.roofY if none does. */
+  roofAtPart(ref: BuildingRef, x: number, z: number): number {
+    const b = ref.tile;
+    let y = -Infinity;
+    for (let k = ref.local; k < ref.local + ref.parts; k++) if (b.roofY[k] > y && ringContains(b, k, x, z)) y = b.roofY[k];
+    return y > -Infinity ? y : ref.roofY;
+  }
+
+  /** Street-facing edge of a building (its ground tier): midpoint, outward normal, length. */
   frontOf(ref: BuildingRef): { x: number; z: number; nx: number; nz: number; len: number } {
     const b = ref.tile;
     const s = b.vertStart[ref.local], e = b.vertStart[ref.local + 1];
@@ -940,12 +978,15 @@ export class City {
     return { x: mx, z: mz, nx, nz, len };
   }
 
-  /** Oriented roof rectangle (for rooftop sprouts). */
+  /** Oriented roof rectangle (for rooftop sprouts), aligned with the street front: the roof of the
+   * highest tier that is a real roof (a fifth of the footprint or more), not a crown or a penthouse. */
   roofRect(ref: BuildingRef): { cx: number; cz: number; y: number; w: number; d: number; yaw: number } {
     const f = this.frontOf(ref);
     const ux = -f.nz, uz = f.nx;
     const b = ref.tile;
-    const s = b.vertStart[ref.local], e = b.vertStart[ref.local + 1];
+    let top = ref.local;
+    for (let k = ref.local + 1; k < ref.local + ref.parts; k++) if (b.roofY[k] > b.roofY[top] && ringArea(b, k) >= 0.2 * ref.area) top = k;
+    const s = b.vertStart[top], e = b.vertStart[top + 1];
     let s0 = Infinity, s1 = -Infinity, t0 = Infinity, t1 = -Infinity;
     for (let k = s; k < e; k++) {
       const x = b.xz[k * 2] - ref.cx, z = b.xz[k * 2 + 1] - ref.cz;
@@ -954,7 +995,8 @@ export class City {
       s0 = Math.min(s0, ss); s1 = Math.max(s1, ss); t0 = Math.min(t0, tt); t1 = Math.max(t1, tt);
     }
     const cs = (s0 + s1) / 2, ct = (t0 + t1) / 2;
-    return { cx: ref.cx + ux * cs + f.nx * ct, cz: ref.cz + uz * cs + f.nz * ct, y: ref.roofY, w: (s1 - s0) * 0.86, d: (t1 - t0) * 0.86, yaw: Math.atan2(ux, uz) };
+    const sc = 1 - b.taper[top] / 255; // a tapering tier's roof is its base ring scaled
+    return { cx: ref.cx + ux * cs + f.nx * ct, cz: ref.cz + uz * cs + f.nz * ct, y: b.roofY[top], w: (s1 - s0) * 0.86 * sc, d: (t1 - t0) * 0.86 * sc, yaw: Math.atan2(ux, uz) };
   }
 
   neighborhoodName(hood: number): string {

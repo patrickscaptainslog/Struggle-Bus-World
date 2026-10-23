@@ -350,7 +350,8 @@
       "kind": "sutro",
       "lat": 37.75524,
       "lon": -122.45284,
-      "height": 298
+      "height": 298,
+      "clearRadius": 14
     },
     {
       "kind": "transamerica",
@@ -423,5 +424,26 @@
     }
   ],
   "dem_fallback": "/vsicurl/https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/current/n38w123/USGS_13_n38w123.tif",
-  "treeLatMax": 37.8115
+  "treeLatMax": 37.8115,
+  "lidar": {
+    "ept": "https://s3-us-west-2.amazonaws.com/usgs-lidar-public/CA_SanFrancisco_1_B23/ept.json",
+    "note": "USGS 3DEP CA_SanFrancisco_1_B23 (2023), EPSG:3857, NAVD88; no building class -> first returns",
+    "fineDepth": 7,
+    "coarseDepth": 6,
+    "fineMinHeight": 25,
+    "fine": [
+      [
+        -122.4125,
+        37.778,
+        -122.3865,
+        37.7995
+      ],
+      [
+        -122.408,
+        37.765,
+        -122.384,
+        37.778
+      ]
+    ]
+  }
 }

@@ -76,6 +76,36 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
 - Palette: 8-step ramps. Warm hues shadow toward rose/violet, never brown.
   There is no brown in the palette and there never will be.
 
+## City data (bake -> tiles -> meshes)
+`tools/bake/bake.py <slug>` turns footprints + DEM (+ an optional LiDAR point
+cloud via `tools/bake/lidar.py`) into 256 m tiles; `tools/bake/pack.py` bundles
+them into gzip'd 1 km regions. Layouts live in `src/world/tiles.ts`.
+- **Buildings are groups of parts.** A building tile ('SBB2') holds one record
+  per *part*: a plain building is one part; a LiDAR-tiered tower is several
+  (podium, setbacks, tapering shaft, crown, rooftop boxes), consecutive, tier 0
+  (the footprint) first, each standing on the top of the tier below. Parts of a
+  building share its paint index (one paint texel), stableId, arch, seed and
+  hood, and carry `groundY` (the building's true ground) so window rows line up
+  across tiers, `tier`, and `taper` (the part's top ring is its base scaled).
+  'SBB1' tiles still read (one part each).
+- `City` exposes one `BuildingRef` per building (`local` = ground tier,
+  `parts`, `top` = highest part; `roofY` = top of the whole tower):
+  `buildingsNear`, `contains`, `frontOf` (ground tier) and `roofRect` (top tier)
+  never see individual parts; `roofAtPart(ref, x, z)` is the roof of the part
+  over a point (a podium, not the tower above it). The aim glint, pop, wobble
+  and color flood work on the paint index / whole-building center, ground and
+  top, so towers move and paint as one.
+- The flight obstacle grid (`City.obstacleAt`) is baked per part (tall parts
+  grown by half a cell diagonal), so it follows the real tiered heights; the far
+  skyline has one box per building >= 20 m, a few per stepped tower >= 60 m.
+- **stableIds** key saved paint. Footprint buildings keep the rank of their
+  source footprint (LiDAR work happens after ranking); row lots merged back into
+  one building keep one lot's id and retire the others. Buildings only a LiDAR
+  bake has get ids >= 2^30 derived from what they are (split pieces: parent id
+  and rank; LiDAR-only towers: a hash of their position), so re-bakes agree.
+  `node tools/check-stable-ids.mjs <old city dir> <new city dir>` checks a
+  re-bake (also LiDAR bake against LiDAR bake).
+
 ## Tunables
 Expose module constants via `registerTunables('Name', obj, ranges?)` from
 `src/ui/tunables.ts`; read `obj.field` live every frame. Global feel numbers

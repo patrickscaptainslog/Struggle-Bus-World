@@ -33,12 +33,23 @@ export interface CityManifest {
 }
 
 /**
- * 'SBB1' building tile:
+ * Building tile. One record per building *part*: a plain building is one part;
+ * a LiDAR-tiered tower is several (podium, setbacks, crown...) stacked on each
+ * other. Parts of one building are consecutive, tier 0 (the footprint) first,
+ * and share index (the paint texel), stableId, arch, floors, hood and seed.
+ *
+ * 'SBB2':
  *   header: magic[4] u32 count, u32 vertCount, f32 originX, f32 originZ, u32 reserved
  *   u32 index[count], u32 stableId[count], u32 vertStart[count+1],
- *   f32 baseY[count], f32 roofY[count],
- *   u8 arch[count], u8 floors[count], u8 front[count], u8 front2[count], u8 hood[count], u8 seed[count], pad to 4,
+ *   f32 baseY[count]   (bottom of this part: the ground for tier 0, else the top of the tier below)
+ *   f32 roofY[count]   (top of this part)
+ *   f32 groundY[count] (the building's true ground: window rows line up across tiers)
+ *   u8 arch[count], u8 floors[count], u8 front[count], u8 front2[count], u8 hood[count], u8 seed[count],
+ *   u8 tier[count] (0 = ground tier),
+ *   u8 taper[count] (0 = vertical walls; else the part's top outline is its base ring scaled by
+ *                    1 - taper/255 about the ring's area centroid: Salesforce Tower's taper), pad to 4,
  *   i16 vx[vertCount], i16 vz[vertCount]   (decimeters relative to origin; rings CCW in (x, z))
+ * 'SBB1': the same without groundY, tier and taper (every record is a one-part building: groundY = baseY, tier = 0, taper = 0).
  */
 export interface BuildingTile {
   count: number;
@@ -49,12 +60,15 @@ export interface BuildingTile {
   vertStart: Uint32Array;
   baseY: Float32Array;
   roofY: Float32Array;
+  groundY: Float32Array;
   arch: Uint8Array;
   floors: Uint8Array;
   front: Uint8Array;
   front2: Uint8Array;
   hood: Uint8Array;
   seed: Uint8Array;
+  tier: Uint8Array;
+  taper: Uint8Array;
   /** Absolute world coords, interleaved per building ring: x0,z0,x1,z1... indexed by vertStart*2. */
   xz: Float32Array;
 }
@@ -62,7 +76,8 @@ export interface BuildingTile {
 export function parseBuildingTile(buf: ArrayBuffer): BuildingTile {
   const dv = new DataView(buf);
   const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
-  if (magic !== 'SBB1') throw new Error('bad building tile');
+  if (magic !== 'SBB1' && magic !== 'SBB2') throw new Error('bad building tile');
+  const v2 = magic === 'SBB2';
   const count = dv.getUint32(4, true);
   const vertCount = dv.getUint32(8, true);
   const originX = dv.getFloat32(12, true);
@@ -88,13 +103,16 @@ export function parseBuildingTile(buf: ArrayBuffer): BuildingTile {
   const vertStart = u32(count + 1);
   const baseY = f32(count);
   const roofY = f32(count);
+  const groundY = v2 ? f32(count) : baseY.slice();
   const arch = u8(count);
   const floors = u8(count);
   const front = u8(count);
   const front2 = u8(count);
   const hood = u8(count);
   const seed = u8(count);
-  o += (4 - ((count * 6) % 4)) % 4;
+  const tier = v2 ? u8(count) : new Uint8Array(count);
+  const taper = v2 ? u8(count) : new Uint8Array(count);
+  o += (4 - ((count * (v2 ? 8 : 6)) % 4)) % 4;
   const vx = new Int16Array(buf.slice(o, o + vertCount * 2));
   o += vertCount * 2;
   const vz = new Int16Array(buf.slice(o, o + vertCount * 2));
@@ -103,7 +121,7 @@ export function parseBuildingTile(buf: ArrayBuffer): BuildingTile {
     xz[i * 2] = originX + vx[i] / 10;
     xz[i * 2 + 1] = originZ + vz[i] / 10;
   }
-  return { count, originX, originZ, index, stableId, vertStart, baseY, roofY, arch, floors, front, front2, hood, seed, xz };
+  return { count, originX, originZ, index, stableId, vertStart, baseY, roofY, groundY, arch, floors, front, front2, hood, seed, tier, taper, xz };
 }
 
 /**
