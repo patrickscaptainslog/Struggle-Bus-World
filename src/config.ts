@@ -201,10 +201,10 @@ export const config = {
     projectileSpeed: 850,
     /** Farthest a breath can reach (m). */
     maxRange: 1600,
-    /** Search radius around the aim point for the target building (m). */
-    snapRadius: 28,
     /** From up high a shot that would miss snaps to the nearest roof within snapRadius * (1 + drop / 150), up to this (m). */
     snapReachMax: 120,
+    /** Search radius around the aim point for the target building (m). */
+    snapRadius: 28,
     /** Spill radius around the primary target (m). */
     spillRadius: 22,
     /** Max buildings painted per splat (including the primary). */
