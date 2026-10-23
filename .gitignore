@@ -6,3 +6,4 @@ tools/bake/.cache
 shots/tmp
 shots/blast
 tools/feel-sim/.out
+tools/controls-sim/.out

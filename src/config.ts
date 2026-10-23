@@ -199,6 +199,85 @@ export const config = {
     wallowHz: 0.55,
   },
 
+  /** Tilt to fly (src/game/Tilt.ts): the default on phones with motion sensors. Angles in degrees. */
+  tilt: {
+    /** Tilting left/right (rolling) this far from the neutral pose is a full carve; pitching the top edge
+     *  toward / away from you this far is a full climb / dive (deg, divided by the sensitivity). */
+    rollFull: 30,
+    pitchFull: 26,
+    /** Dead zones around the neutral pose (deg): hand tremor and posture never steer. */
+    rollDead: 1.4,
+    pitchDead: 2.2,
+    /** Expo: 0 = linear, 1 = cubic (fine control near center, full authority at the edge). */
+    expo: 0.45,
+    /** Default sensitivity (0.5..2; the settings panel changes it per player). */
+    sensitivity: 1,
+    /** One-Euro jitter filter: cutoff at rest (Hz), its speed coefficient (Hz per deg/s), derivative cutoff (Hz). */
+    minCutoff: 1.6,
+    beta: 0.5,
+    dCutoff: 2.5,
+    /** Prediction to the frame time from the filtered rate, at most this far ahead (s): the filter adds no lag. */
+    predict: 0.02,
+    /** Pitch output starts at the yoke's dead band (config.flight.yokeDead) past tilt's own dead zone
+     *  (0..1; 1 = tilt's dead zone is the only one, so a gentle tilt climbs gently). */
+    yokeComp: 1,
+    /** Auto-recenter: held still (under stillRate deg/s) for stillTime s, the neutral drifts toward the
+     *  current pose with this time constant (s), only while the pose is within these bands (deg). */
+    stillRate: 4,
+    stillTime: 1.4,
+    recenterTau: 4,
+    recenterPitchBand: 10,
+    recenterRollBand: 3.5,
+    /** No orientation event within this long after listening starts = no sensors: touch to fly (s). */
+    eventTimeout: 1,
+    /** Calibration: the neutral pose is the mean of the first this-long of samples (s). */
+    calibrate: 0.18,
+    /** Recentering eases the neutral over this long (s) instead of jumping. */
+    recenterEase: 0.25,
+    /** Tilted this far from neutral (deg) the phone is being turned or put down, not flown: the stick fades out by awayTo. */
+    awayFrom: 58,
+    awayTo: 80,
+  },
+
+  /** Turbo gears (src/game/Turbo.ts). G0 is the classic flight (cruise / surge); each gear needs height above the ground. */
+  turbo: {
+    /** G2 "Stratos" and G3 "Rainbow Warp" need the world beyond the city map: off until it exists
+     *  (shifting up past G1 shows "LOCKED: world travel coming"). */
+    worldTravel: false,
+    /** Gear speeds (m/s): G1 "Jet", G2 "Stratos", G3 "Rainbow Warp" (SF -> Tokyo, 8,300 km, in ~5 min). */
+    speed1: 450,
+    speed2: 4500,
+    speed3: 30000,
+    /** Height above the ground each gear needs (m): shifted up lower, the bus climbs there first. */
+    alt1: 150,
+    alt2: 2000,
+    alt3: 10000,
+    /** Climb rate while a gear lifts the bus to its height (m/s). */
+    climb1: 75,
+    climb2: 700,
+    climb3: 3000,
+    /** Spool: speed reaches ~95% of the gear's in this long once at height (s); dropping a gear brakes over this long (s). */
+    spool: 2.4,
+    brake: 3,
+    /** Holding the turbo (button / swipe-and-hold / Shift): the gear's speed x this (G0: full surge). */
+    boost: 1.3,
+    /** Steering authority above the surge speed: yaw rate x (surge / speed)^turnExp. */
+    turnExp: 0.55,
+    /** The yoke's climb / dive rates scale with the gear's speed by this power of (speed / surge). */
+    climbExp: 0.5,
+    /** Camera: pulls back this much at G1 speed (m), widens this much (deg); the shift kicks the fov by this (deg). */
+    camPull: 70,
+    camFov: 5,
+    fovKick: 7,
+    /** Camera jolt at the sonic boom (m) and its palette flash strength (0..1). */
+    boomKick: 3.2,
+    boomFlash: 0.55,
+    /** Past the city map's edge by more than this (m) the gear runs out of world and eases back to G0 speed. */
+    edgeFade: 300,
+    /** Bus rattle while straining and at speed (m of jitter at the bus). */
+    rattle: 0.32,
+  },
+
   splat: {
     /** Seconds for the belly to refill after a barf. Start short. */
     recharge: 1.6,
@@ -246,6 +325,9 @@ export const config = {
     glintRate: 2,
     /** Inhale: the bus squashes and gulps on the tap frame; the jet leaves this much later (s, inside impactDelay). */
     inhale: 0.09,
+    /** A press held this long without turning into a steer / swipe starts charging the super splat (s);
+     *  shorter is a tap (Input.onChargeStart / onChargeEnd, state.chargeHeld). */
+    holdThreshold: 0.3,
     /** A breath that comes down on nothing (open water, under this height) is a miss; it refunds this much belly. */
     missWaterY: 0.8,
     missRefund: 0.5,
