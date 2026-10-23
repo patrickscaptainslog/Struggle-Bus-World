@@ -7,7 +7,7 @@ import type { Flight } from './Flight';
 // toward a diorama view when the bus slows to aim and levels toward the
 // horizon when it surges. The bus sits just above the thumb zone.
 //
-// Vista: as the bus climbs above its rooftop floor the rig pulls back, widens
+// Vista: as the bus climbs above the city the rig pulls back, widens
 // the lens and looks down more, but the look point moves ahead so the view
 // pitch stays shallow (pitchVista): the horizon and the sky stay at the top of
 // the frame, it never becomes a top-down map. The bus grows a little
@@ -19,8 +19,9 @@ const smooth01 = (a: number, b: number, x: number) => {
 };
 
 export class CameraRig {
-  /** 0..1 vista blend (with the bus's height above its rooftop floor) */
+  /** 0..1 vista blend (with the bus's height above the broad ground, latched while holding) */
   vista = 0;
+  private vistaTarget = 0;
   /** horizontal portrait fov the pipeline should use (deg) */
   hfov = config.camera.hfovPortrait;
   /** scale for the bus model (hero readability at altitude) */
@@ -44,6 +45,7 @@ export class CameraRig {
   private readonly bus = new THREE.Vector3();
   private readonly desired = new THREE.Vector3();
   private readonly lookTarget = new THREE.Vector3();
+  private readonly lookDir = new THREE.Vector3();
 
   update(cam: THREE.PerspectiveCamera, focusOut: THREE.Vector3, f: Flight, dt: number) {
     const C = config.camera;
@@ -63,10 +65,16 @@ export class CameraRig {
     else e = C.elevationCruise + (C.elevationSurge - C.elevationCruise) * clamp((sp - F.cruiseSpeed) / (F.surgeSpeed - F.cruiseSpeed), 0, 1);
     this.elev += (e - this.elev) * (1 - Math.exp(-1.8 * dt));
 
-    // vista blend: follows the smoothed height above the floor; a dead band keeps the lens from breathing
-    const vt = smooth01(C.vistaStart, Math.max(C.vistaStart + 1, C.vistaFull), f.lift);
-    if (Math.abs(vt - this.vista) > 0.004 || vt === 0 || vt === 1) this.vista += (vt - this.vista) * (1 - Math.exp(-C.vistaRate * dt));
-    if (this.vista < 1e-4) this.vista = 0;
+    // vista blend. Only the yoke moves it: while climbing or diving it follows the height above the
+    // broad ground (terrain, not roofs); holding an altitude freezes the lens where it is (a lens that
+    // breathes with every roof and hill rescales the pixel grid and swims the whole frame); skimming
+    // the floor it goes home to the classic chase camera.
+    if (f.holdY < -1e8) this.vistaTarget = 0;
+    else if (f.mode === 2 || f.mode === 3) this.vistaTarget = smooth01(C.vistaStart, Math.max(C.vistaStart + 1, C.vistaFull), f.height);
+    const dv = this.vistaTarget - this.vista;
+    // (settles exactly, so a held lens is perfectly still)
+    if (Math.abs(dv) < 0.002) this.vista = this.vistaTarget;
+    else this.vista += dv * (1 - Math.exp(-C.vistaRate * dt));
     const low = this.openingLow;
     const v = this.vista * (1 - low);
     this.hfov = C.hfovPortrait + (C.hfovVista - C.hfovPortrait) * v;
@@ -87,11 +95,12 @@ export class CameraRig {
       this.pos[k] += this.posVel[k] * dt;
     }
     let la = C.lookAhead * (0.6 + 0.4 * clamp(sp / F.cruiseSpeed, 0, 2)) * (1 - 0.65 * barf);
+    let pitch = 0;
     if (v > 0) {
       // far enough ahead that the view pitches down by pitchVista, and never so far down that
       // the horizon leaves the top of the frame (3 deg of sky) while the rig is still rising
       const halfV = cam.fov / 2; // the lens as the pipeline set it (portrait or landscape)
-      const pitch = THREE.MathUtils.degToRad(clamp(Math.min(C.pitchVista, halfV - 3), 5, 60));
+      pitch = THREE.MathUtils.degToRad(clamp(Math.min(C.pitchVista, halfV - 3), 5, 60));
       const laV = (Math.sin(el) * dist + 4) / Math.tan(pitch) - Math.cos(el) * dist;
       la += (Math.max(la, laV) - la) * smooth01(0, 0.35, v);
     }
@@ -100,7 +109,17 @@ export class CameraRig {
     this.look.lerp(lookTarget, 1 - Math.exp(-6 * dt));
     cam.position.copy(this.pos);
     cam.up.set(0, 1, 0);
-    cam.lookAt(this.look);
+    if (v > 0) {
+      // up high the view's pitch is set outright instead of by where the bus is, so the bus's wheezy
+      // bob (and the lag between the two follow springs) never rocks the whole frame: a rotation
+      // can't be snapped to the pixel grid, and from up here every far roof would swim with it
+      const dx = this.look.x - this.pos.x, dz = this.look.z - this.pos.z;
+      const hd = Math.max(1e-3, Math.hypot(dx, dz));
+      const p0 = Math.atan2(this.pos.y - this.look.y, hd);
+      const p = p0 + (pitch - p0) * smooth01(0, 0.35, v);
+      this.lookDir.set((dx / hd) * Math.cos(p), -Math.sin(p), (dz / hd) * Math.cos(p));
+      cam.lookAt(this.lookDir.add(this.pos));
+    } else cam.lookAt(this.look);
     this.distance = this.pos.distanceTo(bus);
     focusOut.copy(bus);
   }

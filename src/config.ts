@@ -98,13 +98,15 @@ export const config = {
     /** At full vista: horizontal fov (deg), distance behind the bus (m), elevation above it (deg). */
     hfovVista: 38,
     distanceVista: 270,
-    elevationVista: 44,
+    elevationVista: 40,
     /** At full vista the look point sits ahead of the bus so the view pitches down this much (deg): horizon stays in frame. */
-    pitchVista: 30,
+    pitchVista: 22,
     /** The bus grows a little at altitude so the hero stays readable (scale at full vista). */
     heroScaleVista: 1.55,
-    /** How fast the vista blend follows the altitude (1/s). */
+    /** How fast the vista blend follows the altitude while climbing or diving (1/s); holding an altitude freezes it. */
     vistaRate: 0.9,
+    /** The opening: the yoke can't climb until the bus is this far past the Golden Gate (m), so the low camera clears the deck. */
+    openingClimbAfter: 230,
   },
 
   flight: {

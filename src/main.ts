@@ -500,7 +500,9 @@ async function boot() {
     bus.root.scale.setScalar(rig.heroScale);
     const Fg = config.fog;
     const camY = camera.position.y;
-    const layerMix = clamp((camY - Fg.layerTop - Fg.layerViewStart) / Math.max(1, Fg.layerViewFull - Fg.layerViewStart), 0, 1);
+    // (gated by the vista, i.e. by the height above the ground: skimming the floor over Twin Peaks the
+    // camera is 380 m above the sea but the fog must stay exactly the street-level Hopper fog)
+    const layerMix = clamp((camY - Fg.layerTop - Fg.layerViewStart) / Math.max(1, Fg.layerViewFull - Fg.layerViewStart), 0, 1) * clamp(vista / 0.3, 0, 1);
     globals.uFogLayer2.value.w = layerMix * layerMix * (3 - 2 * layerMix);
     camera.getWorldDirection(camFwd);
     camFwd.y = 0;

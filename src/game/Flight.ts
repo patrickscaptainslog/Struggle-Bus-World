@@ -66,8 +66,12 @@ export class Flight {
   holdY = -Infinity;
   /** what the vertical controller is chasing right now (m ASL) */
   targetY = 60;
-  /** height above the rooftop floor, smoothed (m): drives the vista camera */
+  /** height above the rooftop floor, smoothed (m): streaming, audio */
   lift = 0;
+  /** height above the broad ground (terrain averaged over a few hundred meters, slowly smoothed; m): drives the vista camera while the yoke moves */
+  height = 0;
+  /** the broad ground under the bus (m ASL): terrain only, no roofs, heavily low-passed */
+  groundBroad = NaN;
   /** 0..1: the bus is straining against the soft ceiling (wheeze, sputter) */
   strain = 0;
   /** current yoke mode (0 floor, 1 hold, 2 climb, 3 dive) */
@@ -247,6 +251,11 @@ export class Flight {
     // height above the (smoothed) floor, for the vista camera: rooftop noise mustn't breathe the lens
     this.floorSmooth += (floor - this.floorSmooth) * (1 - Math.exp(-0.7 * dt));
     this.lift = Math.max(0, this.y - Math.max(this.floorSmooth, this.groundUnder + clearance));
+    // the broad ground: terrain around the bus (not roofs), slowly smoothed, so hills and towers don't breathe the lens
+    const B = 220;
+    const gb = (this.groundUnder + world.groundAt(this.x + B, this.z) + world.groundAt(this.x - B, this.z) + world.groundAt(this.x, this.z + B) + world.groundAt(this.x, this.z - B)) / 5;
+    this.groundBroad = Number.isNaN(this.groundBroad) ? gb : this.groundBroad + (gb - this.groundBroad) * (1 - Math.exp(-0.5 * dt));
+    this.height = Math.max(0, this.y - this.groundBroad);
 
     // ---- bank & pitch (visual)
     const lateral = this.speed * this.yawRate;
