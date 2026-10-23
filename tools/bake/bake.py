@@ -163,6 +163,19 @@ MASSING = {
 }
 
 
+def data_path(p):
+    """An input path from the city config. The configs hold the cloud machine's absolute
+    paths; elsewhere the same file name is looked up in $SB_DATA, tools/bake/data/ (small
+    inputs committed with the repo) and tools/bake/.data/ (fetch_inputs.py downloads)."""
+    if p.startswith('/vsicurl/') or os.path.exists(p):
+        return p
+    name = os.path.basename(p)
+    for base in (os.environ.get('SB_DATA'), os.path.join(HERE, 'data'), os.path.join(HERE, '.data')):
+        if base and os.path.exists(os.path.join(base, name)):
+            return os.path.join(base, name)
+    return p
+
+
 def load_module(name):
     import importlib.util
     sys.dont_write_bytecode = True  # (no __pycache__ in tools/bake)
@@ -1474,7 +1487,7 @@ def main():
                       resampling=Resampling.cubic, num_threads=2)
         log('dem fallback', int((~np.isnan(dem)).sum()))
     for path in cfg['dem']:
-        with rasterio.open(path) as src:
+        with rasterio.open(data_path(path)) as src:
             tmp = np.full((H, W), np.nan, dtype=np.float32)
             reproject(source=rasterio.band(src, 1), destination=tmp, src_transform=src.transform, src_crs=src.crs,
                       src_nodata=src.nodata, dst_transform=dst_transform, dst_crs=proj, dst_nodata=np.nan,
@@ -1520,8 +1533,8 @@ def main():
             dem_filled[low] = deck
             log(f'piers: {len(piers)} decks, {int(low.sum()) * DEM_RES * DEM_RES / 1e4:.1f} ha raised to {deck} m')
     df = None
-    if cfg.get('structures') and os.path.exists(cfg['structures']):
-        df = gpd.read_parquet(cfg['structures'])
+    if cfg.get('structures') and os.path.exists(data_path(cfg['structures'])):
+        df = gpd.read_parquet(data_path(cfg['structures']))
         if 'FIPS' in df.columns and cfg.get('fips'):
             df = df[df['FIPS'] == cfg['fips']]
         df = df.cx[lon_a:lon_b, lat_a:lat_b]

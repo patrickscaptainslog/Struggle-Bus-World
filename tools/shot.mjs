@@ -4,6 +4,7 @@
 //        [--wait=1500] (ms after __shotReady) [--timeout=60000] [--eval="js"]
 // Prints console errors. Exit code 2 if the page threw.
 import { chromium } from 'playwright-core';
+import { browserOptions } from './browser.mjs';
 
 const args = process.argv.slice(2);
 const pos = args.filter((a) => !a.startsWith('--'));
@@ -23,8 +24,7 @@ const h = Number(opt.h ?? 852);
 const dpr = Number(opt.dpr ?? 3);
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-webgl', '--disable-gpu-sandbox'],
+  ...browserOptions(['--enable-webgl']),
 });
 const page = await browser.newPage({ viewport: { width: w, height: h }, deviceScaleFactor: dpr, hasTouch: true, isMobile: true });
 let threw = false;

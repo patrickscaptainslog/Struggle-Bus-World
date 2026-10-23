@@ -5,6 +5,7 @@
 // e.g. node tools/perf-view.mjs http://127.0.0.1:4302/ "?lat=37.7925&lon=-122.4010&heading=0&skipintro"
 // Prints one JSON line: median/min CPU workMs, median calls and triangles.
 import { chromium } from 'playwright-core';
+import { browserOptions } from './browser.mjs';
 
 const args = process.argv.slice(2);
 const pos = args.filter((a) => !a.startsWith('--'));
@@ -13,8 +14,7 @@ const [base, query] = pos;
 const samples = Number(opt.samples ?? 10);
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
+  ...browserOptions([]),
 });
 const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));

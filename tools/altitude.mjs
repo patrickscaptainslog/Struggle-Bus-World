@@ -15,6 +15,7 @@
 // SwiftShader renders ~1.5 fps: everything waits on the game clock, never wall time.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { browserOptions } from './browser.mjs';
 
 const [base = 'http://127.0.0.1:5173/', out = 'shots/altitude', phase = 'downtown'] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const noShots = process.argv.includes('--noshots');
@@ -29,8 +30,7 @@ const STARTS = {
 };
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
+  ...browserOptions([]),
 });
 const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
