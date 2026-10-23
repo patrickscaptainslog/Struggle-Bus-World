@@ -5,7 +5,8 @@ import { makePaletteTexture, Ramp } from './palette';
 
 // Low-res 3D pixel-art renderer.
 //
-//  1. sun depth pass (shadow map, snapped to its own texel grid)
+//  1. sun depth pass (shadow map, snapped to its own texel grid; depth only,
+//     and casters whose shadow can't reach the view are skipped)
 //  2. scene pass into a small G-buffer (ramp, light, fog, glow | normal, id)
 //  3. glow pass: blurred emissive at half res
 //  4. resolve pass: ramp + ordered dither, outlines, creases, fog, sky -> palette RGB
@@ -93,13 +94,34 @@ export class PixelPipeline {
   /** impact flash: rendered frames left, and (buffer uv x, y, strength, radius) */
   private flashLeft = 0;
   private readonly flashU = new THREE.Vector4();
+  // sun pass scratch (no per-frame allocation)
+  private readonly sunCenter = new THREE.Vector3();
+  private readonly sunFwd = new THREE.Vector3();
+  private readonly sunRight = new THREE.Vector3();
+  private readonly sunUp = new THREE.Vector3();
+  private readonly cullCam = new THREE.PerspectiveCamera();
+  private readonly cullFrustum = new THREE.Frustum();
+  private readonly cullMat = new THREE.Matrix4();
+  private readonly cullSphere = new THREE.Sphere();
+  private readonly cullBox = new THREE.Box3();
+  private readonly cullBox2 = new THREE.Box3();
+  private readonly cullSize = new THREE.Vector3();
+  private readonly cullOff = new THREE.Vector3();
+  private readonly culled: THREE.Object3D[] = [];
+  private readonly viewFrustum = new THREE.Frustum();
+  private readonly viewCulled: THREE.Object3D[] = [];
+  private readonly invalidColor = [0];
+  /** objects skipped by the last sun pass (QA) */
+  shadowCulled = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: false,
       alpha: false,
-      depth: true,
+      // every scene pass draws into its own target; the canvas only gets the upscale blit
+      // (a depth buffer there would be ~12 MB at devicePixelRatio 3, cleared and stored for nothing)
+      depth: false,
       stencil: false,
       powerPreference: 'high-performance',
       preserveDrawingBuffer: false,
@@ -110,6 +132,9 @@ export class PixelPipeline {
     // far reaches the horizon hills and the fog sea when the bus is high above the city
     this.camera = new THREE.PerspectiveCamera(40, 1, 1.5, 30000);
     this.sunCam.layers.set(SHADOW_LAYER);
+    // the sun pass is depth only: shadows sample the depth texture, its color target is never read
+    this.depthMat.colorWrite = false;
+    this.invalidColor[0] = (this.renderer.getContext() as WebGL2RenderingContext).COLOR_ATTACHMENT0;
 
     const quadGeo = new THREE.PlaneGeometry(2, 2);
     this.quad = new THREE.Mesh(quadGeo);
@@ -362,9 +387,9 @@ export class PixelPipeline {
     sc.bottom = -ext / 2;
     sc.near = 1;
     sc.far = 3000;
-    const center = (this.shadowFocusOn ? this.shadowFocus : this.focus).clone();
+    const center = this.sunCenter.copy(this.shadowFocusOn ? this.shadowFocus : this.focus);
     // shift the shadow window forward along the view so more of what's visible is covered
-    const fwd = new THREE.Vector3();
+    const fwd = this.sunFwd;
     this.camera.getWorldDirection(fwd);
     fwd.y = 0;
     if (fwd.lengthSq() > 1e-6) center.addScaledVector(fwd.normalize(), ext * 0.22);
@@ -375,8 +400,8 @@ export class PixelPipeline {
     sc.updateMatrixWorld();
     // snap to shadow texel grid in light space to stop shadow-edge crawl
     const texel = ext / config.render.shadowMapSize;
-    const right = new THREE.Vector3().setFromMatrixColumn(sc.matrixWorld, 0);
-    const up = new THREE.Vector3().setFromMatrixColumn(sc.matrixWorld, 1);
+    const right = this.sunRight.setFromMatrixColumn(sc.matrixWorld, 0);
+    const up = this.sunUp.setFromMatrixColumn(sc.matrixWorld, 1);
     const pr = sc.position.dot(right);
     const pu = sc.position.dot(up);
     sc.position.addScaledVector(right, Math.round(pr / texel) * texel - pr).addScaledVector(up, Math.round(pu / texel) * texel - pu);
@@ -387,19 +412,77 @@ export class PixelPipeline {
     m.multiply(sc.projectionMatrix).multiply(sc.matrixWorldInverse);
 
     const r = this.renderer;
+    if (config.render.shadowCasterCull) this.cullCasters(scene, center, ext);
     const prevOverride = scene.overrideMaterial;
     const prevBg = scene.background;
     scene.overrideMaterial = this.depthMat;
     scene.background = null;
     r.setRenderTarget(this.shadowRT);
     r.setClearColor(0xffffff, 1);
+    const cb = r.state.buffers.color;
+    cb.setMask(true);
     r.clear(true, true, false);
+    // depth only, also for the casters that keep their own depth shaders (trees, gardens)
+    cb.setMask(false);
+    cb.setLocked(true);
     r.render(scene, sc);
+    cb.setLocked(false);
+    cb.setMask(true);
+    // and a tile-based GPU never stores the unused color target
+    (r.getContext() as WebGL2RenderingContext).invalidateFramebuffer(WebGL2RenderingContext.FRAMEBUFFER, this.invalidColor);
     scene.overrideMaterial = prevOverride;
     scene.background = prevBg;
+    for (const o of this.culled) o.visible = true;
+    this.culled.length = 0;
     globals.uShadowOn.value = Math.min(1, this.shadowStrength);
     globals.uShadowEdge.value = Math.min(0.5, Math.max(0.01, this.shadowEdge));
   }
+
+  /**
+   * Hide (for the sun pass only) the casters marked `userData.sunCull` whose
+   * shadow can't land anywhere the camera sees: the box of the caster's
+   * bounding sphere swept down the sun ray by twice its radius (the shadow of
+   * its top reaching its bottom) misses the view frustum, cut at the far edge
+   * of the shadow window (no shadows are sampled beyond it). Conservative: a
+   * shadow that can reach the view always keeps its caster.
+   */
+  private cullCasters(scene: THREE.Scene, center: THREE.Vector3, ext: number) {
+    const cc = this.cullCam;
+    cc.copy(this.snapCam);
+    cc.far = Math.max(cc.near + 1, Math.min(this.snapCam.far, cc.position.distanceTo(center) + ext * 0.75));
+    cc.updateProjectionMatrix();
+    this.cullFrustum.setFromProjectionMatrix(this.cullMat.multiplyMatrices(cc.projectionMatrix, cc.matrixWorldInverse));
+    this.shadowCulled = 0;
+    scene.traverseVisible(this.cullVisit);
+    this.shadowCulled = this.culled.length;
+  }
+
+  private readonly cullVisit = (o: THREE.Object3D) => {
+    if (!o.userData.sunCull || !(o as THREE.Mesh).geometry || !o.layers.test(this.sunCam.layers)) return;
+    const bs = (o as THREE.Mesh).geometry.boundingSphere;
+    if (!bs) return;
+    const s = this.cullSphere.copy(bs).applyMatrix4(o.matrixWorld);
+    const sun = globals.uSunDir.value;
+    const L = (2 * s.radius) / Math.max(0.1, sun.y);
+    const b = this.cullBox.setFromCenterAndSize(s.center, this.cullSize.setScalar(2 * s.radius));
+    this.cullBox2.copy(b).translate(this.cullOff.copy(sun).multiplyScalar(-L));
+    b.union(this.cullBox2);
+    if (this.cullFrustum.intersectsBox(b)) return;
+    o.visible = false;
+    this.culled.push(o);
+  };
+
+  /**
+   * Objects with a world box in `userData.viewBox` (wide, flat meshes such as
+   * the far terrain chunks, whose bounding spheres reach far above and below
+   * them) are tested box against frustum and skip the main pass when outside.
+   */
+  private readonly viewVisit = (o: THREE.Object3D) => {
+    const b = o.userData.viewBox as THREE.Box3 | undefined;
+    if (!b || this.viewFrustum.intersectsBox(b)) return;
+    o.visible = false;
+    this.viewCulled.push(o);
+  };
 
   render(scene: THREE.Scene) {
     const r = this.renderer;
@@ -408,10 +491,15 @@ export class PixelPipeline {
     this.updateShadow(scene);
 
     // scene -> gbuffer
+    const sc = this.snapCam;
+    this.viewFrustum.setFromProjectionMatrix(this.cullMat.multiplyMatrices(sc.projectionMatrix, sc.matrixWorldInverse));
+    scene.traverseVisible(this.viewVisit);
     r.setRenderTarget(this.gbuf);
     r.setClearColor(0x000000, 0);
     r.clear(true, true, false);
-    r.render(scene, this.snapCam);
+    r.render(scene, sc);
+    for (const o of this.viewCulled) o.visible = true;
+    this.viewCulled.length = 0;
 
     // glow extract + blur (half res)
     this.glowMat.uniforms.tColor.value = this.gbuf.textures[0];

@@ -27,6 +27,8 @@ export const config = {
     shadowStrengthVista: 0.85,
     /** ...and its edge fade (fraction of the window) stays narrow: a wide fade sliding with the window boils. */
     shadowEdgeVista: 0.14,
+    /** Sun pass: skip casters whose shadow can't reach the view (off = draw every caster in the shadow window). */
+    shadowCasterCull: true,
     /** Vista blend at which the pixels are fully calm (surfaces round to their ramp step, no ordered dither). */
     calmVista: 0.35,
   },
