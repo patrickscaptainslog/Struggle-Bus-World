@@ -62,6 +62,13 @@ def main():
             f.write(blob)
         total += len(blob)
         out_regions.append([rx, rz, len(blob)])
+    # boot files too: gzip far.bin / horizon.bin in place (the client inflates by magic)
+    for name in ('far.bin', 'horizon.bin'):
+        fp = os.path.join(src, name)
+        if os.path.exists(fp):
+            data = open(fp, 'rb').read()
+            if data[:2] != b'\x1f\x8b':
+                open(fp, 'wb').write(gzip.compress(data, compresslevel=9, mtime=0))
     man['regionSize'] = REGION
     man['regions'] = out_regions
     with open(os.path.join(src, 'city.json'), 'w') as f:

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { config } from './config';
 import { PixelPipeline } from './render/PixelPipeline';
-import { globals, makeRampMaterial } from './render/materials';
+import { globals, GLSL_COMMON, GLSL_OUT } from './render/materials';
 import { Ramp, HUE_RAMPS } from './render/palette';
 import { City, type BuildingRef } from './world/City';
 import type { CityManifest } from './world/tiles';
@@ -20,6 +20,41 @@ import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
 
 // Struggle Bus — Phase 1 (real SF, solo).
+
+/** Pixel-art drop shadow: a small solid core inside a stippled (checker) halo. */
+function makeDropShadowMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3,
+    uniforms: { ...globals, uReady: { value: 0 } },
+    vertexShader: /* glsl */ `
+      ${GLSL_COMMON}
+      out vec2 vLocal;
+      out vec3 vWorldPos;
+      void main() {
+        vLocal = position.xz;
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      ${GLSL_COMMON}
+      uniform float uReady;
+      in vec2 vLocal;
+      in vec3 vWorldPos;
+      ${GLSL_OUT}
+      void main() {
+        float r = length(vLocal);
+        ivec2 q = ivec2(gl_FragCoord.xy);
+        bool checker = ((q.x + q.y) & 1) == 0;
+        if (r > 0.62 && !checker) discard;
+        if (r > 1.0) discard;
+        float fog = sbFog(vWorldPos);
+        sbWrite(${Ramp.INK}.0, r > 0.62 ? 0.35 : 0.15 + 0.1 * uReady, fog, 0.0, vec3(0.0, 0.0, 1.0), 0.97, 0.5);
+      }
+    `,
+  });
+}
 
 type Manifest = CityManifest & { regions: Array<[number, number, number]>; regionSize: number };
 
@@ -131,7 +166,7 @@ async function boot() {
 
   // drop shadow straight below the bus: the aim reticle
   const shadowGeo = new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2);
-  const shadowMat = makeRampMaterial({ ramp: Ramp.INK, lightOffset: -0.2, noOutline: true, shadowMul: 0 });
+  const shadowMat = makeDropShadowMaterial();
   shadowMat.depthWrite = false;
   shadowMat.polygonOffset = true;
   shadowMat.polygonOffsetFactor = -2;
@@ -215,6 +250,9 @@ async function boot() {
   const tuner = new Tuner();
   const perf = new Perf(renderer);
   perf.setVisible(params.has('fps'));
+  tuner.onAction = (name) => {
+    if (name === 'close') audio.setVolumes(config.audio);
+  };
   tuner.onResetPaint = () => {
     city.paint.resetAll();
     location.reload();
@@ -227,7 +265,8 @@ async function boot() {
     if (flight.tryBarf()) {
       audio.heave();
       // dive-bomb: aim where the shadow will be when the barf arrives
-      const lead = flight.speed * config.splat.stallSpeed * config.splat.impactDelay;
+      // (plus a little extra so the splash lands just past the nose, where the camera can see it)
+      const lead = flight.speed * config.splat.stallSpeed * config.splat.impactDelay + 9;
       splatter.barf(flight.x + flight.fx * lead, flight.z + flight.fz * lead);
     } else audio.denied();
   };
@@ -252,6 +291,10 @@ async function boot() {
   let opening = params.has('skipintro') ? config.fog.openingDuration : 0;
   const pose: BusPose = { squash: 1, eye: 1, fullness: 1, mouth: 0, speed: 0, wheeze: 0, heave: 0 };
   let squashV = 0;
+  let lodTimer = 0;
+  let puffTimer = 0;
+  const puffPos = new THREE.Vector3();
+  const puffVel = new THREE.Vector3();
   const q = new THREE.Quaternion();
   const eul = new THREE.Euler(0, 0, 0, 'YXZ');
   const sparkPos = new THREE.Vector3();
@@ -268,6 +311,7 @@ async function boot() {
     }
     simTime += dt;
     globals.uTime.value = simTime;
+    updateSun(); // cheap; keeps the tuner's light + fog sliders live
 
     // opening: the bus emerges from a fog bank while the city streams in behind it
     if (opening < config.fog.openingDuration) {
@@ -322,7 +366,8 @@ async function boot() {
     const top = city.obstacleAt(flight.x, flight.z);
     const below = Math.max(flight.groundUnder, top - 3.0);
     dropShadow.position.set(flight.x, below + 0.25, flight.z);
-    const sz = 6.5 * (flight.fullness >= 1 ? 1.12 : 0.9);
+    const sz = 5.6 * (flight.fullness >= 1 ? 1.1 : 0.9);
+    shadowMat.uniforms.uReady.value = flight.fullness >= 1 ? 1 : 0;
     dropShadow.scale.set(sz * 0.5, 1, sz);
     dropShadow.rotation.y = -flight.heading;
 
@@ -336,12 +381,33 @@ async function boot() {
         openingBridge = null;
       }
     }
+    rig.barfTilt += ((flight.barfing ? 1 : 0) - rig.barfTilt) * (1 - Math.exp(-(flight.barfing ? 7 : 1.6) * dt));
     rig.update(camera, focus, flight, dt);
     pipeline.focus.copy(focus);
     globals.uGroundRef.value = flight.groundUnder - 30;
 
     city.update(focus, renderer, dt);
+    // tree LOD by tile distance (fog eats far groves anyway)
+    lodTimer -= dt;
+    if (lodTimer <= 0) {
+      lodTimer = 0.25;
+      const ts = manifest.tileSize;
+      for (const [k, tf] of treeFields) {
+        const c = k.indexOf(',');
+        const tx = Number(k.slice(0, c)), tz = Number(k.slice(c + 1));
+        const d = Math.hypot((tx + 0.5) * ts - camera.position.x, (tz + 0.5) * ts - camera.position.z);
+        (tf as unknown as { setLod?: (l: 0 | 1 | 2) => void }).setLod?.(d < 350 ? 0 : d < 900 ? 1 : 2);
+      }
+    }
     splatter.update(dt, simTime);
+    // the struggle: a wheezy exhaust sputter, more of it when the belly is full
+    puffTimer -= dt;
+    if (puffTimer <= 0 && dt > 0) {
+      puffTimer = 0.35 + 0.9 * (1 - flight.fullness) + Math.random() * 0.25;
+      bus.root.localToWorld(puffPos.copy(bus.exhaustLocal));
+      puffVel.set(-flight.fx * 4 + (Math.random() - 0.5) * 2, 1.2 + Math.random(), -flight.fz * 4 + (Math.random() - 0.5) * 2);
+      particles.puff(puffPos, puffVel);
+    }
     particles.update(dt);
     signs.update(dt, camera);
 
@@ -375,9 +441,17 @@ async function boot() {
 
   // debug hooks for scripted screenshots / QA
   (window as unknown as Record<string, unknown>).__game = {
-    flight, city, splatter, input, audio, rig, camera, tuner, HUE_RAMPS,
+    flight, city, splatter, input, audio, rig, camera, tuner, perf, HUE_RAMPS,
     tapSplat: () => input.onTap?.(),
     forceReady: () => (flight.fullness = 1),
+    /** QA: barf at a lat/lon through the real splat pipeline (cascade, bloom, sign, sound) */
+    barfAtLatLon: (lat: number, lon: number) => {
+      const [lat0, lon0] = manifest.origin;
+      const x = (lon - lon0) * 111320 * Math.cos((lat0 * Math.PI) / 180);
+      const z = -(lat - lat0) * 110574;
+      audio.heave();
+      splatter.barf(x, z);
+    },
     clock: () => simTime,
   };
 }

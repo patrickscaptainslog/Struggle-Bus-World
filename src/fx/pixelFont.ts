@@ -131,7 +131,7 @@ export const FONT_SMALL: PixelFont = defineFont(5, 1, {
   '-': '... ... ### ... ...',
 }, FONT_LARGE);
 
-/** Width of a word space in the large font (it reads better a hair wider than a glyph gap). */
+/** Characters the fonts lack are dropped. */
 const UNKNOWN = '';
 
 /**
@@ -230,4 +230,38 @@ export function rasterizeText(text: string, font: PixelFont = FONT_LARGE): TextM
   const data = new Uint8Array(width * height);
   drawText(data, width, height, text, 0, 0, 1, font);
   return { width, height, data };
+}
+
+/**
+ * Breaks `text` into one or two lines so the widest line is as narrow as
+ * possible: stays on one line when it fits `maxWidth`, otherwise breaks at the
+ * space or after the hyphen that best balances the two lines
+ * ("HAIGHT-" / "ASHBURY", "FINANCIAL" / "DISTRICT"). A single unbreakable
+ * word stays on one line even if it is wider than `maxWidth`.
+ */
+export function splitLines(text: string, maxWidth: number, font: PixelFont = FONT_LARGE): string[] {
+  if (measureText(text, font) <= maxWidth) return [text];
+  let best: string[] = [text];
+  let bestW = measureText(text, font);
+  for (let i = 1; i < text.length - 1; i++) {
+    const ch = text[i];
+    let a: string;
+    let b: string;
+    if (ch === ' ') {
+      a = text.slice(0, i);
+      b = text.slice(i + 1);
+    } else if (ch === '-') {
+      a = text.slice(0, i + 1);
+      b = text.slice(i + 1);
+    } else continue;
+    a = a.trim();
+    b = b.trim();
+    if (!a || !b) continue;
+    const w = Math.max(measureText(a, font), measureText(b, font));
+    if (w < bestW) {
+      bestW = w;
+      best = [a, b];
+    }
+  }
+  return best;
 }

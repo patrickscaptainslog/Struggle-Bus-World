@@ -227,6 +227,9 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           if (roofKind < 0.55) { ramp = ${Ramp.GREY_LIGHT}.0; lo = -0.06 + tone; }
           else if (roofKind < 0.8) { ramp = ${Ramp.ROOF_DARK}.0; lo = 0.1 + tone; }
           else { ramp = ${Ramp.GREY}.0; lo = 0.06 + tone; }
+          // big flat roofs are patchworks of re-roofing: large, calm tone patches
+          vec2 pc = floor(vWorldPos.xz / vec2(9.0, 7.0) + vec2(bIdx * 0.37, 0.0));
+          lo += (h21(pc) - 0.5) * 0.09;
         }
         else if (part == ${Part.ROOF_SLOPE}.0) { ramp = ${Ramp.ROOF_DARK}.0; lo = -0.04 + tone * 0.5; }
         else if (part == ${Part.TRIM}.0) { ramp = ${Ramp.GREY_LIGHT}.0; lo = 0.04; }

@@ -36,6 +36,13 @@ interface LoadedTile {
   classTex: THREE.DataTexture | null;
 }
 
+async function maybeInflate(buf: ArrayBuffer): Promise<ArrayBuffer> {
+  const h = new Uint8Array(buf, 0, 2);
+  if (h[0] !== 0x1f || h[1] !== 0x8b) return buf;
+  const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return await new Response(stream).arrayBuffer();
+}
+
 const LOAD_RADIUS = 1500; // m: regions whose center is within this get loaded
 const DETAIL_RADIUS = 650; // m: regions nearer than this get full-detail meshes (bays, cornices, stoops)
 const UNLOAD_RADIUS = 2300;
@@ -102,9 +109,9 @@ export class City {
 
   async loadFar(): Promise<void> {
     const [res, hz] = await Promise.all([fetch(`${this.baseUrl}/far.bin`), fetch(`${this.baseUrl}/horizon.bin`).catch(() => null)]);
-    this.far = parseFar(await res.arrayBuffer());
+    this.far = parseFar(await maybeInflate(await res.arrayBuffer()));
     this.buildFar();
-    if (hz && hz.ok) this.buildHorizon(await hz.arrayBuffer());
+    if (hz && hz.ok) this.buildHorizon(await maybeInflate(await hz.arrayBuffer()));
   }
 
   /** The hills around the city (Marin, East Bay, San Bruno Mtn) as a coarse fogged ring. */
@@ -249,8 +256,7 @@ export class City {
         inst.setMatrixAt(i, m4);
       }
       inst.instanceMatrix.needsUpdate = true;
-      inst.frustumCulled = false;
-      inst.layers.enable(SHADOW_LAYER);
+      inst.frustumCulled = false; // far skyline: always drawn, never casts (it's beyond the shadow box)
       this.farGroup.add(inst);
     }
   }
@@ -398,6 +404,15 @@ export class City {
     }
     if (t.terrain) {
       const tr = t.terrain;
+      // trees are obstacles too: the bus skims canopies, never flies through them
+      const oc = this.manifest.tileSize / tr.obstN;
+      for (const tree of tr.trees) {
+        const ix = Math.floor((tree.x - tr.originX) / oc), iz = Math.floor((tree.z - tr.originZ) / oc);
+        if (ix < 0 || iz < 0 || ix >= tr.obstN || iz >= tr.obstN) continue;
+        const top = tree.y + 16 * tree.size;
+        const k = iz * tr.obstN + ix;
+        if (top > tr.obst[k]) tr.obst[k] = top;
+      }
       const tex = new THREE.DataTexture(tr.cls, tr.classN, tr.classN, THREE.RedFormat, THREE.UnsignedByteType);
       tex.minFilter = tex.magFilter = THREE.NearestFilter;
       tex.generateMipmaps = false;

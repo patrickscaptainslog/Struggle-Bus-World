@@ -43,20 +43,28 @@ async function runFor(page, seconds) {
   return t0;
 }
 
-// 1) grey city: Alamo Square, heading east toward the Painted Ladies + downtown
+// 1) grey city: hovering over Alamo Square, looking east at the Painted Ladies
+//    row with downtown behind it in the fog
 {
-  const page = await open('?lat=37.7745&lon=-122.4395&heading=80&skipintro&fps');
-  await page.evaluate(() => (window.__qa = { sx: 0, sy: -0.25 }));
-  await runFor(page, 4);
+  const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro');
+  await page.evaluate(() => (window.__qa = { sx: 0, sy: -0.45 }));
+  await runFor(page, 3);
   await page.screenshot({ path: `${out}/grey.png` });
   stats.grey = await page.evaluate(() => window.__stats ?? null);
-  // 2) painted: barf along the row, escalating a few
-  for (let i = 0; i < 7; i++) {
-    await page.evaluate(() => window.__game.forceReady());
-    await page.evaluate(() => window.__game.tapSplat());
-    await runFor(page, 1.7);
+  await page.close();
+}
+
+// 2) painted: hover over Steiner Street and barf down the Painted Ladies row
+//    through the real splat pipeline (cascade, bloom, sign, sound)
+{
+  const page = await open('?lat=37.77615&lon=-122.4340&heading=88&skipintro');
+  await page.evaluate(() => (window.__qa = { sx: 0, sy: -1 }));
+  await runFor(page, 2);
+  const row = [37.7754, 37.7758, 37.7762, 37.7766, 37.7770, 37.7762, 37.7758];
+  for (const lat of row) {
+    await page.evaluate((la) => window.__game.barfAtLatLon(la, -122.43262), lat);
+    await runFor(page, 1.3);
   }
-  await page.evaluate(() => (window.__qa = { sx: 0.25, sy: -0.6 }));
   await runFor(page, 2.5);
   await page.screenshot({ path: `${out}/painted.png` });
   stats.painted = await page.evaluate(() => window.__stats ?? null);

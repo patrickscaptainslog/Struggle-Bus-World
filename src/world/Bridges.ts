@@ -43,7 +43,6 @@ class Kit {
     geo.computeBoundingSphere();
     const mesh = new THREE.Mesh(geo, makeRampMaterial({ vertexRamp: true }));
     mesh.layers.enable(SHADOW_LAYER);
-    mesh.frustumCulled = false;
     return mesh;
   }
 }
@@ -95,6 +94,9 @@ export function makeGoldenGate(pts: P2[]): THREE.Object3D {
   const deckLen = d0.distanceTo(d1);
   k.block((d0.x + d1.x) / 2, deckY - 3.8, (d0.z + d1.z) / 2, half * 2, 7.6, deckLen, f.yaw, G, -0.06);
   k.block((d0.x + d1.x) / 2, deckY + 0.4, (d0.z + d1.z) / 2, half * 2 - 1, 0.8, deckLen, f.yaw, GL, -0.02);
+  // the stiffening truss reads as a light top chord over a dark lattice band
+  k.block((d0.x + d1.x) / 2, deckY - 7.4, (d0.z + d1.z) / 2, half * 2 + 0.6, 1.4, deckLen, f.yaw, G, -0.22);
+  k.block((d0.x + d1.x) / 2, deckY - 0.8, (d0.z + d1.z) / 2, half * 2 + 0.8, 1.2, deckLen, f.yaw, GL, 0.04);
 
   for (const T of [T1, T2]) {
     // pier

@@ -19,6 +19,8 @@ export class CameraRig {
   openingPull = 0;
   /** 0..1: low, level cinematic camera for the Golden Gate opening (passes under the deck) */
   openingLow = 0;
+  /** 0..1 while barfing: tilt down and pull the look point in so the splat below the bus is visible */
+  barfTilt = 0;
   shake = 0;
   private readonly bus = new THREE.Vector3();
   private readonly desired = new THREE.Vector3();
@@ -43,7 +45,7 @@ export class CameraRig {
     this.elev += (e - this.elev) * (1 - Math.exp(-1.8 * dt));
 
     const low = this.openingLow;
-    const el = THREE.MathUtils.degToRad(this.elev + (6.5 - this.elev) * low);
+    const el = THREE.MathUtils.degToRad(this.elev + 11 * this.barfTilt + (6.5 - this.elev) * low);
     const dist = (C.distance + this.openingPull) * (1 - low) + 150 * low;
     const fx = Math.sin(this.yaw), fz = -Math.cos(this.yaw);
     const bus = this.bus.set(f.x, f.y, f.z);
@@ -56,7 +58,7 @@ export class CameraRig {
       this.posVel[k] += a * dt;
       this.pos[k] += this.posVel[k] * dt;
     }
-    const la = C.lookAhead * (0.6 + 0.4 * clamp(sp / F.cruiseSpeed, 0, 2));
+    const la = C.lookAhead * (0.6 + 0.4 * clamp(sp / F.cruiseSpeed, 0, 2)) * (1 - 0.65 * this.barfTilt);
     const lookTarget = this.lookTarget.set(bus.x + fx * la * (1 + 2 * low), bus.y - 4 + 14 * low, bus.z + fz * la * (1 + 2 * low));
     if (this.look.lengthSq() === 0) this.look.copy(lookTarget);
     this.look.lerp(lookTarget, 1 - Math.exp(-6 * dt));

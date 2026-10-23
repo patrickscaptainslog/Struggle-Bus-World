@@ -44,9 +44,9 @@ def main():
     h = np.where(np.isnan(dst), 0.0, dst)
     h = np.clip(np.round(h * 10), -32000, 32000).astype(np.int16)
     out = os.path.join(ROOT, 'public', 'city', slug, 'horizon.bin')
+    import gzip
     with open(out, 'wb') as f:
-        f.write(struct.pack('<4sIIfff', b'SBH1', W, H, minX, minZ, CELL))
-        f.write(h.tobytes())
+        f.write(gzip.compress(struct.pack('<4sIIfff', b'SBH1', W, H, minX, minZ, CELL) + h.tobytes(), compresslevel=9, mtime=0))
     print('horizon', W, H, os.path.getsize(out), 'bytes; max', float(np.nanmax(dst)))
 
 

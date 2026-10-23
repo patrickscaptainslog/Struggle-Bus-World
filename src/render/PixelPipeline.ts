@@ -584,6 +584,11 @@ void main() {
                 && abs(texelFetch(tColor, p + ivec2(0, 1), 0).g * 255.0 - lb) < 1.5
                 && abs(texelFetch(tColor, p + ivec2(0, -1), 0).g * 255.0 - lb) < 1.5;
   float step = rampStep(light, flatLight ? 0.5 : d);
+  // outlines: silhouettes two steps darker, seams between houses one step,
+  // convex creases (roof edges, cornices, bay corners) one step lighter
+  if (edgeDark > 0.75) step = max(step - 2.0, 0.0);
+  else if (edgeDark > 0.25) step = max(step - 1.0, 0.0);
+  else if (crease > 0.5) step = min(step + 1.0, 7.0);
   float fogBand = clamp((fog - 0.62) / 0.06, 0.0, 1.0);
   bool fogged = fogBand > d2;
   // deep in the fog things become solid silhouettes a little darker than the

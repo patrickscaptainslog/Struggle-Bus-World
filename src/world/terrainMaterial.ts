@@ -153,8 +153,9 @@ export function makeWaterMaterial(): THREE.ShaderMaterial {
         vec3 v = normalize(cameraPosition - vWorldPos);
         float fres = pow(1.0 - abs(v.y), 4.0);
         float light = 0.2 + 0.42 * fres;
-        // static wave streaks: short horizontal dashes, sparse, a step brighter
-        vec2 q = vec2(vWorldPos.x / 9.0, vWorldPos.z / 2.2);
+        // static swell crests running north-south (the Pacific rolls in through
+        // the Golden Gate): short sparse dashes, a step brighter
+        vec2 q = vec2(vWorldPos.z / 9.0, vWorldPos.x / 2.6);
         vec2 iq = floor(q);
         float row = h21(vec2(iq.y, 3.1));
         float dash = h21(vec2(floor(q.x + row * 7.0), iq.y));
