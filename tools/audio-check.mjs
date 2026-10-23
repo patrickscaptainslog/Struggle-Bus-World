@@ -7,7 +7,7 @@
 //
 // usage: node tools/audio-check.mjs [--url=http://127.0.0.1:5173/dev/audio.html]
 //        [--seed=1] [--stems] [--wav=shots/tmp/audio-session.wav] [--shot=shots/tmp/audio.png]
-//        [--json] [--timeout=240000] [--stem="foghorn"] [--from=2.8 --to=4.8] (zoom the picture)
+//        [--json] [--bench] [--timeout=240000] [--stem="foghorn"] [--from=2.8 --to=4.8] (zoom the picture)
 // exit 0 = pass (peak < 0.95, no NaN, nothing over 0.99), 1 = fail, 2 = page error
 import { chromium } from 'playwright-core';
 import { writeFileSync } from 'node:fs';
@@ -40,6 +40,7 @@ await page.goto(url, { waitUntil: 'load', timeout });
 await page.waitForFunction(() => window.__shotReady === true, null, { timeout, polling: 250 });
 const rep = await page.evaluate(() => window.__audioReport);
 const stems = opt.stems ? await page.evaluate(() => window.__audioStems) : null;
+const bench = opt.bench ? await page.evaluate(() => window.__bench()) : null;
 
 if (opt.shot) {
   await page.locator('#viz').scrollIntoViewIfNeeded();
@@ -72,13 +73,15 @@ if (!rep || rep.error) {
   console.log('render failed:', rep && rep.error);
   process.exit(2);
 }
-if (opt.json) console.log(JSON.stringify({ report: rep, stems }, null, 1));
+if (opt.json) console.log(JSON.stringify({ report: rep, stems, bench }, null, 1));
 else {
   console.log(`audio-check  ${rep.seconds}s @ ${rep.sampleRate} Hz  (render ${rep.renderMs} ms)`);
   console.log(`  peak      ${rep.peak}  (${rep.peakDb} dBFS at ${rep.peakAt}s)`);
   console.log(`  >0.99     ${rep.over099}   >0.95 ${rep.over095}   NaN ${rep.nan}   DC ${rep.dc.join(' / ')}`);
   console.log(`  rms/s     ${rep.rmsDb.map((v) => String(v).padStart(6)).join('')}`);
   console.log(`  phone/s   ${rep.phoneRmsDb.map((v) => String(v).padStart(6)).join('')}   (300 Hz high-passed)`);
+  console.log(`  voices    max ${rep.maxVoices} bell voices (pool 16)`);
+  if (bench) console.log(`  cost      graph build ${bench.buildMs} ms; 20 s render: grey idle ${bench.idle20sMs} ms (${bench.idlePct}%), busy painted ${bench.busy20sMs} ms (${bench.busyPct}%) of one core here; biquad automationRate=${bench.kRate}`);
   console.log(`  clicks    ${rep.clicks.count}${rep.clicks.count ? '  worst: ' + rep.clicks.worst.slice(0, 6).map((c) => `${c.t}s x${c.ratio}`).join(', ') : ''}`);
   if (stems) {
     console.log('  stems (dBFS)            peak     rms   phone');

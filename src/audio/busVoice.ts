@@ -1,5 +1,5 @@
 import type { AudioTune } from './tune';
-import { clamp, hold, Kit, makePulseWave, mkFilter, mkGain, mkOsc, tanhCurve, target } from './dsp';
+import { clamp, hold, Kit, kRate, makePulseWave, mkFilter, mkGain, mkOsc, tanhCurve, target } from './dsp';
 
 // The bus: a lovable, wheezy old engine.
 //
@@ -15,7 +15,7 @@ import { clamp, hold, Kit, makePulseWave, mkFilter, mkGain, mkOsc, tanhCurve, ta
 // exhale rattles. Empty belly: barely-there contented puffs.
 
 const ENGINE_GAIN = 0.15;
-const BREATH_GAIN = 0.55;
+const BREATH_GAIN = 0.62;
 const WHISTLE_GAIN = 0.95;
 
 export class BusVoice {
@@ -44,6 +44,8 @@ export class BusVoice {
     this.o2 = mkOsc(ctx, 'sine', 5);
     this.o1.setPeriodicWave(wave);
     this.o2.setPeriodicWave(wave);
+    kRate(this.o1.frequency);
+    kRate(this.o2.frequency);
     const pre = mkGain(ctx, 1);
     const o2g = mkGain(ctx, 0.6);
     this.o1.connect(pre);
@@ -82,7 +84,8 @@ export class BusVoice {
     const breathOut = mkGain(ctx, 1);
     air.connect(this.breathF).connect(this.breathG).connect(rattle);
     air.connect(this.whistleF).connect(this.whistleG).connect(rattle);
-    rattle.connect(breathOut).connect(out);
+    // warm, not hissy: the breath lives under 3.4 kHz
+    rattle.connect(mkFilter(ctx, 'lowpass', 3400, 0.6)).connect(breathOut).connect(out);
   }
 
   update(t: number, dt: number, speedN: number, surge: number, fullness: number, tune: AudioTune, push: boolean): void {

@@ -26,7 +26,7 @@ export class Sfx {
 
     // "h"
     {
-      const n = noiseSrc(this.kit, t, 0.1);
+      const n = noiseSrc(this.kit, t, 0.22);
       const f = mkFilter(ctx, 'bandpass', 1500, 1.2);
       const g = mkGain(ctx, 0);
       envAD(g.gain, t, 0.34 * T, 0.006, 0.022);
@@ -59,7 +59,7 @@ export class Sfx {
     }
     // "k"
     {
-      const n = noiseSrc(this.kit, t + 0.17, 0.05);
+      const n = noiseSrc(this.kit, t + 0.17, 0.12);
       const f = mkFilter(ctx, 'bandpass', 2600, 1.1);
       const g = mkGain(ctx, 0);
       envAD(g.gain, t + 0.17, 0.2 * T, 0.002, 0.01);

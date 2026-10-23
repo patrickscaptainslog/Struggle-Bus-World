@@ -113,7 +113,7 @@ export class SoundGraph {
     // ---- reverb (synthesized impulse response, no sample files)
     const verb = ctx.createConvolver();
     verb.normalize = false;
-    verb.buffer = makeReverbIR(ctx, 2.6, 2.1, seed * 31 + 11);
+    verb.buffer = makeReverbIR(ctx, 2.1, 1.9, seed * 31 + 11);
     const verbOut = mkGain(ctx, 0.9);
     verb.connect(verbOut).connect(this.masterVol);
     this.revSendMusic = mkGain(ctx, tune.reverb);

@@ -92,7 +92,7 @@ export const busTune = {
   hatchRattle: 0.16,
   hatchHz: 4.2,
   hatchDamp: 0.28,
-  holeGlow: 0.85,
+  holeGlow: 0.6,
   /** Warning flasher glow. */
   flashGlow: 0.85,
   /** Visible wheel spin cap (rad/s) so fast flight never strobes backwards. */
@@ -236,7 +236,7 @@ const VERTEX_CHUNK = /* glsl */ `
     p.yz = piv + vec2(c * q.x - s * q.y, s * q.x + c * q.y);
     n.yz = vec2(c * n.y - s * n.z, s * n.y + c * n.z);
   } else if (bPart == ${PART.HOLE}) {
-    float hue = bReady > 0.5 ? mod(floor(bT * 7.0), 6.0) : min(floor(bFull * 6.0), 5.0);
+    float hue = bReady > 0.5 ? mod(floor(bT * 4.0), 6.0) : min(floor(bFull * 6.0), 5.0);
     bRamp = ${f(Ramp.RED)} + hue;
     bGlow = uFx.x * smoothstep(0.04, 0.5, bFull);
   } else if (bPart == ${PART.FLASH_AMBER}) {

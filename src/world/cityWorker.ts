@@ -9,6 +9,7 @@ export interface RegionRequest {
   id: number;
   url: string;
   classN: number;
+  lod: 0 | 1;
 }
 
 export interface TileResult {
@@ -23,6 +24,7 @@ export interface RegionResponse {
   type: 'region';
   id: number;
   tiles: TileResult[];
+  lod: 0 | 1;
   error?: string;
 }
 
@@ -58,7 +60,7 @@ self.onmessage = async (ev: MessageEvent<RegionRequest>) => {
       let terrain = null;
       if (bLen > 0) {
         building = parseBuildingTile(buf.slice(bOff, bOff + bLen));
-        mesh = meshBuildingTile(building, { lod: 0 });
+        mesh = meshBuildingTile(building, { lod: req.lod });
         transfer.push(mesh.position.buffer, mesh.normal.buffer, mesh.facade.buffer, mesh.meta.buffer, mesh.bld.buffer, mesh.bld2.buffer, mesh.index.buffer);
       }
       if (tLen > 0) {
@@ -67,10 +69,10 @@ self.onmessage = async (ev: MessageEvent<RegionRequest>) => {
       }
       tiles.push({ tx, tz, building, mesh, terrain });
     }
-    const msg: RegionResponse = { type: 'region', id: req.id, tiles };
+    const msg: RegionResponse = { type: 'region', id: req.id, tiles, lod: req.lod };
     (self as unknown as Worker).postMessage(msg, transfer);
   } catch (e) {
-    const msg: RegionResponse = { type: 'region', id: req.id, tiles: [], error: String(e) };
+    const msg: RegionResponse = { type: 'region', id: req.id, tiles: [], lod: req.lod, error: String(e) };
     (self as unknown as Worker).postMessage(msg);
   }
 };

@@ -101,9 +101,26 @@ export function mkGain(ctx: BaseAudioContext, v = 0): GainNode {
   return g;
 }
 
+/**
+ * k-rate automation: coefficients update once per 128-sample block instead of
+ * every sample while a param moves (~2.5x cheaper for swept/tracked filters,
+ * measured in Chrome). Nothing here needs sample-accurate filter sweeps.
+ * Engines without `automationRate` simply ignore the assignment.
+ */
+export function kRate(p: AudioParam): AudioParam {
+  try {
+    (p as AudioParam & { automationRate?: string }).automationRate = 'k-rate';
+  } catch {
+    /* not supported for this param */
+  }
+  return p;
+}
+
 export function mkFilter(ctx: BaseAudioContext, type: BiquadFilterType, f: number, q = 0.707): BiquadFilterNode {
   const b = ctx.createBiquadFilter();
   b.type = type;
+  kRate(b.frequency);
+  kRate(b.Q);
   b.frequency.value = f;
   b.Q.value = q;
   return b;
@@ -215,6 +232,9 @@ export function makeReverbIR(ctx: BaseAudioContext, seconds: number, rt60: numbe
   const buf = ctx.createBuffer(2, n, sr);
   const pre = Math.floor(0.016 * sr);
   const hpR = Math.exp((-2 * Math.PI * 170) / sr);
+  // incremental envelopes (no per-sample exp): this runs inside the unlock gesture
+  const decay = Math.exp(-6.9 / rt60 / sr);
+  const brightDecay = Math.exp(-1 / 0.45 / sr);
   for (let ch = 0; ch < 2; ch++) {
     const d = buf.getChannelData(ch);
     const r = new Rng(seed + ch * 7919);
@@ -222,23 +242,28 @@ export function makeReverbIR(ctx: BaseAudioContext, seconds: number, rt60: numbe
     let hpPrev = 0;
     let hp = 0;
     let e = 0;
+    let env = 1;
+    let bright = 1;
+    let a = 0;
     for (let i = 0; i < n; i++) {
       if (i < pre) {
         d[i] = 0;
         continue;
       }
-      const te = (i - pre) / sr;
-      const fc = 1400 + 6500 * Math.exp(-te / 0.45);
-      const a = 1 - Math.exp((-2 * Math.PI * fc) / sr);
+      const k = i - pre;
+      if ((k & 31) === 0) a = 1 - Math.exp((-2 * Math.PI * (1400 + 6500 * bright)) / sr);
       lp += a * (r.next() * 2 - 1 - lp);
       hp = hpR * (hp + lp - hpPrev);
       hpPrev = lp;
-      let env = Math.exp((-6.9 * te) / rt60);
-      if (te < 0.012) env *= te / 0.012; // soft onset
+      let g = env;
+      const te = k / sr;
+      if (te < 0.012) g *= te / 0.012; // soft onset
       const tail = (n - i) / sr;
-      if (tail < 0.15) env *= tail / 0.15; // end of buffer fades out, never truncates
-      d[i] = hp * env;
+      if (tail < 0.15) g *= tail / 0.15; // end of buffer fades out, never truncates
+      d[i] = hp * g;
       e += d[i] * d[i];
+      env *= decay;
+      bright *= brightDecay;
     }
     const k = 1 / Math.sqrt(e || 1);
     for (let i = 0; i < n; i++) d[i] *= k;
@@ -263,11 +288,17 @@ export function softClipCurve(knee = 0.72, ceiling = 0.93, n = 4097): Float32Arr
   return c;
 }
 
-/** Band-limited pulse wave (equal-ish harmonics): each cycle is a sharp "pop" that excites exhaust resonances. */
+/**
+ * Band-limited pulse wave: each cycle is a "pop" that excites exhaust
+ * resonances. Lanczos-tapered so the truncated series doesn't ring (Gibbs).
+ */
 export function makePulseWave(ctx: BaseAudioContext, harmonics = 160, tilt = 0.3): PeriodicWave {
   const real = new Float32Array(harmonics + 1);
   const imag = new Float32Array(harmonics + 1);
-  for (let k = 1; k <= harmonics; k++) real[k] = 1 / Math.pow(k, tilt);
+  for (let k = 1; k <= harmonics; k++) {
+    const x = (Math.PI * k) / (harmonics + 1);
+    real[k] = (1 / Math.pow(k, tilt)) * (Math.sin(x) / x);
+  }
   return ctx.createPeriodicWave(real, imag);
 }
 

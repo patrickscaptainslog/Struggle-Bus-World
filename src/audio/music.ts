@@ -1,4 +1,4 @@
-import { clamp, disposeOnEnd, hold, Kit, mkFilter, mkGain, mkOsc, mkPan, mtof, safeStop, target } from './dsp';
+import { clamp, disposeOnEnd, hold, Kit, kRate, mkFilter, mkGain, mkOsc, mkPan, mtof, safeStop, target } from './dsp';
 
 // The score. Each splat advances one chord of Pachelbel's canon in D
 // (I V vi iii IV I IV V — loops back to I), and every bloom in the cascade
@@ -166,14 +166,19 @@ export class Bells {
 // the share of painted buildings near the bus.
 
 export class Hum {
-  private readonly oscA: OscillatorNode[] = [];
-  private readonly oscB: OscillatorNode[] = [];
+  private readonly ctx: BaseAudioContext;
+  /** Oscillators exist only while the hum is audible (silent grey city costs nothing). */
+  private oscA: OscillatorNode[] = [];
+  private oscB: OscillatorNode[] = [];
+  private readonly voiceIn: GainNode[] = [];
   private readonly midi = [50, 57, 62, 66];
+  private transpose = 0;
   private readonly lp: BiquadFilterNode;
   private readonly vca: GainNode;
+  private silentSince = 0;
 
   constructor(kit: Kit, out: AudioNode) {
-    const ctx = kit.ctx;
+    const ctx = (this.ctx = kit.ctx);
     this.lp = mkFilter(ctx, 'lowpass', 700, 0.5);
     const lp2 = mkFilter(ctx, 'lowpass', 2400, 0.5);
     const hp = mkFilter(ctx, 'highpass', 110, 0.6);
@@ -182,29 +187,46 @@ export class Hum {
     const lfo = mkOsc(ctx, 'sine', 0.13);
     const lfoDepth = mkGain(ctx, 0.18);
     lfo.connect(lfoDepth).connect(breathe.gain);
-    const t = ctx.currentTime;
-    lfo.start(t);
+    lfo.start(ctx.currentTime);
     const mix = mkGain(ctx, 1);
     for (let i = 0; i < 4; i++) {
-      const f = mtof(this.midi[i]);
-      const a = mkOsc(ctx, 'sawtooth', f);
-      const b = mkOsc(ctx, i === 0 ? 'triangle' : 'sawtooth', f);
-      a.detune.value = -6 - i;
-      b.detune.value = 6 + i;
       const vg = mkGain(ctx, i === 0 ? 0.36 : 0.32 - i * 0.03);
-      a.connect(vg);
-      b.connect(vg);
       vg.connect(mix);
-      a.start(t);
-      b.start(t);
-      this.oscA.push(a);
-      this.oscB.push(b);
+      this.voiceIn.push(vg);
     }
     mix.connect(hp).connect(this.lp).connect(lp2).connect(breathe).connect(this.vca).connect(out);
   }
 
+  private start(t: number): void {
+    const ctx = this.ctx;
+    for (let i = 0; i < 4; i++) {
+      const f = mtof(this.midi[i] + this.transpose);
+      const a = mkOsc(ctx, 'sawtooth', f);
+      const b = mkOsc(ctx, i === 0 ? 'triangle' : 'sawtooth', f);
+      a.detune.value = -6 - i;
+      b.detune.value = 6 + i;
+      kRate(a.frequency);
+      kRate(b.frequency);
+      a.connect(this.voiceIn[i]);
+      b.connect(this.voiceIn[i]);
+      a.start(t);
+      b.start(t);
+      disposeOnEnd(a, [a, b]);
+      this.oscA.push(a);
+      this.oscB.push(b);
+    }
+  }
+
+  private stop(t: number): void {
+    for (const o of this.oscA) safeStop(o, t);
+    for (const o of this.oscB) safeStop(o, t);
+    this.oscA = [];
+    this.oscB = [];
+  }
+
   /** Glide to a new chord with smooth voice leading. */
   setChord(ch: Chord, t: number, transpose: number): void {
+    this.transpose = transpose;
     // bass: chord root in A2..G#3
     let bass = 45 + ((ch.pcs[0] - 9 + 12) % 12);
     if (bass > 56) bass -= 12;
@@ -234,7 +256,7 @@ export class Hum {
     this.midi[1] = fold(nearest(cand[bi], this.midi[1]));
     this.midi[2] = fold(nearest(cand[bj], this.midi[2]));
     this.midi[3] = fold(nearest(cand[bk], this.midi[3]));
-    for (let v = 0; v < 4; v++) {
+    for (let v = 0; v < this.oscA.length; v++) {
       const f = mtof(this.midi[v] + transpose);
       hold(this.oscA[v].frequency, t);
       hold(this.oscB[v].frequency, t);
@@ -245,6 +267,10 @@ export class Hum {
 
   /** Continuous level (0..~0.1) and brightness (0..1). */
   set(t: number, level: number, bright: number): void {
+    if (level > 1e-4) {
+      if (!this.oscA.length) this.start(t); // vca is at ~0 here: fades in from silence
+      this.silentSince = t;
+    } else if (this.oscA.length && t - this.silentSince > 3) this.stop(t); // 3 s >> the 0.45 s fade
     target(this.vca.gain, level, t, 0.45);
     target(this.lp.frequency, 380 + 900 * bright, t, 0.4);
   }

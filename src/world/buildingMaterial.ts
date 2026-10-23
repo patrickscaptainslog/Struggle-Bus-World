@@ -224,9 +224,9 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         if (trimMask > 0.5) { lo += 0.07; }
 
         if (part == ${Part.ROOF}.0) {
-          if (roofKind < 0.45) { ramp = ${Ramp.GREY_LIGHT}.0; lo = -0.1 + tone; }
-          else if (roofKind < 0.8) { ramp = ${Ramp.ROOF_DARK}.0; lo = 0.06 + tone; }
-          else { ramp = ${Ramp.GREY}.0; lo = 0.04 + tone; }
+          if (roofKind < 0.55) { ramp = ${Ramp.GREY_LIGHT}.0; lo = -0.06 + tone; }
+          else if (roofKind < 0.8) { ramp = ${Ramp.ROOF_DARK}.0; lo = 0.1 + tone; }
+          else { ramp = ${Ramp.GREY}.0; lo = 0.06 + tone; }
         }
         else if (part == ${Part.ROOF_SLOPE}.0) { ramp = ${Ramp.ROOF_DARK}.0; lo = -0.04 + tone * 0.5; }
         else if (part == ${Part.TRIM}.0) { ramp = ${Ramp.GREY_LIGHT}.0; lo = 0.04; }

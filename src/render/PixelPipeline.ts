@@ -570,13 +570,17 @@ void main() {
   // flat surfaces (identical light bytes all around) never dither: no
   // checkerboards on walls that happen to sit on a step boundary.
   float lb = g.g * 255.0;
-  bool flatLight = abs(texelFetch(tColor, p + ivec2(1, 0), 0).g * 255.0 - lb) < 0.5
-                && abs(texelFetch(tColor, p + ivec2(-1, 0), 0).g * 255.0 - lb) < 0.5
-                && abs(texelFetch(tColor, p + ivec2(0, 1), 0).g * 255.0 - lb) < 0.5
-                && abs(texelFetch(tColor, p + ivec2(0, -1), 0).g * 255.0 - lb) < 0.5;
+  // (slow gradients count as flat too: a clean band edge beats a dotted contour)
+  bool flatLight = abs(texelFetch(tColor, p + ivec2(1, 0), 0).g * 255.0 - lb) < 1.5
+                && abs(texelFetch(tColor, p + ivec2(-1, 0), 0).g * 255.0 - lb) < 1.5
+                && abs(texelFetch(tColor, p + ivec2(0, 1), 0).g * 255.0 - lb) < 1.5
+                && abs(texelFetch(tColor, p + ivec2(0, -1), 0).g * 255.0 - lb) < 1.5;
   float step = rampStep(light, flatLight ? 0.5 : d);
-  float fogBand = clamp((fog - 0.66) / 0.12, 0.0, 1.0);
+  float fogBand = clamp((fog - 0.62) / 0.06, 0.0, 1.0);
   bool fogged = fogBand > d2;
+  // deep in the fog things become solid silhouettes a little darker than the
+  // sky behind them (Hopper's distant shapes), converging on the sky color
+  float silL = sl - (1.0 - fog) * 0.55 - 0.03;
   vec3 col = pal(ramp, step);
 
   // glow halo: dithered, and only ever a palette color — a lighter step of
@@ -588,7 +592,7 @@ void main() {
     else col = pal(ramp, min(step + 2.0, 7.0));
   }
 
-  if (fogged) col = pal(RAMP_FOG, rampStep(sl, d));
+  if (fogged) col = pal(RAMP_FOG, rampStep(silL, d));
   outColor = vec4(col, 1.0);
 }
 `;

@@ -108,7 +108,7 @@ class Builder {
     const nz = -dx / L;
     const cols = Math.max(1, Math.min(6, Math.round(L / segLen)));
     const h = y1 - y0;
-    const rows = h > 7 ? 2 : 1;
+    const rows = h > 7 && segLen < 99 ? 2 : 1;
     const base = this.vc;
     for (let r = 0; r <= rows; r++) {
       const y = y0 + (h * r) / rows;
@@ -319,7 +319,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1) {
     const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
     const isFront = k === front || k === front2;
     const top = isFront ? roofY + parapet : roofY;
-    B.wall(a[0], a[1], b[0], b[1], baseY, top, u, streetY, isFront ? Part.FRONT : Part.SIDE, (isFront ? 1 : 0) | corner);
+    B.wall(a[0], a[1], b[0], b[1], baseY, top, u, streetY, isFront ? Part.FRONT : Part.SIDE, (isFront ? 1 : 0) | corner, lod === 1 ? 999 : 3.2);
     u += L;
   }
 

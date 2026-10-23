@@ -26,13 +26,13 @@ export const config = {
     /** Sun azimuth (radians, 0 = +X/east, counter-clockwise looking down). Late afternoon WSW. */
     sunAzimuth: 2.75,
     /** Sun elevation above the horizon (radians). Low = long Hopper shadows. */
-    sunElevation: 0.36,
+    sunElevation: 0.44,
     /** Light contributed by the sun on a fully lit, facing surface (ramp units 0..1). */
     sunStrength: 0.62,
     /** Ambient sky light (ramp units). */
-    ambient: 0.22,
+    ambient: 0.2,
     /** Extra light on surfaces facing up (sky dome). */
-    skyBounce: 0.12,
+    skyBounce: 0.24,
   },
 
   fog: {

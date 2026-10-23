@@ -25,7 +25,10 @@ interface Script {
   tune?: Partial<Record<keyof typeof audioTune, number>>;
 }
 
+let maxVoices = 0;
+
 async function renderScript(s: Script, seed = 1): Promise<AudioBuffer> {
+  maxVoices = 0;
   const saved: Record<string, number> = {};
   const tune = audioTune as unknown as Record<string, number>;
   for (const [k, v] of Object.entries(s.tune ?? {})) {
@@ -44,6 +47,7 @@ async function renderScript(s: Script, seed = 1): Promise<AudioBuffer> {
       s.frame(t, frame);
       eng.update(dt, frame);
       while (ei < events.length && events[ei].t <= t + step * 0.5) fireEvent(eng, events[ei++]);
+      maxVoices = Math.max(maxVoices, eng.debugState().voices);
     };
     tick(0, 0);
     let k = 1;
@@ -88,6 +92,7 @@ export interface Report {
   rmsDb: number[];
   phoneRmsDb: number[];
   clicks: { count: number; worst: Click[] };
+  maxVoices: number;
   pass: boolean;
 }
 
@@ -193,6 +198,7 @@ function analyze(buf: AudioBuffer, renderMs: number): Report {
     rmsDb,
     phoneRmsDb,
     clicks: { count: clicks.length, worst: clicks.slice(0, Number(params.get('clicks') ?? 12)).map((c) => ({ t: +c.t.toFixed(4), ratio: +c.ratio.toFixed(1), ch: c.ch })) },
+    maxVoices,
     pass,
   };
 }
@@ -662,10 +668,49 @@ function buildUI(eng: AudioEngine): void {
   requestAnimationFrame(frame);
 }
 
+/** Cost probe: graph build time and pure render speed (no suspends), min of 3 runs, grey idle vs busy painted. */
+async function bench(): Promise<Record<string, number | string>> {
+  const once = async (busy: boolean) => {
+    const ctx = new OfflineAudioContext(2, SR * 20, SR);
+    const t0 = performance.now();
+    const eng = new AudioEngine();
+    eng.attachContext(ctx, 3);
+    const build = performance.now() - t0;
+    eng.update(0, { speed: 60, surge: busy ? 0.5 : 0, fullness: 1, altitude: 40, paintNearby: busy ? 1 : 0, fogBank: 0 });
+    if (busy) {
+      eng.heave();
+      eng.splatImpact(1);
+      for (let i = 0; i < 5; i++) eng.bloomNote(i, 5, i, 3);
+      eng.foghorn();
+    }
+    const t1 = performance.now();
+    await ctx.startRendering();
+    return [build, performance.now() - t1];
+  };
+  let build = Infinity, idle = Infinity, busy = Infinity;
+  for (let i = 0; i < 3; i++) {
+    const [b, r] = await once(false);
+    build = Math.min(build, b);
+    idle = Math.min(idle, r);
+    busy = Math.min(busy, (await once(true))[1]);
+  }
+  const probe = new OfflineAudioContext(1, 128, SR).createBiquadFilter().frequency as AudioParam & { automationRate?: string };
+  probe.automationRate = 'k-rate';
+  return {
+    buildMs: +build.toFixed(1),
+    idle20sMs: Math.round(idle),
+    busy20sMs: Math.round(busy),
+    idlePct: +((idle / 20000) * 100).toFixed(2),
+    busyPct: +((busy / 20000) * 100).toFixed(2),
+    kRate: String(probe.automationRate),
+  };
+}
+
 const engine = new AudioEngine();
 buildUI(engine);
 const w = window as unknown as Record<string, unknown>;
 w.__engine = engine;
+w.__bench = bench;
 w.__audioPCM = () => {
   // interleaved 16-bit PCM of the last offline render, base64
   const b = lastRender;

@@ -37,6 +37,7 @@ interface LoadedTile {
 }
 
 const LOAD_RADIUS = 1500; // m: regions whose center is within this get loaded
+const DETAIL_RADIUS = 650; // m: regions nearer than this get full-detail meshes (bays, cornices, stoops)
 const UNLOAD_RADIUS = 2300;
 const HASH_CELL = 32;
 
@@ -46,7 +47,8 @@ export class City {
   readonly buildingMaterial = makeBuildingMaterial();
   private worker: Worker;
   private nextId = 1;
-  private pending = new Map<number, string>();
+  private pending = new Map<number, { key: string; lod: 0 | 1 }>();
+  private regionLod = new Map<string, 0 | 1>();
   private regionsLoaded = new Set<string>();
   private regionsRequested = new Set<string>();
   private regionAvailable = new Set<string>();
@@ -204,14 +206,23 @@ export class City {
         const d = Math.hypot(dx, dz);
         if (d < LOAD_RADIUS) want.push([rx, rz, d]);
       }
+    // upgrade already-loaded coarse regions that are now close
+    for (const key of this.regionsLoaded) {
+      if (this.regionLod.get(key) !== 1 || this.isPending(key)) continue;
+      const [rx, rz] = key.split(',').map(Number);
+      const cx = (rx + 0.5) * R, cz = (rz + 0.5) * R;
+      const d = Math.hypot(Math.max(Math.abs(focus.x - cx) - R / 2, 0), Math.max(Math.abs(focus.z - cz) - R / 2, 0));
+      if (d < DETAIL_RADIUS * 0.8) want.push([rx, rz, d - 10000]);
+    }
     want.sort((a, b) => a[2] - b[2]);
-    for (const [rx, rz] of want) {
+    for (const [rx, rz, d] of want) {
       if (this.pending.size >= 2) break;
       const key = `${rx},${rz}`;
+      const lod: 0 | 1 = d < DETAIL_RADIUS ? 0 : 1;
       this.regionsRequested.add(key);
       const id = this.nextId++;
-      this.pending.set(id, key);
-      const msg: RegionRequest = { type: 'region', id, url: new URL(`${this.baseUrl}/r_${rx}_${rz}.bin`, location.href).href, classN: this.manifest.classN };
+      this.pending.set(id, { key, lod });
+      const msg: RegionRequest = { type: 'region', id, url: new URL(`${this.baseUrl}/r_${rx}_${rz}.bin`, location.href).href, classN: this.manifest.classN, lod };
       this.worker.postMessage(msg);
     }
     // unload far regions
@@ -229,18 +240,60 @@ export class City {
     return this.pending.size > 0;
   }
 
+  private isPending(key: string): boolean {
+    for (const p of this.pending.values()) if (p.key === key) return true;
+    return false;
+  }
+
   private onRegion(msg: RegionResponse) {
-    const key = this.pending.get(msg.id);
+    const p = this.pending.get(msg.id);
     this.pending.delete(msg.id);
-    if (!key) return;
+    if (!p) return;
+    const key = p.key;
     if (msg.error) {
       console.warn('region failed', key, msg.error);
-      this.regionsRequested.delete(key);
+      if (!this.regionsLoaded.has(key)) this.regionsRequested.delete(key);
       return;
     }
-    this.regionsLoaded.add(key);
-    for (const t of msg.tiles) this.addTile(t);
-    this.loadedMask.needsUpdate = true;
+    if (!this.regionsRequested.has(key)) return; // unloaded while in flight
+    const upgrade = this.regionsLoaded.has(key);
+    if (upgrade) {
+      // swap coarse building meshes for detailed ones in place
+      for (const t of msg.tiles) {
+        const lt = this.tiles.get(`${t.tx},${t.tz}`);
+        if (!lt || !t.mesh) continue;
+        if (lt.buildings) {
+          this.root.remove(lt.buildings);
+          lt.buildings.geometry.dispose();
+        }
+        lt.buildings = this.makeBuildingMesh(t.mesh);
+      }
+    } else {
+      this.regionsLoaded.add(key);
+      for (const t of msg.tiles) this.addTile(t);
+      this.loadedMask.needsUpdate = true;
+    }
+    this.regionLod.set(key, msg.lod);
+  }
+
+  private makeBuildingMesh(m: NonNullable<TileResult['mesh']>): THREE.Mesh | null {
+    if (m.vertexCount === 0) return null;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(m.position, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(m.normal, 3, true));
+    g.setAttribute('aFacade', new THREE.BufferAttribute(m.facade, 2));
+    g.setAttribute('aMeta', new THREE.BufferAttribute(m.meta, 4));
+    g.setAttribute('aBld', new THREE.BufferAttribute(m.bld, 4));
+    g.setAttribute('aBld2', new THREE.BufferAttribute(m.bld2, 2));
+    g.setIndex(new THREE.BufferAttribute(m.index, 1));
+    g.computeBoundingSphere();
+    // generous bounds: painted buildings pop and wobble a little outside their rest pose
+    if (g.boundingSphere) g.boundingSphere.radius += 6;
+    const mesh = new THREE.Mesh(g, this.buildingMaterial);
+    mesh.layers.enable(SHADOW_LAYER);
+    mesh.matrixAutoUpdate = false;
+    this.root.add(mesh);
+    return mesh;
   }
 
   private addTile(t: TileResult) {
@@ -248,25 +301,7 @@ export class City {
     if (this.tiles.has(key)) return;
     const lt: LoadedTile = { tx: t.tx, tz: t.tz, buildings: null, terrain: null, terrainData: t.terrain, buildingData: t.building, refs: [], classTex: null };
     const ts = this.manifest.tileSize;
-    if (t.mesh && t.mesh.vertexCount > 0) {
-      const m = t.mesh;
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.BufferAttribute(m.position, 3));
-      g.setAttribute('normal', new THREE.BufferAttribute(m.normal, 3, true));
-      g.setAttribute('aFacade', new THREE.BufferAttribute(m.facade, 2));
-      g.setAttribute('aMeta', new THREE.BufferAttribute(m.meta, 4));
-      g.setAttribute('aBld', new THREE.BufferAttribute(m.bld, 4));
-      g.setAttribute('aBld2', new THREE.BufferAttribute(m.bld2, 2));
-      g.setIndex(new THREE.BufferAttribute(m.index, 1));
-      g.computeBoundingSphere();
-      // generous bounds: painted buildings pop and wobble a little outside their rest pose
-      if (g.boundingSphere) g.boundingSphere.radius += 6;
-      const mesh = new THREE.Mesh(g, this.buildingMaterial);
-      mesh.layers.enable(SHADOW_LAYER);
-      mesh.matrixAutoUpdate = false;
-      this.root.add(mesh);
-      lt.buildings = mesh;
-    }
+    if (t.mesh) lt.buildings = this.makeBuildingMesh(t.mesh);
     if (t.building) {
       const b = t.building;
       for (let i = 0; i < b.count; i++) {
@@ -315,6 +350,7 @@ export class City {
     const key = `${rx},${rz}`;
     this.regionsLoaded.delete(key);
     this.regionsRequested.delete(key);
+    this.regionLod.delete(key);
     const rs = this.regionSize;
     const [minX, minZ] = this.manifest.bounds;
     const ts = this.manifest.tileSize;

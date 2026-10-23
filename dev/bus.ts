@@ -6,6 +6,7 @@
 //   heading=<deg> bank=<deg> pitch=<deg> alt=<m> scale=<k> speed=<m/s>
 //   full=<0..1>  override fullness
 //   tune=k:v,... override busTune values
+//   set=k:v,...  force BusPose fields
 import * as THREE from 'three';
 import { createHarness } from './harness';
 import { BusModel, busTune, type BusPose } from '../src/bus/BusModel';
@@ -121,8 +122,17 @@ modes.forEach((m, i) => {
 });
 h.target.set(0, alt, 0);
 
+// set=field:value,... forces pose fields (e.g. set=squash:0.72,heave:0)
+const forced: Array<[keyof BusPose, number]> = [];
+for (const kv of (P.get('set') ?? '').split(',')) {
+  const [k, v] = kv.split(':');
+  if (k && v !== undefined) forced.push([k as keyof BusPose, Number(v)]);
+}
+
 function poseFor(e: Entry, t: number): BusPose {
-  return e.mode === 'anim' ? animPose(t, e.pose) : namedPose(e.mode, e.pose);
+  const p = e.mode === 'anim' ? animPose(t, e.pose) : namedPose(e.mode, e.pose);
+  for (const [k, v] of forced) p[k] = v;
+  return p;
 }
 
 // pre-roll springs to the frozen time so screenshots show settled secondary motion
