@@ -1019,7 +1019,33 @@ def roof_for(poly, roof, top, base, median):
         if roof.get('orientation') == 'across':
             ridge += math.pi / 2
         ang = ridge + math.pi / 2
-    return shape, R, int(round(ang / (2 * math.pi) * 256)) % 256, eave
+    dbyte = int(round(ang / (2 * math.pi) * 256)) % 256
+    if not planar_roof_fits(poly, shape, dbyte):
+        return 1, 0.0, 0, top  # flat, as BuildingMesher would draw it (and the obstacle grid with it)
+    return shape, R, dbyte, eave
+
+
+def planar_roof_fits(poly, shape, dbyte):
+    """BuildingMesher.shapedRoof's test, a little stricter so the two never disagree (the client sees the ring
+    quantized): the client builds a planar roof over a footprint >= 1 m both ways and >= 55 % of its rectangle in the
+    roof's frame (bake: 1.1 m, 57 %), a revolved one (domes, onions, cones, pyramids on odd footprints) over a ring
+    >= 80 % of its convex hull (bake: 85 %), else a flat roof. The tiles say so, so the flood top and the obstacle
+    grid agree with what is drawn."""
+    c = np.asarray(poly.exterior.coords)[:-1]
+    th = dbyte / 256 * 2 * math.pi
+    D = np.array([math.cos(th), math.sin(th)])
+    S = np.array([-D[1], D[0]])
+    q = c - c.mean(axis=0)
+    s, t = q @ S, q @ D
+    Wd, Ld = float(t.max() - t.min()), float(s.max() - s.min())
+    if Wd < 1.1 or Ld < 1.1:
+        return False
+    ring = Polygon(c)  # (the outer ring, as the mesher's pts)
+    rect = ring.area / (Wd * Ld)
+    if shape in (6, 7, 13) or (shape == 4 and rect < 0.8):
+        # revolved about the ring's centroid: only a nearly convex ring makes a dome, not a tent over a notch
+        return ring.area >= 0.85 * ring.convex_hull.area
+    return rect >= 0.57
 
 
 def parts_massing(b, plist, maxparts=24):
@@ -2485,6 +2511,9 @@ def main():
                               + ('; rooftops (heights, tiers) from the USGS 3DEP lidar point cloud (public domain)' if lidar_rasters is not None else ''))
         manifest['attribution'] = '\u00a9 OpenStreetMap contributors, Overture Maps Foundation'
         manifest['license'] = 'ODbL-1.0'
+        # the id scheme (ID_RANGES): the client keys saved paint by it, so paint saved against another
+        # scheme's ids (rank ids, a stale bake) is never applied to these buildings
+        manifest['ids'] = 'osm'
         hs = defaultdict(int)
         for b in buildings:
             hs[b.get('hsrc') or 'default'] += 1
