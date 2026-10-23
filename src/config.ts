@@ -80,18 +80,22 @@ export const config = {
     hfovPortrait: 24,
     /** Vertical field of view cap when landscape (deg). */
     vfovLandscape: 34,
-    /** Distance behind the bus (m). */
-    distance: 175,
-    /** Elevation angle of the camera above the bus when cruising (deg). */
-    elevationCruise: 31,
-    /** Elevation when slow (deg) — tilts toward diorama. */
-    elevationSlow: 39,
+    /** Distance behind the bus (m). (Closer than the old 175 m: the lower camera sees less roof, so the hero keeps its size.) */
+    distance: 155,
+    /** Elevation angle of the camera above the bus when cruising (deg): low enough for a sky band
+     *  and the horizon at the top of the frame (~13% from the top), the bus ~60% down. */
+    elevationCruise: 24,
+    /** Elevation when slow (deg) — tilts toward diorama (a thin sky band stays). */
+    elevationSlow: 29,
     /** Speed at which the camera reaches elevationSlow (m/s). */
     slowSpeed: 6,
     /** Elevation at full surge (deg) — levels toward the horizon. */
-    elevationSurge: 24,
+    elevationSurge: 20,
     /** Look-ahead in front of the bus (m), keeps the bus above the thumb zone. */
     lookAhead: 55,
+    /** Look-ahead at rest as a fraction of lookAhead (it grows to 1 at cruise and 1.4 at twice cruise).
+     *  1 = the slow diorama still looks out far enough to keep the horizon in frame. */
+    lookAheadSlow: 1,
     /** Position lag spring frequency (Hz) and damping ratio. */
     followHz: 1.1,
     followDamping: 1.0,
