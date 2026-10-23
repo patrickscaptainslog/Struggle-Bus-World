@@ -1,0 +1,5 @@
+perf ladies-cruise {"calls":125,"tris":1198782,"workMs":2.5,"workMin":1.8}
+perf fidi-surge {"calls":124,"tris":828183,"workMs":1.8,"workMin":1.4}
+perf climb-250m {"calls":168,"tris":1546414,"workMs":1.9,"workMin":1.6}
+saved to shots/look/after
+ALL-DONE

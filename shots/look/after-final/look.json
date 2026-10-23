@@ -1,0 +1,624 @@
+{
+ "ladies-cruise": {
+  "t": 3.4,
+  "bus": [
+   -1298.7,
+   104.2,
+   -155.8
+  ],
+  "speed": 26.4,
+  "cam": [
+   -1446.2,
+   169.3,
+   -150.6
+  ],
+  "vista": 0,
+  "calls": 124,
+  "tris": 1186976,
+  "stats": {
+   "fps": 1.6,
+   "low1": 1.1,
+   "frameMs": 609.25,
+   "frameMaxMs": 849.4,
+   "workMs": 2.4,
+   "workMaxMs": 2.5,
+   "simDtMs": 33.33,
+   "calls": 129,
+   "triangles": 1229195,
+   "points": 4,
+   "lines": 0,
+   "geometries": 84,
+   "textures": 32,
+   "programs": 16,
+   "lowRes": "236x512",
+   "pixelScale": 5,
+   "canvas": "1179x2556",
+   "cap30": false,
+   "frames": 54
+  }
+ },
+ "ladies-slow": {
+  "t": 6.933,
+  "bus": [
+   -1269.5,
+   85.3,
+   -156.8
+  ],
+  "speed": 5.3,
+  "cam": [
+   -1406.4,
+   159.7,
+   -152
+  ],
+  "vista": 0,
+  "calls": 124,
+  "tris": 1200877,
+  "stats": {
+   "fps": 1.6,
+   "low1": 1,
+   "frameMs": 640.6,
+   "frameMaxMs": 823,
+   "workMs": 2.7,
+   "workMaxMs": 3.2,
+   "simDtMs": 33.33,
+   "calls": 124,
+   "triangles": 1200877,
+   "points": 13,
+   "lines": 0,
+   "geometries": 85,
+   "textures": 32,
+   "programs": 16,
+   "lowRes": "236x512",
+   "pixelScale": 5,
+   "canvas": "1179x2556",
+   "cap30": false,
+   "frames": 188
+  }
+ },
+ "ladies-surge": {
+  "t": 9.533,
+  "bus": [
+   -1062.9,
+   83.1,
+   -164
+  ],
+  "speed": 98,
+  "cam": [
+   -1232.4,
+   140.6,
+   -158.1
+  ],
+  "vista": 0,
+  "calls": 117,
+  "tris": 1100751,
+  "stats": {
+   "fps": 1.6,
+   "low1": 1,
+   "frameMs": 640.6,
+   "frameMaxMs": 823,
+   "workMs": 2.7,
+   "workMaxMs": 3.2,
+   "simDtMs": 33.33,
+   "calls": 124,
+   "triangles": 1200877,
+   "points": 13,
+   "lines": 0,
+   "geometries": 85,
+   "textures": 32,
+   "programs": 16,
+   "lowRes": "236x512",
+   "pixelScale": 5,
+   "canvas": "1179x2556",
+   "cap30": false,
+   "frames": 188
+  }
+ },
+ "dolores-cruise": {
+  "t": 3.5,
+  "bus": [
+   -759.7,
+   90.7,
+   2089.8
+  ],
+  "speed": 26.4,
+  "cam": [
+   -810.2,
+   155.6,
+   2228.4
+  ],
+  "vista": 0,
+  "calls": 109,
+  "tris": 1030236,
+  "stats": {
+   "fps": 1.4,
+   "low1": 1,
+   "frameMs": 719.6,
+   "frameMaxMs": 757.7,
+   "workMs": 4.5,
+   "workMaxMs": 5.9,
+   "simDtMs": 33.33,
+   "calls": 109,
+   "triangles": 1030236,
+   "points": 8,
+   "lines": 0,
+   "geometries": 88,
+   "textures": 31,
+   "programs": 17,
+   "lowRes": "236x512",
+   "pixelScale": 5,
+   "canvas": "1179x2556",
+   "cap30": false,
+   "frames": 103
+  }
+ },
+ "twinpeaks-cruise": {
+  "t": 3.3,
+  "bus": [
+   -2541.6,
+   280.2,
+   2635.1
+  ],
+  "speed": 26.4,
+  "cam": [
+   -2646,
+   346.6,
+   2739.5
+  ],
+  "vista": 0,
+  "calls": 106,
+  "tris": 857609,
+  "stats": {
+   "fps": 1.9,
+   "low1": 1,
+   "frameMs": 517.15,
+   "frameMaxMs": 887.4,
+   "workMs": 3.5,
+   "workMaxMs": 5.2,
+   "simDtMs": 33.33,
+   "calls": 106,
+   "triangles": 857609,
+   "points": 7,
+   "lines": 0,
+   "geometries": 88,
+   "textures": 28,
+   "programs": 17,
+   "lowRes": "236x512",
+   "pixelScale": 5,
+   "canvas": "1179x2556",
+   "cap30": false,
+   "frames": 99
+  }
+ },
+ "fidi-surge": {
+  "t": 2.9,
+  "bus": [
+   1663,
+   40.3,
+   -678.6
+  ],
+  "speed": 98.1,
+  "cam": [
+   1663,
+   97.4,
+   -508.8
+  ],
+  "vista": 0,
+  "calls": 123,
+  "tris": 800672,
+  "stats": {
+   "fps": 1.8,
+   "low1": 1,
+   "frameMs": 552.15,
+   "frameMaxMs": 874,
+   "workMs": 4.15,
+   "workMaxMs": 5.8,
+   "simDtMs": 33.33,
+   "calls": 124,
+   "triangles": 820637,
+   "points": 5,
+   "lines": 0,
+   "geometries": 105,
+   "textures": 36,
+   "programs": 17,
+   "lowRes": "236x512",
+   "pixelScale": 5,
+   "canvas": "1179x2556",
+   "cap30": false,
+   "frames": 58
+  }
+ },
+ "alt120": {
+  "t": 5.933,
+  "bus": [
+   -1417.5,
+   184.8,
+   -157.2
+  ],
+  "speed": 26.4,
+  "cam": [
+   -1573.1,
+   258.4,
+   -151.7
+  ],
+  "vista": 0.096,
+  "calls": 140,
+  "tris": 1313500,
+  "stats": {
+   "fps": 1.4,
+   "low1": 1,
+   "frameMs": 724.85,
+   "frameMaxMs": 852.9,
+   "workMs": 3.3,
+   "workMaxMs": 3.8,
+   "simDtMs": 33.33,
+   "calls": 142,
+   "triangles": 1314187,
+   "points": 12,
+   "lines": 0,
+   "geometries": 107,
+   "textures": 35,
+   "programs": 16,
+   "lowRes": "236x512",
+   "pixelScale": 5,
+   "canvas": "1179x2556",
+   "cap30": false,
+   "frames": 166
+  }
+ },
+ "opening-2s": {
+  "t": 2,
+  "bus": [
+   -5661.4,
+   47.4,
+   -4118
+  ],
+  "speed": 48.5,
+  "cam": [
+   -5822.3,
+   66.5,
+   -4132
+  ],
+  "vista": 0,
+  "calls": 38,
+  "tris": 254897,
+  "stats": {
+   "fps": 1.3,
+   "low1": 1.1,
+   "frameMs": 755.9,
+   "frameMaxMs": 787.3,
+   "workMs": 1.35,
+   "workMaxMs": 1.5,
+   "simDtMs": 33.33,
+   "calls": 38,
+   "triangles": 254897,
+   "points": 4,
+   "lines": 0,
+   "geometries": 29,
+   "textures": 20,
+   "programs": 17,
+   "lowRes": "236x512",
+   "pixelScale": 5,
+   "canvas": "1179x2556",
+   "cap30": false,
+   "frames": 59
+  }
+ },
+ "opening-8s": {
+  "t": 8.033,
+  "bus": [
+   -5370.5,
+   24.5,
+   -4092.5
+  ],
+  "speed": 48.4,
+  "cam": [
+   -5531.3,
+   41.5,
+   -4106.6
+  ],
+  "vista": 0,
+  "calls": 41,
+  "tris": 261388,
+  "stats": {
+   "fps": 2.6,
+   "low1": 1,
+   "frameMs": 385.67,
+   "frameMaxMs": 633.5,
+   "workMs": 2.47,
+   "workMaxMs": 3.8,
+   "simDtMs": 33.33,
+   "calls": 41,
+   "triangles": 261388,
+   "points": 16,
+   "lines": 0,
+   "geometries": 34,
+   "textures": 21,
+   "programs": 17,
+   "lowRes": "236x512",
+   "pixelScale": 5,
+   "canvas": "1179x2556",
+   "cap30": false,
+   "frames": 240
+  }
+ },
+ "sign-L1-0.15": {
+  "t": 2.467,
+  "bus": [
+   -1328.4,
+   108.7,
+   -154.8
+  ],
+  "speed": 15.3,
+  "cam": [
+   -1472.7,
+   173.3,
+   -149.6
+  ],
+  "vista": 0,
+  "calls": 127,
+  "tris": 1209059,
+  "stats": null
+ },
+ "sign-L1-0.60": {
+  "t": 2.9,
+  "bus": [
+   -1321.8,
+   110.1,
+   -155
+  ],
+  "speed": 16.8,
+  "cam": [
+   -1464.7,
+   177.6,
+   -150
+  ],
+  "vista": 0,
+  "calls": 126,
+  "tris": 1189921,
+  "stats": null
+ },
+ "sign-L1-1.40": {
+  "t": 3.7,
+  "bus": [
+   -1299.3,
+   110.7,
+   -155.8
+  ],
+  "speed": 32.9,
+  "cam": [
+   -1447.3,
+   177.3,
+   -150.6
+  ],
+  "vista": 0,
+  "calls": 128,
+  "tris": 1200847,
+  "stats": {
+   "fps": 1.5,
+   "low1": 1.1,
+   "frameMs": 682.5,
+   "frameMaxMs": 903.8,
+   "workMs": 29.8,
+   "workMaxMs": 55.2,
+   "simDtMs": 33.33,
+   "calls": 128,
+   "triangles": 1200847,
+   "points": 3736,
+   "lines": 0,
+   "geometries": 87,
+   "textures": 36,
+   "programs": 18,
+   "lowRes": "236x512",
+   "pixelScale": 5,
+   "canvas": "1179x2556",
+   "cap30": false,
+   "frames": 108
+  }
+ },
+ "sign-L1-3.00": {
+  "t": 5.3,
+  "bus": [
+   -1250.5,
+   99.8,
+   -157.5
+  ],
+  "speed": 27.6,
+  "cam": [
+   -1399.1,
+   165.4,
+   -152.3
+  ],
+  "vista": 0,
+  "calls": 127,
+  "tris": 1202670,
+  "stats": {
+   "fps": 1.5,
+   "low1": 1.1,
+   "frameMs": 682.5,
+   "frameMaxMs": 903.8,
+   "workMs": 29.8,
+   "workMaxMs": 55.2,
+   "simDtMs": 33.33,
+   "calls": 128,
+   "triangles": 1200847,
+   "points": 3736,
+   "lines": 0,
+   "geometries": 87,
+   "textures": 36,
+   "programs": 18,
+   "lowRes": "236x512",
+   "pixelScale": 5,
+   "canvas": "1179x2556",
+   "cap30": false,
+   "frames": 108
+  }
+ },
+ "sign-L3-0.60": {
+  "t": 5.7,
+  "bus": [
+   -1233.8,
+   78.6,
+   -140
+  ],
+  "speed": 5.3,
+  "cam": [
+   -1370.6,
+   154.6,
+   -135.2
+  ],
+  "vista": 0,
+  "calls": 138,
+  "tris": 1248655,
+  "stats": {
+   "fps": 1.4,
+   "low1": 2.1,
+   "frameMs": 695.8,
+   "frameMaxMs": 918.6,
+   "workMs": 4.05,
+   "workMaxMs": 4.9,
+   "simDtMs": 33.33,
+   "calls": 124,
+   "triangles": 1198069,
+   "points": 2,
+   "lines": 0,
+   "geometries": 83,
+   "textures": 31,
+   "programs": 16,
+   "lowRes": "236x512",
+   "pixelScale": 5,
+   "canvas": "1179x2556",
+   "cap30": false,
+   "frames": 21
+  }
+ },
+ "sign-L3-1.40": {
+  "t": 6.5,
+  "bus": [
+   -1229.5,
+   78.2,
+   -140.1
+  ],
+  "speed": 5.3,
+  "cam": [
+   -1366.4,
+   153.4,
+   -135.4
+  ],
+  "vista": 0,
+  "calls": 138,
+  "tris": 1248655,
+  "stats": {
+   "fps": 1.4,
+   "low1": 2.1,
+   "frameMs": 695.8,
+   "frameMaxMs": 918.6,
+   "workMs": 4.05,
+   "workMaxMs": 4.9,
+   "simDtMs": 33.33,
+   "calls": 124,
+   "triangles": 1198069,
+   "points": 2,
+   "lines": 0,
+   "geometries": 83,
+   "textures": 31,
+   "programs": 16,
+   "lowRes": "236x512",
+   "pixelScale": 5,
+   "canvas": "1179x2556",
+   "cap30": false,
+   "frames": 21
+  }
+ },
+ "sign-L3-3.00": {
+  "t": 8.1,
+  "bus": [
+   -1221.1,
+   79.9,
+   -140.4
+  ],
+  "speed": 5.3,
+  "cam": [
+   -1357.9,
+   153.4,
+   -135.7
+  ],
+  "vista": 0,
+  "calls": 139,
+  "tris": 1250703,
+  "stats": {
+   "fps": 1.4,
+   "low1": 2.1,
+   "frameMs": 695.8,
+   "frameMaxMs": 918.6,
+   "workMs": 4.05,
+   "workMaxMs": 4.9,
+   "simDtMs": 33.33,
+   "calls": 124,
+   "triangles": 1198069,
+   "points": 2,
+   "lines": 0,
+   "geometries": 83,
+   "textures": 31,
+   "programs": 16,
+   "lowRes": "236x512",
+   "pixelScale": 5,
+   "canvas": "1179x2556",
+   "cap30": false,
+   "frames": 21
+  }
+ },
+ "eye-full": {
+  "t": 2.433,
+  "bus": [
+   -1324.3,
+   103.5,
+   -154.9
+  ],
+  "speed": 26.4,
+  "cam": [
+   -1471.8,
+   167.7,
+   -149.7
+  ],
+  "vista": 0,
+  "calls": 127,
+  "tris": 1191969,
+  "stats": null
+ },
+ "eye-barf": {
+  "t": 2.767,
+  "bus": [
+   -1317.7,
+   108.6,
+   -155.1
+  ],
+  "speed": 16.5,
+  "cam": [
+   -1463.4,
+   170.8,
+   -150
+  ],
+  "vista": 0,
+  "calls": 125,
+  "tris": 1187873,
+  "stats": null
+ },
+ "eye-relief": {
+  "t": 3.767,
+  "bus": [
+   -1299.9,
+   112.2,
+   -155.7
+  ],
+  "speed": 27.6,
+  "cam": [
+   -1444.3,
+   180.4,
+   -150.7
+  ],
+  "vista": 0,
+  "calls": 127,
+  "tris": 1199950,
+  "stats": null
+ }
+}
