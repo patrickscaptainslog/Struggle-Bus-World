@@ -163,6 +163,11 @@ export const config = {
     music: 0.7,
     sfx: 0.9,
     ambience: 0.6,
+    /** Level of the deep blast boom under the splat (0..2). */
+    boom: 1,
+    /** Bloom pops: at most this many arpeggio notes per blast, this far apart (s). */
+    arpNotes: 6,
+    arpStep: 0.055,
   },
 };
 
