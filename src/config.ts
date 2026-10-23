@@ -144,7 +144,7 @@ export const config = {
      *  or two brighter, this long, this wide at its far end (m, x the eye's openness), pitched this far
      *  down (deg), this strong (0..1, x the eye's openness; 0 = off). */
     headBeamLength: 42,
-    headBeamWidth: 14,
+    headBeamWidth: 20,
     headBeamPitch: 6,
     headBeamStrength: 0.9,
     /** How fast the vista blend follows the altitude while climbing or diving (1/s); holding an altitude freezes it. */

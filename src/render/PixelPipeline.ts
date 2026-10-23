@@ -932,25 +932,27 @@ void main() {
     }
   }
   // the hero's headlight: what lies ahead of the lens (beyond the bus) is lit a step or two up its own
-  // ramp, a warm core at the lens; a lift, not a drawn shape, so it reads as light in the haze. The
-  // beam rides with the bus, which holds still on screen: its dithered falloff is screen-anchored.
-  if (uBeamShape.z > 0.0 && depth > uBeamShape.w && !(busY || abs(ramp - RAMP_BUS_BLACK) < 0.5)) {
+  // ramp; a lift, not a drawn shape, so it reads as light in the haze. Only the grey world: paint and
+  // glow are already the brightest things around (the bloom right after a hit is the money shot). A
+  // warm glint where it leaves the nose, and on the nose's silhouette edge, so the one eye reads from
+  // behind. The beam rides with the bus, which holds still on screen: its edge dither is screen-anchored.
+  bool greyR = ramp < ${Ramp.GREY_LIGHT}.5 || ramp == ${Ramp.GREEN_GREY}.0 || ramp == ${Ramp.WINDOW}.0 || ramp == ${Ramp.ROOF_DARK}.0;
+  if (uBeamShape.z > 0.0 && glow < 0.02 && hAmt < 0.11 && !fogged && (greyR || heroRamp) && (depth > uBeamShape.w || heroEdge)) {
     vec2 bv = gl_FragCoord.xy - uBeam.xy;
     float bl = max(length(uBeam.zw), 1.0);
     vec2 ba = uBeam.zw / bl;
     float bt = dot(bv, ba) / bl;
     float bs = abs(bv.x * ba.y - bv.y * ba.x) / max(mix(uBeamShape.x, uBeamShape.y, clamp(bt, 0.0, 1.0)), 0.75);
-    if (bt > 0.0 && bt < 1.0 && bs < 1.0) {
+    if (heroRamp) {
+      // (the nose's ink edge right over the lens)
+      if (heroEdge && abs(bv.x * ba.y - bv.y * ba.x) < 1.0 && bt * bl > -9.0 && bt * bl < 3.0) { oRamp = RAMP_SKY_WARM; oStep = 7.0; col = pal(oRamp, oStep); }
+    } else if (bt > 0.0 && bt < 1.0 && bs < 1.0) {
       float ba2 = uBeamShape.z * pow(1.0 - bt, 0.75) * (1.0 - bs * bs);
       // crisp nested bands (+1 step, +2 steps), dithered only in a narrow band at their edges
       float bk = ba2 * 2.6;
       float lift = floor(bk) + (clamp((fract(bk) - 0.38) / 0.24, 0.0, 1.0) > dsk ? 1.0 : 0.0);
-      if (lift > 0.5) {
-        if (ba2 > 0.62) { oRamp = RAMP_SKY_WARM; oStep = max(oStep, 5.0) + (ba2 > 0.8 ? 1.0 : 0.0); }
-        else oStep += lift;
-        oStep = min(oStep, 7.0);
-        col = pal(oRamp, oStep);
-      }
+      if (bt * bl < 2.5 && bs < 0.7) { oRamp = RAMP_SKY_WARM; oStep = max(oStep, 6.0); col = pal(oRamp, oStep); }
+      else if (lift > 0.5) { oStep = min(oStep + lift, 7.0); col = pal(oRamp, oStep); }
     }
   }
   // impact flash: white-hot near the blast (shapes kept by their own light),
