@@ -7,7 +7,7 @@ import { clamp, spring } from './springs';
 // heading: compass radians (0 = north = -Z, +pi/2 = east = +X).
 
 export interface WorldQuery {
-  obstacleAt(x: number, z: number): number;
+  obstacleAt(x: number, z: number, fromY?: number): number;
   groundAt(x: number, z: number): number;
 }
 
@@ -119,11 +119,11 @@ export class Flight {
       const px = this.x + this.fx * d;
       const pz = this.z + this.fz * d;
       const ox = -this.fz * 6, oz = this.fx * 6;
-      const h = Math.max(world.obstacleAt(px, pz), world.obstacleAt(px + ox, pz + oz), world.obstacleAt(px - ox, pz - oz));
+      const h = Math.max(world.obstacleAt(px, pz, this.y), world.obstacleAt(px + ox, pz + oz, this.y), world.obstacleAt(px - ox, pz - oz, this.y));
       // nearer samples matter more for hard clearance
       top = Math.max(top, h - i * 0.6);
     }
-    this.obstacleUnder = world.obstacleAt(this.x, this.z);
+    this.obstacleUnder = world.obstacleAt(this.x, this.z, this.y);
     this.groundUnder = world.groundAt(this.x, this.z);
     top = Math.max(top, this.obstacleUnder);
     const clearance = F.clearance + F.lightLift * (1 - heavy) - F.fullSag * heavy;
@@ -164,7 +164,7 @@ export class Flight {
         const ang = this.heading + side * 0.35;
         const px = this.x + Math.sin(ang) * d;
         const pz = this.z - Math.cos(ang) * d;
-        const h = world.obstacleAt(px, pz);
+        const h = world.obstacleAt(px, pz, this.y);
         if (h > limit) push -= side * F.avoidStrength * (1 / i) * clamp((h - limit) / 40, 0, 1);
       }
     }

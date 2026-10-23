@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT, SHADOW_LAYER } from '../../render/materials';
 import { Ramp } from '../../render/palette';
-import { GLSL_PROPS, PartKit, propsTune, rng, tuneUniform, unitSphere } from './common';
+import { DEPTH_FS, GLSL_PROPS, PartKit, propsTune, rng, tuneUniform, unitSphere } from './common';
 
 // Rooftop sprouts: what painted buildings grow. Level 1 = flower tufts along
 // the roof edge, level 2 = a rooftop garden (turf, bushes, a little tree,
@@ -41,26 +41,25 @@ interface TypeDef {
   geo: () => THREE.BufferGeometry;
   cast: boolean;
   doubleSide?: boolean;
-  /** sway frequency (Hz-ish), local sway direction weights, distance-cull flag, amplitude tune key */
+  /** sway frequency (Hz-ish), local sway direction weights, cull distance (x propsTune.sproutCull), amplitude tune key */
   freq: number;
   dir: [number, number];
-  cull: boolean;
+  cull: number;
   tune: 'sproutSway' | 'flagFlutter';
+  /** initial instances per city cell (grows) */
   capacity: number;
 }
 
 // ---------------------------------------------------------------- geometry
 
-let _octa: THREE.BufferGeometry | null = null;
 let _octa0: THREE.BufferGeometry | null = null;
-const octa = () => (_octa ??= unitSphere('octa', 1));
 const octa0 = () => (_octa0 ??= unitSphere('octa0'));
 const swayY = (h: number) => (_x: number, y: number) => Math.max(0, Math.min(1, y / h)) ** 2;
 
 function tuftGeo(): THREE.BufferGeometry {
   const k = new PartKit();
   const s = swayY(0.85);
-  k.blob(octa(), 0, 0.2, 0, 0.64, 0.5, 0.64, Part.FOLIAGE, s);
+  k.blob(octa0(), 0, 0.2, 0, 0.64, 0.5, 0.64, Part.FOLIAGE, s);
   const heads: Array<[number, number, number, number, number]> = [
     [0.3, 0.58, 0.12, 0.28, Part.BLOSSOM],
     [-0.28, 0.55, 0.1, 0.27, Part.BLOSSOM2],
@@ -74,10 +73,10 @@ function tuftGeo(): THREE.BufferGeometry {
 function bushGeo(): THREE.BufferGeometry {
   const k = new PartKit();
   const s = swayY(1.7);
-  k.blob(octa(), 0, 0.72, 0, 1.0, 0.82, 1.0, Part.FOLIAGE, s);
-  k.blob(octa(), 0.8, 0.5, 0.3, 0.72, 0.6, 0.72, Part.FOLIAGE, s);
-  k.blob(octa(), -0.62, 0.55, -0.44, 0.74, 0.62, 0.74, Part.FOLIAGE, s);
-  k.blob(octa(), -0.22, 0.45, 0.72, 0.62, 0.52, 0.62, Part.FOLIAGE, s);
+  k.blob(octa0(), 0, 0.72, 0, 1.0, 0.82, 1.0, Part.FOLIAGE, s);
+  k.blob(octa0(), 0.8, 0.5, 0.3, 0.72, 0.6, 0.72, Part.FOLIAGE, s);
+  k.blob(octa0(), -0.62, 0.55, -0.44, 0.74, 0.62, 0.74, Part.FOLIAGE, s);
+  k.blob(octa0(), -0.22, 0.45, 0.72, 0.62, 0.52, 0.62, Part.FOLIAGE, s);
   const b: Array<[number, number, number, number]> = [
     [0.45, 1.3, 0.2, Part.BLOSSOM],
     [-0.42, 1.24, -0.3, Part.BLOSSOM2],
@@ -94,10 +93,10 @@ function treeGeo(): THREE.BufferGeometry {
   const k = new PartKit();
   const s = swayY(4.4);
   k.box(0, 1.3, 0, 0.42, 2.6, 0.42, Part.WOOD, s);
-  k.blob(octa(), 0, 3.05, 0, 1.45, 1.25, 1.45, Part.FOLIAGE, s);
-  k.blob(octa(), 0.85, 2.72, 0.35, 1.02, 0.9, 1.02, Part.FOLIAGE, s);
-  k.blob(octa(), -0.7, 3.32, -0.48, 1.06, 0.95, 1.06, Part.FOLIAGE, s);
-  k.blob(octa(), 0.12, 3.98, 0.1, 0.92, 0.82, 0.92, Part.FOLIAGE, s);
+  k.blob(octa0(), 0, 3.05, 0, 1.45, 1.25, 1.45, Part.FOLIAGE, s);
+  k.blob(octa0(), 0.85, 2.72, 0.35, 1.02, 0.9, 1.02, Part.FOLIAGE, s);
+  k.blob(octa0(), -0.7, 3.32, -0.48, 1.06, 0.95, 1.06, Part.FOLIAGE, s);
+  k.blob(octa0(), 0.12, 3.98, 0.1, 0.92, 0.82, 0.92, Part.FOLIAGE, s);
   const b: Array<[number, number, number, number]> = [
     [0.7, 3.6, 0.6, Part.BLOSSOM],
     [-0.9, 3.75, 0.2, Part.BLOSSOM2],
@@ -115,7 +114,7 @@ function planterGeo(): THREE.BufferGeometry {
   const s = (_x: number, y: number) => (y > 0.5 ? 0.6 : 0);
   k.box(0, 0.27, 0, 2.4, 0.56, 0.72, Part.BODY2, () => 0);
   k.box(0, 0.58, 0, 2.5, 0.08, 0.8, Part.WHITE, () => 0);
-  k.blob(octa(), 0, 0.68, 0, 1.15, 0.26, 0.33, Part.FOLIAGE, s);
+  k.blob(octa0(), 0, 0.68, 0, 1.15, 0.26, 0.33, Part.FOLIAGE, s);
   for (let i = 0; i < 6; i++) {
     const x = -0.95 + i * 0.38;
     k.blob(octa0(), x, 0.84 + (i % 2) * 0.06, (i % 2 ? -0.1 : 0.12), 0.22, 0.22, 0.22, i % 2 ? Part.BLOSSOM2 : Part.BLOSSOM, s);
@@ -158,7 +157,7 @@ function domeGeo(): THREE.BufferGeometry {
     Part.GOLD,
     s,
   );
-  k.blob(octa(), 0, 4.9, 0, 0.3, 0.3, 0.3, Part.GOLD, s);
+  k.blob(octa0(), 0, 4.9, 0, 0.3, 0.3, 0.3, Part.GOLD, s);
   return k.build();
 }
 
@@ -167,8 +166,8 @@ function spireGeo(): THREE.BufferGeometry {
   const s = swayY(7);
   k.box(0, 0.3, 0, 0.95, 0.6, 0.95, Part.WHITE, s);
   k.box(0, 3.25, 0, 0.44, 5.6, 0.44, Part.BODY, s);
-  k.blob(octa(), 0, 4.15, 0, 0.46, 0.46, 0.46, Part.BODY2, s);
-  k.blob(octa(), 0, 6.65, 0, 0.8, 0.8, 0.8, Part.GOLD, s);
+  k.blob(octa0(), 0, 4.15, 0, 0.46, 0.46, 0.46, Part.BODY2, s);
+  k.blob(octa0(), 0, 6.65, 0, 0.8, 0.8, 0.8, Part.GOLD, s);
   return k.build();
 }
 
@@ -192,14 +191,14 @@ function turfGeo(): THREE.BufferGeometry {
 }
 
 const TYPES: TypeDef[] = [
-  { geo: tuftGeo, cast: false, freq: 1.9, dir: [1, 0.6], cull: true, tune: 'sproutSway', capacity: 1024 },
-  { geo: bushGeo, cast: true, freq: 1.3, dir: [1, 0.6], cull: false, tune: 'sproutSway', capacity: 512 },
-  { geo: treeGeo, cast: true, freq: 1.05, dir: [1, 0.6], cull: false, tune: 'sproutSway', capacity: 256 },
-  { geo: planterGeo, cast: false, freq: 1.7, dir: [0.3, 1], cull: true, tune: 'sproutSway', capacity: 256 },
-  { geo: domeGeo, cast: true, freq: 0.8, dir: [1, 0.7], cull: false, tune: 'sproutSway', capacity: 128 },
-  { geo: spireGeo, cast: true, freq: 0.9, dir: [1, 0.7], cull: false, tune: 'sproutSway', capacity: 128 },
-  { geo: flagGeo, cast: false, doubleSide: true, freq: 4.6, dir: [0.25, 1], cull: true, tune: 'flagFlutter', capacity: 1024 },
-  { geo: turfGeo, cast: false, freq: 0, dir: [0, 0], cull: false, tune: 'sproutSway', capacity: 256 },
+  { geo: tuftGeo, cast: false, freq: 1.9, dir: [1, 0.6], cull: 0.45, tune: 'sproutSway', capacity: 256 },
+  { geo: bushGeo, cast: true, freq: 1.3, dir: [1, 0.6], cull: 0.75, tune: 'sproutSway', capacity: 64 },
+  { geo: treeGeo, cast: true, freq: 1.05, dir: [1, 0.6], cull: 1.0, tune: 'sproutSway', capacity: 32 },
+  { geo: planterGeo, cast: false, freq: 1.7, dir: [0.3, 1], cull: 0.45, tune: 'sproutSway', capacity: 32 },
+  { geo: domeGeo, cast: true, freq: 0.8, dir: [1, 0.7], cull: 1.6, tune: 'sproutSway', capacity: 16 },
+  { geo: spireGeo, cast: true, freq: 0.9, dir: [1, 0.7], cull: 1.6, tune: 'sproutSway', capacity: 32 },
+  { geo: flagGeo, cast: false, doubleSide: true, freq: 4.6, dir: [0.25, 1], cull: 0.5, tune: 'flagFlutter', capacity: 128 },
+  { geo: turfGeo, cast: false, freq: 0, dir: [0, 0], cull: 0.9, tune: 'sproutSway', capacity: 32 },
 ];
 
 // ---------------------------------------------------------------- shaders
@@ -209,7 +208,7 @@ in float aPart;
 in float aSway;
 in vec4 aBlobC;
 in vec3 aBlobR;
-uniform vec4 uKind;    // freq, dirX, dirZ, cull flag
+uniform vec4 uKind;    // freq, dirX, dirZ, cull distance factor (0 = never cull)
 uniform float uAmpMul;
 uniform float uCull;
 struct SproutV { vec4 world; vec3 normal; vec3 local; vec3 blobC; vec3 blobR; float hue; float seed; float part; bool hidden; };
@@ -225,7 +224,7 @@ SproutV sproutVertex() {
   o.normal = normal;
   float t = uTime - ic.z;
   vec3 ipos = instanceMatrix[3].xyz;
-  o.hidden = t <= 0.0 || (uKind.w > 0.5 && distance(cameraPosition, ipos) > uCull);
+  o.hidden = t <= 0.0 || (uKind.w > 0.0 && distance(cameraPosition, ipos) > uCull * uKind.w);
   if (o.hidden) { o.world = vec4(0.0); return o; }
   // spring up out of the roof: grow with overshoot, stretch while growing, squash on landing
   float g = propGrow(t);
@@ -260,6 +259,7 @@ flat out vec3 vBlobR;
 flat out vec3 vCamLocal;
 flat out vec4 vXf;   // instance yaw (cos, sin) + scale xz
 flat out float vSy;
+flat out vec3 vIPos;
 void main() {
   SproutV s = sproutVertex();
   if (s.hidden) { gl_Position = vec4(0.0, 0.0, -10.0, 1.0); return; }
@@ -275,6 +275,7 @@ void main() {
   vCamLocal = vec3(dot(rel, instanceMatrix[0].xyz / sx.x), dot(rel, instanceMatrix[1].xyz / sx.y), dot(rel, instanceMatrix[2].xyz / sx.z)) / sx;
   vXf = vec4(instanceMatrix[0].x / sx.x, -instanceMatrix[0].z / sx.x, sx.x, sx.z);
   vSy = sx.y;
+  vIPos = instanceMatrix[3].xyz;
   gl_Position = projectionMatrix * viewMatrix * s.world;
 }
 `;
@@ -304,6 +305,8 @@ flat in vec3 vBlobR;
 flat in vec3 vCamLocal;
 flat in vec4 vXf;
 flat in float vSy;
+flat in vec3 vIPos;
+uniform mat4 projectionMatrix;
 ${GLSL_OUT}
 float bloomRamp(float h) {
   float r = propHueRamp(h);
@@ -314,6 +317,7 @@ void main() {
   float seed = vInfo.y;
   int part = int(vInfo.z + 0.5);
   vec3 n;
+  vec3 wp = vWorldPos;
   if (vBlobR.x > 0.001) {
     // carve the blob polygon into a true (slightly leafy) ellipsoid, per pixel
     vec3 q = (vLocal - vBlobC) / vBlobR;
@@ -327,14 +331,20 @@ void main() {
     // local -> world normal: inverse-transpose of yaw * scale
     nl /= vec3(vXf.z, vSy, vXf.w);
     n = normalize(vec3(vXf.x * nl.x + vXf.y * nl.z, nl.y, -vXf.y * nl.x + vXf.x * nl.z));
+    // exact depth of the carved blob (clean round intersections)
+    vec3 hl = (vBlobC + hit * vBlobR) * vec3(vXf.z, vSy, vXf.w);
+    wp = vIPos + vec3(vXf.x * hl.x + vXf.y * hl.z, hl.y, -vXf.y * hl.x + vXf.x * hl.z);
+    vec4 clip = projectionMatrix * (viewMatrix * vec4(wp, 1.0));
+    gl_FragDepth = clamp(clip.z / clip.w * 0.5 + 0.5, 0.0, 1.0);
   } else {
     n = normalize(vWorldNormal);
     if (!gl_FrontFacing) n = -n;
+    gl_FragDepth = gl_FragCoord.z;
   }
   float ramp = ${Ramp.GREEN}.0;
   float lo = 0.0;
   float glow = 0.0;
-  float nz = pNoise3(vWorldPos * 1.4 + seed * 13.0) - 0.5;
+  float nz = pNoise3(wp * 1.4 + seed * 13.0) - 0.5;
   if (part == ${Part.FOLIAGE}) { ramp = ${Ramp.GREEN}.0; lo = -0.03 + nz * 0.12; }
   else if (part == ${Part.TURF}) {
     ramp = ${Ramp.GREEN}.0;
@@ -354,9 +364,9 @@ void main() {
   else { ramp = propHueRamp(hue + 2.0); lo = 0.0; }
   vec3 vn = normalize(mat3(viewMatrix) * n);
   if (part == ${Part.FOLIAGE}) lo -= 0.08 * smoothstep(0.65, 0.97, 1.0 - abs(vn.z));
-  float light = sbLight(vWorldPos, n, lo, 1.0);
+  float light = sbLight(wp, n, lo, 1.0);
   light = max(light, glow);
-  float fog = sbFog(vWorldPos);
+  float fog = sbFog(wp);
   sbWrite(ramp, light, fog, glow, vn, fract(seed * 0.37 + float(part) * 0.113), 1.0);
 }
 `;
@@ -378,6 +388,7 @@ class Batch {
     readonly depth: THREE.ShaderMaterial | null,
     capacity: number,
     readonly group: THREE.Group,
+    readonly sphere: THREE.Sphere,
   ) {
     this.capacity = capacity;
     this.mesh = this.makeMesh(capacity, null, null);
@@ -395,14 +406,16 @@ class Batch {
     mesh.instanceColor = new THREE.InstancedBufferAttribute(c, 3);
     mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
     mesh.count = this.hwm;
-    mesh.frustumCulled = false;
+    mesh.boundingSphere = this.sphere; // one city cell: frustum culled as a whole
+    mesh.visible = this.hwm > 0; // no empty draws
     this.group.add(mesh);
     if (this.depth) {
       const cs = new THREE.InstancedMesh(this.geo, this.depth, 0);
       cs.instanceMatrix = mesh.instanceMatrix;
       cs.instanceColor = mesh.instanceColor;
       cs.count = this.hwm;
-      cs.frustumCulled = false;
+      cs.boundingSphere = this.sphere;
+      cs.visible = this.hwm > 0;
       cs.layers.set(SHADOW_LAYER);
       this.group.add(cs);
       this.caster = cs;
@@ -428,7 +441,11 @@ class Batch {
     if (this.hwm >= this.capacity) this.grow();
     const s = this.hwm++;
     this.mesh.count = this.hwm;
-    if (this.caster) this.caster.count = this.hwm;
+    this.mesh.visible = true;
+    if (this.caster) {
+      this.caster.count = this.hwm;
+      this.caster.visible = true;
+    }
     return s;
   }
 
@@ -700,6 +717,7 @@ interface Rec {
   hue: number;
   times: [number, number, number];
   slots: number[]; // type, slot pairs
+  cell: number;
 }
 
 const _m = new THREE.Matrix4();
@@ -707,9 +725,20 @@ const _q = new THREE.Quaternion();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
 
+interface TypeRes {
+  geo: THREE.BufferGeometry;
+  mat: THREE.ShaderMaterial;
+  depth: THREE.ShaderMaterial | null;
+  capacity: number;
+}
+
+/** Sprouts are bucketed into city cells so off-screen gardens are frustum culled. */
+const CELL = 768;
+
 export class RoofSprouts {
   readonly object: THREE.Object3D;
-  private readonly batches: Batch[];
+  private readonly types: TypeRes[];
+  private readonly cells = new Map<number, Batch[]>();
   private readonly recs = new Map<number, Rec>();
   private readonly maxBuildings: number;
 
@@ -717,10 +746,12 @@ export class RoofSprouts {
     this.maxBuildings = Math.max(1, maxBuildings);
     const group = new THREE.Group();
     group.name = 'RoofSprouts';
+    group.matrixAutoUpdate = false; // the sprout shader assumes the group sits at the origin
     this.object = group;
-    this.batches = TYPES.map((def) => {
+    const noCull = new THREE.Vector4();
+    this.types = TYPES.map((def) => {
       const geo = def.geo();
-      const kind = new THREE.Vector4(def.freq, def.dir[0], def.dir[1], def.cull ? 1 : 0);
+      const kind = new THREE.Vector4(def.freq, def.dir[0], def.dir[1], def.cull);
       const uniforms: Record<string, THREE.IUniform> = {
         ...globals,
         uKind: { value: kind },
@@ -737,20 +768,29 @@ export class RoofSprouts {
       });
       let depth: THREE.ShaderMaterial | null = null;
       if (def.cast) {
+        // (no distance cull in the sun pass: its camera is far away by design)
+        noCull.set(def.freq, def.dir[0], def.dir[1], 0);
         depth = new THREE.ShaderMaterial({
           glslVersion: THREE.GLSL3,
-          uniforms: { uTime: globals.uTime, uKind: uniforms.uKind, uAmpMul: uniforms.uAmpMul, uCull: uniforms.uCull },
+          uniforms: { uTime: globals.uTime, uKind: { value: noCull.clone() }, uAmpMul: uniforms.uAmpMul, uCull: uniforms.uCull },
           vertexShader: SPROUT_DEPTH_VS,
-          fragmentShader: /* glsl */ `
-            precision highp float;
-            layout(location = 0) out highp vec4 outDepthColor;
-            void main() { outDepthColor = vec4(1.0); }
-          `,
+          fragmentShader: DEPTH_FS,
         });
         depth.allowOverride = false;
       }
-      return new Batch(geo, mat, depth, def.capacity, group);
+      return { geo, mat, depth, capacity: def.capacity };
     });
+  }
+
+  private cellBatches(key: number, cx: number, cz: number): Batch[] {
+    let b = this.cells.get(key);
+    if (!b) {
+      const sphere = new THREE.Sphere(new THREE.Vector3((cx + 0.5) * CELL, 120, (cz + 0.5) * CELL), CELL * 0.71 + 220);
+      const group = this.object as THREE.Group;
+      b = this.types.map((t) => new Batch(t.geo, t.mat, t.depth, t.capacity, group, sphere));
+      this.cells.set(key, b);
+    }
+    return b;
   }
 
   /** Painted buildings currently carrying sprouts. */
@@ -776,7 +816,10 @@ export class RoofSprouts {
       const oldest = this.recs.keys().next().value as number;
       this.clear(oldest);
     }
-    const rec: Rec = { level: Math.max(lvl, prev?.level ?? 0), hue: h, times, slots: [] };
+    const ccx = Math.floor(roof.cx / CELL), ccz = Math.floor(roof.cz / CELL);
+    const cellKey = (ccx + 4096) * 8192 + (ccz + 4096);
+    const batches = this.cellBatches(cellKey, ccx, ccz);
+    const rec: Rec = { level: Math.max(lvl, prev?.level ?? 0), hue: h, times, slots: [], cell: cellKey };
     const elems = layoutRoof(buildingIndex + 1, roof, h);
     const sinY = Math.sin(roof.yaw), cosY = Math.cos(roof.yaw);
     // roof frame: U along the street (w), N toward the street (d)
@@ -804,7 +847,7 @@ export class RoofSprouts {
         _s.set(e.sx, e.sy, e.sz);
         _m.compose(_p, _q, _s);
       }
-      const b = this.batches[e.type];
+      const b = batches[e.type];
       const slot = b.alloc();
       const seed = fract(Math.sin((buildingIndex + 1) * 12.9898 + i * 78.233) * 43758.5453);
       const start = times[e.level - 1] + delay0 + e.delay;
@@ -829,12 +872,19 @@ export class RoofSprouts {
   }
 
   dispose(): void {
-    for (const b of this.batches) b.dispose();
+    for (const cell of this.cells.values()) for (const b of cell) b.dispose();
+    this.cells.clear();
     this.recs.clear();
+    for (const t of this.types) {
+      t.geo.dispose();
+      t.mat.dispose();
+      t.depth?.dispose();
+    }
   }
 
   private release(rec: Rec) {
-    for (let i = 0; i < rec.slots.length; i += 2) this.batches[rec.slots[i]].release(rec.slots[i + 1]);
+    const cell = this.cells.get(rec.cell);
+    if (cell) for (let i = 0; i < rec.slots.length; i += 2) cell[rec.slots[i]].release(rec.slots[i + 1]);
     rec.slots.length = 0;
   }
 }

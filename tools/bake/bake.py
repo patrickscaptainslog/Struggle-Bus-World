@@ -368,8 +368,12 @@ def main():
                 if rnd.next() < 0.12:
                     hh *= 0.78  # the odd two-story among three-story neighbors
             buildings.append({'poly': q, 'h': max(3.0, hh), 'occ': occ, 'prim': a['prim'],
-                              'stable': (a['id'] * 64 + k) & 0xFFFFFFFF, 'front_edge_hint': fe})
+                              'srckey': (a['id'], k), 'front_edge_hint': fe})
     log('buildings after split', len(buildings))
+    # stable ids: rank in (source id, lot) order. Unique by construction, and
+    # stable across re-bakes of the same source data (the paint array keys on it).
+    for rank, b in enumerate(sorted(buildings, key=lambda b: b['srckey'])):
+        b['stable'] = rank
 
     # ---------------------------------------------------------- classify + ground
     log('classifying')

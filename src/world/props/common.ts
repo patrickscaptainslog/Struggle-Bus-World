@@ -10,7 +10,7 @@ import { HUE_RAMPS } from '../../render/palette';
 export const propsTune = {
   /** Painted-tree sway (radians-ish bend at the crown). Grey trees never move. */
   treeSway: 0.035,
-  /** Lumpiness of canopy lobes (fraction of lobe radius). */
+  /** Leafy roughness of crown / bush silhouettes (fraction of clump radius). */
   treeLump: 0.24,
   /** Leaf-clump light variation inside a canopy. */
   treeClump: 0.12,
@@ -34,9 +34,9 @@ export const propsTune = {
   /** Seconds before a roof garden starts sprouting (lets the building's own pop settle). */
   sproutDelay: 0.3,
   /** Landmark fog multiplier (<1 lets Sutro / Transamerica read as silhouettes through the fog). */
-  landmarkFog: 0.86,
-  /** Distance beyond which tiny sprouts (flowers, flags) are skipped (m). */
-  sproutCull: 1100,
+  landmarkFog: 0.8,
+  /** Sprout draw distance (m): flowers/flags x0.45-0.5, bushes x0.75, trees x1, domes/spires x1.6. */
+  sproutCull: 1000,
 };
 
 registerTunables('Props', propsTune, {
@@ -241,21 +241,13 @@ export class PartKit {
   }
 }
 
-/** Depth-only twin material for shadow casting with the same vertex deformation. */
-export function makeDepthMaterial(vertexShader: string, uniforms: Record<string, THREE.IUniform>, side: THREE.Side = THREE.FrontSide): THREE.ShaderMaterial {
-  const m = new THREE.ShaderMaterial({
-    glslVersion: THREE.GLSL3,
-    uniforms,
-    side,
-    vertexShader,
-    fragmentShader: /* glsl */ `
-      precision highp float;
-      layout(location = 0) out highp vec4 outDepthColor;
-      void main() { outDepthColor = vec4(1.0); }
-    `,
-  });
-  // the pipeline's sun pass sets scene.overrideMaterial; keep ours so the
-  // shadow matches the shader-built shape (lobes, pops, sway)
-  m.allowOverride = false;
-  return m;
-}
+/**
+ * Fragment shader of the depth-only shadow twins. Their materials set
+ * allowOverride = false so the pipeline's sun pass (scene.overrideMaterial)
+ * keeps our vertex shader and the shadows match the shader-built shapes.
+ */
+export const DEPTH_FS = /* glsl */ `
+  precision highp float;
+  layout(location = 0) out highp vec4 outDepthColor;
+  void main() { outDepthColor = vec4(1.0); }
+`;

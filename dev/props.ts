@@ -37,9 +37,31 @@ if (!cityMode) await harnessScene();
 else await cityScene();
 
 const lodParam = P.get('lod');
+// stats across all passes of a frame (shadow + main + post): read by tools/shot.mjs --stats
+const info = h.pipeline.renderer.info;
+info.autoReset = false;
+const stats = { triangles: 0, calls: 0, trees: 0, lod: [0, 0, 0] };
+(window as unknown as { __stats: typeof stats }).__stats = stats;
 h.onFrame((_dt, t) => {
   globals.uTime.value = freezeT !== null ? Number(freezeT) : t + clockOffset;
-  if (lodParam !== null) for (const f of fields) f.setLod(Number(lodParam) as 0 | 1 | 2);
+  stats.triangles = info.render.triangles;
+  stats.calls = info.render.calls;
+  info.reset();
+  stats.lod[0] = stats.lod[1] = stats.lod[2] = 0;
+  stats.trees = 0;
+  for (const f of fields) {
+    if (lodParam !== null) f.setLod(Number(lodParam) as 0 | 1 | 2);
+    else {
+      // what the game does: LOD by tile distance to the camera
+      const c = (f as unknown as { center?: THREE.Vector3 }).center;
+      if (c) {
+        const d = Math.hypot(c.x - h.camera.position.x, c.z - h.camera.position.z) - 128;
+        f.setLod(d < 350 ? 0 : d < 900 ? 1 : 2);
+      }
+    }
+    stats.lod[f.level] += f.count;
+    stats.trees += f.count;
+  }
 });
 
 (window as unknown as Record<string, unknown>).__props = { fields, sprouts, globals };
@@ -202,6 +224,7 @@ async function cityScene() {
       const tf = new TreeField(list);
       h.scene.add(tf.object);
       fields.push(tf);
+      (tf as unknown as { center: THREE.Vector3 }).center = new THREE.Vector3((tx + 0.5) * 256, 0, (tz + 0.5) * 256);
       lists.set(`${tx},${tz}`, list);
       (tf as unknown as { key: string }).key = `${tx},${tz}`;
     }

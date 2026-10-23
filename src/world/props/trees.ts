@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT, SHADOW_LAYER } from '../../render/materials';
 import { Ramp } from '../../render/palette';
-import { GLSL_PROPS, hash2, propsTune, treeUniforms, tuneUniform, unitSphere } from './common';
+import { DEPTH_FS, GLSL_PROPS, hash2, propsTune, treeUniforms, tuneUniform, unitSphere } from './common';
 
 // Trees: ONE template geometry (a trunk + five unit lobes) for every species.
 // The vertex shader builds each tree from its instance data — species
@@ -31,18 +31,18 @@ const LOBES: Array<[number, number, number, number, number]> = [
   [-1.5, 5.2, -1.0, 2.15, 0.86],
   [0.4, 7.2, -0.3, 2.0, 0.9],
   [-0.6, 4.6, 1.5, 1.8, 0.8],
-  // eucalyptus: tall, a loose billowing column of big clumps
-  [0.0, 10.6, 0.0, 4.4, 0.8],
-  [3.1, 12.6, 1.2, 3.8, 0.85],
-  [-2.9, 13.4, -1.4, 3.9, 0.85],
-  [0.8, 16.4, 0.6, 3.5, 0.9],
-  [-0.9, 19.0, -0.5, 2.5, 1.0],
-  // Monterey pine: a broad umbrella of flattened clumps
-  [0.0, 12.6, 0.0, 5.0, 0.5],
-  [3.4, 13.2, 1.6, 3.7, 0.55],
-  [-3.2, 13.6, -1.8, 3.7, 0.55],
-  [0.6, 14.8, -0.6, 3.5, 0.55],
-  [-1.4, 11.8, 3.0, 3.0, 0.5],
+  // eucalyptus: tall, a loose billowing column of big clumps reaching low
+  [0.0, 7.4, 0.0, 4.3, 0.85],
+  [3.0, 10.2, 1.2, 3.8, 0.9],
+  [-2.8, 11.8, -1.4, 3.9, 0.9],
+  [0.7, 15.3, 0.6, 3.6, 0.95],
+  [-0.8, 18.7, -0.4, 2.6, 1.0],
+  // Monterey pine: a broad, irregular dome of clumps
+  [0.0, 10.0, 0.0, 4.9, 0.62],
+  [3.4, 10.4, 1.6, 3.7, 0.68],
+  [-3.2, 11.2, -1.8, 3.7, 0.68],
+  [0.6, 12.8, -0.6, 3.4, 0.7],
+  [-1.4, 8.6, 3.0, 3.3, 0.62],
   // cypress: a dark stacked flame with a leaning tip
   [0.0, 5.0, 0.0, 3.6, 1.1],
   [0.15, 8.8, 0.05, 3.0, 1.15],
@@ -53,15 +53,15 @@ const LOBES: Array<[number, number, number, number, number]> = [
 // crown mass per variant: (center y, radius xz, radius y, top y)
 const MASS: Array<[number, number, number, number]> = [
   [5.7, 3.5, 2.9, 9.0],
-  [14.2, 5.9, 6.6, 21.5],
-  [13.3, 6.6, 2.9, 16.7],
+  [12.6, 5.9, 8.4, 21.3],
+  [10.8, 6.6, 3.6, 15.6],
   [10.0, 3.6, 8.2, 18.3],
 ];
 // trunk per variant: (width, height, lean, top taper)
 const TRUNK: Array<[number, number, number, number]> = [
   [0.7, 4.8, 0.25, 0.6],
-  [1.05, 11.0, 0.9, 0.55],
-  [1.05, 12.6, 0.7, 0.6],
+  [1.05, 9.5, 0.9, 0.55],
+  [1.05, 10.5, 0.7, 0.6],
   [0.9, 3.4, 0.15, 0.6],
 ];
 
@@ -102,9 +102,9 @@ const TRUNK_GLSL = TRUNK.map((m) => `vec4(${m.map(f).join(', ')})`).join(', ');
 /** Shared vertex code: builds the tree in template space, pops and sways it. */
 const TREE_VERTEX = /* glsl */ `
 in float aLobe;
-in float aRand;
-uniform vec4 uTreeShape; // lump, sway, pop amp, -
+uniform vec4 uTreeShape; // -, sway, pop amp, -
 uniform float uCoreScale; // size of the single-solid canopy (lobe 6)
+uniform float uPoly;      // lobe polygon scale: circumscribes the carved ellipsoid
 const vec4 T_LOBE[20] = vec4[20](
   ${LOBE_GLSL}
 );
@@ -120,6 +120,8 @@ struct TreeV {
   vec3 lobeR;    // world radii of the lobe (0 = trunk)
   vec3 massC;    // world: center of the whole crown
   vec3 massR;
+  vec3 swayOff;  // world offset added by the sway at this vertex
+  vec3 popSc;    // pop scale applied in template space
   float variant;
   float hueSlot;
   float level;
@@ -149,7 +151,7 @@ TreeV treeVertex() {
   else if (kind > 0.5) {
     // pines come in groves: a coarse world-space field biases the species
     float grove = pHash12(floor(ipos.xz / 75.0) + 17.0);
-    variant = fract(seed * 13.17) < 0.06 + 0.5 * grove * grove ? 2.0 : 1.0;
+    variant = fract(seed * 13.17) < 0.05 + 0.38 * grove * grove ? 2.0 : 1.0;
   }
   int vi = int(variant + 0.5);
   int li = int(aLobe + 0.5);
@@ -174,7 +176,7 @@ TreeV treeVertex() {
     // one simple canopy: the crown's mass as a single lumpy solid (far LOD + shadow core)
     rr = mr * uCoreScale;
     if (popping) rr *= 1.0 + 0.035 * level;
-    p = c + position * rr;
+    p = c + position * rr * uPoly;
   } else {
     int k = vi * 5 + li - 1;
     vec4 L = T_LOBE[k];
@@ -185,14 +187,17 @@ TreeV treeVertex() {
     float r = L.w * (0.88 + 0.24 * pHash13(vec3(seed * 41.0, float(li), 3.0)));
     if (popping) r *= 1.0 + 0.035 * level;
     rr = vec3(r, r * T_LOBE_YS[k], r);
-    p = c + position * rr;
+    p = c + position * rr * uPoly;
   }
   o.rest = p;
   float top = M.w;
+  o.popSc = vec3(1.0);
+  o.swayOff = vec3(0.0);
   if (popping) {
     float sy = propPop(tp, uTreeShape.z);
     float sxz = inversesqrt(max(sy, 0.3));
     vec3 sc = vec3(sxz, sy, sxz);
+    o.popSc = sc;
     p *= sc;
     c *= sc;
     rr *= sc;
@@ -213,6 +218,7 @@ TreeV treeVertex() {
     float h1 = clamp(c.y / top, 0.0, 1.0);
     float h2 = clamp(mc.y / top, 0.0, 1.0);
     wp.xz += wind * h0 * h0;
+    o.swayOff = vec3(wind.x, 0.0, wind.y) * h0 * h0;
     wc.xz += wind * h1 * h1;
     wm.xz += wind * h2 * h2;
   }
@@ -240,26 +246,28 @@ ${GLSL_PROPS}
 ${TREE_VERTEX}
 out vec3 vWorldPos;
 out vec3 vWorldNormal;
-out vec3 vRest;
-out float vH01;
+out vec3 vSwayOff;
 flat out vec4 vInfo;   // hueSlot, level, trunk, seed
 flat out vec4 vInfo2;  // variant, start, top (m), size
 flat out vec3 vLobeC;
 flat out vec3 vLobeR;
 flat out vec3 vMassC;
 flat out vec3 vMassR;
+flat out vec3 vIPos;
+flat out vec3 vPopSc;
 void main() {
   TreeV t = treeVertex();
   vWorldPos = t.world.xyz;
   vWorldNormal = normalize(mat3(modelMatrix) * (mat3(instanceMatrix) * t.normal));
-  vRest = t.rest * t.size;
-  vH01 = clamp(t.rest.y / t.top, 0.0, 1.0);
+  vSwayOff = t.swayOff;
   vInfo = vec4(t.hueSlot, t.level, t.trunk, t.seed);
   vInfo2 = vec4(t.variant, t.start, t.top * t.size, t.size);
   vLobeC = t.lobeC;
   vLobeR = max(t.lobeR, vec3(0.01));
   vMassC = t.massC;
   vMassR = max(t.massR, vec3(0.01));
+  vIPos = (modelMatrix * vec4(instanceMatrix[3].xyz, 1.0)).xyz;
+  vPopSc = t.popSc;
   gl_Position = projectionMatrix * viewMatrix * t.world;
 }
 `;
@@ -288,14 +296,16 @@ uniform float uLeafEdge;
 uniform vec3 uBlossom;
 in vec3 vWorldPos;
 in vec3 vWorldNormal;
-in vec3 vRest;
-in float vH01;
+in vec3 vSwayOff;
 flat in vec4 vInfo;
 flat in vec4 vInfo2;
 flat in vec3 vLobeC;
 flat in vec3 vLobeR;
 flat in vec3 vMassC;
 flat in vec3 vMassR;
+flat in vec3 vIPos;
+flat in vec3 vPopSc;
+uniform mat4 projectionMatrix;
 ${GLSL_OUT}
 const float VAR_LO[4] = float[4](0.0, 0.035, -0.05, -0.075);
 void main() {
@@ -306,29 +316,43 @@ void main() {
   int vi = int(vInfo2.x + 0.5);
   float tp = uTime - vInfo2.y;
   bool painted = hueSlot > 0.5 && tp >= 0.0;
-  // paint floods down the tree from the crown
-  if (painted && (vInfo2.z - vRest.y) > tp * 55.0) painted = false;
   vec3 n;
+  vec3 wp = vWorldPos;
+  float fw = length(fwidth(vWorldPos)); // meters per pixel (taken before any discard)
   if (trunk) {
     n = normalize(vWorldNormal);
     if (!gl_FrontFacing) n = -n;
+    gl_FragDepth = gl_FragCoord.z;
   } else {
     // every lobe is carved to a true (slightly leafy) ellipsoid: a per-pixel
-    // ray test against the lobe gives round pixel-crisp clumps whatever the
-    // tessellation, and the hit point gives a smooth analytic normal
+    // ray test gives round pixel-crisp clumps from an 8-triangle polygon,
+    // the hit point gives a smooth analytic normal and the exact depth
+    // (so clumps intersect each other in clean round curves)
     vec3 q = (vWorldPos - vLobeC) / vLobeR;
     vec3 v = normalize((vWorldPos - cameraPosition) / vLobeR);
     float qv = dot(q, v);
     float d2 = dot(q, q) - qv * qv;
     float sl = fract(dot(vLobeC, vec3(0.131, 0.071, 0.173)));
     float rc = uCarve * (1.0 - uLeafEdge * pNoise3(normalize(q) * 2.4 + sl * 17.0));
+    #ifndef TREE_LOD1
+    // close up, the rim breaks into little leaf scallops (only once pixels are small)
+    rc -= uCarve * uLeafEdge * 0.4 * (1.0 - smoothstep(0.08, 0.2, fw)) * pNoise3(normalize(q) * 9.0 + sl * 5.0);
+    #endif
     if (d2 > rc * rc) discard;
     vec3 hit = q - v * (qv + sqrt(max(rc * rc - d2, 0.0)));
     vec3 nl = normalize(hit / vLobeR);
-    vec3 hw = vLobeC + hit * vLobeR;
-    vec3 nm = normalize((hw - vMassC) / (vMassR * vMassR));
+    wp = vLobeC + hit * vLobeR;
+    vec3 nm = normalize((wp - vMassC) / (vMassR * vMassR));
     n = normalize(mix(nl, nm, uMassBlend));
+    vec4 clip = projectionMatrix * (viewMatrix * vec4(wp, 1.0));
+    gl_FragDepth = clamp(clip.z / clip.w * 0.5 + 0.5, 0.0, 1.0);
   }
+  // pattern space: the tree's own (rest) frame in meters, so blossoms and
+  // leaf clumps stick to the crown while it pops and sways
+  vec3 vRest = ((wp - vSwayOff) - vIPos) / vPopSc;
+  float vH01 = clamp(vRest.y / vInfo2.z, 0.0, 1.0);
+  // paint floods down the tree from the crown
+  if (painted && (vInfo2.z - vRest.y) > tp * 55.0) painted = false;
   vec3 vn = normalize(mat3(viewMatrix) * n);
   float ramp;
   float lo;
@@ -347,7 +371,6 @@ void main() {
     float cl = pNoise3(vRest * 0.5 + seed * 23.0);
     lo += (cl - 0.5) * uClump * 2.0;
     // finer leaf texture only when a pixel is small enough to hold it (no crawl)
-    float fw = length(fwidth(vRest));
     float fine = 1.0 - smoothstep(0.1, 0.22, fw);
     if (fine > 0.0) lo += (pNoise3(vRest * 1.7 + seed * 5.0) - 0.5) * 0.2 * fine;
     #endif
@@ -377,7 +400,7 @@ void main() {
       }
     }
   }
-  float light = sbLight(vWorldPos, n, lo, 1.0);
+  float light = sbLight(wp, n, lo, 1.0);
   // painted crowns are rainbow-tinted: their shadow side turns to the paint's hue
   ivec2 fc = ivec2(gl_FragCoord.xy);
   float dz = float((fc.x + fc.y) & 1) * 0.03 + float(fc.y & 1) * 0.015;
@@ -386,15 +409,15 @@ void main() {
     ramp = tr == ${Ramp.GREEN}.0 ? ${Ramp.BLUE}.0 : tr;
   }
   light = max(light, glow);
-  float fog = sbFog(vWorldPos);
+  float fog = sbFog(wp);
   sbWrite(ramp, light, fog, glow, vn, fract(seed * 0.731 + 0.13), 1.0);
 }
 `;
 
 // ---------------------------------------------------------------- shared GPU resources
 //
-// Triangles per tree:  LOD 0 = 108 (square trunk + five 20-face lobes),
-//                      LOD 1 = 11  (one 8-face canopy + a 3-face trunk spike),
+// Triangles per tree:  LOD 0 = 48 (square trunk + five 8-face lobes, carved per pixel),
+//                      LOD 1 = 11 (one 8-face canopy + a 3-face trunk spike),
 //                      shadow caster = 23 (one 20-face canopy core + spike), any LOD.
 
 interface TreeRes {
@@ -411,13 +434,7 @@ class TemplateBuilder {
   pos: number[] = [];
   nrm: number[] = [];
   lobe: number[] = [];
-  rnd: number[] = [];
   idx: number[] = [];
-  private s = 12345;
-  r() {
-    this.s = (this.s * 16807) % 2147483647;
-    return this.s / 2147483647;
-  }
   /** Square prism trunk, flat faces, y -0.25..1 (sunk into the ground). */
   trunkPrism() {
     for (const [nx, nz] of [
@@ -437,7 +454,6 @@ class TemplateBuilder {
         this.pos.push(nx * 0.5 + tx * 0.5 * sd, y, nz * 0.5 + tz * 0.5 * sd);
         this.nrm.push(nx, 0, nz);
         this.lobe.push(0);
-        this.rnd.push(0);
       }
       this.idx.push(b, b + 2, b + 1, b, b + 3, b + 2);
     }
@@ -450,12 +466,10 @@ class TemplateBuilder {
       this.pos.push(Math.cos(a) * 0.5, -0.25, Math.sin(a) * 0.5);
       this.nrm.push(Math.cos(a), 0.2, Math.sin(a));
       this.lobe.push(7);
-      this.rnd.push(0);
     }
     this.pos.push(0, 1, 0);
     this.nrm.push(0, 1, 0);
     this.lobe.push(7);
-    this.rnd.push(0);
     for (let i = 0; i < 3; i++) this.idx.push(b + i, b + 3, b + ((i + 1) % 3));
   }
   sphere(g: THREE.BufferGeometry, lobe: number) {
@@ -466,7 +480,6 @@ class TemplateBuilder {
       this.pos.push(sp.getX(i), sp.getY(i), sp.getZ(i));
       this.nrm.push(sp.getX(i), sp.getY(i), sp.getZ(i));
       this.lobe.push(lobe);
-      this.rnd.push(this.r());
     }
     for (let i = 0; i < si.count; i++) this.idx.push(b + si.getX(i));
   }
@@ -475,7 +488,6 @@ class TemplateBuilder {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     geo.setAttribute('normal', new THREE.Float32BufferAttribute(this.nrm, 3));
     geo.setAttribute('aLobe', new THREE.Float32BufferAttribute(this.lobe, 1));
-    geo.setAttribute('aRand', new THREE.Float32BufferAttribute(this.rnd, 1));
     geo.setIndex(this.idx);
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 9, 0), 14);
     geo.boundingBox = new THREE.Box3(new THREE.Vector3(-6, -0.5, -6), new THREE.Vector3(6, 19, 6));
@@ -484,20 +496,16 @@ class TemplateBuilder {
 }
 
 const blossomV = new THREE.Vector3();
-const DEPTH_FS = /* glsl */ `
-  precision highp float;
-  layout(location = 0) out highp vec4 outDepthColor;
-  void main() { outDepthColor = vec4(1.0); }
-`;
 
 function treeResources(): TreeRes {
   if (res) return res;
   const ico0 = unitSphere('ico', 0);
+  const oct0 = unitSphere('octa0');
   const b0 = new TemplateBuilder();
   b0.trunkPrism();
-  for (let l = 1; l <= 5; l++) b0.sphere(ico0, l);
+  for (let l = 1; l <= 5; l++) b0.sphere(oct0, l);
   const b1 = new TemplateBuilder();
-  b1.sphere(unitSphere('octa0'), 6);
+  b1.sphere(oct0, 6);
   b1.trunkSpike();
   const bs = new TemplateBuilder();
   bs.sphere(ico0, 6);
@@ -513,6 +521,7 @@ function treeResources(): TreeRes {
     uMassBlend: tuneUniform('treeMass'),
     uLeafEdge: tuneUniform('treeLump'),
     uCarve: { value: 0.785 },
+    uPoly: { value: 0.785 / 0.577 },
     uTint: tuneUniform('treeTint'),
     uBlossom: {
       get value() {
@@ -526,14 +535,14 @@ function treeResources(): TreeRes {
   const mat1 = new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
     defines: { TREE_LOD1: 1 },
-    uniforms: { ...uniforms, uCoreScale: { value: 1.45 }, uCarve: { value: 0.565 } },
+    uniforms: { ...uniforms, uCoreScale: { value: 1.45 }, uCarve: { value: 0.565 }, uPoly: { value: 0.565 / 0.577 } },
     vertexShader: TREE_VS,
     fragmentShader: TREE_FS,
   });
   // shadow core sits just inside the crown, so lit lobes are never shadowed by it
   const depth = new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
-    uniforms: { uTime: globals.uTime, ...treeUniforms, uCoreScale: { value: 0.8 } },
+    uniforms: { uTime: globals.uTime, ...treeUniforms, uCoreScale: { value: 0.8 }, uPoly: { value: 1.0 } },
     vertexShader: TREE_DEPTH_VS,
     fragmentShader: DEPTH_FS,
   });

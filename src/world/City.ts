@@ -4,6 +4,7 @@ import { Ramp } from '../render/palette';
 import { makeBuildingMaterial, paintUniforms } from './buildingMaterial';
 import { makeHeightGrid, makeTerrainMaterial, makeWaterMaterial } from './terrainMaterial';
 import { PaintState } from './PaintState';
+import type { ObstaclePost } from './Bridges';
 import { parseFar, type CityManifest, type FarData, type BuildingTile, type TerrainTile } from './tiles';
 import { loadRegion, type RegionRequest, type RegionResponse, type TileResult } from './regionLoader';
 
@@ -62,12 +63,16 @@ export class City {
   private regionAvailable = new Set<string>();
   private tiles = new Map<string, LoadedTile>();
   private hash = new Map<number, BuildingRef[]>();
+  /** landmark/bridge collision posts, hashed in 64 m cells */
+  private posts = new Map<number, ObstaclePost[]>();
   private far: FarData | null = null;
   private farGroup = new THREE.Group();
   private loadedMask: THREE.DataTexture;
   private maskW: number;
   private maskH: number;
   private regionSize: number;
+  /** extension of the binary city files (hosts without a generic binary type serve them under another binary-safe extension) */
+  private ext: string;
   /** Called for every tile that arrives (trees, props, landmarks hook in here). */
   onTile: ((t: { tx: number; tz: number; terrain: TerrainTile | null; refs: BuildingRef[] }) => void) | null = null;
   onTileUnload: ((tx: number, tz: number) => void) | null = null;
@@ -78,6 +83,7 @@ export class City {
     paintUniforms.uPaint.value = this.paint.texture;
     paintUniforms.uPaintW.value = this.paint.width;
     this.regionSize = manifest.regionSize;
+    this.ext = (manifest as { binExt?: string }).binExt ?? '.bin';
     for (const [rx, rz] of manifest.regions) this.regionAvailable.add(`${rx},${rz}`);
     try {
       this.worker = new Worker(new URL('./cityWorker.ts', import.meta.url), { type: 'module' });
@@ -108,7 +114,7 @@ export class City {
   }
 
   async loadFar(): Promise<void> {
-    const [res, hz] = await Promise.all([fetch(`${this.baseUrl}/far.bin`), fetch(`${this.baseUrl}/horizon.bin`).catch(() => null)]);
+    const [res, hz] = await Promise.all([fetch(`${this.baseUrl}/far${this.ext}`), fetch(`${this.baseUrl}/horizon${this.ext}`).catch(() => null)]);
     this.far = parseFar(await maybeInflate(await res.arrayBuffer()));
     this.buildFar();
     if (hz && hz.ok) this.buildHorizon(await maybeInflate(await hz.arrayBuffer()));
@@ -297,7 +303,7 @@ export class City {
       this.regionsRequested.add(key);
       const id = this.nextId++;
       this.pending.set(id, { key, lod });
-      const msg: RegionRequest = { type: 'region', id, url: new URL(`${this.baseUrl}/r_${rx}_${rz}.bin`, location.href).href, classN: this.manifest.classN, lod };
+      const msg: RegionRequest = { type: 'region', id, url: new URL(`${this.baseUrl}/r_${rx}_${rz}${this.ext}`, location.href).href, classN: this.manifest.classN, lod };
       if (this.worker) this.worker.postMessage(msg);
       else void loadRegion(msg).then((r) => this.onRegion(r));
     }
@@ -507,8 +513,35 @@ export class City {
     return Math.max(0, (a * (1 - ax) + b * ax) * (1 - az) + (c * (1 - ax) + d * ax) * az);
   }
 
-  /** Tallest thing (roof or ground) at a point, in meters. */
-  obstacleAt(x: number, z: number): number {
+  /** Register landmark collision posts (bridges, towers). */
+  addObstacles(list: ObstaclePost[]) {
+    for (const p of list) {
+      const c0x = Math.floor((p.x - p.r) / 64), c1x = Math.floor((p.x + p.r) / 64);
+      const c0z = Math.floor((p.z - p.r) / 64), c1z = Math.floor((p.z + p.r) / 64);
+      for (let cz = c0z; cz <= c1z; cz++)
+        for (let cx = c0x; cx <= c1x; cx++) {
+          const k = (cx + 4096) * 8192 + (cz + 4096);
+          let l = this.posts.get(k);
+          if (!l) this.posts.set(k, (l = []));
+          l.push(p);
+        }
+    }
+  }
+
+  /** Tallest thing (roof, tree, ground, landmark) at a point, in meters. With
+   * `fromY`, posts whose open underside is above fromY are ignored (flying under a deck). */
+  obstacleAt(x: number, z: number, fromY?: number): number {
+    let top = this.baseObstacleAt(x, z);
+    const l = this.posts.size ? this.posts.get((Math.floor(x / 64) + 4096) * 8192 + (Math.floor(z / 64) + 4096)) : undefined;
+    if (l)
+      for (const p of l) {
+        if (fromY !== undefined && fromY < p.under) continue;
+        if ((x - p.x) * (x - p.x) + (z - p.z) * (z - p.z) < p.r * p.r && p.top > top) top = p.top;
+      }
+    return top;
+  }
+
+  private baseObstacleAt(x: number, z: number): number {
     const lt = this.tileAt(x, z);
     if (lt?.terrainData) {
       const t = lt.terrainData;

@@ -204,3 +204,47 @@ export function makeBayBridgeWest(pts: P2[]): THREE.Object3D {
   g.add(k.build());
   return g;
 }
+
+/** Collision volumes for the flight model: vertical "posts" along the deck
+ * (cable height + margin above, deck underside below, so the bus can still
+ * glide UNDER a deck but never through cables or towers). */
+export interface ObstaclePost {
+  x: number;
+  z: number;
+  r: number;
+  top: number;
+  /** below this altitude the post doesn't apply (the open air under a deck); -Infinity = solid to the ground */
+  under: number;
+}
+
+export function bridgeObstacles(kind: 'ggb' | 'baybridge', pts: P2[]): ObstaclePost[] {
+  const out: ObstaclePost[] = [];
+  const isGG = kind === 'ggb';
+  const deckY = isGG ? 67 : 58;
+  const towerH = isGG ? 227 : 160;
+  const towers = isGG ? [1, 2] : [1, 2, 4, 5];
+  const segs: Array<[number, number, number, number]> = []; // [i, j, yA, yB] cable anchor heights
+  if (isGG) segs.push([0, 1, deckY - 6, towerH + 2], [1, 2, towerH + 2, towerH + 2], [2, 3, towerH + 2, deckY - 6]);
+  else
+    segs.push(
+      [0, 1, deckY - 4, towerH + 1], [1, 2, towerH + 1, towerH + 1], [2, 3, towerH + 1, 90],
+      [3, 4, 90, towerH + 1], [4, 5, towerH + 1, towerH + 1], [5, 6, towerH + 1, deckY - 4],
+    );
+  for (const [i, j, ya, yb] of segs) {
+    const a = pts[i], b = pts[j];
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const n = Math.max(2, Math.ceil(L / 12));
+    const main = ya > deckY + 20 && yb > deckY + 20;
+    const sag = main ? deckY + 6 : deckY + 10;
+    for (let k = 0; k <= n; k++) {
+      const t = k / n;
+      const lin = ya + (yb - ya) * t;
+      const depth = (ya + yb) / 2 - sag;
+      const cy = lin - depth * 4 * t * (1 - t);
+      out.push({ x: a[0] + (b[0] - a[0]) * t, z: a[1] + (b[1] - a[1]) * t, r: 22, top: Math.max(cy, deckY + 1) + 5, under: deckY - 10 });
+    }
+  }
+  for (const ti of towers) out.push({ x: pts[ti][0], z: pts[ti][1], r: 30, top: towerH + 8, under: -Infinity });
+  if (!isGG) out.push({ x: pts[3][0], z: pts[3][1], r: 40, top: 100, under: -Infinity });
+  return out;
+}

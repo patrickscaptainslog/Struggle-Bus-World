@@ -15,7 +15,7 @@ import { StreetSigns } from './fx/StreetSign';
 import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { Tuner, applySavedTuning } from './ui/Tuner';
-import { makeGoldenGate, makeBayBridgeWest } from './world/Bridges';
+import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles } from './world/Bridges';
 import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
 
@@ -114,15 +114,22 @@ async function boot() {
     const tf = treeFields.get(k);
     if (tf) {
       scene.remove(tf.object);
+      tf.dispose();
       treeFields.delete(k);
       treeIndex.delete(k);
     }
   };
   for (const lm of manifest.landmarks) {
     const pts = (lm as { points?: Array<[number, number]> }).points;
-    if (lm.kind === 'ggb' && pts) scene.add(makeGoldenGate(pts));
-    else if (lm.kind === 'baybridge' && pts) scene.add(makeBayBridgeWest(pts));
-    else {
+    if (lm.kind === 'ggb' && pts) {
+      scene.add(makeGoldenGate(pts));
+      city.addObstacles(bridgeObstacles('ggb', pts));
+    } else if (lm.kind === 'baybridge' && pts) {
+      scene.add(makeBayBridgeWest(pts));
+      city.addObstacles(bridgeObstacles('baybridge', pts));
+    } else {
+      // Sutro's legs / the pyramid: solid posts the flight model steers around
+      city.addObstacles([{ x: lm.x, z: lm.z, r: lm.kind === 'sutro' ? 45 : 30, top: lm.y + lm.height + 5, under: -Infinity }]);
       const obj = lm.kind === 'sutro' ? makeSutroTower() : lm.kind === 'transamerica' ? makeTransamerica() : null;
       if (!obj) continue;
       obj.position.set(lm.x, lm.y, lm.z);
@@ -396,7 +403,7 @@ async function boot() {
         const c = k.indexOf(',');
         const tx = Number(k.slice(0, c)), tz = Number(k.slice(c + 1));
         const d = Math.hypot((tx + 0.5) * ts - camera.position.x, (tz + 0.5) * ts - camera.position.z);
-        (tf as unknown as { setLod?: (l: 0 | 1 | 2) => void }).setLod?.(d < 350 ? 0 : d < 900 ? 1 : 2);
+        tf.setLod(d < 350 ? 0 : d < 900 ? 1 : 2);
       }
     }
     splatter.update(dt, simTime);
