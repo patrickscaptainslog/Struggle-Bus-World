@@ -450,6 +450,97 @@ cross-checked in the browser with `tools/feel.mjs`.
   frame 4.9 / 3.4, 3.8 / 4.3, 2.8 / 3.7, 2.5 / 2.9 ms (median of 11 frames on a
   SwiftShader host at load ~26: inside its noise).
 
+## Super splat (producer: "hold to charge up splat ... an ungodly amount of rainbow splat, like a torrent, a firehose ... then an obviously shown cooldown")
+- **Hold, don't tap.** A still press held `holdThreshold` (0.3 s) charges;
+  shorter is the normal tap, a press that moves is a steer (so a still thumb
+  no longer "steers at neutral" after the tap window: it is a tap until 0.3 s,
+  then a charge). For now the gesture is Input's (a lone still thumb, a
+  second finger held while the first steers, or Space); feat/controls owns the
+  real button / tilt-mode hold and keeps the same names (`onChargeStart`,
+  `state.chargeHeld`, `onChargeEnd(held, cancelled)`). Sliding off past 22 px
+  (`holdSlopPx`; a 10 s hold drifts) or losing focus cancels: the charge
+  fizzles out with a power-down, no cooldown.
+- **Ten seconds to full** (`superCharge`), as the producer guessed. Released
+  under 30 % (`superMin`) it is just a splat (no cooldown: a long-ish tap must
+  not be punished). Released between 30 % and 100 %: a **mega blast**, the
+  tap's own breath (inhale, rear-up, jet, blast) scaled by the charge: radius
+  x1 -> x2.6 (`megaGain`; 94 m at 50 %), a jet up to 2.4x wider, hit-stop 4 ->
+  9 frames, thunder under the boom, cooldown x the charge (30 s at 50 %). At
+  100 % the **firehose** lets go on its own (holding on can't waste it).
+- **The charge has to be felt with the sound off**, so it is on the bus, under
+  it, around it and in the corner at once: rainbow energy motes spiral in from
+  up to 115 m out (mostly from the city below) and land exactly in the mouth
+  (computed against the live mouth on the GPU, so a moving bus still swallows
+  them), up to ~950 a second; the belly band races through the rainbow, then
+  flickers white-hot from 62 %; the whole body glows, throbbing with a
+  heartbeat that races from 70 to 230 bpm (the same `heartInterval` drives the
+  audio's lub-dub and the bus's throb); it swells 16 %, shudders, wheezes,
+  its eye opens wide, steam puffs from the hatch; arcs crackle over the body
+  from 18 % (a static pool of points re-rolled 21 times a second on the GPU),
+  sparks fly off it from 25 %, a rainbow halo orbits it from 35 %; a rainbow
+  pinwheel spins under it (the drop shadow, the aim reticle, grows into a
+  summoning circle); the camera creeps in 20 % (a dolly: translation only, the
+  pixel snap holds); the charge weighs the bus down to 60 % speed (struggle,
+  then release). Audio: a two-octave riser and hiss, the heartbeat, chord
+  tones shimmering over the last stretch. The first build's motes were
+  pastel (each hue's two lightest steps) and read as sprinkles; they are the
+  hues' saturated middle steps now, with a white-hot heart on the big ones.
+- **The firehose** pours for 4 s (`firehoseDuration`) along the breath's aim
+  (Aim.ts; at the rooftops it reaches 1.7x the breath's range, `firehoseReach`,
+  so a turn sweeps a wide arc; from up high it pours down along the aim ray,
+  mid-screen). It is one geyser whose landing point moves (`GeyserLive`):
+  every particle flies to where the stream was aimed when it left the mouth,
+  so as the bus turns the torrent bends into a sweeping arc across the city.
+  12 times a second (`firehoseRate`, at most one per frame) the point where
+  the stream is coming down right now (a 96-entry history of aim points and
+  their landing times: the paint follows the visible stream, not the aim)
+  takes a full 45 m blast (`firehoseRadius`, growing with the drop like a
+  tap's) through the normal Splatter: buildings bloom as the shockwave reaches
+  them, the ground and the trees are splattered, painted buildings escalate a
+  level per hit, at most every 0.4 s (`firehoseRepop`): L3 in about a second
+  under the stream. A per-building busy time keeps a later impact off a
+  building whose pop is still on its way (the plan reads levels at barf time:
+  without it the second of two overlapping impacts re-dealt a fresh
+  building's hue and flashed it grey). Impacts are timed to land as the
+  stream does, so about one blast is in flight at a time (GroundPaint has 4
+  live reveal slots). The bus is knocked back to 30 % of its speed and held
+  at 40 % (recoil), rears 0.24 rad and shudders; every impact kicks the
+  camera (translation only) and rings a bell climbing the chord over a
+  roaring bed (a soft-clipped chord drone, rushing pink noise, a sub) that
+  swells into a crescendo; the street sign pops when the stream sweeps into a
+  new neighborhood; it ends in a 90 m finale blast with 8 hit-stop frames.
+- **Flashes are capped at 3 a second** (`firehoseFlashes`): 12 palette
+  flashes a second would strobe (photosensitivity guidance: no more than 3
+  flashes a second).
+- **From up high the stream pours 3x faster** than the breath's projectile
+  (`firehoseSpeed`) and widens with the drop (`firehoseWidthDrop`): in the
+  first build it flew 1.2 s from 250 m, so a turning bus left its landing off
+  the edge of the screen, and a 20 m ribbon was a thread from 700 m away.
+- **Cooldown 60 s** (`superCooldown`), shown three ways: the meter ring drains
+  white, then refills dimly over the minute with the seconds left in the
+  middle (white digits); for the first 4 s (`superSpent`) the bus is spent
+  (dark smoke from the exhaust and the hatch, a heavy wheeze, a dim belly
+  band and hatch, a droopy eye, nose down, limping back up from 40 % speed);
+  when it is ready: a rising chime, a white pulse and pop of the meter, a
+  rainbow halo and sparks around the bus. Holding during the cooldown: a
+  damp-firework fizzle, the meter blinks red and shakes, a puff from the
+  hatch; taps still splat normally (only the firehose blocks taps: the mouth
+  is busy).
+- **The meter** (`src/ui/SuperMeter.ts`) is the only UI the super has: a
+  34 x 43 pixel canvas at 2x, palette colors, the pixel font (HOLD / MEGA /
+  HOSE under the ring, seconds in it), top-right inside the safe area until
+  feat/controls' Hud gives it `hud.slot('super')`. It redraws only when what
+  it shows changes.
+- **Particles stay in the existing pool** (8000): a hose impact throws a
+  smaller splash and burst and every fifth spatter blob (~260 particles, a tap
+  ~1100), bloom sparkles are fewer for hose blooms, the stream's rate is
+  scaled so as many particles are alive however long it flies. The charge's
+  motes, arcs and sparks are their own small pool (2400, one draw, drawn only
+  while alive).
+- **Nothing new persists** (the paint already does); the cooldown resets with
+  a reload.
+METRICS_PLACEHOLDER
+
 ## Data
 - **DataSF and the USGS elevation APIs are blocked by this environment's network
   policy.** We used sources that are reachable *and* license-clean (public domain):

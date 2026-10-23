@@ -67,6 +67,11 @@ Altitude QA (climb shots, flight log, taps, perf at cruise vs ceiling):
 `--seq` also captures frames exactly 1/30 s apart, and
 `python3 -I tools/seqstat.py shots/altitude/<phase>-seq-ceiling 5` counts what
 changes between them (shimmer).
+Super splat QA: `node tools/feel-sim/run.mjs s_super.ts` (charge, mega,
+firehose counts and cost offline), `s_hold.ts` (the hold gesture),
+`node tools/supersplat.mjs <baseUrl> shots/supersplat [charge sweep alt mega
+cooldown audio base] [--base=<url>]` (frames, counts, perf, the sounds offline),
+`python3 -I tools/supersplat-strip.py <dir> <out.png> a.png=label ...` (strips).
 
 ## City data (city-agnostic pipeline)
 `tools/bake/` turns a city config (`tools/bake/cities/sf.json`) into compact
