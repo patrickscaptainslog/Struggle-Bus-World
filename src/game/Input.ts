@@ -20,6 +20,15 @@ import { registerTunables } from '../ui/tunables';
 // Three fingers down together (while not steering) fire onTripleFinger and
 // swallow the gesture (no tap, no steering).
 //
+// Hold (the super splat's charge; feat/controls replaces this gesture with
+// the same names): a press that stays still (a single finger, or a second
+// finger while the first steers) for config.splat.holdThreshold fires
+// onChargeStart; state.chargeHeld counts the seconds held; the lift fires
+// onChargeEnd(held, false); sliding off past holdSlopPx (it turns into a
+// steer), a lost pointer or a lost focus fire onChargeEnd(held, true). A
+// still touch shorter than holdThreshold is a tap. Space works the same way
+// (a tap on its release, a charge when held).
+//
 // Desktop dev: mouse drag = thumb, click / Space = tap, arrows / WASD =
 // stretch, flown like a yoke: Down / S = pull back (climb), Up / W = nose down
 // (dive; surge at the rooftops), Left / Right / A / D = carve.
@@ -33,6 +42,8 @@ export interface InputState {
   anchor: { x: number; y: number } | null;
   /** Steering finger, CSS px relative to the input element (null when no steering finger is down). */
   finger: { x: number; y: number } | null;
+  /** Seconds the press that is charging the super splat has been held (from its touch-down), 0 when none is. */
+  chargeHeld: number;
 }
 
 /** Live-tunable gesture numbers (tuner group "Input"). */
@@ -45,6 +56,8 @@ export const inputTune = {
   quickTapSlopPx: 26,
   /** Third finger must land within this many ms of the first for the tuner gesture. */
   tripleWindowMs: 450,
+  /** A charging hold may wander this far (CSS px from its touch-down) before it counts as a steer. */
+  holdSlopPx: 22,
   /** The anchor follows the finger once it is this many stretchPx away. */
   leash: 2.2,
   /** Stretch is linear up to this fraction of full, then eases (tanh) into 1. */
@@ -59,6 +72,7 @@ registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
   quickTapMs: [40, 300, 5],
   quickTapSlopPx: [4, 60, 1],
   tripleWindowMs: [100, 1000, 10],
+  holdSlopPx: [4, 80, 1],
   leash: [1.2, 5, 0.05],
   knee: [0.3, 1, 0.01],
   keyRate: [1, 30, 0.5],
@@ -90,8 +104,12 @@ interface Slot {
 }
 
 export class Input {
-  readonly state: InputState = { dragging: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null };
+  readonly state: InputState = { dragging: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0 };
   onTap: (() => void) | null = null;
+  /** A hold became a charge (the press lasted config.splat.holdThreshold without turning into a steer). */
+  onChargeStart: (() => void) | null = null;
+  /** The charging press ended: lifted (cancelled = false), or slid off into a steer / lost focus (true). */
+  onChargeEnd: ((heldSeconds: number, cancelled: boolean) => void) | null = null;
   /** A new gesture touched down (it may become a tap, which fires on the lift): the game freezes its aim cue. */
   onPress: (() => void) | null = null;
   onTripleFinger: (() => void) | null = null;
@@ -123,6 +141,12 @@ export class Input {
   /** The steering finger committed to a drag at some point. */
   private gSteered = false;
   private pointerDragging = false;
+  /** the finger holding the charge (null: none, or Space); chargeT0 < 0 = nothing is charging */
+  private chargeSlot: Slot | null = null;
+  private chargeT0 = -1;
+  /** Space went down at (performance.now()), or -1 */
+  private spaceT0 = -1;
+  private lastKind: 'touch' | 'keyboard' = 'touch';
 
   // keyboard
   private kL = false;
@@ -162,6 +186,11 @@ export class Input {
     if (document.hidden) this.releaseAll();
   };
 
+  /** How the player flies right now (read-only for gameplay; feat/controls adds 'tilt'). */
+  get mode(): 'tilt' | 'touch' | 'keyboard' {
+    return this.lastKind;
+  }
+
   constructor(el: HTMLElement) {
     this.el = el;
     for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, maxDist: 0, counted: false });
@@ -196,10 +225,10 @@ export class Input {
 
   /** Call once per frame before reading `state` (keyboard easing, hold-to-steer). */
   update(dt: number): void {
+    this.updateCharge();
     const p = this.primary;
     if (p && !this.gTriple) {
-      // A thumb resting still past the tap window is steering (at neutral).
-      if (!this.pointerDragging && performance.now() - p.t0 >= inputTune.tapMs) this.commitDrag();
+      // (a thumb resting still is a tap until holdThreshold, then a charge: it only steers once it moves)
       if (this.pointerDragging) return; // the thumb wins over the keys
     }
     if (p) return; // a gesture that hasn't committed yet: keys stay out of it
@@ -244,7 +273,8 @@ export class Input {
     window.removeEventListener('blur', this.onBlur);
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.releaseAll();
-    this.onTap = this.onTripleFinger = this.onFirstGesture = this.onPress = null;
+    this.onTap = this.onTripleFinger = this.onFirstGesture = this.onPress = this.onChargeStart = null;
+    this.onChargeEnd = null;
   }
 
   // ---------------------------------------------------------------- pointers
@@ -261,6 +291,7 @@ export class Input {
     if (e.isPrimary) for (const s of this.slots) if (s.role !== Role.None && s.type === e.pointerType) this.drop(s);
     const slot = this.alloc(e.pointerId);
     if (!slot) return;
+    this.lastKind = 'touch';
     try {
       this.el.setPointerCapture(e.pointerId);
     } catch {
@@ -323,10 +354,12 @@ export class Input {
     const y = e.clientY - this.rectT;
     const d = Math.hypot(x - slot.x0, y - slot.y0);
     if (d > slot.maxDist) slot.maxDist = d;
+    // a charging finger that slides off turns into a steer (the charge is cancelled)
+    if (slot === this.chargeSlot && slot.maxDist > inputTune.holdSlopPx) this.endCharge(true);
     if (slot !== this.primary || this.gTriple) return;
     this.fingerPt.x = x;
     this.fingerPt.y = y;
-    if (!this.pointerDragging && slot.maxDist > inputTune.tapSlopPx) this.commitDrag();
+    if (!this.pointerDragging && slot.maxDist > (slot === this.chargeSlot ? inputTune.holdSlopPx : inputTune.tapSlopPx)) this.commitDrag();
     if (this.pointerDragging) this.applyStretch();
   }
 
@@ -335,6 +368,7 @@ export class Input {
     if (!slot) return;
     const now = evTime(e);
     const role = slot.role;
+    if (slot === this.chargeSlot) this.endCharge(cancelled);
     const quick = !cancelled && this.isQuick(slot, now);
     slot.role = Role.None;
     slot.id = -1;
@@ -381,6 +415,7 @@ export class Input {
 
   /** Forget a pointer without any tap (stale / lost). */
   private drop(s: Slot) {
+    if (s === this.chargeSlot) this.endCharge(true);
     const role = s.role;
     s.role = Role.None;
     s.id = -1;
@@ -425,7 +460,44 @@ export class Input {
 
   private isQuick(s: Slot, now: number): boolean {
     const dur = now - s.t0;
-    return (dur <= inputTune.tapMs && s.maxDist <= inputTune.tapSlopPx) || (dur <= inputTune.quickTapMs && s.maxDist <= inputTune.quickTapSlopPx);
+    // (a still touch is a tap until it would have become a charge)
+    const still = Math.max(inputTune.tapMs, config.splat.holdThreshold * 1000);
+    return (dur < still && s.maxDist <= inputTune.tapSlopPx) || (dur <= inputTune.quickTapMs && s.maxDist <= inputTune.quickTapSlopPx);
+  }
+
+  /** Starts a charge on a press held still past holdThreshold: the lone thumb, a second finger while the thumb steers, or Space. */
+  private updateCharge() {
+    const now = performance.now();
+    if (this.chargeT0 < 0) {
+      const th = config.splat.holdThreshold * 1000;
+      const p = this.primary;
+      if (p && !this.gTriple) {
+        if (!this.pointerDragging) {
+          if (!this.gMulti && p.maxDist <= inputTune.tapSlopPx && now - p.t0 >= th) this.startCharge(p, p.t0);
+        } else
+          for (const s of this.slots)
+            if (s.role === Role.Secondary && s.maxDist <= inputTune.tapSlopPx && now - s.t0 >= th) {
+              this.startCharge(s, s.t0);
+              break;
+            }
+      } else if (!p && this.spaceT0 >= 0 && now - this.spaceT0 >= th) this.startCharge(null, this.spaceT0);
+    }
+    this.state.chargeHeld = this.chargeT0 >= 0 ? Math.max(0, now - this.chargeT0) / 1000 : 0;
+  }
+
+  private startCharge(slot: Slot | null, t0: number) {
+    this.chargeSlot = slot;
+    this.chargeT0 = t0;
+    this.onChargeStart?.();
+  }
+
+  private endCharge(cancelled: boolean) {
+    if (this.chargeT0 < 0) return;
+    const held = Math.max(0, performance.now() - this.chargeT0) / 1000;
+    this.chargeT0 = -1;
+    this.chargeSlot = null;
+    this.state.chargeHeld = 0;
+    this.onChargeEnd?.(held, cancelled);
   }
 
   /** The steering finger has committed: moved past the tap slop or held past the tap window. */
@@ -527,9 +599,14 @@ export class Input {
         this.kD = down; // pull back: climb
         break;
       case 'Space':
+        // a tap on the release; held past holdThreshold it charges (updateCharge) and the release ends that
         if (down) {
           this.fireFirstGesture();
-          if (!e.repeat) this.onTap?.();
+          if (!e.repeat && this.spaceT0 < 0) this.spaceT0 = performance.now();
+        } else if (this.spaceT0 >= 0) {
+          this.spaceT0 = -1;
+          if (this.chargeT0 >= 0 && !this.chargeSlot) this.endCharge(false);
+          else this.onTap?.();
         }
         break;
       default:
@@ -537,11 +614,14 @@ export class Input {
     }
     if (used) {
       if (down) this.fireFirstGesture();
+      this.lastKind = 'keyboard';
       e.preventDefault();
     }
   }
 
   private releaseAll() {
+    this.endCharge(true);
+    this.spaceT0 = -1;
     for (const s of this.slots) {
       s.role = Role.None;
       s.id = -1;
