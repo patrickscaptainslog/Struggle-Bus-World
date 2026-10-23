@@ -4,6 +4,7 @@ import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
 import { Ramp, HUE_RAMPS } from '../render/palette';
 import { Part } from './BuildingMesher';
 import { Arch } from './tiles';
+import { blastUniforms, GLSL_BLAST_RING } from './GroundPaint';
 
 // One shader for every building. Grey state: Hopper — cool battleship
 // greys, lighter trim, dark glass that catches the low sun. Painted state:
@@ -26,7 +27,7 @@ const HUES = HUE_RAMPS.map((r) => r.toFixed(1)).join(', ');
 export function makeBuildingMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
-    uniforms: { ...globals, ...paintUniforms },
+    uniforms: { ...globals, ...paintUniforms, uBlastRing: blastUniforms.uBlastRing, uBlastRing2: blastUniforms.uBlastRing2 },
     vertexShader: /* glsl */ `
       ${GLSL_COMMON}
       precision highp sampler2D;
@@ -97,6 +98,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       ${GLSL_COMMON}
       uniform vec4 uBloom;
       uniform float uTarget;
+      ${GLSL_BLAST_RING}
       in vec2 vFacade;
       flat in vec4 vMeta;
       flat in vec4 vPaint;
@@ -143,7 +145,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         float level = vPaint.g;
         bool painted = level > 0.5;
         float tb = uTime - vPaint.b;
-        if (painted) {
+        // escalations (already painted) stay painted while the blast wave travels to them
+        if (painted && vPaint.a < 1.5) {
           float drip = h21(vec2(floor(f.x * 1.3), bIdx)) * 2.6 + h21(vec2(floor(f.x * 0.4), bIdx + 7.0)) * 1.4;
           float flood = uBloom.w * max(tb, 0.0);
           if (tb < 0.0 || (roofY - vYRest) > flood - drip) painted = false;
@@ -313,6 +316,9 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           if (painted) light = 0.2 + light * 0.52;
         }
         if (!gl_FrontFacing) n = -n;
+        // the blast's shockwave ring races across the roofs
+        float rr, rl, rg;
+        if (sbRing(vWorldPos, n, rr, rl, rg)) { ramp = rr; light = rl; glow = rg; }
         float fog = sbFog(vWorldPos);
         float sid = fract(bIdx * 0.6180339 + 0.1);
         sbWrite(ramp, light, fog, glow, vViewNormal, sid, 1.0);

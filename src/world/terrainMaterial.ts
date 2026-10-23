@@ -2,10 +2,13 @@ import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { Ground } from './tiles';
+import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from './GroundPaint';
 
 // Ground: asphalt streets, lighter sidewalks, grey lawns, still water.
 // The 2 m class texture is resolved with smooth per-class masks so street
 // edges are clean diagonals instead of 2 m stair steps.
+// Blasts splatter it (GroundPaint: a per-tile mask, organic edges, spatter
+// dots) and the shockwave ring races across it.
 
 const VS = /* glsl */ `
   ${GLSL_COMMON}
@@ -30,6 +33,8 @@ const FS = /* glsl */ `
   uniform sampler2D tClass;
   uniform float uClassN;
   uniform float uLift;
+  ${GLSL_GROUND_PAINT}
+  ${GLSL_BLAST_RING}
   in vec3 vWorldPos;
   in vec3 vWorldNormal;
   in vec3 vViewNormal;
@@ -63,16 +68,41 @@ const FS = /* glsl */ `
     float flatL = sbLight(vWorldPos, vec3(0.0, 1.0, 0.0), lo + uLift, 1.0);
     light = mix(light, flatL, 0.55);
     if (bc == ${Ground.WATER}.0) light = 0.32 + 0.25 * pow(max(dot(reflect(-uSunDir, vec3(0.0, 1.0, 0.0)), normalize(cameraPosition - vWorldPos)), 0.0), 4.0);
+    float glow = 0.0;
+    float pr, pEdge, pWet, pFresh;
+    if (bc != ${Ground.WATER}.0 && sbGroundPaint(vWorldPos, vClassUv, pr, pEdge, pWet, pFresh)) {
+      // paint lives in the saturated middle of its ramp (like painted walls);
+      // sidewalks stay a step lighter than the street so the curbs still read,
+      // a darker rim outlines every splat, wet blotches catch the light
+      ramp = pr;
+      float clsLo = bc == ${Ground.SIDEWALK}.0 ? 0.07 : bc == ${Ground.GRASS}.0 ? 0.03 : -0.02;
+      light = 0.11 + flatL * 0.5 + clsLo; // a step deeper than the sunlit roofs: houses stand out of their splat
+      if (pEdge < 0.07) light -= 0.11;
+      else light += 0.1 * pWet;
+      glow = 0.55 * pFresh;
+      light = max(light, glow);
+    }
+    float rr, rl, rg;
+    if (sbRing(vWorldPos, n, rr, rl, rg)) { ramp = rr; light = rl; glow = rg; }
     float fog = sbFog(vWorldPos);
-    sbWrite(ramp, light, fog, 0.0, vViewNormal, 0.01, 1.0);
+    sbWrite(ramp, light, fog, glow, vViewNormal, 0.01, 1.0);
   }
 `;
 
-export function makeTerrainMaterial(classTex: THREE.Texture, originX: number, originZ: number, size: number, classN: number, lift = 0): THREE.ShaderMaterial {
+export function makeTerrainMaterial(
+  classTex: THREE.Texture, originX: number, originZ: number, size: number, classN: number, lift = 0,
+  ground?: Record<string, THREE.IUniform>,
+): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
     uniforms: {
       ...globals,
+      uBlastRing: blastUniforms.uBlastRing,
+      uBlastRing2: blastUniforms.uBlastRing2,
+      tGround: { value: null },
+      uGroundOn: { value: 0 },
+      uGroundLive: blastUniforms.uGroundLive,
+      ...(ground ?? {}),
       tClass: { value: classTex },
       uClassN: { value: classN },
       uTileRect: { value: new THREE.Vector4(originX, originZ, 1 / size, 0) },

@@ -57,6 +57,9 @@ export class PixelPipeline {
   private cssW = 1;
   private cssH = 1;
   private dpr = 1;
+  /** impact flash: rendered frames left, and (buffer uv x, y, strength, radius) */
+  private flashLeft = 0;
+  private readonly flashU = new THREE.Vector4();
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -97,6 +100,7 @@ export class PixelPipeline {
         uSize: { value: new THREE.Vector2(1, 1) },
         uFogBank: globals.uFogBank,
         uTime: globals.uTime,
+        uFlash: { value: new THREE.Vector4() },
       },
       vertexShader: QUAD_VS,
       fragmentShader: RESOLVE_FS,
@@ -229,6 +233,18 @@ export class PixelPipeline {
     return { w: this.cssW, h: this.cssH, dpr: this.dpr };
   }
 
+  /**
+   * Impact flash for the next `frames` rendered frames, centered on a point
+   * of the visible image (u, v in 0..1, v up): white-hot around it, every
+   * other pixel a couple of palette steps lighter (never a free color).
+   */
+  flash(u: number, v: number, frames: number, strength: number) {
+    const { width: w, height: h } = this.info;
+    const W = w + MARGIN * 2, H = h + MARGIN * 2;
+    this.flashLeft = Math.max(this.flashLeft, Math.round(frames));
+    this.flashU.set((MARGIN + u * w) / W, (MARGIN + v * h) / H, strength, 0.075);
+  }
+
   /** World-space size of one game pixel at a given distance from the camera. */
   pixelWorldSize(distance: number): number {
     const H = this.info.height + MARGIN * 2;
@@ -336,6 +352,10 @@ export class PixelPipeline {
     ru.uCamWorld.value.copy(this.snapCam.matrixWorld);
     ru.uDitherWidth.value = config.render.ditherWidth;
     ru.uOutline.value.set(config.render.outlineDepth, config.render.creaseHighlight, config.render.outlineFadeEnd);
+    if (this.flashLeft > 0) {
+      ru.uFlash.value.copy(this.flashU);
+      this.flashLeft--;
+    } else ru.uFlash.value.z = 0;
     this.blit(this.resolveMat, this.resolved);
 
     // upscale to canvas
@@ -424,6 +444,7 @@ uniform vec3 uSunDir;
 uniform vec2 uSize;
 uniform float uFogBank;
 uniform float uTime;
+uniform vec4 uFlash;     // impact flash: buffer uv, strength, white-hot radius (fraction of the height)
 in vec2 vUv;
 layout(location = 0) out vec4 outColor;
 
@@ -524,11 +545,18 @@ void main() {
   float d2 = bayer4(dp + ivec2(2, 1));
   vec3 dir = worldDir(vUv);
   float z = texelFetch(tDepth, p, 0).r;
+  // impact flash: k = 1 at the blast, falling off over the screen
+  float flashK = 0.0;
+  if (uFlash.z > 0.0) {
+    vec2 fd = (vUv - uFlash.xy) * vec2(uSize.x / uSize.y, 1.0);
+    flashK = uFlash.z * (1.0 - smoothstep(uFlash.w, uFlash.w * 4.0, length(fd)));
+  }
   if (z >= 0.99999) {
     vec3 sc = skyColor(dir, d);
     vec3 halo = texture(tGlow, vUv).rgb;
     float hAmt = max(halo.r, max(halo.g, halo.b));
     if (hAmt > 0.1 && hAmt > d2 * 1.1) sc = haloTint(halo / hAmt);
+    if (uFlash.z > 0.0) sc = pal(${Ramp.GLOW_WHITE}.0, flashK > 0.45 ? 7.0 : 6.0 + floor(flashK * 2.0));
     outColor = vec4(sc, 1.0);
     return;
   }
@@ -595,6 +623,8 @@ void main() {
   // sky behind them (Hopper's distant shapes), converging on the sky color
   float silL = sl - (1.0 - fog) * 0.55 - 0.03;
   vec3 col = pal(ramp, step);
+  float oRamp = ramp;
+  float oStep = step;
 
   // glow halo: dithered, and only ever a palette color — a lighter step of
   // this surface's own ramp, or (close to the source) the glowing hue's tint.
@@ -602,10 +632,16 @@ void main() {
   float hAmt = max(halo.r, max(halo.g, halo.b));
   if (glow < 0.05 && hAmt > 0.11 && hAmt * 1.1 > d2) {
     if (hAmt > 0.42 && hAmt > d * 1.25) col = haloTint(halo / hAmt);
-    else col = pal(ramp, min(step + 2.0, 7.0));
+    else { oStep = min(step + 2.0, 7.0); col = pal(ramp, oStep); }
   }
 
-  if (fogged) col = pal(RAMP_FOG, rampStep(silL, d));
+  if (fogged) { oRamp = RAMP_FOG; oStep = rampStep(silL, d); col = pal(oRamp, oStep); }
+  // impact flash: white-hot near the blast (shapes kept by their own light),
+  // everything else jumps two or three steps up its own ramp
+  if (uFlash.z > 0.0) {
+    if (flashK > 0.5 + 0.3 * d) col = pal(${Ramp.GLOW_WHITE}.0, floor(4.5 + 2.6 * light));
+    else col = pal(oRamp, min(oStep + 1.0 + floor(flashK * 3.0 + d), 7.0));
+  }
   outColor = vec4(col, 1.0);
 }
 `;

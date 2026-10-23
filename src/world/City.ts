@@ -4,6 +4,7 @@ import { Ramp } from '../render/palette';
 import { makeBuildingMaterial, paintUniforms } from './buildingMaterial';
 import { makeHeightGrid, makeTerrainMaterial, makeWaterMaterial } from './terrainMaterial';
 import { PaintState } from './PaintState';
+import { GroundPaint } from './GroundPaint';
 import type { ObstaclePost } from './Bridges';
 import { parseFar, type CityManifest, type FarData, type BuildingTile, type TerrainTile } from './tiles';
 import { loadRegion, type RegionRequest, type RegionResponse, type TileResult } from './regionLoader';
@@ -52,6 +53,8 @@ const HASH_CELL = 32;
 export class City {
   readonly root = new THREE.Group();
   readonly paint: PaintState;
+  /** paint splattered on streets, sidewalks and parks (per-tile masks) */
+  readonly ground: GroundPaint;
   readonly buildingMaterial = makeBuildingMaterial();
   private worker: Worker | null = null;
   private nextId = 1;
@@ -80,6 +83,7 @@ export class City {
 
   constructor(readonly manifest: CityManifest & { regions: Array<[number, number, number]>; regionSize: number }, readonly baseUrl: string) {
     this.paint = new PaintState(manifest.buildingCount);
+    this.ground = new GroundPaint(manifest.tileSize);
     paintUniforms.uPaint.value = this.paint.texture;
     paintUniforms.uPaintW.value = this.paint.width;
     this.regionSize = manifest.regionSize;
@@ -316,6 +320,8 @@ export class City {
       if (Math.hypot(dx, dz) > UNLOAD_RADIUS) this.unloadRegion(rx, rz);
     }
     this.paint.flush(renderer, dt);
+    this.ground.work();
+    this.ground.flush(renderer, dt);
   }
 
   get busy(): boolean {
@@ -425,7 +431,9 @@ export class City {
       tex.needsUpdate = true;
       lt.classTex = tex;
       const geo = makeHeightGrid(tr.heights, tr.n, tr.cell, tr.originX, tr.originZ, 2);
-      const mesh = new THREE.Mesh(geo, makeTerrainMaterial(tex, tr.originX, tr.originZ, ts, tr.classN));
+      const gu = this.ground.tileUniforms();
+      const mesh = new THREE.Mesh(geo, makeTerrainMaterial(tex, tr.originX, tr.originZ, ts, tr.classN, 0, gu));
+      this.ground.attach(t.tx, t.tz, tr.originX, tr.originZ, gu);
       mesh.layers.enable(SHADOW_LAYER);
       mesh.matrixAutoUpdate = false;
       this.root.add(mesh);
@@ -462,6 +470,7 @@ export class City {
           (lt.terrain.material as THREE.Material).dispose();
         }
         lt.classTex?.dispose();
+        this.ground.detach(tx, tz);
         for (const ref of lt.refs) {
           const hk = this.hashKey(ref.cx, ref.cz);
           const list = this.hash.get(hk);
@@ -569,6 +578,18 @@ export class City {
       }
     out.sort((a, b) => a.d - b.d);
     return out;
+  }
+
+  /** Roof height of the building whose footprint contains (x, z), or null (no allocation, no sort). */
+  roofAt(x: number, z: number): number | null {
+    const cx0 = Math.floor(x / HASH_CELL), cz0 = Math.floor(z / HASH_CELL);
+    for (let cz = cz0 - 1; cz <= cz0 + 1; cz++)
+      for (let cx = cx0 - 1; cx <= cx0 + 1; cx++) {
+        const list = this.hash.get((cx + 4096) * 8192 + (cz + 4096));
+        if (!list) continue;
+        for (const ref of list) if (this.contains(ref, x, z)) return ref.roofY;
+      }
+    return null;
   }
 
   /** True if (x, z) is inside the footprint of ref. */

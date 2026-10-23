@@ -45,7 +45,7 @@ export function splatEvents(t0: number, level: number, count: number, hue: numbe
   e(t0 + s.impactDelay, 'impact', 1);
   const hitStop = s.hitStopFrames / 60;
   for (let i = 0; i < count; i++) {
-    const t = t0 + s.impactDelay + (i === 0 ? 0 : hitStop + i * s.cascadeStep);
+    const t = t0 + s.impactDelay + (i === 0 ? 0 : hitStop + i * 0.075); // dev pacing (the game rings a capped burst instead: bloomBurst)
     e(t, 'bloom', i, count, fanHue(hue, i), level);
   }
   return ev;

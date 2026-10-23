@@ -131,14 +131,52 @@ export const config = {
     impactDelay: 0.42,
     /** Search radius around the aim point for the target building (m). */
     snapRadius: 28,
-    /** Spill radius around the primary target (m). */
-    spillRadius: 22,
-    /** Max buildings painted per splat (including the primary). */
-    maxBuildings: 5,
-    /** Delay between cascading blooms (s). */
-    cascadeStep: 0.075,
-    /** Hit-stop frames at first impact (frames @60). */
-    hitStopFrames: 2,
+    /** Blast radius around the impact with no drop (m): every building inside blooms. */
+    blastRadius: 60,
+    /** Radius multiplier at 300 m of drop (bus height above the impact); grows linearly with drop. */
+    dropGain300: 2,
+    /** Drop beyond this adds nothing (m). */
+    dropMax: 600,
+    /** Launch speed of the shockwave racing out of the impact (m/s); buildings bloom as it reaches them. */
+    waveSpeed: 300,
+    /** Max buildings bloomed per blast at the base radius (scales with the radius, up to maxBuildingsCap). */
+    maxBuildings: 40,
+    maxBuildingsCap: 96,
+    /** Hue layout: 0 = pinwheel by angle, 1 = rings by distance, 2 = spiral (pinwheel + rings). */
+    hueLayout: 0,
+    /** Pinwheel sectors around the impact (a multiple of 6 closes the rainbow). */
+    hueSectors: 12,
+    /** Ring width for the distance layouts (m). */
+    hueRing: 16,
+    /** Pinwheel twist (rad per m): the sectors swirl like a catherine wheel. */
+    hueTwist: 0.01,
+    /** Buildings take the layout hue shifted by this many steps, so a house never melts into the paint around it. */
+    roofHueShift: 1,
+    /** Ground splat edge radius (fraction of the blast radius) and raggedness of its edge (0..1). */
+    groundRadius: 0.9,
+    groundRagged: 0.2,
+    /** Splash rays shooting past the edge: count and max length (fraction of the radius). */
+    groundRays: 9,
+    rayLength: 0.42,
+    /** Spatter dots beyond the edge: how far out (fraction of the radius) and how many sit still. */
+    spatterReach: 1.6,
+    spatterDots: 46,
+    /** Paint blobs flung out of the impact: count; each lands as a spatter dot. */
+    blobs: 64,
+    /** Blob flight time: base (s) + per meter of distance (s/m). */
+    blobTime: 0.42,
+    blobTimePerM: 0.007,
+    /** Shockwave: it slows down toward ringReach x the radius (and fades there); ring width (m). */
+    ringReach: 1.65,
+    ringWidth: 12,
+    /** Impact flash (frames, strength 0..1). */
+    flashFrames: 1,
+    flashStrength: 1,
+    /** Camera kick at impact (m along the camera's up axis) and its decay (s). */
+    kick: 2.2,
+    kickDecay: 0.25,
+    /** Hit-stop frames at impact (frames @60). */
+    hitStopFrames: 4,
     /** Recoil: upward kick (m/s) and speed boost multiplier after the barf. */
     recoilUp: 7,
     reliefBoost: 1.45,

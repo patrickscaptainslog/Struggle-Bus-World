@@ -407,6 +407,9 @@ void main() {
   if (painted && !trunk && !blossom && light + dz < uTint) {
     float tr = propHueRamp(hueSlot - 1.0);
     ramp = tr == ${Ramp.GREEN}.0 ? ${Ramp.BLUE}.0 : tr;
+    // keep the tint in the saturated middle of its ramp: the deepest steps of
+    // the warm hues read brown on a whole dark crown (a cypress)
+    light = 0.4 + 0.4 * light;
   }
   light = max(light, glow);
   float fog = sbFog(wp);
@@ -689,6 +692,15 @@ export class TreeField {
     d[o + 1] = lv;
     d[o + 2] = startTime;
     this.color.needsUpdate = true;
+  }
+
+  /** Paint level of a tree (0 = grey, 1..3). */
+  paintLevel(index: number): number {
+    if (this.disposed || index < 0 || index >= this.mesh.count) return 0;
+    const o = index * 3;
+    const code = Math.floor(this.data[o]);
+    const slot = code - Math.floor(code / 8 + 0.01) * 8;
+    return slot > 0 ? this.data[o + 1] : 0;
   }
 
   /** Back to grey (e.g. paint reset). */

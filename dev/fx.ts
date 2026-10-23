@@ -175,7 +175,7 @@ function step(dt: number) {
     if (on('splash')) fx.splash(impactPos, hues[0], 1);
     hitStop = S.hitStopFrames / 60;
   }
-  while (impacted && bloomed < order.length && t >= tImpact + bloomed * S.cascadeStep) {
+  while (impacted && bloomed < order.length && t >= tImpact + bloomed * fxTune.streamStep) {
     const b = order[bloomed];
     paintBlock(b, HUE_RAMPS[hues[bloomed]]);
     const hh = hues[bloomed];

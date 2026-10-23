@@ -3,20 +3,44 @@ import { config } from '../config';
 import { HUE_COUNT } from '../render/palette';
 import type { City, BuildingRef } from '../world/City';
 import { FACTION_RAINBOW } from '../world/PaintState';
+import { blastUniforms, type GroundJob } from '../world/GroundPaint';
+import { arrival, blastRadiusFor, layoutHue, makeBlastSpec, waveMax, wrapHue, type BlastDot, type BlastSpec } from './blastLayout';
 
-// The barf -> bloom pipeline. Dragon breath: the bus blasts a rainbow
-// projectile forward; it snaps to the building at the aim point ahead; paint spills only onto unpainted neighbors ("smart
-// spill", so nobody's art gets overwritten); a painted primary escalates.
-// Colors fan Painted-Ladies style: the primary takes the next hue, neighbors
-// take adjacent hues by which side of it they're on.
+// The barf -> blast -> bloom pipeline. Dragon breath: the bus blasts a
+// rainbow projectile forward; it snaps to the building at the aim point and
+// EXPLODES: every building within the blast radius blooms as the shockwave
+// reaches it (~0.3 s for the whole blast), already-painted ones escalate a
+// level (bloom -> rooftop garden -> Hundertwasser), and the ground around
+// them is splattered too (GroundPaint). Hues fan out around the impact
+// (blastLayout: pinwheel by default) and neighbors never share a hue.
+//
+// The whole wave is written to the paint texture at impact (one upload): each
+// building's bloomTime is its arrival time, and the shader holds the pop and
+// the color flood until then.
+
+export interface Blast {
+  spec: BlastSpec;
+  /** impact point (on the primary's roof, or on the ground) */
+  pos: THREE.Vector3;
+  /** game clock at impact */
+  t: number;
+  /** buildings blooming in this blast, and the highest level reached */
+  count: number;
+  maxLevel: number;
+  /** blast radius relative to the base radius (1 = a level barf) */
+  strength: number;
+  /** spatter dots on the ground; the blob ones each get a flung paint blob */
+  dots: BlastDot[];
+}
 
 export interface SplatFx {
   geyser(targets: THREE.Vector3[], hues: number[]): void;
-  impact(pos: THREE.Vector3, hue: number, strength: number): void;
+  /** The projectile explodes: flash, ring, kick, boom, blobs, trees. */
+  impact(b: Blast): void;
+  /** One building pops (at its arrival time). */
   bloom(ref: BuildingRef, order: number, total: number, hue: number, level: number, roof: THREE.Vector3): void;
   primary(ref: BuildingRef, hue: number): void;
   hitStop(frames: number): void;
-  miss(pos: THREE.Vector3): void;
 }
 
 interface Scheduled {
@@ -26,18 +50,27 @@ interface Scheduled {
   total: number;
   hue: number;
   level: number;
+  keep: boolean;
 }
+
+interface PendingBlast {
+  at: number;
+  blast: Blast;
+  plan: Scheduled[];
+  /** its ground paint, drawn while the projectile flies */
+  ground: GroundJob;
+}
+
+const HUE_TRY = [0, 1, -1, 2, -2, 3];
 
 export class Splatter {
   private nextHue = Math.floor(Math.random() * HUE_COUNT);
   private queue: Scheduled[] = [];
-  private impactAt = -1;
-  private impactPos = new THREE.Vector3();
-  private impactHue = 0;
+  private pending: PendingBlast[] = [];
   private near: Array<{ ref: BuildingRef; d: number }> = [];
+  private reachList: Array<{ ref: BuildingRef; d: number; e: number }> = [];
   private t = 0;
-  /** paint-density bookkeeping for fog clearing */
-  onPainted: ((ref: BuildingRef) => void) | null = null;
+  private seed = (Math.random() * 0xffffffff) >>> 0;
 
   constructor(private city: City, private fx: SplatFx) {}
 
@@ -51,72 +84,118 @@ export class Splatter {
     return null;
   }
 
-  /** Choose targets for a projectile landing at (x, z) and schedule the cascade. */
-  barf(x: number, z: number) {
-    const S = config.splat;
-    const city = this.city;
-    const primary = this.pick(x, z);
-    const tImpact = this.t + S.impactDelay;
-    if (!primary) {
-      this.impactAt = tImpact;
-      this.impactPos.set(x, city.groundAt(x, z), z);
-      this.fx.geyser([this.impactPos.clone()], [this.nextHue]);
-      this.fx.miss(this.impactPos.clone());
-      return;
-    }
-    const paint = city.paint;
-    const pRec = paint.get(primary.index);
-    const hue = pRec.level > 0.5 ? pRec.color : this.nextHue;
-    const level = pRec.level > 0.5 ? Math.min(3, pRec.level + 1) : 1;
-    if (pRec.level < 0.5) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
-    const plan: Scheduled[] = [{ at: tImpact, ref: primary, order: 0, total: 1, hue, level }];
-
-    // smart spill onto unpainted neighbors, fanned by side
-    const front = city.frontOf(primary);
-    const sx = -front.nz, sz = front.nx; // along the street
-    const spill = city.buildingsNear(primary.cx, primary.cz, S.spillRadius, []);
-    let left = 0, right = 0;
-    for (const n of spill) {
-      if (plan.length >= S.maxBuildings) break;
-      if (n.ref === primary || paint.level(n.ref.index) > 0.5) continue;
-      if (n.ref.roofY - n.ref.baseY < 2.5) continue;
-      const side = (n.ref.cx - primary.cx) * sx + (n.ref.cz - primary.cz) * sz;
-      let off: number;
-      if (side >= 0) off = ++right;
-      else off = -++left;
-      plan.push({ at: 0, ref: n.ref, order: plan.length, total: 0, hue: (((hue + off) % HUE_COUNT) + HUE_COUNT) % HUE_COUNT, level: 1 });
-    }
-    plan.forEach((p, i) => {
-      p.total = plan.length;
-      p.at = tImpact + i * S.cascadeStep;
-    });
-    this.queue.push(...plan);
-    this.impactAt = tImpact;
-    this.impactHue = hue;
-    this.impactPos.set(primary.cx, primary.roofY + 0.5, primary.cz);
-    this.fx.geyser(
-      plan.map((p) => new THREE.Vector3(p.ref.cx, p.ref.roofY + 0.3, p.ref.cz)),
-      plan.map((p) => p.hue),
-    );
+  /** Blast radius for a barf from `drop` meters above the impact (m). */
+  radius(drop = 0): number {
+    return blastRadiusFor(drop);
   }
 
-  update(dt: number, now: number) {
+  /**
+   * Launch a projectile at (x, z): it explodes config.splat.impactDelay s
+   * later. `drop` = meters the bus is above the impact; the blast grows with
+   * it (about x2 at 300 m). Returns the game-clock time of the impact.
+   */
+  barf(x: number, z: number, opts?: { drop?: number }): number {
+    const S = config.splat;
+    const city = this.city;
+    const paint = city.paint;
+    const primary = this.pick(x, z);
+    const tImpact = this.t + S.impactDelay;
+    const r = blastRadiusFor(opts?.drop ?? 0);
+    const cx = primary ? primary.cx : x;
+    const cz = primary ? primary.cz : z;
+    // the blast's center hue: an escalating primary keeps its color, a fresh one takes the next hue
+    const pRec = primary ? paint.get(primary.index) : null;
+    const hue = pRec && pRec.level > 0.5 ? wrapHue(pRec.color) : this.nextHue;
+    if (!pRec || pRec.level < 0.5) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
+    this.seed = (Math.imul(this.seed ^ 0x2545f491, 0x9e3779b1) + 0x7f4a7c15) >>> 0;
+    const spec = makeBlastSpec(cx, cz, r, hue, this.seed);
+
+    // every building the blast reaches (footprint, not centroid: a big block
+    // half inside the radius blooms too), nearest edge first, capped
+    const cap = Math.min(S.maxBuildingsCap, Math.max(1, Math.round((S.maxBuildings * r) / S.blastRadius)));
+    const near = city.buildingsNear(cx, cz, r + 45, this.near);
+    const reach = this.reachList;
+    reach.length = 0;
+    for (const n of near) {
+      const e = n.d - 0.55 * Math.sqrt(n.ref.area);
+      if (e <= r) reach.push({ ref: n.ref, d: n.d, e: n.ref === primary ? -1e9 : e });
+    }
+    reach.sort((a, b) => a.e - b.e);
+    const plan: Scheduled[] = [];
+    let maxLevel = 1;
+    for (const n of reach) {
+      if (plan.length >= cap) break;
+      const ref = n.ref;
+      const lv = paint.level(ref.index);
+      const was = lv > 0.5;
+      const level = was ? Math.min(3, Math.round(lv) + 1) : 1;
+      let h: number;
+      if (was) h = wrapHue(paint.get(ref.index).color);
+      else if (ref === primary) h = hue;
+      else h = this.freeHue(layoutHue(spec, ref.cx - cx, ref.cz - cz) + Math.round(S.roofHueShift), ref, plan);
+      maxLevel = Math.max(maxLevel, level);
+      // it pops when the shockwave reaches its near edge
+      plan.push({ at: tImpact + arrival(ref === primary ? 0 : Math.max(0, n.e), r), ref, order: plan.length, total: 0, hue: h, level, keep: was });
+    }
+    for (const p of plan) p.total = plan.length;
+    const pos = primary ? new THREE.Vector3(cx, primary.roofY + 0.5, cz) : new THREE.Vector3(x, city.groundAt(x, z), z);
+    const ground = city.ground.begin(spec, tImpact);
+    this.pending.push({ at: tImpact, plan, ground, blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [] } });
+    this.fx.geyser([pos.clone()], [hue]);
+    return tImpact;
+  }
+
+  /** The layout's hue unless a touching neighbor already has it: then the nearest free hue. */
+  private freeHue(pref: number, ref: BuildingRef, plan: Scheduled[]): number {
+    const ra = Math.sqrt(ref.area) * 0.5;
+    for (const off of HUE_TRY) {
+      const h = wrapHue(pref + off);
+      let clash = false;
+      for (const p of plan) {
+        if (p.hue !== h) continue;
+        const reach = ra + Math.sqrt(p.ref.area) * 0.5 + 2.5;
+        if (Math.hypot(p.ref.cx - ref.cx, p.ref.cz - ref.cz) < reach) {
+          clash = true;
+          break;
+        }
+      }
+      if (!clash) return h;
+    }
+    return pref;
+  }
+
+  update(dt: number) {
     this.t += dt;
-    if (this.impactAt >= 0 && this.t >= this.impactAt) {
-      this.impactAt = -1;
-      this.fx.impact(this.impactPos, this.impactHue, 1);
-      this.fx.hitStop(config.splat.hitStopFrames);
+    const S = config.splat;
+    for (let i = 0; i < this.pending.length; ) {
+      const p = this.pending[i];
+      if (this.t < p.at) {
+        i++;
+        continue;
+      }
+      this.pending.splice(i, 1);
+      const b = p.blast;
+      // the whole wave goes to the GPU now (one upload): the shader times each pop
+      for (const s of p.plan) this.city.paint.set(s.ref.index, { faction: FACTION_RAINBOW, color: s.hue, level: s.level, bloomTime: s.at, keep: s.keep });
+      b.dots = this.city.ground.land(p.ground);
+      blastUniforms.uBlastRing.value.set(b.spec.x, b.spec.z, b.t, b.spec.r);
+      blastUniforms.uBlastRing2.value.set(b.spec.hue, S.ringWidth * Math.sqrt(b.strength), S.waveSpeed, waveMax(b.spec.r));
+      this.fx.impact(b);
+      this.fx.hitStop(S.hitStopFrames);
+      for (const s of p.plan) this.queue.push(s);
     }
     for (let i = 0; i < this.queue.length; ) {
       const s = this.queue[i];
       if (this.t >= s.at) {
         this.queue.splice(i, 1);
-        this.city.paint.set(s.ref.index, { faction: FACTION_RAINBOW, color: s.hue, level: s.level, bloomTime: now });
-        const roof = new THREE.Vector3(s.ref.cx, s.ref.roofY, s.ref.cz);
-        this.fx.bloom(s.ref, s.order, s.total, s.hue, s.level, roof);
+        this.fx.bloom(s.ref, s.order, s.total, s.hue, s.level, new THREE.Vector3(s.ref.cx, s.ref.roofY, s.ref.cz));
         if (s.order === 0) this.fx.primary(s.ref, s.hue);
-        this.onPainted?.(s.ref);
       } else i++;
     }
+  }
+
+  /** Game clock (s), the same clock as globals.uTime. */
+  get clock(): number {
+    return this.t;
   }
 }
