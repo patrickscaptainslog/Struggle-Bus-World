@@ -325,9 +325,27 @@ async function boot() {
   // ---- the street sign stands beside the blast, never over it: the impact and the bloom are the money
   // shot. It rises once the wave has reached the edge, on open ground past the blast's far side as the
   // camera sees it, off the flight line (that's where the next target glints), and grows so its letters
-  // keep a game pixel at that distance. A re-splat of the same block flips the same sign.
+  // keep a game pixel at that distance. A re-splat of the same block flips the same sign. It stands at
+  // its true depth (the painted houses in front of it keep covering it), preferring a spot whose pole
+  // is seen to its foot; else its pole grows until the blade clears the roofs in front (never a blade
+  // hovering over the roofs with no pole).
   const pendingSigns: Array<{ ref: BuildingRef; hue: number; cx: number; cz: number; r: number; at: number }> = [];
-  let signSpot: { x: number; y: number; z: number; facing: number; scale: number; bias: boolean; cx: number; cz: number; r: number; text: string; until: number } | null = null;
+  let signSpot: { x: number; y: number; z: number; facing: number; scale: number; bias: boolean; pole: number; cx: number; cz: number; r: number; text: string; until: number } | null = null;
+  /** How far (m) a point must rise for its sightline to the camera to clear the roofs and crowns over
+   *  the first ~60 m in front of it (0 = in the clear). */
+  function sightLift(x: number, y: number, z: number): number {
+    const c = camera.position;
+    const d = Math.max(1, Math.hypot(c.x - x, c.y - y, c.z - z));
+    let need = 0;
+    for (let i = 1; i <= 10; i++) {
+      const t = Math.min(0.9, (i * 6) / d);
+      const over = city.surfaceAt(x + (c.x - x) * t, z + (c.z - z) * t) - (y + (c.y - y) * t);
+      // (lifting the point by h lifts the line there by h (1 - t))
+      if (over > 0) need = Math.max(need, over / (1 - t));
+      if (t >= 0.9) break;
+    }
+    return need;
+  }
   const signPos = new THREE.Vector3();
   const signNdc = new THREE.Vector3();
   const signFwd = new THREE.Vector3();
@@ -346,38 +364,49 @@ async function boot() {
       const lat = (cx - camera.position.x) * sx + (cz - camera.position.z) * sz;
       const pref = Math.abs(flight.yawRate) > 0.05 ? -Math.sign(flight.yawRate) : lat >= 0 ? 1 : -1;
       let found: typeof signSpot = null;
-      for (const k of [1, 0.75, 0.5]) {
-        for (const side of [pref, -pref]) {
-          const out = r + T.besideOut, sd = T.besideSide * r * side;
-          const bx = cx + (fx * out + sx * sd) * k, bz = cz + (fz * out + sz * sd) * k;
+      // where to look (m along the view's forward and right from the blast's center): past the far side,
+      // off the flight line; then beside it; then farther past. Never inside the blast (+ a margin): there
+      // the sign stands in front of painted houses and covers the bloom. Per spot: the pole seen to its
+      // foot, else (second pass) a pole lifted clear of the roofs in front, up to signTune.poleLiftMax
+      const o1 = r + T.besideOut, s1 = T.besideSide * r;
+      const spots: Array<readonly [number, number]> = [];
+      for (const [o, sd] of [[o1, s1], [0.25 * r, o1], [1.4 * o1, s1]]) spots.push([o, sd * pref], [o, -sd * pref]);
+      for (let pass = 0; pass < 2 && !found; pass++) {
+        for (const [out, sd] of spots) {
+          const bx = cx + fx * out + sx * sd, bz = cz + fz * out + sz * sd;
           for (const [ox, oz] of SIGN_RING) {
             const x = bx + ox, z = bz + oz;
+            if (Math.hypot(x - cx, z - cz) < r + 4) continue;
             if (city.roofAt(x, z) !== null) continue; // the pole stands on the street, a sidewalk or a lawn
             const y = city.groundAt(x, z);
-            // the blade must land inside the frame, below the top band (the sky and the horizon)
-            signNdc.set(x, y + T.poleHeight + 5, z).project(camera);
-            if (Math.abs(signNdc.x) > 0.72 || signNdc.y > 0.7 || signNdc.y < -0.6 || signNdc.z > 1) continue;
             const dist = camera.position.distanceTo(signPos.set(x, y + T.poleHeight + 5, z));
             const scale = clamp((T.minFontPx * pipeline.pixelWorldSize(dist)) / Math.max(0.05, T.texelW), 1, 4);
-            found = { x, y, z, facing: Math.atan2(-fx, -fz), scale, bias: true, cx, cz, r, text, until: 0 };
+            // the foot of the pole in view, or how much taller the pole must be for a meter of it to
+            // show under the blade above the roofs in front
+            const pole = pass === 0 ? (sightLift(x, y + 1.5, z) > 0.5 ? -1 : 0) : sightLift(x, y + (T.poleHeight - 1) * scale, z);
+            if (pole < 0 || pole > T.poleLiftMax) continue;
+            // the blade must land inside the frame, below the top band (the sky and the horizon)
+            signNdc.set(x, y + (T.poleHeight + 4) * scale + pole, z).project(camera);
+            if (Math.abs(signNdc.x) > 0.72 || signNdc.y > 0.7 || signNdc.y < -0.6 || signNdc.z > 1) continue;
+            found = { x, y, z, facing: Math.atan2(-fx, -fz), scale, bias: true, pole, cx, cz, r, text, until: 0 };
             break;
           }
           if (found) break;
         }
-        if (found) break;
       }
       if (!found) {
         // nowhere open in frame: the old spot, in front of the primary's facade (the bus may still be
         // between it and the camera there: the depth bias waits, as before)
         const f = city.frontOf(ref);
         const gx = f.x + f.nx * 4.5, gz = f.z + f.nz * 4.5;
-        found = { x: gx, y: city.groundAt(gx, gz), z: gz, facing: Math.atan2(f.nx, f.nz), scale: 1, bias: false, cx, cz, r, text, until: 0 };
+        found = { x: gx, y: city.groundAt(gx, gz), z: gz, facing: Math.atan2(f.nx, f.nz), scale: 1, bias: false, pole: 0, cx, cz, r, text, until: 0 };
       }
       signSpot = found;
     }
     const sp = signSpot!;
     sp.until = simTime + life;
-    signs.show({ text, position: signPos.set(sp.x, sp.y, sp.z), facing: sp.facing, hue, scale: sp.scale, biasNow: sp.bias });
+    // (beside the blast: true depth, a meter's bias against its own lawn; the old facade spot keeps its bias)
+    signs.show({ text, position: signPos.set(sp.x, sp.y, sp.z), facing: sp.facing, hue, scale: sp.scale, biasNow: sp.bias, depthBias: sp.bias ? 1 : undefined, pole: sp.pole });
     audio.signPop();
   }
 

@@ -103,6 +103,8 @@ export const signTune = {
   besideOut: 10,
   besideSide: 0.45,
   minFontPx: 1.15,
+  /** ...and when its foot is hidden behind roofs, its pole may grow this much (m) to clear them. */
+  poleLiftMax: 10,
 };
 registerTunables('Signs', signTune, {
   texelW: [0.25, 0.8, 0.01],
@@ -138,6 +140,7 @@ registerTunables('Signs', signTune, {
   besideOut: [-40, 80, 1],
   besideSide: [0, 1.5, 0.01],
   minFontPx: [0.5, 3, 0.05],
+  poleLiftMax: [0, 30, 0.5],
 });
 
 export interface StreetSignOptions {
@@ -153,6 +156,11 @@ export interface StreetSignOptions {
   scale?: number;
   /** Pull the depth toward the camera from the start (the sign stands clear of the bus). */
   biasNow?: boolean;
+  /** This sign's depth bias (m) instead of signTune.depthBias: a sign standing in the open, beside
+   *  the blast, takes a small one, so the painted buildings in front of it keep covering it. */
+  depthBias?: number;
+  /** Extra pole (m): lifts the blade clear of the roofs between it and the camera. Default 0. */
+  pole?: number;
 }
 
 const MAX_SIGNS = 4;
@@ -211,6 +219,8 @@ interface Sign {
   wobbleDir: number;
   text: string;
   scale: number;
+  bias: number;
+  poleExtra: number;
 }
 
 const tmpM = new THREE.Matrix4();
@@ -335,6 +345,8 @@ export class StreetSigns {
         wobbleDir: i % 2 ? 1 : -1,
         text: '',
         scale: 1,
+        bias: 0,
+        poleExtra: 0,
       });
       this.mesh.setMatrixAt(i, ZERO_M);
       this.shadowMesh.setMatrixAt(i * 2, ZERO_M);
@@ -388,6 +400,8 @@ export class StreetSigns {
     s.pendingHue = -1;
     if (!wasActive) s.biasK = opts.biasNow ? 1 : 0;
     s.scale = Math.max(0.1, opts.scale ?? 1);
+    s.bias = opts.depthBias ?? T.depthBias;
+    s.poleExtra = Math.max(0, opts.pole ?? 0) / s.scale; // (the whole sign is scaled)
     s.pos.copy(opts.position);
     s.facing = opts.facing;
     s.hue = hue;
@@ -508,7 +522,7 @@ export class StreetSigns {
       const behind = Math.cos(want - s.facing) < -0.2 ? 1 : 0;
       if (s.fresh) s.peekK = behind;
       else s.peekK += (behind - s.peekK) * (1 - Math.exp(-2.5 * dt));
-      const poleH = T.poleHeight + T.peekHeight * s.peekK * s.peekK * (3 - 2 * s.peekK);
+      const poleH = T.poleHeight + s.poleExtra + T.peekHeight * s.peekK * s.peekK * (3 - 2 * s.peekK);
       const totalH = poleH + bladeH + FINIAL_H + 0.4;
 
       // ---- vertical: spring up out of the sidewalk, then the pole is the spring
@@ -586,7 +600,7 @@ export class StreetSigns {
       s.sinceShow += dt;
       s.biasK += ((s.sinceShow >= T.biasDelay ? 1 : 0) - s.biasK) * (1 - Math.exp(-5 * dt));
       tilts[i * 2] = tilt;
-      tilts[i * 2 + 1] = T.depthBias * s.biasK * s.biasK * (3 - 2 * s.biasK);
+      tilts[i * 2 + 1] = s.bias * s.biasK * s.biasK * (3 - 2 * s.biasK);
 
       // ---- write instance data
       tmpQ.setFromAxisAngle(UP, s.yaw + spin);
