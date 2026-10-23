@@ -30,7 +30,10 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   `sbWrite(ramp, light, fog, glow, viewNormal, surfaceId, flags)`.
   - `ramp`: integer ramp id from `src/render/palette.ts` (`Ramp.*`, `HUE_RAMPS`).
   - `light` 0..1 → ramp step (0 darkest, 1 lightest). Use `sbLight()`.
-  - `fog` 0..1 → use `sbFog(worldPos)`.
+  - `fog` 0..1 → use `sbFog(worldPos)`. It includes the marine layer seen
+    from above (`uFogLayer*`, `sbLayerTop()` in `GLSL_LAYER_TOP`, mirrored on
+    the CPU by `layerTopBase()`): materials get it for free; the resolve pass
+    lights the fog sea's top. Never hand-roll fog.
   - `glow` 0..1 → emissive; glowing pixels bloom a dithered halo.
   - `flags`: 1.0 normal (gets outlines), 0.5 = no outline (particles, cards).
 - Every scene material must write both outputs (`gColor`, `gAux`).
@@ -41,6 +44,15 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   bus and ≈ 0.6–1 m at mid-distance. Details smaller than ~2 game pixels
   disappear or shimmer — design silhouettes and big color shapes, not
   greebles. Avoid single-pixel-wide high-contrast stripes (they crawl).
+  Up high (vista camera: 270 m, 38°) a game pixel is ≈ 1 m at the bus and
+  2–4 m on the city below: everything there is the coarse (LOD 1) mesh.
+- Altitude: the camera can sit 700 m above the ground; the far plane is
+  30 km. `pipeline.setHfov()`, `shadowFocus/shadowScale/shadowStrength/
+  shadowEdge` are driven by the game per frame (keep the shadow window
+  centered on the ground under the view, never on a high bus).
+- Coarse regions are drawn as ONE building mesh + ONE ground mesh per 1 km
+  region (`City.regionMeshes`); detailed regions keep per-tile meshes. Code
+  that walks tiles for rendering must handle both.
 - Palette: 8-step ramps. Warm hues shadow toward rose/violet, never brown.
   There is no brown in the palette and there never will be.
 

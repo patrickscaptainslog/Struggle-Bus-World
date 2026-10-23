@@ -7,12 +7,23 @@ Phase 1: single player, no server. iPhone Safari first (portrait, one thumb).
 
 ## Play
 - **Drag anywhere**: the bus follows a springy bungee from where you touched.
-  Sideways carves and banks, up surges (about 250 mph), down slows to a hover.
-- **Let go**: it cruises.
+  It's also a yoke. Sideways carves and banks. **Pull down** to climb
+  (harder = faster, the bus slows as it trades speed for height) up toward
+  a soft ceiling high above the city (~520 m), where it wheezes and
+  struggles. **Push up** to nose down: dive back to the rooftops, gaining
+  speed; at the rooftops it surges (about 250 mph).
+- **Let go**: it cruises and holds its altitude with a wheezy bob; at the
+  rooftops it skims them automatically, as ever.
+- Up high the camera pulls back into a vista: climb out of the marine layer
+  and the west side and the bay lie under a fog sea, with Sutro Tower, Twin
+  Peaks, the downtown towers and the bridge towers poking through.
 - **Tap** (a second finger works while steering): dragon breath. The bus
   rears back and blasts a rainbow jet forward; it bursts over the building
   ahead (when the belly is full, that building glints) and spills onto its
-  unpainted neighbors. The belly glows fuller as the next blast recharges.
+  unpainted neighbors. From altitude it lands where you're looking, mid-screen,
+  after a longer flight. The belly glows fuller as the next blast recharges.
+- Keyboard: arrows / WASD fly the same yoke (Down/S climbs, Up/W dives or
+  surges), Space breathes.
 - Splat an already-painted house to escalate it: rooftop garden, then full
   Hundertwasser.
 - Paint is saved on your phone.
@@ -28,6 +39,8 @@ npm run build        # dist/
 Dev pages: `dev/city.html` (real city viewer), `dev/flight.html` (autopilot
 flight test), and one page per module (`dev/bus.html`, `dev/fx.html`, ...).
 Screenshots: `node tools/shot.mjs <url> out.png`, `node tools/shots.mjs`.
+Altitude QA (climb shots, flight log, taps, perf at cruise vs ceiling):
+`node tools/altitude.mjs <baseUrl> shots/altitude downtown|west|opening`.
 
 ## City data (city-agnostic pipeline)
 `tools/bake/` turns a city config (`tools/bake/cities/sf.json`) into compact
