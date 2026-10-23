@@ -2,12 +2,15 @@ import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT, SHADOW_LAYER } from '../../render/materials';
 import { Ramp } from '../../render/palette';
 import { tuneUniform } from './common';
+import { GLSL_LM_PAINT_FS, GLSL_LM_PAINT_VS, LM_DOME, LM_FLAG, landmarkPaintUniforms, type LandmarkLook } from './landmarkPaint';
 
 // Two hand-built landmarks, chunky enough to read as silhouettes from 1-4 km
 // through the fog, with detail that only resolves up close: Sutro Tower's
 // lattice legs (see-through when the bus is near) and the Transamerica
 // Pyramid's floor-by-floor window bands. Detail fades with the on-screen size
-// of a meter (fwidth), so far away nothing crawls.
+// of a meter (fwidth), so far away nothing crawls. Every landmark is
+// paintable (landmarkPaint.ts): register it where it is placed with
+// paintLandmark(city, 'lm:<name>', object); `k.build(look)` sets its accents.
 
 const enum Pat {
   PLAIN = 0,
@@ -93,7 +96,11 @@ class LandmarkKit {
     this.frustum(cx, cz, y0, (x1 - x0) / 2, y1, (x1 - x0) / 2, ramp, lo, type, true, (z1 - z0) / 2, (z1 - z0) / 2);
   }
 
-  build(): THREE.Mesh {
+  /** The mesh, with its own paintable material (`look`: its painted accents, see landmarkPaint.ts). */
+  build(look?: LandmarkLook): THREE.Mesh {
+    // level-3 accents go last: the mesh draws only up to them until it is painted that far (bindLandmarkPaint)
+    const accentStart = this.pos.length / 3;
+    if (look) this.accents(look);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nrm, 3));
@@ -102,23 +109,75 @@ class LandmarkKit {
     g.setAttribute('aPat', new THREE.Float32BufferAttribute(this.pat, 4));
     g.computeBoundingSphere();
     g.computeBoundingBox();
-    const mesh = new THREE.Mesh(g, landmarkMaterial());
+    if (this.pos.length / 3 > accentStart) {
+      g.userData.lmAccentStart = accentStart;
+      g.setDrawRange(0, accentStart);
+    }
+    const mesh = new THREE.Mesh(g, landmarkMaterial(look));
     mesh.layers.enable(SHADOW_LAYER);
     return mesh;
   }
+
+  /** Level-3 accents: golden onion domes (a faceted lathe) and rainbow bunting (pennants on a sagging string). */
+  private accents(look: LandmarkLook) {
+    // the onion's profile (radius, height) in units of its widest radius / 1.32
+    const prof: Array<[number, number]> = [[0.75, 0], [1.0, 0.25], [1.25, 0.7], [1.32, 1.15], [1.2, 1.6], [0.9, 2.05], [0.55, 2.45], [0.28, 2.8], [0.1, 3.1], [0, 3.3]];
+    for (const [cx, cy, cz, r] of look.domes ?? []) {
+      const s = r / 1.32, H = 3.3 * s;
+      const segs = r > 5 ? 12 : 8;
+      const P = (k: number, j: number) => {
+        const a = (k / segs) * Math.PI * 2;
+        return new THREE.Vector3(cx + Math.cos(a) * prof[j][0] * s, cy + prof[j][1] * s, cz - Math.sin(a) * prof[j][0] * s);
+      };
+      for (let j = 0; j + 1 < prof.length; j++)
+        for (let k = 0; k < segs; k++) {
+          const v0 = prof[j][1] * s, v1 = prof[j + 1][1] * s;
+          this.quad(P(k, j), P(k + 1, j), P(k + 1, j + 1), P(k, j + 1), Ramp.GREY_LIGHT, 0, LM_DOME, [k / segs, v0, (k + 1) / segs, v0, (k + 1) / segs, v1, k / segs, v1], [H, H, H, H]);
+        }
+    }
+    // pennants: u = hue step (+0.5 on the fluttering tip), v = order along all strings, w = count
+    const strings = look.bunting ?? [];
+    let total = 0;
+    const lens = strings.map((b) => Math.max(4, Math.round(Math.hypot(b.to[0] - b.from[0], b.to[1] - b.from[1], b.to[2] - b.from[2]) / 1.7)));
+    for (const n of lens) total += n;
+    let order = 0;
+    const at = (b: (typeof strings)[number], t: number) =>
+      new THREE.Vector3(b.from[0] + (b.to[0] - b.from[0]) * t, b.from[1] + (b.to[1] - b.from[1]) * t - 4 * b.sag * t * (1 - t), b.from[2] + (b.to[2] - b.from[2]) * t);
+    strings.forEach((b, si) => {
+      const n = lens[si];
+      for (let i = 0; i < n; i++) {
+        const p0 = at(b, (i + 0.08) / n), p1 = at(b, (i + 0.92) / n);
+        const tip = p0.clone().add(p1).multiplyScalar(0.5);
+        tip.y -= 1.35;
+        const hue = (order % 6) + 0;
+        const n1 = new THREE.Vector3().subVectors(p1, p0).cross(new THREE.Vector3().subVectors(tip, p0)).normalize();
+        const n2 = n1.clone().negate();
+        // both sides (the landmark material culls back faces)
+        this.vert(p0, n1, Ramp.GREY_LIGHT, 0, hue, order, LM_FLAG, total);
+        this.vert(p1, n1, Ramp.GREY_LIGHT, 0, hue, order, LM_FLAG, total);
+        this.vert(tip, n1, Ramp.GREY_LIGHT, 0, hue + 0.5, order, LM_FLAG, total);
+        this.vert(p0, n2, Ramp.GREY_LIGHT, 0, hue, order, LM_FLAG, total);
+        this.vert(tip, n2, Ramp.GREY_LIGHT, 0, hue + 0.5, order, LM_FLAG, total);
+        this.vert(p1, n2, Ramp.GREY_LIGHT, 0, hue, order, LM_FLAG, total);
+        order++;
+      }
+    });
+  }
 }
 
-let sharedMat: THREE.ShaderMaterial | null = null;
-function landmarkMaterial(): THREE.ShaderMaterial {
-  if (sharedMat) return sharedMat;
-  sharedMat = new THREE.ShaderMaterial({
+// One material per landmark (its own paint texel and accents in uniforms); the
+// shader source is shared, so they all run one program.
+function landmarkMaterial(look?: LandmarkLook): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
     uniforms: {
       ...globals,
       uLandmarkFog: tuneUniform('landmarkFog'),
+      ...landmarkPaintUniforms(look),
     },
     vertexShader: /* glsl */ `
       ${GLSL_COMMON}
+      ${GLSL_LM_PAINT_VS}
       in float ramp;
       in float lightOffset;
       in vec4 aPat;
@@ -131,7 +190,7 @@ function landmarkMaterial(): THREE.ShaderMaterial {
       out vec3 vWorldNormal;
       out vec3 vViewNormal;
       void main() {
-        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vec4 wp = modelMatrix * vec4(lmVertex(position, aPat), 1.0);
         vWorldPos = wp.xyz;
         vWorldNormal = normalize(mat3(modelMatrix) * normal);
         vViewNormal = normalize(mat3(viewMatrix) * vWorldNormal);
@@ -145,6 +204,7 @@ function landmarkMaterial(): THREE.ShaderMaterial {
     `,
     fragmentShader: /* glsl */ `
       ${GLSL_COMMON}
+      ${GLSL_LM_PAINT_FS}
       uniform float uLandmarkFog;
       flat in float vRamp;
       flat in float vType;
@@ -198,14 +258,56 @@ function landmarkMaterial(): THREE.ShaderMaterial {
         }
         vec3 n = normalize(vWorldNormal);
         if (!gl_FrontFacing) n = -n;
-        float light = sbLight(vWorldPos, n, lo, 1.0);
+        LmPaint lp = lmPaint(floor(vRamp + 0.5), lo, type, vPat, y, vWorldPos, n, mpp);
+        float light = lp.mode > 1.5 ? lp.light : sbLight(vWorldPos, n, lp.lo, 1.0);
+        // paint lives in the saturated middle of each ramp, as on the buildings
+        if (lp.mode > 0.5 && lp.mode < 1.5) light = 0.2 + light * 0.52;
         float fog = sbFog(vWorldPos) * uLandmarkFog;
-        sbWrite(floor(vRamp + 0.5), light, fog, 0.0, gl_FrontFacing ? vViewNormal : -vViewNormal, 0.37, 1.0);
+        sbWrite(lp.ramp, light, fog, lp.glow, gl_FrontFacing ? vViewNormal : -vViewNormal, 0.37, 1.0);
       }
     `,
   });
-  return sharedMat;
 }
+
+// (Sutro's legs, as makeSutroTower draws them: radius at height y, angle of leg i)
+const sutroLeg = (i: number, y: number, dr = 0): [number, number, number] => {
+  const r = 29 + (4.6 - 29) * (y / 232) + dr, a = (i * Math.PI * 2) / 3 + 0.35;
+  return [Math.cos(a) * r, y, Math.sin(a) * r];
+};
+/**
+ * Sutro painted: its red/white bands a rainbow, beacons blinking up the masts, vines spiraling up the
+ * legs; at level 3 golden onions where the masts leave the arms and bunting strung between the legs.
+ */
+const SUTRO_LOOK: LandmarkLook = {
+  glowFrom: 279,
+  blink: true,
+  vines: 0.5,
+  band: 12,
+  paintBands: 24.5,
+  domes: [0, 1, 2].map((i) => {
+    const [x, , z] = sutroLeg(i, 222);
+    const k = 17.5 / Math.hypot(x, z);
+    return [x * k, 233.5, z * k, 4.6] as [number, number, number, number];
+  }),
+  bunting: [72, 126].flatMap((y) => [0, 1, 2].map((i) => ({ from: sutroLeg(i, y, 1.5), to: sutroLeg((i + 1) % 3, y, 1.5), sag: y < 100 ? 6 : 4.5 }))),
+};
+/**
+ * The pyramid painted: a lit spire, vines up the faces, planted wings, stained-glass floors; at level 3
+ * a golden onion skewered by the spire, onion turrets on the corners of the base and bunting along it.
+ */
+const PYRAMID_LOOK: LandmarkLook = {
+  glowFrom: 226,
+  vines: 0.4,
+  planted: [124, 219],
+  band: 9,
+  domes: [[0, 205, 0, 12], [24.8, 16.6, 24.8, 2.6], [-24.8, 16.6, 24.8, 2.6], [24.8, 16.6, -24.8, 2.6], [-24.8, 16.6, -24.8, 2.6]],
+  bunting: [
+    { from: [-24.8, 20.2, 26.3], to: [24.8, 20.2, 26.3], sag: 2.2 },
+    { from: [26.3, 20.2, 24.8], to: [26.3, 20.2, -24.8], sag: 2.2 },
+    { from: [24.8, 20.2, -26.3], to: [-24.8, 20.2, -26.3], sag: 2.2 },
+    { from: [-26.3, 20.2, -24.8], to: [-26.3, 20.2, 24.8], sag: 2.2 },
+  ],
+};
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
@@ -263,7 +365,7 @@ export function makeSutroTower(): THREE.Object3D {
     k.box(base.x - 2.6, 229 + 2.6, base.z - 2.6, base.x + 2.6, 233.5, base.z + 2.6, G, 0.04, Pat.PLAIN);
   }
   k.beam(V(0, 226, 0), V(0, 252, 0), 3.2, 2.2, G, 0.02, Pat.BANDS);
-  const mesh = k.build();
+  const mesh = k.build(SUTRO_LOOK);
   const g = new THREE.Group();
   g.name = 'SutroTower';
   g.add(mesh);
@@ -317,7 +419,7 @@ export function makeTransamerica(): THREE.Object3D {
   // the spire
   k.frustum(0, 0, yTopFloor, halfTop, 252, 0.9, W, 0.07, Pat.PLAIN, false);
   k.beam(V(0, 251, 0), V(0, 260, 0), 1.3, 0.6, W, 0.08, Pat.PLAIN);
-  const mesh = k.build();
+  const mesh = k.build(PYRAMID_LOOK);
   const g = new THREE.Group();
   g.name = 'Transamerica';
   g.add(mesh);
