@@ -287,7 +287,7 @@ export class Input {
    *  event's timeStamp (ms, performance clock), so a slow frame can't stretch a tap into a hold. */
   splatButton(down: boolean, cancelled = false, at?: number): void {
     const t = performance.now();
-    const now = at !== undefined && at > 0 && at <= t + 50 && t - at < 1000 ? at : t;
+    const now = at !== undefined && at > 0 && at <= t + 50 && t - at < 30000 ? at : t;
     if (down) {
       this.fireFirstGesture();
       if (this.pressBegin(Src.Button, now)) this.onPress?.();
@@ -830,7 +830,8 @@ export class Input {
 function evTime(e: Event): number {
   const now = performance.now();
   const t = e.timeStamp;
-  return t > 0 && t <= now + 50 && now - t < 1000 ? t : now;
+  // (a very slow frame can deliver an event seconds late: its own time still says how long a touch was)
+  return t > 0 && t <= now + 50 && now - t < 30000 ? t : now;
 }
 
 /** Linear up to `knee`, then eases asymptotically into 1 (tanh), C1-continuous. */

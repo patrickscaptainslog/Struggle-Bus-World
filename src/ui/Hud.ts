@@ -70,7 +70,8 @@ function div(s: Css = {}): HTMLDivElement {
 function evMs(e: Event): number {
   const now = performance.now();
   const t = e.timeStamp;
-  return t > 0 && t <= now + 50 && now - t < 1000 ? t : now;
+  // (the upper bound rejects a clock that isn't performance.now(); a very slow frame may deliver events seconds late)
+  return t > 0 && t <= now + 50 && now - t < 30000 ? t : now;
 }
 const safe = (side: 'top' | 'right' | 'bottom' | 'left', px: number) => `max(${px}px, calc(env(safe-area-inset-${side}) + ${Math.round(px * 0.5)}px))`;
 

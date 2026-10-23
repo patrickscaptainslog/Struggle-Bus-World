@@ -241,6 +241,49 @@ if (modes.has('tilt')) {
   };
   const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro&fixeddt=0.05', init);
   const cdp = await page.context().newCDPSession(page);
+  // ---- the turbo voice rendered offline through the real AudioEngine graph (classes from the live objects):
+  // a climb (strain), engage, Mach 1 boom, the jet, a boost, LOCKED, a downshift; peak / NaN / clipping
+  res.audio = await page.evaluate(async () => {
+    const g = window.__game;
+    const AE = g.audio.constructor, TV = g.controls.voice.constructor;
+    const sr = 48000, secs = 9;
+    const ctx = new OfflineAudioContext(2, sr * secs, sr);
+    const a = new AE();
+    a.attachContext(ctx);
+    const kit = a.voiceKit();
+    const v = new TV();
+    v.attach(kit, 0);
+    for (let i = 0; i < secs * 10; i++) {
+      const t = i * 0.1;
+      v.update({ speedK: t < 2 ? 0 : Math.min(1, (t - 2) / 2.5), strain: t < 2 ? 1 : t < 4 ? 0.7 : 0, boosting: t > 5 && t < 6.2 }, t);
+    }
+    v.shift(0.1, 1);
+    v.engage(2.0);
+    v.boom(3.0);
+    v.locked(6.6);
+    v.shift(7.2, -1);
+    const buf = await ctx.startRendering();
+    let peak = 0, nan = 0, over = 0;
+    const rms = [];
+    for (let c = 0; c < buf.numberOfChannels; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < d.length; i++) {
+        const x = d[i];
+        if (!Number.isFinite(x)) nan++;
+        const m = Math.abs(x);
+        if (m > peak) peak = m;
+        if (m > 0.99) over++;
+      }
+    }
+    const d0 = buf.getChannelData(0);
+    for (let s = 0; s < secs; s++) {
+      let e = 0;
+      for (let i = s * sr; i < (s + 1) * sr; i++) e += d0[i] * d0[i];
+      rms.push(+Math.sqrt(e / sr).toFixed(3));
+    }
+    return { peak: +peak.toFixed(3), nan, over099: over, rmsPerSecond: rms };
+  });
+  console.log('audio (turbo voice, offline):', JSON.stringify(res.audio));
   const setPose = (p) => page.evaluate((e) => Object.assign(window.__sensor, e), w3cFor(p));
   await setPose({ lean: 35 });
   const s0 = await snap(page);
