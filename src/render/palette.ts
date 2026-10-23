@@ -55,7 +55,8 @@ const RAMPS: Record<number, string[]> = {
   [Ramp.GREEN_GREY]: ['#141a1a', '#1d2625', '#283331', '#36423f', '#47534f', '#5a6762', '#717d76', '#8f978d'],
   [Ramp.WINDOW]: ['#0d1219', '#141c25', '#1d2833', '#283644', '#384757', '#4e5e6e', '#6f7f8d', '#9aa6b0'],
   [Ramp.INK]: ['#0b0e13', '#0f131a', '#141921', '#1a2029', '#202732', '#272f3b', '#2f3845', '#38424f'],
-  [Ramp.WATER]: ['#111a24', '#172330', '#1f2e3d', '#29394a', '#354658', '#445567', '#576879', '#6f7f8f'],
+  // (the upper steps climb toward the fog: grazing water mirrors it, luma 0.10 .. 0.67 in even steps)
+  [Ramp.WATER]: ['#111a24', '#172330', '#1f2e3d', '#2c3d4e', '#3f5164', '#5b6c7e', '#7d8b99', '#a3adb7'],
   [Ramp.RED]: ['#2a0f2e', '#4d1440', '#7a1d4c', '#b02a55', '#e0405e', '#f6707a', '#ff9f9c', '#ffd6cf'],
   [Ramp.ORANGE]: ['#3a1230', '#6e1f3a', '#a8333e', '#dc5235', '#f58233', '#ffa94a', '#ffcb7a', '#ffeac2'],
   [Ramp.YELLOW]: ['#5c1e3a', '#9a3540', '#d25a3a', '#f08a2e', '#f8b52c', '#ffd23e', '#ffe880', '#fff8cc'],
