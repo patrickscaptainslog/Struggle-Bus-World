@@ -1,5 +1,5 @@
 // Autopilot flight test over the real city: real Flight + CameraRig + City,
-// scripted thumb input. ?t=seconds to fast-forward before ready, ?script=turns|surge|hover
+// scripted thumb input. ?t=seconds to fast-forward before ready, ?script=turns|surge|climb (alias hover)
 import * as THREE from 'three';
 import { PixelPipeline } from '../src/render/PixelPipeline';
 import { globals } from '../src/render/materials';
@@ -55,7 +55,7 @@ let t = 0;
 const log: string[] = [];
 function input(t: number) {
   if (script === 'surge') return { sx: 0.15 * Math.sin(t * 0.5), sy: 1, dragging: true };
-  if (script === 'hover') return { sx: 0, sy: -1, dragging: true };
+  if (script === 'climb' || script === 'hover') return { sx: 0, sy: -1, dragging: true };
   if (script === 'straight') return { sx: 0, sy: 0, dragging: false };
   return { sx: Math.sin(t * 0.7) > 0.3 ? 0.8 : Math.sin(t * 0.7) < -0.3 ? -0.8 : 0, sy: 0.2, dragging: true };
 }

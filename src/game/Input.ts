@@ -4,8 +4,9 @@ import { registerTunables } from '../ui/tunables';
 // One-thumb input: the "floating bungee".
 //
 // Touch anywhere: the touch-down point becomes the anchor, and the vector from
-// the anchor to the finger is the bungee stretch (sideways = carve, up = surge,
-// down = hover). Past ~1x stretchPx the stretch soft-saturates toward 1; past
+// the anchor to the finger is the bungee stretch (sideways = carve; it's also
+// the yoke: down = pull back = climb, up = nose down = dive, or surge at the
+// rooftops). Past ~1x stretchPx the stretch soft-saturates toward 1; past
 // `leash` x stretchPx the anchor is dragged along behind the finger, so the
 // thumb never runs out of room and reversing direction responds immediately.
 //
@@ -20,7 +21,8 @@ import { registerTunables } from '../ui/tunables';
 // swallow the gesture (no tap, no steering).
 //
 // Desktop dev: mouse drag = thumb, click / Space = tap, arrows / WASD =
-// stretch (up = surge, down = hover).
+// stretch, flown like a yoke: Down / S = pull back (climb), Up / W = nose down
+// (dive; surge at the rooftops), Left / Right / A / D = carve.
 
 export interface InputState {
   /** A thumb (or key) is actively steering. */
@@ -515,11 +517,11 @@ export class Input {
         break;
       case 'ArrowUp':
       case 'KeyW':
-        this.kU = down;
+        this.kU = down; // nose down: dive / surge
         break;
       case 'ArrowDown':
       case 'KeyS':
-        this.kD = down;
+        this.kD = down; // pull back: climb
         break;
       case 'Space':
         if (down) {

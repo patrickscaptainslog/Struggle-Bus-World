@@ -541,6 +541,17 @@ export class City {
     return top;
   }
 
+  /** Lowest underside of a deck overhead (above fromY) at a point, or Infinity: a climb stops under it. */
+  overheadAt(x: number, z: number, fromY: number): number {
+    const l = this.posts.size ? this.posts.get((Math.floor(x / 64) + 4096) * 8192 + (Math.floor(z / 64) + 4096)) : undefined;
+    let under = Infinity;
+    if (l)
+      for (const p of l) {
+        if (p.under > fromY && p.under < under && (x - p.x) * (x - p.x) + (z - p.z) * (z - p.z) < p.r * p.r) under = p.under;
+      }
+    return under;
+  }
+
   private baseObstacleAt(x: number, z: number): number {
     const lt = this.tileAt(x, z);
     if (lt?.terrainData) {

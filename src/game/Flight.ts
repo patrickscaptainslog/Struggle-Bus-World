@@ -4,18 +4,36 @@ import { clamp, spring } from './springs';
 // The bus's body: a springy bungee steering model, automatic terrain-following
 // altitude with hang time, and the struggle -> release rhythm of the belly.
 //
+// The yoke rides on the same thumb: pull down = climb (trading speed for
+// height, fading into a wheezy struggle under the soft ceiling), push up =
+// nose down (dive back to the rooftops, gaining speed; at the floor it
+// surges), release = hold the chosen altitude with a gentle bob. The
+// automatic floor underneath is the classic model, untouched: released at the
+// bottom, the bus skims rooftops exactly as it always did.
+//
 // heading: compass radians (0 = north = -Z, +pi/2 = east = +X).
 
 export interface WorldQuery {
   obstacleAt(x: number, z: number, fromY?: number): number;
   groundAt(x: number, z: number): number;
+  /** Lowest underside of anything overhead (a bridge deck) above fromY, or Infinity. */
+  overheadAt?(x: number, z: number, fromY: number): number;
 }
 
 export interface FlightInput {
-  /** bungee stretch: x right, y up (surge) / down (hover), |v| <= 1 */
+  /** bungee stretch: x right, y up (nose down: dive / surge) / down (pull back: climb), |v| <= 1 */
   sx: number;
   sy: number;
   dragging: boolean;
+}
+
+const enum Yoke {
+  /** released at the floor: automatic rooftop skimming, exactly the classic model */
+  Floor = 0,
+  /** released above the floor: hold the chosen altitude with a wheezy bob */
+  Hold = 1,
+  Climb = 2,
+  Dive = 3,
 }
 
 export class Flight {
@@ -42,8 +60,21 @@ export class Flight {
   surge = 0;
   /** opening glide: cruise at this speed until the player first steers */
   glideSpeed = 0;
+  /** the automatic rooftop floor (m ASL): where the bus skims when released at the bottom */
+  floorY = 60;
+  /** the altitude the player chose with the yoke (m ASL, without belly sag/lift), or -Infinity = skim the floor */
+  holdY = -Infinity;
+  /** what the vertical controller is chasing right now (m ASL) */
+  targetY = 60;
+  /** height above the rooftop floor, smoothed (m): drives the vista camera */
+  lift = 0;
+  /** 0..1: the bus is straining against the soft ceiling (wheeze, sputter) */
+  strain = 0;
+  /** current yoke mode (0 floor, 1 hold, 2 climb, 3 dive) */
+  mode: number = Yoke.Floor;
   private t = 0;
-  private targetAlt = 60;
+  private vyYoke = 0;
+  private floorSmooth = 60;
 
   get fx() {
     return Math.sin(this.heading);
@@ -85,12 +116,18 @@ export class Flight {
     const reliefK = this.relief > 0 ? this.relief / S.reliefSeconds : 0;
     const heavy = this.barfT >= 0 ? 0 : this.fullness;
 
-    // ---- speed
+    // ---- the yoke: thumb down = pull back (climb), thumb up = nose down (dive / surge)
     const sy = inp.dragging ? inp.sy : 0;
-    this.surge = Math.max(0, sy);
+    const dz = clamp(F.yokeDead, 0, 0.9);
+    const pull = clamp((-sy - dz) / (1 - dz), 0, 1);
+    const push = Math.max(0, sy);
+    this.surge = push;
+
+    // ---- speed
     const cruise = this.glideSpeed > 0 && !inp.dragging ? this.glideSpeed : F.cruiseSpeed;
     if (inp.dragging) this.glideSpeed = 0;
-    let targetSpeed = sy >= 0 ? cruise + (F.surgeSpeed - F.cruiseSpeed) * Math.pow(sy, 1.3) : cruise + (F.hoverSpeed - cruise) * Math.min(1, -sy);
+    // climbing trades speed for height; nose down gains it (and surges at the floor, as ever)
+    let targetSpeed = push > 0 ? cruise + (F.surgeSpeed - F.cruiseSpeed) * Math.pow(push, 1.3) : cruise + (F.climbSpeed - cruise) * pull;
     targetSpeed *= 1 - 0.12 * heavy;
     targetSpeed *= 1 + (S.reliefBoost - 1) * reliefK * reliefK;
     if (this.barfing) targetSpeed *= S.stallSpeed;
@@ -126,24 +163,88 @@ export class Flight {
     this.obstacleUnder = world.obstacleAt(this.x, this.z, this.y);
     this.groundUnder = world.groundAt(this.x, this.z);
     top = Math.max(top, this.obstacleUnder);
-    const clearance = F.clearance + F.lightLift * (1 - heavy) - F.fullSag * heavy;
-    this.targetAlt = top + clearance;
+    const belly = F.lightLift * (1 - heavy) - F.fullSag * heavy;
+    const clearance = F.clearance + belly;
+    const floor = top + clearance;
+    this.floorY = floor;
     const hardFloor = this.obstacleUnder + 3.5;
-    if (this.targetAlt > this.y) {
-      // climb: a spring, so hills are anticipated and smooth
-      const w = 2 * Math.PI * F.climbHz;
-      const a = w * w * (this.targetAlt - this.y) - 2 * w * this.vy;
-      this.vy += a * dt;
+
+    // soft ceiling, lowered under a bridge deck so a climb never punches through it
+    const over = world.overheadAt ? world.overheadAt(this.x, this.z, this.y) : Infinity;
+    const ceil = Math.min(F.ceiling, over - 5);
+    // the classic floor-following vertical speed (rise early, hang after crests)
+    const vyFloor = (v: number) => {
+      if (floor > this.y) {
+        const w = 2 * Math.PI * F.climbHz;
+        return v + (w * w * (floor - this.y) - 2 * w * v) * dt;
+      }
+      const want = -Math.min(F.maxSink, (this.y - floor) * 0.9);
+      return v + (want - v) * (1 - Math.exp(-1.6 * dt));
+    };
+
+    const kYoke = 1 - Math.exp(-F.yokeResponse * dt);
+    let strain = 0;
+    if (pull > 0 && ceil > floor + 2) {
+      // ---- climb: harder pull = faster climb, fading into a struggle near the ceiling
+      this.mode = Yoke.Climb;
+      const room = clamp((ceil - this.y) / Math.max(1, F.ceilingSoft), 0, 1);
+      strain = pull * (1 - room) * (1 - room);
+      let rate = (F.climbRateMin + (F.climbRate - F.climbRateMin) * Math.pow(pull, F.climbCurve)) * Math.pow(room, 0.65);
+      // the old engine sputters as the air thins: lurch, stall, lurch
+      rate *= 1 - 0.55 * strain * (0.5 + 0.5 * Math.sin(this.t * Math.PI * 2 * 1.4));
+      if (this.y > ceil) rate = -(this.y - ceil) * 0.8;
+      this.vyYoke += (rate - this.vyYoke) * kYoke;
+      this.vy = this.vyYoke;
+      if (floor > this.y) this.vy = Math.max(this.vy, vyFloor(this.vy));
+      this.holdY = this.y - belly;
+      this.targetY = Math.max(floor, ceil);
+    } else if (push > 0 && this.holdY > -1e8 && this.y > floor + 0.5) {
+      // ---- dive: nose down toward the floor, fast, flaring out so it never digs into the roofs
+      this.mode = Yoke.Dive;
+      let rate = -F.diveRate * Math.pow(push, 1.2);
+      rate = Math.max(rate, -Math.sqrt(2 * F.diveFlare * Math.max(0, this.y - floor)));
+      this.vyYoke += (rate - this.vyYoke) * kYoke;
+      this.vy = Math.max(this.vyYoke, -Math.sqrt(2 * F.diveFlare * Math.max(0, this.y - floor)) - 1);
+      this.holdY = this.y - belly;
+      this.targetY = floor;
     } else {
-      // descend gently with a capped sink rate (hang time over crests)
-      const want = -Math.min(F.maxSink, (this.y - this.targetAlt) * 0.9);
-      this.vy += (want - this.vy) * (1 - Math.exp(-1.6 * dt));
+      if (this.mode === Yoke.Climb || this.mode === Yoke.Dive) {
+        // released: coast to a stop (critically damped, no bounce back) and hold there
+        const w = 2 * F.holdGain;
+        this.holdY = this.y - belly + this.vy / Math.max(0.1, w);
+      }
+      // a dive that reached the floor (or a hold buried by rising ground for good) hands back to the floor
+      if (this.holdY + belly < floor - 0.5 && (this.mode === Yoke.Dive || push > 0)) this.holdY = -Infinity;
+      const hold = this.holdY + belly;
+      if (hold > floor) {
+        // ---- hold: the chosen altitude, with a gentle wheezy bob (fades in above the floor)
+        this.mode = Yoke.Hold;
+        const bob = F.bobAmp * clamp((hold - floor) / 20, 0, 1) * (Math.sin(this.t * Math.PI * 2 * F.bobHz) + 0.3 * Math.sin(this.t * Math.PI * 2 * F.bobHz * 2.7 + 1.3));
+        const tgt = Math.min(hold, Math.max(ceil, floor)) + bob;
+        const g = F.holdGain;
+        const want = clamp((tgt - this.y) * g, -F.maxSink, F.climbRate);
+        this.vy += (want - this.vy) * (1 - Math.exp(-4 * g * dt));
+        if (floor > this.y) this.vy = Math.max(this.vy, vyFloor(this.vy));
+        this.targetY = tgt;
+      } else {
+        // ---- the floor: the classic automatic rooftop skimming
+        this.mode = Yoke.Floor;
+        this.vy = vyFloor(this.vy);
+        // (a dive released right above the roofs still flares out; the classic sink never gets this fast)
+        if (this.vy < -F.maxSink) this.vy = Math.max(this.vy, -Math.sqrt(2 * F.diveFlare * Math.max(0, this.y - floor)) - F.maxSink);
+        this.targetY = floor;
+      }
+      this.vyYoke = this.vy;
     }
+    this.strain += (strain - this.strain) * (1 - Math.exp(-3 * dt));
     this.y += this.vy * dt;
     if (this.y < hardFloor) {
       this.y = hardFloor;
       if (this.vy < 0) this.vy = 0;
     }
+    // height above the (smoothed) floor, for the vista camera: rooftop noise mustn't breathe the lens
+    this.floorSmooth += (floor - this.floorSmooth) * (1 - Math.exp(-0.7 * dt));
+    this.lift = Math.max(0, this.y - Math.max(this.floorSmooth, this.groundUnder + clearance));
 
     // ---- bank & pitch (visual)
     const lateral = this.speed * this.yawRate;

@@ -40,7 +40,7 @@ export class CameraRig {
     // elevation from speed: slow -> diorama, fast -> vista
     const sp = f.speed;
     let e: number;
-    if (sp < F.cruiseSpeed) e = C.elevationSlow + (C.elevationCruise - C.elevationSlow) * clamp((sp - F.hoverSpeed) / (F.cruiseSpeed - F.hoverSpeed), 0, 1);
+    if (sp < F.cruiseSpeed) e = C.elevationSlow + (C.elevationCruise - C.elevationSlow) * clamp((sp - C.slowSpeed) / Math.max(1, F.cruiseSpeed - C.slowSpeed), 0, 1);
     else e = C.elevationCruise + (C.elevationSurge - C.elevationCruise) * clamp((sp - F.cruiseSpeed) / (F.surgeSpeed - F.cruiseSpeed), 0, 1);
     this.elev += (e - this.elev) * (1 - Math.exp(-1.8 * dt));
 

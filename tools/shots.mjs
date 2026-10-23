@@ -43,22 +43,27 @@ async function runFor(page, seconds) {
   return t0;
 }
 
-// 1) grey city: hovering over Alamo Square, looking east at the Painted Ladies
+// A slow drift at the rooftops (the thumb's down-stretch is the yoke's climb
+// now, so the shots slow the bus with the opening's glide speed instead; same
+// speeds as the old hover stretch: -0.45 -> 19.2 m/s, -1 -> 6 m/s).
+const drift = (page, speed) => page.evaluate((v) => ((window.__qa = null), (window.__game.flight.glideSpeed = v)), speed);
+
+// 1) grey city: drifting over Alamo Square, looking east at the Painted Ladies
 //    row with downtown behind it in the fog
 {
   const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro');
-  await page.evaluate(() => (window.__qa = { sx: 0, sy: -0.45 }));
+  await drift(page, 19.2);
   await runFor(page, 3);
   await page.screenshot({ path: `${out}/grey.png` });
   stats.grey = await page.evaluate(() => window.__stats ?? null);
   await page.close();
 }
 
-// 2) painted: hover over Steiner Street and barf down the Painted Ladies row
-//    through the real splat pipeline (cascade, bloom, sign, sound)
+// 2) painted: drift slowly over Steiner Street and barf down the Painted Ladies
+//    row through the real splat pipeline (cascade, bloom, sign, sound)
 {
   const page = await open('?lat=37.77615&lon=-122.4340&heading=88&skipintro');
-  await page.evaluate(() => (window.__qa = { sx: 0, sy: -1 }));
+  await drift(page, 6);
   await runFor(page, 2);
   const row = [37.7754, 37.7758, 37.7762, 37.7766, 37.7770, 37.7762, 37.7758];
   for (const lat of row) {

@@ -58,8 +58,10 @@ export const config = {
     distance: 175,
     /** Elevation angle of the camera above the bus when cruising (deg). */
     elevationCruise: 31,
-    /** Elevation when slow / hovering to aim (deg) — tilts toward diorama. */
+    /** Elevation when slow (deg) — tilts toward diorama. */
     elevationSlow: 39,
+    /** Speed at which the camera reaches elevationSlow (m/s). */
+    slowSpeed: 6,
     /** Elevation at full surge (deg) — levels toward the horizon. */
     elevationSurge: 24,
     /** Look-ahead in front of the bus (m), keeps the bus above the thumb zone. */
@@ -77,8 +79,29 @@ export const config = {
     cruiseSpeed: 30,
     /** Speed at full upward stretch (m/s). ~90 s across SF. */
     surgeSpeed: 112,
-    /** Speed at full downward stretch (m/s). Hover to aim. */
-    hoverSpeed: 6,
+    /** Yoke: thumb pulled DOWN = climb. Climb rate at full pull / at the lightest pull (m/s). */
+    climbRate: 40,
+    climbRateMin: 7,
+    /** Climb rate curve: min + (max - min) * pull^climbCurve. */
+    climbCurve: 1.3,
+    /** Speed the bus eases toward at full pull (m/s): it trades speed for height. */
+    climbSpeed: 15,
+    /** Thumb pushed UP while above the rooftop floor = nose down: dive rate at full push (m/s). */
+    diveRate: 48,
+    /** Flare: deceleration (m/s²) when a dive meets the rooftop floor, so it never overshoots into roofs. */
+    diveFlare: 16,
+    /** Vertical stretch ignored by the yoke (0..1), so sideways carving doesn't climb or dive. */
+    yokeDead: 0.14,
+    /** How fast the climb / dive rate follows the yoke (1/s). */
+    yokeResponse: 2.6,
+    /** Released above the floor: hold altitude on a critically damped spring (1/s). */
+    holdGain: 0.85,
+    /** Gentle wheezy bob while holding altitude (m, Hz). */
+    bobAmp: 1.3,
+    bobHz: 0.3,
+    /** Soft ceiling (m above sea level; Sutro Tower tops out ~555) and the band below it where the climb fades and the bus struggles (m). */
+    ceiling: 520,
+    ceilingSoft: 150,
     /** How fast speed chases its target (Hz). */
     speedHz: 0.9,
     /** Max yaw rate at full sideways stretch (rad/s) at cruise speed. */

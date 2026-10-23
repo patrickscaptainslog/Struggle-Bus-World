@@ -151,7 +151,7 @@ async function openPage(query, { w = 393, h = 852, dpr = 3 } = {}) {
   check('drag right -> +x stretch', s.sx > 0.9 && Math.abs(s.sy) < 0.05, `sx=${s.sx.toFixed(3)} sy=${s.sy.toFixed(3)}`);
   await touch.glide(3, 200, 600, 200, 6);
   s = await S();
-  check('drag down -> -y stretch (hover)', s.sy < -0.9, `sy=${s.sy.toFixed(3)}`);
+  check('drag down -> -y stretch (yoke: climb)', s.sy < -0.9, `sy=${s.sy.toFixed(3)}`);
   await touch.glide(3, 203, 522, 120, 4);
   s = await S();
   check('back inside the dead zone -> zero stretch, still dragging', s.dragging && Math.hypot(s.sx, s.sy) === 0, `sx=${s.sx} sy=${s.sy}`);
@@ -344,7 +344,7 @@ async function openPage(query, { w = 393, h = 852, dpr = 3 } = {}) {
   await page.keyboard.down('KeyS');
   await sleep(500);
   s = await S();
-  check('S -> hover (-y)', s.sy < -0.9);
+  check('S -> pull back (-y, climb)', s.sy < -0.9);
   await page.keyboard.up('KeyS');
   await page.keyboard.press('Space');
   s = await S();
