@@ -22,6 +22,7 @@
 
 import type { BuildingTile } from './tiles';
 import { Arch, RoofShape } from './tiles';
+import { RoofBuild, areaCentroid, clipHalf, convexPieces, eaveY, newRoofFrame, profileOf, ringConvex, roofBuild, roofFrame, roofPlanes } from './roofGeom';
 
 export const Part = {
   SIDE: 0,
@@ -287,11 +288,16 @@ interface Group {
   cx: number;
   cz: number;
   top: number;
+  /** per record of the tile: how its mapped roof is built (RoofBuild; FLAT = flat roof + parapet) */
+  kinds: Uint8Array;
 }
 
 export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): MeshArrays {
   const B = new Builder();
-  const g: Group = { first: 0, end: 0, cx: 0, cz: 0, top: 0 };
+  // how every part's mapped roof is built, first: a shape that falls back adds no rise to the flood / pop top
+  const kinds = new Uint8Array(t.count);
+  for (let k = 0; k < t.count; k++) kinds[k] = roofBuild(t.xz, t.vertStart[k], t.vertStart[k + 1], t.roofShape[k], t.roofH[k], t.roofDir[k], t.taper[k]);
+  const g: Group = { first: 0, end: 0, cx: 0, cz: 0, top: 0, kinds };
   for (let i = 0; i < t.count; ) {
     let j = i + 1;
     while (j < t.count && t.index[j] === t.index[i]) j++;
@@ -304,7 +310,7 @@ export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): MeshArrays
     g.cx = cx / Math.max(1, e - s);
     g.cz = cz / Math.max(1, e - s);
     g.top = 0;
-    for (let k = i; k < j; k++) g.top = Math.max(g.top, t.roofY[k] + t.roofH[k], t.baseY[k] + 2.5);
+    for (let k = i; k < j; k++) g.top = Math.max(g.top, kinds[k] ? eaveY(t.baseY[k], t.roofY[k], t.tier[k]) + t.roofH[k] : t.roofY[k], t.baseY[k] + 2.5);
     for (let k = i; k < j; k++) meshBuilding(B, t, k, opts.lod, g);
     i = j;
   }
@@ -414,12 +420,12 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
   const rectangularity = rectArea > 0 ? Math.abs(area) / 2 / rectArea : 0;
   // a mapped roof shape (OSM roof:shape): its own roof; untagged Victorians keep the procedural front gables
   const shape = t.roofShape[i];
-  const shaped = shape >= RoofShape.GABLED && t.roofH[i] > 0.3 && topScale >= 1;
+  const builtShape = g.kinds[i] !== RoofBuild.FLAT;
   const gable = lod === 0 && single && isVic && shape === RoofShape.NONE && frontW > 4.5 && frontW < 11 && rectangularity > 0.82 && (seed % 100) < 38 && H < 15;
   // no parapet where the tier above rises flush from this edge
   const flush = !single && front !== 255 && flushAbove(t, g, i, fa[0], fa[1], fb[0], fb[1]);
-  // (built first: a footprint it can't roof keeps its parapet and flat roof)
-  const builtShape = shaped && shapedRoof(B, pts, roofY, t.roofH[i], shape, t.roofDir[i], front !== 255 ? front : 0, front, front2, streetY, corner);
+  // (roofBuild said whether it's built: a footprint it can't roof keeps its parapet and flat roof)
+  if (builtShape) shapedRoof(B, t, i, g.kinds[i], pts, roofY, front !== 255 ? front : 0, front, front2, streetY, corner);
   const parapet = lod === 0 && !gable && !builtShape && !flush && front !== 255 && topScale >= 1 ? (isVic ? 1.3 : isFlats ? 0.9 : arch === Arch.COMMERCIAL || arch === Arch.CIVIC ? 0.7 : arch === Arch.TOWER ? 1.2 : 0.5) : 0;
 
   // ---- walls
@@ -598,8 +604,8 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
     B.quadF([D0[0], yLow, D0[1]], [D0[0], baseY, D0[1]], [D1[0], baseY, D1[1]], [D1[0], yLow, D1[1]], [0, 0, 0, 0, 0, 0, 0, 0], Part.STOOP, OUT);
   }
 
-  // ---- chimney (Victorians) + rooftop clutter
-  if (isVic && single && (seed % 5) < 2) {
+  // ---- chimney (Victorians) + rooftop clutter (both stand on a flat roof at roofY: none on a mapped roof)
+  if (isVic && single && !builtShape && (seed % 5) < 2) {
     const side = seed & 2 ? 0.25 : 0.75;
     const depth = 0.45 + 0.3 * r();
     const px = fa[0] + ux * (s0 + (s1 - s0) * side) + inx * (t0 + (t1 - t0) * depth);
@@ -670,162 +676,116 @@ function ccw(ring: Array<[number, number]>): Array<[number, number]> {
   return a < 0 ? ring.slice().reverse() : ring;
 }
 
-// ---- shaped roofs (OpenStreetMap roof:shape, 'SBB3')
-// A planar roof is a height field over the footprint: the lowest of a few planes in the roof's frame
-// (s along the ridge, t across it, the direction byte says which way the main face looks). Each plane's
-// face is the footprint clipped to where that plane is the lowest; the walls rise above the eave where
-// the roof does (gable ends, a skillion's high side). Domes, onions, cones and pyramids on round or
-// irregular footprints are revolved: the footprint ring scaled toward its centroid, band by band.
+// ---- shaped roofs (OpenStreetMap roof:shape, 'SBB3'; the geometry is roofGeom's, which City's gameplay heights share)
+// A planar roof is a height field over the footprint: the lowest of a few planes in the roof's frame (s along the
+// ridge, t across it, the direction byte says which way the main face looks). Each plane's face is the footprint
+// where that plane is the lowest: every convex piece of the footprint (the ring itself when it is convex, else
+// roofGeom's convexPieces: its triangles merged while convex) clipped to the plane's convex region (the half-planes where it is under each other plane), so
+// the faces cover the footprint exactly, concave or not. The walls rise above the eave where the roof does
+// (gable ends, a skillion's high side). Domes, onions, cones and pyramids on odd footprints are revolved: the
+// ring scaled toward its area centroid, band by band. roofBuild (roofGeom) decided which, before Group.top.
 
-/** Planes h = a*s + b*t + c (meters above the eave) of a planar roof shape over extents [s0, s1] x [t0, t1]. */
-function roofPlanes(shape: number, s0: number, s1: number, t0: number, t1: number, R: number): number[] | null {
-  const W = t1 - t0, L = s1 - s0;
-  const kt = (2 * R) / W; // pitch of a face rising from the long side to the ridge
-  const P: number[] = [];
-  const add = (a: number, b: number, c: number) => P.push(a, b, c);
-  const front = (k: number, off = 0) => add(0, k, off - k * t0); // rises from t0
-  const back = (k: number, off = 0) => add(0, -k, off + k * t1); // rises from t1
-  const left = (k: number, off = 0) => add(k, 0, off - k * s0);
-  const right = (k: number, off = 0) => add(-k, 0, off + k * s1);
-  switch (shape) {
-    case RoofShape.GABLED: front(kt); back(kt); break;
-    case RoofShape.HIPPED: front(kt); back(kt); left(kt); right(kt); break;
-    case RoofShape.PYRAMIDAL: front(kt); back(kt); left((2 * R) / L); right((2 * R) / L); break;
-    case RoofShape.SKILLION: back(R / W); break;
-    case RoofShape.HALF_HIPPED: front(kt); back(kt); left(kt, 0.6 * R); right(kt, 0.6 * R); break;
-    case RoofShape.SALTBOX: front(R / (0.62 * W)); back(R / (0.38 * W)); break;
-    case RoofShape.GAMBREL: {
-      // a steep lower slope to 3/4 of the rise over the outer 18 % of the width, a gentle one above
-      const ks = (0.75 * R) / (0.18 * W), kg = (0.25 * R) / (0.32 * W);
-      front(ks); back(ks); front(kg, 0.75 * R - kg * 0.18 * W); back(kg, 0.75 * R - kg * 0.18 * W);
-      break;
-    }
-    case RoofShape.MANSARD: {
-      const k = R / (0.18 * Math.min(W, L));
-      front(k); back(k); left(k); right(k); add(0, 0, R);
-      break;
-    }
-    case RoofShape.ROUND: {
-      // a barrel vault: tangents of the half-ellipse across the width
-      const tm = (t0 + t1) / 2, hw = W / 2;
-      for (let j = 0; j < 6; j++) {
-        const ph = ((j + 0.5) / 6) * Math.PI;
-        const sn = Math.sin(ph), cs = Math.cos(ph);
-        // y = (R / sin) (1 - (t - tm) cos / hw)
-        add(0, (-R * cs) / (sn * hw), (R / sn) * (1 + (tm * cs) / hw));
-      }
-      break;
-    }
-    default:
-      return null;
-  }
-  return P;
-}
-
-/** Sutherland-Hodgman: the part of polygon (flat s, t pairs) where a*s + b*t + c <= 0. */
-function clipHalf(poly: number[], a: number, b: number, c: number): number[] {
-  const out: number[] = [];
-  const m = poly.length / 2;
-  for (let k = 0; k < m; k++) {
-    const s1 = poly[k * 2], t1 = poly[k * 2 + 1];
-    const k2 = (k + 1) % m;
-    const s2 = poly[k2 * 2], t2 = poly[k2 * 2 + 1];
-    const f1 = a * s1 + b * t1 + c, f2 = a * s2 + b * t2 + c;
-    if (f1 <= 1e-9) out.push(s1, t1);
-    if ((f1 < -1e-9 && f2 > 1e-9) || (f1 > 1e-9 && f2 < -1e-9)) {
-      const u = f1 / (f1 - f2);
-      out.push(s1 + (s2 - s1) * u, t1 + (t2 - t1) * u);
-    }
-  }
-  return out;
-}
-
-const DOME: Array<[number, number]> = [[1, 0], [0.924, 0.383], [0.707, 0.707], [0.383, 0.924], [0, 1]];
-const ONION: Array<[number, number]> = [[1, 0], [1.14, 0.16], [1.12, 0.33], [0.86, 0.52], [0.48, 0.7], [0.18, 0.86], [0, 1]];
-const CONE: Array<[number, number]> = [[1, 0], [0, 1]];
+const _cen = { x: 0, z: 0 };
 
 /**
- * A shaped roof on the ring pts (positive shoelace in x, z), eave at y, rising R m. Returns false when the
- * shape can't be built here (the caller draws its usual roof). startK / front / front2: the walls' facade
- * layout (u along the facade from the front edge), so gable-end walls continue the windows below.
+ * The mapped roof of record i (kind: its RoofBuild, not FLAT) on its ring pts (positive shoelace in x, z), eave
+ * at y. startK / front / front2: the walls' facade layout (u along the facade from the front edge), so gable-end
+ * walls continue the windows below.
  */
-function shapedRoof(B: Builder, pts: Array<[number, number]>, y: number, R: number, shape: number, dirByte: number,
-  startK: number, front: number, front2: number, streetY: number, corner: number): boolean {
+function shapedRoof(B: Builder, t: BuildingTile, i: number, kind: number, pts: Array<[number, number]>, y: number,
+  startK: number, front: number, front2: number, streetY: number, corner: number) {
+  const s = t.vertStart[i], e = t.vertStart[i + 1];
+  const R = t.roofH[i], shape = t.roofShape[i];
+  if (kind === RoofBuild.REVOLVE) {
+    const c = areaCentroid(t.xz, s, e, _cen);
+    revolve(B, pts, c.x, c.z, y, R, profileOf(shape));
+    return;
+  }
   const n = pts.length;
-  if (n < 3 || R < 0.3) return false;
-  const th = (dirByte / 256) * Math.PI * 2;
-  const Dx = Math.cos(th), Dz = Math.sin(th); // across the ridge (the main face looks this way)
-  const Sx = -Dz, Sz = Dx; // along the ridge
-  let cx = 0, cz = 0;
-  for (const p of pts) { cx += p[0]; cz += p[1]; }
-  cx /= n; cz /= n;
+  const f = roofFrame(t.xz, s, e, t.roofDir[i], newRoofFrame());
+  const P: number[] = [];
+  const np = roofPlanes(shape, f.s0, f.s1, f.t0, f.t1, R, P);
+  if (np === 0) return;
+  const { cx, cz, Sx, Sz, Dx, Dz } = f;
   const st: number[] = [];
-  let s0 = Infinity, s1 = -Infinity, t0 = Infinity, t1 = -Infinity, area2 = 0;
-  for (let k = 0; k < n; k++) {
-    const p = pts[k], q = pts[(k + 1) % n];
-    area2 += p[0] * q[1] - q[0] * p[1];
-    const s = (p[0] - cx) * Sx + (p[1] - cz) * Sz, t = (p[0] - cx) * Dx + (p[1] - cz) * Dz;
-    st.push(s, t);
-    s0 = Math.min(s0, s); s1 = Math.max(s1, s); t0 = Math.min(t0, t); t1 = Math.max(t1, t);
+  const ring: number[] = [];
+  for (const p of pts) {
+    st.push((p[0] - cx) * Sx + (p[1] - cz) * Sz, (p[0] - cx) * Dx + (p[1] - cz) * Dz);
+    ring.push(p[0], p[1]);
   }
-  const W = t1 - t0, L = s1 - s0;
-  if (W < 1 || L < 1) return false;
-  const rect = Math.abs(area2) / 2 / (W * L);
-  if (shape === RoofShape.DOME || shape === RoofShape.ONION || shape === RoofShape.CONE || (shape === RoofShape.PYRAMIDAL && rect < 0.8)) {
-    revolve(B, pts, y, R, shape === RoofShape.DOME ? DOME : shape === RoofShape.ONION ? ONION : CONE);
-    return true;
-  }
-  if (rect < 0.55) return false; // a planar roof over a far-from-rectangular footprint would cross courtyards
-  const P = roofPlanes(shape, s0, s1, t0, t1, R);
-  if (!P) return false;
-  const np = P.length / 3;
-  const H = (s: number, t: number) => {
+  const H = (ss: number, tt: number) => {
     let h = Infinity;
-    for (let k = 0; k < np; k++) h = Math.min(h, P[k * 3] * s + P[k * 3 + 1] * t + P[k * 3 + 2]);
+    for (let k = 0; k < np; k++) h = Math.min(h, P[k * 3] * ss + P[k * 3 + 1] * tt + P[k * 3 + 2]);
     return Math.max(0, h);
   };
-  // the faces: each plane where it is the lowest
+  // the footprint's convex pieces, in (s, t)
+  const pieces: number[][] = [];
+  if (ringConvex(ring)) pieces.push(st);
+  else {
+    for (const loop of convexPieces(ring)) {
+      const piece: number[] = [];
+      for (const v of loop) piece.push(st[v * 2], st[v * 2 + 1]);
+      pieces.push(piece);
+    }
+  }
+  // the faces: each plane where it is the lowest (a plane equal to an earlier one has no face of its own)
+  const X: number[] = [], V: number[] = [];
   for (let k = 0; k < np; k++) {
-    let poly = st;
-    for (let j = 0; j < np && poly.length >= 6; j++) {
-      if (j !== k) poly = clipHalf(poly, P[k * 3] - P[j * 3], P[k * 3 + 1] - P[j * 3 + 1], P[k * 3 + 2] - P[j * 3 + 2]);
-    }
-    const m = poly.length / 2;
-    if (m < 3) continue;
-    const xz: number[] = [];
-    let a2 = 0;
-    for (let q = 0; q < m; q++) {
-      const s = poly[q * 2], t = poly[q * 2 + 1];
-      xz.push(cx + s * Sx + t * Dx, cz + s * Sz + t * Dz);
-    }
-    for (let q = 0; q < m; q++) {
-      const q2 = (q + 1) % m;
-      a2 += xz[q * 2] * xz[q2 * 2 + 1] - xz[q2 * 2] * xz[q * 2 + 1];
-    }
-    if (Math.abs(a2) < 0.05) continue;
-    const a = P[k * 3], b = P[k * 3 + 1];
+    const a = P[k * 3], b = P[k * 3 + 1], c0 = P[k * 3 + 2];
+    let dup = false;
+    for (let j = 0; j < k; j++) if (Math.abs(a - P[j * 3]) < 1e-9 && Math.abs(b - P[j * 3 + 1]) < 1e-9 && Math.abs(c0 - P[j * 3 + 2]) < 1e-9) dup = true;
+    if (dup) continue;
     const hx = a * Sx + b * Dx, hz = a * Sz + b * Dz;
     const nl = Math.hypot(hx, 1, hz);
     const part = Math.hypot(hx, hz) > 0.12 ? Part.ROOF_SLOPE : Part.ROOF;
-    const tris = triangulate(xz);
-    const base = B.vc;
-    for (let q = 0; q < m; q++) {
-      const h = Math.max(0, a * poly[q * 2] + b * poly[q * 2 + 1] + P[k * 3 + 2]);
-      B.vert(xz[q * 2], y + h, xz[q * 2 + 1], -hx / nl, 1 / nl, -hz / nl, xz[q * 2], xz[q * 2 + 1], part);
-    }
-    for (let q = 0; q < tris.length; q += 3) {
-      if (a2 > 0) B.idx.push(base + tris[q], base + tris[q + 2], base + tris[q + 1]);
-      else B.idx.push(base + tris[q], base + tris[q + 1], base + tris[q + 2]);
+    // (one face's pieces share their vertices where they meet)
+    const at = new Map<number, number>();
+    for (const piece of pieces) {
+      let poly = piece;
+      for (let j = 0; j < np && poly.length >= 6; j++) {
+        if (j !== k) poly = clipHalf(poly, a - P[j * 3], b - P[j * 3 + 1], c0 - P[j * 3 + 2]);
+      }
+      const m = poly.length / 2;
+      if (m < 3) continue;
+      X.length = 0;
+      for (let q = 0; q < m; q++) X.push(cx + poly[q * 2] * Sx + poly[q * 2 + 1] * Dx, cz + poly[q * 2] * Sz + poly[q * 2 + 1] * Dz);
+      let a2 = 0;
+      for (let q = 0; q < m; q++) {
+        const q2 = (q + 1) % m;
+        a2 += (X[q * 2] - cx) * (X[q2 * 2 + 1] - cz) - (X[q2 * 2] - cx) * (X[q * 2 + 1] - cz);
+      }
+      if (Math.abs(a2) < 1e-6) continue;
+      V.length = 0;
+      for (let q = 0; q < m; q++) {
+        const key = Math.round((X[q * 2] - cx) * 1e4) * 1e8 + Math.round((X[q * 2 + 1] - cz) * 1e4);
+        let vi = at.get(key);
+        if (vi === undefined) {
+          const h = Math.max(0, a * poly[q * 2] + b * poly[q * 2 + 1] + c0);
+          vi = B.vert(X[q * 2], y + h, X[q * 2 + 1], -hx / nl, 1 / nl, -hz / nl, X[q * 2], X[q * 2 + 1], part);
+          at.set(key, vi);
+        }
+        V.push(vi);
+      }
+      // (a convex piece: a fan; CCW in (x, z) with +z south faces up with the winding reversed)
+      for (let q = 1; q + 1 < m; q++) {
+        if (V[q] === V[0] || V[q + 1] === V[0] || V[q] === V[q + 1]) continue;
+        if (a2 > 0) B.idx.push(V[0], V[q + 1], V[q]);
+        else B.idx.push(V[0], V[q], V[q + 1]);
+      }
     }
   }
-  // the walls above the eave: wherever the roof meets an outer wall above the eave (gable ends)
+  // the walls above the eave: wherever the roof meets an outer wall above the eave (gable ends). The roof's
+  // height along an edge is the same min of planes whatever the ring's shape, so concave rings close too.
   let u = 0;
   const us: number[] = [];
   for (let j = 0; j < n; j++) {
     const k = (startK + j) % n, k2 = (k + 1) % n;
     const ax = pts[k][0], az = pts[k][1], bx = pts[k2][0], bz = pts[k2][1];
     const L2 = Math.hypot(bx - ax, bz - az);
-    if (L2 < 0.05) continue;
+    if (L2 < 0.05) {
+      u += L2;
+      continue;
+    }
     const sa = st[k * 2], ta = st[k * 2 + 1], sb = st[k2 * 2], tb = st[k2 * 2 + 1];
     us.length = 0;
     us.push(0, 1);
@@ -862,22 +822,11 @@ function shapedRoof(B: Builder, pts: Array<[number, number]>, y: number, R: numb
     }
     u += L2;
   }
-  return true;
 }
 
-/** A roof of revolution: the ring scaled toward its area centroid by profile[j][0] at y + R * profile[j][1]. */
-function revolve(B: Builder, pts: Array<[number, number]>, y: number, R: number, profile: Array<[number, number]>) {
+/** A roof of revolution: the ring scaled toward (cx, cz) (its area centroid) by profile[j][0] at y + R * profile[j][1]. */
+function revolve(B: Builder, pts: Array<[number, number]>, cx: number, cz: number, y: number, R: number, profile: ReadonlyArray<readonly [number, number]>) {
   const n = pts.length;
-  let ac = 0, acx = 0, acz = 0;
-  for (let k = 0; k < n; k++) {
-    const a = pts[k], b = pts[(k + 1) % n];
-    const cr = a[0] * b[1] - b[0] * a[1];
-    ac += cr; acx += (a[0] + b[0]) * cr; acz += (a[1] + b[1]) * cr;
-  }
-  let cx = 0, cz = 0;
-  for (const p of pts) { cx += p[0]; cz += p[1]; }
-  cx /= n; cz /= n;
-  if (Math.abs(ac) > 1e-6) { cx = acx / (3 * ac); cz = acz / (3 * ac); }
   const P = (k: number, j: number): V3 => {
     const sg = profile[j][0];
     return [cx + (pts[k % n][0] - cx) * sg, y + R * profile[j][1], cz + (pts[k % n][1] - cz) * sg];

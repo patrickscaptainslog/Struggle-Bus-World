@@ -10,6 +10,7 @@ import { parseFar, type CityManifest, type FarData, type BuildingTile, type Terr
 import { loadRegion, type RegionRequest, type RegionResponse, type TileResult } from './regionLoader';
 import type { MeshArrays } from './BuildingMesher';
 import { treeCrown } from './props/trees';
+import { RoofBuild, eaveY, newRoofFrame, roofBuild, roofFrame, roofSurfaceY, type RoofFrame } from './roofGeom';
 
 // Streams the baked city around the bus: region bundles are fetched and
 // meshed in a worker, tiles appear inside the fog, far ones are dropped.
@@ -27,7 +28,9 @@ export interface BuildingRef {
   cx: number;
   cz: number;
   baseY: number; // ground
-  roofY: number; // top of the highest tier
+  roofY: number; // top of the highest tier (a built mapped roof's ridge / apex: its eave + roofH)
+  /** per record of `tile` (shared by the tile's refs): how its mapped roof is built (RoofBuild; FLAT = flat at roofY) */
+  roofBuild: Uint8Array;
   area: number; // footprint area
   hood: number;
   /** footprint bounds (its ground-tier rings) and the farthest footprint vertex from (cx, cz) (m) */
@@ -98,6 +101,34 @@ function ringContains(b: BuildingTile, k: number, x: number, z: number): boolean
     if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
   }
   return inside;
+}
+
+const rectFrame = newRoofFrame();
+/** roofRect's sample grid on a mapped roof: RECT_N x RECT_N roof heights (-Infinity off the ring), i along the ridge */
+const RECT_N = 17;
+const rectY = new Float64Array(RECT_N * RECT_N);
+
+/** Share of the turf of a roof rect (in the roof frame f: center cs, ct; w along S, d along D) over record k's ring. */
+function rectOnRing(b: BuildingTile, k: number, f: RoofFrame, cs: number, ct: number, w: number, d: number): number {
+  const hw = Math.max(0, w - 0.9) / 2, hd = Math.max(0, d - 0.9) / 2;
+  let n = 0;
+  for (let i = -2; i <= 2; i++)
+    for (let j = -2; j <= 2; j++) {
+      const ss = cs + (hw * i) / 2, tt = ct + (hd * j) / 2;
+      if (ringContains(b, k, f.cx + ss * f.Sx + tt * f.Dx, f.cz + ss * f.Sz + tt * f.Dz)) n++;
+    }
+  return n / 25;
+}
+
+/** Top of record k as drawn: a built mapped roof's ridge / apex (eave + rise), else its flat roof (roofY). */
+function partTop(b: BuildingTile, kinds: Uint8Array, k: number): number {
+  return kinds[k] !== RoofBuild.FLAT ? eaveY(b.baseY[k], b.roofY[k], b.tier[k]) + b.roofH[k] : b.roofY[k];
+}
+
+/** Roof height of record k at (x, z) inside its ring, as BuildingMesher draws it (a mapped roof's slope, else roofY). */
+function partRoofAt(b: BuildingTile, kinds: Uint8Array, k: number, x: number, z: number): number {
+  if (kinds[k] === RoofBuild.FLAT) return b.roofY[k];
+  return roofSurfaceY(b.xz, b.vertStart[k], b.vertStart[k + 1], eaveY(b.baseY[k], b.roofY[k], b.tier[k]), b.roofH[k], b.roofShape[k], b.roofDir[k], x, z);
 }
 
 /** Area of record k's ring (m^2). */
@@ -763,12 +794,15 @@ export class City {
     if (t.mesh && !coarse) lt.buildings = this.makeBuildingMesh(t.mesh);
     if (t.building) {
       const b = t.building;
+      // how each part's mapped roof is built (as the mesher decides it): gameplay heights follow the drawn roofs
+      const kinds = new Uint8Array(b.count);
+      for (let k = 0; k < b.count; k++) kinds[k] = roofBuild(b.xz, b.vertStart[k], b.vertStart[k + 1], b.roofShape[k], b.roofH[k], b.roofDir[k], b.taper[k]);
       for (let i = 0; i < b.count; ) {
         // a building's tiers are consecutive records sharing its paint index: one ref for all of them
         let j = i + 1;
         let top = i;
         while (j < b.count && b.index[j] === b.index[i]) {
-          if (b.roofY[j] > b.roofY[top]) top = j;
+          if (partTop(b, kinds, j) > partTop(b, kinds, top)) top = j;
           j++;
         }
         const s = b.vertStart[i], e = b.vertStart[i + 1];
@@ -794,7 +828,7 @@ export class City {
             rad = Math.max(rad, Math.hypot(vx - cx, vz - cz));
           }
         }
-        const ref: BuildingRef = { index: b.index[i], stableId: b.stableId[i], tile: b, local: i, parts: j - i, top, cx, cz, baseY: b.groundY[i], roofY: b.roofY[top], area: Math.abs(area) / 2, hood: b.hood[i], x0, z0, x1, z1, rad, q: 0 };
+        const ref: BuildingRef = { index: b.index[i], stableId: b.stableId[i], tile: b, local: i, parts: j - i, top, cx, cz, baseY: b.groundY[i], roofY: partTop(b, kinds, top), roofBuild: kinds, area: Math.abs(area) / 2, hood: b.hood[i], x0, z0, x1, z1, rad, q: 0 };
         i = j;
         lt.refs.push(ref);
         if (ref.roofY + 6 > lt.maxY) lt.maxY = ref.roofY + 6;
@@ -953,7 +987,8 @@ export class City {
     let cur = -1, top = -Infinity;
     const flush = () => {
       const ref = cur >= 0 ? byIndex.get(cur) : undefined;
-      if (ref && top > ref.roofY + 0.3) this.raiseCells(tr, ref.x0 - 3, ref.z0 - 3, ref.x1 + 3, ref.z1 + 3, top, (x, z) => this.edgeDistance(ref, x, z) <= 3);
+      // (against the flat roof / eave the bake's grid holds: a gabled house's ridge lifts its cells too)
+      if (ref && top > ref.tile.roofY[ref.top] + 0.3) this.raiseCells(tr, ref.x0 - 3, ref.z0 - 3, ref.x1 + 3, ref.z1 + 3, top, (x, z) => this.edgeDistance(ref, x, z) <= 3);
     };
     for (let v = 0; v < m.vertexCount; v++) {
       const id = m.bld[v * 4];
@@ -1238,11 +1273,16 @@ export class City {
   }
 
   /** Roof height of ref right at (x, z): the highest of its parts covering the point (a tiered
-   * tower's podium roof is not the top of its tower), or ref.roofY if none does. */
+   * tower's podium roof is not the top of its tower; a mapped roof's slope where the point is, as drawn),
+   * or ref.roofY if none does. No allocation (the aim calls it every frame). */
   roofAtPart(ref: BuildingRef, x: number, z: number): number {
-    const b = ref.tile;
+    const b = ref.tile, kinds = ref.roofBuild;
     let y = -Infinity;
-    for (let k = ref.local; k < ref.local + ref.parts; k++) if (b.roofY[k] > y && ringContains(b, k, x, z)) y = b.roofY[k];
+    for (let k = ref.local; k < ref.local + ref.parts; k++) {
+      if (partTop(b, kinds, k) <= y || !ringContains(b, k, x, z)) continue;
+      const ry = partRoofAt(b, kinds, k, x, z);
+      if (ry > y) y = ry;
+    }
     return y > -Infinity ? y : ref.roofY;
   }
 
@@ -1272,14 +1312,83 @@ export class City {
   }
 
   /** Oriented roof rectangle (for rooftop sprouts), aligned with the street front: the roof of the
-   * highest tier that is a real roof (a fifth of the footprint or more), not a crown or a penthouse. */
+   * highest tier that is a real roof (a fifth of the footprint or more), not a crown or a penthouse. On a
+   * mapped roof (gabled, hipped, domed...) it is a deck along the roof's crest instead, aligned with the
+   * ridge, its turf just over the top (the drawn roof's heights, roofSurfaceY). No allocation. */
   roofRect(ref: BuildingRef): { cx: number; cz: number; y: number; w: number; d: number; yaw: number } {
     const f = this.frontOf(ref);
     const ux = -f.nz, uz = f.nx;
-    const b = ref.tile;
+    const b = ref.tile, kinds = ref.roofBuild;
     let top = ref.local;
-    for (let k = ref.local + 1; k < ref.local + ref.parts; k++) if (b.roofY[k] > b.roofY[top] && ringArea(b, k) >= 0.2 * ref.area) top = k;
+    for (let k = ref.local + 1; k < ref.local + ref.parts; k++) if (partTop(b, kinds, k) > partTop(b, kinds, top) && ringArea(b, k) >= 0.2 * ref.area) top = k;
     const s = b.vertStart[top], e = b.vertStart[top + 1];
+    if (kinds[top] !== RoofBuild.FLAT) {
+      // a mapped (pitched, domed) roof: the garden is a deck riding the crest (like Amsterdam's roof terraces),
+      // not a flat mat at the eave (buried in the slopes) or a lid at the ridge over the whole footprint (hiding
+      // the roof's shape). On a 17 x 17 grid in the roof frame (i along the ridge, S; j across, D): the deck runs
+      // along the row of the top sample over one unbroken run of crest samples (the roof within `band` of its
+      // top; a ridge crossing a notch or a courtyard has several: the longest at the top), as deep as the crest
+      // is unbroken across those columns, and at least 3.2 m each way where the roof is that big, so the
+      // garden's lawn, centerpiece and bunting fit (sprouts' layout wants 2.2 / 2.6 / 3 m), as long as its turf
+      // stays on the roof. Its turf (0.1 m under the deck's y to 0.22 over it) just covers the top
+      const fr = roofFrame(b.xz, s, e, b.roofDir[top], rectFrame);
+      const band = Math.max(0.6, 0.3 * b.roofH[top]);
+      const N = RECT_N - 1;
+      const L = fr.s1 - fr.s0, W = fr.t1 - fr.t0, ds = L / N, dt = W / N;
+      let hi = -Infinity, jTop = -1;
+      for (let i = 0; i <= N; i++)
+        for (let j = 0; j <= N; j++) {
+          const ss = fr.s0 + ds * i, tt = fr.t0 + dt * j;
+          const x = fr.cx + ss * fr.Sx + tt * fr.Dx, z = fr.cz + ss * fr.Sz + tt * fr.Dz;
+          const y = ringContains(b, top, x, z) ? partRoofAt(b, kinds, top, x, z) : -Infinity;
+          rectY[i * RECT_N + j] = y;
+          if (y > hi) {
+            hi = y;
+            jTop = j;
+          }
+        }
+      // the runs of crest samples along the top's row: the longest that reaches the top
+      let i0 = -1, i1 = -1, bestTop = false;
+      for (let i = 0; i <= N; ) {
+        if (!(rectY[i * RECT_N + jTop] >= hi - band)) {
+          i++;
+          continue;
+        }
+        let k = i, atTop = false;
+        for (; k <= N && rectY[k * RECT_N + jTop] >= hi - band; k++) if (rectY[k * RECT_N + jTop] >= hi - 0.05) atTop = true;
+        if (i0 < 0 || (atTop && !bestTop) || (atTop === bestTop && k - 1 - i > i1 - i0)) {
+          i0 = i;
+          i1 = k - 1;
+          bestTop = atTop;
+        }
+        i = k;
+      }
+      if (i0 >= 0) {
+        // across: the crest unbroken from the top's row, in each of the run's columns
+        let j0 = jTop, j1 = jTop;
+        for (let i = i0; i <= i1; i++) {
+          let a = jTop, c = jTop;
+          while (a > 0 && rectY[i * RECT_N + a - 1] >= hi - band) a--;
+          while (c < N && rectY[i * RECT_N + c + 1] >= hi - band) c++;
+          if (a < j0) j0 = a;
+          if (c > j1) j1 = c;
+        }
+        const w0 = 0.92 * ds * (i1 - i0), d0 = dt * (j1 - j0);
+        let cs = fr.s0 + (ds * (i0 + i1)) / 2, ct = fr.t0 + (dt * (j0 + j1)) / 2;
+        let w = Math.max(w0, Math.min(3.2, 0.86 * L)), d = Math.max(d0, Math.min(3.2, 0.86 * W));
+        // (kept inside the roof's extents: a skillion's crest is its high edge)
+        const ws = Math.min(Math.max(cs, fr.s0 + w / 2), fr.s1 - w / 2), dts = Math.min(Math.max(ct, fr.t0 + d / 2), fr.t1 - d / 2);
+        if (rectOnRing(b, top, fr, ws, dts, w, d) >= 0.7) {
+          cs = ws;
+          ct = dts;
+        } else {
+          // widened, the deck would hang off the roof (a notch beside a short ridge): the crest alone
+          w = w0;
+          d = d0;
+        }
+        return { cx: fr.cx + cs * fr.Sx + ct * fr.Dx, cz: fr.cz + cs * fr.Sz + ct * fr.Dz, y: hi - 0.12, w: Math.max(1.2, w), d: Math.max(1.2, d), yaw: Math.atan2(fr.Sx, fr.Sz) };
+      }
+    }
     let s0 = Infinity, s1 = -Infinity, t0 = Infinity, t1 = -Infinity;
     for (let k = s; k < e; k++) {
       const x = b.xz[k * 2] - ref.cx, z = b.xz[k * 2 + 1] - ref.cz;
