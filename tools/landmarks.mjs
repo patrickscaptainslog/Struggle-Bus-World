@@ -354,8 +354,12 @@ if (modes.has('perf')) {
   await p3.evaluate(() => (window.__qa = {}));
   const pose = await p3.evaluate(() => window.__lm.snap());
   const sample = async (tag) => {
+    // (the same pose, everything streamed in: draws and triangles depend on what has been adopted)
     await p3.evaluate((s) => window.__lm.restore(s), pose);
-    await runFor(p3, 0.6);
+    await until(p3, '!g.city.busy', 60);
+    await runFor(p3, 0.5);
+    await p3.evaluate((s) => window.__lm.restore(s), pose);
+    await runFor(p3, 0.3);
     return p3.evaluate(
       (tag) =>
         new Promise((res) => {
