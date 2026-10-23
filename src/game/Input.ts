@@ -193,6 +193,9 @@ export class Input {
   private prSrc: Src = Src.None;
   private prT0 = 0;
   private prCharging = false;
+  /** a frame saw the press past the threshold: the next frame that still sees it starts the charge (a release
+   *  queued behind one slow frame is still a tap: its timestamp says how long it really was) */
+  private prArmed = false;
   // tilt mode: this gesture swiped (a gear shift); the boost held by a swipe up, the HUD lever, Shift
   private gSwiped = false;
   private swipeHold = false;
@@ -280,9 +283,11 @@ export class Input {
     this.modeV = m;
   }
 
-  /** The HUD's splat button (touch mode): pressed / released; `cancelled` = the finger slid off it. */
-  splatButton(down: boolean, cancelled = false): void {
-    const now = performance.now();
+  /** The HUD's splat button (touch mode): pressed / released; `cancelled` = the finger slid off it; `at` = the
+   *  event's timeStamp (ms, performance clock), so a slow frame can't stretch a tap into a hold. */
+  splatButton(down: boolean, cancelled = false, at?: number): void {
+    const t = performance.now();
+    const now = at !== undefined && at > 0 && at <= t + 50 && t - at < 1000 ? at : t;
     if (down) {
       this.fireFirstGesture();
       if (this.pressBegin(Src.Button, now)) this.onPress?.();
@@ -372,6 +377,7 @@ export class Input {
     this.prSrc = src;
     this.prT0 = now;
     this.prCharging = false;
+    this.prArmed = false;
     return true;
   }
 
@@ -380,6 +386,10 @@ export class Input {
     if (this.prSrc === Src.None) return;
     const held = (now - this.prT0) / 1000;
     if (!this.prCharging && held >= config.splat.holdThreshold) {
+      if (!this.prArmed) {
+        this.prArmed = true;
+        return;
+      }
       this.prCharging = true;
       this.state.chargeHeld = held;
       this.onChargeStart?.();
