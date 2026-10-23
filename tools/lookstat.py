@@ -12,7 +12,12 @@
 # and the same after block matching (12x12 game-px blocks, each with its own best shift within
 # +-4 px): what local motion (parallax) can't explain either, i.e. dither churn and crawl; and
 # 'vis', the block-matched changes that are visible: a luma step over 0.04 (half a ramp step; a
-# hue-only flip between two ramps of the same value doesn't count).
+# hue-only flip between two ramps of the same value doesn't count); and 'hue', the block-matched
+# changes where either side is a chromatic (paint, bus, sign) color: hue-only flips included.
+# 'chk' (per frame, not a pair): the share of pixels inside a 2x2 checker cell (a b / b a, a != b), the
+# dithered stripes and contours a still frame shows.
+# GPX=<n> sets the device pixels per game pixel (default 5: 240 px wide at 3x; 3 for 390 px wide).
+import os
 import sys
 from importlib.machinery import SourceFileLoader
 import numpy as np
@@ -41,8 +46,9 @@ def dilate(m, r):
     return out
 
 def main(pre, k=0, bands=8, m=4, quiet=False):
-    A = sh.game_px(f'{pre}-seq-{k}.png')
-    B = sh.game_px(f'{pre}-seq-{k + 1}.png')
+    S = int(os.environ.get('GPX', '5'))
+    A = sh.game_px(f'{pre}-seq-{k}.png', S)
+    B = sh.game_px(f'{pre}-seq-{k + 1}.png', S)
     h = min(A.shape[0], B.shape[0]); w = min(A.shape[1], B.shape[1])
     KA, KB = key(A[:h, :w]), key(B[:h, :w])
     res = np.zeros((h, w), bool)
@@ -63,7 +69,10 @@ def main(pre, k=0, bands=8, m=4, quiet=False):
     # block-matched residual
     resb = np.zeros((h, w), bool)
     resv = np.zeros((h, w), bool)
+    resh = np.zeros((h, w), bool)
     validb = np.zeros((h, w), bool)
+    CA = (A[:h, :w].max(axis=2) - A[:h, :w].min(axis=2)) > 40
+    CB = (B[:h, :w].max(axis=2) - B[:h, :w].min(axis=2)) > 40
     LA = (A[:h, :w] @ np.array([0.299, 0.587, 0.114])) / 255.0
     LB = (B[:h, :w] @ np.array([0.299, 0.587, 0.114])) / 255.0
     bs = 12
@@ -80,6 +89,7 @@ def main(pre, k=0, bands=8, m=4, quiet=False):
             resb[y0:y0 + bs, x0:x0 + bs] = best[1]
             _, _, sx, sy = best
             resv[y0:y0 + bs, x0:x0 + bs] = np.abs(LA[y0:y0 + bs, x0:x0 + bs] - LB[y0 + sy:y0 + sy + bs, x0 + sx:x0 + sx + bs]) > 0.04
+            resh[y0:y0 + bs, x0:x0 + bs] = best[1] & (CA[y0:y0 + bs, x0:x0 + bs] | CB[y0 + sy:y0 + sy + bs, x0 + sx:x0 + sx + bs])
             validb[y0:y0 + bs, x0:x0 + bs] = True
     fog = member(KA, FOG)
     other = ~fog
@@ -90,15 +100,21 @@ def main(pre, k=0, bands=8, m=4, quiet=False):
     trees = member(KA, GREEN)
     top = np.zeros((h, w), bool)
     top[: int(h * 0.15), :] = True
+    # 2x2 checker cells in frame A
+    c = (KA[:-1, :-1] == KA[1:, 1:]) & (KA[:-1, 1:] == KA[1:, :-1]) & (KA[:-1, :-1] != KA[:-1, 1:])
+    chk = np.zeros((h, w), bool)
+    chk[:-1, :-1] |= c; chk[1:, 1:] |= c; chk[:-1, 1:] |= c; chk[1:, :-1] |= c
     out = {}
     for name, msk in [('all', valid), ('sky', sky & valid), ('fogband', band & valid), ('trees', trees & valid), ('top15', top & valid)]:
         n = int(msk.sum())
         mb = msk & validb
         out[name] = (round(100.0 * float(res[msk].mean()), 2) if n else None, round(100.0 * float(resb[mb].mean()), 2) if mb.sum() else None,
-                     round(100.0 * float(resv[mb].mean()), 2) if mb.sum() else None, n)
+                     round(100.0 * float(resv[mb].mean()), 2) if mb.sum() else None, n,
+                     round(100.0 * float(resh[mb].mean()), 2) if mb.sum() else None,
+                     round(100.0 * float(chk[msk].mean()), 2) if n else None)
     if not quiet:
-        print(f'{pre} [{k}->{k + 1}]:  region band-shift% / block-matched% / visible% (pixels)')
-        print('   ' + '  '.join(f'{k} {v[0]} / {v[1]} / {v[2]} ({v[3]})' for k, v in out.items()))
+        print(f'{pre} [{k}->{k + 1}]:  region band-shift% / block-matched% / visible% / hue% / chk% (pixels)')
+        print('   ' + '  '.join(f'{k} {v[0]} / {v[1]} / {v[2]} / {v[4]} / {v[5]} ({v[3]})' for k, v in out.items()))
     return out
 
 if __name__ == '__main__':
@@ -111,5 +127,5 @@ if __name__ == '__main__':
         if n > 1:
             keys = rows[0].keys()
             mean = lambda k, j: round(sum((r[k][j] or 0) for r in rows) / n, 2)
-            print(f'{p}: mean of {n} pairs  region band-shift% / block-matched% / visible% (pixels)')
-            print('   ' + '  '.join(f'{k} {mean(k, 0)} / {mean(k, 1)} / {mean(k, 2)} ({rows[0][k][3]})' for k in keys))
+            print(f'{p}: mean of {n} pairs  region band-shift% / block-matched% / visible% / hue% / chk% (pixels)')
+            print('   ' + '  '.join(f'{k} {mean(k, 0)} / {mean(k, 1)} / {mean(k, 2)} / {mean(k, 4)} / {mean(k, 5)} ({rows[0][k][3]})' for k in keys))

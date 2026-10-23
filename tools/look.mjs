@@ -17,8 +17,11 @@
 // --seq adds frame pairs exactly 1/30 s apart (<scene>-seq-0/1.png) at ladies
 // cruise, dolores cruise and alt120 for shimmer counts (tools/lookstat.py);
 // --seqn=N captures N consecutive frames instead (N-1 pairs, averaged by lookstat).
+// --quick skips the ladies slow / surge frames (a shimmer-only run).
 // --tune sets the tuning panel's saved overrides (sb.tuning.v1 config paths)
-// before load: try numbers without a rebuild.
+// before load: try numbers without a rebuild; --tuneg='{"Props":{"treeFine":0}}' the same for
+// registered tunable groups; --q=fog appends to every scene's query (&fog, &px=240).
+// PW_WS=<ws endpoint> connects to tools/pw-server.mjs (several runs share one browser).
 // SwiftShader renders ~1.5 fps: everything waits on the game clock, never wall time.
 import { chromium } from 'playwright-core';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -30,9 +33,12 @@ const [base = 'http://127.0.0.1:4741/', out = 'shots/look', ...sceneArgs] = pos;
 const scenes = new Set(sceneArgs.length ? sceneArgs : ['ladies', 'dolores', 'twinpeaks', 'fidi', 'alt120', 'opening', 'sign']);
 const withSeq = !!opt.seq || !!opt.seqn;
 const tune = opt.tune ? JSON.parse(opt.tune) : null;
+const tuneg = opt.tuneg ? JSON.parse(opt.tuneg) : {};
+const extraQ = opt.q ? '&' + opt.q : '';
 mkdirSync(out, { recursive: true });
 
-const browser = await chromium.launch({
+// (PW_WS: connect to a running tools/pw-server.mjs instead of launching a browser)
+const browser = process.env.PW_WS ? await chromium.connect(process.env.PW_WS, { timeout: 60000 }) : await chromium.launch({
   executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
 });
@@ -46,10 +52,10 @@ async function open(query) {
   await page.addInitScript((t) => {
     try {
       localStorage.clear();
-      if (t) localStorage.setItem('sb.tuning.v1', JSON.stringify({ config: t, groups: {} }));
+      if (t[0] || Object.keys(t[1]).length) localStorage.setItem('sb.tuning.v1', JSON.stringify({ config: t[0] ?? {}, groups: t[1] }));
     } catch {}
-  }, tune);
-  await page.goto(base + query + `&fixeddt=${DT}`, { waitUntil: 'load' });
+  }, [tune, tuneg]);
+  await page.goto(base + query + extraQ + `&fixeddt=${DT}`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 400000 });
   return page;
 }
@@ -102,6 +108,7 @@ if (scenes.has('ladies')) {
   await runHold(page, 3); // released: cruise
   await shot(page, 'ladies-cruise');
   await pair(page, 'ladies');
+  if (opt.quick) { await page.close(); } else {
   await release(page);
   await drift(page, 6);
   await runHold(page, 3.5);
@@ -111,6 +118,7 @@ if (scenes.has('ladies')) {
   await runHold(page, 2.5);
   await shot(page, 'ladies-surge');
   await page.close();
+  }
 }
 
 if (scenes.has('dolores')) {
