@@ -2,7 +2,14 @@
 // Detail by type: Victorians get bay windows, cornices, false fronts or
 // front-facing gables, chimneys and stoops; flats get stacked bays; commercial
 // and towers get parapets and rooftop clutter. Walls are split into a few
-// segments so painted buildings can wobble.
+// segments so painted buildings can wobble (8 m columns; a party wall hidden
+// against its neighbor gets one column).
+//
+// The sun pass draws a separate caster proxy of every full-detail tile
+// (meshCasterTile): the same building code run through a Builder in caster
+// mode, which keeps positions only, draws every wall as one quad and drops
+// whatever the shadow bias would hide anyway (trim and clutter under
+// CASTER_MIN_H tall, the down-facing undersides).
 //
 // LiDAR-tiered towers arrive as several parts (consecutive records sharing a
 // paint index): each part is extruded from the top of the tier below. Street
@@ -43,8 +50,35 @@ export interface MeshArrays {
   meta: Uint8Array;
   bld: Float32Array;
   bld2: Float32Array;
-  index: Uint32Array;
+  /** Uint16 when the mesh has fewer than 65535 vertices (0xFFFF is the primitive restart index in WebGL2) */
+  index: Uint16Array | Uint32Array;
   vertexCount: number;
+}
+
+/** Sun-pass caster proxy of a full-detail tile: positions only (see meshCasterTile). */
+export interface CasterArrays {
+  position: Float32Array;
+  index: Uint16Array | Uint32Array;
+  vertexCount: number;
+}
+
+/**
+ * Parts shorter than this (m) never cast in the caster proxy: the sun pass's
+ * depth bias (0.0009 of a 3 km depth range = 2.7 m along the ray, ~1.15 m of
+ * height at the 25 deg sun) already swallows their shadows (cornices, belt
+ * courses, bay and parapet caps, small roof vents).
+ */
+export const CASTER_MIN_H = 1.2;
+/** Wall column length (m): only the painted wobble (a ~30 m wave) needs columns. */
+export const WALL_SEG = 8;
+/** segLen for party walls: one column, but still two rows like their neighbors (no T-junctions under the wobble). */
+const PARTY_SEG = 98;
+/** A wall rising more than this (m) above its neighbor's roof shows (stepped hillside rows): it keeps its columns. */
+const PARTY_EXPOSED = 1.0;
+
+/** Index array of the smallest type that holds `vertexCount` vertices. */
+export function indexArray(idx: ArrayLike<number>, vertexCount: number): Uint16Array | Uint32Array {
+  return vertexCount < 65535 ? Uint16Array.from(idx) : Uint32Array.from(idx);
 }
 
 class Builder {
@@ -59,8 +93,12 @@ class Builder {
   // current building context
   cur = { index: 0, cx: 0, cz: 0, baseY: 0, roofY: 0, arch: 0, seed: 0, flags: 0, frontW: 0 };
 
+  /** caster mode: positions only, one quad per wall, no parts the shadow bias hides */
+  constructor(readonly caster = false) {}
+
   vert(x: number, y: number, z: number, nx: number, ny: number, nz: number, u: number, v: number, part: number, flags = this.cur.flags) {
     this.pos.push(x, y, z);
+    if (this.caster) return this.vc++;
     this.nrm.push(Math.round(nx * 127), Math.round(ny * 127), Math.round(nz * 127));
     this.fac.push(u, v);
     this.meta.push(part, this.cur.arch, this.cur.seed, flags);
@@ -87,6 +125,8 @@ class Builder {
 
   /** quad() that flips its winding if needed so the face points along `want`. */
   quadF(p0: V3, p1: V3, p2: V3, p3: V3, uv: [number, number, number, number, number, number, number, number], part: number, want: V3, flags?: number) {
+    // (an underside never shows in the sun pass: whatever it could shadow, the face above it already does)
+    if (this.caster && want[1] < -0.5) return;
     const n = faceNormal(p0, p1, p2);
     if (n[0] * want[0] + n[1] * want[1] + n[2] * want[2] < 0) this.quad(p3, p2, p1, p0, [uv[6], uv[7], uv[4], uv[5], uv[2], uv[3], uv[0], uv[1]], part, flags);
     else this.quad(p0, p1, p2, p3, uv, part, flags);
@@ -114,9 +154,9 @@ class Builder {
     if (L < 0.05 || y1 - y0 < 0.05) return;
     const nx = dz / L;
     const nz = -dx / L;
-    const cols = Math.max(1, Math.min(6, Math.round(L / segLen)));
+    const cols = this.caster ? 1 : Math.max(1, Math.min(6, Math.round(L / segLen)));
     const h = y1 - y0;
-    const rows = h > 7 && segLen < 99 ? 2 : 1;
+    const rows = !this.caster && h > 7 && segLen < 99 ? 2 : 1;
     const base = this.vc;
     for (let r = 0; r <= rows; r++) {
       const y = y0 + (h * r) / rows;
@@ -149,8 +189,8 @@ class Builder {
     let nx = ez * my, ny = ex * mz - ez * mx, nz = -ex * my;
     const nl = Math.hypot(nx, ny, nz) || 1;
     nx /= nl; ny /= nl; nz /= nl;
-    const cols = Math.max(1, Math.min(6, Math.round(L / segLen)));
-    const rows = y1 - y0 > 7 && segLen < 99 ? 2 : 1;
+    const cols = this.caster ? 1 : Math.max(1, Math.min(6, Math.round(L / segLen)));
+    const rows = !this.caster && y1 - y0 > 7 && segLen < 99 ? 2 : 1;
     const base = this.vc;
     for (let r = 0; r <= rows; r++) {
       const k = r / rows;
@@ -172,6 +212,10 @@ class Builder {
 
   /** Axis-free box: footprint quad (CCW in x,z), y range. All 6 faces (bottom optional). */
   prism(pts: Array<[number, number]>, y0: number, y1: number, part: number, uBase = 0, vBase = 0, bottom = false, flags?: number) {
+    if (this.caster) {
+      if (y1 - y0 < CASTER_MIN_H) return;
+      bottom = false;
+    }
     const n = pts.length;
     let u = uBase;
     for (let i = 0; i < n; i++) {
@@ -200,9 +244,13 @@ class Builder {
       meta: new Uint8Array(this.meta),
       bld: new Float32Array(this.bld),
       bld2: new Float32Array(this.bld2),
-      index: new Uint32Array(this.idx),
+      index: indexArray(this.idx, this.vc),
       vertexCount: this.vc,
     };
+  }
+
+  finishCaster(): CasterArrays {
+    return { position: new Float32Array(this.pos), index: indexArray(this.idx, this.vc), vertexCount: this.vc };
   }
 }
 
@@ -291,6 +339,25 @@ interface Group {
 
 export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): MeshArrays {
   const B = new Builder();
+  party = opts.lod === 0 ? partyEdges(t) : null;
+  meshTile(B, t, opts.lod);
+  party = null;
+  return B.finish();
+}
+
+/**
+ * The sun pass's stand-in for a full-detail tile: the LOD 0 buildings with
+ * flat walls, no undersides, and only the parts tall enough to cast a shadow
+ * the bias doesn't swallow (bays, gables, stoops, chimneys, tall rooftop
+ * boxes and water tanks stay). Positions only.
+ */
+export function meshCasterTile(t: BuildingTile): CasterArrays {
+  const B = new Builder(true);
+  meshTile(B, t, 0);
+  return B.finishCaster();
+}
+
+function meshTile(B: Builder, t: BuildingTile, lod: 0 | 1) {
   const g: Group = { first: 0, end: 0, cx: 0, cz: 0, top: 0 };
   for (let i = 0; i < t.count; ) {
     let j = i + 1;
@@ -305,10 +372,63 @@ export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): MeshArrays
     g.cz = cz / Math.max(1, e - s);
     g.top = 0;
     for (let k = i; k < j; k++) g.top = Math.max(g.top, t.roofY[k], t.baseY[k] + 2.5);
-    for (let k = i; k < j; k++) meshBuilding(B, t, k, opts.lod, g);
+    for (let k = i; k < j; k++) meshBuilding(B, t, k, lod, g);
     i = j;
   }
-  return B.finish();
+}
+
+/** Party-wall lookup of the tile being meshed (LOD 0 only): edges hashed by their midpoint (0.6 m cells). */
+let party: Map<number, number[]> | null = null;
+const PARTY_CELL = 0.6;
+const partyKey = (kx: number, kz: number) => (kx + 32768) * 65536 + (kz + 32768);
+
+/** Every ground-tier ring edge of the tile, oriented as meshBuilding walks it (positive shoelace): [record, dirX, dirZ] per entry. */
+function partyEdges(t: BuildingTile): Map<number, number[]> {
+  const m = new Map<number, number[]>();
+  for (let i = 0; i < t.count; i++) {
+    if (t.tier[i] > 0) continue;
+    const s = t.vertStart[i], e = t.vertStart[i + 1];
+    let area = 0;
+    for (let k = s; k < e; k++) {
+      const k2 = k + 1 < e ? k + 1 : s;
+      area += t.xz[k * 2] * t.xz[k2 * 2 + 1] - t.xz[k2 * 2] * t.xz[k * 2 + 1];
+    }
+    const sg = area < 0 ? -1 : 1;
+    for (let k = s; k < e; k++) {
+      const k2 = k + 1 < e ? k + 1 : s;
+      const ax = t.xz[k * 2], az = t.xz[k * 2 + 1], bx = t.xz[k2 * 2], bz = t.xz[k2 * 2 + 1];
+      const L = Math.hypot(bx - ax, bz - az);
+      if (L < 0.05) continue;
+      const key = partyKey(Math.round((ax + bx) / 2 / PARTY_CELL), Math.round((az + bz) / 2 / PARTY_CELL));
+      let l = m.get(key);
+      if (!l) m.set(key, (l = []));
+      l.push(i, (sg * (bx - ax)) / L, (sg * (bz - az)) / L);
+    }
+  }
+  return m;
+}
+
+/**
+ * True if wall a->b of ground-tier record i is a party wall: another
+ * building of the tile has an edge running the other way along it (same
+ * midpoint) and a roof at least about as high. It stands hidden against its
+ * neighbor, so it needs no wobble columns.
+ */
+function partyWall(t: BuildingTile, i: number, a: [number, number], b: [number, number]): boolean {
+  if (!party || t.tier[i] > 0) return false;
+  const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  const dx = (b[0] - a[0]) / L, dz = (b[1] - a[1]) / L;
+  const kx = Math.round((a[0] + b[0]) / 2 / PARTY_CELL), kz = Math.round((a[1] + b[1]) / 2 / PARTY_CELL);
+  for (let ox = -1; ox <= 1; ox++)
+    for (let oz = -1; oz <= 1; oz++) {
+      const l = party.get(partyKey(kx + ox, kz + oz));
+      if (!l) continue;
+      for (let q = 0; q < l.length; q += 3) {
+        const j = l[q];
+        if (t.index[j] !== t.index[i] && l[q + 1] * dx + l[q + 2] * dz < -0.95 && t.roofY[j] >= t.roofY[i] - PARTY_EXPOSED) return true;
+      }
+    }
+  return false;
 }
 
 /** True if (x, z) is inside the ring of record k. */
@@ -420,8 +540,8 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
   // ---- walls
   // perimeter u starts at the front edge so the facade pattern lines up with it
   const startK = front !== 255 ? front : 0;
-  // wall columns only serve the painted wobble: towers' upper tiers (high, narrow faces) need fewer
-  const segLen = tier > 0 ? 6.4 : 3.2;
+  // wall columns only serve the painted wobble (a ~30 m wave: an 8 m chord strays a third of a pixel)
+  const segLen = WALL_SEG;
   let u = 0;
   if (topScale < 1) {
     // tapering tower: faces lean in to the scaled top ring; the roof below is that ring
@@ -465,7 +585,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
     const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
     const isFront = k === front || k === front2;
     const top = isFront && (k === front || single || !flushAbove(t, g, i, a[0], a[1], b[0], b[1])) ? roofY + parapet : roofY;
-    B.wall(a[0], a[1], b[0], b[1], baseY, top, u, streetY, isFront ? Part.FRONT : Part.SIDE, (isFront ? 1 : 0) | corner, lod === 1 ? 999 : segLen);
+    B.wall(a[0], a[1], b[0], b[1], baseY, top, u, streetY, isFront ? Part.FRONT : Part.SIDE, (isFront ? 1 : 0) | corner, lod === 1 ? 999 : !isFront && partyWall(t, i, a, b) ? PARTY_SEG : segLen);
     u += L;
   }
 
