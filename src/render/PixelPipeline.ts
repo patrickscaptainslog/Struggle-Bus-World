@@ -659,7 +659,9 @@ vec3 worldDir(vec2 uv) {
 float skyLight(vec3 dir) {
   float e = clamp(dir.y * 2.6, -0.3, 1.0);
   float sunNear = pow(max(dot(dir, uSunDir), 0.0), 16.0);
-  float l = 0.9 - 0.5 * max(e, 0.0) + 0.12 * sunNear;
+  // (at the floor the sky band is the frame's top ~10 deg: it holds one step there, so its first step
+  // change, a dithered stripe, never rides the top edge of the chase view; up high it deepens as before)
+  float l = 0.9 - mix(0.25, 0.5, uCalm) * max(e, 0.0) + 0.12 * sunNear;
   l -= 0.6 * max(-e, 0.0);
   return clamp(l, 0.0, 1.0);
 }
