@@ -5,12 +5,14 @@
 //   strip  tap -> inhale -> jet -> impact -> the 4 hit-stop frames -> bloom, at the
 //          Painted Ladies, stepped on a fixed 1/60 s clock (each frame frozen with
 //          __qa.holdAt / __qa.holdFrames); strip.png is a crop of every frame side by side
-//   glint  the glinting building with the glint on and off (same pose, one frame apart):
-//          glint.json counts the pixels it changes
+//   glint  the glinting building with the glint on and off (one frame apart): glint.png crops
+//          both around the target (glint.json: its screen rect)
 //   taps   real taps through Input's path (tapSplat): at the floor (cruise, surge,
 //          second finger while turning, lift-then-tap) and from 120 m / 250 m / the
 //          ceiling: the building glinting before the tap vs the one the breath hits and
 //          paints (taps.json)
+//   perf   CPU work ms, draw calls, triangles cruising at the floor and holding 250 m
+//          up, at Alamo Square and in FiDi (perf.json; run it against two builds to compare)
 //
 // SwiftShader renders ~1.5 fps: everything waits on the game clock, never wall time.
 import { chromium } from 'playwright-core';
@@ -119,37 +121,42 @@ if (modes.has('strip')) {
 }
 
 if (modes.has('glint')) {
+  // the strip's pose (it glints): the frame before a change and the next one with the belly not loaded
+  // (glint off); crops around the target's projected bounds, side by side (glint.png)
   const page = await open(START + '&fixeddt=0.016667');
-  await page.evaluate(() => ((window.__qa = null), (window.__game.flight.glideSpeed = 6)));
-  await runFor(page, 0.5);
+  await page.evaluate(() => ((window.__qa = null), (window.__game.flight.glideSpeed = 19.2)));
+  await runFor(page, 0.6);
   await page.evaluate(() => window.__game.forceReady());
-  await runFor(page, 0.3);
+  await runFor(page, 0.4);
   const t = await page.evaluate(() => window.__game.clock() + 0.05);
   await holdAt(page, t);
   const on = await state(page);
-  await page.screenshot({ path: `${out}/glint-on.png` });
-  // a quarter sweep later: the band of light has moved up the facade
-  await holdAt(page, t + 0.12);
-  await page.screenshot({ path: `${out}/glint-on2.png` });
-  await page.evaluate(() => (window.__game.flight.fullness = 0.5));
-  await holdFrames(page, 1);
-  const off = await state(page);
-  await page.screenshot({ path: `${out}/glint-off.png` });
-  const target = await page.evaluate((i) => {
+  const rect = await page.evaluate((i) => {
     const g = window.__game;
     const r = [...g.city.loadedRefs()].find((q) => q.index === i);
     if (!r) return null;
     const v = g.camera.position.clone();
-    const p = g.pipeline.project(v.set(r.cx, (r.baseY + r.roofY) / 2, r.cz));
-    return { index: i, screen: [p.x, p.y], height: r.roofY - r.baseY };
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    for (const [x, z] of [[r.x0, r.z0], [r.x1, r.z0], [r.x0, r.z1], [r.x1, r.z1]])
+      for (const y of [r.baseY, r.roofY]) {
+        const p = g.pipeline.project(v.set(x, y, z));
+        x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
+      }
+    return [x0 * 3, y0 * 3, x1 * 3, y1 * 3].map(Math.round);
   }, on.glint);
-  writeFileSync(`${out}/glint.json`, JSON.stringify({ on, off, target }, null, 1));
+  await page.screenshot({ path: `${out}/glint-on.png` });
+  await page.evaluate(() => (window.__game.flight.fullness = 0.5));
+  await holdFrames(page, 1);
+  const off = await state(page);
+  await page.screenshot({ path: `${out}/glint-off.png` });
+  writeFileSync(`${out}/glint.json`, JSON.stringify({ on, off, rect }, null, 1));
   await page.close();
-  try {
-    execFileSync('python3', ['-I', new URL('./feel-strip.py', import.meta.url).pathname, out, '--diff', 'glint-on.png', 'glint-off.png', 'glint-on2.png'], { stdio: 'inherit' });
-  } catch (e) {
-    console.log('glint diff failed', String(e));
-  }
+  if (rect)
+    try {
+      execFileSync('python3', ['-I', new URL('./feel-strip.py', import.meta.url).pathname, out, '--pair', rect.join(','), 'glint-on.png', 'glint-off.png'], { stdio: 'inherit' });
+    } catch (e) {
+      console.log('glint crop failed', String(e));
+    }
 }
 
 if (modes.has('taps')) {
@@ -211,6 +218,47 @@ if (modes.has('taps')) {
   writeFileSync(`${out}/taps.json`, JSON.stringify(res, null, 1));
   console.log(`taps: ${res.filter((r) => r.ok).length}/${res.length} glint == hit (and painted)`);
   await page.close();
+}
+
+if (modes.has('perf')) {
+  // CPU work per frame, draw calls, triangles: cruising at the floor, then holding 250 m up (SwiftShader fps
+  // is meaningless; these are not). Same script for any build, so before / after compare.
+  const res = {};
+  for (const [label, q] of [['alamo', '?lat=37.7762&lon=-122.4380&heading=90&skipintro'], ['fidi', '?lat=37.7925&lon=-122.4010&heading=0&skipintro']]) {
+    const page = await open(q);
+    const qa = (v) => page.evaluate((v) => (window.__qa = v), v);
+    // (Perf's own window restarts whenever a frame takes over 1 s, as on a loaded SwiftShader host: read its
+    // per-frame counters and the work time handed to it instead)
+    await page.evaluate(() => {
+      const p = window.__game.perf;
+      const orig = p.frame.bind(p);
+      window.__work = [];
+      p.frame = (dt, work) => {
+        orig(dt, work);
+        window.__work.push({ work, calls: p.calls, tris: p.tris });
+      };
+    });
+    const sample = async () => {
+      await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 300000 });
+      await page.evaluate(() => (window.__work.length = 0));
+      await runFor(page, 0.6);
+      const rows = await page.evaluate(() => window.__work.slice(1));
+      const med = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
+      return { frames: rows.length, workMs: +med(rows.map((r) => r.work)).toFixed(2), calls: med(rows.map((r) => r.calls)), triangles: med(rows.map((r) => r.tris)) };
+    };
+    await qa(null);
+    await page.evaluate(() => window.__game.forceReady());
+    await runFor(page, 1);
+    res[`${label}-floor`] = await sample();
+    await qa({ sx: 0, sy: -1 });
+    await until(page, 'g.flight.lift >= 250', 40);
+    await qa(null);
+    await runFor(page, 2);
+    res[`${label}-250`] = await sample();
+    console.log('perf', label, JSON.stringify({ floor: res[`${label}-floor`], at250: res[`${label}-250`] }));
+    await page.close();
+  }
+  writeFileSync(`${out}/perf.json`, JSON.stringify(res, null, 1));
 }
 
 await browser.close();
