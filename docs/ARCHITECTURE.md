@@ -46,6 +46,8 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   greebles. Avoid single-pixel-wide high-contrast stripes (they crawl).
   Up high (vista camera: 270 m, 38°) a game pixel is ≈ 1 m at the bus and
   2–4 m on the city below: everything there is the coarse (LOD 1) mesh.
+  Building facades follow this by themselves (see Tower facades): their
+  detail drops out by its size on screen, per building.
 - Altitude: the camera can sit 700 m above the ground; the far plane is
   30 km. `pipeline.setHfov()`, `shadowFocus/shadowScale/shadowStrength/
   shadowEdge` and `calm` are driven by the game per frame (keep the shadow
@@ -106,6 +108,40 @@ them into gzip'd 1 km regions. Layouts live in `src/world/tiles.ts`.
   `node tools/check-stable-ids.mjs <old city dir> <new city dir>` checks a
   re-bake (also LiDAR bake against LiDAR bake).
 
+## Tower facades (`src/world/towerStyles.ts`, `buildingMaterial.ts`)
+- The mesher picks a facade family per building (`styleFor`: icons table by
+  lat/lon, else height class x district x footprint x stable-id hash) and roles
+  per part (`partRoles`: penthouse box, crown part, podium family). It travels
+  in bytes the vertex format already had: `aMeta.y` = arch | family << 4,
+  `aMeta.w` flags bits 2-7 = penthouse, crown, crown type, variant, and
+  `aBld2.y` = this part's top for family buildings (the front width only houses
+  use). Family walls get u stretched to whole column modules (`Builder.remapU`,
+  run on whatever vertices `wall()` / `slantWall()` emitted, so their
+  subdivision can change freely); a tapering face keeps its u range.
+- The shader decides detail per building and face, never per pixel: the size of
+  a game pixel at the building (`vLodPx` = distance to its axis x `uPixelAngle`,
+  set per draw from the camera and the render target in the material's
+  `onBeforeRender`) times each face's foreshortening. Lines that must stay one
+  game pixel wide use `fwidth` of the facade coordinates.
+- Tower facades write light in whole ramp steps *after* the resolve's
+  atmospheric perspective: `skyMirror()` / `gAF` mirror `skyLight()`, `sl` and
+  `light = mix(light, sl, smoothstep(0.08, 0.66, fog) * 0.9)` of RESOLVE_FS.
+  **Change one, change the other** (a mismatch only brings the dither back).
+- Painted towers' bushes, trees (`Part.GARDEN`) and onion domes (`Part.DOME`)
+  are in the building mesh, every vertex on its element's anchor (offset in
+  `aFacade.xy` + `aBld2.y`, needed level in flags bits 2-3): degenerate in the
+  depth pass (no shadow), grown out in the vertex shader at their level.
+- `HIDDEN` footprints (the Ferry Building's lots) aren't meshed; a prop draws
+  them. `HERO_PROPS` (Coit Tower, the Ferry Building, 181 Fremont's spire) are
+  placed by `heroLandmarks(origin)` in `props/landmarks.ts`, with collision
+  posts; only for the SF origin the table is written for.
+- Houses: windows become one band per floor (ribbon) and then the wall's
+  average tone by the same per-building pixel size (`config.facade.houseRibbon`
+  / `houseFlat`); roofs are one ramp (GREY_LIGHT) with light offsets.
+- QA: `node tools/facade-shots.mjs <url> <out> [--only=...] [--seq] [--paint]`
+  (chase, the vista after a real climb, hero telephotos of the icons, the
+  Painted Ladies L1/L2/L3 row); `python3 -I tools/seqstat.py <out>/<view>-seq 3`.
+
 ## Tunables
 Expose module constants via `registerTunables('Name', obj, ranges?)` from
 `src/ui/tunables.ts`; read `obj.field` live every frame. Global feel numbers
@@ -121,7 +157,8 @@ live in `src/config.ts`.
 | Particles | `src/fx/Particles.ts` | see `Particles` |
 | Street signs | `src/fx/StreetSign.ts`, `src/fx/pixelFont.ts` | see `StreetSigns` |
 | Input + tuner + perf | `src/game/Input.ts`, `src/ui/Tuner.ts`, `src/ui/Perf.ts` | see below |
-| Props + landmarks | `src/world/Props.ts` | trees, Sutro Tower, Transamerica, roof sprouts |
+| Props + landmarks | `src/world/Props.ts` | trees, Sutro Tower, Transamerica, Coit Tower, the Ferry Building, roof sprouts |
+| Tower facades | `src/world/towerStyles.ts`, `src/world/buildingMaterial.ts` | facade families, icons table, hero props table |
 | Game glue | `src/main.ts`, `src/game/*` | flight, camera, splat, bloom, persistence |
 | Ground paint | `src/world/GroundPaint.ts`, `src/game/blastLayout.ts` | per-tile splat masks, blast shape + hue layout, shockwave ring GLSL |
 
