@@ -14,12 +14,16 @@
 //          (HUD shot), roll and pitch sweeps end to end (input.state.stretch -> Flight yaw rate,
 //          bank, climb; a banked-turn shot), tilt-mode gestures through CDP touch events (tap, hold,
 //          swipe up / down, swipe-and-hold boost), the recenter button                  -> tilt.json
+//   perf=<otherBaseUrl>  CPU work ms, draw calls, triangles at the same Alamo Square view (cruising at the
+//          floor, the fps meter's per-frame counters) for <otherBaseUrl> (e.g. the build before) and
+//          <baseUrl>, in one browser session                                              -> perf in controls.json
 // SwiftShader renders ~1.5 fps: everything waits on the game clock (fixed 1/20 s steps), never wall time.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 
 const [base = 'http://127.0.0.1:5101/', out = 'shots/controls', ...rest] = process.argv.slice(2);
-const modes = new Set(rest.length ? rest : ['touch', 'turbo', 'tilt']);
+const modes = new Set((rest.length ? rest : ['touch', 'turbo', 'tilt']).map((m) => m.split('=')[0]));
+const perfOther = (rest.find((m) => m.startsWith('perf=')) ?? '').slice(5);
 mkdirSync(out, { recursive: true });
 
 const browser = await chromium.launch({
@@ -49,12 +53,12 @@ function w3cFor({ lean = 35, roll = 0, pitch = 0, yaw = 0, screen = 0 }) {
   return { alpha: ((a / D) % 360 + 360) % 360, beta: b / D, gamma: g / D };
 }
 
-async function open(query, init) {
+async function open(query, init, at = base) {
   const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
   page.on('pageerror', (e) => console.log('[pageerror]', e.message));
   page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.log('[console]', m.text()));
   if (init) await page.addInitScript(init);
-  await page.goto(base + query, { waitUntil: 'load' });
+  await page.goto(at + query, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__shotReady === true && window.__game, null, { timeout: 400000 });
   // log the input contract's callbacks (wrapping what main / Controls installed)
   await page.evaluate(() => {
@@ -316,6 +320,33 @@ if (modes.has('tilt')) {
   console.log('gestures:', JSON.stringify(G));
   console.log('recenter:', JSON.stringify(res.tilt.recenter));
   await page.close();
+}
+
+if (modes.has('perf') && perfOther) {
+  // the same view and the same sampling for both builds (per-frame counters, median of the frames in 0.8 s)
+  res.perf = {};
+  for (const [label, url] of [['before', perfOther], ['after', base]]) {
+    const page = await open('?lat=37.7762&lon=-122.4380&heading=90&skipintro&fixeddt=0.05', null, url);
+    await page.evaluate(() => {
+      const p = window.__game.perf;
+      const orig = p.frame.bind(p);
+      window.__work = [];
+      p.frame = (dt, work) => {
+        orig(dt, work);
+        window.__work.push({ work, calls: p.calls, tris: p.tris });
+      };
+      window.__game.forceReady();
+    });
+    await runFor(page, 1);
+    await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 300000 });
+    await page.evaluate(() => (window.__work.length = 0));
+    await runFor(page, 0.8);
+    const rows = await page.evaluate(() => window.__work.slice(1));
+    const med = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
+    res.perf[label] = { url, frames: rows.length, workMs: +med(rows.map((r) => r.work)).toFixed(2), calls: med(rows.map((r) => r.calls)), triangles: med(rows.map((r) => r.tris)) };
+    console.log('perf', label, JSON.stringify(res.perf[label]));
+    await page.close();
+  }
 }
 
 writeFileSync(`${out}/controls.json`, JSON.stringify(res, null, 1));
