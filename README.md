@@ -6,35 +6,53 @@ Wherever it splats, grey Victorians bloom into Painted Ladies.
 Phase 1: single player, no server. iPhone Safari first (portrait, one thumb).
 
 ## Play
-- **Drag anywhere**: the bus follows a springy bungee from where you touched.
-  It's also a yoke. Sideways carves and banks. **Pull down** to climb
-  (harder = faster, the bus slows as it trades speed for height) up toward
-  a soft ceiling high above the city (~520 m), where it wheezes and
-  struggles. **Push up** to nose down: dive back to the rooftops, gaining
-  speed; at the rooftops it surges (about 250 mph).
-- **Let go**: it cruises and holds its altitude with a wheezy bob; at the
-  rooftops it skims them automatically, as ever.
+- **Phones fly by tilt.** The first touch says "TILT TO FLY": hold the phone
+  however is comfortable (that pose is level) and tap (on iPhone, allow
+  motion access). Tilt left / right to carve and bank. Tilt the top edge
+  **toward you** to pull back and climb (harder = faster, the bus slows as it
+  trades speed for height) up toward a soft ceiling high above the city
+  (~520 m), where it wheezes and struggles; tilt it **away** to nose down:
+  dive back to the rooftops, gaining speed; at the rooftops it surges (about
+  250 mph). Hold it level and the bus holds its altitude with a wheezy bob;
+  at the rooftops it skims them automatically. The recenter button (top
+  right) takes your current pose as level; small posture drifts recenter on
+  their own when you hold still.
+- **Tilt mode: the whole screen is the splat button.** Tap = dragon breath.
+  Press and hold = charge the super splat. Swipe up = shift up a turbo gear
+  (keep the finger down after the swipe to boost), swipe down = shift down.
+- **Touch to fly** (settings, top right; also automatic without motion
+  sensors): drag anywhere, the bus follows a springy bungee from where you
+  touched; drag down to climb, up to dive / surge, let go to hold. Tap
+  anywhere (or a second finger while steering) to breathe; the rainbow
+  SPLAT button (bottom right) taps and holds; the TURBO lever above it
+  shifts (tap the top / bottom, or swipe it) and boosts while held.
+- **Turbo gears.** G1 "Jet" (~1,000 mph): shifted up low, the bus claws its
+  way up to ~150 m first, straining and rattling, then the gear bites and it
+  breaks the sound barrier with a boom, a vapor cone and a rainbow contrail.
+  Steering gets wider with speed. Shift down to brake back to cruising and
+  hold your altitude. G2 "Stratos" and G3 "Rainbow Warp" (San Francisco to
+  Tokyo in about five minutes) are locked until the world beyond the city
+  exists ("LOCKED: WORLD TRAVEL COMING").
 - Up high the camera pulls back into a vista (it holds perfectly still while
-  you hold your altitude): climb out of the marine layer and the west side
-  and the bay lie under a fog sea, with Sutro Tower, Twin Peaks, the
-  downtown towers and the bridge towers poking through, the hills on the
-  horizon. Over the Golden Gate the bus can't climb until it has passed
-  under the deck.
-- **Tap** (a second finger works while steering): dragon breath. The bus
-  rears back and blasts a rainbow jet forward; it explodes on the building
-  ahead (when the belly is full, that building glints, and the glinting one is
-  the one you hit; lifting your thumb to tap keeps it): a flash, a rainbow
+  you hold your altitude): the skyline, Twin Peaks, Sutro Tower and the
+  bridges, the hills on the horizon. Over the Golden Gate the bus can't climb
+  until it has passed under the deck.
+- **The breath**: the bus rears back and blasts a rainbow jet forward; it
+  explodes on the building ahead (when the belly is full, that building
+  glints, and the glinting one is the one you hit): a flash, a rainbow
   shockwave, and every building within ~60 m blooms, the street and the trees
   around them splattered too. From altitude it lands where you're looking,
-  mid-screen, after a longer flight, and the blast is bigger the higher you
-  fire from. The belly glows fuller as the next blast recharges.
-- Keyboard: arrows / WASD fly the same yoke (Down/S climbs, Up/W dives or
-  surges), Space breathes.
+  mid-screen, and the blast is bigger the higher you fire from. The belly
+  glows fuller as the next blast recharges.
+- Keyboard (desktop): arrows / WASD fly the same yoke (Down/S climbs, Up/W
+  dives or surges), mouse drag is the bungee, Space breathes (hold to
+  charge), E / Q shift turbo gears, Shift boosts.
 - Blast an already-painted block to escalate it: rooftop gardens, then full
   Hundertwasser.
-- Paint is saved on your phone.
+- Paint and your control settings are saved on your phone.
 - Three-finger tap (or `?tune`) opens the hidden tuning panel; `?fps` shows the
-  frame-rate meter.
+  frame-rate meter; `?controls=tilt|touch|keyboard` forces a control scheme,
+  `?nohud` hides the HUD.
 
 ## Develop
 ```
@@ -51,6 +69,10 @@ Feel QA: `node tools/feel-sim/run.mjs s_aim.ts` (and the other scenarios in
 its header) runs the real flight / aim / splat code offline on the baked city;
 `node tools/feel.mjs <baseUrl> shots/feel [strip] [glint] [taps]` shoots the
 tap -> jet -> impact -> hit-stop strip and checks real taps in the browser.
+Controls QA: `node tools/controls-sim/run.mjs s_tilt.ts` (and s_tune, s_perm,
+s_gesture, s_turbo; see its header) runs tilt, gestures and turbo offline
+against the real modules; `node tools/controls.mjs <baseUrl> shots/controls
+[touch] [turbo] [tilt] [perf=<otherBaseUrl>]` checks them in the browser.
 Altitude QA (climb shots, flight log, taps, perf at cruise vs ceiling):
 `node tools/altitude.mjs <baseUrl> shots/altitude downtown|west|gate|opening [--seq]`;
 `--seq` also captures frames exactly 1/30 s apart, and

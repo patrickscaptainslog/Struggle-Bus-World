@@ -141,6 +141,77 @@ live in `src/config.ts`.
 | Props + landmarks | `src/world/Props.ts` | trees, Sutro Tower, Transamerica, roof sprouts |
 | Game glue | `src/main.ts`, `src/game/*` | flight, camera, splat, bloom, persistence |
 | Ground paint | `src/world/GroundPaint.ts`, `src/game/blastLayout.ts` | per-tile splat masks, blast shape + hue layout, shockwave ring GLSL |
+| Controls | `src/game/Controls.ts`, `src/game/Tilt.ts`, `src/game/Turbo.ts`, `src/fx/Turbo.ts`, `src/audio/turboVoice.ts`, `src/ui/Hud.ts`, `src/ui/pixelUi.ts` | scheme choice + permission, tilt stick, turbo gears, turbo FX / voice, the HUD |
+
+## Controls: tilt, touch, keyboard, turbo gears
+`src/game/Controls.ts` owns the scheme and wires everything below. main.ts
+makes five calls per frame, in this order: `controls.preFlight(dt)` right
+after `input.update(dt)` (the turbo drive writes `Flight.turbo`),
+`controls.pose(pose)` before `bus.update` (strain: wheeze, squint; wide-eyed
+at speed), `controls.afterPose(bus.root)` after the bus's position /
+rotation are set (the rattle), `controls.frame(dt, realDt)` right after
+`bus.root.updateMatrixWorld(true)` (effects, voice, HUD), and
+`controls.fx.object.position.copy(particles.object.position)` after the
+vista snap compensation (the contrail stays with the bus up high).
+
+**The input contract** (`src/game/Input.ts`; feat/supersplat builds on it):
+- `onTap(): void` a quick tap: a normal dragon-breath splat (unchanged).
+- `onChargeStart(): void` a press lasted `config.splat.holdThreshold`
+  (0.3 s) without becoming a steer / swipe (confirmed on a second frame);
+  `state.chargeHeld` = seconds since the press while charging, else 0;
+  `onChargeEnd(heldSeconds: number, cancelled: boolean): void` on release
+  (cancelled: slid off into a drag, pointercancel, a lost touch, focus lost).
+  A release before the threshold is a tap. One press at a time (tilt screen,
+  HUD splat button, Space); a second source while one is held taps.
+- `onTurbo(dir: 1 | -1): void` shift a gear; `state.turboHeld` the boost.
+- `mode: 'tilt' | 'touch' | 'keyboard'` (read-only for gameplay; Controls
+  calls `setMode`). Tilt: `input.stick` (the TiltControl) fills
+  `state.stretch` / `state.dragging` with the bungee's exact semantics, so
+  everything downstream (Flight, the opening's climb lock, the homing, the
+  aim latch, `__qa.sx/sy` overrides) is unchanged.
+- HUD hooks: `splatButton(down, cancelled?, eventTimeMs?)`,
+  `turboShift(dir)`, `turboHold(down)`.
+
+**Tilt** (`src/game/Tilt.ts`): `TiltCore` (no DOM; `feed(beta, gamma,
+screenDeg, tSeconds)`, `update(tSeconds)`, `sx` / `sy`, `calibrate()`,
+`recenter()`, `sensitivity`) and `TiltControl` (DOM: `request()` must be
+called synchronously in a user gesture, `listen()`, `stop()`, `status`:
+off | requesting | waiting | calibrating | active | denied | unavailable).
+Gravity only (alpha cancels), screen frame, swing split along the neutral
+frame's horizontal axes, One-Euro + prediction, dead zone + expo, auto-
+recenter. Tunables: `config.tilt`.
+
+**Turbo** (`src/game/Turbo.ts`, `TurboDrive`): `shift(dir, flight)`,
+`update(dt, flight, held)`, `gear`, `engaged`, `strain`, `speedK` (log
+scale: 0 at the surge, 1 at G1), `boosting`, `edge`, `onEvent(ev, gear)`
+with ev up | down | locked | engage | boom; `gearSpeed/gearAlt/gearClimb`,
+`GEAR_NAMES`. It writes **`Flight.turbo`** before each step: `speed` (target,
+0 = classic), `rate` (1/s, 0 = classic), `floor` (m ASL, a gear's floor the
+bus rides like a roof), `ceiling` (0 = config.flight.ceiling), `yaw` and
+`climb` multipliers. Flight's `lift` / `floorY` smoothing stay the
+rooftop's. Tunables: `config.turbo` (`worldTravel` gates G2 / G3).
+**CameraRig** turbo hooks: `turboPull` (m), `turboFov` (deg), `turboHero`
+(x heroScale), `turboLead` / `turboLookLead` (m added to the follow / look
+targets: cancel part of the springs' lag at turbo speeds); written by
+`TurboLens` (`src/fx/Turbo.ts`), which also punches the fov.
+
+**Turbo FX** (`src/fx/Turbo.ts`, `TurboFx`): contrail ribbon (one
+interleaved dynamic buffer, one upload per frame), speed lines (instanced,
+uniforms only), vapor cone; all `sbWrite` with flags 0.5 and ordered-dither
+dissolves; events through the existing `Particles.puff/sparkles`; the
+rattle (`applyRattle`). **Voice** (`src/audio/turboVoice.ts`) on
+`AudioEngine.voiceKit()` (the sfx bus).
+
+**HUD** (`src/ui/Hud.ts`): `slot('super')` = a 176 x 52 CSS px box at the
+bottom center, pointer-events none (set `auto` on your own children), where
+the super splat's `src/ui/SuperMeter.ts` mounts; `setCredits(text)` (a tiny
+line bottom left and in settings; e.g. map attribution); `toast(lines, s)`;
+`setMode`, `setSettings`, `showPrompt`. All HUD elements carry `data-sb-ui`
+(Input ignores keys typed there) and `data-hud="..."` names for QA.
+
+QA: `window.__game.controls` (`snapshot()`: mode, tilt, turbo, flight,
+camera, HUD, input), `tools/controls.mjs` (browser) and
+`tools/controls-sim/` (offline: s_tilt, s_tune, s_perm, s_gesture, s_turbo).
 
 ## The blast (dragon breath)
 `Splatter.barf(x, z, opts?: BarfOpts): number` launches a projectile
