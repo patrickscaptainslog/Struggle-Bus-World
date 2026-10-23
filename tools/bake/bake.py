@@ -176,6 +176,25 @@ def data_path(p):
     return p
 
 
+def capped_edt(cov, res, cap, block=1024):
+    """Distance (m) from every cell to the nearest True cell of `cov`, capped at `cap`: equal to
+    distance_transform_edt(~cov) * res wherever that is under `cap`, computed in blocks with a halo
+    (the full-frame transform of a city builds ~2.5 GB of index arrays)."""
+    H, W = cov.shape
+    halo = int(np.ceil(cap / res)) + 1
+    out = np.full((H, W), cap, dtype=np.float32)
+    for r0 in range(0, H, block):
+        for c0 in range(0, W, block):
+            r1, c1 = min(r0 + block, H), min(c0 + block, W)
+            a0, b0, a1, b1 = max(r0 - halo, 0), max(c0 - halo, 0), min(r1 + halo, H), min(c1 + halo, W)
+            win = cov[a0:a1, b0:b1]
+            if not win.any():
+                continue  # nothing within reach: the cap
+            d = ndimage.distance_transform_edt(~win)[r0 - a0:r1 - a0, c0 - b0:c1 - b0]
+            out[r0:r1, c0:c1] = np.minimum(d * res, cap)
+    return out
+
+
 def load_module(name):
     import importlib.util
     sys.dont_write_bytecode = True  # (no __pycache__ in tools/bake)
@@ -1108,6 +1127,9 @@ def source_byte(b, q):
     return v
 
 
+PASS_STATS = {}  # what lidar_pass decided, for city.json's stats (DECISIONS' numbers)
+
+
 def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log, ids=None, parts_of=None):
     """LiDAR rooftops for the ranked buildings; returns the new list (it shrinks and grows):
       1. row lots of one source footprint standing under one tall roof merge back into one building
@@ -1303,6 +1325,7 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log, ids=Non
     if demolished:
         buildings = [b for b in buildings if id(b) not in demolished]
         log(f'lidar: {len(demolished)} fallback footprints dropped (bare ground in the LiDAR: demolished since)')
+    PASS_STATS['demolished'] = len(demolished)
 
     # 4) towers the footprint data never had (built since), from the 1 m LiDAR alone
     covered = [(b['poly'], max(b['h'], b.get('topH', b['h']))) for b in buildings if not b.get('sliver')]
@@ -1385,6 +1408,7 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log, ids=Non
             nprej += 1
     log(f'osm parts: {npused} buildings take their massing from OSM building parts (LiDAR agrees), {npnolidar} without LiDAR to check, '
         f'{nprej} rejected (the LiDAR tiers / plain roof fit the rooftops better)')
+    PASS_STATS.update(partsUsed=npused, partsRejected=nprej, partsNoLidar=npnolidar)
     fmt = lambda e: '-' if e is None else f'{e:.2f}'
     for b in sorted([b for b in buildings if 'partsErr' in b], key=lambda b: -b['h'])[:16]:
         e_p, e_t, e_f = b['partsErr']
@@ -1450,6 +1474,8 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log, ids=Non
 
 
 def main():
+    # (OSM names in the log: never die on a console code page or a piped stdout)
+    sys.stdout.reconfigure(errors='backslashreplace')
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     flags = dict(a[2:].split('=', 1) for a in sys.argv[1:] if a.startswith('--') and '=' in a)
     slug = args[0] if args else 'sf'
@@ -1501,6 +1527,8 @@ def main():
     log('dem nodata fraction', float(nodata.mean()))
     # water = nodata; give it sea level, and smooth the coast a bit
     dem_filled = np.where(nodata, 0.0, dem).astype(np.float32)
+    del dem  # (SF: 7168 x 8832 cells; the bake runs on 8 GB laptops)
+    tmp = None
 
     def dem_at(x, z):
         """bilinear sample of the local DEM at arrays x, z"""
@@ -1567,8 +1595,8 @@ def main():
             usa_polys.append(q)
             usa_attrs.append({
                 'id': int(row.BUILD_ID) * 4 + k,
-                'occ': str(row.OCC_CLS or ''),
-                'prim': str(row.PRIM_OCC or ''),
+                'occ': row.OCC_CLS if isinstance(row.OCC_CLS, str) else '',  # (pandas 3: missing is NaN)
+                'prim': row.PRIM_OCC if isinstance(row.PRIM_OCC, str) else '',
                 'h': h,
             })
     log('polygons', len(usa_polys))
@@ -1579,6 +1607,8 @@ def main():
     if use_osm:
         osm_b = osm.buildings()
         parts_of = osm.parts()
+        counts['mappedParts'] = sum(len(v) for v in parts_of.values())
+        counts['buildingsWithParts'] = len(parts_of)
         for b in osm_b:
             b['poly'] = shapely.geometry.polygon.orient(b['poly'], 1.0)
         counts['osm'] = sum(b['src'] == 'osm' for b in osm_b)
@@ -1682,6 +1712,7 @@ def main():
         else:
             hs[i] = 7.5 if attrs[i]['occ'] == 'Residential' else 6.0
         attrs[i]['h'] = max(3.0, min(hs[i], 14.0) if polys[i].area < 400 else hs[i])
+        attrs[i]['hNeighbors'] = True  # (its height source, below: not its own row's)
     for i in np.where(known)[0]:
         attrs[i]['h'] = float(hs[i])
 
@@ -1902,7 +1933,7 @@ def main():
                     hh *= 0.78  # the odd two-story among three-story neighbors
             buildings.append({'poly': q, 'h': max(3.0, hh), 'occ': occ, 'prim': a['prim'],
                               'srckey': (a['id'], k), 'front_edge_hint': fe, 'src': 'usa', 'key': f"u{a['id']}:{k}",
-                              'hsrc': 'usa' if a['h'] == a['h'] else 'neighbors'})
+                              'hsrc': 'neighbors' if a.get('hNeighbors') else 'usa'})
     log('buildings after split', len(buildings))
     ids = None
     if use_osm:
@@ -1921,6 +1952,7 @@ def main():
         for b in sorted(buildings, key=lambda b: (b['src'], b['key'])):
             b['stable'] = ids.take(b['src'], b['key'])
         log(f'stable ids: {len(buildings)} from source ids ({ids.collisions} hash collisions probed)')
+        counts['idCollisions'] = ids.collisions
     else:
         # stable ids: rank in (source id, lot) order. Unique by construction, and
         # stable across re-bakes of the same source data (the paint array keys on it).
@@ -1942,6 +1974,8 @@ def main():
 
     if lidar_rasters is not None:
         buildings = lidar_pass(buildings, cfg, massing, lidar_rasters['fine'], ll2xz, dem_at, log, ids=ids, parts_of=parts_of)
+        if use_osm:
+            counts.update(PASS_STATS)
     elif parts_of:
         # no LiDAR to check them against: the mapped parts are the massing
         npu = 0
@@ -1952,6 +1986,7 @@ def main():
                     b['osmParts'] = recs
                     npu += 1
         log(f'osm parts: {npu} buildings take their massing from OSM building parts (no LiDAR)')
+        counts.update(partsUsed=0, partsRejected=0, partsNoLidar=npu)
 
     def ground_stats(p):
         return ground_stats_at(dem_at, p)
@@ -1962,7 +1997,8 @@ def main():
         log('ground classes')
         bpolys = [with_holes(b) for b in buildings]
         bres = [b['occ'] in ('Residential', 'Unclassified', '', 'Outbuilding') for b in buildings]
-        ground, pier_mask, treeable = osm.ground_raster(H, W, minX, minZ, DEM_RES, nodata, dem_filled, bpolys, bres, segs)
+        ground, _, treeable = osm.ground_raster(H, W, minX, minZ, DEM_RES, nodata, dem_filled, bpolys, bres, segs)
+        del nodata  # (only the non-OSM ground below reads it)
         if not cfg['dem'] and not cfg.get('dem_fallback'):
             # a flat city: the water sits a step below the quays
             dem_filled[ground == O.WATER] = float(cfg.get('waterLevel', -0.8))
@@ -2068,16 +2104,17 @@ def main():
             b['h'] = b['roofY'] - gmean
         if b.get('holes') and len(b['parts']) == 1:
             # courtyards: the footprint is cut through them into pieces, all tier 0 (the first keeps the front),
-            # flat-roofed (a pitched roof over a ring of pieces would cross the courtyard)
+            # flat-roofed (a pitched roof over a ring of pieces would cross the courtyard) at the mapped roof's mid-pitch
             pcs = [ring_ccw(q) for q in O.OSM.pieces(with_holes(b))]
             if len(pcs) > 1:
                 t0 = b['parts'][0]
+                flatY = t0['roofY'] + t0['roofH'] / 2
                 ex = []
                 for q in pcs:
                     f1, f2 = fronts_of(q)
-                    ex.append(dict(t0, poly=q, front=f1, front2=f2, roofShape=1 if t0['roofShape'] else 0, roofH=0.0, roofDir=0, taper=0))
+                    ex.append(dict(t0, poly=q, front=f1, front2=f2, roofY=flatY, roofShape=1 if t0['roofShape'] else 0, roofH=0.0, roofDir=0, taper=0))
                 b['parts'] = ex
-                b['roofY'] = t0['roofY']
+                b['roofY'] = flatY
                 b['h'] = b['roofY'] - gmean
                 b['cut'] = True
         # frontage width
@@ -2136,7 +2173,7 @@ def main():
     # rasterize in local frame: transform maps (col,row) -> (x, z) via proj coords; use z directly
     local_transform = rasterio.Affine(DEM_RES, 0, minX, 0, DEM_RES, minZ)
     cov = rasterize(shapes, out_shape=(H, W), transform=local_transform, fill=0, dtype=np.uint8).astype(bool)
-    dist = (ndimage.distance_transform_edt(~cov) * DEM_RES).astype(np.float32)
+    dist = capped_edt(cov, DEM_RES, 32.0)  # (every test below is <= 20 m)
     if ground is None:
         water = nodata | (dem_filled < 0.3)
         water = ndimage.binary_opening(water, iterations=2)

@@ -27,6 +27,7 @@ import re
 import struct
 
 import numpy as np
+import pandas as pd
 import pyarrow.parquet as pq
 import shapely
 from shapely.geometry import Polygon, MultiPolygon, box
@@ -79,13 +80,24 @@ def hash32(s):
     return h
 
 
-def abbreviate(name, mode):
+def name_core(words):
+    """A street name's words without its suffix, lowercased ('Van Ness Avenue' -> 'van ness')."""
+    if len(words) >= 2 and words[-1].lower() in US_SUFFIX:
+        words = words[:-1]
+    return ' '.join(words).lower()
+
+
+def abbreviate(name, mode, bases=None):
+    """As the blades are signed: 'Haight Street' -> 'Haight St', 'South Van Ness Avenue' -> 'S Van Ness Ave'.
+    A leading direction stays spelled out when it is part of the name (North Point St, West Portal Ave):
+    it is abbreviated only when the rest is a street of its own (`bases`: every street's name_core)."""
     if not name or mode != 'us':
         return name
     w = name.split()
+    lead = len(w) >= 3 and w[0].lower() in US_DIR and (bases is None or name_core(w[1:]) in bases)
     if len(w) >= 2 and w[-1].lower() in US_SUFFIX:
         w[-1] = US_SUFFIX[w[-1].lower()]
-    if len(w) >= 3 and w[0].lower() in US_DIR:
+    if lead:
         w[0] = US_DIR[w[0].lower()]
     return ' '.join(w)
 
@@ -168,8 +180,9 @@ class OSM:
         # ('class' is a Python keyword: itertuples would rename it)
         d = t.drop_columns(['geometry']).to_pandas().rename(columns={'class': 'klass'})
         for c in d.columns:
-            if d[c].dtype == object:
-                d[c] = d[c].where(d[c].notna(), None)  # (missing strings: None, never NaN)
+            # (missing strings: None, never NaN; pandas 3 reads strings as StringDtype with NaN for missing)
+            if d[c].dtype == object or isinstance(d[c].dtype, pd.StringDtype):
+                d[c] = d[c].astype(object).where(d[c].notna(), None)
         g = self.local(geoms)
         if self.frame is not None:
             # only what touches the city frame (an extract may be wider: --bbox bakes)
@@ -382,13 +395,14 @@ class OSM:
     def street_lines(self, segs):
         """Named streets for the sign: [(line, display name)] (roads first; named paths and plazas too)."""
         mode = self.P.get('abbrev')
+        bases = {name_core(name.split()) for _, kind, _, name, _ in segs if name and kind != RAIL}
         out = []
         for line, kind, w, name, cls in segs:
             if not name or kind == RAIL:
                 continue
             if kind in (PATH, SIDEWALK) and cls not in ('footway', 'path', 'steps', 'pedestrian'):
                 continue
-            out.append((line, abbreviate(name, mode), 0 if kind == PAVED else 1))
+            out.append((line, abbreviate(name, mode, bases), 0 if kind == PAVED else 1))
         return out
 
     def areas(self):
@@ -506,8 +520,9 @@ class OSM:
         roads_core = rast([(ln.buffer(w / 2.0, cap_style='flat'), 1) for ln, k, w, _, _ in segs if k == PAVED])
         blocks, nb = ndimage.label(roads_core == 0)
         bmask = rast([(p, 1 if r else 2) for p, r in zip(bpolys, bres)])
-        res_cells = np.bincount(blocks.ravel(), weights=(bmask == 1).ravel(), minlength=nb + 1)
-        all_cells = np.bincount(blocks.ravel(), weights=(bmask > 0).ravel(), minlength=nb + 1)
+        # (counted over the building cells only: a weighted bincount over the whole frame copies it twice)
+        res_cells = np.bincount(blocks[bmask == 1], minlength=nb + 1)
+        all_cells = np.bincount(blocks[bmask > 0], minlength=nb + 1)
         paved_block = (all_cells > 0) & (res_cells < 0.5 * all_cells)
         paved_block[0] = False
         cls[(cls == YARD) & paved_block[blocks]] = PAVED
