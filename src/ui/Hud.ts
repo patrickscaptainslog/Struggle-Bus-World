@@ -188,14 +188,15 @@ export class Hud {
 
   /** A tiny credits line (e.g. map data attribution): bottom left and in the settings panel; '' hides it. */
   setCredits(text: string) {
-    this.credits = text.toUpperCase();
+    // (the bitmap fonts have no copyright sign or accents: (C), and accents stripped)
+    this.credits = text.replace(/\u00a9/g, '(C)').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
     this.creditsWrap.replaceChildren();
     if (!this.credits) {
       this.creditsWrap.style.display = 'none';
       return;
     }
     const w = textWidth(this.credits, HUD_SMALL) + 4;
-    const c = new PixelCanvas(w, 9, 1.5);
+    const c = new PixelCanvas(w, 9, S);
     c.clear();
     c.textOutlined(this.credits, 2, 2, C.dim, C.ink, HUD_SMALL);
     c.flush();

@@ -199,7 +199,20 @@ function hold(off: Partial<Pose>, seconds: number) {
   }
   return rows;
 }
-res.autoRecenter = { sagPitch6: hold({ pitch: 6 }, 10), carveRoll15: hold({ roll: 15 }, 10), smallRoll2: hold({ roll: 2.5 }, 10) };
+res.autoRecenter = { sagPitch4: hold({ pitch: 4 }, 14), climbPitch6: hold({ pitch: -6 }, 14), carveRoll15: hold({ roll: 15 }, 10), smallRoll2: hold({ roll: 2.2 }, 14) };
+// a staircase of small held pitch steps (each 10 s): how far can the neutral walk?
+{
+  const neutral = pose({ lean: 35 });
+  const { c } = calibrated(neutral);
+  let t = 0.5;
+  const rows: unknown[] = [];
+  for (const p of [-4, -8, -12, -16, 0]) {
+    for (let i = 0; i < 10 * HZ; i++, t += 1 / HZ) sample(c, { ...neutral, pitch: p }, t);
+    c.update(t);
+    rows.push({ pitch: p, readPitch: r1(c.pitch), sy: r3(c.sy) });
+  }
+  (res.autoRecenter as any).staircase = rows;
+}
 
 // ---- 7. manual recenter (eased) and the orientation change (portrait -> landscape mid-flight)
 {
@@ -290,7 +303,9 @@ console.log('portrait 35 roll:', JSON.stringify((sweeps['portrait-35deg'] as any
 console.log('portrait 35 pitch:', JSON.stringify((sweeps['portrait-35deg'] as any).pitch.map((r: any) => [r.deg, r.sy])));
 console.log('upright roll:', JSON.stringify((sweeps['portrait-upright-0deg'] as any).roll.map((r: any) => [r.deg, r.sx])));
 console.log('landscape 90 roll/pitch:', JSON.stringify((sweeps['landscape-90-35deg'] as any).roll.map((r: any) => [r.deg, r.sx])), JSON.stringify((sweeps['landscape-90-35deg'] as any).pitch.map((r: any) => [r.deg, r.sy])));
-console.log('auto recenter sag 6:', JSON.stringify((res.autoRecenter as any).sagPitch6.map((r: any) => r.sy)));
+console.log('auto recenter sag 4:', JSON.stringify((res.autoRecenter as any).sagPitch4.map((r: any) => r.sy)));
+console.log('auto recenter climb 6 held:', JSON.stringify((res.autoRecenter as any).climbPitch6.map((r: any) => r.sy)));
+console.log('auto recenter staircase:', JSON.stringify((res.autoRecenter as any).staircase));
 console.log('auto recenter carve 15:', JSON.stringify((res.autoRecenter as any).carveRoll15.map((r: any) => r.sx)));
 console.log('recenter:', JSON.stringify(res.recenter));
 console.log('orientation change:', JSON.stringify(res.orientationChange));

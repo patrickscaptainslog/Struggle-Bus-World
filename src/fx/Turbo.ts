@@ -131,6 +131,8 @@ export class TurboFx {
   private coneT = -1;
 
   private time = 0;
+  /** the first frames draw every effect invisibly, so its shader compiles behind the loading fog, not at the shift */
+  private warm = 3;
   private rattleT = 0;
   private puffT = 0;
   private readonly tmp = new THREE.Vector3();
@@ -207,12 +209,15 @@ export class TurboFx {
         void main() {
           float u = clamp(vSide * 0.5 + 0.5, 0.0, 0.9999);
           float band = floor(u * 6.0);
-          // dissolve with age (ordered dither, never alpha); the outer bands go first
+          // dissolve with age (ordered dither, never alpha); the outer bands go first; and it thins out as it
+          // nears the camera (perspective would make its tail a wall of pastel over the thumb zone)
           float edge = abs(vSide);
-          float keep = (1.0 - vAge) * 1.25 - edge * edge * 0.35;
+          float near = smoothstep(55.0, 175.0, length(vWorld - cameraPosition));
+          float keep = ((1.0 - vAge) * 1.25 - edge * edge * 0.35) * near;
           if (tbBayer4(ivec2(gl_FragCoord.xy)) > keep) discard;
           float fresh = 1.0 - vAge;
-          float light = 0.5 + 0.38 * fresh + 0.08 * (1.0 - edge);
+          // the saturated middle of each hue ramp, a step brighter along the core
+          float light = 0.52 + 0.16 * fresh + 0.1 * (1.0 - edge);
           sbWrite(${Ramp.RED}.0 + band, light, sbFog(vWorld), 0.55 * fresh * uOn, vec3(0.0, 0.0, 1.0), 0.61, 0.5);
         }
       `,
@@ -429,6 +434,24 @@ export class TurboFx {
       U.uCenter.value.copy(camera.position).lerp(bus.position, 0.55).addScaledVector(this.vel, 0.08);
     }
 
+    // ---- warm-up: every program compiles now (nothing shows: no trail range, lines off-screen, the cone dissolved)
+    if (this.warm > 0) {
+      this.warm--;
+      const w = this.warm > 0;
+      if (!this.trail.visible) {
+        this.trail.visible = w;
+        if (w) this.trailGeo.setDrawRange(0, 0);
+      }
+      if (!this.lines.visible) {
+        this.lines.visible = w;
+        this.lineU.uOn.value = 0;
+      }
+      if (this.coneT < 0) {
+        this.cone.visible = w;
+        this.coneU.uT.value = 1;
+        this.cone.position.set(0, -1e5, 0); // (parked far below the city: not a pixel shows)
+      }
+    }
     // ---- the boom's vapor cone rides the bus
     if (this.coneT >= 0) {
       this.coneT += dt / Math.max(0.05, X.coneTime);

@@ -222,12 +222,14 @@ export const config = {
      *  (0..1; 1 = tilt's dead zone is the only one, so a gentle tilt climbs gently). */
     yokeComp: 1,
     /** Auto-recenter: held still (under stillRate deg/s) for stillTime s, the neutral drifts toward the
-     *  current pose with this time constant (s), only while the pose is within these bands (deg). */
+     *  current pose with this time constant (s), only while the pose is within these bands (deg): a trim of
+     *  posture drift just past the dead zones, never a deliberate climb or carve (wider bands walked the
+     *  neutral away under a staircase of small held tilts). */
     stillRate: 4,
     stillTime: 1.4,
-    recenterTau: 4,
-    recenterPitchBand: 10,
-    recenterRollBand: 3.5,
+    recenterTau: 6,
+    recenterPitchBand: 4.5,
+    recenterRollBand: 2.5,
     /** No orientation event within this long after listening starts = no sensors: touch to fly (s). */
     eventTimeout: 1,
     /** Calibration: the neutral pose is the mean of the first this-long of samples (s). */

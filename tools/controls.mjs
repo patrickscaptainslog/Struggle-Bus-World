@@ -14,6 +14,10 @@
 //          (HUD shot), roll and pitch sweeps end to end (input.state.stretch -> Flight yaw rate,
 //          bank, climb; a banked-turn shot), tilt-mode gestures through CDP touch events (tap, hold,
 //          swipe up / down, swipe-and-hold boost), the recenter button                  -> tilt.json
+//   gestures  the tap / hold / slide / swipe table in the real page (touch mode: the HUD's splat button
+//          and turbo lever; tilt mode: the whole screen) with CDP touches dispatched while the game loop is
+//          frozen (__qa.holdFrames = 0: frames are instant, so events arrive when they happen), the loop
+//          running only through the holds                                               -> gestures in controls.json
 //   perf=<otherBaseUrl>  CPU work ms, draw calls, triangles at the same Alamo Square view (cruising at the
 //          floor, the fps meter's per-frame counters) for <otherBaseUrl> (e.g. the build before) and
 //          <baseUrl>, in one browser session                                              -> perf in controls.json
@@ -115,6 +119,30 @@ async function touch(page, cdp, pts) {
 }
 const res = {};
 
+/**
+ * A gesture with the game loop frozen except where it says `run` (a hold): CDP waits for the renderer to
+ * acknowledge every touch, which on a slow host is a whole multi-second frame; frozen, frames are instant
+ * and the page sees the touches when they happen. steps: {type, x, y, wait} | {run: seconds of game time}
+ */
+async function gesture(page, cdp, steps) {
+  const freeze = () => page.evaluate(() => (window.__qa = { holdFrames: 0 }));
+  const thaw = () => page.evaluate(() => (window.__qa = null));
+  await freeze();
+  for (const st of steps) {
+    if (st.run !== undefined) {
+      await thaw();
+      await runFor(page, st.run);
+      await freeze();
+      continue;
+    }
+    if (st.type === 'touchEnd') await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    else await cdp.send('Input.dispatchTouchEvent', { type: st.type, touchPoints: [{ x: st.x, y: st.y, id: 1, radiusX: 4, radiusY: 4, force: 1 }] });
+    if (st.wait) await new Promise((r) => setTimeout(r, st.wait));
+  }
+  await thaw();
+  await runFor(page, 0.1);
+}
+
 if (modes.has('touch') || modes.has('turbo')) {
   // fixeddt: every rendered frame is exactly 1/20 s of game time (deterministic on a slow host)
   const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro&fixeddt=0.05');
@@ -185,6 +213,13 @@ if (modes.has('touch') || modes.has('turbo')) {
     const lv = await rectOf(page, '[data-hud="lever"]');
     await events(page);
     await touch(page, cdp, [{ type: 'touchStart', x: lv.x, y: lv.top + 10, wait: 80 }, { type: 'touchEnd' }]);
+    await runFor(page, 0.1);
+    // (if this host dropped the lever tap, shift through the same Input path the lever uses, and say so)
+    const shiftMiss = (await snap(page)).turbo.gear !== 1;
+    if (shiftMiss) {
+      console.log('lever tap missed: shifting through input.onTurbo');
+      await page.evaluate(() => window.__game.input.onTurbo(1));
+    }
     const climbed = await until(page, 'g.controls.turbo.engaged', 12);
     await page.screenshot({ path: `${out}/g1-engage.png` });
     const boomed = await until(page, 'g.flight.speed > 345', 6);
@@ -201,10 +236,16 @@ if (modes.has('touch') || modes.has('turbo')) {
     await runFor(page, 0.8);
     // LOCKED
     await touch(page, cdp, [{ type: 'touchStart', x: lv.x, y: lv.top + 10, wait: 80 }, { type: 'touchEnd' }]);
-    await runFor(page, 0.4);
+    await runFor(page, 0.2);
+    const lockMiss = !(await page.evaluate(() => window.__ev.some((e) => e.k === 'onTurbo' && e.a[0] === 1 && window.__game.controls.turbo.time - window.__game.controls.turbo.lockedAt < 1)));
+    if (lockMiss) await page.evaluate(() => window.__game.input.onTurbo(1));
+    await runFor(page, 0.2);
     await page.screenshot({ path: `${out}/g1-locked.png` });
     // drop back to G0
     await touch(page, cdp, [{ type: 'touchStart', x: lv.x, y: lv.bottom - 10, wait: 80 }, { type: 'touchEnd' }]);
+    await runFor(page, 0.2);
+    const downMiss = (await snap(page)).turbo.gear !== 0;
+    if (downMiss) await page.evaluate(() => window.__game.input.onTurbo(-1));
     await runFor(page, 5);
     const ev = await events(page);
     const log = await page.evaluate(() => window.__log);
@@ -212,7 +253,7 @@ if (modes.has('touch') || modes.has('turbo')) {
     const g0 = log.filter((r) => r.gear === 0 && r.speed < 40 && r.t < log[0].t + 1);
     const jet = log.filter((r) => r.gear === 1 && r.speed > 440);
     res.turbo = {
-      climbedToGear: climbed, boomed, events: ev,
+      climbedToGear: climbed, boomed, events: ev, leverMissed: { up: shiftMiss, locked: lockMiss, down: downMiss },
       perf: { g0: { frames: g0.length, calls: med(g0.map((r) => r.calls)), tris: med(g0.map((r) => r.tris)), workMs: med(g0.map((r) => r.work)) }, g1: { frames: jet.length, calls: med(jet.map((r) => r.calls)), tris: med(jet.map((r) => r.tris)), workMs: med(jet.map((r) => r.work)) } },
       log: log.filter((_, i) => i % 4 === 0),
     };
@@ -363,6 +404,81 @@ if (modes.has('tilt')) {
   console.log('gestures:', JSON.stringify(G));
   console.log('recenter:', JSON.stringify(res.tilt.recenter));
   await page.close();
+}
+
+if (modes.has('gestures')) {
+  const G = {};
+  // ---- touch mode (no sensor): the HUD's splat button and turbo lever
+  {
+    const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro&fixeddt=0.05');
+    const cdp = await page.context().newCDPSession(page);
+    await page.evaluate(() => window.__game.forceReady());
+    const sb = await rectOf(page, '[data-hud="splat"]');
+    const lv = await rectOf(page, '[data-hud="lever"]');
+    const row = async (name, steps, extra) => {
+      await events(page);
+      await gesture(page, cdp, steps);
+      const r = { events: await events(page) };
+      if (extra) Object.assign(r, await extra());
+      G[`touch: ${name}`] = r;
+      console.log('gesture', `touch: ${name}`, JSON.stringify(r));
+    };
+    const gear = async () => ({ gear: (await snap(page)).turbo.gear });
+    await row('splat button tap (90 ms)', [{ type: 'touchStart', x: sb.x, y: sb.y, wait: 90 }, { type: 'touchEnd' }]);
+    await row('splat button 250 ms (under holdThreshold)', [{ type: 'touchStart', x: sb.x, y: sb.y, wait: 250 }, { type: 'touchEnd' }]);
+    await row('splat button hold (1.5 s of game time)', [{ type: 'touchStart', x: sb.x, y: sb.y }, { run: 1.5 }, { type: 'touchEnd' }]);
+    await row('splat button hold then slide off', [{ type: 'touchStart', x: sb.x, y: sb.y }, { run: 1.0 }, { type: 'touchMove', x: sb.x - 110, y: sb.y - 50, wait: 30 }, { type: 'touchEnd' }]);
+    await row('splat button 150 ms then slide off (nothing)', [{ type: 'touchStart', x: sb.x, y: sb.y, wait: 150 }, { type: 'touchMove', x: sb.x - 110, y: sb.y - 50, wait: 30 }, { type: 'touchEnd' }]);
+    await row('lever tap top (shift up)', [{ type: 'touchStart', x: lv.x, y: lv.top + 10, wait: 80 }, { type: 'touchEnd' }], gear);
+    await row('lever tap top again (LOCKED)', [{ type: 'touchStart', x: lv.x, y: lv.top + 10, wait: 80 }, { type: 'touchEnd' }], gear);
+    await row('lever tap bottom (shift down)', [{ type: 'touchStart', x: lv.x, y: lv.bottom - 10, wait: 80 }, { type: 'touchEnd' }], gear);
+    await row('lever swipe up', [{ type: 'touchStart', x: lv.x, y: lv.y + 20, wait: 20 }, { type: 'touchMove', x: lv.x, y: lv.y - 10, wait: 20 }, { type: 'touchMove', x: lv.x, y: lv.y - 30, wait: 20 }, { type: 'touchEnd' }], gear);
+    await row('lever swipe down', [{ type: 'touchStart', x: lv.x, y: lv.y - 20, wait: 20 }, { type: 'touchMove', x: lv.x, y: lv.y + 10, wait: 20 }, { type: 'touchMove', x: lv.x, y: lv.y + 30, wait: 20 }, { type: 'touchEnd' }], gear);
+    await row('lever hold (boost)', [{ type: 'touchStart', x: lv.x, y: lv.y }, { run: 0.6 }], async () => ({ turboHeldWhileDown: (await snap(page)).input.turboHeld }));
+    await gesture(page, cdp, [{ type: 'touchEnd' }]);
+    G['touch: lever released'] = { turboHeld: (await snap(page)).input.turboHeld };
+    await row('canvas quick tap (bungee, 100 ms)', [{ type: 'touchStart', x: 150, y: 500, wait: 100 }, { type: 'touchEnd' }]);
+    await row('canvas drag 80 px (steer, no tap)', [{ type: 'touchStart', x: 150, y: 500, wait: 20 }, { type: 'touchMove', x: 190, y: 500, wait: 20 }, { type: 'touchMove', x: 230, y: 500 }, { run: 0.5 }, { type: 'touchEnd' }]);
+    await page.close();
+  }
+  // ---- tilt mode (the iOS-like page): the whole screen
+  {
+    const init = () => {
+      window.__sensor = { beta: 55, gamma: 0, alpha: 0, on: false };
+      window.DeviceOrientationEvent.requestPermission = () => ((window.__sensor.on = true), Promise.resolve('granted'));
+      setInterval(() => {
+        const s = window.__sensor;
+        if (s.on) window.dispatchEvent(new DeviceOrientationEvent('deviceorientation', { alpha: 0, beta: s.beta, gamma: s.gamma, absolute: false }));
+      }, 16);
+    };
+    const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro&fixeddt=0.05', init);
+    const cdp = await page.context().newCDPSession(page);
+    await gesture(page, cdp, [{ type: 'touchStart', x: 196, y: 380, wait: 60 }, { type: 'touchEnd' }]);
+    await page.waitForFunction(() => window.__game.controls.snapshot().mode === 'tilt', null, { timeout: 60000 });
+    await page.evaluate(() => window.__game.forceReady());
+    const row = async (name, steps, extra) => {
+      await events(page);
+      await gesture(page, cdp, steps);
+      const r = { events: await events(page) };
+      if (extra) Object.assign(r, await extra());
+      G[`tilt: ${name}`] = r;
+      console.log('gesture', `tilt: ${name}`, JSON.stringify(r));
+    };
+    const X = 200, Y = 520;
+    await row('tap (90 ms)', [{ type: 'touchStart', x: X, y: Y, wait: 90 }, { type: 'touchEnd' }]);
+    await row('250 ms (under holdThreshold)', [{ type: 'touchStart', x: X, y: Y, wait: 250 }, { type: 'touchEnd' }]);
+    await row('hold (1.5 s of game time)', [{ type: 'touchStart', x: X, y: Y }, { run: 1.5 }, { type: 'touchEnd' }], async () => ({ chargeHeldAfter: (await snap(page)).input.chargeHeld }));
+    await row('hold with an 8 px wobble', [{ type: 'touchStart', x: X, y: Y }, { run: 0.6 }, { type: 'touchMove', x: X + 8, y: Y + 3, wait: 20 }, { run: 0.6 }, { type: 'touchMove', x: X - 5, y: Y - 2, wait: 20 }, { type: 'touchEnd' }]);
+    await row('hold then slide 70 px (cancelled)', [{ type: 'touchStart', x: X, y: Y }, { run: 1.0 }, { type: 'touchMove', x: X + 40, y: Y, wait: 20 }, { type: 'touchMove', x: X + 70, y: Y, wait: 20 }, { type: 'touchEnd' }]);
+    await row('swipe up and lift', [{ type: 'touchStart', x: X, y: Y + 40, wait: 20 }, { type: 'touchMove', x: X + 2, y: Y + 10, wait: 20 }, { type: 'touchMove', x: X + 4, y: Y - 20, wait: 20 }, { type: 'touchMove', x: X + 5, y: Y - 40, wait: 20 }, { type: 'touchEnd' }], async () => ({ gear: (await snap(page)).turbo.gear }));
+    await row('swipe down', [{ type: 'touchStart', x: X, y: Y - 40, wait: 20 }, { type: 'touchMove', x: X, y: Y - 10, wait: 20 }, { type: 'touchMove', x: X, y: Y + 20, wait: 20 }, { type: 'touchMove', x: X, y: Y + 40, wait: 20 }, { type: 'touchEnd' }], async () => ({ gear: (await snap(page)).turbo.gear }));
+    await row('swipe up and keep holding (boost)', [{ type: 'touchStart', x: X, y: Y + 40, wait: 20 }, { type: 'touchMove', x: X, y: Y + 10, wait: 20 }, { type: 'touchMove', x: X, y: Y - 20, wait: 20 }, { type: 'touchMove', x: X, y: Y - 40, wait: 20 }, { run: 0.5 }], async () => ({ turboHeldWhileDown: (await snap(page)).input.turboHeld, gear: (await snap(page)).turbo.gear }));
+    await gesture(page, cdp, [{ type: 'touchEnd' }]);
+    G['tilt: boost released'] = { turboHeld: (await snap(page)).input.turboHeld };
+    await row('slow sideways drag 70 px (nothing)', [{ type: 'touchStart', x: X, y: Y, wait: 100 }, { type: 'touchMove', x: X + 35, y: Y + 4, wait: 200 }, { type: 'touchMove', x: X + 70, y: Y + 6, wait: 200 }, { type: 'touchEnd' }]);
+    await page.close();
+  }
+  res.gestures = G;
 }
 
 if (modes.has('perf') && perfOther) {
