@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 // Blast QA at the Painted Ladies (real game, iPhone portrait viewport).
-//   node tools/blast.mjs <baseUrl> <outDir> [perf] [seq] [top] [reload]
+//   node tools/blast.mjs <baseUrl> <outDir> [perf] [seq] [top] [reload] [escalate] [tap] [drop] [layouts]
 //
 //   perf    CPU work ms / draw calls / triangles per frame: grey hover baseline,
-//           then the frames during and after one blast (perf.json)
+//           then the frames during and after one blast and an escalation (perf.json)
 //   seq     frame sequence after impact (jet, flash, ring, blooms, settled),
 //           stepped on a fixed 1/30 s game clock so frames land on time
 //   top     the settled blast seen from straight above (hue layout check)
 //   reload  reloads the page and shoots the same spot (persistence check)
+//   escalate  a second barf on the same spot (everything levels up)
+//   tap     a real tap in cruise (gameplay framing)
+//   drop    a barf dropped from 300 m (the altitude interface: twice the radius)
+//   layouts the hue-layout bake-off (pinwheel / rings / spiral), chase + top-down
 //
 // SwiftShader fps is meaningless; workMs, calls and triangles are what count.
 import { chromium } from 'playwright-core';
@@ -203,6 +207,41 @@ if (modes.has('escalate')) {
   await page.evaluate(([la, lo]) => (window.__qa.topDown = { lat: la, lon: lo, height: 420 }), IMPACT);
   await runFor(page, 0.2);
   await page.screenshot({ path: `${out}/esc-top.png` });
+  await page.close();
+}
+
+if (modes.has('tap')) {
+  // a real tap in cruise over Alamo Square, heading east at the Painted Ladies row
+  const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro&fixeddt=0.0333');
+  await page.evaluate(() => (window.__qa = null));
+  await runFor(page, 1.5);
+  const tImpact = await page.evaluate(() => {
+    const g = window.__game;
+    g.forceReady();
+    g.tapSplat();
+    return g.clock() + 0.42;
+  });
+  for (const m of [0.15, 0.6, 2.0]) {
+    await page.evaluate((at) => (window.__qa = { holdAt: at }), tImpact + m);
+    await page.waitForFunction(() => window.__qa && window.__qa.held === true, null, { timeout: 300000 });
+    await page.screenshot({ path: `${out}/tap-${m.toFixed(2)}.png` });
+    await page.evaluate(() => (window.__qa = null));
+  }
+  await page.close();
+}
+
+if (modes.has('drop')) {
+  // the altitude interface: barf(x, z, { drop: 300 }) doubles the radius
+  const page = await open(START + '&fixeddt=0.0333');
+  await hover(page);
+  await runFor(page, 1.0);
+  await page.evaluate(([la, lo]) => window.__game.barfAtLatLon(la, lo, 300), IMPACT);
+  await runFor(page, 2.5);
+  await page.screenshot({ path: `${out}/drop300-chase.png` });
+  console.log('drop300', JSON.stringify(await page.evaluate(([la, lo]) => window.__game.paintedNear(la, lo, 160), IMPACT)));
+  await page.evaluate(([la, lo]) => (window.__qa.topDown = { lat: la, lon: lo, height: 760 }), IMPACT);
+  await runFor(page, 0.2);
+  await page.screenshot({ path: `${out}/drop300-top.png` });
   await page.close();
 }
 
