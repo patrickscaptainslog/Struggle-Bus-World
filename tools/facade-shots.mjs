@@ -116,8 +116,8 @@ const snap = async (page) => {
   return { calls: med('calls'), triangles: med('triangles'), workMs: med('workMs'), workMaxMs: med('workMaxMs'), samples: rows.length };
 };
 
-// n+1 consecutive frames exactly 1/30 s apart
-async function seq(page, name, n = 3) {
+// n+1 consecutive frames exactly 1/30 s apart (--seqn=<n>, default 3)
+async function seq(page, name, n = Number(opt.seqn ?? 3)) {
   const wait = () => page.waitForFunction(() => window.__rv.advance <= 0 && window.__rv.q.length > 0, null, { timeout: 120000, polling: 100 });
   await page.evaluate(() => Object.assign(window.__rv, { step: 1000 / 30, hold: true, advance: 3 }));
   await wait();

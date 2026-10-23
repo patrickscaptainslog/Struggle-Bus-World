@@ -100,8 +100,9 @@ call), this is what we chose and why.
   to the snapped grid would flip them at every snap step). The sky-to-sea
   blend past the far plane mixes light levels; a dither crossfade drew
   horizontal streaks across the sky. Windows shrink below ~2 game pixels up
-  there and alias into moire: from the layer view they melt into a slightly
-  darker wall tone, building by building.
+  there and alias into moire: they melt into a slightly darker wall tone,
+  building by building (since feat/facade at every height, by each
+  building's on-screen pixel size: see Tower facades).
 - **Up high the city is what holds still.** The grid snaps at the depth of
   the ground under the screen center (not at the bus, whose 0.75 m snap
   step resampled every far roof on every frame), with its scale held in
@@ -473,8 +474,14 @@ call), this is what we chose and why.
   each face's foreshortening decide: columns while a module is >= 3 game px,
   floors while a floor is >= 4 px, then a flat wall tone. Far away a facade
   keeps its rhythm as one-pixel lines at 2x / 4x / 8x the module (>= 3-4 px
-  apart, none in heavy fog): slab lines and mechanical floors on glass,
-  Salesforce's sunshades, ribbons on bands, slots on granite and precast, fins.
+  apart, sparser as the pixels grow, none beyond 3 m per pixel or in heavy
+  fog): slab lines and mechanical floors on glass, Salesforce's sunshades,
+  ribbons on bands, slots on granite and precast, fins, window rows on stone.
+  Up high (the marine-layer view) detail needs 1.5x the room and rhythm lines
+  2x the spacing: the whole view drifts by sub-pixels with the bus's bob there,
+  and every one-pixel line that hops a row counts as crawl. A face seen at a
+  grazing angle past the near field keeps only its tone (its floors would be
+  staircased diagonals).
 - **Hero details the data can't draw**: Salesforce Tower's open crown is the
   top 52 m of its tapered shaft: white fins (converging) and rings over a
   softly glowing LED screen; 181 Fremont is dark glass wrapped in diagonal

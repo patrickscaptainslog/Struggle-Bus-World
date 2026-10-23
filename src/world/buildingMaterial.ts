@@ -229,7 +229,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       // one-pixel line that hops a row counts as crawl; none beyond 3 m per game pixel)
       float gMpp = 0.3;
       float rhythm(float x, float period, float scale, float dx, float minPx) {
-        float mp = minPx * (1.0 + max(gMpp - 0.9, 0.0));
+        float mp = minPx * (1.0 + max(gMpp - 0.9, 0.0)) * (1.0 + uFogLayer2.w);
         float per = period;
         for (int q = 0; q < 3; q++) if (per * scale < mp) per *= 2.0;
         return per * scale >= mp && gAF < 0.65 && gMpp < 3.0 ? lineAt(x, per, dx) : 0.0;
@@ -251,10 +251,15 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         // metal and trim of a glass tower: pale anodized grey; everyone else uses their own wall
         float metalR = fam == ${R(Fam.GLASS)} ? ${R(Ramp.GREY_LIGHT)} : wallR;
         ramp = wallR; d = 0.0; b = 0.0; glw = 0.0; cell = vec2(-1.0);
+        // (a face seen at a grazing angle draws its floors as staircased diagonals that crawl with
+        // every sub-pixel of motion: past the near field it keeps only its tone)
+        float fvE = fu < 0.35 && mpp > 0.6 ? 0.0 : fv;
         float colPx = sp * fu / mpp;
-        float rowPx = fh * fv / mpp;
-        bool showV = colPx >= uColPx;
-        bool showH = rowPx >= uFloorPx;
+        float rowPx = fh * fvE / mpp;
+        // (up high, where the whole view drifts by sub-pixels with the bus's bob, detail needs more room)
+        float hi = 1.0 + 0.5 * uFogLayer2.w;
+        bool showV = colPx >= uColPx * hi;
+        bool showH = rowPx >= uFloorPx * hi;
         bool nearV = showV && showH;
         float u = f.x, v = f.y;
         float vb = v - baseH;
@@ -279,7 +284,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
               // their rings over the glowing LED screen inside
               // (far away the fins thin out to every 2nd / 4th / 8th, one game pixel each, >= 3 px apart)
               bool fin = 0.6 * fu / mpp >= 1.5 ? fract(u / 1.5) * 1.5 < 0.6 : rhythm(u, 1.5, fu / mpp, dF.x, 4.0) > 0.5;
-              bool ring = rhythm(dTop, 7.6, fv / mpp, dF.y, 5.0) > 0.5;
+              bool ring = rhythm(dTop, 7.6, fvE / mpp, dF.y, 5.0) > 0.5;
               if (dTop > cH - 1.8) { ramp = ${R(Ramp.WHITE)}; d = 1.0; }
               else if (fin || ring) { ramp = ${R(Ramp.WHITE)}; d = 1.0; }
               else { ramp = ${R(Ramp.GLOW_WHITE)}; b = 2.0; d = 3.0; glw = uCrownGlow * 0.7; }
@@ -342,7 +347,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           ramp = ${R(Ramp.GLASS)}; b = 1.0;
           if (variant == ${Variant.SILVER}) {
             // Salesforce Tower: a white sunshade on every floor (every 2nd / 4th far away)
-            if (rhythm(vb, fh, fv / mpp, dF.y, uFloorPx) > 0.5) { ramp = ${R(Ramp.WHITE)}; b = 0.0; d = 0.0; return; }
+            if (rhythm(vb, fh, fvE / mpp, dF.y, uFloorPx) > 0.5) { ramp = ${R(Ramp.WHITE)}; b = 0.0; d = 0.0; return; }
           }
           if (variant == ${Variant.BRACED}) {
             // 181 Fremont: diagonal steel bracing wrapped around the dark glass
@@ -359,7 +364,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
             return;
           }
           // the slab lines: every floor, or every 2nd / 4th / 8th once floors crowd (>= floorPx apart)
-          bool slab = rhythm(vb, fh, fv / mpp, dF.y, uFloorPx) > 0.5;
+          bool slab = rhythm(vb, fh, fvE / mpp, dF.y, uFloorPx) > 0.5;
           if (rowPx >= uFloorPx * 2.0 && fy < 1.0) d = 1.0;            // spandrel panel
           else if (slab) d = 1.0;                                      // the slab line
           else if (colPx >= uColPx * 1.33 && lineAt(u, sp, dF.x) > 0.5) d = 1.0; // mullion
@@ -383,7 +388,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
             float cx2 = fx < x0 + 1.07 ? x0 + 0.45 : x0 + 1.7;
             winY = winY && length(vec2(fx - cx2, fy - 2.3)) < 0.45;
           }
-          bool rowsV = 1.9 * fv / mpp >= 2.0 && showH;
+          bool rowsV = 1.9 * fvE / mpp >= 2.0 && showH;
           if (rowsV && 0.9 * fu / mpp >= 2.0) {
             if (winX && winY) { ramp = ${R(Ramp.WINDOW)}; b = 1.0; cell = vec2(col * 2.0 + (fx > x0 + 1.07 ? 1.0 : 0.0), fl); return; }
             d = deco && !pierX ? -1.0 : 0.0;
@@ -397,19 +402,19 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           }
           if (deco && 1.1 * fu / mpp >= 2.0) { d = pierX ? 0.0 : -1.0; return; }
           // far away: the stone a little darker, its rows of windows as one-pixel lines
-          d = rhythm(vb - 1.8, fh, fv / mpp, dF.y, 4.0) > 0.5 ? -2.0 : -1.0;
+          d = rhythm(vb - 1.8, fh, fvE / mpp, dF.y, 4.0) > 0.5 ? -2.0 : -1.0;
           return;
         }
         if (fam == ${R(Fam.BANDS)}) {
           // strong horizontal spandrels and dark ribbon windows
-          if (1.5 * fv / mpp >= 2.0) {
+          if (1.5 * fvE / mpp >= 2.0) {
             if (fy < 1.5) { ramp = wallR; return; }
             ramp = ${R(Ramp.WINDOW)}; b = 1.0;
             if (colPx >= uColPx * 1.33 && lineAt(u, sp, dF.x) > 0.5) d = 1.0;
             return;
           }
           ramp = wallR; d = -1.0;
-          if (rhythm(vb - 2.65, fh, fv / mpp, dF.y, 4.0) > 0.5) d = -2.0;
+          if (rhythm(vb - 2.65, fh, fvE / mpp, dF.y, 4.0) > 0.5) d = -2.0;
           return;
         }
         if (fam == ${R(Fam.FINS)}) {
