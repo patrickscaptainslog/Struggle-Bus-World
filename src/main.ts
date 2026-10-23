@@ -76,6 +76,11 @@ function updateSun() {
   globals.uLight.value.set(config.light.sunStrength, config.light.ambient, config.light.skyBounce);
   globals.uFog.value.set(config.fog.density, config.fog.heightFalloff, config.fog.farFull, 1);
   globals.uPaintClearing.value = config.fog.paintClearing;
+  const Fg = config.fog;
+  globals.uFogLayer.value.set(Fg.layerTop, Fg.layerTopBay, Fg.layerTopEast, Fg.layerSoft);
+  const L2 = globals.uFogLayer2.value;
+  L2.set(Fg.layerDensity, Fg.layerHaze, Fg.layerFarFull, L2.w);
+  globals.uFogBillow.value.set(Fg.layerBillow, 1 / Math.max(10, Fg.layerBillowSize));
 }
 updateSun();
 

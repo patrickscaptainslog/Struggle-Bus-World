@@ -20,6 +20,9 @@ export const config = {
     shadowMapSize: 1024,
     /** World-space extent of the shadow map around the camera focus (m). */
     shadowExtent: 520,
+    /** At full vista (high above the city) the shadow window widens to this (m) and softens to this strength (0..1). */
+    shadowExtentVista: 1000,
+    shadowStrengthVista: 0.8,
   },
 
   light: {
@@ -47,6 +50,23 @@ export const config = {
     /** Fog bank density multiplier during the opening (fades to 1). */
     openingBank: 9,
     openingDuration: 4.2,
+    /** Marine layer: top of the fog sea (m above sea level) over the west / the bay / the sunny east side. */
+    layerTop: 175,
+    layerTopBay: 120,
+    layerTopEast: 25,
+    /** Half-thickness of the soft band at the top of the layer (m). */
+    layerSoft: 26,
+    /** Billows on the fog top: amplitude (m) and feature size (m). */
+    layerBillow: 13,
+    layerBillowSize: 340,
+    /** Fog density inside the layer seen from above (1/m) and of the clear air above it (1/m). */
+    layerDensity: 0.014,
+    layerHaze: 0.00042,
+    /** Distance at which everything is fully fogged once the camera is above the layer (m). */
+    layerFarFull: 15000,
+    /** The layer view fades in as the camera rises this far above layerTop (m): below it the street-level fog is exactly as before. */
+    layerViewStart: 110,
+    layerViewFull: 260,
   },
 
   camera: {

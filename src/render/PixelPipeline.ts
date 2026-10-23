@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { config } from '../config';
-import { globals, SHADOW_LAYER } from './materials';
+import { globals, GLSL_LAYER_TOP, SHADOW_LAYER } from './materials';
 import { makePaletteTexture, Ramp } from './palette';
 
 // Low-res 3D pixel-art renderer.
@@ -54,6 +54,17 @@ export class PixelPipeline {
   private readonly ditherOrigin = new THREE.Vector2();
   /** World point the camera is focused on (snap plane distance + shadow center). */
   readonly focus = new THREE.Vector3();
+  /** Ground point the sun's shadow window centers on when `shadowFocusOn` (up high: ahead, under the view). */
+  readonly shadowFocus = new THREE.Vector3();
+  shadowFocusOn = false;
+  /** Shadow window size relative to config.render.shadowExtent (stepped, so texels don't swim). */
+  shadowScale = 1;
+  /** Shadow strength 0..1 (0 skips the sun depth pass entirely). */
+  shadowStrength = 1;
+  /** Width of the fade at the shadow window's edge (fraction of the map). Wide up high: a slow fade never dithers. */
+  shadowEdge = 0.08;
+  /** Horizontal portrait fov override (deg), e.g. the vista camera's wider lens. */
+  private hfov: number | null = null;
   private cssW = 1;
   private cssH = 1;
   private dpr = 1;
@@ -71,7 +82,8 @@ export class PixelPipeline {
     this.renderer.autoClear = false;
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace; // palette bytes go straight out
     this.renderer.setPixelRatio(1);
-    this.camera = new THREE.PerspectiveCamera(40, 1, 1.5, 9000);
+    // far reaches the horizon hills and the fog sea when the bus is high above the city
+    this.camera = new THREE.PerspectiveCamera(40, 1, 1.5, 30000);
     this.sunCam.layers.set(SHADOW_LAYER);
 
     const quadGeo = new THREE.PlaneGeometry(2, 2);
@@ -97,6 +109,10 @@ export class PixelPipeline {
         uSize: { value: new THREE.Vector2(1, 1) },
         uFogBank: globals.uFogBank,
         uTime: globals.uTime,
+        uFogLayer: globals.uFogLayer,
+        uFogLayer2: globals.uFogLayer2,
+        uFogBillow: globals.uFogBillow,
+        uCamPos: { value: new THREE.Vector3() },
       },
       vertexShader: QUAD_VS,
       fragmentShader: RESOLVE_FS,
@@ -211,18 +227,26 @@ export class PixelPipeline {
     const H = h + MARGIN * 2;
     const aspect = W / H;
     let vfov: number;
+    const hfov = this.hfov ?? config.camera.hfovPortrait;
     if (h >= w) {
       // portrait: hold the horizontal fov, derive vertical
-      const hf = THREE.MathUtils.degToRad(config.camera.hfovPortrait);
+      const hf = THREE.MathUtils.degToRad(hfov);
       vfov = 2 * Math.atan(Math.tan(hf / 2) / (w / h));
     } else {
-      vfov = THREE.MathUtils.degToRad(config.camera.vfovLandscape);
+      vfov = THREE.MathUtils.degToRad(config.camera.vfovLandscape * (hfov / Math.max(1, config.camera.hfovPortrait)));
     }
     // widen to include the margin pixels so the visible center stays exact
     vfov = 2 * Math.atan(Math.tan(vfov / 2) * (H / h));
     this.camera.fov = THREE.MathUtils.radToDeg(vfov);
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
+  }
+
+  /** Set the horizontal portrait fov (deg); re-projects only when it actually changes. */
+  setHfov(deg: number) {
+    if (this.hfov !== null && Math.abs(deg - this.hfov) < 1e-4) return;
+    this.hfov = deg;
+    this.updateProjection();
   }
 
   get cssSize() {
@@ -256,8 +280,14 @@ export class PixelPipeline {
   }
 
   private updateShadow(scene: THREE.Scene) {
+    if (this.shadowStrength <= 0.01) {
+      globals.uShadowOn.value = 0;
+      return;
+    }
     const sun = globals.uSunDir.value;
-    const ext = config.render.shadowExtent;
+    // a wider window up high, in 1/8-octave steps so the texel grid holds still between steps
+    const steps = Math.round(Math.log2(Math.max(0.25, this.shadowScale)) * 8) / 8;
+    const ext = config.render.shadowExtent * Math.pow(2, steps);
     const sc = this.sunCam;
     sc.left = -ext / 2;
     sc.right = ext / 2;
@@ -265,7 +295,7 @@ export class PixelPipeline {
     sc.bottom = -ext / 2;
     sc.near = 1;
     sc.far = 3000;
-    const center = this.focus.clone();
+    const center = (this.shadowFocusOn ? this.shadowFocus : this.focus).clone();
     // shift the shadow window forward along the view so more of what's visible is covered
     const fwd = new THREE.Vector3();
     this.camera.getWorldDirection(fwd);
@@ -300,7 +330,8 @@ export class PixelPipeline {
     r.render(scene, sc);
     scene.overrideMaterial = prevOverride;
     scene.background = prevBg;
-    globals.uShadowOn.value = 1;
+    globals.uShadowOn.value = Math.min(1, this.shadowStrength);
+    globals.uShadowEdge.value = Math.min(0.5, Math.max(0.01, this.shadowEdge));
   }
 
   render(scene: THREE.Scene) {
@@ -334,6 +365,7 @@ export class PixelPipeline {
     ru.uNearFar.value.set(this.snapCam.near, this.snapCam.far);
     ru.uInvProj.value.copy(this.snapCam.projectionMatrixInverse);
     ru.uCamWorld.value.copy(this.snapCam.matrixWorld);
+    ru.uCamPos.value.copy(this.snapCam.position);
     ru.uDitherWidth.value = config.render.ditherWidth;
     ru.uOutline.value.set(config.render.outlineDepth, config.render.creaseHighlight, config.render.outlineFadeEnd);
     this.blit(this.resolveMat, this.resolved);
@@ -424,8 +456,13 @@ uniform vec3 uSunDir;
 uniform vec2 uSize;
 uniform float uFogBank;
 uniform float uTime;
+uniform vec4 uFogLayer;
+uniform vec4 uFogLayer2;
+uniform vec2 uFogBillow;
+uniform vec3 uCamPos;
 in vec2 vUv;
 layout(location = 0) out vec4 outColor;
+${GLSL_LAYER_TOP}
 
 const float RAMP_FOG = ${Ramp.FOG}.0;
 const float RAMP_SKY_WARM = ${Ramp.SKY_WARM}.0;
@@ -504,6 +541,33 @@ vec3 skyColor(vec3 dir, float d) {
   return pal(ramp, rampStepW(skyLight(dir), d, 0.09));
 }
 
+// The top of the marine layer seen from above: where the view ray enters the
+// fog sea, its billows catch the low sun (warm on the sun side, cool in their
+// lee) and the sea melts into the horizon haze with distance. Returns
+// (light level, warmth 0..1) for the fog the pixel converges to.
+vec2 seaShade(vec3 dir, float sl) {
+  float dn = max(-dir.y, 0.004);
+  float t = max(0.0, (uCamPos.y - uFogLayer.x) / dn);
+  float top = sbLayerTop(uCamPos.xz + dir.xz * t);
+  t = max(0.0, (uCamPos.y - top) / dn);
+  vec2 e = uCamPos.xz + dir.xz * t;
+  top = sbLayerTop(e);
+  t = max(0.0, (uCamPos.y - top) / dn);
+  e = uCamPos.xz + dir.xz * t;
+  float h = 30.0;
+  float gx = (sbLayerTop(e + vec2(h, 0.0)) - sbLayerTop(e - vec2(h, 0.0))) / (2.0 * h);
+  float gz = (sbLayerTop(e + vec2(0.0, h)) - sbLayerTop(e - vec2(0.0, h))) / (2.0 * h);
+  vec3 n = normalize(vec3(-gx * 3.0, 1.0, -gz * 3.0));
+  float ndl = dot(n, uSunDir);
+  // a soft, bright top: lit billows near white, their lee a cool mid grey
+  float l = 0.8 + 0.8 * (ndl - uSunDir.y) + 0.05 * pow(max(dot(dir, uSunDir), 0.0), 8.0);
+  // warm light on the sunward billows, seen when looking toward the low sun (a broad glow, not spots)
+  float toSun = max(dot(normalize(vec3(dir.x, 0.0, dir.z)), normalize(vec3(uSunDir.x, 0.0, uSunDir.z))), 0.0);
+  float warm = smoothstep(-0.06, 0.12, ndl - uSunDir.y) * toSun * toSun;
+  float far = smoothstep(1800.0, 13000.0, t);
+  return vec2(clamp(mix(l, sl, far), 0.0, 1.0), warm * (1.0 - far));
+}
+
 // nearest bright tint among the six hues + glow white
 vec3 haloTint(vec3 c) {
   float best = -1.0; vec3 bc = c;
@@ -524,8 +588,15 @@ void main() {
   float d2 = bayer4(dp + ivec2(2, 1));
   vec3 dir = worldDir(vUv);
   float z = texelFetch(tDepth, p, 0).r;
+  bool layerView = uFogLayer2.w > 0.001 && uCamPos.y > uFogLayer.x && dir.y < -0.001;
   if (z >= 0.99999) {
     vec3 sc = skyColor(dir, d);
+    if (layerView && uFogLayer2.w > d2) {
+      // past the far plane, below the horizon: the fog sea runs on to the haze
+      float slF = skyLight(normalize(vec3(dir.x, max(dir.y, -0.02) * 0.2, dir.z)));
+      vec2 sh = seaShade(dir, slF);
+      sc = pal(clamp((sh.y - 0.5) / 0.12, 0.0, 1.0) > d2 ? RAMP_SKY_WARM : RAMP_FOG, rampStepW(sh.x - 0.03, d, 0.09));
+    }
     vec3 halo = texture(tGlow, vUv).rgb;
     float hAmt = max(halo.r, max(halo.g, halo.b));
     if (hAmt > 0.1 && hAmt > d2 * 1.1) sc = haloTint(halo / hAmt);
@@ -574,6 +645,21 @@ void main() {
   // brightness inside the surface's own ramp, then hands over to the fog ramp
   // through a narrow dithered band — never a sprinkle of dots up close.
   float sl = skyLight(normalize(vec3(dir.x, max(dir.y, -0.02) * 0.2, dir.z)));
+  // seen from above the marine layer, what's under it converges on the lit fog top instead
+  float fogRamp = RAMP_FOG;
+  float sea = 0.0;
+  if (layerView && fog > 0.06) {
+    vec3 camFwd = -normalize(vec3(uCamWorld[2].xyz));
+    vec3 P = uCamPos + dir * (depth / max(dot(dir, camFwd), 0.05));
+    float topP = sbLayerTop(P.xz);
+    sea = (1.0 - smoothstep(topP - uFogLayer.w, topP + uFogLayer.w, P.y)) * uFogLayer2.w;
+    if (sea > 0.0) {
+      vec2 sh = seaShade(dir, sl);
+      sl = mix(sl, sh.x, sea);
+      // warm where the billows face the low sun: a narrow dithered edge, not a sprinkle
+      if (clamp((sh.y * sea - 0.5) / 0.12, 0.0, 1.0) > d2) fogRamp = RAMP_SKY_WARM;
+    }
+  }
   light = mix(light, sl, smoothstep(0.08, 0.66, fog) * 0.9);
   // flat surfaces (identical light bytes all around) never dither: no
   // checkerboards on walls that happen to sit on a step boundary.
@@ -589,11 +675,21 @@ void main() {
   if (edgeDark > 0.75) step = max(step - 2.0, 0.0);
   else if (edgeDark > 0.25) step = max(step - 1.0, 0.0);
   else if (crease > 0.5) step = min(step + 1.0, 7.0);
-  float fogBand = clamp((fog - 0.62) / 0.06, 0.0, 1.0);
+  float bandW = 0.06;
+  if (uFogLayer2.w > 0.001) {
+    // seen from high up the fog changes slowly across the screen, so a fixed
+    // band would dither wide areas: narrow it to the fog's own gradient (a
+    // clean contour where the city meets the fog sea)
+    float gf = max(abs(texelFetch(tColor, p + ivec2(1, 0), 0).b - fog), abs(texelFetch(tColor, p + ivec2(0, 1), 0).b - fog));
+    gf = max(gf, max(abs(texelFetch(tColor, p - ivec2(1, 0), 0).b - fog), abs(texelFetch(tColor, p - ivec2(0, 1), 0).b - fog)));
+    bandW = mix(0.06, clamp(gf * 2.5, 0.004, 0.06), uFogLayer2.w);
+  }
+  float fogBand = clamp((fog - 0.65 + bandW * 0.5) / bandW, 0.0, 1.0);
   bool fogged = fogBand > d2;
   // deep in the fog things become solid silhouettes a little darker than the
   // sky behind them (Hopper's distant shapes), converging on the sky color
-  float silL = sl - (1.0 - fog) * 0.55 - 0.03;
+  // (under the fog sea the ground just melts into the lit fog top: no dark Hopper shapes)
+  float silL = sl - (1.0 - fog) * 0.55 * (1.0 - 0.8 * sea) - 0.03;
   vec3 col = pal(ramp, step);
 
   // glow halo: dithered, and only ever a palette color — a lighter step of
@@ -605,7 +701,8 @@ void main() {
     else col = pal(ramp, min(step + 2.0, 7.0));
   }
 
-  if (fogged) col = pal(RAMP_FOG, rampStep(silL, d));
+  // (the fog sea's long light gradients get the sky's tight dither bands)
+  if (fogged) col = pal(fogRamp, sea > 0.5 ? rampStepW(silL, d, 0.09) : rampStep(silL, d));
   outColor = vec4(col, 1.0);
 }
 `;

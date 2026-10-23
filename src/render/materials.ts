@@ -20,14 +20,71 @@ export const globals = {
   uLight: { value: new THREE.Vector3(config.light.sunStrength, config.light.ambient, config.light.skyBounce) },
   uShadowMap: { value: null as THREE.DepthTexture | null },
   uShadowMatrix: { value: new THREE.Matrix4() },
-  uShadowOn: { value: 0 },
+  uShadowOn: { value: 0 }, // shadow strength 0..1 (0 = no shadow map this frame)
+  uShadowEdge: { value: 0.08 }, // width of the fade at the shadow window's edge (fraction of the map)
   uFog: { value: new THREE.Vector4(config.fog.density, config.fog.heightFalloff, config.fog.farFull, 1) },
   uFogBank: { value: 1 },
   uPaintFog: { value: null as THREE.Texture | null }, // r = paint density, sampled over uPaintFogRect
   uPaintFogRect: { value: new THREE.Vector4(0, 0, 1, 1) }, // minX, minZ, 1/width, 1/depth
   uPaintClearing: { value: config.fog.paintClearing },
   uGroundRef: { value: 0 }, // sea-level-ish reference for height fog
+  // marine layer: x top west, y top bay, z top east (m ASL), w soft half-thickness
+  uFogLayer: { value: new THREE.Vector4(config.fog.layerTop, config.fog.layerTopBay, config.fog.layerTopEast, config.fog.layerSoft) },
+  // x density inside, y clear-air haze above (1/m), z far-full distance (m), w view mix 0..1 (0 = street-level fog only)
+  uFogLayer2: { value: new THREE.Vector4(config.fog.layerDensity, config.fog.layerHaze, config.fog.layerFarFull, 0) },
+  // x billow amplitude (m), y 1 / billow size (1/m)
+  uFogBillow: { value: new THREE.Vector2(config.fog.layerBillow, 1 / config.fog.layerBillowSize) },
 };
+
+/**
+ * The marine layer's top (m above sea level) at a world point: thick over the
+ * ocean, the west side and the Golden Gate, lower over the bay, burnt down
+ * over the sunny east side (Mission, downtown); billowed. Shared by the fog of
+ * every material and by the resolve pass (which lights the fog top).
+ * Needs uFogLayer / uFogBillow declared.
+ */
+export const GLSL_LAYER_TOP = /* glsl */ `
+float sbLayerHash(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+float sbLayerNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = sbLayerHash(i), b = sbLayerHash(i + vec2(1.0, 0.0));
+  float c = sbLayerHash(i + vec2(0.0, 1.0)), d = sbLayerHash(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+float sbLayerTop(vec2 xz) {
+  // San Francisco, game meters (x east, z south of Civic Center): the fog pours
+  // in over the west and through the Golden Gate; Twin Peaks shelters the east;
+  // out over the bay it thickens again.
+  float east = smoothstep(-2900.0, -1500.0, xz.x);
+  float north = 1.0 - smoothstep(-4400.0, -2600.0, xz.y);
+  float bay = smoothstep(1700.0, 3400.0, xz.x);
+  float top = mix(uFogLayer.x, uFogLayer.z, east);
+  top = mix(top, uFogLayer.y, max(bay, north * east));
+  vec2 q = xz * uFogBillow.y;
+  float b = sbLayerNoise(q) * 0.68 + sbLayerNoise(q * 2.63 + vec2(17.3, 5.1)) * 0.32;
+  return top + (b - 0.5) * 2.0 * uFogBillow.x;
+}
+`;
+
+/** CPU mirror of sbLayerTop() without the billows (m above sea level). */
+export function layerTopBase(x: number, z: number): number {
+  const F = config.fog;
+  const ss = (a: number, b: number, v: number) => {
+    const t = Math.min(1, Math.max(0, (v - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
+  const east = ss(-2900, -1500, x);
+  const north = 1 - ss(-4400, -2600, z);
+  const bay = ss(1700, 3400, x);
+  const top = F.layerTop + (F.layerTopEast - F.layerTop) * east;
+  return top + (F.layerTopBay - top) * Math.max(bay, north * east);
+}
 
 export const GLSL_COMMON = /* glsl */ `
 precision highp float;
@@ -38,15 +95,20 @@ uniform vec3 uLight;            // x sun strength, y ambient, z sky bounce
 uniform sampler2DShadow uShadowMap;
 uniform mat4 uShadowMatrix;
 uniform float uShadowOn;
+uniform float uShadowEdge;
 uniform vec4 uFog;              // density, heightFalloff, farFull, unused
 uniform float uFogBank;
 uniform sampler2D uPaintFog;
 uniform vec4 uPaintFogRect;
 uniform float uPaintClearing;
 uniform float uGroundRef;
+uniform vec4 uFogLayer;
+uniform vec4 uFogLayer2;
+uniform vec2 uFogBillow;
+${GLSL_LAYER_TOP}
 
 float sbShadow(vec3 worldPos, vec3 n) {
-  if (uShadowOn < 0.5) return 1.0;
+  if (uShadowOn < 0.01) return 1.0;
   vec3 p = worldPos + n * 0.35;
   vec4 sc = uShadowMatrix * vec4(p, 1.0);
   vec3 uvz = sc.xyz / sc.w;
@@ -54,8 +116,8 @@ float sbShadow(vec3 worldPos, vec3 n) {
   float s = texture(uShadowMap, vec3(uvz.xy, uvz.z - 0.0009));
   // fade shadows out near the edge of the shadow map so the boundary never pops
   vec2 e = min(uvz.xy, 1.0 - uvz.xy);
-  float edge = smoothstep(0.0, 0.08, min(e.x, e.y));
-  return mix(1.0, s, edge);
+  float edge = smoothstep(0.0, uShadowEdge, min(e.x, e.y));
+  return mix(1.0, s, edge * min(uShadowOn, 1.0));
 }
 
 // Toon light: returns 0..1 light level fed to the ramp lookup.
@@ -81,7 +143,25 @@ float sbFog(vec3 worldPos) {
   density *= 1.0 - uPaintClearing * paint;
   float f = 1.0 - exp(-density * dist * (0.35 + 0.65 * hf));
   float far = smoothstep(uFog.z * 0.55, uFog.z, dist);
-  return clamp(max(f, far), 0.0, 1.0);
+  f = clamp(max(f, far), 0.0, 1.0);
+  if (uFogLayer2.w > 0.001) {
+    // high above it, the marine layer is a fog sea with a top: the optical
+    // depth is the ray's path inside the layer (an exact average of the soft
+    // top's profile between the two heights) plus a whisper of clear-air haze.
+    float top = sbLayerTop(worldPos.xz);
+    float s = max(uFogLayer.w, 1.0);
+    float y0 = cameraPosition.y, y1 = worldPos.y;
+    float a = top - s;
+    float A0 = y0 <= a ? y0 : y0 >= top + s ? top : a + (y0 - a) - (y0 - a) * (y0 - a) / (4.0 * s);
+    float A1 = y1 <= a ? y1 : y1 >= top + s ? top : a + (y1 - a) - (y1 - a) * (y1 - a) / (4.0 * s);
+    float dy = y1 - y0;
+    float inL = abs(dy) > 0.5 ? (A1 - A0) / dy : (top + s - y1) / (2.0 * s);
+    inL = clamp(inL, 0.0, 1.0);
+    float od = dist * (uFogLayer2.x * inL + uFogLayer2.y * (1.0 - inL)) * uFogBank * (1.0 - uPaintClearing * paint);
+    float fl = max(1.0 - exp(-od), smoothstep(uFogLayer2.z * 0.55, uFogLayer2.z, dist));
+    f = mix(f, clamp(fl, 0.0, 1.0), uFogLayer2.w);
+  }
+  return f;
 }
 
 vec2 sbOctEncode(vec3 n) {
