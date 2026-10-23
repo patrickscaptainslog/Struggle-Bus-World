@@ -13,6 +13,7 @@ import { Aimer, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
 import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blastLayout';
 import { Input } from './game/Input';
+import { Controls } from './game/Controls';
 import { BusModel, type BusPose } from './bus/BusModel';
 import { Particles } from './fx/Particles';
 import { StreetSigns } from './fx/StreetSign';
@@ -392,6 +393,8 @@ async function boot() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) city.ground.persist();
   });
+  // tilt / touch / keyboard, the turbo gears and the HUD (src/game/Controls.ts)
+  const controls = new Controls({ input, flight, rig, audio, particles, pipeline, camera, scene, bus, bounds: manifest.bounds, params });
   input.onTripleFinger = () => tuner.toggle();
   input.onFirstGesture = () => audio.unlock();
   input.onPress = () => aimer.press();
@@ -492,6 +495,7 @@ async function boot() {
 
     // input -> flight (substeps keep springs stable on slow frames)
     input.update(dt);
+    controls.preFlight(dt);
     const st = input.state;
     const qaStick = qa && typeof qa.sx === 'number' && typeof qa.sy === 'number';
     let sx = qaStick ? qa.sx! : st.stretch.x;
@@ -535,11 +539,13 @@ async function boot() {
     // (and when it strains against the ceiling: the struggle bus)
     pose.wheeze = flight.barfT >= 0 ? 0 : Math.max(flight.fullness * 0.8, flight.strain);
     pose.eye = barfing ? 0.25 : flight.relief > 0 ? 1 : 0.55 + 0.45 * (1 - flight.fullness * 0.6);
+    controls.pose(pose);
     bus.update(dt, simTime, pose);
     eul.set(flight.pitch, -flight.heading, -flight.bank, 'YXZ');
     q.setFromEuler(eul);
     bus.root.quaternion.copy(q);
     bus.root.position.set(flight.x, flight.y, flight.z);
+    controls.afterPose(bus.root);
 
     // drop shadow on whatever is below: the roof of the part under the bus, else the street
     const below = city.roofAt(flight.x, flight.z) ?? flight.groundUnder;
@@ -587,6 +593,7 @@ async function boot() {
     bus.root.scale.setScalar(rig.heroScale);
     // this frame's matrix now: the breath and the exhaust leave from where the bus IS (not last frame's pose)
     bus.root.updateMatrixWorld(true);
+    controls.frame(dt, realDt);
     const Fg = config.fog;
     const camY = camera.position.y;
     // (gated by the vista, i.e. by the height above the ground: skimming the floor over Twin Peaks the
@@ -689,6 +696,7 @@ async function boot() {
       dropShadow.position.add(pipeline.snapCompensation(dropShadow.position, compTmp));
       pipeline.snapCompensation(bus.root.position, particles.object.position);
     } else particles.object.position.set(0, 0, 0);
+    controls.fx.object.position.copy(particles.object.position);
     pipeline.render(scene);
     perf.frame(dt * 1000, performance.now() - t0);
     const ready = city.loadedRegionCount() > 0 && !city.busy && (opening >= config.fog.openingDuration || params.has('openingshot'));
@@ -700,7 +708,7 @@ async function boot() {
 
   // debug hooks for scripted screenshots / QA
   (window as unknown as Record<string, unknown>).__game = {
-    flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS,
+    flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls,
     /** QA: where a breath fired now would land ({x, y, z, dist, travel, drop}), and the last one fired */
     aimNow: () => (aimer.point(flight), { ...aimer.aim }),
     /** QA: the building glinting now (what a tap hits) */
