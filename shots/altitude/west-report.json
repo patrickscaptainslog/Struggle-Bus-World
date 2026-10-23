@@ -1,0 +1,282 @@
+{
+  "phase": "west",
+  "start": "?lat=37.7600&lon=-122.4800&heading=60&skipintro",
+  "shots": [],
+  "taps": [
+    {
+      "t": 5.990099999998505,
+      "aim": [
+        -5098.120308053441,
+        88.9000015258789,
+        1641.263787183852
+      ],
+      "travel": 0.42,
+      "drop": 10.590461593770144,
+      "busY": 99.49046311964905,
+      "target": {
+        "index": 54375,
+        "cx": -5103.166585286458,
+        "cz": 1651.9666544596355,
+        "roofY": 96.6490707397461
+      },
+      "aimScreen": [
+        196.5,
+        427.4
+      ],
+      "targetScreen": [
+        240,
+        407.1
+      ],
+      "bloomed": 1,
+      "screenCenter": [
+        196.5,
+        426
+      ],
+      "label": "cruise"
+    },
+    {
+      "t": 10.623299999998471,
+      "aim": [
+        -4982.765464438629,
+        98.30000305175781,
+        1660.3863031905094
+      ],
+      "travel": 0.4233303276280009,
+      "drop": 17.805308854175507,
+      "busY": 116.10531190593332,
+      "target": {
+        "index": 54390,
+        "cx": -4990.574951171875,
+        "cz": 1652.2750244140625,
+        "roofY": 102.54991912841797
+      },
+      "aimScreen": [
+        196.5,
+        437.4
+      ],
+      "targetScreen": [
+        170.7,
+        440
+      ],
+      "bloomed": 1,
+      "screenCenter": [
+        196.5,
+        426
+      ],
+      "label": "120m"
+    },
+    {
+      "t": 18.57309999999871,
+      "aim": [
+        -4671.351407938224,
+        133.3000030517578,
+        1712.0097996841575
+      ],
+      "travel": 1.021764941242214,
+      "drop": 119.1512914277738,
+      "busY": 252.4512944795316,
+      "target": {
+        "index": 54503,
+        "cx": -4671.75,
+        "cz": 1734.0249938964844,
+        "roofY": 142.91055297851562
+      },
+      "aimScreen": [
+        196.5,
+        524.9
+      ],
+      "targetScreen": [
+        237.4,
+        506.2
+      ],
+      "bloomed": 1,
+      "screenCenter": [
+        196.5,
+        426
+      ],
+      "label": "250m"
+    },
+    {
+      "t": 34.85619999999841,
+      "aim": [
+        -3855.9546793352156,
+        122.5,
+        1847.1791322217232
+      ],
+      "travel": 3.0154475571690607,
+      "drop": 392.18373318792374,
+      "busY": 514.6837331879237,
+      "target": {
+        "index": 59745,
+        "cx": -3838.9500732421875,
+        "cz": 1839.5499877929688,
+        "roofY": 122.4561767578125
+      },
+      "aimScreen": [
+        196.5,
+        463.1
+      ],
+      "targetScreen": [
+        191,
+        458.5
+      ],
+      "bloomed": 1,
+      "screenCenter": [
+        196.5,
+        426
+      ],
+      "label": "ceiling"
+    }
+  ],
+  "perf": {
+    "cruise": {
+      "workMs": 2.55,
+      "workMaxMs": 3.2,
+      "calls": 119,
+      "triangles": 984908
+    },
+    "ceiling": {
+      "workMs": 52.55,
+      "workMaxMs": 102.9,
+      "calls": 156,
+      "triangles": 1156455
+    }
+  },
+  "events": [
+    {
+      "label": "cruise",
+      "t": 5.36,
+      "y": 99.24,
+      "vy": 1.21,
+      "speed": 26.4,
+      "floorY": 99.5,
+      "targetY": 99.5,
+      "holdY": null,
+      "roof": 93,
+      "clear": 6.24,
+      "mode": "floor",
+      "camDist": 180.3,
+      "camY": 192.3,
+      "vista": 0,
+      "hfov": 24,
+      "strain": 0,
+      "qa": 0
+    },
+    {
+      "label": "120m",
+      "t": 10.27,
+      "y": 116.13,
+      "vy": -0.28,
+      "speed": 26.61,
+      "floorY": 102,
+      "targetY": 116.34,
+      "holdY": 118.44,
+      "roof": 95.5,
+      "clear": 20.63,
+      "mode": "hold",
+      "camDist": 180.6,
+      "camY": 208.6,
+      "vista": 0,
+      "hfov": 24,
+      "strain": 0,
+      "qa": 0
+    },
+    {
+      "label": "250m",
+      "t": 18.21,
+      "y": 252.44,
+      "vy": 0.3,
+      "speed": 26.39,
+      "floorY": 123.32,
+      "targetY": 252.17,
+      "holdY": 254.48,
+      "roof": 116.82,
+      "clear": 135.62,
+      "mode": "hold",
+      "camDist": 198.8,
+      "camY": 362.2,
+      "vista": 0.197,
+      "hfov": 26.76,
+      "strain": 0,
+      "qa": 0
+    },
+    {
+      "label": "ceiling",
+      "t": 34.27,
+      "y": 514.17,
+      "vy": 0.92,
+      "speed": 26.4,
+      "floorY": 140.7,
+      "targetY": 515.32,
+      "holdY": 516.63,
+      "roof": 129.6,
+      "clear": 384.57,
+      "mode": "hold",
+      "camDist": 272.2,
+      "camY": 699,
+      "vista": 0.976,
+      "hfov": 37.66,
+      "strain": 0,
+      "qa": 0
+    },
+    {
+      "label": "hold",
+      "t": 41.61,
+      "y": 514.71,
+      "vy": 0,
+      "speed": 26.4,
+      "floorY": 122.2,
+      "targetY": 514.06,
+      "holdY": 516.63,
+      "roof": 106.2,
+      "clear": 408.51,
+      "mode": "hold",
+      "camDist": 274,
+      "camY": 701.6,
+      "vista": 0.994,
+      "hfov": 37.92,
+      "strain": 0,
+      "qa": 0
+    },
+    {
+      "label": "floor reached",
+      "t": 48.42,
+      "y": 217.86,
+      "vy": -3.99,
+      "speed": 98.56,
+      "floorY": 219.1,
+      "targetY": 219.1,
+      "holdY": null,
+      "roof": 126.2,
+      "clear": 91.66,
+      "mode": "floor",
+      "camDist": 219.3,
+      "camY": 319.1,
+      "vista": 0.182,
+      "hfov": 26.55,
+      "strain": 0,
+      "qa": 1
+    },
+    {
+      "label": "floor cruise",
+      "t": 54.02,
+      "y": 278.19,
+      "vy": 8.74,
+      "speed": 26.43,
+      "floorY": 280.14,
+      "targetY": 280.14,
+      "holdY": null,
+      "roof": 255.9,
+      "clear": 22.29,
+      "mode": "floor",
+      "camDist": 178.5,
+      "camY": 367.2,
+      "vista": 0.001,
+      "hfov": 24.02,
+      "strain": 0,
+      "qa": 0
+    }
+  ],
+  "minClearance": 6.18,
+  "maxY": 519.47
+}
