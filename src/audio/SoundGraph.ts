@@ -27,6 +27,11 @@ export interface FrameIn {
 }
 
 const HUM_GAIN = 0.06;
+
+/** Whole semitones in [-12, 12] (the score only ever moves by semitones). */
+function semis(x: number): number {
+  return clamp(Math.round(fin(x)), -12, 12);
+}
 const PUSH_INTERVAL = 1 / 30;
 
 export class SoundGraph {
@@ -55,6 +60,7 @@ export class SoundGraph {
   private chord = -1;
   private centerHue = 0;
   private transpose = 0;
+  private tunedTranspose = 0;
   private lastBloom = -10;
   // smoothed frame
   private speedN = 0;
@@ -79,7 +85,7 @@ export class SoundGraph {
 
   constructor(ctx: BaseAudioContext, seed = 1) {
     this.ctx = ctx;
-    this.isRealtime = typeof AudioContext !== 'undefined' && ctx instanceof AudioContext;
+    this.isRealtime = !(typeof OfflineAudioContext !== 'undefined' && ctx instanceof OfflineAudioContext);
     this.rng = new Rng(seed * 7717 + 3);
     const t = ctx.currentTime;
     const tune = audioTune;
@@ -151,8 +157,9 @@ export class SoundGraph {
     this.horn = new Foghorn(this.kit, this.ambDuck);
     this.bus = new BusVoice(this.kit, this.sfxBus);
     this.fx = new Sfx(this.kit);
-    this.hum.setChord(PROGRESSION[0], t, tune.transpose);
-    this.transpose = tune.transpose;
+    this.tunedTranspose = tune.transpose;
+    this.transpose = semis(tune.transpose);
+    this.hum.setChord(PROGRESSION[0], t, this.transpose);
     // The first foghorn sounds early, while the bus is still in the opening fog bank.
     this.nextHorn = t + 2.4;
     this.nextBreath = t + 0.4;
@@ -239,9 +246,13 @@ export class SoundGraph {
     if (this.pushAcc < PUSH_INTERVAL || now <= this.lastPush) return;
     this.pushAcc = 0;
     this.lastPush = now;
-    if (tune.transpose !== this.transpose) {
-      this.transpose = clamp(Math.round(fin(tune.transpose)), -12, 12);
-      this.hum.setChord(this.currentChord, now, this.transpose);
+    if (tune.transpose !== this.tunedTranspose) {
+      this.tunedTranspose = tune.transpose;
+      const tr = semis(tune.transpose);
+      if (tr !== this.transpose) {
+        this.transpose = tr;
+        this.hum.setChord(this.currentChord, now, tr);
+      }
     }
     this.wind.update(now, 0, this.speedN, this.altN, this.surge, this.paint, this.fog, tune, true);
     this.bus.update(now, 0, this.speedN, this.surge, this.fullness, tune, true);
@@ -298,8 +309,8 @@ export class SoundGraph {
 
   bloomNote(t: number, indexIn: number, totalIn: number, hueIn: number, levelIn: number): void {
     const tune = audioTune;
-    const index = Math.max(0, Math.floor(fin(indexIn)));
-    const total = Math.max(index + 1, Math.floor(fin(totalIn, 1)));
+    const index = clamp(Math.floor(fin(indexIn)), 0, 63);
+    const total = clamp(Math.floor(fin(totalIn, 1)), index + 1, 64);
     const hue = ((fin(hueIn) % 6) + 6) % 6;
     const level = clamp(Math.round(fin(levelIn, 1)), 1, 3);
     const tr = this.transpose;

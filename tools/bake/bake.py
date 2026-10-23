@@ -110,6 +110,14 @@ def main():
     dem = np.full((H, W), np.nan, dtype=np.float32)
     # local frame raster: row 0 = minZ (north edge, since z = -northing), x right
     dst_transform = from_origin(minX, -minZ, DEM_RES, DEM_RES)  # in proj coords (northing = -z)
+    if cfg.get('dem_fallback'):
+        # coarser regional DEM first (Marin Headlands etc.), the 1 m city DEM on top
+        os.environ.setdefault('CPL_VSIL_CURL_ALLOWED_EXTENSIONS', '.tif')
+        with rasterio.open(cfg['dem_fallback']) as src:
+            reproject(source=rasterio.band(src, 1), destination=dem, src_transform=src.transform, src_crs=src.crs,
+                      src_nodata=src.nodata, dst_transform=dst_transform, dst_crs=proj, dst_nodata=np.nan,
+                      resampling=Resampling.cubic, num_threads=2)
+        log('dem fallback', int((~np.isnan(dem)).sum()))
     for path in cfg['dem']:
         with rasterio.open(path) as src:
             tmp = np.full((H, W), np.nan, dtype=np.float32)
@@ -459,7 +467,14 @@ def main():
     GX = GX + rng.uniform(-4.5, 4.5, GX.shape)
     GZ = GZ + rng.uniform(-4.5, 4.5, GZ.shape)
     cls, dd = ground_at(GX.ravel(), GZ.ravel())
-    keep = (cls == GROUND_GRASS) & (dd > 20) & (rng.uniform(size=cls.shape) < 0.55)
+    # no forests on steep grassy hills (Twin Peaks, Bernal, the Marin Headlands are bare)
+    gxr, gzr = GX.ravel(), GZ.ravel()
+    sx_ = (dem_at(gxr + 6, gzr) - dem_at(gxr - 6, gzr)) / 12
+    sz_ = (dem_at(gxr, gzr + 6) - dem_at(gxr, gzr - 6)) / 12
+    slope = np.hypot(sx_, sz_)
+    tree_lat_max = cfg.get('treeLatMax', 90)
+    _, lat_r = to_local.transform(gxr, -gzr, direction='INVERSE')
+    keep = (cls == GROUND_GRASS) & (dd > 20) & (rng.uniform(size=cls.shape) < 0.55) & (slope < 0.2) & (lat_r < tree_lat_max)
     for x, z in zip(GX.ravel()[keep], GZ.ravel()[keep]):
         kind = 2 if rng.uniform() < 0.18 else 1
         trees.append((float(x), float(z), 0.75 + 0.7 * rng.uniform(), kind))
@@ -498,7 +513,7 @@ def main():
 
     manifest_tiles = []
     for old in os.listdir(out_dir):
-        if old.endswith('.bin'):
+        if old.endswith('.bin') and old[:2] in ('b_', 't_', 'r_'):
             os.remove(os.path.join(out_dir, old))
     total_bytes = 0
     all_tiles = set(tiles.keys()) | set(tree_tiles.keys())
@@ -633,7 +648,10 @@ def main():
     lms = []
     for lm in cfg.get('landmarks', []):
         x, z = ll2xz(lm['lon'], lm['lat'])
-        lms.append({'kind': lm['kind'], 'x': x, 'z': z, 'y': float(dem_at([x], [z])[0]), 'height': lm['height']})
+        rec = {'kind': lm['kind'], 'x': x, 'z': z, 'y': float(dem_at([x], [z])[0]), 'height': lm['height']}
+        if 'points' in lm:
+            rec['points'] = [list(ll2xz(lo, la)) for la, lo in lm['points']]
+        lms.append(rec)
     manifest = {
         'name': cfg['name'], 'slug': slug, 'origin': cfg['origin'], 'proj': proj,
         'tileSize': TILE, 'terrainN': TERRAIN_N, 'obstN': OBST_N, 'classN': CLASS_N,
@@ -642,7 +660,7 @@ def main():
         'tiles': manifest_tiles,
         'neighborhoods': [{'name': n, 'x': float(x), 'z': float(z)} for (n, _, _), (x, z) in zip(hood_ll, hood_xz)],
         'landmarks': lms,
-        'start': {'x': sx, 'z': sz, 'heading': math.radians(cfg['start']['heading_deg'])},
+        'start': {'x': sx, 'z': sz, 'heading': math.radians(cfg['start']['heading_deg']), 'speed': cfg['start'].get('speed', 30), 'opening': cfg['start'].get('opening', '')},
         'source': 'FEMA/ORNL USA Structures (public domain) + USGS 3DEP 1 m DEM (public domain); rows split into ~25 ft lots',
     }
     with open(os.path.join(out_dir, 'city.json'), 'w') as f:

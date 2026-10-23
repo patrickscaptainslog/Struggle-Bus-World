@@ -40,6 +40,8 @@ export class Flight {
   groundUnder = 0;
   obstacleUnder = 0;
   surge = 0;
+  /** opening glide: cruise at this speed until the player first steers */
+  glideSpeed = 0;
   private t = 0;
   private targetAlt = 60;
 
@@ -86,7 +88,9 @@ export class Flight {
     // ---- speed
     const sy = inp.dragging ? inp.sy : 0;
     this.surge = Math.max(0, sy);
-    let targetSpeed = sy >= 0 ? F.cruiseSpeed + (F.surgeSpeed - F.cruiseSpeed) * Math.pow(sy, 1.3) : F.cruiseSpeed + (F.hoverSpeed - F.cruiseSpeed) * Math.min(1, -sy);
+    const cruise = this.glideSpeed > 0 && !inp.dragging ? this.glideSpeed : F.cruiseSpeed;
+    if (inp.dragging) this.glideSpeed = 0;
+    let targetSpeed = sy >= 0 ? cruise + (F.surgeSpeed - F.cruiseSpeed) * Math.pow(sy, 1.3) : cruise + (F.hoverSpeed - cruise) * Math.min(1, -sy);
     targetSpeed *= 1 - 0.12 * heavy;
     targetSpeed *= 1 + (S.reliefBoost - 1) * reliefK * reliefK;
     if (this.barfing) targetSpeed *= S.stallSpeed;

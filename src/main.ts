@@ -15,6 +15,7 @@ import { StreetSigns } from './fx/StreetSign';
 import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { Tuner, applySavedTuning } from './ui/Tuner';
+import { makeGoldenGate, makeBayBridgeWest } from './world/Bridges';
 import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
 
@@ -83,10 +84,15 @@ async function boot() {
     }
   };
   for (const lm of manifest.landmarks) {
-    const obj = lm.kind === 'sutro' ? makeSutroTower() : lm.kind === 'transamerica' ? makeTransamerica() : null;
-    if (!obj) continue;
-    obj.position.set(lm.x, lm.y, lm.z);
-    scene.add(obj);
+    const pts = (lm as { points?: Array<[number, number]> }).points;
+    if (lm.kind === 'ggb' && pts) scene.add(makeGoldenGate(pts));
+    else if (lm.kind === 'baybridge' && pts) scene.add(makeBayBridgeWest(pts));
+    else {
+      const obj = lm.kind === 'sutro' ? makeSutroTower() : lm.kind === 'transamerica' ? makeTransamerica() : null;
+      if (!obj) continue;
+      obj.position.set(lm.x, lm.y, lm.z);
+      scene.add(obj);
+    }
   }
 
   // ---- the hero
@@ -102,7 +108,25 @@ async function boot() {
     flight.z = -(Number(params.get('lat')) - lat0) * 110574;
   }
   if (params.has('heading')) flight.heading = THREE.MathUtils.degToRad(Number(params.get('heading')));
+  // the opening: emerge from the fog bank west of the Golden Gate, glide under it
+  const start = manifest.start as typeof manifest.start & { speed?: number; opening?: string };
+  const ggb = manifest.landmarks.find((l) => l.kind === 'ggb') as { points?: Array<[number, number]> } | undefined;
+  let openingBridge: [number, number] | null = null;
+  if (!params.has('lat') && start.opening === 'golden-gate' && ggb?.points) {
+    // thread the gap just north of the south tower so the tower fills the
+    // narrow portrait lens as we glide under the deck
+    const [, t1, t2] = ggb.points;
+    const sx = (t2[0] - t1[0]), sz = (t2[1] - t1[1]);
+    const sl = Math.hypot(sx, sz);
+    const gap: [number, number] = [t1[0] + (sx / sl) * 85, t1[1] + (sz / sl) * 85];
+    flight.x = gap[0] - flight.fx * 640;
+    flight.z = gap[1] - flight.fz * 640;
+    openingBridge = gap;
+    flight.speed = start.speed ?? 60;
+    flight.glideSpeed = start.speed ?? 60;
+  }
   const rig = new CameraRig();
+  if (openingBridge) rig.openingLow = 1;
   const focus = new THREE.Vector3(flight.x, 60, flight.z);
 
   // drop shadow straight below the bus: the aim reticle
@@ -260,8 +284,20 @@ async function boot() {
     // input -> flight (substeps keep springs stable on slow frames)
     input.update(dt);
     const st = input.state;
+    const qa = (window as unknown as { __qa?: { sx: number; sy: number } | null }).__qa;
+    let sx = qa ? qa.sx : st.stretch.x;
+    const sy = qa ? qa.sy : st.stretch.y;
+    const dragging = qa ? true : st.dragging;
+    // past the edge of the map the bus homes back toward the city, gently
+    const ex = Math.max(minX - flight.x, flight.x - maxX, 0), ez = Math.max(minZ - flight.z, flight.z - maxZ, 0);
+    if (ex + ez > 300 && !openingBridge) {
+      const home = Math.atan2((minX + maxX) / 2 - flight.x, -((minZ + maxZ) / 2 - flight.z));
+      let dh = home - flight.heading;
+      dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+      sx = clamp(sx + clamp(dh, -1, 1) * clamp((ex + ez - 300) / 600, 0, 1), -1, 1);
+    }
     const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
-    for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx: st.stretch.x, sy: st.stretch.y, dragging: st.dragging }, city);
+    for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || sx !== st.stretch.x }, city);
     if (!wasFull && flight.fullness >= 1) audio.ready();
     wasFull = flight.fullness >= 1;
 
@@ -290,6 +326,16 @@ async function boot() {
     dropShadow.scale.set(sz * 0.5, 1, sz);
     dropShadow.rotation.y = -flight.heading;
 
+    if (openingBridge) {
+      // stay low and level until we're well past the bridge, then rise into the normal chase view
+      const along = (flight.x - openingBridge[0]) * flight.fx + (flight.z - openingBridge[1]) * flight.fz;
+      const want = along < 180 && !dragging ? 1 : 0;
+      rig.openingLow += (want - rig.openingLow) * (1 - Math.exp(-(want ? 4 : 0.7) * dt));
+      if (rig.openingLow < 0.01 && want === 0) {
+        rig.openingLow = 0;
+        openingBridge = null;
+      }
+    }
     rig.update(camera, focus, flight, dt);
     pipeline.focus.copy(focus);
     globals.uGroundRef.value = flight.groundUnder - 30;
@@ -323,12 +369,17 @@ async function boot() {
 
     pipeline.render(scene);
     perf.frame(dt * 1000, performance.now() - t0);
-    (window as unknown as { __shotReady?: boolean }).__shotReady = city.loadedRegionCount() > 0 && !city.busy && opening >= config.fog.openingDuration;
+    (window as unknown as { __shotReady?: boolean }).__shotReady = city.loadedRegionCount() > 0 && !city.busy && (opening >= config.fog.openingDuration || params.has('openingshot'));
   }
   requestAnimationFrame(frame);
 
   // debug hooks for scripted screenshots / QA
-  (window as unknown as Record<string, unknown>).__game = { flight, city, splatter, input, audio, rig, camera, tuner, HUE_RAMPS, tapSplat: () => input.onTap?.() };
+  (window as unknown as Record<string, unknown>).__game = {
+    flight, city, splatter, input, audio, rig, camera, tuner, HUE_RAMPS,
+    tapSplat: () => input.onTap?.(),
+    forceReady: () => (flight.fullness = 1),
+    clock: () => simTime,
+  };
 }
 
 boot().catch((e) => {

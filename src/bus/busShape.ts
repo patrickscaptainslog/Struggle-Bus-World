@@ -28,6 +28,7 @@ export const PART = {
   HOLE: 11,
   FLASH_AMBER: 12, // param = wig-wag phase 0 | 1
   FLASH_RED: 13, // param = wig-wag phase 0 | 1
+  BUMPER: 14, // dangles from its taped end
 } as const;
 
 /** Design dimensions (scale 1). y values are from the tyre bottoms; add OY for object space. */
@@ -82,6 +83,9 @@ export const D = {
   // side mirrors ("ears")
   mirX: 1.22,
   mirY: 2.6,
+  // bumper dangle pivot (the taped end)
+  bumperPivX: 0.95,
+  bumperPivY: 1.0,
   // pressure-valve roof hatch
   hatchZ: 3.15,
   hatchS: 0.9,
@@ -197,7 +201,7 @@ export function buildBusGeometry() {
       [-zb0, 1.99],
     ];
     b.pushAt(0, 0, 0, 0, Math.PI / 2, 0);
-    b.extrudeZ(prof, -0.92, 0.92, yellowHi);
+    b.extrudeZ(prof, -0.92, 0.92, { ramp: Ramp.BUS_YELLOW, lo: 0.2 });
     b.pop();
   }
   // fenders: the right one proud, the left one dented in
@@ -207,7 +211,7 @@ export function buildBusGeometry() {
   b.box(0, 0, 0, X - 0.92, 1.66 - D.bodyY0, zb0 - hz0 - 0.04, yellow);
   b.box(0, 0.24, 0.05, X - 0.98, 0.07, zb0 - hz0 - 0.18, yellowHi);
   b.pop();
-  // grille: chrome surround, black core, three slats
+  // grille: chrome surround, black core, two chunky slats
   b.boxMM(-0.5, 1.28, hz0 - 0.03, 0.5, 1.7, hz0 + 0.01, chrome);
   b.boxMM(-0.42, 1.34, hz0 - 0.045, 0.42, 1.64, hz0 - 0.02, black);
   for (const y of [1.46, 1.58]) b.boxMM(-0.38, y - 0.025, hz0 - 0.055, 0.38, y + 0.025, hz0 - 0.04, chrome);
@@ -231,15 +235,19 @@ export function buildBusGeometry() {
   }
 
   // ------------------------------------------- duct-taped front bumper (droops)
-  b.pushAt(0, 1.0, -5.53, 0, 0, 0.05);
-  b.box(0, 0, 0, 2.56, 0.28, 0.24, black);
-  // wraps holding up the sagging end
-  b.box(-1.0, 0, 0, 0.17, 0.33, 0.29, tape);
-  b.box(-0.76, 0, 0, 0.13, 0.33, 0.29, tape, 0.15, 0, 0);
-  // an X patch on the good side
-  b.box(0.62, 0, -0.125, 0.44, 0.08, 0.02, tape, 0, 0, 0.5);
-  b.box(0.62, 0, -0.135, 0.44, 0.08, 0.02, tape, 0, 0, -0.5);
-  b.pop();
+  {
+    const bumper: PartOpts = { ...black, part: PART.BUMPER };
+    const btape: PartOpts = { ...tape, part: PART.BUMPER };
+    b.pushAt(0, 1.0, -5.53, 0, 0, 0.05);
+    b.box(0, 0, 0, 2.56, 0.28, 0.24, bumper);
+    // wraps holding up the sagging end
+    b.box(-1.0, 0, 0, 0.17, 0.33, 0.29, btape);
+    b.box(-0.76, 0, 0, 0.13, 0.33, 0.29, btape, 0.15, 0, 0);
+    // an X patch on the good side
+    b.box(0.62, 0, -0.125, 0.44, 0.08, 0.02, btape, 0, 0, 0.5);
+    b.box(0.62, 0, -0.135, 0.44, 0.08, 0.02, btape, 0, 0, -0.5);
+    b.pop();
+  }
   // brackets
   b.boxMM(-0.86, 0.9, -5.44, -0.66, 1.06, -5.36, blackDim);
   b.boxMM(0.66, 0.96, -5.44, 0.86, 1.1, -5.36, blackDim);

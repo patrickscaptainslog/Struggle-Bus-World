@@ -24,6 +24,7 @@ let settle = 0;
 const paintN = Number(p.get('paint') ?? 0);
 let painted = false;
 h.onFrame((dt) => {
+  if (p.has('freeze')) globals.uTime.value = 100;
   focus.y = city.groundAt(focus.x, focus.z) + Number(p.get('ty') ?? 8);
   h.target.copy(focus);
   globals.uGroundRef.value = city.groundAt(focus.x, focus.z) - 20;
@@ -32,7 +33,9 @@ h.onFrame((dt) => {
     painted = true;
     const near = city.buildingsNear(focus.x, focus.z, Number(p.get('pr') ?? 60));
     near.slice(0, paintN).forEach((n, i) => {
-      city.paint.set(n.ref.index, { faction: FACTION_RAINBOW, color: i % 6, level: 1 + (i % 3 === 2 ? 2 : i % 3), bloomTime: globals.uTime.value - 5 });
+      const bt = Number(p.get('bt') ?? 5);
+      const lvl = p.has('level') ? Number(p.get('level')) : 1 + (i % 3 === 2 ? 2 : i % 3);
+      city.paint.set(n.ref.index, { faction: FACTION_RAINBOW, color: i % 6, level: lvl, bloomTime: (p.has('freeze') ? 100 : globals.uTime.value) - bt - i * 0.075 });
     });
   }
   if (!ready && city.loadedRegionCount() > 0 && !city.busy) {

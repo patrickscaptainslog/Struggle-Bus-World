@@ -17,6 +17,19 @@ import { ANCHOR, buildBusGeometry, D, designToObjectY as Y, PART } from './busSh
 // roof hatch pops and bobs over a glowing hole (pot about to boil over), and
 // the amber flashers wig-wag. While barfing, the red flashers wig-wag and the
 // stop arm swings out. The bus never casts sun shadows (no SHADOW_LAYER).
+//
+// Light: the bus is lit against a fixed reference light (REF_LIGHT) with the
+// live sun direction + building shadows, sun contrast softened, and snapped
+// to ramp-step centres per vertex: crisp toon bands that never crawl, and a
+// hero that stays vivid whatever the global light tuning does (heroLight=0
+// returns it to raw world light).
+//
+// Breathing follows the audio bus voice's rhythm on its own; call
+// breathe(period) whenever the audio schedules a breath to lock them together.
+//
+// Note: relies on makeRampMaterial inserting vertexChunk before the
+// ramp/lightOffset/glow varyings are written (we #define those names to our
+// animated locals at the end of the chunk).
 
 export interface BusPose {
   /** 1 rest, <1 squashed wide+short, >1 stretched tall+thin; volume preserving. */
@@ -66,6 +79,8 @@ export const busTune = {
   inhaleAmt: 0.075,
   wheezeSag: 0.06,
   shudder: 0.06,
+  /** 1 = light the bus against its reference light (always vivid), 0 = raw world light. */
+  heroLight: 1,
   /** Snap the bus's light to ramp-step centres (0 = raw, 1 = crisp bands). */
   lightSnap: 1,
   /** Fraction of the sun's contrast removed from the bus (0 = normal toon light). */
@@ -123,6 +138,7 @@ registerTunables('Bus', busTune as unknown as Record<string, unknown>, {
   shudder: [0, 0.2, 0.005],
   sunSoft: [0, 1, 0.01],
   lightSnap: [0, 1, 0.01],
+  heroLight: [0, 1, 0.01],
   squashSplit: [0, 1, 0.01],
   doorMax: [0, 1.8, 0.01],
   doorGlow: [0, 1, 0.01],
@@ -149,6 +165,9 @@ registerTunables('Bus', busTune as unknown as Record<string, unknown>, {
 
 const f = (v: number) => (Number.isInteger(v) ? v.toFixed(1) : v.toFixed(5));
 const v3 = (a: readonly number[]) => `vec3(${f(a[0])}, ${f(a[1])}, ${f(a[2])})`;
+
+/** The light the bus's colors were art-directed under (see the hero light block). */
+const REF_LIGHT = { ambient: 0.22, sky: 0.12, sun: 0.62 };
 
 const BASE_Y = Y(0);
 const BODY_H = D.roofTop;
@@ -220,6 +239,13 @@ const VERTEX_CHUNK = /* glsl */ `
     vec2 d = p.xy - piv;
     p.xy = piv + vec2(c * d.x - s * d.y, s * d.x + c * d.y);
     n.xy = vec2(c * n.x - s * n.y, s * n.x + c * n.y);
+  } else if (bPart == ${PART.BUMPER}) {
+    float a = uAnim.w * 0.4;
+    float c = cos(a), s = sin(a);
+    vec2 piv = vec2(${f(-D.bumperPivX)}, ${f(Y(D.bumperPivY))});
+    vec2 d = p.xy - piv;
+    p.xy = piv + vec2(c * d.x - s * d.y, s * d.x + c * d.y);
+    n.xy = vec2(c * n.x - s * n.y, s * n.x + c * n.y);
   } else if (bPart == ${PART.BAND}) {
     float h = ${f(0.5 / D.bandSlices)};
     float lit = smoothstep(bPar - h, bPar + h, bFull);
@@ -243,7 +269,10 @@ const VERTEX_CHUNK = /* glsl */ `
     p.yz = piv + vec2(c * q.x - s * q.y, s * q.x + c * q.y);
     n.yz = vec2(c * n.y - s * n.z, s * n.y + c * n.z);
   } else if (bPart == ${PART.HOLE}) {
-    float hue = bReady > 0.5 ? mod(floor(bT * 4.0), 6.0) : min(floor(bFull * 6.0), 5.0);
+    // never yellow: it would vanish against the yellow roof
+    float cyc = mod(floor(bT * 4.0), 5.0);
+    float hue = bReady > 0.5 ? cyc + step(2.0, cyc) : min(floor(bFull * 6.0), 5.0);
+    if (abs(hue - 2.0) < 0.5) hue = 1.0;
     bRamp = ${f(Ramp.RED)} + hue;
     bGlow = uFx.x * smoothstep(0.04, 0.5, bFull);
   } else if (bPart == ${PART.FLASH_AMBER}) {
@@ -286,18 +315,24 @@ const VERTEX_CHUNK = /* glsl */ `
   vec3 scl = vec3(pow(sq, -uFx2.x), sq, pow(sq, uFx2.x - 1.0));
   p = vec3(p.x * scl.x, ${f(BASE_Y)} + (p.y - ${f(BASE_Y)}) * scl.y, p.z * scl.z);
   n = normalize(n / scl);
-  // hero light: soften the sun's contrast so every face of the bus stays in
-  // the vivid middle of its ramp (shade side yellow-orange, never rust)
+  // ---- hero light ----
+  // The bus is art-directed against a reference light (REF_*): it follows
+  // the live sun direction and building shadows, but not global brightness
+  // changes, so the hero always sits in the vivid middle of its ramps. The
+  // sun's contrast is softened (shade side yellow-orange, never rust), and
+  // the result is snapped to ramp-step centres so the small, moving hero
+  // never sits in a dither band (dither on a moving object crawls).
   vec3 bWN = normalize(mat3(modelMatrix) * n);
   float bNdl = max(dot(bWN, uSunDir), 0.0);
-  bLo += uFx3.w - uFx3.y * uLight.x * bNdl;
-  // crisp toon bands: predict the fragment's light (incl. building shadows)
-  // and nudge it to the centre of its ramp step, so the small, moving hero
-  // never sits in a dither band (dither on a moving object crawls)
   vec3 bWP = (modelMatrix * vec4(p, 1.0)).xyz;
   float bSh = mix(1.0, sbShadow(bWP, bWN), uFx4.y);
-  float bL = uLight.y + uLight.z * (0.5 + 0.5 * bWN.y) + uLight.x * bNdl * bSh + bLo;
-  bLo += (floor(clamp(bL, 0.0, 1.0) * 7.0 + 0.5) / 7.0 - bL) * uFx4.x;
+  float bSkyF = 0.5 + 0.5 * bWN.y;
+  float bRaw = uLight.y + uLight.z * bSkyF + uLight.x * bNdl * bSh;
+  float bRef = ${f(REF_LIGHT.ambient)} + ${f(REF_LIGHT.sky)} * bSkyF + ${f(REF_LIGHT.sun)} * bNdl * bSh;
+  float bSun = mix(uLight.x, ${f(REF_LIGHT.sun)}, uFx5.x);
+  float bTgt = clamp(mix(bRaw, bRef, uFx5.x) - uFx3.y * bSun * bNdl * bSh + bLo + uFx3.w, 0.0, 1.0);
+  bTgt += (floor(bTgt * 7.0 + 0.5) / 7.0 - bTgt) * uFx4.x;
+  bLo = bTgt - bRaw;
 #define ramp bRamp
 #define lightOffset bLo
 #define glow bGlow
@@ -343,6 +378,7 @@ export class BusModel {
   private readonly uFx2 = new THREE.Vector4(); // squash split, door max, doorway glow, ready wave
   private readonly uFx3 = new THREE.Vector4(); // sparkle, sun soften, gulp, light trim
   private readonly uFx4 = new THREE.Vector4(); // light snap, shadow mul, inhale, exhale
+  private readonly uFx5 = new THREE.Vector4(); // hero light
 
   private wheelAngle = 0;
   private lastSpeed = NaN;
@@ -386,10 +422,11 @@ export class BusModel {
         uFx2: { value: this.uFx2 },
         uFx3: { value: this.uFx3 },
         uFx4: { value: this.uFx4 },
+        uFx5: { value: this.uFx5 },
       },
     });
     // declare the custom uniforms in the vertex stage
-    this.mat.vertexShader = 'uniform vec4 uPose, uPose2, uAnim, uBand, uShape, uFx, uFx2, uFx3, uFx4;\n' + this.mat.vertexShader;
+    this.mat.vertexShader = 'uniform vec4 uPose, uPose2, uAnim, uBand, uShape, uFx, uFx2, uFx3, uFx4, uFx5;\n' + this.mat.vertexShader;
     this.mesh = new THREE.Mesh(geo, this.mat);
     this.mesh.scale.setScalar(scale);
     this.mesh.name = 'StruggleBus';
@@ -424,6 +461,7 @@ export class BusModel {
     this.uFx2.set(T.squashSplit, T.doorMax, T.doorGlow, T.readyWave);
     this.uFx3.set(T.sparkle, T.sunSoft, this.gulp, T.light);
     this.uFx4.set(T.lightSnap, T.shadowMul, this.inhale, this.exhale);
+    this.uFx5.set(T.heroLight, 0, 0, 0);
   }
 
   update(dt: number, t: number, pose: BusPose): void {

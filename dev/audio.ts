@@ -226,13 +226,47 @@ const STEMS: Array<{ name: string; s: Script; from: number; to: number }> = [
   { name: 'ready', s: { seconds: 1.5, frame: still({}), events: [ev(0.1, 'ready')], tune: QUIET }, from: 0.1, to: 0.4 },
   { name: 'denied', s: { seconds: 1.5, frame: still({}), events: [ev(0.1, 'denied')], tune: QUIET }, from: 0.1, to: 0.4 },
   { name: 'sign pop', s: { seconds: 2, frame: still({}), events: [ev(0.1, 'sign')], tune: QUIET }, from: 0.1, to: 0.6 },
+  // robustness: garbage inputs must never produce NaN or noise bursts
+  { name: 'fuzz', s: { seconds: 4, frame: fuzzFrame, events: fuzzEvents(), tune: {} }, from: 0, to: 4 },
+  // spam: a level-3 re-splat every 0.12 s for 3 s, on top of everything
+  { name: 'stress', s: { seconds: 4, frame: still({ paintNearby: 1, speed: 112, surge: 1, fullness: 1 }), events: stressEvents(), tune: {} }, from: 0, to: 4 },
 ];
+
+function fuzzFrame(t: number, out: AudioFrame): AudioFrame {
+  const k = Math.floor(t * 10) % 5;
+  const bad = [NaN, Infinity, -Infinity, -50, 1e9][k];
+  out.speed = k === 0 ? bad : 30;
+  out.surge = k === 1 ? bad : 0.5;
+  out.fullness = k === 2 ? bad : 1;
+  out.altitude = k === 3 ? bad : 30;
+  out.paintNearby = k === 4 ? bad : 0.5;
+  out.fogBank = bad;
+  return out;
+}
+
+function fuzzEvents(): SessionEvent[] {
+  const out: SessionEvent[] = [];
+  const junk = [NaN, Infinity, -Infinity, -3, 1e6, 0.5];
+  for (let i = 0; i < 24; i++) {
+    const j = junk[i % junk.length];
+    out.push(ev(0.1 + i * 0.15, (['heave', 'impact', 'bloom', 'ready', 'denied', 'sign'] as const)[i % 6], j, j, j, j));
+  }
+  return out;
+}
+
+function stressEvents(): SessionEvent[] {
+  const out: SessionEvent[] = [];
+  for (let i = 0; i < 25; i++) out.push(...splatEvents(0.05 + i * 0.12, 3, 8, i % 6));
+  out.push(ev(0.2, 'foghorn'), ev(1, 'sign'), ev(1.5, 'sign'), ev(2, 'ready'));
+  return out;
+}
 
 interface StemRow {
   name: string;
   peakDb: number;
   rmsDb: number;
   phoneRmsDb: number;
+  nan: number;
 }
 
 async function renderStems(seed: number): Promise<StemRow[]> {
@@ -243,15 +277,18 @@ async function renderStems(seed: number): Promise<StemRow[]> {
     const R = buf.getChannelData(1);
     const hl = highpass(L, SR, 300);
     const hr = highpass(R, SR, 300);
-    let pk = 0, e = 0, ep = 0;
+    let pk = 0, e = 0, ep = 0, nan = 0;
     const a = Math.floor(st.from * SR), b = Math.min(buf.length, Math.floor(st.to * SR));
-    for (let i = 0; i < buf.length; i++) pk = Math.max(pk, Math.abs(L[i]), Math.abs(R[i]));
+    for (let i = 0; i < buf.length; i++) {
+      if (!Number.isFinite(L[i]) || !Number.isFinite(R[i])) nan++;
+      else pk = Math.max(pk, Math.abs(L[i]), Math.abs(R[i]));
+    }
     for (let i = a; i < b; i++) {
       e += L[i] * L[i] + R[i] * R[i];
       ep += hl[i] * hl[i] + hr[i] * hr[i];
     }
     const m = 2 * (b - a);
-    rows.push({ name: st.name, peakDb: +db(pk).toFixed(1), rmsDb: +db(Math.sqrt(e / m)).toFixed(1), phoneRmsDb: +db(Math.sqrt(ep / m)).toFixed(1) });
+    rows.push({ name: st.name, peakDb: +db(pk).toFixed(1), rmsDb: +db(Math.sqrt(e / m)).toFixed(1), phoneRmsDb: +db(Math.sqrt(ep / m)).toFixed(1), nan });
   }
   return rows;
 }
@@ -363,7 +400,7 @@ function draw(canvas: HTMLCanvasElement, buf: AudioBuffer, rep: Report, events: 
   g.textBaseline = 'top';
 
   // waveform
-  const wy0 = 20, wh = 90;
+  const wy0 = 30, wh = 90;
   g.fillStyle = C.ink;
   g.fillRect(x0, wy0, cw, wh);
   const mid = wy0 + wh / 2;
@@ -389,7 +426,7 @@ function draw(canvas: HTMLCanvasElement, buf: AudioBuffer, rep: Report, events: 
   g.fillText('±.95', 2, wy0 + 12);
 
   // spectrogram (log frequency 40 Hz .. 16 kHz)
-  const sy0 = wy0 + wh + 10, sh = H - sy0 - 92;
+  const sy0 = wy0 + wh + 10, sh = H - sy0 - 112;
   const N = 2048;
   const re = new Float64Array(N), im = new Float64Array(N);
   const win = new Float64Array(N);
@@ -469,16 +506,22 @@ function draw(canvas: HTMLCanvasElement, buf: AudioBuffer, rep: Report, events: 
       g.fillText((tickStep < 1 ? s.toFixed(1) : String(Math.round(s))) + 's', Math.round(tx(s)) - 4, by0 + bh + 7);
     }
   }
+  const rowEnd = [-1e9, -1e9];
   for (const e of events) {
     if (e.t < vFrom || e.t > vTo) continue;
     const x = Math.round(tx(e.t));
+    let row = 0;
+    if (e.label) {
+      row = x > rowEnd[0] ? 0 : x > rowEnd[1] ? 1 : 0;
+      rowEnd[row] = x + g.measureText(e.label).width + 6;
+    }
     g.fillStyle = eventColor(e);
     if (e.kind === 'bloom') g.fillRect(x, sy0 - 6, 1, 5);
     else {
       g.fillRect(x, wy0, 1, wh);
       g.fillRect(x, sy0 - 6, 1, 5);
     }
-    if (e.label) g.fillText(e.label, x + 2, 4 + (e.kind === 'heave' ? 0 : 0));
+    if (e.label) g.fillText(e.label, x + 2, 3 + row * 12);
   }
   // clicks
   g.fillStyle = C.warn;

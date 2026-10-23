@@ -1,8 +1,16 @@
 {
   "name": "San Francisco",
   "slug": "sf",
-  "origin": [37.7749, -122.4194],
-  "bbox": [-122.5160, 37.7065, -122.3560, 37.8120],
+  "origin": [
+    37.7749,
+    -122.4194
+  ],
+  "bbox": [
+    -122.516,
+    37.7065,
+    -122.356,
+    37.864
+  ],
   "fips": "06075",
   "structures": "/tmp/claude-0/sbdata/sf_structures.parquet",
   "dem": [
@@ -11,35 +19,409 @@
     "/tmp/claude-0/sbdata/dem/USGS_1M_10_x55y418.tif",
     "/tmp/claude-0/sbdata/dem/USGS_1M_10_x55y419.tif"
   ],
-  "start": { "lat": 37.7712, "lon": -122.4528, "heading_deg": 72 },
+  "start": {
+    "lat": 37.815,
+    "lon": -122.4945,
+    "heading_deg": 95,
+    "speed": 55,
+    "opening": "golden-gate"
+  },
   "districts": [
-    { "style": "stucco", "name": "Sunset/Parkside", "lon": [-122.5160, -122.4635], "lat": [37.7065, 37.7652] },
-    { "style": "stucco", "name": "Outer Richmond", "lon": [-122.5160, -122.4790], "lat": [37.7710, 37.7870] },
-    { "style": "stucco", "name": "Excelsior/OMI", "lon": [-122.4750, -122.4050], "lat": [37.7065, 37.7300] },
-    { "style": "stucco", "name": "Visitacion/Bayview south", "lon": [-122.4250, -122.3800], "lat": [37.7065, 37.7230] },
-    { "style": "marina", "name": "Marina", "lon": [-122.4480, -122.4290], "lat": [37.7975, 37.8070] }
+    {
+      "style": "stucco",
+      "name": "Sunset/Parkside",
+      "lon": [
+        -122.516,
+        -122.4635
+      ],
+      "lat": [
+        37.7065,
+        37.7652
+      ]
+    },
+    {
+      "style": "stucco",
+      "name": "Outer Richmond",
+      "lon": [
+        -122.516,
+        -122.479
+      ],
+      "lat": [
+        37.771,
+        37.787
+      ]
+    },
+    {
+      "style": "stucco",
+      "name": "Excelsior/OMI",
+      "lon": [
+        -122.475,
+        -122.405
+      ],
+      "lat": [
+        37.7065,
+        37.73
+      ]
+    },
+    {
+      "style": "stucco",
+      "name": "Visitacion/Bayview south",
+      "lon": [
+        -122.425,
+        -122.38
+      ],
+      "lat": [
+        37.7065,
+        37.723
+      ]
+    },
+    {
+      "style": "marina",
+      "name": "Marina",
+      "lon": [
+        -122.448,
+        -122.429
+      ],
+      "lat": [
+        37.7975,
+        37.807
+      ]
+    }
   ],
   "neighborhoods": [
-    ["Alamo Square", 37.7764, -122.4346], ["Hayes Valley", 37.7759, -122.4245], ["Lower Haight", 37.7717, -122.4310],
-    ["Haight-Ashbury", 37.7692, -122.4481], ["Western Addition", 37.7815, -122.4335], ["NoPa", 37.7753, -122.4410],
-    ["Cole Valley", 37.7657, -122.4500], ["Duboce Triangle", 37.7670, -122.4320], ["Castro", 37.7609, -122.4350],
-    ["Mission", 37.7599, -122.4148], ["Noe Valley", 37.7502, -122.4337], ["Bernal Heights", 37.7389, -122.4152],
-    ["Potrero Hill", 37.7587, -122.4011], ["SoMa", 37.7785, -122.4056], ["Financial District", 37.7946, -122.3999],
-    ["Chinatown", 37.7941, -122.4078], ["North Beach", 37.8061, -122.4103], ["Russian Hill", 37.8014, -122.4183],
-    ["Nob Hill", 37.7930, -122.4161], ["Pacific Heights", 37.7925, -122.4382], ["Marina", 37.8037, -122.4368],
-    ["Cow Hollow", 37.7980, -122.4370], ["Presidio Heights", 37.7880, -122.4530], ["Inner Richmond", 37.7800, -122.4640],
-    ["Outer Richmond", 37.7780, -122.4930], ["Inner Sunset", 37.7602, -122.4680], ["Outer Sunset", 37.7550, -122.4950],
-    ["Parkside", 37.7420, -122.4880], ["Twin Peaks", 37.7544, -122.4477], ["Glen Park", 37.7340, -122.4330],
-    ["Excelsior", 37.7240, -122.4280], ["Bayview", 37.7300, -122.3840], ["Dogpatch", 37.7600, -122.3880],
-    ["Tenderloin", 37.7847, -122.4141], ["Civic Center", 37.7793, -122.4180], ["Japantown", 37.7854, -122.4300],
-    ["Mission Bay", 37.7706, -122.3910], ["Embarcadero", 37.7955, -122.3937], ["Sea Cliff", 37.7871, -122.4890],
-    ["Lake Merced", 37.7180, -122.4870], ["Visitacion Valley", 37.7130, -122.4080], ["Diamond Heights", 37.7420, -122.4400],
-    ["West Portal", 37.7400, -122.4660], ["Ingleside", 37.7230, -122.4550], ["Portola", 37.7270, -122.4060],
-    ["Golden Gate Park", 37.7694, -122.4862], ["Presidio", 37.7989, -122.4662], ["Telegraph Hill", 37.8024, -122.4058],
-    ["Mission Dolores", 37.7616, -122.4268], ["Eureka Valley", 37.7590, -122.4410], ["Laurel Heights", 37.7850, -122.4500]
+    [
+      "Alamo Square",
+      37.7764,
+      -122.4346
+    ],
+    [
+      "Hayes Valley",
+      37.7759,
+      -122.4245
+    ],
+    [
+      "Lower Haight",
+      37.7717,
+      -122.431
+    ],
+    [
+      "Haight-Ashbury",
+      37.7692,
+      -122.4481
+    ],
+    [
+      "Western Addition",
+      37.7815,
+      -122.4335
+    ],
+    [
+      "NoPa",
+      37.7753,
+      -122.441
+    ],
+    [
+      "Cole Valley",
+      37.7657,
+      -122.45
+    ],
+    [
+      "Duboce Triangle",
+      37.767,
+      -122.432
+    ],
+    [
+      "Castro",
+      37.7609,
+      -122.435
+    ],
+    [
+      "Mission",
+      37.7599,
+      -122.4148
+    ],
+    [
+      "Noe Valley",
+      37.7502,
+      -122.4337
+    ],
+    [
+      "Bernal Heights",
+      37.7389,
+      -122.4152
+    ],
+    [
+      "Potrero Hill",
+      37.7587,
+      -122.4011
+    ],
+    [
+      "SoMa",
+      37.7785,
+      -122.4056
+    ],
+    [
+      "Financial District",
+      37.7946,
+      -122.3999
+    ],
+    [
+      "Chinatown",
+      37.7941,
+      -122.4078
+    ],
+    [
+      "North Beach",
+      37.8061,
+      -122.4103
+    ],
+    [
+      "Russian Hill",
+      37.8014,
+      -122.4183
+    ],
+    [
+      "Nob Hill",
+      37.793,
+      -122.4161
+    ],
+    [
+      "Pacific Heights",
+      37.7925,
+      -122.4382
+    ],
+    [
+      "Marina",
+      37.8037,
+      -122.4368
+    ],
+    [
+      "Cow Hollow",
+      37.798,
+      -122.437
+    ],
+    [
+      "Presidio Heights",
+      37.788,
+      -122.453
+    ],
+    [
+      "Inner Richmond",
+      37.78,
+      -122.464
+    ],
+    [
+      "Outer Richmond",
+      37.778,
+      -122.493
+    ],
+    [
+      "Inner Sunset",
+      37.7602,
+      -122.468
+    ],
+    [
+      "Outer Sunset",
+      37.755,
+      -122.495
+    ],
+    [
+      "Parkside",
+      37.742,
+      -122.488
+    ],
+    [
+      "Twin Peaks",
+      37.7544,
+      -122.4477
+    ],
+    [
+      "Glen Park",
+      37.734,
+      -122.433
+    ],
+    [
+      "Excelsior",
+      37.724,
+      -122.428
+    ],
+    [
+      "Bayview",
+      37.73,
+      -122.384
+    ],
+    [
+      "Dogpatch",
+      37.76,
+      -122.388
+    ],
+    [
+      "Tenderloin",
+      37.7847,
+      -122.4141
+    ],
+    [
+      "Civic Center",
+      37.7793,
+      -122.418
+    ],
+    [
+      "Japantown",
+      37.7854,
+      -122.43
+    ],
+    [
+      "Mission Bay",
+      37.7706,
+      -122.391
+    ],
+    [
+      "Embarcadero",
+      37.7955,
+      -122.3937
+    ],
+    [
+      "Sea Cliff",
+      37.7871,
+      -122.489
+    ],
+    [
+      "Lake Merced",
+      37.718,
+      -122.487
+    ],
+    [
+      "Visitacion Valley",
+      37.713,
+      -122.408
+    ],
+    [
+      "Diamond Heights",
+      37.742,
+      -122.44
+    ],
+    [
+      "West Portal",
+      37.74,
+      -122.466
+    ],
+    [
+      "Ingleside",
+      37.723,
+      -122.455
+    ],
+    [
+      "Portola",
+      37.727,
+      -122.406
+    ],
+    [
+      "Golden Gate Park",
+      37.7694,
+      -122.4862
+    ],
+    [
+      "Presidio",
+      37.7989,
+      -122.4662
+    ],
+    [
+      "Telegraph Hill",
+      37.8024,
+      -122.4058
+    ],
+    [
+      "Mission Dolores",
+      37.7616,
+      -122.4268
+    ],
+    [
+      "Eureka Valley",
+      37.759,
+      -122.441
+    ],
+    [
+      "Laurel Heights",
+      37.785,
+      -122.45
+    ]
   ],
   "landmarks": [
-    { "kind": "sutro", "lat": 37.75524, "lon": -122.45284, "height": 298 },
-    { "kind": "transamerica", "lat": 37.79519, "lon": -122.40279, "height": 260, "clearRadius": 22 }
-  ]
+    {
+      "kind": "sutro",
+      "lat": 37.75524,
+      "lon": -122.45284,
+      "height": 298
+    },
+    {
+      "kind": "transamerica",
+      "lat": 37.79519,
+      "lon": -122.40279,
+      "height": 260,
+      "clearRadius": 22
+    },
+    {
+      "kind": "ggb",
+      "lat": 37.8108,
+      "lon": -122.4775,
+      "height": 227,
+      "points": [
+        [
+          37.80772,
+          -122.47716
+        ],
+        [
+          37.8108,
+          -122.4775
+        ],
+        [
+          37.82229,
+          -122.47877
+        ],
+        [
+          37.82537,
+          -122.48011
+        ]
+      ],
+      "note": "south anchorage, south tower, north tower, north anchorage"
+    },
+    {
+      "kind": "baybridge",
+      "lat": 37.7985,
+      "lon": -122.3775,
+      "height": 160,
+      "points": [
+        [
+          37.7868,
+          -122.3925
+        ],
+        [
+          37.791,
+          -122.3868
+        ],
+        [
+          37.7955,
+          -122.3818
+        ],
+        [
+          37.7985,
+          -122.3775
+        ],
+        [
+          37.8017,
+          -122.3733
+        ],
+        [
+          37.8058,
+          -122.369
+        ],
+        [
+          37.8092,
+          -122.3657
+        ]
+      ],
+      "note": "Rincon anchorage, W1, W2, center anchorage, W3, W4, Yerba Buena anchorage"
+    }
+  ],
+  "dem_fallback": "/vsicurl/https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/current/n38w123/USGS_13_n38w123.tif",
+  "treeLatMax": 37.8115
 }

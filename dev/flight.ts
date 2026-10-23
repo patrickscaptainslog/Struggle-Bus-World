@@ -8,6 +8,7 @@ import { City } from '../src/world/City';
 import { Flight } from '../src/game/Flight';
 import { CameraRig } from '../src/game/CameraRig';
 import { BusModel } from '../src/bus/BusModel';
+import { makeGoldenGate, makeBayBridgeWest } from '../src/world/Bridges';
 
 const p = new URLSearchParams(location.search);
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -20,6 +21,10 @@ const man = await (await fetch('/city/sf/city.json')).json();
 const city = new City(man, '/city/sf');
 scene.add(city.root);
 await city.loadFar();
+for (const lm of man.landmarks) {
+  if (lm.kind === 'ggb') scene.add(makeGoldenGate(lm.points));
+  if (lm.kind === 'baybridge') scene.add(makeBayBridgeWest(lm.points));
+}
 const bus = new BusModel();
 scene.add(bus.root);
 const f = new Flight();
@@ -31,6 +36,17 @@ if (p.has('lat')) {
 }
 if (p.has('heading')) f.heading = THREE.MathUtils.degToRad(Number(p.get('heading')));
 const rig = new CameraRig();
+const opening = p.has('opening');
+let bridgeMid: [number, number] | null = null;
+if (opening) {
+  const g = man.landmarks.find((l: any) => l.kind === 'ggb');
+  const t1 = g.points[1], t2 = g.points[2];
+  const sx = t2[0] - t1[0], sz = t2[1] - t1[1], sl = Math.hypot(sx, sz);
+  bridgeMid = [t1[0] + (sx / sl) * 85, t1[1] + (sz / sl) * 85];
+  f.x = bridgeMid[0] - f.fx * 640; f.z = bridgeMid[1] - f.fz * 640;
+  rig.openingLow = 1; f.speed = 60; f.glideSpeed = 60;
+  globals.uFogBank.value = Number(p.get('bank') ?? 1);
+}
 const focus = new THREE.Vector3();
 pipe.resize(innerWidth, innerHeight, devicePixelRatio);
 const script = p.get('script') ?? 'turns';
@@ -52,6 +68,11 @@ function step(dt: number) {
   const e = new THREE.Euler(f.pitch, -f.heading, -f.bank, 'YXZ');
   bus.root.quaternion.setFromEuler(e);
   bus.root.position.set(f.x, f.y, f.z);
+  if (bridgeMid) {
+    const along = (f.x - bridgeMid[0]) * f.fx + (f.z - bridgeMid[1]) * f.fz;
+    const want = along < 180 ? 1 : 0;
+    rig.openingLow += (want - rig.openingLow) * (1 - Math.exp(-(want ? 4 : 0.7) * dt));
+  }
   rig.update(pipe.camera, focus, f, dt);
   pipe.focus.copy(focus);
   globals.uGroundRef.value = f.groundUnder - 30;

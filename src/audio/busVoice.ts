@@ -54,7 +54,7 @@ export class BusVoice {
     const bodyF = mkFilter(ctx, 'bandpass', 140, 3.2);
     this.pipeF = mkFilter(ctx, 'bandpass', 380, 4.5);
     this.buzzF = mkFilter(ctx, 'lowpass', 800, 0.6);
-    pre.connect(bodyF).connect(mkGain(ctx, 2.5)).connect(sum);
+    pre.connect(bodyF).connect(mkGain(ctx, 1.8)).connect(sum);
     pre.connect(this.pipeF).connect(mkGain(ctx, 3.0)).connect(sum);
     pre.connect(this.buzzF).connect(mkGain(ctx, 0.18)).connect(sum);
     // round the putts off: gentle tanh saturation fattens them and tames the crest

@@ -43,9 +43,9 @@ export const TOP_NOTE = 98;
 /** Arpeggio tone i of a chord, shifted by `oct` octaves; wraps upward, folded below TOP_NOTE. */
 export function arpNote(ch: Chord, i: number, oct = 0): number {
   const n = ch.arp.length;
-  const k = Math.max(0, Math.floor(i));
+  const k = Math.min(256, Math.max(0, Math.floor(i) || 0));
   let m = ch.arp[k % n] + 12 * Math.floor(k / n) + 12 * oct;
-  while (m > TOP_NOTE) m -= 12;
+  if (m > TOP_NOTE) m -= 12 * Math.ceil((m - TOP_NOTE) / 12);
   return m;
 }
 

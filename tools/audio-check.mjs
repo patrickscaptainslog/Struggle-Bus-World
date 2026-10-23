@@ -115,8 +115,10 @@ else {
   console.log(`  clicks    ${rep.clicks.count}${rep.clicks.count ? '  worst: ' + rep.clicks.worst.slice(0, 6).map((c) => `${c.t}s x${c.ratio}`).join(', ') : ''}`);
   if (stems) {
     console.log('  stems (dBFS)            peak     rms   phone');
-    for (const s of stems) console.log(`    ${s.name.padEnd(18)} ${String(s.peakDb).padStart(7)} ${String(s.rmsDb).padStart(7)} ${String(s.phoneRmsDb).padStart(7)}`);
+    for (const s of stems) console.log(`    ${s.name.padEnd(18)} ${String(s.peakDb).padStart(7)} ${String(s.rmsDb).padStart(7)} ${String(s.phoneRmsDb).padStart(7)}${s.nan ? '   NaN ' + s.nan : ''}`);
   }
   console.log(rep.pass ? 'PASS' : 'FAIL');
 }
-process.exit(threw ? 2 : rep.pass ? 0 : 1);
+const stemsOk = !stems || stems.every((s) => s.nan === 0 && s.peakDb < 20 * Math.log10(0.95));
+if (!stemsOk) console.log('STEMS FAIL (NaN or peak >= 0.95 in a stem)');
+process.exit(threw ? 2 : rep.pass && stemsOk ? 0 : 1);

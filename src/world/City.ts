@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { SHADOW_LAYER, makeRampMaterial, globals } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { makeBuildingMaterial, paintUniforms } from './buildingMaterial';
-import { makeHeightGrid, makeTerrainMaterial } from './terrainMaterial';
+import { makeHeightGrid, makeTerrainMaterial, makeWaterMaterial } from './terrainMaterial';
 import { PaintState } from './PaintState';
 import { parseFar, type CityManifest, type FarData, type BuildingTile, type TerrainTile } from './tiles';
 import type { RegionRequest, RegionResponse, TileResult } from './cityWorker';
@@ -49,6 +49,7 @@ export class City {
   private nextId = 1;
   private pending = new Map<number, { key: string; lod: 0 | 1 }>();
   private regionLod = new Map<string, 0 | 1>();
+  private retryAt = new Map<string, number>();
   private regionsLoaded = new Set<string>();
   private regionsRequested = new Set<string>();
   private regionAvailable = new Set<string>();
@@ -81,7 +82,7 @@ export class City {
     this.loadedMask.needsUpdate = true;
     this.root.add(this.farGroup);
     // the bay / ocean: a huge still plane below everything
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(60000, 60000).rotateX(-Math.PI / 2), makeRampMaterial({ ramp: Ramp.WATER, lightOffset: -0.12, shadowMul: 0.6 }));
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(60000, 60000).rotateX(-Math.PI / 2), makeWaterMaterial());
     water.position.set((minX + maxX) / 2, -0.6, (minZ + maxZ) / 2);
     water.frustumCulled = false;
     this.root.add(water);
@@ -97,6 +98,7 @@ export class City {
   /** The hills around the city (Marin, East Bay, San Bruno Mtn) as a coarse fogged ring. */
   private buildHorizon(buf: ArrayBuffer) {
     const dv = new DataView(buf);
+    if (buf.byteLength < 24 || String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3)) !== 'SBH1') return;
     const W = dv.getUint32(4, true), H = dv.getUint32(8, true);
     const minX = dv.getFloat32(12, true), minZ = dv.getFloat32(16, true), cell = dv.getFloat32(20, true);
     const hq = new Int16Array(buf.slice(24, 24 + W * H * 2));
@@ -114,7 +116,7 @@ export class City {
         const gi = i * step, gj = j * step, k = j * w + i;
         const y = hAt(gi, gj);
         pos[k * 3] = minX + gi * cell;
-        pos[k * 3 + 1] = y > 0.5 ? y - 3 : -1.5;
+        pos[k * 3 + 1] = y > 0.5 ? y - 3 : -6;
         pos[k * 3 + 2] = minZ + gj * cell;
         const dx = (hAt(gi + 2, gj) - hAt(gi - 2, gj)) / (4 * cell), dz = (hAt(gi, gj + 2) - hAt(gi, gj - 2)) / (4 * cell);
         const l = Math.hypot(dx, 1, dz);
@@ -165,7 +167,7 @@ export class City {
         const k = j * W + i;
         const water = f.cls[Math.min(f.gridH - 1, gj) * f.gridW + Math.min(f.gridW - 1, gi)] === 2;
         pos[k * 3] = f.minX + gi * f.cell;
-        pos[k * 3 + 1] = water ? -0.8 : hAt(gi, gj) - 2.2;
+        pos[k * 3 + 1] = water ? -6 : hAt(gi, gj) - 2.2;
         pos[k * 3 + 2] = f.minZ + gj * f.cell;
         const dx = (hAt(gi + 1, gj) - hAt(gi - 1, gj)) / (2 * f.cell);
         const dz = (hAt(gi, gj + 1) - hAt(gi, gj - 1)) / (2 * f.cell);
@@ -253,6 +255,7 @@ export class City {
       for (let rx = rx0; rx <= rx1; rx++) {
         const key = `${rx},${rz}`;
         if (!this.regionAvailable.has(key) || this.regionsRequested.has(key)) continue;
+        if ((this.retryAt.get(key) ?? 0) > performance.now()) continue;
         const cx = (rx + 0.5) * R, cz = (rz + 0.5) * R;
         // distance from focus to the region rectangle
         const dx = Math.max(Math.abs(focus.x - cx) - R / 2, 0);
@@ -307,6 +310,8 @@ export class City {
     if (msg.error) {
       console.warn('region failed', key, msg.error);
       if (!this.regionsLoaded.has(key)) this.regionsRequested.delete(key);
+      // back off: a flaky network shouldn't turn into a request storm
+      this.retryAt.set(key, performance.now() + 3000);
       return;
     }
     if (!this.regionsRequested.has(key)) return; // unloaded while in flight

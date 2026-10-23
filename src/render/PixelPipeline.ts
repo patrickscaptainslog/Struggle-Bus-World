@@ -458,6 +458,13 @@ vec3 pal(float ramp, float step) {
 
 // Pick a ramp step from a continuous light level with a narrow dithered band
 // between steps (crisp bands, soft gradients only where light changes).
+float rampStepW(float light, float d, float w) {
+  float pos = clamp(light, 0.0, 1.0) * 7.0;
+  float base = floor(pos);
+  float f = pos - base;
+  float t = clamp((f - (0.5 - w)) / max(2.0 * w, 1e-3), 0.0, 1.0);
+  return min(base + (t > d ? 1.0 : 0.0), 7.0);
+}
 float rampStep(float light, float d) {
   float pos = clamp(light, 0.0, 1.0) * 7.0;
   float base = floor(pos);
@@ -493,7 +500,8 @@ vec3 skyColor(vec3 dir, float d) {
   float w = skyWarm(dir);
   // narrow dithered band where the warm glow begins
   float ramp = clamp((w - 0.52) / 0.08, 0.0, 1.0) > d ? RAMP_SKY_WARM : RAMP_FOG;
-  return pal(ramp, rampStep(skyLight(dir), d));
+  // the sky gets tighter dither bands: long gradients make wide dotted stripes otherwise
+  return pal(ramp, rampStepW(skyLight(dir), d, 0.09));
 }
 
 // nearest bright tint among the six hues + glow white

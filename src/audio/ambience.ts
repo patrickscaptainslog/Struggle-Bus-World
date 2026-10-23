@@ -69,7 +69,7 @@ export class Wind {
     const w = tune.wind;
     const hush = 1 - 0.45 * fog; // the opening fog bank is still air
     const base = w * hush * (0.32 + 0.6 * speedN + 0.4 * altN + 0.25 * this.swell) * (1 - 0.25 * paint);
-    target(this.rumble.gain, Math.max(0, base * 0.17), t, 0.25);
+    target(this.rumble.gain, Math.max(0, base * 0.12), t, 0.25);
     for (let i = 0; i < 2; i++) {
       const g = clamp01(0.5 + 0.5 * this.gust[i]);
       target(this.howlG[i].gain, Math.max(0, base * (0.2 + 0.5 * g * g)), t, 0.18);

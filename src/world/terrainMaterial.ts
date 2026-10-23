@@ -129,3 +129,41 @@ export function makeHeightGrid(heights: Float32Array, n: number, cell: number, o
   g.computeBoundingBox();
   return g;
 }
+
+/** The bay: still water that reflects the fog at grazing angles, with sparse static wave streaks. */
+export function makeWaterMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3,
+    uniforms: { ...globals },
+    vertexShader: /* glsl */ `
+      ${GLSL_COMMON}
+      out vec3 vWorldPos;
+      void main() {
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      ${GLSL_COMMON}
+      in vec3 vWorldPos;
+      ${GLSL_OUT}
+      float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      void main() {
+        vec3 v = normalize(cameraPosition - vWorldPos);
+        float fres = pow(1.0 - abs(v.y), 4.0);
+        float light = 0.2 + 0.42 * fres;
+        // static wave streaks: short horizontal dashes, sparse, a step brighter
+        vec2 q = vec2(vWorldPos.x / 9.0, vWorldPos.z / 2.2);
+        vec2 iq = floor(q);
+        float row = h21(vec2(iq.y, 3.1));
+        float dash = h21(vec2(floor(q.x + row * 7.0), iq.y));
+        if (dash > 0.9 && fract(q.y) < 0.45) light += 0.12;
+        float sh = sbShadow(vWorldPos, vec3(0.0, 1.0, 0.0));
+        light -= (1.0 - sh) * 0.06;
+        float fog = sbFog(vWorldPos);
+        sbWrite(${Ramp.WATER}.0, light, fog, 0.0, mat3(viewMatrix) * vec3(0.0, 1.0, 0.0), 0.02, 0.5);
+      }
+    `,
+  });
+}

@@ -17,7 +17,12 @@ export class CameraRig {
   private initialized = false;
   /** extra pull-back for the opening shot (m) */
   openingPull = 0;
+  /** 0..1: low, level cinematic camera for the Golden Gate opening (passes under the deck) */
+  openingLow = 0;
   shake = 0;
+  private readonly bus = new THREE.Vector3();
+  private readonly desired = new THREE.Vector3();
+  private readonly lookTarget = new THREE.Vector3();
 
   update(cam: THREE.PerspectiveCamera, focusOut: THREE.Vector3, f: Flight, dt: number) {
     const C = config.camera;
@@ -37,11 +42,12 @@ export class CameraRig {
     else e = C.elevationCruise + (C.elevationSurge - C.elevationCruise) * clamp((sp - F.cruiseSpeed) / (F.surgeSpeed - F.cruiseSpeed), 0, 1);
     this.elev += (e - this.elev) * (1 - Math.exp(-1.8 * dt));
 
-    const el = THREE.MathUtils.degToRad(this.elev);
-    const dist = C.distance + this.openingPull;
+    const low = this.openingLow;
+    const el = THREE.MathUtils.degToRad(this.elev + (6.5 - this.elev) * low);
+    const dist = (C.distance + this.openingPull) * (1 - low) + 150 * low;
     const fx = Math.sin(this.yaw), fz = -Math.cos(this.yaw);
-    const bus = new THREE.Vector3(f.x, f.y, f.z);
-    const desired = new THREE.Vector3(bus.x - fx * Math.cos(el) * dist, bus.y + Math.sin(el) * dist, bus.z - fz * Math.cos(el) * dist);
+    const bus = this.bus.set(f.x, f.y, f.z);
+    const desired = this.desired.set(bus.x - fx * Math.cos(el) * dist, bus.y + Math.sin(el) * dist, bus.z - fz * Math.cos(el) * dist);
     if (this.pos.lengthSq() === 0) this.pos.copy(desired);
     // critically damped follow (keeps the bus framed but lets motion breathe)
     const w = 2 * Math.PI * C.followHz;
@@ -51,7 +57,7 @@ export class CameraRig {
       this.pos[k] += this.posVel[k] * dt;
     }
     const la = C.lookAhead * (0.6 + 0.4 * clamp(sp / F.cruiseSpeed, 0, 2));
-    const lookTarget = new THREE.Vector3(bus.x + fx * la, bus.y - 4, bus.z + fz * la);
+    const lookTarget = this.lookTarget.set(bus.x + fx * la * (1 + 2 * low), bus.y - 4 + 14 * low, bus.z + fz * la * (1 + 2 * low));
     if (this.look.lengthSq() === 0) this.look.copy(lookTarget);
     this.look.lerp(lookTarget, 1 - Math.exp(-6 * dt));
     cam.position.copy(this.pos);

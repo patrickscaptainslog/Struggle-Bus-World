@@ -251,7 +251,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
             }
             if (part == ${Part.BAY}.0) ramp = hueRamp(hue + 1.0);
             if (part == ${Part.GABLE}.0) ramp = hueRamp(hue + 2.0);
-            if (trimMask > 0.5) { ramp = trimHue < 0.0 ? ${Ramp.WHITE}.0 : hueRamp(trimHue); lo = 0.1; }
+            if (trimMask > 0.5) { ramp = trimHue < 0.0 ? ${Ramp.WHITE}.0 : hueRamp(trimHue); lo = trimHue < 0.0 ? 0.0 : 0.12; }
           } else if (part == ${Part.TRIM}.0 || part == ${Part.STOOP}.0) {
             ramp = trimHue < 0.0 ? ${Ramp.WHITE}.0 : hueRamp(trimHue);
             lo = 0.08;
@@ -284,9 +284,12 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           float glint = pow(max(dot(rf, v), 0.0), 6.0);
           float sky = 0.5 + 0.5 * clamp(n.y + (fract(f.y / 3.4) - 0.3), -1.0, 1.0);
           if (painted) {
-            // stained glass: every window its own hue, glowing from inside
-            float wh = floor(h21(cell + vec2(bIdx * 0.13, 3.0)) * 6.0);
-            ramp = hueRamp(hue + 1.0 + wh);
+            // stained glass glowing from inside: one accent hue per house at
+            // level 1-2 (Painted Ladies restraint); every window its own hue at
+            // level 3 (Hundertwasser riot)
+            float wh = level > 2.5 ? floor(h21(cell + vec2(bIdx * 0.13, 3.0)) * 6.0) : 0.0;
+            float accent = mod(seed, 2.0) < 1.0 ? 2.0 : 4.0;
+            ramp = hueRamp(hue + accent + wh);
             light = 0.6 + 0.12 * h21(cell + 11.0);
             glow = 0.8;
           } else {
@@ -296,7 +299,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         } else {
           light = sbLight(vWorldPos, n, lo, 1.0);
           // paint lives in the saturated middle of each ramp: explosive, not pastel
-          if (painted) light = 0.26 + light * 0.58;
+          if (painted) light = 0.2 + light * 0.52;
         }
         if (!gl_FrontFacing) n = -n;
         float fog = sbFog(vWorldPos);
