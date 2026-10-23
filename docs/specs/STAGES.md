@@ -87,26 +87,55 @@ later.
 - **Then: the other three teams.** Mostly data plus one Wonder each, including the AI rivals: about 24 engineer-days,
   about 2 weeks.
 
-### Decisions I need from you
+### Producer decisions (2026-10-23) — these override anything below
 
-1. **Area size, and the feel change it brings.** 128 m, about a block (recommended)? Or 256 m, two by two blocks, which
-   means fewer Wonders and easier to max? Either way, buildings now level up together with their area, instead of each
-   building escalating when you re-splat it.
-2. **Counting.**
-   - One blast = one stage for the area you aimed at, with at least 5 s between climbs.
-   - The firehose gives +1 to each area it lingers on, never +2 (recommended).
+1. **Areas are 128 m** (as recommended).
+2. **Counting:** one separate blast = +1 stage for the aimed area (at most once per 5 s); the firehose gives +1 to
+   every area it lingers on, never more.
+3. **Contest: Wonders are tougher.** A rival hit knocks an area down one stage, except at the top: stages 5 and 4 each
+   take **two** rival hits to lose (stages 3-1 one each), so taking a Wonder away takes 2 + 2 + 1 + 1 + 1 = **7** rival
+   hits. The hit that drops an area below stage 1 flips it to the rival. Tunable (`stages.topHitsToDrop`).
+4. **Cloud Nine is removed for now.** In its place: **The Elderwood**, a growth / elder / magical nymph / forest-sprite
+   team (theme below). Everything this document says about Cloud Nine applies to The Elderwood instead, with the
+   Elderwood column below. Its AI rival's home turf is Golden Gate Park and the Presidio.
+5. **Wonders must read distinctly**, so with a forest team in the league the tree belongs to The Elderwood: **Super
+   Rainbow's Wonder becomes the Wellspring** (a permanent 220 m rainbow geyser fountain with arcing rainbows, the bus's own
+   rainbow geyser grown into a monument; cheaper than the tree). Pending the producer's final OK: if they want the World
+   Tree back for Rainbow, the Elderwood Wonder becomes the Faerie Court below.
 
-   Or should the closer count double?
-3. **Contest.**
-   - One rival hit = one stage down, and the hit below stage 1 flips the area (recommended: symmetrical and simple).
-   - The alternative: a Wonder takes two rival hits to knock down.
+#### The Elderwood (replaces Cloud Nine)
+*Identity: the old forest wakes up. Moss and fern pour over the city, giant glowing mushrooms rise, fireflies and tiny nymph
+sprites swarm, and at the top an ancient elder tree with a spirit in its heart. Everything GROWS and BREATHES: slow unfurls,
+sway, spirals.*
 
-   In the shared world, stages also fade slowly unless re-hit. That ties to WORLD-TRAVEL decision 4.
-4. **The four teams and their Wonders.** Super Rainbow (the World Tree), Hyperglow (the Arc Spire), Cloud Nine (the Sky
-   Carousel) and The Tide (the Great Wave): names and looks OK? For Rainbow, the alternative is the Wellspring, a
-   permanent 220 m rainbow geyser fountain. It is cheaper, but less Hundertwasser.
-5. **Rivals in single player.** AI rivals on by default once onboarding is done (recommended), or only a team switcher in
-   the menu?
+- **Palette (append ramps; NO BROWN, ever: bark is never warm):** `MOSS` (deep teal-green -> lime-gold), `BIOLUME` (cyan ->
+  pale gold, for glow), `FAE_VIOLET` (violet -> lilac, blossoms and sprite wings), `SILVERBARK` (slate-violet -> silver,
+  trunks and roots). Validator: at least 20% `BIOLUME`/`FAE_VIOLET` accent per painted area so it never reads as plain
+  park green from altitude.
+- **Per effect (same machinery, Elderwood data):**
+  | # | Effect | The Elderwood |
+  |---|---|---|
+  | 1 | Flood + window pop | bioluminescent moss-gold light floods down; windows glow like lantern fruit |
+  | 2 | Jelly | grows instead of jumps: a 0.6 s unfurl with an ease-out sway settle |
+  | 3 | Tsunami | a rolling wave of ferns and moss unfurling across the block, spore sparkles on its crest |
+  | 4 | Neon ground + meadow | a moss carpet with glowing toadstools, fern fronds and fairy rings |
+  | 5 | Pillar / beacon | a spiral column of fireflies and spores rising; gold-lit at stage 5 |
+  | 6 | Flock | fireflies and 3x4 px nymph sprites with flickering wings (sprite pool) |
+  | 7 | Sunbreak | dappled canopy light: sun pools and dithered god rays in green-gold |
+  | 8 | Wonders | giant toadstools with glowing gills, fern trees, lantern flowers, dew-crystal crowns |
+  | 9 | Falls | curtains of glowing vines and moss cascading off roofs, dew sparkles |
+  | 10 | Fireworks | spore bursts and dandelion-seed shells, firefly fountains |
+  | 11 | Heartbeat | woodwinds, kalimba, harp and a low choir; a 6/8 lilt in D Dorian |
+  | 13 | Firehose landmark | a giant spiralling vine beanstalk (the shared stalk template) |
+- **Stages:** 1 Sprout (moss and spores burst, the block greens and glows) -> 2 Grove (fern canopy over the roofs, giant
+  toadstools) -> 3 Enchantment (vines engulf, fairy rings, lantern flowers, waterfalls of light) -> 4 Awakening (slow motion,
+  a firefly beacon rises, nymph sprites swarm and dance on the beat, runes glow on the walls) -> 5 **the Elder Heartwood**.
+- **Wonder: the Elder Heartwood.** A 160 m ancient tree with silver-violet bark and glowing runes, a crown of luminous
+  leaves and lantern fruit, roots that spread across its whole area, falls of light off its boughs, and a nymph spirit
+  glowing in a hollow at its heart; sprite swarms circle it and it breathes with the beat. (Built on the World Tree's
+  template, re-themed.)
+- **Fallback Wonder (if Rainbow keeps the World Tree): the Faerie Court.** A 120 m ring of giant glowing mushrooms and
+  living-wood arches around a floating nymph queen on a lily throne, with a fairy-ring light pulse on the beat.
 
 ---
 
