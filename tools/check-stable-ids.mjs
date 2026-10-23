@@ -21,9 +21,14 @@
 // LiDAR-only towers >= 3 * 2^30), so between two of them any id may be new (a
 // building mapped since) and an id may only disappear with its building; an id
 // must never move to another building. Comparing an OSM bake with an older one
-// is refused: the id schemes differ (that is why the paint store is v2).
-// Exit code 1 on any violation.
-import { readFileSync, readdirSync } from 'node:fs';
+// is refused: the id schemes differ (that is why the paint stores are keyed by
+// city.json "ids"). A bake is OSM when city.json says "ids": "osm", credits
+// OpenStreetMap (attribution / an ODbL license: the fields the game's PaintState
+// idSchemeOf reads) or its tiles are 'SBB3'.
+// Refused too (nothing to compare, so never "OK"): a city dir with no packed
+// region files (r_<x>_<z>.bin: run pack.py), or one whose regions hold 0 buildings.
+// Exit code 1 on any violation or refusal.
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
 
@@ -32,6 +37,10 @@ if (!oldDir || !newDir) {
   console.error('usage: node tools/check-stable-ids.mjs <oldCityDir> <newCityDir>');
   process.exit(1);
 }
+const refuse = (msg) => {
+  console.error(`REFUSED: ${msg}`);
+  process.exit(1);
+};
 
 function parseBuildings(buf) {
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
@@ -72,9 +81,17 @@ function parseBuildings(buf) {
 let sawV3 = false;
 function loadCity(dir) {
   sawV3 = false;
+  if (!existsSync(dir)) refuse(`${dir}: no such directory`);
+  let manifest = null;
+  try {
+    manifest = JSON.parse(readFileSync(join(dir, 'city.json'), 'utf8'));
+  } catch {
+    /* no / unreadable city.json: the tiles still say what they are */
+  }
+  const files = readdirSync(dir).filter((f) => /^r_-?\d+_-?\d+\.bin$/.test(f));
+  if (!files.length) refuse(`${dir}: no region files (r_<x>_<z>.bin); an unpacked or unfinished bake? (python tools/bake/pack.py <city>)`);
   const recs = [];
-  for (const f of readdirSync(dir)) {
-    if (!/^r_-?\d+_-?\d+\.bin$/.test(f)) continue;
+  for (const f of files) {
     let buf = readFileSync(join(dir, f));
     if (buf[0] === 0x1f && buf[1] === 0x8b) buf = gunzipSync(buf);
     const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
@@ -85,7 +102,13 @@ function loadCity(dir) {
       if (bLen) for (const r of parseBuildings(buf.subarray(bOff, bOff + bLen))) recs.push(r);
     }
   }
-  return { recs, osm: sawV3 };
+  if (!recs.length) refuse(`${dir}: ${files.length} region files but 0 buildings in them; a broken or empty bake`);
+  const ids = manifest?.ids;
+  if (ids !== undefined && ids !== 'osm') refuse(`${dir}: city.json "ids": ${JSON.stringify(ids)} is an id scheme this tool doesn't know`);
+  // (an OSM bake: either says so; one from before city.json carried "ids" still credits OSM and has 'SBB3' tiles)
+  if (ids === 'osm' && !sawV3) refuse(`${dir}: city.json says "ids": "osm" but its tiles are not 'SBB3'`);
+  const credited = /OpenStreetMap/i.test(manifest?.attribution ?? '') || /^ODbL/i.test(manifest?.license ?? '');
+  return { recs, osm: ids === 'osm' || sawV3 || credited, files: files.length };
 }
 
 const centroid = (ring) => {
@@ -122,8 +145,7 @@ const OSM_LIDAR = 3 * 2 ** 30; // bake.py ID_RANGES: LiDAR-only towers in an OSM
 const oldCity = loadCity(oldDir);
 const newCity = loadCity(newDir);
 if (oldCity.osm !== newCity.osm) {
-  console.error(`one bake is OpenStreetMap ('SBB3', ids from OSM ids), the other is not: the id schemes differ, nothing to compare`);
-  process.exit(1);
+  refuse(`${oldCity.osm ? oldDir : newDir} is an OpenStreetMap bake (ids from OSM ids), ${oldCity.osm ? newDir : oldDir} is not: the id schemes differ, nothing to compare`);
 }
 const OSM = newCity.osm;
 const isLidar = (id) => (OSM ? id >= OSM_LIDAR : id >= LIDAR_IDS);

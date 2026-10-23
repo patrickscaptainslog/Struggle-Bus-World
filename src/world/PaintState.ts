@@ -9,14 +9,66 @@ import { uploadRect } from '../render/upload';
 //   blast writes its whole wave at impact and the shader times each bloom),
 //   a = faction (0 none, 1 Rainbow) + 2 when the building was already painted
 //   (an escalation: it stays painted until its new pop instead of going grey)
-// Persistence: localStorage, keyed by the building's stable id (from its OSM id; see bake.py ID_RANGES),
-//   value = [faction, color, level]. Applied as tiles stream in.
+// Persistence: localStorage, keyed by the building's stable id, value = [faction, color, level]. Applied
+//   as tiles stream in. Which store depends on the DATA's id scheme (see IdScheme), never on the code.
 
-// v2: stable ids from OpenStreetMap ids (the OSM re-bake); v1 saves keyed the old USA Structures ranks
-// and are dropped, never applied to whatever building holds that number now. Other cities: v2:<slug>.
-const STORE_V1 = 'strugglebus.paint.v1';
-function storeKey(slug: string): string {
-  return slug === 'sf' ? 'strugglebus.paint.v2' : `strugglebus.paint.v2:${slug}`;
+/**
+ * The id scheme of the city data, from city.json "ids": 'osm' = every stable id derives from its source
+ * record (OpenStreetMap ids; bake.py ID_RANGES); no "ids" = an old bake, whose ids are USA Structures
+ * footprint ranks + lots. The same number names different buildings in the two schemes, so each scheme
+ * has its own stores: paint saved against one is never applied to the other's buildings. (A new scheme
+ * gets new store versions here and in GroundPaint.)
+ */
+export type IdScheme = 'osm' | 'rank';
+/** What a paint store needs from city.json: the slug, "ids" (absent on an old bake), and its data credits. */
+export interface CityData {
+  slug: string;
+  ids?: string;
+  /** OpenStreetMap bakes credit OSM (ODbL); the old rank bakes carry neither field */
+  attribution?: string;
+  license?: string;
+}
+/**
+ * The data's scheme, or null when neither store can trust its ids: an "ids" this code doesn't know (a
+ * future scheme, a typo) or OpenStreetMap data from before city.json carried "ids" (an 'SBB3' bake whose
+ * ids may predate ID_RANGES; check-stable-ids calls it OSM, so it is never taken for a rank bake).
+ */
+export function idSchemeOf(data: CityData): IdScheme | null {
+  if (data.ids === 'osm') return 'osm';
+  if (data.ids !== undefined) return null;
+  const osmData = /OpenStreetMap/i.test(data.attribution ?? '') || /^ODbL/i.test(data.license ?? '');
+  return osmData ? null : 'rank';
+}
+let registered: { slug: string; scheme: IdScheme | null } | null = null;
+/** main.ts registers the city.json it loaded before the City exists (for a caller that hands a store only the slug). */
+export function registerCityData(data: CityData): void {
+  registered = { slug: data.slug, scheme: idSchemeOf(data) };
+}
+/**
+ * The scheme a store keys by: the one given, else the data's own "ids" (handed city.json), else what
+ * main.ts registered for that slug; null = unknown: paint lives for the session only and storage is
+ * never touched.
+ */
+export function resolveIdScheme(city: string | CityData, scheme?: IdScheme): IdScheme | null {
+  if (scheme) return scheme;
+  if (typeof city !== 'string') return idSchemeOf(city);
+  return registered && registered.slug === city ? registered.scheme : null;
+}
+
+/**
+ * Building paint store. Old bakes ('rank'): `strugglebus.paint.v1` (SF, as main has it; other cities
+ * `v1:<slug>`). OSM bakes: `strugglebus.paint.v3` (`v3:<slug>`). v2 is skipped on purpose: feat/osm's
+ * code before "ids" wrote it whatever the data was (the rank SF bake included), so it may hold rank ids.
+ * Loading an OSM bake drops that city's v1 and v2 saves (never applied); an old bake never reads or
+ * touches v2 / v3.
+ */
+export function paintStoreKey(slug: string, scheme: IdScheme): string {
+  return paintKey(slug, scheme === 'osm' ? 'v3' : 'v1');
+}
+/** Saves an OSM load drops for its city: the rank store, and feat/osm's pre-"ids" one (either scheme's ids). */
+const PAINT_STALE_ON_OSM = ['v1', 'v2'];
+function paintKey(slug: string, v: string): string {
+  return slug === 'sf' ? `strugglebus.paint.${v}` : `strugglebus.paint.${v}:${slug}`;
 }
 export const FACTION_RAINBOW = 1;
 
@@ -43,10 +95,15 @@ export class PaintState {
   private indexToStable = new Map<number, number>();
   paintedCount = 0;
 
-  private readonly key: string;
+  /** the localStorage key (null: the id scheme is unknown, nothing is read or written) */
+  private readonly key: string | null;
+  readonly scheme: IdScheme | null;
 
-  constructor(buildingCount: number, slug = 'sf') {
-    this.key = storeKey(slug);
+  /** `city`: city.json (its slug + "ids"), or just the slug; `scheme` overrides (see resolveIdScheme). */
+  constructor(buildingCount: number, city: string | CityData = 'sf', scheme?: IdScheme) {
+    const slug = typeof city === 'string' ? city : city.slug;
+    this.scheme = resolveIdScheme(city, scheme);
+    this.key = this.scheme ? paintStoreKey(slug, this.scheme) : null;
     this.height = Math.max(1, Math.ceil(buildingCount / this.width));
     this.data = new Float32Array(this.width * this.height * 4);
     this.texture = new THREE.DataTexture(this.data, this.width, this.height, THREE.RGBAFormat, THREE.FloatType);
@@ -55,8 +112,9 @@ export class PaintState {
     this.texture.generateMipmaps = false;
     this.texture.needsUpdate = true;
     try {
-      localStorage.removeItem(STORE_V1);
-      const raw = localStorage.getItem(this.key);
+      // an OSM bake: this city's rank-keyed (or maybe rank-keyed) saves can never map onto these ids (dropped, never applied)
+      if (this.scheme === 'osm') for (const v of PAINT_STALE_ON_OSM) localStorage.removeItem(paintKey(slug, v));
+      const raw = this.key ? localStorage.getItem(this.key) : null;
       if (raw) this.saved = JSON.parse(raw) ?? {};
     } catch {
       this.saved = {};
@@ -129,7 +187,7 @@ export class PaintState {
     this.texture.needsUpdate = true;
     this.dirty.clear();
     try {
-      localStorage.removeItem(this.key);
+      if (this.key) localStorage.removeItem(this.key);
     } catch {
       /* private mode */
     }
@@ -157,6 +215,7 @@ export class PaintState {
   }
 
   persist() {
+    if (!this.key) return;
     try {
       localStorage.setItem(this.key, JSON.stringify(this.saved));
     } catch {

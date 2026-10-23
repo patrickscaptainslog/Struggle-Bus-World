@@ -4,6 +4,7 @@ import { globals } from '../render/materials';
 import { HUE_RAMPS, Ramp } from '../render/palette';
 import { uploadRect } from '../render/upload';
 import { arrival, blastDots, blastEdge, SHAPE_LUT, specFromArray, specToArray, type BlastDot, type BlastSpec } from '../game/blastLayout';
+import { resolveIdScheme, type CityData, type IdScheme } from './PaintState';
 
 // Paint on the ground: streets, sidewalks and parks splattered by blasts.
 //
@@ -27,16 +28,23 @@ import { arrival, blastDots, blastEdge, SHAPE_LUT, specFromArray, specToArray, t
 // when it arrives. Nothing is ever redrawn synchronously at an impact.
 
 /**
- * Saved tiles live under `strugglebus.ground.v3:` (SF) or `strugglebus.ground.v3.<slug>:` (other cities).
- * v3: the OpenStreetMap re-bake gave every building a new stable id (the building paint store moved to
- * strugglebus.paint.v2), so the v2 ground splats around buildings that are grey again are dropped too.
+ * Saved tiles, by the data's id scheme (PaintState's IdScheme; ground paint goes with the building paint
+ * around it). Old bakes ('rank'): `strugglebus.ground.v2:` (SF, as main has it; other cities
+ * `strugglebus.ground.v2.<slug>:`). OSM bakes: `strugglebus.ground.v4:` (`v4.<slug>:`), beside the
+ * building paint's strugglebus.paint.v3 (v3 is skipped: feat/osm's code before "ids" wrote it beside
+ * paint.v2 whatever the data was). Loading an OSM bake drops that city's v2 and v3 tiles (splats around
+ * buildings that are grey there); an old bake never reads or touches the v3 / v4 tiles.
  */
-function storePrefix(slug: string): string {
-  return slug === 'sf' ? 'strugglebus.ground.v3:' : `strugglebus.ground.v3.${slug}:`;
+export function groundStorePrefix(slug: string, scheme: IdScheme): string {
+  return groundPrefix(slug, scheme === 'osm' ? 'v4' : 'v2');
 }
-/** The first prototype's saved blast list (feat/blast only, never shipped) and the pre-OSM tiles: dropped on load. */
+/** Tile stores an OSM load drops for its city: the rank one, and feat/osm's pre-"ids" one. */
+const GROUND_STALE_ON_OSM = ['v2', 'v3'];
+function groundPrefix(slug: string, v: string): string {
+  return slug === 'sf' ? `strugglebus.ground.${v}:` : `strugglebus.ground.${v}.${slug}:`;
+}
+/** SF's first prototype's saved blast list (feat/blast only, never shipped): dropped on load, as main does. */
 const OLD_KEY = 'strugglebus.ground.v1';
-const OLD_PREFIX = 'strugglebus.ground.v2:';
 /** Painted tiles kept in storage (a few KB each); the longest-untouched wash away first. */
 const MAX_TILES = 160;
 /** Blasts kept for a tile that wasn't loaded when they landed (oldest dropped). */
@@ -330,28 +338,41 @@ export class GroundPaint {
   /** A new blast will paint these tiles (keys "tx,tz"); called before its paint is drawn. */
   onTilesTouched: ((keys: string[]) => void) | null = null;
 
-  private readonly prefix: string;
+  /** the tiles' localStorage key prefix (null: the id scheme is unknown, nothing is read or written) */
+  private readonly prefix: string | null;
+  readonly scheme: IdScheme | null;
+  private readonly sf: boolean;
 
-  constructor(tileSize: number, slug = 'sf') {
-    this.prefix = storePrefix(slug);
+  /** `city`: city.json (its slug + "ids"), or just the slug; `scheme` overrides (see PaintState resolveIdScheme). */
+  constructor(tileSize: number, city: string | CityData = 'sf', scheme?: IdScheme) {
+    const slug = typeof city === 'string' ? city : city.slug;
+    this.sf = slug === 'sf';
+    this.scheme = resolveIdScheme(city, scheme);
+    this.prefix = this.scheme ? groundStorePrefix(slug, this.scheme) : null;
     this.tileSize = tileSize;
     this.cell = tileSize / GROUND_N;
     this.empty = new THREE.DataTexture(new Uint8Array(4), 1, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
     this.empty.needsUpdate = true;
-    try {
-      localStorage.removeItem(OLD_KEY);
-      const old: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith(OLD_PREFIX)) old.push(k);
-        if (!k || !k.startsWith(this.prefix)) continue;
-        const rec = parseTile(localStorage.getItem(k));
-        if (rec) this.store.set(k.slice(this.prefix.length), rec);
+    // (an unknown scheme: storageOk stays false, nothing is read, written or dropped)
+    const prefix = this.prefix;
+    if (prefix) {
+      try {
+        if (this.sf) localStorage.removeItem(OLD_KEY);
+        // an OSM bake: this city's rank-era (and pre-"ids") tiles are dropped, never applied
+        const stale = this.scheme === 'osm' ? GROUND_STALE_ON_OSM.map((v) => groundPrefix(slug, v)) : null;
+        const old: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && stale && stale.some((p) => k.startsWith(p))) old.push(k);
+          if (!k || !k.startsWith(prefix)) continue;
+          const rec = parseTile(localStorage.getItem(k));
+          if (rec) this.store.set(k.slice(prefix.length), rec);
+        }
+        for (const k of old) localStorage.removeItem(k);
+        this.storageOk = true;
+      } catch {
+        /* private mode / blocked: paint lives for this session only */
       }
-      for (const k of old) localStorage.removeItem(k);
-      this.storageOk = true;
-    } catch {
-      /* private mode / blocked: paint lives for this session only */
     }
     if (typeof window !== 'undefined') window.addEventListener('pagehide', () => this.persist());
   }
@@ -562,12 +583,14 @@ export class GroundPaint {
     this.store.clear();
     this.saveQueue.length = 0;
     this.saveSet.clear();
+    const prefix = this.prefix;
+    if (!prefix) return;
     try {
-      localStorage.removeItem(OLD_KEY);
+      if (this.sf) localStorage.removeItem(OLD_KEY);
       const keys: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
-        if (k && k.startsWith(this.prefix)) keys.push(k);
+        if (k && k.startsWith(prefix)) keys.push(k);
       }
       for (const k of keys) localStorage.removeItem(k);
     } catch {
@@ -629,13 +652,14 @@ export class GroundPaint {
   }
 
   private writeTile(key: string, rec: SavedTile) {
-    if (!this.storageOk) return;
+    const prefix = this.prefix;
+    if (!this.storageOk || !prefix) return;
     // the longest-untouched tiles wash away first
     while (this.store.size > MAX_TILES && this.evictOldest(key)) { /* evicted one */ }
     const raw = JSON.stringify({ t: rec.t, m: rec.m ?? '', p: rec.p.map(specToArray) });
     for (let tries = 0; tries < 6; tries++) {
       try {
-        localStorage.setItem(this.prefix + key, raw);
+        localStorage.setItem(prefix + key, raw);
         return;
       } catch {
         // storage full: make room
@@ -657,6 +681,7 @@ export class GroundPaint {
 
   private dropTile(key: string) {
     this.store.delete(key);
+    if (!this.prefix) return;
     try {
       localStorage.removeItem(this.prefix + key);
     } catch {

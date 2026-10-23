@@ -16,7 +16,8 @@ import { Input } from './game/Input';
 import { BusModel, type BusPose } from './bus/BusModel';
 import { Particles } from './fx/Particles';
 import { StreetSigns } from './fx/StreetSign';
-import { showCredits } from './ui/Credits';
+import { Credit } from './ui/Credits';
+import { registerCityData } from './world/PaintState';
 import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { Tuner, applySavedTuning } from './ui/Tuner';
@@ -97,6 +98,12 @@ const base = `./city/${slug}`;
 
 async function boot() {
   const manifest = (await (await fetch(`${base}/city.json`)).json()) as Manifest;
+  // saved paint is keyed by the folder that served the city, not the slug inside its city.json (only the
+  // paint stores read manifest.slug): a bake served beside the live one (?city=sf_osm, slug 'sf') opens
+  // its own stores and never drops or fills the ones ?city=sf uses
+  if (manifest.slug !== slug) manifest.slug = slug;
+  // and by the data's id scheme (city.json "ids"): the stores the City opens need it first
+  registerCityData(manifest);
   const city = new City(manifest, base);
   scene.add(city.root);
   const farP = city.loadFar();
@@ -337,6 +344,18 @@ async function boot() {
       pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, S.flashFrames, S.flashStrength);
       rig.kick(S.kick * Math.sqrt(k));
       bumpPaint(b.spec.x, b.spec.z, Math.min(255, 30 + 5 * b.count));
+      // where it came down, for its sign: open ground (a park, a plaza, a street, a canal) when the breath
+      // landed on the ground, not on a roof or a wall
+      const open = b.pos.y < city.groundAt(b.pos.x, b.pos.z) + 1;
+      const im = impacts[impactNext];
+      impactNext = (impactNext + 1) % impacts.length;
+      im.x = b.pos.x;
+      im.z = b.pos.z;
+      im.r = b.spec.r * b.spec.reach;
+      im.open = open;
+      im.t = b.t;
+      // nothing blooms (open ground with no building in reach): no first bloom will raise a sign, so it rises here
+      if (!b.count) showPlaceSign(b.pos.x, b.pos.z, b.spec.hue, -1);
     },
     bloom: (ref, _order, _total, hue, level, roof) => {
       const h = ref.roofY - ref.baseY;
@@ -348,13 +367,60 @@ async function boot() {
     hitStop: (frames) => (hitStop = frames / 60),
   });
 
+  /** The blasts that came down lately (a ring: blasts can overlap in flight), for their signs. */
+  const impacts = Array.from({ length: 4 }, () => ({ x: 0, z: 0, r: 0, open: false, t: -Infinity }));
+  let impactNext = 0;
+  /** QA: the last sign raised (its text, where, and what named it). */
+  let lastSign: { text: string; x: number; z: number; from: string; t: number } | null = null;
+
+  /** The neighbourhood at (x, z): OpenStreetMap's polygons (32 m cells), else `hood`, else the nearest label. */
+  const hoodNameAt = (x: number, z: number, hood: number): [string, string] => {
+    const h = city.hoodAt(x, z);
+    if (h >= 0) return [city.neighborhoodName(h), 'hoodAt'];
+    if (hood >= 0) return [city.neighborhoodName(hood), 'building hood'];
+    let best = Infinity, name = manifest.name;
+    for (const n of manifest.neighborhoods) {
+      const d = (n.x - x) ** 2 + (n.z - z) ** 2;
+      if (d < best) {
+        best = d;
+        name = n.name;
+      }
+    }
+    return [name, 'nearest label'];
+  };
+
+  const raiseSign = (text: string, x: number, z: number, facing: number, hue: number, from: string) => {
+    signs.show({ text: text.toUpperCase(), position: new THREE.Vector3(x, city.groundAt(x, z), z), facing, hue });
+    lastSign = { text: text.toUpperCase(), x, z, from, t: simTime };
+    audio.signPop();
+  };
+
+  /** A sign where a breath came down on open ground: the street there (OpenStreetMap), else the neighbourhood there. */
+  function showPlaceSign(x: number, z: number, hue: number, hood: number) {
+    const street = city.streetNameAt(x, z);
+    const [text, from] = street ? [street, 'street'] : hoodNameAt(x, z, hood);
+    // (it faces the camera: the sign turns the last few degrees itself)
+    raiseSign(text, x, z, Math.atan2(camera.position.x - x, camera.position.z - z), hue, from);
+  }
+
   function showSign(ref: BuildingRef, hue: number) {
+    // the blast this first bloom belongs to: the latest impact that reaches the building
+    let im: (typeof impacts)[number] | null = null;
+    for (const c of impacts) {
+      if (c.t === -Infinity || (im && c.t <= im.t)) continue;
+      if (Math.hypot(ref.cx - c.x, ref.cz - c.z) <= c.r + ref.rad) im = c;
+    }
+    if (im?.open) {
+      // it came down on open ground (a park, a plaza, a canal) and this is only the nearest building it
+      // reached: the sign names (and stands at) the spot it hit
+      showPlaceSign(im.x, im.z, hue, ref.hood);
+      return;
+    }
     const f = city.frontOf(ref);
     const gx = f.x + f.nx * 4.5, gz = f.z + f.nz * 4.5;
-    // the real street in front (OpenStreetMap), else the neighbourhood
-    const text = city.streetNameAt(gx, gz) ?? city.neighborhoodName(ref.hood);
-    signs.show({ text: text.toUpperCase(), position: new THREE.Vector3(gx, city.groundAt(gx, gz), gz), facing: Math.atan2(f.nx, f.nz), hue });
-    audio.signPop();
+    // the building it hit: the real street in front (OpenStreetMap), else the building's own neighbourhood
+    const street = city.streetNameAt(gx, gz);
+    raiseSign(street ?? city.neighborhoodName(ref.hood), gx, gz, Math.atan2(f.nx, f.nz), hue, street ? 'street' : 'building hood');
   }
 
   // Dragon breath aim (src/game/Aim.ts): the building that glints is the one a tap hits.
@@ -433,10 +499,14 @@ async function boot() {
   let last = performance.now();
   let wasFull = true;
   let opening = params.has('skipintro') ? config.fog.openingDuration : 0;
-  // the data credit (ODbL), small, while the opening plays
-  if (!params.has('skipintro') && manifest.attribution) showCredits(manifest.attribution);
   // QA: ?fixeddt=<s> steps the game by exactly that much per rendered frame (deterministic captures)
   const fixedDt = params.has('fixeddt') ? Math.max(0.001, Number(params.get('fixeddt')) || 1 / 60) : 0;
+  // the data credit (ODbL), small, while the opening plays: from the frame the opening starts moving
+  // (the first region is in: something is on screen), not from boot (a slow phone may show fog for
+  // seconds), on the game clock (the first frames after the city lands can each take a second), and at
+  // most 6.4 s of the wall clock once it is up (a slow device's game clock runs behind the wall; a
+  // ?fixeddt capture's game clock has nothing to do with it, so there only the game clock counts)
+  const credit = opening < config.fog.openingDuration && manifest.attribution ? new Credit(manifest.attribution, 0.3, 5.8, fixedDt ? 0 : 6.4) : null;
   let lodTimer = 0;
   let puffTimer = 0;
   const puffPos = new THREE.Vector3();
@@ -488,6 +558,7 @@ async function boot() {
     if (opening < config.fog.openingDuration) {
       const loaded = city.loadedRegionCount() > 0;
       opening = loaded ? opening + dt : Math.min(opening + dt, config.fog.openingDuration * 0.15);
+      if (loaded) credit?.start(simTime);
       const k = clamp(opening / config.fog.openingDuration, 0, 1);
       globals.uFogBank.value = 1 + (config.fog.openingBank - 1) * Math.pow(1 - k, 2);
       rig.openingPull = 140 * Math.pow(1 - k, 2);
@@ -495,6 +566,7 @@ async function boot() {
       globals.uFogBank.value = 1;
       rig.openingPull = 0;
     }
+    credit?.update(simTime, now);
 
     // input -> flight (substeps keep springs stable on slow frames)
     input.update(dt);
@@ -716,6 +788,8 @@ async function boot() {
     },
     aimer,
     lastShot: () => lastShot,
+    /** QA: the last street sign raised: { text, x, z, from: 'street' | 'hoodAt' | 'building hood' | 'nearest label', t } */
+    lastSign: () => lastSign,
     /** QA: how much of the marine layer's seen-from-above fog is on (0 = the street-level fog exactly) */
     fogLayerMix: () => globals.uFogLayer2.value.w,
     tapSplat: () => input.onTap?.(),
