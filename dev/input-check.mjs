@@ -3,6 +3,7 @@
 // against dev/input.html (multi-touch via CDP Input.dispatchTouchEvent).
 // usage: node dev/input-check.mjs [--base=http://127.0.0.1:5173] [--shots=shots/tmp]
 import { chromium } from 'playwright-core';
+import { browserOptions } from '../tools/browser.mjs';
 
 const opt = Object.fromEntries(
   process.argv.slice(2).filter((a) => a.startsWith('--')).map((a) => {
@@ -14,8 +15,7 @@ const BASE = opt.base ?? 'http://127.0.0.1:5173';
 const SHOTS = opt.shots ?? 'shots/tmp';
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-webgl', '--disable-gpu-sandbox'],
+  ...browserOptions(['--enable-webgl']),
 });
 
 let fails = 0;

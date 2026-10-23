@@ -18,6 +18,7 @@
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { browserOptions } from './browser.mjs';
 
 const base = process.argv[2] ?? 'http://127.0.0.1:4731/';
 const out = process.argv[3] ?? 'shots/feel';
@@ -25,8 +26,7 @@ const modes = new Set(process.argv.slice(4).length ? process.argv.slice(4) : ['s
 mkdirSync(out, { recursive: true });
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
+  ...browserOptions([]),
 });
 async function open(query) {
   const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
