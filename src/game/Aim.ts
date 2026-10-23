@@ -62,6 +62,8 @@ export class Aimer {
   private horiz = 0;
   private classic = true;
   private y0 = 0;
+  private ca = 1;
+  private sa = 0;
 
   constructor(private readonly city: City, private readonly splatter: Splatter) {}
 
@@ -80,11 +82,13 @@ export class Aimer {
     const ca = Math.cos(a), sa = Math.sin(a);
     const x0 = f.x, y0 = f.y, z0 = f.z, fx = f.fx, fz = f.fz;
     this.x0 = x0;
+    this.y0 = y0;
     this.z0 = z0;
     this.fx = fx;
     this.fz = fz;
-    // (roofs, trees and ground only: a landmark's collision post or a bridge deck isn't what the breath lands on)
-    const below = (t: number) => y0 - t * sa <= city.surfaceAt(x0 + fx * t * ca, z0 + fz * t * ca);
+    this.ca = ca;
+    this.sa = sa;
+    const below = this.below;
     const maxT = Math.max(r0, S.maxRange) / ca;
     let t = 0, prev = 0, hit = -1;
     while (t < maxT) {
@@ -110,12 +114,15 @@ export class Aimer {
     aim.z = z0 + fz * horiz;
     aim.y = city.surfaceAt(aim.x, aim.z);
     aim.wall = false;
-    this.y0 = y0;
     const hx = aim.x - x0, hz = aim.z - z0;
     aim.dist = Math.hypot(hx, hz, y0 - aim.y);
     aim.travel = this.travelFor(aim.dist, f.speed);
     aim.drop = Math.max(0, y0 - aim.y);
   }
+
+  /** The ray t m from the bus along the aim is at or under a roof, a tree or the ground (a landmark's collision
+   * post or a bridge deck isn't what the breath lands on). A bound arrow: no allocation per frame. */
+  private readonly below = (t: number): boolean => this.y0 - t * this.sa <= this.city.surfaceAt(this.x0 + this.fx * t * this.ca, this.z0 + this.fz * t * this.ca);
 
   /**
    * The blast flies straight from the mouth to where it lands on `target` (or the aim point): a
