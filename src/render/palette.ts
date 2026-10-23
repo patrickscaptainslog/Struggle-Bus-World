@@ -31,6 +31,7 @@ export const Ramp = {
   SIGN_GREEN: 17,
   WHITE: 18,
   ROOF_DARK: 19, // tar roofs
+  BRIDGE_ORANGE: 20, // the Golden Gate: International Orange, muted, shadows to rose and plum
 } as const;
 
 export type RampId = (typeof Ramp)[keyof typeof Ramp];
@@ -67,6 +68,7 @@ const RAMPS: Record<number, string[]> = {
   [Ramp.SIGN_GREEN]: ['#08241a', '#0c3a28', '#12523a', '#1a6a4a', '#24845a', '#3aa06e', '#64be8c', '#a6dcbc'],
   [Ramp.WHITE]: ['#5c626b', '#787e86', '#959aa0', '#b1b5b9', '#cbced0', '#e0e2e2', '#f0f1ef', '#ffffff'],
   [Ramp.ROOF_DARK]: ['#101419', '#171d24', '#20272f', '#2a323c', '#36404b', '#454f5a', '#58626c', '#6f7882'],
+  [Ramp.BRIDGE_ORANGE]: ['#24121f', '#3d1828', '#5e2131', '#842c38', '#a33a3a', '#b4564a', '#bf7a6c', '#c9a197'],
 };
 
 export const RAMP_COUNT = 32; // texture rows (room to grow; unused rows are black)
