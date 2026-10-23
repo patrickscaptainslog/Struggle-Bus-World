@@ -3,12 +3,19 @@
 // to another building. Compares two baked cities (SBB1 or SBB2 tiles).
 //   node tools/check-stable-ids.mjs <oldCityDir> <newCityDir>
 // Checks, for every building of the old bake:
-//   - its stableId still exists, on exactly one building (one paint index)
+//   - its stableId still exists, on exactly one building (one paint index),
+//     or the building was absorbed: row lots under one roof merge back into
+//     one building that keeps one lot's id; the others retire (most of their old
+//     footprint lies inside the merged building, so their paint moves nowhere)
 //   - that building is the same one: most of its new ground tier lies inside
-//     the old footprint (LiDAR outlines trim/nudge footprints by a meter or two
-//     and party-wall splits keep a piece of them; neither moves to a neighbor)
-// and that ids new to this bake (split-off pieces, LiDAR-only towers) come
-// after the old range, and that all tiers of a building share its id.
+//     the old footprint or most of the old footprint inside it (LiDAR outlines
+//     trim/nudge footprints by a meter or two, splits keep a piece, merges grow;
+//     none of them moves to a neighbor)
+// and that ids new to this bake are LiDAR ids (>= 2^30: split-off pieces and
+// LiDAR-only towers, derived from what they are, see bake.py lidar_pass), and
+// that all tiers of a building share its id. Comparing two LiDAR bakes checks
+// that LiDAR ids stay on the same buildings too (one that comes and goes with a
+// threshold is reported, not failed).
 // Exit code 1 on any violation.
 import { readFileSync, readdirSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
@@ -98,12 +105,13 @@ function overlap(a, b) {
   return n ? k / n : 0;
 }
 
+const LIDAR_IDS = 2 ** 30; // bake.py NEW_SPLIT_BASE: ids below are footprint ranks
 const oldRecs = loadCity(oldDir);
 const newRecs = loadCity(newDir);
 const old = new Map();
 for (const r of oldRecs) if (r.tier === 0) old.set(r.stable, r);
-let oldMax = -1;
-for (const id of old.keys()) if (id > oldMax) oldMax = id;
+let oldMax = -1, oldLidar = 0;
+for (const id of old.keys()) if (id >= LIDAR_IDS) oldLidar++; else if (id > oldMax) oldMax = id;
 
 const byIdx = new Map();
 for (const r of newRecs) {
@@ -125,29 +133,54 @@ for (const [idx, g] of byIdx) {
   partsTotal += g.length;
 }
 
-let missing = 0, moved = 0, maxShift = 0;
+// new ground tiers by 64 m cell (for absorbed lots)
+const CELL = 64;
+const grid = new Map();
+for (const n of neu.values()) {
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const [x, z] of n.ring) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+  for (let cx = Math.floor(x0 / CELL); cx <= Math.floor(x1 / CELL); cx++)
+    for (let cz = Math.floor(z0 / CELL); cz <= Math.floor(z1 / CELL); cz++) {
+      const k = cx + ',' + cz;
+      if (!grid.has(k)) grid.set(k, []);
+      grid.get(k).push(n);
+    }
+}
+function absorber(o) {
+  const [ox, oz] = centroid(o.ring);
+  for (const n of grid.get(Math.floor(ox / CELL) + ',' + Math.floor(oz / CELL)) ?? []) if (overlap(o.ring, n.ring) >= 0.5) return n;
+  return null;
+}
+
+let missing = 0, absorbed = 0, lidarGone = 0, moved = 0, maxShift = 0;
 const shifts = [];
 for (const [id, o] of old) {
   const n = neu.get(id);
-  if (!n) { missing++; if (missing <= 10) errors.push(`stableId ${id} disappeared`); continue; }
+  if (!n) {
+    if (absorber(o)) { absorbed++; continue; }
+    if (id >= LIDAR_IDS) { lidarGone++; continue; }
+    missing++;
+    if (missing <= 10) errors.push(`stableId ${id} disappeared`);
+    continue;
+  }
   const [ox, oz] = centroid(o.ring), [nx, nz] = centroid(n.ring);
   const d = Math.hypot(nx - ox, nz - oz);
   shifts.push(d);
   if (d > maxShift) maxShift = d;
-  const ov = d > 1 ? overlap(n.ring, o.ring) : 1;
+  const ov = d > 1 ? Math.max(overlap(n.ring, o.ring), overlap(o.ring, n.ring)) : 1;
   if (ov < 0.5) {
     moved++;
     if (moved <= 10) errors.push(`stableId ${id} moved ${d.toFixed(1)} m off its old footprint (${(100 * ov).toFixed(0)} % inside; old ${ox.toFixed(1)},${oz.toFixed(1)} new ${nx.toFixed(1)},${nz.toFixed(1)})`);
   }
 }
 let added = 0;
-for (const id of neu.keys()) if (!old.has(id)) { added++; if (id <= oldMax) errors.push(`new stableId ${id} inside the old id range`); }
+for (const id of neu.keys()) if (!old.has(id)) { added++; if (id < LIDAR_IDS) errors.push(`new stableId ${id} is a footprint rank, not a LiDAR id`); }
 shifts.sort((a, b) => a - b);
 const q = (p) => (shifts.length ? shifts[Math.min(shifts.length - 1, Math.floor(p * shifts.length))] : 0).toFixed(2);
 
-console.log(`old: ${old.size} buildings (ids 0..${oldMax}); new: ${neu.size} buildings in ${partsTotal} parts (${tiered} multi-part)`);
-console.log(`kept ${old.size - missing}/${old.size} ids; added ${added} (all > ${oldMax}); centroid shift p50 ${q(0.5)} m, p99 ${q(0.99)} m, max ${maxShift.toFixed(1)} m`);
-console.log(`moved off their footprint: ${moved}; missing: ${missing}`);
+console.log(`old: ${old.size} buildings (footprint ids 0..${oldMax}, ${oldLidar} LiDAR ids); new: ${neu.size} buildings in ${partsTotal} parts (${tiered} multi-part)`);
+console.log(`kept ${old.size - missing - absorbed - lidarGone}/${old.size} ids, ${absorbed} absorbed into a merged building; added ${added} LiDAR ids (>= 2^30); centroid shift p50 ${q(0.5)} m, p99 ${q(0.99)} m, max ${maxShift.toFixed(1)} m`);
+console.log(`moved off their footprint: ${moved}; missing: ${missing}` + (lidarGone ? `; LiDAR ids no longer found (threshold edge): ${lidarGone}` : ''));
 if (errors.length) {
   for (const e of errors.slice(0, 30)) console.log('  FAIL', e);
   process.exit(1);

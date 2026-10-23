@@ -31,6 +31,11 @@ const HERO = [
   { name: '181fremont', lat: 37.78970, lon: -122.39520, look: 110, az: 125, dist: 620, camY: 170 },
   { name: '555california', lat: 37.79210, lon: -122.40370, look: 110, az: 215, dist: 620, camY: 170 },
   { name: 'embarcadero', lat: 37.79520, lon: -122.39720, look: 70, az: 25, dist: 620, camY: 140 },
+  // review cases: towers on podiums (collapsed to their podium once), lots under a tower the footprints lack
+  { name: 'onerincon', lat: 37.78599, lon: -122.39226, look: 100, az: 300, dist: 650, camY: 160 },
+  { name: 'millennium', lat: 37.79048, lon: -122.39596, look: 100, az: 160, dist: 650, camY: 160 },
+  { name: 'beale', lat: 37.7904, lon: -122.3945, look: 90, az: 220, dist: 600, camY: 150 },
+  { name: 'mission1550', lat: 37.77369, lon: -122.41838, look: 60, az: 30, dist: 500, camY: 120 },
 ];
 
 const browser = await chromium.launch({
