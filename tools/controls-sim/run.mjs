@@ -24,7 +24,7 @@ mkdirSync(out, { recursive: true });
 const bundle = await rolldown({
   input: `${here}/${scn}`,
   platform: 'node',
-  resolve: { alias: { '@src': SRC, '@feel': new URL('../feel-sim', import.meta.url).pathname } },
+  resolve: { alias: { '@src': SRC, '@loop': new URL('../feel-sim/loop.ts', import.meta.url).pathname } },
   logLevel: 'silent',
 });
 await bundle.write({ dir: out, format: 'esm', entryFileNames: 'main.mjs' });

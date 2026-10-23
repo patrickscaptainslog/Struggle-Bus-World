@@ -256,19 +256,26 @@ export const config = {
     climb1: 75,
     climb2: 700,
     climb3: 3000,
-    /** Spool: speed reaches ~95% of the gear's in this long once at height (s); dropping a gear brakes over this long (s). */
+    /** Spool: speed reaches ~95% of the gear's in this long once at height (s); dropping a gear brakes over this long (s);
+     *  both ease in over rateEase (s) so neither starts with a jolt. */
     spool: 2.4,
     brake: 3,
+    rateEase: 0.35,
     /** Holding the turbo (button / swipe-and-hold / Shift): the gear's speed x this (G0: full surge). */
     boost: 1.3,
     /** Steering authority above the surge speed: yaw rate x (surge / speed)^turnExp. */
     turnExp: 0.55,
     /** The yoke's climb / dive rates scale with the gear's speed by this power of (speed / surge). */
     climbExp: 0.5,
-    /** Camera: pulls back this much at G1 speed (m), widens this much (deg); the shift kicks the fov by this (deg). */
-    camPull: 70,
+    /** Camera: pulls back this much at G1 speed (m), widens this much (deg); the shift kicks the fov by this (deg).
+     *  (The follow spring's own lag already pulls it back ~2 x speed / (2 pi followHz): camLead of it is cancelled
+     *  at G1, all of it from G2 on, so the camera never falls kilometers behind or under a climbing bus.) */
+    camPull: 25,
     camFov: 5,
     fovKick: 7,
+    camLead: 0.4,
+    /** The bus grows this much at G1 speed so the hero still reads with the camera pulled back (x). */
+    heroScale: 1.25,
     /** Camera jolt at the sonic boom (m) and its palette flash strength (0..1). */
     boomKick: 3.2,
     boomFlash: 0.55,
