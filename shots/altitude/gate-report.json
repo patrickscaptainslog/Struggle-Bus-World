@@ -1,0 +1,42 @@
+{
+  "phase": "gate",
+  "start": "",
+  "shots": [],
+  "taps": [],
+  "perf": {
+    "ceiling": {
+      "workMs": 1.46,
+      "workMaxMs": 2.5,
+      "calls": 33,
+      "triangles": 372674
+    }
+  },
+  "events": [
+    {
+      "label": "gate ceiling",
+      "t": 47.94,
+      "x": -4590.2,
+      "z": -4024.2,
+      "y": 510.05,
+      "vy": 0.7,
+      "speed": 26.4,
+      "floorY": 24.5,
+      "targetY": 510.67,
+      "holdY": 512.2,
+      "roof": 18,
+      "clear": 492.05,
+      "mode": "hold",
+      "height": 510.3,
+      "camDist": 274.7,
+      "camY": 683.4,
+      "camX": -4802.6,
+      "camZ": -4042.8,
+      "vista": 1,
+      "hfov": 38,
+      "layerMix": 1,
+      "strain": 0,
+      "qa": 0
+    }
+  ],
+  "maxY": 510.05
+}

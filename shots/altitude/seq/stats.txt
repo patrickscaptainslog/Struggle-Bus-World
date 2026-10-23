@@ -1,0 +1,10 @@
+# Shimmer: game pixels changed between consecutive frames exactly 1/30 s apart (fixed-step rAF),
+# after the best integer shift per horizontal band (camera translation). tools/altitude.mjs --seq
+# Reviewer's single pairs on the previous build: downtown ceiling 3.31%, west ceiling 9.82%, downtown cruise 15.16%.
+downtown-seq-cruise: residual per frame 14.97 15.05 14.91 14.99 15.23  mean 15.03%
+downtown-seq-250m: residual per frame 5.68 10.70 5.74 5.67 10.57  mean 7.67%
+downtown-seq-ceiling: residual per frame 3.41 3.38 3.43 3.36 15.64  mean 5.84%
+west-seq-cruise: residual per frame 13.43 13.17 13.57 10.65 14.05  mean 12.97%
+west-seq-250m: residual per frame 8.54 8.67 8.44 4.39 8.50  mean 7.71%
+west-seq-ceiling: residual per frame 1.65 1.64 1.60 1.63 1.70  mean 1.64%
+gate-seq-ceiling: residual per frame 0.31 0.30 0.32 0.28 0.32  mean 0.31%

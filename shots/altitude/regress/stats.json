@@ -1,15 +1,15 @@
 {
   "grey": {
-    "fps": 1.1,
+    "fps": 1.5,
     "low1": 1.1,
-    "frameMs": 911.1,
-    "frameMaxMs": 936.8,
-    "workMs": 3.85,
-    "workMaxMs": 4.5,
+    "frameMs": 658.55,
+    "frameMaxMs": 667,
+    "workMs": 5.4,
+    "workMaxMs": 5.7,
     "simDtMs": 50,
-    "calls": 125,
-    "triangles": 1144408,
-    "points": 7,
+    "calls": 127,
+    "triangles": 1148504,
+    "points": 8,
     "lines": 0,
     "geometries": 84,
     "textures": 31,
@@ -18,18 +18,18 @@
     "pixelScale": 5,
     "canvas": "1179x2556",
     "cap30": false,
-    "frames": 64
+    "frames": 74
   },
   "painted": {
-    "fps": 1.4,
+    "fps": 1.6,
     "low1": 1,
-    "frameMs": 729.8,
-    "frameMaxMs": 923.7,
-    "workMs": 3.95,
-    "workMaxMs": 4.5,
+    "frameMs": 619.4,
+    "frameMaxMs": 658.7,
+    "workMs": 2.35,
+    "workMaxMs": 2.7,
     "simDtMs": 50,
-    "calls": 129,
-    "triangles": 1117718,
+    "calls": 131,
+    "triangles": 1120142,
     "points": 6000,
     "lines": 0,
     "geometries": 93,
@@ -39,6 +39,6 @@
     "pixelScale": 5,
     "canvas": "1179x2556",
     "cap30": false,
-    "frames": 273
+    "frames": 318
   }
 }
