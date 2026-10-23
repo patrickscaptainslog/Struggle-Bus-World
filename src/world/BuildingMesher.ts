@@ -4,13 +4,21 @@
 // and towers get parapets and rooftop clutter. Walls are split into a few
 // segments so painted buildings can wobble.
 //
+// LiDAR-tiered towers arrive as several parts (consecutive records sharing a
+// paint index): each part is extruded from the top of the tier below. Street
+// features (stoops, bays, belt courses, gables) only go on tier 0; rooftop
+// clutter only where a roof is open to the sky; window rows count from the
+// building's true ground on every tier. Every part carries the whole
+// building's center, ground and top, so the pop, wobble, color flood and aim
+// glint move the tower as one.
+//
 // Per-vertex layout (all Float32 except where noted):
 //   position  vec3   world meters
 //   normal    vec3   (Int8 normalized)
 //   aFacade   vec2   u = meters along the facade (front edge starts at 0), v = meters above street level
 //   aMeta     vec4   (Uint8) part, arch, seed, flags (bit0 front-facing, bit1 corner)
-//   aBld      vec4   building index, center x, base y, center z
-//   aBld2     vec2   roof y, front width (m)
+//   aBld      vec4   building index, center x, ground y, center z   (the whole building's)
+//   aBld2     vec2   building top y, front width of this part (m)
 
 import type { BuildingTile } from './tiles';
 import { Arch } from './tiles';
@@ -130,6 +138,38 @@ class Builder {
     }
   }
 
+  /** Wall a->b leaning in to a'->b' at the top (a tapering tower face), subdivided like wall(). */
+  slantWall(ax: number, az: number, bx: number, bz: number, tax: number, taz: number, tbx: number, tbz: number, y0: number, y1: number, u0: number, uTop0: number, uTop1: number, vBase: number, part: number, flags?: number, segLen = 3.2) {
+    const dx = bx - ax, dz = bz - az;
+    const L = Math.hypot(dx, dz);
+    if (L < 0.05 || y1 - y0 < 0.05) return;
+    // face normal: along-edge x up-the-slant
+    const ex = dx / L, ez = dz / L;
+    const mx = (tax + tbx - ax - bx) / 2, my = y1 - y0, mz = (taz + tbz - az - bz) / 2;
+    let nx = ez * my, ny = ex * mz - ez * mx, nz = -ex * my;
+    const nl = Math.hypot(nx, ny, nz) || 1;
+    nx /= nl; ny /= nl; nz /= nl;
+    const cols = Math.max(1, Math.min(6, Math.round(L / segLen)));
+    const rows = y1 - y0 > 7 && segLen < 99 ? 2 : 1;
+    const base = this.vc;
+    for (let r = 0; r <= rows; r++) {
+      const k = r / rows;
+      const y = y0 + (y1 - y0) * k;
+      const pax = ax + (tax - ax) * k, paz = az + (taz - az) * k, pbx = bx + (tbx - bx) * k, pbz = bz + (tbz - bz) * k;
+      const ua = u0 + (uTop0 - u0) * k, ub = u0 + L + (uTop1 - u0 - L) * k;
+      for (let c = 0; c <= cols; c++) {
+        const t = c / cols;
+        this.vert(pax + (pbx - pax) * t, y, paz + (pbz - paz) * t, nx, ny, nz, ua + (ub - ua) * t, y - vBase, part, flags);
+      }
+    }
+    const w = cols + 1;
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++) {
+        const i0 = base + r * w + c;
+        this.idx.push(i0, i0 + w + 1, i0 + 1, i0, i0 + w, i0 + w + 1);
+      }
+  }
+
   /** Axis-free box: footprint quad (CCW in x,z), y range. All 6 faces (bottom optional). */
   prism(pts: Array<[number, number]>, y0: number, y1: number, part: number, uBase = 0, vBase = 0, bottom = false, flags?: number) {
     const n = pts.length;
@@ -240,19 +280,85 @@ export interface MeshOptions {
   lod: 0 | 1;
 }
 
+/** The building a part belongs to: records [first, end) of the tile. */
+interface Group {
+  first: number;
+  end: number;
+  cx: number;
+  cz: number;
+  top: number;
+}
+
 export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): MeshArrays {
   const B = new Builder();
-  for (let i = 0; i < t.count; i++) meshBuilding(B, t, i, opts.lod);
+  const g: Group = { first: 0, end: 0, cx: 0, cz: 0, top: 0 };
+  for (let i = 0; i < t.count; ) {
+    let j = i + 1;
+    while (j < t.count && t.index[j] === t.index[i]) j++;
+    // center of the footprint (tier 0) and the top of the whole building
+    const s = t.vertStart[i], e = t.vertStart[i + 1];
+    let cx = 0, cz = 0;
+    for (let k = s; k < e; k++) { cx += t.xz[k * 2]; cz += t.xz[k * 2 + 1]; }
+    g.first = i;
+    g.end = j;
+    g.cx = cx / Math.max(1, e - s);
+    g.cz = cz / Math.max(1, e - s);
+    g.top = 0;
+    for (let k = i; k < j; k++) g.top = Math.max(g.top, t.roofY[k], t.baseY[k] + 2.5);
+    for (let k = i; k < j; k++) meshBuilding(B, t, k, opts.lod, g);
+    i = j;
+  }
   return B.finish();
 }
 
-function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1) {
+/** True if (x, z) is inside the ring of record k. */
+function ringContains(t: BuildingTile, k: number, x: number, z: number): boolean {
+  const s = t.vertStart[k], e = t.vertStart[k + 1];
+  let inside = false;
+  for (let a = s, b = e - 1; a < e; b = a++) {
+    const xa = t.xz[a * 2], za = t.xz[a * 2 + 1], xb = t.xz[b * 2], zb = t.xz[b * 2 + 1];
+    if (za > z !== zb > z && x < ((xb - xa) * (z - za)) / (zb - za) + xa) inside = !inside;
+  }
+  return inside;
+}
+
+/** True if a higher tier of the same building covers (x, z) (its roof isn't open to the sky there). */
+function covered(t: BuildingTile, g: Group, i: number, x: number, z: number): boolean {
+  for (let k = g.first; k < g.end; k++) if (t.tier[k] > t.tier[i] && ringContains(t, k, x, z)) return true;
+  return false;
+}
+
+/** True if a higher tier of the same building has a wall flush with edge a->b (a parapet there would z-fight it). */
+function flushAbove(t: BuildingTile, g: Group, i: number, ax: number, az: number, bx: number, bz: number): boolean {
+  const L = Math.hypot(bx - ax, bz - az);
+  if (L < 0.1) return false;
+  const ux = (bx - ax) / L, uz = (bz - az) / L;
+  for (let k = g.first; k < g.end; k++) {
+    if (t.tier[k] <= t.tier[i]) continue;
+    const s = t.vertStart[k], e = t.vertStart[k + 1];
+    for (let m = s; m < e; m++) {
+      const m2 = m + 1 < e ? m + 1 : s;
+      const px = t.xz[m * 2] - ax, pz = t.xz[m * 2 + 1] - az, qx = t.xz[m2 * 2] - ax, qz = t.xz[m2 * 2 + 1] - az;
+      // both ends on the line through a->b, overlapping it by more than half a meter
+      if (Math.abs(px * uz - pz * ux) > 0.35 || Math.abs(qx * uz - qz * ux) > 0.35) continue;
+      const s0 = px * ux + pz * uz, s1 = qx * ux + qz * uz;
+      if (Math.min(Math.max(s0, s1), L) - Math.max(Math.min(s0, s1), 0) > 0.5) return true;
+    }
+  }
+  return false;
+}
+
+function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Group) {
   const s = t.vertStart[i];
   const e = t.vertStart[i + 1];
   const n = e - s;
   if (n < 3) return;
+  const tier = t.tier[i];
+  const single = g.end - g.first === 1;
   const pts: Array<[number, number]> = [];
   for (let k = s; k < e; k++) pts.push([t.xz[k * 2], t.xz[k * 2 + 1]]);
+  // a tapering part: its top ring is its base scaled about the area centroid
+  const topScale = 1 - t.taper[i] / 255;
   // ring orientation: we need outward = right side of a->b in (x, z) i.e. CCW with positive shoelace
   let area = 0;
   for (let k = 0; k < n; k++) {
@@ -270,11 +376,11 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1) {
   for (const p of pts) { cx += p[0]; cz += p[1]; }
   cx /= n; cz /= n;
   const baseY = t.baseY[i];
-  const roofY = Math.max(t.roofY[i], baseY + 2.5);
+  const roofY = Math.max(t.roofY[i], baseY + (tier > 0 ? 1.0 : 2.5));
   const arch = t.arch[i];
   const seed = t.seed[i];
-  const r = rng(t.stableId[i] ^ 0x9e3779b9);
-  const streetY = baseY + 0.4; // street level reference for window rows
+  const r = rng((t.stableId[i] ^ 0x9e3779b9) + tier * 7919);
+  const streetY = t.groundY[i] + 0.4; // street level reference for window rows (shared by every tier)
   let frontW = 0;
   let fa: [number, number] = pts[0], fb: [number, number] = pts[1 % n];
   if (front !== 255 && front < n) {
@@ -283,7 +389,8 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1) {
     frontW = Math.hypot(fb[0] - fa[0], fb[1] - fa[1]);
   }
   const corner = front2 !== 255 ? 2 : 0;
-  B.cur = { index: t.index[i], cx, cz, baseY, roofY, arch, seed, flags: corner, frontW };
+  // the whole building's center, ground and top: tiers pop, wobble and flood as one
+  B.cur = { index: t.index[i], cx: g.cx, cz: g.cz, baseY: t.groundY[i], roofY: g.top, arch, seed, flags: corner, frontW };
 
   const isVic = arch === Arch.VICTORIAN;
   const isFlats = arch === Arch.FLATS;
@@ -305,20 +412,57 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1) {
   }
   const rectArea = (s1 - s0) * (t1 - t0);
   const rectangularity = rectArea > 0 ? Math.abs(area) / 2 / rectArea : 0;
-  const gable = lod === 0 && isVic && frontW > 4.5 && frontW < 11 && rectangularity > 0.82 && (seed % 100) < 38 && H < 15;
-  const parapet = lod === 0 && !gable && front !== 255 ? (isVic ? 1.3 : isFlats ? 0.9 : arch === Arch.COMMERCIAL || arch === Arch.CIVIC ? 0.7 : arch === Arch.TOWER ? 1.2 : 0.5) : 0;
+  const gable = lod === 0 && single && isVic && frontW > 4.5 && frontW < 11 && rectangularity > 0.82 && (seed % 100) < 38 && H < 15;
+  // no parapet where the tier above rises flush from this edge
+  const flush = !single && front !== 255 && flushAbove(t, g, i, fa[0], fa[1], fb[0], fb[1]);
+  const parapet = lod === 0 && !gable && !flush && front !== 255 && topScale >= 1 ? (isVic ? 1.3 : isFlats ? 0.9 : arch === Arch.COMMERCIAL || arch === Arch.CIVIC ? 0.7 : arch === Arch.TOWER ? 1.2 : 0.5) : 0;
 
   // ---- walls
   // perimeter u starts at the front edge so the facade pattern lines up with it
   const startK = front !== 255 ? front : 0;
   let u = 0;
+  if (topScale < 1) {
+    // tapering tower: faces lean in to the scaled top ring; the roof below is that ring
+    let ac = 0, acx = 0, acz = 0;
+    for (let k = 0; k < n; k++) {
+      const a = pts[k], b = pts[(k + 1) % n];
+      const cr = a[0] * b[1] - b[0] * a[1];
+      ac += cr; acx += (a[0] + b[0]) * cr; acz += (a[1] + b[1]) * cr;
+    }
+    const ccx = Math.abs(ac) > 1e-6 ? acx / (3 * ac) : cx, ccz = Math.abs(ac) > 1e-6 ? acz / (3 * ac) : cz;
+    const top: Array<[number, number]> = pts.map((p) => [ccx + (p[0] - ccx) * topScale, ccz + (p[1] - ccz) * topScale]);
+    for (let j = 0; j < n; j++) {
+      const k = (startK + j) % n;
+      const a = pts[k], b = pts[(k + 1) % n], ta = top[k], tb = top[(k + 1) % n];
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const isFront = k === front || k === front2;
+      // a face leaning more than ~35 degrees reads as a roof (no window grid on a sloped crown)
+      const mx = (ta[0] + tb[0] - a[0] - b[0]) / 2, mz = (ta[1] + tb[1] - a[1] - b[1]) / 2;
+      const roofish = Math.hypot(mx, mz) > 0.7 * (roofY - baseY);
+      const part = roofish ? Part.ROOF_SLOPE : isFront ? Part.FRONT : Part.SIDE;
+      B.slantWall(a[0], a[1], b[0], b[1], ta[0], ta[1], tb[0], tb[1], baseY, roofY, u, u * topScale, (u + L) * topScale, streetY, part, (isFront && !roofish ? 1 : 0) | corner, lod === 1 ? 999 : 3.2);
+      u += L;
+    }
+    const xz: number[] = [];
+    for (const p of top) xz.push(p[0], p[1]);
+    const tris = triangulate(xz);
+    const base = B.vc;
+    for (const p of top) B.vert(p[0], roofY, p[1], 0, 1, 0, p[0], p[1], Part.ROOF);
+    for (let k = 0; k < tris.length; k += 3) B.idx.push(base + tris[k], base + tris[k + 2], base + tris[k + 1]);
+    if (lod === 0) {
+      let tcx = 0, tcz = 0;
+      for (const p of top) { tcx += p[0]; tcz += p[1]; }
+      clutter(B, top, tcx / n, tcz / n, roofY, arch, r, single ? null : (x: number, z: number) => !covered(t, g, i, x, z));
+    }
+    return;
+  }
   for (let j = 0; j < n; j++) {
     const k = (startK + j) % n;
     const a = pts[k];
     const b = pts[(k + 1) % n];
     const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
     const isFront = k === front || k === front2;
-    const top = isFront ? roofY + parapet : roofY;
+    const top = isFront && (k === front || single || !flushAbove(t, g, i, a[0], a[1], b[0], b[1])) ? roofY + parapet : roofY;
     B.wall(a[0], a[1], b[0], b[1], baseY, top, u, streetY, isFront ? Part.FRONT : Part.SIDE, (isFront ? 1 : 0) | corner, lod === 1 ? 999 : 3.2);
     u += L;
   }
@@ -361,8 +505,10 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1) {
     for (let k = 0; k < tris.length; k += 3) B.idx.push(base + tris[k], base + tris[k + 2], base + tris[k + 1]);
   }
 
+  // rooftop clutter: only on roof that is open to the sky
+  const open = single ? null : (x: number, z: number) => !covered(t, g, i, x, z);
   if (lod === 1 || front === 255) {
-    if (lod === 0) clutter(B, pts, cx, cz, roofY, arch, r);
+    if (lod === 0) clutter(B, pts, cx, cz, roofY, arch, r, open);
     return;
   }
 
@@ -379,7 +525,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1) {
     B.prism(cap.slice().reverse() as Array<[number, number]>, roofY + parapet - 0.01, roofY + parapet + 0.05, Part.TRIM);
   }
   const topY = roofY + parapet;
-  if (isRes || arch === Arch.COMMERCIAL || arch === Arch.CIVIC) {
+  if ((isRes || arch === Arch.COMMERCIAL || arch === Arch.CIVIC) && !flush) {
     // cornice: a chunky projecting band at the top of the facade
     const cd = isVic ? 0.65 : 0.5;
     const ch = isVic ? 0.55 : 0.4;
@@ -388,15 +534,15 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1) {
     const quadC: Array<[number, number]> = [F(-ext, 0), F(frontW + ext, 0), F(frontW + ext, cd), F(-ext, cd)];
     // ring must be CCW (positive shoelace) for outward walls
     B.prism(ccw(quadC), yc - ch, yc + 0.08, Part.TRIM, 0, streetY, true);
-    if (isFlats && H > 9) {
+    if (isFlats && H > 9 && tier === 0) {
       // belt course between ground floor and upper floors
       const yb = baseY + 3.6;
       B.prism(ccw([F(-0.05, 0), F(frontW + 0.05, 0), F(frontW + 0.05, 0.3), F(-0.05, 0.3)]), yb, yb + 0.35, Part.TRIM, 0, streetY, true);
     }
   }
 
-  // ---- bay windows
-  if ((isVic || isFlats || arch === Arch.MARINA) && frontW >= 4.2) {
+  // ---- bay windows (street level up: ground tier only)
+  if ((isVic || isFlats || arch === Arch.MARINA) && frontW >= 4.2 && tier === 0) {
     const bays = isVic ? (frontW > 11 ? 2 : 1) : Math.max(1, Math.floor(frontW / 6.5));
     const bw = isVic ? 2.3 : 2.6; // front face width
     const bd = isVic ? 0.95 : 0.85; // projection
@@ -428,7 +574,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1) {
   }
 
   // ---- stoop (Victorian front stairs) or garage
-  if (isVic && frontW > 4.8 && (seed % 7) !== 0) {
+  if (isVic && frontW > 4.8 && (seed % 7) !== 0 && tier === 0) {
     const ss = seed & 1 ? frontW * 0.18 + 0.6 : frontW * 0.82 - 0.6;
     const w = 1.5;
     const d = 1.7;
@@ -444,7 +590,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1) {
   }
 
   // ---- chimney (Victorians) + rooftop clutter
-  if (isVic && (seed % 5) < 2) {
+  if (isVic && single && (seed % 5) < 2) {
     const side = seed & 2 ? 0.25 : 0.75;
     const depth = 0.45 + 0.3 * r();
     const px = fa[0] + ux * (s0 + (s1 - s0) * side) + inx * (t0 + (t1 - t0) * depth);
@@ -453,10 +599,10 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1) {
     const chTop = (gable ? roofY + 2.6 : roofY + 1.7) + r() * 0.6;
     B.prism(ccw([[px - hw, pz - hw], [px + hw, pz - hw], [px + hw, pz + hw], [px - hw, pz + hw]]), roofY - 0.2, chTop, Part.CLUTTER);
   }
-  if (!gable) clutter(B, pts, cx, cz, roofY, arch, r);
+  if (!gable) clutter(B, pts, cx, cz, roofY, arch, r, open);
 }
 
-function clutter(B: Builder, pts: Array<[number, number]>, cx: number, cz: number, roofY: number, arch: number, r: () => number) {
+function clutter(B: Builder, pts: Array<[number, number]>, cx: number, cz: number, roofY: number, arch: number, r: () => number, open: ((x: number, z: number) => boolean) | null) {
   if (arch === Arch.VICTORIAN || arch === Arch.STUCCO || arch === Arch.MARINA) {
     // small-house roofs: a skylight or a roof hatch + a vent stack (texture from above)
     let rad = Infinity;
@@ -468,6 +614,7 @@ function clutter(B: Builder, pts: Array<[number, number]>, cx: number, cz: numbe
       const d = rad * 0.45 * r();
       const px = cx + Math.cos(ang) * d, pz = cz + Math.sin(ang) * d;
       const w = 0.9 + r() * 0.9, dd = 0.9 + r() * 1.1, h = 0.35 + r() * 0.5;
+      if (open && !open(px, pz)) continue;
       B.prism(ccw([[px - w / 2, pz - dd / 2], [px + w / 2, pz - dd / 2], [px + w / 2, pz + dd / 2], [px - w / 2, pz + dd / 2]]), roofY - 0.05, roofY + h, Part.CLUTTER);
     }
     return;
@@ -489,6 +636,7 @@ function clutter(B: Builder, pts: Array<[number, number]>, cx: number, cz: numbe
     const a = r() * 0.6;
     const ca = Math.cos(a), sa = Math.sin(a);
     const P = (x: number, z: number): [number, number] => [px + x * ca - z * sa, pz + x * sa + z * ca];
+    if (open && !(open(px, pz) && open(...P(-w / 2, -dd / 2)) && open(...P(w / 2, dd / 2)) && open(...P(w / 2, -dd / 2)) && open(...P(-w / 2, dd / 2)))) continue;
     if (k === 1 && arch === Arch.FLATS && r() < 0.6) {
       // a wooden water tank on legs (octagonal) — very old-SF rooftop
       const ring: Array<[number, number]> = [];
