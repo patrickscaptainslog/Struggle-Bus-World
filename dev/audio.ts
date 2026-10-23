@@ -360,6 +360,7 @@ function eventColor(e: SessionEvent): string {
     case 'heave':
       return rampColor(Ramp.BUS_YELLOW, 6);
     case 'bloom':
+    case 'burst':
       return rampColor(HUE_RAMPS[Math.round(e.c) % 6], 5);
     case 'foghorn':
       return rampColor(Ramp.FOG, 7);
