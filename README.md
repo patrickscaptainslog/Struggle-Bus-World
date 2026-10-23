@@ -9,8 +9,10 @@ Phase 1: single player, no server. iPhone Safari first (portrait, one thumb).
 - **Drag anywhere**: the bus follows a springy bungee from where you touched.
   Sideways carves and banks, up surges (about 250 mph), down slows to a hover.
 - **Let go**: it cruises.
-- **Tap**: barf. The bus stalls, heaves and blasts a rainbow geyser at the
-  buildings under its shadow. Its belly glows fuller as the next barf recharges.
+- **Tap** (a second finger works while steering): dragon breath. The bus
+  rears back and blasts a rainbow jet forward; it bursts over the building
+  ahead (when the belly is full, that building glints) and spills onto its
+  unpainted neighbors. The belly glows fuller as the next blast recharges.
 - Splat an already-painted house to escalate it: rooftop garden, then full
   Hundertwasser.
 - Paint is saved on your phone.
