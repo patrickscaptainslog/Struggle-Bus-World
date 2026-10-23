@@ -7,8 +7,8 @@ import { PaintState } from './PaintState';
 import { GroundPaint } from './GroundPaint';
 import type { ObstaclePost } from './Bridges';
 import { parseFar, type CityManifest, type FarData, type BuildingTile, type TerrainTile } from './tiles';
-import { loadRegion, type RegionRequest, type RegionResponse, type TileResult } from './regionLoader';
-import type { MeshArrays } from './BuildingMesher';
+import { loadRegion, type GridArrays, type RegionRequest, type RegionResponse, type TileResult } from './regionLoader';
+import type { CasterArrays, MeshArrays } from './BuildingMesher';
 
 // Streams the baked city around the bus: region bundles are fetched and
 // meshed in a worker, tiles appear inside the fog, far ones are dropped.
@@ -35,6 +35,8 @@ interface LoadedTile {
   tx: number;
   tz: number;
   buildings: THREE.Mesh | null;
+  /** full-detail tiles: the buildings' sun-pass proxy (SHADOW_LAYER only; the detailed mesh doesn't cast) */
+  caster: THREE.Mesh | null;
   terrain: THREE.Mesh | null;
   terrainData: TerrainTile | null;
   buildingData: BuildingTile | null;
@@ -46,11 +48,15 @@ interface LoadedTile {
   hidden: boolean;
   /** grid step of its own ground mesh (2 = 4 m detailed, 4 = 8 m like a coarse region's), 0 = none */
   terrainStep: number;
+  /** a ground grid the worker built, until a ground mesh takes it (later rebuilds make their own) */
+  grid: GridArrays | null;
 }
 
 /** A coarse region drawn as two meshes (its tiles keep their data for gameplay queries). */
 interface RegionMesh {
   buildings: THREE.Mesh | null;
+  /** where each tile's triangles end in the buildings' index ("tx,tz"): an upgrade to detail trims the mesh tile by tile */
+  ends: Map<string, number> | null;
   terrain: THREE.Mesh | null;
   classTex: THREE.DataTexture | null;
   hidden: boolean;
@@ -61,9 +67,12 @@ type Adopt =
   /** one tile of a newly arrived region (coarse: its meshes come with the region item) */
   | { kind: 'tile'; key: string; t: TileResult; coarse: boolean }
   /** after a coarse region's tiles: its merged meshes */
-  | { kind: 'coarse'; key: string; merged: MeshArrays | null }
-  /** an adopted region switching level of detail, all at once */
-  | { kind: 'swap'; key: string; msg: RegionResponse };
+  | { kind: 'coarse'; key: string; msg: RegionResponse }
+  /** an adopted region going coarse: all at once (its one merged mesh replaces the tiles') */
+  | { kind: 'swap'; key: string; msg: RegionResponse }
+  /** an adopted region going to full detail, a tile at a time (the coarse mesh shrinks as they land), then its ground */
+  | { kind: 'detail'; key: string; t: TileResult }
+  | { kind: 'detailEnd'; key: string };
 
 async function maybeInflate(buf: ArrayBuffer): Promise<ArrayBuffer> {
   const h = new Uint8Array(buf, 0, 2);
@@ -94,6 +103,100 @@ function ringArea(b: BuildingTile, k: number): number {
   return Math.abs(a) / 2;
 }
 
+/** World-aligned chunks of a vertex grid's attributes: one frustum-culled mesh per chunk, Uint16 indices. */
+type GridAttrs = Record<'position' | 'normal' | 'ramp' | 'lightOffset' | 'glow', Float32Array>;
+
+/**
+ * Split a w x h vertex grid (row-major, attribute arrays in `at`) into meshes
+ * of `size` x `size` m, binned by each quad's first corner in world space
+ * (keyed "cx,cz" = floor(x / size), floor(z / size)). Quads `keep` rejects
+ * are dropped. Each chunk gets its own compact copy of the vertices it uses,
+ * so normals stay identical across chunk borders (no seams). Static meshes:
+ * no matrix updates; the caller sets the material.
+ */
+function chunkGrid(w: number, h: number, at: GridAttrs, size: number, keep: (a: number, b: number, c: number, d: number) => boolean): Map<string, THREE.Mesh> {
+  const quads = new Map<string, number[]>();
+  const P = at.position;
+  for (let j = 0; j < h - 1; j++)
+    for (let i = 0; i < w - 1; i++) {
+      const a = j * w + i, b = a + 1, c = a + w, d = c + 1;
+      if (!keep(a, b, c, d)) continue;
+      const key = `${Math.floor(P[a * 3] / size + 1e-6)},${Math.floor(P[a * 3 + 2] / size + 1e-6)}`;
+      let l = quads.get(key);
+      if (!l) quads.set(key, (l = []));
+      l.push(a);
+    }
+  const remap = new Int32Array(w * h).fill(-1);
+  const out = new Map<string, THREE.Mesh>();
+  for (const [key, list] of quads) {
+    const used: number[] = [];
+    const idx: number[] = [];
+    const vid = (v: number) => {
+      if (remap[v] < 0) {
+        remap[v] = used.length;
+        used.push(v);
+      }
+      return remap[v];
+    };
+    for (const a of list) {
+      const b = a + 1, c = a + w, d = c + 1;
+      const A = vid(a), B = vid(b), C = vid(c), D = vid(d);
+      idx.push(A, C, B, B, C, D);
+    }
+    const g = new THREE.BufferGeometry();
+    for (const name of Object.keys(at) as Array<keyof GridAttrs>) {
+      const src = at[name];
+      const n = src.length / (w * h);
+      const dst = new Float32Array(used.length * n);
+      for (let k = 0; k < used.length; k++) for (let q = 0; q < n; q++) dst[k * n + q] = src[used[k] * n + q];
+      g.setAttribute(name, new THREE.BufferAttribute(dst, n));
+    }
+    g.setIndex(new THREE.BufferAttribute(used.length < 65535 ? new Uint16Array(idx) : new Uint32Array(idx), 1));
+    g.computeBoundingSphere();
+    g.computeBoundingBox();
+    for (const v of used) remap[v] = -1;
+    const mesh = new THREE.Mesh(g);
+    mesh.matrixAutoUpdate = false;
+    mesh.matrixWorldAutoUpdate = false;
+    // a flat slab: its sphere reaches a kilometer above it, the pipeline tests the box (world = local here)
+    mesh.userData.viewBox = g.boundingBox;
+    out.set(key, mesh);
+  }
+  return out;
+}
+
+const HORIZON_CHUNK = 8192;
+const tileKeyNum = (tx: number, tz: number) => (tx + 4096) * 8192 + (tz + 4096);
+/** far terrain chunks span this many regions a side (2 km: the chase view sees a handful, never dozens) */
+const FAR_CHUNK_REGIONS = 2;
+
+/**
+ * Let a streamed mesh's arrays go once they're on the GPU: three keeps a JS
+ * copy of every attribute otherwise (as much memory again as the geometry).
+ * Nothing reads them back (bounds come with the mesh, nothing raycasts the
+ * city); a lost GL context reloads every region (City.reloadAll).
+ */
+function dropAfterUpload(g: THREE.BufferGeometry) {
+  for (const a of Object.values(g.attributes)) (a as THREE.BufferAttribute).onUpload(dropArray);
+  g.index?.onUpload(dropArray);
+}
+function dropArray(this: THREE.BufferAttribute) {
+  (this as unknown as { array: ArrayLike<number> | null }).array = null;
+}
+
+/** New geometry a tile brings (its detailed mesh and caster), for the per-frame upload budget. */
+function meshBytes(t: TileResult): number {
+  let b = 0;
+  const m = t.mesh;
+  if (m) b += m.position.byteLength + m.normal.byteLength + m.facade.byteLength + m.meta.byteLength + m.bld.byteLength + m.bld2.byteLength + m.index.byteLength;
+  if (t.caster) b += t.caster.position.byteLength + t.caster.index.byteLength;
+  return b;
+}
+
+function mergedBytes(msg: RegionResponse): number {
+  const m = msg.merged;
+  return m ? m.position.byteLength + m.normal.byteLength + m.facade.byteLength + m.meta.byteLength + m.bld.byteLength + m.bld2.byteLength + m.index.byteLength : 0;
+}
 const LOAD_RADIUS = 1500; // m: regions whose center is within this get loaded
 const DETAIL_RADIUS = 650; // m: regions nearer than this get full-detail meshes (bays, cornices, stoops)
 const UNLOAD_RADIUS = 2300;
@@ -101,10 +204,14 @@ const UNLOAD_RADIUS = 2300;
 // (and its fov), so high up everything is the coarse mesh
 const LOAD_RADIUS_HIGH = 1900;
 const UNLOAD_RADIUS_HIGH = 2800;
-// arrived tiles adopted per frame: at least this many, more while under this many ms
+// arrived tiles adopted per frame: at least this many, more while under this many ms and this
+// much new geometry (three uploads a mesh the first frame it's drawn: this bounds the upload per frame)
 const ADOPT_MIN = 2;
 const ADOPT_MS = 2.5;
+const ADOPT_BYTES = 3 << 20;
 const HASH_CELL = 32;
+/** never drawn: casters live on SHADOW_LAYER only, where the sun pass's depth override replaces it */
+const CASTER_MATERIAL = new THREE.MeshBasicMaterial();
 
 export class City {
   readonly root = new THREE.Group();
@@ -121,11 +228,23 @@ export class City {
   private regionsRequested = new Set<string>();
   private regionAvailable = new Set<string>();
   private tiles = new Map<string, LoadedTile>();
+  /** the same tiles keyed by number (tileKeyNum): the per-frame ground / obstacle lookups build no strings */
+  private tileNum = new Map<number, LoadedTile>();
+  /** region keys and their coordinates, made once per region (the per-frame streaming loops build no strings) */
+  private regionKeys = new Map<number, string>();
+  private regionXZ = new Map<string, [number, number]>();
   private hash = new Map<number, BuildingRef[]>();
   /** landmark/bridge collision posts, hashed in 64 m cells */
   private posts = new Map<number, ObstaclePost[]>();
   private far: FarData | null = null;
   private farGroup = new THREE.Group();
+  /** far terrain in chunks of FAR_CHUNK_REGIONS^2 regions, hidden where every region it covers has its own ground in */
+  private farChunks = new Map<string, { mesh: THREE.Mesh; regions: string[] }>();
+  /** region ("rx,rz") -> the far chunk its far quads are in */
+  private regionFar = new Map<string, string>();
+  /** tiles of a newly arrived region still waiting in the adoption queue */
+  private adoptLeft = new Map<string, number>();
+  private restoreHooked = false;
   private loadedMask: THREE.DataTexture;
   private maskW: number;
   private maskH: number;
@@ -188,6 +307,9 @@ export class City {
     this.loadedMask = new THREE.DataTexture(new Uint8Array(this.maskW * this.maskH), this.maskW, this.maskH, THREE.RedFormat, THREE.UnsignedByteType);
     this.loadedMask.minFilter = this.loadedMask.magFilter = THREE.NearestFilter;
     this.loadedMask.needsUpdate = true;
+    // (static: the far meshes' matrices never change)
+    this.farGroup.matrixAutoUpdate = false;
+    this.farGroup.matrixWorldAutoUpdate = false;
     this.root.add(this.farGroup);
     // the bay / ocean: a huge still plane below everything
     const water = new THREE.Mesh(new THREE.PlaneGeometry(60000, 60000).rotateX(-Math.PI / 2), makeWaterMaterial());
@@ -234,27 +356,17 @@ export class City {
         land[k] = y > 0.5 ? 1 : 0;
       }
     const [bx0, bz0, bx1, bz1] = this.manifest.bounds;
-    const idx: number[] = [];
-    for (let j = 0; j < h - 1; j++)
-      for (let i = 0; i < w - 1; i++) {
-        const a = j * w + i, b = a + 1, c = a + w, d = c + 1;
-        if (!(land[a] || land[b] || land[c] || land[d])) continue;
-        const x = pos[a * 3], z = pos[a * 3 + 2];
-        // the city's own far grid covers its frame
-        if (x >= bx0 && x + step * cell <= bx1 && z >= bz0 && z + step * cell <= bz1) continue;
-        idx.push(a, c, b, b, c, d);
-      }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
-    g.setAttribute('ramp', new THREE.BufferAttribute(ramp, 1));
-    g.setAttribute('lightOffset', new THREE.BufferAttribute(lo, 1));
-    g.setAttribute('glow', new THREE.BufferAttribute(gl, 1));
-    g.setIndex(idx);
-    g.computeBoundingSphere();
-    const mesh = new THREE.Mesh(g, makeRampMaterial({ vertexRamp: true, shadowMul: 0 }));
-    mesh.frustumCulled = false;
-    this.farGroup.add(mesh);
+    // (8 km chunks, frustum culled: the chase camera looks down, so it rarely sees any of them)
+    const mat = makeRampMaterial({ vertexRamp: true, shadowMul: 0 });
+    for (const mesh of chunkGrid(w, h, { position: pos, normal: nrm, ramp, lightOffset: lo, glow: gl }, HORIZON_CHUNK, (a, b, c, d) => {
+      if (!(land[a] || land[b] || land[c] || land[d])) return false;
+      const x = pos[a * 3], z = pos[a * 3 + 2];
+      // the city's own far grid covers its frame
+      return !(x >= bx0 && x + step * cell <= bx1 && z >= bz0 && z + step * cell <= bz1);
+    }).values()) {
+      mesh.material = mat;
+      this.farGroup.add(mesh);
+    }
   }
 
   private buildFar() {
@@ -287,25 +399,31 @@ export class City {
         lo[k] = water ? -0.1 : -0.06;
       }
     }
-    const idx = new Uint32Array((W - 1) * (H - 1) * 6);
-    let q = 0;
+    // frustum-culled 2x2-region chunks (the grid's quads land exactly on region edges), each hidden once
+    // every region it covers has its own ground in; quads whose four corners are water sit under the
+    // bay and are never seen
+    const R = this.regionSize * this.manifest.tileSize;
+    const C = R * FAR_CHUNK_REGIONS;
+    const land = (a: number, b: number, c: number, d: number) => !(ramp[a] === Ramp.WATER && ramp[b] === Ramp.WATER && ramp[c] === Ramp.WATER && ramp[d] === Ramp.WATER);
+    const mat = makeRampMaterial({ vertexRamp: true, shadowMul: 1 });
+    for (const [key, mesh] of chunkGrid(W, H, { position: pos, normal: nrm, ramp, lightOffset: lo, glow: gl }, C, land)) {
+      mesh.material = mat;
+      this.farGroup.add(mesh);
+      this.farChunks.set(key, { mesh, regions: [] });
+    }
+    // which regions each chunk's quads lie in
     for (let j = 0; j < H - 1; j++)
       for (let i = 0; i < W - 1; i++) {
-        const a = j * W + i, b = a + 1, c = a + W, d = c + 1;
-        idx[q++] = a; idx[q++] = c; idx[q++] = b;
-        idx[q++] = b; idx[q++] = c; idx[q++] = d;
+        const a = j * W + i;
+        if (!land(a, a + 1, a + W, a + W + 1)) continue;
+        const x = pos[a * 3] + 1e-3, z = pos[a * 3 + 2] + 1e-3;
+        const rk = `${Math.floor(x / R)},${Math.floor(z / R)}`;
+        if (this.regionFar.has(rk)) continue;
+        const ck = `${Math.floor(x / C)},${Math.floor(z / C)}`;
+        this.regionFar.set(rk, ck);
+        this.farChunks.get(ck)?.regions.push(rk);
       }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
-    g.setAttribute('ramp', new THREE.BufferAttribute(ramp, 1));
-    g.setAttribute('lightOffset', new THREE.BufferAttribute(lo, 1));
-    g.setAttribute('glow', new THREE.BufferAttribute(gl, 1));
-    g.setIndex(new THREE.BufferAttribute(idx, 1));
-    g.computeBoundingSphere();
-    const farTerrain = new THREE.Mesh(g, makeRampMaterial({ vertexRamp: true, shadowMul: 1 }));
-    farTerrain.frustumCulled = false;
-    this.farGroup.add(farTerrain);
+    for (const key of this.regionsLoaded) this.refreshFarChunk(key);
 
     // far skyline: tall buildings as boxes, hidden where real tiles are loaded
     const n = f.index.length;
@@ -350,8 +468,23 @@ export class City {
     }
   }
 
+  /** Drop every region (they stream back in): after a lost GL context, whose streamed meshes kept no JS copy. */
+  reloadAll() {
+    for (const key of [...this.regionsLoaded]) {
+      const c = key.indexOf(',');
+      this.unloadRegion(Number(key.slice(0, c)), Number(key.slice(c + 1)));
+    }
+    for (const p of this.pending.values()) this.regionsRequested.delete(p.key);
+    this.pending.clear();
+  }
+
   /** Stream regions around a point (at altitude the game passes a point ahead of the bus, under the view). */
   update(focus: THREE.Vector3, renderer: THREE.WebGLRenderer, dt: number) {
+    if (!this.restoreHooked) {
+      // (three re-creates its GL state first: its own listener was added with the renderer)
+      this.restoreHooked = true;
+      renderer.domElement.addEventListener('webglcontextrestored', () => this.reloadAll());
+    }
     const R = this.regionSize * this.manifest.tileSize;
     // at altitude: a wider circle of coarse regions, detail only where pixels are still small
     const hk = Math.min(1, Math.max(0, (this.viewHeight - 40) / 460));
@@ -368,7 +501,7 @@ export class City {
     want.length = 0;
     for (let rz = rz0; rz <= rz1; rz++)
       for (let rx = rx0; rx <= rx1; rx++) {
-        const key = `${rx},${rz}`;
+        const key = this.regionKey(rx, rz);
         if (!this.regionAvailable.has(key) || this.regionsRequested.has(key)) continue;
         if ((this.retryAt.get(key) ?? 0) > performance.now()) continue;
         const cx = (rx + 0.5) * R, cz = (rz + 0.5) * R;
@@ -382,7 +515,7 @@ export class City {
     for (const key of this.regionsLoaded) {
       const lod = this.regionLod.get(key);
       if (lod === undefined || this.isPending(key)) continue;
-      const [rx, rz] = key.split(',').map(Number);
+      const [rx, rz] = this.regionXZ.get(key)!;
       const cx = (rx + 0.5) * R, cz = (rz + 0.5) * R;
       const d = Math.hypot(Math.max(Math.abs(focus.x - cx) - R / 2, 0), Math.max(Math.abs(focus.z - cz) - R / 2, 0));
       if (lod === 1 && detailD(d) < DETAIL_RADIUS * 0.8) want.push([rx, rz, d - 10000, 0]);
@@ -391,7 +524,7 @@ export class City {
     want.sort((a, b) => a[2] - b[2]);
     for (const [rx, rz, , lod] of want) {
       if (this.pending.size >= 2) break;
-      const key = `${rx},${rz}`;
+      const key = this.regionKey(rx, rz);
       this.regionsRequested.add(key);
       const id = this.nextId++;
       this.pending.set(id, { key, lod });
@@ -401,7 +534,7 @@ export class City {
     }
     // unload far regions
     for (const key of this.regionsLoaded) {
-      const [rx, rz] = key.split(',').map(Number);
+      const [rx, rz] = this.regionXZ.get(key)!;
       const cx = (rx + 0.5) * R, cz = (rz + 0.5) * R;
       const dx = Math.max(Math.abs(focus.x - cx) - R / 2, 0);
       const dz = Math.max(Math.abs(focus.z - cz) - R / 2, 0);
@@ -410,19 +543,50 @@ export class City {
     // adopt arrived tiles a few per frame: a region landing never hitches one frame
     const t0 = performance.now();
     let n = 0;
-    while (this.adopt.length && (this.eager || n < ADOPT_MIN || performance.now() - t0 < ADOPT_MS)) {
+    let bytes = 0;
+    while (this.adopt.length && (this.eager || n < ADOPT_MIN || (performance.now() - t0 < ADOPT_MS && bytes < ADOPT_BYTES))) {
       const a = this.adopt.shift()!;
       n++;
       if (!this.regionsLoaded.has(a.key)) continue; // unloaded while queued
       if (a.kind === 'tile') {
         this.addTile(a.t, a.coarse);
         this.loadedMask.needsUpdate = true;
-      } else if (a.kind === 'coarse') this.buildRegionMesh(a.key, a.merged);
-      else this.swapRegion(a.key, a.msg);
+        if (!a.coarse) bytes += meshBytes(a.t);
+      } else if (a.kind === 'coarse') {
+        this.buildRegionMesh(a.key, a.msg);
+        bytes += mergedBytes(a.msg);
+      } else if (a.kind === 'swap') {
+        this.swapRegion(a.key, a.msg);
+        bytes += mergedBytes(a.msg);
+      } else if (a.kind === 'detail') {
+        this.detailTile(a.key, a.t);
+        bytes += meshBytes(a.t);
+      } else this.detailEnd(a.key);
+      if (a.kind === 'tile' || a.kind === 'coarse') {
+        // the region's own ground is all in: its far terrain goes
+        const left = (this.adoptLeft.get(a.key) ?? 1) - 1;
+        if (left > 0) this.adoptLeft.set(a.key, left);
+        else {
+          this.adoptLeft.delete(a.key);
+          this.refreshFarChunk(a.key);
+        }
+      }
     }
     this.paint.flush(renderer, dt);
     this.ground.work();
     this.ground.flush(renderer, dt);
+  }
+
+  /** "rx,rz", made once per region (with its coordinates for the streaming loops). */
+  private regionKey(rx: number, rz: number): string {
+    const n = (rx + 4096) * 8192 + (rz + 4096);
+    let k = this.regionKeys.get(n);
+    if (k === undefined) {
+      k = `${rx},${rz}`;
+      this.regionKeys.set(n, k);
+      this.regionXZ.set(k, [rx, rz]);
+    }
+    return k;
   }
 
   private tileKeysOf(key: string): string[] {
@@ -442,9 +606,15 @@ export class City {
   }
 
   /** A coarse region's two meshes: its merged buildings and its ground (one grid, one class texture). */
-  private buildRegionMesh(key: string, merged: MeshArrays | null) {
+  private buildRegionMesh(key: string, msg: RegionResponse) {
     this.disposeRegionMesh(key);
-    const rm: RegionMesh = { buildings: merged ? this.makeBuildingMesh(merged) : null, terrain: null, classTex: null, hidden: false };
+    const merged = msg.merged ?? null;
+    // (coarse buildings are their own sun-pass casters: one quad per wall already)
+    const rm: RegionMesh = { buildings: merged ? this.makeBuildingMesh(merged, msg.mergedSphere ?? null, true) : null, ends: null, terrain: null, classTex: null, hidden: false };
+    if (rm.buildings && msg.mergedEnds) {
+      rm.ends = new Map();
+      for (let i = 0; i < msg.tiles.length; i++) if (msg.mergedEnds[i] >= 0) rm.ends.set(`${msg.tiles[i].tx},${msg.tiles[i].tz}`, msg.mergedEnds[i]);
+    }
     this.regionMeshes.set(key, rm);
     this.buildRegionGround(key, rm);
   }
@@ -469,9 +639,7 @@ export class City {
     const cn = this.manifest.classN;
     const N = cn * rs;
     const cls = new Uint8Array(N * N);
-    const pos: number[] = [];
-    const nrm: number[] = [];
-    const idx: number[] = [];
+    const grids: THREE.BufferGeometry[] = [];
     let any = false;
     for (let tz = rz * rs; tz < (rz + 1) * rs; tz++)
       for (let tx = rx * rs; tx < (rx + 1) * rs; tx++) {
@@ -492,24 +660,38 @@ export class City {
         any = true;
         const ox = (tx - rx * rs) * cn, oz = (tz - rz * rs) * cn;
         for (let j = 0; j < cn; j++) cls.set(tr.cls.subarray(j * cn, j * cn + cn), (oz + j) * N + ox);
-        const g = makeHeightGrid(tr.heights, tr.n, tr.cell, tr.originX, tr.originZ, 4);
-        const base = pos.length / 3;
-        const p = g.getAttribute('position').array, q = g.getAttribute('normal').array, ii = g.getIndex()!.array;
-        for (let k = 0; k < p.length; k++) pos.push(p[k]);
-        for (let k = 0; k < q.length; k++) nrm.push(q[k]);
-        for (let k = 0; k < ii.length; k++) idx.push(ii[k] + base);
-        g.dispose();
+        grids.push(this.takeGrid(lt, 4));
       }
     if (any) {
+      // one grid: the tiles' 8 m grids concatenated (typed copies, no per-vertex pushes)
+      let vc = 0, ic = 0;
+      for (const g of grids) {
+        vc += g.getAttribute('position').count;
+        ic += g.getIndex()!.count;
+      }
+      const pos = new Float32Array(vc * 3);
+      const nrm = new Float32Array(vc * 3);
+      const idx = vc < 65535 ? new Uint16Array(ic) : new Uint32Array(ic);
+      let vo = 0, io = 0;
+      for (const g of grids) {
+        pos.set(g.getAttribute('position').array as Float32Array, vo * 3);
+        nrm.set(g.getAttribute('normal').array as Float32Array, vo * 3);
+        const ii = g.getIndex()!.array;
+        for (let k = 0; k < ii.length; k++) idx[io + k] = ii[k] + vo;
+        vo += g.getAttribute('position').count;
+        io += ii.length;
+        g.dispose();
+      }
       const tex = new THREE.DataTexture(cls, N, N, THREE.RedFormat, THREE.UnsignedByteType);
       tex.minFilter = tex.magFilter = THREE.NearestFilter;
       tex.generateMipmaps = false;
       tex.needsUpdate = true;
       const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
-      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nrm), 3));
-      g.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+      g.setIndex(new THREE.BufferAttribute(idx, 1));
       g.computeBoundingSphere();
+      dropAfterUpload(g);
       // (far ground doesn't cast: the shadow window is near the view, and buildings carry the shadows up high)
       const mesh = new THREE.Mesh(g, makeTerrainMaterial(tex, rx * rs * ts, rz * rs * ts, rs * ts, N));
       mesh.matrixAutoUpdate = false;
@@ -555,43 +737,78 @@ export class City {
     rm.classTex?.dispose();
   }
 
-  /** Switch an adopted region to its other level of detail in one go (no holes in between). */
+  /** Switch an adopted region to its coarse level in one go (same frame: the tiles' meshes go and the region's arrive, no holes). */
   private swapRegion(key: string, msg: RegionResponse) {
-    if (msg.lod === 1) {
-      // (same frame: the tiles' meshes go and the region's arrive, no holes in between)
-      for (const k of this.tileKeysOf(key)) {
-        const lt = this.tiles.get(k);
-        if (lt) this.dropTileMeshes(lt);
-      }
-      this.buildRegionMesh(key, msg.merged ?? null);
-      return;
+    for (const k of this.tileKeysOf(key)) {
+      const lt = this.tiles.get(k);
+      if (lt) this.dropTileMeshes(lt);
     }
     for (const t of msg.tiles) {
       const lt = this.tiles.get(`${t.tx},${t.tz}`);
+      if (lt) lt.grid = t.grid;
+    }
+    this.buildRegionMesh(key, msg);
+  }
+
+  /**
+   * One tile of a region going to full detail: its detailed buildings arrive
+   * and the coarse mesh stops drawing that tile (tiles land in the merged
+   * mesh's own order, so what's left of it is one index range). No holes, no
+   * overlap, and the upload spreads over a few frames instead of ~20 MB in one.
+   */
+  private detailTile(key: string, t: TileResult) {
+    const tk = `${t.tx},${t.tz}`;
+    const lt = this.tiles.get(tk);
+    if (!lt) return;
+    this.dropTileBuildings(lt);
+    this.makeTileBuildings(lt, t);
+    lt.grid = t.grid; // (its 4 m ground lands with the region's last tile)
+    if (lt.buildings) lt.buildings.visible = !lt.hidden;
+    if (lt.caster) lt.caster.visible = !lt.hidden;
+    const rm = this.regionMeshes.get(key);
+    const end = rm?.ends?.get(tk);
+    if (rm?.buildings && end !== undefined) {
+      const g = rm.buildings.geometry;
+      if (end > g.drawRange.start) g.setDrawRange(end, Infinity);
+    }
+  }
+
+  /** The region's detailed tiles are all in: the ground follows (4 m grids, they cast) and the coarse meshes go. */
+  private detailEnd(key: string) {
+    for (const k of this.tileKeysOf(key)) {
+      const lt = this.tiles.get(k);
       if (!lt) continue;
-      if (lt.buildings) {
-        this.root.remove(lt.buildings);
-        lt.buildings.geometry.dispose();
-        lt.buildings = null;
-      }
-      if (t.mesh) lt.buildings = this.makeBuildingMesh(t.mesh);
       if (lt.terrainStep !== 2) {
         this.dropTileTerrain(lt);
         this.makeTileTerrain(lt, 2);
       }
-      if (lt.buildings) lt.buildings.visible = !lt.hidden;
-      if (lt.terrain) lt.terrain.visible = !lt.hidden;
     }
     this.disposeRegionMesh(key);
   }
 
   private dropTileMeshes(lt: LoadedTile) {
+    this.dropTileBuildings(lt);
+    this.dropTileTerrain(lt);
+  }
+
+  private dropTileBuildings(lt: LoadedTile) {
     if (lt.buildings) {
       this.root.remove(lt.buildings);
       lt.buildings.geometry.dispose();
       lt.buildings = null;
     }
-    this.dropTileTerrain(lt);
+    if (lt.caster) {
+      this.root.remove(lt.caster);
+      lt.caster.geometry.dispose();
+      lt.caster = null;
+    }
+  }
+
+  /** A full-detail tile's buildings: the detailed mesh (main pass) and its caster proxy (sun pass). */
+  private makeTileBuildings(lt: LoadedTile, t: TileResult) {
+    if (!t.mesh) return;
+    lt.buildings = this.makeBuildingMesh(t.mesh, t.sphere, !t.caster);
+    if (t.caster && lt.buildings) lt.caster = this.makeCasterMesh(t.caster, lt.buildings.geometry.boundingSphere!);
   }
 
   /** The one place a tile's own ground mesh goes away (per-tile ground paint detaches here). */
@@ -621,16 +838,32 @@ export class City {
     tex.generateMipmaps = false;
     tex.needsUpdate = true;
     lt.classTex = tex;
-    const geo = makeHeightGrid(tr.heights, tr.n, tr.cell, tr.originX, tr.originZ, step);
+    const geo = this.takeGrid(lt, step);
+    dropAfterUpload(geo);
     const gu = this.ground.tileUniforms();
     const mesh = new THREE.Mesh(geo, makeTerrainMaterial(tex, tr.originX, tr.originZ, this.manifest.tileSize, tr.classN, 0, gu));
     this.ground.attach(lt.tx, lt.tz, tr.originX, tr.originZ, gu);
     if (step === 2) mesh.layers.enable(SHADOW_LAYER);
+    mesh.userData.sunCull = true; // (the sun pass skips it when its shadow can't reach the view)
     mesh.matrixAutoUpdate = false;
     mesh.visible = !lt.hidden;
     this.root.add(mesh);
     lt.terrain = mesh;
     lt.terrainStep = step;
+  }
+
+  /** The tile's ground grid as geometry: the worker's if it built this step, else made here. */
+  private takeGrid(lt: LoadedTile, step: number): THREE.BufferGeometry {
+    const g = lt.grid;
+    lt.grid = null;
+    const tr = lt.terrainData!;
+    if (!g || g.step !== step) return makeHeightGrid(tr.heights, tr.n, tr.cell, tr.originX, tr.originZ, step);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(g.position, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(g.normal, 3));
+    geo.setIndex(new THREE.BufferAttribute(g.index, 1));
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(g.sphere[0], g.sphere[1], g.sphere[2]), g.sphere[3]);
+    return geo;
   }
 
   /**
@@ -640,11 +873,14 @@ export class City {
    */
   cullBuried(buried: ((x0: number, z0: number, x1: number, z1: number, maxY: number, wasHidden: boolean) => boolean) | null) {
     const ts = this.manifest.tileSize;
+    const rs = this.regionSize;
     for (const lt of this.tiles.values()) {
       const h = buried ? buried(lt.tx * ts, lt.tz * ts, (lt.tx + 1) * ts, (lt.tz + 1) * ts, lt.maxY, lt.hidden) : false;
       if (h === lt.hidden) continue;
       lt.hidden = h;
+      this.refreshFarChunk(`${Math.floor(lt.tx / rs)},${Math.floor(lt.tz / rs)}`);
       if (lt.buildings) lt.buildings.visible = !h;
+      if (lt.caster) lt.caster.visible = !h;
       if (lt.terrain) lt.terrain.visible = !h;
     }
     // a coarse region hides only when every one of its tiles is buried
@@ -692,18 +928,25 @@ export class City {
       return;
     }
     if (!this.regionsRequested.has(key)) return; // unloaded while in flight
-    // an already-loaded region switches level of detail in one go; a new one adopts its tiles a few per frame
-    if (this.regionsLoaded.has(key)) this.adopt.push({ kind: 'swap', key, msg });
-    else {
+    // an already-loaded region goes coarse in one go, or to detail a tile at a time; a new one adopts its tiles a few per frame
+    if (this.regionsLoaded.has(key)) {
+      if (msg.lod === 1) this.adopt.push({ kind: 'swap', key, msg });
+      else {
+        for (const t of msg.tiles) this.adopt.push({ kind: 'detail', key, t });
+        this.adopt.push({ kind: 'detailEnd', key });
+      }
+    } else {
       this.regionsLoaded.add(key);
       const coarse = msg.lod === 1;
       for (const t of msg.tiles) this.adopt.push({ kind: 'tile', key, t, coarse });
-      if (coarse) this.adopt.push({ kind: 'coarse', key, merged: msg.merged ?? null });
+      if (coarse) this.adopt.push({ kind: 'coarse', key, msg });
+      this.adoptLeft.set(key, msg.tiles.length + (coarse ? 1 : 0));
+      if (!msg.tiles.length && !coarse) this.adoptLeft.delete(key);
     }
     this.regionLod.set(key, msg.lod);
   }
 
-  private makeBuildingMesh(m: NonNullable<TileResult['mesh']>): THREE.Mesh | null {
+  private makeBuildingMesh(m: MeshArrays, sphere: Float32Array | null, cast: boolean): THREE.Mesh | null {
     if (m.vertexCount === 0) return null;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(m.position, 3));
@@ -713,12 +956,33 @@ export class City {
     g.setAttribute('aBld', new THREE.BufferAttribute(m.bld, 4));
     g.setAttribute('aBld2', new THREE.BufferAttribute(m.bld2, 2));
     g.setIndex(new THREE.BufferAttribute(m.index, 1));
-    g.computeBoundingSphere();
+    // (bounds come from the worker; the main thread never walks the vertices)
+    if (sphere) g.boundingSphere = new THREE.Sphere(new THREE.Vector3(sphere[0], sphere[1], sphere[2]), sphere[3]);
+    else g.computeBoundingSphere();
     // generous bounds: painted buildings pop and wobble a little outside their rest pose
     if (g.boundingSphere) g.boundingSphere.radius += 6;
+    dropAfterUpload(g);
     const mesh = new THREE.Mesh(g, this.buildingMaterial);
-    mesh.layers.enable(SHADOW_LAYER);
+    if (cast) mesh.layers.enable(SHADOW_LAYER);
+    mesh.userData.sunCull = true;
     mesh.matrixAutoUpdate = false;
+    this.root.add(mesh);
+    return mesh;
+  }
+
+  /** The sun-pass proxy of a detailed tile: positions only, drawn by the shadow camera alone. */
+  private makeCasterMesh(c: CasterArrays, sphere: THREE.Sphere): THREE.Mesh | null {
+    if (c.vertexCount === 0) return null;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(c.position, 3));
+    g.setIndex(new THREE.BufferAttribute(c.index, 1));
+    g.boundingSphere = sphere.clone(); // a subset of the detailed mesh: its bounds hold
+    dropAfterUpload(g);
+    const mesh = new THREE.Mesh(g, CASTER_MATERIAL); // (the sun pass draws it with its depth override)
+    mesh.layers.set(SHADOW_LAYER);
+    mesh.matrixAutoUpdate = false;
+    mesh.userData.sbKind = 'caster';
+    mesh.userData.sunCull = true;
     this.root.add(mesh);
     return mesh;
   }
@@ -727,8 +991,8 @@ export class City {
   private addTile(t: TileResult, coarse = false) {
     const key = `${t.tx},${t.tz}`;
     if (this.tiles.has(key)) return;
-    const lt: LoadedTile = { tx: t.tx, tz: t.tz, buildings: null, terrain: null, terrainData: t.terrain, buildingData: t.building, refs: [], classTex: null, maxY: -Infinity, hidden: false, terrainStep: 0 };
-    if (t.mesh && !coarse) lt.buildings = this.makeBuildingMesh(t.mesh);
+    const lt: LoadedTile = { tx: t.tx, tz: t.tz, buildings: null, caster: null, terrain: null, terrainData: t.terrain, buildingData: t.building, refs: [], classTex: null, maxY: -Infinity, hidden: false, terrainStep: 0, grid: t.grid };
+    if (!coarse) this.makeTileBuildings(lt, t);
     if (t.building) {
       const b = t.building;
       for (let i = 0; i < b.count; ) {
@@ -780,6 +1044,7 @@ export class City {
       }
     }
     this.tiles.set(key, lt);
+    this.tileNum.set(tileKeyNum(t.tx, t.tz), lt);
     this.onTile?.({ tx: t.tx, tz: t.tz, terrain: t.terrain, refs: lt.refs });
   }
 
@@ -789,6 +1054,7 @@ export class City {
     this.regionsRequested.delete(key);
     this.regionLod.delete(key);
     if (this.adopt.length) this.adopt = this.adopt.filter((a) => a.key !== key);
+    this.adoptLeft.delete(key);
     this.disposeRegionMesh(key);
     const rs = this.regionSize;
     const [minX, minZ] = this.manifest.bounds;
@@ -811,9 +1077,28 @@ export class City {
         const mz = Math.round((tz * ts - minZ) / ts);
         if (mx >= 0 && mz >= 0 && mx < this.maskW && mz < this.maskH) (this.loadedMask.image.data as Uint8Array)[mz * this.maskW + mx] = 0;
         this.tiles.delete(k);
+        this.tileNum.delete(tileKeyNum(tx, tz));
         this.onTileUnload?.(tx, tz);
       }
     this.loadedMask.needsUpdate = true;
+    this.refreshFarChunk(key);
+  }
+
+  /** The far chunk under a region shows unless all of its regions have their own ground in. */
+  private refreshFarChunk(key: string) {
+    const ck = this.regionFar.get(key);
+    const ch = ck !== undefined ? this.farChunks.get(ck) : undefined;
+    if (!ch) return;
+    let covered = true;
+    for (const r of ch.regions) if (!(covered = this.groundIn(r))) break;
+    ch.mesh.visible = !covered;
+  }
+
+  /** True if a region's own ground is all in (loaded, adopted, none of it hidden in the fog sea). */
+  private groundIn(key: string): boolean {
+    if (!this.regionsLoaded.has(key) || this.adoptLeft.has(key)) return false;
+    for (const k of this.tileKeysOf(key)) if (this.tiles.get(k)?.hidden) return false;
+    return true;
   }
 
   private hashKey(x: number, z: number) {
@@ -822,7 +1107,7 @@ export class City {
 
   private tileAt(x: number, z: number): LoadedTile | undefined {
     const ts = this.manifest.tileSize;
-    return this.tiles.get(`${Math.floor(x / ts)},${Math.floor(z / ts)}`);
+    return this.tileNum.get(tileKeyNum(Math.floor(x / ts), Math.floor(z / ts)));
   }
 
   /** Ground height (m). Falls back to the far grid where tiles aren't loaded. */
