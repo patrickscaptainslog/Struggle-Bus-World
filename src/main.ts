@@ -618,6 +618,8 @@ async function boot() {
     /** QA: where a breath fired now would land ({x, y, z, dist, travel, drop}), and the last one fired */
     aimNow: () => (aimPoint(), { ...aim }),
     lastShot: () => lastShot,
+    /** QA: how much of the marine layer's seen-from-above fog is on (0 = the street-level fog exactly) */
+    fogLayerMix: () => globals.uFogLayer2.value.w,
     tapSplat: () => input.onTap?.(),
     forceReady: () => (flight.fullness = 1),
     /** QA: barf at a lat/lon through the real splat pipeline (cascade, bloom, sign, sound) */

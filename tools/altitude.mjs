@@ -8,18 +8,24 @@
 //                     at cruise vs. ceiling, then hold -> dive -> floor. Every
 //                     0.1 s of game time is logged to <phase>-log.json.
 //   opening         : the Golden Gate opening; logs the pass under the deck.
+//   gate            : the opening with the yoke pulled from the start (it must still
+//                     pass under the deck), then a climb to the ceiling over the Gate.
+// --seq: also capture 6 consecutive frames exactly 1/30 s apart (fixed-step rAF) at
+//        cruise, 250 m and the ceiling (<phase>-seq-<alt>-<i>.png) for shimmer checks.
 // SwiftShader renders ~1.5 fps: everything waits on the game clock, never wall time.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 
 const [base = 'http://127.0.0.1:5173/', out = 'shots/altitude', phase = 'downtown'] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const noShots = process.argv.includes('--noshots');
+const withSeq = process.argv.includes('--seq');
 mkdirSync(out, { recursive: true });
 
 const STARTS = {
   downtown: '?lat=37.7700&lon=-122.4300&heading=45&skipintro',
   west: '?lat=37.7600&lon=-122.4800&heading=60&skipintro',
   opening: '',
+  gate: '',
 };
 
 const browser = await chromium.launch({
@@ -29,6 +35,23 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
 page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.log('[console]', m.text()));
+// a controllable rAF: hold the game, then advance it exactly one fixed step per frame
+await page.addInitScript(() => {
+  const raf = window.requestAnimationFrame.bind(window);
+  let fake = null, lastT = -1, allowedT = -1;
+  window.__rv = { step: 0, hold: false, advance: 0, q: [] };
+  window.__rvFlush = () => { const R = window.__rv; const q = R.q; R.q = []; for (const f of q) raf(f); };
+  window.requestAnimationFrame = (cb) => {
+    const runF = (t) => {
+      const R = window.__rv;
+      if (R.hold && t !== allowedT) {
+        if (R.advance > 0) { R.advance--; allowedT = t; } else { R.q.push(runF); return; }
+      }
+      if (R.step > 0) { if (t !== lastT) fake = (fake ?? t) + R.step; lastT = t; cb(fake); } else { fake = null; lastT = t; cb(t); }
+    };
+    return raf(runF);
+  };
+});
 await page.goto(base + STARTS[phase], { waitUntil: 'load' });
 await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000 });
 
@@ -43,6 +66,8 @@ await page.evaluate(() => {
       const c = g.camera.position;
       return {
         t: +g.clock().toFixed(2),
+        x: +f.x.toFixed(1),
+        z: +f.z.toFixed(1),
         y: +f.y.toFixed(2),
         vy: +f.vy.toFixed(2),
         speed: +f.speed.toFixed(2),
@@ -52,10 +77,14 @@ await page.evaluate(() => {
         roof: +f.obstacleUnder.toFixed(2),
         clear: +(f.y - f.obstacleUnder).toFixed(2),
         mode: ['floor', 'hold', 'climb', 'dive'][f.mode],
+        height: +f.height.toFixed(1),
         camDist: +g.rig.distance.toFixed(1),
         camY: +c.y.toFixed(1),
+        camX: +c.x.toFixed(1),
+        camZ: +c.z.toFixed(1),
         vista: +g.rig.vista.toFixed(3),
-        hfov: +g.rig.hfov.toFixed(2),
+        hfov: +g.rig.hfov.toFixed(3),
+        layerMix: +g.fogLayerMix().toFixed(3),
         strain: +f.strain.toFixed(3),
         qa: window.__qa ? window.__qa.sy : 0,
       };
@@ -94,6 +123,23 @@ const perfNow = async () => {
   }
   const avg = (k) => +(samples.reduce((a, s) => a + s[k], 0) / samples.length).toFixed(2);
   return { workMs: avg('workMs'), workMaxMs: Math.max(...samples.map((s) => s.workMaxMs)), calls: Math.max(...samples.map((s) => s.calls)), triangles: Math.max(...samples.map((s) => s.triangles)) };
+};
+// n+1 consecutive frames exactly 1/30 s apart (for shimmer checks)
+const seq = async (name, n = 5) => {
+  if (!withSeq) return;
+  const wait = () => page.waitForFunction(() => window.__rv.advance <= 0 && window.__rv.q.length > 0, null, { timeout: 120000, polling: 100 });
+  await page.evaluate(() => Object.assign(window.__rv, { step: 1000 / 30, hold: true, advance: 3 }));
+  await wait();
+  for (let i = 0; i <= n; i++) {
+    if (i > 0) {
+      await page.evaluate(() => { window.__rv.advance = 1; window.__rvFlush(); });
+      await wait();
+    }
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `${out}/${name}-${i}.png` });
+  }
+  await page.evaluate(() => { Object.assign(window.__rv, { hold: false, step: 0 }); window.__rvFlush(); });
+  console.log('seq', `${out}/${name}-0..${n}.png`);
 };
 const shot = async (name) => {
   if (noShots) return;
@@ -138,7 +184,22 @@ const tap = async (label) => {
 const report = { phase, start: STARTS[phase], shots: [], taps: [], perf: {}, events: [] };
 const mark = async (label) => report.events.push({ label, ...(await page.evaluate(() => window.__alt.row())) });
 
-if (phase === 'opening') {
+if (phase === 'gate') {
+  // pull the yoke from the first frame: the climb is locked until the bus (and the low camera
+  // trailing it) is past the bridge, so it still threads under the deck; then up to the ceiling
+  await qa({ sx: 0, sy: -1 });
+  await run('g.flight.y > 505 || g.flight.strain > 0.8', 70);
+  await qa(null);
+  await settle(4);
+  await mark('gate ceiling');
+  await shot('gate-ceiling');
+  report.perf.ceiling = await perfNow();
+  console.log('perf gate ceiling', JSON.stringify(report.perf.ceiling));
+  await seq('gate-seq-ceiling');
+  const rows = await page.evaluate(() => window.__alt.rows);
+  report.maxY = Math.max(...rows.map((r) => r.y));
+  writeFileSync(`${out}/gate-log.json`, JSON.stringify({ report, rows }, null, 1));
+} else if (phase === 'opening') {
   // the bus glides under the Golden Gate deck: log until it is well past the bridge
   await run('false', 15);
   const rows = await page.evaluate(() => window.__alt.rows);
@@ -160,6 +221,7 @@ if (phase === 'opening') {
   await shot(`${phase}-030m`);
   report.perf.cruise = await perfNow();
   console.log('perf cruise', JSON.stringify(report.perf.cruise));
+  await seq(`${phase}-seq-cruise`);
   report.taps.push(await tap('cruise'));
 
   await climbTo(120);
@@ -172,6 +234,9 @@ if (phase === 'opening') {
   await settle(3.5);
   await mark('250m');
   await shot(`${phase}-250m`);
+  report.perf.m250 = await perfNow();
+  console.log('perf 250m', JSON.stringify(report.perf.m250));
+  await seq(`${phase}-seq-250m`);
   report.taps.push(await tap('250m'));
 
   await climbTo(560);
@@ -180,6 +245,7 @@ if (phase === 'opening') {
   await shot(`${phase}-ceiling`);
   report.perf.ceiling = await perfNow();
   console.log('perf ceiling', JSON.stringify(report.perf.ceiling));
+  await seq(`${phase}-seq-ceiling`);
   report.taps.push(await tap('ceiling'));
 
   // hold, then nose down all the way to the rooftops, then let go
@@ -196,8 +262,17 @@ if (phase === 'opening') {
   const rows = await page.evaluate(() => window.__alt.rows);
   report.minClearance = Math.min(...rows.map((r) => r.clear));
   report.maxY = Math.max(...rows.map((r) => r.y));
+  // the lens must hold still while holding an altitude: count frames where it changed
+  let holdRows = 0, lensMoves = 0;
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i].mode !== 'hold' || rows[i - 1].mode !== 'hold') continue;
+    holdRows++;
+    if (rows[i].hfov !== rows[i - 1].hfov || Math.abs(rows[i].camDist - rows[i - 1].camDist) > 0.5) lensMoves++;
+  }
+  report.holdRows = holdRows;
+  report.holdLensMoves = lensMoves;
   writeFileSync(`${out}/${phase}-log.json`, JSON.stringify({ report, rows }, null, 1));
 }
 writeFileSync(`${out}/${phase}-report.json`, JSON.stringify(report, null, 2));
-console.log('report', JSON.stringify({ perf: report.perf, minClearance: report.minClearance, maxY: report.maxY, events: report.events.map((e) => [e.label, e.y, e.camDist, e.vista]) }));
+console.log('report', JSON.stringify({ perf: report.perf, minClearance: report.minClearance, maxY: report.maxY, holdRows: report.holdRows, holdLensMoves: report.holdLensMoves, events: report.events.map((e) => [e.label, e.y, e.camDist, e.vista]) }));
 await browser.close();
