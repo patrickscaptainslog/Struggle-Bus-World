@@ -307,6 +307,8 @@ export const config = {
     overshoot: 0.13,
     /** How fast color floods up the facade (m/s). */
     floodSpeed: 55,
+    /** Head start of the flood (m from the roof): the impact and hit-stop frames already show the hit. */
+    floodHead: 6,
     /** Painted wall wobble amplitude (m) and speed. */
     wobbleAmp: 0.32,
     wobbleSpeed: 1.1,
