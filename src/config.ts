@@ -51,6 +51,13 @@ export const config = {
     heightFalloff: 120,
     /** Distance at which far geometry is fully fogged (m). Streaming edge hides behind this. */
     farFull: 2600,
+    /** Fog ceiling for tall distant shapes: the most fog anything this high gets (0..1, keep >= 0.7: below
+     *  ~0.68 it would fall into the handover band), the heights (m above sea level) over which it takes hold,
+     *  and the distance (m) by which it has faded back to full fog (it starts fading at half that). */
+    standFog: 0.78,
+    standFrom: 50,
+    standTo: 160,
+    standFade: 10000,
     /** How much painted neighborhoods thin the fog above them (0..1). */
     paintClearing: 0.65,
     /** Fog bank density multiplier during the opening (fades to 1). */

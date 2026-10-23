@@ -23,6 +23,9 @@ export const globals = {
   uShadowOn: { value: 0 }, // shadow strength 0..1 (0 = no shadow map this frame)
   uShadowEdge: { value: 0.08 }, // width of the fade at the shadow window's edge (fraction of the map)
   uFog: { value: new THREE.Vector4(config.fog.density, config.fog.heightFalloff, config.fog.farFull, 1) },
+  // the fog ceiling for tall distant shapes: x most fog they get, y/z the heights (m ASL) over which it
+  // takes hold, w distance (m) by which it has faded back to full fog
+  uFogStand: { value: new THREE.Vector4(config.fog.standFog, config.fog.standFrom, config.fog.standTo, config.fog.standFade) },
   uFogBank: { value: 1 },
   uPaintFog: { value: null as THREE.Texture | null }, // r = paint density, sampled over uPaintFogRect
   uPaintFogRect: { value: new THREE.Vector4(0, 0, 1, 1) }, // minX, minZ, 1/width, 1/depth
@@ -97,6 +100,7 @@ uniform mat4 uShadowMatrix;
 uniform float uShadowOn;
 uniform float uShadowEdge;
 uniform vec4 uFog;              // density, heightFalloff, farFull, unused
+uniform vec4 uFogStand;         // fog ceiling of tall far shapes: cap, gate from / to (m ASL), fade end (m)
 uniform float uFogBank;
 uniform sampler2D uPaintFog;
 uniform vec4 uPaintFogRect;
@@ -144,6 +148,14 @@ float sbFog(vec3 worldPos) {
   float f = 1.0 - exp(-density * dist * (0.35 + 0.65 * hf));
   float far = smoothstep(uFog.z * 0.55, uFog.z, dist);
   f = clamp(max(f, far), 0.0, 1.0);
+  // tall distant shapes (downtown's towers, Sutro, the peaks, the hilltops, the Headlands) stand out of
+  // the low fog as pale Hopper silhouettes: a fog ceiling gated by absolute height, so everything low
+  // (the streaming edge among them) is buried exactly as before and their bases melt into the fog; the
+  // far skyline boxes and the real tiles share it, so nothing inverts where a region streams in. Off
+  // while the opening's fog bank is up; it fades back to full fog with distance (layers recede).
+  float stand = smoothstep(uFogStand.y, uFogStand.z, worldPos.y) * clamp(2.0 - uFogBank, 0.0, 1.0);
+  float cap = mix(uFogStand.x, 1.0, smoothstep(uFogStand.w * 0.5, uFogStand.w, dist));
+  f = min(f, mix(1.0, cap, stand));
   if (uFogLayer2.w > 0.001) {
     // high above it, the marine layer is a fog sea with a top: the optical
     // depth is the ray's path inside the layer (an exact average of the soft
