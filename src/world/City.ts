@@ -40,6 +40,8 @@ interface LoadedTile {
   maxY: number;
   /** hidden because it's buried in solid fog (seen from above the marine layer) */
   hidden: boolean;
+  /** grid step of its own ground mesh (2 = 4 m detailed, 4 = 8 m like a coarse region's), 0 = none */
+  terrainStep: number;
 }
 
 /** A coarse region drawn as two meshes (its tiles keep their data for gameplay queries). */
@@ -114,6 +116,14 @@ export class City {
   private adopt: Adopt[] = [];
   /** coarse (LOD 1) regions: all their buildings / all their ground as one mesh each */
   private regionMeshes = new Map<string, RegionMesh>();
+  /** tiles that keep their own ground mesh even inside a coarse region (see setOwnGround) */
+  private ownGround = new Set<string>();
+  /**
+   * Adopt arrived tiles all at once (as soon as they land) instead of a few per
+   * frame: the game sets it while the loading fog is up, so the first frame
+   * matches the classic streaming exactly; afterwards adoption is budgeted.
+   */
+  eager = false;
 
   constructor(readonly manifest: CityManifest & { regions: Array<[number, number, number]>; regionSize: number }, readonly baseUrl: string) {
     this.paint = new PaintState(manifest.buildingCount);
@@ -364,7 +374,7 @@ export class City {
     // adopt arrived tiles a few per frame: a region landing never hitches one frame
     const t0 = performance.now();
     let n = 0;
-    while (this.adopt.length && (n < ADOPT_MIN || performance.now() - t0 < ADOPT_MS)) {
+    while (this.adopt.length && (this.eager || n < ADOPT_MIN || performance.now() - t0 < ADOPT_MS)) {
       const a = this.adopt.shift()!;
       n++;
       if (!this.regionsLoaded.has(a.key)) continue; // unloaded while queued
@@ -396,6 +406,25 @@ export class City {
   /** A coarse region's two meshes: its merged buildings and its ground (one grid, one class texture). */
   private buildRegionMesh(key: string, merged: MeshArrays | null) {
     this.disposeRegionMesh(key);
+    const rm: RegionMesh = { buildings: merged ? this.makeBuildingMesh(merged) : null, terrain: null, classTex: null, hidden: false };
+    this.regionMeshes.set(key, rm);
+    this.buildRegionGround(key, rm);
+  }
+
+  /**
+   * A coarse region's ground as one mesh (an 8 m grid; the class texture keeps
+   * every street edge), except the tiles that own their ground (setOwnGround):
+   * those get their own mesh on the same 8 m grid, so the seams match.
+   */
+  private buildRegionGround(key: string, rm: RegionMesh) {
+    if (rm.terrain) {
+      this.root.remove(rm.terrain);
+      rm.terrain.geometry.dispose();
+      (rm.terrain.material as THREE.Material).dispose();
+      rm.terrain = null;
+    }
+    rm.classTex?.dispose();
+    rm.classTex = null;
     const [rx, rz] = key.split(',').map(Number);
     const rs = this.regionSize;
     const ts = this.manifest.tileSize;
@@ -410,11 +439,20 @@ export class City {
       for (let tx = rx * rs; tx < (rx + 1) * rs; tx++) {
         const lt = this.tiles.get(`${tx},${tz}`);
         const tr = lt?.terrainData;
-        if (!tr) continue;
+        if (!lt || !tr) continue;
+        this.setMask(tx, tz, 255);
+        if (this.ownGround.has(`${tx},${tz}`)) {
+          // its own ground (painted: ground paint attaches per tile)
+          if (lt.terrainStep !== 4) {
+            this.dropTileTerrain(lt);
+            this.makeTileTerrain(lt, 4);
+          }
+          continue;
+        }
+        if (lt.terrain) this.dropTileTerrain(lt);
         any = true;
         const ox = (tx - rx * rs) * cn, oz = (tz - rz * rs) * cn;
         for (let j = 0; j < cn; j++) cls.set(tr.cls.subarray(j * cn, j * cn + cn), (oz + j) * N + ox);
-        // coarse ground: an 8 m grid (the class texture keeps every street edge)
         const g = makeHeightGrid(tr.heights, tr.n, tr.cell, tr.originX, tr.originZ, 4);
         const base = pos.length / 3;
         const p = g.getAttribute('position').array, q = g.getAttribute('normal').array, ii = g.getIndex()!.array;
@@ -422,9 +460,7 @@ export class City {
         for (let k = 0; k < q.length; k++) nrm.push(q[k]);
         for (let k = 0; k < ii.length; k++) idx.push(ii[k] + base);
         g.dispose();
-        this.setMask(tx, tz, 255);
       }
-    const rm: RegionMesh = { buildings: merged ? this.makeBuildingMesh(merged) : null, terrain: null, classTex: null, hidden: false };
     if (any) {
       const tex = new THREE.DataTexture(cls, N, N, THREE.RedFormat, THREE.UnsignedByteType);
       tex.minFilter = tex.magFilter = THREE.NearestFilter;
@@ -438,12 +474,30 @@ export class City {
       // (far ground doesn't cast: the shadow window is near the view, and buildings carry the shadows up high)
       const mesh = new THREE.Mesh(g, makeTerrainMaterial(tex, rx * rs * ts, rz * rs * ts, rs * ts, N));
       mesh.matrixAutoUpdate = false;
+      mesh.visible = !rm.hidden;
       this.root.add(mesh);
       rm.terrain = mesh;
       rm.classTex = tex;
     }
-    this.regionMeshes.set(key, rm);
     this.loadedMask.needsUpdate = true;
+  }
+
+  /**
+   * Give tile (tx, tz) its own ground mesh even while its region is coarse
+   * (drawn whole), or merge it back. Ground paint lives per tile (a mask and
+   * uniforms on the tile's own terrain material), so a painted tile must not
+   * vanish into its region's merged ground: whoever paints the ground marks the
+   * tile here. Sticky across streaming; costs one draw per marked tile seen.
+   */
+  setOwnGround(tx: number, tz: number, own = true) {
+    const k = `${tx},${tz}`;
+    if (own === this.ownGround.has(k)) return;
+    if (own) this.ownGround.add(k);
+    else this.ownGround.delete(k);
+    const rs = this.regionSize;
+    const rkey = `${Math.floor(tx / rs)},${Math.floor(tz / rs)}`;
+    const rm = this.regionMeshes.get(rkey);
+    if (rm) this.buildRegionGround(rkey, rm);
   }
 
   private disposeRegionMesh(key: string) {
@@ -465,11 +519,12 @@ export class City {
   /** Switch an adopted region to its other level of detail in one go (no holes in between). */
   private swapRegion(key: string, msg: RegionResponse) {
     if (msg.lod === 1) {
-      this.buildRegionMesh(key, msg.merged ?? null);
+      // (same frame: the tiles' meshes go and the region's arrive, no holes in between)
       for (const k of this.tileKeysOf(key)) {
         const lt = this.tiles.get(k);
         if (lt) this.dropTileMeshes(lt);
       }
+      this.buildRegionMesh(key, msg.merged ?? null);
       return;
     }
     for (const t of msg.tiles) {
@@ -481,7 +536,10 @@ export class City {
         lt.buildings = null;
       }
       if (t.mesh) lt.buildings = this.makeBuildingMesh(t.mesh);
-      if (!lt.terrain) this.makeTileTerrain(lt);
+      if (lt.terrainStep !== 2) {
+        this.dropTileTerrain(lt);
+        this.makeTileTerrain(lt, 2);
+      }
       if (lt.buildings) lt.buildings.visible = !lt.hidden;
       if (lt.terrain) lt.terrain.visible = !lt.hidden;
     }
@@ -494,6 +552,11 @@ export class City {
       lt.buildings.geometry.dispose();
       lt.buildings = null;
     }
+    this.dropTileTerrain(lt);
+  }
+
+  /** The one place a tile's own ground mesh goes away (per-tile ground paint detaches here). */
+  private dropTileTerrain(lt: LoadedTile) {
     if (lt.terrain) {
       this.root.remove(lt.terrain);
       lt.terrain.geometry.dispose();
@@ -502,10 +565,15 @@ export class City {
     }
     lt.classTex?.dispose();
     lt.classTex = null;
+    lt.terrainStep = 0;
   }
 
-  /** A detailed tile's own ground mesh (4 m grid, casts shadows). */
-  private makeTileTerrain(lt: LoadedTile) {
+  /**
+   * The one place a tile's own ground mesh is made (per-tile ground paint
+   * attaches here): a 4 m grid that casts shadows in detailed regions (step 2),
+   * the coarse region's 8 m grid for a tile split out of one (step 4).
+   */
+  private makeTileTerrain(lt: LoadedTile, step: 2 | 4) {
     const tr = lt.terrainData;
     if (!tr) return;
     const tex = new THREE.DataTexture(tr.cls, tr.classN, tr.classN, THREE.RedFormat, THREE.UnsignedByteType);
@@ -513,12 +581,14 @@ export class City {
     tex.generateMipmaps = false;
     tex.needsUpdate = true;
     lt.classTex = tex;
-    const geo = makeHeightGrid(tr.heights, tr.n, tr.cell, tr.originX, tr.originZ, 2);
+    const geo = makeHeightGrid(tr.heights, tr.n, tr.cell, tr.originX, tr.originZ, step);
     const mesh = new THREE.Mesh(geo, makeTerrainMaterial(tex, tr.originX, tr.originZ, this.manifest.tileSize, tr.classN));
-    mesh.layers.enable(SHADOW_LAYER);
+    if (step === 2) mesh.layers.enable(SHADOW_LAYER);
     mesh.matrixAutoUpdate = false;
+    mesh.visible = !lt.hidden;
     this.root.add(mesh);
     lt.terrain = mesh;
+    lt.terrainStep = step;
   }
 
   /**
@@ -615,7 +685,7 @@ export class City {
   private addTile(t: TileResult, coarse = false) {
     const key = `${t.tx},${t.tz}`;
     if (this.tiles.has(key)) return;
-    const lt: LoadedTile = { tx: t.tx, tz: t.tz, buildings: null, terrain: null, terrainData: t.terrain, buildingData: t.building, refs: [], classTex: null, maxY: -Infinity, hidden: false };
+    const lt: LoadedTile = { tx: t.tx, tz: t.tz, buildings: null, terrain: null, terrainData: t.terrain, buildingData: t.building, refs: [], classTex: null, maxY: -Infinity, hidden: false, terrainStep: 0 };
     if (t.mesh && !coarse) lt.buildings = this.makeBuildingMesh(t.mesh);
     if (t.building) {
       const b = t.building;
@@ -654,7 +724,7 @@ export class City {
       for (let k = 0; k < tr.obst.length; k++) if (tr.obst[k] > lt.maxY) lt.maxY = tr.obst[k];
       for (let k = 0; k < tr.heights.length; k++) if (tr.heights[k] > lt.maxY) lt.maxY = tr.heights[k];
       if (!coarse) {
-        this.makeTileTerrain(lt);
+        this.makeTileTerrain(lt, 2);
         // (a coarse region masks the far skyline when its own meshes land)
         this.setMask(t.tx, t.tz, 255);
       }
@@ -756,6 +826,11 @@ export class City {
         if ((x - p.x) * (x - p.x) + (z - p.z) * (z - p.z) < p.r * p.r && p.top > top) top = p.top;
       }
     return top;
+  }
+
+  /** Tallest roof, tree or ground at a point, without the landmark posts and bridge decks (what a breath lands on). */
+  surfaceAt(x: number, z: number): number {
+    return this.baseObstacleAt(x, z);
   }
 
   /** Lowest underside of a deck overhead (above fromY) at a point, or Infinity: a climb stops under it. */
