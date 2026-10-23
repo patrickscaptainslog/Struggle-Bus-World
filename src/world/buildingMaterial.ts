@@ -225,10 +225,14 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
        * A facade's rhythm far away: one-pixel lines at multiples of period, doubled up to 8x until
        * they are at least minPx apart on screen (scale = px per meter), none beyond that or in fog.
        */
+      // (sparser as the pixels grow: up high the view drifts by sub-pixels with the bus's bob, and every
+      // one-pixel line that hops a row counts as crawl; none beyond 3 m per game pixel)
+      float gMpp = 0.3;
       float rhythm(float x, float period, float scale, float dx, float minPx) {
+        float mp = minPx * (1.0 + max(gMpp - 0.9, 0.0));
         float per = period;
-        for (int q = 0; q < 3; q++) if (per * scale < minPx) per *= 2.0;
-        return per * scale >= minPx && gAF < 0.5 ? lineAt(x, per, dx) : 0.0;
+        for (int q = 0; q < 3; q++) if (per * scale < mp) per *= 2.0;
+        return per * scale >= mp && gAF < 0.65 && gMpp < 3.0 ? lineAt(x, per, dx) : 0.0;
       }
 
       // ---- tower facades. Out: ramp, step delta d on a base: b = 0 the wall's light, 1 the glass
@@ -240,8 +244,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         float sp, fh, baseH, wallR;
         if (fam == ${R(Fam.GLASS)}) { sp = 1.5; fh = 3.9; baseH = 6.0; wallR = ${R(Ramp.GLASS)}; }
         else if (fam == ${R(Fam.MASONRY)}) { sp = 3.6; fh = 3.7; baseH = 8.0; wallR = ${R(Ramp.STONE)}; }
-        else if (fam == ${R(Fam.BANDS)}) { sp = 1.5; fh = 3.8; baseH = 7.6; wallR = ${R(Ramp.GREY_LIGHT)}; }
-        else if (fam == ${R(Fam.FINS)}) { sp = 2.4; fh = 3.8; baseH = 7.6; wallR = ${R(Ramp.GREY_LIGHT)}; }
+        else if (fam == ${R(Fam.BANDS)}) { sp = 1.5; fh = 3.8; baseH = 7.6; wallR = ${R(Ramp.GREY)}; }
+        else if (fam == ${R(Fam.FINS)}) { sp = 2.4; fh = 3.8; baseH = 7.6; wallR = ${R(Ramp.GREY)}; }
         else if (fam == ${R(Fam.GRANITE)}) { sp = 2.6; fh = 3.8; baseH = 8.0; wallR = ${R(Ramp.GRANITE)}; }
         else { sp = 3.0; fh = 3.8; baseH = 7.6; wallR = ${R(Ramp.GREY_LIGHT)}; }
         // metal and trim of a glass tower: pale anodized grey; everyone else uses their own wall
@@ -257,6 +261,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         float fl = floor(vb / fh), fy = vb - fl * fh;
         float col = floor(u / sp), fx = u - col * sp;
 
+        // (Salesforce Tower's rooftop boxes stand inside its open crown: they glow with it)
+        if (pent && crownT == ${Crown.LATTICE}) { ramp = ${R(Ramp.GLOW_WHITE)}; b = 2.0; d = 3.0; glw = uCrownGlow * 0.7; return; }
         // ---- a mechanical penthouse on the roof: solid, louvered up close
         if (pent) {
           ramp = metalR; d = fam == ${R(Fam.GLASS)} ? -1.0 : 0.0;
@@ -272,11 +278,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
               // Salesforce Tower's open crown: white fins (they converge with the taper) and
               // their rings over the glowing LED screen inside
               // (far away the fins thin out to every 2nd / 4th / 8th, one game pixel each, >= 3 px apart)
-              float per = 1.5;
-              for (int q = 0; q < 3; q++) if (per * fu / mpp < 3.0) per *= 2.0;
-              bool fin = 0.6 * fu / mpp >= 1.5 ? fract(u / per) * per < 0.6 : lineAt(u, per, dF.x) > 0.5;
-              float rper = 7.6 * (7.6 * fv / mpp < 4.0 ? 2.0 : 1.0);
-              bool ring = lineAt(dTop, rper, dF.y) > 0.5 && rper * fv / mpp >= 4.0;
+              bool fin = 0.6 * fu / mpp >= 1.5 ? fract(u / 1.5) * 1.5 < 0.6 : rhythm(u, 1.5, fu / mpp, dF.x, 4.0) > 0.5;
+              bool ring = rhythm(dTop, 7.6, fv / mpp, dF.y, 5.0) > 0.5;
               if (dTop > cH - 1.8) { ramp = ${R(Ramp.WHITE)}; d = 1.0; }
               else if (fin || ring) { ramp = ${R(Ramp.WHITE)}; d = 1.0; }
               else { ramp = ${R(Ramp.GLOW_WHITE)}; b = 2.0; d = 3.0; glw = uCrownGlow * 0.7; }
@@ -339,9 +342,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           ramp = ${R(Ramp.GLASS)}; b = 1.0;
           if (variant == ${Variant.SILVER}) {
             // Salesforce Tower: a white sunshade on every floor (every 2nd / 4th far away)
-            float sper = fh;
-            for (int q = 0; q < 2; q++) if (sper * fv / mpp < uFloorPx) sper *= 2.0;
-            if (sper * fv / mpp >= uFloorPx && lineAt(vb, sper, dF.y) > 0.5) { ramp = ${R(Ramp.WHITE)}; b = 0.0; d = 0.0; return; }
+            if (rhythm(vb, fh, fv / mpp, dF.y, uFloorPx) > 0.5) { ramp = ${R(Ramp.WHITE)}; b = 0.0; d = 0.0; return; }
           }
           if (variant == ${Variant.BRACED}) {
             // 181 Fremont: diagonal steel bracing wrapped around the dark glass
@@ -357,10 +358,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
             if (colPx >= uColPx * 2.0 && lineAt(u, 1.2, dF.x) > 0.5) d = -2.0;
             return;
           }
-          // the slab lines: every floor, or every 2nd / 4th once floors crowd (>= floorPx apart)
-          float per = fh;
-          for (int q = 0; q < 2; q++) if (per * fv / mpp < uFloorPx) per *= 2.0;
-          bool slab = per * fv / mpp >= uFloorPx && lineAt(vb, per, dF.y) > 0.5;
+          // the slab lines: every floor, or every 2nd / 4th / 8th once floors crowd (>= floorPx apart)
+          bool slab = rhythm(vb, fh, fv / mpp, dF.y, uFloorPx) > 0.5;
           if (rowPx >= uFloorPx * 2.0 && fy < 1.0) d = 1.0;            // spandrel panel
           else if (slab) d = 1.0;                                      // the slab line
           else if (colPx >= uColPx * 1.33 && lineAt(u, sp, dF.x) > 0.5) d = 1.0; // mullion
@@ -397,32 +396,33 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
             return;
           }
           if (deco && 1.1 * fu / mpp >= 2.0) { d = pierX ? 0.0 : -1.0; return; }
-          d = -1.0;
+          // far away: the stone a little darker, its rows of windows as one-pixel lines
+          d = rhythm(vb - 1.8, fh, fv / mpp, dF.y, 4.0) > 0.5 ? -2.0 : -1.0;
           return;
         }
         if (fam == ${R(Fam.BANDS)}) {
           // strong horizontal spandrels and dark ribbon windows
           if (1.5 * fv / mpp >= 2.0) {
-            if (fy < 1.5) { ramp = ${R(Ramp.GREY_LIGHT)}; return; }
+            if (fy < 1.5) { ramp = wallR; return; }
             ramp = ${R(Ramp.WINDOW)}; b = 1.0;
             if (colPx >= uColPx * 1.33 && lineAt(u, sp, dF.x) > 0.5) d = 1.0;
             return;
           }
-          ramp = ${R(Ramp.GREY_LIGHT)}; d = -1.0;
-          if (rhythm(vb - 2.65, fh, fv / mpp, dF.y, 4.0) > 0.5) d = -3.0;
+          ramp = wallR; d = -1.0;
+          if (rhythm(vb - 2.65, fh, fv / mpp, dF.y, 4.0) > 0.5) d = -2.0;
           return;
         }
         if (fam == ${R(Fam.FINS)}) {
           // vertical fins; seen obliquely they hide the glass between them
           float wf = clamp(0.6 + (1.0 - fu) * 1.4, 0.6, 2.0);
           if ((sp - wf) * fu / mpp >= 2.0 && wf * fu / mpp >= 1.5) {
-            if (fx < wf) { ramp = ${R(Ramp.GREY_LIGHT)}; return; }
+            if (fx < wf) { ramp = wallR; d = 1.0; return; }
             ramp = ${R(Ramp.WINDOW)}; b = 1.0;
             if (showH && lineAt(vb, fh, dF.y) > 0.5) d = 1.0;
             return;
           }
-          ramp = ${R(Ramp.GREY_LIGHT)}; d = fu > 0.7 ? -2.0 : -1.0;
-          if (rhythm(u - wf * 0.5, sp, fu / mpp, dF.x, 3.0) > 0.5) d = 0.0;
+          ramp = wallR; d = fu > 0.7 ? -1.0 : 0.0;
+          if (rhythm(u - wf * 0.5, sp, fu / mpp, dF.x, 3.0) > 0.5) d = 1.0;
           return;
         }
         if (fam == ${R(Fam.GRANITE)}) {
@@ -665,6 +665,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           vec3 dv = normalize(vWorldPos - cameraPosition);
           gSL = skyMirror(normalize(vec3(dv.x, max(dv.y, -0.02) * 0.2, dv.z)));
           gAF = smoothstep(0.08, 0.66, floor(clamp(fog, 0.0, 1.0) * 255.0 + 0.5) / 255.0) * 0.9;
+          gMpp = mppB;
           float bTop = roofY;
           float bH = max(bTop - vBld.z, 1.0);
           // the building's view direction (one per building, so each face is one decision)
@@ -692,7 +693,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           if (variant == ${Variant.BRACED} && fam == ${R(Fam.GLASS)}) gl -= 0.08;
           if (fr == ${R(Ramp.WINDOW)}) gl -= 0.04;
           gl += aimLo + tone * 0.5;
-          float wlo = lo + (fam == ${R(Fam.MASONRY)} ? 0.1 : fam == ${R(Fam.GRANITE)} ? -0.02 : fam == ${R(Fam.PRECAST)} ? 0.1 : 0.06);
+          float wlo = lo + (fam == ${R(Fam.MASONRY)} ? 0.03 : fam == ${R(Fam.GRANITE)} ? -0.02 : fam == ${R(Fam.PRECAST)} ? 0.06 : 0.04);
           float lw = sbLight(vWorldPos, n, wlo, 1.0);
           ramp = fr;
           glow = fglow;
@@ -708,13 +709,14 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
             } else if (fbase > 0.5 && fbase < 1.5) {
               // stained glass: big, calm rainbow bands sweeping up the tower (the building's hue and its
               // neighbors), not per-pane confetti; level 3: every pane its own hue
-              float sf = vYRest * 0.05 + f.x * 0.035 + 0.9 * sin(f.x * 0.05 + seed);
+              // (straight diagonals: a rainbow ribbon spiralling up the tower, about three floors a band)
+              float sf = (vYRest - vBld.z) / 11.7 + f.x / 19.0;
               float k = mod(floor(sf), 4.0);
-              float off = k < 0.5 ? 0.0 : k < 1.5 ? 1.0 : k < 2.5 ? 0.0 : -1.0;
+              float off = k < 0.5 ? -1.0 : k < 1.5 ? 0.0 : k < 2.5 ? 1.0 : 0.0;
               if (!calm) off = floor(h21(fcell + vec2(bIdx * 0.13, 3.0)) * 6.0);
               ramp = hueRamp(hue + off);
               fbase = 2.0;
-              fd = 5.0 + (fd < -0.5 ? -1.0 : 0.0) + (calm ? 0.0 : -1.0);
+              fd = 4.0 + (fd < -0.5 ? -1.0 : fd > 0.5 ? 1.0 : 0.0) + (k > 2.5 ? 1.0 : 0.0);
               glow = calm ? uGlassGlow : uGlassGlow3;
             } else if (fr == ${R(Ramp.GLOW_WHITE)}) {
               // crowns turn gold; Salesforce's LED crown runs the rainbow
