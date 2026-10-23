@@ -100,6 +100,9 @@ export class PixelPipeline {
   private beamHalf0 = 0;
   private beamHalf1 = 0;
   private beamK = 0;
+  /** the hero's drop shadow (center x, z, underside y, ramp steps; 0 = off) and its oval (forward xz, half length, half width) */
+  private readonly heroShadow = new THREE.Vector4();
+  private readonly heroShadowAxes = new THREE.Vector4(0, 1, 1, 1);
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -149,6 +152,8 @@ export class PixelPipeline {
         uHaze: { value: new THREE.Vector3(config.render.ditherHazeFrom, config.render.ditherHazeTo, config.render.fogBandMin) },
         uBeam: { value: new THREE.Vector4() },
         uBeamShape: { value: new THREE.Vector4() },
+        uHeroShadow: { value: new THREE.Vector4() },
+        uHeroShadowAxes: { value: new THREE.Vector4(0, 1, 1, 1) },
         uFlash: { value: new THREE.Vector4() },
       },
       vertexShader: QUAD_VS,
@@ -316,6 +321,17 @@ export class PixelPipeline {
     this.beamK = Math.max(0, Math.min(1, strength));
   }
 
+  /**
+   * The hero's drop shadow for the next render: whatever faces up below `underY` inside the oval
+   * (center x, z; forward axis fx, fz; half length / half width m) is drawn `steps` ramp steps darker
+   * in the resolve pass, paint included (no decal, no draw call). steps 0 = off.
+   */
+  setHeroShadow(x: number, z: number, underY: number, fx: number, fz: number, halfLength: number, halfWidth: number, steps: number) {
+    const fl = Math.hypot(fx, fz) || 1;
+    this.heroShadow.set(x, z, underY, Math.max(0, steps));
+    this.heroShadowAxes.set(fx / fl, fz / fl, Math.max(0.1, halfLength), Math.max(0.1, halfWidth));
+  }
+
   /** World-space size of one game pixel at a given distance from the camera. */
   pixelWorldSize(distance: number): number {
     const H = this.info.height + MARGIN * 2;
@@ -474,6 +490,8 @@ export class PixelPipeline {
       ru.uBeam.value.set(ex, ey, tx - ex, ty - ey);
       ru.uBeamShape.value.set(this.beamHalf0 / this.pixelWorldSize(dE), this.beamHalf1 / this.pixelWorldSize(dT), this.beamK, eyeDepth + 2);
     } else ru.uBeamShape.value.z = 0;
+    ru.uHeroShadow.value.copy(this.heroShadow);
+    ru.uHeroShadowAxes.value.copy(this.heroShadowAxes);
     if (this.flashLeft > 0) {
       ru.uFlash.value.copy(this.flashU);
       this.flashLeft--;
@@ -574,6 +592,8 @@ uniform float uCalm;
 uniform vec3 uHaze;      // fog over which surface dither fades to plain rounding; the handover band's floor
 uniform vec4 uBeam;      // hero headlight: lens (buffer px), axis to the tip (px)
 uniform vec4 uBeamShape; // half width at the lens / at the tip (px), strength, lens view depth (m)
+uniform vec4 uHeroShadow;     // hero drop shadow: center xz, underside y (m), ramp steps (0 = off)
+uniform vec4 uHeroShadowAxes; // ...its oval: forward axis xz, half length, half width (m)
 uniform vec4 uFlash;     // impact flash: buffer uv, strength, white-hot radius (fraction of the height)
 in vec2 vUv;
 layout(location = 0) out vec4 outColor;
@@ -897,6 +917,19 @@ void main() {
       }
     }
     col = pal(oRamp, oStep);
+  }
+  bool heroRamp = busY || abs(ramp - RAMP_BUS_BLACK) < 0.5;
+  // the hero's drop shadow: whatever faces up below the bus, inside an oval about its size, a ramp step
+  // darker in its own ramp (paint too: no grey blob punched into the bloom)
+  if (uHeroShadow.w > 0.0 && outlineable && !fogged && !heroRamp) {
+    vec3 cf = -normalize(vec3(uCamWorld[2].xyz));
+    vec3 P = uCamPos + dir * (depth / max(dot(dir, cf), 0.05));
+    vec2 bq = P.xz - uHeroShadow.xy;
+    vec2 bo = vec2(dot(bq, uHeroShadowAxes.xy), bq.x * uHeroShadowAxes.y - bq.y * uHeroShadowAxes.x) / uHeroShadowAxes.zw;
+    if (P.y < uHeroShadow.z && dot(bo, bo) < 1.0 && (mat3(uCamWorld) * octDecode(a.rg)).y > 0.5) {
+      oStep = max(oStep - uHeroShadow.w, 0.0);
+      col = pal(oRamp, oStep);
+    }
   }
   // the hero's headlight: what lies ahead of the lens (beyond the bus) is lit a step or two up its own
   // ramp, a warm core at the lens; a lift, not a drawn shape, so it reads as light in the haze. The

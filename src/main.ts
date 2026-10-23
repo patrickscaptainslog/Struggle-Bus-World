@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { config } from './config';
 import { PixelPipeline } from './render/PixelPipeline';
-import { globals, GLSL_COMMON, GLSL_OUT, layerTopBase } from './render/materials';
-import { Ramp, HUE_RAMPS } from './render/palette';
+import { globals, layerTopBase } from './render/materials';
+import { HUE_RAMPS } from './render/palette';
 import { City, type BuildingRef } from './world/City';
 import { paintUniforms } from './world/buildingMaterial';
 import type { CityManifest } from './world/tiles';
@@ -24,42 +24,6 @@ import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
 
 // Struggle Bus — Phase 1 (real SF, solo).
-
-/** Pixel-art drop shadow: one solid cool-grey oval about the bus's own size (no stippled halo: a checker
- *  anchored to the screen crawled as the shadow slid over the roofs, and the near-black blob was the
- *  darkest, loudest shape in every frame). */
-function makeDropShadowMaterial(): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    glslVersion: THREE.GLSL3,
-    uniforms: { ...globals, uReady: { value: 0 }, uFar: { value: 0 } },
-    vertexShader: /* glsl */ `
-      ${GLSL_COMMON}
-      out vec2 vLocal;
-      out vec3 vWorldPos;
-      void main() {
-        vLocal = position.xz;
-        vec4 wp = modelMatrix * vec4(position, 1.0);
-        vWorldPos = wp.xyz;
-        gl_Position = projectionMatrix * viewMatrix * wp;
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      ${GLSL_COMMON}
-      uniform float uReady;
-      uniform float uFar;
-      in vec2 vLocal;
-      in vec3 vWorldPos;
-      ${GLSL_OUT}
-      void main() {
-        float r = length(vLocal);
-        if (r > 0.85) discard;
-        float fog = sbFog(vWorldPos);
-        // (a breath loaded: a step deeper; far above the surface it pales, as a real shadow softens)
-        sbWrite(${Ramp.GREY}.0, 0.36 - 0.12 * uReady + 0.16 * uFar, fog, 0.0, vec3(0.0, 0.0, 1.0), 0.97, 0.5);
-      }
-    `,
-  });
-}
 
 type Manifest = CityManifest & { regions: Array<[number, number, number]>; regionSize: number };
 
@@ -209,16 +173,11 @@ async function boot() {
   if (openingBridge) rig.openingLow = 1;
   const focus = new THREE.Vector3(flight.x, 60, flight.z);
 
-  // drop shadow straight below the bus: grounds the hero (how high it flies)
-  const shadowGeo = new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2);
-  const shadowMat = makeDropShadowMaterial();
-  shadowMat.depthWrite = false;
-  shadowMat.polygonOffset = true;
-  shadowMat.polygonOffsetFactor = -2;
-  shadowMat.polygonOffsetUnits = -4;
-  const dropShadow = new THREE.Mesh(shadowGeo, shadowMat);
-  dropShadow.renderOrder = 2;
-  scene.add(dropShadow);
+  // drop shadow straight below the bus: grounds the hero (how high it flies). No decal: the resolve pass
+  // draws whatever faces up below the bus, inside an oval about its size, a ramp step darker (paint
+  // too: a grey blob over paint was a hole), see PixelPipeline.setHeroShadow
+  const dropShadow = new THREE.Vector3();
+  let dropShadowL = 1;
   // the headlight beam (the eye): lit in the resolve pass from the lens forward (see PixelPipeline.setHeroBeam)
   const beamEye = new THREE.Vector3();
   const beamTip = new THREE.Vector3();
@@ -611,15 +570,11 @@ async function boot() {
 
     // drop shadow on whatever is below: the roof of the part under the bus, else the street
     const below = city.roofAt(flight.x, flight.z) ?? flight.groundUnder;
-    dropShadow.position.set(flight.x, below + 0.25, flight.z);
-    // (r <= 0.85 of the disc: ~bus width x 0.6 bus length; it shrinks and pales with the gap below)
-    const loaded = Aimer.loaded(flight);
+    dropShadow.set(flight.x, below, flight.z);
+    // (half length ~0.32 bus length, half width 0.42 of that: about the bus's own footprint, a little
+    // bigger with a breath loaded; it shrinks with the gap below)
     const shadowFar = clamp((flight.y - below - 14) / 36, 0, 1);
-    const sz = 0.38 * bus.length * (loaded ? 1.05 : 0.95) * rig.heroScale * (1 - 0.3 * shadowFar);
-    shadowMat.uniforms.uReady.value = loaded ? 1 : 0;
-    shadowMat.uniforms.uFar.value = shadowFar;
-    dropShadow.scale.set(sz * 0.42, 1, sz);
-    dropShadow.rotation.y = -flight.heading;
+    dropShadowL = 0.32 * bus.length * (Aimer.loaded(flight) ? 1.05 : 0.95) * rig.heroScale * (1 - 0.3 * shadowFar);
 
     if (openingBridge) {
       // stay low and level until we're well past the bridge, then rise into the normal chase view
@@ -764,9 +719,11 @@ async function boot() {
     pipeline.snap();
     if (vista > 0) {
       bus.root.position.add(pipeline.snapCompensation(bus.root.position, compTmp));
-      dropShadow.position.add(pipeline.snapCompensation(dropShadow.position, compTmp));
+      dropShadow.add(pipeline.snapCompensation(dropShadow, compTmp));
       pipeline.snapCompensation(bus.root.position, particles.object.position);
     } else particles.object.position.set(0, 0, 0);
+    // (only what lies below the bus's wheels; whatever faces up there, roof, street, lawn or crown)
+    pipeline.setHeroShadow(dropShadow.x, dropShadow.z, bus.root.position.y - 2.2 * rig.heroScale, flight.fx, flight.fz, dropShadowL, dropShadowL * 0.42, 1);
     // the eye's beam, from the lens along the nose, a little down: wide open on relief, a sliver
     // while barfing (it squints); the bus's matrix is final here
     {
