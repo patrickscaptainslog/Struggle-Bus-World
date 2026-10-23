@@ -1,0 +1,109 @@
+=== s_aim.ts 0.016666
+[new] dt=0.0167 taps=200: glint(tap)!=hit primary 0 | glint(lift)!=hit 3/80 | hit without glint 12 | misses 0 | no bloom 3
+glint changes/s while loaded: alamo/cruise:0.41 alamo/surge:2.04 alamo/turn:1.84 alamo/turn2:2.65 alamo/slalom:4.08 noe/cruise:1.43 noe/surge:1.43 noe/turn:2.65 noe/turn2:4.49 noe/slalom:4.9 bernal/cruise:1.02 bernal/surge:1.43 bernal/turn:3.27 bernal/turn2:3.67 bernal/slalom:3.06 sunset/cruise:1.22 sunset/surge:2.45 sunset/turn:2.45 sunset/turn2:4.29 sunset/slalom:2.45 fidi/cruise:2.45 fidi/surge:2.04 fidi/turn:6.12 fidi/turn2:7.76 fidi/slalom:4.29 soma/cruise:2.04 soma/surge:1.84 soma/turn:2.45 soma/turn2:3.27 soma/slalom:1.63 missionbay/cruise:0.82 missionbay/surge:1.22 missionbay/turn:2.24 missionbay/turn2:2.65 missionbay/slalom:2.04 rincon/cruise:1.22 rincon/surge:1.84 rincon/turn:4.08 rincon/turn2:6.12 rincon/slalom:3.47
+=== s_aim.ts 0.033333
+[new] dt=0.0333 taps=200: glint(tap)!=hit primary 0 | glint(lift)!=hit 8/80 | hit without glint 10 | misses 0 | no bloom 3
+glint changes/s while loaded: alamo/cruise:0.39 alamo/surge:1.78 alamo/turn:3.95 alamo/turn2:2.57 alamo/slalom:3.95 noe/cruise:0.99 noe/surge:1.38 noe/turn:2.57 noe/turn2:4.14 noe/slalom:3.36 bernal/cruise:1.18 bernal/surge:1.18 bernal/turn:2.76 bernal/turn2:3.75 bernal/slalom:3.16 sunset/cruise:1.18 sunset/surge:1.78 sunset/turn:2.17 sunset/turn2:3.75 sunset/slalom:2.17 fidi/cruise:1.78 fidi/surge:2.37 fidi/turn:5.33 fidi/turn2:7.11 fidi/slalom:3.55 soma/cruise:1.58 soma/surge:1.78 soma/turn:1.78 soma/turn2:3.16 soma/slalom:1.58 missionbay/cruise:0.79 missionbay/surge:1.58 missionbay/turn:1.78 missionbay/turn2:2.57 missionbay/slalom:2.37 rincon/cruise:1.58 rincon/surge:1.78 rincon/turn:3.55 rincon/turn2:5.13 rincon/slalom:3.36
+=== s_aim.ts 0.0083333
+[new] dt=0.0083 taps=200: glint(tap)!=hit primary 0 | glint(lift)!=hit 3/80 | hit without glint 12 | misses 0 | no bloom 3
+glint changes/s while loaded: alamo/cruise:0.41 alamo/surge:2.06 alamo/turn:1.86 alamo/turn2:2.68 alamo/slalom:3.92 noe/cruise:1.44 noe/surge:1.86 noe/turn:2.68 noe/turn2:5.15 noe/slalom:4.54 bernal/cruise:1.03 bernal/surge:1.44 bernal/turn:2.89 bernal/turn2:3.71 bernal/slalom:3.09 sunset/cruise:1.24 sunset/surge:2.68 sunset/turn:2.47 sunset/turn2:4.12 sunset/slalom:2.47 fidi/cruise:2.47 fidi/surge:2.06 fidi/turn:6.19 fidi/turn2:8.25 fidi/slalom:5.15 soma/cruise:1.65 soma/surge:1.86 soma/turn:2.68 soma/turn2:3.51 soma/slalom:1.65 missionbay/cruise:0.82 missionbay/surge:1.24 missionbay/turn:2.06 missionbay/turn2:2.27 missionbay/slalom:2.06 rincon/cruise:1.24 rincon/surge:1.65 rincon/turn:5.15 rincon/turn2:5.98 rincon/slalom:3.3
+=== s_alt.ts
+[new] altitude taps=54: glint!=hit 0 | lift glint!=hit 3/18 | no glint 4 | misses 0
+downtown 120 straight@141m g39491/h39491 on0 | straight@140m g39629/h39629 on0 | turn2@136m g39716/h39716 on0 | turn2@135m g42993/h42993 on0 | lift@136m g35775/h35775 on0 | lift@131m g35783/h35783 on0
+downtown 250 straight@272m g35805/h35805 on0 | straight@268m g35952/h35952 on0 | turn2@263m g39758/h39758 on0 | turn2@259m g44332/h44332 on0 | lift@262m g31827/h31827 on0 | lift@257m g32064/h32064 on0
+downtown ceiling straight@449m g27872/h27872 on0 | straight@439m g27849/h27849 on0 | turn2@445m g36039/h36039 on0 | turn2@449m g47427/h47427 on0 | lift@441m g24256/h24256 on0 | lift@448m g24486/h24486 on0
+west 120 straight@139m g49906/h49906 on0.6 | straight@138m g50003/h50003 on0 | turn2@135m g49975/h49975 on0 | turn2@133m g58497/h58497 on0 | lift@134m g46021/h46021 on0.9 | lift@141m g46156/h46156 on0
+west 250 straight@271m g46250/h46250 on0 | straight@268m g46204/h46204 on0 | turn2@272m g50159/h50159 on0 | turn2@267m g58361/h58361 on0.2 | lift@270m g-1/h42155 | lift@273m g-1/h46234
+west ceiling straight@416m g43429/h43429 on0 | straight@422m g-1/h43435 | turn2@421m g50359/h50359 on0 | turn2@417m g63092/h63092 on0 | lift@420m g-1/h40622 | lift@426m g42192/h42192 on0.1
+soma 120 straight@140m g36105/h36105 on0 | straight@141m g36126/h36126 on0 | turn2@149m g36129/h36129 on0 | turn2@148m g39756/h39756 on0 | lift@150m g27940/h27940 on0 | lift@147m g32238/h32238 on0
+soma 250 straight@268m g32347/h32347 on0 | straight@276m g32328/h32328 on0 | turn2@283m g39879/h39879 on0 | turn2@282m g39692/h39692 on0 | lift@281m g27941/h27941 on0 | lift@278m g28048/h28048 on0
+soma ceiling straight@487m g28119/h28119 on0 | straight@490m g28123/h28123 on0 | turn2@487m g39947/h39947 on0.6 | turn2@487m g41710/h41710 on0 | lift@488m g22027/h22027 on0 | lift@488m g24938/h24938 on0
+=== s_pick.ts
+[new] [{"name":"FiDi","aims":5671,"wrong":0,"miss":0,"unhittableArea":0,"towerAims":4564,"towerBad":0,"pickUs":4.96},{"name":"SoMa","aims":5193,"wrong":0,"miss":0,"unhittableArea":0,"towerAims":552,"towerBad":0,"pickUs":7.05},{"name":"MissionBay","aims":3658,"wrong":0,"miss":0,"unhittableArea":0,"towerAims":662,"towerBad":0,"pickUs":4.44},{"name":"Dogpatch","aims":3488,"wrong":0,"miss":0,"unhittableArea":0,"towerAims":0,"towerBad":0,"pickUs":2.43},{"name":"Alamo","aims":3677,"wrong":0,"miss":0,"unhittableArea":0,"towerAims":0,"towerBad":0,"pickUs":2.54},{"name":"Sunset","aims":3660,"wrong":0,"miss":0,"unhittableArea":0,"towerAims":0,"towerBad":0,"pickUs":4.35}]
+=== s_miss.ts
+[new]
+bay-east: glint - fired true; geyserScheduled@0.000 geyser@0.100 miss@0.433; belly after the breath 0.51
+bay-north: glint 1284 fired true; geyserScheduled@0.000 geyser@0.100 impact@0.483 n=12 gy=-0.42 p=215,6,-3787 hitstop@0.483 primary@0.483; belly after the breath 0.01
+ocean: glint - fired true; geyserScheduled@0.000 geyser@0.100 impact@0.433 n=0 gy=2.65 p=-8113,3,1650 hitstop@0.433; belly after the breath 0.01
+=== s_flight.ts
+[new] bank cruise-full [0.082,0.236,0.424,0.577] surge-full [0.116,0.321,0.465,0.549] climb [0.07,0.209,0.344,0.46] dive [0.116,0.321,0.462,0.544]
+[new] release {"cruiseFull":{"steady":0.588,"counterRoll":-0.147,"pct":25},"diagonal":{"steady":0.562,"counterRoll":-0.103,"pct":18},"surge":{"steady":0.484,"counterRoll":-0.077,"pct":16}} slalom 0.801
+[new] turnBreath {"headingAtImpactDeg":21.3,"headingOverBreathDeg":61.1} regrab->0.8 0.28
+[new] envelope cruise: size 1,1.08 pitchMax 0.256 rise 5.99 m peak dvy/dt 320
+[new] envelope turning: size 0.95,1.06 pitchMax 0.256 rise 5.99 m peak dvy/dt 320
+[new] envelope surge: size 0.98,1.17 pitchMax 0.251 rise 5.99 m peak dvy/dt 320
+[new] framerate {"30":[[0.5,26.08,26.91,-54.8,0.247,0.058],[1,32.24,30.31,-58.55,0.098,0.192],[1.5,43.91,32.4,-62.3,0.073,0.255]],"60":[[0.5,26.08,26.91,-54.8,0.247,0.058],[1,32.24,30.31,-58.55,0.098,0.192],[1.5,43.91,32.4,-62.3,0.073,0.255]],"120":[[0.5,26.08,26.91,-54.8,0.247,0.058],[1,32.24,30.31,-58.55,0.098,0.192],[1.5,43.91,32.4,-62.3,0.073,0.255]]}
+=== s_route.ts 0.016666 --l3
+painted: 39 buildings, 2071 sprout elements, max top 104.1
+[new] hills-west-cruise          clip    0/1230 min   3.17 m  hard   0  peak dvy/dt   101  >40   11  pitchRate 1.16
+[new] twinpeaks-cruise           clip    0/1110 min   3.33 m  hard   0  peak dvy/dt    83  >40   10  pitchRate 1
+[new] downtown-cruise            clip    0/870 min   2.95 m  hard   0  peak dvy/dt    64  >40    8  pitchRate 0.88
+[new] buenavista-cruise          clip    0/450 min   3.74 m  hard   0  peak dvy/dt   120  >40   12  pitchRate 1.19
+[new] ggpark-cruise              clip    0/870 min   3.03 m  hard   0  peak dvy/dt    28  >40    0  pitchRate 0.4
+[new] hills-west-half            clip    0/1230 min   2.91 m  hard   0  peak dvy/dt    50  >40    5  pitchRate 0.41
+[new] twinpeaks-half             clip    0/1110 min   3.33 m  hard   0  peak dvy/dt   150  >40   32  pitchRate 0.65
+[new] downtown-half              clip    0/870 min   3.29 m  hard   0  peak dvy/dt   778  >40   72  pitchRate 1.43
+[new] buenavista-half            clip    0/450 min   3.18 m  hard   0  peak dvy/dt   260  >40   23  pitchRate 1.55
+[new] ggpark-half                clip    0/870 min   2.73 m  hard   0  peak dvy/dt    39  >40    0  pitchRate 0.26
+[new] hills-west-surge           clip    0/1230 min   2.34 m  hard   0  peak dvy/dt   210  >40   62  pitchRate 0.78
+[new] twinpeaks-surge            clip    0/1110 min   3.28 m  hard   0  peak dvy/dt   479  >40  285  pitchRate 0.83
+[new] downtown-surge             clip    0/870 min   1.53 m  hard   0  peak dvy/dt   812  >40  147  pitchRate 1.79
+[new] buenavista-surge           clip    0/450 min   3.22 m  hard   0  peak dvy/dt   180  >40   47  pitchRate 0.61
+[new] ggpark-surge               clip    0/870 min   2.79 m  hard   0  peak dvy/dt    73  >40   13  pitchRate 0.29
+[new] alamo-weave-light          clip    0/750 min   9.87 m  hard   0  peak dvy/dt   179  >40   22  pitchRate 0.74
+[new] painted-L3-cruise-full     clip    0/330 min  16.47 m  hard   0  peak dvy/dt    95  >40   11  pitchRate 1.21
+[new] painted-L3-cruise-light    clip    0/330 min  23.04 m  hard   0  peak dvy/dt    96  >40   11  pitchRate 1.1
+[new] painted-L3-weave-full      clip    0/330 min   5.91 m  hard   0  peak dvy/dt    23  >40    0  pitchRate 0.29
+[new] L3-passes(64)              clip    0/9600 min   3.42 m  hard   0  peak dvy/dt     0  >40    0  pitchRate 0
+=== s_route.ts 0.033333
+painted: 39 buildings, 2071 sprout elements, max top 104.1
+[new] hills-west-cruise          clip    0/615 min   3.19 m  hard   0  peak dvy/dt    99  >40    6  pitchRate 1.12
+[new] twinpeaks-cruise           clip    0/555 min   3.36 m  hard   0  peak dvy/dt    83  >40    5  pitchRate 1
+[new] downtown-cruise            clip    0/435 min   2.95 m  hard   0  peak dvy/dt    63  >40    4  pitchRate 0.88
+[new] buenavista-cruise          clip    0/225 min   3.74 m  hard   0  peak dvy/dt   118  >40    6  pitchRate 1.14
+[new] ggpark-cruise              clip    0/435 min   3.03 m  hard   0  peak dvy/dt    28  >40    0  pitchRate 0.4
+[new] hills-west-half            clip    0/615 min   2.91 m  hard   0  peak dvy/dt    44  >40    1  pitchRate 0.41
+[new] twinpeaks-half             clip    0/555 min   3.33 m  hard   0  peak dvy/dt   109  >40   16  pitchRate 0.58
+[new] downtown-half              clip    0/435 min    3.3 m  hard   0  peak dvy/dt   769  >40   37  pitchRate 1.32
+[new] buenavista-half            clip    0/225 min   3.23 m  hard   0  peak dvy/dt   256  >40   11  pitchRate 1.54
+[new] ggpark-half                clip    0/435 min   2.73 m  hard   0  peak dvy/dt    38  >40    0  pitchRate 0.26
+[new] hills-west-surge           clip    0/615 min   2.42 m  hard   0  peak dvy/dt   205  >40   32  pitchRate 0.78
+[new] twinpeaks-surge            clip    0/555 min   3.47 m  hard   0  peak dvy/dt   361  >40  142  pitchRate 0.83
+[new] downtown-surge             clip    0/435 min   1.53 m  hard   0  peak dvy/dt   796  >40   74  pitchRate 1.78
+[new] buenavista-surge           clip    0/225 min   3.24 m  hard   0  peak dvy/dt   176  >40   23  pitchRate 0.6
+[new] ggpark-surge               clip    0/435 min   2.79 m  hard   0  peak dvy/dt    66  >40    6  pitchRate 0.29
+[new] alamo-weave-light          clip    0/375 min   9.82 m  hard   0  peak dvy/dt   168  >40   10  pitchRate 0.73
+[new] painted-L3-cruise-full     clip    0/165 min  16.47 m  hard   0  peak dvy/dt    93  >40    5  pitchRate 1.21
+[new] painted-L3-cruise-light    clip    0/165 min     23 m  hard   0  peak dvy/dt    96  >40    6  pitchRate 1.09
+[new] painted-L3-weave-full      clip    0/165 min   5.93 m  hard   0  peak dvy/dt    22  >40    0  pitchRate 0.29
+=== s_route.ts 0.0083333
+painted: 39 buildings, 2071 sprout elements, max top 104.1
+[new] hills-west-cruise          clip    0/2460 min   3.18 m  hard   0  peak dvy/dt   102  >40   22  pitchRate 1.17
+[new] twinpeaks-cruise           clip    0/2220 min   3.31 m  hard   0  peak dvy/dt    83  >40   19  pitchRate 1
+[new] downtown-cruise            clip    0/1740 min   2.95 m  hard   0  peak dvy/dt    65  >40   16  pitchRate 0.89
+[new] buenavista-cruise          clip    0/900 min   3.72 m  hard   0  peak dvy/dt   120  >40   24  pitchRate 1.21
+[new] ggpark-cruise              clip    0/1740 min   3.03 m  hard   0  peak dvy/dt    29  >40    0  pitchRate 0.4
+[new] hills-west-half            clip    0/2460 min   2.88 m  hard   0  peak dvy/dt    51  >40   12  pitchRate 0.41
+[new] twinpeaks-half             clip    0/2220 min   3.17 m  hard   0  peak dvy/dt   157  >40   64  pitchRate 0.66
+[new] downtown-half              clip    0/1740 min   3.27 m  hard   0  peak dvy/dt   778  >40  147  pitchRate 1.46
+[new] buenavista-half            clip    0/900 min   3.18 m  hard   0  peak dvy/dt   260  >40   46  pitchRate 1.56
+[new] ggpark-half                clip    0/1740 min   2.73 m  hard   0  peak dvy/dt    39  >40    0  pitchRate 0.26
+[new] hills-west-surge           clip    0/2460 min   2.34 m  hard   0  peak dvy/dt   211  >40  123  pitchRate 0.78
+[new] twinpeaks-surge            clip    0/2220 min   3.07 m  hard   1  peak dvy/dt   549  >40  575  pitchRate 0.84
+[new] downtown-surge             clip    0/1740 min   1.53 m  hard   0  peak dvy/dt   817  >40  296  pitchRate 1.86
+[new] buenavista-surge           clip    0/900 min   3.21 m  hard   0  peak dvy/dt   180  >40   94  pitchRate 0.61
+[new] ggpark-surge               clip    0/1740 min   2.78 m  hard   0  peak dvy/dt    83  >40   26  pitchRate 0.29
+[new] alamo-weave-light          clip    0/1500 min    9.9 m  hard   0  peak dvy/dt   182  >40   46  pitchRate 0.73
+[new] painted-L3-cruise-full     clip    0/660 min  16.45 m  hard   0  peak dvy/dt    95  >40   22  pitchRate 1.21
+[new] painted-L3-cruise-light    clip    0/660 min  23.05 m  hard   0  peak dvy/dt    96  >40   22  pitchRate 1.09
+[new] painted-L3-weave-full      clip    0/660 min    5.9 m  hard   0  peak dvy/dt    25  >40    0  pitchRate 0.29
+=== s_breath.ts
+[new] anticipation {"30":{"tapFrameSquash":0.8,"squashMin":0.786,"squashMinAt":0.1,"squashAt01":0.786,"squashAt02":0.941,"events":[["geyserScheduled",0],["geyser",0.1],["impact",0.433],["hitstop",0.433],["primary",0.433]]},"60":{"tapFrameSquash":0.8,"squashMin":0.783,"squashMinAt":0.117,"squashAt01":0.786,"squashAt02":0.941,"events":[["geyserScheduled",0],["geyser",0.1],["impact",0.433],["hitstop",0.433],["primary",0.433]]},"120":{"tapFrameSquash":0.8,"squashMin":0.783,"squashMinAt":0.117,"squashAt01":0.786,"squashAt02":0.941,"events":[["geyserScheduled",0],["geyser",0.092],["impact",0.425],["hitstop",0.425],["primary",0.425]]}}
+[new] jet profile (m/s at s=0,.25,.5,.75,1) {"cruise":{"speed":[397,306,245,214,214],"bulgeM":1.1},"surge":{"speed":[583,449,360,314,312],"bulgeM":1.1},"hover":{"speed":[360,278,223,195,194],"bulgeM":1.1},"altitude250":{"speed":[1322,1020,818,715,712],"bulgeM":15.9}}
+=== s_cost.ts
+[new]
+fidi-floor: aim update 16.8 us/frame (of which the ray 2.9), flight 27.1 us/frame
+soma-floor: aim update 29.7 us/frame (of which the ray 4.1), flight 44.4 us/frame
+alamo-floor: aim update 8.1 us/frame (of which the ray 2.5), flight 33.8 us/frame
+downtown-250: aim update 43.8 us/frame (of which the ray 26.9), flight 42.3 us/frame
+downtown-ceiling: aim update 26.0 us/frame (of which the ray 18.5), flight 17.9 us/frame

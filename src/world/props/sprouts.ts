@@ -741,6 +741,8 @@ export class RoofSprouts {
   private readonly cells = new Map<number, Batch[]>();
   private readonly recs = new Map<number, Rec>();
   private readonly maxBuildings: number;
+  /** top of each element type's template geometry (m at scale 1): what the flight must clear */
+  private readonly typeTop: number[] = [];
 
   constructor(maxBuildings = 4096) {
     this.maxBuildings = Math.max(1, maxBuildings);
@@ -751,6 +753,8 @@ export class RoofSprouts {
     const noCull = new THREE.Vector4();
     this.types = TYPES.map((def) => {
       const geo = def.geo();
+      if (!geo.boundingBox) geo.computeBoundingBox();
+      this.typeTop.push(geo.boundingBox ? geo.boundingBox.max.y : 1);
       const kind = new THREE.Vector4(def.freq, def.dir[0], def.dir[1], def.cull);
       const uniforms: Record<string, THREE.IUniform> = {
         ...globals,
@@ -801,9 +805,11 @@ export class RoofSprouts {
   /**
    * Grow (or regrow at a new level) the roof garden of one building. Elements
    * the building already had keep their timing (no re-pop); startTime < now
-   * (e.g. -100 when restoring saved paint) means already grown.
+   * (e.g. -100 when restoring saved paint) means already grown. Returns how
+   * high the garden stands above the roof (m, with its growth overshoot): the
+   * flight's obstacle field rises to it (domes, spires and garden trees).
    */
-  set(buildingIndex: number, roof: RoofRect, hue: number, level: number, startTime: number): void {
+  set(buildingIndex: number, roof: RoofRect, hue: number, level: number, startTime: number): number {
     const lvl = Math.max(1, Math.min(3, Math.round(level)));
     const h = ((Math.round(hue) % 6) + 6) % 6;
     const prev = this.recs.get(buildingIndex);
@@ -826,9 +832,11 @@ export class RoofSprouts {
     const ux = sinY, uz = cosY, nx = cosY, nz = -sinY;
     const delay0 = propsTune.sproutDelay;
     const showLevel = rec.level;
+    let top = 0;
     for (let i = 0; i < elems.length; i++) {
       const e = elems[i];
       if (e.level > showLevel) continue;
+      top = Math.max(top, e.y + (e.type === T.FLAG ? 0.4 : this.typeTop[e.type]) * e.sy);
       const wx = roof.cx + e.u * ux + e.v * nx;
       const wz = roof.cz + e.u * uz + e.v * nz;
       const wy = roof.y + e.y - (e.type === T.TURF ? 0 : 0.06);
@@ -855,6 +863,8 @@ export class RoofSprouts {
       rec.slots.push(e.type, slot);
     }
     this.recs.set(buildingIndex, rec);
+    // (the pop overshoots ~15% while it grows, and the sway leans it a little)
+    return top > 0 ? top * 1.15 + 0.4 : 0;
   }
 
   /** Remove a building's sprouts (e.g. paint reset). */

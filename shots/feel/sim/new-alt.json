@@ -1,0 +1,1294 @@
+[
+ {
+  "place": "downtown",
+  "alt": "120",
+  "taps": [
+   {
+    "style": "straight",
+    "lift": 141,
+    "y": 204,
+    "glintLift": -2,
+    "glintTap": 39491,
+    "target": 39491,
+    "primary": 39491,
+    "impactT": 0.87,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -540,
+     51,
+     150
+    ],
+    "impact": [
+     -534,
+     49,
+     150
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "straight",
+    "lift": 140,
+    "y": 206,
+    "glintLift": -2,
+    "glintTap": 39629,
+    "target": 39629,
+    "primary": 39629,
+    "impactT": 0.88,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -454,
+     39,
+     64
+    ],
+    "impact": [
+     -456,
+     41,
+     74
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "turn2",
+    "lift": 136,
+    "y": 206,
+    "glintLift": -2,
+    "glintTap": 39716,
+    "target": 39716,
+    "primary": 39716,
+    "impactT": 0.98,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -207,
+     17,
+     224
+    ],
+    "impact": [
+     -198,
+     31,
+     217
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "turn2",
+    "lift": 135,
+    "y": 206,
+    "glintLift": -2,
+    "glintTap": 42993,
+    "target": 42993,
+    "primary": 42993,
+    "impactT": 0.88,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -1006,
+     47,
+     736
+    ],
+    "impact": [
+     -981,
+     46,
+     734
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "lift",
+    "lift": 136,
+    "y": 205,
+    "glintLift": 35775,
+    "glintTap": 35775,
+    "target": 35775,
+    "primary": 35775,
+    "impactT": 0.87,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -694,
+     47,
+     -84
+    ],
+    "impact": [
+     -734,
+     41,
+     -81
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "lift",
+    "lift": 131,
+    "y": 206,
+    "glintLift": 35783,
+    "glintTap": 35783,
+    "target": 35783,
+    "primary": 35783,
+    "impactT": 0.93,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -430,
+     42,
+     -120
+    ],
+    "impact": [
+     -467,
+     33,
+     -147
+    ],
+    "impactOnTargetM": 0
+   }
+  ]
+ },
+ {
+  "place": "downtown",
+  "alt": "250",
+  "taps": [
+   {
+    "style": "straight",
+    "lift": 272,
+    "y": 334,
+    "glintLift": -2,
+    "glintTap": 35805,
+    "target": 35805,
+    "primary": 35805,
+    "impactT": 1.32,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -236,
+     40,
+     -154
+    ],
+    "impact": [
+     -262,
+     35,
+     -140
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "straight",
+    "lift": 268,
+    "y": 336,
+    "glintLift": -2,
+    "glintTap": 35952,
+    "target": 35952,
+    "primary": 35952,
+    "impactT": 1.35,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -168,
+     39,
+     -222
+    ],
+    "impact": [
+     -159,
+     38,
+     -221
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "turn2",
+    "lift": 263,
+    "y": 336,
+    "glintLift": -2,
+    "glintTap": 39758,
+    "target": 39758,
+    "primary": 39758,
+    "impactT": 1.27,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     72,
+     139,
+     141
+    ],
+    "impact": [
+     77,
+     136,
+     139
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "turn2",
+    "lift": 259,
+    "y": 336,
+    "glintLift": -2,
+    "glintTap": 44332,
+    "target": 44332,
+    "primary": 44332,
+    "impactT": 1.3,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -1182,
+     55,
+     929
+    ],
+    "impact": [
+     -1180,
+     55,
+     931
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "lift",
+    "lift": 262,
+    "y": 335,
+    "glintLift": 31827,
+    "glintTap": 31827,
+    "target": 31827,
+    "primary": 31827,
+    "impactT": 1.35,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -620,
+     37,
+     -496
+    ],
+    "impact": [
+     -708,
+     37,
+     -493
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "lift",
+    "lift": 257,
+    "y": 336,
+    "glintLift": 32064,
+    "glintTap": 32064,
+    "target": 32064,
+    "primary": 32064,
+    "impactT": 1.37,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -205,
+     45,
+     -401
+    ],
+    "impact": [
+     -255,
+     36,
+     -468
+    ],
+    "impactOnTargetM": 0
+   }
+  ]
+ },
+ {
+  "place": "downtown",
+  "alt": "ceiling",
+  "taps": [
+   {
+    "style": "straight",
+    "lift": 449,
+    "y": 517,
+    "glintLift": -2,
+    "glintTap": 27872,
+    "target": 27872,
+    "primary": 27872,
+    "impactT": 2,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     210,
+     41,
+     -600
+    ],
+    "impact": [
+     244,
+     41,
+     -604
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "straight",
+    "lift": 439,
+    "y": 519,
+    "glintLift": -2,
+    "glintTap": 27849,
+    "target": 27849,
+    "primary": 27849,
+    "impactT": 1.98,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     276,
+     36,
+     -666
+    ],
+    "impact": [
+     276,
+     36,
+     -666
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "turn2",
+    "lift": 445,
+    "y": 519,
+    "glintLift": -2,
+    "glintTap": 36039,
+    "target": 36039,
+    "primary": 36039,
+    "impactT": 2.07,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     741,
+     20,
+     -68
+    ],
+    "impact": [
+     762,
+     19,
+     -93
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "turn2",
+    "lift": 449,
+    "y": 519,
+    "glintLift": -2,
+    "glintTap": 47427,
+    "target": 47427,
+    "primary": 47427,
+    "impactT": 1.87,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -1416,
+     76,
+     1190
+    ],
+    "impact": [
+     -1378,
+     72,
+     1212
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "lift",
+    "lift": 441,
+    "y": 518,
+    "glintLift": 24256,
+    "glintTap": 24256,
+    "target": 24256,
+    "primary": 24256,
+    "impactT": 1.87,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -486,
+     66,
+     -1000
+    ],
+    "impact": [
+     -601,
+     70,
+     -997
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "lift",
+    "lift": 448,
+    "y": 518,
+    "glintLift": 24486,
+    "glintTap": 24486,
+    "target": 24486,
+    "primary": 24486,
+    "impactT": 1.92,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     81,
+     113,
+     -744
+    ],
+    "impact": [
+     53,
+     45,
+     -926
+    ],
+    "impactOnTargetM": 0
+   }
+  ]
+ },
+ {
+  "place": "west",
+  "alt": "120",
+  "taps": [
+   {
+    "style": "straight",
+    "lift": 139,
+    "y": 235,
+    "glintLift": -2,
+    "glintTap": 49906,
+    "target": 49906,
+    "primary": 49906,
+    "impactT": 0.8,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -4872,
+     87,
+     1382
+    ],
+    "impact": [
+     -4900,
+     85,
+     1390
+    ],
+    "impactOnTargetM": 0.6
+   },
+   {
+    "style": "straight",
+    "lift": 138,
+    "y": 237,
+    "glintLift": -2,
+    "glintTap": 50003,
+    "target": 50003,
+    "primary": 50003,
+    "impactT": 0.8,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -4792,
+     94,
+     1336
+    ],
+    "impact": [
+     -4819,
+     92,
+     1356
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "turn2",
+    "lift": 135,
+    "y": 237,
+    "glintLift": -2,
+    "glintTap": 49975,
+    "target": 49975,
+    "primary": 49975,
+    "impactT": 0.78,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -4707,
+     102,
+     1526
+    ],
+    "impact": [
+     -4712,
+     99,
+     1521
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "turn2",
+    "lift": 133,
+    "y": 237,
+    "glintLift": -2,
+    "glintTap": 58497,
+    "target": 58497,
+    "primary": 58497,
+    "impactT": 0.85,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -5416,
+     88,
+     1791
+    ],
+    "impact": [
+     -5414,
+     88,
+     1797
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "lift",
+    "lift": 134,
+    "y": 237,
+    "glintLift": 46021,
+    "glintTap": 46021,
+    "target": 46021,
+    "primary": 46021,
+    "impactT": 0.9,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -4944,
+     72,
+     1095
+    ],
+    "impact": [
+     -4939,
+     83,
+     1093
+    ],
+    "impactOnTargetM": 0.9
+   },
+   {
+    "style": "lift",
+    "lift": 141,
+    "y": 237,
+    "glintLift": 46156,
+    "glintTap": 46156,
+    "target": 46156,
+    "primary": 46156,
+    "impactT": 0.82,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -4739,
+     89,
+     1184
+    ],
+    "impact": [
+     -4774,
+     86,
+     1185
+    ],
+    "impactOnTargetM": 0
+   }
+  ]
+ },
+ {
+  "place": "west",
+  "alt": "250",
+  "taps": [
+   {
+    "style": "straight",
+    "lift": 271,
+    "y": 368,
+    "glintLift": -2,
+    "glintTap": 46250,
+    "target": 46250,
+    "primary": 46250,
+    "impactT": 1.28,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -4512,
+     86,
+     1174
+    ],
+    "impact": [
+     -4530,
+     83,
+     1177
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "straight",
+    "lift": 268,
+    "y": 370,
+    "glintLift": -2,
+    "glintTap": 46204,
+    "target": 46204,
+    "primary": 46204,
+    "impactT": 1.3,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -4416,
+     82,
+     1119
+    ],
+    "impact": [
+     -4441,
+     86,
+     1139
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "turn2",
+    "lift": 272,
+    "y": 371,
+    "glintLift": -2,
+    "glintTap": 50159,
+    "target": 50159,
+    "primary": 50159,
+    "impactT": 1.27,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -4289,
+     97,
+     1524
+    ],
+    "impact": [
+     -4284,
+     96,
+     1512
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "turn2",
+    "lift": 267,
+    "y": 370,
+    "glintLift": -2,
+    "glintTap": 58361,
+    "target": 58361,
+    "primary": 58361,
+    "impactT": 1.28,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -5677,
+     92,
+     1958
+    ],
+    "impact": [
+     -5678,
+     90,
+     1959
+    ],
+    "impactOnTargetM": 0.2
+   },
+   {
+    "style": "lift",
+    "lift": 270,
+    "y": 370,
+    "glintLift": -1,
+    "glintTap": -1,
+    "target": -1,
+    "primary": 42155,
+    "impactT": 1.25,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -4804,
+     107,
+     816
+    ],
+    "impact": [
+     -4804,
+     87,
+     816
+    ]
+   },
+   {
+    "style": "lift",
+    "lift": 273,
+    "y": 370,
+    "glintLift": -1,
+    "glintTap": -1,
+    "target": -1,
+    "primary": 46234,
+    "impactT": 1.3,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -4413,
+     90,
+     944
+    ],
+    "impact": [
+     -4413,
+     66,
+     944
+    ]
+   }
+  ]
+ },
+ {
+  "place": "west",
+  "alt": "ceiling",
+  "taps": [
+   {
+    "style": "straight",
+    "lift": 416,
+    "y": 518,
+    "glintLift": -2,
+    "glintTap": 43429,
+    "target": 43429,
+    "primary": 43429,
+    "impactT": 1.73,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -4092,
+     98,
+     932
+    ],
+    "impact": [
+     -4089,
+     84,
+     1023
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "straight",
+    "lift": 422,
+    "y": 520,
+    "glintLift": -2,
+    "glintTap": -1,
+    "target": -1,
+    "primary": 43435,
+    "impactT": 1.8,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -4007,
+     94,
+     882
+    ],
+    "impact": [
+     -4007,
+     72,
+     882
+    ]
+   },
+   {
+    "style": "turn2",
+    "lift": 421,
+    "y": 519,
+    "glintLift": -2,
+    "glintTap": 50359,
+    "target": 50359,
+    "primary": 50359,
+    "impactT": 1.73,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -3824,
+     111,
+     1489
+    ],
+    "impact": [
+     -3814,
+     111,
+     1475
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "turn2",
+    "lift": 417,
+    "y": 519,
+    "glintLift": -2,
+    "glintTap": 63092,
+    "target": 63092,
+    "primary": 63092,
+    "impactT": 1.73,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -5899,
+     105,
+     2104
+    ],
+    "impact": [
+     -5871,
+     92,
+     2103
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "lift",
+    "lift": 420,
+    "y": 519,
+    "glintLift": -1,
+    "glintTap": -1,
+    "target": -1,
+    "primary": 40622,
+    "impactT": 1.8,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -4548,
+     94,
+     353
+    ],
+    "impact": [
+     -4548,
+     70,
+     353
+    ]
+   },
+   {
+    "style": "lift",
+    "lift": 426,
+    "y": 519,
+    "glintLift": 42192,
+    "glintTap": 42192,
+    "target": 42192,
+    "primary": 42192,
+    "impactT": 1.83,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -4010,
+     101,
+     656
+    ],
+    "impact": [
+     -4036,
+     90,
+     560
+    ],
+    "impactOnTargetM": 0.1
+   }
+  ]
+ },
+ {
+  "place": "soma",
+  "alt": "120",
+  "taps": [
+   {
+    "style": "straight",
+    "lift": 140,
+    "y": 180,
+    "glintLift": -2,
+    "glintTap": 36105,
+    "target": 36105,
+    "primary": 36105,
+    "impactT": 0.87,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     928,
+     20,
+     -208
+    ],
+    "impact": [
+     917,
+     18,
+     -201
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "straight",
+    "lift": 141,
+    "y": 182,
+    "glintLift": -2,
+    "glintTap": 36126,
+    "target": 36126,
+    "primary": 36126,
+    "impactT": 0.9,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     1021,
+     16,
+     -242
+    ],
+    "impact": [
+     1021,
+     16,
+     -242
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "turn2",
+    "lift": 149,
+    "y": 182,
+    "glintLift": -2,
+    "glintTap": 36129,
+    "target": 36129,
+    "primary": 36129,
+    "impactT": 0.87,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     1120,
+     15,
+     -6
+    ],
+    "impact": [
+     1099,
+     15,
+     -39
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "turn2",
+    "lift": 148,
+    "y": 182,
+    "glintLift": -2,
+    "glintTap": 39756,
+    "target": 39756,
+    "primary": 39756,
+    "impactT": 0.9,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     252,
+     20,
+     128
+    ],
+    "impact": [
+     245,
+     20,
+     137
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "lift",
+    "lift": 150,
+    "y": 181,
+    "glintLift": 27940,
+    "glintTap": 27940,
+    "target": 27940,
+    "primary": 27940,
+    "impactT": 0.88,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     871,
+     20,
+     -484
+    ],
+    "impact": [
+     858,
+     28,
+     -503
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "lift",
+    "lift": 147,
+    "y": 181,
+    "glintLift": 32238,
+    "glintTap": 32238,
+    "target": 32238,
+    "primary": 32238,
+    "impactT": 0.85,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     1085,
+     21,
+     -380
+    ],
+    "impact": [
+     1034,
+     20,
+     -420
+    ],
+    "impactOnTargetM": 0
+   }
+  ]
+ },
+ {
+  "place": "soma",
+  "alt": "250",
+  "taps": [
+   {
+    "style": "straight",
+    "lift": 268,
+    "y": 310,
+    "glintLift": -2,
+    "glintTap": 32347,
+    "target": 32347,
+    "primary": 32347,
+    "impactT": 1.32,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     1288,
+     30,
+     -339
+    ],
+    "impact": [
+     1288,
+     13,
+     -339
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "straight",
+    "lift": 276,
+    "y": 312,
+    "glintLift": -2,
+    "glintTap": 32328,
+    "target": 32328,
+    "primary": 32328,
+    "impactT": 1.33,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     1387,
+     20,
+     -375
+    ],
+    "impact": [
+     1387,
+     18,
+     -375
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "turn2",
+    "lift": 283,
+    "y": 312,
+    "glintLift": -2,
+    "glintTap": 39879,
+    "target": 39879,
+    "primary": 39879,
+    "impactT": 1.35,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     1510,
+     15,
+     60
+    ],
+    "impact": [
+     1510,
+     14,
+     60
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "turn2",
+    "lift": 282,
+    "y": 312,
+    "glintLift": -2,
+    "glintTap": 39692,
+    "target": 39692,
+    "primary": 39692,
+    "impactT": 1.22,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     48,
+     90,
+     213
+    ],
+    "impact": [
+     38,
+     90,
+     207
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "lift",
+    "lift": 281,
+    "y": 312,
+    "glintLift": 27941,
+    "glintTap": 27941,
+    "target": 27941,
+    "primary": 27941,
+    "impactT": 1.27,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     1064,
+     57,
+     -746
+    ],
+    "impact": [
+     1029,
+     28,
+     -779
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "lift",
+    "lift": 278,
+    "y": 312,
+    "glintLift": 28048,
+    "glintTap": 28048,
+    "target": 28048,
+    "primary": 28048,
+    "impactT": 1.3,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     1468,
+     12,
+     -570
+    ],
+    "impact": [
+     1396,
+     18,
+     -600
+    ],
+    "impactOnTargetM": 0
+   }
+  ]
+ },
+ {
+  "place": "soma",
+  "alt": "ceiling",
+  "taps": [
+   {
+    "style": "straight",
+    "lift": 487,
+    "y": 517,
+    "glintLift": -2,
+    "glintTap": 28119,
+    "target": 28119,
+    "primary": 28119,
+    "impactT": 1.95,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     1969,
+     16,
+     -587
+    ],
+    "impact": [
+     1885,
+     10,
+     -557
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "straight",
+    "lift": 490,
+    "y": 519,
+    "glintLift": -2,
+    "glintTap": 28123,
+    "target": 28123,
+    "primary": 28123,
+    "impactT": 2.05,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     2049,
+     17,
+     -616
+    ],
+    "impact": [
+     2039,
+     17,
+     -620
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "turn2",
+    "lift": 487,
+    "y": 519,
+    "glintLift": -2,
+    "glintTap": 39947,
+    "target": 39947,
+    "primary": 39947,
+    "impactT": 2.05,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     2226,
+     -1,
+     153
+    ],
+    "impact": [
+     2180,
+     15,
+     107
+    ],
+    "impactOnTargetM": 0.6
+   },
+   {
+    "style": "turn2",
+    "lift": 487,
+    "y": 519,
+    "glintLift": -2,
+    "glintTap": 41710,
+    "target": 41710,
+    "primary": 41710,
+    "impactT": 1.97,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     -390,
+     38,
+     398
+    ],
+    "impact": [
+     -366,
+     30,
+     411
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "lift",
+    "lift": 488,
+    "y": 518,
+    "glintLift": 22027,
+    "glintTap": 22027,
+    "target": 22027,
+    "primary": 22027,
+    "impactT": 1.78,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     1447,
+     151,
+     -1216
+    ],
+    "impact": [
+     1375,
+     36,
+     -1149
+    ],
+    "impactOnTargetM": 0
+   },
+   {
+    "style": "lift",
+    "lift": 488,
+    "y": 518,
+    "glintLift": 24938,
+    "glintTap": 24938,
+    "target": 24938,
+    "primary": 24938,
+    "impactT": 2,
+    "miss": false,
+    "hitstop": true,
+    "aim": [
+     2040,
+     35,
+     -845
+    ],
+    "impact": [
+     1974,
+     41,
+     -967
+    ],
+    "impactOnTargetM": 0
+   }
+  ]
+ }
+]

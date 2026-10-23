@@ -56,6 +56,20 @@ export class PaintState {
       this.saved = {};
     }
     this.paintedCount = Object.keys(this.saved).length;
+    // saves are debounced inside the frame loop, which stops when the page is hidden (and iOS may then kill
+    // a backgrounded Home Screen app): a splat right before swiping home is written out on the way out
+    if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+      const flushSave = () => {
+        if (this.saveTimer > 0) {
+          this.saveTimer = 0;
+          this.persist();
+        }
+      };
+      window.addEventListener('pagehide', flushSave);
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) flushSave();
+      });
+    }
   }
 
   /** Register a streamed-in building (or a landmark, by its string key); applies any saved paint (no pop animation). */

@@ -67,8 +67,8 @@ export const busTune = {
   sparkle: 0.1,
   /** Gag bulge amount at heave = 1. */
   heaveAmt: 0.18,
-  /** Seconds for a gulp to travel from mid-body to the mouth. */
-  gulpTime: 0.26,
+  /** Seconds for a gulp to travel from mid-body to the mouth (= config.splat.inhale: it reaches the mouth as the jet leaves). */
+  gulpTime: 0.09,
   /**
    * Wheeze breathing (matches the audio's busVoice.breath rhythm: period
    * (1.3 + 0.95 * fullness) / breathRate s, inhale 0-40%, exhale 47-90%).

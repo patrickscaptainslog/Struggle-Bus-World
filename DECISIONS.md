@@ -23,7 +23,8 @@ call), this is what we chose and why.
   mid-screen, where the chase camera can see it (a straight-down barf was
   hidden by the bus's own body).
 - **Aim cue without a HUD**: while a breath is loaded, the building in the line
-  of fire glints with a slow sweep of light.
+  of fire glints (a full palette step lighter, with a band of light sweeping up
+  it); it is exactly the building the tap hits (see Feel polish).
 - ~~Smart spill + Painted Ladies fan~~ (superseded by the explosive blast, below):
   the splat used to paint the target plus at most 4 *unpainted* neighbors one by
   one. Paint is still saved per building (smart persistence) and the blast's
@@ -100,8 +101,9 @@ call), this is what we chose and why.
   to the snapped grid would flip them at every snap step). The sky-to-sea
   blend past the far plane mixes light levels; a dither crossfade drew
   horizontal streaks across the sky. Windows shrink below ~2 game pixels up
-  there and alias into moire: from the layer view they melt into a slightly
-  darker wall tone, building by building.
+  there and alias into moire: they melt into a slightly darker wall tone,
+  building by building (since feat/facade at every height, by each
+  building's on-screen pixel size: see Tower facades).
 - **Up high the city is what holds still.** The grid snaps at the depth of
   the ground under the screen center (not at the bus, whose 0.75 m snap
   step resampled every far roof on every frame), with its scale held in
@@ -281,6 +283,175 @@ call), this is what we chose and why.
   fog-sea pick in the resolve shader. Follow-up if a heavily painted city
   costs too many draws from altitude: a per-region mask atlas.
 
+## Feel polish (producer: "phenomenally flawless flying and splatting physics")
+Every number below is measured with the offline harness `tools/feel-sim` (the
+real City / Flight / Splatter / Aimer / CameraRig code on the real baked city,
+no browser; before = the pre-polish main.ts loop replayed on the same data) and
+cross-checked in the browser with `tools/feel.mjs`.
+- **One source of truth for the aim** (`src/game/Aim.ts`). The glint used to
+  refresh every 0.1 s and the tap re-picked on its own, so the building that
+  glinted was not the one hit on 21 of 200 floor taps and 17 of 54 taps from
+  altitude, and when a one-thumb player lifted the thumb to tap (the bus
+  straightens and slows under them) on 64 of 80. Now the target is picked every
+  frame and the tap hands that very building to `Splatter.barf` (`target`):
+  glint != hit on 0 of 200 floor taps (30, 60 and 120 fps) and 0 of 54 from
+  120 m / 250 m / the ceiling. Lift-then-tap (the glint when the thumb lifted
+  vs the hit): 3 of 80 at 60 and 120 fps, 8 at 30 fps, each a downtown tower
+  stepping into the line of fire as the bus straightened (the glint moves to it
+  before the tap, so what glints is still what's hit) or a shot into a park.
+  - **Hold**: the target stays while the aim point is within 10 m (`aimHold`,
+    more from high up) of it over the last 40 m of the line of fire
+    (`aimHoldAlong`): at surge a building used to glint for one 0.1 s tick; a
+    held one stays until the bus has closed 40 m on it. Glint changes per second
+    while loaded, before / after: cruise 0.6-2.5 / 0.4-1.8, surge 1.8-3.7 /
+    1.2-2.7; in hard turns the line of fire sweeps 100+ m/s across the roofs, so
+    the glint follows it like a searchlight (2-8/s).
+  - **Latch**: lifting the steering thumb (or touching down for a tap, `Input.
+    onPress`) freezes the glinting building for 0.5 s (`aimLatch`: a 230 ms tap
+    plus the thumb's trip back down), while it stays within the pick radius or a
+    0.2 cone of the nose (from altitude the bungee settles a few degrees after
+    the lift, 100 m at 1 km).
+  - **Line of fire**: near the rooftops the breath is a straight blast from the
+    mouth to its landing, so a building standing in between clearly above that
+    path (1.5 m, `wallClear`; never one within 8 m of the landing, where the jet
+    is as wide as a house) takes it on its wall face. A tower you fly at is hit,
+    not flown through.
+- **Pick by the footprint, not the centroid** (`City.buildingAt`,
+  `edgeDistance`, `nearestBuilding`, an area index of every footprint's bounds
+  in 32 m cells). Aim points inside footprints that picked something else or
+  nothing: FiDi 26 %, SoMa 24 %, Mission Bay 35 %, Dogpatch 24 %, Alamo 3 % of
+  roof area -> 0 everywhere; aimed dead-on into a tower > 40 m, FiDi missed 1,346
+  of 4,564 -> 0. The snap (28 m, more from altitude) is the true distance to the
+  nearest wall. A big building (any part more than 25 m from its centroid,
+  `smallRad`) is hit right where you aimed if that is on it, else on its nearest
+  edge 4 m in (`landInset`), never at a centroid 100 m away, and the blast
+  centers there and reaches big footprints by their true edge distance (a block
+  half inside blooms wherever its centroid is). A house is hit at its centroid
+  and reached by its centroid less its half-size, exactly as the approved blast:
+  the Painted Ladies tap still blooms the same 15 buildings (76 from 300 m) from
+  the same impact point. Pick costs ~2 us in node.
+- **A miss is a miss**: a breath into open water (nothing in reach, ground under
+  0.8 m) used to splash red on the tap frame and then play a full impact with
+  the previous hue and hit-stop on nothing. Now: no flash, no boom, no hit-stop;
+  a splash of the next hue when the jet comes down; half the belly comes back
+  (`missRefund`). A park or a beach still takes a ground blast (it paints).
+- **The glint can be seen**: +0.06 light (half a ramp step flat walls snap away)
+  and a 1.1 s sweep that rarely showed within a dwell -> +0.13 (a full step,
+  also on painted buildings) and a sweep every 0.5 s that starts the moment the
+  building becomes the target (`glintLift`, `glintSweep`, `glintRate`).
+- **Anticipation**: the tap squashes the bus on the same frame (1.0 -> 0.8; it
+  used to bottom out 6 frames later), it inhales for 0.09 s (`inhale`; the gulp
+  reaches the mouth then), then the jet leaves; first impact still 0.42 s after
+  the tap. The squash spring is substepped and its squash -> stretch switch is
+  timed per substep: identical at 30, 60 and 120 fps (0.786 at 0.1 s, 0.941 at
+  0.2 s; it was 0.80 / 1.01 at 30 and 0.83 / 0.93 at 60).
+- **A blast, not a lob**: the jet's Hermite tangents came from a 95 m/s muzzle
+  plus 70 % of the bus's speed and a 34 m/s drop at the end, so it left slowly,
+  peaked mid-flight and braked to a stop over the roof (cruise 117 -> 282 -> 34
+  m/s). They now come from its chord: 1.5x the mean speed out of the face along
+  the nose (bent toward the target by at most 0.6 rad, `aimBend`), 0.8x at
+  impact, monotonic (cruise 397 -> 245 -> 214 m/s, from 250 m 1,322 -> 818 ->
+  712). Once the nose has swung more than ~66 degrees off the target the breath
+  tapers off instead of curling across the screen.
+- **The hit reads on the frozen frames**: the splat ran after the city's paint
+  upload, so every bloom reached the GPU a frame late and the impact frame
+  showed nothing. It runs first now, and the color flood starts 6 m down from
+  the roof (`floodHead`): the impact frame (with the blast's flash) and the 4
+  hit-stop frames already show the hit; the flood itself is unchanged. The
+  blast's flash, kick and 4-frame hit-stop are kept as they are.
+- **The bus plants itself to breathe**: steering used the stalled speed, so the
+  recoil added 28 % turn authority, and a breath with the stick held whipped
+  the bus 38 degrees before impact and 99 over the breath. Steering now uses the
+  speed at the tap and halves until the impact, easing back over 0.2 s
+  (`breathSteer`, `breathSteerEase`): 21 / 61 degrees. A tap, re-grab and carve
+  the other way still reaches 0.8 rad/s in 0.28 s (0.12 before).
+- **The release is visible**: the belly band stayed full for the whole breath
+  and emptied in one frame; on the tap frame the full-belly sag vanished, a
+  6.5 m step the climb spring met at 310 m/s^2 (the bus hopped 16 m/s and reared
+  0.48 rad). The belly now drains over the breath (the "loaded" cues drop at the
+  blast, the sag lifts as it pours out), the wallow still cuts on the tap, and
+  the rear-up is an authored envelope (0.2 rad, `rearUp`; up in 0.1 s, settling
+  from 0.6 s; its own lift adds nothing): pitch peak 0.48 -> 0.26, rise in the
+  first 0.1 s 1.1 m -> 0, on-screen height of the bus (real chase camera)
+  1.32x -> 1.22x at most. Pitch is floored at 24 m/s (a stalled bus no longer
+  noses down hard).
+- **Bank is proportional and bounded**: maxBank x tanh((lateral x 0.014 + yaw
+  rate x 0.2) / maxBank), maxBank 0.70, damping 0.48 (the verifier's "tunedA").
+  Steady bank at 10 / 30 / 60 / 100 % stick at cruise 0.23 / 0.62 / 0.62 / 0.62
+  -> 0.08 / 0.24 / 0.42 / 0.58; surge 0.44 / 0.62 / 0.62 / 0.62 -> 0.12 / 0.32 /
+  0.47 / 0.55; on the yoke's climb 0.15 / 0.46 / 0.62 / 0.62 -> 0.07 / 0.21 /
+  0.34 / 0.46 and dive -> 0.12 / 0.32 / 0.46 / 0.54. Letting go after a full
+  carve counter-rolls 25 % of the bank (was 60 %, a wrong-way lean), slalom peak
+  0.96 -> 0.80. The full-belly wallow fades as the carve grows, so a nudge reads
+  as a nudge.
+- **Nothing to fly through**: the flight's obstacle grid (8 m cells) knew only
+  the bake's flat roofs and one 16 m x size post per tree. Now each tree crown is
+  a dome over its whole reach at its real height (`treeCrown`), every vertex of
+  a detailed (LOD 0) tile mesh lifts its own cell and a single-part house lifts
+  every cell within 3 m of it to its mesh top (gable ridges, chimneys,
+  parapets, rooftop clutter on towers and podiums), and a rooftop garden or a
+  Hundertwasser crown lifts its roof to its top (`RoofSprouts.set` returns it,
+  `City.raiseRoof`). Measured against the rendered surfaces (the tile meshes
+  rasterized at 1 m, crown domes, every garden element): frames with the bus's
+  underside inside something, 19 routes x 3 speeds through hills, Twin Peaks,
+  downtown, Buena Vista and Golden Gate Park: 93 -> 0 (min clearance -1.26 ->
+  +1.53 m); 64 passes straight over level-3 roofs: 1,405 of 9,600 frames
+  (min -7.8 m) -> 0 (min +3.4 m). The bus rides higher over a painted level-3
+  block by about a dome.
+- **No lurch at roof edges**: the floor's rises (a roof entering the 1.6 s
+  look-ahead steps it by whole storeys) are eased at 1.2 Hz before the climb
+  spring sees them (`climbSmoothHz`); falls stay immediate. Peak per-frame climb
+  acceleration (m/s^2, cruise / half / surge): Western Addition hills 273 / 194 /
+  1,096 -> 101 / 50 / 210, Twin Peaks 252 / 304 / 900 -> 83 / 150 / 479, Buena
+  Vista 404 / 706 / 429 -> 120 / 260 / 180, downtown 59 / 2,944 / 1,775 -> 64 /
+  778 / 812 (still the worst: an 80 m tower entering the look-ahead needs
+  > 60 m/s^2 even planned perfectly). Lower rates (0.6, 0.9 Hz)
+  start touching the hard floor at surge; 1.2 never does. The yoke's climb, dive
+  and hold paths are untouched (they don't chase the floor spring).
+- **Frame-rate independence**: flight, squash, aim and clearance results match
+  at 30 / 60 / 120 fps (route clearances within 0.1 m, aim glint == hit at all
+  three); only event times quantize to the frame (impact at 0.433 s at 30/60
+  fps, 0.425 at 120).
+- **Smaller fixes**: the drop shadow sits on the roof of the part under the bus
+  (it was buried 2.5 m inside every roof, `top - 3`); saved paint thins the fog
+  once per building per session (each tile reload bumped it again); painted
+  trees come back after a reload at the level of the house beside them (the
+  blast's ground persistence already restored them, at level 1); building paint
+  is saved on pagehide / visibilitychange (the 0.8 s debounce runs in rAF, which
+  stops when the app is hidden), ground paint on visibilitychange too; every
+  lat/lon goes through one transverse-Mercator helper matching the bake
+  (`src/game/geo.ts`; the old formula was 10-30 m off away from the origin,
+  sub-millimeter now); the breath and the exhaust leave from this frame's bus
+  matrix (one frame stale: 1.9 m at surge); a failed level-of-detail swap backs
+  off 3 s doubling to 30 s (it re-requested every frame while offline).
+- **In the browser** (`tools/feel.mjs`): 7 of 7 real taps through Input's tap
+  path glint == hit and paint it (floor cruise, surge, a second-finger tap while
+  turning that hit a wall, lift-then-tap, 120 m, 250 m, the ceiling), impacts at
+  0.47-0.54 across and 0.51-0.60 down the screen; the strip
+  (`shots/feel/strip.png`) shows the glint before the tap, the jet leaving at
+  0.10 s, the palette flash on the impact frame and the jet slamming in on the
+  4 hit-stop frames. Regression shots vs main (`shots/merge2/regress`): the same
+  views; the drop shadow now lies on the ground under the bus over a park and
+  on the water in the opening (it used to float at a guessed canopy height or
+  15 m above the sea), and the painted shot differs by its random first hue.
+- **Not changed (already fixed or out of scope)**: the blast replaced the smart
+  spill and the per-neighbor streams (the spill parts of the old findings are
+  moot); LiDAR stable ids are derived and checked (`check-stable-ids.mjs`), so
+  the "paint keyed by rank, no epoch" finding is handled there; the old hit
+  review's FOV punch, white uFlash and global splash/roofRadius changes were
+  dropped by its own verifier (the blast's palette flash and kick cover the
+  punch); the camera rig's dead `barfTilt` is polish/look's file.
+- **Cost**: the aim runs every frame now (was every 0.1 s): 10-60 us per frame
+  in node (the ray it shares with the old aim 3-50 us; the line-of-fire test
+  only ring-tests buildings that could stand above the jet's path), pick ~2 us.
+  The obstacle lifts run once per tile adoption (one pass over the tile mesh's
+  vertices). In the browser (`tools/feel.mjs perf`, the same script against the
+  pre-polish build and this one): Alamo Square floor 129 / 129 draws, 1,196,510
+  / 1,196,510 triangles; at 250 m 198 / 197, 1.785M / 1.783M; FiDi floor 114 /
+  114, 714.7k / 715.7k; FiDi 250 m 117 / 116, 820.5k / 820.5k. CPU work per
+  frame 4.9 / 3.4, 3.8 / 4.3, 2.8 / 3.7, 2.5 / 2.9 ms (median of 11 frames on a
+  SwiftShader host at load ~26: inside its noise).
+
 ## Data
 - **DataSF and the USGS elevation APIs are blocked by this environment's network
   policy.** We used sources that are reachable *and* license-clean (public domain):
@@ -433,6 +604,160 @@ call), this is what we chose and why.
   footprints are capped at 8 m and never LiDAR'd (Sutro, Transamerica), and
   LiDAR-only detection keeps away from landmarks and bridge decks.
 
+## Tower facades (producer: "very disappointed with the details of the skyscrapers")
+- **Six facade families instead of one window grid** (`src/world/towerStyles.ts`,
+  chosen in the mesher, no re-bake): glass curtain wall (mullions, spandrels,
+  calm sky-reflection bands, a few dark / lit panes, mechanical floors every 20
+  floors), pre-war masonry (pale stone, paired punched windows, deco piers,
+  rusticated arcade base, cornice and attic, round-headed top floors),
+  1960s-70s horizontal bands, 1960s-70s vertical fins (they hide the glass when
+  seen obliquely), dark granite with bright slots (555 California) and white
+  precast with deep vertical slots (Embarcadero Center). A building is chosen by
+  height class, district (FiDi, Union Square / Nob Hill, Civic Center, Rincon /
+  Transbay, SoMa, Mission Bay, by Market Street), footprint (big slabs lean to
+  bands) and a hash of its stable id; tower-on-podium blocks can wear an older
+  podium family. Towers and commercial / civic blocks >= 16 m get one (TOWER
+  >= 14 m), outside downtown only from 40 m: 795 buildings in SF.
+- **Icons by lat/lon, not by id**: a small table (Salesforce, 181 Fremont, 555
+  California, Millennium, Embarcadero Center 1-4, 345 and 101 California, One
+  Rincon Hill, 50 Fremont, 44 Montgomery, One Market, the Hyatt) matched by the
+  footprint that contains the point and a minimum height, so a re-bake that
+  renumbers ids keeps them. Positions go through the bake's own tmerc
+  (`llToLocal`, exact to centimeters), not the flat-earth scale `main.ts` uses
+  for `?lat/?lon`.
+- **Every tower has a base and a top**: two tall ground floors of storefront
+  glass between piers over a dark entrance band (masonry: rusticated arcades);
+  the top is a mechanical band (louvers, no windows), a cornice (masonry), a
+  softly lit band (a quarter of the glass towers >= 60 m) or Salesforce's
+  lattice. The aim glint lifts a tower facade in whole steps of its fogged
+  ramp (+1, +1 more at the sweep), not by 0.13 of pre-fog light after it,
+  which fog rounded away or dithered. LiDAR's small rooftop boxes are mechanical penthouses (solid,
+  louvered); setbacks get a coping line. Rows count from the true ground on every
+  tier; every wall is stretched to a whole number of column modules so corners
+  land on piers and columns run straight up the tower; a tapering face keeps its
+  columns (they converge with it: before, its u was scaled about the perimeter
+  start, which slanted every column and drew Salesforce's diagonal moire).
+- **No dither on a tower facade**: its light is chosen in whole ramp steps after
+  the resolve's atmospheric perspective (mirrored in the building shader) and
+  written so it lands exactly on them. Pattern contrast still compresses with
+  fog, by whole steps.
+- **Facade LOD by size on screen, per building and face** (never per pixel, so
+  no line crosses a wall): the size of a game pixel at the building (its axis
+  point nearest the camera, jittered +-12 % per building so no ring shows) and
+  each face's foreshortening decide: columns while a module is >= 3 game px,
+  floors while a floor is >= 4 px, then a flat wall tone. Far away a facade
+  keeps its rhythm as one-pixel lines at 2x / 4x / 8x the module (>= 3-4 px
+  apart, sparser as the pixels grow, none beyond 3 m per pixel or in heavy
+  fog): slab lines and mechanical floors on glass, Salesforce's sunshades,
+  ribbons on bands, slots on granite and precast, fins, window rows on stone.
+  Up high (the marine-layer view) detail needs 1.5x the room and rhythm lines
+  2x the spacing: the whole view drifts by sub-pixels with the bus's bob there,
+  and every one-pixel line that hops a row counts as crawl. The guard follows
+  the view's height (`uHigh`, the marine-layer view's mix), not the fog: after
+  fog went off by default it had been reading `uFogLayer2.w`, which is 0 without
+  `?fog`, so the vista ran without it. A face seen at a
+  grazing angle past the near field keeps only its tone (its floors would be
+  staircased diagonals), and rhythm lines also need 2.5 px on the face itself
+  (`fwidth`; a guard for grazing faces). (The dotted pixels along Salesforce's
+  crown edge in the hero shot are the resolve's dithered halo around its
+  glowing LED screen, not facade lines.)
+- **Hero details the data can't draw**: Salesforce Tower's open crown is the
+  top 52 m of its tapered shaft: white fins (converging) and rings over a
+  softly glowing LED screen; 181 Fremont is dark glass wrapped in diagonal
+  bracing, with a spire prop on its top box; Coit Tower (fluted column, arched
+  lookout, on Telegraph Hill) and the Ferry Building (arcades, nave, the 75 m
+  clock tower on the axis of Market Street, a two-storey bay-side wing out to
+  where the footprints end) are props. The footprints carried the Ferry
+  Building as two rows of 8 m "Victorian" lots (the row splitter cut it) and
+  Coit Tower as a 13 m "Victorian" box (stable id 132089) beside the prop's
+  base (review: Coit was drawn twice). Both are hidden (`HIDDEN`, SF only): not
+  meshed, not building refs (no glint, pick, paint or blast lands on what nobody
+  can see; a landmark doesn't paint, like Sutro, until fix/landmarks makes it
+  paintable), and their 8 m cells of the obstacle grid are rebuilt as the bake
+  builds one, without the lots (`City.setPropObstacles`): the highest ground of
+  a 3 x 3 sample, the prop's boxes and the other buildings' parts (grown 3 m, 6
+  m over 40 m), then the tree crowns. Before, the grid kept the lots: 5,690 of
+  14,303 one-metre samples of the Ferry Building were more than 0.5 m under its
+  roof (the bus could fly into the hall; now 117, at the boxes' corners), and
+  13 of 184 samples well off it stood more than 6 m over the ground (lots
+  nothing drew; now 0). At Coit the stand-in's 98.6 m cells are the hill again
+  (90.3 m), its FLATS neighbor keeps its 89.4 m roof.
+- **181 Fremont's spire rides its tower** (`SpireRide`): a painted building's
+  pop squashes it about its ground (0.18 x 227.9 m = a 41 m drop) and it wobbles
+  forever after, in the vertex shader; the spire prop mirrors that formula for
+  its one point every frame (no allocation). It binds to the streamed tower and
+  stands on `roofAtPart` under it, not on the table's 231.1 m.
+- **Painted towers** escalate like the houses: L1 a stained-glass curtain wall,
+  a rainbow ribbon of the tower's hue and its two neighbors spiralling up in
+  straight diagonal bands about three floors tall (not per-pane confetti: panes
+  are sub-pixel from the chase camera), lead lines on the slabs and mullions;
+  stone, granite and concrete take the body hue, trims white on two of three
+  towers and the complementary on the third, crowns turn gold and Salesforce's
+  LED crown runs the rainbow. L2 hanging gardens: a planter band of flowers on
+  every third floor (a one-pixel green line far away) and roof gardens with
+  bushes along every open setback. L3 Hundertwasser on a skyscraper:
+  floor-tall wavy bands through all six hues over walls and glass alike, vines
+  and flowers spilling down under every setback, trees leaning out over the
+  edges, golden onion domes on the crown's corners. Bushes, trees and domes
+  are baked into the building mesh collapsed on their anchors (no draw call,
+  no shadow, nothing drawn) and grow out in the vertex shader once the flood
+  has passed them at their level. Their triangles come last in the tile's index
+  and stay outside its draw range until a building of the tile grows them
+  (`City.growTo`): the FiDi / Transbay region (1,-2) carries 18,512 growth
+  triangles (12.5 % of its LoD 0 triangles, 55,536 vertices) that cost no vertex
+  work in the G-buffer or the sun pass until then. Bounds grow 26 m (not 6)
+  for meshes with growth (tips reach ~20 m over a tile's highest vertex).
+  Every element is recorded in the mesher (center, reach, grown top with the
+  growth's 12 % overshoot) and the obstacle grid rises over the ones a level
+  reached (each element's reach grown by half an 8 m cell's diagonal, so a bush
+  still lifts its cell): domes stand up to 25.7 m over their tower's top
+  (RoofSprouts' raise stops at ~16.8 m), setback trees and bushes over setbacks
+  nothing raised. In region (1,-2) painted to L3, 862 of its 1,117 elements
+  stood over their cell before; after `growTo`, none.
+- **L2 hanging gardens read on glass** (review: Salesforce and 181 Fremont at L2
+  were 4.6 % / 5.9 % of pixels away from L1, against 24 % / 31 % from L2 to L3):
+  every third floor a white planter rail under a band of green with flowers in
+  the hues opposite the tower's (its stained-glass ribbon is the hue and its two
+  neighbors, and a green line alone vanished into it); far away a two-pixel band,
+  white under green, at least 5 px apart (doubled up to 8x, none beyond 3 m per
+  pixel). Pixels changed from L1 to L2 in the hero tower crops: Salesforce 5.7
+  -> 8.6 %, 181 Fremont 4.9 -> 5.6 % (L2 -> L3 stays ~29-30 %): it reads, but
+  L2 is still the quietest step of the ladder (next: bushes on every crown
+  ledge, so the silhouette changes too).
+- **Masonry is not brown** (review): STONE's mid steps were near-neutral warm
+  greys (L30-50, chroma 2.2-2.7, hue 333 / 4 / 60) that read taupe and rust next
+  to the blue-grey city (#4a4649 alone was 3.0 % of the chase-fidi frame).
+  Now only the top two steps (the sunlit stone) are buff; in shade it is a cool
+  violet-grey (steps 0-5: chroma 3.5-4.5, hue 273-303). (A rose-grey version,
+  chroma 5-6 and hue up to 333, read pink in the chase frame: in the grey city
+  that says "painted".)
+- **The icons stay singular, the grey city grey** (review; a producer call,
+  easy to revert in `weights()` / `styleFor`): granite only 0.05 of FiDi towers
+  >= 120 m and 0.03 of 40-120 m (was 0.2 / 0.1, next to 555 California), and
+  outside the downtown districts blocks under 40 m keep the classic archetype
+  look (the review's cream masonry block by Alamo Square was a 17 m civic
+  building: civic blocks took masonry 3 times in 4). Family buildings in SF:
+  1,100 -> 795 (masonry 578 -> 381, bands 319 -> 218, glass 149 -> 144, granite
+  9 -> 7, fins 23, precast 22).
+- **Measured after the review fixes** (`tools/facade-shots.mjs --perf --seq`,
+  MAIN and this branch at the same frames: chase views now freeze the clock
+  while the city streams; UHD 620, the machine loaded by a bake): shimmer
+  (residual after per-band shift, 1/30 s apart, frames that moved) main ->
+  facade: chase fidi 17.6 -> 15.4 %, soma 14.8 -> 10.8, rincon 19.6 -> 12.1,
+  embarcadero 18.6 -> 14.1, alamo 17.4 -> 15.0, the vista at 250 m 12.9 -> 5.1;
+  hero drift salesforce 9.4 -> 4.7, 181 Fremont 9.4 -> 5.5, 555 California 8.3
+  -> 5.6, skyline 14.2 -> 6.0, Transamerica 16.3 -> 9.6, Millennium 21.6 -> 21.8
+  (unchanged). Draw calls +3.7 per view on average over 18 views (the three
+  props and their sun-pass draws), triangles +1.7 %. GPU time per frame
+  (timer queries, medians of ~100 frames, two interleaved rounds) before ->
+  after the fixes: chase fidi 13.6 / 12.9 -> 11.7 / 12.6 ms, soma 15.1 / 15.0
+  -> 15.1 / 15.1, rincon 16.1 / 15.6 -> 15.4 / 15.2, the vista 15.3 / 14.9 ->
+  14.2 / 13.7. Every capture is on the palette (0.00 % other colors).
+- **SF only**: the icons table and `HIDDEN` are in SF local meters; the mesher
+  and `City` apply them only when the manifest's origin is SF's (`isSfOrigin`,
+  as `heroLandmarks` always did), so another city's buildings in those boxes
+  stay.
+
 ## Rendering
 - **Indexed-color pipeline.** Materials output a ramp index + light level, never
   RGB; the resolve pass picks ramp steps with ordered dithering. Mixing is done
@@ -446,6 +771,24 @@ call), this is what we chose and why.
   sub-pixel remainder applied at upscale; dither anchored to the snapped grid;
   telephoto lens to minimize parallax; shadow map snapped to its texel grid;
   outlines fade with distance.
+- **Roofs on one ramp** (review: "the far field has more contrast than the
+  foreground"): pale gravel, dark membrane and silver paint are light offsets
+  on GREY_LIGHT (-0.06 / -0.34 / 0), sloped roofs -0.36, so the fog compresses
+  the patchwork with distance instead of keeping ROOF_DARK next to GREY_LIGHT
+  (about 90 luminance apart in every fog). Near roofs keep their tones (the
+  verifier's re-fit offsets).
+- **House windows LOD per building** (same review): one glass band per floor
+  beyond 0.6 m per game pixel at the house (~550 m in the 24 degree chase lens on
+  the 390 px frame; it was ~340 m on the old 240 px frame), the wall's average
+  tone beyond 1.15 m (~1,060 m; was ~650 m), jittered per building; trim and
+  belt courses go with the ribbons (they are sub-pixel by then). It replaces
+  the vista-only per-pixel melt. Targets (255-300 m) keep their windows.
+- **Painted Ladies are calm at levels 1-2** (review: "plaid confetti"): bays and
+  gables take the body color, trim only on belts and cornices (no sub-pixel
+  window frames), white trim on two of three houses, stained glass bright in
+  itself with glow 0.12 (under the halo threshold: no dithered dust). Level 3
+  keeps the riot (frames, neighboring-hue bays and gables, wavy bands, every
+  window its own hue, glow 0.38), so escalation reads.
 - The bus does not cast a sun shadow (with a low sun it would land 40 m away);
   it casts a straight-down **drop shadow**, which is the aim reticle.
 - City streaming: 1 km gzip region bundles (17 MB for all of SF), inflated and

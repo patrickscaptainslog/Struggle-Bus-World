@@ -44,6 +44,22 @@ export interface SplatFx {
   bloom(ref: BuildingRef, order: number, total: number, hue: number, level: number, roof: THREE.Vector3): void;
   primary(ref: BuildingRef, hue: number): void;
   hitStop(frames: number): void;
+  /** The breath came down on nothing paintable (open water): a splash, at the moment it lands. */
+  miss?(pos: THREE.Vector3, hue: number): void;
+}
+
+/** Optional aim for Splatter.barf. */
+export interface BarfOpts {
+  /** height of the bus above the impact (m): the blast grows with it */
+  drop?: number;
+  /** the projectile's flight time (s), default config.splat.impactDelay */
+  travel?: number;
+  /** the building to hit (the one that glinted), or null for none; undefined = pick at (x, z) */
+  target?: BuildingRef | null;
+  /** impact height (m; a breath that slams into a tower's wall), default: the roof at the landing point */
+  y?: number;
+  /** land exactly at (x, z) (a wall face), instead of on the target's footprint nearest to it */
+  exact?: boolean;
 }
 
 interface Scheduled {
@@ -57,6 +73,8 @@ interface Scheduled {
   /** dealing: angle around the impact (swirled), preferred hue (-1 = not dealt yet) */
   ang: number;
   pref: number;
+  /** where the breath hit (the primary only) */
+  at0?: THREE.Vector3;
 }
 
 interface PendingBlast {
@@ -76,22 +94,29 @@ export class Splatter {
   private near: Array<{ ref: BuildingRef; d: number }> = [];
   private reachList: Array<{ ref: BuildingRef; d: number; e: number }> = [];
   private fresh: Scheduled[] = [];
+  private misses: Array<{ at: number; pos: THREE.Vector3; hue: number }> = [];
+  private land = { x: 0, z: 0 };
   private t = 0;
   private seed = (Math.random() * 0xffffffff) >>> 0;
+  /** The last barf came down on nothing paintable (the caller refunds part of the belly). */
+  lastMiss = false;
 
   constructor(private city: City, private fx: SplatFx) {}
 
-  /** The building a projectile aimed at (x, z) would hit (snaps, so aim is forgiving). */
-  pick(x: number, z: number): BuildingRef | null {
+  /** How far from the aim point the breath snaps onto a building (m): config.splat.snapRadius, more from
+   * high up (`drop` m above the impact), where a pixel is meters wide (aim stays forgiving). */
+  pickRadius(drop = 0): number {
     const S = config.splat;
-    const city = this.city;
-    const near = city.buildingsNear(x, z, S.snapRadius + 12, this.near);
-    // footprints can overlap (a LiDAR tower over a lot the footprint data still has): the tallest wins
-    let hit: BuildingRef | null = null;
-    for (const n of near) if ((!hit || n.ref.roofY > hit.roofY) && city.contains(n.ref, x, z)) hit = n.ref;
-    if (hit) return hit;
-    for (const n of near) if (n.d <= S.snapRadius) return n.ref;
-    return null;
+    return drop > 40 ? Math.max(S.snapRadius, Math.min(S.snapReachMax, S.snapRadius * (1 + drop / 150))) : S.snapRadius;
+  }
+
+  /**
+   * The building a projectile aimed at (x, z) would hit: the one under the aim point (the tallest of
+   * overlapping footprints), else the nearest by true footprint distance within `radius` (so a tower or a
+   * warehouse is hit wherever you aim into it, and a shot into the street snaps to the nearest wall).
+   */
+  pick(x: number, z: number, radius = config.splat.snapRadius): BuildingRef | null {
+    return this.city.nearestBuilding(x, z, radius, config.splat.minTargetHeight);
   }
 
   /** Blast radius for a barf from `drop` meters above the impact (m). */
@@ -104,35 +129,48 @@ export class Splatter {
    * later. `drop` = meters the bus is above the impact; the blast grows with
    * it (about x2 at 300 m). Returns the game-clock time of the impact.
    */
-  barf(x: number, z: number, opts?: { /** height of the bus above the impact (m) */ drop?: number; /** the projectile's flight time (s), default config.splat.impactDelay */ travel?: number; /** impact height (m): where the breath met a landmark's surface */ y?: number }): number {
+  barf(x: number, z: number, opts?: BarfOpts): number {
     const S = config.splat;
     const city = this.city;
     const paint = city.paint;
-    const primary = this.pick(x, z);
+    const drop = opts?.drop ?? 0;
+    const primary = opts?.target !== undefined ? opts.target : this.pick(x, z, this.pickRadius(drop));
     const tImpact = this.t + (opts?.travel ?? S.impactDelay);
-    const r = blastRadiusFor(opts?.drop ?? 0);
-    // a landmark is hit where the breath met it (on its surface), never at its centroid (the top of a spire)
-    const onLm = primary !== null && city.isLandmark(primary);
-    const cx = primary && !onLm ? primary.cx : x;
-    const cz = primary && !onLm ? primary.cz : z;
+    const r = blastRadiusFor(drop);
+    // where it lands: the aim point if it is on the building, else the building's nearest edge, a few
+    // meters in (a big block is hit where you aimed, not at a centroid 100 m away)
+    const land = primary && !opts?.exact ? city.landingOn(primary, x, z, S.landInset, this.land, S.smallRad) : null;
+    const cx = land ? land.x : x;
+    const cz = land ? land.z : z;
+    const pos = new THREE.Vector3(cx, opts?.y ?? (land && primary ? city.roofAtPart(primary, cx, cz) + 0.5 : city.groundAt(x, z)), cz);
     // the blast's center hue: an escalating primary keeps its color, a fresh one takes the next hue
     const pRec = primary ? paint.get(primary.index) : null;
     const hue = pRec && pRec.level > 0.5 ? wrapHue(pRec.color) : this.nextHue;
-    if (!pRec || pRec.level < 0.5) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
-    this.seed = (Math.imul(this.seed ^ 0x2545f491, 0x9e3779b1) + 0x7f4a7c15) >>> 0;
-    const spec = makeBlastSpec(cx, cz, r, hue, this.seed);
 
-    // every building the blast reaches (footprint, not centroid: a big block
-    // half inside the radius blooms too), nearest edge first, capped
+    // every building the blast reaches (its footprint, not its centroid: a big block half inside the radius
+    // blooms too), nearest edge first, capped: a house by its centroid less its half-size (as the approved
+    // blast), a big footprint by its true edge distance (its centroid may lie 100 m away)
     const cap = Math.min(S.maxBuildingsCap, Math.max(1, Math.round((S.maxBuildings * r) / S.blastRadius)));
-    const near = city.buildingsNear(cx, cz, r + 45, this.near);
+    const near = city.buildingsWithin(cx, cz, r + S.smallRad, this.near);
     const reach = this.reachList;
     reach.length = 0;
     for (const n of near) {
-      const e = n.d - 0.55 * Math.sqrt(n.ref.area);
+      const e = n.ref.rad <= S.smallRad ? Math.hypot(n.ref.cx - cx, n.ref.cz - cz) - 0.55 * Math.sqrt(n.ref.area) : n.d;
       if (e <= r) reach.push({ ref: n.ref, d: n.d, e: n.ref === primary ? -1e9 : e });
     }
+    if (primary && !near.some((n) => n.ref === primary)) reach.push({ ref: primary, d: 0, e: -1e9 });
     reach.sort((a, b) => a.e - b.e);
+    // nothing to paint (open water, no building in reach): a miss. It doesn't fake a hit: no flash, boom
+    // or hit-stop, just a splash when it comes down (the caller refunds part of the belly)
+    this.lastMiss = reach.length === 0 && city.groundAt(x, z) < S.missWaterY;
+    if (this.lastMiss) {
+      this.misses.push({ at: tImpact, pos, hue: this.nextHue });
+      this.fx.geyser([pos.clone()], [this.nextHue]);
+      return tImpact;
+    }
+    if (!pRec || pRec.level < 0.5) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
+    this.seed = (Math.imul(this.seed ^ 0x2545f491, 0x9e3779b1) + 0x7f4a7c15) >>> 0;
+    const spec = makeBlastSpec(cx, cz, r, hue, this.seed);
     const plan: Scheduled[] = [];
     let maxLevel = 1;
     for (const n of reach) {
@@ -145,11 +183,10 @@ export class Splatter {
       const h = was ? wrapHue(paint.get(ref.index).color) : ref === primary ? hue : -1;
       maxLevel = Math.max(maxLevel, level);
       // it pops when the shockwave reaches its near edge
-      plan.push({ at: tImpact + arrival(ref === primary ? 0 : Math.max(0, n.e), r), ref, order: plan.length, total: 0, hue: h, level, keep: was, ang: 0, pref: 0 });
+      plan.push({ at: tImpact + arrival(ref === primary ? 0 : Math.max(0, n.e), r), ref, order: plan.length, total: 0, hue: h, level, keep: was, ang: 0, pref: 0, at0: ref === primary ? pos : undefined });
     }
     this.deal(plan, spec);
     for (const p of plan) p.total = plan.length;
-    const pos = primary ? new THREE.Vector3(cx, (onLm ? (opts?.y ?? city.roofAtPart(primary, x, z)) : primary.roofY) + 0.5, cz) : new THREE.Vector3(x, city.groundAt(x, z), z);
     const ground = city.ground.begin(spec, tImpact);
     this.pending.push({ at: tImpact, plan, ground, blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [] } });
     this.fx.geyser([pos.clone()], [hue]);
@@ -208,6 +245,15 @@ export class Splatter {
   update(dt: number) {
     this.t += dt;
     const S = config.splat;
+    for (let i = 0; i < this.misses.length; ) {
+      const m = this.misses[i];
+      if (this.t < m.at) {
+        i++;
+        continue;
+      }
+      this.misses.splice(i, 1);
+      this.fx.miss?.(m.pos, m.hue);
+    }
     for (let i = 0; i < this.pending.length; ) {
       const p = this.pending[i];
       if (this.t < p.at) {
@@ -229,7 +275,8 @@ export class Splatter {
       const s = this.queue[i];
       if (this.t >= s.at) {
         this.queue.splice(i, 1);
-        this.fx.bloom(s.ref, s.order, s.total, s.hue, s.level, new THREE.Vector3(s.ref.cx, s.ref.roofY, s.ref.cz));
+        // (the primary's sparkles start where the breath hit it)
+        this.fx.bloom(s.ref, s.order, s.total, s.hue, s.level, s.at0 ? s.at0.clone() : new THREE.Vector3(s.ref.cx, s.ref.roofY, s.ref.cz));
         if (s.order === 0) this.fx.primary(s.ref, s.hue);
       } else i++;
     }
