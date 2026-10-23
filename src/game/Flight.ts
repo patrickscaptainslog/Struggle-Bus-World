@@ -216,8 +216,10 @@ export class Flight {
     const belly = F.lightLift * (1 - heavy) - F.fullSag * heavy;
     const clearance = F.clearance + belly;
     const roofFloor = top + clearance;
-    // (a turbo gear's floor sits above the rooftops: the bus rides it like a higher roof)
-    const floor = Math.max(roofFloor, Tb.floor);
+    // the soft ceiling's input: anything overhead (a bridge deck)
+    const over = world.overheadAt ? world.overheadAt(this.x, this.z, this.y) : Infinity;
+    // (a turbo gear's floor sits above the rooftops: the bus rides it like a higher roof, never into a deck)
+    const floor = Math.max(roofFloor, Math.min(Tb.floor, over - 8));
     this.floorY = floor;
     // the vertical spring chases a floor whose rises are eased (a roof edge entering the look-ahead
     // steps it by whole storeys; chased raw, that kicked vy by up to 30 m/s in one frame); it falls at once
@@ -227,7 +229,6 @@ export class Flight {
     const hardFloor = this.obstacleUnder + 3.5;
 
     // soft ceiling, lowered under a bridge deck so a climb never punches through it
-    const over = world.overheadAt ? world.overheadAt(this.x, this.z, this.y) : Infinity;
     const ceil = Math.min(Tb.ceiling > F.ceiling ? Tb.ceiling : F.ceiling, over - 5);
     // the classic floor-following vertical speed (rise early, hang after crests)
     const vyFloor = (v: number) => {

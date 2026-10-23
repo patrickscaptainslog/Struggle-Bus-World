@@ -329,6 +329,11 @@ export class TiltControl {
   private listening = false;
   private readonly waiters: Array<(s: TiltStatus) => void> = [];
   private readonly onOrient = (e: DeviceOrientationEvent) => this.sample(e);
+  // back from another app: the player holds the phone anew; recenter (eased) on the first samples
+  private readonly onVisible = () => {
+    if (!document.hidden && this.status === 'active') this.recenterOnNext = true;
+  };
+  private recenterOnNext = false;
 
   /** Motion sensors might exist here (the API is present). */
   static supported(): boolean {
@@ -409,6 +414,7 @@ export class TiltControl {
       this.core.lastT = -1;
       if (!this.listening) {
         window.addEventListener('deviceorientation', this.onOrient);
+        document.addEventListener('visibilitychange', this.onVisible);
         this.listening = true;
       }
       this.set('waiting');
@@ -424,7 +430,10 @@ export class TiltControl {
 
   stop(): void {
     window.clearTimeout(this.timer);
-    if (this.listening) window.removeEventListener('deviceorientation', this.onOrient);
+    if (this.listening) {
+      window.removeEventListener('deviceorientation', this.onOrient);
+      document.removeEventListener('visibilitychange', this.onVisible);
+    }
     this.listening = false;
     this.core.sx = this.core.sy = 0;
     if (this.status !== 'denied' && this.status !== 'unavailable') this.set('off');
@@ -445,6 +454,10 @@ export class TiltControl {
     if (e.beta === null || e.gamma === null || e.beta === undefined || e.gamma === undefined) return;
     const t = evSeconds(e);
     this.core.feed(e.beta, e.gamma, screenAngle(), t);
+    if (this.recenterOnNext && this.core.calibrated) {
+      this.recenterOnNext = false;
+      this.core.recenter();
+    }
     if (this.status === 'waiting') {
       window.clearTimeout(this.timer);
       this.set('calibrating');
