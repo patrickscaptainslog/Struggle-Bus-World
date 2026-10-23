@@ -437,6 +437,34 @@ async function boot() {
   globals.uFogBank.value = config.fog.openingBank;
   rig.openingPull = 140;
 
+  // prewarm under the fog bank: the programs that would otherwise link mid-play (the street sign and
+  // its sun-pass boxes at the first blast, every rooftop-garden level and its casters at the first
+  // escalation, the far tree canopy) link and get their first real draw now, both passes, in one
+  // frame with everything forced visible (a real render: a compile alone misses the sun pass's variants)
+  {
+    const DUMMY = -7; // gardens in a cell far outside the city: frustum culled for good afterwards
+    sprouts.set(DUMMY, { cx: -60000, cz: -60000, y: -1000, w: 24, d: 24, yaw: 0 }, 0, 3, -100);
+    const tf = new TreeField([{ x: -60000, y: -1000, z: -60000, size: 1, kind: 0 }]);
+    tf.setLod(1);
+    scene.add(tf.object);
+    rig.update(camera, focus, flight, 0);
+    pipeline.focus.copy(focus);
+    const saved: Array<[THREE.Object3D, boolean, boolean]> = [];
+    scene.traverse((o) => {
+      saved.push([o, o.visible, o.frustumCulled]);
+      o.visible = true;
+      o.frustumCulled = false;
+    });
+    pipeline.render(scene);
+    for (const [o, v, f] of saved) {
+      o.visible = v;
+      o.frustumCulled = f;
+    }
+    tf.dispose();
+    sprouts.clear(DUMMY);
+    renderer.info.reset();
+  }
+
   // ---- the loop
   let last = performance.now();
   let simTime = 0;

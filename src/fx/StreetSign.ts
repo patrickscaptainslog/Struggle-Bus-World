@@ -285,9 +285,13 @@ export class StreetSigns {
     this.mesh.renderOrder = 1;
     this.object.add(this.mesh);
 
-    // sun-pass proxy: blade box + pole box per sign (rendered with the depth override only)
+    // sun-pass proxy: blade box + pole box per sign, with its own instanced depth program (the
+    // pipeline's shared override would switch programs between it and the buildings every frame,
+    // and the boot prewarm can only link a program a material owns)
     const boxGeo = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
-    this.shadowMesh = new THREE.InstancedMesh(boxGeo, new THREE.MeshBasicMaterial(), MAX_SIGNS * 2);
+    const shadowMat = new THREE.MeshDepthMaterial();
+    shadowMat.allowOverride = false;
+    this.shadowMesh = new THREE.InstancedMesh(boxGeo, shadowMat, MAX_SIGNS * 2);
     this.shadowMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.shadowMesh.frustumCulled = false;
     this.shadowMesh.layers.set(SHADOW_LAYER);
