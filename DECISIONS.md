@@ -66,68 +66,123 @@ call), this is what we chose and why.
   The **USGS 3DEP point cloud** (CA_SanFrancisco_1_B23, 2023, Entwine Point Tile
   on the public S3 bucket, public domain) fixes that. Its vertical datum is the
   DEM's (ground returns match the 1 m DEM to 0.0 m median), so height above
-  ground is a straight subtraction. It has no building class (only 1, 2, 7, 18),
-  so we keep first returns minus noise.
+  ground is a straight subtraction. It has no building class (only 1, 2, 7, 18).
 - **Fetched only what the bake needs** (`tools/bake/lidar.py`, city-agnostic,
   driven by `"lidar"` in the city json): octree nodes to depth 6 (~2 pts/m²)
-  under every 128 m chunk with a building -> a 2 m max-height raster city-wide;
-  nodes to depth 7 (~9 pts/m²) around footprints >= 25 m and inside two downtown
-  boxes (FiDi, Rincon, Union Square, SoMa, Mission Bay) -> 1 m. 4,099 nodes,
-  153 M points, 1.36 GB, ~7.5 min, cached in `tools/bake/.cache/lidar/`
-  (`$SB_LIDAR_CACHE`); rasters cache as 36 MB of npz. A re-bake re-downloads
-  nothing; the bake now takes ~9-14 min instead of ~5 (the massing pass).
-- **Every building's height** is now its median rooftop above its mean ground
-  (138k of 141.5k corrected; 27.5k moved by more than 3 m; the median house got
-  0.9 m taller: the FEMA heights ran ~14 % low). Median, not max: gables and
-  parapets are drawn by the mesher, antennas and overhanging trees don't count.
-  Footprints that read as bare ground keep their old height (demolished since,
-  or misregistered).
-- **Tiers** for anything >= 25 m (and >= 18 m downtown): the footprint's
-  area-vs-height curve gets an optimal k-piece fit, each piece a flat step
-  (setback, podium, crown, penthouse) or a ramp (a taper), smallest k within
-  3.5 % of the LiDAR volume, at most 6 tiers / 12 parts (towers >= 40 m; mid-rises
-  get at most 3 tiers within 7 %: their roof gardens and HVAC made melted-clay
-  lumps). Outlines are polygonized from the height masks, opened 3 m (no
-  slivers, antennas, parapet rings), simplified 1.2 m, edges within 14° of the
-  building's grid squared up and raster-chamfered corners made square again,
-  clipped to the tier below. 589 buildings got 1,680 parts.
-- **Tapers are a per-part byte, not more steps**: with steps only, Salesforce
-  Tower was a wedding cake; with a taper it is the obelisk. Only towers >= 60 m,
-  runs >= 25 m, >= 20 % area loss, and a ramp that fits at least twice as well as
-  a flat step (facade noise never tapers). A face leaning more than ~35° is
-  drawn as a sloped roof, not a wall: a window grid on a crown read as noise.
-- **Towers (>= 40 m) take their outline from the LiDAR** (footprints are rough,
-  1-3 m offset envelopes; 555 California's serrated plan only exists in the
-  point cloud): within 2.5 m of the footprint, never onto a neighbor, kept only
-  when it agrees with the footprint (IoU >= 0.65); 354 of them. Lower buildings
-  keep their clean footprint edges.
+  under every 128 m chunk with a building -> 2 m rasters city-wide; nodes to
+  depth 7 (~9 pts/m²) around footprints >= 25 m, inside two downtown boxes
+  (FiDi, Rincon, Union Square, SoMa, Mission Bay), and wherever the 2 m raster
+  sees a smooth roof >= 30 m the footprints don't explain, plus neighbors with
+  as much tall LiDAR (`tall_chunks`: 69 chunks, 1550 Mission among them) -> 1 m.
+  4,269 nodes, 1.42 GB (the review fixes added 170 nodes, 38 MB), cached in
+  the shared `tools/bake/.cache/lidar/` (`$SB_LIDAR_CACHE`; a worktree without
+  it warns before refetching). A re-bake downloads nothing.
+- **Two statistics per cell**: the highest first return (`top`: roofs, crowns,
+  outlines, tiers) and the lowest last return (`low`: a pulse that gets through
+  a tree crown ends on the roof under it). Taking every first return made tree
+  crowns into houses (Steiner St lots read 26 m, two Victorians rose as 7-storey
+  towers over the Painted Ladies; 1,354 small residential lots >= 25 m). Now a
+  small residential lot (< 400 m², < 40 m) whose top and low roofs disagree by
+  > 4 m (or whose last returns reach the yard) keeps its footprint height, and
+  one whose roof is no plane rises at most 6 m (18.5k / 185 lots). Small
+  houses that grew > 15 m: 1,192 -> 276. Only for small houses and only
+  below 40 m: glass towers scatter multipath ghost points under themselves, so
+  downtown the lowest return reads as the street, and the rule collapsed Three
+  Embarcadero to its podium when it ran everywhere.
+- **Every building's height** is its median rooftop above its mean ground.
+  Median, not max: gables and parapets are drawn by the mesher, antennas don't
+  count. Footprints that read as bare ground keep their old height (demolished
+  since, or misregistered).
+- **Tower or mid-rise is decided by the top, not the median**
+  (`Massing.top_level`: the highest level that still holds a floor plate of
+  120 m² and 5 % of the footprint). On a podium the median is the podium, so
+  One Rincon Hill, Millennium Tower, 345 California, Spear Tower, the Hilton and
+  Three EC were treated as mid-rises and drawn at 21-64 m; now they stand at
+  their 150-200 m.
+- **Tiers** for anything whose top is >= 25 m (>= 18 m downtown): the area-vs-
+  height curve gets an optimal k-piece fit, each piece a flat step or a ramp,
+  smallest k within 3.5 % of the LiDAR volume (mid-rises: 3 tiers within 7 %).
+  Pieces are polygonized from the height masks, opened 3 m, simplified 1.2 m,
+  squared up within 14°, clipped to the piece below. A piece with the same
+  outline as the one below is not dropped any more (that stopped Millennium's
+  stack at 48 m): the piece below runs on up. No piece is capped below the
+  level it was cut at. A sliver taller than 4x its width (< 8 m) is a fin and
+  goes. The part budget (12) goes by volume: the smallest rooftop boxes go
+  first, never a piece something stands on (a broad podium's HVAC starved the
+  tower above it).
+- **Tapers are a per-part byte, not more steps** (Salesforce Tower, 181
+  Fremont), but only for a compact tower (area >= 90 % of its hull, minimum
+  rectangle <= 1.6:1, >= 60 m), a run >= 40 m that is one shaft narrowing about
+  its own axis (several mid-rises ending at staggered heights shrink the area
+  curve just as smoothly), a ramp that beats a flat step 2x and the best 2-3
+  flat steps by 0.6x (a stepped crown is steps), at most 30 % narrower. Slab
+  towers grew hipped pyramid crowns with pale roof wedges before (Four EC, 555
+  California's "bullet"). If the tier above doesn't sit on a taper's narrowed
+  top, it wasn't a taper. Windows stay on tapered faces: at <= 30 % they read as
+  Salesforce's grid, not as stripes.
+- **Outlines from the LiDAR** for towers whose top is >= 40 m (within 2.5 m of
+  the footprint, off neighbors, IoU >= 0.65); towers >= 120 m keep notched and
+  chamfered corners (0.6 m simplify, no corner squaring, 48 vertices):
+  Embarcadero Center's serrations as far as a 1 m grid resolves them.
+- **Row lots under one roof merge back**: the lot splitter cuts merged
+  residential footprints into ~8 m lots by street frontage; where the LiDAR
+  shows one flat roof >= 20 m over adjacent lots of one source footprint (and
+  that roof stands on those lots, not mostly beyond them), they become one
+  building again with the biggest lot's id (492 lots -> 84 buildings): no
+  more 30 m apartment blocks painting in 8 m stripes.
+- **Slivers of a taller blob stay low**: a footprint whose LiDAR would make it
+  taller than 4x its width while most of that tall blob lies outside it (a lot
+  overlapping a tower the footprints lack, a misregistered sliver) keeps its
+  height and drops out of the coverage mask, so the missing-tower pass claims
+  the whole blob (outlines aren't trimmed off slivers); a sliver >= 60 % inside
+  that tower's final outline then retires into it: hidden inside, it cost
+  triangles and caught the splat meant for the tower (`Splatter.pick` also
+  prefers the tallest of overlapping footprints now). sid 1357 was a 184 m²
+  lot drawn as a 180 m needle beside an empty tower site; 1550 Mission and
+  5th/Howard were 8 m-wide 100-125 m stripes.
 - **Towers missing from the footprints are added** from the 1 m raster
-  (>= 20 m, >= 300 m², compact, not a deck or a ramp; thresholds rise until a
-  tower fused to a transit-center deck separates): 10 citywide, Salesforce
-  Tower and Park Tower among them.
-- **Merged commercial blocks split** along LiDAR height jumps (>= 4 m) into
-  compact pieces (222 blocks -> 573 buildings), so a splat paints one building
-  of the block and the Painted Ladies fan works on them instead of one flat slab.
+  (>= 20 m, >= 300 m², compact, smooth unless >= 50 m; thresholds rise until a
+  tower fused to a deck separates): 86 citywide (was 10). A cell counts as
+  covered by a footprint (grown 2.5 m) only where that footprint's own top
+  explains it (+10 m): a 126 m roof over a lot drawn at 9 m is nobody's. The
+  "sliver of a mapped building" test only applies to thin blobs (< 14 m wide):
+  next to One Rincon, whole towers were rejected as its offset roof. The bridge
+  keep-out is the deck's width (20 m), not 60 m.
+- **Merged commercial blocks split** along LiDAR height jumps (>= 4 m), but
+  never a block with a tower in it: a tower's setbacks are height jumps too,
+  and the split sliced towers into side-by-side stripes.
 - **Paint identity**: every part of a building shares its paint texel and
-  stableId (a splat blooms the whole tower, saved paint stays valid). Existing
-  stableIds never move (all LiDAR work happens after the ranking; new pieces and
-  towers get ids after the old range; `tools/check-stable-ids.mjs` verifies:
-  141,156/141,156 kept, 361 added). The biggest piece of a split block keeps its id.
+  stableId (a splat blooms the whole tower, saved paint stays valid). Footprint
+  buildings keep their rank ids; a merged building keeps one lot's id, the other
+  lots' ids retire with them (their old footprint lies inside it). Buildings
+  only a LiDAR bake has get ids >= 2^30 derived from what they are, never from
+  a counter: split pieces 2^30 + parent * 64 + a hash of their 8 m-grid
+  position, LiDAR-only towers 3 * 2^30 + the same hash. A threshold change no
+  longer reshuffles every later id (two harness runs with shifted thresholds:
+  106 LiDAR ids in both, none on another building). `tools/check-stable-ids.mjs` checks either
+  kind of re-bake.
 - **The color floods from the top of the whole tower** (not from each tier's
   roof), and the pop squashes about the tower's ground, so tiers never crack
   apart. Street furniture (stoops, bays, belt courses, gables, chimneys) only on
   tier 0; rooftop clutter only where a roof is open to the sky; no parapet where
   the tier above rises flush from the edge (it would z-fight).
-- **Cost**: draw calls unchanged (the parts live in the same per-tile meshes);
-  the FiDi chase view goes from ~636k to ~780k triangles (+23 %: 327 tiered
-  towers in the five downtown regions cost ~126k), the Alamo Square regression
-  view from 1.10M to 1.17M (houses got taller, so more walls get a second row of
-  wobble quads). CPU work per frame is unchanged within SwiftShader noise.
-  Data: public/city/sf 19.7 MB (was 19.2), largest region 198 KB, far.bin
-  394 KB (boxes per part).
-- **Landmark props are not doubled**: the footprints under Sutro Tower (94 m)
-  and the Transamerica Pyramid (97 m) were extruded inside the props; within a
-  landmark's `clearRadius` footprints are capped at 8 m and never LiDAR'd, and
+- **Obstacles and the far skyline**: the 8 m obstacle grid takes every part at
+  its own height, tall parts (> 40 m) grown 6 m (half a cell diagonal: a cell
+  that only grazes a 300 m wall must hold it). The far skyline draws one box per
+  building >= 20 m (up to its main mass), and a box per big setback (>= 15 % of
+  the footprint, at most 4) only for towers >= 60 m: 2,641 boxes (main 2,270);
+  per-part boxes for every building over 16 m had tripled it to 7k
+  always-drawn boxes.
+- **Cost** (paired runs against main, SwiftShader so workMs is noisy): FiDi
+  chase view 130 vs 132 draw calls, 742k vs 636k triangles (+17 %; the first
+  LiDAR bake was ~790k), workMs 2.8 / 3.2 vs 3.0 / 3.5; SoMa chase 759k (main
+  653k), Rincon chase 632k (main 510k); the Alamo Square regression view
+  1.12M vs 1.09M triangles (+3 %; the first LiDAR bake +7 % with tree-crown
+  houses and 7k far boxes). Draw calls never change (parts live in the
+  per-tile meshes). Data: public/city/sf 19.75 MB (main 19.73), largest region
+  198 KB, far.bin 299 KB (main 288). Bake ~14 min.
+- **Landmark props are not doubled**: within a landmark's `clearRadius`
+  footprints are capped at 8 m and never LiDAR'd (Sutro, Transamerica), and
   LiDAR-only detection keeps away from landmarks and bridge decks.
 
 ## Rendering

@@ -59,16 +59,20 @@ them into gzip'd 1 km regions. Layouts live in `src/world/tiles.ts`.
 - `City` exposes one `BuildingRef` per building (`local` = ground tier,
   `parts`, `top` = highest part; `roofY` = top of the whole tower):
   `buildingsNear`, `contains`, `frontOf` (ground tier) and `roofRect` (top tier)
-  never see individual parts. The aim glint, pop, wobble and color flood work on
-  the paint index / whole-building center, ground and top, so towers move and
-  paint as one.
-- The flight obstacle grid (`City.obstacleAt`) and the far skyline boxes are
-  baked per part, so they follow the real tiered heights.
-- **stableIds** key saved paint. They are ranks of the source footprints and
-  must never move to another building: LiDAR work happens after ranking, and
-  buildings new to a bake (split-off pieces, LiDAR-only towers) get ids after
-  the old range. `node tools/check-stable-ids.mjs <old city dir> <new city dir>`
-  checks a re-bake.
+  never see individual parts; `roofAtPart(ref, x, z)` is the roof of the part
+  over a point (a podium, not the tower above it). The aim glint, pop, wobble
+  and color flood work on the paint index / whole-building center, ground and
+  top, so towers move and paint as one.
+- The flight obstacle grid (`City.obstacleAt`) is baked per part (tall parts
+  grown by half a cell diagonal), so it follows the real tiered heights; the far
+  skyline has one box per building >= 20 m, a few per stepped tower >= 60 m.
+- **stableIds** key saved paint. Footprint buildings keep the rank of their
+  source footprint (LiDAR work happens after ranking); row lots merged back into
+  one building keep one lot's id and retire the others. Buildings only a LiDAR
+  bake has get ids >= 2^30 derived from what they are (split pieces: parent id
+  and rank; LiDAR-only towers: a hash of their position), so re-bakes agree.
+  `node tools/check-stable-ids.mjs <old city dir> <new city dir>` checks a
+  re-bake (also LiDAR bake against LiDAR bake).
 
 ## Tunables
 Expose module constants via `registerTunables('Name', obj, ranges?)` from
