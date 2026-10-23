@@ -193,7 +193,7 @@ export const config = {
     /** Where the projectile lands: meters ahead of the bus at rest, plus seconds of travel at speed. */
     range: 72,
     rangePerSpeed: 0.5,
-    /** Time from tap to first impact (s), at the short range. */
+    /** Time from tap to first impact (s), at the short range (the inhale included). */
     impactDelay: 0.42,
     /** From altitude the breath flies along a forward-down ray this many degrees below the heading (deg)... */
     aimDown: 20,
@@ -203,8 +203,38 @@ export const config = {
     maxRange: 1600,
     /** From up high a shot that would miss snaps to the nearest roof within snapRadius * (1 + drop / 150), up to this (m). */
     snapReachMax: 120,
-    /** Search radius around the aim point for the target building (m). */
+    /** Search radius around the aim point for the target building (m): true distance to its footprint. */
     snapRadius: 28,
+    /** Buildings lower than this are never the target (sheds, slivers) (m). */
+    minTargetHeight: 2.5,
+    /** A shot that snaps onto a building lands on its nearest edge this far in (m). */
+    landInset: 4,
+    /** Aim hold: the glinting building stays the target while the aim point is within this of it (m; more from high up). */
+    aimHold: 10,
+    /** ...and while it is within aimHold of the last aimHoldAlong m of the line of fire (m): it doesn't strobe at speed. */
+    aimHoldAlong: 40,
+    /** A building in the line of fire takes the shot if it stands this far above the jet's path (m), unless it is
+     *  within wallSkip of where the jet lands (the jet is as wide as a house there) (m). */
+    wallClear: 1.5,
+    wallSkip: 8,
+    /** Aim latch: lifting the thumb (or touching down) to tap freezes the glinting target this long (s), while it
+     *  stays within the pick radius or this cone of the line of fire (lateral m per m of range). */
+    aimLatch: 0.5,
+    aimLatchCone: 0.2,
+    /** Aim glint: light lift on the target (0.125 = one ramp step), the sweep's extra lift, sweeps per second. */
+    glintLift: 0.13,
+    glintSweep: 0.2,
+    glintRate: 2,
+    /** Inhale: the bus squashes and gulps on the tap frame; the jet leaves this much later (s, inside impactDelay). */
+    inhale: 0.09,
+    /** A breath that comes down on nothing (open water, under this height) is a miss; it refunds this much belly. */
+    missWaterY: 0.8,
+    missRefund: 0.5,
+    /** Steering while breathing: x this much until the impact (the dragon plants itself), easing back over breathSteerEase s. */
+    breathSteer: 0.5,
+    breathSteerEase: 0.2,
+    /** Authored rear-up while breathing (rad, nose up), its rise and its settle. */
+    rearUp: 0.2,
     /** Blast radius around the impact with no drop (m): every building inside blooms. */
     blastRadius: 60,
     /** Radius multiplier at 300 m of drop (bus height above the impact); grows linearly with drop. */
