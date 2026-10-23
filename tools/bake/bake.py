@@ -870,6 +870,7 @@ class Massing:
 
 
 NEW_SPLIT_BASE = 1 << 30   # stableIds of buildings only a LiDAR bake has: pieces split off a block...
+SPLIT_SLOTS = 64           # ...(64 ids per parent footprint)...
 NEW_LIDAR_BASE = 3 << 30   # ...and towers the footprint data lacks (both far above any footprint rank)
 
 
@@ -892,8 +893,8 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
       5. tall ones (by their top, not their median roof) get their real outline and stacked tiers
     Stable ids: existing buildings keep theirs; a merged building keeps its biggest lot's (the other
     lots' ids retire with them). New ids derive from what the building is, never from a counter, so a
-    re-bake gives the same building the same id: split pieces NEW_SPLIT_BASE + parent * 16 + rank
-    (by position), LiDAR-only towers NEW_LIDAR_BASE + a hash of their position (8 m grid)."""
+    re-bake gives the same building the same id: split pieces NEW_SPLIT_BASE + parent * 64 + a hash of
+    their position, LiDAR-only towers NEW_LIDAR_BASE + a hash of their position (8 m grid)."""
     from rasterio.features import rasterize
     P = massing.P
     gs = lambda p: ground_stats_at(dem_at, p)
@@ -1003,11 +1004,18 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
         nsplit += 1
         pieces.sort(key=lambda q: -q.area)
         b['poly'] = orient(pieces[0])
-        for rank, q in enumerate(sorted(pieces[1:], key=lambda q: (q.centroid.y, q.centroid.x)), 1):
+        # each piece's slot is a hash of where it is (8 m grid), so a piece keeps its id when another
+        # piece of the block comes or goes (a rank would hand it to the next one over)
+        slots = set()
+        for hk, _, _, q in sorted((hash32(int(round(q.centroid.x / 8.0)), int(round(q.centroid.y / 8.0))) % SPLIT_SLOTS, q.centroid.y, q.centroid.x, q)
+                                  for q in pieces[1:]):
+            while hk in slots:
+                hk = (hk + 1) % SPLIT_SLOTS
+            slots.add(hk)
             nb = dict(b)
             nb['poly'] = orient(q)
-            nb['stable'] = NEW_SPLIT_BASE + b['stable'] * 16 + rank
-            nb['srckey'] = (b['srckey'][0], b['srckey'][1], rank)
+            nb['stable'] = NEW_SPLIT_BASE + b['stable'] * SPLIT_SLOTS + hk
+            nb['srckey'] = (b['srckey'][0], b['srckey'][1], hk + 1)
             extra.append(nb)
     buildings += extra
     log(f'lidar: split {nsplit} merged blocks into {nsplit + len(extra)} buildings')
@@ -1077,6 +1085,19 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
         _, gmean = gs(q)
         buildings.append({'poly': q, 'h': max(3.0, roof - gmean), 'occ': 'Commercial', 'prim': '', 'srckey': (-1, k),
                           'front_edge_hint': None, 'stable': sid, 'parts': None, 'lidarOnly': True, 'topH': roof - gmean})
+    # slivers standing mostly (60 %) inside a tower they were a sliver of retire into it, like merged lots: hidden
+    # inside it they'd only cost triangles and catch the splat meant for the tower
+    if new:
+        newp = [q for q, _ in new]
+        tree_new = STRtree(newp)
+        retired = set()
+        for b in buildings:
+            if b.get('sliver'):
+                p = b['poly']
+                if any(newp[i].intersection(p).area >= 0.6 * p.area for i in tree_new.query(p)):
+                    retired.add(id(b))
+        buildings = [b for b in buildings if id(b) not in retired]
+        log(f'lidar: {len(new)} towers the footprints miss added, {len(retired)} slivers inside them retired')
 
     # 5) tall buildings: real outline + tiers (decided by their top: a slim tower on a broad podium is a tower)
     tree_n = STRtree([b['poly'] for b in buildings])
