@@ -155,9 +155,8 @@ async function boot() {
       if (!obj) continue;
       obj.position.set(lm.x, lm.y, lm.z);
       scene.add(obj);
-      // a first-class paintable building (its paint saved under 'lm:<kind>'); saved paint thins the fog again
-      const ref = paintLandmark(city, `lm:${lm.kind}`, obj, { name: LANDMARK_NAMES[lm.kind] });
-      if (ref && city.paint.level(ref.index) > 0.5) bumpPaint(ref.cx, ref.cz, 40);
+      // a first-class paintable building (its paint saved under 'lm:<kind>')
+      paintLandmark(city, `lm:${lm.kind}`, obj, { name: LANDMARK_NAMES[lm.kind] });
     }
   }
 
@@ -235,6 +234,8 @@ async function boot() {
       }
     pdTex.needsUpdate = true;
   }
+  // saved landmark paint thins the fog again (landmarks never stream in with a tile)
+  for (const r of city.landmarkRefs()) if (city.paint.level(r.index) > 0.5) bumpPaint(r.cx, r.cz, 40);
   /** A landmark blooms: its sparkles hug its shape, its garden grows in its own shader (no rooftop sprouts on a spire). */
   const landmarkBloom = (ref: BuildingRef, hue: number, level: number): boolean => {
     const slices = landmarkSparkles(ref);

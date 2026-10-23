@@ -220,7 +220,7 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
       o.lo = lo + 0.12;
       o.glow = 0.16;
     } else {
-      if (pat.y > (tb - 0.35) * 24.0) discard;
+      if (pat.y > (tb - 0.35) * 60.0) discard;
       o.ramp = lmHue(vPaint.r + floor(pat.x));
       o.lo = lo + 0.1;
     }
@@ -256,7 +256,9 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
       float wave = 0.3 * bh * sin(u * 0.19 + seed) + 0.17 * bh * sin(u * 0.47 + seed * 3.0) + 0.12 * bh * sin(y * 0.05 + u * 0.08);
       o.ramp = lmHue(hue + floor((y + wave) / bh));
     }
-    // window bands: stained glass, one accent hue (levels 1-2), every window its own (level 3)
+    // window bands: a deeper step of the wall, a scatter of windows lit in stained glass (one accent hue at
+    // levels 1-2, like the Painted Ladies'; at level 3 every window lit, each its own hue). A whole band of
+    // accent glass striped the tower like a candy cane.
     if (type == 3.0 && !lit) {
       float fy = fract(y / 3.95);
       float row = step(0.42, fy) * step(fy, 0.8);
@@ -264,8 +266,9 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
       float fx = fract(cx);
       float colm = step(0.18, fx) * step(fx, 0.82);
       vec2 cell = vec2(floor(cx), floor(y / 3.95));
+      bool on = L >= 3.0 || lmH21(cell + seed * 2.3 + 0.7) > 0.62;
       // (they melt into the wall window by window as they shrink under ~2 pixels: no visible ring)
-      if (row > 0.5 && mpp < 0.75 * (0.75 + 0.5 * lmH21(cell + 5.3)) && (colm > 0.5 || mpp > 0.3)) {
+      if (on && row > 0.5 && mpp < 0.75 * (0.75 + 0.5 * lmH21(cell + 5.3)) && (colm > 0.5 || mpp > 0.3)) {
         float acc = mod(seed, 2.0) < 1.0 ? 2.0 : 4.0;
         float wh = L >= 3.0 ? floor(lmH21(cell + seed * 1.7) * 6.0) : 0.0;
         o.ramp = lmHue(hue + acc + wh);
@@ -369,13 +372,13 @@ export function paintLandmark(city: City, key: string, obj: THREE.Object3D, opts
     if (!m.isMesh) return;
     const pos = m.geometry.getAttribute('position');
     const idx = m.geometry.getIndex();
-    const base = pts.length / 3;
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+    // (as drawn now: the level-3 accents past the draw range are no surface to land on)
+    const n = Math.min(idx ? idx.count : pos.count, m.geometry.drawRange.count);
+    for (let i = 0; i < n; i++) {
+      v.fromBufferAttribute(pos, idx ? idx.getX(i) : i).applyMatrix4(m.matrixWorld);
+      tris.push(pts.length / 3);
       pts.push(v.x, v.y, v.z);
     }
-    const n = idx ? idx.count : pos.count;
-    for (let i = 0; i < n; i++) tris.push(base + (idx ? idx.getX(i) : i));
   });
   if (pts.length < 9) return null;
   let top = -Infinity;
