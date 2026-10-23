@@ -544,6 +544,8 @@ ${GLSL_LAYER_TOP}
 
 const float RAMP_FOG = ${Ramp.FOG}.0;
 const float RAMP_SKY_WARM = ${Ramp.SKY_WARM}.0;
+const float RAMP_BUS_YELLOW = ${Ramp.BUS_YELLOW}.0;
+const float RAMP_BUS_BLACK = ${Ramp.BUS_BLACK}.0;
 
 float bayer4(ivec2 p) {
   int x = p.x & 3; int y = p.y & 3;
@@ -717,13 +719,14 @@ void main() {
   if (outlineable && fade > 0.0) {
     vec3 n = octDecode(a.rg);
     ivec2 off[4] = ivec2[4](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
+    bool sil[4] = bool[4](false, false, false, false);
     for (int i = 0; i < 4; i++) {
       ivec2 q = p + off[i];
       float zq = texelFetch(tDepth, q, 0).r;
       float dq = zq >= 0.99999 ? 1e9 : linDepth(zq);
       vec4 aq = texelFetch(tAux, q, 0);
       // silhouette: neighbor is much farther -> this pixel is the near edge
-      if (dq - depth > depth * uOutline.x) edgeDark = 1.0;
+      if (dq - depth > depth * uOutline.x) { edgeDark = 1.0; sil[i] = true; }
       else if (abs(dq - depth) < depth * uOutline.x) {
         vec3 nq = octDecode(aq.rg);
         float nd = dot(n, nq);
@@ -736,6 +739,9 @@ void main() {
         if (abs(aq.b - a.b) > 0.001 && aq.a > 0.75) edgeDark = max(edgeDark, 0.5);
       }
     }
+    // a one-pixel feature with background on both sides (a cable, a suspender, a pole) keeps its own
+    // color: darkening only some steps of a thin diagonal beaded it into dots
+    if ((sil[0] && sil[1]) || (sil[2] && sil[3])) edgeDark = 0.0;
   }
   edgeDark *= fade;
   crease *= fade * uOutline.y;
@@ -776,6 +782,11 @@ void main() {
   if (edgeDark > 0.75) step = max(step - 2.0, 0.0);
   else if (edgeDark > 0.25) step = max(step - 1.0, 0.0);
   else if (crease > 0.5) step = min(step + 1.0, 7.0);
+  // the hero always separates: its silhouette is a plum ink line inside its own warm ramp (the bus's
+  // ramps are its own), dark against every paint hue and still warm against the grey
+  bool busY = abs(ramp - RAMP_BUS_YELLOW) < 0.5;
+  bool heroEdge = edgeDark > 0.75 && (busY || abs(ramp - RAMP_BUS_BLACK) < 0.5);
+  if (heroEdge) step = busY ? 1.0 : min(step, 1.0);
   float bandW = 0.06;
   if (uFogLayer2.w > 0.001) {
     // seen from high up the fog changes slowly across the screen, so a fixed
@@ -807,7 +818,7 @@ void main() {
   // this surface's own ramp, or (close to the source) the glowing hue's tint.
   vec3 halo = texture(tGlow, vUv).rgb;
   float hAmt = max(halo.r, max(halo.g, halo.b));
-  if (glow < 0.05 && hAmt > 0.11 && hAmt * 1.1 > d2) {
+  if (!heroEdge && glow < 0.05 && hAmt > 0.11 && hAmt * 1.1 > d2) {
     if (hAmt > 0.42 && hAmt > d * 1.25) col = haloTint(halo / hAmt);
     else { oStep = min(step + 2.0, 7.0); col = pal(ramp, oStep); }
   }
