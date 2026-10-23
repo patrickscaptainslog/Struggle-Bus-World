@@ -844,7 +844,9 @@ void main() {
   // not a jump to pale dots; deeper in, the shapes flatten into the silhouettes a little darker than
   // the sky. (Up high the old contour stays: calm, and the fog sea's lit top.)
   float kMatch = clamp((dot(col, vec3(0.299, 0.587, 0.114)) - 0.3955) / 0.071, 0.0, 7.0) / 7.0;
-  silL = mix(kMatch, silL, max(smoothstep(0.62, 0.82, fog), max(uCalm, uFogLayer2.w)));
+  // (flat by fog 0.76, under the fog ceiling of tall far shapes: a tower standing out of the fog is a pale
+  // shape, never its one-pixel window grid, which crawled with parallax)
+  silL = mix(kMatch, silL, max(smoothstep(0.62, 0.76, fog), max(uCalm, uFogLayer2.w)));
   float oRamp = ramp;
   float oStep = step;
 
