@@ -53,31 +53,49 @@ absolute paths). LiDAR (`tools/bake/lidar.py`) downloads itself (~1.4 GB, cached
 `tools/bake/.cache/lidar`). Then `python tools/bake/bake.py sf && python tools/bake/pack.py sf`
 (~15 min). Never change stable building ids casually: saved paint is keyed by them.
 
-## Branches (GitHub: patrickscaptainslog/Struggle-Bus-World)
-| Branch | State | Notes |
-|---|---|---|
-| `main` | integrated + published (preview v6) | blast, altitude, LiDAR towers, feel polish, 390 px, fog off |
-| `feat/facade` | in flight (cloud) | tower facade families, bases/crowns, distance LOD, Coit / Ferry Building / 181 Fremont props, painted towers |
-| `fix/landmarks` | in flight (cloud) | landmark props become paintable buildings (Transamerica, Sutro); facade's new props adopt it with one call each |
-| `polish/look` | in flight (cloud) | camera sky band, sign placement, hero silhouette, GGB orange, water, tree shimmer; a fixer is finishing review issues |
-| `feat/controls` | in flight (cloud) | tilt-to-fly default on phones (touch fallback), turbo gears G0-G3 (G2/G3 locked until world travel), `src/ui/Hud.ts` |
-| `feat/supersplat` | in flight (cloud) | hold-to-charge (10 s) -> firehose (~4 s) -> 60 s cooldown, `SuperMeter.ts` |
-| `feat/osm` | PAUSED (WIP commit) | OpenStreetMap via Overture Maps: real footprints, parts, roofs, streets/parks/water, names, OSM-based ids, Amsterdam test city. Resume here. |
-| `polish/perf` | PAUSED (WIP commit) | shadow caster proxy, prewarm, far-terrain culling, streaming, party walls. Resume here. |
+## Branches (GitHub: patrickscaptainslog/Struggle-Bus-World) — state when the cloud session stopped (2026-10-23 20:40 UTC)
+The cloud session has STOPPED all its work. Every branch below is pushed; unfinished
+work is in a final "WIP: paused ..." commit. **This desktop session now owns everything,
+including merging into `main`.** None of the branches below has been merged yet.
+
+| Branch | State | What's in it | Next step |
+|---|---|---|---|
+| `main` | preview v6 | blast, altitude/yoke, LiDAR towers, feel polish, 390 px frame, fog off, snappier springs, design docs | the base for everything |
+| `feat/facade` | built, NOT reviewed (12 commits) | facade families + style table + icon overrides (`src/world/towerStyles.ts`), bases/crowns, facade LOD by size on screen, painted towers (L2 hanging gardens, L3 bands), Coit Tower, Ferry Building, 181 Fremont spire (`props/landmarks.ts`), `tools/facade-shots.mjs` | review it (shots), fix, merge FIRST |
+| `fix/landmarks` | built, NOT reviewed (10 commits) | `City.addLandmarkBuilding`, paint reserve + string save keys, landmark paint (flood/L1-L3), glint, Transamerica + Sutro paintable | merge after facade, then make Coit / Ferry Building / 181 Fremont adopt it (one call each; see its ARCHITECTURE notes) |
+| `polish/look` | reviewed (failed), fixes ~done (30 commits, main already merged in) | sky band, sign beside the blast, hero ink edge + headlight, drop shadow, puffs, GGB International Orange, water, tree crowns, `tools/look.mjs` + `lookstat.py` | re-check the review issues (scratchpad copy lost; the issues were: tree-crown shimmer, sky/tree churn at 120 m, drop shadow on paint, L3 sign overlap, headlight vs bloom, fog fragments, top-edge stripe), then merge |
+| `feat/controls` | built, NOT reviewed (15 commits) | tilt-to-fly default on phones (`Tilt.ts`, fused attitude, recenter), touch fallback, keyboard, hold-to-charge + turbo in `Input.ts` (the INPUT CONTRACT), turbo gears G0-G3 (G2/G3 locked behind `config.turbo.worldTravel`), turbo FX + audio, `src/ui/Hud.ts`, `tools/controls.mjs` | review, merge before supersplat |
+| `feat/supersplat` | built, mid-QA (8 commits) | hold-to-charge (10 s), mega blast on early release, firehose (~4 s), 60 s cooldown, `SuperSplat.ts`/`SuperFx.ts`/`SuperMeter.ts`/`superSfx.ts`, `tools/supersplat.mjs` | finish QA, merge after controls: controls' gesture replaces supersplat's minimal hold; mount SuperMeter in `hud.slot('super')` |
+| `polish/perf` | paused mid-task (12 commits) | sun-pass caster proxy, 8 m wall columns, hidden party walls, depth-only sun pass, culled far chunks, budgeted streaming, prewarm, `tools/perf-pass.mjs` | finish + measure, merge after the above |
+| `feat/stages` | empty (just created from main) | — | build the stage engine per `docs/specs/STAGES.md` (its "Producer decisions" section) |
+| `feat/osm` | paused mid-task (WIP) | Overture/OSM extract (`tools/bake/overture.py`, `osm.py`, `citydata.py`), conflation draft in `bake.py`, Amsterdam config, `src/ui/Credits.ts` | resume; needs the bake inputs (see "City data pipeline") |
 
 `feat/controls` and `feat/supersplat` share an INPUT CONTRACT (`onTap`,
 `onChargeStart`, `onChargeEnd(heldSeconds, cancelled)`, `state.chargeHeld`,
 `onTurbo(dir)`, `state.turboHeld`, `input.mode`): see their DECISIONS/ARCHITECTURE
 notes when merging.
 
-## Who owns what (avoid two sessions fighting)
-- Until the cloud session says the in-flight branches are merged, it alone merges into
-  `main` and pushes `main`. Work on your own branch (e.g. `local/<topic>`) and push it;
-  say in its first commit what it is for.
-- Safe to take over now on this machine: `feat/osm` and `polish/perf` (paused, nobody
-  else touches them). Merge `main` into them first.
-- Fast, GPU-backed visual QA of any branch is always welcome: write results to
-  `shots/local/...` and a short markdown report next to them.
+### Suggested order
+1. Merge facade -> landmarks (+ wire the 3 new props) -> look -> controls -> supersplat -> perf,
+   with a quick GPU screenshot check after each (`node tools/shots.mjs`), publishing a
+   Vercel deploy as you go.
+2. Build the stage engine (`feat/stages`), then MAGIC-SPEC's effects in its three
+   workstreams (WS-1 light + music, WS-2 ribbons/pillars/birds/fireworks/waterfalls, WS-3
+   growth kit + director + Wonders), Super Rainbow's five stages first.
+3. Resume `feat/osm`, then world travel (`docs/specs/WORLD-TRAVEL.md`).
+
+## Design docs (all in `docs/specs/`)
+- `MAGIC-SPEC.md` — "wild paint": 14 effects, one visual language, escalation ladder, perf
+  roll-up, build order, three workstreams with file ownership.
+- `STAGES.md` — five stages per 128 m area per faction. **Producer decisions at the top
+  override the rest:** +1 stage per separate blast (5 s climb cooldown), firehose +1 per area
+  it lingers on; Wonders are tougher (stages 5 and 4 take two rival hits each, 7 to take a
+  Wonder); Cloud Nine removed, **The Elderwood** (forest / elder / nymph sprites) added;
+  Super Rainbow's Wonder is the **Wellspring** (220 m rainbow geyser), the Elderwood's is the
+  **Elder Heartwood** (pending the producer's final OK on that swap).
+- `WORLD-TRAVEL.md` — turbo SF -> Tokyo: floating origin + UTM frames, curvature in the vertex
+  shader, analytic ocean in the resolve pass, city streaming, Tokyo from Overture, phased plan.
+- `magic/concept-*.md` — the three art directors' raw concepts.
 
 ## Rules that keep it beautiful and fast
 - Materials write a palette ramp + light + fog + glow through `sbWrite`; never free RGB
