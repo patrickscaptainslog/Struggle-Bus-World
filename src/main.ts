@@ -18,6 +18,7 @@ import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { Tuner, applySavedTuning } from './ui/Tuner';
 import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles } from './world/Bridges';
+import { heroLandmarks } from './world/props/landmarks';
 import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
 
@@ -153,6 +154,11 @@ async function boot() {
       obj.position.set(lm.x, lm.y, lm.z);
       scene.add(obj);
     }
+  }
+  // the hand-built heroes the footprints can't draw: Coit Tower, the Ferry Building, 181 Fremont's spire
+  for (const h of heroLandmarks(manifest.origin)) {
+    scene.add(h.object);
+    city.addObstacles(h.posts);
   }
 
   // ---- the hero

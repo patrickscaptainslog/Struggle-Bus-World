@@ -2,18 +2,27 @@ import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT, SHADOW_LAYER } from '../../render/materials';
 import { Ramp } from '../../render/palette';
 import { tuneUniform } from './common';
+import { HERO_PROPS, SF_ORIGIN, llToLocal, type HeroProp } from '../towerStyles';
+import type { ObstaclePost } from '../Bridges';
 
-// Two hand-built landmarks, chunky enough to read as silhouettes from 1-4 km
+// Hand-built landmarks, chunky enough to read as silhouettes from 1-4 km
 // through the fog, with detail that only resolves up close: Sutro Tower's
-// lattice legs (see-through when the bus is near) and the Transamerica
-// Pyramid's floor-by-floor window bands. Detail fades with the on-screen size
-// of a meter (fwidth), so far away nothing crawls.
+// lattice legs (see-through when the bus is near), the Transamerica
+// Pyramid's floor-by-floor window bands, Coit Tower's fluted column and its
+// arched lookout, the Ferry Building's arcades and clock tower, 181
+// Fremont's spire. Detail fades with the on-screen size of a meter (fwidth),
+// so far away nothing crawls.
 
 const enum Pat {
   PLAIN = 0,
   BANDS = 1, // Sutro's red/white paint as light/dark grey bands
   LATTICE = 2, // see-through truss up close (+ bands)
   WINDOWS = 3, // floor bands + window columns
+  FLUTES = 4, // Coit Tower's fluted shaft: a shallow dark groove down each facet
+  COIT_TOP = 5, // Coit's lookout: one tall arched opening per facet
+  FERRY = 6, // the Ferry Building's facade: a ground-floor arcade, arched windows above
+  LANTERN = 7, // the clock tower's open stages: arched openings
+  CLOCK = 8, // a clock face
 }
 
 class LandmarkKit {
@@ -85,6 +94,28 @@ class LandmarkKit {
       this.quad(P(ax, az, y0, h0, hz0), P(bx, bz, y0, h0, hz0), P(bx, bz, y1, h1, hz1), P(ax, az, y1, h1, hz1), ramp, lo, type, [0, y0, 1, y0, 1, y1, 0, y1], [w0, w0, w1, w1]);
     }
     if (cap) this.quad(P(-1, -1, y1, h1, hz1), P(-1, 1, y1, h1, hz1), P(1, 1, y1, h1, hz1), P(1, -1, y1, h1, hz1), ramp, lo, Pat.PLAIN, [0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0]);
+  }
+
+  /** Regular n-gon prism (frustum) about x,z: radius r0 at y0 to r1 at y1, `rot` turns it. */
+  ngon(cx: number, cz: number, y0: number, r0: number, y1: number, r1: number, sides: number, ramp: number, lo: number, type: number, cap = false, rot = 0) {
+    const P = (k: number, r: number, y: number) => {
+      const a = rot + (k / sides) * Math.PI * 2;
+      return new THREE.Vector3(cx + Math.cos(a) * r, y, cz - Math.sin(a) * r);
+    };
+    const w0 = 2 * r0 * Math.sin(Math.PI / sides), w1 = 2 * r1 * Math.sin(Math.PI / sides);
+    for (let k = 0; k < sides; k++) {
+      this.quad(P(k, r0, y0), P(k + 1, r0, y0), P(k + 1, r1, y1), P(k, r1, y1), ramp, lo, type, [0, y0, 1, y0, 1, y1, 0, y1], [w0, w0, w1, w1]);
+    }
+    if (cap) {
+      const c = new THREE.Vector3(cx, y1, cz);
+      for (let k = 0; k < sides; k++) this.tri(c, P(k, r1, y1), P(k + 1, r1, y1), ramp, lo);
+    }
+  }
+
+  /** Plain triangle a-b-c (counter-clockwise seen from outside). */
+  tri(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, ramp: number, lo: number) {
+    const n = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).normalize();
+    for (const p of [a, b, c]) this.vert(p, n, ramp, lo, 0, 0, Pat.PLAIN, 0);
   }
 
   /** Box from x0..x1, y0..y1, z0..z1. */
@@ -196,6 +227,44 @@ function landmarkMaterial(): THREE.ShaderMaterial {
           float col = mix(1.0, step(0.18, fx) * step(fx, 0.82), 1.0 - smoothstep(0.18, 0.3, mpp));
           lo -= mix(0.03, 0.15 * row * col, amp);
         }
+        float fu = vPat.x * vPat.w; // meters across the face
+        float mu = max(fwidth(fu), mpp);
+        if (type == 4.0 && mu < 0.9) {
+          // a groove down the middle of each facet
+          float g = abs(vPat.x - 0.5) * vPat.w;
+          if (g < max(0.35, mu * 0.5)) lo -= 0.09;
+        }
+        if (type >= 5.0 && type <= 7.0) {
+          // arched openings: (spacing, width, sill, spring of the round head) per pattern
+          float S = type == 5.0 ? vPat.w : type == 6.0 ? 6.2 : 4.0;
+          float W = type == 5.0 ? min(1.5, vPat.w * 0.55) : type == 6.0 ? 4.0 : 2.4;
+          float y0 = type == 5.0 ? 51.5 : type == 6.0 ? 0.6 : 51.0;
+          float y1 = type == 5.0 ? 57.0 : type == 6.0 ? 4.6 : 57.5;
+          // (centered on the face)
+          float fc = fu - vPat.w * 0.5;
+          float cx = (fract(fc / S + 0.5) - 0.5) * S;
+          bool open = abs(cx) < W * 0.5 && y > y0 && (y < y1 || length(vec2(cx, (y - y1) * 1.0)) < W * 0.5);
+          // the Ferry Building's upper floor: smaller arched windows over the arcade
+          if (type == 6.0 && !open) {
+            float cx2 = (fract(fc / 3.1 + 0.5) - 0.5) * 3.1;
+            open = abs(cx2) < 0.8 && y > 8.2 && (y < 11.2 || length(vec2(cx2, y - 11.2)) < 0.8);
+            if (y > 7.0 && y < 7.6 && mpp < 0.8) lo += 0.06; // the string course between the floors
+            if (open && mpp > 0.55) open = false;
+          }
+          if (open && mpp < 1.1) lo -= type == 6.0 ? 0.3 : 0.36;
+          else if (open) lo -= 0.06;
+        }
+        if (type == 8.0) {
+          // a clock: pale face, dark ring and hands (it is always about ten to five)
+          vec2 q = vec2(fu - vPat.w * 0.5, y - 44.5);
+          float r = length(q);
+          if (r < 3.4) {
+            lo += 0.12;
+            if (mpp < 0.9 && r > 2.9) lo -= 0.28;
+            float a1 = atan(q.x, q.y);
+            if (mpp < 0.6 && ((abs(a1 - 2.6) < 0.09 && r < 2.0) || (abs(a1 + 0.6) < 0.06 && r < 2.6))) lo -= 0.35;
+          }
+        }
         vec3 n = normalize(vWorldNormal);
         if (!gl_FrontFacing) n = -n;
         float light = sbLight(vWorldPos, n, lo, 1.0);
@@ -208,6 +277,114 @@ function landmarkMaterial(): THREE.ShaderMaterial {
 }
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+
+/**
+ * Coit Tower (1933): a 64 m fluted concrete column on Telegraph Hill, its
+ * lookout a ring of tall arched openings under a cornice, standing on a low
+ * square base. Origin at the base center.
+ */
+export function makeCoitTower(): THREE.Object3D {
+  const k = new LandmarkKit();
+  const W = Ramp.GREY_LIGHT;
+  // the base with its lobby (the murals are inside)
+  k.box(-12, -4, -12, 12, 7.5, 12, W, 0.02, Pat.PLAIN);
+  k.box(-12.6, 7.5, -12.6, 12.6, 8.4, 12.6, W, 0.08, Pat.PLAIN);
+  // the fluted shaft: 16 facets, each with a groove
+  const sides = 16, r = 5.65;
+  k.ngon(0, 0, 8.4, r, 50.5, r, sides, W, 0.06, Pat.FLUTES);
+  // the lookout: a slightly wider ring of arched openings, a cornice, a parapet and a low cap
+  k.ngon(0, 0, 50.5, r + 0.25, 58.5, r + 0.25, sides, W, 0.07, Pat.COIT_TOP);
+  k.ngon(0, 0, 58.5, r + 0.9, 59.6, r + 0.9, sides, W, 0.12, Pat.PLAIN, true);
+  k.ngon(0, 0, 59.6, r - 0.2, 62.4, r - 0.2, sides, W, 0.05, Pat.PLAIN, true);
+  k.ngon(0, 0, 62.4, r - 1.6, 64.0, 2.4, sides, W, 0.09, Pat.PLAIN, true);
+  const mesh = k.build();
+  const g = new THREE.Group();
+  g.name = 'CoitTower';
+  g.add(mesh);
+  return g;
+}
+
+/**
+ * The Ferry Building (1898): a 200 m long two-storey sandstone hall on the
+ * Embarcadero, a ground-floor arcade and arched windows above, a skylit nave
+ * down its spine, and the 75 m clock tower at the middle of its front, on the
+ * axis of Market Street. Local frame: +z along the building, the front (city
+ * side) faces -x. Origin at the center of the footprint, at the ground.
+ */
+export function makeFerryBuilding(): THREE.Object3D {
+  const k = new LandmarkKit();
+  const W = Ramp.GREY_LIGHT;
+  const x0 = -35, x1 = 9, L = 99;
+  // the hall
+  k.box(x0, -2, -L, x1, 14, L, W, 0.05, Pat.FERRY);
+  k.box(x0 - 0.6, 13.6, -L - 0.6, x1 + 0.6, 14.6, L + 0.6, W, 0.11, Pat.PLAIN);
+  // the nave: a clerestory with a pitched roof down the middle
+  const nx0 = -22, nx1 = -4, nm = (nx0 + nx1) / 2;
+  k.box(nx0, 14, -L + 6, nx1, 17.5, L - 6, W, 0.0, Pat.WINDOWS);
+  const R0 = V(nx0 - 0.5, 17.5, -L + 6), R1 = V(nx1 + 0.5, 17.5, -L + 6), R2 = V(nx1 + 0.5, 17.5, L - 6), R3 = V(nx0 - 0.5, 17.5, L - 6);
+  const T0 = V(nm, 21.5, -L + 6), T1 = V(nm, 21.5, L - 6);
+  k.quad(R3, R0, T0, T1, Ramp.ROOF_DARK, 0.06, Pat.PLAIN, [0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0]);
+  k.quad(R1, R2, T1, T0, Ramp.ROOF_DARK, 0.06, Pat.PLAIN, [0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0]);
+  k.tri(R0, R1, T0, W, 0.04);
+  k.tri(R2, R3, T1, W, 0.04);
+  // pavilions at the ends, a little taller
+  for (const zc of [-L + 7, L - 7]) k.box(x0 - 0.4, 0, zc - 7, x1 + 0.4, 16.5, zc + 7, W, 0.07, Pat.FERRY);
+  // the clock tower (after the Giralda in Seville): shaft, clock stage, two open stages, cupola
+  const tx = x0 - 0.5;
+  k.box(tx - 6.6, -2, -6.6, tx + 6.6, 40, 6.6, W, 0.06, Pat.WINDOWS);
+  k.box(tx - 7.0, 40, -7.0, tx + 7.0, 49.5, 7.0, W, 0.08, Pat.CLOCK);
+  k.box(tx - 7.6, 49.5, -7.6, tx + 7.6, 50.6, 7.6, W, 0.13, Pat.PLAIN);
+  k.box(tx - 5.8, 50.6, -5.8, tx + 5.8, 59.5, 5.8, W, 0.06, Pat.LANTERN);
+  k.box(tx - 6.3, 59.5, -6.3, tx + 6.3, 60.4, 6.3, W, 0.12, Pat.PLAIN);
+  k.box(tx - 4.2, 60.4, -4.2, tx + 4.2, 66.5, 4.2, W, 0.05, Pat.PLAIN);
+  k.frustum(tx, 0, 66.5, 4.2, 71.5, 1.0, W, 0.08, Pat.PLAIN, true);
+  k.beam(V(tx, 71.4, 0), V(tx, 75.5, 0), 0.5, 0.25, W, 0.1, Pat.PLAIN);
+  const mesh = k.build();
+  const g = new THREE.Group();
+  g.name = 'FerryBuilding';
+  g.add(mesh);
+  return g;
+}
+
+/** 181 Fremont's spire: a slender mast on its crown. Origin on the roof it stands on. */
+export function makeFremontSpire(): THREE.Object3D {
+  const k = new LandmarkKit();
+  const W = Ramp.GREY_LIGHT;
+  k.box(-2.2, -0.5, -2.2, 2.2, 1.8, 2.2, W, 0.0, Pat.PLAIN);
+  k.beam(V(0, 1.8, 0), V(0, 17.5, 0), 1.6, 0.35, W, 0.08, Pat.PLAIN);
+  const mesh = k.build();
+  const g = new THREE.Group();
+  g.name = 'FremontSpire';
+  g.add(mesh);
+  return g;
+}
+
+/**
+ * The hand-built heroes the footprints can't draw (towerStyles.ts HERO_PROPS),
+ * placed by lat/lon through the bake's projection, each with the collision
+ * posts the flight steers around. Only for the city the table is written for.
+ */
+export function heroLandmarks(origin: [number, number]): Array<{ object: THREE.Object3D; posts: ObstaclePost[] }> {
+  if (Math.abs(origin[0] - SF_ORIGIN[0]) > 1e-6 || Math.abs(origin[1] - SF_ORIGIN[1]) > 1e-6) return [];
+  const out: Array<{ object: THREE.Object3D; posts: ObstaclePost[] }> = [];
+  const make = (h: HeroProp) => (h.kind === 'coit' ? makeCoitTower() : h.kind === 'ferry' ? makeFerryBuilding() : makeFremontSpire());
+  for (const h of HERO_PROPS) {
+    const [x, z] = llToLocal(h.lat, h.lon, origin);
+    const object = make(h);
+    object.position.set(x, h.baseY, z);
+    object.rotation.y = h.yaw;
+    object.updateMatrixWorld(true);
+    const posts: ObstaclePost[] = [];
+    if (h.kind === 'coit') posts.push({ x, z, r: 9, top: h.baseY + 67, under: -Infinity });
+    else if (h.kind === 'ferry') {
+      // the clock tower (the hall itself is still in the footprints' obstacle grid)
+      const t = new THREE.Vector3(-35.5, 0, 0).applyMatrix4(object.matrixWorld);
+      posts.push({ x: t.x, z: t.z, r: 10, top: h.baseY + 78, under: -Infinity });
+    } else posts.push({ x, z, r: 3, top: h.baseY + 19, under: -Infinity });
+    out.push({ object, posts });
+  }
+  return out;
+}
 
 /**
  * Sutro Tower: 298 m. Three tapered lattice legs converge toward the top,
