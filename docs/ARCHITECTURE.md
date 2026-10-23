@@ -100,6 +100,23 @@ them into gzip'd 1 km regions. Layouts live in `src/world/tiles.ts`.
 - The flight obstacle grid (`City.obstacleAt`) is baked per part (tall parts
   grown by half a cell diagonal), so it follows the real tiered heights; the far
   skyline has one box per building >= 20 m, a few per stepped tower >= 60 m.
+  On the phone the grid then takes what the bake can't know: every tree crown
+  as a dome over its reach (`treeCrown` in props/trees), the detailed mesh's
+  roof details (every LOD 0 vertex lifts its cell; a single-part house lifts
+  every cell within 3 m of it to its mesh top: gables, chimneys, parapets,
+  clutter) and rooftop gardens / Hundertwasser crowns (`City.raiseRoof(rect,
+  top)` with the height `RoofSprouts.set` returns). Anything new that stands on
+  a roof and that the bus must not fly through goes through `raiseRoof`.
+- **Footprint queries** (an area index: every ref in every 32 m cell its
+  footprint bounds overlap; refs carry `x0 z0 x1 z1 rad`):
+  `buildingAt(x, z)` = the footprint containing the point wherever in it
+  (tallest of overlapping), `edgeDistance(ref, x, z)` = true distance to the
+  footprint (0 inside), `nearestBuilding(x, z, r, minHeight)` = nearest by that
+  distance, `buildingsWithin(x, z, r)`, `buildingAbove(x, z, y)` (line of fire),
+  `landingOn(ref, x, z, inset)` (where a shot aimed at (x, z) lands on ref),
+  `roofAt` (the part's roof under a point). Never test hits by centroid
+  distance: big footprints reach 100+ m from their centroid.
+  `buildingsNear` (centroid within r) stays for "what's around here" questions.
 - **stableIds** key saved paint. Footprint buildings keep the rank of their
   source footprint (LiDAR work happens after ranking); row lots merged back into
   one building keep one lot's id and retire the others. Buildings only a LiDAR
@@ -163,12 +180,30 @@ live in `src/config.ts`.
 | Ground paint | `src/world/GroundPaint.ts`, `src/game/blastLayout.ts` | per-tile splat masks, blast shape + hue layout, shockwave ring GLSL |
 
 ## The blast (dragon breath)
-`Splatter.barf(x, z, opts?: { drop?: number }): number` launches a projectile
-(returns the game-clock impact time). `drop` = meters the bus is above the
+`Splatter.barf(x, z, opts?: BarfOpts): number` launches a projectile
+(returns the game-clock impact time). `opts.drop` = meters the bus is above the
 impact; the radius is `blastRadiusFor(drop)` = `config.splat.blastRadius` x
 (1 + (dropGain300 - 1) x drop / 300), so about x2 from 300 m up. Callers that
 pass nothing get the base blast. `Splatter.radius(drop)` answers the same for
-UI or camera code.
+UI or camera code. `opts.travel` = tap-to-impact time (default impactDelay),
+`opts.target` = the building to hit (the one glinting; null = none; omitted =
+`pick(x, z, pickRadius(drop))`), `opts.y` / `opts.exact` = a wall hit's height
+and exact landing. It lands on a house at its centroid, on a big building at
+(x, z) if that is on it, else on its footprint nearest (x, z), 4 m in
+(`City.landingOn`, `config.splat.smallRad`), and centers the blast there. `splatter.lastMiss`: nothing
+paintable in reach over open water (no flash, boom or hit-stop; `SplatFx.miss`
+splashes at impact time; the caller refunds belly via `Flight.refund`).
+
+**Aim** (`src/game/Aim.ts`, `Aimer`): `update(flight, t, dragging)` once per
+frame (the ray, the sticky target, the lift latch, the line of fire) returns
+the building that glints; `press()` latches it on a touch-down
+(`Input.onPress`); `fire(flight)` is the `Shot` a tap fires (target, landing,
+drop, flight time from launch). main.ts calls `fire` before `Flight.tryBarf`
+and passes the shot to `barf` with `travel = inhale + shot.travel`; the
+`geyser` fx waits out `config.splat.inhale` before the particles launch. The
+glint uniforms: `uTarget` (index), `uTargetT` (when it became the target),
+`uGlint`. Splat updates run before `city.update` (the paint upload), so the
+impact frame shows the hit.
 
 - `src/game/blastLayout.ts`: `BlastSpec` (everything a blast paints, a flat
   number array when saved), `arrival(d, r)` (shockwave timing), `layoutHue`
@@ -196,11 +231,23 @@ UI or camera code.
 
 QA hooks: `?fixeddt=<s>` steps the game by a fixed dt per rendered frame;
 `window.__qa.holdAt = <game time>` freezes on the first frame at/after it
-(`__qa.held` turns true); `__qa.topDown = { lat, lon, height }` looks straight
+(`__qa.held` turns true); `__qa.holdFrames = n` renders n more frames, then
+freezes (steps through hit-stop frames, whose game time stands still);
+`__game.glintNow()` = the building glinting (what a tap hits), `aimNow()`,
+`lastShot()` (aim = impact point, travel = tap to impact, target, wall); `__qa.topDown = { lat, lon, height }` looks straight
 down; `__game.barfAtLatLon(lat, lon, drop?)` returns the impact time;
 `__game.paintedNear(lat, lon, r)`; `__game.seedGround(n, lat, lon, spread)`
 paints n saved blasts at once (a long session). `tools/blast.mjs` drives all of
 it (perf, seq, top, reload, escalate, tap, drop, layouts, row, deal, heavy).
+
+Feel QA: `node tools/feel-sim/run.mjs <scenario>` runs the real game modules
+offline against the baked city (aim, altitude taps, picks, misses, bank /
+release / breath-turn on a flat world, real-city clipping vs the rendered
+surfaces and climb acceleration, anticipation timing; at any dt; see its
+header); `node tools/feel.mjs <baseUrl> <outDir> [strip] [glint] [taps]` checks
+the same in the browser (the tap -> jet -> impact -> hit-stop frame strip, the
+glint on/off, real taps at the floor and from altitude). The harness's
+`loop.ts` replays main.ts's flight / aim / splat order: keep it in step.
 
 Dev pages: `dev/<module>.html` using `dev/harness.ts` (real pipeline + grey test
 blocks + turntable camera). Screenshot with

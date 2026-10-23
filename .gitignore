@@ -5,3 +5,5 @@ tools/bake/.cache
 *.local
 shots/tmp
 shots/blast
+tools/feel-sim/.out
+tools/bake/.data

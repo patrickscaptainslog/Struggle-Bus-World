@@ -25,6 +25,7 @@
 // SwiftShader fps is meaningless; workMs, calls and triangles are what count.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { browserOptions } from './browser.mjs';
 
 const base = process.argv[2] ?? 'http://127.0.0.1:4301/';
 const out = process.argv[3] ?? 'shots/blast';
@@ -35,8 +36,7 @@ const START = '?lat=37.7745&lon=-122.4330&heading=0&skipintro';
 const IMPACT = [37.7762, -122.4328];
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
+  ...browserOptions([]),
 });
 let ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
 

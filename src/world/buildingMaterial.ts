@@ -34,6 +34,12 @@ export const paintUniforms = {
   uWobble: { value: new THREE.Vector2(config.bloom.wobbleAmp, config.bloom.wobbleSpeed) },
   /** building index the loaded projectile would hit (-1 = none): it glints (the only aim cue; no HUD) */
   uTarget: { value: -1 },
+  /** game time it became the target (its glint sweep starts right then) */
+  uTargetT: { value: 0 },
+  /** glint: light lift (>= one ramp step), sweep lift, sweeps per second (config.splat.glint*) */
+  uGlint: { value: new THREE.Vector3(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate) },
+  /** the color flood starts this far down from the roof (m): the impact frame already shows the hit */
+  uFloodHead: { value: config.bloom.floodHead },
 };
 
 /** Facade tunables, read live from config.facade (getters: no per-frame code). */
@@ -152,6 +158,9 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       ${GLSL_COMMON}
       uniform vec4 uBloom;
       uniform float uTarget;
+      uniform float uTargetT;
+      uniform vec3 uGlint;
+      uniform float uFloodHead;
       uniform float uColPx;
       uniform float uFloorPx;
       uniform float uHouseRibbon;
@@ -477,7 +486,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         // escalations (already painted) stay painted while the blast wave travels to them
         if (painted && vPaint.a < 1.5) {
           float drip = h21(vec2(floor(f.x * 1.3), bIdx)) * 2.6 + h21(vec2(floor(f.x * 0.4), bIdx + 7.0)) * 1.4;
-          float flood = uBloom.w * max(tb, 0.0);
+          float flood = uBloom.w * max(tb, 0.0) + uFloodHead;
           if (tb < 0.0 || (roofY - vYRest) > flood - drip) painted = false;
         }
         float hue = vPaint.r;
@@ -657,13 +666,6 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           }
         }
 
-        // aim glint: the building in the line of fire shimmers (a slow sweep of light)
-        float loPreAim = lo;
-        if (abs(bIdx - uTarget) < 0.5) {
-          float sweep = fract(uTime * 0.9 - (vWorldPos.y - vBld.z) * 0.035);
-          lo += 0.06 + 0.12 * smoothstep(0.75, 1.0, sweep);
-        }
-        float aimLo = lo - loPreAim;
         float light;
         if (famWall) {
           // ---- a tower facade, in whole ramp steps after the atmospheric perspective
@@ -697,7 +699,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           if (variant == ${Variant.SILVER} && fam == ${R(Fam.GLASS)}) gl += 0.12;
           if (variant == ${Variant.BRACED} && fam == ${R(Fam.GLASS)}) gl -= 0.08;
           if (fr == ${R(Ramp.WINDOW)}) gl -= 0.04;
-          gl += aimLo + tone * 0.5;
+          gl += tone * 0.5; // (the aim glint lifts every surface after lighting, below)
           float wlo = lo + (fam == ${R(Fam.MASONRY)} ? 0.03 : fam == ${R(Fam.GRANITE)} ? -0.02 : fam == ${R(Fam.PRECAST)} ? 0.06 : 0.04);
           float lw = sbLight(vWorldPos, n, wlo, 1.0);
           ramp = fr;
@@ -789,6 +791,12 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           light = sbLight(vWorldPos, n, lo, 1.0);
           // paint lives in the saturated middle of each ramp: explosive, not pastel
           if (painted || (grown && part < ${R(Part.DOME - 0.5)})) light = 0.2 + light * 0.52;
+        }
+        // aim glint: the building a tap would hit lifts a full ramp step (flat walls can't snap it away,
+        // painted ones too), and a band of light sweeps up it, starting the moment it became the target
+        if (abs(bIdx - uTarget) < 0.5) {
+          float sweep = fract((uTime - uTargetT) * uGlint.z - (vWorldPos.y - vBld.z) * 0.035);
+          light += uGlint.x + uGlint.y * smoothstep(0.55, 1.0, sweep);
         }
         if (!gl_FrontFacing) n = -n;
         // the blast's shockwave ring races across the roofs

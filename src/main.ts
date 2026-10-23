@@ -9,6 +9,8 @@ import type { CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
 import { CameraRig } from './game/CameraRig';
 import { Splatter, type Blast } from './game/Splat';
+import { Aimer, type Shot } from './game/Aim';
+import { latLonToLocal } from './game/geo';
 import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blastLayout';
 import { Input } from './game/Input';
 import { BusModel, type BusPose } from './bus/BusModel';
@@ -62,6 +64,8 @@ function makeDropShadowMaterial(): THREE.ShaderMaterial {
 type Manifest = CityManifest & { regions: Array<[number, number, number]>; regionSize: number };
 
 const params = new URLSearchParams(location.search);
+if (params.has('fog')) config.fog.enabled = true;
+if (params.has('px')) config.render.pixelWidth = Math.min(1200, Math.max(120, Number(params.get('px')) || config.render.pixelWidth));
 applySavedTuning();
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -76,12 +80,14 @@ function updateSun() {
   const el = config.light.sunElevation;
   globals.uSunDir.value.set(Math.cos(az) * Math.cos(el), Math.sin(el), -Math.sin(az) * Math.cos(el)).normalize();
   globals.uLight.value.set(config.light.sunStrength, config.light.ambient, config.light.skyBounce);
-  globals.uFog.value.set(config.fog.density, config.fog.heightFalloff, config.fog.farFull, 1);
-  globals.uPaintClearing.value = config.fog.paintClearing;
   const Fg = config.fog;
+  const fogOn = Fg.enabled;
+  // (fog off: no density, no marine layer; only a far fade so the far plane never cuts hard)
+  globals.uFog.value.set(fogOn ? Fg.density : 0, Fg.heightFalloff, fogOn ? Fg.farFull : Fg.clearFarFull, 1);
+  globals.uPaintClearing.value = Fg.paintClearing;
   globals.uFogLayer.value.set(Fg.layerTop, Fg.layerTopBay, Fg.layerTopEast, Fg.layerSoft);
   const L2 = globals.uFogLayer2.value;
-  L2.set(Fg.layerDensity, Fg.layerHaze, Fg.layerFarFull, L2.w);
+  L2.set(Fg.layerDensity, Fg.layerHaze, Fg.layerFarFull, fogOn ? L2.w : 0);
   globals.uFogBillow.value.set(Fg.layerBillow, 1 / Math.max(10, Fg.layerBillowSize));
 }
 updateSun();
@@ -100,6 +106,14 @@ async function boot() {
   const treeIndex = new Map<string, TreeInstance[]>();
   const sprouts = new RoofSprouts();
   scene.add(sprouts.object);
+  /** buildings whose paint already thinned the fog this session (a tile streaming back in mustn't bump it again) */
+  const fogBumped = new Set<number>();
+  /** Rooftop garden / Hundertwasser crown on a building: drawn, and the flight's obstacle field rises over it. */
+  const growSprouts = (ref: BuildingRef, hue: number, level: number, start: number) => {
+    const rect = city.roofRect(ref);
+    const top = sprouts.set(ref.index, rect, hue, level, start);
+    if (top > 0) city.raiseRoof(rect, rect.y + top);
+  };
   city.onTile = ({ tx, tz, terrain, refs }) => {
     if (terrain && terrain.trees.length) {
       const list: TreeInstance[] = terrain.trees.map((t) => ({ x: t.x, y: t.y, z: t.z, size: t.size, kind: t.kind }));
@@ -112,12 +126,16 @@ async function boot() {
     for (const ref of refs) {
       const lv = city.paint.level(ref.index);
       if (lv > 0.5) {
-        bumpPaint(ref.cx, ref.cz, 40);
-        if (lv >= 2) sprouts.set(ref.index, city.roofRect(ref), city.paint.get(ref.index).color, lv, -100);
+        if (!fogBumped.has(ref.stableId)) {
+          fogBumped.add(ref.stableId);
+          bumpPaint(ref.cx, ref.cz, 40);
+        }
+        if (lv >= 2) growSprouts(ref, city.paint.get(ref.index).color, lv, -100);
       }
     }
   };
-  // trees standing in saved ground paint come back painted once their tile's paint is redrawn
+  // trees standing in saved ground paint come back painted once their tile's paint is redrawn, at the
+  // level of the painted house beside them (every blast that splattered them escalated it too)
   city.ground.onTileReady = (tx, tz) => {
     const k = `${tx},${tz}`;
     const tf = treeFields.get(k);
@@ -125,7 +143,10 @@ async function boot() {
     if (!tf || !list) return;
     for (let i = 0; i < list.length; i++) {
       const g = city.ground.sample(list[i].x, list[i].z);
-      if (g && g.cov >= 0.5 && tf.paintLevel(i) === 0) tf.setPaint(i, g.hue, 1, -100);
+      if (!g || g.cov < 0.5 || tf.paintLevel(i) !== 0) continue;
+      const near = city.nearestBuilding(list[i].x, list[i].z, 25);
+      const lv = near ? Math.round(city.paint.level(near.index)) : 0;
+      tf.setPaint(i, g.hue, Math.min(3, Math.max(1, lv)), -100);
     }
   };
   city.onTileUnload = (tx, tz) => {
@@ -168,11 +189,7 @@ async function boot() {
   flight.x = manifest.start.x;
   flight.z = manifest.start.z;
   flight.heading = manifest.start.heading;
-  if (params.has('lat') && params.has('lon')) {
-    const [lat0, lon0] = manifest.origin;
-    flight.x = (Number(params.get('lon')) - lon0) * 111320 * Math.cos((lat0 * Math.PI) / 180);
-    flight.z = -(Number(params.get('lat')) - lat0) * 110574;
-  }
+  if (params.has('lat') && params.has('lon')) [flight.x, flight.z] = latLonToLocal(Number(params.get('lat')), Number(params.get('lon')), manifest.origin);
   if (params.has('heading')) flight.heading = THREE.MathUtils.degToRad(Number(params.get('heading')));
   // the opening: emerge from the fog bank west of the Golden Gate, glide under it
   const start = manifest.start as typeof manifest.start & { speed?: number; opening?: string };
@@ -267,8 +284,11 @@ async function boot() {
   const frontLocal = new THREE.Vector3(0, 0.4, -bus.length * 0.5 - 0.6);
   const mouthWorld = () => bus.root.localToWorld(mouthTmp.copy(frontLocal));
   const busVel = () => velTmp.set(flight.fx * flight.speed, flight.vy, flight.fz * flight.speed);
-  /** this breath's flight time while Splatter schedules it (null = the classic config.splat.impactDelay) */
+  /** this breath's flight time from launch while Splatter schedules it (null = the classic one) */
   let breathTravel: number | null = null;
+  /** The jet waits out the inhale (the bus squashes and gulps first), then flies so it lands exactly at the impact. */
+  let jet: { at: number; impact: number; end: number; targets: THREE.Vector3[]; hues: number[] } | null = null;
+  let simTime = 0;
   const flingFrom = new THREE.Vector3();
   const flingTo = new THREE.Vector3();
   const flashPos = new THREE.Vector3();
@@ -296,7 +316,12 @@ async function boot() {
       }
   };
   const splatter = new Splatter(city, {
-    geyser: (targets, hues) => particles.geyser({ source: mouthWorld, sourceVel: busVel, targets, duration: config.splat.duration, travelTime: breathTravel ?? config.splat.impactDelay, hues }),
+    geyser: (targets, hues) => {
+      const S = config.splat;
+      const fly = breathTravel ?? Math.max(0.05, S.impactDelay - S.inhale);
+      jet = { at: simTime + S.inhale, impact: simTime + S.inhale + fly, end: simTime + S.duration, targets, hues };
+    },
+    miss: (pos, hue) => particles.splash(pos, hue, 0.6),
     impact: (b) => {
       const S = config.splat;
       const k = b.strength;
@@ -321,7 +346,8 @@ async function boot() {
     bloom: (ref, _order, _total, hue, level, roof) => {
       const h = ref.roofY - ref.baseY;
       particles.sparkles(roof, Math.sqrt(ref.area) * 0.6 + 2, h, [hue, (hue + 1) % 6, (hue + 5) % 6], 14 + level * 8);
-      if (level >= 2) sprouts.set(ref.index, city.roofRect(ref), hue, level, globals.uTime.value);
+      fogBumped.add(ref.stableId);
+      if (level >= 2) growSprouts(ref, hue, level, globals.uTime.value);
     },
     primary: (ref, hue) => showSign(ref, hue),
     hitStop: (frames) => (hitStop = frames / 60),
@@ -334,73 +360,25 @@ async function boot() {
     audio.signPop();
   }
 
-  // Dragon breath aim: a forward-down ray from the bus (config.splat.aimDown) cast
-  // against rooftops and terrain, so from altitude the breath lands mid-screen
-  // where the player is looking. Near the rooftops the ray lands under the bus's
-  // nose, and the classic range ahead wins (exactly the old aim).
-  const aim = { x: 0, y: 0, z: 0, dist: 0, travel: 0, drop: 0 };
-  const F_CLEAR = 12; // the classic shot drops about this far onto the roofs (m)
-  const aimNear: Array<{ ref: BuildingRef; d: number }> = [];
-  const aimPoint = (): [number, number] => {
-    const S = config.splat;
-    const r0 = S.range + S.rangePerSpeed * flight.speed;
-    const a = THREE.MathUtils.degToRad(clamp(S.aimDown, 2, 80));
-    const ca = Math.cos(a), sa = Math.sin(a);
-    const x0 = flight.x, y0 = flight.y, z0 = flight.z, fx = flight.fx, fz = flight.fz;
-    // (roofs, trees and ground only: a landmark's collision post or a bridge deck isn't what the breath lands on)
-    const below = (t: number) => y0 - t * sa <= city.surfaceAt(x0 + fx * t * ca, z0 + fz * t * ca);
-    const maxT = Math.max(r0, S.maxRange) / ca;
-    let t = 0, prev = 0, hit = -1;
-    while (t < maxT) {
-      t = Math.min(maxT, t + Math.max(3, t * 0.02));
-      if (below(t)) {
-        hit = t;
-        break;
-      }
-      prev = t;
-    }
-    if (hit > 0)
-      for (let i = 0; i < 6; i++) {
-        const m = (prev + hit) * 0.5;
-        if (below(m)) hit = m;
-        else prev = m;
-      }
-    const horiz = Math.max(r0, hit > 0 ? hit * ca : S.maxRange);
-    aim.x = x0 + fx * horiz;
-    aim.z = z0 + fz * horiz;
-    aim.y = city.surfaceAt(aim.x, aim.z);
-    // from up high a pixel is meters wide: a long shot that would come down in a park or a wood
-    // snaps to the nearest roof within a reach that grows with the drop (aim stays forgiving)
-    const drop0 = y0 - aim.y;
-    if (drop0 > 40) {
-      const reach = Math.min(S.snapReachMax, S.snapRadius * (1 + drop0 / 150));
-      const near = city.buildingsNear(aim.x, aim.z, reach, aimNear);
-      if (near.length && near[0].d > S.snapRadius) {
-        aim.x = near[0].ref.cx;
-        aim.z = near[0].ref.cz;
-        aim.y = city.surfaceAt(aim.x, aim.z);
-      }
-    }
-    const hx = aim.x - x0, hz = aim.z - z0;
-    aim.dist = Math.hypot(hx, hz, y0 - aim.y);
-    // the classic short shot lands after impactDelay; past it the projectile flies on at a
-    // constant speed, so a long shot from altitude takes longer and matches the visible jet
-    aim.travel = S.impactDelay + Math.max(0, aim.dist - Math.hypot(r0, F_CLEAR)) / Math.max(20, S.projectileSpeed);
-    aim.drop = Math.max(0, y0 - aim.y);
-    return [aim.x, aim.z];
-  };
-  /** Barf along the aim with the impact (and the visible jet) timed to the projectile's flight. */
-  const breathe = (ax: number, az: number) => {
-    breathTravel = aim.travel;
+  // Dragon breath aim (src/game/Aim.ts): the building that glints is the one a tap hits.
+  const aimer = new Aimer(city, splatter);
+  /** Breathe a shot: the blast is timed to the projectile's flight (inhale + travel), at the glinting building. */
+  const breathe = (shot: Shot) => {
+    breathTravel = shot.travel;
     try {
-      splatter.barf(ax, az, { drop: aim.drop, travel: aim.travel });
+      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact });
     } finally {
       breathTravel = null;
     }
+    // a breath into open water paints nothing: part of the belly comes back
+    if (splatter.lastMiss) flight.refund = config.splat.missRefund;
   };
 
   /** QA: the last breath (aim point, flight time, drop, the building it should bloom). */
   let lastShot: unknown = null;
+
+  const pose: BusPose = { squash: 1, eye: 1, fullness: 1, mouth: 0, speed: 0, wheeze: 0, heave: 0 };
+  let squashV = 0;
 
   // ---- input
   const input = new Input(canvas);
@@ -416,17 +394,27 @@ async function boot() {
     location.reload();
   };
   if (params.has('tune')) tuner.toggle();
+  // (GroundPaint saves on pagehide; a hidden page may never see one on iOS)
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) city.ground.persist();
+  });
   input.onTripleFinger = () => tuner.toggle();
   input.onFirstGesture = () => audio.unlock();
+  input.onPress = () => aimer.press();
   input.onTap = () => {
     if (tuner.visible) return;
+    // (taps fire between frames: what fire() hands over is exactly the building on screen glinting)
+    const shot = aimer.fire(flight);
     if (flight.tryBarf()) {
+      // anticipation: the bus squashes on this very frame, inhales, then the jet leaves
+      pose.squash = 0.8;
+      squashV = 0;
       audio.heave();
-      // dragon breath: the projectile flies ahead and explodes on the buildings in front
-      const [ax, az] = aimPoint();
-      const tgt = splatter.pick(ax, az);
-      lastShot = { t: simTime, aim: [aim.x, aim.y, aim.z], travel: aim.travel, drop: aim.drop, busY: flight.y, target: tgt ? { index: tgt.index, cx: tgt.cx, cz: tgt.cz, roofY: tgt.roofY } : null };
-      breathe(ax, az);
+      const tgt = shot.target;
+      const iy = shot.y ?? (tgt ? city.roofAtPart(tgt, shot.x, shot.z) + 0.5 : city.groundAt(shot.x, shot.z));
+      lastShot = { t: simTime, aim: [shot.x, iy, shot.z], travel: config.splat.inhale + shot.travel, drop: shot.drop, busY: flight.y, wall: shot.exact, target: tgt ? { index: tgt.index, cx: tgt.cx, cz: tgt.cz, roofY: tgt.roofY } : null };
+      breathe(shot);
+      if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
     } else audio.denied();
   };
 
@@ -445,15 +433,11 @@ async function boot() {
 
   // ---- the loop
   let last = performance.now();
-  let simTime = 0;
   let wasFull = true;
   let opening = params.has('skipintro') ? config.fog.openingDuration : 0;
-  const pose: BusPose = { squash: 1, eye: 1, fullness: 1, mouth: 0, speed: 0, wheeze: 0, heave: 0 };
-  let squashV = 0;
   // QA: ?fixeddt=<s> steps the game by exactly that much per rendered frame (deterministic captures)
   const fixedDt = params.has('fixeddt') ? Math.max(0.001, Number(params.get('fixeddt')) || 1 / 60) : 0;
   let lodTimer = 0;
-  let aimTimer = 0;
   let puffTimer = 0;
   const puffPos = new THREE.Vector3();
   const puffVel = new THREE.Vector3();
@@ -469,7 +453,7 @@ async function boot() {
   // the first ready frame adopts streamed tiles at once (as the classic streaming did); then budgeted
   let everReady = false;
 
-  type QA = { sx?: number; sy?: number; holdAt?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null };
+  type QA = { sx?: number; sy?: number; holdAt?: number; holdFrames?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null };
   function frame(now: number) {
     requestAnimationFrame(frame);
     const qa = (window as unknown as { __qa?: QA | null }).__qa;
@@ -478,6 +462,15 @@ async function boot() {
       qa.held = true;
       last = now;
       return;
+    }
+    // QA: render holdFrames more frames, then freeze (steps through hit-stop frames, whose game time stands still)
+    if (qa && qa.holdFrames !== undefined) {
+      if (qa.holdFrames <= 0) {
+        qa.held = true;
+        last = now;
+        return;
+      }
+      qa.holdFrames--;
     }
     const t0 = performance.now();
     let dt = fixedDt || Math.min(0.05, (now - last) / 1000);
@@ -529,14 +522,21 @@ async function boot() {
     if (!wasFull && flight.fullness >= 1) audio.ready();
     wasFull = flight.fullness >= 1;
 
-    // bus pose: squash on the tap frame, heave while barfing, wheeze when full
+    // bus pose: squash on the tap frame and through the inhale, stretch as the jet leaves, heave while
+    // barfing, wheeze when full (the squash spring is substepped like the flight: same at 30 and 60 fps)
     const barfing = flight.barfing;
-    const sqTarget = barfing ? (flight.barfT < 0.12 ? 0.78 : 1.06) : 1;
-    squashV += ((sqTarget - pose.squash) * 260 - squashV * 16) * dt;
-    pose.squash += squashV * dt;
+    for (let i = 0; i < steps; i++) {
+      const h = dt / steps;
+      // (the breath's clock at this substep, so the squash -> stretch switch lands at the same time at any fps)
+      const bt = flight.barfT - (steps - 1 - i) * h;
+      const sqTarget = barfing && bt >= 0 ? (bt < config.splat.inhale + 0.03 ? 0.78 : 1.06) : 1;
+      squashV += ((sqTarget - pose.squash) * 260 - squashV * 16) * h;
+      pose.squash += squashV * h;
+    }
     pose.heave = barfing ? Math.max(0, 1 - flight.barfT / config.splat.duration) : 0;
     pose.mouth = 0; // the breath comes out of the bus's face, not the side door
-    pose.fullness = flight.fullness;
+    // the belly band drains as the breath pours out (and the "loaded" cues drop on the blast)
+    pose.fullness = flight.barfT >= 0 ? flight.belly : flight.fullness;
     pose.speed = flight.speed;
     // (and when it strains against the ceiling: the struggle bus)
     pose.wheeze = flight.barfT >= 0 ? 0 : Math.max(flight.fullness * 0.8, flight.strain);
@@ -547,12 +547,12 @@ async function boot() {
     bus.root.quaternion.copy(q);
     bus.root.position.set(flight.x, flight.y, flight.z);
 
-    // drop shadow on whatever is below (roof or street)
-    const top = city.obstacleAt(flight.x, flight.z);
-    const below = Math.max(flight.groundUnder, top - 3.0);
+    // drop shadow on whatever is below: the roof of the part under the bus, else the street
+    const below = city.roofAt(flight.x, flight.z) ?? flight.groundUnder;
     dropShadow.position.set(flight.x, below + 0.25, flight.z);
-    const sz = 5.6 * (flight.fullness >= 1 ? 1.1 : 0.9) * rig.heroScale;
-    shadowMat.uniforms.uReady.value = flight.fullness >= 1 ? 1 : 0;
+    const loaded = Aimer.loaded(flight);
+    const sz = 5.6 * (loaded ? 1.1 : 0.9) * rig.heroScale;
+    shadowMat.uniforms.uReady.value = loaded ? 1 : 0;
     dropShadow.scale.set(sz * 0.5, 1, sz);
     dropShadow.rotation.y = -flight.heading;
 
@@ -566,22 +566,18 @@ async function boot() {
         openingBridge = null;
       }
     }
-    // aim glint on the building in the line of fire, only while a breath is loaded
-    aimTimer -= dt;
-    if (aimTimer <= 0) {
-      aimTimer = 0.1;
-      const [ax, az] = aimPoint();
-      const tgt = flight.fullness >= 1 && !flight.barfing ? splatter.pick(ax, az) : null;
-      paintUniforms.uTarget.value = tgt ? tgt.index : -1;
-    }
+    // aim glint on the building a tap would hit (picked every frame), only while a breath is loaded
+    const glint = aimer.update(flight, simTime, dragging);
+    paintUniforms.uTarget.value = glint ? glint.index : -1;
+    paintUniforms.uTargetT.value = aimer.shownSince;
+    paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);
+    paintUniforms.uFloodHead.value = config.bloom.floodHead;
     rig.update(camera, focus, flight, dt);
     rig.applyKick(camera, realDt);
     pipeline.focus.copy(focus);
     if (qa?.topDown) {
       // QA: look straight down on a lat/lon (hue layout from above)
-      const [lat0, lon0] = manifest.origin;
-      const tx = (qa.topDown.lon - lon0) * 111320 * Math.cos((lat0 * Math.PI) / 180);
-      const tz = -(qa.topDown.lat - lat0) * 110574;
+      const [tx, tz] = latLonToLocal(qa.topDown.lat, qa.topDown.lon, manifest.origin);
       const gy = city.groundAt(tx, tz);
       camera.position.set(tx, gy + qa.topDown.height, tz + 0.01);
       camera.up.set(0, 0, -1);
@@ -595,12 +591,14 @@ async function boot() {
     const vista = rig.vista;
     pipeline.setHfov(rig.hfov);
     bus.root.scale.setScalar(rig.heroScale);
+    // this frame's matrix now: the breath and the exhaust leave from where the bus IS (not last frame's pose)
+    bus.root.updateMatrixWorld(true);
     const Fg = config.fog;
     const camY = camera.position.y;
     // (gated by the vista, i.e. by the height above the ground: skimming the floor over Twin Peaks the
     // camera is 380 m above the sea but the fog must stay exactly the street-level Hopper fog)
     const layerMix = clamp((camY - Fg.layerTop - Fg.layerViewStart) / Math.max(1, Fg.layerViewFull - Fg.layerViewStart), 0, 1) * clamp(vista / 0.3, 0, 1);
-    globals.uFogLayer2.value.w = layerMix * layerMix * (3 - 2 * layerMix);
+    globals.uFogLayer2.value.w = Fg.enabled ? layerMix * layerMix * (3 - 2 * layerMix) : 0;
     camera.getWorldDirection(camFwd);
     camFwd.y = 0;
     if (camFwd.lengthSq() < 1e-6) camFwd.set(flight.fx, 0, flight.fz);
@@ -619,6 +617,14 @@ async function boot() {
     pipeline.shadowEdge = 0.08 + (R.shadowEdgeVista - 0.08) * vista;
     pipeline.calm = clamp(vista / Math.max(0.01, config.render.calmVista), 0, 1);
 
+    // the splat before the city's paint upload: the impact frame itself already shows the hit (and the
+    // hit-stop frames hold it), instead of the paint reaching the GPU a frame late
+    splatter.update(dt);
+    if (jet && simTime >= jet.at) {
+      // the inhale is over: the jet leaves the mouth and lands exactly at the impact
+      particles.geyser({ source: mouthWorld, sourceVel: busVel, targets: jet.targets, duration: Math.max(0.05, jet.end - simTime), travelTime: Math.max(0.05, jet.impact - simTime), hues: jet.hues });
+      jet = null;
+    }
     city.update(streamCenter, renderer, dt);
     // tree LOD by distance from the lens (fog eats far groves anyway; a wider view keeps simple canopies farther)
     lodTimer -= dt;
@@ -636,7 +642,6 @@ async function boot() {
         tf.setLod(city.tileHidden(tx, tz) ? 2 : d < 350 ? 0 : d < far1 ? 1 : 2);
       }
     }
-    splatter.update(dt);
     // the struggle: a wheezy exhaust sputter, more of it when the belly is full
     puffTimer -= dt;
     if (puffTimer <= 0 && dt > 0) {
@@ -655,7 +660,7 @@ async function boot() {
     audio.update(dt, {
       speed: flight.speed,
       surge: flight.surge,
-      fullness: flight.fullness,
+      fullness: flight.barfT >= 0 ? flight.belly : flight.fullness,
       altitude: flight.y - flight.groundUnder,
       paintNearby: near.length ? painted / near.length : 0,
       fogBank: clamp((globals.uFogBank.value - 1) / Math.max(0.001, config.fog.openingBank - 1), 0, 1),
@@ -703,7 +708,13 @@ async function boot() {
   (window as unknown as Record<string, unknown>).__game = {
     flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS,
     /** QA: where a breath fired now would land ({x, y, z, dist, travel, drop}), and the last one fired */
-    aimNow: () => (aimPoint(), { ...aim }),
+    aimNow: () => (aimer.point(flight), { ...aimer.aim }),
+    /** QA: the building glinting now (what a tap hits) */
+    glintNow: () => {
+      const r = aimer.shown();
+      return r ? { index: r.index, cx: r.cx, cz: r.cz, roofY: r.roofY, since: aimer.shownSince } : null;
+    },
+    aimer,
     lastShot: () => lastShot,
     /** QA: how much of the marine layer's seen-from-above fog is on (0 = the street-level fog exactly) */
     fogLayerMix: () => globals.uFogLayer2.value.w,
@@ -711,18 +722,14 @@ async function boot() {
     forceReady: () => (flight.fullness = 1),
     /** QA: barf at a lat/lon through the real splat pipeline (blast, blooms, sign, sound). Returns the impact time (game clock). */
     barfAtLatLon: (lat: number, lon: number, drop?: number) => {
-      const [lat0, lon0] = manifest.origin;
-      const x = (lon - lon0) * 111320 * Math.cos((lat0 * Math.PI) / 180);
-      const z = -(lat - lat0) * 110574;
+      const [x, z] = latLonToLocal(lat, lon, manifest.origin);
       audio.heave();
       return splatter.barf(x, z, { drop });
     },
     clock: () => simTime,
     /** QA: n settled blasts scattered within `spread` m of a lat/lon straight into the ground paint (and saved), like a long play session. Returns the saved tile count. */
     seedGround: (n: number, lat: number, lon: number, spread: number) => {
-      const [lat0, lon0] = manifest.origin;
-      const x = (lon - lon0) * 111320 * Math.cos((lat0 * Math.PI) / 180);
-      const z = -(lat - lat0) * 110574;
+      const [x, z] = latLonToLocal(lat, lon, manifest.origin);
       let s = 12345;
       const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
       for (let i = 0; i < n; i++)
@@ -732,9 +739,7 @@ async function boot() {
     },
     /** QA: buildings painted / total within r of a lat/lon, and the share of ground painted there */
     paintedNear: (lat: number, lon: number, r: number) => {
-      const [lat0, lon0] = manifest.origin;
-      const x = (lon - lon0) * 111320 * Math.cos((lat0 * Math.PI) / 180);
-      const z = -(lat - lat0) * 110574;
+      const [x, z] = latLonToLocal(lat, lon, manifest.origin);
       const near = city.buildingsNear(x, z, r, []);
       let painted = 0, cells = 0, ground = 0;
       for (const n of near) if (city.paint.level(n.ref.index) > 0.5) painted++;

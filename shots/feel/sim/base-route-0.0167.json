@@ -1,0 +1,325 @@
+[
+ {
+  "route": "hills-west-cruise",
+  "frames": 1230,
+  "clipFrames": 41,
+  "minClearance": -1.26,
+  "minAt": {
+   "t": 3.12,
+   "x": -1195,
+   "z": -144,
+   "speed": 26,
+   "pitch": 0.06
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 273,
+  "over40ms2_0p1s": 22,
+  "peakPitchRate": 1.2
+ },
+ {
+  "route": "twinpeaks-cruise",
+  "frames": 1110,
+  "clipFrames": 0,
+  "minClearance": 2.27,
+  "minAt": {
+   "t": 8.95,
+   "x": -988,
+   "z": 1549,
+   "speed": 26,
+   "pitch": 0.03
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 252,
+  "over40ms2_0p1s": 8,
+  "peakPitchRate": 1.47
+ },
+ {
+  "route": "downtown-cruise",
+  "frames": 870,
+  "clipFrames": 0,
+  "minClearance": 3.83,
+  "minAt": {
+   "t": 14.97,
+   "x": 1109,
+   "z": -1069,
+   "speed": 26,
+   "pitch": 0.01
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 59,
+  "over40ms2_0p1s": 0,
+  "peakPitchRate": 0.6
+ },
+ {
+  "route": "buenavista-cruise",
+  "frames": 450,
+  "clipFrames": 0,
+  "minClearance": 0.94,
+  "minAt": {
+   "t": 5.35,
+   "x": -1644,
+   "z": 623,
+   "speed": 26,
+   "pitch": 0.07
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 404,
+  "over40ms2_0p1s": 25,
+  "peakPitchRate": 1.46
+ },
+ {
+  "route": "ggpark-cruise",
+  "frames": 870,
+  "clipFrames": 0,
+  "minClearance": 0.15,
+  "minAt": {
+   "t": 12.45,
+   "x": -3203,
+   "z": 488,
+   "speed": 26,
+   "pitch": -0.06
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 150,
+  "over40ms2_0p1s": 12,
+  "peakPitchRate": 0.84
+ },
+ {
+  "route": "hills-west-half",
+  "frames": 1230,
+  "clipFrames": 0,
+  "minClearance": 0.19,
+  "minAt": {
+   "t": 11.72,
+   "x": -1751,
+   "z": -144,
+   "speed": 56,
+   "pitch": -0.02
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 194,
+  "over40ms2_0p1s": 24,
+  "peakPitchRate": 0.48
+ },
+ {
+  "route": "twinpeaks-half",
+  "frames": 1110,
+  "clipFrames": 14,
+  "minClearance": -0.38,
+  "minAt": {
+   "t": 14.22,
+   "x": -1511,
+   "z": 1689,
+   "speed": 56,
+   "pitch": 0.03
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 304,
+  "over40ms2_0p1s": 69,
+  "peakPitchRate": 0.81
+ },
+ {
+  "route": "downtown-half",
+  "frames": 870,
+  "clipFrames": 9,
+  "minClearance": -0.34,
+  "minAt": {
+   "t": 13.05,
+   "x": 1334,
+   "z": -1294,
+   "speed": 56,
+   "pitch": 0
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 2944,
+  "over40ms2_0p1s": 69,
+  "peakPitchRate": 1.6
+ },
+ {
+  "route": "buenavista-half",
+  "frames": 450,
+  "clipFrames": 0,
+  "minClearance": 1.89,
+  "minAt": {
+   "t": 2.95,
+   "x": -1647,
+   "z": 631,
+   "speed": 56,
+   "pitch": 0.04
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 706,
+  "over40ms2_0p1s": 21,
+  "peakPitchRate": 1.92
+ },
+ {
+  "route": "ggpark-half",
+  "frames": 870,
+  "clipFrames": 11,
+  "minClearance": -0.26,
+  "minAt": {
+   "t": 9.65,
+   "x": -3398,
+   "z": 488,
+   "speed": 56,
+   "pitch": 0.03
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 197,
+  "over40ms2_0p1s": 28,
+  "peakPitchRate": 0.59
+ },
+ {
+  "route": "hills-west-surge",
+  "frames": 1230,
+  "clipFrames": 0,
+  "minClearance": 0.16,
+  "minAt": {
+   "t": 8.1,
+   "x": -1876,
+   "z": -144,
+   "speed": 99,
+   "pitch": 0.01
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 1096,
+  "over40ms2_0p1s": 58,
+  "peakPitchRate": 1.48
+ },
+ {
+  "route": "twinpeaks-surge",
+  "frames": 1110,
+  "clipFrames": 10,
+  "minClearance": -0.83,
+  "minAt": {
+   "t": 8.25,
+   "x": -1512,
+   "z": 1689,
+   "speed": 99,
+   "pitch": 0.02
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 900,
+  "over40ms2_0p1s": 335,
+  "peakPitchRate": 1.08
+ },
+ {
+  "route": "downtown-surge",
+  "frames": 870,
+  "clipFrames": 4,
+  "minClearance": -0.4,
+  "minAt": {
+   "t": 7.48,
+   "x": 1326,
+   "z": -1286,
+   "speed": 99,
+   "pitch": 0.01
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 1775,
+  "over40ms2_0p1s": 120,
+  "peakPitchRate": 2.07
+ },
+ {
+  "route": "buenavista-surge",
+  "frames": 450,
+  "clipFrames": 3,
+  "minClearance": -0.1,
+  "minAt": {
+   "t": 6.08,
+   "x": -1789,
+   "z": 1021,
+   "speed": 99,
+   "pitch": 0.01
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 429,
+  "over40ms2_0p1s": 19,
+  "peakPitchRate": 0.71
+ },
+ {
+  "route": "ggpark-surge",
+  "frames": 870,
+  "clipFrames": 1,
+  "minClearance": -0.11,
+  "minAt": {
+   "t": 5.67,
+   "x": -3398,
+   "z": 488,
+   "speed": 99,
+   "pitch": 0
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 206,
+  "over40ms2_0p1s": 35,
+  "peakPitchRate": 0.41
+ },
+ {
+  "route": "alamo-weave-light",
+  "frames": 750,
+  "clipFrames": 0,
+  "minClearance": 6.81,
+  "minAt": {
+   "t": 1.72,
+   "x": -1702,
+   "z": 20,
+   "speed": 47,
+   "pitch": 0
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 329,
+  "over40ms2_0p1s": 26,
+  "peakPitchRate": 1.24
+ },
+ {
+  "route": "painted-L3-cruise-full",
+  "frames": 330,
+  "clipFrames": 0,
+  "minClearance": 2,
+  "minAt": {
+   "t": 6.55,
+   "x": -1163,
+   "z": -51,
+   "speed": 26,
+   "pitch": -0.04
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 24,
+  "over40ms2_0p1s": 0,
+  "peakPitchRate": 0.19
+ },
+ {
+  "route": "painted-L3-cruise-light",
+  "frames": 330,
+  "clipFrames": 0,
+  "minClearance": 8.69,
+  "minAt": {
+   "t": 5.77,
+   "x": -1163,
+   "z": -51,
+   "speed": 30,
+   "pitch": -0.04
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 26,
+  "over40ms2_0p1s": 0,
+  "peakPitchRate": 0.13
+ },
+ {
+  "route": "painted-L3-weave-full",
+  "frames": 330,
+  "clipFrames": 0,
+  "minClearance": 1.47,
+  "minAt": {
+   "t": 1.62,
+   "x": -1349,
+   "z": -134,
+   "speed": 27,
+   "pitch": 0
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 36,
+  "over40ms2_0p1s": 0,
+  "peakPitchRate": 0.29
+ }
+]

@@ -22,7 +22,8 @@ Phase 1: single player, no server. iPhone Safari first (portrait, one thumb).
   under the deck.
 - **Tap** (a second finger works while steering): dragon breath. The bus
   rears back and blasts a rainbow jet forward; it explodes on the building
-  ahead (when the belly is full, that building glints): a flash, a rainbow
+  ahead (when the belly is full, that building glints, and the glinting one is
+  the one you hit; lifting your thumb to tap keeps it): a flash, a rainbow
   shockwave, and every building within ~60 m blooms, the street and the trees
   around them splattered too. From altitude it lands where you're looking,
   mid-screen, after a longer flight, and the blast is bigger the higher you
@@ -46,6 +47,10 @@ flight test), and one page per module (`dev/bus.html`, `dev/fx.html`, ...).
 Screenshots: `node tools/shot.mjs <url> out.png`, `node tools/shots.mjs`,
 `node tools/blast.mjs <url> <outDir> [perf] [seq] [top] [reload] [escalate] [tap] [drop] [layouts]`
 (blast QA at the Painted Ladies: frame sequence, top-down view, persistence, perf).
+Feel QA: `node tools/feel-sim/run.mjs s_aim.ts` (and the other scenarios in
+its header) runs the real flight / aim / splat code offline on the baked city;
+`node tools/feel.mjs <baseUrl> shots/feel [strip] [glint] [taps]` shoots the
+tap -> jet -> impact -> hit-stop strip and checks real taps in the browser.
 Altitude QA (climb shots, flight log, taps, perf at cruise vs ceiling):
 `node tools/altitude.mjs <baseUrl> shots/altitude downtown|west|gate|opening [--seq]`;
 `--seq` also captures frames exactly 1/30 s apart, and

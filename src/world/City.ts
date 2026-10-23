@@ -9,6 +9,7 @@ import type { ObstaclePost } from './Bridges';
 import { parseFar, type CityManifest, type FarData, type BuildingTile, type TerrainTile } from './tiles';
 import { loadRegion, type RegionRequest, type RegionResponse, type TileResult } from './regionLoader';
 import type { MeshArrays } from './BuildingMesher';
+import { treeCrown } from './props/trees';
 
 // Streams the baked city around the bus: region bundles are fetched and
 // meshed in a worker, tiles appear inside the fog, far ones are dropped.
@@ -29,6 +30,22 @@ export interface BuildingRef {
   roofY: number; // top of the highest tier
   area: number; // footprint area
   hood: number;
+  /** footprint bounds (its ground-tier rings) and the farthest footprint vertex from (cx, cz) (m) */
+  x0: number;
+  z0: number;
+  x1: number;
+  z1: number;
+  rad: number;
+  /** area-index query stamp (dedupes a ref listed in several cells; no allocation) */
+  q: number;
+}
+
+/** Distance from (x, z) to the segment a-b (m). */
+function segDist(ax: number, az: number, bx: number, bz: number, x: number, z: number): number {
+  const dx = bx - ax, dz = bz - az;
+  const L2 = dx * dx + dz * dz;
+  const t = L2 > 0 ? Math.min(1, Math.max(0, ((x - ax) * dx + (z - az) * dz) / L2)) : 0;
+  return Math.hypot(ax + dx * t - x, az + dz * t - z);
 }
 
 interface LoadedTile {
@@ -105,6 +122,7 @@ const UNLOAD_RADIUS_HIGH = 2800;
 const ADOPT_MIN = 2;
 const ADOPT_MS = 2.5;
 const HASH_CELL = 32;
+const crownTmp = { top: 0, mid: 0, r: 0 };
 
 export class City {
   readonly root = new THREE.Group();
@@ -117,11 +135,16 @@ export class City {
   private pending = new Map<number, { key: string; lod: 0 | 1 }>();
   private regionLod = new Map<string, 0 | 1>();
   private retryAt = new Map<string, number>();
+  private failCount = new Map<string, number>();
   private regionsLoaded = new Set<string>();
   private regionsRequested = new Set<string>();
   private regionAvailable = new Set<string>();
   private tiles = new Map<string, LoadedTile>();
   private hash = new Map<number, BuildingRef[]>();
+  /** area index: every ref in every HASH_CELL cell its footprint bounds overlap (aim / hit tests: a big
+   * footprint is found wherever you aim into it, not only near its centroid) */
+  private areaHash = new Map<number, BuildingRef[]>();
+  private qStamp = 0;
   /** landmark/bridge collision posts, hashed in 64 m cells */
   private posts = new Map<number, ObstaclePost[]>();
   private far: FarData | null = null;
@@ -382,6 +405,8 @@ export class City {
     for (const key of this.regionsLoaded) {
       const lod = this.regionLod.get(key);
       if (lod === undefined || this.isPending(key)) continue;
+      // (a failed level-of-detail swap backs off like a failed first load: no request per frame while offline)
+      if ((this.retryAt.get(key) ?? 0) > performance.now()) continue;
       const [rx, rz] = key.split(',').map(Number);
       const cx = (rx + 0.5) * R, cz = (rz + 0.5) * R;
       const d = Math.hypot(Math.max(Math.abs(focus.x - cx) - R / 2, 0), Math.max(Math.abs(focus.z - cz) - R / 2, 0));
@@ -574,7 +599,10 @@ export class City {
         lt.buildings.geometry.dispose();
         lt.buildings = null;
       }
-      if (t.mesh) lt.buildings = this.makeBuildingMesh(t.mesh);
+      if (t.mesh) {
+        lt.buildings = this.makeBuildingMesh(t.mesh);
+        this.meshTops(lt, t.mesh);
+      }
       if (lt.terrainStep !== 2) {
         this.dropTileTerrain(lt);
         this.makeTileTerrain(lt, 2);
@@ -687,10 +715,14 @@ export class City {
     if (msg.error) {
       console.warn('region failed', key, msg.error);
       if (!this.regionsLoaded.has(key)) this.regionsRequested.delete(key);
-      // back off: a flaky network shouldn't turn into a request storm
-      this.retryAt.set(key, performance.now() + 3000);
+      // back off (3 s, doubling up to 30 s): a flaky network shouldn't turn into a request storm
+      const n = (this.failCount.get(key) ?? 0) + 1;
+      this.failCount.set(key, n);
+      this.retryAt.set(key, performance.now() + Math.min(30000, 3000 * 2 ** (n - 1)));
       return;
     }
+    this.failCount.delete(key);
+    this.retryAt.delete(key);
     if (!this.regionsRequested.has(key)) return; // unloaded while in flight
     // an already-loaded region switches level of detail in one go; a new one adopts its tiles a few per frame
     if (this.regionsLoaded.has(key)) this.adopt.push({ kind: 'swap', key, msg });
@@ -749,7 +781,20 @@ export class City {
         }
         cx /= e - s;
         cz /= e - s;
-        const ref: BuildingRef = { index: b.index[i], stableId: b.stableId[i], tile: b, local: i, parts: j - i, top, cx, cz, baseY: b.groundY[i], roofY: b.roofY[top], area: Math.abs(area) / 2, hood: b.hood[i] };
+        // footprint bounds over the ground-tier rings (what contains() tests), and its reach from the centroid
+        let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity, rad = 0;
+        for (let k = i; k < j; k++) {
+          if (b.tier[k] !== 0) continue;
+          for (let v = b.vertStart[k]; v < b.vertStart[k + 1]; v++) {
+            const vx = b.xz[v * 2], vz = b.xz[v * 2 + 1];
+            if (vx < x0) x0 = vx;
+            if (vx > x1) x1 = vx;
+            if (vz < z0) z0 = vz;
+            if (vz > z1) z1 = vz;
+            rad = Math.max(rad, Math.hypot(vx - cx, vz - cz));
+          }
+        }
+        const ref: BuildingRef = { index: b.index[i], stableId: b.stableId[i], tile: b, local: i, parts: j - i, top, cx, cz, baseY: b.groundY[i], roofY: b.roofY[top], area: Math.abs(area) / 2, hood: b.hood[i], x0, z0, x1, z1, rad, q: 0 };
         i = j;
         lt.refs.push(ref);
         if (ref.roofY + 6 > lt.maxY) lt.maxY = ref.roofY + 6;
@@ -757,19 +802,31 @@ export class City {
         let list = this.hash.get(hk);
         if (!list) this.hash.set(hk, (list = []));
         list.push(ref);
+        this.areaCells(ref, true);
         this.paint.register(ref.index, ref.stableId);
       }
     }
     if (t.terrain) {
       const tr = t.terrain;
-      // trees are obstacles too: the bus skims canopies, never flies through them
+      // trees are obstacles too: the bus skims canopies, never flies through them. Each crown is a dome
+      // over its whole reach (a park's canopy closes over the cells between the trunks), at its real height
       const oc = this.manifest.tileSize / tr.obstN;
+      const N = tr.obstN;
       for (const tree of tr.trees) {
-        const ix = Math.floor((tree.x - tr.originX) / oc), iz = Math.floor((tree.z - tr.originZ) / oc);
-        if (ix < 0 || iz < 0 || ix >= tr.obstN || iz >= tr.obstN) continue;
-        const top = tree.y + 16 * tree.size;
-        const k = iz * tr.obstN + ix;
-        if (top > tr.obst[k]) tr.obst[k] = top;
+        const c = treeCrown(tree.kind, tree.size, crownTmp);
+        const ix0 = Math.max(0, Math.floor((tree.x - c.r - tr.originX) / oc)), ix1 = Math.min(N - 1, Math.floor((tree.x + c.r - tr.originX) / oc));
+        const iz0 = Math.max(0, Math.floor((tree.z - c.r - tr.originZ) / oc)), iz1 = Math.min(N - 1, Math.floor((tree.z + c.r - tr.originZ) / oc));
+        for (let iz = iz0; iz <= iz1; iz++)
+          for (let ix = ix0; ix <= ix1; ix++) {
+            // the crown's height over the cell point nearest the trunk
+            const qx = Math.min(Math.max(tree.x, tr.originX + ix * oc), tr.originX + (ix + 1) * oc);
+            const qz = Math.min(Math.max(tree.z, tr.originZ + iz * oc), tr.originZ + (iz + 1) * oc);
+            const u = Math.hypot(qx - tree.x, qz - tree.z) / c.r;
+            if (u >= 1) continue;
+            const top = tree.y + c.mid + (c.top - c.mid) * Math.sqrt(1 - u * u);
+            const k = iz * N + ix;
+            if (top > tr.obst[k]) tr.obst[k] = top;
+          }
       }
       for (let k = 0; k < tr.obst.length; k++) if (tr.obst[k] > lt.maxY) lt.maxY = tr.obst[k];
       for (let k = 0; k < tr.heights.length; k++) if (tr.heights[k] > lt.maxY) lt.maxY = tr.heights[k];
@@ -779,6 +836,7 @@ export class City {
         this.setMask(t.tx, t.tz, 255);
       }
     }
+    if (t.mesh && !coarse) this.meshTops(lt, t.mesh);
     this.tiles.set(key, lt);
     this.onTile?.({ tx: t.tx, tz: t.tz, terrain: t.terrain, refs: lt.refs });
   }
@@ -806,6 +864,7 @@ export class City {
             const i = list.indexOf(ref);
             if (i >= 0) list.splice(i, 1);
           }
+          this.areaCells(ref, false);
         }
         const mx = Math.round((tx * ts - minX) / ts);
         const mz = Math.round((tz * ts - minZ) / ts);
@@ -878,6 +937,75 @@ export class City {
     return top;
   }
 
+  /**
+   * Raise the flight's obstacle cells to what the detailed mesh really has on its roofs: gable ridges,
+   * chimneys, parapets and rooftop clutter (the bake's grid only knows the flat roofs). Every vertex
+   * lifts its own cell (a box on a tower or a podium); a single-part house lifts every cell within 3 m of
+   * its footprint (as the bake's buffer) to its top, so a gable's ridge holds between its two ends.
+   */
+  private meshTops(lt: LoadedTile, m: MeshArrays) {
+    const tr = lt.terrainData;
+    if (!tr || !lt.refs.length || !m.vertexCount) return;
+    const N = tr.obstN, oc = this.manifest.tileSize / N;
+    const byIndex = new Map<number, BuildingRef>();
+    for (const r of lt.refs) if (r.parts === 1) byIndex.set(r.index, r);
+    // a building's vertices are consecutive in its tile mesh
+    let cur = -1, top = -Infinity;
+    const flush = () => {
+      const ref = cur >= 0 ? byIndex.get(cur) : undefined;
+      if (ref && top > ref.roofY + 0.3) this.raiseCells(tr, ref.x0 - 3, ref.z0 - 3, ref.x1 + 3, ref.z1 + 3, top, (x, z) => this.edgeDistance(ref, x, z) <= 3);
+    };
+    for (let v = 0; v < m.vertexCount; v++) {
+      const id = m.bld[v * 4];
+      const y = m.position[v * 3 + 1];
+      const ix = Math.floor((m.position[v * 3] - tr.originX) / oc), iz = Math.floor((m.position[v * 3 + 2] - tr.originZ) / oc);
+      if (ix >= 0 && iz >= 0 && ix < N && iz < N && y > tr.obst[iz * N + ix]) tr.obst[iz * N + ix] = y;
+      if (id !== cur) {
+        flush();
+        cur = id;
+        top = y;
+      } else if (y > top) top = y;
+    }
+    flush();
+  }
+
+  /** Raise tile tr's obstacle cells inside the bounds whose centers pass `inside` to at least `top` (m). */
+  private raiseCells(tr: TerrainTile, x0: number, z0: number, x1: number, z1: number, top: number, inside: (x: number, z: number) => boolean) {
+    const N = tr.obstN, oc = this.manifest.tileSize / N;
+    const ix0 = Math.max(0, Math.floor((x0 - tr.originX) / oc - 0.5)), ix1 = Math.min(N - 1, Math.floor((x1 - tr.originX) / oc - 0.5) + 1);
+    const iz0 = Math.max(0, Math.floor((z0 - tr.originZ) / oc - 0.5)), iz1 = Math.min(N - 1, Math.floor((z1 - tr.originZ) / oc - 0.5) + 1);
+    for (let iz = iz0; iz <= iz1; iz++)
+      for (let ix = ix0; ix <= ix1; ix++) {
+        const k = iz * N + ix;
+        if (tr.obst[k] >= top) continue;
+        const cx = tr.originX + (ix + 0.5) * oc, cz = tr.originZ + (iz + 0.5) * oc;
+        if (cx < x0 || cx > x1 || cz < z0 || cz > z1 || !inside(cx, cz)) continue;
+        tr.obst[k] = top;
+      }
+  }
+
+  /**
+   * A rooftop garden or a Hundertwasser crown grew on a roof (rect as roofRect, `top` m ASL): the
+   * obstacle field rises over it (+3 m around it, as the bake buffers roofs), so the bus never flies
+   * through the player's own domes and spires. Tiles keep it until they unload (the restore re-raises it).
+   */
+  raiseRoof(rect: { cx: number; cz: number; w: number; d: number; yaw: number }, top: number, pad = 3) {
+    const ux = Math.sin(rect.yaw), uz = Math.cos(rect.yaw);
+    const hw = rect.w / 2 + pad, hd = rect.d / 2 + pad;
+    const ex = Math.abs(ux) * hw + Math.abs(uz) * hd, ez = Math.abs(uz) * hw + Math.abs(ux) * hd;
+    const ts = this.manifest.tileSize;
+    for (let tz = Math.floor((rect.cz - ez) / ts); tz <= Math.floor((rect.cz + ez) / ts); tz++)
+      for (let tx = Math.floor((rect.cx - ex) / ts); tx <= Math.floor((rect.cx + ex) / ts); tx++) {
+        const lt = this.tiles.get(`${tx},${tz}`);
+        if (!lt?.terrainData) continue;
+        this.raiseCells(lt.terrainData, rect.cx - ex, rect.cz - ez, rect.cx + ex, rect.cz + ez, top, (x, z) => {
+          const dx = x - rect.cx, dz = z - rect.cz;
+          return Math.abs(dx * ux + dz * uz) <= hw && Math.abs(dx * uz - dz * ux) <= hd;
+        });
+        if (top + 6 > lt.maxY) lt.maxY = top + 6;
+      }
+  }
+
   /** Tallest roof, tree or ground at a point, without the landmark posts and bridge decks (what a breath lands on). */
   surfaceAt(x: number, z: number): number {
     return this.baseObstacleAt(x, z);
@@ -927,14 +1055,179 @@ export class City {
 
   /** Roof height at (x, z) of the building whose footprint contains it (its part there), or null (no allocation, no sort). */
   roofAt(x: number, z: number): number | null {
-    const cx0 = Math.floor(x / HASH_CELL), cz0 = Math.floor(z / HASH_CELL);
-    for (let cz = cz0 - 1; cz <= cz0 + 1; cz++)
-      for (let cx = cx0 - 1; cx <= cx0 + 1; cx++) {
-        const list = this.hash.get((cx + 4096) * 8192 + (cz + 4096));
-        if (!list) continue;
-        for (const ref of list) if (this.contains(ref, x, z)) return this.roofAtPart(ref, x, z);
+    const ref = this.buildingAt(x, z);
+    return ref ? this.roofAtPart(ref, x, z) : null;
+  }
+
+  /** Add (or remove) a ref in every area-index cell its footprint bounds overlap. */
+  private areaCells(ref: BuildingRef, add: boolean) {
+    if (!(ref.x1 >= ref.x0)) return;
+    const c0x = Math.floor(ref.x0 / HASH_CELL), c1x = Math.floor(ref.x1 / HASH_CELL);
+    const c0z = Math.floor(ref.z0 / HASH_CELL), c1z = Math.floor(ref.z1 / HASH_CELL);
+    for (let cz = c0z; cz <= c1z; cz++)
+      for (let cx = c0x; cx <= c1x; cx++) {
+        const k = (cx + 4096) * 8192 + (cz + 4096);
+        let list = this.areaHash.get(k);
+        if (add) {
+          if (!list) this.areaHash.set(k, (list = []));
+          list.push(ref);
+        } else if (list) {
+          const i = list.indexOf(ref);
+          if (i >= 0) list.splice(i, 1);
+          if (!list.length) this.areaHash.delete(k);
+        }
       }
-    return null;
+  }
+
+  /** The building whose footprint contains (x, z), wherever in it the point is (the tallest if
+   * footprints overlap: a LiDAR tower over a lot the footprint data still has), or null. One cell lookup. */
+  buildingAt(x: number, z: number): BuildingRef | null {
+    const list = this.areaHash.get(this.hashKey(x, z));
+    if (!list) return null;
+    let best: BuildingRef | null = null;
+    for (const r of list) {
+      if (x < r.x0 || x > r.x1 || z < r.z0 || z > r.z1) continue;
+      if ((!best || r.roofY > best.roofY) && this.contains(r, x, z)) best = r;
+    }
+    return best;
+  }
+
+  /** A building whose roof right at (x, z) stands above y (the tallest), or null: the line-of-fire test.
+   * Buildings whose top is below y are skipped before any ring test (most of them, near the rooftops). */
+  buildingAbove(x: number, z: number, y: number): BuildingRef | null {
+    const list = this.areaHash.get(this.hashKey(x, z));
+    if (!list) return null;
+    let best: BuildingRef | null = null, by = y;
+    for (const r of list) {
+      if (r.roofY <= by || x < r.x0 || x > r.x1 || z < r.z0 || z > r.z1) continue;
+      if (!this.contains(r, x, z)) continue;
+      const ry = this.roofAtPart(r, x, z);
+      if (ry > by) {
+        by = ry;
+        best = r;
+      }
+    }
+    return best;
+  }
+
+  /** True distance (m) from (x, z) to ref's footprint: 0 inside, else to its nearest ground-tier edge. */
+  edgeDistance(ref: BuildingRef, x: number, z: number): number {
+    if (this.contains(ref, x, z)) return 0;
+    const b = ref.tile;
+    let d = Infinity;
+    for (let k = ref.local; k < ref.local + ref.parts; k++) {
+      if (b.tier[k] !== 0) continue;
+      const s = b.vertStart[k], e = b.vertStart[k + 1];
+      for (let i = s, j = e - 1; i < e; j = i++) d = Math.min(d, segDist(b.xz[j * 2], b.xz[j * 2 + 1], b.xz[i * 2], b.xz[i * 2 + 1], x, z));
+    }
+    return d;
+  }
+
+  /** Distance found by the last nearestBuilding() call (m; 0 = inside). */
+  nearestDist = Infinity;
+
+  /**
+   * The building nearest to (x, z) by true footprint distance (0 inside: the tallest containing one),
+   * within r, or null; buildings lower than minHeight (sheds, slivers) are skipped. Sets nearestDist.
+   * Uses the area index: big footprints count by their edge, never by a far-away centroid. No allocation.
+   */
+  nearestBuilding(x: number, z: number, r: number, minHeight = 0): BuildingRef | null {
+    const inside = this.buildingAt(x, z);
+    if (inside && inside.roofY - inside.baseY >= minHeight) {
+      this.nearestDist = 0;
+      return inside;
+    }
+    const stamp = ++this.qStamp;
+    let best: BuildingRef | null = null;
+    let bd = r;
+    const c0x = Math.floor((x - r) / HASH_CELL), c1x = Math.floor((x + r) / HASH_CELL);
+    const c0z = Math.floor((z - r) / HASH_CELL), c1z = Math.floor((z + r) / HASH_CELL);
+    for (let cz = c0z; cz <= c1z; cz++)
+      for (let cx = c0x; cx <= c1x; cx++) {
+        const list = this.areaHash.get((cx + 4096) * 8192 + (cz + 4096));
+        if (!list) continue;
+        for (const ref of list) {
+          if (ref.q === stamp) continue;
+          ref.q = stamp;
+          // bounds first: most refs in reach are culled without touching their rings
+          const bx = Math.max(ref.x0 - x, 0, x - ref.x1), bz = Math.max(ref.z0 - z, 0, z - ref.z1);
+          if (bx * bx + bz * bz > bd * bd || ref.roofY - ref.baseY < minHeight) continue;
+          const d = this.edgeDistance(ref, x, z);
+          if (d < bd || (d === bd && best && ref.roofY > best.roofY)) {
+            bd = d;
+            best = ref;
+          }
+        }
+      }
+    this.nearestDist = best ? bd : Infinity;
+    return best;
+  }
+
+  /** Every building whose footprint comes within r of (x, z) (true edge distance d, 0 inside), unsorted. */
+  buildingsWithin(x: number, z: number, r: number, out: Array<{ ref: BuildingRef; d: number }> = []): Array<{ ref: BuildingRef; d: number }> {
+    out.length = 0;
+    const stamp = ++this.qStamp;
+    const c0x = Math.floor((x - r) / HASH_CELL), c1x = Math.floor((x + r) / HASH_CELL);
+    const c0z = Math.floor((z - r) / HASH_CELL), c1z = Math.floor((z + r) / HASH_CELL);
+    for (let cz = c0z; cz <= c1z; cz++)
+      for (let cx = c0x; cx <= c1x; cx++) {
+        const list = this.areaHash.get((cx + 4096) * 8192 + (cz + 4096));
+        if (!list) continue;
+        for (const ref of list) {
+          if (ref.q === stamp) continue;
+          ref.q = stamp;
+          const bx = Math.max(ref.x0 - x, 0, x - ref.x1), bz = Math.max(ref.z0 - z, 0, z - ref.z1);
+          if (bx * bx + bz * bz > r * r) continue;
+          const d = this.edgeDistance(ref, x, z);
+          if (d <= r) out.push({ ref, d });
+        }
+      }
+    return out;
+  }
+
+  /** Where a shot aimed at (x, z) lands on ref: a house-sized building (every vertex within `smallRad` of
+   * its centroid) at its centroid, as ever; a big one at (x, z) itself when that is on it, else at the point
+   * of its footprint nearest to (x, z) pulled `inset` m further in (never at a centroid 100 m from the aim). */
+  landingOn(ref: BuildingRef, x: number, z: number, inset: number, out: { x: number; z: number }, smallRad = 0): { x: number; z: number } {
+    if (ref.rad <= smallRad && this.contains(ref, ref.cx, ref.cz)) {
+      out.x = ref.cx;
+      out.z = ref.cz;
+      return out;
+    }
+    if (this.contains(ref, x, z)) {
+      out.x = x;
+      out.z = z;
+      return out;
+    }
+    const b = ref.tile;
+    let d = Infinity, px = ref.cx, pz = ref.cz;
+    for (let k = ref.local; k < ref.local + ref.parts; k++) {
+      if (b.tier[k] !== 0) continue;
+      const s = b.vertStart[k], e = b.vertStart[k + 1];
+      for (let i = s, j = e - 1; i < e; j = i++) {
+        const ax = b.xz[j * 2], az = b.xz[j * 2 + 1], dx = b.xz[i * 2] - ax, dz = b.xz[i * 2 + 1] - az;
+        const L2 = dx * dx + dz * dz;
+        const t = L2 > 0 ? Math.min(1, Math.max(0, ((x - ax) * dx + (z - az) * dz) / L2)) : 0;
+        const qx = ax + dx * t, qz = az + dz * t;
+        const dd = Math.hypot(qx - x, qz - z);
+        if (dd < d) {
+          d = dd;
+          px = qx;
+          pz = qz;
+        }
+      }
+    }
+    // in toward the centroid (never past it); an L-shaped footprint whose centroid is outside it keeps the edge point
+    const tx = ref.cx - px, tz = ref.cz - pz, tl = Math.hypot(tx, tz);
+    const k = tl > 1e-6 ? Math.min(1, inset / tl) : 0;
+    out.x = px + tx * k;
+    out.z = pz + tz * k;
+    if (!this.contains(ref, out.x, out.z)) {
+      const k2 = tl > 1e-6 ? Math.min(1, 0.6 / tl) : 0;
+      out.x = px + tx * k2;
+      out.z = pz + tz * k2;
+    }
+    return out;
   }
 
   /** True if (x, z) is inside the footprint of ref (any ground-tier part; the tiers above stand on it). */

@@ -92,6 +92,8 @@ interface Slot {
 export class Input {
   readonly state: InputState = { dragging: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null };
   onTap: (() => void) | null = null;
+  /** A new gesture touched down (it may become a tap, which fires on the lift): the game freezes its aim cue. */
+  onPress: (() => void) | null = null;
   onTripleFinger: (() => void) | null = null;
   onFirstGesture: (() => void) | null = null;
 
@@ -242,7 +244,7 @@ export class Input {
     window.removeEventListener('blur', this.onBlur);
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.releaseAll();
-    this.onTap = this.onTripleFinger = this.onFirstGesture = null;
+    this.onTap = this.onTripleFinger = this.onFirstGesture = this.onPress = null;
   }
 
   // ---------------------------------------------------------------- pointers
@@ -289,6 +291,7 @@ export class Input {
       this.anchorPt.y = this.fingerPt.y = slot.y0;
       this.state.anchor = this.anchorPt;
       this.state.finger = this.fingerPt;
+      this.onPress?.();
       return;
     }
 
