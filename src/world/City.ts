@@ -88,9 +88,63 @@ export class City {
   }
 
   async loadFar(): Promise<void> {
-    const res = await fetch(`${this.baseUrl}/far.bin`);
+    const [res, hz] = await Promise.all([fetch(`${this.baseUrl}/far.bin`), fetch(`${this.baseUrl}/horizon.bin`).catch(() => null)]);
     this.far = parseFar(await res.arrayBuffer());
     this.buildFar();
+    if (hz && hz.ok) this.buildHorizon(await hz.arrayBuffer());
+  }
+
+  /** The hills around the city (Marin, East Bay, San Bruno Mtn) as a coarse fogged ring. */
+  private buildHorizon(buf: ArrayBuffer) {
+    const dv = new DataView(buf);
+    const W = dv.getUint32(4, true), H = dv.getUint32(8, true);
+    const minX = dv.getFloat32(12, true), minZ = dv.getFloat32(16, true), cell = dv.getFloat32(20, true);
+    const hq = new Int16Array(buf.slice(24, 24 + W * H * 2));
+    const step = 2;
+    const w = Math.floor((W - 1) / step) + 1, h = Math.floor((H - 1) / step) + 1;
+    const hAt = (i: number, j: number) => hq[Math.min(H - 1, Math.max(0, j)) * W + Math.min(W - 1, Math.max(0, i))] / 10;
+    const pos = new Float32Array(w * h * 3);
+    const nrm = new Float32Array(w * h * 3);
+    const ramp = new Float32Array(w * h);
+    const lo = new Float32Array(w * h);
+    const gl = new Float32Array(w * h);
+    const land = new Uint8Array(w * h);
+    for (let j = 0; j < h; j++)
+      for (let i = 0; i < w; i++) {
+        const gi = i * step, gj = j * step, k = j * w + i;
+        const y = hAt(gi, gj);
+        pos[k * 3] = minX + gi * cell;
+        pos[k * 3 + 1] = y > 0.5 ? y - 3 : -1.5;
+        pos[k * 3 + 2] = minZ + gj * cell;
+        const dx = (hAt(gi + 2, gj) - hAt(gi - 2, gj)) / (4 * cell), dz = (hAt(gi, gj + 2) - hAt(gi, gj - 2)) / (4 * cell);
+        const l = Math.hypot(dx, 1, dz);
+        nrm[k * 3] = -dx / l; nrm[k * 3 + 1] = 1 / l; nrm[k * 3 + 2] = -dz / l;
+        ramp[k] = y > 40 ? Ramp.GREEN_GREY : Ramp.GREY_LIGHT;
+        lo[k] = 0.02;
+        land[k] = y > 0.5 ? 1 : 0;
+      }
+    const [bx0, bz0, bx1, bz1] = this.manifest.bounds;
+    const idx: number[] = [];
+    for (let j = 0; j < h - 1; j++)
+      for (let i = 0; i < w - 1; i++) {
+        const a = j * w + i, b = a + 1, c = a + w, d = c + 1;
+        if (!(land[a] || land[b] || land[c] || land[d])) continue;
+        const x = pos[a * 3], z = pos[a * 3 + 2];
+        // the city's own far grid covers its frame
+        if (x >= bx0 && x + step * cell <= bx1 && z >= bz0 && z + step * cell <= bz1) continue;
+        idx.push(a, c, b, b, c, d);
+      }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+    g.setAttribute('ramp', new THREE.BufferAttribute(ramp, 1));
+    g.setAttribute('lightOffset', new THREE.BufferAttribute(lo, 1));
+    g.setAttribute('glow', new THREE.BufferAttribute(gl, 1));
+    g.setIndex(idx);
+    g.computeBoundingSphere();
+    const mesh = new THREE.Mesh(g, makeRampMaterial({ vertexRamp: true, shadowMul: 0 }));
+    mesh.frustumCulled = false;
+    this.farGroup.add(mesh);
   }
 
   private buildFar() {

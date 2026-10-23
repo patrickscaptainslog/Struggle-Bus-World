@@ -40,16 +40,30 @@ export class AudioEngine {
   private rt: AudioContext | null = null;
   private muted = false;
   private suspendTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The output has actually run at least once (the gesture unlock took). */
+  private everRan = false;
+  /** We suspended the context ourselves (mute / page hidden) — still "unlocked". */
+  private selfSuspended = false;
 
   constructor() {
     registerAudioTunables();
   }
 
-  /** True once sound can actually be heard (realtime context running) or a custom context is attached. */
+  /**
+   * True once iOS has let audio play (or a custom context is attached). Stays
+   * true while the engine itself pauses output for mute / a hidden page; goes
+   * false if the context never started or the OS interrupted it, so callers
+   * can keep calling unlock() from gestures until it reads true.
+   */
   get unlocked(): boolean {
     if (!this.graph) return false;
-    if (!this.rt) return true;
-    return this.rt.state === 'running';
+    const c = this.rt;
+    if (!c) return true;
+    if (c.state === 'running') {
+      this.everRan = true;
+      return true;
+    }
+    return this.everRan && this.selfSuspended && c.state === 'suspended';
   }
 
   /** The context in use (null before unlock). */
@@ -110,45 +124,57 @@ export class AudioEngine {
     if (this.graph) this.graph.update(dt, f);
   }
 
+  /**
+   * The graph to trigger one-shots on, or null when output isn't live (muted,
+   * suspended, interrupted): a suspended clock is frozen, so anything scheduled
+   * then would all fire at once on resume.
+   */
+  private live(): SoundGraph | null {
+    const g = this.graph;
+    if (!g || this.muted) return null;
+    if (this.rt && this.rt.state !== 'running') return null;
+    return g;
+  }
+
   /** Tap accepted: the bus's gag/hurk (frame 0 of the splat). */
   heave(): void {
-    const g = this.graph;
+    const g = this.live();
     if (g) g.heave(g.now());
   }
 
   /** Geyser hits the first building. strength ~0..1. */
   splatImpact(strength: number): void {
-    const g = this.graph;
+    const g = this.live();
     if (g) g.splatImpact(g.now(), strength);
   }
 
   /** index 0 = primary bloom (advances the chord); index i rings chord tone i. hue 0..5, level 1..3. */
   bloomNote(index: number, total: number, hue: number, level: number): void {
-    const g = this.graph;
+    const g = this.live();
     if (g) g.bloomNote(g.now(), index, total, hue, level);
   }
 
   /** Belly full again. */
   ready(): void {
-    const g = this.graph;
+    const g = this.live();
     if (g) g.ready(g.now());
   }
 
   /** Tapped while recharging. */
   denied(): void {
-    const g = this.graph;
+    const g = this.live();
     if (g) g.denied(g.now());
   }
 
   /** A street sign springs out of the ground. */
   signPop(): void {
-    const g = this.graph;
+    const g = this.live();
     if (g) g.signPop(g.now());
   }
 
   /** Extra (dev / scripted moments): sound a foghorn now. */
   foghorn(): void {
-    const g = this.graph;
+    const g = this.live();
     if (g) g.foghorn(g.now(), false);
   }
 
@@ -163,7 +189,7 @@ export class AudioEngine {
       // after the fade, stop the audio thread entirely (battery)
       this.suspendTimer = setTimeout(() => {
         this.suspendTimer = null;
-        if (this.muted && ctx.state === 'running') ctx.suspend().catch(() => {});
+        if (this.muted && ctx.state === 'running') this.pause();
       }, 400);
     } else this.resume();
   }
@@ -189,7 +215,26 @@ export class AudioEngine {
 
   private resume(): void {
     const c = this.rt;
-    if (c && c.state !== 'running' && c.state !== 'closed') c.resume().catch(() => {});
+    if (!c) return;
+    if (c.state === 'running') this.everRan = true;
+    else if (c.state !== 'closed') {
+      c.resume()
+        .then(() => {
+          if (c.state === 'running') {
+            this.everRan = true;
+            this.selfSuspended = false;
+          }
+        })
+        .catch(() => {});
+    }
+  }
+
+  private pause(): void {
+    const c = this.rt;
+    if (!c || c.state !== 'running') return;
+    this.everRan = true;
+    this.selfSuspended = true;
+    c.suspend().catch(() => {});
   }
 
   private installLifecycle(ctx: AudioContext): void {
@@ -200,9 +245,14 @@ export class AudioEngine {
     };
     for (const ev of GESTURES) window.addEventListener(ev, onGesture, { capture: true, passive: true });
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) {
-        if (ctx.state === 'running') ctx.suspend().catch(() => {});
-      } else if (!this.muted) this.resume();
+      if (document.hidden) this.pause();
+      else if (!this.muted) this.resume();
+    });
+    ctx.addEventListener('statechange', () => {
+      if (ctx.state === 'running') {
+        this.everRan = true;
+        this.selfSuspended = false;
+      } else if (ctx.state !== 'suspended') this.selfSuspended = false; // 'interrupted' / 'closed': the OS took it
     });
   }
 }

@@ -160,7 +160,7 @@ export class Sfx {
   splat(t: number, strength: number, tune: AudioTune): void {
     const { ctx } = this.kit;
     const s = clamp(strength, 0, 1.5);
-    const a = (0.55 + 0.45 * s) * 0.72 * tune.splat;
+    const a = (0.55 + 0.45 * s) * 0.66 * tune.splat;
     const out = this.kit.sfx;
     const verb = this.kit.sfxVerb;
     const r = this.kit.rng;

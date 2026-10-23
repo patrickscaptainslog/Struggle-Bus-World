@@ -7,7 +7,8 @@
 //
 // usage: node tools/audio-check.mjs [--url=http://127.0.0.1:5173/dev/audio.html]
 //        [--seed=1] [--stems] [--wav=shots/tmp/audio-session.wav] [--shot=shots/tmp/audio.png]
-//        [--json] [--bench] [--timeout=240000] [--stem="foghorn"] [--from=2.8 --to=4.8] (zoom the picture)
+//        [--json] [--bench] [--live] [--timeout=240000]
+//        --live: realtime smoke test instead (unlock in a click, every pad, auto-fly, mute/unmute) [--stem="foghorn"] [--from=2.8 --to=4.8] (zoom the picture)
 // exit 0 = pass (peak < 0.95, no NaN, nothing over 0.99), 1 = fail, 2 = page error
 import { chromium } from 'playwright-core';
 import { writeFileSync } from 'node:fs';
@@ -25,7 +26,7 @@ const timeout = Number(opt.timeout ?? 240000);
 
 const browser = await chromium.launch({
   executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-webgl', '--disable-gpu-sandbox', '--autoplay-policy=no-user-gesture-required'],
+  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-webgl', '--disable-gpu-sandbox'],
 });
 const page = await browser.newPage({ viewport: { width: Number(opt.w ?? 1100), height: Number(opt.h ?? 1500) }, deviceScaleFactor: 1 });
 let threw = false;
@@ -36,6 +37,35 @@ page.on('pageerror', (e) => {
   threw = true;
   console.log('[pageerror]', e.message);
 });
+if (opt.live) {
+  // realtime smoke test: unlock inside a real click, play every pad, auto-fly, mute/unmute, hide/show
+  await page.goto(base, { waitUntil: 'load', timeout });
+  const st = () => page.evaluate(() => ({ ...window.__engine.debugState(), unlocked: window.__engine.unlocked, t: window.__engine.context ? window.__engine.context.currentTime : -1 }));
+  console.log('before tap  ', JSON.stringify(await st()));
+  await page.click('#start');
+  await page.waitForTimeout(400);
+  const a = await st();
+  console.log('after tap   ', JSON.stringify(a));
+  for (const label of ['SPLAT!', 'sign pop', 'denied', 'foghorn', 'ready', 'bloom note', 're-splat L3']) {
+    await page.getByRole('button', { name: label, exact: true }).click();
+    await page.waitForTimeout(label === 'SPLAT!' ? 1200 : 250);
+  }
+  await page.getByRole('button', { name: 'auto-fly 20 s' }).click();
+  await page.waitForTimeout(3000);
+  const b = await st();
+  console.log('auto-fly 3s ', JSON.stringify(b));
+  await page.getByRole('button', { name: 'mute', exact: true }).click();
+  await page.waitForTimeout(900);
+  console.log('muted       ', JSON.stringify(await st()));
+  await page.getByRole('button', { name: 'unmute', exact: true }).click();
+  await page.waitForTimeout(500);
+  const c = await st();
+  console.log('unmuted     ', JSON.stringify(c));
+  const ok = a.unlocked && b.t > a.t + 2 && c.state === 'running' && !threw;
+  console.log(ok ? 'LIVE PASS' : 'LIVE FAIL');
+  await browser.close();
+  process.exit(ok ? 0 : 1);
+}
 await page.goto(url, { waitUntil: 'load', timeout });
 await page.waitForFunction(() => window.__shotReady === true, null, { timeout, polling: 250 });
 const rep = await page.evaluate(() => window.__audioReport);

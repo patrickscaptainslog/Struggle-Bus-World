@@ -28,9 +28,9 @@ export const config = {
     /** Sun elevation above the horizon (radians). Low = long Hopper shadows. */
     sunElevation: 0.44,
     /** Light contributed by the sun on a fully lit, facing surface (ramp units 0..1). */
-    sunStrength: 0.62,
+    sunStrength: 0.52,
     /** Ambient sky light (ramp units). */
-    ambient: 0.2,
+    ambient: 0.3,
     /** Extra light on surfaces facing up (sky dome). */
     skyBounce: 0.24,
   },

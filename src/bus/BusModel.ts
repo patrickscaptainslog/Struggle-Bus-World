@@ -56,10 +56,16 @@ export const busTune = {
   heaveAmt: 0.18,
   /** Seconds for a gulp to travel from mid-body to the mouth. */
   gulpTime: 0.26,
-  /** Wheeze breathing rate (Hz), shudder amplitude (m), sag (fraction of height). */
-  wheezeHz: 1.25,
-  shudder: 0.05,
-  wheezeSag: 0.035,
+  /**
+   * Wheeze breathing (matches the audio's busVoice.breath rhythm: period
+   * (1.3 + 0.95 * fullness) / breathRate s, inhale 0-40%, exhale 47-90%).
+   * inhaleAmt = height swell at full wheeze; wheezeSag = exhale sag
+   * (fraction of height); shudder = exhale rattle (m).
+   */
+  breathRate: 1,
+  inhaleAmt: 0.075,
+  wheezeSag: 0.06,
+  shudder: 0.06,
   /** Snap the bus's light to ramp-step centres (0 = raw, 1 = crisp bands). */
   lightSnap: 1,
   /** Fraction of the sun's contrast removed from the bus (0 = normal toon light). */
@@ -111,9 +117,10 @@ registerTunables('Bus', busTune as unknown as Record<string, unknown>, {
   sparkle: [0, 0.5, 0.01],
   heaveAmt: [0, 0.4, 0.01],
   gulpTime: [0.05, 1.5, 0.01],
-  wheezeHz: [0.2, 4, 0.05],
+  breathRate: [0.2, 3, 0.05],
+  inhaleAmt: [0, 0.25, 0.005],
+  wheezeSag: [0, 0.2, 0.005],
   shudder: [0, 0.2, 0.005],
-  wheezeSag: [0, 0.15, 0.005],
   sunSoft: [0, 1, 0.01],
   lightSnap: [0, 1, 0.01],
   squashSplit: [0, 1, 0.01],
@@ -262,12 +269,14 @@ const VERTEX_CHUNK = /* glsl */ `
   p.y += gag * hy * ${f(BODY_H * 0.55)};
   // wheeze: wheezy breathing, sagging, rattling on the exhale
   float wz = clamp(uPose.z, 0.0, 1.0);
-  float br = sin(bT * 6.28318 * uShape.y);
-  float inh = max(br, 0.0);
-  float exh = max(-br, 0.0);
-  p.x *= 1.0 + wz * 0.05 * inh * hy;
-  p.y -= wz * uShape.w * ${f(BODY_H)} * (0.4 + 0.6 * exh) * hammock * hy;
-  float sh = wz * uShape.z * (0.35 + 0.65 * exh) * (sin(bT * 83.0) + 0.7 * sin(bT * 127.0 + p.z * 0.9));
+  float inh = uFx4.z;
+  float exh = uFx4.w;
+  // gasp: swell up and puff the chest out
+  p.x *= 1.0 + wz * uShape.y * 0.55 * inh * hy;
+  p.y = ${f(BASE_Y)} + (p.y - ${f(BASE_Y)}) * (1.0 + wz * uShape.y * inh);
+  // long wheezy exhale: deflate into a sagging hammock and rattle
+  p.y -= wz * uShape.w * ${f(BODY_H)} * (0.3 + 0.7 * exh) * hammock * hy;
+  float sh = wz * uShape.z * (0.2 + 0.8 * exh) * (sin(bT * 83.0) + 0.7 * sin(bT * 127.0 + p.z * 0.9));
   p.x += sh * hy;
   p.y += sh * 0.5;
   // follow-through lean (top lags behind acceleration)
@@ -329,11 +338,11 @@ export class BusModel {
   private readonly uPose2 = new THREE.Vector4(0, 1, 0, 0); // mouth, eye, arm, hatch lid
   private readonly uAnim = new THREE.Vector4(); // time, wheel angle, lean, jiggle
   private readonly uBand = new THREE.Vector4(); // glow, dark lo, lit lo, belly sag
-  private readonly uShape = new THREE.Vector4(); // heave amt, wheeze hz, shudder, wheeze sag
+  private readonly uShape = new THREE.Vector4(); // heave amt, inhale amt, shudder, wheeze sag
   private readonly uFx = new THREE.Vector4(); // hole glow, flash glow, eye glow min, max
   private readonly uFx2 = new THREE.Vector4(); // squash split, door max, doorway glow, ready wave
   private readonly uFx3 = new THREE.Vector4(); // sparkle, sun soften, gulp, light trim
-  private readonly uFx4 = new THREE.Vector4(); // light snap, shadow mul
+  private readonly uFx4 = new THREE.Vector4(); // light snap, shadow mul, inhale, exhale
 
   private wheelAngle = 0;
   private lastSpeed = NaN;
@@ -349,6 +358,12 @@ export class BusModel {
   private seed = 12345;
   /** 0..1 progress of the gag bulge travelling from mid-body to the mouth. */
   private gulp = 0;
+  /** Breath cycle: phase 0..1, period (s), and when glue last synced it. */
+  private breathPh = 0;
+  private breathP = 1.3;
+  private breathSyncT = -1e9;
+  private inhale = 0;
+  private exhale = 0;
 
   constructor(scale = 1.6) {
     this.scale = scale;
@@ -404,11 +419,11 @@ export class BusModel {
     u.uFogMul.value = T.fogMul;
     u.uShadowMul.value = T.shadowMul;
     this.uBand.set(T.bandGlow, T.bandDark, T.bandLit, T.bellySag);
-    this.uShape.set(T.heaveAmt, T.wheezeHz, T.shudder, T.wheezeSag);
+    this.uShape.set(T.heaveAmt, T.inhaleAmt, T.shudder, T.wheezeSag);
     this.uFx.set(T.holeGlow, T.flashGlow, T.eyeGlowMin, T.eyeGlowMax);
     this.uFx2.set(T.squashSplit, T.doorMax, T.doorGlow, T.readyWave);
     this.uFx3.set(T.sparkle, T.sunSoft, this.gulp, T.light);
-    this.uFx4.set(T.lightSnap, T.shadowMul, 0, 0);
+    this.uFx4.set(T.lightSnap, T.shadowMul, this.inhale, this.exhale);
   }
 
   update(dt: number, t: number, pose: BusPose): void {
@@ -458,13 +473,27 @@ export class BusModel {
       }
     }
 
+    // breathing: gasp (0-40%), hold, wheezy exhale (47-90%)
+    this.breathPh += dt / this.breathP;
+    if (this.breathPh >= 1) {
+      const synced = t - this.breathSyncT < this.breathP * 1.6 + 0.4;
+      if (synced) this.breathPh = 1; // wait for the next breathe() from the audio
+      else {
+        this.breathPh %= 1;
+        this.breathP = (1.3 + 0.95 * full) / Math.max(0.2, T.breathRate);
+      }
+    }
+    const ph = this.breathPh;
+    this.inhale = ph < 0.4 ? Math.sin((Math.PI * ph) / 0.4) : 0;
+    this.exhale = ph >= 0.47 && ph < 0.9 ? Math.sin((Math.PI * (ph - 0.47)) / 0.43) : 0;
+
     // gag: each heave onset sends one gulp from mid-body toward the mouth
     if (pose.heave > 0.02) this.gulp = Math.min(1, this.gulp + dt / Math.max(0.05, T.gulpTime));
     else this.gulp = 0;
 
     // pot-lid rattle as the belly fills, and a boiling bob when popped open
     const ready = smoothstep(0.985, 1, full);
-    const rattle = T.hatchRattle * smoothstep(0.35, 0.98, full) * (1 - ready) * Math.pow(Math.max(0, Math.sin(t * 19)), 6) * (0.55 + 0.45 * Math.sin(t * 3.3));
+    const rattle = T.hatchRattle * smoothstep(0.35, 0.98, full) * (1 - ready) * Math.pow(Math.max(0, Math.sin(t * 19)), 6) * (0.35 + 0.65 * this.exhale);
     const bob = ready * 0.09 * Math.sin(t * 11);
     const lidAngle = Math.max(0, this.lid.x + rattle + bob);
 
@@ -485,6 +514,17 @@ export class BusModel {
     this.uPose.set(squash, clamp01(pose.heave), clamp01(pose.wheeze), full);
     this.uPose2.set(mouth, eye, Math.max(0, this.arm.x), lidAngle);
     this.uAnim.set(t % 600, this.wheelAngle, this.lean.x, this.jig.x + 0.03 * Math.sin(t * 2.1) * pose.wheeze);
+  }
+
+  /**
+   * Optional audio sync: start a breath now with this period (s) — e.g. pass
+   * the value AudioEngine's bus voice returns from breath(). Without calls
+   * the bus breathes on its own with the same rhythm.
+   */
+  breathe(period: number): void {
+    this.breathPh = 0;
+    this.breathP = Math.max(0.3, period);
+    this.breathSyncT = this.lastT;
   }
 
   dispose() {
