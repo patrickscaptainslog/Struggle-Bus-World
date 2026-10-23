@@ -17,10 +17,11 @@ duct-taped bumper, squash & stretch & wheeze. Its barf is a glorious rainbow gey
 FEEL DECISIONS (approved by the producer): struggle-then-release — a full belly makes the bus sag, wheeze and wallow; barfing is relief:
 recoil kicks it up and it zips off lighter. Splat = DRAGON BREATH (producer's call, replaced the dive-bomb): tap -> the bus rears back
 and blasts a rainbow jet FORWARD like a dragon breathing fire; it lands on the building ahead (the one that glints when the belly is full),
-the bus recoils and slows; first impact ~0.4 s after the tap; buildings bloom outward one by one (cascade ~75 ms apart), each pop a note
-higher; first bloom has 2 frames of hit-stop. Re-splatting a building escalates it: level 1 = full bloom (color + stained-glass windows),
-level 2 = rooftop garden, level 3 = full Hundertwasser (onion domes, trees, bunting). Painted Ladies color fan: each splat centers on the
-next hue and neighbors get adjacent hues. No HUD at all: the bus's belly glows fuller as the splat recharges. Sound: muffled grey ambience
+the bus recoils and slows; first impact ~0.4 s after the tap; it EXPLODES: flash, rainbow shockwave, every building within ~60 m blooms
+as the wave reaches it (~0.3 s for the whole blast), the ground and trees around them splattered; the blooms ring as one fast capped
+arpeggio; 4 frames of hit-stop. Re-splatting a building escalates it: level 1 = full bloom (color + stained-glass windows),
+level 2 = rooftop garden, level 3 = full Hundertwasser (onion domes, trees, bunting). Rainbow pinwheel: each blast centers on the
+next hue and the hues fan around the impact; touching neighbors never share a hue. No HUD at all: the bus's belly glows fuller as the splat recharges. Sound: muffled grey ambience
 (wind, distant foghorns), the bus's wheeze, wet splat + bright chord; each splat plays the NEXT chord of a progression so any sequence is
 musical; painted blocks hum softly as you pass. Tune everything to feel great with sound OFF too.
 

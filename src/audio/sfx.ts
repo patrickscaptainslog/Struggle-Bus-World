@@ -1,4 +1,5 @@
 import type { AudioTune } from './tune';
+import { config } from '../config';
 import { Chord, arpNote } from './music';
 import { clamp, disposeOnEnd, envAD, Kit, mkFilter, mkGain, mkOsc, mkPan, mtof, noiseSrc, target } from './dsp';
 
@@ -247,6 +248,60 @@ export class Sfx {
       o.start(t);
       o.stop(tk + 0.2);
       disposeOnEnd(o, [o, g, p]);
+    }
+  }
+
+  /**
+   * The blast under the splat: a deep sub drop you feel more than hear, an
+   * octave-up body so phone speakers carry it, and a long rumbling tail into
+   * the reverb. Bigger blasts (strength > 1) go deeper and longer.
+   */
+  boom(t: number, strength: number, tune: AudioTune): void {
+    const { ctx } = this.kit;
+    const s = clamp(strength, 0.5, 2.5);
+    const a = 0.62 * tune.splat * clamp(config.audio.boom, 0, 2);
+    if (a <= 0) return;
+    const out = this.kit.sfx;
+    const verb = this.kit.sfxVerb;
+    const len = 0.9 + 0.35 * s;
+    // sub drop
+    {
+      const o = mkOsc(ctx, 'sine', 64);
+      o.frequency.setValueAtTime(74 - 6 * s, t);
+      target(o.frequency, 30 - 3 * s, t + 0.01, 0.16 * s);
+      const g = mkGain(ctx, 0);
+      envAD(g.gain, t, 0.55 * a, 0.006, 0.32 * len);
+      o.connect(g).connect(out);
+      o.start(t);
+      o.stop(t + len + 0.6);
+      disposeOnEnd(o, [o, g]);
+    }
+    // body: a soft-clipped triangle an octave up (the thud a phone can play)
+    {
+      const o = mkOsc(ctx, 'triangle', 132);
+      o.frequency.setValueAtTime(150 - 10 * s, t);
+      target(o.frequency, 58, t + 0.006, 0.09);
+      const lp = mkFilter(ctx, 'lowpass', 900, 0.8);
+      target(lp.frequency, 260, t + 0.01, 0.12);
+      const g = mkGain(ctx, 0);
+      envAD(g.gain, t, 0.34 * a, 0.004, 0.16 * len);
+      o.connect(lp).connect(g).connect(out);
+      o.start(t);
+      o.stop(t + len);
+      disposeOnEnd(o, [o, lp, g]);
+    }
+    // rumble: low noise rolling off into the reverb
+    {
+      const n = noiseSrc(this.kit, t, len + 0.8);
+      const lp = mkFilter(ctx, 'lowpass', 420, 0.9);
+      target(lp.frequency, 110, t + 0.05, 0.35 * len);
+      const g = mkGain(ctx, 0);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.42 * a, t + 0.012);
+      target(g.gain, 0, t + 0.05, 0.3 * len);
+      n.connect(lp).connect(g).connect(out);
+      g.connect(mkGain(ctx, 0.7)).connect(verb);
+      disposeOnEnd(n, [n, lp, g]);
     }
   }
 

@@ -205,14 +205,60 @@ export const config = {
     snapReachMax: 120,
     /** Search radius around the aim point for the target building (m). */
     snapRadius: 28,
-    /** Spill radius around the primary target (m). */
-    spillRadius: 22,
-    /** Max buildings painted per splat (including the primary). */
-    maxBuildings: 5,
-    /** Delay between cascading blooms (s). */
-    cascadeStep: 0.075,
-    /** Hit-stop frames at first impact (frames @60). */
-    hitStopFrames: 2,
+    /** Blast radius around the impact with no drop (m): every building inside blooms. */
+    blastRadius: 60,
+    /** Radius multiplier at 300 m of drop (bus height above the impact); grows linearly with drop. */
+    dropGain300: 2,
+    /** Drop beyond this adds nothing (m). */
+    dropMax: 600,
+    /** Launch speed of the shockwave racing out of the impact (m/s); buildings bloom as it reaches them. */
+    waveSpeed: 300,
+    /** Max buildings bloomed per blast at the base radius (scales with the radius, up to maxBuildingsCap). */
+    maxBuildings: 40,
+    maxBuildingsCap: 96,
+    /** Hue layout: 0 = pinwheel by angle, 1 = rings by distance, 2 = spiral (pinwheel + rings). */
+    hueLayout: 0,
+    /** Ground pinwheel sectors around the impact (6 = one rainbow turn: opposite sides complementary). */
+    hueSectors: 6,
+    /** Building hues: 1 = dealt in rainbow order by angle around the impact (every hue, equal shares),
+     *  2 = dealt in equal contiguous wedges, 0 = the layout hue at the building. */
+    hueDeal: 1,
+    /** Ring width for the distance layouts (m). */
+    hueRing: 16,
+    /** Pinwheel twist (rad per m): the sectors swirl like a catherine wheel. */
+    hueTwist: 0.01,
+    /** Buildings' hues start this many steps past the layout / center hue (and never match the paint under them). */
+    roofHueShift: 1,
+    /** Ground splat edge radius (fraction of the blast radius) and raggedness of its edge (0..1). */
+    groundRadius: 0.8,
+    groundRagged: 0.26,
+    /** Splash rays shooting past the edge: count and max length (fraction of the radius). */
+    groundRays: 13,
+    rayLength: 0.5,
+    /** Ground paint tone: light offset (lower = deeper than the walls), sidewalks' lift over the
+     *  street, and the curb line (class-blend weight under which paint leaves the curb grey; 0.5 = off). */
+    groundLight: -0.14,
+    groundSidewalk: 0.12,
+    groundCurb: 0.7,
+    /** Spatter dots beyond the edge: how far out (fraction of the radius) and how many sit still. */
+    spatterReach: 1.6,
+    spatterDots: 46,
+    /** Paint blobs flung out of the impact: count; each lands as a spatter dot. */
+    blobs: 64,
+    /** Blob flight time: base (s) + per meter of distance (s/m). */
+    blobTime: 0.42,
+    blobTimePerM: 0.007,
+    /** Shockwave: it slows down toward ringReach x the radius (and fades there); ring width (m). */
+    ringReach: 1.65,
+    ringWidth: 12,
+    /** Impact flash (frames, strength 0..1). */
+    flashFrames: 1,
+    flashStrength: 1,
+    /** Camera kick at impact (m along the camera's up axis) and its decay (s). */
+    kick: 2.2,
+    kickDecay: 0.25,
+    /** Hit-stop frames at impact (frames @60). */
+    hitStopFrames: 4,
     /** Recoil: upward kick (m/s) and speed boost multiplier after the barf. */
     recoilUp: 7,
     reliefBoost: 1.45,
@@ -237,6 +283,11 @@ export const config = {
     music: 0.7,
     sfx: 0.9,
     ambience: 0.6,
+    /** Level of the deep blast boom under the splat (0..2). */
+    boom: 1,
+    /** Bloom pops: at most this many arpeggio notes per blast, this far apart (s). */
+    arpNotes: 6,
+    arpStep: 0.055,
   },
 };
 

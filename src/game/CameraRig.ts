@@ -42,6 +42,10 @@ export class CameraRig {
   /** 0..1 while barfing: tilt down and pull the look point in so the splat below the bus is visible */
   barfTilt = 0;
   shake = 0;
+  private kickT = 1e3;
+  private kickA = 0;
+  private readonly kickUp = new THREE.Vector3();
+  private readonly kickRight = new THREE.Vector3();
   private readonly bus = new THREE.Vector3();
   private readonly desired = new THREE.Vector3();
   private readonly lookTarget = new THREE.Vector3();
@@ -123,5 +127,29 @@ export class CameraRig {
     } else cam.lookAt(this.look);
     this.distance = this.pos.distanceTo(bus);
     focusOut.copy(bus);
+  }
+
+  /** Blast kick: a jolt of `amount` m that rings down within config.splat.kickDecay. */
+  kick(amount: number) {
+    this.kickA = amount;
+    this.kickT = 0;
+  }
+
+  /**
+   * Applies the kick after update(), on REAL time (it keeps shaking through
+   * the hit-stop freeze). Translation only, along the camera's own up/right
+   * axes: the pixel pipeline snaps that to whole game pixels (the sub-pixel
+   * rest goes to the upscale shift), so a kick never shimmers. No rotation.
+   */
+  applyKick(cam: THREE.PerspectiveCamera, realDt: number) {
+    const D = Math.max(0.05, config.splat.kickDecay);
+    if (this.kickT > D * 1.5) return;
+    const t = this.kickT;
+    this.kickT += realDt;
+    const env = this.kickA * Math.exp((-3 * t) / D);
+    const w = (2 * Math.PI * 2.2) / D;
+    this.kickUp.set(0, 1, 0).applyQuaternion(cam.quaternion);
+    this.kickRight.set(1, 0, 0).applyQuaternion(cam.quaternion);
+    cam.position.addScaledVector(this.kickUp, -env * Math.cos(w * t)).addScaledVector(this.kickRight, env * 0.35 * Math.sin(w * 1.3 * t));
   }
 }

@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { config } from '../config';
 import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
 import { HUE_COUNT, HUE_RAMPS, Ramp } from '../render/palette';
 import { registerTunables } from '../ui/tunables';
@@ -94,6 +93,21 @@ export const fxTune = {
   arcSize: 0.6,
   /** Stream half-thickness (m). */
   arcHalfWidth: 0.2,
+  /** Extra travel time per stream after the first (s): later neighbors land later. */
+  streamStep: 0.075,
+  // --- flung blobs (the blast throws paint far out; each lands as a spatter dot)
+  /** Blob size multiplier, trailing droplets per blob, landing splash drops per blob. */
+  flingSize: 1,
+  flingTrail: 2,
+  flingSplash: 7,
+  /** Gravity multiplier for flung blobs: high = snappy, tall explosive arcs that still land on time. */
+  flingGravity: 3.6,
+  // --- blast burst (a rainbow fountain thrown straight up out of the impact)
+  burstCount: 260,
+  /** Upward speed range (m/s) and sideways spread (m/s). */
+  burstUp: 34,
+  burstOut: 11,
+  burstSize: 1.1,
   // --- drops / splash
   gravity: 34,
   splashCount: 150,
@@ -168,6 +182,15 @@ registerTunables('Particles', fxTune, {
   arcPeel: [0, 1, 0.01],
   arcSize: [0.2, 2.5, 0.05],
   arcHalfWidth: [0, 2, 0.02],
+  streamStep: [0, 0.3, 0.005],
+  flingSize: [0.2, 3, 0.05],
+  flingTrail: [0, 6, 1],
+  flingSplash: [0, 30, 1],
+  flingGravity: [0.5, 8, 0.1],
+  burstCount: [0, 800, 10],
+  burstUp: [0, 80, 1],
+  burstOut: [0, 40, 0.5],
+  burstSize: [0.2, 3, 0.05],
   gravity: [5, 80, 0.5],
   splashCount: [0, 400, 1],
   splashUp: [0, 30, 0.5],
@@ -1007,7 +1030,7 @@ export class Particles {
     s[1] = my + (rnd() - 0.5) * j;
     s[2] = mz + (rnd() - 0.5) * j;
     s[3] = tj;
-    const tt = e.travel + i * config.splat.cascadeStep;
+    const tt = e.travel + i * T.streamStep;
     const hx = tgt.x - mx;
     const hz = tgt.z - mz;
     const dH = Math.max(0.5, Math.hypot(hx, hz));
@@ -1095,10 +1118,12 @@ export class Particles {
     this.commit(t0, life);
   }
 
-  splash(pos: THREE.Vector3, hue: number, strength: number): void {
+  /** A wet crown splash. `delay` (s) schedules it ahead (a flung blob's landing); `count` overrides the drop count. */
+  splash(pos: THREE.Vector3, hue: number, strength: number, delay = 0, count = -1): void {
     const T = fxTune;
     const k = Math.max(0, Math.min(2.5, strength));
-    const n = Math.round(T.splashCount * k);
+    const n = count >= 0 ? count : Math.round(T.splashCount * k);
+    const t0 = this.time + Math.max(0, delay);
     const h0 = wrapHue(hue);
     const g = T.gravity;
     const nBig = Math.round(n * 0.08);
@@ -1154,7 +1179,60 @@ export class Particles {
       if (r2 < 0.07) flags |= F_GLINT;
       else if (own && r2 < 0.75) flags |= F_DEEP;
       else if (r2 < 0.9) flags |= F_BRIGHT;
-      this.writeDrop(x0, y0, z0, this.time, ca * out, up, sa * out, pos.y, e, 1, ramp, size, flags);
+      this.writeDrop(x0, y0, z0, t0, ca * out, up, sa * out, pos.y, e, 1, ramp, size, flags);
+    }
+    this.flush();
+  }
+
+  /**
+   * A big glossy paint blob flung by the blast: flies a ballistic arc from
+   * `from` and lands exactly on `to` after `flight` s (a spatter dot waits
+   * there), with a couple of trailing droplets and a little splash on landing.
+   */
+  fling(from: THREE.Vector3, to: THREE.Vector3, flight: number, hue: number, size: number): void {
+    const T = fxTune;
+    const gm = T.flingGravity;
+    const g = T.gravity * gm;
+    const ft = Math.max(0.15, flight);
+    const vx = (to.x - from.x) / ft;
+    const vz = (to.z - from.z) / ft;
+    const vy = (to.y - from.y + 0.5 * g * ft * ft) / ft;
+    const ramp = HUE_RAMPS[wrapHue(hue)];
+    const sz = size * T.flingSize;
+    this.writeDrop(from.x, from.y, from.z, this.time, vx, vy, vz, to.y, 0, gm, ramp, sz, F_SHADED | (rnd() < 0.25 ? F_BRIGHT : 0));
+    // trail: same arc a beat later (lands on the same spot), smaller
+    for (let i = 1; i <= T.flingTrail; i++) {
+      const lag = 0.035 * i;
+      this.writeDrop(from.x, from.y, from.z, this.time + lag, vx, vy, vz, to.y, 0, gm, ramp, sz * (0.62 - 0.12 * i), F_SHADED | (i === 1 && rnd() < 0.3 ? F_GLINT : 0));
+    }
+    if (T.flingSplash > 0) this.splash(to, hue, 0.35, ft, Math.round(T.flingSplash));
+    this.flush();
+  }
+
+  /**
+   * The blast's fountain: paint thrown straight up out of the impact that
+   * rains back down. Hues follow the angle it flies out at (a rainbow
+   * pinwheel from above, a rainbow plume from the side), white-hot glints.
+   */
+  burst(pos: THREE.Vector3, hue: number, strength: number, floorY = pos.y): void {
+    const T = fxTune;
+    const n = Math.round(T.burstCount * Math.max(0.2, Math.min(3, strength)));
+    const a0 = rnd() * Math.PI * 2;
+    for (let i = 0; i < n; i++) {
+      const a = rnd() * Math.PI * 2;
+      const u = rnd();
+      // a tight core goes highest, the skirt flies wide and low
+      const up = T.burstUp * (0.35 + 0.65 * (1 - u * u)) * (0.85 + 0.3 * Math.sqrt(strength));
+      const out = T.burstOut * (0.15 + 0.85 * u) * Math.sqrt(strength);
+      let ang = a - a0;
+      ang -= Math.floor(ang / (Math.PI * 2)) * Math.PI * 2;
+      const h = wrapHue(hue + Math.floor((ang / (Math.PI * 2)) * 6));
+      const r2 = rnd();
+      const glint = r2 < 0.07;
+      const ramp = glint ? Ramp.GLOW_WHITE : HUE_RAMPS[h];
+      const flags = F_SHADED | (glint ? F_GLINT : r2 < 0.3 ? F_BRIGHT : 0);
+      const delay = rnd() * 0.06;
+      this.writeDrop(pos.x + Math.cos(a) * 0.8, pos.y + 0.4, pos.z + Math.sin(a) * 0.8, this.time + delay, Math.cos(a) * out, up, Math.sin(a) * out, floorY, 0, 1, ramp, T.burstSize * (0.6 + 0.8 * rnd()) * (glint ? 0.6 : 1), flags);
     }
     this.flush();
   }

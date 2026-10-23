@@ -4,6 +4,7 @@ import { Ramp } from '../render/palette';
 import { makeBuildingMaterial, paintUniforms } from './buildingMaterial';
 import { makeHeightGrid, makeTerrainMaterial, makeWaterMaterial } from './terrainMaterial';
 import { PaintState } from './PaintState';
+import { GroundPaint } from './GroundPaint';
 import type { ObstaclePost } from './Bridges';
 import { parseFar, type CityManifest, type FarData, type BuildingTile, type TerrainTile } from './tiles';
 import { loadRegion, type RegionRequest, type RegionResponse, type TileResult } from './regionLoader';
@@ -83,6 +84,8 @@ const HASH_CELL = 32;
 export class City {
   readonly root = new THREE.Group();
   readonly paint: PaintState;
+  /** paint splattered on streets, sidewalks and parks (per-tile masks) */
+  readonly ground: GroundPaint;
   readonly buildingMaterial = makeBuildingMaterial();
   private worker: Worker | null = null;
   private nextId = 1;
@@ -127,6 +130,14 @@ export class City {
 
   constructor(readonly manifest: CityManifest & { regions: Array<[number, number, number]>; regionSize: number }, readonly baseUrl: string) {
     this.paint = new PaintState(manifest.buildingCount);
+    this.ground = new GroundPaint(manifest.tileSize);
+    // a blast's tiles get their own ground mesh first, so a coarse region (seen from altitude) shows the paint
+    this.ground.onTilesTouched = (keys) => {
+      for (const k of keys) {
+        const [tx, tz] = k.split(',').map(Number);
+        this.setOwnGround(tx, tz);
+      }
+    };
     paintUniforms.uPaint.value = this.paint.texture;
     paintUniforms.uPaintW.value = this.paint.width;
     this.regionSize = manifest.regionSize;
@@ -385,6 +396,8 @@ export class City {
       else this.swapRegion(a.key, a.msg);
     }
     this.paint.flush(renderer, dt);
+    this.ground.work();
+    this.ground.flush(renderer, dt);
   }
 
   private tileKeysOf(key: string): string[] {
@@ -441,6 +454,7 @@ export class City {
         const tr = lt?.terrainData;
         if (!lt || !tr) continue;
         this.setMask(tx, tz, 255);
+        if (this.ground.hasSaved(tx, tz)) this.ownGround.add(`${tx},${tz}`);
         if (this.ownGround.has(`${tx},${tz}`)) {
           // its own ground (painted: ground paint attaches per tile)
           if (lt.terrainStep !== 4) {
@@ -558,6 +572,7 @@ export class City {
   /** The one place a tile's own ground mesh goes away (per-tile ground paint detaches here). */
   private dropTileTerrain(lt: LoadedTile) {
     if (lt.terrain) {
+      this.ground.detach(lt.tx, lt.tz);
       this.root.remove(lt.terrain);
       lt.terrain.geometry.dispose();
       (lt.terrain.material as THREE.Material).dispose();
@@ -582,7 +597,9 @@ export class City {
     tex.needsUpdate = true;
     lt.classTex = tex;
     const geo = makeHeightGrid(tr.heights, tr.n, tr.cell, tr.originX, tr.originZ, step);
-    const mesh = new THREE.Mesh(geo, makeTerrainMaterial(tex, tr.originX, tr.originZ, this.manifest.tileSize, tr.classN));
+    const gu = this.ground.tileUniforms();
+    const mesh = new THREE.Mesh(geo, makeTerrainMaterial(tex, tr.originX, tr.originZ, this.manifest.tileSize, tr.classN, 0, gu));
+    this.ground.attach(lt.tx, lt.tz, tr.originX, tr.originZ, gu);
     if (step === 2) mesh.layers.enable(SHADOW_LAYER);
     mesh.matrixAutoUpdate = false;
     mesh.visible = !lt.hidden;
@@ -872,6 +889,18 @@ export class City {
       }
     out.sort((a, b) => a.d - b.d);
     return out;
+  }
+
+  /** Roof height of the building whose footprint contains (x, z), or null (no allocation, no sort). */
+  roofAt(x: number, z: number): number | null {
+    const cx0 = Math.floor(x / HASH_CELL), cz0 = Math.floor(z / HASH_CELL);
+    for (let cz = cz0 - 1; cz <= cz0 + 1; cz++)
+      for (let cx = cx0 - 1; cx <= cx0 + 1; cx++) {
+        const list = this.hash.get((cx + 4096) * 8192 + (cz + 4096));
+        if (!list) continue;
+        for (const ref of list) if (this.contains(ref, x, z)) return ref.roofY;
+      }
+    return null;
   }
 
   /** True if (x, z) is inside the footprint of ref. */

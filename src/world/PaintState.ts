@@ -1,10 +1,14 @@
 import * as THREE from 'three';
+import { uploadRect } from '../render/upload';
 
 // Paint state, keyed by building. This is the array a Phase 2 server will own.
 //
 // GPU: RGBA32F texture, one texel per dense building index:
 //   r = color index (0..5 within the faction palette), g = level (0 = grey, 1..3),
-//   b = bloom start time (seconds, globals.uTime clock), a = faction (0 none, 1 Rainbow)
+//   b = bloom start time (seconds, globals.uTime clock; may be in the future: a
+//   blast writes its whole wave at impact and the shader times each bloom),
+//   a = faction (0 none, 1 Rainbow) + 2 when the building was already painted
+//   (an escalation: it stays painted until its new pop instead of going grey)
 // Persistence: localStorage, keyed by the building's stable id (dataset id + lot),
 //   value = [faction, color, level]. Applied as tiles stream in.
 
@@ -16,6 +20,8 @@ export interface PaintRecord {
   color: number;
   level: number;
   bloomTime: number;
+  /** Already painted before this bloom (escalation): keep showing paint until bloomTime. GPU only, never saved. */
+  keep?: boolean;
 }
 
 export class PaintState {
@@ -68,7 +74,7 @@ export class PaintState {
 
   get(index: number): PaintRecord {
     const o = index * 4;
-    return { color: this.data[o], level: this.data[o + 1], bloomTime: this.data[o + 2], faction: this.data[o + 3] };
+    return { color: this.data[o], level: this.data[o + 1], bloomTime: this.data[o + 2], faction: this.data[o + 3] % 2 };
   }
 
   level(index: number): number {
@@ -81,7 +87,7 @@ export class PaintState {
     this.data[o] = rec.color;
     this.data[o + 1] = rec.level;
     this.data[o + 2] = rec.bloomTime;
-    this.data[o + 3] = rec.faction;
+    this.data[o + 3] = rec.faction + (rec.keep ? 2 : 0);
     this.dirty.add(index);
     const sid = this.indexToStable.get(index);
     if (sid !== undefined) {
@@ -106,31 +112,25 @@ export class PaintState {
     }
   }
 
-  /** Uploads changed texels (single-texel texSubImage2D; whole texture on first use). */
+  /** Uploads changed texels: one texSubImage2D of their bounding rectangle (whole texture on first use). */
   flush(renderer: THREE.WebGLRenderer, dt: number) {
     if (this.saveTimer > 0) {
       this.saveTimer -= dt;
       if (this.saveTimer <= 0) this.persist();
     }
     if (!this.dirty.size) return;
-    const props = renderer.properties.get(this.texture) as { __webglTexture?: WebGLTexture };
-    const gl = renderer.getContext() as WebGL2RenderingContext;
-    if (!props.__webglTexture || this.texture.needsUpdate || this.dirty.size > 256) {
-      this.texture.needsUpdate = true;
-      this.dirty.clear();
-      return;
-    }
-    renderer.state.activeTexture(gl.TEXTURE0);
-    renderer.state.bindTexture(gl.TEXTURE_2D, props.__webglTexture);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    let x0 = this.width, y0 = this.height, x1 = -1, y1 = -1;
     for (const i of this.dirty) {
       const x = i % this.width;
-      const y = Math.floor(i / this.width);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, 1, 1, gl.RGBA, gl.FLOAT, this.data, i * 4);
+      const y = (i - x) / this.width;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
     }
     this.dirty.clear();
+    const gl = renderer.getContext() as WebGL2RenderingContext;
+    if (!uploadRect(renderer, this.texture, x0, y0, x1 - x0 + 1, y1 - y0 + 1, gl.RGBA, gl.FLOAT, 4)) this.texture.needsUpdate = true;
   }
 
   persist() {

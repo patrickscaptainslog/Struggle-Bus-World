@@ -148,10 +148,16 @@ export class AudioEngine {
     if (g) g.heave(g.now());
   }
 
-  /** Geyser hits the first building. strength ~0..1. */
+  /** The projectile explodes: wet splat + deep boom. strength ~1 (blast radius / base radius). */
   splatImpact(strength: number): void {
     const g = this.live();
     if (g) g.splatImpact(g.now(), strength);
+  }
+
+  /** A whole blast blooms: one capped, fast arpeggio of the next chord (count = buildings, hue 0..5, level 1..3). */
+  bloomBurst(count: number, hue: number, level: number): void {
+    const g = this.live();
+    if (g) g.bloomBurst(g.now(), count, hue, level);
   }
 
   /** index 0 = primary bloom (advances the chord); index i rings chord tone i. hue 0..5, level 1..3. */

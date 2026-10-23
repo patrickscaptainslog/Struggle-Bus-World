@@ -4,6 +4,7 @@ import { clamp, clamp01, fin, hold, Kit, LOOKAHEAD, makeNoise, makeReverbIR, mkF
 import { arpNote, Bells, Hum, PROGRESSION } from './music';
 import { Sfx } from './sfx';
 import { audioTune } from './tune';
+import { config } from '../config';
 
 // The whole sound world on one BaseAudioContext (realtime or offline).
 //
@@ -317,7 +318,22 @@ export class SoundGraph {
   }
 
   splatImpact(t: number, strength: number): void {
-    this.fx.splat(t, clamp(fin(strength, 1), 0, 1.5), audioTune);
+    const s = fin(strength, 1);
+    this.fx.splat(t, clamp(s, 0, 1.5), audioTune);
+    this.fx.boom(t, s, audioTune);
+  }
+
+  /**
+   * A whole blast blooming: advance the chord and ring it as one fast upward
+   * arpeggio of at most config.audio.arpNotes notes (40 blooms must not
+   * become 40 bells), over the strum + low bell of the primary.
+   */
+  bloomBurst(t: number, countIn: number, hueIn: number, levelIn: number): void {
+    const n = clamp(Math.floor(fin(countIn, 1)), 1, clamp(Math.round(fin(config.audio.arpNotes, 6)), 1, 12));
+    const step = clamp(fin(config.audio.arpStep, 0.055), 0.01, 0.2);
+    const hue = ((fin(hueIn) % 6) + 6) % 6;
+    const level = clamp(Math.round(fin(levelIn, 1)), 1, 3);
+    for (let i = 0; i < n; i++) this.bloomNote(t + i * step, i, n, i === 0 ? hue : (hue + (i % 2 ? i : -i)) % 6, level);
   }
 
   bloomNote(t: number, indexIn: number, totalIn: number, hueIn: number, levelIn: number): void {

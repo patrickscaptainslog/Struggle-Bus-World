@@ -21,13 +21,15 @@ Phase 1: single player, no server. iPhone Safari first (portrait, one thumb).
   horizon. Over the Golden Gate the bus can't climb until it has passed
   under the deck.
 - **Tap** (a second finger works while steering): dragon breath. The bus
-  rears back and blasts a rainbow jet forward; it bursts over the building
-  ahead (when the belly is full, that building glints) and spills onto its
-  unpainted neighbors. From altitude it lands where you're looking, mid-screen,
-  after a longer flight. The belly glows fuller as the next blast recharges.
+  rears back and blasts a rainbow jet forward; it explodes on the building
+  ahead (when the belly is full, that building glints): a flash, a rainbow
+  shockwave, and every building within ~60 m blooms, the street and the trees
+  around them splattered too. From altitude it lands where you're looking,
+  mid-screen, after a longer flight, and the blast is bigger the higher you
+  fire from. The belly glows fuller as the next blast recharges.
 - Keyboard: arrows / WASD fly the same yoke (Down/S climbs, Up/W dives or
   surges), Space breathes.
-- Splat an already-painted house to escalate it: rooftop garden, then full
+- Blast an already-painted block to escalate it: rooftop gardens, then full
   Hundertwasser.
 - Paint is saved on your phone.
 - Three-finger tap (or `?tune`) opens the hidden tuning panel; `?fps` shows the
@@ -41,7 +43,9 @@ npm run build        # dist/
 ```
 Dev pages: `dev/city.html` (real city viewer), `dev/flight.html` (autopilot
 flight test), and one page per module (`dev/bus.html`, `dev/fx.html`, ...).
-Screenshots: `node tools/shot.mjs <url> out.png`, `node tools/shots.mjs`.
+Screenshots: `node tools/shot.mjs <url> out.png`, `node tools/shots.mjs`,
+`node tools/blast.mjs <url> <outDir> [perf] [seq] [top] [reload] [escalate] [tap] [drop] [layouts]`
+(blast QA at the Painted Ladies: frame sequence, top-down view, persistence, perf).
 Altitude QA (climb shots, flight log, taps, perf at cruise vs ceiling):
 `node tools/altitude.mjs <baseUrl> shots/altitude downtown|west|gate|opening [--seq]`;
 `--seq` also captures frames exactly 1/30 s apart, and

@@ -4,3 +4,4 @@ dist
 tools/bake/.cache
 *.local
 shots/tmp
+shots/blast

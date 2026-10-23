@@ -8,7 +8,8 @@ import { paintUniforms } from './world/buildingMaterial';
 import type { CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
 import { CameraRig } from './game/CameraRig';
-import { Splatter } from './game/Splat';
+import { Splatter, type Blast } from './game/Splat';
+import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blastLayout';
 import { Input } from './game/Input';
 import { BusModel, type BusPose } from './bus/BusModel';
 import { Particles } from './fx/Particles';
@@ -115,6 +116,17 @@ async function boot() {
       }
     }
   };
+  // trees standing in saved ground paint come back painted once their tile's paint is redrawn
+  city.ground.onTileReady = (tx, tz) => {
+    const k = `${tx},${tz}`;
+    const tf = treeFields.get(k);
+    const list = treeIndex.get(k);
+    if (!tf || !list) return;
+    for (let i = 0; i < list.length; i++) {
+      const g = city.ground.sample(list[i].x, list[i].z);
+      if (g && g.cov >= 0.5 && tf.paintLevel(i) === 0) tf.setPaint(i, g.hue, 1, -100);
+    }
+  };
   city.onTileUnload = (tx, tz) => {
     const k = `${tx},${tz}`;
     const tf = treeFields.get(k);
@@ -188,7 +200,8 @@ async function boot() {
   dropShadow.renderOrder = 2;
   scene.add(dropShadow);
 
-  const particles = new Particles();
+  // the blast needs headroom: geyser + crown splash + flung blobs + a sparkle crown per bloom
+  const particles = new Particles(8000);
   scene.add(particles.object);
   const signs = new StreetSigns();
   scene.add(signs.object);
@@ -250,33 +263,63 @@ async function boot() {
   const busVel = () => velTmp.set(flight.fx * flight.speed, flight.vy, flight.fz * flight.speed);
   /** this breath's flight time while Splatter schedules it (null = the classic config.splat.impactDelay) */
   let breathTravel: number | null = null;
-  const splatter = new Splatter(city, {
-    geyser: (targets, hues) => particles.geyser({ source: mouthWorld, sourceVel: busVel, targets, duration: config.splat.duration, travelTime: breathTravel ?? config.splat.impactDelay, hues }),
-    impact: (pos, hue, strength) => {
-      particles.splash(pos, hue, strength * 1.5);
-      audio.splatImpact(strength);
-    },
-    bloom: (ref, order, total, hue, level, roof) => {
-      const h = ref.roofY - ref.baseY;
-      particles.sparkles(roof, Math.sqrt(ref.area) * 0.6 + 2, h, [hue, (hue + 1) % 6, (hue + 5) % 6], 18 + level * 8);
-      audio.bloomNote(order, total, hue, level);
-      if (level >= 2) sprouts.set(ref.index, city.roofRect(ref), hue, level, globals.uTime.value);
-      // trees beside a painted house bloom too
-      const reach = Math.sqrt(ref.area) * 0.5 + 9;
-      for (const [k, list] of treeIndex) {
-        const tf = treeFields.get(k);
-        if (!tf) continue;
+  const flingFrom = new THREE.Vector3();
+  const flingTo = new THREE.Vector3();
+  const flashPos = new THREE.Vector3();
+  /** Where a flung blob comes down: the roof it hits, else the ground. */
+  const landingY = (x: number, z: number) => city.roofAt(x, z) ?? city.groundAt(x, z);
+  /** Trees standing in the blast's fresh ground paint bloom (or escalate) as the shockwave reaches them. */
+  const paintTrees = (b: Blast) => {
+    const ts = manifest.tileSize;
+    const { x, z, r } = b.spec;
+    const reach = r * b.spec.reach;
+    for (let tz = Math.floor((z - reach) / ts); tz <= Math.floor((z + reach) / ts); tz++)
+      for (let tx = Math.floor((x - reach) / ts); tx <= Math.floor((x + reach) / ts); tx++) {
+        const key = `${tx},${tz}`;
+        const list = treeIndex.get(key);
+        const tf = treeFields.get(key);
+        if (!list || !tf) continue;
         for (let i = 0; i < list.length; i++) {
           const t = list[i];
-          if (Math.abs(t.x - ref.cx) < reach && Math.abs(t.z - ref.cz) < reach) tf.setPaint(i, hue, level, globals.uTime.value + 0.1);
+          const d = Math.hypot(t.x - x, t.z - z);
+          if (d > reach) continue;
+          const g = city.ground.sample(t.x, t.z);
+          if (!g || g.cov < 0.5) continue;
+          tf.setPaint(i, g.hue, Math.min(3, tf.paintLevel(i) + 1), b.t + arrival(d, r));
         }
       }
+  };
+  const splatter = new Splatter(city, {
+    geyser: (targets, hues) => particles.geyser({ source: mouthWorld, sourceVel: busVel, targets, duration: config.splat.duration, travelTime: breathTravel ?? config.splat.impactDelay, hues }),
+    impact: (b) => {
+      const S = config.splat;
+      const k = b.strength;
+      particles.splash(b.pos, b.spec.hue, 2.2 * Math.sqrt(k));
+      particles.burst(b.pos, b.spec.hue, k, city.groundAt(b.pos.x, b.pos.z));
+      // paint blobs flung far out, each landing on a spatter dot the ground paint already holds
+      for (const dot of b.dots) {
+        if (!dot.blob) continue;
+        flingFrom.set(b.pos.x + (Math.random() - 0.5) * 3, b.pos.y + 0.8 + Math.random() * 1.5, b.pos.z + (Math.random() - 0.5) * 3);
+        flingTo.set(dot.x, landingY(dot.x, dot.z) + 0.15, dot.z);
+        particles.fling(flingFrom, flingTo, blobFlight(dot), dot.hue, 0.7 + dot.rad * 0.5);
+      }
+      paintTrees(b);
+      audio.splatImpact(k);
+      audio.bloomBurst(b.count, b.spec.hue, b.maxLevel);
+      // one white-hot frame centered on the blast, a kick, and the fog thins over it
+      flashPos.copy(b.pos).project(camera);
+      pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, S.flashFrames, S.flashStrength);
+      rig.kick(S.kick * Math.sqrt(k));
+      bumpPaint(b.spec.x, b.spec.z, Math.min(255, 30 + 5 * b.count));
+    },
+    bloom: (ref, _order, _total, hue, level, roof) => {
+      const h = ref.roofY - ref.baseY;
+      particles.sparkles(roof, Math.sqrt(ref.area) * 0.6 + 2, h, [hue, (hue + 1) % 6, (hue + 5) % 6], 14 + level * 8);
+      if (level >= 2) sprouts.set(ref.index, city.roofRect(ref), hue, level, globals.uTime.value);
     },
     primary: (ref, hue) => showSign(ref, hue),
     hitStop: (frames) => (hitStop = frames / 60),
-    miss: (pos) => particles.splash(pos, 0, 0.6),
   });
-  splatter.onPainted = (ref) => bumpPaint(ref.cx, ref.cz, 40);
 
   function showSign(ref: BuildingRef, hue: number) {
     const f = city.frontOf(ref);
@@ -363,6 +406,7 @@ async function boot() {
   };
   tuner.onResetPaint = () => {
     city.paint.resetAll();
+    city.ground.resetAll();
     location.reload();
   };
   if (params.has('tune')) tuner.toggle();
@@ -400,6 +444,8 @@ async function boot() {
   let opening = params.has('skipintro') ? config.fog.openingDuration : 0;
   const pose: BusPose = { squash: 1, eye: 1, fullness: 1, mouth: 0, speed: 0, wheeze: 0, heave: 0 };
   let squashV = 0;
+  // QA: ?fixeddt=<s> steps the game by exactly that much per rendered frame (deterministic captures)
+  const fixedDt = params.has('fixeddt') ? Math.max(0.001, Number(params.get('fixeddt')) || 1 / 60) : 0;
   let lodTimer = 0;
   let aimTimer = 0;
   let puffTimer = 0;
@@ -417,10 +463,19 @@ async function boot() {
   // the first ready frame adopts streamed tiles at once (as the classic streaming did); then budgeted
   let everReady = false;
 
+  type QA = { sx?: number; sy?: number; holdAt?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null };
   function frame(now: number) {
     requestAnimationFrame(frame);
+    const qa = (window as unknown as { __qa?: QA | null }).__qa;
+    // QA: freeze on the first frame at/after holdAt (the canvas keeps showing it)
+    if (qa && qa.holdAt !== undefined && simTime >= qa.holdAt) {
+      qa.held = true;
+      last = now;
+      return;
+    }
     const t0 = performance.now();
-    let dt = Math.min(0.05, (now - last) / 1000);
+    let dt = fixedDt || Math.min(0.05, (now - last) / 1000);
+    const realDt = dt;
     last = now;
     if (hitStop > 0) {
       hitStop -= dt;
@@ -445,16 +500,16 @@ async function boot() {
     // input -> flight (substeps keep springs stable on slow frames)
     input.update(dt);
     const st = input.state;
-    const qa = (window as unknown as { __qa?: { sx: number; sy: number } | null }).__qa;
-    let sx = qa ? qa.sx : st.stretch.x;
-    let sy = qa ? qa.sy : st.stretch.y;
+    const qaStick = qa && typeof qa.sx === 'number' && typeof qa.sy === 'number';
+    let sx = qaStick ? qa.sx! : st.stretch.x;
+    let sy = qaStick ? qa.sy! : st.stretch.y;
     // the opening: the yoke can't climb until the bus (and the low camera trailing 150 m behind
     // it) is clear of the Golden Gate, so the bus always threads under the deck and the camera
     // never rises through the cables (turning away ends it: `along` is along the heading)
     const gateAlong = openingBridge ? (flight.x - openingBridge[0]) * flight.fx + (flight.z - openingBridge[1]) * flight.fz : 0;
     const gateDist = openingBridge ? Math.hypot(flight.x - openingBridge[0], flight.z - openingBridge[1]) : Infinity;
     if (openingBridge && gateAlong < config.camera.openingClimbAfter) sy = Math.max(0, sy);
-    const dragging = qa ? true : st.dragging;
+    const dragging = qaStick ? true : st.dragging;
     // past the edge of the map the bus homes back toward the city, gently
     const ex = Math.max(minX - flight.x, flight.x - maxX, 0), ez = Math.max(minZ - flight.z, flight.z - maxZ, 0);
     if (ex + ez > 300 && !openingBridge) {
@@ -514,7 +569,19 @@ async function boot() {
       paintUniforms.uTarget.value = tgt ? tgt.index : -1;
     }
     rig.update(camera, focus, flight, dt);
+    rig.applyKick(camera, realDt);
     pipeline.focus.copy(focus);
+    if (qa?.topDown) {
+      // QA: look straight down on a lat/lon (hue layout from above)
+      const [lat0, lon0] = manifest.origin;
+      const tx = (qa.topDown.lon - lon0) * 111320 * Math.cos((lat0 * Math.PI) / 180);
+      const tz = -(qa.topDown.lat - lat0) * 110574;
+      const gy = city.groundAt(tx, tz);
+      camera.position.set(tx, gy + qa.topDown.height, tz + 0.01);
+      camera.up.set(0, 0, -1);
+      camera.lookAt(tx, gy, tz);
+      pipeline.focus.set(tx, gy, tz);
+    }
     globals.uGroundRef.value = flight.groundUnder - 30;
 
     // ---- altitude: the vista lens, the hero's scale, the marine layer seen from above,
@@ -563,7 +630,7 @@ async function boot() {
         tf.setLod(city.tileHidden(tx, tz) ? 2 : d < 350 ? 0 : d < far1 ? 1 : 2);
       }
     }
-    splatter.update(dt, simTime);
+    splatter.update(dt);
     // the struggle: a wheezy exhaust sputter, more of it when the belly is full
     puffTimer -= dt;
     if (puffTimer <= 0 && dt > 0) {
@@ -636,15 +703,49 @@ async function boot() {
     fogLayerMix: () => globals.uFogLayer2.value.w,
     tapSplat: () => input.onTap?.(),
     forceReady: () => (flight.fullness = 1),
-    /** QA: barf at a lat/lon through the real splat pipeline (cascade, bloom, sign, sound) */
-    barfAtLatLon: (lat: number, lon: number) => {
+    /** QA: barf at a lat/lon through the real splat pipeline (blast, blooms, sign, sound). Returns the impact time (game clock). */
+    barfAtLatLon: (lat: number, lon: number, drop?: number) => {
       const [lat0, lon0] = manifest.origin;
       const x = (lon - lon0) * 111320 * Math.cos((lat0 * Math.PI) / 180);
       const z = -(lat - lat0) * 110574;
       audio.heave();
-      splatter.barf(x, z);
+      return splatter.barf(x, z, { drop });
     },
     clock: () => simTime,
+    /** QA: n settled blasts scattered within `spread` m of a lat/lon straight into the ground paint (and saved), like a long play session. Returns the saved tile count. */
+    seedGround: (n: number, lat: number, lon: number, spread: number) => {
+      const [lat0, lon0] = manifest.origin;
+      const x = (lon - lon0) * 111320 * Math.cos((lat0 * Math.PI) / 180);
+      const z = -(lat - lat0) * 110574;
+      let s = 12345;
+      const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+      for (let i = 0; i < n; i++)
+        city.ground.blast(makeBlastSpec(x + (rnd() - 0.5) * 2 * spread, z + (rnd() - 0.5) * 2 * spread, blastRadiusFor(rnd() < 0.2 ? 300 : 0), i % 6, (rnd() * 4294967295) >>> 0), -100);
+      city.ground.persist();
+      return city.ground.tileCount;
+    },
+    /** QA: buildings painted / total within r of a lat/lon, and the share of ground painted there */
+    paintedNear: (lat: number, lon: number, r: number) => {
+      const [lat0, lon0] = manifest.origin;
+      const x = (lon - lon0) * 111320 * Math.cos((lat0 * Math.PI) / 180);
+      const z = -(lat - lat0) * 110574;
+      const near = city.buildingsNear(x, z, r, []);
+      let painted = 0, cells = 0, ground = 0;
+      for (const n of near) if (city.paint.level(n.ref.index) > 0.5) painted++;
+      for (let dz = -r; dz <= r; dz += 4)
+        for (let dx = -r; dx <= r; dx += 4) {
+          if (dx * dx + dz * dz > r * r) continue;
+          cells++;
+          const g = city.ground.sample(x + dx, z + dz);
+          if (g && g.cov >= 0.5) ground++;
+        }
+      let trees = 0;
+      for (const [k, list] of treeIndex) {
+        const tf = treeFields.get(k);
+        if (tf) for (let i = 0; i < list.length; i++) if (Math.hypot(list[i].x - x, list[i].z - z) < r && tf.paintLevel(i) > 0) trees++;
+      }
+      return { buildings: near.length, painted, groundShare: cells ? ground / cells : 0, paintedTrees: trees, savedTiles: city.ground.tileCount, landed: city.ground.landedCount, queued: city.ground.queued };
+    },
   };
 }
 
