@@ -433,7 +433,13 @@ async function boot() {
     const st = input.state;
     const qa = (window as unknown as { __qa?: { sx: number; sy: number } | null }).__qa;
     let sx = qa ? qa.sx : st.stretch.x;
-    const sy = qa ? qa.sy : st.stretch.y;
+    let sy = qa ? qa.sy : st.stretch.y;
+    // the opening: near the Golden Gate the yoke can't climb until the bus (and the low camera
+    // trailing 150 m behind it) is clear of the bridge, so the bus always threads under the deck
+    // and the camera never rises through the cables
+    const gateAlong = openingBridge ? (flight.x - openingBridge[0]) * flight.fx + (flight.z - openingBridge[1]) * flight.fz : 0;
+    const gateDist = openingBridge ? Math.hypot(flight.x - openingBridge[0], flight.z - openingBridge[1]) : Infinity;
+    if (openingBridge && gateDist < 320 && gateAlong < config.camera.openingClimbAfter) sy = Math.max(0, sy);
     const dragging = qa ? true : st.dragging;
     // past the edge of the map the bus homes back toward the city, gently
     const ex = Math.max(minX - flight.x, flight.x - maxX, 0), ez = Math.max(minZ - flight.z, flight.z - maxZ, 0);
@@ -477,10 +483,10 @@ async function boot() {
 
     if (openingBridge) {
       // stay low and level until we're well past the bridge, then rise into the normal chase view
-      const along = (flight.x - openingBridge[0]) * flight.fx + (flight.z - openingBridge[1]) * flight.fz;
-      const want = along < 180 && !dragging ? 1 : 0;
+      // (steering takes over early, but never near the bridge: the chase camera would fly through the cables)
+      const want = gateAlong < 180 && (!dragging || gateDist < 320) ? 1 : 0;
       rig.openingLow += (want - rig.openingLow) * (1 - Math.exp(-(want ? 4 : 0.7) * dt));
-      if (rig.openingLow < 0.01 && want === 0) {
+      if (rig.openingLow < 0.01 && want === 0 && (gateAlong >= 180 || gateDist > 1500)) {
         rig.openingLow = 0;
         openingBridge = null;
       }
