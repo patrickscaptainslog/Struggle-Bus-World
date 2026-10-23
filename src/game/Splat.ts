@@ -46,7 +46,10 @@ export class Splatter {
     const S = config.splat;
     const city = this.city;
     const near = city.buildingsNear(x, z, S.snapRadius + 12, this.near);
-    for (const n of near) if (city.contains(n.ref, x, z)) return n.ref;
+    // footprints can overlap (a LiDAR tower over a lot the footprint data still has): the tallest wins
+    let hit: BuildingRef | null = null;
+    for (const n of near) if ((!hit || n.ref.roofY > hit.roofY) && city.contains(n.ref, x, z)) hit = n.ref;
+    if (hit) return hit;
     for (const n of near) if (n.d <= S.snapRadius) return n.ref;
     return null;
   }
