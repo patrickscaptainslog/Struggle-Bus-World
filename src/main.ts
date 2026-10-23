@@ -420,7 +420,7 @@ async function boot() {
             signNdc.set(x, y + T.poleHeight + 5, z).project(camera);
             if (Math.abs(signNdc.x) > 0.72 || signNdc.y > 0.7 || signNdc.y < -0.6 || signNdc.z > 1) continue;
             const dist = camera.position.distanceTo(signPos.set(x, y + T.poleHeight + 5, z));
-            const scale = clamp((T.minFontPx * pipeline.pixelWorldSize(dist)) / Math.max(0.05, T.texelW), 1, 2.2);
+            const scale = clamp((T.minFontPx * pipeline.pixelWorldSize(dist)) / Math.max(0.05, T.texelW), 1, 4);
             found = { x, y, z, facing: Math.atan2(-fx, -fz), scale, bias: true, cx, cz, r, text, until: 0 };
             break;
           }
