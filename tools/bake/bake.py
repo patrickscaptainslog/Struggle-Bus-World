@@ -684,13 +684,19 @@ class Massing:
             return None
         return out
 
-    def new_buildings(self, fine, covered_polys, keep_out, log):
+    def new_buildings(self, fine, covered, keep_out, log):
         """Buildings the LiDAR sees but the footprint data lacks (towers built since: Salesforce Tower...).
-        fine: {(cx, cz): int16 dm chunk} 1 m rasters. Returns [(poly, roof elevation)]."""
+        fine: {(cx, cz): int16 dm chunk} 1 m rasters; covered: [(footprint, its top above ground)]: a cell
+        is taken where a footprint (grown 2.5 m for registration) explains the LiDAR there, i.e. the roof
+        is no more than 10 m over that footprint's top (a 126 m tower roof over a lot drawn at 9 m is not
+        that lot's). Returns [(poly, roof elevation)]."""
         from rasterio.features import rasterize
         P = self.P
         lid = load_lidar_module()
         n = int(lid.CHUNK)
+        cov_polys = [q for q, _ in covered]
+        cov_tops = [float(t) for _, t in covered]
+        cov_tree = STRtree(cov_polys)
         keys = set(fine)
         found = []
         # clusters of adjacent chunks, one raster each
@@ -732,8 +738,14 @@ class Massing:
             tr = rasterio.Affine(1.0, 0, ox, 0, 1.0, oz)
             from shapely.geometry import box as sbox
             bb = sbox(ox, oz, ox + Wc, oz + Hc)
-            near = [covered_polys.geometries[i].buffer(2.5) for i in covered_polys.query(bb)] + [g for g in keep_out if g.intersects(bb)]
-            cov = rasterize([(g, 1) for g in near], out_shape=Z.shape, transform=tr, fill=0, dtype=np.uint8).astype(bool) if near else np.zeros(Z.shape, bool)
+            near = sorted(((cov_polys[i].buffer(2.5), cov_tops[i] + 10.0) for i in cov_tree.query(bb)), key=lambda t: t[1])
+            near += [(g, 1e6) for g in keep_out if g.intersects(bb)]
+            if near:
+                ctop = rasterize(near, out_shape=Z.shape, transform=tr, fill=-1e9, dtype=np.float32)
+                cov = nd <= ctop
+                del ctop
+            else:
+                cov = np.zeros(Z.shape, bool)
             rough = (ndimage.maximum_filter(nd, size=3) - ndimage.minimum_filter(nd, size=3)) < 2.0
             from rasterio.features import shapes
             claimed = np.zeros(nd.shape, bool)
@@ -1065,7 +1077,7 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
         f'{int((np.abs(dh) > 3).sum())}); {ncanopy} under tree crowns, {nhouse} small houses capped, {nsliver} slivers of a taller blob')
 
     # 4) towers the footprint data never had (built since), from the 1 m LiDAR alone
-    tree_b = STRtree([b['poly'] for b in buildings if not b.get('sliver')])
+    covered = [(b['poly'], max(b['h'], b.get('topH', b['h']))) for b in buildings if not b.get('sliver')]
     keep_out = []
     for lm in cfg.get('landmarks', []):
         if lm.get('clearRadius'):
@@ -1073,7 +1085,7 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
         if 'points' in lm:  # bridges: their decks and towers are hand-built (the deck's width, no more:
             # the Bay Bridge lands on Rincon Hill, among towers the footprints lack)
             keep_out.append(shapely.LineString([ll2xz(lo, la) for la, lo in lm['points']]).buffer(20.0))
-    new = massing.new_buildings(fine_raster, tree_b, keep_out, log)
+    new = massing.new_buildings(fine_raster, covered, keep_out, log)
     used = {b['stable'] for b in buildings}
     keyed = sorted(((hash32(int(round(q.centroid.x / 8.0)), int(round(q.centroid.y / 8.0))) & 0x0FFFFFFF, q.centroid.y, q.centroid.x, q, roof)
                     for q, roof in new), key=lambda t: t[:3])
@@ -1085,23 +1097,11 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
         _, gmean = gs(q)
         buildings.append({'poly': q, 'h': max(3.0, roof - gmean), 'occ': 'Commercial', 'prim': '', 'srckey': (-1, k),
                           'front_edge_hint': None, 'stable': sid, 'parts': None, 'lidarOnly': True, 'topH': roof - gmean})
-    # slivers standing mostly (60 %) inside a tower they were a sliver of retire into it, like merged lots: hidden
-    # inside it they'd only cost triangles and catch the splat meant for the tower
-    if new:
-        newp = [q for q, _ in new]
-        tree_new = STRtree(newp)
-        retired = set()
-        for b in buildings:
-            if b.get('sliver'):
-                p = b['poly']
-                if any(newp[i].intersection(p).area >= 0.6 * p.area for i in tree_new.query(p)):
-                    retired.add(id(b))
-        buildings = [b for b in buildings if id(b) not in retired]
-        log(f'lidar: {len(new)} towers the footprints miss added, {len(retired)} slivers inside them retired')
 
     # 5) tall buildings: real outline + tiers (decided by their top: a slim tower on a broad podium is a tower)
-    tree_n = STRtree([b['poly'] for b in buildings])
-    polys_n = [b['poly'] for b in buildings]
+    # (slivers aren't neighbors: a tower's outline must not be trimmed off the lots it stands over)
+    polys_n = [b['poly'] for b in buildings if not b.get('sliver')]
+    tree_n = STRtree(polys_n)
 
     def neighbors(p):
         idx = [i for i in tree_n.query(p.buffer(3.0)) if not polys_n[i].equals(p)]
@@ -1151,6 +1151,23 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log):
     if nbad:
         log(f'lidar: {nbad} footprints with degenerate geometry kept as they were')
     log(f'lidar: {nout} outlines from LiDAR, {ntier} tiered buildings, {nparts} parts; {nflat} tall tops left flat')
+
+    # slivers standing mostly (60 %) inside the tower they were a sliver of (its final outline) retire into
+    # it, like merged lots: hidden inside, they'd only cost triangles and catch the splat meant for the tower
+    towers = [b['poly'] for b in buildings if b.get('lidarOnly')]
+    if towers:
+        tree_t = STRtree(towers)
+        retired = set()
+        for b in buildings:
+            if b.get('sliver'):
+                p = b['poly']
+                try:
+                    if any(shapely.make_valid(towers[i]).intersection(p).area >= 0.6 * p.area for i in tree_t.query(p)):
+                        retired.add(id(b))
+                except shapely.errors.GEOSException:
+                    pass
+        buildings = [b for b in buildings if id(b) not in retired]
+        log(f'lidar: {len(towers)} towers the footprints miss added, {len(retired)} slivers inside them retired')
     return buildings
 
 

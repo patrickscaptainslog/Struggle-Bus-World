@@ -404,9 +404,10 @@ def main():
 
 def tall_chunks(coarse, dem_at, have, min_height=30.0, min_area=200.0):
     """Chunks of the 2 m raster, outside `have`, holding a roof this tall (smooth: tree crowns are
-    rough) over at least min_area m^2, plus the neighbors holding the rest of those roofs. Towers whose
-    footprints are missing or wrong (1550 Mission stands on lots that were houses) are invisible to a
-    plan made from footprint heights: the bake fetches the 1 m raster here too."""
+    rough) over at least min_area m^2, plus neighbors with that much tall LiDAR of any kind (the rest
+    of those roofs). Towers whose footprints are missing or wrong (1550 Mission stands on lots that
+    were houses) are invisible to a plan made from footprint heights: the bake fetches the 1 m raster
+    here too."""
     from scipy import ndimage
     n = next(iter(coarse.values())).shape[0] if coarse else 64
     res = CHUNK / n
@@ -420,11 +421,10 @@ def tall_chunks(coarse, dem_at, have, min_height=30.0, min_area=200.0):
         H = np.nan_to_num(Z - np.asarray(dem_at(X.ravel(), Zc.ravel())).reshape(Z.shape), nan=0.0)
         rough = ndimage.maximum_filter(H, size=3) - ndimage.minimum_filter(H, size=3)
         tall = ndimage.binary_opening((H >= min_height) & (rough < 2.0))
-        area = float(tall.sum()) * res * res
-        if area >= min_area:
+        if float(tall.sum()) * res * res >= min_area:
             found.add((cx, cz))
-        elif area >= 20.0:
-            part.add((cx, cz))
+        elif float((H >= min_height).sum()) * res * res >= min_area:
+            part.add((cx, cz))  # (tall but rough at 2 m: a crown of leaves, or the rest of a roof found next door)
     return found | {(cx + dx, cz + dz) for cx, cz in found for dx in (-1, 0, 1) for dz in (-1, 0, 1) if (cx + dx, cz + dz) in part}
 
 
