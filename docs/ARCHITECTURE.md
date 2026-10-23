@@ -39,6 +39,26 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
 - Every scene material must write both outputs (`gColor`, `gAux`).
 - Objects that cast sun shadows: `obj.layers.enable(SHADOW_LAYER)`.
   The bus and particles must NOT cast (the bus has its own drop shadow).
+- The sun pass is depth only (the pipeline locks the color mask; shadows read
+  the depth texture) and draws casters, not the detailed meshes: a detailed
+  building tile casts through its proxy (`meshCasterTile`: positions only,
+  one quad per wall, no undersides, nothing shorter than `CASTER_MIN_H`,
+  which the shadow bias swallows anyway), on SHADOW_LAYER only, while its
+  detailed mesh is on layer 0 only. Something with a cheaper stand-in should
+  do the same (trees and rooftop gardens have depth twins). New mesher
+  geometry must make its vertices through `Builder.vert()` and its walls
+  and boxes through `wall()` / `prism()` / `quadF()` so the caster mode can
+  thin it; a part the sun should not see goes in as a `quadF` facing down
+  or a prism under `CASTER_MIN_H`. Mark a caster
+  `userData.sunCull = true` (it needs a bounding sphere) and the sun pass
+  skips it when its shadow, swept down the sun ray, can't reach the view.
+- Prewarm: `main.ts` renders one frame with everything forced visible under
+  the opening fog, so every program links before play. Anything that first
+  appears mid-play (a new effect, a new material, a new instanced kind) must
+  already be in the scene graph then (hidden is fine) or it compiles at its
+  first use: a hitch exactly when it should feel best.
+- Index buffers are Uint16 below 65535 vertices (0xFFFF is WebGL2's
+  primitive restart index), Uint32 above.
 - Pixel budget: the portrait framebuffer is ~240 game pixels wide. At gameplay
   camera distance (~175 m, 24° horizontal FOV) one game pixel ≈ 0.3 m at the
   bus and ≈ 0.6–1 m at mid-distance. Details smaller than ~2 game pixels
@@ -61,7 +81,22 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   dither in screen space. Materials don't change; it is all in the resolve.
 - Coarse regions are drawn as ONE building mesh + ONE ground mesh per 1 km
   region (`City.regionMeshes`); detailed regions keep per-tile meshes. Code
-  that walks tiles for rendering must handle both. A tile marked with
+  that walks tiles for rendering must handle both. A region going to full
+  detail swaps a tile at a time (the merged mesh's `drawRange` drops each
+  tile as its detailed mesh lands, in the merged order: `mergedEnds`), its
+  ground last; tiles are adopted under a per-frame budget (`ADOPT_MIN`
+  items, then while under `ADOPT_MS` and `ADOPT_BYTES` of new geometry:
+  three uploads a mesh the first frame it is drawn).
+- Streamed geometry keeps no JS copy after upload (`dropAfterUpload` in
+  City): never read a building or ground mesh's attribute arrays back, and
+  give any new streamed mesh its bounds before its first render (the worker
+  sends them: `TileResult.sphere`). A restored GL context reloads every
+  region (`City.reloadAll`).
+- Far terrain is chunked (4 x 4 regions, box culled through
+  `userData.viewBox`, all-water quads dropped) and a chunk hides once every
+  region with land in it has its own ground in (`City.refreshFarChunk`); the
+  horizon hills are 16 km chunks. Above `FAR_WHOLE_ABOVE` m of view height
+  both draw as one mesh each instead (most chunks would be in view). A tile marked with
   `City.setOwnGround(tx, tz)` keeps its own ground mesh inside a coarse
   region (the merged ground skips it).
 - Per-tile ground state (feat/blast's `GroundPaint`): attach in

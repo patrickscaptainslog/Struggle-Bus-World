@@ -51,6 +51,14 @@ Altitude QA (climb shots, flight log, taps, perf at cruise vs ceiling):
 `--seq` also captures frames exactly 1/30 s apart, and
 `python3 -I tools/seqstat.py shots/altitude/<phase>-seq-ceiling 5` counts what
 changes between them (shimmer).
+Performance (SwiftShader fps is meaningless; draw calls, triangles and CPU
+work are real): `node tools/perf-pass.mjs <baseUrl> out.json [views] [compile]
+[stream] [memory] [--by]` splits the cost by pass (sun / main) at the Painted
+Ladies, FiDi, 250 m and the ceiling, checks the first blast and escalation for
+shader compiles, times streaming and uploads, and tracks memory over a
+3-minute flight. Visual A/B of two builds (fixed step, seeded, pinned camera):
+`node tools/ab-shots.mjs <urlA> <urlB> shots/ab grey painted fidi` then
+`python3 -I tools/ab-diff.py shots/ab grey painted fidi [--crop=x0,y0,x1,y1 --scale=2]`.
 
 ## City data (city-agnostic pipeline)
 `tools/bake/` turns a city config (`tools/bake/cities/sf.json`) into compact

@@ -452,6 +452,125 @@ call), this is what we chose and why.
   footprints (far smaller than shipping meshes); far skyline = boxes for every
   building ≥16 m + a 64 m terrain grid, hidden under loaded tiles.
 
+## iPhone performance (polish/perf)
+- **The sun pass draws casters, not the detailed city.** It rasterizes into a
+  1024² map of 0.5 x 1.2 m texels, and its depth bias (0.0009 of a 3 km range
+  = 2.7 m along the ray, ~1.15 m of height at the 25° sun) already swallows
+  the shadow of anything shorter. Every detailed tile now has a caster proxy
+  (`meshCasterTile`): the same building code through a Builder in caster
+  mode, positions only, one quad per wall, no undersides, and only parts
+  taller than `CASTER_MIN_H` (1.2 m): walls, roofs, gables, bays, stoops,
+  chimneys, tall rooftop boxes and water tanks stay; cornices, belt courses,
+  bay and parapet caps and small vents go. The caster mode lives in the
+  Builder, so new features in `meshBuilding` cast automatically. City-wide
+  4.6M caster triangles against 17.7M for LOD 0 (-74 %). Detailed meshes stop
+  casting (layer 0 only); coarse regions still cast with their own mesh (one
+  quad per wall already).
+- **Casters whose shadow can't reach the view are skipped** (`sunCull`):
+  the caster's bounding box swept down the sun ray by twice its radius is
+  tested against the view frustum cut at the far edge of the shadow window.
+  Conservative (a shadow that can land in view keeps its caster), so shadows
+  never pop; it drops the tiles beside the narrow portrait wedge.
+- **The sun pass is depth only**: the color mask is locked off for the whole
+  pass (also for the trees' and gardens' own depth shaders), and the unused
+  color target is invalidated, so a tile-based GPU never stores 4 MB of it.
+- **Walls: 8 m wobble columns, one for hidden party walls.** The wobble is a
+  ~30 m wave, so an 8 m chord strays at most ~0.1 m from it (a third of a
+  pixel at the bus); the roof polygon only has footprint corners, so fewer
+  columns also hug the roof edge better under the wobble. A side wall with a
+  neighbor's wall running the other way along it, whose roof is at least as
+  high (within 1 m), gets one column but keeps two rows like its neighbors
+  (no T-junction cracks at the corners under the wobble); walls rising above
+  a lower neighbor (stepped hillside rows) keep their columns. LOD 0 city-wide
+  17.7M -> 12.5M triangles (-30 %). The rows are unchanged.
+- **Far terrain and horizon in culled chunks.** The far grid was one
+  always-drawn mesh, 42 % of it under the bay. Now: all-water quads dropped,
+  4 x 4-region chunks (4 km: seen from 250 m and the ceiling, 1 km chunks
+  cost ~30 more draws than the old three meshes and 2 km ones ~20, which a
+  phone pays in CPU), box-culled by the pipeline (`userData.viewBox`: a flat
+  slab's bounding sphere reaches kilometers above it), each hidden once every
+  region with land in it has its own ground in; the horizon hills in 16 km
+  chunks. From high up most chunks are in view at once (+11-13 draws at
+  250 m and the ceiling in paired runs), so above 80 m of view height (back
+  below 60) the far terrain and the horizon draw as one water-free mesh
+  each; the chunks are for the rooftops, where a few are in view. The skyline boxes stay
+  one instanced draw (its vertex shader already drops boxes inside loaded
+  tiles).
+- **Prewarm under the opening fog.** One real frame with everything forced
+  visible (rooftop gardens of every level in a cell far outside the city, a
+  far tree canopy, the sign and its sun-pass boxes), so the programs that
+  used to link at the first blast (sign + its instanced depth variant) and
+  the first escalation (gardens + casters) link inside the fog. A compile
+  alone would miss the sun pass's override variants. The sign's shadow boxes
+  got their own depth material (the shared override switched programs
+  between them and the buildings every frame). The prewarm frame is drawn
+  while the opening's fog bank is the loading screen (~1.5 s in SwiftShader,
+  a few hundred ms of shader compiles on a phone); a frame's dt is clamped
+  at 0, because the first frame's timestamp predated the loop's start by the
+  whole prewarm (the game started at -1.5 s with the bus flying backwards).
+- **Streaming.** Bounds come from the worker (the main thread never walks a
+  mesh's vertices); indices are Uint16 under 65535 vertices (0xFFFF is the
+  primitive restart index); a region going to full detail swaps a tile at a
+  time while its merged mesh's draw range shrinks behind them (no holes, no
+  overlap, the ~20 MB upload spread over frames), its ground last; adoption
+  stops for the frame after `ADOPT_BYTES` (3 MB) of new geometry (three
+  uploads a mesh the first frame it's drawn); a coarse region's ground is
+  concatenated with typed copies instead of per-vertex pushes; streamed
+  meshes drop their JS arrays once uploaded (three otherwise keeps a copy of
+  every attribute), and a restored GL context reloads the city.
+- **LOD downgrade, re-checked.** The altitude work already coarsens detailed
+  regions the view moved away from (hysteresis at 1.4 x the detail radius,
+  by distance from the lens), so LOD 0 no longer piles up to the unload
+  radius; it refetches the bundle (the browser cache serves it) instead of
+  re-meshing the footprints the main thread holds: kept, it costs no
+  main-thread time.
+- **Canvas without a depth buffer** (every scene pass has its own target; at
+  devicePixelRatio 3 that was ~12 MB cleared and stored for nothing). Sizing
+  the canvas to the low-res image and letting the compositor upscale would
+  also drop the 3M-pixel blit, but whether Safari's compositor snaps a
+  fractional CSS translate to device pixels (the sub-pixel camera shift) can
+  only be judged on a phone: the blit stays.
+- Small per-frame garbage: numeric tile keys for the ground / obstacle
+  lookups (the flight model asks dozens per frame), region keys and
+  coordinates made once, no vectors allocated in the sun pass.
+- **One scene-graph update per frame.** three updates the whole graph at
+  every `render()` and the scene is rendered twice (sun pass, G-buffer): the
+  pipeline updates it once and renders with the automatic update off; the
+  static city meshes skip it altogether, and the culling walks only the
+  city's subtree (`userData.cullRoot`).
+- **Cost** (`tools/perf-pass.mjs views`, 3 paired runs, main a3b3fa2 vs
+  this branch, the bus put back on the same spot before measuring; draw
+  calls and triangles for the whole frame, sun pass / main pass; every run
+  gave the same counts within 1 %):
+
+  | view | draws main -> perf | triangles main -> perf | sun pass | main pass |
+  |---|---|---|---|---|
+  | Painted Ladies | 125 -> 113 | 1.22M -> 613k (-50 %) | 622k -> 238k | 598k -> 376k |
+  | FiDi | 115 -> 99 | 754k -> 311k (-59 %) | 376k -> 131k | 378k -> 180k |
+  | 250 m downtown | 150 -> 144 | 1.41M -> 881k (-37 %) | 786k -> 345k | 620k -> 536k |
+  | ceiling | 112 -> 112 | 1.16M -> 918k (-21 %) | 510k -> 359k | 649k -> 559k |
+
+  Sun-pass draws drop with the caster culling (67 -> 52 at the Ladies, 86 ->
+  78 at 250 m); main-pass draws stay within +3 (far chunks at the rooftops).
+  Up high what remains is the coarse regions' own buildings (one merged
+  mesh per region, both passes): a coarser far LOD is the next lever.
+- **No compile at the first blast or escalation** (`perf-pass compile`):
+  main links 2 programs on the first impact frame (1.9 s in SwiftShader)
+  and 2 on the first escalation (2.4 s); this branch links none after the
+  prewarm (22 programs at ready instead of 16).
+- **Streaming** over a 30 s surge east from Alamo Square (`perf-pass
+  stream`, main-thread ms summed over the run): City.update 880 -> 490 ms
+  (p95 3.9 -> 2.1 ms per frame), level-of-detail swaps up to 336 ms -> 10 ms
+  in one call, building meshes 307 -> 34 ms, tile ground 122 -> 2 ms, a
+  coarse region's ground 5.2 -> 1.5 ms (median); the largest upload in one
+  frame 15.3 MB -> 3.4 MB (frames over 4 MB: 4 -> 0).
+- **Memory** over a 3-minute downtown surge loop (`perf-pass memory`, live
+  GPU buffers / JS heap after a forced GC): main ends at 27 / 81 MB, peaks
+  at 95 / 161 MB, averages 51 / 108 MB; this branch ends at 28 / 60 MB,
+  peaks at 68 / 105 MB, averages 35 / 70 MB (with as many or more regions
+  resident). The altitude work's downgrade already keeps LOD 0 from piling
+  up (at most 6 detailed regions in both).
+
 ## Opening + landmarks
 - **The opening is the brief's shot**: the bus glides out of a fog bank over the
   ocean west of the Golden Gate, threads the gap 85 m north of the south tower

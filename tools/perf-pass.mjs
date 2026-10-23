@@ -8,6 +8,8 @@
 //            ceiling (climbed from the altitude QA's downtown start); once
 //            streaming settles the bus is put back on a fixed spot and slowed to
 //            a near stop (0.01 m/s glide), so both builds measure the same view
+//   cpu      CPU work only, more frames: the pinned Painted Ladies and ceiling views,
+//            60 frames each (median, mean, p90)
 //   compile  first blast + first escalation at the Painted Ladies: per-frame CPU
 //            work and WebGL programs linked per frame (a compile spike shows as
 //            a link + a long frame)
@@ -269,6 +271,37 @@ if (modes.has('views')) {
     await settle(page, 4);
     await pin(page, ...llx(37.77255, -122.42679), 45, 4);
     report.views.push(await measure(page, 'ceiling'));
+    await page.close();
+  }
+}
+
+if (modes.has('cpu')) {
+  const N = 60;
+  const work = async (page, label) => {
+    await page.evaluate(() => (window.__frames.length = 0));
+    await page.evaluate((n) => new Promise((res) => { const tick = () => (window.__frames.length >= n ? res(null) : requestAnimationFrame(tick)); tick(); }), N);
+    const w = (await page.evaluate(() => window.__frames.map((f) => f.work))).sort((a, b) => a - b);
+    const row = { label, frames: w.length, median: +w[w.length >> 1].toFixed(2), mean: +(w.reduce((a, b) => a + b, 0) / w.length).toFixed(2), p90: +w[Math.floor(w.length * 0.9)].toFixed(2) };
+    console.log(JSON.stringify(row));
+    return row;
+  };
+  report.cpu = [];
+  {
+    const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro');
+    await drift(page, HOLD);
+    await settle(page, 2);
+    await pin(page, ...llx(37.77628, -122.4352), 88, 2.5, true);
+    report.cpu.push(await work(page, 'ladies'));
+    await page.close();
+  }
+  {
+    const page = await open('?lat=37.7700&lon=-122.4300&heading=45&skipintro');
+    await settle(page, 2);
+    await climbTo(page, 560);
+    await drift(page, HOLD);
+    await settle(page, 4);
+    await pin(page, ...llx(37.77255, -122.42679), 45, 4);
+    report.cpu.push(await work(page, 'ceiling'));
     await page.close();
   }
 }
