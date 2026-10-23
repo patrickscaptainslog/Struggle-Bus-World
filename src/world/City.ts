@@ -9,6 +9,7 @@ import type { ObstaclePost } from './Bridges';
 import { parseFar, type CityManifest, type FarData, type BuildingTile, type TerrainTile } from './tiles';
 import { loadRegion, type RegionRequest, type RegionResponse, type TileResult } from './regionLoader';
 import type { MeshArrays } from './BuildingMesher';
+import { treeCrown } from './props/trees';
 
 // Streams the baked city around the bus: region bundles are fetched and
 // meshed in a worker, tiles appear inside the fog, far ones are dropped.
@@ -121,6 +122,7 @@ const UNLOAD_RADIUS_HIGH = 2800;
 const ADOPT_MIN = 2;
 const ADOPT_MS = 2.5;
 const HASH_CELL = 32;
+const crownTmp = { top: 0, mid: 0, r: 0 };
 
 export class City {
   readonly root = new THREE.Group();
@@ -594,7 +596,10 @@ export class City {
         lt.buildings.geometry.dispose();
         lt.buildings = null;
       }
-      if (t.mesh) lt.buildings = this.makeBuildingMesh(t.mesh);
+      if (t.mesh) {
+        lt.buildings = this.makeBuildingMesh(t.mesh);
+        this.meshTops(lt, t.mesh);
+      }
       if (lt.terrainStep !== 2) {
         this.dropTileTerrain(lt);
         this.makeTileTerrain(lt, 2);
@@ -796,14 +801,25 @@ export class City {
     }
     if (t.terrain) {
       const tr = t.terrain;
-      // trees are obstacles too: the bus skims canopies, never flies through them
+      // trees are obstacles too: the bus skims canopies, never flies through them. Each crown is a dome
+      // over its whole reach (a park's canopy closes over the cells between the trunks), at its real height
       const oc = this.manifest.tileSize / tr.obstN;
+      const N = tr.obstN;
       for (const tree of tr.trees) {
-        const ix = Math.floor((tree.x - tr.originX) / oc), iz = Math.floor((tree.z - tr.originZ) / oc);
-        if (ix < 0 || iz < 0 || ix >= tr.obstN || iz >= tr.obstN) continue;
-        const top = tree.y + 16 * tree.size;
-        const k = iz * tr.obstN + ix;
-        if (top > tr.obst[k]) tr.obst[k] = top;
+        const c = treeCrown(tree.kind, tree.size, crownTmp);
+        const ix0 = Math.max(0, Math.floor((tree.x - c.r - tr.originX) / oc)), ix1 = Math.min(N - 1, Math.floor((tree.x + c.r - tr.originX) / oc));
+        const iz0 = Math.max(0, Math.floor((tree.z - c.r - tr.originZ) / oc)), iz1 = Math.min(N - 1, Math.floor((tree.z + c.r - tr.originZ) / oc));
+        for (let iz = iz0; iz <= iz1; iz++)
+          for (let ix = ix0; ix <= ix1; ix++) {
+            // the crown's height over the cell point nearest the trunk
+            const qx = Math.min(Math.max(tree.x, tr.originX + ix * oc), tr.originX + (ix + 1) * oc);
+            const qz = Math.min(Math.max(tree.z, tr.originZ + iz * oc), tr.originZ + (iz + 1) * oc);
+            const u = Math.hypot(qx - tree.x, qz - tree.z) / c.r;
+            if (u >= 1) continue;
+            const top = tree.y + c.mid + (c.top - c.mid) * Math.sqrt(1 - u * u);
+            const k = iz * N + ix;
+            if (top > tr.obst[k]) tr.obst[k] = top;
+          }
       }
       for (let k = 0; k < tr.obst.length; k++) if (tr.obst[k] > lt.maxY) lt.maxY = tr.obst[k];
       for (let k = 0; k < tr.heights.length; k++) if (tr.heights[k] > lt.maxY) lt.maxY = tr.heights[k];
@@ -813,6 +829,7 @@ export class City {
         this.setMask(t.tx, t.tz, 255);
       }
     }
+    if (t.mesh && !coarse) this.meshTops(lt, t.mesh);
     this.tiles.set(key, lt);
     this.onTile?.({ tx: t.tx, tz: t.tz, terrain: t.terrain, refs: lt.refs });
   }
@@ -911,6 +928,75 @@ export class City {
         if ((x - p.x) * (x - p.x) + (z - p.z) * (z - p.z) < p.r * p.r && p.top > top) top = p.top;
       }
     return top;
+  }
+
+  /**
+   * Raise the flight's obstacle cells to what the detailed mesh really has on its roofs: gable ridges,
+   * chimneys, parapets and rooftop clutter (the bake's grid only knows the flat roofs). Every vertex
+   * lifts its own cell (a box on a tower or a podium); a single-part house lifts every cell within 3 m of
+   * its footprint (as the bake's buffer) to its top, so a gable's ridge holds between its two ends.
+   */
+  private meshTops(lt: LoadedTile, m: MeshArrays) {
+    const tr = lt.terrainData;
+    if (!tr || !lt.refs.length || !m.vertexCount) return;
+    const N = tr.obstN, oc = this.manifest.tileSize / N;
+    const byIndex = new Map<number, BuildingRef>();
+    for (const r of lt.refs) if (r.parts === 1) byIndex.set(r.index, r);
+    // a building's vertices are consecutive in its tile mesh
+    let cur = -1, top = -Infinity;
+    const flush = () => {
+      const ref = cur >= 0 ? byIndex.get(cur) : undefined;
+      if (ref && top > ref.roofY + 0.3) this.raiseCells(tr, ref.x0 - 3, ref.z0 - 3, ref.x1 + 3, ref.z1 + 3, top, (x, z) => this.edgeDistance(ref, x, z) <= 3);
+    };
+    for (let v = 0; v < m.vertexCount; v++) {
+      const id = m.bld[v * 4];
+      const y = m.position[v * 3 + 1];
+      const ix = Math.floor((m.position[v * 3] - tr.originX) / oc), iz = Math.floor((m.position[v * 3 + 2] - tr.originZ) / oc);
+      if (ix >= 0 && iz >= 0 && ix < N && iz < N && y > tr.obst[iz * N + ix]) tr.obst[iz * N + ix] = y;
+      if (id !== cur) {
+        flush();
+        cur = id;
+        top = y;
+      } else if (y > top) top = y;
+    }
+    flush();
+  }
+
+  /** Raise tile tr's obstacle cells inside the bounds whose centers pass `inside` to at least `top` (m). */
+  private raiseCells(tr: TerrainTile, x0: number, z0: number, x1: number, z1: number, top: number, inside: (x: number, z: number) => boolean) {
+    const N = tr.obstN, oc = this.manifest.tileSize / N;
+    const ix0 = Math.max(0, Math.floor((x0 - tr.originX) / oc - 0.5)), ix1 = Math.min(N - 1, Math.floor((x1 - tr.originX) / oc - 0.5) + 1);
+    const iz0 = Math.max(0, Math.floor((z0 - tr.originZ) / oc - 0.5)), iz1 = Math.min(N - 1, Math.floor((z1 - tr.originZ) / oc - 0.5) + 1);
+    for (let iz = iz0; iz <= iz1; iz++)
+      for (let ix = ix0; ix <= ix1; ix++) {
+        const k = iz * N + ix;
+        if (tr.obst[k] >= top) continue;
+        const cx = tr.originX + (ix + 0.5) * oc, cz = tr.originZ + (iz + 0.5) * oc;
+        if (cx < x0 || cx > x1 || cz < z0 || cz > z1 || !inside(cx, cz)) continue;
+        tr.obst[k] = top;
+      }
+  }
+
+  /**
+   * A rooftop garden or a Hundertwasser crown grew on a roof (rect as roofRect, `top` m ASL): the
+   * obstacle field rises over it (+3 m around it, as the bake buffers roofs), so the bus never flies
+   * through the player's own domes and spires. Tiles keep it until they unload (the restore re-raises it).
+   */
+  raiseRoof(rect: { cx: number; cz: number; w: number; d: number; yaw: number }, top: number, pad = 3) {
+    const ux = Math.sin(rect.yaw), uz = Math.cos(rect.yaw);
+    const hw = rect.w / 2 + pad, hd = rect.d / 2 + pad;
+    const ex = Math.abs(ux) * hw + Math.abs(uz) * hd, ez = Math.abs(uz) * hw + Math.abs(ux) * hd;
+    const ts = this.manifest.tileSize;
+    for (let tz = Math.floor((rect.cz - ez) / ts); tz <= Math.floor((rect.cz + ez) / ts); tz++)
+      for (let tx = Math.floor((rect.cx - ex) / ts); tx <= Math.floor((rect.cx + ex) / ts); tx++) {
+        const lt = this.tiles.get(`${tx},${tz}`);
+        if (!lt?.terrainData) continue;
+        this.raiseCells(lt.terrainData, rect.cx - ex, rect.cz - ez, rect.cx + ex, rect.cz + ez, top, (x, z) => {
+          const dx = x - rect.cx, dz = z - rect.cz;
+          return Math.abs(dx * ux + dz * uz) <= hw && Math.abs(dx * uz - dz * ux) <= hd;
+        });
+        if (top + 6 > lt.maxY) lt.maxY = top + 6;
+      }
   }
 
   /** Tallest roof, tree or ground at a point, without the landmark posts and bridge decks (what a breath lands on). */
