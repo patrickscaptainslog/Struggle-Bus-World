@@ -36,6 +36,10 @@ const HERO = [
   { name: 'millennium', lat: 37.79048, lon: -122.39596, look: 100, az: 160, dist: 650, camY: 160 },
   { name: 'beale', lat: 37.7904, lon: -122.3945, look: 90, az: 220, dist: 600, camY: 150 },
   { name: 'mission1550', lat: 37.77369, lon: -122.41838, look: 60, az: 30, dist: 500, camY: 120 },
+  // the skyline from above the towers (nothing in the foreground to hide what changed)
+  { name: 'skyline', lat: 37.7905, lon: -122.3975, look: 110, az: 225, dist: 1500, camY: 420 },
+  { name: 'rinconhill', lat: 37.7865, lon: -122.3925, look: 100, az: 250, dist: 950, camY: 340 },
+  { name: 'fidinorth', lat: 37.7935, lon: -122.4000, look: 100, az: 335, dist: 1150, camY: 360 },
 ];
 
 const browser = await chromium.launch({
