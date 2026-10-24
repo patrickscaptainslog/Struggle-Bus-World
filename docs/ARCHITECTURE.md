@@ -153,9 +153,56 @@ roof shapes, trees, street names) of any number of bakes side by side.
   unchanged); the far grid ('SBF1') carries the same codes (only WATER is read).
 - Trees ('SBT1/2' records unchanged): OSM natural=tree points and tree rows
   (species -> kind: cypress / pine and eucalyptus / street tree, height ->
-  size), procedural park trees only inside OSM parks, cemeteries, gardens and
-  woods (none on pitches, fairways, playgrounds, or north of `treeLatMax`), and
-  procedural street trees on sidewalks where no mapped tree stands within 9 m.
+  size), then procedural trees **on evidence** (DECISIONS, Data: Trees;
+  `bake.py` `TREES`, a config's `"trees"` overrides): park / woods trees on the
+  11 m jittered grid with chance 0.85 x f, f = ESA WorldCover's tree cover in
+  a 20 m window less the mapped trees' crowns, gated by what OSM's polygons say
+  (`osm.tree_codes`: TREE_PARK parks / gardens / cemeteries from f 0.10,
+  TREE_OPEN lawns / commons / meadows / grassland / wetland / golf / aerodromes
+  from f 0.25, TREE_WOODS OSM woods at least f 0.6, TREE_SHRUB scrub / heath and
+  TREE_NEVER pitches / playgrounds / fairways / beaches / rock / plazas /
+  runways none; inside the green family the smallest polygon wins), on grass or
+  forest ground away from buildings, slopes under 45 degrees; street trees on
+  frontage sidewalks where no mapped tree stands within 9 m and either a
+  WorldCover tree pixel lies within ~10 m or a mapped tree within 20 m. The old
+  path (no `"overture"`) keeps its grass rule, slope limit and `treeLatMax`.
+- **ESA WorldCover 10 m** (v200, 2021, CC BY 4.0; `tools/bake/worldcover.py`):
+  every city's land cover, read from the public S3 bucket's 3 x 3 degree COGs
+  (`ESA_WorldCover_10m_2021_v200_<N|S><lat><E|W><lon>_Map.tif`, the tile's
+  south-west corner) through GDAL /vsicurl: only the city's window (range
+  reads of the COG blocks), bboxes spanning tiles mosaicked on the global
+  1/12000 degree grid, a missing tile is open sea. The crop is cached as
+  `tools/bake/.cache/worldcover/<slug>.tif` (`overture.py` fetches it with the
+  extracts, `bake.py` and `qa.py` grow it when a bake needs more) and resampled
+  (nearest) onto the bake's local frame at 4 m (`local_grid`). Classes: 10 tree
+  cover, 20 shrubland, 30 grassland, 40 cropland, 50 built-up, 60 bare /
+  sparse, 70 snow / ice, 80 water, 90 herbaceous wetland, 95 mangroves (trees
+  for the bake), 100 moss / lichen. `"worldcover": false` in a config bakes
+  without it (procedural trees only in OSM woods, street trees unchecked).
+  `city.json` names it in `source` and `credits.worldcover`.
+- **Bake QA** (`tools/bake/qa.py`): `bake.py` runs it after every OSM bake
+  (its arrays freed first; `--qa=0` skips, `--qa=warn` reports without
+  failing), standalone `python3 -I tools/bake/qa.py <slug> --dir=public/city/<name>`
+  checks any baked dir. Per 128 m cell it compares the bake with WorldCover:
+  procedural trees with no WorldCover tree pixel within 20 m ("unsupported";
+  8+ in a cell: "trees on open land"), wooded park / woods / open-space cells
+  left under 8 trees / ha ("missing trees"), the baked water share vs
+  WorldCover water (80) ("water", >= 50 % of a cell apart), baked sand vs
+  WorldCover bare ground ("sand"); WorldCover woods over OSM scrub / heath are
+  listed as information. Thresholds: `qa.QA_DEFAULTS` (a config's `"qa"`
+  overrides); any exceeded is a FAIL: a `!!! QA FAIL` block and exit 3 (the
+  bake's outputs are complete; `pack.py` packs them). Writes `city.json`
+  `stats.qa` (pass, failed checks, values, tree counts by source, the largest
+  parks) and `tools/bake/.cache/qa/<name>/`: `report.md` (the checks, the 30
+  worst cells with lat / lon and a reason, the parks table), `cells.png` (the
+  frame with every flagged cell) and `park_<k>_<name>.png` crops of the ~8
+  largest parks / open spaces: left WorldCover with every baked tree as a
+  black dot (dots on yellow grassland, grey bare ground or blue water are trees
+  on open land), right the bake's ground classes, buildings and trees by source
+  (blue mapped, dark green park, orange street) with WorldCover's tree cover
+  outlined in lime. Read the table first (per park: WorldCover tree share,
+  trees per ha, procedural trees on WorldCover-open land, which should be ~0),
+  then the crops.
 - **Buildings are groups of parts.** A building tile ('SBB2') holds one record
   per *part*: a plain building is one part; a LiDAR-tiered tower is several
   (podium, setbacks, tapering shaft, crown, rooftop boxes), consecutive, tier 0

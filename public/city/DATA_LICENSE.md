@@ -22,6 +22,16 @@ OpenStreetMap: https://www.openstreetmap.org/copyright
 | Fallback footprints where OSM has none, occupancy hints (San Francisco) | FEMA / ORNL USA Structures | public domain |
 | Terrain (San Francisco) | USGS 3DEP 1 m DEM and 1/3 arc-second DEM | public domain |
 | Rooftop heights, tower tiers, outlines (San Francisco) | USGS 3DEP lidar point cloud CA_SanFrancisco_1_B23 (2023) | public domain |
+| Where procedural trees stand (parks, woods, open space, along streets) and the bake's plausibility QA | ESA WorldCover 10 m 2021 v200 (`tools/bake/worldcover.py`) | CC BY 4.0 |
+
+**ESA WorldCover** (https://esa-worldcover.org, CC BY 4.0:
+https://creativecommons.org/licenses/by/4.0/): © ESA WorldCover project 2021 /
+Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover
+consortium. The bake reads its land cover to decide where procedural trees
+stand; the tiles hold no WorldCover pixels, only tree positions derived in
+part from them (changes: resampled to the city's local frame, a 20 m tree
+fraction, weighed with OpenStreetMap). `city.json` names it in `source` and
+`credits`.
 
 The derivative database is produced by `tools/bake/overture.py` (extracts),
 `tools/bake/osm.py` + `tools/bake/bake.py` (conflation, massing, rasterization)

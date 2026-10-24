@@ -10,7 +10,7 @@ Inputs (per city config):
               roof shapes / heights / directions, facade + roof colours and materials, names and
               OSM ids (the stable-id key); the ground is OSM's streets by class and width,
               sidewalks, plazas, paths, rail, parks, forest, sand, rock, water and the coastline;
-              trees are OSM's mapped trees (+ procedural ones inside real parks); street and
+              trees are OSM's mapped trees (+ procedural ones where WorldCover sees tree cover); street and
               neighbourhood names go into the terrain tiles for the street sign. ODbL 1.0.
   structures  GeoParquet of building footprints (EPSG:4326) with HEIGHT,
               OCC_CLS, PRIM_OCC, BUILD_ID (FEMA/ORNL USA Structures schema). With "overture":
@@ -39,8 +39,12 @@ Outputs (public/city/<slug>/):
 
 Binary layouts are documented in src/world/tiles.ts (the reader). Keep in sync.
 
-usage: python3 -I tools/bake/bake.py sf [--bbox=lon0,lat0,lon1,lat1] [--out=dirname] [--lidar=0]
-       (SB_LIDAR_CACHE=<dir> picks the LiDAR download cache; see lidar.py)
+  worldcover  (OSM bakes, automatic) ESA WorldCover 10 m 2021 land cover of the city (tools/bake/worldcover.py,
+              cached under tools/bake/.cache/worldcover): the evidence for procedural trees, and the
+              reference of the plausibility QA (tools/bake/qa.py) every OSM bake ends with.
+
+usage: python3 -I tools/bake/bake.py sf [--bbox=lon0,lat0,lon1,lat1] [--out=dirname] [--lidar=0] [--qa=0|warn]
+       (SB_LIDAR_CACHE=<dir> picks the LiDAR download cache; see lidar.py; exit 3: the QA failed, outputs complete)
 """
 import json
 import math
@@ -78,6 +82,31 @@ ARCH = {'generic': 0, 'victorian': 1, 'flats': 2, 'commercial': 3, 'tower': 4, '
 
 GROUND_PAVED, GROUND_GRASS, GROUND_WATER, GROUND_SIDEWALK = 0, 1, 2, 3
 CLASS_N = 128            # ground-class texels per tile edge (2 m)
+
+# Procedural trees in OSM bakes: planted on evidence, not on "it's a park" (DECISIONS, Data: Trees). The evidence is
+# ESA WorldCover 10 m (tools/bake/worldcover.py; every city has it) weighed with what the OSM polygons say (osm.TREE_*)
+# and the mapped trees. A city config's "trees": {...} overrides any of these.
+TREES = {
+    'wcRes': 4.0,            # m: WorldCover is resampled (nearest) onto the local frame at this grid
+    'window': 20.0,          # m: the local tree fraction f = WorldCover tree cover (+ mangroves) over this square around a
+                             # point, less the crowns of the mapped trees: the gate and the density
+    'density': 0.85,         # chance of a tree at an 11 m grid point where f is 1 (~70 / ha nominal, ~50 / ha after paths and
+                             # buildings: a closed canopy; f 0.3: a third of that). The old bake's woods rate.
+    'crown': 8.0,            # m: a mapped tree explains the WorldCover tree cover this close to it (no procedural twin)
+    'parkGate': 0.10,        # park-like polygons (parks, gardens, cemeteries, nature reserves, zoos, Overture's forest
+                             # cover): trees from this f (3 of the 25 4 m cells: the edge of a crown)
+    'openGate': 0.25,        # open space (lawns, commons, meadows, grassland, wetland, golf courses, aerodromes, Overture's
+                             # grass cover): from this f (7 of 25 cells: a whole 10 m WorldCover pixel, not a crown's edge).
+                             # Scrub / heath: never from WorldCover (its tree class takes in tall dense shrubs); pitches,
+                             # playgrounds, fairways, beaches, rock, plazas, runways: never (osm.areas)
+    'woodsFloor': 0.60,      # OSM woods (natural=wood, landuse=forest): at least this f whatever WorldCover says
+    'cliff': 1.0,            # no trees on slopes steeper than this (45 degrees; the old bake's 0.2 stood in for "the steep
+                             # hills are bare", which WorldCover now knows)
+    'streetSpot': 0.03,      # street trees: a WorldCover tree cell in the window around the spot (a tree pixel within ~10 m:
+                             # WorldCover has one that close to 23 % (SF) to 55 % (London) of OSM's mapped street trees,
+                             # to 13-15 % of random sidewalk points: DECISIONS, Data: Trees)...
+    'streetMapped': 20.0,    # ...or a mapped tree this close (a tree-lined street OSM maps in part); else none
+}
 
 
 def log(*a):
@@ -1506,6 +1535,7 @@ def main():
     flags = dict(a[2:].split('=', 1) for a in sys.argv[1:] if a.startswith('--') and '=' in a)
     slug = args[0] if args else 'sf'
     cfg = json.load(open(os.path.join(HERE, 'cities', f'{slug}.json')))
+    city_bbox = list(cfg['bbox'])  # (the WorldCover crop is cached for the whole city, --bbox bakes read it)
     if 'bbox' in flags:
         cfg['bbox'] = [float(v) for v in flags['bbox'].split(',')]
     out_dir = os.path.join(ROOT, 'public', 'city', flags.get('out', slug))
@@ -2220,8 +2250,8 @@ def main():
         iz = np.clip(((np.asarray(z) - minZ) / DEM_RES).astype(int), 0, H - 1)
         return ground[iz, ix], dist[iz, ix]
 
-    # trees: (OSM) every mapped tree; park trees on a jittered grid in grass (OSM: only inside real parks,
-    # woods and cemeteries, not on pitches or fairways; denser in woods), street trees along frontages
+    # trees: (OSM) every mapped tree; park trees on a jittered grid in grass (OSM: where the evidence says trees
+    # stand, see TREES), street trees along frontages
     trees = []
     real = []
     if use_osm:
@@ -2230,6 +2260,48 @@ def main():
         real = [t for t, c in zip(real, rcl) if c != O.WATER]
         trees += [(float(x), float(z), float(s), int(k)) for x, z, k, s in real]
     real_tree = cKDTree(np.array([[t[0], t[1]] for t in real])) if real else None
+    TP = dict(TREES, **cfg.get('trees', {}))
+    tf_near = tf_park = None
+    if use_osm and cfg.get('worldcover', True):
+        # ESA WorldCover's tree cover on a coarse copy of the local frame: the local tree fraction around every point
+        # (all of it: the street trees' evidence; less the crowns of the mapped trees: the park trees' gate + density)
+        WCm = load_module('worldcover')
+        wres = float(TP['wcRes'])
+        wc = WCm.local_grid(slug, proj, minX, minZ, int((maxX - minX) / wres), int((maxZ - minZ) / wres), wres,
+                            extra_bounds=[tuple(city_bbox)], log=log)
+        tmask = WCm.tree_mask(wc)
+        land = (wc != WCm.WATER) & (wc != 0)
+        counts['worldcover'] = {'treeCover': round(float(tmask[land].mean()) if land.any() else 0.0, 4)}
+        del wc, land
+        win = max(1, round(TP['window'] / wres))
+        tf_near = WCm.fraction(tmask, win)
+        wh, ww = tmask.shape
+
+        def wc_cell(x, z):
+            i = np.clip(((np.asarray(z) - minZ) / wres).astype(int), 0, wh - 1)
+            j = np.clip(((np.asarray(x) - minX) / wres).astype(int), 0, ww - 1)
+            return i, j
+        if real:
+            # a mapped tree explains the WorldCover crown it stands in: procedural trees fill only the canopy the mapped
+            # ones leave unexplained (a lawn whose few trees are all mapped gets none of its own)
+            crowns = np.zeros(tmask.shape, bool)
+            crowns[wc_cell([t[0] for t in real], [t[1] for t in real])] = True
+            rc = TP['crown'] / wres
+            k = int(math.ceil(rc))
+            yy, xx = np.mgrid[-k:k + 1, -k:k + 1]
+            crowns = ndimage.binary_dilation(crowns, structure=(yy * yy + xx * xx) <= rc * rc + 1e-6)
+            tf_park = WCm.fraction(tmask & ~crowns, win)
+            counts['worldcover']['mappedCrowns'] = round(float((tmask & crowns).sum()) / max(1, int(tmask.sum())), 4)
+            del crowns
+        else:
+            tf_park = tf_near
+        del tmask
+
+        def tf_at(grid, x, z):
+            """WorldCover tree fraction (0..1) of a fraction grid at arrays x, z"""
+            return grid[wc_cell(x, z)].astype(np.float32) / 200.0
+    elif use_osm:
+        log('trees: no WorldCover ("worldcover": false): procedural park trees only in OSM woods, street trees as before')
     rng = np.random.default_rng(1234)
     gx = np.arange(minX + 5, maxX, 11.0)
     gz = np.arange(minZ + 5, maxZ, 11.0)
@@ -2249,16 +2321,30 @@ def main():
         ix = np.clip(((gxr - minX) / DEM_RES).astype(int), 0, W - 1)
         iz = np.clip(((gzr - minZ) / DEM_RES).astype(int), 0, H - 1)
         tz_ = treeable[iz, ix]
-        keep = (((tz_ == 1) & (u < 0.55)) | ((tz_ == 2) & (u < 0.85))) & np.isin(cls, (O.GRASS, O.FOREST)) & (dd > 12) & (slope < 0.2) & (lat_r < tree_lat_max)
+        # evidence, not polygons: the chance of a tree is the WorldCover tree fraction around the point (x 'density':
+        # a wood is a wood, a lawn with a few trees gets a few, an open lawn none), gated by what the map says
+        # (park-like from 'parkGate', open space from 'openGate'; scrub / heath, pitches, fairways, beaches, plazas,
+        # runways never: osm.TREE_SHRUB / TREE_NEVER); OSM woods are strong evidence of their own ('woodsFloor'). (The
+        # old bake's treeLatMax and its 0.2 slope limit stood in for "those hills are bare": WorldCover knows.)
+        f = tf_at(tf_park, gxr, gzr) if tf_park is not None else np.zeros(len(gxr), np.float32)
+        p = np.where(tz_ == O.TREE_WOODS, np.maximum(f, TP['woodsFloor']),
+                     np.where(((tz_ == O.TREE_PARK) & (f >= TP['parkGate'])) | ((tz_ == O.TREE_OPEN) & (f >= TP['openGate'])), f, 0.0))
+        room = np.isin(cls, (O.GRASS, O.FOREST)) & (dd > 12) & (slope < TP['cliff'])
         if real_tree is not None:
             nd_, _ = real_tree.query(np.column_stack([gxr, gzr]))
-            keep &= nd_ > 7.0  # a mapped tree stands here already
+            room &= nd_ > 7.0  # a mapped tree stands here already
+            del nd_
+        keep = (u < TP['density'] * p) & room
+        counts['treeEvidence'] = {n: int((keep & (tz_ == v)).sum()) for n, v in (('woods', O.TREE_WOODS), ('park', O.TREE_PARK), ('open', O.TREE_OPEN))}
+        # (the trees WorldCover alone would have planted in scrub / heath, as open space: its shrub-as-tree confusion, vetoed)
+        counts['treeEvidence']['shrubVetoed'] = int((room & (tz_ == O.TREE_SHRUB) & (f >= TP['openGate']) & (u < TP['density'] * f)).sum())
+        del f, p, tz_, room
     else:
         keep = (cls == GROUND_GRASS) & (dd > 20) & (u < 0.55) & (slope < 0.2) & (lat_r < tree_lat_max)
     for x, z in zip(GX.ravel()[keep], GZ.ravel()[keep]):
         kind = 2 if rng.uniform() < 0.18 else 1
         trees.append((float(x), float(z), 0.75 + 0.7 * rng.uniform(), kind))
-    nstreet = 0
+    nstreet = nstreet_wc = nstreet_m = 0
     for b in buildings:
         if b['front'] == 255 or b['arch'] not in (ARCH['victorian'], ARCH['flats'], ARCH['stucco'], ARCH['marina']):
             continue
@@ -2282,14 +2368,27 @@ def main():
         cl, dd1 = ground_at([pt[0]], [pt[1]])
         if use_osm:
             # on the sidewalk, and not where the mapped street trees already stand
-            if cl[0] not in (O.SIDEWALK, O.YARD) or dd1[0] <= 2.0 or (real_tree is not None and real_tree.query(pt)[0] < 9.0):
+            nd1 = real_tree.query(pt)[0] if real_tree is not None else 1e9
+            if cl[0] not in (O.SIDEWALK, O.YARD) or dd1[0] <= 2.0 or nd1 < 9.0:
                 continue
+            # evidence: WorldCover sees a crown within ~10 m of the spot (it does see street-tree rows: DECISIONS,
+            # Data: Trees), or the street is one OSM maps trees on; else no street tree here
+            if tf_near is not None:
+                if tf_at(tf_near, pt[0], pt[1]) >= TP['streetSpot']:
+                    nstreet_wc += 1
+                elif nd1 < TP['streetMapped']:
+                    nstreet_m += 1
+                else:
+                    continue
         elif not (cl[0] == GROUND_PAVED and dd1[0] > 2.0):
             continue
         trees.append((float(pt[0]), float(pt[1]), 0.55 + 0.35 * rr.next(), 0))
         nstreet += 1
     log(f'trees {len(trees)} ({len(real)} mapped, {nstreet} along frontages, the rest in parks)')
     counts['trees'] = {'mapped': len(real), 'street': nstreet, 'park': len(trees) - len(real) - nstreet} if use_osm else None
+    if use_osm and tf_near is not None:
+        counts.setdefault('treeEvidence', {}).update(streetWorldCover=nstreet_wc, streetMapped=nstreet_m)
+    del tf_near, tf_park
 
     # ------------------------------------------------------------ tile output
     tiles = defaultdict(list)
@@ -2515,8 +2614,11 @@ def main():
                               'streets, land, water, trees, names'
                               + ('; FEMA/ORNL USA Structures (public domain) where OSM has no footprint' if df is not None else '')
                               + '; ' + dem_src
-                              + ('; rooftops (heights, tiers) from the USGS 3DEP lidar point cloud (public domain)' if lidar_rasters is not None else ''))
+                              + ('; rooftops (heights, tiers) from the USGS 3DEP lidar point cloud (public domain)' if lidar_rasters is not None else '')
+                              + ('; tree evidence from ESA WorldCover 10 m 2021 (CC BY 4.0)' if 'worldcover' in counts else ''))
         manifest['attribution'] = '\u00a9 OpenStreetMap contributors, Overture Maps Foundation'
+        if 'worldcover' in counts:
+            manifest['credits'] = {'worldcover': load_module('worldcover').ATTRIBUTION + ' (CC BY 4.0)'}
         manifest['license'] = 'ODbL-1.0'
         # the id scheme (ID_RANGES): the client keys saved paint by it, so paint saved against another
         # scheme's ids (rank ids, a stale bake) is never applied to these buildings
@@ -2533,7 +2635,15 @@ def main():
     with open(os.path.join(out_dir, 'city.json'), 'w') as f:
         json.dump(manifest, f)
     log(f'done: {len(buildings)} buildings, {len(manifest_tiles)} tiles, {total_bytes/1e6:.1f} MB raw')
+    return {'slug': slug, 'out': out_dir, 'osm': use_osm, 'qa': flags.get('qa', '1')}
 
 
 if __name__ == '__main__':
-    main()
+    done = main()
+    # the plausibility QA of every OSM bake (tools/bake/qa.py: the bake against ESA WorldCover; stats.qa in city.json,
+    # tools/bake/.cache/qa/<out>/report.md + crops). It runs here, once main()'s arrays are freed. --qa=0 skips it,
+    # --qa=warn reports a FAIL without failing; else a FAIL exits 3 (the bake's outputs are complete: pack.py packs them)
+    if done and done['osm'] and done['qa'] != '0':
+        ok = load_module('qa').run(done['slug'], done['out'], log=log)
+        if not ok and done['qa'] != 'warn':
+            sys.exit(3)

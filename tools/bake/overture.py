@@ -25,6 +25,7 @@ shapely). Types:
   infrastructure  base: bridges, piers, towers, street furniture
   division        divisions: neighbourhood / macrohood / locality points with names
   division_area   divisions: their polygons
+Then the city's ESA WorldCover 10 m crop (tools/bake/worldcover.py; "worldcover": false in the config skips it).
 
 usage: python3 -I tools/bake/overture.py <slug> [--types=building,segment,...] [--refresh]
 """
@@ -207,6 +208,18 @@ def extract(slug, types=ALL, refresh=False):
         summary[typ] = tab.num_rows
     json.dump({'release': release, 'bbox': bb, 'counts': summary, 'license': 'ODbL-1.0 (OpenStreetMap contributors) via Overture Maps Foundation'},
               open(os.path.join(odir, 'extract.json'), 'w'), indent=1)
+    if cfg.get('worldcover', True) and set(types) == set(ALL):
+        # the city's ESA WorldCover crop with its extracts (the bake's tree evidence, the QA's reference; bake.py
+        # fetches it itself when it is missing)
+        import importlib.util
+        sys.dont_write_bytecode = True
+        spec = importlib.util.spec_from_file_location('sb_worldcover', os.path.join(HERE, 'worldcover.py'))
+        wc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(wc)
+        try:
+            wc.ensure(slug, [tuple(cfg['bbox'])], log=log, refresh=refresh)
+        except (SystemExit, Exception) as e:  # noqa: BLE001 (the bake retries)
+            log(f'worldcover: not fetched ({e}); bake.py will try again')
     return odir
 
 

@@ -513,10 +513,60 @@ cross-checked in the browser with `tools/feel.mjs`.
   what OSM's land polygons leave out where the DEM is low. Pier decks over the
   water are raised to 2.5 m (the bare-earth DEM has water there). Bridges,
   tunnels, indoor and elevated ways are left off the ground.
-- **Trees**: OSM's mapped trees (SF: @MAPPED@, species -> cypress / pine /
-  street tree, height -> size); procedural park trees only inside real parks,
-  cemeteries, gardens and woods (never on pitches, fairways or playgrounds);
-  procedural street trees on the sidewalks where no mapped tree stands.
+- **Trees: on evidence, not on "it's a park"** (the Crissy Field bug: lawn,
+  tidal marsh and beach inside the Presidio's park polygon were planted like a
+  wood). OSM's mapped trees stay as they are (SF: @MAPPED@, species -> cypress /
+  pine / street tree, height -> size). Procedural trees now need **ESA
+  WorldCover 10 m (2021)**, a land cover every city on Earth gets for free
+  (`tools/bake/worldcover.py`, CC BY 4.0), weighed with what OSM's polygons say
+  (`bake.py` `TREES`, `osm.TREE_*`; a city config's `"trees"` overrides):
+  - f = WorldCover tree cover (+ mangroves) in a 20 m window around a point,
+    less the crowns of the mapped trees (8 m: a lawn whose few trees are all
+    mapped gets no twins). A tree on the 11 m jittered grid with chance
+    0.85 f: a wood is a wood (~70 / ha nominal, 50-65 / ha measured after paths
+    and buildings, the old woods rate), a lawn with a few trees gets a few, an
+    open lawn none.
+  - Parks, gardens, cemeteries, nature reserves, zoos plant from f >= 0.10;
+    open space (landuse=grass, leisure=common, meadows, grassland, wetland,
+    recreation grounds, golf courses, aerodromes) only from f >= 0.25, a whole
+    10 m tree pixel, never from the park polygon alone; scrub and heath never
+    from WorldCover (its tree class takes in tall dense shrubs: the Marin
+    Headlands' 417 ha of OSM scrub read 65 % "tree"; 17.5k trees vetoed in a
+    3 x 2.5 km test); pitches, playgrounds, fairways, greens, beaches, sand, rock,
+    plazas, runways never. Inside the green polygons the smallest wins (a wood
+    in a park, a lawn in a park, a wood in the scrub). OSM woods are strong
+    evidence of their own (at least f = 0.6). No slope limit below 45 degrees
+    and no `treeLatMax` in OSM bakes: those stood in for "the steep hills are
+    bare", which WorldCover knows (the old path keeps both).
+  - Street trees along frontages: a WorldCover tree pixel within ~10 m of the
+    spot, or a mapped tree within 20 m (a row OSM maps in part), else none.
+    Measured on OSM's mapped street trees against random sidewalk points:
+    WorldCover sees a tree within 10 m of 55 % of London's mapped street trees
+    vs 15 % of its sidewalks, 23 % vs 13 % city-wide in SF (SF's small street
+    trees mostly fall below 10 m pixels); the lift is highest close in (London
+    7x at the pixel, 3.5x at 10 m, 2x at 20 m), so 10 m. The old frontage
+    spots pass 7 % of the time in SF, 20 % in London: SF's streets keep their
+    mapped trees and lose most of the procedural sprinkle.
+  - Test bakes (`--lidar=0`, before -> after): the Crissy Field box (55 ha)
+    418 -> 334 trees, procedural trees on WorldCover-open land (no tree pixel
+    within 20 m) 225 -> 0; what is left is the wooded bluff south of the road
+    and the groves at the west end. Presidio forest (12 ha, 99 % tree cover)
+    29 -> 50 / ha; Golden Gate Park's east-end woods 26 -> 60 and 15 -> 53 / ha,
+    its meadows' unsupported trees 21 -> 0. London (Hyde Park + Kensington
+    Gardens, `?city=london`): Hyde Park's procedural trees on open lawn 173 -> 1,
+    Kensington Gardens' 300 -> 5, a 6 ha lawn box 8 -> 0 (its 70 mapped trees
+    stay), a wood box 59 -> 61 / ha. Per frame, park / street trees: Presidio
+    10,104 / 586 -> 15,030 / 79, Golden Gate Park 3,328 / 567 -> 5,819 / 46,
+    London 9,635 / 481 -> 8,949 / 118 (woods fill in, lawns and bare streets
+    empty).
+- **Bake QA** (`tools/bake/qa.py`, the last step of every OSM bake): per
+  128 m cell the baked trees, water and sand against WorldCover; FAIL (exit 3,
+  a loud block) when procedural trees without a WorldCover tree pixel within
+  20 m pass 5 %, cells with 8+ of them pass 1 % of the land, wooded park cells
+  left under 8 trees / ha pass 10 %, water or sand disagree in 2 % of the
+  cells. The old rule failed it everywhere (unsupported trees 7-14 % in the
+  test frames, 37 % on all of SF; open cells 6-11 %), the evidence rule
+  passes (<= 0.2 %, 0); SF's water and sand already agree (0.06 %, 0.10 %).
 - **Names**: every named street centerline is stored per terrain tile ('SBT2')
   and the street sign at an impact shows the nearest real street ("HAIGHT ST":
   US suffixes abbreviated like the real blades), the neighbourhood when no
@@ -536,7 +586,9 @@ cross-checked in the browser with `tools/feel.mjs`.
   no LiDAR, no DEM: a flat 1 m city with the canals carved to -0.9 m) bakes from
   the same code: @AMS@. Play it with `?city=amsterdam`. Copernicus GLO-30 on S3
   is a surface model (roofs and trees in it); a flat ground is truer for a
-  canal city.
+  canal city. `tools/bake/cities/london.json` (Hyde Park, Kensington Gardens and
+  the streets around them, 3.3 x 2 km, flat the same way: 7,666 buildings,
+  12.2k trees, 0.8 MB) is the second test city, for the trees: `?city=london`.
 - Terrain: **USGS 3DEP 1 m DEM** (2023 SF lidar project), read straight from the
   USGS S3 bucket (public domain), and the 1/3 arc-second DEM around it.
 - Building style still comes from occupancy + size + district (Sunset/Parkside/

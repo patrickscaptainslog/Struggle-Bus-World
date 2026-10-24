@@ -64,17 +64,32 @@ gzip'd binary region bundles in `public/city/<slug>/`, from **OpenStreetMap**
 ```
 python3 -m pip install geopandas pyogrio pyarrow rasterio pyproj scipy shapely laspy matplotlib
 python3 -I tools/bake/overture.py sf   # OSM via Overture: buildings, parts, streets, land, water, trees, names
-python3 -I tools/bake/bake.py sf       # footprints + heights + roofs + ground + names -> tiles
+                                       # (+ the city's ESA WorldCover 10 m crop: tools/bake/worldcover.py)
+python3 -I tools/bake/bake.py sf       # footprints + heights + roofs + ground + trees + names -> tiles,
+                                       # then the plausibility QA (tools/bake/qa.py; see below)
 python3 -I tools/bake/pack.py sf       # tiles -> 1 km gzip regions
 python3 -I tools/bake/horizon.py sf    # hills around the city
 python3 -I tools/bake/plot.py out.png --at=37.7763,-122.4328 old=public/city/sf  # top-down QA plot
 ```
+The bake ends with a **plausibility QA** against ESA WorldCover (trees where it
+sees no tree cover, wooded parks left bare, water and sand that disagree, per
+128 m cell): it prints PASS or a loud `!!! QA FAIL` block and exits 3 on a FAIL
+(the tiles are complete: read the report, then pack). The report and top-down
+crops of the largest parks land in `tools/bake/.cache/qa/<out>/report.md`, the
+summary in `city.json` `stats.qa`; `--qa=warn` reports without failing,
+`--qa=0` skips it, `python3 -I tools/bake/qa.py sf --dir=public/city/<out>`
+re-runs it. Test bakes: `--bbox=lon0,lat0,lon1,lat1 --out=<name> --lidar=0`.
 Any city Overture covers bakes the same way: `tools/bake/cities/amsterdam.json`
-(the Jordaan, no LiDAR, no DEM) is played with `?city=amsterdam`.
+(the Jordaan, no LiDAR, no DEM) is played with `?city=amsterdam`,
+`tools/bake/cities/london.json` (Hyde Park + Kensington Gardens) with
+`?city=london`.
 Sources: OpenStreetMap via Overture Maps (ODbL 1.0); USGS 3DEP 1 m and 1/3
 arc-second DEMs and the 3DEP lidar point cloud; FEMA/ORNL USA Structures where
-OSM has no footprint (public domain). The baked tiles are a derivative database
-under the ODbL: see `public/city/DATA_LICENSE.md`; the game credits
+OSM has no footprint (public domain); ESA WorldCover 10 m 2021 for where trees
+stand (CC BY 4.0: © ESA WorldCover project 2021 / Contains modified Copernicus
+Sentinel data (2021) processed by ESA WorldCover consortium). The baked tiles
+are a derivative database under the ODbL: see `public/city/DATA_LICENSE.md`;
+the game credits
 "© OpenStreetMap contributors, Overture Maps Foundation" during the opening and
 in the tuner. See `DECISIONS.md` for every call we made.
 

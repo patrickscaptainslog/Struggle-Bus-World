@@ -37,6 +37,10 @@ CACHE = os.environ.get('SB_OVERTURE_CACHE', os.path.join(os.path.dirname(os.path
 
 # ground classes (2 m texture; src/world/tiles.ts `Ground`)
 PAVED, GRASS, WATER, SIDEWALK, PLAZA, PATH, SAND, RAIL, FOREST, YARD, ROCK = range(11)
+# what a polygon says about procedural trees (areas(); the treeable mask of ground_raster(); bake.py plants by it)
+TREE_NONE, TREE_PARK, TREE_WOODS, TREE_NEVER, TREE_OPEN, TREE_SHRUB = 0, 1, 2, 3, 4, 5
+TREE_GREEN = (TREE_PARK, TREE_WOODS, TREE_OPEN, TREE_SHRUB)   # the green family: the smallest polygon wins
+AEROWAY = {'aerodrome', 'airport', 'airfield', 'airstrip', 'runway', 'taxiway', 'apron', 'helipad', 'heliport'}
 
 # roof shapes (src/world/tiles.ts `RoofShape`); 0 = untagged (the mesher's own choice)
 ROOF_SHAPES = {'flat': 1, 'gabled': 2, 'hipped': 3, 'pyramidal': 4, 'skillion': 5, 'dome': 6, 'onion': 7, 'round': 8,
@@ -406,40 +410,78 @@ class OSM:
         return out
 
     def areas(self):
-        """Ground polygons [(poly, class, priority)] from land use, land, land cover, water, piers and parking."""
+        """Ground polygons [(poly, class, priority, tree)] from land use, land, land cover, water, piers and parking.
+        tree: what the polygon says about procedural trees (TREE_*; bake.py plants them only where ESA WorldCover
+        sees tree cover): a park-like container (parks, gardens, cemeteries, nature reserves, zoos), woods (strong
+        evidence on their own), open space (lawns, commons, meadows, grassland, wetland, recreation grounds, golf
+        courses, aerodromes: trees only where WorldCover sees a whole tree pixel), shrubs (scrub, heath: WorldCover's
+        tree class takes in tall dense shrubs, so it is no evidence there; trees only from smaller polygons inside,
+        such as a wood), never (pitches, playgrounds, fairways, greens, tees, beaches, sand, rock, plazas, runways,
+        taxiways, aprons, helipads) or nothing.
+        The class is what it always was (the tree code never changes the ground); class None: a polygon that only
+        says something about trees (an airport's runway area from the infrastructure theme)."""
         out = []
 
-        def add(geom, cls, pri, trees=False):
+        def add(geom, cls, pri, tree=TREE_NONE):
             if geom is None or geom.is_empty or geom.geom_type not in ('Polygon', 'MultiPolygon'):
                 return
-            out.append((geom, cls, pri, trees))
+            out.append((geom, cls, pri, tree))
+
+        def tags_of(row):
+            t = sv(getattr(row, 'tags', None))
+            try:
+                return json.loads(t) if t else {}
+            except ValueError:
+                return {}
         d, g = self.read('land_cover')
         for i, row in (enumerate(d.itertuples(index=False)) if d is not None else []):
             c = {'forest': FOREST, 'shrub': GRASS, 'grass': GRASS, 'wetland': GRASS, 'crop': GRASS, 'moss': GRASS, 'barren': ROCK, 'mangrove': FOREST}.get(row.subtype)
             if c is not None:
-                add(g[i], c, 0, c == FOREST)
+                # (Overture's land cover is a generalized ESA WorldCover where OSM maps nothing: a weak container,
+                # WorldCover at 10 m decides: its forest is park-like, its grass / crop / wetland open space, its
+                # shrub and moss shrubs)
+                add(g[i], c, 0, TREE_PARK if c == FOREST else TREE_SHRUB if row.subtype in ('shrub', 'moss') else TREE_OPEN if c == GRASS else TREE_NEVER)
         d, g = self.read('land_use')
         lu_paved = {'industrial', 'commercial', 'retail', 'railway', 'construction', 'brownfield', 'garages', 'depot', 'port', 'landfill', 'quarry'}
         lu_grass = {'park', 'grass', 'garden', 'recreation_ground', 'village_green', 'meadow', 'cemetery', 'grave_yard', 'golf_course', 'fairway',
                     'green', 'tee', 'rough', 'dog_park', 'flowerbed', 'allotments', 'plant_nursery', 'orchard', 'vineyard', 'farmland',
                     'nature_reserve', 'national_park', 'common', 'greenfield', 'zoo', 'campground', 'pitch', 'stadium', 'track', 'driving_range'}
+        lu_park = {'park', 'garden', 'cemetery', 'grave_yard', 'nature_reserve', 'national_park', 'zoo', 'campground', 'orchard'}
+        lu_never = {'fairway', 'green', 'tee', 'driving_range', 'pitch', 'stadium', 'track'}
         for i, row in (enumerate(d.itertuples(index=False)) if d is not None else []):
             cls = row.klass
             surf = sv(row.surface).lower()
             hard = surf in ('asphalt', 'concrete', 'paved', 'paving_stones', 'sett', 'tartan', 'acrylic', 'clay', 'artificial_turf') and surf != 'artificial_turf'
+            # (the ground class is decided as it always was; the tree code rides along. Airfields: the aerodrome is open
+            # space (its tree belts where WorldCover sees them), runways, taxiways, aprons and helipads never)
+            tags = tags_of(row) if cls in lu_grass or cls in AEROWAY or row.subtype == 'transportation' else {}
+            aero = tags.get('aeroway') or (cls if cls in AEROWAY else None)
+            air = None if not aero else TREE_OPEN if aero in ('aerodrome', 'airport', 'airfield') else TREE_NEVER
             if cls in ('pedestrian', 'plaza', 'square'):
-                add(g[i], PLAZA, 3)
+                add(g[i], PLAZA, 3, TREE_NEVER)
             elif cls == 'bunker' or (cls == 'beach_resort'):
-                add(g[i], SAND, 4)
+                add(g[i], SAND, 4, TREE_NEVER)
             elif cls in ('playground', 'schoolyard'):
-                add(g[i], PLAZA if hard or cls == 'schoolyard' else GRASS, 3)
+                add(g[i], PLAZA if hard or cls == 'schoolyard' else GRASS, 3, TREE_NEVER)
             elif cls in ('pitch', 'track', 'stadium'):
-                add(g[i], PLAZA if hard or cls == 'track' else GRASS, 3)
+                add(g[i], PLAZA if hard or cls == 'track' else GRASS, 3, TREE_NEVER)
             elif cls in lu_grass:
                 big = cls in ('park', 'cemetery', 'golf_course', 'recreation_ground', 'nature_reserve', 'national_park', 'zoo', 'grave_yard')
-                add(g[i], GRASS, 2 if big else 3, cls in ('park', 'cemetery', 'grave_yard', 'garden', 'nature_reserve', 'national_park', 'common', 'village_green', 'zoo'))
+                tree = TREE_NEVER if cls in lu_never else TREE_PARK if cls in lu_park else TREE_OPEN
+                # the raw tags can say more than the class (a lawn tagged leisure=park + landuse=grass, a common
+                # tagged landuse=grass + leisure=common, a pitch or a fairway mapped on a grass polygon)
+                if tags.get('leisure') in ('pitch', 'playground', 'track', 'stadium') or tags.get('golf') in ('fairway', 'green', 'tee', 'bunker', 'driving_range'):
+                    tree = TREE_NEVER
+                elif tags.get('landcover') == 'trees' or tags.get('landuse') == 'forest' or tags.get('natural') == 'wood':
+                    tree = TREE_WOODS
+                elif tree == TREE_PARK and (tags.get('leisure') == 'common' or tags.get('landuse') in ('grass', 'meadow')
+                                            or tags.get('landcover') == 'grass'):
+                    tree = TREE_OPEN
+                add(g[i], GRASS, 2 if big else 3, tree if air is None else air)
             elif cls in lu_paved or row.subtype in ('transportation',):
-                add(g[i], PAVED, 1)
+                add(g[i], PAVED, 1, TREE_NONE if air is None else air)
+            elif air is not None:
+                add(g[i], None, 1, air)
         d, g = self.read('land')
         for i, row in (enumerate(d.itertuples(index=False)) if d is not None else []):
             cls = row.klass
@@ -447,7 +489,8 @@ class OSM:
                  'wood': FOREST, 'forest': FOREST, 'sand': SAND, 'beach': SAND, 'dune': SAND, 'bare_rock': ROCK, 'scree': ROCK,
                  'shingle': SAND, 'stone': ROCK, 'rock': ROCK, 'glacier': ROCK}.get(cls)
             if c is not None:
-                add(g[i], c, 4 if c in (SAND, ROCK) else 3, c == FOREST)
+                add(g[i], c, 4 if c in (SAND, ROCK) else 3, TREE_WOODS if c == FOREST else TREE_SHRUB if cls in ('heath', 'scrub', 'shrubbery')
+                    else TREE_OPEN if c == GRASS else TREE_NEVER)
         d, g = self.read('infrastructure')
         for i, row in (enumerate(d.itertuples(index=False)) if d is not None else []):
             cls = row.klass
@@ -457,6 +500,8 @@ class OSM:
                 add(g[i], PLAZA, 7)
             elif cls == 'platform':
                 add(g[i], PLAZA, 6)
+            elif row.subtype == 'airport' or cls in AEROWAY:
+                add(g[i], None, 1, TREE_OPEN if cls in ('aerodrome', 'airport', 'airfield') else TREE_NEVER)
         return out
 
     def water(self):
@@ -487,9 +532,34 @@ class OSM:
                     piers.append(g[i].buffer(3.0, cap_style='flat'))
         return wat, land, piers
 
+    @staticmethod
+    def tree_codes(areas, rast):
+        """uint8 raster of what the map says about procedural trees (TREE_*) from areas(): within the green family
+        (park-like, woods, open space, shrubs) the smallest polygon wins (a wood in a park, a lawn in a park or a
+        wood, a wood in the scrub), Overture's generalized land cover (priority 0) under every OSM polygon; then
+        'never' (pitches, playgrounds, fairways, beaches, rock, plazas, runways) over everything.
+        rast(shapes) -> uint8 raster (later shapes over earlier ones)."""
+        green = sorted([a for a in areas if a[3] in TREE_GREEN], key=lambda a: (a[2] > 0, -a[0].area))
+        codes = rast([(a[0], a[3]) for a in green])
+        codes[rast([(a[0], 1) for a in areas if a[3] == TREE_NEVER]) > 0] = TREE_NONE
+        return codes
+
+    def tree_raster(self, H, W, minX, minZ, res):
+        """tree_codes() on any grid of the local frame (row 0 = minZ): the QA's view of the map (qa.py)"""
+        from rasterio.features import rasterize
+        tr = __import__('rasterio').Affine(res, 0, minX, 0, res, minZ)
+        frame = box(minX, minZ, minX + W * res, minZ + H * res)
+
+        def rast(shapes):
+            shapes = [(s, v) for s, v in shapes if s is not None and not s.is_empty and s.intersects(frame)]
+            return rasterize(shapes, out_shape=(H, W), transform=tr, fill=0, dtype=np.uint8) if shapes else np.zeros((H, W), np.uint8)
+        return self.tree_codes(self.areas(), rast)
+
     def ground_raster(self, H, W, minX, minZ, res, dem_nodata, dem_filled, bpolys, bres, segs=None):
         """(uint8 [H, W] ground classes on the bake's 2 m grid (row 0 = minZ), bool pier mask, uint8 treeable mask
-        (1 park / cemetery / garden, 2 woods: where procedural trees may grow)).
+        (what the map says about procedural trees, tree_codes(): TREE_PARK parks / cemeteries / gardens, TREE_WOODS
+        woods, TREE_OPEN lawns / commons / meadows / grassland / wetland, TREE_SHRUB scrub / heath, TREE_NONE elsewhere;
+        bake.py weighs it with WorldCover)).
         bpolys / bres: building footprints and whether each is residential (yards vs paved lots)."""
         from rasterio.features import rasterize
         from scipy import ndimage
@@ -507,12 +577,9 @@ class OSM:
         cls = np.full((H, W), YARD, np.uint8)
         # 1) land: cover, use, natural, parking, piers (low priority first)
         areas = sorted(self.areas(), key=lambda a: a[2])
-        # where procedural trees may grow: parks, cemeteries, gardens (1) and woods (2); a pitch, fairway or
-        # playground drawn over a park (a higher priority) clears it again
-        treeable = rast([(a[0], (2 if a[1] == FOREST else 1) if a[3] else 3) for a in areas if a[3] or a[2] >= 3]) if areas else np.zeros((H, W), np.uint8)
-        treeable[treeable == 3] = 0
+        treeable = self.tree_codes(areas, rast)
         for pri in sorted({a[2] for a in areas}):
-            layer = [(a[0], a[1] + 1) for a in areas if a[2] == pri]
+            layer = [(a[0], a[1] + 1) for a in areas if a[2] == pri and a[1] is not None]
             # (golf fairways and pitches inside a park: no trees; woods inside it: yes)
             m = rast(layer)
             cls = np.where(m > 0, m - 1, cls).astype(np.uint8)
