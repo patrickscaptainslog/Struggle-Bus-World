@@ -30,7 +30,7 @@ if (opt.net) {
   await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 40, downloadThroughput: (kbps * 1024) / 8, uploadThroughput: (kbps * 1024) / 8 });
 }
 await page.addInitScript(() => {
-  const W = (window.__lp = { compile: 0, link: 0, status: 0, programs: 0, shaders: 0, frames: [], longTasks: [], programAt: [], canvasDrawAt: null, readyAt: null });
+  const W = (window.__lp = { compile: 0, link: 0, status: 0, programs: 0, shaders: 0, frames: [], gaps: [], longTasks: [], programAt: [], canvasDrawAt: null, readyAt: null });
   const P = WebGL2RenderingContext.prototype;
   const wrap = (name, key) => {
     const f = P[name];
@@ -67,8 +67,12 @@ await page.addInitScript(() => {
   } catch {}
   const raf = window.requestAnimationFrame.bind(window);
   let n = 0;
+  let last = 0;
   const tick = (t) => {
     if (W.readyAt === null && window.__shotReady === true) W.readyAt = Math.round(performance.now());
+    // frame gaps over 50 ms (the opening's smoothness: the ones between the first canvas draw and ready)
+    if (last && t - last > 50 && W.gaps.length < 500) W.gaps.push([Math.round(last), Math.round(t - last)]);
+    last = t;
     if (n++ < 20000) { if (W.frames.length < 400) W.frames.push(Math.round(t)); raf(tick); }
   };
   raf(tick);
@@ -106,6 +110,8 @@ const res = {
   firstFrameMs: lp.canvasDrawAt,
   readyInPageMs: lp.readyAt,
   programsAfterReady: lp.readyAt === null ? null : lp.programAt.filter((t) => t > lp.readyAt).length,
+  // frame gaps > 50 ms from the first canvas draw to ready (the opening): [at, ms]
+  openingGaps: lp.canvasDrawAt === null ? null : lp.gaps.filter(([t]) => t >= lp.canvasDrawAt && (lp.readyAt === null || t <= lp.readyAt)),
   programAt: lp.programAt,
   warm,
   gl: { programs: lp.programs, shaders: lp.shaders, compileMs: Math.round(lp.compile), linkMs: Math.round(lp.link), statusPollMs: Math.round(lp.status) },
