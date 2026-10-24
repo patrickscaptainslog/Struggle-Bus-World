@@ -817,8 +817,11 @@ cross-checked in the browser with `tools/feel.mjs`.
   now only ~3° steeper than the floor's, so the blend is gentler).
 - **The skyline stands out of the fog.** Past 2.6 km everything was a white
   wall (Twin Peaks to downtown: nothing but the pyramid). `sbFog` now has a
-  fog ceiling gated by absolute height (`config.fog.standFog` 0.78 from
-  `standFrom` 50 to `standTo` 160 m ASL, fading back to full fog from 5 to
+  fog ceiling gated by height (`config.fog.standFog` 0.78 from `standFrom` 50
+  to `standTo` 160 m above the city's low ground, `City.lowGround()`: the far
+  grid's 5th-percentile land height, 3.6 m in SF, so a city on a plateau
+  isn't all "standing" out of its fog; it was metres above sea level, tuned
+  for SF; fading back to full fog from 5 to
   `standFade` 10 km): towers, hilltops, the Headlands read as pale layered
   silhouettes with their bases melting into the fog. It is in the shared fog
   function, so the far skyline boxes and the real tiles always agree (no
@@ -827,9 +830,12 @@ cross-checked in the browser with `tools/feel.mjs`.
   fog bank is up (`uFogBank` >= 2) and density, farFull and paint clearing are
   untouched (the verifier's caveats: the loading-screen bank and the paint
   payoff keep their contrast). A shape standing darker than the buried step
-  must run at least ~0.45 deg tall (4 px at 240 px wide, 6 at 390), or it is
-  buried: the tops of mid-height shapes just over the ceiling's contour hung
-  in the sky band as floating chips. All of this is fog-only: main turned the
+  run at least `config.render.fogSliver` of the frame's height (0.0118: 10
+  game px of 852, ~0.58 deg), or it is buried: the tops of mid-height shapes
+  just over the ceiling's contour hung in the sky band as floating chips. (It
+  was a constant 6 px; on the GPU the Twin Peaks and Dolores skylines still
+  showed small floating boxes. Same frame, 6 / 10 / 13 px: 10 buries them and
+  keeps the towers and Sutro; 13 thins the skyline itself.) All of this is fog-only: main turned the
   fog off by default (`config.fog.enabled`, `?fog` brings it back), and with
   it off the fog ceiling is off too. Landmarks multiply their fog by 0.8
   (landmarks.ts, not touched here): a capped far landmark sits at ~0.62, the
@@ -874,6 +880,21 @@ cross-checked in the browser with `tools/feel.mjs`.
   blade clears the roofs and crowns in front, never a blade hovering over
   the roofs with no pole. Re-splats of the same area reuse the spot, so the
   standing sign flips.
+  Merged with main (fix/landmarks, the 390 px frame): a spot on water (the
+  tile's 2 m ground class, `City.groundClassAt`) is never used, so a Ferry
+  Building hit doesn't stand its sign in the bay (landmarks' intent); the
+  blade's two bottom corners must clear the roofs in front too, not just its
+  middle (at L3 a roof edge in front cut the letters diagonally). No open
+  spot in frame: ask again 0.8 s later, twice (the camera moves on); then the
+  old spot in front of the primary (a landmark's edge facing the bus,
+  `City.edgeToward`) only if it stands outside the blast (+4 m), at true
+  depth, else no sign: the old 16 m bias drew the blade over the bloom
+  there. One sign per name on screen: a second blast in the neighborhood
+  flips the standing sign while it is in view and outside the new blast; if
+  the new bloom reaches its spot, it sinks (`StreetSigns.retire`) and the
+  sign stands anew beside this blast (the painted regression frame had two
+  "ALAMO SQUARE" blades side by side, and a reused spot in front of the next
+  blast's paint).
   holdGreen stays 2.2 s (the verifier: once it doesn't cover the paint,
   cutting it only costs reading time).
 - **The hero separates.** Its silhouette used its own ramp two steps down
@@ -889,7 +910,9 @@ cross-checked in the browser with `tools/feel.mjs`.
   the lens (`PixelPipeline.setHeroBeam`, projected with the snapped camera; no
   mesh, no draw call): 42 m ahead, 20 m wide at the end x the eye's openness
   (14 m read as a stick), 6° down. It lights only the grey world (GREY,
-  GREY_LIGHT, GREEN_GREY, WINDOW, ROOF_DARK): on the relief it laid a cream
+  GREY_LIGHT, GREEN_GREY, WINDOW, ROOF_DARK, and since the facade merge the
+  unpainted towers' GLASS, STONE, GRANITE: it stopped dead at a tower's
+  face): on the relief it laid a cream
   streak over the freshly painted facades, the money shot. It squints to a sliver while barfing and widens on
   the relief. A dithered mesh wedge was tried first: it read as a
   checkerboard (and its glow halo churned the roofs under it); a ground pool
@@ -908,7 +931,7 @@ cross-checked in the browser with `tools/feel.mjs`.
   the gap below grows (14 -> 50 m).
 - **The Golden Gate is International Orange**, muted, even in the grey world
   (it is never painted, so color still comes from paint): `Ramp.BRIDGE_ORANGE`
-  (appended), shadows to rose and plum, the upper steps dusty (the fog
+  (row 23, after the tower facades' GLASS / STONE / GRANITE; see Palette rows), shadows to rose and plum, the upper steps dusty (the fog
   compresses distant parts onto them, so they are what reads at range); towers,
   truss, cables and suspenders orange, the roadway asphalt grey, piers and
   anchorages concrete. The review's first ramp was a bright salmon that
@@ -931,35 +954,92 @@ cross-checked in the browser with `tools/feel.mjs`.
   darkening fired on some stair steps of a thin diagonal and not others, so
   cables beaded. The Golden Gate's suspenders are 1.2 m every ~48 m (were
   0.7 m every 32 m: 0.3-0.8 px lines that flickered in and out).
-- **Shimmer, measured** (tools/look.mjs --seqn=5 + tools/lookstat.py: four
-  pairs of frames exactly 1/30 s apart per view, the camera's motion removed
-  per 12-px block, counting changes of more than half a ramp step; main ->
-  this branch): Painted Ladies cruise, everything 11.9 -> 9.4%, the fog band
-  16.6 -> 12.5%, the top of the frame 1.06 -> 0.10%, tree crowns 13.4 ->
-  13.1%; Dolores 12.1 -> 9.2%, fog band 23.3 -> 16.8%, plain sky 1.38 ->
-  0.46%, crowns 17.6 -> 14.2%, top 1.38 -> 0.05%; 120 m up 11.2 -> 10.3%, top
-  0.49 -> 0%, but the fog band 17.6 -> 19.0% and crowns 14.7 -> 16.1% (a
-  different framing; the zipper itself is gone, what is left is the edges of
-  the newly visible silhouettes sliding with parallax). With main's camera
-  on both builds (the shader changes alone): Dolores 12.1 -> 10.9%, crowns
-  17.6 -> 13.2%, fog band 23.3 -> 20.1%; Painted Ladies crowns 13.4 -> 13.3%
-  (near crowns are big: their band edges move with the dolly like any edge),
-  fog band 16.6 -> 15.6%, but its top band 1.06 -> 1.41% (in that framing the
-  top is now skyline silhouettes, whose edges a 1/30 s dolly moves, where it
-  used to be blank fog). What remains is edges moving (a dolly can't be
-  snapped), not dither.
-- **Cost** (tools/look.mjs perf: the exact draw calls and triangles of held
-  frames and the CPU work of the last frames, main vs this branch, same
-  frames): Painted Ladies cruise 125 / 1,198,782 vs 125 / 1,198,782 (the
-  lower camera sees the same tiles), FiDi surge 124 / 834k vs 124 / 828k,
-  250 m up 168 / 1.546M vs 168 / 1.546M; CPU work 2.7 / 2.7 / 3.2 ms vs
-  2.5 / 1.8 / 1.9 ms on the loaded SwiftShader host (noise; nothing here adds
-  CPU work but a handful of matrix ops per frame and a few projections per
-  blast). No draw call was added (the beam is lit in the resolve; the mesh
-  beam it replaced was one). GPU: the fog ceiling adds two smoothsteps per
-  fragment, the resolve a few ALU ops (value match, beam, thin-feature test)
-  and shares the handover's neighbor fetches with the flat-light test (four
-  fewer fetches per pixel up high), the upscale one extra fetch on sky pixels.
+- **Shimmer, measured on the GPU after the merge with main** (390 px frame;
+  MAIN e85f5ee vs this branch, real Edge on this laptop; tools/look.mjs
+  --seqn=5: four pairs of frames exactly 1/30 s apart per view on the fixed
+  game step; `GPX=3 python -I tools/lookstat.py`: block-matched changes of
+  more than half a ramp step; numbers in shots/look/numbers.json). The
+  cloud's 240 px numbers (and their failing crowns) are superseded; its stale
+  captures are gone from shots/look. Fog off (the default):
+  - Painted Ladies cruise: all 11.6 -> 8.7%, tree crowns 10.0 -> 7.7%,
+    checker cells in the top 15% 1.89 -> 0.09%.
+  - Dolores: all 11.2 -> 8.5%, crowns 18.0 -> 12.5%, top 4.6 -> 0.07%.
+  - 120 m: all 12.0 -> 9.6%, crowns 10.5 -> 9.1%, sky 0.30 -> 0%, top
+    1.98 -> 0.15%.
+  With `?fog`:
+  - Painted Ladies: all 9.4 -> 6.5%, crowns 9.9 -> 7.0%, sky 0.60 -> 0.25%,
+    the fog band 1,287 -> 626 churning pixels (its share 11.4 -> 11.7% of a
+    band half as wide), top 5.8 -> 0%.
+  - Dolores: all 8.5 -> 6.9%, crowns 9.6 -> 8.7%, sky 1.01 -> 0.35%, fog
+    band 1,299 -> 496 px (14.1 -> 11.1%), top 15.0 -> 0.03%.
+  - 120 m: all 8.1 -> 6.8%, crowns 9.9 -> 8.5%, fog band 871 -> 637 px
+    (8.8 -> 12.4% of a narrower band), top 0.75 -> 0%; the sky 0.36 -> 0.46%
+    (302 -> 477 px; three runs 0.31 / 0.55 / 0.46%, main 0.34-0.36%): the
+    edges of the skyline now standing out of the fog slide with parallax as
+    the bus climbs (shots/look/churn-120m-fog-*.png: red = sky, green = fog
+    band). The review's three levers, same frames: a 0.06 band floor makes
+    the fog band worse (11.7 -> 13.3%), standFog 0.84 and standFade 6000
+    change no pixel in these frames (the silhouettes round to the same step;
+    the skyline is closer than 5 km). Kept as is: a ~0.05%-of-frame cost of
+    the skyline reading at all, with fog off by default.
+  Altitude (tools/altitude.mjs downtown --seq, seqstat): cruise 13.3 ->
+  11.4%; 250 m and the ceiling unchanged pair by pair (5.1-5.2 / 8.4-8.6%,
+  4.4 / 7.8%). Facades (tools/facade-shots.mjs --seq): chase FiDi 14.5 ->
+  10.1%, Salesforce 3.1 -> 3.0, Transamerica 9.6 -> 9.0, 181 Fremont 5.5 ->
+  5.8, downtown at 250 m 5.2 -> 5.8 (one alternating frame).
+  The crowns pass without the WIP tunables (treeFine 0.2, treeBand 1 stay):
+  the flat-light test rounds any neighbour jump of 0.44 step or more, so the
+  crowns' 36-byte bands no longer dither; shadow rims round too (a crisp
+  edge in place of a dotted one, shots/look/shadow-rims.png). Fog's band
+  floor (`fogBandMin`) stays 0.015.
+- **Cost** (tools/look.mjs perf: the median of 8 held frames, exact draw
+  calls / triangles, CPU work; two runs per build): Painted Ladies cruise
+  125 / 1,211,947 vs 125 / 1,213,975 (the lower camera sees a little more,
+  the decal is gone), FiDi surge 123-124 / 827-829k vs 125 / 844k, 250 m up
+  169 / 1.528M both; CPU work 2.7-3.5 vs 2.8-2.9 ms, 2.9-4.8 vs 2.5-2.6 ms,
+  3.3-6.5 vs 3.1-4.8 ms (noise). Facade chase views are one draw lower each
+  (FiDi 125 -> 124, Rincon 114 -> 113, Embarcadero 115 -> 114, Alamo 130 ->
+  129: the drop-shadow decal), hero views identical. No draw call was added
+  (beam and shadow are lit in the resolve). GPU: the fog ceiling adds two
+  smoothsteps per fragment; the resolve a few ALU ops (value match, beam,
+  shadow oval, thin-feature test) and shares the handover's neighbor fetches
+  with the flat-light test; the sliver test fetches up to 2 x 10 texels, only
+  on fogged silhouette pixels darker than the buried step (with fog); the
+  upscale one extra fetch on sky pixels. Not yet measured with `?fps` on the
+  producer's iPhone.
+- **Merged with main (feat/facade, fix/landmarks), 2026-10-23.**
+  - Palette rows: facade took 20-22 (GLASS, STONE, GRANITE), so
+    BRIDGE_ORANGE is 23 (every use is by name). `RAMP_COUNT` 32 -> 48 (an
+    8x48 RGBA8 texture, 1.5 KB): 24-31 are reserved for the faction ramps
+    (MAGENTA 24, CYAN 25, AQUA 26, PEARL 27, MOSS 28, BIOLUME 29, FAE_VIOLET
+    30, SILVERBARK 31; STAGES.md 3.4 rule 7), 32-37 for world travel
+    (NIGHT_SKY, OPEN_SEA, LIMB, CLOUD, DRY_LAND, TWILIGHT; WORLD-TRAVEL.md
+    2.5), 38-47 spare. 32 rows would have been over-booked (24 in use + 8
+    faction + 6 world = 38).
+  - One sky function: facade's towers write the light that lands exactly
+    on a ramp step after the resolve's atmospheric mix, from a copy of the
+    resolve's skyLight(). This branch flattened that sky at the floor
+    (slope mix(0.25, 0.5, calm), was 0.5), so the copy is now the same
+    function (`GLSL_SKY_LIGHT` in materials.ts, called by both at the same
+    calm) instead of a second copy to keep in sync by hand.
+  - The review, re-checked on the GPU: tree-crown shimmer fixed (above);
+    120 m with fog: the fog band and everything else lower, the sky ~0.1%
+    higher (above); drop shadow on paint: a one-step darkening in the
+    surface's own ramp (shots/look/bus-zoom.png, the painted frame), no grey
+    hole; the puff a pale flat wisp; L3 sign: over grey, legible, its pole
+    seen or clear of the roofs (shots/look/ab-sign.png, after the blade
+    corner check); headlight: the warm core on the roofs ahead, no streak on
+    fresh paint on the relief (eye-zoom.png); fog fragments: the 10 px
+    sliver rule (fog-sliver-6-10-13px.png); top-edge stripe: gone (checker
+    cells in the top 15% at or under 0.15% everywhere, main 0.75-15%).
+  - For the branches still to merge (pre-review notes): feat/supersplat
+    hosts its charge pinwheel in the drop-shadow decal this branch deleted:
+    re-add it as SuperFx's own decal (pinwheel only, visible while charging);
+    its hose impacts must not move `lastBlast` (set it after the hose
+    early-return). feat/controls: keep the setHeroShadow / setHeroBeam block
+    before render, then the turbo FX position copy. polish/perf: keep both
+    PixelPipeline field blocks; the upscale's "alpha 0 = plain sky" contract
+    stands (a CSS-scaled canvas would bring back the sky's one-pixel saw).
 
 ## Opening + landmarks
 - **The opening is the brief's shot**: the bus glides out of a fog bank over the

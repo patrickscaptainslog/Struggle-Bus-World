@@ -98,7 +98,9 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   and at street level the fog handover is value-matched (each surface turns
   into the FOG step nearest its own luminance, then flattens into a
   silhouette) through a band as narrow as the fog's own gradient
-  (`config.render.fogBandMin` at street level).
+  (`config.render.fogBandMin` at street level). A silhouette standing out of
+  the fog must run `config.render.fogSliver` of the frame's height (10 px of
+  852) or it is buried with the fog (no chips floating in the sky band).
 - **Pipeline invariant (resolve -> upscale):** the resolve's alpha is 0 on
   plain sky and 1 everywhere else, and the upscale takes the unshifted texel
   where both it and the shifted one are plain sky. Whatever replaces the
@@ -334,8 +336,15 @@ impact frame shows the hit.
   >= `signTune.minFontPx` game pixels, at its true depth (`depthBias` 1 m, on
   from the start: what stands in front of it covers it). A spot whose pole is
   seen to its foot wins; else `StreetSignOptions.pole` lifts the blade clear
-  of the roofs in front (up to `signTune.poleLiftMax`). A re-splat of the same
-  blast area reuses the spot, so the standing sign flips.
+  of the roofs in front (up to `signTune.poleLiftMax`); both bottom corners of
+  the blade (`signBladeWidth(text)`) must clear them too. Never on water
+  (`City.groundClassAt`: the tile's 2 m ground class). No spot in frame:
+  `showSign` returns false and the pending sign asks again 0.8 s later
+  (twice); then the primary's front (a landmark's edge facing the bus,
+  `City.edgeToward`) only if it lies outside the blast (+4 m), else no sign.
+  One sign per name: while a sign with this name stands, a new blast flips it
+  if it is in view and outside the new blast; if the new bloom reaches its
+  spot, `StreetSigns.retire(pos)` sinks it and the sign stands anew.
 - `PixelPipeline.flash(u, v, frames, strength)`: palette flash in the resolve
   pass. `CameraRig.kick(m)` + `applyKick(cam, realDt)`: translation-only kick
   (the pixel snap handles it).
