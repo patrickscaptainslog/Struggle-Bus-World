@@ -85,14 +85,18 @@ export function landmarkPaintUniforms(look: LandmarkLook = {}): Record<string, T
     uPaint: paintUniforms.uPaint,
     uPaintW: paintUniforms.uPaintW,
     uTarget: paintUniforms.uTarget,
+    uTargetT: paintUniforms.uTargetT,
+    uGlint: paintUniforms.uGlint,
     uBloom: paintUniforms.uBloom,
     uWobble: paintUniforms.uWobble,
     uLmFlood: floodUniform,
     uLmFx: fxUniform,
     /** paint texel (-1: not registered, grey forever) */
     uLmIdx: { value: -1 },
-    /** x local top, y local bottom (m), z seed */
+    /** x local top, y local bottom (m), z seed, w 1 = it rides its building on the CPU (SpireRide: no pop or wobble here) */
     uLmBox: { value: new THREE.Vector4(1, 0, 0, 0) },
+    /** the bound building's ground (m ASL): the aim glint's sweep starts there, in step with the building's */
+    uLmBase: { value: 0 },
     /** where the breath hit it (world) and when (game clock; the splash belongs to the bloom at that time) */
     uLmHit: { value: new THREE.Vector4(0, 0, 0, -1e9) },
     uLmLook: { value: new THREE.Vector4(look.glowFrom ?? 1e9, look.vines ?? 0.42, look.band ?? 9, look.paintBands ?? 0) },
@@ -123,7 +127,8 @@ vec3 lmVertex(vec3 p, vec4 pat) {
   vec4 paint = texelFetch(uPaint, ivec2(int(mod(uLmIdx, uPaintW)), int(floor(uLmIdx / uPaintW))), 0);
   vPaint = paint;
   float tb = uTime - paint.b;
-  if (paint.g < 0.5 || tb < 0.0) return p;
+  // (a prop riding its building, SpireRide, gets the pop and the wobble from the CPU: never twice)
+  if (paint.g < 0.5 || tb < 0.0 || uLmBox.w > 0.5) return p;
   // the buildings' squash & stretch pop about the base, scaled down, and their gentle wobble
   float pop = 0.0;
   if (tb < uBloom.x * 1.6) {
@@ -166,6 +171,9 @@ uniform vec4 uLmLook2;
 uniform vec4 uLmFlood;
 uniform vec2 uLmFx;
 uniform float uTarget;
+uniform float uTargetT;
+uniform vec3 uGlint;
+uniform float uLmBase;
 flat in vec4 vPaint;
 in vec3 vLmLocal;
 const float LM_HUES[6] = float[6](${HUES});
@@ -180,11 +188,11 @@ float lmNoise(vec2 p) {
   return mix(mix(lmH21(i), lmH21(i + vec2(1.0, 0.0)), f.x), mix(lmH21(i + vec2(0.0, 1.0)), lmH21(i + vec2(1.0, 1.0)), f.x), f.y);
 }
 // mode: 0 grey (toon light from lo), 1 painted wall (toon light, mapped to the ramp's saturated middle),
-// 2 lit (light given: stained glass, glowing accents)
-struct LmPaint { float ramp; float lo; float glow; float light; float mode; };
+// 2 lit (light given: stained glass, glowing accents). glint: added to the final light (the aim glint)
+struct LmPaint { float ramp; float lo; float glow; float light; float mode; float glint; };
 
 LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, vec3 n, float mpp) {
-  LmPaint o = LmPaint(ramp0, lo, 0.0, 0.0, 0.0);
+  LmPaint o = LmPaint(ramp0, lo, 0.0, 0.0, 0.0, 0.0);
   float level = vPaint.g;
   float top = uLmBox.x;
   float bot = uLmBox.y;
@@ -242,8 +250,10 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
       // (yellow and orange keep a floor: their deepest steps are brick, which would read muddy)
       o.mode = 2.0;
       o.light = (o.ramp == ${Ramp.YELLOW}.0 || o.ramp == ${Ramp.ORANGE}.0 ? 0.3 : 0.17) + 0.04 * (1.0 - smoothstep(0.0, 6.0, y - bot));
-    } else if (type == 0.0) {
-      // plain trim: white, like the Painted Ladies' (gilt at level 3)
+    } else if (type == 0.0 && !up) {
+      // plain trim: white, like the Painted Ladies' (gilt at level 3). (A plain roof is no trim: it takes the
+      // hue as the buildings' roofs do, and turns to turf from level 2; the Ferry Building's 200 m roof
+      // stayed white at level 1)
       o.ramp = L >= 3.0 ? ${Ramp.YELLOW}.0 : ${Ramp.WHITE}.0;
       o.lo = L >= 3.0 ? lo + 0.1 : lo - 0.02;
       if (L >= 3.0) o.glow = 0.16;
@@ -332,12 +342,12 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
       o.glow = uLmFlood.w * (0.45 + 0.55 * s) * pulse;
     }
   }
-  // aim glint: the landmark a tap would hit shimmers (a slow sweep of light), grey or painted
+  // aim glint, the buildings' contract (buildingMaterial.ts): the landmark a tap would hit lifts a full ramp
+  // step, grey or painted, and a band of light sweeps up it from its ground, starting the moment it became
+  // the target (a prop bound to a tower sweeps in step with the tower)
   if (uLmIdx >= 0.0 && abs(uLmIdx - uTarget) < 0.5) {
-    float sweep = fract(uTime * 0.9 - (y - bot) * 0.035);
-    float g = 0.06 + 0.12 * smoothstep(0.75, 1.0, sweep);
-    if (o.mode > 1.5) o.light += g;
-    else o.lo += g;
+    float sweep = smoothstep(0.55, 1.0, fract((uTime - uTargetT) * uGlint.z - (wp.y - uLmBase) * 0.035));
+    o.glint = uGlint.x + uGlint.y * sweep;
   }
   return o;
 }
@@ -407,8 +417,10 @@ export function paintLandmark(city: City, key: string, obj: THREE.Object3D, opts
  * Bind a landmark prop's materials (made with landmarkPaintUniforms) to a
  * building's paint texel: the prop paints, glints and pops with that building
  * (also a baked one, e.g. a spire that belongs to the tower it stands on).
+ * `ride`: something else moves the prop with its building's pop and wobble
+ * (SpireRide), so its shader only paints and glints: it never pops twice.
  */
-export function bindLandmarkPaint(obj: THREE.Object3D, ref: BuildingRef): THREE.ShaderMaterial[] {
+export function bindLandmarkPaint(obj: THREE.Object3D, ref: BuildingRef, opts: { ride?: boolean } = {}): THREE.ShaderMaterial[] {
   const mats: THREE.ShaderMaterial[] = [];
   obj.traverse((o) => {
     const m = o as THREE.Mesh;
@@ -417,7 +429,8 @@ export function bindLandmarkPaint(obj: THREE.Object3D, ref: BuildingRef): THREE.
     if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
     const bb = m.geometry.boundingBox!;
     mat.uniforms.uLmIdx.value = ref.index;
-    (mat.uniforms.uLmBox.value as THREE.Vector4).set(bb.max.y, bb.min.y, ref.index % 7, 0);
+    (mat.uniforms.uLmBox.value as THREE.Vector4).set(bb.max.y, bb.min.y, ref.index % 7, opts.ride ? 1 : 0);
+    mat.uniforms.uLmBase.value = ref.baseY;
     mats.push(mat);
     // level-3 accents (the geometry after lmAccentStart) are drawn only while it is painted that far
     const start = m.geometry.userData.lmAccentStart as number | undefined;
@@ -436,7 +449,8 @@ export function bindLandmarkPaint(obj: THREE.Object3D, ref: BuildingRef): THREE.
 /** The breath hit at p (game clock t): a landmark there starts its splash of paint from that point. */
 export function landmarkHit(city: City, p: THREE.Vector3, t: number): void {
   for (const b of bound) {
-    if (!city.contains(b.ref, p.x, p.z)) continue;
+    // (a hit on a wall that is the hull's edge lands just outside it: the Ferry Building's front, Coit's base)
+    if (city.edgeDistance(b.ref, p.x, p.z) > 2) continue;
     for (const m of b.mats) (m.uniforms.uLmHit.value as THREE.Vector4).set(p.x, p.y, p.z, t);
   }
 }

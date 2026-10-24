@@ -17,8 +17,10 @@
 //   views     Sutro Tower painted at levels 1 and 3, whole, from 650 m out (sutro-far-L<n>.png)
 //   perf      draws / triangles / workMs at the pyramid view, grey and painted (perf.json)
 // Everything steps on a fixed 1/30 s game clock and waits on it, never on wall time.
+// The browser comes from tools/browser.mjs (the real GPU off the cloud machine, SwiftShader in the cloud).
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { browserOptions } from './browser.mjs';
 
 const base = process.argv[2] ?? 'http://127.0.0.1:4801/';
 const out = process.argv[3] ?? 'shots/landmarks';
@@ -30,10 +32,7 @@ const PYR = '?lat=37.79519&lon=-122.40415&heading=90&skipintro&fixeddt=0.0333';
 const MARKS = [0.1, 0.4, 1.0, 2.5];
 const report = {};
 
-const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
-});
+const browser = await chromium.launch(browserOptions());
 const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
 
 async function open(query, fresh = true) {
@@ -132,15 +131,24 @@ async function holdShot(page, at, path) {
   });
 }
 
-/** A real tap now: returns the shot (aim, target, impact time). */
+/**
+ * A real tap: loaded, a few frames for the Aimer to pick (and glint) with the breath loaded, then the tap.
+ * Returns the shot (aim = where it lands, wall, target, impact time); aim.lm = it lands on a landmark
+ * (its target is one). (Never aimNow() right before a tap: it recomputes the aim point without the
+ * line of fire, and the tap would fire that.)
+ */
 async function tap(page) {
+  await page.evaluate(() => window.__game.forceReady());
+  await runFor(page, 0.15);
   return page.evaluate(() => {
     const g = window.__game;
     g.forceReady();
-    const aim = g.aimNow();
+    const glint = g.glintNow();
     g.tapSplat();
     const s = g.lastShot();
-    return { aim, shot: s, impact: s ? s.t + s.travel : null };
+    const lm = !!s?.target && s.target.index >= g.city.manifest.buildingCount;
+    const aim = s ? { x: s.aim[0], y: s.aim[1], z: s.aim[2], wall: s.wall, lm, busY: s.busY } : null;
+    return { aim, glint: glint ? glint.index : null, shot: s, impact: s ? s.t + s.travel : null };
   });
 }
 
@@ -177,7 +185,7 @@ async function levels(page, name, refName, d, heading) {
     const t = await tap(page);
     for (const m of MARKS) await holdShot(page, t.impact + m, `${out}/${name}-L${L}-${m.toFixed(2)}.png`);
     const info = await page.evaluate((n) => window.__lm.info(window.__lm.refs()[n]), refName);
-    rows.push({ L, aimLm: t.aim.lm, aim: [t.aim.x, t.aim.y, t.aim.z].map((v) => +v.toFixed(1)), target: t.shot?.target?.index ?? null, impact: +t.impact.toFixed(2), after: info });
+    rows.push({ L, aimLm: t.aim?.lm ?? null, wall: t.aim?.wall ?? null, busY: t.aim ? +t.aim.busY.toFixed(1) : null, aim: t.aim ? [t.aim.x, t.aim.y, t.aim.z].map((v) => +v.toFixed(1)) : null, glint: t.glint, target: t.shot?.target?.index ?? null, impact: t.impact === null ? null : +t.impact.toFixed(2), after: info });
     console.log(name, `L${L}`, JSON.stringify(rows[rows.length - 1]));
     await runFor(page, 1.2);
   }
@@ -216,14 +224,18 @@ if (modes.has('probe') || modes.has('seq') || modes.has('altitude') || modes.has
     return out;
   });
   await runFor(page, 0.4);
-  probe.aimFromFloor = await page.evaluate(() => ({ aim: window.__game.aimNow(), glint: window.__lm.target(), bus: [window.__game.flight.x, window.__game.flight.y, window.__game.flight.z].map((v) => +v.toFixed(1)) }));
+  // (the Aimer's own aim after this frame's update: with the line of fire, unlike aimNow())
+  probe.aimFromFloor = await page.evaluate(() => ({ aim: { ...window.__game.aimer.aim }, glint: window.__lm.target(), bus: [window.__game.flight.x, window.__game.flight.y, window.__game.flight.z].map((v) => +v.toFixed(1)) }));
   console.log('probe', JSON.stringify(probe));
   report.probe = probe;
   await runFor(page, 0.3);
   await page.screenshot({ path: `${out}/glint.png` });
 }
 
-if (modes.has('seq')) report.pyramid = await levels(page, 'pyr', 'Transamerica', 100, Math.PI / 2);
+// (from the north, over Jackson Square's low roofs: from the west the bus rides the floor over the 103 m tower
+// there (stable 94947), whose roof takes the slow classic shot aimed at the pyramid's base, as any wall in the
+// line of fire does)
+if (modes.has('seq')) report.pyramid = await levels(page, 'pyr', 'Transamerica', 100, Math.PI);
 
 if (modes.has('altitude')) {
   // ~900 m west of the pyramid, climb to ~430 m, heading east: the 20-degree breath ray meets its face
@@ -252,15 +264,16 @@ if (modes.has('altitude')) {
     const g = window.__game;
     const r = window.__lm.refs().Transamerica;
     g.forceReady();
-    const a = g.aimNow();
+    const a = { ...g.aimer.aim };
     return { took: 0, y: g.flight.y, dx: g.flight.x - r.cx, aim: a, glint: window.__lm.target(), pyr: r.index };
   });
   st.took = took;
   console.log('altitude before', JSON.stringify(st));
-  await until(page, '(g.forceReady(), g.aimNow().lm && window.__lm.target() === window.__lm.refs().Transamerica.index)', 3);
+  // (until the pyramid glints: what a tap now hits)
+  await until(page, '(g.forceReady(), window.__lm.target() === window.__lm.refs().Transamerica.index)', 3);
   await page.screenshot({ path: `${out}/pyr-altitude-glint.png` });
   const t = await tap(page);
-  report.altitude = { climb: st, aimLm: t.aim.lm, aim: t.aim, target: t.shot?.target?.index ?? null, pyramid: st.pyr };
+  report.altitude = { climb: st, aimLm: t.aim?.lm ?? null, aim: t.aim, glint: t.glint, target: t.shot?.target?.index ?? null, pyramid: st.pyr };
   console.log('altitude tap', JSON.stringify(report.altitude));
   for (const m of [0.1, 1.0]) await holdShot(page, t.impact + m, `${out}/pyr-altitude-${m.toFixed(2)}.png`);
   await runFor(page, 2.5);
@@ -286,9 +299,11 @@ if (modes.has('reload') && page) {
   await page.evaluate(() => (window.__qa = {}));
   await runFor(page, 1.0);
   const after = await page.evaluate(() => Object.fromEntries(Object.entries(window.__lm.refs()).map(([n, r]) => [n, window.__lm.info(r)])));
+  // landmark paint lives in its own store (by name), never among the buildings' ids
   const saved = await page.evaluate(() => {
     const s = JSON.parse(localStorage.getItem('strugglebus.paint.v1') || '{}');
-    return { keys: Object.keys(s).length, landmarks: Object.fromEntries(Object.entries(s).filter(([k]) => k.startsWith('lm:'))) };
+    const lm = JSON.parse(localStorage.getItem('strugglebus.landmarks.v1') || '{}');
+    return { buildingKeys: Object.keys(s).length, lmKeysInBuildingStore: Object.keys(s).filter((k) => k.startsWith('lm:')).length, landmarks: lm };
   });
   report.reload = { before, after, saved };
   console.log('reload', JSON.stringify(report.reload));
@@ -314,9 +329,8 @@ if (modes.has('near')) {
     const x = r.cx - 27 - 40, z = r.cz + 6;
     const before = window.__lm.info(r);
     const primary = g.splatter.pick(x, z);
-    const [lat0, lon0] = g.city.manifest.origin;
-    const lat = lat0 - z / 110574, lon = lon0 + x / (111320 * Math.cos((lat0 * Math.PI) / 180));
-    const t = g.barfAtLatLon(lat, lon);
+    // (straight at the local point: a lat/lon round trip through a flat-earth scale lands meters off)
+    const t = g.splatter.barf(x, z);
     return { before, primary: primary ? primary.index : null, x, z, t };
   });
   await runFor(p2, 0.1);
@@ -386,6 +400,8 @@ if (modes.has('perf')) {
     );
   };
   const grey = await sample('grey');
+  // (a second grey sample: what streaming alone changes between two samples of the same pose)
+  const grey2 = await sample('grey2');
   const hasLm = await p3.evaluate(() => typeof window.__game.city.landmarkRefs === 'function');
   let painted = null;
   if (hasLm) {
@@ -397,10 +413,158 @@ if (modes.has('perf')) {
     });
     painted = await sample('painted');
   }
-  report.perf = { grey, painted };
+  report.perf = { grey, grey2, painted };
   console.log('perf', JSON.stringify(report.perf));
   await p3.screenshot({ path: `${out}/perf-view.png` });
   await p3.close();
+}
+
+if (modes.has('heroes')) {
+  // the facade's hero props on the landmark machinery: Coit Tower and the Ferry Building are registered
+  // landmarks (pick at their center, glint, sign name); 181 Fremont's spire is bound to its tower's texel
+  // (riding it: no pop of its own), never a landmark of its own
+  const p5 = await open('?lat=37.78977&lon=-122.395412&heading=0&skipintro&fixeddt=0.0333');
+  await p5.evaluate(() => (window.__qa = {}));
+  await until(p5, '!g.city.busy', 60);
+  await runFor(p5, 1.0);
+  report.heroes = await p5.evaluate(() => {
+    const g = window.__game, c = g.city;
+    const refs = window.__lm.refs();
+    const out = { landmarks: Object.keys(refs) };
+    for (const n of ['Coit Tower', 'Ferry Building']) {
+      const r = refs[n];
+      if (!r) continue;
+      const pick = g.splatter.pick(r.cx, r.cz);
+      out[n] = { ...window.__lm.info(r), rad: +r.rad.toFixed(1), pickCenter: pick ? pick.index : null, inAreaIndex: c.buildingAt(r.cx, r.cz) === r };
+    }
+    const sp = g.scene.getObjectByName('FremontSpire');
+    const tower = sp ? c.buildingAt(sp.position.x, sp.position.z) : null;
+    let mat = null;
+    sp?.traverse((o) => { if (o.isMesh && o.material?.uniforms?.uLmIdx) mat = o.material; });
+    out.spire = {
+      found: !!sp,
+      towerIndex: tower ? tower.index : null,
+      towerHeight: tower ? +(tower.roofY - tower.baseY).toFixed(1) : null,
+      uLmIdx: mat ? mat.uniforms.uLmIdx.value : null,
+      ride: mat ? mat.uniforms.uLmBox.value.w : null,
+      seatedY: sp ? +sp.position.y.toFixed(2) : null,
+      roofUnder: tower ? +c.roofAtPart(tower, sp.position.x, sp.position.z).toFixed(2) : null,
+      isLandmark: tower ? c.isLandmark(tower) : null,
+    };
+    return out;
+  });
+  console.log('heroes', JSON.stringify(report.heroes));
+  await p5.close();
+}
+
+if (modes.has('collide')) {
+  // the flight's obstacle grid and the breath's surface over the facade's hero props (works on any build:
+  // the props are found by name): along the Ferry Building's hall, nave and bay wing, across Coit's base;
+  // then a low flight down the Ferry hall's axis (the bus's height over it, no invisible wall)
+  const p6 = await open('?lat=37.7955&lon=-122.3935&heading=135&skipintro&fixeddt=0.0333');
+  await p6.evaluate(() => (window.__qa = {}));
+  await until(p6, '!g.city.busy', 60);
+  await runFor(p6, 1.0);
+  const lines = await p6.evaluate(() => {
+    const g = window.__game, c = g.city;
+    const line = (o, alongZ, fixed, from, to, step) => {
+      const rows = [];
+      for (let s = from; s <= to + 1e-6; s += step) {
+        const v = o.position.clone().set(alongZ ? fixed : s, 0, alongZ ? s : fixed);
+        o.localToWorld(v);
+        rows.push([s, +c.obstacleAt(v.x, v.z).toFixed(1), +c.surfaceAt(v.x, v.z).toFixed(1)]);
+      }
+      const ob = rows.map((r) => r[1]), su = rows.map((r) => r[2]);
+      return { obstMax: Math.max(...ob), obstMin: Math.min(...ob), surfMax: Math.max(...su), surfMin: Math.min(...su), rows };
+    };
+    const f = g.scene.getObjectByName('FerryBuilding');
+    const k = g.scene.getObjectByName('CoitTower');
+    return {
+      ferryHall: f ? line(f, true, 2, -90, 90, 10) : null,
+      ferryNave: f ? line(f, true, -13, -88, 88, 8) : null,
+      ferryWing: f ? line(f, true, 24, -88, 88, 8) : null,
+      ferryAcross: f ? line(f, false, 40, -34, 36, 2) : null,
+      coitAcross: k ? line(k, false, 0, -16, 16, 1) : null,
+      coitDiagonal: k ? line(k, true, 9.5, -16, 16, 1) : null,
+    };
+  });
+  report.collide = lines;
+  for (const [n, l] of Object.entries(lines)) if (l) console.log('collide', n, JSON.stringify({ obstMin: l.obstMin, obstMax: l.obstMax, surfMin: l.surfMin, surfMax: l.surfMax }));
+  // fly the hall's long axis (local +z: heading = the prop's yaw, south-east) at the floor from 160 m out
+  report.collide.flight = await p6.evaluate(
+    () =>
+      new Promise((res) => {
+        const g = window.__game, c = g.city, f = g.flight;
+        const o = g.scene.getObjectByName('FerryBuilding');
+        if (!o) return res(null);
+        const s = o.position.clone().set(2, 0, -160);
+        o.localToWorld(s);
+        const yaw = o.rotation.y;
+        Object.assign(f, { x: s.x, z: s.z, heading: Math.PI - yaw, holdY: -Infinity, mode: 0, vy: 0 });
+        f.y = c.obstacleAt(f.x, f.z) + g.config.flight.clearance;
+        g.rig.initialized = false;
+        window.__qa = {};
+        const rows = [];
+        const t0 = g.clock();
+        const tick = () => {
+          const v = o.position.clone().set(f.x, 0, f.z);
+          o.worldToLocal(v.set(f.x, 0, f.z));
+          rows.push([+(g.clock() - t0).toFixed(2), +v.x.toFixed(1), +v.z.toFixed(1), +f.y.toFixed(1), +c.obstacleAt(f.x, f.z).toFixed(1)]);
+          if (g.clock() - t0 >= 9) {
+            const over = rows.filter((r) => Math.abs(r[2]) < 95 && Math.abs(r[1]) < 30);
+            res({ frames: rows.length, overHall: over.length, maxYOverHall: over.length ? Math.max(...over.map((r) => r[3])) : null, maxObstOverHall: over.length ? Math.max(...over.map((r) => r[4])) : null, rows: rows.filter((_, i) => i % 6 === 0) });
+          } else requestAnimationFrame(tick);
+        };
+        tick();
+      }),
+  );
+  console.log('collide flight', JSON.stringify({ ...report.collide.flight, rows: undefined }));
+  await p6.screenshot({ path: `${out}/collide-ferry.png` });
+  await p6.close();
+}
+
+if (modes.has('spirepop')) {
+  // 181 Fremont painted, its spire riding the tower's pop (SpireRide) and painting with it: frames through
+  // the squash and stretch from a fixed telephoto (as tools/facade-shots.mjs' hero view), levels 1 and 2.
+  // The spire must stay seated on the roof (no gap, no double bounce). Works on any build.
+  const p7 = await open('?lat=37.7897&lon=-122.3952&heading=0&skipintro&fixeddt=0.0333');
+  await p7.evaluate(() => {
+    const g = window.__game;
+    const v = { lat: 37.78977, lon: -122.395412, look: 205, az: 125, dist: 330, camY: 245 };
+    const [lat0, lon0] = g.city.manifest.origin;
+    const tx = (v.lon - lon0) * 111320 * Math.cos((lat0 * Math.PI) / 180);
+    const tz = -(v.lat - lat0) * 110574;
+    const ty = g.city.groundAt(tx, tz) + v.look;
+    const a = (v.az * Math.PI) / 180;
+    const cx = tx + Math.sin(a) * v.dist, cz = tz - Math.cos(a) * v.dist;
+    g.flight.x = tx + Math.sin(a) * (v.dist + 60);
+    g.flight.z = tz - Math.cos(a) * (v.dist + 60);
+    window.__qa = { sx: 0, sy: -1 };
+    g.rig.update = (cam, focusOut) => {
+      cam.position.set(cx, v.camY, cz);
+      cam.up.set(0, 1, 0);
+      cam.lookAt(tx, ty, tz);
+      focusOut.set(tx, ty, tz);
+    };
+  });
+  await until(p7, '!g.city.busy', 60);
+  await runFor(p7, 1.5);
+  await until(p7, '!g.city.busy', 60);
+  const rows = [];
+  for (const L of [1, 2]) {
+    const t = await p7.evaluate(() => window.__game.barfAtLatLon(37.78977, -122.395412));
+    for (const m of [0.03, 0.08, 0.14, 0.22, 0.35, 0.6, 1.5]) {
+      await holdShot(p7, t + m, `${out}/spirepop-L${L}-${m.toFixed(2)}.png`);
+      rows.push(await p7.evaluate(([L, m]) => {
+        const sp = window.__game.scene.getObjectByName('FremontSpire');
+        return { L, m, spireY: sp ? +sp.position.y.toFixed(2) : null };
+      }, [L, m]));
+    }
+    await runFor(p7, 1.0);
+  }
+  report.spirepop = rows;
+  console.log('spirepop', JSON.stringify(rows));
+  await p7.close();
 }
 
 writeFileSync(`${out}/landmarks-${[...modes].join('-')}.json`, JSON.stringify(report, null, 1));

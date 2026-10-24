@@ -43,7 +43,7 @@ tex.needsUpdate = true;
 paintUniforms.uPaint.value = tex;
 paintUniforms.uPaintW.value = W;
 paintUniforms.uTarget.value = P.get('target') === '1' ? 0 : -1;
-const ref = { index: 0 } as BuildingRef;
+const ref = { index: 0, baseY: 0 } as BuildingRef;
 const mats = bindLandmarkPaint(obj, ref);
 const hit = P.get('hit');
 if (hit) {

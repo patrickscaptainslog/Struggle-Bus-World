@@ -3,7 +3,7 @@ import { SHADOW_LAYER, makeRampMaterial, globals } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { makeBuildingMaterial, paintUniforms } from './buildingMaterial';
 import { makeHeightGrid, makeTerrainMaterial, makeWaterMaterial } from './terrainMaterial';
-import { PaintState } from './PaintState';
+import { PaintState, LANDMARK_KEY_PREFIX } from './PaintState';
 import { GroundPaint } from './GroundPaint';
 import type { ObstaclePost } from './Bridges';
 import { parseFar, type CityManifest, type FarData, type BuildingTile, type TerrainTile } from './tiles';
@@ -199,7 +199,7 @@ export class City {
   eager = false;
 
   constructor(readonly manifest: CityManifest & { regions: Array<[number, number, number]>; regionSize: number }, readonly baseUrl: string) {
-    this.paint = new PaintState(manifest.buildingCount + LANDMARK_SLOTS);
+    this.paint = new PaintState(manifest.buildingCount + LANDMARK_SLOTS, manifest.slug);
     this.ground = new GroundPaint(manifest.tileSize);
     this.sf = isSfOrigin(manifest.origin);
     // a blast's tiles get their own ground mesh first, so a coarse region (seen from altitude) shows the paint
@@ -1143,6 +1143,9 @@ export class City {
             for (let sx = -1; sx <= 1; sx++) for (let sz = -1; sz <= 1; sz++) top = Math.max(top, this.groundAt(x + sx * 0.4 * oc, z + sz * 0.4 * oc));
             for (const b of p.boxes) if (b.top > top && inBox(b, x, z, b.pad)) top = b.top;
             for (const { ref } of this.buildingsWithin(x, z, 6, stampNear)) {
+              // (a landmark prop's ref is one record: its hull at its top. Its real surface is its boxes here
+              // and landmarkSurfaceAt in surfaceAt; stamping the hull would be an invisible wall)
+              if (ref.index >= this.manifest.buildingCount) continue;
               const t = ref.tile;
               for (let k = ref.local; k < ref.local + ref.parts; k++) {
                 if (t.roofY[k] <= top) continue;
@@ -1190,7 +1193,8 @@ export class City {
    */
   addLandmarkBuilding(lb: LandmarkBuilding): BuildingRef | null {
     const k = this.landmarks.length;
-    if (k >= LANDMARK_SLOTS || lb.ring.length < 3) return null;
+    // (its paint is saved by name, 'lm:<name>', in the landmark store: never a number a bake could hand a building)
+    if (k >= LANDMARK_SLOTS || lb.ring.length < 3 || !lb.key.startsWith(LANDMARK_KEY_PREFIX)) return null;
     const n = lb.ring.length;
     const xz = new Float32Array(n * 2);
     // (the area centroid: a hull's vertices bunch up where the prop has detail)
@@ -1347,14 +1351,20 @@ export class City {
   }
 
   /** The building whose footprint contains (x, z), wherever in it the point is (the tallest if
-   * footprints overlap: a LiDAR tower over a lot the footprint data still has), or null. One cell lookup. */
+   * footprints overlap: a LiDAR tower over a lot the footprint data still has), or null. One cell lookup.
+   * A landmark ranks by its surface right there, not its top: between Sutro's legs the transmitter
+   * building's roof wins over the 298 m tower whose hull holds it. */
   buildingAt(x: number, z: number): BuildingRef | null {
     const list = this.areaHash.get(this.hashKey(x, z));
     if (!list) return null;
-    let best: BuildingRef | null = null;
+    let best: BuildingRef | null = null, by = -Infinity;
     for (const r of list) {
       if (x < r.x0 || x > r.x1 || z < r.z0 || z > r.z1) continue;
-      if ((!best || r.roofY > best.roofY) && this.contains(r, x, z)) best = r;
+      const y = r.index >= this.manifest.buildingCount ? this.ownTop(r, x, z) : r.roofY;
+      if ((!best || y > by) && this.contains(r, x, z)) {
+        best = r;
+        by = y;
+      }
     }
     return best;
   }
@@ -1368,7 +1378,8 @@ export class City {
     for (const r of list) {
       if (r.roofY <= by || x < r.x0 || x > r.x1 || z < r.z0 || z > r.z1) continue;
       if (!this.contains(r, x, z)) continue;
-      const ry = this.roofAtPart(r, x, z);
+      // (a landmark by its own surface: nothing of Sutro stands in the line of fire between its legs)
+      const ry = r.index >= this.manifest.buildingCount ? this.ownTop(r, x, z) : this.roofAtPart(r, x, z);
       if (ry > by) {
         by = ry;
         best = r;
@@ -1504,13 +1515,26 @@ export class City {
     return false;
   }
 
+  /** A landmark's own surface over (x, z) (m ASL): its height field inside its ring (its top without one),
+   * -Infinity outside it or where nothing of it stands (between Sutro's legs). What it is ranked by. */
+  private ownTop(ref: BuildingRef, x: number, z: number): number {
+    const lm = this.landmarks[ref.index - this.manifest.buildingCount];
+    if (!lm || !ringContains(ref.tile, 0, x, z)) return -Infinity;
+    if (!lm.heightAt) return ref.roofY;
+    const h = lm.heightAt(x, z);
+    return h > -Infinity ? Math.max(ref.baseY, h) : -Infinity;
+  }
+
   /** Roof height of ref right at (x, z): the highest of its parts covering the point (a tiered
    * tower's podium roof is not the top of its tower), or ref.roofY if none does. */
   roofAtPart(ref: BuildingRef, x: number, z: number): number {
     if (ref.index >= this.manifest.buildingCount) {
-      // a landmark: its real surface (a pyramid's slope, not its spire's top)
+      // a landmark: its real surface (a pyramid's slope, not its spire's top); where nothing of it stands
+      // (between Sutro's legs) a breath comes down on what is there: a roof, a tree crown, the ground
       const lm = this.landmarks[ref.index - this.manifest.buildingCount];
-      return lm?.heightAt && ringContains(ref.tile, 0, x, z) ? Math.max(ref.baseY, lm.heightAt(x, z)) : ref.roofY;
+      if (!lm?.heightAt || !ringContains(ref.tile, 0, x, z)) return ref.roofY;
+      const h = lm.heightAt(x, z);
+      return h > -Infinity ? Math.max(ref.baseY, h) : this.baseObstacleAt(x, z);
     }
     const b = ref.tile;
     let y = -Infinity;
@@ -1586,7 +1610,8 @@ export const LANDMARK_SLOTS = 32;
  * prop (the Transamerica Pyramid, Sutro Tower). See City.addLandmarkBuilding.
  */
 export interface LandmarkBuilding {
-  /** paint is saved under this key ('lm:transamerica'): a string, never a baked stableId */
+  /** paint is saved under this key ('lm:transamerica', LANDMARK_KEY_PREFIX + name) in the landmark store
+   * (PaintState landmarkStoreKey), never among the baked stableIds; stable across re-bakes, so never rename one */
   key: string;
   /** its base footprint: a world (x, z) polygon (either winding) */
   ring: Array<[number, number]>;

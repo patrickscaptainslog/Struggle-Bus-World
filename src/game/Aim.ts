@@ -142,22 +142,34 @@ export class Aimer {
       ex = l.x;
       ez = l.z;
       ey = city.roofAtPart(target, ex, ez) + 0.5;
+      // a landmark's surface at the aim point can be 100 m above the bus (the pyramid's slope, Coit's
+      // column): the classic shot flies level onto it and slams into its face at about the bus's height
+      if (city.isLandmark(target)) ey = Math.min(ey, this.y0 - F_CLEAR);
     }
     const x0 = this.x0, z0 = this.z0, y0 = this.y0;
     const dx = ex - x0, dz = ez - z0;
     const L = Math.hypot(dx, dz);
     if (L < 12) return false;
     const ux = dx / L, uz = dz / L;
-    for (let s = 10; s < L - S.wallSkip; s += 2) {
+    // a landmark target's own face can stand right at the landing (the hull's edge, when the aim point is near
+    // its base): the march goes on to it there, where only that face, never a neighbor, stops the shot
+    const tLm = target !== null && city.isLandmark(target);
+    const sEnd = tLm ? L : L - S.wallSkip;
+    for (let s = 10; s < sEnd; s += 2) {
       const px = x0 + ux * s, pz = z0 + uz * s;
       const chordY = y0 + (ey - y0) * (s / L);
       const ref = city.buildingAbove(px, pz, chordY + S.wallClear);
-      if (!ref || ref === target || ref.roofY - ref.baseY < S.minTargetHeight) continue;
-      // it lands on the wall face, just outside it (a splash inside the walls would be hidden)
+      // (the target itself is no wall in its own way, unless it is a landmark: its face is what the shot meets)
+      if (!ref || (ref === target && !tLm) || ref.roofY - ref.baseY < S.minTargetHeight) continue;
+      if (s >= L - S.wallSkip && ref !== target) continue;
+      // it lands on the wall face, just outside it (a splash inside the walls would be hidden); a landmark's
+      // face is where its real surface rises over the line of fire (the pyramid's slope is inside its hull)
+      const lm = city.isLandmark(ref);
       let lo = s - 2, hi = s;
       for (let i = 0; i < 5; i++) {
         const m = (lo + hi) * 0.5;
-        if (city.contains(ref, x0 + ux * m, z0 + uz * m)) hi = m;
+        const qx = x0 + ux * m, qz = z0 + uz * m;
+        if (city.contains(ref, qx, qz) && (!lm || city.landmarkSurfaceAt(qx, qz) > y0 + (ey - y0) * (m / L))) hi = m;
         else lo = m;
       }
       const w = Math.max(4, lo - 0.6);

@@ -6,8 +6,11 @@
 //        trans-l1=view=trans&level=1&t=3&dist=560&elev=10&yaw=1.9
 // With no name=query pairs it shoots the standard set (both landmarks, grey,
 // the flood at 0.1 / 0.4 / 1.0 s, levels 1-3 settled, the glint).
+// The browser comes from tools/browser.mjs (the real GPU off the cloud machine). The dev page needs the
+// vite dev server (dev pages aren't in the static build).
 import { chromium } from 'playwright-core';
 import { mkdirSync } from 'node:fs';
+import { browserOptions } from './browser.mjs';
 
 const [base = 'http://127.0.0.1:5173/', out = 'shots/landmarks/dev', ...pairs] = process.argv.slice(2);
 mkdirSync(out, { recursive: true });
@@ -31,10 +34,7 @@ const std = [
 ];
 const list = pairs.length ? pairs.map((p) => [p.slice(0, p.indexOf('=')), p.slice(p.indexOf('=') + 1)]) : std;
 
-const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
-});
+const browser = await chromium.launch(browserOptions());
 const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
 page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.log('[console]', m.text()));

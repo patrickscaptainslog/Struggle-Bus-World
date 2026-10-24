@@ -333,6 +333,8 @@ function landmarkMaterial(look?: LandmarkLook): THREE.ShaderMaterial {
         float light = lp.mode > 1.5 ? lp.light : sbLight(vWorldPos, n, lp.lo, 1.0);
         // paint lives in the saturated middle of each ramp, as on the buildings
         if (lp.mode > 0.5 && lp.mode < 1.5) light = 0.2 + light * 0.52;
+        // the aim glint after the mapping: a full ramp step, as on the buildings
+        light += lp.glint;
         float fog = sbFog(vWorldPos) * uLandmarkFog;
         sbWrite(lp.ramp, light, fog, lp.glow, gl_FrontFacing ? vViewNormal : -vViewNormal, 0.37, 1.0);
       }
@@ -498,6 +500,8 @@ export interface HeroLandmark {
   /** the footprints it replaces (towerStyles HIDDEN) and its own collision boxes (local m, m ASL) */
   clear: Hidden | null;
   boxes: PropBox[];
+  /** paintable on its own (paintLandmark under this key, signed with this name), or null (it rides a building) */
+  paint: { key: string; name: string } | null;
 }
 
 export function heroLandmarks(origin: [number, number]): HeroLandmark[] {
@@ -530,7 +534,7 @@ export function heroLandmarks(origin: [number, number]): HeroLandmark[] {
       clear = HIDDEN.find((d) => d.name === 'Ferry Building') ?? null;
       boxes = FERRY_BOXES.map(box);
     } else posts.push({ x, z, r: 3, top: h.baseY + 19, under: -Infinity });
-    out.push({ kind: h.kind, object, posts, clear, boxes });
+    out.push({ kind: h.kind, object, posts, clear, boxes, paint: h.paint ?? null });
   }
   return out;
 }

@@ -18,7 +18,7 @@ import { Particles } from './fx/Particles';
 import { StreetSigns } from './fx/StreetSign';
 import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
-import { paintLandmark, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
+import { paintLandmark, bindLandmarkPaint, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
 import { Tuner, applySavedTuning } from './ui/Tuner';
 import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles } from './world/Bridges';
 import { heroLandmarks, SpireRide } from './world/props/landmarks';
@@ -133,7 +133,11 @@ async function boot() {
     if (spire && !spire.bound) {
       const sp = spire.object.position;
       const ref = city.buildingAt(sp.x, sp.z);
-      if (ref && ref.roofY - ref.baseY > 150) spire.bind(ref, city.roofAtPart(ref, sp.x, sp.z));
+      if (ref && ref.roofY - ref.baseY > 150) {
+        spire.bind(ref, city.roofAtPart(ref, sp.x, sp.z));
+        // it paints and glints with its tower (one building: never an 'lm:' key of its own); SpireRide moves it
+        bindLandmarkPaint(spire.object, ref, { ride: true });
+      }
     }
     // saved paint: regrow rooftop gardens and thin the fog again
     for (const ref of refs) {
@@ -198,6 +202,8 @@ async function boot() {
     // the footprints a prop replaces leave the obstacle grid; its own surface takes their cells
     if (h.clear) city.setPropObstacles(h.clear, h.boxes);
     if (h.kind === 'fremont181-spire') spire = new SpireRide(h.object);
+    // Coit Tower and the Ferry Building: first-class paintable buildings, like Sutro and the pyramid
+    else if (h.paint) paintLandmark(city, h.paint.key, h.object, { name: h.paint.name });
   }
 
   // ---- the hero
