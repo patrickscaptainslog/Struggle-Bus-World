@@ -393,6 +393,22 @@ async function boot() {
   }
   const signPos = new THREE.Vector3();
   const signNdc = new THREE.Vector3();
+  /** a landmark primary's screen box (NDC x0, y0, x1, y1): the landmark is the bloom itself, the blade stays off it */
+  const lmBox = [0, 0, 0, 0];
+  /** The screen box (NDC) of the blade standing at (x, y, z), half width hw (m), into out; false if behind the camera. */
+  const bladeBox = (x: number, y: number, z: number, hw: number, scale: number, pole: number, sx: number, sz: number, out: number[]): boolean => {
+    out[0] = out[1] = Infinity;
+    out[2] = out[3] = -Infinity;
+    for (const k of [-1, 1])
+      for (const h of [signTune.poleHeight - 1, signTune.poleHeight + 4]) {
+        signNdc.set(x + sx * hw * scale * k, y + h * scale + pole, z + sz * hw * scale * k).project(camera);
+        if (signNdc.z > 1) return false;
+        out[0] = Math.min(out[0], signNdc.x); out[1] = Math.min(out[1], signNdc.y);
+        out[2] = Math.max(out[2], signNdc.x); out[3] = Math.max(out[3], signNdc.y);
+      }
+    return true;
+  };
+  const bladeTmp = [0, 0, 0, 0];
   const signFwd = new THREE.Vector3();
   const SIGN_RING: ReadonlyArray<readonly [number, number]> = [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6], [12, 0], [-12, 0], [0, 12], [0, -12], [9, 9], [-9, 9], [9, -9], [-9, -9]];
   /** Show (or re-flip) the sign of a blast at (cx, cz) of radius r. False: no open spot in frame yet, ask
@@ -429,6 +445,19 @@ async function boot() {
       // (the blade's half width: its bottom corners must clear the roofs in front too, not just its middle:
       // a roof edge in front cut the letters diagonally)
       const hw = 0.5 * signBladeWidth(text);
+      // a landmark is the money shot itself and may reach far past the blast: no blade over its box on screen
+      const lm = city.isLandmark(ref);
+      if (lm) {
+        lmBox[0] = lmBox[1] = Infinity;
+        lmBox[2] = lmBox[3] = -Infinity;
+        for (const px of [ref.x0, ref.x1]) for (const pz of [ref.z0, ref.z1]) for (const py of [ref.baseY, ref.roofY]) {
+          signNdc.set(px, py, pz).project(camera);
+          if (signNdc.z > 1) continue;
+          lmBox[0] = Math.min(lmBox[0], signNdc.x); lmBox[1] = Math.min(lmBox[1], signNdc.y);
+          lmBox[2] = Math.max(lmBox[2], signNdc.x); lmBox[3] = Math.max(lmBox[3], signNdc.y);
+        }
+      }
+      const overLm = (b: number[]) => lm && b[0] < lmBox[2] && b[2] > lmBox[0] && b[1] < lmBox[3] && b[3] > lmBox[1];
       const spots: Array<readonly [number, number]> = [];
       for (const [o, sd] of [[o1, s1], [0.25 * r, o1], [1.4 * o1, s1]]) spots.push([o, sd * pref], [o, -sd * pref]);
       for (let pass = 0; pass < 2 && !found; pass++) {
@@ -451,6 +480,8 @@ async function boot() {
             // the blade must land inside the frame, below the top band (the sky and the horizon)
             signNdc.set(x, y + (T.poleHeight + 4) * scale + pole, z).project(camera);
             if (Math.abs(signNdc.x) > 0.72 || signNdc.y > 0.7 || signNdc.y < -0.6 || signNdc.z > 1) continue;
+            // (the whole blade in the frame, and never over a landmark primary's box)
+            if (!bladeBox(x, y, z, hw, scale, pole, sx, sz, bladeTmp) || bladeTmp[0] < -0.96 || bladeTmp[2] > 0.96 || overLm(bladeTmp)) continue;
             found = { x, y, z, facing: Math.atan2(-fx, -fz), scale, bias: true, pole, cx, cz, r, text, until: 0 };
             break;
           }
@@ -458,14 +489,34 @@ async function boot() {
         }
       }
       if (!found) {
-        // nowhere open in frame: look again in a moment (the camera moves on), twice; then the primary's
-        // own front (a landmark has no street front: the edge facing the bus), but only when that stands
-        // clear of the blast. Inside it the blade would cover the bloom: then no sign this time.
+        // nowhere open in frame: look again in a moment (the camera moves on), twice. Then a landmark
+        // (it has no street front: the edge facing the bus) signs its name on its apron along that edge, as
+        // far toward an end as the frame allows: off its box on screen if it can, else at least off its
+        // middle (the landmark is the bloom; MAIN stood the sign at the middle of its face). Any other
+        // primary: its own front only when that stands clear of the blast; inside it the blade would cover
+        // the bloom: then no sign this time.
         if (tries < 2) return false;
-        const f = city.isLandmark(ref) ? city.edgeToward(ref, flight.x, flight.z) : city.frontOf(ref);
-        const gx = f.x + f.nx * 4.5, gz = f.z + f.nz * 4.5;
-        if (Math.hypot(gx - cx, gz - cz) < r + 4 || city.groundClassAt(gx, gz) === Ground.WATER) return true;
-        found = { x: gx, y: city.groundAt(gx, gz), z: gz, facing: Math.atan2(f.nx, f.nz), scale: 1, bias: true, pole: 0, cx, cz, r, text, until: 0 };
+        const f = lm ? city.edgeToward(ref, flight.x, flight.z) : city.frontOf(ref);
+        const ex = -f.nz, ez = f.nx;
+        const first = ex * sx + ez * sz >= 0 ? pref : -pref;
+        let spare: typeof signSpot = null;
+        for (const t of lm ? [1, 0.75, 0.5, 0.25] : [0]) {
+          for (const k of [first, -first]) {
+            const reach = t * (0.5 * f.len + hw + 4) * k;
+            const gx = f.x + f.nx * 4.5 + ex * reach, gz = f.z + f.nz * 4.5 + ez * reach;
+            if (!lm && Math.hypot(gx - cx, gz - cz) < r + 4) continue;
+            if (city.groundClassAt(gx, gz) === Ground.WATER || city.roofAt(gx, gz) !== null) continue;
+            const gy = city.groundAt(gx, gz);
+            const spot = { x: gx, y: gy, z: gz, facing: Math.atan2(f.nx, f.nz), scale: 1, bias: true, pole: 0, cx, cz, r, text, until: 0 };
+            if (!lm) { found = spot; break; }
+            if (!bladeBox(gx, gy, gz, hw, 1, 0, sx, sz, bladeTmp) || bladeTmp[0] < -0.96 || bladeTmp[2] > 0.96 || bladeTmp[3] > 0.7) continue;
+            if (!overLm(bladeTmp)) { found = spot; break; }
+            spare ??= spot;
+          }
+          if (found) break;
+        }
+        found ??= spare;
+        if (!found) return true;
       }
       signSpot = found;
     }

@@ -340,8 +340,12 @@ impact frame shows the hit.
   the blade (`signBladeWidth(text)`) must clear them too. Never on water
   (`City.groundClassAt`: the tile's 2 m ground class). No spot in frame:
   `showSign` returns false and the pending sign asks again 0.8 s later
-  (twice); then the primary's front (a landmark's edge facing the bus,
-  `City.edgeToward`) only if it lies outside the blast (+4 m), else no sign.
+  (twice); then the primary's front only if it lies outside the blast
+  (+4 m), else no sign. The whole blade must sit inside the frame. A
+  landmark primary is the bloom itself and reaches past the blast: no
+  blade may overlap its projected box, and its fallback is its apron along
+  the edge facing the bus (`City.edgeToward`), as far toward an end as the
+  frame allows (off its box if it can, else at least off its middle).
   One sign per name: while a sign with this name stands, a new blast flips it
   if it is in view and outside the new blast; if the new bloom reaches its
   spot, `StreetSigns.retire(pos)` sinks it and the sign stands anew.

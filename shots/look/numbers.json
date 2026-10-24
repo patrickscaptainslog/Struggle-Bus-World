@@ -22,7 +22,7 @@
   "fidi-surge": {"main": "123-124 / 827-829k / 2.9-4.8 ms", "next": "125 / 843,892 / 2.5-2.6 ms"},
   "climb-250m": {"main": "169 / 1,526-1,528k / 3.3-6.5 ms", "next": "169 / 1,528,191 / 3.1-4.8 ms"},
   "facade chase views": "every chase view one draw fewer (the drop-shadow decal is gone): fidi 125 -> 124, rincon 114 -> 113, embarcadero 115 -> 114, alamo 130 -> 129; hero views identical (fixed telephoto)",
-  "regression": {"grey": ["126 / 1,203,110", "125 / 1,203,090"], "painted": ["135 / 1,248,705", "134-135 / 1,248,685-1,249,237 (3 runs)"]}
+  "regression": {"grey": ["126 / 1,203,110", "125 / 1,203,090"], "painted": ["135 / 1,248,705", "134-135 / 1,248,685-1,249,237 (4 runs)"]}
  },
  "errors": "no pageerror or console error in any run"
 }

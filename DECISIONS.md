@@ -889,7 +889,15 @@ cross-checked in the browser with `tools/feel.mjs`.
   old spot in front of the primary (a landmark's edge facing the bus,
   `City.edgeToward`) only if it stands outside the blast (+4 m), at true
   depth, else no sign: the old 16 m bias drew the blade over the bloom
-  there. One sign per name on screen: a second blast in the neighborhood
+  there. The whole blade must sit in the frame. A landmark is the bloom
+  itself and runs past the blast (the Ferry Building is 200 m long): no
+  blade over its box on screen, and when nothing is open its sign stands on
+  its apron along the face toward the bus, as far toward an end as the
+  frame allows (main stood it mid-face, over the pyramid's base and the
+  clock tower). tools landmarks hill poses, sign at +3 s: Coit on the hill
+  beside the tower, Transamerica beside its base on the plaza, the Ferry
+  Building right of the clock tower on Embarcadero paving (no sign was ever
+  on water; shots/look/landmark-signs.png). One sign per name on screen: a second blast in the neighborhood
   flips the standing sign while it is in view and outside the new blast; if
   the new bloom reaches its spot, it sinks (`StreetSigns.retire`) and the
   sign stands anew beside this blast (the painted regression frame had two
