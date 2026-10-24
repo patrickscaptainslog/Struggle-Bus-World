@@ -134,8 +134,9 @@ call), this is what we chose and why.
   sliding with the window boiled), and softens to 0.85; trees switch LOD by
   3D distance from the lens.
 - **Dragon breath from altitude** flies along a ray 20° below the heading
-  from the bus, cast against roofs, trees and terrain (never a landmark's
-  collision post or a bridge deck), so it lands near the screen center where
+  from the bus, cast against roofs, trees, terrain and the landmarks' real
+  surfaces (never a landmark's collision post or a bridge deck), so it lands
+  near the screen center where
   the player is looking. Near the rooftops that ray lands under the nose and
   the classic range wins, so low shots are exactly as before (0.42 s); past
   the classic range the projectile flies on at 850 m/s (~2 s from the
@@ -671,8 +672,8 @@ cross-checked in the browser with `tools/feel.mjs`.
   Coit Tower as a 13 m "Victorian" box (stable id 132089) beside the prop's
   base (review: Coit was drawn twice). Both are hidden (`HIDDEN`, SF only): not
   meshed, not building refs (no glint, pick, paint or blast lands on what nobody
-  can see; a landmark doesn't paint, like Sutro, until fix/landmarks makes it
-  paintable), and their 8 m cells of the obstacle grid are rebuilt as the bake
+  can see; the props themselves are paintable landmarks since fix/landmarks
+  merged: `lm:coit`, `lm:ferry`), and their 8 m cells of the obstacle grid are rebuilt as the bake
   builds one, without the lots (`City.setPropObstacles`): the highest ground of
   a 3 x 3 sample, the prop's boxes and the other buildings' parts (grown 3 m, 6
   m over 40 m), then the tree crowns. Before, the grid kept the lots: 5,690 of
@@ -803,12 +804,157 @@ cross-checked in the browser with `tools/feel.mjs`.
   The fog bank doubles as the loading screen.
 - Golden Gate Bridge and Bay Bridge (west span) are hand-built from real tower
   and anchorage coordinates; Sutro Tower and the Transamerica Pyramid are props.
-  They stay grey (landmarks aren't paintable in Phase 1).
+  (They were grey in Phase 1; they paint now, see Paintable landmarks. The
+  bridges stay grey.)
 - The horizon (Marin Headlands, East Bay hills, San Bruno Mountain) comes from
   the USGS 3DEP 1/3 arc-second DEM, read remotely from the COG's overviews; the
   Marin Headlands near the bridge are baked at 2 m from the same DEM so the
   opening never shows low-poly hills up close.
 - Trees: none on steep grassy hills (Twin Peaks, Bernal, the Headlands are bare).
+
+## Paintable landmarks (producer: "the Transamerica building appears unable to get splattered")
+- **Why it couldn't be**: the landmarks are hand-built props and the bake keeps
+  the footprints under them low on purpose (no doubled towers), so there was no
+  paintable building there: the pick, the blast wave and the aim glint saw only
+  the 8 m lots inside the pyramid's base, and its material had no paint.
+- **A landmark is a first-class building now, generically**: one call where a
+  prop is placed (`paintLandmark(city, 'lm:<name>', object)`) registers its base
+  ring (the prop's convex hull in plan), its top and a 2 m height field of its
+  real surface (rasterized from its own triangles) as a normal `BuildingRef`,
+  with a paint texel from a fixed reserve past the baked buildings (32 slots; the
+  texture keeps its 138 rows), in every spatial index (`City.indexRef`). No bake
+  change, no city data change. Its tile is a one-record tile of its own, so every
+  query that takes a ref works unchanged.
+- **Saved under its name** (`'lm:transamerica'`, `'lm:sutro'`, `'lm:coit'`,
+  `'lm:ferry'`) in a store of its own, `strugglebus.landmarks.v1` (per city:
+  `:<slug>`), not among the buildings' ids (the branch first put them in
+  `strugglebus.paint.v1`; the merge review found feat/osm drops v1 on its first
+  boot, which would have lost every landmark's paint, though a name key is
+  valid across any re-bake). No key can collide with a stable id in any
+  building store, the OSM re-bake can renumber and drop the building store
+  freely, and old saves load as before. A pre-merge build's `lm:` entries in v1
+  move over once.
+- **Hit where you aim**: the breath lands on the landmark's real surface, never
+  at its centroid (the top of the spire, out of the chase view): from altitude
+  the aim ray meets the height field (`surfaceAt`); the classic short shot from
+  the rooftops slams into the face in its way: polish/feel's `Aimer` ends a
+  landmark target's line of fire at most 12 m (`F_CLEAR`) under the bus and lets
+  the landmark be the wall it meets, at the point where its surface rises over
+  the line (without that the merged Aimer landed the shot 150-200 m up the
+  pyramid's slope, the jet through the face). Where a landmark's hull holds
+  baked buildings, the one whose roof is higher right there wins (`buildingAt`
+  ranks a landmark by its surface at the point): the shot between Sutro's legs
+  lands on the transmitter building's roof, not under it at Sutro's base height.
+  A blast whose radius reaches the base blooms it with the wave (by its near
+  edge, like a big block), and painted landmarks escalate L1 -> L2 -> L3.
+- **The look**, in the palette (ramp + light) like the buildings: the color
+  pours down from the top over 1.1 s (`config.bloom.landmarkFlood`: at the
+  buildings' 55 m/s a 260 m pyramid took ~5 s, and from the chase camera only
+  its bottom 100 m are in frame) with fingers of paint running ahead, while a
+  splash spreads 34 m from where the breath hit (so the impact frame already
+  shows the hit). The hue's ramp in its saturated middle, white trim (gilt at
+  L3), stained-glass window bands that melt into the wall window by window as
+  they shrink under ~2 pixels (no ring), the lobby in deep shadow of its hue,
+  the pyramid's upper spire lit (glow), Sutro's beacons as blinking rainbow rings
+  up the masts, and Sutro's red/white bands as rainbow bands (every band the next
+  hue: six hues at L1 already). L2 is a garden: vines climb from the ground (big
+  leafy lobes, never under ~2 pixels; a spiral up Sutro's narrow legs), the
+  pyramid's two wings are planted, every ledge turns to turf. L3 is
+  Hundertwasser: wavy six-hue bands, every window its own hue, and real accents:
+  a golden onion skewered by the pyramid's spire, onion turrets on the corners
+  of its base with bunting along it; golden onions where Sutro's masts leave the
+  arms and bunting strung between its legs at 72 and 126 m. The pop is the
+  buildings' at 0.3x (an 18 % squash of a 260 m tower was a lot of tower).
+- **Accents cost nothing until level 3**: they are the last vertices of the
+  prop's own mesh and its draw range stops before them until its texel says
+  level 3 (set in `onBeforeRender`): no extra draw call ever, no triangles before.
+- **Rooftop sprouts stay off landmarks** (a garden rect at the top of a spire
+  floats in the air); their gardens are in the shader. Bloom sparkles follow the
+  landmark's shape (four slices up its height, each as wide as the prop there).
+- The bridges stay unpaintable for now (brief).
+- **Measured** (tools/landmarks.mjs in the real game): from the rooftops the
+  classic shot hits the pyramid's west face at the bus's height (55-95 m up) and
+  the glint lights it; from 428 m the 20-degree ray lands 214 m up its face
+  (drop 208 m: the blast x1.7); a blast landing 40 m from its base blooms it
+  (0.18 s after the impact, with the wave); taps escalate both landmarks
+  L1 -> L2 -> L3 (hue kept); after a reload both are back at level 3, saved as
+  `lm:transamerica: [1, 5, 3]` and `lm:sutro: [1, 0, 3]` among the numeric ids
+  (then; since the merge they have their own store, below).
+- **Cost** (the pyramid's chase view, everything streamed in, interleaved with
+  the branch point a3b3fa2, two runs each, SwiftShader at load ~25): draw calls
+  122-134 in both, triangles 843,608 in both (grey); painted at level 3 the same
+  draws and +2k triangles (the accents, main + sun pass); CPU work median 5.1 /
+  4.2 ms grey and 3.3 / 2.8 ms painted against 3.1 / 4.5 ms at the base: inside
+  the noise. One shader program for every landmark material, as before; the
+  paint texture keeps its 138 rows; the hull and the height field are built once
+  at boot; no per-frame allocation (the accent draw range is set in
+  onBeforeRender from the texel, the aim's landmark tests are bounding-box
+  checks).
+
+### Merged with main (facade + polish/feel), the facade's heroes adopt it (2026-10-23)
+- **Resolved to main where main replaced the branch's code**: polish/feel's `Aimer`
+  and `Splatter.barf(x, z, BarfOpts)` (its `landingOn` / `roofAtPart` already land a
+  landmark primary on its surface) instead of the branch's aim chord and centroid
+  special case. Landmark refs carry the area-index fields and enter the area index
+  (`indexRef` -> `areaCells`): since polish/feel every pick, blast wave, line of fire
+  and `buildingAt` / `roofAt` reads only that index, so without it a merged landmark
+  could never be picked or bloomed.
+- **The Aimer's landmark hook**: a landmark target's line of fire ends at most 12 m
+  under the bus and the landmark may be the wall it meets (its face where its real
+  surface rises over the line), including within `wallSkip` of the landing (the
+  hull's edge near its base), where a neighbor never stops it. Measured on the
+  merged build: from the north at the floor (bus 25.2 m) the shot lands on the
+  pyramid's base wall at 14.2 m, 0.6 m outside the hull (before the wallSkip
+  exception: 65.9 m up the slope, the jet climbing 40 m through the face); from the
+  west at the floor over the 103 m tower there (bus 116.5 m) on its face at 106.7 m;
+  from 428 m 219.9 m up its face (drop 208.7 m). From the west at 6 m/s and 100 m
+  out the shot aimed at the pyramid's base takes that tower's roof instead, as any
+  wall in the line of fire does (the QA sequence now comes in from the north).
+- **Sutro's legs**: `buildingAt` ranks a landmark by its own surface at the point,
+  so the shot between the legs picks the transmitter building and lands on its roof
+  (263.6 m); Sutro escalates L1 -> L3 with the wave. When Sutro is still the held
+  target there, the shot lands on what stands under it (267.8 m: that roof, by the
+  obstacle grid) instead of at Sutro's base height inside the building (255.8 m,
+  measured before the fix).
+- **No invisible walls**: the facade's prop stamp skips landmark refs (their
+  one-record tile is the hull at the top: 78.5 m over the whole Ferry hall, 155.7 m
+  over Coit's base). The obstacle grid over both props is identical to main's,
+  sample for sample (`tools/landmarks.mjs collide`): Ferry hall 17.6-24.5 m, nave
+  24.5, bay wing 16.3; Coit's base 100.1, column 155.7 (the post 158.7); a low
+  flight down the hall's axis tops out at 31.4 m on both builds. The breath's
+  surface now includes Coit's base top (100.1 m where main had the ground, 90.2).
+- **Coit Tower and the Ferry Building paint** (one `paintLandmark` each, keys
+  `lm:coit` / `lm:ferry`, sign names from `HERO_PROPS[].paint`, SF origin only):
+  picked at their center, glinting, flooding from the top with the splash from the
+  hit, L2 turf and vines, L3 Hundertwasser bands; the Ferry's 200 m roof took
+  white trim at L1, so a plain up-facing surface now takes the hue (trim stays white
+  on walls; roofs are turf from L2 anyway).
+- **181 Fremont's spire is no landmark**: it stays bound to its tower (SpireRide,
+  which moves it with the tower's pop and wobble) and paints and glints with the
+  tower's texel (`bindLandmarkPaint(..., { ride: true })`: its shader skips the pop).
+  Through the pop its height is the same on main and the merge (231.65 -> 245.35 ->
+  239.81 -> 227.97 -> 231.7 -> 231.11 m over 0.03-1.5 s), seated on the roof in
+  every frame: no gap, no double bounce.
+- **The glint** follows main's contract (a full ramp step, `glintLift` 0.13, plus
+  the sweep timed from `uTargetT`, measured up from the bound building's ground), so
+  a landmark reads as targeted like a tower, and the spire sweeps with its tower.
+- **Saved paint** moved to its own store (see above); after a reload both landmarks
+  are back at level 3, the building store holds 36 keys and no `lm:` key.
+- **Cost** (main 029c0a9 vs the merge, real Edge on this laptop's Intel UHD 620, 393 x
+  852 @3x): no new draw call, program or per-frame allocation (the heroes were one
+  mesh each already; binding is once, at boot or when the tower streams in).
+  Regression shots: grey 126 draws / 1,203,110 triangles and painted 135 /
+  1,248,705 on both, 16 / 21 programs on both. Hero telephotos (grey) identical:
+  181 Fremont 147 / 1,004,234, Transamerica 152 / 1,283,680, Coit 71 / 578,100,
+  Ferry 120 / 688,639. The pyramid's chase view: 92-113 draws / 725,101 triangles on
+  both, a second sample 109-126 / 743,440-745,488 (streaming; main twice, the merge
+  three times), painted at L3 the same draws and +2,048 triangles (its accents).
+  A blast at the Ferry Building (`tools/blast.mjs` with `SB_BLAST_AT`): 91-99 draws /
+  569,179 triangles at the blast against 90-99 / 567,656 (its sparkle slices), then
+  564,835 painted and 584,628 escalating on both; CPU work median 2.1-2.7 ms on both.
+  `tools/fps.mjs` at FiDi (the pyramid ahead): 60 fps (vsync) on both at the street
+  (113 / 704,055), 250 m (133 / 807,622) and the ceiling (64 / 432,140); work median
+  3.5 / 4.1 / 1.5 ms on main, 3.6 / 3.6 / 1.3 ms merged.
 
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a

@@ -18,6 +18,7 @@ import { Particles } from './fx/Particles';
 import { StreetSigns } from './fx/StreetSign';
 import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
+import { paintLandmark, bindLandmarkPaint, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
 import { Tuner, applySavedTuning } from './ui/Tuner';
 import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles } from './world/Bridges';
 import { heroLandmarks, SpireRide } from './world/props/landmarks';
@@ -62,6 +63,8 @@ function makeDropShadowMaterial(): THREE.ShaderMaterial {
 }
 
 type Manifest = CityManifest & { regions: Array<[number, number, number]>; regionSize: number };
+/** What the street sign says when a landmark is hit. */
+const LANDMARK_NAMES: Record<string, string> = { sutro: 'Sutro Tower', transamerica: 'Transamerica' };
 
 const params = new URLSearchParams(location.search);
 if (params.has('fog')) config.fog.enabled = true;
@@ -130,7 +133,11 @@ async function boot() {
     if (spire && !spire.bound) {
       const sp = spire.object.position;
       const ref = city.buildingAt(sp.x, sp.z);
-      if (ref && ref.roofY - ref.baseY > 150) spire.bind(ref, city.roofAtPart(ref, sp.x, sp.z));
+      if (ref && ref.roofY - ref.baseY > 150) {
+        spire.bind(ref, city.roofAtPart(ref, sp.x, sp.z));
+        // it paints and glints with its tower (one building: never an 'lm:' key of its own); SpireRide moves it
+        bindLandmarkPaint(spire.object, ref, { ride: true });
+      }
     }
     // saved paint: regrow rooftop gardens and thin the fog again
     for (const ref of refs) {
@@ -184,6 +191,8 @@ async function boot() {
       if (!obj) continue;
       obj.position.set(lm.x, lm.y, lm.z);
       scene.add(obj);
+      // a first-class paintable building (its paint saved under 'lm:<kind>')
+      paintLandmark(city, `lm:${lm.kind}`, obj, { name: LANDMARK_NAMES[lm.kind] });
     }
   }
   // the hand-built heroes the footprints can't draw: Coit Tower, the Ferry Building, 181 Fremont's spire
@@ -193,6 +202,8 @@ async function boot() {
     // the footprints a prop replaces leave the obstacle grid; its own surface takes their cells
     if (h.clear) city.setPropObstacles(h.clear, h.boxes);
     if (h.kind === 'fremont181-spire') spire = new SpireRide(h.object);
+    // Coit Tower and the Ferry Building: first-class paintable buildings, like Sutro and the pyramid
+    else if (h.paint) paintLandmark(city, h.paint.key, h.object, { name: h.paint.name });
   }
 
   // ---- the hero
@@ -265,6 +276,15 @@ async function boot() {
       }
     pdTex.needsUpdate = true;
   }
+  // saved landmark paint thins the fog again (landmarks never stream in with a tile)
+  for (const r of city.landmarkRefs()) if (city.paint.level(r.index) > 0.5) bumpPaint(r.cx, r.cz, 40);
+  /** A landmark blooms: its sparkles hug its shape, its garden grows in its own shader (no rooftop sprouts on a spire). */
+  const landmarkBloom = (ref: BuildingRef, hue: number, level: number): boolean => {
+    const slices = landmarkSparkles(ref);
+    if (!slices) return false;
+    for (const s of slices) particles.sparkles(s.center, s.radius, s.height, [hue, (hue + 1) % 6, (hue + 5) % 6], 10 + level * 4);
+    return true;
+  };
 
   /**
    * Is a tile (rect, tallest point) buried so deep in the fog sea that, from the
@@ -348,6 +368,7 @@ async function boot() {
         particles.fling(flingFrom, flingTo, blobFlight(dot), dot.hue, 0.7 + dot.rad * 0.5);
       }
       paintTrees(b);
+      landmarkHit(city, b.pos, b.t);
       audio.splatImpact(k);
       audio.bloomBurst(b.count, b.spec.hue, b.maxLevel);
       // one white-hot frame centered on the blast, a kick, and the fog thins over it
@@ -357,6 +378,7 @@ async function boot() {
       bumpPaint(b.spec.x, b.spec.z, Math.min(255, 30 + 5 * b.count));
     },
     bloom: (ref, _order, _total, hue, level, roof) => {
+      if (landmarkBloom(ref, hue, level)) return;
       const h = ref.roofY - ref.baseY;
       particles.sparkles(roof, Math.sqrt(ref.area) * 0.6 + 2, h, [hue, (hue + 1) % 6, (hue + 5) % 6], 14 + level * 8);
       fogBumped.add(ref.stableId);
@@ -367,7 +389,8 @@ async function boot() {
   });
 
   function showSign(ref: BuildingRef, hue: number) {
-    const f = city.frontOf(ref);
+    // (a landmark has no street front: its sign stands on the side facing the bus)
+    const f = city.isLandmark(ref) ? city.edgeToward(ref, flight.x, flight.z) : city.frontOf(ref);
     const gx = f.x + f.nx * 4.5, gz = f.z + f.nz * 4.5;
     signs.show({ text: city.neighborhoodName(ref.hood).toUpperCase(), position: new THREE.Vector3(gx, city.groundAt(gx, gz), gz), facing: Math.atan2(f.nx, f.nz), hue });
     audio.signPop();

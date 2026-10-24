@@ -32,8 +32,10 @@ const out = process.argv[3] ?? 'shots/blast';
 const modes = new Set(process.argv.slice(4).length ? process.argv.slice(4) : ['perf', 'seq', 'top', 'reload']);
 mkdirSync(out, { recursive: true });
 
-const START = '?lat=37.7745&lon=-122.4330&heading=0&skipintro';
-const IMPACT = [37.7762, -122.4328];
+// (SB_BLAST_START='?lat=..&lon=..&heading=..&skipintro' and SB_BLAST_AT='lat,lon' run the same modes elsewhere,
+// e.g. a blast at a landmark)
+const START = process.env.SB_BLAST_START || '?lat=37.7745&lon=-122.4330&heading=0&skipintro';
+const IMPACT = process.env.SB_BLAST_AT ? process.env.SB_BLAST_AT.split(',').map(Number) : [37.7762, -122.4328];
 
 const browser = await chromium.launch({
   ...browserOptions([]),

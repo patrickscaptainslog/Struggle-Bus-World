@@ -62,7 +62,7 @@ including merging into `main`.** None of the branches below has been merged yet.
 |---|---|---|---|
 | `main` | preview v6 | blast, altitude/yoke, LiDAR towers, feel polish, 390 px frame, fog off, snappier springs, design docs | the base for everything |
 | `feat/facade` | built, NOT reviewed (12 commits) | facade families + style table + icon overrides (`src/world/towerStyles.ts`), bases/crowns, facade LOD by size on screen, painted towers (L2 hanging gardens, L3 bands), Coit Tower, Ferry Building, 181 Fremont spire (`props/landmarks.ts`), `tools/facade-shots.mjs` | review it (shots), fix, merge FIRST |
-| `fix/landmarks` | built, NOT reviewed (10 commits) | `City.addLandmarkBuilding`, paint reserve + string save keys, landmark paint (flood/L1-L3), glint, Transamerica + Sutro paintable | merge after facade, then make Coit / Ferry Building / 181 Fremont adopt it (one call each; see its ARCHITECTURE notes) |
+| `fix/landmarks` | main merged in, review fixed, ready to merge (desktop session, 2026-10-23) | `City.addLandmarkBuilding`, paint reserve + its own name-keyed store, landmark paint (flood/L1-L3), glint, Transamerica + Sutro + Coit Tower + the Ferry Building paintable, 181 Fremont's spire paints with its tower | merge into main (its DECISIONS "Merged with main" has the numbers) |
 | `polish/look` | reviewed (failed), fixes ~done (30 commits, main already merged in) | sky band, sign beside the blast, hero ink edge + headlight, drop shadow, puffs, GGB International Orange, water, tree crowns, `tools/look.mjs` + `lookstat.py` | re-check the review issues in `docs/reviews/polish-look-review.json` (tree-crown shimmer, sky/tree churn at 120 m, drop shadow on paint, L3 sign overlap, headlight vs bloom, fog fragments, top-edge stripe), then merge |
 | `feat/controls` | built, NOT reviewed (15 commits) | tilt-to-fly default on phones (`Tilt.ts`, fused attitude, recenter), touch fallback, keyboard, hold-to-charge + turbo in `Input.ts` (the INPUT CONTRACT), turbo gears G0-G3 (G2/G3 locked behind `config.turbo.worldTravel`), turbo FX + audio, `src/ui/Hud.ts`, `tools/controls.mjs` | review, merge before supersplat |
 | `feat/supersplat` | built, mid-QA (8 commits) | hold-to-charge (10 s), mega blast on early release, firehose (~4 s), 60 s cooldown, `SuperSplat.ts`/`SuperFx.ts`/`SuperMeter.ts`/`superSfx.ts`, `tools/supersplat.mjs` | finish QA, merge after controls: controls' gesture replaces supersplat's minimal hold; mount SuperMeter in `hud.slot('super')` |
@@ -132,4 +132,6 @@ notes when merging.
   screenshots are still valid.
 - The far skyline beyond the streaming radius is flat boxes; with fog off it shows.
 - Saved paint keys: `strugglebus.paint.v1` (buildings), `strugglebus.ground.v2:<tx>,<tz>`
-  (ground). feat/osm bumps building paint to v2 (ids change).
+  (ground), `strugglebus.landmarks.v1` (landmark props, by name: `lm:sutro`,
+  `lm:transamerica`, `lm:coit`, `lm:ferry`; independent of any bake). feat/osm bumps
+  building paint to v2 (ids change); the landmark store stays as it is.

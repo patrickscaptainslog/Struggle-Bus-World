@@ -150,12 +150,16 @@ export interface HeroProp {
   baseY: number;
   /** heading of the prop's long axis (radians, atan2(ax, az) of the local axis) */
   yaw: number;
+  /** a paintable landmark of its own (props/landmarkPaint paintLandmark): its saved-paint key (never rename
+   * one: saves are keyed by it) and what the street sign says. None for a prop that belongs to a building
+   * (the spire paints and pops with its tower). */
+  paint?: { key: string; name: string };
 }
 
 export const HERO_PROPS: HeroProp[] = [
-  { kind: 'coit', lat: 37.80235, lon: -122.40582, baseY: 91.7, yaw: 0 },
+  { kind: 'coit', lat: 37.80235, lon: -122.40582, baseY: 91.7, yaw: 0, paint: { key: 'lm:coit', name: 'Coit Tower' } },
   // the Ferry Building's center (the clock tower stands at the middle of its front, facing Market Street)
-  { kind: 'ferry', lat: 37.795507, lon: -122.393448, baseY: 3.0, yaw: Math.atan2(0.65444, 0.75611) },
+  { kind: 'ferry', lat: 37.795507, lon: -122.393448, baseY: 3.0, yaw: Math.atan2(0.65444, 0.75611), paint: { key: 'lm:ferry', name: 'Ferry Building' } },
   // the spire stands on the top box of the LiDAR massing (its top at 227.9 + 3.2 m ground)
   { kind: 'fremont181-spire', lat: 37.78977, lon: -122.395412, baseY: 231.1, yaw: 0 },
 ];
