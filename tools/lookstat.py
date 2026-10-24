@@ -16,7 +16,8 @@
 # changes where either side is a chromatic (paint, bus, sign) color: hue-only flips included.
 # 'chk' (per frame, not a pair): the share of pixels inside a 2x2 checker cell (a b / b a, a != b), the
 # dithered stripes and contours a still frame shows.
-# GPX=<n> sets the device pixels per game pixel (default 5: 240 px wide at 3x; 3 for 390 px wide).
+# GPX=<n> sets the device pixels per game pixel (default: detected per frame by shimmer.game_px, 3 for the
+# 390 px frame at 3x, 5 for the old 240 px one).
 import os
 import sys
 from importlib.machinery import SourceFileLoader
@@ -46,7 +47,7 @@ def dilate(m, r):
     return out
 
 def main(pre, k=0, bands=8, m=4, quiet=False):
-    S = int(os.environ.get('GPX', '5'))
+    S = int(os.environ['GPX']) if os.environ.get('GPX') else None
     A = sh.game_px(f'{pre}-seq-{k}.png', S)
     B = sh.game_px(f'{pre}-seq-{k + 1}.png', S)
     h = min(A.shape[0], B.shape[0]); w = min(A.shape[1], B.shape[1])

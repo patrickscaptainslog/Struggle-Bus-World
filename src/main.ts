@@ -15,7 +15,7 @@ import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blast
 import { Input } from './game/Input';
 import { BusModel, type BusPose } from './bus/BusModel';
 import { Particles } from './fx/Particles';
-import { StreetSigns, signTune } from './fx/StreetSign';
+import { StreetSigns, signBladeWidth, signTune } from './fx/StreetSign';
 import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { paintLandmark, bindLandmarkPaint, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
@@ -44,6 +44,9 @@ const scene = new THREE.Scene();
 const camera = pipeline.camera;
 
 // --- sun: late-afternoon, low, from the WSW
+/** The city's low ground (m, City.lowGround once the far grid is in): the fog ceiling's heights are
+ *  above it, so a city on a plateau stands out of its fog the way SF does at sea level */
+let fogGround = 0;
 function updateSun() {
   const az = config.light.sunAzimuth;
   const el = config.light.sunElevation;
@@ -59,7 +62,7 @@ function updateSun() {
   L2.set(Fg.layerDensity, Fg.layerHaze, Fg.layerFarFull, fogOn ? L2.w : 0);
   globals.uFogBillow.value.set(Fg.layerBillow, 1 / Math.max(10, Fg.layerBillowSize));
   // (the fog ceiling of tall far shapes: meaningless with the fog off, so off with it)
-  globals.uFogStand.value.set(fogOn ? Fg.standFog : 1, Fg.standFrom, Math.max(Fg.standFrom + 1, Fg.standTo), Fg.standFade);
+  globals.uFogStand.value.set(fogOn ? Fg.standFog : 1, fogGround + Fg.standFrom, fogGround + Math.max(Fg.standFrom + 1, Fg.standTo), Fg.standFade);
 }
 updateSun();
 
@@ -413,6 +416,9 @@ async function boot() {
       // the sign stands in front of painted houses and covers the bloom. Per spot: the pole seen to its
       // foot, else (second pass) a pole lifted clear of the roofs in front, up to signTune.poleLiftMax
       const o1 = r + T.besideOut, s1 = T.besideSide * r;
+      // (the blade's half width: its bottom corners must clear the roofs in front too, not just its middle:
+      // a roof edge in front cut the letters diagonally)
+      const hw = 0.5 * signBladeWidth(text);
       const spots: Array<readonly [number, number]> = [];
       for (const [o, sd] of [[o1, s1], [0.25 * r, o1], [1.4 * o1, s1]]) spots.push([o, sd * pref], [o, -sd * pref]);
       for (let pass = 0; pass < 2 && !found; pass++) {
@@ -428,7 +434,9 @@ async function boot() {
             const scale = clamp((T.minFontPx * pipeline.pixelWorldSize(dist)) / Math.max(0.05, T.texelW), 1, 4);
             // the foot of the pole in view, or how much taller the pole must be for a meter of it to
             // show under the blade above the roofs in front
-            const pole = pass === 0 ? (sightLift(x, y + 1.5, z) > 0.5 ? -1 : 0) : sightLift(x, y + (T.poleHeight - 1) * scale, z);
+            const yb = y + (T.poleHeight - 1) * scale, cx0 = sx * hw * scale, cz0 = sz * hw * scale;
+            const corners = Math.max(sightLift(x - cx0, yb, z - cz0), sightLift(x + cx0, yb, z + cz0));
+            const pole = pass === 0 ? (sightLift(x, y + 1.5, z) > 0.5 || corners > 0.5 ? -1 : 0) : Math.max(sightLift(x, yb, z), corners);
             if (pole < 0 || pole > T.poleLiftMax) continue;
             // the blade must land inside the frame, below the top band (the sky and the horizon)
             signNdc.set(x, y + (T.poleHeight + 4) * scale + pole, z).project(camera);
@@ -527,6 +535,8 @@ async function boot() {
   onResize();
 
   await farP;
+  fogGround = city.lowGround();
+  updateSun();
   globals.uFogBank.value = config.fog.openingBank;
   rig.openingPull = 140;
 

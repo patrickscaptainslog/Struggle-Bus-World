@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { config } from '../config';
-import { globals, GLSL_LAYER_TOP, SHADOW_LAYER } from './materials';
+import { globals, GLSL_LAYER_TOP, GLSL_SKY_LIGHT, SHADOW_LAYER } from './materials';
 import { makePaletteTexture, Ramp } from './palette';
 
 // Low-res 3D pixel-art renderer.
@@ -656,15 +656,9 @@ vec3 worldDir(vec2 uv) {
 
 // Sky and fog share one color function so fogged things melt into the sky
 // behind them. Returns the continuous light level; the caller quantizes.
-float skyLight(vec3 dir) {
-  float e = clamp(dir.y * 2.6, -0.3, 1.0);
-  float sunNear = pow(max(dot(dir, uSunDir), 0.0), 16.0);
-  // (at the floor the sky band is the frame's top ~10 deg: it holds one step there, so its first step
-  // change, a dithered stripe, never rides the top edge of the chase view; up high it deepens as before)
-  float l = 0.9 - mix(0.25, 0.5, uCalm) * max(e, 0.0) + 0.12 * sunNear;
-  l -= 0.6 * max(-e, 0.0);
-  return clamp(l, 0.0, 1.0);
-}
+// (materials.ts GLSL_SKY_LIGHT: the tower facades mirror the same function)
+${GLSL_SKY_LIGHT}
+float skyLight(vec3 dir) { return sbSkyLight(dir, uSunDir, uCalm); }
 float skyWarm(vec3 dir) {
   vec3 sunFlat = normalize(vec3(uSunDir.x, 0.0, uSunDir.z));
   vec3 dirFlat = normalize(vec3(dir.x, 0.0001, dir.z));
@@ -938,7 +932,9 @@ void main() {
   // glow are already the brightest things around (the bloom right after a hit is the money shot). A
   // warm glint where it leaves the nose, and on the nose's silhouette edge, so the one eye reads from
   // behind. The beam rides with the bus, which holds still on screen: its edge dither is screen-anchored.
-  bool greyR = ramp < ${Ramp.GREY_LIGHT}.5 || ramp == ${Ramp.GREEN_GREY}.0 || ramp == ${Ramp.WINDOW}.0 || ramp == ${Ramp.ROOF_DARK}.0;
+  // (the unpainted towers' own materials are grey world too: the beam doesn't stop at a tower's face)
+  bool greyR = ramp < ${Ramp.GREY_LIGHT}.5 || ramp == ${Ramp.GREEN_GREY}.0 || ramp == ${Ramp.WINDOW}.0 || ramp == ${Ramp.ROOF_DARK}.0
+    || ramp == ${Ramp.GLASS}.0 || ramp == ${Ramp.STONE}.0 || ramp == ${Ramp.GRANITE}.0;
   if (uBeamShape.z > 0.0 && glow < 0.02 && hAmt < 0.11 && !fogged && (greyR || heroRamp) && (depth > uBeamShape.w || heroEdge)) {
     vec2 bv = gl_FragCoord.xy - uBeam.xy;
     float bl = max(length(uBeam.zw), 1.0);

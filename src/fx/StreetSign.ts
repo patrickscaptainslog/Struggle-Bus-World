@@ -266,6 +266,14 @@ function kick(tau: number, amp: number, hz: number, decay: number): number {
   return tau > 0 ? amp * Math.exp(-tau * decay) * Math.sin(2 * Math.PI * hz * tau) : 0;
 }
 
+/** The blade's width (m, at scale 1) a sign with this text gets (as rasterize lays it out): for placing it. */
+export function signBladeWidth(text: string): number {
+  const t = normalizeText(text);
+  let textW = 1;
+  for (const l of splitLines(t, signTune.maxLine, FONT_LARGE)) textW = Math.max(textW, measureText(l, FONT_LARGE));
+  return Math.min(ATLAS_W, textW + 2 * (RIM + BORDER + PAD_X)) * signTune.texelW;
+}
+
 export class StreetSigns {
   readonly object: THREE.Object3D;
   private readonly signs: Sign[] = [];

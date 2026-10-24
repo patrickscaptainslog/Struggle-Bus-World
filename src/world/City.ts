@@ -976,6 +976,18 @@ export class City {
     return tr.cls[j * n + i];
   }
 
+  /** The city's low ground (m): the 5th percentile of the far grid's land heights (0 before it loads). A
+   * per-city reference for heights tuned as "above the city" (the fog ceiling). Once, at load. */
+  lowGround(): number {
+    const f = this.far;
+    if (!f) return 0;
+    const hs: number[] = [];
+    for (let i = 0; i < f.heights.length; i += 3) if (f.cls[i] !== 2) hs.push(f.heights[i]);
+    if (!hs.length) return 0;
+    hs.sort((a, b) => a - b);
+    return hs[Math.floor(hs.length * 0.05)];
+  }
+
   /** Register landmark collision posts (bridges, towers). */
   addObstacles(list: ObstaclePost[]) {
     for (const p of list) {
