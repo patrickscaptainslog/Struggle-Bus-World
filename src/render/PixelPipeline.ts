@@ -917,8 +917,9 @@ void main() {
   }
   bool heroRamp = busY || abs(ramp - RAMP_BUS_BLACK) < 0.5;
   // the hero's drop shadow: whatever faces up below the bus, inside an oval about its size, a ramp step
-  // darker in its own ramp (paint too: no grey blob punched into the bloom)
-  if (uHeroShadow.w > 0.0 && outlineable && !fogged && !heroRamp) {
+  // darker in its own ramp (paint too: no grey blob punched into the bloom). The open water too: the bay
+  // plane isn't outlineable, but over the bay (the opening's Golden Gate shot) it is the only height cue.
+  if (uHeroShadow.w > 0.0 && (outlineable || abs(ramp - ${Ramp.WATER}.0) < 0.5) && !fogged && !heroRamp) {
     vec3 cf = -normalize(vec3(uCamWorld[2].xyz));
     vec3 P = uCamPos + dir * (depth / max(dot(dir, cf), 0.05));
     vec2 bq = P.xz - uHeroShadow.xy;

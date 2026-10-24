@@ -24,5 +24,10 @@
   "facade chase views": "every chase view one draw fewer (the drop-shadow decal is gone): fidi 125 -> 124, rincon 114 -> 113, embarcadero 115 -> 114, alamo 130 -> 129; hero views identical (fixed telephoto)",
   "regression": {"grey": ["126 / 1,203,110", "125 / 1,203,090"], "painted": ["135 / 1,248,705", "134-135 / 1,248,685-1,249,237 (4 runs)"]}
  },
+ "mergeReview": {
+  "sign": "lm hill poses at +3 s (landmark-signs.png): Telegraph Hill from the east: MAIN whole blade, NEXT before 'TELEGRA / H' half behind Coit Tower (310 m out, its sightline 67 m under the tower), now no sign (no spot in frame is seen); Coit N / S / W beside the tower and whole; Ferry Building and Transamerica unchanged (whole, off the landmark's middle). Work on the frames after the hit, 2nd / 3rd largest (lm-work, coit-e / n / s): MAIN 18.3/16.9, 17.8/11.4, 14.4/10.6 ms; NEXT before 21.9/21.5, 16.2/14.3, 16.4/15.1; now 21.7/19.3, 371(first sign shader)/19.2, 17.4/14.4 (the review's whole-line scratch: 29.5/28.1, 28.2/26.9)",
+  "shadowOverWater": "changed game pixels with heroShadow off on the same held frame: opening 2 s 0 -> 357, 5 s 0 -> 370 (a one-step oval on the bay, ab-opening-120m.png); Ladies 460, relief 400, paint drift 679, FiDi 66 (same rule as before on land)",
+  "perf": "look.mjs perf after the fixes (draws / triangles): Ladies 125 / 1,213,975, FiDi surge 121 / 827,014, 250 m 168 / 1,528,191 (MAIN this session 125 / 1,211,947, 123 / 804,669, 163 / 1,497,299; streaming varies 250 m by a few draws run to run); regression grey 126 / 1,205,138, painted 134 / 1,248,685"
+ },
  "errors": "no pageerror or console error in any run"
 }

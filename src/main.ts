@@ -373,7 +373,8 @@ async function boot() {
   // keep a game pixel at that distance. A re-splat of the same block flips the same sign. It stands at
   // its true depth (the painted houses in front of it keep covering it), preferring a spot whose pole
   // is seen to its foot; else its pole grows until the blade clears the roofs in front (never a blade
-  // hovering over the roofs with no pole).
+  // hovering over the roofs with no pole). Nothing farther along its sightline (a tower, a landmark up
+  // the hill) may hide any of the blade either: no sign beats half a blade.
   const pendingSigns: Array<{ ref: BuildingRef; hue: number; cx: number; cz: number; r: number; at: number; tries: number }> = [];
   let signSpot: { x: number; y: number; z: number; facing: number; scale: number; bias: boolean; pole: number; cx: number; cz: number; r: number; text: string; until: number } | null = null;
   /** How far (m) a point must rise for its sightline to the camera to clear the roofs and crowns over
@@ -409,6 +410,26 @@ async function boot() {
     return true;
   };
   const bladeTmp = [0, 0, 0, 0];
+  /** The blade's bottom edge (height yb, (hx, hz) = its half width along the view's right) is seen over
+   *  its whole sightline to the camera (every 6 m, to 90% of the way), at five points across it: a tower
+   *  or landmark more than 60 m in front (past what sightLift samples) hid half of the blade ("TELEGRA / H"
+   *  behind Coit Tower). Buildings and landmarks by their real footprints and surfaces, not the obstacle
+   *  grid: that is a collision grid (8 m cells, footprints grown 3-6 m) standing ~10 m proud of a facade,
+   *  and a sign on the Ferry Building's apron read as hidden by the building behind it. Only for a spot
+   *  that passed every other test (it samples the whole line). */
+  function bladeSeen(x: number, yb: number, z: number, hx: number, hz: number): boolean {
+    const c = camera.position;
+    for (let k = -1; k <= 1; k += 0.5) {
+      const px = x + hx * k, pz = z + hz * k;
+      const d = Math.max(1, Math.hypot(c.x - px, c.y - yb, c.z - pz));
+      for (let s = 6; s < 0.9 * d; s += 6) {
+        const t = s / d, qx = px + (c.x - px) * t, qz = pz + (c.z - pz) * t;
+        // (half a meter of slack at the blade, as sightLift's 0.5 m)
+        if (Math.max(city.roofAt(qx, qz) ?? -Infinity, city.landmarkSurfaceAt(qx, qz)) > yb + (c.y - yb) * t + 0.5 * (1 - t)) return false;
+      }
+    }
+    return true;
+  }
   const signFwd = new THREE.Vector3();
   const SIGN_RING: ReadonlyArray<readonly [number, number]> = [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6], [12, 0], [-12, 0], [0, 12], [0, -12], [9, 9], [-9, 9], [9, -9], [-9, -9]];
   /** Show (or re-flip) the sign of a blast at (cx, cz) of radius r. False: no open spot in frame yet, ask
@@ -482,6 +503,8 @@ async function boot() {
             if (Math.abs(signNdc.x) > 0.72 || signNdc.y > 0.7 || signNdc.y < -0.6 || signNdc.z > 1) continue;
             // (the whole blade in the frame, and never over a landmark primary's box)
             if (!bladeBox(x, y, z, hw, scale, pole, sx, sz, bladeTmp) || bladeTmp[0] < -0.96 || bladeTmp[2] > 0.96 || overLm(bladeTmp)) continue;
+            // (and nothing farther in front hides it: the pole test above sees only the first 60 m)
+            if (!bladeSeen(x, yb + pole, z, cx0, cz0)) continue;
             found = { x, y, z, facing: Math.atan2(-fx, -fz), scale, bias: true, pole, cx, cz, r, text, until: 0 };
             break;
           }
@@ -494,7 +517,8 @@ async function boot() {
         // far toward an end as the frame allows: off its box on screen if it can, else at least off its
         // middle (the landmark is the bloom; MAIN stood the sign at the middle of its face). Any other
         // primary: its own front only when that stands clear of the blast; inside it the blade would cover
-        // the bloom: then no sign this time.
+        // the bloom: then no sign this time. Either way only a blade wholly in the frame and seen over its
+        // whole sightline: else no sign (half a blade behind a tower reads as a glitch, not a name).
         if (tries < 2) return false;
         const f = lm ? city.edgeToward(ref, flight.x, flight.z) : city.frontOf(ref);
         const ex = -f.nz, ez = f.nx;
@@ -507,9 +531,9 @@ async function boot() {
             if (!lm && Math.hypot(gx - cx, gz - cz) < r + 4) continue;
             if (city.groundClassAt(gx, gz) === Ground.WATER || city.roofAt(gx, gz) !== null) continue;
             const gy = city.groundAt(gx, gz);
+            if (!bladeBox(gx, gy, gz, hw, 1, 0, sx, sz, bladeTmp) || bladeTmp[0] < -0.96 || bladeTmp[2] > 0.96 || bladeTmp[1] < -0.96 || bladeTmp[3] > 0.7) continue;
+            if (!bladeSeen(gx, gy + T.poleHeight - 1, gz, sx * hw, sz * hw)) continue;
             const spot = { x: gx, y: gy, z: gz, facing: Math.atan2(f.nx, f.nz), scale: 1, bias: true, pole: 0, cx, cz, r, text, until: 0 };
-            if (!lm) { found = spot; break; }
-            if (!bladeBox(gx, gy, gz, hw, 1, 0, sx, sz, bladeTmp) || bladeTmp[0] < -0.96 || bladeTmp[2] > 0.96 || bladeTmp[3] > 0.7) continue;
             if (!overLm(bladeTmp)) { found = spot; break; }
             spare ??= spot;
           }

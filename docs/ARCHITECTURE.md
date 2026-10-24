@@ -59,7 +59,9 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   - The hero's drop shadow is light too: `pipeline.setHeroShadow(x, z,
     underY, fx, fz, halfLength, halfWidth, steps)` each frame (after
     `snap()`), and the resolve draws whatever faces up below `underY` inside
-    that oval `steps` darker in its own ramp (paint included). No decal.
+    that oval `steps` darker in its own ramp (paint included; the open bay
+    too: the bay plane writes no outline flag, so the test also takes the
+    WATER ramp). No decal.
   - Flat-light test: a pixel dithers only if a neighbor's light byte sits on
     a real gradient (1.5 bytes up to the dither window, 72.86 x
     `ditherWidth`); a whole-step jump (a crisp band edge) rounds. Materials
@@ -341,7 +343,12 @@ impact frame shows the hit.
   (`City.groundClassAt`: the tile's 2 m ground class). No spot in frame:
   `showSign` returns false and the pending sign asks again 0.8 s later
   (twice); then the primary's front only if it lies outside the blast
-  (+4 m), else no sign. The whole blade must sit inside the frame. A
+  (+4 m), else no sign. The whole blade must sit inside the frame, and its
+  bottom edge must be seen over its whole sightline (`bladeSeen`: five
+  points across it, every 6 m to 90% of the way, against `City.roofAt` and
+  `City.landmarkSurfaceAt`, the real footprints; the obstacle grid stands
+  ~10 m proud of a facade): a tower or landmark past the pole test's 60 m
+  hid half a blade. Run only on a spot that passed every other test. A
   landmark primary is the bloom itself and reaches past the blast: no
   blade may overlap its projected box, and its fallback is its apron along
   the edge facing the bus (`City.edgeToward`), as far toward an end as the

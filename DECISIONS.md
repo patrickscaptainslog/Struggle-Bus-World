@@ -903,6 +903,24 @@ cross-checked in the browser with `tools/feel.mjs`.
   sign stands anew beside this blast (the painted regression frame had two
   "ALAMO SQUARE" blades side by side, and a reused spot in front of the next
   blast's paint).
+  Nothing farther along the sightline may hide the blade either (merge
+  review): the pole test samples only the first 60 m, and on Telegraph Hill
+  (a tap from the east) the "TELEGRAPH HILL" blade stood 310 m out behind
+  Coit Tower's base and read "TELEGRA / H". A spot that passed every other
+  test (ring or fallback, landmark or not) now also needs its blade's bottom
+  edge seen over its whole sightline at five points across it
+  (`bladeSeen`), else the next spot, else no sign. That test uses the real
+  footprints and landmark surfaces (`roofAt`, `landmarkSurfaceAt`), not the
+  obstacle grid: that is a collision grid (8 m cells, footprints grown
+  3-6 m) and stands ~10 m proud of a facade, so it hid the Ferry
+  Building's readable sign on its own apron. Trees still count only in the
+  first 60 m. Hill poses at +3 s (shots/look/landmark-signs.png): Telegraph
+  Hill from the east no sign (no spot in frame is seen), Coit from the
+  north, south and west beside the tower and whole, the Ferry Building and
+  Transamerica unchanged. It runs only on a candidate that passed every
+  other test, so the frames after a hit cost what they did (2nd / 3rd
+  largest work 21.7 / 19.3 ms at Telegraph Hill, was 21.9 / 21.5; sampling
+  the whole line for every candidate, the review's scratch, took 28-30).
   holdGreen stays 2.2 s (the verifier: once it doesn't cover the paint,
   cutting it only costs reading time).
 - **The hero separates.** Its silhouette used its own ramp two steps down
@@ -936,7 +954,11 @@ cross-checked in the browser with `tools/feel.mjs`.
   inside an oval about the bus's footprint along its heading, one step
   darker in its own ramp (`PixelPipeline.setHeroShadow`; roof, street, lawn,
   crown and paint alike), a little bigger with a breath loaded, shrinking as
-  the gap below grows (14 -> 50 m).
+  the gap below grows (14 -> 50 m). The open bay too (merge review): the bay
+  plane writes no outline flag, so the resolve skipped it, and over the
+  water (the opening's Golden Gate shot, every bay crossing) the bus had no
+  shadow and no height cue; the WATER ramp now takes it (a ~360 px oval one
+  step darker on the water at the opening's 2 s and 5 s).
 - **The Golden Gate is International Orange**, muted, even in the grey world
   (it is never painted, so color still comes from paint): `Ramp.BRIDGE_ORANGE`
   (row 23, after the tower facades' GLASS / STONE / GRANITE; see Palette rows), shadows to rose and plum, the upper steps dusty (the fog
