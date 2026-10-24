@@ -121,8 +121,10 @@ estimate and is labelled as one.
 - **Fog** is off by default since 78a2c74 (`?fog` turns it back on). The frame
   is 390 px wide (a3ecbc3). The look in v6/regress and merge1/merge2:
   battleship-grey city, dark navy water, bright saturated paint.
-- **Palette**: 20 ramps in use out of `RAMP_COUNT = 32`, so there are 12 free
-  rows for new ramps.
+- **Palette**: 24 ramps in use (0-23: the core 20, the tower facades' GLASS /
+  STONE / GRANITE, the Golden Gate's BRIDGE_ORANGE) out of `RAMP_COUNT = 48`;
+  24-31 are reserved for the faction ramps (STAGES.md §3.4), 32-37 for the six
+  rows below (§2.5), 38-47 spare.
 
 ---
 
@@ -458,19 +460,19 @@ instance attributes, so it can be painted (§6).
 **Cloud shadows** on the ocean are analytic. The resolve samples the weather
 coverage toward the sun at the hit point, so no shadow pass is needed.
 
-### 2.5 Palette additions (render owner; 12 free rows)
+### 2.5 Palette additions (render owner; rows 32-37 reserved)
 
 Proposed ramps, art-directed later. Each is 8 steps, warm hues shadow to
 rose/violet, and none is brown.
 
-| Ramp | Purpose |
+| Ramp (row) | Purpose |
 |---|---|
-| NIGHT_SKY | high-altitude zenith and night: violet-black → indigo → deep blue |
-| OPEN_SEA | open ocean distinct from the bay's WATER: blue-grey, glitter on top steps |
-| LIMB | atmosphere rim: cool grey → pale cyan-white (or reuse FOG upper steps) |
-| CLOUD | cool white with lilac shadow (FOG may suffice: test first) |
-| DRY_LAND | far deserts and stubble seen from altitude: straw lights, lilac-grey shadows (never ochre-brown) |
-| TWILIGHT | the terminator band and sunset limb: rose → amber |
+| NIGHT_SKY (32) | high-altitude zenith and night: violet-black → indigo → deep blue |
+| OPEN_SEA (33) | open ocean distinct from the bay's WATER: blue-grey, glitter on top steps |
+| LIMB (34) | atmosphere rim: cool grey → pale cyan-white (or reuse FOG upper steps) |
+| CLOUD (35) | cool white with lilac shadow (FOG may suffice: test first) |
+| DRY_LAND (36) | far deserts and stubble seen from altitude: straw lights, lilac-grey shadows (never ochre-brown) |
+| TWILIGHT (37) | the terminator band and sunset limb: rose → amber |
 
 ### 2.6 Budget at G3 over the ocean (iPhone A15, 30 fps floor)
 

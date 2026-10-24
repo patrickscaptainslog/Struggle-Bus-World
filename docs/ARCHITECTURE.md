@@ -33,7 +33,8 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   - `fog` 0..1 → use `sbFog(worldPos)`. It includes the marine layer seen
     from above (`uFogLayer*`, `sbLayerTop()` in `GLSL_LAYER_TOP`, mirrored on
     the CPU by `layerTopBase()`) and the fog ceiling of tall distant shapes
-    (`uFogStand`: anything above ~50-160 m ASL gets at most `config.fog.standFog`
+    (`uFogStand`: anything ~50-160 m above the city's low ground, `City.lowGround()`
+    (the far grid's 5th-percentile land height, ~sea level in SF), gets at most `config.fog.standFog`
     out to ~5 km, so towers and hilltops stand out of the low fog while
     everything low, the streaming edge included, is buried as before):
     materials get it for free; the resolve pass lights the fog sea's top.
@@ -53,7 +54,8 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
     resolve lifts what lies beyond the bus inside that wedge one or two steps
     up its own ramp, a warm core at the lens and a warm glint on the nose's
     ink edge over the lens. It lights only the grey world's ramps (GREY,
-    GREY_LIGHT, GREEN_GREY, WINDOW, ROOF_DARK): never paint, glow or halos.
+    GREY_LIGHT, GREEN_GREY, WINDOW, ROOF_DARK, and the unpainted towers' GLASS,
+    STONE, GRANITE): never paint, glow or halos.
   - The hero's drop shadow is light too: `pipeline.setHeroShadow(x, z,
     underY, fx, fz, halfLength, halfWidth, steps)` each frame (after
     `snap()`), and the resolve draws whatever faces up below `underY` inside
@@ -118,8 +120,16 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   main's geyser lambda keeps `travelTime: breathTravel ?? config.splat.impactDelay`.
 - Palette: 8-step ramps. Warm hues shadow toward rose/violet, never brown.
   There is no brown in the palette and there never will be. New ramps are
-  appended at the end (`Ramp.BRIDGE_ORANGE` = the Golden Gate) and referenced by
-  name.
+  appended at the end and referenced by name (never by number: the G-buffer
+  stores ramp/255 and the resolve fetches palette row = ramp, nothing baked
+  holds a ramp id). `RAMP_COUNT` is 48 rows (an 8x48 RGBA8 texture, 1.5 KB):
+  0-19 core; 20-23 world materials (GLASS, STONE, GRANITE: tower facades;
+  BRIDGE_ORANGE: painted bridge steel, the Golden Gate); 24-31 reserved for the
+  faction ramps (MAGENTA 24, CYAN 25, AQUA 26, PEARL 27, MOSS 28, BIOLUME 29,
+  FAE_VIOLET 30, SILVERBARK 31: docs/specs/STAGES.md 3.4 rule 7); 32-37 for
+  world travel (NIGHT_SKY 32, OPEN_SEA 33, LIMB 34, CLOUD 35, DRY_LAND 36,
+  TWILIGHT 37: WORLD-TRAVEL.md 2.5); 38-47 spare. Claim a reserved row by
+  adding its name at that number.
 
 ## City data (bake -> tiles -> meshes)
 `tools/bake/bake.py <slug>` turns footprints + DEM (+ an optional LiDAR point
@@ -200,8 +210,10 @@ them into gzip'd 1 km regions. Layouts live in `src/world/tiles.ts`.
   converges fogged pixels on the fog sea's lit top (`seaShade`), which isn't
   mirrored: those facade pixels write plain steps (`gAF = 0`) and dither like
   any material. **Change one, change the other** (a mismatch only brings the
-  dither back); polish/look changes `skyLight()` (`0.9 - mix(0.25, 0.5, uCalm)
-  * max(e, 0.0)`): copy it into `skyMirror()` when it merges. The aim glint on a
+  dither back). The sky function itself has one copy: `GLSL_SKY_LIGHT`
+  (`sbSkyLight(dir, sunDir, calm)` in materials.ts), which the resolve's
+  `skyLight()` and the facades' `skyMirror()` both call at the same calm; the
+  `sl` / `gAF` mix is still mirrored by hand. The aim glint on a
   tower facade is added in those whole steps (before `lightAtStep`).
 - `uHigh` (0..1, `setFacadeView`; the marine-layer view's mix, computed whether
   or not fog is on) gives detail 1.5x the room and rhythm lines 2x the spacing
@@ -235,8 +247,8 @@ them into gzip'd 1 km regions. Layouts live in `src/world/tiles.ts`.
   lots stay out of the refs); the spire has no `paint` entry: it is bound to its
   tower's texel with `bindLandmarkPaint(spire, ref, { ride: true })` (it paints
   and glints with the tower; its shader skips the pop, SpireRide owns it), never
-  a landmark of its own. See Paintable landmarks. When polish/look merges: its `BRIDGE_ORANGE: 20`
-  collides with `GLASS: 20`; renumber it 23 (`RAMP_COUNT` is 32).
+  a landmark of its own. See Paintable landmarks. (polish/look's `BRIDGE_ORANGE` is row 23,
+  after GLASS / STONE / GRANITE; see the palette's row map under Rendering.)
 - Houses: windows become one band per floor (ribbon) and then the wall's
   average tone by the same per-building pixel size (`config.facade.houseRibbon`
   / `houseFlat`); roofs are one ramp (GREY_LIGHT) with light offsets.
