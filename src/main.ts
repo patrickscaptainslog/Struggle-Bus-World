@@ -389,7 +389,8 @@ async function boot() {
   });
 
   function showSign(ref: BuildingRef, hue: number) {
-    const f = city.frontOf(ref);
+    // (a landmark has no street front: its sign stands on the side facing the bus)
+    const f = city.isLandmark(ref) ? city.edgeToward(ref, flight.x, flight.z) : city.frontOf(ref);
     const gx = f.x + f.nx * 4.5, gz = f.z + f.nz * 4.5;
     signs.show({ text: city.neighborhoodName(ref.hood).toUpperCase(), position: new THREE.Vector3(gx, city.groundAt(gx, gz), gz), facing: Math.atan2(f.nx, f.nz), hue });
     audio.signPop();

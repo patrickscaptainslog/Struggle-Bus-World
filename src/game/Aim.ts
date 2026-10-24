@@ -39,6 +39,7 @@ export interface Shot {
 }
 
 const F_CLEAR = 12; // the classic shot drops about this far onto the roofs (m)
+const LM_GROUND = 2; // a landmark's line of fire stays this far above the ground (m)
 
 export class Aimer {
   /** Where a breath fired now would land, refreshed by point() / update(). */
@@ -137,23 +138,34 @@ export class Aimer {
     this.wallRef = null;
     if (!this.classic) return false;
     let ex = aim.x, ez = aim.z, ey = aim.y + 0.5;
+    const tLm = target !== null && city.isLandmark(target);
+    let top = ey;
     if (target) {
       const l = city.landingOn(target, aim.x, aim.z, S.landInset, this.land, S.smallRad);
       ex = l.x;
       ez = l.z;
-      ey = city.roofAtPart(target, ex, ez) + 0.5;
+      ey = top = city.roofAtPart(target, ex, ez) + 0.5;
       // a landmark's surface at the aim point can be 100 m above the bus (the pyramid's slope, Coit's
-      // column): the classic shot flies level onto it and slams into its face at about the bus's height
-      if (city.isLandmark(target)) ey = Math.min(ey, this.y0 - F_CLEAR);
+      // column): the classic shot flies level onto it and slams into its face at about the bus's height,
+      // never under the ground it stands on (Coit's hilltop over a bus at the floor down the slope)
+      if (tLm) ey = Math.min(top, Math.max(this.y0 - F_CLEAR, city.groundAt(ex, ez) + LM_GROUND));
     }
     const x0 = this.x0, z0 = this.z0, y0 = this.y0;
     const dx = ex - x0, dz = ez - z0;
     const L = Math.hypot(dx, dz);
     if (L < 12) return false;
     const ux = dx / L, uz = dz / L;
+    if (tLm) {
+      // nor through a hill crest on the way (Coit from below Telegraph Hill's north cliff): the line of fire
+      // rises just enough to clear the ground all along it, at most onto the landmark's top at the landing (the
+      // baked buildings' chord). (Raising its end lifts every point of it, so one pass finds the lowest.)
+      for (let s = 10; s < L; s += 4) {
+        const need = city.groundAt(x0 + ux * s, z0 + uz * s) + LM_GROUND;
+        if (need > y0 + (ey - y0) * (s / L)) ey = Math.min(top, y0 + (need - y0) * (L / s));
+      }
+    }
     // a landmark target's own face can stand right at the landing (the hull's edge, when the aim point is near
     // its base): the march goes on to it there, where only that face, never a neighbor, stops the shot
-    const tLm = target !== null && city.isLandmark(target);
     const sEnd = tLm ? L : L - S.wallSkip;
     for (let s = 10; s < sEnd; s += 2) {
       const px = x0 + ux * s, pz = z0 + uz * s;

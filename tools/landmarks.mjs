@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Paintable-landmark QA in the real game (index.html, iPhone portrait viewport).
-//   node tools/landmarks.mjs <baseUrl> <outDir> [probe] [seq] [altitude] [sutro] [reload] [near] [perf]
+//   node tools/landmarks.mjs <baseUrl> <outDir> [probe] [seq] [altitude] [sutro] [reload] [near] [views] [perf]
+//                            [heroes] [collide] [spirepop] [hill]
 //
 //   probe     the pyramid and Sutro are registered buildings: refs, pick at and near
 //             them, the aim from the chase camera at the floor (the classic shot hits the
@@ -16,6 +17,11 @@
 //   near      a fresh city, a blast landing ~40 m from the pyramid's base: it blooms
 //   views     Sutro Tower painted at levels 1 and 3, whole, from 650 m out (sutro-far-L<n>.png)
 //   perf      draws / triangles / workMs at the pyramid view, grey and painted (perf.json)
+//   heroes    Coit Tower and the Ferry Building are registered landmarks; 181 Fremont's spire rides its tower
+//   collide   the obstacle grid and breath surface over the Ferry Building and Coit, and a low flight down the hall
+//   spirepop  181 Fremont painted at levels 1 and 2: the spire stays seated through the pop (spirepop-L<n>-<t>.png)
+//   hill      taps at the floor at Coit (S / W / E / N), the Ferry (Market Street) and the pyramid: the line of
+//             fire never underground, the sign on the bus's side on dry ground (hill-<tag>-<t>.png)
 // Everything steps on a fixed 1/30 s game clock and waits on it, never on wall time.
 // The browser comes from tools/browser.mjs (the real GPU off the cloud machine, SwiftShader in the cloud).
 import { chromium } from 'playwright-core';
@@ -565,6 +571,106 @@ if (modes.has('spirepop')) {
   report.spirepop = rows;
   console.log('spirepop', JSON.stringify(rows));
   await p7.close();
+}
+
+if (modes.has('hill')) {
+  // landmarks on the ground they stand on: real taps at the floor at Coit Tower (on Telegraph Hill, from the
+  // south, west, east and north, 110 m out), the Ferry Building (from Market Street) and the pyramid (from the
+  // north, the control). For each: the straight line of fire from the bus to where it lands, against the
+  // ground under it (1 m samples: none may be underground), and where the hit's street sign stands (on the
+  // side facing the bus, on dry ground). Frames 0.15 and 0.7 s after impact (hill-<tag>-<t>.png).
+  const p8 = await open('?lat=37.80235&lon=-122.4058&heading=0&skipintro&fixeddt=0.0333');
+  await p8.evaluate(() => (window.__qa = {}));
+  await runFor(p8, 0.3);
+  const FERRY_H = Math.atan2(0.756, 0.654);
+  const poses = [
+    ['coit-s', 'Coit Tower', 110, 0],
+    ['coit-w', 'Coit Tower', 110, Math.PI / 2],
+    ['coit-e', 'Coit Tower', 110, -Math.PI / 2],
+    ['coit-n', 'Coit Tower', 110, Math.PI],
+    ['ferry', 'Ferry Building', 110, FERRY_H],
+    ['pyr-n', 'Transamerica', 100, Math.PI],
+  ];
+  report.hill = {};
+  for (const [tag, name, d, heading] of poses) {
+    const place = ([n, d, h]) => {
+      const g = window.__game;
+      const r = window.__lm.refs()[n];
+      window.__qa = {};
+      g.flight.glideSpeed = 6;
+      g.flight.speed = 6;
+      Object.assign(g.flight, { holdY: -Infinity, mode: 0, vy: 0 });
+      window.__lm.place(r.cx, r.cz, d, h);
+      g.flight.y = g.city.obstacleAt(g.flight.x, g.flight.z) + g.config.flight.clearance;
+    };
+    await p8.evaluate(place, [name, d, heading]);
+    await until(p8, '!g.city.busy', 60);
+    await runFor(p8, 1.5);
+    await p8.evaluate(place, [name, d, heading]);
+    await runFor(p8, 0.3);
+    await p8.evaluate(() => window.__game.forceReady());
+    await runFor(p8, 0.15);
+    const res = await p8.evaluate((n) => {
+      const g = window.__game, c = g.city, f = g.flight;
+      g.forceReady();
+      const r = window.__lm.refs()[n];
+      const glint = g.glintNow();
+      const bus = [f.x, f.y, f.z];
+      g.tapSplat();
+      const s = g.lastShot();
+      const [ax, ay, az] = s.aim;
+      const L = Math.hypot(ax - bus[0], az - bus[2]);
+      let under = 0, worst = 0;
+      for (let k = 0; k <= L; k += 1) {
+        const u = k / L;
+        const gy = c.groundAt(bus[0] + (ax - bus[0]) * u, bus[2] + (az - bus[2]) * u);
+        const py = bus[1] + (ay - bus[1]) * u;
+        if (py < gy) {
+          under++;
+          worst = Math.max(worst, gy - py);
+        }
+      }
+      return {
+        landmark: r.index,
+        glint: glint ? glint.index : null,
+        target: s.target ? s.target.index : null,
+        bus: bus.map((v) => +v.toFixed(1)),
+        lands: s.aim.map((v) => +v.toFixed(1)),
+        wall: s.wall,
+        groundThere: +c.groundAt(ax, az).toFixed(1),
+        fromHull: +c.edgeDistance(r, ax, az).toFixed(1),
+        underground: under,
+        worstDepth: +worst.toFixed(1),
+        impact: s.t + s.travel,
+      };
+    }, name);
+    await holdShot(p8, res.impact + 0.15, `${out}/hill-${tag}-0.15.png`);
+    await holdShot(p8, res.impact + 0.7, `${out}/hill-${tag}-0.70.png`);
+    // the hit's street sign: the StreetSigns instance nearest the landmark (its position, the ground there, and
+    // whether it stands on the bus's side of the landmark's center)
+    res.sign = await p8.evaluate(([n, bus]) => {
+      const g = window.__game, c = g.city;
+      const r = window.__lm.refs()[n];
+      const grp = g.scene.getObjectByName('StreetSigns');
+      const m = grp && grp.children.find((o) => o.isInstancedMesh);
+      if (!m) return null;
+      const a = m.instanceMatrix.array;
+      let best = null;
+      for (let i = 0; i < m.count; i++) {
+        const x = a[i * 16 + 12], y = a[i * 16 + 13], z = a[i * 16 + 14];
+        const d = Math.hypot(x - r.cx, z - r.cz);
+        if (d < r.rad + 15 && (!best || d < best.d)) best = { d, x, y, z };
+      }
+      if (!best) return { found: false };
+      const toBus = [bus[0] - r.cx, bus[2] - r.cz], toSign = [best.x - r.cx, best.z - r.cz];
+      const cos = (toBus[0] * toSign[0] + toBus[1] * toSign[1]) / (Math.hypot(...toBus) * Math.hypot(...toSign) || 1);
+      return { found: true, at: [best.x, best.y, best.z].map((v) => +v.toFixed(1)), groundThere: +c.groundAt(best.x, best.z).toFixed(1), facingBusCos: +cos.toFixed(2) };
+    }, [name, res.bus]);
+    console.log('hill', tag, JSON.stringify(res));
+    report.hill[tag] = res;
+    await runFor(p8, 1.5);
+  }
+  await p8.close();
 }
 
 writeFileSync(`${out}/landmarks-${[...modes].join('-')}.json`, JSON.stringify(report, null, 1));

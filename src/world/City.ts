@@ -1567,6 +1567,30 @@ export class City {
     return { x: mx, z: mz, nx, nz, len };
   }
 
+  /** The edge of ref (2 m or longer) that faces (x, z) best, as frontOf's: a landmark has no street front,
+   * so its sign goes on the side the bus sees (not the Ferry Building's bay side). Per hit, not per frame. */
+  edgeToward(ref: BuildingRef, x: number, z: number): { x: number; z: number; nx: number; nz: number; len: number } {
+    const b = ref.tile;
+    const s = b.vertStart[ref.local], n = b.vertStart[ref.local + 1] - s;
+    let best = -Infinity, out = this.frontOf(ref);
+    for (let i = 0; i < n; i++) {
+      const a = s + i, c = s + ((i + 1) % n);
+      const ax = b.xz[a * 2], az = b.xz[a * 2 + 1], cx = b.xz[c * 2], cz = b.xz[c * 2 + 1];
+      const len = Math.hypot(cx - ax, cz - az);
+      if (len < 2) continue;
+      let nx = (cz - az) / len, nz = -(cx - ax) / len;
+      const mx = (ax + cx) / 2, mz = (az + cz) / 2;
+      if ((mx - ref.cx) * nx + (mz - ref.cz) * nz < 0) { nx = -nx; nz = -nz; }
+      // (how squarely it faces the point: the cosine between its normal and the way to the point)
+      const k = (nx * (x - mx) + nz * (z - mz)) / (Math.hypot(x - mx, z - mz) || 1);
+      if (k > best) {
+        best = k;
+        out = { x: mx, z: mz, nx, nz, len };
+      }
+    }
+    return out;
+  }
+
   /** Oriented roof rectangle (for rooftop sprouts), aligned with the street front: the roof of the
    * highest tier that is a real roof (a fifth of the footprint or more), not a crown or a penthouse. */
   roofRect(ref: BuildingRef): { cx: number; cz: number; y: number; w: number; d: number; yaw: number } {
