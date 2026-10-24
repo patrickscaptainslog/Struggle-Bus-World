@@ -31,7 +31,9 @@ consortium. The bake reads its land cover to decide where procedural trees
 stand; the tiles hold no WorldCover pixels, only tree positions derived in
 part from them (changes: resampled to the city's local frame, a 20 m tree
 fraction, weighed with OpenStreetMap). `city.json` names it in `source` and
-`credits`.
+`credits`; the game lists it in the tuner after the OpenStreetMap credit.
+Citation: Zanaga, D., Van De Kerchove, R., Daems, D., et al. (2022). ESA
+WorldCover 10 m 2021 v200. https://doi.org/10.5281/zenodo.7254221
 
 The derivative database is produced by `tools/bake/overture.py` (extracts),
 `tools/bake/osm.py` + `tools/bake/bake.py` (conflation, massing, rasterization)

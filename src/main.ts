@@ -446,7 +446,10 @@ async function boot() {
   // ---- input
   const input = new Input(canvas);
   const tuner = new Tuner();
-  tuner.credits = manifest.attribution ? `Map data ${manifest.attribution} (ODbL)` : '';
+  // (the ODbL credit, then the other sources' own: ESA WorldCover's CC BY for where the trees stand)
+  tuner.credits = [manifest.attribution ? `Map data ${manifest.attribution} (ODbL)` : '', ...Object.values(manifest.credits ?? {})]
+    .filter(Boolean)
+    .join('; ');
   const perf = new Perf(renderer);
   perf.setVisible(params.has('fps'));
   tuner.onAction = (name) => {

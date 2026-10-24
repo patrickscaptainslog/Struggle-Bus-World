@@ -71,11 +71,15 @@ python3 -I tools/bake/pack.py sf       # tiles -> 1 km gzip regions
 python3 -I tools/bake/horizon.py sf    # hills around the city
 python3 -I tools/bake/plot.py out.png --at=37.7763,-122.4328 old=public/city/sf  # top-down QA plot
 ```
-The bake ends with a **plausibility QA** against ESA WorldCover (trees where it
-sees no tree cover, wooded parks left bare, water and sand that disagree, per
-128 m cell): it prints PASS or a loud `!!! QA FAIL` block and exits 3 on a FAIL
-(the tiles are complete: read the report, then pack). The report and top-down
-crops of the largest parks land in `tools/bake/.cache/qa/<out>/report.md`, the
+The bake ends with a **plausibility QA** against ESA WorldCover (park and woods
+trees where it sees no tree cover, wooded parks left bare, water and sand that
+disagree, per 128 m cell; street trees are reported, not checked): it prints
+PASS or a loud `!!! QA FAIL` block and exits 3 on a FAIL (the tiles are
+complete: read the report, then pack). A check fails only past both its share
+and a minimum count (5 cells, 50 trees), so a small test bake's few cells don't
+fail on one lagoon. `bake.py` checks the city's WorldCover crop first and fails
+at once when it can't be read (`overture.py` exits 2 then too). The report and
+top-down crops of the largest parks land in `tools/bake/.cache/qa/<out>/report.md`, the
 summary in `city.json` `stats.qa`; `--qa=warn` reports without failing,
 `--qa=0` skips it, `python3 -I tools/bake/qa.py sf --dir=public/city/<out>`
 re-runs it. Test bakes: `--bbox=lon0,lat0,lon1,lat1 --out=<name> --lidar=0`.
@@ -91,7 +95,8 @@ Sentinel data (2021) processed by ESA WorldCover consortium). The baked tiles
 are a derivative database under the ODbL: see `public/city/DATA_LICENSE.md`;
 the game credits
 "© OpenStreetMap contributors, Overture Maps Foundation" during the opening and
-in the tuner. See `DECISIONS.md` for every call we made.
+in the tuner, and the tuner adds the city's other credits (`city.json`
+`credits`: ESA WorldCover's). See `DECISIONS.md` for every call we made.
 
 Paint state is a separate per-building array (faction, color, level, bloom
 time) keyed by a stable building id, so a server can own it in Phase 2.

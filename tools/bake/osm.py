@@ -439,8 +439,9 @@ class OSM:
             if c is not None:
                 # (Overture's land cover is a generalized ESA WorldCover where OSM maps nothing: a weak container,
                 # WorldCover at 10 m decides: its forest is park-like, its grass / crop / wetland open space, its
-                # shrub and moss shrubs)
-                add(g[i], c, 0, TREE_PARK if c == FOREST else TREE_SHRUB if row.subtype in ('shrub', 'moss') else TREE_OPEN if c == GRASS else TREE_NEVER)
+                # shrub and moss shrubs; its barren says nothing (WorldCover at 10 m has no trees on bare ground,
+                # and its coarse polygons lie under OSM's woods and parks, which must win: never a 'never'))
+                add(g[i], c, 0, TREE_PARK if c == FOREST else TREE_SHRUB if row.subtype in ('shrub', 'moss') else TREE_OPEN if c == GRASS else TREE_NONE)
         d, g = self.read('land_use')
         lu_paved = {'industrial', 'commercial', 'retail', 'railway', 'construction', 'brownfield', 'garages', 'depot', 'port', 'landfill', 'quarry'}
         lu_grass = {'park', 'grass', 'garden', 'recreation_ground', 'village_green', 'meadow', 'cemetery', 'grave_yard', 'golf_course', 'fairway',
@@ -537,11 +538,12 @@ class OSM:
         """uint8 raster of what the map says about procedural trees (TREE_*) from areas(): within the green family
         (park-like, woods, open space, shrubs) the smallest polygon wins (a wood in a park, a lawn in a park or a
         wood, a wood in the scrub), Overture's generalized land cover (priority 0) under every OSM polygon; then
-        'never' (pitches, playgrounds, fairways, beaches, rock, plazas, runways) over everything.
+        OSM's 'never' (pitches, playgrounds, fairways, beaches, rock, plazas, runways) over everything. Only OSM's
+        (priority > 0): a coarse Overture polygon never clears the OSM woods and parks drawn over it.
         rast(shapes) -> uint8 raster (later shapes over earlier ones)."""
         green = sorted([a for a in areas if a[3] in TREE_GREEN], key=lambda a: (a[2] > 0, -a[0].area))
         codes = rast([(a[0], a[3]) for a in green])
-        codes[rast([(a[0], 1) for a in areas if a[3] == TREE_NEVER]) > 0] = TREE_NONE
+        codes[rast([(a[0], 1) for a in areas if a[3] == TREE_NEVER and a[2] > 0]) > 0] = TREE_NONE
         return codes
 
     def tree_raster(self, H, W, minX, minZ, res):

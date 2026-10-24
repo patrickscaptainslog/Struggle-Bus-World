@@ -102,10 +102,8 @@ TREES = {
     'woodsFloor': 0.60,      # OSM woods (natural=wood, landuse=forest): at least this f whatever WorldCover says
     'cliff': 1.0,            # no trees on slopes steeper than this (45 degrees; the old bake's 0.2 stood in for "the steep
                              # hills are bare", which WorldCover now knows)
-    'streetSpot': 0.03,      # street trees: a WorldCover tree cell in the window around the spot (a tree pixel within ~10 m:
-                             # WorldCover has one that close to 23 % (SF) to 55 % (London) of OSM's mapped street trees,
-                             # to 13-15 % of random sidewalk points: DECISIONS, Data: Trees)...
-    'streetMapped': 20.0,    # ...or a mapped tree this close (a tree-lined street OSM maps in part); else none
+    # (street trees along frontages keep their own rule, no WorldCover gate: WorldCover's 10 m pixels miss most single
+    # street trees (none within 20 m of 42 % of SF's mapped ones): DECISIONS, Data: Trees)
 }
 
 
@@ -1553,6 +1551,11 @@ def main():
     minX, maxX = math.floor(min(xs) / TILE) * TILE, math.ceil(max(xs) / TILE) * TILE
     minZ, maxZ = math.floor(min(zs) / TILE) * TILE, math.ceil(max(zs) / TILE) * TILE
     log('city frame', minX, minZ, maxX, maxZ)
+    if cfg.get('overture') and cfg.get('worldcover', True):
+        # ESA WorldCover (the trees' evidence, the QA's reference) is first read half an hour into a city bake: fetch or
+        # check the cached crop now, so a city whose WorldCover can't be read fails in seconds, not at the trees
+        WCm = load_module('worldcover')
+        WCm.ensure(slug, [tuple(city_bbox), WCm.frame_bounds(proj, minX, minZ, maxX, maxZ)], log=log)
 
     # ---------------------------------------------------------------- DEM
     W = int((maxX - minX) / DEM_RES)
@@ -2261,10 +2264,10 @@ def main():
         trees += [(float(x), float(z), float(s), int(k)) for x, z, k, s in real]
     real_tree = cKDTree(np.array([[t[0], t[1]] for t in real])) if real else None
     TP = dict(TREES, **cfg.get('trees', {}))
-    tf_near = tf_park = None
+    tf_park = None
     if use_osm and cfg.get('worldcover', True):
-        # ESA WorldCover's tree cover on a coarse copy of the local frame: the local tree fraction around every point
-        # (all of it: the street trees' evidence; less the crowns of the mapped trees: the park trees' gate + density)
+        # ESA WorldCover's tree cover on a coarse copy of the local frame: the local tree fraction around every point,
+        # less the crowns of the mapped trees (the park trees' gate + density)
         WCm = load_module('worldcover')
         wres = float(TP['wcRes'])
         wc = WCm.local_grid(slug, proj, minX, minZ, int((maxX - minX) / wres), int((maxZ - minZ) / wres), wres,
@@ -2274,7 +2277,6 @@ def main():
         counts['worldcover'] = {'treeCover': round(float(tmask[land].mean()) if land.any() else 0.0, 4)}
         del wc, land
         win = max(1, round(TP['window'] / wres))
-        tf_near = WCm.fraction(tmask, win)
         wh, ww = tmask.shape
 
         def wc_cell(x, z):
@@ -2294,14 +2296,14 @@ def main():
             counts['worldcover']['mappedCrowns'] = round(float((tmask & crowns).sum()) / max(1, int(tmask.sum())), 4)
             del crowns
         else:
-            tf_park = tf_near
+            tf_park = WCm.fraction(tmask, win)
         del tmask
 
         def tf_at(grid, x, z):
             """WorldCover tree fraction (0..1) of a fraction grid at arrays x, z"""
             return grid[wc_cell(x, z)].astype(np.float32) / 200.0
     elif use_osm:
-        log('trees: no WorldCover ("worldcover": false): procedural park trees only in OSM woods, street trees as before')
+        log('trees: no WorldCover ("worldcover": false): procedural park trees only in OSM woods')
     rng = np.random.default_rng(1234)
     gx = np.arange(minX + 5, maxX, 11.0)
     gz = np.arange(minZ + 5, maxZ, 11.0)
@@ -2344,7 +2346,7 @@ def main():
     for x, z in zip(GX.ravel()[keep], GZ.ravel()[keep]):
         kind = 2 if rng.uniform() < 0.18 else 1
         trees.append((float(x), float(z), 0.75 + 0.7 * rng.uniform(), kind))
-    nstreet = nstreet_wc = nstreet_m = 0
+    nstreet = 0
     for b in buildings:
         if b['front'] == 255 or b['arch'] not in (ARCH['victorian'], ARCH['flats'], ARCH['stucco'], ARCH['marina']):
             continue
@@ -2367,28 +2369,17 @@ def main():
         pt = mid + nrm * 3.2
         cl, dd1 = ground_at([pt[0]], [pt[1]])
         if use_osm:
-            # on the sidewalk, and not where the mapped street trees already stand
-            nd1 = real_tree.query(pt)[0] if real_tree is not None else 1e9
-            if cl[0] not in (O.SIDEWALK, O.YARD) or dd1[0] <= 2.0 or nd1 < 9.0:
+            # on the sidewalk, and not where the mapped street trees already stand (no WorldCover gate: its 10 m
+            # pixels miss most single street trees, see TREES)
+            if cl[0] not in (O.SIDEWALK, O.YARD) or dd1[0] <= 2.0 or (real_tree is not None and real_tree.query(pt)[0] < 9.0):
                 continue
-            # evidence: WorldCover sees a crown within ~10 m of the spot (it does see street-tree rows: DECISIONS,
-            # Data: Trees), or the street is one OSM maps trees on; else no street tree here
-            if tf_near is not None:
-                if tf_at(tf_near, pt[0], pt[1]) >= TP['streetSpot']:
-                    nstreet_wc += 1
-                elif nd1 < TP['streetMapped']:
-                    nstreet_m += 1
-                else:
-                    continue
         elif not (cl[0] == GROUND_PAVED and dd1[0] > 2.0):
             continue
         trees.append((float(pt[0]), float(pt[1]), 0.55 + 0.35 * rr.next(), 0))
         nstreet += 1
     log(f'trees {len(trees)} ({len(real)} mapped, {nstreet} along frontages, the rest in parks)')
     counts['trees'] = {'mapped': len(real), 'street': nstreet, 'park': len(trees) - len(real) - nstreet} if use_osm else None
-    if use_osm and tf_near is not None:
-        counts.setdefault('treeEvidence', {}).update(streetWorldCover=nstreet_wc, streetMapped=nstreet_m)
-    del tf_near, tf_park
+    del tf_park
 
     # ------------------------------------------------------------ tile output
     tiles = defaultdict(list)
@@ -2409,6 +2400,11 @@ def main():
     tree_tiles = defaultdict(list)
     for t in trees:
         tree_tiles[(int(math.floor(t[0] / TILE)), int(math.floor(t[1] / TILE)))].append(t)
+    if use_osm and tree_tiles:
+        # (the game draws a tile's trees as one instanced mesh + its shadow twin: the busiest tiles are its tree load)
+        per = np.array([len(v) for v in tree_tiles.values()])
+        counts['treesPerTile'] = {'p90': int(np.percentile(per, 90)), 'p99': int(np.percentile(per, 99)), 'max': int(per.max())}
+        log('trees per tile: ' + ', '.join(f'{k} {v}' for k, v in counts['treesPerTile'].items()))
 
     street_tree = None
     if use_osm:

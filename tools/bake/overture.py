@@ -25,9 +25,11 @@ shapely). Types:
   infrastructure  base: bridges, piers, towers, street furniture
   division        divisions: neighbourhood / macrohood / locality points with names
   division_area   divisions: their polygons
-Then the city's ESA WorldCover 10 m crop (tools/bake/worldcover.py; "worldcover": false in the config skips it).
+Then the city's ESA WorldCover 10 m crop (tools/bake/worldcover.py; "worldcover": false in the config or
+--no-worldcover skips it). A crop that can't be fetched exits 2 (the extracts are written and cached: a rerun
+only retries WorldCover), as bake.py would at its start.
 
-usage: python3 -I tools/bake/overture.py <slug> [--types=building,segment,...] [--refresh]
+usage: python3 -I tools/bake/overture.py <slug> [--types=building,segment,...] [--refresh] [--no-worldcover]
 """
 import json
 import os
@@ -153,7 +155,7 @@ def flatten(t, typ):
     return pa.table(cols)
 
 
-def extract(slug, types=ALL, refresh=False):
+def extract(slug, types=ALL, refresh=False, worldcover=True):
     cfg = json.load(open(os.path.join(HERE, 'cities', f'{slug}.json')))
     oc = cfg.get('overture', {})
     release = oc.get('release', DEFAULT_RELEASE)
@@ -208,9 +210,9 @@ def extract(slug, types=ALL, refresh=False):
         summary[typ] = tab.num_rows
     json.dump({'release': release, 'bbox': bb, 'counts': summary, 'license': 'ODbL-1.0 (OpenStreetMap contributors) via Overture Maps Foundation'},
               open(os.path.join(odir, 'extract.json'), 'w'), indent=1)
-    if cfg.get('worldcover', True) and set(types) == set(ALL):
-        # the city's ESA WorldCover crop with its extracts (the bake's tree evidence, the QA's reference; bake.py
-        # fetches it itself when it is missing)
+    if worldcover and cfg.get('worldcover', True) and set(types) == set(ALL):
+        # the city's ESA WorldCover crop with its extracts (the bake's tree evidence, the QA's reference): a city
+        # whose WorldCover can't be read finds out now, not when its bake starts
         import importlib.util
         sys.dont_write_bytecode = True
         spec = importlib.util.spec_from_file_location('sb_worldcover', os.path.join(HERE, 'worldcover.py'))
@@ -218,8 +220,10 @@ def extract(slug, types=ALL, refresh=False):
         spec.loader.exec_module(wc)
         try:
             wc.ensure(slug, [tuple(cfg['bbox'])], log=log, refresh=refresh)
-        except (SystemExit, Exception) as e:  # noqa: BLE001 (the bake retries)
-            log(f'worldcover: not fetched ({e}); bake.py will try again')
+        except (SystemExit, Exception) as e:  # noqa: BLE001
+            log(f'worldcover: NOT fetched ({e}). The extracts are cached; rerun to retry (the bake needs it: it fails '
+                'at its start without it), or set "worldcover": false in the config to bake without tree evidence')
+            sys.exit(2)
     return odir
 
 
@@ -228,7 +232,7 @@ def main():
     flags = dict((a[2:].split('=', 1) + [''])[:2] for a in sys.argv[1:] if a.startswith('--'))
     slug = args[0] if args else 'sf'
     types = flags['types'].split(',') if flags.get('types') else ALL
-    extract(slug, types, refresh='refresh' in flags)
+    extract(slug, types, refresh='refresh' in flags, worldcover='no-worldcover' not in flags)
 
 
 if __name__ == '__main__':

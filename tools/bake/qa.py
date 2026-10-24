@@ -8,12 +8,15 @@ city dir, a --out test bake or an older bake made before it existed:
 
 What it compares (on the city frame, cut into 128 m cells; WorldCover on the bake's frame at 4 m):
   trees   every baked tree is matched to OSM's mapped trees (the extract) or is procedural (park / woods
-          trees: kinds 1-2, street trees: kind 0). A procedural tree is "unsupported" when no WorldCover
-          tree pixel (tree cover or mangroves) lies within 'support' m of it; a cell holding
+          trees: kinds 1-2, street trees: kind 0). A procedural park / woods tree is "unsupported" when no
+          WorldCover tree pixel (tree cover or mangroves) lies within 'support' m of it; a cell holding
           'openCellTrees' or more of them is "trees on open land" (a park polygon planted over its lawns,
           marsh or beach). A park / wood / open-space cell WorldCover sees as wooded but the bake left bare
           is "missing trees"; WorldCover woods over OSM scrub / heath are reported, not failed (the bake
-          trusts OSM there: osm.TREE_SHRUB).
+          trusts OSM there: osm.TREE_SHRUB). Street trees along frontages are reported, not checked:
+          WorldCover's 10 m pixels miss most single street trees (no tree pixel within 20 m of 42 % of
+          San Francisco's mapped street trees, 12 % of London's), so the report sets the procedural ones'
+          share beside the mapped street trees' share.
   water   the baked water share of a cell (pier decks over WorldCover water count as water) against
           WorldCover's permanent water (80); a difference of 'waterDiff' or more is a disagreement
           (a tidal marsh drawn as grass, a coastline or a lake OSM lacks, a lake that isn't there).
@@ -28,10 +31,12 @@ Writes:
                                              WorldCover tree outline
   tools/bake/.cache/qa/<name>/cells.png      the frame with every flagged cell
 Exit status: 0 PASS, 3 FAIL (a threshold exceeded; bake.py exits 3 too unless --qa=warn) with a loud
-'!!! QA FAIL' block on stdout. Thresholds: QA_DEFAULTS (FAIL when a share exceeds its ...Max); a city
-config's "qa": {...} overrides any of them. Calibration (2026-10 test bakes): the old "trees in every
-park" rule scored unsupported 7-37 %, open cells 6-12 %; the evidence rule <= 0.2 % and 0 %; water and
-sand on all of San Francisco 0.06 % and 0.10 %.
+'!!! QA FAIL' block on stdout. Thresholds: QA_DEFAULTS (FAIL when a share exceeds its ...Max and the
+count behind it reaches 'minFlagged' cells / 'minUnsupported' trees: a small --bbox test bake's few
+cells don't fail on one lagoon); a city config's "qa": {...} overrides any of them. Calibration (2026-10
+test bakes, five frames in San Francisco and London): the old "trees in every park" rule scored
+unsupported 2-39 % (FAIL in three: the Crissy Field frame 39 % with 19 of 65 cells on open land), the
+evidence rule <= 0.11 % and 0 cells; water and sand on all of San Francisco 0.06 % and 0.10 %.
 """
 import json
 import math
@@ -51,8 +56,8 @@ QA_DEFAULTS = {
     'cell': 128.0,           # m: the comparison cells
     'wcRes': 4.0,            # m: WorldCover on the frame (nearest), the baked classes sampled at the same grid
     'support': 20.0,         # m: a procedural tree is supported when a WorldCover tree pixel lies this close (square reach)
-    'unsupportedMax': 0.05,  # FAIL: share of the procedural trees (park + street) without that support
-    'openCellTrees': 8,      # a cell is "trees on open land" with this many unsupported procedural trees (~5 / ha)...
+    'unsupportedMax': 0.05,  # FAIL: share of the procedural park / woods trees without that support (street trees: reported)
+    'openCellTrees': 8,      # a cell is "trees on open land" with this many unsupported park / woods trees (~5 / ha)...
     'openCellsMax': 0.01,    # FAIL: ...in more than this share of the land cells
     'waterDiff': 0.5,        # a cell disagrees on water when the baked and WorldCover water shares differ this much
     'waterCellsMax': 0.02,   # FAIL: share of all cells
@@ -61,6 +66,8 @@ QA_DEFAULTS = {
     'woodCover': 0.6,        # "missing trees": WorldCover tree cover of at least this in a cell mostly grass / woods...
     'woodPerHa': 8.0,        # ...that has fewer trees than this per ha of land
     'woodCellsMax': 0.10,    # FAIL: share of such wooded green cells
+    'minFlagged': 5,         # ...and a cell check fails only with at least this many flagged cells
+    'minUnsupported': 50,    # ...and "unsupported" only with at least this many trees (small test bakes: a handful of cells)
     'worst': 30,             # disagreements listed in the report
     'crops': 8,              # parks / open spaces cropped
     'cropMax': 2400.0,       # m: the longest side of a crop (bigger parks: their middle)
@@ -204,10 +211,13 @@ def run(slug, city_dir, log=_log, crops=None):
     def per_cell(m):
         return np.bincount(cid[m], minlength=ny * nx).reshape(ny, nx)
     n_all = per_cell(np.ones(len(T), bool))
-    proc = src > 0
+    # the checks weigh the procedural park / woods trees; street trees along frontages are reported beside the
+    # mapped street trees (WorldCover's 10 m pixels miss most single street trees, mapped or not)
+    proc = src == 1
     unsup = proc & ~tsup
     n_uns = per_cell(unsup)
-    n_uns_park = per_cell(unsup & (src == 1))
+    street = src == 2
+    mstreet = (src == 0) & (T[:, 2] == 0) if len(T) else np.zeros(0, bool)
     land_cells = land_b >= 0.2
     flags = []
 
@@ -218,7 +228,7 @@ def run(slug, city_dir, log=_log, crops=None):
     # trees on open land
     for i, j in zip(*np.nonzero(land_cells & (n_uns >= Q['openCellTrees']))):
         flags.append(('trees on open land', float(n_uns[i, j]), i, j,
-                      f'{n_uns[i, j]} procedural trees ({n_uns_park[i, j]} park, {n_uns[i, j] - n_uns_park[i, j]} street) with no '
+                      f'{n_uns[i, j]} procedural park / woods trees with no '
                       f'WorldCover tree cover within {Q["support"]:.0f} m; WorldCover tree cover {wct[i, j] * 100:.0f}% of the land; '
                       + cell_desc(i, j)))
     # missing trees: a park / wood WorldCover sees wooded, left bare
@@ -249,19 +259,21 @@ def run(slug, city_dir, log=_log, crops=None):
     nflag = {kd: sum(1 for f in flags if f[0] == kd) for kd in kinds}
     nland = int(land_cells.sum())
     nproc = int(proc.sum())
+    # (key, what, share, max share, detail, count, min count): a FAIL needs both over
+    mc, mt = int(Q['minFlagged']), int(Q['minUnsupported'])
     checks = [
-        ('unsupported', 'procedural trees with no WorldCover tree cover within %.0f m' % Q['support'],
-         int(unsup.sum()) / max(1, nproc), Q['unsupportedMax'], f'{int(unsup.sum()):,} of {nproc:,}'),
-        ('openCells', f'land cells with trees on open land (>= {Q["openCellTrees"]} unsupported procedural trees)',
-         nflag['trees on open land'] / max(1, nland), Q['openCellsMax'], f'{nflag["trees on open land"]} of {nland:,}'),
+        ('unsupported', 'procedural park / woods trees with no WorldCover tree cover within %.0f m' % Q['support'],
+         int(unsup.sum()) / max(1, nproc), Q['unsupportedMax'], f'{int(unsup.sum()):,} of {nproc:,}', int(unsup.sum()), mt),
+        ('openCells', f'land cells with trees on open land (>= {Q["openCellTrees"]} unsupported park / woods trees)',
+         nflag['trees on open land'] / max(1, nland), Q['openCellsMax'], f'{nflag["trees on open land"]} of {nland:,}', nflag['trees on open land'], mc),
         ('woodCells', f'wooded park / wood cells (WorldCover >= {Q["woodCover"] * 100:.0f}%) with < {Q["woodPerHa"]:.0f} trees / ha',
-         nflag['missing trees'] / max(1, int(wooded.sum())), Q['woodCellsMax'], f'{nflag["missing trees"]} of {int(wooded.sum()):,}'),
+         nflag['missing trees'] / max(1, int(wooded.sum())), Q['woodCellsMax'], f'{nflag["missing trees"]} of {int(wooded.sum()):,}', nflag['missing trees'], mc),
         ('waterCells', f'cells whose baked water differs from WorldCover water by >= {Q["waterDiff"] * 100:.0f}% of the cell',
-         nflag['water'] / max(1, ny * nx), Q['waterCellsMax'], f'{nflag["water"]} of {ny * nx:,}'),
+         nflag['water'] / max(1, ny * nx), Q['waterCellsMax'], f'{nflag["water"]} of {ny * nx:,}', nflag['water'], mc),
         ('sandCells', 'land cells whose sand disagrees with WorldCover bare ground',
-         nflag['sand'] / max(1, nland), Q['sandCellsMax'], f'{nflag["sand"]} of {nland:,}'),
+         nflag['sand'] / max(1, nland), Q['sandCellsMax'], f'{nflag["sand"]} of {nland:,}', nflag['sand'], mc),
     ]
-    failed = [c[0] for c in checks if c[2] > c[3]]
+    failed = [c[0] for c in checks if c[2] > c[3] and c[5] >= c[6]]
     ok = not failed
 
     # ---------------------------------------------------------------- trees overall
@@ -276,7 +288,11 @@ def run(slug, city_dir, log=_log, crops=None):
         'wcTreeCover': round(float((land4 & tre4).sum()) / max(1, int(land4.sum())), 4),
         'perHaNearWcTrees': round(float((proc & tsup).sum()) / max(ha_tree, 1e-6), 2),
         'perHaOpen': round(float(unsup.sum()) / max(ha_open, 1e-6), 2),
-        'unsupportedPark': int((unsup & (src == 1)).sum()), 'unsupportedStreet': int((unsup & (src == 2)).sum()),
+        'unsupportedPark': int(unsup.sum()), 'unsupportedStreet': int((street & ~tsup).sum()),
+        # (reported, not checked: the procedural street trees' unsupported share beside the mapped street trees')
+        'streetUnsupported': round(float((street & ~tsup).sum()) / max(1, int(street.sum())), 4),
+        'mappedStreet': int(mstreet.sum()),
+        'mappedStreetUnsupported': round(float((mstreet & ~tsup).sum()) / max(1, int(mstreet.sum())), 4),
         'scrubWoodedCells': int(shrub_wc.sum()),
     }
     del land4, tre4, sup4
@@ -352,7 +368,7 @@ def run(slug, city_dir, log=_log, crops=None):
         worst.append((kd, la, lo, score, why))
     summary = {
         'pass': ok, 'failed': failed, 'cells': ny * nx, 'landCells': nland,
-        'checks': {c[0]: {'value': round(c[2], 4), 'max': c[3]} for c in checks},
+        'checks': {c[0]: {'value': round(c[2], 4), 'max': c[3], 'count': c[5], 'min': c[6]} for c in checks},
         'flags': nflag, 'trees': tree_stats, 'scrubWoodedExamples': [[round(la, 5), round(lo, 5)] for la, lo, w in scrub_ex],
         'parks': [{k: p[k] for k in ('name', 'ha', 'wcTree', 'trees', 'mapped', 'park', 'street', 'perHa', 'haOpen', 'procOpen', 'perHaOpen')}
                   for p in parks],
@@ -365,9 +381,11 @@ def run(slug, city_dir, log=_log, crops=None):
     with open(mp, 'w') as f:
         json.dump(m2, f)
     verdict = 'PASS' if ok else 'FAIL'
-    lines = [f'{"FAIL" if c[0] in failed else "ok"}: {c[1]}: {c[2] * 100:.2f}% ({c[4]}), max {c[3] * 100:.1f}%' + ('  <-- FAIL' if c[0] in failed else '') for c in checks]
+    lines = [f'{"FAIL" if c[0] in failed else "ok"}: {c[1]}: {c[2] * 100:.2f}% ({c[4]}), max {c[3] * 100:.1f}% (and >= {c[6]})'
+             + ('  <-- FAIL' if c[0] in failed else '') for c in checks]
     if ok:
-        log('PASS (' + '; '.join(f'{c[0]} {c[2] * 100:.2f}%' for c in checks) + f') in {time.time() - t0:.0f} s; ' + summary['report'])
+        log('PASS (' + '; '.join(f'{c[0]} {c[2] * 100:.2f}%' + (f' ({c[5]}, under the minimum {c[6]})' if c[2] > c[3] else '') for c in checks)
+            + f') in {time.time() - t0:.0f} s; ' + summary['report'])
     else:
         bar = '!' * 78
         print('\n'.join(['', bar, f'!!! QA FAIL: {name} ({slug}): ' + ', '.join(failed), *[f'!!! {s}' for s in lines],
@@ -498,20 +516,24 @@ def write_report(out, name, slug, man, Q, checks, ok, ts, worst, parks, ny, nx, 
          f'Written {time.strftime("%Y-%m-%d %H:%M")} by `tools/bake/qa.py` against ESA WorldCover 10 m (2021). Frame '
          f'{(maxX - minX) / 1000:.2f} x {(maxZ - minZ) / 1000:.2f} km, {ny * nx:,} cells of {Q["cell"]:.0f} m; {man.get("buildingCount", 0):,} buildings.',
          '', '| check | value | threshold | |', '|---|---|---|---|']
-    for key, what, v, mx, detail in checks:
-        L.append(f'| {what} | {v * 100:.2f}% ({detail}) | <= {mx * 100:.1f}% | {"ok" if v <= mx else "**FAIL**"} |')
+    for key, what, v, mx, detail, n, mn in checks:
+        verdict = 'ok' if v <= mx else '**FAIL**' if n >= mn else f'ok (over the share, under the minimum of {mn})'
+        L.append(f'| {what} | {v * 100:.2f}% ({detail}) | <= {mx * 100:.1f}% (or < {mn}) | {verdict} |')
     L += ['', '## Trees', '',
           f'{ntrees:,} trees: {ts["mapped"]:,} mapped (OSM natural=tree / tree_row), {ts["park"]:,} procedural park / woods trees, '
-          f'{ts["street"]:,} procedural street trees. WorldCover tree cover: {ts["wcTreeCover"] * 100:.1f}% of the land. Procedural trees: '
-          f'{ts["perHaNearWcTrees"]:.1f} / ha of the land within {Q["support"]:.0f} m of WorldCover tree cover, {ts["perHaOpen"]:.2f} / ha '
-          f'of the rest (unsupported: {ts["unsupportedPark"]:,} park, {ts["unsupportedStreet"]:,} street).', '',
+          f'{ts["street"]:,} procedural street trees. WorldCover tree cover: {ts["wcTreeCover"] * 100:.1f}% of the land. Procedural park / '
+          f'woods trees: {ts["perHaNearWcTrees"]:.1f} / ha of the land within {Q["support"]:.0f} m of WorldCover tree cover, '
+          f'{ts["perHaOpen"]:.2f} / ha of the rest ({ts["unsupportedPark"]:,} unsupported).', '',
+          "Street trees (reported, not checked: WorldCover's 10 m pixels miss most single street trees): "
+          f'{ts["streetUnsupported"] * 100:.1f}% of the {ts["street"]:,} procedural ones along frontages have no WorldCover tree pixel '
+          f'within {Q["support"]:.0f} m, against {ts["mappedStreetUnsupported"] * 100:.1f}% of the {ts["mappedStreet"]:,} mapped street trees.', '',
           f'WorldCover sees woods (>= {Q["woodCover"] * 100:.0f}% tree cover) over OSM scrub / heath in {ts["scrubWoodedCells"]:,} cells, left '
           'without procedural trees (not a failure: the WorldCover tree class takes in tall dense shrubs; the OSM scrub tag wins)'
           + (': ' + '; '.join(f'{la:.5f}, {lo:.5f} ({w * 100:.0f}%)' for la, lo, w in scrub_ex) if scrub_ex else '') + '.', '',
           '## How to read this', '',
           '- **trees on open land**: procedural trees standing where WorldCover sees no tree cover within the support reach: a '
           'park polygon planted over its lawns, marsh or beach. Unsupported OSM-woods trees (woods are strong evidence of their '
-          'own) and street trees on mapped tree-lined streets count too; a few are fine, a cluster is the old bug.',
+          "own) count too; a few are fine, a cluster is the old bug. Street trees along frontages don't count (see Trees).",
           '- **missing trees**: WorldCover sees a wood over a park / woods / open-space cell (not scrub, heath, pitches...) '
           'the bake left (almost) bare: the evidence gate '
           'too strict, a polygon classed open space over a real wood, or WorldCover misregistered.',

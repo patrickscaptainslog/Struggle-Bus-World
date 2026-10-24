@@ -50,6 +50,8 @@ export interface CityManifest {
   source: string;
   /** Data credit to show in the game (ODbL: OpenStreetMap-derived bakes). */
   attribution?: string;
+  /** Other sources' credits, shown after it (e.g. worldcover: ESA WorldCover, CC BY 4.0). */
+  credits?: Record<string, string>;
   license?: string;
 }
 

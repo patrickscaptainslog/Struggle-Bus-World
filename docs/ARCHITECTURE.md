@@ -161,11 +161,14 @@ roof shapes, trees, street names) of any number of bakes side by side.
   TREE_OPEN lawns / commons / meadows / grassland / wetland / golf / aerodromes
   from f 0.25, TREE_WOODS OSM woods at least f 0.6, TREE_SHRUB scrub / heath and
   TREE_NEVER pitches / playgrounds / fairways / beaches / rock / plazas /
-  runways none; inside the green family the smallest polygon wins), on grass or
-  forest ground away from buildings, slopes under 45 degrees; street trees on
-  frontage sidewalks where no mapped tree stands within 9 m and either a
-  WorldCover tree pixel lies within ~10 m or a mapped tree within 20 m. The old
-  path (no `"overture"`) keeps its grass rule, slope limit and `treeLatMax`.
+  runways none; inside the green family the smallest polygon wins; Overture's
+  coarse land cover (priority 0) lies under every OSM polygon and its barren
+  says nothing, so only OSM's 'never' clears the woods and parks over it), on
+  grass or forest ground away from buildings, slopes under 45 degrees; street
+  trees as before: on 30 % of residential frontages' sidewalks where no mapped
+  tree stands within 9 m (no WorldCover gate: its 10 m pixels miss most single
+  street trees). The old path (no `"overture"`) keeps its grass rule, slope
+  limit and `treeLatMax`.
 - **ESA WorldCover 10 m** (v200, 2021, CC BY 4.0; `tools/bake/worldcover.py`):
   every city's land cover, read from the public S3 bucket's 3 x 3 degree COGs
   (`ESA_WorldCover_10m_2021_v200_<N|S><lat><E|W><lon>_Map.tif`, the tile's
@@ -173,24 +176,32 @@ roof shapes, trees, street names) of any number of bakes side by side.
   reads of the COG blocks), bboxes spanning tiles mosaicked on the global
   1/12000 degree grid, a missing tile is open sea. The crop is cached as
   `tools/bake/.cache/worldcover/<slug>.tif` (`overture.py` fetches it with the
-  extracts, `bake.py` and `qa.py` grow it when a bake needs more) and resampled
+  extracts and exits 2 when it can't; `bake.py` checks it right after the city
+  frame, before the DEM, and fails there; `bake.py` and `qa.py` grow it when a
+  bake needs more) and resampled
   (nearest) onto the bake's local frame at 4 m (`local_grid`). Classes: 10 tree
   cover, 20 shrubland, 30 grassland, 40 cropland, 50 built-up, 60 bare /
   sparse, 70 snow / ice, 80 water, 90 herbaceous wetland, 95 mangroves (trees
   for the bake), 100 moss / lichen. `"worldcover": false` in a config bakes
-  without it (procedural trees only in OSM woods, street trees unchecked).
-  `city.json` names it in `source` and `credits.worldcover`.
+  without it (procedural trees only in OSM woods). `city.json` names it in
+  `source` and `credits.worldcover`; the tuner lists `credits` after the ODbL
+  attribution.
 - **Bake QA** (`tools/bake/qa.py`): `bake.py` runs it after every OSM bake
   (its arrays freed first; `--qa=0` skips, `--qa=warn` reports without
   failing), standalone `python3 -I tools/bake/qa.py <slug> --dir=public/city/<name>`
   checks any baked dir. Per 128 m cell it compares the bake with WorldCover:
-  procedural trees with no WorldCover tree pixel within 20 m ("unsupported";
-  8+ in a cell: "trees on open land"), wooded park / woods / open-space cells
+  procedural park / woods trees with no WorldCover tree pixel within 20 m
+  ("unsupported"; 8+ in a cell: "trees on open land"; street trees along
+  frontages are reported beside the mapped street trees, not checked:
+  WorldCover misses 42 % of SF's mapped ones), wooded park / woods /
+  open-space cells
   left under 8 trees / ha ("missing trees"), the baked water share vs
   WorldCover water (80) ("water", >= 50 % of a cell apart), baked sand vs
   WorldCover bare ground ("sand"); WorldCover woods over OSM scrub / heath are
   listed as information. Thresholds: `qa.QA_DEFAULTS` (a config's `"qa"`
-  overrides); any exceeded is a FAIL: a `!!! QA FAIL` block and exit 3 (the
+  overrides); a check whose share exceeds its max and whose count reaches
+  `minFlagged` (5 cells) / `minUnsupported` (50 trees) is a FAIL: a
+  `!!! QA FAIL` block and exit 3 (the
   bake's outputs are complete; `pack.py` packs them). Writes `city.json`
   `stats.qa` (pass, failed checks, values, tree counts by source, the largest
   parks) and `tools/bake/.cache/qa/<name>/`: `report.md` (the checks, the 30
