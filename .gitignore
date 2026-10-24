@@ -9,3 +9,4 @@ tools/feel-sim/.out
 tools/bake/.data
 .vercel
 .env*
+__pycache__/

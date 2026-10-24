@@ -99,7 +99,8 @@ export class CameraRig {
       this.posVel[k] += a * dt;
       this.pos[k] += this.posVel[k] * dt;
     }
-    let la = C.lookAhead * (0.6 + 0.4 * clamp(sp / F.cruiseSpeed, 0, 2)) * (1 - 0.65 * barf);
+    const spk = sp / F.cruiseSpeed;
+    let la = C.lookAhead * (C.lookAheadSlow + (1 - C.lookAheadSlow) * clamp(spk, 0, 1) + 0.4 * clamp(spk - 1, 0, 1)) * (1 - 0.65 * barf);
     let pitch = 0;
     if (v > 0) {
       // far enough ahead that the view pitches down by pitchVista, and never so far down that

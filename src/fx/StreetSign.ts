@@ -91,6 +91,20 @@ export const signTune = {
    * (looking over the roof at its back): the sign stretches up to peek over.
    */
   peekHeight: 6,
+  /**
+   * Placement beside a blast (the game's showSign): the sign rises this long (s)
+   * after the shockwave has reached the blast's edge, so the impact and the
+   * bloom are seen clean; it stands on open ground this far (m) past the blast's
+   * far side as the camera sees it, offset sideways by this fraction of the
+   * radius (off the flight line, where the next target glints), and grows so a
+   * font pixel stays at least this many game pixels at that distance.
+   */
+  showDelay: 0.35,
+  besideOut: 10,
+  besideSide: 0.45,
+  minFontPx: 1.15,
+  /** ...and when its foot is hidden behind roofs, its pole may grow this much (m) to clear them. */
+  poleLiftMax: 10,
 };
 registerTunables('Signs', signTune, {
   texelW: [0.25, 0.8, 0.01],
@@ -122,6 +136,11 @@ registerTunables('Signs', signTune, {
   depthBias: [0, 60, 1],
   biasDelay: [0, 4, 0.05],
   peekHeight: [0, 20, 0.5],
+  showDelay: [0, 2, 0.05],
+  besideOut: [-40, 80, 1],
+  besideSide: [0, 1.5, 0.01],
+  minFontPx: [0.5, 3, 0.05],
+  poleLiftMax: [0, 30, 0.5],
 });
 
 export interface StreetSignOptions {
@@ -133,6 +152,15 @@ export interface StreetSignOptions {
   facing: number;
   /** Rainbow hue 0..5 for the flipped side. */
   hue: number;
+  /** Uniform size multiplier (a sign standing farther away grows to stay legible). Default 1. */
+  scale?: number;
+  /** Pull the depth toward the camera from the start (the sign stands clear of the bus). */
+  biasNow?: boolean;
+  /** This sign's depth bias (m) instead of signTune.depthBias: a sign standing in the open, beside
+   *  the blast, takes a small one, so the painted buildings in front of it keep covering it. */
+  depthBias?: number;
+  /** Extra pole (m): lifts the blade clear of the roofs between it and the camera. Default 0. */
+  pole?: number;
 }
 
 const MAX_SIGNS = 4;
@@ -190,6 +218,9 @@ interface Sign {
   pendingHue: number;
   wobbleDir: number;
   text: string;
+  scale: number;
+  bias: number;
+  poleExtra: number;
 }
 
 const tmpM = new THREE.Matrix4();
@@ -233,6 +264,14 @@ function easeInBack(u: number): number {
 
 function kick(tau: number, amp: number, hz: number, decay: number): number {
   return tau > 0 ? amp * Math.exp(-tau * decay) * Math.sin(2 * Math.PI * hz * tau) : 0;
+}
+
+/** The blade's width (m, at scale 1) a sign with this text gets (as rasterize lays it out): for placing it. */
+export function signBladeWidth(text: string): number {
+  const t = normalizeText(text);
+  let textW = 1;
+  for (const l of splitLines(t, signTune.maxLine, FONT_LARGE)) textW = Math.max(textW, measureText(l, FONT_LARGE));
+  return Math.min(ATLAS_W, textW + 2 * (RIM + BORDER + PAD_X)) * signTune.texelW;
 }
 
 export class StreetSigns {
@@ -313,6 +352,9 @@ export class StreetSigns {
         peekK: 0,
         wobbleDir: i % 2 ? 1 : -1,
         text: '',
+        scale: 1,
+        bias: 0,
+        poleExtra: 0,
       });
       this.mesh.setMatrixAt(i, ZERO_M);
       this.shadowMesh.setMatrixAt(i * 2, ZERO_M);
@@ -346,7 +388,7 @@ export class StreetSigns {
     const T = signTune;
     const tFlip = T.riseTime + T.holdGreen;
     const tSink = tFlip + T.flipTime + T.holdRainbow;
-    s.sinceShow = 0;
+    s.sinceShow = opts.biasNow ? T.biasDelay : 0;
     if (wasActive && s.text === text && s.age > T.riseTime * 0.6 && s.age < tSink) {
       // re-splat of the same block while its sign stands: no re-pop, it flips (again) into the new paint.
       // A double-sided blade at spin 180 deg looks the same as at 0, so rewinding into the flip is seamless.
@@ -364,7 +406,10 @@ export class StreetSigns {
     s.age = 0;
     s.text = text;
     s.pendingHue = -1;
-    if (!wasActive) s.biasK = 0;
+    if (!wasActive) s.biasK = opts.biasNow ? 1 : 0;
+    s.scale = Math.max(0.1, opts.scale ?? 1);
+    s.bias = opts.depthBias ?? T.depthBias;
+    s.poleExtra = Math.max(0, opts.pole ?? 0) / s.scale; // (the whole sign is scaled)
     s.pos.copy(opts.position);
     s.facing = opts.facing;
     s.hue = hue;
@@ -374,6 +419,13 @@ export class StreetSigns {
     s.wobbleDir = -s.wobbleDir;
     this.rasterize(slot, text);
     if (!wasActive) this.activeCount++;
+  }
+
+  /** The sign standing at `position` (within 10 m) sinks now: a new blast's bloom is about to reach its spot. */
+  retire(position: THREE.Vector3): void {
+    const T = signTune;
+    const tSink = T.riseTime + T.holdGreen + T.flipTime + T.holdRainbow;
+    for (const s of this.signs) if (s.active && s.pos.distanceToSquared(position) < 100) s.age = Math.max(s.age, tSink);
   }
 
   private setHue(slot: number, hue: number) {
@@ -485,7 +537,7 @@ export class StreetSigns {
       const behind = Math.cos(want - s.facing) < -0.2 ? 1 : 0;
       if (s.fresh) s.peekK = behind;
       else s.peekK += (behind - s.peekK) * (1 - Math.exp(-2.5 * dt));
-      const poleH = T.poleHeight + T.peekHeight * s.peekK * s.peekK * (3 - 2 * s.peekK);
+      const poleH = T.poleHeight + s.poleExtra + T.peekHeight * s.peekK * s.peekK * (3 - 2 * s.peekK);
       const totalH = poleH + bladeH + FINIAL_H + 0.4;
 
       // ---- vertical: spring up out of the sidewalk, then the pole is the spring
@@ -563,11 +615,11 @@ export class StreetSigns {
       s.sinceShow += dt;
       s.biasK += ((s.sinceShow >= T.biasDelay ? 1 : 0) - s.biasK) * (1 - Math.exp(-5 * dt));
       tilts[i * 2] = tilt;
-      tilts[i * 2 + 1] = T.depthBias * s.biasK * s.biasK * (3 - 2 * s.biasK);
+      tilts[i * 2 + 1] = s.bias * s.biasK * s.biasK * (3 - 2 * s.biasK);
 
       // ---- write instance data
       tmpQ.setFromAxisAngle(UP, s.yaw + spin);
-      tmpS.set(1, 1, 1);
+      tmpS.set(s.scale, s.scale, s.scale);
       tmpM.compose(tmpV.set(s.pos.x, s.pos.y + rootY, s.pos.z), tmpQ, tmpS);
       this.mesh.setMatrixAt(i, tmpM);
       const o = i * 4;

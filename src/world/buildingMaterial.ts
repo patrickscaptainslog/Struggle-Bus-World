@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { config } from '../config';
-import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
+import { globals, GLSL_COMMON, GLSL_OUT, GLSL_SKY_LIGHT } from '../render/materials';
 import { Ramp, HUE_RAMPS } from '../render/palette';
 import { Part } from './BuildingMesher';
 import { Arch } from './tiles';
@@ -216,18 +216,14 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       }
 
       // ---- atmospheric perspective, mirrored from the resolve pass (PixelPipeline.ts RESOLVE_FS:
-      // skyLight(), sl and light = mix(light, sl, smoothstep(0.08, 0.66, fog) * 0.9); keep in sync).
+      // sl and light = mix(light, sl, smoothstep(0.08, 0.66, fog) * 0.9); keep in sync. Its skyLight()
+      // is the very same function, materials.ts GLSL_SKY_LIGHT, at the same calm).
       // Tower facades pick whole ramp steps in that fogged space and write the light that lands
       // exactly on them, so their patterns never fall into the dither band.
       float gAF = 0.0;
       float gSL = 0.9;
-      float skyMirror(vec3 dir) {
-        float e = clamp(dir.y * 2.6, -0.3, 1.0);
-        float sunNear = pow(max(dot(dir, uSunDir), 0.0), 16.0);
-        float l = 0.9 - 0.5 * max(e, 0.0) + 0.12 * sunNear;
-        l -= 0.6 * max(-e, 0.0);
-        return clamp(l, 0.0, 1.0);
-      }
+      ${GLSL_SKY_LIGHT}
+      float skyMirror(vec3 dir) { return sbSkyLight(dir, uSunDir, uCalmF); }
       /** the ramp step (continuous) a light level ends on after the resolve's atmospheric mix */
       float stepPos(float L) { return mix(clamp(L, 0.0, 1.0), gSL, gAF) * 7.0; }
       /** contrast of a pattern (in steps) compressed by the fog, as the resolve would */

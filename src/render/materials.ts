@@ -23,6 +23,9 @@ export const globals = {
   uShadowOn: { value: 0 }, // shadow strength 0..1 (0 = no shadow map this frame)
   uShadowEdge: { value: 0.08 }, // width of the fade at the shadow window's edge (fraction of the map)
   uFog: { value: new THREE.Vector4(config.fog.density, config.fog.heightFalloff, config.fog.farFull, 1) },
+  // the fog ceiling for tall distant shapes: x most fog they get, y/z the heights (m ASL) over which it
+  // takes hold, w distance (m) by which it has faded back to full fog
+  uFogStand: { value: new THREE.Vector4(config.fog.standFog, config.fog.standFrom, config.fog.standTo, config.fog.standFade) },
   uFogBank: { value: 1 },
   uPaintFog: { value: null as THREE.Texture | null }, // r = paint density, sampled over uPaintFogRect
   uPaintFogRect: { value: new THREE.Vector4(0, 0, 1, 1) }, // minX, minZ, 1/width, 1/depth
@@ -86,6 +89,24 @@ export function layerTopBase(x: number, z: number): number {
   return top + (F.layerTopBay - top) * Math.max(bay, north * east);
 }
 
+/**
+ * The sky's light by view direction, one copy for both users: the resolve (PixelPipeline RESOLVE_FS: the
+ * sky itself, and the value fog converges on) and the tower facades' mirror of the resolve's atmospheric
+ * perspective (buildingMaterial skyMirror: towers write the light that lands exactly on a ramp step).
+ * `calm` is pipeline.calm (0 at the floor, 1 with the vista fully calm).
+ */
+export const GLSL_SKY_LIGHT = /* glsl */ `
+float sbSkyLight(vec3 dir, vec3 sunDir, float calm) {
+  float e = clamp(dir.y * 2.6, -0.3, 1.0);
+  float sunNear = pow(max(dot(dir, sunDir), 0.0), 16.0);
+  // (at the floor the sky band is the frame's top ~10 deg: it holds one step there, so its first step
+  // change, a dithered stripe, never rides the top edge of the chase view; up high it deepens as before)
+  float l = 0.9 - mix(0.25, 0.5, calm) * max(e, 0.0) + 0.12 * sunNear;
+  l -= 0.6 * max(-e, 0.0);
+  return clamp(l, 0.0, 1.0);
+}
+`;
+
 export const GLSL_COMMON = /* glsl */ `
 precision highp float;
 precision highp sampler2DShadow;
@@ -97,6 +118,7 @@ uniform mat4 uShadowMatrix;
 uniform float uShadowOn;
 uniform float uShadowEdge;
 uniform vec4 uFog;              // density, heightFalloff, farFull, unused
+uniform vec4 uFogStand;         // fog ceiling of tall far shapes: cap, gate from / to (m: the city's low ground + standFrom / standTo), fade end (m)
 uniform float uFogBank;
 uniform sampler2D uPaintFog;
 uniform vec4 uPaintFogRect;
@@ -144,6 +166,15 @@ float sbFog(vec3 worldPos) {
   float f = 1.0 - exp(-density * dist * (0.35 + 0.65 * hf));
   float far = smoothstep(uFog.z * 0.55, uFog.z, dist);
   f = clamp(max(f, far), 0.0, 1.0);
+  // tall distant shapes (downtown's towers, Sutro, the peaks, the hilltops, the Headlands) stand out of
+  // the low fog as pale Hopper silhouettes: a fog ceiling gated by height over the city's low ground
+  // (City.lowGround: sea level in SF, the plateau elsewhere), so everything low
+  // (the streaming edge among them) is buried exactly as before and their bases melt into the fog; the
+  // far skyline boxes and the real tiles share it, so nothing inverts where a region streams in. Off
+  // while the opening's fog bank is up; it fades back to full fog with distance (layers recede).
+  float stand = smoothstep(uFogStand.y, uFogStand.z, worldPos.y) * clamp(2.0 - uFogBank, 0.0, 1.0);
+  float cap = mix(uFogStand.x, 1.0, smoothstep(uFogStand.w * 0.5, uFogStand.w, dist));
+  f = min(f, mix(1.0, cap, stand));
   if (uFogLayer2.w > 0.001) {
     // high above it, the marine layer is a fog sea with a top: the optical
     // depth is the ray's path inside the layer (an exact average of the soft

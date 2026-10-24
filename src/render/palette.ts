@@ -31,9 +31,16 @@ export const Ramp = {
   SIGN_GREEN: 17,
   WHITE: 18,
   ROOF_DARK: 19, // tar roofs
+  // 20-23: world materials (never painted)
   GLASS: 20, // tower curtain walls: blue-silver, the bright end is the fog sky they mirror
   STONE: 21, // pre-war masonry and terracotta: pale buff stone in the sun, cool violet-grey in shade
   GRANITE: 22, // polished dark granite (555 California): near-black plum grey
+  BRIDGE_ORANGE: 23, // painted bridge steel (the Golden Gate's International Orange), muted, shadows to rose and plum
+  // Reserved rows (docs/specs/STAGES.md 3.4 rule 7, WORLD-TRAVEL.md 2.5); claim them here, by name:
+  //   24-31 faction ramps: MAGENTA 24, CYAN 25, AQUA 26, PEARL 27 (spare since Cloud Nine was cut),
+  //         MOSS 28, BIOLUME 29, FAE_VIOLET 30, SILVERBARK 31 (the Elderwood)
+  //   32-37 world travel: NIGHT_SKY 32, OPEN_SEA 33, LIMB 34, CLOUD 35, DRY_LAND 36, TWILIGHT 37
+  //   38-47 spare
 } as const;
 
 export type RampId = (typeof Ramp)[keyof typeof Ramp];
@@ -57,7 +64,8 @@ const RAMPS: Record<number, string[]> = {
   [Ramp.GREEN_GREY]: ['#141a1a', '#1d2625', '#283331', '#36423f', '#47534f', '#5a6762', '#717d76', '#8f978d'],
   [Ramp.WINDOW]: ['#0d1219', '#141c25', '#1d2833', '#283644', '#384757', '#4e5e6e', '#6f7f8d', '#9aa6b0'],
   [Ramp.INK]: ['#0b0e13', '#0f131a', '#141921', '#1a2029', '#202732', '#272f3b', '#2f3845', '#38424f'],
-  [Ramp.WATER]: ['#111a24', '#172330', '#1f2e3d', '#29394a', '#354658', '#445567', '#576879', '#6f7f8f'],
+  // (the upper steps climb toward the fog: grazing water mirrors it, luma 0.10 .. 0.67 in even steps)
+  [Ramp.WATER]: ['#111a24', '#172330', '#1f2e3d', '#2c3d4e', '#3f5164', '#5b6c7e', '#7d8b99', '#a3adb7'],
   [Ramp.RED]: ['#2a0f2e', '#4d1440', '#7a1d4c', '#b02a55', '#e0405e', '#f6707a', '#ff9f9c', '#ffd6cf'],
   [Ramp.ORANGE]: ['#3a1230', '#6e1f3a', '#a8333e', '#dc5235', '#f58233', '#ffa94a', '#ffcb7a', '#ffeac2'],
   [Ramp.YELLOW]: ['#5c1e3a', '#9a3540', '#d25a3a', '#f08a2e', '#f8b52c', '#ffd23e', '#ffe880', '#fff8cc'],
@@ -75,9 +83,10 @@ const RAMPS: Record<number, string[]> = {
   // the old near-neutral warm mid steps read taupe and rust next to the blue-grey city, rose read pink)
   [Ramp.STONE]: ['#23262c', '#33353b', '#45464d', '#5d5e65', '#77767d', '#949298', '#b6b0a6', '#d4cdc0'],
   [Ramp.GRANITE]: ['#0c0b11', '#14121a', '#1d1a24', '#28232f', '#352e3c', '#463d4d', '#5c5163', '#7b6e80'],
+  [Ramp.BRIDGE_ORANGE]: ['#24121f', '#3d1828', '#5e2131', '#842c38', '#a33a3a', '#b4564a', '#bf7a6c', '#c9a197'],
 };
 
-export const RAMP_COUNT = 32; // texture rows (room to grow; unused rows are black)
+export const RAMP_COUNT = 48; // texture rows (8x48 RGBA8, 1.5 KB; rows 24-47 reserved or spare, unused rows are black)
 
 /** Linear-ish sRGB triplets 0..1 for CPU use (e.g. CSS colors, splash screens). */
 export function rampColor(ramp: number, step: number): string {

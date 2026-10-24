@@ -15,6 +15,17 @@ export const config = {
     maxPixelScale: 8,
     /** Width of the dithered band between two ramp steps (0 = hard bands, 0.5 = full dither). */
     ditherWidth: 0.22,
+    /** Into the haze surfaces stop dithering: from this fog amount to this one the dither fades to plain
+     *  rounding (the pattern is anchored at the bus's depth; far shapes crawl across it with parallax). */
+    ditherHazeFrom: 0.3,
+    ditherHazeTo: 0.6,
+    /** The fog handover band follows the fog's own gradient, but never narrower than this at street
+     *  level (fog units; 0.06 = the old fixed band). */
+    fogBandMin: 0.015,
+    /** With fog: the shortest shape that may stand out of it, as a share of the frame's height (0.0071 =
+     *  6 game px of 852, ~0.35 deg; 0.0118 = 10 px, ~0.58 deg); a shorter one (the top of a roof just over the fog ceiling's contour)
+     *  would float in the sky band as a chip, so it is buried. 3..16 px. */
+    fogSliver: 0.0118,
     /** Depth-discontinuity threshold for silhouette outlines (fraction of depth). */
     outlineDepth: 0.035,
     /** Crease highlight strength on convex edges (0..1). */
@@ -63,6 +74,15 @@ export const config = {
     heightFalloff: 120,
     /** Distance at which far geometry is fully fogged (m). Streaming edge hides behind this. */
     farFull: 2600,
+    /** Fog ceiling for tall distant shapes: the most fog anything this high gets (0..1, keep 0.76..0.85:
+     *  below ~0.68 it would fall into the handover band, below 0.76 the silhouettes keep their surfaces'
+     *  one-pixel window grids, which crawl), the heights (m above the city's low ground, City.lowGround:
+     *  SF's is ~sea level) over which it takes hold,
+     *  and the distance (m) by which it has faded back to full fog (it starts fading at half that). */
+    standFog: 0.78,
+    standFrom: 50,
+    standTo: 160,
+    standFade: 10000,
     /** How much painted neighborhoods thin the fog above them (0..1). */
     paintClearing: 0.65,
     /** Fog bank density multiplier during the opening (fades to 1). */
@@ -92,18 +112,22 @@ export const config = {
     hfovPortrait: 24,
     /** Vertical field of view cap when landscape (deg). */
     vfovLandscape: 34,
-    /** Distance behind the bus (m). */
-    distance: 175,
-    /** Elevation angle of the camera above the bus when cruising (deg). */
-    elevationCruise: 31,
-    /** Elevation when slow (deg) — tilts toward diorama. */
-    elevationSlow: 39,
+    /** Distance behind the bus (m). (Closer than the old 175 m: the lower camera sees less roof, so the hero keeps its size.) */
+    distance: 155,
+    /** Elevation angle of the camera above the bus when cruising (deg): low enough for a sky band
+     *  and the horizon at the top of the frame (~13% from the top), the bus ~60% down. */
+    elevationCruise: 24,
+    /** Elevation when slow (deg) — tilts toward diorama (a thin sky band stays). */
+    elevationSlow: 29,
     /** Speed at which the camera reaches elevationSlow (m/s). */
     slowSpeed: 6,
     /** Elevation at full surge (deg) — levels toward the horizon. */
-    elevationSurge: 24,
+    elevationSurge: 20,
     /** Look-ahead in front of the bus (m), keeps the bus above the thumb zone. */
     lookAhead: 55,
+    /** Look-ahead at rest as a fraction of lookAhead (it grows to 1 at cruise and 1.4 at twice cruise).
+     *  1 = the slow diorama still looks out far enough to keep the horizon in frame. */
+    lookAheadSlow: 1,
     /** Position lag spring frequency (Hz) and damping ratio. */
     followHz: 1.6,
     followDamping: 1.0,
@@ -121,6 +145,13 @@ export const config = {
     pitchVista: 22,
     /** The bus grows a little at altitude so the hero stays readable (scale at full vista). */
     heroScaleVista: 1.55,
+    /** The bus's one eye seen from behind: its headlight beam lights what lies ahead of its face a step
+     *  or two brighter, this long, this wide at its far end (m, x the eye's openness), pitched this far
+     *  down (deg), this strong (0..1, x the eye's openness; 0 = off). */
+    headBeamLength: 42,
+    headBeamWidth: 20,
+    headBeamPitch: 6,
+    headBeamStrength: 0.9,
     /** How fast the vista blend follows the altitude while climbing or diving (1/s); holding an altitude freezes it. */
     vistaRate: 0.9,
     /** ...and how fast it settles once the yoke lets go (1/s), then it holds perfectly still. */

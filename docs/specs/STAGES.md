@@ -17,7 +17,8 @@ three workstreams, the budgets and the pixel contract.
 **Sources.** I read `docs/specs/MAGIC-SPEC.md`, `docs/specs/magic/concept-{living,energy,spectacle}.md`,
 `docs/specs/COMMON.md`, `docs/ARCHITECTURE.md`, `src/world/PaintState.ts`, `src/world/GroundPaint.ts`,
 `src/game/Splat.ts` and `src/config.ts`. To fit the plans already in flight, I also checked:
-- `src/render/palette.ts`: ramp rows 20-31 are free;
+- `src/render/palette.ts`: ramp rows 24-31 are reserved for the faction ramps (rows 20-23 went to the tower facades'
+  GLASS / STONE / GRANITE and the Golden Gate's BRIDGE_ORANGE; `RAMP_COUNT` is now 48, see rule 7 in §3.4);
 - `src/world/buildingMaterial.ts`: how the faction channel is decoded;
 - `public/city/sf/city.json`: 140,961 buildings, 256 m tiles, 1 km regions, 51 neighbourhoods;
 - `docs/specs/WORLD-TRAVEL.md` §2.5 and §8: its palette rows and the paint server.
@@ -789,15 +790,17 @@ export interface CenterpieceRecipe {
    painted pixels. Hyperglow's lines rest at 0.5.
 6. **The same anti-strobe rules for all.** At most +1 step, at most 1.4 Hz, never a whole-surface flash. Hyperglow's
    bolts follow them too (§3.5).
-7. **Four new ramps.** This is a render-owner change, rows 20-23. The values below are proposals, to be art-directed later
-   and validator-checked. WORLD-TRAVEL's six rows move to 24-29, which leaves 2 rows spare.
+7. **New ramps.** This is a render-owner change, rows 24-31 (`RAMP_COUNT` is 48; rows 20-23 are the world materials:
+   GLASS, STONE, GRANITE, BRIDGE_ORANGE). The four below take 24-27 (`PEARL`, 27, is spare while Cloud Nine is cut), the
+   Elderwood's `MOSS`, `BIOLUME`, `FAE_VIOLET` and `SILVERBARK` take 28-31. The values are proposals, to be art-directed
+   later and validator-checked. WORLD-TRAVEL's six rows are 32-37, which leaves 38-47 spare.
 
 | Ramp | Steps 0 → 7 | Note |
 |---|---|---|
-| `MAGENTA` (20) | `#2a0a3a #4a0f5e #7a1488 #b01aa8 #e02cc0 #ff5ad6 #ff9ae6 #ffd6f6` | – |
-| `CYAN` (21) | `#0a1a4a #0a2e70 #0a4c94 #0878b4 #0aaed0 #30dce8 #86f4f4 #dcffff` | – |
-| `PEARL` (22) | `#3a2c5c #54467a #706498 #9086b4 #b0a8cc #cec8e2 #e8e4f2 #ffffff` | white with lilac shadows, so shadowed porcelain never reads as battleship grey |
-| `AQUA` (23) | `#101a4c #0e3270 #0c5486 #0a7c90 #12a49c #38c8ac #86e6c8 #d6fff0` | – |
+| `MAGENTA` (24) | `#2a0a3a #4a0f5e #7a1488 #b01aa8 #e02cc0 #ff5ad6 #ff9ae6 #ffd6f6` | – |
+| `CYAN` (25) | `#0a1a4a #0a2e70 #0a4c94 #0878b4 #0aaed0 #30dce8 #86f4f4 #dcffff` | – |
+| `PEARL` (27) | `#3a2c5c #54467a #706498 #9086b4 #b0a8cc #cec8e2 #e8e4f2 #ffffff` | white with lilac shadows, so shadowed porcelain never reads as battleship grey |
+| `AQUA` (26) | `#101a4c #0e3270 #0c5486 #0a7c90 #12a49c #38c8ac #86e6c8 #d6fff0` | – |
 
 ### 3.5 The four launch factions
 
@@ -1002,7 +1005,7 @@ The cost of one more faction, once Super Rainbow and Hyperglow exist:
 | game glue (`Splat.ts`, after supersplat) | `barf(x, z, {faction, levelFor})`: the faction (default: the player's) and a level hook returning `min(3, area stage after the hit)`. Rival-owned buildings are left out of painting, but still count as the primary of a strike. |
 | ground (`GroundPaint.ts`; coordinate with feat/osm paint v2) | a `canPaint(x, z)` predicate in `put()`, and the `tArea` uniform in the terrain GLSL. The mask format is unchanged. |
 | particles | an optional `palette` ramp list on `geyser`, `splash`, `puff`, `sparkles`, `burst` and `fling`, defaulting to `HUE_RAMPS` |
-| render (`palette.ts`) | 4 ramp rows (§3.4) |
+| render (`palette.ts`) | the faction ramp rows 24-31 (§3.4) |
 | polish/look | a faction ramp in the sky-warm LUT (`SKY_WARM`, `NIGHT_SKY` or pastel), and `signs.celebrate(name, faction)` |
 | feat/supersplat | `Blast.super = {kind, charge, id}`, where `id` is the super serial (for the one-hit-per-super rule) |
 | aim | the glint's colour by area readiness (§1.2) |

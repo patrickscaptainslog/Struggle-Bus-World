@@ -1,0 +1,33 @@
+{
+ "what": "polish/look merged with main (facade + landmarks), MAIN e85f5ee (origin/main) vs NEXT (this branch), real Edge on the GPU (Intel UHD 620 laptop), 393x852 @3x, 390 px frame. Sheets: M = MAIN, N = NEXT, scaled from game pixels.",
+ "shimmer": {
+  "how": "tools/look.mjs --seqn=5 (4 pairs of frames exactly 1/30 s apart per view, fixed game step), GPX=3 python -I tools/lookstat.py: visible% = block-matched changes over half a ramp step; px = that share of the region; chk = 2x2 checker cells in the top 15% of the frame",
+  "fog off (default)": {
+   "ladies":  {"all": [11.57, 8.73], "trees": [9.97, 7.65], "top15chk": [1.89, 0.09]},
+   "dolores": {"all": [11.16, 8.50], "trees": [18.02, 12.45], "top15chk": [4.60, 0.07]},
+   "alt120":  {"all": [11.98, 9.61], "trees": [10.49, 9.09], "sky": [0.30, 0.00], "top15chk": [1.98, 0.15]}
+  },
+  "?fog": {
+   "ladies":  {"all": [9.44, 6.51], "trees": [9.91, 7.02], "sky": [0.60, 0.25], "fogbandPct": [11.43, 11.71], "fogbandPx": [1287, 626], "top15chk": [5.82, 0.00]},
+   "dolores": {"all": [8.54, 6.89], "trees": [9.64, 8.68], "sky": [1.01, 0.35], "fogbandPct": [14.08, 11.14], "fogbandPx": [1299, 496], "top15chk": [14.95, 0.03]},
+   "alt120":  {"all": [8.11, 6.79], "trees": [9.92, 8.53], "skyPct": [0.36, 0.46], "skyPx": [302, 477], "fogbandPct": [8.76, 12.42], "fogbandPx": [871, 637], "top15chk": [0.75, 0.00],
+               "note": "3 NEXT runs at 120 m with fog: sky 0.31 / 0.55 / 0.46% (321 / 570 / 477 px) vs MAIN 0.34-0.36% (280-302 px): the standing skyline's edges sliding with parallax. Same-frame variants: fogBandMin 0.06 makes the fog band worse (11.71 -> 13.34%), standFog 0.84 and standFade 6000 change no pixel in these frames."}
+  }
+ },
+ "altitude": {"how": "tools/altitude.mjs downtown --seq, python -I tools/seqstat.py (residual per frame pair)", "cruise": [13.25, 11.38], "250m pairs": ["5.1-5.2 / 8.4", "5.1-5.2 / 8.5-8.6"], "ceiling pairs": ["4.4 / 7.9", "4.4 / 7.8"]},
+ "facade": {"how": "tools/facade-shots.mjs --seq --perf, seqstat", "hero-salesforce": [3.13, 2.97], "hero-transamerica": [9.59, 8.97], "hero-181fremont": [5.51, 5.81], "chase-fidi": [14.47, 10.07], "alt-downtown250": [5.21, 5.80]},
+ "perf": {
+  "how": "tools/look.mjs perf (median of 8 held frames: exact draw calls / triangles; CPU workMs), two runs each",
+  "ladies-cruise": {"main": "125 / 1,211,947 / 2.7-3.5 ms", "next": "125 / 1,213,975 / 2.8-2.9 ms"},
+  "fidi-surge": {"main": "123-124 / 827-829k / 2.9-4.8 ms", "next": "125 / 843,892 / 2.5-2.6 ms"},
+  "climb-250m": {"main": "169 / 1,526-1,528k / 3.3-6.5 ms", "next": "169 / 1,528,191 / 3.1-4.8 ms"},
+  "facade chase views": "every chase view one draw fewer (the drop-shadow decal is gone): fidi 125 -> 124, rincon 114 -> 113, embarcadero 115 -> 114, alamo 130 -> 129; hero views identical (fixed telephoto)",
+  "regression": {"grey": ["126 / 1,203,110", "125 / 1,203,090"], "painted": ["135 / 1,248,705", "134-135 / 1,248,685-1,249,237 (4 runs)"]}
+ },
+ "mergeReview": {
+  "sign": "lm hill poses at +3 s (landmark-signs.png): Telegraph Hill from the east: MAIN whole blade, NEXT before 'TELEGRA / H' half behind Coit Tower (310 m out, its sightline 67 m under the tower), now no sign (no spot in frame is seen); Coit N / S / W beside the tower and whole; Ferry Building and Transamerica unchanged (whole, off the landmark's middle). Work on the frames after the hit, 2nd / 3rd largest (lm-work, coit-e / n / s): MAIN 18.3/16.9, 17.8/11.4, 14.4/10.6 ms; NEXT before 21.9/21.5, 16.2/14.3, 16.4/15.1; now 21.7/19.3, 371(first sign shader)/19.2, 17.4/14.4 (the review's whole-line scratch: 29.5/28.1, 28.2/26.9)",
+  "shadowOverWater": "changed game pixels with heroShadow off on the same held frame: opening 2 s 0 -> 357, 5 s 0 -> 370 (a one-step oval on the bay, ab-opening-120m.png); Ladies 460, relief 400, paint drift 679, FiDi 66 (same rule as before on land)",
+  "perf": "look.mjs perf after the fixes (draws / triangles): Ladies 125 / 1,213,975, FiDi surge 121 / 827,014, 250 m 168 / 1,528,191 (MAIN this session 125 / 1,211,947, 123 / 804,669, 163 / 1,497,299; streaming varies 250 m by a few draws run to run); regression grey 126 / 1,205,138, painted 134 / 1,248,685"
+ },
+ "errors": "no pageerror or console error in any run"
+}

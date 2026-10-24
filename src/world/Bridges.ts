@@ -85,22 +85,26 @@ export function makeGoldenGate(pts: P2[]): THREE.Object3D {
   const towerH = 227;
   const half = 13.5; // deck half width
   const legOff = half + 2.5;
-  const G = Ramp.GREY;
-  const GL = Ramp.GREY_LIGHT;
+  // International Orange even in the grey world (it is never painted): one muted warm landmark whose
+  // shadows go rose and plum; the fog turns it pale rust at range. Piers and anchorages are concrete.
+  const G = Ramp.BRIDGE_ORANGE;
+  const GL = Ramp.BRIDGE_ORANGE;
+  const C = Ramp.GREY_LIGHT;
   const at = (p: P2, along: number, across: number, y: number) => new THREE.Vector3(p[0] + f.ux * along + f.ax * across, y, p[1] + f.uz * along + f.az * across);
 
   // deck (stiffening truss) from anchorage to anchorage
   const d0 = at(A0, -40, 0, deckY), d1 = at(A1, 40, 0, deckY);
   const deckLen = d0.distanceTo(d1);
   k.block((d0.x + d1.x) / 2, deckY - 3.8, (d0.z + d1.z) / 2, half * 2, 7.6, deckLen, f.yaw, G, -0.06);
-  k.block((d0.x + d1.x) / 2, deckY + 0.4, (d0.z + d1.z) / 2, half * 2 - 1, 0.8, deckLen, f.yaw, GL, -0.02);
+  // (the roadway on top is asphalt grey; the truss and its chords are the orange)
+  k.block((d0.x + d1.x) / 2, deckY + 0.4, (d0.z + d1.z) / 2, half * 2 - 1, 0.8, deckLen, f.yaw, Ramp.GREY, -0.02);
   // the stiffening truss reads as a light top chord over a dark lattice band
   k.block((d0.x + d1.x) / 2, deckY - 7.4, (d0.z + d1.z) / 2, half * 2 + 0.6, 1.4, deckLen, f.yaw, G, -0.22);
   k.block((d0.x + d1.x) / 2, deckY - 0.8, (d0.z + d1.z) / 2, half * 2 + 0.8, 1.2, deckLen, f.yaw, GL, 0.04);
 
   for (const T of [T1, T2]) {
     // pier
-    k.block(T[0], 6, T[1], 44, 18, 30, f.yaw, GL, -0.08);
+    k.block(T[0], 6, T[1], 44, 18, 30, f.yaw, C, -0.08);
     for (const side of [-1, 1]) {
       // stepped art-deco leg: four setbacks
       const levels = [
@@ -130,21 +134,22 @@ export function makeGoldenGate(pts: P2[]): THREE.Object3D {
     const t1 = at(T1, 0, side * legOff, towerH + 2);
     const t2 = at(T2, 0, side * legOff, towerH + 2);
     const a1 = at(A1, 0, side * legOff, deckY - 6);
-    cable(k, a0, t1, deckY + 10, 6, 1.8, GL, 0.06);
-    cable(k, t1, t2, deckY + 6, 28, 1.8, GL, 0.06);
-    cable(k, t2, a1, deckY + 10, 6, 1.8, GL, 0.06);
-    // suspenders every ~32 m on the main span (thin, low contrast)
+    cable(k, a0, t1, deckY + 10, 6, 1.8, GL, 0.1);
+    cable(k, t1, t2, deckY + 6, 28, 1.8, GL, 0.1);
+    cable(k, t2, a1, deckY + 10, 6, 1.8, GL, 0.1);
+    // suspenders every ~48 m on the main span: 1.2 m thick, so at the opening's distances they are a
+    // steady 1-2 game pixels instead of 0.3-0.8 px lines that flickered in and out
     const spanL = Math.hypot(T2[0] - T1[0], T2[1] - T1[1]);
-    const n = Math.floor(spanL / 32);
+    const n = Math.floor(spanL / 48);
     for (let i = 1; i < n; i++) {
       const t = i / n;
       const p = t1.clone().lerp(t2, t);
       const cy = cableY(t1, t2, deckY + 6, t);
-      k.beam(new THREE.Vector3(p.x, deckY + 0.5, p.z), new THREE.Vector3(p.x, cy, p.z), 0.7, 0.7, GL, 0.02);
+      k.beam(new THREE.Vector3(p.x, deckY + 0.5, p.z), new THREE.Vector3(p.x, cy, p.z), 1.2, 1.2, GL, 0.04);
     }
   }
   // anchorage blocks
-  for (const A of [A0, A1]) k.block(A[0], deckY / 2 - 6, A[1], 40, deckY - 4, 46, f.yaw, GL, -0.05);
+  for (const A of [A0, A1]) k.block(A[0], deckY / 2 - 6, A[1], 40, deckY - 4, 46, f.yaw, C, -0.05);
   const g = new THREE.Group();
   g.add(k.build());
   return g;

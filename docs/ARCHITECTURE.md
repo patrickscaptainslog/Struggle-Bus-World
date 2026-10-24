@@ -32,20 +32,52 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   - `light` 0..1 → ramp step (0 darkest, 1 lightest). Use `sbLight()`.
   - `fog` 0..1 → use `sbFog(worldPos)`. It includes the marine layer seen
     from above (`uFogLayer*`, `sbLayerTop()` in `GLSL_LAYER_TOP`, mirrored on
-    the CPU by `layerTopBase()`): materials get it for free; the resolve pass
-    lights the fog sea's top. Never hand-roll fog.
+    the CPU by `layerTopBase()`) and the fog ceiling of tall distant shapes
+    (`uFogStand`: anything ~50-160 m above the city's low ground, `City.lowGround()`
+    (the far grid's 5th-percentile land height, ~sea level in SF), gets at most `config.fog.standFog`
+    out to ~5 km, so towers and hilltops stand out of the low fog while
+    everything low, the streaming edge included, is buried as before):
+    materials get it for free; the resolve pass lights the fog sea's top.
+    Fog and the marine layer are off by default (`config.fog.enabled`; `?fog`
+    brings them back): then `sbFog` is only a far fade (`clearFarFull`) and
+    the fog ceiling is off with it. Never hand-roll fog, and don't multiply it below ~0.7 for far objects (the
+    handover band sits at 0.62-0.68).
   - `glow` 0..1 → emissive; glowing pixels bloom a dithered halo.
   - `flags`: 1.0 normal (gets outlines), 0.5 = no outline (particles, cards).
+  - Outlines: a silhouette pixel is two steps darker, except a one-pixel
+    feature with background on both sides (a cable, a pole), which keeps its
+    own color. `Ramp.BUS_YELLOW` / `Ramp.BUS_BLACK` belong to the bus alone:
+    the resolve gives their silhouette a plum ink edge (the hero separates
+    from every paint hue). Don't use them elsewhere.
+  - The hero's headlight is light, not geometry: `pipeline.setHeroBeam(eye,
+    tip, halfNear, halfFar, strength)` each frame (after `snap()`), and the
+    resolve lifts what lies beyond the bus inside that wedge one or two steps
+    up its own ramp, a warm core at the lens and a warm glint on the nose's
+    ink edge over the lens. It lights only the grey world's ramps (GREY,
+    GREY_LIGHT, GREEN_GREY, WINDOW, ROOF_DARK, and the unpainted towers' GLASS,
+    STONE, GRANITE): never paint, glow or halos.
+  - The hero's drop shadow is light too: `pipeline.setHeroShadow(x, z,
+    underY, fx, fz, halfLength, halfWidth, steps)` each frame (after
+    `snap()`), and the resolve draws whatever faces up below `underY` inside
+    that oval `steps` darker in its own ramp (paint included; the open bay
+    too: the bay plane writes no outline flag, so the test also takes the
+    WATER ramp). No decal.
+  - Flat-light test: a pixel dithers only if a neighbor's light byte sits on
+    a real gradient (1.5 bytes up to the dither window, 72.86 x
+    `ditherWidth`); a whole-step jump (a crisp band edge) rounds. Materials
+    that want crisp bands (tree crowns) snap their light to a step.
 - Every scene material must write both outputs (`gColor`, `gAux`).
 - Objects that cast sun shadows: `obj.layers.enable(SHADOW_LAYER)`.
   The bus and particles must NOT cast (the bus has its own drop shadow).
-- Pixel budget: the portrait framebuffer is ~240 game pixels wide. At gameplay
-  camera distance (~175 m, 24° horizontal FOV) one game pixel ≈ 0.3 m at the
-  bus and ≈ 0.6–1 m at mid-distance. Details smaller than ~2 game pixels
+- Pixel budget: the portrait framebuffer is 390 game pixels wide
+  (`config.render.pixelWidth`; `?px=240` the old 5x look). At gameplay
+  camera distance (~155 m, 24° horizontal FOV, 24° above the bus at cruise: the
+  horizon ~13% from the top, the bus ~60% down) one game pixel ≈ 0.17 m at the
+  bus and ≈ 0.4–0.6 m at mid-distance. Details smaller than ~2 game pixels
   disappear or shimmer — design silhouettes and big color shapes, not
   greebles. Avoid single-pixel-wide high-contrast stripes (they crawl).
-  Up high (vista camera: 270 m, 38°) a game pixel is ≈ 1 m at the bus and
-  2–4 m on the city below: everything there is the coarse (LOD 1) mesh.
+  Up high (vista camera: 270 m, 38°) a game pixel is ≈ 0.6 m at the bus and
+  1–2.5 m on the city below: everything there is the coarse (LOD 1) mesh.
   Building facades follow this by themselves (see Tower facades): their
   detail drops out by its size on screen, per building.
 - Altitude: the camera can sit 700 m above the ground; the far plane is
@@ -54,13 +86,28 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   window centered on the ground under the view, never on a high bus).
 - Snapping up high: with the vista on, the game sets `pipeline.focus` to the
   ground under the screen center and `steadySnap`, calls `pipeline.snap()`
-  before `render()`, and moves near objects (the bus, its drop shadow, its
-  particles) by `pipeline.snapCompensation(pos)` so they stay where they
+  before `render()`, and moves near objects (the bus, its drop shadow's
+  center, its particles) by `pipeline.snapCompensation(pos)` so they stay where they
   belong although the grid snapped at the city's depth. Anything new that
   sits near the bus and must not jitter up high needs the same.
 - `pipeline.calm` (0..1): surfaces round to their ramp step instead of the
-  ordered dither, the fog handover is a hard contour, and the sky / fog sea
-  dither in screen space. Materials don't change; it is all in the resolve.
+  ordered dither, the fog handover is a hard contour, and the fog sea dithers
+  in screen space. Materials don't change; it is all in the resolve. At every
+  height the sky dithers in screen space and is written with alpha 0, which
+  the upscale reads as "plain sky: don't apply the snap's sub-pixel shift"
+  (the sky only turns with the view, so it holds perfectly still); surfaces
+  also round instead of dithering as their fog rises (`config.render.ditherHaze*`),
+  and at street level the fog handover is value-matched (each surface turns
+  into the FOG step nearest its own luminance, then flattens into a
+  silhouette) through a band as narrow as the fog's own gradient
+  (`config.render.fogBandMin` at street level). A silhouette standing out of
+  the fog must run `config.render.fogSliver` of the frame's height (10 px of
+  852) or it is buried with the fog (no chips floating in the sky band).
+- **Pipeline invariant (resolve -> upscale):** the resolve's alpha is 0 on
+  plain sky and 1 everywhere else, and the upscale takes the unshifted texel
+  where both it and the shifted one are plain sky. Whatever replaces the
+  upscale (e.g. CSS canvas scaling in polish/perf) must keep the sky off the
+  snap's sub-pixel shift, or the sky saws by a pixel with the remainder.
 - Coarse regions are drawn as ONE building mesh + ONE ground mesh per 1 km
   region (`City.regionMeshes`); detailed regions keep per-tile meshes. Code
   that walks tiles for rendering must handle both. A tile marked with
@@ -76,7 +123,17 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   `opts.travel` (`tImpact = this.t + (opts?.travel ?? S.impactDelay)`), and
   main's geyser lambda keeps `travelTime: breathTravel ?? config.splat.impactDelay`.
 - Palette: 8-step ramps. Warm hues shadow toward rose/violet, never brown.
-  There is no brown in the palette and there never will be.
+  There is no brown in the palette and there never will be. New ramps are
+  appended at the end and referenced by name (never by number: the G-buffer
+  stores ramp/255 and the resolve fetches palette row = ramp, nothing baked
+  holds a ramp id). `RAMP_COUNT` is 48 rows (an 8x48 RGBA8 texture, 1.5 KB):
+  0-19 core; 20-23 world materials (GLASS, STONE, GRANITE: tower facades;
+  BRIDGE_ORANGE: painted bridge steel, the Golden Gate); 24-31 reserved for the
+  faction ramps (MAGENTA 24, CYAN 25, AQUA 26, PEARL 27, MOSS 28, BIOLUME 29,
+  FAE_VIOLET 30, SILVERBARK 31: docs/specs/STAGES.md 3.4 rule 7); 32-37 for
+  world travel (NIGHT_SKY 32, OPEN_SEA 33, LIMB 34, CLOUD 35, DRY_LAND 36,
+  TWILIGHT 37: WORLD-TRAVEL.md 2.5); 38-47 spare. Claim a reserved row by
+  adding its name at that number.
 
 ## City data (bake -> tiles -> meshes)
 `tools/bake/bake.py <slug>` turns footprints + DEM (+ an optional LiDAR point
@@ -157,8 +214,10 @@ them into gzip'd 1 km regions. Layouts live in `src/world/tiles.ts`.
   converges fogged pixels on the fog sea's lit top (`seaShade`), which isn't
   mirrored: those facade pixels write plain steps (`gAF = 0`) and dither like
   any material. **Change one, change the other** (a mismatch only brings the
-  dither back); polish/look changes `skyLight()` (`0.9 - mix(0.25, 0.5, uCalm)
-  * max(e, 0.0)`): copy it into `skyMirror()` when it merges. The aim glint on a
+  dither back). The sky function itself has one copy: `GLSL_SKY_LIGHT`
+  (`sbSkyLight(dir, sunDir, calm)` in materials.ts), which the resolve's
+  `skyLight()` and the facades' `skyMirror()` both call at the same calm; the
+  `sl` / `gAF` mix is still mirrored by hand. The aim glint on a
   tower facade is added in those whole steps (before `lightAtStep`).
 - `uHigh` (0..1, `setFacadeView`; the marine-layer view's mix, computed whether
   or not fog is on) gives detail 1.5x the room and rhythm lines 2x the spacing
@@ -192,8 +251,8 @@ them into gzip'd 1 km regions. Layouts live in `src/world/tiles.ts`.
   lots stay out of the refs); the spire has no `paint` entry: it is bound to its
   tower's texel with `bindLandmarkPaint(spire, ref, { ride: true })` (it paints
   and glints with the tower; its shader skips the pop, SpireRide owns it), never
-  a landmark of its own. See Paintable landmarks. When polish/look merges: its `BRIDGE_ORANGE: 20`
-  collides with `GLASS: 20`; renumber it 23 (`RAMP_COUNT` is 32).
+  a landmark of its own. See Paintable landmarks. (polish/look's `BRIDGE_ORANGE` is row 23,
+  after GLASS / STONE / GRANITE; see the palette's row map under Rendering.)
 - Houses: windows become one band per floor (ribbon) and then the wall's
   average tone by the same per-building pixel size (`config.facade.houseRibbon`
   / `houseFlat`); roofs are one ramp (GREY_LIGHT) with light offsets.
@@ -270,6 +329,33 @@ impact frame shows the hit.
   reach an unloaded tile wait on its entry and replay when it arrives.
   `GLSL_BLAST_RING` (shockwave on up-facing surfaces: terrain + roofs) and
   `GLSL_GROUND_PAINT` (terrain) with `blastUniforms`.
+- The street sign (`SplatFx.primary` -> `showSign` in main.ts) never stands over
+  the blast: it is queued on the game clock until the wave has reached the
+  blast's edge (+ `signTune.showDelay`), then placed on open ground past the
+  blast's far side as the camera sees it, off the flight line
+  (`signTune.besideOut/besideSide`; then beside the blast, then farther past;
+  never inside it), scaled (`StreetSignOptions.scale`) so a font pixel stays
+  >= `signTune.minFontPx` game pixels, at its true depth (`depthBias` 1 m, on
+  from the start: what stands in front of it covers it). A spot whose pole is
+  seen to its foot wins; else `StreetSignOptions.pole` lifts the blade clear
+  of the roofs in front (up to `signTune.poleLiftMax`); both bottom corners of
+  the blade (`signBladeWidth(text)`) must clear them too. Never on water
+  (`City.groundClassAt`: the tile's 2 m ground class). No spot in frame:
+  `showSign` returns false and the pending sign asks again 0.8 s later
+  (twice); then the primary's front only if it lies outside the blast
+  (+4 m), else no sign. The whole blade must sit inside the frame, and its
+  bottom edge must be seen over its whole sightline (`bladeSeen`: five
+  points across it, every 6 m to 90% of the way, against `City.roofAt` and
+  `City.landmarkSurfaceAt`, the real footprints; the obstacle grid stands
+  ~10 m proud of a facade): a tower or landmark past the pole test's 60 m
+  hid half a blade. Run only on a spot that passed every other test. A
+  landmark primary is the bloom itself and reaches past the blast: no
+  blade may overlap its projected box, and its fallback is its apron along
+  the edge facing the bus (`City.edgeToward`), as far toward an end as the
+  frame allows (off its box if it can, else at least off its middle).
+  One sign per name: while a sign with this name stands, a new blast flips it
+  if it is in view and outside the new blast; if the new bloom reaches its
+  spot, `StreetSigns.retire(pos)` sinks it and the sign stands anew.
 - `PixelPipeline.flash(u, v, frames, strength)`: palette flash in the resolve
   pass. `CameraRig.kick(m)` + `applyKick(cam, realDt)`: translation-only kick
   (the pixel snap handles it).

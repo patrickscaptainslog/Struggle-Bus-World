@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import { config } from './config';
 import { PixelPipeline } from './render/PixelPipeline';
-import { globals, GLSL_COMMON, GLSL_OUT, layerTopBase } from './render/materials';
-import { Ramp, HUE_RAMPS } from './render/palette';
+import { globals, layerTopBase } from './render/materials';
+import { HUE_RAMPS } from './render/palette';
 import { City, type BuildingRef } from './world/City';
 import { paintUniforms, setFacadeView } from './world/buildingMaterial';
-import type { CityManifest } from './world/tiles';
+import { Ground, type CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
 import { CameraRig } from './game/CameraRig';
 import { Splatter, type Blast } from './game/Splat';
@@ -15,7 +15,7 @@ import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blast
 import { Input } from './game/Input';
 import { BusModel, type BusPose } from './bus/BusModel';
 import { Particles } from './fx/Particles';
-import { StreetSigns } from './fx/StreetSign';
+import { StreetSigns, signBladeWidth, signTune } from './fx/StreetSign';
 import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { paintLandmark, bindLandmarkPaint, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
@@ -24,43 +24,9 @@ import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles } from './world/Brid
 import { heroLandmarks, SpireRide } from './world/props/landmarks';
 import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
+import { tunableGroups } from './ui/tunables';
 
 // Struggle Bus — Phase 1 (real SF, solo).
-
-/** Pixel-art drop shadow: a small solid core inside a stippled (checker) halo. */
-function makeDropShadowMaterial(): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    glslVersion: THREE.GLSL3,
-    uniforms: { ...globals, uReady: { value: 0 } },
-    vertexShader: /* glsl */ `
-      ${GLSL_COMMON}
-      out vec2 vLocal;
-      out vec3 vWorldPos;
-      void main() {
-        vLocal = position.xz;
-        vec4 wp = modelMatrix * vec4(position, 1.0);
-        vWorldPos = wp.xyz;
-        gl_Position = projectionMatrix * viewMatrix * wp;
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      ${GLSL_COMMON}
-      uniform float uReady;
-      in vec2 vLocal;
-      in vec3 vWorldPos;
-      ${GLSL_OUT}
-      void main() {
-        float r = length(vLocal);
-        ivec2 q = ivec2(gl_FragCoord.xy);
-        bool checker = ((q.x + q.y) & 1) == 0;
-        if (r > 0.62 && !checker) discard;
-        if (r > 1.0) discard;
-        float fog = sbFog(vWorldPos);
-        sbWrite(${Ramp.INK}.0, r > 0.62 ? 0.35 : 0.15 + 0.1 * uReady, fog, 0.0, vec3(0.0, 0.0, 1.0), 0.97, 0.5);
-      }
-    `,
-  });
-}
 
 type Manifest = CityManifest & { regions: Array<[number, number, number]>; regionSize: number };
 /** What the street sign says when a landmark is hit. */
@@ -78,6 +44,9 @@ const scene = new THREE.Scene();
 const camera = pipeline.camera;
 
 // --- sun: late-afternoon, low, from the WSW
+/** The city's low ground (m, City.lowGround once the far grid is in): the fog ceiling's heights are
+ *  above it, so a city on a plateau stands out of its fog the way SF does at sea level */
+let fogGround = 0;
 function updateSun() {
   const az = config.light.sunAzimuth;
   const el = config.light.sunElevation;
@@ -92,6 +61,8 @@ function updateSun() {
   const L2 = globals.uFogLayer2.value;
   L2.set(Fg.layerDensity, Fg.layerHaze, Fg.layerFarFull, fogOn ? L2.w : 0);
   globals.uFogBillow.value.set(Fg.layerBillow, 1 / Math.max(10, Fg.layerBillowSize));
+  // (the fog ceiling of tall far shapes: meaningless with the fog off, so off with it)
+  globals.uFogStand.value.set(fogOn ? Fg.standFog : 1, fogGround + Fg.standFrom, fogGround + Math.max(Fg.standFrom + 1, Fg.standTo), Fg.standFade);
 }
 updateSun();
 
@@ -236,16 +207,15 @@ async function boot() {
   if (openingBridge) rig.openingLow = 1;
   const focus = new THREE.Vector3(flight.x, 60, flight.z);
 
-  // drop shadow straight below the bus: the aim reticle
-  const shadowGeo = new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2);
-  const shadowMat = makeDropShadowMaterial();
-  shadowMat.depthWrite = false;
-  shadowMat.polygonOffset = true;
-  shadowMat.polygonOffsetFactor = -2;
-  shadowMat.polygonOffsetUnits = -4;
-  const dropShadow = new THREE.Mesh(shadowGeo, shadowMat);
-  dropShadow.renderOrder = 2;
-  scene.add(dropShadow);
+  // drop shadow straight below the bus: grounds the hero (how high it flies). No decal: the resolve pass
+  // draws whatever faces up below the bus, inside an oval about its size, a ramp step darker (paint
+  // too: a grey blob over paint was a hole), see PixelPipeline.setHeroShadow
+  const dropShadow = new THREE.Vector3();
+  let dropShadowL = 1;
+  // the headlight beam (the eye): lit in the resolve pass from the lens forward (see PixelPipeline.setHeroBeam)
+  const beamEye = new THREE.Vector3();
+  const beamTip = new THREE.Vector3();
+  const beamFwd = new THREE.Vector3();
 
   // the blast needs headroom: geyser + crown splash + flung blobs + a sparkle crown per bloom
   const particles = new Particles(8000);
@@ -348,6 +318,8 @@ async function boot() {
         }
       }
   };
+  /** the blast being shown (impact fires right before its primary's bloom, in the same update) */
+  const lastBlast = { x: 0, z: 0, r: config.splat.blastRadius };
   const splatter = new Splatter(city, {
     geyser: (targets, hues) => {
       const S = config.splat;
@@ -358,6 +330,9 @@ async function boot() {
     impact: (b) => {
       const S = config.splat;
       const k = b.strength;
+      lastBlast.x = b.spec.x;
+      lastBlast.z = b.spec.z;
+      lastBlast.r = b.spec.r;
       particles.splash(b.pos, b.spec.hue, 2.2 * Math.sqrt(k));
       particles.burst(b.pos, b.spec.hue, k, city.groundAt(b.pos.x, b.pos.z));
       // paint blobs flung far out, each landing on a spatter dot the ground paint already holds
@@ -384,16 +359,197 @@ async function boot() {
       fogBumped.add(ref.stableId);
       if (level >= 2) growSprouts(ref, hue, level, globals.uTime.value);
     },
-    primary: (ref, hue) => showSign(ref, hue),
+    // the street sign waits until the shockwave has bloomed the whole blast (game clock: hit-stop holds it)
+    primary: (ref, hue) => {
+      const r = lastBlast.r;
+      pendingSigns.push({ ref, hue, cx: lastBlast.x, cz: lastBlast.z, r, at: simTime + arrival(r, r) + signTune.showDelay, tries: 0 });
+    },
     hitStop: (frames) => (hitStop = frames / 60),
   });
 
-  function showSign(ref: BuildingRef, hue: number) {
-    // (a landmark has no street front: its sign stands on the side facing the bus)
-    const f = city.isLandmark(ref) ? city.edgeToward(ref, flight.x, flight.z) : city.frontOf(ref);
-    const gx = f.x + f.nx * 4.5, gz = f.z + f.nz * 4.5;
-    signs.show({ text: city.neighborhoodName(ref.hood).toUpperCase(), position: new THREE.Vector3(gx, city.groundAt(gx, gz), gz), facing: Math.atan2(f.nx, f.nz), hue });
+  // ---- the street sign stands beside the blast, never over it: the impact and the bloom are the money
+  // shot. It rises once the wave has reached the edge, on open ground past the blast's far side as the
+  // camera sees it, off the flight line (that's where the next target glints), and grows so its letters
+  // keep a game pixel at that distance. A re-splat of the same block flips the same sign. It stands at
+  // its true depth (the painted houses in front of it keep covering it), preferring a spot whose pole
+  // is seen to its foot; else its pole grows until the blade clears the roofs in front (never a blade
+  // hovering over the roofs with no pole). Nothing farther along its sightline (a tower, a landmark up
+  // the hill) may hide any of the blade either: no sign beats half a blade.
+  const pendingSigns: Array<{ ref: BuildingRef; hue: number; cx: number; cz: number; r: number; at: number; tries: number }> = [];
+  let signSpot: { x: number; y: number; z: number; facing: number; scale: number; bias: boolean; pole: number; cx: number; cz: number; r: number; text: string; until: number } | null = null;
+  /** How far (m) a point must rise for its sightline to the camera to clear the roofs and crowns over
+   *  the first ~60 m in front of it (0 = in the clear). */
+  function sightLift(x: number, y: number, z: number): number {
+    const c = camera.position;
+    const d = Math.max(1, Math.hypot(c.x - x, c.y - y, c.z - z));
+    let need = 0;
+    for (let i = 1; i <= 10; i++) {
+      const t = Math.min(0.9, (i * 6) / d);
+      const over = city.surfaceAt(x + (c.x - x) * t, z + (c.z - z) * t) - (y + (c.y - y) * t);
+      // (lifting the point by h lifts the line there by h (1 - t))
+      if (over > 0) need = Math.max(need, over / (1 - t));
+      if (t >= 0.9) break;
+    }
+    return need;
+  }
+  const signPos = new THREE.Vector3();
+  const signNdc = new THREE.Vector3();
+  /** a landmark primary's screen box (NDC x0, y0, x1, y1): the landmark is the bloom itself, the blade stays off it */
+  const lmBox = [0, 0, 0, 0];
+  /** The screen box (NDC) of the blade standing at (x, y, z), half width hw (m), into out; false if behind the camera. */
+  const bladeBox = (x: number, y: number, z: number, hw: number, scale: number, pole: number, sx: number, sz: number, out: number[]): boolean => {
+    out[0] = out[1] = Infinity;
+    out[2] = out[3] = -Infinity;
+    for (const k of [-1, 1])
+      for (const h of [signTune.poleHeight - 1, signTune.poleHeight + 4]) {
+        signNdc.set(x + sx * hw * scale * k, y + h * scale + pole, z + sz * hw * scale * k).project(camera);
+        if (signNdc.z > 1) return false;
+        out[0] = Math.min(out[0], signNdc.x); out[1] = Math.min(out[1], signNdc.y);
+        out[2] = Math.max(out[2], signNdc.x); out[3] = Math.max(out[3], signNdc.y);
+      }
+    return true;
+  };
+  const bladeTmp = [0, 0, 0, 0];
+  /** The blade's bottom edge (height yb, (hx, hz) = its half width along the view's right) is seen over
+   *  its whole sightline to the camera (every 6 m, to 90% of the way), at five points across it: a tower
+   *  or landmark more than 60 m in front (past what sightLift samples) hid half of the blade ("TELEGRA / H"
+   *  behind Coit Tower). Buildings and landmarks by their real footprints and surfaces, not the obstacle
+   *  grid: that is a collision grid (8 m cells, footprints grown 3-6 m) standing ~10 m proud of a facade,
+   *  and a sign on the Ferry Building's apron read as hidden by the building behind it. Only for a spot
+   *  that passed every other test (it samples the whole line). */
+  function bladeSeen(x: number, yb: number, z: number, hx: number, hz: number): boolean {
+    const c = camera.position;
+    for (let k = -1; k <= 1; k += 0.5) {
+      const px = x + hx * k, pz = z + hz * k;
+      const d = Math.max(1, Math.hypot(c.x - px, c.y - yb, c.z - pz));
+      for (let s = 6; s < 0.9 * d; s += 6) {
+        const t = s / d, qx = px + (c.x - px) * t, qz = pz + (c.z - pz) * t;
+        // (half a meter of slack at the blade, as sightLift's 0.5 m)
+        if (Math.max(city.roofAt(qx, qz) ?? -Infinity, city.landmarkSurfaceAt(qx, qz)) > yb + (c.y - yb) * t + 0.5 * (1 - t)) return false;
+      }
+    }
+    return true;
+  }
+  const signFwd = new THREE.Vector3();
+  const SIGN_RING: ReadonlyArray<readonly [number, number]> = [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6], [12, 0], [-12, 0], [0, 12], [0, -12], [9, 9], [-9, 9], [9, -9], [-9, -9]];
+  /** Show (or re-flip) the sign of a blast at (cx, cz) of radius r. False: no open spot in frame yet, ask
+   *  again later (`tries` so far); true once it is shown or given up on. */
+  function showSign(ref: BuildingRef, hue: number, cx: number, cz: number, r: number, tries: number): boolean {
+    const T = signTune;
+    const text = city.neighborhoodName(ref.hood).toUpperCase();
+    const life = T.riseTime + T.holdGreen + T.flipTime + T.holdRainbow + T.sinkTime;
+    // another blast in the neighborhood while its sign stands: that sign flips again while it is in view
+    // (two signs saying the same name side by side read as a glitch), unless this blast's bloom reaches
+    // its spot: then it sinks, and the sign stands anew beside this blast (never in front of fresh paint)
+    let same = false;
+    if (signSpot && simTime < signSpot.until && signSpot.text === text) {
+      signNdc.set(signSpot.x, signSpot.y + (T.poleHeight + 4) * signSpot.scale + signSpot.pole, signSpot.z).project(camera);
+      const inView = Math.abs(signNdc.x) < 0.95 && Math.abs(signNdc.y) < 0.95 && signNdc.z < 1;
+      const clear = Math.hypot(signSpot.x - cx, signSpot.z - cz) >= r + 4;
+      same = clear && inView;
+      if (!clear) signs.retire(signPos.set(signSpot.x, signSpot.y, signSpot.z));
+    }
+    if (!same) {
+      camera.getWorldDirection(signFwd);
+      const fl = Math.hypot(signFwd.x, signFwd.z);
+      const fx = fl > 1e-3 ? signFwd.x / fl : flight.fx, fz = fl > 1e-3 ? signFwd.z / fl : flight.fz;
+      const sx = -fz, sz = fx; // the view's right
+      // off the flight line: away from a turn, else on the side the blast already sits
+      const lat = (cx - camera.position.x) * sx + (cz - camera.position.z) * sz;
+      const pref = Math.abs(flight.yawRate) > 0.05 ? -Math.sign(flight.yawRate) : lat >= 0 ? 1 : -1;
+      let found: typeof signSpot = null;
+      // where to look (m along the view's forward and right from the blast's center): past the far side,
+      // off the flight line; then beside it; then farther past. Never inside the blast (+ a margin): there
+      // the sign stands in front of painted houses and covers the bloom. Per spot: the pole seen to its
+      // foot, else (second pass) a pole lifted clear of the roofs in front, up to signTune.poleLiftMax
+      const o1 = r + T.besideOut, s1 = T.besideSide * r;
+      // (the blade's half width: its bottom corners must clear the roofs in front too, not just its middle:
+      // a roof edge in front cut the letters diagonally)
+      const hw = 0.5 * signBladeWidth(text);
+      // a landmark is the money shot itself and may reach far past the blast: no blade over its box on screen
+      const lm = city.isLandmark(ref);
+      if (lm) {
+        lmBox[0] = lmBox[1] = Infinity;
+        lmBox[2] = lmBox[3] = -Infinity;
+        for (const px of [ref.x0, ref.x1]) for (const pz of [ref.z0, ref.z1]) for (const py of [ref.baseY, ref.roofY]) {
+          signNdc.set(px, py, pz).project(camera);
+          if (signNdc.z > 1) continue;
+          lmBox[0] = Math.min(lmBox[0], signNdc.x); lmBox[1] = Math.min(lmBox[1], signNdc.y);
+          lmBox[2] = Math.max(lmBox[2], signNdc.x); lmBox[3] = Math.max(lmBox[3], signNdc.y);
+        }
+      }
+      const overLm = (b: number[]) => lm && b[0] < lmBox[2] && b[2] > lmBox[0] && b[1] < lmBox[3] && b[3] > lmBox[1];
+      const spots: Array<readonly [number, number]> = [];
+      for (const [o, sd] of [[o1, s1], [0.25 * r, o1], [1.4 * o1, s1]]) spots.push([o, sd * pref], [o, -sd * pref]);
+      for (let pass = 0; pass < 2 && !found; pass++) {
+        for (const [out, sd] of spots) {
+          const bx = cx + fx * out + sx * sd, bz = cz + fz * out + sz * sd;
+          for (const [ox, oz] of SIGN_RING) {
+            const x = bx + ox, z = bz + oz;
+            if (Math.hypot(x - cx, z - cz) < r + 4) continue;
+            if (city.roofAt(x, z) !== null) continue; // the pole stands on the street, a sidewalk or a lawn
+            if (city.groundClassAt(x, z) === Ground.WATER) continue; // (not in the bay: the Ferry Building's far side)
+            const y = city.groundAt(x, z);
+            const dist = camera.position.distanceTo(signPos.set(x, y + T.poleHeight + 5, z));
+            const scale = clamp((T.minFontPx * pipeline.pixelWorldSize(dist)) / Math.max(0.05, T.texelW), 1, 4);
+            // the foot of the pole in view, or how much taller the pole must be for a meter of it to
+            // show under the blade above the roofs in front
+            const yb = y + (T.poleHeight - 1) * scale, cx0 = sx * hw * scale, cz0 = sz * hw * scale;
+            const corners = Math.max(sightLift(x - cx0, yb, z - cz0), sightLift(x + cx0, yb, z + cz0));
+            const pole = pass === 0 ? (sightLift(x, y + 1.5, z) > 0.5 || corners > 0.5 ? -1 : 0) : Math.max(sightLift(x, yb, z), corners);
+            if (pole < 0 || pole > T.poleLiftMax) continue;
+            // the blade must land inside the frame, below the top band (the sky and the horizon)
+            signNdc.set(x, y + (T.poleHeight + 4) * scale + pole, z).project(camera);
+            if (Math.abs(signNdc.x) > 0.72 || signNdc.y > 0.7 || signNdc.y < -0.6 || signNdc.z > 1) continue;
+            // (the whole blade in the frame, and never over a landmark primary's box)
+            if (!bladeBox(x, y, z, hw, scale, pole, sx, sz, bladeTmp) || bladeTmp[0] < -0.96 || bladeTmp[2] > 0.96 || overLm(bladeTmp)) continue;
+            // (and nothing farther in front hides it: the pole test above sees only the first 60 m)
+            if (!bladeSeen(x, yb + pole, z, cx0, cz0)) continue;
+            found = { x, y, z, facing: Math.atan2(-fx, -fz), scale, bias: true, pole, cx, cz, r, text, until: 0 };
+            break;
+          }
+          if (found) break;
+        }
+      }
+      if (!found) {
+        // nowhere open in frame: look again in a moment (the camera moves on), twice. Then a landmark
+        // (it has no street front: the edge facing the bus) signs its name on its apron along that edge, as
+        // far toward an end as the frame allows: off its box on screen if it can, else at least off its
+        // middle (the landmark is the bloom; MAIN stood the sign at the middle of its face). Any other
+        // primary: its own front only when that stands clear of the blast; inside it the blade would cover
+        // the bloom: then no sign this time. Either way only a blade wholly in the frame and seen over its
+        // whole sightline: else no sign (half a blade behind a tower reads as a glitch, not a name).
+        if (tries < 2) return false;
+        const f = lm ? city.edgeToward(ref, flight.x, flight.z) : city.frontOf(ref);
+        const ex = -f.nz, ez = f.nx;
+        const first = ex * sx + ez * sz >= 0 ? pref : -pref;
+        let spare: typeof signSpot = null;
+        for (const t of lm ? [1, 0.75, 0.5, 0.25] : [0]) {
+          for (const k of [first, -first]) {
+            const reach = t * (0.5 * f.len + hw + 4) * k;
+            const gx = f.x + f.nx * 4.5 + ex * reach, gz = f.z + f.nz * 4.5 + ez * reach;
+            if (!lm && Math.hypot(gx - cx, gz - cz) < r + 4) continue;
+            if (city.groundClassAt(gx, gz) === Ground.WATER || city.roofAt(gx, gz) !== null) continue;
+            const gy = city.groundAt(gx, gz);
+            if (!bladeBox(gx, gy, gz, hw, 1, 0, sx, sz, bladeTmp) || bladeTmp[0] < -0.96 || bladeTmp[2] > 0.96 || bladeTmp[1] < -0.96 || bladeTmp[3] > 0.7) continue;
+            if (!bladeSeen(gx, gy + T.poleHeight - 1, gz, sx * hw, sz * hw)) continue;
+            const spot = { x: gx, y: gy, z: gz, facing: Math.atan2(f.nx, f.nz), scale: 1, bias: true, pole: 0, cx, cz, r, text, until: 0 };
+            if (!overLm(bladeTmp)) { found = spot; break; }
+            spare ??= spot;
+          }
+          if (found) break;
+        }
+        found ??= spare;
+        if (!found) return true;
+      }
+      signSpot = found;
+    }
+    const sp = signSpot!;
+    sp.until = simTime + life;
+    // (true depth everywhere: a meter's bias against its own lawn, so painted houses in front keep covering it)
+    signs.show({ text, position: signPos.set(sp.x, sp.y, sp.z), facing: sp.facing, hue, scale: sp.scale, biasNow: true, depthBias: 1, pole: sp.pole });
     audio.signPop();
+    return true;
   }
 
   // Dragon breath aim (src/game/Aim.ts): the building that glints is the one a tap hits.
@@ -464,6 +620,8 @@ async function boot() {
   onResize();
 
   await farP;
+  fogGround = city.lowGround();
+  updateSun();
   globals.uFogBank.value = config.fog.openingBank;
   rig.openingPull = 140;
 
@@ -585,12 +743,11 @@ async function boot() {
 
     // drop shadow on whatever is below: the roof of the part under the bus, else the street
     const below = city.roofAt(flight.x, flight.z) ?? flight.groundUnder;
-    dropShadow.position.set(flight.x, below + 0.25, flight.z);
-    const loaded = Aimer.loaded(flight);
-    const sz = 5.6 * (loaded ? 1.1 : 0.9) * rig.heroScale;
-    shadowMat.uniforms.uReady.value = loaded ? 1 : 0;
-    dropShadow.scale.set(sz * 0.5, 1, sz);
-    dropShadow.rotation.y = -flight.heading;
+    dropShadow.set(flight.x, below, flight.z);
+    // (half length ~0.32 bus length, half width 0.42 of that: about the bus's own footprint, a little
+    // bigger with a breath loaded; it shrinks with the gap below)
+    const shadowFar = clamp((flight.y - below - 14) / 36, 0, 1);
+    dropShadowL = 0.32 * bus.length * (Aimer.loaded(flight) ? 1.05 : 0.95) * rig.heroScale * (1 - 0.3 * shadowFar);
 
     if (openingBridge) {
       // stay low and level until we're well past the bridge, then rise into the normal chase view
@@ -692,6 +849,17 @@ async function boot() {
       particles.puff(puffPos, puffVel);
     }
     particles.update(dt);
+    // (a street sign waiting for its blast's bloom)
+    for (let i = pendingSigns.length - 1; i >= 0; i--) {
+      const ps = pendingSigns[i];
+      if (simTime < ps.at) continue;
+      if (!showSign(ps.ref, ps.hue, ps.cx, ps.cz, ps.r, ps.tries)) {
+        ps.tries++;
+        ps.at = simTime + 0.8;
+        continue;
+      }
+      pendingSigns.splice(i, 1);
+    }
     signs.update(dt, camera);
 
     // painted neighborhoods hum
@@ -733,9 +901,22 @@ async function boot() {
     pipeline.snap();
     if (vista > 0) {
       bus.root.position.add(pipeline.snapCompensation(bus.root.position, compTmp));
-      dropShadow.position.add(pipeline.snapCompensation(dropShadow.position, compTmp));
+      dropShadow.add(pipeline.snapCompensation(dropShadow, compTmp));
       pipeline.snapCompensation(bus.root.position, particles.object.position);
     } else particles.object.position.set(0, 0, 0);
+    // (only what lies below the bus's wheels; whatever faces up there, roof, street, lawn or crown)
+    pipeline.setHeroShadow(dropShadow.x, dropShadow.z, bus.root.position.y - 2.2 * rig.heroScale, flight.fx, flight.fz, dropShadowL, dropShadowL * 0.42, 1);
+    // the eye's beam, from the lens along the nose, a little down: wide open on relief, a sliver
+    // while barfing (it squints); the bus's matrix is final here
+    {
+      const Cb = config.camera;
+      bus.root.updateMatrixWorld();
+      bus.root.localToWorld(beamEye.copy(bus.eyeLocal));
+      beamFwd.set(0, -Math.tan(THREE.MathUtils.degToRad(Cb.headBeamPitch)), -1).transformDirection(bus.root.matrixWorld);
+      beamTip.copy(beamEye).addScaledVector(beamFwd, Cb.headBeamLength * rig.heroScale);
+      const open = 0.3 + 0.7 * pose.eye;
+      pipeline.setHeroBeam(beamEye, beamTip, 0.5 * rig.heroScale, 0.5 * Cb.headBeamWidth * open * rig.heroScale, Cb.headBeamLength > 0 ? Cb.headBeamStrength * (0.35 + 0.65 * pose.eye) : 0);
+    }
     pipeline.render(scene);
     perf.frame(dt * 1000, performance.now() - t0);
     const ready = city.loadedRegionCount() > 0 && !city.busy && (opening >= config.fog.openingDuration || params.has('openingshot'));
@@ -756,6 +937,16 @@ async function boot() {
       return r ? { index: r.index, cx: r.cx, cz: r.cz, roofY: r.roofY, since: aimer.shownSince } : null;
     },
     aimer,
+    /** QA: set a registered tunable (group name, key) live, e.g. ('Props', 'treeFine', 0) */
+    tuneGroup: (name: string, key: string, v: number | boolean) => {
+      const g = tunableGroups().find((x) => x.name === name);
+      if (g && key in g.values) (g.values as Record<string, unknown>)[key] = v;
+    },
+    /** QA: render the frozen frame again (after a tunable change: the same frame, another variant) */
+    renderAgain: () => {
+      updateSun();
+      pipeline.render(scene);
+    },
     lastShot: () => lastShot,
     /** QA: how much of the marine layer's seen-from-above fog is on (0 = the street-level fog exactly) */
     fogLayerMix: () => globals.uFogLayer2.value.w,
