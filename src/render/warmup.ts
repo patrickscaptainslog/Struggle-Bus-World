@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 
-// Shader warm-up: every program the game will draw with is compiled at boot, all at once and
-// in parallel (KHR_parallel_shader_compile: the main thread stays free while the GPU process
-// compiles), then drawn once into the pass target it really draws into (the G-buffer's two
-// outputs, the sun's depth map, the post passes' targets; never the canvas), so ANGLE's
-// draw-time shader variants are paid too. All before the first presented frame: a cold load no
-// longer freezes for seconds per program on its first draw, and nothing compiles in flight.
+// Shader warm-up: every program the game will draw with is compiled at boot, in parallel
+// (KHR_parallel_shader_compile: the main thread stays free while the GPU process compiles), then
+// drawn once into the pass target it really draws into (the G-buffer's two outputs, the sun's
+// depth map, the post passes' targets; never the canvas), so ANGLE's draw-time shader variants
+// are paid too. All before the first presented frame: a cold load no longer freezes for seconds
+// per program on its first draw, and nothing compiles in flight.
 //
 // What gets warmed (see docs/ARCHITECTURE.md, "Shader warm-up"):
 //  - every object in the live scene (WarmUp.add(scene)), the way the pipeline draws it: its own
@@ -88,7 +88,7 @@ export interface WarmPipeline {
 }
 
 export interface WarmReport {
-  /** programs compiled by the warm-up */
+  /** programs warmed (linked, uniform tables fetched, drawn) */
   programs: number;
   /** proxies drawn (material x object kind x pass) */
   draws: number;
@@ -197,6 +197,8 @@ function makeProxy(o: Drawable, material: THREE.Material | THREE.Material[]): TH
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/** main-thread ms per task spent starting compiles or fetching uniform tables (the rest waits a round) */
+const PRIME_MS = 25;
 
 /**
  * Collects what to warm (add(), registered sources), compiles it at once, and finish() resolves
@@ -315,8 +317,10 @@ export class WarmUp {
     const r = this.pipeline.renderer;
     const all = r.info.programs as unknown as Program[];
     for (const p of this.long) if (!this.linking.has(p)) this.long.delete(p);
+    // (three builds each program's source on the main thread, ~100 ms for the building's: a few per task)
+    const until = performance.now() + PRIME_MS;
     for (;;) {
-      if (this.linking.size >= (this.parallel ? this.lanes : 1)) return;
+      if (this.linking.size >= (this.parallel ? this.lanes : 1) || performance.now() > until) return;
       const longest = this.long.size < Math.max(1, this.lanes >> 1);
       let pick: Entry | null = null;
       for (const e of this.entries) {
@@ -419,12 +423,16 @@ export class WarmUp {
       // isReady() is always true and priming below blocks for the compile: one program per task)
       for (const p of this.linking) if (!alive.includes(p) || p.isReady()) this.linking.delete(p);
       this.compileSome();
+      // (each program's first query also makes the GPU process finish its link and load it into
+      // the driver, tens of ms for a big one: a few per task keeps every task short)
       let budget = this.parallel ? Infinity : 1;
+      const primeUntil = performance.now() + PRIME_MS;
       for (const e of this.entries) {
         if (e.drawn || !e.compiled || budget <= 0) continue;
         // (a live object's material disposed since it was added: nothing left to warm)
         const progs = e.programs.filter((p) => alive.includes(p));
         if (progs.some((p) => this.linking.has(p))) continue;
+        if (progs.some((p) => !this.primed.has(p)) && performance.now() > primeUntil) continue;
         for (const p of progs) {
           if (this.primed.has(p)) continue;
           // the uniform and attribute tables, which three would otherwise fetch synchronously on first use

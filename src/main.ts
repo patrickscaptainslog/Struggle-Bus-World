@@ -516,7 +516,8 @@ async function boot() {
   );
   for (;;) {
     later.shift()?.();
-    city.update(primeFocus, renderer, 0);
+    // (a few tiles per tick: no long task while the GPU process compiles; the first frame takes the rest)
+    city.update(primeFocus, renderer, 0, 12);
     if (farIn) {
       if (farErr) throw farErr;
       // (the far meshes, and whatever was built meanwhile: only kinds not seen yet compile)

@@ -470,8 +470,11 @@ export class City {
     this.request(focus);
   }
 
-  /** Stream regions around a point (at altitude the game passes a point ahead of the bus, under the view). */
-  update(focus: THREE.Vector3, renderer: THREE.WebGLRenderer, dt: number) {
+  /**
+   * Stream regions around a point (at altitude the game passes a point ahead of the bus, under the view).
+   * `adoptMs`: adopt arrived tiles for about this long even while eager (before the first frame).
+   */
+  update(focus: THREE.Vector3, renderer: THREE.WebGLRenderer, dt: number, adoptMs?: number) {
     this.request(focus);
     const R = this.regionSize * this.manifest.tileSize;
     const hk = Math.min(1, Math.max(0, (this.viewHeight - 40) / 460));
@@ -487,7 +490,9 @@ export class City {
     // adopt arrived tiles a few per frame: a region landing never hitches one frame
     const t0 = performance.now();
     let n = 0;
-    while (this.adopt.length && (this.eager || n < ADOPT_MIN || performance.now() - t0 < ADOPT_MS)) {
+    const eager = this.eager && adoptMs === undefined;
+    const budget = adoptMs ?? ADOPT_MS;
+    while (this.adopt.length && (eager || n < ADOPT_MIN || performance.now() - t0 < budget)) {
       const a = this.adopt.shift()!;
       n++;
       if (!this.regionsLoaded.has(a.key)) continue; // unloaded while queued
