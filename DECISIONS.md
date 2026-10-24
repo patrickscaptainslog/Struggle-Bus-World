@@ -996,8 +996,10 @@ cross-checked in the browser with `tools/feel.mjs`.
   (~12 ms per tick) while the shaders compile.
 - **The opening on the wall clock** (rank 4): it advances by real time from the first frame on
   screen (the second frame's callback), not by summed dt clamped to 50 ms; the 15% hold until a
-  region has landed stays; same curve. It no longer stretches below 20 fps. 0 frame gaps over
-  50 ms between the first frame and ready (B-1x-4).
+  region has landed stays; same curve. It no longer stretches below 20 fps. Each step is capped
+  at 0.25 s (real time down to 4 fps), so a tab switch, a locked phone or a long task moves the
+  reveal by 6% at most instead of skipping it (a 3 s stall used to jump it from 16% to 89%).
+  0 frame gaps over 50 ms between the first frame and ready (B-1x-4).
 - **Boot downloads from the HTML** (rank 5): an inline script in index.html starts city.json,
   far.bin and horizon.bin (the .bin files at low priority, the game's script first) for
   `?city=` and leaves the promises for the game (`bootFetch`); each is fetched once. city.json
@@ -1039,6 +1041,22 @@ cross-checked in the browser with `tools/feel.mjs`.
   where the bus is when the shot is taken, since B renders fewer frames before ready, and in
   the random paint hues). The warm-up's draws land in the G-buffer, the sun map and the glow /
   resolve targets, which every frame clears before use; nothing reaches the canvas.
+- **Review fixes**: the opening's step is capped at 0.25 s (a 3 s stall 0.7 s into the
+  opening now moves it from 16% to 24%, like main's 16% to 19%, instead of to 89%), and
+  index.html reads `?city=` exactly as main.ts does (an empty `?city=` no longer downloads sf's
+  boot files for nothing). Re-measured after them (interleaved, other jobs at 16-28% CPU): 1x
+  ready A 16.5 s median (min 15.7, 3 runs), B 13.4 s (min 12.5); 4x A 19.7 s (19.6, 2 runs),
+  B 14.3 s (14.0); B's opening 0 frame gaps over 50 ms at 1x, one of 117 ms at 4x; B long
+  tasks 0.40 s sum / 0.15 s max at 1x. `?fixeddt` opening: the bus is at the same place as on
+  A at every sampled time (0.02-7 s). An independent review got the same picture (1x: A 17.4 s,
+  B 12.7 s; first region A 6.2 s, B 0.75 s; no warm-up frame ever reaches the canvas).
+- **Open**: where `KHR_parallel_shader_compile` is missing (emulated in Chromium by hiding
+  it; possibly some Firefox / Windows setups), the warm-up still makes every program before the
+  first frame (0 after), but a 3.6-5 s freeze followed the first frame and blasts showed
+  333-633 ms frames: draw-time compiles the warm draws didn't pay there. No worse than main;
+  check on a real browser without the extension. And the page is plain fog-grey for ~8-9 s
+  before the first frame (a static cover of the opening's first frame is the idea, for the
+  producer to OK).
 
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a

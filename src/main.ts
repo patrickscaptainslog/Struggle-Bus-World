@@ -579,9 +579,11 @@ async function boot() {
     }
     let dt = fixedDt || Math.min(0.05, (now - last) / 1000);
     const realDt = dt;
-    // the opening runs on the wall clock (unclamped), from when the first frame reached the screen (the
-    // second frame's callback): it overlaps loading, and slow frames don't stretch it
-    const openDt = fixedDt || (framesDrawn >= 2 ? Math.max(0, (now - last) / 1000) : 0);
+    // the opening runs on the wall clock from when the first frame reached the screen (the second
+    // frame's callback): it overlaps loading, and slow frames (down to 4 fps) don't stretch it. A
+    // longer gap (a tab switch, a locked phone, a long task) moves it 0.25 s at most, so the reveal
+    // is never skipped
+    const openDt = fixedDt || (framesDrawn >= 2 ? Math.min(0.25, Math.max(0, (now - last) / 1000)) : 0);
     last = now;
     if (hitStop > 0) {
       hitStop -= dt;

@@ -17,7 +17,8 @@
       // The two .bin files ask for low priority: the game's script comes first.
       (function () {
         try {
-          var city = new URLSearchParams(location.search).get('city') || 'sf';
+          var q = new URLSearchParams(location.search).get('city');
+          var city = q === null ? 'sf' : q; // as main.ts reads it (an empty ?city= stays empty)
           var base = './city/' + city;
           var get = function (f, pri) {
             var p = fetch(base + '/' + f, pri ? { priority: pri } : undefined);

@@ -141,7 +141,8 @@ the opening shows is built before the first frame (the bus, the Golden Gate);
 the other landmarks go to the `later` queue (built while the warm-up waits,
 else one per frame early in the opening; ready waits for them). The opening's
 4.2 s run on the wall clock from the first frame on screen (the 15% hold until
-the first region lands stays).
+the first region lands stays), with each step capped at 0.25 s: real time down
+to 4 fps, but a tab switch or a long stall moves the reveal 6% at most.
 
 ## City data (bake -> tiles -> meshes)
 `tools/bake/bake.py <slug>` turns footprints + DEM (+ an optional LiDAR point
