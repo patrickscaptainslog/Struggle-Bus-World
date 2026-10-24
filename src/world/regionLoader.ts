@@ -2,6 +2,7 @@
 // worker, or on the main thread when a sandbox forbids workers.
 import { parseBuildingTile, parseTerrainTile } from './tiles';
 import { meshBuildingTile, type MeshArrays } from './BuildingMesher';
+import { gunzip, isGzip } from './gunzip';
 
 export interface RegionRequest {
   type: 'region';
@@ -70,19 +71,12 @@ function mergeMeshes(list: MeshArrays[]): MeshArrays {
   return out;
 }
 
-async function inflate(buf: ArrayBuffer): Promise<ArrayBuffer> {
-  const ds = new DecompressionStream('gzip');
-  const stream = new Blob([buf]).stream().pipeThrough(ds);
-  return await new Response(stream).arrayBuffer();
-}
-
 export async function loadRegion(req: RegionRequest, transfer: Transferable[] = []): Promise<RegionResponse> {
   try {
     const res = await fetch(req.url);
     if (!res.ok) throw new Error(`${res.status} ${req.url}`);
     let buf = await res.arrayBuffer();
-    const head = new Uint8Array(buf, 0, 2);
-    if (head[0] === 0x1f && head[1] === 0x8b) buf = await inflate(buf);
+    if (isGzip(buf)) buf = await gunzip(buf);
     const dv = new DataView(buf);
     if (String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3)) !== 'SBR1') throw new Error('not a region bundle');
     const count = dv.getUint32(4, true);

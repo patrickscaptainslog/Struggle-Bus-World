@@ -11,6 +11,8 @@ import { loadRegion, type RegionRequest, type RegionResponse, type TileResult } 
 import { GROWN_STRIDE, type MeshArrays } from './BuildingMesher';
 import { treeCrown } from './props/trees';
 import { hiddenAt, isSfOrigin, type Hidden, type PropBox } from './towerStyles';
+import { gunzip, isGzip } from './gunzip';
+import { registerWarm } from '../render/warmup';
 
 // Streams the baked city around the bus: region bundles are fetched and
 // meshed in a worker, tiles appear inside the fog, far ones are dropped.
@@ -99,11 +101,105 @@ type Adopt =
   | { kind: 'swap'; key: string; msg: RegionResponse };
 
 async function maybeInflate(buf: ArrayBuffer): Promise<ArrayBuffer> {
-  const h = new Uint8Array(buf, 0, 2);
-  if (h[0] !== 0x1f || h[1] !== 0x8b) return buf;
-  const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'));
-  return await new Response(stream).arrayBuffer();
+  return isGzip(buf) ? await gunzip(buf) : buf;
 }
+
+/** The boot downloads index.html starts before the game's script has even loaded (see its inline script). */
+type BootFetches = { base: string; manifest: Promise<Response>; far: Promise<Response>; horizon: Promise<Response> };
+/** A boot download index.html started for the city at `base` (city.json, far.bin, horizon.bin), handed out once; else null. */
+export function bootFetch(base: string, what: 'manifest' | 'far' | 'horizon'): Promise<Response> | null {
+  const b = (globalThis as { __sbBoot?: Partial<BootFetches> }).__sbBoot;
+  if (!b || b.base !== base || !b[what]) return null;
+  const p = b[what]!;
+  delete b[what];
+  return p;
+}
+
+/** A tile's (or a coarse region's) building mesh: the one place its vertex layout is set. */
+function buildingMesh(m: MeshArrays, material: THREE.Material): THREE.Mesh {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(m.position, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(m.normal, 3, true));
+  g.setAttribute('aFacade', new THREE.BufferAttribute(m.facade, 2));
+  g.setAttribute('aMeta', new THREE.BufferAttribute(m.meta, 4));
+  g.setAttribute('aBld', new THREE.BufferAttribute(m.bld, 4));
+  g.setAttribute('aBld2', new THREE.BufferAttribute(m.bld2, 2));
+  g.setIndex(new THREE.BufferAttribute(m.index, 1));
+  const mesh = new THREE.Mesh(g, material);
+  mesh.layers.enable(SHADOW_LAYER);
+  mesh.matrixAutoUpdate = false;
+  return mesh;
+}
+
+/** A tile's own ground mesh (a coarse region's merged ground is the same, without the shadow layer). */
+function groundMesh(geo: THREE.BufferGeometry, material: THREE.Material, casts: boolean): THREE.Mesh {
+  const mesh = new THREE.Mesh(geo, material);
+  if (casts) mesh.layers.enable(SHADOW_LAYER);
+  mesh.matrixAutoUpdate = false;
+  return mesh;
+}
+
+/** The far skyline's boxes: the ramp material, hiding the boxes over loaded tiles (mask) in its vertex shader. */
+function makeSkylineMaterial(mask: THREE.Texture, rect: THREE.Vector4, size: THREE.Vector2): THREE.ShaderMaterial {
+  const mat = makeRampMaterial({
+    ramp: Ramp.GREY,
+    lightOffset: 0.02,
+    uniforms: { uMask: { value: mask }, uMaskRect: { value: rect }, uMaskSize: { value: size } },
+    vertexChunk: /* glsl */ `
+      {
+        vec3 wc = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+        ivec2 mc = ivec2(floor((wc.xz - uMaskRect.xy) * uMaskRect.z));
+        mc = clamp(mc, ivec2(0), ivec2(uMaskSize) - 1);
+        if (texelFetch(uMask, mc, 0).r > 0.5) p *= 0.0;
+      }
+    `,
+  });
+  // declare the mask uniforms in the vertex shader
+  mat.vertexShader = mat.vertexShader.replace('void main() {', 'uniform sampler2D uMask;\nuniform vec4 uMaskRect;\nuniform vec2 uMaskSize;\nvoid main() {');
+  return mat;
+}
+
+/** The far terrain and the horizon hills: per-vertex ramps (vertexRamp attributes, all float). */
+function farGridMesh(pos: Float32Array, nrm: Float32Array, ramp: Float32Array, lo: Float32Array, gl: Float32Array, index: THREE.BufferAttribute | number[], shadowMul: number): THREE.Mesh {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  g.setAttribute('ramp', new THREE.BufferAttribute(ramp, 1));
+  g.setAttribute('lightOffset', new THREE.BufferAttribute(lo, 1));
+  g.setAttribute('glow', new THREE.BufferAttribute(gl, 1));
+  g.setIndex(index);
+  g.computeBoundingSphere();
+  const mesh = new THREE.Mesh(g, makeRampMaterial({ vertexRamp: true, shadowMul }));
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
+// Shader warm-up (render/warmup.ts): one of every mesh streaming makes later, made by the same
+// functions: a building tile (its vertex layout from the worker's mesher), a tile's own ground (and
+// a coarse region's: same program), the far terrain, the horizon and the far skyline.
+registerWarm('city', () => {
+  const v = 3;
+  const m: MeshArrays = {
+    position: new Float32Array(v * 3),
+    normal: new Int8Array(v * 3),
+    facade: new Float32Array(v * 2),
+    meta: new Uint8Array(v * 4),
+    bld: new Float32Array(v * 4),
+    bld2: new Float32Array(v * 2),
+    index: new Uint32Array([0, 1, 2]),
+    vertexCount: v,
+    solidIndexCount: 3,
+  };
+  const tex = new THREE.DataTexture(new Uint8Array(4), 2, 2, THREE.RedFormat, THREE.UnsignedByteType);
+  const f = (n: number) => new Float32Array(n);
+  return [
+    buildingMesh(m, makeBuildingMaterial()),
+    groundMesh(makeHeightGrid(f(4), 2, 1, 0, 0, 1), makeTerrainMaterial(tex, 0, 0, 1, 2), true),
+    farGridMesh(f(9), f(9), f(3), f(3), f(3), [0, 1, 2], 1),
+    farGridMesh(f(9), f(9), f(3), f(3), f(3), [0, 1, 2], 0),
+    new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), makeSkylineMaterial(tex, new THREE.Vector4(), new THREE.Vector2(1, 1)), 1),
+  ];
+});
 
 /** Point-in-ring test for record k of a building tile. */
 function ringContains(b: BuildingTile, k: number, x: number, z: number): boolean {
@@ -137,6 +233,10 @@ const UNLOAD_RADIUS_HIGH = 2800;
 // arrived tiles adopted per frame: at least this many, more while under this many ms
 const ADOPT_MIN = 2;
 const ADOPT_MS = 2.5;
+// regions in flight at once: in play (budgeted), and while the opening's fog is up (`eager`: its
+// whole first ring, ~8 regions, goes out together instead of two per frame)
+const IN_FLIGHT = 2;
+const OPENING_IN_FLIGHT = 10;
 const HASH_CELL = 32;
 const crownTmp = { top: 0, mid: 0, r: 0 };
 
@@ -243,7 +343,11 @@ export class City {
   }
 
   async loadFar(): Promise<void> {
-    const [res, hz] = await Promise.all([fetch(`${this.baseUrl}/far${this.ext}`), fetch(`${this.baseUrl}/horizon${this.ext}`).catch(() => null)]);
+    // (index.html already asked for the default extension's files)
+    const pre = (what: 'far' | 'horizon') => (this.ext === '.bin' ? bootFetch(this.baseUrl, what) : null);
+    const farP = pre('far') ?? fetch(`${this.baseUrl}/far${this.ext}`);
+    const hzP = (pre('horizon') ?? fetch(`${this.baseUrl}/horizon${this.ext}`)).catch(() => null);
+    const [res, hz] = await Promise.all([farP, hzP]);
     this.far = parseFar(await maybeInflate(await res.arrayBuffer()));
     this.buildFar();
     if (hz && hz.ok) this.buildHorizon(await maybeInflate(await hz.arrayBuffer()));
@@ -290,17 +394,7 @@ export class City {
         if (x >= bx0 && x + step * cell <= bx1 && z >= bz0 && z + step * cell <= bz1) continue;
         idx.push(a, c, b, b, c, d);
       }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
-    g.setAttribute('ramp', new THREE.BufferAttribute(ramp, 1));
-    g.setAttribute('lightOffset', new THREE.BufferAttribute(lo, 1));
-    g.setAttribute('glow', new THREE.BufferAttribute(gl, 1));
-    g.setIndex(idx);
-    g.computeBoundingSphere();
-    const mesh = new THREE.Mesh(g, makeRampMaterial({ vertexRamp: true, shadowMul: 0 }));
-    mesh.frustumCulled = false;
-    this.farGroup.add(mesh);
+    this.farGroup.add(farGridMesh(pos, nrm, ramp, lo, gl, idx, 0));
   }
 
   private buildFar() {
@@ -341,41 +435,13 @@ export class City {
         idx[q++] = a; idx[q++] = c; idx[q++] = b;
         idx[q++] = b; idx[q++] = c; idx[q++] = d;
       }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
-    g.setAttribute('ramp', new THREE.BufferAttribute(ramp, 1));
-    g.setAttribute('lightOffset', new THREE.BufferAttribute(lo, 1));
-    g.setAttribute('glow', new THREE.BufferAttribute(gl, 1));
-    g.setIndex(new THREE.BufferAttribute(idx, 1));
-    g.computeBoundingSphere();
-    const farTerrain = new THREE.Mesh(g, makeRampMaterial({ vertexRamp: true, shadowMul: 1 }));
-    farTerrain.frustumCulled = false;
-    this.farGroup.add(farTerrain);
+    this.farGroup.add(farGridMesh(pos, nrm, ramp, lo, gl, new THREE.BufferAttribute(idx, 1), 1));
 
     // far skyline: tall buildings as boxes, hidden where real tiles are loaded
     const n = f.index.length;
     if (n) {
       const box = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
-      const mat = makeRampMaterial({
-        ramp: Ramp.GREY,
-        lightOffset: 0.02,
-        uniforms: {
-          uMask: { value: this.loadedMask },
-          uMaskRect: { value: new THREE.Vector4(this.manifest.bounds[0], this.manifest.bounds[1], 1 / this.manifest.tileSize, 0) },
-          uMaskSize: { value: new THREE.Vector2(this.maskW, this.maskH) },
-        },
-        vertexChunk: /* glsl */ `
-          {
-            vec3 wc = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-            ivec2 mc = ivec2(floor((wc.xz - uMaskRect.xy) * uMaskRect.z));
-            mc = clamp(mc, ivec2(0), ivec2(uMaskSize) - 1);
-            if (texelFetch(uMask, mc, 0).r > 0.5) p *= 0.0;
-          }
-        `,
-      });
-      // declare the mask uniforms in the vertex shader
-      mat.vertexShader = mat.vertexShader.replace('void main() {', 'uniform sampler2D uMask;\nuniform vec4 uMaskRect;\nuniform vec2 uMaskSize;\nvoid main() {');
+      const mat = makeSkylineMaterial(this.loadedMask, new THREE.Vector4(this.manifest.bounds[0], this.manifest.bounds[1], 1 / this.manifest.tileSize, 0), new THREE.Vector2(this.maskW, this.maskH));
       const inst = new THREE.InstancedMesh(box, mat, n);
       const m4 = new THREE.Matrix4();
       const qn = new THREE.Quaternion();
@@ -396,13 +462,52 @@ export class City {
     }
   }
 
+  /**
+   * Ask for every region the opening needs around a point at once, before the first frame
+   * (the frame's update() then finds them requested). Call it with the first frame's focus.
+   */
+  prime(focus: THREE.Vector3) {
+    this.request(focus);
+  }
+
   /** Stream regions around a point (at altitude the game passes a point ahead of the bus, under the view). */
   update(focus: THREE.Vector3, renderer: THREE.WebGLRenderer, dt: number) {
+    this.request(focus);
+    const R = this.regionSize * this.manifest.tileSize;
+    const hk = Math.min(1, Math.max(0, (this.viewHeight - 40) / 460));
+    const unloadR = UNLOAD_RADIUS + (UNLOAD_RADIUS_HIGH - UNLOAD_RADIUS) * hk;
+    // unload far regions
+    for (const key of this.regionsLoaded) {
+      const [rx, rz] = key.split(',').map(Number);
+      const cx = (rx + 0.5) * R, cz = (rz + 0.5) * R;
+      const dx = Math.max(Math.abs(focus.x - cx) - R / 2, 0);
+      const dz = Math.max(Math.abs(focus.z - cz) - R / 2, 0);
+      if (Math.hypot(dx, dz) > unloadR) this.unloadRegion(rx, rz);
+    }
+    // adopt arrived tiles a few per frame: a region landing never hitches one frame
+    const t0 = performance.now();
+    let n = 0;
+    while (this.adopt.length && (this.eager || n < ADOPT_MIN || performance.now() - t0 < ADOPT_MS)) {
+      const a = this.adopt.shift()!;
+      n++;
+      if (!this.regionsLoaded.has(a.key)) continue; // unloaded while queued
+      if (a.kind === 'tile') {
+        this.addTile(a.t, a.coarse);
+        this.loadedMask.needsUpdate = true;
+      } else if (a.kind === 'coarse') this.buildRegionMesh(a.key, a.merged);
+      else this.swapRegion(a.key, a.msg);
+    }
+    this.paint.flush(renderer, dt);
+    this.ground.work();
+    this.ground.flush(renderer, dt);
+  }
+
+  /** Request the regions around `focus` that aren't loaded or in flight (nearest first, a few at a time). */
+  private request(focus: THREE.Vector3) {
     const R = this.regionSize * this.manifest.tileSize;
     // at altitude: a wider circle of coarse regions, detail only where pixels are still small
     const hk = Math.min(1, Math.max(0, (this.viewHeight - 40) / 460));
     const loadR = LOAD_RADIUS + (LOAD_RADIUS_HIGH - LOAD_RADIUS) * hk;
-    const unloadR = UNLOAD_RADIUS + (UNLOAD_RADIUS_HIGH - UNLOAD_RADIUS) * hk;
     const lift = Math.max(0, this.viewHeight - 30);
     const ds = Math.max(0.2, this.detailScale);
     const detailD = (d: number) => (lift > 0 ? Math.hypot(d, lift) : d) / ds;
@@ -437,8 +542,11 @@ export class City {
       else if (lod === 0 && detailD(d) > DETAIL_RADIUS * 1.4) want.push([rx, rz, d + 10000, 1]);
     }
     want.sort((a, b) => a[2] - b[2]);
+    // (while the opening's fog is up everything it needs goes out at once; then two at a time, so
+    // streaming in flight stays budgeted)
+    const cap = this.eager ? OPENING_IN_FLIGHT : IN_FLIGHT;
     for (const [rx, rz, , lod] of want) {
-      if (this.pending.size >= 2) break;
+      if (this.pending.size >= cap) break;
       const key = `${rx},${rz}`;
       this.regionsRequested.add(key);
       const id = this.nextId++;
@@ -447,30 +555,6 @@ export class City {
       if (this.worker) this.worker.postMessage(msg);
       else void loadRegion(msg).then((r) => this.onRegion(r));
     }
-    // unload far regions
-    for (const key of this.regionsLoaded) {
-      const [rx, rz] = key.split(',').map(Number);
-      const cx = (rx + 0.5) * R, cz = (rz + 0.5) * R;
-      const dx = Math.max(Math.abs(focus.x - cx) - R / 2, 0);
-      const dz = Math.max(Math.abs(focus.z - cz) - R / 2, 0);
-      if (Math.hypot(dx, dz) > unloadR) this.unloadRegion(rx, rz);
-    }
-    // adopt arrived tiles a few per frame: a region landing never hitches one frame
-    const t0 = performance.now();
-    let n = 0;
-    while (this.adopt.length && (this.eager || n < ADOPT_MIN || performance.now() - t0 < ADOPT_MS)) {
-      const a = this.adopt.shift()!;
-      n++;
-      if (!this.regionsLoaded.has(a.key)) continue; // unloaded while queued
-      if (a.kind === 'tile') {
-        this.addTile(a.t, a.coarse);
-        this.loadedMask.needsUpdate = true;
-      } else if (a.kind === 'coarse') this.buildRegionMesh(a.key, a.merged);
-      else this.swapRegion(a.key, a.msg);
-    }
-    this.paint.flush(renderer, dt);
-    this.ground.work();
-    this.ground.flush(renderer, dt);
   }
 
   private tileKeysOf(key: string): string[] {
@@ -561,8 +645,7 @@ export class City {
       g.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
       g.computeBoundingSphere();
       // (far ground doesn't cast: the shadow window is near the view, and buildings carry the shadows up high)
-      const mesh = new THREE.Mesh(g, makeTerrainMaterial(tex, rx * rs * ts, rz * rs * ts, rs * ts, N));
-      mesh.matrixAutoUpdate = false;
+      const mesh = groundMesh(g, makeTerrainMaterial(tex, rx * rs * ts, rz * rs * ts, rs * ts, N), false);
       mesh.visible = !rm.hidden;
       this.root.add(mesh);
       rm.terrain = mesh;
@@ -683,10 +766,8 @@ export class City {
     lt.classTex = tex;
     const geo = makeHeightGrid(tr.heights, tr.n, tr.cell, tr.originX, tr.originZ, step);
     const gu = this.ground.tileUniforms();
-    const mesh = new THREE.Mesh(geo, makeTerrainMaterial(tex, tr.originX, tr.originZ, this.manifest.tileSize, tr.classN, 0, gu));
+    const mesh = groundMesh(geo, makeTerrainMaterial(tex, tr.originX, tr.originZ, this.manifest.tileSize, tr.classN, 0, gu), step === 2);
     this.ground.attach(lt.tx, lt.tz, tr.originX, tr.originZ, gu);
-    if (step === 2) mesh.layers.enable(SHADOW_LAYER);
-    mesh.matrixAutoUpdate = false;
     mesh.visible = !lt.hidden;
     this.root.add(mesh);
     lt.terrain = mesh;
@@ -769,14 +850,8 @@ export class City {
 
   private makeBuildingMesh(m: NonNullable<TileResult['mesh']>): THREE.Mesh | null {
     if (m.vertexCount === 0) return null;
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(m.position, 3));
-    g.setAttribute('normal', new THREE.BufferAttribute(m.normal, 3, true));
-    g.setAttribute('aFacade', new THREE.BufferAttribute(m.facade, 2));
-    g.setAttribute('aMeta', new THREE.BufferAttribute(m.meta, 4));
-    g.setAttribute('aBld', new THREE.BufferAttribute(m.bld, 4));
-    g.setAttribute('aBld2', new THREE.BufferAttribute(m.bld2, 2));
-    g.setIndex(new THREE.BufferAttribute(m.index, 1));
+    const mesh = buildingMesh(m, this.buildingMaterial);
+    const g = mesh.geometry;
     // the collapsed growth (last in the index) isn't drawn until a building of the mesh grows it (growTo)
     const growth = m.index.length > m.solidIndexCount;
     if (growth) g.setDrawRange(0, m.solidIndexCount);
@@ -784,9 +859,6 @@ export class City {
     // generous bounds: painted buildings pop and wobble a little outside their rest pose, and grown
     // domes / trees reach up to ~20 m over the mesh's highest vertex
     if (g.boundingSphere) g.boundingSphere.radius += growth ? 26 : 6;
-    const mesh = new THREE.Mesh(g, this.buildingMaterial);
-    mesh.layers.enable(SHADOW_LAYER);
-    mesh.matrixAutoUpdate = false;
     this.root.add(mesh);
     return mesh;
   }

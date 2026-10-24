@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { makeRampMaterial, setVertexRamp, SHADOW_LAYER } from '../render/materials';
 import { Ramp } from '../render/palette';
+import { registerWarm } from '../render/warmup';
 
 // Hand-built pixel landmarks: the Golden Gate Bridge (art-deco towers with
 // stacked portal struts) and the Bay Bridge west span (X-braced towers, the
@@ -248,3 +249,11 @@ export function bridgeObstacles(kind: 'ggb' | 'baybridge', pts: P2[]): ObstacleP
   if (!isGG) out.push({ x: pts[3][0], z: pts[3][1], r: 40, top: 100, under: -Infinity });
   return out;
 }
+
+// Shader warm-up (render/warmup.ts): a bridge as the kit builds one (the Bay Bridge is built after
+// the first frame, see main.ts)
+registerWarm('bridges', () => {
+  const k = new Kit();
+  k.block(0, 0, 0, 1, 1, 1, 0, Ramp.GREY);
+  return k.build();
+});

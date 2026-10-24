@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT, SHADOW_LAYER } from '../../render/materials';
 import { Ramp } from '../../render/palette';
 import { DEPTH_FS, GLSL_PROPS, PartKit, propsTune, rng, tuneUniform, unitSphere } from './common';
+import { registerWarm } from '../../render/warmup';
 
 // Rooftop sprouts: what painted buildings grow. Level 1 = flower tufts along
 // the roof edge, level 2 = a rooftop garden (turf, bushes, a little tree,
@@ -783,6 +784,14 @@ export class RoofSprouts {
         depth.allowOverride = false;
       }
       return { geo, mat, depth, capacity: def.capacity };
+    });
+    // shader warm-up (render/warmup.ts): every element type's batch and its sun-pass twin, made by
+    // the same code as a garden's (gardens only grow in flight, at the first escalation)
+    registerWarm('roof sprouts', () => {
+      const g = new THREE.Group();
+      const sphere = new THREE.Sphere();
+      for (const t of this.types) new Batch(t.geo, t.mat, t.depth, 1, g, sphere);
+      return g;
     });
   }
 

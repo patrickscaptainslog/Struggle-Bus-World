@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { config } from '../config';
 import { globals, GLSL_LAYER_TOP, SHADOW_LAYER } from './materials';
 import { makePaletteTexture, Ramp } from './palette';
+import type { WarmPipeline } from './warmup';
 
 // Low-res 3D pixel-art renderer.
 //
@@ -27,7 +28,7 @@ export interface PixelFrameInfo {
   scale: number;
 }
 
-export class PixelPipeline {
+export class PixelPipeline implements WarmPipeline {
   readonly renderer: THREE.WebGLRenderer;
   readonly camera: THREE.PerspectiveCamera;
   /** Camera actually used to render (snapped copy of `camera`). */
@@ -90,6 +91,8 @@ export class PixelPipeline {
   private cssW = 1;
   private cssH = 1;
   private dpr = 1;
+  /** what the targets were last sized for (resize() early-outs when nothing changed) */
+  private sizeKey = '';
   /** impact flash: rendered frames left, and (buffer uv x, y, strength, radius) */
   private flashLeft = 0;
   private readonly flashU = new THREE.Vector4();
@@ -193,6 +196,10 @@ export class PixelPipeline {
   }
 
   resize(cssW: number, cssH: number, dpr: number) {
+    // (iOS fires resize / visualViewport events in bursts while its toolbars move: reallocate only on a real change)
+    const key = `${cssW}x${cssH}@${dpr}/${config.render.pixelWidth}/${config.render.maxPixelScale}`;
+    if (key === this.sizeKey) return;
+    this.sizeKey = key;
     this.cssW = cssW;
     this.cssH = cssH;
     this.dpr = dpr;
@@ -451,6 +458,59 @@ export class PixelPipeline {
     u.uOffset.value.set(MARGIN + this.subPixel.x, MARGIN + this.subPixel.y);
     u.uCanvas.value.set(r.domElement.width, r.domElement.height);
     this.blit(this.upscaleMat, null);
+  }
+
+  // ---- shader warm-up (src/render/warmup.ts): what the passes draw with, and draws that are never presented
+
+  /** Layers the scene pass draws (the render camera copies the camera's). */
+  get sceneLayers(): THREE.Layers {
+    return this.camera.layers;
+  }
+
+  /** Layers the sun's depth pass draws. */
+  get sunLayers(): THREE.Layers {
+    return this.sunCam.layers;
+  }
+
+  /** The sun pass's override material (every caster whose material allows overriding draws with it). */
+  get sunOverride(): THREE.Material {
+    return this.depthMat;
+  }
+
+  /** One quad per post-pass material, for the warm-up to compile. */
+  warmObjects(): THREE.Object3D[] {
+    return [this.glowMat, this.blurMat, this.resolveMat, this.upscaleMat].map((m) => new THREE.Mesh(this.quad.geometry, m));
+  }
+
+  /** Draw `scene` into the G-buffer and `sun` into the shadow map, as the real passes do (nothing reaches the canvas). */
+  warmDraw(scene: THREE.Scene, sun: THREE.Scene, camera: THREE.Camera) {
+    const r = this.renderer;
+    if (sun.children.length) {
+      r.setRenderTarget(this.shadowRT);
+      r.render(sun, camera);
+    }
+    if (scene.children.length) {
+      r.setRenderTarget(this.gbuf);
+      r.render(scene, camera);
+    }
+    r.setRenderTarget(null);
+  }
+
+  /** The post passes once, each into its own target; the upscale into a scratch target instead of the canvas. */
+  warmPasses() {
+    this.glowMat.uniforms.tColor.value = this.gbuf.textures[0];
+    this.blit(this.glowMat, this.glowA);
+    this.blurMat.uniforms.tSrc.value = this.glowA.texture;
+    this.blit(this.blurMat, this.glowB);
+    const ru = this.resolveMat.uniforms;
+    ru.tColor.value = this.gbuf.textures[0];
+    ru.tAux.value = this.gbuf.textures[1];
+    ru.tDepth.value = this.gbuf.depthTexture;
+    ru.tGlow.value = this.glowA.texture;
+    this.blit(this.resolveMat, this.resolved);
+    this.upscaleMat.uniforms.tSrc.value = this.resolved.texture;
+    this.blit(this.upscaleMat, this.glowB);
+    this.renderer.setRenderTarget(null);
   }
 
   private blit(mat: THREE.ShaderMaterial, target: THREE.WebGLRenderTarget | null) {
