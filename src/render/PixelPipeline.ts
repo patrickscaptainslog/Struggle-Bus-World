@@ -149,7 +149,7 @@ export class PixelPipeline {
         uFogBillow: globals.uFogBillow,
         uCamPos: { value: new THREE.Vector3() },
         uCalm: { value: 0 },
-        uHaze: { value: new THREE.Vector3(config.render.ditherHazeFrom, config.render.ditherHazeTo, config.render.fogBandMin) },
+        uHaze: { value: new THREE.Vector4(config.render.ditherHazeFrom, config.render.ditherHazeTo, config.render.fogBandMin, config.render.fogSliver) },
         uBeam: { value: new THREE.Vector4() },
         uBeamShape: { value: new THREE.Vector4() },
         uHeroShadow: { value: new THREE.Vector4() },
@@ -476,7 +476,7 @@ export class PixelPipeline {
     ru.uCamPos.value.copy(this.snapCam.position);
     ru.uCalm.value = Math.min(1, Math.max(0, this.calm));
     ru.uDitherWidth.value = config.render.ditherWidth;
-    ru.uHaze.value.set(config.render.ditherHazeFrom, Math.max(config.render.ditherHazeFrom + 0.01, config.render.ditherHazeTo), Math.max(0.004, config.render.fogBandMin));
+    ru.uHaze.value.set(config.render.ditherHazeFrom, Math.max(config.render.ditherHazeFrom + 0.01, config.render.ditherHazeTo), Math.max(0.004, config.render.fogBandMin), config.render.fogSliver);
     ru.uOutline.value.set(config.render.outlineDepth, config.render.creaseHighlight, config.render.outlineFadeEnd);
     if (this.beamK > 0.001) {
       // the beam in buffer pixels, projected with the snapped camera (what the buffer was rendered with)
@@ -589,7 +589,8 @@ uniform vec4 uFogLayer2;
 uniform vec2 uFogBillow;
 uniform vec3 uCamPos;
 uniform float uCalm;
-uniform vec3 uHaze;      // fog over which surface dither fades to plain rounding; the handover band's floor
+uniform vec4 uHaze;      // fog over which surface dither fades to plain rounding; the handover band's floor; the
+                         // shortest shape (share of the frame's height) that may stand out of the fog
 uniform vec4 uBeam;      // hero headlight: lens (buffer px), axis to the tip (px)
 uniform vec4 uBeamShape; // half width at the lens / at the tip (px), strength, lens view depth (m)
 uniform vec4 uHeroShadow;     // hero drop shadow: center xz, underside y (m), ramp steps (0 = off)
@@ -899,13 +900,13 @@ void main() {
     if (sea < 0.5) {
       float bur = rampStep(sl - 0.03 - 0.1 * uCalm, 0.5);
       if (oStep < bur) {
-        int K = clamp(int(uSize.y / 140.0 + 0.5), 3, 8);
+        int K = clamp(int(uSize.y * uHaze.w + 0.5), 3, 16);
         int run = 1;
-        for (int i = 1; i < 8; i++) {
+        for (int i = 1; i < 16; i++) {
           if (i >= K || !stands(texelFetch(tColor, p + ivec2(0, i), 0).b, sl, bur)) break;
           run++;
         }
-        for (int i = 1; i < 8; i++) {
+        for (int i = 1; i < 16; i++) {
           if (run >= K || !stands(texelFetch(tColor, p - ivec2(0, i), 0).b, sl, bur)) break;
           run++;
         }

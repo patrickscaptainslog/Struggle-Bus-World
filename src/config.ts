@@ -22,6 +22,10 @@ export const config = {
     /** The fog handover band follows the fog's own gradient, but never narrower than this at street
      *  level (fog units; 0.06 = the old fixed band). */
     fogBandMin: 0.015,
+    /** With fog: the shortest shape that may stand out of it, as a share of the frame's height (0.0071 =
+     *  6 game px of 852, ~0.35 deg; 0.0118 = 10 px, ~0.58 deg); a shorter one (the top of a roof just over the fog ceiling's contour)
+     *  would float in the sky band as a chip, so it is buried. 3..16 px. */
+    fogSliver: 0.0118,
     /** Depth-discontinuity threshold for silhouette outlines (fraction of depth). */
     outlineDepth: 0.035,
     /** Crease highlight strength on convex edges (0..1). */

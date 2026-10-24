@@ -421,6 +421,13 @@ export class StreetSigns {
     if (!wasActive) this.activeCount++;
   }
 
+  /** The sign standing at `position` (within 10 m) sinks now: a new blast's bloom is about to reach its spot. */
+  retire(position: THREE.Vector3): void {
+    const T = signTune;
+    const tSink = T.riseTime + T.holdGreen + T.flipTime + T.holdRainbow;
+    for (const s of this.signs) if (s.active && s.pos.distanceToSquared(position) < 100) s.age = Math.max(s.age, tSink);
+  }
+
   private setHue(slot: number, hue: number) {
     this.signs[slot].hue = hue;
     (this.aTex.array as Float32Array)[slot * 4 + 3] = hue;

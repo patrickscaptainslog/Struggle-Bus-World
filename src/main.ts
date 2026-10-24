@@ -401,7 +401,17 @@ async function boot() {
     const T = signTune;
     const text = city.neighborhoodName(ref.hood).toUpperCase();
     const life = T.riseTime + T.holdGreen + T.flipTime + T.holdRainbow + T.sinkTime;
-    const same = signSpot && simTime < signSpot.until && signSpot.text === text && Math.hypot(cx - signSpot.cx, cz - signSpot.cz) < signSpot.r;
+    // another blast in the neighborhood while its sign stands: that sign flips again while it is in view
+    // (two signs saying the same name side by side read as a glitch), unless this blast's bloom reaches
+    // its spot: then it sinks, and the sign stands anew beside this blast (never in front of fresh paint)
+    let same = false;
+    if (signSpot && simTime < signSpot.until && signSpot.text === text) {
+      signNdc.set(signSpot.x, signSpot.y + (T.poleHeight + 4) * signSpot.scale + signSpot.pole, signSpot.z).project(camera);
+      const inView = Math.abs(signNdc.x) < 0.95 && Math.abs(signNdc.y) < 0.95 && signNdc.z < 1;
+      const clear = Math.hypot(signSpot.x - cx, signSpot.z - cz) >= r + 4;
+      same = clear && inView;
+      if (!clear) signs.retire(signPos.set(signSpot.x, signSpot.y, signSpot.z));
+    }
     if (!same) {
       camera.getWorldDirection(signFwd);
       const fl = Math.hypot(signFwd.x, signFwd.z);
