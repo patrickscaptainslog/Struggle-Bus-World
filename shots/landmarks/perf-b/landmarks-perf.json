@@ -1,0 +1,22 @@
+{
+ "perf": {
+  "grey": {
+   "tag": "grey",
+   "frames": 32,
+   "workMedian": 4.2,
+   "workMean": 11.17,
+   "callsMax": 134,
+   "callsMin": 122,
+   "trisMax": 843608
+  },
+  "painted": {
+   "tag": "painted",
+   "frames": 32,
+   "workMedian": 2.8,
+   "workMean": 4,
+   "callsMax": 134,
+   "callsMin": 122,
+   "trisMax": 845656
+  }
+ }
+}

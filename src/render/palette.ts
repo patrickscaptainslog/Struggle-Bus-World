@@ -31,7 +31,16 @@ export const Ramp = {
   SIGN_GREEN: 17,
   WHITE: 18,
   ROOF_DARK: 19, // tar roofs
-  BRIDGE_ORANGE: 20, // the Golden Gate: International Orange, muted, shadows to rose and plum
+  // 20-23: world materials (never painted)
+  GLASS: 20, // tower curtain walls: blue-silver, the bright end is the fog sky they mirror
+  STONE: 21, // pre-war masonry and terracotta: pale buff stone in the sun, cool violet-grey in shade
+  GRANITE: 22, // polished dark granite (555 California): near-black plum grey
+  BRIDGE_ORANGE: 23, // painted bridge steel (the Golden Gate's International Orange), muted, shadows to rose and plum
+  // Reserved rows (docs/specs/STAGES.md 3.4 rule 7, WORLD-TRAVEL.md 2.5); claim them here, by name:
+  //   24-31 faction ramps: MAGENTA 24, CYAN 25, AQUA 26, PEARL 27 (spare since Cloud Nine was cut),
+  //         MOSS 28, BIOLUME 29, FAE_VIOLET 30, SILVERBARK 31 (the Elderwood)
+  //   32-37 world travel: NIGHT_SKY 32, OPEN_SEA 33, LIMB 34, CLOUD 35, DRY_LAND 36, TWILIGHT 37
+  //   38-47 spare
 } as const;
 
 export type RampId = (typeof Ramp)[keyof typeof Ramp];
@@ -69,10 +78,15 @@ const RAMPS: Record<number, string[]> = {
   [Ramp.SIGN_GREEN]: ['#08241a', '#0c3a28', '#12523a', '#1a6a4a', '#24845a', '#3aa06e', '#64be8c', '#a6dcbc'],
   [Ramp.WHITE]: ['#5c626b', '#787e86', '#959aa0', '#b1b5b9', '#cbced0', '#e0e2e2', '#f0f1ef', '#ffffff'],
   [Ramp.ROOF_DARK]: ['#101419', '#171d24', '#20272f', '#2a323c', '#36404b', '#454f5a', '#58626c', '#6f7882'],
+  [Ramp.GLASS]: ['#0f1620', '#17212d', '#212e3d', '#2d3e50', '#3e5266', '#566c80', '#7a90a2', '#aebfcb'],
+  // (buff only in the top two steps, the sunlit stone; in shade a cool violet-grey (chroma ~4, hue 273-303):
+  // the old near-neutral warm mid steps read taupe and rust next to the blue-grey city, rose read pink)
+  [Ramp.STONE]: ['#23262c', '#33353b', '#45464d', '#5d5e65', '#77767d', '#949298', '#b6b0a6', '#d4cdc0'],
+  [Ramp.GRANITE]: ['#0c0b11', '#14121a', '#1d1a24', '#28232f', '#352e3c', '#463d4d', '#5c5163', '#7b6e80'],
   [Ramp.BRIDGE_ORANGE]: ['#24121f', '#3d1828', '#5e2131', '#842c38', '#a33a3a', '#b4564a', '#bf7a6c', '#c9a197'],
 };
 
-export const RAMP_COUNT = 32; // texture rows (room to grow; unused rows are black)
+export const RAMP_COUNT = 48; // texture rows (8x48 RGBA8, 1.5 KB; rows 24-47 reserved or spare, unused rows are black)
 
 /** Linear-ish sRGB triplets 0..1 for CPU use (e.g. CSS colors, splash screens). */
 export function rampColor(ramp: number, step: number): string {

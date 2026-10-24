@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-// One headless Chromium (SwiftShader) for several QA scripts at once:
+// One shared browser (tools/browser.mjs: GPU Edge/Chrome here, SwiftShader in the cloud) for several QA scripts:
 //   node tools/pw-server.mjs <wsFile>      (writes the ws endpoint to <wsFile>, runs until killed)
 //   PW_WS=$(cat <wsFile>) node tools/look.mjs ...   (look.mjs and shots.mjs connect instead of launching)
 import { chromium } from 'playwright-core';
+import { browserOptions } from './browser.mjs';
 import { writeFileSync } from 'node:fs';
 
 const server = await chromium.launchServer({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
+  ...browserOptions([]),
 });
 writeFileSync(process.argv[2] ?? 'pw-ws.txt', server.wsEndpoint());
 console.log('browser server', server.wsEndpoint());

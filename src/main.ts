@@ -4,8 +4,8 @@ import { PixelPipeline } from './render/PixelPipeline';
 import { globals, layerTopBase } from './render/materials';
 import { HUE_RAMPS } from './render/palette';
 import { City, type BuildingRef } from './world/City';
-import { paintUniforms } from './world/buildingMaterial';
-import type { CityManifest } from './world/tiles';
+import { paintUniforms, setFacadeView } from './world/buildingMaterial';
+import { Ground, type CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
 import { CameraRig } from './game/CameraRig';
 import { Splatter, type Blast } from './game/Splat';
@@ -18,8 +18,10 @@ import { Particles } from './fx/Particles';
 import { StreetSigns, signTune } from './fx/StreetSign';
 import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
+import { paintLandmark, bindLandmarkPaint, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
 import { Tuner, applySavedTuning } from './ui/Tuner';
 import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles } from './world/Bridges';
+import { heroLandmarks, SpireRide } from './world/props/landmarks';
 import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
 import { tunableGroups } from './ui/tunables';
@@ -27,6 +29,8 @@ import { tunableGroups } from './ui/tunables';
 // Struggle Bus — Phase 1 (real SF, solo).
 
 type Manifest = CityManifest & { regions: Array<[number, number, number]>; regionSize: number };
+/** What the street sign says when a landmark is hit. */
+const LANDMARK_NAMES: Record<string, string> = { sutro: 'Sutro Tower', transamerica: 'Transamerica' };
 
 const params = new URLSearchParams(location.search);
 if (params.has('fog')) config.fog.enabled = true;
@@ -80,7 +84,11 @@ async function boot() {
     const rect = city.roofRect(ref);
     const top = sprouts.set(ref.index, rect, hue, level, start);
     if (top > 0) city.raiseRoof(rect, rect.y + top);
+    // a tower's own setback gardens, trees and onion domes (baked in its mesh) grow too
+    city.growTo(ref, level);
   };
+  /** 181 Fremont's spire, once its tower streams in: it rides the tower's pop and wobble */
+  let spire: SpireRide | null = null;
   city.onTile = ({ tx, tz, terrain, refs }) => {
     if (terrain && terrain.trees.length) {
       const list: TreeInstance[] = terrain.trees.map((t) => ({ x: t.x, y: t.y, z: t.z, size: t.size, kind: t.kind }));
@@ -88,6 +96,16 @@ async function boot() {
       scene.add(tf.object);
       treeFields.set(`${tx},${tz}`, tf);
       treeIndex.set(`${tx},${tz}`, list);
+    }
+    // 181 Fremont's spire binds to its tower (and the roof under it) when the tower's tile arrives
+    if (spire && !spire.bound) {
+      const sp = spire.object.position;
+      const ref = city.buildingAt(sp.x, sp.z);
+      if (ref && ref.roofY - ref.baseY > 150) {
+        spire.bind(ref, city.roofAtPart(ref, sp.x, sp.z));
+        // it paints and glints with its tower (one building: never an 'lm:' key of its own); SpireRide moves it
+        bindLandmarkPaint(spire.object, ref, { ride: true });
+      }
     }
     // saved paint: regrow rooftop gardens and thin the fog again
     for (const ref of refs) {
@@ -141,7 +159,19 @@ async function boot() {
       if (!obj) continue;
       obj.position.set(lm.x, lm.y, lm.z);
       scene.add(obj);
+      // a first-class paintable building (its paint saved under 'lm:<kind>')
+      paintLandmark(city, `lm:${lm.kind}`, obj, { name: LANDMARK_NAMES[lm.kind] });
     }
+  }
+  // the hand-built heroes the footprints can't draw: Coit Tower, the Ferry Building, 181 Fremont's spire
+  for (const h of heroLandmarks(manifest.origin)) {
+    scene.add(h.object);
+    city.addObstacles(h.posts);
+    // the footprints a prop replaces leave the obstacle grid; its own surface takes their cells
+    if (h.clear) city.setPropObstacles(h.clear, h.boxes);
+    if (h.kind === 'fremont181-spire') spire = new SpireRide(h.object);
+    // Coit Tower and the Ferry Building: first-class paintable buildings, like Sutro and the pyramid
+    else if (h.paint) paintLandmark(city, h.paint.key, h.object, { name: h.paint.name });
   }
 
   // ---- the hero
@@ -213,6 +243,15 @@ async function boot() {
       }
     pdTex.needsUpdate = true;
   }
+  // saved landmark paint thins the fog again (landmarks never stream in with a tile)
+  for (const r of city.landmarkRefs()) if (city.paint.level(r.index) > 0.5) bumpPaint(r.cx, r.cz, 40);
+  /** A landmark blooms: its sparkles hug its shape, its garden grows in its own shader (no rooftop sprouts on a spire). */
+  const landmarkBloom = (ref: BuildingRef, hue: number, level: number): boolean => {
+    const slices = landmarkSparkles(ref);
+    if (!slices) return false;
+    for (const s of slices) particles.sparkles(s.center, s.radius, s.height, [hue, (hue + 1) % 6, (hue + 5) % 6], 10 + level * 4);
+    return true;
+  };
 
   /**
    * Is a tile (rect, tallest point) buried so deep in the fog sea that, from the
@@ -301,6 +340,7 @@ async function boot() {
         particles.fling(flingFrom, flingTo, blobFlight(dot), dot.hue, 0.7 + dot.rad * 0.5);
       }
       paintTrees(b);
+      landmarkHit(city, b.pos, b.t);
       audio.splatImpact(k);
       audio.bloomBurst(b.count, b.spec.hue, b.maxLevel);
       // one white-hot frame centered on the blast, a kick, and the fog thins over it
@@ -310,6 +350,7 @@ async function boot() {
       bumpPaint(b.spec.x, b.spec.z, Math.min(255, 30 + 5 * b.count));
     },
     bloom: (ref, _order, _total, hue, level, roof) => {
+      if (landmarkBloom(ref, hue, level)) return;
       const h = ref.roofY - ref.baseY;
       particles.sparkles(roof, Math.sqrt(ref.area) * 0.6 + 2, h, [hue, (hue + 1) % 6, (hue + 5) % 6], 14 + level * 8);
       fogBumped.add(ref.stableId);
@@ -318,7 +359,7 @@ async function boot() {
     // the street sign waits until the shockwave has bloomed the whole blast (game clock: hit-stop holds it)
     primary: (ref, hue) => {
       const r = lastBlast.r;
-      pendingSigns.push({ ref, hue, cx: lastBlast.x, cz: lastBlast.z, r, at: simTime + arrival(r, r) + signTune.showDelay });
+      pendingSigns.push({ ref, hue, cx: lastBlast.x, cz: lastBlast.z, r, at: simTime + arrival(r, r) + signTune.showDelay, tries: 0 });
     },
     hitStop: (frames) => (hitStop = frames / 60),
   });
@@ -330,7 +371,7 @@ async function boot() {
   // its true depth (the painted houses in front of it keep covering it), preferring a spot whose pole
   // is seen to its foot; else its pole grows until the blade clears the roofs in front (never a blade
   // hovering over the roofs with no pole).
-  const pendingSigns: Array<{ ref: BuildingRef; hue: number; cx: number; cz: number; r: number; at: number }> = [];
+  const pendingSigns: Array<{ ref: BuildingRef; hue: number; cx: number; cz: number; r: number; at: number; tries: number }> = [];
   let signSpot: { x: number; y: number; z: number; facing: number; scale: number; bias: boolean; pole: number; cx: number; cz: number; r: number; text: string; until: number } | null = null;
   /** How far (m) a point must rise for its sightline to the camera to clear the roofs and crowns over
    *  the first ~60 m in front of it (0 = in the clear). */
@@ -351,7 +392,9 @@ async function boot() {
   const signNdc = new THREE.Vector3();
   const signFwd = new THREE.Vector3();
   const SIGN_RING: ReadonlyArray<readonly [number, number]> = [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6], [12, 0], [-12, 0], [0, 12], [0, -12], [9, 9], [-9, 9], [9, -9], [-9, -9]];
-  function showSign(ref: BuildingRef, hue: number, cx: number, cz: number, r: number) {
+  /** Show (or re-flip) the sign of a blast at (cx, cz) of radius r. False: no open spot in frame yet, ask
+   *  again later (`tries` so far); true once it is shown or given up on. */
+  function showSign(ref: BuildingRef, hue: number, cx: number, cz: number, r: number, tries: number): boolean {
     const T = signTune;
     const text = city.neighborhoodName(ref.hood).toUpperCase();
     const life = T.riseTime + T.holdGreen + T.flipTime + T.holdRainbow + T.sinkTime;
@@ -379,6 +422,7 @@ async function boot() {
             const x = bx + ox, z = bz + oz;
             if (Math.hypot(x - cx, z - cz) < r + 4) continue;
             if (city.roofAt(x, z) !== null) continue; // the pole stands on the street, a sidewalk or a lawn
+            if (city.groundClassAt(x, z) === Ground.WATER) continue; // (not in the bay: the Ferry Building's far side)
             const y = city.groundAt(x, z);
             const dist = camera.position.distanceTo(signPos.set(x, y + T.poleHeight + 5, z));
             const scale = clamp((T.minFontPx * pipeline.pixelWorldSize(dist)) / Math.max(0.05, T.texelW), 1, 4);
@@ -396,19 +440,23 @@ async function boot() {
         }
       }
       if (!found) {
-        // nowhere open in frame: the old spot, in front of the primary's facade (the bus may still be
-        // between it and the camera there: the depth bias waits, as before)
-        const f = city.frontOf(ref);
+        // nowhere open in frame: look again in a moment (the camera moves on), twice; then the primary's
+        // own front (a landmark has no street front: the edge facing the bus), but only when that stands
+        // clear of the blast. Inside it the blade would cover the bloom: then no sign this time.
+        if (tries < 2) return false;
+        const f = city.isLandmark(ref) ? city.edgeToward(ref, flight.x, flight.z) : city.frontOf(ref);
         const gx = f.x + f.nx * 4.5, gz = f.z + f.nz * 4.5;
-        found = { x: gx, y: city.groundAt(gx, gz), z: gz, facing: Math.atan2(f.nx, f.nz), scale: 1, bias: false, pole: 0, cx, cz, r, text, until: 0 };
+        if (Math.hypot(gx - cx, gz - cz) < r + 4 || city.groundClassAt(gx, gz) === Ground.WATER) return true;
+        found = { x: gx, y: city.groundAt(gx, gz), z: gz, facing: Math.atan2(f.nx, f.nz), scale: 1, bias: true, pole: 0, cx, cz, r, text, until: 0 };
       }
       signSpot = found;
     }
     const sp = signSpot!;
     sp.until = simTime + life;
-    // (beside the blast: true depth, a meter's bias against its own lawn; the old facade spot keeps its bias)
-    signs.show({ text, position: signPos.set(sp.x, sp.y, sp.z), facing: sp.facing, hue, scale: sp.scale, biasNow: sp.bias, depthBias: sp.bias ? 1 : undefined, pole: sp.pole });
+    // (true depth everywhere: a meter's bias against its own lawn, so painted houses in front keep covering it)
+    signs.show({ text, position: signPos.set(sp.x, sp.y, sp.z), facing: sp.facing, hue, scale: sp.scale, biasNow: true, depthBias: 1, pole: sp.pole });
     audio.signPop();
+    return true;
   }
 
   // Dragon breath aim (src/game/Aim.ts): the building that glints is the one a tap hits.
@@ -648,7 +696,8 @@ async function boot() {
     // (gated by the vista, i.e. by the height above the ground: skimming the floor over Twin Peaks the
     // camera is 380 m above the sea but the fog must stay exactly the street-level Hopper fog)
     const layerMix = clamp((camY - Fg.layerTop - Fg.layerViewStart) / Math.max(1, Fg.layerViewFull - Fg.layerViewStart), 0, 1) * clamp(vista / 0.3, 0, 1);
-    globals.uFogLayer2.value.w = Fg.enabled ? layerMix * layerMix * (3 - 2 * layerMix) : 0;
+    const layerS = layerMix * layerMix * (3 - 2 * layerMix);
+    globals.uFogLayer2.value.w = Fg.enabled ? layerS : 0;
     camera.getWorldDirection(camFwd);
     camFwd.y = 0;
     if (camFwd.lengthSq() < 1e-6) camFwd.set(flight.fx, 0, flight.fz);
@@ -666,6 +715,9 @@ async function boot() {
     pipeline.shadowStrength = 1 + (R.shadowStrengthVista - 1) * vista;
     pipeline.shadowEdge = 0.08 + (R.shadowEdgeVista - 0.08) * vista;
     pipeline.calm = clamp(vista / Math.max(0.01, config.render.calmVista), 0, 1);
+    // tower facades: the up-high anti-crawl guard follows the view's height (with fog on or off), and their
+    // mirror of the resolve's sky light needs its calm term
+    setFacadeView(layerS, pipeline.calm);
 
     // the splat before the city's paint upload: the impact frame itself already shows the hit (and the
     // hit-stop frames hold it), instead of the paint reaching the GPU a frame late
@@ -676,6 +728,7 @@ async function boot() {
       jet = null;
     }
     city.update(streamCenter, renderer, dt);
+    spire?.update(city.paint.data, globals.uTime.value);
     // tree LOD by distance from the lens (fog eats far groves anyway; a wider view keeps simple canopies farther)
     lodTimer -= dt;
     if (lodTimer <= 0) {
@@ -705,8 +758,12 @@ async function boot() {
     for (let i = pendingSigns.length - 1; i >= 0; i--) {
       const ps = pendingSigns[i];
       if (simTime < ps.at) continue;
+      if (!showSign(ps.ref, ps.hue, ps.cx, ps.cz, ps.r, ps.tries)) {
+        ps.tries++;
+        ps.at = simTime + 0.8;
+        continue;
+      }
       pendingSigns.splice(i, 1);
-      showSign(ps.ref, ps.hue, ps.cx, ps.cz, ps.r);
     }
     signs.update(dt, camera);
 

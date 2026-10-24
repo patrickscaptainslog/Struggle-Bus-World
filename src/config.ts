@@ -340,6 +340,25 @@ export const config = {
     reliefSeconds: 2.6,
   },
 
+  facade: {
+    /** Tower facades show their columns while a column module is at least this many game pixels wide on screen... */
+    colPx: 3,
+    /** ...and their floors while a floor is at least this tall (game px); below both they are a flat wall tone. */
+    floorPx: 4,
+    /** Per-building spread of those switches (fraction of the distance), so the change never draws a ring. */
+    lodJitter: 0.24,
+    /** House windows: one glass band per floor beyond this size of a game pixel at the house (m), a flat wall beyond the second. */
+    houseRibbon: 0.6,
+    houseFlat: 1.15,
+    /** Glow of lit tower crowns and of Salesforce Tower's LED crown (0..1). */
+    crownGlow: 0.3,
+    /** Glow of painted stained glass at levels 1-2 (0.12 stays under the halo threshold: no dust) and at level 3. */
+    glassGlow: 0.12,
+    glassGlow3: 0.38,
+    /** Sky-reflection banding on curtain walls (light amplitude of the bands). */
+    glassBands: 0.06,
+  },
+
   bloom: {
     /** Duration of the squash/stretch pop (s). */
     popDuration: 0.55,
@@ -353,6 +372,17 @@ export const config = {
     /** Painted wall wobble amplitude (m) and speed. */
     wobbleAmp: 0.32,
     wobbleSpeed: 1.1,
+    /** Landmarks (hand-built props): the color pours down their whole height in this long (s; a 260 m pyramid
+     *  at floodSpeed would take ~5 s)... */
+    landmarkFlood: 1.1,
+    /** ...while a splash of it spreads out from where the breath hit, to this radius (m) in about this long (s). */
+    landmarkSplat: 34,
+    landmarkSplatTime: 0.5,
+    /** Their squash-and-stretch pop, as a fraction of a building's (18 % of a 260 m tower is a lot of tower). */
+    landmarkPop: 0.3,
+    /** Glow of a painted landmark's lit accents (the pyramid's spire, Sutro's beacons) and of its stained glass. */
+    landmarkGlow: 0.55,
+    landmarkGlassGlow: 0.12,
   },
 
   audio: {

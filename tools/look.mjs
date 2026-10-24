@@ -24,6 +24,7 @@
 // PW_WS=<ws endpoint> connects to tools/pw-server.mjs (several runs share one browser).
 // SwiftShader renders ~1.5 fps: everything waits on the game clock, never wall time.
 import { chromium } from 'playwright-core';
+import { browserOptions } from './browser.mjs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 const args = process.argv.slice(2);
@@ -44,8 +45,7 @@ mkdirSync(out, { recursive: true });
 
 // (PW_WS: connect to a running tools/pw-server.mjs instead of launching a browser)
 const browser = process.env.PW_WS ? await chromium.connect(process.env.PW_WS, { timeout: 60000 }) : await chromium.launch({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
+  ...browserOptions([]),
 });
 const report = {};
 const DT = 1 / 30;

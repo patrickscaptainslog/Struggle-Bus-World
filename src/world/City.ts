@@ -3,13 +3,14 @@ import { SHADOW_LAYER, makeRampMaterial, globals } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { makeBuildingMaterial, paintUniforms } from './buildingMaterial';
 import { makeHeightGrid, makeTerrainMaterial, makeWaterMaterial } from './terrainMaterial';
-import { PaintState } from './PaintState';
+import { PaintState, LANDMARK_KEY_PREFIX } from './PaintState';
 import { GroundPaint } from './GroundPaint';
 import type { ObstaclePost } from './Bridges';
 import { parseFar, type CityManifest, type FarData, type BuildingTile, type TerrainTile } from './tiles';
 import { loadRegion, type RegionRequest, type RegionResponse, type TileResult } from './regionLoader';
-import type { MeshArrays } from './BuildingMesher';
+import { GROWN_STRIDE, type MeshArrays } from './BuildingMesher';
 import { treeCrown } from './props/trees';
+import { hiddenAt, isSfOrigin, type Hidden, type PropBox } from './towerStyles';
 
 // Streams the baked city around the bus: region bundles are fetched and
 // meshed in a worker, tiles appear inside the fog, far ones are dropped.
@@ -19,8 +20,8 @@ import { treeCrown } from './props/trees';
 /** One building (all of its LiDAR tiers): what gameplay paints, aims at and names. */
 export interface BuildingRef {
   index: number;
-  stableId: number;
-  tile: BuildingTile;
+  stableId: number; // (< 0 for a landmark: its paint is saved under its 'lm:' key)
+  tile: BuildingTile; // (a landmark's is a one-record tile of its own: its base ring)
   local: number; // record of the ground tier (the footprint) within the tile
   parts: number; // records [local, local + parts) are this building's tiers
   top: number; // record of the highest tier
@@ -38,6 +39,17 @@ export interface BuildingRef {
   rad: number;
   /** area-index query stamp (dedupes a ref listed in several cells; no allocation) */
   q: number;
+}
+
+/** Scratch list for the prop stamp's building queries (no allocation per cell). */
+const stampNear: Array<{ ref: BuildingRef; d: number }> = [];
+
+/** Distance from (x, z) to the edges of record k's ring (m). */
+function ringDist(b: BuildingTile, k: number, x: number, z: number): number {
+  const s = b.vertStart[k], e = b.vertStart[k + 1];
+  let d = Infinity;
+  for (let i = s, j = e - 1; i < e; j = i++) d = Math.min(d, segDist(b.xz[j * 2], b.xz[j * 2 + 1], b.xz[i * 2], b.xz[i * 2 + 1], x, z));
+  return d;
 }
 
 /** Distance from (x, z) to the segment a-b (m). */
@@ -63,6 +75,10 @@ interface LoadedTile {
   hidden: boolean;
   /** grid step of its own ground mesh (2 = 4 m detailed, 4 = 8 m like a coarse region's), 0 = none */
   terrainStep: number;
+  /** its painted towers' collapsed growth elements (BuildingMesher GROWN_STRIDE records), or null */
+  grown: Float32Array | null;
+  /** a building of the tile has grown its gardens / domes: its mesh draws its growth triangles */
+  growthShown: boolean;
 }
 
 /** A coarse region drawn as two meshes (its tiles keep their data for gameplay queries). */
@@ -147,6 +163,8 @@ export class City {
   private qStamp = 0;
   /** landmark/bridge collision posts, hashed in 64 m cells */
   private posts = new Map<number, ObstaclePost[]>();
+  /** hand-built landmarks registered as paintable buildings (never unloaded) */
+  private landmarks: LandmarkRec[] = [];
   private far: FarData | null = null;
   private farGroup = new THREE.Group();
   private loadedMask: THREE.DataTexture;
@@ -169,6 +187,10 @@ export class City {
   private regionMeshes = new Map<string, RegionMesh>();
   /** tiles that keep their own ground mesh even inside a coarse region (see setOwnGround) */
   private ownGround = new Set<string>();
+  /** San Francisco (the mesher's icons and HIDDEN tables, and hidden footprints in the refs, apply) */
+  private readonly sf: boolean;
+  /** hand-built props whose own surface replaces hidden footprints in the obstacle grid (setPropObstacles) */
+  private propObstacles: Array<{ clear: Hidden; boxes: PropBox[] }> = [];
   /**
    * Adopt arrived tiles all at once (as soon as they land) instead of a few per
    * frame: the game sets it while the loading fog is up, so the first frame
@@ -177,8 +199,9 @@ export class City {
   eager = false;
 
   constructor(readonly manifest: CityManifest & { regions: Array<[number, number, number]>; regionSize: number }, readonly baseUrl: string) {
-    this.paint = new PaintState(manifest.buildingCount);
+    this.paint = new PaintState(manifest.buildingCount + LANDMARK_SLOTS, manifest.slug);
     this.ground = new GroundPaint(manifest.tileSize);
+    this.sf = isSfOrigin(manifest.origin);
     // a blast's tiles get their own ground mesh first, so a coarse region (seen from altitude) shows the paint
     this.ground.onTilesTouched = (keys) => {
       for (const k of keys) {
@@ -420,7 +443,7 @@ export class City {
       this.regionsRequested.add(key);
       const id = this.nextId++;
       this.pending.set(id, { key, lod });
-      const msg: RegionRequest = { type: 'region', id, url: new URL(`${this.baseUrl}/r_${rx}_${rz}${this.ext}`, location.href).href, classN: this.manifest.classN, lod };
+      const msg: RegionRequest = { type: 'region', id, url: new URL(`${this.baseUrl}/r_${rx}_${rz}${this.ext}`, location.href).href, classN: this.manifest.classN, lod, sf: this.sf };
       if (this.worker) this.worker.postMessage(msg);
       else void loadRegion(msg).then((r) => this.onRegion(r));
     }
@@ -470,6 +493,8 @@ export class City {
   private buildRegionMesh(key: string, merged: MeshArrays | null) {
     this.disposeRegionMesh(key);
     const rm: RegionMesh = { buildings: merged ? this.makeBuildingMesh(merged) : null, terrain: null, classTex: null, hidden: false };
+    // (a region coming back coarse keeps showing the domes its painted towers grew)
+    if (rm.buildings && this.tileKeysOf(key).some((k) => this.tiles.get(k)?.growthShown)) rm.buildings.geometry.setDrawRange(0, Infinity);
     this.regionMeshes.set(key, rm);
     this.buildRegionGround(key, rm);
   }
@@ -602,6 +627,13 @@ export class City {
       if (t.mesh) {
         lt.buildings = this.makeBuildingMesh(t.mesh);
         this.meshTops(lt, t.mesh);
+      }
+      // (the detailed mesh has every setback garden and dome: re-raise and show what paint already grew)
+      if (t.grown) lt.grown = t.grown;
+      lt.growthShown = false;
+      for (const ref of lt.refs) {
+        const lv = this.paint.level(ref.index);
+        if (lv >= 2) this.growTo(ref, lv);
       }
       if (lt.terrainStep !== 2) {
         this.dropTileTerrain(lt);
@@ -745,9 +777,13 @@ export class City {
     g.setAttribute('aBld', new THREE.BufferAttribute(m.bld, 4));
     g.setAttribute('aBld2', new THREE.BufferAttribute(m.bld2, 2));
     g.setIndex(new THREE.BufferAttribute(m.index, 1));
+    // the collapsed growth (last in the index) isn't drawn until a building of the mesh grows it (growTo)
+    const growth = m.index.length > m.solidIndexCount;
+    if (growth) g.setDrawRange(0, m.solidIndexCount);
     g.computeBoundingSphere();
-    // generous bounds: painted buildings pop and wobble a little outside their rest pose
-    if (g.boundingSphere) g.boundingSphere.radius += 6;
+    // generous bounds: painted buildings pop and wobble a little outside their rest pose, and grown
+    // domes / trees reach up to ~20 m over the mesh's highest vertex
+    if (g.boundingSphere) g.boundingSphere.radius += growth ? 26 : 6;
     const mesh = new THREE.Mesh(g, this.buildingMaterial);
     mesh.layers.enable(SHADOW_LAYER);
     mesh.matrixAutoUpdate = false;
@@ -759,7 +795,7 @@ export class City {
   private addTile(t: TileResult, coarse = false) {
     const key = `${t.tx},${t.tz}`;
     if (this.tiles.has(key)) return;
-    const lt: LoadedTile = { tx: t.tx, tz: t.tz, buildings: null, terrain: null, terrainData: t.terrain, buildingData: t.building, refs: [], classTex: null, maxY: -Infinity, hidden: false, terrainStep: 0 };
+    const lt: LoadedTile = { tx: t.tx, tz: t.tz, buildings: null, terrain: null, terrainData: t.terrain, buildingData: t.building, refs: [], classTex: null, maxY: -Infinity, hidden: false, terrainStep: 0, grown: t.grown, growthShown: false };
     if (t.mesh && !coarse) lt.buildings = this.makeBuildingMesh(t.mesh);
     if (t.building) {
       const b = t.building;
@@ -781,6 +817,16 @@ export class City {
         }
         cx /= e - s;
         cz /= e - s;
+        // footprints a hand-built prop draws instead (towerStyles HIDDEN, as the mesher decides): no ref, so
+        // no aim, pick, paint or blast lands on what nobody can see (their obstacle cells: setPropObstacles)
+        if (this.sf) {
+          let hTop = 0;
+          for (let k = i; k < j; k++) hTop = Math.max(hTop, b.roofY[k], b.baseY[k] + 2.5);
+          if (hiddenAt(cx, cz, hTop - b.groundY[i])) {
+            i = j;
+            continue;
+          }
+        }
         // footprint bounds over the ground-tier rings (what contains() tests), and its reach from the centroid
         let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity, rad = 0;
         for (let k = i; k < j; k++) {
@@ -810,24 +856,7 @@ export class City {
       const tr = t.terrain;
       // trees are obstacles too: the bus skims canopies, never flies through them. Each crown is a dome
       // over its whole reach (a park's canopy closes over the cells between the trunks), at its real height
-      const oc = this.manifest.tileSize / tr.obstN;
-      const N = tr.obstN;
-      for (const tree of tr.trees) {
-        const c = treeCrown(tree.kind, tree.size, crownTmp);
-        const ix0 = Math.max(0, Math.floor((tree.x - c.r - tr.originX) / oc)), ix1 = Math.min(N - 1, Math.floor((tree.x + c.r - tr.originX) / oc));
-        const iz0 = Math.max(0, Math.floor((tree.z - c.r - tr.originZ) / oc)), iz1 = Math.min(N - 1, Math.floor((tree.z + c.r - tr.originZ) / oc));
-        for (let iz = iz0; iz <= iz1; iz++)
-          for (let ix = ix0; ix <= ix1; ix++) {
-            // the crown's height over the cell point nearest the trunk
-            const qx = Math.min(Math.max(tree.x, tr.originX + ix * oc), tr.originX + (ix + 1) * oc);
-            const qz = Math.min(Math.max(tree.z, tr.originZ + iz * oc), tr.originZ + (iz + 1) * oc);
-            const u = Math.hypot(qx - tree.x, qz - tree.z) / c.r;
-            if (u >= 1) continue;
-            const top = tree.y + c.mid + (c.top - c.mid) * Math.sqrt(1 - u * u);
-            const k = iz * N + ix;
-            if (top > tr.obst[k]) tr.obst[k] = top;
-          }
-      }
+      for (const tree of tr.trees) this.crownCells(tr, tree);
       for (let k = 0; k < tr.obst.length; k++) if (tr.obst[k] > lt.maxY) lt.maxY = tr.obst[k];
       for (let k = 0; k < tr.heights.length; k++) if (tr.heights[k] > lt.maxY) lt.maxY = tr.heights[k];
       if (!coarse) {
@@ -838,6 +867,11 @@ export class City {
     }
     if (t.mesh && !coarse) this.meshTops(lt, t.mesh);
     this.tiles.set(key, lt);
+    // a prop's cells (and its neighbors' buildings in them) are rebuilt with every tile under it
+    for (const p of this.propObstacles) {
+      const c = p.clear, ts = this.manifest.tileSize, r = c.halfL + c.halfW + 2;
+      if (Math.abs((t.tx + 0.5) * ts - c.cx) <= ts / 2 + r && Math.abs((t.tz + 0.5) * ts - c.cz) <= ts / 2 + r) this.stampProp(p);
+    }
     this.onTile?.({ tx: t.tx, tz: t.tz, terrain: t.terrain, refs: lt.refs });
   }
 
@@ -879,6 +913,38 @@ export class City {
     return (Math.floor(x / HASH_CELL) + 4096) * 8192 + (Math.floor(z / HASH_CELL) + 4096);
   }
 
+  /** Raise tile tr's obstacle cells under one tree's crown (a dome over its reach, at its real height). */
+  private crownCells(tr: TerrainTile, tree: TerrainTile['trees'][number]) {
+    const oc = this.manifest.tileSize / tr.obstN;
+    const N = tr.obstN;
+    const c = treeCrown(tree.kind, tree.size, crownTmp);
+    const ix0 = Math.max(0, Math.floor((tree.x - c.r - tr.originX) / oc)), ix1 = Math.min(N - 1, Math.floor((tree.x + c.r - tr.originX) / oc));
+    const iz0 = Math.max(0, Math.floor((tree.z - c.r - tr.originZ) / oc)), iz1 = Math.min(N - 1, Math.floor((tree.z + c.r - tr.originZ) / oc));
+    for (let iz = iz0; iz <= iz1; iz++)
+      for (let ix = ix0; ix <= ix1; ix++) {
+        // the crown's height over the cell point nearest the trunk
+        const qx = Math.min(Math.max(tree.x, tr.originX + ix * oc), tr.originX + (ix + 1) * oc);
+        const qz = Math.min(Math.max(tree.z, tr.originZ + iz * oc), tr.originZ + (iz + 1) * oc);
+        const u = Math.hypot(qx - tree.x, qz - tree.z) / c.r;
+        if (u >= 1) continue;
+        const top = tree.y + c.mid + (c.top - c.mid) * Math.sqrt(1 - u * u);
+        const k = iz * N + ix;
+        if (top > tr.obst[k]) tr.obst[k] = top;
+      }
+  }
+
+  /** Ground height (m) from one terrain tile's grid (bilinear, clamped to the tile). */
+  private tileGround(t: TerrainTile, x: number, z: number): number {
+    const fx = Math.min(t.n - 1.001, Math.max(0, (x - t.originX) / t.cell));
+    const fz = Math.min(t.n - 1.001, Math.max(0, (z - t.originZ) / t.cell));
+    const ix = Math.floor(fx), iz = Math.floor(fz);
+    const ax = fx - ix, az = fz - iz;
+    const h = t.heights;
+    const n = t.n;
+    const a = h[iz * n + ix], b = h[iz * n + ix + 1], c = h[(iz + 1) * n + ix], d = h[(iz + 1) * n + ix + 1];
+    return (a * (1 - ax) + b * ax) * (1 - az) + (c * (1 - ax) + d * ax) * az;
+  }
+
   private tileAt(x: number, z: number): LoadedTile | undefined {
     const ts = this.manifest.tileSize;
     return this.tiles.get(`${Math.floor(x / ts)},${Math.floor(z / ts)}`);
@@ -887,17 +953,7 @@ export class City {
   /** Ground height (m). Falls back to the far grid where tiles aren't loaded. */
   groundAt(x: number, z: number): number {
     const lt = this.tileAt(x, z);
-    if (lt?.terrainData) {
-      const t = lt.terrainData;
-      const fx = Math.min(t.n - 1.001, Math.max(0, (x - t.originX) / t.cell));
-      const fz = Math.min(t.n - 1.001, Math.max(0, (z - t.originZ) / t.cell));
-      const ix = Math.floor(fx), iz = Math.floor(fz);
-      const ax = fx - ix, az = fz - iz;
-      const h = t.heights;
-      const n = t.n;
-      const a = h[iz * n + ix], b = h[iz * n + ix + 1], c = h[(iz + 1) * n + ix], d = h[(iz + 1) * n + ix + 1];
-      return (a * (1 - ax) + b * ax) * (1 - az) + (c * (1 - ax) + d * ax) * az;
-    }
+    if (lt?.terrainData) return this.tileGround(lt.terrainData, x, z);
     const f = this.far;
     if (!f) return 0;
     const fx = Math.min(f.gridW - 1.001, Math.max(0, (x - f.minX) / f.cell));
@@ -907,6 +963,17 @@ export class City {
     const w = f.gridW;
     const a = f.heights[iz * w + ix], b = f.heights[iz * w + ix + 1], c = f.heights[(iz + 1) * w + ix], d = f.heights[(iz + 1) * w + ix + 1];
     return Math.max(0, (a * (1 - ax) + b * ax) * (1 - az) + (c * (1 - ax) + d * ax) * az);
+  }
+
+  /** The ground class (tiles.ts Ground: paved, grass, water, sidewalk) under (x, z) from the loaded tile's
+   * 2 m class grid; null where no tile is loaded. Per query, not per frame. */
+  groundClassAt(x: number, z: number): number | null {
+    const tr = this.tileAt(x, z)?.terrainData;
+    if (!tr) return null;
+    const ts = this.manifest.tileSize, n = tr.classN;
+    const i = Math.min(n - 1, Math.max(0, Math.floor(((x - tr.originX) / ts) * n)));
+    const j = Math.min(n - 1, Math.max(0, Math.floor(((z - tr.originZ) / ts) * n)));
+    return tr.cls[j * n + i];
   }
 
   /** Register landmark collision posts (bridges, towers). */
@@ -1006,9 +1073,224 @@ export class City {
       }
   }
 
+  /**
+   * A painted tower reached `level`: its collapsed growth (setback bushes at level 2; trees and onion domes
+   * at 3) grows out in the vertex shader. Its tile's mesh draws its growth triangles from now on, and the
+   * flight's obstacle field rises over every element the level reached (the mesher records each one's
+   * center, reach and grown top): the bus never flies through the player's own domes and trees. Tiles keep
+   * it until they unload (the restore and the detailed re-mesh call this again).
+   */
+  growTo(ref: BuildingRef, level: number) {
+    for (const lt of this.tiles.values()) {
+      if (lt.buildingData !== ref.tile) continue;
+      const g = lt.grown;
+      if (!g) return;
+      let any = false;
+      // (grown by half a cell diagonal: a bush smaller than an 8 m cell still lifts the cell it stands in)
+      const half = (this.manifest.tileSize / (lt.terrainData?.obstN ?? 32)) * Math.SQRT1_2;
+      for (let k = 0; k < g.length; k += GROWN_STRIDE) {
+        if (g[k] !== ref.index || g[k + 1] > level + 0.01) continue;
+        any = true;
+        this.raiseDisc(g[k + 2], g[k + 3], g[k + 4] + half, g[k + 5] + 0.5);
+      }
+      if (any && !lt.growthShown) {
+        lt.growthShown = true;
+        lt.buildings?.geometry.setDrawRange(0, Infinity);
+        const rs = this.regionSize;
+        this.regionMeshes.get(`${Math.floor(lt.tx / rs)},${Math.floor(lt.tz / rs)}`)?.buildings?.geometry.setDrawRange(0, Infinity);
+      }
+      return;
+    }
+  }
+
+  /** Raise every loaded tile's obstacle cells within r of (x, z) to at least `top`. */
+  private raiseDisc(x: number, z: number, r: number, top: number) {
+    const ts = this.manifest.tileSize;
+    for (let tz = Math.floor((z - r) / ts); tz <= Math.floor((z + r) / ts); tz++)
+      for (let tx = Math.floor((x - r) / ts); tx <= Math.floor((x + r) / ts); tx++) {
+        const lt = this.tiles.get(`${tx},${tz}`);
+        if (!lt?.terrainData) continue;
+        this.raiseCells(lt.terrainData, x - r, z - r, x + r, z + r, top, (cx, cz) => (cx - x) * (cx - x) + (cz - z) * (cz - z) <= r * r);
+        if (top + 6 > lt.maxY) lt.maxY = top + 6;
+      }
+  }
+
+  /**
+   * A hand-built prop replaces footprints (towerStyles HIDDEN): inside `clear` (grown by 2 m, the lots'
+   * buffer) every 8 m obstacle cell is rebuilt the way the bake builds one, without the hidden lots: the
+   * highest ground of a 3 x 3 sample, the prop's boxes and every other building's parts (grown 3 m, 6 m
+   * above 40 m, as the bake's roofs), then the tree crowns that reach it. The bus neither flies into the
+   * prop nor bumps into invisible lots beside it, and a breath lands on the prop's roof. Applied to the
+   * loaded tiles now and again whenever a tile under `clear` arrives (its neighbors' buildings count).
+   */
+  setPropObstacles(clear: Hidden, boxes: PropBox[]) {
+    const p = { clear, boxes };
+    this.propObstacles.push(p);
+    this.stampProp(p);
+  }
+
+  private stampProp(p: { clear: Hidden; boxes: PropBox[] }) {
+    const c = p.clear;
+    const hl = c.halfL + 2, hw = c.halfW + 2;
+    const ex = Math.abs(c.ax) * hl + Math.abs(c.az) * hw, ez = Math.abs(c.az) * hl + Math.abs(c.ax) * hw;
+    const inBox = (b: { cx: number; cz: number; ax: number; az: number; halfL: number; halfW: number }, x: number, z: number, grow: number) => {
+      const dx = x - b.cx, dz = z - b.cz;
+      return Math.abs(dx * b.ax + dz * b.az) <= b.halfL + grow && Math.abs(-dx * b.az + dz * b.ax) <= b.halfW + grow;
+    };
+    const ts = this.manifest.tileSize;
+    for (let tz = Math.floor((c.cz - ez) / ts); tz <= Math.floor((c.cz + ez) / ts); tz++)
+      for (let tx = Math.floor((c.cx - ex) / ts); tx <= Math.floor((c.cx + ex) / ts); tx++) {
+        const lt = this.tiles.get(`${tx},${tz}`);
+        const tr = lt?.terrainData;
+        if (!lt || !tr) continue;
+        const N = tr.obstN, oc = ts / N;
+        const ix0 = Math.max(0, Math.floor((c.cx - ex - tr.originX) / oc)), ix1 = Math.min(N - 1, Math.floor((c.cx + ex - tr.originX) / oc));
+        const iz0 = Math.max(0, Math.floor((c.cz - ez - tr.originZ) / oc)), iz1 = Math.min(N - 1, Math.floor((c.cz + ez - tr.originZ) / oc));
+        for (let iz = iz0; iz <= iz1; iz++)
+          for (let ix = ix0; ix <= ix1; ix++) {
+            const x = tr.originX + (ix + 0.5) * oc, z = tr.originZ + (iz + 0.5) * oc;
+            if (!inBox(c, x, z, 2)) continue;
+            let top = -Infinity;
+            for (let sx = -1; sx <= 1; sx++) for (let sz = -1; sz <= 1; sz++) top = Math.max(top, this.groundAt(x + sx * 0.4 * oc, z + sz * 0.4 * oc));
+            for (const b of p.boxes) if (b.top > top && inBox(b, x, z, b.pad)) top = b.top;
+            for (const { ref } of this.buildingsWithin(x, z, 6, stampNear)) {
+              // (a landmark prop's ref is one record: its hull at its top. Its real surface is its boxes here
+              // and landmarkSurfaceAt in surfaceAt; stamping the hull would be an invisible wall)
+              if (ref.index >= this.manifest.buildingCount) continue;
+              const t = ref.tile;
+              for (let k = ref.local; k < ref.local + ref.parts; k++) {
+                if (t.roofY[k] <= top) continue;
+                const grow = t.roofY[k] - t.baseY[k] > 40 ? 6 : 3;
+                if (ringContains(t, k, x, z) || ringDist(t, k, x, z) <= grow) top = t.roofY[k];
+              }
+            }
+            tr.obst[iz * N + ix] = top;
+            if (top > lt.maxY) lt.maxY = top;
+          }
+        // (tree crowns reaching into it stand again: a crown is never cut by the box's edge)
+        for (const tree of tr.trees) {
+          const r = treeCrown(tree.kind, tree.size, crownTmp).r;
+          if (Math.abs(tree.x - c.cx) <= ex + r && Math.abs(tree.z - c.cz) <= ez + r) this.crownCells(tr, tree);
+        }
+      }
+  }
+
   /** Tallest roof, tree or ground at a point, without the landmark posts and bridge decks (what a breath lands on). */
   surfaceAt(x: number, z: number): number {
-    return this.baseObstacleAt(x, z);
+    // (and a landmark's real surface: a breath lands on the pyramid's slope, not on its collision post)
+    return this.landmarks.length ? Math.max(this.baseObstacleAt(x, z), this.landmarkSurfaceAt(x, z)) : this.baseObstacleAt(x, z);
+  }
+
+  /** The highest landmark surface over (x, z), or -Infinity (no allocation). */
+  landmarkSurfaceAt(x: number, z: number): number {
+    let y = -Infinity;
+    for (const lm of this.landmarks) {
+      if (x < lm.x0 || x > lm.x1 || z < lm.z0 || z > lm.z1 || !ringContains(lm.ref.tile, 0, x, z)) continue;
+      const h = lm.heightAt ? lm.heightAt(x, z) : lm.ref.roofY;
+      if (h > y) y = h;
+    }
+    return y;
+  }
+
+  /**
+   * Register a building the bake doesn't have (a hand-built landmark prop) as
+   * a first-class paintable one: a normal BuildingRef with a paint texel from
+   * the reserved range past the baked buildings (LANDMARK_SLOTS), in every
+   * spatial index (indexRef), its saved paint applied (saved under its string
+   * key). Its tile is a one-record tile of its own (the base ring), so
+   * contains / frontOf / roofRect work unchanged; roofAtPart and surfaceAt
+   * follow its real surface (heightAt). Never unloaded. Returns null when the
+   * reserve is full.
+   */
+  addLandmarkBuilding(lb: LandmarkBuilding): BuildingRef | null {
+    const k = this.landmarks.length;
+    // (its paint is saved by name, 'lm:<name>', in the landmark store: never a number a bake could hand a building)
+    if (k >= LANDMARK_SLOTS || lb.ring.length < 3 || !lb.key.startsWith(LANDMARK_KEY_PREFIX)) return null;
+    const n = lb.ring.length;
+    const xz = new Float32Array(n * 2);
+    // (the area centroid: a hull's vertices bunch up where the prop has detail)
+    let cx = 0, cz = 0, area = 0;
+    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const [x, z] = lb.ring[i];
+      const [xn, zn] = lb.ring[(i + 1) % n];
+      xz[i * 2] = x;
+      xz[i * 2 + 1] = z;
+      const c = x * zn - xn * z;
+      cx += (x + xn) * c;
+      cz += (z + zn) * c;
+      area += c;
+      x0 = Math.min(x0, x);
+      x1 = Math.max(x1, x);
+      z0 = Math.min(z0, z);
+      z1 = Math.max(z1, z);
+    }
+    cx /= 3 * area;
+    cz /= 3 * area;
+    let rad = 0; // (its reach from the centroid)
+    for (const [x, z] of lb.ring) rad = Math.max(rad, Math.hypot(x - cx, z - cz));
+    let hood = 0, best = Infinity;
+    const hoods = this.manifest.neighborhoods;
+    for (let i = 0; i < hoods.length; i++) {
+      const d = Math.hypot(hoods[i].x - cx, hoods[i].z - cz);
+      if (d < best) {
+        best = d;
+        hood = i;
+      }
+    }
+    // a named landmark is its own "neighborhood" (what the street sign shows)
+    if (lb.name && hoods.length < 255) hood = hoods.push({ name: lb.name, x: cx, z: cz }) - 1;
+    const index = this.manifest.buildingCount + k;
+    const one = <T extends Uint8Array | Uint32Array | Float32Array>(A: new (n: number) => T, v: number): T => {
+      const a = new A(1);
+      a[0] = v;
+      return a;
+    };
+    const tile: BuildingTile = {
+      count: 1,
+      originX: cx,
+      originZ: cz,
+      index: one(Uint32Array, index),
+      stableId: one(Uint32Array, 0),
+      vertStart: Uint32Array.of(0, n),
+      baseY: one(Float32Array, lb.baseY),
+      roofY: one(Float32Array, lb.roofY),
+      groundY: one(Float32Array, lb.baseY),
+      arch: one(Uint8Array, lb.arch ?? 8),
+      floors: one(Uint8Array, Math.min(255, Math.round((lb.roofY - lb.baseY) / 4))),
+      front: one(Uint8Array, 255),
+      front2: one(Uint8Array, 255),
+      hood: one(Uint8Array, hood),
+      seed: one(Uint8Array, (k * 97 + 31) & 255),
+      tier: one(Uint8Array, 0),
+      taper: one(Uint8Array, 0),
+      xz,
+    };
+    // (bounds + reach as a baked ref's: it lives in the area index, where every aim, pick and blast query looks)
+    const ref: BuildingRef = { index, stableId: -1 - k, tile, local: 0, parts: 1, top: 0, cx, cz, baseY: lb.baseY, roofY: lb.roofY, area: Math.abs(area) / 2, hood, x0, z0, x1, z1, rad, q: 0 };
+    this.landmarks.push({ ref, x0, z0, x1, z1, rad, heightAt: lb.heightAt ?? null });
+    this.indexRef(ref);
+    this.paint.register(index, lb.key);
+    return ref;
+  }
+
+  /** True if ref is a hand-built landmark (addLandmarkBuilding), not a baked building. */
+  isLandmark(ref: BuildingRef): boolean {
+    return ref.index >= this.manifest.buildingCount;
+  }
+
+  /** The registered landmark buildings. */
+  landmarkRefs(): BuildingRef[] {
+    return this.landmarks.map((l) => l.ref);
+  }
+
+  /** Puts a ref that doesn't come from a tile (a landmark) in every spatial index City keeps. */
+  private indexRef(ref: BuildingRef) {
+    const hk = this.hashKey(ref.cx, ref.cz);
+    let list = this.hash.get(hk);
+    if (!list) this.hash.set(hk, (list = []));
+    list.push(ref);
+    this.areaCells(ref, true);
   }
 
   /** Lowest underside of a deck overhead (above fromY) at a point, or Infinity: a climb stops under it. */
@@ -1080,14 +1362,20 @@ export class City {
   }
 
   /** The building whose footprint contains (x, z), wherever in it the point is (the tallest if
-   * footprints overlap: a LiDAR tower over a lot the footprint data still has), or null. One cell lookup. */
+   * footprints overlap: a LiDAR tower over a lot the footprint data still has), or null. One cell lookup.
+   * A landmark ranks by its surface right there, not its top: between Sutro's legs the transmitter
+   * building's roof wins over the 298 m tower whose hull holds it. */
   buildingAt(x: number, z: number): BuildingRef | null {
     const list = this.areaHash.get(this.hashKey(x, z));
     if (!list) return null;
-    let best: BuildingRef | null = null;
+    let best: BuildingRef | null = null, by = -Infinity;
     for (const r of list) {
       if (x < r.x0 || x > r.x1 || z < r.z0 || z > r.z1) continue;
-      if ((!best || r.roofY > best.roofY) && this.contains(r, x, z)) best = r;
+      const y = r.index >= this.manifest.buildingCount ? this.ownTop(r, x, z) : r.roofY;
+      if ((!best || y > by) && this.contains(r, x, z)) {
+        best = r;
+        by = y;
+      }
     }
     return best;
   }
@@ -1101,7 +1389,8 @@ export class City {
     for (const r of list) {
       if (r.roofY <= by || x < r.x0 || x > r.x1 || z < r.z0 || z > r.z1) continue;
       if (!this.contains(r, x, z)) continue;
-      const ry = this.roofAtPart(r, x, z);
+      // (a landmark by its own surface: nothing of Sutro stands in the line of fire between its legs)
+      const ry = r.index >= this.manifest.buildingCount ? this.ownTop(r, x, z) : this.roofAtPart(r, x, z);
       if (ry > by) {
         by = ry;
         best = r;
@@ -1237,9 +1526,27 @@ export class City {
     return false;
   }
 
+  /** A landmark's own surface over (x, z) (m ASL): its height field inside its ring (its top without one),
+   * -Infinity outside it or where nothing of it stands (between Sutro's legs). What it is ranked by. */
+  private ownTop(ref: BuildingRef, x: number, z: number): number {
+    const lm = this.landmarks[ref.index - this.manifest.buildingCount];
+    if (!lm || !ringContains(ref.tile, 0, x, z)) return -Infinity;
+    if (!lm.heightAt) return ref.roofY;
+    const h = lm.heightAt(x, z);
+    return h > -Infinity ? Math.max(ref.baseY, h) : -Infinity;
+  }
+
   /** Roof height of ref right at (x, z): the highest of its parts covering the point (a tiered
    * tower's podium roof is not the top of its tower), or ref.roofY if none does. */
   roofAtPart(ref: BuildingRef, x: number, z: number): number {
+    if (ref.index >= this.manifest.buildingCount) {
+      // a landmark: its real surface (a pyramid's slope, not its spire's top); where nothing of it stands
+      // (between Sutro's legs) a breath comes down on what is there: a roof, a tree crown, the ground
+      const lm = this.landmarks[ref.index - this.manifest.buildingCount];
+      if (!lm?.heightAt || !ringContains(ref.tile, 0, x, z)) return ref.roofY;
+      const h = lm.heightAt(x, z);
+      return h > -Infinity ? Math.max(ref.baseY, h) : this.baseObstacleAt(x, z);
+    }
     const b = ref.tile;
     let y = -Infinity;
     for (let k = ref.local; k < ref.local + ref.parts; k++) if (b.roofY[k] > y && ringContains(b, k, x, z)) y = b.roofY[k];
@@ -1269,6 +1576,30 @@ export class City {
     const mx = (ax + cx) / 2, mz = (az + cz) / 2;
     if ((mx - ref.cx) * nx + (mz - ref.cz) * nz < 0) { nx = -nx; nz = -nz; }
     return { x: mx, z: mz, nx, nz, len };
+  }
+
+  /** The edge of ref (2 m or longer) that faces (x, z) best, as frontOf's: a landmark has no street front,
+   * so its sign goes on the side the bus sees (not the Ferry Building's bay side). Per hit, not per frame. */
+  edgeToward(ref: BuildingRef, x: number, z: number): { x: number; z: number; nx: number; nz: number; len: number } {
+    const b = ref.tile;
+    const s = b.vertStart[ref.local], n = b.vertStart[ref.local + 1] - s;
+    let best = -Infinity, out = this.frontOf(ref);
+    for (let i = 0; i < n; i++) {
+      const a = s + i, c = s + ((i + 1) % n);
+      const ax = b.xz[a * 2], az = b.xz[a * 2 + 1], cx = b.xz[c * 2], cz = b.xz[c * 2 + 1];
+      const len = Math.hypot(cx - ax, cz - az);
+      if (len < 2) continue;
+      let nx = (cz - az) / len, nz = -(cx - ax) / len;
+      const mx = (ax + cx) / 2, mz = (az + cz) / 2;
+      if ((mx - ref.cx) * nx + (mz - ref.cz) * nz < 0) { nx = -nx; nz = -nz; }
+      // (how squarely it faces the point: the cosine between its normal and the way to the point)
+      const k = (nx * (x - mx) + nz * (z - mz)) / (Math.hypot(x - mx, z - mz) || 1);
+      if (k > best) {
+        best = k;
+        out = { x: mx, z: mz, nx, nz, len };
+      }
+    }
+    return out;
   }
 
   /** Oriented roof rectangle (for rooftop sprouts), aligned with the street front: the roof of the
@@ -1304,4 +1635,38 @@ export class City {
   get time() {
     return globals.uTime.value;
   }
+}
+
+/** Paint texels reserved past the baked buildings for hand-built landmark props (addLandmarkBuilding). */
+export const LANDMARK_SLOTS = 32;
+
+/**
+ * A paintable building that isn't in the baked tiles: a hand-built landmark
+ * prop (the Transamerica Pyramid, Sutro Tower). See City.addLandmarkBuilding.
+ */
+export interface LandmarkBuilding {
+  /** paint is saved under this key ('lm:transamerica', LANDMARK_KEY_PREFIX + name) in the landmark store
+   * (PaintState landmarkStoreKey), never among the baked stableIds; stable across re-bakes, so never rename one */
+  key: string;
+  /** its base footprint: a world (x, z) polygon (either winding) */
+  ring: Array<[number, number]>;
+  /** ground and top (m ASL) */
+  baseY: number;
+  roofY: number;
+  arch?: number;
+  /** what the street sign says when it is hit (default: the neighborhood it stands in) */
+  name?: string;
+  /** its surface height (m ASL) over a point inside the ring (what a breath lands on), default roofY */
+  heightAt?: (x: number, z: number) => number;
+}
+
+interface LandmarkRec {
+  ref: BuildingRef;
+  /** its footprint bounds and reach from the centroid (m) */
+  x0: number;
+  z0: number;
+  x1: number;
+  z1: number;
+  rad: number;
+  heightAt: ((x: number, z: number) => number) | null;
 }
