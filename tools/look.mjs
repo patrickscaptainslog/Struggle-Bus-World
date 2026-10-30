@@ -130,7 +130,7 @@ const stick = (page, sx, sy) => page.evaluate(([a, b]) => { const q = (window.__
 const noStick = (page) => page.evaluate(() => { const q = window.__qa; if (q) { delete q.sx; delete q.sy; } });
 
 if (scenes.has('ladies')) {
-  const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro');
+  const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud');
   await noStick(page);
   await runHold(page, 3); // released: cruise
   await shot(page, 'ladies-cruise');
@@ -149,7 +149,7 @@ if (scenes.has('ladies')) {
 }
 
 if (scenes.has('dolores')) {
-  const page = await open('?lat=37.7552&lon=-122.4284&heading=20&skipintro');
+  const page = await open('?lat=37.7552&lon=-122.4284&heading=20&skipintro&nohud');
   await noStick(page);
   await runHold(page, 3);
   await shot(page, 'dolores-cruise');
@@ -158,7 +158,7 @@ if (scenes.has('dolores')) {
 }
 
 if (scenes.has('twinpeaks')) {
-  const page = await open('?lat=37.7505&lon=-122.4490&heading=45&skipintro');
+  const page = await open('?lat=37.7505&lon=-122.4490&heading=45&skipintro&nohud');
   await noStick(page);
   await runHold(page, 3);
   await shot(page, 'twinpeaks-cruise');
@@ -166,7 +166,7 @@ if (scenes.has('twinpeaks')) {
 }
 
 if (scenes.has('fidi')) {
-  const page = await open('?lat=37.7790&lon=-122.4005&heading=0&skipintro');
+  const page = await open('?lat=37.7790&lon=-122.4005&heading=0&skipintro&nohud');
   await stick(page, 0, 1);
   await runHold(page, 2.5);
   await shot(page, 'fidi-surge');
@@ -174,7 +174,7 @@ if (scenes.has('fidi')) {
 }
 
 if (scenes.has('alt120')) {
-  const page = await open('?lat=37.77628&lon=-122.4370&heading=88&skipintro');
+  const page = await open('?lat=37.77628&lon=-122.4370&heading=88&skipintro&nohud');
   await stick(page, 0, -1);
   // climb, letting go early enough that the coast lands at 120 m above the broad ground
   await page.evaluate(() => {
@@ -195,7 +195,7 @@ if (scenes.has('alt120')) {
 }
 
 if (scenes.has('opening')) {
-  const page = await open('?openingshot');
+  const page = await open('?openingshot&nohud');
   await noStick(page);
   await holdAt(page, 2);
   await shot(page, 'opening-2s');
@@ -207,7 +207,7 @@ if (scenes.has('opening')) {
 
 if (scenes.has('sign')) {
   // a real tap in cruise over Alamo Square, heading east at the Painted Ladies row (as blast.mjs tap)
-  const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro');
+  const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud');
   await noStick(page);
   await runHold(page, 1.5);
   await release(page);
@@ -224,7 +224,7 @@ if (scenes.has('sign')) {
   }
   await page.close();
   // escalation to level 3: a slow drift and three barfs on the same row (as shots.mjs painted)
-  const p2 = await open('?lat=37.77615&lon=-122.4340&heading=88&skipintro');
+  const p2 = await open('?lat=37.77615&lon=-122.4340&heading=88&skipintro&nohud');
   await drift(p2, 6);
   await runHold(p2, 1);
   for (let k = 1; k <= 3; k++) {
@@ -258,19 +258,19 @@ if (scenes.has('perf')) {
     console.log('perf', label, JSON.stringify(res));
   };
   const perfOut = {};
-  let page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro');
+  let page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud');
   await noStick(page);
   await runHold(page, 3);
   await release(page);
   await sample(page, 'ladies-cruise');
   await page.close();
-  page = await open('?lat=37.7790&lon=-122.4005&heading=0&skipintro');
+  page = await open('?lat=37.7790&lon=-122.4005&heading=0&skipintro&nohud');
   await stick(page, 0, 1);
   await runHold(page, 2.5);
   await release(page);
   await sample(page, 'fidi-surge');
   await page.close();
-  page = await open('?lat=37.7700&lon=-122.4300&heading=45&skipintro');
+  page = await open('?lat=37.7700&lon=-122.4300&heading=45&skipintro&nohud');
   await stick(page, 0, -1);
   await page.evaluate(() => {
     const q = window.__qa, g = window.__game;
@@ -286,7 +286,7 @@ if (scenes.has('perf')) {
 }
 
 if (scenes.has('eye')) {
-  const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro');
+  const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud');
   await noStick(page);
   await runHold(page, 2);
   await shot(page, 'eye-full');

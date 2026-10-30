@@ -34,7 +34,7 @@ const modes = new Set(process.argv.slice(4).length ? process.argv.slice(4) : ['p
 mkdirSync(out, { recursive: true });
 
 // 120 m west of the pyramid, heading east at it (over Chinatown's low roofs, the low sun behind the camera)
-const PYR = '?lat=37.79519&lon=-122.40415&heading=90&skipintro&fixeddt=0.0333';
+const PYR = '?lat=37.79519&lon=-122.40415&heading=90&skipintro&nohud&fixeddt=0.0333';
 const MARKS = [0.1, 0.4, 1.0, 2.5];
 const report = {};
 
@@ -429,7 +429,7 @@ if (modes.has('heroes')) {
   // the facade's hero props on the landmark machinery: Coit Tower and the Ferry Building are registered
   // landmarks (pick at their center, glint, sign name); 181 Fremont's spire is bound to its tower's texel
   // (riding it: no pop of its own), never a landmark of its own
-  const p5 = await open('?lat=37.78977&lon=-122.395412&heading=0&skipintro&fixeddt=0.0333');
+  const p5 = await open('?lat=37.78977&lon=-122.395412&heading=0&skipintro&nohud&fixeddt=0.0333');
   await p5.evaluate(() => (window.__qa = {}));
   await until(p5, '!g.city.busy', 60);
   await runFor(p5, 1.0);
@@ -467,7 +467,7 @@ if (modes.has('collide')) {
   // the flight's obstacle grid and the breath's surface over the facade's hero props (works on any build:
   // the props are found by name): along the Ferry Building's hall, nave and bay wing, across Coit's base;
   // then a low flight down the Ferry hall's axis (the bus's height over it, no invisible wall)
-  const p6 = await open('?lat=37.7955&lon=-122.3935&heading=135&skipintro&fixeddt=0.0333');
+  const p6 = await open('?lat=37.7955&lon=-122.3935&heading=135&skipintro&nohud&fixeddt=0.0333');
   await p6.evaluate(() => (window.__qa = {}));
   await until(p6, '!g.city.busy', 60);
   await runFor(p6, 1.0);
@@ -533,7 +533,7 @@ if (modes.has('spirepop')) {
   // 181 Fremont painted, its spire riding the tower's pop (SpireRide) and painting with it: frames through
   // the squash and stretch from a fixed telephoto (as tools/facade-shots.mjs' hero view), levels 1 and 2.
   // The spire must stay seated on the roof (no gap, no double bounce). Works on any build.
-  const p7 = await open('?lat=37.7897&lon=-122.3952&heading=0&skipintro&fixeddt=0.0333');
+  const p7 = await open('?lat=37.7897&lon=-122.3952&heading=0&skipintro&nohud&fixeddt=0.0333');
   await p7.evaluate(() => {
     const g = window.__game;
     const v = { lat: 37.78977, lon: -122.395412, look: 205, az: 125, dist: 330, camY: 245 };
@@ -579,7 +579,7 @@ if (modes.has('hill')) {
   // north, the control). For each: the straight line of fire from the bus to where it lands, against the
   // ground under it (1 m samples: none may be underground), and where the hit's street sign stands (on the
   // side facing the bus, on dry ground). Frames 0.15 and 0.7 s after impact (hill-<tag>-<t>.png).
-  const p8 = await open('?lat=37.80235&lon=-122.4058&heading=0&skipintro&fixeddt=0.0333');
+  const p8 = await open('?lat=37.80235&lon=-122.4058&heading=0&skipintro&nohud&fixeddt=0.0333');
   await p8.evaluate(() => (window.__qa = {}));
   await runFor(p8, 0.3);
   const FERRY_H = Math.atan2(0.756, 0.654);

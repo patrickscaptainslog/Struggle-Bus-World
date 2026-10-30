@@ -95,6 +95,8 @@ type Adopt =
   | { kind: 'tile'; key: string; t: TileResult; coarse: boolean }
   /** after a coarse region's tiles: its merged meshes */
   | { kind: 'coarse'; key: string; merged: MeshArrays | null }
+  /** before a swap to detail: one tile's mesh made off-scene and its obstacle cells raised, so the swap only commits */
+  | { kind: 'prep'; key: string; t: TileResult }
   /** an adopted region switching level of detail, all at once */
   | { kind: 'swap'; key: string; msg: RegionResponse };
 
@@ -177,12 +179,21 @@ export class City {
   onTile: ((t: { tx: number; tz: number; terrain: TerrainTile | null; refs: BuildingRef[] }) => void) | null = null;
   onTileUnload: ((tx: number, tz: number) => void) | null = null;
   readonly loadedRegionCount = () => this.regionsLoaded.size;
+  /**
+   * The bus is tearing through (set by the game each frame while a turbo gear lifts, drives or brakes): at 450 m/s
+   * a detailed region is on screen for under a second, and swapping it in cost a frame in every two seconds. So
+   * nothing changes level of detail while this holds: what arrives is coarse, what is loaded stays as it is, and
+   * the classic streaming sorts out the detail once the bus has slowed down.
+   */
+  detailHold = false;
   /** Height of the view above the ground (m), set by the game each frame: widens streaming, coarsens detail. */
   viewHeight = 0;
   /** Detail scale of the lens: tan(cruise half-fov) / tan(current half-fov) (a wider lens needs less detail). */
   detailScale = 1;
   private want: Array<[number, number, number, 0 | 1]> = [];
   private adopt: Adopt[] = [];
+  /** tile meshes ready for their swap ('prep' items) */
+  private prepared = new WeakMap<TileResult, THREE.Mesh | null>();
   /** coarse (LOD 1) regions: all their buildings / all their ground as one mesh each */
   private regionMeshes = new Map<string, RegionMesh>();
   /** tiles that keep their own ground mesh even inside a coarse region (see setOwnGround) */
@@ -422,10 +433,10 @@ export class City {
         const dx = Math.max(Math.abs(focus.x - cx) - R / 2, 0);
         const dz = Math.max(Math.abs(focus.z - cz) - R / 2, 0);
         const d = Math.hypot(dx, dz);
-        if (d < loadR) want.push([rx, rz, d, detailD(d) < DETAIL_RADIUS ? 0 : 1]);
+        if (d < loadR) want.push([rx, rz, d, !this.detailHold && detailD(d) < DETAIL_RADIUS ? 0 : 1]);
       }
     // upgrade already-loaded coarse regions that are now close; coarsen detailed ones the view rose above
-    for (const key of this.regionsLoaded) {
+    if (!this.detailHold) for (const key of this.regionsLoaded) {
       const lod = this.regionLod.get(key);
       if (lod === undefined || this.isPending(key)) continue;
       // (a failed level-of-detail swap backs off like a failed first load: no request per frame while offline)
@@ -459,14 +470,21 @@ export class City {
     const t0 = performance.now();
     let n = 0;
     while (this.adopt.length && (this.eager || n < ADOPT_MIN || performance.now() - t0 < ADOPT_MS)) {
-      const a = this.adopt.shift()!;
+      // (a swap that landed as the hold began waits for it to end, behind whatever else has arrived)
+      const i = this.detailHold ? this.adopt.findIndex((x) => x.kind !== 'swap') : 0;
+      if (i < 0) break;
+      const a = this.adopt.splice(i, 1)[0];
       n++;
       if (!this.regionsLoaded.has(a.key)) continue; // unloaded while queued
       if (a.kind === 'tile') {
         this.addTile(a.t, a.coarse);
         this.loadedMask.needsUpdate = true;
       } else if (a.kind === 'coarse') this.buildRegionMesh(a.key, a.merged);
-      else this.swapRegion(a.key, a.msg);
+      else if (a.kind === 'prep') this.prepTile(a.t);
+      else {
+        this.swapRegion(a.key, a.msg);
+        if (!this.eager) break; // (a swap happens all at once: it is this frame's whole budget)
+      }
     }
     this.paint.flush(renderer, dt);
     this.ground.work();
@@ -625,8 +643,10 @@ export class City {
         lt.buildings = null;
       }
       if (t.mesh) {
-        lt.buildings = this.makeBuildingMesh(t.mesh);
-        this.meshTops(lt, t.mesh);
+        const ready = this.prepared.get(t);
+        lt.buildings = ready !== undefined ? ready : this.makeBuildingMesh(t.mesh, false);
+        if (lt.buildings) this.root.add(lt.buildings);
+        if (ready === undefined) this.meshTops(lt, t.mesh);
       }
       // (the detailed mesh has every setback garden and dome: re-raise and show what paint already grew)
       if (t.grown) lt.grown = t.grown;
@@ -643,6 +663,14 @@ export class City {
       if (lt.terrain) lt.terrain.visible = !lt.hidden;
     }
     this.disposeRegionMesh(key);
+  }
+
+  /** A swap's slow part, one tile at a time on the adoption budget (the mesh's bounds, the obstacle scan). */
+  private prepTile(t: TileResult) {
+    const lt = this.tiles.get(`${t.tx},${t.tz}`);
+    if (!lt || !t.mesh) return;
+    this.prepared.set(t, this.makeBuildingMesh(t.mesh, false));
+    this.meshTops(lt, t.mesh);
   }
 
   private dropTileMeshes(lt: LoadedTile) {
@@ -756,9 +784,12 @@ export class City {
     this.failCount.delete(key);
     this.retryAt.delete(key);
     if (!this.regionsRequested.has(key)) return; // unloaded while in flight
-    // an already-loaded region switches level of detail in one go; a new one adopts its tiles a few per frame
-    if (this.regionsLoaded.has(key)) this.adopt.push({ kind: 'swap', key, msg });
-    else {
+    // an already-loaded region switches level of detail in one go (detail prepares tile by tile first, so that
+    // one go is only a commit); a new one adopts its tiles a few per frame
+    if (this.regionsLoaded.has(key)) {
+      if (msg.lod === 0) for (const t of msg.tiles) if (t.mesh) this.adopt.push({ kind: 'prep', key, t });
+      this.adopt.push({ kind: 'swap', key, msg });
+    } else {
       this.regionsLoaded.add(key);
       const coarse = msg.lod === 1;
       for (const t of msg.tiles) this.adopt.push({ kind: 'tile', key, t, coarse });
@@ -767,7 +798,7 @@ export class City {
     this.regionLod.set(key, msg.lod);
   }
 
-  private makeBuildingMesh(m: NonNullable<TileResult['mesh']>): THREE.Mesh | null {
+  private makeBuildingMesh(m: NonNullable<TileResult['mesh']>, add = true): THREE.Mesh | null {
     if (m.vertexCount === 0) return null;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(m.position, 3));
@@ -787,7 +818,7 @@ export class City {
     const mesh = new THREE.Mesh(g, this.buildingMaterial);
     mesh.layers.enable(SHADOW_LAYER);
     mesh.matrixAutoUpdate = false;
-    this.root.add(mesh);
+    if (add) this.root.add(mesh);
     return mesh;
   }
 

@@ -17,9 +17,9 @@ const opt = Object.fromEntries(args.filter((a) => a.startsWith('--')).map((a) =>
 const [base = 'http://127.0.0.1:4173/', out = 'shots/local/fps'] = pos;
 const seconds = Number(opt.seconds ?? 10);
 const SPOTS = {
-  alamo: '?lat=37.77628&lon=-122.4352&heading=88&skipintro&fps',
-  fidi: '?lat=37.7925&lon=-122.4010&heading=0&skipintro&fps',
-  west: '?lat=37.7600&lon=-122.4800&heading=60&skipintro&fps',
+  alamo: '?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud&fps',
+  fidi: '?lat=37.7925&lon=-122.4010&heading=0&skipintro&nohud&fps',
+  west: '?lat=37.7600&lon=-122.4800&heading=60&skipintro&nohud&fps',
 };
 const spots = (opt.spots ?? 'alamo,fidi').split(',');
 mkdirSync(out, { recursive: true });

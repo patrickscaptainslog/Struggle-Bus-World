@@ -2,7 +2,7 @@
 // Renderer cost of one view, sampled after streaming settles (SwiftShader fps
 // is meaningless; draw calls, triangles and CPU work per frame are not).
 //   node tools/perf-view.mjs <baseUrl> "<query>" [--samples=10] [--label=name]
-// e.g. node tools/perf-view.mjs http://127.0.0.1:4302/ "?lat=37.7925&lon=-122.4010&heading=0&skipintro"
+// e.g. node tools/perf-view.mjs http://127.0.0.1:4302/ "?lat=37.7925&lon=-122.4010&heading=0&skipintro&nohud"
 // Prints one JSON line: median/min CPU workMs, median calls and triangles.
 import { chromium } from 'playwright-core';
 import { browserOptions } from './browser.mjs';

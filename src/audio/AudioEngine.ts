@@ -1,4 +1,5 @@
 import { SoundGraph } from './SoundGraph';
+import type { Kit } from './dsp';
 import { audioTune, registerAudioTunables } from './tune';
 
 // Struggle Bus audio: a fully synthesized WebAudio engine (no sample files).
@@ -182,6 +183,12 @@ export class AudioEngine {
   signPop(): void {
     const g = this.live();
     if (g) g.signPop(g.now());
+  }
+
+  /** For voices in other files (src/audio/turboVoice.ts): the synth kit, or null while output isn't live (start events at kit.ctx.currentTime + LOOKAHEAD). */
+  voiceKit(): Kit | null {
+    const g = this.live();
+    return g ? g.voiceKit : null;
   }
 
   /** Extra (dev / scripted moments): sound a foghorn now. */

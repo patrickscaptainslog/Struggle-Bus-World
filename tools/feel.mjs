@@ -10,7 +10,8 @@
 //   taps   real taps through Input's path (tapSplat): at the floor (cruise, surge,
 //          second finger while turning, lift-then-tap) and from 120 m / 250 m / the
 //          ceiling: the building glinting before the tap vs the one the breath hits and
-//          paints (taps.json)
+//          paints (taps.json); then tilt carves (mocked sensor, real CDP touches, roll 0 / 12 /
+//          20 / -20 deg): the glint at the press vs the one the breath hits (carve.json)
 //   perf   CPU work ms, draw calls, triangles cruising at the floor and holding 250 m
 //          up, at Alamo Square and in FiDi (perf.json; run it against two builds to compare)
 //
@@ -28,10 +29,11 @@ mkdirSync(out, { recursive: true });
 const browser = await chromium.launch({
   ...browserOptions([]),
 });
-async function open(query) {
+async function open(query, init) {
   const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
   page.on('pageerror', (e) => console.log('[pageerror]', e.message));
   page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.log('[console]', m.text()));
+  if (init) await page.addInitScript(init);
   await page.goto(base + query, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000 });
   return page;
@@ -74,7 +76,7 @@ const state = (page) =>
     return { t: +g.clock().toFixed(4), barfT: +f.barfT.toFixed(3), belly: +(f.barfT >= 0 ? f.belly : f.fullness).toFixed(2), pitch: +f.pitch.toFixed(3), y: +f.y.toFixed(1), glint: g.glintNow()?.index ?? -1 };
   });
 
-const START = '?lat=37.77628&lon=-122.4343&heading=88&skipintro';
+const START = '?lat=37.77628&lon=-122.4343&heading=88&skipintro&nohud';
 
 if (modes.has('strip')) {
   const page = await open(START + '&fixeddt=0.016667');
@@ -160,7 +162,7 @@ if (modes.has('glint')) {
 }
 
 if (modes.has('taps')) {
-  const page = await open('?lat=37.7762&lon=-122.4380&heading=90&skipintro');
+  const page = await open('?lat=37.7762&lon=-122.4380&heading=90&skipintro&nohud');
   const qa = (v) => page.evaluate((v) => (window.__qa = v), v);
   const res = [];
   const tap = async (label, before) => {
@@ -218,13 +220,58 @@ if (modes.has('taps')) {
   writeFileSync(`${out}/taps.json`, JSON.stringify(res, null, 1));
   console.log(`taps: ${res.filter((r) => r.ok).length}/${res.length} glint == hit (and painted)`);
   await page.close();
+
+  // tilt carves: the press is the commitment, on a banked phone too (tilt taps fire on the lift)
+  const carve = await open('?lat=37.7763&lon=-122.4352&heading=88&skipintro&fixeddt=0.033', () => {
+    window.__sensor = { beta: 55, gamma: 0, on: false };
+    window.DeviceOrientationEvent.requestPermission = () => {
+      window.__sensor.on = true;
+      return Promise.resolve('granted');
+    };
+    setInterval(() => {
+      const s = window.__sensor;
+      if (s.on) window.dispatchEvent(new DeviceOrientationEvent('deviceorientation', { alpha: 0, beta: s.beta, gamma: s.gamma, absolute: false }));
+    }, 16);
+  });
+  const cdp = await carve.context().newCDPSession(carve);
+  const touch = (down) => cdp.send('Input.dispatchTouchEvent', down ? { type: 'touchStart', touchPoints: [{ x: 196, y: 400, id: 1 }] } : { type: 'touchEnd', touchPoints: [] });
+  await touch(true);
+  await touch(false);
+  await until(carve, 'g.controls.mode === "tilt"', 5);
+  await runFor(carve, 1);
+  const rows = [];
+  for (const gamma of [0, 12, 20, -20]) {
+    await carve.evaluate((v) => (window.__sensor.gamma = v), gamma);
+    await runFor(carve, 1.5);
+    const r = { gamma, taps: 0, withGlint: 0, wrong: 0 };
+    for (let i = 0; i < 12; i++) {
+      await carve.evaluate(() => window.__game.forceReady());
+      await runFor(carve, 0.25);
+      await touch(true);
+      const pressed = await carve.evaluate(() => new Promise((res) => requestAnimationFrame(() => res(window.__game.glintNow()?.index ?? -1))));
+      await runFor(carve, 0.12);
+      await touch(false);
+      await runFor(carve, 0.05);
+      const hit = await carve.evaluate(() => window.__game.lastShot()?.target?.index ?? -1);
+      r.taps++;
+      if (pressed >= 0) {
+        r.withGlint++;
+        if (pressed !== hit) r.wrong++;
+      }
+      await runFor(carve, 2);
+    }
+    rows.push(r);
+    console.log('carve', JSON.stringify(r));
+  }
+  writeFileSync(`${out}/carve.json`, JSON.stringify(rows, null, 1));
+  await carve.close();
 }
 
 if (modes.has('perf')) {
   // CPU work per frame, draw calls, triangles: cruising at the floor, then holding 250 m up (SwiftShader fps
   // is meaningless; these are not). Same script for any build, so before / after compare.
   const res = {};
-  for (const [label, q] of [['alamo', '?lat=37.7762&lon=-122.4380&heading=90&skipintro'], ['fidi', '?lat=37.7925&lon=-122.4010&heading=0&skipintro']]) {
+  for (const [label, q] of [['alamo', '?lat=37.7762&lon=-122.4380&heading=90&skipintro&nohud'], ['fidi', '?lat=37.7925&lon=-122.4010&heading=0&skipintro&nohud']]) {
     const page = await open(q);
     const qa = (v) => page.evaluate((v) => (window.__qa = v), v);
     // (Perf's own window restarts whenever a frame takes over 1 s, as on a loaded SwiftShader host: read its

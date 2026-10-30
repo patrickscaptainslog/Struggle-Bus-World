@@ -13,6 +13,7 @@ import { Aimer, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
 import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blastLayout';
 import { Input } from './game/Input';
+import { Controls } from './game/Controls';
 import { BusModel, type BusPose } from './bus/BusModel';
 import { Particles } from './fx/Particles';
 import { StreetSigns, signBladeWidth, signTune } from './fx/StreetSign';
@@ -590,6 +591,8 @@ async function boot() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) city.ground.persist();
   });
+  // tilt / touch / keyboard, the turbo gears and the HUD (src/game/Controls.ts)
+  const controls = new Controls({ input, flight, rig, audio, particles, pipeline, camera, scene, bus, bounds: manifest.bounds, params });
   input.onTripleFinger = () => tuner.toggle();
   input.onFirstGesture = () => audio.unlock();
   input.onPress = () => aimer.press();
@@ -608,6 +611,10 @@ async function boot() {
       breathe(shot);
       if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
     } else audio.denied();
+  };
+  // (until feat/supersplat takes these callbacks over: a press held past holdThreshold is still a splat, never a dead press)
+  input.onChargeEnd = (_held, cancelled) => {
+    if (!cancelled) input.onTap?.();
   };
 
   // ---- resize
@@ -670,6 +677,8 @@ async function boot() {
     let dt = fixedDt || Math.min(0.05, (now - last) / 1000);
     const realDt = dt;
     last = now;
+    // the opening is the first hero shot: it waits for the TILT TO FLY card's answer (and the motion sheet behind it)
+    if (opening < config.fog.openingDuration && controls.holdOpening) dt = 0;
     if (hitStop > 0) {
       hitStop -= dt;
       dt = 0; // freeze everything: two frames of awe
@@ -692,6 +701,7 @@ async function boot() {
 
     // input -> flight (substeps keep springs stable on slow frames)
     input.update(dt);
+    controls.preFlight(dt);
     const st = input.state;
     const qaStick = qa && typeof qa.sx === 'number' && typeof qa.sy === 'number';
     let sx = qaStick ? qa.sx! : st.stretch.x;
@@ -701,7 +711,12 @@ async function boot() {
     // never rises through the cables (turning away ends it: `along` is along the heading)
     const gateAlong = openingBridge ? (flight.x - openingBridge[0]) * flight.fx + (flight.z - openingBridge[1]) * flight.fz : 0;
     const gateDist = openingBridge ? Math.hypot(flight.x - openingBridge[0], flight.z - openingBridge[1]) : Infinity;
-    if (openingBridge && gateAlong < config.camera.openingClimbAfter) sy = Math.max(0, sy);
+    if (openingBridge && gateAlong < config.camera.openingClimbAfter) {
+      if (sy < -0.5 && opening >= config.fog.openingDuration) controls.climbGated();
+      sy = Math.max(0, sy);
+    }
+    // (nor can a gear lift it: a swipe waits for the gate)
+    controls.gearsLocked = !!openingBridge && gateAlong < config.camera.openingClimbAfter;
     const dragging = qaStick ? true : st.dragging;
     // past the edge of the map the bus homes back toward the city, gently
     const ex = Math.max(minX - flight.x, flight.x - maxX, 0), ez = Math.max(minZ - flight.z, flight.z - maxZ, 0);
@@ -735,11 +750,13 @@ async function boot() {
     // (and when it strains against the ceiling: the struggle bus)
     pose.wheeze = flight.barfT >= 0 ? 0 : Math.max(flight.fullness * 0.8, flight.strain);
     pose.eye = barfing ? 0.25 : flight.relief > 0 ? 1 : 0.55 + 0.45 * (1 - flight.fullness * 0.6);
+    controls.pose(pose);
     bus.update(dt, simTime, pose);
     eul.set(flight.pitch, -flight.heading, -flight.bank, 'YXZ');
     q.setFromEuler(eul);
     bus.root.quaternion.copy(q);
     bus.root.position.set(flight.x, flight.y, flight.z);
+    controls.afterPose(bus.root);
 
     // drop shadow on whatever is below: the roof of the part under the bus, else the street
     const below = city.roofAt(flight.x, flight.z) ?? flight.groundUnder;
@@ -760,7 +777,9 @@ async function boot() {
       }
     }
     // aim glint on the building a tap would hit (picked every frame), only while a breath is loaded
-    const glint = aimer.update(flight, simTime, dragging);
+    // (a steering thumb thaws the glint when it lands; tilt has no thumb, and a press that fires on its lift keeps
+    // what it froze, whatever else is steering)
+    const glint = aimer.update(flight, simTime, dragging && input.mode !== 'tilt' && !input.pressHeld);
     paintUniforms.uTarget.value = glint ? glint.index : -1;
     paintUniforms.uTargetT.value = aimer.shownSince;
     paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);
@@ -786,6 +805,7 @@ async function boot() {
     bus.root.scale.setScalar(rig.heroScale);
     // this frame's matrix now: the breath and the exhaust leave from where the bus IS (not last frame's pose)
     bus.root.updateMatrixWorld(true);
+    controls.frame(dt, realDt);
     const Fg = config.fog;
     const camY = camera.position.y;
     // (gated by the vista, i.e. by the height above the ground: skimming the floor over Twin Peaks the
@@ -800,6 +820,7 @@ async function boot() {
     const hk = clamp(flight.lift / 450, 0, 1);
     streamCenter.set(focus.x + camFwd.x * 950 * hk, focus.y, focus.z + camFwd.z * 950 * hk);
     city.viewHeight = flight.lift;
+    city.detailHold = controls.tearing;
     city.detailScale = Math.tan(THREE.MathUtils.degToRad(config.camera.hfovPortrait / 2)) / Math.tan(THREE.MathUtils.degToRad(rig.hfov / 2));
     const R = config.render;
     const sAhead = R.shadowAheadVista * vista;
@@ -904,6 +925,7 @@ async function boot() {
       dropShadow.add(pipeline.snapCompensation(dropShadow, compTmp));
       pipeline.snapCompensation(bus.root.position, particles.object.position);
     } else particles.object.position.set(0, 0, 0);
+    controls.fx.object.position.copy(particles.object.position);
     // (only what lies below the bus's wheels; whatever faces up there, roof, street, lawn or crown)
     pipeline.setHeroShadow(dropShadow.x, dropShadow.z, bus.root.position.y - 2.2 * rig.heroScale, flight.fx, flight.fz, dropShadowL, dropShadowL * 0.42, 1);
     // the eye's beam, from the lens along the nose, a little down: wide open on relief, a sliver
@@ -928,7 +950,7 @@ async function boot() {
 
   // debug hooks for scripted screenshots / QA
   (window as unknown as Record<string, unknown>).__game = {
-    flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS,
+    flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls,
     /** QA: where a breath fired now would land ({x, y, z, dist, travel, drop}), and the last one fired */
     aimNow: () => (aimer.point(flight), { ...aimer.aim }),
     /** QA: the building glinting now (what a tap hits) */

@@ -36,6 +36,8 @@ call), this is what we chose and why.
 - **Late-afternoon sun through thin fog** instead of flat light: flat light makes
   low-res 3D melt into one grey. Painted neighborhoods thin the fog above them.
 - **No HUD.** Belly glow = recharge. Place names appear on a diegetic street sign.
+  (Tilt and the turbo gears need a little: see "The HUD" below. It is gone
+  whenever it isn't being used, and a desktop has none at all.)
 
 ## Altitude (producer: "I want the bus to go up, high enough to view everything")
 - **Yoke on the same thumb.** Pull the thumb down = pull back = climb (up to
@@ -452,6 +454,241 @@ cross-checked in the browser with `tools/feel.mjs`.
   114, 714.7k / 715.7k; FiDi 250 m 117 / 116, 820.5k / 820.5k. CPU work per
   frame 4.9 / 3.4, 3.8 / 4.3, 2.8 / 3.7, 2.5 / 2.9 ms (median of 11 frames on a
   SwiftShader host at load ~26: inside its noise).
+
+## Tilt to fly, touch to fly, turbo gears (producer: "world class phone tilt to fly, on by default for phones"; "fly from SF to Tokyo across the Pacific, manually, using some sort of turbo modes")
+- **Tilt is the default on phones; touch is the fallback and an option.** A
+  desktop (fine pointer + hover) flies the keyboard + mouse bungee as before.
+  On a phone the first touch is a pixel title card, "TILT TO FLY": its tap is
+  the user gesture iOS needs for `DeviceOrientationEvent.requestPermission()`
+  (called synchronously in `touchend`) and the moment the neutral pose is
+  taken. Where no permission is needed the sensor is probed quietly first and
+  only a phone that really sends motion gets the card. No sensor, a refusal,
+  or no event within 1 s (`config.tilt.eventTimeout`; an iframe that refuses
+  motion sensors, like the claude.ai preview) falls back to touch with no error
+  (a "DRAG TO STEER / TAP TO SPLAT" hint), remembered for the session only
+  (`sessionStorage strugglebus.notilt`), never as the player's choice; the
+  player's own choice in settings or "USE TOUCH INSTEAD" persists
+  (`localStorage strugglebus.controls.v1`: mode, sensitivity, sound).
+  `?controls=tilt|touch|keyboard` forces a scheme.
+- **Only gravity steers.** The fused attitude (gyro + accelerometer:
+  `deviceorientation`) becomes a quaternion (W3C Z-X'-Y'' = three's 'ZXY')
+  and gravity is read in the device frame through it. The compass angle
+  cancels out exactly, so turning around, a magnetometer settling or yaw drift
+  never steers (a full 360 degree turn while held: stick 0.000), and gravity
+  is continuous where the Euler angles flip (beta through +-90 degrees, the
+  phone pointing up: a sweep from 20 degrees back to 40 past upright has its
+  gamma flip and a monotonic pitch, largest step 0.54 degrees per sample).
+  It is read in the screen frame (screen.orientation.angle), relative to a
+  neutral gravity, as the swing (shortest arc) from neutral to now split
+  along the neutral frame's horizontal axes: the screen's right axis (pitch)
+  and the horizontal axis through the screen (roll). That split is the same
+  held flat, at 45 degrees or upright, in portrait and landscape (identical
+  curves in all seven holds tested, no sign errors, cross-talk < 0.05). Turning
+  the phone to landscape keeps screen-frame gravity, so the neutral stays put
+  and an eased recenter follows 0.35 s after the screen turns.
+- **Mapping: the thumb's exact stick.** Roll -> sx (right edge down = carve
+  right), pitch -> sy (top edge toward you = pull back = climb; away = nose
+  down: dive, and at the rooftops surge): it feeds Input.state.stretch, so
+  Flight, the camera and the aim see exactly what a thumb would make and the
+  feel tuning stays shared. Dead zones 1.4 / 2.2 degrees, expo 0.45 (fine near
+  center), full authority at 30 / 26 degrees divided by the sensitivity
+  (settings: 0.5 to 2 in 7 steps). Pitch starts at the yoke's 14 % dead band
+  past its own dead zone (`yokeComp`), so a gentle tilt climbs gently instead
+  of doing nothing for 7 degrees. Past 58 degrees from neutral the stick fades
+  out (the phone is being turned or put down). Tilt -> flight (flat world,
+  3 s): roll 5 / 15 / 30 degrees -> sx 0.07 / 0.32 / 1.0 -> 0.10 / 0.46 /
+  1.44 rad/s; top toward you 5 / 15 / 26 -> climb 8 / 16 / 40 m/s; away 5 / 15
+  / 26 -> dive 2 / 15 / 48 m/s up high, surge 35 / 53 / 99 m/s at the rooftops.
+- **No lag, no jitter.** One-Euro filter per axis on the sample clock, its
+  rate from raw sample to raw sample (the paper's difference against the
+  filtered value reads a 0.05 degree lag at 60 Hz as 3 degrees/s, which broke
+  both the prediction and the stillness test), then a prediction to the frame
+  time from the filtered rate (the sample's age plus the filter's own lag,
+  capped at 20 ms). Parameters from a sweep (tools/controls-sim/s_tune.ts):
+  added latency vs the true angle at frame time 1 / 1.5 / 3 / 7.5 / 9.5 ms for
+  0.5 / 1 / 1 (frame on the sample) / 2 / 0.25 Hz sweeps (one 60 Hz frame is
+  16.7 ms; a plain one-pole at the rest cutoff would add 100 ms). At rest with
+  0.15 degree sensor noise and a 0.4 degree 9 Hz tremor: raw 0.33 degree std
+  -> 0.14, and 0 of 600 frames leave the dead zone; a held 12 degree carve
+  through the same noise: sx 0.227 +- 0.005.
+- **Calibration and recentering.** The neutral is the mean of the first
+  0.18 s of samples after the card's tap. RECENTER (top-right button in tilt
+  mode, and in settings) eases the neutral to the current pose over 0.25 s
+  (never a jump). Auto-recenter: held still (smoothed drift under 4
+  degrees/s for 1.4 s), posture offsets drift back with a 6 s time constant,
+  pitch within 4.5 degrees and roll within 2.5 (the wider bands first tried
+  walked the neutral away under a staircase of small held tilts). s_tilt: a
+  4 degree sag (sy 0.16) is back to 0 after ~6 s; a held 6 degree climb stays
+  at sy -0.22 for good, it is never "corrected"; a staircase of held
+  -4 / -8 / -12 / -16 degrees reads -1 / -5 / -9 / -13: the neutral walks 3
+  degrees and stops, and returning to 0 reads 0.8 (inside the dead zone); a
+  15 degree carve held 10 s still carves at sx 0.31.
+- **Splat input (the shared contract with feat/supersplat).** A tap splats
+  (onTap); a press held `config.splat.holdThreshold` (0.3 s) without turning
+  into a steer or swipe starts the super splat's charge (onChargeStart,
+  state.chargeHeld = seconds since the press, onChargeEnd(held, cancelled);
+  cancelled = slid off, pointercancel, a lost touch, focus lost). Tilt mode:
+  the whole screen is the splat button, a vertical swipe (38 px within
+  450 ms, mostly vertical) shifts a turbo gear, swipe up and keep the finger
+  down boosts, a second finger while the first is held taps. Touch mode: the
+  bungee is untouched (a still thumb past 230 ms steers at neutral, as ever;
+  it never charges), a dedicated splat button in the thumb zone taps and
+  holds, the second-finger tap stays. Keyboard: Space tap / hold, E / Q (and
+  PageUp / PageDown) shift, Shift boosts. Presses are timed by their events'
+  timestamps and a charge is confirmed on a second frame, so a release queued
+  behind one slow frame is still a tap (found on SwiftShader, where a 90 ms
+  tap spanned a 5 s frame and read as a hold). The full tap / hold / drag /
+  swipe table (36 gestures, offline through the real Input):
+  shots/controls/sim/gestures.json. Until the super splat lands a press held
+  past the threshold still splats on release (`input.onChargeEnd` in main.ts,
+  a stop-gap feat/supersplat replaces): no press is ever dead.
+- **Turbo gears.** G0 is the classic flight (30 m/s released, 112 surging).
+  G1 "Jet" 450 m/s needs 150 m above the ground: shifted up low, the gear's
+  floor rises under the bus at 75 m/s (Flight rides it like a higher roof:
+  the rooftop floor, the hard floor and `lift` are untouched) while it claws
+  up at full surge, straining (wheeze, a squint, a rattle of a game pixel or
+  two, backfires, a rising whine); at its height the gear bites (two backfire
+  pops, a camera jolt, a fov punch) and spools up; passing Mach 1 it booms (a
+  white-hot vapor cone with a rainbow rim, a ring of vapor and rainbow puffs,
+  a palette flash, a jolt, the N-wave's two cracks and a rolling rumble), and
+  a six-hue contrail and speed lines stream behind it. Measured on the real
+  city at Alamo Square: shifted at 48 m, 138 m 1.6 s later, engaged, Mach 1
+  1.0 s after that, 449 m/s 4 s after engaging, riding 150-165 m up. A
+  downshift brakes (the spool and brake rates ease in over 0.35 s: no jolt):
+  460 -> 210 m/s in 1 s, 94 in 2 s, 33 in 4 s, holding the altitude (the yoke
+  dives back down). Holding the turbo boosts the gear x1.3 (G1: 571 m/s; G0: a
+  full surge). Steering authority falls as (surge / speed)^0.55: turn radius
+  18 m cruising, 132 m surging, 1.3 km at G1 (0.35 rad/s, a U-turn in 9 s);
+  the yoke's climb and dive grow as (speed / surge)^0.5.
+- **G2 "Stratos" (4.5 km/s, 2 km up) and G3 "Rainbow Warp" (30 km/s, 10 km
+  up: SF -> Tokyo's 8,300 km in ~4.6 min) are implemented and LOCKED**
+  behind `config.turbo.worldTravel = false`: shifting up past G1 answers
+  "LOCKED: WORLD TRAVEL COMING" (a red banner with a shake, a clunk and two
+  low buzzes). With the flag on (offline): G2 climbs to 2 km in 3.3 s, the
+  soft ceiling rises with the gear, it cruises at 4,500 m/s, the camera stays
+  above and behind the bus. The world beyond the map doesn't exist yet: the
+  map-edge homing is unchanged, and near the edge a gear's speed fades back
+  to the surge over the distance its brake needs, so the homing can turn the
+  bus around (735 m past the edge at most at G1).
+- **Camera with speed.** The follow spring's own lag already pulls the
+  camera back ~2 x speed / (2 pi followHz) (77 m at 450 m/s): on top of it a
+  25 m pull, a 5 degree wider lens and the bus 1.25x (it still reads), with
+  40 % of the lag cancelled at G1 and all of it from G2 on (it was 900 m at
+  4.5 km/s and, in a 700 m/s climb, dropped the camera under the bus). The
+  lens follows the turbo speed eased and snaps exactly once close, so a held
+  gear's lens is perfectly still (a breathing lens rescales the snapped pixel
+  grid); the shift and the boom punch the fov on a damped spring. G1 at
+  speed: camera 243 m from the bus (175 at cruise), 82 m above it, 29 degrees.
+- **The HUD: the no-HUD rule still holds at rest.** Tilt needs a recenter and
+  a settings panel, touch needs buttons for a hold and for gears; nothing else
+  gets to stay. Flying tilt with nothing happening the screen is empty. Each
+  thing earns its place:
+  - settings + recenter (phones): fade out 6 s after the last touch or change
+    of scheme; a tap in that corner only brings them back (faded out they
+    catch the tap instead of splatting), the next one works;
+  - a desktop has no buttons: Esc opens the settings, which are also its manual
+    (the keys), and a first visit gets one toast with the keys;
+  - the gear readout: while a gear lifts, for 2.5 s after it shifts or bites,
+    while the boost is held, and that's all; holding G1 the contrail and the
+    wind say it (it used to stay for as long as a gear was in);
+  - LOCKED and toasts are moments; the prompt is the one modal, because iOS
+    needs a tap to ask for motion;
+  - the touch pad (SPLAT, TURBO lever) stays: touch is the fallback, and it is
+    the only way to hold or shift there;
+  - the credits line stays when set (attribution is a duty, not a choice).
+  Everything is a pixel canvas in palette colors (the street sign's bitmap font
+  + a few HUD glyphs, an ink outline on every glyph so it reads on a bright
+  phone, dithered dimmers instead of alpha) and safe-area aware. The super
+  splat's meter mounts into `hud.slot('super')` (176 x 86, its child centered
+  on the floor; the meter is 68 x 86).
+- **When tilt can't fly.** The reason decides the message. iOS refused: toast
+  MOTION ACCESS OFF / DRAG TO STEER, the settings say MOTION DENIED: REOPEN
+  SAFARI (it won't ask again until Safari restarts) and the TILT button stays,
+  as a retry. No sensor, or silent past the 1 s timeout: DRAG TO STEER / TAP TO
+  SPLAT, TILT is disabled, the settings say NO MOTION SENSOR HERE. Both last the
+  session only (never saved as the player's choice); USE TOUCH INSTEAD is saved.
+  iOS is only ever asked from the card's touchend: the settings' TILT button
+  reopens the card rather than calling requestPermission from a pointerup
+  (unverified on WebKit), and the motion request runs before the audio unlock,
+  first thing in the gesture. Recent Chromium desktop builds expose
+  requestPermission too, so such a device gets the card rather than the probe;
+  tools/controls.mjs clears it on pages that mock nothing. Tilt needs HTTPS (or
+  localhost): over http on the LAN phones fall back to touch.
+- **Cost.** Turbo FX: 3 draws (contrail, speed lines, vapor cone), drawn only
+  while visible; one buffer upload per frame for the contrail (96 samples x
+  2 vertices x 9 floats), speed lines and the cone are uniforms only; no
+  per-frame allocations (the HUD compares numbers, no string keys, and redraws
+  its small canvases and writes styles only when what it shows changes). Tilt:
+  ~1 us per sample, no allocation. The turbo voice attaches when the turbo first
+  sounds and detaches after 2 s of silence: its 5 looping sources and 11 other
+  nodes are no audio-thread cost in a session that never shifts.
+- **Controls QA (2026-10-30, main e368d29 merged; Intel UHD 620 through Edge,
+  iPhone 15 viewport, 390 px; `tools/controls.mjs`, `tools/fps.mjs`).**
+  - MAIN vs NEXT at Alamo Square, 60 frames each, A B A B: draws 132 / 132 and
+    132 / 131; triangles 1.237M / 1.237M and 1.237M / 1.258M; CPU work 5.5 / 6.2
+    and 6.0 / 5.6 ms (the order moves it as much as the build does).
+  - `fps.mjs` 8 s, alamo + fidi at street / 250 m / ceiling: MAIN and NEXT both
+    60 median, the same draws (64-161) and triangles (0.43-1.2M) at every spot.
+  - G1 at the jet, effects toggled on alternate frames: +0 to +4 draws (the
+    median is the city's, 22 m on per frame), no measurable CPU work.
+  - G1 flown in real time, west side -> downtown -> the bay: 58-60 fps, draws
+    106-118 median, 143 max, triangles at most 1.26M, in budget. Frame times have
+    p99 27-66 ms and spikes up to 76 ms (5 frames over 50 ms crossing downtown),
+    CPU work spiking to 64 ms: chunks streaming in at 5x the surge speed. G0 on
+    the same run: 60 fps, p99 21 ms, max 35. The budgeted streaming in polish/perf
+    is the fix; not touched here.
+  - `shots.mjs` grey / painted / opening: pixel diff MAIN vs NEXT 39 / 62 / 4.8 %,
+    MAIN vs MAIN again 35 / 62 / 4.5 %: nothing but the run's own timing.
+    `feel.mjs` taps 7/7 glint == hit on both.
+  - In the real page: first gesture stalls 170-240 ms inside audio.unlock (the
+    sound graph; on main too). `flows`: iOS refused / throwing / silent, settings
+    retry, reload in the same tab, Android probe, fade and wake, keyboard + Esc
+    all correct; both asks in a touchend. The first run caught a real bug: the
+    click after the settings tap landed on the card it had just opened and
+    dismissed it (the tap now swallows its click, and the card ignores clicks
+    for its first 450 ms).
+  - NOT measured: a real iPhone or Android phone. The iOS sheet, A15 fps at G0
+    and G1, the feel of the tilt curve and the WebKit gesture rules are synthetic
+    or reasoned here, and need the HTTPS preview.
+- **Outside review of the controls (2026-10-30): what it caught, what changed.**
+  Every capture tool passes `&nohud`, so nobody had looked at a first iPhone run.
+  - **The opening waits for the card.** The TILT TO FLY card used to sit over the
+    Golden Gate while the opening played behind it, so the first hero shot went by
+    unseen. `Controls.holdOpening` holds the opening at dt = 0 (hit-stop's path)
+    through the card, the iOS sheet and the sensor settling; `?skipintro` and
+    `&nohud` pages never hold. The hold can't hang: refused, silent and
+    one-stray-event sensors all let it go (`Tilt.ts` now times out `calibrating`
+    too, which had no timeout), and the Android probe holds for at most ~1.2 s
+    with no card. The card's touch controls hide with it and stay away behind the
+    iOS sheet; the card and USE TOUCH INSTEAD sit either side of the waiting bus.
+  - **A gear can't lift the bus over the deck.** The opening's lock only clamped
+    the yoke; G1 raised the floor and took the low camera through the cables at
+    337 m/s. A shift in the gate is now queued, not dropped, since the game itself
+    says SWIPE UP FOR TURBO: the bus threads the deck at 48 m/s and y 5, the gate
+    clears, and the queued swipe launches it. (No press is ever dead.) The toast
+    over the opening says only TILT TO STEER; the turbo line comes at the gate,
+    unless they already swiped.
+  - **The press commits, on every source.** Aimer dropped its latch every frame
+    while `dragging`, and tilt's dragging means the phone is banked, so the glint
+    could swap under the finger. The same held for the SPLAT button and Space
+    while something else steers (found following the fix, not in the review). The
+    latch survives while tilt is flying or `input.pressHeld`; only touch's bungee
+    thumb thaws it. Tilt carves: latch held 63/63 (was 0/48 banked), the glint at
+    the press == hit 48/48; SPLAT button while steering 14/14. feel taps still 7/7.
+    `adv latch`'s 2 "mismatches" at gamma -20 compare a sample from before the
+    press lands (the loop keeps running until CDP's touch arrives), with the latch
+    held 16/16 and the glint at the lift == hit 16/16.
+  - **G0's boost is the classic rate.** It went through the gear spool, slower
+    than not boosting: 60 / 80 m/s in 0.57 / 0.95 s, now 0.17 / 0.33 s (push alone
+    0.20 / 0.45 s).
+  - **A quick tilt tap forgives like a touch tap:** 26 px within 150 ms (16 and
+    22 px wander were dead presses, now taps).
+  - Measured after: fps.mjs 60 median at all 6 spots, 1% lows 47.6-56.5, draws
+    75-186, triangles 0.49-1.52M (the same as MAIN; 1.52M at the Alamo ceiling is
+    just over budget on both). shots.mjs 127 draws / 1.211M grey. G1 over the west
+    side in real time: p99 33 ms, max 67-83 ms across runs (it was logged as 76 ms
+    downtown); polish/perf's budgeted streaming still has to fix that, and G1 must
+    be re-measured on an A15 after that merge.
 
 ## Data
 - **DataSF and the USGS elevation APIs are blocked by this environment's network
@@ -1231,6 +1468,52 @@ cross-checked in the browser with `tools/feel.mjs`.
   `tools/fps.mjs` at FiDi (the pyramid ahead): 60 fps (vsync) on both at the street
   (113 / 704,055), 250 m (133 / 807,622) and the ceiling (64 / 432,140); work median
   3.5 / 4.1 / 1.5 ms on main, 3.6 / 3.6 / 1.3 ms merged.
+
+## Controls: outside judge, round 1 (FAIL) and the fixes (2026-10-30)
+Two must-fixes (a silent turbo under the opening's gate; hitches at jet speed), and "the splat still owns
+every best frame". All measured in real Edge on the Intel UHD 620, 393 x 852 @3x.
+- **Every press answers on its frame.** Under the gate a shift up stays queued (a gear would lift the bus into
+  the deck) but now says so at once: the toast "TURBO AFTER THE BRIDGE", the readout "G1 JET / ARMED" dim and
+  blinking, the lever armed, the shift's clunk. It fires by itself when the gate clears (lever at 17.8 s -> G1 at
+  21.1 s). A shift down cancels it ("TURBO OFF"). Pulling back under the gate says "CLIMB AFTER THE BRIDGE" once
+  (at most every 30 s), the first thing a tilt player tries.
+- **The hitches were not what they looked like.** `tools/jet.mjs` (no screenshots, per-frame attribution):
+  1. `swapRegion`, 25-68 ms + up to 26 ms of first-draw upload every ~2 s: detail nobody can see at 450 m/s, on
+     screen for under a second. **`City.detailHold`** (`Controls.tearing`: a gear selected, or still braking):
+     nothing changes level of detail, what arrives is coarse. The jet's frames look the same.
+  2. 58-76 ms long tasks outside any frame: the worker's message, copied (18 typed arrays per tile, 16 tiles).
+     **Everything is transferred now**; the long tasks are gone.
+  3. One 50-83 ms stall ~0.15 s after the trail appeared, with the main thread idle: the warm-up compiled the
+     trail but `setDrawRange(0, 0)` never drew it, and the driver builds its pipeline at the first real draw.
+     **The warm-up draws degenerate triangles.** (All turbo programs now really draw behind the loading fog.)
+  4. Deferring swaps would only move the hitch to the brake (up to 67 ms). **Swaps to detail prepare tile by
+     tile** on the adoption budget (`prep` items: the off-scene mesh with its bounds, the obstacle scan, which
+     were two thirds of the swap), and the swap itself only commits; one swap per frame at most. This helps the
+     classic flight too. (polish/perf has a tile-by-tile trim of its own: merge by keeping whichever is simpler.)
+  Result, five routes (gate, west, south, east, north), climb + 9 s jet + 12 s brake: jet p50/p95/p99/max
+  16.7/16.8-16.9/16.9-17/17.0-17.3 ms, 0 frames over 20 ms, 60 fps, up to 128 draws / 1.12M tris; brake max 17.1-33.4 ms,
+  0 over 34; climb max 16.9-17.5 ms, except one 50 ms frame on `north` at 29 m/s just after the shift, with the
+  main thread idle (not repeatable on the other four routes).
+- **A screenshot is a long frame.** The judge's trace ran beside 3x `page.screenshot` every ~600 ms. MAIN and NEXT
+  both stall on it: 12 shots on a quiet machine, MAIN 4 frames > 34 ms, NEXT 3 and 5, p99 33.5-50 ms on both; on a busy one up to 250 ms. Their
+  `play.mjs`, unchanged, same hour: pre-fix build 51 fps, p99 66.6, max 699.8, 14 frames > 34 ms; fixed 58.4 fps,
+  p99 33.4, max 33.6, 0 frames > 34 ms: its 14 slow frames are the script's 14 shots, one frame each. The p99 <= 20
+  ms goal is met without capture (16.9-17) and not with it (33.4), and that is why.
+- **Static views unchanged**: Alamo frozen at the same game time differs from MAIN by 0.022% of pixels (one random
+  puff), same 126 draws / 1,203,074 tris. `fps.mjs` Alamo, back to back: MAIN 60 / 59.9 / 57.4 fps, NEXT 60 / 60 / 60
+  (street / 250 m / ceiling), 124-125 / 135 / 163-165 draws.
+- **The contrail is vapor now, not a dither pattern.** The checkerboard was a screen-space Bayer; it now
+  dissolves by hard thresholds of noise anchored to the trail's distance (`aDist`), so clumps hold still in the air
+  while the bus leaves them, with one pixel of dither at their edges. Fresh it is a clean flag; set, the outline
+  billows (the bands follow it), cel steps fold it, it wanders and sags. Stride 10 floats, still one buffer.
+- **The rainboom.** From the chase camera the old cone was just a white disc. The boom now throws a rainbow hoop
+  (white crest, six hues, red outside): one annulus, one draw for under a second, opening around the bus and falling
+  back along its path past the camera. The cone stays as a short white shock.
+- **Speed lines are solid**: the dither ate streaks under a pixel wide into dots. 1.7 px, shortened rather than
+  dissolved, one in five a hue.
+- **Roll and pitch reach full at the same angle** (`rollFull` 30 -> 26): the judge's 0.18 at gamma 18 was the
+  hold angle (at 55 deg that is ~12 deg of wheel roll), now 0.22; 15 deg of real roll gives 0.38.
+- Still not done: no real phone yet; the A15 numbers are inferred.
 
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
