@@ -75,8 +75,13 @@ including merging into `main`.** None of the branches below has been merged yet.
 `onTurbo(dir)`, `state.turboHeld`, `input.mode`): see their DECISIONS/ARCHITECTURE
 notes when merging.
 
-Merging perf/load after supersplat: add `registerWarm('super fx', () => superFx.object)` in main.ts, and SuperFx's own
-3-frame warm-up can go.
+Merging perf/load after supersplat (straight after, one deploy: until then a player's first firehose stutters, see
+"Known issues"): add `registerWarm('super fx', () => superFx.object)` in main.ts, and SuperFx's own 3-frame warm-up can
+go. Then close the browser and rerun a real-time firehose in a FRESH one (a program links in ~24 ms on a second page of
+the same browser, which hides it): no frame gap over ~50 ms. The five programs that must be warm are the sprouts' colour
+batches and sun-pass twin ('roof sprouts' registers them) and the street sign's blade and its `shadowMesh`
+MeshBasicMaterial (both invisible in the scene at boot: `warm.add(scene)` traverses them, by reading the code; only that
+run proves it).
 
 ### Suggested order
 1. Merge facade -> landmarks (+ wire the 3 new props) -> look -> controls -> supersplat -> perf,
@@ -139,8 +144,11 @@ Merging perf/load after supersplat: add `registerWarm('super fx', () => superFx.
   first-visit run (card, tap, the bus under the deck, a swipe during it, sensors that never answer).
 - `fps.mjs` peaks at 1.52M triangles at the Alamo ceiling, just over the 1.5M budget, on main too.
 - The first gesture stalls ~200 ms in `audio.unlock()` here (more on a phone?), on main too.
-- A player's first street sign and first L2 / L3 garden link their programs in flight (170 / ~300 ms here, on main
-  too); a first firehose reaches both within a second. perf/load's warm-up fixes it: not merged yet.
+- **A player's first firehose stutters in its first second.** Fresh browser, Alamo, 60 Hz: frame gaps 333, 250, 250,
+  217, 150, 133 ms, then nothing over 17 ms; five programs link there (work 334, 155, 259 ms, on this laptop's GPU: a
+  phone will be slower). MAIN has the same links but spreads them over separate taps (the first sign 170 ms, the first
+  L2 / L3 ~300 ms); the hose stacks them at its opening. A first mega hits the sign's alone, ~3 s after release (176 ms
+  from 283 m). perf/load's warm-up should fix all of it: not merged yet, so it is the deploy condition above.
 - 250 m over Alamo Square is 1.8M triangles and 200 draws at cruise, over budget, on main too; a firehose adds 22 draws
   and ~100k triangles there, and is the worst thing we have measured there (p95 33.5 ms here).
 - `Splatter` still allocates per hose impact (Scheduled objects, paint records: ~2,000 short-lived objects a second

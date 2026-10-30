@@ -475,7 +475,11 @@ numbers in the tuner groups `SuperSplat`, `SuperFx`, `SuperAudio`.
   while `!Flight.driven`: a gear, the boost or a gear's brake are never braked.
 - **Mega blast** = the tap's breath path (`host.mega` -> `breatheNow(shot,
   { radius, width, hitStop, tag })`): `Splatter.barf` takes `radius`,
-  `hitStop` and `super`, the jet `width` (`Particles.geyser({ width })`).
+  `hitStop` and `super`, the jet `width` (`Particles.geyser({ width })`). A
+  full belly fires what glints (`Aimer.fire`), any other belly what is at the
+  aim point (`Aimer.aimShot`): a wall in the line of fire stops both. A
+  super's blast (mega, closer) caps its buildings by its area, up to
+  `megaBuildingsCap`; taps and hose impacts by the radius, up to `maxBuildingsCap`.
 - **Firehose**: one `Particles.geyser` with `live` (`GeyserLive`: target,
   travel, rate, mutated every frame: each particle flies to where the stream
   lands then), `width`, `taper`. `firehoseRate` times a second the newest aim

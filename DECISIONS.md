@@ -601,6 +601,34 @@ cross-checked in the browser with `tools/feel.mjs`.
   firehose reaches L2 within a second, so a player's first firehose has those two hitches until perf/load's warm-up lands
   (`registerWarm('roof sprouts', ...)` is there already). And 250 m over Alamo is 1.8M triangles and 200 draws at cruise
   on MAIN too, over the budget; the firehose adds 22 draws and ~100k triangles on top (`__stats`).
+- **Merge review, confirmed findings** (reviewed 89663c5; all on this laptop's GPU, nothing yet on a real iPhone):
+  - **A super's blast is capped by its area** (`config.splat.megaBuildingsCap` 480; mega and closer, not taps or hose
+    impacts). The cap grew with r and stopped at 96 while the buildings in reach grow with r squared: the longer the
+    charge, the more grey blocks inside a rainbow street grid. The cap now is `maxBuildings * (r / blastRadius)^2`, up to
+    480. It lives in `barf` (a super's tag, not a hose) rather than a new `BarfOpts.cap`, so the closer, which had the
+    same bug, needed no second copy. Buildings by centroid inside r, painted of them, before -> after: Outer Sunset 98 %,
+    r 161: 96 of 192 -> 192 of 192; Alamo 98 %, r 159: 141 of 141 (it was 96 of 112 inside 0.9 r); full charge near Lower
+    Haight from 283 m, r 298: 96 of 477 -> 473 of 473 (farthest painted 158 -> 298 m); Outer Sunset from 258 m, r 285: 479
+    of 505; closer from 240 m, r 165: 183 of 183. Spots under the old cap stay as they were (Mission 72 of 72). The new
+    cap bites only near the top of the climb: Outer Sunset from 371 m, r 343: 480 of 808, farthest 305 m, nearest first,
+    so what stays grey is the rim, and the picture still reads as one disc.
+    Cost: `barf` 28-45 ms and the release frame 38-53 ms (it was ~41 ms at the old cap), once per cooldown; `deal`'s
+    O(n^2) stayed small enough to leave. Taps unchanged (`blast.mjs perf`: 148 draws; 7/7 glint == hit, 48/48 carves).
+    Draws: up to 225 at 283 m, where cruise is already ~200 (see above); blooms add no draws by design, but this run has
+    no A/B. Sparkles reach the 8000-point pool at these sizes. Paint survives a reload (109 buildings, 2575 ground samples).
+  - **The reviewer's unexplained 180 ms frame ~3 s after release is the first street sign's link**: `info.programs` goes
+    21 -> 23 on that very frame (176 ms). Not the cap; it costs 22 ms on a later page of the same browser.
+  - **First firehose, corrected:** not "two hitches": see HANDOFF "Known issues" (gaps 333, 250, 250, 217, 150, 133 ms
+    in a fresh browser, five programs). Not fixed here: perf/load's warm-up is the fix, and it conflicts in `main.ts`,
+    `PixelPipeline.ts`, `City.ts` and DECISIONS, so it is merged after this and deployed with it. **Measure links in a
+    fresh browser:** on a second page the same run shows nothing over 17 ms, because the links are cached.
+  - **"No press is dead" now holds across the end of the cooldown:** a press told "not yet" that is still held when the
+    cooldown ends splats on its lift. Real Space press, belly full: `lastShot` moves. (A belly still refilling gets the
+    tap's denied sound, not silence.)
+  - **A mega with a part-full belly stops at the wall** (`Aimer.aimShot`: the aim point, the pick, `occlude`, the same
+    Shot as `fire()`): `update()` keeps no target while the belly refills, so that branch had skipped the rule that the
+    jet never flies through a building. FiDi, belly 0.5: `wall: true`, target = the wall that glinted (16014), landing on
+    its face, no longer ~46 m behind it.
 ## Tilt to fly, touch to fly, turbo gears (producer: "world class phone tilt to fly, on by default for phones"; "fly from SF to Tokyo across the Pacific, manually, using some sort of turbo modes")
 - **Tilt is the default on phones; touch is the fallback and an option.** A
   desktop (fine pointer + hover) flies the keyboard + mouse bungee as before.
