@@ -12,7 +12,7 @@
     "active",
     "off"
    ],
-   "ms": 339,
+   "ms": 376,
    "calibrated": true,
    "samples": 12
   },
@@ -24,7 +24,7 @@
     "requesting",
     "denied"
    ],
-   "ms": 1,
+   "ms": 0,
    "calibrated": false,
    "samples": 0
   },
@@ -61,7 +61,7 @@
     "waiting",
     "unavailable"
    ],
-   "ms": 1015,
+   "ms": 1001,
    "calibrated": false,
    "samples": 0
   },
@@ -75,7 +75,7 @@
     "active",
     "off"
    ],
-   "ms": 350,
+   "ms": 383,
    "calibrated": true,
    "samples": 12
   },

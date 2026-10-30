@@ -234,7 +234,7 @@ export const config = {
   tilt: {
     /** Tilting left/right (rolling) this far from the neutral pose is a full carve; pitching the top edge
      *  toward / away from you this far is a full climb / dive (deg, divided by the sensitivity). */
-    rollFull: 30,
+    rollFull: 26,
     pitchFull: 26,
     /** Dead zones around the neutral pose (deg): hand tremor and posture never steer. */
     rollDead: 1.4,

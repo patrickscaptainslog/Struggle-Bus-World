@@ -127,6 +127,11 @@ export class TurboVoice {
     disposeOnEnd(n, [n, bp, g]);
   }
 
+  /** A shift waiting for the opening's gate: just the lever's clunk (the rush comes with the shift itself). */
+  armed(t: number): void {
+    if (this.kit) this.clunk(t, 0.5);
+  }
+
   /** The gear bites: two backfire pops. */
   engage(t: number): void {
     const kit = this.kit;

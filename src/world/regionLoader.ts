@@ -102,6 +102,9 @@ export async function loadRegion(req: RegionRequest, transfer: Transferable[] = 
       if (bLen > 0) {
         building = parseBuildingTile(buf.slice(bOff, bOff + bLen));
         ({ mesh, grown } = meshBuildingTile(building, { lod: req.lod, sf: req.sf }));
+        // (hand everything over: a copied message deserializes on the main thread, a long task outside any frame)
+        const b = building;
+        for (const a of [b.index, b.stableId, b.vertStart, b.baseY, b.roofY, b.groundY, b.arch, b.floors, b.front, b.front2, b.hood, b.seed, b.tier, b.taper, b.xz]) transfer.push(a.buffer as ArrayBuffer);
         if (req.lod === 0) transfer.push(mesh.position.buffer, mesh.normal.buffer, mesh.facade.buffer, mesh.meta.buffer, mesh.bld.buffer, mesh.bld2.buffer, mesh.index.buffer);
         transfer.push(grown.buffer);
       }

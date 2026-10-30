@@ -39,6 +39,9 @@ import { Hud, type HudFrame } from '../ui/Hud';
 // the bus's pose is set (the rattle), frame(dt, realDt) after the bus's matrix
 // is final (effects, voice, HUD).
 
+const ARMED = 'TURBO AFTER THE BRIDGE';
+const CLIMB_GATED = 'CLIMB AFTER THE BRIDGE';
+
 const NO_SENSOR = 'NO MOTION SENSOR HERE';
 const MOTION_DENIED = 'MOTION DENIED: REOPEN SAFARI';
 
@@ -78,7 +81,7 @@ export class Controls {
   gearsLocked = false;
   private readonly d: ControlsDeps;
   private prefs: Prefs;
-  private readonly hf: HudFrame = { gear: 0, maxGear: 1, engaged: false, boosting: false, mph: 0, sinceShift: Infinity, sinceLocked: Infinity };
+  private readonly hf: HudFrame = { gear: 0, maxGear: 1, engaged: false, boosting: false, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity };
   private readonly flashTmp = new THREE.Vector3();
   /** seconds the turbo has been silent (the voice detaches), and until the keys' toast (<= 0: none due) */
   private voiceIdle = 0;
@@ -86,6 +89,8 @@ export class Controls {
   /** a shift made while gearsLocked, and the turbo line of the post-card toast: both wait for the gate */
   private queuedShift: 1 | -1 | 0 = 0;
   private turboHintDue = false;
+  /** the pull-back answered once: the gate holds the yoke down for ~20 s and the first thing a tilt player tries is climbing */
+  private climbToldAt = -Infinity;
   private readonly onFlash = (pos: THREE.Vector3, strength: number) => {
     const p = this.flashTmp.copy(pos).project(this.d.camera);
     this.d.pipeline.flash(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5, 1, strength);
@@ -126,10 +131,7 @@ export class Controls {
       },
       onGesture: () => d.audio.unlock(),
     });
-    d.input.onTurbo = (dir) => {
-      if (this.gearsLocked) this.queuedShift = dir;
-      else this.turbo.shift(dir, d.flight);
-    };
+    d.input.onTurbo = (dir) => this.pressTurbo(dir);
     this.turbo.onEvent = (ev, g) => this.onTurbo(ev, g);
     if (this.prefs.muted) d.audio.setMuted(true);
     this.hud.setSettings({ tiltAvailable: TiltControl.supported(), tiltNote: TiltControl.supported() ? '' : NO_SENSOR, sensitivity: this.tilt.core.sensitivity, muted: !!this.prefs.muted });
@@ -153,6 +155,18 @@ export class Controls {
     if (this.d.params.has('nohud')) return false;
     const s = this.tilt.status;
     return this.hud.promptOpen || s === 'requesting' || s === 'waiting' || s === 'calibrating';
+  }
+
+  /** The yoke is being pulled back under the opening's gate (main.ts, per frame): say why nothing happens, once. */
+  climbGated() {
+    if (this.queuedShift || this.turbo.time - this.climbToldAt < 30) return;
+    this.climbToldAt = this.turbo.time;
+    this.hud.toast([CLIMB_GATED], 2.2);
+  }
+
+  /** A gear is lifting or driving the bus, or it is still braking out of one: the city holds its level of detail. */
+  get tearing(): boolean {
+    return this.turbo.gear > 0 || this.turbo.speedK > 0;
   }
 
   // ------------------------------------------------------------------ per frame (main.ts)
@@ -214,6 +228,7 @@ export class Controls {
     h.engaged = T.engaged;
     h.boosting = T.boosting;
     h.mph = f.speed * 2.23694;
+    h.armed = this.queuedShift > 0;
     h.sinceShift = T.time - Math.max(T.shiftedAt, T.engagedAt);
     h.sinceLocked = T.time - T.lockedAt;
     this.hud.update(realDt, h);
@@ -315,6 +330,33 @@ export class Controls {
   }
 
   // ------------------------------------------------------------------ turbo events
+
+  /**
+   * The lever, a swipe, E / Q. Under the opening's gate a gear would lift the bus into the deck, so a shift up
+   * waits for it: answered on this very frame (the toast, the ARMED readout and lever, the clunk) and fired by
+   * itself when the gate clears. A shift down cancels it. (A shift down of a real gear is always safe.)
+   */
+  private pressTurbo(dir: 1 | -1) {
+    const d = this.d;
+    if (!this.gearsLocked || (dir < 0 && this.turbo.gear > 0)) {
+      this.turbo.shift(dir, d.flight);
+      return;
+    }
+    const kit = d.audio.voiceKit();
+    if (kit) {
+      const t = kit.ctx.currentTime + LOOKAHEAD;
+      if (!this.voice.attached) this.voice.attach(kit, t);
+      this.voice.armed(t);
+    }
+    if (dir > 0) {
+      this.queuedShift = 1;
+      this.turboHintDue = false; // (they already know)
+      this.hud.toast([ARMED], 2.6);
+    } else if (this.queuedShift) {
+      this.queuedShift = 0;
+      this.hud.toast(['TURBO OFF'], 1.2);
+    }
+  }
 
   private onTurbo(ev: TurboEvent, gear: number) {
     const d = this.d;

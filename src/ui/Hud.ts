@@ -13,8 +13,8 @@ import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth } from './pixelUi';
 //    seconds untouched; a tap in that corner brings them back. A desktop has no
 //    buttons at all: Esc opens the settings (src/game/Controls.ts);
 //  - top left: the turbo gear readout (gear, name, mph), only for a moment:
-//    while a gear lifts and just after it shifts or bites, and while the boost
-//    is held; "LOCKED: WORLD TRAVEL COMING" when shifting past the last usable
+//    while a gear lifts and just after it shifts or bites, while the boost is
+//    held, and ARMED while a shift waits for the opening's gate; "LOCKED: WORLD TRAVEL COMING" when shifting past the last usable
 //    gear;
 //  - touch mode: the splat button (tap = splat, hold = charge, slide off =
 //    cancel) and the turbo lever (tap the top / bottom = shift, swipe = shift,
@@ -38,6 +38,8 @@ export interface HudFrame {
   engaged: boolean;
   boosting: boolean;
   mph: number;
+  /** a shift is waiting for the opening's gate: the next gear shows armed (dim, blinking), it fires by itself */
+  armed: boolean;
   /** seconds since the last shift / LOCKED attempt (Infinity = never) */
   sinceShift: number;
   sinceLocked: number;
@@ -120,12 +122,16 @@ export class Hud {
   private gMph = -1;
   private gEngaged = false;
   private gBoost = false;
+  private gArmed = false;
+  private gBlink = false;
   private lockedOn = false;
   private lockedSh = 0;
   private lvGear = -1;
   private lvMax = -1;
   private lvBoost = false;
   private lvHold = false;
+  private lvArmed = false;
+  private lvBlink = false;
   /** the top-right buttons: shown until this time (performance.now() ms) */
   private chromeUntil = 0;
   private chromeOn = true;
@@ -279,20 +285,23 @@ export class Hud {
       this.topRight.style.opacity = chromeOn ? '1' : '0';
     }
     // gear readout: only for a moment, when something just changed (the contrail and the wind say the rest)
-    const showGear = f.boosting || (f.gear > 0 && !f.engaged) || f.sinceShift < 2.5 || f.sinceLocked < 2.5;
+    const showGear = f.armed || f.boosting || (f.gear > 0 && !f.engaged) || f.sinceShift < 2.5 || f.sinceLocked < 2.5;
+    const blink = f.armed && Math.floor(now / 220) % 2 === 0;
     if (showGear !== this.gearOn) {
       this.gearOn = showGear;
       this.gearWrap.style.display = showGear ? 'block' : 'none';
     }
     if (showGear) {
       const mph = f.mph >= 100 ? Math.round(f.mph / 10) * 10 : Math.round(f.mph);
-      if (f.gear !== this.gGear || f.maxGear !== this.gMax || f.engaged !== this.gEngaged || f.boosting !== this.gBoost || mph !== this.gMph) {
+      if (f.gear !== this.gGear || f.maxGear !== this.gMax || f.engaged !== this.gEngaged || f.boosting !== this.gBoost || mph !== this.gMph || f.armed !== this.gArmed || blink !== this.gBlink) {
+        this.gArmed = f.armed;
+        this.gBlink = blink;
         this.gGear = f.gear;
         this.gMax = f.maxGear;
         this.gEngaged = f.engaged;
         this.gBoost = f.boosting;
         this.gMph = mph;
-        this.drawGear(f, mph);
+        this.drawGear(f, mph, blink);
       }
     }
     // LOCKED
@@ -318,12 +327,14 @@ export class Hud {
         this.input.turboHold(true);
       } else this.leverArmed = true;
     }
-    if (this.mode === 'touch' && (f.gear !== this.lvGear || f.maxGear !== this.lvMax || f.boosting !== this.lvBoost || this.leverHolding !== this.lvHold)) {
+    if (this.mode === 'touch' && (f.gear !== this.lvGear || f.maxGear !== this.lvMax || f.boosting !== this.lvBoost || this.leverHolding !== this.lvHold || f.armed !== this.lvArmed || blink !== this.lvBlink)) {
+      this.lvArmed = f.armed;
+      this.lvBlink = blink;
       this.lvGear = f.gear;
       this.lvMax = f.maxGear;
       this.lvBoost = f.boosting;
       this.lvHold = this.leverHolding;
-      this.drawLever(f);
+      this.drawLever(f, blink);
     }
     // prompt: the phone rocks
     if (this.prompt && this.promptCard) {
@@ -749,48 +760,50 @@ export class Hud {
     p.flush();
   }
 
-  private drawLever(f: HudFrame) {
+  private drawLever(f: HudFrame, blink: boolean) {
     const p = this.lever;
     p.clear();
-    const hot = f.boosting || this.leverHolding;
-    p.box(0, 0, 24, 46, C.panel, hot ? C.yellowHi : C.edge, 3);
+    const hot = f.boosting || this.leverHolding || blink;
+    p.box(0, 0, 24, 46, C.panel, hot ? C.yellowHi : f.armed ? C.yellowLo : C.edge, 3);
     if (hot) {
       p.rect(2, 2, 20, 1, C.yellowLo);
       p.rect(2, 43, 20, 1, C.yellowLo);
     }
     const canUp = f.gear < 3; // (shifting past the last usable gear still answers: LOCKED)
     const upC = f.gear < f.maxGear ? C.text : C.dim;
-    p.text('▲', 9 - 1, 4, canUp ? upC : C.panel2, HUD_FONT);
+    p.text('▲', 9 - 1, 4, f.armed ? (blink ? C.yellowHi : C.yellowLo) : canUp ? upC : C.panel2, HUD_FONT);
     p.rect(3, 14, 18, 1, C.panel2);
-    const g = `G${f.gear}`;
-    p.textOutlined(g, Math.round(12 - textWidth(g) / 2), 19, f.gear > 0 ? C.yellow : C.cream, C.ink);
+    // (armed: the gear it will take, dim until the bridge is cleared)
+    const g = `G${f.gear + (f.armed ? 1 : 0)}`;
+    p.textOutlined(g, Math.round(12 - textWidth(g) / 2), 19, f.armed ? (blink ? C.yellow : C.dim) : f.gear > 0 ? C.yellow : C.cream, C.ink);
     p.rect(3, 31, 18, 1, C.panel2);
     p.text('▼', 8, 35, f.gear > 0 ? C.text : C.panel2, HUD_FONT);
     p.flush();
   }
 
-  private drawGear(f: HudFrame, mph: number) {
+  private drawGear(f: HudFrame, mph: number, blink: boolean) {
     const p = this.gearBox;
     p.clear();
-    const g = `G${f.gear}`;
-    this.outlineOver(p, g, 2, 2, C.yellow);
+    const shown = f.gear + (f.armed ? 1 : 0);
+    const g = `G${shown}`;
+    this.outlineOver(p, g, 2, 2, f.armed ? (blink ? C.yellow : C.dim) : C.yellow);
     const x = 2 + textWidth(g) + 5;
-    const name = GEAR_NAMES[Math.min(3, f.gear)] + (f.boosting ? ' +' : '');
-    this.outlineOver(p, name, x, 2, f.engaged || f.gear === 0 ? C.cream : C.dim);
+    const name = GEAR_NAMES[Math.min(3, shown)] + (f.boosting ? ' +' : '');
+    this.outlineOver(p, name, x, 2, !f.armed && (f.engaged || f.gear === 0) ? C.cream : C.dim);
     // pips: one per gear; lit up to the gear, dim if usable, dark if locked
     for (let i = 1; i <= 3; i++) {
       const px = 2 + (i - 1) * 8;
       const lit = i <= f.gear;
       const usable = i <= f.maxGear;
-      p.box(px, 13, 7, 6, lit ? C.yellow : usable ? C.panel2 : C.ink, C.ink, 1);
+      p.box(px, 13, 7, 6, lit ? C.yellow : f.armed && i === shown && blink ? C.yellowLo : usable ? C.panel2 : C.ink, C.ink, 1);
       if (!usable) {
         p.set(px + 2, 15, C.redLo);
         p.set(px + 3, 16, C.redLo);
         p.set(px + 4, 17, C.redLo);
       }
     }
-    const sp = `${mph} MPH`;
-    this.outlineOver(p, sp, 30, 14, C.text, HUD_SMALL);
+    const sp = f.armed ? 'ARMED' : `${mph} MPH`;
+    this.outlineOver(p, sp, 30, 14, f.armed ? C.yellow : C.text, HUD_SMALL);
     p.flush();
   }
 

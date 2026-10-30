@@ -711,7 +711,10 @@ async function boot() {
     // never rises through the cables (turning away ends it: `along` is along the heading)
     const gateAlong = openingBridge ? (flight.x - openingBridge[0]) * flight.fx + (flight.z - openingBridge[1]) * flight.fz : 0;
     const gateDist = openingBridge ? Math.hypot(flight.x - openingBridge[0], flight.z - openingBridge[1]) : Infinity;
-    if (openingBridge && gateAlong < config.camera.openingClimbAfter) sy = Math.max(0, sy);
+    if (openingBridge && gateAlong < config.camera.openingClimbAfter) {
+      if (sy < -0.5 && opening >= config.fog.openingDuration) controls.climbGated();
+      sy = Math.max(0, sy);
+    }
     // (nor can a gear lift it: a swipe waits for the gate)
     controls.gearsLocked = !!openingBridge && gateAlong < config.camera.openingClimbAfter;
     const dragging = qaStick ? true : st.dragging;
@@ -817,6 +820,7 @@ async function boot() {
     const hk = clamp(flight.lift / 450, 0, 1);
     streamCenter.set(focus.x + camFwd.x * 950 * hk, focus.y, focus.z + camFwd.z * 950 * hk);
     city.viewHeight = flight.lift;
+    city.detailHold = controls.tearing;
     city.detailScale = Math.tan(THREE.MathUtils.degToRad(config.camera.hfovPortrait / 2)) / Math.tan(THREE.MathUtils.degToRad(rig.hfov / 2));
     const R = config.render;
     const sAhead = R.shadowAheadVista * vista;

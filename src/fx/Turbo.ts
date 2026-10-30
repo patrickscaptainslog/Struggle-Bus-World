@@ -9,18 +9,22 @@ import type { CameraRig } from '../game/CameraRig';
 import type { Particles } from './Particles';
 
 // Turbo gear effects. Everything 3D writes the indexed G-buffer (palette ramps
-// via sbWrite, no free RGB), dissolves through ordered dither (no alpha), is
-// one draw call, and uploads at most one buffer per frame:
+// via sbWrite, no free RGB), dissolves by hard thresholds (no alpha), is one
+// draw call, and uploads at most one buffer per frame:
 //  - TurboLens: the camera pulls back and widens with the turbo speed (settling
 //    exactly, so a held gear's lens is perfectly still) and kicks its fov at the
 //    shift and the sonic boom. Pure (no GL): the offline harness runs it.
 //  - the rainbow contrail: a camera-facing ribbon of six hue bands from the
-//    bus's tail, spreading and dissolving with age (one dynamic buffer).
+//    bus's tail. Fresh it is a clean flag; with age it swells into cel-shaded
+//    vapor: the outline billows, the ribbon wanders, and it breaks up into
+//    clumps anchored to the air it was laid in, so they hold still while the
+//    bus leaves them (one dynamic buffer).
 //  - speed lines: world-anchored streaks wrapped in a box around the view,
-//    stretched along the velocity (uniforms only: no uploads).
-//  - the sonic boom: a white-hot vapor cone with a rainbow rim bursting off the
-//    bus, a ring of vapor and rainbow puffs (Particles), a palette flash and a
-//    camera jolt.
+//    stretched along the velocity, solid pixels, one in five a hue (uniforms
+//    only: no uploads).
+//  - the sonic boom: a shock of white vapor off the nose, a rainbow hoop that
+//    leaves the bus and sweeps back around the camera, a ring of vapor and
+//    rainbow puffs (Particles), a palette flash and a camera jolt.
 //  - the strain: the bus rattles (a translation jitter of a game pixel or two)
 //    and backfires while it claws up to a gear's height and spools.
 
@@ -30,19 +34,28 @@ export const turboFxTune = {
   trailW0: 3.2,
   trailW1: 15,
   trailStep: 2,
+  /** contrail vapor: size of a billow along the trail (m), how far an old trail wanders (m) */
+  trailBillow: 9,
+  trailWander: 5,
   /** speed lines: box around the view (m), motion-blur length (s of travel), width (game px) */
   lineBox: 190,
-  lineBlur: 0.05,
-  linePx: 1.2,
+  lineBlur: 0.07,
+  linePx: 1.7,
   /** vapor cone: duration (s), final radius and length (m) */
-  coneTime: 0.42,
-  coneRadius: 13,
-  coneLength: 26,
+  coneTime: 0.36,
+  coneRadius: 12,
+  coneLength: 24,
+  /** rainbow hoop: duration (s), radius from / to (m), how far behind the bus it ends up (m) */
+  hoopTime: 0.95,
+  hoopR0: 9,
+  hoopR1: 92,
+  hoopBack: 150,
   /** fov kick spring (Hz) */
   kickHz: 2.2,
 };
 
 const TRAIL_N = 96;
+const TRAIL_STRIDE = 10;
 const LINES = 90;
 
 const GLSL_BAYER = /* glsl */ `
@@ -50,6 +63,17 @@ const GLSL_BAYER = /* glsl */ `
 float tbBayer4(ivec2 p) {
   const float M[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
   return (M[(p.y & 3) * 4 + (p.x & 3)] + 0.5) / 16.0;
+}
+// value noise, 0..1, periodic every 256 cells in x (a long flight's distance never runs out of precision)
+float tbHash(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+float tbNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = p - i;
+  f = f * f * (3.0 - 2.0 * f);
+  float x0 = mod(i.x, 256.0), x1 = mod(i.x + 1.0, 256.0);
+  return mix(mix(tbHash(vec2(x0, i.y)), tbHash(vec2(x1, i.y)), f.x), mix(tbHash(vec2(x0, i.y + 1.0)), tbHash(vec2(x1, i.y + 1.0)), f.x), f.y);
 }
 `;
 
@@ -111,10 +135,12 @@ export class TurboFx {
   private readonly tz = new Float32Array(TRAIL_N);
   private readonly tBorn = new Float32Array(TRAIL_N);
   private readonly tOn = new Float32Array(TRAIL_N);
+  /** distance along the trail (m): the vapor is anchored to it */
+  private readonly tDist = new Float32Array(TRAIL_N);
   private tHead = -1;
   private tCount = 0;
   private readonly trail: THREE.Mesh;
-  private readonly trailU = { uOn: { value: 0 } };
+  private readonly trailU = { uOn: { value: 0 }, uBillow: { value: 9 }, uWander: { value: 5 } };
 
   private readonly lines: THREE.Mesh;
   private readonly lineU = {
@@ -129,6 +155,10 @@ export class TurboFx {
   private readonly cone: THREE.Mesh;
   private readonly coneU = { uT: { value: 0 }, uR: { value: 13 }, uL: { value: 26 } };
   private coneT = -1;
+
+  private readonly hoop: THREE.Mesh;
+  private readonly hoopU = { uT: { value: 1 }, uSeed: { value: 0 } };
+  private hoopT = -1;
 
   private time = 0;
   /** the first frames draw every effect invisibly, so its shader compiles behind the loading fog, not at the shift */
@@ -149,9 +179,9 @@ export class TurboFx {
     this.exhaustLocal = exhaustLocal ? exhaustLocal.clone() : this.tailLocal.clone();
     this.noseLocal = new THREE.Vector3(0, 0.6, -busLength * 0.5 - 0.5);
 
-    // ---- contrail: interleaved [x y z | dir x y z | side, age, width] per vertex, two vertices per sample
-    this.trailData = new Float32Array(TRAIL_N * 2 * 9);
-    this.trailBuf = new THREE.InterleavedBuffer(this.trailData, 9);
+    // ---- contrail: interleaved [x y z | dir x y z | side, age, width, dist] per vertex, two vertices per sample
+    this.trailData = new Float32Array(TRAIL_N * 2 * TRAIL_STRIDE);
+    this.trailBuf = new THREE.InterleavedBuffer(this.trailData, TRAIL_STRIDE);
     this.trailBuf.setUsage(THREE.DynamicDrawUsage);
     const g = this.trailGeo;
     g.setAttribute('position', new THREE.InterleavedBufferAttribute(this.trailBuf, 3, 0));
@@ -159,6 +189,7 @@ export class TurboFx {
     g.setAttribute('aSide', new THREE.InterleavedBufferAttribute(this.trailBuf, 1, 6));
     g.setAttribute('aAge', new THREE.InterleavedBufferAttribute(this.trailBuf, 1, 7));
     g.setAttribute('aW', new THREE.InterleavedBufferAttribute(this.trailBuf, 1, 8));
+    g.setAttribute('aDist', new THREE.InterleavedBufferAttribute(this.trailBuf, 1, 9));
     const idx = new Uint16Array((TRAIL_N - 1) * 6);
     for (let i = 0; i < TRAIL_N - 1; i++) {
       const a = i * 2, o = i * 6;
@@ -182,8 +213,11 @@ export class TurboFx {
         in float aSide;
         in float aAge;
         in float aW;
+        in float aDist;
+        uniform float uWander;
         out float vSide;
         out float vAge;
+        out float vDist;
         out vec3 vWorld;
         void main() {
           vec4 wc = modelMatrix * vec4(position, 1.0);
@@ -191,9 +225,13 @@ export class TurboFx {
           vec3 sd = cross(aDir, toCam);
           float sl = length(sd);
           sd = sl > 1e-4 ? sd / sl : vec3(0.0, 1.0, 0.0);
-          vec3 p = wc.xyz + sd * aSide * aW * 0.5;
+          // with age the ribbon stops being a ruler: it wanders on the air it was left in, and sags a little
+          float drift = (sin(aDist * 0.019) + 0.6 * sin(aDist * 0.047 + 1.7)) * uWander * aAge;
+          vec3 p = wc.xyz + sd * (aSide * aW * 0.5 + drift);
+          p.y += (sin(aDist * 0.031 + 0.6) - 0.8) * uWander * 0.5 * aAge;
           vSide = aSide;
           vAge = aAge;
+          vDist = aDist;
           vWorld = p;
           gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
         }
@@ -203,21 +241,33 @@ export class TurboFx {
         ${GLSL_OUT}
         ${GLSL_BAYER}
         uniform float uOn;
+        uniform float uBillow;
         in float vSide;
         in float vAge;
+        in float vDist;
         in vec3 vWorld;
         void main() {
-          float u = clamp(vSide * 0.5 + 0.5, 0.0, 0.9999);
-          float band = floor(u * 6.0);
-          // dissolve with age (ordered dither, never alpha); the outer bands go first; and it thins out as it
-          // nears the camera (perspective would make its tail a wall of pastel over the thumb zone)
-          float edge = abs(vSide);
+          float along = vDist / uBillow;
+          float set = smoothstep(0.04, 0.4, vAge); // fresh it is a flag; set, it is vapor
+          // the outline billows: each side swells on its own, and the hue bands follow it
+          float swell = tbNoise(vec2(along, vSide < 0.0 ? 3.0 : 11.0));
+          float reach = mix(1.0, 0.62 + 0.38 * swell, set);
+          float side = vSide / reach;
+          float edge = abs(side);
+          if (edge > 1.0) discard;
+          // it breaks up into clumps of air (anchored to the trail, so they hold still as the bus leaves them);
+          // the outer bands go first, a pixel of dither on each clump's edge; and it thins out as it nears the
+          // camera (perspective would make its tail a wall of color over the thumb zone)
+          float clump = 0.66 * tbNoise(vec2(along * 0.9, side * 1.3 + 5.0)) + 0.34 * tbNoise(vec2(along * 2.3, side * 3.1 + 9.0));
           float near = smoothstep(55.0, 175.0, length(vWorld - cameraPosition));
-          float keep = ((1.0 - vAge) * 1.25 - edge * edge * 0.35) * near;
-          if (tbBayer4(ivec2(gl_FragCoord.xy)) > keep) discard;
+          float keep = ((1.0 - vAge) * 1.55 - edge * edge * 0.3) * near;
+          if (clump + (tbBayer4(ivec2(gl_FragCoord.xy)) - 0.5) * 0.1 > keep) discard;
+          float band = floor(clamp(side * 0.5 + 0.5, 0.0, 0.9999) * 6.0);
           float fresh = 1.0 - vAge;
-          // the saturated middle of each hue ramp, a step brighter along the core
-          float light = 0.52 + 0.16 * fresh + 0.1 * (1.0 - edge);
+          // cel-shaded: lit crests and shaded folds on the set vapor, the saturated middle of each hue ramp
+          float fold = 0.65 * tbNoise(vec2(along * 1.3 + 2.0, side * 1.4)) + 0.35 * (0.5 - side * 0.5);
+          float cel = (fold > 0.56 ? 0.1 : fold < 0.4 ? -0.09 : 0.0) * set;
+          float light = 0.52 + 0.16 * fresh + 0.1 * (1.0 - edge) + cel;
           sbWrite(${Ramp.RED}.0 + band, light, sbFog(vWorld), 0.55 * fresh * uOn, vec3(0.0, 0.0, 1.0), 0.61, 0.5);
         }
       `,
@@ -262,6 +312,7 @@ export class TurboFx {
         out float vFade;
         out float vAlong;
         out vec3 vWorld;
+        flat out float vRamp;
         void main() {
           // a world-anchored lattice of streaks, wrapped into the box around the view: they stay put
           // in the world while the bus tears through them
@@ -278,6 +329,9 @@ export class TurboFx {
           float r = length(w - uCenter) / (0.5 * uBox);
           vFade = (1.0 - smoothstep(0.55, 0.95, r)) * smoothstep(30.0, 70.0, length(w - cameraPosition));
           vFade *= step(aSeed.w, uOn);
+          // one streak in five carries a hue
+          float pick = floor(aSeed.w * ${LINES}.0 + 0.5);
+          vRamp = mod(pick, 5.0) < 0.5 ? ${Ramp.RED}.0 + mod(pick / 5.0, 6.0) : ${Ramp.GLOW_WHITE}.0;
           vAlong = aQuad.x;
           vWorld = p;
           gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
@@ -291,11 +345,13 @@ export class TurboFx {
         in float vFade;
         in float vAlong;
         in vec3 vWorld;
+        flat in float vRamp;
         void main() {
-          // bright head, a tail that dissolves
-          float keep = vFade * (1.0 - 0.75 * vAlong);
-          if (tbBayer4(ivec2(gl_FragCoord.xy)) > keep) discard;
-          sbWrite(${Ramp.GLOW_WHITE}.0, 0.82 + 0.18 * (1.0 - vAlong), sbFog(vWorld), 0.2, vec3(0.0, 0.0, 1.0), 0.73, 0.5);
+          // solid pixels: a fading streak gets shorter, it never turns into dots; a bright head, a step dimmer behind
+          if (vAlong > vFade) discard;
+          float white = step(${Ramp.GLOW_WHITE}.0 - 0.5, vRamp);
+          float light = mix(0.66, 0.82, white) + (vAlong < 0.4 ? 0.14 : 0.0);
+          sbWrite(vRamp, light, sbFog(vWorld), 0.2, vec3(0.0, 0.0, 1.0), 0.73, 0.5);
         }
       `,
     });
@@ -342,13 +398,12 @@ export class TurboFx {
         in float vAround;
         in vec3 vWorld;
         void main() {
-          // white-hot shock that burns away from the nose, a rainbow rim at its wide end
-          float keep = (1.0 - uT) * (1.3 - 0.6 * vAlong) + 0.15 * sin(vAround * 7.0 + uT * 20.0);
-          if (tbBayer4(ivec2(gl_FragCoord.xy)) > keep) discard;
-          float rim = step(0.72, vAlong);
-          float hue = floor(fract(vAround / 6.2831853 + 0.5) * 6.0);
-          float ramp = rim > 0.5 ? ${Ramp.RED}.0 + hue : ${Ramp.GLOW_WHITE}.0;
-          sbWrite(ramp, rim > 0.5 ? 0.75 : 0.95, sbFog(vWorld), 0.6 * (1.0 - uT), vec3(0.0, 0.0, 1.0), 0.83, 0.5);
+          // the shock's white vapor: fluted along the cone, torn away from the nose in clumps
+          float flute = tbNoise(vec2(fract(vAround / 6.2831853 + 0.5) * 18.0, vAlong * 2.0 + uT * 3.0));
+          float keep = (1.0 - uT) * (1.5 - 0.7 * vAlong);
+          if (flute + (tbBayer4(ivec2(gl_FragCoord.xy)) - 0.5) * 0.12 > keep) discard;
+          float light = flute > 0.55 ? 0.82 : 0.97;
+          sbWrite(${Ramp.GLOW_WHITE}.0, light, sbFog(vWorld), 0.6 * (1.0 - uT), vec3(0.0, 0.0, 1.0), 0.83, 0.5);
         }
       `,
     });
@@ -356,6 +411,57 @@ export class TurboFx {
     this.cone.frustumCulled = false;
     this.cone.visible = false;
     this.object.add(this.cone);
+
+    // ---- rainbow hoop: an annulus facing along the bus's path; the shader draws the band inside its outer edge
+    const hg = new THREE.RingGeometry(0.42, 1, 96, 1);
+    const hoopMat = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: { ...globals, ...this.hoopU },
+      side: THREE.DoubleSide,
+      vertexShader: /* glsl */ `
+        ${GLSL_COMMON}
+        out vec2 vP;
+        out vec3 vWorld;
+        void main() {
+          vP = position.xy;
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vWorld = wp.xyz;
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        ${GLSL_COMMON}
+        ${GLSL_OUT}
+        ${GLSL_BAYER}
+        uniform float uT;
+        uniform float uSeed;
+        in vec2 vP;
+        in vec3 vWorld;
+        void main() {
+          float rho = length(vP);
+          float a = fract(atan(vP.y, vP.x) / 6.2831853 + 0.5);
+          // the front is scalloped, and the band thins as it stretches
+          float scallop = 0.05 * tbNoise(vec2(a * 40.0, uSeed));
+          float w = 0.5 - 0.2 * uT;
+          float b = (1.0 - scallop - rho) / w; // 0 at the crest, 1 at the inner edge
+          if (b < 0.0 || b >= 1.0) discard;
+          // it tears from the inside out, clumps first, the crest last
+          float clump = 0.7 * tbNoise(vec2(a * 44.0, b * 3.0 + uSeed)) + 0.3 * tbNoise(vec2(a * 110.0, b * 6.0 + uSeed));
+          float keep = 2.1 * (1.0 - uT * uT) - 0.8 * b;
+          if (clump + (tbBayer4(ivec2(gl_FragCoord.xy)) - 0.5) * 0.1 > keep) discard;
+          // a white crest, then the six hues, red outside
+          float k = floor(b * 7.0);
+          float ramp = k < 0.5 ? ${Ramp.GLOW_WHITE}.0 : ${Ramp.RED}.0 + (k - 1.0);
+          // each hue is two palette steps, the lit one on its outer side: a body, not a flat stripe
+          float lit = fract(b * 7.0) < 0.42 ? 0.08 : -0.03;
+          sbWrite(ramp, k < 0.5 ? 0.97 : 0.7 + lit, sbFog(vWorld), 0.75 * (1.0 - uT), vec3(0.0, 0.0, 1.0), 0.87, 0.5);
+        }
+      `,
+    });
+    this.hoop = new THREE.Mesh(hg, hoopMat);
+    this.hoop.frustumCulled = false;
+    this.hoop.visible = false;
+    this.object.add(this.hoop);
   }
 
   /** Turbo events: the shift, the engagement, the sonic boom, LOCKED. */
@@ -374,6 +480,9 @@ export class TurboFx {
       rig.kick(T.boomKick);
       this.coneT = 0;
       this.cone.visible = true;
+      this.hoopT = 0;
+      this.hoop.visible = true;
+      this.hoopU.uSeed.value = Math.floor(Math.random() * 64);
       this.vaporRing(bus, f);
       bus.localToWorld(this.tmp.copy(this.noseLocal));
       flash(this.tmp, T.boomFlash);
@@ -417,6 +526,8 @@ export class TurboFx {
     // ---- contrail
     bus.localToWorld(this.tmp.copy(this.tailLocal));
     this.trailU.uOn.value = on;
+    this.trailU.uBillow.value = X.trailBillow;
+    this.trailU.uWander.value = X.trailWander;
     if (dt > 0) this.trailStep(this.tmp, on);
     this.trailWrite();
 
@@ -434,13 +545,16 @@ export class TurboFx {
       U.uCenter.value.copy(camera.position).lerp(bus.position, 0.55).addScaledVector(this.vel, 0.08);
     }
 
-    // ---- warm-up: every program compiles now (nothing shows: no trail range, lines off-screen, the cone dissolved)
+    // ---- warm-up: every program really draws now, not just compiles (drivers build a pipeline at its first draw call,
+    // and that was a 50-80 ms stall the moment the trail first appeared). Nothing shows: the trail's first triangles
+    // are degenerate, the lines are off-screen, the cone and the hoop parked and dissolved
     if (this.warm > 0) {
       this.warm--;
       const w = this.warm > 0;
       if (!this.trail.visible) {
         this.trail.visible = w;
-        if (w) this.trailGeo.setDrawRange(0, 0);
+        this.trailGeo.setDrawRange(0, w ? 6 : 0);
+        this.trailBuf.needsUpdate = w;
       }
       if (!this.lines.visible) {
         this.lines.visible = w;
@@ -450,6 +564,11 @@ export class TurboFx {
         this.cone.visible = w;
         this.coneU.uT.value = 1;
         this.cone.position.set(0, -1e5, 0); // (parked far below the city: not a pixel shows)
+      }
+      if (this.hoopT < 0) {
+        this.hoop.visible = w;
+        this.hoopU.uT.value = 1;
+        this.hoop.position.set(0, -1e5, 0);
       }
     }
     // ---- the boom's vapor cone rides the bus
@@ -465,6 +584,22 @@ export class TurboFx {
         bus.localToWorld(this.tmp2.copy(this.noseLocal));
         this.cone.position.copy(this.tmp2);
         this.cone.quaternion.copy(bus.quaternion);
+      }
+    }
+    // ---- the rainbow hoop: it opens around the bus and falls back along its path, past the camera
+    if (this.hoopT >= 0) {
+      this.hoopT += dt / Math.max(0.05, X.hoopTime);
+      if (this.hoopT >= 1) {
+        this.hoopT = -1;
+        this.hoop.visible = false;
+      } else {
+        const t = this.hoopT;
+        this.hoopU.uT.value = t;
+        const open = 1 - (1 - t) * (1 - t) * (1 - t);
+        this.hoop.scale.setScalar(X.hoopR0 + (X.hoopR1 - X.hoopR0) * open);
+        bus.localToWorld(this.tmp2.copy(this.noseLocal));
+        this.hoop.position.set(this.tmp2.x - f.fx * X.hoopBack * t * t, this.tmp2.y, this.tmp2.z - f.fz * X.hoopBack * t * t);
+        this.hoop.quaternion.copy(bus.quaternion);
       }
     }
   }
@@ -494,14 +629,18 @@ export class TurboFx {
       const dx = this.tx[h] - this.tx[p], dy = this.ty[h] - this.ty[p], dz = this.tz[h] - this.tz[p];
       if (dx * dx + dy * dy + dz * dz < X.trailStep * X.trailStep) {
         // the head rides the bus's tail until it is a sample's spacing from the one before
+        const q = (this.tHead - 1 + N) % N;
         this.tx[h] = tail.x;
         this.ty[h] = tail.y;
         this.tz[h] = tail.z;
         this.tOn[h] = on;
+        this.tDist[h] = this.tDist[q] + Math.hypot(tail.x - this.tx[q], tail.y - this.ty[q], tail.z - this.tz[q]);
         return;
       }
     }
     const n = (h + 1) % N;
+    // (a new trail starts its vapor at 0: nothing else ever needs the distance to stay small)
+    this.tDist[n] = this.tCount > 0 ? this.tDist[h] + Math.hypot(tail.x - this.tx[h], tail.y - this.ty[h], tail.z - this.tz[h]) : 0;
     this.tHead = n;
     this.tx[n] = tail.x;
     this.ty[n] = tail.y;
@@ -534,7 +673,7 @@ export class TurboFx {
       const ageOn = 1 - (1 - age) * clamp(this.tOn[j] * 1.2, 0, 1);
       const w = (X.trailW0 + (X.trailW1 - X.trailW0) * Math.sqrt(age)) * (0.5 + 0.5 * this.tOn[j]);
       for (let s = 0; s < 2; s++) {
-        const o = (i * 2 + s) * 9;
+        const o = (i * 2 + s) * TRAIL_STRIDE;
         d[o] = this.tx[j];
         d[o + 1] = this.ty[j];
         d[o + 2] = this.tz[j];
@@ -544,9 +683,10 @@ export class TurboFx {
         d[o + 6] = s === 0 ? -1 : 1;
         d[o + 7] = ageOn;
         d[o + 8] = w;
+        d[o + 9] = this.tDist[j];
       }
     }
-    this.trailBuf.addUpdateRange(0, c * 2 * 9);
+    this.trailBuf.addUpdateRange(0, c * 2 * TRAIL_STRIDE);
     this.trailBuf.needsUpdate = true;
     this.trailGeo.setDrawRange(0, (c - 1) * 6);
   }
