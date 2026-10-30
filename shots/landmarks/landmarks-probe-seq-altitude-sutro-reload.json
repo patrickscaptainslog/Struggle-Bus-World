@@ -1,0 +1,297 @@
+{
+ "probe": {
+  "Sutro Tower": {
+   "index": 140961,
+   "cx": -2946.6,
+   "cz": 2180.9,
+   "baseY": 255.3,
+   "roofY": 553.3,
+   "area": 2398,
+   "level": 0,
+   "hue": 0,
+   "bloom": 0,
+   "ring": 7,
+   "pickCenter": 140961,
+   "pickNearEdge": 140961,
+   "surfaceCenter": 507.3,
+   "surfaceMid": 487.1,
+   "roofAtMid": 487.1
+  },
+  "Transamerica": {
+   "index": 140962,
+   "cx": 1462.9,
+   "cz": -2252.2,
+   "baseY": 5.4,
+   "roofY": 265.4,
+   "area": 2867,
+   "level": 0,
+   "hue": 0,
+   "bloom": 0,
+   "ring": 6,
+   "pickCenter": 140962,
+   "pickNearEdge": 140962,
+   "surfaceCenter": 265.4,
+   "surfaceMid": 168,
+   "roofAtMid": 168
+  },
+  "aimFromFloor": {
+   "aim": {
+    "x": 1443.9684697881246,
+    "y": 100.97317554826515,
+    "z": -2240.4119255231917,
+    "dist": 71.38207558553601,
+    "travel": 0.42,
+    "drop": 9.933683035468945,
+    "lm": true
+   },
+   "glint": 140962,
+   "bus": [
+    1373.3,
+    110.9,
+    -2243.5
+   ]
+  }
+ },
+ "pyramid": [
+  {
+   "L": 1,
+   "aimLm": true,
+   "aim": [
+    1441,
+    60.4,
+    -2248.4
+   ],
+   "target": 140962,
+   "impact": 4.27,
+   "after": {
+    "index": 140962,
+    "cx": 1462.9,
+    "cz": -2252.2,
+    "baseY": 5.4,
+    "roofY": 265.4,
+    "area": 2867,
+    "level": 1,
+    "hue": 5,
+    "bloom": 4.27
+   }
+  },
+  {
+   "L": 2,
+   "aimLm": true,
+   "aim": [
+    1441,
+    60.4,
+    -2248.4
+   ],
+   "target": 140962,
+   "impact": 8.8,
+   "after": {
+    "index": 140962,
+    "cx": 1462.9,
+    "cz": -2252.2,
+    "baseY": 5.4,
+    "roofY": 265.4,
+    "area": 2867,
+    "level": 2,
+    "hue": 5,
+    "bloom": 8.8
+   }
+  },
+  {
+   "L": 3,
+   "aimLm": true,
+   "aim": [
+    1441.2,
+    60.4,
+    -2248.3
+   ],
+   "target": 140962,
+   "impact": 13.29,
+   "after": {
+    "index": 140962,
+    "cx": 1462.9,
+    "cz": -2252.2,
+    "baseY": 5.4,
+    "roofY": 265.4,
+    "area": 2867,
+    "level": 3,
+    "hue": 5,
+    "bloom": 13.29
+   }
+  }
+ ],
+ "altitude": {
+  "climb": {
+   "took": 0,
+   "y": 427.97239808992856,
+   "dx": -745.7565996516933,
+   "aim": {
+    "x": 1446.0215504074336,
+    "y": 219.41969299316406,
+    "z": -2252.1969422597094,
+    "dist": 758.0796152923989,
+    "travel": 1.219855908032761,
+    "drop": 208.5527050967645,
+    "lm": true
+   },
+   "glint": 140962,
+   "pyr": 140962
+  },
+  "aimLm": true,
+  "aim": {
+   "x": 1446.1192335461676,
+   "y": 219.41969299316406,
+   "z": -2252.1969422596558,
+   "dist": 756.1844868267185,
+   "travel": 1.2176247944595888,
+   "drop": 208.6902428949826,
+   "lm": true
+  },
+  "target": 140962,
+  "pyramid": 140962,
+  "after": {
+   "index": 140962,
+   "cx": 1462.9,
+   "cz": -2252.2,
+   "baseY": 5.4,
+   "roofY": 265.4,
+   "area": 2867,
+   "level": 3,
+   "hue": 5,
+   "bloom": 21.73
+  }
+ },
+ "sutro": [
+  {
+   "L": 1,
+   "aimLm": false,
+   "aim": [
+    -2968.4,
+    263.1,
+    2180.9
+   ],
+   "target": 140961,
+   "impact": 28.06,
+   "after": {
+    "index": 140961,
+    "cx": -2946.6,
+    "cz": 2180.9,
+    "baseY": 255.3,
+    "roofY": 553.3,
+    "area": 2398,
+    "level": 1,
+    "hue": 0,
+    "bloom": 28.06
+   }
+  },
+  {
+   "L": 2,
+   "aimLm": false,
+   "aim": [
+    -2968.4,
+    263.1,
+    2180.9
+   ],
+   "target": 140961,
+   "impact": 32.53,
+   "after": {
+    "index": 140961,
+    "cx": -2946.6,
+    "cz": 2180.9,
+    "baseY": 255.3,
+    "roofY": 553.3,
+    "area": 2398,
+    "level": 2,
+    "hue": 0,
+    "bloom": 32.53
+   }
+  },
+  {
+   "L": 3,
+   "aimLm": false,
+   "aim": [
+    -2968.4,
+    263.1,
+    2180.9
+   ],
+   "target": 140961,
+   "impact": 36.99,
+   "after": {
+    "index": 140961,
+    "cx": -2946.6,
+    "cz": 2180.9,
+    "baseY": 255.3,
+    "roofY": 553.3,
+    "area": 2398,
+    "level": 3,
+    "hue": 0,
+    "bloom": 36.99
+   }
+  }
+ ],
+ "reload": {
+  "before": {
+   "Sutro Tower": {
+    "index": 140961,
+    "cx": -2946.6,
+    "cz": 2180.9,
+    "baseY": 255.3,
+    "roofY": 553.3,
+    "area": 2398,
+    "level": 3,
+    "hue": 0,
+    "bloom": 36.99
+   },
+   "Transamerica": {
+    "index": 140962,
+    "cx": 1462.9,
+    "cz": -2252.2,
+    "baseY": 5.4,
+    "roofY": 265.4,
+    "area": 2867,
+    "level": 3,
+    "hue": 5,
+    "bloom": 21.73
+   }
+  },
+  "after": {
+   "Sutro Tower": {
+    "index": 140961,
+    "cx": -2946.6,
+    "cz": 2180.9,
+    "baseY": 255.3,
+    "roofY": 553.3,
+    "area": 2398,
+    "level": 3,
+    "hue": 0,
+    "bloom": -1000
+   },
+   "Transamerica": {
+    "index": 140962,
+    "cx": 1462.9,
+    "cz": -2252.2,
+    "baseY": 5.4,
+    "roofY": 265.4,
+    "area": 2867,
+    "level": 3,
+    "hue": 5,
+    "bloom": -1000
+   }
+  },
+  "saved": {
+   "keys": 37,
+   "landmarks": {
+    "lm:transamerica": [
+     1,
+     5,
+     3
+    ],
+    "lm:sutro": [
+     1,
+     0,
+     3
+    ]
+   }
+  }
+ }
+}

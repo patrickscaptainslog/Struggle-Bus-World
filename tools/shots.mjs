@@ -6,14 +6,15 @@
 // and stats.json (renderer stats; SwiftShader fps is NOT representative).
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { browserOptions } from './browser.mjs';
 
 const base = process.argv[2] ?? 'http://127.0.0.1:5173/';
 const out = process.argv[3] ?? 'shots';
 mkdirSync(out, { recursive: true });
 
-const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
+// (PW_WS: connect to a running tools/pw-server.mjs instead of launching a browser)
+const browser = process.env.PW_WS ? await chromium.connect(process.env.PW_WS, { timeout: 60000 }) : await chromium.launch({
+  ...browserOptions([]),
 });
 const stats = {};
 

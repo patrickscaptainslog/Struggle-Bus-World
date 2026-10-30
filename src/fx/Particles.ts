@@ -133,12 +133,13 @@ export const fxTune = {
   sparkGlow: 1,
   /** Share of sparkles that are GLOW_WHITE (the rest take the bloom hues). */
   sparkWhite: 0.4,
-  // --- puffs
-  puffSize: 1.1,
-  puffGrow: 1.5,
-  puffLife: 0.95,
-  /** Puff light offset (ramp units) and how much they take the sun shadow. */
-  puffLight: 0.02,
+  // --- puffs (pale grey wisps of a wheezing engine: one flat tone, never a lit ball, never the
+  // brightest or darkest thing on screen)
+  puffSize: 0.6,
+  puffGrow: 2.2,
+  puffLife: 0.75,
+  /** Puff light offset (0 = a mid-pale GREY step) and how much they take the sun shadow. */
+  puffLight: 0.0,
   puffShadow: 0.7,
   // --- look
   /** Ramp step of each rainbow hue's body color (R, O, Y, G, B, V). */
@@ -514,6 +515,9 @@ void main() {
     p = aP0.xyz + aV0.xyz * ((1.0 - exp(-k * age)) / k) + vec3(0.0, aP1.y * age, 0.0);
     size *= 1.0 + aP1.z * (1.0 - (1.0 - x) * (1.0 - x));
     keep = 1.0 - smoothstep(0.3, 1.0, x);
+    // it thins away by shrinking (a dither pattern anchored to the screen crawled over the moving puff)
+    size *= keep;
+    if (keep < 0.08) { cull(); return; }
     shape = 2.0;
     glow = 0.0;
     fogMul = uLand.w;
@@ -630,17 +634,12 @@ void main() {
     }
     light = (st + 0.15) / 7.0;
   } else {
-    // puff: grey ball lit by the low sun, dissolves through ordered dither
+    // puff: a flat pale-grey wisp (a sphere's highlight and shadow side made it a lit ball, a cannonball
+    // trailing the hero); a step deeper in the sun's shadow. It thins away by shrinking (vertex stage).
     float R2 = N * 0.5;
     float q2 = dot(c, c);
     if (N > 2.5 && q2 > R2 * R2 - 0.3) discard;
-    if (bayer4(ivec2(gl_FragCoord.xy)) > vB.y) discard;
-    vec2 nn = c / max(R2, 1.0);
-    vec3 nv = vec3(nn.x, -nn.y, sqrt(max(0.0, 1.0 - dot(nn, nn))));
-    vec3 nw = normalize(nv * mat3(viewMatrix));
-    float ndl = max(dot(nw, uSunDir), 0.0);
-    float sky = 0.5 + 0.5 * nw.y;
-    light = uLight.y + uLight.z * sky + uLight.x * ndl * mix(1.0, vC.z, uPuff.y) + uPuff.x;
+    light = 0.8 + uPuff.x - 0.15 * uPuff.y * (1.0 - vC.z);
   }
   sbWrite(ramp, light, vB.w, glow, vec3(0.0, 0.0, 1.0), 0.5, 0.5);
 }
@@ -1376,7 +1375,7 @@ export class Particles {
 
   // ------------------------------------------------------------------ puffs
 
-  puff(pos: THREE.Vector3, vel: THREE.Vector3, ramp: number = Ramp.FOG): void {
+  puff(pos: THREE.Vector3, vel: THREE.Vector3, ramp: number = Ramp.GREY): void {
     const T = fxTune;
     const s = this.s;
     const life = T.puffLife * (0.8 + 0.4 * rnd());

@@ -12,6 +12,7 @@
 // exit 0 = pass (peak < 0.95, no NaN, nothing over 0.99), 1 = fail, 2 = page error
 import { chromium } from 'playwright-core';
 import { writeFileSync } from 'node:fs';
+import { browserOptions } from './browser.mjs';
 
 const opt = Object.fromEntries(
   process.argv.slice(2).filter((a) => a.startsWith('--')).map((a) => {
@@ -25,8 +26,7 @@ const url = `${base}?auto=1&seed=${opt.seed ?? 1}${opt.stems ? '&stems=1' : ''}$
 const timeout = Number(opt.timeout ?? 240000);
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-webgl', '--disable-gpu-sandbox'],
+  ...browserOptions(['--enable-webgl']),
 });
 const page = await browser.newPage({ viewport: { width: Number(opt.w ?? 1100), height: Number(opt.h ?? 1500) }, deviceScaleFactor: 1 });
 let threw = false;
