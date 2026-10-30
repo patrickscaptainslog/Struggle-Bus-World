@@ -3,6 +3,7 @@ import { config } from './config';
 import { PixelPipeline } from './render/PixelPipeline';
 import { globals, layerTopBase } from './render/materials';
 import { HUE_RAMPS } from './render/palette';
+import { WarmUp } from './render/warmup';
 import { City, type BuildingRef } from './world/City';
 import { paintUniforms, setFacadeView } from './world/buildingMaterial';
 import { Ground, type CityManifest } from './world/tiles';
@@ -677,6 +678,28 @@ async function boot() {
   // (the slot lives in the HUD's root: ?nohud hides it with the rest)
   const superMeter = new SuperMeter();
   superMeter.mount(controls.hud.slot('super'));
+  // the one line that teaches the hold: when the belly first fills again after a splat (the player knows the tap by
+  // then), once a session, until they have charged a super. (Per viewer; a lost flag only shows the line again.)
+  const SUPER_HINT_KEY = 'strugglebus.superhint.v1';
+  let superHintShown = false;
+  try {
+    superHintShown = localStorage.getItem(SUPER_HINT_KEY) === '1';
+  } catch {
+    // (storage blocked: the line shows once a session)
+  }
+  const superHint = () => {
+    if (superHintShown || superSplat.phase !== 'ready') return;
+    superHintShown = true;
+    controls.hud.toast([input.mode === 'keyboard' ? 'HOLD SPACE TO CHARGE' : input.mode === 'touch' ? 'HOLD SPLAT TO CHARGE' : 'HOLD TO CHARGE'], 3.4);
+  };
+  superSplat.onLearned = () => {
+    superHintShown = true;
+    try {
+      localStorage.setItem(SUPER_HINT_KEY, '1');
+    } catch {
+      // (storage blocked: see above)
+    }
+  };
   /** the bus's pose with the super splat's body language on top (the game's own pose stays its spring state) */
   const superPose: BusPose = { ...pose };
 
@@ -690,6 +713,14 @@ async function boot() {
   window.visualViewport?.addEventListener('resize', onResize);
   onResize();
 
+  // ---- the shader warm-up (render/warmup.ts): the programs a player's first splat, street sign and firehose would
+  // otherwise link in flight, compiled off the main thread and drawn once into their real targets, behind the opening:
+  // the post passes, the rooftop gardens' batches and sun twins (registerWarm), the street sign's blade and its sun
+  // caster, the super's motes. The first frame waits for it, at most warmWait s (it goes on in the background after that)
+  const warm = new WarmUp(pipeline, scene);
+  warm.add(signs.object, 'street signs');
+  warm.add(superFx.object, 'super fx');
+  await Promise.race([warm.finish(), new Promise((r) => setTimeout(r, config.render.warmWait * 1000))]);
   await farP;
   fogGround = city.lowGround();
   updateSun();
@@ -792,7 +823,10 @@ async function boot() {
     }
     const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
     for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || sx !== st.stretch.x }, city);
-    if (!wasFull && flight.fullness >= 1) audio.ready();
+    if (!wasFull && flight.fullness >= 1) {
+      audio.ready();
+      superHint();
+    }
     wasFull = flight.fullness >= 1;
 
     // bus pose: squash on the tap frame and through the inhale, stretch as the jet leaves, heave while
@@ -1026,6 +1060,8 @@ async function boot() {
   // debug hooks for scripted screenshots / QA
   (window as unknown as Record<string, unknown>).__game = {
     flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls,
+    /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
+    warm,
     /** QA: where a breath fired now would land ({x, y, z, dist, travel, drop}), and the last one fired */
     aimNow: () => (aimer.point(flight), { ...aimer.aim }),
     /** QA: the building glinting now (what a tap hits) */

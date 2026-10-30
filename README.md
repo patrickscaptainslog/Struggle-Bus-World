@@ -46,11 +46,12 @@ Phase 1: single player, no server. iPhone Safari first (portrait, one thumb).
   glows fuller as the next blast recharges.
 - **Hold** (the SPLAT button in touch mode, anywhere on the screen in tilt
   mode, Space on a keyboard): the super splat charges. The bus swells,
-  shudders and glows white-hot, rainbow energy spirals in from the city into
-  its mouth, arcs crackle, a rainbow circle spins on the ground under it, a
+  shudders and glows white-hot, six rainbow ribs of energy twist down a funnel
+  into its mouth, arcs crackle, a rainbow circle spins around its wheels, a
   heartbeat races, and a meter fills at the bottom center (it only shows while
-  charging or cooling down). Let go early for a MEGA blast (bigger the longer
-  you held; under 30 % it is just a normal splat). Hold the full 10 seconds
+  charging or cooling down). Let go early for a MEGA blast (at least 1.6x a
+  tap's radius, up to 2.6x the longer you held; under 30 % it is just a normal
+  splat). Hold the full 10 seconds
   and the FIREHOSE lets go: a colossal rainbow torrent for 4 seconds that
   paints everything it touches; steer while it pours to sweep it across the
   city (from up high it pours down where you look; in a turbo gear it lays a

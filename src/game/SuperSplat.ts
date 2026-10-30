@@ -4,8 +4,8 @@ import { clamp } from './springs';
 import { Aimer, type Shot } from './Aim';
 import type { Flight } from './Flight';
 import type { City, BuildingRef } from '../world/City';
-import type { Blast, Splatter, SuperTag } from './Splat';
-import { blastRadiusFor, blobFlight } from './blastLayout';
+import type { Blast, GroundBands, Splatter, SuperTag } from './Splat';
+import { blastRadiusFor, blobFlight, layoutHue } from './blastLayout';
 import type { Particles, GeyserLive } from '../fx/Particles';
 import type { SuperFx } from '../fx/SuperFx';
 import type { AudioEngine } from '../audio/AudioEngine';
@@ -35,7 +35,9 @@ import { registerTunables } from '../ui/tunables';
 //     of firehoseRadius through the normal Splatter (buildings bloom as the
 //     shockwave reaches them, ground paint, trees; `hose` impacts escalate a
 //     building at most every firehoseRepop s, no hit-stop, lighter particles,
-//     a bell per impact climbing the chord). Heavy recoil, shake, flashes
+//     a bell per impact climbing the chord). The roofs take the rainbow; the
+//     ground under all of it takes one set of rainbow rings around where the
+//     pour first landed (firehoseBand m wide). Heavy recoil, shake, flashes
 //     (at most firehoseFlashes per second: no strobing), a roar and a closing
 //     crescendo blast where the stream ends.
 //   cooldown: superCooldown s (the meter drains, then refills with the seconds
@@ -70,7 +72,7 @@ export const superTune = {
   swell: 0.16,
   throb: 0.08,
   shudder: 0.16,
-  /** Energy motes per second at a full charge, how far out they start (m), how long they take (s). */
+  /** Energy motes per second at a full charge, how far down the funnel they start (m), how long they take (s). */
   motes: 950,
   moteReach: 115,
   moteLife: 1.1,
@@ -167,6 +169,9 @@ export class SuperSplat {
   circle = 0;
   circleSpin = 0;
 
+  /** A hold reached a mega or the firehose: the player has found the super (the HOLD TO CHARGE line stops). */
+  onLearned: (() => void) | null = null;
+
   /** QA: what the last super did */
   readonly stats = { kind: '', charge: 0, impacts: 0, blooms: 0, misses: 0, radius: 0, startedAt: 0, endedAt: 0 };
 
@@ -185,6 +190,8 @@ export class SuperSplat {
   private beatK = 0;
   private hoseT = 0;
   private hoseBorn = false;
+  /** the rainbow rings the whole pour paints the ground in (one object: Splatter copies it into each blast) */
+  private readonly bands: GroundBands = { x: 0, z: 0, width: 16, hue: 0 };
   private acc = 0;
   private finale = false;
   private lastFlash = -10;
@@ -404,18 +411,19 @@ export class SuperSplat {
     const a = this.h.aimer;
     const f = this.h.flight;
     const shot = Aimer.loaded(f) && a.shown() ? a.fire(f) : a.aimShot(f);
-    const radius = blastRadiusFor(shot.drop) * (1 + (S.megaGain - 1) * u);
-    const width = 1 + (S.megaWidth - 1) * u;
-    const hitStop = Math.round(S.hitStopFrames + (S.megaHitStop - S.hitStopFrames) * u);
+    const radius = blastRadiusFor(shot.drop) * (S.megaFloor + (S.megaGain - S.megaFloor) * u);
+    const width = S.megaWidthFloor + (S.megaWidth - S.megaWidthFloor) * u;
+    const hitStop = Math.round(S.megaHitStopFloor + (S.megaHitStop - S.megaHitStopFloor) * u);
     this.h.audio.superChargeStop(true);
     this.h.mega(shot, radius, width, hitStop, { kind: 'mega', charge: k, id: ++this.serial });
     this.h.audio.superMega(k);
-    this.h.rig.kick(1.5 + 2 * u);
-    this.h.fx.sparks(Math.round(20 + 40 * u), this.h.busVel(), 14);
+    this.h.rig.kick(2.4 + 1.6 * u);
+    this.h.fx.sparks(Math.round(30 + 30 * u), this.h.busVel(), 14);
     this.phase = 'cooldown';
     this.hoseBorn = false;
     this.since = 0;
     this.cooldownTotal = this.cooldownLeft = Math.max(1, S.superCooldown * k);
+    this.onLearned?.();
     Object.assign(this.stats, { kind: 'mega', charge: k, impacts: 1, blooms: 0, misses: 0, radius, startedAt: this.t, endedAt: this.t });
   }
 
@@ -435,6 +443,7 @@ export class SuperSplat {
     this.lastHood = -1;
     this.lastSign = -10;
     this.charge = 1;
+    this.onLearned?.();
     const id = ++this.serial;
     this.hoseTag = { kind: 'hose', charge: 1, id };
     this.closerTag = { kind: 'closer', charge: 1, id };
@@ -451,6 +460,10 @@ export class SuperSplat {
     this.live.width = S.firehoseWidth * (1 + aim.drop / Math.max(10, S.firehoseWidthDrop));
     this.tgt[0].copy(this.live.target);
     this.hueOne[0] = Math.floor(Math.random() * HUE_COUNT);
+    this.bands.x = aim.x;
+    this.bands.z = aim.z;
+    this.bands.width = S.firehoseBand * (blastRadiusFor(aim.drop) / S.blastRadius);
+    this.bands.hue = this.hueOne[0];
     h.particles.geyser({
       source: h.mouth, sourceVel: h.busVel, targets: this.tgt, hues: this.hueOne,
       duration: S.firehoseDuration, travelTime: this.live.travel, width: S.firehoseWidth, live: this.live, taper: 0.94,
@@ -553,9 +566,9 @@ export class SuperSplat {
     const target = h.city.buildingAt(x, z);
     const travel = Math.max(0.02, this.hT[best] - this.t);
     if (finale) {
-      h.splatter.barf(x, z, { radius: S.firehoseRadius * S.firehoseFinale * grow, travel, drop, target, y: y + 0.3, exact: true, stream: true, hitStop: S.firehoseFinaleHitStop, super: this.closerTag });
+      h.splatter.barf(x, z, { radius: S.firehoseRadius * S.firehoseFinale * grow, travel, drop, target, y: y + 0.3, exact: true, stream: true, hitStop: S.firehoseFinaleHitStop, super: this.closerTag, bands: this.bands });
     } else {
-      h.splatter.barf(x, z, { radius: S.firehoseRadius * grow, travel, drop, target, y: y + 0.3, exact: true, hose: true, super: this.hoseTag });
+      h.splatter.barf(x, z, { radius: S.firehoseRadius * grow, travel, drop, target, y: y + 0.3, exact: true, hose: true, super: this.hoseTag, bands: this.bands });
       this.stats.impacts++;
       if (h.splatter.lastMiss) this.stats.misses++;
     }
@@ -568,8 +581,9 @@ export class SuperSplat {
     const T = superTune;
     const h = this.h;
     const P = h.particles;
-    P.splash(b.pos, b.spec.hue, T.hoseSplash);
-    P.burst(b.pos, b.spec.hue, T.hoseBurst, h.city.groundAt(b.pos.x, b.pos.z));
+    const hue = layoutHue(b.spec, 0, 0);
+    P.splash(b.pos, hue, T.hoseSplash);
+    P.burst(b.pos, hue, T.hoseBurst, h.city.groundAt(b.pos.x, b.pos.z));
     // a few flung blobs, each landing on a spatter dot the ground paint already holds
     const every = Math.max(1, Math.round(T.hoseBlobEvery));
     for (const dot of b.dots) {
@@ -589,7 +603,7 @@ export class SuperSplat {
     if (p && p.hood !== this.lastHood && this.t - this.lastSign > 1.2) {
       this.lastHood = p.hood;
       this.lastSign = this.t;
-      h.sign(p, b.spec.hue, b.spec.x, b.spec.z, b.spec.r);
+      h.sign(p, hue, b.spec.x, b.spec.z, b.spec.r);
     }
   }
 
@@ -632,7 +646,7 @@ export class SuperSplat {
       this.shake.set((rnd() - 0.5) * sh, (rnd() - 0.5) * sh * 0.6, (rnd() - 0.5) * sh);
       this.pitch = -0.05 * c + 0.012 * Math.sin(this.t * 33) * c;
       // energy pulled in from the city, faster and thicker as it fills
-      this.moteAcc += dt * T.motes * (0.1 + 0.9 * c * c);
+      this.moteAcc += dt * T.motes * (0.2 + 0.8 * c * c);
       const nm = Math.floor(this.moteAcc);
       if (nm > 0) {
         this.moteAcc -= nm;

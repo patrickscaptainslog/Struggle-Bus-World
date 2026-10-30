@@ -493,16 +493,29 @@ numbers in the tuner groups `SuperSplat`, `SuperFx`, `SuperAudio`.
   their first colour; `SplatFx.bloom(..., flags)` (`BLOOM_HOSE` fewer sparkles,
   `BLOOM_REPOP` no garden regrow). The finale is a `stream: true` barf (full
   impact fx, `firehoseFinaleHitStop`), once `Splatter.inFlight` is 0.
+- **Ground under a pour**: `BarfOpts.bands` (`GroundBands {x, z, width, hue}`,
+  one object per pour, hose impacts and closer): `LAYOUT_BANDS`, `bandHue(spec,
+  x, z)` in `blastLayout.ts`, rainbow rings around where the pour first landed,
+  a function of the ground point, so overlapping impacts agree. Roofs are dealt
+  as ever. `ox`, `oz` are saved on the spec only for this layout.
+- **Warm-up** (`src/render/warmup.ts`, perf/load's kit, `registerWarm`,
+  `PixelPipeline implements WarmPipeline`): in `boot()` after `onResize()`, the
+  post passes, `'roof sprouts'`, the signs and `superFx.object` compile in
+  parallel and draw once into their real targets; the first frame waits at
+  most `render.warmWait` s. Anything new that first draws in flight belongs here
+  (`__game.warm.report`). Measure in a FRESH browser: links are cached by a page.
+- **The hold's hint**: `superHint()` in main.ts at the belly's refill,
+  `superSplat.onLearned` ends it (`strugglebus.superhint.v1`).
 - **`Blast.super`** (`SuperTag {kind: 'mega' | 'hose' | 'closer', charge, id}`,
   null for a tap): for the stage engine; a firehose's impacts and closer share
   the super's serial `id`.
-- **Look**: `src/fx/SuperFx.ts` (one Points draw, only while alive: motes
-  spiralling into the live mouth, a static arc pool lit by `arcs`, sparks, a
-  halo; drawn unlit for its first 3 frames, so its program is built before the
-  first charge; `registerWarm`-ready for perf/load); the summoning circle is
-  no object at all: `pipeline.setHeroCircle(charge, spin, halfLength,
-  halfWidth)` paints a hue-ramp pinwheel in the resolve pass, inside the hero
-  shadow's test (same centre, axis, "faces up below the bus", snap); `BusPose.charge / spent / pulse` (optional) drive `BusModel`'s
+- **Look**: `src/fx/SuperFx.ts` (one Points draw, only while alive: motes on
+  six rainbow ribs down a funnel into the live mouth, `uFunA/B/C` from the bus
+  matrix each frame, a static arc pool lit by `arcs`, sparks, a halo); the
+  summoning circle is no object at all: `pipeline.setHeroCircle(charge, spin,
+  halfLength, halfWidth)` paints a hue-ramp pinwheel in the resolve pass, on one
+  plane through the wheels (each pixel's ray meets it: unbroken over any roof
+  and street below, covered by what stands in front); `BusPose.charge / spent / pulse` (optional) drive `BusModel`'s
   `uFx5.yzw` (band racing to white-hot, the body glowing with the heartbeat,
   dim when spent).
 - **Sound**: `src/audio/superSfx.ts` via `AudioEngine.superChargeStart /

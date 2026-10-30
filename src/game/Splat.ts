@@ -4,7 +4,7 @@ import { HUE_COUNT } from '../render/palette';
 import type { City, BuildingRef } from '../world/City';
 import { FACTION_RAINBOW } from '../world/PaintState';
 import { blastUniforms, type GroundJob } from '../world/GroundPaint';
-import { arrival, blastRadiusFor, layoutHue, makeBlastSpec, waveMax, wrapHue, type BlastDot, type BlastSpec } from './blastLayout';
+import { arrival, blastRadiusFor, LAYOUT_BANDS, layoutHue, makeBlastSpec, waveMax, wrapHue, type BlastDot, type BlastSpec } from './blastLayout';
 
 // The barf -> blast -> bloom pipeline. Dragon breath: the bus blasts a
 // rainbow projectile forward; it snaps to the building at the aim point and
@@ -85,6 +85,17 @@ export interface BarfOpts {
   hitStop?: number;
   /** a super splat's blast (Blast.super) */
   super?: SuperTag;
+  /** its ground in rainbow bands around this world point, this wide, from this hue, instead of its own pinwheel (a
+   * firehose: a dozen pinwheels a second is a patchwork, one set of rings under all its impacts is a picture) */
+  bands?: GroundBands;
+}
+
+/** BarfOpts.bands */
+export interface GroundBands {
+  x: number;
+  z: number;
+  width: number;
+  hue: number;
 }
 
 /** SplatFx.bloom flags. */
@@ -183,7 +194,8 @@ export class Splatter {
     const pos = new THREE.Vector3(cx, opts?.y ?? (land && primary ? city.roofAtPart(primary, cx, cz) + 0.5 : city.groundAt(x, z)), cz);
     // the blast's center hue: an escalating primary keeps its color, a fresh one takes the next hue
     const pRec = primary ? paint.get(primary.index) : null;
-    const hue = pRec && pRec.level > 0.5 ? wrapHue(pRec.color) : this.nextHue;
+    const bands = opts?.bands;
+    const hue = bands ? bands.hue : pRec && pRec.level > 0.5 ? wrapHue(pRec.color) : this.nextHue;
 
     // every building the blast reaches (its footprint, not its centroid: a big block half inside the radius
     // blooms too), nearest edge first, capped: a house by its centroid less its half-size (as the approved
@@ -208,9 +220,15 @@ export class Splatter {
       if (!stream) this.fx.geyser([pos.clone()], [this.nextHue]);
       return tImpact;
     }
-    if (!pRec || pRec.level < 0.5) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
+    if (!bands && (!pRec || pRec.level < 0.5)) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
     this.seed = (Math.imul(this.seed ^ 0x2545f491, 0x9e3779b1) + 0x7f4a7c15) >>> 0;
     const spec = makeBlastSpec(cx, cz, r, hue, this.seed);
+    if (bands) {
+      spec.layout = LAYOUT_BANDS;
+      spec.ring = bands.width;
+      spec.ox = bands.x;
+      spec.oz = bands.z;
+    }
     const plan: Scheduled[] = [];
     let maxLevel = 1;
     const busy = hose ? this.hoseBusy(paint.data.length >> 2) : null;

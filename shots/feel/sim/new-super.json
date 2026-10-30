@@ -10,11 +10,11 @@
    "buildings": 28,
    "painted": 11,
    "l3": 0,
-   "groundShare": 0.37
+   "groundShare": 0.363
   },
   "work": {
-   "median": 0.043,
-   "max": 18.119
+   "median": 0.046,
+   "max": 2.279
   }
  },
  "charge": {
@@ -31,10 +31,10 @@
    "stop": 2
   },
   "mega50": {
-   "radius": 93.5,
+   "radius": 120.7,
    "cooldown": 30.2,
    "phase": "cooldown",
-   "bloomed": 58,
+   "bloomed": 109,
    "hitStops": 2
   },
   "timeline": [
@@ -81,18 +81,18 @@
  },
  "firehose": {
   "startSpeed": 7.4,
-  "duration": 4.3,
+  "duration": 4.37,
   "impacts": 49,
   "misses": 0,
   "impactsPerSecond": 12.3,
   "firstImpact": 0.333,
   "gapMedian": 0.067,
   "gapMax": 0.1,
-  "maxLiveBlasts": 2,
+  "maxLiveBlasts": 1,
   "bloomed": 91,
-  "l3": 22,
+  "l3": 27,
   "bloomEvents": 185,
-  "groundShareAlongSweep": 0.786,
+  "groundShareAlongSweep": 0.768,
   "finale": 1,
   "hitStops": 1,
   "signs": 2,
@@ -106,31 +106,31 @@
    "fling": 628
   },
   "work": {
-   "median": 0.477,
-   "max": 11.812,
-   "superMedian": 0.044,
+   "median": 0.343,
+   "max": 3.249,
+   "superMedian": 0.032,
    "splatterMedian": 0.003,
-   "cityMedian": 0.054,
+   "cityMedian": 0.049,
    "worst": [
     [
      0.03,
-     11.72,
-     0.06
-    ],
-    [
-     0.09,
-     0,
-     9.99
-    ],
-    [
-     0.02,
-     9.53,
+     3.13,
      0.09
     ],
     [
-     0.11,
-     0,
-     6.72
+     0.45,
+     2.37,
+     0.04
+    ],
+    [
+     0.02,
+     1.52,
+     0.06
+    ],
+    [
+     0.02,
+     1.27,
+     0.05
     ]
    ]
   },
@@ -238,92 +238,92 @@
  },
  "prof": {
   "ground.work": {
-   "n": 4496,
-   "median": 0,
-   "max": 44.074,
-   "sum": 96.1
+   "n": 312,
+   "median": 0.001,
+   "max": 0.573,
+   "sum": 10.2
   },
   "city.buildingsWithin": {
    "n": 50,
-   "median": 0.063,
-   "max": 2.001,
-   "sum": 5.3
+   "median": 0.047,
+   "max": 0.119,
+   "sum": 2.6
   },
   "city.setOwnGround": {
    "n": 123,
-   "median": 0,
-   "max": 0.009,
+   "median": 0.001,
+   "max": 0.008,
    "sum": 0.1
   },
   "ground.begin": {
    "n": 50,
-   "median": 0.008,
-   "max": 0.108,
+   "median": 0.01,
+   "max": 0.042,
    "sum": 0.7
   },
   "g.prepare": {
    "n": 50,
-   "median": 0.319,
-   "max": 9.953,
-   "sum": 50.2
+   "median": 0.15,
+   "max": 0.525,
+   "sum": 9.5
   },
   "g.mask": {
    "n": 123,
    "median": 0,
-   "max": 0.072,
+   "max": 0.033,
    "sum": 0.1
   },
   "g.start": {
    "n": 50,
-   "median": 0.329,
-   "max": 9.966,
-   "sum": 50.7
+   "median": 0.165,
+   "max": 0.555,
+   "sum": 10.1
   },
   "g.rows": {
-   "n": 4117,
-   "median": 0.003,
-   "max": 4.542,
-   "sum": 31.5
+   "n": 4158,
+   "median": 0.005,
+   "max": 0.23,
+   "sum": 24.5
   },
   "g.dots": {
    "n": 123,
-   "median": 0.041,
-   "max": 4.928,
-   "sum": 14.3
+   "median": 0.064,
+   "max": 0.524,
+   "sum": 8
   },
   "g.step": {
    "n": 50,
-   "median": 0.352,
-   "max": 9.273,
-   "sum": 46.7
+   "median": 0.561,
+   "max": 2.427,
+   "sum": 33.7
   },
   "ground.land": {
    "n": 50,
-   "median": 0.398,
-   "max": 11.638,
-   "sum": 65.4
+   "median": 0.61,
+   "max": 2.476,
+   "sum": 37
   },
   "g.writeTile": {
    "n": 6,
-   "median": 0.02,
-   "max": 0.038,
-   "sum": 0.1
+   "median": 0.008,
+   "max": 0.017,
+   "sum": 0
   }
  },
  "firehose250": {
   "startSpeed": 7.4,
-  "duration": 4.5,
+  "duration": 4.57,
   "impacts": 49,
   "misses": 0,
   "impactsPerSecond": 12.3,
   "firstImpact": 0.533,
   "gapMedian": 0.067,
   "gapMax": 0.1,
-  "maxLiveBlasts": 2,
-  "bloomed": 492,
+  "maxLiveBlasts": 1,
+  "bloomed": 540,
   "l3": 0,
-  "bloomEvents": 557,
-  "groundShareAlongSweep": 0.955,
+  "bloomEvents": 627,
+  "groundShareAlongSweep": 0.943,
   "finale": 1,
   "hitStops": 1,
   "signs": 3,
@@ -337,31 +337,31 @@
    "fling": 628
   },
   "work": {
-   "median": 0.634,
-   "max": 27.428,
-   "superMedian": 0.071,
-   "splatterMedian": 0.014,
-   "cityMedian": 0.079,
+   "median": 0.375,
+   "max": 4.949,
+   "superMedian": 0.051,
+   "splatterMedian": 0.005,
+   "cityMedian": 0.035,
    "worst": [
     [
-     0.03,
-     27.09,
-     0.31
+     0.94,
+     3.94,
+     0.07
     ],
     [
-     0.05,
-     26.56,
-     0.08
+     0.11,
+     2.04,
+     0.06
     ],
     [
-     0.39,
-     0.02,
-     24.66
+     0.19,
+     1.58,
+     0.04
     ],
     [
-     0.35,
-     0.02,
-     24.26
+     0.1,
+     1.59,
+     0.04
     ]
    ]
   },
@@ -463,6 +463,17 @@
      724
     ],
     "drop": 212,
+    "y": 310
+   },
+   {
+    "t": 4.53,
+    "speed": 10.6,
+    "heading": 176,
+    "aim": [
+     -1680,
+     695
+    ],
+    "drop": 194,
     "y": 310
    }
   ]

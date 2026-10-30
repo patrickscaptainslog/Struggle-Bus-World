@@ -34,6 +34,8 @@ export const config = {
     outlineFadeEnd: 520,
     /** Shadow map size (texels): 2048 keeps a shadow texel near one game pixel at 390 px wide. */
     shadowMapSize: 2048,
+    /** The first frame waits this long at most for the shader warm-up (s); past that it finishes in the background. */
+    warmWait: 6,
     /** World-space extent of the shadow map around the camera focus (m). */
     shadowExtent: 520,
     /** At full vista (high above the city) the shadow window widens to this (m) and softens to this strength (0..1)... */
@@ -444,9 +446,13 @@ export const config = {
     superMin: 0.3,
     /** Seconds until the super is ready again after a firehose (after a mega blast: x its charge). */
     superCooldown: 60,
-    /** Mega blast (released early): radius x this at a full charge (x1 at superMin), its jet's width x, hit-stop frames. */
+    /** Mega blast (released early): radius x, jet width x and hit-stop frames, from the first at superMin (any mega is
+     *  unmistakably bigger than a tap: the hold is never a tap with a lockout) to the second near a full charge. */
+    megaFloor: 1.6,
     megaGain: 2.6,
+    megaWidthFloor: 1.5,
     megaWidth: 2.4,
+    megaHitStopFloor: 6,
     megaHitStop: 9,
     /** Charging weighs the bus down: speed x this at a full charge. */
     chargeSlow: 0.6,
@@ -456,6 +462,8 @@ export const config = {
     firehoseDuration: 4,
     firehoseRate: 12,
     firehoseRadius: 45,
+    /** ...the ground takes rainbow bands this wide (m, grown with the drop like the blast), ringed around where the pour first landed. */
+    firehoseBand: 17,
     /** ...near the rooftops it reaches this many times the breath's range (a turn sweeps a wide arc); from up high it
      *  pours down along the aim ray, where the player looks. */
     firehoseReach: 1.7,

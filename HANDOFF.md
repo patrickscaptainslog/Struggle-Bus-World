@@ -65,7 +65,7 @@ including merging into `main`.** None of the branches below has been merged yet.
 | `fix/landmarks` | main merged in, review fixed, ready to merge (desktop session, 2026-10-23) | `City.addLandmarkBuilding`, paint reserve + its own name-keyed store, landmark paint (flood/L1-L3), glint, Transamerica + Sutro + Coit Tower + the Ferry Building paintable, 181 Fremont's spire paints with its tower | merge into main (its DECISIONS "Merged with main" has the numbers) |
 | `polish/look` | main merged in (facade + landmarks), review re-checked on the GPU and fixed; merge review's two findings fixed (a sign half hidden behind a far landmark, no drop shadow over the bay), ready to merge (desktop session, 2026-10-24) | sky band, sign beside the blast, hero ink edge + headlight, drop shadow, puffs, GGB International Orange (`BRIDGE_ORANGE` row 23; `RAMP_COUNT` 48), water, tree crowns, one sky function shared with the facades, `tools/look.mjs` + `lookstat.py` | merge into main (its DECISIONS "Look polish" has the 390 px numbers, MAIN vs the merge) |
 | `feat/controls` | main merged in, review fixed, QA'd on the GPU (MAIN vs NEXT), ready to merge (desktop session, 2026-10-30); never run on a real phone | tilt-to-fly default on phones (`Tilt.ts`, fused attitude, recenter), touch fallback, keyboard + Esc, hold-to-charge + turbo in `Input.ts` (the INPUT CONTRACT), turbo gears G0-G3 (G2/G3 locked behind `config.turbo.worldTravel`), turbo FX + audio, `src/ui/Hud.ts`, `tools/controls.mjs`, `tools/jet.mjs` (frame pacing, attributed), `tools/boom.mjs` (hero frames) | merge before supersplat (its DECISIONS "Controls QA" and "outside judge, round 1" have the numbers); first real-phone pass on the HTTPS preview |
-| `feat/supersplat` | main merged in (controls, look, landmarks, facade), pre-review fixed, QA'd on the GPU (MAIN vs NEXT), ready to merge (desktop session, 2026-10-30); never run on a real phone | hold-to-charge (10 s) on controls' gesture, mega blast on early release, firehose (~4 s), 60 s cooldown, `SuperSplat.ts`/`SuperFx.ts`/`SuperMeter.ts`/`superSfx.ts`, the summoning circle (`PixelPipeline.setHeroCircle`), `Blast.super` for the stage engine, `tools/supersplat.mjs` | merge next, **then perf/load straight after, and deploy the two together: no supersplat-only build on the live site** (see "Merging perf/load" below); its DECISIONS "Merged with controls" has the numbers; first real-phone pass: the pour from 250 m on an A15, the meter clear of the home indicator |
+| `feat/supersplat` | main merged in (controls, look, landmarks, facade), pre-review fixed, QA'd on the GPU (MAIN vs NEXT), ready to merge (desktop session, 2026-10-30); never run on a real phone | hold-to-charge (10 s) on controls' gesture, mega blast on early release, firehose (~4 s), 60 s cooldown, `SuperSplat.ts`/`SuperFx.ts`/`SuperMeter.ts`/`superSfx.ts`, the summoning circle (`PixelPipeline.setHeroCircle`), `Blast.super` for the stage engine, the warm-up kit (`render/warmup.ts`, from perf/load), `tools/supersplat.mjs` | merge next (the outside judge's round 1 is fixed: first pour max 17.5 ms; a re-judge is pending), then perf/load (see "Merging perf/load" below); its DECISIONS "Super splat, outside judge round 1" has the numbers; first real-phone pass: the pour from 250 m on an A15, the meter clear of the home indicator |
 | `polish/perf` | paused mid-task (12 commits) | sun-pass caster proxy, 8 m wall columns, hidden party walls, depth-only sun pass, culled far chunks, budgeted streaming, prewarm, `tools/perf-pass.mjs` | finish + measure, merge after the above |
 | `feat/stages` | empty (just created from main) | — | build the stage engine per `docs/specs/STAGES.md` (its "Producer decisions" section) |
 | `feat/osm` | paused mid-task (WIP) | Overture/OSM extract (`tools/bake/overture.py`, `osm.py`, `citydata.py`), conflation draft in `bake.py`, Amsterdam config, `src/ui/Credits.ts` | resume; needs the bake inputs (see "City data pipeline") |
@@ -75,13 +75,12 @@ including merging into `main`.** None of the branches below has been merged yet.
 `onTurbo(dir)`, `state.turboHeld`, `input.mode`): see their DECISIONS/ARCHITECTURE
 notes when merging.
 
-Merging perf/load after supersplat (straight after, one deploy: until then a player's first firehose stutters, see
-"Known issues"): add `registerWarm('super fx', () => superFx.object)` in main.ts, and SuperFx's own 3-frame warm-up can
-go. Then close the browser and rerun a real-time firehose in a FRESH one (a program links in ~24 ms on a second page of
-the same browser, which hides it): no frame gap over ~50 ms. The five programs that must be warm are the sprouts' colour
-batches and sun-pass twin ('roof sprouts' registers them) and the street sign's blade and its `shadowMesh`
-MeshBasicMaterial (both invisible in the scene at boot: `warm.add(scene)` traverses them, by reading the code; only that
-run proves it).
+Merging perf/load after supersplat: `src/render/warmup.ts`, `PixelPipeline`'s warm section and `registerWarm('roof
+sprouts', ...)` are already here, from that branch (keep this side of `warmDraw`: it binds the sun's target first, a
+fix). Its `new WarmUp` moves up to the top of main.ts and its `warm.add(scene)` then covers the two `warm.add` lines in
+`boot()` (the signs and `superFx.object` are in the scene), so those two lines and `render.warmWait` can go with its
+wait. Then close the browser and rerun a real-time firehose in a FRESH one (a program links in ~24 ms on a second page of
+the same browser, which hides it): no frame gap over ~50 ms, `info.programs` flat from ready through the pour.
 
 ### Suggested order
 1. Merge facade -> landmarks (+ wire the 3 new props) -> look -> controls -> supersplat -> perf,
@@ -144,11 +143,9 @@ run proves it).
   first-visit run (card, tap, the bus under the deck, a swipe during it, sensors that never answer).
 - `fps.mjs` peaks at 1.52M triangles at the Alamo ceiling, just over the 1.5M budget, on main too.
 - The first gesture stalls ~200 ms in `audio.unlock()` here (more on a phone?), on main too.
-- **A player's first firehose stutters in its first second.** Fresh browser, Alamo, 60 Hz: frame gaps 333, 250, 250,
-  217, 150, 133 ms, then nothing over 17 ms; five programs link there (work 334, 155, 259 ms, on this laptop's GPU: a
-  phone will be slower). MAIN has the same links but spreads them over separate taps (the first sign 170 ms, the first
-  L2 / L3 ~300 ms); the hose stacks them at its opening. A first mega hits the sign's alone, ~3 s after release (176 ms
-  from 283 m). perf/load's warm-up should fix all of it: not merged yet, so it is the deploy condition above.
+- The cold load's first frame still blocks ~7.5 s on shader links on this laptop, on main too: perf/load's boot fixes
+  that; the kit here warms only what would otherwise link in flight. `warmWait` caps the wait at 6 s; a phone slower than
+  that finishes in the background and could still catch a link if it pours in the first seconds.
 - 250 m over Alamo Square is 1.8M triangles and 200 draws at cruise, over budget, on main too; a firehose adds 22 draws
   and ~100k triangles there, and is the worst thing we have measured there (p95 33.5 ms here).
 - `Splatter` still allocates per hose impact (Scheduled objects, paint records: ~2,000 short-lived objects a second

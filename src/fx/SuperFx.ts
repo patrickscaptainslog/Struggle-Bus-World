@@ -4,9 +4,11 @@ import { HUE_COUNT, HUE_RAMPS, Ramp } from '../render/palette';
 import { registerTunables } from '../ui/tunables';
 
 // The super splat's own pixel effects (src/game/SuperSplat.ts drives them):
-//  - energy motes: rainbow sparks pulled in from the city in a spiral, landing
-//    exactly in the bus's mouth however it moves (each mote is computed
-//    relative to the LIVE mouth, uMouth, so the CPU never touches it again);
+//  - energy motes: six rainbow ribs twisting down a funnel that opens from the
+//    bus's mouth toward the city ahead and below, slow far out, rushing in at
+//    the end, landing exactly in the mouth however it moves (each mote is
+//    computed relative to the LIVE mouth and the live funnel, uMouth + uFun*,
+//    so the CPU never touches it again);
 //  - arcs: crackling lightning over the bus body, a static pool of points
 //    whose jagged paths are re-rolled from a hash ~20 times a second (no CPU
 //    work per frame; uArc.x is the share of arcs lit);
@@ -21,9 +23,14 @@ import { registerTunables } from '../ui/tunables';
 
 export const superFxTune = {
   /** Mote size (m), glow, ease of the pull (higher = lingers far out, then rushes in). */
-  moteSize: 1.35,
+  moteSize: 1.15,
   moteGlow: 1,
   moteEase: 1.9,
+  /** The funnel: how far its axis dips below the nose (rad), its half opening (tan), its ribs' twist (turns), a mote's scatter off its rib (rad). */
+  funnelDip: 0.26,
+  funnelOpen: 0.5,
+  funnelTwist: 0.42,
+  funnelScatter: 0.11,
   /** Arcs: re-rolls per second, how far they reach off the body (m), jaggedness. */
   arcHz: 21,
   arcReach: 6,
@@ -42,6 +49,10 @@ registerTunables('SuperFx', superFxTune, {
   moteSize: [0.2, 4, 0.05],
   moteGlow: [0, 1, 0.01],
   moteEase: [0.5, 4, 0.05],
+  funnelDip: [-0.5, 1.2, 0.01],
+  funnelOpen: [0.05, 1.5, 0.01],
+  funnelTwist: [0, 2, 0.01],
+  funnelScatter: [0, 0.6, 0.01],
   arcHz: [1, 60, 1],
   arcReach: [0.5, 12, 0.1],
   arcJag: [0, 1, 0.01],
@@ -54,7 +65,7 @@ registerTunables('SuperFx', superFxTune, {
 });
 
 // slot layout (floats): aA t0, life, kind, seed | aB, aC kind params | aD ramp, size, flags, -
-//   mote:  aB r0, a0, turns, h0        aC ease, -, -, -
+//   mote:  aB length, a0, twist (rad), slope    aC ease, -, -, -
 //   arc:   aB arc id, s along, -, -    (static pool, t0 0, life 1e9)
 //   spark: aB p0.xyz, -                aC v0.xyz, drag
 //   halo:  aB r0, a0, rad/s, h0        aC bob, -, -, -
@@ -76,6 +87,9 @@ ${GLSL_COMMON}
 uniform float uNow;
 uniform float uViewH;
 uniform vec3 uMouth;
+uniform vec3 uFunA;    // the funnel: its axis out of the mouth, and two axes across it
+uniform vec3 uFunB;
+uniform vec3 uFunC;
 uniform mat4 uBusM;
 uniform vec4 uBusDim;  // half width, height, half length, bottom y (bus root space, m)
 uniform vec4 uArc;     // lit share, re-rolls/s, reach, jag
@@ -93,10 +107,10 @@ float h1(float x) { return fract(sin(x * 127.1 + 311.7) * 43758.5453); }
 
 vec3 motePos(float u) {
   float q = pow(clamp(u, 0.0, 1.0), aC.x);
-  float r = aB.x * (1.0 - q);
+  float along = aB.x * (1.0 - q);
+  float r = along * aB.w;
   float a = aB.y + aB.z * q;
-  float k = 1.0 - q;
-  return uMouth + vec3(cos(a) * r, aB.w * k * k, sin(a) * r);
+  return uMouth + uFunA * along + (uFunB * cos(a) + uFunC * sin(a)) * r;
 }
 
 vec3 arcPos(float id, float s, float ep) {
@@ -154,10 +168,10 @@ void main() {
   vec3 pPrev;
   float dtv = 0.02;
   if (kind < 0.5) {
-    // ---- mote: spirals in from the city, lands in the mouth
+    // ---- mote: down the funnel, into the mouth (it grows in far out, and thins as it rushes in)
     p = motePos(x);
     pPrev = motePos(x - dtv / life);
-    size *= 0.45 + 0.55 * (1.0 - pow(x, aC.x));
+    size *= (0.45 + 0.55 * (1.0 - pow(x, aC.x))) * smoothstep(0.0, 0.14, x);
     if (x > 0.97) { cull(); return; }
   } else if (kind < 1.5) {
     // ---- arc point: lit or not this epoch, then where its jagged path puts it
@@ -259,6 +273,9 @@ export class SuperFx {
   private readonly uNow = { value: 0 };
   private readonly uViewH = { value: 520 };
   private readonly uMouth = { value: new THREE.Vector3() };
+  private readonly uFunA = { value: new THREE.Vector3(0, 0, -1) };
+  private readonly uFunB = { value: new THREE.Vector3(1, 0, 0) };
+  private readonly uFunC = { value: new THREE.Vector3(0, 1, 0) };
   private readonly uBusM = { value: new THREE.Matrix4() };
   private readonly uBusDim = { value: new THREE.Vector4(2, 5, 9, -2.5) };
   private readonly uArc = { value: new THREE.Vector4() };
@@ -266,8 +283,6 @@ export class SuperFx {
   private readonly uMote = { value: new THREE.Vector4() };
   private readonly tmp = new THREE.Vector3();
   private hue = 0;
-  /** frames left of the warm-up (see update) */
-  private warm = 3;
 
   constructor(maxParticles = 2400) {
     const cap = Math.max(STATIC + 64, Math.floor(maxParticles));
@@ -305,6 +320,9 @@ export class SuperFx {
         uNow: this.uNow,
         uViewH: this.uViewH,
         uMouth: this.uMouth,
+        uFunA: this.uFunA,
+        uFunB: this.uFunB,
+        uFunC: this.uFunC,
         uBusM: this.uBusM,
         uBusDim: this.uBusDim,
         uArc: this.uArc,
@@ -338,30 +356,30 @@ export class SuperFx {
   }
 
   /**
-   * `count` energy motes pulled in from up to `reach` m around the mouth, mostly from the city below,
-   * each taking `life` s (+-30%) to spiral into it.
+   * `count` energy motes pulled in from up to `reach` m down the funnel, each on one of six ribs (its own
+   * hue), taking `life` s (+-30%) to twist into the mouth.
    */
   motes(count: number, reach: number, life: number): void {
     const s = this.s;
     const T = superFxTune;
     for (let i = 0; i < count; i++) {
       const L = life * (0.7 + 0.6 * rnd());
-      const below = rnd() < 0.82;
       s[0] = this.time;
       s[1] = L;
       s[2] = K_MOTE;
       s[3] = rnd();
-      s[4] = reach * (0.25 + 0.75 * Math.sqrt(rnd()));
-      s[5] = rnd() * Math.PI * 2;
-      s[6] = 1.6 + 2.2 * rnd(); // one way round: a vortex, not a swarm
-      s[7] = below ? -(8 + 55 * rnd()) : 4 + 14 * rnd();
+      s[4] = reach * (0.4 + 0.6 * Math.sqrt(rnd()));
+      // (the ribs turn slowly as a whole: one rainbow screw, not six still lines)
+      this.hue = (this.hue + 1) % HUE_COUNT;
+      s[5] = (this.hue / HUE_COUNT) * Math.PI * 2 + this.time * 0.7 + (rnd() - 0.5) * T.funnelScatter * 2;
+      s[6] = T.funnelTwist * Math.PI * 2;
+      s[7] = T.funnelOpen * (0.86 + 0.28 * rnd());
       s[8] = T.moteEase * (0.85 + 0.3 * rnd());
       s[9] = s[10] = s[11] = 0;
-      this.hue = (this.hue + 1 + (rnd() < 0.3 ? 1 : 0)) % HUE_COUNT;
       const r = rnd();
       s[12] = HUE_RAMPS[this.hue];
       s[13] = T.moteSize * (0.75 + 0.5 * rnd());
-      s[14] = r < 0.1 ? F_GLINT : r < 0.45 ? F_BRIGHT : 0;
+      s[14] = r < 0.06 ? F_GLINT : r < 0.5 ? F_BRIGHT : 0;
       s[15] = 0;
       this.commit(this.time + L);
     }
@@ -437,20 +455,20 @@ export class SuperFx {
     this.uNow.value = this.time;
     this.uMouth.value.copy(mouth);
     this.uBusM.value.copy(busMatrix);
+    // the funnel opens along the nose, a little down, toward the city (the bus's -z, whatever its scale)
+    const e = busMatrix.elements;
+    const A = this.uFunA.value.set(-e[8], -e[9], -e[10]).normalize();
+    A.y -= Math.tan(T.funnelDip);
+    A.normalize();
+    const B = this.uFunB.value.set(A.z, 0, -A.x);
+    if (B.lengthSq() < 1e-6) B.set(1, 0, 0);
+    B.normalize();
+    this.uFunC.value.crossVectors(A, B);
     this.uArc.value.set(Math.max(0, Math.min(1, this.arcs)), T.arcHz, T.arcReach, T.arcJag);
     this.uLook.value.set(T.stretch, T.maxStretch, T.moteGlow, T.fog);
     this.uMote.value.set(0, T.sparkGravity, T.arcSize, 0);
     this.flush();
     this.object.visible = this.arcs > 0.001 || this.time < this.lastDeath;
-    // warm-up: the program really draws before the first charge (drivers build a pipeline at its first draw call, a
-    // 50-80 ms stall at the very moment the press starts charging). The arc pool only, every arc unlit: not a pixel
-    // shows. (perf/load's boot warm-up can take `object` as it is: registerWarm('super fx', () => fx.object).)
-    if (this.warm > 0) {
-      this.warm--;
-      const warming = this.warm > 0 && !this.object.visible;
-      if (warming) this.object.visible = true;
-      this.geo.setDrawRange(0, warming ? ARC_PTS : this.cap);
-    }
   }
 
   private commit(death: number) {
