@@ -345,7 +345,13 @@ rooftop's. Tunables: `config.turbo` (`worldTravel` gates G2 / G3).
 targets: cancel part of the springs' lag at turbo speeds); written by
 `TurboLens` (`src/fx/Turbo.ts`), which also punches the fov.
 
-**Turbo FX** (`src/fx/Turbo.ts`, `TurboFx`): contrail ribbon (one
+While `Controls.tearing` (a gear selected, or braking out of one) main.ts sets
+`City.detailHold`: no level-of-detail change, arrivals are coarse. Swaps to detail
+prepare tile by tile (`prep` adopt items), the swap itself only commits. A shift up
+under the opening's gate (`gearsLocked`) is queued and shown as `HudFrame.armed`.
+
+**Turbo FX** (`src/fx/Turbo.ts`, `TurboFx`): the boom's rainbow hoop (one annulus,
+one draw while it lasts; every effect really draws in the warm-up), contrail ribbon (one
 interleaved dynamic buffer, one upload per frame), speed lines (instanced,
 uniforms only), vapor cone; all `sbWrite` with flags 0.5 and ordered-dither
 dissolves; events through the existing `Particles.puff/sparkles`; the

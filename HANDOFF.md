@@ -64,7 +64,7 @@ including merging into `main`.** None of the branches below has been merged yet.
 | `feat/facade` | built, NOT reviewed (12 commits) | facade families + style table + icon overrides (`src/world/towerStyles.ts`), bases/crowns, facade LOD by size on screen, painted towers (L2 hanging gardens, L3 bands), Coit Tower, Ferry Building, 181 Fremont spire (`props/landmarks.ts`), `tools/facade-shots.mjs` | review it (shots), fix, merge FIRST |
 | `fix/landmarks` | main merged in, review fixed, ready to merge (desktop session, 2026-10-23) | `City.addLandmarkBuilding`, paint reserve + its own name-keyed store, landmark paint (flood/L1-L3), glint, Transamerica + Sutro + Coit Tower + the Ferry Building paintable, 181 Fremont's spire paints with its tower | merge into main (its DECISIONS "Merged with main" has the numbers) |
 | `polish/look` | main merged in (facade + landmarks), review re-checked on the GPU and fixed; merge review's two findings fixed (a sign half hidden behind a far landmark, no drop shadow over the bay), ready to merge (desktop session, 2026-10-24) | sky band, sign beside the blast, hero ink edge + headlight, drop shadow, puffs, GGB International Orange (`BRIDGE_ORANGE` row 23; `RAMP_COUNT` 48), water, tree crowns, one sky function shared with the facades, `tools/look.mjs` + `lookstat.py` | merge into main (its DECISIONS "Look polish" has the 390 px numbers, MAIN vs the merge) |
-| `feat/controls` | main merged in, review fixed, QA'd on the GPU (MAIN vs NEXT), ready to merge (desktop session, 2026-10-30); never run on a real phone | tilt-to-fly default on phones (`Tilt.ts`, fused attitude, recenter), touch fallback, keyboard + Esc, hold-to-charge + turbo in `Input.ts` (the INPUT CONTRACT), turbo gears G0-G3 (G2/G3 locked behind `config.turbo.worldTravel`), turbo FX + audio, `src/ui/Hud.ts`, `tools/controls.mjs` | merge before supersplat (its DECISIONS "Controls QA" has the numbers); first real-phone pass on the HTTPS preview |
+| `feat/controls` | main merged in, review fixed, QA'd on the GPU (MAIN vs NEXT), ready to merge (desktop session, 2026-10-30); never run on a real phone | tilt-to-fly default on phones (`Tilt.ts`, fused attitude, recenter), touch fallback, keyboard + Esc, hold-to-charge + turbo in `Input.ts` (the INPUT CONTRACT), turbo gears G0-G3 (G2/G3 locked behind `config.turbo.worldTravel`), turbo FX + audio, `src/ui/Hud.ts`, `tools/controls.mjs`, `tools/jet.mjs` (frame pacing, attributed), `tools/boom.mjs` (hero frames) | merge before supersplat (its DECISIONS "Controls QA" and "outside judge, round 1" have the numbers); first real-phone pass on the HTTPS preview |
 | `feat/supersplat` | built, mid-QA (8 commits) | hold-to-charge (10 s), mega blast on early release, firehose (~4 s), 60 s cooldown, `SuperSplat.ts`/`SuperFx.ts`/`SuperMeter.ts`/`superSfx.ts`, `tools/supersplat.mjs` | finish QA, merge after controls: controls' gesture replaces supersplat's minimal hold; mount SuperMeter in `hud.slot('super')` |
 | `polish/perf` | paused mid-task (12 commits) | sun-pass caster proxy, 8 m wall columns, hidden party walls, depth-only sun pass, culled far chunks, budgeted streaming, prewarm, `tools/perf-pass.mjs` | finish + measure, merge after the above |
 | `feat/stages` | empty (just created from main) | — | build the stage engine per `docs/specs/STAGES.md` (its "Producer decisions" section) |
@@ -138,9 +138,10 @@ Merging supersplat after controls (none of these conflict loudly):
    pass (polish/perf) is paused. Measure real fps here and on the producer's iPhone.
 
 ## Known issues worth knowing
-- G1 hitches (p99 33 ms, spikes 67-83 ms over the west side alone, before downtown; CPU work
-  64 ms, on this laptop): chunks stream in at 5x the surge speed. polish/perf's budgeted
-  streaming should fix it; re-measure after that merge, on an A15 too (expect worse there).
+- G1 is smooth here (p99 17 ms over five routes, `tools/jet.mjs`, DECISIONS "outside judge, round 1"): not yet
+  measured on an A15. `City.detailHold` and the `prep` adopt items overlap polish/perf's budgeted streaming: when
+  merging keep the hold, the full transfer and one way of spreading a swap.
+- A 3x `page.screenshot` costs a frame or more on any build: don't trace frame times beside one.
 - Capture tools pass `&nohud` and never see the card: `tools/controls.mjs ... opening` is the
   first-visit run (card, tap, the bus under the deck, a swipe during it, sensors that never answer).
 - `fps.mjs` peaks at 1.52M triangles at the Alamo ceiling, just over the 1.5M budget, on main too.

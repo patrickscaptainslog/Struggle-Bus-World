@@ -141,7 +141,6 @@ for (const route of routes) {
     12,
   );
   await page.screenshot({ path: `${out}/${route}-end.png` });
-  await browser.close();
 
   const d = rows.slice(2).map((r) => r.dt);
   const cd = climbRows.slice(2).map((r) => r.dt);
@@ -161,6 +160,12 @@ for (const route of routes) {
     end,
     errors,
   };
+  // the landing: the detail is back around the bus, nothing left queued
+  summary.landed = await page.evaluate(() => {
+    const c = window.__game.city;
+    return { busy: c.busy, detail: [...c.regionLod.values()].filter((l) => l === 0).length, coarse: [...c.regionLod.values()].filter((l) => l === 1).length, hold: c.detailHold };
+  });
+  await page.screenshot({ path: `${out}/${route}-landed.png` });
   const bd = brake.slice(2).map((r) => r.dt);
   summary.brake = { frames: bd.length, p99: pct(bd, 0.99), max: Math.max(...bd), over34: bd.filter((x) => x > 34).length, over20: bd.filter((x) => x > 20).length, swaps: brake.filter((r) => r.prof.swapRegion).length };
   report.routes[route] = { summary, calls: n, longs, rows: all, brake };
@@ -178,5 +183,6 @@ for (const route of routes) {
     console.log(`  t=${r.t} ${r.speed} m/s gap ${r.dt} ms  adopt ${prev.adopt}  pend ${prev.pending}  ${p}`);
   }
   console.log('  long tasks', JSON.stringify(longs.slice(0, 24)));
+  await browser.close();
 }
 writeFileSync(`${out}/jet.json`, JSON.stringify(report));

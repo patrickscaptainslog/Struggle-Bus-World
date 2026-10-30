@@ -1469,6 +1469,52 @@ cross-checked in the browser with `tools/feel.mjs`.
   (113 / 704,055), 250 m (133 / 807,622) and the ceiling (64 / 432,140); work median
   3.5 / 4.1 / 1.5 ms on main, 3.6 / 3.6 / 1.3 ms merged.
 
+## Controls: outside judge, round 1 (FAIL) and the fixes (2026-10-30)
+Two must-fixes (a silent turbo under the opening's gate; hitches at jet speed), and "the splat still owns
+every best frame". All measured in real Edge on the Intel UHD 620, 393 x 852 @3x.
+- **Every press answers on its frame.** Under the gate a shift up stays queued (a gear would lift the bus into
+  the deck) but now says so at once: the toast "TURBO AFTER THE BRIDGE", the readout "G1 JET / ARMED" dim and
+  blinking, the lever armed, the shift's clunk. It fires by itself when the gate clears (lever at 17.8 s -> G1 at
+  21.1 s). A shift down cancels it ("TURBO OFF"). Pulling back under the gate says "CLIMB AFTER THE BRIDGE" once
+  (at most every 30 s), the first thing a tilt player tries.
+- **The hitches were not what they looked like.** `tools/jet.mjs` (no screenshots, per-frame attribution):
+  1. `swapRegion`, 25-68 ms + up to 26 ms of first-draw upload every ~2 s: detail nobody can see at 450 m/s, on
+     screen for under a second. **`City.detailHold`** (`Controls.tearing`: a gear selected, or still braking):
+     nothing changes level of detail, what arrives is coarse. The jet's frames look the same.
+  2. 58-76 ms long tasks outside any frame: the worker's message, copied (18 typed arrays per tile, 16 tiles).
+     **Everything is transferred now**; the long tasks are gone.
+  3. One 50-83 ms stall ~0.15 s after the trail appeared, with the main thread idle: the warm-up compiled the
+     trail but `setDrawRange(0, 0)` never drew it, and the driver builds its pipeline at the first real draw.
+     **The warm-up draws degenerate triangles.** (All turbo programs now really draw behind the loading fog.)
+  4. Deferring swaps would only move the hitch to the brake (up to 67 ms). **Swaps to detail prepare tile by
+     tile** on the adoption budget (`prep` items: the off-scene mesh with its bounds, the obstacle scan, which
+     were two thirds of the swap), and the swap itself only commits; one swap per frame at most. This helps the
+     classic flight too. (polish/perf has a tile-by-tile trim of its own: merge by keeping whichever is simpler.)
+  Result, five routes (gate, west, south, east, north), climb + 9 s jet + 12 s brake: jet p50/p95/p99/max
+  16.7/16.8-16.9/16.9-17/17.0-17.3 ms, 0 frames over 20 ms, 60 fps, up to 128 draws / 1.12M tris; brake max 17.1-33.4 ms,
+  0 over 34; climb max 16.9-17.5 ms, except one 50 ms frame on `north` at 29 m/s just after the shift, with the
+  main thread idle (not repeatable on the other four routes).
+- **A screenshot is a long frame.** The judge's trace ran beside 3x `page.screenshot` every ~600 ms. MAIN and NEXT
+  both stall on it: 12 shots on a quiet machine, MAIN 4 frames > 34 ms, NEXT 3 and 5, p99 33.5-50 ms on both; on a busy one up to 250 ms. Their
+  `play.mjs`, unchanged, same hour: pre-fix build 51 fps, p99 66.6, max 699.8, 14 frames > 34 ms; fixed 58.4 fps,
+  p99 33.4, max 33.6, 0 frames > 34 ms: its 14 slow frames are the script's 14 shots, one frame each. The p99 <= 20
+  ms goal is met without capture (16.9-17) and not with it (33.4), and that is why.
+- **Static views unchanged**: Alamo frozen at the same game time differs from MAIN by 0.022% of pixels (one random
+  puff), same 126 draws / 1,203,074 tris. `fps.mjs` Alamo, back to back: MAIN 60 / 59.9 / 57.4 fps, NEXT 60 / 60 / 60
+  (street / 250 m / ceiling), 124-125 / 135 / 163-165 draws.
+- **The contrail is vapor now, not a dither pattern.** The checkerboard was a screen-space Bayer; it now
+  dissolves by hard thresholds of noise anchored to the trail's distance (`aDist`), so clumps hold still in the air
+  while the bus leaves them, with one pixel of dither at their edges. Fresh it is a clean flag; set, the outline
+  billows (the bands follow it), cel steps fold it, it wanders and sags. Stride 10 floats, still one buffer.
+- **The rainboom.** From the chase camera the old cone was just a white disc. The boom now throws a rainbow hoop
+  (white crest, six hues, red outside): one annulus, one draw for under a second, opening around the bus and falling
+  back along its path past the camera. The cone stays as a short white shock.
+- **Speed lines are solid**: the dither ate streaks under a pixel wide into dots. 1.7 px, shortened rather than
+  dissolved, one in five a hue.
+- **Roll and pitch reach full at the same angle** (`rollFull` 30 -> 26): the judge's 0.18 at gamma 18 was the
+  hold angle (at 55 deg that is ~12 deg of wheel roll), now 0.22; 15 deg of real roll gives 0.38.
+- Still not done: no real phone yet; the A15 numbers are inferred.
+
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
   local repo until `patrickscaptainslog/struggle-bus` exists.
