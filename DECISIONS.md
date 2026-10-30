@@ -455,6 +455,234 @@ cross-checked in the browser with `tools/feel.mjs`.
   frame 4.9 / 3.4, 3.8 / 4.3, 2.8 / 3.7, 2.5 / 2.9 ms (median of 11 frames on a
   SwiftShader host at load ~26: inside its noise).
 
+## Super splat (producer: "hold to charge up splat ... an ungodly amount of rainbow splat, like a torrent, a firehose ... then an obviously shown cooldown")
+- **Hold, don't tap.** A splat press held `holdThreshold` (0.3 s) charges,
+  shorter is the normal tap. The gesture is controls' (Input's INPUT CONTRACT,
+  "Tilt to fly" below): the SPLAT button in touch mode, the whole screen in
+  tilt mode, Space on a keyboard; a still thumb on the canvas in touch mode
+  steers, it never charges. Sliding off the button, a swipe, a lost pointer or
+  a lost focus cancels: the charge fizzles out with a power-down, no cooldown.
+- **Ten seconds to full** (`superCharge`), as the producer guessed. Released
+  under 30 % (`superMin`) it is just a splat (no cooldown: a long-ish tap must
+  not be punished). Released between 30 % and 100 %: a **mega blast**, the
+  tap's own breath (inhale, rear-up, jet, blast) scaled by the charge: radius
+  x1.6 -> x2.6 (`megaFloor`, `megaGain`; x1 at first: see "Outside judge" below),
+  a jet 1.5x -> 2.4x wider, hit-stop 6 -> 9 frames, thunder under the boom,
+  cooldown x the charge (30 s at 50 %). At
+  100 % the **firehose** lets go on its own (holding on can't waste it).
+- **The charge has to be felt with the sound off**, so it is on the bus, under
+  it, around it and in the meter at once: rainbow energy motes spiral in from
+  up to 115 m out (mostly from the city below) and land exactly in the mouth
+  (computed against the live mouth on the GPU, so a moving bus still swallows
+  them), up to ~950 a second; the belly band races through the rainbow, then
+  flickers white-hot from 62 %; the whole body glows, throbbing with a
+  heartbeat that races from 70 to 230 bpm (the same `heartInterval` drives the
+  audio's lub-dub and the bus's throb); it swells 16 %, shudders, wheezes,
+  its eye opens wide, steam puffs from the hatch; arcs crackle over the body
+  from 18 % (a static pool of points re-rolled 21 times a second on the GPU),
+  sparks fly off it from 25 %, a rainbow halo orbits it from 35 %; a rainbow
+  pinwheel spins around its drop shadow, a summoning circle on the roofs and
+  streets below (resolve pass, see "Merged with controls"); the camera creeps in 20 % (a dolly: translation only, the
+  pixel snap holds); the charge weighs the bus down to 60 % speed (struggle,
+  then release). Audio: a two-octave riser and hiss, the heartbeat, chord
+  tones shimmering over the last stretch. The first build's motes were
+  pastel (each hue's two lightest steps) and read as sprinkles; they are the
+  hues' saturated middle steps now, with a white-hot heart on the big ones.
+- **The firehose** pours for 4 s (`firehoseDuration`) along the breath's aim
+  (Aim.ts; at the rooftops it reaches 1.7x the breath's range, `firehoseReach`,
+  so a turn sweeps a wide arc; from up high it pours down along the aim ray,
+  mid-screen). It is one geyser whose landing point moves (`GeyserLive`):
+  every particle flies to where the stream was aimed when it left the mouth,
+  so as the bus turns the torrent bends into a sweeping arc across the city.
+  12 times a second (`firehoseRate`, at most one per frame) the point where
+  the stream is coming down right now (a 96-entry history of aim points and
+  their landing times: the paint follows the visible stream, not the aim)
+  takes a full 45 m blast (`firehoseRadius`, growing with the drop like a
+  tap's) through the normal Splatter: buildings bloom as the shockwave reaches
+  them, the ground and the trees are splattered, painted buildings escalate a
+  level per hit, at most every 0.4 s (`firehoseRepop`): L3 in about a second
+  under the stream. A per-building busy time keeps a later impact off a
+  building whose pop is still on its way (the plan reads levels at barf time:
+  without it the second of two overlapping impacts re-dealt a fresh
+  building's hue and flashed it grey). Impacts are timed to land as the
+  stream does, so about one blast is in flight at a time (GroundPaint has 4
+  live reveal slots). The bus is knocked back to 30 % of its speed and held
+  at 40 % (recoil), rears 0.24 rad and shudders; every impact kicks the
+  camera (translation only) and rings a bell climbing the chord over a
+  roaring bed (a soft-clipped chord drone, rushing pink noise, a sub) that
+  swells into a crescendo; the street sign pops when the stream sweeps into a
+  new neighborhood; it ends in a 90 m finale blast with 8 hit-stop frames.
+- **Flashes are capped at 3 a second** (`firehoseFlashes`): 12 palette
+  flashes a second would strobe (photosensitivity guidance: no more than 3
+  flashes a second).
+- **From up high the stream pours 3x faster** than the breath's projectile
+  (`firehoseSpeed`) and widens with the drop (`firehoseWidthDrop`): in the
+  first build it flew 1.2 s from 250 m, so a turning bus left its landing off
+  the edge of the screen, and a 20 m ribbon was a thread from 700 m away.
+- **Cooldown 60 s** (`superCooldown`), shown three ways: the meter ring drains
+  white, then refills dimly over the minute with the seconds left in the
+  middle (white digits); for the first 4 s (`superSpent`) the bus is spent
+  (dark smoke from the exhaust and the hatch, a heavy wheeze, a dim belly
+  band and hatch, a droopy eye, nose down, limping back up from 40 % speed);
+  when it is ready: a rising chime, a white pulse and pop of the meter, a
+  rainbow halo and sparks around the bus. Holding during the cooldown: a
+  damp-firework fizzle, the meter blinks red and shakes, a puff from the
+  hatch; a tap still splats, and so does the lift of that held press (only
+  the firehose blocks taps: the mouth is busy).
+- **The meter** (`src/ui/SuperMeter.ts`) is the only UI the super has: a
+  34 x 43 pixel canvas at 2x, palette colors, the pixel font (MEGA / HOSE under
+  the ring, seconds in it), in the HUD's bottom-center slot. No HUD at rest: it
+  shows only while charging, pouring or cooling down, and for 0.7 s of "ready"
+  under the chime (hidden, it doesn't redraw). So there is no HOLD hint any
+  more: the tutorial's job, if one is wanted. It redraws only when what it
+  shows changes.
+- **Particles stay in the existing pool** (8000): a hose impact throws a
+  smaller splash and burst and every fifth spatter blob (~260 particles, a tap
+  ~1100), bloom sparkles are fewer for hose blooms, the stream's rate is
+  scaled so as many particles are alive however long it flies. The charge's
+  motes, arcs and sparks are their own small pool (2400, one draw, drawn only
+  while alive).
+- **Nothing new persists** (the paint already does); the cooldown resets with
+  a reload.
+
+## Merged with controls: the super splat on the real gesture (MAIN d6fa4a6 vs NEXT)
+- **Controls' gesture and INPUT CONTRACT won.** `Input.ts` is main's, whole; supersplat's minimal hold and
+  `holdSlopPx` are gone, and so is the duplicate `config.splat.holdThreshold`. `tools/feel-sim/s_hold.ts` tested the
+  deleted gesture (a still thumb on the canvas charges): retired, `tools/controls-sim/s_gesture.ts` covers the press
+  (chargeStart at 317 ms in every scheme, cancelled on a slide, a blur, a pointercancel; run on NEXT, unchanged).
+  main.ts's stop-gap `onChargeEnd` (a held press splats) is replaced by `superSplat.chargeEnd`.
+- **No dead press.** The stop-gap's promise stays: under `superMin` a held press is a splat, and a press told "not
+  yet" during the cooldown splats on its lift too (a slow tap mustn't go unanswered because a minute's cooldown is
+  running). Checked through real Space presses: 0.6 s = a splat, no cooldown; 4.2 s = a mega, 25.4 s cooldown; 0.6 s in
+  the cooldown = "not yet", then a splat.
+- **A gear is never braked by the super.** `Flight.driven` (a gear or the boost is driving the speed, or a gear is
+  still braking out): the charge's weight, the firehose's hold and the spent limp (`speedScale`) and the firehose's
+  kick all stand aside. The charge is allowed at G1: the firehose at 450 m/s lays a rainbow stripe across the city, and
+  that is the best thing a gear can do. `supersplat.mjs jet`: 441.8 -> 450 m/s all through the charge, the pour and the
+  limp (scale 0.4 -> 1), 49 impacts; the shift down still brakes at the gear's own rate (204, 90, 49 m/s). Before this
+  decision a charge at G1 would have been 450 -> 135 m/s. The classic bus is unchanged.
+- **The sign goes through the same queue as a blast's** (`queueSign(ref, hue, cx, cz, r)`): beside the blast, after
+  the wave, with its retries. The hose branch keeps `lastBlast` and `landmarkHit`, so the stream floods landmarks.
+- **The summoning circle moved into the resolve pass**, beside the hero shadow it used to be (`setHeroCircle`, the
+  shadow's `dropShadow` centre, axes and snap compensation): the old mesh is gone with look's shadow, and a new flat
+  mesh would have floated over roof edges and cost a draw and a program (a stall risk at the first charge). Now it lies
+  on whatever faces up below the bus, breaks over a parapet as the shadow does, costs no draw and no program, and the
+  shadow stays in its middle. It is a hue ramp's own steps 5-6, stippled gaps: nothing new leaves the palette. (The
+  first pass ran up to step 7 and went pastel at a full charge; the saturated steps read better.) Its spin is integrated
+  now: `uTime * rate` lurched faster and faster as the rate climbed.
+- **The first charge never stalls.** `SuperFx` is the only new material. Its Points are not visible until a charge, so
+  like TurboFx it draws its (unlit) arc pool for its first 3 frames; `object` is ready for perf/load's
+  `registerWarm('super fx', () => fx.object)`. `supersplat.mjs first`, real time: the first charge's worst frame gap
+  17.1 ms, the second's 17.1 ms, no links.
+- **`Blast.super = {kind, charge, id}`** (STAGES.md 4.5): mega, hose and closer tagged, the hose's impacts and closer
+  sharing the super's serial, so the stage engine can count one hit per area per super and the swath's impacts.
+- **The closer waits for the impacts in flight** (`Splatter.inFlight`): it read paint levels at barf time, took blocks
+  the last impact was about to paint for grey and re-dealt their hue. L3 under the sweep 22 -> 27, 4.30 -> 4.37 s.
+- **Trees take their first colour only from hose impacts** (`paintTrees(b, true)`): they ran through all three levels
+  in a quarter second. Mega and closer still escalate them. One Vector3 and one hue array per bloom are gone too
+  (taps gain).
+- **The numbers** (393 x 852 at 3x, this laptop's GPU, fixed 1/30 s; `tools/supersplat.mjs`, `blast.mjs`):
+
+  | Alamo / Ladies | work median / p90 ms | draws median (max) | triangles median (max) |
+  |---|---|---|---|
+  | MAIN cruise | 5.3 / 6.8 | 117 (119) | 1.15M (1.18M) |
+  | NEXT cruise | 4.5 / 5.4 | 117 (119) | 1.15M (1.18M) |
+  | MAIN tap | 5.0 / 6.2 | 115 (117) | 1.14M (1.15M) |
+  | NEXT tap | 4.8 / 5.9 | 115 (117) | 1.15M (1.15M) |
+  | NEXT firehose | 3.7 / 6.5 | 138 (149) | 1.24M (1.38M) |
+  | NEXT after it | 2.2 / 2.8 | 138 (143) | 1.30M (1.33M) |
+
+  `blast.mjs perf`, MAIN / NEXT: blast 4.4 / 4.5 ms, 148 / 148 draws; painted 3.1 / 2.8 ms. One upload per texture per
+  frame all through the pour (`perTexMax` 1, no full uploads), points 10.4k at most (8000 pool + the super's). Real time,
+  uncapped (60 Hz here): the pour from the rooftops p95 16.9 ms; from 250 m p95 33.5 ms, worst 83 ms, 29 of 251 frames
+  over 33 ms. Firehose offline: 49 impacts, 12.3/s, one blast in flight, 91 buildings, L3 27, cooldown 57.7 s; mega at
+  50 %: radius 90 m, cooldown 30.2 s; audio peak 0.81, nothing over 0.99.
+- **Not this branch's, seen here:** the street sign's and the rooftop gardens' programs link on their first use, in
+  flight: 170 ms at the first sign, ~300 ms at the first L2 and L3, on MAIN too (`blast.mjs perf`: 172 and 332 ms). A
+  firehose reaches L2 within a second, so a player's first firehose has those two hitches until perf/load's warm-up lands
+  (`registerWarm('roof sprouts', ...)` is there already). And 250 m over Alamo is 1.8M triangles and 200 draws at cruise
+  on MAIN too, over the budget; the firehose adds 22 draws and ~100k triangles on top (`__stats`).
+- **Merge review, confirmed findings** (reviewed 89663c5; all on this laptop's GPU, nothing yet on a real iPhone):
+  - **A super's blast is capped by its area** (`config.splat.megaBuildingsCap` 480; mega and closer, not taps or hose
+    impacts). The cap grew with r and stopped at 96 while the buildings in reach grow with r squared: the longer the
+    charge, the more grey blocks inside a rainbow street grid. The cap now is `maxBuildings * (r / blastRadius)^2`, up to
+    480. It lives in `barf` (a super's tag, not a hose) rather than a new `BarfOpts.cap`, so the closer, which had the
+    same bug, needed no second copy. Buildings by centroid inside r, painted of them, before -> after: Outer Sunset 98 %,
+    r 161: 96 of 192 -> 192 of 192; Alamo 98 %, r 159: 141 of 141 (it was 96 of 112 inside 0.9 r); full charge near Lower
+    Haight from 283 m, r 298: 96 of 477 -> 473 of 473 (farthest painted 158 -> 298 m); Outer Sunset from 258 m, r 285: 479
+    of 505; closer from 240 m, r 165: 183 of 183. Spots under the old cap stay as they were (Mission 72 of 72). The new
+    cap bites only near the top of the climb: Outer Sunset from 371 m, r 343: 480 of 808, farthest 305 m, nearest first,
+    so what stays grey is the rim, and the picture still reads as one disc.
+    Cost: `barf` 28-45 ms and the release frame 38-53 ms (it was ~41 ms at the old cap), once per cooldown; `deal`'s
+    O(n^2) stayed small enough to leave. Taps unchanged (`blast.mjs perf`: 148 draws; 7/7 glint == hit, 48/48 carves).
+    Draws: up to 225 at 283 m, where cruise is already ~200 (see above); blooms add no draws by design, but this run has
+    no A/B. Sparkles reach the 8000-point pool at these sizes. Paint survives a reload (109 buildings, 2575 ground samples).
+  - **The reviewer's unexplained 180 ms frame ~3 s after release is the first street sign's link**: `info.programs` goes
+    21 -> 23 on that very frame (176 ms). Not the cap; it costs 22 ms on a later page of the same browser.
+  - **First firehose, corrected:** not "two hitches": see HANDOFF "Known issues" (gaps 333, 250, 250, 217, 150, 133 ms
+    in a fresh browser, five programs). Not fixed here: perf/load's warm-up is the fix, and it conflicts in `main.ts`,
+    `PixelPipeline.ts`, `City.ts` and DECISIONS, so it is merged after this and deployed with it. **Measure links in a
+    fresh browser:** on a second page the same run shows nothing over 17 ms, because the links are cached.
+  - **"No press is dead" now holds across the end of the cooldown:** a press told "not yet" that is still held when the
+    cooldown ends splats on its lift. Real Space press, belly full: `lastShot` moves. (A belly still refilling gets the
+    tap's denied sound, not silence.)
+  - **A mega with a part-full belly stops at the wall** (`Aimer.aimShot`: the aim point, the pick, `occlude`, the same
+    Shot as `fire()`): `update()` keeps no target while the belly refills, so that branch had skipped the rule that the
+    jet never flies through a building. FiDi, belly 0.5: `wall: true`, target = the wall that glinted (16014), landing on
+    its face, no longer ~46 m behind it.
+## Super splat, outside judge round 1: the first pour, the floor, the hold (MAIN d6fa4a6 vs NEXT)
+The judge failed the branch (`shots/local/judge-supersplat/round-1/REPORT.md`, untracked): every player's first firehose
+hitched five times, and a hold under ~50 % was a tap with a lockout. All numbers: 393 x 852 at 3x, real Edge, this
+laptop's UHD 620, a fresh browser per run.
+- **The first pour's cost was the links after all.** The judge's "1.4 ms" timed `LINK_STATUS`, which three.js doesn't
+  read first: a CPU profile and every GL call timed show `getProgramInfoLog` (three's first query, where the main
+  thread waits for the link) at 939 ms over the pour, 400 ms of it in one frame. The rest of the gaps were ANGLE's
+  draw-time compiles in the GPU process. Five programs: the gardens' batches and sun twins, the sign's blade and caster.
+- **perf/load's warm-up is on this branch now, as a kit.** `src/render/warmup.ts` is that branch's file, byte for byte,
+  with `PixelPipeline`'s warm section and `registerWarm('roof sprouts', ...)`, so its merge lands on top. Boot is NOT
+  perf/load's: nothing else moved. `main.ts` warms the post passes, the gardens, the signs and `SuperFx` after
+  `onResize()`, in parallel (`KHR_parallel_shader_compile`), and the first frame waits at most `render.warmWait` (6 s; it
+  goes on in the background past that, and no phone waits forever on a compile). `SuperFx`'s own 3-frame warm-up is gone.
+  Report here: 10 programs, 6 draw rounds, done in 1.55 s, during the city's download: cold load to ready 10.4-10.8 s vs
+  10.1-10.6 s before (it hides under a 7.5 s first-frame compile perf/load still has to fix).
+- **One fix to the kit:** `warmDraw` binds the sun's target first even with no sun proxy that round. A scene proxy drawn
+  before the sun map's first use sampled a depth texture that didn't exist yet: GL dropped the draw (`INVALID_OPERATION:
+  Mismatch between texture format and sampler type`, seen once in about ten boots). Port this to perf/load when merging.
+- **Numbers, first firehose, rAF gaps ms p50 / p95 / p99 / max:** before 16.7 / 16.9 / 250 / 400 (5 gaps over 100);
+  after, 8 fresh browsers: 16.7 / 16.8 / 16.9 / 17.5 at worst, no gap over 18, no long task, 0 programs linked in flight.
+  A first tap: 3 gaps of 133-233 ms -> one, the first gesture's `audio.unlock()` (183 ms, HANDOFF known issue). Over
+  never-painted ground ~860 m on (new sprout cells): max 17 ms. Later pours in the painted block: p95 17-33 ms, max 50, in
+  the judge's range too (the same block, heavier with every pour on this iGPU; no long task, nothing to warm).
+- **A mega has a floor.** `megaFloor` 1.6 at `superMin` (and `megaWidthFloor` 1.5, `megaHitStopFloor` 6, a harder kick),
+  rising to the same x2.6 near a full charge. The judge's spot, 40 %: radius 74.9 -> 105.6 m, painted within 160 m of the
+  aim 32 of 102 -> 53 of 102 (a tap: 34 of 139 by MAIN's aim at that spot); cooldown unchanged, 24 s, for an unmistakable
+  blast. The cost of the bigger blast: `megaBuildingsCap` already scales with its area.
+- **The hold is taught once.** Under a press nothing said it existed. `HOLD SPLAT TO CHARGE` (touch), `HOLD TO CHARGE`
+  (tilt), `HOLD SPACE TO CHARGE` (keyboard), through `hud.toast`, when the belly first fills again after a splat: the
+  player knows the tap by then. Once a session, until a mega or a firehose (`strugglebus.superhint.v1`, a per-viewer
+  convenience in localStorage: lost, the line just shows again). Checked by real touches: shown 4.9 s in; no second
+  line on the next refill; none after a reload once a mega was fired.
+- **The motes are a funnel, not a cloud.** They read as confetti drifting across the screen. Now six ribs, one hue each,
+  twist down a cone from the mouth along the nose, dipping toward the city (`funnelDip`, `funnelOpen`, `funnelTwist`,
+  `funnelScatter`), computed in the vertex shader from the live mouth and axis as before, growing in far out and thinning
+  as they rush in. Same one draw, no CPU per mote after its birth. The rate starts at 20 % of full (10 % read as nothing).
+- **The summoning circle no longer splits.** On "whatever faces up" it broke in two across a roof and the street at its
+  base, with the parallax between them. Each pixel's ray now meets one plane through the wheels (the drop shadow's
+  underside y): one unbroken disc around the bus, covered by what stands in front of the plane, over any surface below
+  it. It reads the same at street level and from 250 m. No draw, no program, the same palette steps.
+- **The ground under a pour is one picture.** Twelve impacts a second, each its own pinwheel, was a 6-hue patchwork. A
+  solid hue per impact, climbing the rainbow, was tried first: the bus crawls while it pours, so discs overlap
+  nearly whole, and the ragged rims of the last few hues stayed a quilt. Now hue is a function of the ground point, not
+  the impact (`LAYOUT_BANDS`, `bandHue`): rainbow rings around where the pour first landed, `firehoseBand` 17 m wide
+  (grown with the drop like the blast), their edges wobbling with the world. Overlapping impacts agree by construction,
+  the closer included, and a swept stream paints arcs of one rainbow. Roofs keep the dealt rainbow. Generic: no city data.
+  `ox`, `oz` travel on the spec; older saved specs still read. Saved tiles are masks, so rings survive a reload (checked).
+  `work` through the pour stays p95 5.2 ms, max 12 ms, 116-172 draws, at most 1.35M triangles, 10.4k points.
+- **`f_sproutVertex`'s warning is gone** (`SproutV` fully initialized, one return: FXC warns on a struct's early return).
+- Idle parity holds: 60 fps at all six `fps.mjs` spots, 124 / 135 / 164 and 112 / 143 / 72 draws, 1.20 / 1.23 / 1.40M and
+  0.71 / 0.87 / 0.48M triangles, as before; 1 % lows 53-57. Strobe: 0 frames over 30 % near-white (max 20 % street, 26 % at 250 m).
+  Bundle 1095 -> 1111 KB (1053 on MAIN); programs at ready 21 -> 26 (all were built in flight before).
+
 ## Tilt to fly, touch to fly, turbo gears (producer: "world class phone tilt to fly, on by default for phones"; "fly from SF to Tokyo across the Pacific, manually, using some sort of turbo modes")
 - **Tilt is the default on phones; touch is the fallback and an option.** A
   desktop (fine pointer + hover) flies the keyboard + mouse bungee as before.

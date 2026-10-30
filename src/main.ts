@@ -3,12 +3,13 @@ import { config } from './config';
 import { PixelPipeline } from './render/PixelPipeline';
 import { globals, layerTopBase } from './render/materials';
 import { HUE_RAMPS } from './render/palette';
+import { WarmUp } from './render/warmup';
 import { City, type BuildingRef } from './world/City';
 import { paintUniforms, setFacadeView } from './world/buildingMaterial';
 import { Ground, type CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
 import { CameraRig } from './game/CameraRig';
-import { Splatter, type Blast } from './game/Splat';
+import { Splatter, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
 import { Aimer, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
 import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blastLayout';
@@ -26,6 +27,9 @@ import { heroLandmarks, SpireRide } from './world/props/landmarks';
 import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
 import { tunableGroups } from './ui/tunables';
+import { SuperSplat } from './game/SuperSplat';
+import { SuperFx } from './fx/SuperFx';
+import { SuperMeter } from './ui/SuperMeter';
 
 // Struggle Bus — Phase 1 (real SF, solo).
 
@@ -221,6 +225,11 @@ async function boot() {
   // the blast needs headroom: geyser + crown splash + flung blobs + a sparkle crown per bloom
   const particles = new Particles(8000);
   scene.add(particles.object);
+  // the super splat's own motes, arcs and sparks (one draw, only while alive)
+  const superFx = new SuperFx();
+  // (the body in the bus root's space: design units x the model's scale; y from the tyres up)
+  superFx.setBusSize(1.22 * bus.scale, 3.19 * bus.scale, bus.length * 0.5, -1.58 * bus.scale);
+  scene.add(superFx.object);
   const signs = new StreetSigns();
   scene.add(signs.object);
   const audio = new AudioEngine();
@@ -291,7 +300,9 @@ async function boot() {
   /** this breath's flight time from launch while Splatter schedules it (null = the classic one) */
   let breathTravel: number | null = null;
   /** The jet waits out the inhale (the bus squashes and gulps first), then flies so it lands exactly at the impact. */
-  let jet: { at: number; impact: number; end: number; targets: THREE.Vector3[]; hues: number[] } | null = null;
+  let jet: { at: number; impact: number; end: number; targets: THREE.Vector3[]; hues: number[]; width: number } | null = null;
+  /** this breath's jet width (x the breath's; a super splat's mega blast is fatter) */
+  let breathWidth = 1;
   let simTime = 0;
   const flingFrom = new THREE.Vector3();
   const flingTo = new THREE.Vector3();
@@ -299,7 +310,7 @@ async function boot() {
   /** Where a flung blob comes down: the roof it hits, else the ground. */
   const landingY = (x: number, z: number) => city.roofAt(x, z) ?? city.groundAt(x, z);
   /** Trees standing in the blast's fresh ground paint bloom (or escalate) as the shockwave reaches them. */
-  const paintTrees = (b: Blast) => {
+  const paintTrees = (b: Blast, freshOnly = false) => {
     const ts = manifest.tileSize;
     const { x, z, r } = b.spec;
     const reach = r * b.spec.reach;
@@ -312,20 +323,21 @@ async function boot() {
         for (let i = 0; i < list.length; i++) {
           const t = list[i];
           const d = Math.hypot(t.x - x, t.z - z);
-          if (d > reach) continue;
+          if (d > reach || (freshOnly && tf.paintLevel(i) > 0)) continue;
           const g = city.ground.sample(t.x, t.z);
           if (!g || g.cov < 0.5) continue;
           tf.setPaint(i, g.hue, Math.min(3, tf.paintLevel(i) + 1), b.t + arrival(d, r));
         }
       }
   };
+  const bloomHues = [0, 0, 0];
   /** the blast being shown (impact fires right before its primary's bloom, in the same update) */
   const lastBlast = { x: 0, z: 0, r: config.splat.blastRadius };
   const splatter = new Splatter(city, {
     geyser: (targets, hues) => {
       const S = config.splat;
       const fly = breathTravel ?? Math.max(0.05, S.impactDelay - S.inhale);
-      jet = { at: simTime + S.inhale, impact: simTime + S.inhale + fly, end: simTime + S.duration, targets, hues };
+      jet = { at: simTime + S.inhale, impact: simTime + S.inhale + fly, end: simTime + S.duration, targets, hues, width: breathWidth };
     },
     miss: (pos, hue) => particles.splash(pos, hue, 0.6),
     impact: (b) => {
@@ -334,6 +346,15 @@ async function boot() {
       lastBlast.x = b.spec.x;
       lastBlast.z = b.spec.z;
       lastBlast.r = b.spec.r;
+      if (b.hose) {
+        // a firehose impact: the super splat plays its own (lighter) fx; trees take their first colour only
+        // (a dozen impacts a second would run a tree through every level at once)
+        paintTrees(b, true);
+        landmarkHit(city, b.pos, b.t);
+        bumpPaint(b.spec.x, b.spec.z, Math.min(255, 20 + 3 * b.count));
+        superSplat.impact(b);
+        return;
+      }
       particles.splash(b.pos, b.spec.hue, 2.2 * Math.sqrt(k));
       particles.burst(b.pos, b.spec.hue, k, city.groundAt(b.pos.x, b.pos.z));
       // paint blobs flung far out, each landing on a spatter dot the ground paint already holds
@@ -353,18 +374,19 @@ async function boot() {
       rig.kick(S.kick * Math.sqrt(k));
       bumpPaint(b.spec.x, b.spec.z, Math.min(255, 30 + 5 * b.count));
     },
-    bloom: (ref, _order, _total, hue, level, roof) => {
+    bloom: (ref, _order, _total, hue, level, roof, flags) => {
       if (landmarkBloom(ref, hue, level)) return;
       const h = ref.roofY - ref.baseY;
-      particles.sparkles(roof, Math.sqrt(ref.area) * 0.6 + 2, h, [hue, (hue + 1) % 6, (hue + 5) % 6], 14 + level * 8);
+      // (the firehose blooms a dozen blocks a second: fewer sparkles each)
+      bloomHues[0] = hue;
+      bloomHues[1] = (hue + 1) % 6;
+      bloomHues[2] = (hue + 5) % 6;
+      particles.sparkles(roof, Math.sqrt(ref.area) * 0.6 + 2, h, bloomHues, flags & BLOOM_HOSE ? 5 + level * 3 : 14 + level * 8);
       fogBumped.add(ref.stableId);
-      if (level >= 2) growSprouts(ref, hue, level, globals.uTime.value);
+      if (level >= 2 && !(flags & BLOOM_REPOP)) growSprouts(ref, hue, level, globals.uTime.value);
     },
     // the street sign waits until the shockwave has bloomed the whole blast (game clock: hit-stop holds it)
-    primary: (ref, hue) => {
-      const r = lastBlast.r;
-      pendingSigns.push({ ref, hue, cx: lastBlast.x, cz: lastBlast.z, r, at: simTime + arrival(r, r) + signTune.showDelay, tries: 0 });
-    },
+    primary: (ref, hue) => queueSign(ref, hue, lastBlast.x, lastBlast.z, lastBlast.r),
     hitStop: (frames) => (hitStop = frames / 60),
   });
 
@@ -377,6 +399,9 @@ async function boot() {
   // hovering over the roofs with no pole). Nothing farther along its sightline (a tower, a landmark up
   // the hill) may hide any of the blade either: no sign beats half a blade.
   const pendingSigns: Array<{ ref: BuildingRef; hue: number; cx: number; cz: number; r: number; at: number; tries: number }> = [];
+  const queueSign = (ref: BuildingRef, hue: number, cx: number, cz: number, r: number) => {
+    pendingSigns.push({ ref, hue, cx, cz, r, at: simTime + arrival(r, r) + signTune.showDelay, tries: 0 });
+  };
   let signSpot: { x: number; y: number; z: number; facing: number; scale: number; bias: boolean; pole: number; cx: number; cz: number; r: number; text: string; until: number } | null = null;
   /** How far (m) a point must rise for its sightline to the camera to clear the roofs and crowns over
    *  the first ~60 m in front of it (0 = in the clear). */
@@ -553,15 +578,19 @@ async function boot() {
     return true;
   }
 
+  /** What a super splat's mega blast adds to a breath. */
+  type MegaBreath = { radius: number; width: number; hitStop: number; tag: SuperTag };
   // Dragon breath aim (src/game/Aim.ts): the building that glints is the one a tap hits.
   const aimer = new Aimer(city, splatter);
   /** Breathe a shot: the blast is timed to the projectile's flight (inhale + travel), at the glinting building. */
-  const breathe = (shot: Shot) => {
+  const breathe = (shot: Shot, mega?: MegaBreath) => {
     breathTravel = shot.travel;
+    breathWidth = mega ? mega.width : 1;
     try {
-      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact });
+      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag });
     } finally {
       breathTravel = null;
+      breathWidth = 1;
     }
     // a breath into open water paints nothing: part of the belly comes back
     if (splatter.lastMiss) flight.refund = config.splat.missRefund;
@@ -596,36 +625,102 @@ async function boot() {
   input.onTripleFinger = () => tuner.toggle();
   input.onFirstGesture = () => audio.unlock();
   input.onPress = () => aimer.press();
-  input.onTap = () => {
-    if (tuner.visible) return;
+  /** A breath leaves now: anticipation (the bus squashes on this very frame, inhales, then the jet leaves), then the shot. */
+  const breatheNow = (shot: Shot, mega?: MegaBreath) => {
+    pose.squash = mega ? 0.72 : 0.8;
+    squashV = 0;
+    audio.heave();
+    const tgt = shot.target;
+    const iy = shot.y ?? (tgt ? city.roofAtPart(tgt, shot.x, shot.z) + 0.5 : city.groundAt(shot.x, shot.z));
+    lastShot = { t: simTime, aim: [shot.x, iy, shot.z], travel: config.splat.inhale + shot.travel, drop: shot.drop, busY: flight.y, wall: shot.exact, target: tgt ? { index: tgt.index, cx: tgt.cx, cz: tgt.cz, roofY: tgt.roofY } : null, mega: mega?.radius };
+    breathe(shot, mega);
+    if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
+  };
+  const tapSplat = () => {
     // (taps fire between frames: what fire() hands over is exactly the building on screen glinting)
     const shot = aimer.fire(flight);
-    if (flight.tryBarf()) {
-      // anticipation: the bus squashes on this very frame, inhales, then the jet leaves
-      pose.squash = 0.8;
-      squashV = 0;
-      audio.heave();
-      const tgt = shot.target;
-      const iy = shot.y ?? (tgt ? city.roofAtPart(tgt, shot.x, shot.z) + 0.5 : city.groundAt(shot.x, shot.z));
-      lastShot = { t: simTime, aim: [shot.x, iy, shot.z], travel: config.splat.inhale + shot.travel, drop: shot.drop, busY: flight.y, wall: shot.exact, target: tgt ? { index: tgt.index, cx: tgt.cx, cz: tgt.cz, roofY: tgt.roofY } : null };
-      breathe(shot);
-      if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
-    } else audio.denied();
+    if (flight.tryBarf()) breatheNow(shot);
+    else audio.denied();
   };
-  // (until feat/supersplat takes these callbacks over: a press held past holdThreshold is still a splat, never a dead press)
-  input.onChargeEnd = (_held, cancelled) => {
-    if (!cancelled) input.onTap?.();
+  input.onTap = () => {
+    if (tuner.visible || superSplat.hosing) return;
+    tapSplat();
   };
+
+  // ---- the super splat: hold to charge (src/game/SuperSplat.ts), its meter in the HUD's bottom-center slot
+  const superSplat = new SuperSplat({
+    flight, city, splatter, aimer, particles, fx: superFx, audio, rig,
+    mouth: mouthWorld,
+    busVel,
+    exhaust: (out) => bus.root.localToWorld(out.copy(bus.exhaustLocal)),
+    hatch: (out) => bus.root.localToWorld(out.copy(bus.hatchLocal)),
+    tap: tapSplat,
+    mega: (shot, radius, width, hitStop, tag) => {
+      // a mega blast is a breath (the bus rears, stalls, heaves), whatever the belly holds
+      flight.barfT = -1;
+      flight.fullness = 1;
+      flight.tryBarf();
+      breatheNow(shot, { radius, width, hitStop, tag });
+    },
+    flash: (at, frames, strength) => {
+      flashPos.copy(at).project(camera);
+      pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, frames, strength);
+    },
+    hitStop: (frames) => (hitStop = Math.max(hitStop, frames / 60)),
+    sign: queueSign,
+  });
+  // (the charge's press: Input decides what a hold is, on the SPLAT button, the tilt screen or Space. Held past the
+  // threshold it charges; let go under superMin it is still a splat, so no press is ever dead)
+  input.onChargeStart = () => {
+    if (!tuner.visible) superSplat.chargeStart(input.state.chargeHeld);
+  };
+  input.onChargeEnd = (held, cancelled) => superSplat.chargeEnd(held, cancelled);
+  // (the slot lives in the HUD's root: ?nohud hides it with the rest)
+  const superMeter = new SuperMeter();
+  superMeter.mount(controls.hud.slot('super'));
+  // the one line that teaches the hold: when the belly first fills again after a splat (the player knows the tap by
+  // then), once a session, until they have charged a super. (Per viewer; a lost flag only shows the line again.)
+  const SUPER_HINT_KEY = 'strugglebus.superhint.v1';
+  let superHintShown = false;
+  try {
+    superHintShown = localStorage.getItem(SUPER_HINT_KEY) === '1';
+  } catch {
+    // (storage blocked: the line shows once a session)
+  }
+  const superHint = () => {
+    if (superHintShown || superSplat.phase !== 'ready') return;
+    superHintShown = true;
+    controls.hud.toast([input.mode === 'keyboard' ? 'HOLD SPACE TO CHARGE' : input.mode === 'touch' ? 'HOLD SPLAT TO CHARGE' : 'HOLD TO CHARGE'], 3.4);
+  };
+  superSplat.onLearned = () => {
+    superHintShown = true;
+    try {
+      localStorage.setItem(SUPER_HINT_KEY, '1');
+    } catch {
+      // (storage blocked: see above)
+    }
+  };
+  /** the bus's pose with the super splat's body language on top (the game's own pose stays its spring state) */
+  const superPose: BusPose = { ...pose };
 
   // ---- resize
   const onResize = () => {
     pipeline.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1);
     particles.setViewportHeight(pipeline.info.height);
+    superFx.setViewportHeight(pipeline.info.height);
   };
   window.addEventListener('resize', onResize);
   window.visualViewport?.addEventListener('resize', onResize);
   onResize();
 
+  // ---- the shader warm-up (render/warmup.ts): the programs a player's first splat, street sign and firehose would
+  // otherwise link in flight, compiled off the main thread and drawn once into their real targets, behind the opening:
+  // the post passes, the rooftop gardens' batches and sun twins (registerWarm), the street sign's blade and its sun
+  // caster, the super's motes. The first frame waits for it, at most warmWait s (it goes on in the background after that)
+  const warm = new WarmUp(pipeline, scene);
+  warm.add(signs.object, 'street signs');
+  warm.add(superFx.object, 'super fx');
+  await Promise.race([warm.finish(), new Promise((r) => setTimeout(r, config.render.warmWait * 1000))]);
   await farP;
   fogGround = city.lowGround();
   updateSun();
@@ -728,7 +823,10 @@ async function boot() {
     }
     const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
     for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || sx !== st.stretch.x }, city);
-    if (!wasFull && flight.fullness >= 1) audio.ready();
+    if (!wasFull && flight.fullness >= 1) {
+      audio.ready();
+      superHint();
+    }
     wasFull = flight.fullness >= 1;
 
     // bus pose: squash on the tap frame and through the inhale, stretch as the jet leaves, heave while
@@ -751,11 +849,12 @@ async function boot() {
     pose.wheeze = flight.barfT >= 0 ? 0 : Math.max(flight.fullness * 0.8, flight.strain);
     pose.eye = barfing ? 0.25 : flight.relief > 0 ? 1 : 0.55 + 0.45 * (1 - flight.fullness * 0.6);
     controls.pose(pose);
-    bus.update(dt, simTime, pose);
-    eul.set(flight.pitch, -flight.heading, -flight.bank, 'YXZ');
+    superSplat.pose(pose, superPose);
+    bus.update(dt, simTime, superPose);
+    eul.set(flight.pitch + superSplat.pitch, -flight.heading, -flight.bank, 'YXZ');
     q.setFromEuler(eul);
     bus.root.quaternion.copy(q);
-    bus.root.position.set(flight.x, flight.y, flight.z);
+    bus.root.position.set(flight.x, flight.y, flight.z).add(superSplat.shake);
     controls.afterPose(bus.root);
 
     // drop shadow on whatever is below: the roof of the part under the bus, else the street
@@ -785,6 +884,7 @@ async function boot() {
     paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);
     paintUniforms.uFloodHead.value = config.bloom.floodHead;
     rig.update(camera, focus, flight, dt);
+    superSplat.camera(camera, focus, dt);
     rig.applyKick(camera, realDt);
     pipeline.focus.copy(focus);
     if (qa?.topDown) {
@@ -802,7 +902,7 @@ async function boot() {
     // streaming ahead under the view, a wider (softer) shadow window
     const vista = rig.vista;
     pipeline.setHfov(rig.hfov);
-    bus.root.scale.setScalar(rig.heroScale);
+    bus.root.scale.setScalar(rig.heroScale * superSplat.swell);
     // this frame's matrix now: the breath and the exhaust leave from where the bus IS (not last frame's pose)
     bus.root.updateMatrixWorld(true);
     controls.frame(dt, realDt);
@@ -837,12 +937,14 @@ async function boot() {
 
     // the splat before the city's paint upload: the impact frame itself already shows the hit (and the
     // hit-stop frames hold it), instead of the paint reaching the GPU a frame late
+    superSplat.update(dt);
     splatter.update(dt);
     if (jet && simTime >= jet.at) {
       // the inhale is over: the jet leaves the mouth and lands exactly at the impact
-      particles.geyser({ source: mouthWorld, sourceVel: busVel, targets: jet.targets, duration: Math.max(0.05, jet.end - simTime), travelTime: Math.max(0.05, jet.impact - simTime), hues: jet.hues });
+      particles.geyser({ source: mouthWorld, sourceVel: busVel, targets: jet.targets, duration: Math.max(0.05, jet.end - simTime), travelTime: Math.max(0.05, jet.impact - simTime), hues: jet.hues, width: jet.width });
       jet = null;
     }
+    superFx.update(dt, mouthWorld(), bus.root.matrixWorld);
     city.update(streamCenter, renderer, dt);
     spire?.update(city.paint.data, globals.uTime.value);
     // tree LOD by distance from the lens (fog eats far groves anyway; a wider view keeps simple canopies farther)
@@ -896,7 +998,7 @@ async function boot() {
       fogBank: clamp((globals.uFogBank.value - 1) / Math.max(0.001, config.fog.openingBank - 1), 0, 1),
       high: clamp(flight.lift / 420, 0, 1),
       fogBelow: globals.uFogLayer2.value.w,
-      strain: flight.strain,
+      strain: Math.max(flight.strain, superSplat.spent),
     });
     // ambient twinkles on painted buildings near the bus
     if (painted && Math.random() < dt * 6) {
@@ -925,9 +1027,15 @@ async function boot() {
       dropShadow.add(pipeline.snapCompensation(dropShadow, compTmp));
       pipeline.snapCompensation(bus.root.position, particles.object.position);
     } else particles.object.position.set(0, 0, 0);
+    superFx.object.position.copy(particles.object.position);
     controls.fx.object.position.copy(particles.object.position);
     // (only what lies below the bus's wheels; whatever faces up there, roof, street, lawn or crown)
     pipeline.setHeroShadow(dropShadow.x, dropShadow.z, bus.root.position.y - 2.2 * rig.heroScale, flight.fx, flight.fz, dropShadowL, dropShadowL * 0.42, 1);
+    // the charge's summoning circle: a rainbow pinwheel around that shadow, on the same surfaces (no decal, no draw)
+    {
+      const sz = 5.6 * rig.heroScale * (1 + 2.4 * superSplat.circle);
+      pipeline.setHeroCircle(superSplat.circle, superSplat.circleSpin, sz, sz * 0.5);
+    }
     // the eye's beam, from the lens along the nose, a little down: wide open on relief, a sliver
     // while barfing (it squints); the bus's matrix is final here
     {
@@ -936,10 +1044,11 @@ async function boot() {
       bus.root.localToWorld(beamEye.copy(bus.eyeLocal));
       beamFwd.set(0, -Math.tan(THREE.MathUtils.degToRad(Cb.headBeamPitch)), -1).transformDirection(bus.root.matrixWorld);
       beamTip.copy(beamEye).addScaledVector(beamFwd, Cb.headBeamLength * rig.heroScale);
-      const open = 0.3 + 0.7 * pose.eye;
-      pipeline.setHeroBeam(beamEye, beamTip, 0.5 * rig.heroScale, 0.5 * Cb.headBeamWidth * open * rig.heroScale, Cb.headBeamLength > 0 ? Cb.headBeamStrength * (0.35 + 0.65 * pose.eye) : 0);
+      const open = 0.3 + 0.7 * superPose.eye;
+      pipeline.setHeroBeam(beamEye, beamTip, 0.5 * rig.heroScale, 0.5 * Cb.headBeamWidth * open * rig.heroScale, Cb.headBeamLength > 0 ? Cb.headBeamStrength * (0.35 + 0.65 * superPose.eye) : 0);
     }
     pipeline.render(scene);
+    superMeter.update(realDt, superSplat.view());
     perf.frame(dt * 1000, performance.now() - t0);
     const ready = city.loadedRegionCount() > 0 && !city.busy && (opening >= config.fog.openingDuration || params.has('openingshot'));
     if (ready) everReady = true;
@@ -951,6 +1060,8 @@ async function boot() {
   // debug hooks for scripted screenshots / QA
   (window as unknown as Record<string, unknown>).__game = {
     flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls,
+    /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
+    warm,
     /** QA: where a breath fired now would land ({x, y, z, dist, travel, drop}), and the last one fired */
     aimNow: () => (aimer.point(flight), { ...aimer.aim }),
     /** QA: the building glinting now (what a tap hits) */
@@ -973,6 +1084,17 @@ async function boot() {
     /** QA: how much of the marine layer's seen-from-above fog is on (0 = the street-level fog exactly) */
     fogLayerMix: () => globals.uFogLayer2.value.w,
     tapSplat: () => input.onTap?.(),
+    /** QA: hold the super splat's charge until `chargeSeconds` held (from `fromSeconds`, default 0), then let go
+     * (>= config.splat.superCharge: the firehose). Returns the game time it lets go, or -1 (cooling down: "not yet"). */
+    superSplat: (chargeSeconds: number, fromSeconds?: number) => superSplat.qaCharge(chargeSeconds, fromSeconds),
+    /** QA: the super splat's state (phase, charge, cooldown, the last super's stats) */
+    superState: () => ({ phase: superSplat.phase, charge: superSplat.charge, since: superSplat.since, cooldownLeft: superSplat.cooldownLeft, cooldownTotal: superSplat.cooldownTotal, spent: superSplat.spent, stats: { ...superSplat.stats } }),
+    /** QA: skip seconds of the super splat's cooldown */
+    superSkip: (seconds: number) => superSplat.qaSkip(seconds),
+    /** QA: render a scripted super splat session offline through the real audio graph (peak, RMS, NaN) */
+    superAudioCheck: () => import('./audio/superAudioCheck').then((m) => m.superAudioCheck()),
+    superSplatter: superSplat,
+    superMeter,
     forceReady: () => (flight.fullness = 1),
     /** QA: barf at a lat/lon through the real splat pipeline (blast, blooms, sign, sound). Returns the impact time (game clock). */
     barfAtLatLon: (lat: number, lon: number, drop?: number) => {

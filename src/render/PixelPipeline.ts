@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { config } from '../config';
 import { globals, GLSL_LAYER_TOP, GLSL_SKY_LIGHT, SHADOW_LAYER } from './materials';
-import { makePaletteTexture, Ramp } from './palette';
+import { HUE_RAMPS, makePaletteTexture, Ramp } from './palette';
+import type { WarmPipeline } from './warmup';
 
 // Low-res 3D pixel-art renderer.
 //
@@ -27,7 +28,7 @@ export interface PixelFrameInfo {
   scale: number;
 }
 
-export class PixelPipeline {
+export class PixelPipeline implements WarmPipeline {
   readonly renderer: THREE.WebGLRenderer;
   readonly camera: THREE.PerspectiveCamera;
   /** Camera actually used to render (snapped copy of `camera`). */
@@ -103,6 +104,7 @@ export class PixelPipeline {
   /** the hero's drop shadow (center x, z, underside y, ramp steps; 0 = off) and its oval (forward xz, half length, half width) */
   private readonly heroShadow = new THREE.Vector4();
   private readonly heroShadowAxes = new THREE.Vector4(0, 1, 1, 1);
+  private readonly heroCircle = new THREE.Vector4();
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -154,6 +156,7 @@ export class PixelPipeline {
         uBeamShape: { value: new THREE.Vector4() },
         uHeroShadow: { value: new THREE.Vector4() },
         uHeroShadowAxes: { value: new THREE.Vector4(0, 1, 1, 1) },
+        uHeroCircle: { value: new THREE.Vector4() },
         uFlash: { value: new THREE.Vector4() },
       },
       vertexShader: QUAD_VS,
@@ -332,6 +335,18 @@ export class PixelPipeline {
     this.heroShadowAxes.set(fx / fl, fz / fl, Math.max(0.1, halfLength), Math.max(0.1, halfWidth));
   }
 
+  /**
+   * The super splat's summoning circle for the next render: a rainbow pinwheel in an oval (half length /
+   * half width m) of hue ramps, turned `spin` arms round, filling in with `charge` (0..1; 0 = off), on one
+   * flat plane through the bus's wheels (the drop shadow's underside y), around the bus. Resolve pass: each
+   * pixel's view ray meets that plane; what stands in front of the plane covers it, everything behind it
+   * shows through the stipple. So it never splits across a roof and the street below it, whatever the bus
+   * is over, and it costs no draw call and no program of its own.
+   */
+  setHeroCircle(charge: number, spin: number, halfLength: number, halfWidth: number) {
+    this.heroCircle.set(charge, spin, Math.max(0.1, halfLength), Math.max(0.1, halfWidth));
+  }
+
   /** World-space size of one game pixel at a given distance from the camera. */
   pixelWorldSize(distance: number): number {
     const H = this.info.height + MARGIN * 2;
@@ -492,6 +507,7 @@ export class PixelPipeline {
     } else ru.uBeamShape.value.z = 0;
     ru.uHeroShadow.value.copy(this.heroShadow);
     ru.uHeroShadowAxes.value.copy(this.heroShadowAxes);
+    ru.uHeroCircle.value.copy(this.heroCircle);
     if (this.flashLeft > 0) {
       ru.uFlash.value.copy(this.flashU);
       this.flashLeft--;
@@ -506,6 +522,59 @@ export class PixelPipeline {
     u.uOffset.value.set(MARGIN + this.subPixel.x, MARGIN + this.subPixel.y);
     u.uCanvas.value.set(r.domElement.width, r.domElement.height);
     this.blit(this.upscaleMat, null);
+  }
+
+  // ---- shader warm-up (src/render/warmup.ts): what the passes draw with, and draws that are never presented
+
+  /** Layers the scene pass draws (the render camera copies the camera's). */
+  get sceneLayers(): THREE.Layers {
+    return this.camera.layers;
+  }
+
+  /** Layers the sun's depth pass draws. */
+  get sunLayers(): THREE.Layers {
+    return this.sunCam.layers;
+  }
+
+  /** The sun pass's override material (every caster whose material allows overriding draws with it). */
+  get sunOverride(): THREE.Material {
+    return this.depthMat;
+  }
+
+  /** One quad per post-pass material, for the warm-up to compile. */
+  warmObjects(): THREE.Object3D[] {
+    return [this.glowMat, this.blurMat, this.resolveMat, this.upscaleMat].map((m) => new THREE.Mesh(this.quad.geometry, m));
+  }
+
+  /** Draw `scene` into the G-buffer and `sun` into the shadow map, as the real passes do (nothing reaches the canvas). */
+  warmDraw(scene: THREE.Scene, sun: THREE.Scene, camera: THREE.Camera) {
+    const r = this.renderer;
+    // (always bound first: a scene draw before the sun map's first use would sample a depth texture that doesn't
+    // exist yet, and GL drops a draw with a mismatched sampler)
+    r.setRenderTarget(this.shadowRT);
+    if (sun.children.length) r.render(sun, camera);
+    if (scene.children.length) {
+      r.setRenderTarget(this.gbuf);
+      r.render(scene, camera);
+    }
+    r.setRenderTarget(null);
+  }
+
+  /** The post passes once, each into its own target; the upscale into a scratch target instead of the canvas. */
+  warmPasses() {
+    this.glowMat.uniforms.tColor.value = this.gbuf.textures[0];
+    this.blit(this.glowMat, this.glowA);
+    this.blurMat.uniforms.tSrc.value = this.glowA.texture;
+    this.blit(this.blurMat, this.glowB);
+    const ru = this.resolveMat.uniforms;
+    ru.tColor.value = this.gbuf.textures[0];
+    ru.tAux.value = this.gbuf.textures[1];
+    ru.tDepth.value = this.gbuf.depthTexture;
+    ru.tGlow.value = this.glowA.texture;
+    this.blit(this.resolveMat, this.resolved);
+    this.upscaleMat.uniforms.tSrc.value = this.resolved.texture;
+    this.blit(this.upscaleMat, this.glowB);
+    this.renderer.setRenderTarget(null);
   }
 
   private blit(mat: THREE.ShaderMaterial, target: THREE.WebGLRenderTarget | null) {
@@ -595,6 +664,7 @@ uniform vec4 uBeam;      // hero headlight: lens (buffer px), axis to the tip (p
 uniform vec4 uBeamShape; // half width at the lens / at the tip (px), strength, lens view depth (m)
 uniform vec4 uHeroShadow;     // hero drop shadow: center xz, underside y (m), ramp steps (0 = off)
 uniform vec4 uHeroShadowAxes; // ...its oval: forward axis xz, half length, half width (m)
+uniform vec4 uHeroCircle;     // the charge's pinwheel around it: charge (0 = off), spin (arms), half length, half width (m)
 uniform vec4 uFlash;     // impact flash: buffer uv, strength, white-hot radius (fraction of the height)
 in vec2 vUv;
 layout(location = 0) out vec4 outColor;
@@ -924,7 +994,27 @@ void main() {
     vec3 P = uCamPos + dir * (depth / max(dot(dir, cf), 0.05));
     vec2 bq = P.xz - uHeroShadow.xy;
     vec2 bo = vec2(dot(bq, uHeroShadowAxes.xy), bq.x * uHeroShadowAxes.y - bq.y * uHeroShadowAxes.x) / uHeroShadowAxes.zw;
-    if (P.y < uHeroShadow.z && dot(bo, bo) < 1.0 && (mat3(uCamWorld) * octDecode(a.rg)).y > 0.5) {
+    bool below = P.y < uHeroShadow.z && (mat3(uCamWorld) * octDecode(a.rg)).y > 0.5;
+    // (the plane through the wheels, where this pixel's ray crosses it on the way down to what it sees)
+    float cdy = uCamPos.y - uHeroShadow.z;
+    float cdk = P.y < uHeroShadow.z && cdy > 0.0 ? cdy / (uCamPos.y - P.y) : 0.0;
+    if (uHeroCircle.x > 0.01 && cdk > 0.0) {
+      // the super splat's charge: a rainbow pinwheel spinning around the bus, faster and fuller as it fills;
+      // the arms' gaps stipple shut, the bus's middle stays open (the drop shadow shows through it)
+      vec2 cq = mix(uCamPos.xz, P.xz, cdk) - uHeroShadow.xy;
+      vec2 sq = vec2(dot(cq, uHeroShadowAxes.xy) / uHeroCircle.z, (cq.x * uHeroShadowAxes.y - cq.y * uHeroShadowAxes.x) / uHeroCircle.w);
+      float sr = length(sq);
+      if (sr > 0.34 && sr <= 1.0) {
+        float sc = uHeroCircle.x;
+        float ss = atan(sq.y, sq.x) * 0.95493 + sr * (2.0 + 3.0 * sc) - uHeroCircle.y;
+        if (fract(ss) <= 0.35 + 0.5 * sc || ((int(gl_FragCoord.x) + int(gl_FragCoord.y)) & 1) == 0) {
+          oRamp = ${HUE_RAMPS[0]}.0 + mod(floor(ss), 6.0);
+          oStep = 5.0 + floor(1.4 * sc);
+          col = pal(oRamp, oStep);
+        }
+      }
+    }
+    if (below && dot(bo, bo) < 1.0) {
       oStep = max(oStep - uHeroShadow.w, 0.0);
       col = pal(oRamp, oStep);
     }

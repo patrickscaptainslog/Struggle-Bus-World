@@ -34,6 +34,8 @@ export const config = {
     outlineFadeEnd: 520,
     /** Shadow map size (texels): 2048 keeps a shadow texel near one game pixel at 390 px wide. */
     shadowMapSize: 2048,
+    /** The first frame waits this long at most for the shader warm-up (s); past that it finishes in the background. */
+    warmWait: 6,
     /** World-space extent of the shadow map around the camera focus (m). */
     shadowExtent: 520,
     /** At full vista (high above the city) the shadow window widens to this (m) and softens to this strength (0..1)... */
@@ -387,6 +389,9 @@ export const config = {
     /** Max buildings bloomed per blast at the base radius (scales with the radius, up to maxBuildingsCap). */
     maxBuildings: 40,
     maxBuildingsCap: 96,
+    /** A super's blast (mega, the firehose's closer): its cap grows with the blast's area, up to this: the buildings in
+     *  reach grow with r squared, and the street grid under them is painted to the full radius either way. */
+    megaBuildingsCap: 480,
     /** Hue layout: 0 = pinwheel by angle, 1 = rings by distance, 2 = spiral (pinwheel + rings). */
     hueLayout: 0,
     /** Ground pinwheel sectors around the impact (6 = one rainbow turn: opposite sides complementary). */
@@ -434,6 +439,54 @@ export const config = {
     recoilUp: 7,
     reliefBoost: 1.45,
     reliefSeconds: 2.6,
+    // ---- the super splat: hold to charge (src/game/SuperSplat.ts)
+    /** Seconds of holding for a full charge: it lets go on its own as the FIREHOSE. */
+    superCharge: 10,
+    /** Released below this share of the charge: just a normal splat (no cooldown). */
+    superMin: 0.3,
+    /** Seconds until the super is ready again after a firehose (after a mega blast: x its charge). */
+    superCooldown: 60,
+    /** Mega blast (released early): radius x, jet width x and hit-stop frames, from the first at superMin (any mega is
+     *  unmistakably bigger than a tap: the hold is never a tap with a lockout) to the second near a full charge. */
+    megaFloor: 1.6,
+    megaGain: 2.6,
+    megaWidthFloor: 1.5,
+    megaWidth: 2.4,
+    megaHitStopFloor: 6,
+    megaHitStop: 9,
+    /** Charging weighs the bus down: speed x this at a full charge. */
+    chargeSlow: 0.6,
+    /** The camera creeps in while charging: distance x (1 - this) at a full charge. */
+    chargeCreep: 0.2,
+    /** Firehose: how long it pours (s), impacts per second (each a full blast of this radius, m; it grows with the drop like a tap's). */
+    firehoseDuration: 4,
+    firehoseRate: 12,
+    firehoseRadius: 45,
+    /** ...the ground takes rainbow bands this wide (m, grown with the drop like the blast), ringed around where the pour first landed. */
+    firehoseBand: 17,
+    /** ...near the rooftops it reaches this many times the breath's range (a turn sweeps a wide arc); from up high it
+     *  pours down along the aim ray, where the player looks. */
+    firehoseReach: 1.7,
+    /** ...the torrent's width x the breath's (more from up high: x (1 + drop / firehoseWidthDrop)), and its particle rate x. */
+    firehoseWidth: 2.6,
+    firehoseWidthDrop: 130,
+    /** ...it pours this many times faster than the breath's projectile past the classic range (from up high the
+     *  landing must stay near where the player looks while the bus turns). */
+    firehoseSpeed: 3,
+    firehoseFlow: 1.9,
+    /** Recoil: the bus is knocked back to this share of its speed, then held at firehoseSlow while it pours. */
+    firehoseKick: 0.3,
+    firehoseSlow: 0.4,
+    /** A building the stream already bloomed re-pops (and escalates a level) at most this often (s). */
+    firehoseRepop: 0.4,
+    /** Camera shake per impact (m, translation only: the pixel snap holds) and flashes per second at most. */
+    firehoseShake: 0.9,
+    firehoseFlashes: 3,
+    /** The closing blast where the stream ends: radius x firehoseRadius, hit-stop frames. */
+    firehoseFinale: 2,
+    firehoseFinaleHitStop: 8,
+    /** After a firehose the bus is spent (smoke, wheeze, dim belly, limping speed) for this long (s). */
+    superSpent: 4,
   },
 
   facade: {

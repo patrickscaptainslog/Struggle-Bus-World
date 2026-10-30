@@ -3,6 +3,7 @@ import { BusVoice } from './busVoice';
 import { clamp, clamp01, fin, hold, Kit, LOOKAHEAD, makeNoise, makeReverbIR, mkFilter, mkGain, mkOsc, mkPan, mtof, Rng, softClipCurve, target } from './dsp';
 import { arpNote, Bells, Hum, PROGRESSION } from './music';
 import { Sfx } from './sfx';
+import { SuperSfx } from './superSfx';
 import { audioTune } from './tune';
 import { config } from '../config';
 
@@ -60,6 +61,8 @@ export class SoundGraph {
   private readonly horn: Foghorn;
   private readonly bus: BusVoice;
   private readonly fx: Sfx;
+  /** the super splat's sounds (charge riser + heartbeat, firehose roar, fizzle, chime) */
+  readonly superFx: SuperSfx;
   // score state
   private chord = -1;
   private centerHue = 0;
@@ -163,6 +166,11 @@ export class SoundGraph {
     this.horn = new Foghorn(this.kit, this.ambDuck);
     this.bus = new BusVoice(this.kit, this.sfxBus);
     this.fx = new Sfx(this.kit);
+    this.superFx = new SuperSfx(this.kit, {
+      chord: () => this.currentChord,
+      transpose: () => this.transpose,
+      bell: (bt, midi, vel, pan) => void this.bells.play(bt, midi, vel, pan, 1.1, 0.6, 0.9, true),
+    });
     this.tunedTranspose = tune.transpose;
     this.transpose = semis(tune.transpose);
     this.hum.setChord(PROGRESSION[0], t, this.transpose);

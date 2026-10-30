@@ -284,6 +284,7 @@ live in `src/config.ts`.
 | Tower facades | `src/world/towerStyles.ts`, `src/world/buildingMaterial.ts` | facade families, icons table, hero props table |
 | Game glue | `src/main.ts`, `src/game/*` | flight, camera, splat, bloom, persistence |
 | Ground paint | `src/world/GroundPaint.ts`, `src/game/blastLayout.ts` | per-tile splat masks, blast shape + hue layout, shockwave ring GLSL |
+| Super splat | `src/game/SuperSplat.ts`, `src/fx/SuperFx.ts`, `src/ui/SuperMeter.ts`, `src/audio/superSfx.ts`, `src/audio/superAudioCheck.ts` | hold to charge, mega blast, firehose, cooldown (see below) |
 | Controls | `src/game/Controls.ts`, `src/game/Tilt.ts`, `src/game/Turbo.ts`, `src/fx/Turbo.ts`, `src/audio/turboVoice.ts`, `src/ui/Hud.ts`, `src/ui/pixelUi.ts` | scheme choice + permission, tilt stick, turbo gears, turbo FX / voice, the HUD |
 
 ## Controls: tilt, touch, keyboard, turbo gears
@@ -447,6 +448,92 @@ impact frame shows the hit.
   (the pixel snap handles it).
 - `src/render/upload.ts`: `uploadRect()` = one texSubImage2D of a DataTexture's
   dirty rectangle (PaintState, GroundPaint).
+
+## The super splat (hold to charge)
+`src/game/SuperSplat.ts` (`SuperSplat`), phases `ready -> charging -> (mega
+| firehose) -> cooldown -> ready`. Gameplay numbers in `config.splat`
+(`holdThreshold`, `superCharge` 10 s, `superMin`, `superCooldown` 60 s,
+`mega*`, `chargeSlow`, `chargeCreep`, `firehose*`, `superSpent`), look
+numbers in the tuner groups `SuperSplat`, `SuperFx`, `SuperAudio`.
+- **Input contract**: Input's (see "Controls"): the SPLAT button, the tilt
+  screen and Space fire `onChargeStart()` past `config.splat.holdThreshold`, with
+  `state.chargeHeld` set, then `onChargeEnd(heldSeconds, cancelled)`. main.ts wires
+  them to `superSplat.chargeStart(input.state.chargeHeld)` and
+  `superSplat.chargeEnd(held, cancelled)`, which calls `host.tap()` for a release
+  under `superMin` and for the lift of a press told "not yet"; taps are ignored
+  while `superSplat.hosing`.
+- **Frame order** in main.ts: `superSplat.pose(pose, superPose)` before
+  `bus.update` (the game's own pose stays the squash spring's state);
+  `flight.pitch + superSplat.pitch`, `+ superSplat.shake` on the bus root,
+  `rig.heroScale * superSplat.swell`; `superSplat.camera(cam, focus, dt)`
+  after `rig.update`, before `applyKick` (a dolly: translation only);
+  `superSplat.update(dt)` right before `splatter.update` (an impact due this
+  frame lands before the paint upload); `superFx.update(dt, mouth, bus
+  matrix)` after the jet; `superFx.object.position` = the particles' snap
+  compensation; `superMeter.update(realDt, superSplat.view())` after render.
+  `Flight.speedScale` is the super's (charge weight, recoil, limp), read only
+  while `!Flight.driven`: a gear, the boost or a gear's brake are never braked.
+- **Mega blast** = the tap's breath path (`host.mega` -> `breatheNow(shot,
+  { radius, width, hitStop, tag })`): `Splatter.barf` takes `radius`,
+  `hitStop` and `super`, the jet `width` (`Particles.geyser({ width })`). A
+  full belly fires what glints (`Aimer.fire`), any other belly what is at the
+  aim point (`Aimer.aimShot`): a wall in the line of fire stops both. A
+  super's blast (mega, closer) caps its buildings by its area, up to
+  `megaBuildingsCap`; taps and hose impacts by the radius, up to `maxBuildingsCap`.
+- **Firehose**: one `Particles.geyser` with `live` (`GeyserLive`: target,
+  travel, rate, mutated every frame: each particle flies to where the stream
+  lands then), `width`, `taper`. `firehoseRate` times a second the newest aim
+  sample whose flight has landed (a 96-entry history: the paint follows the
+  visible stream, ~1 blast in flight, well inside GroundPaint's 4 live
+  slots) gets `splatter.barf(x, z, { radius, travel, drop, target:
+  buildingAt, y, exact, hose: true })`; `Blast.hose` impacts go to
+  `superSplat.impact(b)` from main's impact callback (lighter particles, a
+  shake, at most `firehoseFlashes` flashes/s, a bell, the street sign when
+  the neighborhood changes, `host.sign` = main's `queueSign`); trees take only
+  their first colour; `SplatFx.bloom(..., flags)` (`BLOOM_HOSE` fewer sparkles,
+  `BLOOM_REPOP` no garden regrow). The finale is a `stream: true` barf (full
+  impact fx, `firehoseFinaleHitStop`), once `Splatter.inFlight` is 0.
+- **Ground under a pour**: `BarfOpts.bands` (`GroundBands {x, z, width, hue}`,
+  one object per pour, hose impacts and closer): `LAYOUT_BANDS`, `bandHue(spec,
+  x, z)` in `blastLayout.ts`, rainbow rings around where the pour first landed,
+  a function of the ground point, so overlapping impacts agree. Roofs are dealt
+  as ever. `ox`, `oz` are saved on the spec only for this layout.
+- **Warm-up** (`src/render/warmup.ts`, perf/load's kit, `registerWarm`,
+  `PixelPipeline implements WarmPipeline`): in `boot()` after `onResize()`, the
+  post passes, `'roof sprouts'`, the signs and `superFx.object` compile in
+  parallel and draw once into their real targets; the first frame waits at
+  most `render.warmWait` s. Anything new that first draws in flight belongs here
+  (`__game.warm.report`). Measure in a FRESH browser: links are cached by a page.
+- **The hold's hint**: `superHint()` in main.ts at the belly's refill,
+  `superSplat.onLearned` ends it (`strugglebus.superhint.v1`).
+- **`Blast.super`** (`SuperTag {kind: 'mega' | 'hose' | 'closer', charge, id}`,
+  null for a tap): for the stage engine; a firehose's impacts and closer share
+  the super's serial `id`.
+- **Look**: `src/fx/SuperFx.ts` (one Points draw, only while alive: motes on
+  six rainbow ribs down a funnel into the live mouth, `uFunA/B/C` from the bus
+  matrix each frame, a static arc pool lit by `arcs`, sparks, a halo); the
+  summoning circle is no object at all: `pipeline.setHeroCircle(charge, spin,
+  halfLength, halfWidth)` paints a hue-ramp pinwheel in the resolve pass, on one
+  plane through the wheels (each pixel's ray meets it: unbroken over any roof
+  and street below, covered by what stands in front); `BusPose.charge / spent / pulse` (optional) drive `BusModel`'s
+  `uFx5.yzw` (band racing to white-hot, the body glowing with the heartbeat,
+  dim when spent).
+- **Sound**: `src/audio/superSfx.ts` via `AudioEngine.superChargeStart /
+  superChargeStop / superMega / superFirehose / superHoseHit / superFizzle /
+  superReady` (`SoundGraph.superFx`); `heartInterval(charge)` is shared with
+  the bus's throb.
+- **UI**: `src/ui/SuperMeter.ts`, `mount(hud.slot('super'))` (176 x 86 CSS px,
+  the meter 68 x 86 on its floor; `?nohud` hides it with the HUD). Hidden unless
+  charging, pouring, cooling down, or 0.7 s into "ready".
+- QA: `__game.superSplat(chargeSeconds)` (a scripted hold; >= superCharge =
+  the firehose; returns the release time, -1 = "not yet"),
+  `superState()`, `superSkip(s)` (the cooldown clock), `superSplatter`
+  (`.chargeStart(heldSoFar)`), `superMeter`, `superAudioCheck()`.
+  `node tools/feel-sim/run.mjs s_super.ts` (offline: charge, mega, cancel,
+  firehose counts and cost), `tools/controls-sim/run.mjs s_gesture.ts` (the
+  press), `node tools/supersplat.mjs <url> <out> [charge sweep alt mega
+  cooldown jet first audio base] [--base=<url>]` (`&controls=touch`: a phone
+  viewport would otherwise sit under the TILT TO FLY card).
 
 ## Paintable landmarks (hand-built props)
 A landmark prop (Transamerica, Sutro Tower, any `LandmarkKit` prop) is a

@@ -44,6 +44,20 @@ Phase 1: single player, no server. iPhone Safari first (portrait, one thumb).
   around them splattered too. From altitude it lands where you're looking,
   mid-screen, and the blast is bigger the higher you fire from. The belly
   glows fuller as the next blast recharges.
+- **Hold** (the SPLAT button in touch mode, anywhere on the screen in tilt
+  mode, Space on a keyboard): the super splat charges. The bus swells,
+  shudders and glows white-hot, six rainbow ribs of energy twist down a funnel
+  into its mouth, arcs crackle, a rainbow circle spins around its wheels, a
+  heartbeat races, and a meter fills at the bottom center (it only shows while
+  charging or cooling down). Let go early for a MEGA blast (at least 1.6x a
+  tap's radius, up to 2.6x the longer you held; under 30 % it is just a normal
+  splat). Hold the full 10 seconds
+  and the FIREHOSE lets go: a colossal rainbow torrent for 4 seconds that
+  paints everything it touches; steer while it pours to sweep it across the
+  city (from up high it pours down where you look; in a turbo gear it lays a
+  stripe across the whole city). Slide off, or swipe, and it fizzles out at no
+  cost. Then it needs a minute to recharge: the meter counts the seconds down
+  and chimes when it's ready (a press still splats meanwhile).
 - Keyboard (desktop): arrows / WASD fly the same yoke (Down/S climbs, Up/W
   dives or surges), mouse drag is the bungee, Space breathes (hold to
   charge), E / Q shift turbo gears, Shift boosts, Esc opens the settings.
@@ -85,6 +99,13 @@ Altitude QA (climb shots, flight log, taps, perf at cruise vs ceiling):
 `--seq` also captures frames exactly 1/30 s apart, and
 `python3 -I tools/seqstat.py shots/altitude/<phase>-seq-ceiling 5` counts what
 changes between them (shimmer).
+Super splat QA: `node tools/feel-sim/run.mjs s_super.ts` (charge, mega,
+firehose counts and cost offline; the hold gesture itself is
+`node tools/controls-sim/run.mjs s_gesture.ts`),
+`node tools/supersplat.mjs <baseUrl> shots/supersplat [charge sweep alt mega
+cooldown jet first audio base] [--base=<url>]` (frames, counts, perf, the gear
+through a firehose, the first charge's frames, the sounds offline),
+`python3 -I tools/supersplat-strip.py <dir> <out.png> a.png=label ...` (strips).
 
 ## City data (city-agnostic pipeline)
 `tools/bake/` turns a city config (`tools/bake/cities/sf.json`) into compact

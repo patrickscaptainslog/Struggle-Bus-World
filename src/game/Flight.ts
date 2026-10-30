@@ -85,6 +85,12 @@ export class Flight {
   refund = 0;
   /** 0..1: how full the belly reads right now (drains over the breath: the release is visible as it pours out) */
   belly = 1;
+  /** speed multiplier set from outside (the super splat: a charge weighs the bus down, the firehose's recoil) */
+  speedScale = 1;
+  /** A gear or the boost is driving the speed, or a gear is still braking out: speedScale and the firehose's kick stand aside. */
+  get driven(): boolean {
+    return this.turbo.speed > 0 || this.turbo.rate > 0;
+  }
   private t = 0;
   private vyYoke = 0;
   private floorSmooth = 60;
@@ -176,7 +182,10 @@ export class Flight {
     // (a jet breathing fire barely flinches: the recoil stall is the classic bus's)
     const jet = Tb.speed > F.surgeSpeed;
     if (this.barfing) targetSpeed *= jet ? 0.85 : S.stallSpeed;
-    const sk = this.barfing && !jet ? 6 : Tb.rate > 0 ? Tb.rate : F.speedHz * 2.2;
+    // (the super splat's weight, recoil and limp are the classic bus's too: a gear drives through all three)
+    const scaled = !this.driven && this.speedScale < 0.98;
+    if (!this.driven) targetSpeed *= this.speedScale;
+    const sk = (this.barfing && !jet) || scaled ? 6 : Tb.rate > 0 ? Tb.rate : F.speedHz * 2.2;
     this.speed += (targetSpeed - this.speed) * (1 - Math.exp(-sk * dt));
 
     // ---- steering on a springy bungee
