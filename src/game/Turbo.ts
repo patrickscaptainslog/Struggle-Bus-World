@@ -150,10 +150,11 @@ export class TurboDrive {
     this.boosting = held;
 
     // speed: spool up into a gear; brake smoothly out of one (until the classic flight can take over); either
-    // rate eases in over rateEase, so a shift never starts with a jolt
+    // rate eases in over rateEase, so a shift never starts with a jolt (G0's boost is the classic surge, at the
+    // classic rate: the gear spool is slower, and holding the boost must never feel like a brake)
     let kind = 0;
     let rate = 0;
-    if (Tb.speed > 0 && f.speed < Tb.speed - 1) {
+    if (g > 0 && Tb.speed > 0 && f.speed < Tb.speed - 1) {
       kind = 1;
       rate = 3 / Math.max(0.1, T.spool);
       this.braking = false;

@@ -311,7 +311,14 @@ vista snap compensation (the contrail stays with the bus up high).
   calls `setMode`). Tilt: `input.stick` (the TiltControl) fills
   `state.stretch` / `state.dragging` with the bungee's exact semantics, so
   everything downstream (Flight, the opening's climb lock, the homing, the
-  aim latch, `__qa.sx/sy` overrides) is unchanged.
+  aim latch, `__qa.sx/sy` overrides) is unchanged, except that a banked phone
+  doesn't count as a steering thumb for the aim latch: `aimer.update` gets
+  `dragging && mode !== 'tilt' && !input.pressHeld`, so a press that fires on
+  its lift keeps the building it froze.
+- The opening (`main.ts` with `Controls`): `controls.holdOpening` freezes it
+  (dt = 0) until the card, the motion sheet and the sensor have answered;
+  `controls.gearsLocked`, set per frame with the climb lock, queues a shift until
+  the bus clears the Golden Gate gate.
 - HUD hooks: `splatButton(down, cancelled?, eventTimeMs?)`,
   `turboShift(dir)`, `turboHold(down)`.
 

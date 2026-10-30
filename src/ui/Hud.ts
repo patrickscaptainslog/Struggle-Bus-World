@@ -98,6 +98,7 @@ export class Hud {
   private readonly locked: PixelCanvas;
   private readonly lockedWrap: HTMLDivElement;
   private readonly touchPad: HTMLDivElement;
+  private chromeHeld = false;
   private readonly splatBtn: PixelCanvas;
   private readonly lever: PixelCanvas;
   private readonly leverLabel: PixelCanvas;
@@ -241,12 +242,23 @@ export class Hud {
   /** Which controls show: tilt (recenter + settings), touch (settings, splat button + turbo lever), keyboard (none: Esc). */
   setMode(m: InputMode) {
     this.mode = m;
-    this.touchPad.style.display = m === 'touch' ? 'block' : 'none';
-    this.topRight.style.display = m === 'keyboard' ? 'none' : 'flex';
+    this.showChrome();
     (this.recenterBtn.el.parentElement as HTMLElement).style.display = m === 'tilt' ? 'block' : 'none';
     if (m !== 'touch') this.releaseButtons();
     this.wakeChrome();
     if (this.panel) this.renderSettings();
+  }
+
+  /** The prompt, and the motion sheet after it, hide the controls of a scheme the player may never use. */
+  setChromeHeld(held: boolean) {
+    this.chromeHeld = held;
+    this.showChrome();
+  }
+
+  private showChrome() {
+    const on = !this.chromeHeld && !this.prompt;
+    this.touchPad.style.display = on && this.mode === 'touch' ? 'block' : 'none';
+    this.topRight.style.display = on && this.mode !== 'keyboard' ? 'flex' : 'none';
   }
 
   /** The top-right buttons show for a few seconds more. */
@@ -362,7 +374,8 @@ export class Hud {
     alt.box(0, 0, alt.w, alt.h, C.panel, C.edge, 2);
     alt.text('USE TOUCH INSTEAD', 7, 4, C.cream, HUD_SMALL);
     alt.flush();
-    css(alt.el, { position: 'relative', marginTop: '10px' });
+    // (the bus waits in the gap between the card and this button, in the sea below the Golden Gate)
+    css(alt.el, { position: 'relative', marginTop: 'max(10px, 10vh)' });
     alt.el.dataset.hud = 'prompt-touch';
     ov.dataset.hud = 'prompt';
     ov.append(card.el, alt.el);
@@ -392,12 +405,14 @@ export class Hud {
     ov.addEventListener('pointerdown', (e) => e.stopPropagation());
     this.root.append(ov);
     this.prompt = ov;
+    this.showChrome();
   }
 
   hidePrompt() {
     this.prompt?.remove();
     this.prompt = null;
     this.promptCard = null;
+    this.showChrome();
   }
 
   get promptOpen(): boolean {

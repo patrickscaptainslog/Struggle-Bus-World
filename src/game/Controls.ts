@@ -23,7 +23,9 @@ import { Hud, type HudFrame } from '../ui/Hud';
 //  - a phone flies TILT by default: on iOS the first-touch prompt ("TILT TO
 //    FLY") asks for motion access inside its tap; elsewhere the sensor is
 //    probed quietly and only a phone that really sends motion gets the prompt.
-//    The prompt's tap is when the neutral pose is taken.
+//    The prompt's tap is when the neutral pose is taken. The opening holds on
+//    its first frame until that is settled (holdOpening): the Golden Gate is the
+//    game's first hero shot and nobody should miss it behind a card.
 //  - no sensor, permission denied, or no event within config.tilt.eventTimeout
 //    (an iframe that refuses motion, like the claude.ai preview): touch, with
 //    no error; that is remembered for the session only, never as the player's
@@ -72,6 +74,8 @@ export class Controls {
   readonly fx: TurboFx;
   readonly hud: Hud;
   readonly voice = new TurboVoice();
+  /** the opening's gate (main.ts): a gear would lift the bus over the deck, so a shift waits until it clears */
+  gearsLocked = false;
   private readonly d: ControlsDeps;
   private prefs: Prefs;
   private readonly hf: HudFrame = { gear: 0, maxGear: 1, engaged: false, boosting: false, mph: 0, sinceShift: Infinity, sinceLocked: Infinity };
@@ -79,6 +83,9 @@ export class Controls {
   /** seconds the turbo has been silent (the voice detaches), and until the keys' toast (<= 0: none due) */
   private voiceIdle = 0;
   private keysIn = 0;
+  /** a shift made while gearsLocked, and the turbo line of the post-card toast: both wait for the gate */
+  private queuedShift: 1 | -1 | 0 = 0;
+  private turboHintDue = false;
   private readonly onFlash = (pos: THREE.Vector3, strength: number) => {
     const p = this.flashTmp.copy(pos).project(this.d.camera);
     this.d.pipeline.flash(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5, 1, strength);
@@ -119,7 +126,10 @@ export class Controls {
       },
       onGesture: () => d.audio.unlock(),
     });
-    d.input.onTurbo = (dir) => this.turbo.shift(dir, d.flight);
+    d.input.onTurbo = (dir) => {
+      if (this.gearsLocked) this.queuedShift = dir;
+      else this.turbo.shift(dir, d.flight);
+    };
     this.turbo.onEvent = (ev, g) => this.onTurbo(ev, g);
     if (this.prefs.muted) d.audio.setMuted(true);
     this.hud.setSettings({ tiltAvailable: TiltControl.supported(), tiltNote: TiltControl.supported() ? '' : NO_SENSOR, sensitivity: this.tilt.core.sensitivity, muted: !!this.prefs.muted });
@@ -138,10 +148,22 @@ export class Controls {
     return this.d.input.mode;
   }
 
+  /** The player hasn't answered yet: the TILT TO FLY card, the motion sheet, or the sensor still settling. */
+  get holdOpening(): boolean {
+    if (this.d.params.has('nohud')) return false;
+    const s = this.tilt.status;
+    return this.hud.promptOpen || s === 'requesting' || s === 'waiting' || s === 'calibrating';
+  }
+
   // ------------------------------------------------------------------ per frame (main.ts)
 
   /** After input.update, before the flight steps: the turbo drive writes Flight.turbo. */
   preFlight(dt: number) {
+    if (!this.gearsLocked && this.queuedShift) {
+      this.turbo.shift(this.queuedShift, this.d.flight);
+      this.queuedShift = 0;
+      this.turboHintDue = false; // (they already know)
+    }
     this.turbo.update(dt, this.d.flight, this.d.input.state.turboHeld);
   }
 
@@ -173,6 +195,10 @@ export class Controls {
         this.voice.update(T, t);
         if (this.voiceIdle > 2) this.voice.detach(t + 0.3);
       }
+    }
+    if (this.turboHintDue && !this.gearsLocked && !this.queuedShift) {
+      this.turboHintDue = false;
+      this.hud.toast(['SWIPE UP FOR TURBO'], 2.6);
     }
     if (this.keysIn > 0) {
       this.keysIn -= realDt;
@@ -228,7 +254,13 @@ export class Controls {
       this.enterTilt();
       return;
     }
-    void this.tilt.request().then((s) => (s === 'active' ? this.enterTilt() : this.noTilt()));
+    // (the card closes now, the answer comes later: the touch controls stay away while iOS's sheet is up)
+    this.hud.setChromeHeld(true);
+    void this.tilt.request().then((s) => {
+      this.hud.setChromeHeld(false);
+      if (s === 'active') this.enterTilt();
+      else this.noTilt();
+    });
   }
 
   /** Settings: the player's own choice (persisted). */
@@ -261,7 +293,9 @@ export class Controls {
     savePrefs(this.prefs);
     this.hud.setSettings({ tiltAvailable: true, tiltNote: '' });
     this.setMode('tilt');
-    this.hud.toast(['TILT TO STEER', 'SWIPE UP FOR TURBO'], 2.6);
+    // (no turbo tip over the Golden Gate: it comes when a gear can actually do something)
+    this.turboHintDue = this.gearsLocked;
+    this.hud.toast(this.gearsLocked ? ['TILT TO STEER'] : ['TILT TO STEER', 'SWIPE UP FOR TURBO'], 2.6);
   }
 
   /** No motion here (no sensor, refused, or silent): touch, remembered for this session only. A refusal says so

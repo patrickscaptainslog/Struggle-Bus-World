@@ -89,6 +89,8 @@ row('touch', 'button hold 1 s while steering with the other thumb', (h) => { con
 row('touch', 'lever: tap up / tap down / hold', (h) => { h.input.turboShift(1); h.wait(200); h.input.turboShift(-1); h.wait(200); h.input.turboHold(true); h.wait(500); h.input.turboHold(false); });
 // ---- tilt mode: the whole screen
 row('tilt', 'screen: quick tap (120 ms)', (h) => { const id = newId(); h.down(id, X, Y); h.wait(120); h.up(id, X, Y); });
+row('tilt', 'screen: quick tap wandering 22 px in 100 ms (still a tap)', (h) => { const id = newId(); h.down(id, X, Y); h.slide(id, X, Y, 22, 0, 100); h.up(id, X + 22, Y); });
+row('tilt', 'screen: slow press wandering 22 px over 250 ms (dead: not a tap)', (h) => { const id = newId(); h.down(id, X, Y); h.slide(id, X, Y, 22, 0, 250); h.up(id, X + 22, Y); });
 row('tilt', 'screen: 280 ms (just under holdThreshold)', (h) => { const id = newId(); h.down(id, X, Y); h.wait(280); h.up(id, X, Y); });
 row('tilt', 'screen: hold 320 ms (just over)', (h) => { const id = newId(); h.down(id, X, Y); h.wait(320); h.up(id, X, Y); });
 row('tilt', 'screen: hold 2 s', (h) => { const id = newId(); h.down(id, X, Y); h.wait(2000); h.up(id, X, Y); });

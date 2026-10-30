@@ -170,6 +170,24 @@
   },
   {
    "mode": "tilt",
+   "gesture": "screen: quick tap wandering 22 px in 100 ms (still a tap)",
+   "events": [
+    "tap@100ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "tilt",
+   "gesture": "screen: slow press wandering 22 px over 250 ms (dead: not a tap)",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "tilt",
    "gesture": "screen: 280 ms (just under holdThreshold)",
    "events": [
     "tap@280ms"

@@ -24,6 +24,10 @@
 //   perf=<otherBaseUrl>  CPU work ms, draw calls, triangles at the same Alamo Square view (cruising at the
 //          floor, the fps meter's per-frame counters) for <otherBaseUrl> (e.g. the build before) and
 //          <baseUrl>, in one browser session                                              -> perf in controls.json
+//   opening  a first visit (no skipintro, no nohud): the opening waits on the TILT TO FLY card, the tap starts it,
+//          the bus threads the deck (shots); a swipe up during it waits for the gate (flight log); refused, silent
+//          and one-stray-event sensors never hang it; a page with sensors and no permission API holds too
+//                                                                                        -> opening.json
 // Launches through tools/browser.mjs (the GPU here, SwiftShader in the cloud): everything waits on the game
 // clock (fixed 1/20 s steps), never wall time.
 import { chromium } from 'playwright-core';
@@ -713,6 +717,120 @@ if (modes.has('flows')) {
     await page.close();
   }
   res.flows = F;
+}
+
+if (modes.has('opening')) {
+  mkdirSync(`${out}/opening`, { recursive: true });
+  const res = {};
+  const sensors = (cfg) => `(() => {
+    const cfg = ${JSON.stringify(cfg)};
+    window.__sensor = { beta: 55, gamma: 0, on: !cfg.permission };
+    const D = window.DeviceOrientationEvent;
+    D.requestPermission = cfg.permission ? () => { window.__sensor.on = true; return Promise.resolve(cfg.permission); } : undefined;
+    let sent = 0;
+    setInterval(() => {
+      const s = window.__sensor;
+      if (!s.on || cfg.silent || (cfg.stray && sent >= cfg.stray)) return;
+      sent++;
+      window.dispatchEvent(new DeviceOrientationEvent('deviceorientation', { alpha: 0, beta: s.beta, gamma: s.gamma, absolute: false }));
+    }, 16);
+  })()`;
+  const first = async (cfg) => {
+    const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+    page.on('pageerror', (e) => console.log('[pageerror]', e.message));
+    await page.addInitScript(sensors(cfg));
+    await page.goto(base + '?fixeddt=0.05', { waitUntil: 'load' });
+    await page.waitForFunction(() => window.__game && window.__game.city.loadedRegionCount() > 0, null, { timeout: 400000 });
+    const cdp = await page.context().newCDPSession(page);
+    return { page, cdp };
+  };
+  const tap = async (cdp) => {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 196, y: 420, id: 1 }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  };
+  const swipeUp = async (cdp) => {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 196, y: 600, id: 1 }] });
+    for (const y of [570, 530, 490]) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 196, y, id: 1 }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  };
+  const state = (page) => page.evaluate(() => {
+    const g = window.__game, f = g.flight, c = g.controls;
+    return { clock: +g.clock().toFixed(2), mode: c.mode, status: c.tilt.status, prompt: c.hud.promptOpen, hold: c.holdOpening, locked: c.gearsLocked, gear: c.turbo.gear, y: +f.y.toFixed(1), speed: +f.speed.toFixed(0), low: +g.rig.openingLow.toFixed(2) };
+  });
+  const log = (page, s) => page.evaluate((s) => new Promise((done) => {
+    const g = window.__game, f = g.flight, c = g.controls, l = [], t0 = g.clock();
+    let nf = 0;
+    const tick = () => {
+      if (nf++ % 10 === 0) l.push([+(g.clock() - t0).toFixed(1), Math.round(f.x), Math.round(f.z), +f.y.toFixed(1), +f.speed.toFixed(0), c.turbo.gear, c.gearsLocked ? 1 : 0, +g.rig.openingLow.toFixed(2), Math.round(g.camera.position.y)]);
+      if (g.clock() - t0 >= s) done(l); else requestAnimationFrame(tick);
+    };
+    tick();
+  }), s);
+
+  // ---- the card: the opening waits, the tap starts it
+  {
+    const { page, cdp } = await first({ permission: 'granted' });
+    await page.waitForTimeout(4000);
+    const held = await state(page);
+    await page.screenshot({ path: `${out}/opening/card.png` });
+    await tap(cdp);
+    await until(page, 'g.controls.mode === "tilt"', 5);
+    const after = await state(page);
+    const shots = [];
+    let prev = 0;
+    for (const t of [0.5, 2, 4, 6, 8, 10, 11, 12, 13, 14, 16, 18, 20]) {
+      await runFor(page, t - prev);
+      prev = t;
+      await page.screenshot({ path: `${out}/opening/t${String(t).padStart(2, '0')}.png` });
+      shots.push({ t, ...(await state(page)) });
+    }
+    const toastAt = await page.evaluate(() => document.body.innerText.length);
+    res.card = { held, after, shots, toastAt };
+    console.log('opening card', JSON.stringify({ held, after }));
+    for (const s of shots) console.log(' ', JSON.stringify(s));
+    await page.close();
+  }
+  // ---- a swipe up in the opening: under the deck first, then the gear
+  {
+    const { page, cdp } = await first({ permission: 'granted' });
+    await tap(cdp);
+    await until(page, 'g.controls.mode === "tilt"', 5);
+    await runFor(page, 1);
+    await swipeUp(cdp);
+    const l = await log(page, 13);
+    for (const t of [14, 15, 16, 17, 18, 19, 20, 21]) {
+      l.push(...(await log(page, 1)));
+      await page.screenshot({ path: `${out}/opening/swipe-${t}.png` });
+    }
+    l.push(...(await log(page, 8)));
+    res.swipe = l;
+    console.log('swipe [t,x,z,y,speed,gear,locked,low,camY]', JSON.stringify(l.filter((_, i) => i % 4 === 0)));
+    await page.screenshot({ path: `${out}/opening/swipe-end.png` });
+    await page.close();
+  }
+  // ---- nothing may hang it
+  for (const [name, cfg] of [['refused', { permission: 'denied' }], ['silent', { permission: 'granted', silent: true }], ['stray', { permission: 'granted', stray: 1 }]]) {
+    const { page, cdp } = await first(cfg);
+    await tap(cdp);
+    await page.waitForTimeout(4000);
+    const s = await state(page);
+    res[name] = s;
+    console.log(name, JSON.stringify(s));
+    await page.close();
+  }
+  // ---- sensors, no permission API (Android): held by the probe and the card, then the tap starts it
+  {
+    const { page, cdp } = await first({});
+    await page.waitForTimeout(3000);
+    const held = await state(page);
+    await tap(cdp);
+    await page.waitForTimeout(3000);
+    const after = await state(page);
+    res.android = { held, after };
+    console.log('android', JSON.stringify(res.android));
+    await page.close();
+  }
+  writeFileSync(`${out}/opening.json`, JSON.stringify(res, null, 1));
 }
 
 if (modes.has('perf') && perfOther) {

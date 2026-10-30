@@ -138,9 +138,12 @@ Merging supersplat after controls (none of these conflict loudly):
    pass (polish/perf) is paused. Measure real fps here and on the producer's iPhone.
 
 ## Known issues worth knowing
-- G1 crossing downtown hitches (spikes to ~76 ms, CPU work 64 ms, on this laptop):
-  chunks stream in at 5x the surge speed. polish/perf's budgeted streaming should fix it;
-  re-measure after that merge.
+- G1 hitches (p99 33 ms, spikes 67-83 ms over the west side alone, before downtown; CPU work
+  64 ms, on this laptop): chunks stream in at 5x the surge speed. polish/perf's budgeted
+  streaming should fix it; re-measure after that merge, on an A15 too (expect worse there).
+- Capture tools pass `&nohud` and never see the card: `tools/controls.mjs ... opening` is the
+  first-visit run (card, tap, the bus under the deck, a swipe during it, sensors that never answer).
+- `fps.mjs` peaks at 1.52M triangles at the Alamo ceiling, just over the 1.5M budget, on main too.
 - The first gesture stalls ~200 ms in `audio.unlock()` here (more on a phone?), on main too.
 - `shots.mjs` stats sometimes come back null at 390 px (the perf snapshot timing); the
   screenshots are still valid.

@@ -677,6 +677,8 @@ async function boot() {
     let dt = fixedDt || Math.min(0.05, (now - last) / 1000);
     const realDt = dt;
     last = now;
+    // the opening is the first hero shot: it waits for the TILT TO FLY card's answer (and the motion sheet behind it)
+    if (opening < config.fog.openingDuration && controls.holdOpening) dt = 0;
     if (hitStop > 0) {
       hitStop -= dt;
       dt = 0; // freeze everything: two frames of awe
@@ -710,6 +712,8 @@ async function boot() {
     const gateAlong = openingBridge ? (flight.x - openingBridge[0]) * flight.fx + (flight.z - openingBridge[1]) * flight.fz : 0;
     const gateDist = openingBridge ? Math.hypot(flight.x - openingBridge[0], flight.z - openingBridge[1]) : Infinity;
     if (openingBridge && gateAlong < config.camera.openingClimbAfter) sy = Math.max(0, sy);
+    // (nor can a gear lift it: a swipe waits for the gate)
+    controls.gearsLocked = !!openingBridge && gateAlong < config.camera.openingClimbAfter;
     const dragging = qaStick ? true : st.dragging;
     // past the edge of the map the bus homes back toward the city, gently
     const ex = Math.max(minX - flight.x, flight.x - maxX, 0), ez = Math.max(minZ - flight.z, flight.z - maxZ, 0);
@@ -770,7 +774,9 @@ async function boot() {
       }
     }
     // aim glint on the building a tap would hit (picked every frame), only while a breath is loaded
-    const glint = aimer.update(flight, simTime, dragging);
+    // (a steering thumb thaws the glint when it lands; tilt has no thumb, and a press that fires on its lift keeps
+    // what it froze, whatever else is steering)
+    const glint = aimer.update(flight, simTime, dragging && input.mode !== 'tilt' && !input.pressHeld);
     paintUniforms.uTarget.value = glint ? glint.index : -1;
     paintUniforms.uTargetT.value = aimer.shownSince;
     paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);

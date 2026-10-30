@@ -461,6 +461,13 @@ export class TiltControl {
     if (this.status === 'waiting') {
       window.clearTimeout(this.timer);
       this.set('calibrating');
+      // (one stray event and then silence is no sensor either; the opening waits on this)
+      this.timer = window.setTimeout(() => {
+        if (this.status === 'calibrating') {
+          this.set('unavailable');
+          this.stop();
+        }
+      }, Math.max(100, (config.tilt.calibrate + config.tilt.eventTimeout) * 1000));
     }
     if (this.status === 'calibrating' && this.core.calibrated) this.set('active');
   }

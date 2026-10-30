@@ -75,9 +75,11 @@ tap -> jet -> impact -> hit-stop strip and checks real taps in the browser.
 Controls QA: `node tools/controls-sim/run.mjs s_tilt.ts` (and s_tune, s_perm,
 s_gesture, s_turbo; see its header) runs tilt, gestures and turbo offline
 against the real modules; `node tools/controls.mjs <baseUrl> shots/controls
-[touch] [turbo] [tilt] [gestures] [flows] [perf=<otherBaseUrl>]` checks them in
-the browser (`flows`: permission refused / silent, Android probe, keyboard + Esc).
-Capture tools pass `&nohud`: a phone viewport would otherwise show the tilt card.
+[touch] [turbo] [tilt] [gestures] [flows] [opening] [perf=<otherBaseUrl>]` checks
+them in the browser (`flows`: permission refused / silent, Android probe, keyboard +
+Esc; `opening`: a first visit, with the card and no `&nohud`).
+Capture tools pass `&nohud`: a phone viewport would otherwise show the tilt card
+(and hold the opening behind it).
 Altitude QA (climb shots, flight log, taps, perf at cruise vs ceiling):
 `node tools/altitude.mjs <baseUrl> shots/altitude downtown|west|gate|opening [--seq]`;
 `--seq` also captures frames exactly 1/30 s apart, and

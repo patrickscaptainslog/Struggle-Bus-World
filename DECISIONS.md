@@ -650,6 +650,45 @@ cross-checked in the browser with `tools/feel.mjs`.
   - NOT measured: a real iPhone or Android phone. The iOS sheet, A15 fps at G0
     and G1, the feel of the tilt curve and the WebKit gesture rules are synthetic
     or reasoned here, and need the HTTPS preview.
+- **Outside review of the controls (2026-10-30): what it caught, what changed.**
+  Every capture tool passes `&nohud`, so nobody had looked at a first iPhone run.
+  - **The opening waits for the card.** The TILT TO FLY card used to sit over the
+    Golden Gate while the opening played behind it, so the first hero shot went by
+    unseen. `Controls.holdOpening` holds the opening at dt = 0 (hit-stop's path)
+    through the card, the iOS sheet and the sensor settling; `?skipintro` and
+    `&nohud` pages never hold. The hold can't hang: refused, silent and
+    one-stray-event sensors all let it go (`Tilt.ts` now times out `calibrating`
+    too, which had no timeout), and the Android probe holds for at most ~1.2 s
+    with no card. The card's touch controls hide with it and stay away behind the
+    iOS sheet; the card and USE TOUCH INSTEAD sit either side of the waiting bus.
+  - **A gear can't lift the bus over the deck.** The opening's lock only clamped
+    the yoke; G1 raised the floor and took the low camera through the cables at
+    337 m/s. A shift in the gate is now queued, not dropped, since the game itself
+    says SWIPE UP FOR TURBO: the bus threads the deck at 48 m/s and y 5, the gate
+    clears, and the queued swipe launches it. (No press is ever dead.) The toast
+    over the opening says only TILT TO STEER; the turbo line comes at the gate,
+    unless they already swiped.
+  - **The press commits, on every source.** Aimer dropped its latch every frame
+    while `dragging`, and tilt's dragging means the phone is banked, so the glint
+    could swap under the finger. The same held for the SPLAT button and Space
+    while something else steers (found following the fix, not in the review). The
+    latch survives while tilt is flying or `input.pressHeld`; only touch's bungee
+    thumb thaws it. Tilt carves: latch held 63/63 (was 0/48 banked), the glint at
+    the press == hit 48/48; SPLAT button while steering 14/14. feel taps still 7/7.
+    `adv latch`'s 2 "mismatches" at gamma -20 compare a sample from before the
+    press lands (the loop keeps running until CDP's touch arrives), with the latch
+    held 16/16 and the glint at the lift == hit 16/16.
+  - **G0's boost is the classic rate.** It went through the gear spool, slower
+    than not boosting: 60 / 80 m/s in 0.57 / 0.95 s, now 0.17 / 0.33 s (push alone
+    0.20 / 0.45 s).
+  - **A quick tilt tap forgives like a touch tap:** 26 px within 150 ms (16 and
+    22 px wander were dead presses, now taps).
+  - Measured after: fps.mjs 60 median at all 6 spots, 1% lows 47.6-56.5, draws
+    75-186, triangles 0.49-1.52M (the same as MAIN; 1.52M at the Alamo ceiling is
+    just over budget on both). shots.mjs 127 draws / 1.211M grey. G1 over the west
+    side in real time: p99 33 ms, max 67-83 ms across runs (it was logged as 76 ms
+    downtown); polish/perf's budgeted streaming still has to fix that, and G1 must
+    be re-measured on an A15 after that merge.
 
 ## Data
 - **DataSF and the USGS elevation APIs are blocked by this environment's network

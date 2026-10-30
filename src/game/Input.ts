@@ -372,6 +372,11 @@ export class Input {
   // ---------------------------------------------------------------- the splat press (tap / hold)
 
   /** A press starts (false: another one is already held). */
+  /** A press that fires on its lift is down (the SPLAT button, Space, tilt's whole screen; not touch's bungee). */
+  get pressHeld(): boolean {
+    return this.prSrc !== Src.None;
+  }
+
   private pressBegin(src: Src, now: number): boolean {
     if (this.prSrc !== Src.None) return false;
     this.prSrc = src;
@@ -465,7 +470,9 @@ export class Input {
       return;
     }
     if (this.prSrc !== Src.Screen) return;
-    if (this.prCharging ? slot.maxDist > inputTune.chargeSlopPx : slot.maxDist > inputTune.holdSlopPx) this.pressEnd(Src.Screen, now, true);
+    // (the same forgiveness as a touch-mode tap: a quick tap may wander; no press is ever dead)
+    const slop = this.prCharging ? inputTune.chargeSlopPx : now - slot.t0 <= inputTune.quickTapMs ? inputTune.quickTapSlopPx : inputTune.holdSlopPx;
+    if (slot.maxDist > slop) this.pressEnd(Src.Screen, now, true);
   }
 
 
