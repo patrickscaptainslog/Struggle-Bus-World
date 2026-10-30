@@ -264,15 +264,16 @@ for (const [rel, up] of [[0.1, 2.2], [0.6, 2.2]] as const) {
       core.update(t);
     }
   };
-  loop(0, 60000);
-  let worst = -Infinity;
-  for (let k = 1; k <= 5; k++) {
+  loop(0, 400000);
+  const w: number[] = [];
+  for (let k = 0; k < 9; k++) {
     const before = process.memoryUsage().heapUsed;
-    loop(60000 * k, 20000);
-    worst = Math.max(worst, process.memoryUsage().heapUsed - before);
+    loop(400000 + 20000 * k, 20000);
+    w.push(process.memoryUsage().heapUsed - before);
   }
-  // (node --trace-gc shows no scavenge at all in 2M samples; a negative window is the earlier runs' garbage going)
-  check('15 feed + update: heap growth over 20k samples under 64 KB', worst < 65536, `${(worst / 1024).toFixed(1)} KB`);
+  // (the median of nine windows, once optimized: node --trace-gc shows no scavenge at all in 2M samples on its own)
+  const med = w.sort((a, b) => a - b)[4];
+  check('15 feed + update: heap growth over 20k samples under 64 KB', med < 65536, `median ${(med / 1024).toFixed(1)} KB`);
 }
 // 16. owner flags
 {

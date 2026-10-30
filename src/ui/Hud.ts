@@ -1166,6 +1166,8 @@ export class Hud {
     const edge = hot ? C.yellowHi : cueOn ? C.yellowHi : f.engaged && f.gear > 0 ? C.yellow : f.armed ? C.yellowLo : C.edge;
     const face = pressed ? C.yellowLo : C.panel;
     p.box(0, 0, n, n, face, edge, 3);
+    // (at rest the panel goes see-through; the chevrons and the label stay solid: the thumb still reads them)
+    if (rest) p.punch(0.25);
     if (hot || cueOn) {
       // the inner rule, as the lever's hot state
       p.rect(3, 2, n - 6, 1, C.yellowLo);
@@ -1176,16 +1178,17 @@ export class Hud {
     const step = this.compact ? 6 : 7;
     const y0 = this.compact ? 3 : 4;
     const dark = pressed ? C.ink : C.panel2;
+    const open = pressed ? C.ink : C.edge;
     for (let i = 3; i >= 1; i--) {
       const y = y0 + (3 - i) * step;
       const lit = i < f.gear || (i === f.gear && f.engaged);
       const lifting = i === f.gear && !f.engaged;
       const next = f.armed && i === f.gear + 1;
       const locked = i > f.maxGear;
-      let c = dark;
+      let c = locked ? dark : open;
       if (lit) c = f.gear >= 3 && f.engaged && config.turbo.worldTravel ? C.hue[(hue + i) % 6] : C.yellow;
-      else if (lifting) c = blink ? C.yellowHi : dark;
-      else if (next) c = blink ? C.yellowLo : dark;
+      else if (lifting) c = blink ? C.yellowHi : open;
+      else if (next) c = blink ? C.yellowHi : open;
       this.chevron(p, x, y, w, c);
       if (locked) {
         // the red tick; shifting past the last gear flashes the next one's
@@ -1201,7 +1204,6 @@ export class Hud {
     }
     const t = 'TURBO';
     p.text(t, Math.round((n - textWidth(t, HUD_SMALL)) / 2), n - (this.compact ? 7 : 8), pressed ? C.ink : hot ? C.yellowHi : C.cream, HUD_SMALL);
-    if (rest) p.punch(0.25);
     p.flush();
   }
 
@@ -1239,9 +1241,9 @@ export class Hud {
       }
     const hotCentre = bright || ph === 'firehose';
     p.disc(cx, cy, 12 * k, hotCentre ? C.yellow : C.panel);
+    if (rest && ph === 'ready') p.punch(0.25);
     const t = hold ? 'HOLD' : 'MEGA';
     p.text(t, Math.round(cx - textWidth(t, HUD_SMALL) / 2), Math.round(cy) - 3, hotCentre ? C.ink : ph === 'cooldown' ? C.dim : hold ? C.yellowHi : C.cream, HUD_SMALL);
-    if (rest && ph === 'ready') p.punch(0.25);
     p.flush();
   }
 
@@ -1272,6 +1274,8 @@ export class Hud {
       for (const [x, y] of [[3, 5], [2, 6], [2, 7], [2, 8], [2, 9], [3, 10]]) {
         p.set(x, y, a);
         p.set(15 - x, y, a);
+        p.set(x + 1, y, C.ink);
+        p.set(14 - x, y, C.ink);
       }
     }
     if (state === 'off' || state === 'refused') {

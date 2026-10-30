@@ -2,6 +2,7 @@
 // The jet's frame pacing, attributed: real time on this machine's GPU, nothing else running in the
 // page (no screenshots during the trace: a 3x page.screenshot is itself a long frame).
 //   node tools/jet.mjs <baseUrl> <outDir> [--seconds=9] [--routes=east,west,north,south] [--shots=1]
+// --idle=1 instead counts the HUD's DOM and style writes while idle: it must be 0.
 // Every route: settle at the street, shift to G1, wait for the engagement, then trace --seconds of
 // jet over the city. Each frame records the rAF gap, the frame's CPU, and the time inside the
 // streaming work (city.update and what it calls, the mesh uploads inside the renderer's first draw).
@@ -32,6 +33,31 @@ const pct = (a, p) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const report = { base, seconds, routes: {} };
+
+if (opt.idle) {
+  // HUD up, nothing pressed, flying: no style or DOM writes at all while idle (canvases redraw, the DOM stays still)
+  const browser = await chromium.launch(browserOptions([]));
+  const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
+  await page.addInitScript(() => {
+    window.DeviceOrientationEvent.requestPermission = () => Promise.resolve('denied');
+  });
+  await page.goto(base + ROUTES.east + '&skipintro&fps', { waitUntil: 'load' });
+  await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 400000 });
+  await sleep(7500); // (past the top-right fade)
+  const writes = await page.evaluate(() => new Promise((done) => {
+    let n = 0;
+    const o = new MutationObserver((l) => (n += l.length));
+    o.observe(document.getElementById('sb-hud'), { subtree: true, attributes: true, childList: true });
+    setTimeout(() => {
+      o.disconnect();
+      done(n);
+    }, 3000);
+  }));
+  console.log('idle HUD DOM / style writes in 3 s:', writes);
+  writeFileSync(`${out}/idle.json`, JSON.stringify({ writes }));
+  await browser.close();
+  process.exit(writes ? 1 : 0);
+}
 
 for (const route of routes) {
   const browser = await chromium.launch(browserOptions([]));
