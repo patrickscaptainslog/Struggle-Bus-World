@@ -387,6 +387,9 @@ export const config = {
     /** Max buildings bloomed per blast at the base radius (scales with the radius, up to maxBuildingsCap). */
     maxBuildings: 40,
     maxBuildingsCap: 96,
+    /** A super's blast (mega, the firehose's closer): its cap grows with the blast's area, up to this: the buildings in
+     *  reach grow with r squared, and the street grid under them is painted to the full radius either way. */
+    megaBuildingsCap: 480,
     /** Hue layout: 0 = pinwheel by angle, 1 = rings by distance, 2 = spiral (pinwheel + rings). */
     hueLayout: 0,
     /** Ground pinwheel sectors around the impact (6 = one rainbow turn: opposite sides complementary). */

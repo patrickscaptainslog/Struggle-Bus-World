@@ -206,7 +206,6 @@ export class SuperSplat {
   private hHead = 0;
   private hCount = 0;
   private hUsed = -1;
-  private readonly land = { x: 0, z: 0 };
   /** where the stream lands now (hoseAim) */
   private readonly aim = { x: 0, y: 0, z: 0, drop: 0, travel: 0.3 };
   private readonly v0 = new THREE.Vector3();
@@ -241,6 +240,7 @@ export class SuperSplat {
       return;
     }
     if (this.phase !== 'ready') return;
+    this.deniedPress = false;
     this.phase = 'charging';
     this.since = 0;
     this.held = clamp(heldSoFar, 0, S.superCharge);
@@ -253,9 +253,10 @@ export class SuperSplat {
   /** Input.onChargeEnd: the charging press lifted (or was cancelled: it slid into a steer, the app lost focus). */
   chargeEnd(_heldSeconds: number, cancelled: boolean): void {
     if (this.deniedPress) {
-      // (a slow tap during the cooldown: "not yet" for the super, still a splat: no press is dead)
+      // (a slow tap during the cooldown: "not yet" for the super, still a splat, even if the cooldown ran out under
+      // the thumb: no press is dead. A held denied press starts no charge, so the phase is cooldown or ready here)
       this.deniedPress = false;
-      if (!cancelled && this.phase === 'cooldown') this.h.tap();
+      if (!cancelled) this.h.tap();
       return;
     }
     if (this.phase !== 'charging') return;
@@ -396,29 +397,13 @@ export class SuperSplat {
 
   // ------------------------------------------------------------------ mega
 
-  /** The shot a super fires now: at the glinting building when the belly is loaded, else picked at the aim point. */
-  private shotNow(): Shot {
-    const h = this.h;
-    const f = h.flight;
-    if (Aimer.loaded(f) && h.aimer.shown()) return h.aimer.fire(f);
-    const S = config.splat;
-    h.aimer.point(f);
-    const aim = h.aimer.aim;
-    const target = h.splatter.pick(aim.x, aim.z, h.splatter.pickRadius(aim.drop));
-    let x = aim.x, z = aim.z;
-    if (target) {
-      const l = h.city.landingOn(target, x, z, S.landInset, this.land, S.smallRad);
-      x = l.x;
-      z = l.z;
-    }
-    const iy = target ? h.city.roofAtPart(target, x, z) + 0.5 : h.city.groundAt(x, z);
-    return { target, x, z, y: undefined, exact: false, drop: Math.max(0, f.y - iy), travel: aim.travel };
-  }
-
   private fireMega(k: number) {
     const S = config.splat;
     const u = clamp((k - S.superMin) / Math.max(0.01, 1 - S.superMin), 0, 1);
-    const shot = this.shotNow();
+    // (at the glinting building when the belly is loaded, else what is at the aim point: a mega needs no full belly)
+    const a = this.h.aimer;
+    const f = this.h.flight;
+    const shot = Aimer.loaded(f) && a.shown() ? a.fire(f) : a.aimShot(f);
     const radius = blastRadiusFor(shot.drop) * (1 + (S.megaGain - 1) * u);
     const width = 1 + (S.megaWidth - 1) * u;
     const hitStop = Math.round(S.hitStopFrames + (S.megaHitStop - S.hitStopFrames) * u);

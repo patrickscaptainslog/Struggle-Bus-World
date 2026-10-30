@@ -187,8 +187,10 @@ export class Splatter {
 
     // every building the blast reaches (its footprint, not its centroid: a big block half inside the radius
     // blooms too), nearest edge first, capped: a house by its centroid less its half-size (as the approved
-    // blast), a big footprint by its true edge distance (its centroid may lie 100 m away)
-    const cap = Math.min(S.maxBuildingsCap, Math.max(1, Math.round((S.maxBuildings * r) / S.blastRadius)));
+    // blast), a big footprint by its true edge distance (its centroid may lie 100 m away). A super's blast is
+    // capped by its area, not its radius: over dense housing it must not leave grey blocks in a rainbow street grid
+    const rk = r / S.blastRadius;
+    const cap = opts?.super && !hose ? Math.min(S.megaBuildingsCap, Math.round(S.maxBuildings * rk * rk)) : Math.min(S.maxBuildingsCap, Math.max(1, Math.round(S.maxBuildings * rk)));
     const near = city.buildingsWithin(cx, cz, r + S.smallRad, this.near);
     const reach = this.reachList;
     reach.length = 0;

@@ -285,7 +285,22 @@ export class Aimer {
 
   /** The shot a tap fires now: at the glinting building (call before Flight.tryBarf, between frames). */
   fire(f: Flight): Shot {
-    const target = this.shown();
+    return this.shotAt(f, this.shown());
+  }
+
+  /**
+   * The shot a super's mega fires with whatever the belly holds, when nothing is glinting: update() keeps no target
+   * while the belly refills, so this finds one as update() would, and a wall in the line of fire still takes the shot.
+   */
+  aimShot(f: Flight): Shot {
+    this.point(f);
+    const aim = this.aim;
+    const pick = this.splatter.pick(aim.x, aim.z, this.splatter.pickRadius(aim.drop));
+    this.occlude(pick);
+    return this.shotAt(f, this.wallRef ?? pick);
+  }
+
+  private shotAt(f: Flight, target: BuildingRef | null): Shot {
     const aim = this.aim;
     const wall = aim.wall && target === this.wallRef;
     let x = aim.x, z = aim.z;
