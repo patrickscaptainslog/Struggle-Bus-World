@@ -9,7 +9,9 @@ import { clamp, disposeOnEnd, envAD, mkFilter, mkGain, mkOsc, noiseSrc, target, 
 //    the engagement (two backfire pops), the sonic boom (an N-wave's two
 //    cracks, a sub drop, a rolling rumble into the reverb), and LOCKED (a
 //    clunk and two low buzzes).
-// Attach once the AudioEngine is live (AudioEngine.voiceKit()).
+// Attach when the turbo starts sounding (AudioEngine.voiceKit()), detach once it
+// has been silent a while: its loops are constant audio-thread work on a phone,
+// for a feature most of a session doesn't use.
 
 export interface TurboSound {
   /** turbo speed, log scale (0 = surge, 1 = G1) */
@@ -29,6 +31,9 @@ export class TurboVoice {
   private whineLP!: BiquadFilterNode;
   private rattleG!: GainNode;
   private rattleLfo!: OscillatorNode;
+  /** the continuous voices' sources, and every node to let go of with them */
+  private sources: AudioScheduledSourceNode[] = [];
+  private nodes: AudioNode[] = [];
 
   get attached(): boolean {
     return this.kit !== null;
@@ -76,6 +81,18 @@ export class TurboVoice {
     n3.connect(hp).connect(gate).connect(this.rattleG).connect(out);
     n3.start(t);
     this.rattleLfo.start(t);
+    this.sources = [n1, n2, this.whine, n3, this.rattleLfo];
+    this.nodes = [n1, this.roarBP, lp, this.roarG, n2, lp2, this.rumbleG, this.whine, this.whineLP, this.whineG, n3, hp, gate, this.rattleLfo, depth, this.rattleG];
+  }
+
+  /** Stop the continuous voices (they are silent by now); the one-shots are on their own and ring out. */
+  detach(t: number): void {
+    if (!this.kit) return;
+    disposeOnEnd(this.sources[0], this.nodes);
+    for (const s of this.sources) s.stop(t);
+    this.sources = [];
+    this.nodes = [];
+    this.kit = null;
   }
 
   /** Per frame (t = the engine's start time for now). */

@@ -46,7 +46,7 @@ Phase 1: single player, no server. iPhone Safari first (portrait, one thumb).
   glows fuller as the next blast recharges.
 - Keyboard (desktop): arrows / WASD fly the same yoke (Down/S climbs, Up/W
   dives or surges), mouse drag is the bungee, Space breathes (hold to
-  charge), E / Q shift turbo gears, Shift boosts.
+  charge), E / Q shift turbo gears, Shift boosts, Esc opens the settings.
 - Blast an already-painted block to escalate it: rooftop gardens, then full
   Hundertwasser.
 - Paint and your control settings are saved on your phone.
@@ -60,6 +60,9 @@ npm install
 npm run dev          # http://localhost:5173
 npm run build        # dist/
 ```
+Tilt needs HTTPS (the Vercel deploy) or localhost: over http on the LAN, phones
+fall back to touch.
+
 Dev pages: `dev/city.html` (real city viewer), `dev/flight.html` (autopilot
 flight test), and one page per module (`dev/bus.html`, `dev/fx.html`, ...).
 Screenshots: `node tools/shot.mjs <url> out.png`, `node tools/shots.mjs`,
@@ -72,7 +75,9 @@ tap -> jet -> impact -> hit-stop strip and checks real taps in the browser.
 Controls QA: `node tools/controls-sim/run.mjs s_tilt.ts` (and s_tune, s_perm,
 s_gesture, s_turbo; see its header) runs tilt, gestures and turbo offline
 against the real modules; `node tools/controls.mjs <baseUrl> shots/controls
-[touch] [turbo] [tilt] [perf=<otherBaseUrl>]` checks them in the browser.
+[touch] [turbo] [tilt] [gestures] [flows] [perf=<otherBaseUrl>]` checks them in
+the browser (`flows`: permission refused / silent, Android probe, keyboard + Esc).
+Capture tools pass `&nohud`: a phone viewport would otherwise show the tilt card.
 Altitude QA (climb shots, flight log, taps, perf at cruise vs ceiling):
 `node tools/altitude.mjs <baseUrl> shots/altitude downtown|west|gate|opening [--seq]`;
 `--seq` also captures frames exactly 1/30 s apart, and

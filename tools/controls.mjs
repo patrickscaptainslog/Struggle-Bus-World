@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Controls QA in the real game (index.html), iPhone portrait viewport, touch + mobile emulation.
-//   node tools/controls.mjs <baseUrl> <outDir> [touch] [turbo] [tilt]
+//   node tools/controls.mjs <baseUrl> <outDir> [touch] [turbo] [tilt] [gestures] [flows] [perf=<otherBaseUrl>]
 //
 //   touch  the default page (Chromium: no motion sensor): the quiet probe falls back to touch;
 //          shots of the touch HUD and the settings panel; real gestures on the HUD's splat button
@@ -18,22 +18,24 @@
 //          and turbo lever; tilt mode: the whole screen) with CDP touches dispatched while the game loop is
 //          frozen (__qa.holdFrames = 0: frames are instant, so events arrive when they happen), the loop
 //          running only through the holds                                               -> gestures in controls.json
+//   flows  every way into a scheme, in the real page: iOS refused / throwing / granted but silent / "use touch
+//          instead", settings retry, reload in the same tab, the Android quiet probe, the top-right buttons'
+//          fade and wake, the super slot's geometry, and a desktop's keyboard + Esc (shots)  -> flows in controls.json
 //   perf=<otherBaseUrl>  CPU work ms, draw calls, triangles at the same Alamo Square view (cruising at the
 //          floor, the fps meter's per-frame counters) for <otherBaseUrl> (e.g. the build before) and
 //          <baseUrl>, in one browser session                                              -> perf in controls.json
-// SwiftShader renders ~1.5 fps: everything waits on the game clock (fixed 1/20 s steps), never wall time.
+// Launches through tools/browser.mjs (the GPU here, SwiftShader in the cloud): everything waits on the game
+// clock (fixed 1/20 s steps), never wall time.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { browserOptions } from './browser.mjs';
 
 const [base = 'http://127.0.0.1:5101/', out = 'shots/controls', ...rest] = process.argv.slice(2);
 const modes = new Set((rest.length ? rest : ['touch', 'turbo', 'tilt']).map((m) => m.split('=')[0]));
 const perfOther = (rest.find((m) => m.startsWith('perf=')) ?? '').slice(5);
 mkdirSync(out, { recursive: true });
 
-const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
-});
+const browser = await chromium.launch(browserOptions());
 
 // ---- the physical phone (same model as tools/controls-sim/phone.ts), plain 3x3 math
 const D = Math.PI / 180;
@@ -61,9 +63,14 @@ async function open(query, init, at = base) {
   const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
   page.on('pageerror', (e) => console.log('[pageerror]', e.message));
   page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.log('[console]', m.text()));
+  // (recent Chromium desktop builds expose requestPermission too: a page that doesn't mock it is a phone with no such API)
+  await page.addInitScript(() => {
+    if (window.DeviceOrientationEvent) window.DeviceOrientationEvent.requestPermission = undefined;
+  });
   if (init) await page.addInitScript(init);
   await page.goto(at + query, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__shotReady === true && window.__game, null, { timeout: 400000 });
+  // (a fresh page per open: Controls saw the page's storage empty)
   // log the input contract's callbacks (wrapping what main / Controls installed)
   await page.evaluate(() => {
     const g = window.__game, inp = g.input;
@@ -210,6 +217,9 @@ if (modes.has('touch') || modes.has('turbo')) {
     });
     await page.evaluate(() => { window.__game.flight.glideSpeed = 0; window.__qa = null; });
     await runFor(page, 1);
+    // (the first gesture builds the sound graph, ~200 ms inside the handler; CDP acks after it, so a scripted
+    // 80 ms tap would measure 300+ ms and read as a hold. A real finger's event times don't have this problem.)
+    await page.evaluate(() => window.__game.audio.unlock());
     const lv = await rectOf(page, '[data-hud="lever"]');
     await events(page);
     await touch(page, cdp, [{ type: 'touchStart', x: lv.x, y: lv.top + 10, wait: 80 }, { type: 'touchEnd' }]);
@@ -228,6 +238,30 @@ if (modes.has('touch') || modes.has('turbo')) {
     await until(page, 'g.flight.speed > 440', 10);
     await runFor(page, 1.5);
     await page.screenshot({ path: `${out}/g1-jet.png` });
+    // what the effects cost: alternate frames with them off, same place, same frame budget
+    res.fxCost = await page.evaluate(() => new Promise((done) => {
+      const g = window.__game, p = g.perf, fx = g.controls.fx.object, orig = p.frame;
+      const on = [], off = [];
+      p.frame = (dt, work) => {
+        orig(dt, work);
+        (fx.visible ? on : off).push({ calls: p.calls, tris: p.tris, work });
+        fx.visible = !fx.visible;
+        if (on.length >= 24) {
+          p.frame = orig;
+          fx.visible = true;
+          const med = (a, k) => [...a.map((r) => r[k])].sort((x, y) => x - y)[Math.floor(a.length / 2)];
+          done({ frames: on.length, on: { calls: med(on, 'calls'), tris: med(on, 'tris'), workMs: +med(on, 'work').toFixed(2) }, off: { calls: med(off, 'calls'), tris: med(off, 'tris'), workMs: +med(off, 'work').toFixed(2) } });
+        }
+      };
+    }));
+    console.log('fx cost at G1:', JSON.stringify(res.fxCost));
+    // a splat at jet speed
+    await page.evaluate(() => {
+      window.__game.forceReady();
+      window.__game.input.onTap();
+    });
+    await runFor(page, 0.5);
+    await page.screenshot({ path: `${out}/g1-splat.png` });
     // a banked jet turn
     await page.evaluate(() => (window.__qa = { sx: 0.8, sy: 0 }));
     await runFor(page, 1.6);
@@ -270,6 +304,7 @@ if (modes.has('tilt')) {
     const D = window.DeviceOrientationEvent;
     D.requestPermission = () => {
       window.__sensor.asked = (window.__sensor.asked || 0) + 1;
+      window.__sensor.askedIn = window.event ? window.event.type : 'no event'; // (must be a touchend)
       window.__sensor.on = true;
       return Promise.resolve('granted');
     };
@@ -335,7 +370,7 @@ if (modes.has('tilt')) {
   await touch(page, cdp, [{ type: 'touchStart', x: 196, y: 380, wait: 60 }, { type: 'touchEnd' }]);
   await page.waitForFunction(() => window.__game.controls.snapshot().mode === 'tilt', null, { timeout: 60000 });
   const s1 = await snap(page);
-  const asked = await page.evaluate(() => window.__sensor.asked);
+  const asked = await page.evaluate(() => ({ count: window.__sensor.asked, inEvent: window.__sensor.askedIn }));
   await runFor(page, 0.4);
   await page.screenshot({ path: `${out}/hud-tilt-toast.png` });
   await runFor(page, 3);
@@ -392,6 +427,8 @@ if (modes.has('tilt')) {
   await runFor(page, 0.3);
   const before = (await snap(page)).tilt.sy;
   const rc = await rectOf(page, '[data-hud="recenter"]');
+  await page.touchscreen.tap(rc.x, rc.y); // (the buttons have faded out: this one brings them back)
+  await new Promise((r) => setTimeout(r, 450));
   await page.touchscreen.tap(rc.x, rc.y);
   await new Promise((r) => setTimeout(r, 500));
   await runFor(page, 0.3);
@@ -434,7 +471,7 @@ if (modes.has('gestures')) {
     await row('lever tap bottom (shift down)', [{ type: 'touchStart', x: lv.x, y: lv.bottom - 10, wait: 80 }, { type: 'touchEnd' }], gear);
     await row('lever swipe up', [{ type: 'touchStart', x: lv.x, y: lv.y + 20, wait: 20 }, { type: 'touchMove', x: lv.x, y: lv.y - 10, wait: 20 }, { type: 'touchMove', x: lv.x, y: lv.y - 30, wait: 20 }, { type: 'touchEnd' }], gear);
     await row('lever swipe down', [{ type: 'touchStart', x: lv.x, y: lv.y - 20, wait: 20 }, { type: 'touchMove', x: lv.x, y: lv.y + 10, wait: 20 }, { type: 'touchMove', x: lv.x, y: lv.y + 30, wait: 20 }, { type: 'touchEnd' }], gear);
-    await row('lever hold (boost)', [{ type: 'touchStart', x: lv.x, y: lv.y }, { run: 0.6 }], async () => ({ turboHeldWhileDown: (await snap(page)).input.turboHeld }));
+    await row('lever hold (boost)', [{ type: 'touchStart', x: lv.x, y: lv.y, wait: 450 }, { run: 0.6 }], async () => ({ turboHeldWhileDown: (await snap(page)).input.turboHeld }));
     await gesture(page, cdp, [{ type: 'touchEnd' }]);
     G['touch: lever released'] = { turboHeld: (await snap(page)).input.turboHeld };
     await row('canvas quick tap (bungee, 100 ms)', [{ type: 'touchStart', x: 150, y: 500, wait: 100 }, { type: 'touchEnd' }]);
@@ -481,10 +518,208 @@ if (modes.has('gestures')) {
   res.gestures = G;
 }
 
+if (modes.has('flows')) {
+  // every way into a control scheme, end to end in the real page (synthetic sensors, real CDP touches)
+  const Q = '?lat=37.77628&lon=-122.4352&heading=88&skipintro&fixeddt=0.05';
+  const F = {};
+  // an iOS-like page: `answer` is what requestPermission does; `flow`: the sensor starts once it is granted
+  const ios = (answer, flow) => `(() => {
+    window.__sensor = { beta: 55, gamma: 0, on: false, asked: 0, askedIn: [] };
+    window.DeviceOrientationEvent.requestPermission = () => {
+      const s = window.__sensor;
+      s.asked++;
+      s.askedIn.push(window.event ? window.event.type : 'no event');
+      if (${JSON.stringify(answer)} === 'throw') throw new Error('NotAllowedError');
+      if (${JSON.stringify(answer)} === 'granted' && ${flow}) s.on = true;
+      return Promise.resolve(${JSON.stringify(answer)});
+    };
+    setInterval(() => {
+      const s = window.__sensor;
+      if (s.on) window.dispatchEvent(new DeviceOrientationEvent('deviceorientation', { alpha: 0, beta: s.beta, gamma: s.gamma, absolute: false }));
+    }, 16);
+  })()`;
+  const tapCard = async (page, cdp) => {
+    await touch(page, cdp, [{ type: 'touchStart', x: 196, y: 380, wait: 60 }, { type: 'touchEnd' }]);
+  };
+  const settle = async (page, s = 0.4) => {
+    await new Promise((r) => setTimeout(r, 1300)); // (past the sensor timeout, in real time)
+    await runFor(page, s);
+  };
+  const panelText = (page) => page.evaluate(() => !!document.querySelector('[data-hud="panel"]'));
+  const openSettings = async (page) => {
+    // (the buttons may have faded out: a first tap brings them back)
+    const st = await rectOf(page, '[data-hud="settings"]');
+    await page.touchscreen.tap(st.x, st.y);
+    await runFor(page, 0.2);
+    if (!(await panelText(page))) {
+      await page.touchscreen.tap(st.x, st.y);
+      await runFor(page, 0.2);
+    }
+  };
+  // ---- iOS: refused
+  {
+    const page = await open(Q, ios('denied', false));
+    const cdp = await page.context().newCDPSession(page);
+    const s0 = await snap(page);
+    await tapCard(page, cdp);
+    await settle(page, 0.2);
+    await page.screenshot({ path: `${out}/flow-denied-toast.png` });
+    const s1 = await snap(page);
+    await openSettings(page);
+    await page.screenshot({ path: `${out}/flow-denied-settings.png` });
+    // the TILT button goes back through the card (iOS's touchend), it doesn't call requestPermission from a pointerup
+    const tiltBtn = await rectOf(page, '[data-hud="tilt"]');
+    await page.touchscreen.tap(tiltBtn.x, tiltBtn.y);
+    await runFor(page, 0.3);
+    const s2 = await snap(page);
+    const askedBefore = await page.evaluate(() => window.__sensor.asked);
+    await tapCard(page, cdp);
+    await settle(page, 0.2);
+    const s3 = await snap(page);
+    const sensor = await page.evaluate(() => window.__sensor);
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(() => window.__shotReady === true && window.__game, null, { timeout: 400000 });
+    const s4 = await snap(page);
+    F.iosDenied = { promptFirst: s0.hud.prompt, modeBefore: s0.mode, afterTap: { mode: s1.mode, status: s1.tilt.status }, settingsTilt: { prompt: s2.hud.prompt, settings: s2.hud.settings, askedBefore }, retry: { mode: s3.mode, status: s3.tilt.status }, asked: sensor.asked, askedIn: sensor.askedIn, reloadSameTab: { mode: s4.mode, prompt: s4.hud.prompt } };
+    console.log('iosDenied', JSON.stringify(F.iosDenied));
+    await page.close();
+  }
+  // ---- iOS: requestPermission throws (no gesture), granted but silent (an iframe), use touch instead, granted
+  for (const [name, answer, flow] of [['iosThrows', 'throw', false], ['iosSilent', 'granted', false]]) {
+    const page = await open(Q, ios(answer, flow));
+    const cdp = await page.context().newCDPSession(page);
+    await tapCard(page, cdp);
+    await settle(page);
+    const s = await snap(page);
+    await openSettings(page);
+    await page.screenshot({ path: `${out}/flow-${name}-settings.png` });
+    F[name] = { mode: s.mode, status: s.tilt.status, sessionFlag: await page.evaluate(() => sessionStorage.getItem('strugglebus.notilt')), tiltButton: !!(await rectOf(page, '[data-hud="tilt"]')) };
+    console.log(name, JSON.stringify(F[name]));
+    await page.close();
+  }
+  {
+    const page = await open(Q, ios('granted', true));
+    const cdp = await page.context().newCDPSession(page);
+    const alt = await rectOf(page, '[data-hud="prompt-touch"]');
+    await touch(page, cdp, [{ type: 'touchStart', x: alt.x, y: alt.y, wait: 60 }, { type: 'touchEnd' }]);
+    await runFor(page, 0.2);
+    const s = await snap(page);
+    const asked = await page.evaluate(() => window.__sensor.asked);
+    const pref = await page.evaluate(() => localStorage.getItem('strugglebus.controls.v1'));
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(() => window.__shotReady === true && window.__game, null, { timeout: 400000 });
+    const s2 = await snap(page);
+    F.iosUseTouch = { mode: s.mode, asked, pref, afterReload: { mode: s2.mode, prompt: s2.hud.prompt } };
+    console.log('iosUseTouch', JSON.stringify(F.iosUseTouch));
+    await page.close();
+  }
+  // ---- Android: no permission API, the sensor flows from the start: the quiet probe, then the card
+  {
+    const init = `(() => {
+      setInterval(() => window.dispatchEvent(new DeviceOrientationEvent('deviceorientation', { alpha: 0, beta: 55, gamma: 0, absolute: false })), 16);
+    })()`;
+    const page = await open(Q, init);
+    const cdp = await page.context().newCDPSession(page);
+    await page.waitForFunction(() => window.__game.controls.snapshot().hud.prompt, null, { timeout: 30000 });
+    const s0 = await snap(page);
+    await tapCard(page, cdp);
+    await runFor(page, 0.3);
+    const s1 = await snap(page);
+    // the top-right buttons fade out, a tap in that corner only brings them back, the next one works
+    const op = () => page.evaluate(() => getComputedStyle(document.querySelector('[data-hud="settings"]').parentElement).opacity);
+    const shown = await op();
+    await new Promise((r) => setTimeout(r, 6800));
+    await runFor(page, 0.1);
+    const faded = await op();
+    await page.screenshot({ path: `${out}/flow-tilt-faded.png` });
+    const st = await rectOf(page, '[data-hud="settings"]');
+    await events(page);
+    await page.touchscreen.tap(st.x, st.y);
+    await new Promise((r) => setTimeout(r, 500));
+    await runFor(page, 0.1);
+    const woke = { opacity: await op(), panel: await panelText(page), splats: (await events(page)).length };
+    await page.touchscreen.tap(st.x, st.y);
+    await runFor(page, 0.2);
+    const second = await panelText(page);
+    await page.screenshot({ path: `${out}/flow-tilt-settings.png` });
+    // the super splat's slot takes the meter's real size: centered, on screen
+    const slot = await page.evaluate(() => {
+      const s = document.querySelector('[data-slot="super"]');
+      const m = document.createElement('div');
+      m.style.cssText = 'width:68px;height:86px';
+      s.append(m);
+      const r = m.getBoundingClientRect();
+      m.remove();
+      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, vw: innerWidth, vh: innerHeight };
+    });
+    F.android = { probed: { mode: s0.mode, status: s0.tilt.status, prompt: s0.hud.prompt }, afterTap: { mode: s1.mode, status: s1.tilt.status }, chrome: { shown, faded, woke, secondTapOpens: second }, superSlot: slot };
+    console.log('android', JSON.stringify(F.android));
+    await page.close();
+  }
+  // ---- a desktop: keyboard, no chrome, Esc for settings
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    page.on('pageerror', (e) => console.log('[pageerror]', e.message));
+    await page.goto(base + Q, { waitUntil: 'load' });
+    await page.waitForFunction(() => window.__shotReady === true && window.__game, null, { timeout: 400000 });
+    await page.evaluate(() => {
+      const g = window.__game, inp = g.input;
+      window.__ev = [];
+      for (const k of ['onTap', 'onChargeStart', 'onChargeEnd', 'onTurbo']) {
+        const orig = inp[k];
+        inp[k] = (...a) => {
+          window.__ev.push({ k, a, t: +g.clock().toFixed(2) });
+          return orig?.(...a);
+        };
+      }
+      g.forceReady();
+    });
+    const s0 = await snap(page);
+    const cog = await page.evaluate(() => getComputedStyle(document.querySelector('[data-hud="settings"]').parentElement).display);
+    await page.screenshot({ path: `${out}/flow-keyboard.png` });
+    await page.keyboard.press('Escape');
+    await runFor(page, 0.1);
+    const open1 = (await snap(page)).hud.settings;
+    await page.screenshot({ path: `${out}/flow-keyboard-settings.png` });
+    await page.keyboard.press('Escape');
+    await runFor(page, 0.1);
+    const open2 = (await snap(page)).hud.settings;
+    await events(page);
+    await page.keyboard.down('Space');
+    await new Promise((r) => setTimeout(r, 80));
+    await page.keyboard.up('Space');
+    await runFor(page, 0.2);
+    const tap = await events(page);
+    await page.keyboard.down('Space');
+    await runFor(page, 0.8);
+    const held = (await snap(page)).input.chargeHeld;
+    await page.keyboard.up('Space');
+    await runFor(page, 0.2);
+    const hold = await events(page);
+    await page.keyboard.press('KeyE');
+    await runFor(page, 0.2);
+    const gear1 = (await snap(page)).turbo.gear;
+    await page.keyboard.press('KeyQ');
+    await runFor(page, 0.2);
+    const gear0 = (await snap(page)).turbo.gear;
+    await page.keyboard.down('ShiftLeft');
+    await runFor(page, 0.2);
+    const boost = (await snap(page)).input.turboHeld;
+    await page.keyboard.up('ShiftLeft');
+    await runFor(page, 0.2);
+    const boostOff = (await snap(page)).input.turboHeld;
+    F.keyboard = { mode: s0.mode, cog, escOpens: open1, escCloses: !open2, tap, hold, heldWhileDown: held, gear1, gear0, boost, boostOff };
+    console.log('keyboard', JSON.stringify(F.keyboard));
+    await page.close();
+  }
+  res.flows = F;
+}
+
 if (modes.has('perf') && perfOther) {
   // the same view and the same sampling for both builds (per-frame counters, median of the frames in 0.8 s)
+  // (A B A B: the second pair shows how much of any gap is the order; 3 s of game time, ~60 frames each)
   res.perf = {};
-  for (const [label, url] of [['before', perfOther], ['after', base]]) {
+  for (const [label, url] of [['before', perfOther], ['after', base], ['before2', perfOther], ['after2', base]]) {
     const page = await open('?lat=37.7762&lon=-122.4380&heading=90&skipintro&fixeddt=0.05', null, url);
     await page.evaluate(() => {
       const p = window.__game.perf;
@@ -499,7 +734,7 @@ if (modes.has('perf') && perfOther) {
     await runFor(page, 1);
     await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 300000 });
     await page.evaluate(() => (window.__work.length = 0));
-    await runFor(page, 0.8);
+    await runFor(page, 3);
     const rows = await page.evaluate(() => window.__work.slice(1));
     const med = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
     res.perf[label] = { url, frames: rows.length, workMs: +med(rows.map((r) => r.work)).toFixed(2), calls: med(rows.map((r) => r.calls)), triangles: med(rows.map((r) => r.tris)) };

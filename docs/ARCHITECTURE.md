@@ -345,9 +345,11 @@ dissolves; events through the existing `Particles.puff/sparkles`; the
 rattle (`applyRattle`). **Voice** (`src/audio/turboVoice.ts`) on
 `AudioEngine.voiceKit()` (the sfx bus).
 
-**HUD** (`src/ui/Hud.ts`): `slot('super')` = a 176 x 52 CSS px box at the
-bottom center, pointer-events none (set `auto` on your own children), where
-the super splat's `src/ui/SuperMeter.ts` mounts; `setCredits(text)` (a tiny
+**HUD** (`src/ui/Hud.ts`): `slot('super')` = a 176 x 86 CSS px flex box at the
+bottom center (its child centered on the floor), pointer-events none (set `auto`
+on your own children), where the super splat's `src/ui/SuperMeter.ts` (68 x 86)
+mounts; top-right buttons fade after 6 s and a tap there wakes them, a desktop
+has none (Esc: `openSettings`); `setCredits(text)` (a tiny
 line bottom left and in settings; e.g. map attribution); `toast(lines, s)`;
 `setMode`, `setSettings`, `showPrompt`. All HUD elements carry `data-sb-ui`
 (Input ignores keys typed there) and `data-hud="..."` names for QA.

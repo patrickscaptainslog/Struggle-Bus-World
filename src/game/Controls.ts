@@ -28,12 +28,17 @@ import { Hud, type HudFrame } from '../ui/Hud';
 //    (an iframe that refuses motion, like the claude.ai preview): touch, with
 //    no error; that is remembered for the session only, never as the player's
 //    choice. The player's own choice (settings, "use touch instead") persists.
+//  - keyboard: Esc opens the settings (the only HUD on a desktop), and a first
+//    visit gets one toast with the keys.
 // URL: ?controls=tilt|touch|keyboard forces a scheme, ?nohud hides the HUD.
 //
 // main.ts calls, per frame: preFlight(dt) after input.update (the turbo drive
 // sets Flight.turbo), pose(pose) before bus.update, afterPose(bus.root) after
 // the bus's pose is set (the rattle), frame(dt, realDt) after the bus's matrix
 // is final (effects, voice, HUD).
+
+const NO_SENSOR = 'NO MOTION SENSOR HERE';
+const MOTION_DENIED = 'MOTION DENIED: REOPEN SAFARI';
 
 const PREF_KEY = 'strugglebus.controls.v1';
 const SESSION_NO_TILT = 'strugglebus.notilt';
@@ -42,6 +47,8 @@ interface Prefs {
   mode?: 'tilt' | 'touch';
   sens?: number;
   muted?: boolean;
+  /** a desktop has seen the keys once */
+  keysShown?: boolean;
 }
 
 export interface ControlsDeps {
@@ -69,6 +76,9 @@ export class Controls {
   private prefs: Prefs;
   private readonly hf: HudFrame = { gear: 0, maxGear: 1, engaged: false, boosting: false, mph: 0, sinceShift: Infinity, sinceLocked: Infinity };
   private readonly flashTmp = new THREE.Vector3();
+  /** seconds the turbo has been silent (the voice detaches), and until the keys' toast (<= 0: none due) */
+  private voiceIdle = 0;
+  private keysIn = 0;
   private readonly onFlash = (pos: THREE.Vector3, strength: number) => {
     const p = this.flashTmp.copy(pos).project(this.d.camera);
     this.d.pipeline.flash(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5, 1, strength);
@@ -112,9 +122,16 @@ export class Controls {
     d.input.onTurbo = (dir) => this.turbo.shift(dir, d.flight);
     this.turbo.onEvent = (ev, g) => this.onTurbo(ev, g);
     if (this.prefs.muted) d.audio.setMuted(true);
-    this.hud.setSettings({ tiltAvailable: TiltControl.supported(), sensitivity: this.tilt.core.sensitivity, muted: !!this.prefs.muted });
-    if (d.params.has('nohud')) this.hud.setVisible(false);
+    this.hud.setSettings({ tiltAvailable: TiltControl.supported(), tiltNote: TiltControl.supported() ? '' : NO_SENSOR, sensitivity: this.tilt.core.sensitivity, muted: !!this.prefs.muted });
+    const nohud = d.params.has('nohud');
+    if (nohud) this.hud.setVisible(false);
     this.start();
+    if (this.mode === 'keyboard' && !this.prefs.keysShown && !nohud && !d.params.has('skipintro')) this.keysIn = 2.5;
+    window.addEventListener('keydown', (e) => {
+      if (e.code !== 'Escape' || e.repeat || this.mode !== 'keyboard' || nohud) return;
+      if (this.hud.settingsOpen) this.hud.closeSettings();
+      else this.hud.openSettings();
+    });
   }
 
   get mode(): InputMode {
@@ -149,8 +166,21 @@ export class Controls {
     const kit = d.audio.voiceKit();
     if (kit) {
       const t = kit.ctx.currentTime + LOOKAHEAD;
-      if (!this.voice.attached) this.voice.attach(kit, t);
-      this.voice.update(T, t);
+      const busy = T.gear > 0 || T.boosting || T.speedK > 0 || T.strain > 0.02;
+      this.voiceIdle = busy ? 0 : this.voiceIdle + realDt;
+      if (busy && !this.voice.attached) this.voice.attach(kit, t);
+      if (this.voice.attached) {
+        this.voice.update(T, t);
+        if (this.voiceIdle > 2) this.voice.detach(t + 0.3);
+      }
+    }
+    if (this.keysIn > 0) {
+      this.keysIn -= realDt;
+      if (this.keysIn <= 0) {
+        this.prefs.keysShown = true;
+        savePrefs(this.prefs);
+        this.hud.toast(['ARROWS FLY  -  SPACE SPLATS', 'E TURBO  -  ESC SETTINGS'], 5);
+      }
     }
     const h = this.hf;
     h.gear = T.gear;
@@ -158,7 +188,7 @@ export class Controls {
     h.engaged = T.engaged;
     h.boosting = T.boosting;
     h.mph = f.speed * 2.23694;
-    h.sinceShift = T.time - T.shiftedAt;
+    h.sinceShift = T.time - Math.max(T.shiftedAt, T.engagedAt);
     h.sinceLocked = T.time - T.lockedAt;
     this.hud.update(realDt, h);
   }
@@ -215,30 +245,33 @@ export class Controls {
       this.enterTilt();
       return;
     }
-    // (a settings tap is a user gesture: iOS may ask here)
-    void this.tilt.request().then((s) => {
-      if (s === 'active') this.enterTilt();
-      else {
-        this.hud.setSettings({ tiltAvailable: false });
-        this.hud.toast(['NO MOTION SENSOR', 'TOUCH TO FLY'], 2);
-      }
-    });
+    if (TiltControl.needsPermission()) {
+      // iOS asks from the prompt's touchend, the event it is known to honor (the settings buttons fire on
+      // pointerup); the prompt's tap also takes the neutral pose
+      this.hud.closeSettings();
+      this.hud.showPrompt();
+      return;
+    }
+    void this.tilt.request().then((s) => (s === 'active' ? this.enterTilt() : this.noTilt()));
   }
 
   private enterTilt() {
     sessionSet(SESSION_NO_TILT, null);
     this.prefs.mode = 'tilt';
     savePrefs(this.prefs);
-    this.hud.setSettings({ tiltAvailable: true });
+    this.hud.setSettings({ tiltAvailable: true, tiltNote: '' });
     this.setMode('tilt');
     this.hud.toast(['TILT TO STEER', 'SWIPE UP FOR TURBO'], 2.6);
   }
 
-  /** No motion here (no sensor, refused, or silent): touch, without an error, remembered for this session only. */
+  /** No motion here (no sensor, refused, or silent): touch, remembered for this session only. A refusal says so
+   *  and how to undo it (iOS won't ask again until Safari restarts); no sensor just says how to fly. */
   private noTilt() {
+    const refused = this.tilt.status === 'denied';
     this.tilt.stop();
     sessionSet(SESSION_NO_TILT, '1');
-    if (this.mode === 'touch') this.hud.toast(['DRAG TO STEER', 'TAP TO SPLAT'], 2.4);
+    this.hud.setSettings({ tiltAvailable: refused, tiltNote: refused ? MOTION_DENIED : NO_SENSOR });
+    this.hud.toast(refused ? ['MOTION ACCESS OFF', 'DRAG TO STEER'] : ['DRAG TO STEER', 'TAP TO SPLAT'], 2.4);
     this.setMode('touch');
   }
 

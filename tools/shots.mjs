@@ -52,7 +52,7 @@ const drift = (page, speed) => page.evaluate((v) => ((window.__qa = null), (wind
 // 1) grey city: drifting over Alamo Square, looking east at the Painted Ladies
 //    row with downtown behind it in the fog
 {
-  const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro');
+  const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud');
   await drift(page, 19.2);
   await runFor(page, 3);
   await page.screenshot({ path: `${out}/grey.png` });
@@ -63,7 +63,7 @@ const drift = (page, speed) => page.evaluate((v) => ((window.__qa = null), (wind
 // 2) painted: drift slowly over Steiner Street and barf down the Painted Ladies
 //    row through the real splat pipeline (cascade, bloom, sign, sound)
 {
-  const page = await open('?lat=37.77615&lon=-122.4340&heading=88&skipintro');
+  const page = await open('?lat=37.77615&lon=-122.4340&heading=88&skipintro&nohud');
   await drift(page, 6);
   await runFor(page, 2);
   const row = [37.7754, 37.7758, 37.7762, 37.7766, 37.7770, 37.7762, 37.7758];
@@ -79,7 +79,7 @@ const drift = (page, speed) => page.evaluate((v) => ((window.__qa = null), (wind
 
 // 3) the opening: fog bank west of the Golden Gate
 {
-  const page = await open('?openingshot');
+  const page = await open('?openingshot&nohud');
   await runFor(page, 4.5);
   await page.screenshot({ path: `${out}/opening.png` });
   await page.close();

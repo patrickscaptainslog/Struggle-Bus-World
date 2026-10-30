@@ -64,8 +64,9 @@ export class TurboDrive {
   boosting = false;
   /** 0..1: the edge of the map is holding the gear back (1 = free) */
   edge = 1;
-  /** game times of the last shift, LOCKED attempt and sonic boom (-Infinity = never), the last shift's direction */
+  /** game times of the last shift, engagement, LOCKED attempt and sonic boom (-Infinity = never), the last shift's direction */
   shiftedAt = -Infinity;
+  engagedAt = -Infinity;
   lockedAt = -Infinity;
   boomAt = -Infinity;
   lastDir = 0;
@@ -131,6 +132,7 @@ export class TurboDrive {
       Tb.floor = this.gearFloor;
       if (!this.engaged && f.y >= want - 12) {
         this.engaged = true;
+        this.engagedAt = this.t;
         this.onEvent?.('engage', g);
       }
       // lifting: a full surge while it claws its way up; engaged: the gear's speed

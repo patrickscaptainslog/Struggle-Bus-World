@@ -16,17 +16,19 @@
 import { rolldown } from 'rolldown';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 const [scn, ...rest] = process.argv.slice(2);
-const here = new URL('.', import.meta.url).pathname;
-const SRC = new URL('../../src', import.meta.url).pathname;
+const path = (rel) => fileURLToPath(new URL(rel, import.meta.url));
+const here = path('.');
+const SRC = path('../../src');
 const out = `${here}/.out/${scn.replace(/\W/g, '_')}`;
 mkdirSync(out, { recursive: true });
 const bundle = await rolldown({
   input: `${here}/${scn}`,
   platform: 'node',
-  resolve: { alias: { '@src': SRC, '@loop': new URL('../feel-sim/loop.ts', import.meta.url).pathname } },
+  resolve: { alias: { '@src': SRC, '@loop': path('../feel-sim/loop.ts') } },
   logLevel: 'silent',
 });
 await bundle.write({ dir: out, format: 'esm', entryFileNames: 'main.mjs' });
-const r = spawnSync(process.execPath, [`${out}/main.mjs`, ...rest], { stdio: 'inherit', env: { ...process.env, SB_DATA: process.env.SB_DATA ?? new URL('../../public/city/sf', import.meta.url).pathname } });
+const r = spawnSync(process.execPath, [`${out}/main.mjs`, ...rest], { stdio: 'inherit', env: { ...process.env, SB_DATA: process.env.SB_DATA ?? path('../../public/city/sf') } });
 process.exit(r.status ?? 1);

@@ -8,16 +8,19 @@ import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth } from './pixelUi';
 // way of the thumb zone and the bus, safe-area aware, readable on a bright
 // phone (every glyph has an ink outline).
 //
-//  - top right: settings (tilt / touch, tilt sensitivity, recenter, sound) and,
-//    in tilt mode, a recenter button;
-//  - top left: the turbo gear readout (gear, name, mph), only while a gear is
-//    in, the boost is held, or just after a shift; "LOCKED: WORLD TRAVEL
-//    COMING" under it when shifting past the last usable gear;
+//  - top right, phones only: settings (tilt / touch, tilt sensitivity, recenter,
+//    sound) and, in tilt mode, a recenter button. They fade out after a few
+//    seconds untouched; a tap in that corner brings them back. A desktop has no
+//    buttons at all: Esc opens the settings (src/game/Controls.ts);
+//  - top left: the turbo gear readout (gear, name, mph), only for a moment:
+//    while a gear lifts and just after it shifts or bites, and while the boost
+//    is held; "LOCKED: WORLD TRAVEL COMING" when shifting past the last usable
+//    gear;
 //  - touch mode: the splat button (tap = splat, hold = charge, slide off =
 //    cancel) and the turbo lever (tap the top / bottom = shift, swipe = shift,
 //    hold = boost) in the right thumb zone;
-//  - slot('super'): a fixed box at the bottom center where the super splat's
-//    meter (src/ui/SuperMeter.ts) mounts;
+//  - slot('super'): a box at the bottom center where the super splat's meter
+//    (src/ui/SuperMeter.ts, 68 x 86 CSS px) mounts, centered, sitting on its floor;
 //  - setCredits(text): a tiny credits line (bottom left, and in settings);
 //  - the first-touch prompt "TILT TO FLY" (its tap is the user gesture iOS
 //    needs for the motion permission, and the moment the neutral pose is taken).
@@ -26,6 +29,8 @@ import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth } from './pixelUi';
 // Controls.ts) and drives Input's HUD hooks (splatButton, turboShift, turboHold).
 
 const S = 2; // CSS px per UI pixel
+/** Seconds the top-right buttons stay after the last touch on them (or a change of scheme). */
+const CHROME_SECONDS = 6;
 
 export interface HudFrame {
   gear: number;
@@ -52,6 +57,8 @@ export interface HudCallbacks {
 
 export interface HudSettings {
   tiltAvailable: boolean;
+  /** why tilt isn't flying, under the TILT / TOUCH buttons ('' = nothing to say) */
+  tiltNote: string;
   sensitivity: number;
   muted: boolean;
 }
@@ -80,7 +87,7 @@ export class Hud {
   private readonly cb: HudCallbacks;
   private readonly input: Input;
   private mode: InputMode = 'touch';
-  private settings: HudSettings = { tiltAvailable: false, sensitivity: 1, muted: false };
+  private settings: HudSettings = { tiltAvailable: false, tiltNote: '', sensitivity: 1, muted: false };
   private credits = '';
 
   private readonly topRight: HTMLDivElement;
@@ -105,9 +112,22 @@ export class Hud {
   private toastUntil = 0;
   private lastNow = 0;
 
-  // last rendered state (re-render only on change)
-  private gKey = '';
-  private lKey = '';
+  // last rendered state (re-render only on change; numbers, not string keys: this runs every frame)
+  private gearOn = false;
+  private gGear = -1;
+  private gMax = -1;
+  private gMph = -1;
+  private gEngaged = false;
+  private gBoost = false;
+  private lockedOn = false;
+  private lockedSh = 0;
+  private lvGear = -1;
+  private lvMax = -1;
+  private lvBoost = false;
+  private lvHold = false;
+  /** the top-right buttons: shown until this time (performance.now() ms) */
+  private chromeUntil = 0;
+  private chromeOn = true;
   private splatDown = false;
   private splatId = -1;
   private leverId = -1;
@@ -117,7 +137,6 @@ export class Hud {
   private leverUsed = false;
   private leverArmed = false;
   private leverHolding = false;
-  private lockedShown = -1;
 
   constructor(input: Input, cb: HudCallbacks) {
     this.input = input;
@@ -128,12 +147,18 @@ export class Hud {
     this.root = root;
 
     // ---- top right: [recenter] [settings]
-    this.topRight = div({ position: 'absolute', top: safe('top', 10), right: safe('right', 10), display: 'flex', flexDirection: 'row', gap: '8px' });
+    this.topRight = div({ position: 'absolute', top: safe('top', 10), right: safe('right', 10), display: 'flex', flexDirection: 'row', gap: '8px', transition: 'opacity 0.3s steps(3)' });
     this.recenterBtn = new PixelCanvas(20, 20, S);
     this.drawIconButton(this.recenterBtn, 'recenter');
     this.settingsBtn = new PixelCanvas(20, 20, S);
     this.drawIconButton(this.settingsBtn, 'gear');
-    this.topRight.append(this.hit(this.recenterBtn.el, () => this.cb.onRecenter(), 'recenter'), this.hit(this.settingsBtn.el, () => this.openSettings(), 'settings'));
+    // (faded out they still catch the tap, which only brings them back)
+    const chrome = (fn: () => void) => () => {
+      const was = this.chromeOn;
+      this.wakeChrome();
+      if (was) fn();
+    };
+    this.topRight.append(this.hit(this.recenterBtn.el, chrome(() => this.cb.onRecenter()), 'recenter'), this.hit(this.settingsBtn.el, chrome(() => this.openSettings()), 'settings'));
     root.append(this.topRight);
 
     // ---- top left: gear readout + LOCKED
@@ -166,7 +191,7 @@ export class Hud {
     this.drawSplat();
 
     // ---- the super splat's slot (bottom center): the meter mounts here
-    this.superSlot = div({ position: 'absolute', left: '50%', bottom: safe('bottom', 20), width: '176px', height: '52px', transform: 'translateX(-50%)', pointerEvents: 'none' });
+    this.superSlot = div({ position: 'absolute', left: '50%', bottom: safe('bottom', 20), width: '176px', height: '86px', transform: 'translateX(-50%)', pointerEvents: 'none', display: 'flex', justifyContent: 'center', alignItems: 'flex-end' });
     this.superSlot.setAttribute('data-slot', 'super');
     this.slots.set('super', this.superSlot);
     root.append(this.superSlot);
@@ -181,7 +206,7 @@ export class Hud {
 
   private readonly slots = new Map<string, HTMLDivElement>();
 
-  /** A container another module mounts its UI into ('super': the super splat meter, 176 x 52 CSS px, bottom center). */
+  /** A container another module mounts its UI into ('super': the super splat meter, 176 x 86 CSS px, bottom center, its child centered on the floor). */
   slot(name: 'super'): HTMLElement {
     return this.slots.get(name)!;
   }
@@ -213,13 +238,20 @@ export class Hud {
     if (this.panel) this.renderSettings();
   }
 
-  /** Which controls show: tilt (recenter, no buttons), touch (splat button + turbo lever), keyboard (none). */
+  /** Which controls show: tilt (recenter + settings), touch (settings, splat button + turbo lever), keyboard (none: Esc). */
   setMode(m: InputMode) {
     this.mode = m;
     this.touchPad.style.display = m === 'touch' ? 'block' : 'none';
+    this.topRight.style.display = m === 'keyboard' ? 'none' : 'flex';
     (this.recenterBtn.el.parentElement as HTMLElement).style.display = m === 'tilt' ? 'block' : 'none';
     if (m !== 'touch') this.releaseButtons();
+    this.wakeChrome();
     if (this.panel) this.renderSettings();
+  }
+
+  /** The top-right buttons show for a few seconds more. */
+  private wakeChrome() {
+    this.chromeUntil = performance.now() + CHROME_SECONDS * 1000;
   }
 
   // ------------------------------------------------------------------ per frame
@@ -228,27 +260,44 @@ export class Hud {
     const now = performance.now();
     const dt = this.lastNow ? Math.min(0.25, (now - this.lastNow) / 1000) : 0;
     this.lastNow = now;
-    // gear readout: only while it matters
-    const showGear = f.gear > 0 || f.boosting || f.sinceShift < 2.5 || f.sinceLocked < 2.5;
-    this.gearWrap.style.display = showGear ? 'block' : 'none';
+    // the top-right buttons fade out while they aren't being used
+    const chromeOn = now < this.chromeUntil || this.panel !== null;
+    if (chromeOn !== this.chromeOn) {
+      this.chromeOn = chromeOn;
+      this.topRight.style.opacity = chromeOn ? '1' : '0';
+    }
+    // gear readout: only for a moment, when something just changed (the contrail and the wind say the rest)
+    const showGear = f.boosting || (f.gear > 0 && !f.engaged) || f.sinceShift < 2.5 || f.sinceLocked < 2.5;
+    if (showGear !== this.gearOn) {
+      this.gearOn = showGear;
+      this.gearWrap.style.display = showGear ? 'block' : 'none';
+    }
     if (showGear) {
       const mph = f.mph >= 100 ? Math.round(f.mph / 10) * 10 : Math.round(f.mph);
-      const key = `${f.gear}|${f.maxGear}|${f.engaged}|${f.boosting}|${mph}`;
-      if (key !== this.gKey) {
-        this.gKey = key;
+      if (f.gear !== this.gGear || f.maxGear !== this.gMax || f.engaged !== this.gEngaged || f.boosting !== this.gBoost || mph !== this.gMph) {
+        this.gGear = f.gear;
+        this.gMax = f.maxGear;
+        this.gEngaged = f.engaged;
+        this.gBoost = f.boosting;
+        this.gMph = mph;
         this.drawGear(f, mph);
       }
     }
     // LOCKED
     const lockedOn = f.sinceLocked < 2.2;
-    this.lockedWrap.style.display = lockedOn ? 'block' : 'none';
+    if (lockedOn !== this.lockedOn) {
+      this.lockedOn = lockedOn;
+      this.lockedWrap.style.display = lockedOn ? 'block' : 'none';
+      if (lockedOn) this.drawLocked();
+    }
     if (lockedOn) {
-      if (this.lockedShown < 0) this.drawLocked();
-      this.lockedShown = f.sinceLocked;
       // a short shake, whole CSS pixels (2 = one UI pixel)
       const sh = f.sinceLocked < 0.3 ? (Math.floor(f.sinceLocked * 30) % 2 ? 2 : -2) : 0;
-      this.lockedWrap.style.transform = `translateX(calc(-50% + ${sh}px))`;
-    } else this.lockedShown = -1;
+      if (sh !== this.lockedSh) {
+        this.lockedSh = sh;
+        this.lockedWrap.style.transform = `translateX(calc(-50% + ${sh}px))`;
+      }
+    }
     // lever: holding it boosts
     // (confirmed on a second frame: a release queued behind one slow frame is still a tap)
     if (this.leverId >= 0 && !this.leverUsed && !this.leverHolding && now - this.leverT0 >= config.splat.holdThreshold * 1000) {
@@ -257,9 +306,11 @@ export class Hud {
         this.input.turboHold(true);
       } else this.leverArmed = true;
     }
-    const lk = `${f.gear}|${f.maxGear}|${f.boosting}|${this.leverHolding}`;
-    if (this.mode === 'touch' && lk !== this.lKey) {
-      this.lKey = lk;
+    if (this.mode === 'touch' && (f.gear !== this.lvGear || f.maxGear !== this.lvMax || f.boosting !== this.lvBoost || this.leverHolding !== this.lvHold)) {
+      this.lvGear = f.gear;
+      this.lvMax = f.maxGear;
+      this.lvBoost = f.boosting;
+      this.lvHold = this.leverHolding;
       this.drawLever(f);
     }
     // prompt: the phone rocks
@@ -321,10 +372,10 @@ export class Hud {
       done = true;
       if (e.cancelable) e.preventDefault();
       e.stopPropagation();
-      this.cb.onGesture();
-      // (synchronously, inside the gesture: iOS shows its motion permission sheet now)
+      // (synchronously, inside the gesture, before anything else touches it: iOS shows its motion permission sheet now)
       if (touch) this.cb.onPromptTouch();
       else this.cb.onPromptTilt();
+      this.cb.onGesture();
       this.hidePrompt();
     };
     const onAlt = (e: Event) => go(e, true);
@@ -332,7 +383,11 @@ export class Hud {
     alt.el.addEventListener('click', onAlt);
     const onTap = (e: Event) => go(e, false);
     ov.addEventListener('touchend', onTap, { passive: false });
-    ov.addEventListener('click', onTap);
+    // (the click that follows the tap that opened this card is no answer to it)
+    const opened = performance.now();
+    ov.addEventListener('click', (e) => {
+      if (performance.now() - opened > 450) onTap(e);
+    });
     // (block the pointer stream from the game under it)
     ov.addEventListener('pointerdown', (e) => e.stopPropagation());
     this.root.append(ov);
@@ -372,6 +427,7 @@ export class Hud {
   closeSettings() {
     this.panel?.remove();
     this.panel = null;
+    this.wakeChrome();
   }
 
   get settingsOpen(): boolean {
@@ -400,7 +456,7 @@ export class Hud {
     col.append(label('CONTROLS'));
     const row = div({ display: 'flex', gap: '6px' });
     if (this.mode === 'keyboard') {
-      row.append(this.button('KEYBOARD + MOUSE', W, true, true, () => {}));
+      row.append(this.button('KEYBOARD + MOUSE', W, true, false, () => {}));
     } else {
       row.append(
         this.button('TILT', 72, this.mode === 'tilt', this.settings.tiltAvailable, () => this.cb.onMode('tilt')),
@@ -408,27 +464,32 @@ export class Hud {
       );
     }
     col.append(row);
-    if (this.mode !== 'keyboard' && !this.settings.tiltAvailable) col.append(label('NO MOTION SENSOR HERE', C.dim));
+    if (this.mode === 'keyboard') {
+      // the desktop's whole manual
+      for (const t of ['ARROWS / WASD: FLY', 'DOWN CLIMBS, UP DIVES', 'SPACE: SPLAT', 'E / Q: TURBO GEARS', 'SHIFT: BOOST']) col.append(label(t, C.cream));
+    } else {
+      if (this.settings.tiltNote) col.append(label(this.settings.tiltNote, C.cream));
 
-    // sensitivity
-    const tiltOn = this.mode === 'tilt';
-    col.append(label('TILT SENSITIVITY', tiltOn ? C.dim : C.edge));
-    const srow = div({ display: 'flex', gap: '6px', alignItems: 'center' });
-    const si = this.sensIndex();
-    const pips = new PixelCanvas(84, 16, S);
-    pips.clear();
-    for (let i = 0; i < SENS_STEPS.length; i++) {
-      const x = 4 + i * 11;
-      pips.box(x, 3, 9, 10, i <= si ? (tiltOn ? C.yellow : C.dim) : C.panel, C.ink, 1);
+      // sensitivity
+      const tiltOn = this.mode === 'tilt';
+      col.append(label('TILT SENSITIVITY', tiltOn ? C.dim : C.edge));
+      const srow = div({ display: 'flex', gap: '6px', alignItems: 'center' });
+      const si = this.sensIndex();
+      const pips = new PixelCanvas(84, 16, S);
+      pips.clear();
+      for (let i = 0; i < SENS_STEPS.length; i++) {
+        const x = 4 + i * 11;
+        pips.box(x, 3, 9, 10, i <= si ? (tiltOn ? C.yellow : C.dim) : C.panel, C.ink, 1);
+      }
+      pips.flush();
+      srow.append(
+        this.button('-', 28, false, tiltOn && si > 0, () => this.cb.onSensitivity(SENS_STEPS[Math.max(0, si - 1)])),
+        pips.el,
+        this.button('+', 28, false, tiltOn && si < SENS_STEPS.length - 1, () => this.cb.onSensitivity(SENS_STEPS[Math.min(SENS_STEPS.length - 1, si + 1)])),
+      );
+      col.append(srow);
+      col.append(this.button('RECENTER TILT', W, false, tiltOn, () => this.cb.onRecenter()));
     }
-    pips.flush();
-    srow.append(
-      this.button('-', 28, false, tiltOn && si > 0, () => this.cb.onSensitivity(SENS_STEPS[Math.max(0, si - 1)])),
-      pips.el,
-      this.button('+', 28, false, tiltOn && si < SENS_STEPS.length - 1, () => this.cb.onSensitivity(SENS_STEPS[Math.min(SENS_STEPS.length - 1, si + 1)])),
-    );
-    col.append(srow);
-    col.append(this.button('RECENTER TILT', W, false, tiltOn, () => this.cb.onRecenter()));
 
     // sound
     col.append(label('SOUND'));
@@ -496,11 +557,20 @@ export class Hud {
       fn();
     });
     wrap.addEventListener('pointercancel', () => (id = -1));
+    // (no ghost click after the tap: it would land on whatever the tap just opened)
+    wrap.addEventListener(
+      'touchend',
+      (e) => {
+        if (e.cancelable) e.preventDefault();
+      },
+      { passive: false },
+    );
     return wrap;
   }
 
   private ditherLayer(density: 0.25 | 0.5): HTMLElement {
-    const w = Math.ceil(window.innerWidth / S) + 1, h = Math.ceil(window.innerHeight / S) + 1;
+    // (square: a turned phone keeps it covered)
+    const w = Math.ceil(Math.max(window.innerWidth, window.innerHeight) / S) + 1, h = w;
     const d = new PixelCanvas(w, h, S);
     d.clear();
     d.dither(C.ink, density);
@@ -605,7 +675,6 @@ export class Hud {
       if (this.leverHolding) this.input.turboHold(false);
       else if (!this.leverUsed && !cancel && quick) this.input.turboShift(this.leverTop ? 1 : -1);
       this.leverHolding = false;
-      this.lKey = '';
     };
     el.addEventListener('pointerup', (e) => up(e, false));
     el.addEventListener('pointercancel', (e) => up(e, true));

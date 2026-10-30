@@ -166,7 +166,7 @@ for (const v of CHASE) {
   if (!want(`chase-${v.name}`) && !want('chase')) continue;
   // the clock stands still while the city streams in (settle() waits on streaming, which takes a different
   // time on every build), then the same 4 s of flight in fixed 1/30 s steps, frozen again for the shot
-  const page = await open(`?lat=${v.lat}&lon=${v.lon}&heading=${v.heading}&skipintro`, true);
+  const page = await open(`?lat=${v.lat}&lon=${v.lon}&heading=${v.heading}&skipintro&nohud`, true);
   await page.evaluate(() => (window.__qa = { sx: 0, sy: -0.15 }));
   await streamed(page);
   await page.evaluate(() => (window.__rv.step = 1000 / 30));
@@ -183,7 +183,7 @@ for (const v of CHASE) {
 // ---- the vista after a real climb
 for (const v of ALT) {
   if (!want(`alt-${v.name}`) && !want('alt')) continue;
-  const page = await open(`?lat=${v.lat}&lon=${v.lon}&heading=${v.heading}&skipintro`);
+  const page = await open(`?lat=${v.lat}&lon=${v.lon}&heading=${v.heading}&skipintro&nohud`);
   await page.evaluate(() => (window.__qa = { sx: 0, sy: -1 }));
   await page.evaluate((y) => new Promise((res) => { const tick = () => (window.__game.flight.y >= y ? res(null) : requestAnimationFrame(tick)); tick(); }), v.y);
   await page.evaluate(() => (window.__qa = null));
@@ -223,7 +223,7 @@ const aimHero = (page, v) =>
     window.__drift0 = g.clock();
   }, v);
 if (heroes.length) {
-  const page = await open(`?lat=${heroes[0].lat}&lon=${heroes[0].lon}&heading=0&skipintro`);
+  const page = await open(`?lat=${heroes[0].lat}&lon=${heroes[0].lon}&heading=0&skipintro&nohud`);
   for (const v of heroes) {
     await aimHero(page, v);
     await runFor(page, 1.5);
@@ -253,7 +253,7 @@ if (heroes.length) {
 
 // ---- the Painted Ladies row (tools/shots.mjs' painted camera): one blast per level, L1 / L2 / L3
 if (want('ladies')) {
-  const page = await open('?lat=37.77615&lon=-122.4340&heading=88&skipintro');
+  const page = await open('?lat=37.77615&lon=-122.4340&heading=88&skipintro&nohud');
   await page.evaluate(() => ((window.__qa = null), (window.__game.flight.glideSpeed = 6)));
   await runFor(page, 2);
   for (const L of [1, 2, 3]) {

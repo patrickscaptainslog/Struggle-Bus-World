@@ -612,6 +612,10 @@ async function boot() {
       if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
     } else audio.denied();
   };
+  // (until feat/supersplat takes these callbacks over: a press held past holdThreshold is still a splat, never a dead press)
+  input.onChargeEnd = (_held, cancelled) => {
+    if (!cancelled) input.onTap?.();
+  };
 
   // ---- resize
   const onResize = () => {

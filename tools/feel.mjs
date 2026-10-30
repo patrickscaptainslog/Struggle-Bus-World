@@ -74,7 +74,7 @@ const state = (page) =>
     return { t: +g.clock().toFixed(4), barfT: +f.barfT.toFixed(3), belly: +(f.barfT >= 0 ? f.belly : f.fullness).toFixed(2), pitch: +f.pitch.toFixed(3), y: +f.y.toFixed(1), glint: g.glintNow()?.index ?? -1 };
   });
 
-const START = '?lat=37.77628&lon=-122.4343&heading=88&skipintro';
+const START = '?lat=37.77628&lon=-122.4343&heading=88&skipintro&nohud';
 
 if (modes.has('strip')) {
   const page = await open(START + '&fixeddt=0.016667');
@@ -160,7 +160,7 @@ if (modes.has('glint')) {
 }
 
 if (modes.has('taps')) {
-  const page = await open('?lat=37.7762&lon=-122.4380&heading=90&skipintro');
+  const page = await open('?lat=37.7762&lon=-122.4380&heading=90&skipintro&nohud');
   const qa = (v) => page.evaluate((v) => (window.__qa = v), v);
   const res = [];
   const tap = async (label, before) => {
@@ -224,7 +224,7 @@ if (modes.has('perf')) {
   // CPU work per frame, draw calls, triangles: cruising at the floor, then holding 250 m up (SwiftShader fps
   // is meaningless; these are not). Same script for any build, so before / after compare.
   const res = {};
-  for (const [label, q] of [['alamo', '?lat=37.7762&lon=-122.4380&heading=90&skipintro'], ['fidi', '?lat=37.7925&lon=-122.4010&heading=0&skipintro']]) {
+  for (const [label, q] of [['alamo', '?lat=37.7762&lon=-122.4380&heading=90&skipintro&nohud'], ['fidi', '?lat=37.7925&lon=-122.4010&heading=0&skipintro&nohud']]) {
     const page = await open(q);
     const qa = (v) => page.evaluate((v) => (window.__qa = v), v);
     // (Perf's own window restarts whenever a frame takes over 1 s, as on a loaded SwiftShader host: read its

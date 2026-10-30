@@ -408,8 +408,10 @@ export class Input {
     if (charging) this.onChargeEnd?.(held, cancelled);
     else if (!cancelled) {
       if (held >= config.splat.holdThreshold) {
-        // released after the threshold but before a frame noticed: still a hold
+        // released after the threshold but before a frame noticed: still a hold, and it reads as one
+        this.state.chargeHeld = held;
         this.onChargeStart?.();
+        this.state.chargeHeld = 0;
         this.onChargeEnd?.(held, false);
       } else this.onTap?.();
     }
