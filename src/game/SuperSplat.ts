@@ -4,7 +4,7 @@ import { clamp } from './springs';
 import { Aimer, type Shot } from './Aim';
 import type { Flight } from './Flight';
 import type { City, BuildingRef } from '../world/City';
-import type { Blast, Splatter } from './Splat';
+import type { Blast, Splatter, SuperTag } from './Splat';
 import { blastRadiusFor, blobFlight } from './blastLayout';
 import type { Particles, GeyserLive } from '../fx/Particles';
 import type { SuperFx } from '../fx/SuperFx';
@@ -41,7 +41,8 @@ import { registerTunables } from '../ui/tunables';
 //   cooldown: superCooldown s (the meter drains, then refills with the seconds
 //     left); after a firehose the bus is spent for superSpent s (smoke, wheeze,
 //     dim belly, limping). Holding meanwhile: "not yet" (a fizzle, the meter
-//     shakes); taps still splat normally. Ready: a chime and a glow pulse.
+//     shakes), and its lift is a normal splat, like any tap. Ready: a chime and
+//     a glow pulse.
 //
 // The charge's look (src/fx/SuperFx.ts: energy spiralling into the mouth,
 // arcs, sparks, a rainbow halo; the belly band racing to white-hot in
@@ -49,10 +50,17 @@ import { registerTunables } from '../ui/tunables';
 // camera creeping in; src/audio/superSfx.ts: riser + heartbeat) is driven
 // from here. Nothing new persists.
 //
+// The press itself is Input's (the INPUT CONTRACT: the SPLAT button, the tilt
+// screen, Space): chargeStart(held) past config.splat.holdThreshold, then
+// chargeEnd(held, cancelled). At a turbo gear's speeds the charge's weight, the
+// recoil and the limp stand aside (Flight.driven): a gear is never braked.
+//
 // Frame order (main.ts): update() after the aim and before Splatter.update
 // (so an impact due this frame lands in it, before the paint upload); pose()
 // into a copy of the bus pose; pitch / shake / swell on the bus root; camera()
 // after the rig; impact() from the Splatter's impact callback for hose blasts.
+
+export type { SuperTag };
 
 export type SuperPhase = 'ready' | 'charging' | 'firehose' | 'cooldown';
 
@@ -126,20 +134,20 @@ export interface SuperHost {
   /** a normal tap splat (a release under superMin) */
   tap(): void;
   /** breathe a mega blast: the tap's breath path (anticipation, jet, blast) with a radius, a jet width x and a hit-stop */
-  mega(shot: Shot, radius: number, width: number, hitStop: number): void;
+  mega(shot: Shot, radius: number, width: number, hitStop: number, tag: SuperTag): void;
   /** a palette flash centered on a world point */
   flash(at: THREE.Vector3, frames: number, strength: number): void;
   hitStop(frames: number): void;
-  /** the street sign: the neighborhood the stream sweeps into */
-  sign(ref: BuildingRef, hue: number): void;
+  /** the street sign: the neighborhood the stream sweeps into, beside the blast at (cx, cz) of radius r */
+  sign(ref: BuildingRef, hue: number, cx: number, cz: number, r: number): void;
 }
 
 const HIST = 96;
 
 export class SuperSplat {
   phase: SuperPhase = 'ready';
-  /** seconds since the phase began (game clock) */
-  since = 0;
+  /** seconds since the phase began (game clock; it starts past the "just ready" pop) */
+  since = 1;
   /** seconds held so far while charging, and the charge (0..1) */
   held = 0;
   charge = 0;
@@ -148,8 +156,6 @@ export class SuperSplat {
   sinceDenied = Infinity;
   /** 0..1: spent after a firehose (fades over config.splat.superSpent) */
   spent = 0;
-  /** the "HOLD" hint shows until the first charge */
-  hint = true;
 
   // ---- outputs (main applies them every frame)
   /** bus scale x, extra nose-up (rad), jitter (m), camera distance x */
@@ -157,8 +163,9 @@ export class SuperSplat {
   pitch = 0;
   readonly shake = new THREE.Vector3();
   dolly = 1;
-  /** 0..1: the rainbow circle spinning under the bus (the drop shadow) */
+  /** 0..1: the rainbow circle spinning under the bus (PixelPipeline.setHeroCircle), and how far it has turned (arms) */
   circle = 0;
+  circleSpin = 0;
 
   /** QA: what the last super did */
   readonly stats = { kind: '', charge: 0, impacts: 0, blooms: 0, misses: 0, radius: 0, startedAt: 0, endedAt: 0 };
@@ -166,6 +173,12 @@ export class SuperSplat {
   private readonly h: SuperHost;
   private t = 0;
   private qaRelease = -1;
+  /** a press told "not yet": its lift is still a normal splat */
+  private deniedPress = false;
+  /** the super's serial, and the firehose's tags (one object per kind: barf only keeps the reference) */
+  private serial = 0;
+  private hoseTag: SuperTag = { kind: 'hose', charge: 1, id: 0 };
+  private closerTag: SuperTag = { kind: 'closer', charge: 1, id: 0 };
   /** leftover glow of a charge that was let go (0..1, fades) */
   private fade = 0;
   private beat = 0;
@@ -199,7 +212,7 @@ export class SuperSplat {
   private readonly v0 = new THREE.Vector3();
   private readonly v1 = new THREE.Vector3();
   private readonly v2 = new THREE.Vector3();
-  private readonly viewObj: SuperView = { phase: 'ready', charge: 0, min: 0.3, cooldownLeft: 0, cooldownTotal: 0, since: 0, sinceDenied: Infinity, hint: true };
+  private readonly viewObj: SuperView = { phase: 'ready', charge: 0, min: 0.3, cooldownLeft: 0, cooldownTotal: 0, since: 0, sinceDenied: Infinity };
   private readonly tgt = [new THREE.Vector3()];
   private readonly hueOne = [0];
 
@@ -220,6 +233,7 @@ export class SuperSplat {
     if (this.phase === 'cooldown') {
       // "not yet": a fizzle, the meter shakes, a puff from the hatch
       this.sinceDenied = 0;
+      this.deniedPress = true;
       this.h.audio.superFizzle();
       const p = this.h.hatch(this.v0);
       for (let i = 0; i < 3; i++) this.h.particles.puff(p, this.v1.set((Math.random() - 0.5) * 2, 2.5 + Math.random() * 2, (Math.random() - 0.5) * 2), Ramp.GREY);
@@ -233,12 +247,17 @@ export class SuperSplat {
     this.charge = this.held / Math.max(0.1, S.superCharge);
     this.beat = 0;
     this.beatK = 0;
-    this.hint = false;
     this.h.audio.superChargeStart(Math.max(0.1, S.superCharge - this.held));
   }
 
   /** Input.onChargeEnd: the charging press lifted (or was cancelled: it slid into a steer, the app lost focus). */
   chargeEnd(_heldSeconds: number, cancelled: boolean): void {
+    if (this.deniedPress) {
+      // (a slow tap during the cooldown: "not yet" for the super, still a splat: no press is dead)
+      this.deniedPress = false;
+      if (!cancelled && this.phase === 'cooldown') this.h.tap();
+      return;
+    }
     if (this.phase !== 'charging') return;
     const S = config.splat;
     this.qaRelease = -1;
@@ -372,7 +391,6 @@ export class SuperSplat {
     v.cooldownTotal = this.cooldownTotal;
     v.since = this.since;
     v.sinceDenied = this.sinceDenied;
-    v.hint = this.hint;
     return v;
   }
 
@@ -405,7 +423,7 @@ export class SuperSplat {
     const width = 1 + (S.megaWidth - 1) * u;
     const hitStop = Math.round(S.hitStopFrames + (S.megaHitStop - S.hitStopFrames) * u);
     this.h.audio.superChargeStop(true);
-    this.h.mega(shot, radius, width, hitStop);
+    this.h.mega(shot, radius, width, hitStop, { kind: 'mega', charge: k, id: ++this.serial });
     this.h.audio.superMega(k);
     this.h.rig.kick(1.5 + 2 * u);
     this.h.fx.sparks(Math.round(20 + 40 * u), this.h.busVel(), 14);
@@ -432,10 +450,14 @@ export class SuperSplat {
     this.lastHood = -1;
     this.lastSign = -10;
     this.charge = 1;
+    const id = ++this.serial;
+    this.hoseTag = { kind: 'hose', charge: 1, id };
+    this.closerTag = { kind: 'closer', charge: 1, id };
     // the belly pours out into the hose; the recoil knocks the bus back
     f.barfT = -1;
     f.fullness = 0;
-    f.speed *= S.firehoseKick;
+    // (a turbo gear drives through it: 450 m/s to 135 and back would be a brake, not a recoil)
+    if (!f.driven) f.speed *= S.firehoseKick;
     f.vy += 5;
     const aim = this.hoseAim();
     this.live.target.set(aim.x, aim.y, aim.z);
@@ -484,7 +506,9 @@ export class SuperSplat {
     // the stream has run dry and its last drops are down: the closing blast
     if (this.hoseT > D && !this.finale) {
       const last = this.hCount ? (this.hHead - 1 + HIST) % HIST : -1;
-      if (last < 0 || this.hT[last] <= this.t + superTune.lead || this.hoseT > D + 3) {
+      // (and the impacts in flight have landed: the closer reads paint levels as it is fired, and would take a
+      // block the last impact is about to paint for grey and deal it a new hue)
+      if (((last < 0 || this.hT[last] <= this.t + superTune.lead) && this.h.splatter.inFlight === 0) || this.hoseT > D + 3) {
         this.finale = true;
         this.impactNow(true);
         this.phase = 'cooldown';
@@ -544,9 +568,9 @@ export class SuperSplat {
     const target = h.city.buildingAt(x, z);
     const travel = Math.max(0.02, this.hT[best] - this.t);
     if (finale) {
-      h.splatter.barf(x, z, { radius: S.firehoseRadius * S.firehoseFinale * grow, travel, drop, target, y: y + 0.3, exact: true, stream: true, hitStop: S.firehoseFinaleHitStop });
+      h.splatter.barf(x, z, { radius: S.firehoseRadius * S.firehoseFinale * grow, travel, drop, target, y: y + 0.3, exact: true, stream: true, hitStop: S.firehoseFinaleHitStop, super: this.closerTag });
     } else {
-      h.splatter.barf(x, z, { radius: S.firehoseRadius * grow, travel, drop, target, y: y + 0.3, exact: true, hose: true });
+      h.splatter.barf(x, z, { radius: S.firehoseRadius * grow, travel, drop, target, y: y + 0.3, exact: true, hose: true, super: this.hoseTag });
       this.stats.impacts++;
       if (h.splatter.lastMiss) this.stats.misses++;
     }
@@ -580,7 +604,7 @@ export class SuperSplat {
     if (p && p.hood !== this.lastHood && this.t - this.lastSign > 1.2) {
       this.lastHood = p.hood;
       this.lastSign = this.t;
-      h.sign(p, b.spec.hue);
+      h.sign(p, b.spec.hue, b.spec.x, b.spec.z, b.spec.r);
     }
   }
 
@@ -607,6 +631,8 @@ export class SuperSplat {
     this.pitch = 0;
     this.swell = 1;
     this.circle = this.phase === 'charging' ? Math.pow(this.charge, 0.7) : this.phase === 'firehose' ? Math.max(0, 1 - this.hoseT / 0.6) : this.fade;
+    // (integrated: a rate times the clock would lurch as the rate climbs)
+    if (this.circle > 0) this.circleSpin = (this.circleSpin + dt * (0.6 + 5 * this.circle * this.circle)) % 6;
     this.beatK *= Math.exp(-dt * 9);
     if (this.phase === 'charging') {
       const c = this.charge;

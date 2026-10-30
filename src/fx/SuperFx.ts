@@ -266,6 +266,8 @@ export class SuperFx {
   private readonly uMote = { value: new THREE.Vector4() };
   private readonly tmp = new THREE.Vector3();
   private hue = 0;
+  /** frames left of the warm-up (see update) */
+  private warm = 3;
 
   constructor(maxParticles = 2400) {
     const cap = Math.max(STATIC + 64, Math.floor(maxParticles));
@@ -440,6 +442,15 @@ export class SuperFx {
     this.uMote.value.set(0, T.sparkGravity, T.arcSize, 0);
     this.flush();
     this.object.visible = this.arcs > 0.001 || this.time < this.lastDeath;
+    // warm-up: the program really draws before the first charge (drivers build a pipeline at its first draw call, a
+    // 50-80 ms stall at the very moment the press starts charging). The arc pool only, every arc unlit: not a pixel
+    // shows. (perf/load's boot warm-up can take `object` as it is: registerWarm('super fx', () => fx.object).)
+    if (this.warm > 0) {
+      this.warm--;
+      const warming = this.warm > 0 && !this.object.visible;
+      if (warming) this.object.visible = true;
+      this.geo.setDrawRange(0, warming ? ARC_PTS : this.cap);
+    }
   }
 
   private commit(death: number) {

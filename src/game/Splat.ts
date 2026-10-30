@@ -38,6 +38,8 @@ export interface Blast {
   hose: boolean;
   /** the building it hit, or null */
   primary: BuildingRef | null;
+  /** which super splat made this blast, null for a tap (the stage engine's one-hit-per-area rule reads it) */
+  super: SuperTag | null;
 }
 
 export interface SplatFx {
@@ -51,6 +53,13 @@ export interface SplatFx {
   hitStop(frames: number): void;
   /** The breath came down on nothing paintable (open water): a splash, at the moment it lands. */
   miss?(pos: THREE.Vector3, hue: number): void;
+}
+
+/** A blast of a super splat: its kind, the charge, and the super's serial (a firehose's impacts and closer share one). */
+export interface SuperTag {
+  kind: 'mega' | 'hose' | 'closer';
+  charge: number;
+  id: number;
 }
 
 /** Optional aim for Splatter.barf. */
@@ -74,6 +83,8 @@ export interface BarfOpts {
   hose?: boolean;
   /** hit-stop frames at the impact, default config.splat.hitStopFrames */
   hitStop?: number;
+  /** a super splat's blast (Blast.super) */
+  super?: SuperTag;
 }
 
 /** SplatFx.bloom flags. */
@@ -117,6 +128,8 @@ export class Splatter {
   private fresh: Scheduled[] = [];
   private misses: Array<{ at: number; pos: THREE.Vector3; hue: number }> = [];
   private land = { x: 0, z: 0 };
+  /** where a bloom's sparkles start (SplatFx.bloom reads it, never keeps it) */
+  private readonly roofTmp = new THREE.Vector3();
   private t = 0;
   private seed = (Math.random() * 0xffffffff) >>> 0;
   /** The last barf came down on nothing paintable (the caller refunds part of the belly). */
@@ -223,7 +236,7 @@ export class Splatter {
     const ground = city.ground.begin(spec, tImpact);
     this.pending.push({
       at: tImpact, plan, ground, hitStop: hose ? 0 : opts?.hitStop ?? S.hitStopFrames,
-      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, primary },
+      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, primary, super: opts?.super ?? null },
     });
     if (!stream) this.fx.geyser([pos.clone()], [hue]);
     return tImpact;
@@ -312,7 +325,7 @@ export class Splatter {
       if (this.t >= s.at) {
         this.queue.splice(i, 1);
         // (the primary's sparkles start where the breath hit it)
-        this.fx.bloom(s.ref, s.order, s.total, s.hue, s.level, s.at0 ? s.at0.clone() : new THREE.Vector3(s.ref.cx, s.ref.roofY, s.ref.cz), s.flags);
+        this.fx.bloom(s.ref, s.order, s.total, s.hue, s.level, s.at0 ? this.roofTmp.copy(s.at0) : this.roofTmp.set(s.ref.cx, s.ref.roofY, s.ref.cz), s.flags);
         if (s.order === 0 && !(s.flags & BLOOM_HOSE)) this.fx.primary(s.ref, s.hue);
       } else i++;
     }
@@ -321,6 +334,11 @@ export class Splatter {
   private hoseBusy(n: number): Float32Array {
     if (!this.hoseUntil || this.hoseUntil.length < n) this.hoseUntil = new Float32Array(n);
     return this.hoseUntil;
+  }
+
+  /** Blasts still in flight (their paint isn't applied yet). */
+  get inFlight(): number {
+    return this.pending.length;
   }
 
   /** Game clock (s), the same clock as globals.uTime. */

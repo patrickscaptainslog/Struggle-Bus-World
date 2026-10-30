@@ -67,7 +67,8 @@ const FS = /* glsl */ `
     // ground reads calmer than buildings: compress its sun/slope contrast (shadows stay crisp)
     float flatL = sbLight(vWorldPos, vec3(0.0, 1.0, 0.0), lo + uLift, 1.0);
     light = mix(light, flatL, 0.55);
-    if (bc == ${Ground.WATER}.0) light = 0.32 + 0.25 * pow(max(dot(reflect(-uSunDir, vec3(0.0, 1.0, 0.0)), normalize(cameraPosition - vWorldPos)), 0.0), 4.0);
+    // (the same fog-mirroring fresnel as the open water plane, so the shore tiles and the bay match)
+    if (bc == ${Ground.WATER}.0) light = 0.3 + 0.66 * pow(1.0 - abs(normalize(cameraPosition - vWorldPos).y), 4.0) + 0.25 * pow(max(dot(reflect(-uSunDir, vec3(0.0, 1.0, 0.0)), normalize(cameraPosition - vWorldPos)), 0.0), 4.0);
     float glow = 0.0;
     float pr, pEdge, pWet, pFresh;
     // curbs (where two ground classes blend) stay grey through the paint: the street plan still reads
@@ -189,7 +190,9 @@ export function makeWaterMaterial(): THREE.ShaderMaterial {
       void main() {
         vec3 v = normalize(cameraPosition - vWorldPos);
         float fres = pow(1.0 - abs(v.y), 4.0);
-        float light = 0.2 + 0.42 * fres;
+        // in fog the bay mirrors the bright overcast: it brightens toward the horizon and melts into
+        // the fog bank instead of lying under it as a dark slab
+        float light = 0.3 + 0.66 * fres;
         // static swell crests running north-south (the Pacific rolls in through
         // the Golden Gate): short sparse dashes, a step brighter
         vec2 q = vec2(vWorldPos.z / 9.0, vWorldPos.x / 2.6);

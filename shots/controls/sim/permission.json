@@ -1,0 +1,106 @@
+{
+ "eventTimeout": 1,
+ "rows": [
+  {
+   "case": "iOS, granted, events flow",
+   "needsPermission": true,
+   "final": "active",
+   "statuses": [
+    "requesting",
+    "waiting",
+    "calibrating",
+    "active",
+    "off"
+   ],
+   "ms": 376,
+   "calibrated": true,
+   "samples": 12
+  },
+  {
+   "case": "iOS, denied",
+   "needsPermission": true,
+   "final": "denied",
+   "statuses": [
+    "requesting",
+    "denied"
+   ],
+   "ms": 0,
+   "calibrated": false,
+   "samples": 0
+  },
+  {
+   "case": "iOS, requestPermission throws (no gesture)",
+   "needsPermission": true,
+   "final": "denied",
+   "statuses": [
+    "requesting",
+    "denied"
+   ],
+   "ms": 0,
+   "calibrated": false,
+   "samples": 0
+  },
+  {
+   "case": "iOS, requestPermission rejects",
+   "needsPermission": true,
+   "final": "denied",
+   "statuses": [
+    "requesting",
+    "denied"
+   ],
+   "ms": 0,
+   "calibrated": false,
+   "samples": 0
+  },
+  {
+   "case": "iOS, granted but no events (iframe: claude.ai preview)",
+   "needsPermission": true,
+   "final": "unavailable",
+   "statuses": [
+    "requesting",
+    "waiting",
+    "unavailable"
+   ],
+   "ms": 1001,
+   "calibrated": false,
+   "samples": 0
+  },
+  {
+   "case": "Android, events flow",
+   "needsPermission": false,
+   "final": "active",
+   "statuses": [
+    "waiting",
+    "calibrating",
+    "active",
+    "off"
+   ],
+   "ms": 383,
+   "calibrated": true,
+   "samples": 12
+  },
+  {
+   "case": "desktop: one event of nulls",
+   "needsPermission": false,
+   "final": "unavailable",
+   "statuses": [
+    "waiting",
+    "unavailable"
+   ],
+   "ms": 1001,
+   "calibrated": false,
+   "samples": 0
+  },
+  {
+   "case": "no DeviceOrientationEvent",
+   "needsPermission": false,
+   "final": "unavailable",
+   "statuses": [
+    "unavailable"
+   ],
+   "ms": 0,
+   "calibrated": false,
+   "samples": 0
+  }
+ ]
+}

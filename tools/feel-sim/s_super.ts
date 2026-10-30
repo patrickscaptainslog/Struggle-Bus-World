@@ -63,11 +63,11 @@ function makeWorld(c: City) {
       const shot = aimer.fire(flight);
       if (flight.tryBarf()) splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact });
     },
-    mega: (shot, radius, _w, hs) => {
+    mega: (shot, radius, _w, hs, tag) => {
       flight.barfT = -1;
       flight.fullness = 1;
       flight.tryBarf();
-      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, radius, hitStop: hs });
+      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, radius, hitStop: hs, super: tag });
     },
     flash: stub('flash'),
     hitStop: (f) => (hitStop = Math.max(hitStop, f / 60)),

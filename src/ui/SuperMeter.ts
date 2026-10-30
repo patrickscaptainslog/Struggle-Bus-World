@@ -1,11 +1,13 @@
 import { HUE_RAMPS, Ramp, RAMP_STEPS, rampColor } from '../render/palette';
 import { drawText, FONT_LARGE, measureText } from '../fx/pixelFont';
 
-// The super splat's meter: a little pixel-art ring in the corner, the only UI
-// the super has. Same palette as the 3D scene, whole pixels upscaled
-// nearest-neighbor (image-rendering: pixelated), the pixel font for numbers.
+// The super splat's meter: a little pixel-art ring at the bottom center (the
+// HUD's slot), the only UI the super has, and only while there is something to
+// say: charging, pouring or cooling down (no HUD at rest). Same palette as the
+// 3D scene, whole pixels upscaled nearest-neighbor (image-rendering:
+// pixelated), the pixel font for numbers.
 //
-//   ready      a full rainbow ring, a white glint running round it, "HOLD"
+//   ready      hidden; for READY_SHOW s after a cooldown a full rainbow ring pops
 //   charging   the ring fills clockwise in bright hues behind a white-hot head;
 //              a tick marks where a release becomes a mega blast ("MEGA");
 //              the orb in the middle grows and goes white-hot; it trembles
@@ -14,9 +16,8 @@ import { drawText, FONT_LARGE, measureText } from '../fx/pixelFont';
 //              seconds left in the middle; a chime + a white pulse when ready
 //   not yet    held during the cooldown: the ring blinks red and shakes
 //
-// It redraws only when what it shows changes (a canvas of 34 x 43 pixels).
-// feat/controls' Hud exposes hud.slot('super'): mount(slot) puts the meter
-// there; mount() with nothing builds a temporary fixed container top-right.
+// It redraws only when what it shows changes (a canvas of 34 x 43 pixels), and
+// not at all while hidden. It mounts in hud.slot('super') (176 x 86 CSS px).
 
 export interface SuperView {
   phase: 'ready' | 'charging' | 'firehose' | 'cooldown';
@@ -30,8 +31,6 @@ export interface SuperView {
   since: number;
   /** seconds since the last "not yet" */
   sinceDenied: number;
-  /** show the "HOLD" hint (until the player has charged once) */
-  hint: boolean;
 }
 
 const W = 34;
@@ -41,6 +40,8 @@ const CX = 17;
 const CY = 17;
 const SCALE = 2;
 const PH = { ready: 0, charging: 1, firehose: 2, cooldown: 3 } as const;
+/** Seconds the ring stays once the cooldown is over: the pop, under the chime. */
+const READY_SHOW = 0.7;
 
 export class SuperMeter {
   readonly el: HTMLDivElement;
@@ -54,7 +55,7 @@ export class SuperMeter {
   private readonly text = new Uint8Array(W * 9);
   private key = -1;
   private t = 0;
-  private holder: HTMLDivElement | null = null;
+  private shown = false;
   private shakeX = 0;
   private shakeY = 0;
   private pop = 1;
@@ -78,7 +79,7 @@ export class SuperMeter {
       }
     const el = document.createElement('div');
     el.dataset.sbUi = 'super';
-    el.style.cssText = `width:${W * SCALE}px;height:${H * SCALE}px;pointer-events:none;will-change:transform`;
+    el.style.cssText = `display:none;width:${W * SCALE}px;height:${H * SCALE}px;pointer-events:none;will-change:transform`;
     const c = document.createElement('canvas');
     c.width = W;
     c.height = H;
@@ -89,43 +90,31 @@ export class SuperMeter {
     this.img = this.g ? this.g.createImageData(W, H) : null;
   }
 
-  /** Mount into a container (feat/controls' hud.slot('super')), or with none into a temporary fixed one top-right. */
-  mount(parent?: HTMLElement): void {
-    if (parent) {
-      this.holder?.remove();
-      this.holder = null;
-      parent.appendChild(this.el);
-      return;
-    }
-    if (!this.holder) {
-      const h = document.createElement('div');
-      h.dataset.sbUi = 'super-slot';
-      h.style.cssText = 'position:fixed;z-index:980;pointer-events:none;top:calc(env(safe-area-inset-top, 0px) + 10px);right:calc(env(safe-area-inset-right, 0px) + 10px)';
-      document.body.appendChild(h);
-      this.holder = h;
-    }
-    this.holder.appendChild(this.el);
-  }
-
-  setVisible(v: boolean): void {
-    this.el.style.display = v ? '' : 'none';
+  /** Mount into a container (hud.slot('super')). */
+  mount(parent: HTMLElement): void {
+    parent.appendChild(this.el);
   }
 
   update(dt: number, v: SuperView): void {
     this.t += dt;
+    const show = v.phase !== 'ready' || v.since < READY_SHOW;
+    if (show !== this.shown) {
+      this.shown = show;
+      this.el.style.display = show ? '' : 'none';
+    }
+    if (!show) return;
     const t = this.t;
     const ph = PH[v.phase];
     // what it shows, quantized: redraw only when that changes
     let fill = 1;
     let digits = -1;
-    let label = 0; // 0 none, 1 HOLD, 2 MEGA, 3 HOSE
+    let label = 0; // 0 none, 2 MEGA, 3 HOSE
     let glint = -1;
     let orb = 0;
     let blink = 0;
     let flash = 0;
     if (v.phase === 'ready') {
       glint = Math.floor(((t * 0.42) % 1) * 64);
-      label = v.hint ? 1 : 0;
       flash = v.since < 0.18 ? 2 : v.since < 0.7 ? 1 : 0;
     } else if (v.phase === 'charging') {
       fill = v.charge;
@@ -230,8 +219,8 @@ export class SuperMeter {
     // seconds left, in the middle
     if (digits >= 0) this.textAt(String(digits), CY - 4, digits <= 5 ? Ramp.GLOW_WHITE : Ramp.WHITE, 7);
     // the label under the ring
-    const words = ['', 'HOLD', 'MEGA', 'HOSE'];
-    if (label > 0) this.textAt(words[label], RING + 1, label === 1 ? Ramp.WHITE : Ramp.GLOW_WHITE, label === 1 ? 6 : 7);
+    const words = ['', '', 'MEGA', 'HOSE'];
+    if (label > 0) this.textAt(words[label], RING + 1, Ramp.GLOW_WHITE, 7);
     g.putImageData(img, 0, 0);
   }
 

@@ -1,0 +1,24 @@
+{
+  "grey": null,
+  "painted": {
+    "fps": 1.9,
+    "low1": 1.1,
+    "frameMs": 531.8,
+    "frameMaxMs": 633.9,
+    "workMs": 9.85,
+    "workMaxMs": 14.1,
+    "simDtMs": 50,
+    "calls": 139,
+    "triangles": 1248800,
+    "points": 8000,
+    "lines": 0,
+    "geometries": 94,
+    "textures": 33,
+    "programs": 21,
+    "lowRes": "236x512",
+    "pixelScale": 5,
+    "canvas": "1179x2556",
+    "cap30": false,
+    "frames": 147
+  }
+}

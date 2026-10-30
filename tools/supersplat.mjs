@@ -10,10 +10,13 @@
 //   alt       the firehose from 250 m (a climb on the yoke, then a full charge) (alt-*.png)
 //   mega      an early release at 50 %: the mega blast (frames around the impact, counts, radius, cooldown) (mega-*.png)
 //   cooldown  the meter at 0 / 30 / 59 / 60 s of the cooldown after a firehose, and "not yet" (meter-*.png)
+//   jet       G1 at 450 m/s, then a charge, the firehose and the spent limp: the gear's speed through it (jet.json)
+//   first     the first charge after boot, against the second: its frames' work and gaps, real time (first.json)
 //   audio     (with cooldown) the super splat's sounds rendered offline: peak, clipping, NaN (audio.json)
 //   base      (with --base=<url>) the same tap blast perf on the baseline build, for before/after
 // Everything waits on the game clock (?fixeddt=1/30 steps it exactly), never wall time: SwiftShader runs ~1.5 fps.
 import { chromium } from 'playwright-core';
+import { browserOptions } from './browser.mjs';
 import { mkdirSync, writeFileSync } from 'node:fs';
 
 const args = process.argv.slice(2);
@@ -21,12 +24,10 @@ const flags = Object.fromEntries(args.filter((a) => a.startsWith('--')).map((a) 
 const [base = 'http://127.0.0.1:5201/', out = 'shots/supersplat', ...modeList] = args.filter((a) => !a.startsWith('--'));
 const modes = new Set(modeList.length ? modeList : ['charge', 'sweep', 'alt', 'mega', 'cooldown']);
 mkdirSync(out, { recursive: true });
-const DT = '&fixeddt=0.0333333';
+// (touch: a phone viewport would otherwise sit under the TILT TO FLY card, and the meter needs the HUD up)
+const DT = '&fixeddt=0.0333333&controls=touch';
 
-const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
-});
+const browser = await chromium.launch({ ...browserOptions([]) });
 const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
 
 async function open(url) {
@@ -37,7 +38,7 @@ async function open(url) {
     // a grey city every time (building + ground paint)
     for (const k of Object.keys(localStorage)) if (k.startsWith('strugglebus.')) localStorage.removeItem(k);
     // count GPU uploads per frame (texture sub-uploads, and the most any one texture got; full texture uploads; buffer sub-uploads)
-    window.__up = { tex: 0, texFull: 0, buf: 0, perTex: new Map(), perTexMax: 0 };
+    window.__up = { tex: 0, texFull: 0, buf: 0, link: 0, perTex: new Map(), perTexMax: 0 };
     const P = WebGL2RenderingContext.prototype;
     const wrap = (name, key) => {
       const o = P[name];
@@ -58,6 +59,7 @@ async function open(url) {
     };
     wrap('texImage2D', 'texFull');
     wrap('bufferSubData', 'buf');
+    wrap('linkProgram', 'link');
   });
   await page.goto(url, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 400000 });
@@ -124,13 +126,13 @@ async function sample(page, seconds) {
         const start = g.clock();
         const up = window.__up;
         const reset = () => {
-          up.tex = up.texFull = up.buf = up.perTexMax = 0;
+          up.tex = up.texFull = up.buf = up.link = up.perTexMax = 0;
           up.perTex.clear();
         };
         reset();
         p.frame = function (dt, work) {
           const r = this.renderer.info.render;
-          rows.push({ t: +(g.clock() - start).toFixed(3), work: +work.toFixed(2), calls: r.calls, tris: r.triangles, points: r.points, tex: up.tex, perTex: up.perTexMax, texFull: up.texFull, buf: up.buf, phase: g.superState ? g.superState().phase : '' });
+          rows.push({ t: +(g.clock() - start).toFixed(3), work: +work.toFixed(2), calls: r.calls, tris: r.triangles, points: r.points, tex: up.tex, perTex: up.perTexMax, texFull: up.texFull, buf: up.buf, link: up.link, phase: g.superState ? g.superState().phase : '' });
           reset();
           return orig.call(this, dt, work);
         };
@@ -316,8 +318,10 @@ if (modes.has('mega')) {
 if (modes.has('cooldown')) {
   const page = await open(base + '?lat=37.7762&lon=-122.4400&heading=90&skipintro' + DT);
   await runFor(page, 1.5);
-  const clip0 = await meterClip(page);
-  await page.screenshot({ path: `${out}/meter-ready.png`, clip: clip0 });
+  // (no HUD at rest: the meter is hidden until a charge)
+  const atRest = await page.evaluate(() => getComputedStyle(document.querySelector('[data-sb-ui=super]')).display);
+  console.log('meter at rest:', atRest);
+  report.meterAtRest = atRest;
   await page.evaluate(() => window.__game.superSplatter.chargeStart(9.2));
   await runFor(page, 0.5);
   await page.screenshot({ path: `${out}/meter-charging.png`, clip: await meterClip(page) });
@@ -362,6 +366,64 @@ if (modes.has('cooldown')) {
     writeFileSync(`${out}/audio.json`, JSON.stringify(report.audio, null, 1));
     console.log('audio', JSON.stringify(report.audio));
   }
+  await page.close();
+}
+
+if (modes.has('jet')) {
+  const page = await open(base + '?lat=37.7700&lon=-122.4700&heading=75&skipintro' + DT);
+  await runFor(page, 1);
+  await page.evaluate(() => window.__game.controls.turbo.shift(1, window.__game.flight));
+  await runUntil(page, 'g.flight.speed > 420', 25);
+  const speed = () => page.evaluate(() => ({ speed: +window.__game.flight.speed.toFixed(1), y: +window.__game.flight.y.toFixed(1), scale: window.__game.flight.speedScale, phase: window.__game.superState().phase, impacts: window.__game.superState().stats.impacts }));
+  const log = [await speed()];
+  await page.evaluate(() => window.__game.superSplat(10, 9));
+  for (let i = 0; i < 9; i++) {
+    await runFor(page, 1);
+    log.push(await speed());
+    if (i === 2) await page.screenshot({ path: `${out}/jet-hose.png` });
+  }
+  await runUntil(page, "g.superState().phase === 'cooldown'", 6);
+  await page.evaluate(() => window.__game.controls.turbo.shift(-1, window.__game.flight));
+  for (let i = 0; i < 4; i++) {
+    await runFor(page, 1);
+    log.push(await speed());
+  }
+  report.jet = log;
+  writeFileSync(`${out}/jet.json`, JSON.stringify(log, null, 1));
+  console.log('jet', JSON.stringify(log));
+  await page.close();
+}
+
+if (modes.has('first')) {
+  // real time, no fixeddt: what the driver costs the first time the charge's programs and audio are touched
+  const page = await open(base + '?lat=37.7752&lon=-122.4400&heading=75&skipintro&controls=touch');
+  await page.waitForTimeout(3000);
+  const run = (holdS) => page.evaluate(async (holdS) => {
+    const g = window.__game;
+    const gaps = [];
+    let last = performance.now();
+    let on = true;
+    const tick = (t) => {
+      gaps.push(+(t - last).toFixed(1));
+      last = t;
+      if (on) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    await new Promise((r) => setTimeout(r, 400));
+    const base = gaps.length;
+    g.superSplatter.chargeStart(0);
+    await new Promise((r) => setTimeout(r, holdS * 1000));
+    g.superSplatter.chargeEnd(0, true);
+    await new Promise((r) => setTimeout(r, 400));
+    on = false;
+    const before = gaps.slice(2, base), during = gaps.slice(base);
+    return { beforeMax: Math.max(...before), first10: during.slice(0, 10), duringMax: Math.max(...during), frames: during.length };
+  }, holdS);
+  const first = await run(1.2);
+  const second = await run(1.2);
+  report.first = { first, second };
+  writeFileSync(`${out}/first.json`, JSON.stringify(report.first, null, 1));
+  console.log('first', JSON.stringify(report.first));
   await page.close();
 }
 

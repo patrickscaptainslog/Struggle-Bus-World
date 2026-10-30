@@ -10,6 +10,7 @@
 // SwiftShader renders ~1.5 fps: everything waits on the game clock.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { browserOptions } from './browser.mjs';
 
 const args = process.argv.slice(2);
 const pos = args.filter((a) => !a.startsWith('--'));
@@ -43,8 +44,7 @@ const HERO = [
 ];
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
+  ...browserOptions([]),
 });
 const perf = {};
 
@@ -82,7 +82,7 @@ const snap = (page) => page.evaluate(() => window.__stats ?? null);
 
 for (const v of CHASE) {
   if (only && !only.has(v.name)) continue;
-  const page = await open(`?city=${city}&lat=${v.lat}&lon=${v.lon}&heading=${v.heading}&skipintro`);
+  const page = await open(`?city=${city}&lat=${v.lat}&lon=${v.lon}&heading=${v.heading}&skipintro&nohud`);
   await page.evaluate(() => (window.__qa = { sx: 0, sy: -0.6 }));
   await runFor(page, 2.5);
   await settle(page);
@@ -94,7 +94,7 @@ for (const v of CHASE) {
 
 for (const v of HERO) {
   if (only && !only.has(v.name)) continue;
-  const page = await open(`?city=${city}&lat=${v.lat}&lon=${v.lon}&heading=0&skipintro`);
+  const page = await open(`?city=${city}&lat=${v.lat}&lon=${v.lon}&heading=0&skipintro&nohud`);
   await page.evaluate((v) => {
     const g = window.__game;
     const [lat0, lon0] = g.city.manifest.origin;
