@@ -486,8 +486,7 @@ impact frame shows the hit.
 (`holdThreshold`, `superCharge` 10 s, `superMin`, `superCooldown` 60 s,
 `mega*`, `chargeSlow`, `chargeCreep`, `firehose*`, `superSpent`), look
 numbers in the tuner groups `SuperSplat`, `SuperFx`, `SuperAudio`.
-- **Input contract**: Input's (see "Controls"): the SPLAT button, the tilt
-  screen and Space fire `onChargeStart()` past `config.splat.holdThreshold`, with
+- **Input contract**: Input's (see "Controls"): MEGA and Space fire `onChargeStart()` past `config.splat.holdThreshold`, with
   `state.chargeHeld` set, then `onChargeEnd(heldSeconds, cancelled)`. main.ts wires
   them to `superSplat.chargeStart(input.state.chargeHeld)` and
   `superSplat.chargeEnd(held, cancelled)`, which calls `host.tap()` for a release
@@ -563,8 +562,7 @@ numbers in the tuner groups `SuperSplat`, `SuperFx`, `SuperAudio`.
   `node tools/feel-sim/run.mjs s_super.ts` (offline: charge, mega, cancel,
   firehose counts and cost), `tools/controls-sim/run.mjs s_gesture.ts` (the
   press), `node tools/supersplat.mjs <url> <out> [charge sweep alt mega
-  cooldown jet first audio base] [--base=<url>]` (`&controls=touch`: a phone
-  viewport would otherwise sit under the TILT TO FLY card).
+  cooldown jet first audio base] [--base=<url>]` (`&controls=touch`: tilt off, no chip).
 
 ## Paintable landmarks (hand-built props)
 A landmark prop (Transamerica, Sutro Tower, any `LandmarkKit` prop) is a

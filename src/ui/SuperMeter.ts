@@ -1,11 +1,11 @@
 import { HUE_RAMPS, Ramp, RAMP_STEPS, rampColor } from '../render/palette';
 import { drawText, FONT_LARGE, measureText } from '../fx/pixelFont';
 
-// The super splat's meter: a little pixel-art ring at the bottom center (the
-// HUD's slot), the only UI the super has, and only while there is something to
-// say: charging, pouring or cooling down (no HUD at rest). Same palette as the
-// 3D scene, whole pixels upscaled nearest-neighbor (image-rendering:
-// pixelated), the pixel font for numbers.
+// The super splat's meter: a little pixel-art ring in the HUD's slot, above MEGA
+// while charging or pouring, docked on its face for the cooldown (src/ui/Hud.ts
+// moves the slot; the drawing doesn't know). The only charge display there is, and
+// only while there is something to say. Same palette as the 3D scene, whole pixels
+// upscaled nearest-neighbor (image-rendering: pixelated), the pixel font for numbers.
 //
 //   ready      hidden; for READY_SHOW s after a cooldown a full rainbow ring pops
 //   charging   the ring fills clockwise in bright hues behind a white-hot head;
@@ -17,7 +17,7 @@ import { drawText, FONT_LARGE, measureText } from '../fx/pixelFont';
 //   not yet    held during the cooldown: the ring blinks red and shakes
 //
 // It redraws only when what it shows changes (a canvas of 34 x 43 pixels), and
-// not at all while hidden. It mounts in hud.slot('super') (176 x 86 CSS px).
+// not at all while hidden. It mounts in hud.slot('super') (68 x 86 CSS px).
 
 export interface SuperView {
   phase: 'ready' | 'charging' | 'firehose' | 'cooldown';

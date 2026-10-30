@@ -249,20 +249,31 @@ if (modes.has('taps')) {
   for (const gamma of [0, 12, 20, -20]) {
     await carve.evaluate((v) => (window.__sensor.gamma = v), gamma);
     await runFor(carve, 1.5);
-    const r = { gamma, taps: 0, withGlint: 0, wrong: 0 };
+    const r = { gamma, taps: 0, withGlint: 0, wrong: 0, noShot: 0, detail: [] };
     for (let i = 0; i < 12; i++) {
       await carve.evaluate(() => window.__game.forceReady());
       await runFor(carve, 0.25);
+      const t0 = await carve.evaluate(() => window.__game.lastShot()?.t ?? -1);
       await touch(true);
       const pressed = await carve.evaluate(() => new Promise((res) => requestAnimationFrame(() => res(window.__game.glintNow()?.index ?? -1))));
       await runFor(carve, 0.12);
       await touch(false);
       await runFor(carve, 0.05);
-      const hit = await carve.evaluate(() => window.__game.lastShot()?.target?.index ?? -1);
+      const shot = await carve.evaluate(() => { const s = window.__game.lastShot(); return { t: s?.t ?? -1, hit: s?.target?.index ?? -1, wall: !!s?.wall, glint: window.__game.glintNow()?.index ?? -1 }; });
+      const hit = shot.hit;
       r.taps++;
+      // (no breath left this press: a press held past stillTapMs behind a slow frame is a thumb, and says nothing about aim)
+      if (shot.t === t0) {
+        r.noShot++;
+        await runFor(carve, 2);
+        continue;
+      }
       if (pressed >= 0) {
         r.withGlint++;
-        if (pressed !== hit) r.wrong++;
+        if (pressed !== hit) {
+          r.wrong++;
+          r.detail.push({ pressed, ...shot });
+        }
       }
       await runFor(carve, 2);
     }

@@ -85,9 +85,9 @@ export const superTune = {
   /** Pouring: nose-up (rad) and shudder (m); camera pull-back (share of its distance). */
   hoseRear: 0.24,
   hoseShudder: 0.34,
-  /** A pour's flash at or under flashNear m from the camera is flashClose x its strength, full by flashFar m. */
-  flashNear: 45,
-  flashFar: 150,
+  /** A pour's flash at or under flashNear m from the camera (the street's follow distance is ~125) is flashClose x its strength, full by flashFar m. */
+  flashNear: 130,
+  flashFar: 320,
   flashClose: 0.45,
   hosePull: 0.08,
   /** Camera dolly spring (Hz). */
@@ -113,8 +113,8 @@ registerTunables('SuperSplat', superTune, {
   smoke: [0, 40, 0.5],
   hoseRear: [0, 0.6, 0.01],
   hoseShudder: [0, 1.5, 0.01],
-  flashNear: [0, 200, 1],
-  flashFar: [20, 400, 1],
+  flashNear: [0, 400, 1],
+  flashFar: [20, 800, 1],
   flashClose: [0.1, 1, 0.01],
   hosePull: [-0.3, 0.5, 0.01],
   dollyHz: [0.3, 8, 0.05],
@@ -479,8 +479,10 @@ export class SuperSplat {
       duration: S.firehoseDuration, travelTime: this.live.travel, width: S.firehoseWidth, live: this.live, taper: 0.94,
     });
     h.audio.superFirehose(S.firehoseDuration);
-    // (the stream's first landing right under the camera: the flash stops short of a white-out over the bus)
-    h.flash(h.mouth(), 2, this.pourFlash(aim.x, aim.y, aim.z, 0.9));
+    // (lit right under the camera the opening flash would white out the bus: there it is one frame, short of white-hot)
+    const m = h.mouth();
+    const fs = this.pourFlash(m.x, m.y, m.z, 0.9);
+    h.flash(m, fs < 0.7 ? 1 : 2, fs);
     h.rig.kick(3.2);
     h.fx.sparks(50, h.busVel(), 16);
     Object.assign(this.stats, { kind: 'firehose', charge: 1, impacts: 0, blooms: 0, misses: 0, radius: S.firehoseRadius, startedAt: this.t, endedAt: 0 });

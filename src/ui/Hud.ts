@@ -559,10 +559,12 @@ export class Hud {
       }
     }
     const fire = this.megaPhase === 'firehose' ? Math.floor(now / 125) % 2 : 0;
-    const key = (((PHASES.indexOf(this.megaPhase) * 2 + (this.megaDown ? 1 : 0)) * 2 + (rest ? 1 : 0)) * 2 + fire) * 2 + (this.megaCue % 2);
+    // (HOLD first: steps 4 and 2)
+    const hold = this.megaCue > 0 && this.megaCue % 2 === 0;
+    const key = (((PHASES.indexOf(this.megaPhase) * 2 + (this.megaDown ? 1 : 0)) * 2 + (rest ? 1 : 0)) * 2 + fire) * 2 + (hold ? 1 : 0);
     if (key !== this.megaKey) {
       this.megaKey = key;
-      this.drawMega(rest, fire === 1, this.megaCue % 2 === 1);
+      this.drawMega(rest, fire === 1, hold);
     }
   }
 
@@ -843,6 +845,8 @@ export class Hud {
     };
     wrap.addEventListener('touchstart', stop, { passive: false });
     wrap.addEventListener('touchmove', stop, { passive: false });
+    // (the canonical iOS user-activation event: a button can be the very first touch)
+    wrap.addEventListener('touchend', () => this.cb.onGesture());
     return wrap;
   }
 
@@ -992,6 +996,7 @@ export class Hud {
       e.stopPropagation();
       if (e.cancelable) e.preventDefault();
       if (this.megaId >= 0) return;
+      this.adoptedId = -1;
       this.cb.onGesture();
       this.wakeButtons();
       this.input.hudBlip();
@@ -1188,7 +1193,7 @@ export class Hud {
       let c = locked ? dark : open;
       if (lit) c = f.gear >= 3 && f.engaged && config.turbo.worldTravel ? C.hue[(hue + i) % 6] : C.yellow;
       else if (lifting) c = blink ? C.yellowHi : open;
-      else if (next) c = blink ? C.yellowHi : open;
+      else if (next) c = blink ? C.yellowLo : open;
       this.chevron(p, x, y, w, c);
       if (locked) {
         // the red tick; shifting past the last gear flashes the next one's

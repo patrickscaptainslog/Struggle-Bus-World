@@ -459,14 +459,14 @@ if (modes.has('press')) {
 }
 
 if (modes.has('flash')) {
-  // the judge's frame: a pour from the street at Alamo, every frame of its first 0.4 s: the share of near-white pixels
-  const page = await open(base + '?lat=37.77628&lon=-122.4352&heading=88&skipintro' + DT);
-  await page.evaluate(() => window.__game.forceReady());
-  await runFor(page, 0.3);
-  const t0 = await page.evaluate(() => window.__game.superSplat(10, 9.9));
+  // the judge's frame: a full charge from the street at Alamo, then the pour's first second, every other frame
+  const page = await open(base + '?lat=37.7752&lon=-122.4400&heading=75&skipintro' + DT);
+  await runFor(page, 1.5);
+  const t0 = await clock(page);
+  await page.evaluate(() => window.__game.superSplat(10));
   const rows = [];
-  for (let k = 0; k < 12; k++) {
-    const t = t0 - 0.05 + k * 0.0334;
+  for (let k = 0; k < 10; k++) {
+    const t = t0 + 10.02 + k * 0.0667;
     await shotAt(page, t, `${out}/flash-f${String(k).padStart(2, '0')}.png`);
     rows.push({ k, t: +t.toFixed(3) });
   }

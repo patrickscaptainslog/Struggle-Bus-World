@@ -14,7 +14,7 @@ import type { Particles } from '../fx/Particles';
 import { TurboFx } from '../fx/Turbo';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import type { BusPose } from '../bus/BusModel';
-import { Coach, TAUGHT } from '../ui/Coach';
+import { Coach, TAUGHT, type CoachFrame } from '../ui/Coach';
 import { Hud, type HudFrame, type TiltUi } from '../ui/Hud';
 
 // The controls glue: the scheme (touch or keyboard), the tilt's permission and
@@ -95,6 +95,7 @@ export class Controls {
   private climbToldAt = -Infinity;
   /** the first run (null: off) */
   private readonly coach: Coach | null;
+  private readonly cf: CoachFrame = { glinting: false, openingOver: false, gearsLocked: false, armed: false, splats: 0, thumb: false, stillPress: 0, held: false, charged: false };
   private splats = 0;
   private chargedOnce = false;
   private thumbOnce = false;
@@ -320,7 +321,17 @@ export class Controls {
     if (input.state.thumb) this.thumbOnce = true;
     if (c) {
       if (!this.opening) hud.arrive();
-      c.frame(dt, { glinting: this.glinting, openingOver: !this.opening, gearsLocked: this.gearsLocked, armed: this.queuedShift > 0, splats: this.splats, thumb: this.thumbOnce, stillPress: input.stillFor(performance.now()), held: input.anyHeld, charged: this.chargedOnce });
+      const cf = this.cf;
+      cf.glinting = this.glinting;
+      cf.openingOver = !this.opening;
+      cf.gearsLocked = this.gearsLocked;
+      cf.armed = this.queuedShift > 0;
+      cf.splats = this.splats;
+      cf.thumb = this.thumbOnce;
+      cf.stillPress = input.stillFor(performance.now());
+      cf.held = input.anyHeld;
+      cf.charged = this.chargedOnce;
+      c.frame(dt, cf);
       hud.setCue(c.cue);
       if (c.turboDue) hud.turboCue();
       if (c.megaDue) hud.megaHoldCue();

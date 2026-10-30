@@ -1,5 +1,8 @@
 # Hybrid Controls: the final spec (Tilt + Thumb, TURBO, MEGA)
 
+> Built on `feat/hybrid` (DECISIONS "Hybrid controls" has what moved in the build and the numbers). Line references are to
+> the feat/supersplat this was written against. The HOLD SPLAT TO CHARGE line became the HOLD cue on MEGA's face.
+
 Status: designed from the source in `C:/Users/Utku/sbw-design` (feat/controls + feat/supersplat merged). No browser and no phone were used. Numbers marked (sim) come from `sim-final.mjs`, `sim-feel.mjs` and `sim-fixes.mjs` (the review fixes; it reproduces `sim-final.mjs`'s rows unchanged) next to this file: repo constants (yaw spring 2.4 Hz / 0.75, max yaw 1.35, tilt curve, One-Euro) with assumed phone motions. Every feel number is a tunable and must be set on a real iPhone. Grip, reach and Safari viewport figures are estimates.
 
 ## 0. The rule

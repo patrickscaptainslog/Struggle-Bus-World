@@ -198,6 +198,11 @@ if (modes.has('touch') || modes.has('turbo')) {
     const st = await rectOf(page, '[data-hud="settings"]');
     await page.touchscreen.tap(st.x, st.y);
     await runFor(page, 0.3);
+    if (!(await snap(page)).hud.settings) {
+      // (faded out: the first tap only brought it back)
+      await page.touchscreen.tap(st.x, st.y);
+      await runFor(page, 0.3);
+    }
     await page.screenshot({ path: `${out}/hud-settings.png` });
     const panelOpen = (await snap(page)).hud.settings;
     const close = await rectOf(page, '[data-hud="close"]');
