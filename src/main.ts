@@ -623,7 +623,10 @@ async function boot() {
   // tilt / touch / keyboard, the turbo gears and the HUD (src/game/Controls.ts)
   const controls = new Controls({ input, flight, rig, audio, particles, pipeline, camera, scene, bus, bounds: manifest.bounds, params });
   input.onTripleFinger = () => tuner.toggle();
-  input.onFirstGesture = () => audio.unlock();
+  input.onFirstGesture = () => {
+    audio.unlock();
+    controls.firstGesture();
+  };
   input.onPress = () => aimer.press();
   /** A breath leaves now: anticipation (the bus squashes on this very frame, inhales, then the jet leaves), then the shot. */
   const breatheNow = (shot: Shot, mega?: MegaBreath) => {
@@ -639,15 +642,17 @@ async function boot() {
   const tapSplat = () => {
     // (taps fire between frames: what fire() hands over is exactly the building on screen glinting)
     const shot = aimer.fire(flight);
-    if (flight.tryBarf()) breatheNow(shot);
-    else audio.denied();
+    if (flight.tryBarf()) {
+      breatheNow(shot);
+      controls.splatted();
+    } else audio.denied();
   };
   input.onTap = () => {
     if (tuner.visible || superSplat.hosing) return;
     tapSplat();
   };
 
-  // ---- the super splat: hold to charge (src/game/SuperSplat.ts), its meter in the HUD's bottom-center slot
+  // ---- the super splat: hold to charge (src/game/SuperSplat.ts), its meter in the HUD's slot above MEGA
   const superSplat = new SuperSplat({
     flight, city, splatter, aimer, particles, fx: superFx, audio, rig,
     mouth: mouthWorld,
@@ -669,17 +674,24 @@ async function boot() {
     hitStop: (frames) => (hitStop = Math.max(hitStop, frames / 60)),
     sign: queueSign,
   });
-  // (the charge's press: Input decides what a hold is, on the SPLAT button, the tilt screen or Space. Held past the
-  // threshold it charges; let go under superMin it is still a splat, so no press is ever dead)
+  // (the charge's press: Input decides what a hold is, on MEGA or Space. Held past the threshold it charges; let go
+  // under superMin it is still a splat, so no press is ever dead)
   input.onChargeStart = () => {
-    if (!tuner.visible) superSplat.chargeStart(input.state.chargeHeld);
+    if (tuner.visible) return;
+    superSplat.chargeStart(input.state.chargeHeld);
+    if (superSplat.phase === 'charging') {
+      // (the line that teaches the hold ends the moment it is learned)
+      controls.charged();
+      superHintShown = true;
+    }
   };
   input.onChargeEnd = (held, cancelled) => superSplat.chargeEnd(held, cancelled);
   // (the slot lives in the HUD's root: ?nohud hides it with the rest)
   const superMeter = new SuperMeter();
   superMeter.mount(controls.hud.slot('super'));
-  // the one line that teaches the hold: when the belly first fills again after a splat (the player knows the tap by
-  // then), once a session, until they have charged a super. (Per viewer; a lost flag only shows the line again.)
+  // the hold is taught by the HOLD cue on MEGA's face (src/ui/Coach.ts); a desktop has no MEGA, so it gets the one line:
+  // when the belly first fills again after a splat (the player knows the tap by then), once a session, until they have
+  // charged a super. (Per viewer; a lost flag only shows it again.)
   const SUPER_HINT_KEY = 'strugglebus.superhint.v1';
   let superHintShown = false;
   try {
@@ -687,13 +699,15 @@ async function boot() {
   } catch {
     // (storage blocked: the line shows once a session)
   }
+  if (superHintShown) controls.learnedMega();
   const superHint = () => {
-    if (superHintShown || superSplat.phase !== 'ready') return;
+    if (superHintShown || superSplat.phase !== 'ready' || input.mode !== 'keyboard') return;
     superHintShown = true;
-    controls.hud.toast([input.mode === 'keyboard' ? 'HOLD SPACE TO CHARGE' : input.mode === 'touch' ? 'HOLD SPLAT TO CHARGE' : 'HOLD TO CHARGE'], 3.4);
+    controls.holdHint();
   };
   superSplat.onLearned = () => {
     superHintShown = true;
+    controls.learnedMega();
     try {
       localStorage.setItem(SUPER_HINT_KEY, '1');
     } catch {
@@ -772,8 +786,8 @@ async function boot() {
     let dt = fixedDt || Math.min(0.05, (now - last) / 1000);
     const realDt = dt;
     last = now;
-    // the opening is the first hero shot: it waits for the TILT TO FLY card's answer (and the motion sheet behind it)
-    if (opening < config.fog.openingDuration && controls.holdOpening) dt = 0;
+    // the game holds under iOS's motion sheet
+    if (controls.sheetUp) dt = 0;
     if (hitStop > 0) {
       hitStop -= dt;
       dt = 0; // freeze everything: two frames of awe
@@ -810,8 +824,9 @@ async function boot() {
       if (sy < -0.5 && opening >= config.fog.openingDuration) controls.climbGated();
       sy = Math.max(0, sy);
     }
-    // (nor can a gear lift it: a swipe waits for the gate)
+    // (nor can a gear lift it: a shift waits for the gate)
     controls.gearsLocked = !!openingBridge && gateAlong < config.camera.openingClimbAfter;
+    controls.opening = opening < config.fog.openingDuration;
     const dragging = qaStick ? true : st.dragging;
     // past the edge of the map the bus homes back toward the city, gently
     const ex = Math.max(minX - flight.x, flight.x - maxX, 0), ez = Math.max(minZ - flight.z, flight.z - maxZ, 0);
@@ -876,9 +891,10 @@ async function boot() {
       }
     }
     // aim glint on the building a tap would hit (picked every frame), only while a breath is loaded
-    // (a steering thumb thaws the glint when it lands; tilt has no thumb, and a press that fires on its lift keeps
-    // what it froze, whatever else is steering)
-    const glint = aimer.update(flight, simTime, dragging && input.mode !== 'tilt' && !input.pressHeld);
+    // (a committed thumb thaws the glint, as keys and a QA stick do; tilt never does; and a press that fires on its lift
+    // keeps what it froze, whatever else is steering)
+    const glint = aimer.update(flight, simTime, (qaStick || st.thumb || (st.dragging && input.mode === 'keyboard')) && !input.pressHeld);
+    controls.glinting = glint !== null;
     paintUniforms.uTarget.value = glint ? glint.index : -1;
     paintUniforms.uTargetT.value = aimer.shownSince;
     paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);
@@ -1048,7 +1064,9 @@ async function boot() {
       pipeline.setHeroBeam(beamEye, beamTip, 0.5 * rig.heroScale, 0.5 * Cb.headBeamWidth * open * rig.heroScale, Cb.headBeamLength > 0 ? Cb.headBeamStrength * (0.35 + 0.65 * superPose.eye) : 0);
     }
     pipeline.render(scene);
-    superMeter.update(realDt, superSplat.view());
+    const superView = superSplat.view();
+    superMeter.update(realDt, superView);
+    controls.hud.setMega(superView.phase);
     perf.frame(dt * 1000, performance.now() - t0);
     const ready = city.loadedRegionCount() > 0 && !city.busy && (opening >= config.fog.openingDuration || params.has('openingshot'));
     if (ready) everReady = true;

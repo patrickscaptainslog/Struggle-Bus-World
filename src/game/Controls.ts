@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { config } from '../config';
+import { chipIgnored, migratePrefs, tiltCancelled, tiltTurnedOn, type Prefs } from './controlPrefs';
+import { TiltMix } from './Hybrid';
 import type { Input, InputMode } from './Input';
-import { TiltControl } from './Tilt';
+import { TiltControl, type TiltStatus } from './Tilt';
 import { TurboDrive, type TurboEvent } from './Turbo';
 import type { Flight } from './Flight';
 import type { CameraRig } from './CameraRig';
@@ -12,27 +14,29 @@ import type { Particles } from '../fx/Particles';
 import { TurboFx } from '../fx/Turbo';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import type { BusPose } from '../bus/BusModel';
-import { Hud, type HudFrame } from '../ui/Hud';
+import { Coach, TAUGHT } from '../ui/Coach';
+import { Hud, type HudFrame, type TiltUi } from '../ui/Hud';
 
-// The controls glue: which control scheme flies (tilt, touch, keyboard), the
-// motion permission and its silent fallback, the settings and their
-// persistence, and the turbo gears (drive, effects, voice, HUD readout).
+// The controls glue: the scheme (touch or keyboard), the tilt's permission and
+// its silent fallbacks, the first run, the settings and their persistence, and
+// the turbo gears (drive, effects, voice, HUD readout).
 //
-// Choosing the scheme:
-//  - a desktop (fine pointer, hover) flies the keyboard + mouse bungee;
-//  - a phone flies TILT by default: on iOS the first-touch prompt ("TILT TO
-//    FLY") asks for motion access inside its tap; elsewhere the sensor is
-//    probed quietly and only a phone that really sends motion gets the prompt.
-//    The prompt's tap is when the neutral pose is taken. The opening holds on
-//    its first frame until that is settled (holdOpening): the Golden Gate is the
-//    game's first hero shot and nobody should miss it behind a card.
-//  - no sensor, permission denied, or no event within config.tilt.eventTimeout
-//    (an iframe that refuses motion, like the claude.ai preview): touch, with
-//    no error; that is remembered for the session only, never as the player's
-//    choice. The player's own choice (settings, "use touch instead") persists.
-//  - keyboard: Esc opens the settings (the only HUD on a desktop), and a first
-//    visit gets one toast with the keys.
-// URL: ?controls=tilt|touch|keyboard forces a scheme, ?nohud hides the HUD.
+// There is one gesture model (docs/specs/hybrid-controls.md): the phone flies the
+// bus until a thumb flies it, a tap splats, buttons do what they say.
+//  - a desktop (fine pointer, hover) flies the keyboard + mouse bungee. Esc opens
+//    the settings (the only HUD on a desktop) and a first visit gets one toast.
+//  - a phone flies the thumb from the first touch, and tilt is on top of it if
+//    the player wants. Tilt is offered, not imposed (config.tilt.defaultOn): iOS
+//    cannot start motion without a tap, and no sheet may land on a splat, so only
+//    the chip (TILT TO STEER?) or the toggle ever asks, inside their own touchend.
+//  - a returning player: a quiet probe at load; motion flowing means the grant
+//    survived and tilt starts on the first gesture. Silent iOS: the chip at fog
+//    end, ignored twice and tilt goes back to undecided.
+//  - no sensor, or granted and silent (an iframe that refuses motion, like the
+//    claude.ai preview): the toggle isn't drawn, for this session, and no error.
+// URL: ?controls=touch forces tilt off with no chip, ?controls=tilt shows the chip
+// at once, ?controls=keyboard the desktop; ?nohud hides the HUD; ?nocoach, ?skipintro
+// and ?nohud turn the first run off (?coach keeps it on under skipintro).
 //
 // main.ts calls, per frame: preFlight(dt) after input.update (the turbo drive
 // sets Flight.turbo), pose(pose) before bus.update, afterPose(bus.root) after
@@ -43,18 +47,12 @@ const ARMED = 'TURBO AFTER THE BRIDGE';
 const CLIMB_GATED = 'CLIMB AFTER THE BRIDGE';
 
 const NO_SENSOR = 'NO MOTION SENSOR HERE';
+const TILT_ON = ['TILT ON', 'DRAG ANY TIME'];
+const TILT_OFF = ['TILT OFF'];
 const MOTION_DENIED = 'MOTION DENIED: REOPEN SAFARI';
 
 const PREF_KEY = 'strugglebus.controls.v1';
 const SESSION_NO_TILT = 'strugglebus.notilt';
-
-interface Prefs {
-  mode?: 'tilt' | 'touch';
-  sens?: number;
-  muted?: boolean;
-  /** a desktop has seen the keys once */
-  keysShown?: boolean;
-}
 
 export interface ControlsDeps {
   input: Input;
@@ -73,24 +71,49 @@ export interface ControlsDeps {
 
 export class Controls {
   readonly tilt = new TiltControl();
+  /** the arbitration between the thumb and the phone (src/game/Hybrid.ts) */
+  readonly mix = new TiltMix(this.tilt);
   readonly turbo: TurboDrive;
   readonly fx: TurboFx;
   readonly hud: Hud;
   readonly voice = new TurboVoice();
   /** the opening's gate (main.ts): a gear would lift the bus over the deck, so a shift waits until it clears */
   gearsLocked = false;
+  /** the fog is still lifting, and a building is glinting (main.ts, per frame) */
+  opening = true;
+  glinting = false;
   private readonly d: ControlsDeps;
   private prefs: Prefs;
-  private readonly hf: HudFrame = { gear: 0, maxGear: 1, engaged: false, boosting: false, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity };
+  private readonly hf: HudFrame = { gear: 0, maxGear: 1, engaged: false, boosting: false, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity, tiltState: 'none', gearDown: false };
   private readonly flashTmp = new THREE.Vector3();
   /** seconds the turbo has been silent (the voice detaches), and until the keys' toast (<= 0: none due) */
   private voiceIdle = 0;
   private keysIn = 0;
-  /** a shift made while gearsLocked, and the turbo line of the post-card toast: both wait for the gate */
+  /** a shift made while gearsLocked waits for the gate */
   private queuedShift: 1 | -1 | 0 = 0;
-  private turboHintDue = false;
-  /** the pull-back answered once: the gate holds the yoke down for ~20 s and the first thing a tilt player tries is climbing */
+  /** the pull-back answered once: the gate holds the yoke down for ~20 s and the first thing a player tries is climbing */
   private climbToldAt = -Infinity;
+  /** the first run (null: off) */
+  private readonly coach: Coach | null;
+  private splats = 0;
+  private chargedOnce = false;
+  private thumbOnce = false;
+  private gestured = false;
+  /** no sensor here, this session: the toggle isn't drawn */
+  private noSensor = false;
+  /** a quiet listen heard motion (no permission API: otherwise there is nothing to offer) */
+  private sensorHeard = false;
+  /** a real "no" from the sheet, this session; and how many asks threw */
+  private refused = false;
+  private blocks = 0;
+  /** tilt waits for the first gesture (a returning player) */
+  private startOnGesture = false;
+  /** the chip: a lapsed iOS grant (fog end, no gate wait); ?controls=tilt; how long it has been up */
+  private chipLapsed = false;
+  private chipForced = false;
+  private chipT = 0;
+  private forcedTouch = false;
+  private tiltOnShown = false;
   private readonly onFlash = (pos: THREE.Vector3, strength: number) => {
     const p = this.flashTmp.copy(pos).project(this.d.camera);
     this.d.pipeline.flash(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5, 1, strength);
@@ -102,10 +125,11 @@ export class Controls {
     this.turbo = new TurboDrive(d.bounds);
     this.fx = new TurboFx(d.particles, d.bus.length, d.bus.exhaustLocal);
     d.scene.add(this.fx.object);
-    d.input.stick = this.tilt;
+    d.input.mix = this.mix;
     this.tilt.core.sensitivity = this.prefs.sens ?? config.tilt.sensitivity;
     this.hud = new Hud(d.input, {
-      onMode: (m) => this.chooseMode(m),
+      onTiltToggle: () => this.pressToggle(),
+      onChip: () => this.setTilt(true),
       onSensitivity: (v) => {
         this.tilt.core.sensitivity = v;
         this.prefs.sens = v;
@@ -122,22 +146,35 @@ export class Controls {
         savePrefs(this.prefs);
         this.hud.setSettings({ muted: m });
       },
-      onPromptTilt: () => this.promptTilt(),
-      onPromptTouch: () => {
-        this.prefs.mode = 'touch';
+      onSwap: (v) => {
+        this.prefs.swap = v;
         savePrefs(this.prefs);
-        this.tilt.stop();
-        this.setMode('touch');
+        this.hud.setSettings({ swap: v });
       },
-      onGesture: () => d.audio.unlock(),
+      onSettings: (open) => {
+        if (open) {
+          // (tilt keeps listening and stays on, however long this stays open)
+          this.mix.sleep();
+          return;
+        }
+        if (this.tilt.active) this.tilt.recenter();
+        d.input.wakeMix();
+      },
+      onGesture: () => {
+        d.audio.unlock();
+        this.firstGesture();
+      },
     });
     d.input.onTurbo = (dir) => this.pressTurbo(dir);
     this.turbo.onEvent = (ev, g) => this.onTurbo(ev, g);
     if (this.prefs.muted) d.audio.setMuted(true);
-    this.hud.setSettings({ tiltAvailable: TiltControl.supported(), tiltNote: TiltControl.supported() ? '' : NO_SENSOR, sensitivity: this.tilt.core.sensitivity, muted: !!this.prefs.muted });
+    this.hud.setSettings({ tiltNote: TiltControl.supported() ? '' : NO_SENSOR, sensitivity: this.tilt.core.sensitivity, muted: !!this.prefs.muted, swap: !!this.prefs.swap });
     const nohud = d.params.has('nohud');
     if (nohud) this.hud.setVisible(false);
+    const off = nohud || d.params.has('nocoach') || (d.params.has('skipintro') && !d.params.has('coach'));
+    this.coach = off ? null : new Coach(this.prefs.taught ?? 0);
     this.start();
+    if (!this.coach) this.hud.arrive();
     if (this.mode === 'keyboard' && !this.prefs.keysShown && !nohud && !d.params.has('skipintro')) this.keysIn = 2.5;
     window.addEventListener('keydown', (e) => {
       if (e.code !== 'Escape' || e.repeat || this.mode !== 'keyboard' || nohud) return;
@@ -150,11 +187,44 @@ export class Controls {
     return this.d.input.mode;
   }
 
-  /** The player hasn't answered yet: the TILT TO FLY card, the motion sheet, or the sensor still settling. */
-  get holdOpening(): boolean {
-    if (this.d.params.has('nohud')) return false;
-    const s = this.tilt.status;
-    return this.hud.promptOpen || s === 'requesting' || s === 'waiting' || s === 'calibrating';
+  /** iOS's motion sheet is up: the game holds under it, any time. */
+  get sheetUp(): boolean {
+    return this.tilt.status === 'requesting';
+  }
+
+  /** A breath left (main.ts). */
+  splatted() {
+    this.splats++;
+  }
+
+  /** The super charged: the HOLD cue (and the keyboard's line) are over. */
+  charged() {
+    this.chargedOnce = true;
+    this.hud.setMega('charging');
+    if (this.holdToast) {
+      this.holdToast = false;
+      this.hud.clearToast();
+    }
+  }
+  private holdToast = false;
+
+  /** A desktop's one line that teaches the hold. */
+  holdHint() {
+    this.holdToast = true;
+    this.hud.toast(['HOLD SPACE TO CHARGE'], 3.4);
+  }
+
+  /** The hold is known (a mega or a firehose fired, on any earlier visit too): no cue. */
+  learnedMega() {
+    this.coach?.done(TAUGHT.mega);
+  }
+
+  /** The first touch anywhere (inside the gesture). */
+  firstGesture() {
+    if (this.gestured) return;
+    this.gestured = true;
+    if (this.mode === 'touch') this.hud.arrive();
+    this.startIfDue();
   }
 
   /** The yoke is being pulled back under the opening's gate (main.ts, per frame): say why nothing happens, once. */
@@ -176,7 +246,6 @@ export class Controls {
     if (!this.gearsLocked && this.queuedShift) {
       this.turbo.shift(this.queuedShift, this.d.flight);
       this.queuedShift = 0;
-      this.turboHintDue = false; // (they already know)
     }
     this.turbo.update(dt, this.d.flight, this.d.input.state.turboHeld);
   }
@@ -210,10 +279,6 @@ export class Controls {
         if (this.voiceIdle > 2) this.voice.detach(t + 0.3);
       }
     }
-    if (this.turboHintDue && !this.gearsLocked && !this.queuedShift) {
-      this.turboHintDue = false;
-      this.hud.toast(['SWIPE UP FOR TURBO'], 2.6);
-    }
     if (this.keysIn > 0) {
       this.keysIn -= realDt;
       if (this.keysIn <= 0) {
@@ -231,7 +296,76 @@ export class Controls {
     h.armed = this.queuedShift > 0;
     h.sinceShift = T.time - Math.max(T.shiftedAt, T.engagedAt);
     h.sinceLocked = T.time - T.lockedAt;
+    h.tiltState = this.tiltUi();
+    h.gearDown = T.gear > 0 || this.queuedShift > 0;
+    if (this.mix.offPending && this.mix.g === 0) {
+      // (gain alone never stops the tilt: the settings take it to 0 too)
+      this.mix.offPending = false;
+      this.tilt.stop();
+    }
+    const on = h.tiltState === 'on' || h.tiltState === 'clutched';
+    if (on !== this.tiltOnShown) {
+      this.tiltOnShown = on;
+      this.hud.setSettings({ tiltOn: on });
+    }
+    this.firstRun(realDt);
     this.hud.update(realDt, h);
+  }
+
+  /** The first run: the cues, the chip. */
+  private firstRun(dt: number) {
+    const hud = this.hud, input = this.d.input;
+    if (this.mode !== 'touch') return;
+    const c = this.coach;
+    if (input.state.thumb) this.thumbOnce = true;
+    if (c) {
+      if (!this.opening) hud.arrive();
+      c.frame(dt, { glinting: this.glinting, openingOver: !this.opening, gearsLocked: this.gearsLocked, armed: this.queuedShift > 0, splats: this.splats, thumb: this.thumbOnce, stillPress: input.stillFor(performance.now()), held: input.anyHeld, charged: this.chargedOnce });
+      hud.setCue(c.cue);
+      if (c.turboDue) hud.turboCue();
+      if (c.megaDue) hud.megaHoldCue();
+    }
+    if (hud.chipOpen) {
+      this.chipT += dt;
+      if (this.tiltUi() === 'on' || this.tiltUi() === 'busy') hud.hideChip();
+      else if (this.chipT >= 8) {
+        // ignored: it flies to the corner and becomes the toggle
+        hud.flyChip();
+        chipIgnored(this.prefs);
+        savePrefs(this.prefs);
+      }
+    } else if ((this.chipForced || (this.chipLapsed && !this.opening) || (c?.chipDue && this.mayOffer())) && !input.anyHeld) {
+      this.chipForced = this.chipLapsed = false;
+      this.chipT = 0;
+      hud.showChip();
+      c?.done(TAUGHT.chip);
+      this.prefs.taught = (this.prefs.taught ?? 0) | TAUGHT.chip;
+    }
+    if (c?.dirty) {
+      c.dirty = false;
+      this.prefs.taught = c.taught;
+      savePrefs(this.prefs);
+    }
+  }
+
+  /** The chip may ask this player. */
+  private mayOffer(): boolean {
+    const ui = this.tiltUi();
+    return this.prefs.tilt === undefined && ui === 'unasked' && !this.forcedTouch;
+  }
+
+  /** What the toggle shows. */
+  private tiltUi(): TiltUi {
+    const t = this.tilt;
+    if (this.mode !== 'touch' || this.noSensor) return 'none';
+    const needs = TiltControl.needsPermission();
+    if (t.probing) return needs ? 'unasked' : 'none';
+    const s = t.status;
+    if (s === 'active') return this.mix.offPending ? 'off' : this.mix.phase === 'live' ? 'on' : 'clutched';
+    if (s === 'requesting' || s === 'waiting' || s === 'calibrating') return 'busy';
+    if (this.refused) return 'refused';
+    if (!needs && !this.sensorHeard) return 'none';
+    return this.prefs.tilt === false ? 'off' : 'unasked';
   }
 
   // ------------------------------------------------------------------ the scheme
@@ -244,84 +378,112 @@ export class Controls {
       this.setMode('keyboard');
       return;
     }
-    // touch until the tilt is really flying
     this.setMode('touch');
-    if (forced === 'touch') return;
-    if (forced !== 'tilt' && (this.prefs.mode === 'touch' || !TiltControl.supported() || sessionGet(SESSION_NO_TILT))) return;
-    if (TiltControl.needsPermission()) {
-      // iOS: only a tap may ask for motion access
-      this.hud.showPrompt();
+    if (forced === 'touch') {
+      this.forcedTouch = true;
       return;
     }
-    // no permission needed: probe quietly; only a phone that really sends motion gets the prompt
-    void this.tilt.listen().then((s) => {
-      if (s === 'active') this.hud.showPrompt();
+    if (!TiltControl.supported() || sessionGet(SESSION_NO_TILT)) {
+      this.noSensor = forced !== 'tilt';
+      if (this.noSensor) return;
+    }
+    if (forced === 'tilt') {
+      this.chipForced = true;
+      this.sensorHeard = true;
+      return;
+    }
+    const taught = this.prefs.taught ?? 0;
+    const wants = this.prefs.tilt ?? (config.tilt.defaultOn && !(taught & TAUGHT.chip) ? true : undefined);
+    const ios = TiltControl.needsPermission();
+    // (iOS, undecided or off: nothing to learn, only a tap can open it)
+    if (ios && wants !== true) return;
+    void this.tilt.probe().then((heard) => {
+      if (this.tilt.status !== 'off') return; // (the player's press took over)
+      if (heard) {
+        this.sensorHeard = true;
+        if (wants === true) {
+          this.startOnGesture = true;
+          this.startIfDue();
+        }
+      } else if (ios) this.chipLapsed = true;
       else this.noTilt();
     });
   }
 
-  /** The prompt's tap (synchronously inside the gesture). */
-  private promptTilt() {
-    const st = this.tilt.status;
-    if (st === 'active' || st === 'calibrating') {
-      // already flowing: the tap takes the neutral pose (how the player holds the phone now)
-      this.tilt.core.calibrate();
-      this.enterTilt();
-      return;
-    }
-    // (the card closes now, the answer comes later: the touch controls stay away while iOS's sheet is up)
-    this.hud.setChromeHeld(true);
-    void this.tilt.request().then((s) => {
-      this.hud.setChromeHeld(false);
-      if (s === 'active') this.enterTilt();
-      else this.noTilt();
-    });
+  /** A returning player's tilt starts on the first gesture. */
+  private startIfDue() {
+    if (!this.startOnGesture || !this.gestured) return;
+    this.startOnGesture = false;
+    void this.tilt.listen().then((s) => this.tiltResult(s, true));
   }
 
-  /** Settings: the player's own choice (persisted). */
-  private chooseMode(m: 'tilt' | 'touch') {
-    if (m === 'touch') {
+  /** The toggle's tap (synchronously inside the gesture). */
+  private pressToggle() {
+    const ui = this.tiltUi();
+    if (ui === 'busy') {
+      // cancels: back to undecided
       this.tilt.stop();
-      this.prefs.mode = 'touch';
+      tiltCancelled(this.prefs);
       savePrefs(this.prefs);
-      this.setMode('touch');
-      return;
-    }
-    if (this.tilt.active) {
-      this.tilt.core.calibrate();
-      this.enterTilt();
-      return;
-    }
-    if (TiltControl.needsPermission()) {
-      // iOS asks from the prompt's touchend, the event it is known to honor (the settings buttons fire on
-      // pointerup); the prompt's tap also takes the neutral pose
-      this.hud.closeSettings();
-      this.hud.showPrompt();
-      return;
-    }
-    void this.tilt.request().then((s) => (s === 'active' ? this.enterTilt() : this.noTilt()));
+    } else this.setTilt(ui !== 'on' && ui !== 'clutched');
   }
 
-  private enterTilt() {
-    sessionSet(SESSION_NO_TILT, null);
-    this.prefs.mode = 'tilt';
-    savePrefs(this.prefs);
-    this.hud.setSettings({ tiltAvailable: true, tiltNote: '' });
-    this.setMode('tilt');
-    // (no turbo tip over the Golden Gate: it comes when a gear can actually do something)
-    this.turboHintDue = this.gearsLocked;
-    this.hud.toast(this.gearsLocked ? ['TILT TO STEER'] : ['TILT TO STEER', 'SWIPE UP FOR TURBO'], 2.6);
+  /** The toggle or the chip (synchronously inside the gesture: iOS asks in this very touchend). */
+  setTilt(on: boolean) {
+    const m = this.mix;
+    if (!on) {
+      // (saved at once, stopped once the gain is down: closing the page inside 0.2 s still counts)
+      this.prefs.tilt = false;
+      savePrefs(this.prefs);
+      m.turnOff();
+      this.hud.toast(TILT_OFF, 1.1);
+      return;
+    }
+    if (m.offPending) {
+      m.cancelOff();
+      tiltTurnedOn(this.prefs);
+      savePrefs(this.prefs);
+      return;
+    }
+    this.startOnGesture = false;
+    void this.tilt.request().then((s) => this.tiltResult(s, false));
   }
 
-  /** No motion here (no sensor, refused, or silent): touch, remembered for this session only. A refusal says so
-   *  and how to undo it (iOS won't ask again until Safari restarts); no sensor just says how to fly. */
+  /** Where a turn-on ended. */
+  private tiltResult(s: TiltStatus, quiet: boolean) {
+    if (this.tilt.probing) return;
+    const hud = this.hud;
+    if (s === 'active') {
+      sessionSet(SESSION_NO_TILT, null);
+      tiltTurnedOn(this.prefs);
+      savePrefs(this.prefs);
+      this.noSensor = this.refused = false;
+      this.blocks = 0;
+      hud.setSettings({ tiltNote: '' });
+      this.d.input.wakeMix();
+      if (!quiet) hud.toast(TILT_ON, 1.6);
+    } else if (s === 'denied') {
+      // a real answer: saved, never asked again unless the toggle is pressed
+      const again = this.refused;
+      this.refused = true;
+      this.prefs.tilt = false;
+      savePrefs(this.prefs);
+      hud.setSettings({ tiltNote: MOTION_DENIED });
+      hud.toast(again ? [MOTION_DENIED] : ['MOTION ACCESS OFF', 'DRAG TO STEER'], 2.4);
+    } else if (s === 'blocked') {
+      // no sheet was shown: no answer, nothing saved, the next press retries
+      this.tilt.status = 'off';
+      if (++this.blocks >= 2) hud.toast([MOTION_DENIED], 2.4);
+    } else if (s === 'unavailable') this.noTilt();
+  }
+
+  /** No motion here (no sensor, or silent): the toggle goes, for this session, with no error. */
   private noTilt() {
-    const refused = this.tilt.status === 'denied';
     this.tilt.stop();
+    this.tilt.status = 'off';
     sessionSet(SESSION_NO_TILT, '1');
-    this.hud.setSettings({ tiltAvailable: refused, tiltNote: refused ? MOTION_DENIED : NO_SENSOR });
-    this.hud.toast(refused ? ['MOTION ACCESS OFF', 'DRAG TO STEER'] : ['DRAG TO STEER', 'TAP TO SPLAT'], 2.4);
-    this.setMode('touch');
+    this.noSensor = true;
+    this.hud.setSettings({ tiltNote: '' });
   }
 
   private setMode(m: InputMode) {
@@ -332,8 +494,8 @@ export class Controls {
   // ------------------------------------------------------------------ turbo events
 
   /**
-   * The lever, a swipe, E / Q. Under the opening's gate a gear would lift the bus into the deck, so a shift up
-   * waits for it: answered on this very frame (the toast, the ARMED readout and lever, the clunk) and fired by
+   * TURBO, its down tab, E / Q. Under the opening's gate a gear would lift the bus into the deck, so a shift up
+   * waits for it: answered on this very frame (the toast, the ARMED readout and button, the clunk) and fired by
    * itself when the gate clears. A shift down cancels it. (A shift down of a real gear is always safe.)
    */
   private pressTurbo(dir: 1 | -1) {
@@ -350,7 +512,6 @@ export class Controls {
     }
     if (dir > 0) {
       this.queuedShift = 1;
-      this.turboHintDue = false; // (they already know)
       this.hud.toast([ARMED], 2.6);
     } else if (this.queuedShift) {
       this.queuedShift = 0;
@@ -378,12 +539,15 @@ export class Controls {
     const c = this.tilt.core, T = this.turbo, f = this.d.flight;
     return {
       mode: this.mode,
-      tilt: { status: this.tilt.status, sx: c.sx, sy: c.sy, roll: c.roll, pitch: c.pitch, calibrated: c.calibrated, samples: c.samples, sensitivity: c.sensitivity },
+      mix: { phase: this.mix.phase, g: this.mix.g, thumbHeld: this.mix.thumbHeld, reachHeld: this.mix.reachHeld, offPending: this.mix.offPending },
+      tilt: { status: this.tilt.status, active: this.tilt.active, sx: c.sx, sy: c.sy, roll: c.roll, pitch: c.pitch, calibrated: c.calibrated, samples: c.samples, sensitivity: c.sensitivity },
       turbo: { gear: T.gear, engaged: T.engaged, strain: T.strain, speedK: T.speedK, boosting: T.boosting, edge: T.edge },
       flight: { speed: f.speed, y: f.y, agl: f.y - f.groundBroad, mode: f.mode },
       camera: { pull: this.fx.lens.pull, fov: this.fx.lens.fov, hfov: this.d.rig.hfov, distance: this.d.rig.distance },
-      hud: { prompt: this.hud.promptOpen, settings: this.hud.settingsOpen },
-      input: { chargeHeld: this.d.input.state.chargeHeld, turboHeld: this.d.input.state.turboHeld },
+      hud: { settings: this.hud.settingsOpen, tiltState: this.hf.tiltState, chip: this.hud.chipOpen, gearDown: this.hf.gearDown },
+      coach: this.coach ? { taught: this.coach.taught, cue: this.coach.cue } : null,
+      prefs: { ...this.prefs },
+      input: { chargeHeld: this.d.input.state.chargeHeld, turboHeld: this.d.input.state.turboHeld, thumb: this.d.input.state.thumb, sx: this.d.input.state.stretch.x, sy: this.d.input.state.stretch.y },
     };
   }
 }
@@ -398,8 +562,10 @@ function isPhone(): boolean {
 
 function loadPrefs(): Prefs {
   try {
-    const v = JSON.parse(localStorage.getItem(PREF_KEY) ?? '{}') as Prefs;
-    return v && typeof v === 'object' ? v : {};
+    const raw = localStorage.getItem(PREF_KEY);
+    const p = migratePrefs(JSON.parse(raw ?? '{}'));
+    if (raw && raw.includes('"mode"')) savePrefs(p);
+    return p;
   } catch {
     return {};
   }
