@@ -85,6 +85,12 @@ export class Flight {
   refund = 0;
   /** 0..1: how full the belly reads right now (drains over the breath: the release is visible as it pours out) */
   belly = 1;
+  /** speed multiplier set from outside (the super splat: a charge weighs the bus down, the firehose's recoil) */
+  speedScale = 1;
+  /** A gear or the boost is driving the speed, or a gear is still braking out: speedScale and the firehose's kick stand aside. */
+  get driven(): boolean {
+    return this.turbo.speed > 0 || this.turbo.rate > 0;
+  }
   private t = 0;
   private vyYoke = 0;
   private floorSmooth = 60;
@@ -92,6 +98,20 @@ export class Flight {
   private floorRise = NaN;
   /** speed when the breath started: the stall is a recoil, it must not add steering authority */
   private preBarfSpeed = config.flight.cruiseSpeed;
+  /** Turbo gears (src/game/Turbo.ts) write these before each step; the defaults are the classic flight. */
+  readonly turbo = {
+    /** the speed a gear (or the boost) drives at (m/s; 0 = the classic cruise / surge) */
+    speed: 0,
+    /** how fast the speed chases it (1/s; 0 = the classic rate) */
+    rate: 0,
+    /** the gear's floor (m ASL): the bus doesn't fly lower while the gear is in */
+    floor: -Infinity,
+    /** the soft ceiling while a high gear is in (m ASL; 0 = config.flight.ceiling) */
+    ceiling: 0,
+    /** steering authority and the yoke's climb / dive rates (x) */
+    yaw: 1,
+    climb: 1,
+  };
 
   get fx() {
     return Math.sin(this.heading);
@@ -157,14 +177,21 @@ export class Flight {
     let targetSpeed = push > 0 ? cruise + (F.surgeSpeed - F.cruiseSpeed) * Math.pow(push, 1.3) : cruise + (F.climbSpeed - cruise) * pull;
     targetSpeed *= 1 - 0.12 * heavy;
     targetSpeed *= 1 + (S.reliefBoost - 1) * reliefK * reliefK;
-    if (this.barfing) targetSpeed *= S.stallSpeed;
-    const sk = this.barfing ? 6 : F.speedHz * 2.2;
+    const Tb = this.turbo;
+    if (Tb.speed > 0) targetSpeed = Math.max(targetSpeed, Tb.speed);
+    // (a jet breathing fire barely flinches: the recoil stall is the classic bus's)
+    const jet = Tb.speed > F.surgeSpeed;
+    if (this.barfing) targetSpeed *= jet ? 0.85 : S.stallSpeed;
+    // (the super splat's weight, recoil and limp are the classic bus's too: a gear drives through all three)
+    const scaled = !this.driven && this.speedScale < 0.98;
+    if (!this.driven) targetSpeed *= this.speedScale;
+    const sk = (this.barfing && !jet) || scaled ? 6 : Tb.rate > 0 ? Tb.rate : F.speedHz * 2.2;
     this.speed += (targetSpeed - this.speed) * (1 - Math.exp(-sk * dt));
 
     // ---- steering on a springy bungee
     const sx = inp.dragging ? inp.sx : 0;
     const vScale = clamp(Math.sqrt(F.cruiseSpeed / Math.max(this.barfing ? this.preBarfSpeed : this.speed, 4)), 0.55, 1.35);
-    let yawTarget = sx * F.maxYawRate * vScale;
+    let yawTarget = sx * F.maxYawRate * vScale * Tb.yaw;
     if (this.barfing) {
       // the dragon plants itself to breathe: half the carve until the impact, then it eases back
       const u = clamp((this.barfT - S.impactDelay) / Math.max(0.01, S.breathSteerEase), 0, 1);
@@ -197,7 +224,11 @@ export class Flight {
     top = Math.max(top, this.obstacleUnder);
     const belly = F.lightLift * (1 - heavy) - F.fullSag * heavy;
     const clearance = F.clearance + belly;
-    const floor = top + clearance;
+    const roofFloor = top + clearance;
+    // the soft ceiling's input: anything overhead (a bridge deck)
+    const over = world.overheadAt ? world.overheadAt(this.x, this.z, this.y) : Infinity;
+    // (a turbo gear's floor sits above the rooftops: the bus rides it like a higher roof, never into a deck)
+    const floor = Math.max(roofFloor, Math.min(Tb.floor, over - 8));
     this.floorY = floor;
     // the vertical spring chases a floor whose rises are eased (a roof edge entering the look-ahead
     // steps it by whole storeys; chased raw, that kicked vy by up to 30 m/s in one frame); it falls at once
@@ -207,8 +238,7 @@ export class Flight {
     const hardFloor = this.obstacleUnder + 3.5;
 
     // soft ceiling, lowered under a bridge deck so a climb never punches through it
-    const over = world.overheadAt ? world.overheadAt(this.x, this.z, this.y) : Infinity;
-    const ceil = Math.min(F.ceiling, over - 5);
+    const ceil = Math.min(Tb.ceiling > F.ceiling ? Tb.ceiling : F.ceiling, over - 5);
     // the classic floor-following vertical speed (rise early, hang after crests)
     const vyFloor = (v: number) => {
       if (floorV > this.y) {
@@ -226,7 +256,7 @@ export class Flight {
       this.mode = Yoke.Climb;
       const room = clamp((ceil - this.y) / Math.max(1, F.ceilingSoft), 0, 1);
       strain = pull * (1 - room) * (1 - room);
-      let rate = (F.climbRateMin + (F.climbRate - F.climbRateMin) * Math.pow(pull, F.climbCurve)) * Math.pow(room, 0.65);
+      let rate = (F.climbRateMin + (F.climbRate - F.climbRateMin) * Math.pow(pull, F.climbCurve)) * Math.pow(room, 0.65) * Tb.climb;
       // the old engine sputters as the air thins: lurch, stall, lurch
       rate *= 1 - 0.55 * strain * (0.5 + 0.5 * Math.sin(this.t * Math.PI * 2 * 1.4));
       if (this.y > ceil) rate = -(this.y - ceil) * 0.8;
@@ -238,7 +268,7 @@ export class Flight {
     } else if (push > 0 && this.holdY > -1e8 && this.y > floor + 0.5) {
       // ---- dive: nose down toward the floor, fast, flaring out so it never digs into the roofs
       this.mode = Yoke.Dive;
-      let rate = -F.diveRate * Math.pow(push, 1.2);
+      let rate = -F.diveRate * Math.pow(push, 1.2) * Tb.climb;
       rate = Math.max(rate, -Math.sqrt(2 * F.diveFlare * Math.max(0, this.y - floor)));
       this.vyYoke += (rate - this.vyYoke) * kYoke;
       this.vy = Math.max(this.vyYoke, -Math.sqrt(2 * F.diveFlare * Math.max(0, this.y - floor)) - 1);
@@ -280,7 +310,8 @@ export class Flight {
       if (this.vy < 0) this.vy = 0;
     }
     // height above the (smoothed) floor, for the vista camera: rooftop noise mustn't breathe the lens
-    this.floorSmooth += (floor - this.floorSmooth) * (1 - Math.exp(-0.7 * dt));
+    // (above the rooftops, not above a turbo gear's floor: streaming and audio read it as height)
+    this.floorSmooth += (roofFloor - this.floorSmooth) * (1 - Math.exp(-0.7 * dt));
     this.lift = Math.max(0, this.y - Math.max(this.floorSmooth, this.groundUnder + clearance));
     // the broad ground: terrain around the bus (not roofs), slowly smoothed, so hills and towers don't breathe the lens
     const B = 220;

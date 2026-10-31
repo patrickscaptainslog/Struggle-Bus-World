@@ -4,6 +4,12 @@
 // and towers get parapets and rooftop clutter. Walls are split into a few
 // segments so painted buildings can wobble.
 //
+// The sun pass draws a separate caster proxy of every full-detail tile
+// (meshCasterTile): the same building code run through a Builder in caster
+// mode, which keeps positions only, draws every wall as one quad and drops
+// the down-facing undersides (the sun never sees them). Every shape still
+// casts: the proxy is the same surface as the detailed mesh, in fewer triangles.
+//
 // LiDAR-tiered towers arrive as several parts (consecutive records sharing a
 // paint index): each part is extruded from the top of the tier below. Street
 // features (stoops, bays, belt courses, gables) only go on tier 0; rooftop
@@ -16,13 +22,23 @@
 //   position  vec3   world meters
 //   normal    vec3   (Int8 normalized)
 //   aFacade   vec2   u = meters along the facade (front edge starts at 0), v = meters above street level
-//   aMeta     vec4   (Uint8) part, arch, seed, flags (bit0 front-facing, bit1 corner)
+//   aMeta     vec4   (Uint8) part, arch (+ facade family << 4), seed, flags (bit0 front-facing,
+//                    bit1 corner; towers: bit2 penthouse, bit3 crown, bits4-5 crown type, bits6-7 variant)
 //   aBld      vec4   building index, center x, ground y, center z   (the whole building's)
-//   aBld2     vec2   building top y, front width of this part (m)
+//   aBld2     vec2   building top y, front width of this part (m; facade families: this part's top y)
+//
+// Facade families (towerStyles.ts) stretch every wall to a whole number of
+// column modules, so corners land on piers and columns line up up the tower;
+// a tapering face keeps its columns (they converge with it). Painted towers'
+// setback gardens (Part.GARDEN) and onion domes (Part.DOME) are baked in but
+// collapsed: every vertex of an element sits on its anchor (so it casts no
+// shadow and draws nothing), with its offset in aFacade.xy (x, z) and aBld2.y
+// (y); the vertex shader grows it out once the building reaches its level.
 
 import type { BuildingTile } from './tiles';
 import { Arch, RoofShape } from './tiles';
 import { RoofBuild, areaCentroid, clipHalf, convexPieces, eaveY, newRoofFrame, profileOf, ringConvex, roofBuild, roofFrame, roofPlanes } from './roofGeom';
+import { Fam, FacadeFlag, FAM_MODULE, styleFor, hiddenAt, type TowerStyle } from './towerStyles';
 
 export const Part = {
   SIDE: 0,
@@ -35,6 +51,10 @@ export const Part = {
   CLUTTER: 7,
   STOOP: 8,
   GARAGE: 9,
+  /** painted towers: a bush or tree on a setback (grows in at level 2 / 3) */
+  GARDEN: 10,
+  /** painted towers: an onion dome on the crown (grows in at level 3) */
+  DOME: 11,
 } as const;
 
 export interface MeshArrays {
@@ -44,30 +64,114 @@ export interface MeshArrays {
   meta: Uint8Array;
   bld: Float32Array;
   bld2: Float32Array;
-  index: Uint32Array;
+  /** Uint16 when the mesh has fewer than 65535 vertices (0xFFFF is the primitive restart index in WebGL2) */
+  index: Uint16Array | Uint32Array;
+  vertexCount: number;
+  /** index count of everything but the collapsed growth (Part.GARDEN / DOME), whose triangles come last:
+   * drawn with setDrawRange(0, solidIndexCount) until a building of the mesh grows them (no vertex work) */
+  solidIndexCount: number;
+}
+
+/** Sun-pass caster proxy of a full-detail tile: positions only (see meshCasterTile). */
+export interface CasterArrays {
+  position: Float32Array;
+  index: Uint16Array | Uint32Array;
   vertexCount: number;
 }
 
+/** Index array of the smallest type that holds `vertexCount` vertices. */
+export function indexArray(idx: Uint32Array, vertexCount: number): Uint16Array | Uint32Array {
+  return vertexCount < 65535 ? new Uint16Array(idx) : idx.slice();
+}
+
+/** Per collapsed growth element, GROWN_STRIDE floats: building index, paint level it needs, center x, z,
+ * radius and grown top (m, with the growth's overshoot): what the flight's obstacle field must rise over. */
+export const GROWN_STRIDE = 6;
+
+/** A growable index list; push() takes one triangle or two. */
+class IdxBuf {
+  a = new Uint32Array(1 << 15);
+  length = 0;
+  push(p: number, q: number, r: number, s?: number, t?: number, u?: number) {
+    if (this.length + 6 > this.a.length) {
+      const b = new Uint32Array(this.a.length * 2);
+      b.set(this.a);
+      this.a = b;
+    }
+    const a = this.a;
+    let n = this.length;
+    a[n++] = p; a[n++] = q; a[n++] = r;
+    if (s !== undefined) {
+      a[n++] = s; a[n++] = t as number; a[n++] = u as number;
+    }
+    this.length = n;
+  }
+}
+
+// Vertex storage that lives as long as the worker: it grows to the biggest tile once, every later tile
+// reuses it. Number arrays here were 60-70% of the meshing time, with their garbage collection (deep dive
+// rank 9). Positions and facade coordinates are Float64 until finish(): remapU reads them back exact.
+// (One Builder at a time: meshing is synchronous, in the worker and in the main-thread fallback.)
+let cap = 0;
+let sPos = new Float64Array(0), sNrm = new Int8Array(0), sFac = new Float64Array(0), sMeta = new Uint8Array(0), sBld = new Float32Array(0), sBld2 = new Float32Array(0);
+function ensure(n: number) {
+  if (n <= cap) return;
+  let c = Math.max(1 << 14, cap * 2);
+  while (c < n) c *= 2;
+  const grow = <A extends Float64Array | Float32Array | Int8Array | Uint8Array>(o: A, k: number, C: { new (n: number): A }): A => {
+    const b = new C(c * k);
+    b.set(o as never);
+    return b;
+  };
+  sPos = grow(sPos, 3, Float64Array);
+  sNrm = grow(sNrm, 3, Int8Array);
+  sFac = grow(sFac, 2, Float64Array);
+  sMeta = grow(sMeta, 4, Uint8Array);
+  sBld = grow(sBld, 4, Float32Array);
+  sBld2 = grow(sBld2, 2, Float32Array);
+  cap = c;
+}
+const IDX = new IdxBuf(), GIDX = new IdxBuf();
+
 class Builder {
-  pos: number[] = [];
-  nrm: number[] = [];
-  fac: number[] = [];
-  meta: number[] = [];
-  bld: number[] = [];
-  bld2: number[] = [];
-  idx: number[] = [];
+  idx = IDX;
+  /** triangles of collapsed growth (appended after idx) */
+  gidx = GIDX;
+  /** GROWN_STRIDE floats per growth element */
+  grown: number[] = [];
   vc = 0;
   // current building context
-  cur = { index: 0, cx: 0, cz: 0, baseY: 0, roofY: 0, arch: 0, seed: 0, flags: 0, frontW: 0 };
+  cur = { index: 0, cx: 0, cz: 0, baseY: 0, roofY: 0, arch: 0, seed: 0, flags: 0, frontW: 0, ext: 0 };
+
+  /** caster mode: positions only, one quad per wall, no undersides */
+  constructor(readonly caster = false) {
+    IDX.length = 0;
+    GIDX.length = 0;
+  }
 
   vert(x: number, y: number, z: number, nx: number, ny: number, nz: number, u: number, v: number, part: number, flags = this.cur.flags) {
-    this.pos.push(x, y, z);
-    this.nrm.push(Math.round(nx * 127), Math.round(ny * 127), Math.round(nz * 127));
-    this.fac.push(u, v);
-    this.meta.push(part, this.cur.arch, this.cur.seed, flags);
+    const i = this.vc;
+    if (i >= cap) ensure(i + 1);
+    sPos[i * 3] = x;
+    sPos[i * 3 + 1] = y;
+    sPos[i * 3 + 2] = z;
+    if (this.caster) return this.vc++;
     const c = this.cur;
-    this.bld.push(c.index, c.cx, c.baseY, c.cz);
-    this.bld2.push(c.roofY, c.frontW);
+    sNrm[i * 3] = Math.round(nx * 127);
+    sNrm[i * 3 + 1] = Math.round(ny * 127);
+    sNrm[i * 3 + 2] = Math.round(nz * 127);
+    sFac[i * 2] = u;
+    sFac[i * 2 + 1] = v;
+    sMeta[i * 4] = part;
+    sMeta[i * 4 + 1] = c.arch;
+    sMeta[i * 4 + 2] = c.seed;
+    sMeta[i * 4 + 3] = flags | c.ext;
+    sBld[i * 4] = c.index;
+    sBld[i * 4 + 1] = c.cx;
+    sBld[i * 4 + 2] = c.baseY;
+    sBld[i * 4 + 3] = c.cz;
+    sBld2[i * 2] = c.roofY;
+    sBld2[i * 2 + 1] = c.frontW;
     return this.vc++;
   }
 
@@ -88,6 +192,8 @@ class Builder {
 
   /** quad() that flips its winding if needed so the face points along `want`. */
   quadF(p0: V3, p1: V3, p2: V3, p3: V3, uv: [number, number, number, number, number, number, number, number], part: number, want: V3, flags?: number) {
+    // (an underside never shows in the sun pass: whatever it could shadow, the face above it already does)
+    if (this.caster && want[1] < -0.5) return;
     const n = faceNormal(p0, p1, p2);
     if (n[0] * want[0] + n[1] * want[1] + n[2] * want[2] < 0) this.quad(p3, p2, p1, p0, [uv[6], uv[7], uv[4], uv[5], uv[2], uv[3], uv[0], uv[1]], part, flags);
     else this.quad(p0, p1, p2, p3, uv, part, flags);
@@ -115,9 +221,9 @@ class Builder {
     if (L < 0.05 || y1 - y0 < 0.05) return;
     const nx = dz / L;
     const nz = -dx / L;
-    const cols = Math.max(1, Math.min(6, Math.round(L / segLen)));
+    const cols = this.caster ? 1 : Math.max(1, Math.min(6, Math.round(L / segLen)));
     const h = y1 - y0;
-    const rows = h > 7 && segLen < 99 ? 2 : 1;
+    const rows = !this.caster && h > 7 && segLen < 99 ? 2 : 1;
     const base = this.vc;
     for (let r = 0; r <= rows; r++) {
       const y = y0 + (h * r) / rows;
@@ -150,8 +256,8 @@ class Builder {
     let nx = ez * my, ny = ex * mz - ez * mx, nz = -ex * my;
     const nl = Math.hypot(nx, ny, nz) || 1;
     nx /= nl; ny /= nl; nz /= nl;
-    const cols = Math.max(1, Math.min(6, Math.round(L / segLen)));
-    const rows = y1 - y0 > 7 && segLen < 99 ? 2 : 1;
+    const cols = this.caster ? 1 : Math.max(1, Math.min(6, Math.round(L / segLen)));
+    const rows = !this.caster && y1 - y0 > 7 && segLen < 99 ? 2 : 1;
     const base = this.vc;
     for (let r = 0; r <= rows; r++) {
       const k = r / rows;
@@ -173,6 +279,7 @@ class Builder {
 
   /** Axis-free box: footprint quad (CCW in x,z), y range. All 6 faces (bottom optional). */
   prism(pts: Array<[number, number]>, y0: number, y1: number, part: number, uBase = 0, vBase = 0, bottom = false, flags?: number) {
+    if (this.caster) bottom = false;
     const n = pts.length;
     let u = uBase;
     for (let i = 0; i < n; i++) {
@@ -193,17 +300,98 @@ class Builder {
     }
   }
 
-  finish(): MeshArrays {
+  /**
+   * Facade families: re-measure u on the vertices [v0, vc) of one wall a->b so
+   * the wall spans exactly `span` meters from u0 (a whole number of modules).
+   * A tapering face (top edge ta->tb) keeps the same u range at every height.
+   * Works on whatever vertices wall() / slantWall() emitted (any subdivision).
+   */
+  remapU(v0: number, ax: number, az: number, bx: number, bz: number, y0: number, y1: number, u0: number, span: number, ta?: [number, number], tb?: [number, number]) {
+    if (this.caster) return;
+    for (let k = v0; k < this.vc; k++) {
+      const x = sPos[k * 3], y = sPos[k * 3 + 1], z = sPos[k * 3 + 2];
+      let pax = ax, paz = az, pbx = bx, pbz = bz;
+      if (ta && tb) {
+        const f = y1 > y0 ? Math.min(1, Math.max(0, (y - y0) / (y1 - y0))) : 0;
+        pax = ax + (ta[0] - ax) * f; paz = az + (ta[1] - az) * f;
+        pbx = bx + (tb[0] - bx) * f; pbz = bz + (tb[1] - bz) * f;
+      }
+      const ex = pbx - pax, ez = pbz - paz;
+      const l2 = ex * ex + ez * ez;
+      const t = l2 > 1e-6 ? Math.min(1, Math.max(0, ((x - pax) * ex + (z - paz) * ez) / l2)) : 0;
+      sFac[k * 2] = u0 + t * span;
+    }
+  }
+
+  /**
+   * One vertex of a collapsed element (garden blob, onion dome): it sits on its
+   * anchor; the offset rides in aFacade.xy (x, z) and aBld2.y (y). `flags`
+   * carries the paint level the element needs in bits 2-3.
+   */
+  grownVert(ax: number, ay: number, az: number, dx: number, dy: number, dz: number, nx: number, ny: number, nz: number, part: number, flags: number) {
+    const c = this.cur;
+    const i = this.vc;
+    if (i >= cap) ensure(i + 1);
+    sPos[i * 3] = ax;
+    sPos[i * 3 + 1] = ay;
+    sPos[i * 3 + 2] = az;
+    sNrm[i * 3] = Math.round(nx * 127);
+    sNrm[i * 3 + 1] = Math.round(ny * 127);
+    sNrm[i * 3 + 2] = Math.round(nz * 127);
+    sFac[i * 2] = dx;
+    sFac[i * 2 + 1] = dz;
+    sMeta[i * 4] = part;
+    sMeta[i * 4 + 1] = c.arch;
+    sMeta[i * 4 + 2] = c.seed;
+    sMeta[i * 4 + 3] = flags;
+    sBld[i * 4] = c.index;
+    sBld[i * 4 + 1] = c.cx;
+    sBld[i * 4 + 2] = c.baseY;
+    sBld[i * 4 + 3] = c.cz;
+    sBld2[i * 2] = c.roofY;
+    sBld2[i * 2 + 1] = dy;
+    return this.vc++;
+  }
+
+  /** A flat-shaded triangle of a collapsed element (offsets from the anchor; counter-clockwise seen from outside). */
+  grownTri(ax: number, ay: number, az: number, p0: V3, p1: V3, p2: V3, part: number, flags: number) {
+    const n = faceNormal(p0, p1, p2);
+    const a = this.grownVert(ax, ay, az, p0[0], p0[1], p0[2], n[0], n[1], n[2], part, flags);
+    const b = this.grownVert(ax, ay, az, p1[0], p1[1], p1[2], n[0], n[1], n[2], part, flags);
+    const d = this.grownVert(ax, ay, az, p2[0], p2[1], p2[2], n[0], n[1], n[2], part, flags);
+    this.gidx.push(a, b, d);
+  }
+
+  /** Record a growth element for the flight's obstacle field (see GROWN_STRIDE). The vertex shader's growth
+   * overshoots by up to ~12 % (1 - e^-5k cos 7.5k peaks at 1.123). */
+  grownElement(x: number, z: number, r: number, anchorY: number, height: number, flags: number) {
+    this.grown.push(this.cur.index, (flags >> 2) & 3, x, z, r, anchorY + height * 1.13);
+  }
+
+  finish(): { mesh: MeshArrays; grown: Float32Array } {
+    const ic = this.idx.length + this.gidx.length, vc = this.vc;
+    const index = vc < 65535 ? new Uint16Array(ic) : new Uint32Array(ic);
+    index.set(this.idx.a.subarray(0, this.idx.length));
+    index.set(this.gidx.a.subarray(0, this.gidx.length), this.idx.length);
     return {
-      position: new Float32Array(this.pos),
-      normal: new Int8Array(this.nrm),
-      facade: new Float32Array(this.fac),
-      meta: new Uint8Array(this.meta),
-      bld: new Float32Array(this.bld),
-      bld2: new Float32Array(this.bld2),
-      index: new Uint32Array(this.idx),
-      vertexCount: this.vc,
+      mesh: {
+        position: new Float32Array(sPos.subarray(0, vc * 3)),
+        normal: sNrm.slice(0, vc * 3),
+        facade: new Float32Array(sFac.subarray(0, vc * 2)),
+        meta: sMeta.slice(0, vc * 4),
+        bld: sBld.slice(0, vc * 4),
+        bld2: sBld2.slice(0, vc * 2),
+        index,
+        vertexCount: this.vc,
+        solidIndexCount: this.idx.length,
+      },
+      grown: new Float32Array(this.grown),
     };
+  }
+
+  finishCaster(): CasterArrays {
+    const vc = this.vc;
+    return { position: new Float32Array(sPos.subarray(0, vc * 3)), index: indexArray(this.idx.a.subarray(0, this.idx.length), vc), vertexCount: vc };
   }
 }
 
@@ -279,6 +467,10 @@ function triangulate(xz: number[]): number[] {
 export interface MeshOptions {
   /** 0 = full detail, 1 = simple extrusion (far tiles). */
   lod: 0 | 1;
+  /** the city is San Francisco (the icons and HIDDEN tables are written in its local meters) */
+  sf: boolean;
+  /** roofKinds(t) */
+  kinds: Uint8Array;
 }
 
 /** The building a part belongs to: records [first, end) of the tile. */
@@ -290,14 +482,84 @@ interface Group {
   top: number;
   /** per record of the tile: how its mapped roof is built (RoofBuild; FLAT = flat roof + parapet) */
   kinds: Uint8Array;
+  /** facade style of the whole building (null = the classic archetype look) */
+  style: TowerStyle | null;
+  /** per part (k - first): facade family and the extra flag bits (penthouse, crown, crown type, variant) */
+  fam: number[];
+  ext: number[];
+  /** what's left of the building's budget of onion domes and garden blobs (painted towers) */
+  domes: number;
+  garden: number;
 }
 
-export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): MeshArrays {
-  const B = new Builder();
-  // how every part's mapped roof is built, first: a shape that falls back adds no rise to the flood / pop top
+/** Signed-free area of record k's ring (m^2). */
+function ringArea(t: BuildingTile, k: number): number {
+  const s = t.vertStart[k], e = t.vertStart[k + 1];
+  let a = 0;
+  for (let m = s; m < e; m++) {
+    const m2 = m + 1 < e ? m + 1 : s;
+    a += t.xz[m * 2] * t.xz[m2 * 2 + 1] - t.xz[m2 * 2] * t.xz[m * 2 + 1];
+  }
+  return Math.abs(a) / 2;
+}
+
+/**
+ * Roles of a styled building's parts: small rooftop boxes are mechanical
+ * penthouses (no windows), the tallest other parts carry the crown, and parts
+ * under half the building's height are podium (they may wear the podium family).
+ */
+function partRoles(t: BuildingTile, g: Group, st: TowerStyle) {
+  const n = g.end - g.first;
+  g.fam.length = n;
+  g.ext.length = n;
+  const ground = t.groundY[g.first];
+  const H = g.top - ground;
+  let maxA = 0;
+  const area: number[] = [];
+  for (let k = g.first; k < g.end; k++) {
+    area.push(ringArea(t, k));
+    maxA = Math.max(maxA, area[k - g.first]);
+  }
+  const pent = (k: number) => n > 1 && H >= 30 && t.tier[k] > 0 && t.roofY[k] - t.baseY[k] < 14 && area[k - g.first] < 0.45 * maxA && t.roofY[k] >= g.top - 15;
+  let crownTop = -Infinity;
+  for (let k = g.first; k < g.end; k++) if (!pent(k)) crownTop = Math.max(crownTop, t.roofY[k]);
+  for (let k = g.first; k < g.end; k++) {
+    const isPent = pent(k);
+    const isCrown = !isPent && t.roofY[k] >= crownTop - 4;
+    const towerPart = n === 1 || isPent || isCrown || t.roofY[k] - ground >= 0.5 * H;
+    const fam = towerPart ? st.fam : st.podium;
+    const variant = fam === st.fam ? st.variant : 0;
+    g.fam[k - g.first] = fam;
+    g.ext[k - g.first] = (isPent ? FacadeFlag.PENTHOUSE : 0) | (isCrown ? FacadeFlag.CROWN : 0) | (st.crown << 4) | (variant << 6);
+  }
+}
+
+/** How every part's mapped roof is built (RoofBuild), first: a shape that falls back adds no rise to the flood / pop top. */
+export function roofKinds(t: BuildingTile): Uint8Array {
   const kinds = new Uint8Array(t.count);
   for (let k = 0; k < t.count; k++) kinds[k] = roofBuild(t.xz, t.vertStart[k], t.vertStart[k + 1], t.roofShape[k], t.roofH[k], t.roofDir[k], t.taper[k]);
-  const g: Group = { first: 0, end: 0, cx: 0, cz: 0, top: 0, kinds };
+  return kinds;
+}
+
+export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): { mesh: MeshArrays; grown: Float32Array } {
+  const B = new Builder();
+  meshTile(B, t, opts.lod, opts.sf, opts.kinds);
+  return B.finish();
+}
+
+/**
+ * The sun pass's stand-in for a full-detail tile: the LOD 0 buildings, every
+ * shape of them, with flat walls and no undersides. Positions only. (Hidden
+ * footprints stay hidden: same `sf` as the visible mesh.)
+ */
+export function meshCasterTile(t: BuildingTile, sf: boolean, kinds: Uint8Array): CasterArrays {
+  const B = new Builder(true);
+  meshTile(B, t, 0, sf, kinds);
+  return B.finishCaster();
+}
+
+function meshTile(B: Builder, t: BuildingTile, lod: 0 | 1, sf: boolean, kinds: Uint8Array) {
+  const g: Group = { first: 0, end: 0, cx: 0, cz: 0, top: 0, kinds, style: null, fam: [], ext: [], domes: 0, garden: 0 };
   for (let i = 0; i < t.count; ) {
     let j = i + 1;
     while (j < t.count && t.index[j] === t.index[i]) j++;
@@ -311,10 +573,21 @@ export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): MeshArrays
     g.cz = cz / Math.max(1, e - s);
     g.top = 0;
     for (let k = i; k < j; k++) g.top = Math.max(g.top, kinds[k] ? eaveY(t.baseY[k], t.roofY[k], t.tier[k]) + t.roofH[k] : t.roofY[k], t.baseY[k] + 2.5);
-    for (let k = i; k < j; k++) meshBuilding(B, t, k, opts.lod, g);
+    const H = g.top - t.groundY[i];
+    // footprints a hand-built prop draws instead (the Ferry Building's row of "Victorian" lots)
+    if (sf && hiddenAt(g.cx, g.cz, H)) { i = j; continue; }
+    const first = i, end = j;
+    g.style = styleFor(t.arch[i], H, ringArea(t, i), g.cx, g.cz, t.stableId[i], (x, z) => {
+      for (let k = first; k < end; k++) if (ringContains(t, k, x, z)) return true;
+      return false;
+    }, sf);
+    if (g.style) partRoles(t, g, g.style);
+    // (baked collapsed, they still cost triangles: a few per tower)
+    g.domes = 3;
+    g.garden = 14;
+    for (let k = i; k < j; k++) meshBuilding(B, t, k, lod, g);
     i = j;
   }
-  return B.finish();
 }
 
 /** True if (x, z) is inside the ring of record k. */
@@ -395,8 +668,13 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
     frontW = Math.hypot(fb[0] - fa[0], fb[1] - fa[1]);
   }
   const corner = front2 !== 255 ? 2 : 0;
+  // facade family of this part (0 = the classic look) and its penthouse / crown bits
+  const fam = g.style ? g.fam[i - g.first] : 0;
+  const ext = g.style ? g.ext[i - g.first] : 0;
+  const mod = FAM_MODULE[fam] ?? 0;
   // the whole building's center, ground and top: tiers pop, wobble and flood as one
-  B.cur = { index: t.index[i], cx: g.cx, cz: g.cz, baseY: t.groundY[i], roofY: g.top, arch, seed, flags: corner, frontW };
+  // (families: aBld2.y carries this part's top instead of the front width, which only houses use)
+  B.cur = { index: t.index[i], cx: g.cx, cz: g.cz, baseY: t.groundY[i], roofY: g.top, arch: arch | (fam << 4), seed, flags: corner, frontW: fam ? roofY : frontW, ext };
 
   const isVic = arch === Arch.VICTORIAN;
   const isFlats = arch === Arch.FLATS;
@@ -426,7 +704,8 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
   const flush = !single && front !== 255 && flushAbove(t, g, i, fa[0], fa[1], fb[0], fb[1]);
   // (roofBuild said whether it's built: a footprint it can't roof keeps its parapet and flat roof)
   if (builtShape) shapedRoof(B, t, i, g.kinds[i], pts, roofY, front !== 255 ? front : 0, front, front2, streetY, corner);
-  const parapet = lod === 0 && !gable && !builtShape && !flush && front !== 255 && topScale >= 1 ? (isVic ? 1.3 : isFlats ? 0.9 : arch === Arch.COMMERCIAL || arch === Arch.CIVIC ? 0.7 : arch === Arch.TOWER ? 1.2 : 0.5) : 0;
+  // (a curtain wall or a concrete tower ends flush: its top band is drawn by the shader)
+  const parapet = lod === 0 && !gable && !builtShape && !flush && front !== 255 && topScale >= 1 && (fam === 0 || fam === Fam.MASONRY) ? (isVic ? 1.3 : isFlats ? 0.9 : arch === Arch.COMMERCIAL || arch === Arch.CIVIC ? 0.7 : arch === Arch.TOWER ? 1.2 : 0.5) : 0;
 
   // ---- walls
   // perimeter u starts at the front edge so the facade pattern lines up with it
@@ -434,6 +713,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
   // wall columns only serve the painted wobble: towers' upper tiers (high, narrow faces) need fewer
   const segLen = tier > 0 ? 6.4 : 3.2;
   let u = 0;
+  let uF = 0; // facade families: u in whole modules
   if (topScale < 1) {
     // tapering tower: faces lean in to the scaled top ring; the roof below is that ring
     let ac = 0, acx = 0, acz = 0;
@@ -453,7 +733,14 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
       const mx = (ta[0] + tb[0] - a[0] - b[0]) / 2, mz = (ta[1] + tb[1] - a[1] - b[1]) / 2;
       const roofish = Math.hypot(mx, mz) > 0.7 * (roofY - baseY);
       const part = roofish ? Part.ROOF_SLOPE : isFront ? Part.FRONT : Part.SIDE;
+      const v0 = B.vc;
       B.slantWall(a[0], a[1], b[0], b[1], ta[0], ta[1], tb[0], tb[1], baseY, roofY, u, u * topScale, (u + L) * topScale, streetY, part, (isFront && !roofish ? 1 : 0) | corner, lod === 1 ? 999 : segLen);
+      if (mod > 0) {
+        // a whole number of modules, the same columns at every height: they converge with the face
+        const span = Math.max(1, Math.round(L / mod)) * mod;
+        B.remapU(v0, a[0], a[1], b[0], b[1], baseY, roofY, uF, span, ta, tb);
+        uF += span;
+      }
       u += L;
     }
     const xz: number[] = [];
@@ -467,6 +754,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
       for (const p of top) { tcx += p[0]; tcz += p[1]; }
       clutter(B, top, tcx / n, tcz / n, roofY, arch, r, single ? null : (x: number, z: number) => !covered(t, g, i, x, z));
     }
+    if (fam) towerGrowth(B, t, g, i, top, roofY, lod);
     return;
   }
   for (let j = 0; j < n; j++) {
@@ -476,7 +764,14 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
     const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
     const isFront = k === front || k === front2;
     const top = isFront && (k === front || single || !flushAbove(t, g, i, a[0], a[1], b[0], b[1])) ? roofY + parapet : roofY;
+    const v0 = B.vc;
     B.wall(a[0], a[1], b[0], b[1], baseY, top, u, streetY, isFront ? Part.FRONT : Part.SIDE, (isFront ? 1 : 0) | corner, lod === 1 ? 999 : segLen);
+    if (mod > 0) {
+      // a whole number of modules per wall: corners land on piers, columns line up up the tower
+      const span = Math.max(1, Math.round(L / mod)) * mod;
+      B.remapU(v0, a[0], a[1], b[0], b[1], baseY, top, uF, span);
+      uF += span;
+    }
     u += L;
   }
 
@@ -522,6 +817,8 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
 
   // rooftop clutter: only on roof that is open to the sky
   const open = single ? null : (x: number, z: number) => !covered(t, g, i, x, z);
+  // (a mapped roof stands where a setback garden or a crown's onions would: they'd hang inside it)
+  if (fam && !builtShape) towerGrowth(B, t, g, i, pts, roofY, lod);
   if (lod === 1 || front === 255) {
     if (lod === 0 && !builtShape) clutter(B, pts, cx, cz, roofY, arch, r, open);
     return;
@@ -540,7 +837,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
     B.prism(cap.slice().reverse() as Array<[number, number]>, roofY + parapet - 0.01, roofY + parapet + 0.05, Part.TRIM);
   }
   const topY = roofY + parapet;
-  if ((isRes || arch === Arch.COMMERCIAL || arch === Arch.CIVIC) && !flush) {
+  if ((isRes || arch === Arch.COMMERCIAL || arch === Arch.CIVIC) && !flush && (fam === 0 || fam === Fam.MASONRY)) {
     // cornice: a chunky projecting band at the top of the facade
     const cd = isVic ? 0.65 : 0.5;
     const ch = isVic ? 0.55 : 0.4;
@@ -615,6 +912,135 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
     B.prism(ccw([[px - hw, pz - hw], [px + hw, pz - hw], [px + hw, pz + hw], [px - hw, pz + hw]]), roofY - 0.2, chTop, Part.CLUTTER);
   }
   if (!gable && !builtShape) clutter(B, pts, cx, cz, roofY, arch, r, open);
+}
+
+// ---- painted towers: setback gardens (level 2 bushes, level 3 trees spilling
+// over the edge) and an onion-dome crown (level 3), baked collapsed (see the header)
+
+/** Octahedron blob (8 flat faces) centered at c (offsets from the anchor), radii rx/ry/rz, turned by yaw. */
+function blob(B: Builder, ax: number, ay: number, az: number, c: V3, rx: number, ry: number, rz: number, yaw: number, part: number, flags: number) {
+  const ca = Math.cos(yaw), sa = Math.sin(yaw);
+  const P = (x: number, y: number, z: number): V3 => [c[0] + x * ca - z * sa, c[1] + y, c[2] + x * sa + z * ca];
+  const X = P(rx, 0, 0), NX = P(-rx, 0, 0), Y = P(0, ry, 0), NY = P(0, -ry, 0), Z = P(0, 0, rz), NZ = P(0, 0, -rz);
+  B.grownElement(ax + c[0] * 1.13, az + c[2] * 1.13, Math.max(rx, rz) * 1.13, ay, c[1] + ry, flags);
+  B.grownTri(ax, ay, az, X, Y, Z, part, flags);
+  B.grownTri(ax, ay, az, Z, Y, NX, part, flags);
+  B.grownTri(ax, ay, az, NX, Y, NZ, part, flags);
+  B.grownTri(ax, ay, az, NZ, Y, X, part, flags);
+  B.grownTri(ax, ay, az, Z, NY, X, part, flags);
+  B.grownTri(ax, ay, az, NX, NY, Z, part, flags);
+  B.grownTri(ax, ay, az, NZ, NY, NX, part, flags);
+  B.grownTri(ax, ay, az, X, NY, NZ, part, flags);
+}
+
+/** Onion dome profile (radius, height) in units of its radius: a drum, the bulb, the point. */
+const ONION: Array<[number, number]> = [[0.8, 0], [0.8, 0.5], [1.1, 1.05], [0.5, 1.8], [0, 2.55]];
+
+function onionDome(B: Builder, ax: number, ay: number, az: number, rd: number, flags: number) {
+  const seg = 6;
+  B.grownElement(ax, az, 1.1 * rd * 1.13, ay, ONION[ONION.length - 1][1] * rd, flags);
+  for (let q = 0; q < ONION.length - 1; q++) {
+    const [r0, h0] = ONION[q], [r1, h1] = ONION[q + 1];
+    for (let s = 0; s < seg; s++) {
+      const a0 = (s / seg) * Math.PI * 2, a1 = ((s + 1) / seg) * Math.PI * 2;
+      const p00: V3 = [Math.cos(a0) * r0 * rd, h0 * rd, Math.sin(a0) * r0 * rd];
+      const p01: V3 = [Math.cos(a1) * r0 * rd, h0 * rd, Math.sin(a1) * r0 * rd];
+      const p10: V3 = [Math.cos(a0) * r1 * rd, h1 * rd, Math.sin(a0) * r1 * rd];
+      const p11: V3 = [Math.cos(a1) * r1 * rd, h1 * rd, Math.sin(a1) * r1 * rd];
+      // outward = away from the axis: pick the winding that faces it
+      const am = (a0 + a1) / 2;
+      const want: V3 = [Math.cos(am), 0.4, Math.sin(am)];
+      const tri = (p: V3, q2: V3, w: V3) => {
+        const n = faceNormal(p, q2, w);
+        if (n[0] * want[0] + n[1] * want[1] + n[2] * want[2] < 0) B.grownTri(ax, ay, az, p, w, q2, Part.DOME, flags);
+        else B.grownTri(ax, ay, az, p, q2, w, Part.DOME, flags);
+      };
+      tri(p00, p01, p11);
+      if (r1 > 0.001) tri(p00, p11, p10);
+    }
+  }
+}
+
+/** Needed paint level for a collapsed element, in flag bits 2-3 (+ bit 4: a tree, not a bush). */
+const NEED2 = 2 << 2, NEED3 = 3 << 2, TREE = 16;
+
+/**
+ * Gardens on a styled tower's open setback roofs and onion domes on its
+ * crown. `ring` is this part's roof outline (positive shoelace), at roofY.
+ */
+function towerGrowth(B: Builder, t: BuildingTile, g: Group, i: number, ring: Array<[number, number]>, roofY: number, lod: 0 | 1) {
+  const H = g.top - t.groundY[i];
+  if (H < 40 || !g.style || B.caster) return;
+  const ext = g.ext[i - g.first];
+  const isPent = (ext & FacadeFlag.PENTHOUSE) !== 0;
+  const isCrown = (ext & FacadeFlag.CROWN) !== 0;
+  if (isPent) return;
+  const single = g.end - g.first === 1;
+  const open = (x: number, z: number) => single || !covered(t, g, i, x, z);
+  const R = rng((t.stableId[i] ^ 0x5bd1e995) + t.tier[i] * 104729);
+  const n = ring.length;
+  let rcx = 0, rcz = 0;
+  for (const p of ring) { rcx += p[0]; rcz += p[1]; }
+  rcx /= n; rcz /= n;
+  if (isCrown) {
+    // level 3: onion domes on the crown's corners (the rooftop sprouts put their own centerpiece in the middle)
+    // (the coarse mesh far away / up high: only the tallest towers keep a pair)
+    if (lod === 1 && (H < 150 || g.domes < 2)) return;
+    if (lod === 1) g.domes = 2;
+    if (g.domes <= 0) return;
+    let area = 0;
+    for (let k = 0; k < n; k++) area += ring[k][0] * ring[(k + 1) % n][1] - ring[(k + 1) % n][0] * ring[k][1];
+    area = Math.abs(area) / 2;
+    const rd = Math.min(9, Math.max(3, 0.16 * Math.sqrt(area)));
+    const placed: Array<[number, number]> = [];
+    for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      let best = ring[0], bv = -Infinity;
+      for (const p of ring) {
+        const v = p[0] * sx + p[1] * sz;
+        if (v > bv) { bv = v; best = p; }
+      }
+      const dx = rcx - best[0], dz = rcz - best[1];
+      const dl = Math.hypot(dx, dz);
+      if (dl < rd * 2.2) continue;
+      const k = (rd + 1.2) / dl;
+      const x = best[0] + dx * k, z = best[1] + dz * k;
+      if (g.domes <= 0 || placed.some((q) => Math.hypot(q[0] - x, q[1] - z) < rd * 2.4) || !open(x, z)) continue;
+      placed.push([x, z]);
+      g.domes--;
+      onionDome(B, x, roofY, z, rd * (0.85 + 0.3 * R()), NEED3);
+    }
+    return;
+  }
+  // a setback: bushes along its edges (level 2), trees leaning out over the edge between them (level 3)
+  if (lod === 1 || roofY > g.top - 3) return;
+  for (let k = 0; k < n && g.garden > 0; k++) {
+    const a = ring[k], b = ring[(k + 1) % n];
+    const ex = b[0] - a[0], ez = b[1] - a[1];
+    const L = Math.hypot(ex, ez);
+    if (L < 5) continue;
+    const ix = -ez / L, iz = ex / L; // inward (left of a->b)
+    const count = Math.floor(L / 8);
+    for (let j = 0; j < count && g.garden > 0; j++) {
+      const f = (j + 0.5 + (R() - 0.5) * 0.3) / count;
+      const px = a[0] + ex * f, pz = a[1] + ez * f;
+      const tree = j % 2 === 1 || R() < 0.25;
+      const inset = tree ? 1.1 : 1.6;
+      const x = px + ix * inset, z = pz + iz * inset;
+      if (!open(x, z) || !open(x + ix * 2, z + iz * 2)) continue;
+      g.garden--;
+      const yaw = R() * 6.283;
+      if (tree) {
+        const rt = 1.8 + 1.1 * R();
+        // the crown hangs out over the edge of the setback
+        const out = -0.9 - 0.6 * R();
+        blob(B, x, roofY, z, [ix * out, 1.1 + rt * 0.75, iz * out], rt, rt * 0.82, rt, yaw, Part.GARDEN, NEED3 | TREE);
+      } else {
+        const rb = 1.0 + 0.55 * R();
+        const hb = 1.3 + 0.8 * R();
+        blob(B, x, roofY, z, [0, hb * 0.5, 0], rb, hb * 0.5, rb, yaw, Part.GARDEN, NEED2);
+      }
+    }
+  }
 }
 
 function clutter(B: Builder, pts: Array<[number, number]>, cx: number, cz: number, roofY: number, arch: number, r: () => number, open: ((x: number, z: number) => boolean) | null) {

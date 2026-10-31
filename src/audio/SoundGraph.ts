@@ -1,8 +1,9 @@
 import { Foghorn, Wind } from './ambience';
 import { BusVoice } from './busVoice';
-import { clamp, clamp01, fin, hold, Kit, LOOKAHEAD, makeNoise, makeReverbIR, mkFilter, mkGain, mkOsc, mkPan, mtof, Rng, softClipCurve, target } from './dsp';
+import { clamp, clamp01, fin, hold, Kit, LOOKAHEAD, makeNoise, makeReverbIR, mkFilter, mkGain, mkOsc, mkPan, mtof, Rng, softClipCurve, target, toBuffer, type SynthData } from './dsp';
 import { arpNote, Bells, Hum, PROGRESSION } from './music';
 import { Sfx } from './sfx';
+import { SuperSfx } from './superSfx';
 import { audioTune } from './tune';
 import { config } from '../config';
 
@@ -60,6 +61,8 @@ export class SoundGraph {
   private readonly horn: Foghorn;
   private readonly bus: BusVoice;
   private readonly fx: Sfx;
+  /** the super splat's sounds (charge riser + heartbeat, firehose roar, fizzle, chime) */
+  readonly superFx: SuperSfx;
   // score state
   private chord = -1;
   private centerHue = 0;
@@ -88,8 +91,12 @@ export class SoundGraph {
   private muted = false;
   /** Realtime contexts gate param pushes on `state === 'running'`. */
   private readonly isRealtime: boolean;
+  private readonly verb: ConvolverNode;
+  /** the reverb's impulse, until fitReverb() sets it */
+  private ir: SynthData['ir'] | null = null;
 
-  constructor(ctx: BaseAudioContext, seed = 1) {
+  /** `data`: the long buffers, already synthesized (audioWorker.ts); else they are made here, on this thread. */
+  constructor(ctx: BaseAudioContext, seed = 1, data?: SynthData) {
     this.ctx = ctx;
     this.isRealtime = !(typeof OfflineAudioContext !== 'undefined' && ctx instanceof OfflineAudioContext);
     this.rng = new Rng(seed * 7717 + 3);
@@ -123,9 +130,11 @@ export class SoundGraph {
     this.ambDuck.connect(this.ambBus).connect(this.masterVol);
 
     // ---- reverb (synthesized impulse response, no sample files)
-    const verb = ctx.createConvolver();
+    const verb = (this.verb = ctx.createConvolver());
     verb.normalize = false;
-    verb.buffer = makeReverbIR(ctx, 2.1, 1.9, seed * 31 + 11);
+    // (setting a convolver's buffer FFTs all of it on this thread: with `data` that waits for fitReverb())
+    if (data) this.ir = data.ir;
+    else verb.buffer = makeReverbIR(ctx, 2.1, 1.9, seed * 31 + 11);
     const verbOut = mkGain(ctx, 0.9);
     verb.connect(verbOut).connect(this.masterVol);
     this.revSendMusic = mkGain(ctx, tune.reverb);
@@ -150,8 +159,8 @@ export class SoundGraph {
     this.kit = {
       ctx,
       rng: this.rng,
-      white: makeNoise(ctx, 3, seed * 13 + 1, false),
-      pink: makeNoise(ctx, 4, seed * 17 + 2, true),
+      white: data ? toBuffer(ctx, [data.white]) : makeNoise(ctx, 3, seed * 13 + 1, false),
+      pink: data ? toBuffer(ctx, [data.pink]) : makeNoise(ctx, 4, seed * 17 + 2, true),
       music: this.musicBus,
       sfx: this.sfxBus,
       sfxVerb: this.sfxVerbBus,
@@ -163,6 +172,11 @@ export class SoundGraph {
     this.horn = new Foghorn(this.kit, this.ambDuck);
     this.bus = new BusVoice(this.kit, this.sfxBus);
     this.fx = new Sfx(this.kit);
+    this.superFx = new SuperSfx(this.kit, {
+      chord: () => this.currentChord,
+      transpose: () => this.transpose,
+      bell: (bt, midi, vel, pan) => void this.bells.play(bt, midi, vel, pan, 1.1, 0.6, 0.9, true),
+    });
     this.tunedTranspose = tune.transpose;
     this.transpose = semis(tune.transpose);
     this.hum.setChord(PROGRESSION[0], t, this.transpose);
@@ -170,6 +184,17 @@ export class SoundGraph {
     this.nextHorn = t + 2.4;
     this.nextBreath = t + 0.4;
     this.lastNow = t;
+  }
+
+  /** The reverb's impulse goes in (a graph built from `data`: dry until then, a few frames). */
+  fitReverb(): void {
+    if (this.ir) this.verb.buffer = toBuffer(this.ctx, this.ir);
+    this.ir = null;
+  }
+
+  /** The synth kit (context, noise, sfx buses) for voices in other files (src/audio/turboVoice.ts). */
+  get voiceKit(): Kit {
+    return this.kit;
   }
 
   /** Start time for an event triggered now. */

@@ -39,6 +39,13 @@ export class CameraRig {
   openingPull = 0;
   /** 0..1: low, level cinematic camera for the Golden Gate opening (passes under the deck) */
   openingLow = 0;
+  /** Turbo gears (src/fx/Turbo.ts): extra pull-back (m), lens widening (deg), hero scale (x), and leads (m)
+   *  added to the follow / look targets that cancel part of the springs' lag at turbo speeds */
+  turboPull = 0;
+  turboFov = 0;
+  turboHero = 1;
+  readonly turboLead = new THREE.Vector3();
+  readonly turboLookLead = new THREE.Vector3();
   /** 0..1 while barfing: tilt down and pull the look point in so the splat below the bus is visible */
   barfTilt = 0;
   shake = 0;
@@ -82,15 +89,15 @@ export class CameraRig {
     else this.vista += dv * (1 - Math.exp(-(moving ? C.vistaRate : Math.max(C.vistaRate, C.vistaSettle)) * dt));
     const low = this.openingLow;
     const v = this.vista * (1 - low);
-    this.hfov = C.hfovPortrait + (C.hfovVista - C.hfovPortrait) * v;
-    this.heroScale = 1 + (C.heroScaleVista - 1) * v;
+    this.hfov = C.hfovPortrait + (C.hfovVista - C.hfovPortrait) * v + this.turboFov;
+    this.heroScale = (1 + (C.heroScaleVista - 1) * v) * this.turboHero;
     const barf = this.barfTilt * (1 - v); // up high the splat lands mid-screen anyway
     const elev = this.elev + (C.elevationVista - this.elev) * v;
     const el = THREE.MathUtils.degToRad(elev + 11 * barf + (6.5 - elev) * low);
-    const dist = (C.distance + (C.distanceVista - C.distance) * v + this.openingPull) * (1 - low) + 150 * low;
+    const dist = (C.distance + (C.distanceVista - C.distance) * v + this.openingPull + this.turboPull) * (1 - low) + 150 * low;
     const fx = Math.sin(this.yaw), fz = -Math.cos(this.yaw);
     const bus = this.bus.set(f.x, f.y, f.z);
-    const desired = this.desired.set(bus.x - fx * Math.cos(el) * dist, bus.y + Math.sin(el) * dist, bus.z - fz * Math.cos(el) * dist);
+    const desired = this.desired.set(bus.x - fx * Math.cos(el) * dist, bus.y + Math.sin(el) * dist, bus.z - fz * Math.cos(el) * dist).add(this.turboLead);
     if (this.pos.lengthSq() === 0) this.pos.copy(desired);
     // critically damped follow (keeps the bus framed but lets motion breathe)
     const w = 2 * Math.PI * C.followHz;
@@ -99,7 +106,8 @@ export class CameraRig {
       this.posVel[k] += a * dt;
       this.pos[k] += this.posVel[k] * dt;
     }
-    let la = C.lookAhead * (0.6 + 0.4 * clamp(sp / F.cruiseSpeed, 0, 2)) * (1 - 0.65 * barf);
+    const spk = sp / F.cruiseSpeed;
+    let la = C.lookAhead * (C.lookAheadSlow + (1 - C.lookAheadSlow) * clamp(spk, 0, 1) + 0.4 * clamp(spk - 1, 0, 1)) * (1 - 0.65 * barf);
     let pitch = 0;
     if (v > 0) {
       // far enough ahead that the view pitches down by pitchVista, and never so far down that
@@ -109,7 +117,7 @@ export class CameraRig {
       const laV = (Math.sin(el) * dist + 4) / Math.tan(pitch) - Math.cos(el) * dist;
       la += (Math.max(la, laV) - la) * smooth01(0, 0.35, v);
     }
-    const lookTarget = this.lookTarget.set(bus.x + fx * la * (1 + 2 * low), bus.y - 4 + 14 * low, bus.z + fz * la * (1 + 2 * low));
+    const lookTarget = this.lookTarget.set(bus.x + fx * la * (1 + 2 * low), bus.y - 4 + 14 * low, bus.z + fz * la * (1 + 2 * low)).add(this.turboLookLead);
     if (this.look.lengthSq() === 0) this.look.copy(lookTarget);
     this.look.lerp(lookTarget, 1 - Math.exp(-6 * dt));
     cam.position.copy(this.pos);

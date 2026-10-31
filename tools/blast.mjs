@@ -32,8 +32,10 @@ const out = process.argv[3] ?? 'shots/blast';
 const modes = new Set(process.argv.slice(4).length ? process.argv.slice(4) : ['perf', 'seq', 'top', 'reload']);
 mkdirSync(out, { recursive: true });
 
-const START = '?lat=37.7745&lon=-122.4330&heading=0&skipintro';
-const IMPACT = [37.7762, -122.4328];
+// (SB_BLAST_START='?lat=..&lon=..&heading=..&skipintro&nohud' and SB_BLAST_AT='lat,lon' run the same modes elsewhere,
+// e.g. a blast at a landmark)
+const START = process.env.SB_BLAST_START || '?lat=37.7745&lon=-122.4330&heading=0&skipintro&nohud';
+const IMPACT = process.env.SB_BLAST_AT ? process.env.SB_BLAST_AT.split(',').map(Number) : [37.7762, -122.4328];
 
 const browser = await chromium.launch({
   ...browserOptions([]),
@@ -221,7 +223,7 @@ if (modes.has('escalate')) {
 
 if (modes.has('tap')) {
   // a real tap in cruise over Alamo Square, heading east at the Painted Ladies row
-  const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro&fixeddt=0.0333');
+  const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud&fixeddt=0.0333');
   await page.evaluate(() => (window.__qa = null));
   await runFor(page, 1.5);
   const tImpact = await page.evaluate(() => {
@@ -306,7 +308,7 @@ for (const [mode, seeds] of [['heavy', 150], ['heavyctl', 1]]) {
 }
 
 if (modes.has('row')) {
-  const page = await open('?lat=37.7762&lon=-122.4347&heading=90&skipintro&fixeddt=0.0333');
+  const page = await open('?lat=37.7762&lon=-122.4347&heading=90&skipintro&nohud&fixeddt=0.0333');
   await hover(page);
   await runFor(page, 1.0);
   await page.screenshot({ path: `${out}/row-grey.png` });

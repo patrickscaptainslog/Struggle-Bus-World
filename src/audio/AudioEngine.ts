@@ -1,4 +1,5 @@
 import { SoundGraph } from './SoundGraph';
+import { synthAll, type Kit, type SynthData } from './dsp';
 import { audioTune, registerAudioTunables } from './tune';
 
 // Struggle Bus audio: a fully synthesized WebAudio engine (no sample files).
@@ -15,6 +16,13 @@ import { audioTune, registerAudioTunables } from './tune';
 // The graph runs on any BaseAudioContext: `unlock()` makes a realtime one
 // inside the first gesture (iOS), `attachContext()` takes e.g. an
 // OfflineAudioContext for tests (dev/audio.html, tools/audio-check.mjs).
+//
+// The first touch must not stall: the gesture only makes the context and
+// resumes it. The long buffers (noise, the reverb's impulse) are synthesized in
+// a worker (audioWorker.ts, started by `prepare()` once the game is ready, or by
+// the gesture), the graph is built in a task of its own after the gesture, and
+// the reverb's impulse goes in a little later (a convolver FFTs it on this thread).
+// A breath fired before the graph is up plays when it is, ~100 ms late.
 
 export interface AudioFrame {
   /** m/s, 0..115 */
@@ -50,9 +58,57 @@ export class AudioEngine {
   private everRan = false;
   /** We suspended the context ourselves (mute / page hidden) — still "unlocked". */
   private selfSuspended = false;
+  /** the worker's buffers: at this sample rate, in hand or on their way */
+  private synth: { sr: number; data: Promise<SynthData> } | null = null;
+  /** one-shots asked for while the graph is being built */
+  private early: Array<() => void> = [];
 
   constructor() {
     registerAudioTunables();
+  }
+
+  /**
+   * Boot, while nothing is on screen: the first AudioContext of a browser process starts its audio backend, 120-180 ms
+   * on this thread (Chromium; the next one takes ~20). One made and closed now keeps that out of the first touch.
+   */
+  warmBackend(): void {
+    setAmbientSession();
+    const w = window as unknown as { AudioContext?: AudioCtor; webkitAudioContext?: AudioCtor };
+    const AC = w.AudioContext ?? w.webkitAudioContext;
+    try {
+      if (AC) void new AC({ latencyHint: 'interactive' }).close().catch(() => {});
+    } catch {
+      /* no audio here: unlock() will find out */
+    }
+  }
+
+  /** Start on the long buffers before the first touch needs them (most outputs run at 48 kHz; another rate redoes them). */
+  prepare(): void {
+    if (!this.synth) this.synthAt(48000);
+  }
+
+  private synthAt(sr: number): Promise<SynthData> {
+    if (this.synth?.sr === sr) return this.synth.data;
+    const data = new Promise<SynthData>((resolve) => {
+      // (no worker, or a broken one: a task of its own on this thread)
+      const here = () => setTimeout(() => resolve(synthAll(sr)), 0);
+      try {
+        const w = new Worker(new URL('./audioWorker.ts', import.meta.url), { type: 'module' });
+        w.onmessage = (e: MessageEvent<SynthData>) => {
+          w.terminate();
+          resolve(e.data);
+        };
+        w.onerror = () => {
+          w.terminate();
+          here();
+        };
+        w.postMessage(sr);
+      } catch {
+        here();
+      }
+    });
+    this.synth = { sr, data };
+    return data;
   }
 
   /**
@@ -62,9 +118,8 @@ export class AudioEngine {
    * can keep calling unlock() from gestures until it reads true.
    */
   get unlocked(): boolean {
-    if (!this.graph) return false;
     const c = this.rt;
-    if (!c) return true;
+    if (!c) return !!this.graph;
     if (c.state === 'running') {
       this.everRan = true;
       return true;
@@ -114,9 +169,17 @@ export class AudioEngine {
       /* ignore */
     }
     this.resume();
-    this.graph = new SoundGraph(ctx);
-    if (this.muted) this.graph.setMuted(true);
     this.installLifecycle(ctx);
+    void this.synthAt(ctx.sampleRate).then((data) => {
+      // (tasks of their own, never the gesture's)
+      setTimeout(() => {
+        const g = (this.graph = new SoundGraph(ctx, 1, data));
+        if (this.muted) g.setMuted(true);
+        setTimeout(() => g.fitReverb(), 60); // (a frame or two between the two: neither is a long task, both at once would be)
+        for (const play of this.early) play();
+        this.early.length = 0;
+      }, 0);
+    });
   }
 
   /** Build the graph on a caller-owned context (OfflineAudioContext for tests). */
@@ -142,10 +205,16 @@ export class AudioEngine {
     return g;
   }
 
+  /** The first touch's sound, played when the graph is up if it isn't yet. */
+  private soon(play: () => void): void {
+    if (this.rt && !this.graph) this.early.push(play);
+  }
+
   /** Tap accepted: the bus's gag/hurk (frame 0 of the splat). */
   heave(): void {
     const g = this.live();
     if (g) g.heave(g.now());
+    else this.soon(() => this.heave());
   }
 
   /** The projectile explodes: wet splat + deep boom. strength ~1 (blast radius / base radius). */
@@ -176,12 +245,62 @@ export class AudioEngine {
   denied(): void {
     const g = this.live();
     if (g) g.denied(g.now());
+    else this.soon(() => this.denied());
+  }
+
+  // ---- the super splat (src/audio/superSfx.ts)
+  /** Charging starts; it will be full in `full` s: riser + heartbeat. */
+  superChargeStart(full: number): void {
+    const g = this.live();
+    if (g) g.superFx.chargeStart(g.now(), full);
+  }
+
+  /** The charge ends: fired (cut) or cancelled (power-down). */
+  superChargeStop(fired: boolean): void {
+    const g = this.live();
+    if (g) g.superFx.chargeStop(g.now(), fired);
+  }
+
+  /** A mega blast leaves at charge k (0..1): thunder under its boom. */
+  superMega(k: number): void {
+    const g = this.live();
+    if (g) g.superFx.mega(g.now(), k);
+  }
+
+  /** The firehose pours for `seconds`: roaring bed + crescendo. */
+  superFirehose(seconds: number): void {
+    const g = this.live();
+    if (g) g.superFx.firehose(g.now(), seconds);
+  }
+
+  /** One firehose impact rings the next note of a climbing arpeggio (capped). */
+  superHoseHit(): void {
+    const g = this.live();
+    if (g) g.superFx.hoseHit(g.now());
+  }
+
+  /** Held while cooling down: "not yet". */
+  superFizzle(): void {
+    const g = this.live();
+    if (g) g.superFx.fizzle(g.now());
+  }
+
+  /** The super is ready again: chime. */
+  superReady(): void {
+    const g = this.live();
+    if (g) g.superFx.ready(g.now());
   }
 
   /** A street sign springs out of the ground. */
   signPop(): void {
     const g = this.live();
     if (g) g.signPop(g.now());
+  }
+
+  /** For voices in other files (src/audio/turboVoice.ts): the synth kit, or null while output isn't live (start events at kit.ctx.currentTime + LOOKAHEAD). */
+  voiceKit(): Kit | null {
+    const g = this.live();
+    return g ? g.voiceKit : null;
   }
 
   /** Extra (dev / scripted moments): sound a foghorn now. */

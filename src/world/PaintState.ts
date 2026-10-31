@@ -11,6 +11,10 @@ import { uploadRect } from '../render/upload';
 //   (an escalation: it stays painted until its new pop instead of going grey)
 // Persistence: localStorage, keyed by the building's stable id, value = [faction, color, level]. Applied
 //   as tiles stream in. Which store depends on the DATA's id scheme (see IdScheme), never on the code.
+//   Hand-built landmark props (City.addLandmarkBuilding) take texels past the baked buildings and save
+//   under a name key ('lm:transamerica') in a store of their own (landmarkStoreKey), never among the
+//   buildings' ids: a re-bake that renumbers the buildings (and drops their store) keeps the landmarks'
+//   paint, and no key can collide with a stable id in any building store.
 
 /**
  * The id scheme of the city data, from city.json "ids": 'osm' = every stable id derives from its source
@@ -70,6 +74,12 @@ const PAINT_STALE_ON_OSM = ['v1', 'v2'];
 function paintKey(slug: string, v: string): string {
   return slug === 'sf' ? `strugglebus.paint.${v}` : `strugglebus.paint.${v}:${slug}`;
 }
+/** Every landmark paint key starts with this ('lm:coit'). */
+export const LANDMARK_KEY_PREFIX = 'lm:';
+/** The landmark paint store of a city (by its manifest slug): keyed by landmark names, independent of any bake. */
+export function landmarkStoreKey(slug: string): string {
+  return slug === 'sf' ? 'strugglebus.landmarks.v1' : `strugglebus.landmarks.v1:${slug}`;
+}
 export const FACTION_RAINBOW = 1;
 
 export interface PaintRecord {
@@ -87,15 +97,18 @@ export class PaintState {
   readonly data: Float32Array;
   readonly texture: THREE.DataTexture;
   private saved: Record<string, [number, number, number]> = {};
+  /** the landmarks' saved paint, by name key (its own store: see landmarkStoreKey) */
+  private savedLm: Record<string, [number, number, number]> = {};
+  private readonly lmStore: string;
   private dirty = new Set<number>();
   private saveTimer = 0;
-  /** stable id -> dense index for buildings currently known (loaded tiles) */
-  private stableToIndex = new Map<number, number>();
-  /** dense index -> stable id */
-  private indexToStable = new Map<number, number>();
+  /** stable id (or a landmark's 'lm:' key) -> dense index for buildings currently known (loaded tiles, landmarks) */
+  private stableToIndex = new Map<number | string, number>();
+  /** dense index -> stable id (or landmark key) */
+  private indexToStable = new Map<number, number | string>();
   paintedCount = 0;
 
-  /** the localStorage key (null: the id scheme is unknown, nothing is read or written) */
+  /** the buildings' localStorage key (null: the id scheme is unknown, no building paint is read or written; landmarks keep theirs) */
   private readonly key: string | null;
   readonly scheme: IdScheme | null;
 
@@ -104,6 +117,7 @@ export class PaintState {
     const slug = typeof city === 'string' ? city : city.slug;
     this.scheme = resolveIdScheme(city, scheme);
     this.key = this.scheme ? paintStoreKey(slug, this.scheme) : null;
+    this.lmStore = landmarkStoreKey(slug);
     this.height = Math.max(1, Math.ceil(buildingCount / this.width));
     this.data = new Float32Array(this.width * this.height * 4);
     this.texture = new THREE.DataTexture(this.data, this.width, this.height, THREE.RGBAFormat, THREE.FloatType);
@@ -111,15 +125,44 @@ export class PaintState {
     this.texture.magFilter = THREE.NearestFilter;
     this.texture.generateMipmaps = false;
     this.texture.needsUpdate = true;
+    // an OSM bake: this city's rank-keyed (or maybe rank-keyed) saves can never map onto these ids: dropped, never
+    // applied. Only a landmark's name key means the same in any bake, so it leaves with them (moved below).
+    const lmInStale: Record<string, [number, number, number]> = {};
+    if (this.scheme === 'osm')
+      for (const v of PAINT_STALE_ON_OSM) {
+        try {
+          const k = paintKey(slug, v);
+          const raw = localStorage.getItem(k);
+          localStorage.removeItem(k);
+          const old = raw ? JSON.parse(raw) : null;
+          for (const id in old) if (id.startsWith(LANDMARK_KEY_PREFIX)) lmInStale[id] = old[id];
+        } catch {
+          /* a broken old save is gone either way */
+        }
+      }
     try {
-      // an OSM bake: this city's rank-keyed (or maybe rank-keyed) saves can never map onto these ids (dropped, never applied)
-      if (this.scheme === 'osm') for (const v of PAINT_STALE_ON_OSM) localStorage.removeItem(paintKey(slug, v));
       const raw = this.key ? localStorage.getItem(this.key) : null;
       if (raw) this.saved = JSON.parse(raw) ?? {};
     } catch {
       this.saved = {};
     }
-    this.paintedCount = Object.keys(this.saved).length;
+    Object.assign(this.saved, lmInStale);
+    try {
+      const raw = localStorage.getItem(this.lmStore);
+      if (raw) this.savedLm = JSON.parse(raw) ?? {};
+    } catch {
+      this.savedLm = {};
+    }
+    // (pre-merge fix/landmarks builds kept SF's landmark paint among the building ids: it moves to its own store)
+    let moved = false;
+    for (const k in this.saved)
+      if (k.startsWith(LANDMARK_KEY_PREFIX)) {
+        if (slug === 'sf' && !(k in this.savedLm)) this.savedLm[k] = this.saved[k];
+        delete this.saved[k];
+        moved = true;
+      }
+    if (moved) this.persist();
+    this.paintedCount = Object.keys(this.saved).length + Object.keys(this.savedLm).length;
     // saves are debounced inside the frame loop, which stops when the page is hidden (and iOS may then kill
     // a backgrounded Home Screen app): a splat right before swiping home is written out on the way out
     if (typeof window !== 'undefined' && typeof document !== 'undefined') {
@@ -136,11 +179,11 @@ export class PaintState {
     }
   }
 
-  /** Register a streamed-in building; applies any saved paint (no pop animation). */
-  register(index: number, stableId: number): boolean {
+  /** Register a streamed-in building (or a landmark, by its string key); applies any saved paint (no pop animation). */
+  register(index: number, stableId: number | string): boolean {
     this.stableToIndex.set(stableId, index);
     this.indexToStable.set(index, stableId);
-    const s = this.saved[stableId];
+    const s = typeof stableId === 'string' ? this.savedLm[stableId] : this.saved[stableId];
     if (s) {
       const o = index * 4;
       this.data[o] = s[1];
@@ -172,8 +215,9 @@ export class PaintState {
     this.dirty.add(index);
     const sid = this.indexToStable.get(index);
     if (sid !== undefined) {
-      if (rec.level > 0) this.saved[sid] = [rec.faction, rec.color, rec.level];
-      else delete this.saved[sid];
+      const store = typeof sid === 'string' ? this.savedLm : this.saved;
+      if (rec.level > 0) store[sid] = [rec.faction, rec.color, rec.level];
+      else delete store[sid];
       this.saveTimer = 0.8;
     }
     if (!was && rec.level > 0.5) this.paintedCount++;
@@ -183,11 +227,13 @@ export class PaintState {
   resetAll() {
     this.data.fill(0);
     this.saved = {};
+    this.savedLm = {};
     this.paintedCount = 0;
     this.texture.needsUpdate = true;
     this.dirty.clear();
     try {
       if (this.key) localStorage.removeItem(this.key);
+      localStorage.removeItem(this.lmStore);
     } catch {
       /* private mode */
     }
@@ -215,9 +261,9 @@ export class PaintState {
   }
 
   persist() {
-    if (!this.key) return;
     try {
-      localStorage.setItem(this.key, JSON.stringify(this.saved));
+      if (this.key) localStorage.setItem(this.key, JSON.stringify(this.saved));
+      localStorage.setItem(this.lmStore, JSON.stringify(this.savedLm));
     } catch {
       /* storage full or blocked: paint still works this session */
     }

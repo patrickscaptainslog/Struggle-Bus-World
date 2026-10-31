@@ -23,8 +23,8 @@ const withSeq = process.argv.includes('--seq');
 mkdirSync(out, { recursive: true });
 
 const STARTS = {
-  downtown: '?lat=37.7700&lon=-122.4300&heading=45&skipintro',
-  west: '?lat=37.7600&lon=-122.4800&heading=60&skipintro',
+  downtown: '?lat=37.7700&lon=-122.4300&heading=45&skipintro&nohud',
+  west: '?lat=37.7600&lon=-122.4800&heading=60&skipintro&nohud',
   opening: '',
   gate: '',
 };

@@ -5,7 +5,9 @@ export default defineConfig({
   base: './',
   server: { host: true, port: 5173 },
   build: {
-    target: 'es2022',
+    // the oldest parser that plays: iOS 15.0 (WebGL2's first). A class static block is a SyntaxError before Safari
+    // 16.4: the whole script would never run. Workers get the same target (tools/iosfloor.mjs checks the chunks)
+    target: 'safari15',
     assetsInlineLimit: 0,
     rollupOptions: {
       input: {

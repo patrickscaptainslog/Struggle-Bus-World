@@ -30,11 +30,14 @@ call), this is what we chose and why.
   one. Paint is still saved per building (smart persistence) and the blast's
   center still takes the next hue.
 - **Re-splat escalates**: level 1 full bloom → 2 rooftop garden → 3 Hundertwasser.
-- **Telephoto vista camera** (24° horizontal FOV, 175 m back) that tilts toward a
-  diorama when slow and levels toward the horizon when surging.
+- **Telephoto vista camera** (24° horizontal FOV, 155 m back; was 175) that tilts toward a
+  diorama when slow and levels toward the horizon when surging (see Look polish:
+  it now always keeps a sky band and the horizon at the top of the frame).
 - **Late-afternoon sun through thin fog** instead of flat light: flat light makes
   low-res 3D melt into one grey. Painted neighborhoods thin the fog above them.
 - **No HUD.** Belly glow = recharge. Place names appear on a diegetic street sign.
+  (Tilt and the turbo gears need a little: see "The HUD" below. It is gone
+  whenever it isn't being used, and a desktop has none at all.)
 
 ## Altitude (producer: "I want the bus to go up, high enough to view everything")
 - **Yoke on the same thumb.** Pull the thumb down = pull back = climb (up to
@@ -101,8 +104,9 @@ call), this is what we chose and why.
   to the snapped grid would flip them at every snap step). The sky-to-sea
   blend past the far plane mixes light levels; a dither crossfade drew
   horizontal streaks across the sky. Windows shrink below ~2 game pixels up
-  there and alias into moire: from the layer view they melt into a slightly
-  darker wall tone, building by building.
+  there and alias into moire: they melt into a slightly darker wall tone,
+  building by building (since feat/facade at every height, by each
+  building's on-screen pixel size: see Tower facades).
 - **Up high the city is what holds still.** The grid snaps at the depth of
   the ground under the screen center (not at the bus, whose 0.75 m snap
   step resampled every far roof on every frame), with its scale held in
@@ -133,8 +137,9 @@ call), this is what we chose and why.
   sliding with the window boiled), and softens to 0.85; trees switch LOD by
   3D distance from the lens.
 - **Dragon breath from altitude** flies along a ray 20° below the heading
-  from the bus, cast against roofs, trees and terrain (never a landmark's
-  collision post or a bridge deck), so it lands near the screen center where
+  from the bus, cast against roofs, trees, terrain and the landmarks' real
+  surfaces (never a landmark's collision post or a bridge deck), so it lands
+  near the screen center where
   the player is looking. Near the rooftops that ray lands under the nose and
   the classic range wins, so low shots are exactly as before (0.42 s); past
   the classic range the projectile flies on at 850 m/s (~2 s from the
@@ -449,6 +454,469 @@ cross-checked in the browser with `tools/feel.mjs`.
   114, 714.7k / 715.7k; FiDi 250 m 117 / 116, 820.5k / 820.5k. CPU work per
   frame 4.9 / 3.4, 3.8 / 4.3, 2.8 / 3.7, 2.5 / 2.9 ms (median of 11 frames on a
   SwiftShader host at load ~26: inside its noise).
+
+## Super splat (producer: "hold to charge up splat ... an ungodly amount of rainbow splat, like a torrent, a firehose ... then an obviously shown cooldown")
+- **Hold, don't tap.** A splat press held `holdThreshold` (0.3 s) charges,
+  shorter is the normal tap. The gesture is controls' (Input's INPUT CONTRACT,
+  "Tilt to fly" below): the SPLAT button in touch mode, the whole screen in
+  tilt mode, Space on a keyboard; a still thumb on the canvas in touch mode
+  steers, it never charges. Sliding off the button, a swipe, a lost pointer or
+  a lost focus cancels: the charge fizzles out with a power-down, no cooldown.
+- **Ten seconds to full** (`superCharge`), as the producer guessed. Released
+  under 30 % (`superMin`) it is just a splat (no cooldown: a long-ish tap must
+  not be punished). Released between 30 % and 100 %: a **mega blast**, the
+  tap's own breath (inhale, rear-up, jet, blast) scaled by the charge: radius
+  x1.6 -> x2.6 (`megaFloor`, `megaGain`; x1 at first: see "Outside judge" below),
+  a jet 1.5x -> 2.4x wider, hit-stop 6 -> 9 frames, thunder under the boom,
+  cooldown x the charge (30 s at 50 %). At
+  100 % the **firehose** lets go on its own (holding on can't waste it).
+- **The charge has to be felt with the sound off**, so it is on the bus, under
+  it, around it and in the meter at once: rainbow energy motes spiral in from
+  up to 115 m out (mostly from the city below) and land exactly in the mouth
+  (computed against the live mouth on the GPU, so a moving bus still swallows
+  them), up to ~950 a second; the belly band races through the rainbow, then
+  flickers white-hot from 62 %; the whole body glows, throbbing with a
+  heartbeat that races from 70 to 230 bpm (the same `heartInterval` drives the
+  audio's lub-dub and the bus's throb); it swells 16 %, shudders, wheezes,
+  its eye opens wide, steam puffs from the hatch; arcs crackle over the body
+  from 18 % (a static pool of points re-rolled 21 times a second on the GPU),
+  sparks fly off it from 25 %, a rainbow halo orbits it from 35 %; a rainbow
+  pinwheel spins around its drop shadow, a summoning circle on the roofs and
+  streets below (resolve pass, see "Merged with controls"); the camera creeps in 20 % (a dolly: translation only, the
+  pixel snap holds); the charge weighs the bus down to 60 % speed (struggle,
+  then release). Audio: a two-octave riser and hiss, the heartbeat, chord
+  tones shimmering over the last stretch. The first build's motes were
+  pastel (each hue's two lightest steps) and read as sprinkles; they are the
+  hues' saturated middle steps now, with a white-hot heart on the big ones.
+- **The firehose** pours for 4 s (`firehoseDuration`) along the breath's aim
+  (Aim.ts; at the rooftops it reaches 1.7x the breath's range, `firehoseReach`,
+  so a turn sweeps a wide arc; from up high it pours down along the aim ray,
+  mid-screen). It is one geyser whose landing point moves (`GeyserLive`):
+  every particle flies to where the stream was aimed when it left the mouth,
+  so as the bus turns the torrent bends into a sweeping arc across the city.
+  12 times a second (`firehoseRate`, at most one per frame) the point where
+  the stream is coming down right now (a 96-entry history of aim points and
+  their landing times: the paint follows the visible stream, not the aim)
+  takes a full 45 m blast (`firehoseRadius`, growing with the drop like a
+  tap's) through the normal Splatter: buildings bloom as the shockwave reaches
+  them, the ground and the trees are splattered, painted buildings escalate a
+  level per hit, at most every 0.4 s (`firehoseRepop`): L3 in about a second
+  under the stream. A per-building busy time keeps a later impact off a
+  building whose pop is still on its way (the plan reads levels at barf time:
+  without it the second of two overlapping impacts re-dealt a fresh
+  building's hue and flashed it grey). Impacts are timed to land as the
+  stream does, so about one blast is in flight at a time (GroundPaint has 4
+  live reveal slots). The bus is knocked back to 30 % of its speed and held
+  at 40 % (recoil), rears 0.24 rad and shudders; every impact kicks the
+  camera (translation only) and rings a bell climbing the chord over a
+  roaring bed (a soft-clipped chord drone, rushing pink noise, a sub) that
+  swells into a crescendo; the street sign pops when the stream sweeps into a
+  new neighborhood; it ends in a 90 m finale blast with 8 hit-stop frames.
+- **Flashes are capped at 3 a second** (`firehoseFlashes`): 12 palette
+  flashes a second would strobe (photosensitivity guidance: no more than 3
+  flashes a second).
+- **From up high the stream pours 3x faster** than the breath's projectile
+  (`firehoseSpeed`) and widens with the drop (`firehoseWidthDrop`): in the
+  first build it flew 1.2 s from 250 m, so a turning bus left its landing off
+  the edge of the screen, and a 20 m ribbon was a thread from 700 m away.
+- **Cooldown 60 s** (`superCooldown`), shown three ways: the meter ring drains
+  white, then refills dimly over the minute with the seconds left in the
+  middle (white digits); for the first 4 s (`superSpent`) the bus is spent
+  (dark smoke from the exhaust and the hatch, a heavy wheeze, a dim belly
+  band and hatch, a droopy eye, nose down, limping back up from 40 % speed);
+  when it is ready: a rising chime, a white pulse and pop of the meter, a
+  rainbow halo and sparks around the bus. Holding during the cooldown: a
+  damp-firework fizzle, the meter blinks red and shakes, a puff from the
+  hatch; a tap still splats, and so does the lift of that held press (only
+  the firehose blocks taps: the mouth is busy).
+- **The meter** (`src/ui/SuperMeter.ts`) is the only UI the super has: a
+  34 x 43 pixel canvas at 2x, palette colors, the pixel font (MEGA / HOSE under
+  the ring, seconds in it), in the HUD's bottom-center slot. No HUD at rest: it
+  shows only while charging, pouring or cooling down, and for 0.7 s of "ready"
+  under the chime (hidden, it doesn't redraw). So there is no HOLD hint any
+  more: the tutorial's job, if one is wanted. It redraws only when what it
+  shows changes.
+- **Particles stay in the existing pool** (8000): a hose impact throws a
+  smaller splash and burst and every fifth spatter blob (~260 particles, a tap
+  ~1100), bloom sparkles are fewer for hose blooms, the stream's rate is
+  scaled so as many particles are alive however long it flies. The charge's
+  motes, arcs and sparks are their own small pool (2400, one draw, drawn only
+  while alive).
+- **Nothing new persists** (the paint already does); the cooldown resets with
+  a reload.
+
+## Merged with controls: the super splat on the real gesture (MAIN d6fa4a6 vs NEXT)
+- **Controls' gesture and INPUT CONTRACT won.** `Input.ts` is main's, whole; supersplat's minimal hold and
+  `holdSlopPx` are gone, and so is the duplicate `config.splat.holdThreshold`. `tools/feel-sim/s_hold.ts` tested the
+  deleted gesture (a still thumb on the canvas charges): retired, `tools/controls-sim/s_gesture.ts` covers the press
+  (chargeStart at 317 ms in every scheme, cancelled on a slide, a blur, a pointercancel; run on NEXT, unchanged).
+  main.ts's stop-gap `onChargeEnd` (a held press splats) is replaced by `superSplat.chargeEnd`.
+- **No dead press.** The stop-gap's promise stays: under `superMin` a held press is a splat, and a press told "not
+  yet" during the cooldown splats on its lift too (a slow tap mustn't go unanswered because a minute's cooldown is
+  running). Checked through real Space presses: 0.6 s = a splat, no cooldown; 4.2 s = a mega, 25.4 s cooldown; 0.6 s in
+  the cooldown = "not yet", then a splat.
+- **A gear is never braked by the super.** `Flight.driven` (a gear or the boost is driving the speed, or a gear is
+  still braking out): the charge's weight, the firehose's hold and the spent limp (`speedScale`) and the firehose's
+  kick all stand aside. The charge is allowed at G1: the firehose at 450 m/s lays a rainbow stripe across the city, and
+  that is the best thing a gear can do. `supersplat.mjs jet`: 441.8 -> 450 m/s all through the charge, the pour and the
+  limp (scale 0.4 -> 1), 49 impacts; the shift down still brakes at the gear's own rate (204, 90, 49 m/s). Before this
+  decision a charge at G1 would have been 450 -> 135 m/s. The classic bus is unchanged.
+- **The sign goes through the same queue as a blast's** (`queueSign(ref, hue, cx, cz, r)`): beside the blast, after
+  the wave, with its retries. The hose branch keeps `lastBlast` and `landmarkHit`, so the stream floods landmarks.
+- **The summoning circle moved into the resolve pass**, beside the hero shadow it used to be (`setHeroCircle`, the
+  shadow's `dropShadow` centre, axes and snap compensation): the old mesh is gone with look's shadow, and a new flat
+  mesh would have floated over roof edges and cost a draw and a program (a stall risk at the first charge). Now it lies
+  on whatever faces up below the bus, breaks over a parapet as the shadow does, costs no draw and no program, and the
+  shadow stays in its middle. It is a hue ramp's own steps 5-6, stippled gaps: nothing new leaves the palette. (The
+  first pass ran up to step 7 and went pastel at a full charge; the saturated steps read better.) Its spin is integrated
+  now: `uTime * rate` lurched faster and faster as the rate climbed.
+- **The first charge never stalls.** `SuperFx` is the only new material. Its Points are not visible until a charge, so
+  like TurboFx it draws its (unlit) arc pool for its first 3 frames; `object` is ready for perf/load's
+  `registerWarm('super fx', () => fx.object)`. `supersplat.mjs first`, real time: the first charge's worst frame gap
+  17.1 ms, the second's 17.1 ms, no links.
+- **`Blast.super = {kind, charge, id}`** (STAGES.md 4.5): mega, hose and closer tagged, the hose's impacts and closer
+  sharing the super's serial, so the stage engine can count one hit per area per super and the swath's impacts.
+- **The closer waits for the impacts in flight** (`Splatter.inFlight`): it read paint levels at barf time, took blocks
+  the last impact was about to paint for grey and re-dealt their hue. L3 under the sweep 22 -> 27, 4.30 -> 4.37 s.
+- **Trees take their first colour only from hose impacts** (`paintTrees(b, true)`): they ran through all three levels
+  in a quarter second. Mega and closer still escalate them. One Vector3 and one hue array per bloom are gone too
+  (taps gain).
+- **The numbers** (393 x 852 at 3x, this laptop's GPU, fixed 1/30 s; `tools/supersplat.mjs`, `blast.mjs`):
+
+  | Alamo / Ladies | work median / p90 ms | draws median (max) | triangles median (max) |
+  |---|---|---|---|
+  | MAIN cruise | 5.3 / 6.8 | 117 (119) | 1.15M (1.18M) |
+  | NEXT cruise | 4.5 / 5.4 | 117 (119) | 1.15M (1.18M) |
+  | MAIN tap | 5.0 / 6.2 | 115 (117) | 1.14M (1.15M) |
+  | NEXT tap | 4.8 / 5.9 | 115 (117) | 1.15M (1.15M) |
+  | NEXT firehose | 3.7 / 6.5 | 138 (149) | 1.24M (1.38M) |
+  | NEXT after it | 2.2 / 2.8 | 138 (143) | 1.30M (1.33M) |
+
+  `blast.mjs perf`, MAIN / NEXT: blast 4.4 / 4.5 ms, 148 / 148 draws; painted 3.1 / 2.8 ms. One upload per texture per
+  frame all through the pour (`perTexMax` 1, no full uploads), points 10.4k at most (8000 pool + the super's). Real time,
+  uncapped (60 Hz here): the pour from the rooftops p95 16.9 ms; from 250 m p95 33.5 ms, worst 83 ms, 29 of 251 frames
+  over 33 ms. Firehose offline: 49 impacts, 12.3/s, one blast in flight, 91 buildings, L3 27, cooldown 57.7 s; mega at
+  50 %: radius 90 m, cooldown 30.2 s; audio peak 0.81, nothing over 0.99.
+- **Not this branch's, seen here:** the street sign's and the rooftop gardens' programs link on their first use, in
+  flight: 170 ms at the first sign, ~300 ms at the first L2 and L3, on MAIN too (`blast.mjs perf`: 172 and 332 ms). A
+  firehose reaches L2 within a second, so a player's first firehose has those two hitches until perf/load's warm-up lands
+  (`registerWarm('roof sprouts', ...)` is there already). And 250 m over Alamo is 1.8M triangles and 200 draws at cruise
+  on MAIN too, over the budget; the firehose adds 22 draws and ~100k triangles on top (`__stats`).
+- **Merge review, confirmed findings** (reviewed 89663c5; all on this laptop's GPU, nothing yet on a real iPhone):
+  - **A super's blast is capped by its area** (`config.splat.megaBuildingsCap` 480; mega and closer, not taps or hose
+    impacts). The cap grew with r and stopped at 96 while the buildings in reach grow with r squared: the longer the
+    charge, the more grey blocks inside a rainbow street grid. The cap now is `maxBuildings * (r / blastRadius)^2`, up to
+    480. It lives in `barf` (a super's tag, not a hose) rather than a new `BarfOpts.cap`, so the closer, which had the
+    same bug, needed no second copy. Buildings by centroid inside r, painted of them, before -> after: Outer Sunset 98 %,
+    r 161: 96 of 192 -> 192 of 192; Alamo 98 %, r 159: 141 of 141 (it was 96 of 112 inside 0.9 r); full charge near Lower
+    Haight from 283 m, r 298: 96 of 477 -> 473 of 473 (farthest painted 158 -> 298 m); Outer Sunset from 258 m, r 285: 479
+    of 505; closer from 240 m, r 165: 183 of 183. Spots under the old cap stay as they were (Mission 72 of 72). The new
+    cap bites only near the top of the climb: Outer Sunset from 371 m, r 343: 480 of 808, farthest 305 m, nearest first,
+    so what stays grey is the rim, and the picture still reads as one disc.
+    Cost: `barf` 28-45 ms and the release frame 38-53 ms (it was ~41 ms at the old cap), once per cooldown; `deal`'s
+    O(n^2) stayed small enough to leave. Taps unchanged (`blast.mjs perf`: 148 draws; 7/7 glint == hit, 48/48 carves).
+    Draws: up to 225 at 283 m, where cruise is already ~200 (see above); blooms add no draws by design, but this run has
+    no A/B. Sparkles reach the 8000-point pool at these sizes. Paint survives a reload (109 buildings, 2575 ground samples).
+  - **The reviewer's unexplained 180 ms frame ~3 s after release is the first street sign's link**: `info.programs` goes
+    21 -> 23 on that very frame (176 ms). Not the cap; it costs 22 ms on a later page of the same browser.
+  - **First firehose, corrected:** not "two hitches": see HANDOFF "Known issues" (gaps 333, 250, 250, 217, 150, 133 ms
+    in a fresh browser, five programs). Not fixed here: perf/load's warm-up is the fix, and it conflicts in `main.ts`,
+    `PixelPipeline.ts`, `City.ts` and DECISIONS, so it is merged after this and deployed with it. **Measure links in a
+    fresh browser:** on a second page the same run shows nothing over 17 ms, because the links are cached.
+  - **"No press is dead" now holds across the end of the cooldown:** a press told "not yet" that is still held when the
+    cooldown ends splats on its lift. Real Space press, belly full: `lastShot` moves. (A belly still refilling gets the
+    tap's denied sound, not silence.)
+  - **A mega with a part-full belly stops at the wall** (`Aimer.aimShot`: the aim point, the pick, `occlude`, the same
+    Shot as `fire()`): `update()` keeps no target while the belly refills, so that branch had skipped the rule that the
+    jet never flies through a building. FiDi, belly 0.5: `wall: true`, target = the wall that glinted (16014), landing on
+    its face, no longer ~46 m behind it.
+## Super splat, outside judge round 1: the first pour, the floor, the hold (MAIN d6fa4a6 vs NEXT)
+The judge failed the branch (`shots/local/judge-supersplat/round-1/REPORT.md`, untracked): every player's first firehose
+hitched five times, and a hold under ~50 % was a tap with a lockout. All numbers: 393 x 852 at 3x, real Edge, this
+laptop's UHD 620, a fresh browser per run.
+- **The first pour's cost was the links after all.** The judge's "1.4 ms" timed `LINK_STATUS`, which three.js doesn't
+  read first: a CPU profile and every GL call timed show `getProgramInfoLog` (three's first query, where the main
+  thread waits for the link) at 939 ms over the pour, 400 ms of it in one frame. The rest of the gaps were ANGLE's
+  draw-time compiles in the GPU process. Five programs: the gardens' batches and sun twins, the sign's blade and caster.
+- **perf/load's warm-up is on this branch now, as a kit.** `src/render/warmup.ts` is that branch's file, byte for byte,
+  with `PixelPipeline`'s warm section and `registerWarm('roof sprouts', ...)`, so its merge lands on top. Boot is NOT
+  perf/load's: nothing else moved. `main.ts` warms the post passes, the gardens, the signs and `SuperFx` after
+  `onResize()`, in parallel (`KHR_parallel_shader_compile`), and the first frame waits at most `render.warmWait` (6 s; it
+  goes on in the background past that, and no phone waits forever on a compile). `SuperFx`'s own 3-frame warm-up is gone.
+  Report here: 10 programs, 6 draw rounds, done in 1.55 s, during the city's download: cold load to ready 10.4-10.8 s vs
+  10.1-10.6 s before (it hides under a 7.5 s first-frame compile perf/load still has to fix).
+- **One fix to the kit:** `warmDraw` binds the sun's target first even with no sun proxy that round. A scene proxy drawn
+  before the sun map's first use sampled a depth texture that didn't exist yet: GL dropped the draw (`INVALID_OPERATION:
+  Mismatch between texture format and sampler type`, seen once in about ten boots). Port this to perf/load when merging.
+- **Numbers, first firehose, rAF gaps ms p50 / p95 / p99 / max:** before 16.7 / 16.9 / 250 / 400 (5 gaps over 100);
+  after, 8 fresh browsers: 16.7 / 16.8 / 16.9 / 17.5 at worst, no gap over 18, no long task, 0 programs linked in flight.
+  A first tap: 3 gaps of 133-233 ms -> one, the first gesture's `audio.unlock()` (183 ms, HANDOFF known issue). Over
+  never-painted ground ~860 m on (new sprout cells): max 17 ms. Later pours in the painted block: p95 17-33 ms, max 50, in
+  the judge's range too (the same block, heavier with every pour on this iGPU; no long task, nothing to warm).
+- **A mega has a floor.** `megaFloor` 1.6 at `superMin` (and `megaWidthFloor` 1.5, `megaHitStopFloor` 6, a harder kick),
+  rising to the same x2.6 near a full charge. The judge's spot, 40 %: radius 74.9 -> 105.6 m, painted within 160 m of the
+  aim 32 of 102 -> 53 of 102 (a tap: 34 of 139 by MAIN's aim at that spot); cooldown unchanged, 24 s, for an unmistakable
+  blast. The cost of the bigger blast: `megaBuildingsCap` already scales with its area.
+- **The hold is taught once.** Under a press nothing said it existed. `HOLD SPLAT TO CHARGE` (touch), `HOLD TO CHARGE`
+  (tilt), `HOLD SPACE TO CHARGE` (keyboard), through `hud.toast`, when the belly first fills again after a splat: the
+  player knows the tap by then. Once a session, until a mega or a firehose (`strugglebus.superhint.v1`, a per-viewer
+  convenience in localStorage: lost, the line just shows again). Checked by real touches: shown 4.9 s in; no second
+  line on the next refill; none after a reload once a mega was fired.
+- **The motes are a funnel, not a cloud.** They read as confetti drifting across the screen. Now six ribs, one hue each,
+  twist down a cone from the mouth along the nose, dipping toward the city (`funnelDip`, `funnelOpen`, `funnelTwist`,
+  `funnelScatter`), computed in the vertex shader from the live mouth and axis as before, growing in far out and thinning
+  as they rush in. Same one draw, no CPU per mote after its birth. The rate starts at 20 % of full (10 % read as nothing).
+- **The summoning circle no longer splits.** On "whatever faces up" it broke in two across a roof and the street at its
+  base, with the parallax between them. Each pixel's ray now meets one plane through the wheels (the drop shadow's
+  underside y): one unbroken disc around the bus, covered by what stands in front of the plane, over any surface below
+  it. It reads the same at street level and from 250 m. No draw, no program, the same palette steps.
+- **The ground under a pour is one picture.** Twelve impacts a second, each its own pinwheel, was a 6-hue patchwork. A
+  solid hue per impact, climbing the rainbow, was tried first: the bus crawls while it pours, so discs overlap
+  nearly whole, and the ragged rims of the last few hues stayed a quilt. Now hue is a function of the ground point, not
+  the impact (`LAYOUT_BANDS`, `bandHue`): rainbow rings around where the pour first landed, `firehoseBand` 17 m wide
+  (grown with the drop like the blast), their edges wobbling with the world. Overlapping impacts agree by construction,
+  the closer included, and a swept stream paints arcs of one rainbow. Roofs keep the dealt rainbow. Generic: no city data.
+  `ox`, `oz` travel on the spec; older saved specs still read. Saved tiles are masks, so rings survive a reload (checked).
+  `work` through the pour stays p95 5.2 ms, max 12 ms, 116-172 draws, at most 1.35M triangles, 10.4k points.
+- **`f_sproutVertex`'s warning is gone** (`SproutV` fully initialized, one return: FXC warns on a struct's early return).
+- Idle parity holds: 60 fps at all six `fps.mjs` spots, 124 / 135 / 164 and 112 / 143 / 72 draws, 1.20 / 1.23 / 1.40M and
+  0.71 / 0.87 / 0.48M triangles, as before; 1 % lows 53-57. Strobe: 0 frames over 30 % near-white (max 20 % street, 26 % at 250 m).
+  Bundle 1095 -> 1111 KB (1053 on MAIN); programs at ready 21 -> 26 (all were built in flight before).
+
+## Tilt to fly, touch to fly, turbo gears (producer: "world class phone tilt to fly, on by default for phones"; "fly from SF to Tokyo across the Pacific, manually, using some sort of turbo modes")
+- **Tilt is the default on phones; touch is the fallback and an option.** A
+  desktop (fine pointer + hover) flies the keyboard + mouse bungee as before.
+  On a phone the first touch is a pixel title card, "TILT TO FLY": its tap is
+  the user gesture iOS needs for `DeviceOrientationEvent.requestPermission()`
+  (called synchronously in `touchend`) and the moment the neutral pose is
+  taken. Where no permission is needed the sensor is probed quietly first and
+  only a phone that really sends motion gets the card. No sensor, a refusal,
+  or no event within 1 s (`config.tilt.eventTimeout`; an iframe that refuses
+  motion sensors, like the claude.ai preview) falls back to touch with no error
+  (a "DRAG TO STEER / TAP TO SPLAT" hint), remembered for the session only
+  (`sessionStorage strugglebus.notilt`), never as the player's choice; the
+  player's own choice in settings or "USE TOUCH INSTEAD" persists
+  (`localStorage strugglebus.controls.v1`: mode, sensitivity, sound).
+  `?controls=tilt|touch|keyboard` forces a scheme.
+- **Only gravity steers.** The fused attitude (gyro + accelerometer:
+  `deviceorientation`) becomes a quaternion (W3C Z-X'-Y'' = three's 'ZXY')
+  and gravity is read in the device frame through it. The compass angle
+  cancels out exactly, so turning around, a magnetometer settling or yaw drift
+  never steers (a full 360 degree turn while held: stick 0.000), and gravity
+  is continuous where the Euler angles flip (beta through +-90 degrees, the
+  phone pointing up: a sweep from 20 degrees back to 40 past upright has its
+  gamma flip and a monotonic pitch, largest step 0.54 degrees per sample).
+  It is read in the screen frame (screen.orientation.angle), relative to a
+  neutral gravity, as the swing (shortest arc) from neutral to now split
+  along the neutral frame's horizontal axes: the screen's right axis (pitch)
+  and the horizontal axis through the screen (roll). That split is the same
+  held flat, at 45 degrees or upright, in portrait and landscape (identical
+  curves in all seven holds tested, no sign errors, cross-talk < 0.05). Turning
+  the phone to landscape keeps screen-frame gravity, so the neutral stays put
+  and an eased recenter follows 0.35 s after the screen turns.
+- **Mapping: the thumb's exact stick.** Roll -> sx (right edge down = carve
+  right), pitch -> sy (top edge toward you = pull back = climb; away = nose
+  down: dive, and at the rooftops surge): it feeds Input.state.stretch, so
+  Flight, the camera and the aim see exactly what a thumb would make and the
+  feel tuning stays shared. Dead zones 1.4 / 2.2 degrees, expo 0.45 (fine near
+  center), full authority at 30 / 26 degrees divided by the sensitivity
+  (settings: 0.5 to 2 in 7 steps). Pitch starts at the yoke's 14 % dead band
+  past its own dead zone (`yokeComp`), so a gentle tilt climbs gently instead
+  of doing nothing for 7 degrees. Past 58 degrees from neutral the stick fades
+  out (the phone is being turned or put down). Tilt -> flight (flat world,
+  3 s): roll 5 / 15 / 30 degrees -> sx 0.07 / 0.32 / 1.0 -> 0.10 / 0.46 /
+  1.44 rad/s; top toward you 5 / 15 / 26 -> climb 8 / 16 / 40 m/s; away 5 / 15
+  / 26 -> dive 2 / 15 / 48 m/s up high, surge 35 / 53 / 99 m/s at the rooftops.
+- **No lag, no jitter.** One-Euro filter per axis on the sample clock, its
+  rate from raw sample to raw sample (the paper's difference against the
+  filtered value reads a 0.05 degree lag at 60 Hz as 3 degrees/s, which broke
+  both the prediction and the stillness test), then a prediction to the frame
+  time from the filtered rate (the sample's age plus the filter's own lag,
+  capped at 20 ms). Parameters from a sweep (tools/controls-sim/s_tune.ts):
+  added latency vs the true angle at frame time 1 / 1.5 / 3 / 7.5 / 9.5 ms for
+  0.5 / 1 / 1 (frame on the sample) / 2 / 0.25 Hz sweeps (one 60 Hz frame is
+  16.7 ms; a plain one-pole at the rest cutoff would add 100 ms). At rest with
+  0.15 degree sensor noise and a 0.4 degree 9 Hz tremor: raw 0.33 degree std
+  -> 0.14, and 0 of 600 frames leave the dead zone; a held 12 degree carve
+  through the same noise: sx 0.227 +- 0.005.
+- **Calibration and recentering.** The neutral is the mean of the first
+  0.18 s of samples after the card's tap. RECENTER (top-right button in tilt
+  mode, and in settings) eases the neutral to the current pose over 0.25 s
+  (never a jump). Auto-recenter: held still (smoothed drift under 4
+  degrees/s for 1.4 s), posture offsets drift back with a 6 s time constant,
+  pitch within 4.5 degrees and roll within 2.5 (the wider bands first tried
+  walked the neutral away under a staircase of small held tilts). s_tilt: a
+  4 degree sag (sy 0.16) is back to 0 after ~6 s; a held 6 degree climb stays
+  at sy -0.22 for good, it is never "corrected"; a staircase of held
+  -4 / -8 / -12 / -16 degrees reads -1 / -5 / -9 / -13: the neutral walks 3
+  degrees and stops, and returning to 0 reads 0.8 (inside the dead zone); a
+  15 degree carve held 10 s still carves at sx 0.31.
+- **Splat input (the shared contract with feat/supersplat).** A tap splats
+  (onTap); a press held `config.splat.holdThreshold` (0.3 s) without turning
+  into a steer or swipe starts the super splat's charge (onChargeStart,
+  state.chargeHeld = seconds since the press, onChargeEnd(held, cancelled);
+  cancelled = slid off, pointercancel, a lost touch, focus lost). Tilt mode:
+  the whole screen is the splat button, a vertical swipe (38 px within
+  450 ms, mostly vertical) shifts a turbo gear, swipe up and keep the finger
+  down boosts, a second finger while the first is held taps. Touch mode: the
+  bungee is untouched (a still thumb past 230 ms steers at neutral, as ever;
+  it never charges), a dedicated splat button in the thumb zone taps and
+  holds, the second-finger tap stays. Keyboard: Space tap / hold, E / Q (and
+  PageUp / PageDown) shift, Shift boosts. Presses are timed by their events'
+  timestamps and a charge is confirmed on a second frame, so a release queued
+  behind one slow frame is still a tap (found on SwiftShader, where a 90 ms
+  tap spanned a 5 s frame and read as a hold). The full tap / hold / drag /
+  swipe table (36 gestures, offline through the real Input):
+  shots/controls/sim/gestures.json. Until the super splat lands a press held
+  past the threshold still splats on release (`input.onChargeEnd` in main.ts,
+  a stop-gap feat/supersplat replaces): no press is ever dead.
+- **Turbo gears.** G0 is the classic flight (30 m/s released, 112 surging).
+  G1 "Jet" 450 m/s needs 150 m above the ground: shifted up low, the gear's
+  floor rises under the bus at 75 m/s (Flight rides it like a higher roof:
+  the rooftop floor, the hard floor and `lift` are untouched) while it claws
+  up at full surge, straining (wheeze, a squint, a rattle of a game pixel or
+  two, backfires, a rising whine); at its height the gear bites (two backfire
+  pops, a camera jolt, a fov punch) and spools up; passing Mach 1 it booms (a
+  white-hot vapor cone with a rainbow rim, a ring of vapor and rainbow puffs,
+  a palette flash, a jolt, the N-wave's two cracks and a rolling rumble), and
+  a six-hue contrail and speed lines stream behind it. Measured on the real
+  city at Alamo Square: shifted at 48 m, 138 m 1.6 s later, engaged, Mach 1
+  1.0 s after that, 449 m/s 4 s after engaging, riding 150-165 m up. A
+  downshift brakes (the spool and brake rates ease in over 0.35 s: no jolt):
+  460 -> 210 m/s in 1 s, 94 in 2 s, 33 in 4 s, holding the altitude (the yoke
+  dives back down). Holding the turbo boosts the gear x1.3 (G1: 571 m/s; G0: a
+  full surge). Steering authority falls as (surge / speed)^0.55: turn radius
+  18 m cruising, 132 m surging, 1.3 km at G1 (0.35 rad/s, a U-turn in 9 s);
+  the yoke's climb and dive grow as (speed / surge)^0.5.
+- **G2 "Stratos" (4.5 km/s, 2 km up) and G3 "Rainbow Warp" (30 km/s, 10 km
+  up: SF -> Tokyo's 8,300 km in ~4.6 min) are implemented and LOCKED**
+  behind `config.turbo.worldTravel = false`: shifting up past G1 answers
+  "LOCKED: WORLD TRAVEL COMING" (a red banner with a shake, a clunk and two
+  low buzzes). With the flag on (offline): G2 climbs to 2 km in 3.3 s, the
+  soft ceiling rises with the gear, it cruises at 4,500 m/s, the camera stays
+  above and behind the bus. The world beyond the map doesn't exist yet: the
+  map-edge homing is unchanged, and near the edge a gear's speed fades back
+  to the surge over the distance its brake needs, so the homing can turn the
+  bus around (735 m past the edge at most at G1).
+- **Camera with speed.** The follow spring's own lag already pulls the
+  camera back ~2 x speed / (2 pi followHz) (77 m at 450 m/s): on top of it a
+  25 m pull, a 5 degree wider lens and the bus 1.25x (it still reads), with
+  40 % of the lag cancelled at G1 and all of it from G2 on (it was 900 m at
+  4.5 km/s and, in a 700 m/s climb, dropped the camera under the bus). The
+  lens follows the turbo speed eased and snaps exactly once close, so a held
+  gear's lens is perfectly still (a breathing lens rescales the snapped pixel
+  grid); the shift and the boom punch the fov on a damped spring. G1 at
+  speed: camera 243 m from the bus (175 at cruise), 82 m above it, 29 degrees.
+- **The HUD: the no-HUD rule still holds at rest.** Tilt needs a recenter and
+  a settings panel, touch needs buttons for a hold and for gears; nothing else
+  gets to stay. Flying tilt with nothing happening the screen is empty. Each
+  thing earns its place:
+  - settings + recenter (phones): fade out 6 s after the last touch or change
+    of scheme; a tap in that corner only brings them back (faded out they
+    catch the tap instead of splatting), the next one works;
+  - a desktop has no buttons: Esc opens the settings, which are also its manual
+    (the keys), and a first visit gets one toast with the keys;
+  - the gear readout: while a gear lifts, for 2.5 s after it shifts or bites,
+    while the boost is held, and that's all; holding G1 the contrail and the
+    wind say it (it used to stay for as long as a gear was in);
+  - LOCKED and toasts are moments; the prompt is the one modal, because iOS
+    needs a tap to ask for motion;
+  - the touch pad (SPLAT, TURBO lever) stays: touch is the fallback, and it is
+    the only way to hold or shift there;
+  - the credits line stays when set (attribution is a duty, not a choice).
+  Everything is a pixel canvas in palette colors (the street sign's bitmap font
+  + a few HUD glyphs, an ink outline on every glyph so it reads on a bright
+  phone, dithered dimmers instead of alpha) and safe-area aware. The super
+  splat's meter mounts into `hud.slot('super')` (176 x 86, its child centered
+  on the floor; the meter is 68 x 86).
+- **When tilt can't fly.** The reason decides the message. iOS refused: toast
+  MOTION ACCESS OFF / DRAG TO STEER, the settings say MOTION DENIED: REOPEN
+  SAFARI (it won't ask again until Safari restarts) and the TILT button stays,
+  as a retry. No sensor, or silent past the 1 s timeout: DRAG TO STEER / TAP TO
+  SPLAT, TILT is disabled, the settings say NO MOTION SENSOR HERE. Both last the
+  session only (never saved as the player's choice); USE TOUCH INSTEAD is saved.
+  iOS is only ever asked from the card's touchend: the settings' TILT button
+  reopens the card rather than calling requestPermission from a pointerup
+  (unverified on WebKit), and the motion request runs before the audio unlock,
+  first thing in the gesture. Recent Chromium desktop builds expose
+  requestPermission too, so such a device gets the card rather than the probe;
+  tools/controls.mjs clears it on pages that mock nothing. Tilt needs HTTPS (or
+  localhost): over http on the LAN phones fall back to touch.
+- **Cost.** Turbo FX: 3 draws (contrail, speed lines, vapor cone), drawn only
+  while visible; one buffer upload per frame for the contrail (96 samples x
+  2 vertices x 9 floats), speed lines and the cone are uniforms only; no
+  per-frame allocations (the HUD compares numbers, no string keys, and redraws
+  its small canvases and writes styles only when what it shows changes). Tilt:
+  ~1 us per sample, no allocation. The turbo voice attaches when the turbo first
+  sounds and detaches after 2 s of silence: its 5 looping sources and 11 other
+  nodes are no audio-thread cost in a session that never shifts.
+- **Controls QA (2026-10-30, main e368d29 merged; Intel UHD 620 through Edge,
+  iPhone 15 viewport, 390 px; `tools/controls.mjs`, `tools/fps.mjs`).**
+  - MAIN vs NEXT at Alamo Square, 60 frames each, A B A B: draws 132 / 132 and
+    132 / 131; triangles 1.237M / 1.237M and 1.237M / 1.258M; CPU work 5.5 / 6.2
+    and 6.0 / 5.6 ms (the order moves it as much as the build does).
+  - `fps.mjs` 8 s, alamo + fidi at street / 250 m / ceiling: MAIN and NEXT both
+    60 median, the same draws (64-161) and triangles (0.43-1.2M) at every spot.
+  - G1 at the jet, effects toggled on alternate frames: +0 to +4 draws (the
+    median is the city's, 22 m on per frame), no measurable CPU work.
+  - G1 flown in real time, west side -> downtown -> the bay: 58-60 fps, draws
+    106-118 median, 143 max, triangles at most 1.26M, in budget. Frame times have
+    p99 27-66 ms and spikes up to 76 ms (5 frames over 50 ms crossing downtown),
+    CPU work spiking to 64 ms: chunks streaming in at 5x the surge speed. G0 on
+    the same run: 60 fps, p99 21 ms, max 35. The budgeted streaming in polish/perf
+    is the fix; not touched here.
+  - `shots.mjs` grey / painted / opening: pixel diff MAIN vs NEXT 39 / 62 / 4.8 %,
+    MAIN vs MAIN again 35 / 62 / 4.5 %: nothing but the run's own timing.
+    `feel.mjs` taps 7/7 glint == hit on both.
+  - In the real page: first gesture stalls 170-240 ms inside audio.unlock (the
+    sound graph; on main too). `flows`: iOS refused / throwing / silent, settings
+    retry, reload in the same tab, Android probe, fade and wake, keyboard + Esc
+    all correct; both asks in a touchend. The first run caught a real bug: the
+    click after the settings tap landed on the card it had just opened and
+    dismissed it (the tap now swallows its click, and the card ignores clicks
+    for its first 450 ms).
+  - NOT measured: a real iPhone or Android phone. The iOS sheet, A15 fps at G0
+    and G1, the feel of the tilt curve and the WebKit gesture rules are synthetic
+    or reasoned here, and need the HTTPS preview.
+- **Outside review of the controls (2026-10-30): what it caught, what changed.**
+  Every capture tool passes `&nohud`, so nobody had looked at a first iPhone run.
+  - **The opening waits for the card.** The TILT TO FLY card used to sit over the
+    Golden Gate while the opening played behind it, so the first hero shot went by
+    unseen. `Controls.holdOpening` holds the opening at dt = 0 (hit-stop's path)
+    through the card, the iOS sheet and the sensor settling; `?skipintro` and
+    `&nohud` pages never hold. The hold can't hang: refused, silent and
+    one-stray-event sensors all let it go (`Tilt.ts` now times out `calibrating`
+    too, which had no timeout), and the Android probe holds for at most ~1.2 s
+    with no card. The card's touch controls hide with it and stay away behind the
+    iOS sheet; the card and USE TOUCH INSTEAD sit either side of the waiting bus.
+  - **A gear can't lift the bus over the deck.** The opening's lock only clamped
+    the yoke; G1 raised the floor and took the low camera through the cables at
+    337 m/s. A shift in the gate is now queued, not dropped, since the game itself
+    says SWIPE UP FOR TURBO: the bus threads the deck at 48 m/s and y 5, the gate
+    clears, and the queued swipe launches it. (No press is ever dead.) The toast
+    over the opening says only TILT TO STEER; the turbo line comes at the gate,
+    unless they already swiped.
+  - **The press commits, on every source.** Aimer dropped its latch every frame
+    while `dragging`, and tilt's dragging means the phone is banked, so the glint
+    could swap under the finger. The same held for the SPLAT button and Space
+    while something else steers (found following the fix, not in the review). The
+    latch survives while tilt is flying or `input.pressHeld`; only touch's bungee
+    thumb thaws it. Tilt carves: latch held 63/63 (was 0/48 banked), the glint at
+    the press == hit 48/48; SPLAT button while steering 14/14. feel taps still 7/7.
+    `adv latch`'s 2 "mismatches" at gamma -20 compare a sample from before the
+    press lands (the loop keeps running until CDP's touch arrives), with the latch
+    held 16/16 and the glint at the lift == hit 16/16.
+  - **G0's boost is the classic rate.** It went through the gear spool, slower
+    than not boosting: 60 / 80 m/s in 0.57 / 0.95 s, now 0.17 / 0.33 s (push alone
+    0.20 / 0.45 s).
+  - **A quick tilt tap forgives like a touch tap:** 26 px within 150 ms (16 and
+    22 px wander were dead presses, now taps).
+  - Measured after: fps.mjs 60 median at all 6 spots, 1% lows 47.6-56.5, draws
+    75-186, triangles 0.49-1.52M (the same as MAIN; 1.52M at the Alamo ceiling is
+    just over budget on both). shots.mjs 127 draws / 1.211M grey. G1 over the west
+    side in real time: p99 33 ms, max 67-83 ms across runs (it was logged as 76 ms
+    downtown); polish/perf's budgeted streaming still has to fix that, and G1 must
+    be re-measured on an A15 after that merge.
 
 ## Data
 - **OpenStreetMap, as much as possible** (producer: "Use OpenStreetMap as much
@@ -770,6 +1238,160 @@ cross-checked in the browser with `tools/feel.mjs`.
   footprints are capped at 8 m and never LiDAR'd (Sutro, Transamerica), and
   LiDAR-only detection keeps away from landmarks and bridge decks.
 
+## Tower facades (producer: "very disappointed with the details of the skyscrapers")
+- **Six facade families instead of one window grid** (`src/world/towerStyles.ts`,
+  chosen in the mesher, no re-bake): glass curtain wall (mullions, spandrels,
+  calm sky-reflection bands, a few dark / lit panes, mechanical floors every 20
+  floors), pre-war masonry (pale stone, paired punched windows, deco piers,
+  rusticated arcade base, cornice and attic, round-headed top floors),
+  1960s-70s horizontal bands, 1960s-70s vertical fins (they hide the glass when
+  seen obliquely), dark granite with bright slots (555 California) and white
+  precast with deep vertical slots (Embarcadero Center). A building is chosen by
+  height class, district (FiDi, Union Square / Nob Hill, Civic Center, Rincon /
+  Transbay, SoMa, Mission Bay, by Market Street), footprint (big slabs lean to
+  bands) and a hash of its stable id; tower-on-podium blocks can wear an older
+  podium family. Towers and commercial / civic blocks >= 16 m get one (TOWER
+  >= 14 m), outside downtown only from 40 m: 795 buildings in SF.
+- **Icons by lat/lon, not by id**: a small table (Salesforce, 181 Fremont, 555
+  California, Millennium, Embarcadero Center 1-4, 345 and 101 California, One
+  Rincon Hill, 50 Fremont, 44 Montgomery, One Market, the Hyatt) matched by the
+  footprint that contains the point and a minimum height, so a re-bake that
+  renumbers ids keeps them. Positions go through the bake's own tmerc
+  (`llToLocal`, exact to centimeters), not the flat-earth scale `main.ts` uses
+  for `?lat/?lon`.
+- **Every tower has a base and a top**: two tall ground floors of storefront
+  glass between piers over a dark entrance band (masonry: rusticated arcades);
+  the top is a mechanical band (louvers, no windows), a cornice (masonry), a
+  softly lit band (a quarter of the glass towers >= 60 m) or Salesforce's
+  lattice. The aim glint lifts a tower facade in whole steps of its fogged
+  ramp (+1, +1 more at the sweep), not by 0.13 of pre-fog light after it,
+  which fog rounded away or dithered. LiDAR's small rooftop boxes are mechanical penthouses (solid,
+  louvered); setbacks get a coping line. Rows count from the true ground on every
+  tier; every wall is stretched to a whole number of column modules so corners
+  land on piers and columns run straight up the tower; a tapering face keeps its
+  columns (they converge with it: before, its u was scaled about the perimeter
+  start, which slanted every column and drew Salesforce's diagonal moire).
+- **No dither on a tower facade**: its light is chosen in whole ramp steps after
+  the resolve's atmospheric perspective (mirrored in the building shader) and
+  written so it lands exactly on them. Pattern contrast still compresses with
+  fog, by whole steps.
+- **Facade LOD by size on screen, per building and face** (never per pixel, so
+  no line crosses a wall): the size of a game pixel at the building (its axis
+  point nearest the camera, jittered +-12 % per building so no ring shows) and
+  each face's foreshortening decide: columns while a module is >= 3 game px,
+  floors while a floor is >= 4 px, then a flat wall tone. Far away a facade
+  keeps its rhythm as one-pixel lines at 2x / 4x / 8x the module (>= 3-4 px
+  apart, sparser as the pixels grow, none beyond 3 m per pixel or in heavy
+  fog): slab lines and mechanical floors on glass, Salesforce's sunshades,
+  ribbons on bands, slots on granite and precast, fins, window rows on stone.
+  Up high (the marine-layer view) detail needs 1.5x the room and rhythm lines
+  2x the spacing: the whole view drifts by sub-pixels with the bus's bob there,
+  and every one-pixel line that hops a row counts as crawl. The guard follows
+  the view's height (`uHigh`, the marine-layer view's mix), not the fog: after
+  fog went off by default it had been reading `uFogLayer2.w`, which is 0 without
+  `?fog`, so the vista ran without it. A face seen at a
+  grazing angle past the near field keeps only its tone (its floors would be
+  staircased diagonals), and rhythm lines also need 2.5 px on the face itself
+  (`fwidth`; a guard for grazing faces). (The dotted pixels along Salesforce's
+  crown edge in the hero shot are the resolve's dithered halo around its
+  glowing LED screen, not facade lines.)
+- **Hero details the data can't draw**: Salesforce Tower's open crown is the
+  top 52 m of its tapered shaft: white fins (converging) and rings over a
+  softly glowing LED screen; 181 Fremont is dark glass wrapped in diagonal
+  bracing, with a spire prop on its top box; Coit Tower (fluted column, arched
+  lookout, on Telegraph Hill) and the Ferry Building (arcades, nave, the 75 m
+  clock tower on the axis of Market Street, a two-storey bay-side wing out to
+  where the footprints end) are props. The footprints carried the Ferry
+  Building as two rows of 8 m "Victorian" lots (the row splitter cut it) and
+  Coit Tower as a 13 m "Victorian" box (stable id 132089) beside the prop's
+  base (review: Coit was drawn twice). Both are hidden (`HIDDEN`, SF only): not
+  meshed, not building refs (no glint, pick, paint or blast lands on what nobody
+  can see; the props themselves are paintable landmarks since fix/landmarks
+  merged: `lm:coit`, `lm:ferry`), and their 8 m cells of the obstacle grid are rebuilt as the bake
+  builds one, without the lots (`City.setPropObstacles`): the highest ground of
+  a 3 x 3 sample, the prop's boxes and the other buildings' parts (grown 3 m, 6
+  m over 40 m), then the tree crowns. Before, the grid kept the lots: 5,690 of
+  14,303 one-metre samples of the Ferry Building were more than 0.5 m under its
+  roof (the bus could fly into the hall; now 117, at the boxes' corners), and
+  13 of 184 samples well off it stood more than 6 m over the ground (lots
+  nothing drew; now 0). At Coit the stand-in's 98.6 m cells are the hill again
+  (90.3 m), its FLATS neighbor keeps its 89.4 m roof.
+- **181 Fremont's spire rides its tower** (`SpireRide`): a painted building's
+  pop squashes it about its ground (0.18 x 227.9 m = a 41 m drop) and it wobbles
+  forever after, in the vertex shader; the spire prop mirrors that formula for
+  its one point every frame (no allocation). It binds to the streamed tower and
+  stands on `roofAtPart` under it, not on the table's 231.1 m.
+- **Painted towers** escalate like the houses: L1 a stained-glass curtain wall,
+  a rainbow ribbon of the tower's hue and its two neighbors spiralling up in
+  straight diagonal bands about three floors tall (not per-pane confetti: panes
+  are sub-pixel from the chase camera), lead lines on the slabs and mullions;
+  stone, granite and concrete take the body hue, trims white on two of three
+  towers and the complementary on the third, crowns turn gold and Salesforce's
+  LED crown runs the rainbow. L2 hanging gardens: a planter band of flowers on
+  every third floor (a one-pixel green line far away) and roof gardens with
+  bushes along every open setback. L3 Hundertwasser on a skyscraper:
+  floor-tall wavy bands through all six hues over walls and glass alike, vines
+  and flowers spilling down under every setback, trees leaning out over the
+  edges, golden onion domes on the crown's corners. Bushes, trees and domes
+  are baked into the building mesh collapsed on their anchors (no draw call,
+  no shadow, nothing drawn) and grow out in the vertex shader once the flood
+  has passed them at their level. Their triangles come last in the tile's index
+  and stay outside its draw range until a building of the tile grows them
+  (`City.growTo`): the FiDi / Transbay region (1,-2) carries 18,512 growth
+  triangles (12.5 % of its LoD 0 triangles, 55,536 vertices) that cost no vertex
+  work in the G-buffer or the sun pass until then. Bounds grow 26 m (not 6)
+  for meshes with growth (tips reach ~20 m over a tile's highest vertex).
+  Every element is recorded in the mesher (center, reach, grown top with the
+  growth's 12 % overshoot) and the obstacle grid rises over the ones a level
+  reached (each element's reach grown by half an 8 m cell's diagonal, so a bush
+  still lifts its cell): domes stand up to 25.7 m over their tower's top
+  (RoofSprouts' raise stops at ~16.8 m), setback trees and bushes over setbacks
+  nothing raised. In region (1,-2) painted to L3, 862 of its 1,117 elements
+  stood over their cell before; after `growTo`, none.
+- **L2 hanging gardens read on glass** (review: Salesforce and 181 Fremont at L2
+  were 4.6 % / 5.9 % of pixels away from L1, against 24 % / 31 % from L2 to L3):
+  every third floor a white planter rail under a band of green with flowers in
+  the hues opposite the tower's (its stained-glass ribbon is the hue and its two
+  neighbors, and a green line alone vanished into it); far away a two-pixel band,
+  white under green, at least 5 px apart (doubled up to 8x, none beyond 3 m per
+  pixel). Pixels changed from L1 to L2 in the hero tower crops: Salesforce 5.7
+  -> 8.6 %, 181 Fremont 4.9 -> 5.6 % (L2 -> L3 stays ~29-30 %): it reads, but
+  L2 is still the quietest step of the ladder (next: bushes on every crown
+  ledge, so the silhouette changes too).
+- **Masonry is not brown** (review): STONE's mid steps were near-neutral warm
+  greys (L30-50, chroma 2.2-2.7, hue 333 / 4 / 60) that read taupe and rust next
+  to the blue-grey city (#4a4649 alone was 3.0 % of the chase-fidi frame).
+  Now only the top two steps (the sunlit stone) are buff; in shade it is a cool
+  violet-grey (steps 0-5: chroma 3.5-4.5, hue 273-303). (A rose-grey version,
+  chroma 5-6 and hue up to 333, read pink in the chase frame: in the grey city
+  that says "painted".)
+- **The icons stay singular, the grey city grey** (review; a producer call,
+  easy to revert in `weights()` / `styleFor`): granite only 0.05 of FiDi towers
+  >= 120 m and 0.03 of 40-120 m (was 0.2 / 0.1, next to 555 California), and
+  outside the downtown districts blocks under 40 m keep the classic archetype
+  look (the review's cream masonry block by Alamo Square was a 17 m civic
+  building: civic blocks took masonry 3 times in 4). Family buildings in SF:
+  1,100 -> 795 (masonry 578 -> 381, bands 319 -> 218, glass 149 -> 144, granite
+  9 -> 7, fins 23, precast 22).
+- **Measured after the review fixes** (`tools/facade-shots.mjs --perf --seq`,
+  MAIN and this branch at the same frames: chase views now freeze the clock
+  while the city streams; UHD 620, the machine loaded by a bake): shimmer
+  (residual after per-band shift, 1/30 s apart, frames that moved) main ->
+  facade: chase fidi 17.6 -> 15.4 %, soma 14.8 -> 10.8, rincon 19.6 -> 12.1,
+  embarcadero 18.6 -> 14.1, alamo 17.4 -> 15.0, the vista at 250 m 12.9 -> 5.1;
+  hero drift salesforce 9.4 -> 4.7, 181 Fremont 9.4 -> 5.5, 555 California 8.3
+  -> 5.6, skyline 14.2 -> 6.0, Transamerica 16.3 -> 9.6, Millennium 21.6 -> 21.8
+  (unchanged). Draw calls +3.7 per view on average over 18 views (the three
+  props and their sun-pass draws), triangles +1.7 %. GPU time per frame
+  (timer queries, medians of ~100 frames, two interleaved rounds) before ->
+  after the fixes: chase fidi 13.6 / 12.9 -> 11.7 / 12.6 ms, soma 15.1 / 15.0
+  -> 15.1 / 15.1, rincon 16.1 / 15.6 -> 15.4 / 15.2, the vista 15.3 / 14.9 ->
+  14.2 / 13.7. Every capture is on the palette (0.00 % other colors).
+- **SF only**: the icons table and `HIDDEN` are in SF local meters; the mesher
+  and `City` apply them only when the manifest's origin is SF's (`isSfOrigin`,
+  as `heroLandmarks` always did), so another city's buildings in those boxes
+  stay.
+
 ## Rendering
 - **Indexed-color pipeline.** Materials output a ramp index + light level, never
   RGB; the resolve pass picks ramp steps with ordered dithering. Mixing is done
@@ -778,17 +1400,491 @@ cross-checked in the browser with `tools/feel.mjs`.
 - **Dither only on gradients.** Flat surfaces whose light sits on a step boundary
   snap instead of dithering (no checkerboard walls).
 - **Fog = atmospheric perspective first**, then a narrow dithered handover to the
-  fog ramp — no sprinkle of fog dots up close.
+  fog ramp — no sprinkle of fog dots up close. The handover is value-matched
+  and tall far shapes stand out of the fog (see Look polish).
 - Shimmer: camera translation snapped to the game-pixel grid at the focus depth,
   sub-pixel remainder applied at upscale; dither anchored to the snapped grid;
   telephoto lens to minimize parallax; shadow map snapped to its texel grid;
   outlines fade with distance.
+- **Roofs on one ramp** (review: "the far field has more contrast than the
+  foreground"): pale gravel, dark membrane and silver paint are light offsets
+  on GREY_LIGHT (-0.06 / -0.34 / 0), sloped roofs -0.36, so the fog compresses
+  the patchwork with distance instead of keeping ROOF_DARK next to GREY_LIGHT
+  (about 90 luminance apart in every fog). Near roofs keep their tones (the
+  verifier's re-fit offsets).
+- **House windows LOD per building** (same review): one glass band per floor
+  beyond 0.6 m per game pixel at the house (~550 m in the 24 degree chase lens on
+  the 390 px frame; it was ~340 m on the old 240 px frame), the wall's average
+  tone beyond 1.15 m (~1,060 m; was ~650 m), jittered per building; trim and
+  belt courses go with the ribbons (they are sub-pixel by then). It replaces
+  the vista-only per-pixel melt. Targets (255-300 m) keep their windows.
+- **Painted Ladies are calm at levels 1-2** (review: "plaid confetti"): bays and
+  gables take the body color, trim only on belts and cornices (no sub-pixel
+  window frames), white trim on two of three houses, stained glass bright in
+  itself with glow 0.12 (under the halo threshold: no dithered dust). Level 3
+  keeps the riot (frames, neighboring-hue bays and gables, wavy bands, every
+  window its own hue, glow 0.38), so escalation reads.
 - The bus does not cast a sun shadow (with a low sun it would land 40 m away);
-  it casts a straight-down **drop shadow**, which is the aim reticle.
+  it casts a straight-down **drop shadow** (it grounds the hero; since the
+  dragon breath it is no longer the aim reticle, the glint is).
 - City streaming: 1 km gzip region bundles (17 MB for all of SF), inflated and
   meshed in a worker; buildings are generated on the phone from compact
   footprints (far smaller than shipping meshes); far skyline = boxes for every
   building ≥16 m + a 64 m terrain grid, hidden under loaded tiles.
+
+## iPhone performance: polish/perf, perf/load and the deep dive in one merge (MAIN bd660ba vs NEXT, merge/perf)
+Three things folded into one judged merge. The producer's rulings bind it: keep ALL shadows, no restructure of the tower
+facade shader, no 30 fps lock, no fewer detail regions, no coarser pixels, nothing about the distance changes
+(LOAD_RADIUS, DETAIL_RADIUS, far.bin, horizon.bin), and apart from the tap that skips the opening, frames stay main's.
+
+- **The proof that frames stay main's: `tools/shots.mjs --det`, `tools/shotdiff.py`.** The shots' plain mode can't be
+  diffed (wall-clock dt, unseeded hues, the bus wherever the frame rate left it). `--det`: `?fixeddt`, `Math.random`
+  reseeded from the game clock every frame and again after the streaming step (a build with more three.js objects draws
+  more UUID randoms), the clock standing while regions are on their way, the first steps from the settled ground, then
+  frames at dt 0 until streaming and the ground paint are quiet. MAIN vs MAIN: 0 pixels in all 8 views, run after run
+  (grey, painted, opening, fidi, soma, high ~370 m, ceiling, swap: painted towers through a climb out of detail and a dive
+  back). MAIN vs NEXT: 6 of 8 views 0 pixels (grey, painted, opening, soma, ceiling,
+  swap), fidi 1 game pixel, high 4, of 334,836 (`python -I tools/shotdiff.py`; the swap view is identical with painted
+  towers, gardens and domes in frame after going coarse and coming back).
+  What is left: single game pixels on sun-shadow edges. The caster's flat walls cross a shadow texel's center on the
+  other side of 1/256 of a texel from main's subdivided ones (rasterization snaps every vertex; fewer vertices, other
+  rounding). Keeping main's columns fixed fidi and not high; keeping its rows too would keep its triangles. Raw G-buffers,
+  grey frame: 0 bytes differ in 8 channels x 339,832 pixels. `tools/facade-shots.mjs` agrees: of the 12 pinned hero views 11
+  are identical, salesforce 1 game pixel; 250 m shimmer 5.8 -> 5.6% (main's 5.1-7.1 per frame, this 5.0-7.0: noise). Its chase
+  and ladies frames can't be compared across this merge. They don't repeat on either build, and they part from main's for a
+  reason of their own: its fake rAF clock stands behind `performance.now()`, main's `dt` has no lower clamp, so on main the
+  frozen wait runs the game backwards (at "ready" the clock reads -1.5 s, the bus 578 m back at 387 m/s, and the 4 s flight
+  starts from there). The `dt` here doesn't go below 0: the bus waits at the spawn at 30 m/s.
+- **One G-buffer target** (rank 2). ANGLE on D3D11 compiled every G-buffer program's pixel shader twice, at link for target
+  0 and at the first draw with SV_TARGET1. RGBA16UI holds the same eight bytes; `sbWrite` packs, `GLSL_G_READ` unpacks,
+  texelFetch instead of nearest sampling. Plain rounding wasn't exact: 0.3% of bytes off by one, 34-68 pixels a frame (a
+  ramp step in a dither). So the GPU's own conversion was measured, bisecting all 255 boundaries on the UHD 620: it
+  truncates x to 15 significant bits (never finer than 2^-18), then rounds; `sbByte` does the same, 255 boundaries of 255,
+  and on any other GPU it stays within 0.008 of a byte of plain rounding. **iOS**: RGBA16UI is color-renderable in ES 3.0,
+  so WebGL2 conformance requires it, Metal's RGBA16Uint is color-renderable on every Apple GPU, 8 bytes a pixel as
+  before, no blending, no filtering; there is no two-target fallback (it would need every program rebuilt). Only a phone can
+  prove it: first on the real-iPhone list.
+- **The sun pass.** Casters (polish/perf's proxy, minus its 1.2 m trim: every shape casts): positions only, one quad per
+  wall, no undersides, `sf` as the visible mesh, half the triangles (0.47-0.54 of LOD 0 per region). Depth only: the
+  color mask locked off, the color target invalidated, R8 (-12 MB). `sunCull` skips casters whose swept shadow misses the
+  view; its far cut was short (0.75 window; on the ground a window's corner lies 0.5 x sqrt(1 + 1 / sun.y^2) = 1.28
+  windows away at a 25 degree sun): fixed, it lost distant shadows in the grey frame. 16-bit depth stays off
+  (`render.shadowDepth16`): the 2.7 m bias's contour moves up to 4.6 cm, 233 game pixels of the grey frame change.
+- **Streaming: every mesh's first draw is budgeted.** three uploads a mesh at its first draw in view, so polish/perf's
+  3 MB budget only spread the adoption: tiles beside the bus still uploaded all at once when the view turned to them.
+  `City.firstDraw`: the frame after its adoption a mesh draws wherever the view looks (trees too), so the upload lands on
+  the budget. `ADOPT_BYTES` is now a hard cap (16 MB a frame while `eager`, a downtown deep link is ~100 MB). Swaps: of
+  the two ways to spread one (main's `prep` items, perf's per-tile draw-range trim) `prep` stays, extended: `prepTile` makes
+  the detailed mesh, its caster and the 4 m ground, `City.ghost` draws them once with every fragment failing the depth test
+  (a depth func is state; RASTERIZER_DISCARD makes ANGLE on Metal compile a vertex variant in flight), `swapRegion` then
+  only commits, in one frame, as main's did: no half-swapped region, no double domes. The trim fought main's growth
+  ranges and showed half a region in detail. `detailHold` holds prep and swap items. One region unloads per frame.
+- **The worker does the walking.** Typed scratch storage in the Builder (rank 9): byte-identical to main on 80 LOD 0 and 48
+  LOD 1 tiles, LOD 0 x0.28, LOD 1 x0.57. Bounds as three computes them (a box center and half diagonal drew 2 more
+  tiles a frame, +6% main-pass triangles), ground grids, `roofTops` (the obstacle scan, 2-5 ms per tile on the main thread;
+  grids identical on all 224 loaded tiles at Alamo; `feel-sim` s_route 0 clips). A swap's `prepTile` total over the 30 s
+  surge: 166 -> 19 ms.
+- **Frames.** Static matrices: the scene, city.root, far meshes, TreeFields (a parent that recomposes forces its whole
+  subtree; 900 objects). One graph update per frame (perf's). `uPixelAngle` once per pass. City.update builds no strings
+  or closures; `buildingsNear` reuses its entries and doesn't sort (insertion in order). Allocation 3.77 -> 3.03 MB/s, the
+  deep dive's 1-2 not reached: what is left is mostly three's render path.
+- **The first touch** (outside judge: 250-400 ms). The gesture makes the context, starts a silent buffer, resumes; the
+  worker (`audioWorker.ts`) synthesizes the noise and the impulse, the graph is built in a task of its own, the
+  impulse goes into the convolver 60 ms later (it FFTs on the main thread). A breath in between plays when the graph is up.
+  `new AudioContext` alone took 120-180 ms cold (Chromium starts its audio backend): one made and closed in the warm-up
+  wait takes that off the touch.
+- **The opening**: a tap skips it once it has been seen through on this device (`strugglebus.opening.v1`, the producer's
+  repeat visits): the same reveal in ~0.7 s; the skipping tap doesn't splat; a toast says so.
+- **Context loss** (rank 10): see ARCHITECTURE. 1.1 s back at Alamo (27 programs through the warm-up, 14 regions), twice in
+  a row, 0 errors; the same frame but for tree levels of detail, which tick on the game clock.
+- **perf/load** merged as its HANDOFF note said: warmup.ts, the warm section and `registerWarm` were main's, `warmDraw` stays
+  main's, `new WarmUp` at the top of main.ts, `warm.add(scene)` covers the signs and the super's motes, `render.warmWait` went.
+  Real-time firehose in a fresh browser: first pour duringMax 17.1 ms.
+- **Dropped, and why** (nothing else of polish/perf is lost):
+  - the 1.2 m caster trim: the producer keeps every shadow.
+  - 8 m wall columns: -18 to -24% LOD 0 triangles (-8 to -12% vertices), but the painted wobble's chords move: 1,138
+    game pixels of the painted frame change, 188 of the grey one. A producer's question (below), not a merge decision.
+  - hidden party walls (-7% triangles, -3.5% vertices in row houses): 38-61 game pixels of a grey or painted frame change.
+    Some of those walls show after all (a patch of a far wall took another surface's window dots); not chased, the saving is small.
+  - far terrain and horizon chunks, `viewBox` culling, one mesh each up high: a separate study owns the far field; its
+    1.0-1.7 ms on UHD 620 are that study's to take.
+  - the prewarm frame: main's warm-up replaces it (it was visible with the fog off, the pre-review's finding).
+  - per-tile draw-range trim, `mergedEnds`: see Streaming.
+  - the sign's own depth material: the warm-up compiles the override's instanced variant.
+  - `tools/ab-shots.mjs`, `ab-diff.py`: `shots --det` and `shotdiff` replace them.
+- **Pre-review**: its blockers (mergedEnds counted growth; detailTile lost `growTo`) went with the trim; meshCasterTile takes
+  `sf`; remapU and towerGrowth skip casters; tools/perf-pass.mjs runs on the GPU through `browserOptions`, its pins are meters
+  from the spawn (any city, any build).
+- **Cold load** (`tools/loadprofile.mjs`, a fresh browser per run, interleaved, other jobs on the laptop at 30-40% CPU):
+
+  | A = MAIN, B = NEXT | ready median (min) | first frame | first region | long tasks sum / max | gaps > 50 ms in the opening |
+  |---|---|---|---|---|---|
+  | 1x, 3 runs each | A 13.7 s (13.7), B 8.1 s (8.1) | 4.1, 3.9 s | 5.2, 0.7 s | 7.6 s / 4.1 s, 0.33 s / 0.24 s | 2, 0 |
+  | 1x `?skipintro`, 3 runs | A 10.3 s (9.9), B 4.3 s (4.3) | 4.3, 4.2 s | 4.6, 0.7 s | 7.9 s / 4.2 s, 0.35 s / 0.26 s | 2, 0 |
+  | 4x CPU, 2 runs | A 17.7 s (17.5), B 10.9 s (10.7) | 6.8, 6.5 s | 10.6, 2.3 s | 11.5 s / 2.9 s, 2.6 s / 0.7 s | 4, 1 |
+  | 4x `?skipintro`, 2 runs | A 13.4 s (13.1), B 6.4 s (6.3) | 6.7, 6.3 s | 10.7, 2.2 s | 11.3 s / 2.8 s, 2.4 s / 0.7 s | 2, 0 |
+  | 4x + 20 Mbps, 2 runs | A 17.9 s, B 11.5 s (11.4) | 7.3, 7.2 s | 10.9, 2.9 s | 11.2 s / 3.2 s, 2.5 s / 0.7 s | 4.5, 1 |
+  | 1x + 4 Mbps, 2 runs | A 16.3 s (16.0), B 11.5 s (11.4) | 6.5, 7.2 s | 7.1, 3.9 s | 7.7 s / 4.3 s, 0.23 s / 0.20 s | 2, 0 |
+
+  `--net` shapes the page's requests, not the worker's. 26 programs on main, 27 here, 0 after ready on both.
+
+  B's first frame is the warm-up, 3.6-4 s at 1x (perf/load alone: 8-9.7 s, the second compile of every program): ready = that
+  + the 4.2 s opening, and a repeat visitor's tap takes the opening down to ~0.7 s. Main thread free throughout.
+- **In flight.** `tools/stalls.mjs` (a real-time Alamo route, 96 s: cruise, surge, turns, climb, dive, 5,400 frames):
+
+  | | frames > 25 ms | > 100 ms | worst | largest upload in a frame | long tasks |
+  |---|---|---|---|---|---|
+  | MAIN (2 runs) | 2, 4 | 2, 2 | 417, 400 ms | 17.3 MB | 1 (423, 401 ms) |
+  | NEXT (2 runs) | 0, 0 | 0, 0 | 18.9, 17.7 ms | 4.6, 3.9 MB | 0 |
+
+  The worst on main is a program's first draw in the turn (GetProgramiv 393 ms: the landmark's program, a turn from
+  surging across tiles). `--route=fidi` (towers, 36 s, ~2,100 frames, 1 run each): worst 383 -> 17.3 ms, frames > 25 ms 4 -> 0,
+  largest upload 8.2 -> 3.4 MB, 0 long tasks. `tools/fps.mjs` (headless, 8 s a phase):
+
+  | | fps | 1% low | worst frame | CPU work | draws | triangles |
+  |---|---|---|---|---|---|---|
+  | Alamo street MAIN / NEXT | 57.8 / 60 | 25.9 / 54.1 | 68 / 20 ms | 6.8 / 3.1 ms | 124 / 115 | 1.20M / 929k |
+  | Alamo 250 m | 59.9 / 60 | 46.9 / 51.8 | 142 / 27 ms | 6.5 / 2.0 ms | 134 / 127 | 1.23M / 951k |
+  | Alamo ceiling | 60.1 / 60 | 44.1 / 52.6 | 48 / 39 ms | 5.8 / 3.4 ms | 161 / 157 | 1.18M / 1.06M |
+  | FiDi street | 60 / 60 | 54.1 / 54.6 | 20 / 19 ms | 2.9 / 2.5 ms | 112 / 91 | 702k / 512k |
+  | FiDi 250 m | 60 / 60 | 55.2 / 55.6 | 21 / 20 ms | 2.1 / 1.9 ms | 134 / 117 | 815k / 631k |
+  | FiDi ceiling | 60 / 60 | 55.2 / 54.3 | 19 / 20 ms | 2.0 / 1.9 ms | 64 / 66 | 432k / 410k |
+
+  Headed, and `west` too: 60 fps on both, at all nine phases; work 4.8 / 5.3 / 4.4 -> 3.3 / 3.1 / 4.0 ms at Alamo, 5.2 / 4.4 / 5.5 ->
+  3.7 / 2.4 / 4.6 ms in the west, worst frame over all phases 44.7 -> 28.6 ms. Headed 1% lows are vsync noise (47-56 on both).
+
+  `tools/jet.mjs` G1 on four routes: p99 17 ms, max 17.8 ms, 0 long tasks. First touch (`tools/firsttouch.mjs`, 3 fresh pages):
+  unlock 307, 107, 105 ms -> 17, 26, 17 ms in the gesture, 0 long tasks (a good first page: see the merge review below); sound up ~85 ms after the touch. Sound itself: the super
+  splat's offline render is the same to the digit (`supersplat.mjs cooldown audio`: peak 0.807, 0 over 0.99, 0 NaN),
+  `tools/audio-check.mjs` passes offline and `--live`.
+- **Cost by pass** (`perf-pass views --by`, the same pinned spots, draws / triangles):
+
+  | view | sun pass | main pass | CPU work |
+  |---|---|---|---|
+  | Painted Ladies | 67 / 622k -> 55 / 319k | 53 / 579k on both | 5.3 -> 2.6 ms |
+  | FiDi | 70 / 393k -> 49 / 169k | 43 / 379k on both | 3.7 -> 2.6 ms (8 frames) |
+  | 250 m | 86 / 785k -> 73 / 445k | 62 / 620k on both | 8.0 -> 3.4 ms (8 frames) |
+  | ceiling | 43 / 510k -> 42 / 379k | 67 / 649k on both | 7.1 -> 4.4 ms |
+
+    Whole frame at the Ladies 1.20M -> 898k triangles, 250 m 1.41M -> 1.07M. GPU timer queries on the UHD 620 (2 samples, street /
+  250 m / ceiling): sun pass 3.3 / 3.4 / 2.4 -> 2.3 / 2.5 / 1.9 ms; G-buffer unchanged (the same triangles); glow + 0.04 ms
+  (integer fetches). Compile: 0 links at the first blast and escalation on both on this path; `tools/warmcheck.mjs` 27
+  programs, 0 after the warm-up, no long task over 100 ms after ready (one 133 ms frame gap at the landmarks).
+- **Streaming and memory** (`perf-pass stream memory`): over a 30 s surge City.update 564 -> 310 ms total, worst frame's
+  work 26.3 -> 12.8 ms, largest upload 15.4 -> 3.9 MB (frames over 4 MB 4 -> 0). Over 3 minutes around downtown: JS heap
+  peak 203 -> 87 MB, average 118 -> 54; JS copies of geometry 122 -> 13 MB; GPU buffers average 69 -> 66 MB, peak 117 ->
+  126 (casters, and everything streamed is up, seen or not); canvas depth -12 MB, sun color -12 MB.
+- **Merge review, confirmed findings** (reviewed e2c62be; A/B = that build vs this one, on this laptop's UHD 620; nothing on a real
+  iPhone or in WebKit). Frames: `shots --det` A/B 0 pixels in all 8 views; MAIN vs this one as above.
+  - **iOS 15.0-16.3 could not reach the fflate path** (major, MAIN too). `build.target` `es2022` kept three's six class static
+    blocks, a SyntaxError before Safari 16.4: the module never ran and the page stayed fog-grey with no error. `safari15`: 0 in
+    every chunk, main.js 1,150 -> 1,163 KB. The reviewer's `['es2021', 'safari15']` builds the same bytes, so one name says it.
+    It lowers more than that: below Safari 16 oxc takes every class field through Babel's `_defineProperty` (`safari16` keeps them
+    native, `safari16.4` keeps the static blocks), a keyed store per field per `new`. Counted in the served chunk: 3,206 calls
+    at boot, at most 0.13 per render in play (a TreeField and a gardens' Batch per tile; cruise, surge, climb, taps, a firehose),
+    and no field's key ever already on the object (define = assign), so no assumption flag. A/B: `stalls.mjs` 60 fps, p99 16.9 /
+    17 ms, largest upload 3.92 MB on both; cold ready 8.26-8.30 / 8.18-8.30 s, first frame 4.0 s; allocation 3.06 / 2.91 MB/s;
+    `fps.mjs` 60 in all six phases. New `tools/iosfloor.mjs`, because a target can't lower a regex lookbehind: TypeScript's parser
+    over every chunk (MAIN and e2c62be 6 won't parse, exit 1; this one 0, and its 7 `.at` calls are three's `Ray.at` and our height
+    grid's, no `Array.at`). No `structuredClone`, `hasOwn`, `findLast`; `screen.orientation` and `audioSession` are guarded.
+  - **A warm draw wasn't the real draw, twice** (the review found the first). The tree casters and the gardens' sun twins warmed
+    with the color mask on, and the sun pass locks it off. Then a stronger check found the warm-up never drew the position-only casters'
+    own program at all: three doesn't pick a shared material's program again on a normal attribute, so program #6 compiled and
+    its proxy drew with #5 (ARCHITECTURE "Shader warm-up"). One `drawSun` for both passes now, and each sun proxy picks its own
+    program. `warmcheck.mjs` gains the key a Metal pipeline is built on (program, target format, mask, blending, topology), since
+    counting programs can't see any of this. First draws after the warm-up on e2c62be: #6 at frame 0, #9 (tree casters) at frame
+    177 of the opening, #8 (the gardens) at frame 1,410, the first L2 bloom, and the canvas. Now the canvas alone, frame 1: it
+    is never warmed, by design. 27 programs, 0 after the warm-up, nothing over 100 ms. The keys are measured; that ANGLE's Metal
+    backend keys pipelines this way is from its source as recalled, and the cost on an A15 is unmeasured.
+  - **The opening holds with the game** (a small regression against MAIN): `openDt` ignored the hold, so the opening played out behind
+    iOS's motion sheet (pull 128 -> 8.2 in 3 s; now 128 -> 128, as on MAIN). The same under a restored context: lost in the
+    opening, the pull went 103.8 -> 97.4 while covered; now it stands (102.9: the frame or two before `webglcontextlost` fires).
+  - **A refused target says so** (`checkTargets`: the G-buffer and the sun map). With RGBA16UI swapped for a non-renderable RGB9_E5:
+    one line on the fog-grey page and `__shotReady` never true, where it was a black frame, a live HUD and a running clock. It
+    runs at the top of `boot()`, not after `onResize()` as the review had it: no compile has started there, so the synchronous
+    query takes 0.1-0.4 ms; at the later spot it waited 30 and 34.5 ms behind the warm-up in 2 of 3 cold runs.
+  - **TAP TO SKIP goes with the tap**, and a tap in the grey never sees it: the review's fix alone would have missed that path, which
+    set `openingSkip` and still showed the toast at frame 2 (42 frames on e2c62be, 0 now). Tap to ready 693 / 708 ms, no splat.
+  - **First touch, corrected:** 17, 26, 17 ms is a good first page. The first page of a fresh browser is bimodal, on any build:
+    `firsttouch.mjs` run 0 gave 18, 530, 640 ms on e2c62be and 121, 310, 637, 669 on this one, and five fresh browsers timed
+    step by step 13, 46, 55, 111, 141 ms (MAIN 206-237); later pages 16-28 ms. All of it is the browser's `new AudioContext`, and the
+    one made and closed at boot doesn't always buy it off. Not changed: keeping that context open and only resuming in the
+    gesture would rewrite an iOS unlock nobody has run on a phone. A question for the real-phone pass.
+  - Held through it all: no DecompressionStream ready 3.8 s (both fflate chunks), no Worker 4.3 s, `contextloss.mjs` twice in 1.1 s with
+    0 errors and the same frames as e2c62be (a loss during the warm-up, a second one during a restore, paint and gardens back too),
+    `controls.mjs opening firstrun`, the super's offline audio to the digit (peak 0.807, 0 over 0.99, 0 NaN).
+
+## Look polish (the frame-level beauty review, polish/look)
+- **A sky band and the horizon at the top of every chase frame.** The chase
+  camera put the horizon on the top edge (cruise: 0.1° of sky) and the slow
+  diorama had none at all, so frames read as a map. Lowering the camera alone
+  shrank the hero ~30% (the review's verifier measured it), so elevation,
+  distance and the slow look-ahead move together: elevation 29 / 24 / 20°
+  (slow / cruise / surge; was 39 / 31 / 24), distance 155 m (was 175), and the
+  look-ahead no longer shrinks when slow (`lookAheadSlow` 1; it was 0.6, which
+  tipped the diorama straight down). Modelled and then shot: the horizon sits
+  ~5 / 13 / 19% from the top (was off-frame / 0.2 / 16%), the bus ~62 / 60 /
+  58% down (was 61 / 62 / 62%), the breath's impact mid-screen (50 / 49 / 45%).
+  The bus's on-screen area is held, but not its shape (the review measured
+  it, at 240 px): its bounding box is 3-13% shorter (Painted Ladies cruise
+  167 -> 145 px, surge 122 -> 117, slow 247 -> 232) and 5-30% wider, and its
+  yellow area is 25-33% smaller, because the plum ink edge takes the rim. The vista camera still takes over above the rooftops (its pitch is
+  now only ~3° steeper than the floor's, so the blend is gentler).
+- **The skyline stands out of the fog.** Past 2.6 km everything was a white
+  wall (Twin Peaks to downtown: nothing but the pyramid). `sbFog` now has a
+  fog ceiling gated by height (`config.fog.standFog` 0.78 from `standFrom` 50
+  to `standTo` 160 m above the city's low ground, `City.lowGround()`: the far
+  grid's 5th-percentile land height, 3.6 m in SF, so a city on a plateau
+  isn't all "standing" out of its fog; it was metres above sea level, tuned
+  for SF; fading back to full fog from 5 to
+  `standFade` 10 km): towers, hilltops, the Headlands read as pale layered
+  silhouettes with their bases melting into the fog. It is in the shared fog
+  function, so the far skyline boxes and the real tiles always agree (no
+  inversion where a region streams in); everything below 50 m, the streaming
+  edge among it, is buried exactly as before; it is off while the opening's
+  fog bank is up (`uFogBank` >= 2) and density, farFull and paint clearing are
+  untouched (the verifier's caveats: the loading-screen bank and the paint
+  payoff keep their contrast). A shape standing darker than the buried step
+  run at least `config.render.fogSliver` of the frame's height (0.0118: 10
+  game px of 852, ~0.58 deg), or it is buried: the tops of mid-height shapes
+  just over the ceiling's contour hung in the sky band as floating chips. (It
+  was a constant 6 px; on the GPU the Twin Peaks and Dolores skylines still
+  showed small floating boxes. Same frame, 6 / 10 / 13 px: 10 buries them and
+  keeps the towers and Sutro; 13 thins the skyline itself.) All of this is fog-only: main turned the
+  fog off by default (`config.fog.enabled`, `?fog` brings it back), and with
+  it off the fog ceiling is off too. Landmarks multiply their fog by 0.8
+  (landmarks.ts, not touched here): a capped far landmark sits at ~0.62, the
+  lower edge of the 0.62-0.68 handover band, so it keeps its own compressed
+  colors with at most a few hue-only flips (the handover is value-matched);
+  the verifier's clamp in landmarks.ts can follow with feat/facade.
+- **The fog handover is value-matched; the sky holds still.** The handover
+  jumped every surface (compressed onto step 6 of its own ramp: GREY6, ROOF_DARK6,
+  WINDOW6 at luma 0.38-0.56) to pale FOG5 (0.75) through a dithered band that
+  slid with the camera: a full-width zipper. Now each surface hands over to the
+  FOG step nearest its own luminance (FOG's luma is linear, 0.3955 + 0.071 k)
+  and flattens into the silhouette tone between fog 0.62 and 0.76 (flat under
+  the fog ceiling: a far tower's one-pixel window grid crawled); silhouettes
+  round instead of dithering (no dotted far boxes). The band itself follows
+  the fog's own gradient (a few pixels wide; street-level floor
+  `config.render.fogBandMin` 0.015, a quarter of the old fixed 0.06): the review's verifier kept the wide band so
+  facades wouldn't pop whole as fog crossed it, but with matched values its
+  reshuffling dots were the only churn left in it, and a whole facade
+  switching is now a hue change of the same value. The sky dithers in screen
+  space at every height (it was anchored to the snapped grid: at the floor its
+  dots slid every frame of a cruise) and is written with alpha 0, which the
+  upscale reads as "don't shift": the sky only turns with the view, so it no
+  longer saws by a pixel with the snap's remainder. Surfaces also stop
+  dithering as their fog rises (`config.render.ditherHazeFrom/To` 0.3-0.6):
+  the ordered pattern is anchored at the bus's depth and far shapes crawled
+  across it with parallax. Up high (calm) nothing changes.
+- **The street sign stands beside the blast.** It sprang up over the impact
+  and covered the bloom (the money shot), level 3 included. It now waits on
+  the game clock until the shockwave has reached the blast's edge (+0.35 s),
+  then stands on open ground past the blast's far side as the camera sees it
+  (radius + 10 m out, 0.45 x radius to the side, away from a turn: off the
+  flight line, where the next target glints), searching a small ring for a
+  spot off any roof and inside the frame, else the old spot. It grows so a
+  font pixel stays >= 1.15 game pixels at that distance (~1.0-1.4x at the
+  rooftops, up to 4x from the vista, where it used to be sub-pixel text).
+  It stands at its true depth (a 1 m bias): with the old 16 m bias it drew
+  over the painted houses in front of it, and at L3 the blade covered the
+  upper storeys of the painted row. Spots inside the blast (+4 m) are never
+  used (the old fallbacks halfway out stood among the painted houses): past
+  the far side first, then beside the blast, then farther past. A spot whose
+  pole is seen to its foot wins; else the pole grows (up to 10 m) until the
+  blade clears the roofs and crowns in front, never a blade hovering over
+  the roofs with no pole. Re-splats of the same area reuse the spot, so the
+  standing sign flips.
+  Merged with main (fix/landmarks, the 390 px frame): a spot on water (the
+  tile's 2 m ground class, `City.groundClassAt`) is never used, so a Ferry
+  Building hit doesn't stand its sign in the bay (landmarks' intent); the
+  blade's two bottom corners must clear the roofs in front too, not just its
+  middle (at L3 a roof edge in front cut the letters diagonally). No open
+  spot in frame: ask again 0.8 s later, twice (the camera moves on); then the
+  old spot in front of the primary (a landmark's edge facing the bus,
+  `City.edgeToward`) only if it stands outside the blast (+4 m), at true
+  depth, else no sign: the old 16 m bias drew the blade over the bloom
+  there. The whole blade must sit in the frame. A landmark is the bloom
+  itself and runs past the blast (the Ferry Building is 200 m long): no
+  blade over its box on screen, and when nothing is open its sign stands on
+  its apron along the face toward the bus, as far toward an end as the
+  frame allows (main stood it mid-face, over the pyramid's base and the
+  clock tower). tools landmarks hill poses, sign at +3 s: Coit on the hill
+  beside the tower, Transamerica beside its base on the plaza, the Ferry
+  Building right of the clock tower on Embarcadero paving (no sign was ever
+  on water; shots/look/landmark-signs.png). One sign per name on screen: a second blast in the neighborhood
+  flips the standing sign while it is in view and outside the new blast; if
+  the new bloom reaches its spot, it sinks (`StreetSigns.retire`) and the
+  sign stands anew beside this blast (the painted regression frame had two
+  "ALAMO SQUARE" blades side by side, and a reused spot in front of the next
+  blast's paint).
+  Nothing farther along the sightline may hide the blade either (merge
+  review): the pole test samples only the first 60 m, and on Telegraph Hill
+  (a tap from the east) the "TELEGRAPH HILL" blade stood 310 m out behind
+  Coit Tower's base and read "TELEGRA / H". A spot that passed every other
+  test (ring or fallback, landmark or not) now also needs its blade's bottom
+  edge seen over its whole sightline at five points across it
+  (`bladeSeen`), else the next spot, else no sign. That test uses the real
+  footprints and landmark surfaces (`roofAt`, `landmarkSurfaceAt`), not the
+  obstacle grid: that is a collision grid (8 m cells, footprints grown
+  3-6 m) and stands ~10 m proud of a facade, so it hid the Ferry
+  Building's readable sign on its own apron. Trees still count only in the
+  first 60 m. Hill poses at +3 s (shots/look/landmark-signs.png): Telegraph
+  Hill from the east no sign (no spot in frame is seen), Coit from the
+  north, south and west beside the tower and whole, the Ferry Building and
+  Transamerica unchanged. It runs only on a candidate that passed every
+  other test, so the frames after a hit cost what they did (2nd / 3rd
+  largest work 21.7 / 19.3 ms at Telegraph Hill, was 21.9 / 21.5; sampling
+  the whole line for every candidate, the review's scratch, took 28-30).
+  holdGreen stays 2.2 s (the verifier: once it doesn't cover the paint,
+  cutting it only costs reading time).
+- **The hero separates.** Its silhouette used its own ramp two steps down
+  (#d8722a beside an orange house: contrast 1.28). The bus's ramps
+  (BUS_YELLOW, BUS_BLACK) are its own, so the resolve gives their silhouette
+  pixels plum ink (BUS_YELLOW step 1, #5e2232: 4.6-8.7:1 against every paint
+  hue, warm on the grey) and keeps glow halos off that edge. Detecting the
+  hero by its surface id would also have matched 1 in 255 buildings (8-bit id).
+- **The one eye reads from behind**: its headlight beam is light, not a
+  shape. In the resolve pass, what lies ahead of the lens (beyond the bus) is
+  lifted one or two steps up its own ramp in crisp nested bands, with a warm
+  core where it leaves the lens and a warm glint on the nose's ink edge over
+  the lens (`PixelPipeline.setHeroBeam`, projected with the snapped camera; no
+  mesh, no draw call): 42 m ahead, 20 m wide at the end x the eye's openness
+  (14 m read as a stick), 6° down. It lights only the grey world (GREY,
+  GREY_LIGHT, GREEN_GREY, WINDOW, ROOF_DARK, and since the facade merge the
+  unpainted towers' GLASS, STONE, GRANITE: it stopped dead at a tower's
+  face): on the relief it laid a cream
+  streak over the freshly painted facades, the money shot. It squints to a sliver while barfing and widens on
+  the relief. A dithered mesh wedge was tried first: it read as a
+  checkerboard (and its glow halo churned the roofs under it); a ground pool
+  24 m ahead (the review's first idea) lands inside the bus's own footprint.
+- **No more blobs trailing the hero.** The exhaust puff was a white FOG-ramp
+  ball (the brightest thing on screen) dissolving through a screen-anchored
+  dither; a sooty lit GREY sphere next read as a cannonball. It is now one
+  flat mid-pale GREY tone (a step deeper in the sun's shadow), 0.6 m growing
+  2.2x over 0.75 s, thinning by shrinking. The drop shadow was a near-black
+  INK blob wider than the bus with a checkered halo crawling over the roofs;
+  a solid grey oval next was a dark hole punched into fresh paint. It is no
+  decal now: the resolve draws whatever faces up below the bus's wheels,
+  inside an oval about the bus's footprint along its heading, one step
+  darker in its own ramp (`PixelPipeline.setHeroShadow`; roof, street, lawn,
+  crown and paint alike), a little bigger with a breath loaded, shrinking as
+  the gap below grows (14 -> 50 m). The open bay too (merge review): the bay
+  plane writes no outline flag, so the resolve skipped it, and over the
+  water (the opening's Golden Gate shot, every bay crossing) the bus had no
+  shadow and no height cue; the WATER ramp now takes it (a ~360 px oval one
+  step darker on the water at the opening's 2 s and 5 s).
+- **The Golden Gate is International Orange**, muted, even in the grey world
+  (it is never painted, so color still comes from paint): `Ramp.BRIDGE_ORANGE`
+  (row 23, after the tower facades' GLASS / STONE / GRANITE; see Palette rows), shadows to rose and plum, the upper steps dusty (the fog
+  compresses distant parts onto them, so they are what reads at range); towers,
+  truss, cables and suspenders orange, the roadway asphalt grey, piers and
+  anchorages concrete. The review's first ramp was a bright salmon that
+  outshouted the bus; its top three steps were dulled.
+- **The opening's water mirrors the fog.** It was a dark slab (WATER steps
+  1-3) under the bright sky with a hard checkered waterline. The water's light
+  is 0.3 + 0.66 x fresnel (was 0.2 + 0.42 x), on both the bay plane and the
+  tiles' water class (they match at the shore), and the WATER ramp's upper
+  steps climb toward the fog in even luma steps (0.23 .. 0.67, was 0.21 .. 0.49);
+  with the value-matched handover the waterline melts into the fog bank.
+  The retune changes all water (bay plane, shore tiles, far terrain): merge
+  notes for feat/facade and fix/landmarks should re-check shorelines.
+- **Tree crowns band instead of dithering.** Their analytic light is snapped to
+  the lower quarter of a ramp step, so a band is flat (the resolve rounds it)
+  and the leaf-clump noise keeps the band edges leafy; the painted crowns'
+  tint edge is a contour (its screen-anchored checker crawled over the
+  moving crown).
+- **One-pixel features keep their color.** A silhouette pixel with background
+  on both sides (cables, suspenders, poles) is no longer darkened: the
+  darkening fired on some stair steps of a thin diagonal and not others, so
+  cables beaded. The Golden Gate's suspenders are 1.2 m every ~48 m (were
+  0.7 m every 32 m: 0.3-0.8 px lines that flickered in and out).
+- **Shimmer, measured on the GPU after the merge with main** (390 px frame;
+  MAIN e85f5ee vs this branch, real Edge on this laptop; tools/look.mjs
+  --seqn=5: four pairs of frames exactly 1/30 s apart per view on the fixed
+  game step; `GPX=3 python -I tools/lookstat.py`: block-matched changes of
+  more than half a ramp step; numbers in shots/look/numbers.json). The
+  cloud's 240 px numbers (and their failing crowns) are superseded; its stale
+  captures are gone from shots/look. Fog off (the default):
+  - Painted Ladies cruise: all 11.6 -> 8.7%, tree crowns 10.0 -> 7.7%,
+    checker cells in the top 15% 1.89 -> 0.09%.
+  - Dolores: all 11.2 -> 8.5%, crowns 18.0 -> 12.5%, top 4.6 -> 0.07%.
+  - 120 m: all 12.0 -> 9.6%, crowns 10.5 -> 9.1%, sky 0.30 -> 0%, top
+    1.98 -> 0.15%.
+  With `?fog`:
+  - Painted Ladies: all 9.4 -> 6.5%, crowns 9.9 -> 7.0%, sky 0.60 -> 0.25%,
+    the fog band 1,287 -> 626 churning pixels (its share 11.4 -> 11.7% of a
+    band half as wide), top 5.8 -> 0%.
+  - Dolores: all 8.5 -> 6.9%, crowns 9.6 -> 8.7%, sky 1.01 -> 0.35%, fog
+    band 1,299 -> 496 px (14.1 -> 11.1%), top 15.0 -> 0.03%.
+  - 120 m: all 8.1 -> 6.8%, crowns 9.9 -> 8.5%, fog band 871 -> 637 px
+    (8.8 -> 12.4% of a narrower band), top 0.75 -> 0%; the sky 0.36 -> 0.46%
+    (302 -> 477 px; three runs 0.31 / 0.55 / 0.46%, main 0.34-0.36%): the
+    edges of the skyline now standing out of the fog slide with parallax as
+    the bus climbs (shots/look/churn-120m-fog-*.png: red = sky, green = fog
+    band). The review's three levers, same frames: a 0.06 band floor makes
+    the fog band worse (11.7 -> 13.3%), standFog 0.84 and standFade 6000
+    change no pixel in these frames (the silhouettes round to the same step;
+    the skyline is closer than 5 km). Kept as is: a ~0.05%-of-frame cost of
+    the skyline reading at all, with fog off by default.
+  Altitude (tools/altitude.mjs downtown --seq, seqstat): cruise 13.3 ->
+  11.4%; 250 m and the ceiling unchanged pair by pair (5.1-5.2 / 8.4-8.6%,
+  4.4 / 7.8%). Facades (tools/facade-shots.mjs --seq): chase FiDi 14.5 ->
+  10.1%, Salesforce 3.1 -> 3.0, Transamerica 9.6 -> 9.0, 181 Fremont 5.5 ->
+  5.8, downtown at 250 m 5.2 -> 5.8 (one alternating frame).
+  The crowns pass without the WIP tunables (treeFine 0.2, treeBand 1 stay):
+  the flat-light test rounds any neighbour jump of 0.44 step or more, so the
+  crowns' 36-byte bands no longer dither; shadow rims round too (a crisp
+  edge in place of a dotted one, shots/look/shadow-rims.png). Fog's band
+  floor (`fogBandMin`) stays 0.015.
+- **Cost** (tools/look.mjs perf: the median of 8 held frames, exact draw
+  calls / triangles, CPU work; two runs per build): Painted Ladies cruise
+  125 / 1,211,947 vs 125 / 1,213,975 (the lower camera sees a little more,
+  the decal is gone), FiDi surge 123-124 / 827-829k vs 125 / 844k, 250 m up
+  169 / 1.528M both; CPU work 2.7-3.5 vs 2.8-2.9 ms, 2.9-4.8 vs 2.5-2.6 ms,
+  3.3-6.5 vs 3.1-4.8 ms (noise). Facade chase views are one draw lower each
+  (FiDi 125 -> 124, Rincon 114 -> 113, Embarcadero 115 -> 114, Alamo 130 ->
+  129: the drop-shadow decal), hero views identical. No draw call was added
+  (beam and shadow are lit in the resolve). GPU: the fog ceiling adds two
+  smoothsteps per fragment; the resolve a few ALU ops (value match, beam,
+  shadow oval, thin-feature test) and shares the handover's neighbor fetches
+  with the flat-light test; the sliver test fetches up to 2 x 10 texels, only
+  on fogged silhouette pixels darker than the buried step (with fog); the
+  upscale one extra fetch on sky pixels. Not yet measured with `?fps` on the
+  producer's iPhone.
+- **Merged with main (feat/facade, fix/landmarks), 2026-10-23.**
+  - Palette rows: facade took 20-22 (GLASS, STONE, GRANITE), so
+    BRIDGE_ORANGE is 23 (every use is by name). `RAMP_COUNT` 32 -> 48 (an
+    8x48 RGBA8 texture, 1.5 KB): 24-31 are reserved for the faction ramps
+    (MAGENTA 24, CYAN 25, AQUA 26, PEARL 27, MOSS 28, BIOLUME 29, FAE_VIOLET
+    30, SILVERBARK 31; STAGES.md 3.4 rule 7), 32-37 for world travel
+    (NIGHT_SKY, OPEN_SEA, LIMB, CLOUD, DRY_LAND, TWILIGHT; WORLD-TRAVEL.md
+    2.5), 38-47 spare. 32 rows would have been over-booked (24 in use + 8
+    faction + 6 world = 38).
+  - One sky function: facade's towers write the light that lands exactly
+    on a ramp step after the resolve's atmospheric mix, from a copy of the
+    resolve's skyLight(). This branch flattened that sky at the floor
+    (slope mix(0.25, 0.5, calm), was 0.5), so the copy is now the same
+    function (`GLSL_SKY_LIGHT` in materials.ts, called by both at the same
+    calm) instead of a second copy to keep in sync by hand.
+  - The review, re-checked on the GPU: tree-crown shimmer fixed (above);
+    120 m with fog: the fog band and everything else lower, the sky ~0.1%
+    higher (above); drop shadow on paint: a one-step darkening in the
+    surface's own ramp (shots/look/bus-zoom.png, the painted frame), no grey
+    hole; the puff a pale flat wisp; L3 sign: over grey, legible, its pole
+    seen or clear of the roofs (shots/look/ab-sign.png, after the blade
+    corner check); headlight: the warm core on the roofs ahead, no streak on
+    fresh paint on the relief (eye-zoom.png); fog fragments: the 10 px
+    sliver rule (fog-sliver-6-10-13px.png); top-edge stripe: gone (checker
+    cells in the top 15% at or under 0.15% everywhere, main 0.75-15%).
+  - For the branches still to merge (pre-review notes): feat/supersplat
+    hosts its charge pinwheel in the drop-shadow decal this branch deleted:
+    re-add it as SuperFx's own decal (pinwheel only, visible while charging);
+    its hose impacts must not move `lastBlast` (set it after the hose
+    early-return). feat/controls: keep the setHeroShadow / setHeroBeam block
+    before render, then the turbo FX position copy. polish/perf: keep both
+    PixelPipeline field blocks; the upscale's "alpha 0 = plain sky" contract
+    stands (a CSS-scaled canvas would bring back the sky's one-pixel saw).
 
 ## Opening + landmarks
 - **The opening is the brief's shot**: the bus glides out of a fog bank over the
@@ -798,12 +1894,393 @@ cross-checked in the browser with `tools/feel.mjs`.
   The fog bank doubles as the loading screen.
 - Golden Gate Bridge and Bay Bridge (west span) are hand-built from real tower
   and anchorage coordinates; Sutro Tower and the Transamerica Pyramid are props.
-  They stay grey (landmarks aren't paintable in Phase 1).
+  (They were grey in Phase 1; they paint now, see Paintable landmarks. The
+  bridges stay grey, except the Golden Gate, which is its muted International
+  Orange even in the grey world: Look polish.)
 - The horizon (Marin Headlands, East Bay hills, San Bruno Mountain) comes from
   the USGS 3DEP 1/3 arc-second DEM, read remotely from the COG's overviews; the
   Marin Headlands near the bridge are baked at 2 m from the same DEM so the
   opening never shows low-poly hills up close.
 - Trees: none on steep grassy hills (Twin Peaks, Bernal, the Headlands are bare).
+
+## Paintable landmarks (producer: "the Transamerica building appears unable to get splattered")
+- **Why it couldn't be**: the landmarks are hand-built props and the bake keeps
+  the footprints under them low on purpose (no doubled towers), so there was no
+  paintable building there: the pick, the blast wave and the aim glint saw only
+  the 8 m lots inside the pyramid's base, and its material had no paint.
+- **A landmark is a first-class building now, generically**: one call where a
+  prop is placed (`paintLandmark(city, 'lm:<name>', object)`) registers its base
+  ring (the prop's convex hull in plan), its top and a 2 m height field of its
+  real surface (rasterized from its own triangles) as a normal `BuildingRef`,
+  with a paint texel from a fixed reserve past the baked buildings (32 slots; the
+  texture keeps its 138 rows), in every spatial index (`City.indexRef`). No bake
+  change, no city data change. Its tile is a one-record tile of its own, so every
+  query that takes a ref works unchanged.
+- **Saved under its name** (`'lm:transamerica'`, `'lm:sutro'`, `'lm:coit'`,
+  `'lm:ferry'`) in a store of its own, `strugglebus.landmarks.v1` (per city:
+  `:<slug>`), not among the buildings' ids (the branch first put them in
+  `strugglebus.paint.v1`; the merge review found feat/osm drops v1 on its first
+  boot, which would have lost every landmark's paint, though a name key is
+  valid across any re-bake). No key can collide with a stable id in any
+  building store, the OSM re-bake can renumber and drop the building store
+  freely, and old saves load as before. A pre-merge build's `lm:` entries in v1
+  move over once.
+- **Hit where you aim**: the breath lands on the landmark's real surface, never
+  at its centroid (the top of the spire, out of the chase view): from altitude
+  the aim ray meets the height field (`surfaceAt`); the classic short shot from
+  the rooftops slams into the face in its way: polish/feel's `Aimer` ends a
+  landmark target's line of fire at most 12 m (`F_CLEAR`) under the bus and lets
+  the landmark be the wall it meets, at the point where its surface rises over
+  the line (without that the merged Aimer landed the shot 150-200 m up the
+  pyramid's slope, the jet through the face). Where a landmark's hull holds
+  baked buildings, the one whose roof is higher right there wins (`buildingAt`
+  ranks a landmark by its surface at the point): the shot between Sutro's legs
+  lands on the transmitter building's roof, not under it at Sutro's base height.
+  A blast whose radius reaches the base blooms it with the wave (by its near
+  edge, like a big block), and painted landmarks escalate L1 -> L2 -> L3.
+- **The look**, in the palette (ramp + light) like the buildings: the color
+  pours down from the top over 1.1 s (`config.bloom.landmarkFlood`: at the
+  buildings' 55 m/s a 260 m pyramid took ~5 s, and from the chase camera only
+  its bottom 100 m are in frame) with fingers of paint running ahead, while a
+  splash spreads 34 m from where the breath hit (so the impact frame already
+  shows the hit). The hue's ramp in its saturated middle, white trim (gilt at
+  L3), stained-glass window bands that melt into the wall window by window as
+  they shrink under ~2 pixels (no ring), the lobby in deep shadow of its hue,
+  the pyramid's upper spire lit (glow), Sutro's beacons as blinking rainbow rings
+  up the masts, and Sutro's red/white bands as rainbow bands (every band the next
+  hue: six hues at L1 already). L2 is a garden: vines climb from the ground (big
+  leafy lobes, never under ~2 pixels; a spiral up Sutro's narrow legs), the
+  pyramid's two wings are planted, every ledge turns to turf. L3 is
+  Hundertwasser: wavy six-hue bands, every window its own hue, and real accents:
+  a golden onion skewered by the pyramid's spire, onion turrets on the corners
+  of its base with bunting along it; golden onions where Sutro's masts leave the
+  arms and bunting strung between its legs at 72 and 126 m. The pop is the
+  buildings' at 0.3x (an 18 % squash of a 260 m tower was a lot of tower).
+- **Accents cost nothing until level 3**: they are the last vertices of the
+  prop's own mesh and its draw range stops before them until its texel says
+  level 3 (set in `onBeforeRender`): no extra draw call ever, no triangles before.
+- **Rooftop sprouts stay off landmarks** (a garden rect at the top of a spire
+  floats in the air); their gardens are in the shader. Bloom sparkles follow the
+  landmark's shape (four slices up its height, each as wide as the prop there).
+- The bridges stay unpaintable for now (brief).
+- **Measured** (tools/landmarks.mjs in the real game): from the rooftops the
+  classic shot hits the pyramid's west face at the bus's height (55-95 m up) and
+  the glint lights it; from 428 m the 20-degree ray lands 214 m up its face
+  (drop 208 m: the blast x1.7); a blast landing 40 m from its base blooms it
+  (0.18 s after the impact, with the wave); taps escalate both landmarks
+  L1 -> L2 -> L3 (hue kept); after a reload both are back at level 3, saved as
+  `lm:transamerica: [1, 5, 3]` and `lm:sutro: [1, 0, 3]` among the numeric ids
+  (then; since the merge they have their own store, below).
+- **Cost** (the pyramid's chase view, everything streamed in, interleaved with
+  the branch point a3b3fa2, two runs each, SwiftShader at load ~25): draw calls
+  122-134 in both, triangles 843,608 in both (grey); painted at level 3 the same
+  draws and +2k triangles (the accents, main + sun pass); CPU work median 5.1 /
+  4.2 ms grey and 3.3 / 2.8 ms painted against 3.1 / 4.5 ms at the base: inside
+  the noise. One shader program for every landmark material, as before; the
+  paint texture keeps its 138 rows; the hull and the height field are built once
+  at boot; no per-frame allocation (the accent draw range is set in
+  onBeforeRender from the texel, the aim's landmark tests are bounding-box
+  checks).
+
+### Merged with main (facade + polish/feel), the facade's heroes adopt it (2026-10-23)
+- **Resolved to main where main replaced the branch's code**: polish/feel's `Aimer`
+  and `Splatter.barf(x, z, BarfOpts)` (its `landingOn` / `roofAtPart` already land a
+  landmark primary on its surface) instead of the branch's aim chord and centroid
+  special case. Landmark refs carry the area-index fields and enter the area index
+  (`indexRef` -> `areaCells`): since polish/feel every pick, blast wave, line of fire
+  and `buildingAt` / `roofAt` reads only that index, so without it a merged landmark
+  could never be picked or bloomed.
+- **The Aimer's landmark hook**: a landmark target's line of fire ends at most 12 m
+  under the bus and the landmark may be the wall it meets (its face where its real
+  surface rises over the line), including within `wallSkip` of the landing (the
+  hull's edge near its base), where a neighbor never stops it. Measured on the
+  merged build: from the north at the floor (bus 25.2 m) the shot lands on the
+  pyramid's base wall at 14.2 m, 0.6 m outside the hull (before the wallSkip
+  exception: 65.9 m up the slope, the jet climbing 40 m through the face); from the
+  west at the floor over the 103 m tower there (bus 116.5 m) on its face at 106.7 m;
+  from 428 m 219.9 m up its face (drop 208.7 m). From the west at 6 m/s and 100 m
+  out the shot aimed at the pyramid's base takes that tower's roof instead, as any
+  wall in the line of fire does (the QA sequence now comes in from the north).
+- **Sutro's legs**: `buildingAt` ranks a landmark by its own surface at the point,
+  so the shot between the legs picks the transmitter building and lands on its roof
+  (263.6 m); Sutro escalates L1 -> L3 with the wave. When Sutro is still the held
+  target there, the shot lands on what stands under it (267.8 m: that roof, by the
+  obstacle grid) instead of at Sutro's base height inside the building (255.8 m,
+  measured before the fix).
+- **No invisible walls**: the facade's prop stamp skips landmark refs (their
+  one-record tile is the hull at the top: 78.5 m over the whole Ferry hall, 155.7 m
+  over Coit's base). The obstacle grid over both props is identical to main's,
+  sample for sample (`tools/landmarks.mjs collide`): Ferry hall 17.6-24.5 m, nave
+  24.5, bay wing 16.3; Coit's base 100.1, column 155.7 (the post 158.7); a low
+  flight down the hall's axis tops out at 31.4 m on both builds. The breath's
+  surface now includes Coit's base top (100.1 m where main had the ground, 90.2).
+- **Coit Tower and the Ferry Building paint** (one `paintLandmark` each, keys
+  `lm:coit` / `lm:ferry`, sign names from `HERO_PROPS[].paint`, SF origin only):
+  picked at their center, glinting, flooding from the top with the splash from the
+  hit, L2 turf and vines, L3 Hundertwasser bands; the Ferry's 200 m roof took
+  white trim at L1, so a plain up-facing surface now takes the hue (trim stays white
+  on walls; roofs are turf from L2 anyway).
+- **181 Fremont's spire is no landmark**: it stays bound to its tower (SpireRide,
+  which moves it with the tower's pop and wobble) and paints and glints with the
+  tower's texel (`bindLandmarkPaint(..., { ride: true })`: its shader skips the pop).
+  Through the pop its height is the same on main and the merge (231.65 -> 245.35 ->
+  239.81 -> 227.97 -> 231.7 -> 231.11 m over 0.03-1.5 s), seated on the roof in
+  every frame: no gap, no double bounce.
+- **The glint** follows main's contract (a full ramp step, `glintLift` 0.13, plus
+  the sweep timed from `uTargetT`, measured up from the bound building's ground), so
+  a landmark reads as targeted like a tower, and the spire sweeps with its tower.
+- **Saved paint** moved to its own store (see above); after a reload both landmarks
+  are back at level 3, the building store holds 36 keys and no `lm:` key.
+- **Cost** (main 029c0a9 vs the merge, real Edge on this laptop's Intel UHD 620, 393 x
+  852 @3x): no new draw call, program or per-frame allocation (the heroes were one
+  mesh each already; binding is once, at boot or when the tower streams in).
+  Regression shots: grey 126 draws / 1,203,110 triangles and painted 135 /
+  1,248,705 on both, 16 / 21 programs on both. Hero telephotos (grey) identical:
+  181 Fremont 147 / 1,004,234, Transamerica 152 / 1,283,680, Coit 71 / 578,100,
+  Ferry 120 / 688,639. The pyramid's chase view: 92-113 draws / 725,101 triangles on
+  both, a second sample 109-126 / 743,440-745,488 (streaming; main twice, the merge
+  three times), painted at L3 the same draws and +2,048 triangles (its accents).
+  A blast at the Ferry Building (`tools/blast.mjs` with `SB_BLAST_AT`): 91-99 draws /
+  569,179 triangles at the blast against 90-99 / 567,656 (its sparkle slices), then
+  564,835 painted and 584,628 escalating on both; CPU work median 2.1-2.7 ms on both.
+  `tools/fps.mjs` at FiDi (the pyramid ahead): 60 fps (vsync) on both at the street
+  (113 / 704,055), 250 m (133 / 807,622) and the ceiling (64 / 432,140); work median
+  3.5 / 4.1 / 1.5 ms on main, 3.6 / 3.6 / 1.3 ms merged.
+
+## Controls: outside judge, round 1 (FAIL) and the fixes (2026-10-30)
+Two must-fixes (a silent turbo under the opening's gate; hitches at jet speed), and "the splat still owns
+every best frame". All measured in real Edge on the Intel UHD 620, 393 x 852 @3x.
+- **Every press answers on its frame.** Under the gate a shift up stays queued (a gear would lift the bus into
+  the deck) but now says so at once: the toast "TURBO AFTER THE BRIDGE", the readout "G1 JET / ARMED" dim and
+  blinking, the lever armed, the shift's clunk. It fires by itself when the gate clears (lever at 17.8 s -> G1 at
+  21.1 s). A shift down cancels it ("TURBO OFF"). Pulling back under the gate says "CLIMB AFTER THE BRIDGE" once
+  (at most every 30 s), the first thing a tilt player tries.
+- **The hitches were not what they looked like.** `tools/jet.mjs` (no screenshots, per-frame attribution):
+  1. `swapRegion`, 25-68 ms + up to 26 ms of first-draw upload every ~2 s: detail nobody can see at 450 m/s, on
+     screen for under a second. **`City.detailHold`** (`Controls.tearing`: a gear selected, or still braking):
+     nothing changes level of detail, what arrives is coarse. The jet's frames look the same.
+  2. 58-76 ms long tasks outside any frame: the worker's message, copied (18 typed arrays per tile, 16 tiles).
+     **Everything is transferred now**; the long tasks are gone.
+  3. One 50-83 ms stall ~0.15 s after the trail appeared, with the main thread idle: the warm-up compiled the
+     trail but `setDrawRange(0, 0)` never drew it, and the driver builds its pipeline at the first real draw.
+     **The warm-up draws degenerate triangles.** (All turbo programs now really draw behind the loading fog.)
+  4. Deferring swaps would only move the hitch to the brake (up to 67 ms). **Swaps to detail prepare tile by
+     tile** on the adoption budget (`prep` items: the off-scene mesh with its bounds, the obstacle scan, which
+     were two thirds of the swap), and the swap itself only commits; one swap per frame at most. This helps the
+     classic flight too. (polish/perf has a tile-by-tile trim of its own: merge by keeping whichever is simpler.)
+  Result, five routes (gate, west, south, east, north), climb + 9 s jet + 12 s brake: jet p50/p95/p99/max
+  16.7/16.8-16.9/16.9-17/17.0-17.3 ms, 0 frames over 20 ms, 60 fps, up to 128 draws / 1.12M tris; brake max 17.1-33.4 ms,
+  0 over 34; climb max 16.9-17.5 ms, except one 50 ms frame on `north` at 29 m/s just after the shift, with the
+  main thread idle (not repeatable on the other four routes).
+- **A screenshot is a long frame.** The judge's trace ran beside 3x `page.screenshot` every ~600 ms. MAIN and NEXT
+  both stall on it: 12 shots on a quiet machine, MAIN 4 frames > 34 ms, NEXT 3 and 5, p99 33.5-50 ms on both; on a busy one up to 250 ms. Their
+  `play.mjs`, unchanged, same hour: pre-fix build 51 fps, p99 66.6, max 699.8, 14 frames > 34 ms; fixed 58.4 fps,
+  p99 33.4, max 33.6, 0 frames > 34 ms: its 14 slow frames are the script's 14 shots, one frame each. The p99 <= 20
+  ms goal is met without capture (16.9-17) and not with it (33.4), and that is why.
+- **Static views unchanged**: Alamo frozen at the same game time differs from MAIN by 0.022% of pixels (one random
+  puff), same 126 draws / 1,203,074 tris. `fps.mjs` Alamo, back to back: MAIN 60 / 59.9 / 57.4 fps, NEXT 60 / 60 / 60
+  (street / 250 m / ceiling), 124-125 / 135 / 163-165 draws.
+- **The contrail is vapor now, not a dither pattern.** The checkerboard was a screen-space Bayer; it now
+  dissolves by hard thresholds of noise anchored to the trail's distance (`aDist`), so clumps hold still in the air
+  while the bus leaves them, with one pixel of dither at their edges. Fresh it is a clean flag; set, the outline
+  billows (the bands follow it), cel steps fold it, it wanders and sags. Stride 10 floats, still one buffer.
+- **The rainboom.** From the chase camera the old cone was just a white disc. The boom now throws a rainbow hoop
+  (white crest, six hues, red outside): one annulus, one draw for under a second, opening around the bus and falling
+  back along its path past the camera. The cone stays as a short white shock.
+- **Speed lines are solid**: the dither ate streaks under a pixel wide into dots. 1.7 px, shortened rather than
+  dissolved, one in five a hue.
+- **Roll and pitch reach full at the same angle** (`rollFull` 30 -> 26): the judge's 0.18 at gamma 18 was the
+  hold angle (at 55 deg that is ~12 deg of wheel roll), now 0.22; 15 deg of real roll gives 0.38.
+- Still not done: no real phone yet; the A15 numbers are inferred.
+
+## Hybrid controls (producer: "a turbo button ... upper left", "a hybrid tilt and thumb tap", "a somewhat smaller/discrete toggle ... top left corner", "mega splat ... on the side - middle/top right of screen")
+The design is `docs/specs/hybrid-controls.md`, sections 0 to 10 built on main (eb35a35). **This overrides "No HUD" and "Tilt is
+the default on phones" by the producer's own words**: TURBO, the tilt toggle and MEGA are visible, everything else stays
+gone. All numbers: 393 x 852 at 3x, real Edge, this laptop's UHD 620, mocked sensor. **Nothing has been felt on a phone:
+every tunable in the "Hybrid" group is an estimate.**
+- **The rule.** The phone flies the bus until your thumb flies it. A tap splats. Buttons do what they say. There are no
+  control modes any more: `mode` is `touch | keyboard`, tilt running is `controls.tilt.active`, and `Input.update` is the one
+  arbitration site. With tilt off `state.stretch` is the bungee bit for bit (`s_hybrid` 1, 312 frames).
+- **A thumb replaces tilt, both axes.** Both sticks are absolute: adding gives a standing bias. A tap never disturbs tilt
+  (calm window only, 180 ms); a commit (12 px or 450 ms) fades it out in 160 ms; a still thumb reads 0, the untaught "tilt, stop
+  it". The lift hands back at most what tilt handed over, or takes the new angle as level (`s_hybrid`: nudge in a 12 degree
+  carve 46.1 of 45.0 degrees; body English +3.7, plain re-zero's wrong way gone; new hold +3.7 with stick 0).
+- **Producer defaults, one switch each.** Tilt is offered by the TILT TO STEER? chip, not imposed: `config.tilt.defaultOn` is the
+  one value to flip. A still press on the screen no longer charges, only MEGA does. Swipe-for-gears is retired. Tilt stays off
+  during a boost (a boost is clutched until the lift, and time doesn't count as a new hold for a reach: 3 s boost with a 25
+  degree swing 0.0 degrees, two-handed then levelled +10.0). A lapsed iOS grant gets the chip until it is ignored twice.
+- **The first run has no card and no hold.** Frame one is the clean hero shot. Coach: arrive at fog end or first touch, TAP on
+  a glint, DRAG after the first splat, TURBO blinks at the gate, the chip 2 s after the gate, HOLD on the third splat. Each once
+  ever (`taught`). In SF the first glint is ~90 s in if the player flies straight on (the bay), so with no splat yet the chip
+  comes first, 10 s after the fog at the earliest.
+- **Reconciled with main.** The HOLD SPLAT TO CHARGE line is the HOLD cue on MEGA's face; `strugglebus.superhint.v1` counts as
+  taught. A desktop has no MEGA, so it keeps HOLD SPACE TO CHARGE. Mote funnel, rings and warm-up are untouched.
+- **Judged tune: the hold hint ends when a charge starts.** `controls.charged()` ends the cue and clears the keyboard's toast.
+- **Judged tune: the pour's opening flash.** It wasn't an impact: it was `flash(mouth, 2, 0.9)`, centered on the bus. The first
+  try keyed on the landing point and did nothing, the second on 45 to 150 m and did nothing: the street's follow distance is ~125 m
+  (logged in the page). Now `flashNear` 130, `flashFar` 320, `flashClose` 0.45, on the flash's own point, one frame when
+  close, short of the white-hot core; hose impacts use the same curve. The judge's frame: near-white 28.4 % -> 17.8 % (mostly
+  the sky's one frame), bus and stream readable through it, where MAIN loses both. Generic: no city data.
+- **Rest is punched, not faded, and only the panels.** `punch(0.25)` over the whole face broke the labels ("TIIIBO", "MEGN"):
+  the panel goes see-through, chevrons and text stay solid. Palette only, no alpha.
+- **Moved in the build, beyond the spec:**
+  - `s_hybrid` 9 measures the wrong-way stick (-0.297 vs -0.316 unguarded), plus the carve's return. By heading unguarded
+    wins (47 vs 37, ideal 67), as the spec's own sim says (48 vs 36): the row as written couldn't pass. The guard's value on a
+    one-handed reach is smaller than the spec's table suggests: worth a look on a phone.
+  - Spec 3 contradicts itself: the landscape chip row (78 %) sits 1 px into the bottom 40, and its hit area 13 px. The table
+    stands (it is transient); `s_layout` names the exception.
+  - A compact phone turned on its side gets settings' seam at 8 px, not 4, to keep 44 px (not in the tables).
+  - MEGA refused by a steering thumb keeps its press (a tap on lift, or a charge) rather than cancelling: no press is dead.
+  - The adopted pointer's events are also forwarded from MEGA's wrapper, in case capture doesn't move on iOS, and every button
+    unlocks audio on `touchend` too, since a button can be the first touch (the toggle and the chip after their callback).
+- **Offline:** s_hybrid 31 of 31 (27 at the first QA, 4 added by the review below), s_gesture 47 rows, s_layout 952 checks, s_perm all, and s_tilt's JSON byte-identical to MAIN's.
+- **GPU:** every gesture, tilt off and on, through real CDP touches (`controls.mjs gestures`, `hybrid`, `flows`, `opening`,
+  `firstrun`, `layout`, `states`); 28 button states and every layout looked at. iOS asks inside `touchend` with user activation
+  active. Refused / thrown / rejected / silent / Android probe / no sensor / Busy / off inside the fade / settings 2 s all as the
+  spec's table. Real rects equal `layoutHud` at 393 x 852, 393 x 659, 320 x 568, 852 x 393, swapped or not. `jet.mjs --idle=1`: 0 HUD
+  DOM or style writes in 3 s.
+- **glint == hit:** 7 of 7 taps, 48 of 48 carves (roll 0, 12, 20, -20) and 12 of 12 taps after a thumb inside a carve, none lost.
+  An earlier run read 1 wrong of 12 at roll -20; `feel.mjs` then gained a check for presses that fired no breath and the rerun
+  was clean, so that one is unexplained and may be a real rare miss. Watch it.
+
+| fps.mjs, MAIN -> NEXT | fps | 1 % low | work ms | draws | triangles |
+|---|---|---|---|---|---|
+| Alamo street | 60 / 60 | 52.9 / 54.1 | 4.5 / 4.1 | 123 / 123 | 1.19M / 1.19M |
+| Alamo 250 m | 60 / 60 | 48.1 / 54.1 | 4.7 / 4.0 | 166 / 166 | 1.32M / 1.33M |
+| Alamo ceiling | 60 / 60 | 52.6 / 54.1 | 3.2 / 4.1 | 157 / 157 | 1.18M / 1.18M |
+| FiDi street | 60 / 60 | 53.2 / 52.9 | 3.1 / 2.9 | 111 / 112 | 0.70M / 0.70M |
+| FiDi 250 m | 60 / 60 | 56.8 / 56.8 | 2.0 / 2.1 | 121 / 125 | 0.70M / 0.73M |
+| FiDi ceiling | 60 / 60 | 55.2 / 55.9 | 1.9 / 1.9 | 59 / 59 | 0.43M / 0.43M |
+
+`shots.mjs` grey 127 / 127 draws, 1.21M / 1.21M, 25 / 25 programs; painted 135 / 134. `jet.mjs` east: p99 17.0 / 16.9 ms, max 17.3 / 17.3,
+no frame over 20 ms. Bundle 1111 -> 1133 KB. (The fps and shots runs predate the last flash tune, a two-value change that draws nothing.)
+
+**Merge review, four confirmed defects, all in the controls glue, none in rendering or perf** (each reproduced before the fix):
+- **Wrong-way carve after a long thumb session.** Grace went by `moved`, the phone's change, but a long hold in a still carve moves
+  the neutral the whole carve. Grace now goes by `max(moved, shift)`. 20 degree carve, 3 s thumb, levelled 0.5 s after the lift:
+  -183 degrees and stick -0.61 before, 0.0 degrees and stick 0 after on the GPU (s_hybrid row 20: -101.2 to +3.7, roll 12 -43.3 to
+  +3.7). Levelling past the 1.5 s grace is still the spec's known residual.
+- **A nudge begun on MEGA lost the carve.** `adoptThumb` never called `land()`, so hand-back used a stale pose and read as moved.
+  It lands at adoption, not at the press: tilt owns the stick until then. GPU 14 degree carve: stick 0.342 to 0.342 and no settle,
+  equal to the canvas nudge (s_hybrid row 21: -3.4 to 46.6 of 44.9 degrees).
+- **The toggle as first touch erased a returning player's choice.** `button2`'s `touchend` ran `onGesture` first, tilt started, and
+  the tap read as Busy cancel. Only TURBO, the tab and MEGA keep that listener; `hitTouch` runs it after its callback, tap or not.
+  GPU, Android-like and iOS: ends active, `prefs.tilt` true; iOS order `ask, unlock`, inside `touchend`.
+- **The chip swallowed drags and took any lift as yes.** `hitTouch(..., steer)`: past `tapSlopPx` the finger goes to `adoptThumb`
+  and the press is dead; a lift counts only inside `stillTapMs` and the slop. GPU: a drag steers (stick -0.32) and never asks, 0.6
+  and 1.5 s presses never ask, and a real tap on the same chip still asks in `touchend`. (A flick of 13 to 26 px under 150 ms that
+  starts on the chip is a splat, as on the canvas.)
+- Not changed: `yellowLo` (`#d8722a`, the bus ramp's own entry, hue 25, saturation 0.81, value 0.85) on pressed TURBO, pressed down
+  tab and the toggle's On body. It measures orange, not brown, but it reads burnt on dark panels: the producer's eye.
+- QA after the fixes: `controls.mjs` gestures, hybrid, firstrun, flows, opening, layout, states; `feel.mjs taps` 7 of 7 taps, 48 of 48
+  carves, 12 of 12 thumb-in-carve. `fps.mjs` not rerun: nothing here draws.
+
+**For the producer:** tilt's default (`config.tilt.defaultOn`). **First on a real iPhone, HTTPS preview:** whether `touchstart`
+preventDefault blocks the back swipe from TURBO's edge (if it doesn't, that loses the game); whether `requestPermission` is honored
+in a `touchend` after a prevented `touchstart`; pointer capture across `adoptThumb`; press-shake, calm, fade, settle, grace and
+`stillTapMs`; the reach's swing; real Safari height and insets; whether a probe hears a surviving grant.
+## Load time (producer: "about a minute to load on another laptop") — perf/load
+- **Where the time went** (deep dive of main e85f5ee): a cold visit downloads ~1.25 MB and
+  the worker meshes the opening in 0.1-0.35 s, but 18.85 s of a 24.4 s load was blocking
+  shader compilation. three.js compiled the 17 programs one at a time at their first draw,
+  and on Windows (ANGLE on D3D11) every G-buffer program compiles twice: once at link
+  (target 0 only), again at its first draw into the two-target G-buffer, serially on the GPU
+  process's main thread. The building's program takes ~4 s each time. Streaming waited on
+  frames (2 regions in flight, asked for from the frame loop), and the 4.2 s opening only ran
+  after the last freeze. Repeat visits are fast (the GPU program cache), so every player pays
+  this on the first visit and after every shader change.
+- **Shader warm-up at boot** (`src/render/warmup.ts`, ARCHITECTURE "Shader warm-up"): every
+  program compiles at boot with `KHR_parallel_shader_compile`, then draws once into the target
+  it really draws into (never the canvas), so the draw-time D3D variants are paid before the
+  first frame too. It warms the live scene, the post passes and registered sources (`city`,
+  `trees`, `roof sprouts`, `landmarks`, `bridges`); a one-triangle proxy per (material, object
+  kind, vertex layout, pass) carries the real program key and vertex layout. 22 programs, 22
+  draws. Three things it had to learn on this laptop:
+  - Compiles go out a few at a time (`hardwareConcurrency / 2` lanes; half take the longest
+    waiting, half the shortest). Launched all at once they filled the GPU process's compile
+    pool, the browser's own raster then waited 1.3-1.7 s for a slot on the GPU main thread,
+    and so did our next synchronous query: a 1.5-1.9 s long task.
+  - Every synchronous query (link status, uniform tables) waits behind a fence round trip, so
+    it never queues behind the seconds of draw-time compiles the last round started.
+  - A program's first query makes the GPU process finish loading it (tens of ms, ~170 ms for
+    the biggest), and three builds each program's source on the main thread (~100 ms for the
+    building's). Both stop after ~25 ms per task.
+- **What it can't remove**: the draw-time second compile of each G-buffer program still runs
+  one after another on the GPU process's main thread (7-11 s here, the building's 2.7-4.5 s of
+  it, depending on the other jobs on the laptop), and nothing can be presented while it runs. So
+  it all happens before the first frame (the page shows its fog-grey background), and the
+  opening starts after it. It is also why B's first frame comes later than A's (A presents one
+  frame early, then freezes). The warm-up also pays upfront for what A compiled in flight (the
+  sign, the gardens, the landmarks: ~3 s of that queue). A single-target G-buffer (deep dive
+  rank 2) removes the second compile: the bench put everything at ~3.5 s.
+- **Streaming primed** (rank 3): `city.prime()` posts the opening's whole want-list right after
+  `new City` (8 regions requested at 0.6-0.8 s instead of the last at 12-13 s), up to 10 in
+  flight while `city.eager` (until the first ready frame), 2 after. Tiles land and are adopted
+  (~12 ms per tick) while the shaders compile.
+- **The opening on the wall clock** (rank 4): it advances by real time from the first frame on
+  screen (the second frame's callback), not by summed dt clamped to 50 ms; the 15% hold until a
+  region has landed stays; same curve. It no longer stretches below 20 fps. Each step is capped
+  at 0.25 s (real time down to 4 fps), so a tab switch, a locked phone or a long task moves the
+  reveal by 6% at most instead of skipping it (a 3 s stall used to jump it from 16% to 89%).
+  0 frame gaps over 50 ms between the first frame and ready (B-1x-4).
+- **Boot downloads from the HTML** (rank 5): an inline script in index.html starts city.json,
+  far.bin and horizon.bin (the .bin files at low priority, the game's script first) for
+  `?city=` and leaves the promises for the game (`bootFetch`); each is fetched once. city.json
+  starts at 34-89 ms instead of 268-331 ms.
+- **Less before the first frame** (rank 6): the bus and the Golden Gate are built in boot; the
+  Bay Bridge, Sutro, the pyramid and the heroes (Coit, the Ferry Building, 181 Fremont's spire,
+  which now binds whenever both it and its tower exist) go to a queue, built while the warm-up
+  waits (else one per frame early in the opening); ready waits for the queue. Same landmark
+  paint order (slots), same obstacle posts from the start.
+- **iOS**: DecompressionStream is detected; iOS 15.0-16.3 get fflate (three's copy, a 4 kB
+  chunk loaded only there) in the worker and on the main thread (checked with both removed).
+  `PixelPipeline.resize` returns early when nothing changed, and resize events are applied
+  once per frame.
+- **Numbers** (A = main e85f5ee, B = perf/load; `tools/loadprofile.mjs`, a fresh browser per
+  run so the GPU program cache is cold, interleaved A B A B, Edge on the XPS 13 / UHD 620, other
+  jobs on the laptop at 15-33% CPU):
+
+  | | ready median (min) | first frame | first region | long tasks sum / max | programs |
+  |---|---|---|---|---|---|
+  | A 1x (4 runs) | 17.1 s (16.7) | 4.4 s, then frozen ~7 s | 5.9 s | 12.2 s / 7.5 s | 17 + 7 in flight |
+  | B 1x (4 runs) | 13.1 s (12.6) | 8.8 s | 0.9 s | 0.44 s / 0.16 s | 22, 0 in flight |
+  | A 4x CPU (2 runs) | 22.5 s (22.3) | 7.8 s, then frozen ~4 s | 13.1 s | 13.9 s / 5.1 s | 17 |
+  | B 4x CPU (2 runs) | 16.6 s (15.9) | 12.3 s | 2.5 s | 3.7 s / 0.9 s (boot JS) | 22 |
+  | A 4x + 20 Mbps (1) | 22.2 s | 8.0 s | 13.4 s | 13.5 s / 4.7 s | 17 |
+  | B 4x + 20 Mbps (1) | 16.4 s | 12.0 s | 3.0 s | 3.0 s / 0.7 s | 22 |
+
+  Ready is 4.1 s sooner at 1x (-24%) and 5.9 s at 4x; main-thread long tasks drop from 12 s to
+  0.4 s; B's first frame comes later, but the opening then plays smoothly (no frame gap over
+  50 ms) and nothing freezes in flight. B's first frame = the warm-up (8.0-9.7 s at 1x: the
+  GPU main thread's queue of draw-time compiles, 7-8 s of it) + far.bin; ready = first frame
+  + the 4.2 s opening. city.json starts at 34-89 ms instead of 268-331 ms (191 vs 1,307 ms at 4x
+  + 20 Mbps), each boot file once. Warm reload (same profile, `prof.mjs --reload`): A 4.81 s,
+  B 4.99 s. (Under heavier load from other jobs, 40-70% CPU, A took 25-32 s and B 17-18 s.)
+- **In flight** (`tools/warmcheck.mjs`: the opening, a climb, three blasts on one building to
+  level 3, the pyramid and Sutro from 380-430 m): A created 7 programs after ready (the sign,
+  its sun-pass boxes, the gardens, the landmarks) with frame gaps of 367-767 ms and long tasks
+  of 394-776 ms at the blasts; B created none, no frame over 100 ms, no long task over 100 ms.
+- **Look**: `tools/shots.mjs` grey / painted / opening on A and B look the same (they differ
+  where the bus is when the shot is taken, since B renders fewer frames before ready, and in
+  the random paint hues). The warm-up's draws land in the G-buffer, the sun map and the glow /
+  resolve targets, which every frame clears before use; nothing reaches the canvas.
+- **Review fixes**: the opening's step is capped at 0.25 s (a 3 s stall 0.7 s into the
+  opening now moves it from 16% to 24%, like main's 16% to 19%, instead of to 89%), and
+  index.html reads `?city=` exactly as main.ts does (an empty `?city=` no longer downloads sf's
+  boot files for nothing). Re-measured after them (interleaved, other jobs at 16-28% CPU): 1x
+  ready A 16.5 s median (min 15.7, 3 runs), B 13.4 s (min 12.5); 4x A 19.7 s (19.6, 2 runs),
+  B 14.3 s (14.0); B's opening 0 frame gaps over 50 ms at 1x, one of 117 ms at 4x; B long
+  tasks 0.40 s sum / 0.15 s max at 1x. `?fixeddt` opening: the bus is at the same place as on
+  A at every sampled time (0.02-7 s). An independent review got the same picture (1x: A 17.4 s,
+  B 12.7 s; first region A 6.2 s, B 0.75 s; no warm-up frame ever reaches the canvas).
+- (The numbers here are perf/load alone, before the single G-buffer target: see "iPhone performance" for the merge.)
+- **Open**: where `KHR_parallel_shader_compile` is missing (emulated in Chromium by hiding
+  it; possibly some Firefox / Windows setups), the warm-up still makes every program before the
+  first frame (0 after), but a 3.6-5 s freeze followed the first frame and blasts showed
+  333-633 ms frames: draw-time compiles the warm draws didn't pay there. No worse than main;
+  check on a real browser without the extension. And the page is plain fog-grey for ~8-9 s
+  before the first frame (a static cover of the opening's first frame is the idea, for the
+  producer to OK).
 
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a

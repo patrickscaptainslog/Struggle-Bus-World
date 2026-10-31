@@ -14,6 +14,11 @@ export const propsTune = {
   treeLump: 0.24,
   /** Leaf-clump light variation inside a canopy. */
   treeClump: 0.12,
+  /** Fine leaf texture inside a near canopy (where a pixel is under ~0.2 m: at 390 px wide, the
+   *  crowns around the bus). With the crowns' crisp light bands it cut them into 3-px islands. */
+  treeFine: 0.2,
+  /** Ramp steps per crown light band (1 = every step; 2 = every other step: half the band edges). */
+  treeBand: 1,
   /** How much each lobe's shading follows the whole crown (0 = clumpy, 1 = one smooth mass). */
   treeMass: 0.45,
   /** Darkening at the rim of each crown (separates crowns in a grove). */
@@ -43,6 +48,8 @@ registerTunables('Props', propsTune, {
   treeSway: [0, 0.12, 0.005],
   treeLump: [0, 0.8, 0.02],
   treeClump: [0, 0.5, 0.01],
+  treeFine: [0, 0.4, 0.01],
+  treeBand: [1, 2, 1],
   treeRim: [0, 0.4, 0.01],
   treeMass: [0, 1, 0.02],
   treeTint: [0, 0.8, 0.02],

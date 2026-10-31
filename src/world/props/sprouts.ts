@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT, SHADOW_LAYER } from '../../render/materials';
 import { Ramp } from '../../render/palette';
+import { registerWarm } from '../../render/warmup';
 import { DEPTH_FS, GLSL_PROPS, PartKit, propsTune, rng, tuneUniform, unitSphere } from './common';
 
 // Rooftop sprouts: what painted buildings grow. Level 1 = flower tufts along
@@ -213,7 +214,8 @@ uniform float uAmpMul;
 uniform float uCull;
 struct SproutV { vec4 world; vec3 normal; vec3 local; vec3 blobC; vec3 blobR; float hue; float seed; float part; bool hidden; };
 SproutV sproutVertex() {
-  SproutV o;
+  // (every field set, one return: D3D's compiler warns of an uninitialized result on an early return of a struct)
+  SproutV o = SproutV(vec4(0.0), vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0), 0.0, 0.0, 0.0, false);
   vec3 ic = vec3(0.0, 0.0, 1e9);
   #ifdef USE_INSTANCING_COLOR
   ic = instanceColor;
@@ -225,7 +227,7 @@ SproutV sproutVertex() {
   float t = uTime - ic.z;
   vec3 ipos = instanceMatrix[3].xyz;
   o.hidden = t <= 0.0 || (uKind.w > 0.0 && distance(cameraPosition, ipos) > uCull * uKind.w);
-  if (o.hidden) { o.world = vec4(0.0); return o; }
+  if (!o.hidden) {
   // spring up out of the roof: grow with overshoot, stretch while growing, squash on landing
   float g = propGrow(t);
   float st = 0.34 * exp(-5.0 * t) * sin(11.0 * t);
@@ -242,6 +244,7 @@ SproutV sproutVertex() {
   o.blobC = c;
   o.blobR = aBlobR * sc;
   o.world = modelMatrix * (instanceMatrix * vec4(p, 1.0));
+  }
   return o;
 }
 `;
@@ -783,6 +786,14 @@ export class RoofSprouts {
         depth.allowOverride = false;
       }
       return { geo, mat, depth, capacity: def.capacity };
+    });
+    // shader warm-up (render/warmup.ts): every element type's batch and its sun-pass twin, made by
+    // the same code as a garden's (gardens only grow in flight, at the first escalation)
+    registerWarm('roof sprouts', () => {
+      const g = new THREE.Group();
+      const sphere = new THREE.Sphere();
+      for (const t of this.types) new Batch(t.geo, t.mat, t.depth, 1, g, sphere);
+      return g;
     });
   }
 

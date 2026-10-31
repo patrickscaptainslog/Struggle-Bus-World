@@ -53,31 +53,50 @@ absolute paths). LiDAR (`tools/bake/lidar.py`) downloads itself (~1.4 GB, cached
 `tools/bake/.cache/lidar`). Then `python tools/bake/bake.py sf && python tools/bake/pack.py sf`
 (~15 min). Never change stable building ids casually: saved paint is keyed by them.
 
-## Branches (GitHub: patrickscaptainslog/Struggle-Bus-World)
-| Branch | State | Notes |
-|---|---|---|
-| `main` | integrated + published (preview v6) | blast, altitude, LiDAR towers, feel polish, 390 px, fog off |
-| `feat/facade` | in flight (cloud) | tower facade families, bases/crowns, distance LOD, Coit / Ferry Building / 181 Fremont props, painted towers |
-| `fix/landmarks` | in flight (cloud) | landmark props become paintable buildings (Transamerica, Sutro); facade's new props adopt it with one call each |
-| `polish/look` | in flight (cloud) | camera sky band, sign placement, hero silhouette, GGB orange, water, tree shimmer; a fixer is finishing review issues |
-| `feat/controls` | in flight (cloud) | tilt-to-fly default on phones (touch fallback), turbo gears G0-G3 (G2/G3 locked until world travel), `src/ui/Hud.ts` |
-| `feat/supersplat` | in flight (cloud) | hold-to-charge (10 s) -> firehose (~4 s) -> 60 s cooldown, `SuperMeter.ts` |
-| `feat/osm` | PAUSED (WIP commit) | OpenStreetMap via Overture Maps: real footprints, parts, roofs, streets/parks/water, names, OSM-based ids, Amsterdam test city. Resume here. |
-| `polish/perf` | PAUSED (WIP commit) | shadow caster proxy, prewarm, far-terrain culling, streaming, party walls. Resume here. |
+## Branches (GitHub: patrickscaptainslog/Struggle-Bus-World) — state when the cloud session stopped (2026-10-23 20:40 UTC)
+The cloud session has STOPPED all its work. Every branch below is pushed; unfinished
+work is in a final "WIP: paused ..." commit. **This desktop session now owns everything,
+including merging into `main`.** None of the branches below has been merged yet.
+
+| Branch | State | What's in it | Next step |
+|---|---|---|---|
+| `main` | preview v6 | blast, altitude/yoke, LiDAR towers, feel polish, 390 px frame, fog off, snappier springs, design docs | the base for everything |
+| `feat/facade` | built, NOT reviewed (12 commits) | facade families + style table + icon overrides (`src/world/towerStyles.ts`), bases/crowns, facade LOD by size on screen, painted towers (L2 hanging gardens, L3 bands), Coit Tower, Ferry Building, 181 Fremont spire (`props/landmarks.ts`), `tools/facade-shots.mjs` | review it (shots), fix, merge FIRST |
+| `fix/landmarks` | main merged in, review fixed, ready to merge (desktop session, 2026-10-23) | `City.addLandmarkBuilding`, paint reserve + its own name-keyed store, landmark paint (flood/L1-L3), glint, Transamerica + Sutro + Coit Tower + the Ferry Building paintable, 181 Fremont's spire paints with its tower | merge into main (its DECISIONS "Merged with main" has the numbers) |
+| `polish/look` | main merged in (facade + landmarks), review re-checked on the GPU and fixed; merge review's two findings fixed (a sign half hidden behind a far landmark, no drop shadow over the bay), ready to merge (desktop session, 2026-10-24) | sky band, sign beside the blast, hero ink edge + headlight, drop shadow, puffs, GGB International Orange (`BRIDGE_ORANGE` row 23; `RAMP_COUNT` 48), water, tree crowns, one sky function shared with the facades, `tools/look.mjs` + `lookstat.py` | merge into main (its DECISIONS "Look polish" has the 390 px numbers, MAIN vs the merge) |
+| `feat/controls` | main merged in, review fixed, QA'd on the GPU (MAIN vs NEXT), ready to merge (desktop session, 2026-10-30); never run on a real phone | tilt-to-fly default on phones (`Tilt.ts`, fused attitude, recenter), touch fallback, keyboard + Esc, hold-to-charge + turbo in `Input.ts` (the INPUT CONTRACT), turbo gears G0-G3 (G2/G3 locked behind `config.turbo.worldTravel`), turbo FX + audio, `src/ui/Hud.ts`, `tools/controls.mjs`, `tools/jet.mjs` (frame pacing, attributed), `tools/boom.mjs` (hero frames) | merge before supersplat (its DECISIONS "Controls QA" and "outside judge, round 1" have the numbers); first real-phone pass on the HTTPS preview |
+| `feat/supersplat` | main merged in (controls, look, landmarks, facade), pre-review fixed, QA'd on the GPU (MAIN vs NEXT), ready to merge (desktop session, 2026-10-30); never run on a real phone | hold-to-charge (10 s) on controls' gesture, mega blast on early release, firehose (~4 s), 60 s cooldown, `SuperSplat.ts`/`SuperFx.ts`/`SuperMeter.ts`/`superSfx.ts`, the summoning circle (`PixelPipeline.setHeroCircle`), `Blast.super` for the stage engine, the warm-up kit (`render/warmup.ts`, from perf/load), `tools/supersplat.mjs` | merge next (the outside judge's round 1 is fixed: first pour max 17.5 ms; a re-judge is pending), then perf/load (see "Merging perf/load" below); its DECISIONS "Super splat, outside judge round 1" has the numbers; first real-phone pass: the pour from 250 m on an A15, the meter clear of the home indicator |
+| `feat/hybrid` | built from `docs/specs/hybrid-controls.md`, QA'd on the GPU (MAIN vs NEXT), review's four defects fixed (2026-10-30); never run on a real phone | the producer's hybrid: TURBO, the tilt toggle, MEGA, thumb + tilt arbitration (`Hybrid.ts`), `hudLayout.ts`, the first run (`Coach.ts`), no card, `tools/controls-sim/s_hybrid.ts`, `s_layout.ts` | the real-iPhone list at the end of its DECISIONS "Hybrid controls" (back swipe first); the producer's call: `config.tilt.defaultOn` |
+| `merge/perf` | polish/perf, perf/load and the optimization deep dive in one merge, QA'd on the GPU (MAIN vs NEXT), merge review's five findings fixed, not yet judged (desktop session, 2026-10-30); never run on a real phone | one RGBA16UI G-buffer, the typed mesher, sun-pass casters, depth-only sun pass, first draws on a byte budget, unseen swaps that only commit, the warm-up from the top of main.ts, primed streaming, the opening on the wall clock and a tap to skip it, a first touch with no stall, context loss | merge next (its DECISIONS "iPhone performance" has the numbers, MAIN bd660ba vs NEXT, and what was dropped); first real-phone pass below |
+| `feat/stages` | empty (just created from main) | — | build the stage engine per `docs/specs/STAGES.md` (its "Producer decisions" section) |
+| `feat/osm` | paused mid-task (WIP) | Overture/OSM extract (`tools/bake/overture.py`, `osm.py`, `citydata.py`), conflation draft in `bake.py`, Amsterdam config, `src/ui/Credits.ts` | resume; needs the bake inputs (see "City data pipeline") |
 
 `feat/controls` and `feat/supersplat` share an INPUT CONTRACT (`onTap`,
 `onChargeStart`, `onChargeEnd(heldSeconds, cancelled)`, `state.chargeHeld`,
 `onTurbo(dir)`, `state.turboHeld`, `input.mode`): see their DECISIONS/ARCHITECTURE
 notes when merging.
 
-## Who owns what (avoid two sessions fighting)
-- Until the cloud session says the in-flight branches are merged, it alone merges into
-  `main` and pushes `main`. Work on your own branch (e.g. `local/<topic>`) and push it;
-  say in its first commit what it is for.
-- Safe to take over now on this machine: `feat/osm` and `polish/perf` (paused, nobody
-  else touches them). Merge `main` into them first.
-- Fast, GPU-backed visual QA of any branch is always welcome: write results to
-  `shots/local/...` and a short markdown report next to them.
+### Suggested order
+1. Merge facade -> landmarks (+ wire the 3 new props) -> look -> controls -> supersplat -> perf,
+   with a quick GPU screenshot check after each (`node tools/shots.mjs`), publishing a
+   Vercel deploy as you go. (All in main but `merge/perf`, the last of them.)
+2. Build the stage engine (`feat/stages`), then MAGIC-SPEC's effects in its three
+   workstreams (WS-1 light + music, WS-2 ribbons/pillars/birds/fireworks/waterfalls, WS-3
+   growth kit + director + Wonders), Super Rainbow's five stages first.
+3. Resume `feat/osm`, then world travel (`docs/specs/WORLD-TRAVEL.md`).
+
+## Design docs (all in `docs/specs/`)
+- `MAGIC-SPEC.md` — "wild paint": 14 effects, one visual language, escalation ladder, perf
+  roll-up, build order, three workstreams with file ownership.
+- `STAGES.md` — five stages per 128 m area per faction. **Producer decisions at the top
+  override the rest:** +1 stage per separate blast (5 s climb cooldown), firehose +1 per area
+  it lingers on; Wonders are tougher (stages 5 and 4 take two rival hits each, 7 to take a
+  Wonder); Cloud Nine removed, **The Elderwood** (forest / elder / nymph sprites) added;
+  Super Rainbow's Wonder is the **Wellspring** (220 m rainbow geyser), the Elderwood's is the
+  **Elder Heartwood** (pending the producer's final OK on that swap).
+- `WORLD-TRAVEL.md` — turbo SF -> Tokyo: floating origin + UTM frames, curvature in the vertex
+  shader, analytic ocean in the resolve pass, city streaming, Tokyo from Overture, phased plan.
+- `magic/concept-*.md` — the three art directors' raw concepts.
 
 ## Rules that keep it beautiful and fast
 - Materials write a palette ramp + light + fog + glow through `sbWrite`; never free RGB
@@ -85,6 +104,13 @@ notes when merging.
 - Budget: iPhone A15 >= 30 fps, recent iPhones 60. Today ~120-200 draws, ~1.0-1.5M
   triangles; no per-building draw calls; one texture upload per texture per frame; no
   allocations in hot paths. Report before/after numbers for anything that renders.
+- Frames don't change without saying so: `node tools/shots.mjs <url> <dir> --det` on two builds and
+  `python -I tools/shotdiff.py <dirA> <dirB>` is frame-exact from run to run (0 pixels, MAIN vs MAIN).
+- Nothing compiles a shader in flight: a material or object kind made after boot registers a
+  warm-up source (`registerWarm`, see ARCHITECTURE "Shader warm-up"); `node tools/warmcheck.mjs`
+  must report 0 programs after the warm-up, and of first draws after it only the upscale onto the canvas.
+- Every chunk parses on iOS 15.0, the first Safari with WebGL2: `build.target` is `safari15` and
+  `node tools/iosfloor.mjs <build>` must pass. A script that doesn't parse shows nothing at all.
 - Tunables live in `src/config.ts` (the in-game tuner reads them).
 - Commit messages end with the session's attribution lines; never commit secrets.
 
@@ -96,7 +122,7 @@ notes when merging.
    A design pass is producing `MAGIC-SPEC.md` (cloud scratchpad; will be committed to
    `docs/specs/`). Open questions to the producer: which factions at launch; does a
    firehose count as one hit or ~2.
-2. Tilt to fly as the default on phones; touch optional (feat/controls). Tilt needs a real
+2. Hybrid tilt + thumb (feat/hybrid, the producer's revision of tilt by default). Tilt needs a real
    HTTPS deploy (Vercel from this repo); the claude.ai preview blocks motion sensors.
 3. Hold-to-charge super splat (feat/supersplat).
 4. Turbo modes and manual world travel: fly SF -> Tokyo across the Pacific with turbo gears
@@ -107,11 +133,33 @@ notes when merging.
 5. Use OpenStreetMap as much as possible for quality (feat/osm; ODbL: attribution in game +
    DATA_LICENSE.md for the tiles).
 6. It felt laggy and low-res: we raised the frame to 390 px and tightened springs; the perf
-   pass (polish/perf) is paused. Measure real fps here and on the producer's iPhone.
+   pass is `merge/perf`. Measure real fps on the producer's iPhone.
 
 ## Known issues worth knowing
+- A 3x `page.screenshot` costs a frame or more on any build: don't trace frame times beside one.
+- Capture tools pass `&nohud`: `tools/controls.mjs ... firstrun` and `opening` are the first-visit runs (the cues, the chip,
+  TURBO armed under the deck, the sheet, sensors that never answer). `?fixeddt` makes game time run ~3x real time: a "hold"
+  in `run:` game seconds is a shorter real press, and a real press past 450 ms is what makes a thumb.
+- A one-handed reach to TURBO swings the bus until the finger lands, and with a settle it recovers less of a carve than no guard
+  would (37 vs 47 degrees, ideal 67): it stops the wrong-way turn. Only a phone can say if that trade is right.
+- A phone relaxed more than ~2 s after a moved lift gets a counter-carve until RECENTER or a thumb hold (spec section 12).
+- Never run on an iPhone, in the order that would hurt most: the RGBA16UI G-buffer (ES 3.0 color-renderable, Metal's
+  RGBA16Uint too, but only a real A15 proves it; there is no two-target fallback, and a refusal now says so: one line on
+  the fog-grey page, `boot().catch`), the first touch (the context in the gesture, sound ~100 ms later, a breath queued
+  until then), a context lost in the background, iOS 15.0-16.3 (parses by `build.target` and `tools/iosfloor.mjs`, never
+  yet by a real Safari: no WebKit on this machine; fflate through a dynamic import in a module worker).
+- A first touch in a fresh desktop browser is bimodal, on any build: 13-670 ms in the gesture, all of it inside the browser's
+  `new AudioContext` (later pages 16-28 ms). Holding the warm context open would need the iOS unlock reworked: see DECISIONS.
+- Warm-up: ~4 s here before the first frame, the page fog-grey meanwhile; a phone slower than that sees grey longer. Nothing
+  caps it (main's `render.warmWait` went with the merge: a frame before it finished would link in flight).
+- Steady flight allocates ~3 MB/s (main 3.8; the deep dive hoped for 1-2): what is left is mostly three's render path.
+- `Splatter` still allocates per hose impact (Scheduled objects, paint records: ~2,000 short-lived objects a second
+  during the 4 s pour), the one known exception to the no-allocation rule: pool them if a phone shows GC hitches.
 - `shots.mjs` stats sometimes come back null at 390 px (the perf snapshot timing); the
   screenshots are still valid.
-- The far skyline beyond the streaming radius is flat boxes; with fog off it shows.
+- The far skyline beyond the streaming radius is flat boxes; with fog off it shows. (The far field is a separate study's:
+  polish/perf's far chunks stayed out of the merge.)
 - Saved paint keys: `strugglebus.paint.v1` (buildings), `strugglebus.ground.v2:<tx>,<tz>`
-  (ground). feat/osm bumps building paint to v2 (ids change).
+  (ground), `strugglebus.landmarks.v1` (landmark props, by name: `lm:sutro`,
+  `lm:transamerica`, `lm:coit`, `lm:ferry`; independent of any bake). feat/osm bumps
+  building paint to v2 (ids change); the landmark store stays as it is.

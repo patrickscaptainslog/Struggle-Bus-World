@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import { config } from '../config';
-import { globals, GLSL_LAYER_TOP, SHADOW_LAYER } from './materials';
-import { makePaletteTexture, Ramp } from './palette';
+import { globals, GLSL_G_READ, GLSL_LAYER_TOP, GLSL_SKY_LIGHT, SHADOW_LAYER } from './materials';
+import { HUE_RAMPS, makePaletteTexture, Ramp } from './palette';
+import type { WarmPipeline } from './warmup';
 
 // Low-res 3D pixel-art renderer.
 //
-//  1. sun depth pass (shadow map, snapped to its own texel grid)
-//  2. scene pass into a small G-buffer (ramp, light, fog, glow | normal, id)
+//  1. sun depth pass (shadow map, snapped to its own texel grid; depth only,
+//     and casters whose shadow can't reach the view are skipped)
+//  2. scene pass into a small G-buffer (ramp, light, fog, glow | normal, id: one RGBA16UI target)
 //  3. glow pass: blurred emissive at half res
 //  4. resolve pass: ramp + ordered dither, outlines, creases, fog, sky -> palette RGB
 //  5. upscale pass: nearest-neighbor to the canvas, shifted by the camera's
@@ -27,7 +29,7 @@ export interface PixelFrameInfo {
   scale: number;
 }
 
-export class PixelPipeline {
+export class PixelPipeline implements WarmPipeline {
   readonly renderer: THREE.WebGLRenderer;
   readonly camera: THREE.PerspectiveCamera;
   /** Camera actually used to render (snapped copy of `camera`). */
@@ -90,16 +92,48 @@ export class PixelPipeline {
   private cssW = 1;
   private cssH = 1;
   private dpr = 1;
+  /** what the targets were last sized for (resize() early-outs when nothing changed) */
+  private sizeKey = '';
   /** impact flash: rendered frames left, and (buffer uv x, y, strength, radius) */
   private flashLeft = 0;
   private readonly flashU = new THREE.Vector4();
+  // sun pass scratch (no per-frame allocation)
+  private readonly sunCenter = new THREE.Vector3();
+  private readonly sunFwd = new THREE.Vector3();
+  private readonly sunRight = new THREE.Vector3();
+  private readonly sunUp = new THREE.Vector3();
+  private readonly cullCam = new THREE.PerspectiveCamera();
+  private readonly cullFrustum = new THREE.Frustum();
+  private readonly cullMat = new THREE.Matrix4();
+  private readonly cullSphere = new THREE.Sphere();
+  private readonly cullBox = new THREE.Box3();
+  private readonly cullBox2 = new THREE.Box3();
+  private readonly cullSize = new THREE.Vector3();
+  private readonly cullOff = new THREE.Vector3();
+  private readonly culled: THREE.Object3D[] = [];
+  private readonly invalidColor = [0];
+  /** objects skipped by the last sun pass (QA) */
+  shadowCulled = 0;
+  /** the hero's headlight beam (world lens, world tip, half widths m, strength 0..1; 0 = off) */
+  private readonly beamEye = new THREE.Vector3();
+  private readonly beamTip = new THREE.Vector3();
+  private readonly beamTmp = new THREE.Vector3();
+  private beamHalf0 = 0;
+  private beamHalf1 = 0;
+  private beamK = 0;
+  /** the hero's drop shadow (center x, z, underside y, ramp steps; 0 = off) and its oval (forward xz, half length, half width) */
+  private readonly heroShadow = new THREE.Vector4();
+  private readonly heroShadowAxes = new THREE.Vector4(0, 1, 1, 1);
+  private readonly heroCircle = new THREE.Vector4();
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: false,
       alpha: false,
-      depth: true,
+      // every scene pass draws into its own target; the canvas only gets the upscale blit
+      // (a depth buffer there would be ~12 MB at devicePixelRatio 3, cleared and stored for nothing)
+      depth: false,
       stencil: false,
       powerPreference: 'high-performance',
       preserveDrawingBuffer: false,
@@ -110,6 +144,9 @@ export class PixelPipeline {
     // far reaches the horizon hills and the fog sea when the bus is high above the city
     this.camera = new THREE.PerspectiveCamera(40, 1, 1.5, 30000);
     this.sunCam.layers.set(SHADOW_LAYER);
+    // the sun pass is depth only: shadows sample the depth texture, its color target is never read
+    this.depthMat.colorWrite = false;
+    this.invalidColor[0] = (this.renderer.getContext() as WebGL2RenderingContext).COLOR_ATTACHMENT0;
 
     const quadGeo = new THREE.PlaneGeometry(2, 2);
     this.quad = new THREE.Mesh(quadGeo);
@@ -119,8 +156,7 @@ export class PixelPipeline {
     this.resolveMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
       uniforms: {
-        tColor: { value: null },
-        tAux: { value: null },
+        tG: { value: null },
         tDepth: { value: null },
         tGlow: { value: null },
         tPalette: { value: this.palette },
@@ -139,6 +175,12 @@ export class PixelPipeline {
         uFogBillow: globals.uFogBillow,
         uCamPos: { value: new THREE.Vector3() },
         uCalm: { value: 0 },
+        uHaze: { value: new THREE.Vector4(config.render.ditherHazeFrom, config.render.ditherHazeTo, config.render.fogBandMin, config.render.fogSliver) },
+        uBeam: { value: new THREE.Vector4() },
+        uBeamShape: { value: new THREE.Vector4() },
+        uHeroShadow: { value: new THREE.Vector4() },
+        uHeroShadowAxes: { value: new THREE.Vector4(0, 1, 1, 1) },
+        uHeroCircle: { value: new THREE.Vector4() },
         uFlash: { value: new THREE.Vector4() },
       },
       vertexShader: QUAD_VS,
@@ -148,7 +190,7 @@ export class PixelPipeline {
     });
     this.glowMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
-      uniforms: { tColor: { value: null }, tPalette: { value: this.palette }, uTexel: { value: new THREE.Vector2() } },
+      uniforms: { tG: { value: null }, tPalette: { value: this.palette }, uTexel: { value: new THREE.Vector2() } },
       vertexShader: QUAD_VS,
       fragmentShader: GLOW_EXTRACT_FS,
       depthTest: false,
@@ -182,17 +224,22 @@ export class PixelPipeline {
 
   private allocShadow() {
     const s = config.render.shadowMapSize;
+    // (the color target is required but never read: one byte per texel, and never stored)
     const depth = new THREE.DepthTexture(s, s);
-    depth.type = THREE.UnsignedIntType;
+    depth.type = config.render.shadowDepth16 ? THREE.UnsignedShortType : THREE.UnsignedIntType;
     depth.compareFunction = THREE.LessEqualCompare;
     depth.minFilter = THREE.NearestFilter;
     depth.magFilter = THREE.NearestFilter;
-    this.shadowRT = new THREE.WebGLRenderTarget(s, s, { depthTexture: depth, depthBuffer: true });
+    this.shadowRT = new THREE.WebGLRenderTarget(s, s, { format: THREE.RedFormat, depthTexture: depth, depthBuffer: true });
     this.shadowRT.texture.generateMipmaps = false;
     globals.uShadowMap.value = depth;
   }
 
   resize(cssW: number, cssH: number, dpr: number) {
+    // (iOS fires resize / visualViewport events in bursts while its toolbars move: reallocate only on a real change)
+    const key = `${cssW}x${cssH}@${dpr}/${config.render.pixelWidth}/${config.render.maxPixelScale}`;
+    if (key === this.sizeKey) return;
+    this.sizeKey = key;
     this.cssW = cssW;
     this.cssH = cssH;
     this.dpr = dpr;
@@ -223,8 +270,9 @@ export class PixelPipeline {
     depthTex.minFilter = THREE.NearestFilter;
     depthTex.magFilter = THREE.NearestFilter;
     this.gbuf = new THREE.WebGLRenderTarget(W, H, {
-      count: 2,
-      type: THREE.UnsignedByteType,
+      format: THREE.RGBAIntegerFormat,
+      type: THREE.UnsignedShortType,
+      internalFormat: 'RGBA16UI',
       minFilter: THREE.NearestFilter,
       magFilter: THREE.NearestFilter,
       depthBuffer: true,
@@ -290,6 +338,43 @@ export class PixelPipeline {
     const W = w + MARGIN * 2, H = h + MARGIN * 2;
     this.flashLeft = Math.max(this.flashLeft, Math.round(frames));
     this.flashU.set((MARGIN + u * w) / W, (MARGIN + v * h) / H, strength, 0.075);
+  }
+
+  /**
+   * The hero's headlight beam for the next render: what lies ahead of the lens
+   * (from `eye` toward `tip`, half width `halfNear` m at the lens to `halfFar` m
+   * at the tip) is lit a step or two up its own ramp in the resolve pass, a warm
+   * core at the lens; nothing is drawn, so it costs no draw call. strength 0 = off.
+   */
+  setHeroBeam(eye: THREE.Vector3, tip: THREE.Vector3, halfNear: number, halfFar: number, strength: number) {
+    this.beamEye.copy(eye);
+    this.beamTip.copy(tip);
+    this.beamHalf0 = halfNear;
+    this.beamHalf1 = halfFar;
+    this.beamK = Math.max(0, Math.min(1, strength));
+  }
+
+  /**
+   * The hero's drop shadow for the next render: whatever faces up below `underY` inside the oval
+   * (center x, z; forward axis fx, fz; half length / half width m) is drawn `steps` ramp steps darker
+   * in the resolve pass, paint included (no decal, no draw call). steps 0 = off.
+   */
+  setHeroShadow(x: number, z: number, underY: number, fx: number, fz: number, halfLength: number, halfWidth: number, steps: number) {
+    const fl = Math.hypot(fx, fz) || 1;
+    this.heroShadow.set(x, z, underY, Math.max(0, steps));
+    this.heroShadowAxes.set(fx / fl, fz / fl, Math.max(0.1, halfLength), Math.max(0.1, halfWidth));
+  }
+
+  /**
+   * The super splat's summoning circle for the next render: a rainbow pinwheel in an oval (half length /
+   * half width m) of hue ramps, turned `spin` arms round, filling in with `charge` (0..1; 0 = off), on one
+   * flat plane through the bus's wheels (the drop shadow's underside y), around the bus. Resolve pass: each
+   * pixel's view ray meets that plane; what stands in front of the plane covers it, everything behind it
+   * shows through the stipple. So it never splits across a roof and the street below it, whatever the bus
+   * is over, and it costs no draw call and no program of its own.
+   */
+  setHeroCircle(charge: number, spin: number, halfLength: number, halfWidth: number) {
+    this.heroCircle.set(charge, spin, Math.max(0.1, halfLength), Math.max(0.1, halfWidth));
   }
 
   /** World-space size of one game pixel at a given distance from the camera. */
@@ -362,9 +447,9 @@ export class PixelPipeline {
     sc.bottom = -ext / 2;
     sc.near = 1;
     sc.far = 3000;
-    const center = (this.shadowFocusOn ? this.shadowFocus : this.focus).clone();
+    const center = this.sunCenter.copy(this.shadowFocusOn ? this.shadowFocus : this.focus);
     // shift the shadow window forward along the view so more of what's visible is covered
-    const fwd = new THREE.Vector3();
+    const fwd = this.sunFwd;
     this.camera.getWorldDirection(fwd);
     fwd.y = 0;
     if (fwd.lengthSq() > 1e-6) center.addScaledVector(fwd.normalize(), ext * 0.22);
@@ -375,8 +460,8 @@ export class PixelPipeline {
     sc.updateMatrixWorld();
     // snap to shadow texel grid in light space to stop shadow-edge crawl
     const texel = ext / config.render.shadowMapSize;
-    const right = new THREE.Vector3().setFromMatrixColumn(sc.matrixWorld, 0);
-    const up = new THREE.Vector3().setFromMatrixColumn(sc.matrixWorld, 1);
+    const right = this.sunRight.setFromMatrixColumn(sc.matrixWorld, 0);
+    const up = this.sunUp.setFromMatrixColumn(sc.matrixWorld, 1);
     const pr = sc.position.dot(right);
     const pu = sc.position.dot(up);
     sc.position.addScaledVector(right, Math.round(pr / texel) * texel - pr).addScaledVector(up, Math.round(pu / texel) * texel - pu);
@@ -387,34 +472,108 @@ export class PixelPipeline {
     m.multiply(sc.projectionMatrix).multiply(sc.matrixWorldInverse);
 
     const r = this.renderer;
+    if (config.render.shadowCasterCull) this.cullCasters(scene, center, ext);
     const prevOverride = scene.overrideMaterial;
     const prevBg = scene.background;
     scene.overrideMaterial = this.depthMat;
     scene.background = null;
     r.setRenderTarget(this.shadowRT);
     r.setClearColor(0xffffff, 1);
+    r.state.buffers.color.setMask(true);
     r.clear(true, true, false);
-    r.render(scene, sc);
+    this.drawSun(scene, sc);
+    // and a tile-based GPU never stores the unused color target
+    (r.getContext() as WebGL2RenderingContext).invalidateFramebuffer(WebGL2RenderingContext.FRAMEBUFFER, this.invalidColor);
     scene.overrideMaterial = prevOverride;
     scene.background = prevBg;
+    for (const o of this.culled) o.visible = true;
+    this.culled.length = 0;
     globals.uShadowOn.value = Math.min(1, this.shadowStrength);
     globals.uShadowEdge.value = Math.min(0.5, Math.max(0.01, this.shadowEdge));
+  }
+
+  /** The sun pass's draw, depth only, also for the casters that keep their own depth shaders (trees, gardens). */
+  private drawSun(scene: THREE.Scene, camera: THREE.Camera) {
+    const cb = this.renderer.state.buffers.color;
+    cb.setMask(false);
+    cb.setLocked(true);
+    this.renderer.render(scene, camera);
+    cb.setLocked(false);
+    cb.setMask(true);
+  }
+
+  /**
+   * Hide (for the sun pass only) the casters marked `userData.sunCull` whose
+   * shadow can't land anywhere the camera sees: the box of the caster's
+   * bounding sphere swept down the sun ray by twice its radius (the shadow of
+   * its top reaching its bottom) misses the view frustum, cut at the far edge
+   * of the shadow window (no shadows are sampled beyond it). Conservative: a
+   * shadow that can reach the view always keeps its caster. (The window is a
+   * square across the sun's rays: on the ground its corners lie 1 / sun.y as
+   * far along the sun's azimuth: ~1.28 windows from the center at a 25 deg sun.)
+   */
+  private cullCasters(scene: THREE.Scene, center: THREE.Vector3, ext: number) {
+    const cc = this.cullCam, sn = this.snapCam;
+    const sy = Math.max(0.1, globals.uSunDir.value.y);
+    const reach = 0.5 * ext * Math.sqrt(1 + 1 / (sy * sy));
+    cc.fov = sn.fov;
+    cc.aspect = sn.aspect;
+    cc.near = sn.near;
+    cc.far = Math.max(sn.near + 1, Math.min(sn.far, sn.position.distanceTo(center) + reach));
+    cc.updateProjectionMatrix();
+    this.cullFrustum.setFromProjectionMatrix(this.cullMat.multiplyMatrices(cc.projectionMatrix, sn.matrixWorldInverse));
+    this.shadowCulled = 0;
+    this.visitCullRoots(scene, this.cullVisit);
+    this.shadowCulled = this.culled.length;
+  }
+
+  private readonly cullVisit = (o: THREE.Object3D) => {
+    if (!o.userData.sunCull || !(o as THREE.Mesh).geometry || !o.layers.test(this.sunCam.layers)) return;
+    const bs = (o as THREE.Mesh).geometry.boundingSphere;
+    if (!bs) return;
+    const s = this.cullSphere.copy(bs).applyMatrix4(o.matrixWorld);
+    const sun = globals.uSunDir.value;
+    const L = (2 * s.radius) / Math.max(0.1, sun.y);
+    const b = this.cullBox.setFromCenterAndSize(s.center, this.cullSize.setScalar(2 * s.radius));
+    this.cullBox2.copy(b).translate(this.cullOff.copy(sun).multiplyScalar(-L));
+    b.union(this.cullBox2);
+    if (this.cullFrustum.intersectsBox(b)) return;
+    o.visible = false;
+    this.culled.push(o);
+  };
+
+  /** Walk the scene's cull roots (top-level children marked `userData.cullRoot`; the whole scene if none is). */
+  private visitCullRoots(scene: THREE.Scene, visit: (o: THREE.Object3D) => void) {
+    let any = false;
+    for (const c of scene.children)
+      if (c.userData.cullRoot) {
+        any = true;
+        c.traverseVisible(visit);
+      }
+    if (!any) scene.traverseVisible(visit);
   }
 
   render(scene: THREE.Scene) {
     const r = this.renderer;
     if (!this.snapped) this.snap();
     this.snapped = false;
+    // one scene-graph update per frame: three updates the whole graph at every render() call, and the
+    // sun pass and the G-buffer pass both render the scene (nothing moves in between)
+    scene.updateMatrixWorld();
+    const autoWorld = scene.matrixWorldAutoUpdate;
+    scene.matrixWorldAutoUpdate = false;
     this.updateShadow(scene);
 
     // scene -> gbuffer
+    globals.uPixelAngle.value = 2 / (this.snapCam.projectionMatrix.elements[5] * this.gbuf.height);
     r.setRenderTarget(this.gbuf);
     r.setClearColor(0x000000, 0);
     r.clear(true, true, false);
     r.render(scene, this.snapCam);
+    scene.matrixWorldAutoUpdate = autoWorld;
 
     // glow extract + blur (half res)
-    this.glowMat.uniforms.tColor.value = this.gbuf.textures[0];
+    this.glowMat.uniforms.tG.value = this.gbuf.texture;
     this.glowMat.uniforms.uTexel.value.set(1 / this.gbuf.width, 1 / this.gbuf.height);
     this.blit(this.glowMat, this.glowA);
     this.blurMat.uniforms.tSrc.value = this.glowA.texture;
@@ -426,8 +585,7 @@ export class PixelPipeline {
 
     // resolve
     const ru = this.resolveMat.uniforms;
-    ru.tColor.value = this.gbuf.textures[0];
-    ru.tAux.value = this.gbuf.textures[1];
+    ru.tG.value = this.gbuf.texture;
     ru.tDepth.value = this.gbuf.depthTexture;
     ru.tGlow.value = this.glowA.texture;
     ru.uNearFar.value.set(this.snapCam.near, this.snapCam.far);
@@ -436,7 +594,23 @@ export class PixelPipeline {
     ru.uCamPos.value.copy(this.snapCam.position);
     ru.uCalm.value = Math.min(1, Math.max(0, this.calm));
     ru.uDitherWidth.value = config.render.ditherWidth;
+    ru.uHaze.value.set(config.render.ditherHazeFrom, Math.max(config.render.ditherHazeFrom + 0.01, config.render.ditherHazeTo), Math.max(0.004, config.render.fogBandMin), config.render.fogSliver);
     ru.uOutline.value.set(config.render.outlineDepth, config.render.creaseHighlight, config.render.outlineFadeEnd);
+    if (this.beamK > 0.001) {
+      // the beam in buffer pixels, projected with the snapped camera (what the buffer was rendered with)
+      const W = this.gbuf.width, H = this.gbuf.height, sc = this.snapCam;
+      const e = this.beamTmp.copy(this.beamEye).project(sc);
+      const ex = (e.x * 0.5 + 0.5) * W, ey = (e.y * 0.5 + 0.5) * H;
+      const t = this.beamTmp.copy(this.beamTip).project(sc);
+      const tx = (t.x * 0.5 + 0.5) * W, ty = (t.y * 0.5 + 0.5) * H;
+      const dE = sc.position.distanceTo(this.beamEye), dT = sc.position.distanceTo(this.beamTip);
+      const eyeDepth = -this.beamTmp.copy(this.beamEye).applyMatrix4(sc.matrixWorldInverse).z;
+      ru.uBeam.value.set(ex, ey, tx - ex, ty - ey);
+      ru.uBeamShape.value.set(this.beamHalf0 / this.pixelWorldSize(dE), this.beamHalf1 / this.pixelWorldSize(dT), this.beamK, eyeDepth + 2);
+    } else ru.uBeamShape.value.z = 0;
+    ru.uHeroShadow.value.copy(this.heroShadow);
+    ru.uHeroShadowAxes.value.copy(this.heroShadowAxes);
+    ru.uHeroCircle.value.copy(this.heroCircle);
     if (this.flashLeft > 0) {
       ru.uFlash.value.copy(this.flashU);
       this.flashLeft--;
@@ -451,6 +625,78 @@ export class PixelPipeline {
     u.uOffset.value.set(MARGIN + this.subPixel.x, MARGIN + this.subPixel.y);
     u.uCanvas.value.set(r.domElement.width, r.domElement.height);
     this.blit(this.upscaleMat, null);
+  }
+
+  // ---- shader warm-up (src/render/warmup.ts): what the passes draw with, and draws that are never presented
+
+  /**
+   * Throw if this device refuses a target the frame can't do without: GL only logs it, and the game would run on
+   * under a black frame with a live HUD. Call it where a throw is seen and before the GPU has anything to do
+   * (the top of boot(): the query is synchronous), not from the constructor (outside boot()).
+   */
+  checkTargets() {
+    const r = this.renderer;
+    const gl = r.getContext();
+    const check = (name: string, target: THREE.WebGLRenderTarget) => {
+      r.setRenderTarget(target);
+      const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+      r.setRenderTarget(null);
+      // (a lost context answers "unsupported" for everything, and has its own path)
+      if (status !== gl.FRAMEBUFFER_COMPLETE && !gl.isContextLost()) throw new Error(`${name} refused (status 0x${status.toString(16)})`);
+    };
+    check('RGBA16UI G-buffer', this.gbuf);
+    check('R8 sun map', this.shadowRT);
+  }
+
+  /** Layers the scene pass draws (the render camera copies the camera's). */
+  get sceneLayers(): THREE.Layers {
+    return this.camera.layers;
+  }
+
+  /** Layers the sun's depth pass draws. */
+  get sunLayers(): THREE.Layers {
+    return this.sunCam.layers;
+  }
+
+  /** The sun pass's override material (every caster whose material allows overriding draws with it). */
+  get sunOverride(): THREE.Material {
+    return this.depthMat;
+  }
+
+  /** One quad per post-pass material, for the warm-up to compile. */
+  warmObjects(): THREE.Object3D[] {
+    return [this.glowMat, this.blurMat, this.resolveMat, this.upscaleMat].map((m) => new THREE.Mesh(this.quad.geometry, m));
+  }
+
+  /** Draw `scene` into the G-buffer and `sun` into the shadow map, as the real passes do (nothing reaches the canvas). */
+  warmDraw(scene: THREE.Scene, sun: THREE.Scene, camera: THREE.Camera) {
+    const r = this.renderer;
+    // (always bound first: a scene draw before the sun map's first use would sample a depth texture that doesn't
+    // exist yet, and GL drops a draw with a mismatched sampler)
+    r.setRenderTarget(this.shadowRT);
+    // (the real pass's draw, mask and all: a write mask is part of a Metal pipeline, another mask warms another pipeline)
+    if (sun.children.length) this.drawSun(sun, camera);
+    if (scene.children.length) {
+      r.setRenderTarget(this.gbuf);
+      r.render(scene, camera);
+    }
+    r.setRenderTarget(null);
+  }
+
+  /** The post passes once, each into its own target; the upscale into a scratch target instead of the canvas. */
+  warmPasses() {
+    this.glowMat.uniforms.tG.value = this.gbuf.texture;
+    this.blit(this.glowMat, this.glowA);
+    this.blurMat.uniforms.tSrc.value = this.glowA.texture;
+    this.blit(this.blurMat, this.glowB);
+    const ru = this.resolveMat.uniforms;
+    ru.tG.value = this.gbuf.texture;
+    ru.tDepth.value = this.gbuf.depthTexture;
+    ru.tGlow.value = this.glowA.texture;
+    this.blit(this.resolveMat, this.resolved);
+    this.upscaleMat.uniforms.tSrc.value = this.resolved.texture;
+    this.blit(this.upscaleMat, this.glowB);
+    this.renderer.setRenderTarget(null);
   }
 
   private blit(mat: THREE.ShaderMaterial, target: THREE.WebGLRenderTarget | null) {
@@ -476,13 +722,14 @@ void main() {
 
 const GLOW_EXTRACT_FS = /* glsl */ `
 precision highp float;
-uniform sampler2D tColor;
+${GLSL_G_READ}
 uniform sampler2D tPalette;
 uniform vec2 uTexel;
 in vec2 vUv;
 layout(location = 0) out vec4 outColor;
 vec3 glowOf(vec2 uv) {
-  vec4 g = texture(tColor, uv);
+  ivec2 size = textureSize(tG, 0);
+  vec4 g = sbColor(clamp(ivec2(floor(uv * vec2(size))), ivec2(0), size - 1));
   if (g.a < 0.02) return vec3(0.0);
   int ramp = int(g.r * 255.0 + 0.5);
   vec3 c = texelFetch(tPalette, ivec2(6, ramp), 0).rgb;
@@ -514,8 +761,7 @@ void main() {
 
 const RESOLVE_FS = /* glsl */ `
 precision highp float;
-uniform sampler2D tColor;
-uniform sampler2D tAux;
+${GLSL_G_READ}
 uniform sampler2D tDepth;
 uniform sampler2D tGlow;
 uniform sampler2D tPalette;
@@ -534,6 +780,13 @@ uniform vec4 uFogLayer2;
 uniform vec2 uFogBillow;
 uniform vec3 uCamPos;
 uniform float uCalm;
+uniform vec4 uHaze;      // fog over which surface dither fades to plain rounding; the handover band's floor; the
+                         // shortest shape (share of the frame's height) that may stand out of the fog
+uniform vec4 uBeam;      // hero headlight: lens (buffer px), axis to the tip (px)
+uniform vec4 uBeamShape; // half width at the lens / at the tip (px), strength, lens view depth (m)
+uniform vec4 uHeroShadow;     // hero drop shadow: center xz, underside y (m), ramp steps (0 = off)
+uniform vec4 uHeroShadowAxes; // ...its oval: forward axis xz, half length, half width (m)
+uniform vec4 uHeroCircle;     // the charge's pinwheel around it: charge (0 = off), spin (arms), half length, half width (m)
 uniform vec4 uFlash;     // impact flash: buffer uv, strength, white-hot radius (fraction of the height)
 in vec2 vUv;
 layout(location = 0) out vec4 outColor;
@@ -541,6 +794,8 @@ ${GLSL_LAYER_TOP}
 
 const float RAMP_FOG = ${Ramp.FOG}.0;
 const float RAMP_SKY_WARM = ${Ramp.SKY_WARM}.0;
+const float RAMP_BUS_YELLOW = ${Ramp.BUS_YELLOW}.0;
+const float RAMP_BUS_BLACK = ${Ramp.BUS_BLACK}.0;
 
 float bayer4(ivec2 p) {
   int x = p.x & 3; int y = p.y & 3;
@@ -594,13 +849,9 @@ vec3 worldDir(vec2 uv) {
 
 // Sky and fog share one color function so fogged things melt into the sky
 // behind them. Returns the continuous light level; the caller quantizes.
-float skyLight(vec3 dir) {
-  float e = clamp(dir.y * 2.6, -0.3, 1.0);
-  float sunNear = pow(max(dot(dir, uSunDir), 0.0), 16.0);
-  float l = 0.9 - 0.5 * max(e, 0.0) + 0.12 * sunNear;
-  l -= 0.6 * max(-e, 0.0);
-  return clamp(l, 0.0, 1.0);
-}
+// (materials.ts GLSL_SKY_LIGHT: the tower facades mirror the same function)
+${GLSL_SKY_LIGHT}
+float skyLight(vec3 dir) { return sbSkyLight(dir, uSunDir, uCalm); }
 float skyWarm(vec3 dir) {
   vec3 sunFlat = normalize(vec3(uSunDir.x, 0.0, uSunDir.z));
   vec3 dirFlat = normalize(vec3(dir.x, 0.0001, dir.z));
@@ -637,6 +888,14 @@ vec2 seaShade(vec3 dir, float sl) {
   return vec2(clamp(mix(l, sl, far), 0.0, 1.0), warm * (1.0 - far));
 }
 
+// A neighbor's fog says whether it stands out of the fog (at the floor): a nearer surface (not the
+// clear sky, fog 0), the handover, or a silhouette rounding darker than the buried step.
+bool stands(float f, float sl, float bur) {
+  if (f < 0.002) return false;
+  if (f < 0.76) return true;
+  return rampStep(sl - (1.0 - f) * 0.55 - 0.03 - 0.1 * uCalm * smoothstep(0.75, 0.95, f), 0.5) < bur;
+}
+
 // nearest bright tint among the six hues + glow white
 vec3 haloTint(vec3 c) {
   float best = -1.0; vec3 bc = c;
@@ -655,10 +914,12 @@ void main() {
   ivec2 dp = p + ivec2(uDitherOrigin);
   float d = bayer4(dp);
   float d2 = bayer4(dp + ivec2(2, 1));
-  // up high (calm) the sky and the fog sea dither in screen space: they change only with the view's
-  // rotation, so a pattern anchored to the snapped grid would flip them at every snap step
+  // the sky (and up high the fog sea) dithers in screen space: it changes only with the view's
+  // rotation, so a pattern anchored to the snapped grid would slide through its bands at every snap
+  // step (at the floor that is every frame of a cruise)
   bool calmV = uCalm > 0.5;
-  float ds = calmV ? bayer4(p) : d;
+  float dsk = bayer4(p);
+  float ds = calmV ? dsk : d;
   float ds2 = calmV ? bayer4(p + ivec2(2, 1)) : d2;
   // surfaces: the dither's reach shrinks to plain rounding as the view calms
   float dc = mix(d, 0.5, uCalm);
@@ -687,16 +948,18 @@ void main() {
     }
     // narrow dithered band where the warm glow begins; the sky gets tighter dither bands (tighter
     // still up high, where its gradient spans more of the frame: calm bands, not dotted stripes)
-    vec3 sc = pal(warmS > ds ? RAMP_SKY_WARM : RAMP_FOG, rampStepW(skyL, ds, 0.09 - 0.04 * uCalm));
+    vec3 sc = pal(warmS > dsk ? RAMP_SKY_WARM : RAMP_FOG, rampStepW(skyL, dsk, 0.09 - 0.04 * uCalm));
     vec3 halo = texture(tGlow, vUv).rgb;
     float hAmt = max(halo.r, max(halo.g, halo.b));
-    if (hAmt > 0.1 && hAmt > d2 * 1.1) sc = haloTint(halo / hAmt);
-    if (uFlash.z > 0.0) sc = pal(${Ramp.GLOW_WHITE}.0, flashK > 0.45 ? 7.0 : 6.0 + floor(flashK * 2.0));
-    outColor = vec4(sc, 1.0);
+    // (alpha 0 marks plain sky: the upscale leaves it unshifted, it holds still on the screen)
+    float skyA = 0.0;
+    if (hAmt > 0.1 && hAmt > d2 * 1.1) { sc = haloTint(halo / hAmt); skyA = 1.0; }
+    if (uFlash.z > 0.0) { sc = pal(${Ramp.GLOW_WHITE}.0, flashK > 0.45 ? 7.0 : 6.0 + floor(flashK * 2.0)); skyA = 1.0; }
+    outColor = vec4(sc, skyA);
     return;
   }
-  vec4 g = texelFetch(tColor, p, 0);
-  vec4 a = texelFetch(tAux, p, 0);
+  vec4 g = sbColor(p);
+  vec4 a = sbAux(p);
   float ramp = floor(g.r * 255.0 + 0.5);
   float light = g.g;
   float fog = g.b;
@@ -710,13 +973,14 @@ void main() {
   if (outlineable && fade > 0.0) {
     vec3 n = octDecode(a.rg);
     ivec2 off[4] = ivec2[4](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
+    bool sil[4] = bool[4](false, false, false, false);
     for (int i = 0; i < 4; i++) {
       ivec2 q = p + off[i];
       float zq = texelFetch(tDepth, q, 0).r;
       float dq = zq >= 0.99999 ? 1e9 : linDepth(zq);
-      vec4 aq = texelFetch(tAux, q, 0);
+      vec4 aq = sbAux(q);
       // silhouette: neighbor is much farther -> this pixel is the near edge
-      if (dq - depth > depth * uOutline.x) edgeDark = 1.0;
+      if (dq - depth > depth * uOutline.x) { edgeDark = 1.0; sil[i] = true; }
       else if (abs(dq - depth) < depth * uOutline.x) {
         vec3 nq = octDecode(aq.rg);
         float nd = dot(n, nq);
@@ -729,6 +993,9 @@ void main() {
         if (abs(aq.b - a.b) > 0.001 && aq.a > 0.75) edgeDark = max(edgeDark, 0.5);
       }
     }
+    // a one-pixel feature with background on both sides (a cable, a suspender, a pole) keeps its own
+    // color: darkening only some steps of a thin diagonal beaded it into dots
+    if ((sil[0] && sil[1]) || (sil[2] && sil[3])) edgeDark = 0.0;
   }
   edgeDark *= fade;
   crease *= fade * uOutline.y;
@@ -757,25 +1024,32 @@ void main() {
   // checkerboards on walls that happen to sit on a step boundary.
   float lb = g.g * 255.0;
   // (slow gradients count as flat too: a clean band edge beats a dotted contour)
-  bool flatLight = abs(texelFetch(tColor, p + ivec2(1, 0), 0).g * 255.0 - lb) < 1.5
-                && abs(texelFetch(tColor, p + ivec2(-1, 0), 0).g * 255.0 - lb) < 1.5
-                && abs(texelFetch(tColor, p + ivec2(0, 1), 0).g * 255.0 - lb) < 1.5
-                && abs(texelFetch(tColor, p + ivec2(0, -1), 0).g * 255.0 - lb) < 1.5;
-  float step = rampStep(light, flatLight ? 0.5 : dc);
+  ivec2 pR = p + ivec2(1, 0), pL = p + ivec2(-1, 0), pU = p + ivec2(0, 1), pD = p + ivec2(0, -1);
+  // (only a neighbor on a real gradient counts: one more than the dither window away sits across an
+  // edge, a tree crown's light band, a shadow's rim, another face. A gradient that steep has no room
+  // for a dither, which only drew dots along the edge that churned as it slid through the grid)
+  vec4 dl = abs(vec4(sbLightAt(pR), sbLightAt(pL), sbLightAt(pU), sbLightAt(pD)) * 255.0 - lb);
+  vec4 onGrad = vec4(greaterThanEqual(dl, vec4(1.5))) * vec4(lessThan(dl, vec4(72.86 * uDitherWidth)));
+  bool flatLight = dot(onGrad, vec4(1.0)) < 0.5;
+  // into the haze the dither's reach shrinks too: the ordered pattern is anchored to the grid snapped
+  // at the bus, and far shapes slide across it with parallax (a crawl); hazy, compressed surfaces round
+  float step = rampStep(light, flatLight ? 0.5 : mix(dc, 0.5, smoothstep(uHaze.x, uHaze.y, fog)));
   // outlines: silhouettes two steps darker, seams between houses one step,
   // convex creases (roof edges, cornices, bay corners) one step lighter
   if (edgeDark > 0.75) step = max(step - 2.0, 0.0);
   else if (edgeDark > 0.25) step = max(step - 1.0, 0.0);
   else if (crease > 0.5) step = min(step + 1.0, 7.0);
-  float bandW = 0.06;
-  if (uFogLayer2.w > 0.001) {
-    // seen from high up the fog changes slowly across the screen, so a fixed
-    // band would dither wide areas: narrow it to the fog's own gradient (a
-    // clean contour where the city meets the fog sea)
-    float gf = max(abs(texelFetch(tColor, p + ivec2(1, 0), 0).b - fog), abs(texelFetch(tColor, p + ivec2(0, 1), 0).b - fog));
-    gf = max(gf, max(abs(texelFetch(tColor, p - ivec2(1, 0), 0).b - fog), abs(texelFetch(tColor, p - ivec2(0, 1), 0).b - fog)));
-    bandW = mix(0.06, clamp(gf * 2.5, 0.004, 0.06), uFogLayer2.w);
-  }
+  // the hero always separates: its silhouette is a plum ink line inside its own warm ramp (the bus's
+  // ramps are its own), dark against every paint hue and still warm against the grey
+  bool busY = abs(ramp - RAMP_BUS_YELLOW) < 0.5;
+  bool heroEdge = edgeDark > 0.75 && (busY || abs(ramp - RAMP_BUS_BLACK) < 0.5);
+  if (heroEdge) step = busY ? 1.0 : min(step, 1.0);
+  // the handover band follows the fog's own gradient, so it is a few pixels wide wherever it is: a
+  // fixed band was a wide dithered zipper that reshuffled as the camera dollied (the fog contour
+  // slides through the grid). At street level it keeps a floor (config.render.fogBandMin; the
+  // value-matched colors make its dots a hue flip); seen from high up, over the fog sea, a clean contour
+  float gf = max(max(abs(sbFogAt(pR) - fog), abs(sbFogAt(pU) - fog)), max(abs(sbFogAt(pL) - fog), abs(sbFogAt(pD) - fog)));
+  float bandW = clamp(gf * 2.5, mix(uHaze.z, 0.004, uFogLayer2.w), 0.06);
   float fogBand = clamp((fog - 0.65 + bandW * 0.5) / bandW, 0.0, 1.0);
   bool fogged = fogBand > mix(d2, 0.5, uCalm);
   // deep in the fog things become solid silhouettes a little darker than the
@@ -785,6 +1059,14 @@ void main() {
   // stand a step darker than the bright haze, so the horizon reads as a silhouette, not a fade)
   float silL = sl - (1.0 - fog) * 0.55 * (1.0 - 0.8 * sea) - 0.03 - 0.1 * uCalm * (1.0 - sea) * smoothstep(0.75, 0.95, fog);
   vec3 col = pal(ramp, step);
+  // at street level the handover is value-matched: at the band every surface turns into the FOG step
+  // nearest its own luminance (FOG luma is linear, 0.3955 + 0.071 k), so the switch is a change of hue,
+  // not a jump to pale dots; deeper in, the shapes flatten into the silhouettes a little darker than
+  // the sky. (Up high the old contour stays: calm, and the fog sea's lit top.)
+  float kMatch = clamp((dot(col, vec3(0.299, 0.587, 0.114)) - 0.3955) / 0.071, 0.0, 7.0) / 7.0;
+  // (flat by fog 0.76, under the fog ceiling of tall far shapes: a tower standing out of the fog is a pale
+  // shape, never its one-pixel window grid, which crawled with parallax)
+  silL = mix(kMatch, silL, max(smoothstep(0.62, 0.76, fog), max(uCalm, uFogLayer2.w)));
   float oRamp = ramp;
   float oStep = step;
 
@@ -792,13 +1074,98 @@ void main() {
   // this surface's own ramp, or (close to the source) the glowing hue's tint.
   vec3 halo = texture(tGlow, vUv).rgb;
   float hAmt = max(halo.r, max(halo.g, halo.b));
-  if (glow < 0.05 && hAmt > 0.11 && hAmt * 1.1 > d2) {
+  if (!heroEdge && glow < 0.05 && hAmt > 0.11 && hAmt * 1.1 > d2) {
     if (hAmt > 0.42 && hAmt > d * 1.25) col = haloTint(halo / hAmt);
     else { oStep = min(step + 2.0, 7.0); col = pal(ramp, oStep); }
   }
 
-  // (the fog sea's long light gradients get the sky's tight dither bands)
-  if (fogged) { oRamp = fogRamp; oStep = sea > 0.5 ? rampStepW(silL, ds, 0.09) : rampStep(silL, dc); col = pal(oRamp, oStep); }
+  // (the fog sea's long light gradients get the sky's tight dither bands; silhouettes round, so the
+  // far skyline is flat shapes, not dotted boxes that crawl)
+  if (fogged) {
+    oRamp = fogRamp;
+    oStep = sea > 0.5 ? rampStepW(silL, ds, 0.09) : rampStep(silL, 0.5);
+    // a shape standing out of the fog stands at least ~0.45 deg tall (4 px at 240 px wide, 6 at 390): shorter, it
+    // is a sliver (the top of a roof just over the fog ceiling's contour, a dash of a far ridge)
+    // floating in the sky band as debris, so it is buried with the rest. (The vertical run through this
+    // pixel; nearer surfaces and the handover count as ground under it.)
+    if (sea < 0.5) {
+      float bur = rampStep(sl - 0.03 - 0.1 * uCalm, 0.5);
+      if (oStep < bur) {
+        int K = clamp(int(uSize.y * uHaze.w + 0.5), 3, 16);
+        int run = 1;
+        for (int i = 1; i < 16; i++) {
+          if (i >= K || !stands(sbFogAt(p + ivec2(0, i)), sl, bur)) break;
+          run++;
+        }
+        for (int i = 1; i < 16; i++) {
+          if (run >= K || !stands(sbFogAt(p - ivec2(0, i)), sl, bur)) break;
+          run++;
+        }
+        if (run < K) oStep = bur;
+      }
+    }
+    col = pal(oRamp, oStep);
+  }
+  bool heroRamp = busY || abs(ramp - RAMP_BUS_BLACK) < 0.5;
+  // the hero's drop shadow: whatever faces up below the bus, inside an oval about its size, a ramp step
+  // darker in its own ramp (paint too: no grey blob punched into the bloom). The open water too: the bay
+  // plane isn't outlineable, but over the bay (the opening's Golden Gate shot) it is the only height cue.
+  if (uHeroShadow.w > 0.0 && (outlineable || abs(ramp - ${Ramp.WATER}.0) < 0.5) && !fogged && !heroRamp) {
+    vec3 cf = -normalize(vec3(uCamWorld[2].xyz));
+    vec3 P = uCamPos + dir * (depth / max(dot(dir, cf), 0.05));
+    vec2 bq = P.xz - uHeroShadow.xy;
+    vec2 bo = vec2(dot(bq, uHeroShadowAxes.xy), bq.x * uHeroShadowAxes.y - bq.y * uHeroShadowAxes.x) / uHeroShadowAxes.zw;
+    bool below = P.y < uHeroShadow.z && (mat3(uCamWorld) * octDecode(a.rg)).y > 0.5;
+    // (the plane through the wheels, where this pixel's ray crosses it on the way down to what it sees)
+    float cdy = uCamPos.y - uHeroShadow.z;
+    float cdk = P.y < uHeroShadow.z && cdy > 0.0 ? cdy / (uCamPos.y - P.y) : 0.0;
+    if (uHeroCircle.x > 0.01 && cdk > 0.0) {
+      // the super splat's charge: a rainbow pinwheel spinning around the bus, faster and fuller as it fills;
+      // the arms' gaps stipple shut, the bus's middle stays open (the drop shadow shows through it)
+      vec2 cq = mix(uCamPos.xz, P.xz, cdk) - uHeroShadow.xy;
+      vec2 sq = vec2(dot(cq, uHeroShadowAxes.xy) / uHeroCircle.z, (cq.x * uHeroShadowAxes.y - cq.y * uHeroShadowAxes.x) / uHeroCircle.w);
+      float sr = length(sq);
+      if (sr > 0.34 && sr <= 1.0) {
+        float sc = uHeroCircle.x;
+        float ss = atan(sq.y, sq.x) * 0.95493 + sr * (2.0 + 3.0 * sc) - uHeroCircle.y;
+        if (fract(ss) <= 0.35 + 0.5 * sc || ((int(gl_FragCoord.x) + int(gl_FragCoord.y)) & 1) == 0) {
+          oRamp = ${HUE_RAMPS[0]}.0 + mod(floor(ss), 6.0);
+          oStep = 5.0 + floor(1.4 * sc);
+          col = pal(oRamp, oStep);
+        }
+      }
+    }
+    if (below && dot(bo, bo) < 1.0) {
+      oStep = max(oStep - uHeroShadow.w, 0.0);
+      col = pal(oRamp, oStep);
+    }
+  }
+  // the hero's headlight: what lies ahead of the lens (beyond the bus) is lit a step or two up its own
+  // ramp; a lift, not a drawn shape, so it reads as light in the haze. Only the grey world: paint and
+  // glow are already the brightest things around (the bloom right after a hit is the money shot). A
+  // warm glint where it leaves the nose, and on the nose's silhouette edge, so the one eye reads from
+  // behind. The beam rides with the bus, which holds still on screen: its edge dither is screen-anchored.
+  // (the unpainted towers' own materials are grey world too: the beam doesn't stop at a tower's face)
+  bool greyR = ramp < ${Ramp.GREY_LIGHT}.5 || ramp == ${Ramp.GREEN_GREY}.0 || ramp == ${Ramp.WINDOW}.0 || ramp == ${Ramp.ROOF_DARK}.0
+    || ramp == ${Ramp.GLASS}.0 || ramp == ${Ramp.STONE}.0 || ramp == ${Ramp.GRANITE}.0;
+  if (uBeamShape.z > 0.0 && glow < 0.02 && hAmt < 0.11 && !fogged && (greyR || heroRamp) && (depth > uBeamShape.w || heroEdge)) {
+    vec2 bv = gl_FragCoord.xy - uBeam.xy;
+    float bl = max(length(uBeam.zw), 1.0);
+    vec2 ba = uBeam.zw / bl;
+    float bt = dot(bv, ba) / bl;
+    float bs = abs(bv.x * ba.y - bv.y * ba.x) / max(mix(uBeamShape.x, uBeamShape.y, clamp(bt, 0.0, 1.0)), 0.75);
+    if (heroRamp) {
+      // (the nose's ink edge right over the lens)
+      if (heroEdge && abs(bv.x * ba.y - bv.y * ba.x) < 1.0 && bt * bl > -9.0 && bt * bl < 3.0) { oRamp = RAMP_SKY_WARM; oStep = 7.0; col = pal(oRamp, oStep); }
+    } else if (bt > 0.0 && bt < 1.0 && bs < 1.0) {
+      float ba2 = uBeamShape.z * pow(1.0 - bt, 0.75) * (1.0 - bs * bs);
+      // crisp nested bands (+1 step, +2 steps), dithered only in a narrow band at their edges
+      float bk = ba2 * 2.6;
+      float lift = floor(bk) + (clamp((fract(bk) - 0.38) / 0.24, 0.0, 1.0) > dsk ? 1.0 : 0.0);
+      if (bt * bl < 2.5 && bs < 0.7) { oRamp = RAMP_SKY_WARM; oStep = max(oStep, 6.0); col = pal(oRamp, oStep); }
+      else if (lift > 0.5) { oStep = min(oStep + lift, 7.0); col = pal(oRamp, oStep); }
+    }
+  }
   // impact flash: white-hot near the blast (shapes kept by their own light),
   // everything else jumps two or three steps up its own ramp
   if (uFlash.z > 0.0) {
@@ -821,6 +1188,13 @@ layout(location = 0) out vec4 outColor;
 void main() {
   vec2 src = gl_FragCoord.xy / uScale + uOffset;
   ivec2 t = ivec2(floor(src));
-  outColor = vec4(texelFetch(tSrc, t, 0).rgb, 1.0);
+  vec4 c = texelFetch(tSrc, t, 0);
+  // plain sky (alpha 0) only turns with the view: the snap's sub-pixel shift is for the world at the
+  // focus, so the sky takes the unshifted texel (where both are sky) and holds perfectly still
+  if (c.a < 0.5) {
+    vec4 c0 = texelFetch(tSrc, ivec2(floor(gl_FragCoord.xy / uScale + vec2(${MARGIN}.0))), 0);
+    if (c0.a < 0.5) c = c0;
+  }
+  outColor = vec4(c.rgb, 1.0);
 }
 `;

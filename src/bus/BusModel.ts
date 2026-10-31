@@ -46,6 +46,12 @@ export interface BusPose {
   wheeze: number;
   /** 0..1 gag bulge. */
   heave: number;
+  /** 0..1 super splat charge: the belly band races through the rainbow to white-hot (optional). */
+  charge?: number;
+  /** 0..1 spent after a firehose: the band and the hatch glow go dim (optional). */
+  spent?: number;
+  /** 0..1 the charge's heartbeat throb: the whole body glows with it, white-hot near a full charge (optional). */
+  pulse?: number;
 }
 
 /** Live-tunable look + feel numbers (read every frame). */
@@ -257,6 +263,20 @@ const VERTEX_CHUNK = /* glsl */ `
     if (sp > 1.0 - uFx3.x * bReady) g = 1.0;
     bGlow = g * lit;
     bLo = mix(uBand.y, uBand.z, lit);
+    // super splat charge: every slice races through the rainbow, faster and brighter, then white-hot
+    float bCh = uFx5.y;
+    if (bCh > 0.001) {
+      float spd = 1.5 + 26.0 * bCh * bCh;
+      float hue = mod(floor(bPar * 6.0 - bT * spd), 6.0);
+      float hot = smoothstep(0.62, 0.9, bCh);
+      bool white = sbHash11(floor(bT * 18.0) * 3.7 + bPar * 41.0) < hot;
+      bRamp = white ? ${f(Ramp.GLOW_WHITE)} : ${f(Ramp.RED)} + hue;
+      bGlow = mix(max(bGlow, 0.55), 1.0, smoothstep(0.0, 0.6, bCh));
+      bLo = mix(bLo, 0.42, smoothstep(0.0, 0.5, bCh));
+    }
+    // spent: the band goes dim
+    bGlow *= 1.0 - 0.85 * uFx5.z;
+    bLo -= 0.3 * uFx5.z;
     if (p.y < ${f(Y((D.bandY0 + D.bandY1) / 2))}) {
       float zz = (p.z - ${f(0.5 * (D.axleF + D.axleR))}) / ${f(0.5 * (D.axleR - D.axleF))};
       p.y -= uBand.w * bFull * max(1.0 - zz * zz, 0.0);
@@ -275,6 +295,9 @@ const VERTEX_CHUNK = /* glsl */ `
     if (abs(hue - 2.0) < 0.5) hue = 1.0;
     bRamp = ${f(Ramp.RED)} + hue;
     bGlow = uFx.x * smoothstep(0.04, 0.5, bFull);
+    // (charging: the hole under the hatch glows white-hot; spent: it goes out)
+    if (uFx5.y > 0.5) bRamp = ${f(Ramp.GLOW_WHITE)};
+    bGlow = max(bGlow, uFx5.y) * (1.0 - uFx5.z);
   } else if (bPart == ${PART.FLASH_AMBER}) {
     float on = step(0.0, sin(bT * 8.4 + bPar * 3.14159));
     bGlow = uFx.y * bReady * (1.0 - smoothstep(0.05, 0.3, bMouth)) * on;
@@ -332,6 +355,17 @@ const VERTEX_CHUNK = /* glsl */ `
   float bSun = mix(uLight.x, ${f(REF_LIGHT.sun)}, uFx5.x);
   float bTgt = clamp(mix(bRaw, bRef, uFx5.x) - uFx3.y * bSun * bNdl * bSh + bLo + uFx3.w, 0.0, 1.0);
   bTgt += (floor(bTgt * 7.0 + 0.5) / 7.0 - bTgt) * uFx4.x;
+  // super splat charge: the whole body glows, throbbing with the heartbeat, white-hot flickers near full
+  float bC = uFx5.y;
+  if (bC > 0.001) {
+    float pul = uFx5.w;
+    bGlow = max(bGlow, bC * (0.2 + 0.55 * pul) + 0.25 * smoothstep(0.7, 1.0, bC));
+    bTgt = min(1.0, bTgt + bC * (0.08 + 0.18 * pul));
+    if (bC > 0.8 && sbHash11(floor(bT * 24.0) + float(bPart) * 7.1 + hy * 13.0) < (bC - 0.8) * 2.5 * (0.4 + 0.6 * pul)) {
+      bRamp = ${f(Ramp.GLOW_WHITE)};
+      bGlow = 1.0;
+    }
+  }
   bLo = bTgt - bRaw;
 #define ramp bRamp
 #define lightOffset bLo
@@ -378,7 +412,7 @@ export class BusModel {
   private readonly uFx2 = new THREE.Vector4(); // squash split, door max, doorway glow, ready wave
   private readonly uFx3 = new THREE.Vector4(); // sparkle, sun soften, gulp, light trim
   private readonly uFx4 = new THREE.Vector4(); // light snap, shadow mul, inhale, exhale
-  private readonly uFx5 = new THREE.Vector4(); // hero light
+  private readonly uFx5 = new THREE.Vector4(); // hero light, super charge, spent, heartbeat pulse
 
   private wheelAngle = 0;
   private lastSpeed = NaN;
@@ -549,6 +583,9 @@ export class BusModel {
     }
 
     this.applyTunables();
+    this.uFx5.y = clamp01(pose.charge ?? 0);
+    this.uFx5.z = clamp01(pose.spent ?? 0);
+    this.uFx5.w = clamp01(pose.pulse ?? 0);
     this.uPose.set(squash, clamp01(pose.heave), clamp01(pose.wheeze), full);
     this.uPose2.set(mouth, eye, Math.max(0, this.arm.x), lidAngle);
     this.uAnim.set(t % 600, this.wheelAngle, this.lean.x, this.jig.x + 0.03 * Math.sin(t * 2.1) * pose.wheeze);

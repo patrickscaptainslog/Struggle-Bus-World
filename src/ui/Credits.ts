@@ -1,8 +1,9 @@
-// Data credits (ODbL: the baked city is a derivative of OpenStreetMap). Shown small and legible while
-// the opening plays, then gone: never a permanent HUD. The tuner lists them too.
+// Data credits (ODbL: the baked city is a derivative of OpenStreetMap). Shown small and legible on every
+// load, then gone: never a permanent HUD. Settings' MAP DATA and the tuner keep them reachable.
 //
-// main.ts starts it when the opening starts moving (the first region of the city is in, so there is
-// something on screen), not at boot, and drives it on the game clock: on a slow phone the city can take
+// main.ts starts it when the first region of the city is in, so there is something on screen, not at
+// boot, whichever way the game started (the opening, a tap past it, ?skipintro: this clock is not the
+// opening's), and drives it on the game clock: on a slow phone the city can take
 // seconds to arrive and the first frames after it can each take a second (tiles adopted, shaders
 // compiled), and a credit on wall-clock timers would fade over the fog bank or a frozen frame. The game
 // clock advances at most 50 ms per frame, though, so on a device that stays slow it runs behind the wall
