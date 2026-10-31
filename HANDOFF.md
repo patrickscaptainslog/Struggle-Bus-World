@@ -158,6 +158,8 @@ notes when merging.
   during the 4 s pour), the one known exception to the no-allocation rule: pool them if a phone shows GC hitches.
 - `shots.mjs` stats sometimes come back null at 390 px (the perf snapshot timing); the
   screenshots are still valid.
+- One view is over the triangle budget: the Mission at 250 m, heading 240, 1.51-1.56M (the next worst view of 42 is 1.45M): OSM's LOD 0, which only fewer wall
+  columns or a detail radius would fix; 60 fps in every `tools/fps.mjs` phase, but GPU 19.2 ms at that view on the UHD 620 (main 16.4). `tools/sweep.mjs`, `tools/framecost.mjs`.
 - The far skyline beyond the streaming radius is flat boxes; with fog off it shows. (The far field is a separate study's:
   polish/perf's far chunks stayed out of the merge.)
 - Saved paint keys, on OpenStreetMap data (`city.json` `"ids": "osm"`): `strugglebus.paint.v3` (buildings), `strugglebus.ground.v4:<tx>,<tz>`

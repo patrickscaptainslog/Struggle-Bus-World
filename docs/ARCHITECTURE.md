@@ -1029,7 +1029,7 @@ every landmark, the credit however the game starts, other cities' stores), `tool
 london]` (three taps on a block, a mega blast, a firehose, a low hover, a reload). Budget: `tools/sweep.mjs <url> <out.json>`
 (the worst frame over a compass sweep from the densest spots, at any height), `tools/framecost.mjs <url> "<query>" --alt=500`
 (one frame by kind and pass), `node tools/feel-sim/run.mjs s_mesh.ts` (offline: triangles per region at LOD 0, LOD 1 and the
-caster, ring sizes; `SB_DATA=<city dir>` for another bake).
+caster, ring sizes; `SB_DATA=<city dir>` for another bake; `s_caster.ts`: every built roof stands in the caster proxy).
 
 Feel QA: `node tools/feel-sim/run.mjs <scenario>` runs the real game modules
 offline against the baked city (aim, altitude taps, picks, misses, bank /
