@@ -31,7 +31,8 @@ consortium. The bake reads its land cover to decide where procedural trees
 stand; the tiles hold no WorldCover pixels, only tree positions derived in
 part from them (changes: resampled to the city's local frame, a 20 m tree
 fraction, weighed with OpenStreetMap). `city.json` names it in `source` and
-`credits`; the game lists it in the tuner after the OpenStreetMap credit.
+`credits`; the game lists it in settings' MAP DATA and in the tuner, after the
+OpenStreetMap credit.
 Citation: Zanaga, D., Van De Kerchove, R., Daems, D., et al. (2022). ESA
 WorldCover 10 m 2021 v200. https://doi.org/10.5281/zenodo.7254221
 
@@ -42,4 +43,5 @@ and `tools/bake/pack.py` (region bundles). The binary layouts are documented in
 rebuild, read and redistribute these tiles under the ODbL: keep this notice and
 the attribution, share derived databases under the ODbL, and keep them open.
 
-The game shows the attribution while its opening plays and lists it in the tuner.
+The game shows the attribution for a few seconds on every load, however it
+starts, and lists it in settings' MAP DATA and in the tuner at any time.

@@ -591,8 +591,9 @@ function meshTile(B: Builder, t: BuildingTile, lod: 0 | 1, sf: boolean, kinds: U
 }
 
 /** LOD 1 rings keep what shows there: a footprint's outline survives to within this (m). The nearest LOD 1 wall stands
- * 500+ m from the lens (DETAIL_RADIUS x 0.8), where a game pixel is 0.6-0.75 m, up high 1-2.5 m. */
-const RING_EPS = 1;
+ * 500+ m from the lens (DETAIL_RADIUS x 0.8), where a game pixel is 0.6-0.75 m, up high 1-2.5 m, and LOD 1 has already
+ * dropped the bays, stoops and cornices of that depth. 0.1 % of a frame's game pixels move, one here, one there. */
+const RING_EPS = 1.5;
 
 /** Squared distance from point p to the segment a-b. */
 function dist2(p: [number, number], a: [number, number], b: [number, number]): number {

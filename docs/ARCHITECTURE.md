@@ -345,7 +345,7 @@ roof shapes, trees, street names) of any number of bakes side by side.
 - **LOD 1 rings** (`ringKeep` in BuildingMesher): OpenStreetMap's footprints carry
   every jog of a parcel, 9.9 vertices a ring in SF against USA Structures' 5.7,
   and a coarse ring costs three triangles a vertex, twice with the sun pass. So
-  LOD 1 keeps a ring to within `RING_EPS` (1 m, Douglas-Peucker round the ring,
+  LOD 1 keeps a ring to within `RING_EPS` (1.5 m, Douglas-Peucker round the ring,
   the front edges whole: the facade starts there). The nearest coarse wall stands
   500+ m from the lens (`DETAIL_RADIUS` x 0.8), a game pixel there is 0.6-0.75 m.
   A facade family keeps its ring: its columns land on the corners. Gameplay, LOD 0
@@ -562,10 +562,13 @@ roof shapes, trees, street names) of any number of bakes side by side.
   raises the obstacle grid over it. main.ts's `growSprouts` calls `growTo` with
   RoofSprouts (blooms at L2+ and the saved-paint restore); a detailed re-mesh
   calls it again for the tile's painted buildings.
-- `HIDDEN` footprints (the Ferry Building's lots, Coit Tower's stand-in box)
-  aren't meshed and aren't building refs (`City.addTile` skips them by the same
+- `HIDDEN` footprints (the Ferry Building's mapped massing, Coit Tower's stand-in box, what OSM and the LiDAR
+  make of the bridges) aren't meshed and aren't building refs (`City.addTile` skips them by the same
   test as the mesher: centroid in the box, height under `maxTop`); a prop draws
-  them. `HERO_PROPS` (Coit Tower, the Ferry Building, 181 Fremont's spire) are
+  them. An entry with `clears` has no prop boxes: `City` rebuilds its cells of the obstacle grid (its stand-ins' heights go),
+  and `FAR_STAND_INS` keeps far.bin's boxes in open-water tiles masked for good (`City.maskedForGood`, the skyline's own
+  mask; far.bin and the far code don't change). `trimBridgeTiers` drops the upper tiers `BRIDGE_TIERS` names
+  in the worker (Fort Point keeps its walls, not the arch the LiDAR read over them). All SF only (`RegionRequest.sf`). `HERO_PROPS` (Coit Tower, the Ferry Building, 181 Fremont's spire) are
   placed by `heroLandmarks(origin)` in `props/landmarks.ts`, with collision
   posts for their tall parts and their boxes for the obstacle grid
   (`setPropObstacles` over their `HIDDEN` box); only for the SF origin the
@@ -600,12 +603,12 @@ live in `src/config.ts`.
 | Module | Files | API (consumed by `src/game/*`) |
 |---|---|---|
 | Core renderer | `src/render/*` | `PixelPipeline`, `materials`, `palette` |
-| World / bake | `tools/bake/*`, `src/world/City*.ts`, `src/world/Buildings*.ts`, `src/world/Terrain.ts` | baked tiles → meshes, paint state |
+| World / bake | `tools/bake/*`, `src/world/City*.ts`, `src/world/BuildingMesher.ts`, `src/world/roofGeom.ts`, `src/world/tiles.ts`, `src/world/PaintState.ts` | baked tiles → meshes, paint state, mapped roofs |
 | Audio | `src/audio/AudioEngine.ts`, `src/audio/audioWorker.ts` | see `AudioEngine` |
 | Bus model | `src/bus/BusModel.ts` | see `BusModel` |
 | Particles | `src/fx/Particles.ts` | see `Particles` |
 | Street signs | `src/fx/StreetSign.ts`, `src/fx/pixelFont.ts` | see `StreetSigns` |
-| Input + tuner + perf | `src/game/Input.ts`, `src/ui/Tuner.ts`, `src/ui/Perf.ts` | see below |
+| Input + tuner + perf + credit | `src/game/Input.ts`, `src/ui/Tuner.ts`, `src/ui/Perf.ts`, `src/ui/Credits.ts` | see below |
 | Props + landmarks | `src/world/Props.ts`, `src/world/props/*` | trees, Sutro Tower, Transamerica, Coit Tower, the Ferry Building, roof sprouts; landmark paint (`props/landmarkPaint.ts`) |
 | Tower facades | `src/world/towerStyles.ts`, `src/world/buildingMaterial.ts` | facade families, icons table, hero props table |
 | Game glue | `src/main.ts`, `src/game/*` | flight, camera, splat, bloom, persistence |
@@ -770,7 +773,7 @@ impact frame shows the hit.
   frame) -> `land` (at impact, one upload per tile); `sample(x, z)` for CPU
   queries (trees). Saved per tile as its settled mask (`encodeMask` /
   `decodeMask`: 5-bit coverage + 3-bit hue, run-length, base64) under
-  `strugglebus.ground.v2:<tx>,<tz>`, decoded when the tile attaches; blasts that
+  `strugglebus.ground.v4:<tx>,<tz>` on OpenStreetMap data (`groundStorePrefix`, see stableIds), decoded when the tile attaches; blasts that
   reach an unloaded tile wait on its entry and replay when it arrives.
   `GLSL_BLAST_RING` (shockwave on up-facing surfaces: terrain + roofs) and
   `GLSL_GROUND_PAINT` (terrain) with `blastUniforms`.
@@ -1019,6 +1022,14 @@ down; `__game.barfAtLatLon(lat, lon, drop?)` returns the impact time;
 `__game.paintedNear(lat, lon, r)`; `__game.seedGround(n, lat, lon, spread)`
 paints n saved blasts at once (a long session). `tools/blast.mjs` drives all of
 it (perf, seq, top, reload, escalate, tap, drop, layouts, row, deal, heavy).
+
+OpenStreetMap QA: `node tools/osm-shots.mjs <url> <out> [shots]` (the checklist's places, a climb over them, the
+credit's timing), `tools/osm-paint.mjs <url> <out> [stale paint landmarks credit cities]` (old saves on the device, reloads,
+every landmark, the credit however the game starts, other cities' stores), `tools/osm-play.mjs <url> <out> [amsterdam ladies
+london]` (three taps on a block, a mega blast, a firehose, a low hover, a reload). Budget: `tools/sweep.mjs <url> <out.json>`
+(the worst frame over a compass sweep from the densest spots, at any height), `tools/framecost.mjs <url> "<query>" --alt=500`
+(one frame by kind and pass), `node tools/feel-sim/run.mjs s_mesh.ts` (offline: triangles per region at LOD 0, LOD 1 and the
+caster, ring sizes; `SB_DATA=<city dir>` for another bake).
 
 Feel QA: `node tools/feel-sim/run.mjs <scenario>` runs the real game modules
 offline against the baked city (aim, altitude taps, picks, misses, bank /

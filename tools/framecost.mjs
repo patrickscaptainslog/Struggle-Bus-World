@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // What one frame is made of: draws and triangles per kind of object, the G-buffer pass and the sun pass apart.
-// Every draw goes through renderer.renderBufferDirect: this tool counts there, for one frame, on the real scene.
+// Every draw goes through renderer.renderBufferDirect: this tool counts there, for one frame, on the real scene;
+// then GPU timer queries over --gpu=60 frames (the whole frame, the sun pass).
 //   node tools/framecost.mjs <baseUrl> "<query>" [--alt=500] [--heading=0] [--label=name]
 // e.g. node tools/framecost.mjs http://127.0.0.1:4175/ "lat=37.7560&lon=-122.4830" --alt=500 --heading=0
 import { chromium } from 'playwright-core';
@@ -85,6 +86,62 @@ const cost = await page.evaluate(
       requestAnimationFrame(tick);
     }),
 );
+// GPU time (timer queries, alternate frames: they don't nest): the whole frame and the sun pass
+const gpu = await page.evaluate(
+  (n) =>
+    new Promise((res) => {
+      const g = window.__game, p = g.pipeline, gl = p.renderer.getContext();
+      const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+      if (!ext) return res(null);
+      const samples = { total: [], sun: [] };
+      const pending = [];
+      let active = null, frame = 0;
+      const begin = (name) => {
+        const q = gl.createQuery();
+        gl.beginQuery(ext.TIME_ELAPSED_EXT, q);
+        active = { q, name };
+      };
+      const end = () => {
+        if (!active) return;
+        gl.endQuery(ext.TIME_ELAPSED_EXT);
+        pending.push(active);
+        active = null;
+      };
+      const render = p.render, shadow = p.updateShadow;
+      p.render = function (s) {
+        frame++;
+        const whole = frame % 2 === 0;
+        if (whole) begin('total');
+        render.call(this, s);
+        if (whole) end();
+      };
+      p.updateShadow = function (s) {
+        const me = frame % 2 === 1;
+        if (me) begin('sun');
+        shadow.call(this, s);
+        if (me) end();
+      };
+      const poll = () => {
+        for (let i = pending.length - 1; i >= 0; i--) {
+          const a = pending[i];
+          if (!gl.getQueryParameter(a.q, gl.QUERY_RESULT_AVAILABLE)) continue;
+          if (!gl.getParameter(ext.GPU_DISJOINT_EXT)) samples[a.name].push(gl.getQueryParameter(a.q, gl.QUERY_RESULT) / 1e6);
+          gl.deleteQuery(a.q);
+          pending.splice(i, 1);
+        }
+        if (samples.total.length >= n && samples.sun.length >= n) {
+          p.render = render;
+          p.updateShadow = shadow;
+          res(samples);
+        } else requestAnimationFrame(poll);
+      };
+      poll();
+    }),
+  Number(opt.gpu ?? 60),
+);
+const med = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
+if (gpu) console.log(`gpu ms: frame ${med(gpu.total).toFixed(2)} (p90 ${[...gpu.total].sort((a, b) => a - b)[Math.floor(gpu.total.length * 0.9)].toFixed(2)}), sun ${med(gpu.sun).toFixed(2)}`);
+else console.log('gpu timers: no EXT_disjoint_timer_query_webgl2 here');
 const sum = (p) => cost.rows.filter(([k]) => k.startsWith(p)).reduce((s, [, r]) => [s[0] + r.draws, s[1] + r.tris], [0, 0]);
 console.log(JSON.stringify({ label: opt.label ?? query, y: Math.round(cost.y), statsCalls: cost.stats?.calls, statsTris: cost.stats?.triangles, gbuffer: sum('gbuffer'), sun: sum('sun') }));
 for (const [k, r] of cost.rows) console.log(`  ${k.padEnd(52)} ${String(r.draws).padStart(4)} draws ${String(Math.round(r.tris)).padStart(9)} tris`);

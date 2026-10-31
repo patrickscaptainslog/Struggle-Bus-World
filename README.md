@@ -120,6 +120,14 @@ cooldown jet first audio base] [--base=<url>]` (frames, counts, perf, the gear
 through a firehose, the first charge's frames, the sounds offline),
 `python3 -I tools/supersplat-strip.py <dir> <out.png> a.png=label ...` (strips).
 
+OpenStreetMap QA (`docs/ARCHITECTURE.md` has what each one checks):
+```
+node tools/osm-shots.mjs <url> <out> crissy,presidio,ggp,twinpeaks,piers,baybridge,ggbridge,fortpoint
+node tools/osm-paint.mjs <url> <out>     # old saves, reloads, landmarks, the credit, other cities
+node tools/osm-play.mjs <url> <out>      # taps, mega blast, firehose, hover over mapped roofs, reload
+node tools/sweep.mjs <url> <out.json> --alts=250,500   # the budget's worst view
+```
+
 ## City data (city-agnostic pipeline)
 `tools/bake/` turns a city config (`tools/bake/cities/<slug>.json`) into compact
 gzip'd binary region bundles in `public/city/<slug>/`, from **OpenStreetMap**
