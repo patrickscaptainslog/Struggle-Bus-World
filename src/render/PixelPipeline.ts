@@ -224,12 +224,13 @@ export class PixelPipeline implements WarmPipeline {
 
   private allocShadow() {
     const s = config.render.shadowMapSize;
+    // (the color target is required but never read: one byte per texel, and never stored)
     const depth = new THREE.DepthTexture(s, s);
-    depth.type = THREE.UnsignedIntType;
+    depth.type = config.render.shadowDepth16 ? THREE.UnsignedShortType : THREE.UnsignedIntType;
     depth.compareFunction = THREE.LessEqualCompare;
     depth.minFilter = THREE.NearestFilter;
     depth.magFilter = THREE.NearestFilter;
-    this.shadowRT = new THREE.WebGLRenderTarget(s, s, { depthTexture: depth, depthBuffer: true });
+    this.shadowRT = new THREE.WebGLRenderTarget(s, s, { format: THREE.RedFormat, depthTexture: depth, depthBuffer: true });
     this.shadowRT.texture.generateMipmaps = false;
     globals.uShadowMap.value = depth;
   }
