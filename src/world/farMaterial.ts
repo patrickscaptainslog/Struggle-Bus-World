@@ -24,9 +24,11 @@ const ROOF = 11;
 const TREE = 12;
 const ICE = 13;
 const ROCK_BARE = 14;
-/** The span of lo a tone byte covers, and the centre of the walls' lo (tools/bake/farmap.py). */
-export const TONE_K = 0.8;
-export const WALL_LO = -0.09;
+/** The centre and span of lo a tone byte covers (on GREY_LIGHT), the same for a wall tone byte (on GREY): tools/bake/farmap.py. */
+const TONE_C = -0.2;
+const TONE_K = 1;
+const WALL_LO = -0.09;
+const WALL_K = 0.8;
 /** How far the far mesh sinks under a loaded tile (m): well past where it can stand above the near ground. */
 const LOADED_SINK = 40;
 /** Levels of the class map: at 16 m a cell the coarsest is 256 m. */
@@ -34,29 +36,29 @@ const CLASS_LEVELS = 5;
 /** Tone's anisotropy: the far band is seen at 5-10 degrees. */
 const TONE_ANISOTROPY = 8;
 
-/** class -> ramp, lo: terrainMaterial's table, with ROOF (the mean of buildingMaterial's roof rule) and TREE. Same table in farmap.py. */
-const CLASS_TABLE: Array<[number, number]> = [];
-CLASS_TABLE[Ground.PAVED] = [Ramp.GREY, -0.1];
-CLASS_TABLE[Ground.GRASS] = [Ramp.GREEN_GREY, 0.02];
-CLASS_TABLE[Ground.WATER] = [Ramp.WATER, 0];
-CLASS_TABLE[Ground.SIDEWALK] = [Ramp.GREY_LIGHT, -0.04];
-CLASS_TABLE[Ground.PLAZA] = [Ramp.GREY_LIGHT, 0.03];
-CLASS_TABLE[Ground.PATH] = [Ramp.GREY_LIGHT, 0];
-CLASS_TABLE[Ground.SAND] = [Ramp.SKY_WARM, -0.1];
-CLASS_TABLE[Ground.RAIL] = [Ramp.ROOF_DARK, -0.04];
-CLASS_TABLE[Ground.FOREST] = [Ramp.GREEN_GREY, -0.1];
-CLASS_TABLE[Ground.YARD] = [Ramp.GREEN_GREY, 0];
-CLASS_TABLE[Ground.ROCK] = [Ramp.GREY, 0.06];
-CLASS_TABLE[ROOF] = [Ramp.GREY_LIGHT, -0.12];
-CLASS_TABLE[TREE] = [Ramp.GREEN_GREY, -0.06];
-CLASS_TABLE[ICE] = [Ramp.WHITE, 0];
-CLASS_TABLE[ROCK_BARE] = [Ramp.GREY, 0.06];
+/** class -> ramp: terrainMaterial's table, with ROOF and TREE. Class chooses the hue, nothing else (brightness is the raster's tone). */
+const CLASS_RAMP: number[] = [];
+CLASS_RAMP[Ground.PAVED] = Ramp.GREY;
+CLASS_RAMP[Ground.GRASS] = Ramp.GREEN_GREY;
+CLASS_RAMP[Ground.WATER] = Ramp.WATER;
+CLASS_RAMP[Ground.SIDEWALK] = Ramp.GREY_LIGHT;
+CLASS_RAMP[Ground.PLAZA] = Ramp.GREY_LIGHT;
+CLASS_RAMP[Ground.PATH] = Ramp.GREY_LIGHT;
+CLASS_RAMP[Ground.SAND] = Ramp.SKY_WARM;
+CLASS_RAMP[Ground.RAIL] = Ramp.ROOF_DARK;
+CLASS_RAMP[Ground.FOREST] = Ramp.GREEN_GREY;
+CLASS_RAMP[Ground.YARD] = Ramp.GREEN_GREY;
+CLASS_RAMP[Ground.ROCK] = Ramp.GREY;
+CLASS_RAMP[ROOF] = Ramp.GREY_LIGHT;
+CLASS_RAMP[TREE] = Ramp.GREEN_GREY;
+CLASS_RAMP[ICE] = Ramp.WHITE;
+CLASS_RAMP[ROCK_BARE] = Ramp.GREY;
 
-/** How much brighter a ramp is than GREY at the same light (light units), so a wall can mix into a cell on any ramp. */
-const OVER_GREY = new Map<number, number>([[Ramp.GREY, 0], [Ramp.GREY_LIGHT, 0.2], [Ramp.GREEN_GREY, -0.07], [Ramp.ROOF_DARK, -0.2], [Ramp.SKY_WARM, 0.4], [Ramp.WHITE, 0.4]]);
+/** Light a ramp needs over GREY_LIGHT's for the same brightness, measured on the palette across lights 0.4-0.7 (same table in farmap.py). */
+const OVER = new Map<number, number>([[Ramp.GREY_LIGHT, 0], [Ramp.GREY, 0.22], [Ramp.GREEN_GREY, 0.33], [Ramp.ROOF_DARK, 0.45], [Ramp.SKY_WARM, -0.5], [Ramp.WATER, 0.27], [Ramp.WHITE, -0.3]]);
 
 const glslFloats = (a: number[]) => a.map((v) => v.toFixed(3)).join(', ');
-const CLASS_N = CLASS_TABLE.length;
+const CLASS_N = CLASS_RAMP.length;
 
 const VS = /* glsl */ `
   ${GLSL_COMMON}
@@ -108,9 +110,8 @@ const FS = /* glsl */ `
   in float vWallLo;
   ${GLSL_OUT}
   ${GLSL_WATER}
-  const float CLASS_RAMP[${CLASS_N}] = float[${CLASS_N}](${glslFloats(CLASS_TABLE.map((c) => c[0]))});
-  const float CLASS_LO[${CLASS_N}] = float[${CLASS_N}](${glslFloats(CLASS_TABLE.map((c) => c[1]))});
-  const float CLASS_OVER_GREY[${CLASS_N}] = float[${CLASS_N}](${glslFloats(CLASS_TABLE.map((c) => OVER_GREY.get(c[0]) ?? 0))});
+  const float CLASS_RAMP[${CLASS_N}] = float[${CLASS_N}](${glslFloats(CLASS_RAMP)});
+  const float CLASS_OVER[${CLASS_N}] = float[${CLASS_N}](${glslFloats(CLASS_RAMP.map((r) => OVER.get(r) ?? 0))});
   void main() {
     #ifdef FAR_NEAREST
     int c = int(texelFetch(uFarClass, ivec2(floor(vUv * uFarSize)), 0).r * 255.0 + 0.5);
@@ -125,23 +126,24 @@ const FS = /* glsl */ `
     c = min(c, ${CLASS_N - 1});
     vec2 ts = texture(uFarTone, vUv).rg;
     float ramp = CLASS_RAMP[c];
-    float lo = CLASS_LO[c] + (ts.r - 0.5) * ${TONE_K.toFixed(3)} * uToneK;
+    float over = CLASS_OVER[c];
+    float lo = ${TONE_C.toFixed(3)} + (ts.r - 0.5) * ${TONE_K.toFixed(3)} * uToneK + over;
     vec3 n = normalize(vWorldNormal);
     // (the near ground's own calm: its slopes compressed, shadows crisp)
     float light = mix(sbLight(vWorldPos, n, lo, 1.0), sbLight(vWorldPos, vec3(0.0, 1.0, 0.0), lo, 1.0), 0.55);
     #ifdef FAR_OBLIQUE
     // A grazing camera sees walls: a 10 m row house on a 16 m lot at 7 degrees is four fifths wall on the screen. The wall that matters
     // is the one facing the camera, lit live like any wall, so the far city turns with the sun. Walls are GREY: past half a cell the pixel
-    // is on that ramp, under it on the cell's own, carried across by how much brighter that ramp is.
+    // is on that ramp, under it on the cell's own, the light carried across by how much the two ramps differ.
     float share = clamp(ts.g * uWallK, 0.0, 1.0);
     if (share > 0.01) {
       vec3 toCam = cameraPosition - vWorldPos;
       float wall = sbLight(vWorldPos, normalize(vec3(toCam.x, 0.0, toCam.z)), vWallLo, 0.0);
-      float over = CLASS_OVER_GREY[c];
+      float toGrey = ${(OVER.get(Ramp.GREY) ?? 0).toFixed(3)} - over;
       if (share >= 0.5) {
         ramp = ${Ramp.GREY}.0;
-        light = mix(light + over, wall, share);
-      } else light = mix(light, wall - over, share);
+        light = mix(light + toGrey, wall, share);
+      } else light = mix(light, wall - toGrey, share);
     }
     #endif
     sbWrite(ramp, light, sbFog(vWorldPos), 0.0, vViewNormal, 0.01, 1.0);
@@ -208,12 +210,14 @@ function farUv(r: FarRaster): THREE.Matrix3 {
   return m;
 }
 
-/** The walls' lo at a world point: the raster's value for a far mesh vertex. */
-export function farVertexWallLo(r: FarRaster, x: number, z: number): number {
+/** The walls' lo at a world point, for the far mesh's vertices. */
+export function farWallLo(r: FarRaster): (x: number, z: number) => number {
   const e = farUv(r).elements;
-  const i = Math.min(r.W - 1, Math.max(0, Math.floor((e[0] * x + e[3] * z + e[6]) * r.W)));
-  const j = Math.min(r.H - 1, Math.max(0, Math.floor((e[1] * x + e[4] * z + e[7]) * r.H)));
-  return WALL_LO + (r.wallTone[j * r.W + i] / 255 - 0.5) * TONE_K;
+  return (x, z) => {
+    const i = Math.min(r.W - 1, Math.max(0, Math.floor((e[0] * x + e[3] * z + e[6]) * r.W)));
+    const j = Math.min(r.H - 1, Math.max(0, Math.floor((e[1] * x + e[4] * z + e[7]) * r.H)));
+    return WALL_LO + (r.wallTone[j * r.W + i] / 255 - 0.5) * WALL_K;
+  };
 }
 
 /** The far ground's material. `mask`: the loaded tiles, as the far skyline reads them. */

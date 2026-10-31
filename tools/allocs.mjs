@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Allocation rate in steady flight (the no-per-frame-allocations rule, measured): V8's sampling heap profiler over a
 // real-time street cruise, objects later collected included.
-//   node tools/allocs.mjs <url> [--seconds=10] [--top=14]
+//   node tools/allocs.mjs <url> [--seconds=10] [--top=14] [--q=farmap&farfade]
 import { chromium } from 'playwright-core';
 import { browserOptions } from './browser.mjs';
 
@@ -12,7 +12,7 @@ const [url = 'http://127.0.0.1:4173/'] = pos;
 const seconds = Number(opt.seconds ?? 10);
 const browser = await chromium.launch(browserOptions([]));
 const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
-await page.goto(url + '?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud', { waitUntil: 'load' });
+await page.goto(url + '?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud' + (opt.q ? `&${opt.q}` : ''), { waitUntil: 'load' });
 await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000 });
 await page.waitForTimeout(3000);
 const cdp = await page.context().newCDPSession(page);

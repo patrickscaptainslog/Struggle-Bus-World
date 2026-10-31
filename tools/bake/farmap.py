@@ -5,9 +5,11 @@ From a street 2 km away every building is a tile; past that the game has nothing
 every 16 m cell, so the far ground can draw it: nothing is rebaked, and any city with region bundles gets one (no city names below).
 
 No light in it, and nothing keyed to a time of day: the sun is real, so the client lights every cell live. What is stored is what the
-near shaders call `lo`, the offset they add to sbLight. Mixed cells keep their brightness: every 2 m texel is taken to a luma at REF_LIGHT
-on its own ramp, the cell's mean goes back to a `lo` on the cell's ramp. (REF_LIGHT only equalises ramps: the offset comes out the same
-at any light, the ramps being near linear.)
+near shaders call `lo`, the offset they add to sbLight, and it is brightness, on one ramp: every 2 m texel is taken to a luma at REF_LIGHT on
+its own ramp, the cell's mean is written as a lo on REF_RAMP. Data sets how bright a cell is, class only picks the hue: filtered, tone stays
+the mean brightness of what it covers, and a far pixel that flips between a roof and a street changes hue, not brightness (stored around
+each class's own lo, that flip was 1.4 ramp steps: streaks). The client adds the class's CLASS_OVER. (REF_LIGHT only equalises ramps: the
+offsets come out the same at any light, the ramps being near linear.)
 
 far16.bin, gzip of (little-endian; reader: src/world/tiles.ts parseFarRaster):
   char[4] 'SBR1', u32 W, u32 H,
@@ -15,11 +17,11 @@ far16.bin, gzip of (little-endian; reader: src/world/tiles.ts parseFarRaster):
   u16 bodyId (0 Earth), u16 cellM,
   then six planes of W*H bytes, j rows of i:
   class     Ground in src/world/tiles.ts (0-10), 11 ROOF, 12 TREE, 13 ICE, 14 ROCK_BARE, 255 none
-  tone      roofs' or ground's lo around its class: lo = CLASS_LO[class] + (tone / 255 - 0.5) * TONE_K
+  tone      brightness, as a lo on REF_RAMP: lo = TONE_C + (tone / 255 - 0.5) * TONE_K + CLASS_OVER[class]
   height    top of the building above ground in 2 m steps, 0 none, 255 = 508 m or more (for boxes and the low-sun sweep)
   paint     0 (the game's own, later)
   wall      wall share of a grazing view, 0-255 = 0-1: min(1, mean height / cell)
-  wallTone  walls' lo: lo = WALL_LO + (wallTone / 255 - 0.5) * TONE_K, one value per 64 m block (the client reads it per far vertex)
+  wallTone  walls' lo on GREY: lo = WALL_LO + (wallTone / 255 - 0.5) * WALL_K, one value per 64 m block (the client reads it per far vertex)
 tone, wall and wallTone are stored coarser than a byte (TONE_Q, WALL_Q): what a far pixel shows is filtered, and the bits below that are
 only bytes to download.
 ('SBR1' is also the region bundles' magic: nothing reads one as the other, they are different files.)
@@ -41,12 +43,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 
 MAGIC = b'SBR1'
-TONE_K = 0.8  # the span of lo a tone byte covers (src/world/farMaterial.ts)
+REF_RAMP = 'GREY_LIGHT'  # tone is brightness on this ramp
+TONE_C, TONE_K = -0.2, 1.0  # the centre and span of lo a tone byte covers (src/world/farMaterial.ts)
+WALL_K = 0.8  # the span of lo a wallTone byte covers
 REF_LIGHT = 0.7  # the light level ramps are equalised at
 ROOF_SHARE = 0.5  # a cell is ROOF when footprints cover this much of it
 TREE_SHARE = 0.5  # ...TREE when crowns cover this much
 HEIGHT_STEP = 2.0
-TONE_Q = 6  # tone bytes per stored level: an eighth of a ramp step (a step of light is 1 / 7, TONE_K / 255 a byte)
+TONE_Q = 4  # tone bytes per stored level: about a ninth of a ramp step (a step of light is 1 / 7, TONE_K / 255 a byte)
 WALL_Q = 8  # wall bytes per stored level: 32 levels
 WALL_BLOCK = 4  # cells per wallTone block
 
@@ -61,6 +65,8 @@ CLASSES = [
     ('GREY_LIGHT', -0.12), ('GREEN_GREY', -0.06),
 ]
 WALL_LO = -0.09  # the centre of the walls' lo
+# light a ramp needs over REF_RAMP's for the same brightness, measured on the palette across lights 0.4-0.7. Same table in farMaterial.ts.
+CLASS_OVER = {'GREY_LIGHT': 0.0, 'GREY': 0.22, 'GREEN_GREY': 0.33, 'ROOF_DARK': 0.45, 'SKY_WARM': -0.5, 'WATER': 0.27}
 # share of a flat wall that is window (buildingMaterial's `cover`, front and side walls taken together), per Arch
 COVER = np.array([0.07, 0.3, 0.3, 0.27, 0.5, 0.15, 0.15, 0.05, 0.27])
 # a tree's crown radius at scale 1 (m), by kind: the reach of trees.ts's lobes, 3/4 of it for area
@@ -330,14 +336,8 @@ def bake(slug, cell):
         out[(tree_s >= TREE_SHARE) & (mode != WATER)] = TREE
         out[roof_s >= ROOF_SHARE] = ROOF
         # brightness back onto the cell's own ramp, around its class
-        res = np.zeros_like(Yc)
-        for v in np.unique(out):
-            if v == WATER:
-                continue
-            m = out == v
-            y = Yc[m] / np.maximum(nc[m], 1)
-            res[m] = L.to_lo(L.ramp[v], y) - L.lo[v]
-        tone = quant(np.clip((res / TONE_K + 0.5) * 255, 0, 255), TONE_Q)
+        lo_ref = L.to_lo(L.names.index(REF_RAMP), Yc / np.maximum(nc, 1))
+        tone = quant(np.clip(((lo_ref - TONE_C) / TONE_K + 0.5) * 255, 0, 255), TONE_Q)
         tone[out == WATER] = 128
         # height, walls
         hg = r_above[g]
@@ -347,7 +347,7 @@ def bake(slug, cell):
         wall = np.clip(np.rint(np.minimum(1, mean_h / cell) * 255 / WALL_Q) * WALL_Q, 0, 255).astype(np.uint8)
         covered = cells(roofed).sum(axis=(1, 3))
         wlo = cells((r_wall[g] * roofed).astype(np.float32)).sum(axis=(1, 3)) / np.maximum(covered, 1)
-        wtone = np.where(covered > 0, np.clip(np.rint(((wlo - WALL_LO) / TONE_K + 0.5) * 255), 0, 255), 128).astype(np.uint8)
+        wtone = np.where(covered > 0, np.clip(np.rint(((wlo - WALL_LO) / WALL_K + 0.5) * 255), 0, 255), 128).astype(np.uint8)
         # the QA line: where the cell's top came from
         flat = cells(hg).transpose(0, 2, 1, 3).reshape(cells_tile, cells_tile, -1)
         ids_flat = cells(g).transpose(0, 2, 1, 3).reshape(cells_tile, cells_tile, -1)
@@ -372,7 +372,7 @@ def bake(slug, cell):
     def blocks(a):
         return a[:bh, :bw].reshape(bh // WALL_BLOCK, WALL_BLOCK, bw // WALL_BLOCK, WALL_BLOCK).sum(axis=(1, 3))
     wt = blocks((wtone_p.astype(np.float32) - 128) * built_cell) / np.maximum(blocks(built_cell), 1)
-    wtone_p[:bh, :bw] = quant(128 + np.repeat(np.repeat(wt, WALL_BLOCK, axis=0), WALL_BLOCK, axis=1), TONE_Q)
+    wtone_p[:bh, :bw] = quant(128 + np.repeat(np.repeat(wt, WALL_BLOCK, axis=0), WALL_BLOCK, axis=1), 6)
 
     # ---- no tile here: far.bin's 32 m class
     far = inflate(os.path.join(src, 'far.bin'))
@@ -406,7 +406,7 @@ def bake(slug, cell):
         hist[CLASS_NAMES[v]] = int(m.sum())
         if m.any():
             bins = np.bincount(tone_p[m] // 16, minlength=16)
-            lo = L.lo[v] + (tone_p[m].astype(float) / 255 - 0.5) * TONE_K
+            lo = TONE_C + (tone_p[m].astype(float) / 255 - 0.5) * TONE_K
             tones[CLASS_NAMES[v]] = {'lo_mean': round(float(lo.mean()), 4), 'lo_sd': round(float(lo.std()), 4), 'bins16': bins.tolist()}
     return {
         'slug': slug, 'cell': cell, 'W': W, 'H': H, 'records': n_rec, 'tiles': len(tiles), 'trees': tree_total,
@@ -431,7 +431,7 @@ def sheet(planes, L, out_dir, slug):
         m = cls_p == v
         if not m.any():
             continue
-        lo = L.lo[v] + (tone_p[m].astype(float) / 255 - 0.5) * TONE_K
+        lo = TONE_C + (tone_p[m].astype(float) / 255 - 0.5) * TONE_K + CLASS_OVER[ramp]
         s = np.clip(np.rint((REF_LIGHT + lo) * 7), 0, 7).astype(int)
         table = np.array([[int(h[i:i + 2], 16) for i in (0, 2, 4)] for h in ramps[ramp]], np.uint8)
         rgb[m] = table[s]

@@ -3,7 +3,7 @@ import { SHADOW_LAYER, makeRampMaterial, globals } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { makeBuildingMaterial, paintUniforms } from './buildingMaterial';
 import { makeHeightGrid, makeTerrainMaterial, makeWaterMaterial } from './terrainMaterial';
-import { farFlags, farVertexWallLo, makeFarGroundMaterial, makeFarTextures, type FarTextures } from './farMaterial';
+import { farFlags, farWallLo, makeFarGroundMaterial, makeFarTextures, type FarTextures } from './farMaterial';
 import { PaintState, LANDMARK_KEY_PREFIX } from './PaintState';
 import { GroundPaint } from './GroundPaint';
 import type { ObstaclePost } from './Bridges';
@@ -597,6 +597,7 @@ export class City {
     const gl = new Float32Array(W * H);
     const hAt = (i: number, j: number) => f.heights[Math.min(f.gridH - 1, Math.max(0, j)) * f.gridW + Math.min(f.gridW - 1, Math.max(0, i))];
     const waterAt = (i: number, j: number) => f.cls[Math.min(f.gridH - 1, Math.max(0, j)) * f.gridW + Math.min(f.gridW - 1, Math.max(0, i))] === 2;
+    const wallLo = raster ? farWallLo(raster) : null;
     for (let j = 0; j < H; j++) {
       for (let i = 0; i < W; i++) {
         const gi = i * step, gj = j * step;
@@ -622,7 +623,7 @@ export class City {
         // shore. The ramp is flat: a shore triangle taking a water vertex's would climb the hillside as a blue tooth)
         ramp[k] = Ramp.GREY_LIGHT;
         // (?farmap: this attribute carries the walls' lo, a 64 m value on the mesh: no texture, no fetch)
-        lo[k] = raster ? farVertexWallLo(raster, pos[k * 3], pos[k * 3 + 2]) : water ? -0.1 : -0.06;
+        lo[k] = wallLo ? wallLo(pos[k * 3], pos[k * 3 + 2]) : water ? -0.1 : -0.06;
       }
     }
     const idx = new Uint32Array((W - 1) * (H - 1) * 6);

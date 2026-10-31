@@ -48,7 +48,9 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
     the fog ceiling is off with it. Never hand-roll fog, and don't multiply it below ~0.7 for far objects (the
     handover band sits at 0.62-0.68).
   - `glow` 0..1 → emissive; glowing pixels bloom a dithered halo.
-  - `flags`: 1.0 normal (gets outlines), 0.5 = no outline (particles, cards).
+  - `flags`: 1.0 normal (gets outlines), 0.5 = no outline (particles, cards). Never 0: the clear is 0, and that byte is
+    the resolve's sky test (what nothing wrote is sky, at any distance). `uSkyCut` keeps the old depth test's 25 km as well, so
+    frames don't change, until `pipeline.setFar()` (`?farfade`) takes it away.
   - Outlines: a silhouette pixel is two steps darker, except a one-pixel
     feature with background on both sides (a cable, a pole), which keeps its
     own color. `Ramp.BUS_YELLOW` / `Ramp.BUS_BLACK` belong to the bus alone:
@@ -526,6 +528,20 @@ in it or not; gameplay reads the baked heights; SF's bridge stand-ins' ground go
   one building keep one lot's id and retire the others; LiDAR-only ids >= 2^30.
   `node tools/check-stable-ids.mjs <old city dir> <new city dir>` checks a
   re-bake of either kind (it refuses to compare an OSM bake with an old one).
+
+## The far raster (behind flags: `docs/specs/far-field/SPIKE.md`)
+One image of a whole city, `far16.bin`, baked from the tiles already in `public/city/<slug>/` by `tools/bake/farmap.py` (no city names, no
+new sources; run it after a re-bake): class, tone, height, paint (empty), wall share, wall lo per 16 m cell, in an affine frame with a body
+id. Reader: `parseFarRaster` in `tiles.ts`. There is no light in it, nothing keyed to a time of day: the sun is live. Tone is brightness, a
+pre-light `lo` on one ramp, so filtering keeps it and a far pixel flipping between a roof and a street changes hue, not brightness; class
+picks the ramp (mode mips: a mip is still a class, never a blend).
+- `?farmap`: the far mesh draws the raster (`farMaterial.ts`, `City.buildFar`), stands on true ground, sinks 40 m under loaded tiles (the
+  mask's 255; `FAR_STAND_INS`' tiles hold 200, which hides their boxes and sinks nothing), and water beside land rises to the plane so the
+  raster draws the shore. Its `lightOffset` attribute carries the walls' lo, per 64 m vertex.
+- `?farmap=oblique`: and the walls a grazing camera sees, lit live, facing it, so the far city turns with the sun.
+- `?farfade`: fade to 34 km (`config.fog.clearFarFull`), far plane 36 km, the sky by the clear flag alone.
+- `?farnearest` (class with no mips), `?farbias=<n>` (the class map's mip bias): crawl tests. `config.far`: `toneK`, `wallK`, `classBias`.
+Off, none of it loads and no program is added. tools: `shots.mjs --q= --seq`, `altitude.mjs --q= --ceiling`, `tools/far/`.
 
 ## Re-baking a city
 - **Bump `window.__sbDataV` in index.html with every re-bake** (`osm1` -> `osm2`). It goes on every URL under `/city/`

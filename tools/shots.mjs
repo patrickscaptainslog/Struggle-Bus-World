@@ -9,7 +9,7 @@
 // clock held while streaming and paint settle, the same frames from any build
 // (also fidi, soma, high: a climb to ~250 m, ceiling: ~500 m, swap: painted towers
 // through a climb to coarse and a dive back to detail; asked for by name, the far-field poses at the ceiling:
-// sunset, presidio, marin, sunward, into the sun).
+// sunset, presidio, marin, sunward, into the sun, westward, into it over the city; london, amsterdam).
 // --q: appended to every view's query (the flags under test).
 // --seq (with --det): five more frames after each view's shot, one fixed step apart (<name>-seq-0.png is the shot itself, then 1..5): a
 // burst from the same camera on any build, so tools/far/bandflip.py's crawl can be compared between two builds.
@@ -223,6 +223,9 @@ if (det) {
   await detShot('presidio', '?lat=37.7990&lon=-122.4660&heading=180&skipintro&nohud', ceilingAt);
   await detShot('marin', '?lat=37.8020&lon=-122.4650&heading=330&skipintro&nohud', ceilingAt);
   await detShot('sunward', '?lat=37.7600&lon=-122.5000&heading=292&skipintro&nohud', ceilingAt);
+  await detShot('westward', '?lat=37.7880&lon=-122.3990&heading=280&skipintro&nohud', ceilingAt);
+  await detShot('london', '?city=london&lat=51.5073&lon=-0.1657&heading=90&skipintro&nohud', ceilingAt);
+  await detShot('amsterdam', '?city=amsterdam&lat=52.3738&lon=4.8775&heading=75&skipintro&nohud', ceilingAt);
   await detShot('swap', '?lat=37.7820&lon=-122.4010&heading=0&skipintro&nohud', async (p) => {
     await glide(p, 6);
     await runDet(p, 1);
