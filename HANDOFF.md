@@ -81,7 +81,7 @@ notes when merging.
 1. Merge facade -> landmarks (+ wire the 3 new props) -> look -> controls -> supersplat -> perf,
    with a quick GPU screenshot check after each (`node tools/shots.mjs`), publishing a
    Vercel deploy as you go. (All in main but `merge/perf`, the last of them.)
-2. The distant-city proof (`shots/local/farfield/SPIKE.md`, far.bin, horizon.bin, the far field), on main now that `merge/osm` is in; then the live sky (`shots/local/sky/SKY.md`).
+2. The distant-city proof (`docs/specs/far-field/SPIKE.md`, with its VERDICT.md and reports there), on main now that `merge/osm` is in; then the live sky (`docs/specs/sky/SKY.md`).
 3. Build the stage engine (`feat/stages`), then MAGIC-SPEC's effects in its three
    workstreams (WS-1 light + music, WS-2 ribbons/pillars/birds/fireworks/waterfalls, WS-3
    growth kit + director + Wonders), Super Rainbow's five stages first.

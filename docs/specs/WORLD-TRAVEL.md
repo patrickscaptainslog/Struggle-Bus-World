@@ -4,6 +4,8 @@ Technical director's design for world travel, the layer that the turbo gears
 (`config.turbo`, branch feat/controls) are waiting on. Date 2026-10-23.
 Status: proposal. Nothing in the repo was edited and no browser was run.
 
+**Parts of this are superseded (2026-10-31).** Read `docs/specs/far-field/VERDICT.md` §8 (its table lists each section and what replaces it) and `docs/specs/sky/SKY.md` §9 first; they override this file where they differ. The full rewrite waits for the far-field proof (`docs/specs/far-field/SPIKE.md`).
+
 **Producer ask:** "The struggle bus able to fly from SF to Tokyo across the
 Pacific, but have to do it manually, using some sort of turbo modes." Later:
 every city in the world, with potentially huge numbers of players.
