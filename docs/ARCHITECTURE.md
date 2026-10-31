@@ -7,6 +7,11 @@ brief is silent, pick the more beautiful option and log it in `DECISIONS.md`.
 ## Stack
 Vite + TypeScript + three.js (WebGL2). No runtime asset files except baked
 city tiles: every model is built procedurally, every sound is synthesized.
+The build's floor is iOS 15.0, the first Safari with WebGL2: `build.target` is
+`safari15`, workers included. A script that doesn't parse shows nothing at all
+(no error, `boot().catch` never runs, the page stays fog-grey), so
+`node tools/iosfloor.mjs <build>` must pass: it parses every chunk, fails on what
+a target can't lower (a regex lookbehind) and lists APIs newer than 15.0 to read.
 
 ## World conventions
 - Units: meters, seconds, radians.
@@ -77,8 +82,9 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   or its program compiles in flight, for up to seconds (see Shader warm-up).
 - Objects that cast sun shadows: `obj.layers.enable(SHADOW_LAYER)`.
   The bus and particles must NOT cast (the bus has its own drop shadow).
-- The sun pass is depth only (the pipeline locks the color mask; shadows read
-  the depth texture) and draws casters, not the detailed meshes: a detailed
+- The sun pass is depth only (`PixelPipeline.drawSun` locks the color mask, for the
+  real pass and the warm-up alike; shadows read the depth texture) and draws
+  casters, not the detailed meshes: a detailed
   building tile casts through its proxy (`meshCasterTile`: positions only,
   one quad per wall, no undersides: the same surfaces in fewer triangles, every
   shape still casts), on SHADOW_LAYER only, while its detailed mesh is on layer
@@ -201,6 +207,14 @@ What it warms:
 - **The post passes** (`PixelPipeline.warmObjects()`).
 - **Registered sources**: `registerWarm(name, () => objects)`.
 
+A warm draw has to be the real draw, not only the real program: a Metal render
+pipeline is keyed by the program and the target's format, the color write mask,
+blending and the topology class, and each new key builds at its first draw. So the
+sun's proxies go through `drawSun` (mask locked off), and each picks its own program
+at its draw (`needsUpdate` in `onBeforeRender`): three picks a material's program
+again only on some changes, a normal attribute isn't one, so on the shared override
+the position-only casters' program would compile and never draw.
+
 **The rule: anything that makes a material, or an object of a new kind, after
 boot registers a warm source**, at module load (`registerWarm('trees', ...)` at
 the end of the file) or in the constructor that owns the materials
@@ -227,11 +241,17 @@ element type and its caster), `landmarks` (plain and with accents), `bridges`.
 - **Check it**: `node tools/warmcheck.mjs <url> out.json` (cold load, the
   opening, a climb, three blasts on one building for the sign and the level 2
   and 3 gardens, the landmarks from altitude) must report
-  `programsAfterWarmup: 0` and no frame or long task over 100 ms after ready.
-  `__game.warm.report` holds the counts and timings.
+  `programsAfterWarmup: 0`, no frame or long task over 100 ms after ready, and in
+  `firstDrawsAfterWarmup` only the upscale onto the canvas (frame 1: nothing warmed
+  may reach the canvas). `__game.warm.report` holds the counts and timings.
 
 Boot order (main.ts): index.html's inline script starts city.json, far.bin
 and horizon.bin before the game's script loads (`bootFetch` hands them over).
+`boot()` starts with `pipeline.checkTargets()`: GL only logs a target the device
+refuses, and the game would run on under a black frame, so the G-buffer and the sun
+map are asked for their status first, while the GPU process has nothing to do (the
+query is synchronous: 0.1-0.4 ms there, up to 35 ms behind the warm-up), and a
+refusal is one line on the fog-grey page through `boot().catch`.
 `city.prime()` posts the opening's whole want-list at once (up to 10 regions in
 flight while `city.eager`, i.e. until the first ready frame; 2 after). Only what
 the opening shows is built before the first frame (the bus, the Golden Gate);
@@ -239,10 +259,11 @@ the other landmarks go to the `later` queue (built while the warm-up waits,
 else one per frame early in the opening; ready waits for them). The opening's
 4.2 s run on the wall clock from the first frame on screen (the 15% hold until
 the first region lands stays), with each step capped at 0.25 s: real time down
-to 4 fps, but a tab switch or a long stall moves the reveal 6% at most. Once it
-has been seen through on a device (`strugglebus.opening.v1`), a tap skips it:
-the same reveal in ~0.7 s, and that tap doesn't splat (`input.onTap`; a toast
-says so). `later`'s first item makes and closes an AudioContext: Chromium's audio
+to 4 fps, but a tab switch or a long stall moves the reveal 6% at most. It holds
+with the game (`held`: iOS's motion sheet, a restored context still covered). Once
+it has been seen through on a device (`strugglebus.opening.v1`), a tap skips it:
+the same reveal in ~0.7 s, and that tap doesn't splat (`input.onTap`; a toast says
+so until the tap, and never after one landed in the grey). `later`'s first item makes and closes an AudioContext: Chromium's audio
 backend starts with the first one, 120-180 ms on the main thread, and that must
 not be the first touch.
 
@@ -250,8 +271,8 @@ not be the first touch.
 stops the game and hides the canvas (the page's fog-grey shows); on
 `webglcontextrestored` the warm-up runs again from the top (a new `WarmUp`, every
 program compiled off the main thread), `City.reloadAll` drops every region (their
-meshes have no JS copy) and they stream back eagerly with the game clock standing
-(`covered`) until the city is in. `__game.loseContext()`, `restoreContext()`;
+meshes have no JS copy) and they stream back eagerly with the game clock and the
+opening standing (`covered`) until the city is in. `__game.loseContext()`, `restoreContext()`;
 `node tools/contextloss.mjs <url> <dir>`.
 
 ## City data (bake -> tiles -> meshes)
@@ -442,8 +463,8 @@ until a thumb flies it, a tap splats, buttons do what they say. There are no con
   HUD press or lift), `reachDown()` / `reachUp()` (TURBO, the tab, the toggle), `adoptThumb(e, keepPress, x0, y0, t0)`
   (MEGA's or the chip's finger becomes the thumb; it notes the pose with `mix.land()`, since no canvas touch-down did),
   `adoptedMove/Up` (its events if capture didn't move), `wakeMix()`.
-- The opening (`main.ts` with `Controls`): nothing holds it. `controls.sheetUp` (iOS's motion sheet) sets dt = 0 at any
-  time; `controls.gearsLocked` and `controls.opening`, set per frame, queue a shift until the bus clears the gate and
+- The opening (`main.ts` with `Controls`): nothing but the sheet holds it. `controls.sheetUp` (iOS's motion sheet) stands the
+  game and the opening at any time; `controls.gearsLocked` and `controls.opening`, set per frame, queue a shift until the bus clears the gate and
   drive the first run. "Gate cleared" is `!opening && !gearsLocked`, true at fog end in a city with no bridge.
 
 **The mixer** (`src/game/Hybrid.ts`, `TiltMix`, no DOM, tuner group "Hybrid"): phases `live | thumb | settle`, one flag
@@ -652,8 +673,8 @@ numbers in the tuner groups `SuperSplat`, `SuperFx`, `SuperAudio`.
 - **Warm-up** (`src/render/warmup.ts`, perf/load's kit, `registerWarm`,
   `PixelPipeline implements WarmPipeline`): in `boot()` after `onResize()`, the
   post passes, `'roof sprouts'`, the signs and `superFx.object` compile in
-  parallel and draw once into their real targets; the first frame waits at
-  most `render.warmWait` s. Anything new that first draws in flight belongs here
+  parallel and draw once into their real targets; the first frame waits for
+  them. Anything new that first draws in flight belongs here
   (`__game.warm.report`). Measure in a FRESH browser: links are cached by a page.
 - **The hold's hint**: `superHint()` in main.ts at the belly's refill,
   `superSplat.onLearned` ends it (`strugglebus.superhint.v1`).

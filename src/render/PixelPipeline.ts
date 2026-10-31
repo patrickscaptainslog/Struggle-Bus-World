@@ -479,15 +479,9 @@ export class PixelPipeline implements WarmPipeline {
     scene.background = null;
     r.setRenderTarget(this.shadowRT);
     r.setClearColor(0xffffff, 1);
-    const cb = r.state.buffers.color;
-    cb.setMask(true);
+    r.state.buffers.color.setMask(true);
     r.clear(true, true, false);
-    // depth only, also for the casters that keep their own depth shaders (trees, gardens)
-    cb.setMask(false);
-    cb.setLocked(true);
-    r.render(scene, sc);
-    cb.setLocked(false);
-    cb.setMask(true);
+    this.drawSun(scene, sc);
     // and a tile-based GPU never stores the unused color target
     (r.getContext() as WebGL2RenderingContext).invalidateFramebuffer(WebGL2RenderingContext.FRAMEBUFFER, this.invalidColor);
     scene.overrideMaterial = prevOverride;
@@ -496,6 +490,16 @@ export class PixelPipeline implements WarmPipeline {
     this.culled.length = 0;
     globals.uShadowOn.value = Math.min(1, this.shadowStrength);
     globals.uShadowEdge.value = Math.min(0.5, Math.max(0.01, this.shadowEdge));
+  }
+
+  /** The sun pass's draw, depth only, also for the casters that keep their own depth shaders (trees, gardens). */
+  private drawSun(scene: THREE.Scene, camera: THREE.Camera) {
+    const cb = this.renderer.state.buffers.color;
+    cb.setMask(false);
+    cb.setLocked(true);
+    this.renderer.render(scene, camera);
+    cb.setLocked(false);
+    cb.setMask(true);
   }
 
   /**
@@ -625,6 +629,25 @@ export class PixelPipeline implements WarmPipeline {
 
   // ---- shader warm-up (src/render/warmup.ts): what the passes draw with, and draws that are never presented
 
+  /**
+   * Throw if this device refuses a target the frame can't do without: GL only logs it, and the game would run on
+   * under a black frame with a live HUD. Call it where a throw is seen and before the GPU has anything to do
+   * (the top of boot(): the query is synchronous), not from the constructor (outside boot()).
+   */
+  checkTargets() {
+    const r = this.renderer;
+    const gl = r.getContext();
+    const check = (name: string, target: THREE.WebGLRenderTarget) => {
+      r.setRenderTarget(target);
+      const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+      r.setRenderTarget(null);
+      // (a lost context answers "unsupported" for everything, and has its own path)
+      if (status !== gl.FRAMEBUFFER_COMPLETE && !gl.isContextLost()) throw new Error(`${name} refused (status 0x${status.toString(16)})`);
+    };
+    check('RGBA16UI G-buffer', this.gbuf);
+    check('R8 sun map', this.shadowRT);
+  }
+
   /** Layers the scene pass draws (the render camera copies the camera's). */
   get sceneLayers(): THREE.Layers {
     return this.camera.layers;
@@ -651,7 +674,8 @@ export class PixelPipeline implements WarmPipeline {
     // (always bound first: a scene draw before the sun map's first use would sample a depth texture that doesn't
     // exist yet, and GL drops a draw with a mismatched sampler)
     r.setRenderTarget(this.shadowRT);
-    if (sun.children.length) r.render(sun, camera);
+    // (the real pass's draw, mask and all: a write mask is part of a Metal pipeline, another mask warms another pipeline)
+    if (sun.children.length) this.drawSun(sun, camera);
     if (scene.children.length) {
       r.setRenderTarget(this.gbuf);
       r.render(scene, camera);

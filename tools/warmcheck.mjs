@@ -4,7 +4,10 @@
 // a climb to the vista, three blasts on one building (the first street sign, the rooftop gardens at
 // level 2, the Hundertwasser crowns at level 3), and the landmarks seen from altitude (the
 // Transamerica Pyramid, Sutro Tower). Reports every WebGL program created after the warm-up
-// finished (target: none), every frame gap and long task over 100 ms after ready, by phase.
+// finished (target: none), every frame gap and long task over 100 ms after ready, by phase, and
+// every first draw after it: a Metal render pipeline is keyed by the program AND the target's
+// format, the color write mask, blending and the topology class, so a program that exists can
+// still build a pipeline in flight (target: the upscale onto the canvas, never warmed, frame 1).
 //   node tools/warmcheck.mjs <url> <out.json> [--throttle=4]
 // Wall clock, real GPU (tools/browser.mjs): meaningful on a laptop, not in the cloud's SwiftShader.
 import { chromium } from 'playwright-core';
@@ -38,6 +41,38 @@ await page.addInitScript(() => {
       for (const e of l.getEntries()) W.long.push([Math.round(e.startTime), Math.round(e.duration), W.phase]);
     }).observe({ type: 'longtask', buffered: true });
   } catch {}
+  // every draw's pipeline key, as far as GL shows one (vertex layouts aside)
+  const D = (W.draws = { prog: null, fb: null, mask: 'xxxx', blend: false, blendFn: '', seen: new Map(), shown: 0 });
+  const ids = new Map();
+  const id = (o) => (o === null ? 0 : ids.get(o) ?? (ids.set(o, ids.size + 1), ids.size));
+  const spy = (name, f) => {
+    const o = P[name];
+    P[name] = function (...a) {
+      f.call(this, a);
+      return o.apply(this, a);
+    };
+  };
+  spy('useProgram', (a) => (D.prog = a[0]));
+  spy('bindFramebuffer', function (a) {
+    if (a[0] !== this.READ_FRAMEBUFFER) D.fb = a[1];
+  });
+  spy('colorMask', (a) => (D.mask = a.map((x) => (x ? 'x' : '-')).join('')));
+  spy('blendFuncSeparate', (a) => (D.blendFn = a.join(',')));
+  spy('blendFunc', (a) => (D.blendFn = a.join(',')));
+  spy('enable', function (a) {
+    if (a[0] === this.BLEND) D.blend = true;
+  });
+  spy('disable', function (a) {
+    if (a[0] === this.BLEND) D.blend = false;
+  });
+  const draw = (a) => {
+    if (D.fb === null) D.shown++;
+    const cls = a[0] === 0 ? 'points' : a[0] <= 3 ? 'lines' : 'tris';
+    const blend = D.blend ? `blend ${D.blendFn}` : 'no blend';
+    const key = `${id(D.prog)}|${id(D.fb)}|${D.mask}|${blend}|${cls}`;
+    if (!D.seen.has(key)) D.seen.set(key, { prog: D.prog, fb: D.fb, mask: D.mask, blend, cls, t: performance.now(), phase: W.phase, shown: D.shown });
+  };
+  for (const n of ['drawElements', 'drawArrays', 'drawElementsInstanced', 'drawArraysInstanced']) spy(n, draw);
   const raf = window.requestAnimationFrame.bind(window);
   let last = 0;
   const tick = (t) => {
@@ -122,6 +157,22 @@ await settle();
 await run(4);
 await phase('done');
 
+// first draws after the warm-up, by what a pipeline is keyed on: the glow and resolve targets are all RGBA8
+const firstDraws = await page.evaluate((warmDoneAt) => {
+  const D = window.__wc.draws, p = window.__game.pipeline, pr = p.renderer.properties, programs = p.renderer.info.programs;
+  const target = (fb) => (fb === null ? 'canvas' : fb === pr.get(p.shadowRT).__webglFramebuffer ? 'sun' : fb === pr.get(p.gbuf).__webglFramebuffer ? 'g-buffer' : 'rgba8');
+  const name = (pg) => {
+    const x = programs.find((q) => q.program === pg);
+    return x ? `${x.name || x.cacheKey.slice(0, 8)}#${x.id}` : '?';
+  };
+  const first = new Map();
+  for (const e of D.seen.values()) {
+    const k = `${name(e.prog)} into ${target(e.fb)}, mask ${e.mask}, ${e.blend}, ${e.cls}`;
+    if (!first.has(k) || e.t < first.get(k).t) first.set(k, e);
+  }
+  window.__wc.draws = null;
+  return { keys: first.size, after: [...first].filter(([, e]) => e.t > warmDoneAt).map(([k, e]) => `${k} (${e.phase}, frame ${e.shown})`) };
+}, info.warmDoneAt);
 const W = await page.evaluate(() => window.__wc);
 const after = W.programs.filter(([t]) => t > info.warmDoneAt);
 const res = {
@@ -134,6 +185,8 @@ const res = {
   programsTotal: W.programs.length,
   programsAfterWarmup: after.length,
   programsAfterWarmupByPhase: after.map(([t, p]) => `${p}@${t}`),
+  drawKeys: firstDraws.keys,
+  firstDrawsAfterWarmup: firstDraws.after,
   framesOver100AfterReady: W.frames.filter(([, , p]) => p !== 'load'),
   longTasksOver100AfterReady: W.long.filter(([, d, p]) => p !== 'load' && d > 100),
   longTasksDuringLoad: W.long.filter(([, , p]) => p === 'load').sort((a, b) => b[1] - a[1]).slice(0, 8),

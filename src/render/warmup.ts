@@ -369,6 +369,9 @@ export class WarmUp {
     this.sigs.add(sig);
     const proxy = makeProxy(o, material);
     if (!proxy) return;
+    // (three picks a material's program again only on some changes, and a normal attribute isn't one: on the sun's shared
+    // override a proxy would draw with whichever program drew last, and the position-only casters' would never draw)
+    if (pass === Pass.SUN) proxy.onBeforeRender = (_r, _s, _c, _g, m) => (m.needsUpdate = true);
     let cost = 0;
     for (const m of mats) {
       const sm = m as THREE.ShaderMaterial;

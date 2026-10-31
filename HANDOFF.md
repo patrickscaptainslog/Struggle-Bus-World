@@ -67,7 +67,7 @@ including merging into `main`.** None of the branches below has been merged yet.
 | `feat/controls` | main merged in, review fixed, QA'd on the GPU (MAIN vs NEXT), ready to merge (desktop session, 2026-10-30); never run on a real phone | tilt-to-fly default on phones (`Tilt.ts`, fused attitude, recenter), touch fallback, keyboard + Esc, hold-to-charge + turbo in `Input.ts` (the INPUT CONTRACT), turbo gears G0-G3 (G2/G3 locked behind `config.turbo.worldTravel`), turbo FX + audio, `src/ui/Hud.ts`, `tools/controls.mjs`, `tools/jet.mjs` (frame pacing, attributed), `tools/boom.mjs` (hero frames) | merge before supersplat (its DECISIONS "Controls QA" and "outside judge, round 1" have the numbers); first real-phone pass on the HTTPS preview |
 | `feat/supersplat` | main merged in (controls, look, landmarks, facade), pre-review fixed, QA'd on the GPU (MAIN vs NEXT), ready to merge (desktop session, 2026-10-30); never run on a real phone | hold-to-charge (10 s) on controls' gesture, mega blast on early release, firehose (~4 s), 60 s cooldown, `SuperSplat.ts`/`SuperFx.ts`/`SuperMeter.ts`/`superSfx.ts`, the summoning circle (`PixelPipeline.setHeroCircle`), `Blast.super` for the stage engine, the warm-up kit (`render/warmup.ts`, from perf/load), `tools/supersplat.mjs` | merge next (the outside judge's round 1 is fixed: first pour max 17.5 ms; a re-judge is pending), then perf/load (see "Merging perf/load" below); its DECISIONS "Super splat, outside judge round 1" has the numbers; first real-phone pass: the pour from 250 m on an A15, the meter clear of the home indicator |
 | `feat/hybrid` | built from `docs/specs/hybrid-controls.md`, QA'd on the GPU (MAIN vs NEXT), review's four defects fixed (2026-10-30); never run on a real phone | the producer's hybrid: TURBO, the tilt toggle, MEGA, thumb + tilt arbitration (`Hybrid.ts`), `hudLayout.ts`, the first run (`Coach.ts`), no card, `tools/controls-sim/s_hybrid.ts`, `s_layout.ts` | the real-iPhone list at the end of its DECISIONS "Hybrid controls" (back swipe first); the producer's call: `config.tilt.defaultOn` |
-| `merge/perf` | polish/perf, perf/load and the optimization deep dive in one merge, QA'd on the GPU (MAIN vs NEXT), not yet judged (desktop session, 2026-10-30); never run on a real phone | one RGBA16UI G-buffer, the typed mesher, sun-pass casters, depth-only sun pass, first draws on a byte budget, unseen swaps that only commit, the warm-up from the top of main.ts, primed streaming, the opening on the wall clock and a tap to skip it, a first touch with no stall, context loss | merge next (its DECISIONS "iPhone performance" has the numbers, MAIN bd660ba vs NEXT, and what was dropped); first real-phone pass below |
+| `merge/perf` | polish/perf, perf/load and the optimization deep dive in one merge, QA'd on the GPU (MAIN vs NEXT), merge review's five findings fixed, not yet judged (desktop session, 2026-10-30); never run on a real phone | one RGBA16UI G-buffer, the typed mesher, sun-pass casters, depth-only sun pass, first draws on a byte budget, unseen swaps that only commit, the warm-up from the top of main.ts, primed streaming, the opening on the wall clock and a tap to skip it, a first touch with no stall, context loss | merge next (its DECISIONS "iPhone performance" has the numbers, MAIN bd660ba vs NEXT, and what was dropped); first real-phone pass below |
 | `feat/stages` | empty (just created from main) | — | build the stage engine per `docs/specs/STAGES.md` (its "Producer decisions" section) |
 | `feat/osm` | paused mid-task (WIP) | Overture/OSM extract (`tools/bake/overture.py`, `osm.py`, `citydata.py`), conflation draft in `bake.py`, Amsterdam config, `src/ui/Credits.ts` | resume; needs the bake inputs (see "City data pipeline") |
 
@@ -108,7 +108,9 @@ notes when merging.
   `python -I tools/shotdiff.py <dirA> <dirB>` is frame-exact from run to run (0 pixels, MAIN vs MAIN).
 - Nothing compiles a shader in flight: a material or object kind made after boot registers a
   warm-up source (`registerWarm`, see ARCHITECTURE "Shader warm-up"); `node tools/warmcheck.mjs`
-  must report 0 programs after the warm-up.
+  must report 0 programs after the warm-up, and of first draws after it only the upscale onto the canvas.
+- Every chunk parses on iOS 15.0, the first Safari with WebGL2: `build.target` is `safari15` and
+  `node tools/iosfloor.mjs <build>` must pass. A script that doesn't parse shows nothing at all.
 - Tunables live in `src/config.ts` (the in-game tuner reads them).
 - Commit messages end with the session's attribution lines; never commit secrets.
 
@@ -142,8 +144,12 @@ notes when merging.
   would (37 vs 47 degrees, ideal 67): it stops the wrong-way turn. Only a phone can say if that trade is right.
 - A phone relaxed more than ~2 s after a moved lift gets a counter-carve until RECENTER or a thumb hold (spec section 12).
 - Never run on an iPhone, in the order that would hurt most: the RGBA16UI G-buffer (ES 3.0 color-renderable, Metal's
-  RGBA16Uint too, but only a real A15 proves it; there is no two-target fallback), the first touch (the context in
-  the gesture, sound ~100 ms later, a breath queued until then), a context lost in the background, iOS 15.0-16.3 (fflate).
+  RGBA16Uint too, but only a real A15 proves it; there is no two-target fallback, and a refusal now says so: one line on
+  the fog-grey page, `boot().catch`), the first touch (the context in the gesture, sound ~100 ms later, a breath queued
+  until then), a context lost in the background, iOS 15.0-16.3 (parses by `build.target` and `tools/iosfloor.mjs`, never
+  yet by a real Safari: no WebKit on this machine; fflate through a dynamic import in a module worker).
+- A first touch in a fresh desktop browser is bimodal, on any build: 13-670 ms in the gesture, all of it inside the browser's
+  `new AudioContext` (later pages 16-28 ms). Holding the warm context open would need the iOS unlock reworked: see DECISIONS.
 - Warm-up: ~4 s here before the first frame, the page fog-grey meanwhile; a phone slower than that sees grey longer. Nothing
   caps it (main's `render.warmWait` went with the merge: a frame before it finished would link in flight).
 - Steady flight allocates ~3 MB/s (main 3.8; the deep dive hoped for 1-2): what is left is mostly three's render path.

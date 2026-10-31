@@ -1386,7 +1386,7 @@ facade shader, no 30 fps lock, no fewer detail regions, no coarser pixels, nothi
   3.7 / 2.4 / 4.6 ms in the west, worst frame over all phases 44.7 -> 28.6 ms. Headed 1% lows are vsync noise (47-56 on both).
 
   `tools/jet.mjs` G1 on four routes: p99 17 ms, max 17.8 ms, 0 long tasks. First touch (`tools/firsttouch.mjs`, 3 fresh pages):
-  unlock 307, 107, 105 ms -> 17, 26, 17 ms in the gesture, 0 long tasks; sound up ~85 ms after the touch. Sound itself: the super
+  unlock 307, 107, 105 ms -> 17, 26, 17 ms in the gesture, 0 long tasks (a good first page: see the merge review below); sound up ~85 ms after the touch. Sound itself: the super
   splat's offline render is the same to the digit (`supersplat.mjs cooldown audio`: peak 0.807, 0 over 0.99, 0 NaN),
   `tools/audio-check.mjs` passes offline and `--live`.
 - **Cost by pass** (`perf-pass views --by`, the same pinned spots, draws / triangles):
@@ -1406,6 +1406,45 @@ facade shader, no 30 fps lock, no fewer detail regions, no coarser pixels, nothi
   work 26.3 -> 12.8 ms, largest upload 15.4 -> 3.9 MB (frames over 4 MB 4 -> 0). Over 3 minutes around downtown: JS heap
   peak 203 -> 87 MB, average 118 -> 54; JS copies of geometry 122 -> 13 MB; GPU buffers average 69 -> 66 MB, peak 117 ->
   126 (casters, and everything streamed is up, seen or not); canvas depth -12 MB, sun color -12 MB.
+- **Merge review, confirmed findings** (reviewed e2c62be; A/B = that build vs this one, on this laptop's UHD 620; nothing on a real
+  iPhone or in WebKit). Frames: `shots --det` A/B 0 pixels in all 8 views; MAIN vs this one as above.
+  - **iOS 15.0-16.3 could not reach the fflate path** (major, MAIN too). `build.target` `es2022` kept three's six class static
+    blocks, a SyntaxError before Safari 16.4: the module never ran and the page stayed fog-grey with no error. `safari15`: 0 in
+    every chunk, main.js 1,150 -> 1,163 KB. The reviewer's `['es2021', 'safari15']` builds the same bytes, so one name says it.
+    It lowers more than that: below Safari 16 oxc takes every class field through Babel's `_defineProperty` (`safari16` keeps them
+    native, `safari16.4` keeps the static blocks), a keyed store per field per `new`. Counted in the served chunk: 3,206 calls
+    at boot, at most 0.13 per render in play (a TreeField and a gardens' Batch per tile; cruise, surge, climb, taps, a firehose),
+    and no field's key ever already on the object (define = assign), so no assumption flag. A/B: `stalls.mjs` 60 fps, p99 16.9 /
+    17 ms, largest upload 3.92 MB on both; cold ready 8.26-8.30 / 8.18-8.30 s, first frame 4.0 s; allocation 3.06 / 2.91 MB/s;
+    `fps.mjs` 60 in all six phases. New `tools/iosfloor.mjs`, because a target can't lower a regex lookbehind: TypeScript's parser
+    over every chunk (MAIN and e2c62be 6 won't parse, exit 1; this one 0, and its 7 `.at` calls are three's `Ray.at` and our height
+    grid's, no `Array.at`). No `structuredClone`, `hasOwn`, `findLast`; `screen.orientation` and `audioSession` are guarded.
+  - **A warm draw wasn't the real draw, twice** (the review found the first). The tree casters and the gardens' sun twins warmed
+    with the color mask on, and the sun pass locks it off. Then a stronger check found the warm-up never drew the position-only casters'
+    own program at all: three doesn't pick a shared material's program again on a normal attribute, so program #6 compiled and
+    its proxy drew with #5 (ARCHITECTURE "Shader warm-up"). One `drawSun` for both passes now, and each sun proxy picks its own
+    program. `warmcheck.mjs` gains the key a Metal pipeline is built on (program, target format, mask, blending, topology), since
+    counting programs can't see any of this. First draws after the warm-up on e2c62be: #6 at frame 0, #9 (tree casters) at frame
+    177 of the opening, #8 (the gardens) at frame 1,410, the first L2 bloom, and the canvas. Now the canvas alone, frame 1: it
+    is never warmed, by design. 27 programs, 0 after the warm-up, nothing over 100 ms. The keys are measured; that ANGLE's Metal
+    backend keys pipelines this way is from its source as recalled, and the cost on an A15 is unmeasured.
+  - **The opening holds with the game** (a small regression against MAIN): `openDt` ignored the hold, so the opening played out behind
+    iOS's motion sheet (pull 128 -> 8.2 in 3 s; now 128 -> 128, as on MAIN). The same under a restored context: lost in the
+    opening, the pull went 103.8 -> 97.4 while covered; now it stands (102.9: the frame or two before `webglcontextlost` fires).
+  - **A refused target says so** (`checkTargets`: the G-buffer and the sun map). With RGBA16UI swapped for a non-renderable RGB9_E5:
+    one line on the fog-grey page and `__shotReady` never true, where it was a black frame, a live HUD and a running clock. It
+    runs at the top of `boot()`, not after `onResize()` as the review had it: no compile has started there, so the synchronous
+    query takes 0.1-0.4 ms; at the later spot it waited 30 and 34.5 ms behind the warm-up in 2 of 3 cold runs.
+  - **TAP TO SKIP goes with the tap**, and a tap in the grey never sees it: the review's fix alone would have missed that path, which
+    set `openingSkip` and still showed the toast at frame 2 (42 frames on e2c62be, 0 now). Tap to ready 693 / 708 ms, no splat.
+  - **First touch, corrected:** 17, 26, 17 ms is a good first page. The first page of a fresh browser is bimodal, on any build:
+    `firsttouch.mjs` run 0 gave 18, 530, 640 ms on e2c62be and 121, 310, 637, 669 on this one, and five fresh browsers timed
+    step by step 13, 46, 55, 111, 141 ms (MAIN 206-237); later pages 16-28 ms. All of it is the browser's `new AudioContext`, and the
+    one made and closed at boot doesn't always buy it off. Not changed: keeping that context open and only resuming in the
+    gesture would rewrite an iOS unlock nobody has run on a phone. A question for the real-phone pass.
+  - Held through it all: no DecompressionStream ready 3.8 s (both fflate chunks), no Worker 4.3 s, `contextloss.mjs` twice in 1.1 s with
+    0 errors and the same frames as e2c62be (a loss during the warm-up, a second one during a restore, paint and gardens back too),
+    `controls.mjs opening firstrun`, the super's offline audio to the digit (peak 0.807, 0 over 0.99, 0 NaN).
 
 ## Look polish (the frame-level beauty review, polish/look)
 - **A sky band and the horizon at the top of every chase frame.** The chase

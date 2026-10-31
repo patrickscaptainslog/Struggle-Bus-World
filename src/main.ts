@@ -84,6 +84,8 @@ const slug = params.get('city') ?? 'sf';
 const base = `./city/${slug}`;
 
 async function boot() {
+  // (first: the warm-up hasn't started a compile yet, so this query waits for nothing, and boot().catch prints a refusal)
+  pipeline.checkTargets();
   // (index.html started this download before this script had even loaded)
   const manifest = (await (await (bootFetch(base, 'manifest') ?? fetch(`${base}/city.json`))).json()) as Manifest;
   const city = new City(manifest, base);
@@ -702,6 +704,7 @@ async function boot() {
     // (the tap that skips the opening doesn't splat as well)
     if (openingSeen && !openingSkip && opening < config.fog.openingDuration) {
       openingSkip = true;
+      controls.hud.clearToast();
       return;
     }
     tapSplat();
@@ -892,14 +895,15 @@ async function boot() {
     // (never negative: the first frame's timestamp can predate `last`, by the whole warm-up on a slow GPU)
     let dt = fixedDt || Math.min(0.05, Math.max(0, (now - last) / 1000));
     const realDt = dt;
+    // the game holds under iOS's motion sheet, and while a restored context streams the city back in
+    const held = controls.sheetUp || covered;
     // the opening runs on the wall clock from when the first frame reached the screen (the second
     // frame's callback): it overlaps loading, and slow frames (down to 4 fps) don't stretch it. A
     // longer gap (a tab switch, a locked phone, a long task) moves it 0.25 s at most, so the reveal
-    // is never skipped
-    const openDt = fixedDt || (framesDrawn >= 2 ? Math.min(0.25, Math.max(0, (now - last) / 1000)) : 0);
+    // is never skipped. It holds with the game
+    const openDt = held ? 0 : fixedDt || (framesDrawn >= 2 ? Math.min(0.25, Math.max(0, (now - last) / 1000)) : 0);
     last = now;
-    // the game holds under iOS's motion sheet, and while a restored context streams the city back in
-    if (controls.sheetUp || covered) dt = 0;
+    if (held) dt = 0;
     if (hitStop > 0) {
       hitStop -= dt;
       dt = 0; // freeze everything: two frames of awe
@@ -1179,7 +1183,8 @@ async function boot() {
     }
     pipeline.render(scene);
     framesDrawn++;
-    if (framesDrawn === 2 && openingSeen && opening < config.fog.openingDuration) controls.hud.toast(['TAP TO SKIP'], 2.2);
+    // (a tap in the grey has skipped it already)
+    if (framesDrawn === 2 && openingSeen && !openingSkip && opening < config.fog.openingDuration) controls.hud.toast(['TAP TO SKIP'], 2.2);
     // a deferred landmark (one per frame, early in the opening) when the warm-up didn't leave time for them all
     later.shift()?.();
     const superView = superSplat.view();
