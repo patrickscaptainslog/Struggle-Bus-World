@@ -4,7 +4,7 @@ import { GEAR_NAMES } from '../game/Turbo';
 import { Ramp, rampColor } from '../render/palette';
 import type { Cue } from './Coach';
 import { isCompact, layoutHud, type Control, type HudLayout, type Insets, type Rect } from './hudLayout';
-import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth } from './pixelUi';
+import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth, uiText } from './pixelUi';
 
 // The HUD: as little as possible, pixel-styled in palette colors, safe-area
 // aware, readable on a bright phone (every glyph has an ink outline). Everything
@@ -329,8 +329,7 @@ export class Hud {
 
   /** The data credits, one entry each (the map's attribution first): settings' MAP DATA shows them; [] hides that button. */
   setCredits(lines: string[]) {
-    // (the bitmap fonts have no copyright sign or accents: (C), and accents stripped)
-    this.credits = lines.map((t) => t.replace(/©/g, '(C)').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase());
+    this.credits = lines.map(uiText);
   }
 
   setVisible(v: boolean) {

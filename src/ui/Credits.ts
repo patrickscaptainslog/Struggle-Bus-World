@@ -8,6 +8,20 @@
 // compiled), and a credit on wall-clock timers would fade over the fog bank or a frozen frame. The game
 // clock advances at most 50 ms per frame, though, so on a device that stays slow it runs behind the wall
 // clock: once the credit is up, it also goes after `wallHold` s of the wall clock, whichever comes first.
+//
+// It is pixel art like everything else on screen: the HUD's small bitmap face in palette colors with an ink outline, at
+// the HUD's 2 CSS px per UI pixel, on a canvas placed on whole CSS pixels (a half pixel would make its columns uneven),
+// fading in steps like the HUD's own chrome. Two lines on a phone, split where they balance.
+
+import { splitLines } from '../fx/pixelFont';
+import { C, HUD_SMALL, PixelCanvas, textWidth, uiText } from './pixelUi';
+
+/** CSS px per UI pixel (the HUD's). */
+const S = 2;
+/** UI px a line takes: 5 of glyph, an outline above and below, 1 between lines. */
+const LINE_H = 8;
+/** CSS px kept clear at each side of the screen. */
+const SIDE = 16;
 
 export class Credit {
   private el: HTMLDivElement | null = null;
@@ -33,17 +47,22 @@ export class Credit {
   /** Put it up (game clock `t`, s). Once. */
   start(t: number): void {
     if (this.el || !this.text || typeof document === 'undefined') return;
+    const text = uiText(this.text);
+    const lines = splitLines(text, Math.floor((window.innerWidth - 2 * SIDE) / S) - 2, HUD_SMALL);
+    const w = Math.max(...lines.map((l) => textWidth(l, HUD_SMALL))) + 2;
+    const c = new PixelCanvas(w, lines.length * LINE_H, S);
+    c.clear();
+    lines.forEach((l, i) => c.textOutlined(l, Math.round((w - textWidth(l, HUD_SMALL)) / 2), 1 + i * LINE_H, C.cream, C.ink, HUD_SMALL));
+    c.flush();
+    // (a canvas's content is its fallback: what a screen reader, and a QA tool's textContent, get)
+    c.el.textContent = this.text;
     const el = document.createElement('div');
-    el.textContent = this.text;
     el.setAttribute('role', 'note');
     el.setAttribute('data-sb-credit', '');
+    el.append(c.el);
     el.style.cssText = [
-      'position:fixed', 'left:50%', 'bottom:calc(14px + env(safe-area-inset-bottom, 0px))', 'transform:translateX(-50%)',
-      // (max-content: one line when it fits; left:50% alone would shrink-wrap it to half the screen)
-      'width:max-content', 'max-width:calc(100vw - 32px)', 'box-sizing:border-box', 'padding:3px 9px', 'border-radius:9px',
-      'font:500 11px/1.35 -apple-system,BlinkMacSystemFont,"Helvetica Neue",Helvetica,Arial,sans-serif',
-      'letter-spacing:0.02em', 'color:#e2e4e5', 'background:rgba(46,56,67,0.55)', 'text-align:center',
-      'pointer-events:none', 'opacity:0', 'transition:opacity 900ms ease', 'z-index:5',
+      'position:fixed', `left:${Math.max(0, Math.round((window.innerWidth - c.w * S) / 2))}px`, 'bottom:calc(14px + env(safe-area-inset-bottom, 0px))',
+      'pointer-events:none', 'opacity:0', 'transition:opacity 900ms steps(4)', 'z-index:5',
     ].join(';');
     document.body.appendChild(el);
     this.el = el;

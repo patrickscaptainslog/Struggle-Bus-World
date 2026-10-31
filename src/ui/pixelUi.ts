@@ -69,6 +69,11 @@ function glyphOf(font: PixelFont, ch: string): { g: Glyph; h: number } | null {
   return null;
 }
 
+/** Text as the bitmap fonts can set it: capitals, no accents, (C) for the copyright sign. */
+export function uiText(t: string): string {
+  return t.replace(/©/g, '(C)').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+}
+
 export function textWidth(text: string, font: PixelFont = HUD_FONT): number {
   let w = 0, n = 0;
   for (const ch of text) {
