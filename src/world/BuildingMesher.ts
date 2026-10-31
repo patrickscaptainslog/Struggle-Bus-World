@@ -4,6 +4,12 @@
 // and towers get parapets and rooftop clutter. Walls are split into a few
 // segments so painted buildings can wobble.
 //
+// The sun pass draws a separate caster proxy of every full-detail tile
+// (meshCasterTile): the same building code run through a Builder in caster
+// mode, which keeps positions only, draws every wall as one quad and drops
+// the down-facing undersides (the sun never sees them). Every shape still
+// casts: the proxy is the same surface as the detailed mesh, in fewer triangles.
+//
 // LiDAR-tiered towers arrive as several parts (consecutive records sharing a
 // paint index): each part is extruded from the top of the tier below. Street
 // features (stoops, bays, belt courses, gables) only go on tier 0; rooftop
@@ -57,41 +63,114 @@ export interface MeshArrays {
   meta: Uint8Array;
   bld: Float32Array;
   bld2: Float32Array;
-  index: Uint32Array;
+  /** Uint16 when the mesh has fewer than 65535 vertices (0xFFFF is the primitive restart index in WebGL2) */
+  index: Uint16Array | Uint32Array;
   vertexCount: number;
   /** index count of everything but the collapsed growth (Part.GARDEN / DOME), whose triangles come last:
    * drawn with setDrawRange(0, solidIndexCount) until a building of the mesh grows them (no vertex work) */
   solidIndexCount: number;
 }
 
+/** Sun-pass caster proxy of a full-detail tile: positions only (see meshCasterTile). */
+export interface CasterArrays {
+  position: Float32Array;
+  index: Uint16Array | Uint32Array;
+  vertexCount: number;
+}
+
+/** Index array of the smallest type that holds `vertexCount` vertices. */
+export function indexArray(idx: Uint32Array, vertexCount: number): Uint16Array | Uint32Array {
+  return vertexCount < 65535 ? new Uint16Array(idx) : idx.slice();
+}
+
 /** Per collapsed growth element, GROWN_STRIDE floats: building index, paint level it needs, center x, z,
  * radius and grown top (m, with the growth's overshoot): what the flight's obstacle field must rise over. */
 export const GROWN_STRIDE = 6;
 
+/** A growable index list; push() takes one triangle or two. */
+class IdxBuf {
+  a = new Uint32Array(1 << 15);
+  length = 0;
+  push(p: number, q: number, r: number, s?: number, t?: number, u?: number) {
+    if (this.length + 6 > this.a.length) {
+      const b = new Uint32Array(this.a.length * 2);
+      b.set(this.a);
+      this.a = b;
+    }
+    const a = this.a;
+    let n = this.length;
+    a[n++] = p; a[n++] = q; a[n++] = r;
+    if (s !== undefined) {
+      a[n++] = s; a[n++] = t as number; a[n++] = u as number;
+    }
+    this.length = n;
+  }
+}
+
+// Vertex storage that lives as long as the worker: it grows to the biggest tile once, every later tile
+// reuses it. Number arrays here were 60-70% of the meshing time, with their garbage collection (deep dive
+// rank 9). Positions and facade coordinates are Float64 until finish(): remapU reads them back exact.
+// (One Builder at a time: meshing is synchronous, in the worker and in the main-thread fallback.)
+let cap = 0;
+let sPos = new Float64Array(0), sNrm = new Int8Array(0), sFac = new Float64Array(0), sMeta = new Uint8Array(0), sBld = new Float32Array(0), sBld2 = new Float32Array(0);
+function ensure(n: number) {
+  if (n <= cap) return;
+  let c = Math.max(1 << 14, cap * 2);
+  while (c < n) c *= 2;
+  const grow = <A extends Float64Array | Float32Array | Int8Array | Uint8Array>(o: A, k: number, C: { new (n: number): A }): A => {
+    const b = new C(c * k);
+    b.set(o as never);
+    return b;
+  };
+  sPos = grow(sPos, 3, Float64Array);
+  sNrm = grow(sNrm, 3, Int8Array);
+  sFac = grow(sFac, 2, Float64Array);
+  sMeta = grow(sMeta, 4, Uint8Array);
+  sBld = grow(sBld, 4, Float32Array);
+  sBld2 = grow(sBld2, 2, Float32Array);
+  cap = c;
+}
+const IDX = new IdxBuf(), GIDX = new IdxBuf();
+
 class Builder {
-  pos: number[] = [];
-  nrm: number[] = [];
-  fac: number[] = [];
-  meta: number[] = [];
-  bld: number[] = [];
-  bld2: number[] = [];
-  idx: number[] = [];
+  idx = IDX;
   /** triangles of collapsed growth (appended after idx) */
-  gidx: number[] = [];
+  gidx = GIDX;
   /** GROWN_STRIDE floats per growth element */
   grown: number[] = [];
   vc = 0;
   // current building context
   cur = { index: 0, cx: 0, cz: 0, baseY: 0, roofY: 0, arch: 0, seed: 0, flags: 0, frontW: 0, ext: 0 };
 
+  /** caster mode: positions only, one quad per wall, no undersides */
+  constructor(readonly caster = false) {
+    IDX.length = 0;
+    GIDX.length = 0;
+  }
+
   vert(x: number, y: number, z: number, nx: number, ny: number, nz: number, u: number, v: number, part: number, flags = this.cur.flags) {
-    this.pos.push(x, y, z);
-    this.nrm.push(Math.round(nx * 127), Math.round(ny * 127), Math.round(nz * 127));
-    this.fac.push(u, v);
-    this.meta.push(part, this.cur.arch, this.cur.seed, flags | this.cur.ext);
+    const i = this.vc;
+    if (i >= cap) ensure(i + 1);
+    sPos[i * 3] = x;
+    sPos[i * 3 + 1] = y;
+    sPos[i * 3 + 2] = z;
+    if (this.caster) return this.vc++;
     const c = this.cur;
-    this.bld.push(c.index, c.cx, c.baseY, c.cz);
-    this.bld2.push(c.roofY, c.frontW);
+    sNrm[i * 3] = Math.round(nx * 127);
+    sNrm[i * 3 + 1] = Math.round(ny * 127);
+    sNrm[i * 3 + 2] = Math.round(nz * 127);
+    sFac[i * 2] = u;
+    sFac[i * 2 + 1] = v;
+    sMeta[i * 4] = part;
+    sMeta[i * 4 + 1] = c.arch;
+    sMeta[i * 4 + 2] = c.seed;
+    sMeta[i * 4 + 3] = flags | c.ext;
+    sBld[i * 4] = c.index;
+    sBld[i * 4 + 1] = c.cx;
+    sBld[i * 4 + 2] = c.baseY;
+    sBld[i * 4 + 3] = c.cz;
+    sBld2[i * 2] = c.roofY;
+    sBld2[i * 2 + 1] = c.frontW;
     return this.vc++;
   }
 
@@ -112,6 +191,8 @@ class Builder {
 
   /** quad() that flips its winding if needed so the face points along `want`. */
   quadF(p0: V3, p1: V3, p2: V3, p3: V3, uv: [number, number, number, number, number, number, number, number], part: number, want: V3, flags?: number) {
+    // (an underside never shows in the sun pass: whatever it could shadow, the face above it already does)
+    if (this.caster && want[1] < -0.5) return;
     const n = faceNormal(p0, p1, p2);
     if (n[0] * want[0] + n[1] * want[1] + n[2] * want[2] < 0) this.quad(p3, p2, p1, p0, [uv[6], uv[7], uv[4], uv[5], uv[2], uv[3], uv[0], uv[1]], part, flags);
     else this.quad(p0, p1, p2, p3, uv, part, flags);
@@ -139,9 +220,9 @@ class Builder {
     if (L < 0.05 || y1 - y0 < 0.05) return;
     const nx = dz / L;
     const nz = -dx / L;
-    const cols = Math.max(1, Math.min(6, Math.round(L / segLen)));
+    const cols = this.caster ? 1 : Math.max(1, Math.min(6, Math.round(L / segLen)));
     const h = y1 - y0;
-    const rows = h > 7 && segLen < 99 ? 2 : 1;
+    const rows = !this.caster && h > 7 && segLen < 99 ? 2 : 1;
     const base = this.vc;
     for (let r = 0; r <= rows; r++) {
       const y = y0 + (h * r) / rows;
@@ -174,8 +255,8 @@ class Builder {
     let nx = ez * my, ny = ex * mz - ez * mx, nz = -ex * my;
     const nl = Math.hypot(nx, ny, nz) || 1;
     nx /= nl; ny /= nl; nz /= nl;
-    const cols = Math.max(1, Math.min(6, Math.round(L / segLen)));
-    const rows = y1 - y0 > 7 && segLen < 99 ? 2 : 1;
+    const cols = this.caster ? 1 : Math.max(1, Math.min(6, Math.round(L / segLen)));
+    const rows = !this.caster && y1 - y0 > 7 && segLen < 99 ? 2 : 1;
     const base = this.vc;
     for (let r = 0; r <= rows; r++) {
       const k = r / rows;
@@ -197,6 +278,7 @@ class Builder {
 
   /** Axis-free box: footprint quad (CCW in x,z), y range. All 6 faces (bottom optional). */
   prism(pts: Array<[number, number]>, y0: number, y1: number, part: number, uBase = 0, vBase = 0, bottom = false, flags?: number) {
+    if (this.caster) bottom = false;
     const n = pts.length;
     let u = uBase;
     for (let i = 0; i < n; i++) {
@@ -224,8 +306,9 @@ class Builder {
    * Works on whatever vertices wall() / slantWall() emitted (any subdivision).
    */
   remapU(v0: number, ax: number, az: number, bx: number, bz: number, y0: number, y1: number, u0: number, span: number, ta?: [number, number], tb?: [number, number]) {
+    if (this.caster) return;
     for (let k = v0; k < this.vc; k++) {
-      const x = this.pos[k * 3], y = this.pos[k * 3 + 1], z = this.pos[k * 3 + 2];
+      const x = sPos[k * 3], y = sPos[k * 3 + 1], z = sPos[k * 3 + 2];
       let pax = ax, paz = az, pbx = bx, pbz = bz;
       if (ta && tb) {
         const f = y1 > y0 ? Math.min(1, Math.max(0, (y - y0) / (y1 - y0))) : 0;
@@ -235,7 +318,7 @@ class Builder {
       const ex = pbx - pax, ez = pbz - paz;
       const l2 = ex * ex + ez * ez;
       const t = l2 > 1e-6 ? Math.min(1, Math.max(0, ((x - pax) * ex + (z - paz) * ez) / l2)) : 0;
-      this.fac[k * 2] = u0 + t * span;
+      sFac[k * 2] = u0 + t * span;
     }
   }
 
@@ -246,12 +329,26 @@ class Builder {
    */
   grownVert(ax: number, ay: number, az: number, dx: number, dy: number, dz: number, nx: number, ny: number, nz: number, part: number, flags: number) {
     const c = this.cur;
-    this.pos.push(ax, ay, az);
-    this.nrm.push(Math.round(nx * 127), Math.round(ny * 127), Math.round(nz * 127));
-    this.fac.push(dx, dz);
-    this.meta.push(part, c.arch, c.seed, flags);
-    this.bld.push(c.index, c.cx, c.baseY, c.cz);
-    this.bld2.push(c.roofY, dy);
+    const i = this.vc;
+    if (i >= cap) ensure(i + 1);
+    sPos[i * 3] = ax;
+    sPos[i * 3 + 1] = ay;
+    sPos[i * 3 + 2] = az;
+    sNrm[i * 3] = Math.round(nx * 127);
+    sNrm[i * 3 + 1] = Math.round(ny * 127);
+    sNrm[i * 3 + 2] = Math.round(nz * 127);
+    sFac[i * 2] = dx;
+    sFac[i * 2 + 1] = dz;
+    sMeta[i * 4] = part;
+    sMeta[i * 4 + 1] = c.arch;
+    sMeta[i * 4 + 2] = c.seed;
+    sMeta[i * 4 + 3] = flags;
+    sBld[i * 4] = c.index;
+    sBld[i * 4 + 1] = c.cx;
+    sBld[i * 4 + 2] = c.baseY;
+    sBld[i * 4 + 3] = c.cz;
+    sBld2[i * 2] = c.roofY;
+    sBld2[i * 2 + 1] = dy;
     return this.vc++;
   }
 
@@ -271,23 +368,29 @@ class Builder {
   }
 
   finish(): { mesh: MeshArrays; grown: Float32Array } {
-    const index = new Uint32Array(this.idx.length + this.gidx.length);
-    index.set(this.idx);
-    index.set(this.gidx, this.idx.length);
+    const ic = this.idx.length + this.gidx.length, vc = this.vc;
+    const index = vc < 65535 ? new Uint16Array(ic) : new Uint32Array(ic);
+    index.set(this.idx.a.subarray(0, this.idx.length));
+    index.set(this.gidx.a.subarray(0, this.gidx.length), this.idx.length);
     return {
       mesh: {
-        position: new Float32Array(this.pos),
-        normal: new Int8Array(this.nrm),
-        facade: new Float32Array(this.fac),
-        meta: new Uint8Array(this.meta),
-        bld: new Float32Array(this.bld),
-        bld2: new Float32Array(this.bld2),
+        position: new Float32Array(sPos.subarray(0, vc * 3)),
+        normal: sNrm.slice(0, vc * 3),
+        facade: new Float32Array(sFac.subarray(0, vc * 2)),
+        meta: sMeta.slice(0, vc * 4),
+        bld: sBld.slice(0, vc * 4),
+        bld2: sBld2.slice(0, vc * 2),
         index,
         vertexCount: this.vc,
         solidIndexCount: this.idx.length,
       },
       grown: new Float32Array(this.grown),
     };
+  }
+
+  finishCaster(): CasterArrays {
+    const vc = this.vc;
+    return { position: new Float32Array(sPos.subarray(0, vc * 3)), index: indexArray(this.idx.a.subarray(0, this.idx.length), vc), vertexCount: vc };
   }
 }
 
@@ -428,6 +531,22 @@ function partRoles(t: BuildingTile, g: Group, st: TowerStyle) {
 
 export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): { mesh: MeshArrays; grown: Float32Array } {
   const B = new Builder();
+  meshTile(B, t, opts.lod, opts.sf);
+  return B.finish();
+}
+
+/**
+ * The sun pass's stand-in for a full-detail tile: the LOD 0 buildings, every
+ * shape of them, with flat walls and no undersides. Positions only. (Hidden
+ * footprints stay hidden: same `sf` as the visible mesh.)
+ */
+export function meshCasterTile(t: BuildingTile, sf: boolean): CasterArrays {
+  const B = new Builder(true);
+  meshTile(B, t, 0, sf);
+  return B.finishCaster();
+}
+
+function meshTile(B: Builder, t: BuildingTile, lod: 0 | 1, sf: boolean) {
   const g: Group = { first: 0, end: 0, cx: 0, cz: 0, top: 0, style: null, fam: [], ext: [], domes: 0, garden: 0 };
   for (let i = 0; i < t.count; ) {
     let j = i + 1;
@@ -444,20 +563,19 @@ export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): { mesh: Me
     for (let k = i; k < j; k++) g.top = Math.max(g.top, t.roofY[k], t.baseY[k] + 2.5);
     const H = g.top - t.groundY[i];
     // footprints a hand-built prop draws instead (the Ferry Building's row of "Victorian" lots)
-    if (opts.sf && hiddenAt(g.cx, g.cz, H)) { i = j; continue; }
+    if (sf && hiddenAt(g.cx, g.cz, H)) { i = j; continue; }
     const first = i, end = j;
     g.style = styleFor(t.arch[i], H, ringArea(t, i), g.cx, g.cz, t.stableId[i], (x, z) => {
       for (let k = first; k < end; k++) if (ringContains(t, k, x, z)) return true;
       return false;
-    }, opts.sf);
+    }, sf);
     if (g.style) partRoles(t, g, g.style);
     // (baked collapsed, they still cost triangles: a few per tower)
     g.domes = 3;
     g.garden = 14;
-    for (let k = i; k < j; k++) meshBuilding(B, t, k, opts.lod, g);
+    for (let k = i; k < j; k++) meshBuilding(B, t, k, lod, g);
     i = j;
   }
-  return B.finish();
 }
 
 /** True if (x, z) is inside the ring of record k. */
@@ -832,7 +950,7 @@ const NEED2 = 2 << 2, NEED3 = 3 << 2, TREE = 16;
  */
 function towerGrowth(B: Builder, t: BuildingTile, g: Group, i: number, ring: Array<[number, number]>, roofY: number, lod: 0 | 1) {
   const H = g.top - t.groundY[i];
-  if (H < 40 || !g.style) return;
+  if (H < 40 || !g.style || B.caster) return;
   const ext = g.ext[i - g.first];
   const isPent = (ext & FacadeFlag.PENTHOUSE) !== 0;
   const isCrown = (ext & FacadeFlag.CROWN) !== 0;

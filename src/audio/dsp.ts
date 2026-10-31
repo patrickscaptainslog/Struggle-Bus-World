@@ -174,9 +174,8 @@ export function safeStop(src: AudioScheduledSourceNode, t: number): void {
 
 // ------------------------------------------------------------------ buffers
 
-/** Loopable noise buffer: DC removed, RMS normalized, seam crossfaded. */
-export function makeNoise(ctx: BaseAudioContext, seconds: number, seed: number, pink: boolean): AudioBuffer {
-  const sr = ctx.sampleRate;
+/** Loopable noise: DC removed, RMS normalized, seam crossfaded. No WebAudio here: it runs in the audio worker too. */
+export function synthNoise(sr: number, seconds: number, seed: number, pink: boolean): Float32Array<ArrayBuffer> {
   const n = Math.floor(seconds * sr);
   const fade = Math.floor(0.08 * sr);
   const g = new Float32Array(n + fade);
@@ -198,8 +197,7 @@ export function makeNoise(ctx: BaseAudioContext, seconds: number, seed: number, 
     g[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362;
     b6 = w * 0.115926;
   }
-  const buf = ctx.createBuffer(1, n, sr);
-  const d = buf.getChannelData(0);
+  const d = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     if (i < fade) {
       // equal-power blend of the overrun tail into the head: the loop seam is seamless
@@ -218,25 +216,36 @@ export function makeNoise(ctx: BaseAudioContext, seconds: number, seed: number, 
   const rms = Math.sqrt(e / n) || 1;
   const k = (pink ? 0.25 : 0.3) / rms;
   for (let i = 0; i < n; i++) d[i] *= k;
+  return d;
+}
+
+/** Samples as an AudioBuffer of this context (one channel per array). */
+export function toBuffer(ctx: BaseAudioContext, channels: Array<Float32Array<ArrayBuffer>>): AudioBuffer {
+  const buf = ctx.createBuffer(channels.length, channels[0].length, ctx.sampleRate);
+  channels.forEach((c, i) => buf.copyToChannel(c, i));
   return buf;
+}
+
+export function makeNoise(ctx: BaseAudioContext, seconds: number, seed: number, pink: boolean): AudioBuffer {
+  return toBuffer(ctx, [synthNoise(ctx.sampleRate, seconds, seed, pink)]);
 }
 
 /**
  * Synthesized stereo room: decorrelated noise with an exponential decay whose
  * brightness falls over time (highs die first), a short pre-delay, and the
  * lows trimmed so the tail stays airy. Energy-normalized per channel.
+ * No WebAudio here: it runs in the audio worker too.
  */
-export function makeReverbIR(ctx: BaseAudioContext, seconds: number, rt60: number, seed: number): AudioBuffer {
-  const sr = ctx.sampleRate;
+export function synthReverbIR(sr: number, seconds: number, rt60: number, seed: number): [Float32Array<ArrayBuffer>, Float32Array<ArrayBuffer>] {
   const n = Math.floor(seconds * sr);
-  const buf = ctx.createBuffer(2, n, sr);
+  const out: [Float32Array<ArrayBuffer>, Float32Array<ArrayBuffer>] = [new Float32Array(n), new Float32Array(n)];
   const pre = Math.floor(0.016 * sr);
   const hpR = Math.exp((-2 * Math.PI * 170) / sr);
-  // incremental envelopes (no per-sample exp): this runs inside the unlock gesture
+  // incremental envelopes (no per-sample exp)
   const decay = Math.exp(-6.9 / rt60 / sr);
   const brightDecay = Math.exp(-1 / 0.45 / sr);
   for (let ch = 0; ch < 2; ch++) {
-    const d = buf.getChannelData(ch);
+    const d = out[ch];
     const r = new Rng(seed + ch * 7919);
     let lp = 0;
     let hpPrev = 0;
@@ -268,7 +277,23 @@ export function makeReverbIR(ctx: BaseAudioContext, seconds: number, rt60: numbe
     const k = 1 / Math.sqrt(e || 1);
     for (let i = 0; i < n; i++) d[i] *= k;
   }
-  return buf;
+  return out;
+}
+
+export function makeReverbIR(ctx: BaseAudioContext, seconds: number, rt60: number, seed: number): AudioBuffer {
+  return toBuffer(ctx, synthReverbIR(ctx.sampleRate, seconds, rt60, seed));
+}
+
+/** The long buffers of the sound graph (seed 1), synthesized off the main thread (audioWorker.ts). */
+export interface SynthData {
+  sr: number;
+  white: Float32Array<ArrayBuffer>;
+  pink: Float32Array<ArrayBuffer>;
+  ir: [Float32Array<ArrayBuffer>, Float32Array<ArrayBuffer>];
+}
+
+export function synthAll(sr: number, seed = 1): SynthData {
+  return { sr, white: synthNoise(sr, 3, seed * 13 + 1, false), pink: synthNoise(sr, 4, seed * 17 + 2, true), ir: synthReverbIR(sr, 2.1, 1.9, seed * 31 + 11) };
 }
 
 /**

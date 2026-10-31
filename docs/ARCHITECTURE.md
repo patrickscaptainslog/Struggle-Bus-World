@@ -7,6 +7,11 @@ brief is silent, pick the more beautiful option and log it in `DECISIONS.md`.
 ## Stack
 Vite + TypeScript + three.js (WebGL2). No runtime asset files except baked
 city tiles: every model is built procedurally, every sound is synthesized.
+The build's floor is iOS 15.0, the first Safari with WebGL2: `build.target` is
+`safari15`, workers included. A script that doesn't parse shows nothing at all
+(no error, `boot().catch` never runs, the page stays fog-grey), so
+`node tools/iosfloor.mjs <build>` must pass: it parses every chunk, fails on what
+a target can't lower (a regex lookbehind) and lists APIs newer than 15.0 to read.
 
 ## World conventions
 - Units: meters, seconds, radians.
@@ -66,9 +71,31 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
     a real gradient (1.5 bytes up to the dither window, 72.86 x
     `ditherWidth`); a whole-step jump (a crisp band edge) rounds. Materials
     that want crisp bands (tree crowns) snap their light to a step.
-- Every scene material must write both outputs (`gColor`, `gAux`).
+- Every scene material ends in `sbWrite`. The G-buffer is one RGBA16UI target: eight
+  bytes packed by `sbWrite` (one output: ANGLE on D3D11 compiles a second pixel shader
+  per program at the first draw into a target with a second output, seconds of serial
+  compiling), read through `GLSL_G_READ` (`sbColor`, `sbAux`, `sbLightAt`, `sbFogAt`).
+  Nothing blends or filters it, and no other material may write it (a float output
+  into an integer target is a dropped draw). The sun pass's own depth shaders are fine:
+  its target is R8, its color mask locked off.
+- A material (or an object kind) made after boot registers a warm-up source,
+  or its program compiles in flight, for up to seconds (see Shader warm-up).
 - Objects that cast sun shadows: `obj.layers.enable(SHADOW_LAYER)`.
   The bus and particles must NOT cast (the bus has its own drop shadow).
+- The sun pass is depth only (`PixelPipeline.drawSun` locks the color mask, for the
+  real pass and the warm-up alike; shadows read the depth texture) and draws
+  casters, not the detailed meshes: a detailed
+  building tile casts through its proxy (`meshCasterTile`: positions only,
+  one quad per wall, no undersides: the same surfaces in fewer triangles, every
+  shape still casts), on SHADOW_LAYER only, while its detailed mesh is on layer
+  0 only. Something with a cheaper stand-in should do the same (trees and
+  rooftop gardens have depth twins). New mesher geometry must make its vertices
+  through `Builder.vert()` and its walls and boxes through `wall()` / `prism()` /
+  `quadF()` so the caster mode can thin it. Mark a caster
+  `userData.sunCull = true` (it needs a bounding sphere) and the sun pass
+  skips it when its shadow, swept down the sun ray, can't reach the view.
+- Index buffers are Uint16 below 65535 vertices (0xFFFF is WebGL2's
+  primitive restart index), Uint32 above.
 - Pixel budget: the portrait framebuffer is 390 game pixels wide
   (`config.render.pixelWidth`; `?px=240` the old 5x look). At gameplay
   camera distance (~155 m, 24° horizontal FOV, 24° above the bus at cruise: the
@@ -113,6 +140,29 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   that walks tiles for rendering must handle both. A tile marked with
   `City.setOwnGround(tx, tz)` keeps its own ground mesh inside a coarse
   region (the merged ground skips it).
+- **Streaming spreads its GL work and never shows half a swap.** three uploads a
+  mesh at its first draw, so what a frame adopts is what it uploads, and what
+  sits beside the bus would all upload at once the moment the view turned to it.
+  So `City.firstDraw` draws every new mesh the frame after its adoption, in view
+  or not, and adoption has a byte budget: `ADOPT_MIN` items, then while under
+  `ADOPT_MS`, and never past `ADOPT_BYTES` (3 MB a frame; `ADOPT_BYTES_EAGER`, 16 MB,
+  while `eager`: the opening, a restored context) unless one tile is more. A region
+  going to full detail prepares tile by tile (`prep` items: `prepTile` makes the
+  detailed mesh, its caster and the 4 m ground, and gives them that first draw
+  unseen: `City.ghost`, every fragment failing the depth test); `swapRegion` then
+  only commits, in one frame. Going coarse is one item (a merged mesh is 1-4 MB).
+  While `detailHold` (a turbo gear) prep and swap items wait. One region unloads a
+  frame. A mesh with a dropped-array or a new layout goes through
+  `buildingMesh()` / `casterMesh()` / `groundMesh()`.
+- Streamed geometry keeps no JS copy after upload (`dropAfterUpload` in
+  City): never read a building or ground mesh's attribute arrays back, and
+  give any new streamed mesh its bounds before its first render (the worker
+  sends them: `TileResult.sphere`, computed as three does, so culling draws what it
+  drew). A restored GL context reloads every region (`City.reloadAll`).
+- The scene, `city.root` and every `TreeField` have `matrixAutoUpdate` off: a parent
+  that recomposes forces its whole subtree. Only what moves updates; a static object
+  placed at a transform calls `updateMatrix()` / `updateMatrixWorld()` once. The
+  pipeline updates the graph once per frame (three would at each of its two renders).
 - Per-tile ground state (feat/blast's `GroundPaint`): attach in
   `City.makeTileTerrain` and detach in `City.dropTileTerrain` (the only two
   places a tile's own ground mesh is made and dropped), and mark every tile
@@ -134,6 +184,96 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   world travel (NIGHT_SKY 32, OPEN_SEA 33, LIMB 34, CLOUD 35, DRY_LAND 36,
   TWILIGHT 37: WORLD-TRAVEL.md 2.5); 38-47 spare. Claim a reserved row by
   adding its name at that number.
+
+## Shader warm-up (READ THIS before adding a material or a new kind of object)
+`src/render/warmup.ts`. On a cold visit the GPU program cache is empty, and
+on Windows (ANGLE on D3D11) each program compiles on the CPU, the building's
+for ~4 s; compiled at its first draw it freezes presentation. So nothing may
+compile in flight: at boot every program compiles, in parallel
+(`KHR_parallel_shader_compile`, a few at a time so the browser's own raster
+still gets compile slots; the longest first in half the lanes, the shortest in
+the others), then draws once into the target it really draws into (G-buffer,
+sun map, glow / resolve targets; never the canvas). The first frame waits for
+it and for far.bin (the page shows its fog-grey background meanwhile); the
+opening starts with that first frame. Every synchronous GL query the warm-up
+makes (link status, uniform tables) waits behind a fence round trip, so the
+main thread never blocks on the GPU process.
+
+What it warms:
+- **The live scene** (`warm.add(scene)` once boot has built it, again after
+  far.bin): each object the way the pipeline draws it: its own material on
+  the camera's layers; on `SHADOW_LAYER` the sun pass's override material, or
+  its own when `allowOverride = false` (tree, sprout casters).
+- **The post passes** (`PixelPipeline.warmObjects()`).
+- **Registered sources**: `registerWarm(name, () => objects)`.
+
+A warm draw has to be the real draw, not only the real program: a Metal render
+pipeline is keyed by the program and the target's format, the color write mask,
+blending and the topology class, and each new key builds at its first draw. So the
+sun's proxies go through `drawSun` (mask locked off), and each picks its own program
+at its draw (`needsUpdate` in `onBeforeRender`): three picks a material's program
+again only on some changes, a normal attribute isn't one, so on the shared override
+the position-only casters' program would compile and never draw.
+
+**The rule: anything that makes a material, or an object of a new kind, after
+boot registers a warm source**, at module load (`registerWarm('trees', ...)` at
+the end of the file) or in the constructor that owns the materials
+(`RoofSprouts`). The source returns one object of each kind exactly as the real
+code makes it, through the same functions: the same material function (same
+defines, side), the same object class (`Mesh` / `InstancedMesh`, with or
+without `instanceColor`, `Points`), the same geometry layout (attribute names,
+array types, item sizes, normalization: ANGLE compiles a vertex variant per
+layout, e.g. the building's Int8 normals and Uint8 `aMeta`) and the same layers.
+Uniform values and geometry contents don't matter: the warm-up draws a
+one-triangle proxy with that program key and layout. Build the source with the
+helper the real code uses (`buildingMesh()`, `groundMesh()`, `farGridMesh()`,
+`makeSkylineMaterial()` in City.ts; `TreeField`; the sprouts' `Batch`;
+`LandmarkKit`; the bridges' `Kit`) so it can't go stale silently. Today:
+`city` (a building tile, a tile's ground, far terrain, horizon, skyline),
+`trees` (both levels of detail and the casters), `roof sprouts` (every
+element type and its caster), `landmarks` (plain and with accents), `bridges`.
+- A source registered after the warm-up finished still warms (in the
+  background, before its first draw only if there is time): register early.
+- The warm-up never disposes its materials, so the programs stay alive: a
+  material made later from the same code reuses its program.
+- No `onBeforeCompile` / `customProgramCacheKey` unless the source makes the
+  same key; `SkinnedMesh` / `BatchedMesh` aren't proxied (it warns).
+- **Check it**: `node tools/warmcheck.mjs <url> out.json` (cold load, the
+  opening, a climb, three blasts on one building for the sign and the level 2
+  and 3 gardens, the landmarks from altitude) must report
+  `programsAfterWarmup: 0`, no frame or long task over 100 ms after ready, and in
+  `firstDrawsAfterWarmup` only the upscale onto the canvas (frame 1: nothing warmed
+  may reach the canvas). `__game.warm.report` holds the counts and timings.
+
+Boot order (main.ts): index.html's inline script starts city.json, far.bin
+and horizon.bin before the game's script loads (`bootFetch` hands them over).
+`boot()` starts with `pipeline.checkTargets()`: GL only logs a target the device
+refuses, and the game would run on under a black frame, so the G-buffer and the sun
+map are asked for their status first, while the GPU process has nothing to do (the
+query is synchronous: 0.1-0.4 ms there, up to 35 ms behind the warm-up), and a
+refusal is one line on the fog-grey page through `boot().catch`.
+`city.prime()` posts the opening's whole want-list at once (up to 10 regions in
+flight while `city.eager`, i.e. until the first ready frame; 2 after). Only what
+the opening shows is built before the first frame (the bus, the Golden Gate);
+the other landmarks go to the `later` queue (built while the warm-up waits,
+else one per frame early in the opening; ready waits for them). The opening's
+4.2 s run on the wall clock from the first frame on screen (the 15% hold until
+the first region lands stays), with each step capped at 0.25 s: real time down
+to 4 fps, but a tab switch or a long stall moves the reveal 6% at most. It holds
+with the game (`held`: iOS's motion sheet, a restored context still covered). Once
+it has been seen through on a device (`strugglebus.opening.v1`), a tap skips it:
+the same reveal in ~0.7 s, and that tap doesn't splat (`input.onTap`; a toast says
+so until the tap, and never after one landed in the grey). `later`'s first item makes and closes an AudioContext: Chromium's audio
+backend starts with the first one, 120-180 ms on the main thread, and that must
+not be the first touch.
+
+**A lost GL context** (a GPU reset, memory pressure on iOS): `webglcontextlost`
+stops the game and hides the canvas (the page's fog-grey shows); on
+`webglcontextrestored` the warm-up runs again from the top (a new `WarmUp`, every
+program compiled off the main thread), `City.reloadAll` drops every region (their
+meshes have no JS copy) and they stream back eagerly with the game clock and the
+opening standing (`covered`) until the city is in. `__game.loseContext()`, `restoreContext()`;
+`node tools/contextloss.mjs <url> <dir>`.
 
 ## City data (bake -> tiles -> meshes)
 `tools/bake/bake.py <slug>` turns footprints + DEM (+ an optional LiDAR point
@@ -161,7 +301,8 @@ them into gzip'd 1 km regions. Layouts live in `src/world/tiles.ts`.
   as a dome over its reach (`treeCrown` in props/trees), the detailed mesh's
   roof details (every LOD 0 vertex lifts its cell; a single-part house lifts
   every cell within 3 m of it to its mesh top: gables, chimneys, parapets,
-  clutter), rooftop gardens / Hundertwasser crowns (`City.raiseRoof(rect,
+  clutter: `roofTops` in the worker, `City.adoptTops` takes the larger of two numbers
+  per cell), rooftop gardens / Hundertwasser crowns (`City.raiseRoof(rect,
   top)` with the height `RoofSprouts.set` returns) and a painted tower's own
   setback gardens, trees and onion domes (`City.growTo(ref, level)`: every
   element the mesher recorded, see Tower facades). Anything new that stands on
@@ -275,7 +416,7 @@ live in `src/config.ts`.
 |---|---|---|
 | Core renderer | `src/render/*` | `PixelPipeline`, `materials`, `palette` |
 | World / bake | `tools/bake/*`, `src/world/City*.ts`, `src/world/Buildings*.ts`, `src/world/Terrain.ts` | baked tiles → meshes, paint state |
-| Audio | `src/audio/AudioEngine.ts` | see `AudioEngine` |
+| Audio | `src/audio/AudioEngine.ts`, `src/audio/audioWorker.ts` | see `AudioEngine` |
 | Bus model | `src/bus/BusModel.ts` | see `BusModel` |
 | Particles | `src/fx/Particles.ts` | see `Particles` |
 | Street signs | `src/fx/StreetSign.ts`, `src/fx/pixelFont.ts` | see `StreetSigns` |
@@ -322,8 +463,8 @@ until a thumb flies it, a tap splats, buttons do what they say. There are no con
   HUD press or lift), `reachDown()` / `reachUp()` (TURBO, the tab, the toggle), `adoptThumb(e, keepPress, x0, y0, t0)`
   (MEGA's or the chip's finger becomes the thumb; it notes the pose with `mix.land()`, since no canvas touch-down did),
   `adoptedMove/Up` (its events if capture didn't move), `wakeMix()`.
-- The opening (`main.ts` with `Controls`): nothing holds it. `controls.sheetUp` (iOS's motion sheet) sets dt = 0 at any
-  time; `controls.gearsLocked` and `controls.opening`, set per frame, queue a shift until the bus clears the gate and
+- The opening (`main.ts` with `Controls`): nothing but the sheet holds it. `controls.sheetUp` (iOS's motion sheet) stands the
+  game and the opening at any time; `controls.gearsLocked` and `controls.opening`, set per frame, queue a shift until the bus clears the gate and
   drive the first run. "Gate cleared" is `!opening && !gearsLocked`, true at fog end in a city with no bridge.
 
 **The mixer** (`src/game/Hybrid.ts`, `TiltMix`, no DOM, tuner group "Hybrid"): phases `live | thumb | settle`, one flag
@@ -532,8 +673,8 @@ numbers in the tuner groups `SuperSplat`, `SuperFx`, `SuperAudio`.
 - **Warm-up** (`src/render/warmup.ts`, perf/load's kit, `registerWarm`,
   `PixelPipeline implements WarmPipeline`): in `boot()` after `onResize()`, the
   post passes, `'roof sprouts'`, the signs and `superFx.object` compile in
-  parallel and draw once into their real targets; the first frame waits at
-  most `render.warmWait` s. Anything new that first draws in flight belongs here
+  parallel and draw once into their real targets; the first frame waits for
+  them. Anything new that first draws in flight belongs here
   (`__game.warm.report`). Measure in a FRESH browser: links are cached by a page.
 - **The hold's hint**: `superHint()` in main.ts at the belly's refill,
   `superSplat.onLearned` ends it (`strugglebus.superhint.v1`).

@@ -2,13 +2,20 @@ import * as THREE from 'three';
 import { config } from '../config';
 
 // Every scene material writes the same small G-buffer, so the post pass can
-// light-quantize, dither, outline and fog everything consistently:
+// light-quantize, dither, outline and fog everything consistently. It is one
+// RGBA16UI target holding eight bytes (sbWrite packs them; GLSL_G_READ unpacks):
 //
-//   gColor (location 0): r = ramp index / 255, g = light level 0..1,
-//                        b = fog amount 0..1,  a = glow (emissive) 0..1
-//   gAux   (location 1): rg = view-space normal (octahedral, 0..1),
-//                        b = surface id hash 0..1 (adjacent ids get a seam line),
-//                        a = flags: 1.0 = normal surface, 0.5 = no outline (particles, glow cards)
+//   color: r = ramp index, g = light level 0..1,
+//          b = fog amount 0..1,  a = glow (emissive) 0..1
+//   aux:   rg = view-space normal (octahedral, 0..1),
+//          b = surface id hash 0..1 (adjacent ids get a seam line),
+//          a = flags: 1.0 = normal surface, 0.5 = no outline (particles, glow cards)
+//
+// One target, because ANGLE on D3D11 compiles every program's pixel shader for
+// target 0 at link and again with the second target at its first draw, seconds
+// of serial compiling on the GPU process's main thread. Same bytes as two RGBA8
+// targets, same memory; integer targets are core in WebGL2 (ES 3.0 color-renderable,
+// Metal's RGBA16Uint is too) and nothing here blends or filters the G-buffer.
 //
 // Materials never output RGB colors. Use the GLSL chunks below; see
 // makeRampMaterial() for the common case.
@@ -37,6 +44,8 @@ export const globals = {
   uFogLayer2: { value: new THREE.Vector4(config.fog.layerDensity, config.fog.layerHaze, config.fog.layerFarFull, 0) },
   // x billow amplitude (m), y 1 / billow size (1/m)
   uFogBillow: { value: new THREE.Vector2(config.fog.layerBillow, 1 / config.fog.layerBillowSize) },
+  // the angular size of one game pixel (rad) in the scene pass, for the facades' detail by size on screen
+  uPixelAngle: { value: 0.0017 },
 };
 
 /**
@@ -210,12 +219,33 @@ float sbHash11(float p) {
 `;
 
 export const GLSL_OUT = /* glsl */ `
-layout(location = 0) out highp vec4 gColor;
-layout(location = 1) out highp vec4 gAux;
-void sbWrite(float ramp, float light, float fog, float glow, vec3 viewNormal, float surfaceId, float flags) {
-  gColor = vec4(ramp / 255.0, clamp(light, 0.0, 1.0), clamp(fog, 0.0, 1.0), clamp(glow, 0.0, 1.0));
-  gAux = vec4(sbOctEncode(normalize(viewNormal)), fract(surfaceId), flags);
+layout(location = 0) out highp uvec4 gBuf;
+// The byte an RGBA8 target stores for x (0..1). Not quite round(x * 255): measured bisecting all 255 boundaries on
+// the Intel UHD 620 this game is QA'd on, the GPU first truncates x to 15 significant bits (2^-18 at the finest). Plain
+// rounding moves 0.3% of the bytes by one, a ramp step in ~50 dithered pixels per frame; this way frames match the
+// two-target G-buffer's exactly there, and anywhere else it is under 0.008 of a byte from plain rounding.
+uvec4 sbByte(vec4 x) {
+  vec4 g = 262144.0 / ((1.0 + step(0.125, x)) * (1.0 + step(0.25, x)) * (1.0 + step(0.5, x)));
+  return uvec4(floor(x * g) / g * 255.0 + 0.5) & 255u;
 }
+void sbWrite(float ramp, float light, float fog, float glow, vec3 viewNormal, float surfaceId, float flags) {
+  uvec4 c = sbByte(vec4(ramp / 255.0, clamp(vec3(light, fog, glow), 0.0, 1.0)));
+  uvec4 a = sbByte(clamp(vec4(sbOctEncode(normalize(viewNormal)), fract(surfaceId), flags), 0.0, 1.0));
+  gBuf = uvec4(c.r | (c.g << 8u), c.b | (c.a << 8u), a.r | (a.g << 8u), a.b | (a.a << 8u));
+}
+`;
+
+/** The post passes' side of the G-buffer: the bytes above as 0..1, as RGBA8 textures would give them. */
+export const GLSL_G_READ = /* glsl */ `
+uniform highp usampler2D tG;
+vec4 sbUnpack(uvec2 t) {
+  return vec4(float(t.x & 255u), float(t.x >> 8u), float(t.y & 255u), float(t.y >> 8u)) / 255.0;
+}
+vec4 sbColor(ivec2 p) { return sbUnpack(texelFetch(tG, p, 0).rg); }
+vec4 sbAux(ivec2 p) { return sbUnpack(texelFetch(tG, p, 0).ba); }
+// (the neighbors' light and fog alone: those loops are the resolve's longest compile)
+float sbLightAt(ivec2 p) { return float(texelFetch(tG, p, 0).r >> 8u) / 255.0; }
+float sbFogAt(ivec2 p) { return float(texelFetch(tG, p, 0).g & 255u) / 255.0; }
 `;
 
 export interface RampMaterialOptions {

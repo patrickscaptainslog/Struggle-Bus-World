@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT, SHADOW_LAYER } from '../../render/materials';
 import { Ramp } from '../../render/palette';
 import { DEPTH_FS, GLSL_PROPS, hash2, propsTune, treeUniforms, tuneUniform, unitSphere } from './common';
+import { registerWarm } from '../../render/warmup';
 
 // Trees: ONE template geometry (a trunk + five unit lobes) for every species.
 // The vertex shader builds each tree from its instance data — species
@@ -668,11 +669,20 @@ export class TreeField {
     const g = new THREE.Group();
     g.name = 'TreeField';
     g.add(mesh, caster);
+    // (a field never moves: the instances carry their own matrices)
+    g.matrixAutoUpdate = false;
+    mesh.matrixAutoUpdate = false;
+    caster.matrixAutoUpdate = false;
     this.object = g;
     this.mesh = mesh;
     this.caster = caster;
     this.data = data;
     this.color = color;
+  }
+
+  /** Its two instanced meshes (the crowns, their sun-pass twin). */
+  get meshes(): [THREE.InstancedMesh, THREE.InstancedMesh] {
+    return [this.mesh, this.caster];
   }
 
   /** Number of trees in this field. */
@@ -766,3 +776,13 @@ export class TreeField {
     this.caster.dispose();
   }
 }
+
+// Shader warm-up (render/warmup.ts): a field at each level of detail, made like a streamed tile's:
+// the crowns and their sun-pass twin, and the far canopy (LOD 1 swaps the mesh's material)
+registerWarm('trees', () => {
+  const one: TreeInstance[] = [{ x: 0, y: 0, z: 0, size: 1, kind: 0 }];
+  const near = new TreeField(one);
+  const far = new TreeField(one);
+  far.setLod(1);
+  return [near.object, far.object];
+});

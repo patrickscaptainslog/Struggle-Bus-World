@@ -2,10 +2,10 @@ import * as THREE from 'three';
 
 // Shader warm-up: every program the game will draw with is compiled at boot, in parallel
 // (KHR_parallel_shader_compile: the main thread stays free while the GPU process compiles), then
-// drawn once into the pass target it really draws into (the G-buffer's two outputs, the sun's
-// depth map, the post passes' targets; never the canvas), so ANGLE's draw-time shader variants
-// are paid too. All before the first presented frame: a cold load no longer freezes for seconds
-// per program on its first draw, and nothing compiles in flight.
+// drawn once into the pass target it really draws into (the G-buffer, the sun's depth map, the
+// post passes' targets; never the canvas), so ANGLE's draw-time shader variants are paid too.
+// All before the first presented frame: a cold load no longer freezes for seconds per program on
+// its first draw, and nothing compiles in flight.
 //
 // What gets warmed (see docs/ARCHITECTURE.md, "Shader warm-up"):
 //  - every object in the live scene (WarmUp.add(scene)), the way the pipeline draws it: its own
@@ -232,6 +232,8 @@ export class WarmUp {
   private pump: Promise<void> = Promise.resolve();
   private running = false;
   private passesDrawn = false;
+  /** given up: the GL context it compiled in is gone */
+  private dead = false;
   private rounds = 0;
   private draws = 0;
   private linkedAt = 0;
@@ -310,8 +312,7 @@ export class WarmUp {
   /**
    * Start compiles while fewer than `lanes` programs are linking: half the lanes take the longest
    * waiting (the building's program sets how long the whole warm-up takes), the others the
-   * shortest (their draws then start early: on D3D the GPU process compiles each G-buffer program
-   * a second time at its first draw, one after another, so that queue must not run dry).
+   * shortest (their draws then start early).
    */
   private compileSome() {
     const r = this.pipeline.renderer;
@@ -368,6 +369,9 @@ export class WarmUp {
     this.sigs.add(sig);
     const proxy = makeProxy(o, material);
     if (!proxy) return;
+    // (three picks a material's program again only on some changes, and a normal attribute isn't one: on the sun's shared
+    // override a proxy would draw with whichever program drew last, and the position-only casters' would never draw)
+    if (pass === Pass.SUN) proxy.onBeforeRender = (_r, _s, _c, _g, m) => (m.needsUpdate = true);
     let cost = 0;
     for (const m of mats) {
       const sm = m as THREE.ShaderMaterial;
@@ -392,6 +396,12 @@ export class WarmUp {
     return this.running;
   }
 
+  /** The GL context is gone: stop here (a new WarmUp starts over when it is back). */
+  abandon(): void {
+    this.dead = true;
+    if (live === this) live = null;
+  }
+
   /** Resolves once everything added so far is compiled, drawn and done on the GPU. */
   async finish(): Promise<WarmReport> {
     this.start();
@@ -405,15 +415,25 @@ export class WarmUp {
     const alive = r.info.programs as unknown as Program[];
     let drewAt = 0;
     for (;;) {
+      if (this.dead) {
+        this.running = false;
+        return;
+      }
       // A fence round trip first. Every query below (link status, uniform tables) is synchronous: it
       // waits for the GPU process to get to it, i.e. behind the last round's draws (whose draw-time
       // shader variants compile there, seconds) or behind anything else stuck on its main thread (the
       // browser's own raster waiting for a compile slot). Polling the fence never blocks; once it has
       // signaled, the GPU process is free and the queries answer at once.
-      const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
+      const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
       gl.flush();
-      while (gl.getSyncParameter(fence, gl.SYNC_STATUS) !== gl.SIGNALED) await sleep(4);
-      gl.deleteSync(fence);
+      if (fence) {
+        while (!this.dead && !gl.isContextLost() && gl.getSyncParameter(fence, gl.SYNC_STATUS) !== gl.SIGNALED) await sleep(4);
+        gl.deleteSync(fence);
+      }
+      if (this.dead || gl.isContextLost()) {
+        await sleep(50);
+        continue;
+      }
       if (drewAt) {
         this.log[this.log.length - 1][3] = Math.round(performance.now() - drewAt);
         drewAt = 0;

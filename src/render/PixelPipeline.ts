@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import { config } from '../config';
-import { globals, GLSL_LAYER_TOP, GLSL_SKY_LIGHT, SHADOW_LAYER } from './materials';
+import { globals, GLSL_G_READ, GLSL_LAYER_TOP, GLSL_SKY_LIGHT, SHADOW_LAYER } from './materials';
 import { HUE_RAMPS, makePaletteTexture, Ramp } from './palette';
 import type { WarmPipeline } from './warmup';
 
 // Low-res 3D pixel-art renderer.
 //
-//  1. sun depth pass (shadow map, snapped to its own texel grid)
-//  2. scene pass into a small G-buffer (ramp, light, fog, glow | normal, id)
+//  1. sun depth pass (shadow map, snapped to its own texel grid; depth only,
+//     and casters whose shadow can't reach the view are skipped)
+//  2. scene pass into a small G-buffer (ramp, light, fog, glow | normal, id: one RGBA16UI target)
 //  3. glow pass: blurred emissive at half res
 //  4. resolve pass: ramp + ordered dither, outlines, creases, fog, sky -> palette RGB
 //  5. upscale pass: nearest-neighbor to the canvas, shifted by the camera's
@@ -91,9 +92,28 @@ export class PixelPipeline implements WarmPipeline {
   private cssW = 1;
   private cssH = 1;
   private dpr = 1;
+  /** what the targets were last sized for (resize() early-outs when nothing changed) */
+  private sizeKey = '';
   /** impact flash: rendered frames left, and (buffer uv x, y, strength, radius) */
   private flashLeft = 0;
   private readonly flashU = new THREE.Vector4();
+  // sun pass scratch (no per-frame allocation)
+  private readonly sunCenter = new THREE.Vector3();
+  private readonly sunFwd = new THREE.Vector3();
+  private readonly sunRight = new THREE.Vector3();
+  private readonly sunUp = new THREE.Vector3();
+  private readonly cullCam = new THREE.PerspectiveCamera();
+  private readonly cullFrustum = new THREE.Frustum();
+  private readonly cullMat = new THREE.Matrix4();
+  private readonly cullSphere = new THREE.Sphere();
+  private readonly cullBox = new THREE.Box3();
+  private readonly cullBox2 = new THREE.Box3();
+  private readonly cullSize = new THREE.Vector3();
+  private readonly cullOff = new THREE.Vector3();
+  private readonly culled: THREE.Object3D[] = [];
+  private readonly invalidColor = [0];
+  /** objects skipped by the last sun pass (QA) */
+  shadowCulled = 0;
   /** the hero's headlight beam (world lens, world tip, half widths m, strength 0..1; 0 = off) */
   private readonly beamEye = new THREE.Vector3();
   private readonly beamTip = new THREE.Vector3();
@@ -111,7 +131,9 @@ export class PixelPipeline implements WarmPipeline {
       canvas,
       antialias: false,
       alpha: false,
-      depth: true,
+      // every scene pass draws into its own target; the canvas only gets the upscale blit
+      // (a depth buffer there would be ~12 MB at devicePixelRatio 3, cleared and stored for nothing)
+      depth: false,
       stencil: false,
       powerPreference: 'high-performance',
       preserveDrawingBuffer: false,
@@ -122,6 +144,9 @@ export class PixelPipeline implements WarmPipeline {
     // far reaches the horizon hills and the fog sea when the bus is high above the city
     this.camera = new THREE.PerspectiveCamera(40, 1, 1.5, 30000);
     this.sunCam.layers.set(SHADOW_LAYER);
+    // the sun pass is depth only: shadows sample the depth texture, its color target is never read
+    this.depthMat.colorWrite = false;
+    this.invalidColor[0] = (this.renderer.getContext() as WebGL2RenderingContext).COLOR_ATTACHMENT0;
 
     const quadGeo = new THREE.PlaneGeometry(2, 2);
     this.quad = new THREE.Mesh(quadGeo);
@@ -131,8 +156,7 @@ export class PixelPipeline implements WarmPipeline {
     this.resolveMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
       uniforms: {
-        tColor: { value: null },
-        tAux: { value: null },
+        tG: { value: null },
         tDepth: { value: null },
         tGlow: { value: null },
         tPalette: { value: this.palette },
@@ -166,7 +190,7 @@ export class PixelPipeline implements WarmPipeline {
     });
     this.glowMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
-      uniforms: { tColor: { value: null }, tPalette: { value: this.palette }, uTexel: { value: new THREE.Vector2() } },
+      uniforms: { tG: { value: null }, tPalette: { value: this.palette }, uTexel: { value: new THREE.Vector2() } },
       vertexShader: QUAD_VS,
       fragmentShader: GLOW_EXTRACT_FS,
       depthTest: false,
@@ -200,17 +224,22 @@ export class PixelPipeline implements WarmPipeline {
 
   private allocShadow() {
     const s = config.render.shadowMapSize;
+    // (the color target is required but never read: one byte per texel, and never stored)
     const depth = new THREE.DepthTexture(s, s);
-    depth.type = THREE.UnsignedIntType;
+    depth.type = config.render.shadowDepth16 ? THREE.UnsignedShortType : THREE.UnsignedIntType;
     depth.compareFunction = THREE.LessEqualCompare;
     depth.minFilter = THREE.NearestFilter;
     depth.magFilter = THREE.NearestFilter;
-    this.shadowRT = new THREE.WebGLRenderTarget(s, s, { depthTexture: depth, depthBuffer: true });
+    this.shadowRT = new THREE.WebGLRenderTarget(s, s, { format: THREE.RedFormat, depthTexture: depth, depthBuffer: true });
     this.shadowRT.texture.generateMipmaps = false;
     globals.uShadowMap.value = depth;
   }
 
   resize(cssW: number, cssH: number, dpr: number) {
+    // (iOS fires resize / visualViewport events in bursts while its toolbars move: reallocate only on a real change)
+    const key = `${cssW}x${cssH}@${dpr}/${config.render.pixelWidth}/${config.render.maxPixelScale}`;
+    if (key === this.sizeKey) return;
+    this.sizeKey = key;
     this.cssW = cssW;
     this.cssH = cssH;
     this.dpr = dpr;
@@ -241,8 +270,9 @@ export class PixelPipeline implements WarmPipeline {
     depthTex.minFilter = THREE.NearestFilter;
     depthTex.magFilter = THREE.NearestFilter;
     this.gbuf = new THREE.WebGLRenderTarget(W, H, {
-      count: 2,
-      type: THREE.UnsignedByteType,
+      format: THREE.RGBAIntegerFormat,
+      type: THREE.UnsignedShortType,
+      internalFormat: 'RGBA16UI',
       minFilter: THREE.NearestFilter,
       magFilter: THREE.NearestFilter,
       depthBuffer: true,
@@ -417,9 +447,9 @@ export class PixelPipeline implements WarmPipeline {
     sc.bottom = -ext / 2;
     sc.near = 1;
     sc.far = 3000;
-    const center = (this.shadowFocusOn ? this.shadowFocus : this.focus).clone();
+    const center = this.sunCenter.copy(this.shadowFocusOn ? this.shadowFocus : this.focus);
     // shift the shadow window forward along the view so more of what's visible is covered
-    const fwd = new THREE.Vector3();
+    const fwd = this.sunFwd;
     this.camera.getWorldDirection(fwd);
     fwd.y = 0;
     if (fwd.lengthSq() > 1e-6) center.addScaledVector(fwd.normalize(), ext * 0.22);
@@ -430,8 +460,8 @@ export class PixelPipeline implements WarmPipeline {
     sc.updateMatrixWorld();
     // snap to shadow texel grid in light space to stop shadow-edge crawl
     const texel = ext / config.render.shadowMapSize;
-    const right = new THREE.Vector3().setFromMatrixColumn(sc.matrixWorld, 0);
-    const up = new THREE.Vector3().setFromMatrixColumn(sc.matrixWorld, 1);
+    const right = this.sunRight.setFromMatrixColumn(sc.matrixWorld, 0);
+    const up = this.sunUp.setFromMatrixColumn(sc.matrixWorld, 1);
     const pr = sc.position.dot(right);
     const pu = sc.position.dot(up);
     sc.position.addScaledVector(right, Math.round(pr / texel) * texel - pr).addScaledVector(up, Math.round(pu / texel) * texel - pu);
@@ -442,34 +472,108 @@ export class PixelPipeline implements WarmPipeline {
     m.multiply(sc.projectionMatrix).multiply(sc.matrixWorldInverse);
 
     const r = this.renderer;
+    if (config.render.shadowCasterCull) this.cullCasters(scene, center, ext);
     const prevOverride = scene.overrideMaterial;
     const prevBg = scene.background;
     scene.overrideMaterial = this.depthMat;
     scene.background = null;
     r.setRenderTarget(this.shadowRT);
     r.setClearColor(0xffffff, 1);
+    r.state.buffers.color.setMask(true);
     r.clear(true, true, false);
-    r.render(scene, sc);
+    this.drawSun(scene, sc);
+    // and a tile-based GPU never stores the unused color target
+    (r.getContext() as WebGL2RenderingContext).invalidateFramebuffer(WebGL2RenderingContext.FRAMEBUFFER, this.invalidColor);
     scene.overrideMaterial = prevOverride;
     scene.background = prevBg;
+    for (const o of this.culled) o.visible = true;
+    this.culled.length = 0;
     globals.uShadowOn.value = Math.min(1, this.shadowStrength);
     globals.uShadowEdge.value = Math.min(0.5, Math.max(0.01, this.shadowEdge));
+  }
+
+  /** The sun pass's draw, depth only, also for the casters that keep their own depth shaders (trees, gardens). */
+  private drawSun(scene: THREE.Scene, camera: THREE.Camera) {
+    const cb = this.renderer.state.buffers.color;
+    cb.setMask(false);
+    cb.setLocked(true);
+    this.renderer.render(scene, camera);
+    cb.setLocked(false);
+    cb.setMask(true);
+  }
+
+  /**
+   * Hide (for the sun pass only) the casters marked `userData.sunCull` whose
+   * shadow can't land anywhere the camera sees: the box of the caster's
+   * bounding sphere swept down the sun ray by twice its radius (the shadow of
+   * its top reaching its bottom) misses the view frustum, cut at the far edge
+   * of the shadow window (no shadows are sampled beyond it). Conservative: a
+   * shadow that can reach the view always keeps its caster. (The window is a
+   * square across the sun's rays: on the ground its corners lie 1 / sun.y as
+   * far along the sun's azimuth: ~1.28 windows from the center at a 25 deg sun.)
+   */
+  private cullCasters(scene: THREE.Scene, center: THREE.Vector3, ext: number) {
+    const cc = this.cullCam, sn = this.snapCam;
+    const sy = Math.max(0.1, globals.uSunDir.value.y);
+    const reach = 0.5 * ext * Math.sqrt(1 + 1 / (sy * sy));
+    cc.fov = sn.fov;
+    cc.aspect = sn.aspect;
+    cc.near = sn.near;
+    cc.far = Math.max(sn.near + 1, Math.min(sn.far, sn.position.distanceTo(center) + reach));
+    cc.updateProjectionMatrix();
+    this.cullFrustum.setFromProjectionMatrix(this.cullMat.multiplyMatrices(cc.projectionMatrix, sn.matrixWorldInverse));
+    this.shadowCulled = 0;
+    this.visitCullRoots(scene, this.cullVisit);
+    this.shadowCulled = this.culled.length;
+  }
+
+  private readonly cullVisit = (o: THREE.Object3D) => {
+    if (!o.userData.sunCull || !(o as THREE.Mesh).geometry || !o.layers.test(this.sunCam.layers)) return;
+    const bs = (o as THREE.Mesh).geometry.boundingSphere;
+    if (!bs) return;
+    const s = this.cullSphere.copy(bs).applyMatrix4(o.matrixWorld);
+    const sun = globals.uSunDir.value;
+    const L = (2 * s.radius) / Math.max(0.1, sun.y);
+    const b = this.cullBox.setFromCenterAndSize(s.center, this.cullSize.setScalar(2 * s.radius));
+    this.cullBox2.copy(b).translate(this.cullOff.copy(sun).multiplyScalar(-L));
+    b.union(this.cullBox2);
+    if (this.cullFrustum.intersectsBox(b)) return;
+    o.visible = false;
+    this.culled.push(o);
+  };
+
+  /** Walk the scene's cull roots (top-level children marked `userData.cullRoot`; the whole scene if none is). */
+  private visitCullRoots(scene: THREE.Scene, visit: (o: THREE.Object3D) => void) {
+    let any = false;
+    for (const c of scene.children)
+      if (c.userData.cullRoot) {
+        any = true;
+        c.traverseVisible(visit);
+      }
+    if (!any) scene.traverseVisible(visit);
   }
 
   render(scene: THREE.Scene) {
     const r = this.renderer;
     if (!this.snapped) this.snap();
     this.snapped = false;
+    // one scene-graph update per frame: three updates the whole graph at every render() call, and the
+    // sun pass and the G-buffer pass both render the scene (nothing moves in between)
+    scene.updateMatrixWorld();
+    const autoWorld = scene.matrixWorldAutoUpdate;
+    scene.matrixWorldAutoUpdate = false;
     this.updateShadow(scene);
 
     // scene -> gbuffer
+    globals.uPixelAngle.value = 2 / (this.snapCam.projectionMatrix.elements[5] * this.gbuf.height);
     r.setRenderTarget(this.gbuf);
     r.setClearColor(0x000000, 0);
     r.clear(true, true, false);
     r.render(scene, this.snapCam);
+    scene.matrixWorldAutoUpdate = autoWorld;
 
     // glow extract + blur (half res)
-    this.glowMat.uniforms.tColor.value = this.gbuf.textures[0];
+    this.glowMat.uniforms.tG.value = this.gbuf.texture;
     this.glowMat.uniforms.uTexel.value.set(1 / this.gbuf.width, 1 / this.gbuf.height);
     this.blit(this.glowMat, this.glowA);
     this.blurMat.uniforms.tSrc.value = this.glowA.texture;
@@ -481,8 +585,7 @@ export class PixelPipeline implements WarmPipeline {
 
     // resolve
     const ru = this.resolveMat.uniforms;
-    ru.tColor.value = this.gbuf.textures[0];
-    ru.tAux.value = this.gbuf.textures[1];
+    ru.tG.value = this.gbuf.texture;
     ru.tDepth.value = this.gbuf.depthTexture;
     ru.tGlow.value = this.glowA.texture;
     ru.uNearFar.value.set(this.snapCam.near, this.snapCam.far);
@@ -526,6 +629,25 @@ export class PixelPipeline implements WarmPipeline {
 
   // ---- shader warm-up (src/render/warmup.ts): what the passes draw with, and draws that are never presented
 
+  /**
+   * Throw if this device refuses a target the frame can't do without: GL only logs it, and the game would run on
+   * under a black frame with a live HUD. Call it where a throw is seen and before the GPU has anything to do
+   * (the top of boot(): the query is synchronous), not from the constructor (outside boot()).
+   */
+  checkTargets() {
+    const r = this.renderer;
+    const gl = r.getContext();
+    const check = (name: string, target: THREE.WebGLRenderTarget) => {
+      r.setRenderTarget(target);
+      const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+      r.setRenderTarget(null);
+      // (a lost context answers "unsupported" for everything, and has its own path)
+      if (status !== gl.FRAMEBUFFER_COMPLETE && !gl.isContextLost()) throw new Error(`${name} refused (status 0x${status.toString(16)})`);
+    };
+    check('RGBA16UI G-buffer', this.gbuf);
+    check('R8 sun map', this.shadowRT);
+  }
+
   /** Layers the scene pass draws (the render camera copies the camera's). */
   get sceneLayers(): THREE.Layers {
     return this.camera.layers;
@@ -552,7 +674,8 @@ export class PixelPipeline implements WarmPipeline {
     // (always bound first: a scene draw before the sun map's first use would sample a depth texture that doesn't
     // exist yet, and GL drops a draw with a mismatched sampler)
     r.setRenderTarget(this.shadowRT);
-    if (sun.children.length) r.render(sun, camera);
+    // (the real pass's draw, mask and all: a write mask is part of a Metal pipeline, another mask warms another pipeline)
+    if (sun.children.length) this.drawSun(sun, camera);
     if (scene.children.length) {
       r.setRenderTarget(this.gbuf);
       r.render(scene, camera);
@@ -562,13 +685,12 @@ export class PixelPipeline implements WarmPipeline {
 
   /** The post passes once, each into its own target; the upscale into a scratch target instead of the canvas. */
   warmPasses() {
-    this.glowMat.uniforms.tColor.value = this.gbuf.textures[0];
+    this.glowMat.uniforms.tG.value = this.gbuf.texture;
     this.blit(this.glowMat, this.glowA);
     this.blurMat.uniforms.tSrc.value = this.glowA.texture;
     this.blit(this.blurMat, this.glowB);
     const ru = this.resolveMat.uniforms;
-    ru.tColor.value = this.gbuf.textures[0];
-    ru.tAux.value = this.gbuf.textures[1];
+    ru.tG.value = this.gbuf.texture;
     ru.tDepth.value = this.gbuf.depthTexture;
     ru.tGlow.value = this.glowA.texture;
     this.blit(this.resolveMat, this.resolved);
@@ -600,13 +722,14 @@ void main() {
 
 const GLOW_EXTRACT_FS = /* glsl */ `
 precision highp float;
-uniform sampler2D tColor;
+${GLSL_G_READ}
 uniform sampler2D tPalette;
 uniform vec2 uTexel;
 in vec2 vUv;
 layout(location = 0) out vec4 outColor;
 vec3 glowOf(vec2 uv) {
-  vec4 g = texture(tColor, uv);
+  ivec2 size = textureSize(tG, 0);
+  vec4 g = sbColor(clamp(ivec2(floor(uv * vec2(size))), ivec2(0), size - 1));
   if (g.a < 0.02) return vec3(0.0);
   int ramp = int(g.r * 255.0 + 0.5);
   vec3 c = texelFetch(tPalette, ivec2(6, ramp), 0).rgb;
@@ -638,8 +761,7 @@ void main() {
 
 const RESOLVE_FS = /* glsl */ `
 precision highp float;
-uniform sampler2D tColor;
-uniform sampler2D tAux;
+${GLSL_G_READ}
 uniform sampler2D tDepth;
 uniform sampler2D tGlow;
 uniform sampler2D tPalette;
@@ -836,8 +958,8 @@ void main() {
     outColor = vec4(sc, skyA);
     return;
   }
-  vec4 g = texelFetch(tColor, p, 0);
-  vec4 a = texelFetch(tAux, p, 0);
+  vec4 g = sbColor(p);
+  vec4 a = sbAux(p);
   float ramp = floor(g.r * 255.0 + 0.5);
   float light = g.g;
   float fog = g.b;
@@ -856,7 +978,7 @@ void main() {
       ivec2 q = p + off[i];
       float zq = texelFetch(tDepth, q, 0).r;
       float dq = zq >= 0.99999 ? 1e9 : linDepth(zq);
-      vec4 aq = texelFetch(tAux, q, 0);
+      vec4 aq = sbAux(q);
       // silhouette: neighbor is much farther -> this pixel is the near edge
       if (dq - depth > depth * uOutline.x) { edgeDark = 1.0; sil[i] = true; }
       else if (abs(dq - depth) < depth * uOutline.x) {
@@ -902,12 +1024,11 @@ void main() {
   // checkerboards on walls that happen to sit on a step boundary.
   float lb = g.g * 255.0;
   // (slow gradients count as flat too: a clean band edge beats a dotted contour)
-  vec4 gR = texelFetch(tColor, p + ivec2(1, 0), 0), gL = texelFetch(tColor, p + ivec2(-1, 0), 0);
-  vec4 gU = texelFetch(tColor, p + ivec2(0, 1), 0), gD = texelFetch(tColor, p + ivec2(0, -1), 0);
+  ivec2 pR = p + ivec2(1, 0), pL = p + ivec2(-1, 0), pU = p + ivec2(0, 1), pD = p + ivec2(0, -1);
   // (only a neighbor on a real gradient counts: one more than the dither window away sits across an
   // edge, a tree crown's light band, a shadow's rim, another face. A gradient that steep has no room
   // for a dither, which only drew dots along the edge that churned as it slid through the grid)
-  vec4 dl = abs(vec4(gR.g, gL.g, gU.g, gD.g) * 255.0 - lb);
+  vec4 dl = abs(vec4(sbLightAt(pR), sbLightAt(pL), sbLightAt(pU), sbLightAt(pD)) * 255.0 - lb);
   vec4 onGrad = vec4(greaterThanEqual(dl, vec4(1.5))) * vec4(lessThan(dl, vec4(72.86 * uDitherWidth)));
   bool flatLight = dot(onGrad, vec4(1.0)) < 0.5;
   // into the haze the dither's reach shrinks too: the ordered pattern is anchored to the grid snapped
@@ -927,7 +1048,7 @@ void main() {
   // fixed band was a wide dithered zipper that reshuffled as the camera dollied (the fog contour
   // slides through the grid). At street level it keeps a floor (config.render.fogBandMin; the
   // value-matched colors make its dots a hue flip); seen from high up, over the fog sea, a clean contour
-  float gf = max(max(abs(gR.b - fog), abs(gU.b - fog)), max(abs(gL.b - fog), abs(gD.b - fog)));
+  float gf = max(max(abs(sbFogAt(pR) - fog), abs(sbFogAt(pU) - fog)), max(abs(sbFogAt(pL) - fog), abs(sbFogAt(pD) - fog)));
   float bandW = clamp(gf * 2.5, mix(uHaze.z, 0.004, uFogLayer2.w), 0.06);
   float fogBand = clamp((fog - 0.65 + bandW * 0.5) / bandW, 0.0, 1.0);
   bool fogged = fogBand > mix(d2, 0.5, uCalm);
@@ -973,11 +1094,11 @@ void main() {
         int K = clamp(int(uSize.y * uHaze.w + 0.5), 3, 16);
         int run = 1;
         for (int i = 1; i < 16; i++) {
-          if (i >= K || !stands(texelFetch(tColor, p + ivec2(0, i), 0).b, sl, bur)) break;
+          if (i >= K || !stands(sbFogAt(p + ivec2(0, i)), sl, bur)) break;
           run++;
         }
         for (int i = 1; i < 16; i++) {
-          if (run >= K || !stands(texelFetch(tColor, p - ivec2(0, i), 0).b, sl, bur)) break;
+          if (run >= K || !stands(sbFogAt(p - ivec2(0, i)), sl, bur)) break;
           run++;
         }
         if (run < K) oStep = bur;

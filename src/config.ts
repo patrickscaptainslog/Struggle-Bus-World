@@ -34,8 +34,9 @@ export const config = {
     outlineFadeEnd: 520,
     /** Shadow map size (texels): 2048 keeps a shadow texel near one game pixel at 390 px wide. */
     shadowMapSize: 2048,
-    /** The first frame waits this long at most for the shader warm-up (s); past that it finishes in the background. */
-    warmWait: 6,
+    /** 16-bit shadow depth: half the memory and bandwidth (-8 MB), but the 2.7 m bias's contour moves by up to 4.6 cm:
+     *  ~0.07% of a frame's pixels change by a ramp step, so it stays off until the producer OKs that. */
+    shadowDepth16: false,
     /** World-space extent of the shadow map around the camera focus (m). */
     shadowExtent: 520,
     /** At full vista (high above the city) the shadow window widens to this (m) and softens to this strength (0..1)... */
@@ -45,6 +46,8 @@ export const config = {
     shadowStrengthVista: 0.85,
     /** ...and its edge fade (fraction of the window) stays narrow: a wide fade sliding with the window boils. */
     shadowEdgeVista: 0.14,
+    /** Sun pass: skip casters whose shadow can't reach the view (off = draw every caster in the shadow window). */
+    shadowCasterCull: true,
     /** Vista blend at which the pixels are fully calm (surfaces round to their ramp step, no ordered dither). */
     calmVista: 0.35,
   },

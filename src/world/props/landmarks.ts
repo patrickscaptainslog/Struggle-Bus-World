@@ -7,6 +7,7 @@ import { HERO_PROPS, HIDDEN, isSfOrigin, llToLocal, type HeroProp, type Hidden, 
 import type { ObstaclePost } from '../Bridges';
 import type { BuildingRef } from '../City';
 import { paintUniforms } from '../buildingMaterial';
+import { registerWarm } from '../../render/warmup';
 
 // Hand-built landmarks, chunky enough to read as silhouettes from 1-4 km
 // through the fog, with detail that only resolves up close: Sutro Tower's
@@ -711,3 +712,13 @@ export function makeTransamerica(): THREE.Object3D {
   g.add(mesh);
   return g;
 }
+
+// Shader warm-up (render/warmup.ts): a landmark as the kit builds one, plain and with painted
+// accents (every landmark runs one program; they are built after the first frame, see main.ts)
+registerWarm('landmarks', () => {
+  const k = new LandmarkKit();
+  k.box(0, 0, 0, 1, 1, 1, Ramp.GREY_LIGHT, 0, Pat.PLAIN);
+  const a = new LandmarkKit();
+  a.box(0, 0, 0, 1, 1, 1, Ramp.GREY_LIGHT, 0, Pat.PLAIN);
+  return [k.build(), a.build(PYRAMID_LOOK)];
+});

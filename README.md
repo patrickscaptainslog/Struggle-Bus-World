@@ -98,6 +98,20 @@ Altitude QA (climb shots, flight log, taps, perf at cruise vs ceiling):
 `--seq` also captures frames exactly 1/30 s apart, and
 `python3 -I tools/seqstat.py shots/altitude/<phase>-seq-ceiling 5` counts what
 changes between them (shimmer).
+Performance: `node tools/perf-pass.mjs <baseUrl> out.json [views] [cpu] [compile]
+[stream] [memory] [--by]` splits the cost by pass (sun / main) at the Painted
+Ladies, FiDi, 250 m and the ceiling, checks the first blast and escalation for
+shader compiles, times streaming and uploads, and tracks memory over a
+3-minute flight. `node tools/stalls.mjs <baseUrl> out.json [--route=alamo|fidi]
+[--throttle=4]` flies a real-time route and attributes every long frame;
+`node tools/firsttouch.mjs <baseUrl>` times the first touch's audio unlock;
+`node tools/loadprofile.mjs <baseUrl> out.json [--throttle=4] [--net=20000]` is a
+cold load. Are two builds' frames the same? `node tools/shots.mjs <url> <dir> --det`
+on each (fixed step, seeded, streaming settled; frame-exact from run to run), then
+`python -I tools/shotdiff.py <dirA> <dirB>` and
+`python -I tools/shotdiff-crops.py <dirA> <dirB> <name.png> <out.png>`.
+`node tools/contextloss.mjs <baseUrl> <dir>` takes the GL context away and back;
+`node tools/skipopening.mjs <baseUrl>` checks the tap that skips the opening.
 Super splat QA: `node tools/feel-sim/run.mjs s_super.ts` (charge, mega,
 firehose counts and cost offline; the hold gesture itself is
 `node tools/controls-sim/run.mjs s_gesture.ts`),

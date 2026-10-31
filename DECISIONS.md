@@ -1264,6 +1264,188 @@ laptop's UHD 620, a fresh browser per run.
   footprints (far smaller than shipping meshes); far skyline = boxes for every
   building ≥16 m + a 64 m terrain grid, hidden under loaded tiles.
 
+## iPhone performance: polish/perf, perf/load and the deep dive in one merge (MAIN bd660ba vs NEXT, merge/perf)
+Three things folded into one judged merge. The producer's rulings bind it: keep ALL shadows, no restructure of the tower
+facade shader, no 30 fps lock, no fewer detail regions, no coarser pixels, nothing about the distance changes
+(LOAD_RADIUS, DETAIL_RADIUS, far.bin, horizon.bin), and apart from the tap that skips the opening, frames stay main's.
+
+- **The proof that frames stay main's: `tools/shots.mjs --det`, `tools/shotdiff.py`.** The shots' plain mode can't be
+  diffed (wall-clock dt, unseeded hues, the bus wherever the frame rate left it). `--det`: `?fixeddt`, `Math.random`
+  reseeded from the game clock every frame and again after the streaming step (a build with more three.js objects draws
+  more UUID randoms), the clock standing while regions are on their way, the first steps from the settled ground, then
+  frames at dt 0 until streaming and the ground paint are quiet. MAIN vs MAIN: 0 pixels in all 8 views, run after run
+  (grey, painted, opening, fidi, soma, high ~370 m, ceiling, swap: painted towers through a climb out of detail and a dive
+  back). MAIN vs NEXT: 6 of 8 views 0 pixels (grey, painted, opening, soma, ceiling,
+  swap), fidi 1 game pixel, high 4, of 334,836 (`python -I tools/shotdiff.py`; the swap view is identical with painted
+  towers, gardens and domes in frame after going coarse and coming back).
+  What is left: single game pixels on sun-shadow edges. The caster's flat walls cross a shadow texel's center on the
+  other side of 1/256 of a texel from main's subdivided ones (rasterization snaps every vertex; fewer vertices, other
+  rounding). Keeping main's columns fixed fidi and not high; keeping its rows too would keep its triangles. Raw G-buffers,
+  grey frame: 0 bytes differ in 8 channels x 339,832 pixels. `tools/facade-shots.mjs` agrees: of the 12 pinned hero views 11
+  are identical, salesforce 1 game pixel; 250 m shimmer 5.8 -> 5.6% (main's 5.1-7.1 per frame, this 5.0-7.0: noise). Its chase
+  and ladies frames can't be compared across this merge. They don't repeat on either build, and they part from main's for a
+  reason of their own: its fake rAF clock stands behind `performance.now()`, main's `dt` has no lower clamp, so on main the
+  frozen wait runs the game backwards (at "ready" the clock reads -1.5 s, the bus 578 m back at 387 m/s, and the 4 s flight
+  starts from there). The `dt` here doesn't go below 0: the bus waits at the spawn at 30 m/s.
+- **One G-buffer target** (rank 2). ANGLE on D3D11 compiled every G-buffer program's pixel shader twice, at link for target
+  0 and at the first draw with SV_TARGET1. RGBA16UI holds the same eight bytes; `sbWrite` packs, `GLSL_G_READ` unpacks,
+  texelFetch instead of nearest sampling. Plain rounding wasn't exact: 0.3% of bytes off by one, 34-68 pixels a frame (a
+  ramp step in a dither). So the GPU's own conversion was measured, bisecting all 255 boundaries on the UHD 620: it
+  truncates x to 15 significant bits (never finer than 2^-18), then rounds; `sbByte` does the same, 255 boundaries of 255,
+  and on any other GPU it stays within 0.008 of a byte of plain rounding. **iOS**: RGBA16UI is color-renderable in ES 3.0,
+  so WebGL2 conformance requires it, Metal's RGBA16Uint is color-renderable on every Apple GPU, 8 bytes a pixel as
+  before, no blending, no filtering; there is no two-target fallback (it would need every program rebuilt). Only a phone can
+  prove it: first on the real-iPhone list.
+- **The sun pass.** Casters (polish/perf's proxy, minus its 1.2 m trim: every shape casts): positions only, one quad per
+  wall, no undersides, `sf` as the visible mesh, half the triangles (0.47-0.54 of LOD 0 per region). Depth only: the
+  color mask locked off, the color target invalidated, R8 (-12 MB). `sunCull` skips casters whose swept shadow misses the
+  view; its far cut was short (0.75 window; on the ground a window's corner lies 0.5 x sqrt(1 + 1 / sun.y^2) = 1.28
+  windows away at a 25 degree sun): fixed, it lost distant shadows in the grey frame. 16-bit depth stays off
+  (`render.shadowDepth16`): the 2.7 m bias's contour moves up to 4.6 cm, 233 game pixels of the grey frame change.
+- **Streaming: every mesh's first draw is budgeted.** three uploads a mesh at its first draw in view, so polish/perf's
+  3 MB budget only spread the adoption: tiles beside the bus still uploaded all at once when the view turned to them.
+  `City.firstDraw`: the frame after its adoption a mesh draws wherever the view looks (trees too), so the upload lands on
+  the budget. `ADOPT_BYTES` is now a hard cap (16 MB a frame while `eager`, a downtown deep link is ~100 MB). Swaps: of
+  the two ways to spread one (main's `prep` items, perf's per-tile draw-range trim) `prep` stays, extended: `prepTile` makes
+  the detailed mesh, its caster and the 4 m ground, `City.ghost` draws them once with every fragment failing the depth test
+  (a depth func is state; RASTERIZER_DISCARD makes ANGLE on Metal compile a vertex variant in flight), `swapRegion` then
+  only commits, in one frame, as main's did: no half-swapped region, no double domes. The trim fought main's growth
+  ranges and showed half a region in detail. `detailHold` holds prep and swap items. One region unloads per frame.
+- **The worker does the walking.** Typed scratch storage in the Builder (rank 9): byte-identical to main on 80 LOD 0 and 48
+  LOD 1 tiles, LOD 0 x0.28, LOD 1 x0.57. Bounds as three computes them (a box center and half diagonal drew 2 more
+  tiles a frame, +6% main-pass triangles), ground grids, `roofTops` (the obstacle scan, 2-5 ms per tile on the main thread;
+  grids identical on all 224 loaded tiles at Alamo; `feel-sim` s_route 0 clips). A swap's `prepTile` total over the 30 s
+  surge: 166 -> 19 ms.
+- **Frames.** Static matrices: the scene, city.root, far meshes, TreeFields (a parent that recomposes forces its whole
+  subtree; 900 objects). One graph update per frame (perf's). `uPixelAngle` once per pass. City.update builds no strings
+  or closures; `buildingsNear` reuses its entries and doesn't sort (insertion in order). Allocation 3.77 -> 3.03 MB/s, the
+  deep dive's 1-2 not reached: what is left is mostly three's render path.
+- **The first touch** (outside judge: 250-400 ms). The gesture makes the context, starts a silent buffer, resumes; the
+  worker (`audioWorker.ts`) synthesizes the noise and the impulse, the graph is built in a task of its own, the
+  impulse goes into the convolver 60 ms later (it FFTs on the main thread). A breath in between plays when the graph is up.
+  `new AudioContext` alone took 120-180 ms cold (Chromium starts its audio backend): one made and closed in the warm-up
+  wait takes that off the touch.
+- **The opening**: a tap skips it once it has been seen through on this device (`strugglebus.opening.v1`, the producer's
+  repeat visits): the same reveal in ~0.7 s; the skipping tap doesn't splat; a toast says so.
+- **Context loss** (rank 10): see ARCHITECTURE. 1.1 s back at Alamo (27 programs through the warm-up, 14 regions), twice in
+  a row, 0 errors; the same frame but for tree levels of detail, which tick on the game clock.
+- **perf/load** merged as its HANDOFF note said: warmup.ts, the warm section and `registerWarm` were main's, `warmDraw` stays
+  main's, `new WarmUp` at the top of main.ts, `warm.add(scene)` covers the signs and the super's motes, `render.warmWait` went.
+  Real-time firehose in a fresh browser: first pour duringMax 17.1 ms.
+- **Dropped, and why** (nothing else of polish/perf is lost):
+  - the 1.2 m caster trim: the producer keeps every shadow.
+  - 8 m wall columns: -18 to -24% LOD 0 triangles (-8 to -12% vertices), but the painted wobble's chords move: 1,138
+    game pixels of the painted frame change, 188 of the grey one. A producer's question (below), not a merge decision.
+  - hidden party walls (-7% triangles, -3.5% vertices in row houses): 38-61 game pixels of a grey or painted frame change.
+    Some of those walls show after all (a patch of a far wall took another surface's window dots); not chased, the saving is small.
+  - far terrain and horizon chunks, `viewBox` culling, one mesh each up high: a separate study owns the far field; its
+    1.0-1.7 ms on UHD 620 are that study's to take.
+  - the prewarm frame: main's warm-up replaces it (it was visible with the fog off, the pre-review's finding).
+  - per-tile draw-range trim, `mergedEnds`: see Streaming.
+  - the sign's own depth material: the warm-up compiles the override's instanced variant.
+  - `tools/ab-shots.mjs`, `ab-diff.py`: `shots --det` and `shotdiff` replace them.
+- **Pre-review**: its blockers (mergedEnds counted growth; detailTile lost `growTo`) went with the trim; meshCasterTile takes
+  `sf`; remapU and towerGrowth skip casters; tools/perf-pass.mjs runs on the GPU through `browserOptions`, its pins are meters
+  from the spawn (any city, any build).
+- **Cold load** (`tools/loadprofile.mjs`, a fresh browser per run, interleaved, other jobs on the laptop at 30-40% CPU):
+
+  | A = MAIN, B = NEXT | ready median (min) | first frame | first region | long tasks sum / max | gaps > 50 ms in the opening |
+  |---|---|---|---|---|---|
+  | 1x, 3 runs each | A 13.7 s (13.7), B 8.1 s (8.1) | 4.1, 3.9 s | 5.2, 0.7 s | 7.6 s / 4.1 s, 0.33 s / 0.24 s | 2, 0 |
+  | 1x `?skipintro`, 3 runs | A 10.3 s (9.9), B 4.3 s (4.3) | 4.3, 4.2 s | 4.6, 0.7 s | 7.9 s / 4.2 s, 0.35 s / 0.26 s | 2, 0 |
+  | 4x CPU, 2 runs | A 17.7 s (17.5), B 10.9 s (10.7) | 6.8, 6.5 s | 10.6, 2.3 s | 11.5 s / 2.9 s, 2.6 s / 0.7 s | 4, 1 |
+  | 4x `?skipintro`, 2 runs | A 13.4 s (13.1), B 6.4 s (6.3) | 6.7, 6.3 s | 10.7, 2.2 s | 11.3 s / 2.8 s, 2.4 s / 0.7 s | 2, 0 |
+  | 4x + 20 Mbps, 2 runs | A 17.9 s, B 11.5 s (11.4) | 7.3, 7.2 s | 10.9, 2.9 s | 11.2 s / 3.2 s, 2.5 s / 0.7 s | 4.5, 1 |
+  | 1x + 4 Mbps, 2 runs | A 16.3 s (16.0), B 11.5 s (11.4) | 6.5, 7.2 s | 7.1, 3.9 s | 7.7 s / 4.3 s, 0.23 s / 0.20 s | 2, 0 |
+
+  `--net` shapes the page's requests, not the worker's. 26 programs on main, 27 here, 0 after ready on both.
+
+  B's first frame is the warm-up, 3.6-4 s at 1x (perf/load alone: 8-9.7 s, the second compile of every program): ready = that
+  + the 4.2 s opening, and a repeat visitor's tap takes the opening down to ~0.7 s. Main thread free throughout.
+- **In flight.** `tools/stalls.mjs` (a real-time Alamo route, 96 s: cruise, surge, turns, climb, dive, 5,400 frames):
+
+  | | frames > 25 ms | > 100 ms | worst | largest upload in a frame | long tasks |
+  |---|---|---|---|---|---|
+  | MAIN (2 runs) | 2, 4 | 2, 2 | 417, 400 ms | 17.3 MB | 1 (423, 401 ms) |
+  | NEXT (2 runs) | 0, 0 | 0, 0 | 18.9, 17.7 ms | 4.6, 3.9 MB | 0 |
+
+  The worst on main is a program's first draw in the turn (GetProgramiv 393 ms: the landmark's program, a turn from
+  surging across tiles). `--route=fidi` (towers, 36 s, ~2,100 frames, 1 run each): worst 383 -> 17.3 ms, frames > 25 ms 4 -> 0,
+  largest upload 8.2 -> 3.4 MB, 0 long tasks. `tools/fps.mjs` (headless, 8 s a phase):
+
+  | | fps | 1% low | worst frame | CPU work | draws | triangles |
+  |---|---|---|---|---|---|---|
+  | Alamo street MAIN / NEXT | 57.8 / 60 | 25.9 / 54.1 | 68 / 20 ms | 6.8 / 3.1 ms | 124 / 115 | 1.20M / 929k |
+  | Alamo 250 m | 59.9 / 60 | 46.9 / 51.8 | 142 / 27 ms | 6.5 / 2.0 ms | 134 / 127 | 1.23M / 951k |
+  | Alamo ceiling | 60.1 / 60 | 44.1 / 52.6 | 48 / 39 ms | 5.8 / 3.4 ms | 161 / 157 | 1.18M / 1.06M |
+  | FiDi street | 60 / 60 | 54.1 / 54.6 | 20 / 19 ms | 2.9 / 2.5 ms | 112 / 91 | 702k / 512k |
+  | FiDi 250 m | 60 / 60 | 55.2 / 55.6 | 21 / 20 ms | 2.1 / 1.9 ms | 134 / 117 | 815k / 631k |
+  | FiDi ceiling | 60 / 60 | 55.2 / 54.3 | 19 / 20 ms | 2.0 / 1.9 ms | 64 / 66 | 432k / 410k |
+
+  Headed, and `west` too: 60 fps on both, at all nine phases; work 4.8 / 5.3 / 4.4 -> 3.3 / 3.1 / 4.0 ms at Alamo, 5.2 / 4.4 / 5.5 ->
+  3.7 / 2.4 / 4.6 ms in the west, worst frame over all phases 44.7 -> 28.6 ms. Headed 1% lows are vsync noise (47-56 on both).
+
+  `tools/jet.mjs` G1 on four routes: p99 17 ms, max 17.8 ms, 0 long tasks. First touch (`tools/firsttouch.mjs`, 3 fresh pages):
+  unlock 307, 107, 105 ms -> 17, 26, 17 ms in the gesture, 0 long tasks (a good first page: see the merge review below); sound up ~85 ms after the touch. Sound itself: the super
+  splat's offline render is the same to the digit (`supersplat.mjs cooldown audio`: peak 0.807, 0 over 0.99, 0 NaN),
+  `tools/audio-check.mjs` passes offline and `--live`.
+- **Cost by pass** (`perf-pass views --by`, the same pinned spots, draws / triangles):
+
+  | view | sun pass | main pass | CPU work |
+  |---|---|---|---|
+  | Painted Ladies | 67 / 622k -> 55 / 319k | 53 / 579k on both | 5.3 -> 2.6 ms |
+  | FiDi | 70 / 393k -> 49 / 169k | 43 / 379k on both | 3.7 -> 2.6 ms (8 frames) |
+  | 250 m | 86 / 785k -> 73 / 445k | 62 / 620k on both | 8.0 -> 3.4 ms (8 frames) |
+  | ceiling | 43 / 510k -> 42 / 379k | 67 / 649k on both | 7.1 -> 4.4 ms |
+
+    Whole frame at the Ladies 1.20M -> 898k triangles, 250 m 1.41M -> 1.07M. GPU timer queries on the UHD 620 (2 samples, street /
+  250 m / ceiling): sun pass 3.3 / 3.4 / 2.4 -> 2.3 / 2.5 / 1.9 ms; G-buffer unchanged (the same triangles); glow + 0.04 ms
+  (integer fetches). Compile: 0 links at the first blast and escalation on both on this path; `tools/warmcheck.mjs` 27
+  programs, 0 after the warm-up, no long task over 100 ms after ready (one 133 ms frame gap at the landmarks).
+- **Streaming and memory** (`perf-pass stream memory`): over a 30 s surge City.update 564 -> 310 ms total, worst frame's
+  work 26.3 -> 12.8 ms, largest upload 15.4 -> 3.9 MB (frames over 4 MB 4 -> 0). Over 3 minutes around downtown: JS heap
+  peak 203 -> 87 MB, average 118 -> 54; JS copies of geometry 122 -> 13 MB; GPU buffers average 69 -> 66 MB, peak 117 ->
+  126 (casters, and everything streamed is up, seen or not); canvas depth -12 MB, sun color -12 MB.
+- **Merge review, confirmed findings** (reviewed e2c62be; A/B = that build vs this one, on this laptop's UHD 620; nothing on a real
+  iPhone or in WebKit). Frames: `shots --det` A/B 0 pixels in all 8 views; MAIN vs this one as above.
+  - **iOS 15.0-16.3 could not reach the fflate path** (major, MAIN too). `build.target` `es2022` kept three's six class static
+    blocks, a SyntaxError before Safari 16.4: the module never ran and the page stayed fog-grey with no error. `safari15`: 0 in
+    every chunk, main.js 1,150 -> 1,163 KB. The reviewer's `['es2021', 'safari15']` builds the same bytes, so one name says it.
+    It lowers more than that: below Safari 16 oxc takes every class field through Babel's `_defineProperty` (`safari16` keeps them
+    native, `safari16.4` keeps the static blocks), a keyed store per field per `new`. Counted in the served chunk: 3,206 calls
+    at boot, at most 0.13 per render in play (a TreeField and a gardens' Batch per tile; cruise, surge, climb, taps, a firehose),
+    and no field's key ever already on the object (define = assign), so no assumption flag. A/B: `stalls.mjs` 60 fps, p99 16.9 /
+    17 ms, largest upload 3.92 MB on both; cold ready 8.26-8.30 / 8.18-8.30 s, first frame 4.0 s; allocation 3.06 / 2.91 MB/s;
+    `fps.mjs` 60 in all six phases. New `tools/iosfloor.mjs`, because a target can't lower a regex lookbehind: TypeScript's parser
+    over every chunk (MAIN and e2c62be 6 won't parse, exit 1; this one 0, and its 7 `.at` calls are three's `Ray.at` and our height
+    grid's, no `Array.at`). No `structuredClone`, `hasOwn`, `findLast`; `screen.orientation` and `audioSession` are guarded.
+  - **A warm draw wasn't the real draw, twice** (the review found the first). The tree casters and the gardens' sun twins warmed
+    with the color mask on, and the sun pass locks it off. Then a stronger check found the warm-up never drew the position-only casters'
+    own program at all: three doesn't pick a shared material's program again on a normal attribute, so program #6 compiled and
+    its proxy drew with #5 (ARCHITECTURE "Shader warm-up"). One `drawSun` for both passes now, and each sun proxy picks its own
+    program. `warmcheck.mjs` gains the key a Metal pipeline is built on (program, target format, mask, blending, topology), since
+    counting programs can't see any of this. First draws after the warm-up on e2c62be: #6 at frame 0, #9 (tree casters) at frame
+    177 of the opening, #8 (the gardens) at frame 1,410, the first L2 bloom, and the canvas. Now the canvas alone, frame 1: it
+    is never warmed, by design. 27 programs, 0 after the warm-up, nothing over 100 ms. The keys are measured; that ANGLE's Metal
+    backend keys pipelines this way is from its source as recalled, and the cost on an A15 is unmeasured.
+  - **The opening holds with the game** (a small regression against MAIN): `openDt` ignored the hold, so the opening played out behind
+    iOS's motion sheet (pull 128 -> 8.2 in 3 s; now 128 -> 128, as on MAIN). The same under a restored context: lost in the
+    opening, the pull went 103.8 -> 97.4 while covered; now it stands (102.9: the frame or two before `webglcontextlost` fires).
+  - **A refused target says so** (`checkTargets`: the G-buffer and the sun map). With RGBA16UI swapped for a non-renderable RGB9_E5:
+    one line on the fog-grey page and `__shotReady` never true, where it was a black frame, a live HUD and a running clock. It
+    runs at the top of `boot()`, not after `onResize()` as the review had it: no compile has started there, so the synchronous
+    query takes 0.1-0.4 ms; at the later spot it waited 30 and 34.5 ms behind the warm-up in 2 of 3 cold runs.
+  - **TAP TO SKIP goes with the tap**, and a tap in the grey never sees it: the review's fix alone would have missed that path, which
+    set `openingSkip` and still showed the toast at frame 2 (42 frames on e2c62be, 0 now). Tap to ready 693 / 708 ms, no splat.
+  - **First touch, corrected:** 17, 26, 17 ms is a good first page. The first page of a fresh browser is bimodal, on any build:
+    `firsttouch.mjs` run 0 gave 18, 530, 640 ms on e2c62be and 121, 310, 637, 669 on this one, and five fresh browsers timed
+    step by step 13, 46, 55, 111, 141 ms (MAIN 206-237); later pages 16-28 ms. All of it is the browser's `new AudioContext`, and the
+    one made and closed at boot doesn't always buy it off. Not changed: keeping that context open and only resuming in the
+    gesture would rewrite an iOS unlock nobody has run on a phone. A question for the real-phone pass.
+  - Held through it all: no DecompressionStream ready 3.8 s (both fflate chunks), no Worker 4.3 s, `contextloss.mjs` twice in 1.1 s with
+    0 errors and the same frames as e2c62be (a loss during the warm-up, a second one during a restore, paint and gardens back too),
+    `controls.mjs opening firstrun`, the super's offline audio to the digit (peak 0.807, 0 over 0.99, 0 NaN).
+
 ## Look polish (the frame-level beauty review, polish/look)
 - **A sky band and the horizon at the top of every chase frame.** The chase
   camera put the horizon on the top edge (cruise: 0.1° of sky) and the slow
@@ -1829,6 +2011,108 @@ no frame over 20 ms. Bundle 1111 -> 1133 KB. (The fps and shots runs predate the
 preventDefault blocks the back swipe from TURBO's edge (if it doesn't, that loses the game); whether `requestPermission` is honored
 in a `touchend` after a prevented `touchstart`; pointer capture across `adoptThumb`; press-shake, calm, fade, settle, grace and
 `stillTapMs`; the reach's swing; real Safari height and insets; whether a probe hears a surviving grant.
+## Load time (producer: "about a minute to load on another laptop") — perf/load
+- **Where the time went** (deep dive of main e85f5ee): a cold visit downloads ~1.25 MB and
+  the worker meshes the opening in 0.1-0.35 s, but 18.85 s of a 24.4 s load was blocking
+  shader compilation. three.js compiled the 17 programs one at a time at their first draw,
+  and on Windows (ANGLE on D3D11) every G-buffer program compiles twice: once at link
+  (target 0 only), again at its first draw into the two-target G-buffer, serially on the GPU
+  process's main thread. The building's program takes ~4 s each time. Streaming waited on
+  frames (2 regions in flight, asked for from the frame loop), and the 4.2 s opening only ran
+  after the last freeze. Repeat visits are fast (the GPU program cache), so every player pays
+  this on the first visit and after every shader change.
+- **Shader warm-up at boot** (`src/render/warmup.ts`, ARCHITECTURE "Shader warm-up"): every
+  program compiles at boot with `KHR_parallel_shader_compile`, then draws once into the target
+  it really draws into (never the canvas), so the draw-time D3D variants are paid before the
+  first frame too. It warms the live scene, the post passes and registered sources (`city`,
+  `trees`, `roof sprouts`, `landmarks`, `bridges`); a one-triangle proxy per (material, object
+  kind, vertex layout, pass) carries the real program key and vertex layout. 22 programs, 22
+  draws. Three things it had to learn on this laptop:
+  - Compiles go out a few at a time (`hardwareConcurrency / 2` lanes; half take the longest
+    waiting, half the shortest). Launched all at once they filled the GPU process's compile
+    pool, the browser's own raster then waited 1.3-1.7 s for a slot on the GPU main thread,
+    and so did our next synchronous query: a 1.5-1.9 s long task.
+  - Every synchronous query (link status, uniform tables) waits behind a fence round trip, so
+    it never queues behind the seconds of draw-time compiles the last round started.
+  - A program's first query makes the GPU process finish loading it (tens of ms, ~170 ms for
+    the biggest), and three builds each program's source on the main thread (~100 ms for the
+    building's). Both stop after ~25 ms per task.
+- **What it can't remove**: the draw-time second compile of each G-buffer program still runs
+  one after another on the GPU process's main thread (7-11 s here, the building's 2.7-4.5 s of
+  it, depending on the other jobs on the laptop), and nothing can be presented while it runs. So
+  it all happens before the first frame (the page shows its fog-grey background), and the
+  opening starts after it. It is also why B's first frame comes later than A's (A presents one
+  frame early, then freezes). The warm-up also pays upfront for what A compiled in flight (the
+  sign, the gardens, the landmarks: ~3 s of that queue). A single-target G-buffer (deep dive
+  rank 2) removes the second compile: the bench put everything at ~3.5 s.
+- **Streaming primed** (rank 3): `city.prime()` posts the opening's whole want-list right after
+  `new City` (8 regions requested at 0.6-0.8 s instead of the last at 12-13 s), up to 10 in
+  flight while `city.eager` (until the first ready frame), 2 after. Tiles land and are adopted
+  (~12 ms per tick) while the shaders compile.
+- **The opening on the wall clock** (rank 4): it advances by real time from the first frame on
+  screen (the second frame's callback), not by summed dt clamped to 50 ms; the 15% hold until a
+  region has landed stays; same curve. It no longer stretches below 20 fps. Each step is capped
+  at 0.25 s (real time down to 4 fps), so a tab switch, a locked phone or a long task moves the
+  reveal by 6% at most instead of skipping it (a 3 s stall used to jump it from 16% to 89%).
+  0 frame gaps over 50 ms between the first frame and ready (B-1x-4).
+- **Boot downloads from the HTML** (rank 5): an inline script in index.html starts city.json,
+  far.bin and horizon.bin (the .bin files at low priority, the game's script first) for
+  `?city=` and leaves the promises for the game (`bootFetch`); each is fetched once. city.json
+  starts at 34-89 ms instead of 268-331 ms.
+- **Less before the first frame** (rank 6): the bus and the Golden Gate are built in boot; the
+  Bay Bridge, Sutro, the pyramid and the heroes (Coit, the Ferry Building, 181 Fremont's spire,
+  which now binds whenever both it and its tower exist) go to a queue, built while the warm-up
+  waits (else one per frame early in the opening); ready waits for the queue. Same landmark
+  paint order (slots), same obstacle posts from the start.
+- **iOS**: DecompressionStream is detected; iOS 15.0-16.3 get fflate (three's copy, a 4 kB
+  chunk loaded only there) in the worker and on the main thread (checked with both removed).
+  `PixelPipeline.resize` returns early when nothing changed, and resize events are applied
+  once per frame.
+- **Numbers** (A = main e85f5ee, B = perf/load; `tools/loadprofile.mjs`, a fresh browser per
+  run so the GPU program cache is cold, interleaved A B A B, Edge on the XPS 13 / UHD 620, other
+  jobs on the laptop at 15-33% CPU):
+
+  | | ready median (min) | first frame | first region | long tasks sum / max | programs |
+  |---|---|---|---|---|---|
+  | A 1x (4 runs) | 17.1 s (16.7) | 4.4 s, then frozen ~7 s | 5.9 s | 12.2 s / 7.5 s | 17 + 7 in flight |
+  | B 1x (4 runs) | 13.1 s (12.6) | 8.8 s | 0.9 s | 0.44 s / 0.16 s | 22, 0 in flight |
+  | A 4x CPU (2 runs) | 22.5 s (22.3) | 7.8 s, then frozen ~4 s | 13.1 s | 13.9 s / 5.1 s | 17 |
+  | B 4x CPU (2 runs) | 16.6 s (15.9) | 12.3 s | 2.5 s | 3.7 s / 0.9 s (boot JS) | 22 |
+  | A 4x + 20 Mbps (1) | 22.2 s | 8.0 s | 13.4 s | 13.5 s / 4.7 s | 17 |
+  | B 4x + 20 Mbps (1) | 16.4 s | 12.0 s | 3.0 s | 3.0 s / 0.7 s | 22 |
+
+  Ready is 4.1 s sooner at 1x (-24%) and 5.9 s at 4x; main-thread long tasks drop from 12 s to
+  0.4 s; B's first frame comes later, but the opening then plays smoothly (no frame gap over
+  50 ms) and nothing freezes in flight. B's first frame = the warm-up (8.0-9.7 s at 1x: the
+  GPU main thread's queue of draw-time compiles, 7-8 s of it) + far.bin; ready = first frame
+  + the 4.2 s opening. city.json starts at 34-89 ms instead of 268-331 ms (191 vs 1,307 ms at 4x
+  + 20 Mbps), each boot file once. Warm reload (same profile, `prof.mjs --reload`): A 4.81 s,
+  B 4.99 s. (Under heavier load from other jobs, 40-70% CPU, A took 25-32 s and B 17-18 s.)
+- **In flight** (`tools/warmcheck.mjs`: the opening, a climb, three blasts on one building to
+  level 3, the pyramid and Sutro from 380-430 m): A created 7 programs after ready (the sign,
+  its sun-pass boxes, the gardens, the landmarks) with frame gaps of 367-767 ms and long tasks
+  of 394-776 ms at the blasts; B created none, no frame over 100 ms, no long task over 100 ms.
+- **Look**: `tools/shots.mjs` grey / painted / opening on A and B look the same (they differ
+  where the bus is when the shot is taken, since B renders fewer frames before ready, and in
+  the random paint hues). The warm-up's draws land in the G-buffer, the sun map and the glow /
+  resolve targets, which every frame clears before use; nothing reaches the canvas.
+- **Review fixes**: the opening's step is capped at 0.25 s (a 3 s stall 0.7 s into the
+  opening now moves it from 16% to 24%, like main's 16% to 19%, instead of to 89%), and
+  index.html reads `?city=` exactly as main.ts does (an empty `?city=` no longer downloads sf's
+  boot files for nothing). Re-measured after them (interleaved, other jobs at 16-28% CPU): 1x
+  ready A 16.5 s median (min 15.7, 3 runs), B 13.4 s (min 12.5); 4x A 19.7 s (19.6, 2 runs),
+  B 14.3 s (14.0); B's opening 0 frame gaps over 50 ms at 1x, one of 117 ms at 4x; B long
+  tasks 0.40 s sum / 0.15 s max at 1x. `?fixeddt` opening: the bus is at the same place as on
+  A at every sampled time (0.02-7 s). An independent review got the same picture (1x: A 17.4 s,
+  B 12.7 s; first region A 6.2 s, B 0.75 s; no warm-up frame ever reaches the canvas).
+- (The numbers here are perf/load alone, before the single G-buffer target: see "iPhone performance" for the merge.)
+- **Open**: where `KHR_parallel_shader_compile` is missing (emulated in Chromium by hiding
+  it; possibly some Firefox / Windows setups), the warm-up still makes every program before the
+  first frame (0 after), but a 3.6-5 s freeze followed the first frame and blasts showed
+  333-633 ms frames: draw-time compiles the warm draws didn't pay there. No worse than main;
+  check on a real browser without the extension. And the page is plain fog-grey for ~8-9 s
+  before the first frame (a static cover of the opening's first frame is the idea, for the
+  producer to OK).
 
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a

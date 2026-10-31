@@ -4,7 +4,7 @@ import { PixelPipeline } from './render/PixelPipeline';
 import { globals, layerTopBase } from './render/materials';
 import { HUE_RAMPS } from './render/palette';
 import { WarmUp } from './render/warmup';
-import { City, type BuildingRef } from './world/City';
+import { City, bootFetch, type BuildingRef } from './world/City';
 import { paintUniforms, setFacadeView } from './world/buildingMaterial';
 import { Ground, type CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
@@ -37,6 +37,9 @@ type Manifest = CityManifest & { regions: Array<[number, number, number]>; regio
 /** What the street sign says when a landmark is hit. */
 const LANDMARK_NAMES: Record<string, string> = { sutro: 'Sutro Tower', transamerica: 'Transamerica' };
 
+/** The opening was seen through once on this device: a tap skips it from then on. */
+const OPENING_SEEN_KEY = 'strugglebus.opening.v1';
+
 const params = new URLSearchParams(location.search);
 if (params.has('fog')) config.fog.enabled = true;
 if (params.has('px')) config.render.pixelWidth = Math.min(1200, Math.max(120, Number(params.get('px')) || config.render.pixelWidth));
@@ -46,7 +49,13 @@ const canvas = document.getElementById('game') as HTMLCanvasElement;
 const pipeline = new PixelPipeline(canvas);
 const renderer = pipeline.renderer;
 const scene = new THREE.Scene();
+// (what moves has its own matrices updated; a scene that recomposed its identity would force all 900 objects' every frame)
+scene.matrixAutoUpdate = false;
 const camera = pipeline.camera;
+// Every shader the game draws with starts compiling now, all at once and off the main thread,
+// while the city data downloads; the first frame waits for it (render/warmup.ts). This first
+// wave: the post passes and what modules registered (tiles, trees, landmarks, bridges).
+let warm = new WarmUp(pipeline, scene);
 
 // --- sun: late-afternoon, low, from the WSW
 /** The city's low ground (m, City.lowGround once the far grid is in): the fog ceiling's heights are
@@ -75,9 +84,46 @@ const slug = params.get('city') ?? 'sf';
 const base = `./city/${slug}`;
 
 async function boot() {
-  const manifest = (await (await fetch(`${base}/city.json`)).json()) as Manifest;
+  // (first: the warm-up hasn't started a compile yet, so this query waits for nothing, and boot().catch prints a refusal)
+  pipeline.checkTargets();
+  // (index.html started this download before this script had even loaded)
+  const manifest = (await (await (bootFetch(base, 'manifest') ?? fetch(`${base}/city.json`))).json()) as Manifest;
   const city = new City(manifest, base);
   scene.add(city.root);
+  // the opening streams everything it needs at once (adopted as it lands, many regions in flight);
+  // streaming is budgeted again after the first ready frame
+  city.eager = true;
+
+  // ---- the hero's start, first: the opening's regions are asked for from there right away
+  const flight = new Flight();
+  flight.x = manifest.start.x;
+  flight.z = manifest.start.z;
+  flight.heading = manifest.start.heading;
+  if (params.has('lat') && params.has('lon')) [flight.x, flight.z] = latLonToLocal(Number(params.get('lat')), Number(params.get('lon')), manifest.origin);
+  if (params.has('heading')) flight.heading = THREE.MathUtils.degToRad(Number(params.get('heading')));
+  // the opening: emerge from the fog bank west of the Golden Gate, glide under it
+  const start = manifest.start as typeof manifest.start & { speed?: number; opening?: string };
+  const ggb = manifest.landmarks.find((l) => l.kind === 'ggb') as { points?: Array<[number, number]> } | undefined;
+  let openingBridge: [number, number] | null = null;
+  if (!params.has('lat') && start.opening === 'golden-gate' && ggb?.points) {
+    // thread the gap just north of the south tower so the tower fills the
+    // narrow portrait lens as we glide under the deck
+    const [, t1, t2] = ggb.points;
+    const sx = (t2[0] - t1[0]), sz = (t2[1] - t1[1]);
+    const sl = Math.hypot(sx, sz);
+    const gap: [number, number] = [t1[0] + (sx / sl) * 85, t1[1] + (sz / sl) * 85];
+    flight.x = gap[0] - flight.fx * 640;
+    flight.z = gap[1] - flight.fz * 640;
+    openingBridge = gap;
+    flight.speed = start.speed ?? 60;
+    flight.glideSpeed = start.speed ?? 60;
+  }
+  const rig = new CameraRig();
+  if (openingBridge) rig.openingLow = 1;
+  const focus = new THREE.Vector3(flight.x, 60, flight.z);
+  // (the first frame streams around the bus: the same want-list, so nothing is asked for twice)
+  const primeFocus = focus.clone();
+  city.prime(primeFocus);
   const farP = city.loadFar();
 
   // ---- props: trees stream with tiles, landmarks are placed once
@@ -97,24 +143,27 @@ async function boot() {
   };
   /** 181 Fremont's spire, once its tower streams in: it rides the tower's pop and wobble */
   let spire: SpireRide | null = null;
+  /** 181 Fremont's spire binds to its tower (and the roof under it) once both exist (whichever comes last) */
+  const bindSpire = () => {
+    if (!spire || spire.bound) return;
+    const sp = spire.object.position;
+    const ref = city.buildingAt(sp.x, sp.z);
+    if (ref && ref.roofY - ref.baseY > 150) {
+      spire.bind(ref, city.roofAtPart(ref, sp.x, sp.z));
+      // it paints and glints with its tower (one building: never an 'lm:' key of its own); SpireRide moves it
+      bindLandmarkPaint(spire.object, ref, { ride: true });
+    }
+  };
   city.onTile = ({ tx, tz, terrain, refs }) => {
     if (terrain && terrain.trees.length) {
       const list: TreeInstance[] = terrain.trees.map((t) => ({ x: t.x, y: t.y, z: t.z, size: t.size, kind: t.kind }));
       const tf = new TreeField(list);
       scene.add(tf.object);
+      for (const m of tf.meshes) city.firstDraw(m);
       treeFields.set(`${tx},${tz}`, tf);
       treeIndex.set(`${tx},${tz}`, list);
     }
-    // 181 Fremont's spire binds to its tower (and the roof under it) when the tower's tile arrives
-    if (spire && !spire.bound) {
-      const sp = spire.object.position;
-      const ref = city.buildingAt(sp.x, sp.z);
-      if (ref && ref.roofY - ref.baseY > 150) {
-        spire.bind(ref, city.roofAtPart(ref, sp.x, sp.z));
-        // it paints and glints with its tower (one building: never an 'lm:' key of its own); SpireRide moves it
-        bindLandmarkPaint(spire.object, ref, { ride: true });
-      }
-    }
+    bindSpire();
     // saved paint: regrow rooftop gardens and thin the fog again
     for (const ref of refs) {
       const lv = city.paint.level(ref.index);
@@ -152,65 +201,59 @@ async function boot() {
       treeIndex.delete(k);
     }
   };
+  // Only what the opening shows is built before the first frame (the bus, the Golden Gate); the
+  // other landmarks are built after it, one per idle tick while the shaders compile, else one per
+  // frame early in the opening (far from the gate, they are built long before the bus gets near).
+  // Their materials are in the warm-up already (registerWarm in Bridges.ts, props/landmarks.ts).
+  const later: Array<() => void> = [() => audio.warmBackend()];
+  /** a landmark becomes a first-class paintable building (its paint saved under its key); saved paint thins the fog again */
+  const paintable = (key: string, obj: THREE.Object3D, name?: string) => {
+    const ref = paintLandmark(city, key, obj, { name });
+    if (ref && city.paint.level(ref.index) > 0.5) bumpPaint(ref.cx, ref.cz, 40);
+  };
   for (const lm of manifest.landmarks) {
     const pts = (lm as { points?: Array<[number, number]> }).points;
     if (lm.kind === 'ggb' && pts) {
       scene.add(makeGoldenGate(pts));
       city.addObstacles(bridgeObstacles('ggb', pts));
     } else if (lm.kind === 'baybridge' && pts) {
-      scene.add(makeBayBridgeWest(pts));
       city.addObstacles(bridgeObstacles('baybridge', pts));
+      later.push(() => scene.add(makeBayBridgeWest(pts)));
     } else {
       // Sutro's legs / the pyramid: solid posts the flight model steers around
       city.addObstacles([{ x: lm.x, z: lm.z, r: lm.kind === 'sutro' ? 45 : 30, top: lm.y + lm.height + 5, under: -Infinity }]);
-      const obj = lm.kind === 'sutro' ? makeSutroTower() : lm.kind === 'transamerica' ? makeTransamerica() : null;
-      if (!obj) continue;
-      obj.position.set(lm.x, lm.y, lm.z);
-      scene.add(obj);
-      // a first-class paintable building (its paint saved under 'lm:<kind>')
-      paintLandmark(city, `lm:${lm.kind}`, obj, { name: LANDMARK_NAMES[lm.kind] });
+      const kind = lm.kind;
+      if (kind !== 'sutro' && kind !== 'transamerica') continue;
+      later.push(() => {
+        const obj = kind === 'sutro' ? makeSutroTower() : makeTransamerica();
+        obj.position.set(lm.x, lm.y, lm.z);
+        scene.add(obj);
+        paintable(`lm:${kind}`, obj, LANDMARK_NAMES[kind]);
+      });
     }
   }
   // the hand-built heroes the footprints can't draw: Coit Tower, the Ferry Building, 181 Fremont's spire
-  for (const h of heroLandmarks(manifest.origin)) {
-    scene.add(h.object);
-    city.addObstacles(h.posts);
-    // the footprints a prop replaces leave the obstacle grid; its own surface takes their cells
-    if (h.clear) city.setPropObstacles(h.clear, h.boxes);
-    if (h.kind === 'fremont181-spire') spire = new SpireRide(h.object);
-    // Coit Tower and the Ferry Building: first-class paintable buildings, like Sutro and the pyramid
-    else if (h.paint) paintLandmark(city, h.paint.key, h.object, { name: h.paint.name });
-  }
+  later.push(() => {
+    for (const h of heroLandmarks(manifest.origin)) {
+      scene.add(h.object);
+      city.addObstacles(h.posts);
+      // the footprints a prop replaces leave the obstacle grid; its own surface takes their cells
+      if (h.clear) city.setPropObstacles(h.clear, h.boxes);
+      if (h.kind === 'fremont181-spire') {
+        spire = new SpireRide(h.object);
+        bindSpire();
+      } else if (h.paint) {
+        // Coit Tower and the Ferry Building: first-class paintable buildings, like Sutro and the pyramid
+        // (after them, in the same order as ever: landmark paint slots are handed out in this order)
+        const p = h.paint;
+        later.push(() => paintable(p.key, h.object, p.name));
+      }
+    }
+  });
 
   // ---- the hero
   const bus = new BusModel();
   scene.add(bus.root);
-  const flight = new Flight();
-  flight.x = manifest.start.x;
-  flight.z = manifest.start.z;
-  flight.heading = manifest.start.heading;
-  if (params.has('lat') && params.has('lon')) [flight.x, flight.z] = latLonToLocal(Number(params.get('lat')), Number(params.get('lon')), manifest.origin);
-  if (params.has('heading')) flight.heading = THREE.MathUtils.degToRad(Number(params.get('heading')));
-  // the opening: emerge from the fog bank west of the Golden Gate, glide under it
-  const start = manifest.start as typeof manifest.start & { speed?: number; opening?: string };
-  const ggb = manifest.landmarks.find((l) => l.kind === 'ggb') as { points?: Array<[number, number]> } | undefined;
-  let openingBridge: [number, number] | null = null;
-  if (!params.has('lat') && start.opening === 'golden-gate' && ggb?.points) {
-    // thread the gap just north of the south tower so the tower fills the
-    // narrow portrait lens as we glide under the deck
-    const [, t1, t2] = ggb.points;
-    const sx = (t2[0] - t1[0]), sz = (t2[1] - t1[1]);
-    const sl = Math.hypot(sx, sz);
-    const gap: [number, number] = [t1[0] + (sx / sl) * 85, t1[1] + (sz / sl) * 85];
-    flight.x = gap[0] - flight.fx * 640;
-    flight.z = gap[1] - flight.fz * 640;
-    openingBridge = gap;
-    flight.speed = start.speed ?? 60;
-    flight.glideSpeed = start.speed ?? 60;
-  }
-  const rig = new CameraRig();
-  if (openingBridge) rig.openingLow = 1;
-  const focus = new THREE.Vector3(flight.x, 60, flight.z);
 
   // drop shadow straight below the bus: grounds the hero (how high it flies). No decal: the resolve pass
   // draws whatever faces up below the bus, inside an oval about its size, a ramp step darker (paint
@@ -256,8 +299,6 @@ async function boot() {
       }
     pdTex.needsUpdate = true;
   }
-  // saved landmark paint thins the fog again (landmarks never stream in with a tile)
-  for (const r of city.landmarkRefs()) if (city.paint.level(r.index) > 0.5) bumpPaint(r.cx, r.cz, 40);
   /** A landmark blooms: its sparkles hug its shape, its garden grows in its own shader (no rooftop sprouts on a spire). */
   const landmarkBloom = (ref: BuildingRef, hue: number, level: number): boolean => {
     const slices = landmarkSparkles(ref);
@@ -602,6 +643,17 @@ async function boot() {
   const pose: BusPose = { squash: 1, eye: 1, fullness: 1, mouth: 0, speed: 0, wheeze: 0, heave: 0 };
   let squashV = 0;
 
+  // ---- the opening's clock (0 .. config.fog.openingDuration), and the tap that skips it on repeat visits: it has been
+  // seen through once, on this device (a lost flag only plays it again)
+  let opening = params.has('skipintro') ? config.fog.openingDuration : 0;
+  let openingSkip = false;
+  let openingSeen = false;
+  try {
+    openingSeen = localStorage.getItem(OPENING_SEEN_KEY) === '1';
+  } catch {
+    // (storage blocked: the opening plays in full)
+  }
+
   // ---- input
   const input = new Input(canvas);
   const tuner = new Tuner();
@@ -649,6 +701,12 @@ async function boot() {
   };
   input.onTap = () => {
     if (tuner.visible || superSplat.hosing) return;
+    // (the tap that skips the opening doesn't splat as well)
+    if (openingSeen && !openingSkip && opening < config.fog.openingDuration) {
+      openingSkip = true;
+      controls.hud.clearToast();
+      return;
+    }
     tapSplat();
   };
 
@@ -717,25 +775,69 @@ async function boot() {
   /** the bus's pose with the super splat's body language on top (the game's own pose stays its spring state) */
   const superPose: BusPose = { ...pose };
 
-  // ---- resize
+  // ---- resize (applied once per frame: iOS fires bursts of resize / visualViewport events while its toolbars move)
   const onResize = () => {
     pipeline.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1);
     particles.setViewportHeight(pipeline.info.height);
     superFx.setViewportHeight(pipeline.info.height);
   };
-  window.addEventListener('resize', onResize);
-  window.visualViewport?.addEventListener('resize', onResize);
+  let resizeWanted = false;
+  const wantResize = () => (resizeWanted = true);
+  window.addEventListener('resize', wantResize);
+  window.visualViewport?.addEventListener('resize', wantResize);
   onResize();
 
-  // ---- the shader warm-up (render/warmup.ts): the programs a player's first splat, street sign and firehose would
-  // otherwise link in flight, compiled off the main thread and drawn once into their real targets, behind the opening:
-  // the post passes, the rooftop gardens' batches and sun twins (registerWarm), the street sign's blade and its sun
-  // caster, the super's motes. The first frame waits for it, at most warmWait s (it goes on in the background after that)
-  const warm = new WarmUp(pipeline, scene);
-  warm.add(signs.object, 'street signs');
-  warm.add(superFx.object, 'super fx');
-  await Promise.race([warm.finish(), new Promise((r) => setTimeout(r, config.render.warmWait * 1000))]);
-  await farP;
+  // ---- a lost GL context (a GPU reset, memory pressure on iOS, a tab long in the background): the game stops, the
+  // fog-grey page shows in place of the dead canvas. On restore every program compiles again through the warm-up, not
+  // one by one in the first frames; every region streams back in (their meshes kept no JS copy, City.reloadAll), budgeted
+  // like the opening's, with the game clock standing until the city is in
+  let glLost = false;
+  /** the page shows instead of the canvas: frames run at dt 0 until the city is back */
+  let covered = false;
+  // the first ready frame adopts streamed tiles at once (as the classic streaming did); then budgeted
+  let everReady = false;
+  canvas.addEventListener('webglcontextlost', () => {
+    glLost = covered = true;
+    warm.abandon();
+    canvas.style.visibility = 'hidden';
+  });
+  canvas.addEventListener('webglcontextrestored', () => {
+    // (three re-created its GL state first: its own listener was added with the renderer)
+    city.reloadAll();
+    everReady = false;
+    city.eager = true;
+    warm = new WarmUp(pipeline, scene);
+    warm.add(scene);
+    void warm.finish().then(() => (glLost = false));
+  });
+
+  // ---- the warm-up's second wave: the live scene as built so far (the bus, the Golden Gate, water,
+  // signs, particles, the drop shadow) and what registered while it was built (rooftop gardens)
+  warm.addSources();
+  warm.add(scene);
+  exposeQA();
+
+  // ---- before the first frame: every program compiled and drawn once (never presented) and the far
+  // city in. Meanwhile the opening's regions are adopted as they land, and the deferred landmarks are
+  // built, one per tick (the main thread is free: the GPU process compiles)
+  let farIn = false;
+  let farErr: unknown = null;
+  void farP.then(
+    () => (farIn = true),
+    (e) => ((farErr = e), (farIn = true)),
+  );
+  for (;;) {
+    later.shift()?.();
+    // (a few tiles per tick: no long task while the GPU process compiles; the first frame takes the rest)
+    city.update(primeFocus, renderer, 0, 12);
+    if (farIn) {
+      if (farErr) throw farErr;
+      // (the far meshes, and whatever was built meanwhile: only kinds not seen yet compile)
+      if (!glLost) warm.add(scene);
+      if (!warm.busy) break;
+    }
+    await new Promise((r) => setTimeout(r, 16));
+  }
   fogGround = city.lowGround();
   updateSun();
   globals.uFogBank.value = config.fog.openingBank;
@@ -744,7 +846,6 @@ async function boot() {
   // ---- the loop
   let last = performance.now();
   let wasFull = true;
-  let opening = params.has('skipintro') ? config.fog.openingDuration : 0;
   // QA: ?fixeddt=<s> steps the game by exactly that much per rendered frame (deterministic captures)
   const fixedDt = params.has('fixeddt') ? Math.max(0.001, Number(params.get('fixeddt')) || 1 / 60) : 0;
   let lodTimer = 0;
@@ -760,12 +861,16 @@ async function boot() {
   const snapPoint = new THREE.Vector3();
   const compTmp = new THREE.Vector3();
   const streamCenter = new THREE.Vector3();
-  // the first ready frame adopts streamed tiles at once (as the classic streaming did); then budgeted
-  let everReady = false;
+  /** frames rendered (the opening's clock starts once the first one is on screen) */
+  let framesDrawn = 0;
 
   type QA = { sx?: number; sy?: number; holdAt?: number; holdFrames?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null };
   function frame(now: number) {
     requestAnimationFrame(frame);
+    if (glLost) {
+      last = now;
+      return;
+    }
     const qa = (window as unknown as { __qa?: QA | null }).__qa;
     // QA: freeze on the first frame at/after holdAt (the canvas keeps showing it)
     if (qa && qa.holdAt !== undefined && simTime >= qa.holdAt) {
@@ -783,11 +888,22 @@ async function boot() {
       qa.holdFrames--;
     }
     const t0 = performance.now();
-    let dt = fixedDt || Math.min(0.05, (now - last) / 1000);
+    if (resizeWanted) {
+      resizeWanted = false;
+      onResize();
+    }
+    // (never negative: the first frame's timestamp can predate `last`, by the whole warm-up on a slow GPU)
+    let dt = fixedDt || Math.min(0.05, Math.max(0, (now - last) / 1000));
     const realDt = dt;
+    // the game holds under iOS's motion sheet, and while a restored context streams the city back in
+    const held = controls.sheetUp || covered;
+    // the opening runs on the wall clock from when the first frame reached the screen (the second
+    // frame's callback): it overlaps loading, and slow frames (down to 4 fps) don't stretch it. A
+    // longer gap (a tab switch, a locked phone, a long task) moves it 0.25 s at most, so the reveal
+    // is never skipped. It holds with the game
+    const openDt = held ? 0 : fixedDt || (framesDrawn >= 2 ? Math.min(0.25, Math.max(0, (now - last) / 1000)) : 0);
     last = now;
-    // the game holds under iOS's motion sheet
-    if (controls.sheetUp) dt = 0;
+    if (held) dt = 0;
     if (hitStop > 0) {
       hitStop -= dt;
       dt = 0; // freeze everything: two frames of awe
@@ -799,7 +915,9 @@ async function boot() {
     // opening: the bus emerges from a fog bank while the city streams in behind it
     if (opening < config.fog.openingDuration) {
       const loaded = city.loadedRegionCount() > 0;
-      opening = loaded ? opening + dt : Math.min(opening + dt, config.fog.openingDuration * 0.15);
+      // (skipped: the same reveal, played in ~0.7 s)
+      const step = openingSkip ? openDt * 6 : openDt;
+      opening = loaded ? opening + step : Math.min(opening + step, config.fog.openingDuration * 0.15);
       const k = clamp(opening / config.fog.openingDuration, 0, 1);
       globals.uFogBank.value = 1 + (config.fog.openingBank - 1) * Math.pow(1 - k, 2);
       rig.openingPull = 140 * Math.pow(1 - k, 2);
@@ -1064,94 +1182,123 @@ async function boot() {
       pipeline.setHeroBeam(beamEye, beamTip, 0.5 * rig.heroScale, 0.5 * Cb.headBeamWidth * open * rig.heroScale, Cb.headBeamLength > 0 ? Cb.headBeamStrength * (0.35 + 0.65 * superPose.eye) : 0);
     }
     pipeline.render(scene);
+    framesDrawn++;
+    // (a tap in the grey has skipped it already)
+    if (framesDrawn === 2 && openingSeen && !openingSkip && opening < config.fog.openingDuration) controls.hud.toast(['TAP TO SKIP'], 2.2);
+    // a deferred landmark (one per frame, early in the opening) when the warm-up didn't leave time for them all
+    later.shift()?.();
     const superView = superSplat.view();
     superMeter.update(realDt, superView);
     controls.hud.setMega(superView.phase);
     perf.frame(dt * 1000, performance.now() - t0);
-    const ready = city.loadedRegionCount() > 0 && !city.busy && (opening >= config.fog.openingDuration || params.has('openingshot'));
+    const cityIn = city.loadedRegionCount() > 0 && !city.busy && !later.length;
+    if (covered && cityIn) {
+      covered = false;
+      canvas.style.visibility = '';
+    }
+    const ready = cityIn && (opening >= config.fog.openingDuration || params.has('openingshot'));
+    if (ready && !everReady) {
+      audio.prepare();
+      if (!params.has('skipintro') && !params.has('lat')) {
+        try {
+          localStorage.setItem(OPENING_SEEN_KEY, '1');
+        } catch {
+          // (storage blocked: see above)
+        }
+      }
+    }
     if (ready) everReady = true;
     city.eager = !everReady;
     (window as unknown as { __shotReady?: boolean }).__shotReady = ready;
   }
   requestAnimationFrame(frame);
 
-  // debug hooks for scripted screenshots / QA
-  (window as unknown as Record<string, unknown>).__game = {
-    flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls,
-    /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
-    warm,
-    /** QA: where a breath fired now would land ({x, y, z, dist, travel, drop}), and the last one fired */
-    aimNow: () => (aimer.point(flight), { ...aimer.aim }),
-    /** QA: the building glinting now (what a tap hits) */
-    glintNow: () => {
-      const r = aimer.shown();
-      return r ? { index: r.index, cx: r.cx, cz: r.cz, roofY: r.roofY, since: aimer.shownSince } : null;
-    },
-    aimer,
-    /** QA: set a registered tunable (group name, key) live, e.g. ('Props', 'treeFine', 0) */
-    tuneGroup: (name: string, key: string, v: number | boolean) => {
-      const g = tunableGroups().find((x) => x.name === name);
-      if (g && key in g.values) (g.values as Record<string, unknown>)[key] = v;
-    },
-    /** QA: render the frozen frame again (after a tunable change: the same frame, another variant) */
-    renderAgain: () => {
-      updateSun();
-      pipeline.render(scene);
-    },
-    lastShot: () => lastShot,
-    /** QA: how much of the marine layer's seen-from-above fog is on (0 = the street-level fog exactly) */
-    fogLayerMix: () => globals.uFogLayer2.value.w,
-    tapSplat: () => input.onTap?.(),
-    /** QA: hold the super splat's charge until `chargeSeconds` held (from `fromSeconds`, default 0), then let go
-     * (>= config.splat.superCharge: the firehose). Returns the game time it lets go, or -1 (cooling down: "not yet"). */
-    superSplat: (chargeSeconds: number, fromSeconds?: number) => superSplat.qaCharge(chargeSeconds, fromSeconds),
-    /** QA: the super splat's state (phase, charge, cooldown, the last super's stats) */
-    superState: () => ({ phase: superSplat.phase, charge: superSplat.charge, since: superSplat.since, cooldownLeft: superSplat.cooldownLeft, cooldownTotal: superSplat.cooldownTotal, spent: superSplat.spent, stats: { ...superSplat.stats } }),
-    /** QA: skip seconds of the super splat's cooldown */
-    superSkip: (seconds: number) => superSplat.qaSkip(seconds),
-    /** QA: render a scripted super splat session offline through the real audio graph (peak, RMS, NaN) */
-    superAudioCheck: () => import('./audio/superAudioCheck').then((m) => m.superAudioCheck()),
-    superSplatter: superSplat,
-    superMeter,
-    forceReady: () => (flight.fullness = 1),
-    /** QA: barf at a lat/lon through the real splat pipeline (blast, blooms, sign, sound). Returns the impact time (game clock). */
-    barfAtLatLon: (lat: number, lon: number, drop?: number) => {
-      const [x, z] = latLonToLocal(lat, lon, manifest.origin);
-      audio.heave();
-      return splatter.barf(x, z, { drop });
-    },
-    clock: () => simTime,
-    /** QA: n settled blasts scattered within `spread` m of a lat/lon straight into the ground paint (and saved), like a long play session. Returns the saved tile count. */
-    seedGround: (n: number, lat: number, lon: number, spread: number) => {
-      const [x, z] = latLonToLocal(lat, lon, manifest.origin);
-      let s = 12345;
-      const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
-      for (let i = 0; i < n; i++)
-        city.ground.blast(makeBlastSpec(x + (rnd() - 0.5) * 2 * spread, z + (rnd() - 0.5) * 2 * spread, blastRadiusFor(rnd() < 0.2 ? 300 : 0), i % 6, (rnd() * 4294967295) >>> 0), -100);
-      city.ground.persist();
-      return city.ground.tileCount;
-    },
-    /** QA: buildings painted / total within r of a lat/lon, and the share of ground painted there */
-    paintedNear: (lat: number, lon: number, r: number) => {
-      const [x, z] = latLonToLocal(lat, lon, manifest.origin);
-      const near = city.buildingsNear(x, z, r, []);
-      let painted = 0, cells = 0, ground = 0;
-      for (const n of near) if (city.paint.level(n.ref.index) > 0.5) painted++;
-      for (let dz = -r; dz <= r; dz += 4)
-        for (let dx = -r; dx <= r; dx += 4) {
-          if (dx * dx + dz * dz > r * r) continue;
-          cells++;
-          const g = city.ground.sample(x + dx, z + dz);
-          if (g && g.cov >= 0.5) ground++;
+  // debug hooks for scripted screenshots / QA (set before the warm-up wait: tools see the city stream in)
+  function exposeQA() {
+    // (asked for now: there is no asking once the context is gone)
+    const lose = renderer.getContext().getExtension('WEBGL_lose_context');
+    (window as unknown as Record<string, unknown>).__game = {
+      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls,
+      /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
+      get warm() {
+        return warm;
+      },
+      /** QA: lose the GL context, and get it back (the game's whole path through a GPU reset) */
+      loseContext: () => lose?.loseContext(),
+      restoreContext: () => lose?.restoreContext(),
+      /** QA: where a breath fired now would land ({x, y, z, dist, travel, drop}), and the last one fired */
+      aimNow: () => (aimer.point(flight), { ...aimer.aim }),
+      /** QA: the building glinting now (what a tap hits) */
+      glintNow: () => {
+        const r = aimer.shown();
+        return r ? { index: r.index, cx: r.cx, cz: r.cz, roofY: r.roofY, since: aimer.shownSince } : null;
+      },
+      aimer,
+      /** QA: set a registered tunable (group name, key) live, e.g. ('Props', 'treeFine', 0) */
+      tuneGroup: (name: string, key: string, v: number | boolean) => {
+        const g = tunableGroups().find((x) => x.name === name);
+        if (g && key in g.values) (g.values as Record<string, unknown>)[key] = v;
+      },
+      /** QA: render the frozen frame again (after a tunable change: the same frame, another variant) */
+      renderAgain: () => {
+        updateSun();
+        pipeline.render(scene);
+      },
+      lastShot: () => lastShot,
+      /** QA: how much of the marine layer's seen-from-above fog is on (0 = the street-level fog exactly) */
+      fogLayerMix: () => globals.uFogLayer2.value.w,
+      tapSplat: () => input.onTap?.(),
+      /** QA: hold the super splat's charge until `chargeSeconds` held (from `fromSeconds`, default 0), then let go
+       * (>= config.splat.superCharge: the firehose). Returns the game time it lets go, or -1 (cooling down: "not yet"). */
+      superSplat: (chargeSeconds: number, fromSeconds?: number) => superSplat.qaCharge(chargeSeconds, fromSeconds),
+      /** QA: the super splat's state (phase, charge, cooldown, the last super's stats) */
+      superState: () => ({ phase: superSplat.phase, charge: superSplat.charge, since: superSplat.since, cooldownLeft: superSplat.cooldownLeft, cooldownTotal: superSplat.cooldownTotal, spent: superSplat.spent, stats: { ...superSplat.stats } }),
+      /** QA: skip seconds of the super splat's cooldown */
+      superSkip: (seconds: number) => superSplat.qaSkip(seconds),
+      /** QA: render a scripted super splat session offline through the real audio graph (peak, RMS, NaN) */
+      superAudioCheck: () => import('./audio/superAudioCheck').then((m) => m.superAudioCheck()),
+      superSplatter: superSplat,
+      superMeter,
+      forceReady: () => (flight.fullness = 1),
+      /** QA: barf at a lat/lon through the real splat pipeline (blast, blooms, sign, sound). Returns the impact time (game clock). */
+      barfAtLatLon: (lat: number, lon: number, drop?: number) => {
+        const [x, z] = latLonToLocal(lat, lon, manifest.origin);
+        audio.heave();
+        return splatter.barf(x, z, { drop });
+      },
+      clock: () => simTime,
+      /** QA: n settled blasts scattered within `spread` m of a lat/lon straight into the ground paint (and saved), like a long play session. Returns the saved tile count. */
+      seedGround: (n: number, lat: number, lon: number, spread: number) => {
+        const [x, z] = latLonToLocal(lat, lon, manifest.origin);
+        let s = 12345;
+        const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+        for (let i = 0; i < n; i++)
+          city.ground.blast(makeBlastSpec(x + (rnd() - 0.5) * 2 * spread, z + (rnd() - 0.5) * 2 * spread, blastRadiusFor(rnd() < 0.2 ? 300 : 0), i % 6, (rnd() * 4294967295) >>> 0), -100);
+        city.ground.persist();
+        return city.ground.tileCount;
+      },
+      /** QA: buildings painted / total within r of a lat/lon, and the share of ground painted there */
+      paintedNear: (lat: number, lon: number, r: number) => {
+        const [x, z] = latLonToLocal(lat, lon, manifest.origin);
+        const near = city.buildingsNear(x, z, r, []);
+        let painted = 0, cells = 0, ground = 0;
+        for (const n of near) if (city.paint.level(n.ref.index) > 0.5) painted++;
+        for (let dz = -r; dz <= r; dz += 4)
+          for (let dx = -r; dx <= r; dx += 4) {
+            if (dx * dx + dz * dz > r * r) continue;
+            cells++;
+            const g = city.ground.sample(x + dx, z + dz);
+            if (g && g.cov >= 0.5) ground++;
+          }
+        let trees = 0;
+        for (const [k, list] of treeIndex) {
+          const tf = treeFields.get(k);
+          if (tf) for (let i = 0; i < list.length; i++) if (Math.hypot(list[i].x - x, list[i].z - z) < r && tf.paintLevel(i) > 0) trees++;
         }
-      let trees = 0;
-      for (const [k, list] of treeIndex) {
-        const tf = treeFields.get(k);
-        if (tf) for (let i = 0; i < list.length; i++) if (Math.hypot(list[i].x - x, list[i].z - z) < r && tf.paintLevel(i) > 0) trees++;
-      }
-      return { buildings: near.length, painted, groundShare: cells ? ground / cells : 0, paintedTrees: trees, savedTiles: city.ground.tileCount, landed: city.ground.landedCount, queued: city.ground.queued };
-    },
-  };
+        return { buildings: near.length, painted, groundShare: cells ? ground / cells : 0, paintedTrees: trees, savedTiles: city.ground.tileCount, landed: city.ground.landedCount, queued: city.ground.queued };
+      },
+    };
+  }
 }
 
 boot().catch((e) => {
