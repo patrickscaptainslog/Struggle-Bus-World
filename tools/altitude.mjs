@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Altitude QA from the real game (index.html), iPhone 15 portrait viewport.
-//   node tools/altitude.mjs <baseUrl> <outDir> <phase> [--noshots] [--q=farmap&farfade] [--ceiling]
+//   node tools/altitude.mjs <baseUrl> <outDir> <phase> [--noshots] [--q=farmap&farfade] [--ceiling] [--log-far]
 // phases:
 //   downtown | west : climb in steps over a start point (shots at ~30 m, ~120 m,
 //                     ~250 m and the ceiling), taps at three altitudes (aim point
@@ -10,11 +10,13 @@
 //   opening         : the Golden Gate opening; logs the pass under the deck.
 //   gate            : the opening with the yoke pulled from the start (it must still
 //                     pass under the deck), then a climb to the ceiling over the Gate.
-//   sunset | presidio | marin : the far field's poses (docs/specs/far-field/SPIKE.md), as downtown.
+//   sunset | presidio | marin | london | ross : the far field's poses (docs/specs/far-field/SPIKE.md), as downtown.
 // --seq: also capture 6 consecutive frames exactly 1/30 s apart (fixed-step rAF) at
 //        cruise, 250 m and the ceiling (<phase>-seq-<alt>-<i>.png) for shimmer checks.
 // --q: appended to the start's query (the flags under test).
 // --ceiling: straight up to the ceiling and stop there, no taps, no dive.
+// --log-far: at each stop, window.__stats and the far boxes (merge ms, boxes, per chunk, what draws, what is on screen) in the report,
+//            whose `far` key <phase>-log.json carries too.
 // SwiftShader renders ~1.5 fps: everything waits on the game clock, never wall time.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -25,6 +27,7 @@ const noShots = process.argv.includes('--noshots');
 const withSeq = process.argv.includes('--seq');
 const ceilingOnly = process.argv.includes('--ceiling');
 const extraQ = process.argv.find((a) => a.startsWith('--q='))?.slice(4);
+const logFar = process.argv.includes('--log-far');
 mkdirSync(out, { recursive: true });
 
 const STARTS = {
@@ -33,6 +36,8 @@ const STARTS = {
   sunset: '?lat=37.7530&lon=-122.4950&heading=90&skipintro&nohud',
   presidio: '?lat=37.7990&lon=-122.4660&heading=180&skipintro&nohud',
   marin: '?lat=37.8020&lon=-122.4650&heading=330&skipintro&nohud',
+  london: '?city=london&lat=51.5073&lon=-0.1657&heading=90&skipintro&nohud',
+  ross: '?city=ross&body=antarctica&lat=-77.75&lon=167.30&heading=350&skipintro&nohud',
   opening: '',
   gate: '',
 };
@@ -189,8 +194,40 @@ const tap = async (label) => {
   return res;
 };
 
-const report = { phase, start: STARTS[phase], shots: [], taps: [], perf: {}, events: [] };
-const mark = async (label) => report.events.push({ label, ...(await page.evaluate(() => window.__alt.row())) });
+const report = { phase, start: STARTS[phase], shots: [], taps: [], perf: {}, events: [], far: [] };
+// the far boxes as they stand: instances the frame submits (chunks in view) and boxes it really shows (in the frustum, not under a loaded tile, in range)
+const farNow = () =>
+  page.evaluate(() => {
+    const g = window.__game, c = g.city, fb = c.farBlocks, st = window.__stats ?? {};
+    const out = { calls: st.calls, triangles: st.triangles, workMs: st.workMs, frameMs: st.frameMs };
+    if (!fb) return out;
+    const u = c.farBlockMat.uniforms.uFarCell.value, mask = c.loadedMask.image.data, end = g.config.far.blockEnd;
+    const [mx, mz] = c.manifest.bounds, ts = c.manifest.tileSize, cam = g.camera, p = cam.position.clone();
+    let submitted = 0, onScreen = 0, inView = 0, drawn = 0;
+    for (const ch of fb.chunks) {
+      if (!ch.mesh.visible) continue;
+      p.copy(ch.mesh.geometry.boundingSphere.center).applyMatrix4(cam.matrixWorldInverse);
+      const r = ch.mesh.geometry.boundingSphere.radius;
+      // (a chunk behind the lens: three's own frustum test is on spheres, this is close enough to count it)
+      if (p.z > r) continue;
+      drawn++;
+      submitted += ch.count;
+      for (let b = 0; b < ch.count; b++) {
+        const x = u.x * (ch.cell[b * 4] + ch.cell[b * 4 + 2] / 2) + u.y, z = u.z * (ch.cell[b * 4 + 1] + ch.cell[b * 4 + 3] / 2) + u.w;
+        if (Math.hypot(x - cam.position.x, z - cam.position.z) > end) continue;
+        p.set(x, 40, z).project(cam);
+        if (Math.abs(p.x) > 1 || Math.abs(p.y) > 1 || p.z > 1) continue;
+        inView++;
+        if (mask[Math.floor((z - mz) / ts) * c.maskW + Math.floor((x - mx) / ts)] > 127) continue;
+        onScreen++;
+      }
+    }
+    return { ...out, mergeMs: +fb.ms.toFixed(1), boxes: fb.boxes, roofCells: fb.cells, chunks: fb.chunks.length, chunksDrawn: drawn, instancesSubmitted: submitted, boxesInView: inView, boxesOnScreen: onScreen, perChunk: fb.chunks.map((k) => [k.ci, k.cj, k.count]) };
+  });
+const mark = async (label) => {
+  report.events.push({ label, ...(await page.evaluate(() => window.__alt.row())) });
+  if (logFar) report.far.push({ label, ...(await farNow()) });
+};
 
 if (phase === 'gate') {
   // pull the yoke from the first frame: the climb is locked until the bus (and the low camera
@@ -227,10 +264,12 @@ if (phase === 'gate') {
   if (ceilingOnly) {
     await climbTo(560);
     await settle(4);
+    await page.waitForTimeout(1200);
     await mark('ceiling');
     await shot(`${phase}-ceiling`);
     report.perf.ceiling = await perfNow();
     console.log('perf ceiling', JSON.stringify(report.perf.ceiling));
+    if (logFar) console.log('far ceiling', JSON.stringify({ ...report.far[0], perChunk: undefined }));
     await seq(`${phase}-seq-ceiling`);
     writeFileSync(`${out}/${phase}-report.json`, JSON.stringify(report, null, 2));
     await browser.close();
@@ -293,6 +332,7 @@ if (phase === 'gate') {
   report.holdLensMoves = lensMoves;
   writeFileSync(`${out}/${phase}-log.json`, JSON.stringify({ report, rows }, null, 1));
 }
+if (logFar) for (const r of report.far) console.log('far', r.label, JSON.stringify({ ...r, label: undefined, perChunk: undefined }));
 writeFileSync(`${out}/${phase}-report.json`, JSON.stringify(report, null, 2));
 console.log('report', JSON.stringify({ perf: report.perf, minClearance: report.minClearance, maxY: report.maxY, holdRows: report.holdRows, holdLensMoves: report.holdLensMoves, events: report.events.map((e) => [e.label, e.y, e.camDist, e.vista]) }));
 await browser.close();
