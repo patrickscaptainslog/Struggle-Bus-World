@@ -503,12 +503,16 @@ export class PixelPipeline implements WarmPipeline {
    * bounding sphere swept down the sun ray by twice its radius (the shadow of
    * its top reaching its bottom) misses the view frustum, cut at the far edge
    * of the shadow window (no shadows are sampled beyond it). Conservative: a
-   * shadow that can reach the view always keeps its caster.
+   * shadow that can reach the view always keeps its caster. (The window is a
+   * square across the sun's rays: on the ground its corners lie 1 / sun.y as
+   * far along the sun's azimuth: ~1.28 windows from the center at a 25 deg sun.)
    */
   private cullCasters(scene: THREE.Scene, center: THREE.Vector3, ext: number) {
     const cc = this.cullCam;
     cc.copy(this.snapCam);
-    cc.far = Math.max(cc.near + 1, Math.min(this.snapCam.far, cc.position.distanceTo(center) + ext * 0.75));
+    const sy = Math.max(0.1, globals.uSunDir.value.y);
+    const reach = 0.5 * ext * Math.sqrt(1 + 1 / (sy * sy));
+    cc.far = Math.max(cc.near + 1, Math.min(this.snapCam.far, cc.position.distanceTo(center) + reach));
     cc.updateProjectionMatrix();
     this.cullFrustum.setFromProjectionMatrix(this.cullMat.multiplyMatrices(cc.projectionMatrix, cc.matrixWorldInverse));
     this.shadowCulled = 0;

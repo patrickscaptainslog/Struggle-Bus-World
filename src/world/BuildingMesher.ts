@@ -2,8 +2,7 @@
 // Detail by type: Victorians get bay windows, cornices, false fronts or
 // front-facing gables, chimneys and stoops; flats get stacked bays; commercial
 // and towers get parapets and rooftop clutter. Walls are split into a few
-// segments so painted buildings can wobble (a party wall hidden against its
-// neighbor gets one column).
+// segments so painted buildings can wobble.
 //
 // The sun pass draws a separate caster proxy of every full-detail tile
 // (meshCasterTile): the same building code run through a Builder in caster
@@ -79,28 +78,64 @@ export interface CasterArrays {
   vertexCount: number;
 }
 
-/** segLen for party walls: one column, but still two rows like their neighbors (no T-junctions under the wobble). */
-const PARTY_SEG = 98;
-
 /** Index array of the smallest type that holds `vertexCount` vertices. */
-export function indexArray(idx: ArrayLike<number>, vertexCount: number): Uint16Array | Uint32Array {
-  return vertexCount < 65535 ? Uint16Array.from(idx) : Uint32Array.from(idx);
+export function indexArray(idx: Uint32Array, vertexCount: number): Uint16Array | Uint32Array {
+  return vertexCount < 65535 ? new Uint16Array(idx) : idx.slice();
 }
 
 /** Per collapsed growth element, GROWN_STRIDE floats: building index, paint level it needs, center x, z,
  * radius and grown top (m, with the growth's overshoot): what the flight's obstacle field must rise over. */
 export const GROWN_STRIDE = 6;
 
+/** A growable index list; push() takes one triangle or two. */
+class IdxBuf {
+  a = new Uint32Array(1 << 15);
+  length = 0;
+  push(p: number, q: number, r: number, s?: number, t?: number, u?: number) {
+    if (this.length + 6 > this.a.length) {
+      const b = new Uint32Array(this.a.length * 2);
+      b.set(this.a);
+      this.a = b;
+    }
+    const a = this.a;
+    let n = this.length;
+    a[n++] = p; a[n++] = q; a[n++] = r;
+    if (s !== undefined) {
+      a[n++] = s; a[n++] = t as number; a[n++] = u as number;
+    }
+    this.length = n;
+  }
+}
+
+// Vertex storage that lives as long as the worker: it grows to the biggest tile once, every later tile
+// reuses it. Number arrays here were 60-70% of the meshing time, with their garbage collection (deep dive
+// rank 9). Positions and facade coordinates are Float64 until finish(): remapU reads them back exact.
+// (One Builder at a time: meshing is synchronous, in the worker and in the main-thread fallback.)
+let cap = 0;
+let sPos = new Float64Array(0), sNrm = new Int8Array(0), sFac = new Float64Array(0), sMeta = new Uint8Array(0), sBld = new Float32Array(0), sBld2 = new Float32Array(0);
+function ensure(n: number) {
+  if (n <= cap) return;
+  let c = Math.max(1 << 14, cap * 2);
+  while (c < n) c *= 2;
+  const grow = <A extends Float64Array | Float32Array | Int8Array | Uint8Array>(o: A, k: number, C: { new (n: number): A }): A => {
+    const b = new C(c * k);
+    b.set(o as never);
+    return b;
+  };
+  sPos = grow(sPos, 3, Float64Array);
+  sNrm = grow(sNrm, 3, Int8Array);
+  sFac = grow(sFac, 2, Float64Array);
+  sMeta = grow(sMeta, 4, Uint8Array);
+  sBld = grow(sBld, 4, Float32Array);
+  sBld2 = grow(sBld2, 2, Float32Array);
+  cap = c;
+}
+const IDX = new IdxBuf(), GIDX = new IdxBuf();
+
 class Builder {
-  pos: number[] = [];
-  nrm: number[] = [];
-  fac: number[] = [];
-  meta: number[] = [];
-  bld: number[] = [];
-  bld2: number[] = [];
-  idx: number[] = [];
+  idx = IDX;
   /** triangles of collapsed growth (appended after idx) */
-  gidx: number[] = [];
+  gidx = GIDX;
   /** GROWN_STRIDE floats per growth element */
   grown: number[] = [];
   vc = 0;
@@ -108,17 +143,34 @@ class Builder {
   cur = { index: 0, cx: 0, cz: 0, baseY: 0, roofY: 0, arch: 0, seed: 0, flags: 0, frontW: 0, ext: 0 };
 
   /** caster mode: positions only, one quad per wall, no undersides */
-  constructor(readonly caster = false) {}
+  constructor(readonly caster = false) {
+    IDX.length = 0;
+    GIDX.length = 0;
+  }
 
   vert(x: number, y: number, z: number, nx: number, ny: number, nz: number, u: number, v: number, part: number, flags = this.cur.flags) {
-    this.pos.push(x, y, z);
+    const i = this.vc;
+    if (i >= cap) ensure(i + 1);
+    sPos[i * 3] = x;
+    sPos[i * 3 + 1] = y;
+    sPos[i * 3 + 2] = z;
     if (this.caster) return this.vc++;
-    this.nrm.push(Math.round(nx * 127), Math.round(ny * 127), Math.round(nz * 127));
-    this.fac.push(u, v);
-    this.meta.push(part, this.cur.arch, this.cur.seed, flags | this.cur.ext);
     const c = this.cur;
-    this.bld.push(c.index, c.cx, c.baseY, c.cz);
-    this.bld2.push(c.roofY, c.frontW);
+    sNrm[i * 3] = Math.round(nx * 127);
+    sNrm[i * 3 + 1] = Math.round(ny * 127);
+    sNrm[i * 3 + 2] = Math.round(nz * 127);
+    sFac[i * 2] = u;
+    sFac[i * 2 + 1] = v;
+    sMeta[i * 4] = part;
+    sMeta[i * 4 + 1] = c.arch;
+    sMeta[i * 4 + 2] = c.seed;
+    sMeta[i * 4 + 3] = flags | c.ext;
+    sBld[i * 4] = c.index;
+    sBld[i * 4 + 1] = c.cx;
+    sBld[i * 4 + 2] = c.baseY;
+    sBld[i * 4 + 3] = c.cz;
+    sBld2[i * 2] = c.roofY;
+    sBld2[i * 2 + 1] = c.frontW;
     return this.vc++;
   }
 
@@ -256,7 +308,7 @@ class Builder {
   remapU(v0: number, ax: number, az: number, bx: number, bz: number, y0: number, y1: number, u0: number, span: number, ta?: [number, number], tb?: [number, number]) {
     if (this.caster) return;
     for (let k = v0; k < this.vc; k++) {
-      const x = this.pos[k * 3], y = this.pos[k * 3 + 1], z = this.pos[k * 3 + 2];
+      const x = sPos[k * 3], y = sPos[k * 3 + 1], z = sPos[k * 3 + 2];
       let pax = ax, paz = az, pbx = bx, pbz = bz;
       if (ta && tb) {
         const f = y1 > y0 ? Math.min(1, Math.max(0, (y - y0) / (y1 - y0))) : 0;
@@ -266,7 +318,7 @@ class Builder {
       const ex = pbx - pax, ez = pbz - paz;
       const l2 = ex * ex + ez * ez;
       const t = l2 > 1e-6 ? Math.min(1, Math.max(0, ((x - pax) * ex + (z - paz) * ez) / l2)) : 0;
-      this.fac[k * 2] = u0 + t * span;
+      sFac[k * 2] = u0 + t * span;
     }
   }
 
@@ -277,12 +329,26 @@ class Builder {
    */
   grownVert(ax: number, ay: number, az: number, dx: number, dy: number, dz: number, nx: number, ny: number, nz: number, part: number, flags: number) {
     const c = this.cur;
-    this.pos.push(ax, ay, az);
-    this.nrm.push(Math.round(nx * 127), Math.round(ny * 127), Math.round(nz * 127));
-    this.fac.push(dx, dz);
-    this.meta.push(part, c.arch, c.seed, flags);
-    this.bld.push(c.index, c.cx, c.baseY, c.cz);
-    this.bld2.push(c.roofY, dy);
+    const i = this.vc;
+    if (i >= cap) ensure(i + 1);
+    sPos[i * 3] = ax;
+    sPos[i * 3 + 1] = ay;
+    sPos[i * 3 + 2] = az;
+    sNrm[i * 3] = Math.round(nx * 127);
+    sNrm[i * 3 + 1] = Math.round(ny * 127);
+    sNrm[i * 3 + 2] = Math.round(nz * 127);
+    sFac[i * 2] = dx;
+    sFac[i * 2 + 1] = dz;
+    sMeta[i * 4] = part;
+    sMeta[i * 4 + 1] = c.arch;
+    sMeta[i * 4 + 2] = c.seed;
+    sMeta[i * 4 + 3] = flags;
+    sBld[i * 4] = c.index;
+    sBld[i * 4 + 1] = c.cx;
+    sBld[i * 4 + 2] = c.baseY;
+    sBld[i * 4 + 3] = c.cz;
+    sBld2[i * 2] = c.roofY;
+    sBld2[i * 2 + 1] = dy;
     return this.vc++;
   }
 
@@ -302,18 +368,18 @@ class Builder {
   }
 
   finish(): { mesh: MeshArrays; grown: Float32Array } {
-    const ic = this.idx.length + this.gidx.length;
-    const index = this.vc < 65535 ? new Uint16Array(ic) : new Uint32Array(ic);
-    index.set(this.idx);
-    index.set(this.gidx, this.idx.length);
+    const ic = this.idx.length + this.gidx.length, vc = this.vc;
+    const index = vc < 65535 ? new Uint16Array(ic) : new Uint32Array(ic);
+    index.set(this.idx.a.subarray(0, this.idx.length));
+    index.set(this.gidx.a.subarray(0, this.gidx.length), this.idx.length);
     return {
       mesh: {
-        position: new Float32Array(this.pos),
-        normal: new Int8Array(this.nrm),
-        facade: new Float32Array(this.fac),
-        meta: new Uint8Array(this.meta),
-        bld: new Float32Array(this.bld),
-        bld2: new Float32Array(this.bld2),
+        position: new Float32Array(sPos.subarray(0, vc * 3)),
+        normal: sNrm.slice(0, vc * 3),
+        facade: new Float32Array(sFac.subarray(0, vc * 2)),
+        meta: sMeta.slice(0, vc * 4),
+        bld: sBld.slice(0, vc * 4),
+        bld2: sBld2.slice(0, vc * 2),
         index,
         vertexCount: this.vc,
         solidIndexCount: this.idx.length,
@@ -323,7 +389,8 @@ class Builder {
   }
 
   finishCaster(): CasterArrays {
-    return { position: new Float32Array(this.pos), index: indexArray(this.idx, this.vc), vertexCount: this.vc };
+    const vc = this.vc;
+    return { position: new Float32Array(sPos.subarray(0, vc * 3)), index: indexArray(this.idx.a.subarray(0, this.idx.length), vc), vertexCount: vc };
   }
 }
 
@@ -464,9 +531,7 @@ function partRoles(t: BuildingTile, g: Group, st: TowerStyle) {
 
 export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): { mesh: MeshArrays; grown: Float32Array } {
   const B = new Builder();
-  party = opts.lod === 0 ? partyEdges(t) : null;
   meshTile(B, t, opts.lod, opts.sf);
-  party = null;
   return B.finish();
 }
 
@@ -511,60 +576,6 @@ function meshTile(B: Builder, t: BuildingTile, lod: 0 | 1, sf: boolean) {
     for (let k = i; k < j; k++) meshBuilding(B, t, k, lod, g);
     i = j;
   }
-}
-
-/** Party-wall lookup of the tile being meshed (LOD 0 only): edges hashed by their midpoint (0.6 m cells). */
-let party: Map<number, number[]> | null = null;
-const PARTY_CELL = 0.6;
-const partyKey = (kx: number, kz: number) => (kx + 32768) * 65536 + (kz + 32768);
-
-/** Every ground-tier ring edge of the tile, oriented as meshBuilding walks it (positive shoelace): [record, dirX, dirZ, length] per entry. */
-function partyEdges(t: BuildingTile): Map<number, number[]> {
-  const m = new Map<number, number[]>();
-  for (let i = 0; i < t.count; i++) {
-    if (t.tier[i] > 0) continue;
-    const s = t.vertStart[i], e = t.vertStart[i + 1];
-    let area = 0;
-    for (let k = s; k < e; k++) {
-      const k2 = k + 1 < e ? k + 1 : s;
-      area += t.xz[k * 2] * t.xz[k2 * 2 + 1] - t.xz[k2 * 2] * t.xz[k * 2 + 1];
-    }
-    const sg = area < 0 ? -1 : 1;
-    for (let k = s; k < e; k++) {
-      const k2 = k + 1 < e ? k + 1 : s;
-      const ax = t.xz[k * 2], az = t.xz[k * 2 + 1], bx = t.xz[k2 * 2], bz = t.xz[k2 * 2 + 1];
-      const L = Math.hypot(bx - ax, bz - az);
-      if (L < 0.05) continue;
-      const key = partyKey(Math.round((ax + bx) / 2 / PARTY_CELL), Math.round((az + bz) / 2 / PARTY_CELL));
-      let l = m.get(key);
-      if (!l) m.set(key, (l = []));
-      l.push(i, (sg * (bx - ax)) / L, (sg * (bz - az)) / L, L);
-    }
-  }
-  return m;
-}
-
-/**
- * True if wall a->b of ground-tier record i is a party wall: another
- * building of the tile has an edge running the other way along all of it (same
- * midpoint, same length) and a roof at least as high. It stands hidden against
- * its neighbor, so it needs no wobble columns.
- */
-function partyWall(t: BuildingTile, i: number, a: [number, number], b: [number, number]): boolean {
-  if (!party || t.tier[i] > 0) return false;
-  const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-  const dx = (b[0] - a[0]) / L, dz = (b[1] - a[1]) / L;
-  const kx = Math.round((a[0] + b[0]) / 2 / PARTY_CELL), kz = Math.round((a[1] + b[1]) / 2 / PARTY_CELL);
-  for (let ox = -1; ox <= 1; ox++)
-    for (let oz = -1; oz <= 1; oz++) {
-      const l = party.get(partyKey(kx + ox, kz + oz));
-      if (!l) continue;
-      for (let q = 0; q < l.length; q += 4) {
-        const j = l[q];
-        if (t.index[j] !== t.index[i] && l[q + 1] * dx + l[q + 2] * dz < -0.95 && Math.abs(l[q + 3] - L) < 2 && t.roofY[j] >= t.roofY[i]) return true;
-      }
-    }
-  return false;
 }
 
 /** True if (x, z) is inside the ring of record k. */
@@ -737,7 +748,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
     const isFront = k === front || k === front2;
     const top = isFront && (k === front || single || !flushAbove(t, g, i, a[0], a[1], b[0], b[1])) ? roofY + parapet : roofY;
     const v0 = B.vc;
-    B.wall(a[0], a[1], b[0], b[1], baseY, top, u, streetY, isFront ? Part.FRONT : Part.SIDE, (isFront ? 1 : 0) | corner, lod === 1 ? 999 : !isFront && partyWall(t, i, a, b) ? PARTY_SEG : segLen);
+    B.wall(a[0], a[1], b[0], b[1], baseY, top, u, streetY, isFront ? Part.FRONT : Part.SIDE, (isFront ? 1 : 0) | corner, lod === 1 ? 999 : segLen);
     if (mod > 0) {
       // a whole number of modules per wall: corners land on piers, columns line up up the tower
       const span = Math.max(1, Math.round(L / mod)) * mod;
