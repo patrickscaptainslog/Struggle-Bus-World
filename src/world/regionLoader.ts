@@ -4,6 +4,7 @@ import { parseBuildingTile, parseTerrainTile } from './tiles';
 import { meshBuildingTile, meshCasterTile, roofKinds, type CasterArrays, type MeshArrays } from './BuildingMesher';
 import type { BuildingTile, TerrainTile } from './tiles';
 import { gunzip, isGzip } from './gunzip';
+import { eaveY, roofSurfaceY } from './roofGeom';
 
 export interface RegionRequest {
   type: 'region';
@@ -120,10 +121,11 @@ function nearRing(b: BuildingTile, k: number, x: number, z: number, r: number): 
  * What the detailed mesh adds to the flight's obstacle cells, per cell (the most: -Infinity = nothing): gable ridges,
  * chimneys, parapets and rooftop clutter (the bake's grid only knows the flat roofs). Every vertex lifts its own cell (a
  * box on a tower or a podium); a single-part house lifts every cell within 3 m of its footprint (as the bake's buffer) to
- * its top, so a gable's ridge holds between its two ends. Here because it walks every vertex: the main thread only
- * takes the larger of two numbers per cell (City.adoptTops).
+ * its top, so a gable's ridge holds between its two ends; a mapped roof on a building of several parts lifts its cells to
+ * the drawn roof over them. Here because it walks every vertex: the main thread only takes the larger of two numbers per
+ * cell (City.adoptTops).
  */
-function roofTops(b: BuildingTile, m: MeshArrays, tr: TerrainTile, tileSize: number): Float32Array {
+function roofTops(b: BuildingTile, kinds: Uint8Array, m: MeshArrays, tr: TerrainTile, tileSize: number): Float32Array {
   const N = tr.obstN, oc = tileSize / N;
   const out = new Float32Array(N * N).fill(-Infinity);
   // a building's records are consecutive, and so are its vertices in the tile's mesh
@@ -132,10 +134,10 @@ function roofTops(b: BuildingTile, m: MeshArrays, tr: TerrainTile, tileSize: num
     const solo = (i === 0 || b.index[i - 1] !== b.index[i]) && (i + 1 === b.count || b.index[i + 1] !== b.index[i]);
     if (solo && b.tier[i] === 0) house.set(b.index[i], i);
   }
-  const flush = (id: number, top: number) => {
-    const k = house.get(id);
-    if (k === undefined || top <= b.roofY[k] + 0.3) return;
-    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+  let x0 = 0, z0 = 0, x1 = 0, z1 = 0, ix0 = 0, ix1 = 0, iz0 = 0, iz1 = 0;
+  /** record k's bounds grown by `pad`, and the obstacle cells they touch */
+  const cellsOf = (k: number, pad: number) => {
+    x0 = Infinity; z0 = Infinity; x1 = -Infinity; z1 = -Infinity;
     for (let v = b.vertStart[k]; v < b.vertStart[k + 1]; v++) {
       const vx = b.xz[v * 2], vz = b.xz[v * 2 + 1];
       if (vx < x0) x0 = vx;
@@ -143,9 +145,16 @@ function roofTops(b: BuildingTile, m: MeshArrays, tr: TerrainTile, tileSize: num
       if (vz < z0) z0 = vz;
       if (vz > z1) z1 = vz;
     }
-    x0 -= 3; z0 -= 3; x1 += 3; z1 += 3;
-    const ix0 = Math.max(0, Math.floor((x0 - tr.originX) / oc - 0.5)), ix1 = Math.min(N - 1, Math.floor((x1 - tr.originX) / oc - 0.5) + 1);
-    const iz0 = Math.max(0, Math.floor((z0 - tr.originZ) / oc - 0.5)), iz1 = Math.min(N - 1, Math.floor((z1 - tr.originZ) / oc - 0.5) + 1);
+    x0 -= pad; z0 -= pad; x1 += pad; z1 += pad;
+    ix0 = Math.max(0, Math.floor((x0 - tr.originX) / oc - 0.5));
+    ix1 = Math.min(N - 1, Math.floor((x1 - tr.originX) / oc - 0.5) + 1);
+    iz0 = Math.max(0, Math.floor((z0 - tr.originZ) / oc - 0.5));
+    iz1 = Math.min(N - 1, Math.floor((z1 - tr.originZ) / oc - 0.5) + 1);
+  };
+  const flush = (id: number, top: number) => {
+    const k = house.get(id);
+    if (k === undefined || top <= b.roofY[k] + 0.3) return;
+    cellsOf(k, 3);
     for (let iz = iz0; iz <= iz1; iz++)
       for (let ix = ix0; ix <= ix1; ix++) {
         const c = iz * N + ix;
@@ -168,6 +177,23 @@ function roofTops(b: BuildingTile, m: MeshArrays, tr: TerrainTile, tileSize: num
     } else if (y > top) top = y;
   }
   if (cur >= 0) flush(cur, top);
+  // the part of a bigger building: its ridge runs between vertices that may be cells apart (the bake's grid holds 80 % of
+  // the rise there). Each cell takes the roof at its center and corners, as drawn: a dome on a hall lifts only its dome
+  for (let k = 0; k < b.count; k++) {
+    if (!kinds[k] || house.get(b.index[k]) === k) continue;
+    cellsOf(k, 0);
+    const s = b.vertStart[k], e = b.vertStart[k + 1], eave = eaveY(b.baseY[k], b.roofY[k], b.tier[k]), h = oc / 2;
+    for (let iz = iz0; iz <= iz1; iz++)
+      for (let ix = ix0; ix <= ix1; ix++) {
+        const cx = tr.originX + (ix + 0.5) * oc, cz = tr.originZ + (iz + 0.5) * oc;
+        for (let q = 0; q < 5; q++) {
+          const x = q ? cx + (q & 1 ? h : -h) : cx, z = q ? cz + (q & 2 ? h : -h) : cz;
+          if (!nearRing(b, k, x, z, 0)) continue;
+          const y = roofSurfaceY(b.xz, s, e, eave, b.roofH[k], b.roofShape[k], b.roofDir[k], x, z);
+          if (y > out[iz * N + ix]) out[iz * N + ix] = y;
+        }
+      }
+  }
   return out;
 }
 
@@ -279,7 +305,7 @@ export async function loadRegion(req: RegionRequest, transfer: Transferable[] = 
         if (terrain.hoodGrid) transfer.push(terrain.hoodGrid.buffer as ArrayBuffer);
         for (const ln of terrain.streets) transfer.push(ln.xz.buffer as ArrayBuffer);
         if (mesh && req.lod === 0) {
-          tops = roofTops(building!, mesh, terrain, req.tileSize);
+          tops = roofTops(building!, kinds!, mesh, terrain, req.tileSize);
           transfer.push(tops.buffer);
         }
       }

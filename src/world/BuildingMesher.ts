@@ -590,6 +590,75 @@ function meshTile(B: Builder, t: BuildingTile, lod: 0 | 1, sf: boolean, kinds: U
   }
 }
 
+/** LOD 1 rings keep what shows there: a footprint's outline survives to within this (m). The nearest LOD 1 wall stands
+ * 500+ m from the lens (DETAIL_RADIUS x 0.8), where a game pixel is 0.6-0.75 m, up high 1-2.5 m. */
+const RING_EPS = 1;
+
+/** Squared distance from point p to the segment a-b. */
+function dist2(p: [number, number], a: [number, number], b: [number, number]): number {
+  const dx = b[0] - a[0], dz = b[1] - a[1];
+  const L2 = dx * dx + dz * dz;
+  const u = L2 > 0 ? Math.min(1, Math.max(0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / L2)) : 0;
+  const ex = a[0] + dx * u - p[0], ez = a[1] + dz * u - p[1];
+  return ex * ex + ez * ez;
+}
+
+/**
+ * Which vertices of a ring (positive shoelace) the coarse mesh keeps, ascending, or null for all of them: Douglas-Peucker
+ * around the ring at RING_EPS, with the front edges kept whole (the facade starts there). OpenStreetMap's footprints
+ * carry every jog of a parcel (9.9 vertices a ring in SF, against USA Structures' 5.7), and each costs three triangles at
+ * LOD 1, twice with the sun pass, on regions that show a building as a few pixels.
+ */
+function ringKeep(pts: Array<[number, number]>, area: number, front: number, front2: number): number[] | null {
+  const n = pts.length;
+  const on = new Uint8Array(n);
+  let first = 0;
+  if (front !== 255 && front < n) {
+    on[front] = on[(front + 1) % n] = 1;
+    first = front;
+  }
+  if (front2 !== 255 && front2 < n) on[front2] = on[(front2 + 1) % n] = 1;
+  on[first] = 1;
+  // (and the vertex farthest from it: a closed ring needs two anchors)
+  let far = first, fd = -1;
+  for (let k = 0; k < n; k++) {
+    const d = (pts[k][0] - pts[first][0]) ** 2 + (pts[k][1] - pts[first][1]) ** 2;
+    if (d > fd) {
+      fd = d;
+      far = k;
+    }
+  }
+  on[far] = 1;
+  const anchors: number[] = [];
+  for (let k = 0; k < n; k++) if (on[k]) anchors.push(k);
+  const eps2 = RING_EPS * RING_EPS;
+  const span = (i: number, j: number) => {
+    let m = -1, dm = eps2;
+    for (let k = (i + 1) % n; k !== j; k = (k + 1) % n) {
+      const d = dist2(pts[k], pts[i], pts[j]);
+      if (d > dm) {
+        dm = d;
+        m = k;
+      }
+    }
+    if (m < 0) return;
+    on[m] = 1;
+    span(i, m);
+    span(m, j);
+  };
+  for (let a = 0; a < anchors.length; a++) span(anchors[a], anchors[(a + 1) % anchors.length]);
+  const keep: number[] = [];
+  for (let k = 0; k < n; k++) if (on[k]) keep.push(k);
+  if (keep.length === n || keep.length < 3) return null;
+  // (a sliver a straight line would collapse keeps its ring)
+  let a2 = 0;
+  for (let q = 0; q < keep.length; q++) {
+    const p = pts[keep[q]], r = pts[keep[(q + 1) % keep.length]];
+    a2 += p[0] * r[1] - r[0] * p[1];
+  }
+  return a2 / 2 > 0.85 * area && a2 / 2 < 1.15 * area ? keep : null;
+}
+
 /** True if (x, z) is inside the ring of record k. */
 function ringContains(t: BuildingTile, k: number, x: number, z: number): boolean {
   const s = t.vertStart[k], e = t.vertStart[k + 1];
@@ -630,11 +699,11 @@ function flushAbove(t: BuildingTile, g: Group, i: number, ax: number, az: number
 function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Group) {
   const s = t.vertStart[i];
   const e = t.vertStart[i + 1];
-  const n = e - s;
+  let n = e - s;
   if (n < 3) return;
   const tier = t.tier[i];
   const single = g.end - g.first === 1;
-  const pts: Array<[number, number]> = [];
+  let pts: Array<[number, number]> = [];
   for (let k = s; k < e; k++) pts.push([t.xz[k * 2], t.xz[k * 2 + 1]]);
   // a tapering part: its top ring is its base scaled about the area centroid
   const topScale = 1 - t.taper[i] / 255;
@@ -650,6 +719,16 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
     pts.reverse();
     if (front !== 255) front = (n - 2 - front + n) % n;
     if (front2 !== 255) front2 = (n - 2 - front2 + n) % n;
+  }
+  // (a facade family's columns land on its walls' corners: a tower keeps its ring)
+  if (lod === 1 && n > 4 && !g.style) {
+    const keep = ringKeep(pts, Math.abs(area) / 2, front, front2);
+    if (keep) {
+      pts = keep.map((k) => pts[k]);
+      n = pts.length;
+      if (front !== 255) front = keep.indexOf(front);
+      if (front2 !== 255) front2 = keep.indexOf(front2);
+    }
   }
   let cx = 0, cz = 0;
   for (const p of pts) { cx += p[0]; cz += p[1]; }

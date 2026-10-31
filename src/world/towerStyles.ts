@@ -205,14 +205,12 @@ const COIT = llToLocal(HERO_PROPS[0].lat, HERO_PROPS[0].lon);
 const FERRY = llToLocal(HERO_PROPS[1].lat, HERO_PROPS[1].lon);
 
 /**
- * The Ferry Building: the footprints carry it as two rows of 8 m "Victorian"
- * lots (the bake's row splitter cut it), drawn with bays and stoops. Coit Tower:
- * a 13 m "Victorian" box (stable id 132089) stands in for it at the summit,
- * 7-19 m from the column's axis. The props (props/landmarks.ts) draw both.
- * (The FLATS lot 132088 beside Coit's base, centroid 27 m from the axis, stays.)
+ * The Ferry Building: OpenStreetMap maps it as one building of eight parts (the hall, the clock tower's
+ * steps and its dome, 70.5 m), and USA Structures' rows still lie beside it. Coit Tower: a low box the
+ * bake's keep-out capped (8.4 m) stands at the summit. The props (props/landmarks.ts) draw both.
  */
 export const HIDDEN: Hidden[] = [
-  { name: 'Ferry Building', cx: FERRY[0], cz: FERRY[1], ax: Math.sin(HERO_PROPS[1].yaw), az: Math.cos(HERO_PROPS[1].yaw), halfL: 106, halfW: 39, maxTop: 22 },
+  { name: 'Ferry Building', cx: FERRY[0], cz: FERRY[1], ax: Math.sin(HERO_PROPS[1].yaw), az: Math.cos(HERO_PROPS[1].yaw), halfL: 106, halfW: 39, maxTop: 80 },
   { name: 'Coit Tower', cx: COIT[0], cz: COIT[1], ax: 1, az: 0, halfL: 16, halfW: 16, maxTop: 15 },
 ];
 
