@@ -34,8 +34,6 @@ export const config = {
     outlineFadeEnd: 520,
     /** Shadow map size (texels): 2048 keeps a shadow texel near one game pixel at 390 px wide. */
     shadowMapSize: 2048,
-    /** The first frame waits this long at most for the shader warm-up (s); past that it finishes in the background. */
-    warmWait: 6,
     /** World-space extent of the shadow map around the camera focus (m). */
     shadowExtent: 520,
     /** At full vista (high above the city) the shadow window widens to this (m) and softens to this strength (0..1)... */

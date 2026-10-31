@@ -92,6 +92,8 @@ export class PixelPipeline implements WarmPipeline {
   private cssW = 1;
   private cssH = 1;
   private dpr = 1;
+  /** what the targets were last sized for (resize() early-outs when nothing changed) */
+  private sizeKey = '';
   /** impact flash: rendered frames left, and (buffer uv x, y, strength, radius) */
   private flashLeft = 0;
   private readonly flashU = new THREE.Vector4();
@@ -234,6 +236,10 @@ export class PixelPipeline implements WarmPipeline {
   }
 
   resize(cssW: number, cssH: number, dpr: number) {
+    // (iOS fires resize / visualViewport events in bursts while its toolbars move: reallocate only on a real change)
+    const key = `${cssW}x${cssH}@${dpr}/${config.render.pixelWidth}/${config.render.maxPixelScale}`;
+    if (key === this.sizeKey) return;
+    this.sizeKey = key;
     this.cssW = cssW;
     this.cssH = cssH;
     this.dpr = dpr;

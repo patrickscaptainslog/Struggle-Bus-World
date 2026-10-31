@@ -67,6 +67,8 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
     `ditherWidth`); a whole-step jump (a crisp band edge) rounds. Materials
     that want crisp bands (tree crowns) snap their light to a step.
 - Every scene material must write both outputs (`gColor`, `gAux`).
+- A material (or an object kind) made after boot registers a warm-up source,
+  or its program compiles in flight, for up to seconds (see Shader warm-up).
 - Objects that cast sun shadows: `obj.layers.enable(SHADOW_LAYER)`.
   The bus and particles must NOT cast (the bus has its own drop shadow).
 - The sun pass is depth only (the pipeline locks the color mask; shadows read
@@ -162,6 +164,70 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   world travel (NIGHT_SKY 32, OPEN_SEA 33, LIMB 34, CLOUD 35, DRY_LAND 36,
   TWILIGHT 37: WORLD-TRAVEL.md 2.5); 38-47 spare. Claim a reserved row by
   adding its name at that number.
+
+## Shader warm-up (READ THIS before adding a material or a new kind of object)
+`src/render/warmup.ts`. On a cold visit the GPU program cache is empty, and
+on Windows (ANGLE on D3D11) each program compiles on the CPU, the building's
+for ~4 s, and every G-buffer program compiles twice: at link (target 0 only)
+and again at its first draw into the two-target G-buffer, one after another on
+the GPU process's main thread, which freezes presentation. So nothing may
+compile in flight: at boot every program compiles, in parallel
+(`KHR_parallel_shader_compile`, a few at a time so the browser's own raster
+still gets compile slots; the longest first in half the lanes, the shortest in
+the others), then draws once into the target it really draws into (G-buffer,
+sun map, glow / resolve targets; never the canvas). The first frame waits for
+it and for far.bin (the page shows its fog-grey background meanwhile); the
+opening starts with that first frame. Every synchronous GL query the warm-up
+makes (link status, uniform tables) waits behind a fence round trip, so the
+main thread never blocks on the GPU process.
+
+What it warms:
+- **The live scene** (`warm.add(scene)` once boot has built it, again after
+  far.bin): each object the way the pipeline draws it: its own material on
+  the camera's layers; on `SHADOW_LAYER` the sun pass's override material, or
+  its own when `allowOverride = false` (tree, sprout casters).
+- **The post passes** (`PixelPipeline.warmObjects()`).
+- **Registered sources**: `registerWarm(name, () => objects)`.
+
+**The rule: anything that makes a material, or an object of a new kind, after
+boot registers a warm source**, at module load (`registerWarm('trees', ...)` at
+the end of the file) or in the constructor that owns the materials
+(`RoofSprouts`). The source returns one object of each kind exactly as the real
+code makes it, through the same functions: the same material function (same
+defines, side), the same object class (`Mesh` / `InstancedMesh`, with or
+without `instanceColor`, `Points`), the same geometry layout (attribute names,
+array types, item sizes, normalization: ANGLE compiles a vertex variant per
+layout, e.g. the building's Int8 normals and Uint8 `aMeta`) and the same layers.
+Uniform values and geometry contents don't matter: the warm-up draws a
+one-triangle proxy with that program key and layout. Build the source with the
+helper the real code uses (`buildingMesh()`, `groundMesh()`, `farGridMesh()`,
+`makeSkylineMaterial()` in City.ts; `TreeField`; the sprouts' `Batch`;
+`LandmarkKit`; the bridges' `Kit`) so it can't go stale silently. Today:
+`city` (a building tile, a tile's ground, far terrain, horizon, skyline),
+`trees` (both levels of detail and the casters), `roof sprouts` (every
+element type and its caster), `landmarks` (plain and with accents), `bridges`.
+- A source registered after the warm-up finished still warms (in the
+  background, before its first draw only if there is time): register early.
+- The warm-up never disposes its materials, so the programs stay alive: a
+  material made later from the same code reuses its program.
+- No `onBeforeCompile` / `customProgramCacheKey` unless the source makes the
+  same key; `SkinnedMesh` / `BatchedMesh` aren't proxied (it warns).
+- **Check it**: `node tools/warmcheck.mjs <url> out.json` (cold load, the
+  opening, a climb, three blasts on one building for the sign and the level 2
+  and 3 gardens, the landmarks from altitude) must report
+  `programsAfterWarmup: 0` and no frame or long task over 100 ms after ready.
+  `__game.warm.report` holds the counts and timings.
+
+Boot order (main.ts): index.html's inline script starts city.json, far.bin
+and horizon.bin before the game's script loads (`bootFetch` hands them over).
+`city.prime()` posts the opening's whole want-list at once (up to 10 regions in
+flight while `city.eager`, i.e. until the first ready frame; 2 after). Only what
+the opening shows is built before the first frame (the bus, the Golden Gate);
+the other landmarks go to the `later` queue (built while the warm-up waits,
+else one per frame early in the opening; ready waits for them). The opening's
+4.2 s run on the wall clock from the first frame on screen (the 15% hold until
+the first region lands stays), with each step capped at 0.25 s: real time down
+to 4 fps, but a tab switch or a long stall moves the reveal 6% at most.
 
 ## City data (bake -> tiles -> meshes)
 `tools/bake/bake.py <slug>` turns footprints + DEM (+ an optional LiDAR point

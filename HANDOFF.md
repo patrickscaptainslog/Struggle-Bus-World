@@ -111,6 +111,9 @@ the same browser, which hides it): no frame gap over ~50 ms, `info.programs` fla
 - Budget: iPhone A15 >= 30 fps, recent iPhones 60. Today ~120-200 draws, ~1.0-1.5M
   triangles; no per-building draw calls; one texture upload per texture per frame; no
   allocations in hot paths. Report before/after numbers for anything that renders.
+- Nothing compiles a shader in flight: a material or object kind made after boot registers a
+  warm-up source (`registerWarm`, see ARCHITECTURE "Shader warm-up"); `node tools/warmcheck.mjs`
+  must report 0 programs after the warm-up.
 - Tunables live in `src/config.ts` (the in-game tuner reads them).
 - Commit messages end with the session's attribution lines; never commit secrets.
 

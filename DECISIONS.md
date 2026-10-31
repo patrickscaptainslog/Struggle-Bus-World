@@ -1947,6 +1947,107 @@ no frame over 20 ms. Bundle 1111 -> 1133 KB. (The fps and shots runs predate the
 preventDefault blocks the back swipe from TURBO's edge (if it doesn't, that loses the game); whether `requestPermission` is honored
 in a `touchend` after a prevented `touchstart`; pointer capture across `adoptThumb`; press-shake, calm, fade, settle, grace and
 `stillTapMs`; the reach's swing; real Safari height and insets; whether a probe hears a surviving grant.
+## Load time (producer: "about a minute to load on another laptop") — perf/load
+- **Where the time went** (deep dive of main e85f5ee): a cold visit downloads ~1.25 MB and
+  the worker meshes the opening in 0.1-0.35 s, but 18.85 s of a 24.4 s load was blocking
+  shader compilation. three.js compiled the 17 programs one at a time at their first draw,
+  and on Windows (ANGLE on D3D11) every G-buffer program compiles twice: once at link
+  (target 0 only), again at its first draw into the two-target G-buffer, serially on the GPU
+  process's main thread. The building's program takes ~4 s each time. Streaming waited on
+  frames (2 regions in flight, asked for from the frame loop), and the 4.2 s opening only ran
+  after the last freeze. Repeat visits are fast (the GPU program cache), so every player pays
+  this on the first visit and after every shader change.
+- **Shader warm-up at boot** (`src/render/warmup.ts`, ARCHITECTURE "Shader warm-up"): every
+  program compiles at boot with `KHR_parallel_shader_compile`, then draws once into the target
+  it really draws into (never the canvas), so the draw-time D3D variants are paid before the
+  first frame too. It warms the live scene, the post passes and registered sources (`city`,
+  `trees`, `roof sprouts`, `landmarks`, `bridges`); a one-triangle proxy per (material, object
+  kind, vertex layout, pass) carries the real program key and vertex layout. 22 programs, 22
+  draws. Three things it had to learn on this laptop:
+  - Compiles go out a few at a time (`hardwareConcurrency / 2` lanes; half take the longest
+    waiting, half the shortest). Launched all at once they filled the GPU process's compile
+    pool, the browser's own raster then waited 1.3-1.7 s for a slot on the GPU main thread,
+    and so did our next synchronous query: a 1.5-1.9 s long task.
+  - Every synchronous query (link status, uniform tables) waits behind a fence round trip, so
+    it never queues behind the seconds of draw-time compiles the last round started.
+  - A program's first query makes the GPU process finish loading it (tens of ms, ~170 ms for
+    the biggest), and three builds each program's source on the main thread (~100 ms for the
+    building's). Both stop after ~25 ms per task.
+- **What it can't remove**: the draw-time second compile of each G-buffer program still runs
+  one after another on the GPU process's main thread (7-11 s here, the building's 2.7-4.5 s of
+  it, depending on the other jobs on the laptop), and nothing can be presented while it runs. So
+  it all happens before the first frame (the page shows its fog-grey background), and the
+  opening starts after it. It is also why B's first frame comes later than A's (A presents one
+  frame early, then freezes). The warm-up also pays upfront for what A compiled in flight (the
+  sign, the gardens, the landmarks: ~3 s of that queue). A single-target G-buffer (deep dive
+  rank 2) removes the second compile: the bench put everything at ~3.5 s.
+- **Streaming primed** (rank 3): `city.prime()` posts the opening's whole want-list right after
+  `new City` (8 regions requested at 0.6-0.8 s instead of the last at 12-13 s), up to 10 in
+  flight while `city.eager` (until the first ready frame), 2 after. Tiles land and are adopted
+  (~12 ms per tick) while the shaders compile.
+- **The opening on the wall clock** (rank 4): it advances by real time from the first frame on
+  screen (the second frame's callback), not by summed dt clamped to 50 ms; the 15% hold until a
+  region has landed stays; same curve. It no longer stretches below 20 fps. Each step is capped
+  at 0.25 s (real time down to 4 fps), so a tab switch, a locked phone or a long task moves the
+  reveal by 6% at most instead of skipping it (a 3 s stall used to jump it from 16% to 89%).
+  0 frame gaps over 50 ms between the first frame and ready (B-1x-4).
+- **Boot downloads from the HTML** (rank 5): an inline script in index.html starts city.json,
+  far.bin and horizon.bin (the .bin files at low priority, the game's script first) for
+  `?city=` and leaves the promises for the game (`bootFetch`); each is fetched once. city.json
+  starts at 34-89 ms instead of 268-331 ms.
+- **Less before the first frame** (rank 6): the bus and the Golden Gate are built in boot; the
+  Bay Bridge, Sutro, the pyramid and the heroes (Coit, the Ferry Building, 181 Fremont's spire,
+  which now binds whenever both it and its tower exist) go to a queue, built while the warm-up
+  waits (else one per frame early in the opening); ready waits for the queue. Same landmark
+  paint order (slots), same obstacle posts from the start.
+- **iOS**: DecompressionStream is detected; iOS 15.0-16.3 get fflate (three's copy, a 4 kB
+  chunk loaded only there) in the worker and on the main thread (checked with both removed).
+  `PixelPipeline.resize` returns early when nothing changed, and resize events are applied
+  once per frame.
+- **Numbers** (A = main e85f5ee, B = perf/load; `tools/loadprofile.mjs`, a fresh browser per
+  run so the GPU program cache is cold, interleaved A B A B, Edge on the XPS 13 / UHD 620, other
+  jobs on the laptop at 15-33% CPU):
+
+  | | ready median (min) | first frame | first region | long tasks sum / max | programs |
+  |---|---|---|---|---|---|
+  | A 1x (4 runs) | 17.1 s (16.7) | 4.4 s, then frozen ~7 s | 5.9 s | 12.2 s / 7.5 s | 17 + 7 in flight |
+  | B 1x (4 runs) | 13.1 s (12.6) | 8.8 s | 0.9 s | 0.44 s / 0.16 s | 22, 0 in flight |
+  | A 4x CPU (2 runs) | 22.5 s (22.3) | 7.8 s, then frozen ~4 s | 13.1 s | 13.9 s / 5.1 s | 17 |
+  | B 4x CPU (2 runs) | 16.6 s (15.9) | 12.3 s | 2.5 s | 3.7 s / 0.9 s (boot JS) | 22 |
+  | A 4x + 20 Mbps (1) | 22.2 s | 8.0 s | 13.4 s | 13.5 s / 4.7 s | 17 |
+  | B 4x + 20 Mbps (1) | 16.4 s | 12.0 s | 3.0 s | 3.0 s / 0.7 s | 22 |
+
+  Ready is 4.1 s sooner at 1x (-24%) and 5.9 s at 4x; main-thread long tasks drop from 12 s to
+  0.4 s; B's first frame comes later, but the opening then plays smoothly (no frame gap over
+  50 ms) and nothing freezes in flight. B's first frame = the warm-up (8.0-9.7 s at 1x: the
+  GPU main thread's queue of draw-time compiles, 7-8 s of it) + far.bin; ready = first frame
+  + the 4.2 s opening. city.json starts at 34-89 ms instead of 268-331 ms (191 vs 1,307 ms at 4x
+  + 20 Mbps), each boot file once. Warm reload (same profile, `prof.mjs --reload`): A 4.81 s,
+  B 4.99 s. (Under heavier load from other jobs, 40-70% CPU, A took 25-32 s and B 17-18 s.)
+- **In flight** (`tools/warmcheck.mjs`: the opening, a climb, three blasts on one building to
+  level 3, the pyramid and Sutro from 380-430 m): A created 7 programs after ready (the sign,
+  its sun-pass boxes, the gardens, the landmarks) with frame gaps of 367-767 ms and long tasks
+  of 394-776 ms at the blasts; B created none, no frame over 100 ms, no long task over 100 ms.
+- **Look**: `tools/shots.mjs` grey / painted / opening on A and B look the same (they differ
+  where the bus is when the shot is taken, since B renders fewer frames before ready, and in
+  the random paint hues). The warm-up's draws land in the G-buffer, the sun map and the glow /
+  resolve targets, which every frame clears before use; nothing reaches the canvas.
+- **Review fixes**: the opening's step is capped at 0.25 s (a 3 s stall 0.7 s into the
+  opening now moves it from 16% to 24%, like main's 16% to 19%, instead of to 89%), and
+  index.html reads `?city=` exactly as main.ts does (an empty `?city=` no longer downloads sf's
+  boot files for nothing). Re-measured after them (interleaved, other jobs at 16-28% CPU): 1x
+  ready A 16.5 s median (min 15.7, 3 runs), B 13.4 s (min 12.5); 4x A 19.7 s (19.6, 2 runs),
+  B 14.3 s (14.0); B's opening 0 frame gaps over 50 ms at 1x, one of 117 ms at 4x; B long
+  tasks 0.40 s sum / 0.15 s max at 1x. `?fixeddt` opening: the bus is at the same place as on
+  A at every sampled time (0.02-7 s). An independent review got the same picture (1x: A 17.4 s,
+  B 12.7 s; first region A 6.2 s, B 0.75 s; no warm-up frame ever reaches the canvas).
+- **Open**: where `KHR_parallel_shader_compile` is missing (emulated in Chromium by hiding
+  it; possibly some Firefox / Windows setups), the warm-up still makes every program before the
+  first frame (0 after), but a 3.6-5 s freeze followed the first frame and blasts showed
+  333-633 ms frames: draw-time compiles the warm draws didn't pay there. No worse than main;
+  check on a real browser without the extension. And the page is plain fog-grey for ~8-9 s
+  before the first frame (a static cover of the opening's first frame is the idea, for the
+  producer to OK).
 
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
