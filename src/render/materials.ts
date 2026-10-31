@@ -301,7 +301,7 @@ export function makeRampMaterial(opts: RampMaterialOptions = {}): THREE.ShaderMa
       in float ramp;
       in float lightOffset;
       in float glow;
-      out float vRamp;
+      flat out float vRamp;
       out float vLightOffset;
       out float vGlowA;
       #endif
@@ -343,7 +343,7 @@ export function makeRampMaterial(opts: RampMaterialOptions = {}): THREE.ShaderMa
       in vec3 vWorldNormal;
       in vec3 vViewNormal;
       #ifdef VERTEX_RAMP
-      in float vRamp;
+      flat in float vRamp;
       in float vLightOffset;
       in float vGlowA;
       #endif
