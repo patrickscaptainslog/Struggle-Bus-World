@@ -1505,7 +1505,7 @@ facade shader, no 30 fps lock, no fewer detail regions, no coarser pixels, nothi
 - **Dropped, and why** (nothing else of polish/perf is lost):
   - the 1.2 m caster trim: the producer keeps every shadow.
   - 8 m wall columns: -18 to -24% LOD 0 triangles (-8 to -12% vertices), but the painted wobble's chords move: 1,138
-    game pixels of the painted frame change, 188 of the grey one. A producer's question (below), not a merge decision.
+    game pixels of the painted frame change, 188 of the grey one. A producer's question (below), not a merge decision. (merge/osm's review took them for houses only: see its budget.)
   - hidden party walls (-7% triangles, -3.5% vertices in row houses): 38-61 game pixels of a grey or painted frame change.
     Some of those walls show after all (a patch of a far wall took another surface's window dots); not chased, the saving is small.
   - far terrain and horizon chunks, `viewBox` culling, one mesh each up high: a separate study owns the far field; its
@@ -2352,7 +2352,7 @@ triangles, LOD 0 17.7M -> 20.9M, casters 9.4M -> 11.9M. A coarse region is its o
   At 1 m the budget held but the UHD 620 didn't: west ceiling 59-59.5 fps, GPU 16.5 ms, the climb missed vsync 20-28 times. At 1.5 m: 60 fps, GPU
   15.6 ms (main 15.5), 2-4 misses. Frames against unsimplified rings (`shots --det`, game pixels of 334,836): grey 26, fidi 37, soma 2, high 816,
   ceiling 249, single specks in the far band. No radius, region or shadow changed.
-- `tools/fps.mjs`, MAIN / NEXT (2 runs), interleaved, 8 s a phase, draws and triangles of the whole frame:
+- `tools/fps.mjs`, MAIN / NEXT (2 runs), interleaved, 8 s a phase, draws and triangles of the whole frame. Its 60 fps holds at these flat spots only (merge review below):
 
   | | fps | 1% low | worst frame | CPU work | draws | triangles |
   |---|---|---|---|---|---|---|
@@ -2369,11 +2369,11 @@ triangles, LOD 0 17.7M -> 20.9M, casters 9.4M -> 11.9M. A coarse region is its o
 - By pass (`perf-pass views --by`, pinned spots, draws / triangles, sun pass, G-buffer): the Ladies 55 / 319k, 53 / 579k -> 55 / 371k, 53 / 552k;
   FiDi 49 / 169k, 43 / 379k -> 47 / 217k, 42 / 371k; 250 m 73 / 445k, 62 / 620k -> 74 / 484k, 63 / 621k; ceiling 42 / 379k, 67 / 649k -> 42 / 356k, 66 / 619k.
   The caster proxies carry the growth (they keep every shape); the G-buffer barely moves.
-- The worst of 42 views a height, six headings at each of seven dense spots (`sweep.mjs`, the bus flying on, its heading turned on the spot), MAIN / NEXT: street
-  1.05M, 132 draws / 1.14M, 129; 250 m 1.36M, 191 / **1.56M**, 186; ceiling 1.29M, 147 / 1.35M, 146. **One view is over 1.5M**: the Mission at 250 m, heading 240, 1.51-1.56M
-  (the next is 1.45M, the median 1.01M). Most of it LOD 0: buildings 653k in the G-buffer and casters 326k against main's 514k and 240k, GPU 19.2 ms
-  on the UHD 620 (main 16.4). At that height LOD 0 still reaches 600 m and every house in it is OSM's, so what would fix it is on the
-  producer's list, not this merge's: fewer wall columns (DECISIONS, iPhone performance: "dropped") or a detail radius. Reported, not hacked.
+- The worst of 42 views a height, six headings at each of seven flat spots (`sweep.mjs` as it was, the bus flying on, its heading turned on the spot), MAIN / NEXT: street
+  1.05M, 132 draws / 1.14M, 129; 250 m 1.36M, 191 / **1.56M**, 186; ceiling 1.29M, 147 / 1.35M, 146. The Mission at 250 m, heading 240, read 1.51-1.56M
+  (the next 1.45M, the median 1.01M), most of it LOD 0: buildings 653k in the G-buffer and casters 326k against main's 514k and 240k, GPU 19.2 ms
+  on the UHD 620 (main 16.4). This line said one view was over budget. That was false: those spots are flat and that sweep skipped 350 m. The true worst views
+  and what was done about them are in the merge review below.
 - `tools/stalls.mjs`, the Alamo route, ~5,460 frames, MAIN (2) / NEXT (2): 60 fps, p99 17 ms on both; frames over 25 ms 0, 0 / 2, 4 (one missed vsync, 33.6 ms at most, no
   CPU work in them: the climb on a GPU at its limit); over 100 ms 0 on both; largest upload 3.92 / 4.96, 4.31 MB; long tasks 0.
 - Cold load (`loadprofile`, 3 runs each, interleaved): ready median 8.61 -> 8.42 s (8.26-8.61, 8.15-8.71), first frame 3.9-4.5 s on both, first
@@ -2391,6 +2391,57 @@ bridges as they should. `?city=amsterdam` and `?city=london` paint, grow, reload
 shore its south tower now stands by Fort Point: a producer's call).
 
 Nothing here has run on a real phone. The A15 is unmeasured; the numbers above are a UHD 620's.
+
+**Merge review, four confirmed findings** (reviewed bc3106b; NEXT below is the fix, MAIN f64a142, all on this laptop's UHD 620; nothing on a real
+iPhone, nothing on a live Vercel deployment).
+- **A returning player ran the new game on the old city (blocker).** A re-bake keeps every URL under `/city/`, and vercel.json caches them for a day plus a week stale. So
+  a phone that just played main, the producer's, would have run this client on main's city.json and cached tiles, and fetched OSM tiles only where it never
+  flew: one session held 96 SBT1 and 176 SBT2 tiles, paint went to `paint.v1` under OSM tiles, no credit, no MAP DATA, and a building past the old count failed
+  its paint upload (GL error 1282). A new header can't reach what a phone already holds; a new URL does: `window.__sbDataV` in index.html (`osm1`), `?v=` on city.json,
+  far.bin, horizon.bin and every region (`dataQuery()`). `tools/redeploy.mjs <old build> <new build>` plays that phone on vercel.json's own headers: this build 14 of
+  14 regions reached the new deploy, 169,503 buildings, ids `osm`; bc3106b 0 of 14, 140,961 buildings, ids null, exit 1. The review's longer run on this build: 272 tiles,
+  all SBT2, 0 buildings past the count, paint in `paint.v3` at level 1, 0 errors. Every re-bake bumps it (ARCHITECTURE "Re-baking a city").
+- **"One view is over budget" was false (major).** `sweep.mjs` tried seven flat spots at 30, 250 and 500 m. Over a hillside the view takes in far more roofs and 350 m is the worst height:
+  pinned cameras read steadily up to 1.93M, regressions from main. `sweep.mjs` now holds the bus on the spot, adds Noe Valley, Twin Peaks, the Excelsior and Bernal Heights, and sweeps 350 m.
+  The first step, on houses only (a facade family keeps its columns and its ring; no shader, radius or region changed, every shape still casts):
+  - **Wall columns 8 m** (`segLen`, was 3.2). Back from iPhone performance's "dropped", where it was a producer's question: its cost was the painted wobble's chords, a
+    0.32 m wave of ~27 m now drawn in chords within 0.13-0.26 m of it. On family towers it moved 71,888 game pixels at FiDi, so they keep theirs. Whole city (`s_mesh`, main / bc3106b / NEXT): LOD 0 17.7M /
+    20.9M / 16.5M triangles.
+  - **Caster rings for houses to within 1 m** (`CASTER_RING_EPS`): casters 9.4M / 11.9M / 10.4M. Not the 1.2 m trim the producer ruled out: every shape still casts, a jog under 1 m leaves the outline
+    of its shadow, 1.3-4 shadow texels. LOD 1 is byte for byte bc3106b's (hash of every tile, 2.69M triangles).
+  - **What the review's patch got wrong, and its frames hid.** Run through the caster with the smaller ring, `meshBuilding` placed everything on that ring: `clutter` stands a rooftop box from the ring's center
+    and nearest corner, a chimney and a gable from its extent. So a visible box cast nothing and an invisible one cast beside it, against "keep ALL shadows": a box's shadow gone from a SoMa roof, in a diff of 1,452
+    game pixels that read as small. `s_caster.ts` now checks every corner of what stands on a building: 2,562,703 of 4,235,560 rooftop-box vertices weren't in the proxy where they stand, and 71 tiles' casters stood lower than
+    the visible mesh. Now the proxy takes the smaller ring for walls and roofs only (`whole` in meshBuilding), tapering parts keep theirs: 0 of 4.2M, 0 of 1.6M bays, 0 of 44k gables, 0 of 568k
+    stoops, 0 lower tiles, the same as bc3106b (274 of 7.7M trim vertices on both: subdivided long walls). 178 of 179 built roofs cast (the Ferry dome, hidden on purpose); Amsterdam 10,039 of 10,039, London 115 of 115.
+  - The same cameras (pinned, streaming settled, every draw over 20 frames, sun pass included):
+
+    | | MAIN | bc3106b | NEXT | NEXT's sun, G-buffer | draws |
+    |---|---|---|---|---|---|
+    | Mission 350 m, heading 225 | 1.60M | 1.93M | 1.73M | 782k, 948k | 205 |
+    | Noe 500 m, 0 | 1.43M | 1.79M | 1.62M | 663k, 958k | 176 |
+    | Noe 350 m, 135 | 1.46M | 1.79M | 1.62M | 805k, 813k | 176 |
+    | Twin Peaks 500 m, 90 | 1.36M | 1.67M | 1.51M | 757k, 753k | 182 |
+    | Excelsior 500 m, 0 | 1.27M | 1.60M | 1.49M | 599k, 893k | 162 |
+    | Noe 250 m, 135 | 1.28M | 1.57M | 1.42M | 677k, 743k | 153 |
+    | Twin Peaks 500 m, 45 | 1.23M | 1.55M | 1.39M | 614k, 778k | 169 |
+    | Noe 250 m, 180 | 1.20M | 1.44M | 1.35M | 679k, 667k | 144 |
+    | Mission 350 m, 135 | 1.46M | 1.56M | 1.40M | 649k, 747k | 231 (main 233) |
+
+  - GPU timers, `framecost.mjs`, interleaved twice (triangles, GPU ms): Excelsior ceiling 1.30M, 16.0-16.6 / bc3106b 1.68M, 20.3-20.4 / NEXT 1.57M, 19.2-20.0; Noe ceiling 1.34M, 16.5 /
+    1.63M, 19.7 / 1.48M, 17.4. A frame over 16.7 ms misses 60 fps on the UHD 620; fps swings with the laptop's heat, these don't.
+  - `sweep.mjs`, 352 views (11 spots, 30 / 250 / 350 / 500 m, 8 headings, the bus held there): MAIN 2 over 1.5M, worst 1.53M (Noe 350 m, heading 135), 5 over 200 draws, 234 at most, median 852k. NEXT 9 over 1.5M, 4 of them over 1.6M, worst 1.70M (Bernal and Noe at 350 m, heading 135), 4 over 200 draws, 231 at most (Nob Hill 500 m, heading 90; MAIN 234 there), median 931k. Worst by height, MAIN / NEXT: 30 m 1.11M / 1.24M, 250 m 1.36M / 1.51M, 350 m 1.53M / 1.70M, 500 m 1.34M / 1.56M. Those worst views read 46-52 fps on NEXT, 49-59 on MAIN (not interleaved).
+  - `fps.mjs`, MAIN / NEXT (2 rounds each, interleaved): 60 in all nine phases on both, 1 % lows 49-56 on both. Triangles: Alamo street 929k / 825k, 250 m 951k / 867-870k, ceiling 1.06M / 1.04-1.07M; FiDi 514-516k / 519-521k, 625-628k / 602k, 407-410k / 358-361k; West 668k / 712k, 663k / 763k, 1.05M / 1.21M (194 / 191-192 draws). These are flat spots.
+  - Frames against bc3106b (`shots --det`, game pixels of 334,836): grey 71, fidi 12, soma 286, high 1,083, ceiling 172, painted 1,109, opening 1, swap 4: single pixels along shadow edges and on painted
+    walls (every crop read). `s_route` 0 clips on 19 routes, `s_pick` 0 wrong of 24,529. `osm-play`: a hover at least 4.04 m clear on all three cities, reload exact. `osm-paint` all pass.
+    `warmcheck` 27 programs, 0 after the warm-up, the canvas the only first draw. `iosfloor` passes. `contextloss` 1.32, 1.28 s, 0 errors. `feel.mjs taps` 7 of 7 glint == hit; carved taps 0-2 wrong of 60 in 4 runs, and 0-2 in 3 runs on bc3106b, the same press (45209, a wall in the line of fire takes the shot, by design) on both: the runs before read 0 by chance. `stalls`, the Alamo route, ~5,465 frames, MAIN (2) / NEXT (2): 60 fps, p99 17 ms on both; frames over 25 ms 0, 0 / 1, 0 (bc3106b 2, 4; one 49.9 ms frame in the climb, no CPU work in it); largest upload 3.92-4.11 / 4.31 MB; long tasks 0. Cold load (3 runs each, interleaved): ready 8.06-8.42 / 8.09-8.20 s, first region 0.62-0.76 / 0.55-0.57 s; each boot download once, all with `?v=osm1`. The mesher got faster: LOD 0 + caster 8.3 -> 7.8 s city-wide.
+  - **What is left is the producer's.** Mission and Noe stay over 1.5M, by up to 15 %, and these are samples: Noe at 500 m from a camera ~130 m away read 1.72M, 199 draws; what has streamed in moves with the
+    way there. At the Mission's worst view the G-buffer is back to main's (948k vs 942k, buildings 635k vs 622k) and the gap is the sun pass: casters 430k vs 364k, coarse regions drawing themselves 260k vs 204k. The next cuts
+    change what was ruled on or what shows, or add a kind of mesh: one row on walls under 6 m (LOD 0 -10 % city-wide, frames not measured), LOD 0 rings at 0.5 m (-4 %), a detail radius ("no fewer detail regions"), a lighter
+    sun-pass stand-in for coarse regions (keeps every shadow, a new mesh to stream). The A15 at those views is unmeasured: a real iPhone there says whether any of it is needed (`?lat=37.7600&lon=-122.4150`, climb to 350 m, heading 225).
+- **The hidden saddles still lifted the bus (minor).** W2's and W5's ~78 m obstacle cells reached past their `clears` boxes: 4 and 23 invisible cells over open water, a low flight rose from 39 to 84.9 m. Boxes 70 and 86 m
+  (`towerStyles.ts`): 0 cells at W2, W3 and W5, and the same flight holds its line (max y 45, as the control beside it). They reach nothing but the same stand-ins in the water.
+- **A multi-value street name (minor).** OSM separates names with `;`: 'Hang Ah Alley;Pagoda Aly' signed HANG AH / ALLEYPAGODA ALY. `streetNameAt` takes the first, in any city: HANG AH ALLEY on building 15445.
 
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a

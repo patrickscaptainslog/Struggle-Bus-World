@@ -145,6 +145,12 @@ export function bootFetch(base: string, what: 'manifest' | 'far' | 'horizon'): P
   return p;
 }
 
+/** The data's version for a URL under /city/ (index.html sets it; ARCHITECTURE "Re-baking a city"), '' on a page without it. */
+export function dataQuery(): string {
+  const v = (globalThis as { __sbDataV?: string }).__sbDataV;
+  return v ? `?v=${v}` : '';
+}
+
 /** A tile's (or a coarse region's) building mesh: the one place its vertex layout is set. `cast`: it is its own sun-pass caster. */
 function buildingMesh(m: MeshArrays, material: THREE.Material, cast: boolean): THREE.Mesh {
   const g = new THREE.BufferGeometry();
@@ -507,8 +513,8 @@ export class City {
   async loadFar(): Promise<void> {
     // (index.html already asked for the default extension's files)
     const pre = (what: 'far' | 'horizon') => (this.ext === '.bin' ? bootFetch(this.baseUrl, what) : null);
-    const farP = pre('far') ?? fetch(`${this.baseUrl}/far${this.ext}`);
-    const hzP = (pre('horizon') ?? fetch(`${this.baseUrl}/horizon${this.ext}`)).catch(() => null);
+    const farP = pre('far') ?? fetch(`${this.baseUrl}/far${this.ext}${dataQuery()}`);
+    const hzP = (pre('horizon') ?? fetch(`${this.baseUrl}/horizon${this.ext}${dataQuery()}`)).catch(() => null);
     const [res, hz] = await Promise.all([farP, hzP]);
     this.far = parseFar(await maybeInflate(await res.arrayBuffer()));
     this.buildFar();
@@ -744,7 +750,7 @@ export class City {
       this.regionsRequested.add(key);
       const id = this.nextId++;
       this.pending.set(id, { key, lod });
-      const msg: RegionRequest = { type: 'region', id, url: new URL(`${this.baseUrl}/r_${rx}_${rz}${this.ext}`, location.href).href, classN: this.manifest.classN, lod, sf: this.sf, tileSize: this.manifest.tileSize };
+      const msg: RegionRequest = { type: 'region', id, url: new URL(`${this.baseUrl}/r_${rx}_${rz}${this.ext}${dataQuery()}`, location.href).href, classN: this.manifest.classN, lod, sf: this.sf, tileSize: this.manifest.tileSize };
       if (this.worker) this.worker.postMessage(msg);
       else void loadRegion(msg).then((r) => this.onRegion(r));
     }
@@ -2181,7 +2187,8 @@ export class City {
             const d = segDist(xz[k], xz[k + 1], xz[k + 2], xz[k + 3], x, z) + pen;
             if (d < best && d <= maxDist) {
               best = d;
-              name = tr.streetNames[ln.name] ?? null;
+              // (OpenStreetMap's multi-value names: 'Hang Ah Alley;Pagoda Aly' signs its first)
+              name = tr.streetNames[ln.name]?.split(';')[0] ?? null;
             }
           }
         }

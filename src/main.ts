@@ -4,7 +4,7 @@ import { PixelPipeline } from './render/PixelPipeline';
 import { globals, layerTopBase } from './render/materials';
 import { HUE_RAMPS } from './render/palette';
 import { WarmUp } from './render/warmup';
-import { City, bootFetch, type BuildingRef } from './world/City';
+import { City, bootFetch, dataQuery, type BuildingRef } from './world/City';
 import { paintUniforms, setFacadeView } from './world/buildingMaterial';
 import { Ground, type CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
@@ -89,7 +89,7 @@ async function boot() {
   // (first: the warm-up hasn't started a compile yet, so this query waits for nothing, and boot().catch prints a refusal)
   pipeline.checkTargets();
   // (index.html started this download before this script had even loaded)
-  const manifest = (await (await (bootFetch(base, 'manifest') ?? fetch(`${base}/city.json`))).json()) as Manifest;
+  const manifest = (await (await (bootFetch(base, 'manifest') ?? fetch(`${base}/city.json${dataQuery()}`))).json()) as Manifest;
   // saved paint is keyed by the folder that served the city, not the slug inside its city.json (only the
   // paint stores read manifest.slug): a bake served beside the live one (?city=sf_osm, slug 'sf') opens
   // its own stores and never drops or fills the ones ?city=sf uses

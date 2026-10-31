@@ -52,6 +52,7 @@ Python 3.12 (`C:/Users/Utku/sb-venv` here): `pip install geopandas pyogrio pyarr
 `tools/bake/.cache/lidar`). The caches are gitignored and live in `C:/Users/Utku/Struggle-Bus-World/tools/bake/`: a worktree
 points `SB_OVERTURE_CACHE`, `SB_WORLDCOVER_CACHE`, `SB_LIDAR_CACHE` and `SB_DATA` at them. A full SF bake thrashes this 8 GB
 laptop. Never change stable building ids casually: saved paint is keyed by them (OSM ids: ARCHITECTURE "stableIds").
+Bump `window.__sbDataV` in `index.html` with every re-bake: phones hold `/city/` files by URL (ARCHITECTURE "Re-baking a city", `tools/redeploy.mjs`).
 
 ## Branches (GitHub: patrickscaptainslog/Struggle-Bus-World) — state when the cloud session stopped (2026-10-23 20:40 UTC)
 The cloud session has STOPPED all its work. Every branch below is pushed; unfinished
@@ -69,7 +70,7 @@ including merging into `main`.** None of the branches below has been merged yet.
 | `feat/hybrid` | built from `docs/specs/hybrid-controls.md`, QA'd on the GPU (MAIN vs NEXT), review's four defects fixed (2026-10-30); never run on a real phone | the producer's hybrid: TURBO, the tilt toggle, MEGA, thumb + tilt arbitration (`Hybrid.ts`), `hudLayout.ts`, the first run (`Coach.ts`), no card, `tools/controls-sim/s_hybrid.ts`, `s_layout.ts` | the real-iPhone list at the end of its DECISIONS "Hybrid controls" (back swipe first); the producer's call: `config.tilt.defaultOn` |
 | `merge/perf` | polish/perf, perf/load and the optimization deep dive in one merge, QA'd on the GPU (MAIN vs NEXT), merge review's five findings fixed, not yet judged (desktop session, 2026-10-30); never run on a real phone | one RGBA16UI G-buffer, the typed mesher, sun-pass casters, depth-only sun pass, first draws on a byte budget, unseen swaps that only commit, the warm-up from the top of main.ts, primed streaming, the opening on the wall clock and a tap to skip it, a first touch with no stall, context loss | merge next (its DECISIONS "iPhone performance" has the numbers, MAIN bd660ba vs NEXT, and what was dropped); first real-phone pass below |
 | `feat/stages` | empty (just created from main) | — | build the stage engine per `docs/specs/STAGES.md` (its "Producer decisions" section) |
-| `merge/osm` | feat/osm (local c17bc4a; `origin/feat/osm` is 13 commits behind it, never use it) + main f64a142, QA'd on the GPU (MAIN vs NEXT); never run on a real phone | the OpenStreetMap city in main's game: real footprints, mapped roofs (`roofGeom.ts`), streets and names on the signs, ground classes, evidence trees, the 'osm' id scheme, ODbL credit + MAP DATA, London and Amsterdam, LOD 1 rings, `tools/sweep.mjs`, `framecost.mjs`, `osm-paint.mjs`, `osm-play.mjs` | merge next (its DECISIONS "OpenStreetMap in main's game" has the numbers); the distant-city study builds on it |
+| `merge/osm` | feat/osm (local c17bc4a; `origin/feat/osm` is 13 commits behind it, never use it) + main f64a142, QA'd on the GPU (MAIN vs NEXT), merge review's four findings fixed (2026-10-31); never run on a real phone or a live Vercel deploy | the OpenStreetMap city in main's game: real footprints, mapped roofs (`roofGeom.ts`), streets and names on the signs, ground classes, evidence trees, the 'osm' id scheme, ODbL credit + MAP DATA, London and Amsterdam, LOD 1 rings, `tools/sweep.mjs`, `framecost.mjs`, `osm-paint.mjs`, `osm-play.mjs` | merge next (its DECISIONS "OpenStreetMap in main's game" has the numbers, the merge review's at its end); the producer's call on the hillside views over budget; the distant-city study builds on it |
 
 `feat/controls` and `feat/supersplat` share an INPUT CONTRACT (`onTap`,
 `onChargeStart`, `onChargeEnd(heldSeconds, cancelled)`, `state.chargeHeld`,
@@ -158,8 +159,7 @@ notes when merging.
   during the 4 s pour), the one known exception to the no-allocation rule: pool them if a phone shows GC hitches.
 - `shots.mjs` stats sometimes come back null at 390 px (the perf snapshot timing); the
   screenshots are still valid.
-- One view is over the triangle budget: the Mission at 250 m, heading 240, 1.51-1.56M (the next worst view of 42 is 1.45M): OSM's LOD 0, which only fewer wall
-  columns or a detail radius would fix; 60 fps in every `tools/fps.mjs` phase, but GPU 19.2 ms at that view on the UHD 620 (main 16.4). `tools/sweep.mjs`, `tools/framecost.mjs`.
+- Over the triangle budget at altitude, mostly over hillsides: 9 of 352 `tools/sweep.mjs` views read over 1.5M, worst 1.70M (Bernal and Noe at 350 m; MAIN 2 of 352, worst 1.53M), and a pinned camera 1.73M at the Mission at 350 m, heading 225 (MAIN 1.60M, 1.93M before the merge review's first step). Samples: they move with what has streamed in. Draws: 4 of 352 over 200, 231 at most (MAIN 5, 234). 8 m wall columns and 1 m caster rings on houses took ~10 % off; what is left is the producer's call (DECISIONS "OpenStreetMap in main's game", merge review). GPU on the UHD 620: Excelsior ceiling 19.2-20.0 ms (main 16.0-16.6), Noe's 17.4 (16.5), so `tools/fps.mjs`'s 60 fps holds at its flat spots only. `tools/sweep.mjs`, `tools/framecost.mjs`.
 - The far skyline beyond the streaming radius is flat boxes; with fog off it shows. (The far field is a separate study's:
   polish/perf's far chunks stayed out of the merge.)
 - Saved paint keys, on OpenStreetMap data (`city.json` `"ids": "osm"`): `strugglebus.paint.v3` (buildings), `strugglebus.ground.v4:<tx>,<tz>`

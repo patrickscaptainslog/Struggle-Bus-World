@@ -87,7 +87,8 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   casters, not the detailed meshes: a detailed
   building tile casts through its proxy (`meshCasterTile`: positions only,
   one quad per wall, no undersides: the same surfaces in fewer triangles, every
-  shape still casts), on SHADOW_LAYER only, while its detailed mesh is on layer
+  shape still casts; a house's walls and roof on its ring to within 1 m, see "LOD 1
+  rings"), on SHADOW_LAYER only, while its detailed mesh is on layer
   0 only. Something with a cheaper stand-in should do the same (trees and
   rooftop gardens have depth twins). New mesher geometry must make its vertices
   through `Builder.vert()` and its walls and boxes through `wall()` / `prism()` /
@@ -246,7 +247,8 @@ element type and its caster), `landmarks` (plain and with accents), `bridges`.
   may reach the canvas). `__game.warm.report` holds the counts and timings.
 
 Boot order (main.ts): index.html's inline script starts city.json, far.bin
-and horizon.bin before the game's script loads (`bootFetch` hands them over).
+and horizon.bin before the game's script loads (`bootFetch` hands them over), each
+with the data's version in its URL (`__sbDataV`, see "Re-baking a city").
 `boot()` starts with `pipeline.checkTargets()`: GL only logs a target the device
 refuses, and the game would run on under a black frame, so the G-buffer and the sun
 map are asked for their status first, while the GPU process has nothing to do (the
@@ -348,8 +350,14 @@ roof shapes, trees, street names) of any number of bakes side by side.
   LOD 1 keeps a ring to within `RING_EPS` (1.5 m, Douglas-Peucker round the ring,
   the front edges whole: the facade starts there). The nearest coarse wall stands
   500+ m from the lens (`DETAIL_RADIUS` x 0.8), a game pixel there is 0.6-0.75 m.
-  A facade family keeps its ring: its columns land on the corners. Gameplay, LOD 0
-  and the caster proxy never see this: only the coarse mesh does.
+  A facade family keeps its ring: its columns land on the corners. Gameplay and LOD 0
+  never see this. The caster proxy does the same for a house at `CASTER_RING_EPS`
+  (1 m), walls and roof only: `meshBuilding` draws those on the kept ring and reads
+  the whole ring (`whole`) for everything else. A rooftop box, a chimney or a gable
+  stands from the ring's center and extent, so on another ring its shadow would fall
+  where it doesn't stand (`feel-sim s_caster.ts` checks their corners in the proxy).
+  Every shape still casts; a jog under 1 m leaves the outline of its shadow (1.3-4
+  shadow texels: single game pixels along shadow edges). A tapering part keeps its ring.
 - **'SBT2' terrain tiles** (OSM bakes): SBT1, pad to 4, then the street-name
   section: `u8 hood[8*8]` (32 m cells: an index into `manifest.neighborhoods`,
   255 none), `u16 nameCount, u16 lineCount`, names `{u8 len, utf-8}` (as
@@ -502,6 +510,12 @@ roof shapes, trees, street names) of any number of bakes side by side.
   re-bake of either kind (it refuses to compare an OSM bake with an old one).
 
 ## Re-baking a city
+- **Bump `window.__sbDataV` in index.html with every re-bake** (`osm1` -> `osm2`). It goes on every URL under `/city/`
+  (`dataQuery()` in City.ts). A re-bake keeps the file names and `vercel.json` caches them for a day plus a week stale, so
+  without a new version a phone that played the old city runs the new game on old data, and on new tiles only where it
+  never flew. A new header can't reach what phones already hold; only a new URL does. `node tools/redeploy.mjs <old build>
+  <new build>` plays that phone: vercel.json's own headers on a local server, one browser context across the deploy, exit
+  1 unless every file of the city the game asked for reached the new deploy. (Not run against a live Vercel deployment yet.)
 - `public/city/<slug>/` is generated: never hand-merge it, re-bake it (its own commit). A re-bake needs the Overture
   extract (`python3 -I tools/bake/overture.py <slug>`, ~2 min, cached under `$SB_OVERTURE_CACHE`), the city's WorldCover
   crop (`$SB_WORLDCOVER_CACHE`) and, for SF, the LiDAR cache (`$SB_LIDAR_CACHE`: the USA Structures LiDAR plan is still built
@@ -1027,9 +1041,12 @@ OpenStreetMap QA: `node tools/osm-shots.mjs <url> <out> [shots]` (the checklist'
 credit's timing), `tools/osm-paint.mjs <url> <out> [stale paint landmarks credit cities]` (old saves on the device, reloads,
 every landmark, the credit however the game starts, other cities' stores), `tools/osm-play.mjs <url> <out> [amsterdam ladies
 london]` (three taps on a block, a mega blast, a firehose, a low hover, a reload). Budget: `tools/sweep.mjs <url> <out.json>`
-(the worst frame over a compass sweep from the densest spots, at any height), `tools/framecost.mjs <url> "<query>" --alt=500`
-(one frame by kind and pass), `node tools/feel-sim/run.mjs s_mesh.ts` (offline: triangles per region at LOD 0, LOD 1 and the
-caster, ring sizes; `SB_DATA=<city dir>` for another bake; `s_caster.ts`: every built roof stands in the caster proxy).
+(the worst frame over a compass sweep, the bus held on the spot: the densest flats and the hillsides, at 30, 250, 350 and 500 m:
+over a slope the view takes in far more roofs, and the worst views are there), `tools/framecost.mjs <url> "<query>" --alt=500`
+(one frame by kind and pass, with GPU timers: compare builds interleaved, the laptop's heat moves fps), `node tools/feel-sim/run.mjs
+s_mesh.ts` (offline: triangles per region at LOD 0, LOD 1 and the caster, ring sizes; `SB_DATA=<city dir>` for another bake;
+`s_caster.ts`: every built roof and everything that stands on a building is in the caster proxy, where it stands). Deploys:
+`tools/redeploy.mjs <old build> <new build>` (see "Re-baking a city").
 
 Feel QA: `node tools/feel-sim/run.mjs <scenario>` runs the real game modules
 offline against the baked city (aim, altitude taps, picks, misses, bank /

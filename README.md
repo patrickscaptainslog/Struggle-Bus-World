@@ -176,3 +176,5 @@ time) keyed by a stable building id, so a server can own it in Phase 2.
 ## Deploy
 Vercel: import the repo; `vercel.json` is set up (build `npm run build`,
 output `dist`). Add to Home Screen on iPhone for full-screen play.
+A re-baked city needs `window.__sbDataV` bumped in `index.html` (ARCHITECTURE,
+"Re-baking a city"): phones hold `/city/` files by URL.

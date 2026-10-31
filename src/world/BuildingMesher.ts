@@ -8,7 +8,8 @@
 // (meshCasterTile): the same building code run through a Builder in caster
 // mode, which keeps positions only, draws every wall as one quad and drops
 // the down-facing undersides (the sun never sees them). Every shape still
-// casts: the proxy is the same surface as the detailed mesh, in fewer triangles.
+// casts: the proxy is the same surface as the detailed mesh, in fewer triangles,
+// but for a house's walls and roof, on its ring to within CASTER_RING_EPS.
 //
 // LiDAR-tiered towers arrive as several parts (consecutive records sharing a
 // paint index): each part is extruded from the top of the tier below. Street
@@ -594,6 +595,9 @@ function meshTile(B: Builder, t: BuildingTile, lod: 0 | 1, sf: boolean, kinds: U
  * 500+ m from the lens (DETAIL_RADIUS x 0.8), where a game pixel is 0.6-0.75 m, up high 1-2.5 m, and LOD 1 has already
  * dropped the bays, stoops and cornices of that depth. 0.1 % of a frame's game pixels move, one here, one there. */
 const RING_EPS = 1.5;
+/** The caster proxy's rings for a house, to within this (m): every shape still casts, only a jog under 1 m leaves the outline
+ * of its shadow (1.3-4 shadow texels; the frames move by single game pixels along shadow edges). */
+const CASTER_RING_EPS = 1;
 
 /** Squared distance from point p to the segment a-b. */
 function dist2(p: [number, number], a: [number, number], b: [number, number]): number {
@@ -610,7 +614,7 @@ function dist2(p: [number, number], a: [number, number], b: [number, number]): n
  * carry every jog of a parcel (9.9 vertices a ring in SF, against USA Structures' 5.7), and each costs three triangles at
  * LOD 1, twice with the sun pass, on regions that show a building as a few pixels.
  */
-function ringKeep(pts: Array<[number, number]>, area: number, front: number, front2: number): number[] | null {
+function ringKeep(pts: Array<[number, number]>, area: number, front: number, front2: number, eps = RING_EPS): number[] | null {
   const n = pts.length;
   const on = new Uint8Array(n);
   let first = 0;
@@ -632,7 +636,7 @@ function ringKeep(pts: Array<[number, number]>, area: number, front: number, fro
   on[far] = 1;
   const anchors: number[] = [];
   for (let k = 0; k < n; k++) if (on[k]) anchors.push(k);
-  const eps2 = RING_EPS * RING_EPS;
+  const eps2 = eps * eps;
   const span = (i: number, j: number) => {
     let m = -1, dm = eps2;
     for (let k = (i + 1) % n; k !== j; k = (k + 1) % n) {
@@ -723,9 +727,12 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
     if (front !== 255) front = (n - 2 - front + n) % n;
     if (front2 !== 255) front2 = (n - 2 - front2 + n) % n;
   }
-  // (a facade family's columns land on its walls' corners: a tower keeps its ring)
-  if (lod === 1 && n > 4 && !g.style) {
-    const keep = ringKeep(pts, Math.abs(area) / 2, front, front2);
+  // The coarse mesh and the caster proxy draw their walls and roofs on fewer of the ring's vertices. All else reads the whole ring: a
+  // rooftop box, a chimney or a gable stands from its center and extent, and on another ring it would cast where it doesn't stand.
+  // (a facade family's columns land on its walls' corners: a tower keeps its ring; a tapering part's top is its ring, boxes and all)
+  const whole = pts;
+  if ((lod === 1 || (B.caster && topScale >= 1)) && n > 4 && !g.style) {
+    const keep = ringKeep(pts, Math.abs(area) / 2, front, front2, lod === 1 ? RING_EPS : CASTER_RING_EPS);
     if (keep) {
       front = front !== 255 && front < n ? keep.indexOf(front) : 255;
       front2 = front2 !== 255 && front2 < n ? keep.indexOf(front2) : 255;
@@ -734,8 +741,8 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
     }
   }
   let cx = 0, cz = 0;
-  for (const p of pts) { cx += p[0]; cz += p[1]; }
-  cx /= n; cz /= n;
+  for (const p of whole) { cx += p[0]; cz += p[1]; }
+  cx /= whole.length; cz /= whole.length;
   const baseY = t.baseY[i];
   const roofY = Math.max(t.roofY[i], baseY + (tier > 0 ? 1.0 : 2.5));
   const arch = t.arch[i];
@@ -770,7 +777,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
   // inward normal = left side of a->b for CCW ring: (-uz, ux)
   const inx = -uz, inz = ux;
   let s0 = Infinity, s1 = -Infinity, t0 = Infinity, t1 = -Infinity;
-  for (const p of pts) {
+  for (const p of whole) {
     const ds = (p[0] - fa[0]) * ux + (p[1] - fa[1]) * uz;
     const dt = (p[0] - fa[0]) * inx + (p[1] - fa[1]) * inz;
     s0 = Math.min(s0, ds); s1 = Math.max(s1, ds);
@@ -792,8 +799,9 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
   // ---- walls
   // perimeter u starts at the front edge so the facade pattern lines up with it
   const startK = front !== 255 ? front : 0;
-  // wall columns only serve the painted wobble: towers' upper tiers (high, narrow faces) need fewer
-  const segLen = tier > 0 ? 6.4 : 3.2;
+  // wall columns only serve the painted wobble, a ~27 m wave of 0.32 m: 8 m on a house, a chord (12 m at most) stays within 0.13-0.26 m
+  // of the wave. A facade family keeps a finer grid (remapU stretches it to whole column modules), its upper tiers (high, narrow faces) less
+  const segLen = fam ? (tier > 0 ? 6.4 : 3.2) : 8;
   let u = 0;
   let uF = 0; // facade families: u in whole modules
   if (topScale < 1) {
@@ -902,7 +910,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
   // (a mapped roof stands where a setback garden or a crown's onions would: they'd hang inside it)
   if (fam && !builtShape) towerGrowth(B, t, g, i, pts, roofY, lod);
   if (lod === 1 || front === 255) {
-    if (lod === 0 && !builtShape) clutter(B, pts, cx, cz, roofY, arch, r, open);
+    if (lod === 0 && !builtShape) clutter(B, whole, cx, cz, roofY, arch, r, open);
     return;
   }
 
@@ -993,7 +1001,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
     const chTop = (gable ? roofY + 2.6 : roofY + 1.7) + r() * 0.6;
     B.prism(ccw([[px - hw, pz - hw], [px + hw, pz - hw], [px + hw, pz + hw], [px - hw, pz + hw]]), roofY - 0.2, chTop, Part.CLUTTER);
   }
-  if (!gable && !builtShape) clutter(B, pts, cx, cz, roofY, arch, r, open);
+  if (!gable && !builtShape) clutter(B, whole, cx, cz, roofY, arch, r, open);
 }
 
 // ---- painted towers: setback gardens (level 2 bushes, level 3 trees spilling

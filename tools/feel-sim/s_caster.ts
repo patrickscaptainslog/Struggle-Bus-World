@@ -1,19 +1,25 @@
 // Every mapped roof casts: for each tile of a city, every roof the mesher built must stand in the sun pass's caster proxy
 // as high as in the visible mesh. Per tile: the highest vertex of each, and per built roof a caster vertex at its top.
+// And everything that stands on a building casts from where it stands: a visible rooftop box, chimney, tank, bay, stoop or
+// cornice has its corners in the proxy. Only walls and roofs may take the proxy's simpler ring (ringKeep).
 //   node tools/feel-sim/run.mjs s_caster.ts
 //   SB_DATA=public/city/amsterdam node tools/feel-sim/run.mjs s_caster.ts
+// (standing: Part id -> [its vertices, those not in the proxy])
 import './env';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { DATA_DIR } from './env';
 import { parseBuildingTile } from '@src/world/tiles';
-import { meshBuildingTile, meshCasterTile, roofKinds } from '@src/world/BuildingMesher';
+import { Part, meshBuildingTile, meshCasterTile, roofKinds } from '@src/world/BuildingMesher';
 import { eaveY } from '@src/world/roofGeom';
 
 const manifest = JSON.parse(readFileSync(`${DATA_DIR}/city.json`, 'utf8'));
 const sf = Math.abs(manifest.origin[0] - 37.7749) < 1e-6;
 let tiles = 0, tileLow = 0, roofs = 0, cast = 0;
 const lost: string[] = [];
+const STANDS = new Set<number>([Part.TRIM, Part.BAY, Part.GABLE, Part.CLUTTER, Part.STOOP, Part.GARAGE]);
+const standing: Record<number, [number, number]> = {};
+const posKey = (p: Float32Array, v: number) => (Math.round(p[v * 3] * 100) * 73856093) ^ (Math.round(p[v * 3 + 1] * 100) * 19349663) ^ (Math.round(p[v * 3 + 2] * 100) * 83492791);
 for (const [rx, rz] of manifest.regions as Array<[number, number, number]>) {
   const raw = readFileSync(`${DATA_DIR}/r_${rx}_${rz}.bin`);
   const buf = raw[0] === 0x1f ? gunzipSync(raw) : raw;
@@ -34,6 +40,16 @@ for (const [rx, rz] of manifest.regions as Array<[number, number, number]>) {
     for (let v = 0; v < c.vertexCount; v++) ctop = Math.max(ctop, c.position[v * 3 + 1]);
     tiles++;
     if (ctop < top - 0.01) tileLow++;
+    const at = new Set<number>();
+    for (let v = 0; v < c.vertexCount; v++) at.add(posKey(c.position, v));
+    for (let v = 0; v < m.vertexCount; v++) {
+      const part = m.meta[v * 4];
+      // (an underside isn't in the proxy: whatever it could shadow, the face above it already does)
+      if (!STANDS.has(part) || m.normal[v * 3 + 1] < -64) continue;
+      const row = (standing[part] ??= [0, 0]);
+      row[0]++;
+      if (!at.has(posKey(m.position, v))) row[1]++;
+    }
     // each built roof: a caster vertex inside its bounds at its ridge / apex
     for (let k = 0; k < b.count; k++) {
       if (!kinds[k]) continue;
@@ -54,4 +70,4 @@ for (const [rx, rz] of manifest.regions as Array<[number, number, number]>) {
     }
   }
 }
-console.log(JSON.stringify({ data: DATA_DIR, tiles, tilesWithALowerCaster: tileLow, builtRoofs: roofs, casting: cast, lost }));
+console.log(JSON.stringify({ data: DATA_DIR, tiles, tilesWithALowerCaster: tileLow, builtRoofs: roofs, casting: cast, lost, standing }));

@@ -216,14 +216,15 @@ export const HIDDEN: Hidden[] = [
   { name: 'Coit Tower', cx: COIT[0], cz: COIT[1], ax: 1, az: 0, halfL: 16, halfW: 16, maxTop: 15 },
   // The bridges are hand-built too: what OSM's footprints and the LiDAR make of them stands beside the props, bare grey
   // boxes in the bay: the Golden Gate's real towers (228 and 225 m), the Bay Bridge's (142-156 m), its central anchorage
-  // (89 m), the saddles over its piers (64-79 m, LiDAR-only) and the east span's tower, with no span to stand on
+  // (89 m), the saddles over its piers (64-79 m, LiDAR-only: W2's and W5's boxes reach their whole footprints, ~78 m
+  // obstacle cells past the drawn box) and the east span's tower, with no span to stand on
   { name: 'Golden Gate south tower', cx: -5152, cz: -4343, ax: 1, az: 0, halfL: 30, halfW: 30, maxTop: 240, clears: true },
   { name: 'Golden Gate north tower', cx: -5268, cz: -5618, ax: 1, az: 0, halfL: 30, halfW: 30, maxTop: 240, clears: true },
   { name: 'Bay Bridge east span', cx: 5362, cz: -4482, ax: 1, az: 0, halfL: 40, halfW: 40, maxTop: 170, clears: true },
-  { name: 'Bay Bridge W2', cx: 3422, cz: -2310, ax: 1, az: 0, halfL: 40, halfW: 40, maxTop: 170, clears: true },
+  { name: 'Bay Bridge W2', cx: 3422, cz: -2310, ax: 1, az: 0, halfL: 70, halfW: 70, maxTop: 170, clears: true },
   { name: 'Bay Bridge W3', cx: 3600, cz: -2501, ax: 1, az: 0, halfL: 34, halfW: 34, maxTop: 170, clears: true },
   { name: 'Bay Bridge anchorage', cx: 3658, cz: -2585, ax: 1, az: 0, halfL: 40, halfW: 40, maxTop: 170, clears: true },
-  { name: 'Bay Bridge W5', cx: 3904, cz: -2877, ax: 1, az: 0, halfL: 50, halfW: 50, maxTop: 170, clears: true },
+  { name: 'Bay Bridge W5', cx: 3904, cz: -2877, ax: 1, az: 0, halfL: 86, halfW: 86, maxTop: 170, clears: true },
   { name: 'Bay Bridge W6', cx: 4372, cz: -3424, ax: 1, az: 0, halfL: 40, halfW: 40, maxTop: 170, clears: true },
   // the hut in Alamo Square, 45 m^2 under a cypress, stood 22 m tall on the crown's LiDAR, beside the Painted Ladies
   { name: 'Alamo Square hut', cx: -1320, cz: -126, ax: 1, az: 0, halfL: 9, halfW: 9, maxTop: 25, clears: true },
