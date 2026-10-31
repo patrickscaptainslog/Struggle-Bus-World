@@ -573,10 +573,13 @@ async function boot() {
       const lat = (cx - camera.position.x) * sx + (cz - camera.position.z) * sz;
       const pref = Math.abs(flight.yawRate) > 0.05 ? -Math.sign(flight.yawRate) : lat >= 0 ? 1 : -1;
       let found: typeof signSpot = null;
+      /** the first spot only a tall pole clears: it stands by, for when nothing takes less */
+      let tall: typeof signSpot = null;
       // where to look (m along the view's forward and right from the blast's center): past the far side,
       // off the flight line; then beside it; then farther past. Never inside the blast (+ a margin): there
       // the sign stands in front of painted houses and covers the bloom. Per spot: the pole seen to its
-      // foot, else (second pass) a pole lifted clear of the roofs in front, up to signTune.poleLiftMax
+      // foot, else (second pass) a pole lifted clear of the roofs in front, up to signTune.poleLiftMax; a street
+      // between taller roofs than that takes the first spot a pole up to signTune.poleLiftTall clears
       const o1 = r + T.besideOut, s1 = T.besideSide * r;
       // (the blade's half width: its bottom corners must clear the roofs in front too, not just its middle:
       // a roof edge in front cut the letters diagonally)
@@ -612,7 +615,7 @@ async function boot() {
             const yb = y + (T.poleHeight - 1) * scale, cx0 = sx * hw * scale, cz0 = sz * hw * scale;
             const corners = Math.max(sightLift(x - cx0, yb, z - cz0), sightLift(x + cx0, yb, z + cz0));
             const pole = pass === 0 ? (sightLift(x, y + 1.5, z) > 0.5 || corners > 0.5 ? -1 : 0) : Math.max(sightLift(x, yb, z), corners);
-            if (pole < 0 || pole > T.poleLiftMax) continue;
+            if (pole < 0 || pole > T.poleLiftTall || (tall && pole > T.poleLiftMax)) continue;
             // the blade must land inside the frame, below the top band (the sky and the horizon)
             signNdc.set(x, y + (T.poleHeight + 4) * scale + pole, z).project(camera);
             if (Math.abs(signNdc.x) > 0.72 || signNdc.y > 0.7 || signNdc.y < -0.6 || signNdc.z > 1) continue;
@@ -620,12 +623,18 @@ async function boot() {
             if (!bladeBox(x, y, z, hw, scale, pole, sx, sz, bladeTmp) || bladeTmp[0] < -0.96 || bladeTmp[2] > 0.96 || overLm(bladeTmp)) continue;
             // (and nothing farther in front hides it: the pole test above sees only the first 60 m)
             if (!bladeSeen(x, yb + pole, z, cx0, cz0)) continue;
-            found = { x, y, z, facing: Math.atan2(-fx, -fz), scale, bias: true, pole, cx, cz, r, text, until: 0 };
+            const spot = { x, y, z, facing: Math.atan2(-fx, -fz), scale, bias: true, pole, cx, cz, r, text, until: 0 };
+            if (pole > T.poleLiftMax) {
+              tall = spot;
+              continue;
+            }
+            found = spot;
             break;
           }
           if (found) break;
         }
       }
+      found ??= tall;
       if (!found) {
         // nowhere open in frame: look again in a moment (the camera moves on), twice. Then a landmark
         // (it has no street front: the edge facing the bus) signs its name on its apron along that edge, as

@@ -105,6 +105,11 @@ export const signTune = {
   minFontPx: 1.15,
   /** ...and when its foot is hidden behind roofs, its pole may grow this much (m) to clear them. */
   poleLiftMax: 10,
+  /**
+   * ...and this much (m) when no spot in frame takes less: a street of 20 m terraces (London, most of Europe) can't be
+   * cleared by a pole written for SF's 8-12 m houses, and a blade over those roofs beats no name at all.
+   */
+  poleLiftTall: 32,
 };
 registerTunables('Signs', signTune, {
   texelW: [0.25, 0.8, 0.01],
@@ -141,6 +146,7 @@ registerTunables('Signs', signTune, {
   besideSide: [0, 1.5, 0.01],
   minFontPx: [0.5, 3, 0.05],
   poleLiftMax: [0, 30, 0.5],
+  poleLiftTall: [0, 60, 1],
 });
 
 export interface StreetSignOptions {
