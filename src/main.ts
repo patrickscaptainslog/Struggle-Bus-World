@@ -1179,6 +1179,7 @@ async function boot() {
     }
     pipeline.render(scene);
     framesDrawn++;
+    if (framesDrawn === 2 && openingSeen && opening < config.fog.openingDuration) controls.hud.toast(['TAP TO SKIP'], 2.2);
     // a deferred landmark (one per frame, early in the opening) when the warm-up didn't leave time for them all
     later.shift()?.();
     const superView = superSplat.view();

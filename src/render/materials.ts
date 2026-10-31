@@ -235,17 +235,17 @@ void sbWrite(float ramp, float light, float fog, float glow, vec3 viewNormal, fl
 }
 `;
 
-/** The post passes' side of the G-buffer: sbColor / sbAux give the bytes above as 0..1, as RGBA8 textures would. */
+/** The post passes' side of the G-buffer: the bytes above as 0..1, as RGBA8 textures would give them. */
 export const GLSL_G_READ = /* glsl */ `
 uniform highp usampler2D tG;
-vec4 sbColor(ivec2 p) {
-  uvec2 t = texelFetch(tG, p, 0).rg;
+vec4 sbUnpack(uvec2 t) {
   return vec4(float(t.x & 255u), float(t.x >> 8u), float(t.y & 255u), float(t.y >> 8u)) / 255.0;
 }
-vec4 sbAux(ivec2 p) {
-  uvec2 t = texelFetch(tG, p, 0).ba;
-  return vec4(float(t.x & 255u), float(t.x >> 8u), float(t.y & 255u), float(t.y >> 8u)) / 255.0;
-}
+vec4 sbColor(ivec2 p) { return sbUnpack(texelFetch(tG, p, 0).rg); }
+vec4 sbAux(ivec2 p) { return sbUnpack(texelFetch(tG, p, 0).ba); }
+// (the neighbors' light and fog alone: those loops are the resolve's longest compile)
+float sbLightAt(ivec2 p) { return float(texelFetch(tG, p, 0).r >> 8u) / 255.0; }
+float sbFogAt(ivec2 p) { return float(texelFetch(tG, p, 0).g & 255u) / 255.0; }
 `;
 
 export interface RampMaterialOptions {

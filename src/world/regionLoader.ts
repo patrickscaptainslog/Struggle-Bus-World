@@ -2,6 +2,7 @@
 // worker, or on the main thread when a sandbox forbids workers.
 import { parseBuildingTile, parseTerrainTile } from './tiles';
 import { meshBuildingTile, meshCasterTile, type CasterArrays, type MeshArrays } from './BuildingMesher';
+import type { BuildingTile, TerrainTile } from './tiles';
 import { gunzip, isGzip } from './gunzip';
 
 export interface RegionRequest {
@@ -12,6 +13,7 @@ export interface RegionRequest {
   lod: 0 | 1;
   /** the city is San Francisco (the mesher's icons and HIDDEN tables apply) */
   sf: boolean;
+  tileSize: number;
 }
 
 export interface TileResult {
@@ -25,6 +27,8 @@ export interface TileResult {
   caster: CasterArrays | null;
   /** the tile's collapsed growth elements (GROWN_STRIDE floats each; kept when a coarse region merges its meshes) */
   grown: Float32Array | null;
+  /** full-detail tiles: what the mesh's roofs add to the flight's obstacle grid, per cell (see roofTops) */
+  tops: Float32Array | null;
   terrain: ReturnType<typeof parseTerrainTile> | null;
   /** the tile's ground grid, built here (4 m for detailed regions, 8 m for coarse ones) */
   grid: GridArrays | null;
@@ -87,6 +91,82 @@ export interface RegionResponse {
   merged?: MeshArrays | null;
   mergedSphere?: Float32Array | null;
   error?: string;
+}
+
+/** Distance from (x, z) to the segment a-b (m). */
+function segDist(ax: number, az: number, bx: number, bz: number, x: number, z: number): number {
+  const dx = bx - ax, dz = bz - az;
+  const L2 = dx * dx + dz * dz;
+  const t = L2 > 0 ? Math.min(1, Math.max(0, ((x - ax) * dx + (z - az) * dz) / L2)) : 0;
+  return Math.hypot(ax + dx * t - x, az + dz * t - z);
+}
+
+/** True if (x, z) lies within `r` of record k's ring: inside it, or that close to an edge. */
+function nearRing(b: BuildingTile, k: number, x: number, z: number, r: number): boolean {
+  const s = b.vertStart[k], e = b.vertStart[k + 1];
+  let inside = false;
+  let d = Infinity;
+  for (let i = s, j = e - 1; i < e; j = i++) {
+    const xi = b.xz[i * 2], zi = b.xz[i * 2 + 1], xj = b.xz[j * 2], zj = b.xz[j * 2 + 1];
+    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+    d = Math.min(d, segDist(xj, zj, xi, zi, x, z));
+  }
+  return inside || d <= r;
+}
+
+/**
+ * What the detailed mesh adds to the flight's obstacle cells, per cell (the most: -Infinity = nothing): gable ridges,
+ * chimneys, parapets and rooftop clutter (the bake's grid only knows the flat roofs). Every vertex lifts its own cell (a
+ * box on a tower or a podium); a single-part house lifts every cell within 3 m of its footprint (as the bake's buffer) to
+ * its top, so a gable's ridge holds between its two ends. Here because it walks every vertex: the main thread only
+ * takes the larger of two numbers per cell (City.adoptTops).
+ */
+function roofTops(b: BuildingTile, m: MeshArrays, tr: TerrainTile, tileSize: number): Float32Array {
+  const N = tr.obstN, oc = tileSize / N;
+  const out = new Float32Array(N * N).fill(-Infinity);
+  // a building's records are consecutive, and so are its vertices in the tile's mesh
+  const house = new Map<number, number>();
+  for (let i = 0; i < b.count; i++) {
+    const solo = (i === 0 || b.index[i - 1] !== b.index[i]) && (i + 1 === b.count || b.index[i + 1] !== b.index[i]);
+    if (solo && b.tier[i] === 0) house.set(b.index[i], i);
+  }
+  const flush = (id: number, top: number) => {
+    const k = house.get(id);
+    if (k === undefined || top <= b.roofY[k] + 0.3) return;
+    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+    for (let v = b.vertStart[k]; v < b.vertStart[k + 1]; v++) {
+      const vx = b.xz[v * 2], vz = b.xz[v * 2 + 1];
+      if (vx < x0) x0 = vx;
+      if (vx > x1) x1 = vx;
+      if (vz < z0) z0 = vz;
+      if (vz > z1) z1 = vz;
+    }
+    x0 -= 3; z0 -= 3; x1 += 3; z1 += 3;
+    const ix0 = Math.max(0, Math.floor((x0 - tr.originX) / oc - 0.5)), ix1 = Math.min(N - 1, Math.floor((x1 - tr.originX) / oc - 0.5) + 1);
+    const iz0 = Math.max(0, Math.floor((z0 - tr.originZ) / oc - 0.5)), iz1 = Math.min(N - 1, Math.floor((z1 - tr.originZ) / oc - 0.5) + 1);
+    for (let iz = iz0; iz <= iz1; iz++)
+      for (let ix = ix0; ix <= ix1; ix++) {
+        const c = iz * N + ix;
+        if (out[c] >= top) continue;
+        const cx = tr.originX + (ix + 0.5) * oc, cz = tr.originZ + (iz + 0.5) * oc;
+        if (cx < x0 || cx > x1 || cz < z0 || cz > z1 || !nearRing(b, k, cx, cz, 3)) continue;
+        out[c] = top;
+      }
+  };
+  let cur = -1, top = -Infinity;
+  for (let v = 0; v < m.vertexCount; v++) {
+    const id = m.bld[v * 4];
+    const y = m.position[v * 3 + 1];
+    const ix = Math.floor((m.position[v * 3] - tr.originX) / oc), iz = Math.floor((m.position[v * 3 + 2] - tr.originZ) / oc);
+    if (ix >= 0 && iz >= 0 && ix < N && iz < N && y > out[iz * N + ix]) out[iz * N + ix] = y;
+    if (id !== cur) {
+      if (cur >= 0) flush(cur, top);
+      cur = id;
+      top = y;
+    } else if (y > top) top = y;
+  }
+  if (cur >= 0) flush(cur, top);
+  return out;
 }
 
 /** Bounding sphere of a position array (center of its box, half its diagonal). */
@@ -165,6 +245,7 @@ export async function loadRegion(req: RegionRequest, transfer: Transferable[] = 
       let sphere = null;
       let caster = null;
       let grown = null;
+      let tops = null;
       let terrain = null;
       let grid = null;
       if (bLen > 0) {
@@ -184,8 +265,12 @@ export async function loadRegion(req: RegionRequest, transfer: Transferable[] = 
         terrain = parseTerrainTile(buf.slice(tOff, tOff + tLen), req.classN);
         grid = heightGrid(terrain.heights, terrain.n, terrain.cell, terrain.originX, terrain.originZ, req.lod === 0 ? 2 : 4);
         transfer.push(terrain.heights.buffer, terrain.obst.buffer, terrain.cls.buffer, grid.position.buffer, grid.normal.buffer, grid.index.buffer);
+        if (mesh && req.lod === 0) {
+          tops = roofTops(building!, mesh, terrain, req.tileSize);
+          transfer.push(tops.buffer);
+        }
       }
-      tiles.push({ tx, tz, building, mesh, sphere, caster, grown, terrain, grid });
+      tiles.push({ tx, tz, building, mesh, sphere, caster, grown, tops, terrain, grid });
     }
     let merged: MeshArrays | null = null;
     let mergedSphere: Float32Array | null = null;

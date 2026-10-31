@@ -998,12 +998,11 @@ void main() {
   // checkerboards on walls that happen to sit on a step boundary.
   float lb = g.g * 255.0;
   // (slow gradients count as flat too: a clean band edge beats a dotted contour)
-  vec4 gR = sbColor(p + ivec2(1, 0)), gL = sbColor(p + ivec2(-1, 0));
-  vec4 gU = sbColor(p + ivec2(0, 1)), gD = sbColor(p + ivec2(0, -1));
+  ivec2 pR = p + ivec2(1, 0), pL = p + ivec2(-1, 0), pU = p + ivec2(0, 1), pD = p + ivec2(0, -1);
   // (only a neighbor on a real gradient counts: one more than the dither window away sits across an
   // edge, a tree crown's light band, a shadow's rim, another face. A gradient that steep has no room
   // for a dither, which only drew dots along the edge that churned as it slid through the grid)
-  vec4 dl = abs(vec4(gR.g, gL.g, gU.g, gD.g) * 255.0 - lb);
+  vec4 dl = abs(vec4(sbLightAt(pR), sbLightAt(pL), sbLightAt(pU), sbLightAt(pD)) * 255.0 - lb);
   vec4 onGrad = vec4(greaterThanEqual(dl, vec4(1.5))) * vec4(lessThan(dl, vec4(72.86 * uDitherWidth)));
   bool flatLight = dot(onGrad, vec4(1.0)) < 0.5;
   // into the haze the dither's reach shrinks too: the ordered pattern is anchored to the grid snapped
@@ -1023,7 +1022,7 @@ void main() {
   // fixed band was a wide dithered zipper that reshuffled as the camera dollied (the fog contour
   // slides through the grid). At street level it keeps a floor (config.render.fogBandMin; the
   // value-matched colors make its dots a hue flip); seen from high up, over the fog sea, a clean contour
-  float gf = max(max(abs(gR.b - fog), abs(gU.b - fog)), max(abs(gL.b - fog), abs(gD.b - fog)));
+  float gf = max(max(abs(sbFogAt(pR) - fog), abs(sbFogAt(pU) - fog)), max(abs(sbFogAt(pL) - fog), abs(sbFogAt(pD) - fog)));
   float bandW = clamp(gf * 2.5, mix(uHaze.z, 0.004, uFogLayer2.w), 0.06);
   float fogBand = clamp((fog - 0.65 + bandW * 0.5) / bandW, 0.0, 1.0);
   bool fogged = fogBand > mix(d2, 0.5, uCalm);
@@ -1069,11 +1068,11 @@ void main() {
         int K = clamp(int(uSize.y * uHaze.w + 0.5), 3, 16);
         int run = 1;
         for (int i = 1; i < 16; i++) {
-          if (i >= K || !stands(sbColor(p + ivec2(0, i)).b, sl, bur)) break;
+          if (i >= K || !stands(sbFogAt(p + ivec2(0, i)), sl, bur)) break;
           run++;
         }
         for (int i = 1; i < 16; i++) {
-          if (run >= K || !stands(sbColor(p - ivec2(0, i)).b, sl, bur)) break;
+          if (run >= K || !stands(sbFogAt(p - ivec2(0, i)), sl, bur)) break;
           run++;
         }
         if (run < K) oStep = bur;

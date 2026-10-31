@@ -694,7 +694,7 @@ export class City {
       this.regionsRequested.add(key);
       const id = this.nextId++;
       this.pending.set(id, { key, lod });
-      const msg: RegionRequest = { type: 'region', id, url: new URL(`${this.baseUrl}/r_${rx}_${rz}${this.ext}`, location.href).href, classN: this.manifest.classN, lod, sf: this.sf };
+      const msg: RegionRequest = { type: 'region', id, url: new URL(`${this.baseUrl}/r_${rx}_${rz}${this.ext}`, location.href).href, classN: this.manifest.classN, lod, sf: this.sf, tileSize: this.manifest.tileSize };
       if (this.worker) this.worker.postMessage(msg);
       else void loadRegion(msg).then((r) => this.onRegion(r));
     }
@@ -959,7 +959,7 @@ export class City {
     if (t.mesh) {
       p.buildings = this.makeBuildingMesh(t.mesh, t.sphere, !t.caster);
       if (t.caster && p.buildings) p.caster = this.makeCasterMesh(t.caster, p.buildings.geometry.boundingSphere!);
-      this.meshTops(lt, t.mesh);
+      this.adoptTops(lt, t.tops);
     }
     lt.grid = t.grid;
     if (lt.terrainStep !== 2 && lt.terrainData) p.terrain = this.makeGround(lt, 2);
@@ -1260,7 +1260,7 @@ export class City {
         this.setMask(t.tx, t.tz, 255);
       }
     }
-    if (t.mesh && !coarse) this.meshTops(lt, t.mesh);
+    if (!coarse) this.adoptTops(lt, t.tops);
     this.tiles.set(key, lt);
     this.tileNum.set(tileKeyNum(t.tx, t.tz), lt);
     // a prop's cells (and its neighbors' buildings in them) are rebuilt with every tile under it
@@ -1413,36 +1413,11 @@ export class City {
     return top;
   }
 
-  /**
-   * Raise the flight's obstacle cells to what the detailed mesh really has on its roofs: gable ridges,
-   * chimneys, parapets and rooftop clutter (the bake's grid only knows the flat roofs). Every vertex
-   * lifts its own cell (a box on a tower or a podium); a single-part house lifts every cell within 3 m of
-   * its footprint (as the bake's buffer) to its top, so a gable's ridge holds between its two ends.
-   */
-  private meshTops(lt: LoadedTile, m: MeshArrays) {
-    const tr = lt.terrainData;
-    if (!tr || !lt.refs.length || !m.vertexCount) return;
-    const N = tr.obstN, oc = this.manifest.tileSize / N;
-    const byIndex = new Map<number, BuildingRef>();
-    for (const r of lt.refs) if (r.parts === 1) byIndex.set(r.index, r);
-    // a building's vertices are consecutive in its tile mesh
-    let cur = -1, top = -Infinity;
-    const flush = () => {
-      const ref = cur >= 0 ? byIndex.get(cur) : undefined;
-      if (ref && top > ref.roofY + 0.3) this.raiseCells(tr, ref.x0 - 3, ref.z0 - 3, ref.x1 + 3, ref.z1 + 3, top, (x, z) => this.edgeDistance(ref, x, z) <= 3);
-    };
-    for (let v = 0; v < m.vertexCount; v++) {
-      const id = m.bld[v * 4];
-      const y = m.position[v * 3 + 1];
-      const ix = Math.floor((m.position[v * 3] - tr.originX) / oc), iz = Math.floor((m.position[v * 3 + 2] - tr.originZ) / oc);
-      if (ix >= 0 && iz >= 0 && ix < N && iz < N && y > tr.obst[iz * N + ix]) tr.obst[iz * N + ix] = y;
-      if (id !== cur) {
-        flush();
-        cur = id;
-        top = y;
-      } else if (y > top) top = y;
-    }
-    flush();
+  /** The flight's obstacle cells take what the detailed mesh has on its roofs (regionLoader's roofTops, made in the worker). */
+  private adoptTops(lt: LoadedTile, tops: Float32Array | null) {
+    const o = lt.terrainData?.obst;
+    if (!o || !tops) return;
+    for (let k = 0; k < o.length; k++) if (tops[k] > o[k]) o[k] = tops[k];
   }
 
   /** Raise tile tr's obstacle cells inside the bounds whose centers pass `inside` to at least `top` (m). */

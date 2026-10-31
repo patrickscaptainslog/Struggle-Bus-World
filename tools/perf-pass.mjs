@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Renderer cost split by pass (sun shadow pass vs. main G-buffer pass vs.
-// post), from the real game, iPhone portrait viewport. SwiftShader fps is
-// meaningless here: draw calls, triangles and CPU work per frame are real.
+// post), from the real game on this machine's GPU (tools/browser.mjs), iPhone
+// portrait viewport.
 //   node tools/perf-pass.mjs <baseUrl> <out.json> [modes...] [--frames=8] [--label=name] [--by]
 // modes (default: views):
 //   views    the Painted Ladies and FiDi at the rooftops, downtown at 250 m and the
@@ -23,6 +23,7 @@
 //       far / instanced ...).
 import { chromium } from 'playwright-core';
 import { writeFileSync } from 'node:fs';
+import { browserOptions } from './browser.mjs';
 
 const args = process.argv.slice(2);
 const pos = args.filter((a) => !a.startsWith('--'));
@@ -31,10 +32,7 @@ const [base = 'http://127.0.0.1:4721/', outFile = 'perf-pass.json', ...modeArgs]
 const modes = new Set(modeArgs.length ? modeArgs : ['views']);
 const FRAMES = Number(opt.frames ?? 8);
 
-const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox', '--enable-precise-memory-info', '--js-flags=--expose-gc'],
-});
+const browser = await chromium.launch(browserOptions(['--enable-precise-memory-info', '--js-flags=--expose-gc']));
 
 async function open(query, { dpr = 3 } = {}) {
   const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: dpr, hasTouch: true, isMobile: true });
@@ -43,6 +41,16 @@ async function open(query, { dpr = 3 } = {}) {
   await page.addInitScript(() => {
     // a grey city every time (no saved building or ground paint)
     for (const k of Object.keys(localStorage)) if (k.startsWith('strugglebus.')) localStorage.removeItem(k);
+    // where ?lat=&lon= put the bus (the pins below are meters from there: right on any build and any city)
+    let game = null;
+    Object.defineProperty(window, '__game', {
+      configurable: true,
+      get: () => game,
+      set: (v) => {
+        game = v;
+        window.__spawn = [v.flight.x, v.flight.z];
+      },
+    });
     // bytes uploaded per frame (bufferData / bufferSubData), and live GPU buffer bytes
     window.__upload = 0;
     window.__gpuBytes = 0;
@@ -240,13 +248,17 @@ const pin = async (page, x, z, heading, s, floor = false) => {
   );
   await settle(page, s);
 };
-const llx = (lat, lon) => [(lon + 122.4194) * 111320 * Math.cos((37.7749 * Math.PI) / 180), -(lat - 37.7749) * 110574];
+/** (dx, dz) m from the bus's spawn */
+const near = async (page, dx = 0, dz = 0) => {
+  const [x, z] = await page.evaluate(() => window.__spawn);
+  return [x + dx, z + dz];
+};
 if (modes.has('views')) {
   {
     const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro');
     await drift(page, HOLD);
     await settle(page, 2);
-    await pin(page, ...llx(37.77628, -122.4352), 88, 2.5, true);
+    await pin(page, ...(await near(page)), 88, 2.5, true);
     report.views.push(await measure(page, 'ladies'));
     await page.close();
   }
@@ -254,7 +266,7 @@ if (modes.has('views')) {
     const page = await open('?lat=37.7925&lon=-122.4010&heading=0&skipintro');
     await drift(page, HOLD);
     await settle(page, 2);
-    await pin(page, ...llx(37.7925, -122.401), 0, 2.5, true);
+    await pin(page, ...(await near(page)), 0, 2.5, true);
     report.views.push(await measure(page, 'fidi'));
     await page.close();
   }
@@ -264,12 +276,12 @@ if (modes.has('views')) {
     await climbTo(page, 250);
     await drift(page, HOLD);
     await settle(page, 3);
-    await pin(page, ...llx(37.77092, -122.42883), 45, 3);
+    await pin(page, ...(await near(page, 103, -102)), 45, 3);
     report.views.push(await measure(page, 'downtown250'));
     await climbTo(page, 560);
     await drift(page, HOLD);
     await settle(page, 4);
-    await pin(page, ...llx(37.77255, -122.42679), 45, 4);
+    await pin(page, ...(await near(page, 283, -282)), 45, 4);
     report.views.push(await measure(page, 'ceiling'));
     await page.close();
   }
@@ -290,7 +302,7 @@ if (modes.has('cpu')) {
     const page = await open('?lat=37.77628&lon=-122.4352&heading=88&skipintro');
     await drift(page, HOLD);
     await settle(page, 2);
-    await pin(page, ...llx(37.77628, -122.4352), 88, 2.5, true);
+    await pin(page, ...(await near(page)), 88, 2.5, true);
     report.cpu.push(await work(page, 'ladies'));
     await page.close();
   }
@@ -300,7 +312,7 @@ if (modes.has('cpu')) {
     await climbTo(page, 560);
     await drift(page, HOLD);
     await settle(page, 4);
-    await pin(page, ...llx(37.77255, -122.42679), 45, 4);
+    await pin(page, ...(await near(page, 283, -282)), 45, 4);
     report.cpu.push(await work(page, 'ceiling'));
     await page.close();
   }
@@ -346,7 +358,7 @@ if (modes.has('stream')) {
     const c = window.__game.city;
     const proto = Object.getPrototypeOf(c);
     window.__calls = {};
-    for (const name of ['onRegion', 'addTile', 'buildRegionMesh', 'buildRegionGround', 'swapRegion', 'makeTileTerrain', 'makeBuildingMesh', 'update']) {
+    for (const name of ['onRegion', 'addTile', 'buildRegionMesh', 'buildRegionGround', 'swapRegion', 'prepTile', 'makeTileTerrain', 'makeBuildingMesh', 'update']) {
       const f = proto[name];
       if (!f) continue;
       c[name] = function (...a) {

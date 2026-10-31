@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Streaming stalls in real time: flies a scripted route over a neighborhood and attributes every long frame.
-//   node tools/stalls.mjs <url> <out.json> [--route=alamo] [--repeat=1] [--hitch=25]
+//   node tools/stalls.mjs <url> <out.json> [--route=alamo] [--hitch=25] [--throttle=4] [--trace=out.trace.json]
 // A fresh browser, the real game clock (no ?fixeddt), iPhone viewport. Per frame: interval, CPU work, time inside
 // City.update and inside each streaming call, bytes uploaded (bufferData, texture uploads), programs linked. The report
 // lists the frames over --hitch ms with what ran in them, frames over 25 / 33 / 50 / 100 ms and the worst frame by segment.
@@ -83,6 +83,7 @@ await page.addInitScript(() => {
 await page.goto(url + R.q, { waitUntil: 'load' });
 await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000 });
 await page.waitForTimeout(1500);
+if (opt.throttle) await (await page.context().newCDPSession(page)).send('Emulation.setCPUThrottlingRate', { rate: Number(opt.throttle) });
 if (opt.trace) await browser.startTracing(page, { path: opt.trace, categories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'v8', 'disabled-by-default-v8.gc', 'blink.user_timing', 'gpu', 'toplevel'] });
 await page.evaluate(() => {
   const S = window.__st;
