@@ -21,6 +21,50 @@ export const Arch = {
  */
 export const Ground = { PAVED: 0, GRASS: 1, WATER: 2, SIDEWALK: 3, PLAZA: 4, PATH: 5, SAND: 6, RAIL: 7, FOREST: 8, YARD: 9, ROCK: 10 } as const;
 
+/** The open water plane's height (m): the sea, and every canal and bay no tile's ground stands over. */
+export const WATER_Y = -0.6;
+/**
+ * The ground mesh stands at least this high (m) within SHORE_REACH of land. The bakes lay water under the plane and the mesh
+ * is 8 m coarse (16 m on a coarse region), so where they met, the plane cut the shore in the mesh's own triangles. Held over
+ * the plane, the ground draws the shore itself, from the 2 m class texture, and its water pixels are the plane's (GLSL_WATER
+ * in terrainMaterial.ts); past that the plane draws the water, as it always did: it is the cheaper shader.
+ */
+const SHORE_FLOOR = WATER_Y + 0.3;
+/** Must reach every corner of a mesh cell with land in it: the coarse mesh's 16 m. */
+const SHORE_REACH = 16;
+
+/**
+ * A tile's heights as its ground mesh takes them, n * n (see SHORE_FLOOR): `heights` itself on a tile that isn't a shore. The
+ * mesh only: gameplay reads the baked heights. Worker and main thread make the same grid from this (heightGrid, makeHeightGrid).
+ */
+export function meshHeights(t: { heights: Float32Array; n: number; cell: number; cls: Uint8Array; classN: number }): Float32Array {
+  const { heights, n, cell, cls, classN: N } = t;
+  if (!cls.includes(Ground.WATER)) return heights;
+  // a summed-area table of the land texels
+  const W = N + 1;
+  const sat = new Int32Array(W * W);
+  for (let j = 0; j < N; j++) {
+    let row = 0;
+    for (let i = 0; i < N; i++) {
+      if (cls[j * N + i] !== Ground.WATER) row++;
+      sat[(j + 1) * W + i + 1] = sat[j * W + i + 1] + row;
+    }
+  }
+  if (sat[W * W - 1] === 0) return heights;
+  const out = heights.slice();
+  const k = N / (n - 1); // texels per height cell
+  const r = Math.ceil((SHORE_REACH * k) / cell);
+  for (let j = 0; j < n; j++) {
+    const z0 = Math.max(0, Math.round(j * k) - r), z1 = Math.min(N, Math.round(j * k) + r);
+    for (let i = 0; i < n; i++) {
+      if (out[j * n + i] >= SHORE_FLOOR) continue;
+      const x0 = Math.max(0, Math.round(i * k) - r), x1 = Math.min(N, Math.round(i * k) + r);
+      if (sat[z1 * W + x1] - sat[z0 * W + x1] - sat[z1 * W + x0] + sat[z0 * W + x0] > 0) out[j * n + i] = SHORE_FLOOR;
+    }
+  }
+  return out;
+}
+
 /** Roof shapes ('SBB3' roofShape; OpenStreetMap roof:shape). 0 = untagged: the mesher's own choice. */
 export const RoofShape = {
   NONE: 0, FLAT: 1, GABLED: 2, HIPPED: 3, PYRAMIDAL: 4, SKILLION: 5, DOME: 6, ONION: 7, ROUND: 8,

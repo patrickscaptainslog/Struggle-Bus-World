@@ -6,7 +6,7 @@ import { makeHeightGrid, makeTerrainMaterial, makeWaterMaterial } from './terrai
 import { PaintState, LANDMARK_KEY_PREFIX } from './PaintState';
 import { GroundPaint } from './GroundPaint';
 import type { ObstaclePost } from './Bridges';
-import { parseFar, type CityManifest, type FarData, type BuildingTile, type TerrainTile } from './tiles';
+import { meshHeights, parseFar, WATER_Y, type CityManifest, type FarData, type BuildingTile, type TerrainTile } from './tiles';
 import { loadRegion, type GridArrays, type RegionRequest, type RegionResponse, type TileResult } from './regionLoader';
 import { GROWN_STRIDE, type CasterArrays, type MeshArrays } from './BuildingMesher';
 import { treeCrown } from './props/trees';
@@ -502,7 +502,7 @@ export class City {
     this.root.userData.cullRoot = true;
     // the bay / ocean: a huge still plane below everything
     const water = new THREE.Mesh(new THREE.PlaneGeometry(60000, 60000).rotateX(-Math.PI / 2), makeWaterMaterial());
-    water.position.set((minX + maxX) / 2, -0.6, (minZ + maxZ) / 2);
+    water.position.set((minX + maxX) / 2, WATER_Y, (minZ + maxZ) / 2);
     water.frustumCulled = false;
     water.matrixAutoUpdate = false;
     water.updateMatrix();
@@ -1127,7 +1127,7 @@ export class City {
     const g = lt.grid;
     lt.grid = null;
     const tr = lt.terrainData!;
-    if (!g || g.step !== step) return makeHeightGrid(tr.heights, tr.n, tr.cell, tr.originX, tr.originZ, step);
+    if (!g || g.step !== step) return makeHeightGrid(meshHeights(tr), tr.n, tr.cell, tr.originX, tr.originZ, step);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(g.position, 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(g.normal, 3));

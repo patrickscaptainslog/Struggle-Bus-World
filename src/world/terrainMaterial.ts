@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
 import { Ramp } from '../render/palette';
-import { Ground } from './tiles';
+import { Ground, WATER_Y } from './tiles';
 import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from './GroundPaint';
 
 // Ground: asphalt streets, lighter sidewalks, grey lawns, still water; with OpenStreetMap also pale
@@ -10,6 +10,32 @@ import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from './GroundPaint
 // edges are clean diagonals instead of 2 m stair steps.
 // Blasts splatter it (GroundPaint: a per-tile mask, organic edges, spatter
 // dots) and the shockwave ring races across it.
+
+/**
+ * Water, one function of the world position: the open plane and the ground's water pixels (a canal, a lake, a shore held
+ * over the plane: see SHORE_FLOOR) write the same bytes, so nothing shows where one hands over to the other. `wp` is where the
+ * water is, `surface` the fragment's own position, for the sun: a mesh on the slope up to a quay must not shade itself. Needs GLSL_OUT.
+ * It reflects the fog at grazing angles: in fog the bay mirrors the bright overcast, brightens toward the horizon and melts
+ * into the fog bank instead of lying under it as a dark slab. Static swell crests run north-south (the Pacific rolls in
+ * through the Golden Gate): short sparse dashes, a step brighter.
+ */
+const GLSL_WATER = /* glsl */ `
+  float sbWaterHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  void sbWater(vec3 wp, vec3 surface) {
+    vec3 v = normalize(cameraPosition - wp);
+    float fres = pow(1.0 - abs(v.y), 4.0);
+    float light = 0.3 + 0.66 * fres;
+    vec2 q = vec2(wp.z / 9.0, wp.x / 2.6);
+    vec2 iq = floor(q);
+    float row = sbWaterHash(vec2(iq.y, 3.1));
+    float dash = sbWaterHash(vec2(floor(q.x + row * 7.0), iq.y));
+    if (dash > 0.9 && fract(q.y) < 0.45) light += 0.12;
+    float sh = sbShadow(surface, vec3(0.0, 1.0, 0.0));
+    light -= (1.0 - sh) * 0.06;
+    float fog = sbFog(wp);
+    sbWrite(${Ramp.WATER}.0, light, fog, 0.0, mat3(viewMatrix) * vec3(0.0, 1.0, 0.0), 0.02, 0.5);
+  }
+`;
 
 const VS = /* glsl */ `
   ${GLSL_COMMON}
@@ -41,6 +67,7 @@ const FS = /* glsl */ `
   in vec3 vViewNormal;
   in vec2 vClassUv;
   ${GLSL_OUT}
+  ${GLSL_WATER}
   float cls(ivec2 p) {
     p = clamp(p, ivec2(0), ivec2(int(uClassN) - 1));
     return floor(texelFetch(tClass, p, 0).r * 255.0 + 0.5);
@@ -53,19 +80,53 @@ const FS = /* glsl */ `
     float c00 = cls(i0), c10 = cls(i0 + ivec2(1, 0)), c01 = cls(i0 + ivec2(0, 1)), c11 = cls(i0 + ivec2(1, 1));
     vec4 w = vec4((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y);
     float best = -1.0; float bc = 0.0;
+    float bestLand = -1.0; float landC = 0.0;
     for (int k = 0; k < 4; k++) {
       float c = k == 0 ? c00 : k == 1 ? c10 : k == 2 ? c01 : c11;
       float m = (c00 == c ? w.x : 0.0) + (c10 == c ? w.y : 0.0) + (c01 == c ? w.z : 0.0) + (c11 == c ? w.w : 0.0);
       if (m > best) { best = m; bc = c; }
+      if (c != ${Ground.WATER}.0 && m > bestLand) { bestLand = m; landC = c; }
+    }
+    // The shore. Between the nearest texels a quay at a shallow angle to the 2 m grid is a staircase (6 m runs, 2 m rises), and
+    // water against land shows it as no other pair of classes does: there the water's share of the 10 m square around the
+    // pixel decides (bilinear at its edges, so it slides with the pixel), a straight line through the stairs. The square's
+    // first moment says it is a shore at all: water on one side of the pixel. A ring of pond or a footbridge has it on
+    // both, and a share would erase it: the nearest texels keep those. Only pixels on a shore pay for this.
+    if (bestLand > 0.0 && (c00 == ${Ground.WATER}.0 || c10 == ${Ground.WATER}.0 || c01 == ${Ground.WATER}.0 || c11 == ${Ground.WATER}.0)) {
+      // (the texture ends at its tile: the square shrinks toward that edge, so the tiles on both sides of it agree)
+      vec2 toEdge = min(t + 0.5, uClassN - 0.5 - t);
+      float h = clamp(min(toEdge.x, toEdge.y), 0.5, 2.5);
+      float sea = 0.0;
+      vec2 side = vec2(0.0);
+      for (int j = -2; j <= 3; j++) {
+        float wj = clamp(min(float(j) + 0.5 - f.y + h, f.y + h - float(j) + 0.5), 0.0, 1.0);
+        for (int i = -2; i <= 3; i++) {
+          float a = wj * clamp(min(float(i) + 0.5 - f.x + h, f.x + h - float(i) + 0.5), 0.0, 1.0);
+          if (a == 0.0 || cls(i0 + ivec2(i, j)) != ${Ground.WATER}.0) continue;
+          sea += a;
+          side += a * (vec2(float(i), float(j)) - f);
+        }
+      }
+      // (a straight shore through the pixel: |side| = h^3; half of that keeps a strip of water or land under 3-4 m wide)
+      float keep = 0.48 * h * h * h;
+      if (dot(side, side) > keep * keep) {
+        if (sea >= 2.0 * h * h) bc = ${Ground.WATER}.0;
+        else { bc = landC; best = bestLand; }
+      }
+    }
+    // (the class texture draws the shore; water takes no paint and no shockwave; the sea stands where the plane does, wherever
+    // the mesh has it on the slope up to a quay, a lake at its own height)
+    if (bc == ${Ground.WATER}.0) {
+      sbWater(vec3(vWorldPos.x, vWorldPos.y < 4.0 ? ${WATER_Y.toFixed(1)} : vWorldPos.y, vWorldPos.z), vWorldPos);
+      return;
     }
     float ramp = ${Ramp.GREY}.0;
     float lo = -0.1;
     if (bc == ${Ground.SIDEWALK}.0) { ramp = ${Ramp.GREY_LIGHT}.0; lo = -0.04; }
     else if (bc == ${Ground.GRASS}.0) { ramp = ${Ramp.GREEN_GREY}.0; lo = 0.02; }
-    else if (bc == ${Ground.WATER}.0) { ramp = ${Ramp.WATER}.0; lo = 0.0; }
     else if (bc == ${Ground.PLAZA}.0) { ramp = ${Ramp.GREY_LIGHT}.0; lo = 0.03; }
     else if (bc == ${Ground.PATH}.0) { ramp = ${Ramp.GREY_LIGHT}.0; lo = 0.0; }
-    else if (bc == ${Ground.YARD}.0) { ramp = ${Ramp.GREEN_GREY}.0; lo = -0.06; }
+    else if (bc == ${Ground.YARD}.0) { ramp = ${Ramp.GREEN_GREY}.0; lo = 0.0; }
     else if (bc == ${Ground.FOREST}.0) { ramp = ${Ramp.GREEN_GREY}.0; lo = -0.1; }
     else if (bc == ${Ground.SAND}.0) { ramp = ${Ramp.SKY_WARM}.0; lo = -0.1; }
     else if (bc == ${Ground.RAIL}.0) { ramp = ${Ramp.ROOF_DARK}.0; lo = -0.04; }
@@ -75,12 +136,10 @@ const FS = /* glsl */ `
     // ground reads calmer than buildings: compress its sun/slope contrast (shadows stay crisp)
     float flatL = sbLight(vWorldPos, vec3(0.0, 1.0, 0.0), lo + uLift, 1.0);
     light = mix(light, flatL, 0.55);
-    // (the same fog-mirroring fresnel as the open water plane, so the shore tiles and the bay match)
-    if (bc == ${Ground.WATER}.0) light = 0.3 + 0.66 * pow(1.0 - abs(normalize(cameraPosition - vWorldPos).y), 4.0) + 0.25 * pow(max(dot(reflect(-uSunDir, vec3(0.0, 1.0, 0.0)), normalize(cameraPosition - vWorldPos)), 0.0), 4.0);
     float glow = 0.0;
     float pr, pEdge, pWet, pFresh;
     // curbs (where two ground classes blend) stay grey through the paint: the street plan still reads
-    if (bc != ${Ground.WATER}.0 && best >= uGroundTone.z && sbGroundPaint(vWorldPos, vClassUv, pr, pEdge, pWet, pFresh)) {
+    if (best >= uGroundTone.z && sbGroundPaint(vWorldPos, vClassUv, pr, pEdge, pWet, pFresh)) {
       // figure / ground: paint on the ground sits a couple of steps below the
       // painted walls (houses stand out of their splat); sidewalks a step
       // lighter than the street so the blocks still read; warm hues keep their
@@ -177,7 +236,7 @@ export function makeHeightGrid(heights: Float32Array, n: number, cell: number, o
   return g;
 }
 
-/** The bay: still water that reflects the fog at grazing angles, with sparse static wave streaks. */
+/** The open water plane (GLSL_WATER). */
 export function makeWaterMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
@@ -195,24 +254,9 @@ export function makeWaterMaterial(): THREE.ShaderMaterial {
       ${GLSL_COMMON}
       in vec3 vWorldPos;
       ${GLSL_OUT}
-      float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      ${GLSL_WATER}
       void main() {
-        vec3 v = normalize(cameraPosition - vWorldPos);
-        float fres = pow(1.0 - abs(v.y), 4.0);
-        // in fog the bay mirrors the bright overcast: it brightens toward the horizon and melts into
-        // the fog bank instead of lying under it as a dark slab
-        float light = 0.3 + 0.66 * fres;
-        // static swell crests running north-south (the Pacific rolls in through
-        // the Golden Gate): short sparse dashes, a step brighter
-        vec2 q = vec2(vWorldPos.z / 9.0, vWorldPos.x / 2.6);
-        vec2 iq = floor(q);
-        float row = h21(vec2(iq.y, 3.1));
-        float dash = h21(vec2(floor(q.x + row * 7.0), iq.y));
-        if (dash > 0.9 && fract(q.y) < 0.45) light += 0.12;
-        float sh = sbShadow(vWorldPos, vec3(0.0, 1.0, 0.0));
-        light -= (1.0 - sh) * 0.06;
-        float fog = sbFog(vWorldPos);
-        sbWrite(${Ramp.WATER}.0, light, fog, 0.0, mat3(viewMatrix) * vec3(0.0, 1.0, 0.0), 0.02, 0.5);
+        sbWater(vWorldPos, vWorldPos);
       }
     `,
   });

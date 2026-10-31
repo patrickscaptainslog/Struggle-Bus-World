@@ -1,6 +1,6 @@
 // Fetch + inflate + parse + mesh one region bundle. Runs inside the city
 // worker, or on the main thread when a sandbox forbids workers.
-import { parseBuildingTile, parseTerrainTile } from './tiles';
+import { meshHeights, parseBuildingTile, parseTerrainTile } from './tiles';
 import { meshBuildingTile, meshCasterTile, roofKinds, type CasterArrays, type MeshArrays } from './BuildingMesher';
 import type { BuildingTile, TerrainTile } from './tiles';
 import { gunzip, isGzip } from './gunzip';
@@ -302,7 +302,7 @@ export async function loadRegion(req: RegionRequest, transfer: Transferable[] = 
       }
       if (tLen > 0) {
         terrain = parseTerrainTile(buf.slice(tOff, tOff + tLen), req.classN);
-        grid = heightGrid(terrain.heights, terrain.n, terrain.cell, terrain.originX, terrain.originZ, req.lod === 0 ? 2 : 4);
+        grid = heightGrid(meshHeights(terrain), terrain.n, terrain.cell, terrain.originX, terrain.originZ, req.lod === 0 ? 2 : 4);
         transfer.push(terrain.heights.buffer, terrain.obst.buffer, terrain.cls.buffer, grid.position.buffer, grid.normal.buffer, grid.index.buffer);
         if (terrain.hoodGrid) transfer.push(terrain.hoodGrid.buffer as ArrayBuffer);
         for (const ln of terrain.streets) transfer.push(ln.xz.buffer as ArrayBuffer);
