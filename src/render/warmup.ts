@@ -2,10 +2,10 @@ import * as THREE from 'three';
 
 // Shader warm-up: every program the game will draw with is compiled at boot, in parallel
 // (KHR_parallel_shader_compile: the main thread stays free while the GPU process compiles), then
-// drawn once into the pass target it really draws into (the G-buffer's two outputs, the sun's
-// depth map, the post passes' targets; never the canvas), so ANGLE's draw-time shader variants
-// are paid too. All before the first presented frame: a cold load no longer freezes for seconds
-// per program on its first draw, and nothing compiles in flight.
+// drawn once into the pass target it really draws into (the G-buffer, the sun's depth map, the
+// post passes' targets; never the canvas), so ANGLE's draw-time shader variants are paid too.
+// All before the first presented frame: a cold load no longer freezes for seconds per program on
+// its first draw, and nothing compiles in flight.
 //
 // What gets warmed (see docs/ARCHITECTURE.md, "Shader warm-up"):
 //  - every object in the live scene (WarmUp.add(scene)), the way the pipeline draws it: its own
@@ -312,8 +312,7 @@ export class WarmUp {
   /**
    * Start compiles while fewer than `lanes` programs are linking: half the lanes take the longest
    * waiting (the building's program sets how long the whole warm-up takes), the others the
-   * shortest (their draws then start early: on D3D the GPU process compiles each G-buffer program
-   * a second time at its first draw, one after another, so that queue must not run dry).
+   * shortest (their draws then start early).
    */
   private compileSome() {
     const r = this.pipeline.renderer;

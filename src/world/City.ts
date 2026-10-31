@@ -327,9 +327,16 @@ const HASH_CELL = 32;
 const CASTER_MATERIAL = new THREE.MeshBasicMaterial();
 const crownTmp = { top: 0, mid: 0, r: 0 };
 const byDistance = (a: [number, number, number, 0 | 1], b: [number, number, number, 0 | 1]) => a[2] - b[2];
-/** What a mesh's ghost draw does: everything but rasterize (see City.ghost). */
-const GHOST_ON = (r: THREE.WebGLRenderer) => r.getContext().enable(WebGL2RenderingContext.RASTERIZER_DISCARD);
-const GHOST_OFF = (r: THREE.WebGLRenderer) => r.getContext().disable(WebGL2RenderingContext.RASTERIZER_DISCARD);
+/**
+ * A mesh's ghost draw (see City.ghost): a real draw whose every fragment fails the depth test. (Not RASTERIZER_DISCARD:
+ * ANGLE on Metal compiles a variant of the vertex shader for it, in flight; a depth func is only state.) three's
+ * depth cache is told LEQUAL first, so its own setMaterial, right before the draw, leaves the func alone.
+ */
+const GHOST_ON = (r: THREE.WebGLRenderer) => {
+  r.state.buffers.depth.setFunc(THREE.LessEqualDepth);
+  r.getContext().depthFunc(WebGL2RenderingContext.NEVER);
+};
+const GHOST_OFF = (r: THREE.WebGLRenderer) => r.getContext().depthFunc(WebGL2RenderingContext.LEQUAL);
 
 export class City {
   readonly root = new THREE.Group();
@@ -612,7 +619,10 @@ export class City {
       const cx = (xz[0] + 0.5) * R, cz = (xz[1] + 0.5) * R;
       const dx = Math.max(Math.abs(focus.x - cx) - R / 2, 0);
       const dz = Math.max(Math.abs(focus.z - cz) - R / 2, 0);
-      if (Math.hypot(dx, dz) > unloadR) this.unloadRegion(xz[0], xz[1]);
+      if (Math.hypot(dx, dz) > unloadR) {
+        this.unloadRegion(xz[0], xz[1]);
+        break; // (one region a frame: disposing one is a few ms)
+      }
     }
     // adopt arrived tiles a few per frame: a region landing never hitches one frame, and what a frame
     // adopts is what it uploads (firstDraw): this much new geometry at most, unless it is one big tile
@@ -711,7 +721,7 @@ export class City {
     this.firsts.push(m);
   }
 
-  /** A first draw nobody sees (no rasterization), for a mesh that shows later, at its swap's commit. */
+  /** A first draw nobody sees, for a mesh that shows later, at its swap's commit. */
   private ghost(m: THREE.Mesh) {
     this.firstDraw(m);
     m.userData.ghost = true;

@@ -226,7 +226,7 @@ layout(location = 0) out highp uvec4 gBuf;
 // two-target G-buffer's exactly there, and anywhere else it is under 0.008 of a byte from plain rounding.
 uvec4 sbByte(vec4 x) {
   vec4 g = 262144.0 / ((1.0 + step(0.125, x)) * (1.0 + step(0.25, x)) * (1.0 + step(0.5, x)));
-  return uvec4(floor(x * g) / g * 255.0 + 0.5);
+  return uvec4(floor(x * g) / g * 255.0 + 0.5) & 255u;
 }
 void sbWrite(float ramp, float light, float fog, float glow, vec3 viewNormal, float surfaceId, float flags) {
   uvec4 c = sbByte(vec4(ramp / 255.0, clamp(vec3(light, fog, glow), 0.0, 1.0)));

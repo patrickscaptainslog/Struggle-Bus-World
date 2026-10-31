@@ -21,7 +21,7 @@ import { audioTune, registerAudioTunables } from './tune';
 // resumes it. The long buffers (noise, the reverb's impulse) are synthesized in
 // a worker (audioWorker.ts, started by `prepare()` once the game is ready, or by
 // the gesture), the graph is built in a task of its own after the gesture, and
-// the reverb's impulse goes in a task later (a convolver FFTs it on this thread).
+// the reverb's impulse goes in a little later (a convolver FFTs it on this thread).
 // A breath fired before the graph is up plays when it is, ~100 ms late.
 
 export interface AudioFrame {
@@ -175,7 +175,7 @@ export class AudioEngine {
       setTimeout(() => {
         const g = (this.graph = new SoundGraph(ctx, 1, data));
         if (this.muted) g.setMuted(true);
-        setTimeout(() => g.fitReverb(), 0);
+        setTimeout(() => g.fitReverb(), 60); // (a frame or two between the two: neither is a long task, both at once would be)
         for (const play of this.early) play();
         this.early.length = 0;
       }, 0);
