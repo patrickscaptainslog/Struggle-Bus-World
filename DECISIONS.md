@@ -2443,6 +2443,44 @@ iPhone, nothing on a live Vercel deployment).
   (`towerStyles.ts`): 0 cells at W2, W3 and W5, and the same flight holds its line (max y 45, as the control beside it). They reach nothing but the same stand-ins in the water.
 - **A multi-value street name (minor).** OSM separates names with `;`: 'Hang Ah Alley;Pagoda Aly' signed HANG AH / ALLEYPAGODA ALY. `streetNameAt` takes the first, in any city: HANG AH ALLEY on building 15445.
 
+## OpenStreetMap, outside judge round 1 (FAIL) and the fixes (2026-10-31)
+FAIL on three must-fixes, with first impression, beauty and polish at 7 (`shots/local/judge-osm/round-1/REPORT.md`, local). Two were real and small; the third isn't a defect. PREV below is e861e48, what the judge saw;
+MAIN f64a142. All on this laptop's UHD 620, nothing on a real iPhone.
+
+- **The fin is Market Street.** Nothing was changed for it. At the judge's pose (the Embarcadero, 250 m, heading 235) the lens stands 1.2 m off the street's axis, on both builds: a chance, on a 4 km line. A ground line through
+  the nadir and the vertical over anything standing on it project onto one screen line, so the street rises from the clock tower at its foot to the skyline, "exactly on the world vertical above (2272, -2280)"; OSM's centerline
+  starts at (2238, -2254). `tools/sightline.mjs` shows it on any build:
+  - The G-buffer along the axis, normal and surface id at each point's pixel, NEXT / MAIN: 0-500 m 48 / 34 of 50 points up-facing (the clock tower covers NEXT's other 2, trees and the tower MAIN's 16), 500-1,000 m 50 / 50, 1,000-1,500 m 50 / 50,
+    every up-facing one ground (surface 3), the street 26-30, 18, 13 px wide / 20, 15, 11; `streetNameAt` calls 116 of NEXT's 150 points Market St (the others are its cross streets). Ten holds in a row: the same, 148-149 of 150. Past ~1,750 m it is the gap between far.bin's boxes over the far terrain.
+  - OSM's centerline drawn over the frame lies on it. The lens moved 60 m left and right: it leans each way, about the nadir, and leaves the tower; what stands would keep its foot. The buildings hidden: a road. `shots/local/merge-osm/fin/final/sightline-sheet.png`.
+  - MAIN draws the same strip at the same place. "Never on MAIN" was the judge's test (one column's contrast against its neighbours 9 px off, 500+ rows), not the frame: NEXT's street is cleaner, real building lines and the trees where they stand. The test
+    doesn't always fire on NEXT either: it missed my first hold.
+  - It explains every probe: a street crosses dozens of tiles, so no mesh hidden alone clears it (443 tried); the ground hidden, the far terrain under it fills the same gap between the same buildings; buildings and far boxes each "contribute part of its rows" because they are its walls. The OSM Ferry
+    Building can't be in it: `HIDDEN` drops its parts and its four far boxes are in a loaded tile's mask. So the data bisect the judge asked for has nothing to find, and there is no world-plane seam in the shared path.
+  - Its last ~50 game px, past the streaming radius, are a pale hairline: the far terrain's tone between far boxes. That is the far band, the distant-city study's.
+- **London's signs: the pole, not the names.** The names, the hood grid and the lookup were fine (`signName` runs before placement). `showSign` found no spot: `signTune.poleLiftMax`, 10 m, is written for SF's 8-12 m houses, and Bayswater's terraces are 21 m. `poleLiftTall`, 32 m:
+  the first spot only a taller pole clears stands by while the two passes run, and takes the sign if nothing takes less, so a sign that stood before stands where it stood, and no third pass of sightlines. The judge's own run (`judge.mjs ... city london 51.5128 -0.1860 90`): CRAVEN
+  HILL GARDENS on all three taps, from the street lines. Real taps, 8 at a place, before / after (`tools/signrate.mjs`, `--tall=0` is before): Bayswater 5 / 8, Mayfair 8 / 8, the Jordaan 6 / 8, Alamo 8 / 8, the Mission 8 / 8, FiDi 2 / 3; a new place, Paddington, 8. FiDi stays low: at
+  street level between 100 m towers no pole clears them, and half a blade is no sign. A rooftop sign would be a new rule, the producer's.
+- **The credit is pixel art.** `HUD_SMALL` in palette colors with an ink outline, 2 CSS px per UI pixel like every HUD canvas, on whole CSS pixels, stepped in and out like the HUD's chrome (`steps(4)`). Same words, same place, same clock (0.04-7.33 s of the game clock, full at 1.26 s). At that
+  size one line is 444 CSS px, so on a phone two, split where they balance (`splitLines`): 246 x 32 px against 311 x 21; one line on a wide window. (C) as on settings' MAP DATA: the bitmap fonts have no copyright sign and 5 px is too small to draw one. `uiText` is one
+  function for both now. The canvas keeps the real text as its fallback content, for screen readers and QA.
+- **Water and the shore (polish, every city).** "Amsterdam's canals take ground paint": they don't, the shader skips water. What took it are the quays, and they read as water because the shore was a saw. The plane cutting the 8 m ground mesh was my first idea, and holding the mesh over
+  the plane changed nothing there. It is the class texture: a quay at a shallow angle to the 2 m grid is a staircase, 6 m runs and 2 m rises, and water against land shows it as no other pair of classes does.
+  - On a shore (water and land among the four nearest texels) the water's share of the 10 m square around the pixel decides, bilinear at its edges so it slides with the pixel: a straight line through the stairs. Canals are straight, piers have edges (`shots/local/merge-osm/shore/a/cmp-*.png`).
+  - A share erases what is thinner than half the square: the ring of Hyde Park's Diana fountain went. The square's first moment says it is a shore at all, water on one side of the pixel; a ring or a footbridge has it on both, and keeps the nearest texels.
+  - The texture ends at its tile, so the square shrinks toward that edge (bilinear at it): the tiles on both sides agree, where a clamped square jogged 1.6 m.
+  - Within 16 m of land the mesh stands 0.3 m over the plane (`meshHeights`; gameplay reads the baked heights), so land never dips under it, and the ground's water pixels are the plane's: `GLSL_WATER` is one function of the position, flags and surface id included, so the handover doesn't show.
+    Dashes run to the quay; a lake is the same water at its height. Sea-level water on the slope to a quay computes at the plane's height, its shadow at its own (else the mesh shades itself, a dark band along every pier).
+  - Lost: the terrain water's sun-glint term, which the plane never had (a paler band off Crissy's beach, an accident). Not fixed: a pier's end still wanders a little in the chase view, the 8 m mesh under its edge. Streets keep bilinear: a 2 m path wouldn't survive a share.
+  - The cost is the shader's: GPU ms, PREV / NEXT, interleaved: the wharf at the street, the worst case, 10.45, 10.43, 10.45 / 10.97, 10.98, 10.95; Amsterdam 300 m 14.16, 14.17, 15.56 / 14.37, 14.35, 14.34; the Embarcadero 250 m flat (11.4-13.1 / 11.4-12.3). Whole shore tiles of terrain water cost
+    +0.85 ms at the wharf, hence the 16 m band. The plane stays the plane past it.
+- **Yards a step up** (`lo` -0.06 -> 0): block interiors in shadow read as dark green blotches at altitude, darker than the shadowed street beside them (the judge's "greenish ground-class blotches").
+- **Checked.** `tools/fps.mjs` MAIN / NEXT, 2 rounds each, interleaved: 60 in all six phases (Alamo and FiDi: street, 250 m, ceiling), 1 % lows 50.3-55.6 / 52.4-56.5. `loadprofile` PREV / NEXT, 3 rounds: first frame 3.72-3.99 / 3.79-3.89 s, ready 7.95-8.25 / 8.04-8.16 s, 0 gaps; MAIN 8.26-8.47.
+  `warmcheck` 27 programs, 0 after the warm-up, the canvas the only first draw, nothing over 100 ms after ready. `iosfloor` parses. `osm-paint credit`, `osm-shots opening` pass; `osm-play`: a hover at least 4.0 m clear, reload exact, 0 errors, all places. `contextloss` 1.35, 1.21 s, 0 errors. `s_route` 0 clips on 19 routes.
+  `shots --det` against PREV, game pixels of 334,836: grey 705, fidi 528, soma 2,678, high 134, ceiling 2,568, painted 2,073, opening 278, swap 761: yards, and shores (crops of opening, soma, ceiling and fidi read).
+- Not done: no real phone; no live Vercel deploy; the far band; FiDi's signs; the Alamo dive on the UHD 620 (the judge's 55.8-57.1 fps at 1.21M triangles, MAIN 59.8) is a GPU at its limit there, untouched; street edges' 2 m stairs north of Market, ~9 degrees off the grid (a shader share can't keep 2 m paths: it wants a finer mask from the bake).
+
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
   local repo until `patrickscaptainslog/struggle-bus` exists.

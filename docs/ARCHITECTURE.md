@@ -269,8 +269,11 @@ so until the tap, and never after one landed in the grey). `later`'s first item 
 backend starts with the first one, 120-180 ms on the main thread, and that must
 not be the first touch.
 
-**The data credit** (`src/ui/Credits.ts`, ODbL): one small line on every load, from the frame the first region is in, ~6 s
-on its own clock: not the opening's, so a tap past the opening or `?skipintro` shows it the same. Never a permanent HUD;
+**The data credit** (`src/ui/Credits.ts`, ODbL): one small note on every load, from the frame the first region is in, ~6 s
+on its own clock: not the opening's, so a tap past the opening or `?skipintro` shows it the same. Pixel art like everything
+on screen: `HUD_SMALL` in palette colors with an ink outline, 2 CSS px per UI pixel, on whole CSS pixels, stepped in and out
+like the HUD's chrome; two lines on a phone (`splitLines`), one on a wide window. `uiText` sets it for the bitmap fonts,
+the settings page too: capitals, no accents, (C). Never a permanent HUD;
 settings' MAP DATA (a phone's top-right button, Esc on a desktop) and the tuner list every credit in `city.json`
 (`attribution`, then `credits`) at any time. `?nohud` (a capture) shows none.
 
@@ -377,6 +380,18 @@ roof shapes, trees, street names) of any number of bakes side by side.
   PAVED lots instead of yards; under buildings: SIDEWALK, as before.
   `terrainMaterial.ts` shades the new classes with existing ramps (palette
   unchanged); the far grid ('SBF1') carries the same codes (only WATER is read).
+- **The shore is the class texture's.** The bakes lay water under the open plane (`WATER_Y`, -0.6 m; baked water -0.9 to -1.1)
+  and the ground mesh is 8 m coarse, so within 16 m of land the mesh stands at `SHORE_FLOOR` at least, 0.3 m over the plane
+  (`meshHeights(tile)` in tiles.ts, what `heightGrid` and `makeHeightGrid` are given; gameplay reads the baked heights). Past that
+  the plane draws the water: it is the cheaper shader. The ground's water pixels are the plane's: `GLSL_WATER`
+  (`sbWater(worldPos)`) is one function of the world position, the same bytes from both, flags and surface id included, so
+  nothing shows where one hands over to the other, and a lake is the same water at its own height. Water takes no paint and no
+  shockwave. On a shore (water among the four
+  nearest texels, land too) the water's share of the 10 m square around the pixel decides, bilinear at its edges: the
+  nearest texels turn a quay at a shallow angle to the 2 m grid into a staircase of 6 m runs and 2 m rises. The square's
+  first moment (`side`) says it is a shore at all, water on one side of the pixel; a ring of pond or a footbridge has it on
+  both, a share would erase it, and those keep the nearest texels (a strip under 3-4 m). Streets keep bilinear: a 2 m path
+  wouldn't survive a share.
 - Trees ('SBT1/2' records unchanged): OSM natural=tree points and tree rows
   (species -> kind: cypress / pine and eucalyptus / street tree, height ->
   size), then procedural trees **on evidence** (DECISIONS, Data: Trees;
@@ -806,7 +821,8 @@ impact frame shows the hit.
   from the start: what stands in front of it covers it). A spot whose pole is
   seen to its foot wins; else `StreetSignOptions.pole` lifts the blade clear
   of the roofs in front (up to `signTune.poleLiftMax`); both bottom corners of
-  the blade (`signBladeWidth(text)`) must clear them too. Never on water
+  the blade (`signBladeWidth(text)`) must clear them too; where nothing takes less (a street between 20 m terraces: London,
+  most of Europe), the first spot a pole up to `signTune.poleLiftTall` clears stands by. Never on water
   (`City.groundClassAt`: the tile's 2 m ground class). No spot in frame:
   `showSign` returns false and the pending sign asks again 0.8 s later
   (twice); then the primary's front only if it lies outside the blast
@@ -1036,6 +1052,14 @@ down; `__game.barfAtLatLon(lat, lon, drop?)` returns the impact time;
 `__game.paintedNear(lat, lon, r)`; `__game.seedGround(n, lat, lon, spread)`
 paints n saved blasts at once (a long session). `tools/blast.mjs` drives all of
 it (perf, seq, top, reload, escalate, tap, drop, layouts, row, deal, heavy).
+
+What is that line on screen? `node tools/sightline.mjs <url> <out>` holds a pose and asks the game: the G-buffer along a
+street's axis (up-facing? which surface?), OSM's centerline over the frame, the lens moved 60 m each way (what stands keeps its
+foot, what lies on the ground swings about the nadir), the buildings hidden. Its default is the Embarcadero pose of DECISIONS
+"OpenStreetMap, outside judge round 1": a camera on a straight street's axis lays the street on the same screen line as the
+vertical of whatever stands at its foot.
+
+The sign's placement, per place: `node tools/signrate.mjs <url> <out> <tag> <city|sf> <lat> <lon> <heading>` (real taps along a flight, how many raised a sign).
 
 OpenStreetMap QA: `node tools/osm-shots.mjs <url> <out> [shots]` (the checklist's places, a climb over them, the
 credit's timing), `tools/osm-paint.mjs <url> <out> [stale paint landmarks credit cities]` (old saves on the device, reloads,
