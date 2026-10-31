@@ -17,6 +17,8 @@
 //               (logs the sign's text: it must be a real street name)
 //   amsterdam   the Amsterdam city (no LiDAR, no DEM): the Jordaan's canals from the chase camera
 //   amsalt      the Amsterdam city from ~200 m
+//   crissy presidio ggp twinpeaks piers baybridge ggbridge fortpoint  the chase camera at each, no HUD
+//   crissyalt ggpalt baybridgealt                                     a climb to ~220 m over them, no HUD
 //   opening     SF's real opening (no skipintro): the ODbL credit on screen; logs when it came and went
 //   amsopening  the same for the Amsterdam city
 // Writes <outDir>/<shot><tag>.png and <outDir>/osm-shots<tag>.json (renderer stats per shot, sign text,
@@ -119,11 +121,23 @@ const CHASE = {
   fidi: city(SF, 'lat=37.7905&lon=-122.4075&heading=80&skipintro'),
   embarcadero: city(SF, 'lat=37.7992&lon=-122.3890&heading=235&skipintro'),
   amsterdam: city(AMS, 'lat=52.3738&lon=4.8775&heading=75&skipintro'),
+  // (the places a re-bake must keep: what no other shot frames)
+  crissy: city(SF, 'lat=37.8030&lon=-122.4560&heading=280&skipintro&nohud'),
+  presidio: city(SF, 'lat=37.7960&lon=-122.4560&heading=300&skipintro&nohud'),
+  ggp: city(SF, 'lat=37.7700&lon=-122.4620&heading=268&skipintro&nohud'),
+  twinpeaks: city(SF, 'lat=37.7560&lon=-122.4560&heading=95&skipintro&nohud'),
+  piers: city(SF, 'lat=37.8015&lon=-122.3960&heading=330&skipintro&nohud'),
+  baybridge: city(SF, 'lat=37.7915&lon=-122.3860&heading=48&skipintro&nohud'),
+  ggbridge: city(SF, 'lat=37.8050&lon=-122.4745&heading=352&skipintro&nohud'),
+  fortpoint: city(SF, 'lat=37.8075&lon=-122.4695&heading=305&skipintro&nohud'),
 };
 const CLIMB = {
   altitude: [city(SF, 'lat=37.7560&lon=-122.4280&heading=20&skipintro'), 300],
   ocean: [city(SF, 'lat=37.7580&lon=-122.4700&heading=280&skipintro'), 330],
   amsalt: [city(AMS, 'lat=52.3700&lon=4.8760&heading=40&skipintro'), 200],
+  crissyalt: [city(SF, 'lat=37.7985&lon=-122.4500&heading=300&skipintro&nohud'), 220],
+  ggpalt: [city(SF, 'lat=37.7640&lon=-122.4560&heading=272&skipintro&nohud'), 220],
+  baybridgealt: [city(SF, 'lat=37.7870&lon=-122.3880&heading=48&skipintro&nohud'), 220],
 };
 const OPENING = { opening: SF, amsopening: AMS };
 

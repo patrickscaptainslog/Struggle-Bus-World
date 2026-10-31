@@ -934,11 +934,11 @@ laptop's UHD 620, a fresh browser per run.
   real lot lines, real row houses, the real Painted Ladies, instead of USA
   Structures' merged rows cut into synthetic ~25 ft lots. Conflation: OSM /
   Overture footprint first; a USA Structures row only where OSM footprints cover
-  less than a quarter of it (SF: @USAROWS@ rows, @USAPCT@ % of the built area),
-  and only if the LiDAR doesn't see bare ground there (@DEMOL@ such rows were
+  less than a quarter of it (SF: 2,437 rows, 1.6 % of the built area),
+  and only if the LiDAR doesn't see bare ground there (1,120 such rows were
   demolished since: dropped). Under OSM footprints USA Structures still gives
   occupancy (OSM tags it on few SF buildings) and a height fallback.
-  Overture's own non-OSM footprints (Microsoft ML, Esri: @OVT@) stay where OSM
+  Overture's own non-OSM footprints (Microsoft ML, Esri: 1,681) stay where OSM
   has nothing. Skipped: building=roof canopies (no walls), underground ones,
   floating min_height ones without parts. A multipolygon's separate pieces are
   separate buildings; courtyards >= 60 m^2 stay open (the footprint is cut
@@ -946,17 +946,17 @@ laptop's UHD 620, a fresh browser per run.
 - **Heights**: the LiDAR rooftops win where they agree with the footprint (the
   same rules as before: coverage, tree crowns, slivers); else OSM height, else
   OSM building:levels x 3.2 m + 1 m, else the USA Structures row under it, else
-  the neighbours' median, else a default by class. SF by source: @HSRC@.
-- **Building parts** (building:part=*, SF: @NPARTS@ parts on @NPB@ buildings) drive
+  the neighbours' median, else a default by class. SF by source: LiDAR 164,867, OSM height 2,811, OSM levels 36, USA Structures 110, neighbours 1,403, default 276.
+- **Building parts** (building:part=*, SF: 1,339 parts on 327 buildings) drive
   the massing where they agree with the LiDAR: the parts model (each part its
   own base, top and roof; a dome counts at mid-rise) is rasterized on the 1 m
   raster and compared with the rooftops; the parts win when their mean height
   error is within 5 % of the best LiDAR model (tiers or a flat roof) and under
-  25 %. SF: @PUSED@ buildings take their parts (555 California, 50 California,
-  100 Pine, City Hall's dome...), @PREJ@ keep the LiDAR tiers (Salesforce
+  25 %. SF: 73 buildings take their parts (555 California, 50 California,
+  100 Pine, City Hall's dome...), 158 keep the LiDAR tiers (Salesforce
   Tower's taper, Embarcadero Center's notched corners and most towers: their
   parts are coarser than the tuned tiers or misregistered). Without LiDAR the
-  parts are the massing (Amsterdam: @AMSPARTS@).
+  parts are the massing (Amsterdam: 25 buildings).
 - **Roofs** from OSM roof:shape / roof:height / roof:direction /
   roof:orientation, per part, into the tiles ('SBB3'): flat, gabled, hipped,
   pyramidal, skillion, dome, onion, round, gambrel, mansard, half-hipped,
@@ -964,7 +964,7 @@ laptop's UHD 620, a fresh browser per run.
   planes in the roof's frame (each face is the footprint clipped to where its
   plane is lowest; the walls rise to the roof at the gable ends, with their
   windows), domes / onions / cones by revolving the footprint ring. SF has few
-  tagged roofs (@SFROOFS@, the Painted Ladies on Steiner among them); untagged
+  tagged roofs (323 parts, 183 of them pitched or domed, the Painted Ladies on Steiner among them); untagged
   Victorians keep the procedural front gables. A roof shape from the 2 m LiDAR
   was tried and dropped: a gabled Painted Lady fits a gable only ~20 % better
   than a flat plane at 2 m (1,271 of 1,282 Alamo Square houses read flat).
@@ -983,7 +983,7 @@ laptop's UHD 620, a fresh browser per run.
   tunnels, indoor and elevated ways are left off the ground.
 - **Trees: on evidence, not on "it's a park"** (the Crissy Field bug: lawn,
   tidal marsh and beach inside the Presidio's park polygon were planted like a
-  wood). OSM's mapped trees stay as they are (SF: @MAPPED@, species -> cypress /
+  wood). OSM's mapped trees stay as they are (SF: 10,917, species -> cypress /
   pine / street tree, height -> size). Procedural trees now need **ESA
   WorldCover 10 m (2021)**, a land cover every city on Earth gets for free
   (`tools/bake/worldcover.py`, CC BY 4.0), weighed with what OSM's polygons say
@@ -1065,16 +1065,18 @@ laptop's UHD 620, a fresh browser per run.
 - **Stable ids from OSM ids** (FNV-1a of 'w123' / 'r45', ranges per source, see
   ARCHITECTURE): a building keeps its id across re-bakes whatever else changes,
   the key a shared-paint server will use. Saved paint from the old rank ids
-  can't map: the stores moved to strugglebus.paint.v2 / strugglebus.ground.v3
-  and the old ones are dropped on load, never misapplied.
+  can't map: an OSM bake's stores are strugglebus.paint.v3 / strugglebus.ground.v4
+  (v2 / v3 were skipped: a build before city.json's "ids" wrote them whatever the
+  data was) and the old ones are dropped on load, never misapplied.
 - **Licensing**: the tiles are a derivative database under the ODbL 1.0
   (`public/city/DATA_LICENSE.md`). The game credits "© OpenStreetMap
-  contributors, Overture Maps Foundation" small, while the opening plays
-  (gone after ~7 s, never a HUD) and in the tuner; the tuner adds the city's
-  other credits (`city.json` `credits`: ESA WorldCover, CC BY 4.0).
+  contributors, Overture Maps Foundation" small, on every load however the game
+  starts (gone after ~7 s, never a HUD), and settings' MAP DATA and the tuner
+  list it with the city's other credits (`city.json` `credits`: ESA WorldCover,
+  CC BY 4.0) at any time.
 - **City-agnostic**: `tools/bake/cities/amsterdam.json` (the Jordaan, 2.4 x 2 km,
   no LiDAR, no DEM: a flat 1 m city with the canals carved to -0.9 m) bakes from
-  the same code: @AMS@. Play it with `?city=amsterdam`. Copernicus GLO-30 on S3
+  the same code: 11,838 buildings (11,826 OSM, 12 other Overture), 80 tiles, 2,380 trees (1,723 mapped), 0.8 MB. Play it with `?city=amsterdam`. Copernicus GLO-30 on S3
   is a surface model (roofs and trees in it); a flat ground is truer for a
   canal city. `tools/bake/cities/london.json` (Hyde Park, Kensington Gardens and
   the streets around them, 3.3 x 2 km, flat the same way: 7,666 buildings,

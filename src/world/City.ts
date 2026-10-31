@@ -11,7 +11,7 @@ import { loadRegion, type GridArrays, type RegionRequest, type RegionResponse, t
 import { GROWN_STRIDE, type CasterArrays, type MeshArrays } from './BuildingMesher';
 import { treeCrown } from './props/trees';
 import { RoofBuild, eaveY, newRoofFrame, roofFrame, roofSurfaceY, type RoofFrame } from './roofGeom';
-import { hiddenAt, isSfOrigin, type Hidden, type PropBox } from './towerStyles';
+import { FAR_STAND_INS, HIDDEN, hiddenAt, isSfOrigin, type Hidden, type PropBox } from './towerStyles';
 import { gunzip, isGzip } from './gunzip';
 import { registerWarm } from '../render/warmup';
 
@@ -402,6 +402,8 @@ export class City {
   private far: FarData | null = null;
   private farGroup = new THREE.Group();
   private loadedMask: THREE.DataTexture;
+  /** tiles whose far skyline boxes never show (FAR_STAND_INS) */
+  private maskedForGood = new Set<string>();
   private maskW: number;
   private maskH: number;
   private regionSize: number;
@@ -446,6 +448,8 @@ export class City {
     this.paint = new PaintState(manifest.buildingCount + LANDMARK_SLOTS, manifest.slug);
     this.ground = new GroundPaint(manifest.tileSize, manifest.slug);
     this.sf = isSfOrigin(manifest.origin);
+    // (a hidden stand-in's cells of the obstacle grid are open water again, or whatever else stands there)
+    if (this.sf) for (const h of HIDDEN) if (h.clears) this.propObstacles.push({ clear: h, boxes: [] });
     // a blast's tiles get their own ground mesh first, so a coarse region (seen from altitude) shows the paint
     this.ground.onTilesTouched = (keys) => {
       for (const k of keys) {
@@ -477,6 +481,12 @@ export class City {
     this.maskH = Math.round((maxZ - minZ) / manifest.tileSize);
     this.loadedMask = new THREE.DataTexture(new Uint8Array(this.maskW * this.maskH), this.maskW, this.maskH, THREE.RedFormat, THREE.UnsignedByteType);
     this.loadedMask.minFilter = this.loadedMask.magFilter = THREE.NearestFilter;
+    if (this.sf)
+      for (const [x, z] of FAR_STAND_INS) {
+        const tx = Math.floor(x / manifest.tileSize), tz = Math.floor(z / manifest.tileSize);
+        this.setMask(tx, tz, 255);
+        this.maskedForGood.add(`${tx},${tz}`);
+      }
     this.loadedMask.needsUpdate = true;
     // (nothing in the city ever moves: no matrix work per frame, the scene graph only walks past it)
     this.root.matrixAutoUpdate = false;
@@ -1341,7 +1351,7 @@ export class City {
         }
         const mx = Math.round((tx * ts - minX) / ts);
         const mz = Math.round((tz * ts - minZ) / ts);
-        if (mx >= 0 && mz >= 0 && mx < this.maskW && mz < this.maskH) (this.loadedMask.image.data as Uint8Array)[mz * this.maskW + mx] = 0;
+        if (mx >= 0 && mz >= 0 && mx < this.maskW && mz < this.maskH && !this.maskedForGood.has(k)) (this.loadedMask.image.data as Uint8Array)[mz * this.maskW + mx] = 0;
         this.tiles.delete(k);
         this.tileNum.delete(tileKeyNum(tx, tz));
         this.onTileUnload?.(tx, tz);

@@ -12,7 +12,7 @@
 // Garden blobs and onion domes for painted towers (Part.GARDEN / Part.DOME)
 // reuse the same bytes differently: see BuildingMesher.ts.
 
-import { Arch } from './tiles';
+import { Arch, type BuildingTile } from './tiles';
 
 /** Facade family (0 = the classic archetype look). */
 export const Fam = {
@@ -125,6 +125,8 @@ export interface Hidden {
   halfW: number;
   /** only footprints lower than this (m above ground) */
   maxTop: number;
+  /** no prop's boxes take its cells: City just clears them (a bridge's stand-ins, a bad height) */
+  clears?: boolean;
 }
 
 /** An oriented box of a prop's collision surface (local m): the cells it covers stand `top` m ASL. */
@@ -212,7 +214,44 @@ const FERRY = llToLocal(HERO_PROPS[1].lat, HERO_PROPS[1].lon);
 export const HIDDEN: Hidden[] = [
   { name: 'Ferry Building', cx: FERRY[0], cz: FERRY[1], ax: Math.sin(HERO_PROPS[1].yaw), az: Math.cos(HERO_PROPS[1].yaw), halfL: 106, halfW: 39, maxTop: 80 },
   { name: 'Coit Tower', cx: COIT[0], cz: COIT[1], ax: 1, az: 0, halfL: 16, halfW: 16, maxTop: 15 },
+  // The bridges are hand-built too: what OSM's footprints and the LiDAR make of them stands beside the props, bare grey
+  // boxes in the bay: the Golden Gate's real towers (228 and 225 m), the Bay Bridge's (142-156 m), its central anchorage
+  // (89 m), the saddles over its piers (64-79 m, LiDAR-only) and the east span's tower, with no span to stand on
+  { name: 'Golden Gate south tower', cx: -5152, cz: -4343, ax: 1, az: 0, halfL: 30, halfW: 30, maxTop: 240, clears: true },
+  { name: 'Golden Gate north tower', cx: -5268, cz: -5618, ax: 1, az: 0, halfL: 30, halfW: 30, maxTop: 240, clears: true },
+  { name: 'Bay Bridge east span', cx: 5362, cz: -4482, ax: 1, az: 0, halfL: 40, halfW: 40, maxTop: 170, clears: true },
+  { name: 'Bay Bridge W2', cx: 3422, cz: -2310, ax: 1, az: 0, halfL: 40, halfW: 40, maxTop: 170, clears: true },
+  { name: 'Bay Bridge W3', cx: 3600, cz: -2501, ax: 1, az: 0, halfL: 34, halfW: 34, maxTop: 170, clears: true },
+  { name: 'Bay Bridge anchorage', cx: 3658, cz: -2585, ax: 1, az: 0, halfL: 40, halfW: 40, maxTop: 170, clears: true },
+  { name: 'Bay Bridge W5', cx: 3904, cz: -2877, ax: 1, az: 0, halfL: 50, halfW: 50, maxTop: 170, clears: true },
+  { name: 'Bay Bridge W6', cx: 4372, cz: -3424, ax: 1, az: 0, halfL: 40, halfW: 40, maxTop: 170, clears: true },
+  // the hut in Alamo Square, 45 m^2 under a cypress, stood 22 m tall on the crown's LiDAR, beside the Painted Ladies
+  { name: 'Alamo Square hut', cx: -1320, cz: -126, ax: 1, az: 0, halfL: 9, halfW: 9, maxTop: 25, clears: true },
+  { name: 'Bay Bridge W1', cx: 2966, cz: -1768, ax: 1, az: 0, halfL: 32, halfW: 32, maxTop: 170, clears: true },
+  // (hides nothing: BRIDGE_TIERS keeps its walls; the grid still held the 67 m the LiDAR read over them)
+  { name: 'Fort Point', cx: -5086, cz: -3961, ax: 1, az: 0, halfL: 60, halfW: 60, maxTop: 0, clears: true },
 ];
+
+/**
+ * Far skyline tiles with nothing but those stand-ins (open water, Fort Point): far.bin's boxes for them go for good.
+ * The Golden Gate's real south tower stands 357 m north of the prop's, so its box stood on the prop's deck in mid-span,
+ * dark and 228 m tall, from anywhere past the streaming radius.
+ */
+export const FAR_STAND_INS: ReadonlyArray<readonly [number, number]> = [
+  [-5152, -4343], [-5268, -5618], [-5086, -3961], [5362, -4482], [2966, -1768], [3432, -2323], [3413, -2297], [3600, -2501], [3658, -2585], [3879, -2852], [4359, -3411],
+];
+
+/**
+ * Buildings whose upper tiers are a bridge's steel, by stable id: the LiDAR read the Golden Gate's arch and deck over Fort
+ * Point (its walls are 16 m; it stood 64 m tall in dark glass in the game's first shot). They keep their ground tier.
+ */
+const BRIDGE_TIERS = new Set([459630039]);
+
+/** Flatten the tiers BRIDGE_TIERS names, in a freshly parsed tile: no height, no mesh (the mesher skips them), the ground tier's roof for gameplay. */
+export function trimBridgeTiers(t: BuildingTile) {
+  for (let k = 1; k < t.count; k++)
+    if (t.tier[k] > 0 && t.index[k] === t.index[k - 1] && BRIDGE_TIERS.has(t.stableId[k])) t.baseY[k] = t.roofY[k] = t.roofY[k - 1];
+}
 
 let iconsLocal: Array<{ x: number; z: number; icon: Icon }> | null = null;
 /** The icons in local meters (SF origin). */

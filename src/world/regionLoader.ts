@@ -5,6 +5,7 @@ import { meshBuildingTile, meshCasterTile, roofKinds, type CasterArrays, type Me
 import type { BuildingTile, TerrainTile } from './tiles';
 import { gunzip, isGzip } from './gunzip';
 import { eaveY, roofSurfaceY } from './roofGeom';
+import { trimBridgeTiers } from './towerStyles';
 
 export interface RegionRequest {
   type: 'region';
@@ -286,6 +287,7 @@ export async function loadRegion(req: RegionRequest, transfer: Transferable[] = 
       let grid = null;
       if (bLen > 0) {
         building = parseBuildingTile(buf.slice(bOff, bOff + bLen));
+        if (req.sf) trimBridgeTiers(building);
         kinds = roofKinds(building);
         ({ mesh, grown } = meshBuildingTile(building, { lod: req.lod, sf: req.sf, kinds }));
         // (hand everything over: a copied message deserializes on the main thread, a long task outside any frame)

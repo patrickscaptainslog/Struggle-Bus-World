@@ -157,9 +157,10 @@ stand (CC BY 4.0: © ESA WorldCover project 2021 / Contains modified Copernicus
 Sentinel data (2021) processed by ESA WorldCover consortium). The baked tiles
 are a derivative database under the ODbL: see `public/city/DATA_LICENSE.md`;
 the game credits
-"© OpenStreetMap contributors, Overture Maps Foundation" during the opening and
-in the tuner, and the tuner adds the city's other credits (`city.json`
-`credits`: ESA WorldCover's). See `DECISIONS.md` for every call we made.
+"© OpenStreetMap contributors, Overture Maps Foundation" for ~6 s on every load
+however the game starts, and settings' MAP DATA and the tuner list it with the
+city's other credits (`city.json` `credits`: ESA WorldCover's) at any time. See
+`DECISIONS.md` for every call we made.
 
 Paint state is a separate per-building array (faction, color, level, bloom
 time) keyed by a stable building id, so a server can own it in Phase 2.

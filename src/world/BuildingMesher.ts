@@ -702,6 +702,8 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
   let n = e - s;
   if (n < 3) return;
   const tier = t.tier[i];
+  // (trimBridgeTiers: a tier that was never a building)
+  if (tier > 0 && t.roofY[i] <= t.baseY[i]) return;
   const single = g.end - g.first === 1;
   let pts: Array<[number, number]> = [];
   for (let k = s; k < e; k++) pts.push([t.xz[k * 2], t.xz[k * 2 + 1]]);
@@ -724,10 +726,10 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
   if (lod === 1 && n > 4 && !g.style) {
     const keep = ringKeep(pts, Math.abs(area) / 2, front, front2);
     if (keep) {
+      front = front !== 255 && front < n ? keep.indexOf(front) : 255;
+      front2 = front2 !== 255 && front2 < n ? keep.indexOf(front2) : 255;
       pts = keep.map((k) => pts[k]);
       n = pts.length;
-      if (front !== 255) front = keep.indexOf(front);
-      if (front2 !== 255) front2 = keep.indexOf(front2);
     }
   }
   let cx = 0, cz = 0;
