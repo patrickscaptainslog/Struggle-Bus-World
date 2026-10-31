@@ -52,8 +52,8 @@ import { registerTunables } from '../ui/tunables';
 // camera creeping in; src/audio/superSfx.ts: riser + heartbeat) is driven
 // from here. Nothing new persists.
 //
-// The press itself is Input's (the INPUT CONTRACT: the SPLAT button, the tilt
-// screen, Space): chargeStart(held) past config.splat.holdThreshold, then
+// The press itself is Input's (the INPUT CONTRACT: the HUD's MEGA or
+// Space): chargeStart(held) past config.splat.holdThreshold, then
 // chargeEnd(held, cancelled). At a turbo gear's speeds the charge's weight, the
 // recoil and the limp stand aside (Flight.driven): a gear is never braked.
 //
@@ -85,6 +85,10 @@ export const superTune = {
   /** Pouring: nose-up (rad) and shudder (m); camera pull-back (share of its distance). */
   hoseRear: 0.24,
   hoseShudder: 0.34,
+  /** A pour's flash at or under flashNear m from the camera (the street's follow distance is ~125) is flashClose x its strength, full by flashFar m. */
+  flashNear: 130,
+  flashFar: 320,
+  flashClose: 0.45,
   hosePull: 0.08,
   /** Camera dolly spring (Hz). */
   dollyHz: 2.4,
@@ -109,6 +113,9 @@ registerTunables('SuperSplat', superTune, {
   smoke: [0, 40, 0.5],
   hoseRear: [0, 0.6, 0.01],
   hoseShudder: [0, 1.5, 0.01],
+  flashNear: [0, 400, 1],
+  flashFar: [20, 800, 1],
+  flashClose: [0.1, 1, 0.01],
   hosePull: [-0.3, 0.5, 0.01],
   dollyHz: [0.3, 8, 0.05],
   lead: [0, 0.3, 0.005],
@@ -218,6 +225,8 @@ export class SuperSplat {
   private readonly v0 = new THREE.Vector3();
   private readonly v1 = new THREE.Vector3();
   private readonly v2 = new THREE.Vector3();
+  /** the camera, last frame */
+  private readonly camAt = new THREE.Vector3();
   private readonly viewObj: SuperView = { phase: 'ready', charge: 0, min: 0.3, cooldownLeft: 0, cooldownTotal: 0, since: 0, sinceDenied: Infinity };
   private readonly tgt = [new THREE.Vector3()];
   private readonly hueOne = [0];
@@ -376,6 +385,7 @@ export class SuperSplat {
 
   /** Camera: dolly toward / away from the bus (translation only: the pixel snap holds). After the rig, before its kick. */
   camera(cam: THREE.Camera, focus: THREE.Vector3, dt: number): void {
+    this.camAt.copy(cam.position);
     const S = config.splat;
     const want = this.phase === 'charging' ? 1 - S.chargeCreep * Math.pow(this.charge, 1.5) : this.phase === 'firehose' ? 1 + superTune.hosePull : 1;
     const w = 2 * Math.PI * superTune.dollyHz;
@@ -469,7 +479,10 @@ export class SuperSplat {
       duration: S.firehoseDuration, travelTime: this.live.travel, width: S.firehoseWidth, live: this.live, taper: 0.94,
     });
     h.audio.superFirehose(S.firehoseDuration);
-    h.flash(h.mouth(), 2, 0.9);
+    // (lit right under the camera the opening flash would white out the bus: there it is one frame, short of white-hot)
+    const m = h.mouth();
+    const fs = this.pourFlash(m.x, m.y, m.z, 0.9);
+    h.flash(m, fs < 0.7 ? 1 : 2, fs);
     h.rig.kick(3.2);
     h.fx.sparks(50, h.busVel(), 16);
     Object.assign(this.stats, { kind: 'firehose', charge: 1, impacts: 0, blooms: 0, misses: 0, radius: S.firehoseRadius, startedAt: this.t, endedAt: 0 });
@@ -575,6 +588,14 @@ export class SuperSplat {
     return true;
   }
 
+  /** A pour's flash strength: softened when what it lights sits close under the camera (that fills the frame). */
+  private pourFlash(x: number, y: number, z: number, strength: number): number {
+    const T = superTune;
+    const d = this.v2.set(x, y, z).distanceTo(this.camAt);
+    const u = clamp((d - T.flashNear) / Math.max(1, T.flashFar - T.flashNear), 0, 1);
+    return strength * (T.flashClose + (1 - T.flashClose) * u * u * (3 - 2 * u));
+  }
+
   /** A firehose impact lands (Splatter's impact callback, Blast.hose): its lighter fx. */
   impact(b: Blast): void {
     const S = config.splat;
@@ -595,7 +616,7 @@ export class SuperSplat {
     h.rig.kick(S.firehoseShake * Math.sqrt(b.strength));
     if (this.t - this.lastFlash >= 1 / Math.max(0.5, S.firehoseFlashes)) {
       this.lastFlash = this.t;
-      h.flash(b.pos, 1, 0.6);
+      h.flash(b.pos, 1, this.pourFlash(b.pos.x, b.pos.y, b.pos.z, 0.6));
     }
     h.audio.superHoseHit();
     this.stats.blooms += b.count;

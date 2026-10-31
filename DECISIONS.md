@@ -1743,6 +1743,93 @@ every best frame". All measured in real Edge on the Intel UHD 620, 393 x 852 @3x
   hold angle (at 55 deg that is ~12 deg of wheel roll), now 0.22; 15 deg of real roll gives 0.38.
 - Still not done: no real phone yet; the A15 numbers are inferred.
 
+## Hybrid controls (producer: "a turbo button ... upper left", "a hybrid tilt and thumb tap", "a somewhat smaller/discrete toggle ... top left corner", "mega splat ... on the side - middle/top right of screen")
+The design is `docs/specs/hybrid-controls.md`, sections 0 to 10 built on main (eb35a35). **This overrides "No HUD" and "Tilt is
+the default on phones" by the producer's own words**: TURBO, the tilt toggle and MEGA are visible, everything else stays
+gone. All numbers: 393 x 852 at 3x, real Edge, this laptop's UHD 620, mocked sensor. **Nothing has been felt on a phone:
+every tunable in the "Hybrid" group is an estimate.**
+- **The rule.** The phone flies the bus until your thumb flies it. A tap splats. Buttons do what they say. There are no
+  control modes any more: `mode` is `touch | keyboard`, tilt running is `controls.tilt.active`, and `Input.update` is the one
+  arbitration site. With tilt off `state.stretch` is the bungee bit for bit (`s_hybrid` 1, 312 frames).
+- **A thumb replaces tilt, both axes.** Both sticks are absolute: adding gives a standing bias. A tap never disturbs tilt
+  (calm window only, 180 ms); a commit (12 px or 450 ms) fades it out in 160 ms; a still thumb reads 0, the untaught "tilt, stop
+  it". The lift hands back at most what tilt handed over, or takes the new angle as level (`s_hybrid`: nudge in a 12 degree
+  carve 46.1 of 45.0 degrees; body English +3.7, plain re-zero's wrong way gone; new hold +3.7 with stick 0).
+- **Producer defaults, one switch each.** Tilt is offered by the TILT TO STEER? chip, not imposed: `config.tilt.defaultOn` is the
+  one value to flip. A still press on the screen no longer charges, only MEGA does. Swipe-for-gears is retired. Tilt stays off
+  during a boost (a boost is clutched until the lift, and time doesn't count as a new hold for a reach: 3 s boost with a 25
+  degree swing 0.0 degrees, two-handed then levelled +10.0). A lapsed iOS grant gets the chip until it is ignored twice.
+- **The first run has no card and no hold.** Frame one is the clean hero shot. Coach: arrive at fog end or first touch, TAP on
+  a glint, DRAG after the first splat, TURBO blinks at the gate, the chip 2 s after the gate, HOLD on the third splat. Each once
+  ever (`taught`). In SF the first glint is ~90 s in if the player flies straight on (the bay), so with no splat yet the chip
+  comes first, 10 s after the fog at the earliest.
+- **Reconciled with main.** The HOLD SPLAT TO CHARGE line is the HOLD cue on MEGA's face; `strugglebus.superhint.v1` counts as
+  taught. A desktop has no MEGA, so it keeps HOLD SPACE TO CHARGE. Mote funnel, rings and warm-up are untouched.
+- **Judged tune: the hold hint ends when a charge starts.** `controls.charged()` ends the cue and clears the keyboard's toast.
+- **Judged tune: the pour's opening flash.** It wasn't an impact: it was `flash(mouth, 2, 0.9)`, centered on the bus. The first
+  try keyed on the landing point and did nothing, the second on 45 to 150 m and did nothing: the street's follow distance is ~125 m
+  (logged in the page). Now `flashNear` 130, `flashFar` 320, `flashClose` 0.45, on the flash's own point, one frame when
+  close, short of the white-hot core; hose impacts use the same curve. The judge's frame: near-white 28.4 % -> 17.8 % (mostly
+  the sky's one frame), bus and stream readable through it, where MAIN loses both. Generic: no city data.
+- **Rest is punched, not faded, and only the panels.** `punch(0.25)` over the whole face broke the labels ("TIIIBO", "MEGN"):
+  the panel goes see-through, chevrons and text stay solid. Palette only, no alpha.
+- **Moved in the build, beyond the spec:**
+  - `s_hybrid` 9 measures the wrong-way stick (-0.297 vs -0.316 unguarded), plus the carve's return. By heading unguarded
+    wins (47 vs 37, ideal 67), as the spec's own sim says (48 vs 36): the row as written couldn't pass. The guard's value on a
+    one-handed reach is smaller than the spec's table suggests: worth a look on a phone.
+  - Spec 3 contradicts itself: the landscape chip row (78 %) sits 1 px into the bottom 40, and its hit area 13 px. The table
+    stands (it is transient); `s_layout` names the exception.
+  - A compact phone turned on its side gets settings' seam at 8 px, not 4, to keep 44 px (not in the tables).
+  - MEGA refused by a steering thumb keeps its press (a tap on lift, or a charge) rather than cancelling: no press is dead.
+  - The adopted pointer's events are also forwarded from MEGA's wrapper, in case capture doesn't move on iOS, and every button
+    unlocks audio on `touchend` too, since a button can be the first touch (the toggle and the chip after their callback).
+- **Offline:** s_hybrid 31 of 31 (27 at the first QA, 4 added by the review below), s_gesture 47 rows, s_layout 952 checks, s_perm all, and s_tilt's JSON byte-identical to MAIN's.
+- **GPU:** every gesture, tilt off and on, through real CDP touches (`controls.mjs gestures`, `hybrid`, `flows`, `opening`,
+  `firstrun`, `layout`, `states`); 28 button states and every layout looked at. iOS asks inside `touchend` with user activation
+  active. Refused / thrown / rejected / silent / Android probe / no sensor / Busy / off inside the fade / settings 2 s all as the
+  spec's table. Real rects equal `layoutHud` at 393 x 852, 393 x 659, 320 x 568, 852 x 393, swapped or not. `jet.mjs --idle=1`: 0 HUD
+  DOM or style writes in 3 s.
+- **glint == hit:** 7 of 7 taps, 48 of 48 carves (roll 0, 12, 20, -20) and 12 of 12 taps after a thumb inside a carve, none lost.
+  An earlier run read 1 wrong of 12 at roll -20; `feel.mjs` then gained a check for presses that fired no breath and the rerun
+  was clean, so that one is unexplained and may be a real rare miss. Watch it.
+
+| fps.mjs, MAIN -> NEXT | fps | 1 % low | work ms | draws | triangles |
+|---|---|---|---|---|---|
+| Alamo street | 60 / 60 | 52.9 / 54.1 | 4.5 / 4.1 | 123 / 123 | 1.19M / 1.19M |
+| Alamo 250 m | 60 / 60 | 48.1 / 54.1 | 4.7 / 4.0 | 166 / 166 | 1.32M / 1.33M |
+| Alamo ceiling | 60 / 60 | 52.6 / 54.1 | 3.2 / 4.1 | 157 / 157 | 1.18M / 1.18M |
+| FiDi street | 60 / 60 | 53.2 / 52.9 | 3.1 / 2.9 | 111 / 112 | 0.70M / 0.70M |
+| FiDi 250 m | 60 / 60 | 56.8 / 56.8 | 2.0 / 2.1 | 121 / 125 | 0.70M / 0.73M |
+| FiDi ceiling | 60 / 60 | 55.2 / 55.9 | 1.9 / 1.9 | 59 / 59 | 0.43M / 0.43M |
+
+`shots.mjs` grey 127 / 127 draws, 1.21M / 1.21M, 25 / 25 programs; painted 135 / 134. `jet.mjs` east: p99 17.0 / 16.9 ms, max 17.3 / 17.3,
+no frame over 20 ms. Bundle 1111 -> 1133 KB. (The fps and shots runs predate the last flash tune, a two-value change that draws nothing.)
+
+**Merge review, four confirmed defects, all in the controls glue, none in rendering or perf** (each reproduced before the fix):
+- **Wrong-way carve after a long thumb session.** Grace went by `moved`, the phone's change, but a long hold in a still carve moves
+  the neutral the whole carve. Grace now goes by `max(moved, shift)`. 20 degree carve, 3 s thumb, levelled 0.5 s after the lift:
+  -183 degrees and stick -0.61 before, 0.0 degrees and stick 0 after on the GPU (s_hybrid row 20: -101.2 to +3.7, roll 12 -43.3 to
+  +3.7). Levelling past the 1.5 s grace is still the spec's known residual.
+- **A nudge begun on MEGA lost the carve.** `adoptThumb` never called `land()`, so hand-back used a stale pose and read as moved.
+  It lands at adoption, not at the press: tilt owns the stick until then. GPU 14 degree carve: stick 0.342 to 0.342 and no settle,
+  equal to the canvas nudge (s_hybrid row 21: -3.4 to 46.6 of 44.9 degrees).
+- **The toggle as first touch erased a returning player's choice.** `button2`'s `touchend` ran `onGesture` first, tilt started, and
+  the tap read as Busy cancel. Only TURBO, the tab and MEGA keep that listener; `hitTouch` runs it after its callback, tap or not.
+  GPU, Android-like and iOS: ends active, `prefs.tilt` true; iOS order `ask, unlock`, inside `touchend`.
+- **The chip swallowed drags and took any lift as yes.** `hitTouch(..., steer)`: past `tapSlopPx` the finger goes to `adoptThumb`
+  and the press is dead; a lift counts only inside `stillTapMs` and the slop. GPU: a drag steers (stick -0.32) and never asks, 0.6
+  and 1.5 s presses never ask, and a real tap on the same chip still asks in `touchend`. (A flick of 13 to 26 px under 150 ms that
+  starts on the chip is a splat, as on the canvas.)
+- Not changed: `yellowLo` (`#d8722a`, the bus ramp's own entry, hue 25, saturation 0.81, value 0.85) on pressed TURBO, pressed down
+  tab and the toggle's On body. It measures orange, not brown, but it reads burnt on dark panels: the producer's eye.
+- QA after the fixes: `controls.mjs` gestures, hybrid, firstrun, flows, opening, layout, states; `feel.mjs taps` 7 of 7 taps, 48 of 48
+  carves, 12 of 12 thumb-in-carve. `fps.mjs` not rerun: nothing here draws.
+
+**For the producer:** tilt's default (`config.tilt.defaultOn`). **First on a real iPhone, HTTPS preview:** whether `touchstart`
+preventDefault blocks the back swipe from TURBO's edge (if it doesn't, that loses the game); whether `requestPermission` is honored
+in a `touchend` after a prevented `touchstart`; pointer capture across `adoptThumb`; press-shake, calm, fade, settle, grace and
+`stillTapMs`; the reach's swing; real Safari height and insets; whether a probe hears a surviving grant.
+
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
   local repo until `patrickscaptainslog/struggle-bus` exists.

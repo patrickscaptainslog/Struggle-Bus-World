@@ -9,8 +9,10 @@
 //                 orientation change, calibration; tilt -> Flight yaw / climb at the floor and at altitude
 //   s_perm.ts     the permission flow with a mocked DeviceOrientationEvent.requestPermission (granted, denied,
 //                 throws, granted-but-silent = the claude.ai preview), no-sensor timeout -> touch fallback
-//   s_gesture.ts  tap vs hold vs drag vs swipe through Input with synthetic pointer / key events (touch mode,
-//                 tilt mode, the HUD splat button, the keyboard): the disambiguation table
+//   s_gesture.ts  tap vs hold vs drag through Input with synthetic pointer / key events (tilt off, tilt on, MEGA
+//                 and its adopted thumb, the keyboard): the disambiguation table, with checks
+//   s_hybrid.ts   the arbitration: real Input + TiltCore + TiltMix + Flight on a scripted phone: every handover
+//   s_layout.ts   layoutHud against the spec's tables, and its rules in every layout
 //   s_turbo.ts    gear shifts on the real baked city: G0 -> G1 -> G0 (speed, altitude, camera), LOCKED, boost,
 //                 the map edge, steering authority vs speed
 import { rolldown } from 'rolldown';

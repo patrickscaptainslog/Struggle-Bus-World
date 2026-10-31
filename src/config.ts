@@ -269,6 +269,14 @@ export const config = {
     calibrate: 0.18,
     /** Recentering eases the neutral over this long (s) instead of jumping. */
     recenterEase: 0.25,
+    /** Stillness before the neutral is taken (toggle, chip, RECENTER: all corner reaches): gravity must turn slower
+     *  than settleRate deg/s for settleHold s in a row, capped at settleMax s (a phone that never settles still calibrates). */
+    settleRate: 40,
+    settleHold: 0.3,
+    settleMax: 1.5,
+    /** An undecided phone player: false = tilt is offered (the TILT TO STEER? chip); true = they count as having chosen it
+     *  (starts on the first gesture; iOS, which needs a tap, gets the chip at the end of the fog). The one switch. */
+    defaultOn: false,
     /** Tilted this far from neutral (deg) the phone is being turned or put down, not flown: the stick fades out by awayTo. */
     awayFrom: 58,
     awayTo: 80,
@@ -367,8 +375,8 @@ export const config = {
     glintRate: 2,
     /** Inhale: the bus squashes and gulps on the tap frame; the jet leaves this much later (s, inside impactDelay). */
     inhale: 0.09,
-    /** A press held this long without turning into a steer / swipe starts charging the super splat (s);
-     *  shorter is a tap (Input.onChargeStart / onChargeEnd, state.chargeHeld). */
+    /** MEGA or Space held this long starts charging the super splat, and TURBO held this long starts the boost (s);
+     *  shorter is a tap (Input.onChargeStart / onChargeEnd, state.chargeHeld). A press on the screen never charges. */
     holdThreshold: 0.3,
     /** A breath that comes down on nothing (open water, under this height) is a miss; it refunds this much belly. */
     missWaterY: 0.8,

@@ -235,6 +235,15 @@ export class PixelCanvas {
       }
   }
 
+  /** Clear a checker of pixels, so what is behind shows through (no alpha: palette colors only). */
+  punch(density: 0.25 | 0.5) {
+    for (let j = 0; j < this.h; j++)
+      for (let i = 0; i < this.w; i++) {
+        const off = density === 0.5 ? (i + j) % 2 === 0 : i % 2 === 0 && j % 2 === 0;
+        if (off) this.px[j * this.w + i] = 0;
+      }
+  }
+
   flush() {
     if (this.ctx && this.img) this.ctx.putImageData(this.img, 0, 0);
   }

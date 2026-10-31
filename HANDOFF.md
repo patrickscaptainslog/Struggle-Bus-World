@@ -66,6 +66,7 @@ including merging into `main`.** None of the branches below has been merged yet.
 | `polish/look` | main merged in (facade + landmarks), review re-checked on the GPU and fixed; merge review's two findings fixed (a sign half hidden behind a far landmark, no drop shadow over the bay), ready to merge (desktop session, 2026-10-24) | sky band, sign beside the blast, hero ink edge + headlight, drop shadow, puffs, GGB International Orange (`BRIDGE_ORANGE` row 23; `RAMP_COUNT` 48), water, tree crowns, one sky function shared with the facades, `tools/look.mjs` + `lookstat.py` | merge into main (its DECISIONS "Look polish" has the 390 px numbers, MAIN vs the merge) |
 | `feat/controls` | main merged in, review fixed, QA'd on the GPU (MAIN vs NEXT), ready to merge (desktop session, 2026-10-30); never run on a real phone | tilt-to-fly default on phones (`Tilt.ts`, fused attitude, recenter), touch fallback, keyboard + Esc, hold-to-charge + turbo in `Input.ts` (the INPUT CONTRACT), turbo gears G0-G3 (G2/G3 locked behind `config.turbo.worldTravel`), turbo FX + audio, `src/ui/Hud.ts`, `tools/controls.mjs`, `tools/jet.mjs` (frame pacing, attributed), `tools/boom.mjs` (hero frames) | merge before supersplat (its DECISIONS "Controls QA" and "outside judge, round 1" have the numbers); first real-phone pass on the HTTPS preview |
 | `feat/supersplat` | main merged in (controls, look, landmarks, facade), pre-review fixed, QA'd on the GPU (MAIN vs NEXT), ready to merge (desktop session, 2026-10-30); never run on a real phone | hold-to-charge (10 s) on controls' gesture, mega blast on early release, firehose (~4 s), 60 s cooldown, `SuperSplat.ts`/`SuperFx.ts`/`SuperMeter.ts`/`superSfx.ts`, the summoning circle (`PixelPipeline.setHeroCircle`), `Blast.super` for the stage engine, the warm-up kit (`render/warmup.ts`, from perf/load), `tools/supersplat.mjs` | merge next (the outside judge's round 1 is fixed: first pour max 17.5 ms; a re-judge is pending), then perf/load (see "Merging perf/load" below); its DECISIONS "Super splat, outside judge round 1" has the numbers; first real-phone pass: the pour from 250 m on an A15, the meter clear of the home indicator |
+| `feat/hybrid` | built from `docs/specs/hybrid-controls.md`, QA'd on the GPU (MAIN vs NEXT), review's four defects fixed (2026-10-30); never run on a real phone | the producer's hybrid: TURBO, the tilt toggle, MEGA, thumb + tilt arbitration (`Hybrid.ts`), `hudLayout.ts`, the first run (`Coach.ts`), no card, `tools/controls-sim/s_hybrid.ts`, `s_layout.ts` | the real-iPhone list at the end of its DECISIONS "Hybrid controls" (back swipe first); the producer's call: `config.tilt.defaultOn` |
 | `polish/perf` | paused mid-task (12 commits) | sun-pass caster proxy, 8 m wall columns, hidden party walls, depth-only sun pass, culled far chunks, budgeted streaming, prewarm, `tools/perf-pass.mjs` | finish + measure, merge after the above |
 | `feat/stages` | empty (just created from main) | — | build the stage engine per `docs/specs/STAGES.md` (its "Producer decisions" section) |
 | `feat/osm` | paused mid-task (WIP) | Overture/OSM extract (`tools/bake/overture.py`, `osm.py`, `citydata.py`), conflation draft in `bake.py`, Amsterdam config, `src/ui/Credits.ts` | resume; needs the bake inputs (see "City data pipeline") |
@@ -121,7 +122,7 @@ the same browser, which hides it): no frame gap over ~50 ms, `info.programs` fla
    A design pass is producing `MAGIC-SPEC.md` (cloud scratchpad; will be committed to
    `docs/specs/`). Open questions to the producer: which factions at launch; does a
    firehose count as one hit or ~2.
-2. Tilt to fly as the default on phones; touch optional (feat/controls). Tilt needs a real
+2. Hybrid tilt + thumb (feat/hybrid, the producer's revision of tilt by default). Tilt needs a real
    HTTPS deploy (Vercel from this repo); the claude.ai preview blocks motion sensors.
 3. Hold-to-charge super splat (feat/supersplat).
 4. Turbo modes and manual world travel: fly SF -> Tokyo across the Pacific with turbo gears
@@ -139,8 +140,12 @@ the same browser, which hides it): no frame gap over ~50 ms, `info.programs` fla
   measured on an A15. `City.detailHold` and the `prep` adopt items overlap polish/perf's budgeted streaming: when
   merging keep the hold, the full transfer and one way of spreading a swap.
 - A 3x `page.screenshot` costs a frame or more on any build: don't trace frame times beside one.
-- Capture tools pass `&nohud` and never see the card: `tools/controls.mjs ... opening` is the
-  first-visit run (card, tap, the bus under the deck, a swipe during it, sensors that never answer).
+- Capture tools pass `&nohud`: `tools/controls.mjs ... firstrun` and `opening` are the first-visit runs (the cues, the chip,
+  TURBO armed under the deck, the sheet, sensors that never answer). `?fixeddt` makes game time run ~3x real time: a "hold"
+  in `run:` game seconds is a shorter real press, and a real press past 450 ms is what makes a thumb.
+- A one-handed reach to TURBO swings the bus until the finger lands, and with a settle it recovers less of a carve than no guard
+  would (37 vs 47 degrees, ideal 67): it stops the wrong-way turn. Only a phone can say if that trade is right.
+- A phone relaxed more than ~2 s after a moved lift gets a counter-carve until RECENTER or a thumb hold (spec section 12).
 - `fps.mjs` peaks at 1.52M triangles at the Alamo ceiling, just over the 1.5M budget, on main too.
 - The first gesture stalls ~200 ms in `audio.unlock()` here (more on a phone?), on main too.
 - The cold load's first frame still blocks ~7.5 s on shader links on this laptop, on main too: perf/load's boot fixes

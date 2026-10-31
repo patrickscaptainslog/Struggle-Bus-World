@@ -12,9 +12,9 @@
     "active",
     "off"
    ],
-   "ms": 376,
+   "ms": 774,
    "calibrated": true,
-   "samples": 12
+   "samples": 30
   },
   {
    "case": "iOS, denied",
@@ -31,10 +31,11 @@
   {
    "case": "iOS, requestPermission throws (no gesture)",
    "needsPermission": true,
-   "final": "denied",
+   "final": "blocked",
    "statuses": [
     "requesting",
-    "denied"
+    "blocked",
+    "off"
    ],
    "ms": 0,
    "calibrated": false,
@@ -43,12 +44,13 @@
   {
    "case": "iOS, requestPermission rejects",
    "needsPermission": true,
-   "final": "denied",
+   "final": "blocked",
    "statuses": [
     "requesting",
-    "denied"
+    "blocked",
+    "off"
    ],
-   "ms": 0,
+   "ms": 1,
    "calibrated": false,
    "samples": 0
   },
@@ -61,7 +63,7 @@
     "waiting",
     "unavailable"
    ],
-   "ms": 1001,
+   "ms": 1003,
    "calibrated": false,
    "samples": 0
   },
@@ -75,9 +77,9 @@
     "active",
     "off"
    ],
-   "ms": 383,
+   "ms": 703,
    "calibrated": true,
-   "samples": 12
+   "samples": 30
   },
   {
    "case": "desktop: one event of nulls",
@@ -87,7 +89,7 @@
     "waiting",
     "unavailable"
    ],
-   "ms": 1001,
+   "ms": 1011,
    "calibrated": false,
    "samples": 0
   },

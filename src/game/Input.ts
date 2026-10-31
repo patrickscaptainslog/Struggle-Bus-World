@@ -1,5 +1,6 @@
 import { config } from '../config';
 import { registerTunables } from '../ui/tunables';
+import type { TiltMix } from './Hybrid';
 
 // One-thumb input: the "floating bungee".
 //
@@ -25,39 +26,27 @@ import { registerTunables } from '../ui/tunables';
 // (dive; surge at the rooftops), Left / Right / A / D = carve.
 //
 // Modes (`mode`, set by src/game/Controls.ts; read-only for gameplay code):
-//  - 'touch'    the bungee above. The HUD's splat button (splatButton()) taps
-//               and holds; the HUD's turbo lever shifts and boosts.
-//  - 'tilt'     the phone is the yoke (src/game/Tilt.ts feeds `stick`, which
-//               fills state.stretch with the bungee's exact semantics) and the
-//               whole screen is the splat button: tap = splat, hold = charge,
-//               swipe up / down = shift a turbo gear, swipe up and keep the
-//               finger down = boost. A second finger while the first is held
-//               taps. No bungee.
+//  - 'touch'    the bungee above, tilt or no tilt: while tilt runs `mix`
+//               (src/game/Hybrid.ts) arbitrates, the same gestures everywhere.
+//               The HUD's MEGA (splatButton()) taps and holds; TURBO shifts and
+//               boosts. A still press on the screen is a tap up to stillTapMs and
+//               steering after that: it never charges.
 //  - 'keyboard' desktop: the bungee on the mouse, keys as above.
-// The splat press (any source: tilt screen, HUD button, Space): released before
-// config.splat.holdThreshold = onTap; held that long without becoming a steer /
-// swipe = onChargeStart, then onChargeEnd(heldSeconds, cancelled) on release
-// (cancelled = slid off into a drag, a third finger, or focus lost);
+// The splat press (MEGA, or Space): released before config.splat.holdThreshold =
+// onTap; held that long = onChargeStart, then onChargeEnd(heldSeconds, cancelled)
+// on release (cancelled = a third finger, a lost touch, or focus lost);
 // state.chargeHeld = seconds held while charging, else 0.
-// Turbo: onTurbo(+1 / -1) shifts a gear (swipes, the lever, E / Q, PageUp /
-// PageDown); state.turboHeld = the boost is held (swipe-and-hold, the lever
-// held, Shift).
+// Turbo: onTurbo(+1 / -1) shifts a gear (TURBO, its down tab, E / Q, PageUp /
+// PageDown); state.turboHeld = the boost is held (TURBO held, Shift).
 
-export type InputMode = 'tilt' | 'touch' | 'keyboard';
-
-/** A stick that isn't a finger (the tilt): Flight semantics, read after update(). */
-export interface StickSource {
-  readonly sx: number;
-  readonly sy: number;
-  /** deflected (outside its dead zones): Flight's `dragging` */
-  readonly engaged: boolean;
-  update(): void;
-}
+export type InputMode = 'touch' | 'keyboard';
 
 export interface InputState {
-  /** A thumb (or key) is actively steering. */
+  /** A thumb, a key or a deflected tilt is steering. */
   dragging: boolean;
-  /** In units of config.flight.stretchPx, +x right, +y UP (screen up), soft-saturated so |stretch| <= 1. */
+  /** A committed bungee thumb (not a key, not the tilt). */
+  thumb: boolean;
+  /** The arbitrated stick, in units of config.flight.stretchPx, +x right, +y UP (screen up), soft-saturated so |stretch| <= 1. */
   stretch: { x: number; y: number };
   /** Bungee anchor, CSS px relative to the input element (null when no steering finger is down). */
   anchor: { x: number; y: number } | null;
@@ -71,7 +60,10 @@ export interface InputState {
 
 /** Live-tunable gesture numbers (tuner group "Input"). */
 export const inputTune = {
-  /** A touch shorter than this (ms) that stays inside tapSlopPx is a tap. */
+  /** A still press up to this long (ms) splats on its lift; past it, it is a thumb at neutral. Stays inside
+   *  config.splat.aimLatch (500 ms), so glint == hit holds. */
+  stillTapMs: 450,
+  /** The first finger, still, counts as steering after this long (ms): another finger's touch is then a tap of its own. */
   tapMs: 230,
   tapSlopPx: 12,
   /** A very quick touch (ms) may wander a little further and still be a tap. */
@@ -85,22 +77,19 @@ export const inputTune = {
   knee: 0.72,
   /** Keyboard: how fast the key stretch chases its target (1/s). */
   keyRate: 7,
-  /** Splat press: a finger that wanders past this before holdThreshold is no tap and no hold (px)... */
+  /** MEGA: a finger that wanders past this before the charge becomes the steering thumb (px)... */
   holdSlopPx: 14,
-  /** ...and one that slides this far while charging cancels the charge (px). */
-  chargeSlopPx: 44,
-  /** Tilt mode: a swipe is this much vertical travel (px) within swipeMs of the touch-down, mostly vertical (|dy| >= ratio x |dx|). */
-  swipePx: 38,
-  swipeMs: 450,
-  swipeRatio: 1.3,
+  /** ...and one that slides this far while charging keeps charging and steers too (px). */
+  chargeSlopPx: 28,
+  /** A press landing this close to the left or right edge is a gripping finger: it never clutches the tilt by resting (px). */
+  edgePx: 14,
 };
 
 registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
   holdSlopPx: [4, 40, 1],
   chargeSlopPx: [10, 120, 1],
-  swipePx: [12, 120, 1],
-  swipeMs: [100, 1000, 10],
-  swipeRatio: [0.5, 4, 0.05],
+  edgePx: [0, 40, 1],
+  stillTapMs: [150, 500, 5],
   tapMs: [80, 400, 5],
   tapSlopPx: [2, 40, 1],
   quickTapMs: [40, 300, 5],
@@ -134,28 +123,30 @@ interface Slot {
   maxDist: number;
   /** Already produced a tap (second-finger tap on down). */
   counted: boolean;
+  /** Landed in the edge band: a resting grip never clutches. */
+  edge: boolean;
+  /** Adopted from MEGA with its press still held: the lift ends that press and nothing else. */
+  ownsPress: boolean;
 }
 
 const enum Src {
   None = 0,
-  /** the whole screen, tilt mode */
-  Screen = 1,
-  /** the HUD's splat button */
+  /** the HUD's MEGA */
   Button = 2,
   Key = 3,
 }
 
 export class Input {
-  readonly state: InputState = { dragging: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, turboHeld: false };
+  readonly state: InputState = { dragging: false, thumb: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, turboHeld: false };
   onTap: (() => void) | null = null;
-  /** The splat press has lasted config.splat.holdThreshold without becoming a steer / swipe: the super splat charges. */
+  /** The splat press has lasted config.splat.holdThreshold: the super splat charges. */
   onChargeStart: (() => void) | null = null;
-  /** The charging press ended: held seconds (from the press), cancelled = slid off into a drag / focus lost. */
+  /** The charging press ended: held seconds (from the press), cancelled = a lost touch / focus lost. */
   onChargeEnd: ((heldSeconds: number, cancelled: boolean) => void) | null = null;
   /** Shift a turbo gear up (+1) or down (-1). */
   onTurbo: ((dir: 1 | -1) => void) | null = null;
-  /** The tilt stick, read in 'tilt' mode (src/game/Tilt.ts). */
-  stick: StickSource | null = null;
+  /** The tilt's mixer (src/game/Hybrid.ts); while it is live it arbitrates the stick. */
+  mix: TiltMix | null = null;
   /** A new gesture touched down (it may become a tap, which fires on the lift): the game freezes its aim cue. */
   onPress: (() => void) | null = null;
   onTripleFinger: (() => void) | null = null;
@@ -168,7 +159,11 @@ export class Input {
   private readonly fingerPt = { x: 0, y: 0 };
   private rectL = 0;
   private rectT = 0;
+  private rectW = 0;
   private firstDone = false;
+  /** the thumb's stretch (applyStretch), arbitrated in update() */
+  private readonly b = { x: 0, y: 0 };
+  private lastUpdate = -1;
 
   // current gesture (from the steering finger's touch-down until every member lifts)
   private primary: Slot | null = null;
@@ -189,17 +184,15 @@ export class Input {
   private pointerDragging = false;
 
   private modeV: InputMode = 'touch';
-  // the splat press, one at a time (tilt screen, HUD button or Space): source, start (ms), charging
+  // the splat press, one at a time (MEGA or Space): source, start (ms), charging
   private prSrc: Src = Src.None;
   private prT0 = 0;
   private prCharging = false;
   /** a frame saw the press past the threshold: the next frame that still sees it starts the charge (a release
    *  queued behind one slow frame is still a tap: its timestamp says how long it really was) */
   private prArmed = false;
-  // tilt mode: this gesture swiped (a gear shift); the boost held by a swipe up, the HUD lever, Shift
-  private gSwiped = false;
-  private swipeHold = false;
-  private leverHold = false;
+  // the boost held by TURBO, by Shift
+  private hudHold = false;
   private keyBoost = false;
 
   // keyboard
@@ -237,12 +230,15 @@ export class Input {
   private readonly onKeyUp = (e: KeyboardEvent) => this.key(e, false);
   private readonly onBlur = () => this.releaseAll();
   private readonly onVisibility = () => {
-    if (document.hidden) this.releaseAll();
+    if (document.hidden) {
+      this.releaseAll();
+      this.mix?.sleep();
+    } else this.wakeMix();
   };
 
   constructor(el: HTMLElement) {
     this.el = el;
-    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, maxDist: 0, counted: false });
+    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, maxDist: 0, counted: false, edge: false, ownsPress: false });
 
     const s = el.style as CSSStyleDeclaration & { webkitUserSelect?: string; webkitTouchCallout?: string; webkitTapHighlightColor?: string };
     s.touchAction = 'none';
@@ -272,7 +268,7 @@ export class Input {
     document.addEventListener('visibilitychange', this.onVisibility);
   }
 
-  /** 'tilt' | 'touch' | 'keyboard' (read-only for gameplay code; src/game/Controls.ts sets it). */
+  /** 'touch' | 'keyboard' (read-only for gameplay code; src/game/Controls.ts sets it). */
   get mode(): InputMode {
     return this.modeV;
   }
@@ -283,8 +279,8 @@ export class Input {
     this.modeV = m;
   }
 
-  /** The HUD's splat button (touch mode): pressed / released; `cancelled` = the finger slid off it; `at` = the
-   *  event's timeStamp (ms, performance clock), so a slow frame can't stretch a tap into a hold. */
+  /** The HUD's MEGA: pressed / released; `cancelled` = no tap (the finger became the steering thumb, or was lost);
+   *  `at` = the event's timeStamp (ms, performance clock), so a slow frame can't stretch a tap into a hold. */
   splatButton(down: boolean, cancelled = false, at?: number): void {
     const t = performance.now();
     const now = at !== undefined && at > 0 && at <= t + 50 && t - at < 30000 ? at : t;
@@ -295,52 +291,144 @@ export class Input {
     } else this.pressEnd(Src.Button, now, cancelled);
   }
 
-  /** The HUD's turbo lever: a tap shifts a gear. */
+  /** The HUD's TURBO / down tab: a tap shifts a gear. */
   turboShift(dir: 1 | -1): void {
     this.fireFirstGesture();
     this.onTurbo?.(dir);
   }
 
-  /** The HUD's turbo lever held: boost. */
+  /** The HUD's TURBO held: boost. */
   turboHold(down: boolean): void {
-    this.leverHold = down;
-    this.state.turboHeld = this.swipeHold || this.leverHold || this.keyBoost;
+    this.hudHold = down;
+    this.state.turboHeld = this.hudHold || this.keyBoost;
   }
 
-  /** Call once per frame before reading `state` (keyboard easing, hold-to-steer, the splat hold, the tilt). */
-  update(dt: number): void {
-    this.pressTick(performance.now());
-    const st0 = this.state;
-    st0.turboHeld = this.swipeHold || this.leverHold || this.keyBoost;
-    if (this.modeV === 'tilt') {
-      this.updateTilt(dt);
-      return;
-    }
+  /** Any HUD press or lift: the hand shakes the phone (the calm window). */
+  hudBlip(): void {
+    this.mix?.blip();
+  }
+
+  /** TURBO, its down tab or the tilt toggle pressed: a reach that clutches the tilt... */
+  reachDown(): void {
+    this.mix?.reachDown();
+  }
+
+  /** ...until the finger lifts. */
+  reachUp(): void {
+    this.mix?.reachUp();
+  }
+
+  /** Tilt went live, the settings closed, the app came back: the mixer eases in (a thumb down stays clutched). */
+  wakeMix(): void {
+    this.mix?.wake(this.pointerDragging);
+  }
+
+  /** The MEGA press is charging (the HUD's slide rule). */
+  get charging(): boolean {
+    return this.prCharging;
+  }
+
+  /** Seconds the steering finger has rested without moving past the tap slop (0: no such finger). */
+  stillFor(now: number): number {
     const p = this.primary;
-    if (p && !this.gTriple) {
-      // A thumb resting still past the tap window is steering (at neutral).
-      if (!this.pointerDragging && performance.now() - p.t0 >= inputTune.tapMs) this.commitDrag();
-      if (this.pointerDragging) return; // the thumb wins over the keys
+    return p && p.maxDist <= inputTune.tapSlopPx && !this.gTriple ? (now - p.t0) / 1000 : 0;
+  }
+
+  /** A finger is on the screen or a splat press is held. */
+  get anyHeld(): boolean {
+    return this.primary !== null || this.prSrc !== Src.None;
+  }
+
+  /** Is there room for MEGA's finger to steer? */
+  get canAdopt(): boolean {
+    return this.primary === null;
+  }
+
+  /**
+   * A HUD finger (MEGA's) becomes the steering thumb: the pointer moves over to the canvas and the gesture starts here,
+   * from where the finger is now (no stretch step), while its slot remembers the press's own point and time (client
+   * px, ms), so one lift ends in exactly one result. keepPress = a held charge stays alive and ends on this lift.
+   * False if a thumb already steers. (The tilt chip's finger comes here too.)
+   */
+  adoptThumb(e: PointerEvent, keepPress: boolean, x0: number, y0: number, t0: number): boolean {
+    if (this.primary) return false;
+    const slot = this.alloc(e.pointerId);
+    if (!slot) return false;
+    try {
+      this.el.setPointerCapture(e.pointerId);
+    } catch {
+      /* pointer already gone */
     }
-    if (p) return; // a gesture that hasn't committed yet: keys stay out of it
+    for (const s of this.slots) if (s !== slot && (s.role === Role.Secondary || s.role === Role.Primary)) s.role = Role.Orphan;
+    const r = this.el.getBoundingClientRect();
+    this.rectL = r.left;
+    this.rectT = r.top;
+    this.rectW = r.width;
+    this.setSlot(slot, e, t0, Role.Primary);
+    const x = slot.x0, y = slot.y0;
+    slot.x0 = x0 - this.rectL;
+    slot.y0 = y0 - this.rectT;
+    slot.maxDist = Math.hypot(x - slot.x0, y - slot.y0);
+    slot.edge = false;
+    slot.ownsPress = keepPress;
+    this.beginGesture(slot, t0);
+    this.anchorPt.x = this.fingerPt.x = x;
+    this.anchorPt.y = this.fingerPt.y = y;
+    // (a HUD press never reached pointerDown's land(), and the stick was tilt's until now: this is what it hands over)
+    this.mix?.land();
+    this.commitDrag();
+    return true;
+  }
+
+  /** Pointer events of an adopted finger that still reach the HUD (capture is not promised to move on every browser). */
+  adoptedMove(e: PointerEvent): void {
+    this.pointerMove(e);
+  }
+  adoptedUp(e: PointerEvent, cancelled: boolean): void {
+    this.pointerUp(e, cancelled);
+  }
+
+  /** Call once per frame before reading `state` (keyboard easing, hold-to-steer, the splat hold, the arbitration). */
+  update(dt: number): void {
+    const now = performance.now();
+    this.pressTick(now);
+    const st = this.state;
+    st.turboHeld = this.hudHold || this.keyBoost;
+    const mix = this.mix;
+    const mixLive = mix !== null && mix.live;
+    const p = this.primary;
+    // A thumb resting still past the tap window is steering (at neutral); a resting grip on the edge doesn't kill the tilt.
+    if (p && !this.gTriple && !this.pointerDragging && now - p.t0 >= inputTune.stillTapMs && !(mixLive && p.edge)) this.commitDrag();
+    st.thumb = this.pointerDragging;
+    if (mixLive) {
+      // (wall clock: a hit-stop must not stall a handover)
+      const wall = this.lastUpdate >= 0 ? Math.min(0.1, (now - this.lastUpdate) / 1000) : 0;
+      mix.update(wall, this.b.x, this.b.y);
+    }
+    this.lastUpdate = now;
     const tx = (this.kR ? 1 : 0) - (this.kL ? 1 : 0);
     const ty = (this.kU ? 1 : 0) - (this.kD ? 1 : 0);
-    const st = this.state;
-    if (tx === 0 && ty === 0) {
-      this.kx = this.ky = 0;
-      if (st.dragging && !this.pointerDragging) {
-        st.dragging = false;
-        st.stretch.x = st.stretch.y = 0;
-      }
+    if ((tx !== 0 || ty !== 0) && !this.pointerDragging) {
+      // the keys win over the tilt, the thumb wins over the keys
+      const len = Math.hypot(tx, ty);
+      const k = 1 - Math.exp(-inputTune.keyRate * Math.max(0, dt));
+      this.kx += (tx / len - this.kx) * k;
+      this.ky += (ty / len - this.ky) * k;
+      st.dragging = true;
+      st.stretch.x = this.kx;
+      st.stretch.y = this.ky;
       return;
     }
-    const len = Math.hypot(tx, ty);
-    const k = 1 - Math.exp(-inputTune.keyRate * Math.max(0, dt));
-    this.kx += (tx / len - this.kx) * k;
-    this.ky += (ty / len - this.ky) * k;
-    st.dragging = true;
-    st.stretch.x = this.kx;
-    st.stretch.y = this.ky;
+    this.kx = this.ky = 0;
+    if (mixLive) {
+      st.stretch.x = mix.out.x;
+      st.stretch.y = mix.out.y;
+      st.dragging = this.pointerDragging || mix.out.x !== 0 || mix.out.y !== 0;
+    } else {
+      st.stretch.x = this.b.x;
+      st.stretch.y = this.b.y;
+      st.dragging = this.pointerDragging;
+    }
   }
 
   dispose(): void {
@@ -371,12 +459,12 @@ export class Input {
 
   // ---------------------------------------------------------------- the splat press (tap / hold)
 
-  /** A press starts (false: another one is already held). */
-  /** A press that fires on its lift is down (the SPLAT button, Space, tilt's whole screen; not touch's bungee). */
+  /** A press that fires on its lift is down (MEGA or Space; not the bungee). */
   get pressHeld(): boolean {
     return this.prSrc !== Src.None;
   }
 
+  /** A press starts (false: another one is already held). */
   private pressBegin(src: Src, now: number): boolean {
     if (this.prSrc !== Src.None) return false;
     this.prSrc = src;
@@ -427,55 +515,6 @@ export class Input {
     if (this.prSrc !== Src.None) this.pressEnd(this.prSrc, now, true);
   }
 
-  // ---------------------------------------------------------------- tilt mode
-
-  /** The tilt stick fills the stretch (keys still fly it on a desktop with a sensor). */
-  private updateTilt(dt: number) {
-    const st = this.state;
-    const tx = (this.kR ? 1 : 0) - (this.kL ? 1 : 0);
-    const ty = (this.kU ? 1 : 0) - (this.kD ? 1 : 0);
-    if (tx !== 0 || ty !== 0) {
-      const len = Math.hypot(tx, ty);
-      const k = 1 - Math.exp(-inputTune.keyRate * Math.max(0, dt));
-      this.kx += (tx / len - this.kx) * k;
-      this.ky += (ty / len - this.ky) * k;
-      st.dragging = true;
-      st.stretch.x = this.kx;
-      st.stretch.y = this.ky;
-      return;
-    }
-    this.kx = this.ky = 0;
-    const s = this.stick;
-    if (s) {
-      s.update();
-      st.stretch.x = s.sx;
-      st.stretch.y = s.sy;
-      st.dragging = s.engaged;
-    } else {
-      st.stretch.x = st.stretch.y = 0;
-      st.dragging = false;
-    }
-  }
-
-  /** Tilt mode, the gesture's first finger moved: a swipe shifts a gear; wandering off ends the press. */
-  private tiltMove(slot: Slot, x: number, y: number, now: number) {
-    const dx = x - slot.x0, dy = y - slot.y0;
-    if (!this.gSwiped && !this.prCharging && now - slot.t0 <= inputTune.swipeMs && Math.abs(dy) >= inputTune.swipePx && Math.abs(dy) >= inputTune.swipeRatio * Math.abs(dx)) {
-      this.gSwiped = true;
-      if (this.prSrc === Src.Screen) this.pressEnd(Src.Screen, now, true);
-      const up = dy < 0;
-      this.swipeHold = up; // swipe up and keep the finger down: boost
-      this.state.turboHeld = this.swipeHold || this.leverHold || this.keyBoost;
-      this.onTurbo?.(up ? 1 : -1);
-      return;
-    }
-    if (this.prSrc !== Src.Screen) return;
-    // (the same forgiveness as a touch-mode tap: a quick tap may wander; no press is ever dead)
-    const slop = this.prCharging ? inputTune.chargeSlopPx : now - slot.t0 <= inputTune.quickTapMs ? inputTune.quickTapSlopPx : inputTune.holdSlopPx;
-    if (slot.maxDist > slop) this.pressEnd(Src.Screen, now, true);
-  }
-
-
   // ---------------------------------------------------------------- pointers
 
   private pointerDown(e: PointerEvent) {
@@ -483,6 +522,7 @@ export class Input {
     // First thing, synchronously inside the event: iOS audio unlock.
     this.fireFirstGesture();
     if (e.cancelable) e.preventDefault();
+    this.mix?.blip();
     // Never get stuck on a pointer whose up was lost: a repeated id, or a
     // "primary" pointer (the browser says no other touch is down), retires leftovers.
     const dup = this.find(e.pointerId);
@@ -503,29 +543,10 @@ export class Input {
       const r = this.el.getBoundingClientRect();
       this.rectL = r.left;
       this.rectT = r.top;
+      this.rectW = r.width;
       this.setSlot(slot, e, now, Role.Primary);
-      this.primary = slot;
-      this.gT0 = now;
-      this.gMembers = 1;
-      this.gMax = 1;
-      this.gMulti = false;
-      this.gTriple = false;
-      this.gAllQuick = true;
-      this.gAnswered = false;
-      this.gPendingTap = false;
-      this.gSteered = false;
-      this.pointerDragging = false;
-      // Show where the bungee is pinned right away; it only steers once committed.
-      this.anchorPt.x = this.fingerPt.x = slot.x0;
-      this.anchorPt.y = this.fingerPt.y = slot.y0;
-      this.state.anchor = this.anchorPt;
-      this.state.finger = this.fingerPt;
-      this.gSwiped = false;
-      if (this.modeV === 'tilt') {
-        // no bungee: the whole screen is the splat button (tap / hold) and swipes shift gears
-        this.state.anchor = this.state.finger = null;
-        this.pressBegin(Src.Screen, now);
-      }
+      this.beginGesture(slot, now);
+      this.mix?.land();
       this.onPress?.();
       return;
     }
@@ -543,8 +564,6 @@ export class Input {
       return;
     }
     this.gMulti = true;
-    // (tilt: two fingers before the first is held is no hold: one tap at the end, or the tuner)
-    if (this.modeV === 'tilt') this.pressEnd(Src.Screen, now, true);
     if (this.gMembers >= 3 && now - this.gT0 <= inputTune.tripleWindowMs) {
       this.gTriple = true;
       this.gPendingTap = false;
@@ -561,10 +580,6 @@ export class Input {
     const d = Math.hypot(x - slot.x0, y - slot.y0);
     if (d > slot.maxDist) slot.maxDist = d;
     if (slot !== this.primary || this.gTriple) return;
-    if (this.modeV === 'tilt') {
-      this.tiltMove(slot, x, y, evTime(e));
-      return;
-    }
     this.fingerPt.x = x;
     this.fingerPt.y = y;
     if (!this.pointerDragging && slot.maxDist > inputTune.tapSlopPx) this.commitDrag();
@@ -577,6 +592,7 @@ export class Input {
     const now = evTime(e);
     const role = slot.role;
     const quick = !cancelled && this.isQuick(slot, now);
+    this.mix?.blip();
     slot.role = Role.None;
     slot.id = -1;
     if (role === Role.Orphan) return;
@@ -586,12 +602,8 @@ export class Input {
     if (role === Role.Primary) {
       this.primary = null;
       this.endSteering();
-      if (this.modeV === 'tilt') {
-        // the screen press ends: a tap, the end of a charge, or nothing (swiped / slid / multi-finger)
-        this.swipeHold = false;
-        this.state.turboHeld = this.leverHold || this.keyBoost;
-        this.pressEnd(Src.Screen, now, cancelled || this.gTriple);
-      }
+      // A charge MEGA's finger carried off ends here, and only here.
+      if (slot.ownsPress) this.pressEnd(Src.Button, now, cancelled || this.gTriple);
       // The everyday tap: one finger, short and still -> fire on the up.
       else if (quick && !this.gMulti && !this.gTriple && !this.gAnswered) this.onTap?.();
     } else if (!slot.counted && quick && !this.gTriple && !this.gAnswered && this.primary) {
@@ -605,7 +617,7 @@ export class Input {
 
     if (this.gMembers <= 0) {
       // Two fingers tapped together, nobody steering: one tap at the last lift.
-      const together = this.gMulti && this.gAllQuick && !this.gSteered && this.gMax === 2 && now - this.gT0 <= inputTune.tapMs + 150;
+      const together = this.gMulti && this.gAllQuick && !this.gSteered && this.gMax === 2 && now - this.gT0 <= inputTune.stillTapMs + 150;
       if (!this.gTriple && !this.gAnswered && (together || this.gPendingTap)) this.answer();
       this.gMembers = 0;
       this.gMulti = false;
@@ -614,6 +626,26 @@ export class Input {
   }
 
   // ---------------------------------------------------------------- helpers
+
+  /** A new gesture: the steering finger touched down. */
+  private beginGesture(slot: Slot, now: number) {
+    this.primary = slot;
+    this.gT0 = now;
+    this.gMembers = 1;
+    this.gMax = 1;
+    this.gMulti = false;
+    this.gTriple = false;
+    this.gAllQuick = true;
+    this.gAnswered = false;
+    this.gPendingTap = false;
+    this.gSteered = false;
+    this.pointerDragging = false;
+    // Show where the bungee is pinned right away; it only steers once committed.
+    this.anchorPt.x = this.fingerPt.x = slot.x0;
+    this.anchorPt.y = this.fingerPt.y = slot.y0;
+    this.state.anchor = this.anchorPt;
+    this.state.finger = this.fingerPt;
+  }
 
   private setSlot(slot: Slot, e: PointerEvent, now: number, role: Role) {
     slot.id = e.pointerId;
@@ -624,6 +656,8 @@ export class Input {
     slot.t0 = now;
     slot.maxDist = 0;
     slot.counted = false;
+    slot.edge = slot.x0 < inputTune.edgePx || slot.x0 > this.rectW - inputTune.edgePx;
+    slot.ownsPress = false;
   }
 
   /** Forget a pointer without any tap (stale / lost). */
@@ -634,9 +668,8 @@ export class Input {
     if (role === Role.Primary) {
       this.primary = null;
       this.endSteering();
-      // (a lost touch never leaves a charge or a boost running)
-      this.pressEnd(Src.Screen, performance.now(), true);
-      this.swipeHold = false;
+      // (a lost touch never leaves a charge running)
+      if (s.ownsPress) this.pressEnd(Src.Button, performance.now(), true);
     }
     if (role === Role.Primary || role === Role.Secondary) {
       this.gMembers = Math.max(0, this.gMembers - 1);
@@ -675,15 +708,13 @@ export class Input {
 
   private isQuick(s: Slot, now: number): boolean {
     const dur = now - s.t0;
-    return (dur <= inputTune.tapMs && s.maxDist <= inputTune.tapSlopPx) || (dur <= inputTune.quickTapMs && s.maxDist <= inputTune.quickTapSlopPx);
+    return (dur <= inputTune.stillTapMs && s.maxDist <= inputTune.tapSlopPx) || (dur <= inputTune.quickTapMs && s.maxDist <= inputTune.quickTapSlopPx);
   }
 
   /** The steering finger has committed: moved past the tap slop or held past the tap window. */
   private primarySteering(now: number): boolean {
     const p = this.primary;
     if (!p) return false;
-    // (tilt: the first finger is held, or swiped: another finger's touch is a tap of its own)
-    if (this.modeV === 'tilt') return this.prCharging || this.gSwiped || now - p.t0 > config.splat.holdThreshold * 1000;
     return this.pointerDragging || p.maxDist > inputTune.tapSlopPx || now - p.t0 > inputTune.tapMs;
   }
 
@@ -699,17 +730,17 @@ export class Input {
     this.pointerDragging = true;
     this.gSteered = true;
     if (this.gPendingTap && !this.gAnswered) this.answer();
-    const st = this.state;
-    st.dragging = true;
     this.kx = this.ky = 0;
+    this.mix?.clutch();
     this.applyStretch();
   }
 
   private endSteering() {
+    const was = this.pointerDragging;
     this.pointerDragging = false;
+    this.b.x = this.b.y = 0;
+    if (was) this.mix?.release('thumb');
     const st = this.state;
-    st.dragging = false;
-    st.stretch.x = st.stretch.y = 0;
     st.anchor = null;
     st.finger = null;
   }
@@ -732,7 +763,7 @@ export class Input {
       dy *= k;
       d = maxD;
     }
-    const st = this.state.stretch;
+    const st = this.b;
     const dz = Math.max(0, F.deadZonePx);
     if (d <= dz) {
       st.x = st.y = 0;
@@ -799,7 +830,7 @@ export class Input {
       case 'ShiftLeft':
       case 'ShiftRight':
         this.keyBoost = down;
-        this.state.turboHeld = this.swipeHold || this.leverHold || this.keyBoost;
+        this.state.turboHeld = this.hudHold || this.keyBoost;
         break;
       default:
         used = false;
@@ -813,8 +844,7 @@ export class Input {
   private releaseAll() {
     // (focus lost mid-hold: the charge ends cancelled; no stuck boost)
     this.pressCancel(performance.now());
-    this.swipeHold = this.leverHold = this.keyBoost = false;
-    this.gSwiped = false;
+    this.hudHold = this.keyBoost = false;
     this.state.turboHeld = false;
     for (const s of this.slots) {
       s.role = Role.None;

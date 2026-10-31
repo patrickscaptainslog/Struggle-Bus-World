@@ -13,6 +13,8 @@
 //   jet       G1 at 450 m/s, then a charge, the firehose and the spent limp: the gear's speed through it (jet.json)
 //   first     the first charge after boot, against the second: its frames' work and gaps, real time (first.json)
 //   audio     (with cooldown) the super splat's sounds rendered offline: peak, clipping, NaN (audio.json)
+//   press     real CDP touches on the HUD's MEGA: hold to a mega, the meter above the face and docked on it (press-*.png)
+//   flash     the pour's opening flash at a spot where the stream lands right under the camera: frame luminance (flash.json)
 //   base      (with --base=<url>) the same tap blast perf on the baseline build, for before/after
 // Everything waits on the game clock (?fixeddt=1/30 steps it exactly), never wall time: SwiftShader runs ~1.5 fps.
 import { chromium } from 'playwright-core';
@@ -24,7 +26,7 @@ const flags = Object.fromEntries(args.filter((a) => a.startsWith('--')).map((a) 
 const [base = 'http://127.0.0.1:5201/', out = 'shots/supersplat', ...modeList] = args.filter((a) => !a.startsWith('--'));
 const modes = new Set(modeList.length ? modeList : ['charge', 'sweep', 'alt', 'mega', 'cooldown']);
 mkdirSync(out, { recursive: true });
-// (touch: a phone viewport would otherwise sit under the TILT TO FLY card, and the meter needs the HUD up)
+// (touch: tilt off, no chip, and no quiet listen)
 const DT = '&fixeddt=0.0333333&controls=touch';
 
 const browser = await chromium.launch({ ...browserOptions([]) });
@@ -424,6 +426,51 @@ if (modes.has('first')) {
   report.first = { first, second };
   writeFileSync(`${out}/first.json`, JSON.stringify(report.first, null, 1));
   console.log('first', JSON.stringify(report.first));
+  await page.close();
+}
+
+if (modes.has('press')) {
+  const page = await open(base + '?lat=37.7752&lon=-122.4400&heading=75&skipintro' + DT);
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', type === 'touchEnd' ? { type, touchPoints: [] } : { type, touchPoints: [{ x, y, id: 1 }] });
+  await page.evaluate(() => (window.__game.audio.unlock(), window.__game.forceReady()));
+  await runFor(page, 0.3);
+  const m = await page.evaluate(() => { const r = document.querySelector('[data-hud="mega"]').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  const slot = () => page.evaluate(() => { const r = document.querySelector('[data-slot="super"]').getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; });
+  await touch('touchStart', m.x, m.y);
+  await runUntil(page, 'g.superState().charge >= 0.42', 12);
+  await new Promise((r) => setTimeout(r, 200));
+  const above = await slot();
+  await page.screenshot({ path: `${out}/press-charging.png` });
+  await touch('touchEnd');
+  await runUntil(page, 'g.superState().phase === "cooldown"', 3);
+  await runFor(page, 1);
+  const docked = await slot();
+  await page.screenshot({ path: `${out}/press-cooldown.png` });
+  const st = await page.evaluate(() => window.__game.superState());
+  await page.evaluate(() => window.__game.superSkip(120));
+  await runFor(page, 0.2);
+  await page.screenshot({ path: `${out}/press-ready-pop.png` });
+  await runFor(page, 1);
+  const back = await slot();
+  console.log('press', JSON.stringify({ above, docked, back, kind: st.stats.kind, charge: st.stats.charge }));
+  writeFileSync(`${out}/press.json`, JSON.stringify({ above, docked, back, st }, null, 1));
+  await page.close();
+}
+
+if (modes.has('flash')) {
+  // the judge's frame: a full charge from the street at Alamo, then the pour's first second, every other frame
+  const page = await open(base + '?lat=37.7752&lon=-122.4400&heading=75&skipintro' + DT);
+  await runFor(page, 1.5);
+  const t0 = await clock(page);
+  await page.evaluate(() => window.__game.superSplat(10));
+  const rows = [];
+  for (let k = 0; k < 10; k++) {
+    const t = t0 + 10.02 + k * 0.0667;
+    await shotAt(page, t, `${out}/flash-f${String(k).padStart(2, '0')}.png`);
+    rows.push({ k, t: +t.toFixed(3) });
+  }
+  writeFileSync(`${out}/flash.json`, JSON.stringify(rows, null, 1));
   await page.close();
 }
 

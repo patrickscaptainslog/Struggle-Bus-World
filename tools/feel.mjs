@@ -10,8 +10,9 @@
 //   taps   real taps through Input's path (tapSplat): at the floor (cruise, surge,
 //          second finger while turning, lift-then-tap) and from 120 m / 250 m / the
 //          ceiling: the building glinting before the tap vs the one the breath hits and
-//          paints (taps.json); then tilt carves (mocked sensor, real CDP touches, roll 0 / 12 /
-//          20 / -20 deg): the glint at the press vs the one the breath hits (carve.json)
+//          paints (taps.json); then tilt carves (mocked sensor through the mocked iOS flow and the
+//          chip, real CDP touches, roll 0 / 12 / 20 / -20 deg): the glint at the press vs the one
+//          the breath hits, and a thumb steering inside a carve, then a tap (carve.json)
 //   perf   CPU work ms, draw calls, triangles cruising at the floor and holding 250 m
 //          up, at Alamo Square and in FiDi (perf.json; run it against two builds to compare)
 //
@@ -221,8 +222,8 @@ if (modes.has('taps')) {
   console.log(`taps: ${res.filter((r) => r.ok).length}/${res.length} glint == hit (and painted)`);
   await page.close();
 
-  // tilt carves: the press is the commitment, on a banked phone too (tilt taps fire on the lift)
-  const carve = await open('?lat=37.7763&lon=-122.4352&heading=88&skipintro&fixeddt=0.033', () => {
+  // tilt carves: the press is the commitment, on a banked phone too (taps fire on the lift)
+  const carve = await open('?lat=37.7763&lon=-122.4352&heading=88&skipintro&fixeddt=0.033&controls=tilt', () => {
     window.__sensor = { beta: 55, gamma: 0, on: false };
     window.DeviceOrientationEvent.requestPermission = () => {
       window.__sensor.on = true;
@@ -235,34 +236,77 @@ if (modes.has('taps')) {
   });
   const cdp = await carve.context().newCDPSession(carve);
   const touch = (down) => cdp.send('Input.dispatchTouchEvent', down ? { type: 'touchStart', touchPoints: [{ x: 196, y: 400, id: 1 }] } : { type: 'touchEnd', touchPoints: [] });
-  await touch(true);
-  await touch(false);
-  await until(carve, 'g.controls.mode === "tilt"', 5);
+  // the way in: the chip (?controls=tilt shows it at once, its hit area arms after 250 ms)
+  await until(carve, 'g.controls.snapshot().hud.chip', 5);
+  await new Promise((r) => setTimeout(r, 350));
+  await runFor(carve, 0.1);
+  const chip = await carve.evaluate(() => { const r = document.querySelector('[data-hud="tilt-chip"]').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...chip, id: 1 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await until(carve, 'g.controls.tilt.active', 5);
   await runFor(carve, 1);
   const rows = [];
   for (const gamma of [0, 12, 20, -20]) {
     await carve.evaluate((v) => (window.__sensor.gamma = v), gamma);
     await runFor(carve, 1.5);
-    const r = { gamma, taps: 0, withGlint: 0, wrong: 0 };
+    const r = { gamma, taps: 0, withGlint: 0, wrong: 0, noShot: 0, detail: [] };
     for (let i = 0; i < 12; i++) {
       await carve.evaluate(() => window.__game.forceReady());
       await runFor(carve, 0.25);
+      const t0 = await carve.evaluate(() => window.__game.lastShot()?.t ?? -1);
       await touch(true);
       const pressed = await carve.evaluate(() => new Promise((res) => requestAnimationFrame(() => res(window.__game.glintNow()?.index ?? -1))));
       await runFor(carve, 0.12);
       await touch(false);
       await runFor(carve, 0.05);
-      const hit = await carve.evaluate(() => window.__game.lastShot()?.target?.index ?? -1);
+      const shot = await carve.evaluate(() => { const s = window.__game.lastShot(); return { t: s?.t ?? -1, hit: s?.target?.index ?? -1, wall: !!s?.wall, glint: window.__game.glintNow()?.index ?? -1 }; });
+      const hit = shot.hit;
       r.taps++;
+      // (no breath left this press: a press held past stillTapMs behind a slow frame is a thumb, and says nothing about aim)
+      if (shot.t === t0) {
+        r.noShot++;
+        await runFor(carve, 2);
+        continue;
+      }
       if (pressed >= 0) {
         r.withGlint++;
-        if (pressed !== hit) r.wrong++;
+        if (pressed !== hit) {
+          r.wrong++;
+          r.detail.push({ pressed, ...shot });
+        }
       }
       await runFor(carve, 2);
     }
     rows.push(r);
     console.log('carve', JSON.stringify(r));
   }
+  // a thumb inside a tilt carve, then a tap: the lift's latch and the press latch must still say glint == hit
+  await carve.evaluate(() => (window.__sensor.gamma = 12));
+  await runFor(carve, 1.5);
+  const thumb = { gamma: 12, thumb: true, taps: 0, withGlint: 0, wrong: 0 };
+  for (let i = 0; i < 12; i++) {
+    await carve.evaluate(() => window.__game.forceReady());
+    await runFor(carve, 0.25);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 196, y: 500, id: 1 }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 196 + (i % 2 ? 40 : -40), y: 500, id: 1 }] });
+    await runFor(carve, 0.4);
+    await touch(false);
+    await runFor(carve, 0.12);
+    await touch(true);
+    const pressed = await carve.evaluate(() => new Promise((res) => requestAnimationFrame(() => res(window.__game.glintNow()?.index ?? -1))));
+    await runFor(carve, 0.12);
+    await touch(false);
+    await runFor(carve, 0.05);
+    const hit = await carve.evaluate(() => window.__game.lastShot()?.target?.index ?? -1);
+    thumb.taps++;
+    if (pressed >= 0) {
+      thumb.withGlint++;
+      if (pressed !== hit) thumb.wrong++;
+    }
+    await runFor(carve, 2);
+  }
+  rows.push(thumb);
+  console.log('carve', JSON.stringify(thumb));
   writeFileSync(`${out}/carve.json`, JSON.stringify(rows, null, 1));
   await carve.close();
 }

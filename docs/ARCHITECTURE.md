@@ -285,9 +285,9 @@ live in `src/config.ts`.
 | Game glue | `src/main.ts`, `src/game/*` | flight, camera, splat, bloom, persistence |
 | Ground paint | `src/world/GroundPaint.ts`, `src/game/blastLayout.ts` | per-tile splat masks, blast shape + hue layout, shockwave ring GLSL |
 | Super splat | `src/game/SuperSplat.ts`, `src/fx/SuperFx.ts`, `src/ui/SuperMeter.ts`, `src/audio/superSfx.ts`, `src/audio/superAudioCheck.ts` | hold to charge, mega blast, firehose, cooldown (see below) |
-| Controls | `src/game/Controls.ts`, `src/game/Tilt.ts`, `src/game/Turbo.ts`, `src/fx/Turbo.ts`, `src/audio/turboVoice.ts`, `src/ui/Hud.ts`, `src/ui/pixelUi.ts` | scheme choice + permission, tilt stick, turbo gears, turbo FX / voice, the HUD |
+| Controls | `src/game/Controls.ts`, `src/game/controlPrefs.ts`, `src/game/Tilt.ts`, `src/game/Hybrid.ts`, `src/game/Turbo.ts`, `src/fx/Turbo.ts`, `src/audio/turboVoice.ts`, `src/ui/Hud.ts`, `src/ui/hudLayout.ts`, `src/ui/Coach.ts`, `src/ui/pixelUi.ts` | scheme + permission, tilt stick, thumb / tilt arbitration, turbo gears, turbo FX / voice, the HUD, its layout, the first run |
 
-## Controls: tilt, touch, keyboard, turbo gears
+## Controls: the hybrid (tilt + thumb), keyboard, turbo gears
 `src/game/Controls.ts` owns the scheme and wires everything below. main.ts
 makes five calls per frame, in this order: `controls.preFlight(dt)` right
 after `input.update(dt)` (the turbo drive writes `Flight.turbo`),
@@ -298,36 +298,57 @@ rotation are set (the rattle), `controls.frame(dt, realDt)` right after
 `controls.fx.object.position.copy(particles.object.position)` after the
 vista snap compensation (the contrail stays with the bus up high).
 
-**The input contract** (`src/game/Input.ts`; feat/supersplat builds on it):
-- `onTap(): void` a quick tap: a normal dragon-breath splat (unchanged).
-- `onChargeStart(): void` a press lasted `config.splat.holdThreshold`
-  (0.3 s) without becoming a steer / swipe (confirmed on a second frame);
-  `state.chargeHeld` = seconds since the press while charging, else 0;
-  `onChargeEnd(heldSeconds: number, cancelled: boolean): void` on release
-  (cancelled: slid off into a drag, pointercancel, a lost touch, focus lost).
-  A release before the threshold is a tap. One press at a time (tilt screen,
-  HUD splat button, Space); a second source while one is held taps.
-- `onTurbo(dir: 1 | -1): void` shift a gear; `state.turboHeld` the boost.
-- `mode: 'tilt' | 'touch' | 'keyboard'` (read-only for gameplay; Controls
-  calls `setMode`). Tilt: `input.stick` (the TiltControl) fills
-  `state.stretch` / `state.dragging` with the bungee's exact semantics, so
-  everything downstream (Flight, the opening's climb lock, the homing, the
-  aim latch, `__qa.sx/sy` overrides) is unchanged, except that a banked phone
-  doesn't count as a steering thumb for the aim latch: `aimer.update` gets
-  `dragging && mode !== 'tilt' && !input.pressHeld`, so a press that fires on
-  its lift keeps the building it froze.
-- The opening (`main.ts` with `Controls`): `controls.holdOpening` freezes it
-  (dt = 0) until the card, the motion sheet and the sensor have answered;
-  `controls.gearsLocked`, set per frame with the climb lock, queues a shift until
-  the bus clears the Golden Gate gate.
-- HUD hooks: `splatButton(down, cancelled?, eventTimeMs?)`,
-  `turboShift(dir)`, `turboHold(down)`.
+**The rule** (`docs/specs/hybrid-controls.md` is the design, with its numbers): the phone flies the bus
+until a thumb flies it, a tap splats, buttons do what they say. There are no control modes: one gesture model
+(the floating bungee), one layout. The tilt switch decides one thing: may the phone steer when no thumb is.
+
+**The input contract** (`src/game/Input.ts`):
+- `onTap(): void` a tap: a normal dragon-breath splat. A still press up to `inputTune.stillTapMs` (450 ms) on the
+  screen, a quick wandering one, a second finger while steering, or a MEGA tap. `state.thumb` never fires one.
+- `onChargeStart(): void` MEGA or Space held `config.splat.holdThreshold` (0.3 s, confirmed on a second frame); a
+  press on the screen NEVER charges. `state.chargeHeld` = seconds since the press while charging, else 0;
+  `onChargeEnd(heldSeconds, cancelled)` on release (cancelled: pointercancel, a lost touch, focus lost). One press at
+  a time (`pressHeld`: MEGA or Space); a second source while one is held taps.
+- `onTurbo(dir: 1 | -1)` shift a gear; `state.turboHeld` the boost.
+- `onPress()` a gesture landed (the aim's press latch, glint == hit).
+- `mode: 'touch' | 'keyboard'`. Tilt running is `controls.tilt.active`, not a mode.
+- `state.thumb` a committed bungee thumb. `state.dragging`: a thumb, keys, or a non-zero tilt stick.
+  `state.stretch`: the arbitrated stick, the same semantics as ever: Flight, the opening's climb lock, the homing and
+  `__qa.sx/sy` don't know who wrote it. The aim thaws on a thumb, keys or a QA stick, never on tilt:
+  `aimer.update` gets `(qaStick || st.thumb || keys) && !input.pressHeld`.
+- The arbitration is one site, `Input.update`: keys (no thumb) > `input.mix` while live > the bungee's own stretch `b`.
+  With tilt off `state.stretch` is `b`, bit for bit (`s_hybrid` row 1).
+- HUD hooks: `splatButton(down, cancelled?, eventTimeMs?)` (MEGA), `turboShift(dir)`, `turboHold(down)`, `hudBlip()` (any
+  HUD press or lift), `reachDown()` / `reachUp()` (TURBO, the tab, the toggle), `adoptThumb(e, keepPress, x0, y0, t0)`
+  (MEGA's or the chip's finger becomes the thumb; it notes the pose with `mix.land()`, since no canvas touch-down did),
+  `adoptedMove/Up` (its events if capture didn't move), `wakeMix()`.
+- The opening (`main.ts` with `Controls`): nothing holds it. `controls.sheetUp` (iOS's motion sheet) sets dt = 0 at any
+  time; `controls.gearsLocked` and `controls.opening`, set per frame, queue a shift until the bus clears the gate and
+  drive the first run. "Gate cleared" is `!opening && !gearsLocked`, true at fog end in a city with no bridge.
+
+**The mixer** (`src/game/Hybrid.ts`, `TiltMix`, no DOM, tuner group "Hybrid"): phases `live | thumb | settle`, one flag
+per owner (`thumbHeld`, `reachHeld`). An uncommitted touch leaves tilt live, only the calm window runs (no speed term,
+no prediction for 180 ms). A committed thumb, past 12 px or 450 ms, replaces tilt on both axes, fading it out over
+160 ms. A primary that lands within 14 px of the side edge and stays still never clutches (a grip must not kill tilt).
+TURBO, the tab and the toggle clutch too, remembering the pose ~0.45 s before the press (`TiltCore.pastG`): a reach
+swings the phone before the finger lands; a boost stays clutched until the lift. MEGA never clutches. On the last owner's
+lift: phone within 5 degrees of where it was, `handBack()` at once, continuously; moved, stick 0 until the hand settles
+(`settle`), then `handBack()`. `handBack` moves `TiltCore.neutral`, the only zero, so tilt reads `(1 - f) * cap`, where
+`cap` is what it handed over and `f` says "new hold" (time only counts for a thumb). Sensitivity never changes. A
+master gain `g` eases everything in and out: `wake()` is the only thing that raises it (`Input.wakeMix`: tilt live,
+settings closed, app back), `sleep()` (settings, hidden) and `turnOff()` (the toggle) drop it; `Controls.frame` stops the
+tilt only when `offPending` and `g === 0`.
 
 **Tilt** (`src/game/Tilt.ts`): `TiltCore` (no DOM; `feed(beta, gamma,
 screenDeg, tSeconds)`, `update(tSeconds)`, `sx` / `sy`, `calibrate()`,
-`recenter()`, `sensitivity`) and `TiltControl` (DOM: `request()` must be
-called synchronously in a user gesture, `listen()`, `stop()`, `status`:
-off | requesting | waiting | calibrating | active | denied | unavailable).
+`recenter()`, `recenterStill()`, `sensitivity`; for the mixer `calm`, `autoHold`,
+`gRate` / `gStill`, `pastG`, `anglesOf`, `stickFor`, `rebase`) and `TiltControl` (DOM:
+`request()` must be called synchronously in a user gesture, `listen()`, `probe()` (a
+quiet listen that ends at off and steers nothing), `stop()`, `status`: off | requesting |
+waiting | calibrating | active | denied | blocked | unavailable). `denied` is an answer
+from the sheet and is saved; `blocked` (requestPermission threw) is not, the next press
+retries. Calibration and RECENTER wait for stillness (`config.tilt.settleRate`,
+`settleHold`, capped by `settleMax`): those buttons are corner reaches.
 Gravity only (alpha cancels), screen frame, swing split along the neutral
 frame's horizontal axes, One-Euro + prediction, dead zone + expo, auto-
 recenter. Tunables: `config.tilt`.
@@ -359,18 +380,29 @@ dissolves; events through the existing `Particles.puff/sparkles`; the
 rattle (`applyRattle`). **Voice** (`src/audio/turboVoice.ts`) on
 `AudioEngine.voiceKit()` (the sfx bus).
 
-**HUD** (`src/ui/Hud.ts`): `slot('super')` = a 176 x 86 CSS px flex box at the
-bottom center (its child centered on the floor), pointer-events none (set `auto`
-on your own children), where the super splat's `src/ui/SuperMeter.ts` (68 x 86)
-mounts; top-right buttons fade after 6 s and a tap there wakes them, a desktop
-has none (Esc: `openSettings`); `setCredits(text)` (a tiny
-line bottom left and in settings; e.g. map attribution); `toast(lines, s)`;
-`setMode`, `setSettings`, `showPrompt`. All HUD elements carry `data-sb-ui`
-(Input ignores keys typed there) and `data-hud="..."` names for QA.
+**HUD** (`src/ui/Hud.ts`): pixel canvases at 2 CSS px per UI px, palette colours only, redrawn on change only, with no
+per-frame DOM writes while idle (`tools/jet.mjs --idle=1`). `src/ui/hudLayout.ts` is one pure function, `layoutHud(w, h,
+insets, swap, compact)`, run on resize only. Hit wrappers catch touches and the visuals inside them are pointer-events
+none; no hit rect reaches the 14 px band at the left and right edges, in any layout, swapped or not. Only toggle, TURBO,
+the tab, MEGA, recenter, settings and the chip catch touches. TURBO: tap = next level, hold = boost, the level shown by
+three chevrons. The tab (`gear-down`) exists with a gear or an armed shift. MEGA: tap = splat, hold = charge, slide =
+the thumb (`adoptThumb`). `slot('super')` is a 68 x 86 box above MEGA (beside it turned) that docks on its face for the
+cooldown (`setMega(phase)`, from main.ts per frame). TURBO and MEGA rest after 8 s with `PixelCanvas.punch` (a checker of
+cleared pixels on the panels). `hitTouch` is the toggle's and the chip's tap (the chip's with `steer`: a short still tap only, a drag becomes the thumb). `onGesture` runs after it in the same `touchend`, and no other listener on those two may run it first. The callback runs inside `touchend`,
+first thing, because iOS asks there. Top-right buttons fade after 6 s and a tap there wakes them; a desktop has no
+buttons at all (Esc: `openSettings`). `setCredits(text)`, `toast(lines, s)` (one slot, LOCKED clears it), `setSettings`,
+`arrive()`, `setCue`, `turboCue`, `megaHoldCue`, `showChip`, `flyChip`. All HUD elements carry `data-sb-ui` (Input ignores
+keys typed there) and `data-hud="..."` names for QA (`turbo`, `gear-down`, `mega`, `tilt-toggle`, `tilt-chip`, `cue`).
+
+**The first run** (`src/ui/Coach.ts`, no DOM): one cue at a time, each ended by doing it, each shown once ever (`taught`
+in the prefs). Off with `?nohud`, `?skipintro`, `?nocoach`; `?coach` keeps it under skipintro. Controls runs it per frame and
+owns the chip. **Prefs** (`src/game/controlPrefs.ts`, `localStorage strugglebus.controls.v1`): `tilt?` (true / false /
+absent = undecided), `taught?`, `swap?`, `chipIgnored?`, `sens`, `muted`, `keysShown`; an old `mode` is migrated on load.
+`config.tilt.defaultOn` is the one switch between offering tilt (false) and assuming it.
 
 QA: `window.__game.controls` (`snapshot()`: mode, tilt, turbo, flight,
 camera, HUD, input), `tools/controls.mjs` (browser) and
-`tools/controls-sim/` (offline: s_tilt, s_tune, s_perm, s_gesture, s_turbo).
+`tools/controls-sim/` (offline: s_tilt, s_tune, s_perm, s_gesture, s_turbo, s_hybrid, s_layout).
 
 ## The blast (dragon breath)
 `Splatter.barf(x, z, opts?: BarfOpts): number` launches a projectile
@@ -455,8 +487,7 @@ impact frame shows the hit.
 (`holdThreshold`, `superCharge` 10 s, `superMin`, `superCooldown` 60 s,
 `mega*`, `chargeSlow`, `chargeCreep`, `firehose*`, `superSpent`), look
 numbers in the tuner groups `SuperSplat`, `SuperFx`, `SuperAudio`.
-- **Input contract**: Input's (see "Controls"): the SPLAT button, the tilt
-  screen and Space fire `onChargeStart()` past `config.splat.holdThreshold`, with
+- **Input contract**: Input's (see "Controls"): MEGA and Space fire `onChargeStart()` past `config.splat.holdThreshold`, with
   `state.chargeHeld` set, then `onChargeEnd(heldSeconds, cancelled)`. main.ts wires
   them to `superSplat.chargeStart(input.state.chargeHeld)` and
   `superSplat.chargeEnd(held, cancelled)`, which calls `host.tap()` for a release
@@ -532,8 +563,7 @@ numbers in the tuner groups `SuperSplat`, `SuperFx`, `SuperAudio`.
   `node tools/feel-sim/run.mjs s_super.ts` (offline: charge, mega, cancel,
   firehose counts and cost), `tools/controls-sim/run.mjs s_gesture.ts` (the
   press), `node tools/supersplat.mjs <url> <out> [charge sweep alt mega
-  cooldown jet first audio base] [--base=<url>]` (`&controls=touch`: a phone
-  viewport would otherwise sit under the TILT TO FLY card).
+  cooldown jet first audio base] [--base=<url>]` (`&controls=touch`: tilt off, no chip).
 
 ## Paintable landmarks (hand-built props)
 A landmark prop (Transamerica, Sutro Tower, any `LandmarkKit` prop) is a

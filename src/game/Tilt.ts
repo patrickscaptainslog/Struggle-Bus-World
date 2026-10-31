@@ -30,8 +30,11 @@ import { clamp } from './springs';
 //   rate (cancels what lag is left), a dead zone, and an expo curve that gives
 //   fine control near center and full authority at ~30 degrees.
 // - Calibration from how the player holds the phone when flying starts (the
-//   mean of the first samples), recentering on demand (eased, never a jump),
-//   and a gentle auto-recenter of small posture offsets while held still.
+//   mean of the first samples once it is still), recentering on demand (eased,
+//   never a jump), and a gentle auto-recenter of small posture offsets while
+//   held still.
+// - `neutral` is the only zero. src/game/Hybrid.ts moves it when a thumb hands
+//   back (rebase), and never touches the sensitivity.
 
 /** One-Euro filter (Casiez, Roussel, Vogel 2012) on an explicit clock (s). */
 export class OneEuro {
@@ -96,6 +99,8 @@ const Z_DOWN = new THREE.Vector3(0, 0, -1);
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
+/** Seconds between the snapshots behind TiltCore.pastG. */
+const PAST_STEP = 0.15;
 
 /**
  * The tilt math with no DOM: feed it orientation samples, read the stick.
@@ -121,6 +126,12 @@ export class TiltCore {
   /** how long the phone has been held still (s), and the rate that decided it (deg/s) */
   stillFor = 0;
   angRate = 0;
+  /** how fast gravity is turning, deg/s (smoothed over 0.1 s; runs before calibration), and for how long (s) it has
+   *  stayed under config.tilt.settleRate */
+  gRate = 0;
+  gStill = 0;
+  /** the auto-recenter is suspended (a thumb has the bus: src/game/Hybrid.ts) */
+  autoHold = false;
   /** gravity in the screen frame: the latest sample, and the neutral pose */
   readonly g = new THREE.Vector3(0, 0, -1);
   readonly neutral = new THREE.Vector3(0, -0.6, -0.8).normalize();
@@ -135,6 +146,7 @@ export class TiltCore {
   private readonly tmp2 = new THREE.Vector3();
   private readonly qRel = new THREE.Quaternion();
   private readonly calibSum = new THREE.Vector3();
+  private readonly stick = { x: 0, y: 0 };
   private calibT0 = -1;
   private calibN = 0;
   /** eased recenter: from -> target over recenterEase */
@@ -146,10 +158,34 @@ export class TiltCore {
   private lastPitch = 0;
   /** when the screen orientation last changed (s), -1 = handled */
   private turnedAt = -1;
+  /** the last sample's gravity, for gRate */
+  private readonly gPrev = new THREE.Vector3(0, 0, -1);
+  /** the press-shake window: no speed term in the filter and no prediction before this time (s) */
+  private calmUntil = -1;
+  /** gravity a moment ago: four vectors, one every PAST_STEP s (pastHead = the newest) */
+  private readonly past = new Float32Array(12);
+  private readonly pastT = new Float64Array(4).fill(-1);
+  private pastHead = 0;
+  /** waiting for stillness: since when before calibration sums (s), and how long a RECENTER has waited (s, < 0: none) */
+  private calibWait = -1;
+  private recWait = -1;
+  /** rebase: seconds the neutral still tracks the pose, at what reading; seconds of the return grace, what is left of it */
+  private trackT = 0;
+  private trackRoll = 0;
+  private trackPitch = 0;
+  private graceT = 0;
+  private zRoll = 0;
+  private zPitch = 0;
 
-  /** Start (or restart) calibration: the neutral becomes the mean of the next config.tilt.calibrate s of samples. */
+  /** Start (or restart) calibration: once the phone is still (config.tilt.settleHold, capped by settleMax) the
+   *  neutral becomes the mean of the next config.tilt.calibrate s of samples. */
   calibrate(): void {
     this.calibrated = false;
+    this.calibWait = -1;
+    this.recWait = -1;
+    this.graceT = this.trackT = 0;
+    this.pastT.fill(-1);
+    this.pastHead = 0;
     this.calibT0 = -1;
     this.calibN = 0;
     this.calibSum.set(0, 0, 0);
@@ -163,6 +199,90 @@ export class TiltCore {
     this.recFrom.copy(this.neutral);
     this.recTo.copy(this.g);
     this.recT = 0;
+    this.recWait = -1;
+    this.graceT = this.trackT = 0;
+  }
+
+  /** RECENTER is a corner reach: armed now, it fires recenter() once the phone is still (the test calibrate() uses). */
+  recenterStill(): void {
+    if (this.calibrated) this.recWait = 0;
+  }
+
+  /** The press-shake window (Hybrid.ts): until `until` (s) the filter drops its speed term and the prediction its lead. */
+  calm(until: number): void {
+    this.calmUntil = until;
+  }
+
+  /** Gravity about `age` s ago (from the four snapshots); `g` while there is no history yet. */
+  pastG(out: THREE.Vector3, age = 0.45): THREE.Vector3 {
+    const now = this.lastT;
+    let best = -1, oldest = -1;
+    for (let i = 0; i < 4; i++) {
+      const t = this.pastT[i];
+      if (t < 0) continue;
+      if (oldest < 0 || t < this.pastT[oldest]) oldest = i;
+      if (now - t >= age && (best < 0 || t > this.pastT[best])) best = i;
+    }
+    const k = best >= 0 ? best : oldest;
+    if (k < 0) return out.copy(this.g);
+    return out.set(this.past[k * 3], this.past[k * 3 + 1], this.past[k * 3 + 2]).normalize();
+  }
+
+  /** The relative angles (deg) of a gravity vector, leaving the live readings alone. */
+  anglesOf(g: THREE.Vector3, out: { r: number; p: number }): void {
+    const rr = this.rawRoll, rp = this.rawPitch;
+    this.relative(g);
+    out.r = this.rawRoll;
+    out.p = this.rawPitch;
+    this.rawRoll = rr;
+    this.rawPitch = rp;
+  }
+
+  /** The curve alone (no filter state): dead zone, expo, sensitivity, the far fade; angles in deg. */
+  stickFor(roll: number, pitch: number, out: { x: number; y: number }): void {
+    const T = config.tilt;
+    const sens = clamp(this.sensitivity, 0.25, 4);
+    // (turned far past full authority the phone is being rotated or put down: the stick lets go)
+    const far = Math.max(Math.abs(roll), Math.abs(pitch));
+    const away = far <= T.awayFrom ? 1 : 1 - clamp((far - T.awayFrom) / Math.max(1, T.awayTo - T.awayFrom), 0, 1);
+    out.x = tiltCurve(roll, T.rollDead, T.rollFull / sens, T.expo) * away;
+    const p = tiltCurve(pitch, T.pitchDead, T.pitchFull / sens, T.expo) * away;
+    // (the yoke ignores |sy| < yokeDead: start there, so tilt's own dead zone is the only one)
+    const yd = clamp(config.flight.yokeDead * T.yokeComp, 0, 0.9);
+    out.y = p === 0 ? 0 : Math.sign(p) * (yd + (1 - yd) * Math.abs(p));
+  }
+
+  /**
+   * Move the one zero so the pose now reads (dRoll, dPitch), sensitivity untouched. For `track` s it follows the
+   * live pose (hiding the phone's rebound once a thumb's force is gone); for `grace` s, motion back toward the old
+   * neutral is absorbed, up to what was just moved, instead of reading as a counter-carve.
+   */
+  rebase(dRoll: number, dPitch: number, track: number, grace: number): void {
+    this.relative(this.g);
+    const zr = this.rawRoll - dRoll, zp = this.rawPitch - dPitch;
+    this.rotateNeutral(zr, zp);
+    this.relative(this.g);
+    this.zRoll = zr;
+    this.zPitch = zp;
+    this.graceT = grace;
+    this.trackT = track;
+    this.trackRoll = dRoll;
+    this.trackPitch = dPitch;
+    this.recT = -1;
+    this.fRoll.reset(dRoll, this.lastT);
+    this.fPitch.reset(dPitch, this.lastT);
+    this.roll = this.lastRoll = dRoll;
+    this.pitch = this.lastPitch = dPitch;
+  }
+
+  /** Rotate the neutral toward gravity by these deg along the axes `relative` last worked out. */
+  private rotateNeutral(droll: number, dpitch: number) {
+    const rv = this.tmp2.copy(this.xh).multiplyScalar(dpitch / DEG).addScaledVector(this.fw, droll / DEG);
+    const ang = rv.length();
+    if (ang > 1e-7) {
+      this.qRel.setFromAxisAngle(rv.multiplyScalar(1 / ang), ang);
+      this.neutral.applyQuaternion(this.qRel).normalize();
+    }
   }
 
   /**
@@ -190,9 +310,29 @@ export class TiltCore {
     this.samples++;
     const dt = this.lastT >= 0 ? clamp(t - this.lastT, 0, 0.25) : 0;
     this.lastT = t;
+    // how fast gravity turns: before the calibrated return, because that is what calibration waits on
+    if (dt > 0) {
+      this.gRate += ((this.gPrev.angleTo(g) * DEG) / dt - this.gRate) * (1 - Math.exp(-dt / 0.1));
+      this.gStill = this.gRate < T.settleRate ? this.gStill + dt : 0;
+    }
+    this.gPrev.copy(g);
+    const ph = this.pastHead;
+    if (this.pastT[ph] < 0 || t - this.pastT[ph] >= PAST_STEP) {
+      const k = this.pastT[ph] < 0 ? ph : (ph + 1) % 4;
+      this.past[k * 3] = g.x;
+      this.past[k * 3 + 1] = g.y;
+      this.past[k * 3 + 2] = g.z;
+      this.pastT[k] = t;
+      this.pastHead = k;
+    }
 
     if (!this.calibrated) {
-      if (this.calibT0 < 0) this.calibT0 = t;
+      if (this.calibT0 < 0) {
+        // the hand is still on its way back from the corner: the neutral is not this pose
+        if (this.calibWait < 0) this.calibWait = t;
+        if (this.gStill < T.settleHold && t - this.calibWait < T.settleMax) return;
+        this.calibT0 = t;
+      }
       this.calibSum.add(g);
       this.calibN++;
       if (t - this.calibT0 >= T.calibrate && this.calibN >= 2) {
@@ -205,6 +345,10 @@ export class TiltCore {
       return;
     }
 
+    if (this.recWait >= 0) {
+      this.recWait += dt;
+      if (this.gStill >= T.settleHold || this.recWait >= T.settleMax) this.recenter();
+    }
     // a screen turn: recenter once the phone has settled in its new hold
     if (this.turnedAt >= 0 && t - this.turnedAt > 0.35) {
       this.turnedAt = -1;
@@ -220,8 +364,31 @@ export class TiltCore {
     }
 
     this.relative(g);
-    this.fRoll.filter(this.rawRoll, t, T.minCutoff, T.beta, T.dCutoff);
-    this.fPitch.filter(this.rawPitch, t, T.minCutoff, T.beta, T.dCutoff);
+    if (this.trackT > 0) {
+      // just rebased: the neutral follows the pose for a moment (the phone rebounds once a thumb's force is gone)
+      this.trackT -= dt;
+      this.rotateNeutral(this.rawRoll - this.trackRoll, this.rawPitch - this.trackPitch);
+      this.relative(g);
+      this.fRoll.reset(this.rawRoll, t);
+      this.fPitch.reset(this.rawPitch, t);
+      this.lastRoll = this.rawRoll;
+      this.lastPitch = this.rawPitch;
+      if (this.graceT > 0) this.graceT -= dt;
+    } else if (this.graceT > 0) {
+      // the hand relaxing back past where the zero moved from is not a counter-carve; bounded
+      this.graceT -= dt;
+      const sr = this.rawRoll * this.zRoll < 0 ? Math.sign(this.rawRoll) * Math.min(Math.abs(this.rawRoll), Math.abs(this.zRoll)) : 0;
+      const sp = this.rawPitch * this.zPitch < 0 ? Math.sign(this.rawPitch) * Math.min(Math.abs(this.rawPitch), Math.abs(this.zPitch)) : 0;
+      if (sr !== 0 || sp !== 0) {
+        this.rotateNeutral(sr, sp);
+        this.zRoll += sr;
+        this.zPitch += sp;
+        this.relative(g);
+      }
+    }
+    const fb = t < this.calmUntil ? 0 : T.beta;
+    this.fRoll.filter(this.rawRoll, t, T.minCutoff, fb, T.dCutoff);
+    this.fPitch.filter(this.rawPitch, t, T.minCutoff, fb, T.dCutoff);
     this.roll = this.fRoll.value;
     this.pitch = this.fPitch.value;
 
@@ -235,19 +402,12 @@ export class TiltCore {
     this.lastRoll = this.roll;
     this.lastPitch = this.pitch;
     this.stillFor = this.angRate < T.stillRate ? this.stillFor + dt : 0;
-    if (this.recT < 0 && this.stillFor > T.stillTime && dt > 0) {
+    if (!this.autoHold && this.recT < 0 && this.stillFor > T.stillTime && dt > 0) {
       const k = 1 - Math.exp(-dt / Math.max(0.1, T.recenterTau));
       const kp = Math.abs(this.rawPitch) < T.recenterPitchBand ? k : 0;
       const kr = Math.abs(this.rawRoll) < T.recenterRollBand ? k : 0;
-      if (kp > 0 || kr > 0) {
-        // rotate the neutral toward gravity by a fraction of each component of the swing
-        const rv = this.tmp2.copy(this.xh).multiplyScalar((kp * this.rawPitch) / DEG).addScaledVector(this.fw, (kr * this.rawRoll) / DEG);
-        const ang = rv.length();
-        if (ang > 1e-7) {
-          this.qRel.setFromAxisAngle(rv.multiplyScalar(1 / ang), ang);
-          this.neutral.applyQuaternion(this.qRel).normalize();
-        }
-      }
+      // rotate the neutral toward gravity by a fraction of each component of the swing
+      if (kp > 0 || kr > 0) this.rotateNeutral(kr * this.rawRoll, kp * this.rawPitch);
     }
   }
 
@@ -287,19 +447,12 @@ export class TiltCore {
       return;
     }
     const age = clamp(t - this.lastT, 0, 0.1);
-    const leadR = clamp(age + this.fRoll.tau, 0, T.predict);
-    const leadP = clamp(age + this.fPitch.tau, 0, T.predict);
-    const roll = this.roll + this.fRoll.rate * leadR;
-    const pitch = this.pitch + this.fPitch.rate * leadP;
-    const sens = clamp(this.sensitivity, 0.25, 4);
-    // (turned far past full authority the phone is being rotated or put down: the stick lets go)
-    const far = Math.max(Math.abs(roll), Math.abs(pitch));
-    const away = far <= T.awayFrom ? 1 : 1 - clamp((far - T.awayFrom) / Math.max(1, T.awayTo - T.awayFrom), 0, 1);
-    this.sx = tiltCurve(roll, T.rollDead, T.rollFull / sens, T.expo) * away;
-    const p = tiltCurve(pitch, T.pitchDead, T.pitchFull / sens, T.expo) * away;
-    // (the yoke ignores |sy| < yokeDead: start there, so tilt's own dead zone is the only one)
-    const yd = clamp(config.flight.yokeDead * T.yokeComp, 0, 0.9);
-    this.sy = p === 0 ? 0 : Math.sign(p) * (yd + (1 - yd) * Math.abs(p));
+    const calm = t < this.calmUntil;
+    const leadR = calm ? 0 : clamp(age + this.fRoll.tau, 0, T.predict);
+    const leadP = calm ? 0 : clamp(age + this.fPitch.tau, 0, T.predict);
+    this.stickFor(this.roll + this.fRoll.rate * leadR, this.pitch + this.fPitch.rate * leadP, this.stick);
+    this.sx = this.stick.x;
+    this.sy = this.stick.y;
   }
 }
 
@@ -313,8 +466,10 @@ export type TiltStatus =
   /** samples arriving, capturing the neutral pose */
   | 'calibrating'
   | 'active'
-  /** the player (or the browser) said no */
+  /** the player answered the sheet: no */
   | 'denied'
+  /** requestPermission threw or rejected (no sheet was shown): not an answer, the next press retries */
+  | 'blocked'
   /** no sensor, or no event within config.tilt.eventTimeout (an iframe that refuses motion sensors) */
   | 'unavailable';
 
@@ -324,6 +479,8 @@ type DOEStatic = { requestPermission?: () => Promise<string> };
 export class TiltControl {
   readonly core = new TiltCore();
   status: TiltStatus = 'off';
+  /** a quiet listen at load: nothing steers and nothing reacts, and it ends back at 'off' */
+  probing = false;
   onStatus: ((s: TiltStatus) => void) | null = null;
   private timer = 0;
   private listening = false;
@@ -358,17 +515,14 @@ export class TiltControl {
   get sy(): number {
     return this.core.sy;
   }
-  /** Outside the dead zones: the yoke is deflected (Flight's `dragging`). */
-  get engaged(): boolean {
-    return this.active && (this.core.sx !== 0 || this.core.sy !== 0);
-  }
 
   /**
    * Call SYNCHRONOUSLY inside a user gesture (touchend / pointerup / click):
    * on iOS it asks for motion access there and then. Resolves with the final
-   * status ('active', 'denied' or 'unavailable').
+   * status ('active', 'denied', 'blocked', 'unavailable', or 'off' if stopped).
    */
   request(): Promise<TiltStatus> {
+    this.probing = false; // (a real request takes over a quiet listen still running)
     if (!TiltControl.supported()) {
       this.set('unavailable');
       return Promise.resolve(this.status);
@@ -380,7 +534,7 @@ export class TiltControl {
       try {
         p = D.requestPermission(); // must be the first thing in the gesture
       } catch {
-        this.set('denied');
+        this.set('blocked');
         return Promise.resolve(this.status);
       }
       return p.then(
@@ -392,12 +546,26 @@ export class TiltControl {
           return this.listen();
         },
         () => {
-          this.set('denied');
+          this.set('blocked');
           return this.status;
         },
       );
     }
     return this.listen();
+  }
+
+  /** A quiet listen: true if motion is really flowing here. Steers nothing and ends at 'off', listening stopped. */
+  probe(): Promise<boolean> {
+    if (!TiltControl.supported()) return Promise.resolve(false);
+    this.probing = true;
+    return this.listen().then((s) => {
+      const heard = s === 'active';
+      if (!this.probing) return heard; // (a request took it over: that one owns the listening now)
+      this.stop();
+      this.status = 'off';
+      this.probing = false;
+      return heard;
+    });
   }
 
   /** Listen (no permission needed, or already granted): resolves once active, or 'unavailable' after the timeout. */
@@ -412,6 +580,7 @@ export class TiltControl {
       this.core.calibrate();
       this.core.samples = 0;
       this.core.lastT = -1;
+      this.core.gRate = this.core.gStill = 0;
       if (!this.listening) {
         window.addEventListener('deviceorientation', this.onOrient);
         document.addEventListener('visibilitychange', this.onVisible);
@@ -439,9 +608,9 @@ export class TiltControl {
     if (this.status !== 'denied' && this.status !== 'unavailable') this.set('off');
   }
 
-  /** Recapture the neutral pose (eased). */
+  /** Recapture the neutral pose (eased), once the hand is back from the corner. */
   recenter(): void {
-    this.core.recenter();
+    this.core.recenterStill();
   }
 
   /** Once per frame before reading sx / sy. */
@@ -467,7 +636,7 @@ export class TiltControl {
           this.set('unavailable');
           this.stop();
         }
-      }, Math.max(100, (config.tilt.calibrate + config.tilt.eventTimeout) * 1000));
+      }, Math.max(100, (config.tilt.settleMax + config.tilt.calibrate + config.tilt.eventTimeout) * 1000));
     }
     if (this.status === 'calibrating' && this.core.calibrated) this.set('active');
   }
@@ -476,7 +645,7 @@ export class TiltControl {
     if (this.status === s) return;
     this.status = s;
     this.onStatus?.(s);
-    if (s === 'active' || s === 'unavailable' || s === 'denied' || s === 'off') {
+    if (s === 'active' || s === 'unavailable' || s === 'denied' || s === 'blocked' || s === 'off') {
       const w = this.waiters.splice(0);
       for (const r of w) r(s);
     }
