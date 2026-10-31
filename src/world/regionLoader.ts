@@ -169,7 +169,7 @@ function roofTops(b: BuildingTile, m: MeshArrays, tr: TerrainTile, tileSize: num
   return out;
 }
 
-/** Bounding sphere of a position array (center of its box, half its diagonal). */
+/** Bounding sphere of a position array, as three computes it (its box's center, the farthest vertex): frustum culling draws what it drew. */
 export function sphereOf(p: Float32Array): Float32Array {
   let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
   for (let i = 0; i < p.length; i += 3) {
@@ -182,7 +182,14 @@ export function sphereOf(p: Float32Array): Float32Array {
     if (z > z1) z1 = z;
   }
   if (x0 > x1) return new Float32Array(4);
-  return new Float32Array([(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, Math.hypot(x1 - x0, y1 - y0, z1 - z0) / 2]);
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, cz = (z0 + z1) / 2;
+  let r2 = 0;
+  for (let i = 0; i < p.length; i += 3) {
+    const dx = p[i] - cx, dy = p[i + 1] - cy, dz = p[i + 2] - cz;
+    const d = dx * dx + dy * dy + dz * dz;
+    if (d > r2) r2 = d;
+  }
+  return new Float32Array([cx, cy, cz, Math.sqrt(r2)]);
 }
 
 /** Concatenate building meshes (one draw for a whole coarse region): every mesh's solid triangles, then

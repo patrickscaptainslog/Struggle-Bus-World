@@ -327,7 +327,6 @@ const HASH_CELL = 32;
 const CASTER_MATERIAL = new THREE.MeshBasicMaterial();
 const crownTmp = { top: 0, mid: 0, r: 0 };
 const byDistance = (a: [number, number, number, 0 | 1], b: [number, number, number, 0 | 1]) => a[2] - b[2];
-const nearOrder = (a: { d: number }, b: { d: number }) => a.d - b.d;
 /** What a mesh's ghost draw does: everything but rasterize (see City.ghost). */
 const GHOST_ON = (r: THREE.WebGLRenderer) => r.getContext().enable(WebGL2RenderingContext.RASTERIZER_DISCARD);
 const GHOST_OFF = (r: THREE.WebGLRenderer) => r.getContext().disable(WebGL2RenderingContext.RASTERIZER_DISCARD);
@@ -1123,6 +1122,7 @@ export class City {
   }
 
   private isPending(key: string): boolean {
+    if (!this.pending.size) return false;
     for (const p of this.pending.values()) if (p.key === key) return true;
     return false;
   }
@@ -1715,18 +1715,22 @@ export class City {
         const list = this.hash.get((cx + 4096) * 8192 + (cz + 4096));
         if (!list) continue;
         for (const ref of list) {
-          const d = Math.hypot(ref.cx - x, ref.cz - z);
-          if (d <= r) {
-            const e = pool.pop();
-            if (e) {
-              e.ref = ref;
-              e.d = d;
-              out.push(e);
-            } else out.push({ ref, d });
+          const dx = ref.cx - x, dz = ref.cz - z;
+          const d = Math.sqrt(dx * dx + dz * dz);
+          if (d > r) continue;
+          // (kept in order as they come, nearest first: Array.sort allocates, and this is called every frame)
+          const e = pool.pop() ?? { ref, d };
+          e.ref = ref;
+          e.d = d;
+          let i = out.length;
+          out.push(e);
+          while (i > 0 && out[i - 1].d > d) {
+            out[i] = out[i - 1];
+            i--;
           }
+          out[i] = e;
         }
       }
-    out.sort(nearOrder);
     return out;
   }
 
