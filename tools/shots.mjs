@@ -17,7 +17,7 @@
 // hold-sunset, hold-presidio, hold-downtown (with --det, by name): SPIKE.md's hold-still swap. Nothing loads past the start on the way up (?loadr=1),
 // the clock stands, the frame is shot; the radius comes back, what streams in lands with the clock still standing, and it is shot again, the camera
 // where it was: <name>-<sun>-0.png, <name>-<sun>-1.png, for the game's sun (day), 75 degrees (high), 5 degrees (low) and a night made of light alone
-// (the palette stays the day's: no night table exists yet). tools/far/swapstat.py reads the pairs.
+// (the palette stays the day's: no night table exists yet). tools/far/swapstat.py reads the pairs. --vary='{"fit0":{"far.fit":0}}': more frames in that list.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
@@ -243,6 +243,7 @@ if (det) {
   await detShot('london', '?city=london&lat=51.5073&lon=-0.1657&heading=90&skipintro&nohud', ceilingAt);
   await detShot('amsterdam', '?city=amsterdam&lat=52.3738&lon=4.8775&heading=75&skipintro&nohud', ceilingAt);
   const SUNS = [['day', {}], ['high', { 'light.sunElevation': 1.309 }], ['low', { 'light.sunElevation': 0.0873 }], ['night', { 'light.sunStrength': 0.04, 'far.blockLit': 0.3 }]];
+  if (opt.vary) SUNS.push(...Object.entries(JSON.parse(opt.vary)));
   const sunShots = async (p, name, tag) => {
     for (const [sun, set] of SUNS) {
       await p.evaluate((v) => {

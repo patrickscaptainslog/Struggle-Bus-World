@@ -119,6 +119,8 @@ export const config = {
     wallK: 1,
     /** ?farmap: mip bias of the far class map (negative = sharper, and more crawl). */
     classBias: 0,
+    /** ?farmap, ?farblocks: how much of the far band's fit to the near tiles is on (1 = as fitted, farMaterial.ts CLASS_FIT). */
+    fit: 1,
     /** ?farblocks: far boxes start sinking into the raster's tone at this distance from the lens (m)... */
     blockSink: 5500,
     /** ...and are gone at this one: a wall there is a pixel, so nobody sees it go. */

@@ -20,6 +20,8 @@ export const farFlags = {
   nearest: false,
   /** ?farblocks: the raster's height plane as boxes */
   blocks: false,
+  /** ?fardebug: the far ground writes its class as a ramp, a box 11 and 15 (tools/far/calib.py) */
+  debug: false,
 };
 
 /** Classes past Ground's (tools/bake/farmap.py). */
@@ -59,6 +61,31 @@ CLASS_RAMP[ROCK_BARE] = Ramp.GREY;
 
 /** Light a ramp needs over GREY_LIGHT's for the same brightness, measured on the palette across lights 0.4-0.7 (same table in farmap.py). */
 const OVER = new Map<number, number>([[Ramp.GREY_LIGHT, 0], [Ramp.GREY, 0.22], [Ramp.GREEN_GREY, 0.33], [Ramp.ROOF_DARK, 0.45], [Ramp.SKY_WARM, -0.5], [Ramp.WATER, 0.27], [Ramp.WHITE, -0.3]]);
+
+/**
+ * What a class's tone needs to meet the tiles that replace it, a lo per class: fitted on the hold-still swaps of three poses (tools/far/calib.py), at the
+ * game's own grazing view, not top down as SPIKE.md says, because the swap is seen at the grazing view and walls hide half of what a top-down frame
+ * shows. Pre-light, nothing keyed to a sun. config.far.fit scales it.
+ */
+const CLASS_FIT: number[] = [];
+CLASS_FIT[Ground.PAVED] = -0.03;
+CLASS_FIT[Ground.GRASS] = -0.06;
+CLASS_FIT[Ground.WATER] = 0;
+CLASS_FIT[Ground.SIDEWALK] = -0.05;
+CLASS_FIT[Ground.PLAZA] = -0.05;
+CLASS_FIT[Ground.PATH] = -0.03;
+CLASS_FIT[Ground.SAND] = 0;
+CLASS_FIT[Ground.RAIL] = 0;
+CLASS_FIT[Ground.FOREST] = -0.05;
+CLASS_FIT[Ground.YARD] = -0.03;
+CLASS_FIT[Ground.ROCK] = -0.03;
+CLASS_FIT[ROOF] = -0.08;
+CLASS_FIT[TREE] = -0.06;
+CLASS_FIT[ICE] = 0;
+CLASS_FIT[ROCK_BARE] = 0;
+/** The same for a far box's roof and walls: a merged box shows more wall and less street than the houses it stands for, so together they read as too hard. */
+const FIT_ROOF = -0.09;
+const FIT_WALL = 0.05;
 
 const glslFloats = (a: number[]) => a.map((v) => v.toFixed(3)).join(', ');
 const CLASS_N = CLASS_RAMP.length;
@@ -106,6 +133,7 @@ const FS = /* glsl */ `
   uniform float uToneK;
   uniform float uWallK;
   uniform float uClassBias;
+  uniform float uFit;
   in vec3 vWorldPos;
   in vec3 vWorldNormal;
   in vec3 vViewNormal;
@@ -115,6 +143,7 @@ const FS = /* glsl */ `
   ${GLSL_WATER}
   const float CLASS_RAMP[${CLASS_N}] = float[${CLASS_N}](${glslFloats(CLASS_RAMP)});
   const float CLASS_OVER[${CLASS_N}] = float[${CLASS_N}](${glslFloats(CLASS_RAMP.map((r) => OVER.get(r) ?? 0))});
+  const float CLASS_FIT[${CLASS_N}] = float[${CLASS_N}](${glslFloats(CLASS_FIT)});
   void main() {
     #ifdef FAR_NEAREST
     int c = int(texelFetch(uFarClass, ivec2(floor(vUv * uFarSize)), 0).r * 255.0 + 0.5);
@@ -127,10 +156,14 @@ const FS = /* glsl */ `
       return;
     }
     c = min(c, ${CLASS_N - 1});
+    #ifdef FAR_DEBUG
+    sbWrite(float(c), 0.6, 0.0, 0.0, vViewNormal, 0.01, 1.0);
+    return;
+    #endif
     vec2 ts = texture(uFarTone, vUv).rg;
     float ramp = CLASS_RAMP[c];
     float over = CLASS_OVER[c];
-    float lo = ${TONE_C.toFixed(3)} + (ts.r - 0.5) * ${TONE_K.toFixed(3)} * uToneK + over;
+    float lo = ${TONE_C.toFixed(3)} + (ts.r - 0.5) * ${TONE_K.toFixed(3)} * uToneK + over + CLASS_FIT[c] * uFit;
     vec3 n = normalize(vWorldNormal);
     // (the near ground's own calm: its slopes compressed, shadows crisp)
     float light = mix(sbLight(vWorldPos, n, lo, 1.0), sbLight(vWorldPos, vec3(0.0, 1.0, 0.0), lo, 1.0), 0.55);
@@ -171,6 +204,7 @@ const BLOCK_VS = /* glsl */ `
   uniform vec2 uBlockFar;     // sinks from, gone at (m from the lens)
   uniform float uBlockLit;
   uniform float uToneK;
+  uniform float uFit;
   in vec4 aCell;              // i, j, w, h
   in vec2 aY;                 // base, top (half metres)
   in vec4 aTone;              // roof tone, wall tone, lit walls (low 4 bits) and the box's own grey (high 4), wake
@@ -202,13 +236,13 @@ const BLOCK_VS = /* glsl */ `
     vViewN = normalize(mat3(viewMatrix) * vN);
     if (normal.y > 0.5) {
       vRamp = ${Ramp.GREY_LIGHT}.0;
-      vLo = ${TONE_C.toFixed(3)} + (aTone.x - 0.5) * ${TONE_K.toFixed(3)} * uToneK;
+      vLo = ${TONE_C.toFixed(3)} + (aTone.x - 0.5) * ${TONE_K.toFixed(3)} * uToneK + ${FIT_ROOF.toFixed(3)} * uFit;
     } else {
       vRamp = ${Ramp.GREY}.0;
       int bits = int(aTone.z * 255.0 + 0.5);
       // (the near walls' "each house a slightly different grey", per box: the raster's wall tone is a 64 m mean, which alone lands every wall
       // on one side of a ramp step where the real ones straddle it)
-      vLo = ${WALL_LO.toFixed(3)} + (aTone.y - 0.5) * ${WALL_K.toFixed(3)} + (float(bits >> 4) / 15.0 - 0.5) * 0.12;
+      vLo = ${WALL_LO.toFixed(3)} + (aTone.y - 0.5) * ${WALL_K.toFixed(3)} + (float(bits >> 4) / 15.0 - 0.5) * 0.12 + ${FIT_WALL.toFixed(3)} * uFit;
       int bit = normal.x > 0.5 ? (s.x > 0.0 ? 1 : 2) : (s.y > 0.0 ? 4 : 8);
       if ((bits & bit) != 0 && aTone.w < uBlockLit) vLit = 1.0;
     }
@@ -228,6 +262,10 @@ const BLOCK_FS = /* glsl */ `
   in vec3 vWorldPos;
   ${GLSL_OUT}
   void main() {
+    #ifdef FAR_DEBUG
+    sbWrite(vN.y > 0.5 ? 11.0 : 15.0, 0.6, 0.0, 0.0, vViewN, 0.01, 1.0);
+    return;
+    #endif
     float light = sbLight(vWorldPos, vN, vLo, 1.0);
     float fog = sbFog(vWorldPos);
     if (vLit > 0.5) sbWrite(${Ramp.GLOW_WHITE}.0, max(light, 0.36), fog, uBlockGlow, vViewN, 0.01, 1.0);
@@ -271,6 +309,7 @@ export function makeFarBlockMaterial(affine: readonly number[], mask: THREE.Text
   const uBlockFar = new THREE.Vector2();
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
+    defines: farFlags.debug ? { FAR_DEBUG: 1 } : {},
     side: THREE.DoubleSide,
     uniforms: {
       ...globals,
@@ -282,6 +321,7 @@ export function makeFarBlockMaterial(affine: readonly number[], mask: THREE.Text
       uBlockLit: { get value() { return config.far.blockLit; } },
       uBlockGlow: { get value() { return config.far.blockGlow; } },
       uToneK: { get value() { return config.far.toneK; } },
+      uFit: { get value() { return config.far.fit; } },
     },
     vertexShader: BLOCK_VS,
     fragmentShader: BLOCK_FS,
@@ -363,6 +403,7 @@ export function makeFarGroundMaterial(r: FarRaster, tex: FarTextures, mask: THRE
   const defines: Record<string, number> = {};
   if (farFlags.oblique) defines.FAR_OBLIQUE = 1;
   if (farFlags.nearest) defines.FAR_NEAREST = 1;
+  if (farFlags.debug) defines.FAR_DEBUG = 1;
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
     defines,
@@ -378,6 +419,7 @@ export function makeFarGroundMaterial(r: FarRaster, tex: FarTextures, mask: THRE
       uToneK: { get value() { return config.far.toneK; } },
       uWallK: { get value() { return config.far.wallK; } },
       uClassBias: { get value() { return config.far.classBias; } },
+      uFit: { get value() { return config.far.fit; } },
     },
     vertexShader: VS,
     fragmentShader: FS,

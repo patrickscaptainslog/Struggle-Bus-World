@@ -6,7 +6,7 @@ import json
 import sys
 
 a, b = (json.load(open(d + '/stats.json')) for d in sys.argv[1:3])
-bad = [k for k in a if k in b and (a[k]['cam'] != b[k]['cam'] or a[k]['regions'] != b[k]['regions'])]
+bad = [k for k in a if k in b and isinstance(a[k], dict) and (a[k]['cam'] != b[k]['cam'] or a[k]['regions'] != b[k]['regions'])]
 for k in bad:
     print(f"{k}: camera or streaming differs: y {a[k]['y']} / {b[k]['y']}, regions {a[k]['regions']} / {b[k]['regions']}")
 print('same flight' if not bad else 'run these again: ' + ','.join(bad))

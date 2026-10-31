@@ -55,6 +55,7 @@ if (params.has('farmap')) {
   if (params.has('farbias')) config.far.classBias = Number(params.get('farbias'));
 }
 farFlags.blocks = params.has('farblocks');
+farFlags.debug = params.has('fardebug');
 if (params.has('loadr')) config.city.loadRadiusHigh = Number(params.get('loadr')) || config.city.loadRadiusHigh;
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
