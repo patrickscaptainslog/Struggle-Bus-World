@@ -7,7 +7,8 @@
 // --det: repeatable frames, for an image diff between two builds (python -I
 // tools/shotdiff.py <dirA> <dirB>): ?fixeddt, a seeded Math.random, the game
 // clock held while streaming and paint settle, the same frames from any build
-// (also fidi, soma, high: a climb to ~250 m, ceiling: ~500 m).
+// (also fidi, soma, high: a climb to ~250 m, ceiling: ~500 m, swap: painted towers
+// through a climb to coarse and a dive back to detail).
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
@@ -139,7 +140,7 @@ async function runFor(page, seconds) {
 // speeds as the old hover stretch: -0.45 -> 19.2 m/s, -1 -> 6 m/s).
 const drift = (page, speed) => page.evaluate((v) => ((window.__qa = null), (window.__game.flight.glideSpeed = v)), speed);
 
-const views = new Set((opt.views ?? (det ? 'grey,painted,opening,fidi,soma,high,ceiling' : 'grey,painted,opening')).split(','));
+const views = new Set((opt.views ?? (det ? 'grey,painted,opening,fidi,soma,high,ceiling,swap' : 'grey,painted,opening')).split(','));
 
 async function detShot(name, query, script) {
   if (!views.has(name)) return;
@@ -196,6 +197,22 @@ if (det) {
     await stick(p, -1);
     await runDet(p, 16);
     await p.evaluate(() => (delete window.__qa.sx, delete window.__qa.sy));
+    await runDet(p, 1);
+  });
+  await detShot('swap', '?lat=37.7820&lon=-122.4010&heading=0&skipintro&nohud', async (p) => {
+    await glide(p, 6);
+    await runDet(p, 1);
+    // three blasts on the towers ahead (rooftop gardens, domes), up out of detail, down into it again, stopping short of them
+    for (let i = 0; i < 3; i++) {
+      await p.evaluate(() => window.__game.barfAtLatLon(37.7925, -122.401));
+      await runDet(p, 2.5);
+    }
+    await stick(p, -1);
+    await runDet(p, 9);
+    await stick(p, 1);
+    await runDet(p, 7);
+    await p.evaluate(() => (delete window.__qa.sx, delete window.__qa.sy));
+    await glide(p, 6);
     await runDet(p, 1);
   });
   writeFileSync(`${out}/stats.json`, JSON.stringify(stats, null, 2));

@@ -67,7 +67,7 @@ including merging into `main`.** None of the branches below has been merged yet.
 | `feat/controls` | main merged in, review fixed, QA'd on the GPU (MAIN vs NEXT), ready to merge (desktop session, 2026-10-30); never run on a real phone | tilt-to-fly default on phones (`Tilt.ts`, fused attitude, recenter), touch fallback, keyboard + Esc, hold-to-charge + turbo in `Input.ts` (the INPUT CONTRACT), turbo gears G0-G3 (G2/G3 locked behind `config.turbo.worldTravel`), turbo FX + audio, `src/ui/Hud.ts`, `tools/controls.mjs`, `tools/jet.mjs` (frame pacing, attributed), `tools/boom.mjs` (hero frames) | merge before supersplat (its DECISIONS "Controls QA" and "outside judge, round 1" have the numbers); first real-phone pass on the HTTPS preview |
 | `feat/supersplat` | main merged in (controls, look, landmarks, facade), pre-review fixed, QA'd on the GPU (MAIN vs NEXT), ready to merge (desktop session, 2026-10-30); never run on a real phone | hold-to-charge (10 s) on controls' gesture, mega blast on early release, firehose (~4 s), 60 s cooldown, `SuperSplat.ts`/`SuperFx.ts`/`SuperMeter.ts`/`superSfx.ts`, the summoning circle (`PixelPipeline.setHeroCircle`), `Blast.super` for the stage engine, the warm-up kit (`render/warmup.ts`, from perf/load), `tools/supersplat.mjs` | merge next (the outside judge's round 1 is fixed: first pour max 17.5 ms; a re-judge is pending), then perf/load (see "Merging perf/load" below); its DECISIONS "Super splat, outside judge round 1" has the numbers; first real-phone pass: the pour from 250 m on an A15, the meter clear of the home indicator |
 | `feat/hybrid` | built from `docs/specs/hybrid-controls.md`, QA'd on the GPU (MAIN vs NEXT), review's four defects fixed (2026-10-30); never run on a real phone | the producer's hybrid: TURBO, the tilt toggle, MEGA, thumb + tilt arbitration (`Hybrid.ts`), `hudLayout.ts`, the first run (`Coach.ts`), no card, `tools/controls-sim/s_hybrid.ts`, `s_layout.ts` | the real-iPhone list at the end of its DECISIONS "Hybrid controls" (back swipe first); the producer's call: `config.tilt.defaultOn` |
-| `polish/perf` | paused mid-task (12 commits) | sun-pass caster proxy, 8 m wall columns, hidden party walls, depth-only sun pass, culled far chunks, budgeted streaming, prewarm, `tools/perf-pass.mjs` | finish + measure, merge after the above |
+| `merge/perf` | polish/perf, perf/load and the optimization deep dive in one merge, QA'd on the GPU (MAIN vs NEXT), not yet judged (desktop session, 2026-10-30); never run on a real phone | one RGBA16UI G-buffer, the typed mesher, sun-pass casters, depth-only sun pass, first draws on a byte budget, unseen swaps that only commit, the warm-up from the top of main.ts, primed streaming, the opening on the wall clock and a tap to skip it, a first touch with no stall, context loss | merge next (its DECISIONS "iPhone performance" has the numbers, MAIN bd660ba vs NEXT, and what was dropped); first real-phone pass below |
 | `feat/stages` | empty (just created from main) | — | build the stage engine per `docs/specs/STAGES.md` (its "Producer decisions" section) |
 | `feat/osm` | paused mid-task (WIP) | Overture/OSM extract (`tools/bake/overture.py`, `osm.py`, `citydata.py`), conflation draft in `bake.py`, Amsterdam config, `src/ui/Credits.ts` | resume; needs the bake inputs (see "City data pipeline") |
 
@@ -76,17 +76,10 @@ including merging into `main`.** None of the branches below has been merged yet.
 `onTurbo(dir)`, `state.turboHeld`, `input.mode`): see their DECISIONS/ARCHITECTURE
 notes when merging.
 
-Merging perf/load after supersplat: `src/render/warmup.ts`, `PixelPipeline`'s warm section and `registerWarm('roof
-sprouts', ...)` are already here, from that branch (keep this side of `warmDraw`: it binds the sun's target first, a
-fix). Its `new WarmUp` moves up to the top of main.ts and its `warm.add(scene)` then covers the two `warm.add` lines in
-`boot()` (the signs and `superFx.object` are in the scene), so those two lines and `render.warmWait` can go with its
-wait. Then close the browser and rerun a real-time firehose in a FRESH one (a program links in ~24 ms on a second page of
-the same browser, which hides it): no frame gap over ~50 ms, `info.programs` flat from ready through the pour.
-
 ### Suggested order
 1. Merge facade -> landmarks (+ wire the 3 new props) -> look -> controls -> supersplat -> perf,
    with a quick GPU screenshot check after each (`node tools/shots.mjs`), publishing a
-   Vercel deploy as you go.
+   Vercel deploy as you go. (All in main but `merge/perf`, the last of them.)
 2. Build the stage engine (`feat/stages`), then MAGIC-SPEC's effects in its three
    workstreams (WS-1 light + music, WS-2 ribbons/pillars/birds/fireworks/waterfalls, WS-3
    growth kit + director + Wonders), Super Rainbow's five stages first.
@@ -111,6 +104,8 @@ the same browser, which hides it): no frame gap over ~50 ms, `info.programs` fla
 - Budget: iPhone A15 >= 30 fps, recent iPhones 60. Today ~120-200 draws, ~1.0-1.5M
   triangles; no per-building draw calls; one texture upload per texture per frame; no
   allocations in hot paths. Report before/after numbers for anything that renders.
+- Frames don't change without saying so: `node tools/shots.mjs <url> <dir> --det` on two builds and
+  `python -I tools/shotdiff.py <dirA> <dirB>` is frame-exact from run to run (0 pixels, MAIN vs MAIN).
 - Nothing compiles a shader in flight: a material or object kind made after boot registers a
   warm-up source (`registerWarm`, see ARCHITECTURE "Shader warm-up"); `node tools/warmcheck.mjs`
   must report 0 programs after the warm-up.
@@ -136,12 +131,9 @@ the same browser, which hides it): no frame gap over ~50 ms, `info.programs` fla
 5. Use OpenStreetMap as much as possible for quality (feat/osm; ODbL: attribution in game +
    DATA_LICENSE.md for the tiles).
 6. It felt laggy and low-res: we raised the frame to 390 px and tightened springs; the perf
-   pass (polish/perf) is paused. Measure real fps here and on the producer's iPhone.
+   pass is `merge/perf`. Measure real fps on the producer's iPhone.
 
 ## Known issues worth knowing
-- G1 is smooth here (p99 17 ms over five routes, `tools/jet.mjs`, DECISIONS "outside judge, round 1"): not yet
-  measured on an A15. `City.detailHold` and the `prep` adopt items overlap polish/perf's budgeted streaming: when
-  merging keep the hold, the full transfer and one way of spreading a swap.
 - A 3x `page.screenshot` costs a frame or more on any build: don't trace frame times beside one.
 - Capture tools pass `&nohud`: `tools/controls.mjs ... firstrun` and `opening` are the first-visit runs (the cues, the chip,
   TURBO armed under the deck, the sheet, sensors that never answer). `?fixeddt` makes game time run ~3x real time: a "hold"
@@ -149,18 +141,18 @@ the same browser, which hides it): no frame gap over ~50 ms, `info.programs` fla
 - A one-handed reach to TURBO swings the bus until the finger lands, and with a settle it recovers less of a carve than no guard
   would (37 vs 47 degrees, ideal 67): it stops the wrong-way turn. Only a phone can say if that trade is right.
 - A phone relaxed more than ~2 s after a moved lift gets a counter-carve until RECENTER or a thumb hold (spec section 12).
-- `fps.mjs` peaks at 1.52M triangles at the Alamo ceiling, just over the 1.5M budget, on main too.
-- The first gesture stalls ~200 ms in `audio.unlock()` here (more on a phone?), on main too.
-- The cold load's first frame still blocks ~7.5 s on shader links on this laptop, on main too: perf/load's boot fixes
-  that; the kit here warms only what would otherwise link in flight. `warmWait` caps the wait at 6 s; a phone slower than
-  that finishes in the background and could still catch a link if it pours in the first seconds.
-- 250 m over Alamo Square is 1.8M triangles and 200 draws at cruise, over budget, on main too; a firehose adds 22 draws
-  and ~100k triangles there, and is the worst thing we have measured there (p95 33.5 ms here).
+- Never run on an iPhone, in the order that would hurt most: the RGBA16UI G-buffer (ES 3.0 color-renderable, Metal's
+  RGBA16Uint too, but only a real A15 proves it; there is no two-target fallback), the first touch (the context in
+  the gesture, sound ~100 ms later, a breath queued until then), a context lost in the background, iOS 15.0-16.3 (fflate).
+- Warm-up: ~4 s here before the first frame, the page fog-grey meanwhile; a phone slower than that sees grey longer. Nothing
+  caps it (main's `render.warmWait` went with the merge: a frame before it finished would link in flight).
+- Steady flight allocates ~3 MB/s (main 3.8; the deep dive hoped for 1-2): what is left is mostly three's render path.
 - `Splatter` still allocates per hose impact (Scheduled objects, paint records: ~2,000 short-lived objects a second
   during the 4 s pour), the one known exception to the no-allocation rule: pool them if a phone shows GC hitches.
 - `shots.mjs` stats sometimes come back null at 390 px (the perf snapshot timing); the
   screenshots are still valid.
-- The far skyline beyond the streaming radius is flat boxes; with fog off it shows.
+- The far skyline beyond the streaming radius is flat boxes; with fog off it shows. (The far field is a separate study's:
+  polish/perf's far chunks stayed out of the merge.)
 - Saved paint keys: `strugglebus.paint.v1` (buildings), `strugglebus.ground.v2:<tx>,<tz>`
   (ground), `strugglebus.landmarks.v1` (landmark props, by name: `lm:sutro`,
   `lm:transamerica`, `lm:coit`, `lm:ferry`; independent of any bake). feat/osm bumps

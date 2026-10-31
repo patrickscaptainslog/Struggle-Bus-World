@@ -509,13 +509,15 @@ export class PixelPipeline implements WarmPipeline {
    * far along the sun's azimuth: ~1.28 windows from the center at a 25 deg sun.)
    */
   private cullCasters(scene: THREE.Scene, center: THREE.Vector3, ext: number) {
-    const cc = this.cullCam;
-    cc.copy(this.snapCam);
+    const cc = this.cullCam, sn = this.snapCam;
     const sy = Math.max(0.1, globals.uSunDir.value.y);
     const reach = 0.5 * ext * Math.sqrt(1 + 1 / (sy * sy));
-    cc.far = Math.max(cc.near + 1, Math.min(this.snapCam.far, cc.position.distanceTo(center) + reach));
+    cc.fov = sn.fov;
+    cc.aspect = sn.aspect;
+    cc.near = sn.near;
+    cc.far = Math.max(sn.near + 1, Math.min(sn.far, sn.position.distanceTo(center) + reach));
     cc.updateProjectionMatrix();
-    this.cullFrustum.setFromProjectionMatrix(this.cullMat.multiplyMatrices(cc.projectionMatrix, cc.matrixWorldInverse));
+    this.cullFrustum.setFromProjectionMatrix(this.cullMat.multiplyMatrices(cc.projectionMatrix, sn.matrixWorldInverse));
     this.shadowCulled = 0;
     this.visitCullRoots(scene, this.cullVisit);
     this.shadowCulled = this.culled.length;

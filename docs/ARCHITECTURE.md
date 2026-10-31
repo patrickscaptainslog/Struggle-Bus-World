@@ -66,7 +66,13 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
     a real gradient (1.5 bytes up to the dither window, 72.86 x
     `ditherWidth`); a whole-step jump (a crisp band edge) rounds. Materials
     that want crisp bands (tree crowns) snap their light to a step.
-- Every scene material must write both outputs (`gColor`, `gAux`).
+- Every scene material ends in `sbWrite`. The G-buffer is one RGBA16UI target: eight
+  bytes packed by `sbWrite` (one output: ANGLE on D3D11 compiles a second pixel shader
+  per program at the first draw into a target with a second output, seconds of serial
+  compiling), read through `GLSL_G_READ` (`sbColor`, `sbAux`, `sbLightAt`, `sbFogAt`).
+  Nothing blends or filters it, and no other material may write it (a float output
+  into an integer target is a dropped draw). The sun pass's own depth shaders are fine:
+  its target is R8, its color mask locked off.
 - A material (or an object kind) made after boot registers a warm-up source,
   or its program compiles in flight, for up to seconds (see Shader warm-up).
 - Objects that cast sun shadows: `obj.layers.enable(SHADOW_LAYER)`.
@@ -125,24 +131,32 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   snap's sub-pixel shift, or the sky saws by a pixel with the remainder.
 - Coarse regions are drawn as ONE building mesh + ONE ground mesh per 1 km
   region (`City.regionMeshes`); detailed regions keep per-tile meshes. Code
-  that walks tiles for rendering must handle both. A region going to full
-  detail swaps a tile at a time (the merged mesh's `drawRange` drops each
-  tile as its detailed mesh lands, in the merged order: `mergedEnds`), its
-  ground last; tiles are adopted under a per-frame budget (`ADOPT_MIN`
-  items, then while under `ADOPT_MS` and `ADOPT_BYTES` of new geometry:
-  three uploads a mesh the first frame it is drawn).
+  that walks tiles for rendering must handle both. A tile marked with
+  `City.setOwnGround(tx, tz)` keeps its own ground mesh inside a coarse
+  region (the merged ground skips it).
+- **Streaming spreads its GL work and never shows half a swap.** three uploads a
+  mesh at its first draw, so what a frame adopts is what it uploads, and what
+  sits beside the bus would all upload at once the moment the view turned to it.
+  So `City.firstDraw` draws every new mesh the frame after its adoption, in view
+  or not, and adoption has a byte budget: `ADOPT_MIN` items, then while under
+  `ADOPT_MS`, and never past `ADOPT_BYTES` (3 MB a frame; `ADOPT_BYTES_EAGER`, 16 MB,
+  while `eager`: the opening, a restored context) unless one tile is more. A region
+  going to full detail prepares tile by tile (`prep` items: `prepTile` makes the
+  detailed mesh, its caster and the 4 m ground, and gives them that first draw
+  unseen: `City.ghost`, every fragment failing the depth test); `swapRegion` then
+  only commits, in one frame. Going coarse is one item (a merged mesh is 1-4 MB).
+  While `detailHold` (a turbo gear) prep and swap items wait. One region unloads a
+  frame. A mesh with a dropped-array or a new layout goes through
+  `buildingMesh()` / `casterMesh()` / `groundMesh()`.
 - Streamed geometry keeps no JS copy after upload (`dropAfterUpload` in
   City): never read a building or ground mesh's attribute arrays back, and
   give any new streamed mesh its bounds before its first render (the worker
-  sends them: `TileResult.sphere`). A restored GL context reloads every
-  region (`City.reloadAll`).
-- Far terrain is chunked (4 x 4 regions, box culled through
-  `userData.viewBox`, all-water quads dropped) and a chunk hides once every
-  region with land in it has its own ground in (`City.refreshFarChunk`); the
-  horizon hills are 16 km chunks. Above `FAR_WHOLE_ABOVE` m of view height
-  both draw as one mesh each instead (most chunks would be in view). A tile marked with
-  `City.setOwnGround(tx, tz)` keeps its own ground mesh inside a coarse
-  region (the merged ground skips it).
+  sends them: `TileResult.sphere`, computed as three does, so culling draws what it
+  drew). A restored GL context reloads every region (`City.reloadAll`).
+- The scene, `city.root` and every `TreeField` have `matrixAutoUpdate` off: a parent
+  that recomposes forces its whole subtree. Only what moves updates; a static object
+  placed at a transform calls `updateMatrix()` / `updateMatrixWorld()` once. The
+  pipeline updates the graph once per frame (three would at each of its two renders).
 - Per-tile ground state (feat/blast's `GroundPaint`): attach in
   `City.makeTileTerrain` and detach in `City.dropTileTerrain` (the only two
   places a tile's own ground mesh is made and dropped), and mark every tile
@@ -168,9 +182,7 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
 ## Shader warm-up (READ THIS before adding a material or a new kind of object)
 `src/render/warmup.ts`. On a cold visit the GPU program cache is empty, and
 on Windows (ANGLE on D3D11) each program compiles on the CPU, the building's
-for ~4 s, and every G-buffer program compiles twice: at link (target 0 only)
-and again at its first draw into the two-target G-buffer, one after another on
-the GPU process's main thread, which freezes presentation. So nothing may
+for ~4 s; compiled at its first draw it freezes presentation. So nothing may
 compile in flight: at boot every program compiles, in parallel
 (`KHR_parallel_shader_compile`, a few at a time so the browser's own raster
 still gets compile slots; the longest first in half the lanes, the shortest in
@@ -227,7 +239,20 @@ the other landmarks go to the `later` queue (built while the warm-up waits,
 else one per frame early in the opening; ready waits for them). The opening's
 4.2 s run on the wall clock from the first frame on screen (the 15% hold until
 the first region lands stays), with each step capped at 0.25 s: real time down
-to 4 fps, but a tab switch or a long stall moves the reveal 6% at most.
+to 4 fps, but a tab switch or a long stall moves the reveal 6% at most. Once it
+has been seen through on a device (`strugglebus.opening.v1`), a tap skips it:
+the same reveal in ~0.7 s, and that tap doesn't splat (`input.onTap`; a toast
+says so). `later`'s first item makes and closes an AudioContext: Chromium's audio
+backend starts with the first one, 120-180 ms on the main thread, and that must
+not be the first touch.
+
+**A lost GL context** (a GPU reset, memory pressure on iOS): `webglcontextlost`
+stops the game and hides the canvas (the page's fog-grey shows); on
+`webglcontextrestored` the warm-up runs again from the top (a new `WarmUp`, every
+program compiled off the main thread), `City.reloadAll` drops every region (their
+meshes have no JS copy) and they stream back eagerly with the game clock standing
+(`covered`) until the city is in. `__game.loseContext()`, `restoreContext()`;
+`node tools/contextloss.mjs <url> <dir>`.
 
 ## City data (bake -> tiles -> meshes)
 `tools/bake/bake.py <slug>` turns footprints + DEM (+ an optional LiDAR point
@@ -255,7 +280,8 @@ them into gzip'd 1 km regions. Layouts live in `src/world/tiles.ts`.
   as a dome over its reach (`treeCrown` in props/trees), the detailed mesh's
   roof details (every LOD 0 vertex lifts its cell; a single-part house lifts
   every cell within 3 m of it to its mesh top: gables, chimneys, parapets,
-  clutter), rooftop gardens / Hundertwasser crowns (`City.raiseRoof(rect,
+  clutter: `roofTops` in the worker, `City.adoptTops` takes the larger of two numbers
+  per cell), rooftop gardens / Hundertwasser crowns (`City.raiseRoof(rect,
   top)` with the height `RoofSprouts.set` returns) and a painted tower's own
   setback gardens, trees and onion domes (`City.growTo(ref, level)`: every
   element the mesher recorded, see Tower facades). Anything new that stands on
@@ -369,7 +395,7 @@ live in `src/config.ts`.
 |---|---|---|
 | Core renderer | `src/render/*` | `PixelPipeline`, `materials`, `palette` |
 | World / bake | `tools/bake/*`, `src/world/City*.ts`, `src/world/Buildings*.ts`, `src/world/Terrain.ts` | baked tiles → meshes, paint state |
-| Audio | `src/audio/AudioEngine.ts` | see `AudioEngine` |
+| Audio | `src/audio/AudioEngine.ts`, `src/audio/audioWorker.ts` | see `AudioEngine` |
 | Bus model | `src/bus/BusModel.ts` | see `BusModel` |
 | Particles | `src/fx/Particles.ts` | see `Particles` |
 | Street signs | `src/fx/StreetSign.ts`, `src/fx/pixelFont.ts` | see `StreetSigns` |
