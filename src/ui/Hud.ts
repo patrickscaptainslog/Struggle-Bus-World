@@ -288,10 +288,15 @@ export class Hud {
       if (on) this.input.reachDown();
       else this.input.reachUp();
     });
-    this.hitTouch(this.chipWrap, () => {
-      this.cb.onChip();
-      this.hideChip();
-    });
+    this.hitTouch(
+      this.chipWrap,
+      () => {
+        this.cb.onChip();
+        this.hideChip();
+      },
+      undefined,
+      true,
+    );
     this.drawDown(false);
 
     // ---- the first-run cue (passes everything through)
@@ -845,8 +850,6 @@ export class Hud {
     };
     wrap.addEventListener('touchstart', stop, { passive: false });
     wrap.addEventListener('touchmove', stop, { passive: false });
-    // (the canonical iOS user-activation event: a button can be the very first touch)
-    wrap.addEventListener('touchend', () => this.cb.onGesture());
     return wrap;
   }
 
@@ -899,10 +902,16 @@ export class Hud {
   /**
    * A tap target that may ask iOS for motion access: the callback runs synchronously inside the `touchend` (that is
    * the event iOS honors), first thing, before the audio unlock; pointerup only for a mouse or a pen. `press` reports
-   * the finger's down and up.
+   * the finger's down and up. `steer` (the chip, which sits in the thumb's zone): only a short still tap counts, and a
+   * drag begun here is the steering thumb, as on MEGA.
    */
-  private hitTouch(wrap: HTMLElement, fn: () => void, press?: (down: boolean) => void) {
+  private hitTouch(wrap: HTMLElement, fn: () => void, press?: (down: boolean) => void, steer = false) {
     let down = false;
+    let id = -1;
+    let x0 = 0;
+    let y0 = 0;
+    let t0 = 0;
+    let adopted = -1;
     const begin = () => {
       if (down) return;
       down = true;
@@ -919,9 +928,17 @@ export class Hud {
       const r = wrap.getBoundingClientRect();
       return x >= r.left - 10 && x <= r.right + 10 && y >= r.top - 10 && y <= r.bottom + 10;
     };
+    const tap = (x: number, y: number, at: number) => down && inside(x, y) && (!steer || (at - t0 <= inputTune.stillTapMs && Math.hypot(x - x0, y - y0) <= inputTune.tapSlopPx));
     wrap.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       if (e.cancelable) e.preventDefault();
+      if (e.pointerId === adopted) adopted = -1; // (a mouse's id comes back, and its lift went to the canvas)
+      if (steer && !down) {
+        id = e.pointerId;
+        x0 = e.clientX;
+        y0 = e.clientY;
+        t0 = evMs(e);
+      }
       begin();
       try {
         wrap.setPointerCapture(e.pointerId);
@@ -929,26 +946,42 @@ export class Hud {
         /* gone */
       }
     });
+    if (steer) {
+      wrap.addEventListener('pointermove', (e) => {
+        if (e.pointerId === adopted) {
+          this.input.adoptedMove(e);
+          return;
+        }
+        if (e.pointerId !== id || Math.hypot(e.clientX - x0, e.clientY - y0) <= inputTune.tapSlopPx) return;
+        // past the slop it is no tap, whoever gets the finger
+        id = -1;
+        if (this.input.canAdopt && this.input.adoptThumb(e, false, x0, y0, t0)) adopted = e.pointerId;
+        end();
+      });
+    }
+    const adoptedUp = (e: PointerEvent, cancelled: boolean) => {
+      if (e.pointerId !== adopted) return false;
+      adopted = -1;
+      this.input.adoptedUp(e, cancelled);
+      return true;
+    };
     wrap.addEventListener('pointerup', (e) => {
       e.stopPropagation();
-      if (e.pointerType === 'touch') return; // (the touchend does it)
-      if (inside(e.clientX, e.clientY) && down) {
-        fn();
-        this.cb.onGesture();
-      }
+      if (adoptedUp(e, false) || e.pointerType === 'touch') return; // (the touchend does it)
+      if (tap(e.clientX, e.clientY, evMs(e))) fn();
+      this.cb.onGesture();
       end();
     });
     wrap.addEventListener('pointercancel', (e) => {
-      if (e.pointerType !== 'touch') end();
+      if (!adoptedUp(e, true) && e.pointerType !== 'touch') end();
     });
     wrap.addEventListener(
       'touchend',
       (e) => {
         const t = e.changedTouches[0];
-        if (down && t && inside(t.clientX, t.clientY)) {
-          fn();
-          this.cb.onGesture();
-        }
+        if (t && tap(t.clientX, t.clientY, evMs(e))) fn();
+        // (after fn: iOS's ask goes first; and a button can be the very first touch)
+        this.cb.onGesture();
         if (e.cancelable) e.preventDefault();
         end();
       },
@@ -990,8 +1023,14 @@ export class Hud {
     }
   }
 
+  /** `touchend` is the canonical iOS user-activation event, and a button can be the very first touch (hitTouch has its own). */
+  private unlockOnLift(el: HTMLElement) {
+    el.addEventListener('touchend', () => this.cb.onGesture());
+  }
+
   private wireMega() {
     const el = this.megaWrap;
+    this.unlockOnLift(el);
     el.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       if (e.cancelable) e.preventDefault();
@@ -1047,6 +1086,7 @@ export class Hud {
 
   private wireTurbo() {
     const el = this.turboWrap;
+    this.unlockOnLift(el);
     el.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       if (e.cancelable) e.preventDefault();
@@ -1091,6 +1131,7 @@ export class Hud {
 
   private wireDown() {
     const el = this.downWrap;
+    this.unlockOnLift(el);
     el.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       if (e.cancelable) e.preventDefault();

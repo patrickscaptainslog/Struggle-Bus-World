@@ -345,10 +345,10 @@ export class Input {
   }
 
   /**
-   * MEGA's finger becomes the steering thumb: the pointer moves over to the canvas and the gesture starts here,
+   * A HUD finger (MEGA's) becomes the steering thumb: the pointer moves over to the canvas and the gesture starts here,
    * from where the finger is now (no stretch step), while its slot remembers the press's own point and time (client
    * px, ms), so one lift ends in exactly one result. keepPress = a held charge stays alive and ends on this lift.
-   * False if a thumb already steers.
+   * False if a thumb already steers. (The tilt chip's finger comes here too.)
    */
   adoptThumb(e: PointerEvent, keepPress: boolean, x0: number, y0: number, t0: number): boolean {
     if (this.primary) return false;
@@ -374,6 +374,8 @@ export class Input {
     this.beginGesture(slot, t0);
     this.anchorPt.x = this.fingerPt.x = x;
     this.anchorPt.y = this.fingerPt.y = y;
+    // (a HUD press never reached pointerDown's land(), and the stick was tilt's until now: this is what it hands over)
+    this.mix?.land();
     this.commitDrag();
     return true;
   }

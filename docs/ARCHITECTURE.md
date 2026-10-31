@@ -320,7 +320,8 @@ until a thumb flies it, a tap splats, buttons do what they say. There are no con
   With tilt off `state.stretch` is `b`, bit for bit (`s_hybrid` row 1).
 - HUD hooks: `splatButton(down, cancelled?, eventTimeMs?)` (MEGA), `turboShift(dir)`, `turboHold(down)`, `hudBlip()` (any
   HUD press or lift), `reachDown()` / `reachUp()` (TURBO, the tab, the toggle), `adoptThumb(e, keepPress, x0, y0, t0)`
-  (MEGA's finger becomes the thumb), `adoptedMove/Up` (its events if capture didn't move), `wakeMix()`.
+  (MEGA's or the chip's finger becomes the thumb; it notes the pose with `mix.land()`, since no canvas touch-down did),
+  `adoptedMove/Up` (its events if capture didn't move), `wakeMix()`.
 - The opening (`main.ts` with `Controls`): nothing holds it. `controls.sheetUp` (iOS's motion sheet) sets dt = 0 at any
   time; `controls.gearsLocked` and `controls.opening`, set per frame, queue a shift until the bus clears the gate and
   drive the first run. "Gate cleared" is `!opening && !gearsLocked`, true at fog end in a city with no bridge.
@@ -387,7 +388,7 @@ the tab, MEGA, recenter, settings and the chip catch touches. TURBO: tap = next 
 three chevrons. The tab (`gear-down`) exists with a gear or an armed shift. MEGA: tap = splat, hold = charge, slide =
 the thumb (`adoptThumb`). `slot('super')` is a 68 x 86 box above MEGA (beside it turned) that docks on its face for the
 cooldown (`setMega(phase)`, from main.ts per frame). TURBO and MEGA rest after 8 s with `PixelCanvas.punch` (a checker of
-cleared pixels on the panels). `hitTouch` is the toggle's and the chip's tap: the callback runs inside `touchend`,
+cleared pixels on the panels). `hitTouch` is the toggle's and the chip's tap (the chip's with `steer`: a short still tap only, a drag becomes the thumb). `onGesture` runs after it in the same `touchend`, and no other listener on those two may run it first. The callback runs inside `touchend`,
 first thing, because iOS asks there. Top-right buttons fade after 6 s and a tap there wakes them; a desktop has no
 buttons at all (Esc: `openSettings`). `setCredits(text)`, `toast(lines, s)` (one slot, LOCKED clears it), `setSettings`,
 `arrive()`, `setCue`, `turboCue`, `megaHoldCue`, `showChip`, `flyChip`. All HUD elements carry `data-sb-ui` (Input ignores

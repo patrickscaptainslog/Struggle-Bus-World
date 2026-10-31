@@ -324,6 +324,39 @@ for (const [rel, up] of [[0.1, 2.2], [0.6, 2.2]] as const) {
   check('19 a hidden page during turnOff stays off on return', d.world.mix.gTarget === 0 && d.world.mix.offPending, `gTarget ${d.world.mix.gTarget}`);
   void c;
 }
+// 20. a long thumb session in a held carve, the phone never moved, then levelled inside the grace: the neutral did move
+// (to the carve), so levelling must not read as the same carve the other way (review: -183 degrees before the fix)
+for (const [roll, up, lv] of [[20, 4, 0.5], [20, 4, 1], [12, 3.2, 0.3]] as const) {
+  const c = run({ pose: seg([[up + lv, roll], [up + lv + 0.4, 0]]), thumb: [{ down: 1, up, b: thumbRight }], dur: up + lv + 2.4 });
+  const h = c.headingAfter(up);
+  check(`20 long session at roll ${roll}, levelled ${lv} s after the lift: heading within +-8`, Math.abs(h) <= 8 && Math.abs(c.ox.at(-1)!) < 0.02, `${f1(h)} deg, stick ${f3(c.ox.at(-1)!)}`);
+}
+// 21. a nudge begun on MEGA in a carve entered since the last land: adoptThumb notes the pose, so it resumes like row 4
+{
+  const pose = seg([[0.6, 0], [1.2, 12]]);
+  const near = (t: number, at: number) => Math.abs(t - at) < DT / 2;
+  const X0 = 339, Y0 = 383;
+  let id = -1, t0 = 0, ok = false;
+  const hook = (t: number, w: World) => {
+    if (near(t, 2)) {
+      id = newId();
+      t0 = clock.ms;
+      w.input.hudBlip();
+      w.input.splatButton(true, false, clock.ms);
+    }
+    if (near(t, 2.1)) {
+      ok = w.input.adoptThumb(ptr('pointermove', id, X0 - 16, Y0), false, X0, Y0, t0);
+      w.input.splatButton(false, true, clock.ms);
+    }
+    // (with the carve, as in row 4: a thumb against it lifts to a hard 0 and costs heading however the mixer hands back)
+    if (t > 2.1 && t < 2.4) w.input.adoptedMove(ptr('pointermove', id, X0 - 16 + (t - 2.1) * 200, Y0));
+    if (near(t, 2.4)) w.input.adoptedUp(ptr('pointerup', id, X0 + 44, Y0), false);
+  };
+  const c = run({ pose, thumb: [{ down: 0.2, up: 0.3 }], hook, dur: 4.4 });
+  const n = run({ pose, thumb: [{ down: 0.2, up: 0.3 }], dur: 4.4 });
+  const a = c.headingAfter(2.4), b = n.headingAfter(2.4);
+  check('21 nudge begun on MEGA in a carve: heading within 5 % of no thumb', ok && Math.abs(a - b) <= 0.05 * Math.abs(b), `${f1(a)} vs ${f1(b)} deg, stick ${f3(c.ox.at(-1)!)} of ${f3(n.ox.at(-1)!)}`);
+}
 for (const r of rows) console.log(r);
 void inputTune;
 console.log(fails.length ? `FAILED ${fails.length}` : `hybrid checks: all ${rows.length} passed`);

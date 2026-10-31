@@ -62,11 +62,12 @@ What that produces (sim, heading added after the lift unless noted; 2 to 3 s win
 | Same, relaxes 0.6 s after lift | **+4** (grace) | -20 | +28 |
 | Phone drifts 15 degrees in a 3 s session and stays | +4 (spring tail) | +4 | 90 |
 | 3 s session, phone still at 20 degrees | +4 | +5 | 141 |
+| Same, then levelled 0.5 or 1 s after the lift (added by review) | **+4** (grace) | | |
 | Phone relaxes 2 s after lift (past the grace) | -38 | -38 | n/a |
 
 Time only means "new hold" for a thumb. A boost is long because the player wants speed, not because the hand settled, and with the time term a two-handed 3 s boost in a 12 degree carve that then levels the phone counter-carves -69 degrees; without it, +9 (sim-fixes). A reach therefore goes by `moved` alone.
 
-The last row is the known residual, and only RECENTER or the next thumb session clears it. The cost of the grace: a deliberate roll back past the old neutral inside it reads 0.09 where it would read 0.63 (sim). It is bounded at 1.5 s.
+**Grace also covers a rebase with an unmoved phone** (review): it goes by `max(moved, shift)`, how far the neutral itself moved, not only how far the phone did. A long hold in a still carve moves the neutral the whole carve with `moved` near 0; keyed to `moved` alone, levelling the phone then read the full carve the other way (-183 degrees in 1.2 s on the GPU). The last table row stays the known residual, and only RECENTER or the next thumb session clears it. The cost of the grace: a deliberate roll back past the old neutral inside it reads 0.09 where it would read 0.63 (sim). It is bounded at 1.5 s.
 
 **New angle after a long thumb session:** covered by `moved` and `held`. Whatever the player settled into is level. **Hand shake of a press:** calm window, no filter lag added outside it. At a 20 degree hold a 5 degree 9 Hz jolt falls from 0.31 stick error to 0.069 (sim).
 
@@ -124,7 +125,8 @@ handBack():
   f = max(ss(rebaseT0, rebaseT1, held_), ss(rebaseA0, rebaseA1, moved))
   for axis i: cap = (r[i]*rLand[i] > 0) ? sign(r[i]) * min(|r[i]|, |rLand[i]|) : 0
               d[i] = (1-f) * cap
-  if max(|r-d|) > trackMin: core.rebase(d.r, d.p, track, moved >= settleMoved ? grace : 0)
+  shift = max(|r-d|)
+  if shift > trackMin: core.rebase(d.r, d.p, track, max(moved, shift) >= settleMoved ? grace : 0)
   tNew = core.stickFor(d)                                      // the curve, no filter state
   for axis i: a[i] = (out[i]*tNew[i] > 0) ? clamp(out[i]/tNew[i], 0, 1) : 0
   phase=LIVE; thumbUsed=false; core.autoHold=false
@@ -331,12 +333,12 @@ Toasts: TILT ON / DRAG ANY TIME 1.6 s, TILT OFF 1.1 s.
 | Chip ignored 8 s | Flies in six steps up to the corner and becomes the toggle. Stays unasked and off. `chipIgnored` + 1. | |
 | Third splat, or a still press of 0.6 s | MEGA's face alternates MEGA and HOLD twice | HOLD |
 
-**The chip:** rocking phone plus the question, no dim, game running. Its hit area arms 250 ms after it appears, so a tap already in flight still splats. Only tapping it or the toggle ever asks. Non-iOS gets the chip only if a quiet probe at load heard motion; otherwise the toggle is not drawn.
+**The chip:** rocking phone plus the question, no dim, game running. Its hit area arms 250 ms after it appears, so a tap already in flight still splats. Only tapping it or the toggle ever asks. On the chip a tap is short and still (`stillTapMs`, `tapSlopPx`): it sits in the thumb's zone, so a drag begun on it is the steering thumb (as on MEGA) and never asks, and a long press does nothing. Non-iOS gets the chip only if a quiet probe at load heard motion; otherwise the toggle is not drawn.
 
 **Tilt's default.** iOS cannot start motion without a tap, and no sheet may land on a splat, so tilt is offered, not imposed. This changes the standing "on by default for phones": see the first producer call.
 
 **Turning on (chip or toggle):**
-1. `tilt.request()` is the first statement in the element's `touchend`, before the audio unlock.
+1. `tilt.request()` is the first statement in the element's `touchend`, before the audio unlock. So no other `touchend` listener on the chip or the toggle may run `onGesture`: it would start a returning player's tilt first, and the tap would read as Busy cancel and erase `prefs.tilt`.
 2. On grant, wait until `gRate` < 40 deg/s has held **continuously for 0.3 s** (`settleHold`), capped at 1.5 s (`settleMax`). The toggle shows Busy meanwhile. The hold is the point: the corner is a reach, so the phone can be rotated and momentarily still when the finger lifts, and an instantaneous test passes there at once (rest reads 14.5, peak 19.5 with the repo's noise model (sim), well under 40). A 25 degree swing that pauses 0.1 s and returns now calibrates at the grip, 0.82 s in; the old test took the 25 degree pose at 0.02 s (sim-fixes). Chip and toggle share this path; on the chip it costs 0.3 s. `angRate` cannot be used: it does not run before calibration.
 3. Take the existing 0.18 s mean, then `wakeMix()`: gain in over 0.5 s.
 4. Toast TILT ON / DRAG ANY TIME. `prefs.tilt = true` on success only.
@@ -520,6 +522,8 @@ No game we can name does exactly "touch suspends absolute tilt, lift rebases wit
   17. Thumb down across a toggle-on: exactly one owner, and the first hand-back uses the pose at going live, cap 0.
   18. Gain: starts 0; a probe that reaches `active` writes no stretch; returning start eases in.
   19. Sleep: gain 0 for 2 s leaves `tilt.active` true; `turnOff` stops once at gain 0; a hidden page during `turnOff` stays off on return.
+  20. (review) Long session, phone still, levelled inside the grace (roll 20 at +0.5 and +1 s, roll 12 at +0.3 s): heading within +-8, stick 0.
+  21. (review) A nudge begun on MEGA in a carve entered since the last land: heading within 5 % of no thumb.
 - **`s_gesture.ts`:** `harness(mode)` takes `tilt: boolean`.
   - Tilt rows become "tilt on, screen is the bungee". Swipe rows are deleted.
   - Touch rows stay byte-identical with one named exception: "slow tap 260 ms, still" now splats. New row at 440 ms splats; 460 ms does not.

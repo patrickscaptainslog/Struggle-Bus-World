@@ -1782,8 +1782,8 @@ every tunable in the "Hybrid" group is an estimate.**
   - A compact phone turned on its side gets settings' seam at 8 px, not 4, to keep 44 px (not in the tables).
   - MEGA refused by a steering thumb keeps its press (a tap on lift, or a charge) rather than cancelling: no press is dead.
   - The adopted pointer's events are also forwarded from MEGA's wrapper, in case capture doesn't move on iOS, and every button
-    unlocks audio on `touchend` too, since a button can be the first touch.
-- **Offline:** s_hybrid 27 of 27, s_gesture 47 rows, s_layout 952 checks, s_perm all, and s_tilt's JSON byte-identical to MAIN's.
+    unlocks audio on `touchend` too, since a button can be the first touch (the toggle and the chip after their callback).
+- **Offline:** s_hybrid 31 of 31 (27 at the first QA, 4 added by the review below), s_gesture 47 rows, s_layout 952 checks, s_perm all, and s_tilt's JSON byte-identical to MAIN's.
 - **GPU:** every gesture, tilt off and on, through real CDP touches (`controls.mjs gestures`, `hybrid`, `flows`, `opening`,
   `firstrun`, `layout`, `states`); 28 button states and every layout looked at. iOS asks inside `touchend` with user activation
   active. Refused / thrown / rejected / silent / Android probe / no sensor / Busy / off inside the fade / settings 2 s all as the
@@ -1804,6 +1804,26 @@ every tunable in the "Hybrid" group is an estimate.**
 
 `shots.mjs` grey 127 / 127 draws, 1.21M / 1.21M, 25 / 25 programs; painted 135 / 134. `jet.mjs` east: p99 17.0 / 16.9 ms, max 17.3 / 17.3,
 no frame over 20 ms. Bundle 1111 -> 1133 KB. (The fps and shots runs predate the last flash tune, a two-value change that draws nothing.)
+
+**Merge review, four confirmed defects, all in the controls glue, none in rendering or perf** (each reproduced before the fix):
+- **Wrong-way carve after a long thumb session.** Grace went by `moved`, the phone's change, but a long hold in a still carve moves
+  the neutral the whole carve. Grace now goes by `max(moved, shift)`. 20 degree carve, 3 s thumb, levelled 0.5 s after the lift:
+  -183 degrees and stick -0.61 before, 0.0 degrees and stick 0 after on the GPU (s_hybrid row 20: -101.2 to +3.7, roll 12 -43.3 to
+  +3.7). Levelling past the 1.5 s grace is still the spec's known residual.
+- **A nudge begun on MEGA lost the carve.** `adoptThumb` never called `land()`, so hand-back used a stale pose and read as moved.
+  It lands at adoption, not at the press: tilt owns the stick until then. GPU 14 degree carve: stick 0.342 to 0.342 and no settle,
+  equal to the canvas nudge (s_hybrid row 21: -3.4 to 46.6 of 44.9 degrees).
+- **The toggle as first touch erased a returning player's choice.** `button2`'s `touchend` ran `onGesture` first, tilt started, and
+  the tap read as Busy cancel. Only TURBO, the tab and MEGA keep that listener; `hitTouch` runs it after its callback, tap or not.
+  GPU, Android-like and iOS: ends active, `prefs.tilt` true; iOS order `ask, unlock`, inside `touchend`.
+- **The chip swallowed drags and took any lift as yes.** `hitTouch(..., steer)`: past `tapSlopPx` the finger goes to `adoptThumb`
+  and the press is dead; a lift counts only inside `stillTapMs` and the slop. GPU: a drag steers (stick -0.32) and never asks, 0.6
+  and 1.5 s presses never ask, and a real tap on the same chip still asks in `touchend`. (A flick of 13 to 26 px under 150 ms that
+  starts on the chip is a splat, as on the canvas.)
+- Not changed: `yellowLo` (`#d8722a`, the bus ramp's own entry, hue 25, saturation 0.81, value 0.85) on pressed TURBO, pressed down
+  tab and the toggle's On body. It measures orange, not brown, but it reads burnt on dark panels: the producer's eye.
+- QA after the fixes: `controls.mjs` gestures, hybrid, firstrun, flows, opening, layout, states; `feel.mjs taps` 7 of 7 taps, 48 of 48
+  carves, 12 of 12 thumb-in-carve. `fps.mjs` not rerun: nothing here draws.
 
 **For the producer:** tilt's default (`config.tilt.defaultOn`). **First on a real iPhone, HTTPS preview:** whether `touchstart`
 preventDefault blocks the back swipe from TURBO's edge (if it doesn't, that loses the game); whether `requestPermission` is honored

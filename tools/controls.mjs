@@ -17,6 +17,7 @@
 //          held while tilted, a second finger while steering                                  -> hybrid.json
 //   firstrun  a first visit: no card, no hold, the cues in order (TAP, DRAG, TURBO's blink, the chip, HOLD), the chip's
 //          tap asking inside its touchend, an ignored chip reaching the corner, a lapsed and a surviving iOS grant
+//          a returning player's first touch on the toggle, a drag and a long press begun on the chip
 //                                                                                             -> firstrun.json
 //   layout  real rects against layoutHud at 393 x 852, 393 x 659, 320 x 568, 852 x 393, swapped or not (shots)
 //   states  every button state, cropped (states/*.png; tools/hud-sheet.py makes a sheet of them)
@@ -574,6 +575,50 @@ if (modes.has('hybrid')) {
   res.hybrid = H;
   writeFileSync(`${out}/hybrid.json`, JSON.stringify({ H, l1, l2 }, null, 1));
   await page.close();
+
+  // the handovers on the wall clock (the mixer's own): a nudge begun on MEGA or on the canvas, then a long session levelled
+  const wall = (ms) => new Promise((r) => setTimeout(r, ms));
+  const tiltPage = async () => {
+    const q = await open(Q, ios('granted', true));
+    const c = await q.context().newCDPSession(q);
+    await q.evaluate((e) => Object.assign(window.__sensor, e), w3cFor({ lean: 35 }));
+    await enterTilt(q, c);
+    await wall(1000);
+    return { q, c, pose: (x) => q.evaluate((e) => Object.assign(window.__sensor, e), w3cFor(x)) };
+  };
+  for (const on of ['mega', 'canvas']) {
+    const { q, c, pose } = await tiltPage();
+    await pose({ lean: 35, roll: 14 });
+    await wall(1500);
+    const before = (await snap(q)).input.sx;
+    const m = on === 'mega' ? await rectOf(q, '[data-hud="mega"]') : { x: 300, y: 600 };
+    await touch(q, c, [{ type: 'touchStart', x: m.x, y: m.y, wait: 30 }, { type: 'touchMove', x: m.x - 20, y: m.y, wait: 30 }, { type: 'touchMove', x: m.x - 40, y: m.y, wait: 250 }, { type: 'touchEnd' }]);
+    await wall(60);
+    const phase = (await snap(q)).mix.phase;
+    await wall(1500);
+    const after = await snap(q);
+    H[`nudge_${on}`] = { before, phaseAtLift: phase, after: after.input.sx, phase: after.mix.phase };
+    console.log('hybrid nudge begun on', on, JSON.stringify(H[`nudge_${on}`]));
+    await q.close();
+  }
+  for (const [roll, thumb, lv] of [[20, 3000, 500], [20, 3000, 1000], [12, 2200, 300]]) {
+    const { q, c, pose } = await tiltPage();
+    await pose({ lean: 35, roll });
+    await wall(700);
+    const carve = (await snap(q)).input.sx;
+    await touch(q, c, [{ type: 'touchStart', x: 200, y: 600, wait: 30 }, { type: 'touchMove', x: 170, y: 600, wait: thumb }, { type: 'touchEnd' }]);
+    await wall(lv);
+    const lifted = await snap(q);
+    await q.evaluate(() => (window.__h0 = window.__game.flight.heading));
+    await pose({ lean: 35, roll: 0 });
+    await wall(1200);
+    const lev = await snap(q);
+    const deg = await q.evaluate(() => ((window.__game.flight.heading - window.__h0) * 180) / Math.PI);
+    H[`long_${roll}_${lv}`] = { carve, lifted: lifted.input.sx, levelled: lev.input.sx, deg, phase: lev.mix.phase };
+    console.log('hybrid long session, roll', roll, 'levelled', lv, 'ms after the lift', JSON.stringify(H[`long_${roll}_${lv}`]));
+    await q.close();
+  }
+  writeFileSync(`${out}/hybrid.json`, JSON.stringify({ H, l1, l2 }, null, 1));
 }
 
 if (modes.has('firstrun')) {
@@ -669,6 +714,66 @@ if (modes.has('firstrun')) {
   await p4.waitForFunction(() => window.__game.controls.tilt.active, null, { timeout: 15000 });
   FR.survives = { before: before4.tilt.status, asked: await p4.evaluate(() => window.__sensor.asked), after: (await snap(p4)).tilt.status };
   await p4.close();
+  // a returning player's first touch of the session is the toggle: it means on, and iOS asks before the audio unlock
+  for (const kind of ['android', 'ios']) {
+    const init = kind === 'android'
+      ? `(() => { localStorage.setItem('strugglebus.controls.v1', JSON.stringify({ tilt: true, taught: 31 })); setInterval(() => window.dispatchEvent(new DeviceOrientationEvent('deviceorientation', { alpha: 0, beta: 55, gamma: 0, absolute: false })), 16); })()`
+      : survive;
+    const q = await open(Q, init);
+    const c = await q.context().newCDPSession(q);
+    await q.evaluate(() => {
+      window.__order = [];
+      const a = window.__game.audio, u = a.unlock.bind(a), D = window.DeviceOrientationEvent, o = D.requestPermission;
+      a.unlock = () => { window.__order.push('unlock'); u(); };
+      if (o) D.requestPermission = () => { window.__order.push('ask'); return o(); };
+    });
+    await new Promise((r) => setTimeout(r, 2500));
+    const before = await snap(q);
+    const r = await rectOf(q, '[data-hud="tilt-toggle"]');
+    await touch(q, c, [{ type: 'touchStart', x: r.x, y: r.y, wait: 60 }, { type: 'touchEnd' }]);
+    await new Promise((r) => setTimeout(r, 2500));
+    const a = await snap(q);
+    FR[`toggleFirst_${kind}`] = { before: [before.tilt.status, before.hud.tiltState, before.prefs.tilt], after: [a.tilt.status, a.hud.tiltState, a.prefs.tilt, a.hud.chip], order: (await q.evaluate(() => window.__order)).slice(0, 3), askedIn: await q.evaluate(() => window.__sensor?.askedIn ?? null) };
+    await q.close();
+  }
+  // the chip is in the thumb's zone: a drag begun on it steers and never asks, a long press never asks, a tap still does
+  const chipPage = async () => {
+    const q = await open(Q.replace('skipintro&', 'skipintro&controls=tilt&'), ios('granted', true));
+    const c = await q.context().newCDPSession(q);
+    await until(q, 'g.controls.snapshot().hud.chip', 10);
+    await new Promise((r) => setTimeout(r, 350));
+    await runFor(q, 0.1);
+    return { q, c, r: await rectOf(q, '[data-hud="tilt-chip"]') };
+  };
+  const asked = (q) => q.evaluate(() => window.__sensor.asked);
+  {
+    const { q, c, r } = await chipPage();
+    await events(q);
+    await touch(q, c, [{ type: 'touchStart', x: r.x, y: r.y, wait: 30 }, { type: 'touchMove', x: r.x - 40, y: r.y, wait: 30 }, { type: 'touchMove', x: r.x - 70, y: r.y, wait: 30 }]);
+    await runFor(q, 0.4);
+    const during = await snap(q);
+    await q.screenshot({ path: `${out}/firstrun/10-chip-drag.png` });
+    await touch(q, c, [{ type: 'touchEnd' }]);
+    await new Promise((r) => setTimeout(r, 200));
+    await runFor(q, 0.1);
+    const after = await snap(q);
+    FR.chipDrag = { thumb: during.input.thumb, sx: during.input.sx, asked: await asked(q), status: after.tilt.status, thumbAfter: after.input.thumb, chip: after.hud.chip, events: await events(q) };
+    // (the same chip, still up: a real tap asks)
+    await touch(q, c, [{ type: 'touchStart', x: r.x, y: r.y, wait: 60 }, { type: 'touchEnd' }]);
+    await new Promise((r) => setTimeout(r, 200));
+    FR.chipTapAfterDrag = { asked: await asked(q), inEvent: await q.evaluate(() => window.__sensor.askedIn) };
+    await q.close();
+  }
+  for (const s of [0.6, 1.5]) {
+    const { q, c, r } = await chipPage();
+    await touch(q, c, [{ type: 'touchStart', x: r.x, y: r.y, wait: 30 }]);
+    await new Promise((r) => setTimeout(r, s * 1000));
+    await touch(q, c, [{ type: 'touchEnd' }]);
+    await new Promise((r) => setTimeout(r, 200));
+    const a = await snap(q);
+    FR[`chipLongPress_${s}`] = { asked: await asked(q), status: a.tilt.status, chip: a.hud.chip, prefs: a.prefs.tilt };
+    await q.close();
+  }
   for (const k in FR) console.log('firstrun', k, JSON.stringify(FR[k]));
   res.firstrun = FR;
   writeFileSync(`${out}/firstrun.json`, JSON.stringify(FR, null, 1));

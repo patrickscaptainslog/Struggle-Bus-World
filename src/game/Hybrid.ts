@@ -57,7 +57,7 @@ export const mixTune = {
   /** After a rebase of more than trackMin deg the neutral follows the pose for track s... */
   track: 0.15,
   trackMin: 0.5,
-  /** ...and after a moved one, motion back toward the old neutral is absorbed for grace s (0 disables). */
+  /** ...and when the neutral moved settleMoved deg or more, or the phone did, motion back toward the old neutral is absorbed for grace s (0 disables). */
   grace: 1.5,
   /** The master gain's ramps (s): up when tilt goes live, down for the toggle, the settings, an app switch. */
   gainIn: 0.5,
@@ -221,7 +221,9 @@ export class TiltMix {
     const capR = r.r * L.r > 0 ? Math.sign(r.r) * Math.min(Math.abs(r.r), Math.abs(L.r)) : 0;
     const capP = r.p * L.p > 0 ? Math.sign(r.p) * Math.min(Math.abs(r.p), Math.abs(L.p)) : 0;
     const dR = (1 - f) * capR, dP = (1 - f) * capP;
-    if (Math.max(Math.abs(r.r - dR), Math.abs(r.p - dP)) > mixTune.trackMin) c.rebase(dR, dP, mixTune.track, moved >= mixTune.settleMoved ? mixTune.grace : 0);
+    // (grace goes by how far the neutral really moves too: a long hold with the phone still moves it the whole carve)
+    const shift = Math.max(Math.abs(r.r - dR), Math.abs(r.p - dP));
+    if (shift > mixTune.trackMin) c.rebase(dR, dP, mixTune.track, Math.max(moved, shift) >= mixTune.settleMoved ? mixTune.grace : 0);
     const t = this.tNew;
     c.stickFor(dR, dP, t);
     this.a.x = this.out.x * t.x > 0 ? clamp(this.out.x / t.x, 0, 1) : 0;
