@@ -12,7 +12,7 @@
 // Garden blobs and onion domes for painted towers (Part.GARDEN / Part.DOME)
 // reuse the same bytes differently: see BuildingMesher.ts.
 
-import { Arch, type BuildingTile } from './tiles';
+import { Arch, Ground, WATER_Y, type BuildingTile, type TerrainTile } from './tiles';
 
 /** Facade family (0 = the classic archetype look). */
 export const Fam = {
@@ -252,6 +252,27 @@ const BRIDGE_TIERS = new Set([459630039]);
 export function trimBridgeTiers(t: BuildingTile) {
   for (let k = 1; k < t.count; k++)
     if (t.tier[k] > 0 && t.index[k] === t.index[k - 1] && BRIDGE_TIERS.has(t.stableId[k])) t.baseY[k] = t.roofY[k] = t.roofY[k - 1];
+}
+
+/**
+ * The bake lays sidewalk under every footprint, the bridge stand-ins' too, out in the water. With their boxes gone that ground is
+ * nobody's, and the shore's mesh (tiles.ts SHORE_FLOOR) would raise it over the water plane as a pale slab: in a freshly parsed
+ * tile it goes back to water. A stand-in's box on land keeps its ground (the height test: Fort Point, the Alamo hut).
+ */
+export function clearStandInGround(t: TerrainTile) {
+  const { cls, classN: N, heights, n, cell, originX, originZ } = t;
+  const texel = ((n - 1) * cell) / N;
+  for (const h of HIDDEN) {
+    if (!h.clears) continue;
+    const i0 = Math.max(0, Math.floor((h.cx - h.halfL - originX) / texel)), i1 = Math.min(N - 1, Math.floor((h.cx + h.halfL - originX) / texel));
+    const j0 = Math.max(0, Math.floor((h.cz - h.halfW - originZ) / texel)), j1 = Math.min(N - 1, Math.floor((h.cz + h.halfW - originZ) / texel));
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const v = Math.round(((j + 0.5) * texel) / cell) * n + Math.round(((i + 0.5) * texel) / cell);
+        if (cls[j * N + i] === Ground.SIDEWALK && heights[v] < WATER_Y + 0.3) cls[j * N + i] = Ground.WATER;
+      }
+    }
+  }
 }
 
 let iconsLocal: Array<{ x: number; z: number; icon: Icon }> | null = null;

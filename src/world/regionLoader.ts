@@ -5,7 +5,7 @@ import { meshBuildingTile, meshCasterTile, roofKinds, type CasterArrays, type Me
 import type { BuildingTile, TerrainTile } from './tiles';
 import { gunzip, isGzip } from './gunzip';
 import { eaveY, roofSurfaceY } from './roofGeom';
-import { trimBridgeTiers } from './towerStyles';
+import { clearStandInGround, trimBridgeTiers } from './towerStyles';
 
 export interface RegionRequest {
   type: 'region';
@@ -302,6 +302,7 @@ export async function loadRegion(req: RegionRequest, transfer: Transferable[] = 
       }
       if (tLen > 0) {
         terrain = parseTerrainTile(buf.slice(tOff, tOff + tLen), req.classN);
+        if (req.sf) clearStandInGround(terrain);
         grid = heightGrid(meshHeights(terrain), terrain.n, terrain.cell, terrain.originX, terrain.originZ, req.lod === 0 ? 2 : 4);
         transfer.push(terrain.heights.buffer, terrain.obst.buffer, terrain.cls.buffer, grid.position.buffer, grid.normal.buffer, grid.index.buffer);
         if (terrain.hoodGrid) transfer.push(terrain.hoodGrid.buffer as ArrayBuffer);

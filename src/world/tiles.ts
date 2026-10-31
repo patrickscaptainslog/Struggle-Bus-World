@@ -34,12 +34,14 @@ const SHORE_FLOOR = WATER_Y + 0.3;
 const SHORE_REACH = 16;
 
 /**
- * A tile's heights as its ground mesh takes them, n * n (see SHORE_FLOOR): `heights` itself on a tile that isn't a shore. The
- * mesh only: gameplay reads the baked heights. Worker and main thread make the same grid from this (heightGrid, makeHeightGrid).
+ * A tile's heights as its ground mesh takes them, n * n (see SHORE_FLOOR): `heights` itself on a tile with nothing under that.
+ * The mesh only: gameplay reads the baked heights. Worker and main thread make the same grid from this (heightGrid, makeHeightGrid).
  */
 export function meshHeights(t: { heights: Float32Array; n: number; cell: number; cls: Uint8Array; classN: number }): Float32Array {
   const { heights, n, cell, cls, classN: N } = t;
-  if (!cls.includes(Ground.WATER)) return heights;
+  // (the heights decide, not whether the tile holds water: land under the plane on a tile with none stayed drowned beside a
+  // neighbor that raised its copy of the same vertices, a strip of sea along the tile's edge)
+  if (heights.every((h) => h >= SHORE_FLOOR)) return heights;
   // a summed-area table of the land texels
   const W = N + 1;
   const sat = new Int32Array(W * W);

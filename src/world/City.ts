@@ -87,6 +87,8 @@ interface LoadedTile {
   terrainStep: number;
   /** a ground grid the worker built, until a ground mesh takes it (later rebuilds make their own) */
   grid: GridArrays | null;
+  /** the heights those rebuilds mesh (tiles.ts meshHeights), kept: a coarse region remakes every tile's grid for each tile a blast first touches */
+  meshH: Float32Array | null;
   /** its painted towers' collapsed growth elements (BuildingMesher GROWN_STRIDE records), or null */
   grown: Float32Array | null;
   /** a building of the tile has grown its gardens / domes: its mesh draws its growth triangles */
@@ -1127,7 +1129,7 @@ export class City {
     const g = lt.grid;
     lt.grid = null;
     const tr = lt.terrainData!;
-    if (!g || g.step !== step) return makeHeightGrid(meshHeights(tr), tr.n, tr.cell, tr.originX, tr.originZ, step);
+    if (!g || g.step !== step) return makeHeightGrid((lt.meshH ??= meshHeights(tr)), tr.n, tr.cell, tr.originX, tr.originZ, step);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(g.position, 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(g.normal, 3));
@@ -1247,7 +1249,7 @@ export class City {
   private addTile(t: TileResult, coarse = false) {
     const key = `${t.tx},${t.tz}`;
     if (this.tiles.has(key)) return;
-    const lt: LoadedTile = { tx: t.tx, tz: t.tz, buildings: null, caster: null, terrain: null, terrainData: t.terrain, buildingData: t.building, refs: [], classTex: null, maxY: -Infinity, hidden: false, terrainStep: 0, grid: t.grid, grown: t.grown, growthShown: false, prep: null };
+    const lt: LoadedTile = { tx: t.tx, tz: t.tz, buildings: null, caster: null, terrain: null, terrainData: t.terrain, buildingData: t.building, refs: [], classTex: null, maxY: -Infinity, hidden: false, terrainStep: 0, grid: t.grid, meshH: null, grown: t.grown, growthShown: false, prep: null };
     if (!coarse) this.makeTileBuildings(lt, t);
     if (t.building) {
       const b = t.building;
