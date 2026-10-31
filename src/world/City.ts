@@ -363,6 +363,7 @@ const ADOPT_BYTES = 3 << 20;
 const FAR_CHUNK_TILES = 4;
 /** A far box's roof in steps of this (m): equal tops merge. */
 const FAR_TOP_STEP = 4;
+const FAR_CHUNKS_A_FRAME = 8;
 // (while the opening's fog is up everything lands at once, up to this much per frame: a deep link into
 // downtown is ~100 MB of first uploads)
 const ADOPT_BYTES_EAGER = 16 << 20;
@@ -596,12 +597,12 @@ export class City {
     }
   }
 
-  /** One far chunk a frame (three uploads it at its first draw), and which chunks are near enough to draw at all. */
+  /** A few far chunks a frame (three uploads each at its first draw: ~7 KB), and which chunks are near enough to draw at all. */
   private farBlocksFrame() {
     const fb = this.farBlocks;
     if (!fb) return;
-    const s = this.farLanding.pop();
-    if (s) {
+    for (let n = this.eager ? 32 : FAR_CHUNKS_A_FRAME; n > 0 && this.farLanding.length; n--) {
+      const s = this.farLanding.pop()!;
       const mesh = farBlockMesh(s, this.farBlockMat!);
       this.farGroup.add(mesh);
       this.firstDraw(mesh);
