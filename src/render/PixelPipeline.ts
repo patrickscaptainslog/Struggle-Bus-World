@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { config } from '../config';
-import { globals, GLSL_LAYER_TOP, GLSL_SKY_LIGHT, SHADOW_LAYER } from './materials';
+import { globals, GLSL_G_READ, GLSL_LAYER_TOP, GLSL_SKY_LIGHT, SHADOW_LAYER } from './materials';
 import { HUE_RAMPS, makePaletteTexture, Ramp } from './palette';
 import type { WarmPipeline } from './warmup';
 
@@ -8,7 +8,7 @@ import type { WarmPipeline } from './warmup';
 //
 //  1. sun depth pass (shadow map, snapped to its own texel grid; depth only,
 //     and casters whose shadow can't reach the view are skipped)
-//  2. scene pass into a small G-buffer (ramp, light, fog, glow | normal, id)
+//  2. scene pass into a small G-buffer (ramp, light, fog, glow | normal, id: one RGBA16UI target)
 //  3. glow pass: blurred emissive at half res
 //  4. resolve pass: ramp + ordered dither, outlines, creases, fog, sky -> palette RGB
 //  5. upscale pass: nearest-neighbor to the canvas, shifted by the camera's
@@ -156,8 +156,7 @@ export class PixelPipeline implements WarmPipeline {
     this.resolveMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
       uniforms: {
-        tColor: { value: null },
-        tAux: { value: null },
+        tG: { value: null },
         tDepth: { value: null },
         tGlow: { value: null },
         tPalette: { value: this.palette },
@@ -191,7 +190,7 @@ export class PixelPipeline implements WarmPipeline {
     });
     this.glowMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
-      uniforms: { tColor: { value: null }, tPalette: { value: this.palette }, uTexel: { value: new THREE.Vector2() } },
+      uniforms: { tG: { value: null }, tPalette: { value: this.palette }, uTexel: { value: new THREE.Vector2() } },
       vertexShader: QUAD_VS,
       fragmentShader: GLOW_EXTRACT_FS,
       depthTest: false,
@@ -270,8 +269,9 @@ export class PixelPipeline implements WarmPipeline {
     depthTex.minFilter = THREE.NearestFilter;
     depthTex.magFilter = THREE.NearestFilter;
     this.gbuf = new THREE.WebGLRenderTarget(W, H, {
-      count: 2,
-      type: THREE.UnsignedByteType,
+      format: THREE.RGBAIntegerFormat,
+      type: THREE.UnsignedShortType,
+      internalFormat: 'RGBA16UI',
       minFilter: THREE.NearestFilter,
       magFilter: THREE.NearestFilter,
       depthBuffer: true,
@@ -565,7 +565,7 @@ export class PixelPipeline implements WarmPipeline {
     scene.matrixWorldAutoUpdate = autoWorld;
 
     // glow extract + blur (half res)
-    this.glowMat.uniforms.tColor.value = this.gbuf.textures[0];
+    this.glowMat.uniforms.tG.value = this.gbuf.texture;
     this.glowMat.uniforms.uTexel.value.set(1 / this.gbuf.width, 1 / this.gbuf.height);
     this.blit(this.glowMat, this.glowA);
     this.blurMat.uniforms.tSrc.value = this.glowA.texture;
@@ -577,8 +577,7 @@ export class PixelPipeline implements WarmPipeline {
 
     // resolve
     const ru = this.resolveMat.uniforms;
-    ru.tColor.value = this.gbuf.textures[0];
-    ru.tAux.value = this.gbuf.textures[1];
+    ru.tG.value = this.gbuf.texture;
     ru.tDepth.value = this.gbuf.depthTexture;
     ru.tGlow.value = this.glowA.texture;
     ru.uNearFar.value.set(this.snapCam.near, this.snapCam.far);
@@ -658,13 +657,12 @@ export class PixelPipeline implements WarmPipeline {
 
   /** The post passes once, each into its own target; the upscale into a scratch target instead of the canvas. */
   warmPasses() {
-    this.glowMat.uniforms.tColor.value = this.gbuf.textures[0];
+    this.glowMat.uniforms.tG.value = this.gbuf.texture;
     this.blit(this.glowMat, this.glowA);
     this.blurMat.uniforms.tSrc.value = this.glowA.texture;
     this.blit(this.blurMat, this.glowB);
     const ru = this.resolveMat.uniforms;
-    ru.tColor.value = this.gbuf.textures[0];
-    ru.tAux.value = this.gbuf.textures[1];
+    ru.tG.value = this.gbuf.texture;
     ru.tDepth.value = this.gbuf.depthTexture;
     ru.tGlow.value = this.glowA.texture;
     this.blit(this.resolveMat, this.resolved);
@@ -696,13 +694,14 @@ void main() {
 
 const GLOW_EXTRACT_FS = /* glsl */ `
 precision highp float;
-uniform sampler2D tColor;
+${GLSL_G_READ}
 uniform sampler2D tPalette;
 uniform vec2 uTexel;
 in vec2 vUv;
 layout(location = 0) out vec4 outColor;
 vec3 glowOf(vec2 uv) {
-  vec4 g = texture(tColor, uv);
+  ivec2 size = textureSize(tG, 0);
+  vec4 g = sbColor(clamp(ivec2(floor(uv * vec2(size))), ivec2(0), size - 1));
   if (g.a < 0.02) return vec3(0.0);
   int ramp = int(g.r * 255.0 + 0.5);
   vec3 c = texelFetch(tPalette, ivec2(6, ramp), 0).rgb;
@@ -734,8 +733,7 @@ void main() {
 
 const RESOLVE_FS = /* glsl */ `
 precision highp float;
-uniform sampler2D tColor;
-uniform sampler2D tAux;
+${GLSL_G_READ}
 uniform sampler2D tDepth;
 uniform sampler2D tGlow;
 uniform sampler2D tPalette;
@@ -932,8 +930,8 @@ void main() {
     outColor = vec4(sc, skyA);
     return;
   }
-  vec4 g = texelFetch(tColor, p, 0);
-  vec4 a = texelFetch(tAux, p, 0);
+  vec4 g = sbColor(p);
+  vec4 a = sbAux(p);
   float ramp = floor(g.r * 255.0 + 0.5);
   float light = g.g;
   float fog = g.b;
@@ -952,7 +950,7 @@ void main() {
       ivec2 q = p + off[i];
       float zq = texelFetch(tDepth, q, 0).r;
       float dq = zq >= 0.99999 ? 1e9 : linDepth(zq);
-      vec4 aq = texelFetch(tAux, q, 0);
+      vec4 aq = sbAux(q);
       // silhouette: neighbor is much farther -> this pixel is the near edge
       if (dq - depth > depth * uOutline.x) { edgeDark = 1.0; sil[i] = true; }
       else if (abs(dq - depth) < depth * uOutline.x) {
@@ -998,8 +996,8 @@ void main() {
   // checkerboards on walls that happen to sit on a step boundary.
   float lb = g.g * 255.0;
   // (slow gradients count as flat too: a clean band edge beats a dotted contour)
-  vec4 gR = texelFetch(tColor, p + ivec2(1, 0), 0), gL = texelFetch(tColor, p + ivec2(-1, 0), 0);
-  vec4 gU = texelFetch(tColor, p + ivec2(0, 1), 0), gD = texelFetch(tColor, p + ivec2(0, -1), 0);
+  vec4 gR = sbColor(p + ivec2(1, 0)), gL = sbColor(p + ivec2(-1, 0));
+  vec4 gU = sbColor(p + ivec2(0, 1)), gD = sbColor(p + ivec2(0, -1));
   // (only a neighbor on a real gradient counts: one more than the dither window away sits across an
   // edge, a tree crown's light band, a shadow's rim, another face. A gradient that steep has no room
   // for a dither, which only drew dots along the edge that churned as it slid through the grid)
@@ -1069,11 +1067,11 @@ void main() {
         int K = clamp(int(uSize.y * uHaze.w + 0.5), 3, 16);
         int run = 1;
         for (int i = 1; i < 16; i++) {
-          if (i >= K || !stands(texelFetch(tColor, p + ivec2(0, i), 0).b, sl, bur)) break;
+          if (i >= K || !stands(sbColor(p + ivec2(0, i)).b, sl, bur)) break;
           run++;
         }
         for (int i = 1; i < 16; i++) {
-          if (run >= K || !stands(texelFetch(tColor, p - ivec2(0, i), 0).b, sl, bur)) break;
+          if (run >= K || !stands(sbColor(p - ivec2(0, i)).b, sl, bur)) break;
           run++;
         }
         if (run < K) oStep = bur;
