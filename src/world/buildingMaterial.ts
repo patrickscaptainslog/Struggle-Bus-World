@@ -46,7 +46,6 @@ export const paintUniforms = {
 const F = () => config.facade;
 const facadeUniforms = {
   /** angular size of one game pixel (rad): set per draw from the camera and the render target */
-  uPixelAngle: { value: 0.0017 },
   uColPx: { get value() { return F().colPx; } },
   uFloorPx: { get value() { return F().floorPx; } },
   uLodJitter: { get value() { return F().lodJitter; } },
@@ -843,12 +842,5 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       }
     `,
   });
-  // the angular size of one game pixel for the facade LOD: from this pass's camera and target
-  mat.onBeforeRender = (renderer, _scene, camera) => {
-    const rt = renderer.getRenderTarget();
-    const h = rt ? rt.height : renderer.domElement.height;
-    const p11 = (camera as THREE.PerspectiveCamera).projectionMatrix.elements[5];
-    if (h > 0 && p11 > 0) facadeUniforms.uPixelAngle.value = 2 / (p11 * h);
-  };
   return mat;
 }

@@ -232,6 +232,8 @@ export class WarmUp {
   private pump: Promise<void> = Promise.resolve();
   private running = false;
   private passesDrawn = false;
+  /** given up: the GL context it compiled in is gone */
+  private dead = false;
   private rounds = 0;
   private draws = 0;
   private linkedAt = 0;
@@ -392,6 +394,12 @@ export class WarmUp {
     return this.running;
   }
 
+  /** The GL context is gone: stop here (a new WarmUp starts over when it is back). */
+  abandon(): void {
+    this.dead = true;
+    if (live === this) live = null;
+  }
+
   /** Resolves once everything added so far is compiled, drawn and done on the GPU. */
   async finish(): Promise<WarmReport> {
     this.start();
@@ -405,15 +413,25 @@ export class WarmUp {
     const alive = r.info.programs as unknown as Program[];
     let drewAt = 0;
     for (;;) {
+      if (this.dead) {
+        this.running = false;
+        return;
+      }
       // A fence round trip first. Every query below (link status, uniform tables) is synchronous: it
       // waits for the GPU process to get to it, i.e. behind the last round's draws (whose draw-time
       // shader variants compile there, seconds) or behind anything else stuck on its main thread (the
       // browser's own raster waiting for a compile slot). Polling the fence never blocks; once it has
       // signaled, the GPU process is free and the queries answer at once.
-      const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
+      const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
       gl.flush();
-      while (gl.getSyncParameter(fence, gl.SYNC_STATUS) !== gl.SIGNALED) await sleep(4);
-      gl.deleteSync(fence);
+      if (fence) {
+        while (!this.dead && !gl.isContextLost() && gl.getSyncParameter(fence, gl.SYNC_STATUS) !== gl.SIGNALED) await sleep(4);
+        gl.deleteSync(fence);
+      }
+      if (this.dead || gl.isContextLost()) {
+        await sleep(50);
+        continue;
+      }
       if (drewAt) {
         this.log[this.log.length - 1][3] = Math.round(performance.now() - drewAt);
         drewAt = 0;

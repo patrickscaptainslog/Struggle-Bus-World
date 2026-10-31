@@ -559,6 +559,7 @@ export class PixelPipeline implements WarmPipeline {
     this.updateShadow(scene);
 
     // scene -> gbuffer
+    globals.uPixelAngle.value = 2 / (this.snapCam.projectionMatrix.elements[5] * this.gbuf.height);
     r.setRenderTarget(this.gbuf);
     r.setClearColor(0x000000, 0);
     r.clear(true, true, false);

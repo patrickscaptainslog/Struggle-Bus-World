@@ -669,11 +669,20 @@ export class TreeField {
     const g = new THREE.Group();
     g.name = 'TreeField';
     g.add(mesh, caster);
+    // (a field never moves: the instances carry their own matrices)
+    g.matrixAutoUpdate = false;
+    mesh.matrixAutoUpdate = false;
+    caster.matrixAutoUpdate = false;
     this.object = g;
     this.mesh = mesh;
     this.caster = caster;
     this.data = data;
     this.color = color;
+  }
+
+  /** Its two instanced meshes (the crowns, their sun-pass twin). */
+  get meshes(): [THREE.InstancedMesh, THREE.InstancedMesh] {
+    return [this.mesh, this.caster];
   }
 
   /** Number of trees in this field. */

@@ -44,6 +44,8 @@ export const globals = {
   uFogLayer2: { value: new THREE.Vector4(config.fog.layerDensity, config.fog.layerHaze, config.fog.layerFarFull, 0) },
   // x billow amplitude (m), y 1 / billow size (1/m)
   uFogBillow: { value: new THREE.Vector2(config.fog.layerBillow, 1 / config.fog.layerBillowSize) },
+  // the angular size of one game pixel (rad) in the scene pass, for the facades' detail by size on screen
+  uPixelAngle: { value: 0.0017 },
 };
 
 /**

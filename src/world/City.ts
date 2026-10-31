@@ -43,6 +43,9 @@ export interface BuildingRef {
   q: number;
 }
 
+/** A result list of buildingsNear, with the entries it can use again. */
+type NearList = Array<{ ref: BuildingRef; d: number }> & { pool?: Array<{ ref: BuildingRef; d: number }> };
+
 /** Scratch list for the prop stamp's building queries (no allocation per cell). */
 const stampNear: Array<{ ref: BuildingRef; d: number }> = [];
 
@@ -116,13 +119,13 @@ interface RegionMesh {
 /** Work queued for adoption, a few items per frame. */
 type Adopt =
   /** one tile of a newly arrived region (coarse: its meshes come with the region item) */
-  | { kind: 'tile'; key: string; t: TileResult; coarse: boolean }
+  | { kind: 'tile'; key: string; bytes: number; t: TileResult; coarse: boolean }
   /** after a coarse region's tiles: its merged meshes */
-  | { kind: 'coarse'; key: string; msg: RegionResponse }
+  | { kind: 'coarse'; key: string; bytes: number; msg: RegionResponse }
   /** before a swap to detail: one tile's meshes made and uploaded unseen, its obstacle cells raised, so the swap only commits */
-  | { kind: 'prep'; key: string; t: TileResult }
+  | { kind: 'prep'; key: string; bytes: number; t: TileResult }
   /** an adopted region switching level of detail, all at once */
-  | { kind: 'swap'; key: string; msg: RegionResponse };
+  | { kind: 'swap'; key: string; bytes: number; msg: RegionResponse };
 
 async function maybeInflate(buf: ArrayBuffer): Promise<ArrayBuffer> {
   return isGzip(buf) ? await gunzip(buf) : buf;
@@ -213,6 +216,7 @@ function farGridMesh(pos: Float32Array, nrm: Float32Array, ramp: Float32Array, l
   g.computeBoundingSphere();
   const mesh = new THREE.Mesh(g, makeRampMaterial({ vertexRamp: true, shadowMul }));
   mesh.frustumCulled = false;
+  mesh.matrixAutoUpdate = false;
   return mesh;
 }
 
@@ -280,15 +284,18 @@ function dropAfterUpload(g: THREE.BufferGeometry) {
   g.index?.onUpload(dropArray);
 }
 function dropArray(this: THREE.BufferAttribute) {
-  (this as unknown as { array: ArrayLike<number> | null }).array = null;
+  // (empty, of the same type: the warm-up reads a live object's vertex layout from it)
+  const a = this as unknown as { array: Float32Array | Uint8Array | Int8Array | Uint16Array | Uint32Array };
+  a.array = a.array.slice(0, 0);
 }
 
-/** New geometry a tile brings (its detailed mesh and caster), for the per-frame upload budget. */
+/** New geometry a tile brings (its detailed mesh and caster, its ground), for the per-frame upload budget. */
 function meshBytes(t: TileResult): number {
   let b = 0;
   const m = t.mesh;
   if (m) b += m.position.byteLength + m.normal.byteLength + m.facade.byteLength + m.meta.byteLength + m.bld.byteLength + m.bld2.byteLength + m.index.byteLength;
   if (t.caster) b += t.caster.position.byteLength + t.caster.index.byteLength;
+  if (t.grid) b += t.grid.position.byteLength + t.grid.normal.byteLength + t.grid.index.byteLength;
   return b;
 }
 
@@ -308,6 +315,9 @@ const UNLOAD_RADIUS_HIGH = 2800;
 const ADOPT_MIN = 2;
 const ADOPT_MS = 2.5;
 const ADOPT_BYTES = 3 << 20;
+// (while the opening's fog is up everything lands at once, up to this much per frame: a deep link into
+// downtown is ~100 MB of first uploads)
+const ADOPT_BYTES_EAGER = 16 << 20;
 // regions in flight at once: in play (budgeted), and while the opening's fog is up (`eager`: its
 // whole first ring, ~8 regions, goes out together instead of two per frame)
 const IN_FLIGHT = 2;
@@ -316,6 +326,8 @@ const HASH_CELL = 32;
 /** never drawn: casters live on SHADOW_LAYER only, where the sun pass's depth override replaces it */
 const CASTER_MATERIAL = new THREE.MeshBasicMaterial();
 const crownTmp = { top: 0, mid: 0, r: 0 };
+const byDistance = (a: [number, number, number, 0 | 1], b: [number, number, number, 0 | 1]) => a[2] - b[2];
+const nearOrder = (a: { d: number }, b: { d: number }) => a.d - b.d;
 /** What a mesh's ghost draw does: everything but rasterize (see City.ghost). */
 const GHOST_ON = (r: THREE.WebGLRenderer) => r.getContext().enable(WebGL2RenderingContext.RASTERIZER_DISCARD);
 const GHOST_OFF = (r: THREE.WebGLRenderer) => r.getContext().disable(WebGL2RenderingContext.RASTERIZER_DISCARD);
@@ -352,7 +364,6 @@ export class City {
   private landmarks: LandmarkRec[] = [];
   private far: FarData | null = null;
   private farGroup = new THREE.Group();
-  private restoreHooked = false;
   private loadedMask: THREE.DataTexture;
   private maskW: number;
   private maskH: number;
@@ -376,7 +387,7 @@ export class City {
   detailScale = 1;
   private want: Array<[number, number, number, 0 | 1]> = [];
   private adopt: Adopt[] = [];
-  /** meshes on their first draw, and the rendered frame they wait for (see firstDraw) */
+  /** meshes on their first draw (see firstDraw), and frames run (the first one's meshes are drawn by that frame) */
   private firsts: THREE.Mesh[] = [];
   private framesRun = 0;
   /** coarse (LOD 1) regions: all their buildings / all their ground as one mesh each */
@@ -430,6 +441,9 @@ export class City {
     this.loadedMask = new THREE.DataTexture(new Uint8Array(this.maskW * this.maskH), this.maskW, this.maskH, THREE.RedFormat, THREE.UnsignedByteType);
     this.loadedMask.minFilter = this.loadedMask.magFilter = THREE.NearestFilter;
     this.loadedMask.needsUpdate = true;
+    // (nothing in the city ever moves: no matrix work per frame, the scene graph only walks past it)
+    this.root.matrixAutoUpdate = false;
+    this.farGroup.matrixAutoUpdate = false;
     this.root.add(this.farGroup);
     // the pipeline's sun-pass culling walks only the city (its casters and ground)
     this.root.userData.cullRoot = true;
@@ -437,6 +451,9 @@ export class City {
     const water = new THREE.Mesh(new THREE.PlaneGeometry(60000, 60000).rotateX(-Math.PI / 2), makeWaterMaterial());
     water.position.set((minX + maxX) / 2, -0.6, (minZ + maxZ) / 2);
     water.frustumCulled = false;
+    water.matrixAutoUpdate = false;
+    water.updateMatrix();
+    water.updateMatrixWorld(true);
     this.root.add(water);
   }
 
@@ -556,6 +573,7 @@ export class City {
       }
       inst.instanceMatrix.needsUpdate = true;
       inst.frustumCulled = false; // far skyline: always drawn, never casts (it's beyond the shadow box)
+      inst.matrixAutoUpdate = false;
       this.farGroup.add(inst);
     }
   }
@@ -583,49 +601,43 @@ export class City {
    * `adoptMs`: adopt arrived tiles for about this long even while eager (before the first frame).
    */
   update(focus: THREE.Vector3, renderer: THREE.WebGLRenderer, dt: number, adoptMs?: number) {
-    if (!this.restoreHooked) {
-      // (three re-creates its GL state first: its own listener was added with the renderer)
-      this.restoreHooked = true;
-      renderer.domElement.addEventListener('webglcontextrestored', () => this.reloadAll());
-    }
     // (a frame's update: the frame before it drew what was fresh then)
-    if (adoptMs === undefined && this.framesRun++ > 0) this.firstsDone();
+    if (adoptMs === undefined && this.framesRun++ > 0 && this.firsts.length) this.firstsDone();
     this.request(focus);
     const R = this.regionSize * this.manifest.tileSize;
     const hk = Math.min(1, Math.max(0, (this.viewHeight - 40) / 460));
     const unloadR = UNLOAD_RADIUS + (UNLOAD_RADIUS_HIGH - UNLOAD_RADIUS) * hk;
     // unload far regions
     for (const key of this.regionsLoaded) {
-      const [rx, rz] = this.regionXZ.get(key)!;
-      const cx = (rx + 0.5) * R, cz = (rz + 0.5) * R;
+      const xz = this.regionXZ.get(key)!;
+      const cx = (xz[0] + 0.5) * R, cz = (xz[1] + 0.5) * R;
       const dx = Math.max(Math.abs(focus.x - cx) - R / 2, 0);
       const dz = Math.max(Math.abs(focus.z - cz) - R / 2, 0);
-      if (Math.hypot(dx, dz) > unloadR) this.unloadRegion(rx, rz);
+      if (Math.hypot(dx, dz) > unloadR) this.unloadRegion(xz[0], xz[1]);
     }
-    // adopt arrived tiles a few per frame: a region landing never hitches one frame
+    // adopt arrived tiles a few per frame: a region landing never hitches one frame, and what a frame
+    // adopts is what it uploads (firstDraw): this much new geometry at most, unless it is one big tile
     const t0 = performance.now();
     let n = 0;
     let bytes = 0;
     const eager = this.eager && adoptMs === undefined;
     const budget = adoptMs ?? ADOPT_MS;
-    while (this.adopt.length && (eager || n < ADOPT_MIN || (performance.now() - t0 < budget && bytes < ADOPT_BYTES))) {
+    const cap = this.eager ? ADOPT_BYTES_EAGER : ADOPT_BYTES;
+    while (this.adopt.length && (eager || n < ADOPT_MIN || performance.now() - t0 < budget)) {
       // (a swap that landed as the hold began waits for it to end, behind whatever else has arrived)
       const i = this.detailHold ? this.adopt.findIndex((x) => x.kind !== 'swap' && x.kind !== 'prep') : 0;
       if (i < 0) break;
+      if (n > 0 && bytes + this.adopt[i].bytes > cap) break;
       const a = this.adopt.splice(i, 1)[0];
       n++;
       if (!this.regionsLoaded.has(a.key)) continue; // unloaded while queued
+      bytes += a.bytes;
       if (a.kind === 'tile') {
         this.addTile(a.t, a.coarse);
         this.loadedMask.needsUpdate = true;
-        if (!a.coarse) bytes += meshBytes(a.t);
-      } else if (a.kind === 'coarse') {
-        this.buildRegionMesh(a.key, a.msg);
-        bytes += mergedBytes(a.msg);
-      } else if (a.kind === 'prep') {
-        this.prepTile(a.t);
-        bytes += meshBytes(a.t);
-      } else {
+      } else if (a.kind === 'coarse') this.buildRegionMesh(a.key, a.msg);
+      else if (a.kind === 'prep') this.prepTile(a.t);
+      else {
         this.swapRegion(a.key, a.msg);
         if (!this.eager) break; // (a swap happens all at once: it is this frame's whole budget)
       }
@@ -641,9 +653,6 @@ export class City {
     // at altitude: a wider circle of coarse regions, detail only where pixels are still small
     const hk = Math.min(1, Math.max(0, (this.viewHeight - 40) / 460));
     const loadR = LOAD_RADIUS + (LOAD_RADIUS_HIGH - LOAD_RADIUS) * hk;
-    const lift = Math.max(0, this.viewHeight - 30);
-    const ds = Math.max(0.2, this.detailScale);
-    const detailD = (d: number) => (lift > 0 ? Math.hypot(d, lift) : d) / ds;
     const rx0 = Math.floor((focus.x - loadR) / R);
     const rx1 = Math.floor((focus.x + loadR) / R);
     const rz0 = Math.floor((focus.z - loadR) / R);
@@ -660,7 +669,7 @@ export class City {
         const dx = Math.max(Math.abs(focus.x - cx) - R / 2, 0);
         const dz = Math.max(Math.abs(focus.z - cz) - R / 2, 0);
         const d = Math.hypot(dx, dz);
-        if (d < loadR) want.push([rx, rz, d, !this.detailHold && detailD(d) < DETAIL_RADIUS ? 0 : 1]);
+        if (d < loadR) want.push([rx, rz, d, !this.detailHold && this.detailD(d) < DETAIL_RADIUS ? 0 : 1]);
       }
     // upgrade already-loaded coarse regions that are now close; coarsen detailed ones the view rose above
     if (!this.detailHold) for (const key of this.regionsLoaded) {
@@ -668,13 +677,14 @@ export class City {
       if (lod === undefined || this.isPending(key)) continue;
       // (a failed level-of-detail swap backs off like a failed first load: no request per frame while offline)
       if ((this.retryAt.get(key) ?? 0) > performance.now()) continue;
-      const [rx, rz] = this.regionXZ.get(key)!;
-      const cx = (rx + 0.5) * R, cz = (rz + 0.5) * R;
+      const xz = this.regionXZ.get(key)!;
+      const cx = (xz[0] + 0.5) * R, cz = (xz[1] + 0.5) * R;
       const d = Math.hypot(Math.max(Math.abs(focus.x - cx) - R / 2, 0), Math.max(Math.abs(focus.z - cz) - R / 2, 0));
-      if (lod === 1 && detailD(d) < DETAIL_RADIUS * 0.8) want.push([rx, rz, d - 10000, 0]);
-      else if (lod === 0 && detailD(d) > DETAIL_RADIUS * 1.4) want.push([rx, rz, d + 10000, 1]);
+      if (lod === 1 && this.detailD(d) < DETAIL_RADIUS * 0.8) want.push([xz[0], xz[1], d - 10000, 0]);
+      else if (lod === 0 && this.detailD(d) > DETAIL_RADIUS * 1.4) want.push([xz[0], xz[1], d + 10000, 1]);
     }
-    want.sort((a, b) => a[2] - b[2]);
+    if (!want.length) return;
+    want.sort(byDistance);
     // (while the opening's fog is up everything it needs goes out at once; then two at a time, so
     // streaming in flight stays budgeted)
     const cap = this.eager ? OPENING_IN_FLIGHT : IN_FLIGHT;
@@ -695,8 +705,9 @@ export class City {
    * drawn, so without this everything streamed in beside or behind the bus uploads the moment the view turns
    * to it, all at once. This way each upload lands with its adoption, on the adoption's byte budget.
    */
-  private firstDraw(m: THREE.Mesh) {
+  firstDraw(m: THREE.Mesh) {
     m.frustumCulled = false;
+    m.userData.sunCullAfter = m.userData.sunCull;
     m.userData.sunCull = false;
     this.firsts.push(m);
   }
@@ -719,13 +730,19 @@ export class City {
   private firstsDone() {
     for (const m of this.firsts) {
       m.frustumCulled = true;
-      m.userData.sunCull = true;
+      m.userData.sunCull = m.userData.sunCullAfter;
       if (m.userData.ghost) {
         this.unghost(m);
         m.visible = false; // (until its swap commits)
       }
     }
     this.firsts.length = 0;
+  }
+
+  /** Distance `d` from the focus as the detail radii judge it: from the lens up high, and its fov. */
+  private detailD(d: number): number {
+    const lift = Math.max(0, this.viewHeight - 30);
+    return (lift > 0 ? Math.hypot(d, lift) : d) / Math.max(0.2, this.detailScale);
   }
 
   /** "rx,rz", made once per region (with its coordinates for the streaming loops). */
@@ -1130,13 +1147,13 @@ export class City {
     // an already-loaded region switches level of detail in one go (detail prepares tile by tile first, so that
     // one go is only a commit); a new one adopts its tiles a few per frame
     if (this.regionsLoaded.has(key)) {
-      if (msg.lod === 0) for (const t of msg.tiles) this.adopt.push({ kind: 'prep', key, t });
-      this.adopt.push({ kind: 'swap', key, msg });
+      if (msg.lod === 0) for (const t of msg.tiles) this.adopt.push({ kind: 'prep', key, bytes: meshBytes(t), t });
+      this.adopt.push({ kind: 'swap', key, bytes: mergedBytes(msg), msg });
     } else {
       this.regionsLoaded.add(key);
       const coarse = msg.lod === 1;
-      for (const t of msg.tiles) this.adopt.push({ kind: 'tile', key, t, coarse });
-      if (coarse) this.adopt.push({ kind: 'coarse', key, msg });
+      for (const t of msg.tiles) this.adopt.push({ kind: 'tile', key, bytes: coarse ? 0 : meshBytes(t), t, coarse });
+      if (coarse) this.adopt.push({ kind: 'coarse', key, bytes: mergedBytes(msg), msg });
     }
     this.regionLod.set(key, msg.lod);
   }
@@ -1712,6 +1729,9 @@ export class City {
   /** Buildings whose centroid is within r of (x, z), nearest first. One entry per building
    * (a tiered tower is one ref; its roofY is the top of the highest tier). */
   buildingsNear(x: number, z: number, r: number, out: Array<{ ref: BuildingRef; d: number }> = []): Array<{ ref: BuildingRef; d: number }> {
+    // (the entries of `out` are used again, and what it held beyond this call's count stays in a pool of its own)
+    const pool = ((out as NearList).pool ??= []);
+    for (const e of out) pool.push(e);
     out.length = 0;
     const c0x = Math.floor((x - r) / HASH_CELL), c1x = Math.floor((x + r) / HASH_CELL);
     const c0z = Math.floor((z - r) / HASH_CELL), c1z = Math.floor((z + r) / HASH_CELL);
@@ -1721,10 +1741,17 @@ export class City {
         if (!list) continue;
         for (const ref of list) {
           const d = Math.hypot(ref.cx - x, ref.cz - z);
-          if (d <= r) out.push({ ref, d });
+          if (d <= r) {
+            const e = pool.pop();
+            if (e) {
+              e.ref = ref;
+              e.d = d;
+              out.push(e);
+            } else out.push({ ref, d });
+          }
         }
       }
-    out.sort((a, b) => a.d - b.d);
+    out.sort(nearOrder);
     return out;
   }
 

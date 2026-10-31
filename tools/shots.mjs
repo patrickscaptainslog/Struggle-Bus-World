@@ -50,10 +50,13 @@ async function open(query) {
         set: (v) => {
           g = v;
           v.controls.tilt.status = 'requesting';
+          // (while it runs, the clock stands whenever regions are on their way: streaming lands at the same game
+          // time on any machine, and a query that fell back to the far grid here can't move the camera a hair)
           const update = v.city.update;
           v.city.update = function (...a) {
             update.apply(this, a);
             seed();
+            if (window.__detRunning) v.controls.tilt.status = this.busy ? 'requesting' : 'off';
           };
         },
       });
@@ -62,15 +65,17 @@ async function open(query) {
   }
   await page.goto(base + query, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000 });
+  if (det) await settle(page);
   if (det)
     await page.evaluate(() => {
       window.__qa = {};
       const g = window.__game;
       g.splatter.nextHue = 0;
       g.splatter.seed = 0x5eed1234;
-      // (what the first steps remember of how the city arrived: both take the settled ground from here)
+      // (what the first steps remember of how the city arrived: both take the settled ground from here, at the spawn)
       g.flight.floorRise = NaN;
       g.flight.groundBroad = NaN;
+      return new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(res))));
     });
   return page;
 }
@@ -82,26 +87,34 @@ async function runDet(page, seconds) {
     window.__qa.held = false;
     window.__qa.holdAt = g.clock() + s;
     g.controls.tilt.status = 'off';
+    window.__detRunning = true;
   }, seconds);
   await page.waitForFunction(() => window.__qa.held === true, null, { timeout: 300000, polling: 50 });
   await page.evaluate(() => {
+    window.__detRunning = false;
     window.__game.controls.tilt.status = 'requesting';
     window.__qa.holdAt = undefined;
     window.__qa.held = false;
   });
 }
 
-// --det: with the clock standing, streaming and the ground paint finish, then a few frames
+// --det: with the clock standing, streaming and the ground paint finish (quiet for 30 frames in a row: a region's
+// next batch is only asked for a frame after the last one lands), then a few frames
 async function settle(page) {
-  await page.waitForFunction(
-    () => {
-      const g = window.__game;
-      return !g.city.busy && g.city.ground.queued === 0;
-    },
-    null,
-    { timeout: 300000, polling: 100 },
+  await page.evaluate(
+    () =>
+      new Promise((res) => {
+        const g = window.__game;
+        let quiet = 0;
+        const tick = () => {
+          quiet = !g.city.busy && g.city.ground.queued === 0 ? quiet + 1 : 0;
+          if (quiet >= 30) res(null);
+          else requestAnimationFrame(tick);
+        };
+        tick();
+      }),
   );
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(200);
 }
 
 // let the game run for `seconds` of simulated time (SwiftShader is slow; we
@@ -139,7 +152,8 @@ async function detShot(name, query, script) {
   await page.screenshot({ path: `${out}/${name}.png` });
   stats[name] = await page.evaluate(() => {
     const r = window.__game.pipeline.renderer.info;
-    return { clock: window.__game.clock(), y: window.__game.flight.y, calls: r.render.calls, triangles: r.render.triangles };
+    const g = window.__game, f = g.flight, p = g.pipeline;
+    return { clock: g.clock(), y: f.y, x: f.x, z: f.z, heading: f.heading, groundBroad: f.groundBroad, cam: g.camera.position.toArray(), focus: p.focus.toArray(), sub: p.subPixel.toArray(), snapLevel: p.snapLevel, regions: g.city.regionsLoaded.size, tiles: g.city.tiles.size, lods: [...g.city.regionLod.entries()].sort().join(' '), maskSum: g.city.loadedMask.image.data.reduce((a, b) => a + b, 0) };
   });
   await page.close();
   console.log('shot', name);

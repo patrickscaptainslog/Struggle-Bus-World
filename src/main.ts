@@ -37,6 +37,9 @@ type Manifest = CityManifest & { regions: Array<[number, number, number]>; regio
 /** What the street sign says when a landmark is hit. */
 const LANDMARK_NAMES: Record<string, string> = { sutro: 'Sutro Tower', transamerica: 'Transamerica' };
 
+/** The opening was seen through once on this device: a tap skips it from then on. */
+const OPENING_SEEN_KEY = 'strugglebus.opening.v1';
+
 const params = new URLSearchParams(location.search);
 if (params.has('fog')) config.fog.enabled = true;
 if (params.has('px')) config.render.pixelWidth = Math.min(1200, Math.max(120, Number(params.get('px')) || config.render.pixelWidth));
@@ -46,11 +49,13 @@ const canvas = document.getElementById('game') as HTMLCanvasElement;
 const pipeline = new PixelPipeline(canvas);
 const renderer = pipeline.renderer;
 const scene = new THREE.Scene();
+// (what moves has its own matrices updated; a scene that recomposed its identity would force all 900 objects' every frame)
+scene.matrixAutoUpdate = false;
 const camera = pipeline.camera;
 // Every shader the game draws with starts compiling now, all at once and off the main thread,
 // while the city data downloads; the first frame waits for it (render/warmup.ts). This first
 // wave: the post passes and what modules registered (tiles, trees, landmarks, bridges).
-const warm = new WarmUp(pipeline, scene);
+let warm = new WarmUp(pipeline, scene);
 
 // --- sun: late-afternoon, low, from the WSW
 /** The city's low ground (m, City.lowGround once the far grid is in): the fog ceiling's heights are
@@ -152,6 +157,7 @@ async function boot() {
       const list: TreeInstance[] = terrain.trees.map((t) => ({ x: t.x, y: t.y, z: t.z, size: t.size, kind: t.kind }));
       const tf = new TreeField(list);
       scene.add(tf.object);
+      for (const m of tf.meshes) city.firstDraw(m);
       treeFields.set(`${tx},${tz}`, tf);
       treeIndex.set(`${tx},${tz}`, list);
     }
@@ -197,7 +203,7 @@ async function boot() {
   // other landmarks are built after it, one per idle tick while the shaders compile, else one per
   // frame early in the opening (far from the gate, they are built long before the bus gets near).
   // Their materials are in the warm-up already (registerWarm in Bridges.ts, props/landmarks.ts).
-  const later: Array<() => void> = [];
+  const later: Array<() => void> = [() => audio.warmBackend()];
   /** a landmark becomes a first-class paintable building (its paint saved under its key); saved paint thins the fog again */
   const paintable = (key: string, obj: THREE.Object3D, name?: string) => {
     const ref = paintLandmark(city, key, obj, { name });
@@ -635,6 +641,17 @@ async function boot() {
   const pose: BusPose = { squash: 1, eye: 1, fullness: 1, mouth: 0, speed: 0, wheeze: 0, heave: 0 };
   let squashV = 0;
 
+  // ---- the opening's clock (0 .. config.fog.openingDuration), and the tap that skips it on repeat visits: it has been
+  // seen through once, on this device (a lost flag only plays it again)
+  let opening = params.has('skipintro') ? config.fog.openingDuration : 0;
+  let openingSkip = false;
+  let openingSeen = false;
+  try {
+    openingSeen = localStorage.getItem(OPENING_SEEN_KEY) === '1';
+  } catch {
+    // (storage blocked: the opening plays in full)
+  }
+
   // ---- input
   const input = new Input(canvas);
   const tuner = new Tuner();
@@ -682,6 +699,11 @@ async function boot() {
   };
   input.onTap = () => {
     if (tuner.visible || superSplat.hosing) return;
+    // (the tap that skips the opening doesn't splat as well)
+    if (openingSeen && !openingSkip && opening < config.fog.openingDuration) {
+      openingSkip = true;
+      return;
+    }
     tapSplat();
   };
 
@@ -762,6 +784,30 @@ async function boot() {
   window.visualViewport?.addEventListener('resize', wantResize);
   onResize();
 
+  // ---- a lost GL context (a GPU reset, memory pressure on iOS, a tab long in the background): the game stops, the
+  // fog-grey page shows in place of the dead canvas. On restore every program compiles again through the warm-up, not
+  // one by one in the first frames; every region streams back in (their meshes kept no JS copy, City.reloadAll), budgeted
+  // like the opening's, with the game clock standing until the city is in
+  let glLost = false;
+  /** the page shows instead of the canvas: frames run at dt 0 until the city is back */
+  let covered = false;
+  // the first ready frame adopts streamed tiles at once (as the classic streaming did); then budgeted
+  let everReady = false;
+  canvas.addEventListener('webglcontextlost', () => {
+    glLost = covered = true;
+    warm.abandon();
+    canvas.style.visibility = 'hidden';
+  });
+  canvas.addEventListener('webglcontextrestored', () => {
+    // (three re-created its GL state first: its own listener was added with the renderer)
+    city.reloadAll();
+    everReady = false;
+    city.eager = true;
+    warm = new WarmUp(pipeline, scene);
+    warm.add(scene);
+    void warm.finish().then(() => (glLost = false));
+  });
+
   // ---- the warm-up's second wave: the live scene as built so far (the bus, the Golden Gate, water,
   // signs, particles, the drop shadow) and what registered while it was built (rooftop gardens)
   warm.addSources();
@@ -784,7 +830,7 @@ async function boot() {
     if (farIn) {
       if (farErr) throw farErr;
       // (the far meshes, and whatever was built meanwhile: only kinds not seen yet compile)
-      warm.add(scene);
+      if (!glLost) warm.add(scene);
       if (!warm.busy) break;
     }
     await new Promise((r) => setTimeout(r, 16));
@@ -797,7 +843,6 @@ async function boot() {
   // ---- the loop
   let last = performance.now();
   let wasFull = true;
-  let opening = params.has('skipintro') ? config.fog.openingDuration : 0;
   // QA: ?fixeddt=<s> steps the game by exactly that much per rendered frame (deterministic captures)
   const fixedDt = params.has('fixeddt') ? Math.max(0.001, Number(params.get('fixeddt')) || 1 / 60) : 0;
   let lodTimer = 0;
@@ -813,14 +858,16 @@ async function boot() {
   const snapPoint = new THREE.Vector3();
   const compTmp = new THREE.Vector3();
   const streamCenter = new THREE.Vector3();
-  // the first ready frame adopts streamed tiles at once (as the classic streaming did); then budgeted
-  let everReady = false;
   /** frames rendered (the opening's clock starts once the first one is on screen) */
   let framesDrawn = 0;
 
   type QA = { sx?: number; sy?: number; holdAt?: number; holdFrames?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null };
   function frame(now: number) {
     requestAnimationFrame(frame);
+    if (glLost) {
+      last = now;
+      return;
+    }
     const qa = (window as unknown as { __qa?: QA | null }).__qa;
     // QA: freeze on the first frame at/after holdAt (the canvas keeps showing it)
     if (qa && qa.holdAt !== undefined && simTime >= qa.holdAt) {
@@ -851,8 +898,8 @@ async function boot() {
     // is never skipped
     const openDt = fixedDt || (framesDrawn >= 2 ? Math.min(0.25, Math.max(0, (now - last) / 1000)) : 0);
     last = now;
-    // the game holds under iOS's motion sheet
-    if (controls.sheetUp) dt = 0;
+    // the game holds under iOS's motion sheet, and while a restored context streams the city back in
+    if (controls.sheetUp || covered) dt = 0;
     if (hitStop > 0) {
       hitStop -= dt;
       dt = 0; // freeze everything: two frames of awe
@@ -864,7 +911,9 @@ async function boot() {
     // opening: the bus emerges from a fog bank while the city streams in behind it
     if (opening < config.fog.openingDuration) {
       const loaded = city.loadedRegionCount() > 0;
-      opening = loaded ? opening + openDt : Math.min(opening + openDt, config.fog.openingDuration * 0.15);
+      // (skipped: the same reveal, played in ~0.7 s)
+      const step = openingSkip ? openDt * 6 : openDt;
+      opening = loaded ? opening + step : Math.min(opening + step, config.fog.openingDuration * 0.15);
       const k = clamp(opening / config.fog.openingDuration, 0, 1);
       globals.uFogBank.value = 1 + (config.fog.openingBank - 1) * Math.pow(1 - k, 2);
       rig.openingPull = 140 * Math.pow(1 - k, 2);
@@ -1136,7 +1185,22 @@ async function boot() {
     superMeter.update(realDt, superView);
     controls.hud.setMega(superView.phase);
     perf.frame(dt * 1000, performance.now() - t0);
-    const ready = city.loadedRegionCount() > 0 && !city.busy && !later.length && (opening >= config.fog.openingDuration || params.has('openingshot'));
+    const cityIn = city.loadedRegionCount() > 0 && !city.busy && !later.length;
+    if (covered && cityIn) {
+      covered = false;
+      canvas.style.visibility = '';
+    }
+    const ready = cityIn && (opening >= config.fog.openingDuration || params.has('openingshot'));
+    if (ready && !everReady) {
+      audio.prepare();
+      if (!params.has('skipintro') && !params.has('lat')) {
+        try {
+          localStorage.setItem(OPENING_SEEN_KEY, '1');
+        } catch {
+          // (storage blocked: see above)
+        }
+      }
+    }
     if (ready) everReady = true;
     city.eager = !everReady;
     (window as unknown as { __shotReady?: boolean }).__shotReady = ready;
@@ -1145,10 +1209,17 @@ async function boot() {
 
   // debug hooks for scripted screenshots / QA (set before the warm-up wait: tools see the city stream in)
   function exposeQA() {
+    // (asked for now: there is no asking once the context is gone)
+    const lose = renderer.getContext().getExtension('WEBGL_lose_context');
     (window as unknown as Record<string, unknown>).__game = {
       flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls,
       /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
-      warm,
+      get warm() {
+        return warm;
+      },
+      /** QA: lose the GL context, and get it back (the game's whole path through a GPU reset) */
+      loseContext: () => lose?.loseContext(),
+      restoreContext: () => lose?.restoreContext(),
       /** QA: where a breath fired now would land ({x, y, z, dist, travel, drop}), and the last one fired */
       aimNow: () => (aimer.point(flight), { ...aimer.aim }),
       /** QA: the building glinting now (what a tap hits) */
