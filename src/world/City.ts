@@ -1,9 +1,11 @@
 import * as THREE from 'three';
+import { config } from '../config';
 import { SHADOW_LAYER, makeRampMaterial, globals } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { makeBuildingMaterial, paintUniforms } from './buildingMaterial';
 import { makeHeightGrid, makeTerrainMaterial, makeWaterMaterial } from './terrainMaterial';
-import { farFlags, farWallLo, makeFarGroundMaterial, makeFarTextures, type FarTextures } from './farMaterial';
+import { farBlockMesh, farFlags, farWallLo, makeFarBlockMaterial, makeFarGroundMaterial, makeFarTextures, type FarTextures } from './farMaterial';
+import { mergeFarBlocks, type FarBlockChunk, type FarBlocksRequest, type FarBlocksResult } from './farBlocks';
 import { PaintState, LANDMARK_KEY_PREFIX } from './PaintState';
 import { GroundPaint } from './GroundPaint';
 import type { ObstaclePost } from './Bridges';
@@ -258,6 +260,7 @@ registerWarm('city', () => {
     farGridMesh(f(9), f(9), f(3), f(3), f(3), [0, 1, 2], 1),
     farGridMesh(f(9), f(9), f(3), f(3), f(3), [0, 1, 2], 0),
     new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), makeSkylineMaterial(tex, new THREE.Vector4(), new THREE.Vector2(1, 1)), 1),
+    ...(farFlags.blocks ? [farBlockMesh({ count: 1, cell: new Uint16Array(4), y: new Int16Array(2), tone: new Uint8Array(4), sphere: new Float32Array(4) }, makeFarBlockMaterial([1, 0, 0, 0, 1, 0], tex, new THREE.Vector4(), new THREE.Vector2(1, 1)))] : []),
   ];
 });
 
@@ -348,15 +351,18 @@ const DETAIL_RADIUS = 650; // m: regions nearer than this get full-detail meshes
 const UNLOAD_RADIUS = 2300;
 /** The loaded-tile mask over a FAR_STAND_INS tile with nothing loaded: its far boxes hide, and the far ground doesn't sink (farMaterial). */
 const MASK_STAND_IN = 200;
-// at altitude (viewHeight ~500 m) the circle widens; detail is judged by distance from the lens
-// (and its fov), so high up everything is the coarse mesh
-const LOAD_RADIUS_HIGH = 1900;
+// at altitude (viewHeight ~500 m) the circle widens (config.city.loadRadiusHigh); detail is judged by
+// distance from the lens (and its fov), so high up everything is the coarse mesh
 const UNLOAD_RADIUS_HIGH = 2800;
 // arrived tiles adopted per frame: at least this many, more while under this many ms and this
 // much new geometry (three uploads a mesh the first frame it's drawn: this bounds the upload per frame)
 const ADOPT_MIN = 2;
 const ADOPT_MS = 2.5;
 const ADOPT_BYTES = 3 << 20;
+/** The far boxes' chunks, in tiles a side (?farblocks; ?farchunk= overrides it): a region's 4, one draw each, none where the region is in. */
+const FAR_CHUNK_TILES = 4;
+/** A far box's roof in steps of this (m): equal tops merge. */
+const FAR_TOP_STEP = 4;
 // (while the opening's fog is up everything lands at once, up to this much per frame: a deep link into
 // downtown is ~100 MB of first uploads)
 const ADOPT_BYTES_EAGER = 16 << 20;
@@ -413,6 +419,13 @@ export class City {
   private far: FarData | null = null;
   /** ?farmap: the far raster's class and height stay here for what comes next (far boxes, the low sun's sweep) */
   farRaster: Pick<FarRaster, 'W' | 'H' | 'affine' | 'cls' | 'height'> | null = null;
+  /** ?farblocks: the far boxes' chunks as they stand, and what the worker reported */
+  farBlocks: { ms: number; boxes: number; cells: number; chunks: Array<{ ci: number; cj: number; count: number; cell: Uint16Array; mesh: THREE.Mesh; x0: number; z0: number; x1: number; z1: number; tiles: number[] }> } | null = null;
+  /** the merge is out, or chunks of it wait for their frame */
+  private farBusy = false;
+  private farLanding: FarBlockChunk[] = [];
+  private farBlockMat: THREE.ShaderMaterial | null = null;
+  private farChunkM = 0;
   private farGroup = new THREE.Group();
   private loadedMask: THREE.DataTexture;
   /** tiles whose far skyline boxes never show (FAR_STAND_INS) */
@@ -435,6 +448,9 @@ export class City {
   detailHold = false;
   /** Height of the view above the ground (m), set by the game each frame: widens streaming, coarsens detail. */
   viewHeight = 0;
+  /** Where the lens stands (m): how far away the far boxes' chunks are. */
+  viewX = 0;
+  viewZ = 0;
   /** Detail scale of the lens: tan(cruise half-fov) / tan(current half-fov) (a wider lens needs less detail). */
   detailScale = 1;
   private want: Array<[number, number, number, 0 | 1]> = [];
@@ -522,13 +538,14 @@ export class City {
     const pre = (what: 'far' | 'horizon') => (this.ext === '.bin' ? bootFetch(this.baseUrl, what) : null);
     const farP = pre('far') ?? fetch(`${this.baseUrl}/far${this.ext}${dataQuery()}`);
     const hzP = (pre('horizon') ?? fetch(`${this.baseUrl}/horizon${this.ext}${dataQuery()}`)).catch(() => null);
-    const rasterP = farFlags.map ? fetch(`${this.baseUrl}/far16${this.ext}${dataQuery()}`).catch(() => null) : null;
+    const rasterP = farFlags.map || farFlags.blocks ? fetch(`${this.baseUrl}/far16${this.ext}${dataQuery()}`).catch(() => null) : null;
     const [res, hz, rr] = await Promise.all([farP, hzP, rasterP]);
     this.far = parseFar(await maybeInflate(await res.arrayBuffer()));
     // (a city with no raster, or a dev server's page in its place: the far ground as it always was)
     const raster = rr && rr.ok ? parseFarRaster(await maybeInflate(await rr.arrayBuffer())) : null;
     let tex: FarTextures | null = null;
-    if (raster) {
+    if (raster && farFlags.blocks) this.startFarBlocks(raster);
+    if (raster && farFlags.map) {
       tex = makeFarTextures(raster);
       // (one upload a tick, the boot loop running between them)
       renderer?.initTexture(tex.cls);
@@ -536,8 +553,77 @@ export class City {
       renderer?.initTexture(tex.tone);
       this.farRaster = { W: raster.W, H: raster.H, affine: raster.affine, cls: raster.cls.slice(), height: raster.height.slice() };
     }
-    this.buildFar(raster, tex);
+    this.buildFar(farFlags.map ? raster : null, tex);
     if (hz && hz.ok) this.buildHorizon(await maybeInflate(await hz.arrayBuffer()));
+  }
+
+  /** ?farblocks: every building as a merged box past the streaming edge, built off the main thread (farBlocks.ts). */
+  private startFarBlocks(r: FarRaster) {
+    const f = this.far!;
+    const chunk = Number(new URLSearchParams(location.search).get('farchunk')) || FAR_CHUNK_TILES;
+    this.farChunkM = chunk * this.manifest.tileSize;
+    const req: FarBlocksRequest = {
+      W: r.W, H: r.H, a: r.affine[0], c: r.affine[2], e: r.affine[4], f: r.affine[5],
+      tileCells: Math.round(this.manifest.tileSize / r.cellM), chunkTiles: chunk, topStep: FAR_TOP_STEP,
+      seed: Math.round(Math.abs(this.manifest.origin[0] * 1000 + this.manifest.origin[1])),
+      // (copies: these are views of the whole inflated file)
+      cls: r.cls.slice(), height: r.height.slice(), tone: r.tone.slice(), wallTone: r.wallTone.slice(),
+      ground: f.heights.slice(), groundW: f.gridW, groundH: f.gridH, groundX: f.minX, groundZ: f.minZ, groundCell: f.cell,
+      towers: f.boxes.slice(), towerCount: f.index.length,
+    };
+    this.farBlockMat = makeFarBlockMaterial(r.affine, this.loadedMask, this.maskRect(), new THREE.Vector2(this.maskW, this.maskH));
+    this.farBusy = true;
+    const landed = (res: FarBlocksResult) => {
+      this.farBusy = false;
+      this.farBlocks = { ms: res.ms, boxes: res.boxes, cells: res.cells, chunks: [] };
+      this.farLanding = res.chunks;
+    };
+    const onThread = () => void Promise.resolve().then(() => landed(mergeFarBlocks(req)));
+    try {
+      const worker = new Worker(new URL('./farWorker.ts', import.meta.url), { type: 'module' });
+      worker.onmessage = (ev: MessageEvent<FarBlocksResult>) => {
+        worker.terminate();
+        landed(ev.data);
+      };
+      // (a sandboxed host can refuse a module worker)
+      worker.onerror = () => {
+        worker.terminate();
+        onThread();
+      };
+      worker.postMessage(req);
+    } catch {
+      onThread();
+    }
+  }
+
+  /** One far chunk a frame (three uploads it at its first draw), and which chunks are near enough to draw at all. */
+  private farBlocksFrame() {
+    const fb = this.farBlocks;
+    if (!fb) return;
+    const s = this.farLanding.pop();
+    if (s) {
+      const mesh = farBlockMesh(s, this.farBlockMat!);
+      this.farGroup.add(mesh);
+      this.firstDraw(mesh);
+      const size = this.farChunkM, x0 = s.ci * size, z0 = s.cj * size;
+      // (the tiles it has boxes in, by their place in the mask)
+      const ts = this.manifest.tileSize, cell = this.farBlockMat!.uniforms.uFarCell.value.x as number;
+      const tiles = new Set<number>();
+      for (let b = 0; b < s.count; b++) tiles.add(Math.floor((s.cell[b * 4 + 1] * cell) / ts) * this.maskW + Math.floor((s.cell[b * 4] * cell) / ts));
+      fb.chunks.push({ ci: s.ci, cj: s.cj, count: s.count, cell: s.cell, mesh, x0, z0, x1: x0 + size, z1: z0 + size, tiles: [...tiles] });
+    }
+    const end = config.far.blockEnd;
+    const mask = this.loadedMask.image.data as Uint8Array;
+    for (const c of fb.chunks) {
+      const dx = Math.max(c.x0 - this.viewX, 0, this.viewX - c.x1), dz = Math.max(c.z0 - this.viewZ, 0, this.viewZ - c.z1);
+      let show = dx * dx + dz * dz < end * end;
+      if (show) {
+        // (a chunk whose every box a loaded tile hides is no draw at all)
+        show = false;
+        for (let k = 0; k < c.tiles.length && !show; k++) show = mask[c.tiles[k]] < 128;
+      }
+      c.mesh.visible = show;
+    }
   }
 
   /** The hills around the city (Marin, East Bay, San Bruno Mtn) as a coarse fogged ring. */
@@ -634,7 +720,7 @@ export class City {
         idx[q++] = a; idx[q++] = c; idx[q++] = b;
         idx[q++] = b; idx[q++] = c; idx[q++] = d;
       }
-    const maskRect = new THREE.Vector4(this.manifest.bounds[0], this.manifest.bounds[1], 1 / this.manifest.tileSize, 0);
+    const maskRect = this.maskRect();
     const maskSize = new THREE.Vector2(this.maskW, this.maskH);
     const ground = raster && tex ? makeFarGroundMaterial(raster, tex, this.loadedMask, maskRect, maskSize) : undefined;
     this.farGroup.add(farGridMesh(pos, nrm, ramp, lo, gl, new THREE.BufferAttribute(idx, 1), 1, ground));
@@ -663,6 +749,11 @@ export class City {
       inst.matrixAutoUpdate = false;
       this.farGroup.add(inst);
     }
+  }
+
+  /** The mask's frame, as its readers take it: min x, min z, 1 / tile. */
+  private maskRect(): THREE.Vector4 {
+    return new THREE.Vector4(this.manifest.bounds[0], this.manifest.bounds[1], 1 / this.manifest.tileSize, 0);
   }
 
   /** Drop every region (they stream back in): after a lost GL context, whose streamed meshes kept no JS copy. */
@@ -732,6 +823,7 @@ export class City {
         if (!this.eager) break; // (a swap happens all at once: it is this frame's whole budget)
       }
     }
+    this.farBlocksFrame();
     this.paint.flush(renderer, dt);
     this.ground.work();
     this.ground.flush(renderer, dt);
@@ -742,7 +834,7 @@ export class City {
     const R = this.regionSize * this.manifest.tileSize;
     // at altitude: a wider circle of coarse regions, detail only where pixels are still small
     const hk = Math.min(1, Math.max(0, (this.viewHeight - 40) / 460));
-    const loadR = LOAD_RADIUS + (LOAD_RADIUS_HIGH - LOAD_RADIUS) * hk;
+    const loadR = LOAD_RADIUS + (config.city.loadRadiusHigh - LOAD_RADIUS) * hk;
     const rx0 = Math.floor((focus.x - loadR) / R);
     const rx1 = Math.floor((focus.x + loadR) / R);
     const rz0 = Math.floor((focus.z - loadR) / R);
@@ -1209,7 +1301,7 @@ export class City {
   }
 
   get busy(): boolean {
-    return this.pending.size > 0 || this.adopt.length > 0;
+    return this.pending.size > 0 || this.adopt.length > 0 || this.farBusy || this.farLanding.length > 0;
   }
 
   private isPending(key: string): boolean {

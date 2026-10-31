@@ -4,6 +4,7 @@ import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { GLSL_WATER } from './terrainMaterial';
 import { Ground, WATER_Y, type FarRaster } from './tiles';
+import type { FarBlockChunk } from './farBlocks';
 
 // The far ground drawn from the far raster (?farmap; tools/bake/farmap.py): every block of the city exists from the first frame, on the
 // far mesh, with no light in the data. Class picks the ramp and is never blended; tone is the near shaders' lo, filtered, and the resolve
@@ -17,6 +18,8 @@ export const farFlags = {
   oblique: false,
   /** ?farnearest: the class map with no mips, as the spike first specified it (crawl test) */
   nearest: false,
+  /** ?farblocks: the raster's height plane as boxes */
+  blocks: false,
 };
 
 /** Classes past Ground's (tools/bake/farmap.py). */
@@ -149,6 +152,136 @@ const FS = /* glsl */ `
     sbWrite(ramp, light, sbFog(vWorldPos), 0.0, vViewNormal, 0.01, 1.0);
   }
 `;
+
+// The far boxes (?farblocks; farBlocks.ts merges them in a worker): a box is six triangles, its roof and the two walls that face the camera,
+// mirrored to it per instance (a box seen from outside never shows more; side: DoubleSide, a mirror turns a face around). No light in the data:
+// a roof is the raster's tone, a wall its lo, each through sbLight with the true normal, so the far city turns with the sun, and it is one
+// tone per block. Past blockSink a box sinks into its own tone on the far ground, gone by blockEnd: a wall there is a pixel. Night's path is
+// here from day one: a wall whose lit bit is set wakes when uBlockLit passes its byte (a stable threshold, never a timer) and is one tone,
+// a light is a pixel out here, with SKY.md section 9's share x glow <= 0.06 held by config.far (blockLit x 1/2 x blockGlow).
+const BLOCK_VS = /* glsl */ `
+  ${GLSL_COMMON}
+  precision highp sampler2D;
+  uniform sampler2D uMask;
+  uniform vec4 uMaskRect;
+  uniform vec2 uMaskSize;
+  uniform vec4 uFarCell;      // x = uFarCell.x * i + uFarCell.y, z = uFarCell.z * j + uFarCell.w
+  uniform vec2 uBlockFar;     // sinks from, gone at (m from the lens)
+  uniform float uBlockLit;
+  uniform float uToneK;
+  in vec4 aCell;              // i, j, w, h
+  in vec2 aY;                 // base, top (half metres)
+  in vec4 aTone;              // roof tone, wall tone, lit walls (bits), wake
+  flat out vec3 vN;
+  flat out vec3 vViewN;
+  flat out float vRamp;
+  flat out float vLo;
+  flat out float vLit;
+  out vec3 vWorldPos;
+  void main() {
+    vec2 size = aCell.zw * abs(uFarCell.xz);
+    vec2 c = aCell.xy * uFarCell.xz + uFarCell.yw + 0.5 * aCell.zw * uFarCell.xz;
+    ivec2 mc = clamp(ivec2(floor((c - uMaskRect.xy) * uMaskRect.z)), ivec2(0), ivec2(uMaskSize) - 1);
+    vec2 toCam = cameraPosition.xz - c;
+    float keep = 1.0 - smoothstep(uBlockFar.x, uBlockFar.y, length(toCam));
+    vN = vec3(0.0, 1.0, 0.0);
+    vViewN = vN;
+    vRamp = 0.0;
+    vLo = 0.0;
+    vLit = 0.0;
+    vWorldPos = vec3(0.0);
+    gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+    if (keep <= 0.0 || texelFetch(uMask, mc, 0).r > 0.5) return;
+    vec2 s = vec2(toCam.x < 0.0 ? -1.0 : 1.0, toCam.y < 0.0 ? -1.0 : 1.0);
+    float base = aY.x * 0.5;
+    float top = base + (aY.y * 0.5 - base) * keep;
+    vec3 wp = vec3(c.x + position.x * s.x * 0.5 * size.x, mix(base, top, position.y), c.y + position.z * s.y * 0.5 * size.y);
+    vN = vec3(normal.x * s.x, normal.y, normal.z * s.y);
+    vViewN = normalize(mat3(viewMatrix) * vN);
+    if (normal.y > 0.5) {
+      vRamp = ${Ramp.GREY_LIGHT}.0;
+      vLo = ${TONE_C.toFixed(3)} + (aTone.x - 0.5) * ${TONE_K.toFixed(3)} * uToneK;
+    } else {
+      vRamp = ${Ramp.GREY}.0;
+      vLo = ${WALL_LO.toFixed(3)} + (aTone.y - 0.5) * ${WALL_K.toFixed(3)};
+      int bit = normal.x > 0.5 ? (s.x > 0.0 ? 1 : 2) : (s.y > 0.0 ? 4 : 8);
+      if ((int(aTone.z * 255.0 + 0.5) & bit) != 0 && aTone.w < uBlockLit) vLit = 1.0;
+    }
+    vWorldPos = wp;
+    gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+  }
+`;
+
+const BLOCK_FS = /* glsl */ `
+  ${GLSL_COMMON}
+  uniform float uBlockGlow;
+  flat in vec3 vN;
+  flat in vec3 vViewN;
+  flat in float vRamp;
+  flat in float vLo;
+  flat in float vLit;
+  in vec3 vWorldPos;
+  ${GLSL_OUT}
+  void main() {
+    float light = sbLight(vWorldPos, vN, vLo, 1.0);
+    float fog = sbFog(vWorldPos);
+    if (vLit > 0.5) sbWrite(${Ramp.SKY_WARM}.0, max(light, 0.7), fog, uBlockGlow, vViewN, 0.01, 1.0);
+    else sbWrite(vRamp, light, fog, 0.0, vViewN, 0.01, 1.0);
+  }
+`;
+
+const BLOCK_POS = new THREE.BufferAttribute(new Float32Array([
+  // the roof
+  -1, 1, -1, -1, 1, 1, 1, 1, 1, 1, 1, -1,
+  // the wall at +x, the wall at +z (mirrored to the camera in the vertex shader)
+  1, 0, -1, 1, 0, 1, 1, 1, 1, 1, 1, -1,
+  -1, 0, 1, 1, 0, 1, 1, 1, 1, -1, 1, 1,
+]), 3);
+const BLOCK_NRM = new THREE.BufferAttribute(new Int8Array([
+  0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0,
+  1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0,
+  0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1,
+]), 3);
+const BLOCK_IDX = new THREE.BufferAttribute(new Uint16Array([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11]), 1);
+
+/** One chunk of far boxes, one draw. The arrays stay: they are what a lost GL context comes back from. */
+export function farBlockMesh(s: Pick<FarBlockChunk, 'count' | 'cell' | 'y' | 'tone' | 'sphere'>, material: THREE.Material): THREE.Mesh {
+  const g = new THREE.InstancedBufferGeometry();
+  g.setAttribute('position', BLOCK_POS);
+  g.setAttribute('normal', BLOCK_NRM);
+  g.setIndex(BLOCK_IDX);
+  g.setAttribute('aCell', new THREE.InstancedBufferAttribute(s.cell, 4));
+  g.setAttribute('aY', new THREE.InstancedBufferAttribute(s.y, 2));
+  g.setAttribute('aTone', new THREE.InstancedBufferAttribute(s.tone, 4, true));
+  g.instanceCount = s.count;
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(s.sphere[0], s.sphere[1], s.sphere[2]), s.sphere[3]);
+  const mesh = new THREE.Mesh(g, material);
+  mesh.matrixAutoUpdate = false;
+  mesh.matrixWorldAutoUpdate = false;
+  return mesh;
+}
+
+/** The far boxes' material. `mask`: the loaded tiles, as the far skyline reads them. */
+export function makeFarBlockMaterial(affine: readonly number[], mask: THREE.Texture, maskRect: THREE.Vector4, maskSize: THREE.Vector2): THREE.ShaderMaterial {
+  const uBlockFar = new THREE.Vector2();
+  return new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3,
+    side: THREE.DoubleSide,
+    uniforms: {
+      ...globals,
+      uMask: { value: mask },
+      uMaskRect: { value: maskRect },
+      uMaskSize: { value: maskSize },
+      uFarCell: { value: new THREE.Vector4(affine[0], affine[2], affine[4], affine[5]) },
+      uBlockFar: { get value() { return uBlockFar.set(config.far.blockSink, config.far.blockEnd); } },
+      uBlockLit: { get value() { return config.far.blockLit; } },
+      uBlockGlow: { get value() { return config.far.blockGlow; } },
+      uToneK: { get value() { return config.far.toneK; } },
+    },
+    vertexShader: BLOCK_VS,
+    fragmentShader: BLOCK_FS,
+  });
+}
 
 /** Mip levels of the class map: each texel the mode of the four under it, so a mip is still a class, never a blend of two. */
 function classMips(cls: Uint8Array, W: number, H: number): Array<{ data: Uint8Array; width: number; height: number }> {

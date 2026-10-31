@@ -54,6 +54,8 @@ if (params.has('farmap')) {
   farFlags.nearest = params.has('farnearest');
   if (params.has('farbias')) config.far.classBias = Number(params.get('farbias'));
 }
+farFlags.blocks = params.has('farblocks');
+if (params.has('loadr')) config.city.loadRadiusHigh = Number(params.get('loadr')) || config.city.loadRadiusHigh;
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const pipeline = new PixelPipeline(canvas);
@@ -1140,6 +1142,8 @@ async function boot() {
     const hk = clamp(flight.lift / 450, 0, 1);
     streamCenter.set(focus.x + camFwd.x * 950 * hk, focus.y, focus.z + camFwd.z * 950 * hk);
     city.viewHeight = flight.lift;
+    city.viewX = camera.position.x;
+    city.viewZ = camera.position.z;
     city.detailHold = controls.tearing;
     city.detailScale = Math.tan(THREE.MathUtils.degToRad(config.camera.hfovPortrait / 2)) / Math.tan(THREE.MathUtils.degToRad(rig.hfov / 2));
     const R = config.render;

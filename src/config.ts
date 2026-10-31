@@ -119,6 +119,19 @@ export const config = {
     wallK: 1,
     /** ?farmap: mip bias of the far class map (negative = sharper, and more crawl). */
     classBias: 0,
+    /** ?farblocks: far boxes start sinking into the raster's tone at this distance from the lens (m)... */
+    blockSink: 5500,
+    /** ...and are gone at this one: a wall there is a pixel, so nobody sees it go. */
+    blockEnd: 7000,
+    /** ?farblocks: share of the faces that may light up that are lit (the night's wave: 0 by day, no night exists yet to set it). */
+    blockLit: 0,
+    /** ?farblocks: glow of a lit face. SKY.md section 9: share x glow <= 0.06 on far surfaces. */
+    blockGlow: 0.2,
+  },
+
+  city: {
+    /** How far around the stream center regions load up high (m); LOAD_RADIUS at the floor. ?loadr= overrides it. */
+    loadRadiusHigh: 1900,
   },
 
   camera: {
