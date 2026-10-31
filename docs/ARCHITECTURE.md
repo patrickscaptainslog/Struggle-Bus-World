@@ -272,8 +272,10 @@ not be the first touch.
 **The data credit** (`src/ui/Credits.ts`, ODbL): one small note on every load, from the frame the first region is in, ~6 s
 on its own clock: not the opening's, so a tap past the opening or `?skipintro` shows it the same. Pixel art like everything
 on screen: `HUD_SMALL` in palette colors with an ink outline, 2 CSS px per UI pixel, on whole CSS pixels, stepped in and out
-like the HUD's chrome; two lines on a phone (`splitLines`), one on a wide window. `uiText` sets it for the bitmap fonts,
-the settings page too: capitals, no accents, (C). Never a permanent HUD;
+like the HUD's chrome; two lines on a phone (`splitLines`), one on a wide window, more when a longer credit needs them
+(`creditLines`: none of it runs off the screen), laid out again when the window turns. `uiText` sets it for the bitmap fonts,
+the settings page too: capitals, no accents, (C). A credit with a letter those fonts lack (Japanese, Cyrillic, an Ø) goes up in
+the system face instead: a licence credit can't lose a letter. Never a permanent HUD;
 settings' MAP DATA (a phone's top-right button, Esc on a desktop) and the tuner list every credit in `city.json`
 (`attribution`, then `credits`) at any time. `?nohud` (a capture) shows none.
 
@@ -382,7 +384,8 @@ roof shapes, trees, street names) of any number of bakes side by side.
   unchanged); the far grid ('SBF1') carries the same codes (only WATER is read).
 - **The shore is the class texture's.** The bakes lay water under the open plane (`WATER_Y`, -0.6 m; baked water -0.9 to -1.1)
   and the ground mesh is 8 m coarse, so within 16 m of land the mesh stands at `SHORE_FLOOR` at least, 0.3 m over the plane
-  (`meshHeights(tile)` in tiles.ts, what `heightGrid` and `makeHeightGrid` are given; gameplay reads the baked heights). Past that
+  (`meshHeights(tile)` in tiles.ts, what `heightGrid` and `makeHeightGrid` are given, on any tile with a height under that, water
+in it or not; gameplay reads the baked heights; SF's bridge stand-ins' ground goes back to water first, `clearStandInGround`). Past that
   the plane draws the water: it is the cheaper shader. The ground's water pixels are the plane's: `GLSL_WATER`
   (`sbWater(worldPos)`) is one function of the world position, the same bytes from both, flags and surface id included, so
   nothing shows where one hands over to the other, and a lake is the same water at its own height. Water takes no paint and no
@@ -822,11 +825,11 @@ impact frame shows the hit.
   seen to its foot wins; else `StreetSignOptions.pole` lifts the blade clear
   of the roofs in front (up to `signTune.poleLiftMax`); both bottom corners of
   the blade (`signBladeWidth(text)`) must clear them too; where nothing takes less (a street between 20 m terraces: London,
-  most of Europe), the first spot a pole up to `signTune.poleLiftTall` clears stands by. Never on water
+  most of Europe), the shortest pole up to `signTune.poleLiftTall` stands by for the last look. Never on water
   (`City.groundClassAt`: the tile's 2 m ground class). No spot in frame:
   `showSign` returns false and the pending sign asks again 0.8 s later
-  (twice); then the primary's front only if it lies outside the blast
-  (+4 m), else no sign. The whole blade must sit inside the frame, and its
+  (twice); then the primary's front only if it lies outside the blast,
+  (+4 m), then the last look's tall pole, else no sign. The whole blade must sit inside the frame, and its
   bottom edge must be seen over its whole sightline (`bladeSeen`: five
   points across it, every 6 m to 90% of the way, against `City.roofAt` and
   `City.landmarkSurfaceAt`, the real footprints; the obstacle grid stands
