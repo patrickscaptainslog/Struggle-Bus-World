@@ -4,12 +4,12 @@ import { SHADOW_LAYER, makeRampMaterial, globals } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { makeBuildingMaterial, paintUniforms } from './buildingMaterial';
 import { makeHeightGrid, makeTerrainMaterial, makeWaterMaterial } from './terrainMaterial';
-import { farBlockMesh, farFlags, farWallLo, makeFarBlockMaterial, makeFarGroundMaterial, makeFarTextures, type FarTextures } from './farMaterial';
+import { farBlockMesh, farFlags, farTowerLooks, farWallLo, makeFarBlockMaterial, makeFarGroundMaterial, makeFarTextures, makeFarTowerMaterial, type FarTextures } from './farMaterial';
 import { mergeFarBlocks, type FarBlockChunk, type FarBlocksRequest, type FarBlocksResult } from './farBlocks';
 import { PaintState, LANDMARK_KEY_PREFIX } from './PaintState';
 import { GroundPaint } from './GroundPaint';
 import type { ObstaclePost } from './Bridges';
-import { meshHeights, parseFar, parseFarRaster, WATER_Y, type CityManifest, type FarData, type FarRaster, type BuildingTile, type TerrainTile } from './tiles';
+import { meshHeights, parseFar, parseFarRaster, WATER_Y, type CityManifest, type FarData, type FarRaster, type FarTowers, type BuildingTile, type TerrainTile } from './tiles';
 import { loadRegion, type GridArrays, type RegionRequest, type RegionResponse, type TileResult } from './regionLoader';
 import { GROWN_STRIDE, type CasterArrays, type MeshArrays } from './BuildingMesher';
 import { treeCrown } from './props/trees';
@@ -260,9 +260,16 @@ registerWarm('city', () => {
     farGridMesh(f(9), f(9), f(3), f(3), f(3), [0, 1, 2], 1),
     farGridMesh(f(9), f(9), f(3), f(3), f(3), [0, 1, 2], 0),
     new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), makeSkylineMaterial(tex, new THREE.Vector4(), new THREE.Vector2(1, 1)), 1),
-    ...(farFlags.blocks ? [farBlockMesh({ count: 1, cell: new Uint16Array(4), y: new Int16Array(2), tone: new Uint8Array(4), sphere: new Float32Array(4) }, makeFarBlockMaterial([1, 0, 0, 0, 1, 0], tex, new THREE.Vector4(), new THREE.Vector2(1, 1)))] : []),
+    ...(farFlags.blocks ? [farBlockMesh({ count: 1, cell: new Uint16Array(4), y: new Int16Array(2), tone: new Uint8Array(4), sphere: new Float32Array(4) }, makeFarBlockMaterial([1, 0, 0, 0, 1, 0], tex, new THREE.Vector4(), new THREE.Vector2(1, 1))), farTowerMesh(new Float32Array(3), 1, makeFarTowerMaterial(tex, new THREE.Vector4(), new THREE.Vector2(1, 1)))] : []),
   ];
 });
+
+/** The far skyline's boxes on their towers' facade families (?farblocks): `looks` three floats a box. */
+function farTowerMesh(looks: Float32Array, n: number, material: THREE.Material): THREE.InstancedMesh {
+  const box = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
+  box.setAttribute('aTower', new THREE.InstancedBufferAttribute(looks, 3));
+  return new THREE.InstancedMesh(box, material, n);
+}
 
 /** Point-in-ring test for record k of a building tile. */
 function ringContains(b: BuildingTile, k: number, x: number, z: number): boolean {
@@ -554,7 +561,7 @@ export class City {
       renderer?.initTexture(tex.tone);
       this.farRaster = { W: raster.W, H: raster.H, affine: raster.affine, cls: raster.cls.slice(), height: raster.height.slice() };
     }
-    this.buildFar(farFlags.map ? raster : null, tex);
+    this.buildFar(farFlags.map ? raster : null, tex, farFlags.blocks ? raster?.towers ?? null : null);
     if (hz && hz.ok) this.buildHorizon(await maybeInflate(await hz.arrayBuffer()));
   }
 
@@ -671,7 +678,7 @@ export class City {
     this.farGroup.add(farGridMesh(pos, nrm, ramp, lo, gl, idx, 0));
   }
 
-  private buildFar(raster: FarRaster | null, tex: FarTextures | null) {
+  private buildFar(raster: FarRaster | null, tex: FarTextures | null, towers: FarTowers | null) {
     const f = this.far!;
     // far terrain: 64 m grid over the whole city, sunk a little under the near tiles
     const step = 2;
@@ -729,9 +736,9 @@ export class City {
     // far skyline: tall buildings as boxes, hidden where real tiles are loaded
     const n = f.index.length;
     if (n) {
-      const box = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
-      const mat = makeSkylineMaterial(this.loadedMask, maskRect, maskSize);
-      const inst = new THREE.InstancedMesh(box, mat, n);
+      const inst = towers
+        ? farTowerMesh(farTowerLooks(f, towers, this.sf), n, makeFarTowerMaterial(this.loadedMask, maskRect, maskSize))
+        : new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), makeSkylineMaterial(this.loadedMask, maskRect, maskSize), n);
       const m4 = new THREE.Matrix4();
       const qn = new THREE.Quaternion();
       const sc = new THREE.Vector3();

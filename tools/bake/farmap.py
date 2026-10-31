@@ -24,6 +24,8 @@ far16.bin, gzip of (little-endian; reader: src/world/tiles.ts parseFarRaster):
   wallTone  walls' lo on GREY: lo = WALL_LO + (wallTone / 255 - 0.5) * WALL_K, one value per 64 m block (the client reads it per far vertex)
 tone, wall and wallTone are stored coarser than a byte (TONE_Q, WALL_Q): what a far pixel shows is filtered, and the bits below that are
 only bytes to download.
+then the far.bin boxes' towers, in far.bin's order: u32 n, u32 stableId[n], f32 area[n], f32 height[n], f32 cx[n], f32 cz[n], u8 arch[n]: the inputs of
+the mesher's styleFor (its ground tier's ring, the top over its ground), so the client picks a far tower's facade family by the mesher's own rule.
 ('SBR1' is also the region bundles' magic: nothing reads one as the other, they are different files.)
 
 usage: python -I tools/bake/farmap.py <slug> [--cell 16] [--report out.json] [--png dir]
@@ -125,8 +127,8 @@ def parse_buildings(b):
         o += a.nbytes
         return a
 
-    take('<u4', count)  # index
-    take('<u4', count)  # stableId
+    index = take('<u4', count)
+    stable = take('<u4', count)
     vstart = take('<u4', count + 1)
     base = take('<f4', count)
     roof = take('<f4', count)
@@ -154,7 +156,7 @@ def parse_buildings(b):
     vx = take('<i2', verts)
     vz = take('<i2', verts)
     return {'vstart': vstart.astype(np.int64), 'top': roof + roofh, 'ground': ground, 'arch': arch, 'seed': seed, 'shape': shape, 'source': source,
-            'x': ox + vx / 10.0, 'z': oz + vz / 10.0}
+            'index': index, 'stable': stable, 'x': ox + vx / 10.0, 'z': oz + vz / 10.0}
 
 
 def parse_terrain(b, class_n):
@@ -226,7 +228,7 @@ def bake(slug, cell):
 
     # ---- every tile's ground and every record's numbers
     tiles = {}
-    rec = {k: [] for k in ('top', 'ground', 'arch', 'seed', 'shape', 'source')}
+    rec = {k: [] for k in ('top', 'ground', 'arch', 'seed', 'shape', 'source', 'index', 'stable')}
     rings = []
     base = 0
     for data, tx, tz, b_off, b_len, t_off, t_len in regions(src):
@@ -385,11 +387,35 @@ def bake(slug, cell):
     cls_p[jj, ii] = far_cls[fj, fi]
     no_tile = len(jj)
 
+    # ---- the towers far.bin boxes: each box's building, as the mesher sees it (its first record is its ground tier)
+    box_index = np.frombuffer(far, '<u4', n_box, 28 + n_box * 28)
+    first = {}
+    high = {}
+    for r, b in enumerate(rec['index'].tolist() if n_rec else []):
+        first.setdefault(b, r)
+        high[b] = max(high.get(b, -1e9), float(rec['top'][r]))
+    t_stable = np.zeros(n_box, np.uint32)
+    t_area, t_h, t_cx, t_cz = (np.zeros(n_box, np.float32) for _ in range(4))
+    t_arch = np.zeros(n_box, np.uint8)
+    for k, b in enumerate(box_index.tolist()):
+        r = first.get(b)
+        if r is None:
+            continue
+        ring_first, vstart, xs, zs = rings[where[r]]
+        v0, v1 = vstart[local[r]], vstart[local[r] + 1]
+        x, z = xs[v0:v1], zs[v0:v1]
+        t_stable[k] = rec['stable'][r]
+        t_arch[k] = rec['arch'][r]
+        t_area[k] = abs(np.dot(x, np.roll(z, -1)) - np.dot(np.roll(x, -1), z)) / 2
+        t_h[k] = high[b] - rec['ground'][r]
+        t_cx[k], t_cz[k] = x.mean(), z.mean()
+
     # ---- write
     planes = [cls_p, tone_p, height_p, np.zeros((H, W), np.uint8), wall_p, wtone_p]
     head = struct.pack('<4sIIffffffHH', MAGIC, W, H, cell, 0.0, min_x, 0.0, cell, min_z, 0, int(cell))
     name = f'far{int(cell)}.bin'
-    blob = gzip.compress(head + b''.join(p.tobytes() for p in planes), compresslevel=9, mtime=0)
+    towers = struct.pack('<I', n_box) + b''.join(a.tobytes() for a in (t_stable, t_area, t_h, t_cx, t_cz, t_arch))
+    blob = gzip.compress(head + b''.join(p.tobytes() for p in planes) + towers, compresslevel=9, mtime=0)
     with open(os.path.join(src, name), 'wb') as f:
         f.write(blob)
     wall_s = time.perf_counter() - t0

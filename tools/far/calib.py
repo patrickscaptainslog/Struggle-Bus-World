@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # How far off is the far band from what replaces it, class by class? Reads hold-still swaps (tools/shots.mjs hold-<pose>) and the same frames with
-# ?fardebug, where the far ground writes its class as a ramp and the boxes write 11 (roof) and 15 (wall).
+# ?fardebug, where the far ground writes its class as a ramp, the boxes 11 (roof) and 15 (wall), the tall boxes' walls 16 + their family.
 #   python -I tools/far/calib.py <runDir> <debugDir> <pose> [pose ...]
 # For every class, over the pixels of the area that swapped: mean luma before, after, and the lo that would close the gap (a ramp step, 1/7 of light,
 # is about 24 units of luma). Prints a table per pose and all poses together.
@@ -14,13 +14,13 @@ from PIL import Image
 from scipy import ndimage
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
-NAMES = ['PAVED', 'GRASS', 'WATER', 'SIDEWALK', 'PLAZA', 'PATH', 'SAND', 'RAIL', 'FOREST', 'YARD', 'ROCK', 'ROOF', 'TREE', 'ICE', 'ROCK_BARE', 'WALL']
+NAMES = ['PAVED', 'GRASS', 'WATER', 'SIDEWALK', 'PLAZA', 'PATH', 'SAND', 'RAIL', 'FOREST', 'YARD', 'ROCK', 'ROOF', 'TREE', 'ICE', 'ROCK_BARE', 'WALL', 'T-NONE', 'T-GLASS', 'T-MASONRY', 'T-BANDS', 'T-FINS', 'T-GRANITE', 'T-PRECAST']
 text = open(os.path.join(ROOT, 'src', 'render', 'palette.ts'), encoding='utf8').read()
 idx = {m.group(1): int(m.group(2)) for m in re.finditer(r'^\s+(\w+):\s*(\d+),', text, re.M)}
 ramps = {idx[n]: re.findall(r'#([0-9a-fA-F]{6})', b) for n, b in re.findall(r"\[Ramp\.(\w+)\]:\s*\[([^\]]+)\]", text) if n in idx}
 code = {}
 STEP = 4  # light 0.6 rounds to step 4
-for c in range(16):
+for c in range(len(NAMES)):
     if c in ramps:
         code.setdefault(int(ramps[c][STEP], 16), c)
 

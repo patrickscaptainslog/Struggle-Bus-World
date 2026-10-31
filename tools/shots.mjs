@@ -14,6 +14,8 @@
 // --seq (with --det): five more frames after each view's shot, one fixed step apart (<name>-seq-0.png is the shot itself, then 1..5): a
 // burst from the same camera on any build, so tools/far/bandflip.py's crawl can be compared between two builds.
 // --pan (with --det): and a turn, 0.6 s into a held stick, six frames a fixed step apart (<name>-pan-0.png .. 5).
+// --descent (with --det): and the full dive from there to the rooftops: a frame every half second of game time (<name>-descent-00.png ...), and a
+// six-frame burst 3 s in (<name>-dive-0.png .. 5), for the crawl on the way down.
 // hold-sunset, hold-presidio, hold-downtown (with --det, by name): SPIKE.md's hold-still swap. Nothing loads past the start on the way up (?loadr=1),
 // the clock stands, the frame is shot; the radius comes back, what streams in lands with the clock still standing, and it is shot again, the camera
 // where it was: <name>-<sun>-0.png, <name>-<sun>-1.png, for the game's sun (day), 75 degrees (high), 5 degrees (low) and a night made of light alone
@@ -178,6 +180,22 @@ async function detShot(name, query, script) {
       await page.screenshot({ path: `${out}/${name}-pan-${i}.png` });
     }
     await page.evaluate(() => delete window.__qa.sx);
+  }
+  if ('descent' in opt) {
+    await page.evaluate(() => Object.assign(window.__qa, { sx: 0, sy: 1 }));
+    for (let i = 0; i < 80; i++) {
+      await runDet(page, 0.5);
+      await page.waitForTimeout(120);
+      await page.screenshot({ path: `${out}/${name}-descent-${String(i).padStart(2, '0')}.png` });
+      if (i === 6)
+        for (let k = 0; k <= 5; k++) {
+          if (k) await runDet(page, STEP);
+          await page.waitForTimeout(200);
+          await page.screenshot({ path: `${out}/${name}-dive-${k}.png` });
+        }
+      if (await page.evaluate(() => window.__game.flight.mode === 0)) break;
+    }
+    await page.evaluate(() => delete window.__qa.sy);
   }
   stats[name] = await page.evaluate(() => {
     const r = window.__game.pipeline.renderer.info;

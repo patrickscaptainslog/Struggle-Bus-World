@@ -3,7 +3,8 @@ import { config } from '../config';
 import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { GLSL_WATER } from './terrainMaterial';
-import { Ground, WATER_Y, type FarRaster } from './tiles';
+import { Ground, WATER_Y, type FarData, type FarRaster, type FarTowers } from './tiles';
+import { Fam, Variant, styleFor } from './towerStyles';
 import type { FarBlockChunk } from './farBlocks';
 
 // The far ground drawn from the far raster (?farmap; tools/bake/farmap.py): every block of the city exists from the first frame, on the
@@ -68,24 +69,24 @@ const OVER = new Map<number, number>([[Ramp.GREY_LIGHT, 0], [Ramp.GREY, 0.22], [
  * shows. Pre-light, nothing keyed to a sun. config.far.fit scales it.
  */
 const CLASS_FIT: number[] = [];
-CLASS_FIT[Ground.PAVED] = -0.03;
-CLASS_FIT[Ground.GRASS] = -0.06;
+CLASS_FIT[Ground.PAVED] = -0.05;
+CLASS_FIT[Ground.GRASS] = -0.09;
 CLASS_FIT[Ground.WATER] = 0;
-CLASS_FIT[Ground.SIDEWALK] = -0.05;
-CLASS_FIT[Ground.PLAZA] = -0.05;
+CLASS_FIT[Ground.SIDEWALK] = -0.07;
+CLASS_FIT[Ground.PLAZA] = -0.07;
 CLASS_FIT[Ground.PATH] = -0.03;
 CLASS_FIT[Ground.SAND] = 0;
 CLASS_FIT[Ground.RAIL] = 0;
-CLASS_FIT[Ground.FOREST] = -0.05;
-CLASS_FIT[Ground.YARD] = -0.03;
+CLASS_FIT[Ground.FOREST] = -0.09;
+CLASS_FIT[Ground.YARD] = -0.04;
 CLASS_FIT[Ground.ROCK] = -0.03;
 CLASS_FIT[ROOF] = -0.08;
-CLASS_FIT[TREE] = -0.06;
+CLASS_FIT[TREE] = -0.1;
 CLASS_FIT[ICE] = 0;
 CLASS_FIT[ROCK_BARE] = 0;
 /** The same for a far box's roof and walls: a merged box shows more wall and less street than the houses it stands for, so together they read as too hard. */
-const FIT_ROOF = -0.09;
-const FIT_WALL = 0.05;
+const FIT_ROOF = -0.1;
+const FIT_WALL = 0.08;
 
 const glslFloats = (a: number[]) => a.map((v) => v.toFixed(3)).join(', ');
 const CLASS_N = CLASS_RAMP.length;
@@ -286,6 +287,100 @@ const BLOCK_NRM = new THREE.BufferAttribute(new Int8Array([
   0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1,
 ]), 3);
 const BLOCK_IDX = new THREE.BufferAttribute(new Uint16Array([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11]), 1);
+
+// The far skyline with ?farblocks: far.bin's true boxes, each on its near tower's facade family, picked by the mesher's own rule (styleFor), so what
+// stands 5 km off in dark glass or pale stone is that from the first frame and doesn't turn into it at the swap. A wall is one tone: the family's ramp,
+// with what its windows do to that ramp in the mean (FAM_LO, fitted like CLASS_FIT); glass mirrors the sky, as buildingMaterial's `gl` does, so it
+// doesn't turn with the sun. Roofs are as ever.
+const TOWER_VS = /* glsl */ `
+  ${GLSL_COMMON}
+  precision highp sampler2D;
+  uniform sampler2D uMask;
+  uniform vec4 uMaskRect;
+  uniform vec2 uMaskSize;
+  in vec3 aTower;             // ramp, lo, family
+  out vec3 vWorldPos;
+  out vec3 vWorldNormal;
+  out vec3 vViewNormal;
+  flat out vec3 vLook;
+  void main() {
+    vec3 wc = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    ivec2 mc = clamp(ivec2(floor((wc.xz - uMaskRect.xy) * uMaskRect.z)), ivec2(0), ivec2(uMaskSize) - 1);
+    vec3 p = texelFetch(uMask, mc, 0).r > 0.5 ? vec3(0.0) : position;
+    vec4 wp = instanceMatrix * vec4(p, 1.0);
+    vWorldPos = wp.xyz;
+    vWorldNormal = normalize(mat3(instanceMatrix) * normal);
+    vViewNormal = normalize(mat3(viewMatrix) * vWorldNormal);
+    vLook = normal.y > 0.5 ? vec3(${Ramp.GREY_LIGHT}.0, -0.16, ${Fam.NONE}.0) : aTower;
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }
+`;
+
+const TOWER_FS = /* glsl */ `
+  ${GLSL_COMMON}
+  in vec3 vWorldPos;
+  in vec3 vWorldNormal;
+  in vec3 vViewNormal;
+  flat in vec3 vLook;
+  ${GLSL_OUT}
+  void main() {
+    #ifdef FAR_DEBUG
+    sbWrite(16.0 + vLook.z, 0.6, 0.0, 0.0, vViewNormal, 0.01, 1.0);
+    return;
+    #endif
+    vec3 n = normalize(vWorldNormal);
+    float light;
+    if (vLook.z == ${Fam.GLASS}.0) {
+      vec3 v = normalize(cameraPosition - vWorldPos);
+      light = 0.31 + 0.34 * (1.0 - abs(dot(n, v))) + vLook.y;
+    } else light = sbLight(vWorldPos, n, vLook.y, 1.0);
+    sbWrite(vLook.x, light, sbFog(vWorldPos), 0.0, vViewNormal, 0.01, 1.0);
+  }
+`;
+
+/** A family's wall ramp (buildingMaterial's wallR). */
+const FAM_RAMP: Record<number, number> = {
+  [Fam.NONE]: Ramp.GREY, [Fam.GLASS]: Ramp.GLASS, [Fam.MASONRY]: Ramp.STONE, [Fam.BANDS]: Ramp.GREY, [Fam.FINS]: Ramp.GREY, [Fam.GRANITE]: Ramp.GRANITE, [Fam.PRECAST]: Ramp.GREY_LIGHT,
+};
+/** A family's wall in the mean: its base lo with its windows gone into it. */
+const FAM_LO: Record<number, number> = {
+  [Fam.NONE]: -0.14, [Fam.GLASS]: 0.15, [Fam.MASONRY]: -0.085, [Fam.BANDS]: -0.075, [Fam.FINS]: -0.03, [Fam.GRANITE]: 0.04, [Fam.PRECAST]: -0.055,
+};
+
+/** The boxes' looks, three floats a box: ramp, lo, family. `sf`: the icons table applies (styleFor's rule). */
+export function farTowerLooks(f: FarData, t: FarTowers, sf: boolean): Float32Array {
+  const n = f.index.length;
+  const out = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const b = f.index[i];
+    // (a point on any of the building's boxes: the mesher asks its rings, the box is what is here)
+    const inside = (x: number, z: number) => {
+      for (let k = 0; k < n; k++) {
+        if (f.index[k] !== b) continue;
+        const o = k * 7, dx = x - f.boxes[o], dz = z - f.boxes[o + 1], co = Math.cos(f.boxes[o + 4]), si = Math.sin(f.boxes[o + 4]);
+        if (Math.abs(dx * co + dz * si) <= f.boxes[o + 2] && Math.abs(-dx * si + dz * co) <= f.boxes[o + 3]) return true;
+      }
+      return false;
+    };
+    const st = i < t.n ? styleFor(t.arch[i], t.height[i], t.area[i], t.cx[i], t.cz[i], t.stableId[i], inside, sf) : null;
+    const fam = st ? st.fam : Fam.NONE;
+    out[i * 3] = FAM_RAMP[fam];
+    out[i * 3 + 1] = FAM_LO[fam] + (st && fam === Fam.GLASS ? (st.variant === Variant.SILVER ? 0.12 : st.variant === Variant.BRACED ? -0.08 : 0) : 0);
+    out[i * 3 + 2] = fam;
+  }
+  return out;
+}
+
+/** The far skyline's material with ?farblocks. `mask`: the loaded tiles. */
+export function makeFarTowerMaterial(mask: THREE.Texture, maskRect: THREE.Vector4, maskSize: THREE.Vector2): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3,
+    defines: farFlags.debug ? { FAR_DEBUG: 1 } : {},
+    uniforms: { ...globals, uMask: { value: mask }, uMaskRect: { value: maskRect }, uMaskSize: { value: maskSize } },
+    vertexShader: TOWER_VS,
+    fragmentShader: TOWER_FS,
+  });
+}
 
 /** One chunk of far boxes, one draw. The arrays stay: they are what a lost GL context comes back from. */
 export function farBlockMesh(s: Pick<FarBlockChunk, 'count' | 'cell' | 'y' | 'tone' | 'sphere'>, material: THREE.Material): THREE.Mesh {
