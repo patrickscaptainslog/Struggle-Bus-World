@@ -3,7 +3,7 @@ import { config } from '../config';
 import { globals } from '../render/materials';
 import { HUE_RAMPS, Ramp } from '../render/palette';
 import { uploadRect } from '../render/upload';
-import { arrival, blastDots, blastEdge, SHAPE_LUT, specFromArray, specToArray, type BlastDot, type BlastSpec } from '../game/blastLayout';
+import { arrival, bandHue, blastDots, blastEdge, LAYOUT_BANDS, SHAPE_LUT, specFromArray, specToArray, type BlastDot, type BlastSpec } from '../game/blastLayout';
 
 // Paint on the ground: streets, sidewalks and parks splattered by blasts.
 //
@@ -806,7 +806,8 @@ export class GroundPaint {
         const c = (e - dist) / 2.6 + 0.5;
         if (c <= 0.02) continue;
         let hue = s.hue;
-        if (dist > 1.5) {
+        if (s.layout === LAYOUT_BANDS) hue = bandHue(s, s.x + wx, s.z + wz);
+        else if (dist > 1.5) {
           const wd = warp[k] * 2.2;
           let u = (a + warp[k1] * 0.16 + s.twist * (dist + wd)) * (1 / (Math.PI * 2)) + 0.012 * Math.sin(dist * 0.21);
           u -= Math.floor(u);

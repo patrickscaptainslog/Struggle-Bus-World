@@ -4,20 +4,38 @@
 
 export const config = {
   render: {
-    /** Target width of the low-res framebuffer in game pixels (portrait). */
-    pixelWidth: 240,
+    /**
+     * Target width of the low-res framebuffer in game pixels (portrait). 390 = one game pixel
+     * per iPhone point (an integer 3x upscale on a 1179 px wide screen); it was 240 (5x), which the
+     * producer found too low-res. ?px=<n> overrides it (e.g. ?px=240 the old look, ?px=295 4x,
+     * ?px=590 2x) to compare on the phone.
+     */
+    pixelWidth: 390,
     /** Hard cap on device pixels per game pixel (keeps pixels chunky on tablets). */
     maxPixelScale: 8,
     /** Width of the dithered band between two ramp steps (0 = hard bands, 0.5 = full dither). */
     ditherWidth: 0.22,
+    /** Into the haze surfaces stop dithering: from this fog amount to this one the dither fades to plain
+     *  rounding (the pattern is anchored at the bus's depth; far shapes crawl across it with parallax). */
+    ditherHazeFrom: 0.3,
+    ditherHazeTo: 0.6,
+    /** The fog handover band follows the fog's own gradient, but never narrower than this at street
+     *  level (fog units; 0.06 = the old fixed band). */
+    fogBandMin: 0.015,
+    /** With fog: the shortest shape that may stand out of it, as a share of the frame's height (0.0071 =
+     *  6 game px of 852, ~0.35 deg; 0.0118 = 10 px, ~0.58 deg); a shorter one (the top of a roof just over the fog ceiling's contour)
+     *  would float in the sky band as a chip, so it is buried. 3..16 px. */
+    fogSliver: 0.0118,
     /** Depth-discontinuity threshold for silhouette outlines (fraction of depth). */
     outlineDepth: 0.035,
     /** Crease highlight strength on convex edges (0..1). */
     creaseHighlight: 0.75,
     /** Distance at which outlines have fully faded out (m). */
     outlineFadeEnd: 520,
-    /** Shadow map size (texels). */
-    shadowMapSize: 1024,
+    /** Shadow map size (texels): 2048 keeps a shadow texel near one game pixel at 390 px wide. */
+    shadowMapSize: 2048,
+    /** The first frame waits this long at most for the shader warm-up (s); past that it finishes in the background. */
+    warmWait: 6,
     /** World-space extent of the shadow map around the camera focus (m). */
     shadowExtent: 520,
     /** At full vista (high above the city) the shadow window widens to this (m) and softens to this strength (0..1)... */
@@ -47,12 +65,28 @@ export const config = {
   },
 
   fog: {
+    /**
+     * Fog and the marine layer (clouds) on or off. Off for now (producer: "just remove the
+     * clouds/fog for now"); ?fog turns it back on. Off keeps only a far fade (clearFarFull) so
+     * the far plane and the horizon hills never end in a hard cut.
+     */
+    enabled: false,
+    clearFarFull: 20000,
     /** Distance fog density (1/m). */
     density: 0.00125,
     /** Height falloff: fog thins with altitude above this (m). */
     heightFalloff: 120,
     /** Distance at which far geometry is fully fogged (m). Streaming edge hides behind this. */
     farFull: 2600,
+    /** Fog ceiling for tall distant shapes: the most fog anything this high gets (0..1, keep 0.76..0.85:
+     *  below ~0.68 it would fall into the handover band, below 0.76 the silhouettes keep their surfaces'
+     *  one-pixel window grids, which crawl), the heights (m above the city's low ground, City.lowGround:
+     *  SF's is ~sea level) over which it takes hold,
+     *  and the distance (m) by which it has faded back to full fog (it starts fading at half that). */
+    standFog: 0.78,
+    standFrom: 50,
+    standTo: 160,
+    standFade: 10000,
     /** How much painted neighborhoods thin the fog above them (0..1). */
     paintClearing: 0.65,
     /** Fog bank density multiplier during the opening (fades to 1). */
@@ -82,24 +116,28 @@ export const config = {
     hfovPortrait: 24,
     /** Vertical field of view cap when landscape (deg). */
     vfovLandscape: 34,
-    /** Distance behind the bus (m). */
-    distance: 175,
-    /** Elevation angle of the camera above the bus when cruising (deg). */
-    elevationCruise: 31,
-    /** Elevation when slow (deg) — tilts toward diorama. */
-    elevationSlow: 39,
+    /** Distance behind the bus (m). (Closer than the old 175 m: the lower camera sees less roof, so the hero keeps its size.) */
+    distance: 155,
+    /** Elevation angle of the camera above the bus when cruising (deg): low enough for a sky band
+     *  and the horizon at the top of the frame (~13% from the top), the bus ~60% down. */
+    elevationCruise: 24,
+    /** Elevation when slow (deg) — tilts toward diorama (a thin sky band stays). */
+    elevationSlow: 29,
     /** Speed at which the camera reaches elevationSlow (m/s). */
     slowSpeed: 6,
     /** Elevation at full surge (deg) — levels toward the horizon. */
-    elevationSurge: 24,
+    elevationSurge: 20,
     /** Look-ahead in front of the bus (m), keeps the bus above the thumb zone. */
     lookAhead: 55,
+    /** Look-ahead at rest as a fraction of lookAhead (it grows to 1 at cruise and 1.4 at twice cruise).
+     *  1 = the slow diorama still looks out far enough to keep the horizon in frame. */
+    lookAheadSlow: 1,
     /** Position lag spring frequency (Hz) and damping ratio. */
-    followHz: 1.1,
+    followHz: 1.6,
     followDamping: 1.0,
     /** Yaw lag spring frequency (Hz) — lower = turns sweep more. */
-    yawHz: 0.75,
-    yawDamping: 0.92,
+    yawHz: 1.6,
+    yawDamping: 1.0,
     /** Vista camera: blends in as the bus climbs above its rooftop floor, from vistaStart to vistaFull (m). */
     vistaStart: 25,
     vistaFull: 400,
@@ -111,6 +149,13 @@ export const config = {
     pitchVista: 22,
     /** The bus grows a little at altitude so the hero stays readable (scale at full vista). */
     heroScaleVista: 1.55,
+    /** The bus's one eye seen from behind: its headlight beam lights what lies ahead of its face a step
+     *  or two brighter, this long, this wide at its far end (m, x the eye's openness), pitched this far
+     *  down (deg), this strong (0..1, x the eye's openness; 0 = off). */
+    headBeamLength: 42,
+    headBeamWidth: 20,
+    headBeamPitch: 6,
+    headBeamStrength: 0.9,
     /** How fast the vista blend follows the altitude while climbing or diving (1/s); holding an altitude freezes it. */
     vistaRate: 0.9,
     /** ...and how fast it settles once the yoke lets go (1/s), then it holds perfectly still. */
@@ -148,12 +193,12 @@ export const config = {
     ceiling: 520,
     ceilingSoft: 150,
     /** How fast speed chases its target (Hz). */
-    speedHz: 0.9,
+    speedHz: 1.4,
     /** Max yaw rate at full sideways stretch (rad/s) at cruise speed. */
     maxYawRate: 1.35,
     /** Bungee: steering spring frequency (Hz) and damping (<1 overshoots). */
-    bungeeHz: 1.6,
-    bungeeDamping: 0.52,
+    bungeeHz: 2.4,
+    bungeeDamping: 0.75,
     /** Thumb stretch (CSS px) that counts as full deflection. */
     stretchPx: 78,
     /** Dead zone (CSS px). */
@@ -168,14 +213,18 @@ export const config = {
     altitudeLookAhead: 1.6,
     /** Climb spring (Hz) — rises early and smoothly over hills. */
     climbHz: 1.1,
+    /** The rooftop floor's rises are eased at this rate before the climb spring sees them (Hz; 0 = raw): no lurch at roof edges. */
+    climbSmoothHz: 1.2,
     /** Max sink rate after cresting a hill (m/s) — gives hang time. */
     maxSink: 9,
-    /** Bank angle per unit of lateral acceleration (rad per m/s²). */
-    bankPerAccel: 0.06,
-    maxBank: 0.62,
+    /** Bank: maxBank * tanh((lateral accel * bankPerAccel + yaw rate * bankPerYaw) / maxBank): proportional
+     *  to the stick, never saturated (rad per m/s², rad per rad/s; maxBank is a soft asymptote, rad). */
+    bankPerAccel: 0.014,
+    bankPerYaw: 0.2,
+    maxBank: 0.7,
     /** Bank spring (Hz, damping) — the wobble you see when straightening out. */
     bankHz: 1.7,
-    bankDamping: 0.42,
+    bankDamping: 0.48,
     /** Obstacles taller than cruise altitude by this much are steered around, not over (m). */
     avoidTallerThan: 45,
     /** Strength of the soft push away from tall towers. */
@@ -183,6 +232,102 @@ export const config = {
     /** Full-belly wallow: roll oscillation amplitude (rad) and frequency (Hz). */
     wallowAmp: 0.07,
     wallowHz: 0.55,
+  },
+
+  /** Tilt to fly (src/game/Tilt.ts): the default on phones with motion sensors. Angles in degrees. */
+  tilt: {
+    /** Tilting left/right (rolling) this far from the neutral pose is a full carve; pitching the top edge
+     *  toward / away from you this far is a full climb / dive (deg, divided by the sensitivity). */
+    rollFull: 26,
+    pitchFull: 26,
+    /** Dead zones around the neutral pose (deg): hand tremor and posture never steer. */
+    rollDead: 1.4,
+    pitchDead: 2.2,
+    /** Expo: 0 = linear, 1 = cubic (fine control near center, full authority at the edge). */
+    expo: 0.45,
+    /** Default sensitivity (0.5..2; the settings panel changes it per player). */
+    sensitivity: 1,
+    /** One-Euro jitter filter: cutoff at rest (Hz), its speed coefficient (Hz per deg/s), derivative cutoff (Hz). */
+    minCutoff: 1.6,
+    beta: 0.5,
+    dCutoff: 2.5,
+    /** Prediction to the frame time from the filtered rate, at most this far ahead (s): the filter adds no lag. */
+    predict: 0.02,
+    /** Pitch output starts at the yoke's dead band (config.flight.yokeDead) past tilt's own dead zone
+     *  (0..1; 1 = tilt's dead zone is the only one, so a gentle tilt climbs gently). */
+    yokeComp: 1,
+    /** Auto-recenter: held still (under stillRate deg/s) for stillTime s, the neutral drifts toward the
+     *  current pose with this time constant (s), only while the pose is within these bands (deg): a trim of
+     *  posture drift just past the dead zones, never a deliberate climb or carve (wider bands walked the
+     *  neutral away under a staircase of small held tilts). */
+    stillRate: 4,
+    stillTime: 1.4,
+    recenterTau: 6,
+    recenterPitchBand: 4.5,
+    recenterRollBand: 2.5,
+    /** No orientation event within this long after listening starts = no sensors: touch to fly (s). */
+    eventTimeout: 1,
+    /** Calibration: the neutral pose is the mean of the first this-long of samples (s). */
+    calibrate: 0.18,
+    /** Recentering eases the neutral over this long (s) instead of jumping. */
+    recenterEase: 0.25,
+    /** Stillness before the neutral is taken (toggle, chip, RECENTER: all corner reaches): gravity must turn slower
+     *  than settleRate deg/s for settleHold s in a row, capped at settleMax s (a phone that never settles still calibrates). */
+    settleRate: 40,
+    settleHold: 0.3,
+    settleMax: 1.5,
+    /** An undecided phone player: false = tilt is offered (the TILT TO STEER? chip); true = they count as having chosen it
+     *  (starts on the first gesture; iOS, which needs a tap, gets the chip at the end of the fog). The one switch. */
+    defaultOn: false,
+    /** Tilted this far from neutral (deg) the phone is being turned or put down, not flown: the stick fades out by awayTo. */
+    awayFrom: 58,
+    awayTo: 80,
+  },
+
+  /** Turbo gears (src/game/Turbo.ts). G0 is the classic flight (cruise / surge); each gear needs height above the ground. */
+  turbo: {
+    /** G2 "Stratos" and G3 "Rainbow Warp" need the world beyond the city map: off until it exists
+     *  (shifting up past G1 shows "LOCKED: world travel coming"). */
+    worldTravel: false,
+    /** Gear speeds (m/s): G1 "Jet", G2 "Stratos", G3 "Rainbow Warp" (SF -> Tokyo, 8,300 km, in ~5 min). */
+    speed1: 450,
+    speed2: 4500,
+    speed3: 30000,
+    /** Height above the ground each gear needs (m): shifted up lower, the bus climbs there first. */
+    alt1: 150,
+    alt2: 2000,
+    alt3: 10000,
+    /** Climb rate while a gear lifts the bus to its height (m/s). */
+    climb1: 75,
+    climb2: 700,
+    climb3: 3000,
+    /** Spool: speed reaches ~95% of the gear's in this long once at height (s); dropping a gear brakes over this long (s);
+     *  both ease in over rateEase (s) so neither starts with a jolt. */
+    spool: 2.4,
+    brake: 3,
+    rateEase: 0.35,
+    /** Holding the turbo (button / swipe-and-hold / Shift): the gear's speed x this (G0: full surge). */
+    boost: 1.3,
+    /** Steering authority above the surge speed: yaw rate x (surge / speed)^turnExp. */
+    turnExp: 0.55,
+    /** The yoke's climb / dive rates scale with the gear's speed by this power of (speed / surge). */
+    climbExp: 0.5,
+    /** Camera: pulls back this much at G1 speed (m), widens this much (deg); the shift kicks the fov by this (deg).
+     *  (The follow spring's own lag already pulls it back ~2 x speed / (2 pi followHz): camLead of it is cancelled
+     *  at G1, all of it from G2 on, so the camera never falls kilometers behind or under a climbing bus.) */
+    camPull: 25,
+    camFov: 5,
+    fovKick: 7,
+    camLead: 0.4,
+    /** The bus grows this much at G1 speed so the hero still reads with the camera pulled back (x). */
+    heroScale: 1.25,
+    /** Camera jolt at the sonic boom (m) and its palette flash strength (0..1). */
+    boomKick: 3.2,
+    boomFlash: 0.55,
+    /** Past the city map's edge by more than this (m) the gear runs out of world and eases back to G0 speed. */
+    edgeFade: 300,
+    /** Bus rattle while straining and at speed (m of jitter at the bus). */
+    rattle: 0.32,
   },
 
   splat: {
@@ -195,7 +340,7 @@ export const config = {
     /** Where the projectile lands: meters ahead of the bus at rest, plus seconds of travel at speed. */
     range: 72,
     rangePerSpeed: 0.5,
-    /** Time from tap to first impact (s), at the short range. */
+    /** Time from tap to first impact (s), at the short range (the inhale included). */
     impactDelay: 0.42,
     /** From altitude the breath flies along a forward-down ray this many degrees below the heading (deg)... */
     aimDown: 20,
@@ -205,8 +350,44 @@ export const config = {
     maxRange: 1600,
     /** From up high a shot that would miss snaps to the nearest roof within snapRadius * (1 + drop / 150), up to this (m). */
     snapReachMax: 120,
-    /** Search radius around the aim point for the target building (m). */
+    /** Search radius around the aim point for the target building (m): true distance to its footprint. */
     snapRadius: 28,
+    /** Buildings lower than this are never the target (sheds, slivers) (m). */
+    minTargetHeight: 2.5,
+    /** A shot that snaps onto a big building lands on its nearest edge this far in (m); onto a house-sized one
+     *  (all of it within smallRad of its centroid, m) at its centroid, as ever (the blast reaches houses by
+     *  their centroid less their half-size too, big footprints by true distance). */
+    landInset: 4,
+    smallRad: 25,
+    /** Aim hold: the glinting building stays the target while the aim point is within this of it (m; more from high up). */
+    aimHold: 10,
+    /** ...and while it is within aimHold of the last aimHoldAlong m of the line of fire (m): it doesn't strobe at speed. */
+    aimHoldAlong: 40,
+    /** A building in the line of fire takes the shot if it stands this far above the jet's path (m), unless it is
+     *  within wallSkip of where the jet lands (the jet is as wide as a house there) (m). */
+    wallClear: 1.5,
+    wallSkip: 8,
+    /** Aim latch: lifting the thumb (or touching down) to tap freezes the glinting target this long (s), while it
+     *  stays within the pick radius or this cone of the line of fire (lateral m per m of range). */
+    aimLatch: 0.5,
+    aimLatchCone: 0.2,
+    /** Aim glint: light lift on the target (0.125 = one ramp step), the sweep's extra lift, sweeps per second. */
+    glintLift: 0.13,
+    glintSweep: 0.2,
+    glintRate: 2,
+    /** Inhale: the bus squashes and gulps on the tap frame; the jet leaves this much later (s, inside impactDelay). */
+    inhale: 0.09,
+    /** MEGA or Space held this long starts charging the super splat, and TURBO held this long starts the boost (s);
+     *  shorter is a tap (Input.onChargeStart / onChargeEnd, state.chargeHeld). A press on the screen never charges. */
+    holdThreshold: 0.3,
+    /** A breath that comes down on nothing (open water, under this height) is a miss; it refunds this much belly. */
+    missWaterY: 0.8,
+    missRefund: 0.5,
+    /** Steering while breathing: x this much until the impact (the dragon plants itself), easing back over breathSteerEase s. */
+    breathSteer: 0.5,
+    breathSteerEase: 0.2,
+    /** Authored rear-up while breathing (rad, nose up), its rise and its settle. */
+    rearUp: 0.2,
     /** Blast radius around the impact with no drop (m): every building inside blooms. */
     blastRadius: 60,
     /** Radius multiplier at 300 m of drop (bus height above the impact); grows linearly with drop. */
@@ -218,6 +399,9 @@ export const config = {
     /** Max buildings bloomed per blast at the base radius (scales with the radius, up to maxBuildingsCap). */
     maxBuildings: 40,
     maxBuildingsCap: 96,
+    /** A super's blast (mega, the firehose's closer): its cap grows with the blast's area, up to this: the buildings in
+     *  reach grow with r squared, and the street grid under them is painted to the full radius either way. */
+    megaBuildingsCap: 480,
     /** Hue layout: 0 = pinwheel by angle, 1 = rings by distance, 2 = spiral (pinwheel + rings). */
     hueLayout: 0,
     /** Ground pinwheel sectors around the impact (6 = one rainbow turn: opposite sides complementary). */
@@ -265,6 +449,73 @@ export const config = {
     recoilUp: 7,
     reliefBoost: 1.45,
     reliefSeconds: 2.6,
+    // ---- the super splat: hold to charge (src/game/SuperSplat.ts)
+    /** Seconds of holding for a full charge: it lets go on its own as the FIREHOSE. */
+    superCharge: 10,
+    /** Released below this share of the charge: just a normal splat (no cooldown). */
+    superMin: 0.3,
+    /** Seconds until the super is ready again after a firehose (after a mega blast: x its charge). */
+    superCooldown: 60,
+    /** Mega blast (released early): radius x, jet width x and hit-stop frames, from the first at superMin (any mega is
+     *  unmistakably bigger than a tap: the hold is never a tap with a lockout) to the second near a full charge. */
+    megaFloor: 1.6,
+    megaGain: 2.6,
+    megaWidthFloor: 1.5,
+    megaWidth: 2.4,
+    megaHitStopFloor: 6,
+    megaHitStop: 9,
+    /** Charging weighs the bus down: speed x this at a full charge. */
+    chargeSlow: 0.6,
+    /** The camera creeps in while charging: distance x (1 - this) at a full charge. */
+    chargeCreep: 0.2,
+    /** Firehose: how long it pours (s), impacts per second (each a full blast of this radius, m; it grows with the drop like a tap's). */
+    firehoseDuration: 4,
+    firehoseRate: 12,
+    firehoseRadius: 45,
+    /** ...the ground takes rainbow bands this wide (m, grown with the drop like the blast), ringed around where the pour first landed. */
+    firehoseBand: 17,
+    /** ...near the rooftops it reaches this many times the breath's range (a turn sweeps a wide arc); from up high it
+     *  pours down along the aim ray, where the player looks. */
+    firehoseReach: 1.7,
+    /** ...the torrent's width x the breath's (more from up high: x (1 + drop / firehoseWidthDrop)), and its particle rate x. */
+    firehoseWidth: 2.6,
+    firehoseWidthDrop: 130,
+    /** ...it pours this many times faster than the breath's projectile past the classic range (from up high the
+     *  landing must stay near where the player looks while the bus turns). */
+    firehoseSpeed: 3,
+    firehoseFlow: 1.9,
+    /** Recoil: the bus is knocked back to this share of its speed, then held at firehoseSlow while it pours. */
+    firehoseKick: 0.3,
+    firehoseSlow: 0.4,
+    /** A building the stream already bloomed re-pops (and escalates a level) at most this often (s). */
+    firehoseRepop: 0.4,
+    /** Camera shake per impact (m, translation only: the pixel snap holds) and flashes per second at most. */
+    firehoseShake: 0.9,
+    firehoseFlashes: 3,
+    /** The closing blast where the stream ends: radius x firehoseRadius, hit-stop frames. */
+    firehoseFinale: 2,
+    firehoseFinaleHitStop: 8,
+    /** After a firehose the bus is spent (smoke, wheeze, dim belly, limping speed) for this long (s). */
+    superSpent: 4,
+  },
+
+  facade: {
+    /** Tower facades show their columns while a column module is at least this many game pixels wide on screen... */
+    colPx: 3,
+    /** ...and their floors while a floor is at least this tall (game px); below both they are a flat wall tone. */
+    floorPx: 4,
+    /** Per-building spread of those switches (fraction of the distance), so the change never draws a ring. */
+    lodJitter: 0.24,
+    /** House windows: one glass band per floor beyond this size of a game pixel at the house (m), a flat wall beyond the second. */
+    houseRibbon: 0.6,
+    houseFlat: 1.15,
+    /** Glow of lit tower crowns and of Salesforce Tower's LED crown (0..1). */
+    crownGlow: 0.3,
+    /** Glow of painted stained glass at levels 1-2 (0.12 stays under the halo threshold: no dust) and at level 3. */
+    glassGlow: 0.12,
+    glassGlow3: 0.38,
+    /** Sky-reflection banding on curtain walls (light amplitude of the bands). */
+    glassBands: 0.06,
   },
 
   bloom: {
@@ -275,9 +526,22 @@ export const config = {
     overshoot: 0.13,
     /** How fast color floods up the facade (m/s). */
     floodSpeed: 55,
+    /** Head start of the flood (m from the roof): the impact and hit-stop frames already show the hit. */
+    floodHead: 6,
     /** Painted wall wobble amplitude (m) and speed. */
     wobbleAmp: 0.32,
     wobbleSpeed: 1.1,
+    /** Landmarks (hand-built props): the color pours down their whole height in this long (s; a 260 m pyramid
+     *  at floodSpeed would take ~5 s)... */
+    landmarkFlood: 1.1,
+    /** ...while a splash of it spreads out from where the breath hit, to this radius (m) in about this long (s). */
+    landmarkSplat: 34,
+    landmarkSplatTime: 0.5,
+    /** Their squash-and-stretch pop, as a fraction of a building's (18 % of a 260 m tower is a lot of tower). */
+    landmarkPop: 0.3,
+    /** Glow of a painted landmark's lit accents (the pyramid's spire, Sutro's beacons) and of its stained glass. */
+    landmarkGlow: 0.55,
+    landmarkGlassGlow: 0.12,
   },
 
   audio: {

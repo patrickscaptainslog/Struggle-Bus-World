@@ -68,6 +68,13 @@ export const fxTune = {
   forwardOut: 95,
   /** Upward kick at launch (m/s): the jet lifts a little before it arcs down onto the roofs ahead. */
   doorUp: 12,
+  /** Jet speed out of the mouth / at impact, relative to its mean (chord / travel): fastest at the face,
+   *  still moving when it slams in (a blast, not a lob), and the extra downward speed at impact (m/s). */
+  jetOut: 1.5,
+  jetIn: 0.8,
+  jetDrop: 12,
+  /** The jet leaves the face bent toward its target by at most this (rad): a turning bus never curls it. */
+  aimBend: 0.6,
   /** Coherent ribbon flutter: amplitude (m) and frequency (Hz). */
   wobbleAmp: 0.32,
   wobbleHz: 1.9,
@@ -126,12 +133,13 @@ export const fxTune = {
   sparkGlow: 1,
   /** Share of sparkles that are GLOW_WHITE (the rest take the bloom hues). */
   sparkWhite: 0.4,
-  // --- puffs
-  puffSize: 1.1,
-  puffGrow: 1.5,
-  puffLife: 0.95,
-  /** Puff light offset (ramp units) and how much they take the sun shadow. */
-  puffLight: 0.02,
+  // --- puffs (pale grey wisps of a wheezing engine: one flat tone, never a lit ball, never the
+  // brightest or darkest thing on screen)
+  puffSize: 0.6,
+  puffGrow: 2.2,
+  puffLife: 0.75,
+  /** Puff light offset (0 = a mid-pale GREY step) and how much they take the sun shadow. */
+  puffLight: 0.0,
   puffShadow: 0.7,
   // --- look
   /** Ramp step of each rainbow hue's body color (R, O, Y, G, B, V). */
@@ -151,7 +159,7 @@ export const fxTune = {
 registerTunables('Particles', fxTune, {
   ribbonRate: [100, 2500, 10],
   halfWidth0: [0.2, 4, 0.05],
-  halfWidth1: [0.2, 6, 0.05],
+  halfWidth1: [0.2, 10, 0.05],
   depth: [0, 1.5, 0.05],
   blobSize: [0.2, 2.5, 0.05],
   blobMouth: [0.2, 1.5, 0.02],
@@ -167,6 +175,10 @@ registerTunables('Particles', fxTune, {
   doorOut: [0, 90, 1],
   forwardOut: [0, 220, 1],
   doorUp: [-20, 40, 0.5],
+  jetOut: [0.5, 3, 0.05],
+  jetIn: [0, 1.5, 0.05],
+  jetDrop: [0, 60, 0.5],
+  aimBend: [0, 1.5, 0.01],
   wobbleAmp: [0, 2, 0.02],
   wobbleHz: [0, 6, 0.1],
   ribbonGlow: [0, 1, 0.01],
@@ -252,8 +264,27 @@ const F_GLINT = 4; // brightest step + full glow
 const F_NOSTRETCH = 8; // keep round (no motion smear)
 const F_DEEP = 16; // one step deeper (wet paint reads darker than the dry, sunlit roof under it)
 
+/**
+ * Live controls for a geyser whose landing point moves (the super splat's firehose sweeping across the
+ * city): the caller mutates it every frame and each new particle flies to where it says then.
+ */
+export interface GeyserLive {
+  /** where the stream lands now */
+  target: THREE.Vector3;
+  /** flight time from the mouth to there (s) */
+  travel: number;
+  /** particle rate multiplier */
+  rate: number;
+  /** width multiplier (replaces the geyser's own width while it pours) */
+  width: number;
+}
+
 interface Emitter {
   active: boolean;
+  /** width (and blob size) multiplier, live controls, share of the duration after which the flow thins */
+  width: number;
+  live: GeyserLive | null;
+  taper: number;
   start: number;
   duration: number;
   travel: number;
@@ -274,6 +305,11 @@ interface Emitter {
   right: THREE.Vector3;
   /** Last good door direction (bus right, horizontal). */
   door: THREE.Vector3;
+  /** Launch direction (horizontal unit): the nose, bent toward the target by at most aimBend. */
+  aimX: number;
+  aimZ: number;
+  /** Flow left once the nose has swung far off the target (0..1). */
+  aimFlow: number;
 }
 
 const rnd = Math.random;
@@ -498,6 +534,9 @@ void main() {
     p = aP0.xyz + aV0.xyz * ((1.0 - exp(-k * age)) / k) + vec3(0.0, aP1.y * age, 0.0);
     size *= 1.0 + aP1.z * (1.0 - (1.0 - x) * (1.0 - x));
     keep = 1.0 - smoothstep(0.3, 1.0, x);
+    // it thins away by shrinking (a dither pattern anchored to the screen crawled over the moving puff)
+    size *= keep;
+    if (keep < 0.08) { cull(); return; }
     shape = 2.0;
     glow = 0.0;
     fogMul = uLand.w;
@@ -614,17 +653,12 @@ void main() {
     }
     light = (st + 0.15) / 7.0;
   } else {
-    // puff: grey ball lit by the low sun, dissolves through ordered dither
+    // puff: a flat pale-grey wisp (a sphere's highlight and shadow side made it a lit ball, a cannonball
+    // trailing the hero); a step deeper in the sun's shadow. It thins away by shrinking (vertex stage).
     float R2 = N * 0.5;
     float q2 = dot(c, c);
     if (N > 2.5 && q2 > R2 * R2 - 0.3) discard;
-    if (bayer4(ivec2(gl_FragCoord.xy)) > vB.y) discard;
-    vec2 nn = c / max(R2, 1.0);
-    vec3 nv = vec3(nn.x, -nn.y, sqrt(max(0.0, 1.0 - dot(nn, nn))));
-    vec3 nw = normalize(nv * mat3(viewMatrix));
-    float ndl = max(dot(nw, uSunDir), 0.0);
-    float sky = 0.5 + 0.5 * nw.y;
-    light = uLight.y + uLight.z * sky + uLight.x * ndl * mix(1.0, vC.z, uPuff.y) + uPuff.x;
+    light = 0.8 + uPuff.x - 0.15 * uPuff.y * (1.0 - vC.z);
   }
   sbWrite(ramp, light, vB.w, glow, vec3(0.0, 0.0, 1.0), 0.5, 0.5);
 }
@@ -735,6 +769,9 @@ export class Particles {
       for (let k = 0; k < MAX_TARGETS; k++) targets.push(new THREE.Vector3());
       this.emitters.push({
         active: false,
+        width: 1,
+        live: null,
+        taper: 0.7,
         start: 0,
         duration: 1,
         travel: 0.35,
@@ -753,6 +790,9 @@ export class Particles {
         lastT: 0,
         right: new THREE.Vector3(1, 0, 0),
         door: new THREE.Vector3(1, 0, 0),
+        aimX: 0,
+        aimZ: -1,
+        aimFlow: 1,
       });
     }
     this.syncUniforms();
@@ -787,6 +827,12 @@ export class Particles {
     duration: number;
     travelTime: number;
     hues: number[];
+    /** ribbon width x (and blob size x its square root); 1 = the breath */
+    width?: number;
+    /** a moving landing point (opts.targets[0] is where it starts) */
+    live?: GeyserLive;
+    /** share of the duration after which the flow thins out (default 0.7) */
+    taper?: number;
   }): void {
     let e: Emitter | null = null;
     for (let i = 0; i < this.emitters.length; i++) {
@@ -802,6 +848,9 @@ export class Particles {
     e.start = this.time;
     e.duration = Math.max(0.05, opts.duration);
     e.travel = Math.max(0.05, opts.travelTime);
+    e.width = Math.max(0.1, opts.width ?? 1);
+    e.live = opts.live ?? null;
+    e.taper = Math.min(0.99, Math.max(0.05, opts.taper ?? 0.7));
     e.source = opts.source;
     e.sourceVel = opts.sourceVel;
     e.last.copy(opts.source());
@@ -846,6 +895,12 @@ export class Particles {
   private updateEmitter(e: Emitter, t1: number, dt: number) {
     const T = fxTune;
     const end = e.start + e.duration;
+    if (e.live) {
+      e.targets[0].copy(e.live.target);
+      e.travel = Math.max(0.05, e.live.travel);
+      e.width = Math.max(0.1, e.live.width);
+    }
+    const flow = e.live ? Math.max(0, e.live.rate) : 1;
     const a = Math.max(e.start, t1 - dt);
     const b = Math.min(end, t1);
     const S = this.tA.copy(e.source());
@@ -853,13 +908,36 @@ export class Particles {
     // door direction: the bus's right side, from its heading (kept when hovering)
     const sp = Math.hypot(V.x, V.z);
     if (sp > 0.5) e.door.set(-V.z / sp, 0, V.x / sp);
+    // launch along the nose, bent toward the target (a turning bus doesn't curl the jet like a hose);
+    // once the nose has swung far past it the breath tapers off instead of bending across the screen
+    {
+      const fx = e.door.z, fz = -e.door.x;
+      const P1 = e.targets[0];
+      let ax = P1.x - S.x, az = P1.z - S.z;
+      const al = Math.hypot(ax, az);
+      if (al > 1e-3) {
+        ax /= al;
+        az /= al;
+        const off = Math.atan2(fx * az - fz * ax, fx * ax + fz * az);
+        const bend = Math.max(-T.aimBend, Math.min(T.aimBend, off));
+        const c = Math.cos(bend), sn = Math.sin(bend);
+        e.aimX = fx * c - fz * sn;
+        e.aimZ = fx * sn + fz * c;
+        const u = Math.max(0, Math.min(1, (1.15 - Math.abs(off)) / 0.35));
+        e.aimFlow = u * u * (3 - 2 * u);
+      } else {
+        e.aimX = fx;
+        e.aimZ = fz;
+        e.aimFlow = 1;
+      }
+    }
     if (b > a) {
       const span = t1 - e.lastT;
       const xm = ((a + b) * 0.5 - e.start) / e.duration;
       // gush at the start, thinning dribble at the end
       const gush = xm < 0.12 ? 1 - xm / 0.12 : 0;
-      const tail = xm > 0.7 ? (xm - 0.7) / 0.3 : 0;
-      const rate = T.ribbonRate * (1 + 0.9 * gush - 0.72 * tail);
+      const tail = xm > e.taper ? (xm - e.taper) / (1 - e.taper) : 0;
+      const rate = T.ribbonRate * (1 + 0.9 * gush - 0.72 * tail) * e.aimFlow * flow;
       let nf = rate * (b - a) + e.carry;
       let count = Math.floor(nf);
       e.carry = nf - count;
@@ -869,7 +947,7 @@ export class Particles {
         this.emitRibbon(e, tj, f, S, V, (tj - e.start) / e.duration);
       }
       // droplets flicked off the flanks
-      nf = T.flickRate * (b - a) * (1 + gush - 0.5 * tail) + e.carryFlick;
+      nf = T.flickRate * (b - a) * (1 + gush - 0.5 * tail) * e.aimFlow * flow + e.carryFlick;
       count = Math.floor(nf);
       e.carryFlick = nf - count;
       for (let j = 0; j < count; j++) {
@@ -912,7 +990,7 @@ export class Particles {
     const T = fxTune;
     const s = this.s;
     const gush = x < 0.12 ? 1 - x / 0.12 : 0;
-    const tail = x > 0.7 ? (x - 0.7) / 0.3 : 0;
+    const tail = x > e.taper ? (x - e.taper) / (1 - e.taper) : 0;
     const P1 = e.targets[0];
     // mouth position at tj (sub-frame interpolated)
     const mx = e.last.x + (S.x - e.last.x) * f;
@@ -947,15 +1025,14 @@ export class Particles {
     s[1] = my + (rnd() - 0.5) * jit;
     s[2] = mz + (rnd() - 0.5) * jit;
     s[3] = tj;
-    this.launch(e, V, 1 + 0.15 * gush);
     let tt = e.travel;
     let px = P1.x;
     let pz = P1.z;
-    let size = T.blobSize * (0.85 + 0.35 * rnd()) * (1 + 0.45 * gush - 0.3 * tail);
+    let size = T.blobSize * (0.85 + 0.35 * rnd()) * (1 + 0.45 * gush - 0.3 * tail) * Math.sqrt(e.width);
     let flags = 0;
     if (spray) {
       const ang = rnd() * Math.PI * 2;
-      const rr = T.sprayScatter * (0.4 + 0.6 * rnd());
+      const rr = T.sprayScatter * e.width * (0.4 + 0.6 * rnd());
       px += Math.cos(ang) * rr;
       pz += Math.sin(ang) * rr;
       tt *= 1 + 0.12 * rnd(); // never before the impact
@@ -971,9 +1048,18 @@ export class Particles {
     s[9] = P1.y;
     s[10] = pz;
     s[11] = tt;
-    s[12] = V.x * T.inherit * 0.25;
-    s[13] = -T.arrive;
-    s[14] = V.z * T.inherit * 0.25;
+    // the jet's tangents come from its chord (s[4..6], s[12..14] are velocities; the path's D = v * tt):
+    // out of the face at jetOut x the mean speed along the (bent) nose, slowing smoothly to jetIn x at the
+    // impact, so it is fastest at the mouth and still moving when it slams in (no lob braking over the roof)
+    const cdx = px - s[0], cdy = P1.y - s[1], cdz = pz - s[2];
+    const ch = Math.hypot(cdx, cdz) / tt;
+    const g = 1 + 0.15 * gush;
+    s[4] = e.aimX * ch * T.jetOut * g;
+    s[5] = (cdy / tt) * T.jetOut + T.doorUp * g;
+    s[6] = e.aimZ * ch * T.jetOut * g;
+    s[12] = (cdx / tt) * T.jetIn;
+    s[13] = (cdy / tt) * T.jetIn - T.jetDrop;
+    s[14] = (cdz / tt) * T.jetIn;
     s[15] = K_RIBBON;
     s[16] = HUE_RAMPS[hue];
     s[17] = size;
@@ -983,7 +1069,7 @@ export class Particles {
     s[20] = u;
     s[21] = Math.sqrt(Math.max(0, 1 - u * u)) * 0.8 + (rnd() - 0.5) * 0.1;
     s[22] = ((q - lo) / Math.max(hi - lo, 1e-3)) * 2 - 1;
-    s[23] = 1 + 0.22 * gush - 0.4 * tail;
+    s[23] = (1 + 0.22 * gush - 0.4 * tail) * e.width;
     const life = tt + (rnd() < T.landBounce ? HOP_LIFE : 0);
     this.commit(tj, life);
   }
@@ -994,12 +1080,12 @@ export class Particles {
     const R = e.right;
     const P1 = e.targets[0];
     const side = rnd() < 0.5 ? -1 : 1;
-    const mx = e.last.x + (S.x - e.last.x) * f + R.x * side * T.halfWidth0 * 0.8;
+    const mx = e.last.x + (S.x - e.last.x) * f + R.x * side * T.halfWidth0 * 0.8 * e.width;
     const my = e.last.y + (S.y - e.last.y) * f;
-    const mz = e.last.z + (S.z - e.last.z) * f + R.z * side * T.halfWidth0 * 0.8;
+    const mz = e.last.z + (S.z - e.last.z) * f + R.z * side * T.halfWidth0 * 0.8 * e.width;
     // aim roughly along the stream, then fling sideways
     const tt = e.travel * (1 + 0.25 * rnd());
-    const out = T.flickOut * (0.35 + 0.65 * rnd());
+    const out = T.flickOut * (0.35 + 0.65 * rnd()) * e.width;
     const fx = rnd() - 0.5;
     const vx = (P1.x - mx) / tt + R.x * side * out + fx * 2.5;
     const vz = (P1.z - mz) / tt + R.z * side * out - fx * 2.5;
@@ -1326,7 +1412,7 @@ export class Particles {
 
   // ------------------------------------------------------------------ puffs
 
-  puff(pos: THREE.Vector3, vel: THREE.Vector3, ramp: number = Ramp.FOG): void {
+  puff(pos: THREE.Vector3, vel: THREE.Vector3, ramp: number = Ramp.GREY): void {
     const T = fxTune;
     const s = this.s;
     const life = T.puffLife * (0.8 + 0.4 * rnd());

@@ -1,0 +1,26 @@
+{
+ "alamo-floor": {
+  "frames": 11,
+  "workMs": 3.4,
+  "calls": 129,
+  "triangles": 1196510
+ },
+ "alamo-250": {
+  "frames": 12,
+  "workMs": 4.3,
+  "calls": 197,
+  "triangles": 1782788
+ },
+ "fidi-floor": {
+  "frames": 11,
+  "workMs": 3.7,
+  "calls": 114,
+  "triangles": 715707
+ },
+ "fidi-250": {
+  "frames": 11,
+  "workMs": 2.9,
+  "calls": 116,
+  "triangles": 820455
+ }
+}

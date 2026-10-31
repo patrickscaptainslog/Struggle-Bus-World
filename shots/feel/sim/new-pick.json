@@ -1,0 +1,62 @@
+[
+ {
+  "name": "FiDi",
+  "aims": 5671,
+  "wrong": 0,
+  "miss": 0,
+  "unhittableArea": 0,
+  "towerAims": 4564,
+  "towerBad": 0,
+  "pickUs": 4.96
+ },
+ {
+  "name": "SoMa",
+  "aims": 5193,
+  "wrong": 0,
+  "miss": 0,
+  "unhittableArea": 0,
+  "towerAims": 552,
+  "towerBad": 0,
+  "pickUs": 7.05
+ },
+ {
+  "name": "MissionBay",
+  "aims": 3658,
+  "wrong": 0,
+  "miss": 0,
+  "unhittableArea": 0,
+  "towerAims": 662,
+  "towerBad": 0,
+  "pickUs": 4.44
+ },
+ {
+  "name": "Dogpatch",
+  "aims": 3488,
+  "wrong": 0,
+  "miss": 0,
+  "unhittableArea": 0,
+  "towerAims": 0,
+  "towerBad": 0,
+  "pickUs": 2.43
+ },
+ {
+  "name": "Alamo",
+  "aims": 3677,
+  "wrong": 0,
+  "miss": 0,
+  "unhittableArea": 0,
+  "towerAims": 0,
+  "towerBad": 0,
+  "pickUs": 2.54
+ },
+ {
+  "name": "Sunset",
+  "aims": 3660,
+  "wrong": 0,
+  "miss": 0,
+  "unhittableArea": 0,
+  "towerAims": 0,
+  "towerBad": 0,
+  "pickUs": 4.35
+ }
+]

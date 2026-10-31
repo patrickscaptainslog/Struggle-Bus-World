@@ -1,0 +1,566 @@
+
+######## BEAUTY
+
+[critical] Chase camera frames a map, not a vista: the horizon sits on the top edge and there is no sky
+  file: src/config.ts (camera.elevationCruise/Slow/Surge, lines 60-64); src/game/CameraRig.ts:62 (lookTarget y = bus.y - 4)
+  REAL=True FIXSOUND=False
+  fix: src/config.ts: camera.elevationCruise 31 -> 22, elevationSlow 39 -> 30, elevationSurge 24 -> 17 (prototyped). This keeps the approved behavior (tilt toward a diorama when slow, level toward the horizon on surge) and only moves the numbers. If the bus must stay lower on screen, use elevationCruise 25 instead and raise the look target in CameraRig.ts:62 from `bus.y - 4 + 14 * low` to `bus.y + 5 + 5 * low`. That puts the horizon about 15% from the top with the bus at about 63%. Pair this with fog.density 0.00125 -> 0.0009 so the newly visible band holds layered silhouettes instead of a white wall.
+  betterFix: Bring the horizon in at cruise without shrinking the hero, and leave the fog alone. Camera elevation and distance are the only levers.
+
+1. src/config.ts camera settings:
+   - elevationCruise 31 -> 24
+   - elevationSlow 39 -> 33 (hover stays a diorama: top edge about 3° below eye level, the fog band stays at the top)
+   - elevationSurge 24 -> 20 (keeps a 4° level-out on surge)
+   - distance 175 -> 158 (the 1/d² gain of about 1.23 offsets the roof-foreshortening loss, so the bus keeps about 93-95% of today's pixel area instead of about 70%; the pixel snap uses the live camera-to-focus distance, PixelPipeline.ts:243, so the change is safe; about 0.27 m per game pixel at the focus)
+   
+   Resulting cruise framing: pitch about 18.9°, top edge about 5.8° above eye level (sky band about 12% plus the fogged band, about 18-20% in total), bus at about 60% from the top (unchanged, still above the t
+
+[high] Fog erases San Francisco's skyline: every vista ends in a blank white wall
+  file: src/render/materials.ts:83 (sbFog far smoothstep); src/world/City.ts:229 (far skyline material) and City.ts:172 (horizon mesh)
+  REAL=True FIXSOUND=False
+  fix: Simplest fix, consistent with landmarks: in City.ts buildFar(), add `fogMul: 0.8` to the far-skyline makeRampMaterial (line ~229) and 0.85 to the horizon mesh material (line ~172). Principled fix, which keeps the streaming edge hidden: in materials.ts sbFog replace line 83 with `float farD = uFog.z * mix(1.0, 2.6, smoothstep(40.0, 160.0, worldPos.y)); float far = smoothstep(farD * 0.55, farD, dist);` (absolute altitude: low tiles still vanish at 2.6 km, while towers, hills and the Marin/East Bay ridges survive to about 6.8 km as fog-ramp silhouettes). Also set config.fog.density 0.00125 -> 0.0009.
+  betterFix: Add a height-gated fog ceiling inside sbFog, shared by every material, so the far boxes and the real tiles always get identical fog and nothing can invert at the streaming edge. Leave density (0.00125), farFull (2600) and the far-skyline and horizon materials unchanged.
+
+1. src/render/materials.ts:83-84. Replace them with:
+
+```glsl
+float far = smoothstep(uFog.z * 0.55, uFog.z, dist);
+float fog = max(f, far);
+// tall distant shapes (downtown towers, Sutro, the peaks, Marin ridges) stand out of the low fog as Hopper silhouettes; nothing below 50 m changes, so the streaming edge stays buried; off during the opening fog bank
+float stand = smoothstep(50.0, 150.0, worldPos.y) * clamp(2.0 - uFogBank, 0.0, 1.0);
+float cap = mix(uFog.w, 1.0, smoothstep(6500.0, 8800.0, dist)); // fades out before the 9 km far plane: no clip edge
+return clamp(min(fog, mix(1.0, cap, stand)), 0.0, 1.0);
+```
+
+Use abso
+
+[high] The far field has more contrast and detail than the foreground, so it reads as noise and crawls
+  file: src/world/buildingMaterial.ts:229-237 (roof ramp switching), 118-128 + 159-206 (windows with no distance LOD)
+  REAL=True FIXSOUND=False
+  fix: (a) Roofs, buildingMaterial.ts:230-232: keep one ramp and express the patchwork as light offsets that the fog can compress: `ramp = GREY_LIGHT; lo = roofKind < 0.55 ? -0.06 : roofKind < 0.8 ? -0.24 : 0.04; lo += tone;`. Use the same for ROOF_SLOPE (line 237): GREY_LIGHT with lo -0.28 instead of ROOF_DARK. (b) Window LOD: at the top of main() (before any branch, so derivatives stay valid) add `float mpp = length(fwidth(vFacade));`. After the window block add `if (mpp > 0.45) { if (glass > 0.5) lo -= 0.08; glass = 0.0; trimMask = 0.0; }` (hard switch: windows smaller than about 2 px become their average tone, with no dither). Add `fwidth`-based belt-course removal at mpp > 0.7.
+  betterFix: The fix has two parts: (a) roofs on one ramp, with offsets that keep the current near-field look, and (b) a window LOD decided per building, placed beyond the aim range, with no per-pixel residue.
+
+(a) Roofs, src/world/buildingMaterial.ts:229-237. Keep the single-ramp idea, so fog can compress the patchwork, but re-fit the offsets so the near field looks the same as today:
+`ramp = GREY_LIGHT; lo = (roofKind < 0.55 ? -0.06 : roofKind < 0.8 ? -0.34 : 0.0) + tone;`
+For ROOF_SLOPE (line 237): `ramp = GREY_LIGHT; lo = -0.36 + tone * 0.5;`
+
+Check of the numbers:
+- Lit dark roof: light 0.42, GREY_LIGHT3 #626d78. Today it is ROOF_DARK6 #58626c.
+- Sloped roof: sun side about 0.51 (step 3/4), shade side about 0.14 (GREY_LIGHT1 #36404b). Today they are #58626c and #2a323c.
+- In the fog: at fog 0.5 (mix factor 0.73) the dark and pale roofs end up 0.5 step apart, against about 90 luminance today. The
+
+[high] Fog handover and sky are drawn with dithered 'zipper' bands that reshuffle every frame
+  file: src/render/PixelPipeline.ts:592-596 & 608 (fog band) and 502-504 & 523-528 (sky)
+  REAL=True FIXSOUND=False
+  fix: Fog, lines 592-596/608: replace with a value-continuous hard switch: `bool fogged = fog > 0.62; float silL = mix(light - 0.14, sl, smoothstep(0.62, 1.0, fog));` (`light` is the post-aerial value from line 577; -0.14, about one step, matches FOG step k to GREY_LIGHT step k+1), and `if (fogged) col = pal(RAMP_FOG, rampStep(silL, 0.5));` with no Bayer. Sky: line 528 `skyColor(dir, bayer4(p))` (screen-anchored), and inside skyColor use hard bands: line 504 `rampStepW(skyLight(dir), d, 0.0)` and line 502 `w > 0.56 ? RAMP_SKY_WARM : RAMP_FOG`. Flat Hopper sky bands, nothing left to crawl.
+  betterFix: src/render/PixelPipeline.ts, resolve shader. Each change below costs a few ALU ops and no extra fetches, so iPhone performance is unaffected.
+
+(1) SKY, line 528: change `vec3 sc = skyColor(dir, d);` to `vec3 sc = skyColor(dir, bayer4(p));`. The dither is then anchored to the screen, like the gradient it dithers, so the dots stop sliding; band and dots now only share the existing ≤1 px sub-pixel sawtooth. Keep rampStepW(..., 0.09) and the warm-band dither (no hard bands). Keep d2 for the sky halo test, since halos belong to world objects.
+Optional, to also remove the sawtooth: write `outColor = vec4(sc, 0.0)` for sky. In UPSCALE_FS, when the shifted texel and the texel at floor(gl_FragCoord.xy / uScale + vec2(2.0)) both have alpha < 0.5, use the unshifted one. This only works if the resolve target keeps alpha.
+
+(2) FOG handover, value-matched by luminance. FOG ramp luminance is close to l
+
+[high] Painted facades read as plaid confetti, not Painted Ladies, so level 3 has nowhere left to escalate
+  file: src/world/buildingMaterial.ts:247-260 (trim/bay/gable hues), 220-227 (window trim frames), 297-305 (stained glass)
+  REAL=True FIXSOUND=False
+  fix: Level < 2.5 only (keep the riot for L3): line 247 `trimHue = mod(seed,3.0) < 2.0 ? -1.0 : hue;` and in the trim branch use the body ramp at lo +0.24 when trimHue == hue (white trim on 2/3 of houses, tone-on-tone on 1/3, never hue+3). Lines 258-259: bay = body with lo += 0.06, gable = body with lo -= 0.04. Line 221: skip the per-window frame (`if (level < 2.5) trimMask = 0.0` before the belt-course test, so only floor belts and cornices stay). Lines 302-305: `accent = mod(seed,2.0) < 1.0 ? 1.0 : 5.0;` (adjacent hue) and `glow = level > 2.5 ? 0.38 : 0.12;`. Target under 30% adjacent-pixel changes on L1 facades.
+  betterFix: Keep the finding's direction, gate it on paint state instead of `level`, and keep window contrast.
+
+All changes are in src/world/buildingMaterial.ts:
+
+1. Add a belt-course mask so grey keeps its window frames:
+   - Line 211: after `float trimMask = 0.0;` add `float beltMask = 0.0;`.
+   - Line 224: change to `if (v > 0.0 && fract(v / fh) * fh < 0.32) { trimMask = 1.0; beltMask = 1.0; }`.
+   - Do NOT touch line 221. Grey and the unflooded parts of painted houses stay as they are.
+
+2. Make the painted branch calm at L1-2, around lines 258-260:
+   ```
+   bool calm = level < 2.5;
+   if (part == BAY)   { if (calm) lo += 0.05; else ramp = hueRamp(hue + 1.0); }
+   if (part == GABLE) { if (!calm) ramp = hueRamp(hue + 2.0); }
+   if (trimMask > 0.5 && (!calm || beltMask > 0.5)) { ...existing trim color... }
+   ```
+   This keeps belts and cornices at L1-2, drops the sub-pixel per-window frames, and 
+
+[high] The money shot is hidden: the street sign springs up over the impact and covers the bloom, even at level 3
+  file: src/main.ts:245 and 251-255 (showSign at the primary's bloom, 4.5 m in front of the facade); src/fx/StreetSign.ts (depth pulled toward the camera); src/game/Splat.ts:219-226, 249-262 (target and spill selection)
+  REAL=True FIXSOUND=False
+  fix: main.ts showSign: (1) delay the sign until the cascade has finished: queue it for `(total-1)*config.splat.cascadeStep + 0.6` s after the primary blooms, by passing order/total through `primary` or using a small timer. (2) Offset it along the street, beside the painted row: `const along = Math.sqrt(ref.area)*0.5 + 7; const side = Math.sign((ref.cx-flight.x)*-flight.fz + (ref.cz-flight.z)*flight.fx) || 1; gx += -f.nz*along*side; gz += f.nx*along*side;`. (3) Set signTune.holdGreen 2.2 -> 1.4. Splat.ts: in pick(), prefer refs with roofY-baseY >= 6 and area >= 40 inside the snap radius. For spill, only accept neighbors whose frontOf normal has dot > 0.8 with the primary's and that sit within 4 m 
+  betterFix: The aim is for the sign to stand beside the finished painted row, not over the impact.
+
+**1. Delay the sign (game clock).**
+- In `src/game/Splat.ts` `update()`, change the call to `if (s.order === 0) this.fx.primary(s.ref, s.hue, s.total);` and add `total` to `SplatFx.primary`.
+- In `src/main.ts`, queue the sign instead of showing it:
+  - `primary: (ref, hue, total) => pendingSigns.push({ ref, hue, at: simTime + (total - 1) * config.splat.cascadeStep + config.bloom.popDuration })`
+  - That is 0.85 s for a 5-building cascade.
+- In the loop right after `splatter.update(dt, simTime)`, show anything due: `for (let i = pendingSigns.length - 1; i >= 0; i--) if (simTime >= pendingSigns[i].at) { showSign(pendingSigns[i].ref, pendingSigns[i].hue); pendingSigns.splice(i, 1); }`.
+- `audio.signPop()` stays inside `showSign`, so it moves with the sign.
+
+**2. Stand the sign past the end of the painted
+
+[high] The hero doesn't read: its outline uses its own ramp so it camouflages against paint, and the one eye is never on screen
+  file: src/render/PixelPipeline.ts:589 (silhouette = step-2 of the surface's own ramp); src/main.ts (no eye cue); src/bus/BusModel.ts (surfaceId 0.731)
+  REAL=True FIXSOUND=False
+  fix: (1) Hero ink outline, PixelPipeline.ts RESOLVE_FS near line 589: `bool hero = abs(a.b - 0.731) < 0.002; if (hero && edgeDark > 0.75) { ramp = ${Ramp.INK}.0; step = 2.0; }` (applied before `col = pal(ramp, step)`). (2) Eye light pool, main.ts: a second decal like dropShadow (CircleGeometry, depthWrite false, polygonOffset) placed at `flight.x + flight.fx*24, city.obstacleAt(...)+0.3, flight.z + flight.fz*24`, scaled `(2.4, 1, 5.0) * (0.35 + 0.65*pose.eye)`, writing `sbWrite(Ramp.SKY_WARM, r > 0.65 ? 0.74 : 0.88, fog, 0.18, up, 0.96, 0.5)`, so the squint and wide-eye read from behind. Optional: in busShape.ts rear (lines 331-339), shrink the rear windows to 0.5 of the width so the rear face re
+  betterFix: (1) In src/render/PixelPipeline.ts RESOLVE_FS, detect the hero by ramp, not surfaceId: BUS_YELLOW (ramp 14) is used only by the bus (grep shows only busShape.ts uses it). Right after line 591 (the outline step chain) and before line 597 `vec3 col = pal(ramp, step);`, add:
+`bool heroEdge = edgeDark > 0.75 && abs(ramp - ${Ramp.BUS_YELLOW}.0) < 0.5; if (heroEdge) step = 1.0;`
+This gives plum #5e2232, contrast 4.6-8.7 against every paint hue, in-ramp and warm. If the producer prefers a sticker look, use `ramp = ${Ramp.INK}.0; step = 2.0;` instead.
+Then exclude the edge from the halo rewrite at line 603: `if (!heroEdge && glow < 0.05 && hAmt > 0.11 && hAmt * 1.1 > d2) {`. Cost: one compare per pixel.
+
+(2) Express the eye with something that extends past the bus's screen footprint: a forward headlight beam instead of a ground pool.
+- **Geometry:** in main.ts, one mesh parented to bus.root at b
+
+[medium-unverified] Two blobs trail the hero in every frame: a white ping-pong-ball exhaust puff and a black-hole drop shadow with a screen-door halo
+  file: src/main.ts:431 (puff ramp defaults to FOG), src/fx/Particles.ts:116-121 (puffSize, puffLight) and the FRAG puff dither discard; src/main.ts:51-54 & 384 (drop shadow)
+  fix: Puff: main.ts:431 `particles.puff(puffPos, puffVel, Ramp.GREY)`. fxTune.puffLight 0.02 -> -0.3 (GREY step about 4, #56616c), puffSize 1.1 -> 0.75, puffGrow 1.5 -> 2.2. In FRAG remove `if (bayer4(...) > vB.y) discard;` and instead shrink in VERT with `size *= keep;`. Drop shadow: remove the halo (`if (r > 0.62 && !checker) discard;` -> `if (r > 0.85) discard;`), write `${Ramp.GREY}.0` with light `0.26 + 0.06*uReady` (≈#2e3843), and set line 384 `const sz = 3.8 * (...)` so it is about bus width.
+
+[medium-unverified] The Golden Gate should read International Orange (muted) even in the grey world
+  file: src/world/Bridges.ts:88-89 (G = Ramp.GREY, GL = Ramp.GREY_LIGHT for the Golden Gate); src/render/palette.ts (add a ramp)
+  fix: palette.ts: `Ramp.BRIDGE_ORANGE: 20` with steps ['#24121f','#3d1828','#5e2131','#842c38','#a8393c','#c0503f','#cf7058','#dd9a80'] (hue 317° -> 17°: shadows go rose/plum, never brown; luminance 0.09-0.65). In makeGoldenGate: `const G = Ramp.BRIDGE_ORANGE; const GL = Ramp.BRIDGE_ORANGE;`. Use lo +0.1 for cables and suspenders. Keep the piers and anchorages on GREY_LIGHT (concrete). Leave the Bay Bridge grey. If it competes with the bus, cap its top step to 5 via lo -0.08.
+
+[medium-unverified] The opening's water is a dark void, and the waterline is a hard dark-to-bright edge instead of melting into the fog
+  file: src/world/terrainMaterial.ts:155 (water light); src/render/palette.ts:57 (WATER ramp)
+  fix: terrainMaterial.ts:155 `float light = 0.24 + 0.7 * fres;` (fres = pow(1-|v.y|, 4) already). palette.ts WATER steps 6-7: '#576879','#6f7f8f' -> '#8794a0','#a9b3bc' (luminance 0.57 and 0.70, near FOG steps 3-4), keeping steps 0-5. Fog's value-continuous handover (#4) then removes the checker at the waterline.
+
+[medium-unverified] Tree crowns shimmer because their smooth analytic light dithers across every lobe
+  file: src/world/props/trees.ts:403 (light from sbLight with smooth per-pixel normals and noise)
+  fix: trees.ts after line 403: `light = (floor(light * 7.0) + 0.25) / 7.0;`. This snaps to a step's lower quarter: neighbors match inside a band and rampStep's t stays 0 at band edges, so no dither anywhere. The clump noise (uClump) already makes the band boundaries irregular and leafy. Apply the same to the trunk branch.
+
+[medium-unverified] One-pixel features (bridge cables, suspenders, poles) come out beaded or drop out
+  file: src/render/PixelPipeline.ts:550-556 (silhouette test); src/world/Bridges.ts:143 (suspenders 0.7 m, every 32 m) and 132-134 (cables 1.8 m)
+  fix: RESOLVE_FS: record per-direction silhouettes `bool sil[4]` in the loop and after it: `if ((sil[0] && sil[1]) || (sil[2] && sil[3])) edgeDark = 0.0;` (a thin feature with background on both sides keeps its own color). Bridges.ts:143: suspender size 0.7 -> 1.2 m, spacing `spanL / 32` -> `spanL / 48`, lo 0.02 -> -0.06 (lower contrast against the fog, so residual crawl is invisible).
+
+######## FEEL
+
+[critical] The aim glint is usually not the building you hit: it strobes at speed, is up to 0.1 s stale, and is lost when the thumb lifts to tap
+  file: src/main.ts:399-406 (aim timer + uTarget), src/main.ts:278-286 (onTap), src/game/Splat.ts:45-51 (pick)
+  REAL=True FIXSOUND=False
+  fix: In main.ts, keep a sticky target, update it every frame instead of every 0.1 s (pick is a hash lookup), freeze it while a lifted thumb is tapping, and fire at it:
+```ts
+let aimRef: BuildingRef | null = null, latchUntil = 0, wasDrag = false;
+const keep = (r: BuildingRef | null, ax: number, az: number) => !!r && Math.hypot(r.cx - ax, r.cz - az) <= config.splat.snapRadius + 0.5 * Math.sqrt(r.area) && (r.cx - flight.x) * flight.fx + (r.cz - flight.z) * flight.fz > 30;
+// in frame(), replacing the aimTimer block:
+if (wasDrag && !dragging) latchUntil = simTime + 0.35; // thumb lifted to tap: freeze the cue
+wasDrag = dragging;
+const [ax, az] = aimPoint();
+if (flight.fullness >= 1 && !flight.barfing
+  betterFix: Do three separate things. Don't use one wide sticky radius for all of it.
+
+**(1) Fire at exactly the building that is glinting, and pass the building itself, not its centroid.**
+
+In `src/game/Splat.ts`:
+```ts
+barf(x: number, z: number, primary: BuildingRef | null = this.pick(x, z))
+```
+Drop the `const primary = this.pick(x, z)` line. Default parameters can use `this` in a method.
+
+**(2) In `src/main.ts`, pick every frame and drop the 0.1 s `aimTimer`.** `pick()` is one hash lookup over a 40 m radius, cheaper than the existing `buildingsNear(...,90)` call per frame. Add a small hold that also lets go when the target leaves a narrow cone ahead of the nose, so it never lags a turn:
+```ts
+let aimRef: BuildingRef | null = null, latchRef: BuildingRef | null = null, latchUntil = 0, wasDrag = false;
+const inCone = (r: BuildingRef) => {
+  const dx = r.cx - flight.x, dz = r.cz - flight.z;
+  const 
+
+[high] The hit does not read: the 2 hit-stop frames freeze a frame where nothing visible has happened, and the stream hides the splash
+  file: src/game/Splat.ts:103-117 (impact + bloomTime), src/fx/Particles.ts:44 (halfWidth1 7.5), :101/:107 (splashOut 7, roofRadius 4.2), src/game/CameraRig.ts:23-24 (barfTilt, shake never written)
+  REAL=True FIXSOUND=False
+  fix: 1. Pre-roll the primary bloom so the frozen frames already show color. In Splatter.update use `bloomTime: s.order === 0 ? now - 0.15 : now`; at floodSpeed 55 m/s that is about 8 m of facade already flooded, and the pop squash is mid-frame.
+2. Add an impact flash. Add `uFlash: { value: -1 }` next to uTarget in buildingMaterial.ts and set it to the primary index for 0.05 s in fx.impact. In the shader: `if (abs(bIdx - uFlash) < 0.5) { lo = 1.0; glow = max(glow, 0.8); }`.
+3. Clear the stream after the hit. In Particles.updateEmitter multiply rate by 0.3 once `(a - e.start) > e.travel`, and set fxTune.halfWidth1 7.5 to 4.5.
+4. Make the primary's splash bigger: main.ts impact strength 1.5 to 2.5, 
+  betterFix: 1. Fix the one-frame paint latency. In src/main.ts, move `splatter.update(dt, simTime);` from line 424 to just before `city.update(focus, renderer, dt);` at line 411. Alternatively, add `city.paint.flush(renderer, 0)` right after it. The impact frame then shows the hit, and the 2 hit-stop frames hold it.
+
+2. Give the flood a head start without touching the squash pop. In buildingMaterial.ts:148, use `float flood = uBloom.w * max(tb, 0.0) + 6.0;`. At tb = 0 the roof and the top 2-6 m (drip is 0-4 m) are already painted, and the -18% squash stays on the frozen frames. Keep `bloomTime = now`.
+
+3. Add a primary-only white flash that rides the painted band, with no CPU timer:
+   - In buildingMaterial.ts, add `uFlash: { value: -1 }` next to uTarget.
+   - In main.ts, set `paintUniforms.uFlash.value = ref.index` inside the `primary` fx callback.
+   - In the shader, just before `float fog = sbFog
+
+[high] Taps miss skyscrapers they hit dead-on, and a miss plays a fake hit (early splash, impact sound, hit-stop, sometimes off-screen)
+  file: src/game/Splat.ts:45-51 (pick), :60-65 (miss branch), src/main.ts:247 (miss splash)
+  REAL=True FIXSOUND=False
+  fix: pick(): run the contains pass over a wider radius, and snap by approximate edge distance instead of centroid distance:
+```ts
+const near = city.buildingsNear(x, z, S.snapRadius + 80, this.near);
+for (const n of near) if (city.contains(n.ref, x, z)) return n.ref;
+for (const n of near) if (n.d - 0.5 * Math.sqrt(n.ref.area) <= S.snapRadius) return n.ref;
+```
+If that still returns null, march the line of fire: in main.ts retry `aimPoint` at range x 0.8, 1.2, 0.6 and 1.4 before calling barf.
+
+On a true miss:
+- No hit-stop and no splatImpact.
+- Schedule the miss splash at tImpact (not at the tap), using nextHue.
+- Refund part of the belly, e.g. a Flight flag that sets fullness to 0.5 instead of 0 w
+  betterFix: 1) Snap by true distance from the aim point to each footprint, not by centroid distance.
+
+- In City.ts add `edgeDistance(ref, x, z)`:
+  - Return 0 when `contains(ref, x, z)`.
+  - Otherwise return the minimum point-to-segment distance over the footprint ring (`ref.tile.xz`, from `vertStart[local]` to `vertStart[local+1]`).
+- In addTile, precompute `ref.rad` = the largest distance from the centroid to any vertex. Use it as a safe cull.
+
+2) Replace pick() in Splat.ts:
+
+```ts
+pick(x, z) {
+  const S = config.splat, c = this.city;
+  const near = c.buildingsNear(x, z, S.snapRadius + 110, this.near);
+  let best = null, bd = S.snapRadius;
+  for (const n of near) {
+    if (n.d - n.ref.rad > bd) continue;
+    if (n.ref.roofY - n.ref.baseY < 2.5) continue;
+    const d = c.edgeDistance(n.ref, x, z);
+    if (d < bd) { bd = d; best = n.ref; if (d === 0) break; }
+  }
+  return best;
+}
+```
+
+- snapRadius n
+
+[high] A mid-turn breath whips the bus about 100 degrees and the ribbon curls like a garden hose
+  file: src/game/Flight.ts:102-107 (vScale from the stalled speed, no yaw restraint while barfing)
+  REAL=True FIXSOUND=False
+  fix: In Flight:
+- Add `private preBarfSpeed = 0`, set `this.preBarfSpeed = this.speed` in tryBarf().
+- Use `const vScale = clamp(Math.sqrt(F.cruiseSpeed / Math.max(this.barfing ? this.preBarfSpeed : this.speed, 4)), 0.55, 1.35);`
+- Add `if (this.barfing) yawTarget *= 0.35;` before the avoid() term (expose 0.35 as config.splat.breathSteer).
+
+Optionally freeze e.door in Particles.updateEmitter for the first `travel` seconds, so the launch direction stays the tap-time heading.
+  betterFix: Do this in three parts. Parts B and C come from `/tmp/claude-0/review-feel-refute/combo.py`, a replica of the yaw, speed and stall loop.
+
+**A) Flight.ts: keep the pre-breath speed for steering.** This part of the finding is sound, keep it.
+- Add `private preBarfSpeed = config.flight.cruiseSpeed`.
+- In `tryBarf()` set `this.preBarfSpeed = this.speed`.
+- Line 102 becomes `const vScale = clamp(Math.sqrt(F.cruiseSpeed / Math.max(this.barfing ? this.preBarfSpeed : this.speed, 4)), 0.55, 1.35);`
+
+**B) Flight.ts: a short plant instead of the flat x0.35.** Hold until impact, then ease out. Insert after line 103 and before the `avoid()` term, so tower avoidance keeps full strength:
+```ts
+if (this.barfing) {
+  const u = clamp((this.barfT - S.impactDelay) / S.breathSteerEase, 0, 1);
+  yawTarget *= S.breathSteer + (1 - S.breathSteer) * u * u * (3 - 2 * u);
+}
+```
+Add `breathSteer: 0.5` and `breathSte
+
+[high] Release is mistimed: the belly UI stays FULL for the whole breath, and an unplanned 6.5 m hop rears the bus 27 degrees, making it grow 1.8x on screen
+  file: src/game/Flight.ts:86 (heavy = 0 while barfing), :72-80 (fullness emptied at barfT >= duration), :154 (pitch), src/main.ts:370 (pose.fullness)
+  REAL=True FIXSOUND=False
+  fix: Flight.step:
+```ts
+const drain = this.barfT >= 0 ? 1 - smoothstep(0.09, S.duration, this.barfT) : 1;
+const heavy = this.fullness * drain;
+```
+main.ts: `pose.fullness = flight.barfing ? 1 - smoothstep(0.09, config.splat.duration, flight.barfT) : flight.fullness;` (add a small smoothstep helper).
+
+Pitch:
+- `clamp(Math.atan2(this.vy, Math.max(this.speed, 8)) * 0.45, -0.15, 0.22)`.
+- Replace the held +0.16 with an impulse at the blast (`pitchVel += 2.2`, damped spring at 3 Hz, damping 0.6), and cap the total at 0.32.
+- Expected on-screen length range is about 0.75x-1.4x (computed, not run).
+  betterFix: Keep the reviewer's belly drain. Replace the pitch changes with an authored rear-up envelope. In that envelope, the self-lift during the breath is not allowed to add to pitch.
+
+**`src/game/Flight.ts`**
+
+Add a local helper:
+```ts
+const ss = (a: number, b: number, x: number) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+```
+
+Lines 85-86:
+```ts
+const drain = this.barfT >= 0 ? 1 - ss(0.09, S.duration, this.barfT) : 1;
+const heavy = this.fullness * drain;                   // the 6.5 m lift eases in over the breath, no step
+const wallowK = this.barfT >= 0 ? 0 : this.fullness;   // the wallow still cuts on the tap frame
+```
+
+Line 151: use `* F.wallowAmp * wallowK` instead of `* heavy`.
+
+Lines 154-155:
+```ts
+const climb = clamp(Math.atan2(this.vy, Math.max(this.speed, 24)) * 0.8, -0.35, 0.4); // was max(speed, 8): stops stall/hover amplification
+const rear = this
+
+[high] Bank is saturated: 30% stick banks exactly as hard as full stick, and letting go throws a counter-roll of up to 128% of the turn bank
+  file: src/game/Flight.ts:149-152, src/config.ts (bankPerAccel 0.06, maxBank 0.62, bankDamping 0.42)
+  REAL=True FIXSOUND=True
+  fix: In Flight.ts:150:
+```ts
+let bankTarget = F.maxBank * Math.tanh((lateral * 0.012 + this.yawRate * 0.18) / F.maxBank);
+```
+- The yaw-rate term keeps hover carving banked (about 0.38 at full stick, hand-computed).
+- Set config.flight.bankDamping 0.42 to 0.55 (about 13% overshoot) and replace bankPerAccel with `bankPerAccel: 0.012` plus `bankPerYaw: 0.18`.
+- Only the tanh(0.014) variant above was measured; the combined formula is hand-computed.
+  betterFix: Use the same bounded law, but raise its ceiling and keep more of the springiness. Measured in /tmp/claude-0/review-feel-refute3/sim/sim3.ts as "tunedA".
+
+In src/game/Flight.ts:150 replace the clamp line with:
+```ts
+let bankTarget = F.maxBank * Math.tanh((lateral * F.bankPerAccel + this.yawRate * F.bankPerYaw) / F.maxBank);
+```
+
+In src/config.ts `flight`:
+- bankPerAccel: 0.06 -> 0.014
+- add `bankPerYaw: 0.2` (rad of bank per rad/s of yaw; keeps slow hover carves banked)
+- maxBank: 0.62 -> 0.70 (now a soft asymptote, never reached)
+- bankDamping: 0.42 -> 0.48 (not 0.55, so a little straighten-out wobble survives)
+
+Measured results with the 0.07 full-belly wallow on:
+
+| Case | Current | tunedA |
+|---|---|---|
+| Cruise steady bank at 10% / 30% / 60% / 100% stick | 0.20 / 0.59 / 0.59 / 0.59 | 0.05 / 0.21 / 0.40 / 0.55 |
+| Surge steady bank at 10% / 30% / 50% / 0.7 diagonal | 0.41 / 0.59 / 0.5
+
+[medium-unverified] No anticipation: the blast leaves on the tap frame, the squash peaks 6 frames later, the gulp reaches the mouth 0.26 s after the jet, and the squash spring depends on frame rate
+  file: src/main.ts:363-367 (squash spring, not substepped), src/main.ts:278-286 (barf at tap), src/bus/BusModel.ts:71 (gulpTime 0.26)
+  fix: 1. Same-frame squash: on a successful tryBarf in onTap set `pose.squash = 0.8; squashV = 0;`.
+2. Inhale window: add `config.splat.inhale = 0.09`. In onTap only latch the aim; in frame(), call `splatter.barf(latchedX, latchedZ)` once `flight.barfT >= inhale`.
+3. Set `impactDelay` 0.42 to 0.33, so first impact is still 0.42 s after the tap and the geyser's travelTime becomes 0.33.
+4. Set BusModel `gulpTime` 0.26 to 0.09, so the gulp hits the mouth as the jet leaves.
+5. Substep the squash spring li
+
+[medium-unverified] The jet accelerates away from the mouth and then brakes to a dead stop over the roof, an ease-in-out lob instead of a blast
+  file: src/fx/Particles.ts:878-886 (launch: forwardOut 95, inherit 0.7, doorUp 12) and :950-954 (s[12..14] arrival: inherit*0.25, -arrive 34)
+  fix: In emitRibbon, after px/pz are chosen, derive both tangents from the chord (s[4..6] and s[12..14] are velocities, D = v x tt):
+```ts
+const dx = px - mx, dz = pz - mz;
+s[4] = (dx / tt) * 1.5; s[5] = 6 + ((P1.y - my) / tt) * 0.2; s[6] = (dz / tt) * 1.5;  // D0 = 1.5 x chord
+s[12] = (dx / tt) * 0.8; s[13] = -12; s[14] = (dz / tt) * 0.8;                      // still moving at impact
+```
+- Cruise profile becomes 276 m/s out of the mouth, 170 at mid, 147 at impact. The minimum is 0.79 x chord/T at s 
+
+[medium-unverified] The bus flies through park canopies, gable ridges and painted L2/L3 rooftop domes, because none of them are in the flight's obstacle field
+  file: src/main.ts:359 (flight.step(..., city)), tools/bake/bake.py:577-604 (obst = ground + buffered roofY only), src/world/props/trees.ts:79 (treeHeight exported, never used)
+  fix: In main.ts, wrap the WorldQuery passed to flight.step:
+- **Trees:** in city.onTile, rasterize `t.y + treeHeight(t.kind, t.size)` over the crown radius (street 3.5 x size, park 5.9 x treeScale) into a per-tile 32x32 Float32Array (8 m cells). Delete it in onTileUnload.
+- **Sprouts:** in sprouts.set(), raise those cells to roofY + 4 at level 2 and roofY + 6.9 x cScale + 1 at level 3.
+- Pass `const world = { obstacleAt: (x, z, y) => Math.max(city.obstacleAt(x, z, y), treeTop(x, z), sproutTop(x, z)),
+
+[medium-unverified] Altitude lurches: the climb spring is driven by a target that steps by whole roof heights, giving velocity jumps of up to 33 m/s in one frame
+  file: src/game/Flight.ts:113-141 (look-ahead max then critically damped climb, a = w^2 x (target - y) - 2w x vy)
+  fix: In Flight:
+```ts
+if (this.altS === undefined) this.altS = tgt;
+this.altS = tgt > this.altS ? this.altS + (tgt - this.altS) * (1 - Math.exp(-2 * Math.PI * 1.2 * dt)) : tgt;
+this.targetAlt = this.altS;
+```
+- Cap climb acceleration except near the floor: `a = Math.min(a, 40 + 20 * Math.max(0, hardFloor + 6 - this.y))`. This cap was not measured.
+- To pay back the lost margin, lengthen the look-ahead with speed: `altitudeLookAhead` 1.6 to `1.6 + 0.4 * this.surge`.
+- Add `pitch` rate limiting (1.2 ra
+
+[medium-unverified] The glint itself is nearly invisible: +0.06 light is half a ramp step that flat walls snap away, and the sweep is slower than a typical dwell
+  file: src/world/buildingMaterial.ts:287-290
+  fix: Add `uTargetT` (time the current target was acquired) next to uTarget and set it whenever aimRef changes. Then:
+```glsl
+float sweep = fract((uTime - uTargetT) * 2.0 - (vWorldPos.y - vBld.z) * 0.035);
+lo += 0.13 + 0.2 * smoothstep(0.55, 1.0, sweep);
+```
+That is a guaranteed one-step lift plus a 0.5 s sweep that starts immediately. Also add `glow = max(glow, 0.3)` on the target's roof cap, so it picks up the pipeline's dithered halo and stays readable at surge distance.
+
+######## PERF
+
+[critical] The shadow pass draws full-detail LOD0 buildings: half of all triangles go into a 0.5 m-texel depth map
+  file: src/render/PixelPipeline.ts:293-300 (overrideMaterial depth pass) + src/world/City.ts:377 (LOD0 mesh.layers.enable(SHADOW_LAYER))
+  REAL=True FIXSOUND=False
+  fix: 1) Add MeshOptions.lod = 2 ('caster') in BuildingMesher.meshBuilding, as in variant.diff. It keeps walls with segLen 999 (2 tris each), parapet back walls, gable roofs, bay prisms without bottoms and chimneys. It skips cornices, belt courses, bay caps, parapet caps, gable undersides, stoops and clutter.
+2) In regionLoader.loadRegion, when req.lod===0, also run meshBuildingTile(building,{lod:2}) and post only position (Float32x3) and index (Uint16) for it.
+3) In City.makeBuildingMesh, do not enable SHADOW_LAYER on LOD0 meshes. Add a position-only caster Mesh with caster.layers.set(SHADOW_LAYER), and dispose it on LOD upgrade and on unload.
+4) Set this.depthMat.colorWrite = false; the 4 MB RGB
+  betterFix: 1) Keep the caster proxy (`MeshOptions.lod = 2` in `BuildingMesher.meshBuilding`, plus `regionLoader` posting position and Uint16 index, plus a SHADOW_LAYER-only caster mesh in `City`), with these changes:
+   - Choose parts by the bias rule. Skip any part whose top is less than 1.2 m above its receiving surface (0.0009 * 2999 m * sin(0.44) = 1.15 m): cornices, belt courses, bay caps, parapet caps, gable undersides, and clutter with h < 1.2 m.
+   - Keep clutter prisms whose top is above roofY + 1.2 m (TOWER/COMMERCIAL/FLATS HVAC and water tanks). Pass `bottom = false` for every prism in the caster.
+   - Keeping that clutter costs at most about 0.38M tris city-wide, roughly +10% on 3.61M.
+   - Do not ship the variant's segLen 8 / party-wall change to the main LOD0 mesh as part of this fix. It changes the painted wobble and needs its own review by the beauty lens.
+
+2) Do not compute bounds 
+
+[high] Sign, rooftop-garden and tree-LOD1 shaders compile mid-play, right at the first splat and the first level-2 splat
+  file: src/main.ts:297-299 (no prewarm before the loop); src/fx/StreetSign.ts:290 (shadowMesh uses an overridable MeshBasicMaterial); src/world/props/sprouts.ts / src/world/props/trees.ts:535 (mat1)
+  REAL=True FIXSOUND=False
+  fix: Prewarm in main.ts after `await farP`, while the fog bank still covers everything:
+- Call signs.show({...}) at the bus position.
+- Call sprouts.set(dummyIndex, city.roofRect(firstRef), 0, 3, -100).
+- Force one TreeField through setLod(1).
+- Fire a one-particle geyser.
+- Run `await renderer.compileAsync(scene, camera)` (it uses KHR_parallel_shader_compile where present), then one real pipeline.render(scene). The real render is needed to compile the shadow-pass override variants, because renderer.compile never sees overrideMaterial.
+- Undo the dummies afterwards.
+Give StreetSigns.shadowMesh its own `new THREE.MeshDepthMaterial()` with `allowOverride = false`, the same way trees and sprouts alr
+  betterFix: 1) src/fx/StreetSign.ts:290: replace `new THREE.MeshBasicMaterial()` with `const sd = new THREE.MeshDepthMaterial(); sd.allowOverride = false;` and pass `sd` to the shadowMesh InstancedMesh. The sign keeps its own instanced depth program, so there is no override switching back and forth with the Mesh buildings and no per-frame getParameters.
+
+2) src/main.ts, right after `globals.uFogBank.value = config.fog.openingBank; rig.openingPull = 140;` and before the loop starts, do one real render with everything forced visible. No dummy sign is needed.
+```ts
+{ // prewarm under the fog bank: link + first draw, including the sun-pass variants
+  const DUMMY = -7; // L1-L3 sprout types; this cell is always culled afterwards
+  sprouts.set(DUMMY, { cx: -60000, cz: -60000, y: -1000, w: 24, d: 24, yaw: 0 }, 0, 3, -100);
+  rig.update(camera, focus, flight, 0);
+  const saved: Array<[THREE.Object3D, boolea
+
+[high] Far terrain, horizon and skyline are drawn every frame with no culling: 205k tris, mostly hidden or out of view
+  file: src/world/City.ts:224 (farTerrain.frustumCulled = false), :173 (horizon), :265 (skyline InstancedMesh)
+  REAL=True FIXSOUND=False
+  fix: In City.buildFar:
+- Skip any quad whose 4 corners are water (cls===2).
+- Emit one Mesh per region-aligned chunk (16x16 cells of the step-2 grid = 1024 m = regionSize*tileSize) with a Uint16 index, computeBoundingSphere() and frustumCulled=true.
+- Keep a Map<regionKey, Mesh>. Set chunk.visible=false in onRegion when a region loads and back to true in unloadRegion.
+In buildHorizon, use the same 1024 m chunking with frustum culling. Split the skyline InstancedMesh per region so it is culled the same way. Expected saving: 175k-200k tris off the main pass at hover, and still more than 150k at surge, for about +10 draw calls.
+  betterFix: All changes are in `src/world/City.ts`.
+
+1. **`buildFar` (far terrain):**
+   - Skip every quad whose 4 corners are water, i.e. `f.cls[...] === 2` at a, b, c and d. This removes 51,916 tris with no visual change and no change in draw calls.
+   - Split the rest into chunks aligned to world coordinates: `key = floor(qx/2048), floor(qz/2048)`, using each quad's world-space corner, not its grid index. That gives 60 non-water meshes.
+   - Each chunk gets its own copies of the position, normal, ramp, lightOffset and glow arrays (at most 33x33 vertices) and a `Uint16Array` index. Normals stay identical across chunk borders, so there are no seams.
+   - Set `g.computeBoundingSphere()`, `frustumCulled=true`, `matrixAutoUpdate=false`, and `matrixWorldAutoUpdate=false` (three r186 supports it). Set the same two matrix flags on `farGroup`.
+   - Share one `makeRampMaterial({vertexRamp:true, shadowMul:1
+
+[high] LOD is chosen per 1 km region and LOD0 never downgrades, so full detail far exceeds the view and memory grows during flight
+  file: src/world/City.ts:48 (DETAIL_RADIUS = 650, per region), :290-297 (upgrade-only path)
+  REAL=True FIXSOUND=True
+  fix: 1) Downgrade with hysteresis in City.update: when regionLod===0 and the region is more than DETAIL_RADIUS*1.6 (about 1040 m) away, re-request lod 1 (2-3 MB, about 5 ms). Better: have the worker always send the LOD1 arrays as well (10% of the size) so the swap back needs no fetch.
+2) Move LOD to tiles. Give RegionRequest a `lods: Uint8Array(16)`. Have the worker keep the parsed BuildingTiles of the last ~8 regions (footprints are small) and answer {type:'tile', tx, tz, lod} by re-meshing just that tile. Request:
+- LOD0 for tiles whose centre is under 350 m from the focus (drop back at 450 m);
+- a mid LOD for tiles under 700 m, using the lod-2 caster mesh from the first finding but with full a
+  betterFix: 1) Downgrade without refetching. In City.update, after the upgrade loop (src/world/City.ts:297), add:
+```ts
+for (const key of this.regionsLoaded) {
+  if (this.regionLod.get(key) !== 0 || this.isPending(key)) continue;
+  const d = rectDist(key);
+  if (d > DETAIL_RADIUS * 1.6) want.push([rx, rz, d + 10000]);
+}
+```
+The +10000 sorts downgrades behind every fresh load, and the request loop then picks lod 1 because d >= DETAIL_RADIUS. Do not refetch the bundle for this. Add a worker message `{type:'remesh', id, lod, tiles:[{tx, tz, building: lt.buildingData}]}`. The footprints are already on the main thread, and a structured clone of them is tens of KB. The worker then calls meshBuildingTile directly, so there is no fetch, inflate or terrain parse, and no worker cache. Simulated effect on the 180 s downtown loop: memory at end 240 to 114 MB, peak 255 to 156 MB, LOD0 regions 14 to 4.
+
+2) Free t
+
+[high] Streaming does 12-45 ms of main-thread work per region and uploads about 21 MB in a single frame
+  file: src/world/City.ts:330-440 (onRegion/addTile), :373 (computeBoundingSphere), :427 (makeHeightGrid on the main thread); src/main.ts:96-103 (TreeField built in onTile)
+  REAL=True FIXSOUND=False
+  fix: Do all per-tile preparation in the worker:
+- the bounding sphere (send centre and radius from the footprint extents plus max roofY + 6 m, then set g.boundingSphere directly);
+- the makeHeightGrid positions, normals and Uint16 index;
+- the tree instance matrices (Float32Array(16*n)) and the tree obstacle stamping.
+In City, queue incoming TileResults and drain the queue in update() until 2 ms or 2 tiles per frame, whichever comes first. That is about 2.6 MB of upload per frame instead of 21 MB. Raise the upgrade trigger at City.ts:296 from DETAIL_RADIUS*0.8 to *1.2 so upgrades finish before the region is close.
+  betterFix: 1. Bounding sphere in the worker (src/world/regionLoader.ts, after meshBuildingTile):
+   - Loop over mesh.position for min/max and set `mesh.sphere = new Float32Array([cx, cy, cz, halfDiagonal + 6])`.
+   - In City.makeBuildingMesh, replace `g.computeBoundingSphere()` and the `+= 6` with `g.boundingSphere = new THREE.Sphere(new THREE.Vector3(s[0], s[1], s[2]), s[3])`.
+   - Saves 5-7 ms of main-thread time per LOD0 upgrade.
+   - Optionally build makeHeightGrid's pos/nrm/idx in the worker too, as a Uint16 index (33x33 = 1089 vertices), and drop its computeBoundingBox/computeBoundingSphere in favour of a sphere from the tile extents and min/max height.
+
+2. Shrink what gets uploaded (BuildingMesher.ts finish()):
+   - Emit `index` as a Uint16Array when vertexCount < 65536. The largest LOD0 tile in all 196 regions is 35,759 vertices. This saves about 1.9 MB per dense region.
+   - Pad the normal
+
+[high] Walls are split every 3.2 m for a 1-pixel wobble, including party walls nobody can see: one third of LOD0 triangles
+  file: src/world/BuildingMesher.ts:322 (segLen 3.2), :102-131 (wall subdivision)
+  REAL=True FIXSOUND=False
+  fix: In meshBuilding, change segLen from 3.2 to 8 for FRONT and SIDE walls (rows stay 2 when h > 7 m, since the vertical wavelength is 19 m). In meshBuildingTile, build an edge hash keyed numerically by the midpoint quantized to 0.6 m. For a side edge that has an anti-parallel neighbour edge (|dot| > 0.95), pass segLen 999 (code in /tmp/claude-0/review-perf/variant.diff). Next step: drop cornice and belt prism bottoms (prism(..., bottom=false) at lines 390 and 394), because the camera is always above the eaves outside the opening, and drop CLUTTER on tiles beyond about 300 m.
+  betterFix: Keep segLen 8, but give party walls one column and two rows instead of 999.
+
+src/world/BuildingMesher.ts:322: build the party-wall edge hash in meshBuildingTile, as in variant.diff (numeric key from the edge midpoint quantized to 0.6 m, 3x3 cell search, |dot| > 0.95, j !== i). Then call:
+`const party = !isFront && lod === 0 && sharedEdge(i, a, b);`
+`B.wall(..., lod === 1 ? 999 : party ? 98 : 8);`
+
+Why 98 works: at line 109, cols = round(L/98) clamps to 1. At line 111, rows stays 2 because 98 < 99. Each party wall is then 4 tris, and its corner edges carry the same three heights (bottom, middle, top) as the two-row front and back walls, so the wobble opens no T-junction crack. Its top edge matches the roof chord exactly.
+
+Measured offline: 11,867,463 LOD0 tris (-30.2%, against -31.5% for the 999 version). It costs 235k more tris across the whole city and removes the roughly 1-pixel corner
+
+[medium-unverified] 51-byte building vertices, Metal-unfriendly formats, 32-bit indices and 26 varyings; geometry kept twice in memory
+  file: src/world/BuildingMesher.ts:54-63,155-166; src/world/City.ts:365-372; src/world/buildingMaterial.ts:41-49
+  fix: 1) Per-building data texture: RGBA32F, 1024 x 2·ceil(141156/1024). Texel A = (cx, baseY, cz, roofY), texel B = (frontW, arch, seed, 0). Write it per tile with texSubImage2D, the same way PaintState does. Each vertex then carries a single `in uint aIdx` (Uint32 with attr.gpuType = THREE.IntType).
+2) Store normals as Int8x4 normalized with w padded to 0. Make aMeta Uint8x4 normalized=true and decode with floor(aMeta*255.0+0.5).
+3) Use Uint16Array indices for building and terrain tiles, falling bac
+
+[medium-unverified] At devicePixelRatio 3 the canvas allocates an unused 12 MB depth buffer and runs a 3M-pixel upscale every frame
+  file: src/render/PixelPipeline.ts:62-70 (depth: true), :341-348 (upscale blit)
+  fix: Pass `depth: false` in the WebGLRenderer options: it saves 12 MB and the per-frame depth clear and store. Better: size the canvas backing store to the resolved low-res image (W x H including MARGIN) with a CSS size of W·scale/dpr, and let the compositor scale it up through the existing CSS `image-rendering: pixelated`. Apply the sub-pixel remainder as canvas.style.transform = translate(-(MARGIN+subPixel.x)·scale/dpr px, …), on the same 1-device-pixel grid as today. That removes the upscale pass 
+
+[low-unverified] About 100 KB of garbage per frame (V8): string tile keys, tuple returns and per-frame object literals
+  file: src/world/City.ts:486-489 (tileAt template-string key), :271-317 (update: keys, split/map, want[]); src/game/Flight.ts:106,152,162; src/main.ts:437; src/render/PixelPipeline.ts:241-242,268-282
+  fix: - Key the tiles Map by number: (tx+4096)*8192+(tz+4096), as the building hash already does.
+- Make spring() write into a reusable {x, v} object, or use Spring instances.
+- In avoid(), loop with `for (let side = -1; side <= 1; side += 2)`.
+- In City.update, store region centres per key when the region loads instead of key.split(',').map(Number), and reuse the `want` array.
+- Pool the {ref, d} objects in buildingsNear and call the hum query at 10 Hz instead of every frame.
+- Hoist right/up/center/
+
+######## CORRECTNESS
+
+[high] pick() cannot hit large buildings: aiming inside a footprint more than 40 m from its centroid misses or paints a neighbor
+  file: src/game/Splat.ts:45-52 (pick), src/world/City.ts:404-407 and 557-572 (centroid-only hash / buildingsNear)
+  REAL=True FIXSOUND=True
+  fix: Add an area index in City. In addTile, compute each ring's bbox and push the ref into every HASH_CELL cell its bbox overlaps, in a new areaHash Map<number, BuildingRef[]>, and remove it there in unloadRegion. Add buildingAt(x, z): loop areaHash.get(hashKey(x, z)), return the containing ref with the highest roofY, else null. In Splatter.pick, do `const hit = city.buildingAt(x, z); if (hit) return hit;` before the nearest-within-snapRadius fallback. In barf, when the aim point is inside the primary, set impactPos and the first geyser target to (x, primary.roofY + 0.3, z) instead of the vertex-mean centroid, and spill with buildingsNear(x, z, S.spillRadius) around the aim point, so big primarie
+  betterFix: Keep their design, with these specifics.
+
+1. City.ts:
+   - Add `private areaHash = new Map<number, BuildingRef[]>()`.
+   - Add bbox fields `x0, x1, z0, z1` to BuildingRef. Fill them in the vertex loop addTile already runs, so unloadRegion doesn't recompute them.
+   - In addTile, push the ref into every cell from floor(x0/HASH_CELL)..floor(x1/HASH_CELL) by floor(z0/HASH_CELL)..floor(z1/HASH_CELL), using the same key formula as hashKey.
+   - In unloadRegion, splice it out of the same cells, next to the existing hash removal.
+   - Add:
+     ```
+     buildingAt(x,z){ let best=null; for (const r of this.areaHash.get(this.hashKey(x,z)) ?? []) if ((!best || r.roofY > best.roofY) && this.contains(r,x,z)) best = r; return best; }
+     ```
+
+2. Splatter.pick:
+   ```
+   const hit = city.buildingAt(x,z); if (hit) return hit;
+   const near = city.buildingsNear(x, z, S.snapRadius, this.near);
+   return
+
+[high] The glinting building is not the one the tap hits (uTarget refreshes every 0.1 s; barf re-picks at tap time)
+  file: src/main.ts:399-406 (aimTimer=0.1) and 278-285 (onTap -> splatter.barf(aimPoint()))
+  REAL=True FIXSOUND=True
+  fix: Keep one source of truth. In frame(), compute it every frame without the timer: `aimRef = flight.fullness >= 1 && !flight.barfing ? splatter.pick(ax, az) : null; paintUniforms.uTarget.value = aimRef ? aimRef.index : -1;` (pick costs about 9 hash cells). In onTap, call `splatter.barf(ax, az, aimRef)`. Change the signature to `barf(x, z, forced: BuildingRef | null = null)` with `const primary = forced ?? this.pick(x, z)`. Because onTap fires between frames, forced is exactly the building the player saw glinting.
+  betterFix: Keep the reviewer's single source of truth and forced ref, but make the target sticky and use the same threshold as tryBarf.
+
+1) src/game/Splat.ts: give barf a forced target and add a sticky pick.
+```ts
+barf(x: number, z: number, forced: BuildingRef | null = null) {
+  const S = config.splat; const city = this.city;
+  const primary = forced ?? this.pick(x, z);
+  ...
+}
+/** Keep the current target while the aim stays within snap range (stops the glint jumping lot to lot). */
+pickSticky(prev: BuildingRef | null, x: number, z: number): BuildingRef | null {
+  if (prev && (this.city.contains(prev, x, z) || Math.hypot(prev.cx - x, prev.cz - z) <= config.splat.snapRadius)) return prev;
+  return this.pick(x, z);
+}
+```
+
+2) src/main.ts: replace `let aimTimer = 0;` (line 309) with `let aimRef: BuildingRef | null = null;`. Replace the timer block (lines 399-406) with code that runs every frame:
+```ts
+
+
+[medium-unverified] Drop shadow is buried 2.5 m inside the roof whenever the bus is over a building
+  file: src/main.ts:381-383 (below = max(groundUnder, top - 3.0)); obstacle source tools/bake/bake.py:602
+  fix: Place the shadow on the roof when over a footprint: `const roof = city.buildingAt(flight.x, flight.z); const below = roof ? roof.roofY + 0.05 : Math.max(flight.groundUnder, top - 3.0);` (buildingAt comes from finding 1). Keep the -3 only for tree and ground cells, where obst is the tree.y + 16*size canopy estimate from City.addTile. Also fix the tiles.ts comment to 'roofs dilated 3 m horizontally'.
+
+[medium-unverified] Miss path: splash fires at tap time (0.42 s before the jet arrives), then a second full-strength impact with the previous hue, with hit-stop
+  file: src/game/Splat.ts:60-65 and 103-109
+  fix: Add `private impactMiss = false`. In the miss branch, set `this.impactHue = this.nextHue; this.impactMiss = true;` and do NOT call fx.miss there. In update(): `if (this.impactAt >= 0 && this.t >= this.impactAt) { this.impactAt = -1; if (this.impactMiss) { this.impactMiss = false; this.fx.miss(this.impactPos); } else { this.fx.impact(this.impactPos, this.impactHue, 1); this.fx.hitStop(config.splat.hitStopFrames); } }`. Set impactMiss = false in the hit branch.
+
+[medium-unverified] Fog-clearing density map grows every time a painted region streams back in
+  file: src/main.ts:104-110 (onTile -> bumpPaint per painted ref) and 249 (onPainted)
+  fix: Bump each building once per session per paint event: `const fogBumped = new Set<number>(); const bumpOnce = (r: BuildingRef) => { if (fogBumped.has(r.stableId)) return; fogBumped.add(r.stableId); bumpPaint(r.cx, r.cz, 40); };`. Use bumpOnce in onTile. In onPainted, call bumpOnce for level-1 blooms and bumpPaint(…, 15) only for escalations if extra clearing per level is wanted. Never bump again in onTile for refs already in the set.
+
+[medium-unverified] Saved paint is keyed by bake rank with no bake epoch, so the next re-bake reassigns players' paint to unrelated buildings
+  file: tools/bake/bake.py:373-376 (stable = rank in srckey order); src/world/PaintState.ts:11 (STORE_KEY 'strugglebus.paint.v1'), 53-66 (register applies saves blindly)
+  fix: In bake.py, derive ids from the source: iterate buildings in srckey order with `sid = hash32(a_id, k)`, and while sid is taken use `sid = (sid + 1) & 0xFFFFFFFF`. That is deterministic and collision-free, and a change to one row only moves that row's lots. Also write `manifest['paintEpoch'] = hashlib.sha1(b''.join(struct.pack('<qiI', *b['srckey'], b['stable']) for b in sorted(buildings, key=lambda b: b['srckey']))).hexdigest()[:8]`. Pass it to `new PaintState(count, manifest.paintEpoch)` and sto
+
+[medium-unverified] Painted trees revert to grey after a tile reload or page reload (buildings and gardens restore, trees do not)
+  file: src/main.ts:96-112 (onTile restores fog + sprouts only), 235-243 (the only TreeField.setPaint caller)
+  fix: In onTile, after creating tf, re-apply tree paint from painted refs: `for (const ref of refs) { const p = city.paint.get(ref.index); if (p.level < 0.5) continue; const reach = Math.sqrt(ref.area) * 0.5 + 9; for (let i = 0; i < list.length; i++) { const t = list[i]; if (Math.abs(t.x - ref.cx) < reach && Math.abs(t.z - ref.cz) < reach) tf.setPaint(i, p.color, p.level, -100); } }`. To cover trees near a tile edge whose house is in the neighbor tile, also query `city.buildingsNear(t.x, t.z, 40)` onc
+
+[low-unverified] Failed LOD upgrades bypass retryAt: one fetch per frame (and both pending slots) while offline
+  file: src/world/City.ts:291-297 (upgrade loop has no retryAt check), 335-340
+  fix: In the upgrade loop add `if ((this.retryAt.get(key) ?? 0) > performance.now()) continue;` after the isPending check. Optionally make the backoff exponential: `const n = (this.failCount.get(key) ?? 0) + 1; this.failCount.set(key, n); this.retryAt.set(key, performance.now() + Math.min(30000, 3000 * 2 ** (n - 1)));` and clear failCount on success.
+
+[low-unverified] lat/lon to local conversion disagrees with the bake's tmerc by 10-33 m (?lat/?lon start, barfAtLatLon QA hook)
+  file: src/main.ts:148-152 and 470-475
+  fix: Replace both conversions with one helper (verified against pyproj: 0.00 m worst error over SF): `function llToLocal(lat: number, lon: number, [lat0, lon0]: [number, number]): [number, number] { const a = 6378137, e2 = 0.00669437999014, r = Math.PI / 180; const p = lat * r, p0 = lat0 * r, dl = (lon - lon0) * r, pm = (p + p0) / 2; const N = a / Math.sqrt(1 - e2 * Math.sin(p) ** 2); const M = (a * (1 - e2)) / Math.pow(1 - e2 * Math.sin(pm) ** 2, 1.5); return [dl * N * Math.cos(p), -((p - p0) * M + 
+
+[low-unverified] Paint is only written to storage by a 0.8 s countdown inside rAF; backgrounding right after a splat loses it
+  file: src/world/PaintState.ts:110-114 (only persist path), src/main.ts (no pagehide/visibilitychange hook)
+  fix: In boot(): `const save = () => city.paint.persist(); document.addEventListener('visibilitychange', () => { if (document.hidden) save(); }); window.addEventListener('pagehide', save);`. Optionally also call persist() directly from Splatter.update when the last scheduled bloom of a plan lands.
+
+[low-unverified] Breath and exhaust source positions use last frame's bus matrix (1 frame stale)
+  file: src/main.ts:221 (mouthWorld via bus.root.localToWorld) and 375-378, 429
+  fix: Right after `bus.root.position.set(flight.x, flight.y, flight.z);` add `bus.root.updateMatrixWorld(true);`. One matrix per frame, so the cost is negligible.

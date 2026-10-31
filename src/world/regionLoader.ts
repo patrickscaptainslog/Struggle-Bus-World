@@ -9,17 +9,21 @@ export interface RegionRequest {
   url: string;
   classN: number;
   lod: 0 | 1;
+  /** the city is San Francisco (the mesher's icons and HIDDEN tables apply) */
+  sf: boolean;
 }
 
 export interface TileResult {
   tx: number;
   tz: number;
   building: ReturnType<typeof parseBuildingTile> | null;
-  mesh: ReturnType<typeof meshBuildingTile> | null;
+  mesh: MeshArrays | null;
   /** bounds of mesh (center xyz, radius), computed here so the main thread never walks the vertices */
   sphere: Float32Array | null;
   /** full-detail tiles: the sun pass's caster proxy (a subset of mesh: its bounds are mesh's) */
   caster: CasterArrays | null;
+  /** the tile's collapsed growth elements (GROWN_STRIDE floats each; kept when a coarse region merges its meshes) */
+  grown: Float32Array | null;
   terrain: ReturnType<typeof parseTerrainTile> | null;
   /** the tile's ground grid, built here (4 m for detailed regions, 8 m for coarse ones) */
   grid: GridArrays | null;
@@ -81,8 +85,6 @@ export interface RegionResponse {
   /** coarse (lod 1) regions: every tile's buildings merged into one mesh (tiles[].mesh is then null) */
   merged?: MeshArrays | null;
   mergedSphere?: Float32Array | null;
-  /** where each tile's triangles end in merged's index (tiles order; -1 = no buildings): an upgrade swaps tile by tile */
-  mergedEnds?: Int32Array | null;
   error?: string;
 }
 
@@ -102,12 +104,14 @@ export function sphereOf(p: Float32Array): Float32Array {
   return new Float32Array([(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, Math.hypot(x1 - x0, y1 - y0, z1 - z0) / 2]);
 }
 
-/** Concatenate building meshes (one draw for a whole coarse region). */
+/** Concatenate building meshes (one draw for a whole coarse region): every mesh's solid triangles, then
+ * every mesh's collapsed growth, so the merged mesh's solidIndexCount still splits them. */
 function mergeMeshes(list: MeshArrays[]): MeshArrays {
-  let vc = 0, ic = 0;
+  let vc = 0, ic = 0, sc = 0;
   for (const m of list) {
     vc += m.vertexCount;
     ic += m.index.length;
+    sc += m.solidIndexCount;
   }
   const out: MeshArrays = {
     position: new Float32Array(vc * 3),
@@ -118,8 +122,9 @@ function mergeMeshes(list: MeshArrays[]): MeshArrays {
     bld2: new Float32Array(vc * 2),
     index: vc < 65535 ? new Uint16Array(ic) : new Uint32Array(ic),
     vertexCount: vc,
+    solidIndexCount: sc,
   };
-  let vo = 0, io = 0;
+  let vo = 0, io = 0, go = sc;
   for (const m of list) {
     out.position.set(m.position, vo * 3);
     out.normal.set(m.normal, vo * 3);
@@ -127,9 +132,11 @@ function mergeMeshes(list: MeshArrays[]): MeshArrays {
     out.meta.set(m.meta, vo * 4);
     out.bld.set(m.bld, vo * 4);
     out.bld2.set(m.bld2, vo * 2);
-    for (let i = 0; i < m.index.length; i++) out.index[io + i] = m.index[i] + vo;
+    for (let i = 0; i < m.solidIndexCount; i++) out.index[io + i] = m.index[i] + vo;
+    for (let i = m.solidIndexCount; i < m.index.length; i++) out.index[go + i - m.solidIndexCount] = m.index[i] + vo;
     vo += m.vertexCount;
-    io += m.index.length;
+    io += m.solidIndexCount;
+    go += m.index.length - m.solidIndexCount;
   }
   return out;
 }
@@ -163,46 +170,43 @@ export async function loadRegion(req: RegionRequest, transfer: Transferable[] = 
       let mesh = null;
       let sphere = null;
       let caster = null;
+      let grown = null;
       let terrain = null;
       let grid = null;
       if (bLen > 0) {
         building = parseBuildingTile(buf.slice(bOff, bOff + bLen));
-        mesh = meshBuildingTile(building, { lod: req.lod });
+        ({ mesh, grown } = meshBuildingTile(building, { lod: req.lod, sf: req.sf }));
+        // (hand everything over: a copied message deserializes on the main thread, a long task outside any frame)
+        const b = building;
+        for (const a of [b.index, b.stableId, b.vertStart, b.baseY, b.roofY, b.groundY, b.arch, b.floors, b.front, b.front2, b.hood, b.seed, b.tier, b.taper, b.xz]) transfer.push(a.buffer as ArrayBuffer);
         if (req.lod === 0) {
           sphere = sphereOf(mesh.position);
-          caster = meshCasterTile(building);
+          caster = meshCasterTile(building, req.sf);
           transfer.push(mesh.position.buffer, mesh.normal.buffer, mesh.facade.buffer, mesh.meta.buffer, mesh.bld.buffer, mesh.bld2.buffer, mesh.index.buffer, caster.position.buffer, caster.index.buffer);
         }
+        transfer.push(grown.buffer);
       }
       if (tLen > 0) {
         terrain = parseTerrainTile(buf.slice(tOff, tOff + tLen), req.classN);
         grid = heightGrid(terrain.heights, terrain.n, terrain.cell, terrain.originX, terrain.originZ, req.lod === 0 ? 2 : 4);
         transfer.push(terrain.heights.buffer, terrain.obst.buffer, terrain.cls.buffer, grid.position.buffer, grid.normal.buffer, grid.index.buffer);
       }
-      tiles.push({ tx, tz, building, mesh, sphere, caster, terrain, grid });
+      tiles.push({ tx, tz, building, mesh, sphere, caster, grown, terrain, grid });
     }
     let merged: MeshArrays | null = null;
     let mergedSphere: Float32Array | null = null;
-    let mergedEnds: Int32Array | null = null;
     if (req.lod === 1) {
       // coarse regions draw as one mesh: far away (or high up) per-tile culling isn't worth 16 draws
       const list: MeshArrays[] = [];
-      mergedEnds = new Int32Array(tiles.length).fill(-1);
-      let end = 0;
-      for (let i = 0; i < tiles.length; i++) {
-        const t = tiles[i];
-        if (t.mesh && t.mesh.vertexCount > 0) {
-          list.push(t.mesh);
-          end += t.mesh.index.length;
-          mergedEnds[i] = end;
-        }
+      for (const t of tiles) {
+        if (t.mesh && t.mesh.vertexCount > 0) list.push(t.mesh);
         t.mesh = null;
       }
       merged = mergeMeshes(list);
       mergedSphere = sphereOf(merged.position);
       transfer.push(merged.position.buffer, merged.normal.buffer, merged.facade.buffer, merged.meta.buffer, merged.bld.buffer, merged.bld2.buffer, merged.index.buffer);
     }
-    return { type: 'region', id: req.id, tiles, lod: req.lod, merged, mergedSphere, mergedEnds };
+    return { type: 'region', id: req.id, tiles, lod: req.lod, merged, mergedSphere };
   } catch (e) {
     return { type: 'region', id: req.id, tiles: [], lod: req.lod, error: String(e) };
   }

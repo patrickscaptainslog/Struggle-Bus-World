@@ -1,0 +1,466 @@
+{
+ "holdThreshold": 0.3,
+ "rows": [
+  {
+   "mode": "touch",
+   "gesture": "canvas: quick tap (120 ms, still)",
+   "events": [
+    "tap@120ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "canvas: slow tap (260 ms, still)",
+   "events": [
+    "tap@260ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "canvas: slow tap 440 ms, still",
+   "events": [
+    "tap@440ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "canvas: 460 ms, still (past stillTapMs)",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "canvas: hold 1 s still (bungee at neutral, no charge)",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "canvas: drag 80 px (steer)",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "canvas: quick flick 20 px in 90 ms (still a tap)",
+   "events": [
+    "tap@90ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "canvas: steer + second finger tap",
+   "events": [
+    "tap@300ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "canvas: two fingers tapped together",
+   "events": [
+    "tap@120ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "canvas: two fingers, both lift at 400 ms",
+   "events": [
+    "tap@400ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "canvas: two fingers, both lift at 470 ms",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "canvas: second finger on a still first, past 230 ms",
+   "events": [
+    "tap@300ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "canvas: three fingers (tuner)",
+   "events": [
+    "tuner@0ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "button: tap (150 ms)",
+   "events": [
+    "tap@150ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "button: 280 ms (just under holdThreshold)",
+   "events": [
+    "tap@280ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "button: hold 600 ms",
+   "events": [
+    "chargeStart@317ms",
+    "chargeEnd(0.60s)@600ms"
+   ],
+   "maxChargeHeld": 0.58,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "button: hold 10 s (full charge)",
+   "events": [
+    "chargeStart@317ms",
+    "chargeEnd(10.00s)@10000ms"
+   ],
+   "maxChargeHeld": 9.99,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "button: hold 1.5 s then slide off",
+   "events": [
+    "chargeStart@317ms",
+    "chargeEnd(1.50s, cancelled)@1500ms"
+   ],
+   "maxChargeHeld": 1.49,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "button: 200 ms then slide off (no tap)",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "button hold 1 s while steering with the other thumb",
+   "events": [
+    "chargeStart@518ms",
+    "chargeEnd(1.00s)@1200ms"
+   ],
+   "maxChargeHeld": 0.99,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "lever: tap up / tap down / hold",
+   "events": [
+    "turbo+1@0ms",
+    "turbo-1@200ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "turboHeld": true
+  },
+  {
+   "mode": "touch",
+   "gesture": "adopt: 14 px, lift inside the quick window (one splat)",
+   "events": [
+    "tap@90ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "adopt: before the charge, lift later (no splat)",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "adopt: while charging, then lift (one chargeEnd, no tap)",
+   "events": [
+    "chargeStart@317ms",
+    "chargeEnd(1.60s)@1600ms"
+   ],
+   "maxChargeHeld": 1.59,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "adopt: refused while a thumb steers (MEGA keeps its press)",
+   "events": [
+    "tap@360ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "adopt: second finger taps during it",
+   "events": [
+    "chargeStart@317ms",
+    "tap@600ms",
+    "chargeEnd(0.76s)@760ms"
+   ],
+   "maxChargeHeld": 0.75,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "adopt: charging, pointercancel on the lift",
+   "events": [
+    "chargeStart@317ms",
+    "chargeEnd(0.90s, cancelled)@900ms"
+   ],
+   "maxChargeHeld": 0.89,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "adopt: charging, the pointer is dropped (repeat id)",
+   "events": [
+    "chargeStart@317ms",
+    "chargeEnd(0.90s, cancelled)@900ms",
+    "tap@930ms"
+   ],
+   "maxChargeHeld": 0.89,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "touch",
+   "gesture": "hudBlip with no mixer and a thumb down (harmless)",
+   "events": [
+    "tap@100ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "tilt",
+   "gesture": "screen: quick tap (120 ms): tilt keeps flying",
+   "events": [
+    "tap@120ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "tilt",
+   "gesture": "screen: quick tap wandering 22 px in 100 ms (still a tap)",
+   "events": [
+    "tap@100ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "tilt",
+   "gesture": "screen: 280 ms, still",
+   "events": [
+    "tap@280ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "tilt",
+   "gesture": "screen: 440 ms, still",
+   "events": [
+    "tap@440ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "tilt",
+   "gesture": "screen: hold 2 s (clutched, no charge, no splat)",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "tilt",
+   "gesture": "screen: drag 70 px (thumb replaces tilt)",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "tilt",
+   "gesture": "screen: grip at the edge, held 1 s (no clutch)",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "tilt",
+   "gesture": "screen: grip at the edge, then 30 px (a drag)",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "tilt",
+   "gesture": "screen: steer + second finger tap",
+   "events": [
+    "tap@300ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "tilt",
+   "gesture": "screen: two fingers tapped together",
+   "events": [
+    "tap@120ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "tilt",
+   "gesture": "screen: three fingers (tuner)",
+   "events": [
+    "tuner@0ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "tilt",
+   "gesture": "screen: hold 1 s, pointercancel (OS took the touch)",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "tilt",
+   "gesture": "screen: hold 1 s, app loses focus",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "tilt",
+   "gesture": "button: hold 1 s while tilted (charges, tilt flies)",
+   "events": [
+    "chargeStart@317ms",
+    "chargeEnd(1.00s)@1000ms"
+   ],
+   "maxChargeHeld": 0.99,
+   "dragging": true,
+   "turboHeld": false
+  },
+  {
+   "mode": "keyboard",
+   "gesture": "Space tap (100 ms)",
+   "events": [
+    "tap@100ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "keyboard",
+   "gesture": "Space hold 1.5 s (auto-repeat keydowns)",
+   "events": [
+    "chargeStart@317ms",
+    "chargeEnd(1.50s)@1500ms"
+   ],
+   "maxChargeHeld": 1.49,
+   "dragging": false,
+   "turboHeld": false
+  },
+  {
+   "mode": "keyboard",
+   "gesture": "E, Q, Shift held 500 ms",
+   "events": [
+    "turbo+1@0ms",
+    "turbo-1@50ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "turboHeld": true
+  },
+  {
+   "mode": "keyboard",
+   "gesture": "Space hold 1 s, window blur",
+   "events": [
+    "chargeStart@317ms",
+    "chargeEnd(1.00s, cancelled)@1000ms"
+   ],
+   "maxChargeHeld": 0.99,
+   "dragging": false,
+   "turboHeld": false
+  }
+ ]
+}

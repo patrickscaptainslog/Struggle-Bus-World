@@ -1,0 +1,30 @@
+[
+ {
+  "route": "painted-L3-cruise-full",
+  "frames": 330,
+  "clipFrames": 0,
+  "minClearance": 2,
+  "minAt": {
+   "t": 6.55,
+   "x": -1163,
+   "z": -51,
+   "speed": 26,
+   "pitch": -0.04
+  },
+  "hardFloorFrames": 0,
+  "peakVyAccel": 24,
+  "over40ms2_0p1s": 0,
+  "peakPitchRate": 0.19
+ },
+ {
+  "route": "L3-passes(64)",
+  "frames": 9600,
+  "clipFrames": 1405,
+  "minClearance": -7.82,
+  "clippedPasses": 34,
+  "hardFloorFrames": 0,
+  "peakVyAccel": 0,
+  "over40ms2_0p1s": 0,
+  "peakPitchRate": 0
+ }
+]

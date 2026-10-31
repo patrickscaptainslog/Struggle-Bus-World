@@ -1,0 +1,50 @@
+{
+ "near": {
+  "before": {
+   "index": 140962,
+   "cx": 1462.9,
+   "cz": -2252.2,
+   "baseY": 5.4,
+   "roofY": 265.4,
+   "area": 2867,
+   "level": 0,
+   "hue": 0,
+   "bloom": 0
+  },
+  "primary": 12265,
+  "x": 1395.949999999942,
+  "z": -2246.1969422596435,
+  "t": 1.3191,
+  "after": {
+   "index": 140962,
+   "cx": 1462.9,
+   "cz": -2252.2,
+   "baseY": 5.4,
+   "roofY": 265.4,
+   "area": 2867,
+   "level": 1,
+   "hue": 3,
+   "bloom": 1.5
+  }
+ },
+ "perf": {
+  "grey": {
+   "tag": "grey",
+   "frames": 33,
+   "workMedian": 4.4,
+   "workMean": 9.86,
+   "callsMax": 111,
+   "callsMin": 99,
+   "trisMax": 733165
+  },
+  "painted": {
+   "tag": "painted",
+   "frames": 32,
+   "workMedian": 4,
+   "workMean": 10.11,
+   "callsMax": 111,
+   "callsMin": 99,
+   "trisMax": 735213
+  }
+ }
+}

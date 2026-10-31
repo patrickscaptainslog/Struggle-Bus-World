@@ -1,0 +1,17 @@
+Before (the pre-polish main.ts loop replayed by the same harness on the same city data, at a3b3fa2):
+[base] dt=0.0167 taps=200: glint(tap)!=hit primary 21 | glint(lift)!=hit 64/80 | hit without glint 52 | misses 0 | no bloom 3
+[base] altitude taps=54: glint!=hit 17 | lift glint!=hit 16/18 | no glint 1 | misses 0
+[base] pick: FiDi 1420 missed + 55 wrong of 5671 in-footprint aims (26.0 % of roof area), towers > 40 m 1346 / 4564 missed;
+       SoMa 23.7 %, Mission Bay 34.5 %, Dogpatch 24.1 %, Alamo 2.9 %, Sunset 4.7 %
+[base] miss into the bay: geyser@0.000 impact@0.433 hitstop@0.433 (a full hit on nothing), belly after the breath 0.01
+[base] bank cruise-full [0.228,0.62,0.62,0.62] surge-full [0.439,0.62,0.62,0.62] climb [0.145,0.456,0.62,0.62] dive [0.439,0.62,0.62,0.62]
+[base] release {"cruiseFull":{"steady":0.682,"counterRoll":-0.411,"pct":60},"diagonal":{"steady":0.682,"counterRoll":-0.341,"pct":50},"surge":{"steady":0.682,"counterRoll":-0.278,"pct":41}} slalom 0.959
+[base] turnBreath {"headingAtImpactDeg":38.2,"headingOverBreathDeg":99.4} regrab->0.8 0.12
+[base] envelope cruise: size 1,1.11 (on-screen height up to 1.32x) pitchMax 0.476 rise 8.62 m (1.09 m in the first 0.1 s) belly UI 1.00 through the breath
+[base] anticipation: tap-frame squash 1.000; squash at 0.1 / 0.2 s: 30 fps 0.803 / 1.008, 60 fps 0.828 / 0.930, 120 fps 0.841 / 0.911; jet leaves on the tap frame
+[base] jet profile (m/s at s=0,.25,.5,.75,1) cruise 117,253,282,201,34  surge 174,369,410,294,39  altitude250 117,912,1166,868,34
+[base] routes (clip frames / min clearance m / peak climb accel m/s^2):
+  hills-west 41,-1.26,273 | 0,0.19,194 | 0,0.16,1096      twinpeaks 0,2.27,252 | 14,-0.38,304 | 10,-0.83,900
+  downtown 0,3.83,59 | 9,-0.34,2944 | 4,-0.4,1775         buenavista 0,0.94,404 | 0,1.89,706 | 3,-0.1,429
+  ggpark 0,0.15,150 | 11,-0.26,197 | 1,-0.11,206          (cruise | half | surge)
+  L3 passes (64 straight over level-3 roofs): 1405 / 9600 frames inside a garden or crown, min -7.82 m

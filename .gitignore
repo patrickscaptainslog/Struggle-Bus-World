@@ -5,3 +5,9 @@ tools/bake/.cache
 *.local
 shots/tmp
 shots/blast
+tools/feel-sim/.out
+tools/controls-sim/.out
+tools/bake/.data
+.vercel
+.env*
+__pycache__/

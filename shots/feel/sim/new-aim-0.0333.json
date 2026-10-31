@@ -1,0 +1,4082 @@
+[
+ {
+  "place": "alamo",
+  "style": "cruise",
+  "glintChangesPerS": 0.39,
+  "taps": [
+   {
+    "place": "alamo",
+    "style": "cruise",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 35340,
+    "target": 35340,
+    "primary": 35340,
+    "impact": [
+     -1538.7,
+     78.6,
+     -145.1
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "cruise",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": -1,
+    "target": -1,
+    "primary": 35433,
+    "impact": [
+     -1446.1,
+     75.5,
+     -144.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "cruise",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": -1,
+    "target": -1,
+    "primary": -1,
+    "impact": [
+     -1400.5,
+     78.5,
+     -144.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "cruise",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": -1,
+    "target": -1,
+    "primary": -1,
+    "impact": [
+     -1355.1,
+     77.2,
+     -144.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "cruise",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": -1,
+    "target": -1,
+    "primary": 35543,
+    "impact": [
+     -1309.6,
+     76.9,
+     -144.5
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "alamo",
+  "style": "surge",
+  "glintChangesPerS": 1.78,
+  "taps": [
+   {
+    "place": "alamo",
+    "style": "surge",
+    "t": 2.233,
+    "speed": 65.5,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": -1,
+    "glintTap": -1,
+    "target": -1,
+    "primary": -1,
+    "impact": [
+     -1349.9,
+     77.1,
+     -144.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "surge",
+    "t": 4.333,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 35543,
+    "glintTap": 35543,
+    "target": 35543,
+    "primary": 35543,
+    "impact": [
+     -1275.2,
+     76.7,
+     -179.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "surge",
+    "t": 6.433,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 35497,
+    "glintTap": 35497,
+    "target": 35497,
+    "primary": 35497,
+    "impact": [
+     -1174.9,
+     75.9,
+     -149.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "surge",
+    "t": 8.533,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 35516,
+    "glintTap": 35516,
+    "target": 35516,
+    "primary": 35516,
+    "impact": [
+     -1085.2,
+     64.7,
+     -154
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "surge",
+    "t": 10.633,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 35634,
+    "glintTap": 35634,
+    "target": 35634,
+    "primary": 35634,
+    "impact": [
+     -1000.3,
+     66.2,
+     -154.1
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "alamo",
+  "style": "turn",
+  "glintChangesPerS": 3.95,
+  "taps": [
+   {
+    "place": "alamo",
+    "style": "turn",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 35329,
+    "glintTap": 35329,
+    "target": 35329,
+    "primary": 35329,
+    "impact": [
+     -1608,
+     71.6,
+     -27.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "turn",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 39061,
+    "glintTap": 39061,
+    "target": 39061,
+    "primary": 39061,
+    "impact": [
+     -1664.5,
+     70.4,
+     8.9
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "turn",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 39061,
+    "glintTap": 39061,
+    "target": 39061,
+    "primary": 39061,
+    "impact": [
+     -1689.8,
+     70.4,
+     13.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "turn",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 35328,
+    "glintTap": 35328,
+    "target": 35328,
+    "primary": 35328,
+    "impact": [
+     -1759.5,
+     73.7,
+     -18.6
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "turn",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 35211,
+    "glintTap": 35211,
+    "target": 35211,
+    "primary": 35211,
+    "impact": [
+     -1787.4,
+     74.8,
+     -32.6
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "alamo",
+  "style": "turn2",
+  "glintChangesPerS": 2.57,
+  "taps": [
+   {
+    "place": "alamo",
+    "style": "turn2",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": 1.15,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 35326,
+    "target": 35326,
+    "primary": 35326,
+    "impact": [
+     -1683.7,
+     71.6,
+     -36.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "turn2",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 35358,
+    "target": 35358,
+    "primary": 35358,
+    "impact": [
+     -1678.5,
+     72.3,
+     -199.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "turn2",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 35340,
+    "target": 35340,
+    "primary": 35340,
+    "impact": [
+     -1543.5,
+     78.6,
+     -145
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "turn2",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 35324,
+    "target": 35324,
+    "primary": 35324,
+    "impact": [
+     -1649.8,
+     71.9,
+     -30.1
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "turn2",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 35365,
+    "target": 35365,
+    "primary": 35365,
+    "impact": [
+     -1700.9,
+     72.6,
+     -169.7
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "alamo",
+  "style": "slalom",
+  "glintChangesPerS": 3.95,
+  "taps": [
+   {
+    "place": "alamo",
+    "style": "slalom",
+    "t": 2.233,
+    "speed": 55.4,
+    "yawRate": 0.29,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 39062,
+    "target": 39062,
+    "primary": 39062,
+    "impact": [
+     -1531.5,
+     70.7,
+     7.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "slalom",
+    "t": 4.333,
+    "speed": 65.7,
+    "yawRate": -0.53,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 39152,
+    "target": 39152,
+    "primary": 39152,
+    "impact": [
+     -1472.6,
+     67.1,
+     86.4
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "slalom",
+    "t": 6.433,
+    "speed": 65.8,
+    "yawRate": 0.71,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 39135,
+    "target": 39135,
+    "primary": 39135,
+    "impact": [
+     -1398,
+     64.6,
+     137.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "slalom",
+    "t": 8.533,
+    "speed": 65.8,
+    "yawRate": -0.77,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 41316,
+    "target": 41316,
+    "primary": 41316,
+    "impact": [
+     -1415.1,
+     65.7,
+     257.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "alamo",
+    "style": "slalom",
+    "t": 10.633,
+    "speed": 65.8,
+    "yawRate": 0.7,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 41306,
+    "target": 41306,
+    "primary": 41306,
+    "impact": [
+     -1300.7,
+     61.5,
+     294.3
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "noe",
+  "style": "cruise",
+  "glintChangesPerS": 0.99,
+  "taps": [
+   {
+    "place": "noe",
+    "style": "cruise",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 73821,
+    "target": 73821,
+    "primary": 73821,
+    "impact": [
+     -1258.3,
+     69.2,
+     2626.4
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "cruise",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 69283,
+    "target": 69283,
+    "primary": 69283,
+    "impact": [
+     -1263.8,
+     76.7,
+     2550.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "cruise",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 69286,
+    "target": 69286,
+    "primary": 69286,
+    "impact": [
+     -1252.1,
+     79,
+     2544.4
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "cruise",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 69367,
+    "target": 69367,
+    "primary": 69367,
+    "impact": [
+     -1256.9,
+     89.3,
+     2478
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "cruise",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 69368,
+    "target": 69368,
+    "primary": 69368,
+    "impact": [
+     -1260.3,
+     95.9,
+     2412.3
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "noe",
+  "style": "surge",
+  "glintChangesPerS": 1.38,
+  "taps": [
+   {
+    "place": "noe",
+    "style": "surge",
+    "t": 2.233,
+    "speed": 65.5,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 69367,
+    "glintTap": 69367,
+    "target": 69367,
+    "primary": 69367,
+    "impact": [
+     -1256.9,
+     89.3,
+     2478
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "surge",
+    "t": 4.333,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 69368,
+    "glintTap": 69368,
+    "target": 69368,
+    "primary": 69368,
+    "impact": [
+     -1260.3,
+     105.9,
+     2364.3
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "surge",
+    "t": 6.433,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 69348,
+    "glintTap": 69348,
+    "target": 69348,
+    "primary": 69348,
+    "impact": [
+     -1258.4,
+     104.9,
+     2327.1
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "surge",
+    "t": 8.533,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 64964,
+    "glintTap": 64964,
+    "target": 64964,
+    "primary": 64964,
+    "impact": [
+     -1251,
+     106,
+     2230.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "surge",
+    "t": 10.633,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 64887,
+    "glintTap": 64887,
+    "target": 64887,
+    "primary": 64887,
+    "impact": [
+     -1257,
+     107.9,
+     2131.9
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "noe",
+  "style": "turn",
+  "glintChangesPerS": 2.57,
+  "taps": [
+   {
+    "place": "noe",
+    "style": "turn",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 73779,
+    "glintTap": 73779,
+    "target": 73779,
+    "primary": 73779,
+    "impact": [
+     -1140.6,
+     64.8,
+     2719.3
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "turn",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 73787,
+    "glintTap": 73787,
+    "target": 73787,
+    "primary": 73787,
+    "impact": [
+     -1109.5,
+     68.8,
+     2741.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "turn",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 78336,
+    "glintTap": 78336,
+    "target": 78336,
+    "primary": 78336,
+    "impact": [
+     -1104.5,
+     77.5,
+     2825.1
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "turn",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 78336,
+    "glintTap": 78336,
+    "target": 78336,
+    "primary": 78336,
+    "impact": [
+     -1123.5,
+     77.5,
+     2865.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "turn",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 78295,
+    "glintTap": 78295,
+    "target": 78295,
+    "primary": 78295,
+    "impact": [
+     -1150.8,
+     73.3,
+     2894.3
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "noe",
+  "style": "turn2",
+  "glintChangesPerS": 4.14,
+  "taps": [
+   {
+    "place": "noe",
+    "style": "turn2",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": 1.15,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 73741,
+    "target": 73741,
+    "primary": 73741,
+    "impact": [
+     -1166.5,
+     72.1,
+     2765.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "turn2",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 73655,
+    "target": 73655,
+    "primary": 73655,
+    "impact": [
+     -1305.7,
+     78.6,
+     2784.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "turn2",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 73821,
+    "target": 73821,
+    "primary": 73821,
+    "impact": [
+     -1251.1,
+     69.2,
+     2642.1
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "turn2",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 73739,
+    "target": 73739,
+    "primary": 73739,
+    "impact": [
+     -1154.1,
+     71.1,
+     2767.1
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "turn2",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 78169,
+    "target": 78169,
+    "primary": 78169,
+    "impact": [
+     -1296.9,
+     73.3,
+     2816.3
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "noe",
+  "style": "slalom",
+  "glintChangesPerS": 3.36,
+  "taps": [
+   {
+    "place": "noe",
+    "style": "slalom",
+    "t": 2.233,
+    "speed": 55.4,
+    "yawRate": 0.29,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 73823,
+    "target": 73823,
+    "primary": 73823,
+    "impact": [
+     -1110.3,
+     67.2,
+     2629.6
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "slalom",
+    "t": 4.333,
+    "speed": 65.7,
+    "yawRate": -0.53,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 73825,
+    "target": 73825,
+    "primary": 73825,
+    "impact": [
+     -1037.6,
+     66.6,
+     2577.6
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "slalom",
+    "t": 6.433,
+    "speed": 65.8,
+    "yawRate": 0.71,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 69392,
+    "target": 69392,
+    "primary": 69392,
+    "impact": [
+     -986.4,
+     72.2,
+     2525.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "slalom",
+    "t": 8.533,
+    "speed": 65.8,
+    "yawRate": -0.77,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 69401,
+    "target": 69401,
+    "primary": 69401,
+    "impact": [
+     -865.7,
+     65.4,
+     2516.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "noe",
+    "style": "slalom",
+    "t": 10.633,
+    "speed": 65.8,
+    "yawRate": 0.7,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 69464,
+    "target": 69464,
+    "primary": 69464,
+    "impact": [
+     -842.7,
+     76.3,
+     2432.7
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "bernal",
+  "style": "cruise",
+  "glintChangesPerS": 1.18,
+  "taps": [
+   {
+    "place": "bernal",
+    "style": "cruise",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 91743,
+    "target": 91743,
+    "primary": 91743,
+    "impact": [
+     299.7,
+     94.8,
+     3798.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "cruise",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 91743,
+    "target": 91743,
+    "primary": 91743,
+    "impact": [
+     301,
+     94.8,
+     3820.4
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "cruise",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 95618,
+    "target": 95618,
+    "primary": 95618,
+    "impact": [
+     299.7,
+     85.3,
+     3889.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "cruise",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 95611,
+    "target": 95611,
+    "primary": 95611,
+    "impact": [
+     299.7,
+     75.2,
+     3938.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "cruise",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 95611,
+    "target": 95611,
+    "primary": 95611,
+    "impact": [
+     298.6,
+     75.2,
+     3968.9
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "bernal",
+  "style": "surge",
+  "glintChangesPerS": 1.18,
+  "taps": [
+   {
+    "place": "bernal",
+    "style": "surge",
+    "t": 2.233,
+    "speed": 65.5,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 95618,
+    "glintTap": 95618,
+    "target": 95618,
+    "primary": 95618,
+    "impact": [
+     301.8,
+     85.3,
+     3890.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "surge",
+    "t": 4.333,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 95611,
+    "glintTap": 95611,
+    "target": 95611,
+    "primary": 95611,
+    "impact": [
+     300.7,
+     75.2,
+     3969.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "surge",
+    "t": 6.433,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 95593,
+    "glintTap": 95593,
+    "target": 95593,
+    "primary": 95593,
+    "impact": [
+     289.4,
+     68.2,
+     4065.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "surge",
+    "t": 8.533,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 99172,
+    "glintTap": 99172,
+    "target": 99172,
+    "primary": 99172,
+    "impact": [
+     293.1,
+     57.4,
+     4173.4
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "surge",
+    "t": 10.633,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 99151,
+    "glintTap": 99151,
+    "target": 99151,
+    "primary": 99151,
+    "impact": [
+     288,
+     56.5,
+     4269.3
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "bernal",
+  "style": "turn",
+  "glintChangesPerS": 2.76,
+  "taps": [
+   {
+    "place": "bernal",
+    "style": "turn",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 91679,
+    "glintTap": 91679,
+    "target": 91679,
+    "primary": 91679,
+    "impact": [
+     186.5,
+     105.1,
+     3696.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "turn",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 91660,
+    "glintTap": 91660,
+    "target": 91660,
+    "primary": 91660,
+    "impact": [
+     154.3,
+     98.9,
+     3638
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "turn",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 91670,
+    "glintTap": 91670,
+    "target": 91670,
+    "primary": 91670,
+    "impact": [
+     148.3,
+     100.8,
+     3595.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "turn",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 87661,
+    "glintTap": 87661,
+    "target": 87661,
+    "primary": 87661,
+    "impact": [
+     156,
+     92.9,
+     3527.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "turn",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 87615,
+    "glintTap": 87615,
+    "target": 87615,
+    "primary": 87615,
+    "impact": [
+     200.6,
+     99.9,
+     3488.9
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "bernal",
+  "style": "turn2",
+  "glintChangesPerS": 3.75,
+  "taps": [
+   {
+    "place": "bernal",
+    "style": "turn2",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": 1.15,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": -1,
+    "target": -1,
+    "primary": 91656,
+    "impact": [
+     204.5,
+     111.4,
+     3604.1
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "turn2",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 91729,
+    "target": 91729,
+    "primary": 91729,
+    "impact": [
+     374.3,
+     121,
+     3645.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "turn2",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 91743,
+    "target": 91743,
+    "primary": 91743,
+    "impact": [
+     293.9,
+     94.8,
+     3807.9
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "turn2",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 91650,
+    "target": 91650,
+    "primary": 91650,
+    "impact": [
+     180.8,
+     105.7,
+     3654.6
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "turn2",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": -1,
+    "target": -1,
+    "primary": 87710,
+    "impact": [
+     325,
+     130.4,
+     3582.7
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "bernal",
+  "style": "slalom",
+  "glintChangesPerS": 3.16,
+  "taps": [
+   {
+    "place": "bernal",
+    "style": "slalom",
+    "t": 2.233,
+    "speed": 55.4,
+    "yawRate": 0.29,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 91630,
+    "target": 91630,
+    "primary": 91630,
+    "impact": [
+     178.9,
+     93.3,
+     3767.3
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "slalom",
+    "t": 4.333,
+    "speed": 65.7,
+    "yawRate": -0.53,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 91621,
+    "target": 91621,
+    "primary": 91621,
+    "impact": [
+     59.2,
+     80.5,
+     3815.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "slalom",
+    "t": 6.433,
+    "speed": 65.8,
+    "yawRate": 0.71,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 95570,
+    "target": 95570,
+    "primary": 95570,
+    "impact": [
+     13.4,
+     81.6,
+     3897.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "slalom",
+    "t": 8.533,
+    "speed": 65.8,
+    "yawRate": -0.77,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 95520,
+    "target": 95520,
+    "primary": 95520,
+    "impact": [
+     -93.1,
+     71.7,
+     3852.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "bernal",
+    "style": "slalom",
+    "t": 10.633,
+    "speed": 65.8,
+    "yawRate": 0.7,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": -1,
+    "target": -1,
+    "primary": 95487,
+    "impact": [
+     -142,
+     82,
+     3986
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "sunset",
+  "style": "cruise",
+  "glintChangesPerS": 1.18,
+  "taps": [
+   {
+    "place": "sunset",
+    "style": "cruise",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 62944,
+    "target": 62944,
+    "primary": 62944,
+    "impact": [
+     -6097.8,
+     93.2,
+     2203.1
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "cruise",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 62962,
+    "target": 62962,
+    "primary": 62962,
+    "impact": [
+     -6050.7,
+     93.6,
+     2203.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "cruise",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 63023,
+    "target": 63023,
+    "primary": 63023,
+    "impact": [
+     -6012.2,
+     94.9,
+     2205.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "cruise",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 62937,
+    "target": 62937,
+    "primary": 62937,
+    "impact": [
+     -5954.9,
+     95,
+     2210.3
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "cruise",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 62925,
+    "target": 62925,
+    "primary": 62925,
+    "impact": [
+     -5908.2,
+     97.4,
+     2202.4
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "sunset",
+  "style": "surge",
+  "glintChangesPerS": 1.78,
+  "taps": [
+   {
+    "place": "sunset",
+    "style": "surge",
+    "t": 2.233,
+    "speed": 65.5,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 62937,
+    "glintTap": 62937,
+    "target": 62937,
+    "primary": 62937,
+    "impact": [
+     -5954.9,
+     95,
+     2210.4
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "surge",
+    "t": 4.333,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 62926,
+    "glintTap": 62926,
+    "target": 62926,
+    "primary": 62926,
+    "impact": [
+     -5907.8,
+     101.3,
+     2210.3
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "surge",
+    "t": 6.433,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 63065,
+    "glintTap": 63065,
+    "target": 63065,
+    "primary": 63065,
+    "impact": [
+     -5814.8,
+     100.7,
+     2205.4
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "surge",
+    "t": 8.533,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 63080,
+    "glintTap": 63080,
+    "target": 63080,
+    "primary": 63080,
+    "impact": [
+     -5711.2,
+     101.1,
+     2212.9
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "surge",
+    "t": 10.633,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 63228,
+    "glintTap": 63228,
+    "target": 63228,
+    "primary": 63228,
+    "impact": [
+     -5630.4,
+     101.1,
+     2208.8
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "sunset",
+  "style": "turn",
+  "glintChangesPerS": 2.17,
+  "taps": [
+   {
+    "place": "sunset",
+    "style": "turn",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 67190,
+    "glintTap": 67190,
+    "target": 67190,
+    "primary": 67190,
+    "impact": [
+     -6177.4,
+     86.3,
+     2333.4
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "turn",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 67194,
+    "glintTap": 67194,
+    "target": 67194,
+    "primary": 67194,
+    "impact": [
+     -6208.1,
+     90.9,
+     2332.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "turn",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 67185,
+    "glintTap": 67185,
+    "target": 67185,
+    "primary": 67185,
+    "impact": [
+     -6304,
+     79.7,
+     2379.3
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "turn",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 62778,
+    "glintTap": 62778,
+    "target": 62778,
+    "primary": 62778,
+    "impact": [
+     -6341.1,
+     89.1,
+     2334.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "turn",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 67202,
+    "glintTap": 67202,
+    "target": 67202,
+    "primary": 67202,
+    "impact": [
+     -6388.2,
+     78.8,
+     2310.6
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "sunset",
+  "style": "turn2",
+  "glintChangesPerS": 3.75,
+  "taps": [
+   {
+    "place": "sunset",
+    "style": "turn2",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": 1.15,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 62846,
+    "target": 62846,
+    "primary": 62846,
+    "impact": [
+     -6234.2,
+     90.7,
+     2288.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "turn2",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 62843,
+    "target": 62843,
+    "primary": 62843,
+    "impact": [
+     -6249.3,
+     97.1,
+     2169.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "turn2",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 62785,
+    "target": 62785,
+    "primary": 62785,
+    "impact": [
+     -6150.2,
+     97.8,
+     2210.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "turn2",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 67201,
+    "target": 67201,
+    "primary": 67201,
+    "impact": [
+     -6245.3,
+     83.7,
+     2318.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "turn2",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 62778,
+    "target": 62778,
+    "primary": 62778,
+    "impact": [
+     -6290.5,
+     89.1,
+     2181.1
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "sunset",
+  "style": "slalom",
+  "glintChangesPerS": 2.17,
+  "taps": [
+   {
+    "place": "sunset",
+    "style": "slalom",
+    "t": 2.233,
+    "speed": 55.4,
+    "yawRate": 0.29,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 62917,
+    "target": 62917,
+    "primary": 62917,
+    "impact": [
+     -6114.7,
+     89,
+     2315.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "slalom",
+    "t": 4.333,
+    "speed": 65.7,
+    "yawRate": -0.53,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 67362,
+    "target": 67362,
+    "primary": 67362,
+    "impact": [
+     -6085.8,
+     88.8,
+     2399.1
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "slalom",
+    "t": 6.433,
+    "speed": 65.8,
+    "yawRate": 0.71,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 67290,
+    "target": 67290,
+    "primary": 67290,
+    "impact": [
+     -5986.6,
+     99.8,
+     2498.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "slalom",
+    "t": 8.533,
+    "speed": 65.8,
+    "yawRate": -0.77,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 71791,
+    "target": 71791,
+    "primary": 71791,
+    "impact": [
+     -6013.3,
+     95.4,
+     2588.1
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "sunset",
+    "style": "slalom",
+    "t": 10.633,
+    "speed": 65.8,
+    "yawRate": 0.7,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 71933,
+    "target": 71933,
+    "primary": 71933,
+    "impact": [
+     -5889.8,
+     105,
+     2621.8
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "fidi",
+  "style": "cruise",
+  "glintChangesPerS": 1.78,
+  "taps": [
+   {
+    "place": "fidi",
+    "style": "cruise",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 12274,
+    "target": 12274,
+    "primary": 12274,
+    "impact": [
+     1637.4,
+     103.3,
+     -2070.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "cruise",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 12278,
+    "target": 12278,
+    "primary": 12278,
+    "impact": [
+     1651.1,
+     113.2,
+     -2122.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "cruise",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 10468,
+    "target": 10468,
+    "primary": 10468,
+    "impact": [
+     1682.7,
+     71.5,
+     -2367.9
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "cruise",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 10468,
+    "target": 10468,
+    "primary": 10468,
+    "impact": [
+     1682.7,
+     71.5,
+     -2367.9
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "cruise",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 10468,
+    "target": 10468,
+    "primary": 10468,
+    "impact": [
+     1682.7,
+     71.5,
+     -2367.9
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "fidi",
+  "style": "surge",
+  "glintChangesPerS": 2.37,
+  "taps": [
+   {
+    "place": "fidi",
+    "style": "surge",
+    "t": 2.233,
+    "speed": 65.5,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 12288,
+    "glintTap": 12288,
+    "target": 12288,
+    "primary": 12288,
+    "impact": [
+     1623.4,
+     81,
+     -2207.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "surge",
+    "t": 4.333,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 10465,
+    "glintTap": 10465,
+    "target": 10465,
+    "primary": 10465,
+    "impact": [
+     1614.7,
+     35,
+     -2404.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "surge",
+    "t": 6.433,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 10479,
+    "glintTap": 10479,
+    "target": 10479,
+    "primary": 10479,
+    "impact": [
+     1613.8,
+     29.3,
+     -2469.9
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "surge",
+    "t": 8.533,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 10479,
+    "glintTap": 10479,
+    "target": 10479,
+    "primary": 10479,
+    "impact": [
+     1617.5,
+     29.3,
+     -2485.9
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "surge",
+    "t": 10.633,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 10481,
+    "glintTap": 10480,
+    "target": 10480,
+    "primary": 10480,
+    "impact": [
+     1603,
+     13.4,
+     -2546.2
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "fidi",
+  "style": "turn",
+  "glintChangesPerS": 5.33,
+  "taps": [
+   {
+    "place": "fidi",
+    "style": "turn",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 13874,
+    "glintTap": 13874,
+    "target": 13874,
+    "primary": 13874,
+    "impact": [
+     1710.2,
+     23.2,
+     -1958.6
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "turn",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 13871,
+    "glintTap": 13871,
+    "target": 13871,
+    "primary": 13871,
+    "impact": [
+     1784,
+     17.1,
+     -1898.4
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "turn",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 16027,
+    "glintTap": 16022,
+    "target": 16022,
+    "primary": 16022,
+    "impact": [
+     1799.7,
+     165.9,
+     -1753.4
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "turn",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 16022,
+    "glintTap": 16022,
+    "target": 16022,
+    "primary": 16022,
+    "impact": [
+     1762.4,
+     165.9,
+     -1717.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "turn",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 16015,
+    "glintTap": 16015,
+    "target": 16015,
+    "primary": 16015,
+    "impact": [
+     1609.8,
+     23.7,
+     -1592.3
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "fidi",
+  "style": "turn2",
+  "glintChangesPerS": 7.11,
+  "taps": [
+   {
+    "place": "fidi",
+    "style": "turn2",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": 1.15,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 13874,
+    "target": 13874,
+    "primary": 13874,
+    "impact": [
+     1670.1,
+     178,
+     -1968.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "turn2",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 13804,
+    "target": 13804,
+    "primary": 13804,
+    "impact": [
+     1256,
+     33,
+     -1784.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "turn2",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 10464,
+    "target": 10464,
+    "primary": 10464,
+    "impact": [
+     1591.8,
+     57.1,
+     -2407.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "turn2",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 13874,
+    "target": 13874,
+    "primary": 13874,
+    "impact": [
+     1675.2,
+     146.3,
+     -1979
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "turn2",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 16023,
+    "target": 16023,
+    "primary": 16023,
+    "impact": [
+     1515.8,
+     114.1,
+     -1750.9
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "fidi",
+  "style": "slalom",
+  "glintChangesPerS": 3.55,
+  "taps": [
+   {
+    "place": "fidi",
+    "style": "slalom",
+    "t": 2.233,
+    "speed": 55.4,
+    "yawRate": 0.29,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 12299,
+    "target": 12299,
+    "primary": 12299,
+    "impact": [
+     1977.6,
+     29.9,
+     -2091.4
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "slalom",
+    "t": 4.333,
+    "speed": 65.7,
+    "yawRate": -0.53,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 12298,
+    "target": 12298,
+    "primary": 12298,
+    "impact": [
+     1867.6,
+     12.4,
+     -2098.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "slalom",
+    "t": 6.433,
+    "speed": 65.8,
+    "yawRate": 0.71,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 12299,
+    "target": 12299,
+    "primary": 12299,
+    "impact": [
+     1944.8,
+     152.9,
+     -2149.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "slalom",
+    "t": 8.533,
+    "speed": 65.8,
+    "yawRate": -0.77,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 12320,
+    "target": 12320,
+    "primary": 12320,
+    "impact": [
+     2345.1,
+     20.1,
+     -2213.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "fidi",
+    "style": "slalom",
+    "t": 10.633,
+    "speed": 65.8,
+    "yawRate": 0.7,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 10575,
+    "target": 10575,
+    "primary": 10575,
+    "impact": [
+     2310.2,
+     8.3,
+     -2436.9
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "soma",
+  "style": "cruise",
+  "glintChangesPerS": 1.58,
+  "taps": [
+   {
+    "place": "soma",
+    "style": "cruise",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 32347,
+    "target": 32347,
+    "primary": 32347,
+    "impact": [
+     1350.5,
+     13.1,
+     -368.3
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "cruise",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 32287,
+    "target": 32287,
+    "primary": 32287,
+    "impact": [
+     1389.5,
+     12.1,
+     -332.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "cruise",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 32284,
+    "target": 32284,
+    "primary": 32284,
+    "impact": [
+     1417.6,
+     6.9,
+     -301.4
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "cruise",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 32283,
+    "target": 32283,
+    "primary": 32283,
+    "impact": [
+     1438.4,
+     7.6,
+     -298.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "cruise",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 36150,
+    "target": 36150,
+    "primary": 36150,
+    "impact": [
+     1510.9,
+     11.8,
+     -250.5
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "soma",
+  "style": "surge",
+  "glintChangesPerS": 1.78,
+  "taps": [
+   {
+    "place": "soma",
+    "style": "surge",
+    "t": 2.233,
+    "speed": 65.5,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 32283,
+    "glintTap": 32283,
+    "target": 32283,
+    "primary": 32283,
+    "impact": [
+     1438.4,
+     7.6,
+     -298.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "surge",
+    "t": 4.333,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 36153,
+    "glintTap": 36153,
+    "target": 36153,
+    "primary": 36153,
+    "impact": [
+     1521.3,
+     14,
+     -197.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "surge",
+    "t": 6.433,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 36160,
+    "glintTap": 36160,
+    "target": 36160,
+    "primary": 36160,
+    "impact": [
+     1584.1,
+     11.6,
+     -145.4
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "surge",
+    "t": 8.533,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 36159,
+    "glintTap": 36159,
+    "target": 36159,
+    "primary": 36159,
+    "impact": [
+     1637.7,
+     10.7,
+     -89.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "surge",
+    "t": 10.633,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 36157,
+    "glintTap": 36157,
+    "target": 36157,
+    "primary": 36157,
+    "impact": [
+     1724.6,
+     21.8,
+     0.8
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "soma",
+  "style": "turn",
+  "glintChangesPerS": 1.78,
+  "taps": [
+   {
+    "place": "soma",
+    "style": "turn",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 32281,
+    "glintTap": 32281,
+    "target": 32281,
+    "primary": 32281,
+    "impact": [
+     1193,
+     18.6,
+     -343.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "turn",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 32250,
+    "glintTap": 32250,
+    "target": 32250,
+    "primary": 32250,
+    "impact": [
+     1141.9,
+     16.9,
+     -365
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "turn",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 32250,
+    "glintTap": 32250,
+    "target": 32250,
+    "primary": 32250,
+    "impact": [
+     1121,
+     16.9,
+     -377.1
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "turn",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 32273,
+    "glintTap": 32273,
+    "target": 32273,
+    "primary": 32273,
+    "impact": [
+     1079.4,
+     17.3,
+     -458.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "turn",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 32264,
+    "glintTap": 32264,
+    "target": 32264,
+    "primary": 32264,
+    "impact": [
+     1074.1,
+     34.2,
+     -498.4
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "soma",
+  "style": "turn2",
+  "glintChangesPerS": 3.16,
+  "taps": [
+   {
+    "place": "soma",
+    "style": "turn2",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": 1.15,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 32259,
+    "target": 32259,
+    "primary": 32259,
+    "impact": [
+     1187.5,
+     12.4,
+     -441.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "turn2",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 32259,
+    "target": 32259,
+    "primary": 32259,
+    "impact": [
+     1280.9,
+     12.4,
+     -522.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "turn2",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 32347,
+    "target": 32347,
+    "primary": 32347,
+    "impact": [
+     1334.2,
+     35.1,
+     -375.1
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "turn2",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 32277,
+    "target": 32277,
+    "primary": 32277,
+    "impact": [
+     1200.4,
+     12.4,
+     -370.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "turn2",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 27980,
+    "target": 27980,
+    "primary": 27980,
+    "impact": [
+     1235.8,
+     18.2,
+     -528.3
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "soma",
+  "style": "slalom",
+  "glintChangesPerS": 1.58,
+  "taps": [
+   {
+    "place": "soma",
+    "style": "slalom",
+    "t": 2.233,
+    "speed": 55.4,
+    "yawRate": 0.29,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 32281,
+    "target": 32281,
+    "primary": 32281,
+    "impact": [
+     1251.3,
+     18.6,
+     -287.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "slalom",
+    "t": 4.333,
+    "speed": 65.7,
+    "yawRate": -0.53,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": -1,
+    "target": -1,
+    "primary": 36127,
+    "impact": [
+     1226,
+     4.9,
+     -171.3
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "slalom",
+    "t": 6.433,
+    "speed": 65.8,
+    "yawRate": 0.71,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 36120,
+    "target": 36120,
+    "primary": 36120,
+    "impact": [
+     1210.5,
+     13.8,
+     -99.9
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "slalom",
+    "t": 8.533,
+    "speed": 65.8,
+    "yawRate": -0.77,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 36119,
+    "target": 36119,
+    "primary": 36119,
+    "impact": [
+     1131.9,
+     14.3,
+     -6.6
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "soma",
+    "style": "slalom",
+    "t": 10.633,
+    "speed": 65.8,
+    "yawRate": 0.7,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 39860,
+    "target": 39860,
+    "primary": 39860,
+    "impact": [
+     1202.9,
+     12.5,
+     60.6
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "missionbay",
+  "style": "cruise",
+  "glintChangesPerS": 0.79,
+  "taps": [
+   {
+    "place": "missionbay",
+    "style": "cruise",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 43357,
+    "target": 43357,
+    "primary": 43357,
+    "impact": [
+     2400.4,
+     30.9,
+     672.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "cruise",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": -1,
+    "target": -1,
+    "primary": 43352,
+    "impact": [
+     2414.1,
+     4.4,
+     736.1
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "cruise",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 45188,
+    "target": 45188,
+    "primary": 45188,
+    "impact": [
+     2415.5,
+     30.2,
+     808.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "cruise",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 45188,
+    "target": 45188,
+    "primary": 45188,
+    "impact": [
+     2414.1,
+     30.2,
+     827.1
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "cruise",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 45188,
+    "target": 45188,
+    "primary": 45188,
+    "impact": [
+     2414.1,
+     37.2,
+     872.6
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "missionbay",
+  "style": "surge",
+  "glintChangesPerS": 1.58,
+  "taps": [
+   {
+    "place": "missionbay",
+    "style": "surge",
+    "t": 2.233,
+    "speed": 65.5,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 45188,
+    "glintTap": 45188,
+    "target": 45188,
+    "primary": 45188,
+    "impact": [
+     2414.1,
+     30.2,
+     832.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "surge",
+    "t": 4.333,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 45188,
+    "glintTap": 45188,
+    "target": 45188,
+    "primary": 45188,
+    "impact": [
+     2411.8,
+     30.2,
+     881.3
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "surge",
+    "t": 6.433,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 45184,
+    "glintTap": 45184,
+    "target": 45184,
+    "primary": 45184,
+    "impact": [
+     2414.1,
+     34.6,
+     1009.9
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "surge",
+    "t": 8.533,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": -1,
+    "glintTap": -1,
+    "target": -1,
+    "primary": 48437,
+    "impact": [
+     2414.1,
+     7.5,
+     1099.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "surge",
+    "t": 10.633,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 48440,
+    "glintTap": 48440,
+    "target": 48440,
+    "primary": 48440,
+    "impact": [
+     2414.4,
+     25.2,
+     1207.8
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "missionbay",
+  "style": "turn",
+  "glintChangesPerS": 1.78,
+  "taps": [
+   {
+    "place": "missionbay",
+    "style": "turn",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": -1,
+    "glintTap": -1,
+    "target": -1,
+    "primary": 43353,
+    "impact": [
+     2289.7,
+     3.9,
+     568
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "turn",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": -1,
+    "glintTap": 42037,
+    "target": 42037,
+    "primary": 42037,
+    "impact": [
+     2303.5,
+     9.7,
+     495.9
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "turn",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 42043,
+    "glintTap": 42043,
+    "target": 42043,
+    "primary": 42043,
+    "impact": [
+     2257.8,
+     21.1,
+     440.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "turn",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 42043,
+    "glintTap": 42043,
+    "target": 42043,
+    "primary": 42043,
+    "impact": [
+     2272.3,
+     11.1,
+     398.3
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "turn",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 42043,
+    "glintTap": 42054,
+    "target": 42054,
+    "primary": 42054,
+    "impact": [
+     2301.9,
+     28.4,
+     421.6
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "missionbay",
+  "style": "turn2",
+  "glintChangesPerS": 2.57,
+  "taps": [
+   {
+    "place": "missionbay",
+    "style": "turn2",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": 1.15,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 42037,
+    "target": 42037,
+    "primary": 42037,
+    "impact": [
+     2303.5,
+     9.7,
+     495.9
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "turn2",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 43356,
+    "target": 43356,
+    "primary": 43356,
+    "impact": [
+     2467.5,
+     10.6,
+     517.3
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "turn2",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 43357,
+    "target": 43357,
+    "primary": 43357,
+    "impact": [
+     2404.9,
+     30.9,
+     642.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "turn2",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": -1,
+    "target": -1,
+    "primary": 42037,
+    "impact": [
+     2301.9,
+     3.7,
+     534
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "turn2",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 42046,
+    "target": 42046,
+    "primary": 42046,
+    "impact": [
+     2431.6,
+     6.9,
+     461.9
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "missionbay",
+  "style": "slalom",
+  "glintChangesPerS": 2.37,
+  "taps": [
+   {
+    "place": "missionbay",
+    "style": "slalom",
+    "t": 2.233,
+    "speed": 55.4,
+    "yawRate": 0.29,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 43353,
+    "target": 43353,
+    "primary": 43353,
+    "impact": [
+     2267.3,
+     9.1,
+     654.3
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "slalom",
+    "t": 4.333,
+    "speed": 65.7,
+    "yawRate": -0.53,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 43349,
+    "target": 43349,
+    "primary": 43349,
+    "impact": [
+     2164.1,
+     8.5,
+     716.3
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "slalom",
+    "t": 6.433,
+    "speed": 65.8,
+    "yawRate": 0.71,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 43349,
+    "target": 43349,
+    "primary": 43349,
+    "impact": [
+     2111.7,
+     28.5,
+     772.9
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "slalom",
+    "t": 8.533,
+    "speed": 65.8,
+    "yawRate": -0.77,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 45126,
+    "target": 45126,
+    "primary": 45126,
+    "impact": [
+     1974.2,
+     11.5,
+     784.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "missionbay",
+    "style": "slalom",
+    "t": 10.633,
+    "speed": 65.8,
+    "yawRate": 0.7,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 45167,
+    "target": 45167,
+    "primary": 45167,
+    "impact": [
+     1972.4,
+     11.2,
+     877.9
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "rincon",
+  "style": "cruise",
+  "glintChangesPerS": 1.58,
+  "taps": [
+   {
+    "place": "rincon",
+    "style": "cruise",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 18845,
+    "target": 18845,
+    "primary": 18845,
+    "impact": [
+     2110.1,
+     55.7,
+     -1543.3
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "cruise",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 16049,
+    "target": 16049,
+    "primary": 16049,
+    "impact": [
+     2058.5,
+     38.6,
+     -1564.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "cruise",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 16049,
+    "target": 16049,
+    "primary": 16049,
+    "impact": [
+     2047.4,
+     38.6,
+     -1569
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "cruise",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 16049,
+    "target": 16049,
+    "primary": 16049,
+    "impact": [
+     2032.9,
+     38.6,
+     -1570.9
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "cruise",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 16025,
+    "target": 16025,
+    "primary": 16025,
+    "impact": [
+     1981.2,
+     33.3,
+     -1576.2
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "rincon",
+  "style": "surge",
+  "glintChangesPerS": 1.78,
+  "taps": [
+   {
+    "place": "rincon",
+    "style": "surge",
+    "t": 2.233,
+    "speed": 65.5,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 16027,
+    "glintTap": 16027,
+    "target": 16027,
+    "primary": 16027,
+    "impact": [
+     1952.2,
+     37.1,
+     -1599.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "surge",
+    "t": 4.333,
+    "speed": 67,
+    "yawRate": -0.33,
+    "fired": true,
+    "glintLift": 16027,
+    "glintTap": 16027,
+    "target": 16027,
+    "primary": 16027,
+    "impact": [
+     1937.3,
+     122.9,
+     -1581.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "surge",
+    "t": 6.433,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 16027,
+    "glintTap": 16027,
+    "target": 16027,
+    "primary": 16027,
+    "impact": [
+     1898.4,
+     37.1,
+     -1594.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "surge",
+    "t": 8.533,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 16028,
+    "glintTap": 16028,
+    "target": 16028,
+    "primary": 16028,
+    "impact": [
+     1772.2,
+     31,
+     -1595.9
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "surge",
+    "t": 10.633,
+    "speed": 67,
+    "yawRate": 0,
+    "fired": true,
+    "glintLift": 16017,
+    "glintTap": 16017,
+    "target": 16017,
+    "primary": 16017,
+    "impact": [
+     1704.3,
+     18.6,
+     -1598.4
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "rincon",
+  "style": "turn",
+  "glintChangesPerS": 3.55,
+  "taps": [
+   {
+    "place": "rincon",
+    "style": "turn",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 16087,
+    "glintTap": 16087,
+    "target": 16087,
+    "primary": 16087,
+    "impact": [
+     2413.7,
+     70.9,
+     -1711.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "turn",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 16081,
+    "glintTap": 16081,
+    "target": 16081,
+    "primary": 16081,
+    "impact": [
+     2451.6,
+     111.4,
+     -1609
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "turn",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 16081,
+    "glintTap": 16095,
+    "target": 16095,
+    "primary": 16095,
+    "impact": [
+     2574.5,
+     28.1,
+     -1577.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "turn",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 18889,
+    "glintTap": 18915,
+    "target": 18915,
+    "primary": 18915,
+    "impact": [
+     2736.6,
+     17.9,
+     -1431.4
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "turn",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": -0.1,
+    "fired": true,
+    "glintLift": 22262,
+    "glintTap": 22262,
+    "target": 22262,
+    "primary": 22262,
+    "impact": [
+     2695.2,
+     11.9,
+     -1278.5
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "rincon",
+  "style": "turn2",
+  "glintChangesPerS": 5.13,
+  "taps": [
+   {
+    "place": "rincon",
+    "style": "turn2",
+    "t": 2.233,
+    "speed": 26.4,
+    "yawRate": 1.15,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 18887,
+    "target": 18887,
+    "primary": 18887,
+    "impact": [
+     2406.4,
+     136.5,
+     -1524.3
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "turn2",
+    "t": 4.333,
+    "speed": 31.1,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 18855,
+    "target": 18855,
+    "primary": 18855,
+    "impact": [
+     2336,
+     152.2,
+     -1350.5
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "turn2",
+    "t": 6.433,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 18811,
+    "target": 18811,
+    "primary": 18811,
+    "impact": [
+     2237.7,
+     13.5,
+     -1501.7
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "turn2",
+    "t": 8.533,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 18887,
+    "target": 18887,
+    "primary": 18887,
+    "impact": [
+     2385.3,
+     87.6,
+     -1549.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "turn2",
+    "t": 10.633,
+    "speed": 31.2,
+    "yawRate": 1.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 22211,
+    "target": 22211,
+    "primary": 22211,
+    "impact": [
+     2412,
+     181,
+     -1293.5
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ },
+ {
+  "place": "rincon",
+  "style": "slalom",
+  "glintChangesPerS": 3.36,
+  "taps": [
+   {
+    "place": "rincon",
+    "style": "slalom",
+    "t": 2.233,
+    "speed": 55.4,
+    "yawRate": 0.29,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 16054,
+    "target": 16054,
+    "primary": 16054,
+    "impact": [
+     2293.5,
+     53.4,
+     -1767
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "slalom",
+    "t": 4.333,
+    "speed": 65.7,
+    "yawRate": -0.06,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 16054,
+    "target": 16054,
+    "primary": 16054,
+    "impact": [
+     2274.7,
+     53.4,
+     -1782.8
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "slalom",
+    "t": 6.433,
+    "speed": 65.8,
+    "yawRate": 0.72,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 13912,
+    "target": 13912,
+    "primary": 13912,
+    "impact": [
+     2315.1,
+     58.3,
+     -1824.2
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "slalom",
+    "t": 8.533,
+    "speed": 65.8,
+    "yawRate": -0.77,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 13913,
+    "target": 13913,
+    "primary": 13913,
+    "impact": [
+     2393.4,
+     78.1,
+     -1887
+    ],
+    "miss": false,
+    "hitstop": true
+   },
+   {
+    "place": "rincon",
+    "style": "slalom",
+    "t": 10.633,
+    "speed": 65.8,
+    "yawRate": 0.7,
+    "fired": true,
+    "glintLift": null,
+    "glintTap": 12334,
+    "target": 12334,
+    "primary": 12334,
+    "impact": [
+     2394.9,
+     14.2,
+     -2116.5
+    ],
+    "miss": false,
+    "hitstop": true
+   }
+  ]
+ }
+]

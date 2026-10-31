@@ -32,7 +32,13 @@ export interface BlastSpec {
   reach: number;
   dots: number;
   blobs: number;
+  /** layout BANDS: the center of the rainbow rings (see bandHue) */
+  ox?: number;
+  oz?: number;
 }
+
+/** BlastSpec.layout: hue by distance from (ox, oz), not from the impact, so many overlapping blasts paint one picture. */
+export const LAYOUT_BANDS = 3;
 
 /** A spatter dot beyond the edge (a flung blob lands on it, or it sits still). */
 export interface BlastDot {
@@ -52,13 +58,20 @@ export interface BlastDot {
 const SPEC_FIELDS = ['x', 'z', 'r', 'hue', 'seed', 'layout', 'sectors', 'ring', 'twist', 'edge', 'ragged', 'rays', 'rayLen', 'reach', 'dots', 'blobs'] as const;
 
 export function specToArray(s: BlastSpec): number[] {
-  return SPEC_FIELDS.map((k) => (k === 'x' || k === 'z' || k === 'r' ? Math.round(s[k] * 10) / 10 : Math.round(s[k] * 1000) / 1000));
+  const a = SPEC_FIELDS.map((k) => (k === 'x' || k === 'z' || k === 'r' ? Math.round(s[k] * 10) / 10 : Math.round(s[k] * 1000) / 1000));
+  // (two more numbers only for bands: older saves stay readable, and a plain blast saves what it always did)
+  if (s.layout === LAYOUT_BANDS) a.push(Math.round((s.ox ?? s.x) * 10) / 10, Math.round((s.oz ?? s.z) * 10) / 10);
+  return a;
 }
 
 export function specFromArray(a: number[]): BlastSpec | null {
   if (!Array.isArray(a) || a.length < SPEC_FIELDS.length || !a.every((v) => Number.isFinite(v))) return null;
   const s = {} as Record<string, number>;
   SPEC_FIELDS.forEach((k, i) => (s[k] = a[i]));
+  if (a.length >= SPEC_FIELDS.length + 2) {
+    s.ox = a[SPEC_FIELDS.length];
+    s.oz = a[SPEC_FIELDS.length + 1];
+  }
   return s as unknown as BlastSpec;
 }
 
@@ -94,11 +107,22 @@ export function arrival(d: number, r: number): number {
 export const wrapHue = (h: number) => ((Math.round(h) % HUE_COUNT) + HUE_COUNT) % HUE_COUNT;
 
 /**
+ * Hue of a LAYOUT_BANDS blast at a world point: rainbow rings around (ox, oz), s.ring wide. It reads only the point
+ * (their edges wobble with the world, not the blast), so every impact of a firehose agrees where they overlap.
+ */
+export function bandHue(s: BlastSpec, x: number, z: number): number {
+  const dx = x - (s.ox ?? s.x), dz = z - (s.oz ?? s.z);
+  const d = Math.sqrt(dx * dx + dz * dz) + 3.5 * Math.sin(x * 0.083 + 1.6 * Math.sin(z * 0.061)) + 2.2 * Math.sin(z * 0.17 + 1.3 * Math.sin(x * 0.13));
+  return wrapHue(s.hue + Math.floor(d / Math.max(1, s.ring)));
+}
+
+/**
  * Hue at an offset from the impact. Pinwheel: rainbow sectors by angle (with
  * a twist, so they swirl); rings: rainbow bands by distance; spiral: both.
  * `warp` (radians / meters of noise) roughens the boundaries on the ground.
  */
 export function layoutHue(s: BlastSpec, dx: number, dz: number, warpA = 0, warpD = 0): number {
+  if (s.layout === LAYOUT_BANDS) return bandHue(s, s.x + dx, s.z + dz);
   const d = Math.hypot(dx, dz) + warpD;
   if (d < 1e-3) return s.hue;
   let a = Math.atan2(dz, dx) + warpA + s.twist * d;

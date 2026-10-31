@@ -15,6 +15,7 @@
 // SwiftShader renders ~1.5 fps: everything waits on the game clock, never wall time.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { browserOptions } from './browser.mjs';
 
 const [base = 'http://127.0.0.1:5173/', out = 'shots/altitude', phase = 'downtown'] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const noShots = process.argv.includes('--noshots');
@@ -22,15 +23,14 @@ const withSeq = process.argv.includes('--seq');
 mkdirSync(out, { recursive: true });
 
 const STARTS = {
-  downtown: '?lat=37.7700&lon=-122.4300&heading=45&skipintro',
-  west: '?lat=37.7600&lon=-122.4800&heading=60&skipintro',
+  downtown: '?lat=37.7700&lon=-122.4300&heading=45&skipintro&nohud',
+  west: '?lat=37.7600&lon=-122.4800&heading=60&skipintro&nohud',
   opening: '',
   gate: '',
 };
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
+  ...browserOptions([]),
 });
 const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
