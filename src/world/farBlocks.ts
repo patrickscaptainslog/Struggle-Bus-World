@@ -39,7 +39,7 @@ export interface FarBlocksRequest {
   towerCount: number;
 }
 
-/** One chunk's boxes, one draw: per box 4 u16 (i, j, w, h in cells), 2 i16 (base, top in half metres), 4 u8 (roof tone, wall tone, lit faces, wake). */
+/** One chunk's boxes, one draw: per box 4 u16 (i, j, w, h in cells), 2 i16 (base, top in half metres), 4 u8 (roof tone, wall tone, lit faces and own grey, wake). */
 export interface FarBlockChunk {
   /** in chunks from the world's origin */
   ci: number;
@@ -200,11 +200,12 @@ export function mergeFarBlocks(r: FarBlocksRequest): FarBlocksResult {
     s.cell.set(outCell.subarray(b * 4, b * 4 + 4), k * 4);
     s.y[k * 2] = outY[b * 2];
     s.y[k * 2 + 1] = outY[b * 2 + 1];
-    // at night: which of its four walls light up (each one in two), and when (the wave's byte). A hash of where it stands: stable across bakes
+    // at night: which of its four walls light up (each one in two), and when (the wave's byte); and its own grey, as each near house has one.
+    // A hash of where it stands: stable across bakes
     const h = hash32((i | (j << 16)) ^ seeds[q]);
     s.tone[k * 4] = outTone[b * 4];
     s.tone[k * 4 + 1] = outTone[b * 4 + 1];
-    s.tone[k * 4 + 2] = h & 15;
+    s.tone[k * 4 + 2] = h & 255;
     s.tone[k * 4 + 3] = (h >>> 8) & 255;
     y0[q] = Math.min(y0[q], outY[b * 2] / 2);
     y1[q] = Math.max(y1[q], outY[b * 2 + 1] / 2);

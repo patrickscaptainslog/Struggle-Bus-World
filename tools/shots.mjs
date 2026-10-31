@@ -9,10 +9,15 @@
 // clock held while streaming and paint settle, the same frames from any build
 // (also fidi, soma, high: a climb to ~250 m, ceiling: ~500 m, swap: painted towers
 // through a climb to coarse and a dive back to detail; asked for by name, the far-field poses at the ceiling:
-// sunset, presidio, marin, sunward, into the sun, westward, into it over the city; london, amsterdam).
+// sunset, presidio, downtown, marin, sunward, into the sun, westward, into it over the city; london, amsterdam).
 // --q: appended to every view's query (the flags under test).
 // --seq (with --det): five more frames after each view's shot, one fixed step apart (<name>-seq-0.png is the shot itself, then 1..5): a
 // burst from the same camera on any build, so tools/far/bandflip.py's crawl can be compared between two builds.
+// --pan (with --det): and a turn, 0.6 s into a held stick, six frames a fixed step apart (<name>-pan-0.png .. 5).
+// hold-sunset, hold-presidio, hold-downtown (with --det, by name): SPIKE.md's hold-still swap. Nothing loads past the start on the way up (?loadr=1),
+// the clock stands, the frame is shot; the radius comes back, what streams in lands with the clock still standing, and it is shot again, the camera
+// where it was: <name>-<sun>-0.png, <name>-<sun>-1.png, for the game's sun (day), 75 degrees (high), 5 degrees (low) and a night made of light alone
+// (the palette stays the day's: no night table exists yet). tools/far/swapstat.py reads the pairs.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
@@ -164,6 +169,16 @@ async function detShot(name, query, script) {
       await page.screenshot({ path: `${out}/${name}-seq-${i}.png` });
     }
   }
+  if ('pan' in opt) {
+    await page.evaluate(() => Object.assign(window.__qa, { sx: 0.6, sy: 0 }));
+    await runDet(page, 0.6);
+    for (let i = 0; i <= 5; i++) {
+      if (i) await runDet(page, STEP);
+      await page.waitForTimeout(200);
+      await page.screenshot({ path: `${out}/${name}-pan-${i}.png` });
+    }
+    await page.evaluate(() => delete window.__qa.sx);
+  }
   stats[name] = await page.evaluate(() => {
     const r = window.__game.pipeline.renderer.info;
     const g = window.__game, f = g.flight, p = g.pipeline;
@@ -221,11 +236,49 @@ if (det) {
   };
   await detShot('sunset', '?lat=37.7530&lon=-122.4950&heading=90&skipintro&nohud', ceilingAt);
   await detShot('presidio', '?lat=37.7990&lon=-122.4660&heading=180&skipintro&nohud', ceilingAt);
+  await detShot('downtown', '?lat=37.7700&lon=-122.4300&heading=45&skipintro&nohud', ceilingAt);
   await detShot('marin', '?lat=37.8020&lon=-122.4650&heading=330&skipintro&nohud', ceilingAt);
   await detShot('sunward', '?lat=37.7600&lon=-122.5000&heading=292&skipintro&nohud', ceilingAt);
   await detShot('westward', '?lat=37.7880&lon=-122.3990&heading=280&skipintro&nohud', ceilingAt);
   await detShot('london', '?city=london&lat=51.5073&lon=-0.1657&heading=90&skipintro&nohud', ceilingAt);
   await detShot('amsterdam', '?city=amsterdam&lat=52.3738&lon=4.8775&heading=75&skipintro&nohud', ceilingAt);
+  const SUNS = [['day', {}], ['high', { 'light.sunElevation': 1.309 }], ['low', { 'light.sunElevation': 0.0873 }], ['night', { 'light.sunStrength': 0.04, 'far.blockLit': 0.3 }]];
+  const sunShots = async (p, name, tag) => {
+    for (const [sun, set] of SUNS) {
+      await p.evaluate((v) => {
+        const g = window.__game;
+        window.__undo = [];
+        for (const [path, x] of Object.entries(v)) {
+          const ks = path.split('.');
+          const o = ks.slice(0, -1).reduce((a, k) => a[k], g.config);
+          window.__undo.push([o, ks[ks.length - 1], o[ks[ks.length - 1]]]);
+          o[ks[ks.length - 1]] = x;
+        }
+        g.renderAgain();
+        return new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(res))));
+      }, set);
+      await p.waitForTimeout(200);
+      await p.screenshot({ path: `${out}/${name}-${sun}-${tag}.png` });
+      await p.evaluate(() => {
+        for (const [o, k, v] of window.__undo) o[k] = v;
+        window.__game.renderAgain();
+      });
+    }
+  };
+  const holdSwap = (name, start) =>
+    detShot(name, `${start}&loadr=1`, async (p) => {
+      await ceilingAt(p);
+      await settle(p);
+      await sunShots(p, name, 0);
+      stats[`${name}-regions`] = [await p.evaluate(() => window.__game.city.regionsLoaded.size)];
+      await p.evaluate(() => (window.__game.config.city.loadRadiusHigh = 1900));
+      await settle(p);
+      await sunShots(p, name, 1);
+      stats[`${name}-regions`].push(await p.evaluate(() => window.__game.city.regionsLoaded.size));
+    });
+  await holdSwap('hold-sunset', '?lat=37.7530&lon=-122.4950&heading=90&skipintro&nohud');
+  await holdSwap('hold-presidio', '?lat=37.7990&lon=-122.4660&heading=180&skipintro&nohud');
+  await holdSwap('hold-downtown', '?lat=37.7700&lon=-122.4300&heading=45&skipintro&nohud');
   await detShot('swap', '?lat=37.7820&lon=-122.4010&heading=0&skipintro&nohud', async (p) => {
     await glide(p, 6);
     await runDet(p, 1);

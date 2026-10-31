@@ -149,6 +149,8 @@ const FS = /* glsl */ `
       } else light = mix(light, wall - toGrey, share);
     }
     #endif
+    // (tone is filtered, so it is a slow gradient, and the resolve dithers those below the vista: a far pixel's step is rounded here, the dots would crawl)
+    light = floor(light * 7.0 + 0.5) / 7.0;
     sbWrite(ramp, light, sbFog(vWorldPos), 0.0, vViewNormal, 0.01, 1.0);
   }
 `;
@@ -171,7 +173,7 @@ const BLOCK_VS = /* glsl */ `
   uniform float uToneK;
   in vec4 aCell;              // i, j, w, h
   in vec2 aY;                 // base, top (half metres)
-  in vec4 aTone;              // roof tone, wall tone, lit walls (bits), wake
+  in vec4 aTone;              // roof tone, wall tone, lit walls (low 4 bits) and the box's own grey (high 4), wake
   flat out vec3 vN;
   flat out vec3 vViewN;
   flat out float vRamp;
@@ -203,9 +205,12 @@ const BLOCK_VS = /* glsl */ `
       vLo = ${TONE_C.toFixed(3)} + (aTone.x - 0.5) * ${TONE_K.toFixed(3)} * uToneK;
     } else {
       vRamp = ${Ramp.GREY}.0;
-      vLo = ${WALL_LO.toFixed(3)} + (aTone.y - 0.5) * ${WALL_K.toFixed(3)};
+      int bits = int(aTone.z * 255.0 + 0.5);
+      // (the near walls' "each house a slightly different grey", per box: the raster's wall tone is a 64 m mean, which alone lands every wall
+      // on one side of a ramp step where the real ones straddle it)
+      vLo = ${WALL_LO.toFixed(3)} + (aTone.y - 0.5) * ${WALL_K.toFixed(3)} + (float(bits >> 4) / 15.0 - 0.5) * 0.12;
       int bit = normal.x > 0.5 ? (s.x > 0.0 ? 1 : 2) : (s.y > 0.0 ? 4 : 8);
-      if ((int(aTone.z * 255.0 + 0.5) & bit) != 0 && aTone.w < uBlockLit) vLit = 1.0;
+      if ((bits & bit) != 0 && aTone.w < uBlockLit) vLit = 1.0;
     }
     vWorldPos = wp;
     gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
@@ -225,7 +230,7 @@ const BLOCK_FS = /* glsl */ `
   void main() {
     float light = sbLight(vWorldPos, vN, vLo, 1.0);
     float fog = sbFog(vWorldPos);
-    if (vLit > 0.5) sbWrite(${Ramp.SKY_WARM}.0, max(light, 0.7), fog, uBlockGlow, vViewN, 0.01, 1.0);
+    if (vLit > 0.5) sbWrite(${Ramp.GLOW_WHITE}.0, max(light, 0.36), fog, uBlockGlow, vViewN, 0.01, 1.0);
     else sbWrite(vRamp, light, fog, 0.0, vViewN, 0.01, 1.0);
   }
 `;
