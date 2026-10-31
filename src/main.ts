@@ -578,8 +578,8 @@ async function boot() {
       // where to look (m along the view's forward and right from the blast's center): past the far side,
       // off the flight line; then beside it; then farther past. Never inside the blast (+ a margin): there
       // the sign stands in front of painted houses and covers the bloom. Per spot: the pole seen to its
-      // foot, else (second pass) a pole lifted clear of the roofs in front, up to signTune.poleLiftMax; a street
-      // between taller roofs than that takes the first spot a pole up to signTune.poleLiftTall clears
+      // foot, else (second pass) a pole lifted clear of the roofs in front, up to signTune.poleLiftMax; on a street
+      // between taller roofs than that, the shortest pole up to signTune.poleLiftTall stands by for the last look
       const o1 = r + T.besideOut, s1 = T.besideSide * r;
       // (the blade's half width: its bottom corners must clear the roofs in front too, not just its middle:
       // a roof edge in front cut the letters diagonally)
@@ -615,7 +615,7 @@ async function boot() {
             const yb = y + (T.poleHeight - 1) * scale, cx0 = sx * hw * scale, cz0 = sz * hw * scale;
             const corners = Math.max(sightLift(x - cx0, yb, z - cz0), sightLift(x + cx0, yb, z + cz0));
             const pole = pass === 0 ? (sightLift(x, y + 1.5, z) > 0.5 || corners > 0.5 ? -1 : 0) : Math.max(sightLift(x, yb, z), corners);
-            if (pole < 0 || pole > T.poleLiftTall || (tall && pole > T.poleLiftMax)) continue;
+            if (pole < 0 || pole > Math.max(T.poleLiftMax, T.poleLiftTall) || (tall && pole >= tall.pole)) continue;
             // the blade must land inside the frame, below the top band (the sky and the horizon)
             signNdc.set(x, y + (T.poleHeight + 4) * scale + pole, z).project(camera);
             if (Math.abs(signNdc.x) > 0.72 || signNdc.y > 0.7 || signNdc.y < -0.6 || signNdc.z > 1) continue;
@@ -634,7 +634,6 @@ async function boot() {
           if (found) break;
         }
       }
-      found ??= tall;
       if (!found) {
         // nowhere open in frame: look again in a moment (the camera moves on), twice. Then a landmark
         // (it has no street front: the edge facing the bus) signs its name on its apron along that edge, as
@@ -642,29 +641,32 @@ async function boot() {
         // middle (the landmark is the bloom; MAIN stood the sign at the middle of its face). Any other
         // primary: its own front only when that stands clear of the blast; inside it the blade would cover
         // the bloom: then no sign this time. Either way only a blade wholly in the frame and seen over its
-        // whole sightline: else no sign (half a blade behind a tower reads as a glitch, not a name).
+        // whole sightline: else the tall pole, if this last look found one, else no sign (half a blade behind
+        // a tower reads as a glitch, not a name).
         if (tries < 2) return false;
-        if (!ref) return true; // (open ground, nothing in reach: no front to fall back on)
-        const f = lm ? city.edgeToward(ref, flight.x, flight.z) : city.frontOf(ref);
-        const ex = -f.nz, ez = f.nx;
-        const first = ex * sx + ez * sz >= 0 ? pref : -pref;
-        let spare: typeof signSpot = null;
-        for (const t of lm ? [1, 0.75, 0.5, 0.25] : [0]) {
-          for (const k of [first, -first]) {
-            const reach = t * (0.5 * f.len + hw + 4) * k;
-            const gx = f.x + f.nx * 4.5 + ex * reach, gz = f.z + f.nz * 4.5 + ez * reach;
-            if (!lm && Math.hypot(gx - cx, gz - cz) < r + 4) continue;
-            if (city.groundClassAt(gx, gz) === Ground.WATER || city.roofAt(gx, gz) !== null) continue;
-            const gy = city.groundAt(gx, gz);
-            if (!bladeBox(gx, gy, gz, hw, 1, 0, sx, sz, bladeTmp) || bladeTmp[0] < -0.96 || bladeTmp[2] > 0.96 || bladeTmp[1] < -0.96 || bladeTmp[3] > 0.7) continue;
-            if (!bladeSeen(gx, gy + T.poleHeight - 1, gz, sx * hw, sz * hw)) continue;
-            const spot = { x: gx, y: gy, z: gz, facing: Math.atan2(f.nx, f.nz), scale: 1, bias: true, pole: 0, cx, cz, r, text, until: 0 };
-            if (!overLm(bladeTmp)) { found = spot; break; }
-            spare ??= spot;
+        if (ref) { // (open ground, nothing in reach: no front to fall back on)
+          const f = lm ? city.edgeToward(ref, flight.x, flight.z) : city.frontOf(ref);
+          const ex = -f.nz, ez = f.nx;
+          const first = ex * sx + ez * sz >= 0 ? pref : -pref;
+          let spare: typeof signSpot = null;
+          for (const t of lm ? [1, 0.75, 0.5, 0.25] : [0]) {
+            for (const k of [first, -first]) {
+              const reach = t * (0.5 * f.len + hw + 4) * k;
+              const gx = f.x + f.nx * 4.5 + ex * reach, gz = f.z + f.nz * 4.5 + ez * reach;
+              if (!lm && Math.hypot(gx - cx, gz - cz) < r + 4) continue;
+              if (city.groundClassAt(gx, gz) === Ground.WATER || city.roofAt(gx, gz) !== null) continue;
+              const gy = city.groundAt(gx, gz);
+              if (!bladeBox(gx, gy, gz, hw, 1, 0, sx, sz, bladeTmp) || bladeTmp[0] < -0.96 || bladeTmp[2] > 0.96 || bladeTmp[1] < -0.96 || bladeTmp[3] > 0.7) continue;
+              if (!bladeSeen(gx, gy + T.poleHeight - 1, gz, sx * hw, sz * hw)) continue;
+              const spot = { x: gx, y: gy, z: gz, facing: Math.atan2(f.nx, f.nz), scale: 1, bias: true, pole: 0, cx, cz, r, text, until: 0 };
+              if (!overLm(bladeTmp)) { found = spot; break; }
+              spare ??= spot;
+            }
+            if (found) break;
           }
-          if (found) break;
+          found ??= spare;
         }
-        found ??= spare;
+        found ??= tall;
         if (!found) return true;
       }
       signSpot = found;
