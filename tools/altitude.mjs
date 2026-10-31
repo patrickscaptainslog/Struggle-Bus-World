@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Altitude QA from the real game (index.html), iPhone 15 portrait viewport.
-//   node tools/altitude.mjs <baseUrl> <outDir> <phase> [--noshots]
+//   node tools/altitude.mjs <baseUrl> <outDir> <phase> [--noshots] [--q=farmap&farfade] [--ceiling]
 // phases:
 //   downtown | west : climb in steps over a start point (shots at ~30 m, ~120 m,
 //                     ~250 m and the ceiling), taps at three altitudes (aim point
@@ -10,8 +10,11 @@
 //   opening         : the Golden Gate opening; logs the pass under the deck.
 //   gate            : the opening with the yoke pulled from the start (it must still
 //                     pass under the deck), then a climb to the ceiling over the Gate.
+//   sunset | presidio | marin : the far field's poses (docs/specs/far-field/SPIKE.md), as downtown.
 // --seq: also capture 6 consecutive frames exactly 1/30 s apart (fixed-step rAF) at
 //        cruise, 250 m and the ceiling (<phase>-seq-<alt>-<i>.png) for shimmer checks.
+// --q: appended to the start's query (the flags under test).
+// --ceiling: straight up to the ceiling and stop there, no taps, no dive.
 // SwiftShader renders ~1.5 fps: everything waits on the game clock, never wall time.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -20,11 +23,16 @@ import { browserOptions } from './browser.mjs';
 const [base = 'http://127.0.0.1:5173/', out = 'shots/altitude', phase = 'downtown'] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const noShots = process.argv.includes('--noshots');
 const withSeq = process.argv.includes('--seq');
+const ceilingOnly = process.argv.includes('--ceiling');
+const extraQ = process.argv.find((a) => a.startsWith('--q='))?.slice(4);
 mkdirSync(out, { recursive: true });
 
 const STARTS = {
   downtown: '?lat=37.7700&lon=-122.4300&heading=45&skipintro&nohud',
   west: '?lat=37.7600&lon=-122.4800&heading=60&skipintro&nohud',
+  sunset: '?lat=37.7530&lon=-122.4950&heading=90&skipintro&nohud',
+  presidio: '?lat=37.7990&lon=-122.4660&heading=180&skipintro&nohud',
+  marin: '?lat=37.8020&lon=-122.4650&heading=330&skipintro&nohud',
   opening: '',
   gate: '',
 };
@@ -52,7 +60,7 @@ await page.addInitScript(() => {
     return raf(runF);
   };
 });
-await page.goto(base + STARTS[phase], { waitUntil: 'load' });
+await page.goto(base + STARTS[phase] + (extraQ ? `${STARTS[phase] ? '&' : '?'}${extraQ}` : ''), { waitUntil: 'load' });
 await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000 });
 
 // in-page helpers: one row per 0.1 s of game time, and a frame loop that runs until a condition
@@ -215,6 +223,18 @@ if (phase === 'gate') {
     await qa({ sx: 0.7, sy: 0 });
     await run('((g.flight.heading * 180 / Math.PI) % 360 + 360) % 360 > 92', 8);
     await qa(null);
+  }
+  if (ceilingOnly) {
+    await climbTo(560);
+    await settle(4);
+    await mark('ceiling');
+    await shot(`${phase}-ceiling`);
+    report.perf.ceiling = await perfNow();
+    console.log('perf ceiling', JSON.stringify(report.perf.ceiling));
+    await seq(`${phase}-seq-ceiling`);
+    writeFileSync(`${out}/${phase}-report.json`, JSON.stringify(report, null, 2));
+    await browser.close();
+    process.exit(0);
   }
   await settle(2.5);
   await mark('cruise');

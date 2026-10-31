@@ -112,6 +112,15 @@ export const config = {
     layerViewFull: 260,
   },
 
+  far: {
+    /** ?farmap: how much of the far raster's tone shows (1 = as baked). */
+    toneK: 1,
+    /** ?farmap=oblique: how much of the raster's wall share shows (1 = as baked). */
+    wallK: 1,
+    /** ?farmap: mip bias of the far class map (negative = sharper, and more crawl). */
+    classBias: 0,
+  },
+
   camera: {
     /** Horizontal field of view in portrait (deg). Narrow = telephoto = steadier pixels. */
     hfovPortrait: 24,

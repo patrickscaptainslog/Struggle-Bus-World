@@ -32,6 +32,7 @@ import { tunableGroups } from './ui/tunables';
 import { SuperSplat } from './game/SuperSplat';
 import { SuperFx } from './fx/SuperFx';
 import { SuperMeter } from './ui/SuperMeter';
+import { farFlags } from './world/farMaterial';
 
 // Struggle Bus — Phase 1 (real SF, solo).
 
@@ -46,9 +47,20 @@ const params = new URLSearchParams(location.search);
 if (params.has('fog')) config.fog.enabled = true;
 if (params.has('px')) config.render.pixelWidth = Math.min(1200, Math.max(120, Number(params.get('px')) || config.render.pixelWidth));
 applySavedTuning();
+// the far field's proof (docs/specs/far-field/SPIKE.md): all off by default, all additive
+if (params.has('farmap')) {
+  farFlags.map = true;
+  farFlags.oblique = params.get('farmap') === 'oblique';
+  farFlags.nearest = params.has('farnearest');
+  if (params.has('farbias')) config.far.classBias = Number(params.get('farbias'));
+}
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const pipeline = new PixelPipeline(canvas);
+if (params.has('farfade')) {
+  config.fog.clearFarFull = 34000;
+  pipeline.setFar(36000);
+}
 const renderer = pipeline.renderer;
 const scene = new THREE.Scene();
 // (what moves has its own matrices updated; a scene that recomposed its identity would force all 900 objects' every frame)
@@ -132,7 +144,7 @@ async function boot() {
   // (the first frame streams around the bus: the same want-list, so nothing is asked for twice)
   const primeFocus = focus.clone();
   city.prime(primeFocus);
-  const farP = city.loadFar();
+  const farP = city.loadFar(renderer);
 
   // ---- props: trees stream with tiles, landmarks are placed once
   const treeFields = new Map<string, TreeField>();

@@ -3,10 +3,11 @@ import { SHADOW_LAYER, makeRampMaterial, globals } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { makeBuildingMaterial, paintUniforms } from './buildingMaterial';
 import { makeHeightGrid, makeTerrainMaterial, makeWaterMaterial } from './terrainMaterial';
+import { farFlags, farVertexWallLo, makeFarGroundMaterial, makeFarTextures, type FarTextures } from './farMaterial';
 import { PaintState, LANDMARK_KEY_PREFIX } from './PaintState';
 import { GroundPaint } from './GroundPaint';
 import type { ObstaclePost } from './Bridges';
-import { meshHeights, parseFar, WATER_Y, type CityManifest, type FarData, type BuildingTile, type TerrainTile } from './tiles';
+import { meshHeights, parseFar, parseFarRaster, WATER_Y, type CityManifest, type FarData, type FarRaster, type BuildingTile, type TerrainTile } from './tiles';
 import { loadRegion, type GridArrays, type RegionRequest, type RegionResponse, type TileResult } from './regionLoader';
 import { GROWN_STRIDE, type CasterArrays, type MeshArrays } from './BuildingMesher';
 import { treeCrown } from './props/trees';
@@ -215,8 +216,8 @@ function makeSkylineMaterial(mask: THREE.Texture, rect: THREE.Vector4, size: THR
   return mat;
 }
 
-/** The far terrain and the horizon hills: per-vertex ramps (vertexRamp attributes, all float). */
-function farGridMesh(pos: Float32Array, nrm: Float32Array, ramp: Float32Array, lo: Float32Array, gl: Float32Array, index: THREE.BufferAttribute | number[], shadowMul: number): THREE.Mesh {
+/** The far terrain and the horizon hills: per-vertex ramps (vertexRamp attributes, all float), or `material` over the same layout. */
+function farGridMesh(pos: Float32Array, nrm: Float32Array, ramp: Float32Array, lo: Float32Array, gl: Float32Array, index: THREE.BufferAttribute | number[], shadowMul: number, material?: THREE.Material): THREE.Mesh {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
@@ -225,7 +226,7 @@ function farGridMesh(pos: Float32Array, nrm: Float32Array, ramp: Float32Array, l
   g.setAttribute('glow', new THREE.BufferAttribute(gl, 1));
   g.setIndex(index);
   g.computeBoundingSphere();
-  const mesh = new THREE.Mesh(g, makeRampMaterial({ vertexRamp: true, shadowMul }));
+  const mesh = new THREE.Mesh(g, material ?? makeRampMaterial({ vertexRamp: true, shadowMul }));
   mesh.frustumCulled = false;
   mesh.matrixAutoUpdate = false;
   return mesh;
@@ -345,6 +346,8 @@ function mergedBytes(msg: RegionResponse): number {
 const LOAD_RADIUS = 1500; // m: regions whose center is within this get loaded
 const DETAIL_RADIUS = 650; // m: regions nearer than this get full-detail meshes (bays, cornices, stoops)
 const UNLOAD_RADIUS = 2300;
+/** The loaded-tile mask over a FAR_STAND_INS tile with nothing loaded: its far boxes hide, and the far ground doesn't sink (farMaterial). */
+const MASK_STAND_IN = 200;
 // at altitude (viewHeight ~500 m) the circle widens; detail is judged by distance from the lens
 // (and its fov), so high up everything is the coarse mesh
 const LOAD_RADIUS_HIGH = 1900;
@@ -408,6 +411,8 @@ export class City {
   /** hand-built landmarks registered as paintable buildings (never unloaded) */
   private landmarks: LandmarkRec[] = [];
   private far: FarData | null = null;
+  /** ?farmap: the far raster's class and height stay here for what comes next (far boxes, the low sun's sweep) */
+  farRaster: Pick<FarRaster, 'W' | 'H' | 'affine' | 'cls' | 'height'> | null = null;
   private farGroup = new THREE.Group();
   private loadedMask: THREE.DataTexture;
   /** tiles whose far skyline boxes never show (FAR_STAND_INS) */
@@ -492,7 +497,7 @@ export class City {
     if (this.sf)
       for (const [x, z] of FAR_STAND_INS) {
         const tx = Math.floor(x / manifest.tileSize), tz = Math.floor(z / manifest.tileSize);
-        this.setMask(tx, tz, 255);
+        this.setMask(tx, tz, MASK_STAND_IN);
         this.maskedForGood.add(`${tx},${tz}`);
       }
     this.loadedMask.needsUpdate = true;
@@ -512,14 +517,26 @@ export class City {
     this.root.add(water);
   }
 
-  async loadFar(): Promise<void> {
+  async loadFar(renderer?: THREE.WebGLRenderer): Promise<void> {
     // (index.html already asked for the default extension's files)
     const pre = (what: 'far' | 'horizon') => (this.ext === '.bin' ? bootFetch(this.baseUrl, what) : null);
     const farP = pre('far') ?? fetch(`${this.baseUrl}/far${this.ext}${dataQuery()}`);
     const hzP = (pre('horizon') ?? fetch(`${this.baseUrl}/horizon${this.ext}${dataQuery()}`)).catch(() => null);
-    const [res, hz] = await Promise.all([farP, hzP]);
+    const rasterP = farFlags.map ? fetch(`${this.baseUrl}/far16${this.ext}${dataQuery()}`).catch(() => null) : null;
+    const [res, hz, rr] = await Promise.all([farP, hzP, rasterP]);
     this.far = parseFar(await maybeInflate(await res.arrayBuffer()));
-    this.buildFar();
+    // (a city with no raster, or a dev server's page in its place: the far ground as it always was)
+    const raster = rr && rr.ok ? parseFarRaster(await maybeInflate(await rr.arrayBuffer())) : null;
+    let tex: FarTextures | null = null;
+    if (raster) {
+      tex = makeFarTextures(raster);
+      // (one upload a tick, the boot loop running between them)
+      renderer?.initTexture(tex.cls);
+      await new Promise((r) => setTimeout(r, 16));
+      renderer?.initTexture(tex.tone);
+      this.farRaster = { W: raster.W, H: raster.H, affine: raster.affine, cls: raster.cls.slice(), height: raster.height.slice() };
+    }
+    this.buildFar(raster, tex);
     if (hz && hz.ok) this.buildHorizon(await maybeInflate(await hz.arrayBuffer()));
   }
 
@@ -567,7 +584,7 @@ export class City {
     this.farGroup.add(farGridMesh(pos, nrm, ramp, lo, gl, idx, 0));
   }
 
-  private buildFar() {
+  private buildFar(raster: FarRaster | null, tex: FarTextures | null) {
     const f = this.far!;
     // far terrain: 64 m grid over the whole city, sunk a little under the near tiles
     const step = 2;
@@ -579,14 +596,22 @@ export class City {
     const lo = new Float32Array(W * H);
     const gl = new Float32Array(W * H);
     const hAt = (i: number, j: number) => f.heights[Math.min(f.gridH - 1, Math.max(0, j)) * f.gridW + Math.min(f.gridW - 1, Math.max(0, i))];
+    const waterAt = (i: number, j: number) => f.cls[Math.min(f.gridH - 1, Math.max(0, j)) * f.gridW + Math.min(f.gridW - 1, Math.max(0, i))] === 2;
     for (let j = 0; j < H; j++) {
       for (let i = 0; i < W; i++) {
         const gi = i * step, gj = j * step;
         const k = j * W + i;
-        const water = f.cls[Math.min(f.gridH - 1, gj) * f.gridW + Math.min(f.gridW - 1, gi)] === 2;
+        const water = waterAt(gi, gj);
         pos[k * 3] = f.minX + gi * f.cell;
         pos[k * 3 + 1] = water ? -6 : hAt(gi, gj) - 2.2;
         pos[k * 3 + 2] = f.minZ + gj * f.cell;
+        if (raster) {
+          // true ground: lamps and boxes stand on it, and it no longer has to hide under the near tiles (it sinks where they're loaded).
+          // Water beside land stands just over the plane, so the raster, 16 m to the mesh's 64, draws the shore.
+          let shore = false;
+          if (water) for (let b = -1; b <= 1 && !shore; b++) for (let a = -1; a <= 1 && !shore; a++) shore = !waterAt(gi + a * step, gj + b * step);
+          pos[k * 3 + 1] = water ? (shore ? WATER_Y + 0.3 : -6) : hAt(gi, gj);
+        }
         const dx = (hAt(gi + 1, gj) - hAt(gi - 1, gj)) / (2 * f.cell);
         const dz = (hAt(gi, gj + 1) - hAt(gi, gj - 1)) / (2 * f.cell);
         const l = Math.hypot(dx, 1, dz);
@@ -596,7 +621,8 @@ export class City {
         // (no water ramp: water vertices stand under the plane, so whatever of a triangle shows is land, and the plane cuts the
         // shore. The ramp is flat: a shore triangle taking a water vertex's would climb the hillside as a blue tooth)
         ramp[k] = Ramp.GREY_LIGHT;
-        lo[k] = water ? -0.1 : -0.06;
+        // (?farmap: this attribute carries the walls' lo, a 64 m value on the mesh: no texture, no fetch)
+        lo[k] = raster ? farVertexWallLo(raster, pos[k * 3], pos[k * 3 + 2]) : water ? -0.1 : -0.06;
       }
     }
     const idx = new Uint32Array((W - 1) * (H - 1) * 6);
@@ -607,13 +633,16 @@ export class City {
         idx[q++] = a; idx[q++] = c; idx[q++] = b;
         idx[q++] = b; idx[q++] = c; idx[q++] = d;
       }
-    this.farGroup.add(farGridMesh(pos, nrm, ramp, lo, gl, new THREE.BufferAttribute(idx, 1), 1));
+    const maskRect = new THREE.Vector4(this.manifest.bounds[0], this.manifest.bounds[1], 1 / this.manifest.tileSize, 0);
+    const maskSize = new THREE.Vector2(this.maskW, this.maskH);
+    const ground = raster && tex ? makeFarGroundMaterial(raster, tex, this.loadedMask, maskRect, maskSize) : undefined;
+    this.farGroup.add(farGridMesh(pos, nrm, ramp, lo, gl, new THREE.BufferAttribute(idx, 1), 1, ground));
 
     // far skyline: tall buildings as boxes, hidden where real tiles are loaded
     const n = f.index.length;
     if (n) {
       const box = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
-      const mat = makeSkylineMaterial(this.loadedMask, new THREE.Vector4(this.manifest.bounds[0], this.manifest.bounds[1], 1 / this.manifest.tileSize, 0), new THREE.Vector2(this.maskW, this.maskH));
+      const mat = makeSkylineMaterial(this.loadedMask, maskRect, maskSize);
       const inst = new THREE.InstancedMesh(box, mat, n);
       const m4 = new THREE.Matrix4();
       const qn = new THREE.Quaternion();
@@ -1361,7 +1390,7 @@ export class City {
         }
         const mx = Math.round((tx * ts - minX) / ts);
         const mz = Math.round((tz * ts - minZ) / ts);
-        if (mx >= 0 && mz >= 0 && mx < this.maskW && mz < this.maskH && !this.maskedForGood.has(k)) (this.loadedMask.image.data as Uint8Array)[mz * this.maskW + mx] = 0;
+        if (mx >= 0 && mz >= 0 && mx < this.maskW && mz < this.maskH) (this.loadedMask.image.data as Uint8Array)[mz * this.maskW + mx] = this.maskedForGood.has(k) ? MASK_STAND_IN : 0;
         this.tiles.delete(k);
         this.tileNum.delete(tileKeyNum(tx, tz));
         this.onTileUnload?.(tx, tz);

@@ -383,6 +383,14 @@ export class PixelPipeline implements WarmPipeline {
     this.heroCircle.set(charge, spin, Math.max(0.1, halfLength), Math.max(0.1, halfWidth));
   }
 
+  /** The far plane moves (?farfade): the sky is the clear flag alone from here on, or the far fade ends in a hard cut. */
+  setFar(far: number) {
+    this.camera.far = far;
+    this.camera.updateProjectionMatrix();
+    this.skyCut = 2;
+    this.resolveMat.uniforms.uSkyCut.value = this.skyCut;
+  }
+
   /** World-space size of one game pixel at a given distance from the camera. */
   pixelWorldSize(distance: number): number {
     const H = this.info.height + MARGIN * 2;

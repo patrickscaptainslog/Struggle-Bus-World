@@ -11,6 +11,8 @@
 // through a climb to coarse and a dive back to detail; asked for by name, the far-field poses at the ceiling:
 // sunset, presidio, marin, sunward, into the sun).
 // --q: appended to every view's query (the flags under test).
+// --seq (with --det): five more frames after each view's shot, one fixed step apart (<name>-seq-0.png is the shot itself, then 1..5): a
+// burst from the same camera on any build, so tools/far/bandflip.py's crawl can be compared between two builds.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
@@ -154,6 +156,14 @@ async function detShot(name, query, script) {
   await runDet(page, 0.3);
   await settle(page);
   await page.screenshot({ path: `${out}/${name}.png` });
+  if ('seq' in opt) {
+    await page.screenshot({ path: `${out}/${name}-seq-0.png` });
+    for (let i = 1; i <= 5; i++) {
+      await runDet(page, STEP);
+      await page.waitForTimeout(200);
+      await page.screenshot({ path: `${out}/${name}-seq-${i}.png` });
+    }
+  }
   stats[name] = await page.evaluate(() => {
     const r = window.__game.pipeline.renderer.info;
     const g = window.__game, f = g.flight, p = g.pipeline;
