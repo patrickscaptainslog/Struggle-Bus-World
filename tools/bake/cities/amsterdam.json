@@ -1,0 +1,16 @@
+{
+  "name": "Amsterdam (Jordaan)",
+  "slug": "amsterdam",
+  "origin": [52.3752, 4.8822],
+  "bbox": [4.8705, 52.3665, 4.8945, 52.3840],
+  "overture": {"release": "2026-10-21.0", "pad": 0.002},
+  "osm": {"abbrev": null, "roofDefaults": {"house": "gabled", "terrace": "gabled", "residential": "gabled", "apartments": "gabled", "": "gabled"}},
+  "dem": [],
+  "groundLevel": 1.0,
+  "waterLevel": -0.9,
+  "note": "No LiDAR, no DEM: a flat city at 1 m with OSM's canals carved below the quays; heights from OSM (height, building:levels) or neighbours / class defaults; roofs from OSM roof:shape, untagged houses gabled.",
+  "start": {"lat": 52.3745, "lon": 4.8790, "heading_deg": 80, "speed": 30},
+  "districts": [],
+  "neighborhoods": [],
+  "landmarks": []
+}

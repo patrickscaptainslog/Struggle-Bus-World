@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Saved paint is keyed by building stableId: a re-bake must never move an id
-// to another building. Compares two baked cities (SBB1 or SBB2 tiles).
+// to another building. Compares two baked cities (SBB1, SBB2 or SBB3 tiles).
 //   node tools/check-stable-ids.mjs <oldCityDir> <newCityDir>
 // Checks, for every building of the old bake:
 //   - its stableId still exists, on exactly one building (one paint index),
@@ -16,8 +16,19 @@
 // that all tiers of a building share its id. Comparing two LiDAR bakes checks
 // that LiDAR ids stay on the same buildings too (one that comes and goes with a
 // threshold is reported, not failed).
-// Exit code 1 on any violation.
-import { readFileSync, readdirSync } from 'node:fs';
+// OpenStreetMap bakes ('SBB3'): every id derives from its source record (bake.py
+// ID_RANGES: OSM ids < 2^31, other Overture sources, USA Structures fallback lots,
+// LiDAR-only towers >= 3 * 2^30), so between two of them any id may be new (a
+// building mapped since) and an id may only disappear with its building; an id
+// must never move to another building. Comparing an OSM bake with an older one
+// is refused: the id schemes differ (that is why the paint stores are keyed by
+// city.json "ids"). A bake is OSM when city.json says "ids": "osm", credits
+// OpenStreetMap (attribution / an ODbL license: the fields the game's PaintState
+// idSchemeOf reads) or its tiles are 'SBB3'.
+// Refused too (nothing to compare, so never "OK"): a city dir with no packed
+// region files (r_<x>_<z>.bin: run pack.py), or one whose regions hold 0 buildings.
+// Exit code 1 on any violation or refusal.
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
 
@@ -26,12 +37,18 @@ if (!oldDir || !newDir) {
   console.error('usage: node tools/check-stable-ids.mjs <oldCityDir> <newCityDir>');
   process.exit(1);
 }
+const refuse = (msg) => {
+  console.error(`REFUSED: ${msg}`);
+  process.exit(1);
+};
 
 function parseBuildings(buf) {
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const magic = String.fromCharCode(buf[0], buf[1], buf[2], buf[3]);
-  const v2 = magic === 'SBB2';
+  const v3 = magic === 'SBB3';
+  const v2 = magic === 'SBB2' || v3;
   if (!v2 && magic !== 'SBB1') throw new Error('bad building tile ' + magic);
+  if (v3) sawV3 = true;
   const count = dv.getUint32(4, true);
   const vc = dv.getUint32(8, true);
   const ox = dv.getFloat32(12, true), oz = dv.getFloat32(16, true);
@@ -42,10 +59,12 @@ function parseBuildings(buf) {
   const index = u32(count), stable = u32(count), vstart = u32(count + 1);
   f32(count); f32(count); // baseY, roofY
   if (v2) f32(count); // groundY
+  if (v3) { u32(count); u32(count); o += count * 2; } // colours, roofH
   for (let k = 0; k < 6; k++) u8(count);
   const tier = v2 ? u8(count) : new Array(count).fill(0);
   if (v2) u8(count); // taper
-  o += (4 - ((count * (v2 ? 8 : 6)) % 4)) % 4;
+  if (v3) for (let k = 0; k < 5; k++) u8(count); // roof shape, dir, materials, source
+  o += (4 - (o % 4)) % 4;
   const vx = [], vz = [];
   for (let i = 0; i < vc; i++) vx.push(ox + dv.getInt16(o + i * 2, true) / 10);
   o += vc * 2;
@@ -59,10 +78,20 @@ function parseBuildings(buf) {
   return recs;
 }
 
+let sawV3 = false;
 function loadCity(dir) {
+  sawV3 = false;
+  if (!existsSync(dir)) refuse(`${dir}: no such directory`);
+  let manifest = null;
+  try {
+    manifest = JSON.parse(readFileSync(join(dir, 'city.json'), 'utf8'));
+  } catch {
+    /* no / unreadable city.json: the tiles still say what they are */
+  }
+  const files = readdirSync(dir).filter((f) => /^r_-?\d+_-?\d+\.bin$/.test(f));
+  if (!files.length) refuse(`${dir}: no region files (r_<x>_<z>.bin); an unpacked or unfinished bake? (python tools/bake/pack.py <city>)`);
   const recs = [];
-  for (const f of readdirSync(dir)) {
-    if (!/^r_-?\d+_-?\d+\.bin$/.test(f)) continue;
+  for (const f of files) {
     let buf = readFileSync(join(dir, f));
     if (buf[0] === 0x1f && buf[1] === 0x8b) buf = gunzipSync(buf);
     const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
@@ -73,7 +102,13 @@ function loadCity(dir) {
       if (bLen) for (const r of parseBuildings(buf.subarray(bOff, bOff + bLen))) recs.push(r);
     }
   }
-  return recs;
+  if (!recs.length) refuse(`${dir}: ${files.length} region files but 0 buildings in them; a broken or empty bake`);
+  const ids = manifest?.ids;
+  if (ids !== undefined && ids !== 'osm') refuse(`${dir}: city.json "ids": ${JSON.stringify(ids)} is an id scheme this tool doesn't know`);
+  // (an OSM bake: either says so; one from before city.json carried "ids" still credits OSM and has 'SBB3' tiles)
+  if (ids === 'osm' && !sawV3) refuse(`${dir}: city.json says "ids": "osm" but its tiles are not 'SBB3'`);
+  const credited = /OpenStreetMap/i.test(manifest?.attribution ?? '') || /^ODbL/i.test(manifest?.license ?? '');
+  return { recs, osm: ids === 'osm' || sawV3 || credited, files: files.length };
 }
 
 const centroid = (ring) => {
@@ -106,12 +141,20 @@ function overlap(a, b) {
 }
 
 const LIDAR_IDS = 2 ** 30; // bake.py NEW_SPLIT_BASE: ids below are footprint ranks
-const oldRecs = loadCity(oldDir);
-const newRecs = loadCity(newDir);
+const OSM_LIDAR = 3 * 2 ** 30; // bake.py ID_RANGES: LiDAR-only towers in an OSM bake
+const oldCity = loadCity(oldDir);
+const newCity = loadCity(newDir);
+if (oldCity.osm !== newCity.osm) {
+  refuse(`${oldCity.osm ? oldDir : newDir} is an OpenStreetMap bake (ids from OSM ids), ${oldCity.osm ? newDir : oldDir} is not: the id schemes differ, nothing to compare`);
+}
+const OSM = newCity.osm;
+const isLidar = (id) => (OSM ? id >= OSM_LIDAR : id >= LIDAR_IDS);
+const oldRecs = oldCity.recs;
+const newRecs = newCity.recs;
 const old = new Map();
-for (const r of oldRecs) if (r.tier === 0) old.set(r.stable, r);
+for (const r of oldRecs) if (r.tier === 0 && !old.has(r.stable)) old.set(r.stable, r);
 let oldMax = -1, oldLidar = 0;
-for (const id of old.keys()) if (id >= LIDAR_IDS) oldLidar++; else if (id > oldMax) oldMax = id;
+for (const id of old.keys()) if (isLidar(id)) oldLidar++; else if (id > oldMax) oldMax = id;
 
 const byIdx = new Map();
 for (const r of newRecs) {
@@ -158,7 +201,7 @@ for (const [id, o] of old) {
   const n = neu.get(id);
   if (!n) {
     if (absorber(o)) { absorbed++; continue; }
-    if (id >= LIDAR_IDS) { lidarGone++; continue; }
+    if (isLidar(id)) { lidarGone++; continue; }
     missing++;
     if (missing <= 10) errors.push(`stableId ${id} disappeared`);
     continue;
@@ -174,12 +217,12 @@ for (const [id, o] of old) {
   }
 }
 let added = 0;
-for (const id of neu.keys()) if (!old.has(id)) { added++; if (id < LIDAR_IDS) errors.push(`new stableId ${id} is a footprint rank, not a LiDAR id`); }
+for (const id of neu.keys()) if (!old.has(id)) { added++; if (!OSM && id < LIDAR_IDS) errors.push(`new stableId ${id} is a footprint rank, not a LiDAR id`); }
 shifts.sort((a, b) => a - b);
 const q = (p) => (shifts.length ? shifts[Math.min(shifts.length - 1, Math.floor(p * shifts.length))] : 0).toFixed(2);
 
-console.log(`old: ${old.size} buildings (footprint ids 0..${oldMax}, ${oldLidar} LiDAR ids); new: ${neu.size} buildings in ${partsTotal} parts (${tiered} multi-part)`);
-console.log(`kept ${old.size - missing - absorbed - lidarGone}/${old.size} ids, ${absorbed} absorbed into a merged building; added ${added} LiDAR ids (>= 2^30); centroid shift p50 ${q(0.5)} m, p99 ${q(0.99)} m, max ${maxShift.toFixed(1)} m`);
+console.log(`${OSM ? 'OpenStreetMap ids; ' : ''}old: ${old.size} buildings (${OSM ? 'source' : 'footprint'} ids up to ${oldMax}, ${oldLidar} LiDAR ids); new: ${neu.size} buildings in ${partsTotal} parts (${tiered} multi-part)`);
+console.log(`kept ${old.size - missing - absorbed - lidarGone}/${old.size} ids, ${absorbed} absorbed into a merged building; added ${added} ${OSM ? 'ids' : 'LiDAR ids (>= 2^30)'}; centroid shift p50 ${q(0.5)} m, p99 ${q(0.99)} m, max ${maxShift.toFixed(1)} m`);
 console.log(`moved off their footprint: ${moved}; missing: ${missing}` + (lidarGone ? `; LiDAR ids no longer found (threshold edge): ${lidarGone}` : ''));
 if (errors.length) {
   for (const e of errors.slice(0, 30)) console.log('  FAIL', e);

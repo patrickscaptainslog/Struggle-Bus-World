@@ -8,7 +8,8 @@
 // (meshCasterTile): the same building code run through a Builder in caster
 // mode, which keeps positions only, draws every wall as one quad and drops
 // the down-facing undersides (the sun never sees them). Every shape still
-// casts: the proxy is the same surface as the detailed mesh, in fewer triangles.
+// casts: the proxy is the same surface as the detailed mesh, in fewer triangles,
+// but for a house's walls and roof, on its ring to within CASTER_RING_EPS.
 //
 // LiDAR-tiered towers arrive as several parts (consecutive records sharing a
 // paint index): each part is extruded from the top of the tier below. Street
@@ -36,7 +37,8 @@
 // (y); the vertex shader grows it out once the building reaches its level.
 
 import type { BuildingTile } from './tiles';
-import { Arch } from './tiles';
+import { Arch, RoofShape } from './tiles';
+import { RoofBuild, areaCentroid, clipHalf, convexPieces, eaveY, newRoofFrame, profileOf, ringConvex, roofBuild, roofFrame, roofPlanes } from './roofGeom';
 import { Fam, FacadeFlag, FAM_MODULE, styleFor, hiddenAt, type TowerStyle } from './towerStyles';
 
 export const Part = {
@@ -468,6 +470,8 @@ export interface MeshOptions {
   lod: 0 | 1;
   /** the city is San Francisco (the icons and HIDDEN tables are written in its local meters) */
   sf: boolean;
+  /** roofKinds(t) */
+  kinds: Uint8Array;
 }
 
 /** The building a part belongs to: records [first, end) of the tile. */
@@ -477,6 +481,8 @@ interface Group {
   cx: number;
   cz: number;
   top: number;
+  /** per record of the tile: how its mapped roof is built (RoofBuild; FLAT = flat roof + parapet) */
+  kinds: Uint8Array;
   /** facade style of the whole building (null = the classic archetype look) */
   style: TowerStyle | null;
   /** per part (k - first): facade family and the extra flag bits (penthouse, crown, crown type, variant) */
@@ -529,9 +535,16 @@ function partRoles(t: BuildingTile, g: Group, st: TowerStyle) {
   }
 }
 
+/** How every part's mapped roof is built (RoofBuild), first: a shape that falls back adds no rise to the flood / pop top. */
+export function roofKinds(t: BuildingTile): Uint8Array {
+  const kinds = new Uint8Array(t.count);
+  for (let k = 0; k < t.count; k++) kinds[k] = roofBuild(t.xz, t.vertStart[k], t.vertStart[k + 1], t.roofShape[k], t.roofH[k], t.roofDir[k], t.taper[k]);
+  return kinds;
+}
+
 export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): { mesh: MeshArrays; grown: Float32Array } {
   const B = new Builder();
-  meshTile(B, t, opts.lod, opts.sf);
+  meshTile(B, t, opts.lod, opts.sf, opts.kinds);
   return B.finish();
 }
 
@@ -540,14 +553,14 @@ export function meshBuildingTile(t: BuildingTile, opts: MeshOptions): { mesh: Me
  * shape of them, with flat walls and no undersides. Positions only. (Hidden
  * footprints stay hidden: same `sf` as the visible mesh.)
  */
-export function meshCasterTile(t: BuildingTile, sf: boolean): CasterArrays {
+export function meshCasterTile(t: BuildingTile, sf: boolean, kinds: Uint8Array): CasterArrays {
   const B = new Builder(true);
-  meshTile(B, t, 0, sf);
+  meshTile(B, t, 0, sf, kinds);
   return B.finishCaster();
 }
 
-function meshTile(B: Builder, t: BuildingTile, lod: 0 | 1, sf: boolean) {
-  const g: Group = { first: 0, end: 0, cx: 0, cz: 0, top: 0, style: null, fam: [], ext: [], domes: 0, garden: 0 };
+function meshTile(B: Builder, t: BuildingTile, lod: 0 | 1, sf: boolean, kinds: Uint8Array) {
+  const g: Group = { first: 0, end: 0, cx: 0, cz: 0, top: 0, kinds, style: null, fam: [], ext: [], domes: 0, garden: 0 };
   for (let i = 0; i < t.count; ) {
     let j = i + 1;
     while (j < t.count && t.index[j] === t.index[i]) j++;
@@ -560,7 +573,7 @@ function meshTile(B: Builder, t: BuildingTile, lod: 0 | 1, sf: boolean) {
     g.cx = cx / Math.max(1, e - s);
     g.cz = cz / Math.max(1, e - s);
     g.top = 0;
-    for (let k = i; k < j; k++) g.top = Math.max(g.top, t.roofY[k], t.baseY[k] + 2.5);
+    for (let k = i; k < j; k++) g.top = Math.max(g.top, kinds[k] ? eaveY(t.baseY[k], t.roofY[k], t.tier[k]) + t.roofH[k] : t.roofY[k], t.baseY[k] + 2.5);
     const H = g.top - t.groundY[i];
     // footprints a hand-built prop draws instead (the Ferry Building's row of "Victorian" lots)
     if (sf && hiddenAt(g.cx, g.cz, H)) { i = j; continue; }
@@ -576,6 +589,79 @@ function meshTile(B: Builder, t: BuildingTile, lod: 0 | 1, sf: boolean) {
     for (let k = i; k < j; k++) meshBuilding(B, t, k, lod, g);
     i = j;
   }
+}
+
+/** LOD 1 rings keep what shows there: a footprint's outline survives to within this (m). The nearest LOD 1 wall stands
+ * 500+ m from the lens (DETAIL_RADIUS x 0.8), where a game pixel is 0.6-0.75 m, up high 1-2.5 m, and LOD 1 has already
+ * dropped the bays, stoops and cornices of that depth. 0.1 % of a frame's game pixels move, one here, one there. */
+const RING_EPS = 1.5;
+/** The caster proxy's rings for a house, to within this (m): every shape still casts, only a jog under 1 m leaves the outline
+ * of its shadow (1.3-4 shadow texels; the frames move by single game pixels along shadow edges). */
+const CASTER_RING_EPS = 1;
+
+/** Squared distance from point p to the segment a-b. */
+function dist2(p: [number, number], a: [number, number], b: [number, number]): number {
+  const dx = b[0] - a[0], dz = b[1] - a[1];
+  const L2 = dx * dx + dz * dz;
+  const u = L2 > 0 ? Math.min(1, Math.max(0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / L2)) : 0;
+  const ex = a[0] + dx * u - p[0], ez = a[1] + dz * u - p[1];
+  return ex * ex + ez * ez;
+}
+
+/**
+ * Which vertices of a ring (positive shoelace) the coarse mesh keeps, ascending, or null for all of them: Douglas-Peucker
+ * around the ring at RING_EPS, with the front edges kept whole (the facade starts there). OpenStreetMap's footprints
+ * carry every jog of a parcel (9.9 vertices a ring in SF, against USA Structures' 5.7), and each costs three triangles at
+ * LOD 1, twice with the sun pass, on regions that show a building as a few pixels.
+ */
+function ringKeep(pts: Array<[number, number]>, area: number, front: number, front2: number, eps = RING_EPS): number[] | null {
+  const n = pts.length;
+  const on = new Uint8Array(n);
+  let first = 0;
+  if (front !== 255 && front < n) {
+    on[front] = on[(front + 1) % n] = 1;
+    first = front;
+  }
+  if (front2 !== 255 && front2 < n) on[front2] = on[(front2 + 1) % n] = 1;
+  on[first] = 1;
+  // (and the vertex farthest from it: a closed ring needs two anchors)
+  let far = first, fd = -1;
+  for (let k = 0; k < n; k++) {
+    const d = (pts[k][0] - pts[first][0]) ** 2 + (pts[k][1] - pts[first][1]) ** 2;
+    if (d > fd) {
+      fd = d;
+      far = k;
+    }
+  }
+  on[far] = 1;
+  const anchors: number[] = [];
+  for (let k = 0; k < n; k++) if (on[k]) anchors.push(k);
+  const eps2 = eps * eps;
+  const span = (i: number, j: number) => {
+    let m = -1, dm = eps2;
+    for (let k = (i + 1) % n; k !== j; k = (k + 1) % n) {
+      const d = dist2(pts[k], pts[i], pts[j]);
+      if (d > dm) {
+        dm = d;
+        m = k;
+      }
+    }
+    if (m < 0) return;
+    on[m] = 1;
+    span(i, m);
+    span(m, j);
+  };
+  for (let a = 0; a < anchors.length; a++) span(anchors[a], anchors[(a + 1) % anchors.length]);
+  const keep: number[] = [];
+  for (let k = 0; k < n; k++) if (on[k]) keep.push(k);
+  if (keep.length === n || keep.length < 3) return null;
+  // (a sliver a straight line would collapse keeps its ring)
+  let a2 = 0;
+  for (let q = 0; q < keep.length; q++) {
+    const p = pts[keep[q]], r = pts[keep[(q + 1) % keep.length]];
+    a2 += p[0] * r[1] - r[0] * p[1];
+  }
+  return a2 / 2 > 0.85 * area && a2 / 2 < 1.15 * area ? keep : null;
 }
 
 /** True if (x, z) is inside the ring of record k. */
@@ -618,11 +704,13 @@ function flushAbove(t: BuildingTile, g: Group, i: number, ax: number, az: number
 function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Group) {
   const s = t.vertStart[i];
   const e = t.vertStart[i + 1];
-  const n = e - s;
+  let n = e - s;
   if (n < 3) return;
   const tier = t.tier[i];
+  // (trimBridgeTiers: a tier that was never a building)
+  if (tier > 0 && t.roofY[i] <= t.baseY[i]) return;
   const single = g.end - g.first === 1;
-  const pts: Array<[number, number]> = [];
+  let pts: Array<[number, number]> = [];
   for (let k = s; k < e; k++) pts.push([t.xz[k * 2], t.xz[k * 2 + 1]]);
   // a tapering part: its top ring is its base scaled about the area centroid
   const topScale = 1 - t.taper[i] / 255;
@@ -639,9 +727,22 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
     if (front !== 255) front = (n - 2 - front + n) % n;
     if (front2 !== 255) front2 = (n - 2 - front2 + n) % n;
   }
+  // The coarse mesh and the caster proxy draw their walls and roofs on fewer of the ring's vertices. All else reads the whole ring: a
+  // rooftop box, a chimney or a gable stands from its center and extent, and on another ring it would cast where it doesn't stand.
+  // (a facade family's columns land on its walls' corners: a tower keeps its ring; a tapering part's top is its ring, boxes and all)
+  const whole = pts;
+  if ((lod === 1 || (B.caster && topScale >= 1)) && n > 4 && !g.style) {
+    const keep = ringKeep(pts, Math.abs(area) / 2, front, front2, lod === 1 ? RING_EPS : CASTER_RING_EPS);
+    if (keep) {
+      front = front !== 255 && front < n ? keep.indexOf(front) : 255;
+      front2 = front2 !== 255 && front2 < n ? keep.indexOf(front2) : 255;
+      pts = keep.map((k) => pts[k]);
+      n = pts.length;
+    }
+  }
   let cx = 0, cz = 0;
-  for (const p of pts) { cx += p[0]; cz += p[1]; }
-  cx /= n; cz /= n;
+  for (const p of whole) { cx += p[0]; cz += p[1]; }
+  cx /= whole.length; cz /= whole.length;
   const baseY = t.baseY[i];
   const roofY = Math.max(t.roofY[i], baseY + (tier > 0 ? 1.0 : 2.5));
   const arch = t.arch[i];
@@ -676,7 +777,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
   // inward normal = left side of a->b for CCW ring: (-uz, ux)
   const inx = -uz, inz = ux;
   let s0 = Infinity, s1 = -Infinity, t0 = Infinity, t1 = -Infinity;
-  for (const p of pts) {
+  for (const p of whole) {
     const ds = (p[0] - fa[0]) * ux + (p[1] - fa[1]) * uz;
     const dt = (p[0] - fa[0]) * inx + (p[1] - fa[1]) * inz;
     s0 = Math.min(s0, ds); s1 = Math.max(s1, ds);
@@ -684,17 +785,23 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
   }
   const rectArea = (s1 - s0) * (t1 - t0);
   const rectangularity = rectArea > 0 ? Math.abs(area) / 2 / rectArea : 0;
-  const gable = lod === 0 && single && isVic && frontW > 4.5 && frontW < 11 && rectangularity > 0.82 && (seed % 100) < 38 && H < 15;
+  // a mapped roof shape (OSM roof:shape): its own roof; untagged Victorians keep the procedural front gables
+  const shape = t.roofShape[i];
+  const builtShape = g.kinds[i] !== RoofBuild.FLAT;
+  const gable = lod === 0 && single && isVic && shape === RoofShape.NONE && frontW > 4.5 && frontW < 11 && rectangularity > 0.82 && (seed % 100) < 38 && H < 15;
   // no parapet where the tier above rises flush from this edge
   const flush = !single && front !== 255 && flushAbove(t, g, i, fa[0], fa[1], fb[0], fb[1]);
+  // (roofBuild said whether it's built: a footprint it can't roof keeps its parapet and flat roof)
+  if (builtShape) shapedRoof(B, t, i, g.kinds[i], pts, roofY, front !== 255 ? front : 0, front, front2, streetY, corner);
   // (a curtain wall or a concrete tower ends flush: its top band is drawn by the shader)
-  const parapet = lod === 0 && !gable && !flush && front !== 255 && topScale >= 1 && (fam === 0 || fam === Fam.MASONRY) ? (isVic ? 1.3 : isFlats ? 0.9 : arch === Arch.COMMERCIAL || arch === Arch.CIVIC ? 0.7 : arch === Arch.TOWER ? 1.2 : 0.5) : 0;
+  const parapet = lod === 0 && !gable && !builtShape && !flush && front !== 255 && topScale >= 1 && (fam === 0 || fam === Fam.MASONRY) ? (isVic ? 1.3 : isFlats ? 0.9 : arch === Arch.COMMERCIAL || arch === Arch.CIVIC ? 0.7 : arch === Arch.TOWER ? 1.2 : 0.5) : 0;
 
   // ---- walls
   // perimeter u starts at the front edge so the facade pattern lines up with it
   const startK = front !== 255 ? front : 0;
-  // wall columns only serve the painted wobble: towers' upper tiers (high, narrow faces) need fewer
-  const segLen = tier > 0 ? 6.4 : 3.2;
+  // wall columns only serve the painted wobble, a ~27 m wave of 0.32 m: 8 m on a house, a chord (12 m at most) stays within 0.13-0.26 m
+  // of the wave. A facade family keeps a finer grid (remapU stretches it to whole column modules), its upper tiers (high, narrow faces) less
+  const segLen = fam ? (tier > 0 ? 6.4 : 3.2) : 8;
   let u = 0;
   let uF = 0; // facade families: u in whole modules
   if (topScale < 1) {
@@ -759,7 +866,9 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
   }
 
   // ---- roof
-  if (gable) {
+  if (builtShape) {
+    // (the roof covers the footprint)
+  } else if (gable) {
     const over = 0.35;
     const rise = Math.min(4.5, (s1 - s0) * 0.5 * 0.78);
     const sm = (s0 + s1) / 2;
@@ -798,9 +907,10 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
 
   // rooftop clutter: only on roof that is open to the sky
   const open = single ? null : (x: number, z: number) => !covered(t, g, i, x, z);
-  if (fam) towerGrowth(B, t, g, i, pts, roofY, lod);
+  // (a mapped roof stands where a setback garden or a crown's onions would: they'd hang inside it)
+  if (fam && !builtShape) towerGrowth(B, t, g, i, pts, roofY, lod);
   if (lod === 1 || front === 255) {
-    if (lod === 0) clutter(B, pts, cx, cz, roofY, arch, r, open);
+    if (lod === 0 && !builtShape) clutter(B, whole, cx, cz, roofY, arch, r, open);
     return;
   }
 
@@ -881,8 +991,8 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
     B.quadF([D0[0], yLow, D0[1]], [D0[0], baseY, D0[1]], [D1[0], baseY, D1[1]], [D1[0], yLow, D1[1]], [0, 0, 0, 0, 0, 0, 0, 0], Part.STOOP, OUT);
   }
 
-  // ---- chimney (Victorians) + rooftop clutter
-  if (isVic && single && (seed % 5) < 2) {
+  // ---- chimney (Victorians) + rooftop clutter (both stand on a flat roof at roofY: none on a mapped roof)
+  if (isVic && single && !builtShape && (seed % 5) < 2) {
     const side = seed & 2 ? 0.25 : 0.75;
     const depth = 0.45 + 0.3 * r();
     const px = fa[0] + ux * (s0 + (s1 - s0) * side) + inx * (t0 + (t1 - t0) * depth);
@@ -891,7 +1001,7 @@ function meshBuilding(B: Builder, t: BuildingTile, i: number, lod: 0 | 1, g: Gro
     const chTop = (gable ? roofY + 2.6 : roofY + 1.7) + r() * 0.6;
     B.prism(ccw([[px - hw, pz - hw], [px + hw, pz - hw], [px + hw, pz + hw], [px - hw, pz + hw]]), roofY - 0.2, chTop, Part.CLUTTER);
   }
-  if (!gable) clutter(B, pts, cx, cz, roofY, arch, r, open);
+  if (!gable && !builtShape) clutter(B, whole, cx, cz, roofY, arch, r, open);
 }
 
 // ---- painted towers: setback gardens (level 2 bushes, level 3 trees spilling
@@ -1080,4 +1190,171 @@ function ccw(ring: Array<[number, number]>): Array<[number, number]> {
     a += p[0] * q[1] - q[0] * p[1];
   }
   return a < 0 ? ring.slice().reverse() : ring;
+}
+
+// ---- shaped roofs (OpenStreetMap roof:shape, 'SBB3'; the geometry is roofGeom's, which City's gameplay heights share)
+// A planar roof is a height field over the footprint: the lowest of a few planes in the roof's frame (s along the
+// ridge, t across it, the direction byte says which way the main face looks). Each plane's face is the footprint
+// where that plane is the lowest: every convex piece of the footprint (the ring itself when it is convex, else
+// roofGeom's convexPieces: its triangles merged while convex) clipped to the plane's convex region (the half-planes where it is under each other plane), so
+// the faces cover the footprint exactly, concave or not. The walls rise above the eave where the roof does
+// (gable ends, a skillion's high side). Domes, onions, cones and pyramids on odd footprints are revolved: the
+// ring scaled toward its area centroid, band by band. roofBuild (roofGeom) decided which, before Group.top.
+
+const _cen = { x: 0, z: 0 };
+
+/**
+ * The mapped roof of record i (kind: its RoofBuild, not FLAT) on its ring pts (positive shoelace in x, z), eave
+ * at y. startK / front / front2: the walls' facade layout (u along the facade from the front edge), so gable-end
+ * walls continue the windows below.
+ */
+function shapedRoof(B: Builder, t: BuildingTile, i: number, kind: number, pts: Array<[number, number]>, y: number,
+  startK: number, front: number, front2: number, streetY: number, corner: number) {
+  const s = t.vertStart[i], e = t.vertStart[i + 1];
+  const R = t.roofH[i], shape = t.roofShape[i];
+  if (kind === RoofBuild.REVOLVE) {
+    const c = areaCentroid(t.xz, s, e, _cen);
+    revolve(B, pts, c.x, c.z, y, R, profileOf(shape));
+    return;
+  }
+  const n = pts.length;
+  const f = roofFrame(t.xz, s, e, t.roofDir[i], newRoofFrame());
+  const P: number[] = [];
+  const np = roofPlanes(shape, f.s0, f.s1, f.t0, f.t1, R, P);
+  if (np === 0) return;
+  const { cx, cz, Sx, Sz, Dx, Dz } = f;
+  const st: number[] = [];
+  const ring: number[] = [];
+  for (const p of pts) {
+    st.push((p[0] - cx) * Sx + (p[1] - cz) * Sz, (p[0] - cx) * Dx + (p[1] - cz) * Dz);
+    ring.push(p[0], p[1]);
+  }
+  const H = (ss: number, tt: number) => {
+    let h = Infinity;
+    for (let k = 0; k < np; k++) h = Math.min(h, P[k * 3] * ss + P[k * 3 + 1] * tt + P[k * 3 + 2]);
+    return Math.max(0, h);
+  };
+  // the footprint's convex pieces, in (s, t)
+  const pieces: number[][] = [];
+  if (ringConvex(ring)) pieces.push(st);
+  else {
+    for (const loop of convexPieces(ring)) {
+      const piece: number[] = [];
+      for (const v of loop) piece.push(st[v * 2], st[v * 2 + 1]);
+      pieces.push(piece);
+    }
+  }
+  // the faces: each plane where it is the lowest (a plane equal to an earlier one has no face of its own)
+  const X: number[] = [], V: number[] = [];
+  for (let k = 0; k < np; k++) {
+    const a = P[k * 3], b = P[k * 3 + 1], c0 = P[k * 3 + 2];
+    let dup = false;
+    for (let j = 0; j < k; j++) if (Math.abs(a - P[j * 3]) < 1e-9 && Math.abs(b - P[j * 3 + 1]) < 1e-9 && Math.abs(c0 - P[j * 3 + 2]) < 1e-9) dup = true;
+    if (dup) continue;
+    const hx = a * Sx + b * Dx, hz = a * Sz + b * Dz;
+    const nl = Math.hypot(hx, 1, hz);
+    const part = Math.hypot(hx, hz) > 0.12 ? Part.ROOF_SLOPE : Part.ROOF;
+    // (one face's pieces share their vertices where they meet)
+    const at = new Map<number, number>();
+    for (const piece of pieces) {
+      let poly = piece;
+      for (let j = 0; j < np && poly.length >= 6; j++) {
+        if (j !== k) poly = clipHalf(poly, a - P[j * 3], b - P[j * 3 + 1], c0 - P[j * 3 + 2]);
+      }
+      const m = poly.length / 2;
+      if (m < 3) continue;
+      X.length = 0;
+      for (let q = 0; q < m; q++) X.push(cx + poly[q * 2] * Sx + poly[q * 2 + 1] * Dx, cz + poly[q * 2] * Sz + poly[q * 2 + 1] * Dz);
+      let a2 = 0;
+      for (let q = 0; q < m; q++) {
+        const q2 = (q + 1) % m;
+        a2 += (X[q * 2] - cx) * (X[q2 * 2 + 1] - cz) - (X[q2 * 2] - cx) * (X[q * 2 + 1] - cz);
+      }
+      if (Math.abs(a2) < 1e-6) continue;
+      V.length = 0;
+      for (let q = 0; q < m; q++) {
+        const key = Math.round((X[q * 2] - cx) * 1e4) * 1e8 + Math.round((X[q * 2 + 1] - cz) * 1e4);
+        let vi = at.get(key);
+        if (vi === undefined) {
+          const h = Math.max(0, a * poly[q * 2] + b * poly[q * 2 + 1] + c0);
+          vi = B.vert(X[q * 2], y + h, X[q * 2 + 1], -hx / nl, 1 / nl, -hz / nl, X[q * 2], X[q * 2 + 1], part);
+          at.set(key, vi);
+        }
+        V.push(vi);
+      }
+      // (a convex piece: a fan; CCW in (x, z) with +z south faces up with the winding reversed)
+      for (let q = 1; q + 1 < m; q++) {
+        if (V[q] === V[0] || V[q + 1] === V[0] || V[q] === V[q + 1]) continue;
+        if (a2 > 0) B.idx.push(V[0], V[q + 1], V[q]);
+        else B.idx.push(V[0], V[q], V[q + 1]);
+      }
+    }
+  }
+  // the walls above the eave: wherever the roof meets an outer wall above the eave (gable ends). The roof's
+  // height along an edge is the same min of planes whatever the ring's shape, so concave rings close too.
+  let u = 0;
+  const us: number[] = [];
+  for (let j = 0; j < n; j++) {
+    const k = (startK + j) % n, k2 = (k + 1) % n;
+    const ax = pts[k][0], az = pts[k][1], bx = pts[k2][0], bz = pts[k2][1];
+    const L2 = Math.hypot(bx - ax, bz - az);
+    if (L2 < 0.05) {
+      u += L2;
+      continue;
+    }
+    const sa = st[k * 2], ta = st[k * 2 + 1], sb = st[k2 * 2], tb = st[k2 * 2 + 1];
+    us.length = 0;
+    us.push(0, 1);
+    for (let p = 0; p < np; p++)
+      for (let q = p + 1; q < np; q++) {
+        const da = (P[p * 3] - P[q * 3]) * sa + (P[p * 3 + 1] - P[q * 3 + 1]) * ta + (P[p * 3 + 2] - P[q * 3 + 2]);
+        const db = (P[p * 3] - P[q * 3]) * sb + (P[p * 3 + 1] - P[q * 3 + 1]) * tb + (P[p * 3 + 2] - P[q * 3 + 2]);
+        if (da * db < 0) us.push(da / (da - db));
+      }
+    // (and where the roof leaves the eave: a plane crossing zero)
+    for (let p = 0; p < np; p++) {
+      const da = P[p * 3] * sa + P[p * 3 + 1] * ta + P[p * 3 + 2], db = P[p * 3] * sb + P[p * 3 + 1] * tb + P[p * 3 + 2];
+      if (da * db < 0) us.push(da / (da - db));
+    }
+    us.sort((x, z) => x - z);
+    const isFront = k === front || k === front2;
+    const part = isFront ? Part.FRONT : Part.SIDE;
+    const flags = (isFront ? 1 : 0) | corner;
+    const want: V3 = [(bz - az) / L2, 0, -(bx - ax) / L2];
+    for (let q = 0; q + 1 < us.length; q++) {
+      const u0 = us[q], u1 = us[q + 1];
+      if (u1 - u0 < 1e-4) continue;
+      const h0 = H(sa + (sb - sa) * u0, ta + (tb - ta) * u0), h1 = H(sa + (sb - sa) * u1, ta + (tb - ta) * u1);
+      if (Math.max(h0, h1) < 0.03) continue;
+      const p0x = ax + (bx - ax) * u0, p0z = az + (bz - az) * u0, p1x = ax + (bx - ax) * u1, p1z = az + (bz - az) * u1;
+      const fu0 = u + L2 * u0, fu1 = u + L2 * u1, v0 = y - streetY;
+      if (h0 > 0.03 && h1 > 0.03) {
+        B.quadF([p0x, y, p0z], [p1x, y, p1z], [p1x, y + h1, p1z], [p0x, y + h0, p0z], [fu0, v0, fu1, v0, fu1, v0 + h1, fu0, v0 + h0], part, want, flags);
+      } else if (h1 > 0.03) {
+        B.triF([p0x, y, p0z], [p1x, y, p1z], [p1x, y + h1, p1z], [fu0, v0, fu1, v0, fu1, v0 + h1], part, want, flags);
+      } else {
+        B.triF([p0x, y, p0z], [p1x, y, p1z], [p0x, y + h0, p0z], [fu0, v0, fu1, v0, fu0, v0 + h0], part, want, flags);
+      }
+    }
+    u += L2;
+  }
+}
+
+/** A roof of revolution: the ring scaled toward (cx, cz) (its area centroid) by profile[j][0] at y + R * profile[j][1]. */
+function revolve(B: Builder, pts: Array<[number, number]>, cx: number, cz: number, y: number, R: number, profile: ReadonlyArray<readonly [number, number]>) {
+  const n = pts.length;
+  const P = (k: number, j: number): V3 => {
+    const sg = profile[j][0];
+    return [cx + (pts[k % n][0] - cx) * sg, y + R * profile[j][1], cz + (pts[k % n][1] - cz) * sg];
+  };
+  for (let j = 0; j + 1 < profile.length; j++) {
+    for (let k = 0; k < n; k++) {
+      const mx = (pts[k][0] + pts[(k + 1) % n][0]) / 2 - cx, mz = (pts[k][1] + pts[(k + 1) % n][1]) / 2 - cz;
+      const ml = Math.hypot(mx, mz) || 1;
+      const want: V3 = [mx / ml, 0.35, mz / ml];
+      const a = P(k, j), b = P(k + 1, j), c = P(k + 1, j + 1), d = P(k, j + 1);
+      if (profile[j + 1][0] <= 1e-6) B.triF(a, b, c, [0, 0, 1, 0, 0.5, 1], Part.ROOF_SLOPE, want);
+      else B.quadF(a, b, c, d, [0, 0, 1, 0, 1, 1, 0, 1], Part.ROOF_SLOPE, want);
+    }
+  }
 }

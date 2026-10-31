@@ -9,8 +9,8 @@ works, file ownership), `DECISIONS.md` (every call we made, with numbers),
 `docs/specs/COMMON.md` (the creative brief). Do not skim the rendering rules.
 
 ## The game in one paragraph
-A wheezing yellow school bus flies over real San Francisco (USGS LiDAR + FEMA/ORNL
-footprints, OpenStreetMap coming) and blasts rainbow "dragon breath". A tap fires a
+A wheezing yellow school bus flies over real San Francisco (OpenStreetMap footprints,
+roofs, streets and names, USGS LiDAR heights) and blasts rainbow "dragon breath". A tap fires a
 projectile at the glinting building ahead; the blast blooms every building within
 ~60 m in a radial wave, paints streets/parks/trees, and repeat hits escalate L1 bloom
 -> L2 rooftop gardens -> L3 Hundertwasser. Thumb/keyboard "yoke": pull down = climb
@@ -45,13 +45,14 @@ Many tools still wait on the game clock (`__game.clock()`), which is right on an
 machine. In the cloud SwiftShader ran ~1.5 fps; here it should be 20-60.
 
 ### City data pipeline (only if you rebuild the city)
-Python 3.12: `pip install geopandas pyogrio pyarrow rasterio pyproj scipy shapely laspy[lazrs]`.
-Inputs: the SF slice of FEMA/ORNL USA Structures is committed in `tools/bake/data/`;
-`python tools/bake/fetch_inputs.py sf` downloads the USGS 1 m DEM tiles into
-`tools/bake/.data/` (bake.py's `data_path()` finds both; the configs keep the cloud's
-absolute paths). LiDAR (`tools/bake/lidar.py`) downloads itself (~1.4 GB, cached under
-`tools/bake/.cache/lidar`). Then `python tools/bake/bake.py sf && python tools/bake/pack.py sf`
-(~15 min). Never change stable building ids casually: saved paint is keyed by them.
+Python 3.12 (`C:/Users/Utku/sb-venv` here): `pip install geopandas pyogrio pyarrow rasterio pyproj scipy shapely laspy[lazrs] matplotlib`.
+`python tools/bake/overture.py sf` (OpenStreetMap through Overture, ESA WorldCover), `python tools/bake/fetch_inputs.py sf`
+(the USGS 1 m DEM tiles, into `tools/bake/.data/`; the SF slice of USA Structures is committed in `tools/bake/data/`), then
+`python tools/bake/bake.py sf && python tools/bake/pack.py sf`. LiDAR (`tools/bake/lidar.py`) downloads itself (~1.4 GB, cached under
+`tools/bake/.cache/lidar`). The caches are gitignored and live in `C:/Users/Utku/Struggle-Bus-World/tools/bake/`: a worktree
+points `SB_OVERTURE_CACHE`, `SB_WORLDCOVER_CACHE`, `SB_LIDAR_CACHE` and `SB_DATA` at them. A full SF bake thrashes this 8 GB
+laptop. Never change stable building ids casually: saved paint is keyed by them (OSM ids: ARCHITECTURE "stableIds").
+Bump `window.__sbDataV` in `index.html` with every re-bake: phones hold `/city/` files by URL (ARCHITECTURE "Re-baking a city", `tools/redeploy.mjs`).
 
 ## Branches (GitHub: patrickscaptainslog/Struggle-Bus-World) — state when the cloud session stopped (2026-10-23 20:40 UTC)
 The cloud session has STOPPED all its work. Every branch below is pushed; unfinished
@@ -69,7 +70,7 @@ including merging into `main`.** None of the branches below has been merged yet.
 | `feat/hybrid` | built from `docs/specs/hybrid-controls.md`, QA'd on the GPU (MAIN vs NEXT), review's four defects fixed (2026-10-30); never run on a real phone | the producer's hybrid: TURBO, the tilt toggle, MEGA, thumb + tilt arbitration (`Hybrid.ts`), `hudLayout.ts`, the first run (`Coach.ts`), no card, `tools/controls-sim/s_hybrid.ts`, `s_layout.ts` | the real-iPhone list at the end of its DECISIONS "Hybrid controls" (back swipe first); the producer's call: `config.tilt.defaultOn` |
 | `merge/perf` | polish/perf, perf/load and the optimization deep dive in one merge, QA'd on the GPU (MAIN vs NEXT), merge review's five findings fixed, not yet judged (desktop session, 2026-10-30); never run on a real phone | one RGBA16UI G-buffer, the typed mesher, sun-pass casters, depth-only sun pass, first draws on a byte budget, unseen swaps that only commit, the warm-up from the top of main.ts, primed streaming, the opening on the wall clock and a tap to skip it, a first touch with no stall, context loss | merge next (its DECISIONS "iPhone performance" has the numbers, MAIN bd660ba vs NEXT, and what was dropped); first real-phone pass below |
 | `feat/stages` | empty (just created from main) | — | build the stage engine per `docs/specs/STAGES.md` (its "Producer decisions" section) |
-| `feat/osm` | paused mid-task (WIP) | Overture/OSM extract (`tools/bake/overture.py`, `osm.py`, `citydata.py`), conflation draft in `bake.py`, Amsterdam config, `src/ui/Credits.ts` | resume; needs the bake inputs (see "City data pipeline") |
+| `merge/osm` | feat/osm (local c17bc4a; `origin/feat/osm` is 13 commits behind it, never use it) + main f64a142, QA'd on the GPU (MAIN vs NEXT), merge review's four findings fixed, the outside judge's round 1 answered, the last review's findings fixed, merged into main 2026-10-31 (one judge round by the producer's rule); never run on a real phone | the OpenStreetMap city in main's game: real footprints, mapped roofs (`roofGeom.ts`), streets and names on the signs, ground classes, evidence trees, the 'osm' id scheme, ODbL credit + MAP DATA, London and Amsterdam, LOD 1 rings, `tools/sweep.mjs`, `framecost.mjs`, `osm-paint.mjs`, `osm-play.mjs` | done (its DECISIONS "OpenStreetMap in main's game" has the numbers, the merge review's at its end; "OpenStreetMap, outside judge round 1" what the judge found: the "fin" is Market Street, `tools/sightline.mjs` shows it to anyone); the producer's call on the hillside views over budget; the distant-city study builds on it |
 
 `feat/controls` and `feat/supersplat` share an INPUT CONTRACT (`onTap`,
 `onChargeStart`, `onChargeEnd(heldSeconds, cancelled)`, `state.chargeHeld`,
@@ -80,10 +81,11 @@ notes when merging.
 1. Merge facade -> landmarks (+ wire the 3 new props) -> look -> controls -> supersplat -> perf,
    with a quick GPU screenshot check after each (`node tools/shots.mjs`), publishing a
    Vercel deploy as you go. (All in main but `merge/perf`, the last of them.)
-2. Build the stage engine (`feat/stages`), then MAGIC-SPEC's effects in its three
+2. The distant-city proof (`shots/local/farfield/SPIKE.md`, far.bin, horizon.bin, the far field), on main now that `merge/osm` is in; then the live sky (`shots/local/sky/SKY.md`).
+3. Build the stage engine (`feat/stages`), then MAGIC-SPEC's effects in its three
    workstreams (WS-1 light + music, WS-2 ribbons/pillars/birds/fireworks/waterfalls, WS-3
    growth kit + director + Wonders), Super Rainbow's five stages first.
-3. Resume `feat/osm`, then world travel (`docs/specs/WORLD-TRAVEL.md`).
+4. World travel (`docs/specs/WORLD-TRAVEL.md`).
 
 ## Design docs (all in `docs/specs/`)
 - `MAGIC-SPEC.md` — "wild paint": 14 effects, one visual language, escalation ladder, perf
@@ -130,7 +132,7 @@ notes when merging.
    day/night), Tokyo from OSM/Overture, floating origin. A design pass is producing
    `WORLD-TRAVEL.md`. Then: every city, many players (static tiles on a CDN, shared paint
    via per-region Durable Objects, OSM/GERS ids).
-5. Use OpenStreetMap as much as possible for quality (feat/osm; ODbL: attribution in game +
+5. Use OpenStreetMap as much as possible for quality (done on `merge/osm`; ODbL: attribution in game +
    DATA_LICENSE.md for the tiles).
 6. It felt laggy and low-res: we raised the frame to 390 px and tightened springs; the perf
    pass is `merge/perf`. Measure real fps on the producer's iPhone.
@@ -157,9 +159,18 @@ notes when merging.
   during the 4 s pour), the one known exception to the no-allocation rule: pool them if a phone shows GC hitches.
 - `shots.mjs` stats sometimes come back null at 390 px (the perf snapshot timing); the
   screenshots are still valid.
+- Over the triangle budget at altitude, mostly over hillsides: 9 of 352 `tools/sweep.mjs` views read over 1.5M, worst 1.70M (Bernal and Noe at 350 m; MAIN 2 of 352, worst 1.53M), and a pinned camera 1.73M at the Mission at 350 m, heading 225 (MAIN 1.60M, 1.93M before the merge review's first step). Samples: they move with what has streamed in. Draws: 4 of 352 over 200, 231 at most (MAIN 5, 234). 8 m wall columns and 1 m caster rings on houses took ~10 % off; what is left is the producer's call (DECISIONS "OpenStreetMap in main's game", merge review). GPU on the UHD 620: Excelsior ceiling 19.2-20.0 ms (main 16.0-16.6), Noe's 17.4 (16.5), so `tools/fps.mjs`'s 60 fps holds at its flat spots only. `tools/sweep.mjs`, `tools/framecost.mjs`.
+- A camera on a straight street's axis lays the street on one screen line, the same line as the vertical of what stands at its foot: climbing off the Ferry Building, heading 235, Market Street reads like a light fin on the clock tower, on main too. Past the streaming radius its last ~50 game px are a pale hairline between far boxes (the far band's). `tools/sightline.mjs`.
+- Street edges keep the 2 m class texture's stairs at a shallow angle to the grid (north of Market they run ~9 degrees off it): only water has the wider share (ARCHITECTURE "The shore is the class texture's"); a 2 m path wouldn't survive one.
+- Between 100 m towers few taps raise a sign (FiDi 3 of 8: no pole clears them, and half a blade is no sign). A rooftop sign would be a new rule, the producer's.
+- The Bay Bridge's real concrete piers (W2, W5, W6: OSM's, PLAZA and SIDEWALK, baked 0 to 2.5 m) are pale shapes on the water with no prop on them, off the hand-built deck: real data, there since the OSM bake (`shots/local/merge-osm/verify-final/bridges/`). A prop or a line-up of the deck would answer them.
 - The far skyline beyond the streaming radius is flat boxes; with fog off it shows. (The far field is a separate study's:
   polish/perf's far chunks stayed out of the merge.)
-- Saved paint keys: `strugglebus.paint.v1` (buildings), `strugglebus.ground.v2:<tx>,<tz>`
-  (ground), `strugglebus.landmarks.v1` (landmark props, by name: `lm:sutro`,
-  `lm:transamerica`, `lm:coit`, `lm:ferry`; independent of any bake). feat/osm bumps
-  building paint to v2 (ids change); the landmark store stays as it is.
+- Saved paint keys, on OpenStreetMap data (`city.json` `"ids": "osm"`): `strugglebus.paint.v3` (buildings), `strugglebus.ground.v4:<tx>,<tz>`
+  (ground), other cities `paint.v3:<slug>` and `ground.v4.<slug>:`; `strugglebus.landmarks.v1` (landmark props, by name: `lm:sutro`,
+  `lm:transamerica`, `lm:coit`, `lm:ferry`; independent of any bake) stays as it is. v2 of the buildings and v3 of the ground are skipped
+  on purpose: a build before `"ids"` wrote them whatever the data was. An OSM load drops that city's `paint.v1` / `v2` and `ground.v2` / `v3`
+  (never applied; a landmark's name key moves to its own store).
+- Three wrong heights in SF's final data are patched in the client, not fixed (`towerStyles.ts`, SF only): the bridges' OSM / LiDAR stand-ins and
+  the Alamo Square hut are `HIDDEN`, Fort Point loses its upper tiers (`BRIDGE_TIERS`). The next SF bake should fix them at the source: no
+  LiDAR rooftops under a bridge, none from a tree crown on a small footprint. See DECISIONS "OpenStreetMap in main's game".

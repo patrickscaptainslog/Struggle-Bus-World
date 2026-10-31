@@ -919,6 +919,176 @@ laptop's UHD 620, a fresh browser per run.
     be re-measured on an A15 after that merge.
 
 ## Data
+- **OpenStreetMap, as much as possible** (producer: "Use OpenStreetMap as much
+  as possible to ensure we create the highest quality game"; the earlier "no
+  OpenStreetMap" rule is lifted, we comply with the ODbL instead). The OSM
+  servers (openstreetmap.org, Overpass, Geofabrik) are blocked by this
+  environment's network policy; **Overture Maps' GeoParquet release on S3 is
+  reachable and is OpenStreetMap** for buildings, streets, land, water and
+  names (plus a few other open sources it records per feature).
+  `tools/bake/overture.py` reads every file's footer once (cached), then only
+  the row groups whose bbox statistics touch the city (HTTP range reads via
+  pyarrow's S3 filesystem; DuckDB's httpfs / spatial extensions can't be
+  downloaded here): SF's ten feature types in ~2 min, 83 MB.
+- **Footprints from OSM** (SF: the city's own parcel-accurate building import):
+  real lot lines, real row houses, the real Painted Ladies, instead of USA
+  Structures' merged rows cut into synthetic ~25 ft lots. Conflation: OSM /
+  Overture footprint first; a USA Structures row only where OSM footprints cover
+  less than a quarter of it (SF: 2,437 rows, 1.6 % of the built area),
+  and only if the LiDAR doesn't see bare ground there (1,120 such rows were
+  demolished since: dropped). Under OSM footprints USA Structures still gives
+  occupancy (OSM tags it on few SF buildings) and a height fallback.
+  Overture's own non-OSM footprints (Microsoft ML, Esri: 1,681) stay where OSM
+  has nothing. Skipped: building=roof canopies (no walls), underground ones,
+  floating min_height ones without parts. A multipolygon's separate pieces are
+  separate buildings; courtyards >= 60 m^2 stay open (the footprint is cut
+  through them into flat-roofed pieces of one building), light wells are filled.
+- **Heights**: the LiDAR rooftops win where they agree with the footprint (the
+  same rules as before: coverage, tree crowns, slivers); else OSM height, else
+  OSM building:levels x 3.2 m + 1 m, else the USA Structures row under it, else
+  the neighbours' median, else a default by class. SF by source: LiDAR 164,867, OSM height 2,811, OSM levels 36, USA Structures 110, neighbours 1,403, default 276.
+- **Building parts** (building:part=*, SF: 1,339 parts on 327 buildings) drive
+  the massing where they agree with the LiDAR: the parts model (each part its
+  own base, top and roof; a dome counts at mid-rise) is rasterized on the 1 m
+  raster and compared with the rooftops; the parts win when their mean height
+  error is within 5 % of the best LiDAR model (tiers or a flat roof) and under
+  25 %. SF: 73 buildings take their parts (555 California, 50 California,
+  100 Pine, City Hall's dome...), 158 keep the LiDAR tiers (Salesforce
+  Tower's taper, Embarcadero Center's notched corners and most towers: their
+  parts are coarser than the tuned tiers or misregistered). Without LiDAR the
+  parts are the massing (Amsterdam: 25 buildings).
+- **Roofs** from OSM roof:shape / roof:height / roof:direction /
+  roof:orientation, per part, into the tiles ('SBB3'): flat, gabled, hipped,
+  pyramidal, skillion, dome, onion, round, gambrel, mansard, half-hipped,
+  saltbox, cone. BuildingMesher builds a planar roof as the lowest of a few
+  planes in the roof's frame (each face is the footprint clipped to where its
+  plane is lowest; the walls rise to the roof at the gable ends, with their
+  windows), domes / onions / cones by revolving the footprint ring. SF has few
+  tagged roofs (323 parts, 183 of them pitched or domed, the Painted Ladies on Steiner among them); untagged
+  Victorians keep the procedural front gables. A roof shape from the 2 m LiDAR
+  was tried and dropped: a gabled Painted Lady fits a gable only ~20 % better
+  than a flat plane at 2 m (1,271 of 1,282 Alamo Square houses read flat).
+  A config can default untagged small houses (Amsterdam: gabled).
+- **Colours and materials** (building:colour, roof:colour, building:material,
+  roof:material) are carried into the tiles for the painted world. The grey
+  city stays grey: a mapped facade colour only picks the building's seed so its
+  grey tone follows the colour's lightness.
+- **Ground from OSM** (2 m class texture): streets by class and width, a 3.5 m
+  sidewalk beside every street that has them (mapped sidewalks too), plazas,
+  piers and hard pitches, footways and park paths, rail, parks / grass, woods,
+  sand, rock, garden yards inside residential blocks (paved lots inside
+  commercial ones), lakes, ponds, pools, and the **real coastline**: the sea is
+  what OSM's land polygons leave out where the DEM is low. Pier decks over the
+  water are raised to 2.5 m (the bare-earth DEM has water there). Bridges,
+  tunnels, indoor and elevated ways are left off the ground.
+- **Trees: on evidence, not on "it's a park"** (the Crissy Field bug: lawn,
+  tidal marsh and beach inside the Presidio's park polygon were planted like a
+  wood). OSM's mapped trees stay as they are (SF: 10,917, species -> cypress /
+  pine / street tree, height -> size). Procedural trees now need **ESA
+  WorldCover 10 m (2021)**, a land cover every city on Earth gets for free
+  (`tools/bake/worldcover.py`, CC BY 4.0), weighed with what OSM's polygons say
+  (`bake.py` `TREES`, `osm.TREE_*`; a city config's `"trees"` overrides):
+  - f = WorldCover tree cover (+ mangroves) in a 20 m window around a point,
+    less the crowns of the mapped trees (8 m: a lawn whose few trees are all
+    mapped gets no twins). A tree on the 11 m jittered grid with chance
+    0.85 f: a wood is a wood (~70 / ha nominal, 50-65 / ha measured after paths
+    and buildings, the old woods rate), a lawn with a few trees gets a few, an
+    open lawn none.
+  - Parks, gardens, cemeteries, nature reserves, zoos plant from f >= 0.10;
+    open space (landuse=grass, leisure=common, meadows, grassland, wetland,
+    recreation grounds, golf courses, aerodromes) only from f >= 0.25, a whole
+    10 m tree pixel, never from the park polygon alone; scrub and heath never
+    from WorldCover (its tree class takes in tall dense shrubs: the Marin
+    Headlands' 417 ha of OSM scrub read 65 % "tree"; 17.5k trees vetoed in a
+    3 x 2.5 km test); pitches, playgrounds, fairways, greens, beaches, sand, rock,
+    plazas, runways never. Inside the green polygons the smallest wins (a wood
+    in a park, a lawn in a park, a wood in the scrub). OSM woods are strong
+    evidence of their own (at least f = 0.6). No slope limit below 45 degrees
+    and no `treeLatMax` in OSM bakes: those stood in for "the steep hills are
+    bare", which WorldCover knows (the old path keeps both).
+  - Only OSM says "never". Overture's land cover (a generalized WorldCover,
+    priority 0) lies under every OSM polygon; its barren says nothing about
+    trees (WorldCover at 10 m has none on bare ground anyway). A first cut let
+    it veto like a beach, and its coarse polygons cleared OSM woods and parks
+    WorldCover sees wooded: 130 ha of park and 7 ha of woods across SF's frame
+    (the cypress groves above Fort Funston and Lake Merced: 1.5 trees / ha
+    against 60 around them). Now those cells plant like the rest (62.8 / ha vs
+    59.5 / ha in the Merced test box).
+  - Street trees along frontages keep their rule (30 % of residential
+    frontages, on the sidewalk, no mapped tree within 9 m), with no WorldCover
+    gate. A first cut asked for a WorldCover tree pixel within ~10 m: it kept 7 %
+    of SF's frontage trees (Inner Richmond 282 -> 14), and the evidence is
+    too thin to carry that. WorldCover's 10 m pixels miss most single street
+    trees: no tree pixel within 20 m of 42 % of SF's 9,358 mapped street trees
+    (12 % of London's), and within 10 m it sees 23 % of SF's mapped ones vs
+    13 % of random sidewalk points. The QA reports the procedural street trees'
+    share beside the mapped ones' instead of failing on it.
+  - Test bakes (`--lidar=0`, before -> after): the Crissy Field box (55 ha)
+    428 -> 325 trees, procedural trees on WorldCover-open land (no tree pixel
+    within 20 m) 228 -> 0; what is left is the wooded bluff south of the road
+    and the groves at the west end. Presidio forest (12 ha, 99 % tree cover)
+    29 -> 50 / ha; Golden Gate Park's east-end woods 26 -> 60 and 15 -> 53 / ha,
+    its meadows' unsupported trees 21 -> 0. London (Hyde Park + Kensington
+    Gardens, `?city=london`): Hyde Park's procedural trees on open lawn 173 -> 1,
+    Kensington Gardens' 300 -> 5, a 6 ha lawn box 8 -> 0 (its 70 mapped trees
+    stay), a wood box 59 -> 61 / ha. Per test frame, procedural park trees
+    (street trees unchanged): Presidio (1.3 x 1.3 km) 2,443 -> 4,573, Golden
+    Gate Park's east end 1,131 -> 1,979, Lake Merced 440 -> 941, the Crissy
+    frame 1,060 -> 939, London 9,635 -> 9,012 (woods fill in, lawns empty).
+    Trees per 256 m tile (the game draws a tile's trees as one instanced mesh
+    and a shadow twin): wooded tiles roughly double (Presidio p90 180 -> 301,
+    max 200 -> 360; Golden Gate Park p90 140 -> 288), still under the busiest
+    tile of the old SF bake (415; London's busiest 412). `stats.treesPerTile`
+    logs it for every bake; phone frame time over Golden Gate Park and the
+    Presidio wants a measurement before the city ships.
+- **Bake QA** (`tools/bake/qa.py`, the last step of every OSM bake): per
+  128 m cell the baked trees, water and sand against WorldCover; FAIL (exit 3,
+  a loud block) when procedural park / woods trees without a WorldCover tree
+  pixel within 20 m pass 5 %, cells with 8+ of them pass 1 % of the land,
+  wooded park cells left under 8 trees / ha pass 10 %, water or sand disagree
+  in 2 % of the cells, each only with at least 5 flagged cells / 50 trees
+  behind it (a 1 km test bake has ~70 cells: the Crissy lagoon alone was 3 of
+  them). Street trees are reported, not failed (see Trees). On five test
+  frames the old rule scores unsupported 2-39 % and fails in three (the
+  Crissy Field frame 39 % with 19 of 65 cells on open land, Golden Gate
+  Park's east end and London 5.3 %), the evidence rule passes everywhere
+  (<= 0.11 %, 0 cells); SF's water and sand already agree (0.06 %, 0.10 %).
+  `bake.py` checks the city's WorldCover crop right after the frame (a city
+  bake reaches its trees after ~30 min), `overture.py` exits 2 when it can't
+  fetch it.
+- **Names**: every named street centerline is stored per terrain tile ('SBT2')
+  and the street sign at an impact shows the nearest real street ("HAIGHT ST":
+  US suffixes abbreviated like the real blades), the neighbourhood when no
+  street is in reach. Neighbourhoods come from OSM divisions (polygons where
+  mapped, label points else; plazas mapped as microhoods left out), plus the
+  config's hand-placed ones OSM lacks.
+- **Stable ids from OSM ids** (FNV-1a of 'w123' / 'r45', ranges per source, see
+  ARCHITECTURE): a building keeps its id across re-bakes whatever else changes,
+  the key a shared-paint server will use. Saved paint from the old rank ids
+  can't map: an OSM bake's stores are strugglebus.paint.v3 / strugglebus.ground.v4
+  (v2 / v3 were skipped: a build before city.json's "ids" wrote them whatever the
+  data was) and the old ones are dropped on load, never misapplied.
+- **Licensing**: the tiles are a derivative database under the ODbL 1.0
+  (`public/city/DATA_LICENSE.md`). The game credits "© OpenStreetMap
+  contributors, Overture Maps Foundation" small, on every load however the game
+  starts (gone after ~7 s, never a HUD), and settings' MAP DATA and the tuner
+  list it with the city's other credits (`city.json` `credits`: ESA WorldCover,
+  CC BY 4.0) at any time.
+- **City-agnostic**: `tools/bake/cities/amsterdam.json` (the Jordaan, 2.4 x 2 km,
+  no LiDAR, no DEM: a flat 1 m city with the canals carved to -0.9 m) bakes from
+  the same code: 11,838 buildings (11,826 OSM, 12 other Overture), 80 tiles, 2,380 trees (1,723 mapped), 0.8 MB. Play it with `?city=amsterdam`. Copernicus GLO-30 on S3
+  is a surface model (roofs and trees in it); a flat ground is truer for a
+  canal city. `tools/bake/cities/london.json` (Hyde Park, Kensington Gardens and
+  the streets around them, 3.3 x 2 km, flat the same way: 7,666 buildings,
+  12.6k trees, 0.7 MB) is the second test city, for the trees: `?city=london`.
+- Terrain: **USGS 3DEP 1 m DEM** (2023 SF lidar project), read straight from the
+  USGS S3 bucket (public domain), and the 1/3 arc-second DEM around it.
+- Building style still comes from occupancy + size + district (Sunset/Parkside/
+  Outer Richmond/Excelsior -> stucco row houses; Marina -> Mediterranean;
+  everywhere else narrow residential -> Victorian); occupancy is OSM's where
+  tagged.
+
+### Before OpenStreetMap (superseded, kept for the record)
 - **DataSF and the USGS elevation APIs are blocked by this environment's network
   policy.** We used sources that are reachable *and* license-clean (public domain):
   - Terrain: **USGS 3DEP 1 m DEM** (2023 SF lidar project), read straight from the
@@ -1335,7 +1505,7 @@ facade shader, no 30 fps lock, no fewer detail regions, no coarser pixels, nothi
 - **Dropped, and why** (nothing else of polish/perf is lost):
   - the 1.2 m caster trim: the producer keeps every shadow.
   - 8 m wall columns: -18 to -24% LOD 0 triangles (-8 to -12% vertices), but the painted wobble's chords move: 1,138
-    game pixels of the painted frame change, 188 of the grey one. A producer's question (below), not a merge decision.
+    game pixels of the painted frame change, 188 of the grey one. A producer's question (below), not a merge decision. (merge/osm's review took them for houses only: see its budget.)
   - hidden party walls (-7% triangles, -3.5% vertices in row houses): 38-61 game pixels of a grey or painted frame change.
     Some of those walls show after all (a patch of a far wall took another surface's window dots); not chased, the saving is small.
   - far terrain and horizon chunks, `viewBox` culling, one mesh each up high: a separate study owns the far field; its
@@ -2113,6 +2283,209 @@ in a `touchend` after a prevented `touchstart`; pointer capture across `adoptThu
   check on a real browser without the extension. And the page is plain fog-grey for ~8-9 s
   before the first frame (a static cover of the opening's first frame is the idea, for the
   producer to OK).
+
+## OpenStreetMap in main's game (MAIN f64a142 vs NEXT, merge/osm)
+The local feat/osm (c17bc4a; `origin/feat/osm` is 13 commits behind it) with all of main. `public/city` and `tools/bake` came
+across whole: main hadn't touched them since a10f06a (`git diff` empty). Five files conflicted, three docs and terrainMaterial
+merged on their own and were read through. Nothing on either side was dropped; what each needed of the other:
+
+- **Roofs in the typed path.** `shapedRoof` only calls `B.vert`, `quadF` and `triF`, so main's caster mode takes it like any wall
+  and every mapped roof casts (`feel-sim s_caster`: on all 2,079 tiles the caster stands as high as the mesh, and a caster vertex
+  stands at the top of 10,039 of Amsterdam's 10,039 built roofs and 178 of SF's 179, the other being the Ferry's dome,
+  hidden on purpose). How a part's roof is built
+  (`roofKinds`) is worked out once per tile in the worker and travels with the tile (`TileResult.kinds`, the ref's
+  `roofBuild`): merged naively it ran three times, the last on the main thread per adoption. The OSM tile fields, the hood grid
+  and the street lines are transferred, not copied (main's rule: a copied message deserializes on the main thread).
+- **A roof plays the way it looks.** `roofTops` runs in the worker with main's rule (every vertex lifts its cell, a single-part
+  house its whole footprint + 3 m, gable ridges included, against the eave the bake's grid holds). New for a mapped roof on a
+  building of several parts: each cell takes the drawn roof at its center and corners (`roofSurfaceY`), where the bake's grid
+  holds 80 % of the rise. `feel-sim s_route`: 0 clips through the rendered surfaces on all 19 routes, painted L3 included;
+  `s_pick`: 0 wrong of the 5,000+ aims per district; `feel.mjs taps`: 7 of 7 glint == hit, 60 of 60 carved taps;
+  `tools/osm-play.mjs` a low hover over the Ladies, Amsterdam's gables and London: at least 4.0 m clear, 0 errors. `stampProp` and the
+  HIDDEN test read the drawn top (`partTop`) like the rest.
+- **What a mapped roof doesn't grow.** Painted towers' setback gardens and onions anchor on the roof plane; on a mapped roof they
+  would hang inside it, so `towerGrowth` skips those parts (feat/osm's merge note asked for it). Crest gardens stand (`roofRect`).
+- **The sign** keeps main's placement (beside the blast, its whole sightline seen) and takes feat/osm's name: `signName`, fixed
+  when the sign is queued. A landmark its own name; a breath on open ground (or with nothing in reach: `queueSign(null)`, which
+  stands by the spot with no front to fall back on) the street there, else the neighbourhood there (`hoodAt`, the building's, the
+  nearest label); a building the street in front of it, else its neighbourhood. `lastBlast.open` replaces feat/osm's ring of
+  impacts: main queues a sign in the impact's own update. STEINER ST at the Ladies, NIEUWE LELIESTRAAT in the Jordaan, CRAVEN
+  HILL in London; a tap in Hyde Park with nothing in reach: CITY OF WESTMINSTER, from `hoodAt`.
+- **Paint.** The stores are `strugglebus.paint.v3` and `strugglebus.ground.v4`, not the v2 HANDOFF expected: feat/osm's own code
+  skipped v2 / v3 because a build before city.json's `"ids"` wrote them whatever the data was. An OSM load drops that city's `paint.v1`
+  / `v2` and `ground.v2` / `v3` unread; a landmark's name key means the same in any bake, so one left in a dropped store moves to
+  `strugglebus.landmarks.v1`, which stays as it is. `persist()` no longer returns early with an unknown scheme: landmarks keep saving.
+  `tools/osm-paint.mjs`: the worst case on purpose, the rank store holding the real stable ids of the 40 buildings under the bus, a
+  broken `paint.v2`, a junk `ground.v3` tile: 0 of 91 buildings painted, old stores gone, 0 errors, `lm:sutro` and an `lm:coit` left in
+  v1 both on their landmarks. A blast, a reload: the same stable ids on SF, Amsterdam and London, each in its own store.
+  Transamerica, Sutro, Coit and the Ferry take paint and bring it back by name. 181 Fremont's spire rides and paints with its tower.
+- **The credit** had one clock, the opening's, and a tap past it or `?skipintro` would have lost it. Now it runs on its own on every
+  load: from the frame the first region is in, ~6 s, however the game started (`osm-paint.mjs credit`, seen then gone: the opening 0.5 / 7.8 s, a
+  tap past it 0.4 / 7.6 s, `?skipintro` 0.5 / 7.7 s). Settings' MAP DATA (a phone's top-right button, Esc on a desktop) lists it and
+  WorldCover's CC BY at any time, wrapped to the panel; the tuner still does. The HUD's unused bottom-left credit line went: "never a HUD".
+- **Amsterdam re-baked** in 8 minutes: its Overture extract and WorldCover crop weren't in the caches, and S3 answered
+  (`SB_OVERTURE_CACHE`, `SB_WORLDCOVER_CACHE` pointed at the Struggle-Bus-World checkout, which now holds them). `"ids": "osm"`, evidence
+  trees, QA PASS, 11,838 buildings as before, 0.8 MB. It paints and reloads through `paint.v3:amsterdam`; London the same.
+- **Tokens filled** from `city.json` `stats` and the bake log. SF's data is c17bc4a's, not re-baked.
+
+**What OSM and the LiDAR made of the props.** Hand-built props and real data disagree where they meet; the bake's keep-outs only know
+the props' own lines. All SF only, all in `towerStyles.ts`, one row each; the next SF bake should fix them at the source (HANDOFF).
+- The Ferry Building: OSM maps it as 8 parts, 70.5 m, and `HIDDEN`'s 22 m cap (written for 8 m lots) let it stand through the prop.
+- The bridges: the props stand where the config put them, and the real towers stood beside them as bare boxes: the Golden Gate's two
+  (228, 225 m; the prop's south tower is 357 m south of the real one, at Fort Point, as on main), the Bay Bridge's five, its anchorage, the
+  LiDAR-only saddles over its piers, the east span's tower with no span. Hidden, their obstacle cells rebuilt (`clears`).
+- Fort Point wore the arch and the deck the LiDAR read over it: 64 m of dark glass beside the opening's tower. `BRIDGE_TIERS` drops the
+  upper tiers in the worker; its walls stay.
+- far.bin carries the same boxes: from past the streaming radius a 228 m slab stood on the Golden Gate's mid-span, bars on the
+  opening's horizon. `FAR_STAND_INS` keeps the skyline's existing per-tile mask set in those open-water tiles. No far code, format or
+  radius changed, but it does touch what the far field shows: the distant-city study can drop it with a better answer.
+- A hut in Alamo Square, 45 m^2, read 22 m tall off a cypress's crown, beside the Ladies.
+- Left as it is: OSM's footprint under the Transamerica is wider than the prop's hull (2,967 vs 2,867 m^2), so the first classic shot can
+  glint the 8.6 m base box; the wave paints the pyramid anyway. The bridges' real concrete piers remain as pale stubs in the water.
+
+**The budget.** OSM footprints carry 9.9 vertices a ring against USA Structures' 5.7, real jogs (11 % of LOD 1's triangles go at 0.5 m, 33 %
+at 1 m), and the city has 20 % more buildings. Whole city (`feel-sim s_mesh`, MAIN -> the data before any LOD work): LOD 1 2.18M -> 4.77M
+triangles, LOD 0 17.7M -> 20.9M, casters 9.4M -> 11.9M. A coarse region is its own caster, so LOD 1 counts twice. The worst view of a sweep
+(`tools/sweep.mjs`, the Sunset's ceiling) read 1.64M, over budget: the estimate was right about the risk.
+- **LOD 1 rings** (`ringKeep`): Douglas-Peucker to 1.5 m, the front edges whole, towers keep theirs (columns land on corners). LOD 1 2.69M
+  triangles, +24 % on main. The nearest coarse wall is 500+ m from the lens and LOD 1 has already dropped the bays and cornices of that depth.
+  At 1 m the budget held but the UHD 620 didn't: west ceiling 59-59.5 fps, GPU 16.5 ms, the climb missed vsync 20-28 times. At 1.5 m: 60 fps, GPU
+  15.6 ms (main 15.5), 2-4 misses. Frames against unsimplified rings (`shots --det`, game pixels of 334,836): grey 26, fidi 37, soma 2, high 816,
+  ceiling 249, single specks in the far band. No radius, region or shadow changed.
+- `tools/fps.mjs`, MAIN / NEXT (2 runs), interleaved, 8 s a phase, draws and triangles of the whole frame. Its 60 fps holds at these flat spots only (merge review below):
+
+  | | fps | 1% low | worst frame | CPU work | draws | triangles |
+  |---|---|---|---|---|---|---|
+  | Alamo street | 60 / 60, 60 | 53.8 / 52.9, 55.2 | 37 / 22, 20 ms | 2.9 / 2.9, 3.0 ms | 115 / 113 | 929k / 897k |
+  | Alamo 250 m | 60 / 60, 60 | 52.4 / 53.5, 55.9 | 27 / 21, 24 ms | 1.9 / 2.1, 2.0 ms | 127 / 128 | 952k / 929k |
+  | Alamo ceiling | 60 / 60, 60 | 52.6 / 51.5, 53.8 | 22 / 21, 20 ms | 2.2 / 3.2, 2.3 ms | 157 / 156 | 1.06M / 1.09-1.11M |
+  | FiDi street | 60 / 60, 60 | 54.6 / 53.8, 54.1 | 19 / 20, 19 ms | 2.5 / 2.6, 2.3 ms | 91 / 87 | 512k / 551-556k |
+  | FiDi 250 m | 60 / 60, 60 | 55.9 / 55.6, 56.8 | 19 / 19, 19 ms | 2.1 / 2.2, 2.2 ms | 116 / 111-115 | 628k / 597-636k |
+  | FiDi ceiling | 60 / 60, 60 | 55.6 / 55.6, 55.2 | 20 / 19, 20 ms | 2.0 / 1.8, 1.9 ms | 65 / 58 | 408k / 362k |
+  | West street | 60 / 60, 60 | 53.5 / 55.6, 54.6 | 20 / 27, 20 ms | 3.1 / 3.2, 3.4 ms | 102 / 100-101 | 668k / 789-800k |
+  | West 250 m | 60 / 60, 60 | 49.3 / 53.8, 53.8 | 24 / 21, 21 ms | 2.1 / 2.2, 2.1 ms | 109 / 105-107 | 663k / 824k |
+  | West ceiling | 60 / 60, 60 | 53.8 / 51.3, 49.0 | 21 / 22, 25 ms | 2.9 / 3.3, 3.4 ms | 194 / 190-193 | 1.05M / 1.25M |
+
+- By pass (`perf-pass views --by`, pinned spots, draws / triangles, sun pass, G-buffer): the Ladies 55 / 319k, 53 / 579k -> 55 / 371k, 53 / 552k;
+  FiDi 49 / 169k, 43 / 379k -> 47 / 217k, 42 / 371k; 250 m 73 / 445k, 62 / 620k -> 74 / 484k, 63 / 621k; ceiling 42 / 379k, 67 / 649k -> 42 / 356k, 66 / 619k.
+  The caster proxies carry the growth (they keep every shape); the G-buffer barely moves.
+- The worst of 42 views a height, six headings at each of seven flat spots (`sweep.mjs` as it was, the bus flying on, its heading turned on the spot), MAIN / NEXT: street
+  1.05M, 132 draws / 1.14M, 129; 250 m 1.36M, 191 / **1.56M**, 186; ceiling 1.29M, 147 / 1.35M, 146. The Mission at 250 m, heading 240, read 1.51-1.56M
+  (the next 1.45M, the median 1.01M), most of it LOD 0: buildings 653k in the G-buffer and casters 326k against main's 514k and 240k, GPU 19.2 ms
+  on the UHD 620 (main 16.4). This line said one view was over budget. That was false: those spots are flat and that sweep skipped 350 m. The true worst views
+  and what was done about them are in the merge review below.
+- `tools/stalls.mjs`, the Alamo route, ~5,460 frames, MAIN (2) / NEXT (2): 60 fps, p99 17 ms on both; frames over 25 ms 0, 0 / 2, 4 (one missed vsync, 33.6 ms at most, no
+  CPU work in them: the climb on a GPU at its limit); over 100 ms 0 on both; largest upload 3.92 / 4.96, 4.31 MB; long tasks 0.
+- Cold load (`loadprofile`, 3 runs each, interleaved): ready median 8.61 -> 8.42 s (8.26-8.61, 8.15-8.71), first frame 3.9-4.5 s on both, first
+  region 0.65 -> 0.72 s, long tasks 330-400 -> 290-390 ms in all, 0 gaps in the opening. (The first run of a session reads ~1 s slower on either build.)
+- `warmcheck`: 27 programs, 0 after the warm-up, first draws after it only the canvas (frame 1), nothing over 100 ms after ready, as main. `iosfloor`: every chunk
+  parses. `contextloss`: back in 1.46, 1.30 s (main 1.15, 1.10), 27 programs, 14 regions, 0 errors.
+- Memory (`perf-pass memory`, 3 minutes round downtown): GPU buffers peak 127 -> 140 MB, average 86 -> 73; JS heap peak 163 -> 178 MB, average 67 -> 66; JS geometry 13.1 on
+  both. City data 19.7 -> 26.1 MB.
+
+**Look** (every frame read; `shots --det` differs everywhere: the data changed). The Ladies are the real row, with gables, gardens along their crests at level 3. The
+piers are piers, with sheds and decks, where main had grass and trees. Crissy Field is open lawn, marsh and beach, trees only on the bluff; the
+Presidio and Golden Gate Park are woods with meadows; Twin Peaks stands in its trees; Coit, the Ferry, Transamerica, Salesforce, 181 Fremont and its spire, Sutro and both
+bridges as they should. `?city=amsterdam` and `?city=london` paint, grow, reload and sign real streets. Still visible: the far band past the streaming radius
+(the distant-city study's), the piers' sawtooth edge at the 4 m grid, the Golden Gate prop 357 m south of the real towers (as on main; with OSM's real
+shore its south tower now stands by Fort Point: a producer's call).
+
+Nothing here has run on a real phone. The A15 is unmeasured; the numbers above are a UHD 620's.
+
+**Merge review, four confirmed findings** (reviewed bc3106b; NEXT below is the fix, MAIN f64a142, all on this laptop's UHD 620; nothing on a real
+iPhone, nothing on a live Vercel deployment).
+- **A returning player ran the new game on the old city (blocker).** A re-bake keeps every URL under `/city/`, and vercel.json caches them for a day plus a week stale. So
+  a phone that just played main, the producer's, would have run this client on main's city.json and cached tiles, and fetched OSM tiles only where it never
+  flew: one session held 96 SBT1 and 176 SBT2 tiles, paint went to `paint.v1` under OSM tiles, no credit, no MAP DATA, and a building past the old count failed
+  its paint upload (GL error 1282). A new header can't reach what a phone already holds; a new URL does: `window.__sbDataV` in index.html (`osm1`), `?v=` on city.json,
+  far.bin, horizon.bin and every region (`dataQuery()`). `tools/redeploy.mjs <old build> <new build>` plays that phone on vercel.json's own headers: this build 14 of
+  14 regions reached the new deploy, 169,503 buildings, ids `osm`; bc3106b 0 of 14, 140,961 buildings, ids null, exit 1. The review's longer run on this build: 272 tiles,
+  all SBT2, 0 buildings past the count, paint in `paint.v3` at level 1, 0 errors. Every re-bake bumps it (ARCHITECTURE "Re-baking a city").
+- **"One view is over budget" was false (major).** `sweep.mjs` tried seven flat spots at 30, 250 and 500 m. Over a hillside the view takes in far more roofs and 350 m is the worst height:
+  pinned cameras read steadily up to 1.93M, regressions from main. `sweep.mjs` now holds the bus on the spot, adds Noe Valley, Twin Peaks, the Excelsior and Bernal Heights, and sweeps 350 m.
+  The first step, on houses only (a facade family keeps its columns and its ring; no shader, radius or region changed, every shape still casts):
+  - **Wall columns 8 m** (`segLen`, was 3.2). Back from iPhone performance's "dropped", where it was a producer's question: its cost was the painted wobble's chords, a
+    0.32 m wave of ~27 m now drawn in chords within 0.13-0.26 m of it. On family towers it moved 71,888 game pixels at FiDi, so they keep theirs. Whole city (`s_mesh`, main / bc3106b / NEXT): LOD 0 17.7M /
+    20.9M / 16.5M triangles.
+  - **Caster rings for houses to within 1 m** (`CASTER_RING_EPS`): casters 9.4M / 11.9M / 10.4M. Not the 1.2 m trim the producer ruled out: every shape still casts, a jog under 1 m leaves the outline
+    of its shadow, 1.3-4 shadow texels. LOD 1 is byte for byte bc3106b's (hash of every tile, 2.69M triangles).
+  - **What the review's patch got wrong, and its frames hid.** Run through the caster with the smaller ring, `meshBuilding` placed everything on that ring: `clutter` stands a rooftop box from the ring's center
+    and nearest corner, a chimney and a gable from its extent. So a visible box cast nothing and an invisible one cast beside it, against "keep ALL shadows": a box's shadow gone from a SoMa roof, in a diff of 1,452
+    game pixels that read as small. `s_caster.ts` now checks every corner of what stands on a building: 2,562,703 of 4,235,560 rooftop-box vertices weren't in the proxy where they stand, and 71 tiles' casters stood lower than
+    the visible mesh. Now the proxy takes the smaller ring for walls and roofs only (`whole` in meshBuilding), tapering parts keep theirs: 0 of 4.2M, 0 of 1.6M bays, 0 of 44k gables, 0 of 568k
+    stoops, 0 lower tiles, the same as bc3106b (274 of 7.7M trim vertices on both: subdivided long walls). 178 of 179 built roofs cast (the Ferry dome, hidden on purpose); Amsterdam 10,039 of 10,039, London 115 of 115.
+  - The same cameras (pinned, streaming settled, every draw over 20 frames, sun pass included):
+
+    | | MAIN | bc3106b | NEXT | NEXT's sun, G-buffer | draws |
+    |---|---|---|---|---|---|
+    | Mission 350 m, heading 225 | 1.60M | 1.93M | 1.73M | 782k, 948k | 205 |
+    | Noe 500 m, 0 | 1.43M | 1.79M | 1.62M | 663k, 958k | 176 |
+    | Noe 350 m, 135 | 1.46M | 1.79M | 1.62M | 805k, 813k | 176 |
+    | Twin Peaks 500 m, 90 | 1.36M | 1.67M | 1.51M | 757k, 753k | 182 |
+    | Excelsior 500 m, 0 | 1.27M | 1.60M | 1.49M | 599k, 893k | 162 |
+    | Noe 250 m, 135 | 1.28M | 1.57M | 1.42M | 677k, 743k | 153 |
+    | Twin Peaks 500 m, 45 | 1.23M | 1.55M | 1.39M | 614k, 778k | 169 |
+    | Noe 250 m, 180 | 1.20M | 1.44M | 1.35M | 679k, 667k | 144 |
+    | Mission 350 m, 135 | 1.46M | 1.56M | 1.40M | 649k, 747k | 231 (main 233) |
+
+  - GPU timers, `framecost.mjs`, interleaved twice (triangles, GPU ms): Excelsior ceiling 1.30M, 16.0-16.6 / bc3106b 1.68M, 20.3-20.4 / NEXT 1.57M, 19.2-20.0; Noe ceiling 1.34M, 16.5 /
+    1.63M, 19.7 / 1.48M, 17.4. A frame over 16.7 ms misses 60 fps on the UHD 620; fps swings with the laptop's heat, these don't.
+  - `sweep.mjs`, 352 views (11 spots, 30 / 250 / 350 / 500 m, 8 headings, the bus held there): MAIN 2 over 1.5M, worst 1.53M (Noe 350 m, heading 135), 5 over 200 draws, 234 at most, median 852k. NEXT 9 over 1.5M, 4 of them over 1.6M, worst 1.70M (Bernal and Noe at 350 m, heading 135), 4 over 200 draws, 231 at most (Nob Hill 500 m, heading 90; MAIN 234 there), median 931k. Worst by height, MAIN / NEXT: 30 m 1.11M / 1.24M, 250 m 1.36M / 1.51M, 350 m 1.53M / 1.70M, 500 m 1.34M / 1.56M. Those worst views read 46-52 fps on NEXT, 49-59 on MAIN (not interleaved).
+  - `fps.mjs`, MAIN / NEXT (2 rounds each, interleaved): 60 in all nine phases on both, 1 % lows 49-56 on both. Triangles: Alamo street 929k / 825k, 250 m 951k / 867-870k, ceiling 1.06M / 1.04-1.07M; FiDi 514-516k / 519-521k, 625-628k / 602k, 407-410k / 358-361k; West 668k / 712k, 663k / 763k, 1.05M / 1.21M (194 / 191-192 draws). These are flat spots.
+  - Frames against bc3106b (`shots --det`, game pixels of 334,836): grey 71, fidi 12, soma 286, high 1,083, ceiling 172, painted 1,109, opening 1, swap 4: single pixels along shadow edges and on painted
+    walls (every crop read). `s_route` 0 clips on 19 routes, `s_pick` 0 wrong of 24,529. `osm-play`: a hover at least 4.04 m clear on all three cities, reload exact. `osm-paint` all pass.
+    `warmcheck` 27 programs, 0 after the warm-up, the canvas the only first draw. `iosfloor` passes. `contextloss` 1.32, 1.28 s, 0 errors. `feel.mjs taps` 7 of 7 glint == hit; carved taps 0-2 wrong of 60 in 4 runs, and 0-2 in 3 runs on bc3106b, the same press (45209, a wall in the line of fire takes the shot, by design) on both: the runs before read 0 by chance. `stalls`, the Alamo route, ~5,465 frames, MAIN (2) / NEXT (2): 60 fps, p99 17 ms on both; frames over 25 ms 0, 0 / 1, 0 (bc3106b 2, 4; one 49.9 ms frame in the climb, no CPU work in it); largest upload 3.92-4.11 / 4.31 MB; long tasks 0. Cold load (3 runs each, interleaved): ready 8.06-8.42 / 8.09-8.20 s, first region 0.62-0.76 / 0.55-0.57 s; each boot download once, all with `?v=osm1`. The mesher got faster: LOD 0 + caster 8.3 -> 7.8 s city-wide.
+  - **What is left is the producer's.** Mission and Noe stay over 1.5M, by up to 15 %, and these are samples: Noe at 500 m from a camera ~130 m away read 1.72M, 199 draws; what has streamed in moves with the
+    way there. At the Mission's worst view the G-buffer is back to main's (948k vs 942k, buildings 635k vs 622k) and the gap is the sun pass: casters 430k vs 364k, coarse regions drawing themselves 260k vs 204k. The next cuts
+    change what was ruled on or what shows, or add a kind of mesh: one row on walls under 6 m (LOD 0 -10 % city-wide, frames not measured), LOD 0 rings at 0.5 m (-4 %), a detail radius ("no fewer detail regions"), a lighter
+    sun-pass stand-in for coarse regions (keeps every shadow, a new mesh to stream). The A15 at those views is unmeasured: a real iPhone there says whether any of it is needed (`?lat=37.7600&lon=-122.4150`, climb to 350 m, heading 225).
+- **The hidden saddles still lifted the bus (minor).** W2's and W5's ~78 m obstacle cells reached past their `clears` boxes: 4 and 23 invisible cells over open water, a low flight rose from 39 to 84.9 m. Boxes 70 and 86 m
+  (`towerStyles.ts`): 0 cells at W2, W3 and W5, and the same flight holds its line (max y 45, as the control beside it). They reach nothing but the same stand-ins in the water.
+- **A multi-value street name (minor).** OSM separates names with `;`: 'Hang Ah Alley;Pagoda Aly' signed HANG AH / ALLEYPAGODA ALY. `streetNameAt` takes the first, in any city: HANG AH ALLEY on building 15445.
+
+## OpenStreetMap, outside judge round 1 (FAIL) and the fixes (2026-10-31)
+FAIL on three must-fixes, with first impression, beauty and polish at 7 (`shots/local/judge-osm/round-1/REPORT.md`, local). Two were real and small; the third isn't a defect. PREV below is e861e48, what the judge saw;
+MAIN f64a142. All on this laptop's UHD 620, nothing on a real iPhone.
+
+- **The fin is Market Street.** Nothing was changed for it. At the judge's pose (the Embarcadero, 250 m, heading 235) the lens stands 1.2 m off the street's axis, on both builds: a chance, on a 4 km line. A ground line through
+  the nadir and the vertical over anything standing on it project onto one screen line, so the street rises from the clock tower at its foot to the skyline, "exactly on the world vertical above (2272, -2280)"; OSM's centerline
+  starts at (2238, -2254). `tools/sightline.mjs` shows it on any build:
+  - The G-buffer along the axis, normal and surface id at each point's pixel, NEXT / MAIN: 0-500 m 48 / 34 of 50 points up-facing (the clock tower covers NEXT's other 2, trees and the tower MAIN's 16), 500-1,000 m 50 / 50, 1,000-1,500 m 50 / 50,
+    every up-facing one ground (surface 3), the street 26-30, 18, 13 px wide / 20, 15, 11; `streetNameAt` calls 116 of NEXT's 150 points Market St (the others are its cross streets). Ten holds in a row: the same, 148-149 of 150. Past ~1,750 m it is the gap between far.bin's boxes over the far terrain.
+  - OSM's centerline drawn over the frame lies on it. The lens moved 60 m left and right: it leans each way, about the nadir, and leaves the tower; what stands would keep its foot. The buildings hidden: a road. `shots/local/merge-osm/fin/final/sightline-sheet.png`.
+  - MAIN draws the same strip at the same place. "Never on MAIN" was the judge's test (one column's contrast against its neighbours 9 px off, 500+ rows), not the frame: NEXT's street is cleaner, real building lines and the trees where they stand. The test
+    doesn't always fire on NEXT either: it missed my first hold.
+  - It explains every probe: a street crosses dozens of tiles, so no mesh hidden alone clears it (443 tried); the ground hidden, the far terrain under it fills the same gap between the same buildings; buildings and far boxes each "contribute part of its rows" because they are its walls. The OSM Ferry
+    Building can't be in it: `HIDDEN` drops its parts and its four far boxes are in a loaded tile's mask. So the data bisect the judge asked for has nothing to find, and there is no world-plane seam in the shared path.
+  - Its last ~50 game px, past the streaming radius, are a pale hairline: the far terrain's tone between far boxes. That is the far band, the distant-city study's.
+- **London's signs: the pole, not the names.** The names, the hood grid and the lookup were fine (`signName` runs before placement). `showSign` found no spot: `signTune.poleLiftMax`, 10 m, is written for SF's 8-12 m houses, and Bayswater's terraces are 21 m. `poleLiftTall`, 32 m:
+  the shortest pole up to that stands by while the two passes run and takes the sign on the last look, after the looks again and the primary's front (the last review: it first won on the first look), so a sign that stood before stands where it stood, and no third pass of sightlines. The judge's own run (`judge.mjs ... city london 51.5128 -0.1860 90`): CRAVEN
+  HILL GARDENS on all three taps, from the street lines. Real taps, 8 at a place, before / after, on the final placement (`tools/signrate.mjs`, `--tall=0` is before, the 10 m rule): Bayswater 5 / 8, Mayfair 8 / 8, the Jordaan 6 / 8, Alamo 8 / 8, the Mission 8 / 8, FiDi 2 / 3; a new place, Paddington, 8. FiDi stays low: at
+  street level between 100 m towers no pole clears them, and half a blade is no sign. A rooftop sign would be a new rule, the producer's.
+- **The credit is pixel art.** `HUD_SMALL` in palette colors with an ink outline, 2 CSS px per UI pixel like every HUD canvas, on whole CSS pixels, stepped in and out like the HUD's chrome (`steps(4)`). Same words, same place, same clock (0.04-7.33 s of the game clock, full at 1.26 s). At that
+  size one line is 444 CSS px, so on a phone two, split where they balance (`splitLines`): 246 x 32 px against 311 x 21; one line on a wide window. (C) as on settings' MAP DATA: the bitmap fonts have no copyright sign and 5 px is too small to draw one. `uiText` is one
+  function for both now. The canvas keeps the real text as its fallback content, for screen readers and QA.
+- **Water and the shore (polish, every city).** "Amsterdam's canals take ground paint": they don't, the shader skips water. What took it are the quays, and they read as water because the shore was a saw. The plane cutting the 8 m ground mesh was my first idea, and holding the mesh over
+  the plane changed nothing there. It is the class texture: a quay at a shallow angle to the 2 m grid is a staircase, 6 m runs and 2 m rises, and water against land shows it as no other pair of classes does.
+  - On a shore (water and land among the four nearest texels) the water's share of the 10 m square around the pixel decides, bilinear at its edges so it slides with the pixel: a straight line through the stairs. Canals are straight, piers have edges (`shots/local/merge-osm/shore/a/cmp-*.png`).
+  - A share erases what is thinner than half the square: the ring of Hyde Park's Diana fountain went. The square's first moment says it is a shore at all, water on one side of the pixel; a ring or a footbridge has it on both, and keeps the nearest texels.
+  - The texture ends at its tile, so the square shrinks toward that edge (bilinear at it): the tiles on both sides agree, where a clamped square jogged 1.6 m.
+  - Within 16 m of land the mesh stands 0.3 m over the plane (`meshHeights`; gameplay reads the baked heights), so land never dips under it, and the ground's water pixels are the plane's: `GLSL_WATER` is one function of the position, flags and surface id included, so the handover doesn't show.
+    Dashes run to the quay; a lake is the same water at its height. Sea-level water on the slope to a quay computes at the plane's height, its shadow at its own (else the mesh shades itself, a dark band along every pier).
+  - Lost: the terrain water's sun-glint term, which the plane never had (a paler band off Crissy's beach, an accident). Not fixed: a pier's end still wanders a little in the chase view, the 8 m mesh under its edge. Streets keep bilinear: a 2 m path wouldn't survive a share.
+  - The cost is the shader's: GPU ms, PREV / NEXT, interleaved: the wharf at the street, the worst case, 10.45, 10.43, 10.45 / 10.97, 10.98, 10.95; Amsterdam 300 m 14.16, 14.17, 15.56 / 14.37, 14.35, 14.34; the Embarcadero 250 m flat (11.4-13.1 / 11.4-12.3). Whole shore tiles of terrain water cost
+    +0.85 ms at the wharf, hence the 16 m band. The plane stays the plane past it.
+- **Yards a step up** (`lo` -0.06 -> 0): block interiors in shadow read as dark green blotches at altitude, darker than the shadowed street beside them (the judge's "greenish ground-class blotches").
+- **The last review** (two read-only reviewers on the four commits above; the merge review had read only what came before them). What they found and what changed:
+  - A tall pole won on the first look, before the two looks again and the primary's front, so signs moved in SF too, and a 31 m pole beat a 12 m one a ring over. It takes the last look now, the shortest one, so a look's spots at 10 m or less stand where they stood. The sign table above is this final loop's, with `--tall=0` the true 10 m rule.
+  - The credit couldn't pass two lines and sat where `start` put it: a longer credit ran off the screen, and so did one started in landscape on a phone turned to portrait. `creditLines` wraps it as `Hud`'s MAP DATA does, and it lays itself out again when the window's width changes. A credit with a letter the bitmap fonts lack (`出典：国土交通省 Project PLATEAU` drew only `PROJECT PLATEAU`, an all-Japanese one nothing) goes up in the system face: a licence credit can't lose a letter. `shots/local/merge-osm/verify-final/credit-edge.mjs`, the manifest rewritten in flight: 390 and 320 px wide, shipped and 118 characters, Japanese, turned both ways: all inside the window, 0 errors.
+  - The bake lays sidewalk under every footprint, so the ground of the bridge stand-ins `HIDDEN` removed lay out in the water, under the plane; the shore's lift raised it as pale slabs (a 40 x 18 m one by the Golden Gate's real south tower, strips along the Bay Bridge). `clearStandInGround`, SF only, in the worker before the mesh: back to water, and `groundClassAt` agrees. `verify-final/bridges/`: MAIN, the build the reviewers read, the fix, same poses: both gone.
+  - `meshHeights` skipped a tile with no water, so land under the plane stayed drowned beside a neighbor that raised its copy of the same vertices: a strip of sea 2-4 m wide and 50 m long on Ocean Beach. The heights decide now: land under the plane 1,431 texels to 0, 2,038 of SF's 2,433 tiles still return the baked array.
+  - A blast seen from altitude rebuilt a coarse region once per tile it first touched, `meshHeights` for every tile each time: ~7 ms and 4.8 MB in one frame on this laptop. Once a tile now (`LoadedTile.meshH`).
+  - Not a finding: the pale shapes left at the Bay Bridge's W2, W5 and W6 are its real concrete piers, OSM's PLAZA and SIDEWALK baked 0 to 2.5 m over the water, there since the OSM bake and in the frames the judge saw. No prop stands on them and the deck is off them (HANDOFF, known limitations).
+  - The rest they checked clean: the GLSL by reading (nothing has compiled on a real Safari 15), the warm-up, the share and its tile edges, swaps, the depth (land at -0.3 against the plane holds 2.5 LSB at the farthest loaded corner; water against it is the same bytes), hover, picks, signs and paint on baked heights, the old water bytes' readers, the worst shore pixel (40 class fetches; ~50k of the A15's 334k pixels at the very worst, 1-4 % on average).
+- **Checked, on the build that shipped** (main-Dxuh8GTC.js, rebuilt from this commit's source). `tools/fps.mjs` MAIN / NEXT, 2 rounds each, interleaved, Alamo, FiDi and west: 60 in all nine phases, 1 % lows 48.8-55.9 / 48.5-56.2, worst frame 33.2 / 30 ms. `loadprofile`, 3 rounds: first frame 3.82-4.11 / 3.86-4.11 s, ready 8.05-8.35 / 8.12-8.41 s, 0 programs after ready. `warmcheck` 27 programs, 0 after the warm-up, the canvas the only first draw, nothing over 100 ms after ready. `contextloss` 1.54 s, 0 errors. `iosfloor` parses. `osm-paint` 41 of 41. `osm-play`: a hover at least 4.06 m clear on all three cities, reload exact, 0 errors. `s_route` 0 clips on 19 routes, `s_pick` 0 wrong of 24,529. `shots --det` identical to the frames read before the last review's fixes in all eight views. The 404s `signrate` logs are `favicon.ico`, on both builds, and London's `horizon.bin`, which it doesn't have.
+- Not done: no real phone; the far band; FiDi's signs; the Alamo dive on the UHD 620 (the judge's 55.8-57.1 fps at 1.21M triangles, MAIN 59.8) is a GPU at its limit there, untouched; street edges' 2 m stairs north of Market, ~9 degrees off the grid (a shader share can't keep 2 m paths: it wants a finer mask from the bake).
 
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a

@@ -28,17 +28,31 @@ def main():
     src = os.path.join(ROOT, 'public', 'city', slug)
     cache = os.path.join(HERE, '.cache', slug)
     os.makedirs(cache, exist_ok=True)
-    # move raw tiles out of public/ (they're bake intermediates)
-    for f in os.listdir(src):
-        if (f.startswith('b_') or f.startswith('t_')) and f.endswith('.bin'):
-            shutil.move(os.path.join(src, f), os.path.join(cache, f))
-    for f in os.listdir(src):
-        if f.startswith('r_') and f.endswith('.bin'):
-            os.remove(os.path.join(src, f))
+    # move raw tiles out of public/ (they're bake intermediates); a fresh bake replaces the
+    # cached set wholesale, so a tile that has no buildings any more can't keep a stale b_
+    fresh = [f for f in os.listdir(src) if (f.startswith('b_') or f.startswith('t_')) and f.endswith('.bin')]
+    if fresh:
+        for f in os.listdir(cache):
+            if (f.startswith('b_') or f.startswith('t_')) and f.endswith('.bin'):
+                os.remove(os.path.join(cache, f))
+    for f in fresh:
+        shutil.move(os.path.join(src, f), os.path.join(cache, f))
     man = json.load(open(os.path.join(src, 'city.json')))
     regions = {}
     for tx, tz, _ in man['tiles']:
         regions.setdefault((tx // REGION, tz // REGION), []).append((tx, tz))
+    # every manifest tile has a terrain tile (bake.py writes one per tile): refuse to pack a
+    # partial bake into regions that would load as holes in the city
+    missing = [(tx, tz) for tx, tz, _ in man['tiles'] if not os.path.exists(os.path.join(cache, f't_{tx}_{tz}.bin'))]
+    if missing:
+        raise SystemExit(f'pack: {len(missing)} of {len(man["tiles"])} terrain tiles missing (e.g. t_{missing[0][0]}_{missing[0][1]}.bin): '
+                         'the bake did not finish; re-run it')
+    nb = sum(1 for tx, tz, c in man['tiles'] if c and not os.path.exists(os.path.join(cache, f'b_{tx}_{tz}.bin')))
+    if nb:
+        raise SystemExit(f'pack: {nb} tiles with buildings have no b_ tile: the bake did not finish; re-run it')
+    for f in os.listdir(src):
+        if f.startswith('r_') and f.endswith('.bin'):
+            os.remove(os.path.join(src, f))
     total = 0
     out_regions = []
     for (rx, rz), tl in sorted(regions.items()):

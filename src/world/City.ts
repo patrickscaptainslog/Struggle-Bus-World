@@ -6,11 +6,12 @@ import { makeHeightGrid, makeTerrainMaterial, makeWaterMaterial } from './terrai
 import { PaintState, LANDMARK_KEY_PREFIX } from './PaintState';
 import { GroundPaint } from './GroundPaint';
 import type { ObstaclePost } from './Bridges';
-import { parseFar, type CityManifest, type FarData, type BuildingTile, type TerrainTile } from './tiles';
+import { meshHeights, parseFar, WATER_Y, type CityManifest, type FarData, type BuildingTile, type TerrainTile } from './tiles';
 import { loadRegion, type GridArrays, type RegionRequest, type RegionResponse, type TileResult } from './regionLoader';
 import { GROWN_STRIDE, type CasterArrays, type MeshArrays } from './BuildingMesher';
 import { treeCrown } from './props/trees';
-import { hiddenAt, isSfOrigin, type Hidden, type PropBox } from './towerStyles';
+import { RoofBuild, eaveY, newRoofFrame, roofFrame, roofSurfaceY, type RoofFrame } from './roofGeom';
+import { FAR_STAND_INS, HIDDEN, hiddenAt, isSfOrigin, type Hidden, type PropBox } from './towerStyles';
 import { gunzip, isGzip } from './gunzip';
 import { registerWarm } from '../render/warmup';
 
@@ -30,7 +31,9 @@ export interface BuildingRef {
   cx: number;
   cz: number;
   baseY: number; // ground
-  roofY: number; // top of the highest tier
+  roofY: number; // top of the highest tier (a built mapped roof's ridge / apex: its eave + roofH)
+  /** per record of `tile` (shared by the tile's refs): how its mapped roof is built (RoofBuild; FLAT = flat at roofY) */
+  roofBuild: Uint8Array;
   area: number; // footprint area
   hood: number;
   /** footprint bounds (its ground-tier rings) and the farthest footprint vertex from (cx, cz) (m) */
@@ -84,6 +87,8 @@ interface LoadedTile {
   terrainStep: number;
   /** a ground grid the worker built, until a ground mesh takes it (later rebuilds make their own) */
   grid: GridArrays | null;
+  /** the heights those rebuilds mesh (tiles.ts meshHeights), kept: a coarse region remakes every tile's grid for each tile a blast first touches */
+  meshH: Float32Array | null;
   /** its painted towers' collapsed growth elements (BuildingMesher GROWN_STRIDE records), or null */
   grown: Float32Array | null;
   /** a building of the tile has grown its gardens / domes: its mesh draws its growth triangles */
@@ -140,6 +145,12 @@ export function bootFetch(base: string, what: 'manifest' | 'far' | 'horizon'): P
   const p = b[what]!;
   delete b[what];
   return p;
+}
+
+/** The data's version for a URL under /city/ (index.html sets it; ARCHITECTURE "Re-baking a city"), '' on a page without it. */
+export function dataQuery(): string {
+  const v = (globalThis as { __sbDataV?: string }).__sbDataV;
+  return v ? `?v=${v}` : '';
 }
 
 /** A tile's (or a coarse region's) building mesh: the one place its vertex layout is set. `cast`: it is its own sun-pass caster. */
@@ -260,6 +271,34 @@ function ringContains(b: BuildingTile, k: number, x: number, z: number): boolean
   return inside;
 }
 
+const rectFrame = newRoofFrame();
+/** roofRect's sample grid on a mapped roof: RECT_N x RECT_N roof heights (-Infinity off the ring), i along the ridge */
+const RECT_N = 17;
+const rectY = new Float64Array(RECT_N * RECT_N);
+
+/** Share of the turf of a roof rect (in the roof frame f: center cs, ct; w along S, d along D) over record k's ring. */
+function rectOnRing(b: BuildingTile, k: number, f: RoofFrame, cs: number, ct: number, w: number, d: number): number {
+  const hw = Math.max(0, w - 0.9) / 2, hd = Math.max(0, d - 0.9) / 2;
+  let n = 0;
+  for (let i = -2; i <= 2; i++)
+    for (let j = -2; j <= 2; j++) {
+      const ss = cs + (hw * i) / 2, tt = ct + (hd * j) / 2;
+      if (ringContains(b, k, f.cx + ss * f.Sx + tt * f.Dx, f.cz + ss * f.Sz + tt * f.Dz)) n++;
+    }
+  return n / 25;
+}
+
+/** Top of record k as drawn: a built mapped roof's ridge / apex (eave + rise), else its flat roof (roofY). */
+function partTop(b: BuildingTile, kinds: Uint8Array, k: number): number {
+  return kinds[k] !== RoofBuild.FLAT ? eaveY(b.baseY[k], b.roofY[k], b.tier[k]) + b.roofH[k] : b.roofY[k];
+}
+
+/** Roof height of record k at (x, z) inside its ring, as BuildingMesher draws it (a mapped roof's slope, else roofY). */
+function partRoofAt(b: BuildingTile, kinds: Uint8Array, k: number, x: number, z: number): number {
+  if (kinds[k] === RoofBuild.FLAT) return b.roofY[k];
+  return roofSurfaceY(b.xz, b.vertStart[k], b.vertStart[k + 1], eaveY(b.baseY[k], b.roofY[k], b.tier[k]), b.roofH[k], b.roofShape[k], b.roofDir[k], x, z);
+}
+
 /** Area of record k's ring (m^2). */
 function ringArea(b: BuildingTile, k: number): number {
   const s = b.vertStart[k], e = b.vertStart[k + 1];
@@ -371,6 +410,8 @@ export class City {
   private far: FarData | null = null;
   private farGroup = new THREE.Group();
   private loadedMask: THREE.DataTexture;
+  /** tiles whose far skyline boxes never show (FAR_STAND_INS) */
+  private maskedForGood = new Set<string>();
   private maskW: number;
   private maskH: number;
   private regionSize: number;
@@ -413,8 +454,10 @@ export class City {
 
   constructor(readonly manifest: CityManifest & { regions: Array<[number, number, number]>; regionSize: number }, readonly baseUrl: string) {
     this.paint = new PaintState(manifest.buildingCount + LANDMARK_SLOTS, manifest.slug);
-    this.ground = new GroundPaint(manifest.tileSize);
+    this.ground = new GroundPaint(manifest.tileSize, manifest.slug);
     this.sf = isSfOrigin(manifest.origin);
+    // (a hidden stand-in's cells of the obstacle grid are open water again, or whatever else stands there)
+    if (this.sf) for (const h of HIDDEN) if (h.clears) this.propObstacles.push({ clear: h, boxes: [] });
     // a blast's tiles get their own ground mesh first, so a coarse region (seen from altitude) shows the paint
     this.ground.onTilesTouched = (keys) => {
       for (const k of keys) {
@@ -446,6 +489,12 @@ export class City {
     this.maskH = Math.round((maxZ - minZ) / manifest.tileSize);
     this.loadedMask = new THREE.DataTexture(new Uint8Array(this.maskW * this.maskH), this.maskW, this.maskH, THREE.RedFormat, THREE.UnsignedByteType);
     this.loadedMask.minFilter = this.loadedMask.magFilter = THREE.NearestFilter;
+    if (this.sf)
+      for (const [x, z] of FAR_STAND_INS) {
+        const tx = Math.floor(x / manifest.tileSize), tz = Math.floor(z / manifest.tileSize);
+        this.setMask(tx, tz, 255);
+        this.maskedForGood.add(`${tx},${tz}`);
+      }
     this.loadedMask.needsUpdate = true;
     // (nothing in the city ever moves: no matrix work per frame, the scene graph only walks past it)
     this.root.matrixAutoUpdate = false;
@@ -455,7 +504,7 @@ export class City {
     this.root.userData.cullRoot = true;
     // the bay / ocean: a huge still plane below everything
     const water = new THREE.Mesh(new THREE.PlaneGeometry(60000, 60000).rotateX(-Math.PI / 2), makeWaterMaterial());
-    water.position.set((minX + maxX) / 2, -0.6, (minZ + maxZ) / 2);
+    water.position.set((minX + maxX) / 2, WATER_Y, (minZ + maxZ) / 2);
     water.frustumCulled = false;
     water.matrixAutoUpdate = false;
     water.updateMatrix();
@@ -466,8 +515,8 @@ export class City {
   async loadFar(): Promise<void> {
     // (index.html already asked for the default extension's files)
     const pre = (what: 'far' | 'horizon') => (this.ext === '.bin' ? bootFetch(this.baseUrl, what) : null);
-    const farP = pre('far') ?? fetch(`${this.baseUrl}/far${this.ext}`);
-    const hzP = (pre('horizon') ?? fetch(`${this.baseUrl}/horizon${this.ext}`)).catch(() => null);
+    const farP = pre('far') ?? fetch(`${this.baseUrl}/far${this.ext}${dataQuery()}`);
+    const hzP = (pre('horizon') ?? fetch(`${this.baseUrl}/horizon${this.ext}${dataQuery()}`)).catch(() => null);
     const [res, hz] = await Promise.all([farP, hzP]);
     this.far = parseFar(await maybeInflate(await res.arrayBuffer()));
     this.buildFar();
@@ -703,7 +752,7 @@ export class City {
       this.regionsRequested.add(key);
       const id = this.nextId++;
       this.pending.set(id, { key, lod });
-      const msg: RegionRequest = { type: 'region', id, url: new URL(`${this.baseUrl}/r_${rx}_${rz}${this.ext}`, location.href).href, classN: this.manifest.classN, lod, sf: this.sf, tileSize: this.manifest.tileSize };
+      const msg: RegionRequest = { type: 'region', id, url: new URL(`${this.baseUrl}/r_${rx}_${rz}${this.ext}${dataQuery()}`, location.href).href, classN: this.manifest.classN, lod, sf: this.sf, tileSize: this.manifest.tileSize };
       if (this.worker) this.worker.postMessage(msg);
       else void loadRegion(msg).then((r) => this.onRegion(r));
     }
@@ -1080,7 +1129,7 @@ export class City {
     const g = lt.grid;
     lt.grid = null;
     const tr = lt.terrainData!;
-    if (!g || g.step !== step) return makeHeightGrid(tr.heights, tr.n, tr.cell, tr.originX, tr.originZ, step);
+    if (!g || g.step !== step) return makeHeightGrid((lt.meshH ??= meshHeights(tr)), tr.n, tr.cell, tr.originX, tr.originZ, step);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(g.position, 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(g.normal, 3));
@@ -1200,16 +1249,18 @@ export class City {
   private addTile(t: TileResult, coarse = false) {
     const key = `${t.tx},${t.tz}`;
     if (this.tiles.has(key)) return;
-    const lt: LoadedTile = { tx: t.tx, tz: t.tz, buildings: null, caster: null, terrain: null, terrainData: t.terrain, buildingData: t.building, refs: [], classTex: null, maxY: -Infinity, hidden: false, terrainStep: 0, grid: t.grid, grown: t.grown, growthShown: false, prep: null };
+    const lt: LoadedTile = { tx: t.tx, tz: t.tz, buildings: null, caster: null, terrain: null, terrainData: t.terrain, buildingData: t.building, refs: [], classTex: null, maxY: -Infinity, hidden: false, terrainStep: 0, grid: t.grid, meshH: null, grown: t.grown, growthShown: false, prep: null };
     if (!coarse) this.makeTileBuildings(lt, t);
     if (t.building) {
       const b = t.building;
+      // how each part's mapped roof is built (as the mesher built it): gameplay heights follow the drawn roofs
+      const kinds = t.kinds!;
       for (let i = 0; i < b.count; ) {
         // a building's tiers are consecutive records sharing its paint index: one ref for all of them
         let j = i + 1;
         let top = i;
         while (j < b.count && b.index[j] === b.index[i]) {
-          if (b.roofY[j] > b.roofY[top]) top = j;
+          if (partTop(b, kinds, j) > partTop(b, kinds, top)) top = j;
           j++;
         }
         const s = b.vertStart[i], e = b.vertStart[i + 1];
@@ -1226,7 +1277,7 @@ export class City {
         // no aim, pick, paint or blast lands on what nobody can see (their obstacle cells: setPropObstacles)
         if (this.sf) {
           let hTop = 0;
-          for (let k = i; k < j; k++) hTop = Math.max(hTop, b.roofY[k], b.baseY[k] + 2.5);
+          for (let k = i; k < j; k++) hTop = Math.max(hTop, partTop(b, kinds, k), b.baseY[k] + 2.5);
           if (hiddenAt(cx, cz, hTop - b.groundY[i])) {
             i = j;
             continue;
@@ -1245,7 +1296,7 @@ export class City {
             rad = Math.max(rad, Math.hypot(vx - cx, vz - cz));
           }
         }
-        const ref: BuildingRef = { index: b.index[i], stableId: b.stableId[i], tile: b, local: i, parts: j - i, top, cx, cz, baseY: b.groundY[i], roofY: b.roofY[top], area: Math.abs(area) / 2, hood: b.hood[i], x0, z0, x1, z1, rad, q: 0 };
+        const ref: BuildingRef = { index: b.index[i], stableId: b.stableId[i], tile: b, local: i, parts: j - i, top, cx, cz, baseY: b.groundY[i], roofY: partTop(b, kinds, top), roofBuild: kinds, area: Math.abs(area) / 2, hood: b.hood[i], x0, z0, x1, z1, rad, q: 0 };
         i = j;
         lt.refs.push(ref);
         if (ref.roofY + 6 > lt.maxY) lt.maxY = ref.roofY + 6;
@@ -1308,7 +1359,7 @@ export class City {
         }
         const mx = Math.round((tx * ts - minX) / ts);
         const mz = Math.round((tz * ts - minZ) / ts);
-        if (mx >= 0 && mz >= 0 && mx < this.maskW && mz < this.maskH) (this.loadedMask.image.data as Uint8Array)[mz * this.maskW + mx] = 0;
+        if (mx >= 0 && mz >= 0 && mx < this.maskW && mz < this.maskH && !this.maskedForGood.has(k)) (this.loadedMask.image.data as Uint8Array)[mz * this.maskW + mx] = 0;
         this.tiles.delete(k);
         this.tileNum.delete(tileKeyNum(tx, tz));
         this.onTileUnload?.(tx, tz);
@@ -1554,9 +1605,10 @@ export class City {
               if (ref.index >= this.manifest.buildingCount) continue;
               const t = ref.tile;
               for (let k = ref.local; k < ref.local + ref.parts; k++) {
-                if (t.roofY[k] <= top) continue;
-                const grow = t.roofY[k] - t.baseY[k] > 40 ? 6 : 3;
-                if (ringContains(t, k, x, z) || ringDist(t, k, x, z) <= grow) top = t.roofY[k];
+                const y = partTop(t, ref.roofBuild, k);
+                if (y <= top) continue;
+                const grow = y - t.baseY[k] > 40 ? 6 : 3;
+                if (ringContains(t, k, x, z) || ringDist(t, k, x, z) <= grow) top = y;
               }
             }
             tr.obst[iz * N + ix] = top;
@@ -1659,10 +1711,18 @@ export class City {
       seed: one(Uint8Array, (k * 97 + 31) & 255),
       tier: one(Uint8Array, 0),
       taper: one(Uint8Array, 0),
+      roofShape: one(Uint8Array, 0),
+      roofH: one(Float32Array, 0),
+      roofDir: one(Uint8Array, 0),
+      facadeColor: one(Uint32Array, 0),
+      roofColor: one(Uint32Array, 0),
+      facadeMat: one(Uint8Array, 0),
+      roofMat: one(Uint8Array, 0),
+      source: one(Uint8Array, 0),
       xz,
     };
     // (bounds + reach as a baked ref's: it lives in the area index, where every aim, pick and blast query looks)
-    const ref: BuildingRef = { index, stableId: -1 - k, tile, local: 0, parts: 1, top: 0, cx, cz, baseY: lb.baseY, roofY: lb.roofY, area: Math.abs(area) / 2, hood, x0, z0, x1, z1, rad, q: 0 };
+    const ref: BuildingRef = { index, stableId: -1 - k, tile, local: 0, parts: 1, top: 0, cx, cz, baseY: lb.baseY, roofY: lb.roofY, roofBuild: one(Uint8Array, 0), area: Math.abs(area) / 2, hood, x0, z0, x1, z1, rad, q: 0 };
     this.landmarks.push({ ref, x0, z0, x1, z1, rad, heightAt: lb.heightAt ?? null });
     this.indexRef(ref);
     this.paint.register(index, lb.key);
@@ -1946,7 +2006,8 @@ export class City {
   }
 
   /** Roof height of ref right at (x, z): the highest of its parts covering the point (a tiered
-   * tower's podium roof is not the top of its tower), or ref.roofY if none does. */
+   * tower's podium roof is not the top of its tower; a mapped roof's slope where the point is, as drawn),
+   * or ref.roofY if none does. No allocation (the aim calls it every frame). */
   roofAtPart(ref: BuildingRef, x: number, z: number): number {
     if (ref.index >= this.manifest.buildingCount) {
       // a landmark: its real surface (a pyramid's slope, not its spire's top); where nothing of it stands
@@ -1956,9 +2017,13 @@ export class City {
       const h = lm.heightAt(x, z);
       return h > -Infinity ? Math.max(ref.baseY, h) : this.baseObstacleAt(x, z);
     }
-    const b = ref.tile;
+    const b = ref.tile, kinds = ref.roofBuild;
     let y = -Infinity;
-    for (let k = ref.local; k < ref.local + ref.parts; k++) if (b.roofY[k] > y && ringContains(b, k, x, z)) y = b.roofY[k];
+    for (let k = ref.local; k < ref.local + ref.parts; k++) {
+      if (partTop(b, kinds, k) <= y || !ringContains(b, k, x, z)) continue;
+      const ry = partRoofAt(b, kinds, k, x, z);
+      if (ry > y) y = ry;
+    }
     return y > -Infinity ? y : ref.roofY;
   }
 
@@ -2012,14 +2077,83 @@ export class City {
   }
 
   /** Oriented roof rectangle (for rooftop sprouts), aligned with the street front: the roof of the
-   * highest tier that is a real roof (a fifth of the footprint or more), not a crown or a penthouse. */
+   * highest tier that is a real roof (a fifth of the footprint or more), not a crown or a penthouse. On a
+   * mapped roof (gabled, hipped, domed...) it is a deck along the roof's crest instead, aligned with the
+   * ridge, its turf just over the top (the drawn roof's heights, roofSurfaceY). No allocation. */
   roofRect(ref: BuildingRef): { cx: number; cz: number; y: number; w: number; d: number; yaw: number } {
     const f = this.frontOf(ref);
     const ux = -f.nz, uz = f.nx;
-    const b = ref.tile;
+    const b = ref.tile, kinds = ref.roofBuild;
     let top = ref.local;
-    for (let k = ref.local + 1; k < ref.local + ref.parts; k++) if (b.roofY[k] > b.roofY[top] && ringArea(b, k) >= 0.2 * ref.area) top = k;
+    for (let k = ref.local + 1; k < ref.local + ref.parts; k++) if (partTop(b, kinds, k) > partTop(b, kinds, top) && ringArea(b, k) >= 0.2 * ref.area) top = k;
     const s = b.vertStart[top], e = b.vertStart[top + 1];
+    if (kinds[top] !== RoofBuild.FLAT) {
+      // a mapped (pitched, domed) roof: the garden is a deck riding the crest (like Amsterdam's roof terraces),
+      // not a flat mat at the eave (buried in the slopes) or a lid at the ridge over the whole footprint (hiding
+      // the roof's shape). On a 17 x 17 grid in the roof frame (i along the ridge, S; j across, D): the deck runs
+      // along the row of the top sample over one unbroken run of crest samples (the roof within `band` of its
+      // top; a ridge crossing a notch or a courtyard has several: the longest at the top), as deep as the crest
+      // is unbroken across those columns, and at least 3.2 m each way where the roof is that big, so the
+      // garden's lawn, centerpiece and bunting fit (sprouts' layout wants 2.2 / 2.6 / 3 m), as long as its turf
+      // stays on the roof. Its turf (0.1 m under the deck's y to 0.22 over it) just covers the top
+      const fr = roofFrame(b.xz, s, e, b.roofDir[top], rectFrame);
+      const band = Math.max(0.6, 0.3 * b.roofH[top]);
+      const N = RECT_N - 1;
+      const L = fr.s1 - fr.s0, W = fr.t1 - fr.t0, ds = L / N, dt = W / N;
+      let hi = -Infinity, jTop = -1;
+      for (let i = 0; i <= N; i++)
+        for (let j = 0; j <= N; j++) {
+          const ss = fr.s0 + ds * i, tt = fr.t0 + dt * j;
+          const x = fr.cx + ss * fr.Sx + tt * fr.Dx, z = fr.cz + ss * fr.Sz + tt * fr.Dz;
+          const y = ringContains(b, top, x, z) ? partRoofAt(b, kinds, top, x, z) : -Infinity;
+          rectY[i * RECT_N + j] = y;
+          if (y > hi) {
+            hi = y;
+            jTop = j;
+          }
+        }
+      // the runs of crest samples along the top's row: the longest that reaches the top
+      let i0 = -1, i1 = -1, bestTop = false;
+      for (let i = 0; i <= N; ) {
+        if (!(rectY[i * RECT_N + jTop] >= hi - band)) {
+          i++;
+          continue;
+        }
+        let k = i, atTop = false;
+        for (; k <= N && rectY[k * RECT_N + jTop] >= hi - band; k++) if (rectY[k * RECT_N + jTop] >= hi - 0.05) atTop = true;
+        if (i0 < 0 || (atTop && !bestTop) || (atTop === bestTop && k - 1 - i > i1 - i0)) {
+          i0 = i;
+          i1 = k - 1;
+          bestTop = atTop;
+        }
+        i = k;
+      }
+      if (i0 >= 0) {
+        // across: the crest unbroken from the top's row, in each of the run's columns
+        let j0 = jTop, j1 = jTop;
+        for (let i = i0; i <= i1; i++) {
+          let a = jTop, c = jTop;
+          while (a > 0 && rectY[i * RECT_N + a - 1] >= hi - band) a--;
+          while (c < N && rectY[i * RECT_N + c + 1] >= hi - band) c++;
+          if (a < j0) j0 = a;
+          if (c > j1) j1 = c;
+        }
+        const w0 = 0.92 * ds * (i1 - i0), d0 = dt * (j1 - j0);
+        let cs = fr.s0 + (ds * (i0 + i1)) / 2, ct = fr.t0 + (dt * (j0 + j1)) / 2;
+        let w = Math.max(w0, Math.min(3.2, 0.86 * L)), d = Math.max(d0, Math.min(3.2, 0.86 * W));
+        // (kept inside the roof's extents: a skillion's crest is its high edge)
+        const ws = Math.min(Math.max(cs, fr.s0 + w / 2), fr.s1 - w / 2), dts = Math.min(Math.max(ct, fr.t0 + d / 2), fr.t1 - d / 2);
+        if (rectOnRing(b, top, fr, ws, dts, w, d) >= 0.7) {
+          cs = ws;
+          ct = dts;
+        } else {
+          // widened, the deck would hang off the roof (a notch beside a short ridge): the crest alone
+          w = w0;
+          d = d0;
+        }
+        return { cx: fr.cx + cs * fr.Sx + ct * fr.Dx, cz: fr.cz + cs * fr.Sz + ct * fr.Dz, y: hi - 0.12, w: Math.max(1.2, w), d: Math.max(1.2, d), yaw: Math.atan2(fr.Sx, fr.Sz) };
+      }
+    }
     let s0 = Infinity, s1 = -Infinity, t0 = Infinity, t1 = -Infinity;
     for (let k = s; k < e; k++) {
       const x = b.xz[k * 2] - ref.cx, z = b.xz[k * 2 + 1] - ref.cz;
@@ -2034,6 +2168,46 @@ export class City {
 
   neighborhoodName(hood: number): string {
     return this.manifest.neighborhoods[hood]?.name ?? this.manifest.name;
+  }
+
+  /**
+   * The nearest named street to (x, z) within maxDist (m), as signed ('Haight St'), from the loaded tiles'
+   * OpenStreetMap centerlines ('SBT2'); paths and plazas only when no street is near. null: none / old bake.
+   */
+  streetNameAt(x: number, z: number, maxDist = 45): string | null {
+    const ts = this.manifest.tileSize;
+    let best = Infinity;
+    let name: string | null = null;
+    for (let tz = Math.floor((z - maxDist) / ts); tz <= Math.floor((z + maxDist) / ts); tz++)
+      for (let tx = Math.floor((x - maxDist) / ts); tx <= Math.floor((x + maxDist) / ts); tx++) {
+        const tr = this.tiles.get(`${tx},${tz}`)?.terrainData;
+        if (!tr || !tr.streets.length) continue;
+        for (const ln of tr.streets) {
+          const xz = ln.xz;
+          const pen = ln.rank ? 20 : 0; // (a footway's name only where no street is in reach)
+          for (let k = 0; k + 3 < xz.length; k += 2) {
+            const d = segDist(xz[k], xz[k + 1], xz[k + 2], xz[k + 3], x, z) + pen;
+            if (d < best && d <= maxDist) {
+              best = d;
+              // (OpenStreetMap's multi-value names: 'Hang Ah Alley;Pagoda Aly' signs its first)
+              name = tr.streetNames[ln.name]?.split(';')[0] ?? null;
+            }
+          }
+        }
+      }
+    return name;
+  }
+
+  /** The neighbourhood (an index into manifest.neighborhoods) at (x, z) from the tiles' hood grid ('SBT2'), or -1. */
+  hoodAt(x: number, z: number): number {
+    const ts = this.manifest.tileSize;
+    const tx = Math.floor(x / ts), tz = Math.floor(z / ts);
+    const g = this.tiles.get(`${tx},${tz}`)?.terrainData?.hoodGrid;
+    if (!g) return -1;
+    const i = Math.min(7, Math.max(0, Math.floor(((x - tx * ts) / ts) * 8)));
+    const j = Math.min(7, Math.max(0, Math.floor(((z - tz * ts) / ts) * 8)));
+    const h = g[j * 8 + i];
+    return h === 255 ? -1 : h;
   }
 
   /** Every currently loaded building ref (for ambient sparkles etc.). */

@@ -1,0 +1,16 @@
+{
+  "name": "London (Hyde Park)",
+  "slug": "london",
+  "origin": [51.5073, -0.1657],
+  "bbox": [-0.1950, 51.4990, -0.1500, 51.5150],
+  "overture": {"release": "2026-10-21.0", "pad": 0.002},
+  "osm": {"abbrev": null},
+  "dem": [],
+  "groundLevel": 1.0,
+  "waterLevel": -0.9,
+  "note": "Hyde Park + Kensington Gardens and the streets around them (Bayswater, Knightsbridge, Mayfair's west edge): a test city for the evidence-based trees (lawns open, the avenues and woods treed). No LiDAR, no DEM: flat ground at 1 m with the Serpentine and the Long Water carved below it; heights from OSM (height, building:levels) or neighbours / class defaults.",
+  "start": {"lat": 51.5052, "lon": -0.1790, "heading_deg": 75, "speed": 30},
+  "districts": [],
+  "neighborhoods": [],
+  "landmarks": []
+}

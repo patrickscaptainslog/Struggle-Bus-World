@@ -13,6 +13,10 @@
   ],
   "fips": "06075",
   "structures": "/tmp/claude-0/sbdata/sf_structures.parquet",
+  "overture": {
+    "release": "2026-10-21.0",
+    "pad": 0.004
+  },
   "dem": [
     "/tmp/claude-0/sbdata/dem/USGS_1M_10_x54y418.tif",
     "/tmp/claude-0/sbdata/dem/USGS_1M_10_x54y419.tif",

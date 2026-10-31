@@ -9,15 +9,71 @@ import { uploadRect } from '../render/upload';
 //   blast writes its whole wave at impact and the shader times each bloom),
 //   a = faction (0 none, 1 Rainbow) + 2 when the building was already painted
 //   (an escalation: it stays painted until its new pop instead of going grey)
-// Persistence: localStorage, keyed by the building's stable id (dataset id + lot),
-//   value = [faction, color, level]. Applied as tiles stream in. Hand-built
-//   landmark props (City.addLandmarkBuilding) take texels past the baked
-//   buildings and save under a name key ('lm:transamerica') in a store of
-//   their own (landmarkStoreKey), never among the buildings' ids: a re-bake that
-//   renumbers the buildings (and drops their store) keeps the landmarks' paint,
-//   and no key can collide with a stable id in any building store.
+// Persistence: localStorage, keyed by the building's stable id, value = [faction, color, level]. Applied
+//   as tiles stream in. Which store depends on the DATA's id scheme (see IdScheme), never on the code.
+//   Hand-built landmark props (City.addLandmarkBuilding) take texels past the baked buildings and save
+//   under a name key ('lm:transamerica') in a store of their own (landmarkStoreKey), never among the
+//   buildings' ids: a re-bake that renumbers the buildings (and drops their store) keeps the landmarks'
+//   paint, and no key can collide with a stable id in any building store.
 
-const STORE_KEY = 'strugglebus.paint.v1';
+/**
+ * The id scheme of the city data, from city.json "ids": 'osm' = every stable id derives from its source
+ * record (OpenStreetMap ids; bake.py ID_RANGES); no "ids" = an old bake, whose ids are USA Structures
+ * footprint ranks + lots. The same number names different buildings in the two schemes, so each scheme
+ * has its own stores: paint saved against one is never applied to the other's buildings. (A new scheme
+ * gets new store versions here and in GroundPaint.)
+ */
+export type IdScheme = 'osm' | 'rank';
+/** What a paint store needs from city.json: the slug, "ids" (absent on an old bake), and its data credits. */
+export interface CityData {
+  slug: string;
+  ids?: string;
+  /** OpenStreetMap bakes credit OSM (ODbL); the old rank bakes carry neither field */
+  attribution?: string;
+  license?: string;
+}
+/**
+ * The data's scheme, or null when neither store can trust its ids: an "ids" this code doesn't know (a
+ * future scheme, a typo) or OpenStreetMap data from before city.json carried "ids" (an 'SBB3' bake whose
+ * ids may predate ID_RANGES; check-stable-ids calls it OSM, so it is never taken for a rank bake).
+ */
+export function idSchemeOf(data: CityData): IdScheme | null {
+  if (data.ids === 'osm') return 'osm';
+  if (data.ids !== undefined) return null;
+  const osmData = /OpenStreetMap/i.test(data.attribution ?? '') || /^ODbL/i.test(data.license ?? '');
+  return osmData ? null : 'rank';
+}
+let registered: { slug: string; scheme: IdScheme | null } | null = null;
+/** main.ts registers the city.json it loaded before the City exists (for a caller that hands a store only the slug). */
+export function registerCityData(data: CityData): void {
+  registered = { slug: data.slug, scheme: idSchemeOf(data) };
+}
+/**
+ * The scheme a store keys by: the one given, else the data's own "ids" (handed city.json), else what
+ * main.ts registered for that slug; null = unknown: paint lives for the session only and storage is
+ * never touched.
+ */
+export function resolveIdScheme(city: string | CityData, scheme?: IdScheme): IdScheme | null {
+  if (scheme) return scheme;
+  if (typeof city !== 'string') return idSchemeOf(city);
+  return registered && registered.slug === city ? registered.scheme : null;
+}
+
+/**
+ * Building paint store. Old bakes ('rank'): `strugglebus.paint.v1` (SF, as main has it; other cities
+ * `v1:<slug>`). OSM bakes: `strugglebus.paint.v3` (`v3:<slug>`). v2 is skipped on purpose: feat/osm's
+ * code before "ids" wrote it whatever the data was (the rank SF bake included), so it may hold rank ids.
+ * Loading an OSM bake drops that city's v1 and v2 saves (never applied); an old bake never reads or
+ * touches v2 / v3.
+ */
+export function paintStoreKey(slug: string, scheme: IdScheme): string {
+  return paintKey(slug, scheme === 'osm' ? 'v3' : 'v1');
+}
+/** Saves an OSM load drops for its city: the rank store, and feat/osm's pre-"ids" one (either scheme's ids). */
+const PAINT_STALE_ON_OSM = ['v1', 'v2'];
+function paintKey(slug: string, v: string): string {
+  return slug === 'sf' ? `strugglebus.paint.${v}` : `strugglebus.paint.${v}:${slug}`;
+}
 /** Every landmark paint key starts with this ('lm:coit'). */
 export const LANDMARK_KEY_PREFIX = 'lm:';
 /** The landmark paint store of a city (by its manifest slug): keyed by landmark names, independent of any bake. */
@@ -52,7 +108,15 @@ export class PaintState {
   private indexToStable = new Map<number, number | string>();
   paintedCount = 0;
 
-  constructor(buildingCount: number, slug = 'sf') {
+  /** the buildings' localStorage key (null: the id scheme is unknown, no building paint is read or written; landmarks keep theirs) */
+  private readonly key: string | null;
+  readonly scheme: IdScheme | null;
+
+  /** `city`: city.json (its slug + "ids"), or just the slug; `scheme` overrides (see resolveIdScheme). */
+  constructor(buildingCount: number, city: string | CityData = 'sf', scheme?: IdScheme) {
+    const slug = typeof city === 'string' ? city : city.slug;
+    this.scheme = resolveIdScheme(city, scheme);
+    this.key = this.scheme ? paintStoreKey(slug, this.scheme) : null;
     this.lmStore = landmarkStoreKey(slug);
     this.height = Math.max(1, Math.ceil(buildingCount / this.width));
     this.data = new Float32Array(this.width * this.height * 4);
@@ -61,12 +125,28 @@ export class PaintState {
     this.texture.magFilter = THREE.NearestFilter;
     this.texture.generateMipmaps = false;
     this.texture.needsUpdate = true;
+    // an OSM bake: this city's rank-keyed (or maybe rank-keyed) saves can never map onto these ids: dropped, never
+    // applied. Only a landmark's name key means the same in any bake, so it leaves with them (moved below).
+    const lmInStale: Record<string, [number, number, number]> = {};
+    if (this.scheme === 'osm')
+      for (const v of PAINT_STALE_ON_OSM) {
+        try {
+          const k = paintKey(slug, v);
+          const raw = localStorage.getItem(k);
+          localStorage.removeItem(k);
+          const old = raw ? JSON.parse(raw) : null;
+          for (const id in old) if (id.startsWith(LANDMARK_KEY_PREFIX)) lmInStale[id] = old[id];
+        } catch {
+          /* a broken old save is gone either way */
+        }
+      }
     try {
-      const raw = localStorage.getItem(STORE_KEY);
+      const raw = this.key ? localStorage.getItem(this.key) : null;
       if (raw) this.saved = JSON.parse(raw) ?? {};
     } catch {
       this.saved = {};
     }
+    Object.assign(this.saved, lmInStale);
     try {
       const raw = localStorage.getItem(this.lmStore);
       if (raw) this.savedLm = JSON.parse(raw) ?? {};
@@ -152,7 +232,7 @@ export class PaintState {
     this.texture.needsUpdate = true;
     this.dirty.clear();
     try {
-      localStorage.removeItem(STORE_KEY);
+      if (this.key) localStorage.removeItem(this.key);
       localStorage.removeItem(this.lmStore);
     } catch {
       /* private mode */
@@ -182,7 +262,7 @@ export class PaintState {
 
   persist() {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(this.saved));
+      if (this.key) localStorage.setItem(this.key, JSON.stringify(this.saved));
       localStorage.setItem(this.lmStore, JSON.stringify(this.savedLm));
     } catch {
       /* storage full or blocked: paint still works this session */

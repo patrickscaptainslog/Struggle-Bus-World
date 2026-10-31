@@ -4,7 +4,7 @@ import { GEAR_NAMES } from '../game/Turbo';
 import { Ramp, rampColor } from '../render/palette';
 import type { Cue } from './Coach';
 import { isCompact, layoutHud, type Control, type HudLayout, type Insets, type Rect } from './hudLayout';
-import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth } from './pixelUi';
+import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth, uiText } from './pixelUi';
 
 // The HUD: as little as possible, pixel-styled in palette colors, safe-area
 // aware, readable on a bright phone (every glyph has an ink outline). Everything
@@ -25,7 +25,7 @@ import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth } from './pixelUi';
 //  - the chip, TILT TO STEER? (its tap is the user gesture iOS needs), and the
 //    first-run cues (src/ui/Coach.ts). Cues pass every touch through.
 //  - a desktop has no buttons at all: Esc opens the settings (src/game/Controls.ts).
-//  - setCredits(text): a tiny credits line (bottom left, and in settings).
+//  - setCredits(lines): the data credits, one tap away in settings (MAP DATA), never on the play screen.
 //
 // Only these catch touches: toggle, TURBO, the tab, MEGA, recenter, settings,
 // chip. Everything else is pointer-events none. Hit wrappers are the rects from
@@ -106,7 +106,6 @@ function evMs(e: Event): number {
   // (the upper bound rejects a clock that isn't performance.now(); a very slow frame may deliver events seconds late)
   return t > 0 && t <= now + 50 && now - t < 30000 ? t : now;
 }
-const safe = (side: 'top' | 'right' | 'bottom' | 'left', px: number) => `max(${px}px, calc(env(safe-area-inset-${side}) + ${Math.round(px * 0.5)}px))`;
 const PHASES: readonly MegaPhase[] = ['ready', 'charging', 'firehose', 'cooldown'];
 const TILT_UI: readonly TiltUi[] = ['none', 'unasked', 'off', 'busy', 'on', 'clutched', 'refused'];
 
@@ -118,7 +117,9 @@ export class Hud {
   private readonly insetProbe: HTMLDivElement;
   private mode: InputMode = 'touch';
   private settings: HudSettings = { tiltOn: false, tiltNote: '', sensitivity: 1, muted: false, swap: false };
-  private credits = '';
+  private credits: string[] = [];
+  /** the settings panel shows the credits instead of its controls */
+  private creditsOpen = false;
   /** the rects in force */
   L: HudLayout;
   /** TURBO, MEGA and the toggle have arrived (fog end or first touch) */
@@ -146,7 +147,6 @@ export class Hud {
   private readonly cueCanvas: PixelCanvas;
   private readonly cueWrap: HTMLDivElement;
   private readonly superSlot: HTMLDivElement;
-  private readonly creditsWrap: HTMLDivElement;
   private panel: HTMLDivElement | null = null;
   private toastEl: HTMLDivElement | null = null;
   /** wall-clock ms when the toast goes (UI time: a slow frame rate must not stretch it) */
@@ -312,10 +312,6 @@ export class Hud {
     this.slots.set('super', this.superSlot);
     root.append(this.superSlot);
 
-    // ---- credits (tiny, bottom left)
-    this.creditsWrap = div({ position: 'absolute', left: safe('left', 8), bottom: safe('bottom', 4), display: 'none' });
-    root.append(this.creditsWrap);
-
     document.body.append(root);
     this.L = layoutHud(w0, h0, this.readInsets(), false, this.compact);
     this.layout();
@@ -331,22 +327,9 @@ export class Hud {
     return this.slots.get(name)!;
   }
 
-  /** A tiny credits line (e.g. map data attribution): bottom left and in the settings panel; '' hides it. */
-  setCredits(text: string) {
-    // (the bitmap fonts have no copyright sign or accents: (C), and accents stripped)
-    this.credits = text.replace(/©/g, '(C)').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
-    this.creditsWrap.replaceChildren();
-    if (!this.credits) {
-      this.creditsWrap.style.display = 'none';
-      return;
-    }
-    const w = textWidth(this.credits, HUD_SMALL) + 4;
-    const c = new PixelCanvas(w, 9, S);
-    c.clear();
-    c.textOutlined(this.credits, 2, 2, C.dim, C.ink, HUD_SMALL);
-    c.flush();
-    this.creditsWrap.append(c.el);
-    this.creditsWrap.style.display = 'block';
+  /** The data credits, one entry each (the map's attribution first): settings' MAP DATA shows them; [] hides that button. */
+  setCredits(lines: string[]) {
+    this.credits = lines.map(uiText);
   }
 
   setVisible(v: boolean) {
@@ -734,6 +717,7 @@ export class Hud {
     ov.dataset.hud = 'panel';
     this.panel = ov;
     this.root.append(ov);
+    this.creditsOpen = false;
     this.renderSettings();
     this.cb.onSettings(true);
   }
@@ -764,9 +748,30 @@ export class Hud {
     };
     const title = new PixelCanvas(W, 13, S);
     title.clear();
-    title.textOutlined('SETTINGS', Math.round((W - textWidth('SETTINGS')) / 2), 3, C.yellow, C.ink);
+    const heading = this.creditsOpen ? 'MAP DATA' : 'SETTINGS';
+    title.textOutlined(heading, Math.round((W - textWidth(heading)) / 2), 3, C.yellow, C.ink);
     title.flush();
     col.append(title.el);
+
+    if (this.creditsOpen) {
+      // the ODbL credit and the others, wrapped to the panel
+      for (const entry of this.credits) {
+        let line = '';
+        for (const word of entry.split(' ')) {
+          const next = line ? `${line} ${word}` : word;
+          if (line && textWidth(next, HUD_SMALL) > W - 2) {
+            col.append(label(line, C.cream));
+            line = word;
+          } else line = next;
+        }
+        if (line) col.append(label(line, C.cream));
+      }
+      col.append(this.button('BACK', W, false, true, () => {
+        this.creditsOpen = false;
+        this.renderSettings();
+      }));
+      return;
+    }
 
     if (this.mode === 'keyboard') {
       // the desktop's whole manual
@@ -806,7 +811,11 @@ export class Hud {
       this.button('OFF', 72, this.settings.muted, true, () => this.cb.onMute(true)),
     );
     col.append(arow);
-    if (this.credits) col.append(label(this.credits));
+    if (this.credits.length)
+      col.append(this.button('MAP DATA', W, false, true, () => {
+        this.creditsOpen = true;
+        this.renderSettings();
+      }));
     col.append(this.button('CLOSE', W, false, true, () => this.closeSettings()));
   }
 

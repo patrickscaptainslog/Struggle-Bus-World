@@ -336,7 +336,10 @@ def build_rasters(cfg, frame, fine_chunks, coarse_chunks, log=_log, plan_only=Fa
         log(f'{kind}: {len(nodes)} nodes, {kept / 1e6:.1f} M points kept, rasterized in {time.time() - t1:.0f} s')
         keys = np.array(sorted(rast.keys()), dtype=np.int32).reshape(-1, 2)
         stack = (lambda r: np.stack([r[tuple(k)] for k in keys]) if len(keys) else np.zeros((0, n, n), np.int16))
-        np.savez_compressed(cpath, keys=keys, data=stack(rast), low=stack(nlow))
+        # (atomic: a kill mid-save must not leave a corrupt cache that every later run trips on)
+        tmp = cpath[:-4] + '.part.npz'
+        np.savez_compressed(tmp, keys=keys, data=stack(rast), low=stack(nlow))
+        os.replace(tmp, cpath)
         out[kind] = rast
         out[kind + 'Low'] = nlow
     stats['downloadedBytes'] = ept.bytes

@@ -87,7 +87,8 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   casters, not the detailed meshes: a detailed
   building tile casts through its proxy (`meshCasterTile`: positions only,
   one quad per wall, no undersides: the same surfaces in fewer triangles, every
-  shape still casts), on SHADOW_LAYER only, while its detailed mesh is on layer
+  shape still casts; a house's walls and roof on its ring to within 1 m, see "LOD 1
+  rings"), on SHADOW_LAYER only, while its detailed mesh is on layer
   0 only. Something with a cheaper stand-in should do the same (trees and
   rooftop gardens have depth twins). New mesher geometry must make its vertices
   through `Builder.vert()` and its walls and boxes through `wall()` / `prism()` /
@@ -246,7 +247,8 @@ element type and its caster), `landmarks` (plain and with accents), `bridges`.
   may reach the canvas). `__game.warm.report` holds the counts and timings.
 
 Boot order (main.ts): index.html's inline script starts city.json, far.bin
-and horizon.bin before the game's script loads (`bootFetch` hands them over).
+and horizon.bin before the game's script loads (`bootFetch` hands them over), each
+with the data's version in its URL (`__sbDataV`, see "Re-baking a city").
 `boot()` starts with `pipeline.checkTargets()`: GL only logs a target the device
 refuses, and the game would run on under a black frame, so the G-buffer and the sun
 map are asked for their status first, while the GPU process has nothing to do (the
@@ -267,6 +269,16 @@ so until the tap, and never after one landed in the grey). `later`'s first item 
 backend starts with the first one, 120-180 ms on the main thread, and that must
 not be the first touch.
 
+**The data credit** (`src/ui/Credits.ts`, ODbL): one small note on every load, from the frame the first region is in, ~6 s
+on its own clock: not the opening's, so a tap past the opening or `?skipintro` shows it the same. Pixel art like everything
+on screen: `HUD_SMALL` in palette colors with an ink outline, 2 CSS px per UI pixel, on whole CSS pixels, stepped in and out
+like the HUD's chrome; two lines on a phone (`splitLines`), one on a wide window, more when a longer credit needs them
+(`creditLines`: none of it runs off the screen), laid out again when the window turns. `uiText` sets it for the bitmap fonts,
+the settings page too: capitals, no accents, (C). A credit with a letter those fonts lack (Japanese, Cyrillic, an Ø) goes up in
+the system face instead: a licence credit can't lose a letter. Never a permanent HUD;
+settings' MAP DATA (a phone's top-right button, Esc on a desktop) and the tuner list every credit in `city.json`
+(`attribution`, then `credits`) at any time. `?nohud` (a capture) shows none.
+
 **A lost GL context** (a GPU reset, memory pressure on iOS): `webglcontextlost`
 stops the game and hides the canvas (the page's fog-grey shows); on
 `webglcontextrestored` the warm-up runs again from the top (a new `WarmUp`, every
@@ -279,6 +291,173 @@ opening standing (`covered`) until the city is in. `__game.loseContext()`, `rest
 `tools/bake/bake.py <slug>` turns footprints + DEM (+ an optional LiDAR point
 cloud via `tools/bake/lidar.py`) into 256 m tiles; `tools/bake/pack.py` bundles
 them into gzip'd 1 km regions. Layouts live in `src/world/tiles.ts`.
+**The footprints, streets, land, water, trees and names are OpenStreetMap**:
+`tools/bake/overture.py <slug>` extracts the city's bbox from the
+Overture Maps GeoParquet release on S3 (row groups by their bbox statistics,
+cached under `$SB_OVERTURE_CACHE`, default `tools/bake/.cache/overture`),
+`tools/bake/osm.py` reads the extracts (buildings, parts, ground raster, trees,
+names) and `bake.py` conflates them (OSM first; USA Structures only where OSM
+has no footprint; LiDAR heights where they agree). A city config with
+`"overture": {...}` bakes the OSM formats below; without it the old path
+(USA Structures, 'SBB2' / 'SBT1') is unchanged. The tiles are a derivative
+database under the ODbL (`public/city/DATA_LICENSE.md`); `city.json` carries
+`attribution` ("© OpenStreetMap contributors, Overture Maps Foundation"),
+`license` and `stats` (counts per source, heights by source, roofs, trees).
+QA without a browser: `tools/bake/citydata.py` reads a baked city in Python,
+`tools/bake/plot.py` draws top-down comparisons (classes, lot lines, heights,
+roof shapes, trees, street names) of any number of bakes side by side.
+- **'SBB3' building tiles** (OSM bakes; 'SBB1'/'SBB2' still read): SBB2 plus
+  `u32 facadeColor[]`, `u32 roofColor[]` (0xFFRRGGBB as mapped, 0 = none) and
+  `u16 roofH[]` (dm) after `groundY`, and `u8 roofShape[]`, `u8 roofDir[]`,
+  `u8 facadeMat[]`, `u8 roofMat[]`, `u8 source[]` after `taper`; then pad to 4
+  from the tile start (SBB2's pad was the same, its offsets were aligned) and
+  the rings. `roofShape` (`RoofShape` in tiles.ts: 0 untagged, 1 flat, 2 gabled,
+  3 hipped, 4 pyramidal, 5 skillion, 6 dome, 7 onion, 8 round, 9 gambrel,
+  10 mansard, 11 half-hipped, 12 saltbox, 13 cone): with a shape, **roofY is
+  the eave** (top of the walls) and the roof rises `roofH` m above it; untagged
+  and flat parts keep roofY = their top as before. `roofDir`: the way the main
+  roof face looks (downhill), `atan2(dz, dx)` in the local frame, 256 = a full
+  turn; the ridge runs across it (the bake always sets it for shaped roofs:
+  OSM roof:direction, else the ridge along the footprint's long side, across
+  with roof:orientation=across). `source`: bits 0-2 footprint (0 OSM, 1 other
+  Overture, 2 USA Structures, 3 LiDAR only), bits 3-5 height (0 default,
+  1 LiDAR, 2 OSM height, 3 OSM levels, 4 USA Structures, 5 neighbours), bit 6
+  massing from OSM building parts, bit 7 LiDAR tiers. A building may hold
+  several tier-0 records: OSM building parts on the ground (the biggest
+  first), or pieces cut through a courtyard (flat-roofed). Consumers that
+  assume "record `local` is the whole footprint" are wrong for those (City's
+  `contains`, `edgeDistance` and bounds already walk every tier-0 record).
+- **Shaped roofs in BuildingMesher** (`shapedRoof`, `roofPlanes`, `clipHalf`,
+  `revolve`, appended at the end of the file): a part with `roofShape >= 2`
+  and `roofH > 0.3` (not tapering) gets its roof built first, before the walls,
+  so a footprint it can't roof (a planar roof over a footprint < 55 % of its
+  rectangle) keeps its parapet and flat cap. Planar roofs are the lowest of a
+  few planes in the roof frame (s along the ridge, t across, from `roofDir`):
+  each face is the footprint clipped to where its plane is lowest
+  (Sutherland-Hodgman, ear-clipped), Part.ROOF_SLOPE (Part.ROOF where flat:
+  a mansard's top); where the roof meets an outer wall above the eave (gable
+  ends, a skillion's high side) the wall continues up to it as FRONT / SIDE
+  quads and triangles with the facade's u and v, so windows run on; domes,
+  onions, cones and pyramids on non-rectangular footprints revolve the ring
+  about its area centroid. With a built shape there is no parapet, no
+  rooftop clutter and no procedural Victorian gable (that stays for untagged
+  parts only); a painted tower grows no setback gardens or onions on one (they'd
+  hang inside it); `Group.top` (the flood / pop top) includes `roofH`. The roofs
+  go through the typed Builder like every wall: `B.vert`, `quadF`, `triF`, so
+  the caster proxy (`meshCasterTile`) casts them and the worker's `roofTops`
+  sees them. How each part's roof is built (`roofKinds`, `RoofBuild`) is worked
+  out once in the worker and travels with the tile (`TileResult.kinds`, the
+  ref's `roofBuild`), so gameplay's heights and the mesh can't disagree. LOD 1
+  builds the same roofs.
+- **LOD 1 rings** (`ringKeep` in BuildingMesher): OpenStreetMap's footprints carry
+  every jog of a parcel, 9.9 vertices a ring in SF against USA Structures' 5.7,
+  and a coarse ring costs three triangles a vertex, twice with the sun pass. So
+  LOD 1 keeps a ring to within `RING_EPS` (1.5 m, Douglas-Peucker round the ring,
+  the front edges whole: the facade starts there). The nearest coarse wall stands
+  500+ m from the lens (`DETAIL_RADIUS` x 0.8), a game pixel there is 0.6-0.75 m.
+  A facade family keeps its ring: its columns land on the corners. Gameplay and LOD 0
+  never see this. The caster proxy does the same for a house at `CASTER_RING_EPS`
+  (1 m), walls and roof only: `meshBuilding` draws those on the kept ring and reads
+  the whole ring (`whole`) for everything else. A rooftop box, a chimney or a gable
+  stands from the ring's center and extent, so on another ring its shadow would fall
+  where it doesn't stand (`feel-sim s_caster.ts` checks their corners in the proxy).
+  Every shape still casts; a jog under 1 m leaves the outline of its shadow (1.3-4
+  shadow texels: single game pixels along shadow edges). A tapering part keeps its ring.
+- **'SBT2' terrain tiles** (OSM bakes): SBT1, pad to 4, then the street-name
+  section: `u8 hood[8*8]` (32 m cells: an index into `manifest.neighborhoods`,
+  255 none), `u16 nameCount, u16 lineCount`, names `{u8 len, utf-8}` (as
+  signed: 'Haight St'), pad to 2, lines `{u16 name, u8 rank (0 street,
+  1 path/plaza), u8 n, i16 x, z dm from the tile origin * n}`. Parsed into
+  `TerrainTile.streetNames / streets / hoodGrid`; `City.streetNameAt(x, z,
+  maxDist = 45)` (nearest named street, paths only when no street is in
+  reach) and `City.hoodAt(x, z)`. The region bundle ('SBR1') is unchanged.
+- **Ground classes** (2 m class texture, `Ground` in tiles.ts): 0 PAVED,
+  1 GRASS, 2 WATER, 3 SIDEWALK as before, and with OSM 4 PLAZA (pedestrian
+  areas, squares, piers, hard pitches), 5 PATH (footways, cycleways, steps,
+  tracks), 6 SAND, 7 RAIL, 8 FOREST, 9 YARD (block interiors: gardens,
+  unmapped land), 10 ROCK. Streets are their centerlines buffered to their
+  class width (`osm.OSM_DEFAULTS.roadWidth`), sidewalks 3.5 m beside streets
+  that have them, the sea is what OSM's coastline land polygons leave out
+  (where the DEM is low), blocks of mostly non-residential buildings are
+  PAVED lots instead of yards; under buildings: SIDEWALK, as before.
+  `terrainMaterial.ts` shades the new classes with existing ramps (palette
+  unchanged); the far grid ('SBF1') carries the same codes (only WATER is read).
+- **The shore is the class texture's.** The bakes lay water under the open plane (`WATER_Y`, -0.6 m; baked water -0.9 to -1.1)
+  and the ground mesh is 8 m coarse, so within 16 m of land the mesh stands at `SHORE_FLOOR` at least, 0.3 m over the plane
+  (`meshHeights(tile)` in tiles.ts, what `heightGrid` and `makeHeightGrid` are given, on any tile with a height under that, water
+in it or not; gameplay reads the baked heights; SF's bridge stand-ins' ground goes back to water first, `clearStandInGround`). Past that
+  the plane draws the water: it is the cheaper shader. The ground's water pixels are the plane's: `GLSL_WATER`
+  (`sbWater(worldPos)`) is one function of the world position, the same bytes from both, flags and surface id included, so
+  nothing shows where one hands over to the other, and a lake is the same water at its own height. Water takes no paint and no
+  shockwave. On a shore (water among the four
+  nearest texels, land too) the water's share of the 10 m square around the pixel decides, bilinear at its edges: the
+  nearest texels turn a quay at a shallow angle to the 2 m grid into a staircase of 6 m runs and 2 m rises. The square's
+  first moment (`side`) says it is a shore at all, water on one side of the pixel; a ring of pond or a footbridge has it on
+  both, a share would erase it, and those keep the nearest texels (a strip under 3-4 m). Streets keep bilinear: a 2 m path
+  wouldn't survive a share.
+- Trees ('SBT1/2' records unchanged): OSM natural=tree points and tree rows
+  (species -> kind: cypress / pine and eucalyptus / street tree, height ->
+  size), then procedural trees **on evidence** (DECISIONS, Data: Trees;
+  `bake.py` `TREES`, a config's `"trees"` overrides): park / woods trees on the
+  11 m jittered grid with chance 0.85 x f, f = ESA WorldCover's tree cover in
+  a 20 m window less the mapped trees' crowns, gated by what OSM's polygons say
+  (`osm.tree_codes`: TREE_PARK parks / gardens / cemeteries from f 0.10,
+  TREE_OPEN lawns / commons / meadows / grassland / wetland / golf / aerodromes
+  from f 0.25, TREE_WOODS OSM woods at least f 0.6, TREE_SHRUB scrub / heath and
+  TREE_NEVER pitches / playgrounds / fairways / beaches / rock / plazas /
+  runways none; inside the green family the smallest polygon wins; Overture's
+  coarse land cover (priority 0) lies under every OSM polygon and its barren
+  says nothing, so only OSM's 'never' clears the woods and parks over it), on
+  grass or forest ground away from buildings, slopes under 45 degrees; street
+  trees as before: on 30 % of residential frontages' sidewalks where no mapped
+  tree stands within 9 m (no WorldCover gate: its 10 m pixels miss most single
+  street trees). The old path (no `"overture"`) keeps its grass rule, slope
+  limit and `treeLatMax`.
+- **ESA WorldCover 10 m** (v200, 2021, CC BY 4.0; `tools/bake/worldcover.py`):
+  every city's land cover, read from the public S3 bucket's 3 x 3 degree COGs
+  (`ESA_WorldCover_10m_2021_v200_<N|S><lat><E|W><lon>_Map.tif`, the tile's
+  south-west corner) through GDAL /vsicurl: only the city's window (range
+  reads of the COG blocks), bboxes spanning tiles mosaicked on the global
+  1/12000 degree grid, a missing tile is open sea. The crop is cached as
+  `tools/bake/.cache/worldcover/<slug>.tif` (`overture.py` fetches it with the
+  extracts and exits 2 when it can't; `bake.py` checks it right after the city
+  frame, before the DEM, and fails there; `bake.py` and `qa.py` grow it when a
+  bake needs more) and resampled
+  (nearest) onto the bake's local frame at 4 m (`local_grid`). Classes: 10 tree
+  cover, 20 shrubland, 30 grassland, 40 cropland, 50 built-up, 60 bare /
+  sparse, 70 snow / ice, 80 water, 90 herbaceous wetland, 95 mangroves (trees
+  for the bake), 100 moss / lichen. `"worldcover": false` in a config bakes
+  without it (procedural trees only in OSM woods). `city.json` names it in
+  `source` and `credits.worldcover`; the tuner lists `credits` after the ODbL
+  attribution.
+- **Bake QA** (`tools/bake/qa.py`): `bake.py` runs it after every OSM bake
+  (its arrays freed first; `--qa=0` skips, `--qa=warn` reports without
+  failing), standalone `python3 -I tools/bake/qa.py <slug> --dir=public/city/<name>`
+  checks any baked dir. Per 128 m cell it compares the bake with WorldCover:
+  procedural park / woods trees with no WorldCover tree pixel within 20 m
+  ("unsupported"; 8+ in a cell: "trees on open land"; street trees along
+  frontages are reported beside the mapped street trees, not checked:
+  WorldCover misses 42 % of SF's mapped ones), wooded park / woods /
+  open-space cells
+  left under 8 trees / ha ("missing trees"), the baked water share vs
+  WorldCover water (80) ("water", >= 50 % of a cell apart), baked sand vs
+  WorldCover bare ground ("sand"); WorldCover woods over OSM scrub / heath are
+  listed as information. Thresholds: `qa.QA_DEFAULTS` (a config's `"qa"`
+  overrides); a check whose share exceeds its max and whose count reaches
+  `minFlagged` (5 cells) / `minUnsupported` (50 trees) is a FAIL: a
+  `!!! QA FAIL` block and exit 3 (the
+  bake's outputs are complete; `pack.py` packs them). Writes `city.json`
+  `stats.qa` (pass, failed checks, values, tree counts by source, the largest
+  parks) and `tools/bake/.cache/qa/<name>/`: `report.md` (the checks, the 30
+  worst cells with lat / lon and a reason, the parks table), `cells.png` (the
+  frame with every flagged cell) and `park_<k>_<name>.png` crops of the ~8
+  largest parks / open spaces: left WorldCover with every baked tree as a
+  black dot (dots on yellow grassland, grey bare ground or blue water are trees
+  on open land), right the bake's ground classes, buildings and trees by source
+  (blue mapped, dark green park, orange street) with WorldCover's tree cover
+  outlined in lime. Read the table first (per park: WorldCover tree share,
+  trees per ha, procedural trees on WorldCover-open land, which should be ~0),
+  then the crops.
 - **Buildings are groups of parts.** A building tile ('SBB2') holds one record
   per *part*: a plain building is one part; a LiDAR-tiered tower is several
   (podium, setbacks, tapering shaft, crown, rooftop boxes), consecutive, tier 0
@@ -301,8 +480,10 @@ them into gzip'd 1 km regions. Layouts live in `src/world/tiles.ts`.
   as a dome over its reach (`treeCrown` in props/trees), the detailed mesh's
   roof details (every LOD 0 vertex lifts its cell; a single-part house lifts
   every cell within 3 m of it to its mesh top: gables, chimneys, parapets,
-  clutter: `roofTops` in the worker, `City.adoptTops` takes the larger of two numbers
-  per cell), rooftop gardens / Hundertwasser crowns (`City.raiseRoof(rect,
+  clutter; a mapped roof on a bigger building lifts each cell to the drawn roof
+  at its center and corners, `roofSurfaceY`: `roofTops` in the worker,
+  `City.adoptTops` takes the larger of two numbers per cell; the bake's grid holds
+  a mapped roof at 80 % of its rise), rooftop gardens / Hundertwasser crowns (`City.raiseRoof(rect,
   top)` with the height `RoofSprouts.set` returns) and a painted tower's own
   setback gardens, trees and onion domes (`City.growTo(ref, level)`: every
   element the mesher recorded, see Tower facades). Anything new that stands on
@@ -322,13 +503,49 @@ them into gzip'd 1 km regions. Layouts live in `src/world/tiles.ts`.
   `roofAt` (the part's roof under a point). Never test hits by centroid
   distance: big footprints reach 100+ m from their centroid.
   `buildingsNear` (centroid within r) stays for "what's around here" questions.
-- **stableIds** key saved paint. Footprint buildings keep the rank of their
-  source footprint (LiDAR work happens after ranking); row lots merged back into
-  one building keep one lot's id and retire the others. Buildings only a LiDAR
-  bake has get ids >= 2^30 derived from what they are (split pieces: parent id
-  and rank; LiDAR-only towers: a hash of their position), so re-bakes agree.
+- **stableIds** key saved paint. OSM bakes (`bake.py` `ID_RANGES`, `IdAlloc`):
+  every id derives from its source record, never a rank: [0, 2^31) FNV-1a of
+  the OSM id ('w123', 'r45'; a multipolygon's separate pieces 'r45#1'...),
+  [2^31, 2^31 + 2^29) other Overture footprints (GERS id), [2^31 + 2^29,
+  3 * 2^30) USA Structures fallback lots 'u<BUILD_ID>:<lot>' and pieces LiDAR
+  splits off them, [3 * 2^30, 2^32) LiDAR-only towers (a hash of their 8 m-grid
+  position, as before); a hash collision probes to the next free id of its
+  range in key order. So a building keeps its id across re-bakes and other
+  buildings coming or going never shift it: the key a shared-paint server can
+  use. Which store a city opens follows its DATA, not the code (`idSchemeOf`:
+  `city.json` `"ids": "osm"`): an OSM bake saves in `strugglebus.paint.v3` (SF;
+  other cities `strugglebus.paint.v3:<slug>`) and `strugglebus.ground.v4:`
+  (`strugglebus.ground.v4.<slug>:`), and drops that city's `paint.v1` / `v2` and
+  `ground.v2` / `v3` on load, never applied (v2 / v3 are skipped on purpose: a
+  build before `"ids"` wrote them whatever the data was). Only a landmark's name
+  key means the same in any bake, so one left in a dropped store moves to the
+  landmark store. An `"ids"` this code doesn't know keeps building and ground
+  paint for the session only, and an old rank bake keeps `paint.v1` / `ground.v2`
+  and never touches the new stores. Old (non-OSM) bakes: footprint
+  buildings keep the rank of their source footprint; row lots merged back into
+  one building keep one lot's id and retire the others; LiDAR-only ids >= 2^30.
   `node tools/check-stable-ids.mjs <old city dir> <new city dir>` checks a
-  re-bake (also LiDAR bake against LiDAR bake).
+  re-bake of either kind (it refuses to compare an OSM bake with an old one).
+
+## Re-baking a city
+- **Bump `window.__sbDataV` in index.html with every re-bake** (`osm1` -> `osm2`). It goes on every URL under `/city/`
+  (`dataQuery()` in City.ts). A re-bake keeps the file names and `vercel.json` caches them for a day plus a week stale, so
+  without a new version a phone that played the old city runs the new game on old data, and on new tiles only where it
+  never flew. A new header can't reach what phones already hold; only a new URL does. `node tools/redeploy.mjs <old build>
+  <new build>` plays that phone: vercel.json's own headers on a local server, one browser context across the deploy, exit
+  1 unless every file of the city the game asked for reached the new deploy. (Not run against a live Vercel deployment yet.)
+- `public/city/<slug>/` is generated: never hand-merge it, re-bake it (its own commit). A re-bake needs the Overture
+  extract (`python3 -I tools/bake/overture.py <slug>`, ~2 min, cached under `$SB_OVERTURE_CACHE`), the city's WorldCover
+  crop (`$SB_WORLDCOVER_CACHE`) and, for SF, the LiDAR cache (`$SB_LIDAR_CACHE`: the USA Structures LiDAR plan is still built
+  first, so its cached rasters hit, and only the chunks OSM adds are rasterized on top). A worktree without those caches
+  points the three variables (and `SB_DATA`, the DEMs) at a checkout that has them. A full SF bake thrashes an 8 GB laptop;
+  Amsterdam took 8 minutes, most of it the extract. A region format change only needs `pack.py` on the raw tiles in
+  `tools/bake/.cache/<slug>/`.
+- The keep-outs: footprints within a landmark's `clearRadius` are capped at 8 m, with no LiDAR, no parts, no roof shape.
+  A prop that replaces a mapped building hides it through `HIDDEN` (`maxTop` is the whole building's top: OSM's Ferry
+  Building is 8 parts and 70.5 m, not two rows of lots). `facadeMat`, `facadeColor`, `roofMat`, `roofColor` are in every
+  tile for the painted world (glass, brick, stone...); nothing reads them yet.
+- Gable-end walls are `quadF` / `triF`, not `wall()`: wall subdivision and `remapU` don't reach them (they're small).
 
 ## Tower facades (`src/world/towerStyles.ts`, `buildingMaterial.ts`)
 - The mesher picks a facade family per building (`styleFor`: icons table by
@@ -377,10 +594,13 @@ them into gzip'd 1 km regions. Layouts live in `src/world/tiles.ts`.
   raises the obstacle grid over it. main.ts's `growSprouts` calls `growTo` with
   RoofSprouts (blooms at L2+ and the saved-paint restore); a detailed re-mesh
   calls it again for the tile's painted buildings.
-- `HIDDEN` footprints (the Ferry Building's lots, Coit Tower's stand-in box)
-  aren't meshed and aren't building refs (`City.addTile` skips them by the same
+- `HIDDEN` footprints (the Ferry Building's mapped massing, Coit Tower's stand-in box, what OSM and the LiDAR
+  make of the bridges) aren't meshed and aren't building refs (`City.addTile` skips them by the same
   test as the mesher: centroid in the box, height under `maxTop`); a prop draws
-  them. `HERO_PROPS` (Coit Tower, the Ferry Building, 181 Fremont's spire) are
+  them. An entry with `clears` has no prop boxes: `City` rebuilds its cells of the obstacle grid (its stand-ins' heights go),
+  and `FAR_STAND_INS` keeps far.bin's boxes in open-water tiles masked for good (`City.maskedForGood`, the skyline's own
+  mask; far.bin and the far code don't change). `trimBridgeTiers` drops the upper tiers `BRIDGE_TIERS` names
+  in the worker (Fort Point keeps its walls, not the arch the LiDAR read over them). All SF only (`RegionRequest.sf`). `HERO_PROPS` (Coit Tower, the Ferry Building, 181 Fremont's spire) are
   placed by `heroLandmarks(origin)` in `props/landmarks.ts`, with collision
   posts for their tall parts and their boxes for the obstacle grid
   (`setPropObstacles` over their `HIDDEN` box); only for the SF origin the
@@ -415,12 +635,12 @@ live in `src/config.ts`.
 | Module | Files | API (consumed by `src/game/*`) |
 |---|---|---|
 | Core renderer | `src/render/*` | `PixelPipeline`, `materials`, `palette` |
-| World / bake | `tools/bake/*`, `src/world/City*.ts`, `src/world/Buildings*.ts`, `src/world/Terrain.ts` | baked tiles → meshes, paint state |
+| World / bake | `tools/bake/*`, `src/world/City*.ts`, `src/world/BuildingMesher.ts`, `src/world/roofGeom.ts`, `src/world/tiles.ts`, `src/world/PaintState.ts` | baked tiles → meshes, paint state, mapped roofs |
 | Audio | `src/audio/AudioEngine.ts`, `src/audio/audioWorker.ts` | see `AudioEngine` |
 | Bus model | `src/bus/BusModel.ts` | see `BusModel` |
 | Particles | `src/fx/Particles.ts` | see `Particles` |
 | Street signs | `src/fx/StreetSign.ts`, `src/fx/pixelFont.ts` | see `StreetSigns` |
-| Input + tuner + perf | `src/game/Input.ts`, `src/ui/Tuner.ts`, `src/ui/Perf.ts` | see below |
+| Input + tuner + perf + credit | `src/game/Input.ts`, `src/ui/Tuner.ts`, `src/ui/Perf.ts`, `src/ui/Credits.ts` | see below |
 | Props + landmarks | `src/world/Props.ts`, `src/world/props/*` | trees, Sutro Tower, Transamerica, Coit Tower, the Ferry Building, roof sprouts; landmark paint (`props/landmarkPaint.ts`) |
 | Tower facades | `src/world/towerStyles.ts`, `src/world/buildingMaterial.ts` | facade families, icons table, hero props table |
 | Game glue | `src/main.ts`, `src/game/*` | flight, camera, splat, bloom, persistence |
@@ -531,7 +751,7 @@ the thumb (`adoptThumb`). `slot('super')` is a 68 x 86 box above MEGA (beside it
 cooldown (`setMega(phase)`, from main.ts per frame). TURBO and MEGA rest after 8 s with `PixelCanvas.punch` (a checker of
 cleared pixels on the panels). `hitTouch` is the toggle's and the chip's tap (the chip's with `steer`: a short still tap only, a drag becomes the thumb). `onGesture` runs after it in the same `touchend`, and no other listener on those two may run it first. The callback runs inside `touchend`,
 first thing, because iOS asks there. Top-right buttons fade after 6 s and a tap there wakes them; a desktop has no
-buttons at all (Esc: `openSettings`). `setCredits(text)`, `toast(lines, s)` (one slot, LOCKED clears it), `setSettings`,
+buttons at all (Esc: `openSettings`). `setCredits(lines)` (settings' MAP DATA page, wrapped to the panel), `toast(lines, s)` (one slot, LOCKED clears it), `setSettings`,
 `arrive()`, `setCue`, `turboCue`, `megaHoldCue`, `showChip`, `flyChip`. All HUD elements carry `data-sb-ui` (Input ignores
 keys typed there) and `data-hud="..."` names for QA (`turbo`, `gear-down`, `mega`, `tilt-toggle`, `tilt-chip`, `cue`).
 
@@ -585,10 +805,15 @@ impact frame shows the hit.
   frame) -> `land` (at impact, one upload per tile); `sample(x, z)` for CPU
   queries (trees). Saved per tile as its settled mask (`encodeMask` /
   `decodeMask`: 5-bit coverage + 3-bit hue, run-length, base64) under
-  `strugglebus.ground.v2:<tx>,<tz>`, decoded when the tile attaches; blasts that
+  `strugglebus.ground.v4:<tx>,<tz>` on OpenStreetMap data (`groundStorePrefix`, see stableIds), decoded when the tile attaches; blasts that
   reach an unloaded tile wait on its entry and replay when it arrives.
   `GLSL_BLAST_RING` (shockwave on up-facing surfaces: terrain + roofs) and
   `GLSL_GROUND_PAINT` (terrain) with `blastUniforms`.
+- The street sign's name (`signName` in main.ts, fixed when the sign is queued): a landmark signs its own
+  name; a breath that came down on open ground, or with no building in reach (`queueSign(null, ...)`: nothing blooms, so
+  `impact` queues it), names the spot (`City.streetNameAt`, OpenStreetMap's centerlines, else the neighbourhood there:
+  `City.hoodAt`, the building's own, the nearest label); one that hit a building names the street in front of it, else its
+  neighbourhood. `__game.lastSign()` says which (`from`).
 - The street sign (`SplatFx.primary` -> `showSign` in main.ts) never stands over
   the blast: it is queued on the game clock until the wave has reached the
   blast's edge (+ `signTune.showDelay`), then placed on open ground past the
@@ -599,11 +824,12 @@ impact frame shows the hit.
   from the start: what stands in front of it covers it). A spot whose pole is
   seen to its foot wins; else `StreetSignOptions.pole` lifts the blade clear
   of the roofs in front (up to `signTune.poleLiftMax`); both bottom corners of
-  the blade (`signBladeWidth(text)`) must clear them too. Never on water
+  the blade (`signBladeWidth(text)`) must clear them too; where nothing takes less (a street between 20 m terraces: London,
+  most of Europe), the shortest pole up to `signTune.poleLiftTall` stands by for the last look. Never on water
   (`City.groundClassAt`: the tile's 2 m ground class). No spot in frame:
   `showSign` returns false and the pending sign asks again 0.8 s later
-  (twice); then the primary's front only if it lies outside the blast
-  (+4 m), else no sign. The whole blade must sit inside the frame, and its
+  (twice); then the primary's front only if it lies outside the blast,
+  (+4 m), then the last look's tall pole, else no sign. The whole blade must sit inside the frame, and its
   bottom edge must be seen over its whole sightline (`bladeSeen`: five
   points across it, every 6 m to 90% of the way, against `City.roofAt` and
   `City.landmarkSurfaceAt`, the real footprints; the obstacle grid stands
@@ -729,10 +955,9 @@ glinted and saved like a baked one.
 - **Saved paint**: a landmark's key is its name (`LANDMARK_KEY_PREFIX` `'lm:'` +
   name, enforced by `addLandmarkBuilding`), saved in a store of its own,
   `strugglebus.landmarks.v1` (`:<slug>` for other cities; `landmarkStoreKey`),
-  never among the buildings' ids in `strugglebus.paint.v1`. So no key can
-  collide with a stable id in any building store (rank ids now, OSM ids on
-  feat/osm), and a re-bake that renumbers buildings and drops their store keeps
-  the landmarks' paint. `PaintState(count, slug)` loads both; `register` and `set`
+  never among the buildings' ids. So no key can collide with a stable id in any
+  building store (OSM ids in `paint.v3`, rank ids in `paint.v1`), and a re-bake that
+  renumbers buildings and drops their store keeps the landmarks' paint. `PaintState(count, slug)` loads both; `register` and `set`
   route by key type (a string is a landmark); `resetAll` clears both. (Pre-merge
   branch builds saved `lm:` keys in v1: the constructor moves them over once.)
   Never rename a key (`'lm:sutro'`, `'lm:transamerica'`, `'lm:coit'`, `'lm:ferry'`).
@@ -819,13 +1044,6 @@ glinted and saved like a baked one.
   `if (landmarkBloom(ref, hue, level)) return;` first and give the firehose
   (`flags & BLOOM_HOSE`) a lighter sparkle count per slice (it blooms a landmark
   many times a second).
-- Merging feat/osm: keep `PaintState(count, slug)` and the landmark store as is
-  (its own key, untouched by the v1 -> v2 building-store drop; only the building
-  store's key changes); `City`: `new PaintState(manifest.buildingCount +
-  LANDMARK_SLOTS, manifest.slug)`. A hit landmark signs its own name: use
-  `(city.isLandmark(ref) ? null : city.streetNameAt(gx, gz)) ?? city.neighborhoodName(ref.hood)`.
-  Check the OSM bake keeps the Transamerica, Sutro and HIDDEN hero footprints
-  low or hidden (`landmarks[].clearRadius / clearHeight`).
 
 QA hooks: `?fixeddt=<s>` steps the game by a fixed dt per rendered frame;
 `window.__qa.holdAt = <game time>` freezes on the first frame at/after it
@@ -837,6 +1055,25 @@ down; `__game.barfAtLatLon(lat, lon, drop?)` returns the impact time;
 `__game.paintedNear(lat, lon, r)`; `__game.seedGround(n, lat, lon, spread)`
 paints n saved blasts at once (a long session). `tools/blast.mjs` drives all of
 it (perf, seq, top, reload, escalate, tap, drop, layouts, row, deal, heavy).
+
+What is that line on screen? `node tools/sightline.mjs <url> <out>` holds a pose and asks the game: the G-buffer along a
+street's axis (up-facing? which surface?), OSM's centerline over the frame, the lens moved 60 m each way (what stands keeps its
+foot, what lies on the ground swings about the nadir), the buildings hidden. Its default is the Embarcadero pose of DECISIONS
+"OpenStreetMap, outside judge round 1": a camera on a straight street's axis lays the street on the same screen line as the
+vertical of whatever stands at its foot.
+
+The sign's placement, per place: `node tools/signrate.mjs <url> <out> <tag> <city|sf> <lat> <lon> <heading>` (real taps along a flight, how many raised a sign).
+
+OpenStreetMap QA: `node tools/osm-shots.mjs <url> <out> [shots]` (the checklist's places, a climb over them, the
+credit's timing), `tools/osm-paint.mjs <url> <out> [stale paint landmarks credit cities]` (old saves on the device, reloads,
+every landmark, the credit however the game starts, other cities' stores), `tools/osm-play.mjs <url> <out> [amsterdam ladies
+london]` (three taps on a block, a mega blast, a firehose, a low hover, a reload). Budget: `tools/sweep.mjs <url> <out.json>`
+(the worst frame over a compass sweep, the bus held on the spot: the densest flats and the hillsides, at 30, 250, 350 and 500 m:
+over a slope the view takes in far more roofs, and the worst views are there), `tools/framecost.mjs <url> "<query>" --alt=500`
+(one frame by kind and pass, with GPU timers: compare builds interleaved, the laptop's heat moves fps), `node tools/feel-sim/run.mjs
+s_mesh.ts` (offline: triangles per region at LOD 0, LOD 1 and the caster, ring sizes; `SB_DATA=<city dir>` for another bake;
+`s_caster.ts`: every built roof and everything that stands on a building is in the caster proxy, where it stands). Deploys:
+`tools/redeploy.mjs <old build> <new build>` (see "Re-baking a city").
 
 Feel QA: `node tools/feel-sim/run.mjs <scenario>` runs the real game modules
 offline against the baked city (aim, altitude taps, picks, misses, bank /

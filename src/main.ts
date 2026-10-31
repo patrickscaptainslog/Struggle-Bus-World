@@ -4,7 +4,7 @@ import { PixelPipeline } from './render/PixelPipeline';
 import { globals, layerTopBase } from './render/materials';
 import { HUE_RAMPS } from './render/palette';
 import { WarmUp } from './render/warmup';
-import { City, bootFetch, type BuildingRef } from './world/City';
+import { City, bootFetch, dataQuery, type BuildingRef } from './world/City';
 import { paintUniforms, setFacadeView } from './world/buildingMaterial';
 import { Ground, type CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
@@ -18,6 +18,8 @@ import { Controls } from './game/Controls';
 import { BusModel, type BusPose } from './bus/BusModel';
 import { Particles } from './fx/Particles';
 import { StreetSigns, signBladeWidth, signTune } from './fx/StreetSign';
+import { Credit } from './ui/Credits';
+import { registerCityData } from './world/PaintState';
 import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { paintLandmark, bindLandmarkPaint, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
@@ -87,7 +89,13 @@ async function boot() {
   // (first: the warm-up hasn't started a compile yet, so this query waits for nothing, and boot().catch prints a refusal)
   pipeline.checkTargets();
   // (index.html started this download before this script had even loaded)
-  const manifest = (await (await (bootFetch(base, 'manifest') ?? fetch(`${base}/city.json`))).json()) as Manifest;
+  const manifest = (await (await (bootFetch(base, 'manifest') ?? fetch(`${base}/city.json${dataQuery()}`))).json()) as Manifest;
+  // saved paint is keyed by the folder that served the city, not the slug inside its city.json (only the
+  // paint stores read manifest.slug): a bake served beside the live one (?city=sf_osm, slug 'sf') opens
+  // its own stores and never drops or fills the ones ?city=sf uses
+  if (manifest.slug !== slug) manifest.slug = slug;
+  // and by the data's id scheme (city.json "ids"): the stores the City opens need it first
+  registerCityData(manifest);
   const city = new City(manifest, base);
   scene.add(city.root);
   // the opening streams everything it needs at once (adopted as it lands, many regions in flight);
@@ -373,7 +381,7 @@ async function boot() {
   };
   const bloomHues = [0, 0, 0];
   /** the blast being shown (impact fires right before its primary's bloom, in the same update) */
-  const lastBlast = { x: 0, z: 0, r: config.splat.blastRadius };
+  const lastBlast = { x: 0, z: 0, r: config.splat.blastRadius, open: false };
   const splatter = new Splatter(city, {
     geyser: (targets, hues) => {
       const S = config.splat;
@@ -387,6 +395,9 @@ async function boot() {
       lastBlast.x = b.spec.x;
       lastBlast.z = b.spec.z;
       lastBlast.r = b.spec.r;
+      // where it came down, for its sign: open ground (a park, a plaza, a street, a canal) when the breath
+      // landed on the ground, not on a roof or a wall
+      lastBlast.open = b.pos.y < city.groundAt(b.pos.x, b.pos.z) + 1;
       if (b.hose) {
         // a firehose impact: the super splat plays its own (lighter) fx; trees take their first colour only
         // (a dozen impacts a second would run a tree through every level at once)
@@ -414,6 +425,8 @@ async function boot() {
       pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, S.flashFrames, S.flashStrength);
       rig.kick(S.kick * Math.sqrt(k));
       bumpPaint(b.spec.x, b.spec.z, Math.min(255, 30 + 5 * b.count));
+      // nothing blooms (open ground with no building in reach): no first bloom will queue a sign, so it queues here
+      if (!b.count) queueSign(null, b.spec.hue, b.spec.x, b.spec.z, b.spec.r);
     },
     bloom: (ref, _order, _total, hue, level, roof, flags) => {
       if (landmarkBloom(ref, hue, level)) return;
@@ -431,6 +444,40 @@ async function boot() {
     hitStop: (frames) => (hitStop = frames / 60),
   });
 
+  /** QA: the last sign raised (its text, where, and what named it). */
+  let lastSign: { text: string; x: number; z: number; from: string; t: number } | null = null;
+
+  /** The neighbourhood at (x, z): OpenStreetMap's polygons (32 m cells), else `hood`, else the nearest label. */
+  const hoodNameAt = (x: number, z: number, hood: number): [string, string] => {
+    const h = city.hoodAt(x, z);
+    if (h >= 0) return [city.neighborhoodName(h), 'hoodAt'];
+    if (hood >= 0) return [city.neighborhoodName(hood), 'building hood'];
+    let best = Infinity, name = manifest.name;
+    for (const n of manifest.neighborhoods) {
+      const d = (n.x - x) ** 2 + (n.z - z) ** 2;
+      if (d < best) {
+        best = d;
+        name = n.name;
+      }
+    }
+    return [name, 'nearest label'];
+  };
+
+  /** What a blast's sign says, and what named it. A landmark signs its own name. A breath that came down on open
+   *  ground (a park, a plaza, a canal, or no building in reach: ref null) names the spot it hit: the street there
+   *  (OpenStreetMap), else the neighbourhood there. One that hit a building: the real street in front of it, else
+   *  the building's own neighbourhood. */
+  const signName = (ref: BuildingRef | null, x: number, z: number, open: boolean): [string, string] => {
+    if (ref && city.isLandmark(ref)) return [city.neighborhoodName(ref.hood), 'landmark'];
+    if (open || !ref) {
+      const street = city.streetNameAt(x, z);
+      return street ? [street, 'street'] : hoodNameAt(x, z, ref ? ref.hood : -1);
+    }
+    const f = city.frontOf(ref);
+    const street = city.streetNameAt(f.x + f.nx * 4.5, f.z + f.nz * 4.5);
+    return street ? [street, 'street'] : [city.neighborhoodName(ref.hood), 'building hood'];
+  };
+
   // ---- the street sign stands beside the blast, never over it: the impact and the bloom are the money
   // shot. It rises once the wave has reached the edge, on open ground past the blast's far side as the
   // camera sees it, off the flight line (that's where the next target glints), and grows so its letters
@@ -439,9 +486,11 @@ async function boot() {
   // is seen to its foot; else its pole grows until the blade clears the roofs in front (never a blade
   // hovering over the roofs with no pole). Nothing farther along its sightline (a tower, a landmark up
   // the hill) may hide any of the blade either: no sign beats half a blade.
-  const pendingSigns: Array<{ ref: BuildingRef; hue: number; cx: number; cz: number; r: number; at: number; tries: number }> = [];
-  const queueSign = (ref: BuildingRef, hue: number, cx: number, cz: number, r: number) => {
-    pendingSigns.push({ ref, hue, cx, cz, r, at: simTime + arrival(r, r) + signTune.showDelay, tries: 0 });
+  const pendingSigns: Array<{ ref: BuildingRef | null; text: string; from: string; hue: number; cx: number; cz: number; r: number; at: number; tries: number }> = [];
+  /** ref: what the blast hit first, null when nothing blooms (it stands by the spot it hit, no front to fall back on). */
+  const queueSign = (ref: BuildingRef | null, hue: number, cx: number, cz: number, r: number) => {
+    const [text, from] = signName(ref, cx, cz, lastBlast.open);
+    pendingSigns.push({ ref, text: text.toUpperCase(), from, hue, cx, cz, r, at: simTime + arrival(r, r) + signTune.showDelay, tries: 0 });
   };
   let signSpot: { x: number; y: number; z: number; facing: number; scale: number; bias: boolean; pole: number; cx: number; cz: number; r: number; text: string; until: number } | null = null;
   /** How far (m) a point must rise for its sightline to the camera to clear the roofs and crowns over
@@ -501,9 +550,8 @@ async function boot() {
   const SIGN_RING: ReadonlyArray<readonly [number, number]> = [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6], [12, 0], [-12, 0], [0, 12], [0, -12], [9, 9], [-9, 9], [9, -9], [-9, -9]];
   /** Show (or re-flip) the sign of a blast at (cx, cz) of radius r. False: no open spot in frame yet, ask
    *  again later (`tries` so far); true once it is shown or given up on. */
-  function showSign(ref: BuildingRef, hue: number, cx: number, cz: number, r: number, tries: number): boolean {
+  function showSign(ref: BuildingRef | null, text: string, from: string, hue: number, cx: number, cz: number, r: number, tries: number): boolean {
     const T = signTune;
-    const text = city.neighborhoodName(ref.hood).toUpperCase();
     const life = T.riseTime + T.holdGreen + T.flipTime + T.holdRainbow + T.sinkTime;
     // another blast in the neighborhood while its sign stands: that sign flips again while it is in view
     // (two signs saying the same name side by side read as a glitch), unless this blast's bloom reaches
@@ -525,17 +573,20 @@ async function boot() {
       const lat = (cx - camera.position.x) * sx + (cz - camera.position.z) * sz;
       const pref = Math.abs(flight.yawRate) > 0.05 ? -Math.sign(flight.yawRate) : lat >= 0 ? 1 : -1;
       let found: typeof signSpot = null;
+      /** the first spot only a tall pole clears: it stands by, for when nothing takes less */
+      let tall: typeof signSpot = null;
       // where to look (m along the view's forward and right from the blast's center): past the far side,
       // off the flight line; then beside it; then farther past. Never inside the blast (+ a margin): there
       // the sign stands in front of painted houses and covers the bloom. Per spot: the pole seen to its
-      // foot, else (second pass) a pole lifted clear of the roofs in front, up to signTune.poleLiftMax
+      // foot, else (second pass) a pole lifted clear of the roofs in front, up to signTune.poleLiftMax; on a street
+      // between taller roofs than that, the shortest pole up to signTune.poleLiftTall stands by for the last look
       const o1 = r + T.besideOut, s1 = T.besideSide * r;
       // (the blade's half width: its bottom corners must clear the roofs in front too, not just its middle:
       // a roof edge in front cut the letters diagonally)
       const hw = 0.5 * signBladeWidth(text);
       // a landmark is the money shot itself and may reach far past the blast: no blade over its box on screen
-      const lm = city.isLandmark(ref);
-      if (lm) {
+      const lm = !!ref && city.isLandmark(ref);
+      if (ref && lm) {
         lmBox[0] = lmBox[1] = Infinity;
         lmBox[2] = lmBox[3] = -Infinity;
         for (const px of [ref.x0, ref.x1]) for (const pz of [ref.z0, ref.z1]) for (const py of [ref.baseY, ref.roofY]) {
@@ -564,7 +615,7 @@ async function boot() {
             const yb = y + (T.poleHeight - 1) * scale, cx0 = sx * hw * scale, cz0 = sz * hw * scale;
             const corners = Math.max(sightLift(x - cx0, yb, z - cz0), sightLift(x + cx0, yb, z + cz0));
             const pole = pass === 0 ? (sightLift(x, y + 1.5, z) > 0.5 || corners > 0.5 ? -1 : 0) : Math.max(sightLift(x, yb, z), corners);
-            if (pole < 0 || pole > T.poleLiftMax) continue;
+            if (pole < 0 || pole > Math.max(T.poleLiftMax, T.poleLiftTall) || (tall && pole >= tall.pole)) continue;
             // the blade must land inside the frame, below the top band (the sky and the horizon)
             signNdc.set(x, y + (T.poleHeight + 4) * scale + pole, z).project(camera);
             if (Math.abs(signNdc.x) > 0.72 || signNdc.y > 0.7 || signNdc.y < -0.6 || signNdc.z > 1) continue;
@@ -572,7 +623,12 @@ async function boot() {
             if (!bladeBox(x, y, z, hw, scale, pole, sx, sz, bladeTmp) || bladeTmp[0] < -0.96 || bladeTmp[2] > 0.96 || overLm(bladeTmp)) continue;
             // (and nothing farther in front hides it: the pole test above sees only the first 60 m)
             if (!bladeSeen(x, yb + pole, z, cx0, cz0)) continue;
-            found = { x, y, z, facing: Math.atan2(-fx, -fz), scale, bias: true, pole, cx, cz, r, text, until: 0 };
+            const spot = { x, y, z, facing: Math.atan2(-fx, -fz), scale, bias: true, pole, cx, cz, r, text, until: 0 };
+            if (pole > T.poleLiftMax) {
+              tall = spot;
+              continue;
+            }
+            found = spot;
             break;
           }
           if (found) break;
@@ -585,28 +641,32 @@ async function boot() {
         // middle (the landmark is the bloom; MAIN stood the sign at the middle of its face). Any other
         // primary: its own front only when that stands clear of the blast; inside it the blade would cover
         // the bloom: then no sign this time. Either way only a blade wholly in the frame and seen over its
-        // whole sightline: else no sign (half a blade behind a tower reads as a glitch, not a name).
+        // whole sightline: else the tall pole, if this last look found one, else no sign (half a blade behind
+        // a tower reads as a glitch, not a name).
         if (tries < 2) return false;
-        const f = lm ? city.edgeToward(ref, flight.x, flight.z) : city.frontOf(ref);
-        const ex = -f.nz, ez = f.nx;
-        const first = ex * sx + ez * sz >= 0 ? pref : -pref;
-        let spare: typeof signSpot = null;
-        for (const t of lm ? [1, 0.75, 0.5, 0.25] : [0]) {
-          for (const k of [first, -first]) {
-            const reach = t * (0.5 * f.len + hw + 4) * k;
-            const gx = f.x + f.nx * 4.5 + ex * reach, gz = f.z + f.nz * 4.5 + ez * reach;
-            if (!lm && Math.hypot(gx - cx, gz - cz) < r + 4) continue;
-            if (city.groundClassAt(gx, gz) === Ground.WATER || city.roofAt(gx, gz) !== null) continue;
-            const gy = city.groundAt(gx, gz);
-            if (!bladeBox(gx, gy, gz, hw, 1, 0, sx, sz, bladeTmp) || bladeTmp[0] < -0.96 || bladeTmp[2] > 0.96 || bladeTmp[1] < -0.96 || bladeTmp[3] > 0.7) continue;
-            if (!bladeSeen(gx, gy + T.poleHeight - 1, gz, sx * hw, sz * hw)) continue;
-            const spot = { x: gx, y: gy, z: gz, facing: Math.atan2(f.nx, f.nz), scale: 1, bias: true, pole: 0, cx, cz, r, text, until: 0 };
-            if (!overLm(bladeTmp)) { found = spot; break; }
-            spare ??= spot;
+        if (ref) { // (open ground, nothing in reach: no front to fall back on)
+          const f = lm ? city.edgeToward(ref, flight.x, flight.z) : city.frontOf(ref);
+          const ex = -f.nz, ez = f.nx;
+          const first = ex * sx + ez * sz >= 0 ? pref : -pref;
+          let spare: typeof signSpot = null;
+          for (const t of lm ? [1, 0.75, 0.5, 0.25] : [0]) {
+            for (const k of [first, -first]) {
+              const reach = t * (0.5 * f.len + hw + 4) * k;
+              const gx = f.x + f.nx * 4.5 + ex * reach, gz = f.z + f.nz * 4.5 + ez * reach;
+              if (!lm && Math.hypot(gx - cx, gz - cz) < r + 4) continue;
+              if (city.groundClassAt(gx, gz) === Ground.WATER || city.roofAt(gx, gz) !== null) continue;
+              const gy = city.groundAt(gx, gz);
+              if (!bladeBox(gx, gy, gz, hw, 1, 0, sx, sz, bladeTmp) || bladeTmp[0] < -0.96 || bladeTmp[2] > 0.96 || bladeTmp[1] < -0.96 || bladeTmp[3] > 0.7) continue;
+              if (!bladeSeen(gx, gy + T.poleHeight - 1, gz, sx * hw, sz * hw)) continue;
+              const spot = { x: gx, y: gy, z: gz, facing: Math.atan2(f.nx, f.nz), scale: 1, bias: true, pole: 0, cx, cz, r, text, until: 0 };
+              if (!overLm(bladeTmp)) { found = spot; break; }
+              spare ??= spot;
+            }
+            if (found) break;
           }
-          if (found) break;
+          found ??= spare;
         }
-        found ??= spare;
+        found ??= tall;
         if (!found) return true;
       }
       signSpot = found;
@@ -615,6 +675,7 @@ async function boot() {
     sp.until = simTime + life;
     // (true depth everywhere: a meter's bias against its own lawn, so painted houses in front keep covering it)
     signs.show({ text, position: signPos.set(sp.x, sp.y, sp.z), facing: sp.facing, hue, scale: sp.scale, biasNow: true, depthBias: 1, pole: sp.pole });
+    lastSign = { text, x: sp.x, z: sp.z, from, t: simTime };
     audio.signPop();
     return true;
   }
@@ -657,6 +718,9 @@ async function boot() {
   // ---- input
   const input = new Input(canvas);
   const tuner = new Tuner();
+  // (the ODbL credit, then the other sources' own: ESA WorldCover's CC BY for where the trees stand)
+  const dataCredits = [manifest.attribution ? `Map data ${manifest.attribution} (ODbL)` : '', ...Object.values(manifest.credits ?? {})].filter(Boolean);
+  tuner.credits = dataCredits.join('; ');
   const perf = new Perf(renderer);
   perf.setVisible(params.has('fps'));
   tuner.onAction = (name) => {
@@ -674,6 +738,7 @@ async function boot() {
   });
   // tilt / touch / keyboard, the turbo gears and the HUD (src/game/Controls.ts)
   const controls = new Controls({ input, flight, rig, audio, particles, pipeline, camera, scene, bus, bounds: manifest.bounds, params });
+  controls.hud.setCredits(dataCredits);
   input.onTripleFinger = () => tuner.toggle();
   input.onFirstGesture = () => {
     audio.unlock();
@@ -848,6 +913,13 @@ async function boot() {
   let wasFull = true;
   // QA: ?fixeddt=<s> steps the game by exactly that much per rendered frame (deterministic captures)
   const fixedDt = params.has('fixeddt') ? Math.max(0.001, Number(params.get('fixeddt')) || 1 / 60) : 0;
+  // the data credit (ODbL), small, on every load however the game starts (the opening played, a repeat visit's
+  // tap past it, ?skipintro): it has its own clock, not the opening's. From the frame the first region is in
+  // (something is on screen), not from boot (a slow phone may show fog for seconds), on the game clock (the first
+  // frames after the city lands can each take a second), and at most 6.4 s of the wall clock once it is up (a slow
+  // device's game clock runs behind the wall; a ?fixeddt capture's game clock has nothing to do with it, so there
+  // only the game clock counts). Settings' MAP DATA keeps it one tap away afterwards. (?nohud: a capture.)
+  const credit = manifest.attribution && !params.has('nohud') ? new Credit(manifest.attribution, 0.3, 5.8, fixedDt ? 0 : 6.4) : null;
   let lodTimer = 0;
   let puffTimer = 0;
   const puffPos = new THREE.Vector3();
@@ -925,6 +997,8 @@ async function boot() {
       globals.uFogBank.value = 1;
       rig.openingPull = 0;
     }
+    if (city.loadedRegionCount() > 0) credit?.start(simTime);
+    credit?.update(simTime, now);
 
     // input -> flight (substeps keep springs stable on slow frames)
     input.update(dt);
@@ -1110,7 +1184,7 @@ async function boot() {
     for (let i = pendingSigns.length - 1; i >= 0; i--) {
       const ps = pendingSigns[i];
       if (simTime < ps.at) continue;
-      if (!showSign(ps.ref, ps.hue, ps.cx, ps.cz, ps.r, ps.tries)) {
+      if (!showSign(ps.ref, ps.text, ps.from, ps.hue, ps.cx, ps.cz, ps.r, ps.tries)) {
         ps.tries++;
         ps.at = simTime + 0.8;
         continue;
@@ -1245,6 +1319,8 @@ async function boot() {
         pipeline.render(scene);
       },
       lastShot: () => lastShot,
+      /** QA: the last street sign raised: { text, x, z, from: 'street' | 'hoodAt' | 'building hood' | 'nearest label' | 'landmark', t } */
+      lastSign: () => lastSign,
       /** QA: how much of the marine layer's seen-from-above fog is on (0 = the street-level fog exactly) */
       fogLayerMix: () => globals.uFogLayer2.value.w,
       tapSplat: () => input.onTap?.(),

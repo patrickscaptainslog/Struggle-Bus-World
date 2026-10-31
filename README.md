@@ -120,17 +120,55 @@ cooldown jet first audio base] [--base=<url>]` (frames, counts, perf, the gear
 through a firehose, the first charge's frames, the sounds offline),
 `python3 -I tools/supersplat-strip.py <dir> <out.png> a.png=label ...` (strips).
 
-## City data (city-agnostic pipeline)
-`tools/bake/` turns a city config (`tools/bake/cities/sf.json`) into compact
-gzip'd binary region bundles in `public/city/<slug>/`:
+OpenStreetMap QA (`docs/ARCHITECTURE.md` has what each one checks):
 ```
-python3 -m pip install geopandas pyogrio pyarrow rasterio pyproj scipy shapely
-python3 -I tools/bake/bake.py sf       # footprints + 1 m DEM -> tiles
+node tools/osm-shots.mjs <url> <out> crissy,presidio,ggp,twinpeaks,piers,baybridge,ggbridge,fortpoint
+node tools/osm-paint.mjs <url> <out>     # old saves, reloads, landmarks, the credit, other cities
+node tools/osm-play.mjs <url> <out>      # taps, mega blast, firehose, hover over mapped roofs, reload
+node tools/sweep.mjs <url> <out.json> --alts=250,500   # the budget's worst view
+```
+
+## City data (city-agnostic pipeline)
+`tools/bake/` turns a city config (`tools/bake/cities/<slug>.json`) into compact
+gzip'd binary region bundles in `public/city/<slug>/`, from **OpenStreetMap**
+(read through Overture Maps' GeoParquet release on S3):
+```
+python3 -m pip install geopandas pyogrio pyarrow rasterio pyproj scipy shapely laspy matplotlib
+python3 -I tools/bake/overture.py sf   # OSM via Overture: buildings, parts, streets, land, water, trees, names
+                                       # (+ the city's ESA WorldCover 10 m crop: tools/bake/worldcover.py)
+python3 -I tools/bake/bake.py sf       # footprints + heights + roofs + ground + trees + names -> tiles,
+                                       # then the plausibility QA (tools/bake/qa.py; see below)
 python3 -I tools/bake/pack.py sf       # tiles -> 1 km gzip regions
 python3 -I tools/bake/horizon.py sf    # hills around the city
+python3 -I tools/bake/plot.py out.png --at=37.7763,-122.4328 old=public/city/sf  # top-down QA plot
 ```
-Sources: USGS 3DEP 1 m and 1/3 arc-second DEMs; FEMA/ORNL USA Structures
-footprints (public domain). See `DECISIONS.md` for every call we made.
+The bake ends with a **plausibility QA** against ESA WorldCover (park and woods
+trees where it sees no tree cover, wooded parks left bare, water and sand that
+disagree, per 128 m cell; street trees are reported, not checked): it prints
+PASS or a loud `!!! QA FAIL` block and exits 3 on a FAIL (the tiles are
+complete: read the report, then pack). A check fails only past both its share
+and a minimum count (5 cells, 50 trees), so a small test bake's few cells don't
+fail on one lagoon. `bake.py` checks the city's WorldCover crop first and fails
+at once when it can't be read (`overture.py` exits 2 then too). The report and
+top-down crops of the largest parks land in `tools/bake/.cache/qa/<out>/report.md`, the
+summary in `city.json` `stats.qa`; `--qa=warn` reports without failing,
+`--qa=0` skips it, `python3 -I tools/bake/qa.py sf --dir=public/city/<out>`
+re-runs it. Test bakes: `--bbox=lon0,lat0,lon1,lat1 --out=<name> --lidar=0`.
+Any city Overture covers bakes the same way: `tools/bake/cities/amsterdam.json`
+(the Jordaan, no LiDAR, no DEM) is played with `?city=amsterdam`,
+`tools/bake/cities/london.json` (Hyde Park + Kensington Gardens) with
+`?city=london`.
+Sources: OpenStreetMap via Overture Maps (ODbL 1.0); USGS 3DEP 1 m and 1/3
+arc-second DEMs and the 3DEP lidar point cloud; FEMA/ORNL USA Structures where
+OSM has no footprint (public domain); ESA WorldCover 10 m 2021 for where trees
+stand (CC BY 4.0: © ESA WorldCover project 2021 / Contains modified Copernicus
+Sentinel data (2021) processed by ESA WorldCover consortium). The baked tiles
+are a derivative database under the ODbL: see `public/city/DATA_LICENSE.md`;
+the game credits
+"© OpenStreetMap contributors, Overture Maps Foundation" for ~6 s on every load
+however the game starts, and settings' MAP DATA and the tuner list it with the
+city's other credits (`city.json` `credits`: ESA WorldCover's) at any time. See
+`DECISIONS.md` for every call we made.
 
 Paint state is a separate per-building array (faction, color, level, bloom
 time) keyed by a stable building id, so a server can own it in Phase 2.
@@ -138,3 +176,5 @@ time) keyed by a stable building id, so a server can own it in Phase 2.
 ## Deploy
 Vercel: import the repo; `vercel.json` is set up (build `npm run build`,
 output `dist`). Add to Home Screen on iPhone for full-screen play.
+A re-baked city needs `window.__sbDataV` bumped in `index.html` (ARCHITECTURE,
+"Re-baking a city"): phones hold `/city/` files by URL.
