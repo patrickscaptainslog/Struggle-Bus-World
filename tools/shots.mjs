@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Scripted beauty shots from the real game (index.html), iPhone 15 viewport.
-//   node tools/shots.mjs [baseUrl] [outDir] [--det] [--views=grey,painted,...]
+//   node tools/shots.mjs [baseUrl] [outDir] [--det] [--views=grey,painted,...] [--q=farmap&farfade]
 // Produces: grey.png (grey city from the gameplay camera), painted.png (a
 // painted block after a few splats), opening.png (the Golden Gate opening),
 // and stats.json (renderer stats; SwiftShader fps is NOT representative).
@@ -8,7 +8,9 @@
 // tools/shotdiff.py <dirA> <dirB>): ?fixeddt, a seeded Math.random, the game
 // clock held while streaming and paint settle, the same frames from any build
 // (also fidi, soma, high: a climb to ~250 m, ceiling: ~500 m, swap: painted towers
-// through a climb to coarse and a dive back to detail).
+// through a climb to coarse and a dive back to detail; asked for by name, the far-field poses at the ceiling:
+// sunset, presidio, marin, sunward, into the sun).
+// --q: appended to every view's query (the flags under test).
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
@@ -30,6 +32,7 @@ const stats = {};
 const STEP = 1 / 30;
 
 async function open(query) {
+  if (opt.q) query += `&${opt.q}`;
   const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
   page.on('pageerror', (e) => console.log('[pageerror]', e.message));
   page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.log('[console]', m.text()));
@@ -199,6 +202,17 @@ if (det) {
     await p.evaluate(() => (delete window.__qa.sx, delete window.__qa.sy));
     await runDet(p, 1);
   });
+  const ceilingAt = async (p) => {
+    await runDet(p, 1);
+    await stick(p, -1);
+    await runDet(p, 16);
+    await p.evaluate(() => (delete window.__qa.sx, delete window.__qa.sy));
+    await runDet(p, 1);
+  };
+  await detShot('sunset', '?lat=37.7530&lon=-122.4950&heading=90&skipintro&nohud', ceilingAt);
+  await detShot('presidio', '?lat=37.7990&lon=-122.4660&heading=180&skipintro&nohud', ceilingAt);
+  await detShot('marin', '?lat=37.8020&lon=-122.4650&heading=330&skipintro&nohud', ceilingAt);
+  await detShot('sunward', '?lat=37.7600&lon=-122.5000&heading=292&skipintro&nohud', ceilingAt);
   await detShot('swap', '?lat=37.7820&lon=-122.4010&heading=0&skipintro&nohud', async (p) => {
     await glide(p, 6);
     await runDet(p, 1);
