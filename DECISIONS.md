@@ -1281,7 +1281,12 @@ facade shader, no 30 fps lock, no fewer detail regions, no coarser pixels, nothi
   What is left: single game pixels on sun-shadow edges. The caster's flat walls cross a shadow texel's center on the
   other side of 1/256 of a texel from main's subdivided ones (rasterization snaps every vertex; fewer vertices, other
   rounding). Keeping main's columns fixed fidi and not high; keeping its rows too would keep its triangles. Raw G-buffers,
-  grey frame: 0 bytes differ in 8 channels x 339,832 pixels.
+  grey frame: 0 bytes differ in 8 channels x 339,832 pixels. `tools/facade-shots.mjs` agrees: of the 12 pinned hero views 11
+  are identical, salesforce 1 game pixel; 250 m shimmer 5.8 -> 5.6% (main's 5.1-7.1 per frame, this 5.0-7.0: noise). Its chase
+  and ladies frames can't be compared across this merge. They don't repeat on either build, and they part from main's for a
+  reason of their own: its fake rAF clock stands behind `performance.now()`, main's `dt` has no lower clamp, so on main the
+  frozen wait runs the game backwards (at "ready" the clock reads -1.5 s, the bus 578 m back at 387 m/s, and the 4 s flight
+  starts from there). The `dt` here doesn't go below 0: the bus waits at the spawn at 30 m/s.
 - **One G-buffer target** (rank 2). ANGLE on D3D11 compiled every G-buffer program's pixel shader twice, at link for target
   0 and at the first draw with SV_TARGET1. RGBA16UI holds the same eight bytes; `sbWrite` packs, `GLSL_G_READ` unpacks,
   texelFetch instead of nearest sampling. Plain rounding wasn't exact: 0.3% of bytes off by one, 34-68 pixels a frame (a
@@ -1365,7 +1370,8 @@ facade shader, no 30 fps lock, no fewer detail regions, no coarser pixels, nothi
   | NEXT (2 runs) | 0, 0 | 0, 0 | 18.9, 17.7 ms | 4.6, 3.9 MB | 0 |
 
   The worst on main is a program's first draw in the turn (GetProgramiv 393 ms: the landmark's program, a turn from
-  surging across tiles). `tools/fps.mjs` (headless, 8 s a phase):
+  surging across tiles). `--route=fidi` (towers, 36 s, ~2,100 frames, 1 run each): worst 383 -> 17.3 ms, frames > 25 ms 4 -> 0,
+  largest upload 8.2 -> 3.4 MB, 0 long tasks. `tools/fps.mjs` (headless, 8 s a phase):
 
   | | fps | 1% low | worst frame | CPU work | draws | triangles |
   |---|---|---|---|---|---|---|
@@ -1376,8 +1382,13 @@ facade shader, no 30 fps lock, no fewer detail regions, no coarser pixels, nothi
   | FiDi 250 m | 60 / 60 | 55.2 / 55.6 | 21 / 20 ms | 2.1 / 1.9 ms | 134 / 117 | 815k / 631k |
   | FiDi ceiling | 60 / 60 | 55.2 / 54.3 | 19 / 20 ms | 2.0 / 1.9 ms | 64 / 66 | 432k / 410k |
 
+  Headed, and `west` too: 60 fps on both, at all nine phases; work 4.8 / 5.3 / 4.4 -> 3.3 / 3.1 / 4.0 ms at Alamo, 5.2 / 4.4 / 5.5 ->
+  3.7 / 2.4 / 4.6 ms in the west, worst frame over all phases 44.7 -> 28.6 ms. Headed 1% lows are vsync noise (47-56 on both).
+
   `tools/jet.mjs` G1 on four routes: p99 17 ms, max 17.8 ms, 0 long tasks. First touch (`tools/firsttouch.mjs`, 3 fresh pages):
-  unlock 307, 107, 105 ms -> 17, 26, 17 ms in the gesture, 0 long tasks; sound up ~85 ms after the touch.
+  unlock 307, 107, 105 ms -> 17, 26, 17 ms in the gesture, 0 long tasks; sound up ~85 ms after the touch. Sound itself: the super
+  splat's offline render is the same to the digit (`supersplat.mjs cooldown audio`: peak 0.807, 0 over 0.99, 0 NaN),
+  `tools/audio-check.mjs` passes offline and `--live`.
 - **Cost by pass** (`perf-pass views --by`, the same pinned spots, draws / triangles):
 
   | view | sun pass | main pass | CPU work |
