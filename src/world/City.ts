@@ -593,7 +593,9 @@ export class City {
         nrm[k * 3] = -dx / l;
         nrm[k * 3 + 1] = 1 / l;
         nrm[k * 3 + 2] = -dz / l;
-        ramp[k] = water ? Ramp.WATER : Ramp.GREY_LIGHT;
+        // (no water ramp: water vertices stand under the plane, so whatever of a triangle shows is land, and the plane cuts the
+        // shore. The ramp is flat: a shore triangle taking a water vertex's would climb the hillside as a blue tooth)
+        ramp[k] = Ramp.GREY_LIGHT;
         lo[k] = water ? -0.1 : -0.06;
       }
     }
