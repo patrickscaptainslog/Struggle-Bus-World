@@ -234,6 +234,12 @@ function farGridMesh(pos: Float32Array, nrm: Float32Array, ramp: Float32Array, l
   return mesh;
 }
 
+/**
+ * The horizon hills' material: green over the 40 m contour, pale under it, chosen per pixel. A 256 m cell is far too big for a vertex to choose: flat, the
+ * contour saws into teeth a cell wide; interpolated, it passes through ramps nobody chose. 37: buildHorizon's mesh stands 3 m under the DEM.
+ */
+const makeHorizonMaterial = () => makeRampMaterial({ vertexRamp: true, shadowMul: 0, rampAbove: { y: 37, below: Ramp.GREY_LIGHT, above: Ramp.GREEN_GREY } });
+
 // Shader warm-up (render/warmup.ts): one of every mesh streaming makes later, made by the same
 // functions: a building tile (its vertex layout from the worker's mesher), a tile's own ground (and
 // a coarse region's: same program), the far terrain, the horizon and the far skyline.
@@ -258,7 +264,7 @@ registerWarm('city', () => {
     casterMesh({ position: f(v * 3), index: new Uint16Array([0, 1, 2]), vertexCount: v }),
     groundMesh(makeHeightGrid(f(4), 2, 1, 0, 0, 1), makeTerrainMaterial(tex, 0, 0, 1, 2), true),
     farGridMesh(f(9), f(9), f(3), f(3), f(3), [0, 1, 2], 1),
-    farGridMesh(f(9), f(9), f(3), f(3), f(3), [0, 1, 2], 0),
+    farGridMesh(f(9), f(9), f(3), f(3), f(3), [0, 1, 2], 0, makeHorizonMaterial()),
     new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), makeSkylineMaterial(tex, new THREE.Vector4(), new THREE.Vector2(1, 1)), 1),
     ...(farFlags.blocks ? [farBlockMesh({ count: 1, cell: new Uint16Array(4), y: new Int16Array(2), tone: new Uint8Array(4), sphere: new Float32Array(4) }, makeFarBlockMaterial([1, 0, 0, 0, 1, 0], tex, new THREE.Vector4(), new THREE.Vector2(1, 1))), farTowerMesh(new Float32Array(3), 1, makeFarTowerMaterial(tex, new THREE.Vector4(), new THREE.Vector2(1, 1)))] : []),
   ];
@@ -647,6 +653,7 @@ export class City {
     const hAt = (i: number, j: number) => hq[Math.min(H - 1, Math.max(0, j)) * W + Math.min(W - 1, Math.max(0, i))] / 10;
     const pos = new Float32Array(w * h * 3);
     const nrm = new Float32Array(w * h * 3);
+    // (the layout's: the material takes the ramp from height)
     const ramp = new Float32Array(w * h);
     const lo = new Float32Array(w * h);
     const gl = new Float32Array(w * h);
@@ -661,7 +668,6 @@ export class City {
         const dx = (hAt(gi + 2, gj) - hAt(gi - 2, gj)) / (4 * cell), dz = (hAt(gi, gj + 2) - hAt(gi, gj - 2)) / (4 * cell);
         const l = Math.hypot(dx, 1, dz);
         nrm[k * 3] = -dx / l; nrm[k * 3 + 1] = 1 / l; nrm[k * 3 + 2] = -dz / l;
-        ramp[k] = y > 40 ? Ramp.GREEN_GREY : Ramp.GREY_LIGHT;
         lo[k] = 0.02;
         land[k] = y > 0.5 ? 1 : 0;
       }
@@ -676,7 +682,7 @@ export class City {
         if (x >= bx0 && x + step * cell <= bx1 && z >= bz0 && z + step * cell <= bz1) continue;
         idx.push(a, c, b, b, c, d);
       }
-    this.farGroup.add(farGridMesh(pos, nrm, ramp, lo, gl, idx, 0));
+    this.farGroup.add(farGridMesh(pos, nrm, ramp, lo, gl, idx, 0, makeHorizonMaterial()));
   }
 
   private buildFar(raster: FarRaster | null, tex: FarTextures | null, towers: FarTowers | null) {
