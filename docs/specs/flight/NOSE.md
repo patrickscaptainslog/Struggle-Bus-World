@@ -13,6 +13,7 @@ Now there is a path. On any dive, and on a pull with a gear or the boost, `speed
 - **The stick sets the angle.** `noseUp * pull^noseCurve` up, `noseDown * push^noseCurve` down.
 - **Getting on and off moves nothing.** On: `speed` becomes the length of the velocity the bus really has, `nose` its angle. Off: `speed` is what is going over the ground. Letting go arcs the bus level with its speed kept, and past 2 degrees the classic hold takes over.
 - **A limit turns the nose.** The flare and the ceiling cap `vy`, and the rest of the speed goes forward, so the bottom of a dive is a swoop and the top of a climb a level-off. The capped `vy` writes the nose back, so the nose is always the way the bus is really going, and when the limit lifts it comes back at its own pace.
+- **A floor can arrive all at once.** A carve toward a tower, or a gear's floor on a shift up low, lands a floor on a steep dive. The cap turns the speed forward on that step, and only then does the path hand over, so none of the speed goes with it.
 - **The flare** is `max(diveFlare, speed / diveFlareT)`: 16 m/s² at 48 m/s as ever, and a pull-out takes about 3 s at any speed. It starts about 1.5 x the speed above the floor: 148 m at 98 m/s, 672 m at 450.
 - **The ceiling's** soft band is `max(ceilingSoft, speed * ceilingSoftT)`. It reads the speed, not `vy`: a band that shrank with the capped `vy` would let go of it. A deck overhead lowers the ceiling the same way, and that limit wins over the flare.
 - **The plain pull doesn't change.** No gear and no boost, it runs the old climb branch: 40 m/s up, 13 forward, at any height. Skimming, the hold, the surge at the floor and the bob are the old code too. Only the dive changes.
@@ -21,7 +22,7 @@ Now there is a path. On any dive, and on a pull with a gear or the boost, `speed
 
 ## What the bus and the view do
 
-`Flight.pitch` shows the real path up to `pitchMax`, 80 degrees: all of it on the path, and on the plain pull as hard as the stick is held, so a light pull looks as it always did. Skimming roofs and hills keeps the old gentle pitch. The breath's rear-up keeps its envelope.
+`Flight.pitch` shows the real path up to `pitchMax`, 80 degrees: all of it on the path, and on the plain pull as hard as the stick is held, so a light pull looks as it always did. Skimming roofs and hills keeps the old gentle pitch. The breath's rear-up keeps its envelope and starts from where the bus is, up to `pitchMax`: a breath on a plain full pull moves the bus about 8 degrees, and doesn't flop it level.
 
 A dive tips the view over the bus: from `diveFrom` degrees of nose down, up to a camera `diveElevation` above the bus and a view pitched `divePitch` down, easing at `diveRate`. It is yoke-driven, and it arrives at exactly 0: released and settled, the rig is what it was. The place the bus is heading for stands about 62 to 65 % down the frame, under the bus at about 57 %, above the thumb. The climb keeps the old camera: the ground falling away is the picture.
 
@@ -58,4 +59,6 @@ All on the tuner (`?tune`), under flight and camera, read live:
 - **Going straight up or down the bus is end-on.** At full dive the lens looks down the bus's length and the hero shows its tail, about 12 px of a 240 px frame, against 33 in a hold at height. It reads, and a bigger hero would be a new rule too.
 - **A gear holds the city's level of detail.** Dive in G1 and the blocks at the bottom stay coarse until the gear comes out, as they do on any low run in a gear.
 - **Under a deck** the chase camera still stands over it and hides the bus (BRIDGES, step 5).
+- **A floor landing on a dive turns the velocity in one frame.** The fall stops at once and the speed goes forward. The position doesn't jump and the bus's pitch eases, as it always did at a floor step. If it reads badly on the phone, the fix is a limit on how fast a cap may turn the nose.
+- **Tilt and the boost.** A TURBO press clutches the tilt until the lift, so with tilt on, holding TURBO fades a tilted pull to nothing and the bus boosts flat; a tilted climb needs a gear, or a thumb on the stick. Tilt is off by default, and this waits on whether the producer flies with it.
 - **The phone's questions.** Whether 2.6 per s feels right on a thumb, whether 85 degrees comes on too soon, and how far the view may tip are for the tuner on the phone.
