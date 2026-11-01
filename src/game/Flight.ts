@@ -306,12 +306,6 @@ export class Flight {
       this.speed = Math.hypot(this.speed, this.vy);
       this.pathVy = this.vy;
       this.onPath = true;
-    } else if (this.onPath && !wantPath && (Math.abs(this.nose) < NOSE_LEVEL || (this.nose < 0 && this.y <= floor + 0.5))) {
-      // level again, or down at the floor: the classic branches take over with the motion it has
-      this.speed = this.ground;
-      this.vyYoke = this.vy;
-      this.holdY = this.y - belly;
-      this.onPath = false;
     }
     if (this.onPath) {
       // ---- the path: the speed goes where the nose points. The nose is the only lag, so nothing lurches forward on the way
@@ -332,6 +326,12 @@ export class Flight {
       this.holdY = this.y - belly;
       this.mode = this.nose >= 0 ? Yoke.Climb : Yoke.Dive;
       this.targetY = this.nose >= 0 ? Math.max(floor, ceil) : floor;
+      // level again, or down at the floor: the classic branches take over with the motion it has. (After the cap, never before it:
+      // a floor that arrives all at once under a steep dive has just turned the speed forward, and the nose it found would keep a sliver.)
+      if (!wantPath && (Math.abs(this.nose) < NOSE_LEVEL || (this.nose < 0 && this.y <= floor + 0.5))) {
+        this.speed = this.ground;
+        this.onPath = false;
+      }
     } else if (climbing) {
       // ---- climb: harder pull = faster climb, fading into a struggle near the ceiling
       this.mode = Yoke.Climb;
