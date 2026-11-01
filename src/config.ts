@@ -160,6 +160,8 @@ export const config = {
     glow: true,
     /** The far field's own numbers for this hour: off, the day's. */
     far: true,
+    /** Lit windows: off, the day's dark glass. */
+    windows: true,
     /** config.far.fit under this hour: the far band's fit to the near tiles was made with a sun's shadows in them. */
     farFit: 0.25,
     /** The far ground where there is no raster (?nofar, a raster still on its way) is one tone: this much under the day's, or it is a sheet of light beside the city. */
@@ -186,6 +188,10 @@ export const config = {
     glassGlow: 0.3,
     glassGlow3: 0.5,
     crownGlow: 0.75,
+    /** The share of windows lit: one held value, there is no clock yet (S2 makes it two, homes and offices, from local time). */
+    litShare: 0.3,
+    /** A near pane's glow; 0 past the panes, so share x glow on far surfaces is 0 (SKY.md 4.4 allows 0.06). */
+    litGlow: 0.25,
   },
 
   city: {

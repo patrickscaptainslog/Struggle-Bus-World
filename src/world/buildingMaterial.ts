@@ -182,7 +182,9 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       uniform float uGlassGlow3;
       uniform float uGlassBands;
       uniform float uHigh;
-      uniform float uCalmF;
+      uniform float uCalmF;${held(`
+      uniform float uLit;
+      uniform float uLitGlow;`)}
       ${GLSL_BLAST_RING}
       in vec2 vFacade;
       flat in vec4 vMeta;
@@ -198,7 +200,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
 
       const float HUES[6] = float[6](${HUES});
       float hueRamp(float h) { return HUES[int(mod(h + 60.0, 6.0))]; }
-      float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }${held(`
+      bool faceLit(float bIdx, vec3 n, float chance) { return h21(vec2(bIdx * 0.37, floor(n.x * 2.99) + 7.0 * floor(n.z * 2.99))) < chance; }`)}
 
       // window mask for a facade: returns 1 inside glass, 0 wall; cell id out
       // fh = floor height, sp = column spacing, ww/wh = window size, sill = height of sill in floor,
@@ -363,7 +366,14 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           return;
         }
 
-        // ---- the shaft
+        // ---- the shaft${held(`
+        // (held, past the pane gate: a tower's lit floors are lines at least 4 px apart, runs of a floor, never single pixels; further out cell says it is shaft: one tone per face)
+        cell = vec2(-2.0);
+        if (!nearV && mpp <= uHouseFlat && uLit > 0.0 && rhythm(vb - 0.5 * fh, fh, fvE / mpp, dF.y, 4.0) > 0.5
+            && h21(vec2(floor(u / 9.0), floor((vb - 0.5 * fh) / fh + 0.5)) + vec2(bIdx * 0.37, 3.3)) < uLit) {
+          ramp = ${R(Ramp.LIT)}; b = 2.0; d = 5.0;
+          return;
+        }`)}
         if (fam == ${R(Fam.GLASS)}) {
           ramp = ${R(Ramp.GLASS)}; b = 1.0;
           if (variant == ${Variant.SILVER}) {
@@ -708,7 +718,13 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           float dTop = frontW - vYRest; // (families: aBld2.y is this part's top)
           float fr, fd, fbase, fglow;
           vec2 fcell;
-          towerFacade(fam, variant, crownT, crownP, pent, f, dTop, bH, fu, fv, mppB, dF, bIdx, fr, fd, fbase, fglow, fcell);
+          towerFacade(fam, variant, crownT, crownP, pent, f, dTop, bH, fu, fv, mppB, dF, bIdx, fr, fd, fbase, fglow, fcell);${held(`
+          if (!painted) {
+            // a pane, or an office of three (one by one a glass wall is static); a face, past the lines
+            float wake = h21(vec2(floor(fcell.x / 3.0), fcell.y) + vec2(bIdx * 0.13, 5.0));
+            if (fcell.x >= 0.0 && wake < uLit) { fr = ${R(Ramp.LIT)}; fbase = 2.0; fd = 5.0 + floor(2.0 * h21(fcell.yx + vec2(bIdx * 0.29, 11.0))); fglow = uLitGlow; }
+            else if (fcell.x < -1.5 && mppB > uHouseFlat && faceLit(bIdx, n, 0.5 * uLit)) { fr = ${R(Ramp.FARGLOW)}; fbase = 2.0; fd = 3.0; }
+          }`)}
           // the glass: mirrors the bright fog sky at grazing angles and higher up (calm bands as the
           // light crosses the ramp's steps), the low sun where it reflects toward us
           float sh = sbShadow(vWorldPos, n);
@@ -829,12 +845,20 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
             glow = level > 2.5 ? uGlassGlow3 : uGlassGlow;
           } else {
             ramp = ${R(Ramp.WINDOW)};
-            light = 0.22 + 0.2 * sky + 0.55 * glint * sbShadow(vWorldPos, n);
+            light = 0.22 + 0.2 * sky + 0.55 * glint * sbShadow(vWorldPos, n);${held(`
+            // one stable threshold per window, a hash and never a timer. cell.x is 0 on a ribbon: a whole floor wakes
+            if (h21(cell + vec2(bIdx * 0.13, 5.0)) < uLit) {
+              ramp = ${R(Ramp.LIT)};
+              light = (ribbon ? 5.0 : 5.0 + floor(2.0 * h21(cell + vec2(bIdx * 0.29, 11.0)))) / 7.0;
+              glow = ribbon ? 0.0 : uLitGlow;
+            }`)}
           }
         } else {
           light = sbLight(vWorldPos, n, lo, 1.0);
           // paint lives in the saturated middle of each ramp: explosive, not pastel
-          if (painted || (grown && part < ${R(Part.DOME - 0.5)})) light = 0.2 + light * 0.52;
+          if (painted || (grown && part < ${R(Part.DOME - 0.5)})) light = 0.2 + light * 0.52;${held(`
+          // past the ribbons there is no window to see, so no dots: a face is lit or not, one tone, by a hash of the building and the way it looks
+          else if (flatW && isWall && faceLit(bIdx, n, cover * uLit)) { ramp = ${R(Ramp.FARGLOW)}; light = 3.0 / 7.0; }`)}
         }
         if (tgt && !famWall) light += uGlint.x + uGlint.y * sweep;
         if (!gl_FrontFacing) n = -n;

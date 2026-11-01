@@ -24,6 +24,8 @@ import { held, heldHour } from '../sky/flag';
 /** What the held hour adds to the globals (materials only ask for it with the flag: GLSL_SKY_LIGHT). */
 export const heldGlobals = {
   uSkyHaze: { value: 0 }, // the light the haze ends on, in place of the day's sky function (0: that function)
+  uLit: { value: 0 }, // the share of windows lit, one held value: there is no clock
+  uLitGlow: { value: 0 }, // a near pane's glow
 };
 
 /** Uniforms shared by every scene material. Update in place; never replace. */
