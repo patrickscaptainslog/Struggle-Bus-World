@@ -11,7 +11,8 @@
 // through a climb to coarse and a dive back to detail; asked for by name, the far-field poses at the ceiling:
 // sunset, presidio, downtown, marin, sunward, into the sun, westward, into it over the city; headn, southn, north, the horizon's shores past the frame; corner, corner2, the sea's
 // horizon at the frame's west edge; london, amsterdam).
-// --q: appended to every view's query (the flags under test).
+// --q: appended to every view's query (the flags under test: ?nofar, or the far flags spelled out).
+// --drop=far16.bin: that file answers 404, a city that doesn't have it.
 // --seq (with --det): five more frames after each view's shot, one fixed step apart (<name>-seq-0.png is the shot itself, then 1..5): a
 // burst from the same camera on any build, so tools/far/bandflip.py's crawl can be compared between two builds.
 // --pan (with --det): and a turn, 0.6 s into a held stick, six frames a fixed step apart (<name>-pan-0.png .. 5).
@@ -47,6 +48,7 @@ async function open(query) {
   const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
   page.on('pageerror', (e) => console.log('[pageerror]', e.message));
   page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.log('[console]', m.text()));
+  if (opt.drop) await page.route(`**/${opt.drop}*`, (r) => r.fulfill({ status: 404, body: '' }));
   if (det) {
     await page.addInitScript(() => {
       // Math.random reseeded from the game clock on every frame, and again after the streaming step: a

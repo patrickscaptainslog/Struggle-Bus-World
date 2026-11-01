@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Cold-load profile of the real game: what happens between navigation and the first
 // playable frame, so load time can be measured and compared across builds.
-//   node tools/loadprofile.mjs <url> <out.json> [--throttle=<cpuRate>] [--net=<kbps>] [--query=...]
+//   node tools/loadprofile.mjs <url> <out.json> [--throttle=<cpuRate>] [--net=<kbps>] [--latency=<ms>] [--query=...]
 // Records (all ms from navigation start): DOMContentLoaded, first rendered frame, the
 // first region loaded, ready (window.__shotReady), every request (size, duration), main
 // thread long tasks (> 50 ms), WebGL shader compile / program link time (wrapped calls,
@@ -27,7 +27,7 @@ await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
 if (opt.throttle) await cdp.send('Emulation.setCPUThrottlingRate', { rate: Number(opt.throttle) });
 if (opt.net) {
   const kbps = Number(opt.net);
-  await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 40, downloadThroughput: (kbps * 1024) / 8, uploadThroughput: (kbps * 1024) / 8 });
+  await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: Number(opt.latency ?? 40), downloadThroughput: (kbps * 1024) / 8, uploadThroughput: (kbps * 1024) / 8 });
 }
 await page.addInitScript(() => {
   const W = (window.__lp = { compile: 0, link: 0, status: 0, programs: 0, shaders: 0, frames: [], gaps: [], longTasks: [], programAt: [], canvasDrawAt: null, readyAt: null });
@@ -118,7 +118,7 @@ const res = {
   longTasks: { n: lp.longTasks.length, totalMs: lp.longTasks.reduce((a, b) => a + b[1], 0), top: [...lp.longTasks].sort((a, b) => b[1] - a[1]).slice(0, 10) },
   requests: byType,
   slowest: [...list].sort((a, b) => b.ms - a.ms).slice(0, 10),
-  boot: list.filter((r) => /city\.json|far\.|horizon\./.test(r.url)).map((r) => [r.url, r.start, r.ms]),
+  boot: list.filter((r) => /city\.json|far\.|far16\.|horizon\./.test(r.url)).map((r) => [r.url, r.start, r.ms]),
   // [file, start, ms] from the start of navigation (Date.now based: comparable between runs, ~10 ms coarse)
   regions: [...regionReq.values()].map((q) => [q.name, q.start - t0, q.end ? q.end - q.start : null]).sort((a, b) => a[1] - b[1]),
 };
