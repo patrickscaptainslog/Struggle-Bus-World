@@ -974,10 +974,9 @@ void main() {
   // at 1.5 m, z >= 0.99999 is a distance, 25 km at a 30 km far plane, 29 km at 36 km. uSkyCut keeps that distance while the far
   // fade stands at 20 km, so frames don't change; setFar() takes it away.
   if (a.a == 0.0 || z >= uSkyCut) {${held(`
-    if (uSkyRows.x >= 0.0) {
-      outColor = skyHeld(dir, dsk, d2, flashK);
-      return;
-    }`)}
+    vec3 sc;
+    if (uSkyRows.x >= 0.0) sc = skyBands(dir, dsk);
+    else {`)}
     float skyL = skyLight(dir);
     // up high the sky above the horizon deepens a little faster and sits a touch darker than the
     // bright haze below it: a horizon line, and a sky gradient instead of one flat grey
@@ -993,7 +992,8 @@ void main() {
     }
     // narrow dithered band where the warm glow begins; the sky gets tighter dither bands (tighter
     // still up high, where its gradient spans more of the frame: calm bands, not dotted stripes)
-    vec3 sc = pal(warmS > dsk ? RAMP_SKY_WARM : RAMP_FOG, rampStepW(skyL, dsk, 0.09 - 0.04 * uCalm));
+    ${heldOr('sc', 'vec3 sc')} = pal(warmS > dsk ? RAMP_SKY_WARM : RAMP_FOG, rampStepW(skyL, dsk, 0.09 - 0.04 * uCalm));${held(`
+    }`)}
     vec3 halo = texture(tGlow, vUv).rgb;
     float hAmt = max(halo.r, max(halo.g, halo.b));
     // (alpha 0 marks plain sky: the upscale leaves it unshifted, it holds still on the screen)
