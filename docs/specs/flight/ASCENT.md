@@ -10,10 +10,11 @@ The ceiling is a number, `config.flight.ceiling`. Everything else height changes
 
 | Function | What it does | Why |
 |---|---|---|
-| `mapReach(h)`, `floorPastMap(d)` | The map's edge gives way 4 m per metre of height, up to 8 km past it | Out there nothing has collision, so the same slope is a floor, and the bus comes down over the map |
+| `mapReach(h)`, `floorPastMap(d)` | The map's edge gives way 4 m per metre of height, up to 8 km past it | Out there only the ground has collision, so the same slope is a floor, and the bus comes down over the map. That ground is `horizon.bin`'s mesh (`City.groundAt`), so a dive for home rides over the hills. A city with no `horizon.bin` keeps the slope alone |
 | `nearPlane(h, base)` | 1.5 m to 800 m, 60 m by about 10 km | Depth where the ground is. At 1.5 m a 24-bit depth gives 23 m at 24 km and the East Bay stripes against the water |
 | `fadeEnd(h, base, room)` | The far fade reaches as far along the ground at any height, and no further than the land does | "The far plane is one function of height" (SKY section 2) |
 | `pitchAdd(h, base)` | The view looks down as far as the fade's line has dropped, past 3 km | The ground keeps the frame. It stops 3 degrees short of losing the horizon, so something at the bus's height stays in frame |
+| `snapReach(h, base)` | The pixel grid's depth limit stands at 5 km to 800 m, then grows with the height | The grid snaps at the ground under the screen's center, 22 km away at 12 km up, and the upscale's sub-pixel shift is exact only at that depth. Short of it the land jumps back and forth |
 
 Below 800 m the lens functions are the old constants. `?ceiling=520` puts the old ceiling back, so `shots --det` compares frames with any older build.
 
@@ -23,7 +24,7 @@ The climb and dive rates are the old ones, at any height: 40 m/s at full pull, a
 
 ## What stands between this and the Moon
 
-1. **The ceiling.** A number, and G2 and G3 already lift `Flight.turbo.ceiling` past it.
+1. **The ceiling.** A number. G3 already lifts `Flight.turbo.ceiling` past it, to 16 km over the ground. G2's stays under it, at 3.2 km, so `Flight.step` ignores that one.
 2. **A round world.** Nothing in the game is round yet. Each city is its own flat map, projected around its own origin, and `src/game/geo.ts` uses the Earth's real shape only to put a latitude on that map. The round designs are all on paper: SKY's one Sun, Earth and Moon model, WORLD-TRAVEL section 1.4's camera-relative curvature, and VERDICT band 5's cube-sphere tile tree per body. `Flight.y` is metres in a double, good to micrometres at the Moon, but the render frame is flat and float32, so past about 50 km the bus needs SKY section 2's `Observer`, with bodies as ray-sphere tests in the resolve's sky branch.
 3. **The land.** Past `horizon.bin` there is only the water plane. Far-field day 3's surround raster lifts `reachMax` and the fade's cap for a city, and the planet tile tree ends them.
 4. **The sky.** It doesn't darken with height yet. SKY's `Body.air` and `uFog.w` are the place, and `fadeEnd` is already the function they should scale.
@@ -32,6 +33,6 @@ The climb and dive rates are the old ones, at any height: 40 m/s at full pull, a
 
 ## Left on purpose
 
-- **Paint from up high.** A breath from 6 km falls for a long time and paints nothing: no far surface takes paint yet. Planes will need their own aim.
-- **Near regions up high.** They still stream under the bus, out of frame above about 4 km. It costs no more than a ceiling flight does today, so it stays until a phone says otherwise.
+- **Paint from up high.** A breath falls for a long time, and above about 3.2 km it lands out of frame. It still paints the near regions ahead of the bus, and only those: no far surface takes paint yet. Planes will need their own aim.
+- **Near regions up high.** They still stream under the bus, and they leave the frame at about 12 km. It costs no more than a ceiling flight does today, so it stays until a phone says otherwise.
 - **The East Bay's pale flats.** `horizon.bin`'s low land is one pale ramp, and from 6 km it reads as a sheet of ice. Day 3 replaces it.
