@@ -58,6 +58,10 @@ export class CameraRig {
   turboHero = 1;
   readonly turboLead = new THREE.Vector3();
   readonly turboLookLead = new THREE.Vector3();
+  /** the look's stub (setLook) */
+  lookOn = false;
+  lookX = 0;
+  lookY = 0;
   /** 0..1 while barfing: tilt down and pull the look point in so the splat below the bus is visible */
   barfTilt = 0;
   shake = 0;
@@ -171,6 +175,16 @@ export class CameraRig {
     } else cam.lookAt(this.look);
     this.distance = this.pos.distanceTo(bus);
     focusOut.copy(bus);
+  }
+
+  /**
+   * The look, as Input reports it (state.look: the thumb's offset from where it landed, CSS px, +y up): main.ts hands
+   * it over every frame, before update(). A stub: it only keeps the offsets, and the camera doesn't move yet.
+   */
+  setLook(on: boolean, x: number, y: number) {
+    this.lookOn = on;
+    this.lookX = x;
+    this.lookY = y;
   }
 
   /** Blast kick: a jolt of `amount` m that rings down within config.splat.kickDecay. */

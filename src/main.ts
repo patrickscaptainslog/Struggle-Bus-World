@@ -1138,6 +1138,7 @@ async function boot() {
     paintUniforms.uTargetT.value = aimer.shownSince;
     paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);
     paintUniforms.uFloodHead.value = config.bloom.floodHead;
+    rig.setLook(st.look.on, st.look.x, st.look.y);
     rig.update(camera, focus, flight, dt);
     superSplat.camera(camera, focus, dt);
     rig.applyKick(camera, realDt);

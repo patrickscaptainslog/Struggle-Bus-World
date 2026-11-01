@@ -4,7 +4,7 @@
 // A control has a visual and a hit rect. The hit rect may be bigger, toward the
 // play field; it never reaches the 14 px band at the screen's left and right
 // edges, in any layout, swapped or not: that band belongs to the canvas, so a
-// gripping finger gets the edge-rest rule and cannot boost, shift or charge.
+// gripping finger cannot charge.
 
 export interface Rect {
   x: number;
@@ -33,8 +33,6 @@ export interface HudLayout {
   compact: boolean;
   swap: boolean;
   settings: Control;
-  turbo: Control;
-  down: Control;
   mega: Control;
   readout: Rect;
   /** the one slot for a toast and LOCKED: centered */
@@ -74,22 +72,9 @@ export function layoutHud(w: number, h: number, insets: Insets, swap: boolean, c
   const seam = settingsX - (land && insets.right > 0 ? 4 : 8);
   const settings = { v: { x: settingsX, y: T, w: 40, h: 40 }, hit: clip(seam, T - 4, settingsX + 50, T + 44) };
 
-  // the gear readout sits above TURBO (a right thumb reaching for TURBO covers what is right of and below it);
-  // on a small portrait phone it takes a row of its own under the top row
-  const readout = compact && !land ? { x: 52, y: T + 42, w: 200, h: 48 } : { x: L + 40, y: T + 2, w: 200, h: 48 };
-  const toast = { x: 0, y: compact && !land ? T + 94 : T + 54, w, h: 44 };
-
-  // TURBO, the down tab under it
-  const ts = compact ? 60 : 72;
-  const pad = compact ? 8 : 10;
-  const Yt = Math.round(Math.max(T + (land ? 42 : 76), 0.22 * h));
-  const turboV = { x: L, y: Yt, w: ts, h: ts };
-  const downY = Yt + ts + 4;
-  const downH = compact ? 28 : 32;
-  const seamY = compact ? downY : downY - 2;
-  const turboHit = clip(L - 12, Yt - pad, L + ts + 12, seamY);
-  const downV = { x: L, y: downY, w: ts, h: downH };
-  const downHit = clip(L - 12, seamY, L + ts + 12, seamY + (compact ? 44 : 46));
+  // the gear readout: the top left corner, across from settings
+  const readout = { x: L, y: T + 2, w: 200, h: 48 };
+  const toast = { x: 0, y: T + 54, w, h: 44 };
 
   // MEGA: the middle of the right side, the top of what a thumb can hold for 10 s
   const ms = compact ? 68 : 84;
@@ -104,13 +89,11 @@ export function layoutHud(w: number, h: number, insets: Insets, swap: boolean, c
   // the cue: low, centered, clear of the thumbs' rest
   const cue = { x: Math.floor((w - 96) / 2), y: Math.round(0.64 * h), w: 96, h: 64 };
 
-  const out: HudLayout = { w, h, compact, swap, settings, turbo: { v: turboV, hit: turboHit }, down: { v: downV, hit: downHit }, mega: { v: megaV, hit: megaHit }, readout, toast, meterCharge, meterCool, cue };
+  const out: HudLayout = { w, h, compact, swap, settings, mega: { v: megaV, hit: megaHit }, readout, toast, meterCharge, meterCool, cue };
   if (swap) {
     // left-handed: everything a thumb works mirrors; the top row stays
-    for (const c of [out.turbo, out.down, out.mega]) {
-      mirror(c.v, w);
-      mirror(c.hit, w);
-    }
+    mirror(out.mega.v, w);
+    mirror(out.mega.hit, w);
     mirror(out.meterCharge, w);
     mirror(out.meterCool, w);
   }

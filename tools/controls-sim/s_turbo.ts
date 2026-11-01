@@ -1,6 +1,7 @@
 // Turbo gears on the real baked city (offline): G0 -> G1 (the climb to the gear's height, engagement,
 // the sonic boom) -> steering authority -> boost -> LOCKED -> G0 (braking, the altitude held, the dive
-// home) -> the map edge; then G2 with config.turbo.worldTravel on. Logs speed, altitude, camera.
+// home) -> the map edge; the latched turbo's levels, up the nose, down the nose and at the map's edge;
+// then G2 with config.turbo.worldTravel on. Logs speed, altitude, camera.
 import { newCity, pump, ll } from '../feel-sim/lib';
 import { config } from '@src/config';
 import { Flight } from '@src/game/Flight';
@@ -117,7 +118,62 @@ const free = () => ({ sx: 0, sy: 0, dragging: false });
   const out = S.log.map((r: any) => r.outside);
   res.edge = { maxOutsideM: Math.max(...out), events: S.events, log: S.log.filter((_: unknown, i: number) => i % 5 === 0) };
 }
-// ---- 5. world travel on: G2 (climb to 2 km, ~4.5 km/s)
+// ---- 5. turbo, latched: the levels at G0 and G1, what it does at any height, and what ends it
+{
+  const pull = () => ({ sx: 0, sy: -1, dragging: true });
+  const push = () => ({ sx: 0, sy: 1, dragging: true });
+  const levels: unknown[] = [];
+  for (const gear of [0, 1]) {
+    const S = await session(37.7150, -122.4400, 340);
+    if (gear) {
+      S.drive.shift(1, S.f);
+      await S.run(8, free, 'g1');
+    }
+    const row: Record<string, unknown> = { gear, plain: r1(S.f.speed) };
+    for (let lv = 1; lv <= config.turbo.levels.length; lv++) {
+      S.drive.boostUp();
+      await S.run(4, free, `g${gear} turbo ${lv}`);
+      row[`level${lv}`] = r1(S.f.speed);
+    }
+    row.pastTheLast = S.drive.boostUp();
+    S.drive.boostOff();
+    await S.run(6, free, 'off');
+    row.off6s = { speed: r1(S.f.speed), gear: S.drive.gear, level: S.drive.level };
+    row.events = S.events.map((e: any) => e.ev);
+    levels.push(row);
+  }
+  res.levels = levels;
+  // pull with turbo on: up the nose, at the turbo's speed, from the street and with nothing held
+  const nose: unknown[] = [];
+  for (const lv of [1, 3]) {
+    const S = await session(37.7600, -122.4800, 0);
+    await S.run(1, free, 'cruise');
+    for (let i = 0; i < lv; i++) S.drive.boostUp();
+    await S.run(8, pull, `pull turbo ${lv}`);
+    const up = { vy: r1(S.f.vy), forward: r1(S.f.ground), path: r1((Math.atan2(S.f.vy, S.f.ground) * 180) / Math.PI), y: r1(S.f.y), gear: S.drive.gear };
+    await S.run(2, free, 'let go');
+    const level = { vy: r1(S.f.vy), speed: r1(S.f.speed) };
+    await S.run(6, push, `push turbo ${lv}`);
+    nose.push({ level: lv, up, letGo: level, down: { vy: r1(S.f.vy), forward: r1(S.f.ground) } });
+  }
+  res.nose = nose;
+}
+// ---- 6. the map's edge at every turbo speed: G1 east from the Embarcadero, as section 4, with each level on; and G0's
+{
+  const rows: unknown[] = [];
+  for (const [gear, lv] of [[1, 0], [1, 1], [1, 2], [1, 3], [0, 3]] as Array<[number, number]>) {
+    const S = await session(37.7950, -122.3950, 90);
+    S.f.y += 400;
+    S.f.holdY = S.f.y;
+    if (gear) S.drive.shift(1, S.f);
+    for (let i = 0; i < lv; i++) S.drive.boostUp();
+    await S.run(30, free, 'edge');
+    const log = S.log as any[];
+    rows.push({ gear, level: lv, maxOutsideM: Math.max(...log.map((r) => r.outside)), topSpeed: Math.max(...log.map((r) => r.speed)), speedAtEdge: log.find((r) => r.outside > 0)?.speed ?? null, endSpeed: log[log.length - 1].speed, endOutside: log[log.length - 1].outside });
+  }
+  res.edgeLevels = rows;
+}
+// ---- 7. world travel on: G2 (climb to 2 km, ~4.5 km/s)
 {
   config.turbo.worldTravel = true;
   const S = await session(37.7600, -122.4800, 270);
@@ -140,5 +196,8 @@ console.log('steering:', JSON.stringify(res.steering));
 console.log('g0 boost:', JSON.stringify(res.g0Boost));
 console.log('edge: max outside', (res.edge as any).maxOutsideM, JSON.stringify((res.edge as any).events));
 for (const r of (res.edge as any).log) console.log('  ', JSON.stringify(r));
+console.log('levels:', JSON.stringify(res.levels));
+console.log('nose:', JSON.stringify(res.nose));
+console.log('edge, by level:', JSON.stringify(res.edgeLevels));
 console.log('world travel G2:', JSON.stringify({ ...(res.worldTravelG2 as any), log: undefined }));
 for (const r of (res.worldTravelG2 as any).log) console.log('  ', JSON.stringify(r));

@@ -4,24 +4,20 @@
 // it on under skipintro, for QA).
 //
 //   0 to fog end         nothing on screen, the thumb is live
-//   fog end / first touch   TURBO and MEGA arrive
+//   fog end / first touch   MEGA arrives
 //   a glint, no splat yet   TAP: a fingertip ring at the cue slot
 //   first splat             DRAG: two chevrons sway, until a thumb commits or 8 s
-//   gate cleared            TURBO blinks three times (its label says what it is)
 //   third splat, or a still press of 0.6 s   MEGA's face says HOLD
 //
 // No DOM: it reads a frame's facts and leaves what is due in its fields.
 
-export const TAUGHT = { tap: 1, drag: 2, turbo: 4, mega: 8 } as const;
+export const TAUGHT = { tap: 1, drag: 2, mega: 8 } as const;
 
 export type Cue = 'none' | 'tap' | 'drag';
 
 export interface CoachFrame {
   glinting: boolean;
   openingOver: boolean;
-  gearsLocked: boolean;
-  /** a shift is waiting for the gate */
-  armed: boolean;
   splats: number;
   /** a thumb committed this session */
   thumb: boolean;
@@ -35,13 +31,11 @@ export class Coach {
   taught: number;
   /** the cue showing */
   cue: Cue = 'none';
-  /** true for the one frame something is due: Controls consumes them */
-  turboDue = false;
+  /** true for the one frame it is due: Controls consumes it */
   megaDue = false;
   /** a bit changed: Controls saves */
   dirty = false;
   private dragT = 0;
-  private gateSeen = false;
   private glintT = 0;
 
   constructor(taught: number) {
@@ -58,13 +52,13 @@ export class Coach {
     return (this.taught & bit) !== 0;
   }
 
-  /** The player tapped TURBO, MEGA...: a lesson they no longer need. */
+  /** The player used MEGA...: a lesson they no longer need. */
   done(bit: number) {
     this.learn(bit);
   }
 
   frame(dt: number, f: CoachFrame) {
-    this.turboDue = this.megaDue = false;
+    this.megaDue = false;
     if (f.thumb) this.learn(TAUGHT.drag);
     if (f.splats > 0) this.learn(TAUGHT.tap);
     if (f.charged) this.learn(TAUGHT.mega);
@@ -83,16 +77,6 @@ export class Coach {
       }
     }
     this.cue = cue;
-
-    // the gate (in a city with no bridge it clears when the fog ends)
-    const gate = f.openingOver && !f.gearsLocked;
-    if (gate && !this.gateSeen) {
-      this.gateSeen = true;
-      if (!this.has(TAUGHT.turbo)) {
-        if (!f.armed) this.turboDue = true;
-        this.learn(TAUGHT.turbo);
-      }
-    }
 
     if (!this.has(TAUGHT.mega) && (f.splats >= 3 || f.stillPress >= 0.6) && f.openingOver) {
       this.learn(TAUGHT.mega);

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { migratePrefs, type Prefs } from './controlPrefs';
 import type { Input, InputMode } from './Input';
+import { Shifter, type ShiftAnswer } from './Shifter';
 import { TurboDrive, type TurboEvent } from './Turbo';
 import type { Flight } from './Flight';
 import type { CameraRig } from './CameraRig';
@@ -51,11 +52,11 @@ export interface ControlsDeps {
 
 export class Controls {
   readonly turbo: TurboDrive;
+  /** what a flick means */
+  readonly shifter: Shifter;
   readonly fx: TurboFx;
   readonly hud: Hud;
   readonly voice = new TurboVoice();
-  /** the opening's gate (main.ts): a gear would lift the bus over the deck, so a shift waits until it clears */
-  gearsLocked = false;
   /** the fog is still lifting, and a building is glinting (main.ts, per frame) */
   opening = true;
   glinting = false;
@@ -63,18 +64,16 @@ export class Controls {
   frozen = false;
   private readonly d: ControlsDeps;
   private prefs: Prefs;
-  private readonly hf: HudFrame = { gear: 0, maxGear: 1, engaged: false, boosting: false, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity, gearDown: false };
+  private readonly hf: HudFrame = { gear: 0, maxGear: 1, engaged: false, level: 0, held: false, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity };
   private readonly flashTmp = new THREE.Vector3();
   /** seconds the turbo has been silent (the voice detaches), and until the keys' toast (<= 0: none due) */
   private voiceIdle = 0;
   private keysIn = 0;
-  /** a shift made while gearsLocked waits for the gate */
-  private queuedShift: 1 | -1 | 0 = 0;
   /** the pull-back answered once: the gate holds the yoke down for ~20 s and the first thing a player tries is climbing */
   private climbToldAt = -Infinity;
   /** the first run (null: off) */
   private readonly coach: Coach | null;
-  private readonly cf: CoachFrame = { glinting: false, openingOver: false, gearsLocked: false, armed: false, splats: 0, thumb: false, stillPress: 0, charged: false };
+  private readonly cf: CoachFrame = { glinting: false, openingOver: false, splats: 0, thumb: false, stillPress: 0, charged: false };
   private splats = 0;
   private chargedOnce = false;
   private thumbOnce = false;
@@ -88,6 +87,7 @@ export class Controls {
     this.d = d;
     this.prefs = loadPrefs();
     this.turbo = new TurboDrive(d.bounds);
+    this.shifter = new Shifter(this.turbo, d.flight, (by, now) => d.input.flickInFlight(by, now));
     this.fx = new TurboFx(d.particles, d.bus.length, d.bus.exhaustLocal);
     d.scene.add(this.fx.object);
     this.hud = new Hud(d.input, {
@@ -99,6 +99,7 @@ export class Controls {
       },
       onSwap: (v) => {
         this.prefs.swap = v;
+        d.input.swapped = v;
         savePrefs(this.prefs);
         this.hud.setSettings({ swap: v });
       },
@@ -107,7 +108,9 @@ export class Controls {
         this.firstGesture();
       },
     });
-    d.input.onTurbo = (dir) => this.pressTurbo(dir);
+    d.input.swapped = !!this.prefs.swap;
+    d.input.onTurbo = (dir, landed, lifted) => this.shifter.flick(dir, landed, lifted);
+    this.shifter.onAnswer = (a) => this.answer(a);
     this.turbo.onEvent = (ev, g) => this.onTurbo(ev, g);
     if (this.prefs.muted) d.audio.setMuted(true);
     this.hud.setSettings({ muted: !!this.prefs.muted, swap: !!this.prefs.swap });
@@ -145,6 +148,14 @@ export class Controls {
   }
   private holdToast = false;
 
+  /** The opening's gate (main.ts): a gear would lift the bus into the deck, so a gear waits until it clears. */
+  get gearsLocked(): boolean {
+    return this.shifter.locked;
+  }
+  set gearsLocked(v: boolean) {
+    this.shifter.locked = v;
+  }
+
   /** A desktop's one line that teaches the hold. */
   holdHint() {
     this.holdToast = true;
@@ -165,7 +176,7 @@ export class Controls {
 
   /** The yoke is being pulled back under the opening's gate (main.ts, per frame): say why nothing happens, once. */
   climbGated() {
-    if (this.queuedShift || this.turbo.time - this.climbToldAt < 30) return;
+    if (this.shifter.gated || this.turbo.time - this.climbToldAt < 30) return;
     this.climbToldAt = this.turbo.time;
     this.hud.toast([CLIMB_GATED], 2.2);
   }
@@ -179,10 +190,7 @@ export class Controls {
 
   /** After input.update, before the flight steps: the turbo drive writes Flight.turbo. */
   preFlight(dt: number) {
-    if (!this.gearsLocked && this.queuedShift) {
-      this.turbo.shift(this.queuedShift, this.d.flight);
-      this.queuedShift = 0;
-    }
+    this.shifter.tick(performance.now());
     this.turbo.update(dt, this.d.flight, this.d.input.state.turboHeld);
   }
 
@@ -220,19 +228,19 @@ export class Controls {
       if (this.keysIn <= 0) {
         this.prefs.keysShown = true;
         savePrefs(this.prefs);
-        this.hud.toast(['ARROWS FLY  -  SPACE SPLATS', 'E TURBO  -  ESC SETTINGS'], 5);
+        this.hud.toast(['ARROWS FLY  -  SPACE SPLATS', 'E GEARS  -  ESC SETTINGS'], 5);
       }
     }
     const h = this.hf;
     h.gear = T.gear;
     h.maxGear = T.maxGear;
     h.engaged = T.engaged;
-    h.boosting = T.boosting;
+    h.level = Math.max(T.level, d.input.state.turboHeld ? 1 : 0);
+    h.held = d.input.state.turboHeld;
     h.mph = f.speed * 2.23694;
-    h.armed = this.queuedShift > 0;
+    h.armed = this.shifter.armed;
     h.sinceShift = T.time - Math.max(T.shiftedAt, T.engagedAt);
     h.sinceLocked = T.time - T.lockedAt;
-    h.gearDown = T.gear > 0 || this.queuedShift > 0;
     this.firstRun(realDt);
     this.hud.update(realDt, h);
   }
@@ -248,15 +256,12 @@ export class Controls {
       const cf = this.cf;
       cf.glinting = this.glinting;
       cf.openingOver = !this.opening;
-      cf.gearsLocked = this.gearsLocked;
-      cf.armed = this.queuedShift > 0;
       cf.splats = this.splats;
       cf.thumb = this.thumbOnce;
       cf.stillPress = input.stillFor(performance.now());
       cf.charged = this.chargedOnce;
       c.frame(dt, cf);
       hud.setCue(c.cue);
-      if (c.turboDue) hud.turboCue();
       if (c.megaDue) hud.megaHoldCue();
     }
     if (c?.dirty) {
@@ -280,30 +285,11 @@ export class Controls {
 
   // ------------------------------------------------------------------ turbo events
 
-  /**
-   * TURBO, its down tab, E / Q. Under the opening's gate a gear would lift the bus into the deck, so a shift up
-   * waits for it: answered on this very frame (the toast, the ARMED readout and button, the clunk) and fired by
-   * itself when the gate clears. A shift down cancels it. (A shift down of a real gear is always safe.)
-   */
-  private pressTurbo(dir: 1 | -1) {
-    const d = this.d;
-    if (!this.gearsLocked || (dir < 0 && this.turbo.gear > 0)) {
-      this.turbo.shift(dir, d.flight);
-      return;
-    }
-    const kit = d.audio.voiceKit();
-    if (kit) {
-      const t = kit.ctx.currentTime + LOOKAHEAD;
-      if (!this.voice.attached) this.voice.attach(kit, t);
-      this.voice.armed(t);
-    }
-    if (dir > 0) {
-      this.queuedShift = 1;
-      this.hud.toast([ARMED], 2.6);
-    } else if (this.queuedShift) {
-      this.queuedShift = 0;
-      this.hud.toast(['TURBO OFF'], 1.2);
-    }
+  /** A flick's answer, this very frame: seen at the bus (a silenced iPhone hears nothing) and heard. */
+  private answer(a: ShiftAnswer) {
+    this.onTurbo(a === 'back' ? 'back' : 'flick', this.turbo.gear);
+    if (a === 'gated') this.hud.toast([ARMED], 2.6);
+    else if (a === 'back' && this.gearsLocked) this.hud.toast(['TURBO OFF'], 1.2);
   }
 
   private onTurbo(ev: TurboEvent, gear: number) {
@@ -314,10 +300,14 @@ export class Controls {
       const t = kit.ctx.currentTime + LOOKAHEAD;
       if (!this.voice.attached) this.voice.attach(kit, t);
       if (ev === 'up' || ev === 'down') this.voice.shift(t, ev === 'up' ? 1 : -1);
-      else if (ev === 'engage') this.voice.engage(t);
+      else if (ev === 'engage' || ev === 'turbo') this.voice.engage(t);
+      else if (ev === 'turbo-off') this.voice.shift(t, -1);
+      else if (ev === 'flick' || ev === 'back') this.voice.armed(t);
       else if (ev === 'boom') this.voice.boom(t);
       else if (ev === 'locked') this.voice.locked(t);
     }
+    // (a toast saying the turbo must wait is no longer true)
+    if (ev === 'turbo') this.hud.clearToast();
     void gear;
   }
 
@@ -326,13 +316,13 @@ export class Controls {
     const T = this.turbo, f = this.d.flight;
     return {
       mode: this.mode,
-      turbo: { gear: T.gear, engaged: T.engaged, strain: T.strain, speedK: T.speedK, boosting: T.boosting, edge: T.edge },
+      turbo: { gear: T.gear, level: T.level, engaged: T.engaged, strain: T.strain, speedK: T.speedK, boosting: T.boosting, edge: T.edge, armed: this.shifter.armed, gated: this.shifter.gated },
       flight: { speed: f.speed, y: f.y, agl: f.y - f.groundBroad, mode: f.mode },
       camera: { pull: this.fx.lens.pull, fov: this.fx.lens.fov, hfov: this.d.rig.hfov, distance: this.d.rig.distance },
-      hud: { settings: this.hud.settingsOpen, gearDown: this.hf.gearDown },
+      hud: { settings: this.hud.settingsOpen },
       coach: this.coach ? { taught: this.coach.taught, cue: this.coach.cue } : null,
       prefs: { ...this.prefs },
-      input: { chargeHeld: this.d.input.state.chargeHeld, turboHeld: this.d.input.state.turboHeld, thumb: this.d.input.state.thumb, sx: this.d.input.state.stretch.x, sy: this.d.input.state.stretch.y },
+      input: { chargeHeld: this.d.input.state.chargeHeld, turboHeld: this.d.input.state.turboHeld, thumb: this.d.input.state.thumb, sx: this.d.input.state.stretch.x, sy: this.d.input.state.stretch.y, look: { ...this.d.input.state.look } },
     };
   }
 }

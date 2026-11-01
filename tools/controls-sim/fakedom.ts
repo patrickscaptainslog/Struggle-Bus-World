@@ -1,5 +1,5 @@
 // A tiny fake DOM for driving the real Input offline: listeners on an element / window / document, a
-// controllable clock (performance.now and event timeStamps), localStorage.
+// controllable clock (performance.now, event timeStamps and timers), localStorage.
 type L = (e: any) => void;
 export class Target {
   private ls = new Map<string, L[]>();
@@ -23,6 +23,16 @@ export class Target {
   }
 }
 export const clock = { ms: 1000 };
+/** window.setTimeout on the fake clock: runTimers() fires what is due. */
+const timers = new Map<number, { at: number; f: () => void }>();
+let timerId = 1;
+export function runTimers() {
+  for (const [id, t] of timers)
+    if (t.at <= clock.ms) {
+      timers.delete(id);
+      t.f();
+    }
+}
 export function installDom() {
   const g = globalThis as any;
   const win = new Target() as any;
@@ -30,8 +40,11 @@ export function installDom() {
   doc.hidden = false;
   doc.body = {};
   doc.documentElement = {};
-  win.setTimeout = (f: () => void, ms: number) => setTimeout(f, ms);
-  win.clearTimeout = (id: any) => clearTimeout(id);
+  win.setTimeout = (f: () => void, ms: number) => {
+    timers.set(timerId, { at: clock.ms + ms, f });
+    return timerId++;
+  };
+  win.clearTimeout = (id: number) => void timers.delete(id);
   g.window = win;
   g.document = doc;
   Object.defineProperty(globalThis.performance, 'now', { value: () => clock.ms, configurable: true, writable: true });
@@ -41,8 +54,8 @@ export function installDom() {
   return { win, doc };
 }
 let pid = 1;
-export function ptr(type: 'pointerdown' | 'pointermove' | 'pointerup' | 'pointercancel', id: number, x: number, y: number, primary = true) {
-  return { type, pointerId: id, pointerType: 'touch', isPrimary: primary, clientX: x, clientY: y, button: 0, timeStamp: clock.ms, cancelable: true, preventDefault() {} };
+export function ptr(type: 'pointerdown' | 'pointermove' | 'pointerup' | 'pointercancel', id: number, x: number, y: number, primary = true, extra: { pointerType?: string; button?: number } = {}) {
+  return { type, pointerId: id, pointerType: 'touch', isPrimary: primary, clientX: x, clientY: y, button: 0, timeStamp: clock.ms, cancelable: true, preventDefault() {}, ...extra };
 }
 export const newId = () => pid++;
 export function key(code: string, repeat = false) {

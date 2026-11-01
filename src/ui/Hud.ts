@@ -1,4 +1,3 @@
-import { config } from '../config';
 import { inputTune, type Input, type InputMode } from '../game/Input';
 import { GEAR_NAMES } from '../game/Turbo';
 import { Ramp, rampColor } from '../render/palette';
@@ -11,24 +10,24 @@ import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth, uiText } from './pixelU
 // sits where src/ui/hudLayout.ts says (a pure function, run on resize only), and
 // every button redraws only when what it shows changes.
 //
-//  - TURBO (upper left): tap = next level, hold = boost; the down tab under it
-//    exists only with something to shift down from. The level reads on the button.
 //  - MEGA (the middle of the right side): tap = splat, hold = charge. The meter
 //    (slot('super'), src/ui/SuperMeter.ts) stands above it and docks on its face
 //    for the cooldown.
 //  - top right: settings. It fades out after a few seconds untouched; a tap in
 //    that corner brings it back.
 //  - the gear readout, only for a moment: while a gear lifts and just after it
-//    shifts or bites, while the boost is held, and ARMED while a shift waits for
-//    the opening's gate; LOCKED: WORLD TRAVEL COMING past the last usable gear.
+//    shifts or bites or turbo changes, while Shift holds the boost, and ARMED while
+//    a gear waits (for a second flick, for the opening's gate); it never stays up
+//    for a latched turbo. LOCKED: WORLD TRAVEL COMING past the last usable gear.
 //  - the first-run cues (src/ui/Coach.ts). Cues pass every touch through.
 //  - a desktop has no buttons at all: Esc opens the settings (src/game/Controls.ts).
 //  - setCredits(lines): the data credits, one tap away in settings (MAP DATA), never on the play screen.
 //
-// Only these catch touches: TURBO, the tab, MEGA, settings. Everything else is
-// pointer-events none. Hit wrappers are the rects from
-// hudLayout, and the visuals inside them are pointer-events none, so the 14 px
-// band at the screen's edges stays the canvas's.
+// Only these catch touches: MEGA, settings. Everything else is pointer-events
+// none. Hit wrappers are the rects from hudLayout, and the visuals inside them
+// are pointer-events none, so the 14 px band at the screen's edges stays the
+// canvas's. There is no gear strip and no button for a gear: a flick is the
+// whole of it (src/game/Input.ts, src/game/Shifter.ts).
 //
 // The HUD never decides anything: it reports to the callbacks (src/game/
 // Controls.ts) and drives Input's HUD hooks.
@@ -36,10 +35,8 @@ import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth, uiText } from './pixelU
 const S = 2; // CSS px per UI pixel
 /** Seconds the top-right buttons stay after the last touch on them (or a change of scheme). */
 const CHROME_SECONDS = 6;
-/** Seconds untouched before TURBO and MEGA go to their see-through rest. */
+/** Seconds untouched before MEGA goes to its see-through rest. */
 const REST_SECONDS = 8;
-/** A finger slid this far off TURBO before its boost: no tap (px). */
-const TURBO_SLOP = 34;
 /** The blink step of everything that blinks (ms). */
 const BLINK_MS = 220;
 
@@ -49,15 +46,15 @@ export interface HudFrame {
   gear: number;
   maxGear: number;
   engaged: boolean;
-  boosting: boolean;
+  /** the turbo level on (latched or held, 0: off), and whether Shift is holding it: only a held boost keeps the readout up */
+  level: number;
+  held: boolean;
   mph: number;
-  /** a shift is waiting for the opening's gate: the next gear shows armed (dim, blinking), it fires by itself */
+  /** a gear is waiting (a second flick's window, the opening's gate): the next gear shows armed (dim, blinking), it fires by itself */
   armed: boolean;
   /** seconds since the last shift / LOCKED attempt (Infinity = never) */
   sinceShift: number;
   sinceLocked: number;
-  /** there is something to shift down from: a gear, or an armed shift */
-  gearDown: boolean;
 }
 
 export interface HudCallbacks {
@@ -102,7 +99,7 @@ export class Hud {
   private creditsOpen = false;
   /** the rects in force */
   L: HudLayout;
-  /** TURBO and MEGA have arrived (fog end or first touch) */
+  /** MEGA has arrived (fog end or first touch) */
   private arrived = false;
 
   private readonly topRight: HTMLDivElement;
@@ -112,10 +109,6 @@ export class Hud {
   private readonly gearWrap: HTMLDivElement;
   private readonly locked: PixelCanvas;
   private readonly lockedWrap: HTMLDivElement;
-  private readonly turbo: PixelCanvas;
-  private readonly turboWrap: HTMLDivElement;
-  private readonly down: PixelCanvas;
-  private readonly downWrap: HTMLDivElement;
   private readonly mega: PixelCanvas;
   private readonly megaWrap: HTMLDivElement;
   private readonly cueCanvas: PixelCanvas;
@@ -133,33 +126,18 @@ export class Hud {
   private gMax = -1;
   private gMph = -1;
   private gEngaged = false;
-  private gBoost = false;
+  private gLevel = 0;
   private gArmed = false;
   private gBlink = false;
   private lockedOn = false;
   private lockedSh = 0;
-  private turboKey = -1;
-  private turboTf = 0;
   private megaKey = -1;
   private cueKey = -1;
-  private downOn = false;
-  private downStep = 0;
   /** the settings button: shown until this time (performance.now() ms) */
   private chromeUntil = 0;
   private chromeOn = true;
-  /** TURBO and MEGA rest from this time */
+  /** MEGA rests from this time */
   private restAt = 0;
-  // TURBO's press
-  private turboId = -1;
-  private turboX0 = 0;
-  private turboY0 = 0;
-  private turboT0 = 0;
-  private turboArmed = false;
-  private turboHolding = false;
-  private turboOff = false;
-  /** the gate's three blinks: steps left */
-  private turboBlink = 0;
-  private turboBlinkT = 0;
   // MEGA's press
   private megaId = -1;
   private megaX0 = 0;
@@ -174,7 +152,6 @@ export class Hud {
   /** MEGA's HOLD cue: steps left, seconds in this step */
   private megaCue = 0;
   private megaCueT = 0;
-  private downId = -1;
   private cue: Cue = 'none';
 
   private readonly slots = new Map<string, HTMLDivElement>();
@@ -227,19 +204,11 @@ export class Hud {
     root.append(this.lockedWrap);
 
     // ---- the buttons: a hit wrapper, the visual inside it
-    const ts = this.compact ? 30 : 36;
     const ms = this.compact ? 34 : 42;
-    this.turbo = new PixelCanvas(ts, ts, S);
-    this.turboWrap = this.button2(this.turbo, 'turbo');
-    this.down = new PixelCanvas(ts, this.compact ? 14 : 16, S);
-    this.downWrap = this.button2(this.down, 'gear-down');
     this.mega = new PixelCanvas(ms, ms, S);
     this.megaWrap = this.button2(this.mega, 'mega');
-    root.append(this.downWrap, this.turboWrap, this.megaWrap);
-    this.wireTurbo();
-    this.wireDown();
+    root.append(this.megaWrap);
     this.wireMega();
-    this.drawDown(false);
 
     // ---- the first-run cue (passes everything through)
     this.cueWrap = div({ position: 'absolute', display: 'none' });
@@ -294,7 +263,7 @@ export class Hud {
     if (this.panel) this.renderSettings();
   }
 
-  /** TURBO and MEGA arrive (fog end, or the first touch). */
+  /** MEGA arrives (fog end, or the first touch). */
   arrive() {
     if (this.arrived) return;
     this.arrived = true;
@@ -313,9 +282,7 @@ export class Hud {
   private showChrome() {
     const on = this.arrived && this.mode === 'touch';
     this.show(this.topRight, on);
-    this.show(this.turboWrap, on);
     this.show(this.megaWrap, on);
-    this.show(this.downWrap, on && this.downOn);
   }
 
   /** The settings button shows for a few seconds more. */
@@ -323,7 +290,7 @@ export class Hud {
     this.chromeUntil = performance.now() + CHROME_SECONDS * 1000;
   }
 
-  /** TURBO and MEGA come back from their rest. */
+  /** MEGA comes back from its rest. */
   private wakeButtons() {
     this.restAt = performance.now() + REST_SECONDS * 1000;
   }
@@ -340,8 +307,6 @@ export class Hud {
     const L = layoutHud(window.innerWidth, window.innerHeight, this.readInsets(), this.settings.swap, this.compact);
     this.L = L;
     this.place(this.settingsWrap, this.settingsBtn, L.settings);
-    this.place(this.turboWrap, this.turbo, L.turbo);
-    this.place(this.downWrap, this.down, L.down);
     this.place(this.megaWrap, this.mega, L.mega);
     this.box(this.gearWrap, L.readout);
     this.lockedWrap.style.top = `${L.toast.y}px`;
@@ -373,11 +338,6 @@ export class Hud {
     const now = performance.now();
     const dt = this.lastNow ? Math.min(0.25, (now - this.lastNow) / 1000) : 0;
     this.lastNow = now;
-    if (f.gearDown !== this.downOn) {
-      this.downOn = f.gearDown;
-      this.downStep = f.gearDown ? 2 : 0;
-      this.showChrome();
-    }
     // the settings button fades out while it isn't being used
     const chromeOn = now < this.chromeUntil || this.panel !== null;
     if (chromeOn !== this.chromeOn) {
@@ -385,7 +345,7 @@ export class Hud {
       this.topRight.style.opacity = chromeOn ? '1' : '0';
     }
     // gear readout: only for a moment, when something just changed (the contrail and the wind say the rest)
-    const showGear = f.armed || f.boosting || (f.gear > 0 && !f.engaged) || f.sinceShift < 2.5 || f.sinceLocked < 2.5;
+    const showGear = f.armed || f.held || (f.gear > 0 && !f.engaged) || f.sinceShift < 2.5 || f.sinceLocked < 2.5;
     const blinkOn = Math.floor(now / BLINK_MS) % 2 === 0;
     const blink = f.armed && blinkOn;
     if (showGear !== this.gearOn) {
@@ -394,13 +354,13 @@ export class Hud {
     }
     if (showGear) {
       const mph = f.mph >= 100 ? Math.round(f.mph / 10) * 10 : Math.round(f.mph);
-      if (f.gear !== this.gGear || f.maxGear !== this.gMax || f.engaged !== this.gEngaged || f.boosting !== this.gBoost || mph !== this.gMph || f.armed !== this.gArmed || blink !== this.gBlink) {
+      if (f.gear !== this.gGear || f.maxGear !== this.gMax || f.engaged !== this.gEngaged || f.level !== this.gLevel || mph !== this.gMph || f.armed !== this.gArmed || blink !== this.gBlink) {
         this.gArmed = f.armed;
         this.gBlink = blink;
         this.gGear = f.gear;
         this.gMax = f.maxGear;
         this.gEngaged = f.engaged;
-        this.gBoost = f.boosting;
+        this.gLevel = f.level;
         this.gMph = mph;
         this.drawGear(f, mph, blink);
       }
@@ -422,52 +382,11 @@ export class Hud {
       this.lockedSh = sh;
       this.lockedWrap.style.transform = `translateX(calc(-50% + ${sh}px))`;
     }
-    // TURBO: holding it boosts
-    // (confirmed on a second frame: a release queued behind one slow frame is still a tap)
-    if (this.turboId >= 0 && !this.turboOff && !this.turboHolding && now - this.turboT0 >= config.splat.holdThreshold * 1000) {
-      if (this.turboArmed) {
-        this.turboHolding = true;
-        this.input.turboHold(true);
-      } else this.turboArmed = true;
-    }
     if (f.armed || f.sinceShift < 0.3) this.wakeButtons();
-    if (this.turboBlink > 0) {
-      this.turboBlinkT += dt;
-      if (this.turboBlinkT >= BLINK_MS / 1000) {
-        this.turboBlinkT = 0;
-        this.turboBlink--;
-      }
-    }
-    const rest = now >= this.restAt && this.turboId < 0 && this.megaId < 0 && !f.armed && !f.boosting && this.turboBlink === 0;
-    if (this.mode === 'touch' && this.arrived) this.frameTurbo(f, now, blinkOn, rest, shaking, sh);
+    const rest = now >= this.restAt && this.megaId < 0 && !f.armed;
     if (this.mode === 'touch' && this.arrived) this.frameMega(dt, now, rest);
-    if (this.downStep > 0) {
-      // slides out from under TURBO in two CSS steps
-      this.downStep--;
-      this.down.el.style.transform = this.downStep > 0 ? 'translateY(-16px)' : '';
-    }
     this.frameCue(now);
     if (this.toastEl && now >= this.toastUntil) this.clearToast();
-  }
-
-  private frameTurbo(f: HudFrame, now: number, blinkOn: boolean, rest: boolean, shaking: boolean, sh: number) {
-    const pressed = this.turboId >= 0;
-    const hot = f.boosting || this.turboHolding;
-    const lifting = f.gear > 0 && !f.engaged;
-    const hue = f.gear >= 3 && f.engaged && config.turbo.worldTravel ? Math.floor(now / BLINK_MS) % 6 : 0;
-    const blink = (lifting || f.armed || shaking) && blinkOn;
-    const cueOn = this.turboBlink % 2 === 1;
-    const key = (((((f.gear * 4 + f.maxGear) * 2 + (f.engaged ? 1 : 0)) * 2 + (pressed ? 1 : 0)) * 2 + (hot ? 1 : 0)) * 2 + (f.armed ? 1 : 0)) * 2 + (blink ? 1 : 0);
-    const k2 = ((((key * 2 + (rest ? 1 : 0)) * 2 + (cueOn ? 1 : 0)) * 2 + (shaking ? 1 : 0)) * 6 + hue);
-    if (k2 !== this.turboKey) {
-      this.turboKey = k2;
-      this.drawTurbo(f, pressed, hot, blink, cueOn, rest, shaking, hue);
-    }
-    const tf = (pressed ? 1000 : 0) + sh;
-    if (tf !== this.turboTf) {
-      this.turboTf = tf;
-      this.turbo.el.style.transform = tf ? `translate(${sh}px, ${pressed ? 2 : 0}px)` : '';
-    }
   }
 
   private frameMega(dt: number, now: number, rest: boolean) {
@@ -523,13 +442,6 @@ export class Hud {
   }
 
   // ------------------------------------------------------------------ the coach's outputs
-
-  /** The gate cleared: TURBO blinks three times. */
-  turboCue() {
-    this.turboBlink = 6;
-    this.turboBlinkT = 0;
-    this.wakeButtons();
-  }
 
   /** MEGA's face alternates HOLD and MEGA twice (it ends when a charge starts). */
   megaHoldCue() {
@@ -634,7 +546,7 @@ export class Hud {
       // the desktop's whole manual
       col.append(label('CONTROLS'));
       col.append(this.button('KEYBOARD + MOUSE', W, true, false, () => {}));
-      for (const t of ['ARROWS / WASD: FLY', 'DOWN CLIMBS, UP DIVES', 'SPACE: SPLAT', 'E / Q: TURBO GEARS', 'SHIFT: BOOST']) col.append(label(t, C.cream));
+      for (const t of ['ARROWS / WASD: FLY', 'DOWN CLIMBS, UP DIVES', 'SPACE: SPLAT', 'E / Q: GEARS', 'E TWICE: TURBO, Q ENDS IT', 'SHIFT: BOOST', 'RIGHT MOUSE: LOOK']) col.append(label(t, C.cream));
     } else {
       col.append(this.button('BUTTONS: SWAP', W, this.settings.swap, true, () => this.cb.onSwap(!this.settings.swap)));
     }
@@ -756,15 +668,6 @@ export class Hud {
       this.input.splatButton(false, true);
     }
     this.adoptedId = -1;
-    if (this.turboId >= 0) {
-      this.turboId = -1;
-      if (this.turboHolding) this.input.turboHold(false);
-      this.turboHolding = false;
-    }
-    if (this.downId >= 0) {
-      this.downId = -1;
-      this.drawDown(false);
-    }
   }
 
   /** `touchend` is the canonical iOS user-activation event, and a button can be the very first touch (hitTouch has its own). */
@@ -826,76 +729,6 @@ export class Hud {
     el.addEventListener('pointercancel', (e) => up(e, true));
   }
 
-  private wireTurbo() {
-    const el = this.turboWrap;
-    this.unlockOnLift(el);
-    el.addEventListener('pointerdown', (e) => {
-      e.stopPropagation();
-      if (e.cancelable) e.preventDefault();
-      if (this.turboId >= 0) return;
-      this.cb.onGesture();
-      this.wakeButtons();
-      this.turboId = e.pointerId;
-      this.turboX0 = e.clientX;
-      this.turboY0 = e.clientY;
-      this.turboT0 = evMs(e);
-      this.turboArmed = false;
-      this.turboOff = false;
-      this.turboHolding = false;
-      try {
-        el.setPointerCapture(e.pointerId);
-      } catch {
-        /* gone */
-      }
-    });
-    const far = (e: PointerEvent) => Math.hypot(e.clientX - this.turboX0, e.clientY - this.turboY0) > TURBO_SLOP;
-    el.addEventListener('pointermove', (e) => {
-      if (e.pointerId !== this.turboId || this.turboOff || this.turboHolding) return;
-      if (far(e)) this.turboOff = true; // (a drag begun here stays the button's: it just stops being a tap)
-    });
-    const up = (e: PointerEvent, cancel: boolean) => {
-      e.stopPropagation();
-      if (e.pointerId !== this.turboId) return;
-      this.turboId = -1;
-      const quick = evMs(e) - this.turboT0 < inputTune.stillTapMs;
-      if (this.turboHolding) this.input.turboHold(false);
-      this.turboHolding = false;
-      // (no press is dead: 300 to 450 ms boosts briefly and still shifts; past that it was a boost and nothing else)
-      if (!cancel && !this.turboOff && quick && !far(e)) this.input.turboShift(1);
-    };
-    el.addEventListener('pointerup', (e) => up(e, false));
-    el.addEventListener('pointercancel', (e) => up(e, true));
-  }
-
-  private wireDown() {
-    const el = this.downWrap;
-    this.unlockOnLift(el);
-    el.addEventListener('pointerdown', (e) => {
-      e.stopPropagation();
-      if (e.cancelable) e.preventDefault();
-      if (this.downId >= 0) return;
-      this.cb.onGesture();
-      this.wakeButtons();
-      this.downId = e.pointerId;
-      this.drawDown(true);
-      try {
-        el.setPointerCapture(e.pointerId);
-      } catch {
-        /* gone */
-      }
-    });
-    const up = (e: PointerEvent, cancel: boolean) => {
-      e.stopPropagation();
-      if (e.pointerId !== this.downId) return;
-      this.downId = -1;
-      this.drawDown(false);
-      const r = el.getBoundingClientRect();
-      if (!cancel && e.clientX >= r.left - 10 && e.clientX <= r.right + 10 && e.clientY >= r.top - 10 && e.clientY <= r.bottom + 10) this.input.turboShift(-1);
-    };
-    el.addEventListener('pointerup', (e) => up(e, false));
-    el.addEventListener('pointercancel', (e) => up(e, true));
-  }
-
   // ------------------------------------------------------------------ drawing
 
   /** The settings button: a cog, ring + 8 teeth. */
@@ -910,74 +743,6 @@ export class Hud {
         const tooth = Math.cos(a * 8) > 0.35 ? 1.6 : 0;
         if (r <= 5.2 + tooth && r >= 2.3) p.set(i, j, C.cream);
       }
-    p.flush();
-  }
-
-  /** An upward chevron, w wide, its point at y. */
-  private chevron(p: PixelCanvas, x: number, y: number, w: number, c: number) {
-    const half = (w - 1) / 2;
-    for (let i = 0; i < w; i++) {
-      const off = Math.round((Math.abs(i - half) / half) * 3);
-      p.rect(x + i, y + off, 1, 3, c);
-    }
-  }
-
-  /** Three stacked chevrons (G1 bottom, G3 top): the level reads on the button, with no digits. */
-  private drawTurbo(f: HudFrame, pressed: boolean, hot: boolean, blink: boolean, cueOn: boolean, rest: boolean, shaking: boolean, hue: number) {
-    const p = this.turbo;
-    const n = p.w;
-    p.clear();
-    const edge = hot ? C.yellowHi : cueOn ? C.yellowHi : f.engaged && f.gear > 0 ? C.yellow : f.armed ? C.yellowLo : C.edge;
-    const face = pressed ? C.yellowLo : C.panel;
-    p.box(0, 0, n, n, face, edge, 3);
-    // (at rest the panel goes see-through; the chevrons and the label stay solid: the thumb still reads them)
-    if (rest) p.punch(0.25);
-    if (hot || cueOn) {
-      // the inner rule, as the lever's hot state
-      p.rect(3, 2, n - 6, 1, C.yellowLo);
-      p.rect(3, n - 3, n - 6, 1, C.yellowLo);
-    }
-    const w = this.compact ? 19 : 23;
-    const x = Math.round((n - w) / 2);
-    const step = this.compact ? 6 : 7;
-    const y0 = this.compact ? 3 : 4;
-    const dark = pressed ? C.ink : C.panel2;
-    const open = pressed ? C.ink : C.edge;
-    for (let i = 3; i >= 1; i--) {
-      const y = y0 + (3 - i) * step;
-      const lit = i < f.gear || (i === f.gear && f.engaged);
-      const lifting = i === f.gear && !f.engaged;
-      const next = f.armed && i === f.gear + 1;
-      const locked = i > f.maxGear;
-      let c = locked ? dark : open;
-      if (lit) c = f.gear >= 3 && f.engaged && config.turbo.worldTravel ? C.hue[(hue + i) % 6] : C.yellow;
-      else if (lifting) c = blink ? C.yellowHi : open;
-      else if (next) c = blink ? C.yellowLo : open;
-      this.chevron(p, x, y, w, c);
-      if (locked) {
-        // the red tick; shifting past the last gear flashes the next one's
-        const hit = shaking && i === f.maxGear + 1;
-        const t = hit ? (blink ? C.text : C.red) : C.redLo;
-        const cx = Math.floor(n / 2);
-        p.set(cx - 1, y + 1, t);
-        p.set(cx, y + 2, t);
-        p.set(cx + 1, y + 3, t);
-        p.set(cx + 1, y + 1, t);
-        p.set(cx - 1, y + 3, t);
-      }
-    }
-    const t = 'TURBO';
-    p.text(t, Math.round((n - textWidth(t, HUD_SMALL)) / 2), n - (this.compact ? 7 : 8), pressed ? C.ink : hot ? C.yellowHi : C.cream, HUD_SMALL);
-    p.flush();
-  }
-
-  /** A panel and a cream triangle. */
-  private drawDown(pressed: boolean) {
-    const p = this.down;
-    p.clear();
-    p.box(0, 0, p.w, p.h, pressed ? C.yellowLo : C.panel, C.edge, 3);
-    const t = '▼';
-    p.text(t, Math.round((p.w - textWidth(t)) / 2), Math.round((p.h - 7) / 2) - 1, pressed ? C.ink : C.cream, HUD_FONT);
     p.flush();
   }
 
@@ -1052,7 +817,7 @@ export class Hud {
     const g = `G${shown}`;
     this.outlineOver(p, g, 2, 2, f.armed ? (blink ? C.yellow : C.dim) : C.yellow);
     const x = 2 + textWidth(g) + 5;
-    const name = GEAR_NAMES[Math.min(3, shown)] + (f.boosting ? ' +' : '');
+    const name = GEAR_NAMES[Math.min(3, shown)] + (f.level > 0 ? ' ' + '+'.repeat(f.level) : '');
     this.outlineOver(p, name, x, 2, !f.armed && (f.engaged || f.gear === 0) ? C.cream : C.dim);
     // pips: one per gear; lit up to the gear, dim if usable, dark if locked
     for (let i = 1; i <= 3; i++) {
