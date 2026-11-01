@@ -14,7 +14,7 @@ import { loadRegion, type GridArrays, type RegionRequest, type RegionResponse, t
 import { GROWN_STRIDE, type CasterArrays, type MeshArrays } from './BuildingMesher';
 import { treeCrown } from './props/trees';
 import { RoofBuild, eaveY, newRoofFrame, roofFrame, roofSurfaceY, type RoofFrame } from './roofGeom';
-import { FAR_STAND_INS, HIDDEN, hiddenAt, isSfOrigin, type Hidden, type PropBox } from './towerStyles';
+import { FAR_STAND_INS, HIDDEN, clearStandInCells, hiddenAt, isSfOrigin, type Hidden, type PropBox } from './towerStyles';
 import { gunzip, isGzip } from './gunzip';
 import { registerWarm } from '../render/warmup';
 
@@ -622,6 +622,7 @@ export class City {
    * looks, then the far mesh and the skyline built on it. What they replace (it landed after the first frame) goes that same frame, and the fade with it.
    */
   private async landFar(raster: FarRaster, renderer?: THREE.WebGLRenderer) {
+    if (this.sf) clearStandInCells(raster);
     if (farFlags.blocks) this.startFarBlocks(raster);
     let tex: FarTextures | null = null;
     if (farFlags.map) {

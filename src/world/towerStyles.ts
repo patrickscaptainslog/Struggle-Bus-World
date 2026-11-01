@@ -12,7 +12,7 @@
 // Garden blobs and onion domes for painted towers (Part.GARDEN / Part.DOME)
 // reuse the same bytes differently: see BuildingMesher.ts.
 
-import { Arch, Ground, WATER_Y, type BuildingTile, type TerrainTile } from './tiles';
+import { Arch, Ground, WATER_Y, type BuildingTile, type FarRaster, type TerrainTile } from './tiles';
 
 /** Facade family (0 = the classic archetype look). */
 export const Fam = {
@@ -290,6 +290,42 @@ export function clearStandInGround(t: TerrainTile) {
         const v = Math.round(((j + 0.5) * texel) / cell) * n + Math.round(((i + 0.5) * texel) / cell);
         if (cls[j * N + i] === Ground.SIDEWALK && heights[v] < WATER_Y + 0.3) cls[j * N + i] = Ground.WATER;
       }
+    }
+  }
+}
+
+/**
+ * The far raster is baked from tiles that still hold the stand-ins, and FAR_STAND_INS' mask hides a box, not what the far ground draws under it: the
+ * viaduct's walls lay on Yerba Buena's east slope as a dark patch 200 m long. A stand-in's cells become the ground around it, its commonest class at
+ * that class's mean tone, with no walls. (Goes with HIDDEN at BRIDGES step 6, when the stand-ins leave the tiles.)
+ */
+export function clearStandInCells(r: Pick<FarRaster, 'W' | 'H' | 'affine' | 'cls' | 'tone' | 'height' | 'wall'>) {
+  const [a, , c, , e, f] = r.affine;
+  for (const h of HIDDEN) {
+    if (!h.clears || !h.maxTop) continue;
+    const reach = Math.hypot(h.halfL, h.halfW) + 2 * a;
+    const i0 = Math.max(0, Math.floor((h.cx - reach - c) / a)), i1 = Math.min(r.W - 1, Math.ceil((h.cx + reach - c) / a));
+    const j0 = Math.max(0, Math.floor((h.cz - reach - f) / e)), j1 = Math.min(r.H - 1, Math.ceil((h.cz + reach - f) / e));
+    const cells: number[] = [];
+    const around = new Map<number, { n: number; tone: number }>();
+    for (let j = j0; j <= j1; j++)
+      for (let i = i0; i <= i1; i++) {
+        const q = j * r.W + i;
+        if (inHidden(h, c + (i + 0.5) * a, f + (j + 0.5) * e)) cells.push(q);
+        else if (!r.height[q]) {
+          const t = around.get(r.cls[q]) ?? { n: 0, tone: 0 };
+          t.n++;
+          t.tone += r.tone[q];
+          around.set(r.cls[q], t);
+        }
+      }
+    let cls = -1, best = { n: 0, tone: 0 };
+    for (const [k, t] of around) if (t.n > best.n) (cls = k), (best = t);
+    if (cls < 0) continue;
+    for (const q of cells) {
+      r.cls[q] = cls;
+      r.tone[q] = Math.round(best.tone / best.n);
+      r.height[q] = r.wall[q] = 0;
     }
   }
 }
