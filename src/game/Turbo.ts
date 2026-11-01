@@ -16,11 +16,16 @@ import type { Flight } from './Flight';
 // speed spools up; passing Mach 1 it booms. Shifting down brakes smoothly to
 // the lower gear and holds the altitude (the yoke dives back down). Holding
 // the turbo boosts the current gear (G0: a full surge). Steering authority
-// falls with speed, the yoke's climb and dive rates grow with it.
+// falls with speed. On the yoke the speed goes where the nose points: pull
+// with a gear or the boost on and the bus climbs at that speed, up to 85
+// degrees; push and it dives at it (Flight's path, docs/specs/flight/NOSE.md).
+// Nothing here looks at the height but a gear's engagement: going faster up
+// there is a gear's job, and climbing faster is the gear's speed pointed up.
 //
 // The world beyond the city map doesn't exist yet: G2 / G3 are LOCKED unless
-// config.turbo.worldTravel, and near the map's edge a gear's speed fades back
-// to the surge so the (unchanged) map-edge homing can turn the bus around.
+// config.turbo.worldTravel, and near the map's edge a gear's speed over the
+// ground fades back to the surge so the (unchanged) map-edge homing can turn
+// the bus around.
 //
 // TurboDrive writes Flight.turbo before each flight step; effects (src/fx/
 // Turbo.ts), the HUD and the audio read its state and events.
@@ -139,7 +144,8 @@ export class TurboDrive {
       // lifting: a full surge while it claws its way up; engaged: the gear's speed
       let v = this.engaged ? gearSpeed(g) : F.surgeSpeed;
       if (held) v *= T.boost;
-      if (v > F.surgeSpeed) v = F.surgeSpeed + (v - F.surgeSpeed) * this.edge;
+      // (what fades is the speed over the ground: a bus going straight up keeps its gear)
+      if (v > F.surgeSpeed) v = Math.min(v, (F.surgeSpeed + (v - F.surgeSpeed) * this.edge) / Math.max(0.01, f.ground / Math.max(1, f.speed)));
       Tb.speed = v;
       Tb.ceiling = g >= 2 ? want + gearAlt(g) * 0.6 : 0;
     } else {
@@ -160,7 +166,8 @@ export class TurboDrive {
       rate = 3 / Math.max(0.1, T.spool);
       this.braking = false;
     } else if (this.braking || f.speed > Math.max(Tb.speed, F.surgeSpeed) * 1.02) {
-      const classic = F.cruiseSpeed + (F.surgeSpeed - F.cruiseSpeed) * Math.pow(clamp(f.surge, 0, 1), 1.3);
+      // (on a climb the classic flight settles at the plain pull's own speed, which never comes down to the level flight's)
+      const classic = f.mode === 2 ? Math.hypot(F.climbRate, F.climbSpeed) : F.cruiseSpeed + (F.surgeSpeed - F.cruiseSpeed) * Math.pow(clamp(f.surge, 0, 1), 1.3);
       if (f.speed > Math.max(Tb.speed, classic) * 1.25) {
         kind = 2;
         rate = 3 / Math.max(0.1, T.brake);
@@ -173,10 +180,9 @@ export class TurboDrive {
     // (while it eases in, the classic rate's share fades out: the hand-over is continuous both ways)
     Tb.rate = kind === 0 ? 0 : rate * (0.15 + 0.85 * ease * ease * (3 - 2 * ease));
 
-    // steering authority falls with speed, the yoke's climb and dive grow with it
+    // steering authority falls with speed
     const sp = Math.max(1, f.speed);
     Tb.yaw = sp > F.surgeSpeed ? Math.pow(F.surgeSpeed / sp, T.turnExp) : 1;
-    Tb.climb = sp > F.surgeSpeed ? Math.pow(sp / F.surgeSpeed, T.climbExp) : 1;
 
     if (this.machArmed && f.speed > SPEED_OF_SOUND) {
       this.machArmed = false;

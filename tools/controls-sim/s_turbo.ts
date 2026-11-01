@@ -128,8 +128,9 @@ const free = () => ({ sx: 0, sy: 0, dragging: false });
   res.worldTravelG2 = { gear: S.drive.gear, speed: r1(S.f.speed), agl: r1(S.f.y - S.f.groundBroad), events: S.events, log: S.log.filter((_: unknown, i: number) => i % 10 === 0) };
   config.turbo.worldTravel = false;
 }
-mkdirSync('shots/controls/sim', { recursive: true });
-writeFileSync('shots/controls/sim/turbo.json', JSON.stringify(res, null, 1));
+const OUT = process.env.SB_OUT ?? 'shots/controls/sim';
+mkdirSync(OUT, { recursive: true });
+writeFileSync(`${OUT}/turbo.json`, JSON.stringify(res, null, 1));
 const a = res.alamo as any;
 console.log('alamo G1:', JSON.stringify(a.g1), 'steer:', JSON.stringify(a.steer), 'boost:', a.boostSpeed, 'locked refused:', a.lockedRefused);
 console.log('after downshift (6 s):', JSON.stringify(a.afterDownshift), 'after dive:', JSON.stringify(a.end), 'max alt step/frame:', a.maxAltStepPerFrame);

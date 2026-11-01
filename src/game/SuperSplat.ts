@@ -546,7 +546,7 @@ export class SuperSplat {
     out.x = a.x;
     out.y = a.y;
     out.z = a.z;
-    const r0 = S.range + S.rangePerSpeed * f.speed;
+    const r0 = S.range + S.rangePerSpeed * f.ground;
     const want = r0 * S.firehoseReach;
     if (Math.hypot(a.x - f.x, a.z - f.z) < want) {
       out.x = f.x + f.fx * want;

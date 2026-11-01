@@ -1,6 +1,6 @@
 # ASCENT: height, from the rooftops toward the Moon
 
-The producer, 2026-11-01: raise the bus's height limit, mainly to fly with and paint airplanes, and keep in mind that it will fly to the Moon. Same day: climb speed must not grow with height. Fast climbs are the turbo modes' job, and that work is for later.
+The producer, 2026-11-01: raise the bus's height limit, mainly to fly with and paint airplanes, and keep in mind that it will fly to the Moon. Same day: climb speed must not grow with height. Fast climbs are the turbo modes' job: that is `docs/specs/flight/NOSE.md`.
 
 **State.** The ceiling is 15 km, over the airliners. `main` has had it since 84e77c3. The fixes after that (the land's jitter, the ground past the map, the fade in force) are on `feat/ascent`, and their final build is main-DLFNkuoE.js. Nothing here has run on a phone. The planes themselves are held, with streets and the rest of that list.
 
@@ -20,9 +20,9 @@ Below 800 m the lens functions are the old constants. `?ceiling=520` puts the ol
 
 ## Climbing
 
-The climb and dive rates are the old ones, at any height: 40 m/s at full pull, about 80 m/s in G1, so 15 km is about 6 minutes in plain flight and about 3 in G1. Speeds don't change with height either. Going faster up there is the turbo gears' job: `climb2` and `climb3` (700 and 3,000 m/s) already exist behind `config.turbo.worldTravel`. How the gears carry the bus up is a later decision, and nothing here assumes one.
+The plain climb is the old one, at any height: 40 m/s at full pull, so 15 km is about 6 minutes on the yoke alone. Speeds don't change with height either. A fast climb is a gear pointed up: with a gear or the boost on the pull, the speed goes where the nose points, up to 85 degrees (`docs/specs/flight/NOSE.md`), and G1 climbs at 448 m/s, 15 km in about 36 s. Nothing grows with height: height only says when a gear can engage. `climb2` and `climb3` (700 and 3,000 m/s) still lift the bus to G2's and G3's heights behind `config.turbo.worldTravel`.
 
-Measured on the final build, the bus placed by hand and the real stick, the same at 520 m, 1.5, 3, 6, 12 and 15 km: full pull 40 m/s, full push 48 m/s, cruise 26.4 m/s, surge 98.6 m/s, full turn about 1.4 rad/s. At 15 km the pull gives 0, because that is the ceiling. In G1 at 1.5, 6 and 12 km: 450 m/s, pull 80 m/s, push 96 m/s.
+Measured on `feat/ascent`'s final build, the bus placed by hand and the real stick, the same at 520 m, 1.5, 3, 6, 12 and 15 km: full pull 40 m/s, cruise 26.4 m/s, surge 98.6 m/s, full turn about 1.4 rad/s. At 15 km the pull gives 0, because that is the ceiling. The dive and the gears' climb are NOSE's numbers now: a full push is 98 m/s down, G1 448 m/s up or down.
 
 ## What it costs
 
@@ -56,5 +56,5 @@ At both spots every height over the old ceiling costs fewer draws and triangles 
 - **The map's edge from up high.** The far raster stops at the map's bounds and `horizon.bin`'s flat greens go on. Main shows the same edge from its old ceiling, but from 3 km up, looking south, it is a ruler-straight line across the frame. Day 3 replaces it. At the edge itself the two surfaces disagree by up to 75 m, so `groundAt` steps there; the floor eases it, and no pop has shown.
 - **The far plane's cut against the sky.** Up high it sits 20 to 30 degrees below the horizontal, and the sky under it isn't the fog's colour. In most headings that is one palette step. Toward the sun it is a cream block over half the sky with a straight bottom. The fix is in the resolve's sky branch, gated by height, and it belongs with the sky slice.
 - **Small cities.** London's and Amsterdam's maps are 2 to 3 km across with no `horizon.bin`, so from 3 km up the map is under the bottom of the frame and the frame is sea.
-- **A raster that lands late.** If `far16.bin` lands after the bus has passed 3 km, the view tilts in one frame, up to 4.5 degrees near 7.5 km, as the fade goes from 20 to 34 km. That takes a raster at least 75 s late at full pull, about 37 s in G1. With the raster missing altogether the fade reaches 20 km along the ground from any height, and from 12 km that ends in palette bands.
+- **A raster that lands late.** If `far16.bin` lands after the bus has passed 3 km, the view tilts in one frame, up to 4.5 degrees near 7.5 km, as the fade goes from 20 to 34 km. That takes a raster at least 75 s late at full pull, about 9 s after the shift in G1 on a full pull. With the raster missing altogether the fade reaches 20 km along the ground from any height, and from 12 km that ends in palette bands.
 - **`?fog`.** `uFog.z` stays at `farFull`, 2,600 m, so above about 3 km the frame is the bus on blank fog. Fog is off by default. When it comes back, `farFull` needs the same height term as `fadeEnd`.

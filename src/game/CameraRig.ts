@@ -13,6 +13,10 @@ import type { Flight } from './Flight';
 // pitch stays shallow (pitchVista): the horizon and the sky stay at the top of
 // the frame, it never becomes a top-down map. The bus grows a little
 // (heroScale) so it stays the hero at that distance.
+//
+// A dive is the one exception to the sky at the top of the frame: the view
+// tips over the bus until the place it is heading for is on screen, driven by
+// the yoke alone, and it leaves nothing behind when it eases out.
 
 const smooth01 = (a: number, b: number, x: number) => {
   const t = clamp((x - a) / (b - a), 0, 1);
@@ -26,6 +30,8 @@ export class CameraRig {
   /** the height the lens is set for (m): like the vista, only the yoke moves it, so a held view is perfectly still */
   private lensHeight = 0;
   private lensTarget = 0;
+  /** 0..1: how far the view has tipped over a dive (eases after the nose; exactly 0 once it has settled back) */
+  private dive = 0;
   /** where the far fade ends at the ground (m, main.ts): the view looks down past it as it drops */
   fadeBase = 34000;
   /** horizontal portrait fov the pipeline should use (deg) */
@@ -100,10 +106,18 @@ export class CameraRig {
     else this.lensHeight += dl * (1 - Math.exp(-(moving ? C.vistaRate : Math.max(C.vistaRate, C.vistaSettle)) * dt));
     const low = this.openingLow;
     const v = this.vista * (1 - low);
+    // a dive tips the view over the bus, and only a dive: it follows the nose on the yoke, and goes home on its own
+    const diveWant = f.mode === 3 ? clamp((THREE.MathUtils.radToDeg(-f.nose) - C.diveFrom) / Math.max(1, F.noseDown - C.diveFrom), 0, 1) : 0;
+    // (it arrives exactly, at a crawl: a last step would tilt the whole frame by a pixel)
+    const dd = diveWant - this.dive;
+    const ds = Math.max(Math.abs(dd) * (1 - Math.exp(-C.diveRate * dt)), 0.04 * dt);
+    this.dive = Math.abs(dd) <= ds ? diveWant : this.dive + Math.sign(dd) * ds;
+    const dive = this.dive * (1 - low);
     this.hfov = C.hfovPortrait + (C.hfovVista - C.hfovPortrait) * v + this.turboFov;
     this.heroScale = (1 + (C.heroScaleVista - 1) * v) * this.turboHero;
-    const barf = this.barfTilt * (1 - v); // up high the splat lands mid-screen anyway
-    const elev = this.elev + (C.elevationVista - this.elev) * v;
+    const barf = this.barfTilt * (1 - v) * (1 - dive); // up high the splat lands mid-screen anyway
+    let elev = this.elev + (C.elevationVista - this.elev) * v;
+    elev += (C.diveElevation - elev) * dive;
     const el = THREE.MathUtils.degToRad(elev + 11 * barf + (6.5 - elev) * low);
     const dist = (C.distance + (C.distanceVista - C.distance) * v + this.openingPull + this.turboPull) * (1 - low) + 150 * low;
     const fx = Math.sin(this.yaw), fz = -Math.cos(this.yaw);
@@ -118,14 +132,15 @@ export class CameraRig {
       this.pos[k] += this.posVel[k] * dt;
     }
     const spk = sp / F.cruiseSpeed;
-    let la = C.lookAhead * (C.lookAheadSlow + (1 - C.lookAheadSlow) * clamp(spk, 0, 1) + 0.4 * clamp(spk - 1, 0, 1)) * (1 - 0.65 * barf);
+    let la = C.lookAhead * (C.lookAheadSlow + (1 - C.lookAheadSlow) * clamp(spk, 0, 1) + 0.4 * clamp(spk - 1, 0, 1)) * (1 - 0.65 * barf) * (1 - dive);
     let pitch = 0;
+    const divePitch = THREE.MathUtils.degToRad(C.divePitch);
     if (v > 0) {
       // far enough ahead that the view pitches down by pitchVista, and never so far down that
       // the horizon leaves the top of the frame (3 deg of sky) while the rig is still rising
       const halfV = cam.fov / 2; // the lens as the pipeline set it (portrait or landscape)
       pitch = THREE.MathUtils.degToRad(clamp(Math.min(C.pitchVista + THREE.MathUtils.radToDeg(pitchAdd(this.lensHeight, this.fadeBase)), halfV - 3), 5, 60));
-      const laV = (Math.sin(el) * dist + 4) / Math.tan(pitch) - Math.cos(el) * dist;
+      const laV = (Math.sin(el) * dist + 4) / Math.tan(pitch + (divePitch - pitch) * dive) - Math.cos(el) * dist;
       la += (Math.max(la, laV) - la) * smooth01(0, 0.35, v);
     }
     const lookTarget = this.lookTarget.set(bus.x + fx * la * (1 + 2 * low), bus.y - 4 + 14 * low, bus.z + fz * la * (1 + 2 * low)).add(this.turboLookLead);
@@ -133,7 +148,7 @@ export class CameraRig {
     this.look.lerp(lookTarget, 1 - Math.exp(-6 * dt));
     cam.position.copy(this.pos);
     cam.up.set(0, 1, 0);
-    if (v > 0) {
+    if (v > 0 || dive > 0) {
       // up high the view's pitch is set outright instead of by where the bus is, so the bus's wheezy
       // bob (and the lag between the two follow springs) never rocks the whole frame: a rotation
       // can't be snapped to the pixel grid, and from up here every far roof would swim with it
@@ -141,7 +156,17 @@ export class CameraRig {
       const hd = Math.max(1e-3, Math.hypot(dx, dz));
       const p0 = Math.atan2(this.pos.y - this.look.y, hd);
       const p = p0 + (pitch - p0) * smooth01(0, 0.35, v);
-      this.lookDir.set((dx / hd) * Math.cos(p), -Math.sin(p), (dz / hd) * Math.cos(p));
+      let ax = dx / hd, az = dz / hd;
+      if (dive > 0) {
+        // (tipped over the bus the look point stands nearly under the lens: the view's bearing comes from the heading instead)
+        ax += (fx - ax) * dive;
+        az += (fz - az) * dive;
+        const al = Math.max(1e-3, Math.hypot(ax, az));
+        ax /= al;
+        az /= al;
+      }
+      const dp = p + (divePitch - p) * dive;
+      this.lookDir.set(ax * Math.cos(dp), -Math.sin(dp), az * Math.cos(dp));
       cam.lookAt(this.lookDir.add(this.pos));
     } else cam.lookAt(this.look);
     this.distance = this.pos.distanceTo(bus);

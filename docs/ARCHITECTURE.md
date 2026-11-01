@@ -782,9 +782,19 @@ scale: 0 at the surge, 1 at G1), `boosting`, `edge`, `onEvent(ev, gear)`
 with ev up | down | locked | engage | boom; `gearSpeed/gearAlt/gearClimb`,
 `GEAR_NAMES`. It writes **`Flight.turbo`** before each step: `speed` (target,
 0 = classic), `rate` (1/s, 0 = classic), `floor` (m ASL, a gear's floor the
-bus rides like a roof), `ceiling` (0 = config.flight.ceiling), `yaw` and
-`climb` multipliers. Flight's `lift` / `floorY` smoothing stay the
-rooftop's. Tunables: `config.turbo` (`worldTravel` gates G2 / G3).
+bus rides like a roof), `ceiling` (0 = config.flight.ceiling), `yaw`
+(steering authority). Flight's `lift` / `floorY` smoothing stay the
+rooftop's. Tunables: `config.turbo` (`worldTravel` gates G2 / G3). Near the
+map's edge what fades is a gear's speed over the ground, so a bus going
+straight up keeps its gear.
+**The path** (`docs/specs/flight/NOSE.md`): on any dive, and on a pull with a
+gear or the boost, `Flight.speed` is the speed along the path, `Flight.nose`
+its angle, and `Flight.ground` what goes over the ground; off the path
+`ground` is `speed` and `nose` tracks the real path. Whatever means velocity
+over the ground reads `ground` or `Flight.velocity(out)`; HUD mph, the boom,
+`speedK` and the audio read `speed`. The flare and the ceiling cap `vy` and
+turn the nose. `CameraRig` tips the view over a dive from `f.nose` (mode 3
+only), in both of its branches, and comes back to exactly 0.
 **CameraRig** turbo hooks: `turboPull` (m), `turboFov` (deg), `turboHero`
 (x heroScale), `turboLead` / `turboLookLead` (m added to the follow / look
 targets: cancel part of the springs' lag at turbo speeds); written by
@@ -834,6 +844,7 @@ absent = undecided), `taught?`, `swap?`, `chipIgnored?`, `sens`, `muted`, `keysS
 QA: `window.__game.controls` (`snapshot()`: mode, tilt, turbo, flight,
 camera, HUD, input), `tools/controls.mjs` (browser) and
 `tools/controls-sim/` (offline: s_tilt, s_tune, s_perm, s_gesture, s_turbo, s_hybrid, s_layout).
+The path: `tools/nose.mjs` (browser, the real stick, frames) and `tools/feel-sim/s_nose.ts` (offline, at any step).
 
 ## Height (`src/game/Ascent.ts`, `docs/specs/flight/ASCENT.md`)
 What height changes is a function of the height over the nearest surface, in one file with no state, no latitude and no city. The climb and the speeds are not in it: they are the
