@@ -578,7 +578,7 @@ program, no shader source that differs by a byte, so every line of GLSL the hour
 - **Far field.** All of it writes through `sbWrite` and reads `uLight`, so the table reaches it for free. What the hour adds: `config.sky.farFit` (the fit was made with a sun's shadows in it),
   `farGroundLo` (the plain far ground, with no raster), the horizon's hills on RIDGE, sand on SAND, and the night path below.
 - **Windows** (`buildingMaterial.ts`, `uLit`, one held share: there is no clock). One stable threshold per window, a hash, never a timer. Form by distance: a real pane near, LIT row, steps 5-6 and a little
-  glow (`uLitGlow`); on a ribbon (`mppB > uHouseRibbon`) `cell.x` is 0, so a whole floor wakes; on a tower past the pane gate a run of a floor, 9 m a run, through `rhythm()` at least 4 px apart; past
+  glow (`uLitGlow`); on a ribbon (`mppB > uHouseRibbon`) `cell.x` is 0, so a whole floor wakes; on a tower past its family's own pane gate (`panes` in `towerFacade`, each the test that family's code opens its panes with) a run of a floor, 9 m a run, through `rhythm()` at least 4 px apart, never on paint (`gLit`); past
   `uHouseFlat` no pattern at all: a face is lit or not, by a hash of the building and the way it looks (`faceLit`), one dim FARGLOW tone. A glass tower wakes three panes together, an office: one by one a
   curtain wall is static. `glow` is 0 past the panes, so share x glow on far surfaces is 0.
 - **Lamps** (`src/sky/Lamps.ts`, `lampData.ts`, `lampLoad.ts`, `lampWorker.ts`). `lamps.bin` (`tools/bake/lamps.py`; 'SBL1' in lampData's reader) holds where they stand, a rule on the bake's road list, every
@@ -589,7 +589,7 @@ program, no shader source that differs by a byte, so every line of GLSL the hour
   in the file, so no far shore lights up. The hash in the shader is also what S2's wave will threshold (`lampShare`).
 - **Pools** (`Lamps.stamp`, `City.poolFrame`). The top 4 bits of each byte of `tr.cls` are a lamp's pool; classes stop at 10, so every CPU reader of `cls` masks with 15 and terrain's `cls()` does too. `City.setPools`
   puts every loaded tile on a list when the lamps land, `addTile` puts each new one, and one tile a frame stamps: one path for a cold load and tiles already up. The bytes go up again on whichever texture draws
-  them: the tile's own (16 KB, `needsUpdate`), or its square of a coarse region's (`uploadRect`). `busy` holds until the list is done. In the terrain shader the four class fetches double as the pool's, bilinear,
+  them: the tile's own (16 KB, `needsUpdate`), or its square of a coarse region's (`uploadRect`). `busy` and `__shotReady` hold until the list is done; the cover and `ready` read `loading`, which leaves it out: a pool lifts a tile already drawn. In the terrain shader the four class fetches double as the pool's, bilinear,
   then cut, so its edge is a clean curve and not 2 m stairs: on PAVED, SIDEWALK, PLAZA and PATH one ring a step up its own ramp (`uLamp`), and LAMP step 2 at the lamp's feet. Paint lies over it. Pools fade with
   distance (`uLampFar`): a pool past that is a few texels on a pixel. With the flag off `pools` stays null and no byte is touched.
 - **Spans.** `bridgeLights(kind, pts, deck, spacing)` in `Bridges.ts`, from the one deck list and the kit's sizes: both sides of the roadway at deck height just past its edge, so they show from over and under, and
