@@ -73,3 +73,22 @@ export function applyTable(tex: THREE.DataTexture, blue: boolean, paint: boolean
   writePalette(tex.image.data as unknown as Uint8Array, blue ? BLUE_TABLE : dayRows, blue && !paint ? DAY_PAINT : undefined);
   tex.needsUpdate = true;
 }
+
+/**
+ * The ungraded space table (SKY.md 4, Air axis): the day's rows, which no table grades up here, and the rows only space draws. First-pass colours, from the mocks the study judged
+ * (earth/globe.py): DRY_LAND's first try read as a tan continent, so it stays grey with straw only in its last step. MOON is neutral with a warm top: moon_mock.py's khaki sat too near taupe. Light is carried by steps.
+ */
+export const SPACE_ROWS: Record<number, string[]> = {
+  [Ramp.NIGHT_SKY]: ['#080824', '#0a0a28', '#0b0b2b', '#0e0e31', '#101136', '#13133b', '#151540', '#181844'],
+  [Ramp.OPEN_SEA]: dayRows[Ramp.WATER],
+  [Ramp.LIMB]: ['#141a33', '#1f2c4d', '#2f4468', '#476384', '#6a88a0', '#94aebc', '#c0d2d8', '#e8f0f0'],
+  [Ramp.DRY_LAND]: ['#1b1d26', '#2a2c37', '#3e3f4b', '#565662', '#6f6f7a', '#8a8a92', '#a6a5a8', '#c4c2bc'],
+  [Ramp.TWILIGHT]: ['#1a1430', '#2a1f40', '#3f2c50', '#5a3c5e', '#7c556e', '#a0757f', '#c49c92', '#e2c2aa'],
+  [Ramp.MOON]: ['#0e0e18', '#20212c', '#353743', '#4f515c', '#6d6f78', '#8f9095', '#b9b8b4', '#ebe7d8'],
+};
+
+/** The palette texture takes the space table. */
+export function applySpaceTable(tex: THREE.DataTexture): void {
+  writePalette(tex.image.data as unknown as Uint8Array, { ...dayRows, ...SPACE_ROWS });
+  tex.needsUpdate = true;
+}

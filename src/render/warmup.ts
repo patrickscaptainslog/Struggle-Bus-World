@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { moonrun } from '../sky/flag';
 
 // Shader warm-up: every program the game will draw with is compiled at boot, in parallel
 // (KHR_parallel_shader_compile: the main thread stays free while the GPU process compiles), then
@@ -271,6 +272,8 @@ export class WarmUp {
 
   /** Run every registered source not run yet. */
   addSources(): void {
+    // (?moonrun has no city: its first-load number is the sky's own, not tiles', trees' and landmarks' programs that will never draw)
+    if (moonrun) return;
     for (const [name, make] of sources) {
       if (this.ran.has(name)) continue;
       this.ran.add(name);

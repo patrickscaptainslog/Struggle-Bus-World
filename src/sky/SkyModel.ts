@@ -148,8 +148,6 @@ export class SkyModel {
   private readonly e1 = new Float64Array(9);
   private readonly a0 = new Float64Array(3);
   private readonly a1 = new Float64Array(3);
-  private readonly tmp = new Float64Array(3);
-  private readonly tmpM = new Float64Array(9);
   /** this frame, EQJ km: the Moon, the Sun (both from Earth's centre), the observer */
   readonly moonEqj = new Float64Array(3);
   readonly sunEqj = new Float64Array(3);

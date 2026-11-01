@@ -23,6 +23,7 @@
       (function () {
         try {
           var v = (window.__sbDataV = 'osm2');
+          if (new URLSearchParams(location.search).has('moonrun')) return; // (no city in that flight: src/sky/moonrun.ts)
           var q = new URLSearchParams(location.search).get('city');
           var city = q === null ? 'sf' : q; // as main.ts reads it (an empty ?city= stays empty)
           var base = './city/' + city;

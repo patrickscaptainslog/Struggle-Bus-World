@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { heldGlobals } from './materials';
+import { Ramp } from './palette';
 
 // The resolve's sky under the held hour (?hour=blue, SKY.md 4.1): the gradient alone. No Sun, Moon, stars or clouds yet; what is drawn is 16 bands in four rows
 // of the live table, far side and sun side, so any table can colour the sky. Height comes from dir.y, never a stored elevation. All of it is plain sky: alpha 0,
@@ -44,5 +45,176 @@ vec3 skyBands(vec3 dir, float dsk) {
   float b = min(15.0, i + (clamp((p - i - 0.38) / 0.24, 0.0, 1.0) > dsk ? 1.0 : 0.0));
   bool low = b < 7.5;
   return pal(sun ? (low ? uSkyRows.z : uSkyRows.w) : (low ? uSkyRows.x : uSkyRows.y), low ? 7.0 - b : 15.0 - b);
+}
+`;
+
+// ---- Space (?moonrun, MOONSHOT.md stop 1; SKY.md 2 and 4.5-4.7). Earth and Moon are ray tests in the sky branch: nothing at 384,400 km enters the render frame, no geometry, no draw.
+// All alpha 0, dither `dsk` only: the sky only turns with the view. Every colour is pal(ramp, step); light is carried by steps, and the rows are SkyTable.ts's SPACE_ROWS.
+//
+// The ray tests are the stable form (ENGINE's float32 test): each body at unit radius, so nothing in the shader is in km, with the near root as c / (-b + sqrt D) and c = |o|^2 - 1 from
+// the CPU, in double: that subtraction is the one float32 can't do near a surface. Earth is the WGS84 ellipsoid by one scale on z (A/B), since a plain sphere is 5-7 px off near the limb.
+
+/** WGS84's a / b: the one scale on z that makes the ellipsoid a sphere. */
+const EARTH_K = (1 / (1 - 1 / 298.257223563)).toFixed(8);
+
+export const spaceResolveUniforms = {
+  tEarthMap: { value: null as THREE.Texture | null }, // land, tone, class (0 green, .5 dry, 1 ice), lights
+  tMoonMap: { value: null as THREE.Texture | null }, // tone
+  uEarthRot: { value: new THREE.Matrix3() }, // render <- Earth fixed
+  uEarthO: { value: new THREE.Vector4(0, 0, 3, 8) }, // the observer in Earth fixed at unit radius, z over the ellipsoid; w: |o|^2 - 1
+  uEarthSun: { value: new THREE.Vector3(1, 0, 0) }, // Earth fixed
+  uEarthView: { value: new THREE.Vector4(0, 11, 1, 0.1) }, // the map's lod, the air's scale height (km), the lights' share cap, degrees a pixel at one radius
+  uMoonRot: { value: new THREE.Matrix3() }, // render <- Moon fixed
+  uMoonO: { value: new THREE.Vector4(0, 0, 200, 40000) }, // the observer in Moon fixed at unit radius; w as above
+  uMoonSun: { value: new THREE.Vector3(1, 0, 0) }, // Moon fixed
+  uMoonEarth: { value: new THREE.Vector4(1, 0, 0, 0) }, // Earth from the Moon, Moon fixed; w: earthshine's strength, in steps
+  uMoonLod: { value: 0 },
+  uSunDisc: { value: new THREE.Vector4(1, 0, 0, 1) }, // direction, render frame; cos of its radius
+  uSunRing: { value: 1 }, // cos of the radius of its one ring of pixels
+  uMoonFirst: { value: 0 }, // 1: the Moon is the nearer: the CPU sorts, so an occultation needs no logic
+};
+
+export const GLSL_SPACE_UNIFORMS = /* glsl */ `
+uniform highp sampler2D tEarthMap;
+uniform highp sampler2D tMoonMap;
+uniform mat3 uEarthRot;
+uniform vec4 uEarthO;
+uniform vec3 uEarthSun;
+uniform vec4 uEarthView;
+uniform mat3 uMoonRot;
+uniform vec4 uMoonO;
+uniform vec3 uMoonSun;
+uniform vec4 uMoonEarth;
+uniform float uMoonLod;
+uniform vec4 uSunDisc;
+uniform float uSunRing;
+uniform float uMoonFirst;`;
+
+export const GLSL_SPACE = /* glsl */ `
+
+// A level on a ramp to a step, with a narrow ordered dither at the step's edge.
+float spStep(float s, float dsk) { return clamp(floor(s + 0.5 + (dsk - 0.5) * 0.44), 0.0, 7.0); }
+
+// An integer hash: the same on every GPU. Ground-anchored: it takes cell numbers.
+float spHash(vec2 c) {
+  uvec2 q = uvec2(ivec2(c) + 1048576);
+  uint h = (q.x * 1597334677u) ^ (q.y * 3812015801u);
+  h *= 1597334677u;
+  return float(h >> 8u) / 16777216.0;
+}
+
+bool spaceEarth(vec3 dir, float dsk, out vec3 col) {
+  vec3 e = dir * uEarthRot;
+  vec3 ds = vec3(e.xy, e.z * ${EARTH_K});
+  float A = dot(ds, ds), B = dot(ds, uEarthO.xyz), C = uEarthO.w;
+  if (B >= 0.0) return false;
+  float D = B * B - A * C;
+  if (D <= 0.0) {
+    // the air: how high the ray passes over the limb, from D, the stable way, and over what. Lit where the Sun is up at that point of the limb, rose along the terminator.
+    float r = sqrt(1.0 - D / A);
+    float glow = exp(-(r - 1.0) * 6378.137 / uEarthView.y);
+    if (glow < 0.035) return false;
+    float mut = dot((uEarthO.xyz - ds * (B / A)) / r, uEarthSun);
+    float lit = clamp((mut + 0.12) / 0.24, 0.0, 1.0);
+    if (glow * lit <= 0.035) return false;
+    col = abs(mut) < 0.07 ? pal(${Ramp.TWILIGHT}.0, spStep(glow * 7.0 * lit + 1.0, dsk)) : pal(${Ramp.LIMB}.0, spStep(glow * 7.2 * (0.35 + 0.65 * lit), dsk));
+    return true;
+  }
+  float t = C / (-B + sqrt(D));
+  vec3 P = uEarthO.xyz + ds * t;
+  // (the ellipsoid's normal, whose z is the geodetic latitude the maps are in)
+  vec3 n = normalize(vec3(P.xy, P.z * ${EARTH_K}));
+  float lat = asin(clamp(n.z, -1.0, 1.0));
+  float lon = atan(n.y, n.x);
+  vec4 m = textureLod(tEarthMap, vec2(lon / 6.28318531 + 0.5, 0.5 - lat / 3.14159265), uEarthView.x);
+  float mu = dot(n, uEarthSun);
+  float cosi = -dot(n, e);
+  float bx = dsk - 0.5;
+  bool land = m.r > 0.5;
+  bool ice = land && m.b > 0.75;
+  bool dry = land && m.b > 0.25;
+  // the light falling off toward the terminator; the sea stays dark and the land carries the frame
+  float fall = sqrt(clamp((mu + 0.03) / 0.33, 0.0, 1.0));
+  float sea = min(0.3 + 3.9 * fall, 4.2);
+  float ls = clamp(0.9 + 5.4 * fall * (0.82 + 0.18 * clamp(cosi * 3.0, 0.0, 1.0)) + (m.g - 0.45) * 1.6, 0.0, 7.0);
+  float ramp = ${Ramp.OPEN_SEA}.0;
+  float st = spStep(sea, dsk);
+  if (mu < -0.03) {
+    // the night side: everything falls to the dark rows
+    ramp = ${Ramp.INK}.0;
+    st = 1.0;
+    if (ice) { ramp = ${Ramp.GREY}.0; st = 2.0; }
+    else if (land) st = clamp(floor(m.g * 1.2 + 3.2 + bx * 0.6), 0.0, 7.0);
+  }
+  else if (ice) { ramp = ${Ramp.WHITE}.0; st = spStep(clamp((ls - 1.6) * 1.2, 0.0, 7.0), dsk); }
+  else if (dry) { ramp = ${Ramp.DRY_LAND}.0; st = spStep(ls, dsk); }
+  else if (land) { ramp = ${Ramp.GREEN_GREY}.0; st = spStep(ls, dsk); }
+  // the terminator: a dithered veil of rose over what lies under it, strongest just on the night side of the line, gone by 6 degrees
+  float veil = pow(clamp(1.0 - abs(mu - 0.015) / (mu > 0.015 ? 0.075 : 0.105), 0.0, 1.0), 1.3);
+  if (veil * 0.92 + bx > 0.5) { ramp = ${Ramp.TWILIGHT}.0; st = spStep(clamp((mu + 0.105) / 0.165, 0.0, 1.0) * 6.2 + 0.4, dsk); }
+  // haze toward the limb, on the lit side
+  float grz = 1.0 - clamp(cosi, 0.0, 1.0);
+  grz *= grz;
+  grz *= grz * grz;
+  if (grz * clamp((mu + 0.05) / 0.3, 0.0, 1.0) + bx * 0.25 > 0.42) { ramp = ${Ramp.LIMB}.0; st = spStep(3.5 + 3.0 * clamp(mu * 2.0, 0.0, 1.0), dsk); }
+  if (!land && mu > 0.03) {
+    // the Sun on the water
+    float glk = clamp((dot(e + 2.0 * cosi * n, uEarthSun) - 0.9965) / 0.0035, 0.0, 1.0);
+    if (glk > 0.0) {
+      ramp = ${Ramp.OPEN_SEA}.0;
+      st = spStep(min(sea + glk * 3.6, 7.0), dsk);
+      if (spHash(floor(vec2(lat, lon) * 630.25)) < pow(glk, 2.2) * 0.5) { ramp = ${Ramp.GLOW_WHITE}.0; st = 5.0; }
+    }
+  }
+  if (land && mu < -0.035) {
+    // city lights: a texel scattered to single pixels by a hash on the ground, so a lit texel reads as points and never as a block (SKY.md: share x glow stays low on far surfaces)
+    // (their own, finer mip: a city is a texel, and averaged into the land around it at the map's mip it would fall under the threshold from 20,000 km up)
+    float la = textureLod(tEarthMap, vec2(lon / 6.28318531 + 0.5, 0.5 - lat / 3.14159265), max(uEarthView.x - 1.5, 0.0)).a;
+    float nl = la * la;
+    float want0 = clamp((nl - 0.17) * 3.4, 0.0, 1.0);
+    float want = pow(want0, 1.4) * uEarthView.z;
+    // a cell one to two pixels wide where this ray lands, in whole octaves, so it stays on the ground through a climb, and one pixel of it lights: a light is a pixel
+    float px = t * uEarthView.w;
+    float size = exp2(ceil(log2(px)));
+    vec2 q = vec2(lat, lon) * 57.2957795 / size;
+    vec2 cell = floor(q);
+    if (want0 > 0.25 && bx > 0.1 && uEarthView.z < 0.9) { ramp = ${Ramp.LAMP}.0; st = 1.0; }
+    if (spHash(cell) < want && all(lessThan(q - cell, vec2(px / size)))) { ramp = ${Ramp.LAMP}.0; st = clamp(floor(3.2 + 7.0 * want0 * (0.55 + 0.45 * spHash(cell + vec2(7.0, 0.0)))), 2.0, 7.0); }
+  }
+  col = pal(ramp, st);
+  return true;
+}
+
+bool spaceMoon(vec3 dir, float dsk, out vec3 col) {
+  vec3 d = dir * uMoonRot;
+  float b = dot(uMoonO.xyz, d), c = uMoonO.w;
+  if (b >= 0.0) return false;
+  float D = b * b - c;
+  if (D <= 0.0) return false;
+  vec3 n = normalize(uMoonO.xyz + d * (c / (-b + sqrt(D))));
+  float t = textureLod(tMoonMap, vec2(atan(n.y, n.x) / 6.28318531 + 0.5, 0.5 - asin(clamp(n.z, -1.0, 1.0)) / 3.14159265), uMoonLod).r;
+  float mu = dot(n, uMoonSun);
+  if (mu <= 0.0) {
+    // earthshine, one or two steps over the dark: none on the far side
+    col = pal(${Ramp.MOON}.0, spStep(max(dot(n, uMoonEarth.xyz), 0.0) * uMoonEarth.w * (0.5 + 0.5 * t) + 0.25, dsk));
+    return true;
+  }
+  // lunar-Lambert: flat at full, falling only near the terminator
+  float ls = min(2.0 * mu / (mu - dot(n, d) + 0.001), 1.05);
+  col = pal(${Ramp.MOON}.0, spStep((0.35 + 0.65 * t) * ls * 7.0, dsk));
+  return true;
+}
+
+// The sky at this pixel, nearest first. Stars and sky lines are in the G-buffer with flags 0, so a pixel of theirs is still sky, and the bodies cover them for one fetch.
+vec3 spaceSky(ivec2 p, vec3 dir, float dsk) {
+  vec3 c;
+  if (uMoonFirst > 0.5) {
+    if (spaceMoon(dir, dsk, c) || spaceEarth(dir, dsk, c)) return c;
+  } else if (spaceEarth(dir, dsk, c) || spaceMoon(dir, dsk, c)) return c;
+  float s = dot(dir, uSunDisc.xyz);
+  if (s > uSunRing) return pal(s > uSunDisc.w ? ${Ramp.GLOW_WHITE}.0 : ${Ramp.SKY_WARM}.0, 7.0);
+  uint g = texelFetch(tG, p, 0).r;
+  if ((g & 255u) != 0u) return pal(float(g & 255u), float(g >> 8u));
+  return pal(${Ramp.NIGHT_SKY}.0, 1.0);
 }
 `;

@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { config } from '../config';
 import { globals, GLSL_G_READ, GLSL_LAYER_TOP, GLSL_SKY_LIGHT, SHADOW_LAYER } from './materials';
 import { HUE_RAMPS, makePaletteTexture, Ramp } from './palette';
-import { held, heldHour, heldOr } from '../sky/flag';
-import { GLSL_SKY_HELD, GLSL_SKY_HELD_UNIFORMS, heldResolveUniforms } from './skyResolve';
+import { held, heldHour, heldOr, moonrun, space } from '../sky/flag';
+import { GLSL_SKY_HELD, GLSL_SKY_HELD_UNIFORMS, GLSL_SPACE, GLSL_SPACE_UNIFORMS, heldResolveUniforms, spaceResolveUniforms } from './skyResolve';
 import type { WarmPipeline } from './warmup';
 
 // Low-res 3D pixel-art renderer.
@@ -191,6 +191,7 @@ export class PixelPipeline implements WarmPipeline {
         uFlash: { value: new THREE.Vector4() },
         uSkyCut: { value: this.skyCut },
         ...(heldHour ? heldResolveUniforms : {}),
+        ...(moonrun ? spaceResolveUniforms : {}),
       },
       vertexShader: QUAD_VS,
       fragmentShader: RESOLVE_FS,
@@ -829,7 +830,7 @@ uniform vec4 uHeroShadow;     // hero drop shadow: center xz, underside y (m), r
 uniform vec4 uHeroShadowAxes; // ...its oval: forward axis xz, half length, half width (m)
 uniform vec4 uHeroCircle;     // the charge's pinwheel around it: charge (0 = off), spin (arms), half length, half width (m)
 uniform vec4 uFlash;     // impact flash: buffer uv, strength, white-hot radius (fraction of the height)
-uniform float uSkyCut;   // depth at and past which geometry still turns to sky (over 1: never)${held(GLSL_SKY_HELD_UNIFORMS)}
+uniform float uSkyCut;   // depth at and past which geometry still turns to sky (over 1: never)${held(GLSL_SKY_HELD_UNIFORMS)}${space(GLSL_SPACE_UNIFORMS)}
 in vec2 vUv;
 layout(location = 0) out vec4 outColor;
 ${GLSL_LAYER_TOP}
@@ -953,7 +954,7 @@ vec3 haloTint(vec3 c) {
   vec3 w = texelFetch(tPalette, ivec2(7, ${Ramp.GLOW_WHITE}), 0).rgb;
   if (dot(normalize(c + 1e-4), normalize(w)) > best + 0.02) bc = w;
   return bc;
-}${held(GLSL_SKY_HELD)}
+}${held(GLSL_SKY_HELD)}${space(GLSL_SPACE)}
 
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
@@ -982,7 +983,17 @@ void main() {
   // The sky is what nothing wrote: every sbWrite has flags >= 0.5, the clear is 0. A depth can't say that: with the near plane
   // at 1.5 m, z >= 0.99999 is a distance, 25 km at a 30 km far plane, 29 km at 36 km. uSkyCut keeps that distance while the far
   // fade stands at 20 km, so frames don't change; setFar() takes it away.
-  if (a.a == 0.0 || z >= uSkyCut) {${held(`
+  if (a.a == 0.0 || z >= uSkyCut) {${space(`
+    {
+      // (out in space the sky is GLSL_SPACE: bodies, the Sun, stars; what the bus glows still lands on it)
+      vec3 sc = spaceSky(p, dir, dsk);
+      vec3 halo = texture(tGlow, vUv).rgb;
+      float hAmt = max(halo.r, max(halo.g, halo.b));
+      float skyA = 0.0;
+      if (hAmt > 0.1 && hAmt > d2 * 1.1) { sc = haloTint(halo / hAmt); skyA = 1.0; }
+      outColor = vec4(sc, skyA);
+      return;
+    }`)}${held(`
     vec3 sc;
     if (uSkyRows.x >= 0.0) sc = skyBands(dir, dsk);
     else {`)}

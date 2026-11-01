@@ -13,3 +13,12 @@ export const held = (glsl: string): string => (heldHour ? glsl : '');
 
 /** One word of GLSL or the other: a number that becomes a uniform under the hour, say. */
 export const heldOr = (glsl: string, day: string): string => (heldHour ? glsl : day);
+
+/**
+ * ?moonrun: the test flight of MOONSHOT.md, stop 1. Space only: no city, the real pipeline and resolve, the real sky. The same law as the held hour: flag off, no fetch and no shader
+ * byte differs. Its module (src/sky/moonrun.ts) is a chunk of its own, and index.html starts no city downloads under it.
+ */
+export const moonrun = typeof location !== 'undefined' && new URLSearchParams(location.search).has('moonrun');
+
+/** GLSL only ?moonrun compiles. */
+export const space = (glsl: string): string => (moonrun ? glsl : '');

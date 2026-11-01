@@ -34,7 +34,7 @@ import { SuperSplat } from './game/SuperSplat';
 import { SuperFx } from './fx/SuperFx';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
-import { heldHour } from './sky/flag';
+import { heldHour, moonrun } from './sky/flag';
 import { HeldHour } from './sky/HeldHour';
 
 // Struggle Bus — Phase 1 (real SF, solo).
@@ -1456,7 +1456,14 @@ async function boot() {
   }
 }
 
-boot().catch((e) => {
+/** ?moonrun's boot: space only. (The targets now, as boot() does: the warm-up's post passes must find a G-buffer however long the chunk takes to land.) */
+async function bootSpace() {
+  pipeline.checkTargets();
+  const { bootMoonrun } = await import('./sky/moonrun');
+  await bootMoonrun({ pipeline, scene, warm });
+}
+
+(moonrun ? bootSpace() : boot()).catch((e) => {
   console.error(e);
   document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;inset:auto 0 0 0;color:#fff;font:12px monospace;padding:12px;background:#0008">${String(e)}</pre>`);
 });
