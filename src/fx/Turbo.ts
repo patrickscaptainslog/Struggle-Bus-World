@@ -112,7 +112,7 @@ export class TurboLens {
     // cancel part of the follow springs' lag (all of it from G2 on): position spring 2 zeta / omega, look 1/6 s
     const lead = clamp(T.camLead * Math.min(this.k, 1) + (1 - T.camLead) * clamp((this.k - 1) / 1.5, 0, 1), 0, 1);
     const lagT = (2 * C.followDamping) / (2 * Math.PI * Math.max(0.05, C.followHz));
-    const vx = f.fx * f.speed, vz = f.fz * f.speed;
+    const vx = f.fx * f.ground, vz = f.fz * f.ground;
     // (a gear's climb is fast too: the vertical lag goes with the climb rate, or the camera ends up under the bus)
     const leadV = Math.max(lead, clamp((Math.abs(f.vy) - 30) / 120, 0, 1));
     rig.turboLead.set(vx * lead, f.vy * leadV, vz * lead).multiplyScalar(lagT);
@@ -168,6 +168,7 @@ export class TurboFx {
   private readonly tmp = new THREE.Vector3();
   private readonly tmp2 = new THREE.Vector3();
   private readonly vel = new THREE.Vector3();
+  private readonly vel2 = new THREE.Vector3();
   private readonly tailLocal: THREE.Vector3;
   private readonly noseLocal: THREE.Vector3;
   private readonly exhaustLocal: THREE.Vector3;
@@ -540,7 +541,7 @@ export class TurboFx {
       U.uBox.value = X.lineBox;
       U.uLen.value = X.lineBlur;
       U.uPix.value = pixelK * X.linePx;
-      this.vel.set(f.fx * f.speed, f.vy, f.fz * f.speed);
+      f.velocity(this.vel);
       U.uVel.value.copy(this.vel);
       U.uCenter.value.copy(camera.position).lerp(bus.position, 0.55).addScaledVector(this.vel, 0.08);
     }
@@ -598,7 +599,7 @@ export class TurboFx {
         const open = 1 - (1 - t) * (1 - t) * (1 - t);
         this.hoop.scale.setScalar(X.hoopR0 + (X.hoopR1 - X.hoopR0) * open);
         bus.localToWorld(this.tmp2.copy(this.noseLocal));
-        this.hoop.position.set(this.tmp2.x - f.fx * X.hoopBack * t * t, this.tmp2.y, this.tmp2.z - f.fz * X.hoopBack * t * t);
+        this.hoop.position.copy(this.tmp2).addScaledVector(f.velocity(this.vel).normalize(), -X.hoopBack * t * t);
         this.hoop.quaternion.copy(bus.quaternion);
       }
     }
@@ -703,12 +704,14 @@ export class TurboFx {
   private vaporRing(bus: THREE.Object3D, f: Flight) {
     bus.localToWorld(this.tmp.copy(this.noseLocal));
     const fx = f.fx, fz = f.fz;
-    // ring plane: the bus's right (-fz, fx) and up
+    // ring plane: the bus's right (-fz, 0, fx) and the path's up (right x path)
+    const dir = f.velocity(this.vel2).normalize();
+    const ux = -fx * dir.y, uy = fz * dir.z + fx * dir.x, uz = -fz * dir.y;
     for (let i = 0; i < 30; i++) {
       const a = (i / 30) * Math.PI * 2;
       const cr = Math.cos(a), sr = Math.sin(a);
       const out = 16 + Math.random() * 8;
-      this.vel.set(-fz * cr * out - fx * 10, sr * out, fx * cr * out - fz * 10);
+      this.vel.set(-fz * cr * out + ux * sr * out - dir.x * 10, uy * sr * out - dir.y * 10, fx * cr * out + uz * sr * out - dir.z * 10);
       this.tmp2.copy(this.tmp).addScaledVector(this.vel, 0.08);
       this.particles.puff(this.tmp2, this.vel, i % 2 === 0 ? Ramp.FOG : HUE_RAMPS[(i >> 1) % 6]);
     }

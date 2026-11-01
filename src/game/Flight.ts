@@ -16,6 +16,12 @@ const ss = (a: number, b: number, x: number) => {
 // automatic floor underneath is the classic model, untouched: released at the
 // bottom, the bus skims rooftops exactly as it always did.
 //
+// The path: on any dive, and on a pull with a gear or the boost, the speed goes
+// where the nose points. `speed` is then the speed along the way the bus is
+// going, `nose` is that way's angle, and what the climb or the dive leaves goes
+// over the ground (`ground`). Whatever limits the climb or the dive turns the
+// nose, so the flare is a swoop and the ceiling a level-off (docs/specs/flight/NOSE.md).
+//
 // heading: compass radians (0 = north = -Z, +pi/2 = east = +X).
 
 export interface WorldQuery {
@@ -38,6 +44,9 @@ export interface FlightInput {
 
 /** How far under a deck's underside the floor stops (m). */
 const DECK_GAP = 8;
+const DEG = Math.PI / 180;
+/** Under this the path counts as level (rad): nothing asking for it any more, it hands back to the classic branches here. */
+const NOSE_LEVEL = 2 * DEG;
 
 const enum Yoke {
   /** released at the floor: automatic rooftop skimming, exactly the classic model */
@@ -55,6 +64,8 @@ export class Flight {
   heading = 0;
   speed = config.flight.cruiseSpeed;
   vy = 0;
+  /** the way the bus is going (rad, + up): on the path it flies the bus; off it, it follows where the bus really goes */
+  nose = 0;
   yawRate = 0;
   private yawAcc = 0; // spring velocity of yawRate
   bank = 0;
@@ -100,6 +111,10 @@ export class Flight {
   }
   private t = 0;
   private vyYoke = 0;
+  /** on the path: `speed` is along it and `nose` steers it */
+  private onPath = false;
+  /** the path's own vertical speed (m/s): the rest of `speed` goes over the ground (a floor lifting the bus takes nothing from it) */
+  private pathVy = 0;
   private floorSmooth = 60;
   /** the rooftop floor the vertical spring chases: rises eased (no lurch at every roof edge), falls at once */
   private floorRise = NaN;
@@ -115,9 +130,8 @@ export class Flight {
     floor: -Infinity,
     /** the soft ceiling while a high gear is in (m ASL; 0 = config.flight.ceiling) */
     ceiling: 0,
-    /** steering authority and the yoke's climb / dive rates (x) */
+    /** steering authority (x) */
     yaw: 1,
-    climb: 1,
   };
 
   get fx() {
@@ -125,6 +139,15 @@ export class Flight {
   }
   get fz() {
     return -Math.cos(this.heading);
+  }
+  /** The speed over the ground (m/s): all of `speed`, but on the path only what the climb or the dive leaves of it. */
+  get ground(): number {
+    return this.onPath ? Math.sqrt(Math.max(this.speed * this.speed - this.pathVy * this.pathVy, 0)) : this.speed;
+  }
+  /** The bus's true velocity (m/s) into `out`. */
+  velocity<T extends { set(x: number, y: number, z: number): T }>(out: T): T {
+    const g = this.ground;
+    return out.set(this.fx * g, this.vy, this.fz * g);
   }
 
   /** Returns true if a barf started. */
@@ -185,6 +208,15 @@ export class Flight {
     targetSpeed *= 1 - 0.12 * heavy;
     targetSpeed *= 1 + (S.reliefBoost - 1) * reliefK * reliefK;
     const Tb = this.turbo;
+    // the way the stick asks for, on the path; and the plain pull is a path too (this rate up, targetSpeed forward): a pull with
+    // nothing driving it flies that one there, so the boost let go comes down to the plain climb's numbers, with nothing jumping
+    const noseUp = Math.min(F.noseUp, 89) * DEG, noseDown = Math.min(F.noseDown, 89) * DEG;
+    let noseWant = pull > 0 ? noseUp * Math.pow(pull, F.noseCurve) : push > 0 ? -noseDown * Math.pow(push, F.noseCurve) : 0;
+    const plainRate = F.climbRateMin + (F.climbRate - F.climbRateMin) * Math.pow(pull, F.climbCurve);
+    if (this.onPath && pull > 0 && Tb.speed <= 0) {
+      noseWant = Math.atan2(plainRate, targetSpeed);
+      targetSpeed = Math.hypot(plainRate, targetSpeed);
+    }
     if (Tb.speed > 0) targetSpeed = Math.max(targetSpeed, Tb.speed);
     // (a jet breathing fire barely flinches: the recoil stall is the classic bus's)
     const jet = Tb.speed > F.surgeSpeed;
@@ -192,6 +224,8 @@ export class Flight {
     // (the super splat's weight, recoil and limp are the classic bus's too: a gear drives through all three)
     const scaled = !this.driven && this.speedScale < 0.98;
     if (!this.driven) targetSpeed *= this.speedScale;
+    // (letting go arcs the bus level with its speed kept: the classic chase takes it from there)
+    if (this.onPath && pull === 0 && push === 0 && !this.driven && !this.barfing && !scaled) targetSpeed = Math.max(targetSpeed, this.speed);
     const sk = (this.barfing && !jet) || scaled ? 6 : Tb.rate > 0 ? Tb.rate : F.speedHz * 2.2;
     this.speed += (targetSpeed - this.speed) * (1 - Math.exp(-sk * dt));
 
@@ -210,10 +244,12 @@ export class Flight {
     this.heading += this.yawRate * dt;
 
     // ---- move
-    this.x += this.fx * this.speed * dt;
-    this.z += this.fz * this.speed * dt;
+    const ground = this.ground;
+    this.x += this.fx * ground * dt;
+    this.z += this.fz * ground * dt;
 
     // ---- altitude: look ahead along the path, rise early, hang after crests
+    // (`speed`, not `ground`: a swoop turns all of it forward, and the floor must already know what lies out there)
     const look = F.altitudeLookAhead;
     let top = -1e9;
     for (let i = 0; i <= 6; i++) {
@@ -259,12 +295,49 @@ export class Flight {
 
     const kYoke = 1 - Math.exp(-F.yokeResponse * dt);
     let strain = 0;
-    if (pull > 0 && ceil > floor + 2) {
+    // (a pull-out takes about the same time at any speed)
+    const flare = Math.max(F.diveFlare, this.speed / Math.max(0.1, F.diveFlareT));
+    const climbing = pull > 0 && ceil > floor + 2;
+    const diving = push > 0 && this.holdY > -1e8 && this.y > floor + 0.5;
+    const wantPath = (climbing && Tb.speed > 0) || diving;
+    if (wantPath && !this.onPath) {
+      // on to the path, from the way the bus is actually going: nothing jumps
+      this.nose = Math.atan2(this.vy, this.speed);
+      this.speed = Math.hypot(this.speed, this.vy);
+      this.pathVy = this.vy;
+      this.onPath = true;
+    } else if (this.onPath && !wantPath && (Math.abs(this.nose) < NOSE_LEVEL || (this.nose < 0 && this.y <= floor + 0.5))) {
+      // level again, or down at the floor: the classic branches take over with the motion it has
+      this.speed = this.ground;
+      this.vyYoke = this.vy;
+      this.holdY = this.y - belly;
+      this.onPath = false;
+    }
+    if (this.onPath) {
+      // ---- the path: the speed goes where the nose points. The nose is the only lag, so nothing lurches forward on the way
+      this.nose += (noseWant - this.nose) * (1 - Math.exp(-F.noseRate * dt));
+      const soft = Math.max(F.ceilingSoft, this.speed * F.ceilingSoftT);
+      const room = clamp((ceil - this.y) / Math.max(1, soft), 0, 1);
+      strain = pull * (1 - room) * (1 - room);
+      const free = this.speed * Math.sin(this.nose);
+      // flaring out above the floor, levelling off under the ceiling or a deck (that one wins: it can't be flown through)
+      const top = this.y > ceil ? -(this.y - ceil) * 0.8 : this.speed * Math.pow(room, 0.65);
+      const vy = Math.min(Math.max(free, -Math.sqrt(2 * flare * Math.max(0, this.y - floor))), top);
+      // (the limit turns the nose: the bus is really going that way now, and when it lifts the nose comes back at its own pace)
+      if (vy !== free) this.nose = Math.asin(clamp(vy / Math.max(this.speed, 1e-3), -1, 1));
+      const was = this.vy;
+      this.pathVy = this.vy = vy;
+      if (floor > this.y) this.vy = Math.max(vy, vyFloor(was));
+      this.vyYoke = this.vy;
+      this.holdY = this.y - belly;
+      this.mode = this.nose >= 0 ? Yoke.Climb : Yoke.Dive;
+      this.targetY = this.nose >= 0 ? Math.max(floor, ceil) : floor;
+    } else if (climbing) {
       // ---- climb: harder pull = faster climb, fading into a struggle near the ceiling
       this.mode = Yoke.Climb;
       const room = clamp((ceil - this.y) / Math.max(1, F.ceilingSoft), 0, 1);
       strain = pull * (1 - room) * (1 - room);
-      let rate = (F.climbRateMin + (F.climbRate - F.climbRateMin) * Math.pow(pull, F.climbCurve)) * Math.pow(room, 0.65) * Tb.climb;
+      let rate = plainRate * Math.pow(room, 0.65);
       // the old engine sputters as the air thins: lurch, stall, lurch
       rate *= 1 - 0.55 * strain * (0.5 + 0.5 * Math.sin(this.t * Math.PI * 2 * 1.4));
       if (this.y > ceil) rate = -(this.y - ceil) * 0.8;
@@ -273,15 +346,6 @@ export class Flight {
       if (floor > this.y) this.vy = Math.max(this.vy, vyFloor(this.vy));
       this.holdY = this.y - belly;
       this.targetY = Math.max(floor, ceil);
-    } else if (push > 0 && this.holdY > -1e8 && this.y > floor + 0.5) {
-      // ---- dive: nose down toward the floor, fast, flaring out so it never digs into the roofs
-      this.mode = Yoke.Dive;
-      let rate = -F.diveRate * Math.pow(push, 1.2) * Tb.climb;
-      rate = Math.max(rate, -Math.sqrt(2 * F.diveFlare * Math.max(0, this.y - floor)));
-      this.vyYoke += (rate - this.vyYoke) * kYoke;
-      this.vy = Math.max(this.vyYoke, -Math.sqrt(2 * F.diveFlare * Math.max(0, this.y - floor)) - 1);
-      this.holdY = this.y - belly;
-      this.targetY = floor;
     } else {
       if (this.mode === Yoke.Climb || this.mode === Yoke.Dive) {
         // released: coast to a stop (critically damped, no bounce back) and hold there
@@ -306,7 +370,7 @@ export class Flight {
         this.mode = Yoke.Floor;
         this.vy = vyFloor(this.vy);
         // (a dive released right above the roofs still flares out; the classic sink never gets this fast)
-        if (this.vy < -F.maxSink) this.vy = Math.max(this.vy, -Math.sqrt(2 * F.diveFlare * Math.max(0, this.y - floor)) - F.maxSink);
+        if (this.vy < -F.maxSink) this.vy = Math.max(this.vy, -Math.sqrt(2 * flare * Math.max(0, this.y - floor)) - F.maxSink);
         this.targetY = floor;
       }
       this.vyYoke = this.vy;
@@ -332,17 +396,23 @@ export class Flight {
     this.groundBroad = Number.isNaN(this.groundBroad) ? gb : this.groundBroad + (gb - this.groundBroad) * (1 - Math.exp(-0.5 * dt));
     this.height = Math.max(0, this.y - this.groundBroad);
 
+    if (!this.onPath) this.nose = Math.atan2(this.vy, this.speed);
+
     // ---- bank & pitch (visual)
     // bank: proportional to the carve, bounded (tanh), so the stretch you hold shows on the bus
-    const lateral = this.speed * this.yawRate;
+    const lateral = this.ground * this.yawRate;
     const mb = Math.max(0.05, F.maxBank);
     let bankTarget = mb * Math.tanh((lateral * F.bankPerAccel + this.yawRate * F.bankPerYaw) / mb);
     // (the full-belly wallow fades as the carve takes over, so a gentle nudge still reads as a nudge)
     bankTarget += Math.sin(this.t * Math.PI * 2 * F.wallowHz) * F.wallowAmp * wallowK * (1 - Math.abs(bankTarget) / mb);
     [this.bank, this.bankVel] = spring(this.bank, this.bankVel, bankTarget, F.bankHz, F.bankDamping, dt);
-    // pitch follows the climb (floored at 24 m/s: a slow bus mustn't stand on its nose); breathing rainbow,
-    // the bus rears back like a dragon on an authored envelope (its own lift during the breath adds nothing)
-    const climb = clamp(Math.atan2(this.vy, Math.max(this.speed, 24)) * 0.8, -0.35, 0.4);
+    // pitch follows the climb gently (floored at 24 m/s: a roof or a hill mustn't stand a slow bus on its nose), but on the yoke it
+    // shows the way the bus is really going: all of it on the path, and on the plain pull as much as the stick is held. Breathing
+    // rainbow, the bus rears back like a dragon on an authored envelope (its own lift during the breath adds nothing)
+    const gentle = clamp(Math.atan2(this.vy, Math.max(this.speed, 24)) * 0.8, -0.35, 0.4);
+    const yoke = this.onPath ? 1 : this.mode === Yoke.Climb ? ss(0.1, 0.9, pull) : 0;
+    const pitchMax = F.pitchMax * DEG;
+    const climb = gentle + (clamp(this.nose, -pitchMax, pitchMax) - gentle) * yoke;
     const rear = this.barfing ? S.rearUp * ss(0, 0.1, this.barfT) * (1 - ss(0.6, S.duration, this.barfT)) : 0;
     const pitchTarget = (this.barfing ? Math.min(climb, 0.06) : climb) + rear;
     this.pitch += (pitchTarget - this.pitch) * (1 - Math.exp(-(this.barfing ? 10 : 5) * dt));
@@ -354,7 +424,7 @@ export class Flight {
     const limit = this.y + F.avoidTallerThan;
     for (const side of [-1, 1]) {
       for (let i = 1; i <= 3; i++) {
-        const d = i * Math.max(25, this.speed * 0.6);
+        const d = i * Math.max(25, this.ground * 0.6);
         const ang = this.heading + side * 0.35;
         const px = this.x + Math.sin(ang) * d;
         const pz = this.z - Math.cos(ang) * d;
@@ -376,7 +446,7 @@ export class Flight {
       return (world.overheadAt!(x, z, this.y) !== Infinity || world.solidAt?.(x, z) === true) && world.obstacleAt(x, z, this.y) > wall;
     };
     for (let i = 1; i <= 3; i++) {
-      const d = i * Math.max(25, this.speed * 0.6);
+      const d = i * Math.max(25, this.ground * 0.6);
       if (!ahead(0, d)) continue;
       const left = ahead(-0.35, d), right = ahead(0.35, d);
       // (both ways shut, or both open: on with the turn it is in)
