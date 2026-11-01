@@ -84,9 +84,13 @@ CLASS_FIT[ROOF] = -0.08;
 CLASS_FIT[TREE] = -0.1;
 CLASS_FIT[ICE] = 0;
 CLASS_FIT[ROCK_BARE] = 0;
-/** The same for a far box's roof and walls: a merged box shows more wall and less street than the houses it stands for, so together they read as too hard. */
+/**
+ * The same for a far box's roof and walls: a merged box shows more wall and less street than the houses it stands for, so together they read as too hard.
+ * A wall in the sun already met the near walls (Sunset, looking east: 0.003 of lo); one in the shade was 0.11-0.13 under them, so the wall's lift goes
+ * with how far it stands out of the sun, live.
+ */
 const FIT_ROOF = -0.1;
-const FIT_WALL = 0.08;
+const FIT_WALL = 0.14;
 
 const glslFloats = (a: number[]) => a.map((v) => v.toFixed(3)).join(', ');
 const CLASS_N = CLASS_RAMP.length;
@@ -242,7 +246,7 @@ const BLOCK_VS = /* glsl */ `
       int bits = int(aTone.z * 255.0 + 0.5);
       // (the near walls' "each house a slightly different grey", per box: the raster's wall tone is a 64 m mean, which alone lands every wall
       // on one side of a ramp step where the real ones straddle it)
-      lo = ${WALL_LO.toFixed(3)} + (aTone.y - 0.5) * ${WALL_K.toFixed(3)} + (float(bits >> 4) / 15.0 - 0.5) * 0.12 + ${FIT_WALL.toFixed(3)} * uFit;
+      lo = ${WALL_LO.toFixed(3)} + (aTone.y - 0.5) * ${WALL_K.toFixed(3)} + (float(bits >> 4) / 15.0 - 0.5) * 0.12 + ${FIT_WALL.toFixed(3)} * uFit * (1.0 - max(dot(n, uSunDir), 0.0));
       int bit = normal.x > 0.5 ? (s.x > 0.0 ? 1 : 2) : (s.y > 0.0 ? 4 : 8);
       if ((bits & bit) != 0 && aTone.w < uBlockLit) vLit = 1.0;
     }
@@ -343,7 +347,7 @@ const FAM_RAMP: Record<number, number> = {
 };
 /** A family's wall in the mean: its base lo with its windows gone into it. */
 const FAM_LO: Record<number, number> = {
-  [Fam.NONE]: -0.14, [Fam.GLASS]: 0.15, [Fam.MASONRY]: -0.085, [Fam.BANDS]: -0.075, [Fam.FINS]: -0.03, [Fam.GRANITE]: 0.04, [Fam.PRECAST]: -0.055,
+  [Fam.NONE]: -0.115, [Fam.GLASS]: 0.18, [Fam.MASONRY]: -0.075, [Fam.BANDS]: -0.05, [Fam.FINS]: -0.06, [Fam.GRANITE]: 0.07, [Fam.PRECAST]: -0.09,
 };
 
 /** The boxes' looks, three floats a box: ramp, lo, family. `sf`: the icons table applies (styleFor's rule). */
