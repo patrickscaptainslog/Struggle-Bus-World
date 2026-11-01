@@ -568,11 +568,12 @@ export class City {
   /** ?farblocks: every building as a merged box past the streaming edge, built off the main thread (farBlocks.ts). */
   private startFarBlocks(r: FarRaster) {
     const f = this.far!;
-    const chunk = Number(new URLSearchParams(location.search).get('farchunk')) || FAR_CHUNK_TILES;
+    const q = new URLSearchParams(location.search);
+    const chunk = Number(q.get('farchunk')) || FAR_CHUNK_TILES;
     this.farChunkM = chunk * this.manifest.tileSize;
     const req: FarBlocksRequest = {
       W: r.W, H: r.H, a: r.affine[0], c: r.affine[2], e: r.affine[4], f: r.affine[5],
-      tileCells: Math.round(this.manifest.tileSize / r.cellM), chunkTiles: chunk, topStep: FAR_TOP_STEP,
+      tileCells: Math.round(this.manifest.tileSize / r.cellM), chunkTiles: chunk, topStep: Number(q.get('fartop')) || FAR_TOP_STEP,
       seed: Math.round(Math.abs(this.manifest.origin[0] * 1000 + this.manifest.origin[1])),
       // (copies: these are views of the whole inflated file)
       cls: r.cls.slice(), height: r.height.slice(), tone: r.tone.slice(), wallTone: r.wallTone.slice(),

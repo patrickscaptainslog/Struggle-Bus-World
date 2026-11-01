@@ -14,6 +14,7 @@
 // --seq (with --det): five more frames after each view's shot, one fixed step apart (<name>-seq-0.png is the shot itself, then 1..5): a
 // burst from the same camera on any build, so tools/far/bandflip.py's crawl can be compared between two builds.
 // --pan (with --det): and a turn, 0.6 s into a held stick, six frames a fixed step apart (<name>-pan-0.png .. 5).
+// --set=far.blockEnd:5000,far.blockSink:4000 (with --det): config values, from the first frame.
 // --descent (with --det): and the full dive from there to the rooftops: a frame every half second of game time (<name>-descent-00.png ...), and a
 // six-frame burst 3 s in (<name>-dive-0.png .. 5), for the crawl on the way down.
 // hold-sunset, hold-presidio, hold-downtown (with --det, by name): SPIKE.md's hold-still swap. Nothing loads past the start on the way up (?loadr=1),
@@ -78,6 +79,14 @@ async function open(query) {
   }
   await page.goto(base + query, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000 });
+  if (opt.set)
+    await page.evaluate((list) => {
+      for (const kv of list.split(',')) {
+        const [path, v] = kv.split(':');
+        const ks = path.split('.');
+        ks.slice(0, -1).reduce((a, k) => a[k], window.__game.config)[ks[ks.length - 1]] = Number(v);
+      }
+    }, opt.set);
   if (det) await settle(page);
   if (det)
     await page.evaluate(() => {

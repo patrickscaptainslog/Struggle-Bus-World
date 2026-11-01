@@ -58,20 +58,15 @@ def seqstat(pre, n=5):
     return round(float(np.mean(vals)), 2)
 
 
-pal_keys = None
+# tools/far/pal.py's tables, its script body left out
+_pal = {'__file__': os.path.join(HERE, 'pal.py')}
+exec(compile(open(_pal['__file__'], encoding='utf8').read().split('for path in sys.argv[1:]:')[0], 'pal', 'exec'), _pal)
 
 
 def palette(paths):
-    """Share on palette, brown px, over many shots, through tools/far/pal.py's tables."""
-    import numpy as np
-    src = open(os.path.join(HERE, 'pal.py'), encoding='utf8').read().split('for path in sys.argv[1:]:')[0]
-    g = {}
-    argv, sys.argv = sys.argv, ['pal']
-    exec(compile(src, 'pal', 'exec'), g)
-    sys.argv = argv
+    """Share on palette, brown px, over many shots."""
     from PIL import Image
-    keys, brown = g['keys'], np.array(sorted(g['brown_key']) or [-1])
-    grey = np.array(sorted(g['grey_light']))
+    keys, brown = _pal['keys'], np.array(sorted(_pal['brown_key']) or [-1])
     off = bro = total = 0
     for p in paths:
         a = np.asarray(Image.open(p).convert('RGB'))[1::3, 1::3].astype(np.int64)
@@ -84,12 +79,8 @@ def palette(paths):
 
 def bare(path):
     """GREY_LIGHT in rows 195-330 and its one-tone runs, % of the frame (tools/far/pal.py's measure)."""
-    src = open(os.path.join(HERE, 'pal.py'), encoding='utf8').read().split('for path in sys.argv[1:]:')[0]
-    g = {}
-    argv, sys.argv = sys.argv, ['pal']
-    exec(compile(src, 'pal', 'exec'), g)
-    sys.argv = argv
     from PIL import Image
+    g = _pal
     a = np.asarray(Image.open(path).convert('RGB'))[1::3, 1::3].astype(np.int64)
     k = (a[..., 0] << 16) | (a[..., 1] << 8) | a[..., 2]
     band = k[195:330]
