@@ -26,7 +26,7 @@
   "start": {
     "lat": 37.815,
     "lon": -122.4945,
-    "heading_deg": 95,
+    "heading_deg": 100,
     "speed": 55,
     "opening": "golden-gate"
   },
@@ -366,65 +366,273 @@
     },
     {
       "kind": "ggb",
-      "lat": 37.8108,
-      "lon": -122.4775,
+      "lat": 37.8140145,
+      "lon": -122.4778912,
       "height": 227,
       "points": [
         [
-          37.80772,
-          -122.47716
+          37.8094147,
+          -122.4773582
         ],
         [
-          37.8108,
-          -122.4775
+          37.8140145,
+          -122.4778912
         ],
         [
-          37.82229,
-          -122.47877
+          37.8255027,
+          -122.4792335
         ],
         [
-          37.82537,
-          -122.48011
+          37.8290834,
+          -122.4796568
         ]
       ],
-      "note": "south anchorage, south tower, north tower, north anchorage"
+      "deck": [
+        [
+          37.8080902,
+          -122.4765219,
+          57.3
+        ],
+        [
+          37.8083677,
+          -122.4767712,
+          58.1
+        ],
+        [
+          37.8086513,
+          -122.476989,
+          59.2
+        ],
+        [
+          37.8089296,
+          -122.4771533,
+          60.1
+        ],
+        [
+          37.8091979,
+          -122.4772894,
+          61.1
+        ],
+        [
+          37.8094147,
+          -122.4773582,
+          62.0
+        ],
+        [
+          37.8109511,
+          -122.477537,
+          66.5
+        ],
+        [
+          37.8140145,
+          -122.4778912,
+          75.5
+        ],
+        [
+          37.8197586,
+          -122.4785623,
+          77.0
+        ],
+        [
+          37.8255027,
+          -122.4792335,
+          75.5
+        ],
+        [
+          37.8290834,
+          -122.4796568,
+          75.0
+        ],
+        [
+          37.8308447,
+          -122.4798775,
+          75.0
+        ],
+        [
+          37.8311884,
+          -122.4799823,
+          75.0
+        ],
+        [
+          37.8315235,
+          -122.4801359,
+          74.9
+        ],
+        [
+          37.8318445,
+          -122.4803491,
+          74.8
+        ],
+        [
+          37.8323292,
+          -122.480722,
+          74.5
+        ]
+      ],
+      "supports": [
+        [
+          37.8099396,
+          -122.4774056,
+          35.0,
+          10.1
+        ],
+        [
+          37.8109562,
+          -122.4775174,
+          35.4,
+          10.1
+        ],
+        [
+          37.8300559,
+          -122.4797787,
+          27.0,
+          4.6
+        ],
+        [
+          37.8305759,
+          -122.4798438,
+          27.0,
+          4.6
+        ],
+        [
+          37.8310007,
+          -122.4799251,
+          27.0,
+          4.6
+        ],
+        [
+          37.8314213,
+          -122.480089,
+          27.0,
+          4.6
+        ],
+        [
+          37.8318273,
+          -122.4803376,
+          27.0,
+          4.6
+        ]
+      ],
+      "note": "points, from OSM rows: south anchorage w1560010167, south tower w1329971884, north tower w1330832681, north anchorage w1560010149. deck (lat, lon, top m): the approach's end in the Presidio, on the two carriageways' middle (segments 23706 and 23699, not the West Sidewalk) to the south anchorage, through those four and mid span, along that middle's curve to Marin; tops from the LiDAR read on the carriageways, north of the north tower inferred. supports (lat, lon, across m, along m): Pylon S2 and S1, each pair from its rows; Pylon N1 and N2 stand at the two ends of the North Anchor's row, so its block carries them; the last five stand on the deck's line over the Marin Approach (r21407755), where the map holds no row, about 52 m apart, clear of the two paths under it"
     },
     {
       "kind": "baybridge",
-      "lat": 37.7985,
-      "lon": -122.3775,
+      "lat": 37.7981898,
+      "lon": -122.3778604,
       "height": 160,
       "points": [
         [
-          37.7868,
-          -122.3925
+          37.7883031,
+          -122.3884509
         ],
         [
-          37.791,
-          -122.3868
+          37.7907532,
+          -122.3858231
         ],
         [
-          37.7955,
-          -122.3818
+          37.795588,
+          -122.3806477
         ],
         [
-          37.7985,
-          -122.3775
+          37.7981898,
+          -122.3778604
         ],
         [
-          37.8017,
-          -122.3733
+          37.8007874,
+          -122.3750797
         ],
         [
-          37.8058,
-          -122.369
+          37.8056223,
+          -122.3698997
         ],
         [
-          37.8092,
-          -122.3657
+          37.8082017,
+          -122.3671356
         ]
       ],
-      "note": "Rincon anchorage, W1, W2, center anchorage, W3, W4, Yerba Buena anchorage"
+      "deck": [
+        [
+          37.7855211,
+          -122.391714,
+          29.1
+        ],
+        [
+          37.7858255,
+          -122.3912043,
+          32.5
+        ],
+        [
+          37.7861959,
+          -122.3907097,
+          36.1
+        ],
+        [
+          37.7863575,
+          -122.3905348,
+          37.5
+        ],
+        [
+          37.7883031,
+          -122.3884509,
+          54.5
+        ],
+        [
+          37.7907532,
+          -122.3858231,
+          64.8
+        ],
+        [
+          37.795588,
+          -122.3806477,
+          78.3
+        ],
+        [
+          37.7981898,
+          -122.3778604,
+          79.4
+        ],
+        [
+          37.8007874,
+          -122.3750797,
+          78.5
+        ],
+        [
+          37.8056223,
+          -122.3698997,
+          65.4
+        ],
+        [
+          37.8082017,
+          -122.3671356,
+          54.6
+        ],
+        [
+          37.8086136,
+          -122.3666943,
+          53.5
+        ]
+      ],
+      "supports": [
+        [
+          37.7869616,
+          -122.3898878,
+          22.0,
+          4.6
+        ],
+        [
+          37.7872774,
+          -122.3895496,
+          22.0,
+          4.6
+        ],
+        [
+          37.7875794,
+          -122.389226,
+          22.0,
+          4.6
+        ]
+      ],
+      "note": "points, from OSM rows: cable end w236373807, W2 w432712476, W3 w432712477, centre anchorage W4 w236374789, W5 w432712478, W6 w432712479, W7 w1136339259. deck (lat, lon, top m): the free end, on the two carriageways' middle 14 m past the kept ramps' end (segments 50920, 50933) where the hill stands over the road, W1 w1136339258 (the fourth vertex), those seven, the stub onto Yerba Buena; tops from the LiDAR, from the cable end west a free end's 6 % down to the ramps. supports (lat, lon, across m, along m): on the land stretch from W1 to the cable end, where the map holds no row, about 46 m apart, clear of the roads under it; none on its last 100 m, over a real building and Spear Street"
     }
   ],
   "dem_fallback": "/vsicurl/https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/current/n38w123/USGS_13_n38w123.tif",

@@ -236,12 +236,14 @@ async function boot() {
   };
   for (const lm of manifest.landmarks) {
     const pts = (lm as { points?: Array<[number, number]> }).points;
-    if (lm.kind === 'ggb' && pts) {
-      scene.add(makeGoldenGate(pts));
-      city.addObstacles(bridgeObstacles('ggb', pts));
-    } else if (lm.kind === 'baybridge' && pts) {
-      city.addObstacles(bridgeObstacles('baybridge', pts));
-      later.push(() => scene.add(makeBayBridgeWest(pts)));
+    const deck = lm.deck;
+    if (lm.kind === 'ggb' && pts && deck && lm.supports) {
+      scene.add(makeGoldenGate(pts, deck, lm.supports));
+      city.addObstacles(bridgeObstacles('ggb', pts, deck, lm.supports));
+    } else if (lm.kind === 'baybridge' && pts && deck && lm.supports) {
+      const { supports } = lm;
+      city.addObstacles(bridgeObstacles('baybridge', pts, deck, supports));
+      later.push(() => scene.add(makeBayBridgeWest(pts, deck, supports)));
     } else {
       // Sutro's legs / the pyramid: solid posts the flight model steers around
       city.addObstacles([{ x: lm.x, z: lm.z, r: lm.kind === 'sutro' ? 45 : 30, top: lm.y + lm.height + 5, under: -Infinity }]);
@@ -1030,6 +1032,8 @@ async function boot() {
     if (openingBridge && gateAlong < config.camera.openingClimbAfter) {
       if (sy < -0.5 && opening >= config.fog.openingDuration) controls.climbGated();
       sy = Math.max(0, sy);
+      // (and it glides level: the floor over the strait drops 19 m in each tile the data has, and the one under the deck ends just past it)
+      flight.turbo.floor = Math.max(flight.turbo.floor, config.camera.openingGlide);
     }
     // (nor can a gear lift it: a shift waits for the gate)
     controls.gearsLocked = !!openingBridge && gateAlong < config.camera.openingClimbAfter;

@@ -23,6 +23,10 @@ export interface WorldQuery {
   groundAt(x: number, z: number): number;
   /** Lowest underside of anything overhead (a bridge deck) above fromY, or Infinity. */
   overheadAt?(x: number, z: number, fromY: number): number;
+  /** What the hard floor stands on, if that differs from obstacleAt (a bridge's cable is the soft floor's alone). */
+  hardAt?(x: number, z: number, fromY: number): number;
+  /** Is this point inside a landmark post solid to the ground (a tower, an anchorage, a block)? */
+  solidAt?(x: number, z: number): boolean;
 }
 
 export interface FlightInput {
@@ -31,6 +35,9 @@ export interface FlightInput {
   sy: number;
   dragging: boolean;
 }
+
+/** How far under a deck's underside the floor stops (m). */
+const DECK_GAP = 8;
 
 const enum Yoke {
   /** released at the floor: automatic rooftop skimming, exactly the classic model */
@@ -227,15 +234,16 @@ export class Flight {
     const roofFloor = top + clearance;
     // the soft ceiling's input: anything overhead (a bridge deck)
     const over = world.overheadAt ? world.overheadAt(this.x, this.z, this.y) : Infinity;
-    // (a turbo gear's floor sits above the rooftops: the bus rides it like a higher roof, never into a deck)
-    const floor = Math.max(roofFloor, Math.min(Tb.floor, over - 8));
+    // (a turbo gear's floor sits above the rooftops: the bus rides it like a higher roof; nothing, not a gear and not a tower
+    // in the look-ahead, lifts it into a deck: what it can't climb under one, underDeck() steers it around)
+    const floor = Math.min(Math.max(roofFloor, Tb.floor), over - DECK_GAP);
     this.floorY = floor;
     // the vertical spring chases a floor whose rises are eased (a roof edge entering the look-ahead
     // steps it by whole storeys; chased raw, that kicked vy by up to 30 m/s in one frame); it falls at once
     if (Number.isNaN(this.floorRise) || floor <= this.floorRise || F.climbSmoothHz <= 0) this.floorRise = floor;
     else this.floorRise += (floor - this.floorRise) * (1 - Math.exp(-2 * Math.PI * F.climbSmoothHz * dt));
     const floorV = this.floorRise;
-    const hardFloor = this.obstacleUnder + 3.5;
+    const hardFloor = (world.hardAt ? world.hardAt(this.x, this.z, this.y) : this.obstacleUnder) + 3.5;
 
     // soft ceiling, lowered under a bridge deck so a climb never punches through it
     const ceil = Math.min(Tb.ceiling > F.ceiling ? Tb.ceiling : F.ceiling, over - 5);
@@ -305,6 +313,11 @@ export class Flight {
     }
     this.strain += (strain - this.strain) * (1 - Math.exp(-3 * dt));
     this.y += this.vy * dt;
+    // (the underside stops a bus rising fast as it flies in under a deck; only the ground can carry it up there)
+    if (this.y > over - 1) {
+      this.y = over - 1;
+      if (this.vy > 0) this.vy = 0;
+    }
     if (this.y < hardFloor) {
       this.y = hardFloor;
       if (this.vy < 0) this.vy = 0;
@@ -349,6 +362,26 @@ export class Flight {
         if (h > limit) push -= side * F.avoidStrength * (1 / i) * clamp((h - limit) / 40, 0, 1);
       }
     }
-    return push;
+    return push + this.underDeck(world);
+  }
+
+  /** Under a deck nothing can be climbed, so whatever stands up to it dead ahead is a wall: turn out for the clearer side. */
+  private underDeck(world: WorldQuery): number {
+    const over = world.overheadAt ? world.overheadAt(this.x, this.z, this.y) : Infinity;
+    if (over === Infinity) return 0;
+    const wall = over - DECK_GAP;
+    // (a wall stands under the deck, or is a solid post at its edge: past the edge the air is open, and the floor climbs whatever is there)
+    const ahead = (ang: number, d: number) => {
+      const x = this.x + Math.sin(this.heading + ang) * d, z = this.z - Math.cos(this.heading + ang) * d;
+      return (world.overheadAt!(x, z, this.y) !== Infinity || world.solidAt?.(x, z) === true) && world.obstacleAt(x, z, this.y) > wall;
+    };
+    for (let i = 1; i <= 3; i++) {
+      const d = i * Math.max(25, this.speed * 0.6);
+      if (!ahead(0, d)) continue;
+      const left = ahead(-0.35, d), right = ahead(0.35, d);
+      // (both ways shut, or both open: on with the turn it is in)
+      return (left !== right ? (left ? 1 : -1) : this.yawRate < 0 ? -1 : 1) * config.flight.avoidStrength;
+    }
+    return 0;
   }
 }

@@ -248,7 +248,7 @@ if (phase === 'gate') {
   // the bus glides under the Golden Gate deck: log until it is well past the bridge
   await run('false', 15);
   const rows = await page.evaluate(() => window.__alt.rows);
-  const under = rows.filter((r) => r.y < 57);
+  const under = rows.filter((r) => r.y < 66);
   report.minY = Math.min(...rows.map((r) => r.y));
   report.maxY = Math.max(...rows.map((r) => r.y));
   report.rowsUnderDeckAlt = under.length;
