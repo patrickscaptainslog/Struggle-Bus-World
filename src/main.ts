@@ -1172,10 +1172,11 @@ async function boot() {
     camFwd.y = 0;
     if (camFwd.lengthSq() < 1e-6) camFwd.set(flight.fx, 0, flight.fz);
     camFwd.normalize();
-    // the lens with the height: depth where the ground is, and the fade as far along it from any height
-    const lensFar = fadeOn ? fadeEnd(flight.height, FADE_END, city.landRoom(camera.position.x, camera.position.z)) : 0;
+    // the lens with the height: depth where the ground is, and the fade in force as far along it from any height
+    const lensFar = fadeEnd(flight.height, Fg.clearFarFull, city.landRoom(camera.position.x, camera.position.z));
     pipeline.setDepthRange(nearPlane(flight.height, camNear), fadeOn ? lensFar + FADE_FAR : camera.far);
-    if (fadeOn && !Fg.enabled) globals.uFog.value.z = lensFar;
+    if (!Fg.enabled) globals.uFog.value.z = lensFar;
+    rig.fadeBase = Fg.clearFarFull;
     const hk = clamp(flight.lift / 450, 0, 1);
     streamCenter.set(focus.x + camFwd.x * 950 * hk, focus.y, focus.z + camFwd.z * 950 * hk);
     city.viewHeight = flight.lift;
