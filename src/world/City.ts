@@ -1486,6 +1486,16 @@ export class City {
     return top;
   }
 
+  /** Is this point inside a post solid to the ground (a tower, an anchorage, a block)? */
+  solidAt(x: number, z: number): boolean {
+    const l = this.posts.size ? this.posts.get((Math.floor(x / 64) + 4096) * 8192 + (Math.floor(z / 64) + 4096)) : undefined;
+    if (l)
+      for (const p of l) {
+        if (p.under === -Infinity && (x - p.x) * (x - p.x) + (z - p.z) * (z - p.z) < p.r * p.r) return true;
+      }
+    return false;
+  }
+
   /** The flight's obstacle cells take what the detailed mesh has on its roofs (regionLoader's roofTops, made in the worker). */
   private adoptTops(lt: LoadedTile, tops: Float32Array | null) {
     const o = lt.terrainData?.obst;

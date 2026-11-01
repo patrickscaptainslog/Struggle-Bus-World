@@ -25,6 +25,8 @@ export interface WorldQuery {
   overheadAt?(x: number, z: number, fromY: number): number;
   /** What the hard floor stands on, if that differs from obstacleAt (a bridge's cable is the soft floor's alone). */
   hardAt?(x: number, z: number, fromY: number): number;
+  /** Is this point inside a landmark post solid to the ground (a tower, an anchorage, a block)? */
+  solidAt?(x: number, z: number): boolean;
 }
 
 export interface FlightInput {
@@ -368,7 +370,11 @@ export class Flight {
     const over = world.overheadAt ? world.overheadAt(this.x, this.z, this.y) : Infinity;
     if (over === Infinity) return 0;
     const wall = over - DECK_GAP;
-    const ahead = (ang: number, d: number) => world.obstacleAt(this.x + Math.sin(this.heading + ang) * d, this.z - Math.cos(this.heading + ang) * d, this.y) > wall;
+    // (a wall stands under the deck, or is a solid post at its edge: past the edge the air is open, and the floor climbs whatever is there)
+    const ahead = (ang: number, d: number) => {
+      const x = this.x + Math.sin(this.heading + ang) * d, z = this.z - Math.cos(this.heading + ang) * d;
+      return (world.overheadAt!(x, z, this.y) !== Infinity || world.solidAt?.(x, z) === true) && world.obstacleAt(x, z, this.y) > wall;
+    };
     for (let i = 1; i <= 3; i++) {
       const d = i * Math.max(25, this.speed * 0.6);
       if (!ahead(0, d)) continue;

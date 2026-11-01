@@ -380,7 +380,9 @@ export function makeBayBridgeWest(pts: P2[], deck: DeckPoint[], supports: Suppor
 
 /** Collision volumes for the flight model: vertical "posts" along the deck
  * (cable height + margin above, deck underside below, so the bus can still
- * glide UNDER a deck but never through cables or towers). */
+ * glide UNDER a deck but never over it through cables or towers). Under a deck
+ * the hard floor reads no post and Flight.underDeck() only turns the bus away,
+ * so a stick held through the turn-out can still carry it into a block. */
 export interface ObstaclePost {
   x: number;
   z: number;
