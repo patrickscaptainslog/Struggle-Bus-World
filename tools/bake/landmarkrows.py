@@ -13,6 +13,8 @@ def landmark_rows(cfg, ll2xz, ground):
             rec['points'] = [list(ll2xz(lo, la)) for la, lo in lm['points']]
         if 'deck' in lm:
             rec['deck'] = [[*ll2xz(lo, la), top] for la, lo, top in lm['deck']]
+        if 'supports' in lm:
+            rec['supports'] = [[*ll2xz(lo, la), across, along] for la, lo, across, along in lm['supports']]
         rows.append(rec)
     return rows
 

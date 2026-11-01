@@ -26,7 +26,7 @@
   "start": {
     "lat": 37.815,
     "lon": -122.4945,
-    "heading_deg": 95,
+    "heading_deg": 100,
     "speed": 55,
     "opening": "golden-gate"
   },
@@ -366,28 +366,124 @@
     },
     {
       "kind": "ggb",
-      "lat": 37.8108,
-      "lon": -122.4775,
+      "lat": 37.8140145,
+      "lon": -122.4778912,
       "height": 227,
       "points": [
         [
-          37.80772,
-          -122.47716
+          37.8094147,
+          -122.4773582
         ],
         [
-          37.8108,
-          -122.4775
+          37.8140145,
+          -122.4778912
         ],
         [
-          37.82229,
-          -122.47877
+          37.8255027,
+          -122.4792335
         ],
         [
-          37.82537,
-          -122.48011
+          37.8290834,
+          -122.4796568
         ]
       ],
-      "note": "south anchorage, south tower, north tower, north anchorage"
+      "deck": [
+        [
+          37.808,
+          -122.4766501,
+          59.3
+        ],
+        [
+          37.8085953,
+          -122.4771116,
+          59.6
+        ],
+        [
+          37.8094147,
+          -122.4773582,
+          62.0
+        ],
+        [
+          37.8109511,
+          -122.477537,
+          66.5
+        ],
+        [
+          37.8140145,
+          -122.4778912,
+          75.5
+        ],
+        [
+          37.8197586,
+          -122.4785623,
+          77.0
+        ],
+        [
+          37.8255027,
+          -122.4792335,
+          75.5
+        ],
+        [
+          37.8290834,
+          -122.4796568,
+          75.0
+        ],
+        [
+          37.8311548,
+          -122.4799134,
+          75.0
+        ],
+        [
+          37.8323292,
+          -122.480722,
+          74.5
+        ]
+      ],
+      "supports": [
+        [
+          37.8099396,
+          -122.4774056,
+          35.0,
+          10.1
+        ],
+        [
+          37.8109562,
+          -122.4775174,
+          35.4,
+          10.1
+        ],
+        [
+          37.830056,
+          -122.4797773,
+          27.0,
+          4.6
+        ],
+        [
+          37.8305402,
+          -122.4798372,
+          27.0,
+          4.6
+        ],
+        [
+          37.8309885,
+          -122.4798928,
+          27.0,
+          4.6
+        ],
+        [
+          37.8314035,
+          -122.4800846,
+          27.0,
+          4.6
+        ],
+        [
+          37.8318147,
+          -122.4803677,
+          27.0,
+          4.6
+        ]
+      ],
+      "note": "points, from OSM rows: south anchorage w1560010167, south tower w1329971884, north tower w1330832681, north anchorage w1560010149. deck (lat, lon, top m): the approach's end in the Presidio, through those four and mid span, to Marin; tops from the LiDAR, north of the north tower inferred. supports (lat, lon, across m, along m): Pylon S2 and S1, each pair from its rows; Pylon N1 and N2 stand inside the North Anchor's block, so they need none; the last five stand over the Marin Approach (r21407755), where the map holds no row, about 52 m apart, clear of the two paths under it"
     },
     {
       "kind": "baybridge",
