@@ -114,6 +114,11 @@ export const config = {
 
   far: {
     /**
+     * The far field at all, in any city with a far16.bin: the raster, its boxes, the fade to 34 km and the far plane past it. false, or ?nofar, is the
+     * old path, and far16.bin isn't asked for. Not a tunable: no saved value can turn it.
+     */
+    on: true,
+    /**
      * How long the first frame waits for far16.bin once far.bin and horizon.bin are in (ms). In by then, it is part of the first frame; if not, the
      * first frame goes with the plain far ground and the raster is built in when it lands (City.landFar).
      */
