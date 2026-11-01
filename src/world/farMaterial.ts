@@ -85,12 +85,15 @@ CLASS_FIT[TREE] = -0.1;
 CLASS_FIT[ICE] = 0;
 CLASS_FIT[ROCK_BARE] = 0;
 /**
- * The same for a far box's roof and walls: a merged box shows more wall and less street than the houses it stands for, so together they read as too hard.
- * A wall in the sun already met the near walls (Sunset, looking east: 0.003 of lo); one in the shade was 0.11-0.13 under them, so the wall's lift goes
- * with how far it stands out of the sun, live.
+ * The same for a far box's roof and walls, and for the streets between them. Fitted to the means alone these were -0.1 and 0.14: the means met, and the band
+ * went flat, roofs pulled down and walls pulled up, so the tiles snapped the whole grid dark as they landed (Presidio's land, luma std 17.7 -> 33.6). So the
+ * boxes keep most of their own contrast, and the streets carry the rest: filtered tone brings the roofs' brightness into the ground between the boxes, and
+ * FIT_STREET takes it out, parks left alone. It goes with the boxes, sinking into nothing between far.blockSink and far.blockEnd. A wall in the sun already
+ * met the near walls, so the wall's lift goes with how far it stands out of the sun, live.
  */
-const FIT_ROOF = -0.1;
-const FIT_WALL = 0.14;
+const FIT_ROOF = -0.03;
+const FIT_WALL = 0.05;
+const FIT_STREET = 0.12;
 
 const glslFloats = (a: number[]) => a.map((v) => v.toFixed(3)).join(', ');
 const CLASS_N = CLASS_RAMP.length;
@@ -139,6 +142,9 @@ const FS = /* glsl */ `
   uniform float uWallK;
   uniform float uClassBias;
   uniform float uFit;
+  #ifdef FAR_BLOCKS
+  uniform vec2 uBlockFar;     // the boxes sink from, gone at (m from the lens)
+  #endif
   in vec3 vWorldPos;
   in vec3 vWorldNormal;
   in vec3 vViewNormal;
@@ -169,6 +175,9 @@ const FS = /* glsl */ `
     float ramp = CLASS_RAMP[c];
     float over = CLASS_OVER[c];
     float lo = ${TONE_C.toFixed(3)} + (ts.r - 0.5) * ${TONE_K.toFixed(3)} * uToneK + over + CLASS_FIT[c] * uFit;
+    #ifdef FAR_BLOCKS
+    if (ramp != ${Ramp.GREEN_GREY}.0) lo -= ${FIT_STREET.toFixed(3)} * uFit * (1.0 - smoothstep(uBlockFar.x, uBlockFar.y, distance(vWorldPos.xz, cameraPosition.xz)));
+    #endif
     vec3 n = normalize(vWorldNormal);
     // (the near ground's own calm: its slopes compressed, shadows crisp)
     float light = mix(sbLight(vWorldPos, n, lo, 1.0), sbLight(vWorldPos, vec3(0.0, 1.0, 0.0), lo, 1.0), 0.55);
@@ -402,9 +411,12 @@ export function farBlockMesh(s: Pick<FarBlockChunk, 'count' | 'cell' | 'y' | 'to
   return mesh;
 }
 
+const blockFar = new THREE.Vector2();
+/** Where the boxes sink from and where they are gone (config.far, live): the boxes' material and the ground's between them. */
+const uBlockFar = { get value() { return blockFar.set(config.far.blockSink, config.far.blockEnd); } };
+
 /** The far boxes' material. `mask`: the loaded tiles, as the far skyline reads them. */
 export function makeFarBlockMaterial(affine: readonly number[], mask: THREE.Texture, maskRect: THREE.Vector4, maskSize: THREE.Vector2): THREE.ShaderMaterial {
-  const uBlockFar = new THREE.Vector2();
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
     defines: farFlags.debug ? { FAR_DEBUG: 1 } : {},
@@ -415,7 +427,7 @@ export function makeFarBlockMaterial(affine: readonly number[], mask: THREE.Text
       uMaskRect: { value: maskRect },
       uMaskSize: { value: maskSize },
       uFarCell: { value: new THREE.Vector4(affine[0], affine[2], affine[4], affine[5]) },
-      uBlockFar: { get value() { return uBlockFar.set(config.far.blockSink, config.far.blockEnd); } },
+      uBlockFar,
       uBlockLit: { get value() { return config.far.blockLit; } },
       uBlockGlow: { get value() { return config.far.blockGlow; } },
       uToneK: { get value() { return config.far.toneK; } },
@@ -501,6 +513,7 @@ export function makeFarGroundMaterial(r: FarRaster, tex: FarTextures, mask: THRE
   const defines: Record<string, number> = {};
   if (farFlags.oblique) defines.FAR_OBLIQUE = 1;
   if (farFlags.nearest) defines.FAR_NEAREST = 1;
+  if (farFlags.blocks) defines.FAR_BLOCKS = 1;
   if (farFlags.debug) defines.FAR_DEBUG = 1;
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
@@ -518,6 +531,7 @@ export function makeFarGroundMaterial(r: FarRaster, tex: FarTextures, mask: THRE
       uWallK: { get value() { return config.far.wallK; } },
       uClassBias: { get value() { return config.far.classBias; } },
       uFit: { get value() { return config.far.fit; } },
+      uBlockFar,
     },
     vertexShader: VS,
     fragmentShader: FS,
