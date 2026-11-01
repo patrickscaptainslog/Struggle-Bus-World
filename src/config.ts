@@ -141,6 +141,49 @@ export const config = {
     blockGlow: 0.2,
   },
 
+  /**
+   * The held hour (?hour=blue, docs/specs/sky/SKY.md slice S1). Without the flag nothing reads this, and the tuner has no such section. The switches are kill
+   * switches, live: each turns its part of the hour back to the day's. There is no clock: every number here is the one hour held.
+   */
+  sky: {
+    /** The blue table: off, the day's palette. */
+    table: true,
+    /** The blue-hour key, with no sun pass and no shadows: off, the day's sun. */
+    key: true,
+    /** The sky's bands: off, the day's sky (they need the table too). */
+    rows: true,
+    /** Graded paint and its cap: off, the day's paint rows. */
+    paint: true,
+    /** The long headlight: off, the day's. */
+    beam: true,
+    /** Glass and crown glow raised: off, the day's. */
+    glow: true,
+    /** The far field's own numbers for this hour: off, the day's. */
+    far: true,
+    /** The sun's compass azimuth (deg): 261, where it really stood at the mocks' 18:20 PST on 2027-02-20, sun -5.9 deg. The sky's warm side and the key both read it. */
+    azimuth: 261,
+    /** The afterglow's height: it comes from the sun's azimuth, held this high (deg). */
+    keyHeight: 8,
+    /** SKY.md's key table: a .34, b .20, k from .30 to .06 across the blue hour. uLight stays mid-range: the table carries the dark. */
+    ambient: 0.34,
+    bounce: 0.2,
+    keyStrength: 0.2,
+    /** Where the haze ends: the light the far fade takes a surface to, and its FOG step, the sky's horizon (0.75 x 7: FOG's step 5). */
+    hazeLight: 0.75,
+    /** How far round the horizon the sky's sun side reaches, each way from the sun's azimuth (deg). */
+    sunSide: 72,
+    /** Paint stays under this step outside a glint: the top two steps are pale tints (SKY.md 1). */
+    paintCap: 5.45,
+    /** The headlight at night: reach and width at its tip (m), and how many steps its light lifts at most (the day's 2.6). */
+    beamLength: 90,
+    beamWidth: 34,
+    beamGain: 3.4,
+    /** Glow of painted stained glass (levels 1-2, level 3) and of lit crowns; a resting surface stays at 0.55 or under (a crown shows 0.6-0.7 of this). */
+    glassGlow: 0.3,
+    glassGlow3: 0.5,
+    crownGlow: 0.75,
+  },
+
   city: {
     /** How far around the stream center regions load up high (m); LOAD_RADIUS at the floor. ?loadr= overrides it. */
     loadRadiusHigh: 1900,
