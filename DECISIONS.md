@@ -2520,6 +2520,15 @@ MAIN f64a142. All on this laptop's UHD 620, nothing on a real iPhone.
   - `spanfly` on both bridges exits 0. `contextloss` 2 of 2 back, 1.47-1.54 s, 0 errors. `iosfloor` parses every chunk. `tsc` clean on both configs.
 - Not done: no phone, no Safari. What the producer flew was the look behind the flags, before this go-live work: main-jF7hrKss.js itself has never run on a phone, so its grace, late landing, burial and A15 frame rate are unproven. SPIKE days 3 to 5. Everything over target above.
 
+## The height limit: 15 km (2026-11-01, `feat/ascent`)
+- The producer: raise the height limit, mainly to fly with and paint airplanes, and keep in mind the bus will fly to the Moon. The design is `docs/specs/flight/ASCENT.md`.
+- This supersedes "Soft ceiling at 520 m ASL". The ceiling is 15 km, over the airliners, with the wheeze in the top 150 m as before. The struggle at 520 m is gone, and the bus can fly over Sutro Tower.
+- The climb and speeds don't change with height. A first cut grew the climb with height and the speeds with its square root; the producer turned that down the same day: "I want to rely on turbo modes for this". So 15 km takes about 6 minutes at full pull, about 3 in G1, and how the gears carry the bus up is a later decision.
+- Up high the bus may leave the map, 4 m out per metre of height, up to 8 km. Further is not open: horizon.bin ends 32 km from the origin, and past it the water plane puts open ocean over the Central Valley. Near the limit the far fade closes in to hide that. Far-field day 3's surround raster is what lifts both.
+- Depth: at a 1.5 m near plane the East Bay's low land combs against the water at 12 km up. The near plane moves out with the height, to 60 m. The depth range changes per frame during a climb and is still when held.
+- Below 800 m the lens doesn't move: same near plane, same far plane, same fade. `?ceiling=520` puts the old ceiling back for tools.
+- Not done: no phone. The world is still flat: each city is its own flat map, and every round design (SKY, WORLD-TRAVEL section 1.4, VERDICT band 5) is on paper. The sky doesn't darken with height. No paint reaches the ground from high up, and nothing up there is paintable yet: the airliners themselves are held with streets and the rest of that list. Near regions still stream under the bus above about 4 km, out of frame. The East Bay's flats are one pale ramp from horizon.bin and read as a sheet of ice from 6 km, until day 3.
+
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
   local repo until `patrickscaptainslog/struggle-bus` exists.

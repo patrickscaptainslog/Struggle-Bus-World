@@ -14,7 +14,7 @@ roofs, streets and names, USGS LiDAR heights) and blasts rainbow "dragon breath"
 projectile at the glinting building ahead; the blast blooms every building within
 ~60 m in a radial wave, paints streets/parks/trees, and repeat hits escalate L1 bloom
 -> L2 rooftop gardens -> L3 Hundertwasser. Thumb/keyboard "yoke": pull down = climb
-(up to ~520 m), push up = dive / surge, release = hold altitude. 3D pixel art in
+(up to 15 km, over the airliners: `docs/specs/flight/ASCENT.md`), push up = dive / surge, release = hold altitude. 3D pixel art in
 three.js: an indexed-colour G-buffer, palette ramps only, camera snapped to the pixel
 grid. Phones first (iPhone Safari portrait). Fog is OFF by default for now (`?fog`).
 

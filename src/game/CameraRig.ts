@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { config } from '../config';
+import { pitchAdd } from './Ascent';
 import { angleDelta, clamp, spring } from './springs';
 import type { Flight } from './Flight';
 
@@ -22,6 +23,11 @@ export class CameraRig {
   /** 0..1 vista blend (with the bus's height above the broad ground, latched while holding) */
   vista = 0;
   private vistaTarget = 0;
+  /** the height the lens is set for (m): like the vista, only the yoke moves it, so a held view is perfectly still */
+  private lensHeight = 0;
+  private lensTarget = 0;
+  /** where the far fade ends at the ground (m, main.ts): the view looks down past it as it drops */
+  fadeBase = 34000;
   /** horizontal portrait fov the pipeline should use (deg) */
   hfov = config.camera.hfovPortrait;
   /** scale for the bus model (hero readability at altitude) */
@@ -87,6 +93,11 @@ export class CameraRig {
     const moving = f.mode === 2 || f.mode === 3;
     if (Math.abs(dv) < 0.003) this.vista = this.vistaTarget;
     else this.vista += dv * (1 - Math.exp(-(moving ? C.vistaRate : Math.max(C.vistaRate, C.vistaSettle)) * dt));
+    if (f.holdY < -1e8) this.lensTarget = 0;
+    else if (moving) this.lensTarget = f.height;
+    const dl = this.lensTarget - this.lensHeight;
+    if (Math.abs(dl) < 1) this.lensHeight = this.lensTarget;
+    else this.lensHeight += dl * (1 - Math.exp(-(moving ? C.vistaRate : Math.max(C.vistaRate, C.vistaSettle)) * dt));
     const low = this.openingLow;
     const v = this.vista * (1 - low);
     this.hfov = C.hfovPortrait + (C.hfovVista - C.hfovPortrait) * v + this.turboFov;
@@ -113,7 +124,7 @@ export class CameraRig {
       // far enough ahead that the view pitches down by pitchVista, and never so far down that
       // the horizon leaves the top of the frame (3 deg of sky) while the rig is still rising
       const halfV = cam.fov / 2; // the lens as the pipeline set it (portrait or landscape)
-      pitch = THREE.MathUtils.degToRad(clamp(Math.min(C.pitchVista, halfV - 3), 5, 60));
+      pitch = THREE.MathUtils.degToRad(clamp(Math.min(C.pitchVista + THREE.MathUtils.radToDeg(pitchAdd(this.lensHeight, this.fadeBase)), halfV - 3), 5, 60));
       const laV = (Math.sin(el) * dist + 4) / Math.tan(pitch) - Math.cos(el) * dist;
       la += (Math.max(la, laV) - la) * smooth01(0, 0.35, v);
     }

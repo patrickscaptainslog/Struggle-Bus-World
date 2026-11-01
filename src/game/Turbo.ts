@@ -1,4 +1,5 @@
 import { config } from '../config';
+import { mapReach } from './Ascent';
 import { clamp } from './springs';
 import type { Flight } from './Flight';
 
@@ -202,7 +203,9 @@ export class TurboDrive {
    */
   private edgeRoom(f: Flight): number {
     const T = config.turbo;
-    const [x0, z0, x1, z1] = this.bounds;
+    // (the edge gives way with the height, as the homing's does: main.ts, mapReach)
+    const out = mapReach(f.height) - 300;
+    const x0 = this.bounds[0] - out, z0 = this.bounds[1] - out, x1 = this.bounds[2] + out, z1 = this.bounds[3] + out;
     const fx = f.fx, fz = f.fz;
     const inside = f.x > x0 && f.x < x1 && f.z > z0 && f.z < z1;
     if (!inside) {
