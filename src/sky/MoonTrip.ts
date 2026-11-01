@@ -39,6 +39,8 @@ const TURN = 60 * DEG;
 const FLARE = 0.5;
 /** Full steering, rad/s at full stick: G0's rate, which Turbo.ts's law gives a bus at surge. */
 const YAW = 42.5 * DEG;
+/** The turn to the Moon's azimuth once home, rad/s. */
+const FACE = 30 * DEG;
 /** The last stop over home: speed is at most this much of the distance left, 1/s. */
 const STOP = 2;
 /** The level run ends this far short of over home, km: at TURN the bus swings down within it. */
@@ -155,6 +157,8 @@ export class MoonTrip {
   v = G0;
   /** G5 is asked for and engages at its floor. */
   armed = false;
+  /** There's still room on this leg for G5 and its brake: past that a tap would ask for nothing. */
+  g5Room = true;
   /** s since boot, and of the last launch. The sky's clock is ms0 + t. */
   t = 0;
   launchedAt = 0;
@@ -192,6 +196,8 @@ export class MoonTrip {
   private downTapped = false;
   private started = false;
   private atRest = false;
+  /** Just home: the bus turns to face the Moon's azimuth, so the next launch reads as the first one did. A thumb on the stick ends it. */
+  private facing = false;
   // (scratch: nothing here allocates per frame)
   private readonly a = v3();
   private readonly d = v3();
@@ -314,7 +320,7 @@ export class MoonTrip {
         case 'out':
         case 'leave':
         case 'homeOut':
-          this.armed = true;
+          if (this.g5Room) this.armed = true;
           break;
         case 'orbit':
           if (this.orbitGear === 3) this.orbitGear = this.gear = 4;
@@ -337,6 +343,8 @@ export class MoonTrip {
     this.v = G0;
     this.eta = 280;
     this.armed = false;
+    this.g5Room = true;
+    this.facing = false;
     // (from rest the path is free: only the nose has to swing, and TripView eases that)
     this.atRest = true;
     this.enter('climb');
@@ -347,6 +355,7 @@ export class MoonTrip {
     this.gear = 4;
     this.ti = 0;
     this.armed = false;
+    this.g5Room = true;
     this.rLevel = len(this.ob.pos);
     this.enter('leave');
   }
@@ -479,9 +488,23 @@ export class MoonTrip {
     tangent(n, u, this.heading);
   }
 
+  /** The carve round to the Moon's azimuth, over home. */
+  private faceMoon(dt: number): void {
+    const hc = this.hc, h = this.heading, w = this.w, right = this.w2;
+    tangent(sub(this.now.moonEqj, this.r, w), hc, w);
+    cross(h, hc, right);
+    const a = Math.atan2(dot(w, right), dot(w, h)), most = FACE * dt;
+    if (Math.abs(a) < 0.3 * DEG) this.facing = false;
+    this.turn(Math.max(-most, Math.min(most, a * (1 - Math.exp(-1.5 * dt)))), hc);
+  }
+
   private yaw(stick: number, dt: number, u: V): void {
-    if (stick === 0) return;
-    const a = stick * YAW * dt, c = Math.cos(a), s = Math.sin(a), h = this.heading, right = cross(h, u, this.w);
+    if (stick !== 0) this.turn(stick * YAW * dt, u);
+  }
+
+  /** The heading, a radians to the right, over the radial u. */
+  private turn(a: number, u: V): void {
+    const c = Math.cos(a), s = Math.sin(a), h = this.heading, right = cross(h, u, this.w);
     for (let i = 0; i < 3; i++) h[i] = h[i] * c + right[i] * s;
     tangent(h, u, h);
   }
@@ -493,6 +516,8 @@ export class MoonTrip {
     switch (this.leg) {
       case 'wait': {
         const p = this.ob.pos, hc = this.hc;
+        if (stick !== 0) this.facing = false;
+        if (this.facing) this.faceMoon(dt);
         this.yaw(stick, dt, hc);
         this.v = G0;
         for (let i = 0; i < 3; i++) p[i] = hc[i] * (R_E + ALT4);
@@ -534,7 +559,9 @@ export class MoonTrip {
           this.arrive();
           return false;
         }
-        if (this.armed && hE >= ALT5 && rem > this.dBrake + ALT5 - ALT4) {
+        this.g5Room = rem > this.dBrake + ALT5 - ALT4;
+        if (!this.g5Room) this.armed = false;
+        if (this.armed && hE >= ALT5) {
           this.armed = false;
           this.gear = 5;
           this.ti = 0;
@@ -552,7 +579,6 @@ export class MoonTrip {
         setUnit(d, d);
         this.eta = rem / Math.max(this.v, 1);
         if (rem <= this.dBrake + ALT5 - ALT4) {
-          this.gear = 4;
           this.ti = 0;
           this.braking = true;
           this.enter('brake');
@@ -654,7 +680,9 @@ export class MoonTrip {
           this.homeDown();
           return false;
         }
-        if (this.armed && hM >= ALT5 && hE > ALT5 + this.dBrake) {
+        this.g5Room = hE > ALT5 + this.dBrake;
+        if (!this.g5Room) this.armed = false;
+        if (this.armed && hM >= ALT5) {
           this.armed = false;
           this.gear = 5;
           this.ti = 0;
@@ -670,7 +698,6 @@ export class MoonTrip {
         return true;
       case 'homeCruise':
         if (hE <= ALT5 + this.dBrake) {
-          this.gear = 4;
           this.ti = 0;
           this.braking = true;
           this.enter('homeBrake');
@@ -720,6 +747,7 @@ export class MoonTrip {
         if (rem < 0.3) {
           this.gear = 3;
           this.tripSeconds = this.t - this.launchedAt;
+          this.facing = true;
           this.enter('wait');
           return false;
         }

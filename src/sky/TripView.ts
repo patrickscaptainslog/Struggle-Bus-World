@@ -15,8 +15,7 @@ import { R_E, R_M, type MoonTrip } from './MoonTrip';
 // The thumb swings the camera on every leg it doesn't steer, on top of the law. Left alone for THUMB_HOLD seconds the view goes home on the same spring.
 
 const DEG = Math.PI / 180;
-/** Game px per unit tan on the 24 degree lens: the size the lens law is read in, whatever the lens is doing. */
-const F24 = 393 / 2 / Math.tan(12 * DEG);
+const TAN12 = Math.tan(12 * DEG);
 /** The spring's rate, 1/s: a swing of 180 degrees peaks near 53 deg/s and is over in about 6 s. */
 const SWING = 0.8;
 /** deg/s at full stretch */
@@ -24,11 +23,13 @@ const THUMB_RATE = 70 * DEG;
 const THUMB_HOLD = 6;
 /** The nose's fastest swing, rad/s: the tip-up reads as a move, and the first frame of it isn't a kick. */
 const NOSE_RATE = 75 * DEG;
-/** The disc's centre over the frame's, game px: the sheet's cy = 0.42 of 852. */
-const DISC_LIFT = 68;
-/** Degrees from the view's axis up to the horizon: Earth holds it 3 degrees under the frame's top, as the ground game does. The Moon leaves a band of black sky over the rim for Earth to rise into. */
-const HORIZON_EARTH = 33.87;
+/** The disc's centre over the frame's, a share of the height: the sheet's cy = 0.42. */
+const DISC_LIFT = 0.08;
+/** Degrees from the view's axis up to the horizon. Earth holds it 3 degrees under the frame's top, as the ground game does, which is 33.87 at 393 x 852; a phone's browser bars leave less. The Moon leaves a band of black sky over the rim for Earth to rise into. */
+const HORIZON_TOP = 3;
 const HORIZON_MOON = 20.5;
+/** The lens the Earth's horizon is pinned on. */
+const NEAR_LENS = 38;
 
 const smooth01 = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -39,6 +40,9 @@ const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 export class TripView {
   /** the lens this frame */
   hfov = 38;
+  /** the frame, game px: the browser's bars and the phone set it (moonrun.ts) */
+  width = 393;
+  height = 852;
   /** the bus's pose in the render frame */
   readonly busQuat = new THREE.Quaternion();
   /** the way it flies and the way its nose points, render frame */
@@ -95,7 +99,7 @@ export class TripView {
     const p = moon ? rm : r, d = moon ? dM : dE, R = moon ? R_M : R_E, a = moon ? aM : aE;
 
     // the lens: 24 degrees once the body is small, 38 once it would overfill that (trip/sheet.py's picks); a function of the body's size, so it can't step
-    const px24 = 2 * F24 * Math.tan(a);
+    const px24 = (this.width * Math.tan(a)) / TAN12;
     this.hfov = lens || 24 + 14 * smooth01(250, 500, px24);
 
     // ---- the law
@@ -115,9 +119,10 @@ export class TripView {
     const turn = this.h * this.k + this.lag / 3;
     const ct = Math.cos(turn), st = Math.sin(turn);
     lv.multiplyScalar(ct).addScaledVector(side, st);
-    const focal = 393 / 2 / Math.tan((this.hfov * DEG) / 2);
-    const pinned = Math.acos(Math.min(1, R / d)) / DEG + (moon ? HORIZON_MOON : HORIZON_EARTH);
-    const pitch = Math.min(pinned, 90 + Math.atan(DISC_LIFT / focal) / DEG) * DEG;
+    const focal = this.width / 2 / Math.tan((this.hfov * DEG) / 2);
+    const top = Math.atan((this.height / this.width) * Math.tan((NEAR_LENS * DEG) / 2)) / DEG - HORIZON_TOP;
+    const pinned = Math.acos(Math.min(1, R / d)) / DEG + (moon ? HORIZON_MOON : top);
+    const pitch = Math.min(pinned, 90 + Math.atan((DISC_LIFT * this.height) / focal) / DEG) * DEG;
     const fwd = this.fwd.copy(lv).multiplyScalar(Math.cos(pitch)).addScaledVector(u, -Math.sin(pitch));
     const right = this.right.crossVectors(lv, u).normalize();
     const up = this.up.crossVectors(right, fwd);
@@ -166,7 +171,7 @@ export class TripView {
     const nw = this.t.set(trip.dir[0], trip.dir[1], trip.dir[2]);
     if (trip.v < 20) nw.set(trip.heading[0], trip.heading[1], trip.heading[2]);
     const nose = this.nose;
-    if (nose.dot(nw) < -0.98) nose.addScaledVector(this.busUp, 0.2);
+    if (nose.dot(nw) < -0.98) nose.addScaledVector(this.busUp, 0.02);
     const off = Math.acos(Math.max(-1, Math.min(1, nose.dot(nw))));
     nose.lerp(nw, Math.min(1 - Math.exp(-6 * dt), (NOSE_RATE * dt) / Math.max(off, 1e-6))).normalize();
     const camUp = this.t2.set(e[4], e[5], e[6]);

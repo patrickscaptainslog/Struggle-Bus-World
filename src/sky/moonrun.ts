@@ -155,11 +155,13 @@ function tripLabel(): (trip: MoonTrip) => void {
     const s = Math.floor(trip.clock), leg = trip.leg;
     const a = `${LEG_NAMES[leg]} ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
     const b = `G${trip.gear} ${trip.v < 1 ? '0' : thousands(trip.v)} KM/S ${thousands(Math.min(trip.hMoon, trip.hEarth))} KM`;
-    const asks = leg === 'out' || leg === 'homeOut' || leg === 'climb' || leg === 'arc' || leg === 'leave';
-    const p = trip.armed ? 'G5 ARMED' : leg === 'wait' ? 'TAP TURBO: MOON' : leg === 'orbit' ? (trip.gear === 3 ? 'TAP TURBO: G4' : 'TAP TURBO: HOME') : asks ? 'TAP TURBO: G5' : '';
+    const asks = (leg === 'out' || leg === 'homeOut' || leg === 'climb' || leg === 'arc' || leg === 'leave') && trip.g5Room;
+    const dark = leg === 'cruise' || leg === 'homeCruise';
+    const p = trip.armed ? 'G5 ARMED' : leg === 'wait' ? 'TAP TURBO: MOON' : leg === 'orbit' ? (trip.gear === 3 ? 'TAP TURBO: G4' : 'TAP TURBO: HOME') : asks ? 'TAP TURBO: G5' : dark ? 'DRAG TO LOOK ROUND' : '';
     const text = `${a}|${b}|${p}`;
     if (text === last) return;
     last = text;
+    c.el.dataset.say = text; // (the tools read what the screen says from here)
     c.clear();
     [a, b, p].forEach((t, i) => c.textOutlined(t, c.w - 2 - textWidth(t, HUD_SMALL), 1 + i * 7, i === 2 ? C.yellow : C.text, C.ink, HUD_SMALL));
     c.flush();
@@ -219,11 +221,19 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   let rigScale = 1;
   const placeCamera = () => {
     rigScale = view ? TAN19 / Math.tan((view.hfov * DEG) / 2) : 1;
-    const D = config.camera.distanceVista * rigScale, row = (640 - pipeline.info.height / 2) / focalAt();
+    // (a quarter of the frame under its middle, the bus's row at 852 tall, wherever a browser's bars leave the bottom)
+    const D = config.camera.distanceVista * rigScale, row = (0.25 * pipeline.info.height) / focalAt();
     const k = D / Math.sqrt(1 + row * row);
     camera.position.set(0, k * row, k);
     camera.quaternion.identity();
   };
+  const fitView = () => {
+    if (view) {
+      view.width = pipeline.info.width;
+      view.height = pipeline.info.height;
+    }
+  };
+  fitView();
   placeCamera();
   if (pose) {
     const z = pose.busFwd.clone().negate();
@@ -232,12 +242,17 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
     bus.root.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
   }
 
-  // ---- the thumb and TURBO: the real Input and the real HUD, less what has no meaning out here
+  // ---- the thumb and TURBO: the real Input and the real HUD, less what has no meaning out here. TURBO's boost has no meaning either, so a long press is a tap: the press that started it already shifted, and its lift mustn't again
+  let pressTaken = false, held = false;
   const input = flying ? new Input(renderer.domElement) : null;
   const hud = input ? new Hud(input, { onTiltToggle() {}, onChip() {}, onSensitivity() {}, onRecenter() {}, onMute() {}, onSwap() {}, onSettings() {}, onGesture() {} }) : null;
   const label = flying ? tripLabel() : null;
   if (input && hud && trip) {
-    input.onTurbo = (dir) => (dir > 0 ? trip.tap() : trip.shiftDown());
+    input.onTurbo = (dir) => {
+      if (dir < 0) trip.shiftDown();
+      else if (pressTaken) pressTaken = false;
+      else trip.tap();
+    };
     for (const name of ['mega', 'settings', 'recenter', 'tilt-toggle', 'tilt-chip']) hud.root.querySelector<HTMLElement>(`[data-hud="${name}"]`)?.style.setProperty('visibility', 'hidden');
     hud.arrive();
   }
@@ -273,6 +288,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
       resizeWanted = false;
       pipeline.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1);
       pipeline.setHfov(view?.hfov ?? lens);
+      fitView();
       placeCamera();
     }
     const dt = fixedDt || Math.min(0.05, Math.max(0, (now - last) / 1000));
@@ -284,6 +300,11 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
     if (trip && view && input) {
       input.update(dt);
       const st = input.state;
+      if (st.turboHeld !== held) {
+        held = st.turboHeld;
+        pressTaken = held;
+        if (held) trip.tap();
+      }
       trip.step(dt, trip.steering && st.dragging ? st.stretch.x : 0);
       view.update(dt, trip, st.stretch.x, st.stretch.y, st.dragging, lensParam);
       pipeline.setHfov(view.hfov);
@@ -317,6 +338,6 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
     }
     if (trip) label?.(trip);
   };
-  (window as unknown as Record<string, unknown>).__game = { pipeline, scene, camera, perf, bus, input, moon: { model, sky, clock, draw, pose, load, trip, view, skip } };
+  (window as unknown as Record<string, unknown>).__game = { pipeline, scene, camera, perf, bus, input, warm, moon: { model, sky, clock, draw, pose, load, trip, view, skip } };
   requestAnimationFrame(frame);
 }
