@@ -374,7 +374,7 @@ export const config = {
     reachFrom: 520,
     reachPerHeight: 4,
     reachMax: 8000,
-    /** Past the map's edge by more than this (m) the same slope is a floor: nothing out there has collision, so the bus comes back down over the map. */
+    /** Past the map's edge by more than this (m) the same slope is a floor: only the ground has collision out there, so the bus comes back down over the map. */
     floorFrom: 1200,
     /** The near plane stands at the camera's own up to this height (m), then moves out with it, up to nearMax: no ground and water fighting for a pixel.
      *  The far fade and the pixel grid's depth limit stand where they are up to the same height. */

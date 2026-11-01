@@ -1064,7 +1064,7 @@ async function boot() {
     controls.opening = opening < config.fog.openingDuration;
     const dragging = qaStick ? true : st.dragging;
     // past the edge of the map the bus homes back toward the city, gently; the edge gives way with the height, and out
-    // there nothing has collision, so the bus holds a slope down to the map
+    // there only the ground has collision, so the bus holds a slope down to the map
     const ex = Math.max(minX - flight.x, flight.x - maxX, 0), ez = Math.max(minZ - flight.z, flight.z - maxZ, 0);
     const edgeOut = mapReach(flight.height);
     if (ex + ez > edgeOut && !openingBridge) {
