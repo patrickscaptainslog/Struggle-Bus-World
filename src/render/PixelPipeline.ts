@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { config } from '../config';
 import { globals, GLSL_G_READ, GLSL_LAYER_TOP, GLSL_SKY_LIGHT, SHADOW_LAYER } from './materials';
 import { HUE_RAMPS, makePaletteTexture, Ramp } from './palette';
+import { held, heldHour, heldOr } from '../sky/flag';
+import { GLSL_SKY_HELD, GLSL_SKY_HELD_UNIFORMS, heldResolveUniforms } from './skyResolve';
 import type { WarmPipeline } from './warmup';
 
 // Low-res 3D pixel-art renderer.
@@ -98,7 +100,7 @@ export class PixelPipeline implements WarmPipeline {
    * The depth at and past which geometry still turns to sky. The sky is the clear flag (see RESOLVE_FS); this is the old
    * test's distance, kept so that frames don't change until the far fade takes it away (setFar: over 1, never).
    */
-  private skyCut = 0.99999;
+  private skyCut = heldHour ? 2 : 0.99999;
   /** impact flash: rendered frames left, and (buffer uv x, y, strength, radius) */
   private flashLeft = 0;
   private readonly flashU = new THREE.Vector4();
@@ -188,6 +190,7 @@ export class PixelPipeline implements WarmPipeline {
         uHeroCircle: { value: new THREE.Vector4() },
         uFlash: { value: new THREE.Vector4() },
         uSkyCut: { value: this.skyCut },
+        ...(heldHour ? heldResolveUniforms : {}),
       },
       vertexShader: QUAD_VS,
       fragmentShader: RESOLVE_FS,
@@ -328,6 +331,16 @@ export class PixelPipeline implements WarmPipeline {
     if (this.hfov !== null && Math.abs(deg - this.hfov) < 1e-4) return;
     this.hfov = deg;
     this.updateProjection();
+  }
+
+  /** The palette's texture (the held hour writes its table into it). */
+  get paletteTexture(): THREE.DataTexture {
+    return this.palette;
+  }
+
+  /** The resolve's uniforms of the held hour (only with the flag: without it they aren't there). */
+  get heldUniforms(): typeof heldResolveUniforms {
+    return this.resolveMat.uniforms as unknown as typeof heldResolveUniforms;
   }
 
   get cssSize() {
@@ -802,7 +815,7 @@ uniform vec4 uHeroShadow;     // hero drop shadow: center xz, underside y (m), r
 uniform vec4 uHeroShadowAxes; // ...its oval: forward axis xz, half length, half width (m)
 uniform vec4 uHeroCircle;     // the charge's pinwheel around it: charge (0 = off), spin (arms), half length, half width (m)
 uniform vec4 uFlash;     // impact flash: buffer uv, strength, white-hot radius (fraction of the height)
-uniform float uSkyCut;   // depth at and past which geometry still turns to sky (over 1: never)
+uniform float uSkyCut;   // depth at and past which geometry still turns to sky (over 1: never)${held(GLSL_SKY_HELD_UNIFORMS)}
 in vec2 vUv;
 layout(location = 0) out vec4 outColor;
 ${GLSL_LAYER_TOP}
@@ -926,7 +939,7 @@ vec3 haloTint(vec3 c) {
   vec3 w = texelFetch(tPalette, ivec2(7, ${Ramp.GLOW_WHITE}), 0).rgb;
   if (dot(normalize(c + 1e-4), normalize(w)) > best + 0.02) bc = w;
   return bc;
-}
+}${held(GLSL_SKY_HELD)}
 
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
@@ -955,7 +968,11 @@ void main() {
   // The sky is what nothing wrote: every sbWrite has flags >= 0.5, the clear is 0. A depth can't say that: with the near plane
   // at 1.5 m, z >= 0.99999 is a distance, 25 km at a 30 km far plane, 29 km at 36 km. uSkyCut keeps that distance while the far
   // fade stands at 20 km, so frames don't change; setFar() takes it away.
-  if (a.a == 0.0 || z >= uSkyCut) {
+  if (a.a == 0.0 || z >= uSkyCut) {${held(`
+    if (uSkyRows.x >= 0.0) {
+      outColor = skyHeld(dir, dsk, d2, flashK);
+      return;
+    }`)}
     float skyL = skyLight(dir);
     // up high the sky above the horizon deepens a little faster and sits a touch darker than the
     // bright haze below it: a horizon line, and a sky gradient instead of one flat grey
@@ -1060,7 +1077,9 @@ void main() {
   // convex creases (roof edges, cornices, bay corners) one step lighter
   if (edgeDark > 0.75) step = max(step - 2.0, 0.0);
   else if (edgeDark > 0.25) step = max(step - 1.0, 0.0);
-  else if (crease > 0.5) step = min(step + 1.0, 7.0);
+  else if (crease > 0.5) step = min(step + 1.0, 7.0);${held(`
+  // paint never bleaches: its top two steps are for a glint, what glows hard or isn't a surface
+  if (ramp > ${Ramp.RED - 0.5} && ramp < ${Ramp.VIOLET + 0.5} && glow < 0.6 && outlineable) step = min(step, uPaintCap);`)}
   // the hero always separates: its silhouette is a plum ink line inside its own warm ramp (the bus's
   // ramps are its own), dark against every paint hue and still warm against the grey
   bool busY = abs(ramp - RAMP_BUS_YELLOW) < 0.5;
@@ -1085,7 +1104,7 @@ void main() {
   // nearest its own luminance (FOG luma is linear, 0.3955 + 0.071 k), so the switch is a change of hue,
   // not a jump to pale dots; deeper in, the shapes flatten into the silhouettes a little darker than
   // the sky. (Up high the old contour stays: calm, and the fog sea's lit top.)
-  float kMatch = clamp((dot(col, vec3(0.299, 0.587, 0.114)) - 0.3955) / 0.071, 0.0, 7.0) / 7.0;
+  float kMatch = clamp((dot(col, vec3(0.299, 0.587, 0.114)) - ${heldOr('uFogLuma.x', '0.3955')}) / ${heldOr('uFogLuma.y', '0.071')}, 0.0, 7.0) / 7.0;
   // (flat by fog 0.76, under the fog ceiling of tall far shapes: a tower standing out of the fog is a pale
   // shape, never its one-pixel window grid, which crawled with parallax)
   silL = mix(kMatch, silL, max(smoothstep(0.62, 0.76, fog), max(uCalm, uFogLayer2.w)));
@@ -1169,7 +1188,7 @@ void main() {
   // behind. The beam rides with the bus, which holds still on screen: its edge dither is screen-anchored.
   // (the unpainted towers' own materials are grey world too: the beam doesn't stop at a tower's face)
   bool greyR = ramp < ${Ramp.GREY_LIGHT}.5 || ramp == ${Ramp.GREEN_GREY}.0 || ramp == ${Ramp.WINDOW}.0 || ramp == ${Ramp.ROOF_DARK}.0
-    || ramp == ${Ramp.GLASS}.0 || ramp == ${Ramp.STONE}.0 || ramp == ${Ramp.GRANITE}.0;
+    || ramp == ${Ramp.GLASS}.0 || ramp == ${Ramp.STONE}.0 || ramp == ${Ramp.GRANITE}.0${held(` || ramp == ${Ramp.SAND}.0`)};
   if (uBeamShape.z > 0.0 && glow < 0.02 && hAmt < 0.11 && !fogged && (greyR || heroRamp) && (depth > uBeamShape.w || heroEdge)) {
     vec2 bv = gl_FragCoord.xy - uBeam.xy;
     float bl = max(length(uBeam.zw), 1.0);
@@ -1182,7 +1201,7 @@ void main() {
     } else if (bt > 0.0 && bt < 1.0 && bs < 1.0) {
       float ba2 = uBeamShape.z * pow(1.0 - bt, 0.75) * (1.0 - bs * bs);
       // crisp nested bands (+1 step, +2 steps), dithered only in a narrow band at their edges
-      float bk = ba2 * 2.6;
+      float bk = ba2 * ${heldOr('uBeamGain', '2.6')};
       float lift = floor(bk) + (clamp((fract(bk) - 0.38) / 0.24, 0.0, 1.0) > dsk ? 1.0 : 0.0);
       if (bt * bl < 2.5 && bs < 0.7) { oRamp = RAMP_SKY_WARM; oStep = max(oStep, 6.0); col = pal(oRamp, oStep); }
       else if (lift > 0.5) { oStep = min(oStep + lift, 7.0); col = pal(oRamp, oStep); }

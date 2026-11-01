@@ -33,6 +33,8 @@ import { SuperSplat } from './game/SuperSplat';
 import { SuperFx } from './fx/SuperFx';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
+import { heldHour } from './sky/flag';
+import { HeldHour } from './sky/HeldHour';
 
 // Struggle Bus — Phase 1 (real SF, solo).
 
@@ -79,6 +81,9 @@ const camera = pipeline.camera;
 // wave: the post passes and what modules registered (tiles, trees, landmarks, bridges).
 let warm = new WarmUp(pipeline, scene);
 
+// (the held hour, ?hour=blue: SKY.md slice S1; updateSun below hands it the light)
+const hour = heldHour ? new HeldHour(pipeline) : null;
+
 // --- sun: late-afternoon, low, from the WSW
 /** The city's low ground (m, City.lowGround once the far grid is in): the fog ceiling's heights are
  *  above it, so a city on a plateau stands out of its fog the way SF does at sea level */
@@ -99,6 +104,7 @@ function updateSun() {
   globals.uFogBillow.value.set(Fg.layerBillow, 1 / Math.max(10, Fg.layerBillowSize));
   // (the fog ceiling of tall far shapes: meaningless with the fog off, so off with it)
   globals.uFogStand.value.set(fogOn ? Fg.standFog : 1, fogGround + Fg.standFrom, fogGround + Math.max(Fg.standFrom + 1, Fg.standTo), Fg.standFade);
+  hour?.update();
 }
 updateSun();
 
@@ -1169,7 +1175,7 @@ async function boot() {
     pipeline.shadowFocusOn = true;
     pipeline.shadowFocus.set(sx0, focus.y + (city.groundAt(sx0, sz0) - focus.y) * vista, sz0);
     pipeline.shadowScale = 1 + (R.shadowExtentVista / Math.max(1, R.shadowExtent) - 1) * vista;
-    pipeline.shadowStrength = 1 + (R.shadowStrengthVista - 1) * vista;
+    pipeline.shadowStrength = hour?.shadowsOff ? 0 : 1 + (R.shadowStrengthVista - 1) * vista;
     pipeline.shadowEdge = 0.08 + (R.shadowEdgeVista - 0.08) * vista;
     pipeline.calm = clamp(vista / Math.max(0.01, config.render.calmVista), 0, 1);
     // tower facades: the up-high anti-crawl guard follows the view's height (with fog on or off), and their
@@ -1284,9 +1290,10 @@ async function boot() {
       bus.root.updateMatrixWorld();
       bus.root.localToWorld(beamEye.copy(bus.eyeLocal));
       beamFwd.set(0, -Math.tan(THREE.MathUtils.degToRad(Cb.headBeamPitch)), -1).transformDirection(bus.root.matrixWorld);
-      beamTip.copy(beamEye).addScaledVector(beamFwd, Cb.headBeamLength * rig.heroScale);
+      const beamLength = hour ? hour.beamLength(vista) : Cb.headBeamLength;
+      beamTip.copy(beamEye).addScaledVector(beamFwd, beamLength * rig.heroScale);
       const open = 0.3 + 0.7 * superPose.eye;
-      pipeline.setHeroBeam(beamEye, beamTip, 0.5 * rig.heroScale, 0.5 * Cb.headBeamWidth * open * rig.heroScale, Cb.headBeamLength > 0 ? Cb.headBeamStrength * (0.35 + 0.65 * superPose.eye) : 0);
+      pipeline.setHeroBeam(beamEye, beamTip, 0.5 * rig.heroScale, 0.5 * (hour ? hour.beamWidth(vista) : Cb.headBeamWidth) * open * rig.heroScale, beamLength > 0 ? Cb.headBeamStrength * (0.35 + 0.65 * superPose.eye) : 0);
     }
     pipeline.render(scene);
     framesDrawn++;

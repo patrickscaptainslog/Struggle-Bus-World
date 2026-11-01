@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { config } from '../config';
 import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
 import { Ramp } from '../render/palette';
+import { heldHour } from '../sky/flag';
 import { GLSL_WATER } from './terrainMaterial';
 import { Ground, WATER_Y, type FarData, type FarRaster, type FarTowers } from './tiles';
 import { Fam, Variant, styleFor } from './towerStyles';
@@ -50,7 +51,7 @@ CLASS_RAMP[Ground.WATER] = Ramp.WATER;
 CLASS_RAMP[Ground.SIDEWALK] = Ramp.GREY_LIGHT;
 CLASS_RAMP[Ground.PLAZA] = Ramp.GREY_LIGHT;
 CLASS_RAMP[Ground.PATH] = Ramp.GREY_LIGHT;
-CLASS_RAMP[Ground.SAND] = Ramp.SKY_WARM;
+CLASS_RAMP[Ground.SAND] = heldHour ? Ramp.SAND : Ramp.SKY_WARM;
 CLASS_RAMP[Ground.RAIL] = Ramp.ROOF_DARK;
 CLASS_RAMP[Ground.FOREST] = Ramp.GREEN_GREY;
 CLASS_RAMP[Ground.YARD] = Ramp.GREEN_GREY;
@@ -61,7 +62,7 @@ CLASS_RAMP[ICE] = Ramp.WHITE;
 CLASS_RAMP[ROCK_BARE] = Ramp.GREY;
 
 /** Light a ramp needs over GREY_LIGHT's for the same brightness, measured on the palette across lights 0.4-0.7 (same table in farmap.py). */
-const OVER = new Map<number, number>([[Ramp.GREY_LIGHT, 0], [Ramp.GREY, 0.22], [Ramp.GREEN_GREY, 0.33], [Ramp.ROOF_DARK, 0.45], [Ramp.SKY_WARM, -0.5], [Ramp.WATER, 0.27], [Ramp.WHITE, -0.3]]);
+const OVER = new Map<number, number>([[Ramp.GREY_LIGHT, 0], [Ramp.GREY, 0.22], [Ramp.GREEN_GREY, 0.33], [Ramp.ROOF_DARK, 0.45], [Ramp.SKY_WARM, -0.5], [Ramp.SAND, -0.5], [Ramp.WATER, 0.27], [Ramp.WHITE, -0.3]]);
 
 /**
  * What a class's tone needs to meet the tiles that replace it, a lo per class: fitted on the hold-still swaps of three poses (tools/far/calib.py), at the

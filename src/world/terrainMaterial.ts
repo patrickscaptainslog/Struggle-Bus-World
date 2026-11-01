@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
 import { Ramp } from '../render/palette';
+import { heldHour, heldOr } from '../sky/flag';
 import { Ground, WATER_Y } from './tiles';
 import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from './GroundPaint';
 
@@ -29,7 +30,7 @@ export const GLSL_WATER = /* glsl */ `
     vec2 iq = floor(q);
     float row = sbWaterHash(vec2(iq.y, 3.1));
     float dash = sbWaterHash(vec2(floor(q.x + row * 7.0), iq.y));
-    if (dash > 0.9 && fract(q.y) < 0.45) light += 0.12;
+    if (dash > 0.9 && fract(q.y) < 0.45) light += ${heldOr('0.12 * min(uLight.x / 0.52, 1.0)', '0.12')};
     float sh = sbShadow(surface, vec3(0.0, 1.0, 0.0));
     light -= (1.0 - sh) * 0.06;
     float fog = sbFog(wp);
@@ -128,7 +129,7 @@ const FS = /* glsl */ `
     else if (bc == ${Ground.PATH}.0) { ramp = ${Ramp.GREY_LIGHT}.0; lo = 0.0; }
     else if (bc == ${Ground.YARD}.0) { ramp = ${Ramp.GREEN_GREY}.0; lo = 0.0; }
     else if (bc == ${Ground.FOREST}.0) { ramp = ${Ramp.GREEN_GREY}.0; lo = -0.1; }
-    else if (bc == ${Ground.SAND}.0) { ramp = ${Ramp.SKY_WARM}.0; lo = -0.1; }
+    else if (bc == ${Ground.SAND}.0) { ramp = ${heldHour ? Ramp.SAND : Ramp.SKY_WARM}.0; lo = -0.1; }
     else if (bc == ${Ground.RAIL}.0) { ramp = ${Ramp.ROOF_DARK}.0; lo = -0.04; }
     else if (bc == ${Ground.ROCK}.0) { ramp = ${Ramp.GREY}.0; lo = 0.06; }
     vec3 n = normalize(vWorldNormal);
