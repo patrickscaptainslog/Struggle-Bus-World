@@ -8,6 +8,8 @@ import io
 import contextlib
 import json
 import os
+import re
+import subprocess
 import sys
 from importlib.machinery import SourceFileLoader
 
@@ -108,6 +110,21 @@ def fps_rows(run, pose):
     return rows
 
 
+def panflip(pre, *args):
+    """tools/far/panflip.py's three bands, percent."""
+    out = subprocess.run([sys.executable, '-I', '-X', 'utf8', os.path.join(HERE, 'panflip.py'), pre, *args], capture_output=True, text=True).stdout
+    return {m[0]: float(m[1]) for m in re.findall(r'(\d+-\d+) ([\d.]+)%', out.splitlines()[0])} if out else None
+
+
+# where the wedge stands, per pose (the ceiling's camera from day2-A's report; the stream centre 950 m ahead of the bus): tools/far/absent.py
+WEDGE = {'sunset': ('-6017.4', '2428', '90', '38', '-4855', '2428'), 'presidio': ('-4104.1', '-2038.2', '180', '38', '-4104', '-876'), 'downtown': ('-471.4', '81.3', '45', '38', '350', '-740')}
+
+
+def absent(pose):
+    out = subprocess.run([sys.executable, '-I', '-X', 'utf8', os.path.join(HERE, 'absent.py'), 'sf', *WEDGE[pose]], capture_output=True, text=True).stdout
+    return json.loads(out) if out else None
+
+
 def bytes_at_boot(with_raster):
     d = os.path.join(ROOT, 'public', 'city', 'sf')
     files = ['city.json', 'far.bin', 'horizon.bin'] + (['far16.bin'] if with_raster else [])
@@ -143,7 +160,14 @@ for run in sys.argv[2:]:
                 n.setdefault('flight_burst_flips_pct', {})[tag] = flips(pre)
         det = os.path.join(d, 'det')
         n['same_camera_burst_flips_pct'] = flips(os.path.join(det, f'{pose}-seq'))
-        n['turn_flips_note'] = 'tools/far/panflip.py on det/<pose>-pan-*: see NOTES.md'
+        n['turn_flips_pct'] = panflip(os.path.join(det, f'{pose}-pan'))
+        dive = os.path.join(d, 'dive', f'{pose}-dive')
+        n['dive_flips_pct'] = panflip(dive, '5', '20', '8', '12') if os.path.exists(dive + '-5.png') else None
+        ceil = os.path.join(base, {'day2-A': 'day2-ceil-A', 'day2-B2': 'day2-ceil-B2'}.get(run, ''), f'{pose}-report.json')
+        if os.path.exists(ceil):
+            r = json.load(open(ceil))['far'][0]
+            n['ceiling_flight'] = {k: r.get(k) for k in ('calls', 'triangles')}
+        n['absent_in_every_form'] = absent(pose)
         cam = os.path.join(d, f'{pose}-ceiling.png')
         n['bare_far_land'] = bare(cam)
         n['bands'] = me.report(cam, ((212, 265), (265, 318), (375, 648)))
