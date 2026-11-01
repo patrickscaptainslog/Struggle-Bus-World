@@ -556,7 +556,7 @@ picks the ramp (mode mips: a mip is still a class, never a blend).
   takes the roofs' brightness out of the filtered tone between the boxes, parks left alone, and goes with them between `far.blockSink` and `far.blockEnd`. `?fardebug`: the far ground and the boxes write their class as a ramp, for that tool.
 - `?loadr=<m>`: `config.city.loadRadiusHigh`, the streaming radius up high (1900).
 - `?farnearest` (class with no mips), `?farbias=<n>` (the class map's mip bias), `?farchunk=<tiles>`, `?fartop=<m>`: tests. `config.far`: `toneK`, `wallK`, `classBias`, `fit`, `blockSink`, `blockEnd`, `blockLit`, `blockGlow`.
-Off, none of it loads and no program is added. tools: `shots.mjs --q= --seq --pan --descent --set=` and its `hold-<pose>` views (the hold-still swap at four suns), `altitude.mjs --q= --ceiling --log-far`, `fps.mjs --q=`, `framecost.mjs --set=`, `tools/far/` (`swapstat`, `calib`, `panflip`, `bandflip`, `land`, `rowflip`, `metrics`, `pal`, `absent`, `numbers`, `mergetime`, `sheet`, `ab`).
+Off, none of it loads and no program is added. tools: `shots.mjs --q= --seq --pan --descent --set=` and its `hold-<pose>` views (the hold-still swap at four suns), `altitude.mjs --q= --ceiling --log-far`, `fps.mjs --q=`, `framecost.mjs --set=`, `tools/far/` (`swapstat`, `calib`, `panflip`, `bandflip`, `land`, `seatop`, `rowflip`, `metrics`, `pal`, `absent`, `numbers`, `mergetime`, `sheet`, `ab`).
 
 ## Re-baking a city
 - **Bump `window.__sbDataV` in index.html with every re-bake** (`osm1` -> `osm2`). It goes on every URL under `/city/`
