@@ -408,13 +408,14 @@ export class Flight {
     [this.bank, this.bankVel] = spring(this.bank, this.bankVel, bankTarget, F.bankHz, F.bankDamping, dt);
     // pitch follows the climb gently (floored at 24 m/s: a roof or a hill mustn't stand a slow bus on its nose), but on the yoke it
     // shows the way the bus is really going: all of it on the path, and on the plain pull as much as the stick is held. Breathing
-    // rainbow, the bus rears back like a dragon on an authored envelope (its own lift during the breath adds nothing)
+    // rainbow, the bus rears back like a dragon on an authored envelope, from where it is (its own lift during the breath adds nothing)
     const gentle = clamp(Math.atan2(this.vy, Math.max(this.speed, 24)) * 0.8, -0.35, 0.4);
+    const calm = this.barfing ? Math.min(gentle, 0.06) : gentle;
     const yoke = this.onPath ? 1 : this.mode === Yoke.Climb ? ss(0.1, 0.9, pull) : 0;
     const pitchMax = F.pitchMax * DEG;
-    const climb = gentle + (clamp(this.nose, -pitchMax, pitchMax) - gentle) * yoke;
+    const climb = calm + (clamp(this.nose, -pitchMax, pitchMax) - calm) * yoke;
     const rear = this.barfing ? S.rearUp * ss(0, 0.1, this.barfT) * (1 - ss(0.6, S.duration, this.barfT)) : 0;
-    const pitchTarget = (this.barfing ? Math.min(climb, 0.06) : climb) + rear;
+    const pitchTarget = Math.min(climb + rear, pitchMax);
     this.pitch += (pitchTarget - this.pitch) * (1 - Math.exp(-(this.barfing ? 10 : 5) * dt));
   }
 
