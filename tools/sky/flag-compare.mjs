@@ -56,6 +56,9 @@ const onlyA = [...sa.keys()].filter((s) => !sb.has(s)), onlyB = [...sb.keys()].f
 const times = [...sa].filter(([s, n]) => sb.has(s) && sb.get(s) !== n).length;
 console.log(`shaders: ${a.shaders.length} sources (${sa.size} distinct, ${a.shaders.join('').length} bytes) vs ${b.shaders.length} (${sb.size} distinct, ${b.shaders.join('').length} bytes)`);
 console.log(`  only in the first ${onlyA.length}, only in the second ${onlyB.length}, used a different number of times ${times}, same order ${a.shaders.length === b.shaders.length && a.shaders.every((s, i) => s === b.shaders[i])}`);
+// (the warm-up's compile order: which sources swapped places, if any)
+const moved = a.shaders.map((x, i) => (x === b.shaders[i] ? -1 : i)).filter((i) => i >= 0);
+if (moved.length) console.log(`  order differs at ${moved.length} places: ${moved.slice(0, 12).map((i) => `${i}: ${hash(a.shaders[i])} / ${hash(b.shaders[i] ?? '')}`).join(', ')}`);
 const firstDiff = (x, y) => {
   let i = 0;
   while (i < x.length && x[i] === y[i]) i++;

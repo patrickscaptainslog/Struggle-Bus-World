@@ -2,7 +2,7 @@
 // A first-timer flies ?moonrun: node tools/sky/moon-live.mjs <out dir> [--g5=6000] [--t=2026-11-25T04:00:00Z] [--dt=0] [--trips=1] [--w=402] [--h=874] [--dsf=1] [--shots=1] [--q=fps]
 // Real frame loop, real clock, real touches, and it does only what the screen says: the top right corner is read off the label, and TURBO is tapped when the label asks and not before, a beat after it asks.
 // The thumb is a real drag on the canvas: in the long dark each way (the camera), and on both sides in orbit (the bus). --dt=0.05 holds the frame loop's step there, so a fast laptop flies it faster than life:
-// that's for repeat flights; the clock numbers are the same.
+// that's for repeat flights; the clock numbers are the same. --thumbat=25: when the thumb wanders in the long dark, seconds into the leg. --tab: the down tab in orbit, and TURBO back up.
 // Every frame goes in a log: what's on the sky and how far each body moved on screen since the frame before, in game px. It prints the worst of those by leg, and a frame is shot at each mark. A mark is a state
 // of the flight (a leg starting, a size reached), so it lands in the same place at any speed and any date.
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -14,6 +14,7 @@ const args = process.argv.slice(2);
 const opt = (k, d) => args.find((a) => a.startsWith(`--${k}=`))?.split('=')[1] ?? d;
 const out = args.find((a) => !a.startsWith('--'));
 const BASE = process.env.BASE ?? 'http://localhost:4179/';
+const thumbAt = Number(opt('thumbat', 12)), tab = args.includes('--tab');
 const g5 = opt('g5', '6000'), t = opt('t', '2026-11-25T04:00:00Z'), dt = Number(opt('dt', 0)), trips = Number(opt('trips', 1)), w = Number(opt('w', 402)), h = Number(opt('h', 874)), dsf = Number(opt('dsf', 1)), shots = opt('shots', '1') !== '0', extra = opt('q', '');
 mkdirSync(out, { recursive: true });
 
@@ -131,7 +132,7 @@ try {
     if (s.leg === 'homeDrop') await shoot(`${n}y-drop`, s);
 
     // ---- the thumb, a few times, where a thumb would wander
-    if ((s.leg === 'cruise' || s.leg === 'homeCruise') && inLeg > 12 && !done.has(`${s.leg}-thumb`)) {
+    if ((s.leg === 'cruise' || s.leg === 'homeCruise') && inLeg > thumbAt && !done.has(`${s.leg}-thumb`)) {
       done.add(`${s.leg}-thumb`);
       console.log(wall(), 'thumb: the camera, right and held 2 s, then up');
       await drag(70, 0, 2000);
@@ -150,8 +151,17 @@ try {
       await drag(-70, 0, 3000);
     }
 
+    if (tab && s.leg === 'orbit' && inLeg > 19 && !done.has('orbit-tab')) {
+      done.add('orbit-tab');
+      const b = await page.locator('[data-hud="gear-down"]').boundingBox();
+      console.log(wall(), 'the down tab');
+      await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
+      await page.waitForTimeout(400);
+      console.log(wall(), JSON.stringify(await read()));
+    }
+
     // ---- TURBO, when the label asks. In orbit, a look round first
-    const wait = s.leg === 'orbit' ? 24 : 1.5;
+    const wait = s.leg === 'orbit' ? (done.has('orbit-tab') ? 3 : 24) : 1.5;
     if (prompt.startsWith('TAP TURBO') && heard > wait) {
       if (s.leg === 'wait' && s.trips >= trips) break;
       console.log(wall(), `TURBO (the screen says ${prompt})`);
