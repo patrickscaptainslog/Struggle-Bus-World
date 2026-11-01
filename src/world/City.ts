@@ -9,7 +9,7 @@ import { mergeFarBlocks, type FarBlockChunk, type FarBlocksRequest, type FarBloc
 import { PaintState, LANDMARK_KEY_PREFIX } from './PaintState';
 import { GroundPaint } from './GroundPaint';
 import type { ObstaclePost } from './Bridges';
-import { meshHeights, parseFar, parseFarRaster, WATER_Y, type CityManifest, type FarData, type FarRaster, type FarTowers, type BuildingTile, type TerrainTile } from './tiles';
+import { meshHeights, parseFar, parseFarRaster, WATER_Y, type CityManifest, type FarData, type FarRaster, type BuildingTile, type TerrainTile } from './tiles';
 import { loadRegion, type GridArrays, type RegionRequest, type RegionResponse, type TileResult } from './regionLoader';
 import { GROWN_STRIDE, type CasterArrays, type MeshArrays } from './BuildingMesher';
 import { treeCrown } from './props/trees';
@@ -612,30 +612,32 @@ export class City {
           .then(() => (this.farLate = false));
       } else raster = r;
     }
-    const tex = raster ? await this.startFarRaster(raster, renderer) : null;
-    this.buildFar(farFlags.map ? raster : null, tex, farFlags.blocks ? raster?.towers ?? null : null);
-    if (raster) this.onFarRaster?.();
+    if (raster) await this.landFar(raster, renderer);
+    else this.buildFar(null, null, null);
     if (hzBuf) this.buildHorizon(await maybeInflate(hzBuf));
   }
 
-  /** The raster's boxes off to their worker, its textures onto the GPU, one upload a tick (the boot loop or the game running between them). */
-  private async startFarRaster(raster: FarRaster, renderer?: THREE.WebGLRenderer): Promise<FarTextures | null> {
-    if (farFlags.blocks) this.startFarBlocks(raster);
-    if (!farFlags.map) return null;
-    const tex = makeFarTextures(raster);
-    renderer?.initTexture(tex.cls);
-    await nextTick();
-    renderer?.initTexture(tex.tone);
-    this.farRaster = { W: raster.W, H: raster.H, affine: raster.affine, cls: raster.cls.slice(), height: raster.height.slice() };
-    return tex;
-  }
-
-  /** far16.bin landed after the first frame: the far mesh and the skyline rebuilt on the raster, the old ones gone that same frame, and the fade with them. */
+  /**
+   * The raster goes in a step a tick, the boot loop or the game running between them: its boxes off to their worker, its textures one upload at a time, the skyline's
+   * looks, then the far mesh and the skyline built on it. What they replace (it landed after the first frame) goes that same frame, and the fade with it.
+   */
   private async landFar(raster: FarRaster, renderer?: THREE.WebGLRenderer) {
-    const tex = await this.startFarRaster(raster, renderer);
+    if (farFlags.blocks) this.startFarBlocks(raster);
+    let tex: FarTextures | null = null;
+    if (farFlags.map) {
+      await nextTick();
+      tex = makeFarTextures(raster);
+      await nextTick();
+      renderer?.initTexture(tex.cls);
+      await nextTick();
+      renderer?.initTexture(tex.tone);
+      this.farRaster = { W: raster.W, H: raster.H, affine: raster.affine, cls: raster.cls.slice(), height: raster.height.slice() };
+    }
+    await nextTick();
+    const looks = farFlags.blocks && raster.towers ? farTowerLooks(this.far!, raster.towers, this.sf) : null;
     await nextTick();
     const old = this.farMeshes;
-    this.buildFar(farFlags.map ? raster : null, tex, farFlags.blocks ? raster.towers : null);
+    this.buildFar(farFlags.map ? raster : null, tex, looks);
     for (const m of old) {
       this.farGroup.remove(m);
       m.geometry.dispose();
@@ -759,7 +761,7 @@ export class City {
     this.farGroup.add(farGridMesh(pos, nrm, ramp, lo, gl, idx, 0, makeHorizonMaterial()));
   }
 
-  private buildFar(raster: FarRaster | null, tex: FarTextures | null, towers: FarTowers | null) {
+  private buildFar(raster: FarRaster | null, tex: FarTextures | null, looks: Float32Array | null) {
     const f = this.far!;
     // far terrain: 64 m grid over the whole city, sunk a little under the near tiles
     const step = 2;
@@ -819,8 +821,8 @@ export class City {
     // far skyline: tall buildings as boxes, hidden where real tiles are loaded
     const n = f.index.length;
     if (n) {
-      const inst = towers
-        ? farTowerMesh(farTowerLooks(f, towers, this.sf), n, makeFarTowerMaterial(this.loadedMask, maskRect, maskSize))
+      const inst = looks
+        ? farTowerMesh(looks, n, makeFarTowerMaterial(this.loadedMask, maskRect, maskSize))
         : new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), makeSkylineMaterial(this.loadedMask, maskRect, maskSize), n);
       const m4 = new THREE.Matrix4();
       const qn = new THREE.Quaternion();
