@@ -1451,8 +1451,13 @@ export class City {
     return this.tiles.get(`${tx},${tz}`)?.hidden ?? false;
   }
 
+  /** What the cover and `ready` wait for. Not the pools: they lift tiles already drawn. */
+  get loading(): boolean {
+    return this.pending.size > 0 || this.adopt.length > 0 || this.farBusy || this.farLanding.length > 0;
+  }
+
   get busy(): boolean {
-    return this.pending.size > 0 || this.adopt.length > 0 || this.farBusy || this.farLanding.length > 0 || this.poolAt < this.poolTiles.length;
+    return this.loading || this.poolAt < this.poolTiles.length;
   }
 
   private isPending(key: string): boolean {

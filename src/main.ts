@@ -1323,7 +1323,7 @@ async function boot() {
     superMeter.update(realDt, superView);
     controls.hud.setMega(superView.phase);
     perf.frame(dt * 1000, performance.now() - t0);
-    const cityIn = city.loadedRegionCount() > 0 && !city.busy && !later.length;
+    const cityIn = city.loadedRegionCount() > 0 && !city.loading && !later.length;
     if (covered && cityIn) {
       covered = false;
       canvas.style.visibility = '';
@@ -1341,7 +1341,7 @@ async function boot() {
     }
     if (ready) everReady = true;
     city.eager = !everReady;
-    (window as unknown as { __shotReady?: boolean }).__shotReady = ready && !city.farLate && !hour?.lamps.busy;
+    (window as unknown as { __shotReady?: boolean }).__shotReady = ready && !city.busy && !city.farLate && !hour?.lamps.busy;
   }
   requestAnimationFrame(frame);
 
