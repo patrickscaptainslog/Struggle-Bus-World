@@ -187,6 +187,7 @@ They exist only because props disagree with data. Once the bake stops making sta
 | `BRIDGE_TIERS` | 1 id | **Deleted** | `trimBridgeTiers`, its call at `regionLoader.ts:290` |
 | `FAR_STAND_INS` | 11 tiles | **Deleted** | `maskedForGood`, `City.ts:492-497` |
 | `clearStandInGround` | Function | **Deleted** | Its call at `regionLoader.ts:305`. Nothing stands in water any more |
+| `clearStandInCells` | Function (far raster, `spike/farfield`) | **Deleted** | Its call in `City.landFar`. The raster's rebuilt tiles hold no stand-ins |
 | `bridgeObstacles` | Function | **Deleted** | Posts come from the data |
 | `landmarks[].points` | 2 rows | **Leaves `sf.json`**, written to `city.json` by the bake | `bake.py:1389-1391` goes. `bake.py:2590-2593` reads the resolved hero |
 

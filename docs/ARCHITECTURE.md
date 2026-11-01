@@ -583,8 +583,8 @@ step 5 replaces both with decks from data in every city. A hero may set its styl
   into each tower and anchorage. It fails if the bus ever enters the deck's box, is lifted, comes up through the deck or jumps. It
   doesn't count frames inside a block.
 - **The far field.** `far16.bin` is baked from the tiles, not from these rows. A row's change needs no rebuild,
-  and decks are not in it, but it never sees `HIDDEN`, so a stand-in the near city hides stands in it unless its tile is in
-  `FAR_STAND_INS`. Rebuild it after `BRIDGES.md`'s step 5 re-bake, which removes them at the source.
+  and decks are not in it, but it never sees `HIDDEN`, so a stand-in the near city hides stands in it. `FAR_STAND_INS`' tiles hide its
+  boxes, and `clearStandInCells` gives its cells the ground around them as the raster lands (SF only). Rebuild it after `BRIDGES.md`'s step 5 re-bake, which removes them at the source.
 
 ## Re-baking a city
 - **Bump `window.__sbDataV` in index.html with every re-bake** (`osm1` -> `osm2`). It goes on every URL under `/city/`
