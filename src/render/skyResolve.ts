@@ -103,6 +103,16 @@ float spHash(vec2 c) {
   return float(h >> 8u) / 16777216.0;
 }
 
+// One octave of city lights. A cell lights one pixel, at its corner, so a light stays put on the ground; its chance goes with its area, so the share of pixels lit stays the same as the cell shrinks on screen.
+bool spLights(vec2 deg, float size, float px, float share, float want0, inout float st) {
+  vec2 q = deg / size;
+  vec2 cell = floor(q);
+  float w = size / px;
+  if (spHash(cell) >= share * w * w || any(greaterThanEqual(q - cell, vec2(1.0 / w)))) return false;
+  st = clamp(floor(3.2 + 7.0 * want0 * (0.55 + 0.45 * spHash(cell + vec2(7.0, 0.0)))), 2.0, 7.0);
+  return true;
+}
+
 bool spaceEarth(vec3 dir, float dsk, out vec3 col) {
   vec3 e = dir * uEarthRot;
   vec3 ds = vec3(e.xy, e.z * ${EARTH_K});
@@ -173,13 +183,14 @@ bool spaceEarth(vec3 dir, float dsk, out vec3 col) {
     float nl = la * la;
     float want0 = clamp((nl - 0.17) * 3.4, 0.0, 1.0);
     float want = pow(want0, 1.4) * uEarthView.z;
-    // a cell one to two pixels wide where this ray lands, in whole octaves, so it stays on the ground through a climb, and one pixel of it lights: a light is a pixel
+    // a cell one to two pixels wide where this ray lands, and the octave over it, in whole octaves so both stay on the ground through a climb, and one pixel of a cell lights: a light is a pixel.
+    // The share runs from one octave to the next across the climb, so a doubling of the height never shows as the lights dropping or changing all at once
     float px = t * uEarthView.w;
-    float size = exp2(ceil(log2(px)));
-    vec2 q = vec2(lat, lon) * 57.2957795 / size;
-    vec2 cell = floor(q);
-    if (want0 > 0.25 && bx > 0.1 && uEarthView.z < 0.9) { ramp = ${Ramp.LAMP}.0; st = 1.0; }
-    if (spHash(cell) < want && all(lessThan(q - cell, vec2(px / size)))) { ramp = ${Ramp.LAMP}.0; st = clamp(floor(3.2 + 7.0 * want0 * (0.55 + 0.45 * spHash(cell + vec2(7.0, 0.0)))), 2.0, 7.0); }
+    float oct = log2(px), octF = fract(oct);
+    float size = exp2(oct - octF + 1.0);
+    vec2 deg = vec2(lat, lon) * 57.2957795;
+    if (want0 > 0.25 && bx > 0.1 + 0.42 * smoothstep(0.6, 0.9, uEarthView.z)) { ramp = ${Ramp.LAMP}.0; st = 1.0; }
+    if (spLights(deg, size, px, 0.5 * want * (1.0 - octF), want0, st) || spLights(deg, size * 2.0, px, 0.5 * want * octF, want0, st)) ramp = ${Ramp.LAMP}.0;
   }
   col = pal(ramp, st);
   return true;
