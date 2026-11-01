@@ -441,7 +441,7 @@ export function bridgeLights(kind: 'ggb' | 'baybridge', pts: P2[], deck: DeckPoi
   const gg = kind === 'ggb';
   const edge = (gg ? GGB.half : BAY.half) + 1.5;
   const out: number[] = [];
-  const n = Math.ceil(d.length / spacing);
+  const n = Math.ceil(d.length / Math.max(1, spacing));
   for (let k = 0; k < n; k++) {
     const s = ((k + 0.5) / n) * d.length;
     const [x, z, top] = d.at(s);
