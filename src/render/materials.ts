@@ -26,6 +26,8 @@ export const heldGlobals = {
   uSkyHaze: { value: 0 }, // the light the haze ends on, in place of the day's sky function (0: that function)
   uLit: { value: 0 }, // the share of windows lit, one held value: there is no clock
   uLitGlow: { value: 0 }, // a near pane's glow
+  uLamp: { value: 0 }, // how many steps a lamp's pool lifts the paved ground
+  uLampFar: { value: new THREE.Vector2() }, // the distance over which the pools fade out (m): from, gone by
 };
 
 /** Uniforms shared by every scene material. Update in place; never replace. */

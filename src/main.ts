@@ -126,7 +126,11 @@ async function boot() {
   registerCityData(manifest);
   const city = new City(manifest, base);
   scene.add(city.root);
-  if (hour) scene.add(hour.lamps.object);
+  if (hour) {
+    const { lamps } = hour;
+    scene.add(lamps.object);
+    lamps.onLanded = () => city.setPools(lamps);
+  }
   // the opening streams everything it needs at once (adopted as it lands, many regions in flight);
   // streaming is budgeted again after the first ready frame
   city.eager = true;

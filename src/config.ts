@@ -164,6 +164,8 @@ export const config = {
     windows: true,
     /** Street lamps, near and far: off, none. */
     lamps: true,
+    /** The lamps' pools on the paved ground: off, none. */
+    pools: true,
     /** config.far.fit under this hour: the far band's fit to the near tiles was made with a sun's shadows in them. */
     farFit: 0.25,
     /** The far ground where there is no raster (?nofar, a raster still on its way) is one tone: this much under the day's, or it is a sheet of light beside the city. */
@@ -202,6 +204,12 @@ export const config = {
     lampLift: 0.002,
     /** Past this distance (m) the lamps thin out with distance, by a stable hash: far off they crowd into rows a pixel apart. */
     lampThin: 4000,
+    /** A pool's radius at most (m; each is hashed down to 0.72 of it), read as a tile stamps, and how many steps it lifts the paved ground. */
+    poolRadius: 11,
+    poolLift: 1,
+    /** Pools fade out between these distances from the lens (m): past them they would be a few 2 m texels on a pixel. */
+    poolFade: 900,
+    poolEnd: 1500,
   },
 
   city: {

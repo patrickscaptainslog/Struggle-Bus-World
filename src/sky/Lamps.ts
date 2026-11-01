@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { config } from '../config';
-import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
+import { globals, GLSL_COMMON, GLSL_OUT, heldGlobals } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { registerWarm } from '../render/warmup';
+import type { TerrainTile } from '../world/tiles';
 import { heldHour } from './flag';
-import { LAMP_XZ, LAMP_Y, type LampRequest, type LampResult } from './lampData';
+import { LAMP_XZ, LAMP_Y, tileKey, type LampRequest, type LampResult } from './lampData';
 import { loadLamps } from './lampLoad';
 
 // The street data is the night look (SKY.md 4.4): one pixel per lamp, the LAMP row, depth tested, one Points draw for the whole city, the far band's too. A light is a pixel.
@@ -72,8 +73,14 @@ export class Lamps {
   readonly object = new THREE.Group();
   private readonly mat = makeLampMaterial();
   private streets: THREE.Points | null = null;
+  private data: LampResult | null = null;
+  /** tile key -> its run in the list */
+  private readonly runs = new Map<number, number>();
+  private tileSize = 256;
   /** the list hasn't landed, or told us it won't (QA's __shotReady waits) */
   busy = true;
+  /** Called once if the list comes: every loaded tile's pools go on the queue. */
+  onLanded: (() => void) | null = null;
 
   constructor() {
     this.object.matrixAutoUpdate = false;
@@ -81,6 +88,7 @@ export class Lamps {
 
   /** lamps.bin, off the main thread, with the far grid's heights. A city with none has none. */
   load(url: string, ground: LampGround, tileSize: number) {
+    this.tileSize = tileSize;
     this.busy = true;
     const req: LampRequest = { url: new URL(url, location.href).href, ...ground, tileSize, head: config.sky.lampHead };
     const landed = (r: LampResult | null) => {
@@ -106,8 +114,11 @@ export class Lamps {
   }
 
   private land(r: LampResult) {
+    this.data = r;
+    for (let i = 0; i < r.keys.length; i++) this.runs.set(r.keys[i], i);
     this.streets = lampPoints(r.pos, this.mat);
     this.object.add(this.streets);
+    this.onLanded?.();
   }
 
   /** Every frame, the tuner's switches. */
@@ -115,5 +126,42 @@ export class Lamps {
     const S = config.sky;
     uLampPoint.value.set(S.lampShare, S.lampLift, S.lampThin);
     if (this.streets) this.streets.visible = S.lamps;
+    heldGlobals.uLamp.value = S.pools ? S.poolLift : 0;
+    heldGlobals.uLampFar.value.set(S.poolFade, S.poolEnd);
+  }
+
+  /**
+   * Each lamp's pool into the top 4 bits of a tile's classes (classes stop at 10): a disc of hashed radius, brightest at the lamp, the brightest of what overlaps. Lamps
+   * near the tile's edge reach into it, so the runs of the tiles around it are walked too. Returns false: this city has no lamps.
+   */
+  stamp(tr: TerrainTile): boolean {
+    const r = this.data;
+    if (!r) return false;
+    const S = config.sky, N = tr.classN, t = this.tileSize / N, reach = S.poolRadius;
+    const tx = Math.round(tr.originX / this.tileSize), tz = Math.round(tr.originZ / this.tileSize);
+    const c = tr.cls, p = r.pos;
+    for (let dz = -1; dz <= 1; dz++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const run = this.runs.get(tileKey(tx + dx, tz + dz));
+        if (run === undefined) continue;
+        for (let n = r.starts[run], e = r.starts[run + 1]; n < e; n++) {
+          const x = p[n * 4] * LAMP_XZ - tr.originX, z = p[n * 4 + 2] * LAMP_XZ - tr.originZ;
+          if (x < -reach || z < -reach || x > this.tileSize + reach || z > this.tileSize + reach) continue;
+          // (as the shader hashes a lamp's place)
+          const h = Math.sin((x + tr.originX) * 12.9898 + (z + tr.originZ) * 78.233) * 43758.5453;
+          const rad = reach * (0.72 + 0.28 * (h - Math.floor(h)));
+          const i0 = Math.max(0, Math.ceil((x - rad) / t - 0.5)), i1 = Math.min(N - 1, Math.floor((x + rad) / t - 0.5));
+          const j0 = Math.max(0, Math.ceil((z - rad) / t - 0.5)), j1 = Math.min(N - 1, Math.floor((z + rad) / t - 0.5));
+          for (let j = j0; j <= j1; j++)
+            for (let i = i0; i <= i1; i++) {
+              const ax = (i + 0.5) * t - x, az = (j + 0.5) * t - z;
+              const d = 1 - (ax * ax + az * az) / (rad * rad);
+              if (d <= 0) continue;
+              const v = Math.ceil(d * 15), q = j * N + i;
+              if (v > c[q] >> 4) c[q] = (c[q] & 15) | (v << 4);
+            }
+        }
+      }
+    return true;
   }
 }

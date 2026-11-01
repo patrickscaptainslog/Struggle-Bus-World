@@ -288,7 +288,7 @@ export function clearStandInGround(t: TerrainTile) {
     for (let j = j0; j <= j1; j++) {
       for (let i = i0; i <= i1; i++) {
         const v = Math.round(((j + 0.5) * texel) / cell) * n + Math.round(((i + 0.5) * texel) / cell);
-        if (cls[j * N + i] === Ground.SIDEWALK && heights[v] < WATER_Y + 0.3) cls[j * N + i] = Ground.WATER;
+        if ((cls[j * N + i] & 15) === Ground.SIDEWALK && heights[v] < WATER_Y + 0.3) cls[j * N + i] = Ground.WATER;
       }
     }
   }

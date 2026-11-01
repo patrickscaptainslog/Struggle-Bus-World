@@ -48,7 +48,7 @@ export function meshHeights(t: { heights: Float32Array; n: number; cell: number;
   for (let j = 0; j < N; j++) {
     let row = 0;
     for (let i = 0; i < N; i++) {
-      if (cls[j * N + i] !== Ground.WATER) row++;
+      if ((cls[j * N + i] & 15) !== Ground.WATER) row++;
       sat[(j + 1) * W + i + 1] = sat[j * W + i + 1] + row;
     }
   }
