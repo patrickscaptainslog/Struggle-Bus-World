@@ -777,7 +777,7 @@ async function boot() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) city.ground.persist();
   });
-  // tilt / touch / keyboard, the turbo gears and the HUD (src/game/Controls.ts)
+  // touch / keyboard, the turbo gears and the HUD (src/game/Controls.ts)
   const controls = new Controls({ input, flight, rig, audio, particles, pipeline, camera, scene, bus, bounds: manifest.bounds, params });
   controls.hud.setCredits(dataCredits);
   input.onTripleFinger = () => tuner.toggle();
@@ -1008,8 +1008,8 @@ async function boot() {
     // (never negative: the first frame's timestamp can predate `last`, by the whole warm-up on a slow GPU)
     let dt = fixedDt || Math.min(0.05, Math.max(0, (now - last) / 1000));
     const realDt = dt;
-    // the game holds under iOS's motion sheet, and while a restored context streams the city back in
-    const held = controls.sheetUp || covered;
+    // the game holds while a restored context streams the city back in (and for a QA tool's freeze)
+    const held = controls.frozen || covered;
     // the opening runs on the wall clock from when the first frame reached the screen (the second
     // frame's callback): it overlaps loading, and slow frames (down to 4 fps) don't stretch it. A
     // longer gap (a tab switch, a locked phone, a long task) moves it 0.25 s at most, so the reveal
@@ -1130,7 +1130,7 @@ async function boot() {
       }
     }
     // aim glint on the building a tap would hit (picked every frame), only while a breath is loaded
-    // (a committed thumb thaws the glint, as keys and a QA stick do; tilt never does; and a press that fires on its lift
+    // (a committed thumb thaws the glint, as keys and a QA stick do; and a press that fires on its lift
     // keeps what it froze, whatever else is steering)
     const glint = aimer.update(flight, simTime, (qaStick || st.thumb || (st.dragging && input.mode === 'keyboard')) && !input.pressHeld);
     controls.glinting = glint !== null;

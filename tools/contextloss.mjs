@@ -21,7 +21,12 @@ page.on('pageerror', (e) => (errors.push(e.message), console.log('[pageerror]', 
 page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && (errors.push(m.text()), console.log('[console]', m.text())));
 await page.addInitScript(() => {
   let g = null;
-  Object.defineProperty(window, '__game', { configurable: true, get: () => g, set: (v) => ((g = v), (v.controls.tilt.status = 'requesting')) });
+  Object.defineProperty(window, '__game', { configurable: true, get: () => g, set: (v) => {
+    g = v;
+    v.controls.frozen = true;
+    // (a build from before the tilt went stands on its motion sheet's status)
+    if (v.controls.tilt) v.controls.tilt.status = 'requesting';
+  } });
 });
 await page.goto(url + (opt.query ?? '?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud&fixeddt=0.03333333333333333'), { waitUntil: 'load' });
 await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000 });

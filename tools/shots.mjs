@@ -61,21 +61,26 @@ async function open(query) {
       Math.random = () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
       const raf = window.requestAnimationFrame.bind(window);
       window.requestAnimationFrame = (cb) => raf((t) => (seed(), cb(t)));
-      // the game clock stands from the first frame (frames run at dt 0, as under iOS's motion sheet): the city
-      // streams in with the bus still at its spawn
+      // the game clock stands from the first frame (frames run at dt 0): the city streams in with the bus still
+      // at its spawn (a build from before the tilt went stands on its motion sheet's status: MAIN vs NEXT still runs)
+      const freeze = (c, on) => {
+        c.frozen = on;
+        if (c.tilt) c.tilt.status = on ? 'requesting' : 'off';
+      };
+      window.__freeze = (on) => freeze(g.controls, on);
       Object.defineProperty(window, '__game', {
         configurable: true,
         get: () => g,
         set: (v) => {
           g = v;
-          v.controls.tilt.status = 'requesting';
+          freeze(v.controls, true);
           // (while it runs, the clock stands whenever regions are on their way: streaming lands at the same game
           // time on any machine, and a query that fell back to the far grid here can't move the camera a hair)
           const update = v.city.update;
           v.city.update = function (...a) {
             update.apply(this, a);
             seed();
-            if (window.__detRunning) v.controls.tilt.status = this.busy ? 'requesting' : 'off';
+            if (window.__detRunning) freeze(v.controls, this.busy);
           };
         },
       });
@@ -113,13 +118,13 @@ async function runDet(page, seconds) {
     const g = window.__game;
     window.__qa.held = false;
     window.__qa.holdAt = g.clock() + s;
-    g.controls.tilt.status = 'off';
+    window.__freeze(false);
     window.__detRunning = true;
   }, seconds);
   await page.waitForFunction(() => window.__qa.held === true, null, { timeout: 300000, polling: 50 });
   await page.evaluate(() => {
     window.__detRunning = false;
-    window.__game.controls.tilt.status = 'requesting';
+    window.__freeze(true);
     window.__qa.holdAt = undefined;
     window.__qa.held = false;
   });

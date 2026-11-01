@@ -26,7 +26,7 @@ const flags = Object.fromEntries(args.filter((a) => a.startsWith('--')).map((a) 
 const [base = 'http://127.0.0.1:5201/', out = 'shots/supersplat', ...modeList] = args.filter((a) => !a.startsWith('--'));
 const modes = new Set(modeList.length ? modeList : ['charge', 'sweep', 'alt', 'mega', 'cooldown']);
 mkdirSync(out, { recursive: true });
-// (touch: tilt off, no chip, and no quiet listen)
+// (touch, on a desktop browser too)
 const DT = '&fixeddt=0.0333333&controls=touch';
 
 const browser = await chromium.launch({ ...browserOptions([]) });

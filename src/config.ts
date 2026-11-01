@@ -287,56 +287,6 @@ export const config = {
     wallowHz: 0.55,
   },
 
-  /** Tilt to fly (src/game/Tilt.ts): the default on phones with motion sensors. Angles in degrees. */
-  tilt: {
-    /** Tilting left/right (rolling) this far from the neutral pose is a full carve; pitching the top edge
-     *  toward / away from you this far is a full climb / dive (deg, divided by the sensitivity). */
-    rollFull: 26,
-    pitchFull: 26,
-    /** Dead zones around the neutral pose (deg): hand tremor and posture never steer. */
-    rollDead: 1.4,
-    pitchDead: 2.2,
-    /** Expo: 0 = linear, 1 = cubic (fine control near center, full authority at the edge). */
-    expo: 0.45,
-    /** Default sensitivity (0.5..2; the settings panel changes it per player). */
-    sensitivity: 1,
-    /** One-Euro jitter filter: cutoff at rest (Hz), its speed coefficient (Hz per deg/s), derivative cutoff (Hz). */
-    minCutoff: 1.6,
-    beta: 0.5,
-    dCutoff: 2.5,
-    /** Prediction to the frame time from the filtered rate, at most this far ahead (s): the filter adds no lag. */
-    predict: 0.02,
-    /** Pitch output starts at the yoke's dead band (config.flight.yokeDead) past tilt's own dead zone
-     *  (0..1; 1 = tilt's dead zone is the only one, so a gentle tilt climbs gently). */
-    yokeComp: 1,
-    /** Auto-recenter: held still (under stillRate deg/s) for stillTime s, the neutral drifts toward the
-     *  current pose with this time constant (s), only while the pose is within these bands (deg): a trim of
-     *  posture drift just past the dead zones, never a deliberate climb or carve (wider bands walked the
-     *  neutral away under a staircase of small held tilts). */
-    stillRate: 4,
-    stillTime: 1.4,
-    recenterTau: 6,
-    recenterPitchBand: 4.5,
-    recenterRollBand: 2.5,
-    /** No orientation event within this long after listening starts = no sensors: touch to fly (s). */
-    eventTimeout: 1,
-    /** Calibration: the neutral pose is the mean of the first this-long of samples (s). */
-    calibrate: 0.18,
-    /** Recentering eases the neutral over this long (s) instead of jumping. */
-    recenterEase: 0.25,
-    /** Stillness before the neutral is taken (toggle, chip, RECENTER: all corner reaches): gravity must turn slower
-     *  than settleRate deg/s for settleHold s in a row, capped at settleMax s (a phone that never settles still calibrates). */
-    settleRate: 40,
-    settleHold: 0.3,
-    settleMax: 1.5,
-    /** An undecided phone player: false = tilt is offered (the TILT TO STEER? chip); true = they count as having chosen it
-     *  (starts on the first gesture; iOS, which needs a tap, gets the chip at the end of the fog). The one switch. */
-    defaultOn: false,
-    /** Tilted this far from neutral (deg) the phone is being turned or put down, not flown: the stick fades out by awayTo. */
-    awayFrom: 58,
-    awayTo: 80,
-  },
-
   /** Turbo gears (src/game/Turbo.ts). G0 is the classic flight (cruise / surge); each gear needs height above the ground. */
   turbo: {
     /** G2 "Stratos" and G3 "Rainbow Warp" need the world beyond the city map: off until it exists
