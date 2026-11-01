@@ -166,7 +166,8 @@ export class TurboDrive {
       rate = 3 / Math.max(0.1, T.spool);
       this.braking = false;
     } else if (this.braking || f.speed > Math.max(Tb.speed, F.surgeSpeed) * 1.02) {
-      const classic = F.cruiseSpeed + (F.surgeSpeed - F.cruiseSpeed) * Math.pow(clamp(f.surge, 0, 1), 1.3);
+      // (on a climb the classic flight settles at the plain pull's own speed, which never comes down to the level flight's)
+      const classic = f.mode === 2 ? Math.hypot(F.climbRate, F.climbSpeed) : F.cruiseSpeed + (F.surgeSpeed - F.cruiseSpeed) * Math.pow(clamp(f.surge, 0, 1), 1.3);
       if (f.speed > Math.max(Tb.speed, classic) * 1.25) {
         kind = 2;
         rate = 3 / Math.max(0.1, T.brake);
