@@ -369,9 +369,15 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         }
 
         // ---- the shaft${held(`
-        // (held, past the pane gate: a tower's lit floors are lines at least 4 px apart, runs of a floor, never single pixels; further out cell says it is shaft: one tone per face)
+        // (held: past its pane gate, each family's own as its code below opens it, a tower's lit floors are lines at least 4 px apart, runs of a floor, never single pixels; further out cell says it is shaft: one tone per face)
         cell = vec2(-2.0);
-        if (!nearV && mpp <= uHouseFlat && gLit > 0.0 && rhythm(vb - 0.5 * fh, fh, fvE / mpp, dF.y, 4.0) > 0.5
+        bool panes = nearV;
+        if (fam == ${R(Fam.MASONRY)}) panes = showH && 1.9 * fvE / mpp >= 2.0 && 0.9 * fu / mpp >= 2.0;
+        else if (fam == ${R(Fam.BANDS)}) panes = nearV && 1.5 * fvE / mpp >= 2.0;
+        else if (fam == ${R(Fam.FINS)}) { float wf = clamp(0.6 + (1.0 - fu) * 1.4, 0.6, 2.0); panes = showH && (sp - wf) * fu / mpp >= 2.0 && wf * fu / mpp >= 1.5; }
+        else if (fam == ${R(Fam.GRANITE)}) panes = 0.9 * fu / mpp >= 2.0;
+        else if (fam == ${R(Fam.PRECAST)}) panes = 1.1 * clamp(fu * 1.2, 0.4, 1.0) * fu / mpp >= 2.0;
+        if (!panes && mpp <= uHouseFlat && gLit > 0.0 && rhythm(vb - 0.5 * fh, fh, fvE / mpp, dF.y, 4.0) > 0.5
             && h21(vec2(floor(u / 9.0), floor((vb - 0.5 * fh) / fh + 0.5)) + vec2(bIdx * 0.37, 3.3)) < gLit) {
           ramp = ${R(Ramp.LIT)}; b = 2.0; d = 5.0;
           return;
@@ -443,7 +449,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           if (1.5 * fvE / mpp >= 2.0) {
             if (fy < 1.5) { ramp = wallR; return; }
             ramp = ${R(Ramp.WINDOW)}; b = 1.0;
-            if (colPx >= uColPx * 1.33 && lineAt(u, sp, dF.x) > 0.5) d = 1.0;
+            if (colPx >= uColPx * 1.33 && lineAt(u, sp, dF.x) > 0.5) d = 1.0;${held(`
+            else if (nearV) cell = vec2(col, fl);`)}
             return;
           }
           ramp = wallR; d = -1.0;
@@ -456,7 +463,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           if ((sp - wf) * fu / mpp >= 2.0 && wf * fu / mpp >= 1.5) {
             if (fx < wf) { ramp = wallR; d = 1.0; return; }
             ramp = ${R(Ramp.WINDOW)}; b = 1.0;
-            if (showH && lineAt(vb, fh, dF.y) > 0.5) d = 1.0;
+            if (showH && lineAt(vb, fh, dF.y) > 0.5) d = 1.0;${held(`
+            else if (showH) cell = vec2(col, fl);`)}
             return;
           }
           ramp = wallR; d = fu > 0.7 ? -1.0 : 0.0;
