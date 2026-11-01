@@ -839,7 +839,7 @@ camera, HUD, input), `tools/controls.mjs` (browser) and
 What height changes is a function of the height over the nearest surface, in one file with no state, no latitude and no city. The climb and the speeds are not in it: they are the
 same at any height, and going faster is the turbo gears' job. `mapReach` moves the homing (main.ts) and `TurboDrive.edgeRoom`; `floorPastMap` feeds `Flight.turbo.floor` past the map,
 where only the ground has collision: there `City.groundAt` and the obstacle floor answer from horizon.bin's mesh, the tiles that stick out past the map included (a city with none: the tile, or the far grid's edge). `nearPlane` and `fadeEnd` set the depth range once a frame through `PixelPipeline.setDepthRange`, and `uFog.z`, with `City.landRoom` holding the fade inside
-horizon.bin's frame up high. `pitchAdd` tilts the vista lens, through `CameraRig.lensHeight`, which only the yoke moves. `snapReach` lets the pixel grid snap as deep as the ground under the screen's center lies. The soft ceiling is `config.flight.ceiling`, a number: `?ceiling=520`
+horizon.bin's frame up high. `fadeEnd` runs on the fade in force, `fog.clearFarFull`, on time, late or with no raster, and `CameraRig.fadeBase` takes the same number. `pitchAdd` tilts the vista lens, through `CameraRig.lensHeight`, which only the yoke moves. `snapReach` lets the pixel grid snap as deep as the ground under the screen's center lies. The soft ceiling is `config.flight.ceiling`, a number: `?ceiling=520`
 puts the old one back (`shots --det` does, so its climbs stay comparable across builds; any other tool that means "the ceiling" should too). New height behaviour goes in `Ascent.ts`, never
 as an altitude test in a caller.
 
