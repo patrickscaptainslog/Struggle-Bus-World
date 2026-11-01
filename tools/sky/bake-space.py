@@ -45,7 +45,9 @@ def earth():
     lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
     # (earth/globe.py's classes: what the mocks were judged on)
     ocean = (b > r * 1.05) & (b > g * 0.98) & (lum < 0.5)
-    ice = (lum > 0.72) & (np.abs(r - b) < 0.12)
+    # (all land south of 60 S is ice: globe.py's brightness cut read Antarctica's interior as a green continent with white patches)
+    south = ((0.5 - (np.arange(h) + 0.5) / h) * 180 < -60)[:, None]
+    ice = ((lum > 0.72) & (np.abs(r - b) < 0.12)) | (south & ~ocean)
     green = (~ocean) & (~ice) & (g >= r * 0.98)
     cls = np.where(ocean, 0, np.where(ice, 3, np.where(green, 1, 2))).astype(np.uint8)
     tone = np.clip(np.round(np.clip((lum - 0.08) / 0.5, 0, 1) * 15), 0, 15).astype(np.uint8)

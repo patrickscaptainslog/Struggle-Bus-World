@@ -170,6 +170,8 @@ export class SkyDraw {
   moonFloor = 15;
   /** Earth's air at the limb (false: the bare disc, to measure it). */
   air = true;
+  /** The air's scale height never goes under this many game pixels (the true air is 0.3 px at 100,000 km). */
+  airPx = 1.2;
 
   constructor(pipeline: PixelPipeline) {
     this.pipeline = pipeline;
@@ -248,7 +250,7 @@ export class SkyDraw {
     const pxGround = Math.max(hE, 1) / focal;
     const pxLimb = Math.sqrt(rE * rE - R_EARTH_A * R_EARTH_A) / focal;
     const lod = Math.max(0, Math.log2(pxGround / EARTH_TEXEL_KM));
-    U.uEarthView.value.set(lod, this.air ? Math.max(11, 2.5 * pxLimb) : 1e-3, Math.min(1, Math.max(0.14, pxLimb / 11)), 180 / Math.PI / focal);
+    U.uEarthView.value.set(lod, this.air ? Math.max(11, this.airPx * pxLimb) : 1e-3, Math.min(1, Math.max(0.14, pxLimb / 11)), 180 / Math.PI / focal);
 
     // the Moon at unit radius: the floor is a bigger radius, released near the Sun, where eclipses must be exact and it's under 0.27 % lit
     const dot = s.sun[0] * s.moon[0] + s.sun[1] * s.moon[1] + s.sun[2] * s.moon[2];

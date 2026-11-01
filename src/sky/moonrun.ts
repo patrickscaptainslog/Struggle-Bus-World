@@ -16,6 +16,11 @@ import { geodeticToFix, sphereToFix } from './WorldFrame';
 // model; everything out here is a direction or a ray test, so nothing at 384,400 km ever enters the render frame.
 //
 // `?view=` puts the bus anywhere, to look (see readView below). With none it waits 300 km over San Francisco, where the flight starts.
+//
+// The frame's order, which flight keeps: move `pose.ob` (pos and axes, float64) -> `model.frame(ms, ob, sky)` -> `draw.update(sky)` -> the light on the bus -> bus and camera -> `pipeline.render(scene)`.
+// The lens first if it changes (`pipeline.setHfov`): `draw.update` reads the focal length. Open-space flight is `free: true`: pos in EQJ km from Earth's centre, axes the render axes in EQJ by rows, as
+// view=mid does; it needs no handover all the way to the Moon, and rebaseBody is there for when a Moon-fixed orbit wants it. The bus never leaves the render origin, so speed reaches the frame only through
+// the Observer. The camera may turn freely: rays and stars both go through the snapped camera. Whatever else draws goes into the scene before `warm.add(scene)`, or it compiles in flight.
 
 const DEG = Math.PI / 180;
 /** Half the portrait's vertical field on the 38 degree lens, degrees: what the rig's pitch rule is measured with (earth/geom.py). */
@@ -62,7 +67,7 @@ const pitchPinned = (rBody: number, h: number) => Math.min(90, Math.acos(rBody /
  *   view=moon&km=13000[&lat=&lon=&heading=&pitch=]    over a place on the Moon, by default where Earth is overhead: how you arrive
  *   view=mid[&f=0.5&look=moon]                        a share of the way from Earth to the Moon, looking at either
  *   view=sky&body=earth&lat=&lon=&km=&az=&el=         standing on a body and looking along azimuth and elevation: the frame centre is that direction (tools check SKY's fixtures with it)
- * With any of them: t= (date), rate=, lens= (hfov, 38), bus=0, lines=0, air=0, floor= (the Moon's floor in px, 15; 0: true size).
+ * With any of them: t= (date), rate=, lens= (hfov, 38), bus=0, lines=0, air=0, airpx= (the air's floor, game px), floor= (the Moon's floor in px, 15; 0: true size).
  */
 function readView(params: URLSearchParams, model: SkyModel, sky: SkyState, ms: number): Pose {
   const num = (k: string, d: number) => (params.has(k) && Number.isFinite(Number(params.get(k))) ? Number(params.get(k)) : d);
@@ -158,6 +163,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   if (params.has('floor')) draw.moonFloor = Number(params.get('floor')) || 0;
   if (params.get('lines') === '0') draw.showLines(false);
   draw.air = params.get('air') !== '0';
+  if (params.has('airpx')) draw.airPx = Number(params.get('airpx')) || draw.airPx;
   scene.add(draw.object);
   const bus = new BusModel();
   bus.root.scale.setScalar(config.camera.heroScaleVista);

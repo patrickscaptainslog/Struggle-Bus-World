@@ -1,0 +1,12 @@
+# Sky data (spike/moonrun, not for main as it stands)
+
+Built by `tools/sky/bake-space.py` from files already on disk. Changed from the originals: cut down, reclassified, quantised.
+
+| File | Source | Terms |
+|---|---|---|
+| `earth.bin` | NASA Blue Marble (class and tone only, never its colours), NASA Black Marble 2016 | NASA credit, no endorsement implied |
+| `moon.bin` | NASA SVS CGI Moon Kit | NASA media terms |
+| `stars.bin` | Yale Bright Star Catalogue, 5th revised edition, epoch 2030 | None stated; NASA's record calls it a US Government work |
+| `lines.bin` | Stellarium `western` sky culture | **CC BY-SA. Share-alike: review before this reaches main** (SKY.md decision 4) |
+
+`tools/sky/line-stars.json`, the crosswalk from the figures' Hipparcos numbers to Yale's, was read out of HYG v4.1 (CC BY-SA): review it with `lines.bin`.

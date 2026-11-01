@@ -194,14 +194,11 @@ bool spaceMoon(vec3 dir, float dsk, out vec3 col) {
   vec3 n = normalize(uMoonO.xyz + d * (c / (-b + sqrt(D))));
   float t = textureLod(tMoonMap, vec2(atan(n.y, n.x) / 6.28318531 + 0.5, 0.5 - asin(clamp(n.z, -1.0, 1.0)) / 3.14159265), uMoonLod).r;
   float mu = dot(n, uMoonSun);
-  if (mu <= 0.0) {
-    // earthshine, one or two steps over the dark: none on the far side
-    col = pal(${Ramp.MOON}.0, spStep(max(dot(n, uMoonEarth.xyz), 0.0) * uMoonEarth.w * (0.5 + 0.5 * t) + 0.25, dsk));
-    return true;
-  }
+  // earthshine, one or two steps over the dark, and the floor under the lit side too or the terminator's last steps fall below the night past it. None on the far side.
+  float level = max(dot(n, uMoonEarth.xyz), 0.0) * uMoonEarth.w * (0.5 + 0.5 * t) + 0.25;
   // lunar-Lambert: flat at full, falling only near the terminator
-  float ls = min(2.0 * mu / (mu - dot(n, d) + 0.001), 1.05);
-  col = pal(${Ramp.MOON}.0, spStep((0.35 + 0.65 * t) * ls * 7.0, dsk));
+  if (mu > 0.0) level = max(level, (0.35 + 0.65 * t) * min(2.0 * mu / (mu - dot(n, d) + 0.001), 1.05) * 7.0);
+  col = pal(${Ramp.MOON}.0, spStep(level, dsk));
   return true;
 }
 
