@@ -206,7 +206,7 @@ export const config = {
     farCellLit: 0.2,
     farCellGlow: 0.25,
     /** Metres between a span's deck lights, on each side, read as it is built. */
-    bridgeSpacing: 14,
+    bridgeSpacing: 10,
     /** A lamp's head over the ground (m), read when the list lands. */
     lampHead: 6,
     /** The share of lamps on: one held value (S2's wave runs it from the sun). */
