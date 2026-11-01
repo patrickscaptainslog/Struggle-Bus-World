@@ -83,6 +83,8 @@ let warm = new WarmUp(pipeline, scene);
 
 // (the held hour, ?hour=blue: SKY.md slice S1; updateSun below hands it the light)
 const hour = heldHour ? new HeldHour(pipeline) : null;
+/** What the ?fps read-out calls the frame it is reading. */
+const hourName = hour ? 'blue hour' : 'day';
 
 // --- sun: late-afternoon, low, from the WSW
 /** The city's low ground (m, City.lowGround once the far grid is in): the fog ceiling's heights are
@@ -908,7 +910,10 @@ async function boot() {
     city.eager = true;
     warm = new WarmUp(pipeline, scene);
     warm.add(scene);
-    void warm.finish().then(() => (glLost = false));
+    void warm.finish().then(() => {
+      glLost = false;
+      perf.setBuild(warm.report?.resolveLinkMs ?? 0, warm.report?.resolveDrawMs ?? 0, hourName);
+    });
   });
 
   // ---- the warm-up's second wave: the live scene as built so far (the bus, the Golden Gate, water,
@@ -938,6 +943,7 @@ async function boot() {
     }
     await new Promise((r) => setTimeout(r, 16));
   }
+  perf.setBuild(warm.report?.resolveLinkMs ?? 0, warm.report?.resolveDrawMs ?? 0, hourName);
   fogGround = city.lowGround();
   updateSun();
   globals.uFogBank.value = config.fog.openingBank;

@@ -690,6 +690,11 @@ export class PixelPipeline implements WarmPipeline {
     return this.depthMat;
   }
 
+  /** The resolve's material (the warm-up times its link for ?fps). */
+  get resolveMaterial(): THREE.Material {
+    return this.resolveMat;
+  }
+
   /** One quad per post-pass material, for the warm-up to compile. */
   warmObjects(): THREE.Object3D[] {
     return [this.glowMat, this.blurMat, this.resolveMat, this.upscaleMat].map((m) => new THREE.Mesh(this.quad.geometry, m));
