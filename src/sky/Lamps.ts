@@ -140,8 +140,8 @@ export class Lamps {
   update() {
     const S = config.sky;
     uLampPoint.value.set(S.lampShare, S.lampLift, S.lampThin);
-    if (this.streets) this.streets.visible = S.lamps;
-    if (this.bridges) this.bridges.visible = S.bridges;
+    if (this.streets) this.streets.visible = !!S.lamps;
+    if (this.bridges) this.bridges.visible = !!S.bridges;
     heldGlobals.uLamp.value = S.pools ? S.poolLift : 0;
     heldGlobals.uLampFar.value.set(S.poolFade, S.poolEnd);
   }
