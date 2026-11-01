@@ -1,5 +1,7 @@
 # SPIKE: every block from the ceiling, in real game frames
 
+**Status, 2026-11-01:** days 1 and 2 are live for San Francisco on the producer's phone verdict (`DECISIONS.md`, "The far field live for San Francisco"), on by default for any city with a `far16.bin`, with `config.far.on` and `?nofar` as kill switches, so section 0's "flags off by default" no longer holds. Days 3 to 5 are still to come: the downloads, the ridgelines (Marin, the East Bay), Ross and the phone sessions.
+
 One spike, one worktree, five agent-days plus two producer phone sessions. It proves or kills the verdict's recommendation: that a small always-present raster of the whole city, plus merged boxes built on the phone, puts every block on screen from the ceiling with no visible pop as you descend, on an A15, inside the pixel grid and the palette, and that the same path draws a non-US city and a place with no buildings at all without a special case.
 
 Labels as in VERDICT.md. Nothing below has run yet. Where a number is a threshold, it is my proposal and the spike may move it, with the reason written down.
