@@ -11,10 +11,10 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { browserOptions } from './browser.mjs';
 
-/** points: the row's structural points, in its order; solid: those with a tower or an anchorage on them */
+/** ends: what its deck's two ends are called; points: the row's structural points, in its order; solid: those with a tower or an anchorage on them */
 const BRIDGES = {
-  bay: { kind: 'baybridge', half: 12, thick: 10, points: ['cable end', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7'], solid: [1, 2, 3, 4, 5] },
-  gg: { kind: 'ggb', half: 13.5, thick: 8, points: ['south anchorage', 'south tower', 'north tower', 'north anchorage'], solid: [1, 2] },
+  bay: { kind: 'baybridge', half: 12, thick: 10, ends: ['west end', 'east end'], points: ['cable end', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7'], solid: [1, 2, 3, 4, 5] },
+  gg: { kind: 'ggb', half: 13.5, thick: 8, ends: ['south end', 'north end'], points: ['south anchorage', 'south tower', 'north tower', 'north anchorage'], solid: [0, 1, 2, 3] },
 };
 const [baseArg, out, which] = process.argv.slice(2);
 const B = BRIDGES[which];
@@ -59,17 +59,22 @@ const over = (name, s, dir) => {
   const p = at(s);
   shots.push({ name, x: p.x, z: p.z, y: p.top + 20, heading: heading(p.ux * dir, p.uz * dir), low: 0 });
 };
-over('west end', 60, -1);
-over('east end', L - 60, 1);
+over(B.ends[0], 60, -1);
+over(B.ends[1], L - 60, 1);
 // (70 m short of a tower: held on it the bus stands in its bracing, and the tower is the frame's subject)
 for (const i of B.solid) over(B.points[i], pointS[i] - 70, 1);
 const marks = [0, ...pointS, L];
 for (let i = 0; i + 1 < marks.length; i++) {
   if (marks[i + 1] - marks[i] < 150) continue;
-  over(`mid ${i ? B.points[i - 1] : 'west end'}-${B.points[i] ?? 'east end'}`, (marks[i] + marks[i + 1]) / 2, 1);
+  over(`mid ${i ? B.points[i - 1] : B.ends[0]}-${B.points[i] ?? B.ends[1]}`, (marks[i] + marks[i + 1]) / 2, 1);
 }
+/** the first station from s on, 40 m at a time, clear of a tower or anchorage's solid post */
+const clear = (s) => {
+  while (pointS.some((p, i) => B.solid.includes(i) && Math.abs(p - s) < 80)) s += 40;
+  return s;
+};
 for (const q of [0.25, 0.5, 0.75]) {
-  const p = at(L * q);
+  const p = at(clear(L * q));
   for (const side of [-1, 1]) {
     shots.push({ name: `${q * 4}/4 ${side < 0 ? 'west' : 'east'} side`, x: p.x + p.nx * side * 350, z: p.z + p.nz * side * 350, y: p.top, heading: heading(-p.nx * side, -p.nz * side), low: 1 });
   }
@@ -178,13 +183,7 @@ async function cross(s, y, side) {
 /** The stretch of a run over or under the deck's width: [y, local top] of every frame there. */
 const onDeck = (rows) => rows.map(([x, y, z]) => ({ y, ...near(x, z) })).filter((r) => r.d <= B.half).map((r) => [r.y, at(r.s).top]);
 const log = [];
-// five stations, each clear of a tower or anchorage's solid post
-const stations = [0.05, 0.3, 0.46, 0.62, 0.8].map((q) => {
-  let s = L * q;
-  while (pointS.some((p, i) => B.solid.includes(i) && Math.abs(p - s) < 80)) s += 40;
-  return s;
-});
-for (const [i, s] of stations.entries()) {
+for (const [i, s] of [0.05, 0.3, 0.46, 0.62, 0.8].map((q) => clear(L * q)).entries()) {
   const y0 = at(s).top - 3;
   const rows = await cross(s, y0, i % 2 ? 1 : -1);
   const deck = onDeck(rows);

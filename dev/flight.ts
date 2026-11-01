@@ -22,7 +22,7 @@ const city = new City(man, '/city/sf');
 scene.add(city.root);
 await city.loadFar();
 for (const lm of man.landmarks) {
-  if (lm.kind === 'ggb') scene.add(makeGoldenGate(lm.points));
+  if (lm.kind === 'ggb') scene.add(makeGoldenGate(lm.points, lm.deck, lm.supports));
   if (lm.kind === 'baybridge') scene.add(makeBayBridgeWest(lm.points, lm.deck));
 }
 const bus = new BusModel();

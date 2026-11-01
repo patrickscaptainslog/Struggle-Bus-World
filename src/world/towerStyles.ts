@@ -216,7 +216,7 @@ const FERRY = llToLocal(HERO_PROPS[1].lat, HERO_PROPS[1].lon);
 export const HIDDEN: Hidden[] = [
   { name: 'Ferry Building', cx: FERRY[0], cz: FERRY[1], ax: Math.sin(HERO_PROPS[1].yaw), az: Math.cos(HERO_PROPS[1].yaw), halfL: 106, halfW: 39, maxTop: 80 },
   { name: 'Coit Tower', cx: COIT[0], cz: COIT[1], ax: 1, az: 0, halfL: 16, halfW: 16, maxTop: 15 },
-  // The bridges are hand-built too: what OSM's footprints and the LiDAR make of them stands beside the props, bare grey
+  // The bridges are hand-built too: what OSM's footprints and the LiDAR make of them stands around the props, bare grey
   // boxes in the bay: the Golden Gate's real towers (228 and 225 m), the Bay Bridge's (142-156 m), its central anchorage
   // (89 m), the saddles over its piers (64-79 m, LiDAR-only: W2's and W5's boxes reach their whole footprints, ~78 m
   // obstacle cells past the drawn box) and the east span's tower, with no span to stand on
@@ -252,8 +252,7 @@ export const HIDDEN: Hidden[] = [
 
 /**
  * Far skyline tiles with nothing but those stand-ins (open water, Fort Point): far.bin's boxes for them go for good.
- * The Golden Gate's real south tower stands 357 m north of the prop's, so its box stood on the prop's deck in mid-span,
- * dark and 228 m tall, from anywhere past the streaming radius.
+ * The Golden Gate's south tower's box stood dark and 228 m tall around the prop, from anywhere past the streaming radius.
  */
 export const FAR_STAND_INS: ReadonlyArray<readonly [number, number]> = [
   [-5152, -4343], [-5268, -5618], [-5086, -3961], [5362, -4482], [2966, -1768], [3432, -2323], [3413, -2297], [3600, -2501], [3658, -2585], [3879, -2852], [4359, -3411],

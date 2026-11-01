@@ -126,7 +126,7 @@ node tools/osm-shots.mjs <url> <out> crissy,presidio,ggp,twinpeaks,piers,baybrid
 node tools/osm-paint.mjs <url> <out>     # old saves, reloads, landmarks, the credit, other cities
 node tools/osm-play.mjs <url> <out>      # taps, mega blast, firehose, hover over mapped roofs, reload
 node tools/sweep.mjs <url> <out.json> --alts=250,500   # the budget's worst view
-node tools/spanfly.mjs <url> <out> bay   # a bridge station by station, and flown at its deck and under it
+node tools/spanfly.mjs <url> <out> <bay|gg>   # a bridge station by station, and flown at its deck and under it
 ```
 
 ## City data (city-agnostic pipeline)
