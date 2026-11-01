@@ -108,9 +108,10 @@ export class CameraRig {
     const v = this.vista * (1 - low);
     // a dive tips the view over the bus, and only a dive: it follows the nose on the yoke, and goes home on its own
     const diveWant = f.mode === 3 ? clamp((THREE.MathUtils.radToDeg(-f.nose) - C.diveFrom) / Math.max(1, F.noseDown - C.diveFrom), 0, 1) : 0;
+    // (it arrives exactly, at a crawl: a last step would tilt the whole frame by a pixel)
     const dd = diveWant - this.dive;
-    if (Math.abs(dd) < 0.003) this.dive = diveWant;
-    else this.dive += dd * (1 - Math.exp(-C.diveRate * dt));
+    const ds = Math.max(Math.abs(dd) * (1 - Math.exp(-C.diveRate * dt)), 0.04 * dt);
+    this.dive = Math.abs(dd) <= ds ? diveWant : this.dive + Math.sign(dd) * ds;
     const dive = this.dive * (1 - low);
     this.hfov = C.hfovPortrait + (C.hfovVista - C.hfovPortrait) * v + this.turboFov;
     this.heroScale = (1 + (C.heroScaleVista - 1) * v) * this.turboHero;

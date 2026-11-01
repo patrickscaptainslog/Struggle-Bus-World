@@ -2,7 +2,7 @@
 //   node tools/feel-sim/run.mjs s_nose.ts [dt]
 // The plain pull, TURBO on the pull, G1 to the ceiling, dives (plain, TURBO, G1), releases, a deck, partial sticks, the frame's
 // centre on the bus. Prints one line per check; two runs at 1/30 and 1/60 should agree.
-import { config, makeCam, MODE, save } from './lib';
+import { makeCam, MODE, save, THREE } from './lib';
 import { Flight } from '@src/game/Flight';
 import { TurboDrive } from '@src/game/Turbo';
 import { TurboLens } from '@src/fx/Turbo';
@@ -131,7 +131,8 @@ const release = (label: string, sy: number, y0: number, held: boolean) => {
     last = { x: s.f.x, y: s.f.y, z: s.f.z, sp: s.f.ground, vy: s.f.vy };
     if (k % Math.round(0.5 / dt) === 0) rows.push({ t: r1(k * dt), ...s.now() });
   }
-  line(label, { held: a, maxGroundStepPerFrame: r1(maxDG), maxVyStepPerFrame: r1(maxDV), framePathRatioMax: +maxDP.toFixed(2), end: s.now() });
+  const rig: any = s.cam.rig;
+  line(label, { held: a, maxGroundStepPerFrame: r1(maxDG), maxVyStepPerFrame: r1(maxDV), framePathRatioMax: +maxDP.toFixed(2), rigDive: rig.dive, view: r1((Math.asin(-s.cam.cam.getWorldDirection(new THREE.Vector3()).y) * 180) / Math.PI), end: s.now() });
   for (const r of rows) console.log('   ', JSON.stringify(r));
 };
 release('release mid-climb, TURBO', -1, 800, true);
@@ -167,26 +168,26 @@ release('release mid-dive, plain', 1, 2000, false);
   for (const o of out) console.log('   ', JSON.stringify(o));
   res.partial = out;
 }
-// ---- the map's edge in G1: a level run fades, a climb keeps its gear
+// ---- the map's edge in G1: a level run fades back to the surge, and a pull from there gets the gear back: what fades is the speed over the ground
 {
-  const out: unknown[] = [];
-  for (const [label, sy] of [['level', 0], ['full pull', -1]] as Array<[string, number]>) {
-    const s = session(flat, 1000, [-30000, -30000, 30000, 2000]);
-    s.f.holdY = 1000;
-    s.f.mode = 1;
-    s.f.heading = Math.PI; // south, +z: the edge at z = 2000
-    s.drive.shift(1, s.f);
-    s.run(0.5, sy);
-    const rows: unknown[] = [];
-    for (let k = 0; k < 8 / dt; k++) {
-      s.frame(sy, sy !== 0);
-      if (k % Math.round(1 / dt) === 0) rows.push({ t: r1(s.t), z: r1(s.f.z), edge: +s.drive.edge.toFixed(2), tb: r1(s.f.turbo.speed), ...s.now() });
-    }
-    out.push({ label, rows });
-    console.log('   ', label);
-    for (const r of rows) console.log('     ', JSON.stringify(r));
+  const s = session(flat, 1000, [-30000, -30000, 30000, 2000]);
+  s.f.holdY = 1000;
+  s.f.mode = 1;
+  s.f.heading = Math.PI; // south, +z: the edge at z = 2000
+  s.drive.shift(1, s.f);
+  const edgeRow = () => ({ t: r1(s.t), z: r1(s.f.z), edge: +s.drive.edge.toFixed(2), tb: r1(s.f.turbo.speed), ...s.now() });
+  const rows: unknown[] = [];
+  for (let k = 0; k < 14 / dt; k++) {
+    s.frame(0, false);
+    if (k % Math.round(2 / dt) === 0) rows.push(edgeRow());
   }
-  res.edge = out;
+  for (let k = 0; k < 6 / dt; k++) {
+    s.frame(-1);
+    if (k % Math.round(1 / dt) === 0) rows.push(edgeRow());
+  }
+  res.edge = rows;
+  console.log('    the edge, level then a full pull');
+  for (const r of rows) console.log('     ', JSON.stringify(r));
 }
 save(`nose-${dt.toFixed(4)}`, res);
 process.exit(0);

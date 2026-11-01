@@ -315,7 +315,7 @@ export class Flight {
     }
     if (this.onPath) {
       // ---- the path: the speed goes where the nose points. The nose is the only lag, so nothing lurches forward on the way
-      this.nose += (noseWant - this.nose) * (1 - Math.exp(-F.noseRate * dt));
+      this.nose += (noseWant - this.nose) * (1 - Math.exp(-Math.max(0.1, F.noseRate) * dt));
       const soft = Math.max(F.ceilingSoft, this.speed * F.ceilingSoftT);
       const room = clamp((ceil - this.y) / Math.max(1, soft), 0, 1);
       strain = pull * (1 - room) * (1 - room);
