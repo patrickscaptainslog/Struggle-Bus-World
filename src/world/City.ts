@@ -537,8 +537,10 @@ export class City {
     this.root.add(this.farGroup);
     // the pipeline's sun-pass culling walks only the city (its casters and ground)
     this.root.userData.cullRoot = true;
-    // the bay / ocean: a huge still plane below everything
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(60000, 60000).rotateX(-Math.PI / 2), makeWaterMaterial());
+    // the bay / ocean: a huge still plane below everything. (A fade past the default one sees further: from anywhere in the frame the plane
+    // has to end inside the fade's full fog, or the sea stops in a hard line under the true horizon.)
+    const side = config.fog.clearFarFull > 20000 ? 2 * (config.fog.clearFarFull + Math.hypot(maxX - minX, maxZ - minZ) / 2 + 2000) : 60000;
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(side, side).rotateX(-Math.PI / 2), makeWaterMaterial());
     water.position.set((minX + maxX) / 2, WATER_Y, (minZ + maxZ) / 2);
     water.frustumCulled = false;
     water.matrixAutoUpdate = false;
