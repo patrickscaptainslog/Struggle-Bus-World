@@ -10,6 +10,7 @@
 // still build a pipeline in flight (target: the upscale onto the canvas, never warmed, frame 1).
 //   node tools/warmcheck.mjs <url> <out.json> [--throttle=4] [--late=9000]
 // --late=<ms>: far16.bin held back that long by a route, so it lands in play (City.landFar), and ready waits for it.
+// --moon: the url is ?moonrun: no city, so the phases are the flight's: TURBO's real touches, out and home.
 // Wall clock, real GPU (tools/browser.mjs): meaningful on a laptop, not in the cloud's SwiftShader.
 import { chromium } from 'playwright-core';
 import { writeFileSync } from 'node:fs';
@@ -128,8 +129,33 @@ const place = (lat, lon, y, heading) =>
     g.flight.glideSpeed = 14;
   }, [lat, lon, y, heading]);
 
-await phase('opening-end');
-await run(2);
+// (?moonrun: the flight's phases instead of the city's. It flies at the url's own fixeddt: all that's read here is what first draws, and when)
+const moon = async () => {
+  const turbo = await page.locator('[data-hud="turbo"]').boundingBox();
+  const tap = () => page.touchscreen.tap(turbo.x + turbo.width / 2, turbo.y + turbo.height / 2);
+  const until = (leg) => page.waitForFunction((l) => window.__game.moon.trip.leg === l, leg, { timeout: 600000, polling: 200 });
+  await phase('wait');
+  await page.waitForTimeout(1500);
+  await phase('out');
+  await tap();
+  await page.waitForFunction(() => window.__game.moon.trip.leg !== 'wait', null, { timeout: 30000, polling: 50 });
+  await tap();
+  await until('orbit');
+  await phase('orbit');
+  await page.waitForTimeout(1500);
+  await phase('home');
+  await tap();
+  await page.waitForFunction(() => window.__game.moon.trip.leg !== 'orbit', null, { timeout: 30000, polling: 50 });
+  await tap();
+  await until('wait');
+  await phase('done');
+};
+
+if (opt.moon) await moon();
+if (!opt.moon) await phase('opening-end');
+if (!opt.moon) await run(2);
+let blast = null;
+if (!opt.moon) {
 // the climb to the vista (the yoke pulled: sy -1), and a look around up there
 await phase('climb');
 await page.evaluate(() => (window.__qa = { sx: 0, sy: -1 }));
@@ -146,7 +172,7 @@ for (let i = 0; i < 3; i++) {
   await run(2.2);
 }
 // (did it escalate? the most painted building there should be at level 3, with its gardens)
-const blast = await page.evaluate(() => {
+blast = await page.evaluate(() => {
   const g = window.__game;
   const [x, z] = window.__ll(37.7762, -122.43262);
   let top = 0;
@@ -162,6 +188,8 @@ await place(37.7552, -122.4400, 380, -Math.PI / 2);
 await settle();
 await run(4);
 await phase('done');
+
+}
 
 // first draws after the warm-up, by what a pipeline is keyed on: the glow and resolve targets are all RGBA8
 const firstDraws = await page.evaluate((warmDoneAt) => {
