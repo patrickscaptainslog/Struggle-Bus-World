@@ -14,18 +14,21 @@ import type { Flight } from './Flight';
 // full surge, rattling: the gear's floor rises under it at the gear's climb
 // rate and Flight rides it like a higher roof), then the gear engages and the
 // speed spools up; passing Mach 1 it booms. Shifting down brakes smoothly to
-// the lower gear and holds the altitude (the yoke dives back down). Holding
-// the turbo boosts the current gear (G0: a full surge). Steering authority
-// falls with speed. On the yoke the speed goes where the nose points: pull
-// with a gear or the boost on and the bus climbs at that speed, up to 85
-// degrees; push and it dives at it (Flight's path, docs/specs/flight/NOSE.md).
+// the lower gear and holds the altitude (the yoke dives back down). Turbo is
+// the boost on the current gear, latched (G0: a full surge): on until it is told
+// off, at any gear and height, because gears lift you and turbo doesn't, and it
+// stacks up config.turbo.levels (Shifter.ts says when; Shift on a keyboard holds
+// its first level). Steering authority falls with speed. On the yoke the speed
+// goes where the nose points: pull with a gear or turbo on and the bus climbs at
+// that speed, up to 85 degrees; push and it dives at it (Flight's path,
+// docs/specs/flight/NOSE.md).
 // Nothing here looks at the height but a gear's engagement: going faster up
 // there is a gear's job, and climbing faster is the gear's speed pointed up.
 //
 // The world beyond the city map doesn't exist yet: G2 / G3 are LOCKED unless
-// config.turbo.worldTravel, and near the map's edge a gear's speed over the
-// ground fades back to the surge so the (unchanged) map-edge homing can turn
-// the bus around.
+// config.turbo.worldTravel, and near the map's edge a gear's or turbo's speed
+// over the ground fades back to the surge so the (unchanged) map-edge homing
+// can turn the bus around.
 //
 // TurboDrive writes Flight.turbo before each flight step; effects (src/fx/
 // Turbo.ts), the HUD and the audio read its state and events.
@@ -37,8 +40,15 @@ export type TurboEvent =
   /** shifted up / down (the gear is the new one) */
   | 'up'
   | 'down'
-  /** tried to shift past the last usable gear */
+  /** tried to shift past the last usable gear, or past the last turbo level */
   | 'locked'
+  /** turbo came on or went up a level (the number is the level) */
+  | 'turbo'
+  /** turbo ended, all of it */
+  | 'turbo-off'
+  /** a first flick answered at once, and a waiting gear taken back (Shifter's, down the same path) */
+  | 'flick'
+  | 'back'
   /** reached the gear's height: it engages and the speed spools up */
   | 'engage'
   /** passed Mach 1 */
@@ -57,6 +67,15 @@ export function gearClimb(g: number): number {
   return g >= 3 ? T.climb3 : g === 2 ? T.climb2 : g === 1 ? T.climb1 : config.flight.climbRate;
 }
 
+/** What a gear and a turbo level drive at (m/s; 0 = nothing is driving), before the map's edge has its say. */
+export function driveSpeed(g: number, level: number, engaged: boolean): number {
+  const T = config.turbo;
+  const surge = config.flight.surgeSpeed;
+  const lv = Math.min(level, T.levels.length);
+  if (g > 0) return (engaged ? gearSpeed(g) : surge) * (lv > 0 ? T.levels[lv - 1] : 1);
+  return lv > 0 ? surge * T.levelsG0[Math.min(lv, T.levelsG0.length) - 1] : 0;
+}
+
 export class TurboDrive {
   /** the selected gear (0..3) */
   gear = 0;
@@ -66,7 +85,9 @@ export class TurboDrive {
   strain = 0;
   /** turbo speed on a log scale: 0 at the surge, 1 at G1's speed, more beyond */
   speedK = 0;
-  /** the boost is held */
+  /** the latched turbo's level (0: off) */
+  level = 0;
+  /** turbo is on, latched or held */
   boosting = false;
   /** 0..1: the edge of the map is holding the gear back (1 = free) */
   edge = 1;
@@ -91,6 +112,30 @@ export class TurboDrive {
   /** The last gear that can be used now. */
   get maxGear(): number {
     return config.turbo.worldTravel ? 3 : 1;
+  }
+
+  /** Turbo comes on, or goes up a level. False past the last one: LOCKED, and the level stands. */
+  boostUp(): boolean {
+    if (this.level >= config.turbo.levels.length) {
+      this.lockedAt = this.t;
+      this.onEvent?.('locked', this.gear + 1);
+      return false;
+    }
+    this.level++;
+    this.shiftedAt = this.t;
+    this.lastDir = 1;
+    this.onEvent?.('turbo', this.level);
+    return true;
+  }
+
+  /** All of turbo ends at once. False if it wasn't on. */
+  boostOff(): boolean {
+    if (this.level === 0) return false;
+    this.level = 0;
+    this.shiftedAt = this.t;
+    this.lastDir = -1;
+    this.onEvent?.('turbo-off', 0);
+    return true;
   }
 
   /** Shift up (+1) or down (-1). Returns false when nothing changed (LOCKED, or already in G0). */
@@ -121,7 +166,7 @@ export class TurboDrive {
     return true;
   }
 
-  /** Once per frame before the flight steps. `held` = the boost (Input.state.turboHeld). */
+  /** Once per frame before the flight steps. `held` = Shift holds the boost (Input.state.turboHeld). */
   update(dt: number, f: Flight, held: boolean): void {
     const T = config.turbo;
     const F = config.flight;
@@ -129,7 +174,8 @@ export class TurboDrive {
     const Tb = f.turbo;
     const g = this.gear;
     const ground = Number.isFinite(f.groundBroad) ? f.groundBroad : f.groundUnder;
-    this.edge = T.worldTravel ? 1 : this.edgeRoom(f);
+    const lv = Math.max(this.level, held ? 1 : 0);
+    this.edge = T.worldTravel ? 1 : this.edgeRoom(f, lv);
     if (g > 0) {
       const want = ground + gearAlt(g);
       if (!Number.isFinite(this.gearFloor)) this.gearFloor = Math.min(want, f.y);
@@ -141,20 +187,18 @@ export class TurboDrive {
         this.engagedAt = this.t;
         this.onEvent?.('engage', g);
       }
-      // lifting: a full surge while it claws its way up; engaged: the gear's speed
-      let v = this.engaged ? gearSpeed(g) : F.surgeSpeed;
-      if (held) v *= T.boost;
-      // (what fades is the speed over the ground: a bus going straight up keeps its gear)
-      if (v > F.surgeSpeed) v = Math.min(v, (F.surgeSpeed + (v - F.surgeSpeed) * this.edge) / Math.max(0.01, f.ground / Math.max(1, f.speed)));
-      Tb.speed = v;
       Tb.ceiling = g >= 2 ? want + gearAlt(g) * 0.6 : 0;
     } else {
       this.gearFloor = -Infinity;
       Tb.floor = -Infinity;
       Tb.ceiling = 0;
-      Tb.speed = held ? F.surgeSpeed : 0;
     }
-    this.boosting = held;
+    // lifting: a full surge while it claws its way up; engaged: the gear's speed; G0: turbo or nothing
+    let v = driveSpeed(g, lv, this.engaged);
+    // (what fades is the speed over the ground: a bus going straight up keeps its gear)
+    if (v > F.surgeSpeed) v = Math.min(v, (F.surgeSpeed + (v - F.surgeSpeed) * this.edge) / Math.max(0.01, f.ground / Math.max(1, f.speed)));
+    Tb.speed = v;
+    this.boosting = lv > 0;
 
     // speed: spool up into a gear; brake smoothly out of one (until the classic flight can take over); either
     // rate eases in over rateEase, so a shift never starts with a jolt (G0's boost is the classic surge, at the
@@ -192,7 +236,7 @@ export class TurboDrive {
 
     const lifting = g > 0 && !this.engaged;
     const spooling = Tb.speed > F.surgeSpeed && f.speed < Tb.speed * 0.9;
-    const s = lifting ? 1 : spooling ? 0.7 : held ? 0.45 : 0;
+    const s = lifting ? 1 : spooling ? 0.7 : lv > 0 ? 0.45 : 0;
     this.strain += (s - this.strain) * (1 - Math.exp(-4 * dt));
     this.speedK = f.speed <= F.surgeSpeed ? 0 : Math.log(f.speed / F.surgeSpeed) / Math.log(Math.max(F.surgeSpeed * 1.01, T.speed1) / F.surgeSpeed);
   }
@@ -203,11 +247,11 @@ export class TurboDrive {
   }
 
   /**
-   * 0..1: room left before the map ends along the heading. A gear fades back to the surge over the
-   * distance its brake needs, reaching it config.turbo.edgeFade past the edge (where the homing
-   * starts turning the bus around); outside the map, heading back in frees it again.
+   * 0..1: room left before the map ends along the heading. A gear or turbo fades back to the surge over
+   * the distance its brake needs from what it is driving at, reaching it config.turbo.edgeFade past the
+   * edge (where the homing starts turning the bus around); outside the map, heading back in frees it again.
    */
-  private edgeRoom(f: Flight): number {
+  private edgeRoom(f: Flight, level: number): number {
     const T = config.turbo;
     // (the edge gives way with the height, as the homing's does: main.ts, mapReach)
     const out = mapReach(f.height) - 300;
@@ -224,7 +268,7 @@ export class TurboDrive {
     else if (fx < -1e-6) dist = Math.min(dist, (x0 - f.x) / fx);
     if (fz > 1e-6) dist = Math.min(dist, (z1 - f.z) / fz);
     else if (fz < -1e-6) dist = Math.min(dist, (z0 - f.z) / fz);
-    const reach = Math.max(200, (gearSpeed(Math.max(1, this.gear)) - config.flight.surgeSpeed) * T.brake) + T.edgeFade;
+    const reach = Math.max(200, (driveSpeed(this.gear, level, true) - config.flight.surgeSpeed) * T.brake) + T.edgeFade;
     return clamp((dist + T.edgeFade) / reach, 0, 1);
   }
 }

@@ -465,10 +465,27 @@ export class TurboFx {
     this.object.add(this.hoop);
   }
 
-  /** Turbo events: the shift, the engagement, the sonic boom, LOCKED. */
+  /** Turbo events: the shift, the engagement, the sonic boom, LOCKED, turbo on and off, and a flick's own answers. */
   event(ev: string, bus: THREE.Object3D, f: Flight, rig: CameraRig, flash: (pos: THREE.Vector3, strength: number) => void) {
     const T = config.turbo;
-    if (ev === 'up') {
+    if (ev === 'flick') {
+      // a first flick, this frame: a silenced iPhone hears nothing, so the bus has to show it
+      this.lens.punch(T.fovKick * 0.2);
+      rig.kick(0.7);
+      this.backfire(bus, f, 4);
+      this.vaporRing(bus, f, 12, 10, 3);
+    } else if (ev === 'back') {
+      rig.kick(0.4);
+      this.backfire(bus, f, 3);
+    } else if (ev === 'turbo') {
+      this.lens.punch(T.fovKick * 0.5);
+      rig.kick(1.4);
+      this.backfire(bus, f, 8);
+      this.vaporRing(bus, f, 20, 13, 5);
+    } else if (ev === 'turbo-off') {
+      rig.kick(0.8);
+      this.backfire(bus, f, 4);
+    } else if (ev === 'up') {
       this.lens.punch(T.fovKick * 0.4);
       rig.kick(1.1);
       this.backfire(bus, f, 7);
@@ -484,7 +501,7 @@ export class TurboFx {
       this.hoopT = 0;
       this.hoop.visible = true;
       this.hoopU.uSeed.value = Math.floor(Math.random() * 64);
-      this.vaporRing(bus, f);
+      this.vaporRing(bus, f, 30, 16, 7);
       bus.localToWorld(this.tmp.copy(this.noseLocal));
       flash(this.tmp, T.boomFlash);
     } else if (ev === 'down') {
@@ -700,21 +717,21 @@ export class TurboFx {
     }
   }
 
-  /** The boom: a ring of vapor and rainbow puffs blasted out around the bus, perpendicular to its path. */
-  private vaporRing(bus: THREE.Object3D, f: Flight) {
+  /** A ring of `n` vapor and rainbow puffs blasted out around the bus at `speed` m/s, perpendicular to its path: the boom's, and smaller, a flick's. */
+  private vaporRing(bus: THREE.Object3D, f: Flight, n: number, speed: number, sparkles: number) {
     bus.localToWorld(this.tmp.copy(this.noseLocal));
     const fx = f.fx, fz = f.fz;
     // ring plane: the bus's right (-fz, 0, fx) and the path's up (right x path)
     const dir = f.velocity(this.vel2).normalize();
     const ux = -fx * dir.y, uy = fz * dir.z + fx * dir.x, uz = -fz * dir.y;
-    for (let i = 0; i < 30; i++) {
-      const a = (i / 30) * Math.PI * 2;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
       const cr = Math.cos(a), sr = Math.sin(a);
-      const out = 16 + Math.random() * 8;
+      const out = speed + Math.random() * speed * 0.5;
       this.vel.set(-fz * cr * out + ux * sr * out - dir.x * 10, uy * sr * out - dir.y * 10, fx * cr * out + uz * sr * out - dir.z * 10);
       this.tmp2.copy(this.tmp).addScaledVector(this.vel, 0.08);
       this.particles.puff(this.tmp2, this.vel, i % 2 === 0 ? Ramp.FOG : HUE_RAMPS[(i >> 1) % 6]);
     }
-    this.particles.sparkles(this.tmp, 7, 5, [0, 2, 4], 26);
+    this.particles.sparkles(this.tmp, sparkles, 5, [0, 2, 4], 26);
   }
 }

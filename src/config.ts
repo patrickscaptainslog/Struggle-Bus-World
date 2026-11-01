@@ -309,8 +309,10 @@ export const config = {
     spool: 2.4,
     brake: 3,
     rateEase: 0.35,
-    /** Holding the turbo (button / swipe-and-hold / Shift): the gear's speed x this (G0: full surge). */
-    boost: 1.3,
+    /** Turbo, latched by two flicks up, each two more flicks a level (Shift holds the first): the gear's speed x this... */
+    levels: [1.3, 1.6, 2],
+    /** ...and at G0, where the first level is today's full surge: the surge x this. As many entries as `levels`. */
+    levelsG0: [1, 1.3, 1.7],
     /** Steering authority above the surge speed: yaw rate x (surge / speed)^turnExp. */
     turnExp: 0.55,
     /** Camera: pulls back this much at G1 speed (m), widens this much (deg); the shift kicks the fov by this (deg).
