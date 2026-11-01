@@ -24,7 +24,7 @@ import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { paintLandmark, bindLandmarkPaint, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
 import { Tuner, applySavedTuning } from './ui/Tuner';
-import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles } from './world/Bridges';
+import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles, bridgeLights } from './world/Bridges';
 import { heroLandmarks, SpireRide } from './world/props/landmarks';
 import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
@@ -261,16 +261,20 @@ async function boot() {
     const ref = paintLandmark(city, key, obj, { name });
     if (ref && city.paint.level(ref.index) > 0.5) bumpPaint(ref.cx, ref.cz, 40);
   };
+  /** the spans' lights, x, y, z: the held hour's */
+  const spanLights: number[] = [];
   for (const lm of manifest.landmarks) {
     const pts = (lm as { points?: Array<[number, number]> }).points;
     const deck = lm.deck;
     if (lm.kind === 'ggb' && pts && deck && lm.supports) {
       scene.add(makeGoldenGate(pts, deck, lm.supports));
       city.addObstacles(bridgeObstacles('ggb', pts, deck, lm.supports));
+      if (hour) spanLights.push(...bridgeLights('ggb', pts, deck, config.sky.bridgeSpacing));
     } else if (lm.kind === 'baybridge' && pts && deck && lm.supports) {
       const { supports } = lm;
       city.addObstacles(bridgeObstacles('baybridge', pts, deck, supports));
       later.push(() => scene.add(makeBayBridgeWest(pts, deck, supports)));
+      if (hour) spanLights.push(...bridgeLights('baybridge', pts, deck, config.sky.bridgeSpacing));
     } else {
       // Sutro's legs / the pyramid: solid posts the flight model steers around
       city.addObstacles([{ x: lm.x, z: lm.z, r: lm.kind === 'sutro' ? 45 : 30, top: lm.y + lm.height + 5, under: -Infinity }]);
@@ -284,6 +288,7 @@ async function boot() {
       });
     }
   }
+  hour?.lamps.setBridges(spanLights);
   // the hand-built heroes the footprints can't draw: Coit Tower, the Ferry Building, 181 Fremont's spire
   later.push(() => {
     for (const h of heroLandmarks(manifest.origin)) {

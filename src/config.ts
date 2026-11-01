@@ -166,6 +166,8 @@ export const config = {
     lamps: true,
     /** The lamps' pools on the paved ground: off, none. */
     pools: true,
+    /** The spans' deck and tower lights: off, none. */
+    bridges: true,
     /** config.far.fit under this hour: the far band's fit to the near tiles was made with a sun's shadows in them. */
     farFit: 0.25,
     /** The far ground where there is no raster (?nofar, a raster still on its way) is one tone: this much under the day's, or it is a sheet of light beside the city. */
@@ -196,6 +198,8 @@ export const config = {
     litShare: 0.3,
     /** A near pane's glow; 0 past the panes, so share x glow on far surfaces is 0 (SKY.md 4.4 allows 0.06). */
     litGlow: 0.25,
+    /** Metres between a span's deck lights, on each side, read as it is built. */
+    bridgeSpacing: 14,
     /** A lamp's head over the ground (m), read when the list lands. */
     lampHead: 6,
     /** The share of lamps on: one held value (S2's wave runs it from the sun). */

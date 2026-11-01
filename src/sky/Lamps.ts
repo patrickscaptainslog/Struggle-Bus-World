@@ -73,6 +73,7 @@ export class Lamps {
   readonly object = new THREE.Group();
   private readonly mat = makeLampMaterial();
   private streets: THREE.Points | null = null;
+  private bridges: THREE.Points | null = null;
   private data: LampResult | null = null;
   /** tile key -> its run in the list */
   private readonly runs = new Map<number, number>();
@@ -121,11 +122,26 @@ export class Lamps {
     this.onLanded?.();
   }
 
+  /** The spans' lights, x, y, z a light (Bridges.ts bridgeLights): their own draw, there from the first frame. */
+  setBridges(xyz: number[]) {
+    const n = xyz.length / 3;
+    if (!n) return;
+    const pos = new Int16Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      pos[i * 4] = Math.round(xyz[i * 3] / LAMP_XZ);
+      pos[i * 4 + 1] = Math.round(xyz[i * 3 + 1] / LAMP_Y);
+      pos[i * 4 + 2] = Math.round(xyz[i * 3 + 2] / LAMP_XZ);
+    }
+    this.bridges = lampPoints(pos, this.mat);
+    this.object.add(this.bridges);
+  }
+
   /** Every frame, the tuner's switches. */
   update() {
     const S = config.sky;
     uLampPoint.value.set(S.lampShare, S.lampLift, S.lampThin);
     if (this.streets) this.streets.visible = S.lamps;
+    if (this.bridges) this.bridges.visible = S.bridges;
     heldGlobals.uLamp.value = S.pools ? S.poolLift : 0;
     heldGlobals.uLampFar.value.set(S.poolFade, S.poolEnd);
   }
