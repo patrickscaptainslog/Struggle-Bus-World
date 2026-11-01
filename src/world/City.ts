@@ -463,7 +463,7 @@ export class City {
   private farGroup = new THREE.Group();
   /** horizon.bin's frame [minX, minZ, maxX, maxZ] (m), once it's in */
   private horizonRect: [number, number, number, number] | null = null;
-  /** horizon.bin's mesh as it was built (`pos` its vertices), the ground past the far grid; null in a city with none */
+  /** horizon.bin's mesh as it was built (`pos` its vertices), the ground past the map; null in a city with none */
   private horizonGrid: { w: number; h: number; x0: number; z0: number; cell: number; pos: Float32Array } | null = null;
   private water: THREE.Mesh;
   private loadedMask: THREE.DataTexture;
@@ -774,9 +774,13 @@ export class City {
     this.horizonGrid = { w, h, x0: minX, z0: minZ, cell: step * cell, pos };
   }
 
-  /** The surface horizon.bin's mesh draws at (x, z) (m): the cell's two triangles as buildHorizon split it, the water where it has none. */
+  /**
+   * The surface horizon.bin's mesh draws at (x, z) (m): the cell's two triangles as buildHorizon split it, the water where it has none. -Infinity where the
+   * mesh has a hole, over the map, and in a city with none.
+   */
   private horizonGround(x: number, z: number): number {
-    const m = this.horizonGrid!;
+    const m = this.horizonGrid, map = this.manifest.bounds;
+    if (!m || (x >= map[0] && x <= map[2] && z >= map[1] && z <= map[3])) return -Infinity;
     const fx = (x - m.x0) / m.cell, fz = (z - m.z0) / m.cell;
     if (fx < 0 || fz < 0 || fx >= m.w - 1 || fz >= m.h - 1) return 0;
     const i = Math.floor(fx), j = Math.floor(fz);
@@ -1651,16 +1655,19 @@ export class City {
     return this.tileNum.get(tileKeyNum(Math.floor(x / ts), Math.floor(z / ts)));
   }
 
-  /** Ground height (m). Falls back to the far grid where tiles aren't loaded, and past it to horizon.bin's mesh, the surface drawn out there (in a city with none, the grid's edge). */
+  /**
+   * Ground height (m). Falls back to the far grid where tiles aren't loaded. Past the map it is horizon.bin's mesh, the surface drawn out there (a tile
+   * sticking out past the edge has only the grid's edge height, and lies under it); in a city with none, the tile or the grid's edge.
+   */
   groundAt(x: number, z: number): number {
+    const hills = this.horizonGround(x, z);
     const lt = this.tileAt(x, z);
-    if (lt?.terrainData) return this.tileGround(lt.terrainData, x, z);
+    if (lt?.terrainData) return Math.max(hills, this.tileGround(lt.terrainData, x, z));
+    if (hills >= 0) return hills;
     const f = this.far;
     if (!f) return 0;
-    const gx = (x - f.minX) / f.cell, gz = (z - f.minZ) / f.cell;
-    if (this.horizonGrid && (gx < 0 || gz < 0 || gx > f.gridW - 1 || gz > f.gridH - 1)) return this.horizonGround(x, z);
-    const fx = Math.min(f.gridW - 1.001, Math.max(0, gx));
-    const fz = Math.min(f.gridH - 1.001, Math.max(0, gz));
+    const fx = Math.min(f.gridW - 1.001, Math.max(0, (x - f.minX) / f.cell));
+    const fz = Math.min(f.gridH - 1.001, Math.max(0, (z - f.minZ) / f.cell));
     const ix = Math.floor(fx), iz = Math.floor(fz);
     const ax = fx - ix, az = fz - iz;
     const w = f.gridW;
@@ -2033,7 +2040,7 @@ export class City {
       const c = this.manifest.tileSize / t.obstN;
       const ix = Math.min(t.obstN - 1, Math.max(0, Math.floor((x - t.originX) / c)));
       const iz = Math.min(t.obstN - 1, Math.max(0, Math.floor((z - t.originZ) / c)));
-      return t.obst[iz * t.obstN + ix];
+      return Math.max(t.obst[iz * t.obstN + ix], this.horizonGround(x, z) + 18);
     }
     return this.groundAt(x, z) + 18; // unknown: assume rooftops
   }
