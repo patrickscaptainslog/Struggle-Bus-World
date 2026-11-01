@@ -108,6 +108,7 @@ const RAMPS: Record<number, string[]> = {
 RAMPS[Ramp.SKY_LOW] = RAMPS[Ramp.FOG];
 RAMPS[Ramp.SAND] = RAMPS[Ramp.SKY_WARM];
 RAMPS[Ramp.RIDGE] = RAMPS[Ramp.GREEN_GREY];
+RAMPS[Ramp.FARGLOW] = RAMPS[Ramp.GREY]; // (the held hour's far lit faces, with its table switched off)
 
 export const RAMP_COUNT = 64; // texture rows (8x64 RGBA8, 2 KB; rows 24-31 and 47-63 reserved or spare, a row no table names is black)
 
