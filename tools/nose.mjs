@@ -216,14 +216,16 @@ const FLIGHTS = {
     await shot('dive-1km');
     await until('dive', (q) => q.over < 260, 12, 0.5);
     await shot('dive-260m');
-    let low = Infinity;
-    for (let i = 0; i < 32; i++) {
+    let low = Infinity, lowHard = Infinity;
+    for (let i = 0; i < 60; i++) {
       await run(0.1);
       const s = await note('swoop');
       low = Math.min(low, s.over);
+      lowHard = Math.min(lowHard, s.h);
       if (i % 4 === 0) await shot(`swoop-${i}`);
+      if (s.mode === 0) break;
     }
-    report.diveRoofs = { minOverFloor: low };
+    report.diveRoofs = { minOverFloor: low, minOverGround: lowHard };
     await letGo();
     await run(3);
     await note('after');
@@ -244,11 +246,12 @@ const FLIGHTS = {
     await shot('water-dive-1500');
     await until('water dive', (q) => q.over < 260, 14, 0.5);
     let low = Infinity;
-    for (let i = 0; i < 28; i++) {
+    for (let i = 0; i < 60; i++) {
       await run(0.1);
       const s = await note('water swoop');
       low = Math.min(low, s.over);
       if (i % 5 === 0) await shot(`water-swoop-${i}`);
+      if (s.mode === 0) break;
     }
     report.diveWater = { minOverFloor: low };
     await letGo();
