@@ -312,17 +312,17 @@ function bayCables(d: Deck, pts: P2[]): CableSpan[] {
 
 /**
  * What the deck stands on at W1, the cables' west end (w236373807) and W7: each the size of its OSM row, across and along the
- * deck, its flat top just under the road at the block's low end.
+ * deck, its flat top just under the road at the block's low end; and the plain supports, each just into the deck's underside.
  */
-function bayBlocks(d: Deck, pts: P2[]) {
-  const w1: P2 = [d.pts[0][0], d.pts[0][1]];
-  return [{ p: w1, across: 30, along: 50 }, { p: pts[0], across: 33, along: 11 }, { p: pts[6], across: 33, along: 39 }].map((b) => {
-    const s = d.stationOf(b.p);
-    return { ...b, top: Math.min(d.at(s - b.along / 2)[2], d.at(s + b.along / 2)[2]) - 0.3 };
-  });
+function bayBlocks(d: Deck, pts: P2[], supports: Support[]) {
+  const block = (p: P2, across: number, along: number, under: number) => {
+    const s = d.stationOf(p);
+    return { p, across, along, top: Math.min(d.at(s - along / 2)[2], d.at(s + along / 2)[2]) - under };
+  };
+  return [block([d.pts[0][0], d.pts[0][1]], 30, 50, 0.3), block(pts[0], 33, 11, 0.3), block(pts[6], 33, 39, 0.3), ...supports.map(([x, z, across, along]) => block([x, z], across, along, BAY.thick - 0.3))];
 }
 
-export function makeBayBridgeWest(pts: P2[], deck: DeckPoint[]): THREE.Object3D {
+export function makeBayBridgeWest(pts: P2[], deck: DeckPoint[], supports: Support[]): THREE.Object3D {
   // pts, as OSM refs them: the cables' west end, W2, W3, center anchorage W4, W5, W6, W7; deck: from W1 through them all to the island
   const k = new Kit();
   const d = new Deck(deck);
@@ -359,7 +359,7 @@ export function makeBayBridgeWest(pts: P2[], deck: DeckPoint[]): THREE.Object3D 
   const C = pts[3];
   k.block(C[0], 42.5, C[1], 40, 85, 69, f.yaw, GL, -0.04);
   k.block(C[0], (85 + BAY.anchorTop) / 2, C[1], 30, BAY.anchorTop - 85, 55, f.yaw, GL, 0.02);
-  for (const { p, across, along, top } of bayBlocks(d, pts)) k.block(p[0], top / 2, p[1], across, top, along, f.yaw, GL, -0.04);
+  for (const { p, across, along, top } of bayBlocks(d, pts, supports)) k.block(p[0], top / 2, p[1], across, top, along, f.yaw, GL, -0.04);
   // the two runs of cable, straight over the deck's edges, with suspenders on every span
   const off = legOff * 0.84;
   for (const side of [-1, 1]) {
@@ -409,7 +409,7 @@ export function bridgeObstacles(kind: 'ggb' | 'baybridge', pts: P2[], deck: Deck
     for (const ti of BAY.towers) out.push({ x: pts[ti][0], z: pts[ti][1], r: 30, top: BAY.towerH + 8, under: -Infinity });
     out.push({ x: pts[3][0], z: pts[3][1], r: 40, top: BAY.anchorTop + 4, under: -Infinity });
     // (the open air under the deck stops at the blocks it stands on)
-    for (const { p, across, along, top } of bayBlocks(d, pts)) out.push({ x: p[0], z: p[1], r: Math.hypot(across, along) / 2, top: top + 2, under: -Infinity });
+    for (const { p, across, along, top } of bayBlocks(d, pts, supports)) out.push({ x: p[0], z: p[1], r: Math.hypot(across, along) / 2, top: top + 2, under: -Infinity });
     return out;
   }
   const out = deckPosts(d, GGB.half, GGB.thick, cableOver(ggCables(d, pts)));

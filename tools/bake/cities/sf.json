@@ -389,14 +389,29 @@
       ],
       "deck": [
         [
-          37.808,
-          -122.4766501,
-          59.3
+          37.8080902,
+          -122.4765219,
+          57.3
         ],
         [
-          37.8085953,
-          -122.4771116,
-          59.6
+          37.8083677,
+          -122.4767712,
+          58.1
+        ],
+        [
+          37.8086513,
+          -122.476989,
+          59.2
+        ],
+        [
+          37.8089296,
+          -122.4771533,
+          60.1
+        ],
+        [
+          37.8091979,
+          -122.4772894,
+          61.1
         ],
         [
           37.8094147,
@@ -429,9 +444,24 @@
           75.0
         ],
         [
-          37.8311548,
-          -122.4799134,
+          37.8308447,
+          -122.4798775,
           75.0
+        ],
+        [
+          37.8311884,
+          -122.4799823,
+          75.0
+        ],
+        [
+          37.8315235,
+          -122.4801359,
+          74.9
+        ],
+        [
+          37.8318445,
+          -122.4803491,
+          74.8
         ],
         [
           37.8323292,
@@ -453,37 +483,37 @@
           10.1
         ],
         [
-          37.830056,
-          -122.4797773,
+          37.8300559,
+          -122.4797787,
           27.0,
           4.6
         ],
         [
-          37.8305761,
-          -122.4798417,
+          37.8305759,
+          -122.4798438,
           27.0,
           4.6
         ],
         [
-          37.8310065,
-          -122.479895,
+          37.8310007,
+          -122.4799251,
           27.0,
           4.6
         ],
         [
-          37.8314194,
-          -122.4800955,
+          37.8314213,
+          -122.480089,
           27.0,
           4.6
         ],
         [
-          37.8318147,
-          -122.4803677,
+          37.8318273,
+          -122.4803376,
           27.0,
           4.6
         ]
       ],
-      "note": "points, from OSM rows: south anchorage w1560010167, south tower w1329971884, north tower w1330832681, north anchorage w1560010149. deck (lat, lon, top m): the approach's end in the Presidio, through those four and mid span, to Marin; tops from the LiDAR, north of the north tower inferred. supports (lat, lon, across m, along m): Pylon S2 and S1, each pair from its rows; Pylon N1 and N2 stand at the two ends of the North Anchor's row, so its block carries them; the last five stand over the Marin Approach (r21407755), where the map holds no row, about 52 m apart, clear of the two paths under it"
+      "note": "points, from OSM rows: south anchorage w1560010167, south tower w1329971884, north tower w1330832681, north anchorage w1560010149. deck (lat, lon, top m): the approach's end in the Presidio, on the two carriageways' middle (segments 23706 and 23699, not the West Sidewalk) to the south anchorage, through those four and mid span, along that middle's curve to Marin; tops from the LiDAR read on the carriageways, north of the north tower inferred. supports (lat, lon, across m, along m): Pylon S2 and S1, each pair from its rows; Pylon N1 and N2 stand at the two ends of the North Anchor's row, so its block carries them; the last five stand on the deck's line over the Marin Approach (r21407755), where the map holds no row, about 52 m apart, clear of the two paths under it"
     },
     {
       "kind": "baybridge",
@@ -567,7 +597,27 @@
           53.5
         ]
       ],
-      "note": "points, from OSM rows: cable end w236373807, W2 w432712476, W3 w432712477, centre anchorage W4 w236374789, W5 w432712478, W6 w432712479, W7 w1136339259. deck (lat, lon, top m): W1 w1136339258, those seven, the stub onto Yerba Buena; tops from the LiDAR"
+      "supports": [
+        [
+          37.7869616,
+          -122.3898878,
+          22.0,
+          4.6
+        ],
+        [
+          37.7872774,
+          -122.3895496,
+          22.0,
+          4.6
+        ],
+        [
+          37.7875794,
+          -122.389226,
+          22.0,
+          4.6
+        ]
+      ],
+      "note": "points, from OSM rows: cable end w236373807, W2 w432712476, W3 w432712477, centre anchorage W4 w236374789, W5 w432712478, W6 w432712479, W7 w1136339259. deck (lat, lon, top m): W1 w1136339258, those seven, the stub onto Yerba Buena; tops from the LiDAR. supports (lat, lon, across m, along m): on the land stretch from W1 to the cable end, where the map holds no row, about 46 m apart, clear of the roads under it; none on its last 100 m, over a real building and Spear Street"
     }
   ],
   "dem_fallback": "/vsicurl/https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/current/n38w123/USGS_13_n38w123.tif",

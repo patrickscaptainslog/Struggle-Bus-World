@@ -225,9 +225,10 @@ async function boot() {
     if (lm.kind === 'ggb' && pts && deck && lm.supports) {
       scene.add(makeGoldenGate(pts, deck, lm.supports));
       city.addObstacles(bridgeObstacles('ggb', pts, deck, lm.supports));
-    } else if (lm.kind === 'baybridge' && pts && deck) {
-      city.addObstacles(bridgeObstacles('baybridge', pts, deck));
-      later.push(() => scene.add(makeBayBridgeWest(pts, deck)));
+    } else if (lm.kind === 'baybridge' && pts && deck && lm.supports) {
+      const { supports } = lm;
+      city.addObstacles(bridgeObstacles('baybridge', pts, deck, supports));
+      later.push(() => scene.add(makeBayBridgeWest(pts, deck, supports)));
     } else {
       // Sutro's legs / the pyramid: solid posts the flight model steers around
       city.addObstacles([{ x: lm.x, z: lm.z, r: lm.kind === 'sutro' ? 45 : 30, top: lm.y + lm.height + 5, under: -Infinity }]);
