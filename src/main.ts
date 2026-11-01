@@ -32,6 +32,7 @@ import { tunableGroups } from './ui/tunables';
 import { SuperSplat } from './game/SuperSplat';
 import { SuperFx } from './fx/SuperFx';
 import { SuperMeter } from './ui/SuperMeter';
+import { farFlags } from './world/farMaterial';
 
 // Struggle Bus — Phase 1 (real SF, solo).
 
@@ -46,9 +47,28 @@ const params = new URLSearchParams(location.search);
 if (params.has('fog')) config.fog.enabled = true;
 if (params.has('px')) config.render.pixelWidth = Math.min(1200, Math.max(120, Number(params.get('px')) || config.render.pixelWidth));
 applySavedTuning();
+// The far field (docs/ARCHITECTURE.md, "The far raster"): on, for any city whose far16.bin arrives. config.far.on and ?nofar turn all of it off. A tool
+// spelling any of ?farmap, ?farblocks, ?farfade asks for exactly those.
+const farOn = config.far.on && !params.has('nofar');
+const farPicked = params.has('farmap') || params.has('farblocks') || params.has('farfade');
+if (farOn) {
+  farFlags.map = !farPicked || params.has('farmap');
+  farFlags.oblique = !farPicked || params.get('farmap') === 'oblique';
+  farFlags.blocks = !farPicked || params.has('farblocks');
+  farFlags.nearest = params.has('farnearest');
+  farFlags.debug = params.has('fardebug');
+  if (params.has('farbias')) config.far.classBias = Number(params.get('farbias'));
+}
+if (params.has('loadr')) config.city.loadRadiusHigh = Number(params.get('loadr')) || config.city.loadRadiusHigh;
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const pipeline = new PixelPipeline(canvas);
+/** The fade to 34 km and the far plane past it. It runs after the saved tuning, whenever it runs: no saved value takes it back. */
+function farFade() {
+  config.fog.clearFarFull = 34000;
+  pipeline.setFar(36000);
+}
+if (farOn && params.has('farfade')) farFade();
 const renderer = pipeline.renderer;
 const scene = new THREE.Scene();
 // (what moves has its own matrices updated; a scene that recomposed its identity would force all 900 objects' every frame)
@@ -132,7 +152,14 @@ async function boot() {
   // (the first frame streams around the bus: the same want-list, so nothing is asked for twice)
   const primeFocus = focus.clone();
   city.prime(primeFocus);
-  const farP = city.loadFar();
+  // (the fade goes with the raster, on whichever frame that lands; a city with no raster keeps its old horizon)
+  if (farOn && !farPicked)
+    city.onFarRaster = () => {
+      farFade();
+      city.fitWater();
+      updateSun();
+    };
+  const farP = city.loadFar(renderer, () => warm.busy);
 
   // ---- props: trees stream with tiles, landmarks are placed once
   const treeFields = new Map<string, TreeField>();
@@ -1132,6 +1159,8 @@ async function boot() {
     const hk = clamp(flight.lift / 450, 0, 1);
     streamCenter.set(focus.x + camFwd.x * 950 * hk, focus.y, focus.z + camFwd.z * 950 * hk);
     city.viewHeight = flight.lift;
+    city.viewX = camera.position.x;
+    city.viewZ = camera.position.z;
     city.detailHold = controls.tearing;
     city.detailScale = Math.tan(THREE.MathUtils.degToRad(config.camera.hfovPortrait / 2)) / Math.tan(THREE.MathUtils.degToRad(rig.hfov / 2));
     const R = config.render;
@@ -1287,7 +1316,7 @@ async function boot() {
     }
     if (ready) everReady = true;
     city.eager = !everReady;
-    (window as unknown as { __shotReady?: boolean }).__shotReady = ready;
+    (window as unknown as { __shotReady?: boolean }).__shotReady = ready && !city.farLate;
   }
   requestAnimationFrame(frame);
 

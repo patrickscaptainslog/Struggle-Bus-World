@@ -94,6 +94,11 @@ export class PixelPipeline implements WarmPipeline {
   private dpr = 1;
   /** what the targets were last sized for (resize() early-outs when nothing changed) */
   private sizeKey = '';
+  /**
+   * The depth at and past which geometry still turns to sky. The sky is the clear flag (see RESOLVE_FS); this is the old
+   * test's distance, kept so that frames don't change until the far fade takes it away (setFar: over 1, never).
+   */
+  private skyCut = 0.99999;
   /** impact flash: rendered frames left, and (buffer uv x, y, strength, radius) */
   private flashLeft = 0;
   private readonly flashU = new THREE.Vector4();
@@ -182,6 +187,7 @@ export class PixelPipeline implements WarmPipeline {
         uHeroShadowAxes: { value: new THREE.Vector4(0, 1, 1, 1) },
         uHeroCircle: { value: new THREE.Vector4() },
         uFlash: { value: new THREE.Vector4() },
+        uSkyCut: { value: this.skyCut },
       },
       vertexShader: QUAD_VS,
       fragmentShader: RESOLVE_FS,
@@ -375,6 +381,14 @@ export class PixelPipeline implements WarmPipeline {
    */
   setHeroCircle(charge: number, spin: number, halfLength: number, halfWidth: number) {
     this.heroCircle.set(charge, spin, Math.max(0.1, halfLength), Math.max(0.1, halfWidth));
+  }
+
+  /** The far plane moves (?farfade): the sky is the clear flag alone from here on, or the far fade ends in a hard cut. */
+  setFar(far: number) {
+    this.camera.far = far;
+    this.camera.updateProjectionMatrix();
+    this.skyCut = 2;
+    this.resolveMat.uniforms.uSkyCut.value = this.skyCut;
   }
 
   /** World-space size of one game pixel at a given distance from the camera. */
@@ -788,6 +802,7 @@ uniform vec4 uHeroShadow;     // hero drop shadow: center xz, underside y (m), r
 uniform vec4 uHeroShadowAxes; // ...its oval: forward axis xz, half length, half width (m)
 uniform vec4 uHeroCircle;     // the charge's pinwheel around it: charge (0 = off), spin (arms), half length, half width (m)
 uniform vec4 uFlash;     // impact flash: buffer uv, strength, white-hot radius (fraction of the height)
+uniform float uSkyCut;   // depth at and past which geometry still turns to sky (over 1: never)
 in vec2 vUv;
 layout(location = 0) out vec4 outColor;
 ${GLSL_LAYER_TOP}
@@ -888,10 +903,14 @@ vec2 seaShade(vec3 dir, float sl) {
   return vec2(clamp(mix(l, sl, far), 0.0, 1.0), warm * (1.0 - far));
 }
 
-// A neighbor's fog says whether it stands out of the fog (at the floor): a nearer surface (not the
-// clear sky, fog 0), the handover, or a silhouette rounding darker than the buried step.
-bool stands(float f, float sl, float bur) {
-  if (f < 0.002) return false;
+// Whether the neighbor at q stands out of the fog (at the floor): a nearer surface, the handover, or a
+// silhouette rounding darker than the buried step. Not the clear sky: fog 0 can't say that, an unfogged tower
+// has it too, so past the 20 km fade it is the sky by its clear flag, what nothing wrote (one fetch: fog and
+// flags share a texel). With the old cut in place (uSkyCut under 1) frames stay as they were.
+bool stands(ivec2 q, float sl, float bur) {
+  uvec4 t = texelFetch(tG, q, 0);
+  float f = float(t.g & 255u) / 255.0;
+  if (uSkyCut > 1.0 ? (t.a >> 8u) == 0u : f < 0.002) return false;
   if (f < 0.76) return true;
   return rampStep(sl - (1.0 - f) * 0.55 - 0.03 - 0.1 * uCalm * smoothstep(0.75, 0.95, f), 0.5) < bur;
 }
@@ -925,6 +944,7 @@ void main() {
   float dc = mix(d, 0.5, uCalm);
   vec3 dir = worldDir(vUv);
   float z = texelFetch(tDepth, p, 0).r;
+  vec4 a = sbAux(p);
   bool layerView = uFogLayer2.w > 0.001 && uCamPos.y > uFogLayer.x && dir.y < -0.001;
   // impact flash: k = 1 at the blast, falling off over the screen
   float flashK = 0.0;
@@ -932,7 +952,10 @@ void main() {
     vec2 fd = (vUv - uFlash.xy) * vec2(uSize.x / uSize.y, 1.0);
     flashK = uFlash.z * (1.0 - smoothstep(uFlash.w, uFlash.w * 4.0, length(fd)));
   }
-  if (z >= 0.99999) {
+  // The sky is what nothing wrote: every sbWrite has flags >= 0.5, the clear is 0. A depth can't say that: with the near plane
+  // at 1.5 m, z >= 0.99999 is a distance, 25 km at a 30 km far plane, 29 km at 36 km. uSkyCut keeps that distance while the far
+  // fade stands at 20 km, so frames don't change; setFar() takes it away.
+  if (a.a == 0.0 || z >= uSkyCut) {
     float skyL = skyLight(dir);
     // up high the sky above the horizon deepens a little faster and sits a touch darker than the
     // bright haze below it: a horizon line, and a sky gradient instead of one flat grey
@@ -959,7 +982,6 @@ void main() {
     return;
   }
   vec4 g = sbColor(p);
-  vec4 a = sbAux(p);
   float ramp = floor(g.r * 255.0 + 0.5);
   float light = g.g;
   float fog = g.b;
@@ -977,8 +999,8 @@ void main() {
     for (int i = 0; i < 4; i++) {
       ivec2 q = p + off[i];
       float zq = texelFetch(tDepth, q, 0).r;
-      float dq = zq >= 0.99999 ? 1e9 : linDepth(zq);
       vec4 aq = sbAux(q);
+      float dq = aq.a == 0.0 ? 1e9 : linDepth(zq);
       // silhouette: neighbor is much farther -> this pixel is the near edge
       if (dq - depth > depth * uOutline.x) { edgeDark = 1.0; sil[i] = true; }
       else if (abs(dq - depth) < depth * uOutline.x) {
@@ -1094,11 +1116,11 @@ void main() {
         int K = clamp(int(uSize.y * uHaze.w + 0.5), 3, 16);
         int run = 1;
         for (int i = 1; i < 16; i++) {
-          if (i >= K || !stands(sbFogAt(p + ivec2(0, i)), sl, bur)) break;
+          if (i >= K || !stands(p + ivec2(0, i), sl, bur)) break;
           run++;
         }
         for (int i = 1; i < 16; i++) {
-          if (run >= K || !stands(sbFogAt(p - ivec2(0, i)), sl, bur)) break;
+          if (run >= K || !stands(p - ivec2(0, i), sl, bur)) break;
           run++;
         }
         if (run < K) oStep = bur;

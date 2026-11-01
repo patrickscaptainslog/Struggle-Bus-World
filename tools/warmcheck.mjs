@@ -8,7 +8,8 @@
 // every first draw after it: a Metal render pipeline is keyed by the program AND the target's
 // format, the color write mask, blending and the topology class, so a program that exists can
 // still build a pipeline in flight (target: the upscale onto the canvas, never warmed, frame 1).
-//   node tools/warmcheck.mjs <url> <out.json> [--throttle=4]
+//   node tools/warmcheck.mjs <url> <out.json> [--throttle=4] [--late=9000]
+// --late=<ms>: far16.bin held back that long by a route, so it lands in play (City.landFar), and ready waits for it.
 // Wall clock, real GPU (tools/browser.mjs): meaningful on a laptop, not in the cloud's SwiftShader.
 import { chromium } from 'playwright-core';
 import { writeFileSync } from 'node:fs';
@@ -28,6 +29,11 @@ if (opt.throttle) {
   const cdp = await ctx.newCDPSession(page);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: Number(opt.throttle) });
 }
+if (opt.late)
+  await page.route('**/far16.bin*', async (r) => {
+    await new Promise((d) => setTimeout(d, Number(opt.late)));
+    await r.continue();
+  });
 await page.addInitScript(() => {
   const W = (window.__wc = { phase: 'load', programs: [], frames: [], long: [] });
   const P = WebGL2RenderingContext.prototype;

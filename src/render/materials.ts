@@ -253,6 +253,11 @@ export interface RampMaterialOptions {
   ramp?: number;
   /** Use the per-vertex float attribute `ramp` (and optional `lightOffset`, `glow`). */
   vertexRamp?: boolean;
+  /**
+   * With vertexRamp: the ramp comes from height in the fragment stage instead of the `ramp` attribute, `below` up to world height y, `above` over it. For a
+   * contour across cells too big for a flat vertex ramp, which saws it into teeth a cell wide. The attribute is left unread.
+   */
+  rampAbove?: { y: number; below: number; above: number };
   /** Constant light offset added to the toon light (+ brighter / - darker). */
   lightOffset?: number;
   /** Constant glow 0..1. */
@@ -279,6 +284,11 @@ export interface RampMaterialOptions {
 export function makeRampMaterial(opts: RampMaterialOptions = {}): THREE.ShaderMaterial {
   const defines: Record<string, string | number | boolean> = {};
   if (opts.vertexRamp) defines.VERTEX_RAMP = 1;
+  if (opts.rampAbove) {
+    defines.RAMP_ABOVE_Y = opts.rampAbove.y.toFixed(1);
+    defines.RAMP_ABOVE_LO = opts.rampAbove.below.toFixed(1);
+    defines.RAMP_ABOVE_HI = opts.rampAbove.above.toFixed(1);
+  }
   const uniforms: Record<string, THREE.IUniform> = {
     ...globals,
     uRamp: { value: opts.ramp ?? 0 },
@@ -301,7 +311,7 @@ export function makeRampMaterial(opts: RampMaterialOptions = {}): THREE.ShaderMa
       in float ramp;
       in float lightOffset;
       in float glow;
-      out float vRamp;
+      flat out float vRamp;
       out float vLightOffset;
       out float vGlowA;
       #endif
@@ -343,7 +353,7 @@ export function makeRampMaterial(opts: RampMaterialOptions = {}): THREE.ShaderMa
       in vec3 vWorldNormal;
       in vec3 vViewNormal;
       #ifdef VERTEX_RAMP
-      in float vRamp;
+      flat in float vRamp;
       in float vLightOffset;
       in float vGlowA;
       #endif
@@ -354,6 +364,9 @@ export function makeRampMaterial(opts: RampMaterialOptions = {}): THREE.ShaderMa
         float glow = uGlow;
         #ifdef VERTEX_RAMP
         ramp = floor(vRamp + 0.5);
+        #ifdef RAMP_ABOVE_Y
+        ramp = vWorldPos.y > RAMP_ABOVE_Y ? RAMP_ABOVE_HI : RAMP_ABOVE_LO;
+        #endif
         lo += vLightOffset;
         glow = max(glow, vGlowA);
         #endif

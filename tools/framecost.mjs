@@ -38,6 +38,15 @@ if (alt > 40) {
 await run('false', 2);
 await run('!g.city.busy', 30);
 await run('false', 1);
+// --set=far.blockEnd:4000,far.blockSink:3000: config values for this measure
+if (opt.set)
+  await page.evaluate((list) => {
+    for (const kv of list.split(',')) {
+      const [path, v] = kv.split(':');
+      const ks = path.split('.');
+      ks.slice(0, -1).reduce((a, k) => a[k], window.__game.config)[ks[ks.length - 1]] = Number(v);
+    }
+  }, opt.set);
 const cost = await page.evaluate(
   () =>
     new Promise((res) => {

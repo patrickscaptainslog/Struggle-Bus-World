@@ -19,7 +19,7 @@ import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from './GroundPaint
  * into the fog bank instead of lying under it as a dark slab. Static swell crests run north-south (the Pacific rolls in
  * through the Golden Gate): short sparse dashes, a step brighter.
  */
-const GLSL_WATER = /* glsl */ `
+export const GLSL_WATER = /* glsl */ `
   float sbWaterHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
   void sbWater(vec3 wp, vec3 surface) {
     vec3 v = normalize(cameraPosition - wp);

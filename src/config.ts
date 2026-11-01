@@ -112,6 +112,40 @@ export const config = {
     layerViewFull: 260,
   },
 
+  far: {
+    /**
+     * The far field at all, in any city with a far16.bin: the raster, its boxes, the fade to 34 km and the far plane past it. false, or ?nofar, is the
+     * old path, and far16.bin isn't asked for. Not a tunable: no saved value can turn it.
+     */
+    on: true,
+    /**
+     * How long the first frame waits for far16.bin once far.bin and horizon.bin are in (ms). In by then, it is part of the first frame; if not, the
+     * first frame goes with the plain far ground and the raster is built in when it lands (City.landFar).
+     */
+    graceMs: 400,
+    /** How much of the far raster's tone shows (1 = as baked). */
+    toneK: 1,
+    /** How much of the raster's wall share shows (1 = as baked). */
+    wallK: 1,
+    /** Mip bias of the far class map (negative = sharper, and more crawl). */
+    classBias: 0,
+    /** How much of the far band's fit to the near tiles is on (1 = as fitted, farMaterial.ts CLASS_FIT). */
+    fit: 1,
+    /** Far boxes start sinking into the raster's tone at this distance from the lens (m)... */
+    blockSink: 5500,
+    /** ...and are gone at this one: a wall there is a pixel, so nobody sees it go. */
+    blockEnd: 7000,
+    /** Share of the faces that may light up that are lit (the night's wave: 0 by day, no night exists yet to set it). */
+    blockLit: 0,
+    /** Glow of a lit face. SKY.md section 9: share x glow <= 0.06 on far surfaces. */
+    blockGlow: 0.2,
+  },
+
+  city: {
+    /** How far around the stream center regions load up high (m); LOAD_RADIUS at the floor. ?loadr= overrides it. */
+    loadRadiusHigh: 1900,
+  },
+
   camera: {
     /** Horizontal field of view in portrait (deg). Narrow = telephoto = steadier pixels. */
     hfovPortrait: 24,

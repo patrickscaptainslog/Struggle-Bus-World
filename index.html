@@ -14,7 +14,9 @@
     <script>
       // The boot downloads start now, not after the game's script has loaded and run: the game
       // takes these responses over (bootFetch in src/world/City.ts), so nothing downloads twice.
-      // The two .bin files ask for low priority: the game's script comes first.
+      // The .bin files ask for low priority: the game's script comes first. far16.bin, the biggest, is handed out unstarted, and City.loadFar
+      // starts it once far.bin and horizon.bin are in: nothing waits for it, and a low priority alone doesn't keep it off the bandwidth of
+      // what the first frame needs (at 150 KB/s, started here, it put that frame seconds later). With the far field off nothing starts it.
       // __sbDataV is the data's version, on every URL under /city/ (dataQuery in City.ts): a re-bake keeps the file names
       // and vercel.json caches them, so a phone that played the old city would run the new game on it. Bump it in the same commit as
       // anything under public/city that follows a deploy, a re-bake or a relandmark.py run: on the old value that phone never sees it.
@@ -29,7 +31,7 @@
             p.catch(function () {});
             return p;
           };
-          window.__sbBoot = { base: base, manifest: get('city.json'), far: get('far.bin', 'low'), horizon: get('horizon.bin', 'low') };
+          window.__sbBoot = { base: base, manifest: get('city.json'), far: get('far.bin', 'low'), horizon: get('horizon.bin', 'low'), far16: function () { return get('far16.bin', 'low'); } };
         } catch (e) {}
       })();
     </script>

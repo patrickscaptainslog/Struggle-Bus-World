@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Real frame rate on this machine's GPU (the ?fps meter's own numbers), iPhone 15
 // portrait viewport, at street level and up high.
-//   node tools/fps.mjs <baseUrl> <outDir> [--seconds=10] [--spots=alamo,fidi]
+//   node tools/fps.mjs <baseUrl> <outDir> [--seconds=10] [--spots=alamo,fidi] [--q=farmap&farfade]
 // For every spot: cruise released at the rooftops, then climb to ~250 m and to the
 // ceiling (~500 m) and hold. Each phase samples window.__stats (refreshed once per
 // wall second by src/ui/Perf.ts) for --seconds wall seconds after streaming settles,
@@ -20,6 +20,10 @@ const SPOTS = {
   alamo: '?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud&fps',
   fidi: '?lat=37.7925&lon=-122.4010&heading=0&skipintro&nohud&fps',
   west: '?lat=37.7600&lon=-122.4800&heading=60&skipintro&nohud&fps',
+  // the far field's poses (docs/specs/far-field/SPIKE.md)
+  sunset: '?lat=37.7530&lon=-122.4950&heading=90&skipintro&nohud&fps',
+  presidio: '?lat=37.7990&lon=-122.4660&heading=180&skipintro&nohud&fps',
+  downtown: '?lat=37.7700&lon=-122.4300&heading=45&skipintro&nohud&fps',
 };
 const spots = (opt.spots ?? 'alamo,fidi').split(',');
 mkdirSync(out, { recursive: true });
@@ -35,7 +39,7 @@ for (const spot of spots) {
   const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
   page.on('pageerror', (e) => console.log('[pageerror]', e.message));
   page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.log('[console]', m.text()));
-  await page.goto(base + SPOTS[spot], { waitUntil: 'load' });
+  await page.goto(base + SPOTS[spot] + (opt.q ? `&${opt.q}` : ''), { waitUntil: 'load' });
   await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000 });
   if (!report.gpu) {
     report.gpu = await page.evaluate(() => {

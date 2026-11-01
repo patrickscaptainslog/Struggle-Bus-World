@@ -354,6 +354,60 @@ export interface FarData {
   cls: Uint8Array;
 }
 
+/**
+ * The far raster, one image of the whole city (writer: tools/bake/farmap.py, keep in sync; 'SBR1' there, not the region bundles):
+ *   header: magic[4] u32 W, u32 H, f32 a, b, c, d, e, f (cell i, j to world: x = a*i + b*j + c, z = d*i + e*j + f), u16 bodyId, u16 cellM (40 bytes)
+ *   then W*H bytes each: class, tone, height, paint, wall share, wall tone
+ *   then far.bin's boxes' towers: u32 n, u32 stableId[n], f32 area[n], f32 height[n], f32 cx[n], f32 cz[n], u8 arch[n] (styleFor's inputs)
+ */
+export interface FarTowers {
+  n: number;
+  stableId: Uint32Array;
+  area: Float32Array;
+  height: Float32Array;
+  cx: Float32Array;
+  cz: Float32Array;
+  arch: Uint8Array;
+}
+
+export interface FarRaster {
+  W: number;
+  H: number;
+  /** a, b, c, d, e, f */
+  affine: [number, number, number, number, number, number];
+  bodyId: number;
+  cellM: number;
+  cls: Uint8Array;
+  tone: Uint8Array;
+  height: Uint8Array;
+  paint: Uint8Array;
+  wall: Uint8Array;
+  wallTone: Uint8Array;
+  towers: FarTowers | null;
+}
+
+export function parseFarRaster(buf: ArrayBuffer): FarRaster | null {
+  if (buf.byteLength < 40) return null;
+  const dv = new DataView(buf);
+  if (String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3)) !== 'SBR1') return null;
+  const W = dv.getUint32(4, true), H = dv.getUint32(8, true);
+  if (buf.byteLength < 40 + 6 * W * H) return null;
+  const f = (k: number) => dv.getFloat32(12 + k * 4, true);
+  const plane = (k: number) => new Uint8Array(buf, 40 + k * W * H, W * H);
+  // (a copy of each: the table sits on no alignment)
+  let towers: FarTowers | null = null;
+  const t0 = 40 + 6 * W * H;
+  if (buf.byteLength >= t0 + 4) {
+    const n = dv.getUint32(t0, true);
+    const u = (k: number) => buf.slice(t0 + 4 + k * n * 4, t0 + 4 + (k + 1) * n * 4);
+    towers = { n, stableId: new Uint32Array(u(0)), area: new Float32Array(u(1)), height: new Float32Array(u(2)), cx: new Float32Array(u(3)), cz: new Float32Array(u(4)), arch: new Uint8Array(buf.slice(t0 + 4 + 5 * n * 4, t0 + 4 + 5 * n * 4 + n)) };
+  }
+  return {
+    W, H, affine: [f(0), f(1), f(2), f(3), f(4), f(5)], bodyId: dv.getUint16(36, true), cellM: dv.getUint16(38, true),
+    cls: plane(0), tone: plane(1), height: plane(2), paint: plane(3), wall: plane(4), wallTone: plane(5), towers,
+  };
+}
+
 export function parseFar(buf: ArrayBuffer): FarData {
   const dv = new DataView(buf);
   const n = dv.getUint32(4, true);

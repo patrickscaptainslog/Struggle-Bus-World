@@ -27,8 +27,9 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
 `src/render/materials.ts`:
 
 - `makeRampMaterial(opts)` — standard toon material (supports `InstancedMesh`,
-  per-vertex ramps via `setVertexRamp()` / `vertexRamp: true`, `glow`, custom
-  `vertexChunk` for animation, `noOutline`, `fogMul`).
+  per-vertex ramps via `setVertexRamp()` / `vertexRamp: true`, `rampAbove` for a
+  height contour chosen per pixel across cells too big for a vertex to choose,
+  `glow`, custom `vertexChunk` for animation, `noOutline`, `fogMul`).
 - Custom shaders: `glslVersion: THREE.GLSL3`, include `GLSL_COMMON` in both
   stages and `GLSL_OUT` in the fragment stage, spread `globals` into
   `uniforms`, and finish with
@@ -48,7 +49,9 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
     the fog ceiling is off with it. Never hand-roll fog, and don't multiply it below ~0.7 for far objects (the
     handover band sits at 0.62-0.68).
   - `glow` 0..1 → emissive; glowing pixels bloom a dithered halo.
-  - `flags`: 1.0 normal (gets outlines), 0.5 = no outline (particles, cards).
+  - `flags`: 1.0 normal (gets outlines), 0.5 = no outline (particles, cards). Never 0: the clear is 0, and that byte is
+    the resolve's sky test (what nothing wrote is sky, at any distance). `uSkyCut` keeps the old depth test's 25 km as well, so
+    frames don't change, until the far fade's `pipeline.setFar()` takes it away. From there the resolve's sliver burial reads the same flag: a neighbor with no fog is a surface if something wrote it, so hill rows over an unfogged tower's top stand (`stands()`). With the old cut in place it tells the sky by fog 0, as it always did.
   - Outlines: a silhouette pixel is two steps darker, except a one-pixel
     feature with background on both sides (a cable, a pole), which keeps its
     own color. `Ramp.BUS_YELLOW` / `Ramp.BUS_BLACK` belong to the bus alone:
@@ -195,7 +198,8 @@ compile in flight: at boot every program compiles, in parallel
 still gets compile slots; the longest first in half the lanes, the shortest in
 the others), then draws once into the target it really draws into (G-buffer,
 sun map, glow / resolve targets; never the canvas). The first frame waits for
-it and for far.bin (the page shows its fog-grey background meanwhile); the
+it, for far.bin and horizon.bin, and for far16.bin's short grace ("The far raster";
+the page shows its fog-grey background meanwhile); the
 opening starts with that first frame. Every synchronous GL query the warm-up
 makes (link status, uniform tables) waits behind a fence round trip, so the
 main thread never blocks on the GPU process.
@@ -230,7 +234,7 @@ one-triangle proxy with that program key and layout. Build the source with the
 helper the real code uses (`buildingMesh()`, `groundMesh()`, `farGridMesh()`,
 `makeSkylineMaterial()` in City.ts; `TreeField`; the sprouts' `Batch`;
 `LandmarkKit`; the bridges' `Kit`) so it can't go stale silently. Today:
-`city` (a building tile, a tile's ground, far terrain, horizon, skyline),
+`city` (a building tile, a tile's ground, far terrain, horizon, skyline, and with the far field on the raster's far ground, boxes and tower skyline),
 `trees` (both levels of detail and the casters), `roof sprouts` (every
 element type and its caster), `landmarks` (plain and with accents), `bridges`.
 - A source registered after the warm-up finished still warms (in the
@@ -248,7 +252,8 @@ element type and its caster), `landmarks` (plain and with accents), `bridges`.
 
 Boot order (main.ts): index.html's inline script starts city.json, far.bin
 and horizon.bin before the game's script loads (`bootFetch` hands them over), each
-with the data's version in its URL (`__sbDataV`, see "Re-baking a city").
+with the data's version in its URL (`__sbDataV`, see "Re-baking a city"). far16.bin
+it leaves for `City.loadFar` to start, once those two are in ("The far raster").
 `boot()` starts with `pipeline.checkTargets()`: GL only logs a target the device
 refuses, and the game would run on under a black frame, so the G-buffer and the sun
 map are asked for their status first, while the GPU process has nothing to do (the
@@ -527,6 +532,36 @@ in it or not; gameplay reads the baked heights; SF's bridge stand-ins' ground go
   `node tools/check-stable-ids.mjs <old city dir> <new city dir>` checks a
   re-bake of either kind (it refuses to compare an OSM bake with an old one).
 
+## The far raster (`docs/specs/far-field/SPIKE.md`)
+One image of a whole city, `far16.bin`, baked from the tiles already in `public/city/<slug>/` by `tools/bake/farmap.py` (no city names, no
+new sources; run it after a re-bake): class, tone, height, paint (empty), wall share, wall lo per 16 m cell, in an affine frame with a body
+id. Reader: `parseFarRaster` in `tiles.ts`. There is no light in it, nothing keyed to a time of day: the sun is live. Tone is brightness, a
+pre-light `lo` on one ramp, so filtering keeps it and a far pixel flipping between a roof and a street changes hue, not brightness; class
+picks the ramp (mode mips: a mip is still a class, never a blend).
+- **On, for any city whose `far16.bin` arrives.** Nothing here knows a city's name; SF is the only one released. The producer passed all of it together on the phone: the oblique raster, the boxes and the fade. The flags below name those parts. `config.far.on` (one line, not a tunable: no saved value can turn it) and `?nofar` turn all of it off: the file isn't asked for, the far plane stays at 30 km, and frames are the old path's but for the always-on ramp and horizon fixes (`flat` `vRamp`, the far mesh's water vertices on the land ramp, `rampAbove`). A tool that spells any of `?farmap`, `?farblocks`, `?farfade` gets exactly those. A city with no file draws what `?nofar` draws, with the raster's three programs warmed for nothing (they have to be, see below).
+- **The first frame doesn't wait for it.** `__sbBoot.far16` is the one boot download handed out unstarted: `City.loadFar` starts it when far.bin and horizon.bin are in, because a low priority doesn't keep it off their bandwidth or the script's, not on HTTP/1.1 and not in every browser (started with them at 150 KB/s, the first frame came 5.8 s later). It gets `config.far.graceMs`, and as long as the warm-up holds the first frame anyway. In by then, it is part of the first frame. If not, that frame goes with the plain far ground, the 20 km fade and the 30 km far plane, and the raster goes in where it lands. `City.landFar` is one path for both, a step a tick: the boxes off to their worker, the textures one upload at a time, `farTowerLooks`, then `buildFar`, with what it replaces disposed that same frame, and `onFarRaster` moves the fade, the far plane and the water plane (`fitWater`). `registerWarm('city')` holds the raster's programs, so nothing compiles in flight. `__shotReady` waits for a late raster (`city.farLate`); `city.busy`, `city.eager` and the game don't. `farFade()` runs after the saved tuning, whenever it runs, so a saved `fog.clearFarFull` can't take it back.
+- `?farmap`: the far mesh draws the raster (`farMaterial.ts`, `City.buildFar`), stands on true ground, sinks 40 m under loaded tiles (the
+  mask's 255; `FAR_STAND_INS`' tiles hold 200, which hides their boxes and sinks nothing), and water beside land rises to the plane so the
+  raster draws the shore. Its `lightOffset` attribute carries the walls' lo, per 64 m vertex.
+- `?farmap=oblique`: and the walls a grazing camera sees, lit live, facing it, so the far city turns with the sun.
+- `?farfade`: fade to 34 km (`config.fog.clearFarFull`), far plane 36 km, the sky by the clear flag alone, and a water plane sized to end inside the fade's full fog from anywhere in the frame (60 km without the flag).
+- `?farblocks`: the height plane as boxes. `farBlocks.ts` merges equal runs of roof cells row by row, in `farWorker.ts`, one job at boot: tops in 4 m steps over sea
+  level, so a box never lies on a hillside; only a ROOF cell makes one (a footprint over half of it; less than that a building is tone); no box crosses a 256 m
+  tile, so `uMask` hides exactly what a tile replaces, and a chunk is a region, one draw, none at all once every tile it has boxes in is loaded. `City.farBlocksFrame`
+  lands eight a frame (`busy` holds until they're in). A box is six triangles, its roof and the two walls that face the camera, mirrored per instance
+  (`side: DoubleSide`). 16 bytes an instance, on an `InstancedBufferGeometry`, not an `InstancedMesh`, whose matrix would be 64. Past `far.blockSink` a box sinks,
+  gone by `far.blockEnd`. No light in the data: each face is lit in the vertex stage by `sbLight`'s formula (a box stands past the shadow window, so no shadow sample) and
+  written with `sbWrite`; the fragment stage only packs. Each wall has a lit bit and a wake byte, hashed from where it stands and the chunk's seed: `far.blockLit`
+  is night's share, 0 until there is a night. Warm-up: `registerWarm('city')`, under the flag.
+- `?farblocks` also puts far.bin's tall boxes on their towers' facade families: `far16.bin`'s tail holds `styleFor`'s inputs per box (stable id, arch, area, height, centre),
+  `farTowerLooks` runs the mesher's own rule on them, `makeFarTowerMaterial` draws the family's ramp with its windows in the mean, glass mirroring the sky.
+- `config.far.fit` scales the far band's fit to the tiles that replace it (`CLASS_FIT`, `FIT_ROOF`, `FIT_WALL`, `FIT_STREET`, `FAM_LO`), a pre-light lo per class, from `tools/far/calib.py` on
+  hold-still swaps. The means alone flatten the band, so the boxes' and the streets' are set by contrast as well (`tools/far/swapstat.py`'s `swapped`, luma std over the rows that swapped): `FIT_STREET`
+  takes the roofs' brightness out of the filtered tone between the boxes, parks left alone, and goes with them between `far.blockSink` and `far.blockEnd`. `?fardebug`: the far ground and the boxes write their class as a ramp, for that tool.
+- `?loadr=<m>`: `config.city.loadRadiusHigh`, the streaming radius up high (1900).
+- `?farnearest` (class with no mips), `?farbias=<n>` (the class map's mip bias), `?farchunk=<tiles>`, `?fartop=<m>`: tests. `config.far`: `toneK`, `wallK`, `classBias`, `fit`, `blockSink`, `blockEnd`, `blockLit`, `blockGlow`.
+With `?nofar` none of it loads and no program is added. tools: `shots.mjs --q= --seq --pan --descent --set= --drop=` and its `hold-<pose>` views (the hold-still swap at four suns), `altitude.mjs --q= --ceiling --log-far`, `fps.mjs --q=`, `framecost.mjs --set=`, `warmcheck.mjs --late=`, `loadprofile.mjs --latency=`, `tools/far/` (`swapstat`, `calib`, `panflip`, `bandflip`, `land`, `seatop`, `rowflip`, `metrics`, `pal`, `absent`, `numbers`, `mergetime`, `sheet`, `ab`).
+
 ## Bridges (`src/world/Bridges.ts`, SF's two hand-built kits)
 The Golden Gate and the Bay Bridge's west span are kits placed on map data: `docs/specs/bridges/BRIDGES.md` is the plan, and its
 step 5 replaces both with decks from data in every city. A hero may set its style, never its position.
@@ -547,9 +582,9 @@ step 5 replaces both with decks from data in every city. A hero may set its styl
   data: a contact sheet of every end, tower and mid-span, and real flights square at the deck, level under it, and along under it
   into each tower and anchorage. It fails if the bus ever enters the deck's box, is lifted, comes up through the deck or jumps. It
   doesn't count frames inside a block.
-- **The far field.** `far16.bin` on `spike/farfield` is baked from the tiles, not from these rows. A row's change needs no rebuild,
-  and decks are not in it, but it never sees `HIDDEN`, so a stand-in the near city hides stands in it unless its tile is in
-  `FAR_STAND_INS`. Rebuild it after `BRIDGES.md`'s step 5 re-bake, which removes them at the source.
+- **The far field.** `far16.bin` is baked from the tiles, not from these rows. A row's change needs no rebuild,
+  and decks are not in it, but it never sees `HIDDEN`, so a stand-in the near city hides stands in it. `FAR_STAND_INS`' tiles hide its
+  boxes, and `clearStandInCells` gives its cells the ground around them as the raster lands (SF only). Rebuild it after `BRIDGES.md`'s step 5 re-bake, which removes them at the source.
 
 ## Re-baking a city
 - **Bump `window.__sbDataV` in index.html with every re-bake** (`osm1` -> `osm2`). It goes on every URL under `/city/`
