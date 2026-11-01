@@ -249,7 +249,9 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
        */
       // (sparser as the pixels grow: up high the view drifts by sub-pixels with the bus's bob, and every
       // one-pixel line that hops a row counts as crawl; none beyond 3 m per game pixel)
-      float gMpp = 0.3;
+      float gMpp = 0.3;${held(`
+      // (the share of lit lines here: none on paint, whose branch below would turn the line into step 0 of its trim row)
+      float gLit = 0.0;`)}
       float rhythm(float x, float period, float scale, float dx, float minPx) {
         float mp = minPx * (1.0 + max(gMpp - 0.9, 0.0)) * (1.0 + uHigh);
         float per = period;
@@ -369,8 +371,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         // ---- the shaft${held(`
         // (held, past the pane gate: a tower's lit floors are lines at least 4 px apart, runs of a floor, never single pixels; further out cell says it is shaft: one tone per face)
         cell = vec2(-2.0);
-        if (!nearV && mpp <= uHouseFlat && uLit > 0.0 && rhythm(vb - 0.5 * fh, fh, fvE / mpp, dF.y, 4.0) > 0.5
-            && h21(vec2(floor(u / 9.0), floor((vb - 0.5 * fh) / fh + 0.5)) + vec2(bIdx * 0.37, 3.3)) < uLit) {
+        if (!nearV && mpp <= uHouseFlat && gLit > 0.0 && rhythm(vb - 0.5 * fh, fh, fvE / mpp, dF.y, 4.0) > 0.5
+            && h21(vec2(floor(u / 9.0), floor((vb - 0.5 * fh) / fh + 0.5)) + vec2(bIdx * 0.37, 3.3)) < gLit) {
           ramp = ${R(Ramp.LIT)}; b = 2.0; d = 5.0;
           return;
         }`)}
@@ -717,7 +719,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           bool pent = (fl & 4) != 0;
           float dTop = frontW - vYRest; // (families: aBld2.y is this part's top)
           float fr, fd, fbase, fglow;
-          vec2 fcell;
+          vec2 fcell;${held(`
+          gLit = painted ? 0.0 : uLit;`)}
           towerFacade(fam, variant, crownT, crownP, pent, f, dTop, bH, fu, fv, mppB, dF, bIdx, fr, fd, fbase, fglow, fcell);${held(`
           if (!painted) {
             // a pane, or an office of three (one by one a glass wall is static); a face, past the lines
