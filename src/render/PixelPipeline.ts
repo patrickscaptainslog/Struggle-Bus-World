@@ -905,11 +905,12 @@ vec2 seaShade(vec3 dir, float sl) {
 
 // Whether the neighbor at q stands out of the fog (at the floor): a nearer surface, the handover, or a
 // silhouette rounding darker than the buried step. Not the clear sky: fog 0 can't say that, an unfogged tower
-// has it too, so it is the sky by its clear flag, what nothing wrote (one fetch: fog and flags share a texel).
+// has it too, so past the 20 km fade it is the sky by its clear flag, what nothing wrote (one fetch: fog and
+// flags share a texel). With the old cut in place (uSkyCut under 1) frames stay as they were.
 bool stands(ivec2 q, float sl, float bur) {
   uvec4 t = texelFetch(tG, q, 0);
-  if ((t.a >> 8u) == 0u) return false;
   float f = float(t.g & 255u) / 255.0;
+  if (uSkyCut > 1.0 ? (t.a >> 8u) == 0u : f < 0.002) return false;
   if (f < 0.76) return true;
   return rampStep(sl - (1.0 - f) * 0.55 - 0.03 - 0.1 * uCalm * smoothstep(0.75, 0.95, f), 0.5) < bur;
 }
