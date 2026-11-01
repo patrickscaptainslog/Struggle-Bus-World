@@ -21,33 +21,11 @@ load = lambda n, p: SourceFileLoader(n, p).load_module()
 sw = load('swapstat', os.path.join(HERE, 'swapstat.py'))
 me = load('metrics', os.path.join(HERE, 'metrics.py'))
 sh = load('shimmer', os.path.join(ROOT, 'tools', 'shimmer.py'))
+# (bandflip's figure per band: `city` is the gate's, on the city's own pixels)
+flips = load('bandflip', os.path.join(HERE, 'bandflip.py')).flips
 
 base = sys.argv[1]
 POSES = ['sunset', 'presidio', 'downtown']
-BANDS = [(195, 265), (265, 375), (375, 648)]
-
-
-def key(a):
-    return (a[..., 0] << 16) | (a[..., 1] << 8) | a[..., 2]
-
-
-def flips(pre, n=5, mx=3, my=3, step=None):
-    """Mean share of game px per band that change after the band's best whole-pixel shift."""
-    fr = [key(sh.game_px(f'{pre}-{i}.png', 3)) for i in range(n + 1)]
-    h, w = fr[0].shape
-    out = {}
-    for y0, y1 in BANDS:
-        vals = []
-        for i in range(n):
-            a = fr[i][y0:min(y1, h - my), mx:w - mx]
-            best = 1.0
-            for sy in range(-my, my + 1):
-                for sx in range(-mx, mx + 1):
-                    b = fr[i + 1][y0 + sy:min(y1, h - my) + sy, mx + sx:w - mx + sx]
-                    best = min(best, float((a != b).mean()))
-            vals.append(best * 100)
-        out[f'{y0}-{y1}'] = round(float(np.mean(vals)), 2)
-    return out
 
 
 def seqstat(pre, n=5):

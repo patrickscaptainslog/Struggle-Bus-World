@@ -5,11 +5,17 @@
 # number), and the largest connected changed area. strategy-art.md's "largest pop": the biggest connected area whose local mean value moves by
 # half a step or more; its value jump, the mean change of OKLab lightness over the changed pixels. Far pixels: the rows given, sky left out
 # (what is the same pale colour in both frames).
+# `swapped`: the contrast across the swap, over the land of the rows that swapped: luma std before and after. Every number above can look fine while the band is flatter
+# than the city that replaces it, and the grid snaps dark as the tiles land: the 5 x 3 box averages contrast away, and rows that didn't swap dilute the rest.
+import os
 import sys
+from importlib.machinery import SourceFileLoader
 
 import numpy as np
 from PIL import Image
 from scipy import ndimage
+
+land = SourceFileLoader('land', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'land.py')).load_module()
 
 STEP = 24.0
 
@@ -43,6 +49,29 @@ def largest_pop(a, b):
     return int(np.bincount(lab.ravel())[1:].max()) if n else 0
 
 
+def swapped(a, b):
+    """The land of the rows that swapped (rows 195-520 with over 8 % of their pixels changed): how much moved, luma mean and std before and after."""
+    changed = (a != b).any(axis=2)
+    ys = np.nonzero(changed[195:520].mean(axis=1) > 0.08)[0] + 195
+    if not len(ys):
+        return None
+    y0, y1 = int(ys.min()), int(ys.max())
+    m = np.zeros_like(changed)
+    m[y0:y1 + 1] = True
+    m &= ~land.water(a)
+    d = np.abs(boxed(luma(a)) - boxed(luma(b)))
+    la, lb = luma(a)[m], luma(b)[m]
+    return {
+        'rows': [y0, y1],
+        'land_px': int(m.sum()),
+        'changed_pct': round(float(changed[m].mean() * 100), 1),
+        'half_step_pct': round(float((d[m] >= STEP / 2).mean() * 100), 1),
+        'over_one_step_pct': round(float((d[m] > STEP).mean() * 100), 1),
+        'mean': [round(float(la.mean()), 1), round(float(lb.mean()), 1)],
+        'std': [round(float(la.std()), 1), round(float(lb.std()), 1)],
+    }
+
+
 def stats(a, b, y0, y1):
     A, B = boxed(luma(a)), boxed(luma(b))
     d = np.abs(A - B)[y0:y1]
@@ -61,6 +90,7 @@ def stats(a, b, y0, y1):
         'mean_luma_shift': round(float((B - A)[y0:y1][far].mean()), 2),
         'largest_pop_px': int(sizes.max()),
         'value_jump': round(float(jump[moved].mean()) if moved.any() else 0.0, 4),
+        'swapped': swapped(a, b),
     }
 
 
@@ -70,7 +100,11 @@ if __name__ == '__main__':
     y0, y1 = (int(v) for v in opt.get('rows', '195-375').split('-'))
     a, b = game(args[0]), game(args[1])
     s = stats(a, b, y0, y1)
+    c = s.pop('swapped')
     print(f"{args[1].replace(chr(92), '/').split('/')[-1]}: {s}")
+    if c:
+        print(f"  land of the rows that swapped, {c['rows'][0]}-{c['rows'][1]}: luma std {c['std'][0]} -> {c['std'][1]}, mean {c['mean'][0]} -> {c['mean'][1]}; "
+              f"{c['changed_pct']} % changed, {c['half_step_pct']} % by half a step or more, {c['over_one_step_pct']} % by over one, of {c['land_px']} px")
     if 'map' in opt:
         A, B = boxed(luma(a)), boxed(luma(b))
         m = np.abs(A - B)

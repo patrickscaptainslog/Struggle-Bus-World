@@ -9,7 +9,8 @@
 // clock held while streaming and paint settle, the same frames from any build
 // (also fidi, soma, high: a climb to ~250 m, ceiling: ~500 m, swap: painted towers
 // through a climb to coarse and a dive back to detail; asked for by name, the far-field poses at the ceiling:
-// sunset, presidio, downtown, marin, sunward, into the sun, westward, into it over the city; london, amsterdam).
+// sunset, presidio, downtown, marin, sunward, into the sun, westward, into it over the city; headn, southn, north, the horizon's shores past the frame; corner, corner2, the sea's
+// horizon at the frame's west edge; london, amsterdam).
 // --q: appended to every view's query (the flags under test).
 // --seq (with --det): five more frames after each view's shot, one fixed step apart (<name>-seq-0.png is the shot itself, then 1..5): a
 // burst from the same camera on any build, so tools/far/bandflip.py's crawl can be compared between two builds.
@@ -267,6 +268,11 @@ if (det) {
   await detShot('marin', '?lat=37.8020&lon=-122.4650&heading=330&skipintro&nohud', ceilingAt);
   await detShot('sunward', '?lat=37.7600&lon=-122.5000&heading=292&skipintro&nohud', ceilingAt);
   await detShot('westward', '?lat=37.7880&lon=-122.3990&heading=280&skipintro&nohud', ceilingAt);
+  await detShot('headn', '?lat=37.8300&lon=-122.4780&heading=0&skipintro&nohud', ceilingAt);
+  await detShot('southn', '?lat=37.7250&lon=-122.4300&heading=180&skipintro&nohud', ceilingAt);
+  await detShot('north', '?lat=37.8440&lon=-122.4950&heading=15&skipintro&nohud', ceilingAt);
+  await detShot('corner', '?lat=37.7600&lon=-122.5000&heading=322&skipintro&nohud', ceilingAt);
+  await detShot('corner2', '?lat=37.7300&lon=-122.5100&heading=235&skipintro&nohud', ceilingAt);
   await detShot('london', '?city=london&lat=51.5073&lon=-0.1657&heading=90&skipintro&nohud', ceilingAt);
   await detShot('amsterdam', '?city=amsterdam&lat=52.3738&lon=4.8775&heading=75&skipintro&nohud', ceilingAt);
   const SUNS = [['day', {}], ['high', { 'light.sunElevation': 1.309 }], ['low', { 'light.sunElevation': 0.0873 }], ['night', { 'light.sunStrength': 0.04, 'far.blockLit': 0.3 }]];
