@@ -836,13 +836,12 @@ camera, HUD, input), `tools/controls.mjs` (browser) and
 `tools/controls-sim/` (offline: s_tilt, s_tune, s_perm, s_gesture, s_turbo, s_hybrid, s_layout).
 
 ## Height (`src/game/Ascent.ts`, `docs/specs/flight/ASCENT.md`)
-Everything height changes is a function of the height over the nearest surface, in one file with no state, no latitude and no city. Below
-`config.ascent.scaleHeight` each is exactly 1 or the old constant. `heightRate` multiplies the yoke's climb, dive and hold rates in `Flight.step`; `heightSpeed` the
-thumb's speeds there and the surge and G1 in `TurboDrive` (G2 and G3 are set for their height). `mapReach` moves the homing (main.ts) and `TurboDrive.edgeRoom`; `floorPastMap`
-feeds `Flight.turbo.floor` past the map, where nothing has collision. `nearPlane` and `fadeEnd` set the depth range once a frame through `PixelPipeline.setDepthRange`, and `uFog.z`,
-with `City.landRoom` holding the fade inside horizon.bin's frame up high. `pitchAdd` tilts the vista lens, through `CameraRig.lensHeight`, which only the yoke moves. The soft ceiling
-is `config.flight.ceiling`, a number: `?ceiling=520` puts the old one back (`shots --det` does, so its climbs stay comparable across builds; any other tool that means "the ceiling"
-should too). New height behaviour goes in `Ascent.ts`, never as an altitude test in a caller.
+What height changes is a function of the height over the nearest surface, in one file with no state, no latitude and no city. The climb and the speeds are not in it: they are the
+same at any height, and going faster is the turbo gears' job. `mapReach` moves the homing (main.ts) and `TurboDrive.edgeRoom`; `floorPastMap` feeds `Flight.turbo.floor` past the map,
+where nothing has collision. `nearPlane` and `fadeEnd` set the depth range once a frame through `PixelPipeline.setDepthRange`, and `uFog.z`, with `City.landRoom` holding the fade inside
+horizon.bin's frame up high. `pitchAdd` tilts the vista lens, through `CameraRig.lensHeight`, which only the yoke moves. The soft ceiling is `config.flight.ceiling`, a number: `?ceiling=520`
+puts the old one back (`shots --det` does, so its climbs stay comparable across builds; any other tool that means "the ceiling" should too). New height behaviour goes in `Ascent.ts`, never
+as an altitude test in a caller.
 
 ## The blast (dragon breath)
 `Splatter.barf(x, z, opts?: BarfOpts): number` launches a projectile

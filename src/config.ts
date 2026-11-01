@@ -228,7 +228,7 @@ export const config = {
     bobHz: 0.3,
     /** Soft ceiling (m above sea level: over the airliners, where the air gives out) and the band below it where the climb fades and the bus struggles (m). */
     ceiling: 15000,
-    ceilingSoft: 2250,
+    ceilingSoft: 150,
     /** How fast speed chases its target (Hz). */
     speedHz: 1.4,
     /** Max yaw rate at full sideways stretch (rad/s) at cruise speed. */
@@ -369,10 +369,9 @@ export const config = {
 
   /** What height changes (src/game/Ascent.ts; docs/specs/flight/ASCENT.md for how it runs on to the Moon). */
   ascent: {
-    /** Up to this height above the ground (m) the bus flies as it always has. Past it the yoke's rates grow in proportion to the height, so the
-     *  city shrinks at one steady pace, and every speed with the square root of that, so a held thumb can match an airliner at any height. */
-    scaleHeight: 520,
-    /** Past the map's edge the bus may go this many metres out per metre of height, up to reachMax (m) past the edge, where the homing takes over. */
+    /** From this height above the ground (m) the map's edge gives way: the bus may go this many metres further out per metre of height, up to reachMax (m)
+     *  past the edge, where the homing takes over. */
+    reachFrom: 520,
     reachPerHeight: 4,
     reachMax: 8000,
     /** Past the map's edge by more than this (m) the same slope is a floor: nothing out there has collision, so the bus comes back down over the map. */

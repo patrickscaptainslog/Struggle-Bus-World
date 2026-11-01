@@ -1,8 +1,7 @@
 import { config } from '../config';
-import { heightRate, heightSpeed } from './Ascent';
 import { clamp, spring } from './springs';
 
-const ss =(a: number, b: number, x: number) => {
+const ss = (a: number, b: number, x: number) => {
   const t = clamp((x - a) / (b - a), 0, 1);
   return t * t * (3 - 2 * t);
 };
@@ -183,8 +182,6 @@ export class Flight {
     if (inp.dragging) this.glideSpeed = 0;
     // climbing trades speed for height; nose down gains it (and surges at the floor, as ever)
     let targetSpeed = push > 0 ? cruise + (F.surgeSpeed - F.cruiseSpeed) * Math.pow(push, 1.3) : cruise + (F.climbSpeed - cruise) * pull;
-    const rateK = heightRate(this.height);
-    targetSpeed *= heightSpeed(this.height);
     targetSpeed *= 1 - 0.12 * heavy;
     targetSpeed *= 1 + (S.reliefBoost - 1) * reliefK * reliefK;
     const Tb = this.turbo;
@@ -267,7 +264,7 @@ export class Flight {
       this.mode = Yoke.Climb;
       const room = clamp((ceil - this.y) / Math.max(1, F.ceilingSoft), 0, 1);
       strain = pull * (1 - room) * (1 - room);
-      let rate = (F.climbRateMin + (F.climbRate - F.climbRateMin) * Math.pow(pull, F.climbCurve)) * Math.pow(room, 0.65) * Tb.climb * rateK;
+      let rate = (F.climbRateMin + (F.climbRate - F.climbRateMin) * Math.pow(pull, F.climbCurve)) * Math.pow(room, 0.65) * Tb.climb;
       // the old engine sputters as the air thins: lurch, stall, lurch
       rate *= 1 - 0.55 * strain * (0.5 + 0.5 * Math.sin(this.t * Math.PI * 2 * 1.4));
       if (this.y > ceil) rate = -(this.y - ceil) * 0.8;
@@ -279,7 +276,7 @@ export class Flight {
     } else if (push > 0 && this.holdY > -1e8 && this.y > floor + 0.5) {
       // ---- dive: nose down toward the floor, fast, flaring out so it never digs into the roofs
       this.mode = Yoke.Dive;
-      let rate = -F.diveRate * Math.pow(push, 1.2) * Tb.climb * rateK;
+      let rate = -F.diveRate * Math.pow(push, 1.2) * Tb.climb;
       rate = Math.max(rate, -Math.sqrt(2 * F.diveFlare * Math.max(0, this.y - floor)));
       this.vyYoke += (rate - this.vyYoke) * kYoke;
       this.vy = Math.max(this.vyYoke, -Math.sqrt(2 * F.diveFlare * Math.max(0, this.y - floor)) - 1);
@@ -300,7 +297,7 @@ export class Flight {
         const bob = F.bobAmp * clamp((hold - floor) / 20, 0, 1) * (Math.sin(this.t * Math.PI * 2 * F.bobHz) + 0.3 * Math.sin(this.t * Math.PI * 2 * F.bobHz * 2.7 + 1.3));
         const tgt = Math.min(hold, Math.max(ceil, floor)) + bob;
         const g = F.holdGain;
-        const want = clamp((tgt - this.y) * g, -F.maxSink * rateK, F.climbRate * rateK);
+        const want = clamp((tgt - this.y) * g, -F.maxSink, F.climbRate);
         this.vy += (want - this.vy) * (1 - Math.exp(-4 * g * dt));
         if (floor > this.y) this.vy = Math.max(this.vy, vyFloor(this.vy));
         this.targetY = tgt;

@@ -1,22 +1,11 @@
-// What height changes, as functions of the height above the nearest surface (m) and nothing else: no latitude, no flat ground, no city.
-// Below config.ascent.scaleHeight every one of them is exactly 1, or the old constant. The rates are the ones that carry on to the Moon
-// (docs/specs/flight/ASCENT.md): height there is the height over the nearest body, and only the ceiling stands in the way.
+// What height changes, as functions of the height over the nearest surface (m) and nothing else: no latitude, no flat ground, no city.
+// The climb and the speeds aren't here: going faster is the turbo gears' job (docs/specs/flight/ASCENT.md).
 import { config } from '../config';
-
-/** The yoke's climb and dive rates (x): in proportion to the height, so the view pulls back at one steady pace at any height. */
-export function heightRate(h: number): number {
-  return Math.max(1, h / config.ascent.scaleHeight);
-}
-
-/** The speeds (x): the ground keeps moving under the bus, and the thumb's range covers an airliner's speed at the airliner's height. */
-export function heightSpeed(h: number): number {
-  return Math.sqrt(heightRate(h));
-}
 
 /** How far past the map's edge the bus may fly at this height before the homing turns it (m). */
 export function mapReach(h: number): number {
   const A = config.ascent;
-  return Math.min(A.reachMax, 300 + A.reachPerHeight * Math.max(0, h - A.scaleHeight));
+  return Math.min(A.reachMax, 300 + A.reachPerHeight * Math.max(0, h - A.reachFrom));
 }
 
 /** The height the bus holds this far past the map's edge (m). */
