@@ -127,6 +127,8 @@ export interface Hidden {
   maxTop: number;
   /** no prop's boxes take its cells: City just clears them (a bridge's stand-ins, a bad height) */
   clears?: boolean;
+  /** the trees in the box go too: their crowns would stand through a deck */
+  trees?: boolean;
 }
 
 /** An oriented box of a prop's collision surface (local m): the cells it covers stand `top` m ASL. */
@@ -231,6 +233,21 @@ export const HIDDEN: Hidden[] = [
   { name: 'Bay Bridge W1', cx: 2966, cz: -1768, ax: 1, az: 0, halfL: 32, halfW: 32, maxTop: 170, clears: true },
   // (hides nothing: BRIDGE_TIERS keeps its walls; the grid still held the 67 m the LiDAR read over them)
   { name: 'Fort Point', cx: -5086, cz: -3961, ax: 1, az: 0, halfL: 60, halfW: 60, maxTop: 0, clears: true },
+  // the rest of the Bay Bridge's stand-ins, tops at the real deck's height: three on its road over the land (the deck runs through
+  // them now), three on Yerba Buena's east viaduct (a real kiosk's footprint among them, its height the LiDAR's)
+  { name: 'Bay Bridge road box 1', cx: 2646, cz: -1392, ax: 1, az: 0, halfL: 22, halfW: 22, maxTop: 60, clears: true },
+  { name: 'Bay Bridge road box 2', cx: 2668, cz: -1419, ax: 1, az: 0, halfL: 24, halfW: 24, maxTop: 60, clears: true },
+  { name: 'Bay Bridge road box 3', cx: 2726.4, cz: -1495.1, ax: 0.942, az: -0.335, halfL: 12, halfW: 12, maxTop: 60, clears: true },
+  { name: 'Bay Bridge viaduct 1', cx: 4998.8, cz: -4158.8, ax: 0.6216, az: -0.7833, halfL: 114, halfW: 40, maxTop: 70, clears: true },
+  { name: 'Bay Bridge viaduct 2', cx: 5098.5, cz: -4241.5, ax: 1, az: 0, halfL: 22, halfW: 22, maxTop: 60, clears: true },
+  { name: 'Bay Bridge viaduct 3', cx: 5136, cz: -4332, ax: 1, az: 0, halfL: 28, halfW: 28, maxTop: 70, clears: true },
+  // (hide nothing, as Fort Point: BRIDGE_TIERS keeps their walls, their cells lose the deck the LiDAR read over them)
+  { name: 'Bay Bridge road box 3 cells', cx: 2726.4, cz: -1495.1, ax: 0.942, az: -0.335, halfL: 20, halfW: 14, maxTop: 0, clears: true },
+  { name: 'Rincon tiers', cx: 2692, cz: -1446, ax: 1, az: 0, halfL: 40, halfW: 40, maxTop: 0, clears: true },
+  { name: 'Pier 26 tiers', cx: 2813, cz: -1575, ax: 1, az: 0, halfL: 36, halfW: 36, maxTop: 0, clears: true },
+  { name: 'Torpedo Assembly Building tiers', cx: 5291, cz: -4422, ax: 1, az: 0, halfL: 36, halfW: 36, maxTop: 0, clears: true },
+  // (Yerba Buena's slope, under the deck's east end)
+  { name: 'Bay Bridge east end', cx: 4611, cz: -3707, ax: 0.6474, az: -0.7622, halfL: 60, halfW: 24, maxTop: 0, clears: true, trees: true },
 ];
 
 /**
@@ -240,13 +257,15 @@ export const HIDDEN: Hidden[] = [
  */
 export const FAR_STAND_INS: ReadonlyArray<readonly [number, number]> = [
   [-5152, -4343], [-5268, -5618], [-5086, -3961], [5362, -4482], [2966, -1768], [3432, -2323], [3413, -2297], [3600, -2501], [3658, -2585], [3879, -2852], [4359, -3411],
+  [4998.8, -4158.8], [5137, -4331.5],
 ];
 
 /**
  * Buildings whose upper tiers are a bridge's steel, by stable id: the LiDAR read the Golden Gate's arch and deck over Fort
- * Point (its walls are 16 m; it stood 64 m tall in dark glass in the game's first shot). They keep their ground tier.
+ * Point (its walls are 16 m; it stood 64 m tall in dark glass in the game's first shot), the Bay Bridge's deck over a Rincon
+ * block, Pier 26 and Yerba Buena's Torpedo Assembly Building. They keep their ground tier.
  */
-const BRIDGE_TIERS = new Set([459630039]);
+const BRIDGE_TIERS = new Set([459630039, 1129736284, 95053790, 1237605929]);
 
 /** Flatten the tiers BRIDGE_TIERS names, in a freshly parsed tile: no height, no mesh (the mesher skips them), the ground tier's roof for gameplay. */
 export function trimBridgeTiers(t: BuildingTile) {
@@ -263,6 +282,7 @@ export function clearStandInGround(t: TerrainTile) {
   const { cls, classN: N, heights, n, cell, originX, originZ } = t;
   const texel = ((n - 1) * cell) / N;
   for (const h of HIDDEN) {
+    if (h.trees) t.trees = t.trees.filter((q) => !inHidden(h, q.x, q.z));
     if (!h.clears) continue;
     const i0 = Math.max(0, Math.floor((h.cx - h.halfL - originX) / texel)), i1 = Math.min(N - 1, Math.floor((h.cx + h.halfL - originX) / texel));
     const j0 = Math.max(0, Math.floor((h.cz - h.halfW - originZ) / texel)), j1 = Math.min(N - 1, Math.floor((h.cz + h.halfW - originZ) / texel));
@@ -407,12 +427,11 @@ export function styleFor(
 
 /** True if a footprint centered at (x, z), `top` m tall, is drawn by a prop instead. */
 export function hiddenAt(x: number, z: number, top: number): boolean {
-  for (const h of HIDDEN) {
-    if (top > h.maxTop) continue;
-    const dx = x - h.cx, dz = z - h.cz;
-    const al = dx * h.ax + dz * h.az;
-    const ac = -dx * h.az + dz * h.ax;
-    if (Math.abs(al) <= h.halfL && Math.abs(ac) <= h.halfW) return true;
-  }
+  for (const h of HIDDEN) if (top <= h.maxTop && inHidden(h, x, z)) return true;
   return false;
+}
+
+function inHidden(h: Hidden, x: number, z: number): boolean {
+  const dx = x - h.cx, dz = z - h.cz;
+  return Math.abs(dx * h.ax + dz * h.az) <= h.halfL && Math.abs(-dx * h.az + dz * h.ax) <= h.halfW;
 }

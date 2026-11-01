@@ -534,6 +534,9 @@ in it or not; gameplay reads the baked heights; SF's bridge stand-ins' ground go
   never flew. A new header can't reach what phones already hold; only a new URL does. `node tools/redeploy.mjs <old build>
   <new build>` plays that phone: vercel.json's own headers on a local server, one browser context across the deploy, exit
   1 unless every file of the city the game asked for reached the new deploy. (Not run against a live Vercel deployment yet.)
+- A hero's row needs no re-bake: `python3 -I tools/bake/relandmark.py <slug>` rewrites only the `landmarks` and `start`
+  blocks of `city.json` from the city's config, through the bake's own `tools/bake/landmarkrows.py` (its own commit, and a
+  new `__sbDataV`).
 - `public/city/<slug>/` is generated: never hand-merge it, re-bake it (its own commit). A re-bake needs the Overture
   extract (`python3 -I tools/bake/overture.py <slug>`, ~2 min, cached under `$SB_OVERTURE_CACHE`), the city's WorldCover
   crop (`$SB_WORLDCOVER_CACHE`) and, for SF, the LiDAR cache (`$SB_LIDAR_CACHE`: the USA Structures LiDAR plan is still built

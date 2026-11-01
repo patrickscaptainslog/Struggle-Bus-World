@@ -19,7 +19,7 @@
       // and vercel.json caches them, so a phone that played the old city would run the new game on it. Bump it with every re-bake.
       (function () {
         try {
-          var v = (window.__sbDataV = 'osm1');
+          var v = (window.__sbDataV = 'osm2');
           var q = new URLSearchParams(location.search).get('city');
           var city = q === null ? 'sf' : q; // as main.ts reads it (an empty ?city= stays empty)
           var base = './city/' + city;

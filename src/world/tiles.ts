@@ -91,7 +91,8 @@ export interface CityManifest {
   buildingCount: number;
   tiles: Array<[number, number, number]>; // tx, tz, buildingCount
   neighborhoods: Array<{ name: string; x: number; z: number }>;
-  landmarks: Array<{ kind: string; x: number; y: number; z: number; height: number }>;
+  /** deck: a bridge's roadway, [x, z, top] from end to end (Bridges.ts Deck) */
+  landmarks: Array<{ kind: string; x: number; y: number; z: number; height: number; deck?: Array<[number, number, number]> }>;
   start: { x: number; z: number; heading: number };
   source: string;
   /** Data credit to show in the game (ODbL: OpenStreetMap-derived bakes). */
