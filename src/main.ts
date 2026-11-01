@@ -8,7 +8,7 @@ import { City, bootFetch, dataQuery, type BuildingRef } from './world/City';
 import { paintUniforms, setFacadeView } from './world/buildingMaterial';
 import { Ground, type CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
-import { fadeEnd, floorPastMap, mapReach, nearPlane } from './game/Ascent';
+import { fadeEnd, floorPastMap, mapReach, nearPlane, snapReach } from './game/Ascent';
 import { CameraRig } from './game/CameraRig';
 import { Splatter, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
 import { Aimer, type Shot } from './game/Aim';
@@ -1277,7 +1277,7 @@ async function boot() {
     // they stay exactly where they are
     if (vista > 0) {
       camera.getWorldDirection(camDir);
-      const tC = clamp((camY - flight.groundBroad) / Math.max(0.06, -camDir.y), 50, 5000);
+      const tC = clamp((camY - flight.groundBroad) / Math.max(0.06, -camDir.y), 50, snapReach(flight.height, 5000));
       snapPoint.copy(camera.position).addScaledVector(camDir, tC);
       pipeline.focus.lerp(snapPoint, vista);
     }
