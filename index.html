@@ -16,7 +16,8 @@
       // takes these responses over (bootFetch in src/world/City.ts), so nothing downloads twice.
       // The two .bin files ask for low priority: the game's script comes first.
       // __sbDataV is the data's version, on every URL under /city/ (dataQuery in City.ts): a re-bake keeps the file names
-      // and vercel.json caches them, so a phone that played the old city would run the new game on it. Bump it with every re-bake.
+      // and vercel.json caches them, so a phone that played the old city would run the new game on it. Bump it in the same commit as
+      // anything under public/city that follows a deploy, a re-bake or a relandmark.py run: on the old value that phone never sees it.
       (function () {
         try {
           var v = (window.__sbDataV = 'osm2');
