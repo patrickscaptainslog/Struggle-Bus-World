@@ -425,7 +425,7 @@ ok(by('the next flick down').level === 0 && by('the next flick down').gear === 0
 ok(by('undo: a flick down').gear === 0 && n('undo: a flick down', 'up') === 0 && n('undo: a flick down', 'back') === 1, 'undo');
 ok(by('undo: with turbo on').gear === 0 && by('undo: with turbo on').level === 1, 'undo leaves turbo on');
 ok(by('undo: a flick down past').gear === 0 && n('undo: a flick down past', 'down') === 1 && n('undo: a flick down past', 'back') === 0 && note('undo: a flick down past').hold === 400, 'past the window, the gear in, it is a gear down that holds the height');
-ok(note('undo: a gear still').lifting && by('undo: a gear still').gear === 0 && note('undo: a gear still').hold === -Infinity, 'a gear still lifting hands back what the bus was holding');
+ok(note('undo: a gear still').lifting && by('undo: a gear still').gear === 0 && note('undo: a gear still').hold === -Infinity, 'a gear still lifting leaves the bus\'s hold as it was');
 ok(note('LOCKED waits').early.length === 0 && n('LOCKED waits', 'locked') === 1, 'LOCKED only once the window has closed');
 {
   const v = note('the gate: a flick is answered');

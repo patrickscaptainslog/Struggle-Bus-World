@@ -754,7 +754,7 @@ by order, never by a line, except a lone stroke's side.
 **Flicks** (`src/game/Shifter.ts`, no DOM): `flick(dir, landed, lifted)`, `tick(now)` per frame on the wall clock, `armed`,
 `gated`, `onAnswer('first' | 'gated' | 'back')`. An up flick opens the window (`doubleMs`) and is answered at once; a second one
 landing inside it calls `TurboDrive.boostUp()`; the window closing shifts, or queues behind the gate. A down flick takes back
-what's waiting, else `boostOff()`, else `shift(-1)`, which takes back a gear still lifting too (`holdWas`). LOCKED can only
+what's waiting, else `boostOff()`, else `shift(-1)`, which takes back a gear still lifting too (it leaves `holdY` alone). LOCKED can only
 come out of `shift` or `boostUp`, so never before the window closes.
 
 **Turbo** (`src/game/Turbo.ts`, `TurboDrive`): `shift(dir, flight)`,
