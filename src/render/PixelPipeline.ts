@@ -1084,7 +1084,8 @@ void main() {
   else if (edgeDark > 0.25) step = max(step - 1.0, 0.0);
   else if (crease > 0.5) step = min(step + 1.0, 7.0);${held(`
   // paint never bleaches: its top two steps are for a glint, what glows hard or isn't a surface
-  if (ramp > ${Ramp.RED - 0.5} && ramp < ${Ramp.VIOLET + 0.5} && glow < 0.6 && outlineable) step = min(step, uPaintCap);`)}
+  float paintTop = ramp > ${Ramp.RED - 0.5} && ramp < ${Ramp.VIOLET + 0.5} && glow < 0.6 && outlineable ? uPaintCap : 7.0;
+  step = min(step, paintTop);`)}
   // the hero always separates: its silhouette is a plum ink line inside its own warm ramp (the bus's
   // ramps are its own), dark against every paint hue and still warm against the grey
   bool busY = abs(ramp - RAMP_BUS_YELLOW) < 0.5;
@@ -1122,7 +1123,7 @@ void main() {
   float hAmt = max(halo.r, max(halo.g, halo.b));
   if (!heroEdge && glow < 0.05 && hAmt > 0.11 && hAmt * 1.1 > d2) {
     if (hAmt > 0.42 && hAmt > d * 1.25) col = haloTint(halo / hAmt);
-    else { oStep = min(step + 2.0, 7.0); col = pal(ramp, oStep); }
+    else { oStep = min(step + 2.0, ${heldOr('paintTop', '7.0')}); col = pal(ramp, oStep); }
   }
 
   // (the fog sea's long light gradients get the sky's tight dither bands; silhouettes round, so the

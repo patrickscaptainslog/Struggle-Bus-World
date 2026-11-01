@@ -10,13 +10,13 @@ import { dayRows, HUE_RAMPS, Ramp, writePalette } from '../render/palette';
 // - BRIDGE_ORANGE: art graded it as paint, which leaves a salmon bridge under a dark sky. It is a world row: rose to plum, under paint's chroma.
 // - FOG is the haze here, not the sky: dark to light, with its step 4 the far side's horizon (SKY_LOW 7), so that the far fade ends in the sky behind it.
 // - SKY_LOW takes art's far-side low band, which art kept in FOG (SKY.md 4, Rows). The sky's four rows are art's, turned over: SKY_WARM's steps 6-7 stay warm
-//   for the beam's core and nose (SKY.md 4, Traps).
+//   for the beam's core and nose (SKY.md 4, Traps). Their chroma stops at 0.135: 0.75 of a painted frame's median, the one rule's gate (SKY.md 1).
 // - SAND: its own row, the city's blue a breath toward lilac. Rows nothing draws yet are named from their nearest kin, so S2's blend has something to start from.
 export const BLUE_TABLE: Record<number, string[]> = {
   [Ramp.GREY]: ['#0c1131', '#0f153a', '#131b45', '#192353', '#223067', '#31427f', '#475c97', '#7083b5'],
   [Ramp.GREY_LIGHT]: ['#10173d', '#151e4b', '#1d295c', '#283873', '#3d508d', '#5b6fa7', '#8696c2', '#afbbd9'],
-  [Ramp.FOG]: ['#16173f', '#262453', '#363268', '#48407d', '#5a4f93', '#7269a7', '#8c84bc', '#a79fd0'],
-  [Ramp.SKY_WARM]: ['#bb6193', '#cc648c', '#db6e82', '#e77678', '#f27c6e', '#f7876a', '#fb9166', '#ff9a62'],
+  [Ramp.FOG]: ['#16173f', '#262455', '#36326c', '#484083', '#5a4f9c', '#7269ae', '#8c84bf', '#a79fd0'],
+  [Ramp.SKY_WARM]: ['#bb6193', '#cb658c', '#da6f82', '#e57879', '#ec8073', '#f38a6e', '#f8936a', '#fc9c66'],
   [Ramp.GREEN_GREY]: ['#0b1930', '#0d1d34', '#0f2038', '#132741', '#182f4b', '#203b5a', '#2d4d70', '#4d6e90'],
   [Ramp.WINDOW]: ['#0c1032', '#0f143b', '#121847', '#151e54', '#1b2664', '#25327a', '#374796', '#5768b3'],
   [Ramp.INK]: ['#090c26', '#0a0d29', '#0b0f2c', '#0c1130', '#0e1334', '#0f1538', '#11183e', '#141c45'],
@@ -38,12 +38,12 @@ export const BLUE_TABLE: Record<number, string[]> = {
   [Ramp.STONE]: ['#0f1539', '#131a43', '#19224f', '#242f64', '#34437c', '#506198', '#7a88b5', '#aab2ce'],
   [Ramp.GRANITE]: ['#080423', '#090527', '#0a072b', '#0b0930', '#0d0b37', '#111141', '#16194f', '#222968'],
   [Ramp.BRIDGE_ORANGE]: ['#120c26', '#1e112f', '#2f193c', '#452247', '#612d52', '#7e3d5c', '#9a5469', '#b27a84'],
-  [Ramp.NIGHT_SKY]: ['#0e154a', '#121b58', '#162164', '#19256d', '#1c2975', '#1f2c7b', '#222f82', '#253387'],
+  [Ramp.NIGHT_SKY]: ['#0e154a', '#121b58', '#162164', '#19256d', '#1c2975', '#1f2c7b', '#233080', '#263484'],
   [Ramp.OPEN_SEA]: ['#0c1236', '#101741', '#141c4c', '#192258', '#212b67', '#293477', '#363f86', '#4b4a95'],
-  [Ramp.LIMB]: ['#16173f', '#262453', '#363268', '#48407d', '#5a4f93', '#7269a7', '#8c84bc', '#a79fd0'],
+  [Ramp.LIMB]: ['#16173f', '#262455', '#36326c', '#484083', '#5a4f9c', '#7269ae', '#8c84bf', '#a79fd0'],
   [Ramp.CLOUD]: ['#20285f', '#2c326f', '#393c7e', '#504a8b', '#685798', '#92699c', '#c27c9c', '#f4a48e'],
   [Ramp.DRY_LAND]: ['#15173f', '#1f214d', '#2b2c5e', '#3a3a70', '#4c4a82', '#635d94', '#8079a8', '#a39abc'],
-  [Ramp.TWILIGHT]: ['#121b58', '#1f2a72', '#313689', '#47449a', '#5a4fa4', '#7756a4', '#8b5aa4', '#a75f9b'],
+  [Ramp.TWILIGHT]: ['#121b58', '#1f2a72', '#313688', '#474499', '#5a4f9e', '#7756a4', '#8b5aa4', '#a75f9b'],
   [Ramp.LIT]: ['#3a1f4a', '#7a2f58', '#c04e5c', '#ef8450', '#ffb04e', '#ffcf72', '#ffe7a4', '#fff7dc'],
   [Ramp.LAMP]: ['#191636', '#2f2449', '#54345a', '#8b4a60', '#bd6a5e', '#e29662', '#f6c07e', '#ffe6b0'],
   [Ramp.MOON]: ['#3d4a73', '#5c698c', '#7e8aa6', '#99a1b5', '#b4b9c4', '#cececd', '#e9e4d6', '#fffbe9'],
@@ -51,7 +51,7 @@ export const BLUE_TABLE: Record<number, string[]> = {
   [Ramp.FARGLOW]: ['#20285f', '#2c326f', '#393c7e', '#504a8b', '#685798', '#92699c', '#c27c9c', '#f4a48e'],
   [Ramp.RIDGE]: ['#0f1336', '#15183f', '#1c1e48', '#232352', '#2a295c', '#312e66', '#383470', '#3f3a7a'],
   [Ramp.CLOUD_SHADE]: ['#141a4a', '#202355', '#2c2c60', '#38356b', '#453e77', '#524782', '#5f518e', '#6d5a9a'],
-  [Ramp.SKY_LOW]: ['#29368c', '#2d3a90', '#323e93', '#394295', '#404696', '#494995', '#524c94', '#5a4f93'],
+  [Ramp.SKY_LOW]: ['#2a3788', '#2e3b8c', '#333f91', '#394295', '#404696', '#494996', '#524c99', '#5a4f9c'],
   [Ramp.SAND]: ['#15173f', '#1f214d', '#2b2c5e', '#3a3a70', '#4c4a82', '#635d94', '#8079a8', '#a39abc'],
 };
 

@@ -11,7 +11,7 @@ const BAND_ALT = [0, 0.45, 0.95, 1.5, 2.15, 2.9, 3.8, 4.9, 6.2, 8, 10.5, 14, 19,
 
 export const heldResolveUniforms = {
   uSkyRows: { value: new THREE.Vector4(-1, 0, 0, 0) }, // far side low and high, sun side low and high (x under 0: the day's sky)
-  uSkySun: { value: new THREE.Vector3(1, 0, 1) }, // the sun's azimuth, a unit vector in xz; 1 / (1 - cos) of how far round the horizon the sun side reaches
+  uSkySun: { value: new THREE.Vector3(1, 0, 3) }, // the sun's azimuth, a unit vector in xz; how fast the sun side falls away with it (a power)
   uSkyHaze: heldGlobals.uSkyHaze,
   uFogLuma: { value: new THREE.Vector2(0.3955, 0.071) }, // FOG's luma: step 0, per step (the value-matched handover reads it from the live table)
   uBeamGain: { value: 2.6 }, // steps the headlight lifts at most
@@ -28,15 +28,21 @@ uniform float uPaintCap;`;
 export const GLSL_SKY_HELD = /* glsl */ `
 
 const float SKY_BAND[16] = float[16](${BAND_ALT.map((a) => a.toFixed(2)).join(', ')});
-// The far side's rows and the sun side's. Away from the sun's azimuth the sun side's bands sink toward the horizon (u: 0 under the sun, 1 at the seam): its colour there
-// is the sky higher up, which is the glow's own edge, nested arcs, with nothing laid over the sky. By the seam it has run through its rows to the far side's own colours
-// at every height (14 + 7.5 sqrt(alt): art's two gradients read against each other), so a narrow dither joins them. Near the zenith dir.xz is 0: a guard, no sun side.
+// The far side's rows and the sun side's are one sky. Art's two gradients read against each other, the far side at height a is the sun side's colour at 8.2 + 8.2 sqrt(a + .5),
+// so t, a height on the sun side's scale, slides between the two with the azimuth: under the sun it is the height, opposite it the far side's. The sky's own bands
+// bend down toward the sun, and that bend is the glow, with nothing laid over them (SKY.md 4.1). Under 14 t reads the sun side's rows; from there, back on the far side's
+// scale, the far side's, where the colours meet, so the rows hand over with no seam. (Near the zenith dir.xz is 0: a guard, the far side.)
 vec3 skyBands(vec3 dir, float dsk) {
   float alt = max(dir.y, 0.0) * 57.3;
   float l = length(dir.xz);
-  float u = l > 1e-3 ? (1.0 - dot(dir.xz, uSkySun.xy) / l) * uSkySun.z : 2.0;
-  bool sun = clamp((1.0 - u) / 0.08, 0.0, 1.0) > dsk;
-  if (sun) alt = mix(alt, 14.0 + 7.5 * sqrt(alt), u);
+  float t = 8.2 + 8.2 * sqrt(alt + 0.5);
+  if (l > 1e-3) t = mix(t, alt, pow(max(0.5 + 0.5 * dot(dir.xz, uSkySun.xy) / l, 0.0), uSkySun.z));
+  bool sun = t < 14.0;
+  if (sun) alt = t;
+  else {
+    alt = (t - 8.2) / 8.2;
+    alt = max(alt * alt - 0.5, 0.0);
+  }
   int i = 0;
   for (int k = 1; k < 16; k++) if (alt >= SKY_BAND[k]) i = k;
   float e1 = i < 15 ? SKY_BAND[i + 1] : 90.0;

@@ -174,8 +174,8 @@ export const config = {
     keyStrength: 0.2,
     /** Where the haze ends: the light the far fade takes a surface to, and, with its own small drop, the FOG step of the sky's horizon (FOG's step 4). */
     hazeLight: 0.62,
-    /** How far round the horizon the sky's sun side reaches, each way from the sun's azimuth (deg). */
-    sunSide: 105,
+    /** How fast the sky's sun side falls away round the horizon (a power of the cosine: 1 wide, 3 art's). */
+    sunFall: 3,
     /** Paint stays under this step outside a glint: the top two steps are pale tints (SKY.md 1). */
     paintCap: 5.45,
     /** The headlight at night: reach and width at its tip (m), and how many steps its light lifts at most (the day's 2.6). */
