@@ -235,7 +235,7 @@ helper the real code uses (`buildingMesh()`, `groundMesh()`, `farGridMesh()`,
 `LandmarkKit`; the bridges' `Kit`) so it can't go stale silently. Today:
 `city` (a building tile, a tile's ground, far terrain, horizon, skyline, and with the far field on the raster's far ground, boxes and tower skyline),
 `trees` (both levels of detail and the casters), `roof sprouts` (every
-element type and its caster), `landmarks` (plain and with accents), `bridges`.
+element type and its caster), `landmarks` (plain and with accents), `bridges`, and with the held hour `lamps`.
 - A source registered after the warm-up finished still warms (in the
   background, before its first draw only if there is time): register early.
 - The warm-up never disposes its materials, so the programs stay alive: a
@@ -379,7 +379,7 @@ roof shapes, trees, street names) of any number of bakes side by side.
   1 GRASS, 2 WATER, 3 SIDEWALK as before, and with OSM 4 PLAZA (pedestrian
   areas, squares, piers, hard pitches), 5 PATH (footways, cycleways, steps,
   tracks), 6 SAND, 7 RAIL, 8 FOREST, 9 YARD (block interiors: gardens,
-  unmapped land), 10 ROCK. Streets are their centerlines buffered to their
+  unmapped land), 10 ROCK (the top 4 bits are free: the held hour's lamp pools, "The held hour"; read a class with `& 15`). Streets are their centerlines buffered to their
   class width (`osm.OSM_DEFAULTS.roadWidth`), sidewalks 3.5 m beside streets
   that have them, the sea is what OSM's coastline land polygons leave out
   (where the DEM is low), blocks of mostly non-residential buildings are
@@ -564,8 +564,8 @@ With `?nofar` none of it loads and no program is added. tools: `shots.mjs --q= -
 ## The held hour (`?hour=blue`, `docs/specs/sky/SKY.md` slice S1)
 The whole game under one held blue hour: no clock, nothing moves. `src/sky/flag.ts` reads the flag once, as the modules load. **Flag off is the law:** no new fetch, no new
 program, no shader source that differs by a byte, so every line of GLSL the hour adds goes through `held()` or `heldOr()`, at the end of a line. Materials never ask at run time.
-- **`config.sky`**, a section of the tuner only with the flag. The switches are kill switches, live: `table`, `key`, `rows`, `paint`, `beam`, `glow`, `far`. All of them off under
-  `?hour=blue` draws main's frames, exactly. The numbers below them are the one hour held.
+- **`config.sky`**, a section of the tuner only with the flag. The switches are kill switches, live: `table`, `key`, `rows`, `paint`, `beam`, `glow`, `far`, `windows`, `lamps`, `pools`, `bridges`,
+  `farLights`. All of them off under `?hour=blue` draws main's frames, exactly. The numbers below them are the one hour held.
 - **A table** (`src/sky/SkyTable.ts`, `BLUE_TABLE`): one colour per (ramp, step) for the whole frame. Every ramp runs dark to light, sky rows too. FOG is the haze there, its step 4 the
   far side's horizon; the sky takes SKY_LOW. `HeldHour.update()` writes it into the palette texture when a switch moves, and runs at the end of `updateSun()` every frame.
 - **Light.** The afterglow: the sun's azimuth held at +8 degrees, `uLight` mid-range (a .34, b .20, k .20), the sun pass off, the table carrying the dark. `sunR`, the windows' glint and
@@ -576,7 +576,30 @@ program, no shader source that differs by a byte, so every line of GLSL the hour
 - **Paint** is graded in the table, and the resolve holds paint rows at or under `uPaintCap` outside a glint: what glows at 0.6 or more, or isn't a surface. A halo lifts to the cap.
 - **Beam.** `uBeamGain` is the old 2.6. Its reach and width go back to the day's with the vista: up high it lights nothing.
 - **Far field.** All of it writes through `sbWrite` and reads `uLight`, so the table reaches it for free. What the hour adds: `config.sky.farFit` (the fit was made with a sun's shadows in it),
-  `farGroundLo` (the plain far ground, with no raster), the horizon's hills on RIDGE, sand on SAND. `far.blockLit` is still 0.
+  `farGroundLo` (the plain far ground, with no raster), the horizon's hills on RIDGE, sand on SAND, and the night path below.
+- **Windows** (`buildingMaterial.ts`, `uLit`, one held share: there is no clock). One stable threshold per window, a hash, never a timer. Form by distance: a real pane near, LIT row, steps 5-6 and a little
+  glow (`uLitGlow`); on a ribbon (`mppB > uHouseRibbon`) `cell.x` is 0, so a whole floor wakes; on a tower past the pane gate a run of a floor, 9 m a run, through `rhythm()` at least 4 px apart; past
+  `uHouseFlat` no pattern at all: a face is lit or not, by a hash of the building and the way it looks (`faceLit`), one dim FARGLOW tone. A glass tower wakes three panes together, an office: one by one a
+  curtain wall is static. `glow` is 0 past the panes, so share x glow on far surfaces is 0.
+- **Lamps** (`src/sky/Lamps.ts`, `lampData.ts`, `lampLoad.ts`, `lampWorker.ts`). `lamps.bin` (`tools/bake/lamps.py`; 'SBL1' in lampData's reader) holds where they stand, a rule on the bake's road list, every
+  drivable class but `service`, named or not. `main.ts` asks for it behind far.bin, only with the flag: nothing waits for it, `__shotReady` does. A worker reads it, takes each lamp's height from far.bin's grid as
+  the far mesh stands on it, and sorts the list by tile. One `Points` for the whole city, far band included, LAMP row, depth tested, 8 bytes a lamp, its `position` four i16 in the list's units (`gl_PointSize` is
+  written first, on every path: on iOS a point's size is undefined otherwise). A lamp stands `lampHead` over the ground and `lampLift` per metre from the lens, because the far mesh's 64 m cells stand off its 32 m
+  heights. Past `lampThin` a stable hash thins them with distance. No lamp has glow: a pixel is under the halo's gate at any glow, and thousands far off would only boil it. Nothing past the bake's bounds is
+  in the file, so no far shore lights up. The hash in the shader is also what S2's wave will threshold (`lampShare`).
+- **Pools** (`Lamps.stamp`, `City.poolFrame`). The top 4 bits of each byte of `tr.cls` are a lamp's pool; classes stop at 10, so every CPU reader of `cls` masks with 15 and terrain's `cls()` does too. `City.setPools`
+  puts every loaded tile on a list when the lamps land, `addTile` puts each new one, and one tile a frame stamps: one path for a cold load and tiles already up. The bytes go up again on whichever texture draws
+  them: the tile's own (16 KB, `needsUpdate`), or its square of a coarse region's (`uploadRect`). `busy` holds until the list is done. In the terrain shader the four class fetches double as the pool's, bilinear,
+  then cut, so its edge is a clean curve and not 2 m stairs: on PAVED, SIDEWALK, PLAZA and PATH one ring a step up its own ramp (`uLamp`), and LAMP step 2 at the lamp's feet. Paint lies over it. Pools fade with
+  distance (`uLampFar`): a pool past that is a few texels on a pixel. With the flag off `pools` stays null and no byte is touched.
+- **Spans.** `bridgeLights(kind, pts, deck, spacing)` in `Bridges.ts`, from the one deck list and the kit's sizes: both sides of the roadway at deck height just past its edge, so they show from over and under, and
+  on each tower top, both legs. `Lamps.setBridges` makes them a second `Points`, there from the first frame: the opening needs them before lamps.bin lands.
+- **The far city at night** (`farMaterial.ts`). All of it one dim tone, FARGLOW step 3, what a near face shows past the ribbons, so the near and far bands meet: a far box lights a wall by its lit bit and its wake
+  byte (`sky.farBoxLit` over `far.blockLit`; the worker hashes them with the chunk's seed); the far skyline a face, by a hash of where it stands (`uFarFace`); the far ground a built cell, by class (ROOF), the wall
+  plane (mean height / cell, clipped: the raster's height doesn't go to the GPU) and a hash of the cell (`uFarLit`). That cell doubles with distance by the frame's own derivative, so it never stands under a pixel.
+  share x glow: 0.2 x 0.2 on the boxes, at most 0.2 x 0.25 on the ground, 0 on the skyline. The far band's streets are the lamps'.
+- **`tools/skycheck.mjs`**: SKY.md section 8's hard fails read off real frames, against the palette the page really holds and today's frames of the same poses. `tools/shimmer.py --flat=` counts the sky's rows as
+  one colour for it: a sky with bands holds still on the screen and pulled a band's fit off the world in front of it.
 - **`?fps`** reads from a phone: fps, the worst frame of the last 300 (~5 s at 60 fps, ~10 s at 30), the resolve's link + first draw, and the hour. The two times are `WarmReport.resolveLinkMs` and
   `resolveDrawMs`, off the real warm-up, so no program is added: from the resolve's linkProgram to the round that finds it linked (behind a fence, so to within a round, and with the
   other lanes compiling beside it), or without `KHR_parallel_shader_compile` to the end of its first synchronous query, where that link blocks; then the GPU's time over the post passes' first

@@ -48,7 +48,7 @@ machine. In the cloud SwiftShader ran ~1.5 fps; here it should be 20-60.
 Python 3.12 (`C:/Users/Utku/sb-venv` here): `pip install geopandas pyogrio pyarrow rasterio pyproj scipy shapely laspy[lazrs] matplotlib`.
 `python tools/bake/overture.py sf` (OpenStreetMap through Overture, ESA WorldCover), `python tools/bake/fetch_inputs.py sf`
 (the USGS 1 m DEM tiles, into `tools/bake/.data/`; the SF slice of USA Structures is committed in `tools/bake/data/`), then
-`python tools/bake/bake.py sf && python tools/bake/pack.py sf`. LiDAR (`tools/bake/lidar.py`) downloads itself (~1.4 GB, cached under
+`python tools/bake/bake.py sf && python tools/bake/pack.py sf`, and `python -I tools/bake/lamps.py sf` for the street lamps. LiDAR (`tools/bake/lidar.py`) downloads itself (~1.4 GB, cached under
 `tools/bake/.cache/lidar`). The caches are gitignored and live in `C:/Users/Utku/Struggle-Bus-World/tools/bake/`: a worktree
 points `SB_OVERTURE_CACHE`, `SB_WORLDCOVER_CACHE`, `SB_LIDAR_CACHE` and `SB_DATA` at them. A full SF bake thrashes this 8 GB
 laptop. Never change stable building ids casually: saved paint is keyed by them (OSM ids: ARCHITECTURE "stableIds").
@@ -74,6 +74,7 @@ including merging into `main`.** None of the branches below has been merged yet.
 | `fix/bridge-data` | built from `docs/specs/bridges/BRIDGES.md` steps 1 and 2 (desktop session, 2026-11-01), QA'd on the GPU (MAIN vs NEXT), two reviews' findings fixed, the outside judge's round answered, `osm2`; never run on a real phone | the Golden Gate and the Bay Bridge on OSM's rows, one deck list for mesh, heights and collision, `relandmark.py`, `tools/spanfly.mjs`, the opening at heading 100, flight under a deck | the phone link, the producer's look at the first shot and the turn-out under a deck, then merge; "Bridges: what's left" below |
 
 | `spike/farfield` | SPIKE days 1 and 2 with `main` 3297ab2 merged in; the look passed on the producer's phone, on by default, kill switches in (desktop session, 2026-11-01), QA'd on the GPU, reviewed with no findings, build main-jF7hrKss.js; not merged, and this build never ran on a real phone | the far raster (`far16.bin`), its boxes, the fade to 34 km, far16.bin no longer holding the first frame | the producer reads the report, merges and pushes |
+| `feat/sky` | SKY.md slice S1 on `main` 4e24e3f (desktop session, 2026-11-01), all behind `?hour=blue`: flag off is main's frames, QA'd on the GPU, not reviewed, never run on a real phone, not merged | the whole game under one held blue hour: the blue table, 64 rows, the sky's bands, graded paint, the long headlight, lit windows by distance, `lamps.bin` and the lamps, their pools, the spans' lights, the far city's night path, the `?fps` read-out, `tools/skycheck.mjs`, `tools/bake/lamps.py` | the producer reads the report, merges and pushes; then the phone: fps flag on and off, the resolve's compile time, crawl (S1's status in SKY.md section 7) |
 
 `feat/controls` and `feat/supersplat` share an INPUT CONTRACT (`onTap`,
 `onChargeStart`, `onChargeEnd(heldSeconds, cancelled)`, `state.chargeHeld`,
@@ -118,6 +119,7 @@ notes when merging.
 - Budget: iPhone A15 >= 30 fps, recent iPhones 60. Today ~120-200 draws, ~1.0-1.5M
   triangles; no per-building draw calls; one texture upload per texture per frame; no
   allocations in hot paths. Report before/after numbers for anything that renders.
+- The sky's hard fails: `node tools/skycheck.mjs <url> <main's url> <dir>` (SKY.md section 8), on every slice.
 - Frames don't change without saying so: `node tools/shots.mjs <url> <dir> --det` on two builds and
   `python -I tools/shotdiff.py <dirA> <dirB>` is frame-exact from run to run (0 pixels, MAIN vs MAIN).
 - Nothing compiles a shader in flight: a material or object kind made after boot registers a
@@ -151,6 +153,8 @@ notes when merging.
 
 ## Known issues worth knowing
 - `shots --det` isn't frame-exact on `sunset` and `downtown` any more, on main itself: two runs of main differ by 25,365 and 1,278 device px. A flag-off diff there reads as a difference; run those two views again before believing one.
+- `tools/skycheck.mjs` holds one hard fail on `feat/sky`: shimmer at FiDi, 12.75 % against today's 12.27 %. The lights' own edges: DECISIONS "The held hour, its second part". Its other poses and hard fails pass.
+- `shots --det` under `?hour=blue` is bimodal at Alamo too: one run in a few flew 0.014 m lower, a whole frame of sub-pixel. Flag on only, run it again before believing a diff.
 - A 3x `page.screenshot` costs a frame or more on any build: don't trace frame times beside one.
 - Capture tools pass `&nohud`: `tools/controls.mjs ... firstrun` and `opening` are the first-visit runs (the cues, the chip,
   TURBO armed under the deck, the sheet, sensors that never answer). `?fixeddt` makes game time run ~3x real time: a "hold"
