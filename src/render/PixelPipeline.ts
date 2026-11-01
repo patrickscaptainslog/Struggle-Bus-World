@@ -404,6 +404,15 @@ export class PixelPipeline implements WarmPipeline {
     this.resolveMat.uniforms.uSkyCut.value = this.skyCut;
   }
 
+  /** The depth range for this frame, with the height (src/game/Ascent.ts). Nothing happens until it changes. */
+  setDepthRange(near: number, far: number) {
+    const cam = this.camera;
+    if (cam.near === near && cam.far === far) return;
+    cam.near = near;
+    cam.far = far;
+    cam.updateProjectionMatrix();
+  }
+
   /** World-space size of one game pixel at a given distance from the camera. */
   pixelWorldSize(distance: number): number {
     const H = this.info.height + MARGIN * 2;

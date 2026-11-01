@@ -471,6 +471,10 @@ export class City {
   private farBlockMat: THREE.ShaderMaterial | null = null;
   private farChunkM = 0;
   private farGroup = new THREE.Group();
+  /** horizon.bin's frame [minX, minZ, maxX, maxZ] (m), once it's in */
+  private horizonRect: [number, number, number, number] | null = null;
+  /** horizon.bin's mesh as it was built (`pos` its vertices), the ground past the map; null in a city with none */
+  private horizonGrid: { w: number; h: number; x0: number; z0: number; cell: number; pos: Float32Array } | null = null;
   private water: THREE.Mesh;
   private loadedMask: THREE.DataTexture;
   /** tiles whose far skyline boxes never show (FAR_STAND_INS) */
@@ -728,12 +732,19 @@ export class City {
     }
   }
 
+  /** How far the land reaches from here, to the nearest edge of horizon.bin's frame (m): past it there is only the water plane. Infinity in a city with none. */
+  landRoom(x: number, z: number): number {
+    const r = this.horizonRect;
+    return r ? Math.max(0, Math.min(x - r[0], z - r[1], r[2] - x, r[3] - z)) : Infinity;
+  }
+
   /** The hills around the city (Marin, East Bay, San Bruno Mtn) as a coarse fogged ring. */
   private buildHorizon(buf: ArrayBuffer) {
     const dv = new DataView(buf);
     if (buf.byteLength < 24 || String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3)) !== 'SBH1') return;
     const W = dv.getUint32(4, true), H = dv.getUint32(8, true);
     const minX = dv.getFloat32(12, true), minZ = dv.getFloat32(16, true), cell = dv.getFloat32(20, true);
+    this.horizonRect = [minX, minZ, minX + (W - 1) * cell, minZ + (H - 1) * cell];
     const hq = new Int16Array(buf.slice(24, 24 + W * H * 2));
     const step = 2;
     const w = Math.floor((W - 1) / step) + 1, h = Math.floor((H - 1) / step) + 1;
@@ -770,6 +781,23 @@ export class City {
         idx.push(a, c, b, b, c, d);
       }
     this.farGroup.add(farGridMesh(pos, nrm, ramp, lo, gl, idx, 0, makeHorizonMaterial()));
+    this.horizonGrid = { w, h, x0: minX, z0: minZ, cell: step * cell, pos };
+  }
+
+  /**
+   * The surface horizon.bin's mesh draws at (x, z) (m): the cell's two triangles as buildHorizon split it, the water where it has none. -Infinity where the
+   * mesh has a hole, over the map, and in a city with none.
+   */
+  private horizonGround(x: number, z: number): number {
+    const m = this.horizonGrid, map = this.manifest.bounds;
+    if (!m || (x >= map[0] && x <= map[2] && z >= map[1] && z <= map[3])) return -Infinity;
+    const fx = (x - m.x0) / m.cell, fz = (z - m.z0) / m.cell;
+    if (fx < 0 || fz < 0 || fx >= m.w - 1 || fz >= m.h - 1) return 0;
+    const i = Math.floor(fx), j = Math.floor(fz);
+    const ax = fx - i, az = fz - j;
+    const k = (j * m.w + i) * 3 + 1, below = m.w * 3, p = m.pos;
+    const a = p[k], b = p[k + 3], c = p[k + below], d = p[k + below + 3];
+    return Math.max(0, ax + az < 1 ? a + (b - a) * ax + (c - a) * az : d + (c - d) * (1 - ax) + (b - d) * (1 - az));
   }
 
   private buildFar(raster: FarRaster | null, tex: FarTextures | null, looks: Float32Array | null) {
@@ -1689,10 +1717,15 @@ export class City {
     return this.tileNum.get(tileKeyNum(Math.floor(x / ts), Math.floor(z / ts)));
   }
 
-  /** Ground height (m). Falls back to the far grid where tiles aren't loaded. */
+  /**
+   * Ground height (m). Falls back to the far grid where tiles aren't loaded. Past the map it is horizon.bin's mesh, the surface drawn out there (a tile
+   * sticking out past the edge has only the grid's edge height, and lies under it); in a city with none, the tile or the grid's edge.
+   */
   groundAt(x: number, z: number): number {
+    const hills = this.horizonGround(x, z);
     const lt = this.tileAt(x, z);
-    if (lt?.terrainData) return this.tileGround(lt.terrainData, x, z);
+    if (lt?.terrainData) return Math.max(hills, this.tileGround(lt.terrainData, x, z));
+    if (hills >= 0) return hills;
     const f = this.far;
     if (!f) return 0;
     const fx = Math.min(f.gridW - 1.001, Math.max(0, (x - f.minX) / f.cell));
@@ -2070,7 +2103,7 @@ export class City {
       const c = this.manifest.tileSize / t.obstN;
       const ix = Math.min(t.obstN - 1, Math.max(0, Math.floor((x - t.originX) / c)));
       const iz = Math.min(t.obstN - 1, Math.max(0, Math.floor((z - t.originZ) / c)));
-      return t.obst[iz * t.obstN + ix];
+      return Math.max(t.obst[iz * t.obstN + ix], this.horizonGround(x, z) + 18);
     }
     return this.groundAt(x, z) + 18; // unknown: assume rooftops
   }

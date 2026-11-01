@@ -308,8 +308,8 @@ export const config = {
     /** Gentle wheezy bob while holding altitude (m, Hz). */
     bobAmp: 1.3,
     bobHz: 0.3,
-    /** Soft ceiling (m above sea level; Sutro Tower tops out ~555) and the band below it where the climb fades and the bus struggles (m). */
-    ceiling: 520,
+    /** Soft ceiling (m above sea level: over the airliners, where the air gives out) and the band below it where the climb fades and the bus struggles (m). */
+    ceiling: 15000,
     ceilingSoft: 150,
     /** How fast speed chases its target (Hz). */
     speedHz: 1.4,
@@ -447,6 +447,27 @@ export const config = {
     edgeFade: 300,
     /** Bus rattle while straining and at speed (m of jitter at the bus). */
     rattle: 0.32,
+  },
+
+  /** What height changes (src/game/Ascent.ts; docs/specs/flight/ASCENT.md for how it runs on to the Moon). */
+  ascent: {
+    /** From this height above the ground (m) the map's edge gives way: the bus may go this many metres further out per metre of height, up to reachMax (m)
+     *  past the edge, where the homing takes over. */
+    reachFrom: 520,
+    reachPerHeight: 4,
+    reachMax: 8000,
+    /** Past the map's edge by more than this (m) the same slope is a floor: only the ground has collision out there, so the bus comes back down over the map. */
+    floorFrom: 1200,
+    /** The near plane stands at the camera's own up to this height (m), then moves out with it, up to nearMax: no ground and water fighting for a pixel.
+     *  The far fade and the pixel grid's depth limit stand where they are up to the same height. */
+    nearFrom: 800,
+    nearPerHeight: 0.0067,
+    nearMax: 60,
+    /** By this height (m) the far fade ends this far past where the land does (m): the land data's edge never shows. */
+    fadeLandAt: 3000,
+    fadeLandPast: 2000,
+    /** Over this height (m) the view looks further down, by as much as the far fade's line has dropped: the ground keeps the frame. */
+    pitchFrom: 3000,
   },
 
   splat: {

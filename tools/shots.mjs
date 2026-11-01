@@ -45,6 +45,8 @@ const STEP = 1 / 30;
 
 async function open(query) {
   if (opt.q) query += `&${opt.q}`;
+  // (--det's climbs run into a ceiling: the frames are comparable across builds at the one they were first shot under)
+  if (det) query += '&ceiling=520';
   const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
   page.on('pageerror', (e) => console.log('[pageerror]', e.message));
   page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.log('[console]', m.text()));

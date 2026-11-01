@@ -8,6 +8,7 @@ import { City, bootFetch, dataQuery, type BuildingRef } from './world/City';
 import { paintUniforms, setFacadeView } from './world/buildingMaterial';
 import { Ground, type CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
+import { fadeEnd, floorPastMap, mapReach, nearPlane, snapReach } from './game/Ascent';
 import { CameraRig } from './game/CameraRig';
 import { Splatter, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
 import { Aimer, type Shot } from './game/Aim';
@@ -62,13 +63,23 @@ if (farOn) {
   if (params.has('farbias')) config.far.classBias = Number(params.get('farbias'));
 }
 if (params.has('loadr')) config.city.loadRadiusHigh = Number(params.get('loadr')) || config.city.loadRadiusHigh;
+// (tools that mean the old ceiling: shots.mjs's views, a measurement at "the ceiling")
+if (params.has('ceiling')) {
+  config.flight.ceiling = Number(params.get('ceiling')) || config.flight.ceiling;
+  config.flight.ceilingSoft = 150;
+}
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const pipeline = new PixelPipeline(canvas);
+/** Where the far fade ends at the ground, and the far plane stands past it (m); 0 until the far fade is on. */
+const FADE_END = 34000;
+const FADE_FAR = 2000;
+let fadeOn = false;
 /** The fade to 34 km and the far plane past it. It runs after the saved tuning, whenever it runs: no saved value takes it back. */
 function farFade() {
-  config.fog.clearFarFull = 34000;
-  pipeline.setFar(36000);
+  config.fog.clearFarFull = FADE_END;
+  pipeline.setFar(FADE_END + FADE_FAR);
+  fadeOn = true;
 }
 if (farOn && params.has('farfade')) farFade();
 const renderer = pipeline.renderer;
@@ -76,6 +87,7 @@ const scene = new THREE.Scene();
 // (what moves has its own matrices updated; a scene that recomposed its identity would force all 900 objects' every frame)
 scene.matrixAutoUpdate = false;
 const camera = pipeline.camera;
+const camNear = camera.near;
 // Every shader the game draws with starts compiling now, all at once and off the main thread,
 // while the city data downloads; the first frame waits for it (render/warmup.ts). This first
 // wave: the post passes and what modules registered (tiles, trees, landmarks, bridges).
@@ -1075,14 +1087,18 @@ async function boot() {
     controls.gearsLocked = !!openingBridge && gateAlong < config.camera.openingClimbAfter;
     controls.opening = opening < config.fog.openingDuration;
     const dragging = qaStick ? true : st.dragging;
-    // past the edge of the map the bus homes back toward the city, gently
+    // past the edge of the map the bus homes back toward the city, gently; the edge gives way with the height, and out
+    // there only the ground has collision, so the bus holds a slope down to the map
     const ex = Math.max(minX - flight.x, flight.x - maxX, 0), ez = Math.max(minZ - flight.z, flight.z - maxZ, 0);
-    if (ex + ez > 300 && !openingBridge) {
+    const edgeOut = mapReach(flight.height);
+    if (ex + ez > edgeOut && !openingBridge) {
       const home = Math.atan2((minX + maxX) / 2 - flight.x, -((minZ + maxZ) / 2 - flight.z));
       let dh = home - flight.heading;
       dh = Math.atan2(Math.sin(dh), Math.cos(dh));
-      sx = clamp(sx + clamp(dh, -1, 1) * clamp((ex + ez - 300) / 600, 0, 1), -1, 1);
+      sx = clamp(sx + clamp(dh, -1, 1) * clamp((ex + ez - edgeOut) / 600, 0, 1), -1, 1);
     }
+    const pastMap = floorPastMap(ex + ez);
+    if (pastMap > 0) flight.turbo.floor = Math.max(flight.turbo.floor, pastMap);
     const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
     for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || sx !== st.stretch.x }, city);
     if (!wasFull && flight.fullness >= 1) {
@@ -1180,6 +1196,11 @@ async function boot() {
     camFwd.y = 0;
     if (camFwd.lengthSq() < 1e-6) camFwd.set(flight.fx, 0, flight.fz);
     camFwd.normalize();
+    // the lens with the height: depth where the ground is, and the fade in force as far along it from any height
+    const lensFar = fadeEnd(flight.height, Fg.clearFarFull, city.landRoom(camera.position.x, camera.position.z));
+    pipeline.setDepthRange(nearPlane(flight.height, camNear), fadeOn ? lensFar + FADE_FAR : camera.far);
+    if (!Fg.enabled) globals.uFog.value.z = lensFar;
+    rig.fadeBase = Fg.clearFarFull;
     const hk = clamp(flight.lift / 450, 0, 1);
     streamCenter.set(focus.x + camFwd.x * 950 * hk, focus.y, focus.z + camFwd.z * 950 * hk);
     city.viewHeight = flight.lift;
@@ -1281,7 +1302,7 @@ async function boot() {
     // they stay exactly where they are
     if (vista > 0) {
       camera.getWorldDirection(camDir);
-      const tC = clamp((camY - flight.groundBroad) / Math.max(0.06, -camDir.y), 50, 5000);
+      const tC = clamp((camY - flight.groundBroad) / Math.max(0.06, -camDir.y), 50, snapReach(flight.height, 5000));
       snapPoint.copy(camera.position).addScaledVector(camDir, tC);
       pipeline.focus.lerp(snapPoint, vista);
     }
