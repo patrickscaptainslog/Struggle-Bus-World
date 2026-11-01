@@ -385,6 +385,8 @@ export interface ObstaclePost {
   top: number;
   /** below this altitude the post doesn't apply (the open air under a deck); -Infinity = solid to the ground */
   under: number;
+  /** a deck post's roadway + 1.5 m: as high as the hard floor reads it, the cable's clearance is the soft floor's */
+  hard?: number;
 }
 
 /**
@@ -397,7 +399,7 @@ function deckPosts(d: Deck, half: number, thick: number, over: (s: number) => nu
   for (let k = 0; k <= n; k++) {
     const s = (k / n) * d.length;
     const [x, z, top] = d.at(s);
-    out.push({ x, z, r: half + 6, top: Math.max(top + 1.5, over(s) + 5), under: top - thick - 1 });
+    out.push({ x, z, r: half + 6, top: Math.max(top + 1.5, over(s) + 5), under: top - thick - 1, hard: top + 1.5 });
   }
   return out;
 }

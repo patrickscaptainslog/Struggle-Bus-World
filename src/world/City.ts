@@ -1474,6 +1474,18 @@ export class City {
     return top;
   }
 
+  /** What the hard floor stands on: obstacleAt, with a deck post only up to its roadway, and under a deck no post at all. */
+  hardAt(x: number, z: number, fromY: number): number {
+    let top = this.baseObstacleAt(x, z);
+    const l = this.posts.size ? this.posts.get((Math.floor(x / 64) + 4096) * 8192 + (Math.floor(z / 64) + 4096)) : undefined;
+    if (l && this.overheadAt(x, z, fromY) === Infinity)
+      for (const p of l) {
+        const t = p.hard ?? p.top;
+        if (fromY >= p.under && t > top && (x - p.x) * (x - p.x) + (z - p.z) * (z - p.z) < p.r * p.r) top = t;
+      }
+    return top;
+  }
+
   /** The flight's obstacle cells take what the detailed mesh has on its roofs (regionLoader's roofTops, made in the worker). */
   private adoptTops(lt: LoadedTile, tops: Float32Array | null) {
     const o = lt.terrainData?.obst;

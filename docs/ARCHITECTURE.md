@@ -731,6 +731,11 @@ rooftop's. Tunables: `config.turbo` (`worldTravel` gates G2 / G3).
 targets: cancel part of the springs' lag at turbo speeds); written by
 `TurboLens` (`src/fx/Turbo.ts`), which also punches the fov.
 
+**Under a bridge deck** (`City.overheadAt`: the bus is under a post with an open `under`) nothing lifts the bus: the floor
+stops 8 m under the underside, the underside is a hard stop, the hard floor reads no post (`City.hardAt`, which over a
+deck reads the roadway: the cable above it is the soft floor's), and `Flight.underDeck()` turns the bus for the clearer
+side when something stands up to the deck dead ahead. The bus has no wall, so a tower is steered around, never climbed.
+
 While `Controls.tearing` (a gear selected, or braking out of one) main.ts sets
 `City.detailHold`: no level-of-detail change, arrivals are coarse. Swaps to detail
 prepare tile by tile (`prep` adopt items), the swap itself only commits. A shift up
@@ -1071,7 +1076,7 @@ OpenStreetMap QA: `node tools/osm-shots.mjs <url> <out> [shots]` (the checklist'
 credit's timing), `tools/osm-paint.mjs <url> <out> [stale paint landmarks credit cities]` (old saves on the device, reloads,
 every landmark, the credit however the game starts, other cities' stores), `tools/osm-play.mjs <url> <out> [amsterdam ladies
 london]` (three taps on a block, a mega blast, a firehose, a low hover, a reload), `tools/spanfly.mjs <url> <out> <bay|gg>` (a
-hand-built bridge along its own deck list: a contact sheet of every station, and real flights at the deck and under it). Budget: `tools/sweep.mjs <url> <out.json>`
+hand-built bridge along its own deck list: a contact sheet of every station, and real flights at the deck, under it, and along under it into each tower and anchorage). Budget: `tools/sweep.mjs <url> <out.json>`
 (the worst frame over a compass sweep, the bus held on the spot: the densest flats and the hillsides, at 30, 250, 350 and 500 m:
 over a slope the view takes in far more roofs, and the worst views are there), `tools/framecost.mjs <url> "<query>" --alt=500`
 (one frame by kind and pass, with GPU timers: compare builds interleaved, the laptop's heat moves fps), `node tools/feel-sim/run.mjs

@@ -4,8 +4,9 @@
 // Frames, 393x852 at 3x, no HUD, the bus held as tools/sweep.mjs holds it: each end, each tower or anchorage and each mid-span from 20 m
 // over the deck, heading along it; at the quarter points one 350 m off each side at deck height and one under the deck (those three on
 // the opening's low camera). <outDir>/sheet.png holds them all, captioned.
-// Then the real flight on the real posts, under window.__qa: at five stations the bus flies square at the deck at deck height, and once
-// level under it. <outDir>/collision.json is the log. Exit 1 if the bus ever enters the deck's box, or the run under the deck is lifted.
+// Then the real flight on the real posts, under window.__qa: at five stations the bus flies square at the deck at deck height, once level
+// under it, and along under it into each tower and anchorage. <outDir>/collision.json is the log. Exit 1 if the bus ever enters the deck's
+// box, the run under the deck is lifted, or a run along under it comes up through the deck or jumps.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -68,7 +69,7 @@ for (let i = 0; i + 1 < marks.length; i++) {
   if (marks[i + 1] - marks[i] < 150) continue;
   over(`mid ${i ? B.points[i - 1] : B.ends[0]}-${B.points[i] ?? B.ends[1]}`, (marks[i] + marks[i + 1]) / 2, 1);
 }
-/** the first station from s on, 40 m at a time, clear of a tower or anchorage's solid post */
+/** the first station from s on, 40 m at a time, clear of a tower or anchorage's solid post: where a held frame can stand */
 const clear = (s) => {
   while (pointS.some((p, i) => B.solid.includes(i) && Math.abs(p - s) < 80)) s += 40;
   return s;
@@ -153,12 +154,11 @@ await page.evaluate(() => {
   g.city.posts = window.__posts;
   window.__hold.low = 0;
 });
-/** Fly across the deck at station s from 140 m out, at y, to 60 m past it: every frame's position. */
-async function cross(s, y, side) {
-  const p = at(s);
-  await pose({ x: p.x - p.nx * side * 140, z: p.z - p.nz * side * 140, y, heading: heading(p.nx * side, p.nz * side) });
+/** Fly from a pose, holding y, for `dist` m: every frame's position. */
+async function fly(from, dist) {
+  await pose(from);
   return page.evaluate(
-    ([y0]) =>
+    ([y0, dist]) =>
       new Promise((res) => {
         const g = window.__game, f = g.flight, rows = [];
         window.__hold.on = false;
@@ -169,7 +169,7 @@ async function cross(s, y, side) {
         const x0 = f.x, z0 = f.z;
         const tick = () => {
           rows.push([f.x, f.y, f.z]);
-          if (Math.hypot(f.x - x0, f.z - z0) < 200) return requestAnimationFrame(tick);
+          if (Math.hypot(f.x - x0, f.z - z0) < dist) return requestAnimationFrame(tick);
           window.__qa = null;
           f.holdY = -Infinity;
           window.__hold.on = true;
@@ -177,13 +177,18 @@ async function cross(s, y, side) {
         };
         tick();
       }),
-    [y],
+    [from.y, dist],
   );
+}
+/** Fly across the deck at station s from 140 m out, at y, to 60 m past it. */
+function cross(s, y, side) {
+  const p = at(s);
+  return fly({ x: p.x - p.nx * side * 140, z: p.z - p.nz * side * 140, y, heading: heading(p.nx * side, p.nz * side) }, 200);
 }
 /** The stretch of a run over or under the deck's width: [y, local top] of every frame there. */
 const onDeck = (rows) => rows.map(([x, y, z]) => ({ y, ...near(x, z) })).filter((r) => r.d <= B.half).map((r) => [r.y, at(r.s).top]);
 const log = [];
-for (const [i, s] of [0.05, 0.3, 0.46, 0.62, 0.8].map((q) => clear(L * q)).entries()) {
+for (const [i, s] of [0.05, 0.3, 0.46, 0.62, 0.8].map((q) => L * q).entries()) {
   const y0 = at(s).top - 3;
   const rows = await cross(s, y0, i % 2 ? 1 : -1);
   const deck = onDeck(rows);
@@ -205,6 +210,27 @@ for (const [i, s] of [0.05, 0.3, 0.46, 0.62, 0.8].map((q) => clear(L * q)).entri
   log.push(r);
   if (!deck.length || lift > 3 || deck.some(([y]) => y >= under)) failed = true;
   console.log(r.run, `at y ${r.y0} (underside ${under.toFixed(1)}):`, `${deck.length} frames under it, most lift ${r.maxLift} m`);
+}
+// along under the deck, level, into each tower and anchorage from 260 m short of it: the bus can't climb there, so it turns out
+for (const i of B.solid) {
+  for (const dir of [1, -1]) {
+    const s0 = pointS[i] - dir * 260;
+    if (s0 < 0 || s0 > L) continue;
+    const p = at(s0);
+    const y0 = p.top - B.thick - 13;
+    const ground = await page.evaluate(([x, z]) => window.__game.city.groundAt(x, z), [p.x, p.z]);
+    if (y0 < Math.max(ground, 0) + 6) continue;
+    const rows = await fly({ x: p.x, z: p.z, y: y0, heading: heading(p.ux * dir, p.uz * dir) }, 340);
+    const deck = onDeck(rows);
+    const under = deck.filter(([y, top]) => y < top - B.thick).length;
+    const inBox = deck.filter(([y, top]) => y <= top && y >= top - B.thick).length;
+    const through = deck.slice(1).some(([y, top], k) => y > top && deck[k][0] < deck[k][1] - B.thick);
+    const jump = Math.max(...rows.slice(1).map((q, k) => Math.abs(q[1] - rows[k][1])));
+    const r = { run: `along under the deck into ${B.points[i]}, heading ${dir > 0 ? 'on' : 'back'} along it`, y0: +y0.toFixed(1), frames: rows.length, framesUnderDeck: under, framesInBox: inBox, through, maxJump: +jump.toFixed(1), rows };
+    log.push(r);
+    if (inBox || through || jump > 25) failed = true;
+    console.log(r.run, `from y ${r.y0}:`, inBox || through ? `THROUGH THE DECK, ${inBox} frames in the box` : `${under} frames under it, none in the box`, `, biggest jump ${r.maxJump} m`);
+  }
 }
 writeFileSync(`${out}/collision.json`, JSON.stringify(log));
 await browser.close();
