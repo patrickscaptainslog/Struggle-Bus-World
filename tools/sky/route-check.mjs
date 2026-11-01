@@ -169,34 +169,42 @@ for (const g5 of all ? [3000, 6000, 10000] : [6000]) {
 
 // Every way a trip can start or end up, across a month: launch, orbit, leave, home, from wherever the Moon and home are. It must always arrive.
 if (all) {
-  let worstOut = 0, worstHome = 0, level = 0, n = 0;
+  let worstOut = 0, worstHome = 0, level = 0, n = 0, lowMoon = Infinity, lowEarth = Infinity, lowHomeEarth = Infinity;
   for (let k = 0; k < 90; k++) {
     const ms = Date.parse('2026-11-01T00:00:00Z') + k * 8 * 3600e3;
     const trip = new MoonTrip(series, ms, { g5: 6000 });
-    trip.step(DT, 0);
+    const step = (stick = 0) => {
+      trip.step(DT, stick);
+      lowMoon = Math.min(lowMoon, trip.hMoon);
+      if (trip.log.length || trip.leg !== 'wait') lowEarth = Math.min(lowEarth, trip.hEarth);
+    };
+    step();
     trip.tap();
-    trip.step(DT, 0);
+    step();
     trip.tap();
-    for (let i = 0; i < 60000 && trip.leg !== 'orbit'; i++) trip.step(DT, 0);
+    for (let i = 0; i < 60000 && trip.leg !== 'orbit'; i++) step();
     const out = trip.clock;
     const nOut = trip.log.length;
-    // a part-lap, so it leaves from anywhere: the far side too
-    for (let i = 0; i < 37 * k; i++) trip.step(DT, 0);
+    // a part-lap with the thumb working, so it leaves from anywhere, facing any way: the far side too, and flying dead away from Earth
+    for (let i = 0; i < 37 * k; i++) step(k % 3 ? Math.sin(i / 50) : 0);
     const t0 = trip.t;
     trip.tap();
-    trip.step(DT, 0);
+    step();
     trip.tap();
-    for (let i = 0; i < 60000 && trip.leg !== 'wait'; i++) trip.step(DT, 0);
+    for (let i = 0; i < 60000 && trip.leg !== 'wait'; i++) {
+      step();
+      lowHomeEarth = Math.min(lowHomeEarth, trip.hEarth);
+    }
     n++;
-    if (trip.leg !== 'wait' || Math.abs(trip.hEarth - 300) > 2.5 || out > 300 || trip.t - t0 > 300) {
+    if (trip.leg !== 'wait' || Math.abs(trip.hEarth - 300) > 2.5 || out > 300 || trip.t - t0 > 300 || lowMoon < 280) {
       fails++;
-      console.log(`  FAIL at ${new Date(ms).toISOString()}: ${trip.leg}, ${trip.hEarth.toFixed(1)} km, out ${out.toFixed(1)} s, home ${(trip.t - t0).toFixed(1)} s`);
+      console.log(`  FAIL at ${new Date(ms).toISOString()}: ${trip.leg}, ${trip.hEarth.toFixed(1)} km, out ${out.toFixed(1)} s, home ${(trip.t - t0).toFixed(1)} s, lowest over the Moon ${lowMoon.toFixed(1)} km`);
     }
     worstOut = Math.max(worstOut, out);
     worstHome = Math.max(worstHome, trip.t - t0);
     if (trip.log.slice(nOut).some((l) => l.leg === 'homeLevel') || trip.log.slice(0, nOut).some((l) => l.leg === 'arc')) level++;
   }
-  console.log(`${n} launches over a month, each leaving orbit from a different place: worst ${worstOut.toFixed(1)} s out, ${worstHome.toFixed(1)} s home; ${level} needed a level run`);
+  console.log(`${n} launches over a month, each leaving orbit from a different place: worst ${worstOut.toFixed(1)} s out, ${worstHome.toFixed(1)} s home; ${level} needed a level run; lowest ${lowMoon.toFixed(1)} km over the Moon, ${lowEarth.toFixed(1)} km over Earth (route.py's path to the limb, with no floor: 96 km by geometry), ${lowHomeEarth.toFixed(1)} km on the way home`);
 }
 console.log(fails ? `${fails} FAILED` : 'all pass');
 console.log(`(spheres ${R_E} and ${R_M} km)`);

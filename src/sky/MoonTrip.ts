@@ -190,6 +190,7 @@ export class MoonTrip {
   private tapped = false;
   private downTapped = false;
   private started = false;
+  private atRest = false;
   // (scratch: nothing here allocates per frame)
   private readonly a = v3();
   private readonly d = v3();
@@ -229,6 +230,11 @@ export class MoonTrip {
   /** The thumb steers the bus on these legs. Everywhere else it swings the camera. */
   get steering(): boolean {
     return this.leg === 'wait' || this.leg === 'orbit';
+  }
+
+  /** Full stick's turn, rad/s. */
+  get yawRate(): number {
+    return YAW;
   }
 
   /** There is something for the down tab to do. */
@@ -330,14 +336,18 @@ export class MoonTrip {
     this.v = G0;
     this.eta = 280;
     this.armed = false;
+    // (from rest the path is free: only the nose has to swing, and TripView eases that)
+    this.atRest = true;
     this.enter('climb');
   }
 
+  /** Always by way of the level leg: a bus flying away from Earth has to carve round on the floor first, or the short way to Earth is through the Moon. */
   private leaveMoon(): void {
     this.gear = 4;
     this.ti = 0;
     this.armed = false;
-    this.enter(this.earthClear() ? 'homeOut' : 'leave');
+    this.rLevel = len(this.ob.pos);
+    this.enter('leave');
   }
 
   private enter(leg: Leg): void {
@@ -410,21 +420,30 @@ export class MoonTrip {
     this.ti += dt;
   }
 
-  /** Swing the path toward a unit vector, at TURN at most, and go. */
-  private go(want: V, dt: number): void {
+  /** Swing the path toward a unit vector, at `rate` at most. */
+  private swing(want: V, rate: number, dt: number): void {
     const dir = this.dir, a = angle(dir, want);
-    if (a > 1e-7) {
-      const s = Math.min(1, (TURN * dt) / a);
-      if (a > 3.13) {
-        // (dead astern: any way round will do)
-        for (let i = 0; i < 3; i++) dir[i] += this.heading[i] * 0.02;
-        setUnit(dir, dir);
-      } else {
-        const k = 1 / Math.sin(a), p = Math.sin((1 - s) * a) * k, q = Math.sin(s * a) * k;
-        for (let i = 0; i < 3; i++) dir[i] = dir[i] * p + want[i] * q;
-        setUnit(dir, dir);
-      }
+    if (a < 1e-7) return;
+    if (this.atRest) {
+      this.atRest = false;
+      dir.set(want);
+      return;
     }
+    if (a > 3.13) {
+      // (dead astern: to one side, level, then the rest is an ordinary turn)
+      setUnit(cross(this.ob.pos, dir, this.w3), this.w3);
+      for (let i = 0; i < 3; i++) dir[i] += this.w3[i] * 0.02;
+      setUnit(dir, dir);
+      return;
+    }
+    const s = Math.min(1, (rate * dt) / a), k = 1 / Math.sin(a), p = Math.sin((1 - s) * a) * k, q = Math.sin(s * a) * k;
+    for (let i = 0; i < 3; i++) dir[i] = dir[i] * p + want[i] * q;
+    setUnit(dir, dir);
+  }
+
+  /** Swing, and go. */
+  private go(want: V, dt: number): void {
+    this.swing(want, TURN, dt);
     this.move(dt);
   }
 
@@ -604,11 +623,13 @@ export class MoonTrip {
       }
       // ---- home
       case 'leave': {
-        if (this.earthClear()) {
+        // level on the floor, carving round to Earth and then on until it stands over the limb: trip/sim.py's arc_moon, from wherever the lap has got to. It's done once Earth is no longer behind the bus
+        // (straight overhead is 90 degrees off a level nose, and fine: the turn goes up)
+        this.toHome();
+        if (this.earthClear() && dot(this.dir, d) > -0.17) {
           this.enter('homeOut');
           return false;
         }
-        // level round the Moon to where Earth stands over the limb: trip/sim.py's arc_moon
         setUnit(rm, u);
         this.w2[0] = -r[0];
         this.w2[1] = -r[1];
@@ -616,7 +637,15 @@ export class MoonTrip {
         cross(cross(rm, this.w2, this.w), u, d);
         setUnit(d, d);
         this.spool(G4, dt);
-        this.goLevel(d, dt);
+        this.swing(d, YAW, dt);
+        this.move(dt);
+        // (it faces the way it carves, so the view goes with it)
+        tangent(this.dir, setUnit(this.ob.pos, u), this.dir);
+        this.heading.set(this.dir);
+        const p = this.ob.pos, k = this.rLevel / len(p);
+        p[0] *= k;
+        p[1] *= k;
+        p[2] *= k;
         return true;
       }
       case 'homeOut':
@@ -633,7 +662,10 @@ export class MoonTrip {
         }
         this.toHome();
         this.spool(G4, dt);
-        this.go(d, dt);
+        this.swing(d, TURN, dt);
+        // G4's floor holds it: Earth low over the limb is reached by flying on level, which is how the limb drops away
+        if (hM <= ALT4 + 2 && dot(this.dir, setUnit(rm, u)) < 0) tangent(this.dir, u, this.dir);
+        this.move(dt);
         return true;
       case 'homeCruise':
         if (hE <= ALT5 + this.dBrake) {

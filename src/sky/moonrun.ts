@@ -1,21 +1,28 @@
 import * as THREE from 'three';
 import { BusModel, type BusPose } from '../bus/BusModel';
 import { config } from '../config';
+import { Input } from '../game/Input';
 import { globals } from '../render/materials';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import type { WarmUp } from '../render/warmup';
+import { Hud } from '../ui/Hud';
 import { Perf } from '../ui/Perf';
+import { C, HUD_SMALL, PixelCanvas, textWidth } from '../ui/pixelUi';
+import { LEG_NAMES, MoonTrip } from './MoonTrip';
 import { series } from './Series';
 import { SkyClock } from './SkyClock';
 import { SkyDraw } from './SkyDraw';
 import { EARTH, MOON, R_MOON, SkyModel, SkyState, type Observer } from './SkyModel';
 import { applySpaceTable } from './SkyTable';
+import { SpaceFx } from './SpaceFx';
+import { TripView } from './TripView';
 import { geodeticToFix, sphereToFix } from './WorldFrame';
 
 // ?moonrun: MOONSHOT.md's black box. Space only: no city streams, the bus sits at the render origin, and the real pipeline and resolve draw it. Earth, Moon and Sun come from the real sky
 // model; everything out here is a direction or a ray test, so nothing at 384,400 km ever enters the render frame.
 //
-// `?view=` puts the bus anywhere, to look (see readView below). With none it waits 300 km over San Francisco, where the flight starts.
+// `?view=` puts the bus anywhere, to look (see readView below). With none it waits 300 km over San Francisco and flies: MoonTrip.ts is the route, TripView.ts the camera and the lens, SpaceFx.ts the lines and
+// the trail. TURBO (E, PageUp) shifts up, its down tab (Q, PageDown) down; the thumb (arrows) steers over a body and swings the camera everywhere else. `?t=` sets the date and `?g5=` G5's speed in km/s.
 //
 // The frame's order, which flight keeps: move `pose.ob` (pos and axes, float64) -> `model.frame(ms, ob, sky)` -> `draw.update(sky)` -> the light on the bus -> bus and camera -> `pipeline.render(scene)`.
 // The lens first if it changes (`pipeline.setHfov`): `draw.update` reads the focal length. Open-space flight is `free: true`: pos in EQJ km from Earth's centre, axes the render axes in EQJ by rows, as
@@ -26,6 +33,7 @@ const DEG = Math.PI / 180;
 /** Half the portrait's vertical field on the 38 degree lens, degrees: what the rig's pitch rule is measured with (earth/geom.py). */
 const HALF_V = 36.87;
 const R_VIEW_EARTH = 6371;
+const TAN19 = Math.tan(19 * DEG);
 
 type V3 = [number, number, number];
 const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -134,6 +142,30 @@ function readView(params: URLSearchParams, model: SkyModel, sky: SkyState, ms: n
   return { ob, busFwd, busUp, showBus };
 }
 
+const thousands = (n: number) => Math.round(n).toLocaleString('en-US');
+
+/** What the flight says: the leg and its clock, the gear, how far up, and what a tap would do now. A corner of the frame, redrawn when a line changes. */
+function tripLabel(): (trip: MoonTrip) => void {
+  const c = new PixelCanvas(122, 23, 2);
+  Object.assign(c.el.style, { position: 'fixed', zIndex: '21', pointerEvents: 'none', right: 'max(14px, env(safe-area-inset-right))', top: 'max(8px, env(safe-area-inset-top))' });
+  c.el.dataset.hud = 'trip-label';
+  document.body.append(c.el);
+  let last = '';
+  return (trip) => {
+    const s = Math.floor(trip.clock), leg = trip.leg;
+    const a = `${LEG_NAMES[leg]} ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    const b = `G${trip.gear} ${trip.v < 1 ? '0' : thousands(trip.v)} KM/S ${thousands(Math.min(trip.hMoon, trip.hEarth))} KM`;
+    const asks = leg === 'out' || leg === 'homeOut' || leg === 'climb' || leg === 'arc' || leg === 'leave';
+    const p = trip.armed ? 'G5 ARMED' : leg === 'wait' ? 'TAP TURBO: MOON' : leg === 'orbit' ? (trip.gear === 3 ? 'TAP TURBO: G4' : 'TAP TURBO: HOME') : asks ? 'TAP TURBO: G5' : '';
+    const text = `${a}|${b}|${p}`;
+    if (text === last) return;
+    last = text;
+    c.clear();
+    [a, b, p].forEach((t, i) => c.textOutlined(t, c.w - 2 - textWidth(t, HUD_SMALL), 1 + i * 7, i === 2 ? C.yellow : C.text, C.ink, HUD_SMALL));
+    c.flush();
+  };
+}
+
 export interface MoonrunContext {
   pipeline: PixelPipeline;
   scene: THREE.Scene;
@@ -157,7 +189,10 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   const model = new SkyModel(series);
   const sky = new SkyState();
   const clock = new SkyClock(params);
-  const pose = readView(params, model, sky, clock.now());
+  const flying = !params.has('view');
+  const trip = flying ? new MoonTrip(series, clock.now(), { g5: Number(params.get('g5')) || 6000 }) : null;
+  const view = flying ? new TripView() : null;
+  const pose = flying ? null : readView(params, model, sky, clock.now());
 
   const draw = new SkyDraw(pipeline);
   if (params.has('floor')) draw.moonFloor = Number(params.get('floor')) || 0;
@@ -167,28 +202,44 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   scene.add(draw.object);
   const bus = new BusModel();
   bus.root.scale.setScalar(config.camera.heroScaleVista);
-  bus.root.visible = pose.showBus;
+  bus.root.visible = pose ? pose.showBus : params.get('bus') !== '0';
   scene.add(bus.root);
+  const fx = flying ? new SpaceFx(bus.length) : null;
+  if (fx) scene.add(fx.object);
   const busPose: BusPose = { squash: 1, eye: 1, fullness: 1, mouth: 0, speed: 0, wheeze: 0, heave: 0 };
 
   // ---- the lens, and the chase: bus at the origin, the camera behind and above it with no rotation, so the bus sits low in the frame and the view is what the axes say
   const camera = pipeline.camera;
-  const lens = Number(params.get('lens')) || config.camera.hfovVista;
+  const lensParam = Number(params.get('lens')) || 0;
+  const lens = lensParam || config.camera.hfovVista;
   pipeline.setHfov(lens);
   pipeline.setDepthRange(1.5, 30000);
   const focalAt = () => 1 / pipeline.pixelWorldSize(1);
+  /** The rig's distance over the 38 degree lens's: it keeps the bus's size on screen through a lens change. */
+  let rigScale = 1;
   const placeCamera = () => {
-    const D = config.camera.distanceVista, row = (640 - pipeline.info.height / 2) / focalAt();
+    rigScale = flying ? TAN19 / Math.tan((((view?.hfov ?? lens) * DEG) / 2)) : 1;
+    const D = config.camera.distanceVista * rigScale, row = (640 - pipeline.info.height / 2) / focalAt();
     const k = D / Math.sqrt(1 + row * row);
     camera.position.set(0, k * row, k);
     camera.quaternion.identity();
   };
   placeCamera();
-  {
+  if (pose) {
     const z = pose.busFwd.clone().negate();
     const x = pose.busUp.clone().cross(z).normalize();
     const y = z.clone().cross(x);
     bus.root.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+  }
+
+  // ---- the thumb and TURBO: the real Input and the real HUD, less what has no meaning out here
+  const input = flying ? new Input(renderer.domElement) : null;
+  const hud = input ? new Hud(input, { onTiltToggle() {}, onChip() {}, onSensitivity() {}, onRecenter() {}, onMute() {}, onSwap() {}, onSettings() {}, onGesture() {} }) : null;
+  const label = flying ? tripLabel() : null;
+  if (input && hud && trip) {
+    input.onTurbo = (dir) => (dir > 0 ? trip.tap() : trip.shiftDown());
+    for (const name of ['mega', 'settings', 'recenter', 'tilt-toggle', 'tilt-chip']) hud.root.querySelector<HTMLElement>(`[data-hud="${name}"]`)?.style.setProperty('visibility', 'hidden');
+    hud.arrive();
   }
 
   let resizeWanted = false;
@@ -221,7 +272,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
     if (resizeWanted) {
       resizeWanted = false;
       pipeline.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1);
-      pipeline.setHfov(lens);
+      pipeline.setHfov(view?.hfov ?? lens);
       placeCamera();
     }
     const dt = fixedDt || Math.min(0.05, Math.max(0, (now - last) / 1000));
@@ -229,12 +280,28 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
     time += dt;
     globals.uTime.value = time;
 
-    model.frame(clock.now(), pose.ob, sky);
+    // ---- the flight first, then the lens, and draw.update reads the lens: the contract above
+    if (trip && view && input) {
+      input.update(dt);
+      const st = input.state;
+      trip.step(dt, trip.steering && st.dragging ? st.stretch.x : 0);
+      view.update(dt, trip, st.stretch.x, st.stretch.y, st.dragging, lensParam);
+      pipeline.setHfov(view.hfov);
+      placeCamera();
+      bus.root.quaternion.copy(view.busQuat);
+    }
+    model.frame(trip ? trip.ms : clock.now(), (trip ?? pose!).ob, sky);
     draw.update(sky);
     globals.uSunDir.value.set(sky.sun[0], sky.sun[1], sky.sun[2]);
     // (in Earth's shadow the bus has only its ambient)
     globals.uLight.value.x = 0.62 * sky.sunSeen;
     bus.update(dt, time, busPose);
+    if (trip && view && fx) {
+      fx.update(dt, trip.v, trip.dir, trip.ob.axes, view.flying, view.nosing, camera, bus.root, rigScale, pipeline.pixelWorldSize(1));
+      // (the readout's names stop at G3 and the label says the gear: TURBO and its down tab are all that's wanted from the HUD)
+      hud?.update(dt, { gear: trip.gear, maxGear: 5, engaged: true, boosting: false, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity, tiltState: 'none', gearDown: trip.canShiftDown });
+      if (frames % 6 === 0) label?.(trip);
+    }
     pipeline.focus.set(0, 0, 0);
     pipeline.render(scene);
     frames++;
@@ -242,6 +309,14 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
     perf.frame(dt * 1000, performance.now() - f0);
     (window as unknown as { __shotReady?: boolean }).__shotReady = frames > 2;
   };
-  (window as unknown as Record<string, unknown>).__game = { pipeline, scene, camera, perf, bus, moon: { model, sky, clock, draw, pose, load } };
+  // (tests: fly on without drawing, at the route's step)
+  const skip = (s: number) => {
+    for (let i = 0; trip && view && i < s * 30; i++) {
+      trip.step(1 / 30, 0);
+      view.update(1 / 30, trip, 0, 0, false, lensParam);
+    }
+    if (trip) label?.(trip);
+  };
+  (window as unknown as Record<string, unknown>).__game = { pipeline, scene, camera, perf, bus, input, moon: { model, sky, clock, draw, pose, load, trip, view, skip } };
   requestAnimationFrame(frame);
 }
