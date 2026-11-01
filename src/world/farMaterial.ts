@@ -11,15 +11,15 @@ import type { FarBlockChunk } from './farBlocks';
 // far mesh, with no light in the data. Class picks the ramp and is never blended; tone is the near shaders' lo, filtered, and the resolve
 // quantises it to a step last; the sun is live, through sbLight, like every other surface.
 
-/** The far flags (main.ts sets them from the URL before anything is built). All off by default, all additive. */
+/** The far flags (main.ts sets them before anything is built: the far field is on, ?nofar off, a dev page never sets them). */
 export const farFlags = {
-  /** ?farmap: the far ground reads the raster */
+  /** the far ground reads the raster (a tool's ?farmap: this alone) */
   map: false,
-  /** ?farmap=oblique: and its walls, what a grazing camera sees */
+  /** and its walls, what a grazing camera sees (?farmap=oblique) */
   oblique: false,
   /** ?farnearest: the class map with no mips, as the spike first specified it (crawl test) */
   nearest: false,
-  /** ?farblocks: the raster's height plane as boxes */
+  /** the raster's height plane as boxes (?farblocks) */
   blocks: false,
   /** ?fardebug: the far ground writes its class as a ramp, a box 11 and 15 (tools/far/calib.py) */
   debug: false,
@@ -489,7 +489,7 @@ export function makeFarTextures(r: FarRaster): FarTextures {
 }
 
 /** World x, z -> the raster's 0..1 uv (the inverse of its affine). */
-function farUv(r: FarRaster): THREE.Matrix3 {
+function farUv(r: Pick<FarRaster, 'W' | 'H' | 'affine'>): THREE.Matrix3 {
   const [a, b, c, d, e, f] = r.affine;
   const det = a * e - b * d;
   // x' = x - c, z' = z - f; i = (e x' - b z') / det, j = (a z' - d x') / det
@@ -509,7 +509,7 @@ export function farWallLo(r: FarRaster): (x: number, z: number) => number {
 }
 
 /** The far ground's material. `mask`: the loaded tiles, as the far skyline reads them. */
-export function makeFarGroundMaterial(r: FarRaster, tex: FarTextures, mask: THREE.Texture, maskRect: THREE.Vector4, maskSize: THREE.Vector2): THREE.ShaderMaterial {
+export function makeFarGroundMaterial(r: Pick<FarRaster, 'W' | 'H' | 'affine'>, tex: FarTextures, mask: THREE.Texture, maskRect: THREE.Vector4, maskSize: THREE.Vector2): THREE.ShaderMaterial {
   const defines: Record<string, number> = {};
   if (farFlags.oblique) defines.FAR_OBLIQUE = 1;
   if (farFlags.nearest) defines.FAR_NEAREST = 1;

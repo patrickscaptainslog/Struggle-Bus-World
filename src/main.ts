@@ -147,7 +147,7 @@ async function boot() {
   // (the first frame streams around the bus: the same want-list, so nothing is asked for twice)
   const primeFocus = focus.clone();
   city.prime(primeFocus);
-  const farP = city.loadFar(renderer);
+  const farP = city.loadFar(renderer, () => warm.busy);
 
   // ---- props: trees stream with tiles, landmarks are placed once
   const treeFields = new Map<string, TreeField>();
@@ -1304,7 +1304,7 @@ async function boot() {
     }
     if (ready) everReady = true;
     city.eager = !everReady;
-    (window as unknown as { __shotReady?: boolean }).__shotReady = ready;
+    (window as unknown as { __shotReady?: boolean }).__shotReady = ready && !city.farLate;
   }
   requestAnimationFrame(frame);
 
