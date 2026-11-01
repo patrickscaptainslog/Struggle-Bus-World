@@ -1,5 +1,7 @@
 # Hybrid Controls: the final spec (Tilt + Thumb, TURBO, MEGA)
 
+> **Superseded by `docs/specs/flight/THUMBS.md` (2026-11-01).** Tilt, TURBO and its tab are gone; MEGA and the layout rules stand. What follows is the history of the hybrid.
+
 > Built on `feat/hybrid` (DECISIONS "Hybrid controls" has what moved in the build and the numbers). Line references are to
 > the feat/supersplat this was written against. The HOLD SPLAT TO CHARGE line became the HOLD cue on MEGA's face.
 

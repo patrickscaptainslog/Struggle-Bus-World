@@ -35,10 +35,10 @@ Measured in the game with the real stick, full belly, at a fixed step:
 | Stick | Up (m/s) | Forward (m/s) | Path (deg) | Bus's pitch (deg) |
 |---|---|---|---|---|
 | Full pull | 40 | 13.2 | 72 | 72 |
-| Full pull, TURBO held | 111.6 | 9.8 | 85 | 80 |
+| Full pull, turbo on | 111.6 | 9.8 | 85 | 80 |
 | Full pull, G1 | 448 | 39 | 85 | 80 |
 | Full push | -98.2 | 8.6 | -85 | -80 |
-| Full push, TURBO held | -111.6 | 9.8 | -85 | -80 |
+| Full push, turbo on | -111.6 | 9.8 | -85 | -80 |
 | Full push, G1 | -448 | 39 | -85 | -80 |
 
 The stick at a quarter, a half and three quarters of its travel gives 6, 27 and 54 degrees, both ways.
@@ -60,5 +60,4 @@ All on the tuner (`?tune`), under flight and camera, read live:
 - **A gear holds the city's level of detail.** Dive in G1 and the blocks at the bottom stay coarse until the gear comes out, as they do on any low run in a gear.
 - **Under a deck** the chase camera still stands over it and hides the bus (BRIDGES, step 5).
 - **A floor landing on a dive turns the velocity in one frame.** The fall stops at once and the speed goes forward. The position doesn't jump and the bus's pitch eases, as it always did at a floor step. If it reads badly on the phone, the fix is a limit on how fast a cap may turn the nose.
-- **Tilt and the boost.** A TURBO press clutches the tilt until the lift, so with tilt on, holding TURBO fades a tilted pull to nothing and the bus boosts flat; a tilted climb needs a gear, or a thumb on the stick. Tilt is off by default, and this waits on whether the producer flies with it.
 - **The phone's questions.** Whether 2.6 per s feels right on a thumb, whether 85 degrees comes on too soon, and how far the view may tip are for the tuner on the phone.

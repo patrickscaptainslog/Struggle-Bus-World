@@ -12,20 +12,16 @@ Phase 1: single player, no server. iPhone Safari first (portrait, one thumb).
   where it wheezes and struggles; drag up to nose down: dive back to the rooftops,
   gaining speed; at the rooftops it surges (about 250 mph). Let go and the bus holds
   its altitude with a wheezy bob, skimming the rooftops automatically.
-- **Tap anywhere to splat.** A tap (or a second finger while steering) is dragon
+- **Tap anywhere to splat.** A tap (a second thumb's too, on its lift) is dragon
   breath; a still press up to 0.45 s still splats, past that it is a thumb at rest.
-- **Tilt, if you want it.** After the bridge a chip asks TILT TO STEER? (on
-  iPhone, allow motion access), and the small phone icon in the top left corner
-  turns it on and off any time. With tilt on the phone flies: left / right to carve,
-  top edge toward you to climb, away to dive. **A thumb always wins:** drag and the
-  phone stops steering; lift and it takes back over, keeping your carve if that was
-  a nudge, or taking the new angle as level if you held the thumb a while or the
-  phone moved. Rest a still thumb anywhere to fly dead straight. The recenter button
-  (top right) takes your current pose as level.
-- **TURBO** (upper left): tap = next gear, hold = boost. The ▼ tab under it shifts
-  down. **MEGA** (right side): tap = splat, hold = charge; slide off it and the same
-  finger steers (a charge keeps charging). **BUTTONS: SWAP** in settings mirrors them
-  for the left hand.
+- **Your other thumb shifts and looks** (`docs/specs/flight/THUMBS.md`). A quick flick
+  up is a gear; two flicks up are turbo, and two more a level of it, up to three; a
+  flick down takes back a gear on its way, then ends turbo, then drops a gear. Hold it
+  down and drag to look around; lift and the view goes home. With no thumb on the
+  glass a quick stroke on the left half is a flick too (the right half never is).
+- **MEGA** (right side): tap = splat, hold = charge; slide off it and the same
+  finger steers (a charge keeps charging). **BUTTONS: SWAP** in settings mirrors it,
+  and the flick's side, for the left hand.
 - **Turbo gears.** G1 "Jet" (~1,000 mph): shifted up low, the bus claws its
   way up to ~150 m first, straining and rattling, then the gear bites and it
   breaks the sound barrier with a boom, a vapor cone and a rainbow contrail.
@@ -59,12 +55,13 @@ Phase 1: single player, no server. iPhone Safari first (portrait, one thumb).
   and chimes when it's ready (a press still splats meanwhile).
 - Keyboard (desktop): arrows / WASD fly the same yoke (Down/S climbs, Up/W
   dives or surges), mouse drag is the bungee, Space breathes (hold to
-  charge), E / Q shift turbo gears, Shift boosts, Esc opens the settings.
+  charge), E / Q shift turbo gears, E twice is turbo, Q ends it, Shift boosts while
+  held, right mouse drag looks, Esc opens the settings.
 - Blast an already-painted block to escalate it: rooftop gardens, then full
   Hundertwasser.
 - Paint and your control settings are saved on your phone.
 - Three-finger tap (or `?tune`) opens the hidden tuning panel; `?fps` shows the
-  frame-rate meter; `?controls=tilt|touch|keyboard` (tilt shows the chip at once, touch turns tilt off), `?nocoach` drops the first-run cues,
+  frame-rate meter; `?controls=touch|keyboard`, `?nocoach` drops the first-run cues,
   `?nohud` hides the HUD.
 
 ## Develop
@@ -73,9 +70,6 @@ npm install
 npm run dev          # http://localhost:5173
 npm run build        # dist/
 ```
-Tilt needs HTTPS (the Vercel deploy) or localhost: over http on the LAN, phones
-fall back to touch.
-
 Dev pages: `dev/city.html` (real city viewer), `dev/flight.html` (autopilot
 flight test), and one page per module (`dev/bus.html`, `dev/fx.html`, ...).
 Screenshots: `node tools/shot.mjs <url> out.png`, `node tools/shots.mjs`,
@@ -85,13 +79,12 @@ Feel QA: `node tools/feel-sim/run.mjs s_aim.ts` (and the other scenarios in
 its header) runs the real flight / aim / splat code offline on the baked city;
 `node tools/feel.mjs <baseUrl> shots/feel [strip] [glint] [taps]` shoots the
 tap -> jet -> impact -> hit-stop strip and checks real taps in the browser.
-Controls QA: `node tools/controls-sim/run.mjs s_hybrid.ts` (and s_tilt, s_tune, s_perm,
-s_gesture, s_layout, s_turbo; see its header) runs the arbitration, tilt, gestures, the
-layout and turbo offline against the real modules; `node tools/controls.mjs <baseUrl>
-shots/controls [touch] [turbo] [tilt] [gestures] [hybrid] [firstrun] [layout] [states]
-[flows] [opening] [perf=<otherBaseUrl>]` checks them in the browser with real CDP touches
-and a mocked iOS sensor flow (`hybrid`: thumb against tilt; `firstrun`: a first visit,
-no `&nohud`; `layout`: real rects against `layoutHud`; `states`: every button, cropped,
+Controls QA: `node tools/controls-sim/run.mjs s_gesture.ts` (and s_layout, s_turbo; see
+its header) runs the gesture table, the layout and turbo offline against the real modules;
+`node tools/controls.mjs <baseUrl> shots/controls [touch] [thumbs] [turbo] [firstrun]
+[opening] [layout] [states] [keyboard] [audio] [perf=<otherBaseUrl>]` checks them in the
+browser with real CDP multi-touch (`thumbs`: the table; `firstrun`: a first visit, no
+`&nohud`; `layout`: real rects against `layoutHud`; `states`: every state, cropped,
 `tools/hud-sheet.py` makes a sheet). Capture tools pass `&nohud`.
 Altitude QA (climb shots, flight log, taps, perf at cruise vs ceiling):
 `node tools/altitude.mjs <baseUrl> shots/altitude downtown|west|gate|opening [--seq]`;

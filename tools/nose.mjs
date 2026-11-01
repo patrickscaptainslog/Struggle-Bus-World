@@ -49,7 +49,7 @@ const letGo = () => page.evaluate(() => {
   delete window.__qa.sy;
 });
 const turbo = (on) => page.evaluate((v) => (window.__game.input.keyBoost = v), on);
-const shift = (d) => page.evaluate((v) => window.__game.input.onTurbo(v), d);
+const shift = (d) => page.evaluate((v) => window.__game.controls.turbo.shift(v, window.__game.flight), d);
 /** Hand the bus a height and a held altitude, the lens already set for it. */
 const place = (y) => page.evaluate((v) => {
   const g = window.__game, f = g.flight;

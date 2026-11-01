@@ -74,12 +74,13 @@ including merging into `main`.** None of the branches below has been merged yet.
 | `fix/bridge-data` | built from `docs/specs/bridges/BRIDGES.md` steps 1 and 2 (desktop session, 2026-11-01), QA'd on the GPU (MAIN vs NEXT), two reviews' findings fixed, the outside judge's round answered, `osm2`; never run on a real phone | the Golden Gate and the Bay Bridge on OSM's rows, one deck list for mesh, heights and collision, `relandmark.py`, `tools/spanfly.mjs`, the opening at heading 100, flight under a deck | the phone link, the producer's look at the first shot and the turn-out under a deck, then merge; "Bridges: what's left" below |
 
 | `feat/nose` | built from main bf7df01, QA'd on the GPU at fixed steps, reviewed with its fixes in; never run on a real phone | the path: with a gear or the boost on the pull, and on any dive, the speed goes where the nose points, 85 degrees up and down; the bus shows it, the view tips over a dive (`docs/specs/flight/NOSE.md`, `tools/nose.mjs`, `tools/feel-sim/s_nose.ts`) | the phone, with `?tune`: noseRate, noseDown and the view's dive are the feel; then merge |
+| `feat/thumbs` | first half built from `feat/nose` 08dd842, QA'd offline and in the real page with real CDP multi-touch; never run on a phone; not reviewed, not merged | two thumbs in `Input.ts`: the first flies, any other looks, flicks and taps on its lift; `Shifter.ts`, what a flick means; turbo latched and stacked (`config.turbo.levels`); a gear taken back; TURBO, its tab and all of tilt gone (`docs/specs/flight/THUMBS.md`, `tools/controls.mjs`, `tools/controls-sim/s_gesture.ts`) | the second half on the same branch: the look's orbit in `CameraRig` (`setLook` is a stub), the aim that follows it, the first run's hint; then the phone, then merge |
 | `spike/farfield` | SPIKE days 1 and 2 with `main` 3297ab2 merged in; the look passed on the producer's phone, on by default, kill switches in (desktop session, 2026-11-01), QA'd on the GPU, reviewed with no findings, build main-jF7hrKss.js; not merged, and this build never ran on a real phone | the far raster (`far16.bin`), its boxes, the fade to 34 km, far16.bin no longer holding the first frame | the producer reads the report, merges and pushes |
 
 `feat/controls` and `feat/supersplat` share an INPUT CONTRACT (`onTap`,
 `onChargeStart`, `onChargeEnd(heldSeconds, cancelled)`, `state.chargeHeld`,
 `onTurbo(dir)`, `state.turboHeld`, `input.mode`): see their DECISIONS/ARCHITECTURE
-notes when merging.
+notes when merging. (`feat/thumbs` changes it: `onTurbo(dir, landed, lifted)` is a flick, and turbo is `TurboDrive.level`; ARCHITECTURE has the contract as it stands.)
 
 ### Suggested order
 1. Merge facade -> landmarks (+ wire the 3 new props) -> look -> controls -> supersplat -> perf,
@@ -137,8 +138,7 @@ notes when merging.
    A design pass is producing `MAGIC-SPEC.md` (cloud scratchpad; will be committed to
    `docs/specs/`). Open questions to the producer: which factions at launch; does a
    firehose count as one hit or ~2.
-2. Hybrid tilt + thumb (feat/hybrid, the producer's revision of tilt by default). Tilt needs a real
-   HTTPS deploy (Vercel from this repo); the claude.ai preview blocks motion sensors.
+2. Tilt is gone on `feat/thumbs`, the producer's call ("lets remove tilt steering completely - i dont like it"): two thumbs instead, `docs/specs/flight/THUMBS.md`.
 3. Hold-to-charge super splat (feat/supersplat).
 4. Turbo modes and manual world travel: fly SF -> Tokyo across the Pacific with turbo gears
    (~5 min at G3 ~30 km/s); needs a world mode between cities (ocean, coastlines, curvature,
@@ -152,12 +152,10 @@ notes when merging.
 
 ## Known issues worth knowing
 - A 3x `page.screenshot` costs a frame or more on any build: don't trace frame times beside one.
-- Capture tools pass `&nohud`: `tools/controls.mjs ... firstrun` and `opening` are the first-visit runs (the cues, the chip,
-  TURBO armed under the deck, the sheet, sensors that never answer). `?fixeddt` makes game time run ~3x real time: a "hold"
-  in `run:` game seconds is a shorter real press, and a real press past 450 ms is what makes a thumb.
-- A one-handed reach to TURBO swings the bus until the finger lands, and with a settle it recovers less of a carve than no guard
-  would (37 vs 47 degrees, ideal 67): it stops the wrong-way turn. Only a phone can say if that trade is right.
-- A phone relaxed more than ~2 s after a moved lift gets a counter-carve until RECENTER or a thumb hold (spec section 12).
+- Capture tools pass `&nohud`: `tools/controls.mjs ... firstrun` and `opening` are the first-visit runs (the cues, a gear
+  armed under the deck). `?fixeddt` makes game time run ~3x real time: a "hold" in `run:` game seconds is a shorter real
+  press, and a real press past 450 ms is what makes a thumb.
+- Over CDP a `touchEnd` lists the point that lifts, not the ones that stay; `tools/controls.mjs`'s `hand()` has it right.
 - Never run on an iPhone, in the order that would hurt most: the RGBA16UI G-buffer (ES 3.0 color-renderable, Metal's
   RGBA16Uint too, but only a real A15 proves it; there is no two-target fallback, and a refusal now says so: one line on
   the fog-grey page, `boot().catch`), the first touch (the context in the gesture, sound ~100 ms later, a breath queued
