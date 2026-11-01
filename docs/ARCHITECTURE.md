@@ -180,14 +180,13 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   There is no brown in the palette and there never will be. New ramps are
   appended at the end and referenced by name (never by number: the G-buffer
   stores ramp/255 and the resolve fetches palette row = ramp, nothing baked
-  holds a ramp id). `RAMP_COUNT` is 48 rows (an 8x48 RGBA8 texture, 1.5 KB):
+  holds a ramp id). `RAMP_COUNT` is 64 rows (an 8x64 RGBA8 texture, 2 KB):
   0-19 core; 20-23 world materials (GLASS, STONE, GRANITE: tower facades;
   BRIDGE_ORANGE: painted bridge steel, the Golden Gate); 24-31 reserved for the
   faction ramps (MAGENTA 24, CYAN 25, AQUA 26, PEARL 27, MOSS 28, BIOLUME 29,
-  FAE_VIOLET 30, SILVERBARK 31: docs/specs/STAGES.md 3.4 rule 7); 32-37 for
-  world travel (NIGHT_SKY 32, OPEN_SEA 33, LIMB 34, CLOUD 35, DRY_LAND 36,
-  TWILIGHT 37: WORLD-TRAVEL.md 2.5); 38-47 spare. Claim a reserved row by
-  adding its name at that number.
+  FAE_VIOLET 30, SILVERBARK 31: docs/specs/STAGES.md 3.4 rule 7); 32-46 the sky's
+  and world travel's, named in `Ramp` (SKY.md 4, Rows: nothing in the day's frames
+  reads them); 47 up spare. Claim a reserved row by adding its name at that number.
 
 ## Shader warm-up (READ THIS before adding a material or a new kind of object)
 `src/render/warmup.ts`. On a cold visit the GPU program cache is empty, and
@@ -561,6 +560,27 @@ picks the ramp (mode mips: a mip is still a class, never a blend).
 - `?loadr=<m>`: `config.city.loadRadiusHigh`, the streaming radius up high (1900).
 - `?farnearest` (class with no mips), `?farbias=<n>` (the class map's mip bias), `?farchunk=<tiles>`, `?fartop=<m>`: tests. `config.far`: `toneK`, `wallK`, `classBias`, `fit`, `blockSink`, `blockEnd`, `blockLit`, `blockGlow`.
 With `?nofar` none of it loads and no program is added. tools: `shots.mjs --q= --seq --pan --descent --set= --drop=` and its `hold-<pose>` views (the hold-still swap at four suns), `altitude.mjs --q= --ceiling --log-far`, `fps.mjs --q=`, `framecost.mjs --set=`, `warmcheck.mjs --late=`, `loadprofile.mjs --latency=`, `tools/far/` (`swapstat`, `calib`, `panflip`, `bandflip`, `land`, `seatop`, `rowflip`, `metrics`, `pal`, `absent`, `numbers`, `mergetime`, `sheet`, `ab`).
+
+## The held hour (`?hour=blue`, `docs/specs/sky/SKY.md` slice S1)
+The whole game under one held blue hour: no clock, nothing moves. `src/sky/flag.ts` reads the flag once, as the modules load. **Flag off is the law:** no new fetch, no new
+program, no shader source that differs by a byte, so every line of GLSL the hour adds goes through `held()` or `heldOr()`, at the end of a line. Materials never ask at run time.
+- **`config.sky`**, a section of the tuner only with the flag. The switches are kill switches, live: `table`, `key`, `rows`, `paint`, `beam`, `glow`, `far`. All of them off under
+  `?hour=blue` draws main's frames, exactly. The numbers below them are the one hour held.
+- **A table** (`src/sky/SkyTable.ts`, `BLUE_TABLE`): one colour per (ramp, step) for the whole frame. Every ramp runs dark to light, sky rows too. FOG is the haze there, its step 4 the
+  far side's horizon; the sky takes SKY_LOW. `HeldHour.update()` writes it into the palette texture when a switch moves, and runs at the end of `updateSun()` every frame.
+- **Light.** The afterglow: the sun's azimuth held at +8 degrees, `uLight` mid-range (a .34, b .20, k .20), the sun pass off, the table carrying the dark. `sunR`, the windows' glint and
+  the water's swell take `uLight.x / 0.52`.
+- **Sky** (`src/render/skyResolve.ts`): 16 bands in four rows of the live table (`uSkyRows`), by the clear flag. The far side at height a reads as the sun side at 8.2 + 8.2 sqrt(a + .5), so
+  one height slides between the two with the azimuth: the bands bend toward the sun, and the rows hand over where their colours meet, with no seam. Alpha 0, dither `dsk`. `uSkyHaze` is what
+  `GLSL_SKY_LIGHT` returns in its place, for both its users: the light the far fade ends on, and so the FOG step of the horizon.
+- **Paint** is graded in the table, and the resolve holds paint rows at or under `uPaintCap` outside a glint: what glows at 0.6 or more, or isn't a surface. A halo lifts to the cap.
+- **Beam.** `uBeamGain` is the old 2.6. Its reach and width go back to the day's with the vista: up high it lights nothing.
+- **Far field.** All of it writes through `sbWrite` and reads `uLight`, so the table reaches it for free. What the hour adds: `config.sky.farFit` (the fit was made with a sun's shadows in it),
+  `farGroundLo` (the plain far ground, with no raster), the horizon's hills on RIDGE, sand on SAND. `far.blockLit` is still 0.
+- **`?fps`** reads from a phone: fps, the worst frame of the last 300 (~5 s at 60 fps, ~10 s at 30), the resolve's link + first draw, and the hour. The two times are `WarmReport.resolveLinkMs` and
+  `resolveDrawMs`, off the real warm-up, so no program is added: from the resolve's linkProgram to the round that finds it linked (behind a fence, so to within a round, and with the
+  other lanes compiling beside it), or without `KHR_parallel_shader_compile` to the end of its first synchronous query, where that link blocks; then the GPU's time over the post passes' first
+  draws, where a Metal render pipeline builds. A browser that caches programs reads low on a repeat load.
 
 ## Bridges (`src/world/Bridges.ts`, SF's two hand-built kits)
 The Golden Gate and the Bay Bridge's west span are kits placed on map data: `docs/specs/bridges/BRIDGES.md` is the plan, and its

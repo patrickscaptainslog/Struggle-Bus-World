@@ -2520,6 +2520,17 @@ MAIN f64a142. All on this laptop's UHD 620, nothing on a real iPhone.
   - `spanfly` on both bridges exits 0. `contextloss` 2 of 2 back, 1.47-1.54 s, 0 errors. `iosfloor` parses every chunk. `tsc` clean on both configs.
 - Not done: no phone, no Safari. What the producer flew was the look behind the flags, before this go-live work: main-jF7hrKss.js itself has never run on a phone, so its grace, late landing, burial and A15 frame rate are unproven. SPIKE days 3 to 5. Everything over target above.
 
+## The held hour (SKY.md S1, its first part: the look; feat/sky)
+- **The sky is one field, not two gradients and a seam.** Art's far side and sun side joined by a dithered seam drew a wall up the sky; an arch of it, a beam across the frame; rings round the sun, the target art warned of. But art's far side at height a is its sun side's colour further up (8.2 + 8.2 sqrt(a + .5)), so one height slides between them with the azimuth, and the rows hand over where they already agree. SKY.md 4.1's look stands; its seam is gone. S2's disc and pull sit on top of this.
+- **Sky rows are turned over from art's,** dark to light like every ramp, so SKY_WARM's top steps are warm where the beam reads them. **FOG is the haze, not the sky:** SKY.md's Rows says so, art's table had the sky there. Its step 4 is the horizon, `sky.hazeLight` lands on it, and a far surface now ends on the sky behind it.
+- **BRIDGE_ORANGE is a world row,** rose to plum: art graded it as paint, which is the salmon bridge the skeptic saw. **SAND** is the city's blue, a breath toward lilac. **RIDGE** carries the horizon's hills under the hour: GREEN_GREY read as a green band under a violet sky.
+- **Sky rows stop at chroma 0.135,** art's run to 0.148: 0.75 of a painted frame's paint median is 0.139, the one rule's gate. Art's LIT, LAMP and SIGN_GREEN are left as they are (peak 0.146-0.147): lights and a sign, a call for the lights' part.
+- **The paint cap is a step, in the resolve:** 5.45 of light still dithers to step 6, and every material would have to carry it. Held at step 5 for what glows under 0.6 and is a surface; a halo lifts to it. On the painted block, paint on steps 6-7: 18 game px of 106,264, against 2,407 before the halo was capped.
+- **The key is k .20,** inside the table's .30 to .06, art's own fill. It is what gives the frame a side.
+- **The swell scales with the key, sun or no sun:** there is no sun glitter in today's water for the trap to mean; the dash is what's left of it.
+- **The far fit goes with the shadows:** `far.fit` 1 under no shadows leaves the band +0.47, +1.17, +0.52 luma under what replaces it at Downtown, Presidio and Sunset; `sky.farFit` 0.25 leaves +0.27, -0.01, -0.07. The band stays flatter than the tiles, luma std 14.2 -> 18.0, 10.9 -> 17.0, 9.6 -> 12.8.
+- **The beam goes back to the day's up high:** 90 m from 300 m up is a lit wedge over blocks it can't reach.
+
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
   local repo until `patrickscaptainslog/struggle-bus` exists.

@@ -26,7 +26,7 @@ npx tsc -p tsconfig.main.json --noEmit   # typecheck incl. src/main.ts
 npx vite build         # dist/
 ```
 URL params: `?lat=&lon=&heading=&skipintro`, `?openingshot`, `?fps`, `?fog`,
-`?px=240|295|390|590` (frame width in game pixels; default 390), `?tune` (tuner).
+`?px=240|295|390|590` (frame width in game pixels; default 390), `?tune` (tuner), `?hour=blue` (the held blue hour, ARCHITECTURE "The held hour"; with `&fps` the phone's read-out).
 QA hooks: `window.__game` (flight, city, splatter, input, audio, rig, camera, perf,
 `tapSplat()`, `forceReady()`, `clock()`, `barfAtLatLon(lat, lon)`), `window.__qa`.
 
@@ -150,6 +150,7 @@ notes when merging.
    pass is `merge/perf`. Measure real fps on the producer's iPhone.
 
 ## Known issues worth knowing
+- `shots --det` isn't frame-exact on `sunset` and `downtown` any more, on main itself: two runs of main differ by 25,365 and 1,278 device px. A flag-off diff there reads as a difference; run those two views again before believing one.
 - A 3x `page.screenshot` costs a frame or more on any build: don't trace frame times beside one.
 - Capture tools pass `&nohud`: `tools/controls.mjs ... firstrun` and `opening` are the first-visit runs (the cues, the chip,
   TURBO armed under the deck, the sheet, sensors that never answer). `?fixeddt` makes game time run ~3x real time: a "hold"
