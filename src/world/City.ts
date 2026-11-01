@@ -251,6 +251,9 @@ function farGridMesh(pos: Float32Array, nrm: Float32Array, ramp: Float32Array, l
  * The horizon hills' material: green over the 40 m contour, pale under it, chosen per pixel. A 256 m cell is far too big for a vertex to choose: flat, the
  * contour saws into teeth a cell wide; interpolated, it passes through ramps nobody chose. 37: buildHorizon's mesh stands 3 m under the DEM.
  */
+/** The held hour's plain far ground, what stands in with no raster: the day's tone would be a sheet of light beside the city. */
+const heldFarLo = { get value() { return config.sky.far ? config.sky.farGroundLo : 0; } };
+
 const makeHorizonMaterial = () => makeRampMaterial({ vertexRamp: true, shadowMul: 0, rampAbove: { y: 37, below: Ramp.GREY_LIGHT, above: heldHour ? Ramp.RIDGE : Ramp.GREEN_GREY } });
 
 // Shader warm-up (render/warmup.ts): one of every mesh streaming makes later, made by the same
@@ -817,6 +820,7 @@ export class City {
     const maskSize = new THREE.Vector2(this.maskW, this.maskH);
     const ground = raster && tex ? makeFarGroundMaterial(raster, tex, this.loadedMask, maskRect, maskSize) : undefined;
     const mesh = farGridMesh(pos, nrm, ramp, lo, gl, new THREE.BufferAttribute(idx, 1), 1, ground);
+    if (heldHour && !ground) (mesh.material as THREE.ShaderMaterial).uniforms.uLightOffset = heldFarLo;
     this.farGroup.add(mesh);
     this.farMeshes = [mesh];
 

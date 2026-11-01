@@ -29,14 +29,14 @@ export const GLSL_SKY_HELD = /* glsl */ `
 
 const float SKY_BAND[16] = float[16](${BAND_ALT.map((a) => a.toFixed(2)).join(', ')});
 // The far side's rows and the sun side's. Away from the sun's azimuth the sun side's bands sink toward the horizon (u: 0 under the sun, 1 at the seam): its colour there
-// is the sky higher up, which is the glow's own edge, nested arcs, with nothing laid over the sky. By the seam it has run through its rows to the far side's colours
-// (14 degrees of it at the horizon, its band there, and 4.5 times the height above it), so a narrow dither joins them. Near the zenith dir.xz is 0: a guard, no sun side.
+// is the sky higher up, which is the glow's own edge, nested arcs, with nothing laid over the sky. By the seam it has run through its rows to the far side's own colours
+// at every height (14 + 7.5 sqrt(alt): art's two gradients read against each other), so a narrow dither joins them. Near the zenith dir.xz is 0: a guard, no sun side.
 vec3 skyBands(vec3 dir, float dsk) {
   float alt = max(dir.y, 0.0) * 57.3;
   float l = length(dir.xz);
   float u = l > 1e-3 ? (1.0 - dot(dir.xz, uSkySun.xy) / l) * uSkySun.z : 2.0;
   bool sun = clamp((1.0 - u) / 0.08, 0.0, 1.0) > dsk;
-  if (sun) alt = alt * (1.0 + 3.5 * u) + 14.0 * u;
+  if (sun) alt = mix(alt, 14.0 + 7.5 * sqrt(alt), u);
   int i = 0;
   for (int k = 1; k < 16; k++) if (alt >= SKY_BAND[k]) i = k;
   float e1 = i < 15 ? SKY_BAND[i + 1] : 90.0;

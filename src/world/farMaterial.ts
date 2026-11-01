@@ -96,6 +96,12 @@ const FIT_ROOF = -0.03;
 const FIT_WALL = 0.05;
 const FIT_STREET = 0.12;
 
+/**
+ * How much of that fit is on. It was fitted against a sun: it takes the shadows the near tiles throw out of the far band's tone. The held hour has no shadows, so most of
+ * it goes (hold-still swaps at Downtown, Presidio and Sunset: mean luma across the swap +0.5, +1.2, +0.5 at 1, within 0.3 at this hour's number).
+ */
+const farFit = () => (heldHour && config.sky.far ? config.sky.farFit : config.far.fit);
+
 const glslFloats = (a: number[]) => a.map((v) => v.toFixed(3)).join(', ');
 const CLASS_N = CLASS_RAMP.length;
 
@@ -432,7 +438,7 @@ export function makeFarBlockMaterial(affine: readonly number[], mask: THREE.Text
       uBlockLit: { get value() { return config.far.blockLit; } },
       uBlockGlow: { get value() { return config.far.blockGlow; } },
       uToneK: { get value() { return config.far.toneK; } },
-      uFit: { get value() { return config.far.fit; } },
+      uFit: { get value() { return farFit(); } },
     },
     vertexShader: BLOCK_VS,
     fragmentShader: BLOCK_FS,
@@ -531,7 +537,7 @@ export function makeFarGroundMaterial(r: Pick<FarRaster, 'W' | 'H' | 'affine'>, 
       uToneK: { get value() { return config.far.toneK; } },
       uWallK: { get value() { return config.far.wallK; } },
       uClassBias: { get value() { return config.far.classBias; } },
-      uFit: { get value() { return config.far.fit; } },
+      uFit: { get value() { return farFit(); } },
       uBlockFar,
     },
     vertexShader: VS,
