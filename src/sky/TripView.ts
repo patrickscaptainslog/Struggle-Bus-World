@@ -174,10 +174,8 @@ export class TripView {
     roof.lerp(camUp.multiplyScalar(this.k).addScaledVector(u, 1 - this.k), 1 - Math.exp(-3 * dt));
     roof.addScaledVector(nose, -roof.dot(nose)).normalize();
     this.bank += ((trip.steering ? stickX : 0) * 0.45 - this.bank) * (1 - Math.exp(-6 * dt));
-    if (this.bank !== 0) {
-      const sb = Math.sin(this.bank), cb = Math.cos(this.bank), rt = this.t.crossVectors(nose, roof);
-      this.busUpTurned(rt, cb, sb);
-    } else this.t2.copy(roof);
+    // (a carve leans the roof into the turn)
+    this.t2.copy(roof).multiplyScalar(Math.cos(this.bank)).addScaledVector(this.t.crossVectors(nose, roof), Math.sin(this.bank));
     this.inRender(nose, ax, this.nosing);
     this.inRender(this.t2, ax, this.y);
     this.inRender(this.t.set(trip.dir[0], trip.dir[1], trip.dir[2]), ax, this.flying);
@@ -185,10 +183,6 @@ export class TripView {
     const x = this.x.crossVectors(this.y, z).normalize();
     this.y.crossVectors(z, x);
     this.busQuat.setFromRotationMatrix(this.m.makeBasis(x, this.y, z));
-  }
-
-  private busUpTurned(rt: THREE.Vector3, cb: number, sb: number): void {
-    this.t2.copy(this.busUp).multiplyScalar(cb).addScaledVector(rt, sb);
   }
 
   private inRender(v: THREE.Vector3, a: Float64Array, o: THREE.Vector3): void {

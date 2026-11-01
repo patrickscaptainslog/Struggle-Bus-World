@@ -218,7 +218,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   /** The rig's distance over the 38 degree lens's: it keeps the bus's size on screen through a lens change. */
   let rigScale = 1;
   const placeCamera = () => {
-    rigScale = flying ? TAN19 / Math.tan((((view?.hfov ?? lens) * DEG) / 2)) : 1;
+    rigScale = view ? TAN19 / Math.tan((view.hfov * DEG) / 2) : 1;
     const D = config.camera.distanceVista * rigScale, row = (640 - pipeline.info.height / 2) / focalAt();
     const k = D / Math.sqrt(1 + row * row);
     camera.position.set(0, k * row, k);

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// "No visible jump", as a number: flies src/sky/MoonTrip.ts and src/sky/TripView.ts in Node, a whole round trip at 30 fps and at a rough 20-40 fps, and prints the largest turn of the view and of the bus between
+// "No visible jump", as a number: flies src/sky/MoonTrip.ts and src/sky/TripView.ts in Node, two round trips in a row at 30 fps and at a rough 20-40 fps, leaving the Moon from several places on the lap, and prints the largest turn of the view and of the bus between
 // two frames, leg by leg, with the lens's and the rig's. node --no-warnings tools/sky/view-check.mjs [g5] [iso]
 // Pass: the view turns at most 3.5 degrees in a frame at 30 fps (105 deg/s) and the bus 6, which is its own swing and the view's added up, and nothing is ever NaN. The rebase at 60,000 km is measured on the Sun's, Moon's and Earth's directions across that frame.
 import { registerHooks } from 'node:module';
@@ -43,9 +43,7 @@ function fly(rough, orbitFrames) {
     model.frame(trip.ms, trip.ob, sky);
     const a = trip.ob.axes, leg = trip.leg, k = (1 / 30 / dt);
     if (frames > 0) {
-      // the angle between two frames of the render axes
-      let tr = 0;
-      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) tr += 0; // (kept simple below)
+      // the angle between two frames of the render axes: their relative rotation's trace
       const p = prev.axes;
       const c = (a[0] * p[0] + a[1] * p[1] + a[2] * p[2] + a[3] * p[3] + a[4] * p[4] + a[5] * p[5] + a[6] * p[6] + a[7] * p[7] + a[8] * p[8] - 1) / 2;
       note(leg, 'view', (Math.acos(Math.min(1, c)) / DEG) * k);
@@ -64,16 +62,20 @@ function fly(rough, orbitFrames) {
     frames++;
   };
   frame();
-  trip.tap();
-  frame();
-  trip.tap();
-  for (let i = 0; i < 40000 && trip.leg !== 'orbit'; i++) frame();
-  for (let i = 0; i < orbitFrames; i++) frame();
-  trip.tap();
-  frame();
-  trip.tap();
-  for (let i = 0; i < 40000 && trip.leg !== 'wait'; i++) frame();
-  for (let i = 0; i < 60; i++) frame();
+  // (twice in a row: the second launch starts where the first came home)
+  for (let n = 0; n < 2; n++) {
+    trip.tap();
+    frame();
+    trip.tap();
+    for (let i = 0; i < 40000 && trip.leg !== 'orbit'; i++) frame();
+    for (let i = 0; i < orbitFrames; i++) frame();
+    trip.tap();
+    frame();
+    trip.tap();
+    for (let i = 0; i < 40000 && trip.leg !== 'wait'; i++) frame();
+    for (let i = 0; i < 60; i++) frame();
+    if (trip.leg !== 'wait' || trip.trips !== n + 1) fails++;
+  }
   return { worst, rebase, frames, clock: trip.clock };
 }
 

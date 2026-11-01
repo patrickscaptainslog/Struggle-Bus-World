@@ -1,0 +1,41 @@
+#!/usr/bin/env node
+// With no ?moonrun the game must not change: node tools/sky/flag-off.mjs. Loads the plain page from BASE and reads what could give the flight away: requests to /sky/ or the moonrun chunk, the words of the space
+// branch in the resolve, the flight's strings in the main chunk, page errors. A running page and the source diff, not a frame-by-frame diff.
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { chromium } from 'playwright-core';
+import { browserOptions } from '../browser.mjs';
+
+const BASE = process.env.BASE ?? 'http://localhost:4179/';
+const DIST = process.env.DIST ?? 'C:/Users/Utku/sb-build-perf';
+const browser = await chromium.launch(browserOptions(['--enable-webgl']));
+let bad = 0, requests = 0, flight = 0;
+try {
+  const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
+  page.on('pageerror', (e) => {
+    bad++;
+    console.log('  [pageerror]', e.message);
+  });
+  page.on('request', (r) => {
+    requests++;
+    if (/\/sky\/|moonrun/.test(r.url())) {
+      flight++;
+      console.log('  flight request:', r.url());
+    }
+  });
+  await page.goto(`${BASE}?fps`, { waitUntil: 'load', timeout: 60000 });
+  await page.waitForFunction(() => window.__game?.pipeline, null, { timeout: 90000 });
+  await page.waitForTimeout(6000);
+  const got = await page.evaluate(() => {
+    const p = window.__game.pipeline, fs = p.resolveMaterial.fragmentShader;
+    return { spaceSky: fs.includes('spaceSky'), spaceUniforms: Object.keys(p.resolveMaterial.uniforms).filter((k) => /Earth|Moon|SunDisc/.test(k)).length, programs: p.renderer.info.programs.length, hudTurbo: !!document.querySelector('[data-hud="turbo"]'), label: !!document.querySelector('[data-hud="trip-label"]') };
+  });
+  const main = readdirSync(join(DIST, 'assets')).find((f) => /^main-.*\.js$/.test(f));
+  const text = readFileSync(join(DIST, 'assets', main), 'utf8');
+  const strings = ['THE LONG DARK', 'homeCruise', 'uToRender', 'SWITCH_KM'].filter((s) => text.includes(s));
+  console.log(JSON.stringify({ requests, flightRequests: flight, ...got, main, flightStringsInMain: strings, pageErrors: bad }));
+  if (flight || got.spaceSky || got.spaceUniforms || got.label || strings.length) bad++;
+} finally {
+  await browser.close();
+}
+process.exit(bad ? 1 : 0);

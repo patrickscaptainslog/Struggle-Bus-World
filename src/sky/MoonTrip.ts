@@ -158,8 +158,9 @@ export class MoonTrip {
   /** s since boot, and of the last launch. The sky's clock is ms0 + t. */
   t = 0;
   launchedAt = 0;
-  /** launches so far */
+  /** launches so far, and how long the last one took, home to home */
   trips = 0;
+  tripSeconds = 0;
   /** this frame: the bus from Earth's and from the Moon's centre; the way it flies; level, the way it faces over a body */
   readonly r = v3();
   readonly rm = v3();
@@ -214,9 +215,9 @@ export class MoonTrip {
     return this.ms0 + this.t * 1000;
   }
 
-  /** s since this trip's launch (0 before the first). */
+  /** s since this trip's launch; home, what the whole trip took; 0 before the first. */
   get clock(): number {
-    return this.trips ? this.t - this.launchedAt : 0;
+    return !this.trips ? 0 : this.leg === 'wait' ? this.tripSeconds : this.t - this.launchedAt;
   }
 
   get hEarth(): number {
@@ -718,6 +719,7 @@ export class MoonTrip {
         const rem = len(d);
         if (rem < 0.3) {
           this.gear = 3;
+          this.tripSeconds = this.t - this.launchedAt;
           this.enter('wait');
           return false;
         }
