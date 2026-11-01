@@ -168,6 +168,8 @@ export const config = {
     pools: true,
     /** The spans' deck and tower lights: off, none. */
     bridges: true,
+    /** The far city's lit faces and cells: off, none (its lamps go with `lamps`). */
+    farLights: true,
     /** config.far.fit under this hour: the far band's fit to the near tiles was made with a sun's shadows in them. */
     farFit: 0.25,
     /** The far ground where there is no raster (?nofar, a raster still on its way) is one tone: this much under the day's, or it is a sheet of light beside the city. */
@@ -198,6 +200,11 @@ export const config = {
     litShare: 0.3,
     /** A near pane's glow; 0 past the panes, so share x glow on far surfaces is 0 (SKY.md 4.4 allows 0.06). */
     litGlow: 0.25,
+    /** The far boxes: config.far.blockLit under this hour. Half of a box's walls can light, so 0.2 of them are lit, at config.far.blockGlow 0.2: share x glow 0.04, the rule's 0.06 at most. */
+    farBoxLit: 0.4,
+    /** The far ground: the share of built cells lit at their tallest, and their glow: share x glow 0.05 at most. */
+    farCellLit: 0.2,
+    farCellGlow: 0.25,
     /** Metres between a span's deck lights, on each side, read as it is built. */
     bridgeSpacing: 14,
     /** A lamp's head over the ground (m), read when the list lands. */
@@ -212,8 +219,8 @@ export const config = {
     poolRadius: 11,
     poolLift: 1,
     /** Pools fade out between these distances from the lens (m): past them they would be a few 2 m texels on a pixel. */
-    poolFade: 900,
-    poolEnd: 1500,
+    poolFade: 500,
+    poolEnd: 1200,
   },
 
   city: {

@@ -56,6 +56,8 @@ export class HeldHour {
     heldGlobals.uSkyHaze.value = rows ? S.hazeLight : 0;
     heldGlobals.uLit.value = S.windows ? S.litShare : 0;
     heldGlobals.uLitGlow.value = S.litGlow;
+    heldGlobals.uFarLit.value.set(S.farLights ? S.farCellLit : 0, S.farCellGlow);
+    heldGlobals.uFarFace.value = S.farLights ? 0.5 * S.litShare : 0;
     this.lamps.update();
     u.uBeamGain.value = S.beam ? S.beamGain : 2.6;
     u.uPaintCap.value = S.table && S.paint ? Math.floor(S.paintCap) : 7;

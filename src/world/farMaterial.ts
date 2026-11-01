@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { config } from '../config';
-import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
+import { globals, GLSL_COMMON, GLSL_OUT, heldGlobals } from '../render/materials';
 import { Ramp } from '../render/palette';
-import { heldHour } from '../sky/flag';
+import { held, heldHour, heldOr } from '../sky/flag';
 import { GLSL_WATER } from './terrainMaterial';
 import { Ground, WATER_Y, type FarData, type FarRaster, type FarTowers } from './tiles';
 import { Fam, Variant, styleFor } from './towerStyles';
@@ -102,6 +102,9 @@ const FIT_STREET = 0.12;
  */
 const farFit = () => (heldHour && config.sky.far ? config.sky.farFit : config.far.fit);
 
+/** A far lit surface under the hour, what a near face past the ribbons shows: FARGLOW, one tone, a dim warm mosaic, never a pattern of pixels. */
+const FAR_LIT = `${Ramp.FARGLOW}.0, 3.0 / 7.0`;
+
 const glslFloats = (a: number[]) => a.map((v) => v.toFixed(3)).join(', ');
 const CLASS_N = CLASS_RAMP.length;
 
@@ -148,7 +151,8 @@ const FS = /* glsl */ `
   uniform float uToneK;
   uniform float uWallK;
   uniform float uClassBias;
-  uniform float uFit;
+  uniform float uFit;${held(`
+  uniform vec2 uFarLit;       // the share of built cells lit, at their tallest, and their glow`)}
   #ifdef FAR_BLOCKS
   uniform vec2 uBlockFar;     // the boxes sink from, gone at (m from the lens)
   #endif
@@ -162,7 +166,9 @@ const FS = /* glsl */ `
   const float CLASS_RAMP[${CLASS_N}] = float[${CLASS_N}](${glslFloats(CLASS_RAMP)});
   const float CLASS_OVER[${CLASS_N}] = float[${CLASS_N}](${glslFloats(CLASS_RAMP.map((r) => OVER.get(r) ?? 0))});
   const float CLASS_FIT[${CLASS_N}] = float[${CLASS_N}](${glslFloats(CLASS_FIT)});
-  void main() {
+  void main() {${held(`
+    vec2 cellAt = vUv * uFarSize;
+    vec2 cellPx = fwidth(cellAt);`)}
     #ifdef FAR_NEAREST
     int c = int(texelFetch(uFarClass, ivec2(floor(vUv * uFarSize)), 0).r * 255.0 + 0.5);
     #else
@@ -204,8 +210,20 @@ const FS = /* glsl */ `
     }
     #endif
     // (tone is filtered, so it is a slow gradient, and the resolve dithers those below the vista: a far pixel's step is rounded here, the dots would crawl)
-    light = floor(light * 7.0 + 0.5) / 7.0;
-    sbWrite(ramp, light, sbFog(vWorldPos), 0.0, vViewNormal, 0.01, 1.0);
+    light = floor(light * 7.0 + 0.5) / 7.0;${held(`
+    // the night path: class says built, the wall share (mean height / cell, clipped) how much, a hash of the cell whether it is lit. A cell never stands under a pixel, it doubles
+    // with distance by the frame's own derivative, so this is a tone on a block, never one lit pixel in a random pattern
+    float litGlow = 0.0;
+    if (c == ${ROOF} && uFarLit.x > 0.0) {
+      float k = pow(2.0, ceil(log2(max(max(cellPx.x, cellPx.y), 1.0))));
+      vec2 hc = floor(cellAt / k);
+      if (fract(sin(dot(hc + k * 0.37, vec2(127.1, 311.7))) * 43758.5453) < uFarLit.x * min(ts.g * 2.0, 1.0)) {
+        ramp = ${Ramp.FARGLOW}.0;
+        light = 3.0 / 7.0;
+        litGlow = uFarLit.y;
+      }
+    }`)}
+    sbWrite(ramp, light, sbFog(vWorldPos), ${heldOr('litGlow', '0.0')}, vViewNormal, 0.01, 1.0);
   }
 `;
 
@@ -288,7 +306,7 @@ const BLOCK_FS = /* glsl */ `
     sbWrite(vRamp == ${Ramp.GREY_LIGHT}.0 ? 11.0 : 15.0, 0.6, 0.0, 0.0, vViewN, 0.01, 1.0);
     return;
     #endif
-    if (vLit > 0.5) sbWrite(${Ramp.GLOW_WHITE}.0, max(vLight, 0.36), vFog, uBlockGlow, vViewN, 0.01, 1.0);
+    if (vLit > 0.5) sbWrite(${heldOr(FAR_LIT, `${Ramp.GLOW_WHITE}.0, max(vLight, 0.36)`)}, vFog, uBlockGlow, vViewN, 0.01, 1.0);
     else sbWrite(vRamp, vLight, vFog, 0.0, vViewN, 0.01, 1.0);
   }
 `;
@@ -321,7 +339,9 @@ const TOWER_VS = /* glsl */ `
   out vec3 vWorldPos;
   out vec3 vWorldNormal;
   out vec3 vViewNormal;
-  flat out vec3 vLook;
+  flat out vec3 vLook;${held(`
+  uniform float uFarFace;
+  flat out float vLit;`)}
   void main() {
     vec3 wc = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
     ivec2 mc = clamp(ivec2(floor((wc.xz - uMaskRect.xy) * uMaskRect.z)), ivec2(0), ivec2(uMaskSize) - 1);
@@ -330,7 +350,9 @@ const TOWER_VS = /* glsl */ `
     vWorldPos = wp.xyz;
     vWorldNormal = normalize(mat3(instanceMatrix) * normal);
     vViewNormal = normalize(mat3(viewMatrix) * vWorldNormal);
-    vLook = normal.y > 0.5 ? vec3(${Ramp.GREY_LIGHT}.0, -0.16, ${Fam.NONE}.0) : aTower;
+    vLook = normal.y > 0.5 ? vec3(${Ramp.GREY_LIGHT}.0, -0.16, ${Fam.NONE}.0) : aTower;${held(`
+    // (a face is lit or not, one tone, as a near tower's is past the lines)
+    vLit = normal.y < 0.5 && fract(sin(dot(wc.xz + normal.xz * 7.0, vec2(12.9898, 78.233))) * 43758.5453) < uFarFace ? 1.0 : 0.0;`)}
     gl_Position = projectionMatrix * viewMatrix * wp;
   }
 `;
@@ -340,13 +362,18 @@ const TOWER_FS = /* glsl */ `
   in vec3 vWorldPos;
   in vec3 vWorldNormal;
   in vec3 vViewNormal;
-  flat in vec3 vLook;
+  flat in vec3 vLook;${held(`
+  flat in float vLit;`)}
   ${GLSL_OUT}
   void main() {
     #ifdef FAR_DEBUG
     sbWrite(16.0 + vLook.z, 0.6, 0.0, 0.0, vViewNormal, 0.01, 1.0);
     return;
-    #endif
+    #endif${held(`
+    if (vLit > 0.5) {
+      sbWrite(${FAR_LIT}, sbFog(vWorldPos), 0.0, vViewNormal, 0.01, 1.0);
+      return;
+    }`)}
     vec3 n = normalize(vWorldNormal);
     float light;
     if (vLook.z == ${Fam.GLASS}.0) {
@@ -395,7 +422,7 @@ export function makeFarTowerMaterial(mask: THREE.Texture, maskRect: THREE.Vector
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
     defines: farFlags.debug ? { FAR_DEBUG: 1 } : {},
-    uniforms: { ...globals, uMask: { value: mask }, uMaskRect: { value: maskRect }, uMaskSize: { value: maskSize } },
+    uniforms: { ...globals, uMask: { value: mask }, uMaskRect: { value: maskRect }, uMaskSize: { value: maskSize }, ...(heldHour ? { uFarFace: heldGlobals.uFarFace } : {}) },
     vertexShader: TOWER_VS,
     fragmentShader: TOWER_FS,
   });
@@ -435,7 +462,7 @@ export function makeFarBlockMaterial(affine: readonly number[], mask: THREE.Text
       uMaskSize: { value: maskSize },
       uFarCell: { value: new THREE.Vector4(affine[0], affine[2], affine[4], affine[5]) },
       uBlockFar,
-      uBlockLit: { get value() { return config.far.blockLit; } },
+      uBlockLit: { get value() { return heldHour && config.sky.farLights ? config.sky.farBoxLit : config.far.blockLit; } },
       uBlockGlow: { get value() { return config.far.blockGlow; } },
       uToneK: { get value() { return config.far.toneK; } },
       uFit: { get value() { return farFit(); } },
@@ -539,6 +566,7 @@ export function makeFarGroundMaterial(r: Pick<FarRaster, 'W' | 'H' | 'affine'>, 
       uClassBias: { get value() { return config.far.classBias; } },
       uFit: { get value() { return farFit(); } },
       uBlockFar,
+      ...(heldHour ? { uFarLit: heldGlobals.uFarLit } : {}),
     },
     vertexShader: VS,
     fragmentShader: FS,
