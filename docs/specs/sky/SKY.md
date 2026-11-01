@@ -368,10 +368,10 @@ Total about 23 agent-days.
 | Programs +4-5 small | +1 so far, the lamps': 31 -> 32, `warmcheck` 0 after the warm-up |
 | Main script +6 KB of TS and 11 KB or more of tables, about 9 % | S1 alone: +8.9 KB gzip (2.4 %), one table, flag on or off. lampWorker 1,030 B gzip, flag on only |
 | Allocation a frame 0 | Steady flight 2.64 MB/s on, 2.91 off: the hour adds none |
-| Pools 16 KB a frame while stamping, one tile a frame | As said; the stamp 0.1 ms a tile at worst, timer resolution 0.1 ms |
+| Pools 16 KB a frame while stamping, one tile a frame | As said |
 | Paint's gate: world peak under 0.75 of paint's median | 0.73 on the painted block, 0.74 of the table's median on the frames with no paint of their own |
 
-`tools/skycheck.mjs` on 7 poses: 0 off the palette, 0 on an unnamed row, 0 brown or taupe, the paint cap held. **One hard fail stands: shimmer at FiDi, 12.75 % against today's 12.27 %,** the lights' own moving edges (`DECISIONS.md`, "The held hour, its second part"); 6 of 7 poses are under today's. Hold-still swap at blue hour, Downtown: mean luma +0.68, 4.95 % of far pixels over one step, largest pop 763 px. With the flag off frames match `main`, 16 of 16 views, and no source, program or request differs.
+No time on this build counts: the machine was never quiet, so its laptop fps and link are unmeasured too. `tools/skycheck.mjs` on 7 poses: 0 off the palette, 0 on an unnamed row, 0 brown or taupe, the paint cap held. **One hard fail stands: shimmer at FiDi, 12.75 % against today's 12.27 %,** the lights' own moving edges (`DECISIONS.md`, "The held hour, its second part"); 6 of 7 poses are under today's. Hold-still swap at blue hour, Downtown: mean luma +0.68, 4.95 % of far pixels over one step, largest pop 763 px. With the flag off frames match `main`, 16 of 16 views, and no source, program or request differs.
 
 **Weather is on hold, from the producer, 2026-11-01.** Parked: S7, S8, S9, J3, and S3's `?wx=` presets, cloud layers, overcast tables, cloud shadows and pass skip. Clouds stay off and every sky is clear. S3 keeps its water chunk and sun glitter, about 1 agent-day [E]. That leaves S1, S2, S3's water, S4, J1, S5, S6, J2 and S10, about 15.5 agent-days. J1 runs round 1 #3 clear, and `shots --det` pins `?t=` alone. Risk: cloud shadows were the day's hero. If noon reads flat on the phone, plain drawn clouds with no live data are the fallback, and that call is the producer's.
 
