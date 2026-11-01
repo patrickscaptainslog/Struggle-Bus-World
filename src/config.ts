@@ -226,9 +226,9 @@ export const config = {
     /** Gentle wheezy bob while holding altitude (m, Hz). */
     bobAmp: 1.3,
     bobHz: 0.3,
-    /** Soft ceiling (m above sea level; Sutro Tower tops out ~555) and the band below it where the climb fades and the bus struggles (m). */
-    ceiling: 520,
-    ceilingSoft: 150,
+    /** Soft ceiling (m above sea level: over the airliners, where the air gives out) and the band below it where the climb fades and the bus struggles (m). */
+    ceiling: 15000,
+    ceilingSoft: 2250,
     /** How fast speed chases its target (Hz). */
     speedHz: 1.4,
     /** Max yaw rate at full sideways stretch (rad/s) at cruise speed. */
@@ -365,6 +365,28 @@ export const config = {
     edgeFade: 300,
     /** Bus rattle while straining and at speed (m of jitter at the bus). */
     rattle: 0.32,
+  },
+
+  /** What height changes (src/game/Ascent.ts; docs/specs/flight/ASCENT.md for how it runs on to the Moon). */
+  ascent: {
+    /** Up to this height above the ground (m) the bus flies as it always has. Past it the yoke's rates grow in proportion to the height, so the
+     *  city shrinks at one steady pace, and every speed with the square root of that, so a held thumb can match an airliner at any height. */
+    scaleHeight: 520,
+    /** Past the map's edge the bus may go this many metres out per metre of height, up to reachMax (m) past the edge, where the homing takes over. */
+    reachPerHeight: 4,
+    reachMax: 8000,
+    /** Past the map's edge by more than this (m) the same slope is a floor: nothing out there has collision, so the bus comes back down over the map. */
+    floorFrom: 1200,
+    /** The near plane stands at the camera's own up to this height (m), then moves out with it, up to nearMax: no ground and water fighting for a pixel.
+     *  The far fade stands where it is up to the same height. */
+    nearFrom: 800,
+    nearPerHeight: 0.0067,
+    nearMax: 60,
+    /** By this height (m) the far fade ends this far past where the land does (m): the land data's edge never shows. */
+    fadeLandAt: 3000,
+    fadeLandPast: 2000,
+    /** Over this height (m) the view looks further down, by as much as the far fade's line has dropped: the ground keeps the frame. */
+    pitchFrom: 3000,
   },
 
   splat: {

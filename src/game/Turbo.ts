@@ -1,4 +1,5 @@
 import { config } from '../config';
+import { heightSpeed, mapReach } from './Ascent';
 import { clamp } from './springs';
 import type { Flight } from './Flight';
 
@@ -124,6 +125,9 @@ export class TurboDrive {
     const g = this.gear;
     const ground = Number.isFinite(f.groundBroad) ? f.groundBroad : f.groundUnder;
     this.edge = T.worldTravel ? 1 : this.edgeRoom(f);
+    // every speed grows with the height (src/game/Ascent.ts): 1 below it, so down there nothing here has changed
+    const up = heightSpeed(f.height);
+    const surge = F.surgeSpeed * up;
     if (g > 0) {
       const want = ground + gearAlt(g);
       if (!Number.isFinite(this.gearFloor)) this.gearFloor = Math.min(want, f.y);
@@ -136,16 +140,17 @@ export class TurboDrive {
         this.onEvent?.('engage', g);
       }
       // lifting: a full surge while it claws its way up; engaged: the gear's speed
-      let v = this.engaged ? gearSpeed(g) : F.surgeSpeed;
+      // (G2 and G3 are set for the height they need: only the city's gears grow with it)
+      let v = this.engaged ? (g >= 2 ? gearSpeed(g) : gearSpeed(g) * up) : surge;
       if (held) v *= T.boost;
-      if (v > F.surgeSpeed) v = F.surgeSpeed + (v - F.surgeSpeed) * this.edge;
+      if (v > surge) v = surge + (v - surge) * this.edge;
       Tb.speed = v;
       Tb.ceiling = g >= 2 ? want + gearAlt(g) * 0.6 : 0;
     } else {
       this.gearFloor = -Infinity;
       Tb.floor = -Infinity;
       Tb.ceiling = 0;
-      Tb.speed = held ? F.surgeSpeed : 0;
+      Tb.speed = held ? surge : 0;
     }
     this.boosting = held;
 
@@ -158,8 +163,8 @@ export class TurboDrive {
       kind = 1;
       rate = 3 / Math.max(0.1, T.spool);
       this.braking = false;
-    } else if (this.braking || f.speed > Math.max(Tb.speed, F.surgeSpeed) * 1.02) {
-      const classic = F.cruiseSpeed + (F.surgeSpeed - F.cruiseSpeed) * Math.pow(clamp(f.surge, 0, 1), 1.3);
+    } else if (this.braking || f.speed > Math.max(Tb.speed, surge) * 1.02) {
+      const classic = (F.cruiseSpeed + (F.surgeSpeed - F.cruiseSpeed) * Math.pow(clamp(f.surge, 0, 1), 1.3)) * up;
       if (f.speed > Math.max(Tb.speed, classic) * 1.25) {
         kind = 2;
         rate = 3 / Math.max(0.1, T.brake);
@@ -184,10 +189,10 @@ export class TurboDrive {
     } else if (f.speed < SPEED_OF_SOUND * 0.92) this.machArmed = true;
 
     const lifting = g > 0 && !this.engaged;
-    const spooling = Tb.speed > F.surgeSpeed && f.speed < Tb.speed * 0.9;
+    const spooling = Tb.speed > surge && f.speed < Tb.speed * 0.9;
     const s = lifting ? 1 : spooling ? 0.7 : held ? 0.45 : 0;
     this.strain += (s - this.strain) * (1 - Math.exp(-4 * dt));
-    this.speedK = f.speed <= F.surgeSpeed ? 0 : Math.log(f.speed / F.surgeSpeed) / Math.log(Math.max(F.surgeSpeed * 1.01, T.speed1) / F.surgeSpeed);
+    this.speedK = f.speed <= surge ? 0 : Math.log(f.speed / surge) / Math.log(Math.max(F.surgeSpeed * 1.01, T.speed1) / F.surgeSpeed);
   }
 
   /** Game time (the drive's own clock, advanced by update()). */
@@ -202,7 +207,9 @@ export class TurboDrive {
    */
   private edgeRoom(f: Flight): number {
     const T = config.turbo;
-    const [x0, z0, x1, z1] = this.bounds;
+    // (the edge gives way with the height, as the homing's does: main.ts, mapReach)
+    const out = mapReach(f.height) - 300;
+    const x0 = this.bounds[0] - out, z0 = this.bounds[1] - out, x1 = this.bounds[2] + out, z1 = this.bounds[3] + out;
     const fx = f.fx, fz = f.fz;
     const inside = f.x > x0 && f.x < x1 && f.z > z0 && f.z < z1;
     if (!inside) {
@@ -215,7 +222,7 @@ export class TurboDrive {
     else if (fx < -1e-6) dist = Math.min(dist, (x0 - f.x) / fx);
     if (fz > 1e-6) dist = Math.min(dist, (z1 - f.z) / fz);
     else if (fz < -1e-6) dist = Math.min(dist, (z0 - f.z) / fz);
-    const reach = Math.max(200, (gearSpeed(Math.max(1, this.gear)) - config.flight.surgeSpeed) * T.brake) + T.edgeFade;
+    const reach = Math.max(200, (gearSpeed(Math.max(1, this.gear)) - config.flight.surgeSpeed) * heightSpeed(f.height) * T.brake) + T.edgeFade;
     return clamp((dist + T.edgeFade) / reach, 0, 1);
   }
 }

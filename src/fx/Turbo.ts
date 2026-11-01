@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { config } from '../config';
 import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
 import { Ramp, HUE_RAMPS } from '../render/palette';
+import { heightSpeed } from '../game/Ascent';
 import { clamp } from '../game/springs';
 import type { Flight } from '../game/Flight';
 import type { TurboDrive } from '../game/Turbo';
@@ -532,7 +533,7 @@ export class TurboFx {
     this.trailWrite();
 
     // ---- speed lines: around the view between the camera and the bus, a little ahead
-    const vis = clamp((f.speed - config.flight.surgeSpeed * 0.9) / 140, 0, 1) * clamp(on + 0.25, 0, 1);
+    const vis = clamp((f.speed - config.flight.surgeSpeed * heightSpeed(f.height) * 0.9) / 140, 0, 1) * clamp(on + 0.25, 0, 1);
     this.lines.visible = vis > 0.01;
     if (this.lines.visible) {
       const U = this.lineU;

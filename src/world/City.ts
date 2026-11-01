@@ -461,6 +461,8 @@ export class City {
   private farBlockMat: THREE.ShaderMaterial | null = null;
   private farChunkM = 0;
   private farGroup = new THREE.Group();
+  /** horizon.bin's frame [minX, minZ, maxX, maxZ] (m), once it's in */
+  private horizonRect: [number, number, number, number] | null = null;
   private water: THREE.Mesh;
   private loadedMask: THREE.DataTexture;
   /** tiles whose far skyline boxes never show (FAR_STAND_INS) */
@@ -718,12 +720,19 @@ export class City {
     }
   }
 
+  /** How far the land reaches from here, to the nearest edge of horizon.bin's frame (m): past it there is only the water plane. Infinity in a city with none. */
+  landRoom(x: number, z: number): number {
+    const r = this.horizonRect;
+    return r ? Math.max(0, Math.min(x - r[0], z - r[1], r[2] - x, r[3] - z)) : Infinity;
+  }
+
   /** The hills around the city (Marin, East Bay, San Bruno Mtn) as a coarse fogged ring. */
   private buildHorizon(buf: ArrayBuffer) {
     const dv = new DataView(buf);
     if (buf.byteLength < 24 || String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3)) !== 'SBH1') return;
     const W = dv.getUint32(4, true), H = dv.getUint32(8, true);
     const minX = dv.getFloat32(12, true), minZ = dv.getFloat32(16, true), cell = dv.getFloat32(20, true);
+    this.horizonRect = [minX, minZ, minX + (W - 1) * cell, minZ + (H - 1) * cell];
     const hq = new Int16Array(buf.slice(24, 24 + W * H * 2));
     const step = 2;
     const w = Math.floor((W - 1) / step) + 1, h = Math.floor((H - 1) / step) + 1;
