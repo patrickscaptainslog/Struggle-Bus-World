@@ -31,6 +31,11 @@ export function fadeEnd(h: number, base: number, room: number): number {
   return Math.hypot(base + (Math.min(base, room + A.fadeLandPast) - base) * t * t * (3 - 2 * t), up);
 }
 
+/** How deep the pixel grid may snap at this height (m from the lens): the ground under the screen's center lies far past `base`, the limit near the ground. */
+export function snapReach(h: number, base: number): number {
+  return base * Math.max(1, h / config.ascent.nearFrom);
+}
+
 /** How much further down the view looks at this height (rad): as much as the fade's line has dropped since pitchFrom. */
 export function pitchAdd(h: number, base: number): number {
   const from = config.ascent.pitchFrom;

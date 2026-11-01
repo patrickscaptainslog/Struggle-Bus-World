@@ -8,7 +8,7 @@ import { City, bootFetch, dataQuery, type BuildingRef } from './world/City';
 import { paintUniforms, setFacadeView } from './world/buildingMaterial';
 import { Ground, type CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
-import { fadeEnd, floorPastMap, mapReach, nearPlane } from './game/Ascent';
+import { fadeEnd, floorPastMap, mapReach, nearPlane, snapReach } from './game/Ascent';
 import { CameraRig } from './game/CameraRig';
 import { Splatter, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
 import { Aimer, type Shot } from './game/Aim';
@@ -1064,7 +1064,7 @@ async function boot() {
     controls.opening = opening < config.fog.openingDuration;
     const dragging = qaStick ? true : st.dragging;
     // past the edge of the map the bus homes back toward the city, gently; the edge gives way with the height, and out
-    // there nothing has collision, so the bus holds a slope down to the map
+    // there only the ground has collision, so the bus holds a slope down to the map
     const ex = Math.max(minX - flight.x, flight.x - maxX, 0), ez = Math.max(minZ - flight.z, flight.z - maxZ, 0);
     const edgeOut = mapReach(flight.height);
     if (ex + ez > edgeOut && !openingBridge) {
@@ -1172,10 +1172,11 @@ async function boot() {
     camFwd.y = 0;
     if (camFwd.lengthSq() < 1e-6) camFwd.set(flight.fx, 0, flight.fz);
     camFwd.normalize();
-    // the lens with the height: depth where the ground is, and the fade as far along it from any height
-    const lensFar = fadeOn ? fadeEnd(flight.height, FADE_END, city.landRoom(camera.position.x, camera.position.z)) : 0;
+    // the lens with the height: depth where the ground is, and the fade in force as far along it from any height
+    const lensFar = fadeEnd(flight.height, Fg.clearFarFull, city.landRoom(camera.position.x, camera.position.z));
     pipeline.setDepthRange(nearPlane(flight.height, camNear), fadeOn ? lensFar + FADE_FAR : camera.far);
-    if (fadeOn && !Fg.enabled) globals.uFog.value.z = lensFar;
+    if (!Fg.enabled) globals.uFog.value.z = lensFar;
+    rig.fadeBase = Fg.clearFarFull;
     const hk = clamp(flight.lift / 450, 0, 1);
     streamCenter.set(focus.x + camFwd.x * 950 * hk, focus.y, focus.z + camFwd.z * 950 * hk);
     city.viewHeight = flight.lift;
@@ -1277,7 +1278,7 @@ async function boot() {
     // they stay exactly where they are
     if (vista > 0) {
       camera.getWorldDirection(camDir);
-      const tC = clamp((camY - flight.groundBroad) / Math.max(0.06, -camDir.y), 50, 5000);
+      const tC = clamp((camY - flight.groundBroad) / Math.max(0.06, -camDir.y), 50, snapReach(flight.height, 5000));
       snapPoint.copy(camera.position).addScaledVector(camDir, tC);
       pipeline.focus.lerp(snapPoint, vista);
     }
