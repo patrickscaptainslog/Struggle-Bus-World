@@ -191,8 +191,8 @@ const FS = /* glsl */ `
 
 // The far boxes (?farblocks; farBlocks.ts merges them in a worker): a box is six triangles, its roof and the two walls that face the camera,
 // mirrored to it per instance (a box seen from outside never shows more; side: DoubleSide, a mirror turns a face around). No light in the data:
-// a roof is the raster's tone, a wall its lo, each through sbLight with the true normal, so the far city turns with the sun, and it is one
-// tone per block. Past blockSink a box sinks into its own tone on the far ground, gone by blockEnd: a wall there is a pixel. Night's path is
+// a roof is the raster's tone, a wall its lo, each lit by sbLight's formula with the true normal, per face, so the far city turns with the sun, and it
+// is one tone per block. Past blockSink a box sinks into its own tone on the far ground, gone by blockEnd: a wall there is a pixel. Night's path is
 // here from day one: a wall whose lit bit is set wakes when uBlockLit passes its byte (a stable threshold, never a timer) and is one tone,
 // a light is a pixel out here, with SKY.md section 9's share x glow <= 0.06 held by config.far (blockLit x 1/2 x blockGlow).
 const BLOCK_VS = /* glsl */ `
@@ -209,45 +209,47 @@ const BLOCK_VS = /* glsl */ `
   in vec4 aCell;              // i, j, w, h
   in vec2 aY;                 // base, top (half metres)
   in vec4 aTone;              // roof tone, wall tone, lit walls (low 4 bits) and the box's own grey (high 4), wake
-  flat out vec3 vN;
   flat out vec3 vViewN;
   flat out float vRamp;
-  flat out float vLo;
+  flat out float vLight;
+  flat out float vFog;
   flat out float vLit;
-  out vec3 vWorldPos;
   void main() {
     vec2 size = aCell.zw * abs(uFarCell.xz);
     vec2 c = aCell.xy * uFarCell.xz + uFarCell.yw + 0.5 * aCell.zw * uFarCell.xz;
     ivec2 mc = clamp(ivec2(floor((c - uMaskRect.xy) * uMaskRect.z)), ivec2(0), ivec2(uMaskSize) - 1);
     vec2 toCam = cameraPosition.xz - c;
     float keep = 1.0 - smoothstep(uBlockFar.x, uBlockFar.y, length(toCam));
-    vN = vec3(0.0, 1.0, 0.0);
-    vViewN = vN;
+    vViewN = vec3(0.0, 1.0, 0.0);
     vRamp = 0.0;
-    vLo = 0.0;
+    vLight = 0.0;
+    vFog = 0.0;
     vLit = 0.0;
-    vWorldPos = vec3(0.0);
     gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
     if (keep <= 0.0 || texelFetch(uMask, mc, 0).r > 0.5) return;
     vec2 s = vec2(toCam.x < 0.0 ? -1.0 : 1.0, toCam.y < 0.0 ? -1.0 : 1.0);
     float base = aY.x * 0.5;
     float top = base + (aY.y * 0.5 - base) * keep;
     vec3 wp = vec3(c.x + position.x * s.x * 0.5 * size.x, mix(base, top, position.y), c.y + position.z * s.y * 0.5 * size.y);
-    vN = vec3(normal.x * s.x, normal.y, normal.z * s.y);
-    vViewN = normalize(mat3(viewMatrix) * vN);
+    vec3 n = vec3(normal.x * s.x, normal.y, normal.z * s.y);
+    vViewN = normalize(mat3(viewMatrix) * n);
+    float lo;
     if (normal.y > 0.5) {
       vRamp = ${Ramp.GREY_LIGHT}.0;
-      vLo = ${TONE_C.toFixed(3)} + (aTone.x - 0.5) * ${TONE_K.toFixed(3)} * uToneK + ${FIT_ROOF.toFixed(3)} * uFit;
+      lo = ${TONE_C.toFixed(3)} + (aTone.x - 0.5) * ${TONE_K.toFixed(3)} * uToneK + ${FIT_ROOF.toFixed(3)} * uFit;
     } else {
       vRamp = ${Ramp.GREY}.0;
       int bits = int(aTone.z * 255.0 + 0.5);
       // (the near walls' "each house a slightly different grey", per box: the raster's wall tone is a 64 m mean, which alone lands every wall
       // on one side of a ramp step where the real ones straddle it)
-      vLo = ${WALL_LO.toFixed(3)} + (aTone.y - 0.5) * ${WALL_K.toFixed(3)} + (float(bits >> 4) / 15.0 - 0.5) * 0.12 + ${FIT_WALL.toFixed(3)} * uFit;
+      lo = ${WALL_LO.toFixed(3)} + (aTone.y - 0.5) * ${WALL_K.toFixed(3)} + (float(bits >> 4) / 15.0 - 0.5) * 0.12 + ${FIT_WALL.toFixed(3)} * uFit;
       int bit = normal.x > 0.5 ? (s.x > 0.0 ? 1 : 2) : (s.y > 0.0 ? 4 : 8);
       if ((bits & bit) != 0 && aTone.w < uBlockLit) vLit = 1.0;
     }
-    vWorldPos = wp;
+    // sbLight per face: a box stands past the shadow window (it is what the streaming edge isn't), so there is no shadow to sample, and a face is one tone
+    vLight = clamp(uLight.y + uLight.z * (0.5 + 0.5 * n.y) + uLight.x * max(dot(n, uSunDir), 0.0) + lo, 0.0, 1.0);
+    // (with the fog off only the far fade is left, and a box ends well before it starts)
+    vFog = uFog.x > 0.0 || length(toCam) > uFog.z * 0.55 ? sbFog(wp) : 0.0;
     gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
   }
 `;
@@ -255,22 +257,19 @@ const BLOCK_VS = /* glsl */ `
 const BLOCK_FS = /* glsl */ `
   ${GLSL_COMMON}
   uniform float uBlockGlow;
-  flat in vec3 vN;
   flat in vec3 vViewN;
   flat in float vRamp;
-  flat in float vLo;
+  flat in float vLight;
+  flat in float vFog;
   flat in float vLit;
-  in vec3 vWorldPos;
   ${GLSL_OUT}
   void main() {
     #ifdef FAR_DEBUG
-    sbWrite(vN.y > 0.5 ? 11.0 : 15.0, 0.6, 0.0, 0.0, vViewN, 0.01, 1.0);
+    sbWrite(vRamp == ${Ramp.GREY_LIGHT}.0 ? 11.0 : 15.0, 0.6, 0.0, 0.0, vViewN, 0.01, 1.0);
     return;
     #endif
-    float light = sbLight(vWorldPos, vN, vLo, 1.0);
-    float fog = sbFog(vWorldPos);
-    if (vLit > 0.5) sbWrite(${Ramp.GLOW_WHITE}.0, max(light, 0.36), fog, uBlockGlow, vViewN, 0.01, 1.0);
-    else sbWrite(vRamp, light, fog, 0.0, vViewN, 0.01, 1.0);
+    if (vLit > 0.5) sbWrite(${Ramp.GLOW_WHITE}.0, max(vLight, 0.36), vFog, uBlockGlow, vViewN, 0.01, 1.0);
+    else sbWrite(vRamp, vLight, vFog, 0.0, vViewN, 0.01, 1.0);
   }
 `;
 
