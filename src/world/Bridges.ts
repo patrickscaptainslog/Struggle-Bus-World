@@ -236,10 +236,16 @@ function bayCables(d: Deck, pts: P2[]): CableSpan[] {
   return out;
 }
 
-/** What the deck stands on at W1, the cables' west end (w236373807) and W7: each the size of its OSM row, across and along the deck. */
+/**
+ * What the deck stands on at W1, the cables' west end (w236373807) and W7: each the size of its OSM row, across and along the
+ * deck, its flat top just under the road at the block's low end.
+ */
 function bayBlocks(d: Deck, pts: P2[]) {
   const w1: P2 = [d.pts[0][0], d.pts[0][1]];
-  return [{ p: w1, across: 30, along: 50 }, { p: pts[0], across: 33, along: 11 }, { p: pts[6], across: 33, along: 39 }];
+  return [{ p: w1, across: 30, along: 50 }, { p: pts[0], across: 33, along: 11 }, { p: pts[6], across: 33, along: 39 }].map((b) => {
+    const s = d.stationOf(b.p);
+    return { ...b, top: Math.min(d.at(s - b.along / 2)[2], d.at(s + b.along / 2)[2]) - 0.3 };
+  });
 }
 
 export function makeBayBridgeWest(pts: P2[], deck: DeckPoint[]): THREE.Object3D {
@@ -285,10 +291,7 @@ export function makeBayBridgeWest(pts: P2[], deck: DeckPoint[]): THREE.Object3D 
   const C = pts[3];
   k.block(C[0], 42.5, C[1], 40, 85, 69, f.yaw, GL, -0.04);
   k.block(C[0], (85 + BAY.anchorTop) / 2, C[1], 30, BAY.anchorTop - 85, 55, f.yaw, GL, 0.02);
-  for (const { p, across, along } of bayBlocks(d, pts)) {
-    const top = d.topAt(p) - 0.3;
-    k.block(p[0], top / 2, p[1], across, top, along, f.yaw, GL, -0.04);
-  }
+  for (const { p, across, along, top } of bayBlocks(d, pts)) k.block(p[0], top / 2, p[1], across, top, along, f.yaw, GL, -0.04);
   // the two runs of cable, straight over the deck's edges, with suspenders by the Golden Gate's rule (every ~48 m, 1.2 m
   // thick) on every span: each bay is a segment of the cable, so a suspender always meets it
   const off = legOff * 0.84;
@@ -352,7 +355,7 @@ export function bridgeObstacles(kind: 'ggb' | 'baybridge', pts: P2[], deck: Deck
     for (const ti of BAY.towers) out.push({ x: pts[ti][0], z: pts[ti][1], r: 30, top: BAY.towerH + 8, under: -Infinity });
     out.push({ x: pts[3][0], z: pts[3][1], r: 40, top: BAY.anchorTop + 4, under: -Infinity });
     // (the open air under the deck stops at the blocks it stands on)
-    for (const { p, across, along } of bayBlocks(d, pts)) out.push({ x: p[0], z: p[1], r: Math.hypot(across, along) / 2, top: d.topAt(p) + 1.5, under: -Infinity });
+    for (const { p, across, along, top } of bayBlocks(d, pts)) out.push({ x: p[0], z: p[1], r: Math.hypot(across, along) / 2, top: top + 2, under: -Infinity });
     return out;
   }
   const out: ObstaclePost[] = [];
