@@ -141,6 +141,88 @@ export const config = {
     blockGlow: 0.2,
   },
 
+  /**
+   * The held hour (?hour=blue, docs/specs/sky/SKY.md slice S1). Without the flag nothing reads this, and the tuner has no such section. The switches are kill
+   * switches, live: each turns its part of the hour back to the day's. There is no clock: every number here is the one hour held.
+   */
+  sky: {
+    /** The blue table: off, the day's palette. */
+    table: true,
+    /** The blue-hour key, with no sun pass and no shadows: off, the day's sun. */
+    key: true,
+    /** The sky's bands: off, the day's sky (they need the table too). */
+    rows: true,
+    /** Graded paint and its cap: off, the day's paint rows. */
+    paint: true,
+    /** The long headlight: off, the day's. */
+    beam: true,
+    /** Glass and crown glow raised: off, the day's. */
+    glow: true,
+    /** The far field's own numbers for this hour: off, the day's. */
+    far: true,
+    /** Lit windows: off, the day's dark glass. */
+    windows: true,
+    /** Street lamps, near and far: off, none. */
+    lamps: true,
+    /** The lamps' pools on the paved ground: off, none. */
+    pools: true,
+    /** The spans' deck and tower lights: off, none. */
+    bridges: true,
+    /** The far city's lit faces and cells: off, none (its lamps go with `lamps`). */
+    farLights: true,
+    /** config.far.fit under this hour: the far band's fit to the near tiles was made with a sun's shadows in them. */
+    farFit: 0.25,
+    /** The far ground where there is no raster (?nofar, a raster still on its way) is one tone: this much under the day's, or it is a sheet of light beside the city. */
+    farGroundLo: -0.16,
+    /** The sun's compass azimuth (deg): 261, where it really stood at the mocks' 18:20 PST on 2027-02-20, sun -5.9 deg. The sky's warm side and the key both read it. */
+    azimuth: 261,
+    /** The afterglow's height: it comes from the sun's azimuth, held this high (deg). */
+    keyHeight: 8,
+    /** SKY.md's key table: a .34, b .20, k from .30 to .06 across the blue hour. uLight stays mid-range: the table carries the dark. */
+    ambient: 0.34,
+    bounce: 0.2,
+    keyStrength: 0.2,
+    /** Where the haze ends: the light the far fade takes a surface to, and, with its own small drop, the FOG step of the sky's horizon (FOG's step 4). */
+    hazeLight: 0.62,
+    /** How fast the sky's sun side falls away round the horizon (a power of the cosine: 1 wide, 3 art's). */
+    sunFall: 3,
+    /** Paint stays under this step outside a glint: the top two steps are pale tints (SKY.md 1). */
+    paintCap: 5.45,
+    /** The headlight at night: reach and width at its tip (m), and how many steps its light lifts at most (the day's 2.6). */
+    beamLength: 90,
+    beamWidth: 34,
+    beamGain: 3.4,
+    /** Glow of painted stained glass (levels 1-2, level 3) and of lit crowns; a resting surface stays at 0.55 or under (a crown shows 0.6-0.7 of this). */
+    glassGlow: 0.3,
+    glassGlow3: 0.5,
+    crownGlow: 0.75,
+    /** The share of windows lit: one held value, there is no clock yet (S2 makes it two, homes and offices, from local time). */
+    litShare: 0.3,
+    /** A near pane's glow; 0 past the panes, so share x glow on far surfaces is 0 (SKY.md 4.4 allows 0.06). */
+    litGlow: 0.25,
+    /** The far boxes: config.far.blockLit under this hour. Half of a box's walls can light, so 0.2 of them are lit, at config.far.blockGlow 0.2: share x glow 0.04, the rule's 0.06 at most. */
+    farBoxLit: 0.4,
+    /** The far ground: the share of built cells lit at their tallest, and their glow: share x glow 0.05 at most. */
+    farCellLit: 0.2,
+    farCellGlow: 0.25,
+    /** Metres between a span's deck lights, on each side, read as it is built. */
+    bridgeSpacing: 10,
+    /** A lamp's head over the ground (m), read when the list lands. */
+    lampHead: 6,
+    /** The share of lamps on: one held value (S2's wave runs it from the sun). */
+    lampShare: 1,
+    /** How far a lamp stands over its 32 m height per metre from the lens: the far mesh's 64 m cells stand a few metres off it. */
+    lampLift: 0.002,
+    /** Past this distance (m) the lamps thin out with distance, by a stable hash: far off they crowd into rows a pixel apart. */
+    lampThin: 4000,
+    /** A pool's radius at most (m; each is hashed down to 0.72 of it), read as a tile stamps, and how many steps it lifts the paved ground. */
+    poolRadius: 11,
+    poolLift: 1,
+    /** Pools fade out between these distances from the lens (m): past them they would be a few 2 m texels on a pixel. */
+    poolFade: 500,
+    poolEnd: 1200,
+  },
+
   city: {
     /** How far around the stream center regions load up high (m); LOAD_RADIUS at the floor. ?loadr= overrides it. */
     loadRadiusHigh: 1900,

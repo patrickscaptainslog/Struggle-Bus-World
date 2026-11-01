@@ -36,11 +36,27 @@ export const Ramp = {
   STONE: 21, // pre-war masonry and terracotta: pale buff stone in the sun, cool violet-grey in shade
   GRANITE: 22, // polished dark granite (555 California): near-black plum grey
   BRIDGE_ORANGE: 23, // painted bridge steel (the Golden Gate's International Orange), muted, shadows to rose and plum
-  // Reserved rows (docs/specs/STAGES.md 3.4 rule 7, WORLD-TRAVEL.md 2.5); claim them here, by name:
+  // Reserved rows (docs/specs/STAGES.md 3.4 rule 7); claim them here, by name:
   //   24-31 faction ramps: MAGENTA 24, CYAN 25, AQUA 26, PEARL 27 (spare since Cloud Nine was cut),
   //         MOSS 28, BIOLUME 29, FAE_VIOLET 30, SILVERBARK 31 (the Elderwood)
-  //   32-37 world travel: NIGHT_SKY 32, OPEN_SEA 33, LIMB 34, CLOUD 35, DRY_LAND 36, TWILIGHT 37
-  //   38-47 spare
+  // 32-46: the sky's and world travel's (docs/specs/sky/SKY.md 4, Rows). Nothing in the day's frames reads them: only src/sky/SkyTable.ts's tables name
+  // them all, and the day's table below names what a part of the held hour falls back on
+  NIGHT_SKY: 32, // the sky's far side, high: it can go black while the haze stays bright
+  OPEN_SEA: 33,
+  LIMB: 34,
+  CLOUD: 35,
+  DRY_LAND: 36,
+  TWILIGHT: 37, // the sky's sun side, high
+  LIT: 38, // a lit window
+  LAMP: 39, // a lamp
+  MOON: 40,
+  SNOW: 41,
+  FARGLOW: 42,
+  RIDGE: 43,
+  CLOUD_SHADE: 44,
+  SKY_LOW: 45, // the sky's far side, low (FOG by day): the haze keeps FOG
+  SAND: 46, // no longer SKY_WARM's: a beach doesn't turn with the sky
+  // 47 spare, 48 up for VERDICT's ice, regolith and far rows
 } as const;
 
 export type RampId = (typeof Ramp)[keyof typeof Ramp];
@@ -84,9 +100,17 @@ const RAMPS: Record<number, string[]> = {
   [Ramp.STONE]: ['#23262c', '#33353b', '#45464d', '#5d5e65', '#77767d', '#949298', '#b6b0a6', '#d4cdc0'],
   [Ramp.GRANITE]: ['#0c0b11', '#14121a', '#1d1a24', '#28232f', '#352e3c', '#463d4d', '#5c5163', '#7b6e80'],
   [Ramp.BRIDGE_ORANGE]: ['#24121f', '#3d1828', '#5e2131', '#842c38', '#a33a3a', '#b4564a', '#bf7a6c', '#c9a197'],
+  // (a light has one colour at any hour)
+  [Ramp.LIT]: ['#3a1f4a', '#7a2f58', '#c04e5c', '#ef8450', '#ffb04e', '#ffcf72', '#ffe7a4', '#fff7dc'],
+  [Ramp.LAMP]: ['#191636', '#2f2449', '#54345a', '#8b4a60', '#bd6a5e', '#e29662', '#f6c07e', '#ffe6b0'],
 };
+// (by day these are the rows they used to borrow)
+RAMPS[Ramp.SKY_LOW] = RAMPS[Ramp.FOG];
+RAMPS[Ramp.SAND] = RAMPS[Ramp.SKY_WARM];
+RAMPS[Ramp.RIDGE] = RAMPS[Ramp.GREEN_GREY];
+RAMPS[Ramp.FARGLOW] = RAMPS[Ramp.GREY]; // (the held hour's far lit faces, with its table switched off)
 
-export const RAMP_COUNT = 48; // texture rows (8x48 RGBA8, 1.5 KB; rows 24-47 reserved or spare, unused rows are black)
+export const RAMP_COUNT = 64; // texture rows (8x64 RGBA8, 2 KB; rows 24-31 and 47-63 reserved or spare, a row no table names is black)
 
 /** Linear-ish sRGB triplets 0..1 for CPU use (e.g. CSS colors, splash screens). */
 export function rampColor(ramp: number, step: number): string {
@@ -95,14 +119,10 @@ export function rampColor(ramp: number, step: number): string {
   return r[Math.max(0, Math.min(RAMP_STEPS - 1, Math.round(step)))];
 }
 
-/**
- * Palette texture: width = RAMP_STEPS, height = RAMP_COUNT, RGBA8, nearest.
- * Row r = ramp r. Sampled in the post pass with texelFetch.
- */
-export function makePaletteTexture(): THREE.DataTexture {
-  const data = new Uint8Array(RAMP_STEPS * RAMP_COUNT * 4);
+/** Rows into a palette's bytes (a row no table names stays as it was). `over` wins over `rows`: the day's paint in a blue table, say. */
+export function writePalette(data: Uint8Array, rows: Record<number, string[]> = RAMPS, over?: Record<number, string[]>): void {
   for (let r = 0; r < RAMP_COUNT; r++) {
-    const ramp = RAMPS[r];
+    const ramp = over?.[r] ?? rows[r];
     for (let s = 0; s < RAMP_STEPS; s++) {
       const i = (r * RAMP_STEPS + s) * 4;
       if (!ramp) {
@@ -116,6 +136,18 @@ export function makePaletteTexture(): THREE.DataTexture {
       data[i + 3] = 255;
     }
   }
+}
+
+/** The day's rows (the table a tuner switch falls back on). */
+export const dayRows: Readonly<Record<number, string[]>> = RAMPS;
+
+/**
+ * Palette texture: width = RAMP_STEPS, height = RAMP_COUNT, RGBA8, nearest.
+ * Row r = ramp r. Sampled in the post pass with texelFetch.
+ */
+export function makePaletteTexture(): THREE.DataTexture {
+  const data = new Uint8Array(RAMP_STEPS * RAMP_COUNT * 4);
+  writePalette(data);
   const tex = new THREE.DataTexture(data, RAMP_STEPS, RAMP_COUNT, THREE.RGBAFormat, THREE.UnsignedByteType);
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.NearestFilter;

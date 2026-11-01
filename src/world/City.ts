@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { config } from '../config';
 import { SHADOW_LAYER, makeRampMaterial, globals } from '../render/materials';
+import { heldHour } from '../sky/flag';
 import { Ramp } from '../render/palette';
 import { makeBuildingMaterial, paintUniforms } from './buildingMaterial';
 import { makeHeightGrid, makeTerrainMaterial, makeWaterMaterial } from './terrainMaterial';
@@ -17,6 +18,7 @@ import { RoofBuild, eaveY, newRoofFrame, roofFrame, roofSurfaceY, type RoofFrame
 import { FAR_STAND_INS, HIDDEN, clearStandInCells, hiddenAt, isSfOrigin, type Hidden, type PropBox } from './towerStyles';
 import { gunzip, isGzip } from './gunzip';
 import { registerWarm } from '../render/warmup';
+import { uploadRect } from '../render/upload';
 
 // Streams the baked city around the bus: region bundles are fetched and
 // meshed in a worker, tiles appear inside the fog, far ones are dropped.
@@ -250,7 +252,10 @@ function farGridMesh(pos: Float32Array, nrm: Float32Array, ramp: Float32Array, l
  * The horizon hills' material: green over the 40 m contour, pale under it, chosen per pixel. A 256 m cell is far too big for a vertex to choose: flat, the
  * contour saws into teeth a cell wide; interpolated, it passes through ramps nobody chose. 37: buildHorizon's mesh stands 3 m under the DEM.
  */
-const makeHorizonMaterial = () => makeRampMaterial({ vertexRamp: true, shadowMul: 0, rampAbove: { y: 37, below: Ramp.GREY_LIGHT, above: Ramp.GREEN_GREY } });
+/** The held hour's plain far ground, what stands in with no raster: the day's tone would be a sheet of light beside the city. */
+const heldFarLo = { get value() { return config.sky.far ? config.sky.farGroundLo : 0; } };
+
+const makeHorizonMaterial = () => makeRampMaterial({ vertexRamp: true, shadowMul: 0, rampAbove: { y: 37, below: Ramp.GREY_LIGHT, above: heldHour ? Ramp.RIDGE : Ramp.GREEN_GREY } });
 
 // Shader warm-up (render/warmup.ts): one of every mesh streaming makes later, made by the same
 // functions: a building tile (its vertex layout from the worker's mesher), a tile's own ground (and
@@ -451,6 +456,11 @@ export class City {
   farRaster: Pick<FarRaster, 'W' | 'H' | 'affine' | 'cls' | 'height'> | null = null;
   /** far16.bin is still on its way, past the first frame (the game plays on; QA's __shotReady waits) */
   farLate = false;
+  /** The held hour's lamps, once they have landed: what stamps a tile's pools into its classes. Null otherwise, and then no tile is ever stamped. */
+  private pools: { stamp(tr: TerrainTile): boolean } | null = null;
+  /** tiles waiting for their pools, one a frame, and how far down the list that has got */
+  private poolTiles: string[] = [];
+  private poolAt = 0;
   /** Called once if the far raster comes, as it goes in: on time before the first frame, late in play. */
   onFarRaster: (() => void) | null = null;
   /** the far boxes' chunks as they stand, and what the worker reported */
@@ -844,6 +854,7 @@ export class City {
     const maskSize = new THREE.Vector2(this.maskW, this.maskH);
     const ground = raster && tex ? makeFarGroundMaterial(raster, tex, this.loadedMask, maskRect, maskSize) : undefined;
     const mesh = farGridMesh(pos, nrm, ramp, lo, gl, new THREE.BufferAttribute(idx, 1), 1, ground);
+    if (heldHour && !ground) (mesh.material as THREE.ShaderMaterial).uniforms.uLightOffset = heldFarLo;
     this.farGroup.add(mesh);
     this.farMeshes = [mesh];
 
@@ -947,9 +958,54 @@ export class City {
       }
     }
     this.farBlocksFrame();
+    if (this.pools) this.poolFrame(renderer);
     this.paint.flush(renderer, dt);
     this.ground.work();
     this.ground.flush(renderer, dt);
+  }
+
+  /** The lamps are in: every tile from here on stamps its pools, and every tile already up does. One path, for a cold load and for tiles already on screen. */
+  setPools(pools: { stamp(tr: TerrainTile): boolean }) {
+    this.pools = pools;
+    this.poolTiles = [...this.tiles.keys()];
+    this.poolAt = 0;
+  }
+
+  /** One tile a frame: its pools into its class bytes, and those bytes up again (16 KB), on whichever texture draws them. */
+  private poolFrame(renderer: THREE.WebGLRenderer) {
+    if (this.poolAt >= this.poolTiles.length) {
+      if (this.poolAt) this.poolTiles.length = this.poolAt = 0;
+      return;
+    }
+    const key = this.poolTiles[this.poolAt++];
+    const lt = this.tiles.get(key);
+    const tr = lt?.terrainData;
+    if (!lt || !tr || !this.pools!.stamp(tr)) return;
+    if (lt.prep?.terrain) lt.prep.terrain.classTex.needsUpdate = true;
+    if (lt.classTex) {
+      lt.classTex.needsUpdate = true;
+      return;
+    }
+    // (a coarse region's ground holds a copy of its tiles' classes)
+    const rs = this.regionSize, rx = Math.floor(lt.tx / rs), rz = Math.floor(lt.tz / rs);
+    const tex = this.regionMeshes.get(`${rx},${rz}`)?.classTex;
+    if (!tex) return;
+    const cn = tr.classN, N = cn * rs, ox = (lt.tx - rx * rs) * cn, oz = (lt.tz - rz * rs) * cn;
+    const data = tex.image.data as Uint8Array;
+    for (let j = 0; j < cn; j++) data.set(tr.cls.subarray(j * cn, j * cn + cn), (oz + j) * N + ox);
+    const gl = renderer.getContext() as WebGL2RenderingContext;
+    if (!uploadRect(renderer, tex, ox, oz, cn, cn, gl.RED, gl.UNSIGNED_BYTE, 1)) tex.needsUpdate = true;
+  }
+
+  /** far.bin's ground grid for the lamps' worker, a copy (null before it is in). */
+  groundGrid(): { ground: Float32Array; gridW: number; gridH: number; minX: number; minZ: number; cell: number } | null {
+    const f = this.far;
+    return f ? { ground: f.heights.slice(), gridW: f.gridW, gridH: f.gridH, minX: f.minX, minZ: f.minZ, cell: f.cell } : null;
+  }
+
+  /** A city file's URL, the data's version on it. */
+  fileUrl(name: string): string {
+    return `${this.baseUrl}/${name}${this.ext}${dataQuery()}`;
   }
 
   /** Request the regions around `focus` that aren't loaded or in flight (nearest first, a few at a time). */
@@ -1423,8 +1479,13 @@ export class City {
     return this.tiles.get(`${tx},${tz}`)?.hidden ?? false;
   }
 
-  get busy(): boolean {
+  /** What the cover and `ready` wait for. Not the pools: they lift tiles already drawn. */
+  get loading(): boolean {
     return this.pending.size > 0 || this.adopt.length > 0 || this.farBusy || this.farLanding.length > 0;
+  }
+
+  get busy(): boolean {
+    return this.loading || this.poolAt < this.poolTiles.length;
   }
 
   private isPending(key: string): boolean {
@@ -1497,6 +1558,7 @@ export class City {
     const key = `${t.tx},${t.tz}`;
     if (this.tiles.has(key)) return;
     const lt: LoadedTile = { tx: t.tx, tz: t.tz, buildings: null, caster: null, terrain: null, terrainData: t.terrain, buildingData: t.building, refs: [], classTex: null, maxY: -Infinity, hidden: false, terrainStep: 0, grid: t.grid, meshH: null, grown: t.grown, growthShown: false, prep: null };
+    if (this.pools) this.poolTiles.push(key);
     if (!coarse) this.makeTileBuildings(lt, t);
     if (t.building) {
       const b = t.building;
@@ -1683,7 +1745,8 @@ export class City {
     const ts = this.manifest.tileSize, n = tr.classN;
     const i = Math.min(n - 1, Math.max(0, Math.floor(((x - tr.originX) / ts) * n)));
     const j = Math.min(n - 1, Math.max(0, Math.floor(((z - tr.originZ) / ts) * n)));
-    return tr.cls[j * n + i];
+    // (classes stop at 10: the top bits are a lamp's pool, under the held hour)
+    return tr.cls[j * n + i] & 15;
   }
 
   /** The city's low ground (m): the 5th percentile of the far grid's land heights (0 before it loads). A

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
 import { Ramp } from '../render/palette';
+import { held, heldHour, heldOr } from '../sky/flag';
 import { Ground, WATER_Y } from './tiles';
 import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from './GroundPaint';
 
@@ -29,7 +30,7 @@ export const GLSL_WATER = /* glsl */ `
     vec2 iq = floor(q);
     float row = sbWaterHash(vec2(iq.y, 3.1));
     float dash = sbWaterHash(vec2(floor(q.x + row * 7.0), iq.y));
-    if (dash > 0.9 && fract(q.y) < 0.45) light += 0.12;
+    if (dash > 0.9 && fract(q.y) < 0.45) light += ${heldOr('0.12 * min(uLight.x / 0.52, 1.0)', '0.12')};
     float sh = sbShadow(surface, vec3(0.0, 1.0, 0.0));
     light -= (1.0 - sh) * 0.06;
     float fog = sbFog(wp);
@@ -59,7 +60,9 @@ const FS = /* glsl */ `
   precision highp usampler2D;
   uniform sampler2D tClass;
   uniform float uClassN;
-  uniform float uLift;
+  uniform float uLift;${held(`
+  uniform float uLamp;
+  uniform vec2 uLampFar;`)}
   ${GLSL_GROUND_PAINT}
   ${GLSL_BLAST_RING}
   in vec3 vWorldPos;
@@ -68,16 +71,19 @@ const FS = /* glsl */ `
   in vec2 vClassUv;
   ${GLSL_OUT}
   ${GLSL_WATER}
-  float cls(ivec2 p) {
+  float ${heldOr('clsRaw', 'cls')}(ivec2 p) {
     p = clamp(p, ivec2(0), ivec2(int(uClassN) - 1));
     return floor(texelFetch(tClass, p, 0).r * 255.0 + 0.5);
-  }
+  }${held(`
+  // (the top 4 bits of a texel are a lamp's pool, Lamps.stamp: classes stop at 10)
+  float cls(ivec2 p) { return mod(clsRaw(p), 16.0); }`)}
   void main() {
     // smooth class masks via manual bilinear on per-class indicators
     vec2 t = vClassUv * uClassN - 0.5;
     ivec2 i0 = ivec2(floor(t));
     vec2 f = fract(t);
-    float c00 = cls(i0), c10 = cls(i0 + ivec2(1, 0)), c01 = cls(i0 + ivec2(0, 1)), c11 = cls(i0 + ivec2(1, 1));
+    ${heldOr(`vec4 raw = vec4(clsRaw(i0), clsRaw(i0 + ivec2(1, 0)), clsRaw(i0 + ivec2(0, 1)), clsRaw(i0 + ivec2(1, 1)));
+    float c00 = mod(raw.x, 16.0), c10 = mod(raw.y, 16.0), c01 = mod(raw.z, 16.0), c11 = mod(raw.w, 16.0);`, 'float c00 = cls(i0), c10 = cls(i0 + ivec2(1, 0)), c01 = cls(i0 + ivec2(0, 1)), c11 = cls(i0 + ivec2(1, 1));')}
     vec4 w = vec4((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y);
     float best = -1.0; float bc = 0.0;
     float bestLand = -1.0; float landC = 0.0;
@@ -128,14 +134,20 @@ const FS = /* glsl */ `
     else if (bc == ${Ground.PATH}.0) { ramp = ${Ramp.GREY_LIGHT}.0; lo = 0.0; }
     else if (bc == ${Ground.YARD}.0) { ramp = ${Ramp.GREEN_GREY}.0; lo = 0.0; }
     else if (bc == ${Ground.FOREST}.0) { ramp = ${Ramp.GREEN_GREY}.0; lo = -0.1; }
-    else if (bc == ${Ground.SAND}.0) { ramp = ${Ramp.SKY_WARM}.0; lo = -0.1; }
+    else if (bc == ${Ground.SAND}.0) { ramp = ${heldHour ? Ramp.SAND : Ramp.SKY_WARM}.0; lo = -0.1; }
     else if (bc == ${Ground.RAIL}.0) { ramp = ${Ramp.ROOF_DARK}.0; lo = -0.04; }
     else if (bc == ${Ground.ROCK}.0) { ramp = ${Ramp.GREY}.0; lo = 0.06; }
     vec3 n = normalize(vWorldNormal);
     float light = sbLight(vWorldPos, n, lo + uLift, 1.0);
     // ground reads calmer than buildings: compress its sun/slope contrast (shadows stay crisp)
     float flatL = sbLight(vWorldPos, vec3(0.0, 1.0, 0.0), lo + uLift, 1.0);
-    light = mix(light, flatL, 0.55);
+    light = mix(light, flatL, 0.55);${held(`
+    // a lamp's pool on what's paved: the street a step or two up its own ramp, warm at the lamp's feet, a clean edge (bilinear, then cut: no 2 m stairs)
+    if (uLamp > 0.0 && (bc == ${Ground.PAVED}.0 || bc == ${Ground.SIDEWALK}.0 || bc == ${Ground.PLAZA}.0 || bc == ${Ground.PATH}.0)) {
+      float pool = dot(w, floor(raw / 16.0)) / 15.0 * (1.0 - smoothstep(uLampFar.x, uLampFar.y, distance(vWorldPos, cameraPosition)));
+      if (pool > 0.6) { ramp = ${Ramp.LAMP}.0; light = 2.0 / 7.0; }
+      else if (pool > 0.3) light += uLamp * 0.15;
+    }`)}
     float glow = 0.0;
     float pr, pEdge, pWet, pFresh;
     // curbs (where two ground classes blend) stay grey through the paint: the street plan still reads

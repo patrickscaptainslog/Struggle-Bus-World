@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { config } from '../config';
+import { held, heldHour } from '../sky/flag';
 
 // Every scene material writes the same small G-buffer, so the post pass can
 // light-quantize, dither, outline and fog everything consistently. It is one
@@ -19,6 +20,17 @@ import { config } from '../config';
 //
 // Materials never output RGB colors. Use the GLSL chunks below; see
 // makeRampMaterial() for the common case.
+
+/** What the held hour adds to the globals (materials only ask for it with the flag: GLSL_SKY_LIGHT). */
+export const heldGlobals = {
+  uSkyHaze: { value: 0 }, // the light the haze ends on, in place of the day's sky function (0: that function)
+  uLit: { value: 0 }, // the share of windows lit, one held value: there is no clock
+  uLitGlow: { value: 0 }, // a near pane's glow
+  uLamp: { value: 0 }, // how many steps a lamp's pool lifts the paved ground
+  uLampFar: { value: new THREE.Vector2() }, // the distance over which the pools fade out (m): from, gone by
+  uFarLit: { value: new THREE.Vector2() }, // the far ground: the share of built cells lit, at their tallest, and their glow
+  uFarFace: { value: 0 }, // the far skyline: the share of faces lit
+};
 
 /** Uniforms shared by every scene material. Update in place; never replace. */
 export const globals = {
@@ -46,6 +58,7 @@ export const globals = {
   uFogBillow: { value: new THREE.Vector2(config.fog.layerBillow, 1 / config.fog.layerBillowSize) },
   // the angular size of one game pixel (rad) in the scene pass, for the facades' detail by size on screen
   uPixelAngle: { value: 0.0017 },
+  ...(heldHour ? heldGlobals : {}),
 };
 
 /**
@@ -104,8 +117,10 @@ export function layerTopBase(x: number, z: number): number {
  * perspective (buildingMaterial skyMirror: towers write the light that lands exactly on a ramp step).
  * `calm` is pipeline.calm (0 at the floor, 1 with the vista fully calm).
  */
-export const GLSL_SKY_LIGHT = /* glsl */ `
-float sbSkyLight(vec3 dir, vec3 sunDir, float calm) {
+export const GLSL_SKY_LIGHT = /* glsl */ `${held(`
+uniform float uSkyHaze;`)}
+float sbSkyLight(vec3 dir, vec3 sunDir, float calm) {${held(`
+  if (uSkyHaze > 0.0) return uSkyHaze;`)}
   float e = clamp(dir.y * 2.6, -0.3, 1.0);
   float sunNear = pow(max(dot(dir, sunDir), 0.0), 16.0);
   // (at the floor the sky band is the frame's top ~10 deg: it holds one step there, so its first step
