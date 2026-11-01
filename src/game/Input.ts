@@ -611,9 +611,9 @@ export class Input {
       return;
     }
 
-    // The flying thumb. A second thumb that only just landed makes this two fingers together.
+    // The flying thumb. A second thumb that only just landed, and hasn't gone anywhere, makes this two fingers together.
     let recent = false;
-    for (const s of this.slots) if (s.role === Role.Second && !s.right && now - s.t0 <= inputTune.tapMs) recent = true;
+    for (const s of this.slots) if (s.role === Role.Second && !s.right && now - s.t0 <= inputTune.tapMs && s.maxDist <= inputTune.tapSlopPx) recent = true;
     this.setSlot(slot, e, now, Role.Fly);
     if (others === 0 && !mouse && this.flickSide(slot.x0) && this.commands(slot)) slot.flick = Flick.Firm;
     this.beginFly(slot, now);

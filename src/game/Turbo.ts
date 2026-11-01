@@ -99,6 +99,8 @@ export class TurboDrive {
   lastDir = 0;
   onEvent: ((ev: TurboEvent, gear: number) => void) | null = null;
   private gearFloor = -Infinity;
+  /** what the bus was holding when the gear went in: a gear that never bit hands it back */
+  private holdWas = -Infinity;
   private braking = false;
   /** how long the current spool / brake has been running (s): its rate eases in */
   private rateT = 0;
@@ -149,13 +151,15 @@ export class TurboDrive {
       this.gear++;
       this.engaged = false;
       this.braking = false;
+      this.holdWas = f.holdY;
       if (!Number.isFinite(this.gearFloor)) this.gearFloor = f.y; // the floor rises from where the bus is
     } else {
       if (this.gear <= 0) return false;
       this.gear--;
       this.braking = true;
-      // hold the altitude it had: the yoke dives back down (a gear's floor dropping away would just sink it)
-      f.holdY = f.y;
+      // hold the altitude it had: the yoke dives back down (a gear's floor dropping away would just sink it); but a
+      // gear still lifting never bit: it's taken back, and the bus settles to where it was, by the sink or the hold it had
+      f.holdY = this.engaged ? f.y : this.holdWas;
       if (this.gear === 0) this.gearFloor = -Infinity;
       else this.gearFloor = Math.min(this.gearFloor, f.y);
       this.engaged = this.gear > 0;

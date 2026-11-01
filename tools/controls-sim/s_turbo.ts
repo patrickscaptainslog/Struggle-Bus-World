@@ -173,7 +173,28 @@ const free = () => ({ sx: 0, sy: 0, dragging: false });
   }
   res.edgeLevels = rows;
 }
-// ---- 7. world travel on: G2 (climb to 2 km, ~4.5 km/s)
+// ---- 7. a mistaken launch: a flick down while the gear still lifts takes it back, with nothing to fly
+{
+  const rows: unknown[] = [];
+  for (const after of [0.4, 1, 1.5]) {
+    const S = await session(37.7763, -122.4352, 88);
+    await S.run(2, free, 'cruise');
+    const y0 = S.f.y, lift0 = S.f.lift;
+    S.drive.shift(1, S.f);
+    await S.run(after, free, 'lifting');
+    const up = { y: r1(S.f.y - y0), engaged: S.drive.engaged };
+    S.drive.shift(-1, S.f);
+    let peak = S.f.y, t = 0;
+    while (t < 25 && S.f.lift > lift0 + 3) {
+      await S.run(0.1, free, 'taken back');
+      peak = Math.max(peak, S.f.y);
+      t += 0.1;
+    }
+    rows.push({ after, up, peakOverStart: r1(peak - y0), secondsBack: r1(t), lift0: r1(lift0), liftEnd: r1(S.f.lift), mode: S.f.mode });
+  }
+  res.takenBack = rows;
+}
+// ---- 8. world travel on: G2 (climb to 2 km, ~4.5 km/s)
 {
   config.turbo.worldTravel = true;
   const S = await session(37.7600, -122.4800, 270);
@@ -199,5 +220,6 @@ for (const r of (res.edge as any).log) console.log('  ', JSON.stringify(r));
 console.log('levels:', JSON.stringify(res.levels));
 console.log('nose:', JSON.stringify(res.nose));
 console.log('edge, by level:', JSON.stringify(res.edgeLevels));
+console.log('taken back:', JSON.stringify(res.takenBack));
 console.log('world travel G2:', JSON.stringify({ ...(res.worldTravelG2 as any), log: undefined }));
 for (const r of (res.worldTravelG2 as any).log) console.log('  ', JSON.stringify(r));

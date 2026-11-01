@@ -179,9 +179,10 @@ export class CameraRig {
 
   /**
    * The look, as Input reports it (state.look: the thumb's offset from where it landed, CSS px, +y up): main.ts hands
-   * it over every frame, before update(). A stub: it only keeps the offsets, and the camera doesn't move yet.
+   * it over every frame, before update(), with the wall clock's dt (a hit-stop must not stall it). A stub: it only
+   * keeps the offsets, and the camera doesn't move yet.
    */
-  setLook(on: boolean, x: number, y: number) {
+  setLook(on: boolean, x: number, y: number, _realDt: number) {
     this.lookOn = on;
     this.lookX = x;
     this.lookY = y;

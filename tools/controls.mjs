@@ -289,8 +289,8 @@ if (modes.has('thumbs')) {
 }
 
 if (modes.has('turbo')) {
-  // the jet: over the Western Addition heading east toward downtown
-  const page = await open(Q);
+  // the jet: from the south of the map, up the length of it, so the map's edge has no say in what the levels reach
+  const page = await open('?lat=37.7150&lon=-122.4400&heading=340&skipintro&fixeddt=0.05');
   const cdp = await page.context().newCDPSession(page);
   const H = hand(page, cdp);
   await wall(1300);

@@ -161,6 +161,7 @@ row('touch', 'second: drag that stays down: looks, the stick untouched', (h) => 
   h.up(a, RX + 30, RY);
   return { early, L, same, back, after, stillSteering };
 });
+row('touch', 'second: a tap with the first hand while the other looks', (h) => { together(h); h.wait(500); const b = newId(); h.down(b, LX, LY); h.slide(b, LX, LY, 60, 0, 200); const a = newId(); h.down(a, RX, RY, false); h.wait(90); h.up(a, RX, RY); h.wait(30); const on = h.input.state.look.on; h.up(b, LX + 60, LY); return { on }; });
 row('touch', 'second: rests 500 ms, then drags (a look at once)', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.wait(500); h.slide(b, LX, LY, 30, 0, 100); h.wait(30); const on = h.input.state.look.on; h.up(b, LX + 30, LY); h.up(a, RX + 30, RY); return { on }; });
 row('touch', 'second: a look does not count as a thumb', (h) => { const a = newId(); h.down(a, X, Y); h.wait(40); const b = newId(); h.down(b, LX, LY, false); h.slide(b, LX, LY, 40, 0, 200); const thumb = h.input.state.thumb; h.up(b, LX + 40, LY); h.up(a, X, Y); return { thumb }; });
 row('touch', 'second: flick up: answered on the lift, the gear 320 ms later', (h) => { const a = steer(h); flickUp(h); h.wait(500); h.up(a, RX + 30, RY); });
@@ -192,7 +193,8 @@ row('touch', 'flick down ends all turbo at once, the gear stays', (h) => { const
 row('touch', 'the next flick down drops the gear', (h) => { const a = steer(h); h.drive.shift(1, h.flight); h.wait(50); double(h); h.wait(500); flickDown(h); h.wait(100); flickDown(h); h.wait(50); h.up(a, RX + 30, RY); });
 row('touch', 'undo: a flick down takes the waiting gear back', (h) => { const a = steer(h); flickUp(h); h.wait(60); flickDown(h); h.wait(600); h.up(a, RX + 30, RY); });
 row('touch', 'undo: with turbo on it takes the gear back and leaves turbo', (h) => { const a = steer(h); double(h); h.wait(500); flickUp(h); h.wait(60); flickDown(h); h.wait(600); h.up(a, RX + 30, RY); });
-row('touch', 'undo: a flick down past the window is a gear down', (h) => { const a = steer(h); flickUp(h); h.wait(500); flickDown(h); h.wait(100); h.up(a, RX + 30, RY); });
+row('touch', 'undo: a flick down past the window, the gear engaged, is a gear down', (h) => { const a = steer(h); flickUp(h); h.wait(500); flickDown(h); h.wait(100); h.up(a, RX + 30, RY); return { hold: h.flight.holdY }; });
+row('touch', 'undo: a gear still lifting is taken back: the bus goes back to what it was doing', (h) => { h.flight.y = 5; const a = steer(h); flickUp(h); h.wait(500); const lifting = h.drive.gear === 1 && !h.drive.engaged; flickDown(h); h.wait(100); h.up(a, RX + 30, RY); return { lifting, hold: h.flight.holdY }; });
 row('touch', 'LOCKED waits for the window', (h) => { const a = steer(h); h.drive.shift(1, h.flight); h.wait(50); flickUp(h); const at = h.evs.length; h.wait(200); const early = h.evs.slice(at); h.wait(300); h.up(a, RX + 30, RY); return { early }; });
 row('touch', 'the gate: a flick is answered and waits for it', (h) => { h.shifter.locked = true; const a = steer(h); flickUp(h); h.wait(800); const armed = h.shifter.armed, gated = h.shifter.gated, g0 = h.drive.gear; h.shifter.locked = false; h.wait(50); h.up(a, RX + 30, RY); return { armed, gated, g0 }; });
 row('touch', 'the gate: a flick down takes it back', (h) => { h.shifter.locked = true; const a = steer(h); flickUp(h); h.wait(800); flickDown(h); h.wait(50); h.shifter.locked = false; h.wait(100); h.up(a, RX + 30, RY); });
@@ -383,6 +385,7 @@ ok(taps('second: two taps') === 2, 'each tap while steering is a tap');
   ok(by('second: drag that stays').look!.from >= 400, 'and not before the delay');
 }
 ok(note('second: rests 500').on, 'a rest, then a drag: a look at once');
+ok(taps('second: a tap with the first hand') === 1 && note('second: a tap with the first hand').on, 'a tap while the other thumb looks, and the look holds');
 ok(!note('second: a look does not count').thumb, 'a look is never st.thumb');
 ok(atOf('second: flick up', 'first') === atOf('second: flick up', 'flick+'), 'the first flick answers on its lift');
 ok(atOf('second: flick up', 'up') - atOf('second: flick up', 'first') >= 320 && atOf('second: flick up', 'up') - atOf('second: flick up', 'first') < 340, 'its gear bites 320 ms later');
@@ -421,7 +424,8 @@ ok(by('flick down ends').level === 0 && by('flick down ends').gear === 1, 'one f
 ok(by('the next flick down').level === 0 && by('the next flick down').gear === 0, 'the next drops the gear');
 ok(by('undo: a flick down').gear === 0 && n('undo: a flick down', 'up') === 0 && n('undo: a flick down', 'back') === 1, 'undo');
 ok(by('undo: with turbo on').gear === 0 && by('undo: with turbo on').level === 1, 'undo leaves turbo on');
-ok(by('undo: a flick down past').gear === 0 && n('undo: a flick down past', 'down') === 1 && n('undo: a flick down past', 'back') === 0, 'past the window it is a gear down');
+ok(by('undo: a flick down past').gear === 0 && n('undo: a flick down past', 'down') === 1 && n('undo: a flick down past', 'back') === 0 && note('undo: a flick down past').hold === 400, 'past the window, the gear in, it is a gear down that holds the height');
+ok(note('undo: a gear still').lifting && by('undo: a gear still').gear === 0 && note('undo: a gear still').hold === -Infinity, 'a gear still lifting hands back what the bus was holding');
 ok(note('LOCKED waits').early.length === 0 && n('LOCKED waits', 'locked') === 1, 'LOCKED only once the window has closed');
 {
   const v = note('the gate: a flick is answered');

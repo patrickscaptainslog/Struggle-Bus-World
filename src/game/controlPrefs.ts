@@ -1,7 +1,7 @@
 // The persisted controls settings (localStorage strugglebus.controls.v1), pure so they test offline.
 
 export interface Prefs {
-  /** cues already shown (src/ui/Coach.ts): bits 1 tap, 2 drag, 8 mega (4 and 16 were TURBO's blink and the tilt chip's: they stay set in old saves, and nothing reads them) */
+  /** cues already shown (src/ui/Coach.ts): bits 1 tap, 2 drag, 8 mega (4 and 16 were TURBO's blink and the tilt chip's: they stay set in old saves and nothing reads them, so a new lesson takes 32) */
   taught?: number;
   /** the buttons and the flick's side mirrored for the left hand */
   swap?: boolean;
