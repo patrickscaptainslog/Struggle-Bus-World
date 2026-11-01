@@ -27,8 +27,9 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
 `src/render/materials.ts`:
 
 - `makeRampMaterial(opts)` — standard toon material (supports `InstancedMesh`,
-  per-vertex ramps via `setVertexRamp()` / `vertexRamp: true`, `glow`, custom
-  `vertexChunk` for animation, `noOutline`, `fogMul`).
+  per-vertex ramps via `setVertexRamp()` / `vertexRamp: true`, `rampAbove` for a
+  height contour chosen per pixel across cells too big for a vertex to choose,
+  `glow`, custom `vertexChunk` for animation, `noOutline`, `fogMul`).
 - Custom shaders: `glslVersion: THREE.GLSL3`, include `GLSL_COMMON` in both
   stages and `GLSL_OUT` in the fragment stage, spread `globals` into
   `uniforms`, and finish with
@@ -539,7 +540,7 @@ picks the ramp (mode mips: a mip is still a class, never a blend).
   mask's 255; `FAR_STAND_INS`' tiles hold 200, which hides their boxes and sinks nothing), and water beside land rises to the plane so the
   raster draws the shore. Its `lightOffset` attribute carries the walls' lo, per 64 m vertex.
 - `?farmap=oblique`: and the walls a grazing camera sees, lit live, facing it, so the far city turns with the sun.
-- `?farfade`: fade to 34 km (`config.fog.clearFarFull`), far plane 36 km, the sky by the clear flag alone.
+- `?farfade`: fade to 34 km (`config.fog.clearFarFull`), far plane 36 km, the sky by the clear flag alone, and a water plane sized to end inside the fade's full fog from anywhere in the frame (60 km without the flag).
 - `?farblocks`: the height plane as boxes. `farBlocks.ts` merges equal runs of roof cells row by row, in `farWorker.ts`, one job at boot: tops in 4 m steps over sea
   level, so a box never lies on a hillside; only a ROOF cell makes one (a footprint over half of it; less than that a building is tone); no box crosses a 256 m
   tile, so `uMask` hides exactly what a tile replaces, and a chunk is a region, one draw, none at all once every tile it has boxes in is loaded. `City.farBlocksFrame`
@@ -550,11 +551,12 @@ picks the ramp (mode mips: a mip is still a class, never a blend).
   is night's share, 0 until there is a night. Warm-up: `registerWarm('city')`, under the flag.
 - `?farblocks` also puts far.bin's tall boxes on their towers' facade families: `far16.bin`'s tail holds `styleFor`'s inputs per box (stable id, arch, area, height, centre),
   `farTowerLooks` runs the mesher's own rule on them, `makeFarTowerMaterial` draws the family's ramp with its windows in the mean, glass mirroring the sky.
-- `config.far.fit` scales the far band's fit to the tiles that replace it (`CLASS_FIT`, `FIT_ROOF`, `FIT_WALL`, `FAM_LO`), a pre-light lo per class, from `tools/far/calib.py` on
-  hold-still swaps. `?fardebug`: the far ground and the boxes write their class as a ramp, for that tool.
+- `config.far.fit` scales the far band's fit to the tiles that replace it (`CLASS_FIT`, `FIT_ROOF`, `FIT_WALL`, `FIT_STREET`, `FAM_LO`), a pre-light lo per class, from `tools/far/calib.py` on
+  hold-still swaps. The means alone flatten the band, so the boxes' and the streets' are set by contrast as well (`tools/far/swapstat.py`'s `swapped`, luma std over the rows that swapped): `FIT_STREET`
+  takes the roofs' brightness out of the filtered tone between the boxes, parks left alone, and goes with them between `far.blockSink` and `far.blockEnd`. `?fardebug`: the far ground and the boxes write their class as a ramp, for that tool.
 - `?loadr=<m>`: `config.city.loadRadiusHigh`, the streaming radius up high (1900).
 - `?farnearest` (class with no mips), `?farbias=<n>` (the class map's mip bias), `?farchunk=<tiles>`, `?fartop=<m>`: tests. `config.far`: `toneK`, `wallK`, `classBias`, `fit`, `blockSink`, `blockEnd`, `blockLit`, `blockGlow`.
-Off, none of it loads and no program is added. tools: `shots.mjs --q= --seq --pan --descent --set=` and its `hold-<pose>` views (the hold-still swap at four suns), `altitude.mjs --q= --ceiling --log-far`, `fps.mjs --q=`, `framecost.mjs --set=`, `tools/far/` (`swapstat`, `calib`, `panflip`, `bandflip`, `rowflip`, `metrics`, `pal`, `absent`, `numbers`, `mergetime`, `sheet`, `ab`).
+Off, none of it loads and no program is added. tools: `shots.mjs --q= --seq --pan --descent --set=` and its `hold-<pose>` views (the hold-still swap at four suns), `altitude.mjs --q= --ceiling --log-far`, `fps.mjs --q=`, `framecost.mjs --set=`, `tools/far/` (`swapstat`, `calib`, `panflip`, `bandflip`, `land`, `rowflip`, `metrics`, `pal`, `absent`, `numbers`, `mergetime`, `sheet`, `ab`).
 
 ## Re-baking a city
 - **Bump `window.__sbDataV` in index.html with every re-bake** (`osm1` -> `osm2`). It goes on every URL under `/city/`
