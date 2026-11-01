@@ -459,20 +459,20 @@
           4.6
         ],
         [
-          37.8305402,
-          -122.4798372,
+          37.8305761,
+          -122.4798417,
           27.0,
           4.6
         ],
         [
-          37.8309885,
-          -122.4798928,
+          37.8310065,
+          -122.479895,
           27.0,
           4.6
         ],
         [
-          37.8314035,
-          -122.4800846,
+          37.8314194,
+          -122.4800955,
           27.0,
           4.6
         ],
@@ -483,7 +483,7 @@
           4.6
         ]
       ],
-      "note": "points, from OSM rows: south anchorage w1560010167, south tower w1329971884, north tower w1330832681, north anchorage w1560010149. deck (lat, lon, top m): the approach's end in the Presidio, through those four and mid span, to Marin; tops from the LiDAR, north of the north tower inferred. supports (lat, lon, across m, along m): Pylon S2 and S1, each pair from its rows; Pylon N1 and N2 stand inside the North Anchor's block, so they need none; the last five stand over the Marin Approach (r21407755), where the map holds no row, about 52 m apart, clear of the two paths under it"
+      "note": "points, from OSM rows: south anchorage w1560010167, south tower w1329971884, north tower w1330832681, north anchorage w1560010149. deck (lat, lon, top m): the approach's end in the Presidio, through those four and mid span, to Marin; tops from the LiDAR, north of the north tower inferred. supports (lat, lon, across m, along m): Pylon S2 and S1, each pair from its rows; Pylon N1 and N2 stand at the two ends of the North Anchor's row, so its block carries them; the last five stand over the Marin Approach (r21407755), where the map holds no row, about 52 m apart, clear of the two paths under it"
     },
     {
       "kind": "baybridge",
