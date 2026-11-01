@@ -185,6 +185,8 @@ interface Slot {
   x0: number;
   y0: number;
   t0: number;
+  /** Landing order: what touched down after a touchend can't be what that touchend left behind. */
+  seq: number;
   /** Where it is now, and when it last spoke (ms). */
   x: number;
   y: number;
@@ -245,6 +247,7 @@ export class Input {
   private rectW = 0;
   private rectH = 0;
   private firstDone = false;
+  private landings = 0;
   /** the thumb's stretch (applyStretch) */
   private readonly b = { x: 0, y: 0 };
 
@@ -322,7 +325,7 @@ export class Input {
 
   constructor(el: HTMLElement) {
     this.el = el;
-    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, x: 0, y: 0, last: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false });
+    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, last: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false });
 
     const s = el.style as CSSStyleDeclaration & { webkitUserSelect?: string; webkitTouchCallout?: string; webkitTapHighlightColor?: string };
     s.touchAction = 'none';
@@ -725,6 +728,7 @@ export class Input {
     slot.x0 = slot.x = e.clientX - this.rectL;
     slot.y0 = slot.y = e.clientY - this.rectT;
     slot.t0 = slot.last = now;
+    slot.seq = ++this.landings;
     slot.maxDist = 0;
     slot.flick = Flick.No;
     slot.looking = false;
@@ -754,14 +758,16 @@ export class Input {
   /**
    * touchend/touchcancel with no fingers left: any touch pointer still held
    * lost its pointerup. Checked a beat later so a pointerup dispatched after
-   * the touch event (engine order varies) still lands first.
+   * the touch event (engine order varies) still lands first. What landed
+   * since is a new touch, whatever its timestamp says: the second of two quick
+   * flicks can be queued behind this touchend on a slow frame.
    */
   private touchesGone(e: TouchEvent) {
     if (e.touches.length > 0) return;
-    const at = performance.now();
+    const seq = this.landings;
     window.clearTimeout(this.staleTimer);
     this.staleTimer = window.setTimeout(() => {
-      for (const s of this.slots) if (s.role !== Role.None && s.type === 'touch' && s.t0 < at) this.drop(s);
+      for (const s of this.slots) if (s.role !== Role.None && s.type === 'touch' && s.seq <= seq) this.drop(s);
     }, 60);
   }
 

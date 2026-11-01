@@ -294,6 +294,18 @@ row('touch', 'three: the next touch is a fresh one', (h) => { const a = newId(),
 // ---- a lost pointer
 row('touch', 'lost: a look thumb gone silent lets go of the view, and a move brings it back', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.slide(b, LX, LY, 60, 0, 200); h.wait(7500); const held = h.input.state.look.on; h.wait(800); const lapsed = !h.input.state.look.on; h.move(b, LX + 70, LY); h.wait(30); const back = h.input.state.look.on; h.up(b, LX + 70, LY); h.up(a, RX + 30, RY); return { held, lapsed, back }; });
 row('touch', 'lost: the last touch ended with no pointerup', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.slide(b, LX, LY, 60, 0, 200); h.el.dispatch('touchend', { touches: [], cancelable: true, preventDefault() {} }); h.wait(100); const on = h.input.state.look.on, thumb = h.input.state.thumb; const c = newId(); h.down(c, RX, RY); h.wait(100); h.up(c, RX, RY); return { on, thumb }; });
+row('touch', 'lost: a stroke queued behind a touchend is no leftover', (h) => {
+  // (a slow frame: the first stroke's touchend is handled late, with the next landing already in the queue, stamped earlier than now)
+  h.stroke(LX, LY, 0, -74, 85);
+  const landed = clock.ms + 150;
+  clock.ms += 200;
+  h.el.dispatch('touchend', { touches: [], cancelable: true, preventDefault() {} });
+  const b = newId();
+  h.el.dispatch('pointerdown', { ...ptr('pointerdown', b, LX, LY, true), timeStamp: landed });
+  h.wait(70);
+  h.el.dispatch('pointerup', { ...ptr('pointerup', b, LX, LY - 74), timeStamp: landed + 85 });
+  h.wait(50);
+});
 row('touch', 'lost: pointercancel on the second thumb (no tap, no flick, the view let go)', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.slide(b, LX, LY, 0, -74, 85); h.wait(50); h.cancel(b, LX, LY - 74); h.wait(30); const on = h.input.state.look.on; h.up(a, RX + 30, RY); return { on }; });
 row('touch', 'lost: pointercancel on a quick second thumb', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.wait(60); h.cancel(b, LX, LY); h.up(a, RX + 30, RY); });
 row('touch', 'lost: pointercancel on a lone stroke (no flick)', (h) => { const a = newId(); h.down(a, LX, LY); h.slide(a, LX, LY, 0, -74, 85); h.cancel(a, LX, LY - 74); });
@@ -499,6 +511,7 @@ ok(taps('three: the next touch') === 1, 'the next touch is fresh');
 }
 ok(!note('lost: the last touch ended').on && !note('lost: the last touch ended').thumb, 'no touches left: everything lets go');
 ok(taps('lost: the last touch ended') === 1, 'and the next touch is a fresh one');
+ok(by('lost: a stroke queued').level === 1, 'a stroke queued behind a touchend is the second flick');
 ok(!note('lost: pointercancel on the second').on, 'cancel ends the look');
 quiet('lost: pointercancel on the second');
 ok(taps('lost: pointercancel on a quick') === 0, 'a cancelled second thumb never taps');
