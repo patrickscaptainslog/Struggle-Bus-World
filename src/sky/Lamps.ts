@@ -163,7 +163,6 @@ export class Lamps {
         for (let n = r.starts[run], e = r.starts[run + 1]; n < e; n++) {
           const x = p[n * 4] * LAMP_XZ - tr.originX, z = p[n * 4 + 2] * LAMP_XZ - tr.originZ;
           if (x < -reach || z < -reach || x > this.tileSize + reach || z > this.tileSize + reach) continue;
-          // (as the shader hashes a lamp's place)
           const h = Math.sin((x + tr.originX) * 12.9898 + (z + tr.originZ) * 78.233) * 43758.5453;
           const rad = reach * (0.72 + 0.28 * (h - Math.floor(h)));
           const i0 = Math.max(0, Math.ceil((x - rad) / t - 0.5)), i1 = Math.min(N - 1, Math.floor((x + rad) / t - 0.5));

@@ -10,7 +10,8 @@ import { dayRows, HUE_RAMPS, Ramp, writePalette } from '../render/palette';
 // - BRIDGE_ORANGE: art graded it as paint, which leaves a salmon bridge under a dark sky. It is a world row: rose to plum, under paint's chroma.
 // - FOG is the haze here, not the sky: dark to light, with its step 4 the far side's horizon (SKY_LOW 7), so that the far fade ends in the sky behind it.
 // - SKY_LOW takes art's far-side low band, which art kept in FOG (SKY.md 4, Rows). The sky's four rows are art's, turned over: SKY_WARM's steps 6-7 stay warm
-//   for the beam's core and nose (SKY.md 4, Traps). Their chroma stops at 0.135: 0.75 of a painted frame's median, the one rule's gate (SKY.md 1).
+//   for the beam's core and nose (SKY.md 4, Traps). Their chroma stops at 0.135: 0.75 of a painted frame's median, the one rule's gate (SKY.md 1). LIT and SIGN_GREEN stop there
+//   too: art left them at 0.147 and a lit window is not paint.
 // - SAND: its own row, the city's blue a breath toward lilac. Rows nothing draws yet are named from their nearest kin, so S2's blend has something to start from.
 export const BLUE_TABLE: Record<number, string[]> = {
   [Ramp.GREY]: ['#0c1131', '#0f153a', '#131b45', '#192353', '#223067', '#31427f', '#475c97', '#7083b5'],
@@ -31,7 +32,7 @@ export const BLUE_TABLE: Record<number, string[]> = {
   [Ramp.BUS_YELLOW]: ['#270d20', '#57182b', '#952e39', '#d0544b', '#e08900', '#e7a800', '#e9c108', '#e6d989'],
   [Ramp.BUS_BLACK]: ['#090c26', '#090c26', '#0b0e2b', '#0c1131', '#0f1538', '#131a42', '#18224f', '#243166'],
   [Ramp.GLOW_WHITE]: ['#3b3a70', '#60608e', '#8888ab', '#b3b1c9', '#d1cede', '#e0dee9', '#efeef4', '#ffffff'],
-  [Ramp.SIGN_GREEN]: ['#04281c', '#00402a', '#005a3d', '#00744d', '#00905d', '#22ae71', '#5bce91', '#aaedc6'],
+  [Ramp.SIGN_GREEN]: ['#04281c', '#00402a', '#005a3d', '#00744d', '#00905d', '#35ac74', '#5ece92', '#aaedc6'],
   [Ramp.WHITE]: ['#3b3a70', '#60608e', '#8888ab', '#b3b1c9', '#d1cede', '#e0dee9', '#efeef4', '#ffffff'],
   [Ramp.ROOF_DARK]: ['#0b0f2e', '#0d1234', '#0f153a', '#111840', '#151e4b', '#1a2556', '#233168', '#31427f'],
   [Ramp.GLASS]: ['#0d1236', '#101640', '#131b4c', '#17215b', '#202b6e', '#2a3987', '#4253a2', '#7a88c8'],
@@ -44,7 +45,7 @@ export const BLUE_TABLE: Record<number, string[]> = {
   [Ramp.CLOUD]: ['#20285f', '#2c326f', '#393c7e', '#504a8b', '#685798', '#92699c', '#c27c9c', '#f4a48e'],
   [Ramp.DRY_LAND]: ['#15173f', '#1f214d', '#2b2c5e', '#3a3a70', '#4c4a82', '#635d94', '#8079a8', '#a39abc'],
   [Ramp.TWILIGHT]: ['#121b58', '#1f2a72', '#313688', '#474499', '#5a4f9e', '#7756a4', '#8b5aa4', '#a75f9b'],
-  [Ramp.LIT]: ['#3a1f4a', '#7a2f58', '#c04e5c', '#ef8450', '#ffb04e', '#ffcf72', '#ffe7a4', '#fff7dc'],
+  [Ramp.LIT]: ['#3a1f4a', '#7a2f58', '#bb535e', '#ea8859', '#fbb259', '#ffcf72', '#ffe7a4', '#fff7dc'],
   [Ramp.LAMP]: ['#191636', '#2f2449', '#54345a', '#8b4a60', '#bd6a5e', '#e29662', '#f6c07e', '#ffe6b0'],
   [Ramp.MOON]: ['#3d4a73', '#5c698c', '#7e8aa6', '#99a1b5', '#b4b9c4', '#cececd', '#e9e4d6', '#fffbe9'],
   [Ramp.SNOW]: ['#4b5b92', '#6475a9', '#7e8fc0', '#93a3ce', '#a9b7dc', '#c4cee8', '#dfe6f4', '#ffffff'],
