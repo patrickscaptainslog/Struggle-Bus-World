@@ -128,7 +128,7 @@ const CHASE = {
   twinpeaks: city(SF, 'lat=37.7560&lon=-122.4560&heading=95&skipintro&nohud'),
   piers: city(SF, 'lat=37.8015&lon=-122.3960&heading=330&skipintro&nohud'),
   baybridge: city(SF, 'lat=37.7915&lon=-122.3860&heading=48&skipintro&nohud'),
-  ggbridge: city(SF, 'lat=37.8050&lon=-122.4745&heading=352&skipintro&nohud'),
+  ggbridge: city(SF, 'lat=37.8082&lon=-122.4749&heading=352&skipintro&nohud'),
   fortpoint: city(SF, 'lat=37.8075&lon=-122.4695&heading=305&skipintro&nohud'),
 };
 const CLIMB = {

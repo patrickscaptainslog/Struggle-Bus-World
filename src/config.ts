@@ -163,6 +163,8 @@ export const config = {
     vistaSettle: 2.4,
     /** The opening: the yoke can't climb until the bus is this far past the Golden Gate (m), so the low camera clears the deck. */
     openingClimbAfter: 230,
+    /** ...nor fly lower than this until then (m ASL): the height it holds over the strait where the data has no tile. */
+    openingGlide: 24.5,
   },
 
   flight: {

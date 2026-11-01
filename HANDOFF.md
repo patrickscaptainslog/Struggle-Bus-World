@@ -71,6 +71,7 @@ including merging into `main`.** None of the branches below has been merged yet.
 | `merge/perf` | polish/perf, perf/load and the optimization deep dive in one merge, QA'd on the GPU (MAIN vs NEXT), merge review's five findings fixed, not yet judged (desktop session, 2026-10-30); never run on a real phone | one RGBA16UI G-buffer, the typed mesher, sun-pass casters, depth-only sun pass, first draws on a byte budget, unseen swaps that only commit, the warm-up from the top of main.ts, primed streaming, the opening on the wall clock and a tap to skip it, a first touch with no stall, context loss | merge next (its DECISIONS "iPhone performance" has the numbers, MAIN bd660ba vs NEXT, and what was dropped); first real-phone pass below |
 | `feat/stages` | empty (just created from main) | — | build the stage engine per `docs/specs/STAGES.md` (its "Producer decisions" section) |
 | `merge/osm` | feat/osm (local c17bc4a; `origin/feat/osm` is 13 commits behind it, never use it) + main f64a142, QA'd on the GPU (MAIN vs NEXT), merge review's four findings fixed, the outside judge's round 1 answered, the last review's findings fixed, merged into main 2026-10-31 (one judge round by the producer's rule); never run on a real phone | the OpenStreetMap city in main's game: real footprints, mapped roofs (`roofGeom.ts`), streets and names on the signs, ground classes, evidence trees, the 'osm' id scheme, ODbL credit + MAP DATA, London and Amsterdam, LOD 1 rings, `tools/sweep.mjs`, `framecost.mjs`, `osm-paint.mjs`, `osm-play.mjs` | done (its DECISIONS "OpenStreetMap in main's game" has the numbers, the merge review's at its end; "OpenStreetMap, outside judge round 1" what the judge found: the "fin" is Market Street, `tools/sightline.mjs` shows it to anyone); the producer's call on the hillside views over budget; the distant-city study builds on it |
+| `fix/bridge-data` | built from `docs/specs/bridges/BRIDGES.md` steps 1 and 2 (desktop session, 2026-11-01), QA'd on the GPU (MAIN vs NEXT), two reviews' findings fixed, the outside judge's round answered, `osm2`; never run on a real phone | the Golden Gate and the Bay Bridge on OSM's rows, one deck list for mesh, heights and collision, `relandmark.py`, `tools/spanfly.mjs`, the opening at heading 100, flight under a deck | the phone link, the producer's look at the first shot and the turn-out under a deck, then merge; "Bridges: what's left" below |
 
 `feat/controls` and `feat/supersplat` share an INPUT CONTRACT (`onTap`,
 `onChargeStart`, `onChargeEnd(heldSeconds, cancelled)`, `state.chargeHeld`,
@@ -87,6 +88,14 @@ notes when merging.
    growth kit + director + Wonders), Super Rainbow's five stages first.
 4. World travel (`docs/specs/WORLD-TRAVEL.md`).
 
+### Bridges: what's left
+`fix/bridge-data` is steps 1 and 2 of `docs/specs/bridges/BRIDGES.md`: both hand-built bridges on map data, `osm2`, built, reviewed and judged, never on a real phone. The producer's look at the new first shot and a thumb on the turn-out under a deck come first. Left, none of it started:
+- **Step 3:** the bake gate in report mode (fifteen checks in `qa.py`), hero ids in `sf.json`, `tools/bake/tour.py` and `tools/tour.mjs`. No player change.
+- **Step 4:** streets back: `overture.py` keeps `between`, one segment download per city, a re-bake of all three. Before release 2026-10-21.0 is deleted, about 2026-12-20.
+- **Step 5:** decks for every city, the big one: `tools/bake/bridges.py`, `bridges.bin`, `bridgeMesher.ts`, `tools/bridgecheck.mjs`, posts from data, a re-bake of all three. The kits, the stand-ins and the bents' special case go, the east span appears, default piers fill the open stretches. Its flight list has the chase camera and the blocks under a deck. `far16.bin` is rebuilt after it.
+- **Step 6:** heroes by OSM id, `HIDDEN`'s bridge rows, `BRIDGE_TIERS`, `FAR_STAND_INS` and `clearStandInGround` deleted, the gate turned to FAIL.
+- Any change under `public/city/` after the `osm2` push, `relandmark.py` included, takes `osm3` in the same commit.
+
 ## Design docs (all in `docs/specs/`)
 - `MAGIC-SPEC.md` — "wild paint": 14 effects, one visual language, escalation ladder, perf
   roll-up, build order, three workstreams with file ownership.
@@ -99,6 +108,7 @@ notes when merging.
 - `WORLD-TRAVEL.md` — turbo SF -> Tokyo: floating origin + UTM frames, curvature in the vertex
   shader, analytic ocean in the resolve pass, city streaming, Tokyo from Overture, phased plan.
 - `magic/concept-*.md` — the three art directors' raw concepts.
+- `bridges/BRIDGES.md` — bridges in every city from data, six steps, with `audit-props.md` and `audit-new-city.md` beside it. Steps 1 and 2 are built.
 
 ## Rules that keep it beautiful and fast
 - Materials write a palette ramp + light + fog + glow through `sbWrite`; never free RGB
@@ -163,7 +173,8 @@ notes when merging.
 - A camera on a straight street's axis lays the street on one screen line, the same line as the vertical of what stands at its foot: climbing off the Ferry Building, heading 235, Market Street reads like a light fin on the clock tower, on main too. Past the streaming radius its last ~50 game px are a pale hairline between far boxes (the far band's). `tools/sightline.mjs`.
 - Street edges keep the 2 m class texture's stairs at a shallow angle to the grid (north of Market they run ~9 degrees off it): only water has the wider share (ARCHITECTURE "The shore is the class texture's"); a 2 m path wouldn't survive one.
 - Between 100 m towers few taps raise a sign (FiDi 3 of 8: no pole clears them, and half a blade is no sign). A rooftop sign would be a new rule, the producer's.
-- The Bay Bridge's real concrete piers (W2, W5, W6: OSM's, PLAZA and SIDEWALK, baked 0 to 2.5 m) are pale shapes on the water with no prop on them, off the hand-built deck: real data, there since the OSM bake (`shots/local/merge-osm/verify-final/bridges/`). A prop or a line-up of the deck would answer them.
+- The Golden Gate and the Bay Bridge's west span stand on OSM's rows since `fix/bridge-data`, one deck list driving mesh, heights and collision, and the towers stand on the real piers (W2, W5, W6's pale shapes were never a data fault: the prop was off them). They are still SF's only two bridges, hand-built. What a player can still see on them: the Bay's west end runs into the hill with green corridor past it, because the real viaduct waits for decks; no road meets the Golden Gate's ends, the south one 2.7 m proud of the grass, because the bake drops that whole segment; the Bay's east span is absent; about 100 m of the Bay's land stretch and 90 m of the Golden Gate's south approach have no pier; the bus can't fly along either deck under the cables, it rides the cable line up (`docs/specs/bridges/BRIDGES.md`, "What shipped" and what follows it).
+- Under a deck: the chase camera stands over it and the bus can be hidden, up to ~27 s along a 700 m span (an estimate from cruise speed); a stick held through the turn-out can carry the bus into a block, where nothing stops it; a bus leaving a deck inside a solid post's ring snaps to its top, 19 m in a frame at the North Anchor's block in real flight, more at a tower's ring; and the turn-out itself, a design choice, is unfelt. All on step 5's flight list.
 - The far skyline beyond the streaming radius is flat boxes; with fog off it shows. (The far field is a separate study's:
   polish/perf's far chunks stayed out of the merge.)
 - Saved paint keys, on OpenStreetMap data (`city.json` `"ids": "osm"`): `strugglebus.paint.v3` (buildings), `strugglebus.ground.v4:<tx>,<tz>`
@@ -172,5 +183,5 @@ notes when merging.
   on purpose: a build before `"ids"` wrote them whatever the data was. An OSM load drops that city's `paint.v1` / `v2` and `ground.v2` / `v3`
   (never applied; a landmark's name key moves to its own store).
 - Three wrong heights in SF's final data are patched in the client, not fixed (`towerStyles.ts`, SF only): the bridges' OSM / LiDAR stand-ins and
-  the Alamo Square hut are `HIDDEN`, Fort Point loses its upper tiers (`BRIDGE_TIERS`). The next SF bake should fix them at the source: no
-  LiDAR rooftops under a bridge, none from a tree crown on a small footprint. See DECISIONS "OpenStreetMap in main's game".
+  the Alamo Square hut are `HIDDEN`, Fort Point, a Rincon block, Pier 26 and the Torpedo Assembly Building lose their upper tiers (`BRIDGE_TIERS`). The next SF bake should fix them at the source: no
+  LiDAR rooftops under a bridge, none from a tree crown on a small footprint. See DECISIONS "OpenStreetMap in main's game". Three far boxes in tile (10, -6) stand under the Bay's new deck top, not masked, because that tile also holds real boxes: step 5's.

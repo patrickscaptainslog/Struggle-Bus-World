@@ -1388,7 +1388,7 @@ def lidar_pass(buildings, cfg, massing, fine_raster, ll2xz, dem_at, log, ids=Non
             keep_out.append(shapely.Point(*ll2xz(lm['lon'], lm['lat'])).buffer(float(lm['clearRadius']) + 15.0))
         if 'points' in lm:  # bridges: their decks and towers are hand-built (the deck's width, no more:
             # the Bay Bridge lands on Rincon Hill, among towers the footprints lack)
-            keep_out.append(shapely.LineString([ll2xz(lo, la) for la, lo in lm['points']]).buffer(20.0))
+            keep_out.append(shapely.LineString([ll2xz(p[1], p[0]) for p in lm.get('deck', lm['points'])]).buffer(20.0))
     new = massing.new_buildings(fine_raster, covered, keep_out, log)
     used = {b['stable'] for b in buildings}
     keyed = sorted(((hash32(int(round(q.centroid.x / 8.0)), int(round(q.centroid.y / 8.0))) & 0x0FFFFFFF, q.centroid.y, q.centroid.x, q, roof)
@@ -2584,14 +2584,8 @@ def main():
     total_bytes += len(hdr) + len(body)
 
     # -------------------------------------------------------------- manifest
-    sx, sz = ll2xz(cfg['start']['lon'], cfg['start']['lat'])
-    lms = []
-    for lm in cfg.get('landmarks', []):
-        x, z = ll2xz(lm['lon'], lm['lat'])
-        rec = {'kind': lm['kind'], 'x': x, 'z': z, 'y': float(dem_at([x], [z])[0]), 'height': lm['height']}
-        if 'points' in lm:
-            rec['points'] = [list(ll2xz(lo, la)) for la, lo in lm['points']]
-        lms.append(rec)
+    # (the landmarks and start blocks: landmarkrows.py, as relandmark.py writes them with no bake)
+    rows = load_module('landmarkrows')
     manifest = {
         'name': cfg['name'], 'slug': slug, 'origin': cfg['origin'], 'proj': proj,
         'tileSize': TILE, 'terrainN': TERRAIN_N, 'obstN': OBST_N, 'classN': CLASS_N,
@@ -2599,8 +2593,8 @@ def main():
         'buildingCount': len(buildings),
         'tiles': manifest_tiles,
         'neighborhoods': [{'name': n, 'x': float(x), 'z': float(z)} for n, (x, z) in zip(hood_names, hood_label)],
-        'landmarks': lms,
-        'start': {'x': sx, 'z': sz, 'heading': math.radians(cfg['start']['heading_deg']), 'speed': cfg['start'].get('speed', 30), 'opening': cfg['start'].get('opening', '')},
+        'landmarks': rows.landmark_rows(cfg, ll2xz, lambda x, z: dem_at([x], [z])[0]),
+        'start': rows.start_block(cfg, ll2xz),
         'source': 'FEMA/ORNL USA Structures (public domain) + USGS 3DEP 1 m DEM (public domain); rows split into ~25 ft lots'
                   + ('; rooftops (heights, tiers) from the USGS 3DEP lidar point cloud (public domain)' if lidar_rasters is not None else ''),
     }

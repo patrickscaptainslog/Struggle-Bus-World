@@ -527,6 +527,30 @@ in it or not; gameplay reads the baked heights; SF's bridge stand-ins' ground go
   `node tools/check-stable-ids.mjs <old city dir> <new city dir>` checks a
   re-bake of either kind (it refuses to compare an OSM bake with an old one).
 
+## Bridges (`src/world/Bridges.ts`, SF's two hand-built kits)
+The Golden Gate and the Bay Bridge's west span are kits placed on map data: `docs/specs/bridges/BRIDGES.md` is the plan, and its
+step 5 replaces both with decks from data in every city. A hero may set its style, never its position.
+- **The row.** In `tools/bake/cities/<slug>.json`: `points` (towers and anchorages, from OSM rows by id), `deck` (lat, lon, top per
+  vertex, end to end of the roadway: those points and the carriageways' middle between them, tops from the LiDAR) and `supports`
+  (plain blocks under an approach: lat, lon, across, along). The row's `note` names the ids, and says where the map holds no row: the
+  Golden Gate's five Marin bents and the Bay's three land blocks stand on the deck's own line. `tools/bake/landmarkrows.py` is the one
+  reading of those rows, the bake's and `relandmark.py`'s, and `city.json` carries them as `landmarks[].points`, `deck` (x, z, top) and
+  `supports` (x, z, across, along).
+- **One deck list.** `class Deck` reads `deck`: `at(station)`, `stationOf(point)`, `topAt(point)`, `yawAt(station)`. `makeGoldenGate`,
+  `makeBayBridgeWest` and `bridgeObstacles` all take `(pts, deck, supports)`, so the mesh, the bracing, the cables and suspenders and
+  the collision can't disagree. Moving a bridge is a change to its row.
+- **Posts.** A deck post every 12 m or less, as wide as the deck + 6 m (`top` over any cable, `under` the underside - 1 m, `hard` the
+  roadway + 1.5 m). Towers, anchorages and blocks are solid (`under: -Infinity`). "Under a bridge deck" below says how flight reads them.
+- **Two meshes.** Cables sit in their own kit, outside the sun pass: their shadow lay along the deck as a wide stepped smear.
+  Suspenders still cast. So a hero in view is one more draw.
+- **Checks.** `node tools/spanfly.mjs <url> <out> <bay|gg>` reads the deck from that build's `city.json`, so its stations follow the
+  data: a contact sheet of every end, tower and mid-span, and real flights square at the deck, level under it, and along under it
+  into each tower and anchorage. It fails if the bus ever enters the deck's box, is lifted, comes up through the deck or jumps. It
+  doesn't count frames inside a block.
+- **The far field.** `far16.bin` on `spike/farfield` is baked from the tiles, not from these rows. A row's change needs no rebuild,
+  and decks are not in it, but it never sees `HIDDEN`, so a stand-in the near city hides stands in it unless its tile is in
+  `FAR_STAND_INS`. Rebuild it after `BRIDGES.md`'s step 5 re-bake, which removes them at the source.
+
 ## Re-baking a city
 - **Bump `window.__sbDataV` in index.html with every re-bake** (`osm1` -> `osm2`). It goes on every URL under `/city/`
   (`dataQuery()` in City.ts). A re-bake keeps the file names and `vercel.json` caches them for a day plus a week stale, so
@@ -534,6 +558,9 @@ in it or not; gameplay reads the baked heights; SF's bridge stand-ins' ground go
   never flew. A new header can't reach what phones already hold; only a new URL does. `node tools/redeploy.mjs <old build>
   <new build>` plays that phone: vercel.json's own headers on a local server, one browser context across the deploy, exit
   1 unless every file of the city the game asked for reached the new deploy. (Not run against a live Vercel deployment yet.)
+- A hero's row needs no re-bake: `python3 -I tools/bake/relandmark.py <slug>` rewrites only the `landmarks` and `start`
+  blocks of `city.json` from the city's config, through the bake's own `tools/bake/landmarkrows.py` (its own commit, and a
+  new `__sbDataV`).
 - `public/city/<slug>/` is generated: never hand-merge it, re-bake it (its own commit). A re-bake needs the Overture
   extract (`python3 -I tools/bake/overture.py <slug>`, ~2 min, cached under `$SB_OVERTURE_CACHE`), the city's WorldCover
   crop (`$SB_WORLDCOVER_CACHE`) and, for SF, the LiDAR cache (`$SB_LIDAR_CACHE`: the USA Structures LiDAR plan is still built
@@ -727,6 +754,14 @@ rooftop's. Tunables: `config.turbo` (`worldTravel` gates G2 / G3).
 (x heroScale), `turboLead` / `turboLookLead` (m added to the follow / look
 targets: cancel part of the springs' lag at turbo speeds); written by
 `TurboLens` (`src/fx/Turbo.ts`), which also punches the fov.
+
+**Under a bridge deck** (`City.overheadAt`: the bus is under a post with an open `under`) nothing lifts the bus: the floor
+stops 8 m under the underside, the underside is a hard stop, the hard floor reads no post (`City.hardAt`, which over a
+deck reads the roadway: the cable above it is the soft floor's), and `Flight.underDeck()` turns the bus for the clearer
+side when something stands up to the deck dead ahead. A wall is what stands under a deck, or a solid post (`City.solidAt`);
+past the deck's edge the air is open, and the floor climbs what is there. The bus has no wall of its own, so the turn is all
+there is: a tower is steered around, never climbed, but a stick held through the turn can carry the bus into a block, and
+nothing stops it there (`docs/specs/bridges/BRIDGES.md`, step 5's flight list).
 
 While `Controls.tearing` (a gear selected, or braking out of one) main.ts sets
 `City.detailHold`: no level-of-detail change, arrivals are coarse. Swaps to detail
@@ -1067,7 +1102,8 @@ The sign's placement, per place: `node tools/signrate.mjs <url> <out> <tag> <cit
 OpenStreetMap QA: `node tools/osm-shots.mjs <url> <out> [shots]` (the checklist's places, a climb over them, the
 credit's timing), `tools/osm-paint.mjs <url> <out> [stale paint landmarks credit cities]` (old saves on the device, reloads,
 every landmark, the credit however the game starts, other cities' stores), `tools/osm-play.mjs <url> <out> [amsterdam ladies
-london]` (three taps on a block, a mega blast, a firehose, a low hover, a reload). Budget: `tools/sweep.mjs <url> <out.json>`
+london]` (three taps on a block, a mega blast, a firehose, a low hover, a reload), `tools/spanfly.mjs <url> <out> <bay|gg>` (a
+hand-built bridge along its own deck list: a contact sheet of every station, and real flights at the deck, under it, and along under it into each tower and anchorage). Budget: `tools/sweep.mjs <url> <out.json>`
 (the worst frame over a compass sweep, the bus held on the spot: the densest flats and the hillsides, at 30, 250, 350 and 500 m:
 over a slope the view takes in far more roofs, and the worst views are there), `tools/framecost.mjs <url> "<query>" --alt=500`
 (one frame by kind and pass, with GPU timers: compare builds interleaved, the laptop's heat moves fps), `node tools/feel-sim/run.mjs
