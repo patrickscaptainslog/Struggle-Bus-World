@@ -94,11 +94,11 @@ class Kit {
     this.parts.push(setVertexRamp(g.toNonIndexed(), ramp, lo));
   }
 
-  build(): THREE.Mesh {
+  build(casts = true): THREE.Mesh {
     const geo = mergeGeometries(this.parts, false)!;
     geo.computeBoundingSphere();
     const mesh = new THREE.Mesh(geo, makeRampMaterial({ vertexRamp: true }));
-    mesh.layers.enable(SHADOW_LAYER);
+    if (casts) mesh.layers.enable(SHADOW_LAYER);
     return mesh;
   }
 }
@@ -130,13 +130,14 @@ function cable(k: Kit, a: THREE.Vector3, b: THREE.Vector3, sagY: number, segs: n
   }
 }
 
-/** One band of a deck's section: its centre `depth` under the roadway, w across, h thick. */
+/** One band of a deck's section: its centre `depth` under the roadway, w across, h thick. under: its underside's light offset, where it has its own. */
 interface DeckBand {
   depth: number;
   w: number;
   h: number;
   ramp: number;
   lo: number;
+  under?: number;
 }
 
 /**
@@ -152,12 +153,14 @@ function deckMesh(k: Kit, d: Deck, bands: DeckBand[]) {
     return Math.abs(Math.atan2(ax * bz - az * bx, ax * bx + az * bz));
   };
   for (let i = 0; i + 1 < P.length; i++) {
-    for (const { depth, w, h, ramp, lo } of bands) {
+    for (const { depth, w, h, ramp, lo, under } of bands) {
       const a = new THREE.Vector3(P[i][0], P[i][2] - depth, P[i][1]), b = new THREE.Vector3(P[i + 1][0], P[i + 1][2] - depth, P[i + 1][1]);
       const on = b.clone().sub(a).normalize();
       if (i > 0) a.addScaledVector(on, -0.5 - (w / 2) * Math.tan(bend(i) / 2));
       if (i + 2 < P.length) b.addScaledVector(on, 0.5 + (w / 2) * Math.tan(bend(i + 1) / 2));
       k.beam(a, b, w, h, ramp, lo);
+      // (a box's fourth face, -y, is the underside: six vertices, unindexed)
+      if (under !== undefined) (k.parts[k.parts.length - 1].getAttribute('lightOffset').array as Float32Array).fill(under, 18, 24);
     }
   }
 }
@@ -196,10 +199,10 @@ function cableSpans(d: Deck, pts: P2[], runs: number[][], saddle: number, end: (
 /**
  * One span's cable, pa to pb, with a suspender every bay (every ~48 m, 1.2 m thick, so at the opening's distances they are a steady
  * 1-2 game pixels instead of 0.3-0.8 px lines that flickered in and out): each bay is a segment of the cable, so a suspender always
- * meets it.
+ * meets it. The cable goes in `wires`, a kit that casts no shadow: in the low sun its shadow lay along the deck as a wide stepped smear.
  */
-function hangSpan(k: Kit, d: Deck, c: CableSpan, pa: THREE.Vector3, pb: THREE.Vector3, thick: number, ramp: number, lo: number) {
-  cable(k, pa, pb, c.sagY, c.n, thick, ramp, lo);
+function hangSpan(k: Kit, wires: Kit, d: Deck, c: CableSpan, pa: THREE.Vector3, pb: THREE.Vector3, thick: number, ramp: number, lo: number) {
+  cable(wires, pa, pb, c.sagY, c.n, thick, ramp, lo);
   for (let i = 1; i < c.n; i++) {
     const t = i / c.n;
     const p = pa.clone().lerp(pb, t);
@@ -237,7 +240,7 @@ function ggBlocks(d: Deck, pts: P2[], supports: Support[]) {
 
 export function makeGoldenGate(pts: P2[], deck: DeckPoint[], supports: Support[]): THREE.Object3D {
   // pts, from OSM's rows: south anchorage, south tower, north tower, north anchorage; deck: from the Presidio through them all to Marin
-  const k = new Kit();
+  const k = new Kit(), wires = new Kit();
   const d = new Deck(deck);
   const [A0, T1, T2, A1] = pts;
   const f = frame(A0, A1);
@@ -255,7 +258,7 @@ export function makeGoldenGate(pts: P2[], deck: DeckPoint[], supports: Support[]
   deckMesh(k, d, [
     { depth: 4.1, w: half * 2, h: 6.6, ramp: G, lo: -0.06 },
     { depth: 0.4, w: half * 2 - 1, h: 0.8, ramp: Ramp.GREY, lo: -0.02 },
-    { depth: thick - 0.7, w: half * 2 + 0.6, h: 1.4, ramp: G, lo: -0.22 },
+    { depth: thick - 0.7, w: half * 2 + 0.6, h: 1.4, ramp: G, lo: -0.22, under: 0.1 },
     { depth: 1.4, w: half * 2 + 0.8, h: 1.2, ramp: GL, lo: 0.04 },
   ]);
 
@@ -293,17 +296,17 @@ export function makeGoldenGate(pts: P2[], deck: DeckPoint[], supports: Support[]
       const c = at(A, 0, side * off, d.topAt(A) + 1.75);
       k.block(c.x, c.y, c.z, 4, 4.5, 6, f.yaw, C, 0.02);
     }
-    for (const c of ggCables(d, pts)) hangSpan(k, d, c, at(pts[c.a], 0, side * off, c.y0), at(pts[c.b], 0, side * off, c.y1), 1.8, GL, 0.1);
+    for (const c of ggCables(d, pts)) hangSpan(k, wires, d, c, at(pts[c.a], 0, side * off, c.y0), at(pts[c.b], 0, side * off, c.y1), 1.8, GL, 0.1);
   }
   // what the deck stands on: the anchorages' blocks and the approaches' supports
   for (const { p, across, along, yaw, top } of ggBlocks(d, pts, supports)) k.block(p[0], top / 2, p[1], across, top, along, yaw, C, -0.05);
   const g = new THREE.Group();
-  g.add(k.build());
+  g.add(k.build(), wires.build(false));
   return g;
 }
 
-/** The Bay Bridge's sizes, the mesh's and the collision's. */
-const BAY = { half: 12, thick: 10, towerH: 160, anchorTop: 91, anchorY: 88, towers: [1, 2, 4, 5] };
+/** The Bay Bridge's sizes, the mesh's and the collision's. w1: W1's vertex in the deck list. */
+const BAY = { half: 12, thick: 10, towerH: 160, anchorTop: 91, anchorY: 88, towers: [1, 2, 4, 5], w1: 3 };
 
 /** Its two runs of cable, end block to anchorage to end block. */
 function bayCables(d: Deck, pts: P2[]): CableSpan[] {
@@ -319,12 +322,12 @@ function bayBlocks(d: Deck, pts: P2[], supports: Support[]) {
     const s = d.stationOf(p);
     return { p, across, along, top: Math.min(d.at(s - along / 2)[2], d.at(s + along / 2)[2]) - under };
   };
-  return [block([d.pts[0][0], d.pts[0][1]], 30, 50, 0.3), block(pts[0], 33, 11, 0.3), block(pts[6], 33, 39, 0.3), ...supports.map(([x, z, across, along]) => block([x, z], across, along, BAY.thick - 0.3))];
+  return [block([d.pts[BAY.w1][0], d.pts[BAY.w1][1]], 30, 50, 0.3), block(pts[0], 33, 11, 0.3), block(pts[6], 33, 39, 0.3), ...supports.map(([x, z, across, along]) => block([x, z], across, along, BAY.thick - 0.3))];
 }
 
 export function makeBayBridgeWest(pts: P2[], deck: DeckPoint[], supports: Support[]): THREE.Object3D {
-  // pts, as OSM refs them: the cables' west end, W2, W3, center anchorage W4, W5, W6, W7; deck: from W1 through them all to the island
-  const k = new Kit();
+  // pts, as OSM refs them: the cables' west end, W2, W3, center anchorage W4, W5, W6, W7; deck: from the hillside, through W1 and them all, to the island
+  const k = new Kit(), wires = new Kit();
   const d = new Deck(deck);
   const f = frame(pts[0], pts[pts.length - 1]);
   const { half, thick, towerH } = BAY;
@@ -368,10 +371,10 @@ export function makeBayBridgeWest(pts: P2[], deck: DeckPoint[], supports: Suppor
       const c = at(pts[i], 0, side * off, d.topAt(pts[i]) + 1.75);
       k.block(c.x, c.y, c.z, 4, 4.5, 6, f.yaw, GL, 0.02);
     }
-    for (const c of bayCables(d, pts)) hangSpan(k, d, c, at(pts[c.a], 0, side * off, c.y0), at(pts[c.b], 0, side * off, c.y1), 1.6, GL, 0.05);
+    for (const c of bayCables(d, pts)) hangSpan(k, wires, d, c, at(pts[c.a], 0, side * off, c.y0), at(pts[c.b], 0, side * off, c.y1), 1.6, GL, 0.05);
   }
   const g = new THREE.Group();
-  g.add(k.build());
+  g.add(k.build(), wires.build(false));
   return g;
 }
 
