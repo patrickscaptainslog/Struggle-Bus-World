@@ -126,6 +126,7 @@ async function boot() {
   registerCityData(manifest);
   const city = new City(manifest, base);
   scene.add(city.root);
+  if (hour) scene.add(hour.lamps.object);
   // the opening streams everything it needs at once (adopted as it lands, many regions in flight);
   // streaming is budgeted again after the first ready frame
   city.eager = true;
@@ -168,6 +169,8 @@ async function boot() {
       updateSun();
     };
   const farP = city.loadFar(renderer, () => warm.busy);
+  // (behind far.bin: the worker reads its heights. Nothing waits for this, the lamps land when they land)
+  if (hour) void farP.then(() => hour.lamps.load(city.fileUrl('lamps'), city.groundGrid()!, manifest.tileSize), () => (hour.lamps.busy = false));
 
   // ---- props: trees stream with tiles, landmarks are placed once
   const treeFields = new Map<string, TreeField>();
@@ -1329,7 +1332,7 @@ async function boot() {
     }
     if (ready) everReady = true;
     city.eager = !everReady;
-    (window as unknown as { __shotReady?: boolean }).__shotReady = ready && !city.farLate;
+    (window as unknown as { __shotReady?: boolean }).__shotReady = ready && !city.farLate && !hour?.lamps.busy;
   }
   requestAnimationFrame(frame);
 

@@ -929,6 +929,17 @@ export class City {
     this.ground.flush(renderer, dt);
   }
 
+  /** far.bin's ground grid for the lamps' worker, a copy (null before it is in). */
+  groundGrid(): { ground: Float32Array; gridW: number; gridH: number; minX: number; minZ: number; cell: number } | null {
+    const f = this.far;
+    return f ? { ground: f.heights.slice(), gridW: f.gridW, gridH: f.gridH, minX: f.minX, minZ: f.minZ, cell: f.cell } : null;
+  }
+
+  /** A city file's URL, the data's version on it. */
+  fileUrl(name: string): string {
+    return `${this.baseUrl}/${name}${this.ext}${dataQuery()}`;
+  }
+
   /** Request the regions around `focus` that aren't loaded or in flight (nearest first, a few at a time). */
   private request(focus: THREE.Vector3) {
     const R = this.regionSize * this.manifest.tileSize;

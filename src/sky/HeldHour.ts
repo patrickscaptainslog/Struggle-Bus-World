@@ -2,6 +2,7 @@ import { config } from '../config';
 import { globals, heldGlobals } from '../render/materials';
 import { Ramp } from '../render/palette';
 import type { PixelPipeline } from '../render/PixelPipeline';
+import { Lamps } from './Lamps';
 import { applyTable, fogLuma } from './SkyTable';
 
 // The whole game under one blue hour (SKY.md slice S1, ?hour=blue). There is no clock and nothing here moves: it is the light, the sky's rows and the table of one
@@ -12,6 +13,8 @@ const DEG = Math.PI / 180;
 
 export class HeldHour {
   private tableKey = -1;
+  /** The street lamps, the spans' lights and the pools (SKY.md 4.4). */
+  readonly lamps = new Lamps();
 
   constructor(private readonly pipeline: PixelPipeline) {}
 
@@ -53,6 +56,7 @@ export class HeldHour {
     heldGlobals.uSkyHaze.value = rows ? S.hazeLight : 0;
     heldGlobals.uLit.value = S.windows ? S.litShare : 0;
     heldGlobals.uLitGlow.value = S.litGlow;
+    this.lamps.update();
     u.uBeamGain.value = S.beam ? S.beamGain : 2.6;
     u.uPaintCap.value = S.table && S.paint ? Math.floor(S.paintCap) : 7;
   }
