@@ -33,8 +33,8 @@ import { Hud, type HudFrame } from '../ui/Hud';
 
 const ARMED = 'TURBO AFTER THE BRIDGE';
 const CLIMB_GATED = 'CLIMB AFTER THE BRIDGE';
-/** The first run's one mention of the flicks and the second thumb: the gestures are hidden, and this is all the teaching they get. Any thumb flicks, so that comes first. */
-const HINT = ['FLICK UP FOR GEARS', 'TWO FLICKS TURBO', 'SECOND THUMB', 'DRAG TO LOOK'];
+/** The first run's one mention of the flicks and the look: the gestures are hidden, and this is all the teaching they get. Any thumb flicks, so that comes first; the look's side is BUTTONS: SWAP's. */
+const hint = (swap: boolean) => ['FLICK UP FOR GEARS', 'TWO FLICKS TURBO', swap ? 'RIGHT SIDE' : 'LEFT SIDE', 'DRAG TO LOOK'];
 const HINT_SECONDS = 6.5;
 /** A flick's answer in the bus's own body: it hiccups, once, on the breath's squash spring. */
 const FLICK_SQUASH = 0.84;
@@ -289,7 +289,7 @@ export class Controls {
       this.hintLeft = Math.max(0, this.hintLeft - dt);
       if (c.hintDue) {
         this.hintLeft = HINT_SECONDS;
-        hud.toast(HINT, HINT_SECONDS);
+        hud.toast(hint(!!this.prefs.swap), HINT_SECONDS);
       }
     }
     if (c?.dirty) {

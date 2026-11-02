@@ -5,7 +5,7 @@
 //
 //   0 to fog end         nothing on screen, the thumb is live
 //   fog end / first touch   MEGA arrives
-//   a beat after the fog    the hint: the flicks and the second thumb, in one toast, once
+//   a beat after the fog    the hint: the flicks and the left side's look, in one toast, once
 //   a glint, no splat yet   TAP: a fingertip ring at the cue slot
 //   first splat             DRAG: two chevrons sway, until a thumb commits or 8 s
 //   third splat, or a still press of 0.6 s   MEGA's face says HOLD
