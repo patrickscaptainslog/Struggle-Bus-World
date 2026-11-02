@@ -52,7 +52,7 @@ try {
   const read = () =>
     page.evaluate(() => {
       const m = window.__game.moon, s = m.sky, tr = m.trip, f = 1 / window.__game.pipeline.pixelWorldSize(1);
-      return { leg: tr.leg, gear: tr.gear, clock: +tr.clock.toFixed(1), v: Math.round(tr.v), hE: Math.round(tr.hEarth), hM: Math.round(tr.hMoon), lens: +m.view.hfov.toFixed(1), trips: tr.trips, earthPx: Math.round(2 * Math.tan(s.earthR) * f), moonPx: Math.round(2 * Math.tan(s.moonR) * f), say: document.querySelector('[data-hud="trip-label"]')?.dataset.say ?? '', moonLit: +s.moonLit.toFixed(3), earthLit: +s.earthLit.toFixed(3), sunSeen: +s.sunSeen.toFixed(2) };
+      return { leg: tr.leg, gear: tr.gear, clock: +tr.clock.toFixed(1), v: Math.round(tr.v), hE: Math.round(tr.hEarth), hM: Math.round(tr.hMoon), lens: +m.view.hfov.toFixed(1), trips: tr.trips, target: m.view.target, moonOff: s.moon[2] < 0 ? +(Math.hypot(s.moon[0], s.moon[1]) / -s.moon[2] * f / 196).toFixed(2) : 9, earthPx: Math.round(2 * Math.tan(s.earthR) * f), moonPx: Math.round(2 * Math.tan(s.moonR) * f), say: document.querySelector('[data-hud="trip-label"]')?.dataset.say ?? '', moonLit: +s.moonLit.toFixed(3), earthLit: +s.earthLit.toFixed(3), sunSeen: +s.sunSeen.toFixed(2) };
     });
   const turbo = await page.locator('[data-hud="turbo"]').boundingBox();
   const tap = () => page.touchscreen.tap(turbo.x + turbo.width / 2, turbo.y + turbo.height / 2);
@@ -103,17 +103,14 @@ try {
     }
     if (s.leg === 'cruise') {
       await shoot(`${n}e-g5-on`, s);
-      if (s.earthPx <= 100) await shoot(`${n}f-earth-100`, s);
-      if (s.moonPx >= 15) await shoot(`${n}g-moon-15`, s);
-      if (s.moonPx >= s.earthPx) await shoot(`${n}h-equal`, s);
-      if (s.moonPx >= 80) await shoot(`${n}i-moon-80`, s);
+      if (s.earthPx <= 220) await shoot(`${n}f-view-leaves`, s);
+      if (s.target === 1 && s.moonOff < 0.5) await shoot(`${n}g-moon-ahead`, s);
+      if (s.moonPx >= 24) await shoot(`${n}h-moon-24`, s);
     }
-    if (s.leg === 'brake') await shoot(`${n}j-ring`, s);
-    if (s.leg === 'down' || s.leg === 'flare') {
-      await shoot(`${n}k-in`, s);
-      if (s.moonPx >= 256) await shoot(`${n}l-moon-256`, s);
-      if (s.moonPx >= 402) await shoot(`${n}m-moon-fills`, s);
-      if (s.leg === 'flare') await shoot(`${n}n-flare`, s);
+    if (s.leg === 'in') {
+      await shoot(`${n}i-in`, s);
+      for (const px of [60, 120, 250, 402, 700, 1000, 1400]) if (s.moonPx >= px) await shoot(`${n}j-moon-${String(px).padStart(4, '0')}`, s);
+      for (const [km, name] of [[1700, '1700'], [800, '0800'], [500, '0500']]) if (s.hM <= km) await shoot(`${n}k-pull-${name}`, s);
     }
     if (s.leg === 'orbit') await shoot(`${n}o-orbit`, s);
     // ---- home
@@ -121,13 +118,11 @@ try {
     if (s.leg === 'homeOut') await shoot(`${n}q-home-out`, s);
     if (s.leg === 'homeCruise') {
       await shoot(`${n}r-home-g5`, s);
-      if (s.earthPx >= s.moonPx) await shoot(`${n}s-home-equal`, s);
-      if (s.earthPx >= 100) await shoot(`${n}t-earth-100`, s);
+      if (s.earthPx >= 60) await shoot(`${n}s-earth-60`, s);
     }
-    if (s.leg === 'homeBrake') await shoot(`${n}u-home-ring`, s);
-    if (s.leg === 'homeDown') {
-      await shoot(`${n}v-home-in`, s);
-      if (s.earthPx >= 402) await shoot(`${n}w-earth-fills`, s);
+    if (s.leg === 'homeIn') {
+      await shoot(`${n}t-home-in`, s);
+      for (const px of [120, 250, 402, 700]) if (s.earthPx >= px) await shoot(`${n}u-earth-${String(px).padStart(4, '0')}`, s);
     }
     if (s.leg === 'homeLevel') await shoot(`${n}x-level`, s);
     if (s.leg === 'homeDrop') await shoot(`${n}y-drop`, s);

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Flies src/sky/MoonTrip.ts in Node, on the real sky, and sets every leg beside verdict/route.py's: node --no-warnings tools/sky/route-check.mjs [--all]
 // The tap at 300 km is route.py's t = 35.4 s, G5 is asked for at once, and home leaves 20 minutes after arrival, as route.py's trips() does. Pass: within 4 s a leg, and 6 s on a way.
-// The route's table was read off route.py's outbound() and inbound() at DT = 1/30. It stops at speed at both ends and this file doesn't: those are the two lines that may run long.
+// The route's table was read off route.py's outbound() and inbound() at DT = 1/30. It stops at speed at both ends and this file doesn't, and its ring and its G4 down are one brake here, v = d / tau, on arrival only:
+// so climbing and leaving are held to route.py, G5 to the route's distance less what the brake takes, and the way in to that law, integrated here, on its own, at a finer step.
 import { registerHooks } from 'node:module';
 
 // (the game's imports have no extension; a tool under Node needs them to)
@@ -10,7 +11,7 @@ registerHooks({
     return next(/^\.\.?\//.test(spec) && !/\.[a-z]+$/.test(spec) ? `${spec}.ts` : spec, ctx);
   },
 });
-const { MoonTrip, R_E, R_M } = await import('../../src/sky/MoonTrip.ts');
+const { MoonTrip, PULL, R_E, R_M, TAU } = await import('../../src/sky/MoonTrip.ts');
 const { series } = await import('../../src/sky/series.gen.js');
 
 const ROUTE = {
@@ -29,25 +30,37 @@ const CASES = [
   ['Moon -26', '2026-11-24T21:00:00Z'],
   ['New Moon', '2026-12-09T01:00:00Z'],
 ];
+const DT = 1 / 30;
+let fails = 0;
+
+/** The way in to the Moon from G5's speed, on the law alone: speed is 30 + x / tau over the orbit's floor, and the dive a constant turn that lands level on it. Seconds and km. */
+function lawIn(g5, tau = TAU, h = 1 / 240) {
+  let x = (g5 - 30) * tau, s = 0, km = 0;
+  for (; x > 0.02 && s < 400; s += h) {
+    const v = 30 + x / tau, cos = Math.max(0, 1 - PULL * tau * Math.log(v / 30));
+    x -= v * Math.sqrt(1 - cos * cos) * h;
+    km += v * h;
+  }
+  return { s, km };
+}
+
+/** The way in to rest over home: the same law down a straight line, with the last stop's steady deceleration. */
+function lawHome(g5, tau = TAU, h = 1 / 240) {
+  // (where the law meets G5: the root of (d / tau)^2 + 2 d = g5^2)
+  const km = tau * tau * (Math.sqrt(1 + (g5 * g5) / (tau * tau)) - 1);
+  let d = km, s = 0;
+  for (; d > 0.3 && s < 400; s += h) d -= Math.sqrt((d / tau) ** 2 + 2 * d) * h;
+  return { s, km };
+}
+
 const outOrder = (ref) => {
   const k = ref.length - 4;
   return [
     ...(k ? [['G4 up until clear', ['climb'], [0]]] : []),
     ['G4 out', ['out'], [k]],
-    ['G5', ['cruise'], [k + 1]],
-    ['ring brake', ['brake'], [k + 2]],
-    ['G4 down, and the flare', ['down', 'flare'], [k + 3]],
   ];
 };
-const homeOrder = [
-  ['G4 out', ['homeOut'], [0]],
-  ['G5', ['homeCruise'], [1]],
-  ['ring brake', ['homeBrake'], [2]],
-  ['G4 down, level run, drop', ['homeDown', 'homeLevel', 'homeDrop'], [3, 4, 5]],
-];
-
-const DT = 1 / 30;
-let fails = 0;
+const homeOrder = [['G4 out', ['homeOut'], [0]]];
 
 function flyTrip(g5, iso) {
   // route.py's clock reaches the tap at 35.4 s
@@ -87,7 +100,7 @@ function flyTrip(g5, iso) {
 }
 
 /** Leg by leg against the route's. Its table is in leg order; the G4 down of the way home runs on into the level run and the drop here (LEVEL_END), so those three are one line. */
-function table(name, legs, order, ref) {
+function table(name, legs, order, ref, far) {
   const get = (leg) => legs.filter((l) => leg.includes(l.leg)).reduce((o, l) => ({ s: o.s + l.s, km: o.km + l.km }), { s: 0, km: 0 });
   let sum = 0, refSum = 0, bad = 0;
   const lines = [];
@@ -100,9 +113,21 @@ function table(name, legs, order, ref) {
     if (Math.abs(diff) > 4) bad++;
     lines.push(`    ${label.padEnd(30)} ${m.s.toFixed(1).padStart(6)} s ${String(Math.round(m.km)).padStart(7)} km | route ${r.s.toFixed(1).padStart(6)} s ${String(Math.round(r.km)).padStart(7)} km | ${diff >= 0 ? '+' : ''}${diff.toFixed(1)} s`);
   });
+  // what route.py's G5, ring and G4 down covered, this file's G5 and way in cover. G5 is the route's distance less the way in's, at the route's own spool; the way in is the law's, and on a day with home round the limb,
+  // what the path has over the straight line, past 2,000 km of curve, at G4
+  const g = get(far.g5), w = get(far.way), R = ref.slice(ref.length - far.tail), g5km = R[0][1], covered = R.reduce((a, r) => a + r[1], 0);
+  const spool = R[0][0] - g5km / far.v;
+  const eG = (covered - w.km) / far.v + spool, eW = far.law.s + Math.max(0, w.km - far.law.km - 2000) / 300;
+  for (const [label, m, e] of [['G5', g, eG], ['the way in', w, eW]]) {
+    const diff = m.s - e;
+    sum += m.s;
+    refSum += e;
+    if (Math.abs(diff) > 4) bad++;
+    lines.push(`    ${label.padEnd(30)} ${m.s.toFixed(1).padStart(6)} s ${String(Math.round(m.km)).padStart(7)} km | law   ${e.toFixed(1).padStart(6)} s ${String(Math.round(label === 'G5' ? covered - w.km : far.law.km)).padStart(7)} km | ${diff >= 0 ? '+' : ''}${diff.toFixed(1)} s`);
+  }
   const total = sum - refSum;
   if (Math.abs(total) > 6 || bad) fails++;
-  console.log(`  ${name}: ${sum.toFixed(1)} s against the route's ${refSum.toFixed(1)} s, ${total >= 0 ? '+' : ''}${total.toFixed(1)} s`);
+  console.log(`  ${name}: ${sum.toFixed(1)} s against ${refSum.toFixed(1)} s, ${total >= 0 ? '+' : ''}${total.toFixed(1)} s`);
   for (const l of lines) console.log(l);
 }
 
@@ -114,11 +139,12 @@ for (const g5 of all ? [3000, 6000, 10000] : [6000]) {
     console.log(`--- G5 ${g5} km/s, ${label}, ${iso}`);
     const log = trip.log;
     const legsOut = log.slice(0, landed.nFar), legsHome = log.slice(landed.nFar);
-    table('out', legsOut, outOrder(ref.out), ref.out);
-    table('home', legsHome, homeOrder, ref.back);
-    const okEnd = Math.abs(landed.h - 300) < 12 && Math.abs(orbitH - 300) < 0.01 && Math.abs(home.h - 300) < 2.5 && trip.leg === 'wait';
+    const inOut = lawIn(g5), inHome = lawHome(g5);
+    table('out', legsOut, outOrder(ref.out), ref.out, { g5: ['cruise'], way: ['in'], tail: 3, v: g5, law: inOut });
+    table('home', legsHome, homeOrder, ref.back, { g5: ['homeCruise'], way: ['homeIn', 'homeLevel', 'homeDrop'], tail: 5, v: g5, law: inHome });
+    const okEnd = Math.abs(landed.h - 300) < 0.05 && Math.abs(landed.v - 30) < 0.1 && Math.abs(orbitH - 300) < 0.01 && Math.abs(home.h - 300) < 2.5 && trip.leg === 'wait';
     if (!okEnd) fails++;
-    console.log(`  ends: Moon floor at ${landed.h.toFixed(1)} km, ${orbitH.toFixed(3)} km after 20 min in orbit; home at ${home.h.toFixed(1)} km; ${okEnd ? 'ok' : 'FAIL'}`);
+    console.log(`  ends: Moon floor at ${landed.h.toFixed(2)} km at ${landed.v.toFixed(2)} km/s, ${orbitH.toFixed(3)} km after 20 min in orbit; home at ${home.h.toFixed(1)} km; ${okEnd ? 'ok' : 'FAIL'}`);
   }
 }
 

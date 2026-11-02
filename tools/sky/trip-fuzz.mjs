@@ -21,7 +21,7 @@ const rnd = () => {
 };
 const DEG = Math.PI / 180;
 const START = Date.parse('2026-11-01T00:00:00Z'), YEAR = 365 * 864e5;
-const LEG_LIMIT = { climb: 60, arc: 80, cruise: 140, brake: 12, down: 70, flare: 8, leave: 240, homeCruise: 140, homeBrake: 12, homeDown: 100, homeLevel: 90, homeDrop: 30 };
+const LEG_LIMIT = { climb: 60, arc: 80, cruise: 140, in: 100, leave: 240, homeCruise: 140, homeIn: 110, homeLevel: 110, homeDrop: 100 };
 const worst = { view: [0], bus: [0], lens: [0], hMoon: [1e9], hEarth: [1e9], out: [0], home: [0], leg: [0] };
 const bump = (k, v, why) => {
   if (v > worst[k][0]) worst[k] = [v, why];

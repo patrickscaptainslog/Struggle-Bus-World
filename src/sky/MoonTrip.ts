@@ -1,4 +1,4 @@
-import { EARTH, MOON, R_MOON, SkyModel, SkyState, rebaseBody, type Observer, type Series } from './SkyModel';
+import { EARTH, MOON, R_MOON, SkyModel, SkyState, rebaseBody, type BodyId, type Observer, type Series } from './SkyModel';
 import { geodeticToFix } from './WorldFrame';
 
 // The flight of MOONSHOT.md section 3 from stop 1's start: 300 km over San Francisco, to 300 km over the Moon, orbit, and back to 300 km over home, as often as you like.
@@ -7,8 +7,11 @@ import { geodeticToFix } from './WorldFrame';
 // The ruling: each gear has one speed and one climb rate. Speed is a function of the gear and of the time since the last shift, never of height, and height only decides when a gear may engage.
 // On this branch the game aims the bus. A tap is a shift: it may be early, in which case the gear is armed and engages at its floor, as a low shift does in Turbo.ts.
 //
-// What route.py doesn't fly, and is new here: both ends. It stops the Moon leg at speed 448 km short of the target and falls into the city at the other end, so the flare into orbit, the orbit itself and
-// the last stop at 300 km over home are this file's. It also turns on a frame, so a joint here turns at TURN, which costs a few tenths of a second.
+// What route.py doesn't fly, and is new here: both ends. It stops the Moon leg at speed 448 km short of the target and falls into the city at the other end, so the way in, the orbit itself and the last stop
+// at 300 km over home are this file's. It also turns on a frame, so a joint here turns at TURN, which costs a few tenths of a second.
+//
+// The way in is one brake, on arrival only and driven by the distance to the destination: speed is the gear's until v = d / tau says less, so the disc on screen grows at one steady rate and there is no ring to cross.
+// The ruling above holds: this law is never about climbing or leaving, which stay on gears. A body being left never slows or speeds anything.
 //
 // All vectors are EQJ km. The Observer is free flight from Earth's centre and, inside SWITCH_KM of the Moon, from the Moon's: the frame carries the Moon's 1 km/s, and nothing on screen moves at the change.
 
@@ -29,23 +32,30 @@ const ARC_H = 3000;
 /** Degrees of clearance over a limb before the path may leave for the far body. */
 const MARGIN = 3;
 const SPOOL = 2.4;
-const BRAKE = 3;
 const EASE = 0.35;
-/** The classic rate that ends a brake (Turbo.ts: 1.4 Hz's follow, times 2.2). */
+/** The classic rate of a shift down (Turbo.ts: 1.4 Hz's follow, times 2.2). */
 const HZ = 3.08;
 const SWITCH_KM = 60000;
 /** How fast the path may swing at a joint, rad/s. Not route.py's, which turns on a frame. */
 const TURN = 60 * DEG;
-/** The flare's turn on the way into orbit, rad/s: about 600 km of radius at G4, about 3 s. */
-const FLARE = 0.5;
+/** The way in's time constant, s: speed is the height over the floor over this, plus the floor's own speed. 12 s meets 6,000 km/s near 72,000 km and takes about 65 s from there. */
+export const TAU = 12;
+/** The pull-up at the end of the way in, rad/s: from straight down to level at this one rate, about 30 s from about 1,700 km up. */
+export const PULL = 3 * DEG;
+/** The last stop over home, km/s2: what takes the end of the way in down to rest in a finite time, where v = d / tau alone would never get there. */
+const SETTLE = 1;
 /** Full steering, rad/s at full stick: G0's rate, which Turbo.ts's law gives a bus at surge. */
 const YAW = 42.5 * DEG;
 /** The turn to the Moon's azimuth once home, rad/s. */
 const FACE = 30 * DEG;
-/** The last stop over home: speed is at most this much of the distance left, 1/s. */
-const STOP = 2;
-/** The level run ends this far short of over home, km: at TURN the bus swings down within it. */
-const LEVEL_END = 400;
+/** G5 is worth asking for while the way in would still let it go this many times G4. */
+const ROOM = 3;
+/** The way in is over this far above the orbit's floor, km: under a degree of dive is left, and the orbit's own settling takes that. */
+const FLOOR = 0.02;
+/** The level run ends this far short of over home, km: at TURN_IN the bus swings down within it, and from here the line to the place stays well above home's horizon. */
+const LEVEL_END = 4700;
+/** How fast the path may swing on the way home, rad/s, at speed: a joint there is a long curve, not a corner. Once it's slow the last of the way must be free to find a place that's turning with the Earth. */
+const TURN_IN = 10 * DEG;
 
 /** The landing site route.py aims near: Apollo 11, Moon fixed. */
 const SITE_LAT = 0.67 * DEG;
@@ -53,7 +63,7 @@ const SITE_LON = 23.47 * DEG;
 const SITE = [Math.cos(SITE_LAT) * Math.cos(SITE_LON), Math.cos(SITE_LAT) * Math.sin(SITE_LON), Math.sin(SITE_LAT)];
 const BACK = 870 / (R_M + 150);
 
-export type Leg = 'wait' | 'climb' | 'arc' | 'out' | 'cruise' | 'brake' | 'down' | 'flare' | 'orbit' | 'leave' | 'homeOut' | 'homeCruise' | 'homeBrake' | 'homeDown' | 'homeLevel' | 'homeDrop';
+export type Leg = 'wait' | 'climb' | 'arc' | 'out' | 'cruise' | 'in' | 'orbit' | 'leave' | 'homeOut' | 'homeCruise' | 'homeIn' | 'homeLevel' | 'homeDrop';
 
 /** What the small label calls each leg (MOONSHOT.md's table). */
 export const LEG_NAMES: Record<Leg, string> = {
@@ -62,15 +72,12 @@ export const LEG_NAMES: Record<Leg, string> = {
   arc: 'LEVEL RUN',
   out: 'LEAVING',
   cruise: 'THE LONG DARK',
-  brake: 'THE RING',
-  down: 'COMING IN',
-  flare: 'COMING IN',
+  in: 'COMING IN',
   orbit: 'IN ORBIT',
   leave: 'ROUND THE MOON',
   homeOut: 'HEADING HOME',
   homeCruise: 'THE LONG DARK',
-  homeBrake: 'THE RING',
-  homeDown: 'COMING HOME',
+  homeIn: 'COMING HOME',
   homeLevel: 'LEVEL RUN',
   homeDrop: 'COMING HOME',
 };
@@ -86,6 +93,8 @@ export interface LegLog {
 export interface TripOptions {
   /** G5's speed, km/s: 3,000, 6,000 or 10,000 (?g5=) */
   g5: number;
+  /** the way in's time constant, s (?tau=) */
+  tau?: number;
   /** home, degrees */
   lat?: number;
   lon?: number;
@@ -132,22 +141,6 @@ const chaseV = (v: number, target: number, rate: number, tIn: number, dt: number
   return v + (target - v) * (1 - Math.exp(-rate * (0.15 + 0.85 * e * e * (3 - 2 * e)) * dt));
 };
 
-/** km covered from hi to within 1 % of lo, on the brake below, at route.py's step. */
-function brakeDist(hi: number, lo: number): number {
-  const DT = 1 / 30;
-  let v = hi, d = 0, ti = 0, on = true;
-  while (v > lo * 1.01) {
-    if (on && v > lo * 1.25) v = chaseV(v, lo, 3 / BRAKE, ti, DT);
-    else {
-      on = false;
-      v += (lo - v) * (1 - Math.exp(-HZ * DT));
-    }
-    d += v * DT;
-    ti += DT;
-  }
-  return d;
-}
-
 export class MoonTrip {
   /** Moves here; TripView writes its axes. */
   readonly ob: Observer = { body: EARTH, free: true, pos: v3(), axes: Float64Array.from([1, 0, 0, 0, 1, 0, 0, 0, 1]) };
@@ -158,7 +151,7 @@ export class MoonTrip {
   v = G0;
   /** G5 is asked for and engages at its floor. */
   armed = false;
-  /** There's still room on this leg for G5 and its brake: past that a tap would ask for nothing. */
+  /** There's still room on this leg for G5: past that the way in has the speed, and a tap would ask for nothing. */
   g5Room = true;
   /** s since boot, and of the last launch. The sky's clock is ms0 + t. */
   t = 0;
@@ -175,18 +168,19 @@ export class MoonTrip {
   readonly log: LegLog[] = [];
 
   readonly g5: number;
+  /** The way in's time constant, s, and the pull-up's turn, rad/s: live, the tuner moves them. */
+  tau: number;
+  pull = PULL;
   private readonly ms0: number;
   private readonly now: SkyModel;
   private readonly later: SkyModel;
   private readonly nowS = new SkyState();
   private readonly laterS = new SkyState();
   private readonly probe: Observer = { body: EARTH, free: true, pos: Float64Array.from([7000, 0, 0]), axes: Float64Array.from([1, 0, 0, 0, 1, 0, 0, 0, 1]) };
-  private readonly dBrake: number;
   private readonly fx = v3();
   /** home's direction this frame */
   private readonly hc = v3();
   private ti = 0;
-  private braking = true;
   private eta = 280;
   private legAt = 0;
   private km = 0;
@@ -210,9 +204,9 @@ export class MoonTrip {
   constructor(series: Series, ms0: number, opts: TripOptions) {
     this.ms0 = ms0;
     this.g5 = opts.g5;
+    this.tau = opts.tau ?? TAU;
     this.now = new SkyModel(series);
     this.later = new SkyModel(series);
-    this.dBrake = brakeDist(opts.g5, G4);
     geodeticToFix(opts.lat ?? 37.7749, opts.lon ?? -122.4194, 0, this.fx);
   }
 
@@ -237,6 +231,11 @@ export class MoonTrip {
   /** The thumb steers the bus on these legs. Everywhere else it swings the camera. */
   get steering(): boolean {
     return this.leg === 'wait' || this.leg === 'orbit';
+  }
+
+  /** The body this leg is going to: the view turns to it once the one behind has had its moment (TripView.ts). */
+  get bound(): BodyId {
+    return this.leg === 'wait' || this.leg === 'leave' || this.leg === 'homeOut' || this.leg === 'homeCruise' || this.leg === 'homeIn' || this.leg === 'homeLevel' || this.leg === 'homeDrop' ? EARTH : MOON;
   }
 
   /** Full stick's turn, rad/s. */
@@ -418,14 +417,25 @@ export class MoonTrip {
     this.ti += dt;
   }
 
-  /** route.py's brake: the rate eased in, then the classic rate. */
-  private brake(dt: number): void {
-    if (this.braking && this.v > G4 * 1.25) this.v = chaseV(this.v, G4, 3 / BRAKE, this.ti, dt);
-    else {
-      this.braking = false;
-      this.v += (G4 - this.v) * (1 - Math.exp(-HZ * dt));
-    }
-    this.ti += dt;
+  /** The way in to the Moon, km/s at x km over the orbit's floor: on the floor, the orbit's own speed. */
+  private lawMoon(x: number): number {
+    return G3 + Math.max(x, 0) / this.tau;
+  }
+
+  /**
+   * The way in to home, km/s, at height h: the same law, and the last of it comes to rest over home, at a steady deceleration, in a finite time. It reads the straight line to the place, so a level run round the limb
+   * isn't braked for a home that lies close by through the Earth; and it is on G4 at the level run's sphere, wherever home is, so a run round the limb starts at the speed that sphere was made for.
+   */
+  private lawHome(h: number): number {
+    const p = this.w2, r = this.r, hc = this.hc;
+    for (let i = 0; i < 3; i++) p[i] = hc[i] * (R_E + ALT4) - r[i];
+    const d = len(p), k = d / this.tau;
+    return Math.min(Math.sqrt(k * k + 2 * SETTLE * d), G4 + (h - ARC_H) / this.tau);
+  }
+
+  /** On the way in the gear says what the law's speed is in. */
+  private inGear(): void {
+    this.gear = this.v > G4 * 1.01 ? 5 : 4;
   }
 
   /** Swing the path toward a unit vector, at `rate` at most. */
@@ -450,9 +460,14 @@ export class MoonTrip {
   }
 
   /** Swing, and go. */
-  private go(want: V, dt: number): void {
-    this.swing(want, TURN, dt);
+  private go(want: V, dt: number, rate = TURN): void {
+    this.swing(want, rate, dt);
     this.move(dt);
+  }
+
+  /** The rate for the way home at this speed. */
+  private get turnIn(): number {
+    return Math.min(TURN, TURN_IN * (1 + 60 / this.v));
   }
 
   private move(dt: number): void {
@@ -464,9 +479,9 @@ export class MoonTrip {
   }
 
   /** go(), along a level tangent, at the height it has once it has swung round. */
-  private goLevel(want: V, dt: number): void {
+  private goLevel(want: V, dt: number, rate = TURN): void {
     const aligned = dot(this.dir, want) > 0.9995;
-    this.go(want, dt);
+    this.go(want, dt, rate);
     const p = this.ob.pos;
     if (!aligned) this.rLevel = len(p);
     else {
@@ -477,7 +492,7 @@ export class MoonTrip {
     }
   }
 
-  /** North at this radial: both bodies arrive north up, which is how far views are framed, and it's the way the flare leaves. */
+  /** North at this radial: both bodies arrive north up, which is how far views are framed, and it's the way the pull-up leaves. */
   private headNorth(u: V): void {
     const n = this.w3;
     n[0] = 0;
@@ -553,11 +568,12 @@ export class MoonTrip {
         const rem = len(d);
         setUnit(d, d);
         this.eta = rem / (this.g5 * 0.95);
-        if (rem <= ALT5 - ALT4) {
+        const law = this.lawMoon(hM - ALT4);
+        if (law <= this.v) {
           this.arrive();
           return false;
         }
-        this.g5Room = rem > this.dBrake + ALT5 - ALT4;
+        this.g5Room = law > G4 * ROOM;
         if (!this.g5Room) this.armed = false;
         if (this.armed && hE >= ALT5) {
           this.armed = false;
@@ -576,44 +592,21 @@ export class MoonTrip {
         const rem = len(d);
         setUnit(d, d);
         this.eta = rem / Math.max(this.v, 1);
-        if (rem <= this.dBrake + ALT5 - ALT4) {
-          this.ti = 0;
-          this.braking = true;
-          this.enter('brake');
+        if (this.lawMoon(hM - ALT4) <= this.v) {
+          this.arrive();
           return false;
         }
         this.spool(this.g5, dt);
         this.go(d, dt);
         return true;
       }
-      case 'brake':
-        if (this.v <= G4 * 1.01) {
-          this.arrive();
-          return false;
-        }
-        this.aim(0);
-        setUnit(sub(a, r, d), d);
-        this.brake(dt);
-        this.go(d, dt);
-        return true;
-      case 'down': {
+      case 'in': {
+        // one line from the disc's far floor to the orbit's: straight down, speed the law's. The pull-up is the same law: a constant turn lands level on the floor at G3 when 1 - cos(dive) = PULL tau ln(v / G3), so the dive is
+        // solved from the height every frame, and it can't miss. (What a far aim would add is under a degree here, and the path is at the disc's middle, where the view is.)
+        const x = hM - ALT4;
         setUnit(rm, u);
-        const sinDive = -dot(this.dir, u), cosDive = Math.sqrt(Math.max(0, 1 - sinDive * sinDive));
-        if (hM - ALT4 <= (this.v / FLARE) * (1 - cosDive)) {
-          this.enter('flare');
-          return false;
-        }
-        this.aim(0);
-        setUnit(sub(a, r, d), d);
-        this.go(d, dt);
-        return true;
-      }
-      case 'flare': {
-        // an arc that lands level on G4's floor: its radius is solved from where it is, every frame, so it can't miss
-        setUnit(rm, u);
-        const sinDive = -dot(this.dir, u), cosDive = Math.sqrt(Math.max(0, 1 - sinDive * sinDive));
         tangent(this.heading, u, this.w2);
-        if (sinDive <= 0.01 || hM <= ALT4) {
+        if (x <= FLOOR) {
           this.heading.set(this.w2);
           this.dir.set(this.w2);
           this.rOrbit = len(rm);
@@ -621,12 +614,11 @@ export class MoonTrip {
           this.enter('orbit');
           return false;
         }
-        const radius = Math.max(50, (hM - ALT4) / Math.max(1e-4, 1 - cosDive));
-        const dir = this.dir, ang = angle(dir, this.w2), s = Math.min(1, ((this.v / radius) * dt) / Math.max(ang, 1e-6));
-        const k = 1 / Math.sin(ang), p = Math.sin((1 - s) * ang) * k, q = Math.sin(s * ang) * k;
-        for (let i = 0; i < 3; i++) dir[i] = dir[i] * p + this.w2[i] * q;
-        setUnit(dir, dir);
-        this.move(dt);
+        this.v = Math.min(this.v, this.lawMoon(x));
+        this.inGear();
+        const cosDive = Math.max(0, 1 - this.pull * this.tau * Math.log(this.lawMoon(x) / G3)), sinDive = Math.sqrt(1 - cosDive * cosDive);
+        for (let i = 0; i < 3; i++) d[i] = this.w2[i] * cosDive - u[i] * sinDive;
+        this.go(d, dt);
         return true;
       }
       case 'orbit': {
@@ -674,10 +666,10 @@ export class MoonTrip {
       }
       case 'homeOut':
         if (hE <= ALT5) {
-          this.homeDown();
+          this.homeIn();
           return false;
         }
-        this.g5Room = hE > ALT5 + this.dBrake;
+        this.g5Room = this.lawHome(hE) > G4 * ROOM;
         if (!this.g5Room) this.armed = false;
         if (this.armed && hM >= ALT5) {
           this.armed = false;
@@ -694,31 +686,22 @@ export class MoonTrip {
         this.move(dt);
         return true;
       case 'homeCruise':
-        if (hE <= ALT5 + this.dBrake) {
-          this.ti = 0;
-          this.braking = true;
-          this.enter('homeBrake');
+        if (this.lawHome(hE) <= this.v) {
+          this.homeIn();
           return false;
         }
         this.toHome();
         this.spool(this.g5, dt);
         this.go(d, dt);
         return true;
-      case 'homeBrake':
-        if (this.v <= G4 * 1.01) {
-          this.homeDown();
-          return false;
-        }
-        this.toHome();
-        this.brake(dt);
-        this.go(d, dt);
-        return true;
-      case 'homeDown': {
+      case 'homeIn': {
         const rr = R_E + ARC_H, over = angle(this.hc, r) * rr < LEVEL_END;
         if (dE > rr + 1 && !over) {
+          this.v = Math.min(this.v, this.lawHome(hE));
+          this.inGear();
           this.toHome();
           if (dot(d, setUnit(r, u)) <= -0.03) {
-            this.go(d, dt);
+            this.go(d, dt, this.turnIn);
             return true;
           }
         }
@@ -731,10 +714,12 @@ export class MoonTrip {
           this.enter('homeDrop');
           return false;
         }
+        this.v = Math.min(this.v, this.lawHome(hE));
+        this.inGear();
         setUnit(r, u);
         cross(cross(r, this.hc, this.w), u, d);
         setUnit(d, d);
-        this.goLevel(d, dt);
+        this.goLevel(d, dt, this.turnIn);
         return true;
       case 'homeDrop': {
         const t = this.w2;
@@ -749,23 +734,22 @@ export class MoonTrip {
           return false;
         }
         setUnit(d, d);
-        this.v = Math.min(this.v, rem * STOP);
-        this.go(d, dt);
+        this.v = Math.min(this.v, this.lawHome(hE));
+        this.inGear();
+        this.go(d, dt, this.turnIn);
         return true;
       }
     }
   }
 
-  /** The ring is behind: G4 down to the Moon. Level turns north for the flare, unseen: a far view is framed north up. */
+  /** The law has the speed from here. Level turns north for the pull-up, unseen: a far view is framed north up. */
   private arrive(): void {
-    this.gear = 4;
     this.headNorth(setUnit(this.rm, this.u));
-    this.enter('down');
+    this.enter('in');
   }
 
-  private homeDown(): void {
-    this.gear = 4;
+  private homeIn(): void {
     this.headNorth(setUnit(this.r, this.u));
-    this.enter('homeDown');
+    this.enter('homeIn');
   }
 }

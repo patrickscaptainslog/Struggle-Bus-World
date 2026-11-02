@@ -17,7 +17,7 @@ const g5 = opt('g5', '6000'), t = opt('t', '2026-11-25T04:00:00Z'), live = Numbe
 mkdirSync(out, { recursive: true });
 
 // seconds from this trip's launch. `home` leaves orbit there.
-const OUT = [[0, 'wait'], [1.2, 'tip'], [3, 'g4-3s'], [8, 'g4-8s'], [20, 'g4-20s'], [50, 'g4-earth-fits'], [56, 'g5-5s'], [62, 'g5-lens'], [69, 'g5-marble'], [96, 'g5-swing0'], [98.5, 'g5-swing1'], [103, 'g5-moon'], [106, 'brake'], [110.5, 'ring'], [125, 'in-125'], [140, 'in-140'], [148, 'in-148'], [151, 'flare'], [156, 'orbit'], [170, 'orbit-170']];
+const OUT = [[0, 'wait'], [1.2, 'tip'], [3, 'g4-3s'], [8, 'g4-8s'], [20, 'g4-20s'], [50, 'g4-earth-fits'], [56, 'g5-5s'], [60, 'g5-swing'], [64, 'g5-moon'], [90, 'g5-marble'], [97, 'in-97'], [110, 'in-110'], [125, 'in-125'], [140, 'in-140'], [150, 'in-150'], [160, 'in-160'], [171, 'orbit'], [180, 'orbit-180']];
 const BACK = [[1.5, 'leave'], [8, 'leave-8'], [30, 'leave-30'], [50, 'home-g5-5'], [80, 'home-g5-mid'], [93, 'home-swing'], [101, 'home-g5-end'], [105, 'home-brake'], [112, 'home-ring'], [130, 'home-in'], [146, 'home-3000'], [156, 'home-drop'], [164, 'home-stop'], [172, 'home-wait']];
 
 const browser = await chromium.launch(browserOptions(['--enable-webgl']));

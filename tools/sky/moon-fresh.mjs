@@ -143,7 +143,7 @@ try {
         await once('11-painted', await read(page));
         asked = '';
       }
-      if (s.leg === 'homeOut' || s.leg === 'homeCruise' || s.leg === 'homeBrake') {
+      if (s.leg === 'homeOut' || s.leg === 'homeCruise' || s.leg === 'homeIn') {
         if (s.hM >= 2000) await once('12-home-2000', s);
         if (s.hM >= 13000) await once('13-home-13000', s);
         if (s.hM >= 100000 && !done.has('14-home-100000')) {
