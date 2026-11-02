@@ -66,6 +66,7 @@ Measured in the game at a fixed step, full belly: 112, 145.6, 190.4 and 584, 719
 A second thumb that stays down turns the view round the bus. On the lift the view goes home: there is no stay-where-you-left-it. Nothing is drawn for it. `CameraRig.setLook` keeps one yaw offset and one pitch offset on the wall clock, so a hit-stop doesn't stall them, and `applyLook` lays them over the finished pose. The rig's own state never hears of it.
 
 - **Geared like a second bungee.** The thumb's offset from where it landed sets the angle, 1 degree per px, and thumb up looks up. Sideways is the full circle with no stop: 270 px is a quarter turn the other way, and home goes the short way round. Up stops at 45 degrees and down at 50, and past a limit the landing is dragged along behind the thumb, so turning back answers at once.
+- **A flick doesn't swing it.** The thumb waits 100 ms and 12 px, but a flick can last longer than that, and only its lift says it was one. So a look eases in over `lookEaseIn`, 0.2 s, and goes home from a stand. A 74 px flick of 120 ms moves the view under 1 degree at 60 and 30 fps, of 150 ms 3 to 4, of 180 ms 5 to 10 [model strokes through the real rig]; with neither, those were 42, 53 and 51 [model]. A drag reaches 90 % of a fast 90 px in about 0.33 s, against 0.25 [model].
 - **The bus stands where it stood.** Sideways and down, the whole pose turns about the bus. The follow's lag goes round with it, so the lead the study wanted at speed has nothing left to do: a look can't push the bus off its spot, at G1 or at 900 m/s, in a turn or not. Zoom and distance don't change.
 - **Up, the lens tilts where it is.** Lowering it would stand it among the roofs. The bus leaves by the bottom of the frame past about 19 degrees [model, research-render 6.2], and the floor flies it meanwhile: a glance, not a place to live.
 - **Down goes over the bus**, the move a dive makes. The two add, and the view's pitch stops at `lookViewMax`, 86 degrees: past straight down it would turn over.
@@ -117,7 +118,7 @@ E or PageUp is a flick up, so E twice within the window is turbo. Q or PageDown 
 
 On the tuner (`?tune`), group Input, read live: `secondTapMs` (230), `lookDelayMs` (100), `lookLostMs` (8000: a look that has heard nothing from its thumb lets go until it moves, because an edge swipe can lose a touch with no touchend), `memoryMs` (30000), `flickPx`, `flickMs`, `flickSpeed`, `flickDeg`, `loneFlickPx`, `loneFlickMs`, `loneFlickSpeed`, `loneFlickDeg`, `flickBottomPx` (40), `flickSidePx` (20), `doubleMs` (320). In `config.turbo`: `levels` ([1.3, 1.6, 2]) and `levelsG0` ([1, 1.3, 1.7]), not on the tuner: it shows numbers, and these are lists.
 
-On the tuner, group camera: `lookDegPerPx` (1), `lookInvertY` (off: thumb up looks up, the opposite of the yoke, where thumb down climbs), `lookUp` (45), `lookDown` (50), `lookFollowHz` (4.5), `lookHomeHz` (1.4: home in about 1 s), `lookViewMax` (86), `lookAimMax` (100), `lookStreamAfter` (2), `lookStreamRate` (2).
+On the tuner, group camera: `lookDegPerPx` (1), `lookInvertY` (off: thumb up looks up, the opposite of the yoke, where thumb down climbs), `lookUp` (45), `lookDown` (50), `lookFollowHz` (4.5), `lookHomeHz` (1.4: home in about 1 s), `lookEaseIn` (0.2), `lookViewMax` (86), `lookAimMax` (100), `lookStreamAfter` (2), `lookStreamRate` (2).
 
 ## The ladder, not built
 

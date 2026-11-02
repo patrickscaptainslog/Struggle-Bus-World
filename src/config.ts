@@ -199,6 +199,8 @@ export const config = {
     /** How hard the view follows the thumb, and how hard it goes home on the lift (Hz, critically damped): 1.4 is home in about 1 s. */
     lookFollowHz: 4.5,
     lookHomeHz: 1.4,
+    /** A look eases in over this long (s): a flick can outlast the thumb's wait (Input's lookDelayMs), and only its lift says it was one. */
+    lookEaseIn: 0.2,
     /** A dive's tilt and a look down together stop here (deg of view pitch): past straight down the view would turn over. */
     lookViewMax: 86,
     /** A tap goes where the view looks, sideways, out to this far off the nose (deg), and down the nose past that: no tail gun. */

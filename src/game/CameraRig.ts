@@ -80,6 +80,9 @@ export class CameraRig {
   private lookSlack = 0;
   /** seconds this look has been held */
   private lookHeld = 0;
+  /** where this look found the view (rad): it starts from there */
+  private lookFromYaw = 0;
+  private lookFromPitch = 0;
   /** where a tap goes off the nose (rad): the look, out to config.camera.lookAimMax */
   aimYaw = 0;
   /** how far the stream's center has followed the look (rad): nothing until a look has been held a while */
@@ -215,14 +218,24 @@ export class CameraRig {
       const k = THREE.MathUtils.degToRad(C.lookDegPerPx);
       const open = 1 - this.openingLow;
       const py = (C.lookInvertY ? -y : y) * k;
-      if (!this.lookOn) this.lookSlack = 0;
+      if (!this.lookOn) {
+        this.lookSlack = 0;
+        this.lookHeld = 0;
+        this.lookFromYaw = yaw.x;
+        this.lookFromPitch = pitch.x;
+      }
       // (past a limit the landing is dragged along behind the thumb, so it turns back at once; sideways is the full circle, and has none)
       this.lookSlack = clamp(this.lookSlack, py - THREE.MathUtils.degToRad(C.lookUp), py + THREE.MathUtils.degToRad(C.lookDown));
-      settle(yaw, x * k * open, C.lookFollowHz, realDt);
-      settle(pitch, (py - this.lookSlack) * open, C.lookFollowHz, realDt);
+      // (it starts gently: a flick can outlast the thumb's own wait, and only the lift says it was one)
+      const ease = smooth01(0, Math.max(0.01, C.lookEaseIn), this.lookHeld + realDt);
+      settle(yaw, this.lookFromYaw + (x * k * open - this.lookFromYaw) * ease, C.lookFollowHz, realDt);
+      settle(pitch, this.lookFromPitch + ((py - this.lookSlack) * open - this.lookFromPitch) * ease, C.lookFollowHz, realDt);
     } else {
-      // (home the short way round: a full turn is no turn)
-      if (this.lookOn) yaw.x = angleDelta(0, yaw.x);
+      // (home the short way round, a full turn being no turn, and from a stand: what was thrown at the lift would carry on)
+      if (this.lookOn) {
+        yaw.x = angleDelta(0, yaw.x);
+        yaw.v = pitch.v = 0;
+      }
       settle(yaw, 0, C.lookHomeHz, realDt);
       settle(pitch, 0, C.lookHomeHz, realDt);
       // (it arrives exactly)

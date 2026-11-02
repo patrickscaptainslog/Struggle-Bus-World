@@ -171,6 +171,37 @@ const near = (a: number[], b: number[]) => Math.max(...a.map((v, i) => Math.abs(
   const mv: number[] = [];
   for (let k = 0; k < 30; k++) { s4.frame(0, 0, { x: k < 15 ? 90 : 30, y: 0 }); mv.push(s4.yawOff()); }
   check('the view turns back within a frame or two of the thumb', mv[17] < mv[14], mv.slice(13, 19).map(r2));
+  const s5 = session();
+  s5.run(1, 0);
+  s5.run(0.4, 0, 0, { x: 90, y: 0 });
+  const left = s5.yawOff();
+  s5.run(0.25, 0);
+  const was2 = s5.yawOff();
+  s5.frame(0, 0, { x: 40, y: 0 });
+  const next = s5.yawOff();
+  s5.run(1, 0, 0, { x: 40, y: 0 });
+  check('a thumb landing on a view still going home takes it from where it is', Math.abs(next - was2) < 3 && Math.abs(s5.yawOff() - 40) < 0.1, { left: r2(left), was: r2(was2), next: r2(next), end: r2(s5.yawOff()) });
+}
+
+// ---- a flick that outlasts the thumb's 100 ms wait: only its lift says it was a flick, so the view has to have stayed put
+{
+  const rows: unknown[] = [];
+  let worst = 0;
+  for (const fps of [60, 30])
+    for (const [ms, px] of [[105, 74], [120, 74], [150, 74], [180, 74], [120, 40]]) {
+      const s = session(ROOF + 6.5, 1 / fps);
+      s.run(1, 0);
+      let peak = 0;
+      const n = fps * 2;
+      for (let k = 0; k < n; k++) {
+        const t = (k * 1000) / fps;
+        s.frame(0, 0, t >= 100 && t <= ms ? { x: 0, y: (px * t) / ms } : null);
+        peak = Math.max(peak, Math.abs(s.pitchOff()));
+      }
+      rows.push({ fps, ms, px, peak: r2(peak) });
+      if (ms <= 120) worst = Math.max(worst, peak);
+    }
+  check('a flick of 120 ms or less hardly moves the view', worst < 3, rows);
 }
 
 // ---- home: about 1 s, exactly, at any frame rate
