@@ -3,7 +3,7 @@
 // page (no screenshots during the trace: a 3x page.screenshot is itself a long frame).
 //   node tools/jet.mjs <baseUrl> <outDir> [--seconds=9] [--routes=east,west,north,south] [--shots=1]
 // --idle=1 instead counts the HUD's DOM and style writes while idle: it must be 0.
-// Every route: settle at the street, shift to G1, wait for the engagement, then trace --seconds of
+// Every route: settle at the street, shift to Jet, wait for the engagement, then trace --seconds of
 // jet over the city. Each frame records the rAF gap, the frame's CPU, and the time inside the
 // streaming work (city.update and what it calls, the mesh uploads inside the renderer's first draw).
 // --shots=1 also captures the screenshots of the judge's trace (every 380 ms), to see what they cost.
@@ -96,7 +96,7 @@ for (const route of routes) {
   });
 
   // the trace starts at the shift: the climb is when the view's height swaps regions' level of detail
-  await page.evaluate(() => window.__game.controls.turbo.shift(1, window.__game.flight));
+  await page.evaluate(() => { const g = window.__game; g.controls.turbo.shift(1, g.flight); g.controls.turbo.shift(1, g.flight); });
 
   const trace = page.evaluate(
     (secs) =>

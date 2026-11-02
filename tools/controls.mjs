@@ -8,11 +8,11 @@
 //            exactly as long as the row says on any host. tools/controls-sim/s_gesture.ts has every row; this is
 //            the proof that the browser's own multi-touch reaches them              -> thumbs.json
 //   look     the look with real fingers, stepped frame by frame on a fixed clock, the frames kept (look/*.png, CSS pixels): left, right,
-//            back, up, down at street level, at height and in G1 low and high; in a turn; in a dive; the view coming home; a tap while
+//            back, up, down at street level, at height and in Jet low and high; in a turn; in a dive; the view coming home; a tap while
 //            looking; a long look; the flick's pop. With the game clock standing (the look runs on the wall clock): does a settled
 //            view come back pixel for pixel, and does the frame go still? SB_LOOK=street,tap,... runs a part -> look.json
-//   turbo    flicks at Alamo Square: a lone left flick into G1 (the climb, engagement, the boom), two flicks, the levels,
-//            a flick down, LOCKED, with shots and a per-frame log                                -> turbo.json
+//   turbo    flicks at Alamo Square: a lone left flick into Express (no lift, its surge heard), a second into Jet (the climb,
+//            engagement, the boom), two flicks, the levels, LOCKED, flicks down to Cruise, with shots and a per-frame log -> turbo.json
 //   firstrun a first visit: no card, the cues in order (TAP, DRAG, HOLD)                         -> firstrun.json
 //   opening  flicks under the opening's gate: answered, taken back, firing at the gate; a double -> opening.json
 //   layout   real rects against layoutHud at 393 x 852, 393 x 659, 320 x 568, 852 x 393, swapped or not (shots)
@@ -89,6 +89,12 @@ const rectOf = (page, sel) => page.evaluate((sel) => {
 }, sel);
 const events = (page, clear = true) => page.evaluate((c) => { const e = window.__ev.slice(); if (c) window.__ev.length = 0; return e; }, clear);
 const snap = (page) => page.evaluate(() => window.__game.controls.snapshot());
+/** Straight into Jet, the gear above Express. */
+const toJet = (page) => page.evaluate(() => {
+  const g = window.__game;
+  g.controls.turbo.shift(1, g.flight);
+  g.controls.turbo.shift(1, g.flight);
+});
 const wall = (ms) => new Promise((r) => setTimeout(r, ms));
 const res = {};
 
@@ -181,7 +187,7 @@ if (modes.has('thumbs')) {
     const g = window.__game, s = g.controls.snapshot();
     return { gear: s.turbo.gear, level: s.turbo.level, armed: s.turbo.armed, thumb: s.input.thumb, sx: +s.input.sx.toFixed(2), look: s.input.look, view: +((g.rig.lookYaw.x * 180) / Math.PI).toFixed(1), tuner: g.tuner.visible };
   });
-  /** a clean slate between rows: nothing down, G0, no turbo, the memory of two thumbs spent */
+  /** a clean slate between rows: nothing down, Cruise, no turbo, the memory of two thumbs spent */
   const clean = async () => {
     await page.evaluate(() => {
       const g = window.__game, c = g.controls;
@@ -487,11 +493,11 @@ if (modes.has('look')) {
     await H.up(1);
     await page.close();
   }
-  // ---- G1: from the south of the map, up the length of it
+  // ---- Jet: from the south of the map, up the length of it
   if (only.has('g1')) {
     const { page, H } = await start(37.7150, -122.4400, 340);
     await step(page, 1);
-    await page.evaluate(() => window.__game.controls.turbo.shift(1, window.__game.flight));
+    await toJet(page);
     for (let i = 0; i < 80; i++) {
       await step(page, 0.5);
       if (await page.evaluate(() => window.__game.flight.speed > 440)) break;
@@ -499,12 +505,12 @@ if (modes.has('look')) {
     await fan(page, H, 'g1', 1.5);
     await page.close();
   }
-  // ---- G1 at height
+  // ---- Jet at height
   if (only.has('g1high')) {
     const { page, H } = await start(37.7150, -122.4400, 340);
     await step(page, 0.5);
     await place(page, 2500);
-    await page.evaluate(() => window.__game.controls.turbo.shift(1, window.__game.flight));
+    await toJet(page);
     for (let i = 0; i < 80; i++) {
       await step(page, 0.5);
       if (await page.evaluate(() => window.__game.flight.speed > 440)) break;
@@ -540,7 +546,7 @@ if (modes.has('look')) {
       await step(page, y ? 0.5 : 1);
       if (y) await place(page, y);
       if (g1) {
-        await page.evaluate(() => window.__game.controls.turbo.shift(1, window.__game.flight));
+        await toJet(page);
         for (let i = 0; i < 80; i++) {
           await step(page, 0.5);
           if (await page.evaluate(() => window.__game.flight.speed > 440)) break;
@@ -626,9 +632,26 @@ if (modes.has('turbo')) {
   await runFor(page, 1);
   const flick = (dy) => H.stamped(() => H.stroke(1, 100, 520, 0, dy, 85));
   const double = () => H.stamped(async () => { await H.stroke(1, 100, 520, 0, -74, 85); await H.stroke(1, 100, 520, 0, -74, 85, 235); });
+  const heard = () => page.evaluate(() => {
+    const g = window.__game, c = g.controls, f = g.flight;
+    return { gear: c.turbo.gear, engaged: c.turbo.engaged, speed: +f.speed.toFixed(1), y: +f.y.toFixed(1), lift: +f.lift.toFixed(1), mode: f.mode, surge: +c.surge.toFixed(2), voice: c.voice.attached, tearing: c.tearing, lines: c.fx.lines.visible, on: +c.fx.trailU.uOn.value.toFixed(2) };
+  });
   await flick(-74);
   await runFor(page, 0.05);
   await page.screenshot({ path: `${out}/flick-pop.png` });
+  // one flick: Express, the surge with no thumb on it, on the rooftops; its window is the wall's
+  await wall(450);
+  await runFor(page, 3);
+  await page.screenshot({ path: `${out}/express.png` });
+  const express = await heard();
+  await runFor(page, 3);
+  const expressQuiet = await heard();
+  // a second flick, past the window: Jet, from there
+  await flick(-74);
+  await wall(450);
+  await runFor(page, 0.5);
+  await page.screenshot({ path: `${out}/jet-lifting.png` });
+  const lifting = await heard();
   const climbed = await until(page, 'g.controls.turbo.engaged', 12);
   await page.screenshot({ path: `${out}/g1-engage.png` });
   const boomed = await until(page, 'g.flight.speed > 345', 6);
@@ -652,10 +675,13 @@ if (modes.has('turbo')) {
   speeds.off = (await snap(page)).flight.speed;
   await flick(74);
   await runFor(page, 5);
+  const down = await heard();
+  await flick(74);
+  await runFor(page, 5);
   const s = await snap(page);
   const ev = await events(page);
   const log = await page.evaluate(() => window.__log);
-  res.turbo = { climbedToGear: climbed, boomed, speeds, end: { gear: s.turbo.gear, level: s.turbo.level, speed: s.flight.speed }, events: ev.map((e) => `${e.k}${e.a[0] > 0 ? '+' : e.a[0] < 0 ? '-' : ''}@${e.t}`), log: log.filter((_, i) => i % 8 === 0) };
+  res.turbo = { express, expressQuiet, lifting, down, climbedToGear: climbed, boomed, speeds, end: { gear: s.turbo.gear, level: s.turbo.level, speed: s.flight.speed }, events: ev.map((e) => `${e.k}${e.a[0] > 0 ? '+' : e.a[0] < 0 ? '-' : ''}@${e.t}`), log: log.filter((_, i) => i % 8 === 0) };
   console.log('turbo:', JSON.stringify({ ...res.turbo, log: undefined }));
   writeFileSync(`${out}/turbo.json`, JSON.stringify(res.turbo, null, 1));
   await page.close();
@@ -827,11 +853,16 @@ if (modes.has('states')) {
   await page.screenshot({ path: `${out}/full-g0.png` });
   await H.stamped(() => H.stroke(1, 100, 520, 0, -74, 85));
   await top('readout-armed');
+  await wall(450);
+  await runFor(page, 1);
+  await top('readout-express');
+  await H.stamped(() => H.stroke(1, 100, 520, 0, -74, 85));
+  await wall(450);
   await runFor(page, 0.5);
   await top('readout-lifting');
   await until(page, 'g.controls.turbo.engaged', 12);
   await runFor(page, 0.3);
-  await top('readout-g1');
+  await top('readout-jet');
   await H.stamped(async () => { await H.stroke(1, 100, 520, 0, -74, 85); await H.stroke(1, 100, 520, 0, -74, 85, 235); });
   await runFor(page, 0.3);
   await top('readout-turbo1');
@@ -844,6 +875,7 @@ if (modes.has('states')) {
   await runFor(page, 0.8);
   await top('readout-locked');
   await page.screenshot({ path: `${out}/full-locked.png` });
+  await H.stamped(() => H.stroke(1, 100, 520, 0, 74, 85));
   await H.stamped(() => H.stroke(1, 100, 520, 0, 74, 85));
   await H.stamped(() => H.stroke(1, 100, 520, 0, 74, 85));
   await runFor(page, 4);

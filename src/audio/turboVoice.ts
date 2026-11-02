@@ -14,7 +14,7 @@ import { clamp, disposeOnEnd, envAD, mkFilter, mkGain, mkOsc, noiseSrc, target, 
 // for a feature most of a session doesn't use.
 
 export interface TurboSound {
-  /** turbo speed, log scale (0 = surge, 1 = G1) */
+  /** turbo speed, log scale (0 = surge, 1 = Jet) */
   speedK: number;
   /** 0..1 straining */
   strain: number;

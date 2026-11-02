@@ -50,6 +50,11 @@ const letGo = () => page.evaluate(() => {
 });
 const turbo = (on) => page.evaluate((v) => (window.__game.input.keyBoost = v), on);
 const shift = (d) => page.evaluate((v) => window.__game.controls.turbo.shift(v, window.__game.flight), d);
+/** straight into Jet, the gear above Express */
+const jet = async () => {
+  await shift(1);
+  await shift(1);
+};
 /** Hand the bus a height and a held altitude, the lens already set for it. */
 const place = (y) => page.evaluate((v) => {
   const g = window.__game, f = g.flight;
@@ -139,12 +144,12 @@ const FLIGHTS = {
     const b = await note('held +2s');
     report.streetHold = { y0: a.y, y1: b.y };
   },
-  // G1 from the street on full pull: to the ceiling, the stop there, then let go
+  // Jet from the street on full pull: to the ceiling, the stop there, then let go
   async g1() {
     await open(37.7763, -122.4352, 88);
     await run(1.5);
     await stick(0, -1);
-    await shift(1);
+    await jet();
     await run(1);
     await note('g1 1s');
     await shot('g1-1s');
@@ -170,7 +175,7 @@ const FLIGHTS = {
     await run(4);
     await note('g1 let go at the top');
     await shot('g1-ceiling-held');
-    // the G1 dive from 12 km: down to the gear's floor
+    // the Jet dive from 12 km: down to the gear's floor
     await page.evaluate(() => {
       const f = window.__game.flight;
       f.y = f.holdY = 12000;
@@ -259,11 +264,11 @@ const FLIGHTS = {
     await run(3);
     await note('water after');
   },
-  // G1 from 12 km over the city, down to its floor
+  // Jet from 12 km over the city, down to its floor
   async g1dive() {
     await open(37.7600, -122.4800, 60);
     await place(12000);
-    await shift(1);
+    await jet();
     await run(5);
     await note('g1 at 12 km');
     await shot('g1dive-held');
@@ -334,24 +339,25 @@ const FLIGHTS = {
       if (i === 6) await shot('deck-turbo');
     }
     await turbo(false);
-    await shift(1);
+    await jet();
     for (let i = 0; i < 12; i++) {
       await run(0.25);
-      const s = await note('G1 pull');
+      const s = await note('Jet pull');
       peak = Math.max(peak, s.y);
     }
     await shot('deck-g1');
     report.deck = { peak, deck: report.deckAt.over };
     await letGo();
     await shift(-1);
+    await shift(-1);
     await run(2);
     await note('deck after');
   },
-  // the map's edge in G1: a level run fades, a climb keeps the gear
+  // the map's edge in Jet: a level run fades, a climb keeps the gear
   async edge() {
     await open(37.7500, -122.3650, 100);
     await place(1000);
-    await shift(1);
+    await jet();
     await run(2);
     await note('g1 near the edge');
     await stick(0, -1);

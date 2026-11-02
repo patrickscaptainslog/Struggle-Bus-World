@@ -93,7 +93,7 @@ export class TurboLens {
   update(dt: number, drive: TurboDrive, rig: CameraRig, f: Flight) {
     const T = config.turbo;
     const C = config.camera;
-    // the turbo speed on a log scale (0 surge, 1 at G1), eased; it snaps exactly once close, so a held
+    // the turbo speed on a log scale (0 surge, 1 at Jet), eased; it snaps exactly once close, so a held
     // gear's lens holds perfectly still (a lens that breathes rescales the snapped pixel grid)
     const want = clamp(drive.speedK, 0, 2.5);
     const d = want - this.k;
@@ -109,7 +109,7 @@ export class TurboLens {
     rig.turboPull = this.pull;
     rig.turboFov = this.fov;
     rig.turboHero = 1 + (T.heroScale - 1) * Math.min(this.k, 1);
-    // cancel part of the follow springs' lag (all of it from G2 on): position spring 2 zeta / omega, look 1/6 s
+    // cancel part of the follow springs' lag (all of it from Stratos on): position spring 2 zeta / omega, look 1/6 s
     const lead = clamp(T.camLead * Math.min(this.k, 1) + (1 - T.camLead) * clamp((this.k - 1) / 1.5, 0, 1), 0, 1);
     const lagT = (2 * C.followDamping) / (2 * Math.PI * Math.max(0.05, C.followHz));
     const vx = f.fx * f.ground, vz = f.fz * f.ground;
@@ -520,7 +520,8 @@ export class TurboFx {
     const X = turboFxTune;
     this.time += dt;
     this.lens.update(realDt, drive, rig, f);
-    const on = clamp(Math.max(drive.speedK, drive.boosting && drive.gear > 0 ? 0.5 : 0), 0, 1);
+    // (a boost on a gear still lifting shows before its speed does; at Cruise and Express the speed says it, the same at both)
+    const on = clamp(Math.max(drive.speedK, drive.boosting && drive.lifts ? 0.5 : 0), 0, 1);
 
     // ---- the strain: rattle + backfire puffs while lifting, spooling, boosting, and a buzz at speed
     const shake = clamp(drive.strain + 0.35 * on, 0, 1.2);

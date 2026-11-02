@@ -12,7 +12,8 @@ import type { TurboDrive } from './Turbo';
 //  - A flick down never waits: it takes a waiting gear back, else ends all turbo,
 //    else drops a gear.
 //  - Under the opening's gate a gear would lift the bus into the deck, so it waits
-//    for the gate on top: fired by itself once the gate clears.
+//    for the gate on top: fired by itself once the gate clears. (Express lifts
+//    nothing, but the gate's one rule stands: no gear under it, and it says so.)
 //  - LOCKED can only come out of a gear that really bit: past the last usable gear
 //    a first flick answers like any other, because the second one is turbo.
 

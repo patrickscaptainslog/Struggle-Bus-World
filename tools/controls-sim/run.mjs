@@ -9,9 +9,9 @@
 //                 levels, the undo, the lone strokes, the bands, the memory, MEGA and its adopted thumb, three
 //                 fingers, a lost pointer, the keyboard and the mouse
 //   s_layout.ts   layoutHud against its tables, and its rules in every layout
-//   s_turbo.ts    gear shifts on the real baked city: G0 -> G1 -> G0 (speed, altitude, camera), LOCKED, boost,
-//                 the map edge, steering authority vs speed; the turbo levels, up and down the nose, at the map's
-//                 edge; a gear taken back
+//   s_turbo.ts    gear shifts on the real baked city: Cruise -> Express -> Jet -> back down (speed, altitude, camera),
+//                 LOCKED, boost, the map edge, steering authority vs speed; the turbo levels, up and down the nose, at
+//                 the map's edge; a gear taken back; Express against a held surge, the hop to Jet
 import { rolldown } from 'rolldown';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';

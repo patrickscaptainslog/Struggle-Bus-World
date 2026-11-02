@@ -1,6 +1,6 @@
 // The path (docs/specs/flight/NOSE.md) on a flat world, real Flight + TurboDrive + TurboLens + CameraRig, no browser:
 //   node tools/feel-sim/run.mjs s_nose.ts [dt]
-// The plain pull, TURBO on the pull, G1 to the ceiling, dives (plain, TURBO, G1), releases, a deck, partial sticks, the frame's
+// The plain pull, TURBO on the pull, Express on the pull, Jet to the ceiling, dives (plain, TURBO, Express, Jet), releases, a deck, partial sticks, the frame's
 // centre on the bus. Prints one line per check; two runs at 1/30 and 1/60 should agree.
 import { makeCam, MODE, save, THREE } from './lib';
 import { Flight } from '@src/game/Flight';
@@ -54,6 +54,8 @@ function session(world: any = flat, y0 = ROOF + 6.5, bounds = BOUNDS) {
   return s;
 }
 const line = (k: string, v: unknown) => { res[k] = v; console.log(`[${MODE}] ${k}: ${JSON.stringify(v)}`); };
+/** straight into Jet: the gear above Express */
+const jet = (s: { drive: TurboDrive; f: Flight }) => { s.drive.shift(1, s.f); s.drive.shift(1, s.f); };
 
 // ---- the plain pull doesn't change
 {
@@ -67,10 +69,19 @@ const line = (k: string, v: unknown) => { res[k] = v; console.log(`[${MODE}] ${k
   s.run(3, -1);
   line('...TURBO let go, still pulling', s.now());
 }
-// ---- G1 from the street, full pull, to the ceiling
+// ---- Express from the street, full pull: up the nose at the surge
 {
   const s = session();
   s.drive.shift(1, s.f);
+  s.run(6, -1);
+  line('Express full pull', s.now());
+  s.run(3, 0, false);
+  line('...let go', s.now());
+}
+// ---- Jet from the street, full pull, to the ceiling
+{
+  const s = session();
+  jet(s);
   let at = -1, peak = 0, atTop = -1;
   const rows: unknown[] = [];
   let worstBus = 0;
@@ -82,16 +93,16 @@ const line = (k: string, v: unknown) => { res[k] = v; console.log(`[${MODE}] ${k
     peak = Math.max(peak, s.f.y);
     if (Math.abs(s.t % 5) < dt) rows.push({ t: r1(s.t), ...s.now() });
   }
-  line('G1 full pull', { to14900s: r1(at), to14999s: r1(atTop), peak: r1(peak), overshoot: r1(peak - 15000), end: s.now(), worstBusY: +worstBus.toFixed(2) });
+  line('Jet full pull', { to14900s: r1(at), to14999s: r1(atTop), peak: r1(peak), overshoot: r1(peak - 15000), end: s.now(), worstBusY: +worstBus.toFixed(2) });
   for (const r of rows) console.log('   ', JSON.stringify(r));
 }
-// ---- a dive from 3 km: plain, TURBO, then G1 from 12 km
+// ---- a dive from 3 km: plain, TURBO, Express, then Jet from 12 km
 const dive = (label: string, y0: number, gear: number, held: boolean, secs: number) => {
   const s = session(flat, y0);
   s.f.holdY = y0;
   s.f.mode = 1;
   if (gear) {
-    s.drive.shift(1, s.f);
+    while (s.drive.gear < gear) s.drive.shift(1, s.f);
     s.run(8, 0, false);
   }
   s.held = held;
@@ -109,7 +120,8 @@ const dive = (label: string, y0: number, gear: number, held: boolean, secs: numb
 };
 dive('dive plain from 3 km', 3000, 0, false, 34);
 dive('dive TURBO from 3 km', 3000, 0, true, 32);
-dive('dive G1 from 12 km', 12000, 1, false, 32);
+dive('dive Express from 3 km', 3000, 1, false, 32);
+dive('dive Jet from 12 km', 12000, 2, false, 32);
 // ---- release mid-climb and mid-dive: the arc, then a still hold
 const release = (label: string, sy: number, y0: number, held: boolean) => {
   const s = session(flat, y0);
@@ -146,9 +158,9 @@ release('release mid-dive, plain', 1, 2000, false);
   s.run(6, -1);
   line('TURBO full pull under a deck at 70 m', { ...s.now(), maxY: r1(s.maxY) });
   s.held = false;
-  s.drive.shift(1, s.f);
+  jet(s);
   s.run(6, -1);
-  line('G1 full pull under the same deck', { ...s.now(), maxY: r1(s.maxY), floor: r1(s.f.floorY) });
+  line('Jet full pull under the same deck', { ...s.now(), maxY: r1(s.maxY), floor: r1(s.f.floorY) });
 }
 // ---- partial sticks: the thumb sets how steep
 {
@@ -168,13 +180,13 @@ release('release mid-dive, plain', 1, 2000, false);
   for (const o of out) console.log('   ', JSON.stringify(o));
   res.partial = out;
 }
-// ---- the map's edge in G1: a level run fades back to the surge, and a pull from there gets the gear back: what fades is the speed over the ground
+// ---- the map's edge in Jet: a level run fades back to the surge, and a pull from there gets the gear back: what fades is the speed over the ground
 {
   const s = session(flat, 1000, [-30000, -30000, 30000, 2000]);
   s.f.holdY = 1000;
   s.f.mode = 1;
   s.f.heading = Math.PI; // south, +z: the edge at z = 2000
-  s.drive.shift(1, s.f);
+  jet(s);
   const edgeRow = () => ({ t: r1(s.t), z: r1(s.f.z), edge: +s.drive.edge.toFixed(2), tb: r1(s.f.turbo.speed), ...s.now() });
   const rows: unknown[] = [];
   for (let k = 0; k < 14 / dt; k++) {

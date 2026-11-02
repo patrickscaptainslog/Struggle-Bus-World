@@ -1259,7 +1259,7 @@ async function boot() {
     for (const n of near) if (city.paint.level(n.ref.index) > 0.5) painted++;
     audio.update(dt, {
       speed: flight.speed,
-      surge: flight.surge,
+      surge: controls.surge,
       fullness: flight.barfT >= 0 ? flight.belly : flight.fullness,
       altitude: flight.y - flight.groundUnder,
       paintNearby: near.length ? painted / near.length : 0,

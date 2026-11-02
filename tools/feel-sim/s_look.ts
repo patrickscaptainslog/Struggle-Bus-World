@@ -70,6 +70,8 @@ function session(y0 = ROOF + 6.5, dt = 1 / 60) {
   };
   return s;
 }
+/** straight into Jet: the gear above Express */
+const toJet = (s: ReturnType<typeof session>) => { s.drive.shift(1, s.f); s.drive.shift(1, s.f); };
 const same = (a: number[], b: number[]) => a.every((v, i) => v === b[i]);
 const near = (a: number[], b: number[]) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
 
@@ -79,7 +81,7 @@ const near = (a: number[], b: number[]) => Math.max(...a.map((v, i) => Math.abs(
     ['cruise', ROOF + 6.5, () => ({ sy: 0, sx: 0 }), () => {}],
     ['turning', ROOF + 6.5, () => ({ sy: 0, sx: 0.7 }), () => {}],
     ['climbing', ROOF + 6.5, () => ({ sy: -1, sx: 0 }), () => {}],
-    ['G1', ROOF + 6.5, () => ({ sy: -0.6, sx: 0.2 }), (s) => s.drive.shift(1, s.f)],
+    ['Jet', ROOF + 6.5, () => ({ sy: -0.6, sx: 0.2 }), (s) => toJet(s)],
     ['diving', 3000, () => ({ sy: 1, sx: 0 }), () => {}],
   ];
   for (const [name, y0, stick, start] of scripts) {
@@ -117,9 +119,10 @@ const near = (a: number[], b: number[]) => Math.max(...a.map((v, i) => Math.abs(
   const cases: Array<[string, (s: ReturnType<typeof session>) => void]> = [
     ['cruise', (s) => s.run(4, 0)],
     ['surge', (s) => { s.held = true; s.run(4, 0.8); }],
-    ['G1', (s) => { s.drive.shift(1, s.f); s.run(30, 0); }],
-    ['G1 level 3', (s) => { s.drive.shift(1, s.f); s.run(20, 0); s.drive.level = 3; s.run(8, 0); }],
-    ['turning at G1', (s) => { s.drive.shift(1, s.f); s.run(30, 0); s.run(2, 0, 1); }],
+    ['Express', (s) => { s.drive.shift(1, s.f); s.run(4, 0); }],
+    ['Jet', (s) => { toJet(s); s.run(30, 0); }],
+    ['Jet level 3', (s) => { toJet(s); s.run(20, 0); s.drive.level = 3; s.run(8, 0); }],
+    ['turning at Jet', (s) => { toJet(s); s.run(30, 0); s.run(2, 0, 1); }],
   ];
   for (const [name, set] of cases)
     for (const [lx, ly] of [[90, 0], [-90, 0], [180, 0], [120, 0], [0, -50], [90, -50]]) {

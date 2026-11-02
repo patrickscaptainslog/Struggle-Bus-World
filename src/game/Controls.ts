@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { migratePrefs, type Prefs } from './controlPrefs';
 import type { Input, InputMode } from './Input';
 import { Shifter, type ShiftAnswer } from './Shifter';
-import { TurboDrive, type TurboEvent } from './Turbo';
+import { EXPRESS, TurboDrive, type TurboEvent } from './Turbo';
 import type { Flight } from './Flight';
 import type { CameraRig } from './CameraRig';
 import type { AudioEngine } from '../audio/AudioEngine';
@@ -37,6 +37,8 @@ const HINT = ['SECOND THUMB', 'FLICK UP FOR GEARS', 'TWO FLICKS TURBO', 'DRAG TO
 const HINT_SECONDS = 6.5;
 /** A flick's answer in the bus's own body: it hiccups, once, on the breath's squash spring. */
 const FLICK_SQUASH = 0.84;
+/** Express sounds like the held surge it is, up to this far along turbo's log scale, where the turbo voice has it (about 150 m/s). */
+const EXPRESS_SURGE_K = 0.2;
 
 const PREF_KEY = 'strugglebus.controls.v1';
 
@@ -69,7 +71,7 @@ export class Controls {
   frozen = false;
   private readonly d: ControlsDeps;
   private prefs: Prefs;
-  private readonly hf: HudFrame = { gear: 0, maxGear: 1, engaged: false, level: 0, held: false, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity };
+  private readonly hf: HudFrame = { gear: 0, maxGear: 0, engaged: false, level: 0, held: false, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity };
   private readonly flashTmp = new THREE.Vector3();
   /** seconds the turbo has been silent (the voice detaches), and until the keys' toast (<= 0: none due) */
   private voiceIdle = 0;
@@ -190,9 +192,15 @@ export class Controls {
     this.hud.toast([CLIMB_GATED], 2.2);
   }
 
-  /** A gear is lifting or driving the bus, or it is still braking out of one: the city holds its level of detail. */
+  /** A gear with a height is lifting or driving the bus, or it is past the surge, boosted or braking: the city holds its level of detail. */
   get tearing(): boolean {
-    return this.turbo.gear > 0 || this.turbo.speedK > 0;
+    return this.turbo.lifts || this.turbo.speedK > 0;
+  }
+
+  /** The surge the bus's engine hears (main.ts): the stick's, or Express's, which is the same surge with no thumb on it. */
+  get surge(): number {
+    const T = this.turbo;
+    return Math.max(this.d.flight.surge, T.gear === EXPRESS ? 1 - Math.min(T.speedK / EXPRESS_SURGE_K, 1) : 0);
   }
 
   // ------------------------------------------------------------------ per frame (main.ts)
@@ -228,7 +236,8 @@ export class Controls {
     const kit = d.audio.voiceKit();
     if (kit) {
       const t = kit.ctx.currentTime + LOOKAHEAD;
-      const busy = T.gear > 0 || T.boosting || T.speedK > 0 || T.strain > 0.02;
+      // (Express is the bus's own engine: nothing here sounds, and these loops are constant work on a phone)
+      const busy = T.lifts || T.boosting || T.speedK > 0 || T.strain > 0.02;
       this.voiceIdle = busy ? 0 : this.voiceIdle + realDt;
       if (busy && !this.voice.attached) this.voice.attach(kit, t);
       if (this.voice.attached) {

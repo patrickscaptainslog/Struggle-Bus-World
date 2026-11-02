@@ -305,47 +305,46 @@ export const config = {
     wallowHz: 0.55,
   },
 
-  /** Turbo gears (src/game/Turbo.ts). G0 is the classic flight (cruise / surge); each gear needs height above the ground. */
+  /** Turbo gears (src/game/Turbo.ts). Cruise is the classic flight (cruise / surge), Express the surge with no thumb on it (config.flight.surgeSpeed, no height);
+   *  from Jet up each gear needs height above the ground. */
   turbo: {
-    /** G2 "Stratos" and G3 "Rainbow Warp" need the world beyond the city map: off until it exists
-     *  (shifting up past G1 shows "LOCKED: world travel coming"). */
+    /** Stratos and Rainbow Warp need the world beyond the city map: off until it exists
+     *  (shifting up past Jet shows "LOCKED: world travel coming"). */
     worldTravel: false,
-    /** Gear speeds (m/s): G1 "Jet", G2 "Stratos", G3 "Rainbow Warp" (SF -> Tokyo, 8,300 km, in ~5 min). */
-    speed1: 450,
-    speed2: 4500,
-    speed3: 30000,
+    /** Gear speeds (m/s): Jet, Stratos, Rainbow Warp (SF -> Tokyo, 8,300 km, in ~5 min). */
+    jetSpeed: 450,
+    stratosSpeed: 4500,
+    warpSpeed: 30000,
     /** Height above the ground each gear needs (m): shifted up lower, the bus climbs there first. */
-    alt1: 150,
-    alt2: 2000,
-    alt3: 10000,
+    jetAlt: 150,
+    stratosAlt: 2000,
+    warpAlt: 10000,
     /** Climb rate while a gear lifts the bus to its height (m/s). */
-    climb1: 75,
-    climb2: 700,
-    climb3: 3000,
+    jetClimb: 75,
+    stratosClimb: 700,
+    warpClimb: 3000,
     /** Spool: speed reaches ~95% of the gear's in this long once at height (s); dropping a gear brakes over this long (s);
      *  both ease in over rateEase (s) so neither starts with a jolt. */
     spool: 2.4,
     brake: 3,
     rateEase: 0.35,
-    /** Turbo, latched by two flicks up, each two more flicks a level (Shift holds the first): the gear's speed x this... */
+    /** Turbo, latched by two flicks up, each two more flicks a level (Shift holds the first): the gear's speed x this, and at Cruise the surge x this. */
     levels: [1.3, 1.6, 2],
-    /** ...and at G0, where the first level is today's full surge: the surge x this. As many entries as `levels`. */
-    levelsG0: [1, 1.3, 1.7],
     /** Steering authority above the surge speed: yaw rate x (surge / speed)^turnExp. */
     turnExp: 0.55,
-    /** Camera: pulls back this much at G1 speed (m), widens this much (deg); the shift kicks the fov by this (deg).
+    /** Camera: pulls back this much at Jet's speed (m), widens this much (deg); the shift kicks the fov by this (deg).
      *  (The follow spring's own lag already pulls it back ~2 x speed / (2 pi followHz): camLead of it is cancelled
-     *  at G1, all of it from G2 on, so the camera never falls kilometers behind or under a climbing bus.) */
+     *  at Jet, all of it from Stratos on, so the camera never falls kilometers behind or under a climbing bus.) */
     camPull: 25,
     camFov: 5,
     fovKick: 7,
     camLead: 0.4,
-    /** The bus grows this much at G1 speed so the hero still reads with the camera pulled back (x). */
+    /** The bus grows this much at Jet's speed so the hero still reads with the camera pulled back (x). */
     heroScale: 1.25,
     /** Camera jolt at the sonic boom (m) and its palette flash strength (0..1). */
     boomKick: 3.2,
     boomFlash: 0.55,
-    /** Past the city map's edge by more than this (m) the gear runs out of world and eases back to G0 speed. */
+    /** Past the city map's edge by more than this (m) the gear runs out of world and eases back to the surge. */
     edgeFade: 300,
     /** Bus rattle while straining and at speed (m of jitter at the bus). */
     rattle: 0.32,

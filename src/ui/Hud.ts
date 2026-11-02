@@ -817,10 +817,11 @@ export class Hud {
     const g = `G${shown}`;
     this.outlineOver(p, g, 2, 2, f.armed ? (blink ? C.yellow : C.dim) : C.yellow);
     const x = 2 + textWidth(g) + 5;
-    const name = GEAR_NAMES[Math.min(3, shown)] + (f.level > 0 ? ' ' + '+'.repeat(f.level) : '');
+    const last = GEAR_NAMES.length - 1;
+    const name = GEAR_NAMES[Math.min(last, shown)] + (f.level > 0 ? ' ' + '+'.repeat(f.level) : '');
     this.outlineOver(p, name, x, 2, !f.armed && (f.engaged || f.gear === 0) ? C.cream : C.dim);
     // pips: one per gear; lit up to the gear, dim if usable, dark if locked
-    for (let i = 1; i <= 3; i++) {
+    for (let i = 1; i <= last; i++) {
       const px = 2 + (i - 1) * 8;
       const lit = i <= f.gear;
       const usable = i <= f.maxGear;
@@ -832,7 +833,7 @@ export class Hud {
       }
     }
     const sp = f.armed ? 'ARMED' : `${mph} MPH`;
-    this.outlineOver(p, sp, 30, 14, f.armed ? C.yellow : C.text, HUD_SMALL);
+    this.outlineOver(p, sp, 2 + last * 8 + 4, 14, f.armed ? C.yellow : C.text, HUD_SMALL);
     p.flush();
   }
 
