@@ -8,9 +8,9 @@
 //            exactly as long as the row says on any host. tools/controls-sim/s_gesture.ts has every row; this is
 //            the proof that the browser's own multi-touch reaches them              -> thumbs.json
 //   look     the look with real fingers, stepped frame by frame on a fixed clock, the frames kept (look/*.png, CSS pixels): left, right,
-//            back, up, down at street level, at height and in G1; in a turn; in a dive; the view coming home; a tap while looking;
-//            the flick's pop. With the game clock standing (the look runs on the wall clock): does a settled view come back
-//            pixel for pixel, and does the frame go still?                                -> look.json
+//            back, up, down at street level, at height and in G1 low and high; in a turn; in a dive; the view coming home; a tap while
+//            looking; a long look; the flick's pop. With the game clock standing (the look runs on the wall clock): does a settled
+//            view come back pixel for pixel, and does the frame go still? SB_LOOK=street,tap,... runs a part -> look.json
 //   turbo    flicks at Alamo Square: a lone left flick into G1 (the climb, engagement, the boom), two flicks, the levels,
 //            a flick down, LOCKED, with shots and a per-frame log                                -> turbo.json
 //   firstrun a first visit: no card, the cues in order (TAP, DRAG, HOLD)                         -> firstrun.json
@@ -179,7 +179,7 @@ if (modes.has('thumbs')) {
   const R = [];
   const state = () => page.evaluate(() => {
     const g = window.__game, s = g.controls.snapshot();
-    return { gear: s.turbo.gear, level: s.turbo.level, armed: s.turbo.armed, thumb: s.input.thumb, sx: +s.input.sx.toFixed(2), look: s.input.look, tuner: g.tuner.visible };
+    return { gear: s.turbo.gear, level: s.turbo.level, armed: s.turbo.armed, thumb: s.input.thumb, sx: +s.input.sx.toFixed(2), look: s.input.look, view: +((g.rig.lookYaw.x * 180) / Math.PI).toFixed(1), tuner: g.tuner.visible };
   });
   /** a clean slate between rows: nothing down, G0, no turbo, the memory of two thumbs spent */
   const clean = async () => {
@@ -228,7 +228,7 @@ if (modes.has('thumbs')) {
     const after = await state();
     await lift1();
     return { before, during, after };
-  }, (r) => r.note.during.look.on && Math.round(r.note.during.look.x) === 60 && Math.round(r.note.during.look.y) === 40 && r.note.during.sx === r.note.before && !r.note.after.look.on && r.note.during.thumb && has(r, 'onTap') === 0 && has(r, 'onTurbo+') === 0);
+  }, (r) => r.note.during.look.on && Math.round(r.note.during.look.x) === 60 && Math.round(r.note.during.look.y) === 40 && r.note.during.view > 40 && r.note.during.sx === r.note.before && !r.note.after.look.on && r.note.after.view < r.note.during.view && r.note.during.thumb && has(r, 'onTap') === 0 && has(r, 'onTurbo+') === 0);
   await row('second: flick up: a gear', async () => { await steer(); await runFor(page, 0.1); await H.stamped(async () => { await H.stroke(2, LX, LY, 0, -74, 85); }); await runFor(page, 0.4); await lift1(); }, (r) => r.gear === 1 && has(r, 'onTurbo+') === 1);
   await row('second: flick down at G1', async () => { await page.evaluate(() => window.__game.controls.turbo.shift(1, window.__game.flight)); await steer(); await runFor(page, 0.1); await H.stamped(async () => { await H.stroke(2, LX, LY, 0, 74, 85); }); await lift1(); }, (r) => r.gear === 0 && has(r, 'onTurbo-') === 1);
   await row('double flick: turbo, no gear', async () => { await steer(); await runFor(page, 0.1); await H.stamped(async () => { await H.stroke(2, LX, LY, 0, -74, 85); await H.stroke(2, LX, LY, 0, -74, 85, 235); }); await runFor(page, 0.5); await lift1(); }, (r) => r.level === 1 && r.gear === 0);
@@ -298,7 +298,7 @@ if (modes.has('look')) {
   const DT = 1 / 30;
   const Rx = 300, Ry = 640, Lx = 100, Ly = 520;
   const log = [];
-  const only = new Set((process.env.SB_LOOK ?? 'street,tap,high,g1,pop,proof').split(','));
+  const only = new Set((process.env.SB_LOOK ?? 'street,tap,high,g1,g1high,long,pop,proof').split(','));
   /** a page of its own for each run, the loop frozen between steps; `hud` keeps the HUD */
   const start = async (lat, lon, heading, hud = false) => {
     const page = await open(`?lat=${lat}&lon=${lon}&heading=${heading}&skipintro&fixeddt=${DT.toFixed(6)}${hud ? '' : '&nohud'}`);
@@ -483,6 +483,39 @@ if (modes.has('look')) {
       if (await page.evaluate(() => window.__game.flight.speed > 440)) break;
     }
     await fan(page, H, 'g1', 1.5);
+    await page.close();
+  }
+  // ---- G1 at height
+  if (only.has('g1high')) {
+    const { page, H } = await start(37.7150, -122.4400, 340);
+    await step(page, 0.5);
+    await place(page, 2500);
+    await page.evaluate(() => window.__game.controls.turbo.shift(1, window.__game.flight));
+    for (let i = 0; i < 80; i++) {
+      await step(page, 0.5);
+      if (await page.evaluate(() => window.__game.flight.speed > 440)) break;
+    }
+    await fan(page, H, 'g1high', 1.5);
+    await page.close();
+  }
+  // ---- a look held past the stream's 2 s, at height: what streams follows it, and comes home
+  if (only.has('long')) {
+    const { page, H } = await start(37.7763, -122.4352, 88);
+    await step(page, 0.5);
+    await place(page, 1200);
+    await H.down(1, Rx, Ry);
+    await look(page, H, 180, 0);
+    await step(page, 1.5);
+    await note(page, 'long-1.5s');
+    await step(page, 3);
+    await shot(page, 'long-4.5s');
+    for (let i = 0; i < 40 && (await page.evaluate(() => window.__game.city.busy)); i++) await step(page, 0.25);
+    await shot(page, 'long-landed');
+    await H.up(2);
+    await step(page, 3);
+    for (let i = 0; i < 40 && (await page.evaluate(() => window.__game.city.busy)); i++) await step(page, 0.25);
+    await shot(page, 'long-home');
+    await H.up(1);
     await page.close();
   }
   // ---- the flick's pop, at street level and at height
@@ -877,10 +910,11 @@ if (modes.has('keyboard')) {
   await page.mouse.move(700, 360, { steps: 3 });
   await runFor(page, 0.2);
   const look = (await snap(page)).input.look;
+  const lookView = await page.evaluate(() => +((window.__game.rig.lookYaw.x * 180) / Math.PI).toFixed(1));
   await page.mouse.up({ button: 'right' });
   await runFor(page, 0.2);
   const lookAfter = (await snap(page)).input.look;
-  res.keyboard = { mode: s0.mode, cog, mega, escOpens: open1, escCloses: !open2, tap, gear1, turboOn: { gear: turboOn.turbo.gear, level: turboOn.turbo.level }, turboOff, gear0, boost, boostOff, look, lookAfter };
+  res.keyboard = { mode: s0.mode, cog, mega, escOpens: open1, escCloses: !open2, tap, gear1, turboOn: { gear: turboOn.turbo.gear, level: turboOn.turbo.level }, turboOff, gear0, boost, boostOff, look, lookView, lookAfter };
   console.log('keyboard', JSON.stringify(res.keyboard));
   await page.close();
 }
