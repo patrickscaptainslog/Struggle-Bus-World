@@ -156,6 +156,8 @@ export class TurboFx {
   private readonly coneU = { uT: { value: 0 }, uR: { value: 13 }, uL: { value: 26 } };
   private coneT = -1;
 
+  /** 0..1: what's left of the trail and the lines (?moonland: there's nothing of them coming down from orbit, and they come in near the ground). */
+  fade = 1;
   private readonly hoop: THREE.Mesh;
   private readonly hoopU = { uT: { value: 1 }, uSeed: { value: 0 } };
   private hoopT = -1;
@@ -503,7 +505,7 @@ export class TurboFx {
     const X = turboFxTune;
     this.time += dt;
     this.lens.update(realDt, drive, rig, f);
-    const on = clamp(Math.max(drive.speedK, drive.boosting && drive.gear > 0 ? 0.5 : 0), 0, 1);
+    const on = clamp(Math.max(drive.speedK, drive.boosting && drive.gear > 0 ? 0.5 : 0), 0, 1) * this.fade;
 
     // ---- the strain: rattle + backfire puffs while lifting, spooling, boosting, and a buzz at speed
     const shake = clamp(drive.strain + 0.35 * on, 0, 1.2);
@@ -533,7 +535,7 @@ export class TurboFx {
     this.trailWrite();
 
     // ---- speed lines: around the view between the camera and the bus, a little ahead
-    const vis = clamp((f.speed - config.flight.surgeSpeed * 0.9) / 140, 0, 1) * clamp(on + 0.25, 0, 1);
+    const vis = clamp((f.speed - config.flight.surgeSpeed * 0.9) / 140, 0, 1) * clamp(on + 0.25, 0, 1) * this.fade;
     this.lines.visible = vis > 0.01;
     if (this.lines.visible) {
       const U = this.lineU;

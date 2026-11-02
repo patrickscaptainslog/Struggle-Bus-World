@@ -88,6 +88,13 @@ export class TurboDrive {
   /** bounds: the city map [minX, minZ, maxX, maxZ] (m) */
   constructor(private readonly bounds: readonly number[]) {}
 
+  /** The bus comes in from a height already going faster than sound (?moonland): Jet is in, and there's nothing to boom through. */
+  arrive(): void {
+    this.gear = 1;
+    this.engaged = true;
+    this.machArmed = false;
+  }
+
   /** The last gear that can be used now. */
   get maxGear(): number {
     return config.turbo.worldTravel ? 3 : 1;

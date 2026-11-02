@@ -1257,7 +1257,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
       camera.position.copy(bus.root.position).add(fromP);
       if (fromSky.t >= 1) fromSky = null;
     }
-    if (land) rig.stiff = land.arriving ? 1 : Math.max(0, rig.stiff - dt / 3);
+    if (land) {
+      rig.stiff = land.arriving ? 1 : Math.max(0, rig.stiff - dt / 3);
+      controls.fx.fade = land.arriving ? clamp((8000 - flight.height) / 6000, 0, 1) : 1;
+    }
     pipeline.focus.copy(focus);
     if (qa?.topDown) {
       // QA: look straight down on a lat/lon (hue layout from above)
@@ -1502,9 +1505,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
         config.flight.ceiling = s.y + 3000;
         config.flight.ceilingSoft = 150;
         // Jet, by the time the law lets go of the speed
-        const T = controls.turbo;
-        T.gear = 1;
-        T.engaged = true;
+        controls.turbo.arrive();
         rig.place(camera, flight);
         fromSky = { ...s, t: 0 };
         controls.hud.setVisible(true);
