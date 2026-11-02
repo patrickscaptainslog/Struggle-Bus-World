@@ -842,7 +842,10 @@ async function boot() {
     audio.unlock();
     controls.firstGesture();
   };
-  input.onPress = () => aimer.press();
+  input.onPress = () => {
+    aimer.press();
+    moonPaint?.latch(simTime);
+  };
   /** A breath leaves now: anticipation (the bus squashes on this very frame, inhales, then the jet leaves), then the shot. */
   const breatheNow = (shot: Shot, mega?: MegaBreath) => {
     pose.squash = mega ? 0.72 : 0.8;
@@ -1201,7 +1204,8 @@ async function boot() {
     // aim glint on the building a tap would hit (picked every frame), only while a breath is loaded
     // (a committed thumb thaws the glint, as keys and a QA stick do; tilt never does; and a press that fires on its lift
     // keeps what it froze, whatever else is steering)
-    const glint = aimer.update(flight, simTime, (qaStick || st.thumb || (st.dragging && input.mode === 'keyboard')) && !input.pressHeld);
+    const steering = (qaStick || st.thumb || (st.dragging && input.mode === 'keyboard')) && !input.pressHeld;
+    const glint = aimer.update(flight, simTime, steering);
     controls.glinting = glint !== null || !!moonPaint?.target;
     paintUniforms.uTarget.value = glint ? glint.index : -1;
     paintUniforms.uTargetT.value = aimer.shownSince;
@@ -1270,7 +1274,7 @@ async function boot() {
     // hit-stop frames hold it), instead of the paint reaching the GPU a frame late
     superSplat.update(dt);
     splatter.update(dt);
-    moonPaint?.update(dt, simTime, flight, aimer.aim.x, aimer.aim.z, Aimer.loaded(flight), flight.y - city.groundAt(flight.x, flight.z));
+    moonPaint?.update(dt, simTime, flight, aimer.aim.x, aimer.aim.z, Aimer.loaded(flight), steering, flight.y - city.groundAt(flight.x, flight.z));
     if (jet && simTime >= jet.at) {
       // the inhale is over: the jet leaves the mouth and lands exactly at the impact
       particles.geyser({ source: mouthWorld, sourceVel: busVel, targets: jet.targets, duration: Math.max(0.05, jet.end - simTime), travelTime: Math.max(0.05, jet.impact - simTime), hues: jet.hues, width: jet.width, arc: moonPaint?.arc(mouthWorld(), jet.targets[0]) });

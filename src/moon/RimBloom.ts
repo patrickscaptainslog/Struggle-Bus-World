@@ -10,6 +10,8 @@ import type { Rec } from './CraterPaint';
 /** Rims stand this far from the bus (m); they go a little further out. A crater's own size adds to this. */
 const NEAR = 1500;
 const FAR = 2100;
+/** A rim this wide stands on whatever ground there is: most of it is past the tiles whatever the bus does. */
+const BIG = 150;
 /** Elements standing at once, whatever's been painted. */
 const MAX_ITEMS = 5000;
 
@@ -109,49 +111,61 @@ function lay(r: Rec, groundAt: (x: number, z: number) => number, at: (l: number)
 
 interface Standing {
   rec: Rec;
-  level: number;
   n: number;
+  /** when it went up */
+  at: number;
 }
 
 export class RimBloom {
   private readonly standing = new Map<number, Standing>();
   private items = 0;
   private timer = 0;
+  private now = 0;
 
   constructor(private readonly d: RimDeps) {}
 
   /** A rim's garden stands, or stands again at a new level: what it had stands at once. */
-  private stand(rec: Rec) {
+  private stand(rec: Rec, now = this.now) {
     const items = lay(rec, this.d.groundAt, (l) => (l >= rec.level ? rec.t0 : -100));
     const old = this.standing.get(rec.order);
     this.items += items.length - (old?.n ?? 0);
     this.d.sprouts.place(rec.order, items);
-    this.standing.set(rec.order, { rec, level: rec.level, n: items.length });
+    this.standing.set(rec.order, { rec, n: items.length, at: now });
   }
 
   /** A level landed on a rim: it blooms if the bus is near enough to see it, and sync finds it otherwise. */
   hit(rec: Rec, bx: number, bz: number) {
-    if (Math.hypot(rec.x - bx, rec.z - bz) - rec.r < NEAR) this.stand(rec);
+    if (Math.hypot(rec.x - bx, rec.z - bz) - rec.r < NEAR && (rec.r >= BIG || this.d.tileAt(rec.x, rec.z))) this.stand(rec);
+    else this.drop(rec.order);
+  }
+
+  private drop(k: number) {
+    const s = this.standing.get(k);
+    if (!s) return;
+    this.d.sprouts.unplace(k);
+    this.items -= s.n;
+    this.standing.delete(k);
   }
 
   /** Every so often: rims in reach stand, those left behind go. `near` lists the painted craters around the bus. */
-  sync(dt: number, bx: number, bz: number, near: () => Rec[]) {
+  sync(dt: number, now: number, bx: number, bz: number, near: () => Rec[]) {
+    this.now = now;
     this.timer -= dt;
     if (this.timer > 0) return;
     this.timer = 0.4;
     for (const [k, s] of this.standing) {
-      if (Math.hypot(s.rec.x - bx, s.rec.z - bz) - s.rec.r < FAR) continue;
-      this.d.sprouts.unplace(k);
-      this.items -= s.n;
-      this.standing.delete(k);
+      const d = Math.hypot(s.rec.x - bx, s.rec.z - bz) - s.rec.r;
+      if (d >= FAR) this.drop(k);
+      // (a big rim went up on the far field's ground: as the bus comes along it, it settles on the tiles)
+      else if (s.rec.r >= BIG && Math.abs(d) < 700 && now > s.at + 5) this.stand(s.rec, now);
     }
     if (this.items >= MAX_ITEMS) return;
     let added = 0;
     for (const r of near()) {
       if (this.standing.has(r.order) || Math.hypot(r.x - bx, r.z - bz) - r.r > NEAR) continue;
       // (a small rim needs its tile: the far field has the ground to 30 m)
-      if (r.r < 150 && !this.d.tileAt(r.x, r.z)) continue;
-      this.stand(r);
+      if (r.r < BIG && !this.d.tileAt(r.x, r.z)) continue;
+      this.stand(r, now);
       if (++added >= 3 || this.items >= MAX_ITEMS) break;
     }
   }

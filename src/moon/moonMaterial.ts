@@ -113,9 +113,9 @@ bool moonClip(vec2 xz, float px, out float ramp, out float edge, out float lift,
   if (L < 0) return false;
   // (most of the ground isn't painted: four looks, a little apart, and it's done)
   ivec2 c0 = ivec2(t);
-  float near = texelFetch(tPaintClip, ivec3(c0 + ivec2(-1, -1), L), 0).a + texelFetch(tPaintClip, ivec3(c0 + ivec2(1, -1), L), 0).a;
-  near += texelFetch(tPaintClip, ivec3(c0 + ivec2(-1, 1), L), 0).a + texelFetch(tPaintClip, ivec3(c0 + ivec2(1, 1), L), 0).a;
-  if (near <= 0.0) return false;
+  float round4 = texelFetch(tPaintClip, ivec3(c0 + ivec2(-1, -1), L), 0).a + texelFetch(tPaintClip, ivec3(c0 + ivec2(1, -1), L), 0).a;
+  round4 += texelFetch(tPaintClip, ivec3(c0 + ivec2(-1, 1), L), 0).a + texelFetch(tPaintClip, ivec3(c0 + ivec2(1, 1), L), 0).a;
+  if (round4 <= 0.0) return false;
   // organic edges, as GroundPaint's: the texels looked up through a little warp, and the contour's height broken up
   vec2 q = t * 0.11;
   vec2 g = t - 0.5 + (vec2(moonNoise(q), moonNoise(q + 31.7)) - 0.5) * 1.5;

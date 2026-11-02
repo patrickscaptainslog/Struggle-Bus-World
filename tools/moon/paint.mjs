@@ -354,6 +354,36 @@ SCRIPTS.super = async () => {
   console.log(JSON.stringify(await page.evaluate(() => window.__game.superState())));
 };
 
+/** How steady the glint is: what it picks, every frame, over a stretch of straight flight. */
+SCRIPTS.steady = async () => {
+  await open();
+  await run(1);
+  await fill();
+  const seen = [];
+  for (const [tag, sy, secs] of [['cruise', 0, 30], ['surge', 0.9, 20]]) {
+    await stick(0, sy);
+    if (sy === 0) await letGo();
+    let last = null, changes = 0, none = 0, n = 0;
+    for (let t = 0; t < secs; t += 0.1) {
+      await run(0.1);
+      const id = await page.evaluate(() => {
+        const g = window.__game, c = g.moon.paint.target;
+        g.flight.fullness = 1;
+        return c ? `${c.id} ${c.r.toFixed(0)}` : null;
+      });
+      n++;
+      if (!id) none++;
+      if (id !== last) {
+        changes++;
+        if (seen.length < 40) seen.push(id);
+      }
+      last = id;
+    }
+    console.log(tag, { samples: n, changes, none, secs });
+  }
+  console.log(seen.join(' | '));
+};
+
 /** A long one, every gear: nothing breaks, nothing piles up. */
 SCRIPTS.soak = async () => {
   await open();
@@ -399,6 +429,34 @@ SCRIPTS.sites = async () => {
     await note(`${tag}-end`);
     await shot(`${tag}-end`);
   }
+};
+
+/** What ?moon paints big enough, seen from ?moonrun's orbit. */
+SCRIPTS.orbit = async () => {
+  await open();
+  await run(1);
+  await page.evaluate(() => {
+    const g = window.__game, p = g.moon.paint;
+    for (const name of ['THEOPHILUS', 'CYRILLUS', 'CATHARINA']) {
+      const c = g.moon.places.find((x) => x.name === name);
+      if (c) for (let l = 0; l < (name === 'THEOPHILUS' ? 3 : 1); l++) p.qaHit('p' + c.id, g.clock(), l + 1);
+    }
+    p.save();
+  });
+  console.log('low store', await page.evaluate(() => localStorage.getItem('strugglebus.moon.low.v1')));
+  await page.goto(`${base}?moonrun&t=2026-11-25T04:00:00Z&fixeddt=0.0166`, { waitUntil: 'load', timeout: 60000 });
+  await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 90000 });
+  await page.evaluate(() => {
+    const m = window.__game.moon;
+    m.trip.tap();
+    m.skip(0.1);
+    m.trip.tap();
+    for (let i = 0; i < 6000 && m.trip.leg !== 'orbit'; i++) m.skip(0.1);
+    m.skip(4);
+  });
+  await page.waitForTimeout(1500);
+  await shot('orbit-0');
+  console.log(JSON.stringify(await page.evaluate(() => ({ leg: window.__game.moon.trip.leg, painted: window.__game.moon.breath.paint.painted, strokes: window.__game.moon.breath.paint.strokes.length }))));
 };
 
 const want = (opt.script ?? 'three').split(',');

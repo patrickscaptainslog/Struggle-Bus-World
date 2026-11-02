@@ -41,7 +41,7 @@ moon.crater(id): Crater | null                           // an invented crater b
 - A named crater's `id` is `p<place id>`, an index into `places.json`, with its `name`. Names over 20 km are shaped by `MoonGen.shape`; smaller ones are stamped like invented ones.
 - With no allocation, for a loop over a box: `eachCrater(frame, albedo, seed, L, x0, z0, x1, z1, fn)` in `craters.ts`, one octave at a time. `octaveD(L)` is the octave's largest diameter, 5 km halving to about 20 m. The object it hands you is reused.
 - Worker and main thread agree because both hash the same cells from the same albedo. `SEED` in `moonBoot.ts` is the one Moon's.
-- Ground paint works today, as on a street (`tools/moon/fly.mjs --flights=paint`). Nothing yet makes a crater a paintable thing, and rocks don't take paint. A breath lands on `city.surfaceAt`, which is the ground.
+- Painting them is PAINT.md.
 
 ## Budget
 
@@ -66,7 +66,7 @@ Flag off, against main 034672f: 62 shader sources, 0 bytes differ, 31 programs. 
 
 ## Left on purpose
 
-- Far paint: paint shows on loaded tiles only. From above that is a patch near the bus.
+- A blast on open ground shows as sharp as GroundPaint can on loaded tiles only. From above it's a lumpy disc on the paint windows (PAINT.md).
 - Rocks aren't obstacles: nothing out here stands over the bus's 9 m.
 - The far field draws all 400 patches, in view or not. Culling by frustum would save a third of its triangles.
 - A lost GL context reloads the page.

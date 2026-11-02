@@ -9,13 +9,12 @@ import type { BlastSpec } from '../game/blastLayout';
 import { HUE_COUNT } from '../render/palette';
 import { craterById, mix32, type Age } from './craters';
 import { CRATER_FLOATS, CRATER_INTS } from './gen';
-import { latLonToMap, type MapFrame, type Place, type WholeMap } from './map';
+import { dirOf, latLonToMap, latOf, lonOf, type MapFrame, type Place, type WholeMap } from './map';
 import { moonGlobals } from './moonMaterial';
 import type { RoofSprouts } from '../world/props/sprouts';
 import { RimBloom } from './RimBloom';
 import type { MoonCraterRequest, MoonCraters } from './moonWorker';
 import { CLIP_LEVELS, PaintClip, type ClipMark } from './PaintClip';
-import { latOf, lonOf, dirOf } from './map';
 
 // Craters are the buildings of the Moon. This is what the street's buildings get from Aim, Splat and PaintState: a pick at the aim point, a target that glints, a hit that goes up a level and blooms, and what's
 // painted kept on the device under the crater's stable id (craters.ts), so it comes back on any map of the Moon. Nothing on the street changes: the bus aims as it does, and this moves the shot onto what glints.
@@ -115,7 +114,7 @@ const keyOfId = (id: string) => {
 };
 
 /** How long a level takes to land on a crater this big (s). */
-const landTime = (r: number) => Math.min(2.8, 0.6 + r / 160);
+const landTime = (r: number) => Math.min(2.6, 0.6 + r / 160) + Math.min(1.6, r / 30000);
 /** How far a mark reaches from its centre, by level (m). */
 const reachOf = (r: number, level: number) => r * (level >= 3 ? 9.4 : level >= 2 ? 1.3 : 1.12) + 8;
 
@@ -168,6 +167,8 @@ export class CraterPaint {
   private readonly signed = new Map<string, number>();
   private hereTimer = 0;
   private hitName: string | null = null;
+  private latchTo = 0;
+  private wasDrag = false;
   /** how much of what's around the bus is painted, 0..1, for the hum */
   nearShare = 0;
 
@@ -175,11 +176,14 @@ export class CraterPaint {
     this.clip = new PaintClip(d.renderer);
     moonGlobals.tPaintClip.value = this.clip.rt.texture;
     moonGlobals.uClip.value = this.clip.rects;
-    const t = new Float64Array(2);
+    const t = new Float64Array(2), u = new Float64Array(2);
     for (const p of d.places) {
       if (p.type !== 'crater') continue;
       latLonToMap(d.frame, p.lat, p.lon, t);
-      this.named.push({ id: `p${p.id}`, x: t[0], z: t[1], r: p.R, a: 0.3, b: 0.5, c: 0.5, age: 0, kind: p.km >= 20 ? 1 : 0, name: p.name, wob: p.km >= 20 ? rimOf(p, d.seed) : null, turn: 0, rec: null });
+      // (its own north, on this map)
+      latLonToMap(d.frame, p.lat + 0.05, p.lon, u);
+      const turn = Math.atan2(u[0] - t[0], t[1] - u[1]);
+      this.named.push({ id: `p${p.id}`, x: t[0], z: t[1], r: p.R, a: 0.3, b: 0.5, c: 0.5, age: 0, kind: p.km >= 20 ? 1 : 0, name: p.name, wob: p.km >= 20 ? rimOf(p, d.seed) : null, turn, rec: null });
     }
     for (const p of d.places) {
       latLonToMap(d.frame, p.lat, p.lon, t);
@@ -389,6 +393,11 @@ export class CraterPaint {
 
   // ------------------------------------------------------------------ a breath
 
+  /** A touch went down that may be a tap, or the steering thumb came up to make one: what glints holds while the bus settles, as Aim's latch does. */
+  latch(now: number) {
+    if (this.target) this.latchTo = now + config.splat.aimLatch;
+  }
+
   /** A shot leaves: if a crater glints it lands on that, on the floor, at the aim point if that's on it. The rest of the way is the street's. A mega doesn't wait for a full belly, so it looks for itself. */
   aim(shot: Shot, f: Flight, ax: number, az: number, now: number, mega: boolean) {
     if (mega && !this.target) this.pick(ax, az, Math.max(40, Math.hypot(ax - f.x, az - f.z, shot.drop)), f, now);
@@ -449,7 +458,6 @@ export class CraterPaint {
     // the wave a crater's size: it crosses the bowl in half a second, whatever the bowl
     const R = (t && !big ? t.r * 1.25 + 30 : Math.max(b.spec.r, t?.r ?? 0)) * S.ringReach, v = Math.max(S.waveSpeed, R / 0.5);
     blastUniforms.uBlastRing2.value.set(b.spec.hue, S.ringWidth * Math.sqrt(Math.max(1, R / 100)), v, R);
-    blastUniforms.uBlastRing.value.w = b.spec.r;
     const hits: Array<{ i: number; d: number; ang: number }> = [];
     const D = this.data;
     const maxR = t ? Math.max(30, t.r * 1.4) : base;
@@ -596,7 +604,7 @@ export class CraterPaint {
   // ------------------------------------------------------------------ a frame
 
   /** After the splats, before the frame's draw. */
-  update(dt: number, now: number, f: Flight, ax: number, az: number, loaded: boolean, height: number) {
+  update(dt: number, now: number, f: Flight, ax: number, az: number, loaded: boolean, dragging: boolean, height: number) {
     this.busX = f.x;
     this.busZ = f.z;
     // (up high the aim tips down: what it picks is under the view, a throw it can make, not at the horizon)
@@ -604,8 +612,12 @@ export class CraterPaint {
     config.splat.aimDown = 20 + 16 * up * up * (3 - 2 * up);
     const reach = Math.max(120, Math.min(26000, height * 3)) + 60;
     this.ask(f, reach);
-    if (loaded) this.pick(ax, az, Math.max(40, Math.hypot(ax - f.x, az - f.z, height)), f, now);
-    else if (this.target) {
+    if (dragging) this.latchTo = 0;
+    else if (this.wasDrag) this.latch(now);
+    this.wasDrag = dragging;
+    if (loaded) {
+      if (now >= this.latchTo) this.pick(ax, az, Math.max(40, Math.hypot(ax - f.x, az - f.z, height)), f, now);
+    } else if (this.target) {
       this.target = null;
       this.since = now;
     }
@@ -633,7 +645,7 @@ export class CraterPaint {
     this.landings(now);
     this.twinkle(dt, f);
     for (let i = live.length - 1; i >= 0; i--) if (now >= live[i].t0 + live[i].T) live.splice(i, 1);
-    this.rim?.sync(dt, f.x, f.z, this.nearBus);
+    this.rim?.sync(dt, now, f.x, f.z, this.nearBus);
     if (this.saveAt > 0) {
       this.saveAt -= dt;
       if (this.saveAt <= 0) this.save();
