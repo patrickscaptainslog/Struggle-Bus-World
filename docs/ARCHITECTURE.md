@@ -764,10 +764,11 @@ rotation are set (the rattle), `controls.frame(dt, realDt)` right after
 `controls.fx.object.position.copy(particles.object.position)` after the
 vista snap compensation (the contrail stays with the bus up high).
 
-**The rule** (`docs/specs/flight/THUMBS.md` is the design, with its numbers): the first thumb flies, anywhere; a second
-thumb looks, flicks gears and taps on its lift; a lone fresh stroke that lifts fast is a flick too, on either half, so one
-thumb has everything but the look; nothing on screen teaches or shows a gear but a moment's readout. Thumbs go by order, never
-by a line, except the second thumb's half (`secondSide`): the only half the memory of two thumbs holds.
+**The rule** (`docs/specs/flight/THUMBS.md` is the design, with its numbers): a touch landing in the look zone (`inLookZone`: the left
+`lookZone`, 42 %, of the width, the right with SWAP) never flies; anywhere else the first thumb flies. A second thumb, which is any
+thumb in the zone, alone or not, or any thumb landing while one flies, looks, flicks gears and taps on its lift. Two thumbs in
+any order: the one in the zone looks and the other flies. A lone fresh stroke out of the zone that lifts fast is a flick too, on
+a firmer rule, because it steers until the lift; nothing on screen teaches or shows a gear but a moment's readout.
 
 **The input contract** (`src/game/Input.ts`):
 - `onTap(): void` a tap: a normal dragon-breath splat. A still press up to `inputTune.stillTapMs` (450 ms) on the
@@ -781,14 +782,14 @@ by a line, except the second thumb's half (`secondSide`): the only half the memo
   time twice; `flew`: the stroke was on the stick). `Shifter` says what it means. `state.turboHeld`: Shift holds the boost; the latched turbo is `TurboDrive.level`.
 - `state.look: { on, x, y }` a second thumb's (or the right mouse's) offset from where it landed, CSS px, +x right, +y up;
   on only past `lookDelayMs` and the tap slop, 0, 0 when off. main.ts hands it to `CameraRig.setLook` every frame, with the wall clock's dt.
-- `onPress()` a gesture landed (the aim's press latch, glint == hit): the flying thumb, or a lone second thumb; never a second
-  thumb with a flying one down.
+- `onPress()` a gesture landed (the aim's press latch, glint == hit): the flying thumb, or a second thumb with nobody flying; never a
+  second thumb with a flying one down.
 - `mode: 'touch' | 'keyboard'`.
 - `state.thumb` a committed flying thumb, never a look. `state.dragging`: a thumb or keys. `state.stretch`: the stick:
   Flight, the opening's climb lock, the homing and `__qa.sx/sy` don't know who wrote it. Keys (no thumb) > the bungee's own
   stretch. The aim thaws on a thumb, keys or a QA stick: `aimer.update` gets `(qaStick || st.thumb || keys) && !input.pressHeld`.
 - Roles: `Fly` (the one flying thumb), `Second` (any other, each on its own lifecycle: a look thumb outlives the flying thumb
-  and the next landing flies), `Orphan` (swallowed by three fingers). `swapped` (BUTTONS: SWAP) moves the memory's half, and never a flick.
+  and the next landing out of the zone flies), `Orphan` (swallowed by three fingers). `swapped` (BUTTONS: SWAP) moves the look zone.
   `flickInFlight(by, now)`: a stroke that landed by then may still be a flick, so a waiting gear waits for its lift.
 - HUD hooks: `splatButton(down, cancelled?, eventTimeMs?)` (MEGA), `adoptThumb(e, keepPress, x0, y0, t0)` (MEGA's finger
   becomes the flying thumb; a look thumb stays what it is), `adoptedMove/Up` (its events if capture didn't move).

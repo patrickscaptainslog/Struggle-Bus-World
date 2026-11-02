@@ -14,15 +14,15 @@ Phase 1: single player, no server. iPhone Safari first (portrait, one thumb).
   its altitude with a wheezy bob, skimming the rooftops automatically.
 - **Tap anywhere to splat.** A tap (a second thumb's too, on its lift) is dragon
   breath; a still press up to 0.45 s still splats, past that it is a thumb at rest.
-- **Any thumb shifts, your other thumb looks** (`docs/specs/flight/THUMBS.md`). A quick
-  flick up is a gear; two flicks up are turbo, and two more a level of it, up to three; a
-  flick down takes back a gear on its way, then ends turbo, then drops a gear. One thumb
-  does all of that from a fresh stroke that lifts fast, on either half: a thumb that stays
-  down steers. A second thumb flicks too, and held down it drags to look around; lift and
-  the view goes home.
+- **The left of the screen looks, the rest flies** (`docs/specs/flight/THUMBS.md`). Any
+  thumb shifts: a quick flick up is a gear; two flicks up are turbo, and two more a level
+  of it, up to three; a flick down takes back a gear on its way, then ends turbo, then drops
+  a gear. A thumb on the left drags to look around, alone or beside a flying thumb, and
+  never flies; lift and the view goes home. One thumb anywhere else does all of the
+  shifting from a fresh stroke that lifts fast: a thumb that stays down steers.
 - **MEGA** (right side): tap = splat, hold = charge; slide off it and the same
   finger steers (a charge keeps charging). **BUTTONS: SWAP** in settings mirrors it,
-  and the half the second thumb is remembered on, for the left hand.
+  and the side that looks, for the left hand.
 - **Turbo gears.** G1 "Express" (about 250 mph) is the surge with no thumb on it:
   no height, it rides the rooftops. G2 "Jet" (~1,000 mph): shifted up low, the bus
   claws its way up to ~150 m first, straining and rattling, then the gear bites and
