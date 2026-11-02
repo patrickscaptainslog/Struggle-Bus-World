@@ -29,6 +29,7 @@ import { geodeticToFix, sphereToFix } from './WorldFrame';
 // The lens first if it changes (`pipeline.setHfov`): `draw.update` reads the focal length. Open-space flight is `free: true`: pos in EQJ km from Earth's centre, axes the render axes in EQJ by rows, as
 // view=mid does; it needs no handover all the way to the Moon, and rebaseBody is there for when a Moon-fixed orbit wants it. The bus never leaves the render origin, so speed reaches the frame only through
 // the Observer. The camera may turn freely: rays and stars both go through the snapped camera. Whatever else draws goes into the scene before `warm.add(scene)`, or it compiles in flight.
+// A tap in orbit is a breath: MoonBreath.ts, after the sky and the view; the paint it leaves is MoonPaint.ts's map, read by the resolve's spaceMoon. A hit-stop holds `dt` and not the screen's `real`.
 
 const DEG = Math.PI / 180;
 /** Half the portrait's vertical field on the 38 degree lens, degrees: what the rig's pitch rule is measured with (earth/geom.py). */
@@ -265,9 +266,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
       else trip.tap();
     };
     // a tap is a breath, as on the street: the place it touched goes in first, since Input reads the event after this
-    input.onTap = () => {
-      if (breath.tap(trip.leg === 'orbit')) hud.clearToast();
-    };
+    input.onTap = () => breath.tap(trip.leg === 'orbit');
     const touched = (e: PointerEvent) => {
       if (e.target === renderer.domElement) breath.touched(e.clientX, e.clientY);
     };
@@ -354,9 +353,11 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
       hud?.update(dt, { gear: trip.gear, maxGear: 5, engaged: true, boosting: false, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity, tiltState: 'none', gearDown: trip.canShiftDown });
       if (frames % 6 === 0) label?.(trip, breath);
       // (the one thing to do up here, where a first-timer's eye is, until they've done it)
-      if (trip.leg === 'orbit' && !breath.fired && !asked) {
-        asked = true;
-        hud?.toast(['TAP TO PAINT'], 3600);
+      const ask = trip.leg === 'orbit' && !breath.fired;
+      if (ask !== asked) {
+        asked = ask;
+        if (ask) hud?.toast(['TAP TO PAINT'], 3600);
+        else hud?.clearToast();
       }
     }
     pipeline.focus.set(0, 0, 0);

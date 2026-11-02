@@ -143,6 +143,18 @@ const moon = async () => {
   await until('orbit');
   await phase('orbit');
   await page.waitForTimeout(1500);
+  // three breaths, each on the paint of the last: the particles' first draws, the flash, the wave, a level up, rays
+  await phase('paint');
+  for (let i = 0; i < 3; i++) {
+    await page.waitForFunction(() => window.__game.moon.breath.loaded, null, { timeout: 30000, polling: 50 });
+    const at = await page.evaluate(() => {
+      const b = window.__game.moon.breath, s = b.paint.strokes.at(-1);
+      return s ? b.screenOf(s.lat, s.lon) : { x: 196, y: 420 };
+    });
+    await page.touchscreen.tap(at.x, Math.min(at.y, 560));
+    await page.waitForFunction(() => window.__game.moon.breath.stats.shots > 0 && !window.__game.moon.breath.loaded, null, { timeout: 5000, polling: 50 });
+  }
+  await page.waitForTimeout(4000);
   await phase('home');
   await tap();
   await page.waitForFunction(() => window.__game.moon.trip.leg !== 'orbit', null, { timeout: 30000, polling: 50 });

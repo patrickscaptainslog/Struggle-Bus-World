@@ -3,6 +3,7 @@
 // Real frame loop, real clock, real touches, and it does only what the screen says: the top right corner is read off the label, and TURBO is tapped when the label asks and not before, a beat after it asks.
 // The thumb is a real drag on the canvas: in the long dark each way (the camera), and on both sides in orbit (the bus). --dt=0.05 holds the frame loop's step there, so a fast laptop flies it faster than life:
 // that's for repeat flights; the clock numbers are the same. --thumbat=25: when the thumb wanders in the long dark, seconds into the leg. --tab: the down tab in orbit, and TURBO back up.
+// --paint=6: in orbit, a real tap on the ground each time the breath is loaded, each on the paint of the last when that's still ahead of the bus, and the look back on the way home is shot at 13,000 and 100,000 km.
 // Every frame goes in a log: what's on the sky and how far each body moved on screen since the frame before, in game px. It prints the worst of those by leg, and a frame is shot at each mark. A mark is a state
 // of the flight (a leg starting, a size reached), so it lands in the same place at any speed and any date.
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -14,7 +15,7 @@ const args = process.argv.slice(2);
 const opt = (k, d) => args.find((a) => a.startsWith(`--${k}=`))?.split('=')[1] ?? d;
 const out = args.find((a) => !a.startsWith('--'));
 const BASE = process.env.BASE ?? 'http://localhost:4179/';
-const thumbAt = Number(opt('thumbat', 12)), tab = args.includes('--tab');
+const thumbAt = Number(opt('thumbat', 12)), tab = args.includes('--tab'), paint = Number(opt('paint', 0));
 const g5 = opt('g5', '6000'), t = opt('t', '2026-11-25T04:00:00Z'), dt = Number(opt('dt', 0)), trips = Number(opt('trips', 1)), w = Number(opt('w', 402)), h = Number(opt('h', 874)), dsf = Number(opt('dsf', 1)), shots = opt('shots', '1') !== '0', extra = opt('q', '');
 mkdirSync(out, { recursive: true });
 
@@ -151,6 +152,31 @@ try {
       await drag(-70, 0, 3000);
     }
 
+    // ---- paint: what a first-timer does once it says so
+    if (paint && s.leg === 'orbit' && inLeg > 3) {
+      const b = await page.evaluate(() => {
+        const m = window.__game.moon, br = m.breath, l = br.paint.strokes.at(-1);
+        return { loaded: br.loaded, shots: br.stats.shots, last: l ? br.screenOf(l.lat, l.lon) : null, painted: +(br.paint.painted * 100).toFixed(3), level: l?.level ?? 0 };
+      });
+      if (b.loaded && b.shots < paint) {
+        const ahead = b.last && b.last.y < 560 && b.level < 3;
+        const x = ahead ? b.last.x : 196, y = ahead ? b.last.y : 420;
+        console.log(wall(), `tap ${b.shots + 1} at ${Math.round(x)}, ${Math.round(y)}${ahead ? ' (on the paint)' : ''}: ${b.painted} % so far, the screen says ${s.say.split('|').slice(3).join(' ')}`);
+        await page.touchscreen.tap(x, y);
+        await page.waitForTimeout(200);
+        const after = await page.evaluate(() => {
+          const br = window.__game.moon.breath, l = br.paint.strokes.at(-1);
+          return { tap: br.lastTap, on: l ? br.screenOf(l.lat, l.lon) : null, level: l?.level };
+        });
+        console.log(wall(), `  landing place at ${Math.round(after.on.x)}, ${Math.round(after.on.y)} on the screen, level ${after.level}`);
+        if (b.shots + 1 === paint) await shoot(`${n}o-painted`, s);
+      }
+    }
+    if (paint && s.leg === 'homeOut' || (paint && s.leg === 'homeCruise')) {
+      if (s.hM >= 13000) await shoot(`${n}q-paint-13000`, s);
+      if (s.hM >= 100000) await shoot(`${n}q-paint-100000`, s);
+    }
+
     if (tab && s.leg === 'orbit' && inLeg > 19 && !done.has('orbit-tab')) {
       done.add('orbit-tab');
       const b = await page.locator('[data-hud="gear-down"]').boundingBox();
@@ -161,7 +187,7 @@ try {
     }
 
     // ---- TURBO, when the label asks. In orbit, a look round first
-    const wait = s.leg === 'orbit' ? (done.has('orbit-tab') ? 3 : 24) : 1.5;
+    const wait = s.leg === 'orbit' ? (done.has('orbit-tab') ? 3 : paint ? 24 + paint * 3 : 24) : 1.5;
     if (prompt.startsWith('TAP TURBO') && heard > wait) {
       if (s.leg === 'wait' && s.trips >= trips) break;
       console.log(wall(), `TURBO (the screen says ${prompt})`);

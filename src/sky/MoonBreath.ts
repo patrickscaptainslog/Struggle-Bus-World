@@ -12,8 +12,8 @@ import { R_MOON, type SkyState } from './SkyModel';
 //
 // Nothing here is new to the game but where it lands. The breath is the real Particles geyser on the real timings of config.splat: the inhale, the squash, the heave, the belly's refill, so a shot goes when the
 // glint says it's loaded. Its target is a stand-in: the true point is 400 km off, past any depth the frame has, so the ribbon flies to a point on the same line of sight PROXY metres out, and lands on the pixel of the
-// true place. The impact is the game's too: flash, hit-stop, kick, splash, fountain and the 64 flung blobs, each landing on a spatter drop the map holds back for it. Those fly in stand-in metres, at a gravity that
-// gives clean slow arcs over a blast 100 km wide, and the place they land on is led by how fast that part of the ground is sliding down the frame.
+// true place. The impact is the game's too: flash, hit-stop, kick, splash, fountain, the 64 flung blobs, each landing on a spatter drop the map holds back for it, and sparkles where the wave has been. Those fly in
+// stand-in metres, at a gravity that gives clean slow arcs over a blast 100 km wide, and the place they land on is led by how fast that part of the ground is sliding down the frame.
 //
 // The aim is one source of truth, as Aim.ts's is. A tap on the ground ahead of the bus lands there; any other tap (the sky, under the bus, Space on a keyboard) lands where the glint is, on the ground at the middle of
 // the frame. It is a fixed place on the Moon from the tap on. Hitting paint again is what levels it up, and paint slides down the frame slowly enough to be tapped again (G3: MoonTrip.ts).
@@ -36,6 +36,8 @@ const WARP_TEXELS = 0.85;
 /** ms of drawing saved strokes before the first frame, and in a frame after it. */
 const REBUILD_BOOT_MS = 40;
 const REBUILD_FRAME_MS = 3;
+/** Seconds after the impact that sparkles go up. */
+const SPARK_AT = [0.15, 0.45, 0.8];
 /** The breath goes on pouring into the splash this long past the impact, s. */
 const POUR_S = 0.3;
 
@@ -76,7 +78,7 @@ export class MoonBreath {
   private fullness = 1;
   private squashV = 0;
   private shot: Shot | null = null;
-  private live: { job: PaintJob; at: number; settled: boolean; n: Float64Array } | null = null;
+  private live: { job: PaintJob; at: number; n: Float64Array; sparks: number } | null = null;
   private kickT = 1e3;
   private kickA = 0;
   /** where the jet is still pouring, past its impact */
@@ -94,6 +96,7 @@ export class MoonBreath {
   private readonly dirWas = new THREE.Vector3();
   private readonly dirRate = new THREE.Vector3();
   private dirKnown = false;
+  private readonly sparkHues = [0, 0, 0];
   private readonly jet: GeyserLive = { target: new THREE.Vector3(), travel: TRAVEL, rate: 1, width: 1 };
   /** set by the frame: the sky it's reading */
   private sky: SkyState | null = null;
@@ -126,7 +129,7 @@ export class MoonBreath {
     Object.assign(fxTune, {
       halfWidth0: 6.5, halfWidth1: 3.4, blobSize: 1.7, blobMouth: 0.62, sprayScatter: 7, flickOut: 22, wobbleAmp: 1.6,
       gravity: 130, burstUp: 150, burstOut: 46, burstSize: 3.6, splashUp: 74, splashOut: 40, splashSize: 2.2, roofRadius: 1e4, hopUp: 18, hopOut: 14,
-      flingSplash: 5,
+      flingSplash: 5, sparkSize: 7, sparkLife: 1.1, sparkRise: 9,
     });
   }
 
@@ -183,6 +186,8 @@ export class MoonBreath {
     this.lastTap.ground = ground;
     this.touchAt = -1e9;
     this.settleNow();
+    // (the saved list must be down first: a stroke goes on the end of it)
+    if (this.paint.rebuilding && this.paint.rebuild(1e9, () => performance.now())) this.tex.needsUpdate = true;
     const stroke = this.paint.strike(Math.asin(Math.max(-1, Math.min(1, n[2]))) / DEG, Math.atan2(n[1], n[0]) / DEG);
     const job = this.paint.begin(stroke, true);
     // (where the stroke says: rounded to 0.01 degrees, 300 m)
@@ -283,6 +288,11 @@ export class MoonBreath {
       L.set(age, r / R_MOON, Math.max(width, 1) / R_MOON, live.job.stroke.seed % 6);
       // (the game's wave has died by the time it stops, 5 of its time constants on. This one is slowed five times over, so it dissolves on the clock, gone when the blast settles)
       U.uPaintAt.value.set(live.n[0], live.n[1], live.n[2], age / SETTLE_S);
+      // sparkles as the wave goes by, where the game has them on each building that blooms
+      if (live.sparks < SPARK_AT.length && age >= SPARK_AT[live.sparks]) {
+        this.sparkle(live, r, camera);
+        live.sparks++;
+      }
       const over = live.job.over;
       if (over) {
         if (!this.paint.over(over, age)) live.job.over = null;
@@ -327,7 +337,7 @@ export class MoonBreath {
     this.upload(job.rect, true);
     this.shot = null;
     this.pour = { n: shot.n, until: this.t + POUR_S };
-    this.live = { job, at: this.t, settled: false, n: shot.n };
+    this.live = { job, at: this.t, n: shot.n, sparks: 0 };
     this.paint.save();
     const pos = this.proxy(this.dirNow, 0, camera, this.tA).clone();
     const k = EDGE_KM[level] / EDGE_KM[1];
@@ -347,6 +357,18 @@ export class MoonBreath {
     this.hitStop = S.hitStopFrames / 60;
     this.kickA = ((S.kick * Math.sqrt(k)) / config.camera.distanceVista) * 0.6;
     this.kickT = 0;
+  }
+
+  /** A handful of twinkles over the ground the wave has reached, r km out. */
+  private sparkle(live: { job: PaintJob; n: Float64Array }, r: number, camera: THREE.Camera): void {
+    const hue = live.job.stroke.seed % 6, c = this.tA;
+    this.at(live.n, this.dirNow);
+    this.proxy(this.dirNow, 0, camera, c);
+    this.sparkHues[0] = hue;
+    this.sparkHues[1] = (hue + 2) % 6;
+    this.sparkHues[2] = (hue + 4) % 6;
+    // (r km on the ground is about 2.5 m of stand-in, 400 km off and 1,000 m out)
+    this.particles.sparkles(c, r * 2.5, 12, this.sparkHues, 16 + live.job.stroke.level * 8);
   }
 
   /** Reveal done: every texel of the last blast shows. The next tap brings it on if it hasn't come. */

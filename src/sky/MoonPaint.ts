@@ -11,10 +11,11 @@ import { R_MOON } from './SkyModel';
 //   r  coverage, a ramp across the edge: bilinear, then a threshold in the shader, so an edge is a smooth contour at a fraction of a texel (GroundPaint's scheme)
 //   g  hue: (h + .5) / 6. Filtered too: next to each other two hues meet on a clean contour, and only the seam from violet to red runs through the others, in a line a pixel or two wide. It picks a ramp, it is never averaged into a colour
 //   b  lift: how many ramp steps brighter, 0..1. L1 0, up to the crown's and rays' 1
-//   a  reveal: seconds after the impact this texel waits, in 1/100 s, 0 once settled. Fresh ground only: paint already there takes the new blast at the impact, under the flash, as the ground's does
+//   a  reveal: seconds after the impact this texel waits, in 1/100 s, 0 once settled. Fresh ground only. Paint already there is turned over by the wave too, a different way: see over()
 // Five coarser levels, 21 to 341 km a texel, are this file's own, not an average: a splash must not fade away with distance, and hues mustn't mix. See mipLevel.
 //
-// A tap never hitches: the raster runs in slices while the shot flies (work), and the impact sends one rectangle a level. Settling sends one more, on the first level only. See MoonBreath.ts.
+// A tap never hitches: the raster runs in slices while the shot flies (work), and the impact sends one rectangle a level, most of it a few KB, half a MB for the first level of the widest ray system near a pole.
+// Settling sends one more, on the first level only. See MoonBreath.ts.
 //
 // What is kept is the strokes, not a raster: latitude, longitude, level, seed. The hue is seed % 6. They're rebuilt on load in order, so a level up over an old stroke redraws as it was.
 
@@ -30,6 +31,8 @@ export const TEXEL_KM = (2 * Math.PI * R_MOON) / PAINT_W;
 export const EDGE_KM = [0, 50, 80, 104];
 /** Seconds the wave takes to reach the edge. */
 export const BLOOM_S = 1;
+/** Texels a level up may run its wave over, a frame. */
+const OVER_MAX = 8000;
 /** The crown's width, km, inside the flood's edge. */
 const CROWN_KM = 25;
 /** Longest ray, km: about Tycho's. */
@@ -136,8 +139,6 @@ export interface PaintOver {
   frame: Uint8Array;
 }
 
-const dot3 = (a: Float64Array, b: Float64Array) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-
 /** Unit vector, Moon fixed, of a place in degrees. */
 export function placeOf(lat: number, lon: number, o = new Float64Array(3)): Float64Array {
   const p = lat * DEG, l = lon * DEG, c = Math.cos(p);
@@ -158,6 +159,8 @@ export class MoonPaint {
   private readonly store: PaintStore | null;
   private nextHue = 0;
   private seed = 0;
+  /** floods over the first level, 5 numbers each: where, cos of its radius, level */
+  private readonly floods: number[] = [];
   /** saved strokes not drawn yet, and how many of them are */
   private queue: PaintStroke[] = [];
   private drawn = 0;
@@ -264,16 +267,13 @@ export class MoonPaint {
     return (j * PAINT_W + i) * 4;
   }
 
-  /** What a hit here makes: bare ground 1; paint, a level over the flood under it. Rays and spatter are paint too, and count as a first level. */
+  /** What a hit here makes: bare ground 1; paint, a level over the flood under it. Rays and spatter are paint too, and count as a first level. The glint asks every frame: no trig past the first line. */
   levelAt(lat: number, lon: number): number {
-    const o = this.texelAt(lat, lon);
-    if (this.mips[0].data[o] < 128) return 1;
-    const v = placeOf(lat, lon, new Float64Array(3));
+    if (this.mips[0].data[this.texelAt(lat, lon)] < 128) return 1;
+    const v = placeOf(lat, lon, this.p), f = this.floods;
     let top = 1;
-    for (const s of this.strokes) {
-      if (s.level <= top) continue;
-      const q = placeOf(s.lat, s.lon, this.p);
-      if (Math.acos(Math.min(1, dot3(v, q))) * R_MOON < EDGE_KM[s.level] * 0.9) top = s.level;
+    for (let i = 0; i < f.length; i += 5) {
+      if (f[i + 4] > top && v[0] * f[i] + v[1] * f[i + 1] + v[2] * f[i + 2] > f[i + 3]) top = f[i + 4];
     }
     return Math.min(3, top + 1);
   }
@@ -339,12 +339,15 @@ export class MoonPaint {
     job.iSpan = Math.min(PAINT_W, span * 2 + 1);
     if (live && level > 1) job.over = this.keepOver(job);
     this.strokes.push(stroke);
+    if (level > 1) this.floods.push(c[0], c[1], c[2], Math.cos((EDGE_KM[level] * 0.9) / R_MOON), level);
     return job;
   }
 
   /** Paint is under this blast: keep what it looks like now, for the wave to run over. */
   private keepOver(job: PaintJob): PaintOver | null {
     const w = job.iSpan, y = job.j, h = job.j1 - job.j + 1, d = this.mips[0].data;
+    // (round a pole a flood's rectangle is the whole width of the map: there it turns over at the impact, as the ground's does)
+    if (w * h > OVER_MAX) return null;
     const before = new Uint8Array(w * h * 4), at = new Float32Array(w * h), level = job.stroke.level;
     let any = false, last = 0;
     for (let j = 0, k = 0; j < h; j++) {
@@ -566,7 +569,7 @@ export class MoonPaint {
     const p = this.along(job, dot.d, dot.ang);
     const level = job.stroke.level;
     const rv = dot.blob ? this.blobTime(dot, level) : this.waveAt(dot.d, level);
-    this.stamp(job, p, dot.rad * DOT_KM, dot.elong, dot.ang, dot.hue, level >= 2 ? LIFT_CROWN : 0, rv, true);
+    this.stamp(job, p, dot.rad * DOT_KM, dot.elong, dot.ang, dot.hue, LIFT[level], rv, true);
   }
 
   /** A ray, or as much of it as the budget allows: thrown out along a great circle from the flood, tapering, wandering a little, and breaking up toward its end. Over everything it crosses: it's the newest paint there. */
@@ -625,10 +628,6 @@ export class MoonPaint {
     return (y1 - y0 + 1) * (x1 - x0 + 1) * 4;
   }
 
-  /** Taken by a tool: a texel's coverage at this place. */
-  coverageAt(lat: number, lon: number): number {
-    return this.mips[0].data[this.texelAt(lat, lon)] / 255;
-  }
 }
 
 /** localStorage, or nothing if the browser says no. */
