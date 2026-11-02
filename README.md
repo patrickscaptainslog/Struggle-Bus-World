@@ -22,11 +22,12 @@ Phase 1: single player, no server. iPhone Safari first (portrait, one thumb).
 - **MEGA** (right side): tap = splat, hold = charge; slide off it and the same
   finger steers (a charge keeps charging). **BUTTONS: SWAP** in settings mirrors it,
   and the flick's side, for the left hand.
-- **Turbo gears.** G1 "Jet" (~1,000 mph): shifted up low, the bus claws its
-  way up to ~150 m first, straining and rattling, then the gear bites and it
-  breaks the sound barrier with a boom, a vapor cone and a rainbow contrail.
-  Steering gets wider with speed. Shift down to brake back to cruising and
-  hold your altitude. G2 "Stratos" and G3 "Rainbow Warp" (San Francisco to
+- **Turbo gears.** G1 "Express" (about 250 mph) is the surge with no thumb on it:
+  no height, it rides the rooftops. G2 "Jet" (~1,000 mph): shifted up low, the bus
+  claws its way up to ~150 m first, straining and rattling, then the gear bites and
+  it breaks the sound barrier with a boom, a vapor cone and a rainbow contrail.
+  Steering gets wider with speed. Shift down to brake back a gear and
+  hold your altitude. G3 "Stratos" and G4 "Rainbow Warp" (San Francisco to
   Tokyo in about five minutes) are locked until the world beyond the city
   exists ("LOCKED: WORLD TRAVEL COMING").
 - Up high the camera pulls back into a vista (it holds perfectly still while

@@ -803,16 +803,16 @@ come out of `shift` or `boostUp`, so never before the window closes.
 
 **Turbo** (`src/game/Turbo.ts`, `TurboDrive`): `shift(dir, flight)`,
 `boostUp()`, `boostOff()`, `update(dt, flight, held)`, `gear`, `level` (the latched
-turbo), `engaged`, `strain`, `speedK` (log scale: 0 at the surge, 1 at G1),
+turbo), `engaged`, `lifts` (the gear has a height: Jet and up), `strain`, `speedK` (log scale: 0 at the surge, 1 at Jet),
 `boosting`, `edge`, `onEvent(ev, gear)` with ev up | down | locked | engage | boom |
 turbo | turbo-off, and Shifter's flick | back down the same path;
 `gearSpeed/gearAlt/gearClimb`, `driveSpeed(gear, level, engaged)`,
-`GEAR_NAMES`. It writes **`Flight.turbo`** before each step: `speed` (target,
+`GEAR_NAMES`, and the gears by name (`EXPRESS`, `JET`, `STRATOS`, `WARP`: a number is a place on the ladder). Express is the surge with no
+thumb on it: no height, no floor, the classic rate, in on the shift, and a shift down out of it holds and brakes nothing. It writes **`Flight.turbo`** before each step: `speed` (target,
 0 = classic), `rate` (1/s, 0 = classic), `floor` (m ASL, a gear's floor the
 bus rides like a roof), `ceiling` (0 = config.flight.ceiling), `yaw`
 (steering authority). Flight's `lift` / `floorY` smoothing stay the
-rooftop's. Tunables: `config.turbo` (`worldTravel` gates G2 / G3, `levels` and
-`levelsG0` are turbo's). Near the map's edge what fades is a gear's or turbo's
+rooftop's. Tunables: `config.turbo` (`worldTravel` gates Stratos and Rainbow Warp, `levels` is turbo's, on the gear's speed and at Cruise on the surge's). Near the map's edge what fades is a gear's or turbo's
 speed over the ground, over a reach read from what it is driving at, so a bus
 going straight up keeps its gear.
 **The path** (`docs/specs/flight/NOSE.md`): on any dive, and on a pull with a

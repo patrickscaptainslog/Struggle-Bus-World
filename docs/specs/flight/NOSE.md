@@ -6,7 +6,7 @@ The producer, 2026-11-01: "I need a way to point upwards, and turn on turbo - wh
 
 ## The rule
 
-Flight used to move the bus forward at `speed` and move `y` on a separate `vy`, so a gear or the boost only ever flattened the path: full pull in G1 was 450 forward and 80 up, 10 degrees.
+Flight used to move the bus forward at `speed` and move `y` on a separate `vy`, so a gear or the boost only ever flattened the path: full pull in Jet was 450 forward and 80 up, 10 degrees.
 
 Now there is a path. On any dive, and on a pull with a gear or the boost, `speed` is the speed along the path and `Flight.nose` is its angle. `vy` is `speed * sin(nose)`, and what that leaves goes over the ground (`Flight.ground`). The nose follows the stick at `noseRate`: that is the only lag, so nothing lurches forward on the way.
 
@@ -35,15 +35,17 @@ Measured in the game with the real stick, full belly, at a fixed step:
 | Stick | Up (m/s) | Forward (m/s) | Path (deg) | Bus's pitch (deg) |
 |---|---|---|---|---|
 | Full pull | 40 | 13.2 | 72 | 72 |
-| Full pull, turbo on | 111.6 | 9.8 | 85 | 80 |
-| Full pull, G1 | 448 | 39 | 85 | 80 |
+| Full pull, Express | 111.6 | 9.8 | 85 | 80 |
+| Full pull, turbo on, Cruise | 145 | 12.7 | 85 | 80 |
+| Full pull, Jet | 448 | 39 | 85 | 80 |
 | Full push | -98.2 | 8.6 | -85 | -80 |
-| Full push, turbo on | -111.6 | 9.8 | -85 | -80 |
-| Full push, G1 | -448 | 39 | -85 | -80 |
+| Full push, Express | -111.6 | 9.8 | -85 | -80 |
+| Full push, turbo on, Cruise | -145 | 12.7 | -85 | -80 |
+| Full push, Jet | -448 | 39 | -85 | -80 |
 
 The stick at a quarter, a half and three quarters of its travel gives 6, 27 and 54 degrees, both ways.
 
-G1 from the street on full pull: engaged within 3 s, 14,900 m 35.8 s after the shift, stopped at 15,000.0 m about 38 s after it, no overshoot, then 450 m/s forward. A full dive in plain flight from 3 km takes about 31 s. G1 from 12 km takes about 28 s, flares from about 670 m over its 150 m floor and comes out level at 450 m/s.
+Jet from the street on full pull: engaged within 3 s, 14,900 m 35.8 s after the shift, stopped at 15,000.0 m about 38 s after it, no overshoot, then 450 m/s forward. A full dive in plain flight from 3 km takes about 31 s. Jet from 12 km takes about 28 s, flares from about 670 m over its 150 m floor and comes out level at 450 m/s.
 
 ## What's tunable
 
@@ -57,7 +59,7 @@ All on the tuner (`?tune`), under flight and camera, read live:
 
 - **The breath doesn't follow the nose.** It still flies 20 degrees below the heading, so in a steep dive the glint and the landing are off the top of the frame. Aiming down the path is a new rule, the producer's.
 - **Going straight up or down the bus is end-on.** At full dive the lens looks down the bus's length and the hero shows its tail, about 12 px of a 240 px frame, against 33 in a hold at height. It reads, and a bigger hero would be a new rule too.
-- **A gear holds the city's level of detail.** Dive in G1 and the blocks at the bottom stay coarse until the gear comes out, as they do on any low run in a gear.
+- **A gear with a height holds the city's level of detail, and so does any speed past the surge.** Dive in Jet and the blocks at the bottom stay coarse until the gear comes out, as they do on any low run in it. Express holds nothing: it is the surge.
 - **Under a deck** the chase camera still stands over it and hides the bus (BRIDGES, step 5).
 - **A floor landing on a dive turns the velocity in one frame.** The fall stops at once and the speed goes forward. The position doesn't jump and the bus's pitch eases, as it always did at a floor step. If it reads badly on the phone, the fix is a limit on how fast a cap may turn the nose.
 - **The phone's questions.** Whether 2.6 per s feels right on a thumb, whether 85 degrees comes on too soon, and how far the view may tip are for the tuner on the phone.
