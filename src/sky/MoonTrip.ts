@@ -71,6 +71,8 @@ export const FALL_TAU = (ALT4 - FALL_FLOOR) / (G3 - G1);
 export const YOKE = { dead: 0.14, up: 85 * DEG, down: 85 * DEG, curve: 1.3, rate: 2.6 };
 /** A push held this long leaves the orbit (s): a carving thumb's drift doesn't. */
 const PUSH_HOLD = 0.15;
+/** How near the orbit's height a climb starts to level off, s of its own speed, so it comes onto the floor and doesn't stop dead under it. */
+const FLARE_S = 1.5;
 
 export type Leg = 'wait' | 'climb' | 'arc' | 'out' | 'cruise' | 'in' | 'orbit' | 'fall' | 'ground' | 'leave' | 'homeOut' | 'homeCruise' | 'homeIn' | 'homeLevel' | 'homeDrop';
 
@@ -192,6 +194,12 @@ export class MoonTrip {
   ground = 0;
   /** A stick the map's edge adds to the thumb's, as the low game's homing does (moon/Landing.ts). */
   home = 0;
+  /** Going up is gears: the speed of the gear that's taking the bus up, km/s. 0: the way down's law has the speed. */
+  climbV = 0;
+  /** That gear is the way out: with no thumb on it the bus goes on up, to the orbit. */
+  lifting = false;
+  /** A climb is over and the speed is coming down to the law's. */
+  private settling = false;
   private pushT = 0;
   private readonly land: boolean;
   private readonly ms0: number;
@@ -269,7 +277,7 @@ export class MoonTrip {
 
   /** There is something for the down tab to do. */
   get canShiftDown(): boolean {
-    return this.armed;
+    return this.armed || this.lifting;
   }
 
   /** TURBO: a tap shifts up. It lands at the next step, which reads the sky. */
@@ -354,15 +362,29 @@ export class MoonTrip {
           this.leaveMoon();
           break;
         case 'fall':
-          // (still in the sky: below that the gears are the ground's)
+          // (up here it goes home. Under that the gear goes up and the bus with it, as TURBO does on the ground: a tap is a shift, and it may be early)
           if (this.hMoon > 150) this.leaveMoon();
+          else if (!this.lifting) {
+            this.climbV = G3;
+            this.lifting = true;
+            this.settling = false;
+            this.ti = 0;
+          }
           break;
       }
     }
     if (this.downTapped) {
       this.downTapped = false;
       this.armed = false;
+      if (this.lifting) this.endClimb();
     }
+  }
+
+  /** The gear lets go of the speed, and the law takes it from there. */
+  private endClimb(): void {
+    this.climbV = 0;
+    this.lifting = false;
+    this.settling = true;
   }
 
   private launch(): void {
@@ -383,6 +405,8 @@ export class MoonTrip {
   /** Always by way of the level leg: a bus flying away from Earth has to carve round on the floor first, or the short way to Earth is through the Moon. */
   private leaveMoon(): void {
     this.nose = 0;
+    this.climbV = 0;
+    this.lifting = this.settling = false;
     this.gear = 4;
     this.ti = 0;
     this.armed = false;
@@ -674,6 +698,8 @@ export class MoonTrip {
           this.pushT = 0;
           this.nose = 0;
           this.gov = 1;
+          this.climbV = 0;
+          this.lifting = this.settling = false;
           this.enter('fall');
           return false;
         }
@@ -696,9 +722,19 @@ export class MoonTrip {
         setUnit(p, u);
         this.yaw(Math.max(-1, Math.min(1, stick + this.home)), dt, u);
         const pull = Math.max(0, Math.min(1, (-yoke - Y.dead) / (1 - Y.dead))), push = this.pushOf(yoke);
-        const want = pull > 0 ? Y.up * pull ** Y.curve : push > 0 ? -Y.down * push ** Y.curve : 0;
-        this.nose += (want - this.nose) * (1 - Math.exp(-Y.rate * dt));
-        this.v = Math.min(this.v, this.lawFall(hM - this.ground));
+        // (a push is going down: the gear that was taking it up is over)
+        if (push > 0 && this.climbV > 0) this.endClimb();
+        const want = pull > 0 ? Y.up * pull ** Y.curve : push > 0 ? -Y.down * push ** Y.curve : this.lifting ? Y.up : 0;
+        // (the orbit's height is a ceiling here: at any speed the bus levels off onto it)
+        const top = Math.asin(Math.max(0, Math.min(1, (R_M + ALT4 - len(p)) / Math.max(this.v * FLARE_S, 1e-3))));
+        this.nose += (Math.min(want, top) - this.nose) * (1 - Math.exp(-Y.rate * dt));
+        // The way up is gears, the ruling: a gear's speed, whatever the height, on its own spool. The way down is the law, and when a climb that's over has more than the law allows it comes down to it, for all it's only a limit.
+        if (this.climbV > 0) this.spool(this.climbV, dt);
+        else {
+          const law = this.lawFall(hM - this.ground);
+          this.v = this.settling && this.v > law ? law + (this.v - law) * Math.exp(-3 * dt) : Math.min(this.v, law);
+          if (this.v <= law * 1.01) this.settling = false;
+        }
         this.gear = this.v > G4 * 1.01 ? 5 : 3;
         const s = this.v * this.gov * dt, cn = Math.cos(this.nose), sn = Math.sin(this.nose), R = len(p), th = (s * cn) / R, c = Math.cos(th), sa = Math.sin(th), up = R + s * sn;
         for (let i = 0; i < 3; i++) {
@@ -709,8 +745,10 @@ export class MoonTrip {
         }
         this.km += s;
         // (pulled all the way back up: it's the orbit again, and that takes the speed back)
-        if (up >= R_M + ALT4 && this.nose > 0) {
+        if (up >= R_M + ALT4 - 1 && this.nose > 0) {
           this.nose = 0;
+          this.climbV = 0;
+          this.lifting = this.settling = false;
           this.rOrbit = up;
           tangent(this.dir, setUnit(p, u), this.dir);
           this.gear = 3;
@@ -829,6 +867,28 @@ export class MoonTrip {
   /** The ground game takes the bus (moon/Landing.ts). */
   land2ground(): void {
     this.enter('ground');
+  }
+
+  /**
+   * The ground game hands it back, climbing: where it is from the Moon's centre and the way it faces, EQJ, the way it goes and how fast, and the speed of the gear it's in. It's the way down's leg, flown up: the thumb has the same yoke, a
+   * push goes back down, and a bus left alone at the height it has flies on level.
+   */
+  fromGround(pos: V, heading: V, nose: number, v: number, gearV: number, lifting: boolean): void {
+    const p = this.ob.pos, u = setUnit(pos, this.u), cn = Math.cos(nose), sn = Math.sin(nose);
+    p.set(pos);
+    this.rm.set(pos);
+    this.heading.set(heading);
+    for (let i = 0; i < 3; i++) this.dir[i] = heading[i] * cn + u[i] * sn;
+    this.nose = nose;
+    this.v = v;
+    this.climbV = gearV;
+    this.lifting = lifting;
+    this.settling = false;
+    this.ti = 0;
+    this.gov = 1;
+    this.home = 0;
+    this.gear = 3;
+    this.enter('fall');
   }
 
   /** The law has the speed from here. Level turns north for the pull-up, unseen: a far view is framed north up. */

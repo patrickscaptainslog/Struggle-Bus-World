@@ -193,6 +193,12 @@ export class Controls {
     return this.tilt.status === 'requesting';
   }
 
+  /** The bus has gone up out of this game's hands (?moonland): what's still sounding stops. */
+  leftGround() {
+    const kit = this.d.audio.voiceKit();
+    if (kit && this.voice.attached) this.voice.detach(kit.ctx.currentTime + LOOKAHEAD + 0.3);
+  }
+
   /** A breath left (main.ts). */
   splatted() {
     this.splats++;
@@ -293,7 +299,8 @@ export class Controls {
     h.maxGear = T.maxGear;
     h.engaged = T.engaged;
     h.boosting = T.boosting;
-    h.mph = f.speed * 2.23694;
+    // (a gear's floor lifting the bus is no part of `speed`)
+    h.mph = (f.turbo.floor > f.y ? Math.hypot(f.ground, f.vy) : f.speed) * 2.23694;
     h.armed = this.queuedShift > 0;
     h.sinceShift = T.time - Math.max(T.shiftedAt, T.engagedAt);
     h.sinceLocked = T.time - T.lockedAt;

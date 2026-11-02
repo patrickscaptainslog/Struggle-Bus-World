@@ -95,6 +95,8 @@ export class TripView {
   private lag = 0;
   private bank = 0;
   private started = false;
+  private readonly handed = new THREE.Quaternion();
+  private isHanded = false;
 
   private readonly u = new THREE.Vector3();
   private readonly level = new THREE.Vector3();
@@ -171,6 +173,12 @@ export class TripView {
 
     // ---- the swing: the law jumped, so the view stays where it was and that gap decays. Anything the thumb had goes with it.
     if (this.target !== was) this.takeBack();
+    // (and handed over by the low game, the same: this.want is this frame's by now)
+    if (this.isHanded) {
+      this.isHanded = false;
+      this.q.copy(this.handed);
+      this.takeBack();
+    }
 
     // ---- the thumb
     if (!trip.steering && thumb) {
@@ -230,6 +238,15 @@ export class TripView {
   private inRender(v: THREE.Vector3, a: Float64Array, o: THREE.Vector3): void {
     const { x, y, z } = v;
     o.set(a[0] * x + a[1] * y + a[2] * z, a[3] * x + a[4] * y + a[5] * z, a[6] * x + a[7] * y + a[8] * z);
+  }
+
+  /** The low game hands the view over (?moonland): it stands where the rig had it, in EQJ, and the spring takes it home. nose: the way the bus goes; up: out from the Moon, both EQJ; hfov: the rig's lens, which comes back to the law at the lens's own rate. */
+  takeOver(q: THREE.Quaternion, nose: Float64Array, up: Float64Array, hfov: number): void {
+    this.handed.copy(q);
+    this.isHanded = true;
+    this.nose.set(nose[0], nose[1], nose[2]);
+    this.busUp.set(up[0], up[1], up[2]).normalize();
+    this.hfov = this.lensAt = hfov;
   }
 
   /** The view stays exactly where it is and the spring takes it from there: to the law's view, thumb gone. */

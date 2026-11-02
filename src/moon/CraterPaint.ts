@@ -12,6 +12,7 @@ import { CRATER_FLOATS, CRATER_INTS } from './gen';
 import { dirOf, latLonToMap, latOf, lonOf, type MapFrame, type Place, type WholeMap } from './map';
 import { moonGlobals } from './moonMaterial';
 import type { RoofSprouts } from '../world/props/sprouts';
+import type { PaintStroke } from '../sky/MoonPaint';
 import { RimBloom } from './RimBloom';
 import type { MoonCraterRequest, MoonCraters } from './moonWorker';
 import { CLIP_LEVELS, PaintClip, type ClipMark } from './PaintClip';
@@ -150,6 +151,7 @@ export class CraterPaint {
   private askedHalf = 0;
   private readonly named: Target[] = [];
   private readonly tmpWin = [0, 0, 0, 0];
+  private readonly tmpDir = new Float64Array(3);
   private marks: ClipMark[] = [];
   private stamp = new Map<ClipMark, number>();
   private stampN = 0;
@@ -176,6 +178,8 @@ export class CraterPaint {
   private wasDrag = false;
   /** how much of what's around the bus is painted, 0..1, for the hum */
   nearShare = 0;
+  /** ?moonland: a crater big enough to see from orbit took a level, and the orbit's map is on this page */
+  onBig: ((s: PaintStroke) => void) | null = null;
 
   constructor(private readonly d: PaintDeps) {
     this.clip = new PaintClip(d.renderer);
@@ -229,6 +233,7 @@ export class CraterPaint {
     this.lastHere = null;
     this.n = 0;
     this.askedX = Infinity;
+    this.rim?.clear();
     this.clip.rebase();
     this.lay();
     this.load();
@@ -584,6 +589,10 @@ export class CraterPaint {
     if (!this.live.includes(rec)) this.live.push(rec);
     this.dirty = true;
     this.saveAt = 1;
+    if (t0 > 0 && rec.r >= ORBIT_R && this.onBig) {
+      const a = this.lowRow(rec);
+      this.onBig({ lat: a[0], lon: a[1], level: a[2], seed: a[3], km: a[4] });
+    }
     this.rim?.hit(rec, this.busX, this.busZ);
     if (t0 > 0) this.landing.push({ at: t0 + rec.T * (rec.level === 1 ? 0.85 : 0.6), rec, level: rec.level });
     return rec;
@@ -664,10 +673,34 @@ export class CraterPaint {
       this.since = now;
     }
     this.glint();
-    const c = this.clip;
-    c.follow(f.x, f.z, f.fx, f.fz);
-    const win = this.tmpWin;
+    this.clip.follow(f.x, f.z, f.fx, f.fz);
+    this.drawWindows(now, 0);
+    this.landings(now);
+    this.twinkle(dt, f);
     const live = this.live;
+    for (let i = live.length - 1; i >= 0; i--) if (now >= live[i].t0 + live[i].T) live.splice(i, 1);
+    this.rim?.sync(dt, now, f.x, f.z, this.nearBus);
+    if (this.saveAt > 0) {
+      this.saveAt -= dt;
+      if (this.saveAt <= 0) this.save();
+    }
+  }
+
+  /** The bus has gone up out of reach (?moonland): nothing glints. */
+  letGo() {
+    this.target = null;
+    this.glint();
+  }
+
+  /** ?moonland, over the ground in the flight's loop: the wide windows go where the view is, so what's painted is on the far field before the low game has the frame. The fine ones are for a bus that's nearly down. */
+  fly(x: number, z: number, fx: number, fz: number, now: number) {
+    this.clip.follow(x, z, fx, fz);
+    this.drawWindows(now, 2);
+  }
+
+  /** What's moved or landing goes on the windows, from window `from` up. */
+  private drawWindows(now: number, from: number) {
+    const c = this.clip, win = this.tmpWin, live = this.live;
     let lx0 = Infinity, lz0 = Infinity, lx1 = -Infinity, lz1 = -Infinity;
     for (const r of live) {
       lx0 = Math.min(lx0, r.x - r.reach);
@@ -675,7 +708,7 @@ export class CraterPaint {
       lx1 = Math.max(lx1, r.x + r.reach);
       lz1 = Math.max(lz1, r.z + r.reach);
     }
-    for (let k = 0; k < CLIP_LEVELS; k++) {
+    for (let k = from; k < CLIP_LEVELS; k++) {
       c.window(k, win);
       // (the finest window leaves a blast on open ground to GroundPaint: that's sharper, and it's the same place)
       if (c.dirty(k)) c.draw(k, win[0], win[1], win[2], win[3], this.marks, this.marksIn(win[0], win[1], win[2], win[3], k > 0), now);
@@ -683,14 +716,6 @@ export class CraterPaint {
         const x0 = Math.max(win[0], lx0), z0 = Math.max(win[1], lz0), x1 = Math.min(win[2], lx1), z1 = Math.min(win[3], lz1);
         if (x1 > x0 && z1 > z0) c.draw(k, x0, z0, x1, z1, this.marks, this.marksIn(x0, z0, x1, z1, k > 0), now);
       }
-    }
-    this.landings(now);
-    this.twinkle(dt, f);
-    for (let i = live.length - 1; i >= 0; i--) if (now >= live[i].t0 + live[i].T) live.splice(i, 1);
-    this.rim?.sync(dt, now, f.x, f.z, this.nearBus);
-    if (this.saveAt > 0) {
-      this.saveAt -= dt;
-      if (this.saveAt <= 0) this.save();
     }
   }
 
@@ -807,18 +832,22 @@ export class CraterPaint {
     }
   }
 
+  /** A crater on the orbit's map: [lat, lon, level, seed, km]. */
+  private lowRow(r: Rec): number[] {
+    const d = this.tmpDir;
+    dirOf(this.d.frame, r.x, r.z, d);
+    return [Math.round(latOf(d) * 100) / 100, Math.round(lonOf(d) * 100) / 100, r.level, Math.floor((r.key >>> 0) / 12) * 6 + r.hue, Math.max(ORBIT_KM, Math.round(r.r / 100) / 10)];
+  }
+
   save() {
     try {
       if (this.dirty) {
         this.dirty = false;
         const list: Array<[string, number, number]> = [];
         const low: number[][] = [];
-        const d = new Float64Array(3);
         for (const r of this.recs.values()) {
           list.push([r.id, r.level, r.hue]);
-          if (r.r < ORBIT_R) continue;
-          dirOf(this.d.frame, r.x, r.z, d);
-          low.push([Math.round(latOf(d) * 100) / 100, Math.round(lonOf(d) * 100) / 100, r.level, Math.floor((r.key >>> 0) / 12) * 6 + r.hue, Math.max(ORBIT_KM, Math.round(r.r / 100) / 10)]);
+          if (r.r >= ORBIT_R) low.push(this.lowRow(r));
         }
         localStorage.setItem(KEY, JSON.stringify(list));
         localStorage.setItem(MOON_LOW_KEY, JSON.stringify(low));

@@ -93,11 +93,16 @@ export class TurboDrive {
     this.gear = 1;
     this.engaged = true;
     this.machArmed = false;
+    this.braking = false;
+    this.gearFloor = -Infinity;
   }
+
+  /** The last gear this world has, when that isn't worldTravel's to say (?moonland: the way out). The map's edge still holds them back. */
+  top = 0;
 
   /** The last gear that can be used now. */
   get maxGear(): number {
-    return config.turbo.worldTravel ? 3 : 1;
+    return this.top || (config.turbo.worldTravel ? 3 : 1);
   }
 
   /** Shift up (+1) or down (-1). Returns false when nothing changed (LOCKED, or already in G0). */

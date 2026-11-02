@@ -1148,6 +1148,12 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
     const qaStick = qa && typeof qa.sx === 'number' && typeof qa.sy === 'number';
     let sx = qaStick ? qa.sx! : st.stretch.x;
     let sy = qaStick ? qa.sy! : st.stretch.y;
+    // (?moonland: the last gear is the way out, and it holds the yoke back itself: a push ends it, and shifts down)
+    const leaving = !!land && controls.turbo.gear >= 3;
+    if (leaving) {
+      if (sy > config.flight.yokeDead) controls.turbo.shift(-1, flight);
+      else sy = -1;
+    }
     // the opening: the yoke can't climb until the bus (and the low camera trailing 150 m behind
     // it) is clear of the Golden Gate, so the bus always threads under the deck and the camera
     // never rises through the cables (turning away ends it: `along` is along the heading)
@@ -1176,7 +1182,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
     const pastMap = floorPastMap(ex + ez);
     if (pastMap > 0) flight.turbo.floor = Math.max(flight.turbo.floor, pastMap);
     const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
-    for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || sx !== st.stretch.x }, city);
+    for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || leaving || sx !== st.stretch.x }, city);
     // QA: the bus held at a pose, for a look at something from one place
     if (qa?.pin) Object.assign(flight, qa.pin);
     if (!wasFull && flight.fullness >= 1) {
@@ -1258,8 +1264,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
       if (fromSky.t >= 1) fromSky = null;
     }
     if (land) {
-      rig.stiff = land.arriving ? 1 : Math.max(0, rig.stiff - dt / 3);
-      controls.fx.fade = land.arriving ? clamp((8000 - flight.height) / 6000, 0, 1) : 1;
+      rig.stiff = land.arriving || controls.turbo.gear >= 3 ? 1 : Math.max(0, rig.stiff - dt / 3);
+      // (the speed lines and the trail are for what's near: on the way down and the way out alike they go with the height, and the flight's own take over)
+      controls.fx.fade = land.arriving ? clamp((8000 - flight.height) / 6000, 0, 1) : controls.turbo.gear >= 3 ? clamp((3000 - flight.height) / 2000, 0, 1) : 1;
     }
     pipeline.focus.copy(focus);
     if (qa?.topDown) {
@@ -1481,6 +1488,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
     if (ready) everReady = true;
     city.eager = !everReady;
     (window as unknown as { __shotReady?: boolean }).__shotReady = ready && !city.busy && !city.farLate && !hour?.lamps.busy;
+    if (land?.up(flight)) land.back(camera, bus.root, flight, controls.turbo, rig.hfov);
   }
   if (!land) requestAnimationFrame(frame);
   else if (moon) {
@@ -1505,8 +1513,6 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
         Object.assign(input, groundHands);
         flight.groundUnder = flight.groundBroad = city.groundAt(s.x, s.z);
         flight.takeOver(s.x, s.y, s.z, s.heading, s.speed, s.nose);
-        // (a few kilometres over it and what's ahead on the way down, not the 15 km over a ground it started on)
-        config.flight.ceiling = s.y + 3000;
         // Jet, by the time the law lets go of the speed
         controls.turbo.arrive();
         controls.firstGesture();
@@ -1520,7 +1526,29 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
         audio.prepare();
         last = performance.now();
       },
+      leave() {
+        // (the low game's sound and what it set on the frame stop with its frame, and the flight's loop has neither)
+        Object.assign(input, flightHands);
+        controls.hud.setVisible(false);
+        controls.leftGround();
+        audio.hushGround();
+        const o = camera.position;
+        pipeline.setHeroBeam(o, o, 0, 0, 0);
+        pipeline.setHeroCircle(0, 0, 0, 0);
+        pipeline.shadowStrength = 0;
+        pipeline.calm = 1;
+        m.paint.letGo();
+        m.paint.save();
+      },
+      follow(x, z, fx, fz) {
+        m.paint.fly(x, z, fx, fz, simTime);
+      },
     };
+    controls.turbo.top = 3;
+    config.turbo.alt3 = land.upFloor;
+    // (a crater big enough to see from orbit goes on the orbit's map as it's painted)
+    m.paint.onBig = (s) => land.big?.(s);
+    land.down = () => controls.hud.toast(['TURBO: BACK UP'], 3.2);
   }
 
   // debug hooks for scripted screenshots / QA (set before the warm-up wait: tools see the city stream in)

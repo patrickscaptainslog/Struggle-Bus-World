@@ -144,6 +144,13 @@ export class BusVoice {
     return P;
   }
 
+  /** The engine stops, until the next update asks for it. */
+  quiet(t: number): void {
+    hold(this.vca.gain, t);
+    target(this.vca.gain, 0, t, 0.25);
+    this.hush(t);
+  }
+
   /** Cut any scheduled breath (continuous fade). */
   hush(t: number): void {
     for (const p of [this.breathG.gain, this.whistleG.gain, this.rattleDepth.gain, this.breathF.frequency, this.whistleF.frequency]) hold(p, t);

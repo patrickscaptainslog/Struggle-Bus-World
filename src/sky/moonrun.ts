@@ -171,10 +171,10 @@ function tripLabel(): (trip: MoonTrip, breath: MoonBreath | null) => void {
   return (trip, breath) => {
     const s = Math.floor(trip.clock), leg = trip.leg;
     const a = `${LEG_NAMES[leg]} ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-    const b = `G${trip.gear} ${trip.v < 1 ? '0' : thousands(trip.v)} KM/S ${thousands(Math.min(trip.hMoon, trip.hEarth))} KM`;
+    const b = `G${trip.gear} ${leg === 'fall' && trip.v < 1 ? `${Math.round(trip.v * 1000)} M` : trip.v < 1 ? '0 KM' : `${thousands(trip.v)} KM`}/S ${thousands(Math.min(trip.hMoon, trip.hEarth))} KM`;
     const asks = (leg === 'out' || leg === 'homeOut' || leg === 'climb' || leg === 'arc' || leg === 'leave') && trip.g5Room;
     const dark = leg === 'cruise' || leg === 'homeCruise';
-    const p = trip.armed ? 'G5 ARMED' : leg === 'wait' ? 'TAP TURBO: MOON' : leg === 'orbit' ? 'TAP TURBO: HOME' : asks ? 'TAP TURBO: G5' : dark ? 'DRAG TO LOOK ROUND' : '';
+    const p = trip.armed ? 'G5 ARMED' : leg === 'wait' ? 'TAP TURBO: MOON' : leg === 'orbit' || (leg === 'fall' && trip.hMoon > 150) ? 'TAP TURBO: HOME' : leg === 'fall' && !trip.lifting ? 'TAP TURBO: UP' : asks ? 'TAP TURBO: G5' : dark ? 'DRAG TO LOOK ROUND' : '';
     // the goal, once there is any; and until the first shot, what to do about it
     const share = breath && !breath.paint.rebuilding ? breath.paint.painted * 100 : 0;
     const d = share > 0 ? `PAINTED ${share < 1 ? share.toFixed(2) : share < 10 ? share.toFixed(1) : share.toFixed(0)} % OF THE MOON` : '';
@@ -222,7 +222,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   const pose = flying ? null : readView(params, model, sky, clock.now());
 
   const draw = new SkyDraw(pipeline);
-  const landing = land && trip ? new Landing(trip, pipeline, scene, draw, model, sky) : null;
+  const landing = land && trip && view ? new Landing(trip, view, pipeline, scene, draw, model, sky) : null;
   if (params.has('floor')) draw.moonFloor = Number(params.get('floor')) || 0;
   if (params.get('lines') === '0') draw.showLines(false);
   draw.air = params.get('air') !== '0';
@@ -235,6 +235,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   if (fx) scene.add(fx.object);
   const breath = new MoonBreath(pipeline, bus);
   scene.add(breath.particles.object);
+  if (landing) landing.big = (s) => breath.lowStroke(s);
   const names = trip ? new MoonNames() : null;
   if (names) scene.add(names.object);
   const busPose: BusPose = { squash: 1, eye: 1, fullness: 1, mouth: 0, speed: 0, wheeze: 0, heave: 0 };
@@ -318,6 +319,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   }
 
   const rearQ = new THREE.Quaternion();
+  const labelEl = () => document.querySelector<HTMLElement>('[data-hud="trip-label"]');
   let asked = false;
   let resizeWanted = false;
   const wantResize = () => (resizeWanted = true);
@@ -356,7 +358,16 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     // (one page, one pump: below the ground's height the low game has the frame)
     if (landing?.ground) {
       landing.world!.frameAt(now);
+      last = now;
       return;
+    }
+    if (landing?.cameBack && input) {
+      // (TURBO was the low game's: a press still down is no new one)
+      landing.cameBack = false;
+      held = pressTaken = input.state.turboHeld;
+      labelEl()?.style.removeProperty('display');
+      hud?.setVisible(true);
+      if (trip && !trip.lifting) hud?.toast(['TAP TURBO: UP AND OUT'], 3.2);
     }
     const f0 = performance.now();
     if (resizeWanted) {
@@ -408,7 +419,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     if (landing && landing.show >= 1) U.uMoonO.value.w = -1;
     globals.uSunDir.value.set(sky.sun[0], sky.sun[1], sky.sun[2]);
     // (in Earth's shadow the bus has only its ambient)
-    globals.uLight.value.x = 0.62 * sky.sunSeen;
+    globals.uLight.value.set(0.62 * sky.sunSeen, 0.2, 0.05);
     // (a roof in full sun goes to the ramp's pale top, which from up here is the whole of a bus two pixels wide: it must stay yellow against the grey, and its shaded side isn't touched)
     busTune.sunSoft = tripTune.busSunSoft;
     // (and on the way down it comes to the light the low game has it in)
@@ -439,7 +450,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     frames++;
     if (landing?.time) {
       landing.hand(camera, bus.root);
-      if (label) (document.querySelector('[data-hud="trip-label"]') as HTMLElement | null)?.style.setProperty('display', 'none');
+      if (label) labelEl()?.style.setProperty('display', 'none');
       hud?.setVisible(false);
       perf.setVisible(false);
     }

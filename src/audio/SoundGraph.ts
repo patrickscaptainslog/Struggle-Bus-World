@@ -300,6 +300,13 @@ export class SoundGraph {
     this.pushMix(now, 0.08);
   }
 
+  /** See AudioEngine.hushGround. */
+  hushGround(): void {
+    const t = this.ctx.currentTime;
+    this.bus.quiet(t);
+    this.hum.set(t, 0, 0.25);
+  }
+
   private pushMix(t: number, tau: number): void {
     const tune = audioTune;
     target(this.masterVol.gain, clamp01(fin(tune.master)), t, tau);

@@ -210,6 +210,11 @@ export class AudioEngine {
     if (this.rt && !this.graph) this.early.push(play);
   }
 
+  /** The graph's frame has stopped (?moonland, gone up to the flight's loop, where there's no air): the engine and the hum go quiet, or they hold their last note. The next update() brings them back. */
+  hushGround(): void {
+    this.graph?.hushGround();
+  }
+
   /** Tap accepted: the bus's gag/hurk (frame 0 of the splat). */
   heave(): void {
     const g = this.live();

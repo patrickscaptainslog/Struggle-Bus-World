@@ -143,7 +143,7 @@ export class CameraRig {
     const dist = (C.distance + ((size ? size.distance : C.distanceVista) - C.distance) * v + this.openingPull + this.turboPull) * (1 - low) + 150 * low;
     const fx = Math.sin(this.yaw), fz = -Math.cos(this.yaw);
     const bus = this.bus.set(f.x, f.y, f.z);
-    const desired = this.desired.set(bus.x - fx * Math.cos(el) * dist, bus.y + Math.sin(el) * dist, bus.z - fz * Math.cos(el) * dist).add(this.turboLead);
+    const desired = this.desired.set(bus.x - fx * Math.cos(el) * dist, bus.y + Math.sin(el) * dist, bus.z - fz * Math.cos(el) * dist).addScaledVector(this.turboLead, 1 - this.stiff);
     if (this.pos.lengthSq() === 0) this.pos.copy(desired);
     // critically damped follow (keeps the bus framed but lets motion breathe)
     const w = 2 * Math.PI * C.followHz;
@@ -172,7 +172,7 @@ export class CameraRig {
       const laV = (Math.sin(el) * dist + 4) / Math.tan(pitch + (divePitch - pitch) * dive) - Math.cos(el) * dist;
       la += (Math.max(la, laV) - la) * smooth01(0, 0.35, v);
     }
-    const lookTarget = this.lookTarget.set(bus.x + fx * la * (1 + 2 * low), bus.y - 4 + 14 * low, bus.z + fz * la * (1 + 2 * low)).add(this.turboLookLead);
+    const lookTarget = this.lookTarget.set(bus.x + fx * la * (1 + 2 * low), bus.y - 4 + 14 * low, bus.z + fz * la * (1 + 2 * low)).addScaledVector(this.turboLookLead, 1 - this.stiff);
     if (this.look.lengthSq() === 0) this.look.copy(lookTarget);
     this.look.lerp(lookTarget, 1 - Math.exp(-6 * dt));
     cam.position.copy(this.pos);

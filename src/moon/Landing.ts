@@ -1,13 +1,15 @@
 import * as THREE from 'three';
 import type { Flight } from '../game/Flight';
-import type { TurboDrive } from '../game/Turbo';
+import { gearSpeed, type TurboDrive } from '../game/Turbo';
 import { config } from '../config';
 import { busRig, type BusRig } from '../game/busSize';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import { spaceResolveUniforms as U } from '../render/skyResolve';
 import { FALL_FLOOR, FALL_TAU, R_M, type MoonTrip } from '../sky/MoonTrip';
+import type { PaintStroke } from '../sky/MoonPaint';
 import type { SkyDraw } from '../sky/SkyDraw';
 import { MOON, type Observer, type SkyModel, type SkyState } from '../sky/SkyModel';
+import type { TripView } from '../sky/TripView';
 import { axesOf, dirOf, latOf, lonOf, mapOf, type MapFrame } from './map';
 import type { MoonFar } from './MoonFar';
 
@@ -18,6 +20,8 @@ import type { MoonFar } from './MoonFar';
 //   - From H_SHOW down the flight's loop draws the world's far field. The render frame stops being the view's and becomes the world's: the lens stands where it really is on the map and turns by the view's own axes, so the mesh draws
 //     with nothing changed in it and the bus and the sky keep their places. The ray-drawn Moon goes on under it in the sky branch, and the mesh comes in over it by a dither.
 //   - At H_GROUND the low game takes the frame: Flight, CameraRig, City. The two pictures are the same mesh by then, so nothing is left to see but the rig's own pose, which it takes over a couple of seconds.
+//   - Up is the same two joins the other way, and gears. The low game climbs as it does, and at H_UP the flight's loop takes the bus back: `back`. Going on up is the gear the bus is in, whatever the height: the law is a brake on arrival and nothing else.
+//     The low game's last gear is the way out: it lifts the bus past H_UP, and the flight's loop carries it on to the orbit at that gear's speed, where TURBO goes home.
 //
 // The brief had the game's loop reach up to 100 km. The flight's loop reaches down instead, for two reasons. Every number in the low game, the rig, City, the map's edge, Flight's yoke, is proven to 15 km and not past it, where the flight's law
 // and view hold at any height; and the two changes that could show, ray to mesh and one loop to the other, then happen far apart, each with the other standing still. The ceiling stays at about 15 km.
@@ -25,8 +29,14 @@ import type { MoonFar } from './MoonFar';
 const DEG = Math.PI / 180;
 /** km over the ground: the mesh comes in here. A pixel under the bus is 200 m. */
 export const H_SHOW = 120;
-/** km over the ground: the low game takes the bus. Its ceiling is a little over this. */
+/** km over the ground: the low game takes the bus. */
 export const H_GROUND = 14;
+/** km over the ground: the flight's loop takes it back, climbing. Over H_GROUND, so a thumb that can't make up its mind there doesn't flip the loops. */
+export const H_UP = 15;
+/** The low game's last gear lifts the bus to this, km over the ground, which it never gets to: it's past H_UP first. */
+const UP_FLOOR = 17;
+/** km over the ground: the low game's ceiling, far enough over H_UP that a gear's soft ceiling doesn't take the climb off it first. */
+const UP_CEILING = 24;
 /** s: how long the mesh takes to come in over the ray-drawn Moon. */
 const DISSOLVE = 3;
 /** km over the ground: the mesh's light is the ray-drawn Moon's from here up, and its own from the lower one down. */
@@ -42,6 +52,8 @@ const GROUND_S = 0.8;
 const LIFT_S = 2;
 /** m a second: Jet's. */
 const JET = 450;
+/** s: how long the lens and the bus take to come over from where the low game left them. */
+const REJOIN = 2.4;
 /** The map's half side, m, and how far inside it the homing starts: down here the bus can only come back to where the world's tiles are. */
 const MAP_HALF = 128000;
 const HOME_IN = 16000;
@@ -55,8 +67,12 @@ export interface LandWorld {
   place(lat: number, lon: number, ms: number): number;
   /** The low game has the frame from here. */
   enter(s: LandEnter): void;
+  /** The flight's loop has it back: the thumb, the HUD, what the frame left set. */
+  leave(): void;
   /** The low game's frame. */
   frameAt(now: number): void;
+  /** Over the ground in the flight's loop: what's painted goes on the windows round this place, so it's on the far field before the low game has the frame. */
+  follow(x: number, z: number, fx: number, fz: number): void;
 }
 
 /** What the low game takes over: where the bus is and how it's going, and the view it's being seen from. */
@@ -89,6 +105,15 @@ export class Landing {
   pushed = false;
   /** The bus is still arriving: the law has the speed. */
   arriving = false;
+  /** The low game has just handed back: moonrun.ts takes up the thumb and the HUD, once. */
+  cameBack = false;
+  /** m over the ground: what the low game's last gear lifts to. */
+  readonly upFloor = UP_FLOOR * 1000;
+  /** The bus is down for the first time: the one thing to say about getting back up (main.ts). */
+  down: (() => void) | null = null;
+  private told = false;
+  /** A crater big enough to see from orbit has been painted: the orbit's map has it (moonrun.ts). */
+  big: ((s: PaintStroke) => void) | null = null;
   /** What the sky's drawn from: the lens. In the flight it's the observer it always was, with the camera's offset in it; near the ground it's in the world's axes. */
   readonly ob: Observer = { body: MOON, free: true, pos: v3(), axes: Float64Array.from([1, 0, 0, 0, 1, 0, 0, 0, 1]) };
   /** render -> world, and where the bus is in the world */
@@ -113,12 +138,21 @@ export class Landing {
   private readonly m = new THREE.Matrix4();
   private readonly t1 = new THREE.Vector3();
   private readonly dirT = new THREE.Vector3();
+  private readonly qT = new THREE.Quaternion();
+  private readonly x = new THREE.Vector3();
+  private readonly y = new THREE.Vector3();
+  private readonly z = new THREE.Vector3();
+  private readonly pos = v3();
+  private readonly face = v3();
+  /** The lens and the bus as the low game left them, on their way to where the flight's view has them. In the world. */
+  private rejoin: { t: number; off: THREE.Vector3; busQuat: THREE.Quaternion } | null = null;
+  private dt = 0;
   private readonly groundOb: Observer = { body: MOON, free: false, pos: v3(), axes: new Float64Array(9) };
   /** the view's path and nose, in the world */
   readonly flying = new THREE.Vector3();
   readonly nosing = new THREE.Vector3();
 
-  constructor(private readonly trip: MoonTrip, private readonly pipeline: PixelPipeline, private readonly space: THREE.Scene, readonly draw: SkyDraw, private readonly model: SkyModel, private readonly sky: SkyState) {}
+  constructor(private readonly trip: MoonTrip, private readonly view: TripView, private readonly pipeline: PixelPipeline, private readonly space: THREE.Scene, readonly draw: SkyDraw, private readonly model: SkyModel, private readonly sky: SkyState) {}
 
   private readonly rig: BusRig = { px: 0, hero: 1, distance: config.camera.distanceVista };
   /** One curve from orbit to the rooftops, for both loops: game/busSize.ts. */
@@ -134,6 +168,7 @@ export class Landing {
   /** A frame of the flight's loop, after the trip and the view have stepped. */
   update(dt: number): void {
     const t = this.trip, w = this.world;
+    this.dt = dt;
     // (the figures between the stars are the flight's: the low game has none, and they go with the push, not with a change of loop)
     this.draw.showLines(t.leg !== 'fall');
     if (t.leg !== 'fall') {
@@ -153,6 +188,12 @@ export class Landing {
     for (let i = 0; i < 3; i++) {
       u[i] = (F[i * 3] * rm[0] + F[i * 3 + 1] * rm[1] + F[i * 3 + 2] * rm[2]) / r;
       f[i] = F[i * 3] * hd[0] + F[i * 3 + 1] * hd[1] + F[i * 3 + 2] * hd[2];
+    }
+    // (going up, out of the mesh's reach: there's nothing to make, and nothing to wait for)
+    if (!this.near && this.placed && (t.climbV > 0 || t.nose > 0.02)) {
+      t.gov += (1 - t.gov) * (1 - Math.exp(-5 * dt));
+      this.draw.moonLift *= Math.exp(-dt / LIFT_S);
+      return;
     }
     if (!this.near) {
       // where this way of going comes down, and where it passes the height the mesh shows at
@@ -188,10 +229,9 @@ export class Landing {
     this.lift(dt, u, f, h);
     // (the map's edge turns it back, as it does in the low game: bearing to the middle, off the heading)
     const edge = Math.max(0, Math.min(1, (Math.max(Math.abs(x), Math.abs(z)) - MAP_HALF + HOME_IN) / HOME_IN)), A = this.axes;
-    if (edge > 0) {
-      const hx = hd[0] * A[0] + hd[1] * A[1] + hd[2] * A[2], hz = hd[0] * A[6] + hd[1] * A[7] + hd[2] * A[8];
-      t.home = edge * Math.max(-1, Math.min(1, Math.atan2(-x * -hz + -z * hx, -x * hx + -z * hz)));
-    } else t.home = 0;
+    const hx = hd[0] * A[0] + hd[1] * A[1] + hd[2] * A[2], hz = hd[0] * A[6] + hd[1] * A[7] + hd[2] * A[8];
+    t.home = edge > 0 ? edge * Math.max(-1, Math.min(1, Math.atan2(-x * -hz + -z * hx, -x * hx + -z * hz))) : 0;
+    w.follow(x, z, hx, hz);
     const want = h < H_SHOW ? 1 : h > H_SHOW + 15 ? 0 : this.show;
     this.show += Math.max(-dt / DISSOLVE, Math.min(dt / DISSOLVE, want - this.show));
     far.show.value = this.show;
@@ -202,7 +242,7 @@ export class Landing {
       return;
     }
     // (late, under the mesh: the ground is a level coarser than it should be for a moment. That's a blur and no hole, so it slows the fall and doesn't hold it)
-    const gov = far.readyAt(x, z, hm) ? 1 : 0.3;
+    const gov = t.nose > 0 || far.readyAt(x, z, hm) ? 1 : 0.3;
     t.gov += (gov - t.gov) * (1 - Math.exp(-4 * dt));
   }
 
@@ -270,6 +310,7 @@ export class Landing {
     this.draw.view = null;
     this.pipeline.steadySnap = false;
     this.bus.set(0, 0, 0);
+    this.rejoin = null;
   }
 
   /** After the rig has set the lens, in the render frame: the sky's observer, and near the ground the lens and the bus in the world. */
@@ -304,6 +345,15 @@ export class Landing {
     camera.quaternion.premultiply(this.q);
     bus.position.copy(this.bus);
     bus.quaternion.premultiply(this.q);
+    const j = this.rejoin;
+    if (j) {
+      // (the view's turn is its own spring's; this is where the lens stands off the bus, and how the bus lies)
+      j.t = Math.min(1, j.t + this.dt / REJOIN);
+      const e = j.t * j.t * (3 - 2 * j.t);
+      camera.position.sub(this.bus).lerp(j.off, 1 - e).add(this.bus);
+      bus.quaternion.slerpQuaternions(j.busQuat, this.qT.copy(bus.quaternion), e);
+      if (j.t >= 1) this.rejoin = null;
+    }
     // (the top of the frame, for the craters' own light: it's the view's, whatever frame this is)
     const v = this.viewFix;
     for (let i = 0; i < 3; i++) {
@@ -354,10 +404,51 @@ export class Landing {
       heading: Math.atan2(hx, -hz),
       speed: this.lawV,
       nose: t.nose,
-      camOff: camera.position.clone().sub(bus.position),
+      camOff: camera.position.clone().sub(this.bus),
       camQuat: camera.quaternion.clone(),
       busQuat: bus.quaternion.clone(),
     });
+  }
+
+  /** The bus is up where the flight's loop takes it back. */
+  up(f: Flight): boolean {
+    return f.height >= H_UP * 1000 && f.vy > 0;
+  }
+
+  /** The flight's loop takes the frame, from the end of this one: hand() the other way. Where the bus is and how it's going come back through the Moon's frame at this moment, and the view stays where the rig had it and goes home on its own spring. */
+  back(camera: THREE.PerspectiveCamera, bus: THREE.Object3D, f: Flight, T: TurboDrive, hfov: number): void {
+    const t = this.trip, w = this.world!, F = this.model.moonFix, ax = this.ax, A = this.axes, d = this.u, p = this.pos, hd = this.face, far = w.far;
+    axesOf(w.frame, f.x, f.z, ax);
+    for (let k = 0; k < 3; k++) {
+      const x = ax[k * 3], y = ax[k * 3 + 1], z = ax[k * 3 + 2];
+      A[k * 3] = F[0] * x + F[3] * y + F[6] * z;
+      A[k * 3 + 1] = F[1] * x + F[4] * y + F[7] * z;
+      A[k * 3 + 2] = F[2] * x + F[5] * y + F[8] * z;
+    }
+    dirOf(w.frame, f.x, f.z, d);
+    const r = R_M + (f.y + w.datum) / 1000, g = f.ground, fx = f.fx, fz = f.fz;
+    for (let j = 0; j < 3; j++) {
+      p[j] = (F[j] * d[0] + F[3 + j] * d[1] + F[6 + j] * d[2]) * r;
+      hd[j] = fx * A[j] + fz * A[6 + j];
+    }
+    t.fromGround(p, hd, Math.atan2(f.vy, g), Math.hypot(g, f.vy) / 1000, gearSpeed(T.gear) / 1000, T.gear >= 3);
+    // (the lens's axes, in EQJ: what the view is made of)
+    this.x.set(1, 0, 0).applyQuaternion(camera.quaternion);
+    this.y.set(0, 1, 0).applyQuaternion(camera.quaternion);
+    this.z.set(0, 0, 1).applyQuaternion(camera.quaternion);
+    const inEqj = (v: THREE.Vector3) => v.set(v.x * A[0] + v.y * A[3] + v.z * A[6], v.x * A[1] + v.y * A[4] + v.z * A[7], v.x * A[2] + v.y * A[5] + v.z * A[8]);
+    this.m.makeBasis(inEqj(this.x), inEqj(this.y), inEqj(this.z));
+    this.view.takeOver(this.qT.setFromRotationMatrix(this.m), t.dir, p, hfov);
+    // (off the bus where Flight has it: bus.position has the frame's snap on it, a pixel of ground, which is a lot of pixels at the bus)
+    this.rejoin = { t: 0, off: new THREE.Vector3(f.x, f.y, f.z).negate().add(camera.position), busQuat: bus.quaternion.clone() };
+    this.ground = false;
+    this.arriving = false;
+    this.cameBack = true;
+    this.groundKm = NaN;
+    this.show = 1;
+    far.show.value = 1;
+    this.space.add(far.object, this.draw.object);
+    w.leave();
   }
 
   /** A frame of the low game: the clock, and the sky over the lens. */
@@ -380,6 +471,12 @@ export class Landing {
    * flight. The floor under Jet is 150 m, so a thumb still pushing there has only one thing to ask for: the gear goes down, and the bus goes on down to the rooftops.
    */
   drive(f: Flight, T: TurboDrive, push: number, dt: number): void {
+    // (the ceiling stands over where the bus is handed back, wherever the ground goes)
+    if (Number.isFinite(f.groundBroad)) config.flight.ceiling = f.groundBroad + UP_CEILING * 1000;
+    if (!this.arriving && !this.told && f.height < 400) {
+      this.told = true;
+      this.down?.();
+    }
     if (this.arriving) {
       const h = f.height / 1000, Tb = f.turbo;
       this.lawV = Math.min(this.lawV, JET + (Math.max(h - FALL_FLOOR, 0) / FALL_TAU) * 1000);

@@ -178,6 +178,11 @@ export class RimBloom {
     }
   }
 
+  /** A map's rims go with the map (?moonland): what grew there stands again when the bus comes back to it. */
+  clear() {
+    for (const k of [...this.standing.keys()]) this.drop(k);
+  }
+
   /** QA: elements standing. */
   get count(): number {
     return this.items;
