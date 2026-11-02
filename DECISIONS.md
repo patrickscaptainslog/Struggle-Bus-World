@@ -2764,6 +2764,21 @@ The producer, on an iPhone 17 Pro: "The sensitivity is too high for the camera p
   - `s_nose` runs with Express where it had Cruise's turbo.
 - Left: all of it waits on the phone, THUMBS "What only a phone can say". This has had no review.
 
+## One flick, one rung: its review (2026-11-02, `feat/thumbs`)
+- The review of the ladder and the look, and of what had none of its own: the left zone (441198b, f0495f9, a307e25). On a7376ed, main-Ch2mE0cF.js. No blocker, no major, two minors, both fixed.
+- **The gate's queue could say LOCKED.** Eight flicks under it fired the six rungs there are, then LOCKED twice, a buzz and WORLD TRAVEL COMING at the bridge for flicks made seconds ago (real page, first visit, 8 flicks at 12 s: `locked3@18.05` twice). LOCKED is a flick's answer at the top. The queue stops at `TurboDrive.rungsLeft`, and every flick is still answered.
+- **TURBO AFTER THE BRIDGE outlived the rung.** A flick 0.8 s before the gate left the line up over the gear that had gone, for up to 2.6 s. The double's turbo used to clear it, and that went with the double. The line now goes with the last waiting rung, and TURBO OFF, which a take-back says, isn't touched.
+- **Hunted, and nothing there.**
+  - The ladder: a seeded fuzz of the real `Input`, `Shifter`, `TurboDrive` and `Flight` on a lumpy world with a deck in it, 220 ladders of real strokes on either thumb, a stick and random gaps, skimming and holding. Every flick was exactly one rung, level only ever on the top gear, every rung settled engaged at its speed within 4 %, and a flick down a rung at a time always got home to Cruise with nothing driving. No stuck rung, no rung that can't be left.
+  - The thumbs: 3,000 runs of up to four fingers landing anywhere, lifting, cancelling or losing their lift. After each, nothing held, and a right tap, a left tap, a right drag and a left drag beside it all did their one job.
+  - Nonstop's 60 m is about the decks' height, the one thing the new rung could have met that no other gear does. In the real page, where the only decks are: it slides under the Golden Gate with 7.8 m clear (underside 67.9) and no jolt, and rises over the Bay Bridge at up to 67 m/s. Riding towers downtown it can step up 3.8 m in a frame, as Express does at 3.2.
+  - Each rung in the real page: the lens 159, 171, 191, 210 m from the bus from Cruise to Jet, the bus 0.59 down to 0.53 of the frame, so Nonstop isn't a dip between its neighbours. Over the whole screen, at 402 x 874, flying, with the readout up and with LOCKED up, only MEGA and settings take a touch. Six flicks waiting: the bus stays in frame through the gate with the low shot still easing out.
+  - A one-thumb flick down and a left one 300 ms later, out of a gear that bit: still holds. `lookDegPerPx` steps by 0.01 on the tuner, `lookFullPx` by 10.
+- **Worth knowing, not changed.** A left thumb has little glass to its left: 37 degrees from the middle of the zone, where the old line had 85 (THUMBS, "Left on purpose"). That follows from the brief's curve, so it's the phone's to judge. A value saved on a phone's tuner beats a new default, so a `lookDegPerPx` moved on that phone hides the new curve's start. A tap that lands within 230 ms of a thumb that then stays down to look is taken for two fingers together and doesn't fire: older than this, and narrow. Six flicks under the gate are TURBO 3 at the bridge on a first run: the builder's call to count flicks, left to the producer.
+- **Checked** on main-C3rRxXkA.js (laptop, Edge headless, so no fps or timing numbers, and no thumb number from this machine). Nothing here has run on a phone: there is none on this machine.
+  - Both fixes before and after in the real page, first visit, on the real bridge. `s_gesture`: 256 rows, 625 checks, a new row for eight flicks. `tools/controls.mjs`: `thumbs` all 49 rows, `opening`, `firstrun`, `keyboard`, `turbo`, `states`. `s_turbo` 27 of 27, `s_look` all passed, `s_layout` 295, `tsc` clean, `iosfloor` parses every chunk.
+- Left: all of it waits on the phone, THUMBS "What only a phone can say". Once the producer likes it on the phone the branch is ready to go live: it is ahead of main with nothing to merge.
+
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
   local repo until `patrickscaptainslog/struggle-bus` exists.

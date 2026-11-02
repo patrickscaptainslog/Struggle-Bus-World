@@ -94,7 +94,7 @@ Turbo is the top of the ladder: TURBO, TURBO 2 and TURBO 3 are the rungs over th
 - **Past the last rung it says LOCKED,** on the flick, and the level stands. That is its own answer, so it has no pop: the pop says a rung went.
 - **A flick down drops exactly one rung, turbo first.** It no longer ends all of turbo at once, so a false flick down at TURBO 3 costs one rung. Any rung with a height brakes all the way down to the next at the gear's rate, not the classic one: 14 m/s per 100 ms at worst between turbo's levels, 21 from Jet to Nonstop.
 - **A gear still lifting hasn't bitten:** a flick down takes it back, and the bus settles to where it was by its own sink or hold, at 9 m/s at most, with nothing to fly: 21 m over the rooftops after 0.8 s of Nonstop's lift. Jet still lifting over Nonstop goes back to Nonstop's floor. Once a gear has bitten it holds the height, as ever.
-- **The opening.** A flick under the gate answers TURBO AFTER THE BRIDGE, waits, and fires after the gate. A flick is a rung here too, so two flicks are two rungs. A flick down takes one back, saying TURBO OFF if none is left waiting. Express lifts nothing, but it waits like any gear: the gate has one rule and one line.
+- **The opening.** A flick under the gate answers TURBO AFTER THE BRIDGE, waits, and fires after the gate, and the line goes when the rung does. A flick is a rung here too, so two flicks are two rungs, up to the rungs the ladder has: a queue that reaches the top stops there and says nothing, because LOCKED is a flick's answer. A flick down takes one back, saying TURBO OFF if none is left waiting. Express lifts nothing, but it waits like any gear: the gate has one rule and one line.
 - **The map's edge.** The fade reads what is being driven at, gear and level. Express is the surge, which has nothing to fade.
 
 | Rung | Measured (m/s) | Speed at the map's edge (m/s) |
@@ -222,7 +222,7 @@ DRAG TO LOOK
 
 Any thumb flicks, so the flicks come first and the last two lines are the zone's. It says DRAG because a resting thumb does nothing. With BUTTONS: SWAP on it says RIGHT SIDE: the hint comes once ever and an old save can get it.
 
-It asks for nothing and nothing ends it but its own time, or a line that matters more: a flick under the gate answers over it. The gate's own CLIMB line waits for it. `taught` bit 32; an old save gets it once, which is right, because that player's TURBO has just gone. A save that has seen it already never sees these lines. Off wherever the first run is off, and a desktop gets its keys in the keys toast instead. Nothing else on the screen teaches any of this: the gestures are hidden, the producer's call.
+It asks for nothing and nothing ends it but its own time, or LOCKED, which takes the slot. It waits for the gate, so the gate's own lines have had their turn. `taught` bit 32; an old save gets it once, which is right, because that player's TURBO has just gone. A save that has seen it already never sees these lines. Off wherever the first run is off, and a desktop gets its keys in the keys toast instead. Nothing else on the screen teaches any of this: the gestures are hidden, the producer's call.
 
 ## Keyboard and mouse
 
@@ -241,6 +241,7 @@ What is true now: Cruise, Express, Nonstop and Jet, then Stratos and Rainbow War
 ## Left on purpose
 
 - **Nothing is on screen for a gear** but the readout's moment: no strip, no pips added, no button. A hidden gesture is the producer's call, and the hint on the first run is all the teaching there is. The study's worry stands: a new player may never find gears. Only a stranger's two minutes can say.
+- **A left thumb has little glass to its left.** The curve kept the reach to the right: from the middle of the zone, 85 px in on an iPhone 17 Pro, there are 317 px of thumb travel that way, 265 degrees. To the left there are 85 px, 37 degrees, where the old line had 85. The full circle is still there, the long way round, and a thumb landing at the line has 85 degrees. The brief's numbers, and the phone says whether anyone minds (`lookDegPerPx`, `lookFullPx`). SWAP mirrors it.
 - **A left-handed one-thumb player can't steer until they turn on BUTTONS: SWAP.** If they only ever touch the left, they look, shift and tap, and the bus flies itself. The producer's choice. They aren't stranded: the view comes home on every lift, and SWAP is in settings.
 - **The opening's low shot has no look, alone or not.** On a first visit a left thumb that landed with the hint up, 5 s in, moved the view 0 degrees until the bus cleared the bridge at about 17 s, then 52 by 18 s and 88 by 20 (a real page, a fixed step). So the hint waits for the bridge, and never says LEFT SIDE, DRAG TO LOOK while a drag can't answer. The low shot is the opening's own, and it never lifts inside 320 m of the bridge, which is everything after about 6 s.
 - **A right flick beside a resting left thumb is steering.** A stroke out of the zone is only lone with nothing else down. The left thumb has the flick.
