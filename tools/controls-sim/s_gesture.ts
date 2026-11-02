@@ -318,7 +318,7 @@ row('touch', 'three: swallowed: no tap, no look, no stick, whatever they do afte
 row('touch', 'three: the next touch is a fresh one', (h) => { const a = newId(), b = newId(), c = newId(); h.down(a, X, Y); h.down(b, 100, 500, false); h.down(c, 300, 500, false); h.wait(100); h.up(a, X, Y); h.up(b, 100, 500); h.up(c, 300, 500); h.wait(100); const d = newId(); h.down(d, X, Y); h.wait(100); h.up(d, X, Y); });
 
 // ---- a lost pointer
-row('touch', 'lost: a look thumb gone silent lets go of the view, and a move brings it back', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.slide(b, LX, LY, 60, 0, 200); h.wait(7500); const held = h.input.state.look.on; h.wait(800); const lapsed = !h.input.state.look.on; h.move(b, LX + 70, LY); h.wait(30); const back = h.input.state.look.on; h.up(b, LX + 70, LY); h.up(a, RX + 30, RY); return { held, lapsed, back }; });
+row('touch', 'second: a look held dead still keeps the view: a still thumb sends nothing', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.slide(b, LX, LY, 60, 0, 200); const L = () => ({ ...h.input.state.look }); h.wait(9000); const at9 = L(); h.wait(51000); const at60 = L(); h.up(b, LX + 60, LY); h.wait(20); const after = L(); h.up(a, RX + 30, RY); return { at9, at60, after }; });
 row('touch', 'lost: the last touch ended with no pointerup', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.slide(b, LX, LY, 60, 0, 200); h.el.dispatch('touchend', { touches: [], cancelable: true, preventDefault() {} }); h.wait(100); const on = h.input.state.look.on, thumb = h.input.state.thumb; const c = newId(); h.down(c, RX, RY); h.wait(100); h.up(c, RX, RY); return { on, thumb }; });
 row('touch', 'lost: a stroke queued behind a touchend is no leftover', (h) => {
   // (a slow frame: the first stroke's touchend is handled late, with the next landing already in the queue, stamped earlier than now)
@@ -407,6 +407,10 @@ ok(taps('second: two taps') === 2, 'each tap while steering is a tap');
   ok(!v.after.on && v.after.x === 0 && v.after.y === 0, 'the lift ends the look at 0, 0');
   ok(v.stillSteering, 'the flying thumb flies on');
   ok(by('second: drag that stays').look!.from >= 400, 'and not before the delay');
+}
+{
+  const v = note('second: a look held dead still');
+  ok(v.at9.on && v.at60.on && Math.round(v.at60.x) === 60 && !v.after.on, `a still look holds until the lift: ${JSON.stringify(v)}`);
 }
 ok(note('second: rests 500').on, 'a rest, then a drag: a look at once');
 ok(taps('second: a tap with the first hand') === 1 && note('second: a tap with the first hand').on, 'a tap while the other thumb looks, and the look holds');
@@ -553,10 +557,6 @@ quiet('three: swallowed');
 ok(taps('three: the next touch') === 1, 'the next touch is fresh');
 
 // a lost pointer
-{
-  const v = note('lost: a look thumb gone silent');
-  ok(v.held && v.lapsed && v.back, `the timeout: ${JSON.stringify(v)}`);
-}
 ok(!note('lost: the last touch ended').on && !note('lost: the last touch ended').thumb, 'no touches left: everything lets go');
 ok(taps('lost: the last touch ended') === 1, 'and the next touch is a fresh one');
 ok(by('lost: a stroke queued').level === 1, 'a stroke queued behind a touchend is the second flick');

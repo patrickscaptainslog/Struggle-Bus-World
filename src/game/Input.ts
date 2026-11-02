@@ -107,9 +107,7 @@ export const inputTune = {
   secondTapMs: 230,
   /** The look waits this long (ms) so a flick doesn't swing the camera, and for the thumb to leave tapSlopPx. */
   lookDelayMs: 100,
-  /** A look that has heard nothing from its thumb for this long (ms) lets go until it moves: an edge swipe can lose a touch with no touchend, and that must not hold the view. */
-  lookLostMs: 8000,
-  /** For this long (ms) after two thumbs were last together, a lone touch on the far side is the second thumb. */
+  /** For this long (ms) after two thumbs were last together, a lone touch on the flick side is the second thumb. */
   memoryMs: 30000,
   /** A flick by the second thumb: at least this far (px), in at most this long (ms), at least this fast on average (px/ms), within this many degrees of vertical. */
   flickPx: 30,
@@ -142,7 +140,6 @@ registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
   keyRate: [1, 30, 0.5],
   secondTapMs: [80, 450, 5],
   lookDelayMs: [0, 300, 5],
-  lookLostMs: [1000, 30000, 500],
   memoryMs: [0, 120000, 1000],
   flickPx: [10, 120, 1],
   flickMs: [60, 450, 5],
@@ -188,10 +185,9 @@ interface Slot {
   t0: number;
   /** Landing order: what touched down after a touchend can't be what that touchend left behind. */
   seq: number;
-  /** Where it is now, and when it last spoke (ms). */
+  /** Where it is now. */
   x: number;
   y: number;
-  last: number;
   /** Largest distance from the touch-down point so far (px). */
   maxDist: number;
   flick: Flick;
@@ -325,7 +321,7 @@ export class Input {
 
   constructor(el: HTMLElement) {
     this.el = el;
-    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, last: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false });
+    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false });
 
     const s = el.style as CSSStyleDeclaration & { webkitUserSelect?: string; webkitTouchCallout?: string; webkitTapHighlightColor?: string };
     s.touchAction = 'none';
@@ -447,14 +443,10 @@ export class Input {
     // A thumb resting still past the tap window is steering (at neutral).
     if (p && !this.pointerDragging && now - p.t0 >= inputTune.stillTapMs) this.commitDrag();
     st.thumb = this.pointerDragging;
-    // the look starts on the clock too (a thumb can stop moving inside the delay), and lets go of a thumb gone silent
+    // the look starts on the clock too: a thumb can stop moving inside the delay
     for (let i = 0; i < MAX_POINTERS; i++) {
       const s = this.slots[i];
-      if (s.role !== Role.Second) continue;
-      const heard = now - s.last < inputTune.lookLostMs;
-      if (s.looking) {
-        if (!heard) this.endLook(s);
-      } else if (heard) this.lookStep(s, now);
+      if (s.role === Role.Second && !s.looking) this.lookStep(s, now);
     }
     const tx = (this.kR ? 1 : 0) - (this.kL ? 1 : 0);
     const ty = (this.kU ? 1 : 0) - (this.kD ? 1 : 0);
@@ -638,8 +630,7 @@ export class Input {
       if (!this.pointerDragging && slot.maxDist > inputTune.tapSlopPx) this.commitDrag();
       if (this.pointerDragging) this.applyStretch();
     } else if (slot.role === Role.Second) {
-      slot.last = evTime(e);
-      this.lookStep(slot, slot.last);
+      this.lookStep(slot, evTime(e));
     }
   }
 
@@ -727,7 +718,7 @@ export class Input {
     slot.type = e.pointerType;
     slot.x0 = slot.x = e.clientX - this.rectL;
     slot.y0 = slot.y = e.clientY - this.rectT;
-    slot.t0 = slot.last = now;
+    slot.t0 = now;
     slot.seq = ++this.landings;
     slot.maxDist = 0;
     slot.flick = Flick.No;
