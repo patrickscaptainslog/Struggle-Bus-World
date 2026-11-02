@@ -50,11 +50,19 @@ On the device, by id, so it comes back on any map of the Moon:
 
 Laptop, UHD 620, headless Edge. No timing here, and nothing has run on a phone or in Safari.
 
-Whole frame, sun pass and post included. See the report for the numbers of the last run; the line is 120-200 draws, 1.0-1.5 M triangles.
+| View, levels 1 to 3 | Draws | Triangles |
+|---|---|---|
+| A 20 m crater, from the floor | 27-34 | 0.51 M |
+| A 60 m crater, from 40 m up | 46 | 0.67-0.68 M |
+| A 160 m crater, from 90 m up | 59 | 0.87-0.88 M |
+| A 500 m crater, from 300 m up | 55-91 | 0.76-0.78 M |
+| Worst in a minute of play | 74 | 1.06 M |
 
-- GPU: 16 MB for the four windows.
-- On the wire: `names.json` 20.6 KB gzip. Code gzip: `moonBoot` 25.8 KB, was 12.4; `moonWorker` 10.4 KB, was 10.1.
-- Flag off against main 034672f: 62 shader sources, 0 bytes differ, same order, 31 programs. Two more script requests than main, the same code split by the dynamic imports.
+Whole frame, sun pass and post included. The line is 120-200 draws, 1.0-1.5 M triangles. A lot painted in one place is held by the 5000 elements. 30 programs at ready, none added in any flight: `paint.mjs` prints what's added.
+
+- GPU: 16 MB for the four windows, and nothing per crater.
+- On the wire: `names.json` 20.6 KB gzip. Code gzip: `moonBoot` 25.9 KB, was 12.4; `moonWorker` 10.4 KB, was 10.1.
+- Flag off against main 034672f: 62 shader sources, 0 bytes differ, 31 programs. Their compile order varies from run to run. Two more script requests than main, the same code split by the dynamic imports.
 
 ## Left on purpose
 

@@ -137,7 +137,7 @@ const FS = /* glsl */ `
     if (x < -0.12 || x > 1.0) return;
     float off = ((s - i - 0.5 - 0.62 * (a - 0.5)) / N * TAU + (n1(rr / vR * 1.7 + a * 37.0) - 0.5) * 0.1 * clamp(x, 0.0, 1.0)) * rr;
     float t = max(x, 0.0);
-    float w = vR * wide * (0.55 + 0.9 * c) * (1.0 - t) * (1.0 - 0.5 * t) * (0.62 + 0.76 * n1(rr / vR * 6.0 + c * 53.0));
+    float w = min(vR * wide, 2.5 + 0.4 * wide * vR) * (0.55 + 0.9 * c) * (1.0 - t) * (1.0 - 0.5 * t) * (0.62 + 0.76 * n1(rr / vR * 6.0 + c * 53.0));
     float q = (max(w, m * 0.42) - abs(off)) / m + 0.5;
     float gap = 0.6 * sin(rr / vR * (2.9 + 5.0 * c) + a * 19.0) + 0.4 * sin(rr / vR * (8.3 + 4.0 * b) + b * 23.0);
     if (t > 0.3 && gap < (t - 0.3) * 2.3 - 0.8) return;
