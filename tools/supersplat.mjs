@@ -374,7 +374,7 @@ if (modes.has('cooldown')) {
 if (modes.has('jet')) {
   const page = await open(base + '?lat=37.7700&lon=-122.4700&heading=75&skipintro' + DT);
   await runFor(page, 1);
-  await page.evaluate(() => { const g = window.__game; g.controls.turbo.shift(1, g.flight); g.controls.turbo.shift(1, g.flight); });
+  await page.evaluate(() => { const g = window.__game; for (let i = 0; i < 3; i++) g.controls.turbo.shift(1, g.flight); });
   await runUntil(page, 'g.flight.speed > 420', 25);
   const speed = () => page.evaluate(() => ({ speed: +window.__game.flight.speed.toFixed(1), y: +window.__game.flight.y.toFixed(1), scale: window.__game.flight.speedScale, phase: window.__game.superState().phase, impacts: window.__game.superState().stats.impacts }));
   const log = [await speed()];

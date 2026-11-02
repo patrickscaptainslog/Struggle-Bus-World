@@ -96,7 +96,7 @@ for (const route of routes) {
   });
 
   // the trace starts at the shift: the climb is when the view's height swaps regions' level of detail
-  await page.evaluate(() => { const g = window.__game; g.controls.turbo.shift(1, g.flight); g.controls.turbo.shift(1, g.flight); });
+  await page.evaluate(() => { const g = window.__game; for (let i = 0; i < 3; i++) g.controls.turbo.shift(1, g.flight); });
 
   const trace = page.evaluate(
     (secs) =>

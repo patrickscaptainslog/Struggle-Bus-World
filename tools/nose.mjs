@@ -54,6 +54,7 @@ const shift = (d) => page.evaluate((v) => window.__game.controls.turbo.shift(v, 
 const jet = async () => {
   await shift(1);
   await shift(1);
+  await shift(1);
 };
 /** Hand the bus a height and a held altitude, the lens already set for it. */
 const place = (y) => page.evaluate((v) => {
@@ -348,6 +349,7 @@ const FLIGHTS = {
     await shot('deck-g1');
     report.deck = { peak, deck: report.deckAt.over };
     await letGo();
+    await shift(-1);
     await shift(-1);
     await shift(-1);
     await run(2);
