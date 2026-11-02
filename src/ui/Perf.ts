@@ -4,6 +4,8 @@ import { config } from '../config';
 // Tiny corner performance meter (?fps, or the FPS button in the tuner).
 //
 //   fps (1 s average) · 1% low (from the 99th-percentile frame time, ~5 s window)
+//   worst: the longest frame of those same ~5 s (ms)
+//   resolve: its link + its first draw (ms), as the warm-up timed them (WarmReport.resolveLinkMs: the one program that grows most with the sky)
 //   frame ms · CPU work ms (the GPU side is unknowable on WebGL/iOS)
 //   draw calls · triangles for the WHOLE frame · low-res framebuffer size
 //   "30 Hz cap? (Low Power Mode)" when frames lock to ~33 ms while work is light.
@@ -28,6 +30,11 @@ export interface PerfSnapshot {
   low1: number;
   frameMs: number;
   frameMaxMs: number;
+  /** the longest frame in the ring (~5 s) */
+  worstMs: number;
+  /** the resolve's link and its first draw at the warm-up (0: not known yet) */
+  resolveLinkMs: number;
+  resolveDrawMs: number;
   workMs: number;
   workMaxMs: number;
   simDtMs: number;
@@ -61,6 +68,9 @@ export class Perf {
   private readonly root: HTMLDivElement;
   private readonly elFps: HTMLElement;
   private readonly elLow: HTMLElement;
+  private readonly elWorst: HTMLElement;
+  private readonly elResolve: HTMLElement;
+  private readonly elHour: HTMLElement;
   private readonly elFrame: HTMLElement;
   private readonly elWork: HTMLElement;
   private readonly elDraw: HTMLElement;
@@ -95,6 +105,9 @@ export class Perf {
   private low1 = 0;
   private frameMs = 0;
   private frameMax = 0;
+  private worstMs = 0;
+  private resolveLink = 0;
+  private resolveDraw = 0;
   private workMs = 0;
   private workMax = 0;
   private calls = 0;
@@ -118,14 +131,19 @@ export class Perf {
     root.setAttribute('aria-hidden', 'true');
     root.innerHTML =
       '<div class="sbp-l"><b class="sbp-fps">--</b><span class="sbp-u">fps</span><span class="sbp-dim">1% </span><b class="sbp-low">--</b></div>' +
+      '<div class="sbp-l sbp-big"><span class="sbp-dim">worst </span><b class="sbp-worst">--</b><span class="sbp-u">ms</span></div>' +
+      '<div class="sbp-l sbp-big"><span class="sbp-dim">resolve </span><b class="sbp-resolve">--</b><span class="sbp-u">ms</span></div>' +
       '<div class="sbp-l"><b class="sbp-frame">--</b><span class="sbp-u">ms</span><span class="sbp-dim">cpu </span><b class="sbp-work">--</b></div>' +
       '<div class="sbp-l sbp-small"><span class="sbp-draw">--</span></div>' +
-      '<div class="sbp-l sbp-small"><span class="sbp-res">--</span></div>' +
+      '<div class="sbp-l sbp-small"><span class="sbp-res">--</span> <span class="sbp-hour"></span></div>' +
       '<canvas class="sbp-graph"></canvas>' +
       '<div class="sbp-warn">30 Hz cap? (Low Power Mode)</div>';
     const q = (c: string) => root.querySelector(c) as HTMLElement;
     this.elFps = q('.sbp-fps');
     this.elLow = q('.sbp-low');
+    this.elWorst = q('.sbp-worst');
+    this.elResolve = q('.sbp-resolve');
+    this.elHour = q('.sbp-hour');
     this.elFrame = q('.sbp-frame');
     this.elWork = q('.sbp-work');
     this.elDraw = q('.sbp-draw');
@@ -144,6 +162,14 @@ export class Perf {
 
   get visible(): boolean {
     return this.shown;
+  }
+
+  /** The resolve's link and first draw (ms) as the warm-up timed them, and the hour the frame is under. */
+  setBuild(linkMs: number, drawMs: number, hour: string): void {
+    this.resolveLink = linkMs;
+    this.resolveDraw = drawMs;
+    this.elHour.textContent = hour;
+    if (this.shown) this.paint();
   }
 
   setVisible(v: boolean): void {
@@ -206,6 +232,9 @@ export class Perf {
       low1: round(this.low1, 1),
       frameMs: round(this.frameMs, 2),
       frameMaxMs: round(this.frameMax, 2),
+      worstMs: round(this.worstMs, 1),
+      resolveLinkMs: this.resolveLink,
+      resolveDrawMs: this.resolveDraw,
       workMs: round(this.workMs, 2),
       workMaxMs: round(this.workMax, 2),
       simDtMs: round(this.lastDt, 2),
@@ -250,6 +279,7 @@ export class Perf {
     view.sort();
     const p99 = view[Math.min(m - 1, Math.floor(0.99 * (m - 1)))] || this.frameMs;
     this.low1 = 1000 / Math.max(1, p99);
+    this.worstMs = m ? view[m - 1] : this.frameMax;
 
     // Low Power Mode heuristic: iOS caps rAF at 30 Hz. Frames lock to ~33 ms
     // (tight spread) while the CPU work is far below what would explain it.
@@ -299,6 +329,9 @@ export class Perf {
     this.elFps.style.color = TIER[t];
     this.elLow.textContent = this.low1 ? this.low1.toFixed(0) : '--';
     this.elLow.style.color = TIER[tierOf(this.low1)];
+    this.elWorst.textContent = this.worstMs ? this.worstMs.toFixed(0) : '--';
+    this.elWorst.style.color = TIER[tierOf(1000 / Math.max(1, this.worstMs))];
+    this.elResolve.textContent = this.resolveLink ? `${this.resolveLink}+${this.resolveDraw}` : '--';
     this.elFrame.textContent = this.frameMs ? this.frameMs.toFixed(1) : '--';
     this.elWork.textContent = this.workMs ? `${this.workMs.toFixed(1)}` : '--';
     this.elDraw.textContent = `${this.calls} draws · ${fmtK(this.tris)} tris`;
@@ -363,16 +396,19 @@ function installStyle() {
   st.textContent = `
 .sbp{position:fixed;z-index:990;left:max(6px,env(safe-area-inset-left));top:max(6px,env(safe-area-inset-top));display:none;
   pointer-events:none;user-select:none;-webkit-user-select:none;padding:6px 8px 6px;border-radius:7px;
-  background:rgba(11,14,19,.74);box-shadow:0 0 0 1px rgba(255,255,255,.07),2px 2px 0 rgba(0,0,0,.28);
-  color:#e2e4e5;font:500 11px/1.25 ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;
+  background:rgba(11,14,19,.82);box-shadow:0 0 0 1px rgba(255,255,255,.07),2px 2px 0 rgba(0,0,0,.28);
+  color:#e2e4e5;font:500 12px/1.3 ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;min-width:120px}
 .sbp-l{white-space:nowrap}
 .sbp-l b{font-weight:700;color:#fffbe8}
-.sbp-fps{font-size:17px;letter-spacing:-.5px}
+.sbp-fps{font-size:30px;letter-spacing:-.5px}
+.sbp-low{font-size:17px}
+.sbp-big{font-size:17px;line-height:1.25}
 .sbp-frame{font-size:13px}
 .sbp-u{color:#a7aeb5;margin:0 7px 0 3px}
 .sbp-dim{color:#808a94}
-.sbp-small{color:#bbc1c6;font-size:10px;margin-top:1px}
+.sbp-small{color:#bbc1c6;font-size:11px;margin-top:1px}
+.sbp-hour{color:#ffd23e}
 .sbp-graph{display:block;width:${(GRAPH * 1.5) | 0}px;height:22px;margin-top:4px}
 .sbp-warn{display:none;margin-top:5px;padding:3px 6px;border-radius:4px;background:#5c1e3a;color:#ffe880;font-weight:700;font-size:10px}
 `;

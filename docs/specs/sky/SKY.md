@@ -4,7 +4,7 @@ The build spec, 2026-10-31, against `merge/osm` at `bc3106b` (line numbers drift
 
 **Labels.** **[M]** measured, tagged by who ran it: `astro`, `weather`, `render`, `art`, `skeptic` (the outside reviewer), or `here` for this spec (scripts in `shots/local/sky/work/sky-spec-scripts/` and `sky-fix-scripts/` beside it; any older scratchpad path in the reports now lives under `shots/local/sky/work/`). **[S]** from a source; a link in a table is one. **[E]** estimate. Unmarked numbers are design choices.
 
-**Nothing here has run in the game, on a GPU or on a phone.** Every frame cost is a count, and every image is a recoloured real frame. S1's first job is a real number from the phone.
+**Nothing here ran in the game, on a GPU or on a phone when it was written.** Every frame cost is a count, and every image is a recoloured real frame. S1 has since run on the laptop's GPU, never on a phone: section 7 holds its numbers. Its first job is still a real number from the phone.
 
 ---
 
@@ -358,7 +358,26 @@ Each slice sits behind `?sky` with `config.sky.*` kill switches in the tuner. Wi
 
 Total about 23 agent-days.
 
-**Against other work.** Far field first, as the producer set it. Two things go first whoever gets there: the clear-flag sky test, and the far fade to 21-34 km, because the Moon can't rise behind a faded ridge [M art]. If the far-field proof slips, S1 to S3 can start beside it.
+**S1's status, 2026-11-01.** Built on `feat/sky` behind `?hour=blue`, not merged, last build main-bPdy7owl.js; part 1 the look, part 2 the lights, then the review's four findings. What it set out to get from a phone it hasn't got: **no phone has run it, so fps, the resolve's compile time on an A15 and crawl in motion are still unknown.** `?hour=blue&fps` reads all three off the phone. The measured numbers that replace this file's estimates, all [M] on the laptop's UHD 620 in Edge, on that build (`DECISIONS.md`, "The held hour: the last pass"):
+
+| This file's estimate | Measured |
+|---|---|
+| Lamps: 106,633 B gzip SF, 6,035 London, 4,957 Amsterdam; 50,803 in SF | 93,887 B, 50,785 lamps; 5,326 B, 2,629; 4,459 B, 2,200: clipped to the bakes' bounds |
+| GPU memory, lamps 0.4 MB | 8 bytes a lamp: 406 KB, and the spans' lights 8 bytes each beside them |
+| Draws: moonless night -40 to -72, worst +4 | Alamo at cruise 123 -> 63 (no sun pass, +2 lamps' draws), triangles 849k -> 496k. The worst hillside, Noe at 350 m: 206 -> 92, 1.67M -> 795k |
+| Programs +4-5 small | +1 so far, the lamps': 31 -> 32, `warmcheck` 0 after the warm-up |
+| Main script +6 KB of TS and 11 KB or more of tables, about 9 % | S1 alone: +9.1 KB gzip (2.5 %), one table, flag on or off. lampWorker 1,030 B gzip, flag on only |
+| Allocation a frame 0 | Steady flight 2.60-2.65 MB/s on, 2.91-2.94 off: the hour adds none |
+| Frame rate: unknown, S1 measures it | The UHD 620 only: 60 fps on and off at 9 poses, which is vsync's cap. GPU frame, flag off to on, 12.25 -> 11.18 ms at Alamo, 18.69 -> 16.40 at Noe: the sun pass goes, the hour's shaders add up to 1 ms. **An A15 is still unknown** |
+| The resolve's compile time: S1 records it | ANGLE on D3D11, not Metal: link 2,542-3,805 ms by day, 2,562-3,284 under the hour, three cold pairs, no difference past the runs' own spread; first draw 4-13 ms |
+| Pools 16 KB a frame while stamping, one tile a frame | As said |
+| Paint's gate: world peak under 0.75 of paint's median | 0.73 on the painted block, 0.74 of the table's median on the frames with no paint of their own |
+
+`tools/skycheck.mjs` on 7 poses: 0 off the palette, 0 on an unnamed row, 0 brown or taupe, the paint cap held. **One hard fail stands: shimmer at FiDi, 12.99 % against today's 12.27 %,** the lights' own moving edges (`DECISIONS.md`, "The held hour, its second part" and "its review"); 6 of 7 poses are under today's. Hold-still swap at blue hour, Downtown, on main-DSEd20oC.js and not run again: mean luma +0.68, 4.95 % of far pixels over one step, largest pop 763 px. With the flag off frames match `main` at 4e24e3f, the branch point, 16 of 16 views, and no source, program or request differs. `main` has moved on to 84e77c3, the 15 km ceiling: a dry merge conflicts in `DECISIONS.md` alone, nobody has run that merge, and the hour has never flown above 520 m.
+
+**Weather is on hold, from the producer, 2026-11-01.** Parked: S7, S8, S9, J3, and S3's `?wx=` presets, cloud layers, overcast tables, cloud shadows and pass skip. Clouds stay off and every sky is clear. S3 keeps its water chunk and sun glitter, about 1 agent-day [E]. That leaves S1, S2, S3's water, S4, J1, S5, S6, J2 and S10, about 15.5 agent-days. J1 runs round 1 #3 clear, and `shots --det` pins `?t=` alone. Risk: cloud shadows were the day's hero. If noon reads flat on the phone, plain drawn clouds with no live data are the fallback, and that call is the producer's.
+
+**Against other work.** Far field first, as the producer set it. Two things go first whoever gets there: the clear-flag sky test, and the far fade to 21-34 km, because the Moon can't rise behind a faded ridge [M art]. If the far-field proof slips, S1 to S3 can start beside it. Done: the far field went live for San Francisco on 2026-11-01 (`4e24e3f`) with the clear-flag sky test and the fade to 34 km, ahead of this build, so §9's table has to be read against what shipped.
 
 **Biggest risks.** (1) Resolve cost on an A15: S1 measures it. (2) Crawl: nothing has moved yet. (3) Day: if cloud shadows don't beat today's noon, two thirds of play gains nothing. (4) Tables tuned only on SF. (5) The sweep on a phone, and its street-level edges.
 
@@ -477,10 +496,10 @@ Nobody has designed it, and VERDICT step 7 is the surface only. G3 takes 3.5 hou
 ## 10. Decisions only the producer can make
 
 1. **May the camera lift on its own?** The law says only the yoke moves the lens (`DECISIONS.md:67`). The ceiling pull is still the yoke and ships in S5 regardless; rest lift and the sunset beat are not. **Recommend yes to both:** without them stars are almost never seen. Blocks half of S6.
-2. **Open a Cloudflare account, buy a domain, make one R2 bucket and an API token, turn on Workers Paid.** About $6 a month, and only you can create the account. **Recommend yes.** Blocks S7, nothing before it.
+2. **Open a Cloudflare account, buy a domain, make one R2 bucket and an API token, turn on Workers Paid.** About $6 a month, and only you can create the account. **Recommend yes.** Blocks S7, nothing before it. **Parked with weather, 2026-11-01.**
 3. **Sunbreak needs a new sentence.** MAGIC #7 says the unpainted city stays under flat overcast, false on a clear day and at night. **Recommend:** overcast keeps the spec; a clear day keeps the pool as warm steps in the table's day rows; at night the pool is paint's own spill through `uSunbreak`. One line now.
-4. **Accept three small licence risks, and add them to VERDICT's counsel list:** rights in non-US METARs; ECMWF's "Service Charges" and service-agreement lines, which I read as not applying to a free mirror; Stellarium's share-alike on one data file. **Recommend yes.** None blocks a slice.
-5. **Keep live weather off GitHub Actions.** One Action would carry everything, and [GitHub's terms](https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features) say "don't use Actions as a content delivery network or as part of a serverless application", though "a low benefit Action could be ok if it's also low burden". I can't tell how GitHub applies that. **Recommend:** a cron Worker for METARs and a Cloudflare Container for ECMWF, inside decision 2's $5. If Containers fail their first test, get a clear answer from GitHub or use a small scheduled container elsewhere. Blocks S7.
+4. **Accept three small licence risks, and add them to VERDICT's counsel list:** rights in non-US METARs; ECMWF's "Service Charges" and service-agreement lines, which I read as not applying to a free mirror; Stellarium's share-alike on one data file. **Recommend yes.** None blocks a slice. **Parked with weather, 2026-11-01,** apart from Stellarium's line, which comes up at S6.
+5. **Keep live weather off GitHub Actions.** One Action would carry everything, and [GitHub's terms](https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features) say "don't use Actions as a content delivery network or as part of a serverless application", though "a low benefit Action could be ok if it's also low burden". I can't tell how GitHub applies that. **Recommend:** a cron Worker for METARs and a Cloudflare Container for ECMWF, inside decision 2's $5. If Containers fail their first test, get a clear answer from GitHub or use a small scheduled container elsewhere. Blocks S7. **Parked with weather, 2026-11-01.**
 
 **Taste calls I have made; one line from you changes any:** Moon floor 15 px (24 px is storybook: `moon-scale.png`). Paint rows graded at night. Star count kinder than a city sky. Snow never on paint. Grey never moves, even in a storm. The sign jokes. **Deck heights through `play()`:** the street keeps a bright ceiling and the bus breaks into a sea with Sutro Tower, in place of `fidi-fog.png`'s prettier city of islands, which only a deck that buries the street could give.
 

@@ -25,7 +25,7 @@ import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { paintLandmark, bindLandmarkPaint, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
 import { Tuner, applySavedTuning } from './ui/Tuner';
-import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles } from './world/Bridges';
+import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles, bridgeLights } from './world/Bridges';
 import { heroLandmarks, SpireRide } from './world/props/landmarks';
 import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
@@ -34,6 +34,8 @@ import { SuperSplat } from './game/SuperSplat';
 import { SuperFx } from './fx/SuperFx';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
+import { heldHour } from './sky/flag';
+import { HeldHour } from './sky/HeldHour';
 
 // Struggle Bus — Phase 1 (real SF, solo).
 
@@ -91,6 +93,11 @@ const camNear = camera.near;
 // wave: the post passes and what modules registered (tiles, trees, landmarks, bridges).
 let warm = new WarmUp(pipeline, scene);
 
+// (the held hour, ?hour=blue: SKY.md slice S1; updateSun below hands it the light)
+const hour = heldHour ? new HeldHour(pipeline) : null;
+/** What the ?fps read-out calls the frame it is reading. */
+const hourName = hour ? 'blue hour' : 'day';
+
 // --- sun: late-afternoon, low, from the WSW
 /** The city's low ground (m, City.lowGround once the far grid is in): the fog ceiling's heights are
  *  above it, so a city on a plateau stands out of its fog the way SF does at sea level */
@@ -111,6 +118,7 @@ function updateSun() {
   globals.uFogBillow.value.set(Fg.layerBillow, 1 / Math.max(10, Fg.layerBillowSize));
   // (the fog ceiling of tall far shapes: meaningless with the fog off, so off with it)
   globals.uFogStand.value.set(fogOn ? Fg.standFog : 1, fogGround + Fg.standFrom, fogGround + Math.max(Fg.standFrom + 1, Fg.standTo), Fg.standFade);
+  hour?.update();
 }
 updateSun();
 
@@ -130,6 +138,11 @@ async function boot() {
   registerCityData(manifest);
   const city = new City(manifest, base);
   scene.add(city.root);
+  if (hour) {
+    const { lamps } = hour;
+    scene.add(lamps.object);
+    lamps.onLanded = () => city.setPools(lamps);
+  }
   // the opening streams everything it needs at once (adopted as it lands, many regions in flight);
   // streaming is budgeted again after the first ready frame
   city.eager = true;
@@ -172,6 +185,8 @@ async function boot() {
       updateSun();
     };
   const farP = city.loadFar(renderer, () => warm.busy);
+  // (behind far.bin: the worker reads its heights. Nothing waits for this, the lamps land when they land)
+  if (hour) void farP.then(() => hour.lamps.load(city.fileUrl('lamps'), city.groundGrid()!, manifest.tileSize), () => (hour.lamps.busy = false));
 
   // ---- props: trees stream with tiles, landmarks are placed once
   const treeFields = new Map<string, TreeField>();
@@ -258,16 +273,20 @@ async function boot() {
     const ref = paintLandmark(city, key, obj, { name });
     if (ref && city.paint.level(ref.index) > 0.5) bumpPaint(ref.cx, ref.cz, 40);
   };
+  /** the spans' lights, x, y, z: the held hour's */
+  const spanLights: number[] = [];
   for (const lm of manifest.landmarks) {
     const pts = (lm as { points?: Array<[number, number]> }).points;
     const deck = lm.deck;
     if (lm.kind === 'ggb' && pts && deck && lm.supports) {
       scene.add(makeGoldenGate(pts, deck, lm.supports));
       city.addObstacles(bridgeObstacles('ggb', pts, deck, lm.supports));
+      if (hour) spanLights.push(...bridgeLights('ggb', pts, deck, config.sky.bridgeSpacing));
     } else if (lm.kind === 'baybridge' && pts && deck && lm.supports) {
       const { supports } = lm;
       city.addObstacles(bridgeObstacles('baybridge', pts, deck, supports));
       later.push(() => scene.add(makeBayBridgeWest(pts, deck, supports)));
+      if (hour) spanLights.push(...bridgeLights('baybridge', pts, deck, config.sky.bridgeSpacing));
     } else {
       // Sutro's legs / the pyramid: solid posts the flight model steers around
       city.addObstacles([{ x: lm.x, z: lm.z, r: lm.kind === 'sutro' ? 45 : 30, top: lm.y + lm.height + 5, under: -Infinity }]);
@@ -281,6 +300,7 @@ async function boot() {
       });
     }
   }
+  hour?.lamps.setBridges(spanLights);
   // the hand-built heroes the footprints can't draw: Coit Tower, the Ferry Building, 181 Fremont's spire
   later.push(() => {
     for (const h of heroLandmarks(manifest.origin)) {
@@ -914,7 +934,10 @@ async function boot() {
     city.eager = true;
     warm = new WarmUp(pipeline, scene);
     warm.add(scene);
-    void warm.finish().then(() => (glLost = false));
+    void warm.finish().then(() => {
+      glLost = false;
+      perf.setBuild(warm.report?.resolveLinkMs ?? 0, warm.report?.resolveDrawMs ?? 0, hourName);
+    });
   });
 
   // ---- the warm-up's second wave: the live scene as built so far (the bus, the Golden Gate, water,
@@ -944,6 +967,7 @@ async function boot() {
     }
     await new Promise((r) => setTimeout(r, 16));
   }
+  perf.setBuild(warm.report?.resolveLinkMs ?? 0, warm.report?.resolveDrawMs ?? 0, hourName);
   fogGround = city.lowGround();
   updateSun();
   globals.uFogBank.value = config.fog.openingBank;
@@ -1196,7 +1220,7 @@ async function boot() {
     pipeline.shadowFocusOn = true;
     pipeline.shadowFocus.set(sx0, focus.y + (city.groundAt(sx0, sz0) - focus.y) * vista, sz0);
     pipeline.shadowScale = 1 + (R.shadowExtentVista / Math.max(1, R.shadowExtent) - 1) * vista;
-    pipeline.shadowStrength = 1 + (R.shadowStrengthVista - 1) * vista;
+    pipeline.shadowStrength = hour?.shadowsOff ? 0 : 1 + (R.shadowStrengthVista - 1) * vista;
     pipeline.shadowEdge = 0.08 + (R.shadowEdgeVista - 0.08) * vista;
     pipeline.calm = clamp(vista / Math.max(0.01, config.render.calmVista), 0, 1);
     // tower facades: the up-high anti-crawl guard follows the view's height (with fog on or off), and their
@@ -1311,9 +1335,10 @@ async function boot() {
       bus.root.updateMatrixWorld();
       bus.root.localToWorld(beamEye.copy(bus.eyeLocal));
       beamFwd.set(0, -Math.tan(THREE.MathUtils.degToRad(Cb.headBeamPitch)), -1).transformDirection(bus.root.matrixWorld);
-      beamTip.copy(beamEye).addScaledVector(beamFwd, Cb.headBeamLength * rig.heroScale);
+      const beamLength = hour ? hour.beamLength(vista) : Cb.headBeamLength;
+      beamTip.copy(beamEye).addScaledVector(beamFwd, beamLength * rig.heroScale);
       const open = 0.3 + 0.7 * superPose.eye;
-      pipeline.setHeroBeam(beamEye, beamTip, 0.5 * rig.heroScale, 0.5 * Cb.headBeamWidth * open * rig.heroScale, Cb.headBeamLength > 0 ? Cb.headBeamStrength * (0.35 + 0.65 * superPose.eye) : 0);
+      pipeline.setHeroBeam(beamEye, beamTip, 0.5 * rig.heroScale, 0.5 * (hour ? hour.beamWidth(vista) : Cb.headBeamWidth) * open * rig.heroScale, beamLength > 0 ? Cb.headBeamStrength * (0.35 + 0.65 * superPose.eye) : 0);
     }
     pipeline.render(scene);
     framesDrawn++;
@@ -1325,7 +1350,7 @@ async function boot() {
     superMeter.update(realDt, superView);
     controls.hud.setMega(superView.phase);
     perf.frame(dt * 1000, performance.now() - t0);
-    const cityIn = city.loadedRegionCount() > 0 && !city.busy && !later.length;
+    const cityIn = city.loadedRegionCount() > 0 && !city.loading && !later.length;
     if (covered && cityIn) {
       covered = false;
       canvas.style.visibility = '';
@@ -1343,7 +1368,7 @@ async function boot() {
     }
     if (ready) everReady = true;
     city.eager = !everReady;
-    (window as unknown as { __shotReady?: boolean }).__shotReady = ready && !city.farLate;
+    (window as unknown as { __shotReady?: boolean }).__shotReady = ready && !city.busy && !city.farLate && !hour?.lamps.busy;
   }
   requestAnimationFrame(frame);
 
@@ -1352,7 +1377,7 @@ async function boot() {
     // (asked for now: there is no asking once the context is gone)
     const lose = renderer.getContext().getExtension('WEBGL_lose_context');
     (window as unknown as Record<string, unknown>).__game = {
-      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls,
+      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: hour,
       /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
       get warm() {
         return warm;

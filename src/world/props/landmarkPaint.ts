@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { config } from '../../config';
 import { HUE_RAMPS, Ramp } from '../../render/palette';
+import { heldHour } from '../../sky/flag';
 import { paintUniforms } from '../buildingMaterial';
 import type { BuildingRef, City } from '../City';
 
@@ -72,7 +73,7 @@ const floodUniform = {
 } as THREE.IUniform;
 const fxUniform = {
   get value() {
-    return fxV.set(config.bloom.landmarkPop, config.bloom.landmarkGlassGlow);
+    return fxV.set(config.bloom.landmarkPop, heldHour && config.sky.glow ? config.sky.glassGlow : config.bloom.landmarkGlassGlow);
   },
   set value(_v: THREE.Vector2) {
     /* read-only: edit config.bloom */

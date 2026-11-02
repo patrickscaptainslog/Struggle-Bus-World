@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-# (game_px() / main() reduce a 3x-DPR screenshot to game pixels; usage: shimmer.py a.png b.png [diff.png])
+# (game_px() / main() reduce a 3x-DPR screenshot to game pixels; usage: shimmer.py a.png b.png [diff.png] [--flat=rrggbb,rrggbb...])
 # Shimmer check on two frames 1/30 s apart: reduce to game pixels, find the best integer
-# shift per horizontal band (camera translation), report what the shift can't explain.
+# shift per horizontal band (camera translation), report what the shift can't explain. --flat: these colours count as one: a sky with bands holds still on the
+# screen by design, and left in it pulls a band's fit off the world that moves in front of it.
 import os
 import sys
 import numpy as np
@@ -36,13 +37,16 @@ def game_px(path, S=None):
     g = a[cy::S, cx::S]
     return g
 
-def main(pa, pb, out=None, bands=8):
+def main(pa, pb, out=None, bands=8, flat=()):
     A = game_px(pa)
     B = game_px(pb)
     h = min(A.shape[0], B.shape[0]); w = min(A.shape[1], B.shape[1])
     A = A[:h, :w]; B = B[:h, :w]
     key = lambda X: (X[..., 0] << 16) | (X[..., 1] << 8) | X[..., 2]
     KA, KB = key(A), key(B)
+    if len(flat):
+        KA[np.isin(KA, flat)] = -1
+        KB[np.isin(KB, flat)] = -1
     raw = (KA != KB).mean()
     res = np.zeros((h, w), bool)
     rep = []
@@ -72,4 +76,6 @@ def main(pa, pb, out=None, bands=8):
         Image.fromarray(vis).resize((w * 3, h * 3), Image.NEAREST).save(out)
 
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
+    flat = [int(c, 16) for a in sys.argv[1:] if a.startswith('--flat=') for c in a[7:].split(',')]
+    pos = [a for a in sys.argv[1:] if not a.startswith('--flat=')]
+    main(pos[0], pos[1], pos[2] if len(pos) > 2 else None, flat=flat)

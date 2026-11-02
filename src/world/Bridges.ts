@@ -432,6 +432,29 @@ export function bridgeObstacles(kind: 'ggb' | 'baybridge', pts: P2[], deck: Deck
   return out;
 }
 
+/**
+ * A span's lights (SKY.md 4.4), x, y, z a light, from the one deck list and the sizes above: every `spacing` m along the roadway at deck height, on both sides just past its
+ * edge, so they show from over and under it, and one on each tower top: on both its legs, seen from the side one hides what stands on the strut between them. Only the held hour asks.
+ */
+export function bridgeLights(kind: 'ggb' | 'baybridge', pts: P2[], deck: DeckPoint[], spacing: number): number[] {
+  const d = new Deck(deck);
+  const gg = kind === 'ggb';
+  const edge = (gg ? GGB.half : BAY.half) + 1.5;
+  const out: number[] = [];
+  const n = Math.ceil(d.length / Math.max(1, spacing));
+  for (let k = 0; k < n; k++) {
+    const s = ((k + 0.5) / n) * d.length;
+    const [x, z, top] = d.at(s);
+    const yaw = d.yawAt(s);
+    for (const side of [-1, 1]) out.push(x - Math.cos(yaw) * edge * side, top + 1.5, z + Math.sin(yaw) * edge * side);
+  }
+  const f = frame(pts[0], pts[pts.length - 1]);
+  const leg = gg ? GGB.half + 2.5 : (BAY.half + 2) * 0.82;
+  for (const t of gg ? [pts[1], pts[2]] : BAY.towers.map((i) => pts[i]))
+    for (const side of [-1, 1]) out.push(t[0] + f.ax * leg * side, gg ? GGB.towerH + 7 : BAY.towerH + 1.5, t[1] + f.az * leg * side);
+  return out;
+}
+
 // Shader warm-up (render/warmup.ts): a bridge as the kit builds one (the Bay Bridge is built after
 // the first frame, see main.ts)
 registerWarm('bridges', () => {

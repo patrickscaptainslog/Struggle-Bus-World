@@ -79,6 +79,8 @@ export interface WarmPipeline {
   /** layers the sun's depth pass draws, and the material it overrides with */
   readonly sunLayers: THREE.Layers;
   readonly sunOverride: THREE.Material;
+  /** the resolve's material: its link and first draw are timed for the ?fps read-out */
+  readonly resolveMaterial: THREE.Material;
   /** one object per post-pass material */
   warmObjects(): THREE.Object3D[];
   /** draw these into the G-buffer and the shadow map (never the canvas) */
@@ -103,6 +105,13 @@ export interface WarmReport {
   log: Array<[number, number, number, number]>;
   /** per entry drawn: [ms from start, source name] */
   drawnAt: Array<[number, string]>;
+  /**
+   * The resolve (the ?fps read-out): ms from its linkProgram to the warm-up finding it linked, polled through a round's fence, so to within a round and with the
+   * programs in the other lanes compiling beside it; without KHR_parallel_shader_compile, to the end of its first synchronous query, which is where that link blocks.
+   */
+  resolveLinkMs: number;
+  /** ms the GPU took over the post passes' first draws, the resolve's among them: a Metal render pipeline builds there */
+  resolveDrawMs: number;
 }
 
 function layoutOf(a: AnyAttr): { ctor: new (n: number) => THREE.TypedArray; instanced: boolean; gpuType: number } {
@@ -239,6 +248,11 @@ export class WarmUp {
   private linkedAt = 0;
   private readonly log: Array<[number, number, number, number]> = [];
   private readonly drawnAt: Array<[number, string]> = [];
+  /** the resolve's program, when its link started, how long that took, and which round of the log drew the post passes */
+  private resolveProgram: Program | null = null;
+  private resolveAt = 0;
+  private resolveLinkMs = 0;
+  private postRound = -1;
   /** performance.now() when the warm-up last finished (QA: programs made after it are misses) */
   doneAt = 0;
   report: WarmReport | null = null;
@@ -331,6 +345,8 @@ export class WarmUp {
       if (!pick) return;
       pick.compiled = true;
       const before = all.length;
+      const resolve = pick.mats.includes(this.pipeline.resolveMaterial);
+      const at = performance.now();
       try {
         r.compile(pick.proxy!, this.pipeline.camera, this.target);
       } catch (e) {
@@ -343,6 +359,10 @@ export class WarmUp {
       for (const p of programs) {
         this.linking.add(p);
         if (longest) this.long.add(p);
+        if (resolve) {
+          this.resolveProgram = p;
+          this.resolveAt = at;
+        }
       }
       for (const m of pick.mats) {
         const cur = (r.properties.get(m) as { currentProgram?: Program }).currentProgram;
@@ -441,7 +461,11 @@ export class WarmUp {
       const roundAt = performance.now();
       // which links are done (polled without blocking with the parallel extension; without it
       // isReady() is always true and priming below blocks for the compile: one program per task)
-      for (const p of this.linking) if (!alive.includes(p) || p.isReady()) this.linking.delete(p);
+      for (const p of this.linking)
+        if (!alive.includes(p) || p.isReady()) {
+          this.linking.delete(p);
+          if (p === this.resolveProgram && this.parallel) this.resolveLinkMs = Math.round(performance.now() - this.resolveAt);
+        }
       this.compileSome();
       // (each program's first query also makes the GPU process finish its link and load it into
       // the driver, tens of ms for a big one: a few per task keeps every task short)
@@ -458,6 +482,7 @@ export class WarmUp {
           // the uniform and attribute tables, which three would otherwise fetch synchronously on first use
           p.getUniforms();
           p.getAttributes();
+          if (p === this.resolveProgram && !this.parallel) this.resolveLinkMs = Math.round(performance.now() - this.resolveAt);
           this.primed.add(p);
           budget--;
         }
@@ -480,6 +505,7 @@ export class WarmUp {
       if (!this.passesDrawn && this.entries.every((e) => e.drawn)) {
         this.pipeline.warmPasses();
         this.passesDrawn = post = true;
+        this.postRound = this.log.length;
       }
       if (n || post) {
         // (the next round's fence waits for these draws)
@@ -505,6 +531,8 @@ export class WarmUp {
       total: alive.length,
       log: this.log,
       drawnAt: this.drawnAt,
+      resolveLinkMs: this.resolveLinkMs,
+      resolveDrawMs: this.postRound >= 0 ? this.log[this.postRound][3] : 0,
     };
   }
 }
