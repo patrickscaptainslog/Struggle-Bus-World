@@ -736,7 +736,7 @@ by order, never by a line, except a lone stroke's side.
 - `onTurbo(dir: 1 | -1, landed, lifted)` a flick, or E / Q (the two times are ms on the performance clock; for a key, the same
   time twice). `Shifter` says what it means. `state.turboHeld`: Shift holds the boost; the latched turbo is `TurboDrive.level`.
 - `state.look: { on, x, y }` a second thumb's (or the right mouse's) offset from where it landed, CSS px, +x right, +y up;
-  on only past `lookDelayMs` and the tap slop, 0, 0 when off. main.ts hands it to `CameraRig.setLook`, which is a stub so far.
+  on only past `lookDelayMs` and the tap slop, 0, 0 when off. main.ts hands it to `CameraRig.setLook` every frame, with the wall clock's dt.
 - `onPress()` a gesture landed (the aim's press latch, glint == hit): the flying thumb, or a lone second thumb; never a second
   thumb with a flying one down.
 - `mode: 'touch' | 'keyboard'`.
@@ -783,6 +783,12 @@ only), in both of its branches, and comes back to exactly 0.
 (x heroScale), `turboLead` / `turboLookLead` (m added to the follow / look
 targets: cancel part of the springs' lag at turbo speeds); written by
 `TurboLens` (`src/fx/Turbo.ts`), which also punches the fov.
+**The look** (`docs/specs/flight/THUMBS.md`): `CameraRig.setLook(on, x, y, realDt)` before `aimer.update`, two exactly stepped
+springs (`settle`) on the wall clock. `applyLook` runs last in `update()` and only moves the camera's pose: sideways and down the
+pose turns about the bus, up the lens tilts in place. It writes none of the rig's own state, and at home it returns on its first
+line. `aimYaw` is what `Aimer.lookYaw` turns `point()` by; `Aimer.fx`, `fz` are the breath's way (`SuperSplat.hoseAim` reads them).
+`streamDir(view, out)` gives main.ts the stream centre's way: the view's flat forward, turned back to the heading until a look has
+been held `lookStreamAfter` s. `camFwd` itself stays the view's, for the shadow's window. `city.viewX`, `viewZ` are the lens wherever it is.
 
 **Under a bridge deck** (`City.overheadAt`: the bus is under a post with an open `under`) nothing lifts the bus: the floor
 stops 8 m under the underside, the underside is a hard stop, the hard floor reads no post (`City.hardAt`, which over a
@@ -802,7 +808,8 @@ one draw while it lasts; every effect really draws in the warm-up), contrail rib
 interleaved dynamic buffer, one upload per frame), speed lines (instanced,
 uniforms only), vapor cone; all `sbWrite` with flags 0.5 and ordered-dither
 dissolves; events through the existing `Particles.puff/sparkles` (a first flick's
-answer is the boom's vapor ring, small: a phone on silent hears nothing); the
+answer, `pop`, is the boom's vapor ring, small, carried along with the bus and scaled to stand as big on screen at any height: a
+phone on silent hears nothing; `Controls.pose` makes the bus hiccup on the same event); the
 rattle (`applyRattle`). **Voice** (`src/audio/turboVoice.ts`) on
 `AudioEngine.voiceKit()` (the sfx bus).
 
@@ -819,13 +826,15 @@ to the panel), `toast(lines, s)` (one slot, LOCKED clears it), `setSettings`, `a
 elements carry `data-sb-ui` (Input ignores keys typed there) and `data-hud="..."` names for QA (`mega`, `settings`, `cue`).
 
 **The first run** (`src/ui/Coach.ts`, no DOM): one cue at a time, each ended by doing it, each shown once ever (`taught`
-in the prefs). Off with `?nohud`, `?skipintro`, `?nocoach`; `?coach` keeps it under skipintro. Controls runs it per frame.
+in the prefs). The second thumb's hint is the exception: `hintDue` for one frame a beat after the fog, a toast of its own time,
+ended by nothing, `taught` bit 32; `Controls.climbGated` holds its line for it. Off with `?nohud`, `?skipintro`, `?nocoach`; `?coach` keeps it under skipintro. Controls runs it per frame.
 **Prefs** (`src/game/controlPrefs.ts`, `localStorage strugglebus.controls.v1`): `taught?`, `swap?`, `muted`, `keysShown`;
 what the tilt saved (`mode`, `tilt`, `chipIgnored`, `sens`) is dropped on load.
 
 QA: `window.__game.controls` (`snapshot()`: mode, turbo, flight, camera, HUD, input, look), `tools/controls.mjs` (browser, real
-CDP multi-touch, stamped so a stroke is as long as its row says: a touchEnd lists the point that lifts) and
-`tools/controls-sim/` (offline: s_gesture, s_turbo, s_layout).
+CDP multi-touch, stamped so a stroke is as long as its row says: a touchEnd lists the point that lifts; `look` steps the look
+frame by frame and keeps the frames) and `tools/controls-sim/` (offline: s_gesture, s_turbo, s_layout).
+The look: `tools/feel-sim/s_look.ts` (offline, twin flights, the aim over the real city).
 The path: `tools/nose.mjs` (browser, the real stick, frames) and `tools/feel-sim/s_nose.ts` (offline, at any step).
 
 ## Height (`src/game/Ascent.ts`, `docs/specs/flight/ASCENT.md`)

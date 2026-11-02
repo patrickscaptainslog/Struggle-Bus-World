@@ -2,7 +2,7 @@
 
 The producer, 2026-11-01: "dont add the gear strip. dont add right thumb flicks. yes, remove the turbo button, replace with two quick flicks - its intuitive enough... lets remove tilt steering completely - i dont like it." And: "yes, the boost stays on until you flick down, and if we're getting funky - lets say that turbo can be 'boosted' more until youre in max top gear." And earlier: "I don't want to add a button/joystick o anything, I just want it to be intuitive to pick up and fly."
 
-**State.** On `feat/thumbs`, off `feat/nose` 08dd842. Built: the two thumbs, flicks, turbo's latch and levels, the undo; TURBO, its tab and tilt gone. The look reports its offsets to a stub in `CameraRig`: the orbit, the aim that follows it and the first run's hint are the next build. Nothing here has run on a phone. Every thumb number below is a model or a guess until the producer's thumb says otherwise.
+**State.** On `feat/thumbs`, off `feat/nose` 08dd842. Built: the two thumbs, flicks, turbo's latch and levels, the undo, the look, the aim that follows it, the flick's pop, the first run's hint; TURBO, its tab and tilt gone. Nothing here has run on a phone. Every thumb number below is a model or a guess until the producer's thumb says otherwise.
 
 ## The rule
 
@@ -61,6 +61,54 @@ Turbo is the boost, latched: on until a flick down, with no thumb held, at any g
 
 Measured in the game at a fixed step, full belly: 112, 145.6, 190.4 and 584, 719, 898. Full pull with turbo on: 111.6 up at level 1, 189.7 at level 3, both at 85 degrees. Run east at the map's edge in G1: 736 m past it at most at every level, the same as no turbo, 225 m/s at the edge at level 3 (with the reach reading the gear's speed alone: 843 m, 531 m/s).
 
+## The look
+
+A second thumb that stays down turns the view round the bus. On the lift the view goes home: there is no stay-where-you-left-it. Nothing is drawn for it. `CameraRig.setLook` keeps one yaw offset and one pitch offset on the wall clock, so a hit-stop doesn't stall them, and `applyLook` lays them over the finished pose. The rig's own state never hears of it.
+
+- **Geared like a second bungee.** The thumb's offset from where it landed sets the angle, 1 degree per px, and thumb up looks up. Sideways is the full circle with no stop: 270 px is a quarter turn the other way, and home goes the short way round. Up stops at 45 degrees and down at 50, and past a limit the landing is dragged along behind the thumb, so turning back answers at once.
+- **The bus stands where it stood.** Sideways and down, the whole pose turns about the bus. The follow's lag goes round with it, so the lead the study wanted at speed has nothing left to do: a look can't push the bus off its spot, at G1 or at 900 m/s, in a turn or not. Zoom and distance don't change.
+- **Up, the lens tilts where it is.** Lowering it would stand it among the roofs. The bus leaves by the bottom of the frame past about 19 degrees [model, research-render 6.2], and the floor flies it meanwhile: a glance, not a place to live.
+- **Down goes over the bus**, the move a dive makes. The two add, and the view's pitch stops at `lookViewMax`, 86 degrees: past straight down it would turn over.
+- **Home is exact.** A critically damped spring, stepped exactly, so the path is the same at any frame rate. It arrives at exactly 0, and at 0 `applyLook` doesn't run: settled, the rig is what it was.
+- **A look is not a thumb.** It never sets `state.thumb`, never teaches DRAG, and flight doesn't know it happened.
+- **Off under the opening's low shot:** the angle is scaled by `1 - openingLow`.
+- **The stream stays on the heading**, so a glance behind doesn't drop what the bus is flying into. A look held 2 s takes it along at 2 per s, and it comes home with the view. The shadow's window follows the view from the first frame.
+
+Measured with the real rig. Twin flights, one looking, the other not (`tools/feel-sim/s_look.ts`): cruise, turning, climbing, G1 and a dive, 480 frames each; from the frame the look is home every camera number is identical, and the flight's are identical on every frame. The bus against its twin at 90, -90, 120, 180 sideways and 50 down, at cruise, surge, G1, G1 level 3 and turning at G1: under 0.5 px of the 240 x 520 frame, same distance. Home, from the lift:
+
+| From | Within a game pixel (s) | Exactly home (s) |
+|---|---|---|
+| 30 sideways | 0.97 | 1.27 |
+| 90 sideways | 1.12 | 1.40 |
+| 180 sideways | 1.20 | 1.48 |
+| 45 up | 1.02 | 1.32 |
+| 50 down | 1.03 | 1.33 |
+
+In the real page, real CDP thumbs (`tools/controls.mjs look`): the bus 0.5 across and 0.588 to 0.596 down the frame through every street look but up, 0.513 to 0.528 in G1. With the game clock standing and the look running on the wall clock, three looks at the street and three at 1,200 m: the camera's matrix is the same to the digit and the frame the same pixel for pixel, and it stays still.
+
+## The aim
+
+A tap goes where the view looks, sideways only, out to `lookAimMax`, 100 degrees each side, and down the nose past that: no tail gun. `CameraRig.aimYaw` turns `Aimer`'s heading and nothing else, so the ray, the pick, the hold, the wall in the way and the hose all follow, and because the view and the aim turn about the same point the glint stays in its usual spot on the screen while the world turns under it. The jet still leaves the mouth. Looking up or down changes nothing about where a tap goes.
+
+You can't hold a look and tap with the same thumb. The flying thumb lifts and taps, the look thumb holding the view: the bus flies on by itself for that moment. A real page's tap at 70 degrees hit the building that glinted. Over the real city, four places, nine looks each: all 36 hit what glinted, and every shot off the nose landed within 14 degrees of where the view looked. A shot down the nose scatters 22 there: the shot lands on the building, not on the line.
+
+## The pop
+
+A first flick answers at once, seen at the bus: the boom's vapor ring, small, and a hiccup in the bus's own body on the breath's squash spring. The ring rides along with the bus, so it is still round it at 450 m/s, and stands as big on screen at any height. Turbo's ring is the same, bigger. A silenced iPhone hears nothing, so this is the only answer it gets.
+
+## The hint
+
+On the first run's intro, once ever, a beat after the fog has lifted, four lines in the toast's slot for 6.5 s, and touches pass through it:
+
+```
+SECOND THUMB
+FLICK UP FOR GEARS
+TWO FLICKS TURBO
+HOLD TO LOOK
+```
+
+It asks for nothing and nothing ends it but its own time, or a line that matters more: a flick under the gate answers over it. The gate's own CLIMB line waits for it. `taught` bit 32; an old save gets it once, which is right, because that player's TURBO has just gone. Off wherever the first run is off, and a desktop gets its keys in the keys toast instead. Nothing else on the screen teaches any of this: the gestures are hidden, the producer's call.
+
 ## Keyboard and mouse
 
 E or PageUp is a flick up, so E twice within the window is turbo. Q or PageDown is a flick down. Shift holds level 1 while held, whatever the latch says, and ends nothing. A right mouse drag looks, from its first pixel. The left mouse is the bungee and never a flick.
@@ -68,6 +116,8 @@ E or PageUp is a flick up, so E twice within the window is turbo. Q or PageDown 
 ## What's tunable
 
 On the tuner (`?tune`), group Input, read live: `secondTapMs` (230), `lookDelayMs` (100), `lookLostMs` (8000: a look that has heard nothing from its thumb lets go until it moves, because an edge swipe can lose a touch with no touchend), `memoryMs` (30000), `flickPx`, `flickMs`, `flickSpeed`, `flickDeg`, `loneFlickPx`, `loneFlickMs`, `loneFlickSpeed`, `loneFlickDeg`, `flickBottomPx` (40), `flickSidePx` (20), `doubleMs` (320). In `config.turbo`: `levels` ([1.3, 1.6, 2]) and `levelsG0` ([1, 1.3, 1.7]), not on the tuner: it shows numbers, and these are lists.
+
+On the tuner, group camera: `lookDegPerPx` (1), `lookInvertY` (off: thumb up looks up, the opposite of the yoke, where thumb down climbs), `lookUp` (45), `lookDown` (50), `lookFollowHz` (4.5), `lookHomeHz` (1.4: home in about 1 s), `lookViewMax` (86), `lookAimMax` (100), `lookStreamAfter` (2), `lookStreamRate` (2).
 
 ## The ladder, not built
 
@@ -80,3 +130,7 @@ Six rungs, the top one being gear six: the last gear with all of turbo on, so th
 - **A resting left thumb that lands first is the flying thumb**, and the right thumb then looks. That is the order rule.
 - **A latched turbo strains as a held one did**: the rattle and the backfire puffs stay on until a flick down. If it wears on the phone it wants its own lower strain.
 - **A level at G0 over the rooftops** is 190 m/s at the floor. Never flown by a thumb.
+- **Full up at the street is empty sky.** At 45 degrees the horizon has just left the frame, and the sky has nothing in it until SKY's S5. Looking up at the sun shows the sky function's glow bigger than it has ever been seen, with its dithered edge. By day the look's first pay-off is the paint behind you.
+- **The lens has no collision.** Downtown it can lose the bus behind a tower, 13 to 21 % of side and rear looks in FiDi, or stand inside one, 3 to 4 % [model, 8 m cells]. Buildings draw front faces, so from inside one it sees out. Over a steep hill a look back stands the lens uphill of the bus. Nothing guards that yet, and nothing has shown it.
+- **A rotation can't be snapped.** Up high, a thumb creeping under about 11 degrees a second makes the frame crawl [model]. At the street the frame is moving anyway. If it swims on the phone, step the look's target in small detents up high.
+- **What glints after a look** is a fresh pick: the view comes back to the pixel, the sticky target needn't.

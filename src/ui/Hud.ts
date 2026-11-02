@@ -417,7 +417,7 @@ export class Hud {
     }
   }
 
-  /** A short message (one or two lines) in the slot under the top row. */
+  /** A short message (a line or two; the first run's hint has four) in the slot under the top row. */
   toast(lines: string[], seconds = 2.2) {
     this.toastEl?.remove();
     const w = Math.max(...lines.map((l) => textWidth(l.toUpperCase(), HUD_FONT))) + 8;

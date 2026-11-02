@@ -64,13 +64,18 @@ call), this is what we chose and why.
   while the blend is still rising): the horizon and a band of sky stay at
   the top of the frame, never a top-down map. The bus grows to 1.55x so the
   hero still reads (~22 px).
-- **Only the yoke moves the lens.** The blend follows the height while
-  climbing or diving; holding an altitude latches it (it settles exactly, so
-  the lens is perfectly still); skimming the floor sends it home. A lens
-  that followed the rooftop floor changed fov and distance on most frames,
-  and every change rescaled the snapped pixel grid: the whole frame swam.
-  For the same reason the pitch up there is not taken from where the bus is
-  (its bob would rock the frame, and a rotation can't be snapped).
+- **Only a thumb moves the lens.** The flying thumb moves the blend: it
+  follows the height while climbing or diving; holding an altitude latches it
+  (it settles exactly, so the lens is perfectly still); skimming the floor
+  sends it home. The look thumb turns the view round the bus, and takes the turn
+  away with it, to the digit (`docs/specs/flight/THUMBS.md`). Nothing moves
+  it by itself. A lens that followed the rooftop floor changed fov and distance
+  on most frames, and every change rescaled the snapped pixel grid: the whole
+  frame swam. For the same reason the pitch up there is not taken from where
+  the bus is (its bob would rock the frame, and a rotation can't be snapped).
+  (The law read "only the yoke" until the look. What it protects is a held
+  view staying still, and a look held still by a thumb the player chose is
+  that player's: it never changes fov or distance.)
 - **Marine layer.** The fog is a layer with a top (175 m ASL over the ocean,
   the west and the Golden Gate, 120 m over the bay, a 25 m ground haze over
   the sunny east side that Twin Peaks shelters) with soft billows. Seen from
@@ -2569,7 +2574,7 @@ MAIN f64a142. All on this laptop's UHD 620, nothing on a real iPhone.
   - Checked after the fixes: `s_alt` and `s_flight` identical to the source before them; `s_nose` at 1/30 and 1/60; the review's fuzz (20 seeds, 90 s) and its ceiling, shift and held-view checks: no NaN, nothing under the hard floor, no jump, peak 15,000.0 m, `rig.dive` exactly 0, the held view still; the full dive from 3 km by the real stick: speed 98.4 to 98.6 through the swoop, lowest 0.4 m over the floor. `tsc` on both configs, `iosfloor`.
 
 ## Two thumbs (2026-11-01, `feat/thumbs`)
-- The producer, on the study's scheme: "i agree heavily on look while you hold"; "dont add the gear strip. dont add right thumb flicks. yes, remove the turbo button, replace with two quick flicks"; "lets remove tilt steering completely - i dont like it"; "the boost stays on until you flick down"; and that it stacks up to a gear six. Rule, numbers and tunables: `docs/specs/flight/THUMBS.md`. This is the first half: input and turbo. The look's orbit, the aim that follows it and the first run's hint are the second.
+- The producer, on the study's scheme: "i agree heavily on look while you hold"; "dont add the gear strip. dont add right thumb flicks. yes, remove the turbo button, replace with two quick flicks"; "lets remove tilt steering completely - i dont like it"; "the boost stays on until you flick down"; and that it stacks up to a gear six. Rule, numbers and tunables: `docs/specs/flight/THUMBS.md`.
 - `Input.ts` is rebuilt around thumbs with their own lifecycles. One flying thumb, any number of second thumbs, one of them looking at a time. Today's single gesture couldn't hold it: a new landing orphaned everything down, so a look couldn't outlive the flying thumb. What stays a gesture is only the bookkeeping for two fingers tapped together.
 - `Shifter.ts` is the only place that knows what a flick means, with no DOM, so the keys, the thumbs and the offline table go through the same code.
 - Where the build left the brief, because the code demanded it:
@@ -2592,7 +2597,25 @@ MAIN f64a142. All on this laptop's UHD 620, nothing on a real iPhone.
   - `tools/controls.mjs thumbs`: 20 rows in the real page with real CDP multi-touch, stamped: all pass. Two thumbs moving apart don't zoom it. `turbo`: a lone left flick to G1 with the boom, 449, then 584, 719, 898 m/s at the three levels, 451 after a flick down, 26.7 after another. `opening`: a gate that answers, takes back and fires, and a double. `keyboard`: E, E twice, Q, Shift, the right mouse. `layout`: every rect at four sizes, swapped or not. `firstrun`: TAP, DRAG, in order.
   - `s_turbo` on the real city: G0 112, 145.6, 190.4; G1 584, 719, 898; a full pull at level 1 is 111.6 up at 85 degrees, NOSE's number, and 189.7 at level 3; let go, the arc to level. The map's edge: 736 m past it at most at every level, the same as no turbo; with the reach still reading the gear's speed, level 3 reached the edge at 531 m/s and ran 843 m past it.
   - `shots --det` against main-BRS6HkaA.js (the end of `feat/nose`), `&nohud`: all eight views identical. `s_nose` runs as it did. `tsc` clean on both configs, `iosfloor` parses every chunk. `tools/controls.mjs audio`: peak 0.761, no NaN.
-- Left: the second half; a latched turbo strains as a held one did, rattle and puffs until a flick down; G0's levels hold the city's level of detail (`tearing`, as anything over the surge does) at the rooftops, never flown by a thumb; whether a stranger finds gears at all, which only a stranger can say. No model number here has met a real thumb.
+- **The look, the aim, the pop and the hint.** Where the build left the brief or the study:
+  - The look is laid over the finished pose, not fed through the rig's yaw as the study's sim did. Fed through, it goes through the yaw spring and the follow spring: the camera would cut the corner on a fast swing and come closer to the bus, the lag stays in the world and pushes the bus sideways, -292 px at G1 on a fast 180 [model], which is why the study wanted more lead, and out and home both run through the rig's springs (90 % in 0.58 s, home in 0.82 to 1.02 s [model]). Laid over, the whole pose turns about the bus: distance fixed, the bus on its spot at any speed, nothing to add at speed. The brief's "add the rest of the lead" is met by there being no lag on the screen to lead: 0.5 px or less against a twin at 900 m/s. And the rig's state never hears of a look, which is what makes "settled, it is exactly what it was" true by construction rather than by care.
+  - Up tilts, down orbits: the study's own finding. Lowering the lens hides the bus in a fifth of the FiDi [model]. An orbit round the bus for down is the dive's own move.
+  - No limit sideways, rather than a stop at 180. An orbit is periodic, so no stop is needed, and a thumb that keeps going just keeps turning. Only up and down have the drag-along.
+  - The springs are stepped exactly (`settle` in `springs.ts`). The semi-implicit `spring()` the rig uses elsewhere goes unstable at 4.5 Hz on a 0.05 s frame, and a look's path is now the same at 30 and 60 fps.
+  - Follow 4.5 Hz, home 1.4 Hz. The home spring reaches a game pixel in 0.97 to 1.2 s; the study's 2.2 Hz was for a look that had the rig's springs behind it. A 180 peaks at about 580 degrees a second. Guesses, on the tuner.
+  - `setLook` moved up the frame, before `aimer.update`, so the glint and the view are the same frame's.
+  - The aim turns by the view's real offset, not the thumb's, so it goes home with the view and a tap in that second goes where the view is then.
+  - The hose's reach (`hoseAim`) hard-coded the nose. It reads the aim's way now. A mega and a tap needed nothing.
+  - The pop the first half built was a few pixels up high: the puffs were world-sized, and the lens up there shows a metre at a third of the size. It keeps its size on screen now, rides along with the bus, since at 450 m/s a ring left in the air is gone in a frame, and the bus hiccups, which reads at any distance. `Particles.puff` got a size. The boom's ring is left as it was, to the pixel.
+  - The hint is a toast rather than a slot of its own: the toast's slot is free in the sky at that moment, every small phone fits it (186 px wide), and a flick's answer can take its place. Four lines, not one, because one line doesn't fit a phone at this font. The gate's CLIMB line waits for it instead of replacing it: pulling back there is the first thing a player tries.
+  - An old save gets the hint once: for that player TURBO has just gone.
+  - The stream keeps a turn of its own (`streamYaw`), with main.ts rotating the view's flat forward by the difference, so at home the old code path runs to the digit.
+- **Checked** (main-D4xCwzD8.js, same laptop, other jobs running, no fps or timing numbers). Nothing has run on a phone.
+  - `tools/feel-sim/s_look.ts`: all checks pass. Twin flights: settled exactly, flight untouched. The bus on its spot in 30 cases. Home as in THUMBS. The same path at 30 and 60 fps. It turns through a hit-stop. Off under the low shot. A dive: rest 72, down 86, up 27 degrees of view pitch, no roll. The stream on the heading to 2 s, 177 degrees round by 4 s, 3 by 2 s after the lift. Over the real city 36 taps went within 14 degrees of where the view looked (a shot down the nose scatters 22 there) and hit what glinted.
+  - `tools/controls.mjs look`, real CDP thumbs, frames kept: left, right, back, up, down at the street, at 1,200 m, in G1 low and at 2,400 m; a turn; a dive; the view coming home; a tap at 70 degrees that hit what glinted; a look held 4.5 s; the pop. With the clock standing, three looks at the street and three at 1,200 m: same matrix, same pixels, then still.
+  - `thumbs`: 20 rows pass, the view moving with the thumb. `opening`, `turbo`: 449, 584, 719, 898, 451, 27. `firstrun`: the hint at 5 s, four lines, touches through, none on the next visit. `keyboard`: the right mouse turns the view 60 degrees on 60 px. `s_gesture` 288 checks, `s_layout` 295.
+  - `shots --det` against the end of `feat/nose`, `&nohud`: seven views identical in the full run. `swap` differed in that run and came back identical on its own; the two runs of this build differ from each other, so it is that long view's streaming, not this code.
+- Left: a latched turbo strains as a held one did, rattle and puffs until a flick down; G0's levels hold the city's level of detail (`tearing`, as anything over the surge does) at the rooftops, never flown by a thumb; whether a stranger finds gears at all, which only a stranger can say; what a full look up should show by day. No model number here has met a real thumb.
 
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
