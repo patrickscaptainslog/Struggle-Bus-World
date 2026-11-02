@@ -105,7 +105,7 @@ On the first run's intro, once ever, a beat after the fog has lifted, four lines
 SECOND THUMB
 FLICK UP FOR GEARS
 TWO FLICKS TURBO
-HOLD TO LOOK
+DRAG TO LOOK
 ```
 
 It asks for nothing and nothing ends it but its own time, or a line that matters more: a flick under the gate answers over it. The gate's own CLIMB line waits for it. `taught` bit 32; an old save gets it once, which is right, because that player's TURBO has just gone. Off wherever the first run is off, and a desktop gets its keys in the keys toast instead. Nothing else on the screen teaches any of this: the gestures are hidden, the producer's call.

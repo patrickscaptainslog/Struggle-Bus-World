@@ -33,7 +33,7 @@ import { Hud, type HudFrame } from '../ui/Hud';
 const ARMED = 'TURBO AFTER THE BRIDGE';
 const CLIMB_GATED = 'CLIMB AFTER THE BRIDGE';
 /** The first run's one mention of the second thumb: the gestures are hidden, and this is all the teaching they get. */
-const HINT = ['SECOND THUMB', 'FLICK UP FOR GEARS', 'TWO FLICKS TURBO', 'HOLD TO LOOK'];
+const HINT = ['SECOND THUMB', 'FLICK UP FOR GEARS', 'TWO FLICKS TURBO', 'DRAG TO LOOK'];
 const HINT_SECONDS = 6.5;
 /** A flick's answer in the bus's own body: it hiccups, once, on the breath's squash spring. */
 const FLICK_SQUASH = 0.84;
