@@ -54,6 +54,8 @@ const LIFT_S = 2;
 const JET = 450;
 /** s: how long the lens and the bus take to come over from where the low game left them. */
 const REJOIN = 2.4;
+/** s with no thumb pushing, on the way down, before it's no longer arriving. */
+const LET_GO = 2.5;
 /** The map's half side, m, and how far inside it the homing starts: down here the bus can only come back to where the world's tiles are. */
 const MAP_HALF = 128000;
 const HOME_IN = 16000;
@@ -130,6 +132,7 @@ export class Landing {
   private groundKm = NaN;
   private lawV = 0;
   private downT = 0;
+  private letGo = 0;
   private readonly u = v3();
   private readonly f = v3();
   private readonly ax = new Float64Array(9);
@@ -397,6 +400,7 @@ export class Landing {
     this.arriving = true;
     this.lawV = t.v * t.gov * 1000;
     this.downT = 0;
+    this.letGo = 0;
     this.draw.view = null;
     t.land2ground();
     w.enter({
@@ -478,6 +482,12 @@ export class Landing {
       this.down?.();
     }
     if (this.arriving) {
+      // (a thumb that's let go is staying up here, and a gear that's changed has been asked for: the arrival is over, and the gear has the speed)
+      this.letGo = push > 0 ? 0 : this.letGo + dt;
+      if (this.letGo > LET_GO || T.gear !== 1) {
+        this.arriving = false;
+        return;
+      }
       const h = f.height / 1000, Tb = f.turbo;
       this.lawV = Math.min(this.lawV, JET + (Math.max(h - FALL_FLOOR, 0) / FALL_TAU) * 1000);
       // (the map's edge fades a gear; it fades this)

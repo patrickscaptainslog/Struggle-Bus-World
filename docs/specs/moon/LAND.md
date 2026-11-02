@@ -27,17 +27,24 @@ Laptop, UHD 620, headless Edge, a real touch through CDP. **Nothing here has run
 
 | | |
 |---|---|
-| A flight, thumb held from orbit | 298 km to the floor in about 48 s, no reload, no cut, on build `main-HzS1ovri.js` |
-| Frames | 16.7 ms all the way but one: 33 ms at the change of loop. Nothing over 25 ms in `render`, `city.update`, `far.update`, `flight.step`, `paint.update`, `controls.frame` |
+| A flight, thumb held from orbit | 298 km to the floor in about 48 s, no reload, no cut |
+| Back up, TURBO's three taps | The floor to 15 km in about 7 s, on to the orbit in 12 s more: about 20 s, at 30 km/s from about 25 km up |
+| Back up, Jet and a held thumb | 33 s to the join at 450 m/s, then TURBO |
+| In real time, nothing skipped | Earth to the Moon, a splash, down and up twice, on the way home: 12 minutes 39 of flight, no reload |
+| Frames | 16.7 ms all the way but two. 33 ms at a change of loop, the worst of any join, in any direction. One 184 ms frame in the long dark, once in 12 minutes: not the ground map, which lands at 3 s, and not traced. Nothing over 25 ms in `render`, `city.update`, `far.update`, `flight.step`, `paint.update`, `controls.frame` |
+| The join going up, frame by frame | The bus at (196, 575) on both sides; the lens moves 51 then 52 m in a frame, turns 0.001 of a degree, stays 581 m off the bus; the lens's field 73.59 to 73.60 degrees. Going down, the bus at (196, 638) on both sides |
 | Programs compiled in flight | 0 |
 | Ray against mesh, same moment at 110 km | horizon within 1 px; ground 108.8 against 108.7 of 255; the picture 0 to 2 px off (`same.py`). So the roll onto the sphere holds to the horizon at 590 km |
-| Draws, triangles, the worst of the flight | orbit 10, 4.7 k. Under the mesh 9, 0.29 M. Low game high up 36, 1.11 M. Skimming 52, 0.87 M |
+| Draws, triangles, the worst of the flight | orbit 11, 4.7 k. Under the mesh 11, 0.29 M. Low game high up 45, 1.17 M. Skimming 55, 0.87 M |
 | First frame | 2.8-3.9 s, as `?moonrun`'s 2.8-3.1 s here; the low game ready 3 s after that (warm-up 5.2-6.9 s from load), 25 programs |
-| On the wire | 2.63 MB: Moon data 1.71, sky 0.43, code 0.48. `?moon` is 2.60, `?moonrun` 2.35: it fetches `relief.bin` too, so this adds 0.28 MB to the flight |
+| On the wire | 2.63 MB, all of it before the trip is a minute old: Moon data 1.71, sky 0.43, code 0.48. The way up and the paint add nothing fetched. `?moon` is 2.60, `?moonrun` 2.35: it fetches `relief.bin` too, so this adds 0.28 MB to the flight |
 | GPU, worker | far field 22.5 MB (10 levels), paint windows 16 MB; the worker holds about 21 MB |
-| Flag off against 5c90776 | 62 shader sources, 0 bytes differ, 31 programs, the same 22 files. `?moon` and `?moonrun` stand up. `iosfloor` passes |
+| Flag off against 5c90776 | 62 shader sources, 0 bytes differ, 31 programs, the same 22 files. `?moon` and `?moonrun` stand up. `iosfloor` passes. The main chunk is 4 KB bigger before gzip, all of it words that flag off never runs |
+| `warmcheck` | Plain game 31 programs, none after the warm-up. `?moon` 30, one at load, the same on 5c90776. `?moonrun` 12, none after, nothing over 100 ms, once nothing else was running on the laptop |
 
 Flown with a real thumb: a full push, a shallow dive (30 degrees, 90 s), a thumb lifted at 40 km and pushed again with steering, pulled out at 60 km and at 150 km back to the orbit, a second fall from there in the same page, the far field held back 20 s (the fall stops at 121 km and goes on), a low Sun, by night. A tap down there is a breath and a crater, in every run.
+
+And the whole of it, `stranger.mjs`, TURBO's own button and a thumb: home to the Moon, a splash, down into it, skimming, craters painted, out by the gears, out by Jet and a held thumb, down and up twice on one page with gardens standing on the first map, and home to the place it left, where TURBO launches again. At full Moon, new Moon and half, near side and far side. And the corners, `edges.mjs`: a fall called off with TURBO at 85 km and pushed down again at 125 km, level at Stratos for 18 s, a thumb lifted at 11 km, a crater over 1 km going on the orbit's map, a splash over Apollo 11.
 
 ## What's rough
 
@@ -74,4 +81,6 @@ The dissolve runs backward above 135 km and `leave()` hides the mesh. Nothing is
 
 ## Tools
 
-`tools/moon/stranger.mjs <dir>` is the whole of it with real touches: TURBO out, a thumb down, taps at what glints, TURBO out, TURBO home, with `--real --lap --splash --paint --out --again --steer --burst`. It prints every long frame, what compiled, and both sides of every join, frame by frame: where the bus stands on the screen, how far the lens moved and turned. `tools/moon/land.mjs <dir>` is the way down alone, with `--every --burst --push --steer --late --pull --lift --again --same --t --dt`: its header says what each does. It prints a line every few seconds, then what compiled and what was slow. `same.py` compares the two pictures of `--same`. `sheet.py` makes a contact sheet of a folder. `farcost.ts` is what the far field costs a worker. `smoke.mjs` stands up `?moonrun`, `?moon` and `?moonland`. `wire.mjs <dir> moonland` is the bytes. The frames of the last flight are in `shots/local/moonland/down/`, with `burst/` for the two hand-overs.
+`tools/moon/stranger.mjs <dir>` is the whole of it with real touches: TURBO out, a thumb down, taps at what glints, TURBO out, TURBO home, with `--real --lap --splash --paint --out --again --steer --burst`. It prints every long frame, what compiled, and both sides of every join, frame by frame: where the bus stands on the screen, how far the lens moved and turned. `tools/moon/edges.mjs <dir>` is the corners a whole flight doesn't go round, `--only=abort,stratos,letgo,big,site`. `tools/moon/land.mjs <dir>` is the way down alone, with `--every --burst --push --steer --late --pull --lift --again --same --t --dt`: its header says what each does. It prints a line every few seconds, then what compiled and what was slow. `same.py` compares the two pictures of `--same`. `sheet.py` makes a contact sheet of a folder. `farcost.ts` is what the far field costs a worker. `smoke.mjs` stands up `?moonrun`, `?moon` and `?moonland`. `wire.mjs <dir> moonland` is the bytes. The frames of the last flight are in `shots/local/moonland/down/`, with `burst/` for the two hand-overs.
+
+To set flag off against an older build there's no need for a worktree: `git archive <sha> src index.html vite.config.ts package.json tsconfig.json` into a plain folder inside this one, so bare imports find `node_modules` going up, `vite build` there, and serve its `index.html` and `assets` over the build's data. Then `tools/sky/flag-compare.mjs <its url> <this url>`.

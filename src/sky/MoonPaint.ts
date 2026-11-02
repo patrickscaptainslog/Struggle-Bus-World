@@ -500,14 +500,13 @@ export class MoonPaint {
     // (the soft rim keeps its own: paint that lands here later mustn't find a lift it never had)
     if (c >= 0.4 && (flood || lift > (d[o + 2] & HIGH))) d[o + 2] = lift | (d[o + 2] & LOW);
     // fresh ground waits for the wave; paint that was there changes at the impact, under the flash
-    if (job.live && old < 0.5 && c > 0.02) {
-      const rv = Math.max(1, Math.min(254, Math.round(reveal * 100)));
-      if (!d[o + 3] || rv < d[o + 3]) d[o + 3] = rv;
-    } else if (!job.live) {
-      // (a mark goes on bare ground; a blast from orbit, rebuilt over one, is a blast)
-      if (!job.low) d[o + 3] = 0;
-      else if (old < 0.5) d[o + 3] = LOW_MARK;
-    }
+    if (job.live) {
+      if (old < 0.5 && c > 0.02) {
+        const rv = Math.max(1, Math.min(254, Math.round(reveal * 100)));
+        if (!d[o + 3] || d[o + 3] === LOW_MARK || rv < d[o + 3]) d[o + 3] = rv;
+      } else if (d[o + 3] === LOW_MARK && c > 0.5) d[o + 3] = 0;
+    } else if (!job.low) d[o + 3] = 0; // (a blast from orbit over a mark from low down is a blast, rebuilt or not)
+    else if (old < 0.5) d[o + 3] = LOW_MARK;
   }
 
   private touch(job: PaintJob, i: number, j: number): void {

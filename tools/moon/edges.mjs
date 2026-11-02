@@ -2,6 +2,7 @@
 // The corners of ?moonland that a whole flight doesn't go round: node tools/moon/edges.mjs <out dir> [--only=abort,stratos,big,site]
 //   abort    a fall called off with TURBO, then a push on the way back up, and on to the ground
 //   stratos  two taps of TURBO on the ground, and level at Stratos for a while, and down again
+//   letgo    the thumb lifted at 11 km: the arrival is over and Jet has the speed, and the down tab answers
 //   big      a crater over 1 km takes a level: it goes on the orbit's map, and its big mark doesn't lie on the ground
 //   site     a splash from orbit over a crewed site: inside its line it stays grey
 // The long dark is skipped, the thumbs are real, and the crater and the splash are put there by hand.
@@ -13,7 +14,7 @@ import { browserOptions } from '../browser.mjs';
 const args = process.argv.slice(2);
 const opt = (k, d) => args.find((a) => a.startsWith(`--${k}=`))?.split('=').slice(1).join('=') ?? d;
 const dir = args.find((a) => !a.startsWith('--'));
-const only = opt('only', 'abort,stratos,big,site').split(',');
+const only = opt('only', 'abort,stratos,letgo,big,site').split(',');
 const BASE = process.env.BASE ?? 'http://localhost:4179/';
 const t = opt('t', '2026-11-25T04:00:00Z');
 mkdirSync(dir, { recursive: true });
@@ -127,6 +128,21 @@ try {
     await p.page.waitForTimeout(6000);
     p.say(await p.read(), 'shifted down');
     await p.shot('stratos-jet');
+    await p.ctx.close();
+  }
+  if (only.includes('letgo')) {
+    console.log('--- letgo');
+    const p = await open();
+    await p.push();
+    await p.until('falling', (s) => s.leg === 'ground' && s.h < 11);
+    await p.lift();
+    for (let i = 0; i < 4; i++) {
+      await p.page.waitForTimeout(2000);
+      p.say(await p.read(), 'let go');
+    }
+    await p.turbo(true);
+    await p.page.waitForTimeout(5000);
+    p.say(await p.read(), 'down tab');
     await p.ctx.close();
   }
   if (only.includes('big')) {

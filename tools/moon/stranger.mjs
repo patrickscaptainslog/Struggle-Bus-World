@@ -201,7 +201,7 @@ try {
     // ---- down: a thumb, pushed and held, as far as it goes
     console.log(`--- down ${round + 1}`);
     await holdThumb(steer, -90);
-    s = await fly('down', (s) => s.leg === 'ground' && s.gap !== null && s.gap < 20, { every: 6 });
+    s = await fly('down', (s) => s.leg === 'ground' && s.gap !== null && s.gap < 20 && s.h < 1, { every: 6 });
     if (!s) break;
     await lift();
     await page.waitForTimeout(1500);
@@ -266,7 +266,11 @@ try {
   // ---- home
   console.log('--- home');
   await turbo();
-  if (real) await fly('home', (s) => s.leg === 'wait', { secs: 400, every: 15 });
+  if (real) {
+    await page.waitForTimeout(5000);
+    await turbo();
+    await fly('home', (s) => s.leg === 'wait', { secs: 400, every: 15 });
+  }
   else {
     await page.waitForTimeout(3000);
     await shot('leaving');

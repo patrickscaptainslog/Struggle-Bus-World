@@ -2666,6 +2666,20 @@ The producer: "Why can't you land from orbit?" One link now does: `docs/specs/mo
 
 Nothing here has run on a phone or in Safari.
 
+## `?moonland`: back up, and paint all the way down (2026-11-02, `spike/moonrun`)
+
+Items 6 and 7, then flown as a stranger: Earth, Moon, ground, paint, out, home, on the near side, the far side, by day and by night. `docs/specs/moon/LAND.md` has how. The calls:
+
+- **The last gear is the way out.** "Gears climb as they do" and speed never grows with height, the ruling, and the low game had only Jet: 450 m/s, 10 minutes from the ground to the orbit. So the two gears `Turbo.ts` already has behind `worldTravel` go live on this flag, Stratos and Rainbow Warp, with the map's edge still holding them back. G3's floor stands past the join, so it never levels off down there: three taps and the bus goes, and the flight's loop takes it on at G3's own 30 km/s. It's the gear the orbit is in, so it arrives at the speed it's always been.
+- **From the ground TURBO stops at the orbit, and the next tap goes home.** One tap to Earth from the rooftops would read well once and then a player couldn't go down again. The orbit is where the choice is, and it says so.
+- **The tiles read the orbit's map too.** The brief asked for the far field at least. With only that, a flood from orbit has a grey hole round the bus the size of what's loaded, which is the first thing you'd see. One more read a ground pixel while the Moon has any paint on it, under `landOnly`. Nothing timed on a phone.
+- **What's painted from low down has a mark on the map.** It stands there at 6 km across at least, which orbit can see and which is more than the place holds, so a byte says so and the ground leaves it out. Without it a crater 2 km wide wears a 12 km blob as soon as it's on the map.
+- **Going up is `fall` flown the other way, not a leg of its own.** Everything in it, the yoke, the mesh, the dissolve, the map's edge, is wanted on the way up, and a push has to be able to go straight back down.
+- **The lens comes back on the spring the view already had**, the one for a change of body, and its place off the bus over 2.4 s. Measured at the join: the bus at the same pixel on both sides, the lens moving 51 m then 52 m in a frame, the lens within 0.01 of a degree.
+- **Found on the way:** with `stiff` on, the rig's climb lead put the lens over the bus and the bus left the frame: a lead is for lag, and stiff has none. `bus.position` carries the frame's snap, a pixel of ground and so 14 to 40 pixels at the bus: the offset of the lens is taken from Flight. The engine holds its last note when the graph's frame stops. The glint stays on the far mesh after the bus has gone. The speed lines take a floor's 3 km/s as a line across the frame. `PaintClip.follow` turned on windows nobody had drawn, so the fine ones wait for the low game. And a first cut of the true-speed readout changed the HUD with no flag: found in review, now behind `top`.
+
+Nothing here has run on a phone or in Safari.
+
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
   local repo until `patrickscaptainslog/struggle-bus` exists.

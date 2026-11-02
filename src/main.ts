@@ -1265,8 +1265,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
     }
     if (land) {
       rig.stiff = land.arriving || controls.turbo.gear >= 3 ? 1 : Math.max(0, rig.stiff - dt / 3);
-      // (the speed lines and the trail are for what's near: on the way down and the way out alike they go with the height, and the flight's own take over)
-      controls.fx.fade = land.arriving ? clamp((8000 - flight.height) / 6000, 0, 1) : controls.turbo.gear >= 3 ? clamp((3000 - flight.height) / 2000, 0, 1) : 1;
+      // (the speed lines and the trail are the low game's, for a bus going along. Coming down they come in near the ground. The way out is a floor lifting the bus at 3 km/s, which draws one line across the whole frame: they go, and the flight's own take over)
+      controls.fx.fade = land.arriving ? clamp((8000 - flight.height) / 6000, 0, 1) : controls.fx.fade + ((controls.turbo.gear >= 3 ? 0 : 1) - controls.fx.fade) * (1 - Math.exp(-6 * realDt));
     }
     pipeline.focus.copy(focus);
     if (qa?.topDown) {
