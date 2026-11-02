@@ -390,20 +390,23 @@ export const config = {
   },
 
   /** Turbo gears (src/game/Turbo.ts). Cruise is the classic flight (cruise / surge), Express the surge with no thumb on it (config.flight.surgeSpeed, no height);
-   *  from Jet up each gear needs height above the ground. */
+   *  from Nonstop up each gear needs height above the ground. */
   turbo: {
     /** Stratos and Rainbow Warp need the world beyond the city map: off until it exists
-     *  (shifting up past Jet shows "LOCKED: world travel coming"). */
+     *  (past Jet's turbo the ladder shows "LOCKED: world travel coming"). */
     worldTravel: false,
-    /** Gear speeds (m/s): Jet, Stratos, Rainbow Warp (SF -> Tokyo, 8,300 km, in ~5 min). */
+    /** Gear speeds (m/s): Nonstop (about 500 mph), Jet, Stratos, Rainbow Warp (SF -> Tokyo, 8,300 km, in ~5 min). */
+    nonstopSpeed: 225,
     jetSpeed: 450,
     stratosSpeed: 4500,
     warpSpeed: 30000,
     /** Height above the ground each gear needs (m): shifted up lower, the bus climbs there first. */
+    nonstopAlt: 60,
     jetAlt: 150,
     stratosAlt: 2000,
     warpAlt: 10000,
     /** Climb rate while a gear lifts the bus to its height (m/s). */
+    nonstopClimb: 50,
     jetClimb: 75,
     stratosClimb: 700,
     warpClimb: 3000,
@@ -412,7 +415,7 @@ export const config = {
     spool: 2.4,
     brake: 3,
     rateEase: 0.35,
-    /** Turbo, latched by two flicks up, each two more flicks a level (Shift holds the first): the gear's speed x this, and at Cruise the surge x this. */
+    /** Turbo: the rungs over the top gear, a flick each, latched: the top gear's speed x this. */
     levels: [1.3, 1.6, 2],
     /** Steering authority above the surge speed: yaw rate x (surge / speed)^turnExp. */
     turnExp: 0.55,

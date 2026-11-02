@@ -112,11 +112,11 @@ export class TurboVoice {
     target(this.rattleLfo.frequency, 17 + 9 * st, t, 0.3);
   }
 
-  /** The gearbox: a clunk, then a whoosh up (dir > 0) or down. */
+  /** The gearbox: a whoosh up (dir > 0), or a clunk and a whoosh down. (Going up the lever's clunk is the flick's own: armed.) */
   shift(t: number, dir: number): void {
     const kit = this.kit;
     if (!kit) return;
-    this.clunk(t, 0.5);
+    if (dir < 0) this.clunk(t, 0.5);
     const { ctx } = kit;
     const n = noiseSrc(kit, t, 0.8);
     const bp = mkFilter(ctx, 'bandpass', dir > 0 ? 300 : 2200, 1.4);
@@ -127,7 +127,7 @@ export class TurboVoice {
     disposeOnEnd(n, [n, bp, g]);
   }
 
-  /** A shift waiting for the opening's gate: just the lever's clunk (the rush comes with the shift itself). */
+  /** A flick up, and one taken back at the opening's gate: just the lever's clunk (the rush comes with the shift itself). */
   armed(t: number): void {
     if (this.kit) this.clunk(t, 0.5);
   }
@@ -199,7 +199,7 @@ export class TurboVoice {
     }
   }
 
-  /** Shifting past the last usable gear: a clunk and two low buzzes. */
+  /** Past the last rung: a clunk and two low buzzes. */
   locked(t: number): void {
     const kit = this.kit;
     if (!kit) return;

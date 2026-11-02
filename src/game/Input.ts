@@ -30,9 +30,8 @@ import { registerTunables } from '../ui/tunables';
 //
 // A lone fresh stroke out of the zone that lifts fast is a flick too, on the firmer
 // rule. It steers until the lift decides: steering never waits for a verdict, and a
-// thumb that stays down never shifts. Landing within loneAgainMs of a flick it reads
-// the second thumb's rule: that thumb has just said what it is doing. A stroke in
-// the zone steers nothing, so the second thumb's rule is all it needs.
+// thumb that stays down never shifts. A stroke in the zone steers nothing, so the
+// second thumb's rule is all it needs.
 // A flick is read from the landing and the lift alone, distance over contact
 // time, so it holds at any frame rate. One touch is one reading, so the return
 // stroke never counts. A stroke landing in the bottom band (iOS owns that edge)
@@ -54,8 +53,8 @@ import { registerTunables } from '../ui/tunables';
 // onTap; held that long = onChargeStart, then onChargeEnd(heldSeconds, cancelled)
 // on release (cancelled = a lost touch, or focus lost); state.chargeHeld = seconds
 // held while charging, else 0.
-// Turbo: onTurbo(dir, landed, lifted) = a flick, or E / Q, PageUp / PageDown (what it
-// means is src/game/Shifter.ts's); state.turboHeld = Shift holds the boost.
+// The ladder: onTurbo(dir, flew) = a flick, or E / Q, PageUp / PageDown (what it means
+// is src/game/Shifter.ts's).
 
 export type InputMode = 'touch' | 'keyboard';
 
@@ -72,8 +71,6 @@ export interface InputState {
   finger: { x: number; y: number } | null;
   /** Seconds the splat press has been held, while it charges the super splat (from the press; 0 when not charging). */
   chargeHeld: number;
-  /** Shift holds the boost (the latched turbo is TurboDrive.level, not this). */
-  turboHeld: boolean;
   /** The look: `on` while a second thumb (or the right mouse) has the view; x, y = its offset from where it landed, CSS px, +x right, +y UP. 0, 0 when off. */
   look: { on: boolean; x: number; y: number };
 }
@@ -117,13 +114,9 @@ export const inputTune = {
   loneFlickMs: 200,
   loneFlickSpeed: 0.4,
   loneFlickDeg: 40,
-  /** A lone stroke landing this long (ms) after a flick lifted reads the second thumb's rule: one thumb's double is two firm strokes otherwise. 0: always the firm rule. */
-  loneAgainMs: 320,
   /** A stroke landing this close to the bottom (iOS owns that edge) or to a side is never a command (px). */
   flickBottomPx: 40,
   flickSidePx: 20,
-  /** Two flicks up, from the first's lift to the second's landing, at most this far apart (ms): turbo. The first one's gear waits this long. */
-  doubleMs: 320,
 };
 
 registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
@@ -149,10 +142,8 @@ registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
   loneFlickMs: [60, 450, 5],
   loneFlickSpeed: [0.05, 2, 0.01],
   loneFlickDeg: [10, 80, 1],
-  loneAgainMs: [0, 700, 5],
   flickBottomPx: [0, 120, 1],
   flickSidePx: [0, 80, 1],
-  doubleMs: [100, 700, 5],
 });
 
 const MAX_POINTERS = 10;
@@ -220,14 +211,14 @@ export function readFlick(dx: number, dy: number, ms: number, px: number, maxMs:
 }
 
 export class Input {
-  readonly state: InputState = { dragging: false, thumb: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, turboHeld: false, look: { on: false, x: 0, y: 0 } };
+  readonly state: InputState = { dragging: false, thumb: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, look: { on: false, x: 0, y: 0 } };
   onTap: (() => void) | null = null;
   /** The splat press has lasted config.splat.holdThreshold: the super splat charges. */
   onChargeStart: (() => void) | null = null;
   /** The charging press ended: held seconds (from the press), cancelled = a lost touch / focus lost. */
   onChargeEnd: ((heldSeconds: number, cancelled: boolean) => void) | null = null;
-  /** A flick (or E / Q): +1 up, -1 down; when the stroke landed and lifted (ms, performance clock); flew = it was on the stick. */
-  onTurbo: ((dir: 1 | -1, landed: number, lifted: number, flew: boolean) => void) | null = null;
+  /** A flick (or E / Q): +1 up, -1 down; flew = it was on the stick. */
+  onTurbo: ((dir: 1 | -1, flew: boolean) => void) | null = null;
   /** A new gesture touched down (it may become a tap, which fires on the lift): the game freezes its aim cue. */
   onPress: (() => void) | null = null;
   onTripleFinger: (() => void) | null = null;
@@ -252,8 +243,6 @@ export class Input {
   /** the flying thumb, and the thumb that has the view */
   private fly: Slot | null = null;
   private looker: Slot | null = null;
-  /** when the last flick lifted (ms) */
-  private flickedAt = -Infinity;
 
   // the current gesture (from the flying thumb's landing, or a lone second thumb's)
   private gT0 = 0;
@@ -279,8 +268,6 @@ export class Input {
   /** a frame saw the press past the threshold: the next frame that still sees it starts the charge (a release
    *  queued behind one slow frame is still a tap: its timestamp says how long it really was) */
   private prArmed = false;
-  // the boost held by Shift
-  private keyBoost = false;
 
   // keyboard
   private kL = false;
@@ -391,12 +378,6 @@ export class Input {
     return this.fly === null;
   }
 
-  /** A touch that landed by `by` (ms) may still turn out to be a flick: a gear waiting for a second flick waits for its lift. */
-  flickInFlight(by: number, now: number): boolean {
-    for (const s of this.slots) if (s.role !== Role.None && s.role !== Role.Orphan && s.flick !== Flick.No && s.t0 <= by && now - s.t0 <= (s.flick === Flick.Firm ? inputTune.loneFlickMs : inputTune.flickMs)) return true;
-    return false;
-  }
-
   /**
    * A HUD finger (MEGA's) becomes the flying thumb: the pointer moves over to the canvas and the gesture starts here,
    * from where the finger is now (no stretch step), while its slot remembers the press's own point and time (client
@@ -439,7 +420,6 @@ export class Input {
     const now = performance.now();
     this.pressTick(now);
     const st = this.state;
-    st.turboHeld = this.keyBoost;
     const p = this.fly;
     // A thumb resting still past the tap window is steering (at neutral).
     if (p && !this.pointerDragging && now - p.t0 >= inputTune.stillTapMs) this.commitDrag();
@@ -607,7 +587,7 @@ export class Input {
 
     // The flying thumb.
     this.setSlot(slot, e, now, Role.Fly);
-    if (others === 0 && !mouse && this.commands(slot)) slot.flick = now - this.flickedAt <= inputTune.loneAgainMs ? Flick.Easy : Flick.Firm;
+    if (others === 0 && !mouse && this.commands(slot)) slot.flick = Flick.Firm;
     this.beginFly(slot, now);
     this.gMax = others + 1;
     this.gMulti = recent;
@@ -644,7 +624,6 @@ export class Input {
       return;
     }
     const dir = cancelled ? 0 : this.flickOf(slot, e.clientX - this.rectL, e.clientY - this.rectT, now);
-    if (dir) this.flickedAt = now;
     const quick = !cancelled && this.isQuick(slot, now);
     if (!quick) this.gAllQuick = false;
     const tap = !cancelled && this.secondTap(slot, now);
@@ -657,12 +636,12 @@ export class Input {
       // A charge MEGA's finger carried off ends here, and only here.
       if (ownsPress) this.pressEnd(Src.Button, now, cancelled);
       else if (dir) {
-        this.onTurbo?.(dir, t0, now, true);
+        this.onTurbo?.(dir, true);
         this.promote(t0);
       }
       // The everyday tap: one finger, short and still -> fire on the up.
       else if (quick && !this.gMulti && !this.gAnswered) this.onTap?.();
-    } else if (dir) this.onTurbo?.(dir, t0, now, false);
+    } else if (dir) this.onTurbo?.(dir, false);
     else if (tap) {
       if (this.primarySteering(now)) this.answer();
       // Landed before the thumb committed to steering: still the player's tap, as soon as it commits (or when the gesture ends).
@@ -750,7 +729,7 @@ export class Input {
    * touchend/touchcancel with no fingers left: any touch pointer still held
    * lost its pointerup. Checked a beat later so a pointerup dispatched after
    * the touch event (engine order varies) still lands first. What landed
-   * since is a new touch, whatever its timestamp says: the second of two quick
+   * since is a new touch, whatever its timestamp says: the next of two quick
    * flicks can be queued behind this touchend on a slow frame.
    */
   private touchesGone(e: TouchEvent) {
@@ -970,16 +949,11 @@ export class Input {
         break;
       case 'KeyE':
       case 'PageUp':
-        if (down && !e.repeat) this.flickKey(1, e);
+        if (down && !e.repeat) this.onTurbo?.(1, false);
         break;
       case 'KeyQ':
       case 'PageDown':
-        if (down && !e.repeat) this.flickKey(-1, e);
-        break;
-      case 'ShiftLeft':
-      case 'ShiftRight':
-        this.keyBoost = down;
-        this.state.turboHeld = this.keyBoost;
+        if (down && !e.repeat) this.onTurbo?.(-1, false);
         break;
       default:
         used = false;
@@ -990,17 +964,9 @@ export class Input {
     }
   }
 
-  /** E / Q: a flick with no stroke to it. */
-  private flickKey(dir: 1 | -1, e: KeyboardEvent) {
-    const t = evTime(e);
-    this.onTurbo?.(dir, t, t, false);
-  }
-
   private releaseAll() {
-    // (focus lost mid-hold: the charge ends cancelled; no stuck boost)
+    // (focus lost mid-hold: the charge ends cancelled)
     this.pressCancel(performance.now());
-    this.keyBoost = false;
-    this.state.turboHeld = false;
     for (const s of this.slots) {
       if (s.looking) this.endLook(s);
       s.role = Role.None;

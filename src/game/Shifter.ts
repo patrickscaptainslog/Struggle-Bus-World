@@ -1,103 +1,74 @@
-import { inputTune } from './Input';
 import type { Flight } from './Flight';
 import type { TurboDrive } from './Turbo';
 
 // What a flick means (docs/specs/flight/THUMBS.md). No DOM: the keys and the
 // thumbs land here alike, and the offline harness runs it.
 //
-//  - A flick up answers at once (onAnswer, seen at the bus and heard) and its gear
-//    waits doubleMs for a second flick. The wait hides inside the gear's own lift.
-//  - A second flick landing inside that window drops the waiting gear and turns
-//    turbo on, or adds a level if it is on already.
-//  - A flick down never waits: it takes a waiting gear back, else ends all turbo,
-//    else drops a gear. One thumb's stroke pulled the stick until its lift, and that
-//    pull goes back with it (Flight.unpull).
-//  - Under the opening's gate a gear would lift the bus into the deck, so it waits
-//    for the gate on top: fired by itself once the gate clears. (Express lifts
-//    nothing, but the gate's one rule stands: no gear under it, and it says so.)
-//  - LOCKED can only come out of a gear that really bit: past the last usable gear
-//    a first flick answers like any other, because the second one is turbo.
+//  - One flick is one rung, at once: up the gears, then turbo's levels over the top
+//    gear (TurboDrive.rung). A flick up answers the same moment (onAnswer, seen at the
+//    bus and heard). Past the last rung it says LOCKED, which is an answer of its own.
+//  - A flick down drops exactly one rung, turbo first. One thumb's stroke pulled the
+//    stick until its lift, and that pull goes back with it (Flight.unpull).
+//  - Under the opening's gate a gear would lift the bus into the deck, so a flick up
+//    waits for the gate, fired by itself once it clears, and a flick down takes one
+//    back. (Express lifts nothing, but the gate's one rule stands: no gear under it,
+//    and it says so.)
 
 export type ShiftAnswer =
-  /** a first flick up, now */
-  | 'first'
+  /** a flick up: a rung goes, now */
+  | 'go'
   /** the same, under the opening's gate */
   | 'gated'
-  /** a gear that was waiting has been taken back */
+  /** a flick waiting for the gate has been taken back */
   | 'back';
 
 export class Shifter {
   /** the opening's gate (main.ts, per frame) */
   locked = false;
   onAnswer: ((a: ShiftAnswer) => void) | null = null;
-  /** when the first flick lifted (ms): its gear waits; -1: no gear is waiting out the window */
-  private firstAt = -1;
-  /** a gear waits for the gate */
-  private queued = false;
+  /** flicks up waiting for the gate */
+  private queued = 0;
 
-  /** `inFlight(by, now)`: a touch that landed by `by` may still turn out to be a flick (Input.flickInFlight). */
   constructor(
     private readonly drive: TurboDrive,
     private readonly flight: Flight,
-    private readonly inFlight: (by: number, now: number) => boolean,
   ) {}
 
-  /** A gear is on its way (the readout's ARMED): past the last usable gear nothing is, whatever the window says. */
+  /** A rung waits for the gate (the readout's ARMED). */
   get armed(): boolean {
-    return (this.firstAt >= 0 || this.queued) && this.drive.gear < this.drive.maxGear;
+    return this.queued > 0;
   }
 
-  /** A gear waits for the gate. */
-  get gated(): boolean {
-    return this.queued;
-  }
-
-  /** A flick, or E / Q. `landed`, `lifted`: ms, performance clock. `flew`: the stroke was on the stick. */
-  flick(dir: 1 | -1, landed: number, lifted: number, flew = false): void {
-    if (dir > 0) this.up(landed, lifted);
+  /** A flick, or E / Q. `flew`: the stroke was on the stick. */
+  flick(dir: 1 | -1, flew = false): void {
+    if (dir > 0) this.up();
     else this.down(flew);
   }
 
-  /** Once per frame, before the drive's update (wall clock: a hit-stop doesn't stall a gear). */
-  tick(now: number): void {
-    if (this.firstAt >= 0 && now - this.firstAt >= inputTune.doubleMs && !this.inFlight(this.firstAt + inputTune.doubleMs, now)) this.bite();
-    if (this.queued && !this.locked) {
-      this.queued = false;
-      this.drive.shift(1, this.flight);
-    }
+  /** Once per frame, before the drive's update. */
+  tick(): void {
+    if (!this.locked) for (; this.queued > 0; this.queued--) this.drive.rung(1, this.flight);
   }
 
-  private up(landed: number, lifted: number) {
-    if (this.firstAt >= 0) {
-      if (landed - this.firstAt <= inputTune.doubleMs) {
-        this.firstAt = -1;
-        this.drive.boostUp();
-        return;
-      }
-      // (the window closed and no frame has noticed yet)
-      this.bite();
+  private up() {
+    if (this.locked) {
+      this.queued++;
+      this.onAnswer?.('gated');
+      return;
     }
-    this.firstAt = lifted;
-    this.onAnswer?.(this.locked ? 'gated' : 'first');
+    if (!this.drive.topped) this.onAnswer?.('go');
+    this.drive.rung(1, this.flight);
   }
 
   private down(flew: boolean) {
     const d = this.drive;
-    const waiting = this.firstAt >= 0 || this.queued;
+    const waiting = this.queued > 0;
     // (one thumb's flick down is a pull too: a flick down leaves the bus as it was, so that goes back. Out of a gear
     // that bit it holds the height anyway, and with nothing to do it was only ever a quick pull)
     if (flew && (waiting || d.level > 0 || (d.gear > 0 && !(d.lifts && d.engaged)))) this.flight.unpull();
     if (waiting) {
-      this.firstAt = -1;
-      this.queued = false;
+      this.queued--;
       this.onAnswer?.('back');
-    } else if (!d.boostOff()) d.shift(-1, this.flight);
-  }
-
-  /** The window closed with no second flick: the gear goes, or waits on for the gate. */
-  private bite() {
-    this.firstAt = -1;
-    if (this.locked) this.queued = true;
-    else this.drive.shift(1, this.flight);
+    } else d.rung(-1, this.flight);
   }
 }

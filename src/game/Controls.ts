@@ -34,7 +34,7 @@ import { Hud, type HudFrame } from '../ui/Hud';
 const ARMED = 'TURBO AFTER THE BRIDGE';
 const CLIMB_GATED = 'CLIMB AFTER THE BRIDGE';
 /** The first run's one mention of the flicks and the look: the gestures are hidden, and this is all the teaching they get. Any thumb flicks, so that comes first; the look's side is BUTTONS: SWAP's. */
-const hint = (swap: boolean) => ['FLICK UP FOR GEARS', 'TWO FLICKS TURBO', swap ? 'RIGHT SIDE' : 'LEFT SIDE', 'DRAG TO LOOK'];
+const hint = (swap: boolean) => ['FLICK UP FOR GEARS', swap ? 'RIGHT SIDE' : 'LEFT SIDE', 'DRAG TO LOOK'];
 const HINT_SECONDS = 6.5;
 /** A flick's answer in the bus's own body: it hiccups, once, on the breath's squash spring. */
 const FLICK_SQUASH = 0.84;
@@ -70,7 +70,7 @@ export class Controls {
   frozen = false;
   private readonly d: ControlsDeps;
   private prefs: Prefs;
-  private readonly hf: HudFrame = { gear: 0, maxGear: 0, engaged: false, level: 0, held: false, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity };
+  private readonly hf: HudFrame = { gear: 0, maxGear: 0, engaged: false, level: 0, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity };
   private readonly flashTmp = new THREE.Vector3();
   /** seconds the turbo has been silent (the voice detaches), and until the keys' toast (<= 0: none due) */
   private voiceIdle = 0;
@@ -97,7 +97,7 @@ export class Controls {
     this.d = d;
     this.prefs = loadPrefs();
     this.turbo = new TurboDrive(d.bounds);
-    this.shifter = new Shifter(this.turbo, d.flight, (by, now) => d.input.flickInFlight(by, now));
+    this.shifter = new Shifter(this.turbo, d.flight);
     this.fx = new TurboFx(d.particles, d.bus.length, d.bus.exhaustLocal);
     d.scene.add(this.fx.object);
     this.hud = new Hud(d.input, {
@@ -119,7 +119,7 @@ export class Controls {
       },
     });
     d.input.swapped = !!this.prefs.swap;
-    d.input.onTurbo = (dir, landed, lifted, flew) => this.shifter.flick(dir, landed, lifted, flew);
+    d.input.onTurbo = (dir, flew) => this.shifter.flick(dir, flew);
     this.shifter.onAnswer = (a) => this.answer(a);
     this.turbo.onEvent = (ev, g) => this.onTurbo(ev, g);
     if (this.prefs.muted) d.audio.setMuted(true);
@@ -186,7 +186,7 @@ export class Controls {
 
   /** The yoke is being pulled back under the opening's gate (main.ts, per frame): say why nothing happens, once. */
   climbGated() {
-    if (this.shifter.gated || this.hintLeft > 0 || this.turbo.time - this.climbToldAt < 30) return;
+    if (this.shifter.armed || this.hintLeft > 0 || this.turbo.time - this.climbToldAt < 30) return;
     this.climbToldAt = this.turbo.time;
     this.hud.toast([CLIMB_GATED], 2.2);
   }
@@ -196,11 +196,11 @@ export class Controls {
     return this.turbo.lifts || this.turbo.speedK > 0;
   }
 
-  /** The surge the bus's engine hears (main.ts): the stick's, or the drive's on the rooftop gears, the same surge with no thumb on it. */
+  /** The surge the bus's engine hears (main.ts): the stick's, or the drive's in any gear, the same surge with no thumb on it. */
   get surge(): number {
     const T = this.turbo;
-    // (all of it up to turbo's top there, 224 m/s, speedK 0.5; from there to Jet's speed it gives way to the turbo voice, so a gear down from Jet doesn't swell the wind)
-    const drive = !T.lifts && (T.gear > 0 || T.boosting) ? 1 - clamp(2 * T.speedK - 1, 0, 1) : 0;
+    // (all of it up to Nonstop's 225 m/s, speedK 0.5; from there to Jet's speed it gives way to the turbo voice, so a gear down from Jet doesn't swell the wind, and a lift doesn't drop it)
+    const drive = T.gear > 0 ? 1 - clamp(2 * T.speedK - 1, 0, 1) : 0;
     return Math.max(this.d.flight.surge, drive);
   }
 
@@ -208,8 +208,8 @@ export class Controls {
 
   /** After input.update, before the flight steps: the turbo drive writes Flight.turbo. */
   preFlight(dt: number) {
-    this.shifter.tick(performance.now());
-    this.turbo.update(dt, this.d.flight, this.d.input.state.turboHeld);
+    this.shifter.tick();
+    this.turbo.update(dt, this.d.flight);
   }
 
   /** Before bus.update: the bus strains (wheeze, squint) and goes wide-eyed at speed. */
@@ -251,15 +251,14 @@ export class Controls {
       if (this.keysIn <= 0) {
         this.prefs.keysShown = true;
         savePrefs(this.prefs);
-        this.hud.toast(['ARROWS FLY  -  SPACE SPLATS', 'E GEARS  -  E E TURBO', 'RIGHT MOUSE LOOKS  -  ESC SETTINGS'], 5);
+        this.hud.toast(['ARROWS FLY  -  SPACE SPLATS', 'E GEAR UP  -  Q GEAR DOWN', 'RIGHT MOUSE LOOKS  -  ESC SETTINGS'], 5);
       }
     }
     const h = this.hf;
     h.gear = T.gear;
     h.maxGear = T.maxGear;
     h.engaged = T.engaged;
-    h.level = Math.max(T.level, d.input.state.turboHeld ? 1 : 0);
-    h.held = d.input.state.turboHeld;
+    h.level = T.level;
     h.mph = f.speed * 2.23694;
     h.armed = this.shifter.armed;
     h.sinceShift = T.time - Math.max(T.shiftedAt, T.engagedAt);
@@ -318,11 +317,8 @@ export class Controls {
   private answer(a: ShiftAnswer) {
     this.onTurbo(a === 'back' ? 'back' : 'flick', this.turbo.gear);
     if (a === 'gated') this.hud.toast([ARMED], 2.6);
-    else if (a === 'back' && this.gearsLocked) {
-      // (with turbo still on only a gear went: the line that promised it is no longer true, and TURBO OFF wouldn't be)
-      if (this.turbo.level === 0) this.hud.toast(['TURBO OFF'], 1.2);
-      else this.hud.clearToast();
-    }
+    // (with another flick still waiting the line stands)
+    else if (a === 'back' && this.gearsLocked && !this.shifter.armed) this.hud.toast(['TURBO OFF'], 1.2);
   }
 
   private onTurbo(ev: TurboEvent, gear: number) {
@@ -335,13 +331,11 @@ export class Controls {
       if (!this.voice.attached) this.voice.attach(kit, t);
       if (ev === 'up' || ev === 'down') this.voice.shift(t, ev === 'up' ? 1 : -1);
       else if (ev === 'engage' || ev === 'turbo') this.voice.engage(t);
-      else if (ev === 'turbo-off') this.voice.shift(t, -1);
+      else if (ev === 'turbo-down') this.voice.shift(t, -1);
       else if (ev === 'flick' || ev === 'back') this.voice.armed(t);
       else if (ev === 'boom') this.voice.boom(t);
       else if (ev === 'locked') this.voice.locked(t);
     }
-    // (a toast saying the turbo must wait is no longer true)
-    if (ev === 'turbo') this.hud.clearToast();
     void gear;
   }
 
@@ -350,13 +344,13 @@ export class Controls {
     const T = this.turbo, f = this.d.flight;
     return {
       mode: this.mode,
-      turbo: { gear: T.gear, level: T.level, engaged: T.engaged, strain: T.strain, speedK: T.speedK, boosting: T.boosting, edge: T.edge, armed: this.shifter.armed, gated: this.shifter.gated },
+      turbo: { gear: T.gear, level: T.level, engaged: T.engaged, strain: T.strain, speedK: T.speedK, boosting: T.boosting, edge: T.edge, armed: this.shifter.armed },
       flight: { speed: f.speed, y: f.y, agl: f.y - f.groundBroad, mode: f.mode },
       camera: { pull: this.fx.lens.pull, fov: this.fx.lens.fov, hfov: this.d.rig.hfov, distance: this.d.rig.distance },
       hud: { settings: this.hud.settingsOpen },
       coach: this.coach ? { taught: this.coach.taught, cue: this.coach.cue } : null,
       prefs: { ...this.prefs },
-      input: { chargeHeld: this.d.input.state.chargeHeld, turboHeld: this.d.input.state.turboHeld, thumb: this.d.input.state.thumb, sx: this.d.input.state.stretch.x, sy: this.d.input.state.stretch.y, look: { ...this.d.input.state.look } },
+      input: { chargeHeld: this.d.input.state.chargeHeld, thumb: this.d.input.state.thumb, sx: this.d.input.state.stretch.x, sy: this.d.input.state.stretch.y, look: { ...this.d.input.state.look } },
     };
   }
 }

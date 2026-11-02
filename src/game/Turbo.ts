@@ -7,56 +7,63 @@ import type { Flight } from './Flight';
 //
 //   G0 "Cruise"        the classic flight: 30 m/s released, 112 m/s surging
 //   G1 "Express"       112 m/s: the surge with no thumb on it. No height, no lift: it rides the rooftops
-//   G2 "Jet"           ~450 m/s, needs ~150 m above the ground
-//   G3 "Stratos"       ~4.5 km/s, needs ~2 km          } behind config.turbo.worldTravel:
-//   G4 "Rainbow Warp"  ~30 km/s, needs ~10 km          } SF -> Tokyo (~8,300 km) in ~5 min
+//   G2 "Nonstop"       225 m/s, about 500 mph, needs ~60 m above the ground
+//   G3 "Jet"           ~450 m/s, needs ~150 m
+//   G4 "Stratos"       ~4.5 km/s, needs ~2 km          } behind config.turbo.worldTravel:
+//   G5 "Rainbow Warp"  ~30 km/s, needs ~10 km          } SF -> Tokyo (~8,300 km) in ~5 min
 //
-// A gear's number is its place on this ladder: code says JET, not 2. The sixth
-// rung is the last gear with all of turbo on (docs/specs/flight/THUMBS.md, "The ladder").
+// Then turbo: TURBO, TURBO 2 and TURBO 3 are the rungs over the top gear in reach,
+// its speed x config.turbo.levels. One flick is one rung, up or down (rung()); the
+// rungs latch, turbo with them, with no thumb held. A gear's number is its place on
+// this ladder: code says JET, not 3 (docs/specs/flight/THUMBS.md, "The ladder").
 //
 // Express is the surge latched, and comes and goes as one: at the classic rate,
 // with the bus left where it was. Shifting up low into a gear with a height, the
-// bus first climbs there (straining at full surge, rattling: the gear's floor
-// rises under it at the gear's climb rate and Flight rides it like a higher
-// roof), then the gear engages and the speed spools up; passing Mach 1 it booms.
-// Shifting down out of one brakes smoothly to the lower gear and holds the
-// altitude (the yoke dives back down). Turbo is the boost on the current gear,
-// latched (at Cruise and Express: on the surge): on until it is told off, at any
-// gear and height, because gears lift you and turbo doesn't, and it stacks up
-// config.turbo.levels (Shifter.ts says when; Shift on a keyboard holds its first
-// level). Steering authority falls with speed. On the yoke the speed goes where
+// bus first climbs there (straining at the rung below's speed, rattling: the
+// gear's floor rises under it at the gear's climb rate and Flight rides it like a
+// higher roof), then the gear engages and the speed spools up; passing Mach 1 it
+// booms. Shifting down out of one brakes smoothly to the lower gear and holds the
+// altitude (the yoke dives back down). Turbo lifts nothing: gears lift you and
+// turbo doesn't. Steering authority falls with speed. On the yoke the speed goes where
 // the nose points: pull with a gear or turbo on and the bus climbs at that speed,
 // up to 85 degrees; push and it dives at it (Flight's path, docs/specs/flight/NOSE.md).
 // Nothing here looks at the height but a gear's engagement: going faster up
 // there is a gear's job, and climbing faster is the gear's speed pointed up.
 //
 // The world beyond the city map doesn't exist yet: Stratos and Rainbow Warp are
-// LOCKED unless config.turbo.worldTravel, and near the map's edge a gear's or
+// out of reach unless config.turbo.worldTravel, and near the map's edge a gear's or
 // turbo's speed over the ground fades back to the surge so the (unchanged)
 // map-edge homing can turn the bus around.
 //
 // TurboDrive writes Flight.turbo before each flight step; effects (src/fx/
 // Turbo.ts), the HUD and the audio read its state and events.
 
-export const GEAR_NAMES = ['CRUISE', 'EXPRESS', 'JET', 'STRATOS', 'RAINBOW WARP'] as const;
+export const GEAR_NAMES = ['CRUISE', 'EXPRESS', 'NONSTOP', 'JET', 'STRATOS', 'RAINBOW WARP'] as const;
 /** The gears above Cruise (0), by name: their places in GEAR_NAMES. */
 export const EXPRESS = 1;
-export const JET = 2;
-export const STRATOS = 3;
-export const WARP = 4;
+export const NONSTOP = 2;
+export const JET = 3;
+export const STRATOS = 4;
+export const WARP = 5;
 export const SPEED_OF_SOUND = 343;
+/** A gear is at its height this far under it (m). */
+const AT_HEIGHT = 12;
+
+/** A rung's name on the readout: the gear's, or turbo's level over it. */
+export function rungName(gear: number, level: number): string {
+  return level > 1 ? `TURBO ${level}` : level === 1 ? 'TURBO' : GEAR_NAMES[Math.min(gear, GEAR_NAMES.length - 1)];
+}
 
 export type TurboEvent =
   /** shifted up / down (the gear is the new one) */
   | 'up'
   | 'down'
-  /** tried to shift past the last usable gear, or past the last turbo level */
+  /** past the last rung: the top gear with all of turbo on */
   | 'locked'
-  /** turbo came on or went up a level (the number is the level) */
+  /** turbo came on or went up a level, or down one (the number is the level) */
   | 'turbo'
-  /** turbo ended, all of it */
-  | 'turbo-off'
-  /** a first flick answered at once, and a waiting gear taken back (Shifter's, down the same path) */
+  | 'turbo-down'
+  /** a flick up answered, and a gear waiting for the gate taken back (Shifter's, down the same path) */
   | 'flick'
   | 'back'
   /** reached the gear's height: it engages and the speed spools up */
@@ -66,24 +73,24 @@ export type TurboEvent =
 
 export function gearSpeed(g: number): number {
   const T = config.turbo;
-  return g >= WARP ? T.warpSpeed : g === STRATOS ? T.stratosSpeed : g === JET ? T.jetSpeed : config.flight.surgeSpeed;
+  return g >= WARP ? T.warpSpeed : g === STRATOS ? T.stratosSpeed : g === JET ? T.jetSpeed : g === NONSTOP ? T.nonstopSpeed : config.flight.surgeSpeed;
 }
 export function gearAlt(g: number): number {
   const T = config.turbo;
-  return g >= WARP ? T.warpAlt : g === STRATOS ? T.stratosAlt : g === JET ? T.jetAlt : 0;
+  return g >= WARP ? T.warpAlt : g === STRATOS ? T.stratosAlt : g === JET ? T.jetAlt : g === NONSTOP ? T.nonstopAlt : 0;
 }
 export function gearClimb(g: number): number {
   const T = config.turbo;
-  return g >= WARP ? T.warpClimb : g === STRATOS ? T.stratosClimb : g === JET ? T.jetClimb : config.flight.climbRate;
+  return g >= WARP ? T.warpClimb : g === STRATOS ? T.stratosClimb : g === JET ? T.jetClimb : g === NONSTOP ? T.nonstopClimb : config.flight.climbRate;
 }
 
 /** What a gear and a turbo level drive at (m/s; 0 = nothing is driving), before the map's edge has its say. */
 export function driveSpeed(g: number, level: number, engaged: boolean): number {
+  if (g === 0) return 0;
   const T = config.turbo;
   const lv = Math.min(level, T.levels.length);
-  if (g === 0 && lv === 0) return 0;
-  // (Cruise's turbo sits on the surge, as Express's does; a gear still lifting drives a full surge)
-  return (engaged ? gearSpeed(g) : config.flight.surgeSpeed) * (lv > 0 ? T.levels[lv - 1] : 1);
+  // (a gear still lifting drives the rung under it: the ladder is a ramp, and a hop gives no speed back)
+  return gearSpeed(engaged ? g : g - 1) * (lv > 0 ? T.levels[lv - 1] : 1);
 }
 
 export class TurboDrive {
@@ -97,7 +104,7 @@ export class TurboDrive {
   speedK = 0;
   /** the latched turbo's level (0: off) */
   level = 0;
-  /** turbo is on, latched or held */
+  /** turbo is on */
   boosting = false;
   /** 0..1: the edge of the map is holding the gear back (1 = free) */
   edge = 1;
@@ -129,13 +136,23 @@ export class TurboDrive {
     return gearAlt(this.gear) > 0;
   }
 
-  /** Turbo comes on, or goes up a level. False past the last one: LOCKED, and the level stands. */
-  boostUp(): boolean {
-    if (this.level >= config.turbo.levels.length) {
+  /** The top of the ladder: the last gear in reach, with all of turbo on. */
+  get topped(): boolean {
+    return this.gear >= this.maxGear && this.level >= config.turbo.levels.length;
+  }
+
+  /** One rung, up or down: up the gears, then turbo's levels over the top gear; down, turbo first. False when nothing changed: LOCKED, or already Cruise. */
+  rung(dir: 1 | -1, f: Flight): boolean {
+    if (dir < 0) return this.boostDown() || this.shift(-1, f);
+    if (this.topped) {
       this.lockedAt = this.t;
-      this.onEvent?.('locked', this.gear + 1);
+      this.onEvent?.('locked', this.gear);
       return false;
     }
+    return this.gear < this.maxGear ? this.shift(1, f) : this.boostUp();
+  }
+
+  private boostUp(): boolean {
     this.level++;
     this.shiftedAt = this.t;
     this.lastDir = 1;
@@ -143,24 +160,24 @@ export class TurboDrive {
     return true;
   }
 
-  /** All of turbo ends at once. False if it wasn't on. */
-  boostOff(): boolean {
+  private boostDown(): boolean {
     if (this.level === 0) return false;
-    this.level = 0;
+    this.level--;
     this.shiftedAt = this.t;
     this.lastDir = -1;
-    this.onEvent?.('turbo-off', 0);
+    this.onEvent?.('turbo-down', this.level);
     return true;
   }
 
-  /** Shift up (+1) or down (-1). Returns false when nothing changed (LOCKED, or already in Cruise). */
+  /** Where the gear in wants the bus (m above the sea). */
+  private want(f: Flight): number {
+    return (Number.isFinite(f.groundBroad) ? f.groundBroad : f.groundUnder) + gearAlt(this.gear);
+  }
+
+  /** A gear up (+1) or down (-1). False when nothing changed: the top gear, or already in Cruise. */
   shift(dir: 1 | -1, f: Flight): boolean {
     if (dir > 0) {
-      if (this.gear + 1 > this.maxGear) {
-        this.lockedAt = this.t;
-        this.onEvent?.('locked', this.gear + 1);
-        return false;
-      }
+      if (this.gear >= this.maxGear) return false;
       this.gear++;
       // (Express has no height to reach: it is in on the shift, and 'engage' stays the sound of a height reached)
       this.engaged = !this.lifts;
@@ -178,7 +195,8 @@ export class TurboDrive {
       this.gear--;
       if (this.lifts) this.gearFloor = Math.min(this.gearFloor, f.y);
       else this.gearFloor = -Infinity;
-      this.engaged = this.gear > 0;
+      // (a gear the bus isn't up to yet goes on lifting, and says so when it gets there)
+      this.engaged = this.gear > 0 && (!this.lifts || f.y >= this.want(f) - AT_HEIGHT);
     }
     this.shiftedAt = this.t;
     this.lastDir = dir;
@@ -186,24 +204,23 @@ export class TurboDrive {
     return true;
   }
 
-  /** Once per frame before the flight steps. `held` = Shift holds the boost (Input.state.turboHeld). */
-  update(dt: number, f: Flight, held: boolean): void {
+  /** Once per frame before the flight steps. */
+  update(dt: number, f: Flight): void {
     const T = config.turbo;
     const F = config.flight;
     this.t += dt;
     const Tb = f.turbo;
     const g = this.gear;
-    const ground = Number.isFinite(f.groundBroad) ? f.groundBroad : f.groundUnder;
-    const lv = Math.max(this.level, held ? 1 : 0);
+    const lv = this.level;
     this.edge = T.worldTravel ? 1 : this.edgeRoom(f, lv);
     const alt = gearAlt(g);
     if (alt > 0) {
-      const want = ground + alt;
+      const want = this.want(f);
       if (!Number.isFinite(this.gearFloor)) this.gearFloor = Math.min(want, f.y);
       // rises at the gear's climb rate (the bus lifts, straining); follows the ground down at once
       this.gearFloor = this.gearFloor < want ? Math.min(want, this.gearFloor + gearClimb(g) * dt) : want;
       Tb.floor = this.gearFloor;
-      if (!this.engaged && f.y >= want - 12) {
+      if (!this.engaged && f.y >= want - AT_HEIGHT) {
         this.engaged = true;
         this.engagedAt = this.t;
         this.onEvent?.('engage', g);
@@ -214,7 +231,7 @@ export class TurboDrive {
       Tb.floor = -Infinity;
       Tb.ceiling = 0;
     }
-    // lifting: a full surge while it claws its way up; engaged: the gear's speed; Cruise: turbo or nothing
+    // lifting: the rung below's speed while it claws its way up; engaged: the gear's speed; Cruise: nothing
     let v = driveSpeed(g, lv, this.engaged);
     // (what fades is the speed over the ground: a bus going straight up keeps its gear)
     if (v > F.surgeSpeed) v = Math.min(v, (F.surgeSpeed + (v - F.surgeSpeed) * this.edge) / Math.max(0.01, f.ground / Math.max(1, f.speed)));
@@ -222,8 +239,8 @@ export class TurboDrive {
     this.boosting = lv > 0;
 
     // speed: spool up into a gear; brake smoothly out of one (until the classic flight can take over); either
-    // rate eases in over rateEase, so a shift never starts with a jolt (Cruise's boost and Express are the classic
-    // surge, at the classic rate: the gear spool is slower, and a surge must never feel like a brake)
+    // rate eases in over rateEase, so a shift never starts with a jolt (Express is the classic surge, at the classic
+    // rate: the gear spool is slower, and a surge must never feel like a brake)
     let kind = 0;
     let rate = 0;
     if (alt > 0 && Tb.speed > 0 && f.speed < Tb.speed - 1) {
@@ -233,7 +250,8 @@ export class TurboDrive {
     } else if (this.braking || f.speed > Math.max(Tb.speed, F.surgeSpeed) * 1.02) {
       // (on a climb the classic flight settles at the plain pull's own speed, which never comes down to the level flight's)
       const classic = f.mode === 2 ? Math.hypot(F.climbRate, F.climbSpeed) : F.cruiseSpeed + (F.surgeSpeed - F.cruiseSpeed) * Math.pow(clamp(f.surge, 0, 1), 1.3);
-      if (f.speed > Math.max(Tb.speed, classic) * 1.25) {
+      // (onto a rung with a height it brakes all the way there: a flick down a level has less than the 1.25 to go, and at the classic rate that's a wall)
+      if (f.speed > (alt > 0 && this.edge >= 1 ? Tb.speed + 1 : Math.max(Tb.speed, classic) * 1.25)) {
         kind = 2;
         rate = 3 / Math.max(0.1, T.brake);
         this.braking = true;

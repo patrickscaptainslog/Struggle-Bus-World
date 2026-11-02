@@ -469,7 +469,7 @@ export class TurboFx {
   event(ev: string, bus: THREE.Object3D, f: Flight, rig: CameraRig, flash: (pos: THREE.Vector3, strength: number) => void) {
     const T = config.turbo;
     if (ev === 'flick') {
-      // a first flick, this frame: a silenced iPhone hears nothing, so the bus has to show it
+      // a flick up, this frame: a silenced iPhone hears nothing, so the bus has to show it
       this.lens.punch(T.fovKick * 0.2);
       rig.kick(0.7);
       this.backfire(bus, f, 4);
@@ -482,7 +482,7 @@ export class TurboFx {
       rig.kick(1.4);
       this.backfire(bus, f, 8);
       this.pop(bus, f, rig, 20, 13, 5);
-    } else if (ev === 'turbo-off') {
+    } else if (ev === 'turbo-down') {
       rig.kick(0.8);
       this.backfire(bus, f, 4);
     } else if (ev === 'up') {
@@ -520,8 +520,8 @@ export class TurboFx {
     const X = turboFxTune;
     this.time += dt;
     this.lens.update(realDt, drive, rig, f);
-    // (a boost on a gear still lifting shows before its speed does; at Cruise and Express the speed says it, the same at both)
-    const on = clamp(Math.max(drive.speedK, drive.boosting && drive.lifts ? 0.5 : 0), 0, 1);
+    // (a boost on a gear still lifting shows before its speed does)
+    const on = clamp(Math.max(drive.speedK, drive.boosting ? 0.5 : 0), 0, 1);
 
     // ---- the strain: rattle + backfire puffs while lifting, spooling, boosting, and a buzz at speed
     const shake = clamp(drive.strain + 0.35 * on, 0, 1.2);

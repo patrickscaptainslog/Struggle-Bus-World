@@ -1,5 +1,6 @@
+import { config } from '../config';
 import { inputTune, type Input, type InputMode } from '../game/Input';
-import { GEAR_NAMES } from '../game/Turbo';
+import { GEAR_NAMES, rungName } from '../game/Turbo';
 import { Ramp, rampColor } from '../render/palette';
 import type { Cue } from './Coach';
 import { isCompact, layoutHud, type Control, type HudLayout, type Insets, type Rect } from './hudLayout';
@@ -16,9 +17,9 @@ import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth, uiText } from './pixelU
 //  - top right: settings. It fades out after a few seconds untouched; a tap in
 //    that corner brings it back.
 //  - the gear readout, only for a moment: while a gear lifts and just after it
-//    shifts or bites or turbo changes, while Shift holds the boost, and ARMED while
-//    a gear waits (for a second flick, for the opening's gate); it never stays up
-//    for a latched turbo. LOCKED: WORLD TRAVEL COMING past the last usable gear.
+//    shifts or bites or turbo changes, and ARMED while a flick waits for the opening's
+//    gate; it never stays up for a latched turbo. It names the rung: CRUISE, EXPRESS,
+//    NONSTOP, JET, TURBO, TURBO 2, TURBO 3. LOCKED: WORLD TRAVEL COMING past the last.
 //  - the first-run cues (src/ui/Coach.ts). Cues pass every touch through.
 //  - a desktop has no buttons at all: Esc opens the settings (src/game/Controls.ts).
 //  - setCredits(lines): the data credits, one tap away in settings (MAP DATA), never on the play screen.
@@ -39,6 +40,8 @@ const CHROME_SECONDS = 6;
 const REST_SECONDS = 8;
 /** The blink step of everything that blinks (ms). */
 const BLINK_MS = 220;
+/** A rung's pip on the readout, gap and all (UI px). */
+const PIP = 6;
 
 export type MegaPhase = 'ready' | 'charging' | 'firehose' | 'cooldown';
 
@@ -46,11 +49,10 @@ export interface HudFrame {
   gear: number;
   maxGear: number;
   engaged: boolean;
-  /** the turbo level on (latched or held, 0: off), and whether Shift is holding it: only a held boost keeps the readout up */
+  /** the turbo level on (0: off) */
   level: number;
-  held: boolean;
   mph: number;
-  /** a gear is waiting (a second flick's window, the opening's gate): the next gear shows armed (dim, blinking), it fires by itself */
+  /** a flick waits for the opening's gate: the next rung shows armed (dim, blinking), it fires by itself */
   armed: boolean;
   /** seconds since the last shift / LOCKED attempt (Infinity = never) */
   sinceShift: number;
@@ -345,7 +347,7 @@ export class Hud {
       this.topRight.style.opacity = chromeOn ? '1' : '0';
     }
     // gear readout: only for a moment, when something just changed (the contrail and the wind say the rest)
-    const showGear = f.armed || f.held || (f.gear > 0 && !f.engaged) || f.sinceShift < 2.5 || f.sinceLocked < 2.5;
+    const showGear = f.armed || (f.gear > 0 && !f.engaged) || f.sinceShift < 2.5 || f.sinceLocked < 2.5;
     const blinkOn = Math.floor(now / BLINK_MS) % 2 === 0;
     const blink = f.armed && blinkOn;
     if (showGear !== this.gearOn) {
@@ -813,27 +815,29 @@ export class Hud {
   private drawGear(f: HudFrame, mph: number, blink: boolean) {
     const p = this.gearBox;
     p.clear();
-    const shown = f.gear + (f.armed ? 1 : 0);
+    // a rung's number is its place on the ladder: the gears, then turbo's levels over the top gear
+    const rung = f.gear + f.level;
+    const shown = rung + (f.armed ? 1 : 0);
     const g = `G${shown}`;
     this.outlineOver(p, g, 2, 2, f.armed ? (blink ? C.yellow : C.dim) : C.yellow);
     const x = 2 + textWidth(g) + 5;
-    const last = GEAR_NAMES.length - 1;
-    const name = GEAR_NAMES[Math.min(last, shown)] + (f.level > 0 ? ' ' + '+'.repeat(f.level) : '');
-    this.outlineOver(p, name, x, 2, !f.armed && (f.engaged || f.gear === 0) ? C.cream : C.dim);
-    // pips: one per gear; lit up to the gear, dim if usable, dark if locked
+    this.outlineOver(p, rungName(f.gear + (f.armed ? 1 : 0), f.level), x, 2, !f.armed && (f.engaged || f.gear === 0) ? C.cream : C.dim);
+    // pips: one per rung; lit up to the rung, dim if usable, dark if locked (what's over the top gear in reach comes last)
+    const levels = config.turbo.levels.length;
+    const last = GEAR_NAMES.length - 1 + levels;
     for (let i = 1; i <= last; i++) {
-      const px = 2 + (i - 1) * 8;
-      const lit = i <= f.gear;
-      const usable = i <= f.maxGear;
-      p.box(px, 13, 7, 6, lit ? C.yellow : f.armed && i === shown && blink ? C.yellowLo : usable ? C.panel2 : C.ink, C.ink, 1);
+      const px = 2 + (i - 1) * PIP;
+      const lit = i <= rung;
+      const usable = i <= f.maxGear + levels;
+      p.box(px, 13, PIP - 1, 6, lit ? C.yellow : f.armed && i === shown && blink ? C.yellowLo : usable ? C.panel2 : C.ink, C.ink, 1);
       if (!usable) {
-        p.set(px + 2, 15, C.redLo);
-        p.set(px + 3, 16, C.redLo);
-        p.set(px + 4, 17, C.redLo);
+        p.set(px + 1, 15, C.redLo);
+        p.set(px + 2, 16, C.redLo);
+        p.set(px + 3, 17, C.redLo);
       }
     }
     const sp = f.armed ? 'ARMED' : `${mph} MPH`;
-    this.outlineOver(p, sp, 2 + last * 8 + 4, 14, f.armed ? C.yellow : C.text, HUD_SMALL);
+    this.outlineOver(p, sp, 2 + last * PIP + 4, 14, f.armed ? C.yellow : C.text, HUD_SMALL);
     p.flush();
   }
 
