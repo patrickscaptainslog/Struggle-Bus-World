@@ -406,7 +406,7 @@ async function boot() {
   // the projectile leaves from the front of the bus (its one-eyed face), not the side door
   const frontLocal = new THREE.Vector3(0, 0.4, -bus.length * 0.5 - 0.6);
   const mouthWorld = () => bus.root.localToWorld(mouthTmp.copy(frontLocal));
-  const busVel = () => velTmp.set(flight.fx * flight.speed, flight.vy, flight.fz * flight.speed);
+  const busVel = () => flight.velocity(velTmp);
   /** this breath's flight time from launch while Splatter schedules it (null = the classic one) */
   let breathTravel: number | null = null;
   /** The jet waits out the inhale (the bus squashes and gulps first), then flies so it lands exactly at the impact. */

@@ -78,7 +78,7 @@ export class Aimer {
     const S = config.splat;
     const city = this.city;
     const aim = this.aim;
-    const r0 = S.range + S.rangePerSpeed * f.speed;
+    const r0 = S.range + S.rangePerSpeed * f.ground;
     const a = (clamp(S.aimDown, 2, 80) * Math.PI) / 180;
     const ca = Math.cos(a), sa = Math.sin(a);
     const x0 = f.x, y0 = f.y, z0 = f.z, fx = f.fx, fz = f.fz;
@@ -117,7 +117,7 @@ export class Aimer {
     aim.wall = false;
     const hx = aim.x - x0, hz = aim.z - z0;
     aim.dist = Math.hypot(hx, hz, y0 - aim.y);
-    aim.travel = this.travelFor(aim.dist, f.speed);
+    aim.travel = this.travelFor(aim.dist, f.ground);
     aim.drop = Math.max(0, y0 - aim.y);
   }
 
@@ -313,6 +313,6 @@ export class Aimer {
     const iy = y ?? (target ? this.city.roofAtPart(target, x, z) + 0.5 : this.city.groundAt(x, z));
     const dist = Math.hypot(x - f.x, z - f.z, f.y - iy);
     this.latchRef = null;
-    return { target, x, z, y, exact: wall, drop: Math.max(0, f.y - iy), travel: this.travelFor(dist, f.speed) };
+    return { target, x, z, y, exact: wall, drop: Math.max(0, f.y - iy), travel: this.travelFor(dist, f.ground) };
   }
 }

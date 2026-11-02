@@ -266,6 +266,12 @@ export const config = {
     pitchVista: 22,
     /** The bus grows a little at altitude so the hero stays readable (scale at full vista). */
     heroScaleVista: 1.55,
+    /** A dive: the view tips over the bus until the place it is heading for is on screen, above the thumb zone. From diveFrom degrees of
+     *  nose down, by a full dive the camera stands diveElevation above the bus (deg) and the view pitches divePitch down (deg); it eases at diveRate (1/s). */
+    diveFrom: 30,
+    diveElevation: 78,
+    divePitch: 72,
+    diveRate: 1.5,
     /** The bus's one eye seen from behind: its headlight beam lights what lies ahead of its face a step
      *  or two brighter, this long, this wide at its far end (m, x the eye's openness), pitched this far
      *  down (deg), this strong (0..1, x the eye's openness; 0 = off). */
@@ -295,22 +301,32 @@ export const config = {
     climbCurve: 1.3,
     /** Speed the bus eases toward at full pull (m/s): it trades speed for height. */
     climbSpeed: 15,
-    /** Thumb pushed UP while above the rooftop floor = nose down: dive rate at full push (m/s). */
-    diveRate: 48,
-    /** Flare: deceleration (m/s²) when a dive meets the rooftop floor, so it never overshoots into roofs. */
+    /** Flare: deceleration (m/s²) when a dive meets the rooftop floor, so it never overshoots into roofs... */
     diveFlare: 16,
+    /** ...and it grows with the speed, so a pull-out takes about this long at any speed (s): max(diveFlare, speed / diveFlareT). */
+    diveFlareT: 3,
+    /** The path (docs/specs/flight/NOSE.md): on any dive, and on a pull with a gear or the boost, the speed goes where the nose points.
+     *  The path angle at full pull and full push (deg); the stick sets it as stick^noseCurve; it follows the stick at noseRate (1/s). */
+    noseUp: 85,
+    noseDown: 85,
+    noseCurve: 1.3,
+    noseRate: 2.6,
+    /** The most the bus's body pitches on the yoke (deg). */
+    pitchMax: 80,
     /** Vertical stretch ignored by the yoke (0..1), so sideways carving doesn't climb or dive. */
     yokeDead: 0.14,
-    /** How fast the climb / dive rate follows the yoke (1/s). */
+    /** How fast the plain climb's rate follows the yoke (1/s). */
     yokeResponse: 2.6,
     /** Released above the floor: hold altitude on a critically damped spring (1/s). */
     holdGain: 0.85,
     /** Gentle wheezy bob while holding altitude (m, Hz). */
     bobAmp: 1.3,
     bobHz: 0.3,
-    /** Soft ceiling (m above sea level: over the airliners, where the air gives out) and the band below it where the climb fades and the bus struggles (m). */
+    /** Soft ceiling (m above sea level: over the airliners, where the air gives out) and the band below it where the climb fades and the bus struggles (m)... */
     ceiling: 15000,
     ceilingSoft: 150,
+    /** ...which on the path is at least this many seconds of the speed (s): a gear's climb levels off with room to spare. */
+    ceilingSoftT: 1.5,
     /** How fast speed chases its target (Hz). */
     speedHz: 1.4,
     /** Max yaw rate at full sideways stretch (rad/s) at cruise speed. */
@@ -429,8 +445,6 @@ export const config = {
     boost: 1.3,
     /** Steering authority above the surge speed: yaw rate x (surge / speed)^turnExp. */
     turnExp: 0.55,
-    /** The yoke's climb / dive rates scale with the gear's speed by this power of (speed / surge). */
-    climbExp: 0.5,
     /** Camera: pulls back this much at G1 speed (m), widens this much (deg); the shift kicks the fov by this (deg).
      *  (The follow spring's own lag already pulls it back ~2 x speed / (2 pi followHz): camLead of it is cancelled
      *  at G1, all of it from G2 on, so the camera never falls kilometers behind or under a climbing bus.) */
