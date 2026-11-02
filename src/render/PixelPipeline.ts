@@ -986,6 +986,7 @@ void main() {
   if (a.a == 0.0 || z >= uSkyCut) {${space(`
     {
       // (out in space the sky is GLSL_SPACE: bodies, the Sun, stars; what the bus glows still lands on it)
+      spFlash = flashK;
       vec3 sc = spaceSky(p, dir, dsk);
       vec3 halo = texture(tGlow, vUv).rgb;
       float hAmt = max(halo.r, max(halo.g, halo.b));

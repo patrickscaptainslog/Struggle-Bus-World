@@ -60,6 +60,7 @@ const EARTH_K = (1 / (1 - 1 / 298.257223563)).toFixed(8);
 export const spaceResolveUniforms = {
   tEarthMap: { value: null as THREE.Texture | null }, // land, tone, class (0 green, .5 dry, 1 ice), lights
   tMoonMap: { value: null as THREE.Texture | null }, // tone
+  tMoonPaint: { value: null as THREE.Texture | null }, // coverage, hue, lift, reveal (MoonPaint.ts)
   uEarthRot: { value: new THREE.Matrix3() }, // render <- Earth fixed
   uEarthO: { value: new THREE.Vector4(0, 0, 3, 8) }, // the observer in Earth fixed at unit radius, z over the ellipsoid; w: |o|^2 - 1
   uEarthSun: { value: new THREE.Vector3(1, 0, 0) }, // Earth fixed
@@ -72,11 +73,17 @@ export const spaceResolveUniforms = {
   uSunDisc: { value: new THREE.Vector4(1, 0, 0, 1) }, // direction, render frame; cos of its radius
   uSunRing: { value: 1 }, // cos of the radius of its one ring of pixels
   uMoonFirst: { value: 0 }, // 1: the Moon is the nearer: the CPU sorts, so an occultation needs no logic
+  uPaintView: { value: new THREE.Vector4(0, 0.5, 0.14, 0.001) }, // the map's lod, the edge's threshold, how far it wobbles, the warp in turns of longitude
+  uPaintLive: { value: new THREE.Vector4(-1, 0, 1, 0) }, // this blast: s since its impact (under 0: none), the wave's reach and width (chord at unit radius), its hue
+  uPaintAt: { value: new THREE.Vector4(1, 0, 0, 0) }, // where it landed, Moon fixed; w: how far the wave has died, 0..1
+  uPaintAim: { value: new THREE.Vector4(1, 0, 0, 0) }, // what a tap hits: Moon fixed; w: its radius (chord), 0: not loaded
+  uPaintGlint: { value: new THREE.Vector2(0, 0) }, // loaded: the sweep's place across it, 0..1. On its way (y 1): how much of the flight is left, 1..0
 };
 
 export const GLSL_SPACE_UNIFORMS = /* glsl */ `
 uniform highp sampler2D tEarthMap;
 uniform highp sampler2D tMoonMap;
+uniform highp sampler2D tMoonPaint;
 uniform mat3 uEarthRot;
 uniform vec4 uEarthO;
 uniform vec3 uEarthSun;
@@ -88,9 +95,17 @@ uniform vec4 uMoonEarth;
 uniform float uMoonLod;
 uniform vec4 uSunDisc;
 uniform float uSunRing;
-uniform float uMoonFirst;`;
+uniform float uMoonFirst;
+uniform vec4 uPaintView;
+uniform vec4 uPaintLive;
+uniform vec4 uPaintAt;
+uniform vec4 uPaintAim;
+uniform vec2 uPaintGlint;`;
 
 export const GLSL_SPACE = /* glsl */ `
+
+// This frame's flash at this pixel, 0..1 (uFlash). The main loop sets it.
+float spFlash = 0.0;
 
 // A level on a ramp to a step, with a narrow ordered dither at the step's edge.
 float spStep(float s, float dsk) { return clamp(floor(s + 0.5 + (dsk - 0.5) * 0.44), 0.0, 7.0); }
@@ -196,6 +211,47 @@ bool spaceEarth(vec3 dir, float dsk, out vec3 col) {
   return true;
 }
 
+// Paint on the Moon: one more read of its own, MoonPaint.ts's map. A pixel of paint keeps the Moon's light and tone and takes them through a paint ramp, so craters and maria read through it, and it never goes
+// under a low glow, so it shows on the night side as paint does at dusk. Nothing is ever mixed: the ramp changes, and the step is the same dithered step. The wave is the game's shockwave ring (GroundPaint's sbRing),
+// on the true surface, in chords of the unit sphere: only while a blast is blooming.
+void spacePaint(vec3 n, vec2 uv, float t, float dsk, inout float ramp, inout float level) {
+  // the edge's wobble: a warp of the lookup, as the ground's is, here by sines of the place: no read. In texels, so a place doesn't wobble more for being near a pole
+  vec2 w = vec2(sin(n.y * 37.0 + 1.9 * sin(n.z * 23.0)), sin(n.x * 41.0 + 1.7 * sin(n.y * 29.0)));
+  vec4 p = textureLod(tMoonPaint, uv + w * uPaintView.w * vec2(1.0 / max(length(n.xy), 0.08), 2.0), uPaintView.x);
+  float thr = uPaintView.y + uPaintView.z * sin(n.x * 141.0 + n.y * 117.0 + 2.1 * w.y);
+  bool here = p.r > thr && (p.a == 0.0 || uPaintLive.x > p.a * 2.55);
+  if (here) {
+    ramp = ${Ramp.RED}.0 + min(floor(p.g * 6.0), 5.0);
+    // (the Moon's steps through the paint's own best stretch: yellow's body sits a step up its ramp, as fxTune has it)
+    float s = 1.6 + level * 0.5 + p.b * 1.2 + (ramp == ${Ramp.YELLOW}.0 ? 0.7 : 0.0);
+    level = max(s, 1.9 + 0.6 * t + p.b * 1.6);
+    // (the crown: where the lift is highest, a bright rim)
+    if (p.b > 0.86) level += 1.5;
+  }
+  // the glint: what a tap hits. Loaded, its disc a step up, as a glinting roof is, with the sweep going over it and a thin bright rim. A shot on its way: the rim closes on the place it will land
+  if (uPaintAim.w > 0.0) {
+    float g = length(n - uPaintAim.xyz) / uPaintAim.w;
+    if (uPaintGlint.y > 0.5) {
+      if (abs(g - uPaintGlint.x) < 0.022 + 0.03 * uPaintGlint.x) { ramp = ${Ramp.GLOW_WHITE}.0; level = 7.0; }
+    } else if (g < 1.03) {
+      if (g > 0.97) { if (fract((n.x - n.y + n.z) * 70.0) < 0.62) { ramp = ${Ramp.GLOW_WHITE}.0; level = 6.0; } }
+      else {
+        level += 0.95;
+        if (abs(fract((n.x + n.y - n.z) * 26.0) - uPaintGlint.x) < 0.05) level += 1.0;
+      }
+    }
+  }
+  if (uPaintLive.x >= 0.0) {
+    float x = (uPaintLive.y - length(n - uPaintAt.xyz)) / uPaintLive.z;
+    // (it dies by dissolving into pixels, never by fading: sbRing's law)
+    if (x >= 0.0 && x < 1.0 && spHash(floor(n.xy * 900.0)) >= uPaintAt.w * uPaintAt.w * 1.15 - 0.15) {
+      float band = floor(x * 7.0);
+      ramp = band < 0.5 ? ${Ramp.GLOW_WHITE}.0 : ${Ramp.RED}.0 + mod(uPaintLive.w + band - 1.0, 6.0);
+      level = band < 0.5 ? 7.0 : 4.5;
+    }
+  }
+}
+
 bool spaceMoon(vec3 dir, float dsk, out vec3 col) {
   vec3 d = dir * uMoonRot;
   float b = dot(uMoonO.xyz, d), c = uMoonO.w;
@@ -203,13 +259,21 @@ bool spaceMoon(vec3 dir, float dsk, out vec3 col) {
   float D = b * b - c;
   if (D <= 0.0) return false;
   vec3 n = normalize(uMoonO.xyz + d * (c / (-b + sqrt(D))));
-  float t = textureLod(tMoonMap, vec2(atan(n.y, n.x) / 6.28318531 + 0.5, 0.5 - asin(clamp(n.z, -1.0, 1.0)) / 3.14159265), uMoonLod).r;
+  vec2 uv = vec2(atan(n.y, n.x) / 6.28318531 + 0.5, 0.5 - asin(clamp(n.z, -1.0, 1.0)) / 3.14159265);
+  float t = textureLod(tMoonMap, uv, uMoonLod).r;
   float mu = dot(n, uMoonSun);
   // earthshine, one or two steps over the dark, and the floor under the lit side too or the terminator's last steps fall below the night past it. None on the far side.
   float level = max(dot(n, uMoonEarth.xyz), 0.0) * uMoonEarth.w * (0.5 + 0.5 * t) + 0.25;
   // lunar-Lambert: flat at full, falling only near the terminator
   if (mu > 0.0) level = max(level, (0.35 + 0.65 * t) * min(2.0 * mu / (mu - dot(n, d) + 0.001), 1.05) * 7.0);
-  col = pal(${Ramp.MOON}.0, spStep(level, dsk));
+  float ramp = ${Ramp.MOON}.0;
+  spacePaint(n, uv, t, dsk, ramp, level);
+  // (a blast's flash, as on the street: white-hot at the impact, and everything near it some steps up its own ramp)
+  if (spFlash > 0.0) {
+    if (spFlash > 0.5 + 0.3 * dsk) ramp = ${Ramp.GLOW_WHITE}.0;
+    level += 1.0 + 4.0 * spFlash;
+  }
+  col = pal(ramp, spStep(level, dsk));
   return true;
 }
 

@@ -8,6 +8,7 @@ import type { WarmUp } from '../render/warmup';
 import { Hud } from '../ui/Hud';
 import { Perf } from '../ui/Perf';
 import { C, HUD_SMALL, PixelCanvas, textWidth } from '../ui/pixelUi';
+import { MoonBreath } from './MoonBreath';
 import { LEG_NAMES, MoonTrip } from './MoonTrip';
 import { series } from './Series';
 import { SkyClock } from './SkyClock';
@@ -144,26 +145,33 @@ function readView(params: URLSearchParams, model: SkyModel, sky: SkyState, ms: n
 
 const thousands = (n: number) => Math.round(n).toLocaleString('en-US');
 
-/** What the flight says: the leg and its clock, the gear, how far up, and what a tap would do now. A corner of the frame, redrawn when a line changes. */
-function tripLabel(): (trip: MoonTrip) => void {
-  const c = new PixelCanvas(122, 23, 2);
+/** The label's font, with the one sign the HUD has never needed. */
+const LABEL: typeof HUD_SMALL = { ...HUD_SMALL, glyphs: new Map(HUD_SMALL.glyphs).set('%', { w: 3, bits: Uint8Array.from([1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1]) }) };
+
+/** What the flight says: the leg and its clock, the gear, how far up, what a tap would do now, and how much of the Moon is yours. A corner of the frame, redrawn when a line changes. */
+function tripLabel(): (trip: MoonTrip, breath: MoonBreath | null) => void {
+  const c = new PixelCanvas(122, 30, 2);
   Object.assign(c.el.style, { position: 'fixed', zIndex: '21', pointerEvents: 'none', right: 'max(14px, env(safe-area-inset-right))', top: 'max(8px, env(safe-area-inset-top))' });
   c.el.dataset.hud = 'trip-label';
   document.body.append(c.el);
   let last = '';
-  return (trip) => {
+  return (trip, breath) => {
     const s = Math.floor(trip.clock), leg = trip.leg;
     const a = `${LEG_NAMES[leg]} ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
     const b = `G${trip.gear} ${trip.v < 1 ? '0' : thousands(trip.v)} KM/S ${thousands(Math.min(trip.hMoon, trip.hEarth))} KM`;
     const asks = (leg === 'out' || leg === 'homeOut' || leg === 'climb' || leg === 'arc' || leg === 'leave') && trip.g5Room;
     const dark = leg === 'cruise' || leg === 'homeCruise';
-    const p = trip.armed ? 'G5 ARMED' : leg === 'wait' ? 'TAP TURBO: MOON' : leg === 'orbit' ? (trip.gear === 3 ? 'TAP TURBO: G4' : 'TAP TURBO: HOME') : asks ? 'TAP TURBO: G5' : dark ? 'DRAG TO LOOK ROUND' : '';
-    const text = `${a}|${b}|${p}`;
+    const p = trip.armed ? 'G5 ARMED' : leg === 'wait' ? 'TAP TURBO: MOON' : leg === 'orbit' ? 'TAP TURBO: HOME' : asks ? 'TAP TURBO: G5' : dark ? 'DRAG TO LOOK ROUND' : '';
+    // the goal, once there is any; and until the first shot, what to do about it
+    const share = breath ? breath.paint.painted * 100 : 0;
+    const d = share > 0 ? `PAINTED ${share < 1 ? share.toFixed(2) : share < 10 ? share.toFixed(1) : share.toFixed(0)} % OF THE MOON` : '';
+    const e = leg === 'orbit' && breath && !breath.fired ? 'TAP TO PAINT' : ''; // (a toast says this, large)
+    const text = `${a}|${b}|${p}|${d}|${e}`;
     if (text === last) return;
     last = text;
     c.el.dataset.say = text; // (the tools read what the screen says from here)
     c.clear();
-    [a, b, p].forEach((t, i) => c.textOutlined(t, c.w - 2 - textWidth(t, HUD_SMALL), 1 + i * 7, i === 2 ? C.yellow : C.text, C.ink, HUD_SMALL));
+    [a, b, p, d].forEach((t, i) => c.textOutlined(t, c.w - 2 - textWidth(t, LABEL), 1 + i * 7, i === 2 ? C.yellow : C.text, C.ink, LABEL));
     c.flush();
   };
 }
@@ -208,10 +216,13 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   scene.add(bus.root);
   const fx = flying ? new SpaceFx(bus.length) : null;
   if (fx) scene.add(fx.object);
+  const breath = new MoonBreath(pipeline, bus);
+  scene.add(breath.particles.object);
   const busPose: BusPose = { squash: 1, eye: 1, fullness: 1, mouth: 0, speed: 0, wheeze: 0, heave: 0 };
 
   // ---- the lens, and the chase: bus at the origin, the camera behind and above it with no rotation, so the bus sits low in the frame and the view is what the axes say
   const camera = pipeline.camera;
+  const pitchAxis = new THREE.Vector3(1, 0, 0);
   const lensParam = Number(params.get('lens')) || 0;
   const lens = lensParam || config.camera.hfovVista;
   pipeline.setHfov(lens);
@@ -225,7 +236,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
     const D = config.camera.distanceVista * rigScale, row = (0.25 * pipeline.info.height) / focalAt();
     const k = D / Math.sqrt(1 + row * row);
     camera.position.set(0, k * row, k);
-    camera.quaternion.identity();
+    camera.quaternion.setFromAxisAngle(pitchAxis, breath.kick);
   };
   const fitView = () => {
     if (view) {
@@ -253,10 +264,21 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
       else if (pressTaken) pressTaken = false;
       else trip.tap();
     };
+    // a tap is a breath, as on the street: the place it touched goes in first, since Input reads the event after this
+    input.onTap = () => {
+      if (breath.tap(trip.leg === 'orbit')) hud.clearToast();
+    };
+    const touched = (e: PointerEvent) => {
+      if (e.target === renderer.domElement) breath.touched(e.clientX, e.clientY);
+    };
+    window.addEventListener('pointerdown', touched, true);
+    window.addEventListener('pointerup', touched, true);
     for (const name of ['mega', 'settings', 'recenter', 'tilt-toggle', 'tilt-chip']) hud.root.querySelector<HTMLElement>(`[data-hud="${name}"]`)?.style.setProperty('visibility', 'hidden');
     hud.arrive();
   }
 
+  const rearQ = new THREE.Quaternion();
+  let asked = false;
   let resizeWanted = false;
   const wantResize = () => (resizeWanted = true);
   window.addEventListener('resize', wantResize);
@@ -267,6 +289,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   // ---- before the first frame: the programs, the maps. Both start now, side by side
   warm.add(scene);
   await Promise.all([warm.finish(), draw.load('./sky')]);
+  breath.load();
   // (and the stars' and lines' real geometry was built after their proxies: same layout, same programs)
   const load = {
     ...draw.timing,
@@ -281,6 +304,8 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   let last = performance.now();
   let time = 0;
   let frames = 0;
+  // (tools: time stands still and the frame goes on drawing, so a shot is of the moment it asked for)
+  let held0 = false;
   const frame = (now: number) => {
     requestAnimationFrame(frame);
     const f0 = performance.now();
@@ -291,14 +316,16 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
       fitView();
       placeCamera();
     }
-    const dt = fixedDt || Math.min(0.05, Math.max(0, (now - last) / 1000));
+    const real = held0 ? 0 : fixedDt || Math.min(0.05, Math.max(0, (now - last) / 1000));
+    // (a hit-stop holds the flight and the paint, as it does on the street; the screen and the thumb go on)
+    const dt = breath.hitStop > 0 ? 0 : real;
     last = now;
     time += dt;
     globals.uTime.value = time;
 
     // ---- the flight first, then the lens, and draw.update reads the lens: the contract above
     if (trip && view && input) {
-      input.update(dt);
+      input.update(real);
       const st = input.state;
       if (st.turboHeld !== held) {
         held = st.turboHeld;
@@ -316,12 +343,21 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
     globals.uSunDir.value.set(sky.sun[0], sky.sun[1], sky.sun[2]);
     // (in Earth's shadow the bus has only its ambient)
     globals.uLight.value.x = 0.62 * sky.sunSeen;
+    breath.pose(busPose, dt);
     bus.update(dt, time, busPose);
+    if (breath.rear > 0) bus.root.quaternion.multiply(rearQ.setFromAxisAngle(pitchAxis, breath.rear));
+    bus.root.updateMatrixWorld(true);
+    breath.update(dt, real, sky, trip?.leg === 'orbit', camera);
     if (trip && view && fx) {
       fx.update(dt, trip.v, trip.dir, trip.ob.axes, view.flying, view.nosing, camera, bus.root, rigScale, pipeline.pixelWorldSize(1));
       // (the readout's names stop at G3 and the label says the gear: TURBO and its down tab are all that's wanted from the HUD)
       hud?.update(dt, { gear: trip.gear, maxGear: 5, engaged: true, boosting: false, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity, tiltState: 'none', gearDown: trip.canShiftDown });
-      if (frames % 6 === 0) label?.(trip);
+      if (frames % 6 === 0) label?.(trip, breath);
+      // (the one thing to do up here, where a first-timer's eye is, until they've done it)
+      if (trip.leg === 'orbit' && !breath.fired && !asked) {
+        asked = true;
+        hud?.toast(['TAP TO PAINT'], 3600);
+      }
     }
     pipeline.focus.set(0, 0, 0);
     pipeline.render(scene);
@@ -336,8 +372,8 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
       trip.step(1 / 30, 0);
       view.update(1 / 30, trip, 0, 0, false, lensParam);
     }
-    if (trip) label?.(trip);
+    if (trip) label?.(trip, breath);
   };
-  (window as unknown as Record<string, unknown>).__game = { pipeline, scene, camera, perf, bus, input, warm, moon: { model, sky, clock, draw, pose, load, trip, view, skip } };
+  (window as unknown as Record<string, unknown>).__game = { pipeline, scene, camera, perf, bus, input, warm, moon: { model, sky, clock, draw, pose, load, trip, view, skip, breath, hold: (on: boolean) => (held0 = on) } };
   requestAnimationFrame(frame);
 }
