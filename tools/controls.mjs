@@ -196,6 +196,7 @@ if (modes.has('thumbs')) {
       while (c.turbo.gear > 0) c.turbo.shift(-1, g.flight);
       if (g.tuner.visible) g.tuner.toggle();
       g.input.twoAt = -Infinity;
+      g.input.swapped = false;
       g.forceReady();
     });
     await runFor(page, 0.1);
@@ -215,6 +216,11 @@ if (modes.has('thumbs')) {
   /** the right thumb flying, moved off its landing */
   const steer = async () => { await H.down(1, RX, RY); await H.move(1, RX + 30, RY); };
   const lift1 = () => H.up(1);
+  /** two thumbs together, one each side, both lifted: the memory is on, the left thumb was the second */
+  const remember = async () => { await steer(); await H.down(2, LX, LY); await wall(60); await H.up(2); await lift1(); await wall(60); };
+  /** the left half looks: a lone touch there drags */
+  const dragLeft = async () => { await H.down(1, LX, LY); await wall(150); await H.move(1, LX + 50, LY); await runFor(page, 0.15); const s = await state(); await H.up(1); return s; };
+  const shiftUp = () => page.evaluate(() => window.__game.controls.turbo.shift(1, window.__game.flight));
 
   // ---- the first thumb
   await row('first thumb: tap', async () => { await H.stamped(async () => { await H.down(1, RX, RY, 0); await H.up(1, 120); }); }, (r) => has(r, 'onTap') === 1 && r.gear === 0);
@@ -256,11 +262,36 @@ if (modes.has('thumbs')) {
     return { off };
   }, (r) => r.note.off.level === 0 && r.note.off.gear === 1 && r.gear === 0);
   await row('undo: a flick down takes the waiting gear back', async () => { await steer(); await runFor(page, 0.1); await H.stamped(async () => { await H.stroke(2, LX, LY, 0, -74, 85); await H.stroke(2, LX, LY, 0, 74, 85, 145); }); await runFor(page, 0.6); await lift1(); }, (r) => r.gear === 0 && r.level === 0 && has(r, 'onTurbo-') === 1);
-  // ---- the lone strokes
+  // ---- the lone strokes: one thumb, either hand
   await row('lone left flick: a gear', async () => { await H.stamped(async () => { await H.stroke(1, LX, LY, 0, -74, 85); }); await runFor(page, 0.4); }, (r) => r.gear === 1);
-  await row('lone right flick: never', async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); }); await runFor(page, 0.4); }, (r) => r.gear === 0 && has(r, 'onTurbo+') === 0);
+  await row('lone right flick: a gear', async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); }); await runFor(page, 0.4); }, (r) => r.gear === 1 && has(r, 'onTurbo+') === 1 && has(r, 'onTap') === 0);
+  await row('lone right flick down at G1', async () => { await shiftUp(); await H.stamped(async () => { await H.stroke(1, RX, RY - 80, 0, 74, 85); }); await runFor(page, 0.1); }, (r) => r.gear === 0 && has(r, 'onTurbo-') === 1);
   await row('two lone left flicks: turbo', async () => { await H.stamped(async () => { await H.stroke(1, LX, LY, 0, -74, 85); await H.stroke(1, LX, LY, 0, -74, 85, 235); }); await runFor(page, 0.4); }, (r) => r.level === 1 && r.gear === 0);
+  await row('two lone right flicks: turbo', async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); await H.stroke(1, RX, RY, 0, -74, 85, 235); }); await runFor(page, 0.4); }, (r) => r.level === 1 && r.gear === 0 && has(r, 'onTurbo+') === 2);
+  await row('one right thumb: a soft first stroke: nothing', async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -30, 100); }); await runFor(page, 0.4); }, (r) => r.gear === 0 && r.level === 0 && has(r, 'onTurbo+') === 0);
+  const alone = async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); await H.stroke(1, RX, RY, 0, -74, 85, 235); }); await runFor(page, 0.3); };
+  await row('one right thumb: stacks to the top, a fourth changes nothing, down ends it, the next a gear', async () => {
+    await shiftUp();
+    await alone();
+    await alone();
+    await alone();
+    const top = await state();
+    await alone();
+    const locked = await state();
+    await H.stamped(async () => { await H.stroke(1, RX, RY - 80, 0, 74, 85); });
+    await runFor(page, 0.1);
+    const off = await state();
+    await H.stamped(async () => { await H.stroke(1, RX, RY - 80, 0, 74, 85); });
+    await runFor(page, 0.1);
+    return { top, locked, off };
+  }, (r) => r.note.top.level === 3 && r.note.locked.level === 3 && r.note.off.level === 0 && r.note.off.gear === 1 && r.gear === 0);
+  await row('one right thumb: a flick down takes the waiting gear back', async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); await H.stroke(1, RX, RY - 80, 0, 74, 85, 145); }); await runFor(page, 0.6); }, (r) => r.gear === 0 && r.level === 0 && has(r, 'onTurbo-') === 1);
+  await row('a lone right stroke that stays down steers, never shifts, never looks', async () => { await H.stamped(async () => { await H.down(1, RX, RY, 0); await H.move(1, RX, RY - 37, 42); await H.move(1, RX, RY - 74, 85); }); await runFor(page, 0.5); const s = await state(); await lift1(); await runFor(page, 0.1); return s; }, (r) => r.note.thumb && !r.note.look.on && r.gear === 0 && has(r, 'onTurbo+') === 0 && has(r, 'onTap') === 0);
+  await row('a lone right drag ending in a fast stroke: no flick', async () => { await H.stamped(async () => { await H.down(1, RX, RY, 0); await H.move(1, RX + 40, RY, 300); await H.move(1, RX + 40, RY - 74, 385); await H.up(1, 385); }); await runFor(page, 0.4); }, (r) => r.gear === 0 && has(r, 'onTurbo+') === 0);
   await row('bottom band: no command', async () => { await H.stamped(async () => { await H.stroke(1, LX, 830, 0, -74, 85); }); await runFor(page, 0.4); }, (r) => r.gear === 0 && has(r, 'onTurbo+') === 0);
+  await row('bottom band: no command on the right', async () => { await H.stamped(async () => { await H.stroke(1, RX, 830, 0, -74, 85); }); await runFor(page, 0.4); }, (r) => r.gear === 0 && has(r, 'onTurbo+') === 0);
+  await row('side band: no command on the right', async () => { await H.stamped(async () => { await H.stroke(1, 383, RY, 0, -74, 85); }); await runFor(page, 0.4); }, (r) => r.gear === 0 && has(r, 'onTurbo+') === 0);
+  await row('a stroke landing on MEGA is MEGA\'s: no gear', async () => { const m = await rectOf(page, '[data-hud="mega"]'); await H.stamped(async () => { await H.stroke(1, m.x, m.y, 0, -74, 85); }); await runFor(page, 0.4); }, (r) => r.gear === 0 && has(r, 'onTurbo+') === 0);
   // ---- the memory (a short one, tuned: the rule is the same and the wait isn't)
   await row('memory: a lone far touch looks, then lapses', async () => {
     await page.evaluate(() => window.__game.tuneGroup('Input', 'memoryMs', 1500));
@@ -300,6 +331,45 @@ if (modes.has('thumbs')) {
     await H.up(1);
     return s;
   }, (r) => r.note.thumb && !r.note.look.on && r.note.sx > 0.2);
+  await row('memory: on, a lone right flick is a gear, and the left half is still the second thumb\'s', async () => { await remember(); await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); }); await runFor(page, 0.4); return dragLeft(); }, (r) => r.gear === 1 && r.note.look.on && !r.note.thumb);
+  await row('memory: on, a look thumb landing during a lone right flick stays second', async () => {
+    await remember();
+    await H.stamped(async () => { await H.down(1, RX, RY, 0); await H.move(1, RX, RY - 40, 40); await H.down(2, LX, LY, 50); await H.move(1, RX, RY - 74, 85); await H.up(1, 85); });
+    await wall(150);
+    await H.move(2, LX + 60, LY);
+    await runFor(page, 0.15);
+    const s = await state();
+    await H.up(2);
+    await runFor(page, 0.4);
+    return s;
+  }, (r) => r.gear === 1 && r.note.look.on && !r.note.thumb);
+  await row('memory: a stray during a lone right flick starts nothing: the left thumb flies', async () => {
+    await H.stamped(async () => { await H.down(1, 250, RY, 0); await H.move(1, 250, RY - 40, 40); await H.down(2, 350, RY + 50, 50); await H.move(1, 250, RY - 74, 85); await H.up(1, 85); });
+    await wall(60);
+    await H.up(2);
+    await runFor(page, 0.4);
+    return dragLeft();
+  }, (r) => r.note.thumb && !r.note.look.on);
+  await row('SWAP: flicks stay on both halves, the memory moves to the right', async () => {
+    await page.evaluate(() => { window.__game.input.swapped = true; });
+    await H.stamped(async () => { await H.stroke(1, LX, LY, 0, -74, 85); });
+    await runFor(page, 0.4);
+    const flicked = await state();
+    await H.down(1, LX, LY);
+    await H.move(1, LX + 30, LY);
+    await H.down(2, RX, RY);
+    await wall(60);
+    await H.up(2);
+    await lift1();
+    await wall(60);
+    await H.down(1, RX, RY);
+    await wall(150);
+    await H.move(1, RX + 50, RY);
+    await runFor(page, 0.15);
+    const s = await state();
+    await H.up(1);
+    return { flicked, s };
+  }, (r) => r.note.flicked.gear === 1 && r.note.s.look.on && !r.note.s.thumb);
   await row('the look outlives the flying thumb', async () => { await steer(); await H.down(2, LX, LY); await wall(150); await H.move(2, LX + 50, LY); await runFor(page, 0.1); await lift1(); await runFor(page, 0.1); const s = await state(); await H.up(2); return s; }, (r) => r.note.look.on && !r.note.thumb);
   // ---- MEGA, three fingers, a lost touch
   await row('MEGA: a tap, with a thumb steering', async () => { const m = await rectOf(page, '[data-hud="mega"]'); await steer(); await runFor(page, 0.1); await H.down(2, m.x, m.y); await wall(90); await H.up(2); await wall(30); await lift1(); }, (r) => has(r, 'onTap') === 1);
@@ -706,7 +776,7 @@ if (modes.has('firstrun')) {
   await runFor(page, 0.2);
   FR.fogEnd = await ui();
   await page.screenshot({ path: `${out}/firstrun/01-arrive.png` });
-  // the second thumb's hint: a beat after the fog, four lines in the toast's slot, and touches pass through it
+  // the hint: a beat after the fog, four lines in the toast's slot, and touches pass through it
   const hint = () => page.evaluate(() => {
     const c = document.querySelector('[data-hud="toast"] canvas');
     if (!c) return null;

@@ -135,6 +135,7 @@ row('touch', 'canvas: 460 ms, still (past stillTapMs)', (h) => { const id = newI
 row('touch', 'canvas: hold 1 s still (bungee at neutral, no charge)', (h) => { const id = newId(); h.down(id, X, Y); h.wait(1000); h.up(id, X, Y); });
 row('touch', 'canvas: drag 80 px (steer)', (h) => { const id = newId(); h.down(id, X, Y); h.slide(id, X, Y, 80, 0, 300); h.up(id, X + 80, Y); });
 row('touch', 'canvas: quick flick 20 px in 90 ms (still a tap)', (h) => { const id = newId(); h.down(id, X, Y); h.slide(id, X, Y, 20, 0, 90); h.up(id, X + 20, Y); });
+row('touch', 'canvas: quick flick 20 px up in 90 ms (still a tap)', (h) => { const id = newId(); h.down(id, X, Y); h.slide(id, X, Y, 0, -20, 90); h.up(id, X, Y - 20); });
 row('touch', 'canvas: two fingers tapped together', (h) => { const a = newId(), b = newId(); h.down(a, X, Y); h.wait(30); h.down(b, 120, 500, false); h.wait(90); h.up(a, X, Y); h.up(b, 120, 500); });
 row('touch', 'canvas: two fingers, both lift at 400 ms', (h) => { const a = newId(), b = newId(); h.down(a, X, Y); h.wait(30); h.down(b, 120, 500, false); h.wait(370); h.up(a, X, Y); h.up(b, 120, 500); });
 row('touch', 'canvas: two fingers, both lift at 470 ms', (h) => { const a = newId(), b = newId(); h.down(a, X, Y); h.wait(30); h.down(b, 120, 500, false); h.wait(440); h.up(a, X, Y); h.up(b, 120, 500); });
@@ -225,11 +226,43 @@ row('touch', 'lone left: 90 px in 210 ms is too long', (h) => { h.stroke(LX, LY,
 row('touch', 'lone left: 40 px in 120 ms is too slow', (h) => { h.stroke(LX, LY, 0, -40, 120); });
 row('touch', 'lone left: 38 degrees off vertical still counts', (h) => { h.stroke(LX, LY, 39, -50, 85); });
 row('touch', 'lone left: 43 degrees off vertical does not', (h) => { h.stroke(LX, LY, 47, -50, 85); });
-row('touch', 'lone right flick up: never a shift', (h) => { h.stroke(RX, RY, 0, -74, 85); h.wait(400); });
-row('touch', 'lone right flick down: never a shift', (h) => { h.drive.shift(1, h.flight); h.wait(50); h.evs.length = 0; h.stroke(RX, 500, 0, 74, 85); h.wait(400); });
-row('touch', 'lone right two flicks: nothing', (h) => { h.stroke(RX, RY, 0, -74, 85); h.wait(150); h.stroke(RX, RY, 0, -74, 85); h.wait(400); });
-row('touch', 'swapped: lone right flick up is the flick', (h) => { h.input.swapped = true; h.stroke(RX, RY, 0, -74, 85); });
-row('touch', 'swapped: lone left flick up is not', (h) => { h.input.swapped = true; h.stroke(LX, LY, 0, -74, 85); h.wait(400); });
+row('touch', 'lone right flick up: steers, then the gear', (h) => { const id = newId(); h.down(id, RX, RY); h.slide(id, RX, RY, 0, -74, 85); const steered = h.input.state.thumb; const sy = h.input.state.stretch.y; h.up(id, RX, RY - 74); h.wait(20); const after = h.input.state.thumb; h.wait(500); return { steered, sy, after }; });
+row('touch', 'lone right flick down at G1', (h) => { h.drive.shift(1, h.flight); h.wait(50); h.stroke(RX, 500, 0, 74, 85); });
+row('touch', 'lone right: 34 px is under the firm rule', (h) => { h.stroke(RX, RY, 0, -34, 80); });
+row('touch', 'lone right: 36 px in 80 ms is a flick', (h) => { h.stroke(RX, RY, 0, -36, 80); });
+row('touch', 'lone right: 90 px in 210 ms is too long', (h) => { h.stroke(RX, RY, 0, -90, 210); });
+row('touch', 'lone right: 40 px in 120 ms is too slow', (h) => { h.stroke(RX, RY, 0, -40, 120); });
+row('touch', 'lone right: 38 degrees off vertical still counts', (h) => { h.stroke(RX, RY, 39, -50, 85); });
+row('touch', 'lone right: 43 degrees off vertical does not', (h) => { h.stroke(RX, RY, 47, -50, 85); });
+row('touch', 'lone right: a flick at 30 touches a second reads the same', (h) => { h.stroke(RX, RY, 0, -74, 85, true, 33); h.wait(400); }, 30);
+row('touch', 'lone right: a flick with no move event at all reads the same', (h) => { const id = newId(); h.down(id, RX, RY); h.wait(85); h.up(id, RX, RY - 74); h.wait(400); });
+row('touch', 'lone right: the same stroke stays down: it steers and never shifts', (h) => { const id = newId(); h.down(id, RX, RY); h.slide(id, RX, RY, 0, -74, 85); h.wait(1000); const thumb = h.input.state.thumb, sy = h.input.state.stretch.y, look = h.input.state.look.on; h.up(id, RX, RY - 74); h.wait(400); return { thumb, sy, look }; });
+row('touch', 'lone right: a fast stroke mid-drag is never a flick', (h) => { const id = newId(); h.down(id, RX, RY); h.slide(id, RX, RY, 40, 0, 300); h.slide(id, RX + 40, RY, 0, -74, 85); h.up(id, RX + 40, RY - 74); h.wait(400); });
+row('touch', 'lone right: out and back: one touch, one reading', (h) => { const id = newId(); h.down(id, RX, RY); h.slide(id, RX, RY, 0, -70, 80); h.slide(id, RX, RY - 70, 0, 70, 80); h.up(id, RX, RY); h.wait(400); });
+row('touch', 'lone right: sideways is a carve', (h) => { h.stroke(RX, RY, 74, 0, 85); h.wait(400); });
+
+// ---- one thumb plays the whole game, either hand
+for (const [hand, x, y, yd] of [['right', RX, RY, 500], ['left', LX, LY, 500]] as const) {
+  const up = (h: H) => h.stroke(x, y, 0, -74, 85);
+  const down = (h: H) => h.stroke(x, yd, 0, 74, 85);
+  const twice = (h: H) => { up(h); h.wait(150); up(h); };
+  row('touch', `${hand} thumb: a gear up, a gear down`, (h) => { up(h); h.wait(500); const one = h.drive.gear; down(h); h.wait(100); return { one }; });
+  row('touch', `${hand} thumb: two spaced flicks: Express, then Jet`, (h) => { up(h); h.wait(500); up(h); h.wait(500); });
+  row('touch', `${hand} thumb: turbo, the waiting gear dropped`, (h) => { twice(h); h.wait(500); });
+  row('touch', `${hand} thumb: the second lands inside the window and lifts after it`, (h) => { up(h); h.wait(300); up(h); h.wait(500); });
+  row('touch', `${hand} thumb: the second lands past the window: a gear, then the next`, (h) => { up(h); h.wait(340); up(h); h.wait(500); });
+  row('touch', `${hand} thumb: a soft first stroke is no flick`, (h) => { h.stroke(x, y, 0, -30, 100); h.wait(500); });
+  row('touch', `${hand} thumb: a second double adds a level`, (h) => { twice(h); h.wait(500); twice(h); h.wait(500); });
+  row('touch', `${hand} thumb: six flicks in a row are the top level`, (h) => { for (let i = 0; i < 6; i++) { up(h); h.wait(150); } h.wait(500); });
+  row('touch', `${hand} thumb: a fourth double is LOCKED, the level stands`, (h) => { for (let i = 0; i < 4; i++) { twice(h); h.wait(500); } });
+  row('touch', `${hand} thumb: flick down ends all turbo, the gear stays, the next drops it`, (h) => { h.drive.shift(1, h.flight); h.wait(50); for (let i = 0; i < 3; i++) { twice(h); h.wait(500); } down(h); h.wait(100); const v = { level: h.drive.level, gear: h.drive.gear }; down(h); h.wait(100); return v; });
+  row('touch', `${hand} thumb: a flick down takes the waiting gear back`, (h) => { up(h); h.wait(60); down(h); h.wait(600); });
+  row('touch', `${hand} thumb: a gear taken back, with turbo on, leaves turbo`, (h) => { twice(h); h.wait(500); up(h); h.wait(60); down(h); h.wait(600); });
+  row('touch', `${hand} thumb: a gear still lifting is taken back`, (h) => { h.flight.y = 5; h.drive.shift(1, h.flight); h.wait(50); up(h); h.wait(500); const lifting = h.drive.gear === JET && !h.drive.engaged; down(h); h.wait(100); return { lifting, hold: h.flight.holdY }; });
+}
+
+row('touch', 'swapped: lone right flick up is a flick', (h) => { h.input.swapped = true; h.stroke(RX, RY, 0, -74, 85); });
+row('touch', 'swapped: lone left flick up is a flick', (h) => { h.input.swapped = true; h.stroke(LX, LY, 0, -74, 85); h.wait(400); });
 row('touch', 'a thumb landing during a lone flick flies, from where it landed', (h) => {
   const a = newId(), b = newId();
   h.down(a, LX, LY);
@@ -240,6 +273,18 @@ row('touch', 'a thumb landing during a lone flick flies, from where it landed', 
   h.wait(20);
   const thumb = h.input.state.thumb, sx = h.input.state.stretch.x, look = h.input.state.look.on;
   h.up(b, RX + 30, RY);
+  return { thumb, sx, look };
+});
+row('touch', 'a thumb landing during a lone right flick flies, from where it landed', (h) => {
+  const a = newId(), b = newId();
+  h.down(a, RX, RY);
+  h.slide(a, RX, RY, 0, -40, 40);
+  h.down(b, LX, LY, false);
+  h.slide(b, LX, LY, 30, 0, 40);
+  h.up(a, RX, RY - 74);
+  h.wait(20);
+  const thumb = h.input.state.thumb, sx = h.input.state.stretch.x, look = h.input.state.look.on;
+  h.up(b, LX + 30, LY);
   return { thumb, sx, look };
 });
 row('touch', 'a steering left thumb that is not a flick keeps the second thumb second', (h) => {
@@ -257,11 +302,14 @@ row('touch', 'a steering left thumb that is not a flick keeps the second thumb s
 
 // ---- the bands
 row('touch', 'bottom band: a lone left stroke is never a command', (h) => { h.stroke(LX, 820, 0, -74, 85); h.wait(400); });
+row('touch', 'bottom band: a lone right stroke is never a command', (h) => { h.stroke(RX, 820, 0, -74, 85); h.wait(400); });
 row('touch', 'bottom band: 811 px, 41 px from the bottom, is a stroke again', (h) => { h.stroke(LX, 811, 0, -74, 85); h.wait(400); });
 row('touch', 'bottom band: a second thumb never commands either', (h) => { const a = steer(h); h.stroke(LX, 820, 0, -74, 85, false); h.wait(400); h.up(a, RX + 30, RY); });
 row('touch', 'bottom band: a second thumb still taps', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, 820, false); h.wait(90); h.up(b, LX, 820); h.up(a, RX + 30, RY); });
 row('touch', 'bottom band: a second thumb still looks', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, 820, false); h.slide(b, LX, 820, 40, -40, 200); h.up(b, LX + 40, 780); h.up(a, RX + 30, RY); });
 row('touch', 'side band: a lone left stroke 10 px in is never a command', (h) => { h.stroke(10, LY, 0, -74, 85); h.wait(400); });
+row('touch', 'side band: a lone right stroke 10 px in is never a command', (h) => { h.stroke(383, RY, 0, -74, 85); h.wait(400); });
+row('touch', 'side band: a lone right stroke 21 px in is a stroke again', (h) => { h.stroke(372, RY, 0, -74, 85); h.wait(400); });
 row('touch', 'side band: a second thumb 10 px from the right edge', (h) => { const a = newId(); h.down(a, LX, LY); h.slide(a, LX, LY, 30, 0, 300); h.stroke(383, 500, 0, -74, 85, false); h.wait(400); h.up(a, LX + 30, LY); });
 
 // ---- the memory
@@ -276,8 +324,8 @@ row('touch', 'memory: 29 s on, still the second thumb', (h) => { together(h); h.
 row('touch', 'memory: 31 s on, it steers again', (h) => { together(h); h.wait(31000); const b = newId(); h.down(b, LX, LY); h.slide(b, LX, LY, 60, 0, 200); h.wait(30); const on = h.input.state.look.on, thumb = h.input.state.thumb; h.up(b, LX + 60, LY); return { on, thumb }; });
 row('touch', 'memory: the other half always flies: left flew, a lone right touch flies', (h) => { leftFlew(h); h.wait(1000); return dragAt(h, RX, RY); });
 row('touch', 'memory: left first by 30 ms, both lift: the right thumb alone flies', (h) => { leftFirst(h); return dragAt(h, RX, RY); });
-row('touch', 'memory: left first by 30 ms: a lone right stroke is no shift', (h) => { leftFirst(h); h.stroke(RX, RY, 0, -74, 85); h.wait(400); });
-row('touch', 'memory: left first by 30 ms: two lone right strokes are nothing', (h) => { leftFirst(h); h.stroke(RX, RY, 0, -74, 85); h.wait(150); h.stroke(RX, RY, 0, -74, 85); h.wait(400); });
+row('touch', 'memory: left first by 30 ms: a lone right stroke is a flick', (h) => { leftFirst(h); h.stroke(RX, RY, 0, -74, 85); h.wait(400); });
+row('touch', 'memory: left first by 30 ms: two lone right strokes are turbo', (h) => { leftFirst(h); h.stroke(RX, RY, 0, -74, 85); h.wait(150); h.stroke(RX, RY, 0, -74, 85); h.wait(400); });
 row('touch', 'memory: left first by 30 ms: the left thumb alone is its own stroke', (h) => { leftFirst(h); return dragAt(h, LX, LY); });
 row('touch', 'memory: swapped: left flew, a lone right touch looks', (h) => { h.input.swapped = true; leftFlew(h); h.wait(1000); return dragAt(h, RX, RY); });
 row('touch', 'memory: swapped: left flew, a lone left touch flies', (h) => { h.input.swapped = true; leftFlew(h); h.wait(1000); return dragAt(h, LX, LY); });
@@ -287,8 +335,14 @@ row('touch', 'memory: a grip in the side band changes nothing', (h) => { const a
 row('touch', 'memory: a grip in the bottom band changes nothing', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, 830, false); h.wait(300); h.up(b, LX, 830); h.up(a, RX + 30, RY); h.wait(600); return dragAt(h, LX, LY); });
 row('touch', 'memory: a two-finger tap on one half changes nothing', (h) => { const a = newId(), b = newId(); h.down(a, 240, 500); h.wait(30); h.down(b, 330, 520, false); h.wait(80); h.up(a, 240, 500); h.up(b, 330, 520); h.wait(1000); return dragAt(h, 300, 600); });
 row('touch', 'memory: a two-finger tap, the left finger first: one splat, then the right thumb flies', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(40); h.down(b, RX, RY, false); h.wait(60); h.up(a, LX, LY); h.up(b, RX, RY); h.wait(600); return dragAt(h, RX, RY); });
+row('touch', 'memory: on, a lone right flick flies until its lift', (h) => { together(h); h.wait(1000); const a = newId(); h.down(a, RX, RY); h.slide(a, RX, RY, 0, -74, 85); const thumb = h.input.state.thumb, look = h.input.state.look.on; h.up(a, RX, RY - 74); h.wait(400); return { thumb, look }; });
+row('touch', 'memory: on, a soft lone right stroke is under the firm rule', (h) => { together(h); h.wait(1000); h.stroke(RX, RY, 0, -30, 100); h.wait(400); });
+row('touch', 'memory: on, a look thumb landing during a lone right flick stays second', (h) => { together(h); h.wait(1000); const a = newId(), b = newId(); h.down(a, RX, RY); h.slide(a, RX, RY, 0, -40, 40); h.down(b, LX, LY, false); h.wait(20); h.up(a, RX, RY - 74); h.slide(b, LX, LY, 60, 0, 200); h.wait(30); const s = h.input.state, v = { thumb: s.thumb, look: s.look.on, sx: +s.stretch.x.toFixed(2) }; h.up(b, LX + 60, LY); h.wait(400); return v; });
+row('touch', 'memory: off, a thumb landing during a lone right flick leaves nothing to remember', (h) => { const a = newId(), b = newId(); h.down(a, RX, RY); h.slide(a, RX, RY, 0, -40, 40); h.down(b, LX, LY, false); h.wait(40); h.up(a, RX, RY - 74); h.wait(100); h.up(b, LX, LY); h.wait(600); return dragAt(h, LX, LY); });
+row('touch', 'memory: a stray during a lone right flick starts nothing', (h) => { const a = newId(), b = newId(); h.down(a, 250, 600); h.slide(a, 250, 600, 0, -40, 40); h.down(b, 350, 650, false); h.wait(40); h.up(a, 250, 526); h.wait(100); h.up(b, 350, 650); h.wait(600); return dragAt(h, LX, LY); });
+row('touch', 'memory: swapped: a stray during a lone left flick starts nothing', (h) => { h.input.swapped = true; const a = newId(), b = newId(); h.down(a, LX, LY); h.slide(a, LX, LY, 0, -40, 40); h.down(b, 60, 650, false); h.wait(40); h.up(a, LX, LY - 74); h.wait(100); h.up(b, 60, 650); h.wait(600); return dragAt(h, RX, RY); });
 row('touch', 'memory: a thumb promoted from a lone flick lands again and flies', (h) => { flickThenRight(h); return dragAt(h, RX, RY); });
-row('touch', 'memory: promoted, a lone right stroke is no shift', (h) => { flickThenRight(h); h.wait(400); h.evs.length = 0; h.stroke(RX, RY, 0, -74, 85); h.wait(400); });
+row('touch', 'memory: promoted, a lone right stroke is a flick', (h) => { flickThenRight(h); h.wait(400); h.evs.length = 0; h.stroke(RX, RY, 0, -74, 85); h.wait(400); });
 row('touch', 'memory: promoted, the flick\'s side is the second thumb\'s', (h) => { flickThenRight(h); return dragAt(h, LX, LY); });
 row('touch', 'memory: promoted on one half: nothing to remember', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.slide(a, LX, LY, 0, -40, 40); h.down(b, 150, 600, false); h.wait(40); h.up(a, LX, LY - 74); h.wait(100); h.up(b, 150, 600); h.wait(600); return dragAt(h, LX, LY); });
 row('touch', 'memory: the flying thumb back down during a lone look: flies, the look stays', (h) => { together(h); h.wait(1000); const b = newId(); h.down(b, LX, LY); h.slide(b, LX, LY, 60, 0, 200); const a = newId(); h.down(a, RX, RY, false); h.slide(a, RX, RY, 40, 0, 200); h.wait(20); const on = h.input.state.look.on, thumb = h.input.state.thumb; h.up(a, RX + 40, RY); h.up(b, LX + 60, LY); return { on, thumb }; });
@@ -364,6 +418,7 @@ const mouseL = { pointerType: 'mouse', button: 0 };
 row('keyboard', 'right mouse drag: looks, lets go on the lift', (h) => { const id = newId(); h.down(id, RX, RY, true, mouse); h.wait(20); const on = h.input.state.look.on; h.move(id, RX + 50, RY - 30, mouse); h.wait(20); const L = { ...h.input.state.look }; h.up(id, RX + 50, RY - 30, mouse); h.wait(20); return { on, L, after: h.input.state.look.on, thumb: h.input.state.thumb }; });
 row('keyboard', 'right mouse click: no tap', (h) => { const id = newId(); h.down(id, RX, RY, true, mouse); h.wait(60); h.up(id, RX, RY, mouse); });
 row('keyboard', 'left mouse: a quick drag on the left is no flick', (h) => { const id = newId(); h.down(id, LX, LY, true, mouseL); h.slide(id, LX, LY, 0, -74, 85); h.up(id, LX, LY - 74, mouseL); h.wait(400); });
+row('keyboard', 'left mouse: a quick drag on the right is no flick', (h) => { const id = newId(); h.down(id, RX, RY, true, mouseL); h.slide(id, RX, RY, 0, -74, 85); h.up(id, RX, RY - 74, mouseL); h.wait(400); });
 row('keyboard', 'middle mouse: nothing', (h) => { const id = newId(); h.down(id, RX, RY, true, { pointerType: 'mouse', button: 1 }); h.wait(60); h.up(id, RX, RY, mouse); });
 
 // ---- the table's checks
@@ -395,7 +450,8 @@ ok(n('canvas: three fingers', 'tuner') === 1 && taps('canvas: three fingers') ==
 ok(taps('first thumb on the left: a tap') === 1, 'a left first thumb taps');
 quiet('first thumb on the left: a slow drag');
 ok(by('first thumb on the left: a slow drag').thumb, 'a left first thumb flies');
-for (const r of rows) if (r.gesture.startsWith('canvas')) ok(!r.events.some((e) => /^(flick|first)/.test(e)), `the first thumb never shifts: ${r.gesture}`);
+ok(taps('canvas: quick flick 20 px up') === 1, 'a small quick stroke up on the right half is a tap, not a flick');
+for (const r of rows) if (r.gesture.startsWith('canvas')) ok(!r.events.some((e) => /^(flick|first)/.test(e)), `a tap, a rest or a drag never shifts: ${r.gesture}`);
 
 // the second thumb
 ok(!note('second: tap while steering').firedOnLanding, 'a second thumb does not fire on its landing');
@@ -516,26 +572,72 @@ ok(by('lone left flick down').gear === 0, 'a lone flick down');
 for (const g of ['lone left: 34 px', 'lone left: 90 px', 'lone left: 40 px in 120', 'lone left: 43 degrees']) quiet(g);
 ok(by('lone left: 36 px').gear === 1, 'the firm rule\'s start');
 ok(by('lone left: 38 degrees').gear === 1, 'within 40 degrees');
-quiet('lone right flick up');
-quiet('lone right flick down');
-quiet('lone right two flicks');
-ok(by('lone right flick down').gear === 1, 'no right thumb flicks: the gear stays');
-ok(by('swapped: lone right').gear === 1, 'BUTTONS: SWAP mirrors it');
-quiet('swapped: lone left');
 {
-  const v = note('a thumb landing during');
+  const v = note('lone right flick up');
+  ok(v.steered && v.sy > 0.5, `the right thumb steers until the lift: ${JSON.stringify(v)}`);
+  ok(!v.after, 'and stops');
+  ok(by('lone right flick up').gear === 1 && taps('lone right flick up') === 0, 'then the gear, no tap');
+}
+ok(by('lone right flick down').gear === 0 && n('lone right flick down', 'down') === 1, 'a lone right flick down');
+for (const g of ['lone right: 34 px', 'lone right: 90 px', 'lone right: 40 px in 120', 'lone right: 43 degrees']) quiet(g);
+ok(by('lone right: 36 px').gear === 1, 'the firm rule\'s start, on the right');
+ok(by('lone right: 38 degrees').gear === 1, 'within 40 degrees, on the right');
+ok(by('lone right: a flick at 30').gear === 1, 'a right flick holds at 30 touches a second');
+ok(by('lone right: a flick with no move').gear === 1, 'and with no move event at all');
+{
+  const v = note('lone right: the same stroke stays down');
+  ok(v.thumb && v.sy > 0.5 && !v.look, `a thumb that stays down steers, and never looks: ${JSON.stringify(v)}`);
+  quiet('lone right: the same stroke stays down');
+}
+quiet('lone right: a fast stroke mid-drag');
+ok(by('lone right: a fast stroke mid-drag').thumb, 'a flick only counts from a fresh touch');
+quiet('lone right: out and back');
+quiet('lone right: sideways');
+ok(by('lone right: sideways').thumb, 'sideways it carves');
+
+// one thumb, each hand: the whole game but the look
+for (const hand of ['right', 'left']) {
+  const g = (rest: string) => `${hand} thumb: ${rest}`;
+  ok(note(g('a gear up')).one === EXPRESS && by(g('a gear up')).gear === 0, `${hand}: up a gear, down a gear`);
+  ok(by(g('two spaced')).gear === JET && by(g('two spaced')).level === 0, `${hand}: two spaced flicks are Jet`);
+  ok(by(g('turbo, the waiting')).level === 1 && by(g('turbo, the waiting')).gear === 0 && n(g('turbo, the waiting'), 'up') === 0, `${hand}: two quick flicks are turbo`);
+  ok(by(g('the second lands inside')).level === 1 && by(g('the second lands inside')).gear === 0, `${hand}: the gear waits for a stroke that landed in the window`);
+  ok(by(g('the second lands past')).level === 0 && by(g('the second lands past')).gear === JET, `${hand}: past the window, a gear and the next`);
+  quiet(g('a soft first stroke'));
+  ok(by(g('a second double')).level === 2, `${hand}: a second double, level 2`);
+  ok(by(g('six flicks')).level === 3 && by(g('six flicks')).gear === 0, `${hand}: six flicks in a row, the top level, no gear`);
+  ok(by(g('a fourth double')).level === 3 && n(g('a fourth double'), 'locked') === 1, `${hand}: a fourth double is LOCKED`);
+  ok(note(g('flick down ends')).level === 0 && note(g('flick down ends')).gear === 1 && by(g('flick down ends')).gear === 0, `${hand}: down ends all turbo, the next a gear`);
+  ok(by(g('a flick down takes')).gear === 0 && n(g('a flick down takes'), 'back') === 1 && n(g('a flick down takes'), 'up') === 0, `${hand}: a flick down before the gear bites takes it back`);
+  ok(by(g('a gear taken back')).gear === 0 && by(g('a gear taken back')).level === 1, `${hand}: a take-back leaves turbo`);
+  ok(note(g('a gear still lifting')).lifting && by(g('a gear still lifting')).gear === EXPRESS && note(g('a gear still lifting')).hold === -Infinity, `${hand}: a gear still lifting is taken back, the hold as it was`);
+  for (const r of rows) if (r.gesture.startsWith(`${hand} thumb:`)) ok(r.look === null, `one thumb never looks: ${r.gesture}`);
+}
+
+ok(by('swapped: lone right').gear === 1, 'BUTTONS: SWAP: a lone right flick');
+ok(by('swapped: lone left').gear === 1, 'BUTTONS: SWAP doesn\'t move the flicks: a lone left flick too');
+{
+  const v = note('a thumb landing during a lone flick');
   ok(v.thumb && v.sx > 0.2 && !v.look, `a lone flick is no flying thumb: the other one flies: ${JSON.stringify(v)}`);
-  ok(by('a thumb landing during').gear === 1, 'and the flick still counts');
+  ok(by('a thumb landing during a lone flick').gear === 1, 'and the flick still counts');
+  const w = note('a thumb landing during a lone right flick');
+  ok(w.thumb && w.sx > 0.2 && !w.look, `a lone right flick is no flying thumb either: ${JSON.stringify(w)}`);
+  ok(by('a thumb landing during a lone right flick').gear === 1, 'and that flick still counts');
 }
 ok(note('a steering left thumb').look, 'a real flying thumb keeps the other one second');
 
 // the bands
 quiet('bottom band: a lone left');
+quiet('bottom band: a lone right');
+ok(by('bottom band: a lone right').thumb, 'it still steers');
 ok(by('bottom band: 811').gear === 1, 'just above the band');
 quiet('bottom band: a second thumb never');
 ok(taps('bottom band: a second thumb still taps') === 1, 'a tap in the band');
 ok(by('bottom band: a second thumb still looks').look !== null, 'a look in the band');
-quiet('side band: a lone');
+quiet('side band: a lone left');
+quiet('side band: a lone right stroke 10');
+ok(by('side band: a lone right stroke 10').thumb, 'it still steers');
+ok(by('side band: a lone right stroke 21').gear === 1, 'just inside the band');
 quiet('side band: a second');
 
 // the memory
@@ -555,9 +657,7 @@ const flies = (g: string) => { const v = note(g); ok(v.thumb && !v.look && v.sx 
 const looks = (g: string) => { const v = note(g); ok(v.look && !v.thumb && v.sx === 0, `it is the second thumb: ${g}: ${JSON.stringify(v)}`); };
 flies('memory: the other half always');
 flies('memory: left first by 30 ms, both lift');
-quiet('memory: left first by 30 ms: a lone right stroke');
-quiet('memory: left first by 30 ms: two lone right');
-ok(by('memory: left first by 30 ms: a lone right stroke').gear === 0 && by('memory: left first by 30 ms: two lone right').level === 0, 'no right thumb flicks, whatever landed first');
+ok(by('memory: left first by 30 ms: a lone right stroke').gear === 1 && by('memory: left first by 30 ms: two lone right').level === 1, 'a lone right stroke commands, whatever landed first');
 flies('memory: left first by 30 ms: the left thumb alone');
 looks('memory: swapped: left flew, a lone right');
 flies('memory: swapped: left flew, a lone left');
@@ -569,8 +669,15 @@ flies('memory: a two-finger tap on one half');
 flies('memory: a two-finger tap, the left finger first');
 ok(taps('memory: a two-finger tap, the left finger first') === 1, 'that two-finger tap is one splat');
 flies('memory: a thumb promoted');
-quiet('memory: promoted, a lone right stroke');
+ok(n('memory: promoted, a lone right stroke', 'flick+') === 1, 'the promoted thumb flicks, lone, as any other');
 looks('memory: promoted, the flick');
+ok(note('memory: on, a lone right flick').thumb && !note('memory: on, a lone right flick').look && by('memory: on, a lone right flick').gear === 1, 'the other half flies until the lift, then it was a flick');
+quiet('memory: on, a soft lone right stroke');
+looks('memory: on, a look thumb landing');
+ok(by('memory: on, a look thumb landing').gear === 1, 'a look thumb stays a look thumb, and the flick counts');
+flies('memory: off, a thumb landing during');
+flies('memory: a stray during a lone right');
+flies('memory: swapped: a stray during');
 flies('memory: promoted on one half');
 ok(note('memory: the flying thumb back').on && note('memory: the flying thumb back').thumb, 'both jobs at once, the landings the other way round');
 ok(taps('memory: two fingers tapped') === 1, 'one splat');
@@ -627,8 +734,9 @@ ok(note('Shift on top').boosting && by('Shift on top').level === 1, 'Shift ends 
   ok(v.on && Math.round(v.L.x) === 50 && Math.round(v.L.y) === 30 && !v.after && !v.thumb, `the right mouse looks: ${JSON.stringify(v)}`);
 }
 ok(taps('right mouse click') === 0, 'a right click is no tap');
-quiet('left mouse');
-ok(by('left mouse').thumb, 'the left mouse still flies');
+quiet('left mouse: a quick drag on the left');
+quiet('left mouse: a quick drag on the right');
+ok(by('left mouse: a quick drag on the left').thumb, 'the left mouse still flies');
 ok(by('middle mouse').look === null && taps('middle mouse') === 0, 'the middle button does nothing');
 
 // charge only from the press, and the pure parts

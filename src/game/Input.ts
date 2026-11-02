@@ -1,9 +1,9 @@
 import { config } from '../config';
 import { registerTunables } from '../ui/tunables';
 
-// Two thumbs, each with its own job (docs/specs/flight/THUMBS.md). Which thumb
-// is which goes by order, never by a line: a player with one thumb never meets
-// any of this, and a left-hander gets it for free.
+// Two thumbs, each with its own job, and one thumb has all of them but the look
+// (docs/specs/flight/THUMBS.md). Which thumb is which goes by order, never by a
+// line: a player with one thumb flies, flicks and taps with it, either hand.
 //
 // THE FIRST THUMB FLIES: the floating bungee, anywhere on the screen. The
 // touch-down point becomes the anchor, and the vector from the anchor to the
@@ -27,14 +27,14 @@ import { registerTunables } from '../ui/tunables';
 // Two fingers tapped together (nobody steering) count as one tap.
 //
 // Two lone touches, because the bus flies on by itself with no thumb down:
-//  - the flick side is the left half (the right, with BUTTONS: SWAP). For memoryMs
-//    after two thumbs were last together, the second on the flick side and the
-//    flying thumb on the other half, a lone touch on the flick side is the second
-//    thumb, so lifting the flying thumb doesn't turn the look thumb into a steering
-//    thumb. The other half always flies, whatever happened on the glass;
-//  - a lone fresh stroke landing on the flick side that lifts fast is a flick, on
-//    the firmer rule. It steers until the lift decides: steering never waits for a
-//    verdict. A stroke on the other half is never a flick.
+//  - the second thumb's half is the left (the right, with BUTTONS: SWAP). For
+//    memoryMs after two thumbs were last together, the second there and the flying
+//    thumb on the other half, a lone touch on that half is the second thumb, so
+//    lifting the flying thumb doesn't turn the look thumb into a steering thumb. The
+//    other half always flies, whatever happened on the glass;
+//  - a lone fresh stroke that lifts fast is a flick, on either half, on the firmer
+//    rule. It steers until the lift decides: steering never waits for a verdict, and
+//    a thumb that stays down never shifts.
 // A flick is read from the landing and the lift alone, distance over contact
 // time, so it holds at any frame rate. One touch is one reading, so the return
 // stroke never counts. A stroke landing in the bottom band (iOS owns that edge)
@@ -107,7 +107,7 @@ export const inputTune = {
   secondTapMs: 230,
   /** The look waits this long (ms) so a flick doesn't swing the camera, and for the thumb to leave tapSlopPx. */
   lookDelayMs: 100,
-  /** For this long (ms) after two thumbs were last together, a lone touch on the flick side is the second thumb. */
+  /** For this long (ms) after two thumbs were last together, a lone touch on the second thumb's half is the second thumb. */
   memoryMs: 30000,
   /** A flick by the second thumb: at least this far (px), in at most this long (ms), at least this fast on average (px/ms), within this many degrees of vertical. */
   flickPx: 30,
@@ -231,7 +231,7 @@ export class Input {
   onPress: (() => void) | null = null;
   onTripleFinger: (() => void) | null = null;
   onFirstGesture: (() => void) | null = null;
-  /** BUTTONS: SWAP: a lone flick lands on the right half instead of the left. */
+  /** BUTTONS: SWAP: the second thumb's half is the right instead of the left. */
   swapped = false;
 
   private readonly el: HTMLElement;
@@ -251,7 +251,7 @@ export class Input {
   /** the flying thumb, and the thumb that has the view */
   private fly: Slot | null = null;
   private looker: Slot | null = null;
-  /** when two thumbs were last together, the second on the flick side (ms) */
+  /** when two thumbs were last together, the second on its half (ms) */
   private twoAt = -Infinity;
 
   // the current gesture (from the flying thumb's landing, or a lone second thumb's)
@@ -607,7 +607,7 @@ export class Input {
     let recent = false;
     for (const s of this.slots) if (s.role === Role.Second && !s.right && now - s.t0 <= inputTune.tapMs && s.maxDist <= inputTune.tapSlopPx) recent = true;
     this.setSlot(slot, e, now, Role.Fly);
-    if (others === 0 && !mouse && this.flickSide(slot.x0) && this.commands(slot)) slot.flick = Flick.Firm;
+    if (others === 0 && !mouse && this.commands(slot)) slot.flick = Flick.Firm;
     this.beginFly(slot, now);
     this.gMax = others + 1;
     this.gMulti = recent;
@@ -658,7 +658,7 @@ export class Input {
       if (ownsPress) this.pressEnd(Src.Button, now, cancelled);
       else if (dir) {
         this.onTurbo?.(dir, t0, now);
-        this.promote(t0);
+        this.promote(t0, now);
       }
       // The everyday tap: one finger, short and still -> fire on the up.
       else if (quick && !this.gMulti && !this.gAnswered) this.onTap?.();
@@ -828,29 +828,29 @@ export class Input {
     return s.type !== 'mouse' && s.y0 <= this.rectH - inputTune.flickBottomPx && s.x0 >= inputTune.flickSidePx && s.x0 <= this.rectW - inputTune.flickSidePx;
   }
 
-  /** The half a lone flick lands on. */
-  private flickSide(x: number): boolean {
+  /** The second thumb's half: all the memory of two thumbs holds. It says nothing about where a flick lands. */
+  private secondSide(x: number): boolean {
     return x < this.rectW / 2 !== this.swapped;
   }
 
-  /** A lone touch inside the memory of two thumbs: the second thumb's, on the flick side. The other half always flies. */
+  /** A lone touch inside the memory of two thumbs: the second thumb's, on its half. The other half always flies. */
   private farSide(x: number, now: number): boolean {
-    return now - this.twoAt <= inputTune.memoryMs && this.flickSide(x);
+    return now - this.twoAt <= inputTune.memoryMs && this.secondSide(x);
   }
 
   /**
-   * Two thumbs are together as one lifts. The memory only starts if that shows the flick side is the second thumb's: the
-   * second there and able to command, the flying thumb on the other half. A grip in a band, a finger on the flying thumb's
-   * own half or a flying thumb on the flick side changes nothing, so nobody loses their steering to a stray touch or to
-   * which of two thumbs landed first. A lone flick lifting (`flicked`) shows the same thing the other way round: the thumb
-   * on the other half flies now.
+   * Two thumbs are together as one lifts. The memory only starts if that shows the left half is the second thumb's (the
+   * right, swapped): the second there and able to command, the flying thumb on the other half. A grip in a band, a finger on
+   * the flying thumb's own half or a flying thumb on that half changes nothing, so nobody loses their steering to a stray
+   * touch or to which of two thumbs landed first. A lone flick lifting from that half (`flicked`) shows the same thing the
+   * other way round: the thumb on the other half flies now. One lifting from the other half shows nothing.
    */
   private noteTogether(now: number, flicked: boolean) {
     const f = this.fly;
     if (!f) return;
     for (const s of this.slots) {
       if (s.role !== Role.Second || s.right) continue;
-      if (flicked ? !this.flickSide(s.x0) : this.flickSide(s.x0) && !this.flickSide(f.x0) && this.commands(s)) {
+      if (flicked ? this.secondSide(f.x0) && !this.secondSide(s.x0) : this.secondSide(s.x0) && !this.secondSide(f.x0) && this.commands(s)) {
         this.twoAt = now;
         return;
       }
@@ -864,10 +864,10 @@ export class Input {
     return s.flick === Flick.Firm ? readFlick(dx, dy, ms, T.loneFlickPx, T.loneFlickMs, T.loneFlickSpeed, T.loneFlickDeg) : readFlick(dx, dy, ms, T.flickPx, T.flickMs, T.flickSpeed, T.flickDeg);
   }
 
-  /** The stroke that just lifted was a command, not a flying thumb: a thumb that landed during it flies, from where it landed. */
-  private promote(t0: number) {
+  /** The stroke that just lifted was a command, not a flying thumb, so a thumb that landed during it is a lone touch: it flies, from where it landed, unless the memory makes it the second thumb. */
+  private promote(t0: number, now: number) {
     for (const s of this.slots) {
-      if (s.role !== Role.Second || s.right || s.t0 < t0) continue;
+      if (s.role !== Role.Second || s.right || s.t0 < t0 || this.farSide(s.x0, now)) continue;
       if (s.looking) this.endLook(s);
       s.role = Role.Fly;
       s.flick = Flick.No;
