@@ -279,6 +279,7 @@ export class Controls {
       const cf = this.cf;
       cf.glinting = this.glinting;
       cf.openingOver = !this.opening;
+      cf.gated = this.gearsLocked;
       cf.splats = this.splats;
       cf.thumb = this.thumbOnce;
       cf.stillPress = input.stillFor(performance.now());

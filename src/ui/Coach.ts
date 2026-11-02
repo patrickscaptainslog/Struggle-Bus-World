@@ -26,6 +26,8 @@ export type Cue = 'none' | 'tap' | 'drag';
 export interface CoachFrame {
   glinting: boolean;
   openingOver: boolean;
+  /** the opening's gate is down: the look and the gears the hint teaches are waiting for the bridge */
+  gated?: boolean;
   splats: number;
   /** a thumb committed this session */
   thumb: boolean;
@@ -90,7 +92,7 @@ export class Coach {
     }
     this.cue = cue;
 
-    if (f.openingOver && !this.has(TAUGHT.thumbs)) {
+    if (f.openingOver && !f.gated && !this.has(TAUGHT.thumbs)) {
       this.hintT += dt;
       if (this.hintT >= HINT_AFTER) {
         this.learn(TAUGHT.thumbs);
