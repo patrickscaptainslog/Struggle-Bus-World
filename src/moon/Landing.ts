@@ -8,7 +8,7 @@ import { FALL_FLOOR, FALL_TAU, R_M, type MoonTrip } from '../sky/MoonTrip';
 import type { PaintStroke } from '../sky/MoonPaint';
 import type { SkyDraw } from '../sky/SkyDraw';
 import { MOON, type Observer, type SkyModel, type SkyState } from '../sky/SkyModel';
-import type { TripView } from '../sky/TripView';
+import { SHOW, type TripView } from '../sky/TripView';
 import { axesOf, dirOf, latOf, lonOf, mapOf, type MapFrame } from './map';
 import type { MoonFar } from './MoonFar';
 
@@ -18,7 +18,7 @@ import type { MoonFar } from './MoonFar';
 //     top), so it isn't made ahead, and a player who changes their mind only moves it. If it's late the fall is held back: `gov`.
 //   - From H_SHOW down the flight's loop draws the world's far field. The render frame stops being the view's and becomes the world's: the lens stands where it really is on the map and turns by the view's own axes, so the mesh draws
 //     with nothing changed in it and the bus and the sky keep their places. The ray-drawn Moon goes on under it in the sky branch, and the mesh comes in over it by a dither.
-//   - At H_GROUND the low game takes the frame: Flight, CameraRig, City. The two pictures are the same mesh by then, so nothing is left to see but the rig's own pose, which it takes over a couple of seconds.
+//   - At H_GROUND the low game takes the frame: Flight, CameraRig, City. The two pictures are the same mesh by then, and the same camera: sky/TripView.ts is the rig's own law, so there's nothing to see.
 //   - Up is the same two joins the other way, and gears. The low game climbs as it does, and at H_UP the flight's loop takes the bus back: `back`. Going on up is the gear the bus is in, whatever the height: the law is a brake on arrival and nothing else.
 //     The low game's last gear is the way out: it lifts the bus past H_UP, and the flight's loop carries it on to the orbit at that gear's speed, where TURBO goes home.
 //
@@ -408,6 +408,17 @@ export class Landing {
       busQuat: bus.quaternion.clone(),
       dive: this.view.dive,
     });
+  }
+
+  /** The low game's bus in a dive shows the camera what the flight's does (TripView's SHOW), or it turns end on as it's handed over. q: its turn, in the world, which this changes; x, y, z: where it is; dive: the rig's. */
+  shown(q: THREE.Quaternion, camera: THREE.Camera, x: number, y: number, z: number, dive: number): void {
+    if (dive <= 0) return;
+    const n = this.x.set(0, 0, -1).applyQuaternion(q), s = this.y.set(x, y, z).sub(camera.position).normalize();
+    const along = n.dot(s), short = SHOW * dive - Math.sqrt(Math.max(0, 1 - along * along));
+    if (short <= 0) return;
+    const t = this.z.set(0, 1, 0).applyQuaternion(camera.quaternion);
+    t.addScaledVector(s, -t.dot(s)).normalize();
+    q.premultiply(this.qT.setFromUnitVectors(n, this.dirT.copy(n).addScaledVector(t, along > 0 ? short : -short).normalize()));
   }
 
   /** The bus is up where the flight's loop takes it back. */

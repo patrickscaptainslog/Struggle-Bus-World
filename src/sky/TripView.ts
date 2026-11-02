@@ -43,6 +43,8 @@ const THUMB_RATE = 70 * DEG;
 const THUMB_HOLD = 6;
 /** The nose's fastest swing, rad/s: the tip-up reads as a move, and the first frame of it isn't a kick. */
 const NOSE_RATE = 75 * DEG;
+/** The share of its length the bus shows the camera in a full dive, the sine of the angle between its nose and the line of sight. The rig tips over a dive until it's looking down the bus's back, and end on a bus is its tail, a third of its size: it lifts its nose up the screen by what's short. moon/Landing.ts holds the low game to the same. */
+export const SHOW = 0.7;
 /** The city's angles, degrees, read as this module loads: on ?moonland moonBoot.ts gives config the Moon's a moment later. */
 const CITY = { elevation: config.camera.elevationVista, pitch: config.camera.pitchVista };
 /** km over the ground: the angles start for the low game's at the one, and are its own by the other, the height the two loops change hands. */
@@ -210,6 +212,8 @@ export class TripView {
     this.inRender(nose, ax, this.nosing);
     this.inRender(this.t2, ax, this.y);
     this.inRender(this.t.set(dir[0], dir[1], dir[2]), ax, this.flying);
+    const sb = Math.sin(this.below), cb = Math.cos(this.below), along = -(this.nosing.y * sb + this.nosing.z * cb), short = SHOW * this.dive - Math.sqrt(Math.max(0, 1 - along * along));
+    if (short > 0) this.nosing.addScaledVector(this.t.set(0, cb, -sb), along > 0 ? short : -short).normalize();
     const z = this.z.copy(this.nosing).negate();
     const x = this.x.crossVectors(this.y, z).normalize();
     this.y.crossVectors(z, x);

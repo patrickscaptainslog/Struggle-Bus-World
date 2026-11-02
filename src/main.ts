@@ -1211,6 +1211,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
     bus.update(dt, simTime, superPose);
     eul.set(flight.pitch + superSplat.pitch, -flight.heading, -flight.bank, 'YXZ');
     q.setFromEuler(eul);
+    land?.shown(q, camera, flight.x, flight.y, flight.z, rig.dive);
     bus.root.quaternion.copy(q);
     if (fromSky) {
       fromSky.t = Math.min(1, fromSky.t + realDt / 2.4);
