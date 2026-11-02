@@ -3,7 +3,7 @@
 // TURBO to the Moon, a thumb pushed down to the ground, skimming, taps at what glints, TURBO back out to the orbit, TURBO home. One page, one link. What it says at the end: every leg, what compiled in flight, every long frame and what was going on.
 //   --t=2026-11-25T04:00:00Z   the date: full Moon by default, 2026-11-09T22:00:00Z is about new
 //   --q=                       more of the URL
-//   --real                     the flight to the Moon and home flown in real time. Without it the long dark is skipped: the route's own step, not drawn
+//   --real                     the flight to the Moon and home flown in real time, with a thumb dragged in the long dark to look round. Without it the long dark is skipped: the route's own step, not drawn
 //   --lap=s                    seconds of orbit skipped before the push: round to the far side (200 is about half a lap)
 //   --splash=n                 taps from orbit before going down
 //   --paint=n                  taps at what glints, down there
@@ -53,7 +53,8 @@ try {
     window.__frames = [];
     window.__draws = {};
     // (every frame: where the bus stands on the screen, how far the lens has moved and turned, and the lens: what a join would show as a step)
-    const cam = s.camera, THREE_V = cam.position.constructor, THREE_Q = cam.quaternion.constructor, pv = new THREE_V(), pq = new THREE_Q(), bv = new THREE_V();
+    // (the Sun read in the lens's own axes is how far the view really turned, whichever frame the render is in, so it reads straight across the join at the mesh as well. And how long the bus is on the screen, side on, by its scale and the lens)
+    const cam = s.camera, THREE_V = cam.position.constructor, THREE_Q = cam.quaternion.constructor, pv = new THREE_V(), pq = new THREE_Q(), bv = new THREE_V(), sv = new THREE_V(), psv = new THREE_V();
     window.__track = [];
     const track = () => {
       const low = m.landing.ground, f = g.flight;
@@ -63,7 +64,10 @@ try {
         else bv.copy(m.landing.bus);
         cam.updateMatrixWorld();
         const p = bv.clone().project(cam), w = window.innerWidth, h = window.innerHeight;
-        window.__track.push([low ? 1 : 0, +(low ? f.height / 1000 : m.landing.height).toFixed(2), Math.round((p.x * 0.5 + 0.5) * w), Math.round((0.5 - p.y * 0.5) * h), +cam.position.distanceTo(pv).toFixed(0), +((cam.quaternion.angleTo(pq) * 180) / Math.PI).toFixed(3), +cam.fov.toFixed(2), +cam.position.distanceTo(bv).toFixed(0), +(low ? f.nose * 57.3 : m.trip.nose * 57.3).toFixed(1)]);
+        sv.set(m.sky.sun[0], m.sky.sun[1], m.sky.sun[2]).applyQuaternion(pq.copy(cam.quaternion).invert());
+        const lens = cam.position.distanceTo(bv), px = (s.bus.root.scale.x * s.bus.length) / lens / s.pipeline.pixelWorldSize(1);
+        window.__track.push([low ? 1 : 0, +(low ? f.height / 1000 : m.landing.height).toFixed(2), Math.round((p.x * 0.5 + 0.5) * w), Math.round((0.5 - p.y * 0.5) * h), +cam.fov.toFixed(2), +lens.toFixed(0), +(low ? f.nose * 57.3 : m.trip.nose * 57.3).toFixed(1), +((sv.angleTo(psv) * 180) / Math.PI).toFixed(3), +px.toFixed(1), m.landing.near ? 1 : 0]);
+        psv.copy(sv);
       }
       pv.copy(cam.position);
       pq.copy(cam.quaternion);
@@ -104,9 +108,14 @@ try {
       leg: tr.leg, clock: r(tr.t, 1), h: low ? r(f.height / 1000, 2) : r(l.height, 1), v: low ? r(f.speed) : r(tr.v * tr.gov * 1000), nose: r(((low ? f.nose : tr.nose) * 180) / Math.PI, 0), show: r(l.show, 2), near: l.near, low,
       gear: low ? g.controls.turbo.gear : tr.gear, y: low ? r(f.y - g.city.groundAt(f.x, f.z), 1) : null, gap: low ? r(f.y - f.floorY, 1) : null, tiles: g.city.loadedRegionCount(), say: document.querySelector('[data-hud="trip-label"]')?.dataset.say ?? '', toast: [...document.querySelectorAll('[data-hud="toast"]')].map((e) => e.getAttribute('aria-label') ?? '').join('/'), hudLow: g.controls.hud.root.style.display !== 'none',
       painted: g.moon.paint.recs.size, orbit: +(m.breath.paint.painted * 100).toFixed(3), glint: !!g.moon.paint.target, full: f.fullness >= 0.999,
+      // (what the leg is flying to: where it stands on the frame, as the player sees it)
+      disc: (() => {
+        const v = m.sky[tr.bound ? 'moon' : 'earth'], k = 1 / s.pipeline.pixelWorldSize(1);
+        return v[2] < 0 ? `${Math.round(196.5 + (v[0] / -v[2]) * k)},${Math.round(426 - (v[1] / -v[2]) * k)}` : 'behind';
+      })(),
     };
   });
-  const say = (s) => console.log(`${s.clock.toFixed(1).padStart(7)} s ${String(s.leg).padEnd(10)} ${String(s.h).padStart(9)} km ${String(s.v).padStart(9)} m/s nose ${String(s.nose).padStart(4)} G${s.gear} show ${s.show} ${s.low ? `clearance ${s.y} gap ${s.gap}` : ''} ${s.say.split('|').filter(Boolean).slice(2).join(' / ')}`);
+  const say = (s) => console.log(`${s.clock.toFixed(1).padStart(7)} s ${String(s.leg).padEnd(10)} ${String(s.h).padStart(9)} km ${String(s.v).padStart(9)} m/s nose ${String(s.nose).padStart(4)} G${s.gear} show ${s.show} ${s.low ? `clearance ${s.y} gap ${s.gap}` : ''} ${s.say.split('|').filter(Boolean).slice(2).join(' / ')} disc ${s.disc}`);
   const shot = async (name) => page.screenshot({ path: join(dir, `${String(shots++).padStart(3, '0')}-${name}.png`) });
   const turbo = async () => {
     const b = await page.evaluate(() => {
@@ -163,7 +172,24 @@ try {
   if (real) {
     await page.waitForTimeout(3000);
     await turbo();
-    await fly('out', (s) => s.leg === 'orbit', { secs: 400, every: 12 });
+    await fly('out', (s) => s.leg === 'cruise', { secs: 120, every: 12 });
+    await page.waitForTimeout(3000);
+    // ---- a thumb in the long dark swings the camera, and left alone it goes home on its spring
+    let d = await read();
+    console.log(`  the thumb: before, the Moon at ${d.disc}`);
+    await holdThumb(130, 0);
+    await page.waitForTimeout(700);
+    d = await read();
+    console.log(`  dragged: ${d.disc}`);
+    await shot('dragged');
+    await lift();
+    await page.waitForTimeout(4000);
+    d = await read();
+    console.log(`  let go, 4 s: ${d.disc}`);
+    await page.waitForTimeout(7000);
+    d = await read();
+    console.log(`  let go, 11 s: ${d.disc}`);
+    await fly('out', (s) => s.leg === 'orbit', { secs: 400, every: 6 });
   } else {
     await page.evaluate(() => {
       const m = window.__space.moon;
@@ -298,7 +324,7 @@ try {
       long: long.slice(0, 40),
       joins: (() => {
         const t = window.__track, out = [];
-        for (let i = 1; i < t.length; i++) if (t[i][0] !== t[i - 1][0]) out.push(t.slice(Math.max(0, i - 4), i + 6));
+        for (let i = 1; i < t.length; i++) if (t[i][0] !== t[i - 1][0] || t[i][9] !== t[i - 1][9]) out.push(t.slice(Math.max(0, i - 4), i + 6));
         return out;
       })(),
       longCount: long.length,
@@ -307,7 +333,7 @@ try {
     };
   });
   for (const j of end.joins) {
-    console.log('join (low, km, bus x, bus y, lens moved m, lens turned deg, fov, lens to bus m, nose):');
+    console.log('join (low, km, bus x, bus y, fov, lens to bus m, nose, view turned deg, bus px side on, in the frame of the world):');
     for (const r of j) console.log('  ' + r.join('  '));
   }
   delete end.joins;

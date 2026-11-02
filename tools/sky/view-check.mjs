@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // "No visible jump", as a number: flies src/sky/MoonTrip.ts and src/sky/TripView.ts in Node, two round trips in a row at 30 fps and at a rough 20-40 fps, leaving the Moon from several places on the lap, and prints the largest turn of the view and of the bus between
-// two frames, leg by leg, with the lens's and the rig's. node --no-warnings tools/sky/view-check.mjs [g5] [iso]
+// two frames, leg by leg, with the lens's and how far the chase is off the way the bus goes. node --no-warnings tools/sky/view-check.mjs [g5] [iso]
 // Pass: the view turns at most 3.5 degrees in a frame at 30 fps (105 deg/s) and the bus 6, which is its own swing and the view's added up, and nothing is ever NaN. The rebase at 60,000 km is measured on the Sun's, Moon's and Earth's directions across that frame.
-// The view's own change of body, each way, is the swing: unhurried, so it's held to a third of that, 1.3 degrees a frame (40 deg/s), and the lens stays out of it. tools/sky/approach-check.mjs reads the disc's size on screen.
+// The camera is the bus's, so it's held to that too: in the long dark, where all it has to do is bring up round to home, at most 1.3 degrees a frame (40 deg/s) and a degree off the path, and coming in 6 degrees. The lens
+// doesn't move at all. tools/sky/approach-check.mjs reads the disc on screen.
 import { registerHooks } from 'node:module';
 
 registerHooks({
@@ -26,7 +27,7 @@ function fly(rough, orbitFrames) {
   const prev = { axes: new Float64Array(9), q: view.busQuat.clone(), hfov: 38, sun: [0, 0, 0], moon: [0, 0, 0], body: 0 };
   const worst = new Map();
   const note = (leg, key, x) => {
-    const w = worst.get(leg) ?? { view: 0, bus: 0, lens: 0, n: 0 };
+    const w = worst.get(leg) ?? { view: 0, bus: 0, lens: 0, off: 0, n: 0 };
     w[key] = Math.max(w[key], x);
     worst.set(leg, w);
   };
@@ -50,6 +51,9 @@ function fly(rough, orbitFrames) {
       note(leg, 'view', (Math.acos(Math.min(1, c)) / DEG) * k);
       note(leg, 'bus', ((2 * Math.acos(Math.min(1, Math.abs(view.busQuat.dot(prev.q))))) / DEG) * k);
       note(leg, 'lens', Math.abs(view.hfov - prev.hfov) * k);
+      // (the way the bus goes, and at rest the way it faces)
+      const way = trip.v < 20 ? trip.heading : trip.dir, ah = view.ahead;
+      note(leg, 'off', Math.acos(Math.min(1, ah.x * way[0] + ah.y * way[1] + ah.z * way[2])) / DEG);
       if (prev.body !== trip.ob.body) {
         // the same frame's sky through both frames of reference can't be had here: what the rebase can do is show up as a step in the Moon's direction against its neighbours
         rebase = { at: trip.clock, leg, stepMoonDeg: (Math.acos(Math.min(1, sky.moon[0] * prev.moon[0] + sky.moon[1] * prev.moon[1] + sky.moon[2] * prev.moon[2])) / DEG) * k, viewDeg: (Math.acos(Math.min(1, c)) / DEG) * k };
@@ -82,12 +86,13 @@ function fly(rough, orbitFrames) {
 
 for (const [rough, orbitFrames] of [[false, 300], [true, 300], [false, 150], [false, 450], [false, 640], [false, 830], [false, 1020]]) {
   const { worst, rebase, frames } = fly(rough, orbitFrames);
-  console.log(`${rough ? "rough 20-40 fps, per 1/30 s" : "30 fps"}, ${orbitFrames} frames in orbit: ${frames} frames. Largest step in a frame, degrees (view, bus, lens):`);
+  console.log(`${rough ? "rough 20-40 fps, per 1/30 s" : "30 fps"}, ${orbitFrames} frames in orbit: ${frames} frames. Largest step in a frame, degrees (view, bus, lens), and the chase's furthest off the way the bus goes:`);
   for (const [leg, w] of worst) {
-    const swing = leg === 'cruise' || leg === 'homeCruise';
-    const over = !(w.view <= (swing ? 1.3 : 3.5) && w.bus <= 6 && w.lens <= 0.6);
+    const dark = leg === 'cruise' || leg === 'homeCruise';
+    // (leaving, the path turns first and the chase comes round after it: its step is what's held there)
+    const over = !(w.view <= (dark ? 1.3 : 3.5) && w.bus <= 6 && w.lens === 0 && w.off <= (dark ? 1 : leg === 'in' || leg === 'homeIn' ? 6 : 180));
     if (over) fails++;
-    console.log(`  ${leg.padEnd(12)} ${w.view.toFixed(2).padStart(6)} ${w.bus.toFixed(2).padStart(6)} ${w.lens.toFixed(3).padStart(6)}${over ? '  OVER' : ''}`);
+    console.log(`  ${leg.padEnd(12)} ${w.view.toFixed(2).padStart(6)} ${w.bus.toFixed(2).padStart(6)} ${w.lens.toFixed(3).padStart(6)} ${w.off.toFixed(1).padStart(6)}${over ? '  OVER' : ''}`);
   }
   if (rebase) console.log(`  rebase at ${rebase.at.toFixed(1)} s on ${rebase.leg}: the Moon's direction steps ${rebase.stepMoonDeg.toFixed(4)} deg in that frame, the view ${rebase.viewDeg.toFixed(4)} deg`);
 }

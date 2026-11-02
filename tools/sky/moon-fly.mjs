@@ -36,7 +36,7 @@ try {
   const say = () =>
     page.evaluate(() => {
       const m = window.__game.moon, s = m.sky, tr = m.trip, px = 1 / window.__game.pipeline.pixelWorldSize(1);
-      return { leg: tr.leg, gear: tr.gear, clock: +tr.clock.toFixed(1), v: Math.round(tr.v), hE: Math.round(tr.hEarth), hM: Math.round(tr.hMoon), lens: +m.view.hfov.toFixed(1), look: m.view.target ? 'moon' : 'earth', body: tr.ob.body, earthPx: Math.round(2 * Math.tan(s.earthR) * px), moonPx: Math.round(2 * Math.tan(s.moonR) * px) };
+      return { leg: tr.leg, gear: tr.gear, clock: +tr.clock.toFixed(1), v: Math.round(tr.v), hE: Math.round(tr.hEarth), hM: Math.round(tr.hMoon), lens: +m.view.hfov.toFixed(1), bound: m.trip.bound ? 'moon' : 'earth', body: tr.ob.body, earthPx: Math.round(2 * Math.tan(s.earthR) * px), moonPx: Math.round(2 * Math.tan(s.moonR) * px) };
     });
   const turbo = await page.locator('[data-hud="turbo"]').boundingBox();
   const hudOn = await page.evaluate(() => [...document.querySelectorAll('[data-hud]')].filter((e) => getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden').map((e) => e.dataset.hud));

@@ -42,7 +42,7 @@ try {
     let last = performance.now();
     const tick = (now) => {
       const tr = m.trip, s = m.sky, f = 1 / p.pixelWorldSize(1);
-      rec.push([+(now - last).toFixed(1), +tr.clock.toFixed(3), tr.leg, tr.gear, +tr.v.toFixed(1), +tr.hEarth.toFixed(2), +tr.hMoon.toFixed(2), +m.view.hfov.toFixed(3), +f.toFixed(1), s.earth[0], s.earth[1], s.earth[2], s.moon[0], s.moon[1], s.moon[2], s.sun[0], s.sun[1], s.sun[2], s.earthR, s.moonR, +s.sunSeen.toFixed(3), +s.moonLit.toFixed(3), +s.earthLit.toFixed(3), tr.ob.body, m.view.target]);
+      rec.push([+(now - last).toFixed(1), +tr.clock.toFixed(3), tr.leg, tr.gear, +tr.v.toFixed(1), +tr.hEarth.toFixed(2), +tr.hMoon.toFixed(2), +m.view.hfov.toFixed(3), +f.toFixed(1), s.earth[0], s.earth[1], s.earth[2], s.moon[0], s.moon[1], s.moon[2], s.sun[0], s.sun[1], s.sun[2], s.earthR, s.moonR, +s.sunSeen.toFixed(3), +s.moonLit.toFixed(3), +s.earthLit.toFixed(3), tr.ob.body, tr.bound]);
       last = now;
       requestAnimationFrame(tick);
     };
@@ -52,7 +52,7 @@ try {
   const read = () =>
     page.evaluate(() => {
       const m = window.__game.moon, s = m.sky, tr = m.trip, f = 1 / window.__game.pipeline.pixelWorldSize(1);
-      return { leg: tr.leg, gear: tr.gear, clock: +tr.clock.toFixed(1), v: Math.round(tr.v), hE: Math.round(tr.hEarth), hM: Math.round(tr.hMoon), lens: +m.view.hfov.toFixed(1), trips: tr.trips, target: m.view.target, moonOff: s.moon[2] < 0 ? +(Math.hypot(s.moon[0], s.moon[1]) / -s.moon[2] * f / 196).toFixed(2) : 9, earthPx: Math.round(2 * Math.tan(s.earthR) * f), moonPx: Math.round(2 * Math.tan(s.moonR) * f), say: document.querySelector('[data-hud="trip-label"]')?.dataset.say ?? '', moonLit: +s.moonLit.toFixed(3), earthLit: +s.earthLit.toFixed(3), sunSeen: +s.sunSeen.toFixed(2) };
+      return { leg: tr.leg, gear: tr.gear, clock: +tr.clock.toFixed(1), v: Math.round(tr.v), hE: Math.round(tr.hEarth), hM: Math.round(tr.hMoon), lens: +m.view.hfov.toFixed(1), trips: tr.trips, bound: tr.bound, moonOff: s.moon[2] < 0 ? +(Math.hypot(s.moon[0], s.moon[1]) / -s.moon[2] * f / 196).toFixed(2) : 9, earthPx: Math.round(2 * Math.tan(s.earthR) * f), moonPx: Math.round(2 * Math.tan(s.moonR) * f), say: document.querySelector('[data-hud="trip-label"]')?.dataset.say ?? '', moonLit: +s.moonLit.toFixed(3), earthLit: +s.earthLit.toFixed(3), sunSeen: +s.sunSeen.toFixed(2) };
     });
   const turbo = await page.locator('[data-hud="turbo"]').boundingBox();
   const tap = () => page.touchscreen.tap(turbo.x + turbo.width / 2, turbo.y + turbo.height / 2);
