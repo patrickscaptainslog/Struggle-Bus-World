@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { config } from '../config';
+import { fxTune } from '../fx/Particles';
 import { globals } from '../render/materials';
 import { Ramp, dayRows, writePalette } from '../render/palette';
 import type { PixelPipeline } from '../render/PixelPipeline';
@@ -126,6 +127,17 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   config.camera.lookAhead = 95;
   // (a crater's wall is a hill to fly up, not a tower to steer round)
   config.flight.avoidTallerThan = 2000;
+  // One-sixth gravity on everything paint does: the same heights, as long again by the root of six. What the street snaps, here hangs.
+  const G6 = Math.sqrt(6);
+  fxTune.gravity /= 6;
+  fxTune.burstUp /= G6;
+  fxTune.burstOut /= G6;
+  fxTune.splashUp /= G6;
+  fxTune.splashOut /= G6;
+  config.splat.blobTime *= G6;
+  config.splat.blobTimePerM *= G6;
+  // (the aim runs out as far as the ground does: a crater is a target from any height the bus can see it at)
+  config.splat.maxRange = 30000;
   pipeline.setFar(FAR_PLANE);
   if (sky.night) moonGlobals.uMoonLight.value.set(0.17, 0.03);
   globals.uGroundRef.value = 0;

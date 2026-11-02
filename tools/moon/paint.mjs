@@ -56,7 +56,7 @@ const shift = (d) => page.evaluate((v) => window.__game.input.onTurbo(v), d);
 const shot = (name) => page.screenshot({ path: `${out}/${name}.png` });
 const state = () => page.evaluate(() => {
   const g = window.__game, f = g.flight, p = g.moon.paint, t = p.target, r = (x, k = 1) => +x.toFixed(k);
-  return { t: r(g.clock(), 2), x: r(f.x, 0), z: r(f.z, 0), h: r(f.y - g.city.groundAt(f.x, f.z)), speed: r(f.speed), target: t ? { id: t.id, r: r(t.r), level: t.rec?.level ?? 0, name: t.name, x: r(t.x, 0), z: r(t.z, 0) } : null, list: p.listed, recs: p.recs.size, live: p.liveCount, ...window.__stats, sign: g.lastSign()?.text ?? null };
+  return { t: r(g.clock(), 2), x: r(f.x, 0), z: r(f.z, 0), h: r(f.y - g.city.groundAt(f.x, f.z)), speed: r(f.speed), target: t ? { id: t.id, r: r(t.r), level: t.rec?.level ?? 0, name: t.name, x: r(t.x, 0), z: r(t.z, 0) } : null, list: p.listed, recs: p.recs.size, live: p.liveCount, rim: p.rim?.count, ...window.__stats, sign: g.lastSign()?.text ?? null };
 });
 const log = [];
 const note = async (tag) => {
@@ -123,6 +123,53 @@ const SCRIPTS = {
     await letGo();
     await shot('rise-end');
   },
+};
+
+/** Finds a crater near this size around (x, z): returns { id, x, z, r }. */
+const find = (x, z, r, spread) => page.evaluate(([x, z, r, spread]) => {
+  const list = window.__game.moon.cratersNear(x, z, spread, r * 1.4).filter((c) => c.r > r * 0.8 && c.r < r * 1.3 && c.age < 2 && !c.name);
+  list.sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z));
+  return list[0] ?? null;
+}, [x, z, r, spread]);
+/** The bus held `back` m short of a place, `up` m over the ground there, nose at it. */
+const pose = (x, z, back, up, az = 0) => page.evaluate(([x, z, back, up, az]) => {
+  const g = window.__game, h = (az * Math.PI) / 180, bx = x - Math.sin(h) * back, bz = z + Math.cos(h) * back;
+  window.__qa.pin = { x: bx, z: bz, y: g.city.groundAt(bx, bz) + up, heading: h };
+}, [x, z, back, up, az]);
+const settle = async (secs = 2) => {
+  for (let k = 0; k < 120; k++) {
+    await run(0.4);
+    if (await page.evaluate(() => window.__shotReady === true)) break;
+  }
+  await run(secs);
+};
+/** One crater at each level: frames from where a player would see it. */
+const levels = async (tag, c, back, up, az) => {
+  await pose(c.x, c.z, back, up, az);
+  await settle();
+  await shot(`${tag}-0`);
+  for (let l = 1; l <= 3; l++) {
+    await page.evaluate(([id, l]) => window.__game.moon.paint.qaHit(id, window.__game.clock(), l), [c.id, l]);
+    await run(l === 3 ? 3.6 : 3);
+    await note(`${tag}-${l}`);
+    await shot(`${tag}-${l}`);
+  }
+};
+
+SCRIPTS.gallery = async () => {
+  await open();
+  const st = await page.evaluate(() => {
+    const g = window.__game, f = g.flight;
+    return { x: f.x, z: f.z, h: f.heading };
+  });
+  const az = (st.h * 180) / Math.PI;
+  const ahead = (d) => [st.x + Math.sin(st.h) * d, st.z - Math.cos(st.h) * d];
+  for (const [tag, r, back, up] of [['r20', 20, 110, 26], ['r60', 60, 220, 40], ['r160', 160, 480, 90], ['r500', 500, 1400, 300], ['r1800', 1800, 5000, 1400]]) {
+    const [x, z] = ahead(back + 200);
+    const c = await find(x, z, r, Math.max(3000, r * 8));
+    console.log(tag, JSON.stringify(c));
+    if (c) await levels(tag, c, back, up, az);
+  }
 };
 
 const want = (opt.script ?? 'three').split(',');

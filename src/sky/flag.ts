@@ -28,3 +28,24 @@ export const moonLow = typeof location !== 'undefined' && new URLSearchParams(lo
 
 /** GLSL only ?moonrun and ?moon compile. */
 export const space = (glsl: string): string => (moonrun || moonLow ? glsl : '');
+
+/**
+ * The flat map rolled onto its sphere around the lens, so the ground falls away and has a horizon. Bearings and distances from the lens hold, which is all a horizon asks. Written so that float32 keeps it near the
+ * lens: no radius minus a radius. Only clip positions take this: everything that asks where a pixel is on the ground reads the flat map. (The radius is map.ts's R_M.)
+ */
+export const GLSL_MOON_CURVE = /* glsl */ `
+const float MOON_R = 1737400.0;
+vec3 moonCurve(vec3 wp) {
+  vec2 d = wp.xz - cameraPosition.xz;
+  float s = length(d);
+  float th = s / MOON_R;
+  float sh = sin(0.5 * th);
+  // (height y over the sphere, so the true radius is MOON_R + y)
+  float y = wp.y * cos(th) - 2.0 * MOON_R * sh * sh;
+  float pull = th > 1e-6 ? (wp.y * sin(th) + MOON_R * (-th * th * th / 6.0 + th * th * th * th * th / 120.0)) / s : 0.0;
+  return vec3(wp.x + d.x * pull, y, wp.z + d.y * pull);
+}
+`;
+
+/** GLSL only ?moon compiles. */
+export const moonOnly = (glsl: string): string => (moonLow ? glsl : '');

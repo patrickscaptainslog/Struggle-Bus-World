@@ -204,8 +204,10 @@ async function boot() {
   // ---- props: trees stream with tiles, landmarks are placed once
   const treeFields = new Map<string, TreeField>();
   const treeIndex = new Map<string, TreeInstance[]>();
-  const sprouts = new RoofSprouts();
+  // (a rim runs on for kilometres, and nothing else out here is near it: wider cells than a city's)
+  const sprouts = new RoofSprouts(4096, moon ? 2048 : undefined);
   scene.add(sprouts.object);
+  moon?.paint.bloom(sprouts, (x, z) => city.terrainAt(x, z) !== null);
   /** buildings whose paint already thinned the fog this session (a tile streaming back in mustn't bump it again) */
   const fogBumped = new Set<number>();
   /** Rooftop garden / Hundertwasser crown on a building: drawn, and the flight's obstacle field rises over it. */
@@ -1024,7 +1026,7 @@ async function boot() {
   /** frames rendered (the opening's clock starts once the first one is on screen) */
   let framesDrawn = 0;
 
-  type QA = { sx?: number; sy?: number; holdAt?: number; holdFrames?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null };
+  type QA = { sx?: number; sy?: number; holdAt?: number; holdFrames?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null; pin?: { x: number; y: number; z: number; heading: number } | null };
   function frame(now: number) {
     requestAnimationFrame(frame);
     if (glLost) {
@@ -1124,6 +1126,8 @@ async function boot() {
     if (pastMap > 0) flight.turbo.floor = Math.max(flight.turbo.floor, pastMap);
     const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
     for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || sx !== st.stretch.x }, city);
+    // QA: the bus held at a pose, for a look at something from one place
+    if (qa?.pin) Object.assign(flight, qa.pin);
     if (!wasFull && flight.fullness >= 1) {
       audio.ready();
       superHint();
@@ -1251,7 +1255,7 @@ async function boot() {
     moonPaint?.update(dt, simTime, flight, aimer.aim.x, aimer.aim.z, Aimer.loaded(flight), flight.y - city.groundAt(flight.x, flight.z));
     if (jet && simTime >= jet.at) {
       // the inhale is over: the jet leaves the mouth and lands exactly at the impact
-      particles.geyser({ source: mouthWorld, sourceVel: busVel, targets: jet.targets, duration: Math.max(0.05, jet.end - simTime), travelTime: Math.max(0.05, jet.impact - simTime), hues: jet.hues, width: jet.width });
+      particles.geyser({ source: mouthWorld, sourceVel: busVel, targets: jet.targets, duration: Math.max(0.05, jet.end - simTime), travelTime: Math.max(0.05, jet.impact - simTime), hues: jet.hues, width: jet.width, arc: moonPaint?.arc(mouthWorld(), jet.targets[0]) });
       jet = null;
     }
     superFx.update(dt, mouthWorld(), bus.root.matrixWorld);

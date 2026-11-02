@@ -285,6 +285,8 @@ interface Emitter {
   width: number;
   live: GeyserLive | null;
   taper: number;
+  /** m over the chord at the top of a lobbed breath (?moon); 0 the street's straight jet */
+  arc: number;
   start: number;
   duration: number;
   travel: number;
@@ -772,6 +774,7 @@ export class Particles {
         width: 1,
         live: null,
         taper: 0.7,
+        arc: 0,
         start: 0,
         duration: 1,
         travel: 0.35,
@@ -833,6 +836,8 @@ export class Particles {
     live?: GeyserLive;
     /** share of the duration after which the flow thins out (default 0.7) */
     taper?: number;
+    /** lobbed, not shot: this many m over the chord at the top (?moon) */
+    arc?: number;
   }): void {
     let e: Emitter | null = null;
     for (let i = 0; i < this.emitters.length; i++) {
@@ -851,6 +856,7 @@ export class Particles {
     e.width = Math.max(0.1, opts.width ?? 1);
     e.live = opts.live ?? null;
     e.taper = Math.min(0.99, Math.max(0.05, opts.taper ?? 0.7));
+    e.arc = opts.arc ?? 0;
     e.source = opts.source;
     e.sourceVel = opts.sourceVel;
     e.last.copy(opts.source());
@@ -1060,6 +1066,14 @@ export class Particles {
     s[12] = (cdx / tt) * T.jetIn;
     s[13] = (cdy / tt) * T.jetIn - T.jetDrop;
     s[14] = (cdz / tt) * T.jetIn;
+    if (e.arc > 0) {
+      // (a lob: steady along the chord, and a parabola over it, the same at any moment of the flow)
+      const up = (4 * e.arc) / tt;
+      s[4] = s[12] = cdx / tt;
+      s[5] = cdy / tt + up;
+      s[13] = cdy / tt - up;
+      s[6] = s[14] = cdz / tt;
+    }
     s[15] = K_RIBBON;
     s[16] = HUE_RAMPS[hue];
     s[17] = size;

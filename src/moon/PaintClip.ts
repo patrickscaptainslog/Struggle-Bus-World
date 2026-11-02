@@ -6,9 +6,9 @@ import { CLIP_N } from './moonMaterial';
 // the coarsest, the same quad and the same contour, with no mask on any tile and no tile split out of a coarse region. Near and far ground read the same three layers (GLSL_MOON_PAINT, moonMaterial.ts).
 //
 // A window is 1024 texels a side:
-//   r  hue, 3 bits, read raw: nothing here is filtered, or two hues that meet would run through the hues between
-//   g  glow: how white-hot, while a level lands
-//   b  lift: a step or two brighter than the ground's light gives (a crown, a ray)
+//   r  two hues, 3 bits each, read raw: nothing here is filtered, or two hues that meet would run through the hues between
+//   g  which of the two, a ramp across the boundary: filtered, so two hues meet on as smooth a contour as paint's edge (MoonPaint's trick)
+//   b  lift, 4 bits: a step or two brighter than the ground's light gives (a crown, a ray). Glow, 4 bits: how white-hot, while a level lands
 //   a  coverage, a ramp across the edge. The ground bilinears it by hand and thresholds it, so an edge is a smooth contour at a fraction of a texel, as GroundPaint's is
 // A write takes the hue and keeps the most coverage (blendEquationAlpha MAX): a crater's soft edge must not bite a hole in the paint it lands on.
 //
@@ -85,47 +85,73 @@ const FS = /* glsl */ `
   float h1(float x) { return fract(sin(x * 91.17) * 47453.5453); }
   // How far out this is as the stamp has it: the rim is at vR, wherever it wanders to. ang is the angle round it.
   float rimDist(vec2 p, out float ang) {
+    float d = length(p);
     if (vB.w < 0.5) {
       float th = vB.x * PI, sq = 1.0 + 0.16 * (vB.y - 0.5), ct = cos(th), st = sin(th);
       float u = (p.x * ct + p.y * st) * sq, v = (p.y * ct - p.x * st) / sq;
-      float rr = length(vec2(u, v));
+      d = length(vec2(u, v));
       ang = atan(v, u);
-      if (vR <= 14.0) return rr;
-      float q2 = rr * rr / (vR * vR);
-      float k2 = q2 > 1.5 ? clamp((2.6 - q2) / 1.1, 0.0, 1.0) : q2 < 0.25 ? clamp((q2 - 0.05) / 0.2, 0.0, 1.0) : 1.0;
-      float c = vB.z;
-      vec2 p3 = 0.05 * vec2(cos(c * 40.0), sin(c * 40.0)), p5 = 0.03 * vec2(cos(c * 91.0), sin(c * 91.0));
-      return rr / (1.0 + k2 * (dot(p3, vec2(cos(3.0 * ang), sin(3.0 * ang))) + dot(p5, vec2(cos(5.0 * ang), sin(5.0 * ang)))));
+      if (vR > 14.0) {
+        float q2 = d * d / (vR * vR);
+        float k2 = q2 > 1.5 ? clamp((2.6 - q2) / 1.1, 0.0, 1.0) : q2 < 0.25 ? clamp((q2 - 0.05) / 0.2, 0.0, 1.0) : 1.0;
+        float c = vB.z;
+        vec2 p3 = 0.05 * vec2(cos(c * 40.0), sin(c * 40.0)), p5 = 0.03 * vec2(cos(c * 91.0), sin(c * 91.0));
+        d /= 1.0 + k2 * (dot(p3, vec2(cos(3.0 * ang), sin(3.0 * ang))) + dot(p5, vec2(cos(5.0 * ang), sin(5.0 * ang))));
+      }
+    } else {
+      ang = atan(-p.y, p.x) + vD.w;
+      float s = 1.0 + dot(vE.xy, vec2(cos(3.0 * ang), sin(3.0 * ang))) + dot(vE.zw, vec2(cos(5.0 * ang), sin(5.0 * ang)));
+      s += dot(vF.xy, vec2(cos(8.0 * ang), sin(8.0 * ang))) + dot(vF.zw, vec2(cos(13.0 * ang), sin(13.0 * ang)));
+      d *= s;
     }
-    ang = atan(-p.y, p.x) + vD.w;
-    float s = 1.0 + dot(vE.xy, vec2(cos(3.0 * ang), sin(3.0 * ang))) + dot(vE.zw, vec2(cos(5.0 * ang), sin(5.0 * ang)));
-    s += dot(vF.xy, vec2(cos(8.0 * ang), sin(8.0 * ang))) + dot(vF.zw, vec2(cos(13.0 * ang), sin(13.0 * ang)));
-    return length(p) * s;
+    return d;
   }
   float ease(float k) { return k * (2.0 - k); }
-  // One set of rays thrown off the rim: N a turn at most, each its own length and width, coming apart toward its end.
-  void rays(float rr, float ang, float m, float N, float lo, float hi, float wide, float s0, float k, float base, inout float cov, inout float hue, inout float lift) {
+  float n1(float x) {
+    float i = floor(x), f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(h1(i), h1(i + 1.0), f);
+  }
+  // The two hues of a texel at v in a run of sectors W m wide, a hue a sector from base, and which of them: the ramp across a boundary, and past it the side it's on, so the foot of the next ramp finds what it needs.
+  void sectors(float v, float W, float m, float base, out float A, out float B, out float which) {
+    float i = floor(v), f = v - i, dL = f * W, dR = (1.0 - f) * W, r = 1.2 * m;
+    if (dL < 0.5 * r) {
+      A = base + i - 1.0;
+      B = base + i;
+      which = 0.5 + dL / r;
+    } else if (dR < 0.5 * r) {
+      A = base + i;
+      B = base + i + 1.0;
+      which = 0.5 - dR / r;
+    } else {
+      A = B = base + i;
+      which = f < 0.5 ? 1.0 : 0.0;
+    }
+  }
+  // One set of rays thrown off the rim: N a turn at most, each its own length, thin, wandering a little and frayed, coming apart into drops toward its end.
+  void rays(float rr, float ang, float m, float N, float lo, float hi, float wide, float s0, float k, float base, inout float cov, inout float A, inout float B, inout float lift) {
     float s = (ang / TAU + 0.5) * N, i = floor(s);
     float a = h1(i + s0), b = h1(i + s0 + 17.0), c = h1(i + s0 + 41.0);
-    float off = (s - i - 0.5 - 0.62 * (a - 0.5)) / N * TAU;
     float len = vR * (lo + (hi - lo) * b * b);
     float x = (rr - vR) / (len - vR);
-    if (x < -0.14 || x > 1.0) return;
-    float w = max(vR * wide * (0.55 + 0.9 * c) * pow(1.0 - max(x, 0.0), 0.62), m * 0.8);
-    float q = (w - abs(off) * rr) / m + 0.5;
+    if (x < -0.12 || x > 1.0) return;
+    float off = ((s - i - 0.5 - 0.62 * (a - 0.5)) / N * TAU + (n1(rr / vR * 1.7 + a * 37.0) - 0.5) * 0.1 * clamp(x, 0.0, 1.0)) * rr;
+    float t = max(x, 0.0);
+    float w = vR * wide * (0.55 + 0.9 * c) * (1.0 - t) * (1.0 - 0.5 * t) * (0.62 + 0.76 * n1(rr / vR * 6.0 + c * 53.0));
+    float q = (max(w, m * 0.62) - abs(off)) / m + 0.5;
     float gap = 0.6 * sin(rr / vR * (2.9 + 5.0 * c) + a * 19.0) + 0.4 * sin(rr / vR * (8.3 + 4.0 * b) + b * 23.0);
-    if (x > 0.38 && gap < (x - 0.38) * 2.0 - 0.62) return;
+    if (t > 0.3 && gap < (t - 0.3) * 2.3 - 0.8) return;
     q = min(q, (vR + (len - vR) * k * 1.04 - rr) / m + 0.5);
     if (q > cov && q > 0.02) {
       cov = q;
-      hue = mod(base + i, 6.0);
+      A = B = base + i;
       lift = 0.45;
     }
   }
   void main() {
     vec2 p = vP;
     float R = vR, m = max(uWin.w * 1.3, 0.8), lv = vC.x, base = vC.y, T = max(vC.w, 0.05), age = uNow - vC.z, seed = vD.z;
-    float cov = 0.0, hue = base, glow = 0.0, lift = 0.0, ang = 0.0;
+    float cov = 0.0, A = base, B = base, which = 1.0, glow = 0.0, lift = 0.0, ang = 0.0;
     float k = clamp(age / T, 0.0, 1.0);
     if (vB.w > 1.5) {
       // a blast on open ground, as the far windows see it: a lumpy disc, the pinwheel in it
@@ -133,13 +159,13 @@ const FS = /* glsl */ `
       float d = length(p);
       float e = R * (0.8 + 0.1 * sin(3.0 * ang + seed) + 0.07 * sin(5.0 * ang + seed * 1.7) + 0.05 * sin(9.0 * ang + seed * 2.3));
       cov = min((e - d) / m + 0.5, age < 0.0 ? 0.0 : 1.0);
-      hue = mod(base + floor(fract(ang / TAU + d / R * 0.2) * 6.0), 6.0);
+      A = B = base + floor(fract(ang / TAU + d / R * 0.2) * 6.0);
     } else {
       float dist = rimDist(p, ang);
       // level 3 throws rays over the ground, under all the rest
       if (lv > 2.5) {
-        rays(dist, ang, m, 11.0, 3.2, 9.0, 0.11, seed, ease(k), base, cov, hue, lift);
-        rays(dist, ang, m, 23.0, 1.7, 3.6, 0.05, seed + 7.0, ease(k), base + 2.0, cov, hue, lift);
+        rays(dist, ang, m, 13.0, 3.4, 9.0, 0.05, seed, ease(k), base, cov, A, B, lift);
+        rays(dist, ang, m, 31.0, 1.5, 3.2, 0.028, seed + 7.0, ease(k), base + 2.0, cov, A, B, lift);
       }
       // level 1 floods the bowl, up from where it landed
       vec2 imp = vD.xy;
@@ -149,7 +175,8 @@ const FS = /* glsl */ `
       if (lv < 1.5 && age < 0.0) cF = 0.0;
       if (cF > 0.02) {
         cov = max(cov, cF);
-        hue = base;
+        A = B = base;
+        which = 1.0;
         lift = 0.0;
         if (lv < 1.5) glow = (1.0 - k) * 0.9 * step(toFront, 0.1 * R + 2.0);
         // level 3 turns it to a pinwheel, from the middle out
@@ -157,17 +184,18 @@ const FS = /* glsl */ `
           float f3 = (R * 1.05) * ease(k);
           if (dist < f3) {
             float u = ang / TAU + 0.34 * log(0.16 + dist / R) + seed * 0.13;
-            hue = mod(base + floor(fract(u) * 6.0 + 0.5), 6.0);
-            lift = 0.12;
+            sectors(fract(u + 1.0) * 6.0, TAU * max(dist, 0.1 * R) / 6.0, m, base, A, B, which);
+            lift = 0.13;
           }
           if (abs(dist - f3) < 0.05 * R + 1.0 && k < 1.0) glow = 0.85;
         }
       }
       // level 2 crowns the rim: it runs round both ways, a rainbow of teeth
       if (lv > 1.5) {
-        float N = 6.0 * clamp(floor(R / 36.0 + 0.5), 1.0, 6.0);
-        float s = (ang / TAU + 0.5) * N, i = floor(s), tooth = 1.0 - abs(2.0 * (s - i) - 1.0);
-        float cC = min((R * (1.075 + 0.075 * tooth) - dist) / m, (dist - R * 0.9) / m) + 0.5;
+        float bw = min(0.1 * R, 5.0 + 0.03 * R);
+        float N = 6.0 * clamp(floor(TAU * R / (36.0 * bw) + 0.5), 1.0, 16.0);
+        float s = (ang / TAU + 0.5) * N, tooth = 1.0 - abs(2.0 * fract(s) - 1.0);
+        float cC = min((R + bw * (0.8 + 1.1 * tooth) - dist) / m, (dist - R + bw) / m) + 0.5;
         if (lv < 2.5) {
           float a0 = seed, dA = abs(mod(ang - a0 + PI, TAU) - PI) / PI;
           cC = min(cC, (ease(k) * 1.04 - dA) * PI * R / m + 0.5);
@@ -176,13 +204,13 @@ const FS = /* glsl */ `
         }
         if (cC > 0.02) {
           cov = max(cov, cC);
-          hue = mod(base + 1.0 + i, 6.0);
+          sectors(s, TAU * R / N, m, base + 1.0, A, B, which);
           lift = 0.7;
         }
       }
     }
     if (cov <= 0.02) discard;
-    outPaint = vec4((hue + 0.5) / 8.0, glow, lift, min(cov, 1.0));
+    outPaint = vec4((mod(A + 60.0, 6.0) * 8.0 + mod(B + 60.0, 6.0)) / 255.0, which, (floor(lift * 15.0 + 0.5) * 16.0 + floor(glow * 15.0 + 0.5)) / 255.0, min(cov, 1.0));
   }
 `;
 
@@ -210,6 +238,7 @@ export class PaintClip {
   private buf = new Float32Array(0);
   private ib: THREE.InstancedInterleavedBuffer | null = null;
   private readonly clear = new THREE.Color();
+  private primed = false;
 
   constructor(private readonly renderer: THREE.WebGLRenderer) {
     this.rt = new THREE.WebGLArrayRenderTarget(CLIP_N, CLIP_N, CLIP_LEVELS, { format: THREE.RGBAFormat, type: THREE.UnsignedByteType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, generateMipmaps: false });
@@ -327,8 +356,13 @@ export class PaintClip {
     r.setClearColor(0x000000, 0);
     r.clear(true, false, false);
     r.setClearColor(this.clear, a);
-    this.mesh.visible = n > 0;
-    if (n) r.render(this.scene, this.cam);
+    // (the first draw compiles its program: before the first frame, with or without anything to draw)
+    this.mesh.visible = n > 0 || !this.primed;
+    if (!this.primed) {
+      this.geo.instanceCount = Math.max(1, n);
+      this.primed = true;
+    }
+    if (this.mesh.visible) r.render(this.scene, this.cam);
     r.setRenderTarget(null);
     if (i1 - i0 === CLIP_N && j1 - j0 === CLIP_N) w.dirty = false;
   }

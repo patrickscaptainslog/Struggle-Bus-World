@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { GLSL_COMMON, GLSL_OUT, globals } from '../render/materials';
+import { GLSL_MOON_CURVE } from '../sky/flag';
 import { HUE_RAMPS, Ramp } from '../render/palette';
 import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from '../world/GroundPaint';
 import { FAR, LIT_MAX, LIT_POW, LIT_TONE0, LIT_TONE1, SHADOW_MAX, SLOPE_MAX, type MoonTileData } from './gen';
-import { R_M } from './map';
 
 /** Texels a side of a paint window (PaintClip.ts). */
 export const CLIP_N = 1024;
@@ -23,24 +23,6 @@ export const moonGlobals = {
   uGlintM: { value: new THREE.Vector4(1, 0, 1, 0) },
   uGlintS: { value: new THREE.Vector4() },
 };
-
-/**
- * The curve: the flat map rolled onto its sphere around the lens, so the ground falls away and has a horizon. Bearings and distances from the lens hold, which is all a horizon asks. Written so that float32
- * keeps it near the lens: no radius minus a radius. Only the clip position takes this: everything that asks where a pixel is on the ground (paint, the class of a tile, the sun's map) reads the flat map.
- */
-export const GLSL_MOON_CURVE = /* glsl */ `
-const float MOON_R = ${R_M.toFixed(1)};
-vec3 moonCurve(vec3 wp) {
-  vec2 d = wp.xz - cameraPosition.xz;
-  float s = length(d);
-  float th = s / MOON_R;
-  float sh = sin(0.5 * th);
-  // (height y over the sphere, so the true radius is MOON_R + y)
-  float y = wp.y * cos(th) - 2.0 * MOON_R * sh * sh;
-  float pull = th > 1e-6 ? (wp.y * sin(th) + MOON_R * (-th * th * th / 6.0 + th * th * th * th * th / 120.0)) / s : 0.0;
-  return vec3(wp.x + d.x * pull, y, wp.z + d.y * pull);
-}
-`;
 
 /** The four bytes back, the light, the ramp. Needs GLSL_COMMON. */
 export const GLSL_MOON_LIGHT = /* glsl */ `
@@ -95,43 +77,57 @@ float moonNoise(vec2 q) {
   f = f * f * (3.0 - 2.0 * f);
   return mix(mix(moonHash(i), moonHash(i + vec2(1.0, 0.0)), f.x), mix(moonHash(i + vec2(0.0, 1.0)), moonHash(i + vec2(1.0, 1.0)), f.x), f.y);
 }
-// The paint at a place: false on bare ground. The finest window that holds it and that a pixel's size on the ground can read.
+// Which window a place reads: the finest that holds it and that a pixel's size on the ground can read. -1: none.
+int moonWindow(vec2 xz, float px, out vec2 t) {
+  int L = -1;
+  t = vec2(0.0);
+  for (int k = 2; k >= 0; k--) {
+    vec4 c = uClip[k];
+    vec2 q = (xz - c.xy) * c.z;
+    if (c.w > 0.5 && (k == 2 || px * c.z <= 5.0) && q.x >= 3.0 && q.y >= 3.0 && q.x <= ${CLIP_N - 4}.0 && q.y <= ${CLIP_N - 4}.0) {
+      L = k;
+      t = q;
+    }
+  }
+  return L;
+}
+// The paint at a place: false on bare ground.
 bool moonClip(vec2 xz, float px, out float ramp, out float edge, out float lift, out float glow) {
   ramp = 0.0; edge = 0.0; lift = 0.0; glow = 0.0;
-  for (int L = 0; L < 3; L++) {
-    vec4 c = uClip[L];
-    if (c.w < 0.5 || (L < 2 && px * c.z > 5.0)) continue;
-    vec2 t = (xz - c.xy) * c.z;
-    if (t.x < 3.0 || t.y < 3.0 || t.x > ${CLIP_N - 4}.0 || t.y > ${CLIP_N - 4}.0) continue;
-    // organic edges, as GroundPaint's: the texels looked up through a little warp, and the contour's height broken up
-    vec2 q = t * 0.11;
-    vec2 g = t - 0.5 + (vec2(moonNoise(q), moonNoise(q + 31.7)) - 0.5) * 1.5;
-    ivec2 i0 = ivec2(floor(g));
-    vec2 f = fract(g);
-    vec4 s00 = texelFetch(tPaintClip, ivec3(i0, L), 0), s10 = texelFetch(tPaintClip, ivec3(i0 + ivec2(1, 0), L), 0);
-    vec4 s01 = texelFetch(tPaintClip, ivec3(i0 + ivec2(0, 1), L), 0), s11 = texelFetch(tPaintClip, ivec3(i0 + ivec2(1, 1), L), 0);
-    float cov = mix(mix(s00.a, s10.a, f.x), mix(s01.a, s11.a, f.x), f.y);
-    float thr = 0.5 + (moonNoise(t * 0.45) - 0.5) * 0.26;
-    if (cov <= thr) return false;
-    // the hue of the strongest tap: read raw
-    vec4 a = vec4(s00.a, s10.a, s01.a, s11.a);
-    vec4 w = vec4((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y) * (a + 2.0 * step(0.5, a));
-    vec4 s = s00;
-    float m = w.x;
-    if (w.y > m) { m = w.y; s = s10; }
-    if (w.z > m) { m = w.z; s = s01; }
-    if (w.w > m) s = s11;
-    ramp = MOON_HUES[int(clamp(floor(s.r * 8.0), 0.0, 5.0))];
-    edge = cov - thr;
-    lift = s.b;
-    glow = s.g;
-    return true;
-  }
-  return false;
+  vec2 t;
+  int L = moonWindow(xz, px, t);
+  if (L < 0) return false;
+  // organic edges, as GroundPaint's: the texels looked up through a little warp, and the contour's height broken up
+  vec2 q = t * 0.11;
+  vec2 g = t - 0.5 + (vec2(moonNoise(q), moonNoise(q + 31.7)) - 0.5) * 1.5;
+  ivec2 i0 = ivec2(floor(g));
+  vec2 f = fract(g);
+  vec4 s00 = texelFetch(tPaintClip, ivec3(i0, L), 0), s10 = texelFetch(tPaintClip, ivec3(i0 + ivec2(1, 0), L), 0);
+  vec4 s01 = texelFetch(tPaintClip, ivec3(i0 + ivec2(0, 1), L), 0), s11 = texelFetch(tPaintClip, ivec3(i0 + ivec2(1, 1), L), 0);
+  vec4 a = vec4(s00.a, s10.a, s01.a, s11.a), w = vec4((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y);
+  float cov = dot(a, w);
+  float thr = 0.5 + (moonNoise(t * 0.45) - 0.5) * 0.26;
+  bool on = cov > thr;
+  // the strongest tap's two hues, read raw, and the ramp between them, filtered
+  w *= a + 2.0 * step(0.5, a);
+  vec4 s = s00;
+  float m = w.x, which = s00.g * w.x, sum = w.x;
+  which += s10.g * w.y + s01.g * w.z + s11.g * w.w;
+  sum += w.y + w.z + w.w;
+  if (w.y > m) { m = w.y; s = s10; }
+  if (w.z > m) { m = w.z; s = s01; }
+  if (w.w > m) s = s11;
+  float h = floor(s.r * 255.0 + 0.5), b = floor(s.b * 255.0 + 0.5);
+  float pick = which / max(sum, 1e-4) < 0.5 ? floor(h / 8.0) : mod(h, 8.0);
+  ramp = MOON_HUES[int(clamp(pick, 0.0, 5.0))];
+  edge = cov - thr;
+  lift = floor(b / 16.0) / 15.0;
+  glow = mod(b, 16.0) / 15.0;
+  return on;
 }
 // The ground's light under paint: the crater under it still reads, on a floor of its own, and even a shadow's paint is paint.
 float moonPaintLight(float ramp, float light, float edge, float lift, float wet) {
-  float l = max(0.13 + 0.62 * clamp(light, 0.0, 1.0), 0.3);
+  float l = max(0.13 + 0.62 * clamp(light, 0.0, 1.0), 0.2);
   if (ramp == ${Ramp.YELLOW}.0) l = max(l + 0.1, 0.6);
   else if (ramp == ${Ramp.ORANGE}.0) l = max(l + 0.05, 0.45);
   if (edge < 0.07) l -= 0.11;
@@ -146,9 +142,10 @@ float moonGlint(vec2 xz, float px) {
   if (dot(d, d) > R * R * 1.7) return 0.0;
   vec2 uv = uGlintS.w < 1.5 ? vec2(d.x * uGlintM.x + d.y * uGlintM.y, d.y * uGlintM.z - d.x * uGlintM.w) : vec2(d.x, -d.y);
   float ang = atan(uv.y, uv.x), rr = length(uv) / (1.0 + dot(uGlintS.xy, vec2(cos(3.0 * ang), sin(3.0 * ang))));
-  if (abs(rr - R) > max(R * 0.035, px * 0.8)) return 0.0;
-  float s = fract(ang / 6.2832 - (uTime - uGlint.w) * 0.85);
-  return 1.0 + step(0.74, s);
+  if (abs(rr - R) > max(R * 0.014, px * 0.42)) return 0.0;
+  // a run of light round the rim, twice a second and a bit, off bright dashes
+  float s = fract(ang / 6.2832 - (uTime - uGlint.w) * 0.62);
+  return 1.0 + step(0.8, s);
 }
 `;
 

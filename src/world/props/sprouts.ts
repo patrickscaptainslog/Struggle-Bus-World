@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT, SHADOW_LAYER } from '../../render/materials';
 import { Ramp } from '../../render/palette';
 import { registerWarm } from '../../render/warmup';
+import { GLSL_MOON_CURVE, moonLow, moonOnly } from '../../sky/flag';
 import { DEPTH_FS, GLSL_PROPS, PartKit, propsTune, rng, tuneUniform, unitSphere } from './common';
 
 // Rooftop sprouts: what painted buildings grow. Level 1 = flower tufts along
@@ -36,7 +37,11 @@ const enum T {
   SPIRE = 5,
   FLAG = 6,
   TURF = 7,
+  CRYSTAL = 8,
 }
+
+/** What can be laid out by hand (RoofSprouts.place). CRYSTAL only under ?moon. */
+export const SPROUT = { TUFT: T.TUFT, BUSH: T.BUSH, TREE: T.TREE, DOME: T.DOME, SPIRE: T.SPIRE, FLAG: T.FLAG, CRYSTAL: T.CRYSTAL } as const;
 
 interface TypeDef {
   geo: () => THREE.BufferGeometry;
@@ -191,6 +196,27 @@ function turfGeo(): THREE.BufferGeometry {
   return k.build();
 }
 
+/** A shard's facets are what catch the Sun: a sharp thing, flat shaded, on a stump of its own. */
+function shard(h: number, w: number): THREE.BufferGeometry {
+  const g = lathe([[w * 0.75, 0], [w, h * 0.16], [w * 0.8, h * 0.72], [0, h]], 4).toNonIndexed();
+  g.computeVertexNormals();
+  return g;
+}
+
+function crystalGeo(): THREE.BufferGeometry {
+  const k = new PartKit();
+  const none = () => 0;
+  const put = (h: number, w: number, x: number, z: number, tiltX: number, tiltZ: number, yaw: number, part: Part) => {
+    const m = new THREE.Matrix4().compose(new THREE.Vector3(x, -0.15, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(tiltX, yaw, tiltZ)), new THREE.Vector3(1, 1, 1));
+    k.add(shard(h, w), m, part, none);
+  };
+  put(3.4, 0.62, 0, 0, 0.06, 0.05, 0.3, Part.BODY);
+  put(2.3, 0.46, 0.62, 0.22, 0.12, -0.4, 1.1, Part.BODY2);
+  put(1.8, 0.4, -0.55, 0.36, 0.26, 0.42, 0.2, Part.BODY);
+  put(1.3, 0.34, 0.1, -0.62, -0.46, 0.08, 0.7, Part.BODY2);
+  return k.build();
+}
+
 const TYPES: TypeDef[] = [
   { geo: tuftGeo, cast: false, freq: 1.9, dir: [1, 0.6], cull: 0.45, tune: 'sproutSway', capacity: 256 },
   { geo: bushGeo, cast: true, freq: 1.3, dir: [1, 0.6], cull: 0.75, tune: 'sproutSway', capacity: 64 },
@@ -200,6 +226,7 @@ const TYPES: TypeDef[] = [
   { geo: spireGeo, cast: true, freq: 0.9, dir: [1, 0.7], cull: 1.6, tune: 'sproutSway', capacity: 32 },
   { geo: flagGeo, cast: false, doubleSide: true, freq: 4.6, dir: [0.25, 1], cull: 0.5, tune: 'flagFlutter', capacity: 128 },
   { geo: turfGeo, cast: false, freq: 0, dir: [0, 0], cull: 0.9, tune: 'sproutSway', capacity: 32 },
+  ...(moonLow ? ([{ geo: crystalGeo, cast: true, freq: 0, dir: [0, 0], cull: 1.2, tune: 'sproutSway', capacity: 128 }] satisfies TypeDef[]) : []),
 ];
 
 // ---------------------------------------------------------------- shaders
@@ -226,7 +253,7 @@ SproutV sproutVertex() {
   o.normal = normal;
   float t = uTime - ic.z;
   vec3 ipos = instanceMatrix[3].xyz;
-  o.hidden = t <= 0.0 || (uKind.w > 0.0 && distance(cameraPosition, ipos) > uCull * uKind.w);
+  o.hidden = t <= 0.0 || (uKind.w > 0.0 && distance(cameraPosition, ipos) > uCull * uKind.w${moonOnly(' * max(1.0, length(instanceMatrix[1].xyz))')});
   if (!o.hidden) {
   // spring up out of the roof: grow with overshoot, stretch while growing, squash on landing
   float g = propGrow(t);
@@ -252,7 +279,7 @@ SproutV sproutVertex() {
 const SPROUT_VS = /* glsl */ `
 ${GLSL_COMMON}
 ${GLSL_PROPS}
-${SPROUT_VERTEX}
+${SPROUT_VERTEX}${moonOnly(GLSL_MOON_CURVE)}
 out vec3 vWorldPos;
 out vec3 vWorldNormal;
 out vec3 vLocal;
@@ -279,7 +306,7 @@ void main() {
   vXf = vec4(instanceMatrix[0].x / sx.x, -instanceMatrix[0].z / sx.x, sx.x, sx.z);
   vSy = sx.y;
   vIPos = instanceMatrix[3].xyz;
-  gl_Position = projectionMatrix * viewMatrix * s.world;
+  gl_Position = projectionMatrix * viewMatrix * ${moonLow ? 'vec4(moonCurve(s.world.xyz), 1.0)' : 's.world'};
 }
 `;
 
@@ -525,6 +552,7 @@ const AMP: Record<T, number> = {
   [T.SPIRE]: 0.11,
   [T.FLAG]: 0.26,
   [T.TURF]: 0,
+  [T.CRYSTAL]: 0,
 };
 
 const _x = new THREE.Vector3();
@@ -723,6 +751,23 @@ interface Rec {
   cell: number;
 }
 
+/** One element of a garden laid out by hand: where it stands (world), its turn, size and hue; when it springs up (game clock). */
+export interface SproutItem {
+  type: number;
+  x: number;
+  y: number;
+  z: number;
+  rot: number;
+  sx: number;
+  sy: number;
+  sz: number;
+  hue: number;
+  amp: number;
+  start: number;
+  /** a flag: which way its string runs */
+  dir?: [number, number, number];
+}
+
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _p = new THREE.Vector3();
@@ -737,6 +782,9 @@ interface TypeRes {
 
 /** Sprouts are bucketed into city cells so off-screen gardens are frustum culled. */
 const CELL = 768;
+/** How far a cell's bounds reach over its height (m): a city's roofs, or (given a height) what a garden on a crater wall can span. */
+const CELL_TALL = 220;
+const CELL_TALL_PLACED = 1000;
 
 export class RoofSprouts {
   readonly object: THREE.Object3D;
@@ -744,10 +792,12 @@ export class RoofSprouts {
   private readonly cells = new Map<number, Batch[]>();
   private readonly recs = new Map<number, Rec>();
   private readonly maxBuildings: number;
+  /** gardens laid out by hand: the batch and slot of each element */
+  private readonly placed = new Map<number, Array<[Batch, number]>>();
   /** top of each element type's template geometry (m at scale 1): what the flight must clear */
   private readonly typeTop: number[] = [];
 
-  constructor(maxBuildings = 4096) {
+  constructor(maxBuildings = 4096, private readonly cell = CELL) {
     this.maxBuildings = Math.max(1, maxBuildings);
     const group = new THREE.Group();
     group.name = 'RoofSprouts';
@@ -797,10 +847,11 @@ export class RoofSprouts {
     });
   }
 
-  private cellBatches(key: number, cx: number, cz: number): Batch[] {
+  private cellBatches(key: number, cx: number, cz: number, y?: number): Batch[] {
     let b = this.cells.get(key);
     if (!b) {
-      const sphere = new THREE.Sphere(new THREE.Vector3((cx + 0.5) * CELL, 120, (cz + 0.5) * CELL), CELL * 0.71 + 220);
+      const S = this.cell;
+      const sphere = new THREE.Sphere(new THREE.Vector3((cx + 0.5) * S, y ?? 120, (cz + 0.5) * S), S * 0.71 + (y === undefined ? CELL_TALL : CELL_TALL_PLACED));
       const group = this.object as THREE.Group;
       b = this.types.map((t) => new Batch(t.geo, t.mat, t.depth, t.capacity, group, sphere));
       this.cells.set(key, b);
@@ -876,6 +927,44 @@ export class RoofSprouts {
     this.recs.set(buildingIndex, rec);
     // (the pop overshoots ~15% while it grows, and the sway leans it a little)
     return top > 0 ? top * 1.15 + 0.4 : 0;
+  }
+
+  /**
+   * A garden its caller has laid out, in the world, with no roof under it (?moon: a crater's rim, src/moon/RimBloom.ts). Replaces what `index` had in this way; it shares nothing with a roof's. Each element goes in the
+   * cell it stands in, so a rim kilometres round is culled a piece at a time.
+   */
+  place(index: number, items: SproutItem[]): void {
+    this.unplace(index);
+    const held: Array<[Batch, number]> = [];
+    for (let i = 0; i < items.length; i++) {
+      const e = items[i];
+      const ccx = Math.floor(e.x / this.cell), ccz = Math.floor(e.z / this.cell);
+      const b = this.cellBatches((ccx + 4096) * 8192 + (ccz + 4096), ccx, ccz, e.y)[e.type];
+      if (e.dir) {
+        const [dx, dy, dz] = e.dir;
+        _x.set(dx, dy, dz).normalize();
+        _y.copy(_up).addScaledVector(_x, -_up.dot(_x)).normalize();
+        _z.crossVectors(_x, _y);
+        _m.makeBasis(_x.multiplyScalar(e.sx), _y.multiplyScalar(e.sy), _z.multiplyScalar(e.sz));
+        _m.setPosition(e.x, e.y, e.z);
+      } else {
+        _q.setFromAxisAngle(_up, e.rot);
+        _p.set(e.x, e.y, e.z);
+        _s.set(e.sx, e.sy, e.sz);
+        _m.compose(_p, _q, _s);
+      }
+      const slot = b.alloc();
+      b.write(slot, _m, e.hue, fract(Math.sin((index + 1) * 12.9898 + i * 78.233) * 43758.5453), e.amp, e.start);
+      held.push([b, slot]);
+    }
+    this.placed.set(index, held);
+  }
+
+  unplace(index: number): void {
+    const held = this.placed.get(index);
+    if (!held) return;
+    for (const [b, slot] of held) b.release(slot);
+    this.placed.delete(index);
   }
 
   /** Remove a building's sprouts (e.g. paint reset). */

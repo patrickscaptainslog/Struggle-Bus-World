@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLSL_COMMON, GLSL_OUT, globals, SHADOW_LAYER } from '../render/materials';
-import { GLSL_MOON_CURVE, GLSL_MOON_LIGHT, moonGlobals } from './moonMaterial';
+import { GLSL_MOON_CURVE } from '../sky/flag';
+import { GLSL_MOON_LIGHT, moonGlobals } from './moonMaterial';
 
 // (three declares instanceColor: here r is lit, g the tone.)
 // Boulders: one small rock, instanced, one draw a detailed region and one more in the sun pass, which is what gives them the long hard shadows that make a low Sun worth having. The worker says where (gen.ts rocksOf).
