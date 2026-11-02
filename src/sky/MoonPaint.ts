@@ -7,11 +7,13 @@ import { R_MOON } from './SkyModel';
 // A blast here is the game's blast (game/blastLayout.ts): its edge, its pinwheel and its spatter come from the same seeded code, read in km on a tangent plane at the impact, so a stroke redraws the same splat.
 // There are no buildings, so a level lands on the ground: hit paint and the next blast is a level up. 1 floods, 2 spreads further with a bright crown at its edge, 3 throws rainbow rays like Tycho's. Any ground takes it.
 //
-// One RGBA8 map, latitude and longitude, 1024 x 512 (2 MB, a texel 10.7 km at the equator, the same as the Moon's own map), one filtered read a pixel:
+// One RGBA8 map, latitude and longitude, 1024 x 512 (2 MB, a texel 10.7 km at the equator, the same as the Moon's own map). The resolve reads it filtered everywhere, and raw, the nearest texel's own bytes, where there's paint:
 //   r  coverage, a ramp across the edge: bilinear, then a threshold in the shader, so an edge is a smooth contour at a fraction of a texel (GroundPaint's scheme)
-//   g  hue: (h + .5) / 6. Filtered too: next to each other two hues meet on a clean contour, and only the seam from violet to red runs through the others, in a line a pixel or two wide. It picks a ramp, it is never averaged into a colour
-//   b  lift: how many ramp steps brighter, 0..1. L1 0, up to the crown's and rays' 1
+//   g  high bits: mix, the same again for the boundary between two hues, which of the texel's two shows. Low 3 bits: the first hue
+//   b  high bits: lift, how many ramp steps brighter, 0..1. L1 0, up to the crown's and rays' 1. Low 3 bits: the second hue
 //   a  reveal: seconds after the impact this texel waits, in 1/100 s, 0 once settled. Fresh ground only. Paint already there is turned over by the wave too, a different way: see over()
+// A hue is never filtered, or two of them that meet would run through every hue between, and paint is flat colour: nothing is ever mixed. So a texel holds the two hues that meet near it, read raw, and the mix is what's filtered:
+// a boundary between any two hues is as smooth a contour as the paint's edge, at a texel 20 px wide. (The hues take the low bits of two filtered channels, under 3 % of a ramp: what the map costs doesn't change.)
 // Five coarser levels, 21 to 341 km a texel, are this file's own, not an average: a splash must not fade away with distance, and hues mustn't mix. See mipLevel.
 //
 // A tap never hitches: the raster runs in slices while the shot flies (work), and the impact sends one rectangle a level, most of it a few KB, half a MB for the first level of the widest ray system near a pole.
@@ -42,10 +44,15 @@ const RAYS = 14;
 const SOFT_KM = TEXEL_KM * 2.2;
 /** Hues are written this far past the edge, with no coverage, so a hue doesn't drift toward red at the rim. */
 const DILATE_KM = TEXEL_KM * 2.5;
-/** The lifts in b, 0..255. */
-const LIFT = [0, 0, 60, 100];
-const LIFT_CROWN = 255;
+/** Inside the flood's edge, as coverage before it's capped at 1: past this a texel is no neighbour of the rim's ramp. */
+const RIM_COV = 2;
+/** The lifts in b, 0..255: the high bits only. */
+const LIFT = [0, 0, 56, 96];
+const LIFT_CROWN = 248;
 const LIFT_RAY = 200;
+/** g and b: a ramp in the high bits, a hue in the low ones. */
+const HIGH = 0xf8;
+const LOW = 7;
 /** A spatter drop's radius, km a game metre: a drop is about a texel, as the game's are on its 2 m grid. */
 const DOT_KM = 2.4;
 /** A coarse texel's coverage over the sum of its four children's: an average is 0.25. A line a texel wide keeps its coverage all the way up at 0.5, and a bare average would lose it in two levels. */
@@ -138,6 +145,9 @@ export interface PaintOver {
   /** what goes up this frame */
   frame: Uint8Array;
 }
+
+/** The hue a texel shows, at the byte offset of its r. */
+const hueAt = (d: Uint8Array, o: number) => ((d[o + 1] & HIGH) >= 128 ? d[o + 2] : d[o + 1]) & LOW;
 
 /** Unit vector, Moon fixed, of a place in degrees. */
 export function placeOf(lat: number, lon: number, o = new Float64Array(3)): Float64Array {
@@ -284,7 +294,7 @@ export class MoonPaint {
     const level = this.levelAt(lat, lon);
     this.seed = (Math.imul(this.seed ^ 0x2545f491, 0x9e3779b1) + 0x7f4a7c15) >>> 0;
     let hue = this.nextHue;
-    if (level > 1) hue = Math.min(5, Math.floor((this.mips[0].data[this.texelAt(lat, lon) + 1] / 255) * 6));
+    if (level > 1) hue = hueAt(this.mips[0].data, this.texelAt(lat, lon));
     else this.nextHue = (this.nextHue + 1) % 6;
     return { lat, lon, level, seed: Math.floor(this.seed / 12) * 6 + hue };
   }
@@ -446,8 +456,15 @@ export class MoonPaint {
 
   // ------------------------------------------------------------------ the raster
 
-  /** One texel of new paint over what is there. reveal in s; bare: only onto bare ground; flood: its lift is the whole of it, so an old crown under a new flood is gone. Any new coverage is added to `painted`. */
-  private put(job: PaintJob, o: number, row: number, c: number, hue: number, lift: number, reveal: number, bare: boolean, flood = false): void {
+  /** A texel's two hues and the mix between them, 0 the first, 1 the second. */
+  private hues(o: number, a: number, b: number, m: number): void {
+    const d = this.mips[0].data;
+    d[o + 1] = (Math.round(m * 31) << 3) | a;
+    d[o + 2] = (d[o + 2] & HIGH) | b;
+  }
+
+  /** One texel of new paint over what is there: hues a and b, mix m. reveal in s; bare: only onto bare ground; flood: its lift is the whole of it, so an old crown under a new flood is gone. Any new coverage is added to `painted`. */
+  private put(job: PaintJob, o: number, row: number, c: number, a: number, b: number, m: number, lift: number, reveal: number, bare: boolean, flood = false): void {
     const d = this.mips[0].data;
     const old = d[o] / 255;
     if (bare && old >= 0.5) return;
@@ -455,11 +472,17 @@ export class MoonPaint {
       d[o] = Math.round(c * 255);
       if (old < 0.5 && c >= 0.5) this.painted += this.area[row];
     }
-    if (c >= 0.5 || c > old) {
-      d[o + 1] = Math.round(((hue + 0.5) / 6) * 255);
-      // (the soft rim keeps its own: paint that lands here later mustn't find a lift it never had)
-      if (c >= 0.4 && (flood || lift > d[o + 2])) d[o + 2] = lift;
+    if (old < 0.02 || c >= 1) this.hues(o, a, b, m);
+    else {
+      // a rim over paint: what is there, what lands, and the rim's own ramp between them, so it stops where it would on bare ground. (A line of stamps comes back here for the same pair: it keeps the most of it)
+      const was = hueAt(d, o), now = m >= 0.5 ? b : a;
+      if (now !== was) {
+        if ((d[o + 2] & LOW) === now) this.hues(o, d[o + 1] & LOW, now, Math.max(c, (d[o + 1] & HIGH) / 248));
+        else this.hues(o, was, now, c);
+      } else if ((d[o + 1] & LOW) === (d[o + 2] & LOW)) d[o + 1] |= HIGH; // (the high side of the ramp next to it, whatever side of a boundary it was on)
     }
+    // (the soft rim keeps its own: paint that lands here later mustn't find a lift it never had)
+    if (c >= 0.4 && (flood || lift > (d[o + 2] & HIGH))) d[o + 2] = lift | (d[o + 2] & LOW);
     // fresh ground waits for the wave; paint that was there changes at the impact, under the flash
     if (job.live && old < 0.5 && c > 0.02) {
       const rv = Math.max(1, Math.min(255, Math.round(reveal * 100)));
@@ -502,26 +525,46 @@ export class MoonPaint {
       const edge = lut[k] * (1 - t) + lut[k1] * t;
       const cov = (edge - dist) / SOFT_KM + 0.5;
       const o = (j * PAINT_W + i) * 4;
-      let hue = s.hue;
+      let ha = s.hue, hb = s.hue, mix = 1;
       if (dist > 1.5 * scale) {
         const wd = warp[k] * 2.2 * scale;
         let u = (a + warp[k1] * 0.16 + s.twist * (dist + wd)) * (1 / (Math.PI * 2)) + 0.012 * Math.sin((dist * 0.21) / scale);
         u -= Math.floor(u);
-        const sector = Math.floor(u * S + 0.5) % S;
-        hue = (((s.hue + sector) % 6) + 6) % 6;
+        const v = u * S + 0.5, sector = Math.floor(v), f = v - sector;
+        const hue = this.sectorHue(s, sector);
+        // km to the sectors each side, here. The mix runs across a boundary, and past its ramp a texel is one hue, with the mix of the side it's on so the foot of the next ramp finds what it needs. Near the flood's edge it's 1: the rim's ramp, from here out over what is there, starts from that
+        const across = ((2 * Math.PI * dist) / S) / Math.hypot(1, s.twist * dist), hi = (1 - f) * across, lo = f * across;
+        if (hi < SOFT_KM * 0.5) {
+          ha = hue;
+          hb = this.sectorHue(s, sector + 1);
+          mix = 0.5 - hi / SOFT_KM;
+        } else if (lo < SOFT_KM * 0.5) {
+          ha = this.sectorHue(s, sector - 1);
+          hb = hue;
+          mix = 0.5 + lo / SOFT_KM;
+        } else {
+          ha = hb = hue;
+          mix = f < 0.5 || cov < RIM_COV ? 1 : 0;
+        }
       }
       if (cov <= 0.02) {
-        // past the edge nothing lands, but a bilinear read at the contour reaches here
-        if (d[o] < 6 && dist < edge + DILATE_KM) {
-          d[o + 1] = Math.round(((hue + 0.5) / 6) * 255);
+        // past the edge nothing lands, but a bilinear read at the contour reaches here: bare ground takes the hue, and paint the foot of the ramp
+        if (dist < edge + DILATE_KM) {
+          if (d[o] < 6) this.hues(o, ha, hb, mix);
+          else if ((d[o + 1] & LOW) === (d[o + 2] & LOW)) d[o + 1] &= LOW;
           this.touch(job, i, j);
         }
         continue;
       }
       const inCrown = crown > 0 && edge - dist < crown;
-      this.put(job, o, j, cov > 1 ? 1 : cov, hue, inCrown ? LIFT_CROWN : lift, this.waveAt(dist, level), false, true);
+      this.put(job, o, j, cov > 1 ? 1 : cov, ha, hb, mix, inCrown ? LIFT_CROWN : lift, this.waveAt(dist, level), false, true);
       this.touch(job, i, j);
     }
+  }
+
+  /** The hue of a sector of the pinwheel, any whole number of sectors round. */
+  private sectorHue(s: BlastSpec, sector: number): number {
+    return (s.hue + (((sector % s.sectors) + s.sectors) % s.sectors)) % 6;
   }
 
   /** A soft disc, stretched `elong` times along `ang` (a bearing from east, at the blast), `rad` km across its short side. */
@@ -543,14 +586,17 @@ export class MoonPaint {
         n++;
         const i = (((iu + q) % PAINT_W) + PAINT_W) % PAINT_W, o = (j * PAINT_W + i) * 4, d = this.mips[0].data;
         if (c <= 0.02) {
-          // (as the flood's rim: a hue for the bilinear read to find)
+          // (as the flood's rim: a hue, or the foot of the ramp, for the bilinear read to find)
           if (d[o] < 6) {
-            d[o + 1] = Math.round(((hue + 0.5) / 6) * 255);
+            this.hues(o, hue, hue, 1);
+            this.touch(job, i, j);
+          } else if (!bare && (d[o + 1] & LOW) === (d[o + 2] & LOW) && (d[o + 1] & LOW) !== hue) {
+            d[o + 1] &= LOW;
             this.touch(job, i, j);
           }
           continue;
         }
-        this.put(job, o, j, c > 1 ? 1 : c, hue, lift, reveal, bare);
+        this.put(job, o, j, c > 1 ? 1 : c, hue, hue, 1, lift, reveal, bare);
         this.touch(job, i, j);
       }
     }
@@ -598,7 +644,7 @@ export class MoonPaint {
 
   /**
    * The coarser levels over a rectangle of the first. A far view has to see what was painted, and hues never mix, so a coarse texel isn't an average: coverage is the children's, boosted, so a thin thing keeps
-   * about the same coverage all the way up; hue and lift are its strongest child's. Reveal is always 0: nobody sees a bloom from up here.
+   * about the same coverage all the way up; hue and lift are its strongest child's, one hue, no mix. Reveal is always 0: nobody sees a bloom from up here.
    */
   private mipLevel(rect: PaintRect, l: number): number {
     const a = this.mips[l - 1], b = this.mips[l], aw = a.width, bw = b.width, ad = a.data, bd = b.data;
@@ -606,22 +652,22 @@ export class MoonPaint {
     for (let j = y0; j <= y1; j++) {
       for (let x = x0; x <= x1; x++) {
         const i = x & (bw - 1), ci = i * 2, cj = j * 2;
-        let sum = 0, best = -1, g = 0, top = 0;
+        let sum = 0, best = -1, hue = 0, top = 0;
         for (let q = 0; q < 4; q++) {
           const o = ((cj + (q >> 1)) * aw + ci + (q & 1)) * 4;
-          const r = ad[o];
+          const r = ad[o], lift = ad[o + 2] & HIGH;
           sum += r;
-          const w = r * (1 + ad[o + 2] / 64);
+          const w = r * (1 + lift / 64);
           if (w > best) {
             best = w;
-            g = ad[o + 1];
+            hue = hueAt(ad, o);
           }
-          if (r >= 64 && ad[o + 2] > top) top = ad[o + 2];
+          if (r >= 64 && lift > top) top = lift;
         }
         const o = (j * bw + i) * 4;
         bd[o] = Math.min(255, Math.round(sum * MIP_GAIN));
-        bd[o + 1] = g;
-        bd[o + 2] = top;
+        bd[o + 1] = HIGH | hue;
+        bd[o + 2] = top | hue;
         bd[o + 3] = 0;
       }
     }

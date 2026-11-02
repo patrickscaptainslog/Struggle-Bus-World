@@ -165,7 +165,7 @@ function tripLabel(): (trip: MoonTrip, breath: MoonBreath | null) => void {
     const dark = leg === 'cruise' || leg === 'homeCruise';
     const p = trip.armed ? 'G5 ARMED' : leg === 'wait' ? 'TAP TURBO: MOON' : leg === 'orbit' ? 'TAP TURBO: HOME' : asks ? 'TAP TURBO: G5' : dark ? 'DRAG TO LOOK ROUND' : '';
     // the goal, once there is any; and until the first shot, what to do about it
-    const share = breath ? breath.paint.painted * 100 : 0;
+    const share = breath && !breath.paint.rebuilding ? breath.paint.painted * 100 : 0;
     const d = share > 0 ? `PAINTED ${share < 1 ? share.toFixed(2) : share < 10 ? share.toFixed(1) : share.toFixed(0)} % OF THE MOON` : '';
     const e = leg === 'orbit' && breath && !breath.fired ? 'TAP TO PAINT' : ''; // (a toast says this, large)
     const text = `${a}|${b}|${p}|${d}|${e}`;

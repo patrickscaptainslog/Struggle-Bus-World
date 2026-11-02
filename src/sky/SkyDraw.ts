@@ -259,7 +259,8 @@ export class SkyDraw {
     const mx = s.moonO[0] / rM, my = s.moonO[1] / rM, mz = s.moonO[2] / rM;
     U.uMoonO.value.set(mx, my, mz, mx * mx + my * my + mz * mz - 1);
     U.uMoonSun.value.set(s.moonSun[0], s.moonSun[1], s.moonSun[2]);
-    U.uMoonEarth.value.set(s.moonEarth[0], s.moonEarth[1], s.moonEarth[2], 2.2 * s.earthLitAtMoon);
+    // (by the root of Earth's phase: a half Earth still shows the ground, and the near side is night under one for a week of every month)
+    U.uMoonEarth.value.set(s.moonEarth[0], s.moonEarth[1], s.moonEarth[2], 2.05 * Math.sqrt(s.earthLitAtMoon));
     U.uMoonLod.value = Math.max(0, Math.log2((rM / R_MOON) * (Math.max(s.moonKm - R_MOON, 1) / focal / MOON_TEXEL_KM)));
 
     U.uSunDisc.value.set(s.sun[0], s.sun[1], s.sun[2], Math.cos(s.sunR));

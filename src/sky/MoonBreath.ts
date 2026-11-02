@@ -147,7 +147,9 @@ export class MoonBreath {
 
   /** Where a place on the Moon is on the screen right now, css px, or null behind the limb. For the tools, which tap on what the player would. */
   screenOf(lat: number, lon: number): { x: number; y: number } | null {
-    const d = this.at(placeOf(lat, lon), this.dirNow);
+    const n = placeOf(lat, lon), O = this.sky?.moonO;
+    if (!O || n[0] * O[0] + n[1] * O[1] + n[2] * O[2] <= R_MOON) return null;
+    const d = this.at(n, this.dirNow);
     if (d.z >= 0) return null;
     const k = this.focal / -d.z;
     return { x: (0.5 + (d.x * k) / this.frameW) * window.innerWidth, y: (0.5 - (d.y * k) / this.frameH) * window.innerHeight };
