@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// What the orbit names: node tools/sky/moon-names.mjs <out dir> [--t=2026-11-25T04:00:00Z] [--secs=120] [--dt=0.05] [--turn=0] [--go=lat,lon] [--from=2200] [--q=]
+// What the orbit names: node tools/sky/moon-names.mjs <out dir> [--t=2026-11-25T04:00:00Z] [--secs=120] [--dt=0.05] [--turn=0] [--go=lat,lon] [--from=2200] [--pop] [--q=]
 // The route's own step down to --from km over the Moon, then the real frame loop at a fixed step, a frame shot of each sign a second after it goes up. --go steers there with a real thumb, the way a player would.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -43,10 +43,18 @@ try {
     s = await read();
     if (s.n > seen) {
       seen = s.n;
+      if (args.includes('--pop') && seen === 1) for (let i = 0; i < 10; i++) await page.screenshot({ path: join(dir, `pop-${i}.png`) });
       await page.waitForTimeout(((1 / dt) / 60) * 1000);
       const f = `${String(seen).padStart(2, '0')}-${s.last.name.replace(/[^A-Z0-9]+/g, '-')}`;
       await page.screenshot({ path: join(dir, `${f}.png`) });
-      console.log(`${(s.clock - t0).toFixed(0).padStart(4)} s  ${s.last.name.padEnd(28)} ${Math.round(s.last.h)} km up, ${s.last.x}, ${s.last.y} on screen, over ${s.lat.toFixed(1)}, ${s.lon.toFixed(1)}`);
+      // the foot of the sign's pole against where the breath's aim says the place is, css px, for a place that fits the view
+      const foot = await page.evaluate(() => {
+        const g = window.__game, n = g.moon.names, u = n.up[n.up.length - 1], q = u && n.signs.signs.find((x) => x.active && x.text === u.text);
+        if (!q || u.place.km > 100) return '';
+        const p = q.pos.clone().project(g.camera), b = g.moon.breath.screenOf(u.place.lat, u.place.lon);
+        return b ? `, foot off the place by ${Math.hypot((p.x + 1) * 0.5 * innerWidth - b.x, (1 - p.y) * 0.5 * innerHeight - b.y).toFixed(1)} px` : '';
+      });
+      console.log(`${(s.clock - t0).toFixed(0).padStart(4)} s  ${s.last.name.padEnd(28)} ${Math.round(s.last.h)} km up, ${s.last.x}, ${s.last.y} on screen, over ${s.lat.toFixed(1)}, ${s.lon.toFixed(1)}${foot}`);
     }
     if (go.length && s.leg === 'orbit') {
       // the bearing to the place, from the heading, in the plane of the ground under the bus: steer at it

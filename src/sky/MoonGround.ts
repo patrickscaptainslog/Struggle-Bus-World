@@ -59,13 +59,21 @@ export function groundMap(relief: WholeMap, tone: ArrayLike<number>, toneW: numb
   // ---- tone: a smooth surface, then each 2 x 2 back on the texel it came from, so the mip over it is that texel
   const t = new Float32Array(W * H);
   upsample(tone, toneW, toneH, W, H, t);
-  const kx = W / toneW, ky = H / toneH, n = kx * ky;
+  const kx = W / toneW, ky = H / toneH, n = kx * ky, kids = new Float32Array(n);
   for (let j = 0; j < toneH; j++)
     for (let i = 0; i < toneW; i++) {
-      let sum = 0;
-      for (let b = 0; b < ky; b++) for (let a = 0; a < kx; a++) sum += t[(j * ky + b) * W + i * kx + a];
-      const off = tone[j * toneW + i] - sum / n;
-      for (let b = 0; b < ky; b++) for (let a = 0; a < kx; a++) out[((j * ky + b) * W + i * kx + a) * 4] = Math.max(0, Math.min(255, Math.round(t[(j * ky + b) * W + i * kx + a] + off)));
+      const want = tone[j * toneW + i];
+      for (let b = 0; b < ky; b++) for (let a = 0; a < kx; a++) kids[b * kx + a] = Math.max(0, Math.min(255, t[(j * ky + b) * W + i * kx + a]));
+      // (a few rounds: a texel the smooth surface overshot is held at the end of the range, and the others make up for it)
+      for (let r = 0; r < 3; r++) {
+        let sum = 0, free = 0;
+        for (let k = 0; k < n; k++) sum += kids[k];
+        const off = want * n - sum;
+        for (let k = 0; k < n; k++) if ((off > 0 && kids[k] < 255) || (off < 0 && kids[k] > 0)) free++;
+        if (!free) break;
+        for (let k = 0; k < n; k++) if ((off > 0 && kids[k] < 255) || (off < 0 && kids[k] > 0)) kids[k] = Math.max(0, Math.min(255, kids[k] + off / free));
+      }
+      for (let b = 0; b < ky; b++) for (let a = 0; a < kx; a++) out[((j * ky + b) * W + i * kx + a) * 4] = Math.round(kids[b * kx + a]);
     }
   // ---- the slope: the heights on the same grid, then their gradient as a vector, east and north at each texel
   upsample(relief.data, relief.w, relief.h, W, H, t);

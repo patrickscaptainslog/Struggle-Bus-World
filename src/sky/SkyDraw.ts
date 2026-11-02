@@ -157,6 +157,8 @@ function readStars(buf: ArrayBuffer): { pos: Float32Array; star: Uint8Array } {
 const EARTH_TEXEL_KM = (2 * Math.PI * R_EARTH_A) / 2048;
 const MOON_TEXEL_KM = (2 * Math.PI * R_MOON) / 1024;
 
+/** How long a crater's own light takes to follow the top of the frame, s: a carve shouldn't swing the light over every crater at the rate of the turn. */
+const AHEAD_S = 2;
 const CLOSE_LOW = Math.log(300);
 const CLOSE_HIGH = Math.log(9000);
 const smooth01 = (t: number) => {
@@ -174,6 +176,8 @@ export const groundTune = {
   bright: 0.7,
   /** How much of its shape a crater keeps under a high Sun. */
   flat: 1.2,
+  /** How much of that the real relief gets. */
+  hill: 0.5,
   /** How far the big craters push the map's read, in thousandths of a turn. */
   wander: 0.5,
   /** The tiles' mip: under 0 is sharper, and shimmers. */
@@ -198,6 +202,7 @@ export class SkyDraw {
   /** The Moon's ground, once the worker has it: until then, and for good if it never comes, the tone map alone. */
   ground: { ready: boolean; ms: number } = { ready: false, ms: 0 };
   private moonTexelKm = MOON_TEXEL_KM;
+  private readonly ahead = new THREE.Vector3(0, 0, 1);
   private readonly tmpAhead = new THREE.Vector3();
   private aheadSet = false;
 
@@ -306,8 +311,8 @@ export class SkyDraw {
     this.ground.ms = Math.round(ms);
   }
 
-  /** Every frame: the sky into the resolve's uniforms and the stars' rotation. No allocation. */
-  update(s: SkyState): void {
+  /** Every frame: the sky into the resolve's uniforms and the stars' rotation. No allocation. dt: the screen's, s. */
+  update(s: SkyState, dt = 1 / 60): void {
     const focal = 1 / this.pipeline.pixelWorldSize(1);
     const r = s.earthRot, m = s.moonRot, q = s.starRot;
     U.uEarthRot.value.set(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]);
@@ -339,17 +344,18 @@ export class SkyDraw {
     // (what's invented comes in over the whole way down, in the log of the height: 25 % of it at 3,000 km, 70 % at 1,000 km)
     const close = 1 - smooth01((Math.log(Math.max(s.moonKm - R_MOON, 1)) - CLOSE_LOW) / (CLOSE_HIGH - CLOSE_LOW));
     U.uMoonClose.value = close;
-    U.uMoonNear.value.set(this.ground.ready ? rM / focal : 0, g.relief, g.craters * close, g.wander);
+    U.uMoonNear.value.set(this.ground.ready ? rM / focal : 0, g.relief, g.craters * close, g.wander * close);
     U.uMoonLook.value.set(g.bright * close, g.flat, g.sharp, g.keep);
-    // the top of the frame, on the ground under the view: m's rows are the render frame's axes in Moon fixed, so this is up less back. Low-passed, so a turn of the view isn't a turn of the light
+    // the top of the frame, on the ground under the view: m's rows are the render frame's axes in Moon fixed, so this is up less back
     const ox2 = s.moonO[0] / s.moonKm, oy2 = s.moonO[1] / s.moonKm, oz2 = s.moonO[2] / s.moonKm;
     let ax = m[3] - m[6], ay = m[4] - m[7], az = m[5] - m[8];
     const on = ax * ox2 + ay * oy2 + az * oz2;
     ax -= ox2 * on;
     ay -= oy2 * on;
     az -= oz2 * on;
-    const al = Math.hypot(ax, ay, az) || 1, A = U.uMoonAhead.value;
-    A.lerp(this.tmpAhead.set(ax / al, ay / al, az / al), this.aheadSet ? 0.04 : 1).normalize();
+    const al = Math.hypot(ax, ay, az) || 1, A = this.ahead;
+    A.lerp(this.tmpAhead.set(ax / al, ay / al, az / al), this.aheadSet ? 1 - Math.exp(-dt / AHEAD_S) : 1).normalize();
+    U.uMoonAhead.value.set(A.x, A.y, A.z, g.hill);
     this.aheadSet = true;
 
     U.uSunDisc.value.set(s.sun[0], s.sun[1], s.sun[2], Math.cos(s.sunR));

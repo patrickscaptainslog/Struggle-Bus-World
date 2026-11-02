@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The Moon's ground as the flight meets it, to look at: node tools/sky/moon-ground.mjs <out dir> [--t=2026-11-25T04:00:00Z] [--g5=6000] [--hs=13000,6000,3000,1500,800,500,300] [--secs=0,20,40,60] [--w=402] [--h=874] [--q=]
+// The Moon's ground as the flight meets it, to look at: node tools/sky/moon-ground.mjs <out dir> [--t=2026-11-25T04:00:00Z] [--g5=6000] [--hs=13000,6000,3000,1500,800,500,300] [--secs=0,20,40,60] [--burst=8] [--w=402] [--h=874] [--q=]
 // No touches and no real time: the route's own step, the clock held while a frame is shot. --hs: heights on the way in, km over the Moon. --secs: seconds on, in orbit. Prints what it read each frame, and the two bodies' size.
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -55,6 +55,18 @@ try {
     await page.evaluate((d) => window.__game.moon.skip(d), s - at);
     at = s;
     await shoot(`orbit-${String(s).padStart(3, '0')}`);
+  }
+  // --burst=8: frames one after another at the phone's step from there, to look at how the ground moves
+  for (let i = 0; i < Number(opt('burst', 0)); i++) {
+    await page.evaluate(() => new Promise((done) => {
+      const m = window.__game.moon;
+      m.hold(false);
+      requestAnimationFrame(() => {
+        m.hold(true);
+        requestAnimationFrame(done);
+      });
+    }));
+    await page.screenshot({ path: join(dir, `burst-${i}.png`) });
   }
 } finally {
   await browser.close();

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { normalizeText } from '../fx/pixelFont';
 import { signBladeWidth, signTune, StreetSigns } from '../fx/StreetSign';
 import { readPlaces, type Place, type PlaceRow, type PlaceType } from '../moon/map';
 import { R_MOON, type SkyState } from './SkyModel';
@@ -7,9 +8,9 @@ import { R_MOON, type SkyState } from './SkyModel';
 // and the Moon is only a ray test, so it stands in the render frame on the line from the lens to the place, past the bus, and is moved along that line every frame: on screen it rides the ground. Its letters are a fixed size, as
 // a sign's are: a name is for reading, and a sign to scale would be a billionth of a pixel.
 //
-// One at a time, every few seconds, and each place once a lap. A place is in reach when it's somewhere in the middle of the frame, and either big enough to see or close: a sea from a long way off, a landing site only from nearby.
-// What's bigger than the view is named when the view is over it, and its sign stands under the view, not at its middle, which may be over the horizon. The more a name is worth, the sooner it goes up: the first steps on the Moon
-// first, then the seas and the basins, then the craters, mountains and valleys, then the other landers.
+// One at a time, every few seconds, and each place once a lap. A place is in reach when it's somewhere in the middle of the frame, and either big enough to see or close: a sea from a long way off, a lander only from nearby, and
+// any Apollo from as far as names go, because that's what the way in is for. What's bigger than the view is named when the view is over it, and its sign stands under the view, not at its middle, which may be over the horizon.
+// The more a name is worth, the sooner it goes up: the first steps on the Moon first, then the big seas, the famous craters, the other Apollos, the small seas and the basins, the other craters, mountains and valleys, the other landers.
 
 /** Live, the tuner moves them. */
 export const nameTune = {
@@ -18,14 +19,15 @@ export const nameTune = {
   /** A font pixel of a sign, game px. */
   font: 1.5,
   /** Names start at this height, km. */
-  high: 2000,
+  high: 2600,
   /** Over this speed, km/s, the ground goes by too fast to read. */
-  fast: 130,
+  fast: 220,
 };
 
-/** What a name is worth. */
+/** What a name is worth, and a size's worth on top. */
 const WORTH: Record<PlaceType, number> = { site: 2, mare: 5, basin: 5, crater: 4, mountains: 3, valley: 3 };
-const APOLLO = 6;
+const FAMOUS = new Set(['TYCHO', 'COPERNICUS', 'KEPLER', 'ARISTARCHUS', 'PLATO']);
+const worth = (p: Place) => (p.name === 'APOLLO 11' ? 7 : FAMOUS.has(p.name) ? 5.6 : p.name.startsWith('APOLLO ') ? 5.4 : WORTH[p.type]) + Math.min(1, p.km / 1000);
 /** A place is in reach this big on screen, px, or this close, km. */
 const SEEN_PX = 14;
 const CLOSE_KM = 650;
@@ -33,9 +35,13 @@ const CLOSE_KM = 650;
 const EDGE = 6;
 const LOW = -0.17;
 const HIGH = 0.16;
+/** While the bus is still high, what's under the middle of the frame is on the disc and in no hurry. */
+const WIDE_KM = 800;
+const LOW_WIDE = -0.36;
 /** A sign this close to one that's up is on top of it, px. */
 const CLEAR = 130;
-/** How far in from a big place's edge its sign may stand, as a share of its radius. */
+/** A place this wide may be bigger than the view: the rest stand in the middle of what they name. How far in from a big place's edge its sign may stand, as a share of its radius. */
+const WIDE_PLACE_KM = 200;
 const INSIDE = 0.75;
 /** Metres from the lens to where a sign stands: past the bus, which flies in front of it. */
 const DEPTH = 2600;
@@ -112,7 +118,7 @@ export class MoonNames {
   /** Where a sign for this place would stand: the place, or for one wider than the view, the ground in the view, or the nearest of the place to that. */
   private anchor(p: Place, g: V): V {
     const c = Math.min(1, Math.max(-1, p.d[0] * g[0] + p.d[1] * g[1] + p.d[2] * g[2])), ang = Math.acos(c), r = ((p.R / 1000) / R_MOON) * INSIDE;
-    if (r < 1e-3 || ang < 1e-5) return [p.d[0], p.d[1], p.d[2]];
+    if (p.km < WIDE_PLACE_KM || ang < 1e-5) return [p.d[0], p.d[1], p.d[2]];
     if (ang <= r) return g;
     const k = Math.sin(r) / Math.sin(ang), q = Math.sin(ang - r) / Math.sin(ang);
     return [p.d[0] * q + g[0] * k, p.d[1] * q + g[1] * k, p.d[2] * q + g[2] * k];
@@ -120,7 +126,7 @@ export class MoonNames {
 
   /** The sign most worth putting up now. */
   private pick(s: SkyState, focal: number, w: number, h: number): Standing | null {
-    const g = this.middle(s), T = signTune;
+    const g = this.middle(s), T = signTune, low = s.moonKm - R_MOON > WIDE_KM ? LOW_WIDE : LOW;
     if (!g) return null;
     let best: Standing | null = null, score = -Infinity;
     for (const p of this.places) {
@@ -128,14 +134,13 @@ export class MoonNames {
       const at = this.anchor(p, g);
       if (!this.seen(at, s) || this.p.z >= 0) continue;
       const k = focal / -this.p.z, x = this.p.x * k, y = this.p.y * k;
-      if (Math.abs(x) > w / 2 - (signBladeWidth(p.name) / T.texelW) * nameTune.font * 0.5 - EDGE || y < LOW * h || y > HIGH * h) continue;
-      if ((p.km * focal) / this.p.km < SEEN_PX && this.p.km > CLOSE_KM) continue;
+      if (Math.abs(x) > w / 2 - (signBladeWidth(p.name) / T.texelW) * nameTune.font * 0.5 - EDGE || y < low * h || y > HIGH * h) continue;
+      if ((p.km * focal) / this.p.km < SEEN_PX && this.p.km > CLOSE_KM && !p.name.startsWith('APOLLO ')) continue;
       if (this.crowded(s, focal, x, y)) continue;
-      const worth = p.type === 'site' && p.name.startsWith('APOLLO') ? APOLLO : WORTH[p.type];
-      const v = worth * 1000 - Math.hypot(x, y);
+      const v = worth(p) * 1000 - Math.hypot(x, y);
       if (v > score) {
         score = v;
-        best = { place: p, text: p.name, at, age: 0 };
+        best = { place: p, text: normalizeText(p.name), at, age: 0 };
       }
     }
     return best;
@@ -184,11 +189,11 @@ export class MoonNames {
       if (n) {
         this.seen(n.at, s);
         const k = focal / -this.p.z;
-        this.log.push({ name: n.text, at: clock, h: s.moonKm - R_MOON, x: Math.round(this.p.x * k), y: Math.round(this.p.y * k) });
+        this.log.push({ name: n.place.name, at: clock, h: s.moonKm - R_MOON, x: Math.round(this.p.x * k), y: Math.round(this.p.y * k) });
         this.shown.set(n.place.id, clock);
         this.up.push(n);
         this.wait = nameTune.every;
-        this.signs.show({ text: n.text, position: this.at.set(c.x + this.p.x * DEPTH, c.y + this.p.y * DEPTH, c.z + this.p.z * DEPTH), facing: 0, hue: 0, scale: (nameTune.font * DEPTH) / (T.texelW * focal), biasNow: true, depthBias: 0, plain: true });
+        this.signs.show({ text: n.text, position: this.at.set(c.x + this.p.x * DEPTH, c.y + this.p.y * DEPTH, c.z + this.p.z * DEPTH), facing: 0, hue: 0, scale: (nameTune.font * DEPTH) / (T.texelW * focal), biasNow: true, depthBias: 0, plain: true, riseScaled: true });
         pop();
       }
     }

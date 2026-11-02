@@ -37,6 +37,7 @@ import { geodeticToFix, sphereToFix } from './WorldFrame';
 // The bus's size on screen is game/busSize.ts's, by the height: the rig stands off and the bus lets go of its heroic scale, so it's a speck against a body, and what goes with it thins to match.
 // `?tau=` sets the way in's time constant, and `?tune` (or three fingers) opens the tuner, whose "Moon run" rows are live: the way in, the view, the bus and what goes with it.
 // A tap in orbit is a breath: MoonBreath.ts, after the sky and the view; the paint it leaves is MoonPaint.ts's map, read by the resolve's spaceMoon. A hit-stop holds `dt` and not the screen's `real`.
+// The ground under the orbit is MoonGround.ts's, made on a worker after the first frame, and the places on it are named by MoonNames.ts: both are behind a URL row too, `?relief= &craters= &bright= &flat= &hill= &wander= &sharp= &keep=`.
 
 const DEG = Math.PI / 180;
 /** Half the portrait's vertical field on the 38 degree lens, degrees: what the rig's pitch rule is measured with (earth/geom.py). */
@@ -267,8 +268,8 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   registerTunables('Moon run: the bus', busSize, { farPx: [4, 30, 0.5], midPx: [8, 40, 0.5], midKm: [2, 60, 1] });
   registerTunables('Moon run: what goes with it', spaceFxTune, { linePx: [1, 3, 0.1], lineLong: [0.005, 0.05, 0.001], thread: [0.05, 1, 0.01] });
   registerTunables('Moon run: the breath', breathTune, { thin: [0.05, 1, 0.01], flash: [0.005, 0.1, 0.005] });
-  registerTunables('Moon run: names', nameTune, { every: [2, 20, 0.5], font: [1, 3, 0.1], high: [300, 6000, 100], fast: [30, 300, 5] });
-  registerTunables('Moon run: the ground', groundTune, { relief: [0, 8, 0.1], craters: [0, 2, 0.05], bright: [0, 2, 0.05], flat: [0, 4, 0.1], wander: [0, 2, 0.05], sharp: [-1.5, 1, 0.1], keep: [0.01, 0.3, 0.01] });
+  registerTunables('Moon run: names', nameTune, { every: [2, 20, 0.5], font: [1, 3, 0.1], high: [300, 6000, 100], fast: [30, 400, 5] });
+  registerTunables('Moon run: the ground', groundTune, { relief: [0, 8, 0.1], craters: [0, 2, 0.05], bright: [0, 2, 0.05], flat: [0, 4, 0.1], hill: [0, 2, 0.05], wander: [0, 2, 0.05], sharp: [-1.5, 1, 0.1], keep: [0.01, 0.3, 0.01] });
   if (params.has('tune')) tuner.toggle();
   // (the URL wins over a saved row)
   if (params.has('tau')) tripTune.tau = Number(params.get('tau')) || TAU;
@@ -381,7 +382,8 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
     }
     model.frame(trip ? trip.ms : clock.now(), (trip ?? pose!).ob, sky);
     if (pose) placeCamera();
-    draw.update(sky);
+    // (held, for a tool's frame: the light is where it would have got to)
+    draw.update(sky, held0 ? Infinity : real);
     globals.uSunDir.value.set(sky.sun[0], sky.sun[1], sky.sun[2]);
     // (in Earth's shadow the bus has only its ambient)
     globals.uLight.value.x = 0.62 * sky.sunSeen;

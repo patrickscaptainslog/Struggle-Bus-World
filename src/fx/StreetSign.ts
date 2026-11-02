@@ -169,6 +169,8 @@ export interface StreetSignOptions {
   pole?: number;
   /** It only says where this is: it stays green, and a blast here flips it. */
   plain?: boolean;
+  /** It comes up out of the ground by its whole scaled height: for a sign many times its size (?moonrun's names), which by its unscaled height would hardly move. */
+  riseScaled?: boolean;
 }
 
 const MAX_SIGNS = 4;
@@ -231,6 +233,8 @@ interface Sign {
   scale: number;
   bias: number;
   poleExtra: number;
+  /** what it rises by, times its height (StreetSignOptions.riseScaled) */
+  rise: number;
 }
 
 const tmpM = new THREE.Matrix4();
@@ -366,6 +370,7 @@ export class StreetSigns {
         scale: 1,
         bias: 0,
         poleExtra: 0,
+        rise: 1,
       });
       this.mesh.setMatrixAt(i, ZERO_M);
       this.shadowMesh.setMatrixAt(i * 2, ZERO_M);
@@ -421,6 +426,7 @@ export class StreetSigns {
     s.pendingHue = -1;
     if (!wasActive) s.biasK = opts.biasNow ? 1 : 0;
     s.scale = Math.max(0.1, opts.scale ?? 1);
+    s.rise = opts.riseScaled ? s.scale : 1;
     s.bias = opts.depthBias ?? T.depthBias;
     s.poleExtra = Math.max(0, opts.pole ?? 0) / s.scale; // (the whole sign is scaled)
     s.pos.copy(opts.position);
@@ -583,7 +589,7 @@ export class StreetSigns {
       let poleLen = poleH;
       const outOfGround = age < tSink ? age >= t1 : sv >= 1;
       if (outOfGround) poleLen = poleH * (1 + (sv - 1) * T.poleGive);
-      else rootY = (sv - 1) * totalH;
+      else rootY = (sv - 1) * totalH * s.rise;
       const vn = vel / wRise; // dimensionless speed
       let sy = 1 + T.stretch * THREE.MathUtils.clamp(age >= tSink ? Math.abs(vn) * 0.5 : vn, -0.45, 1);
       let sx = 1 - (sy - 1) * 0.55;

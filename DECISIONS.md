@@ -2640,6 +2640,15 @@ Flown by hand with real touches by someone who hadn't seen it: `tools/moon/hand.
 - **The pick no longer leans off painted craters.** A test of three leans over a natural minute: no difference in straight flight, and it fought a player who turned back.
 - **Left as it is:** a level 3 comes about once a natural minute, at tap 7 or 8, since the bus outruns its aim. Turn back for a bowl (76 degrees a second at cruise, a 20 m turn) or use MEGA. That's the producer's to weigh on a phone.
 
+## `?moonrun`: the Moon from orbit (2026-11-02, `spike/moonrun`)
+The producer, on the way in: the bus "magnitudes too large", and a Moon a surface of 20 px texels makes small. The ground is `src/sky/MoonGround.ts`, the resolve's `spaceMoon`, the names `src/sky/MoonNames.ts`.
+- **One map read, and the relief comes with it.** Tone and slope are one RGBA map, so the two reads the budget allows both go on craters. The slope is a vector, Moon fixed: no tangent frame, nothing at a pole. Twice the tone map's size on bicubics, or a pixel at 300 km reads a 20 px bilinear block, and its second mip is the old map to a quarter of a byte, so a far disc reads what it always read.
+- **On a worker, after the first frame.** The flight is two minutes from needing it, relief.bin is 1.47 MB the old flight never asked for, and till it lands the Moon is the tone map. If it never lands nothing is wrong.
+- **A tile on the six faces of a cube, the seam a band of dither.** Lat-lon pinches at the pole, which the way in flies straight at. The seam can't be seen in frames looked for it, three faces meeting included. The tile is read twice, each size turned on the face, so a repeat needs both to line up.
+- **Under a high Sun a crater keeps a low light of its own, from the top of the frame.** It isn't true, and it's the biggest call here. Lunar-Lambert is flat at full, so a true crater is nothing but a pale ring, and with the real Sun behind the view, which is how the way in leaves you, every bowl read as a dome (GROUND.md's own finding: lit from behind the camera a bowl reads as a dome). So the real Sun lights a crater only while it's low, and the shadows are the point. The light follows the frame's top by two seconds, so a carve doesn't swing it.
+- **A sea keeps a third of the craters,** as `?moon`'s do, whole: the tile's rank says which, and the ones a sea keeps are stamped last. The rest stay as a mark in the tone, a ghost.
+- **The sign is the street's sign,** the plain one, not a label. The Moon is a ray test, so it stands in the render frame on the line to the place, past the bus, and moves along that line every frame.
+
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
   local repo until `patrickscaptainslog/struggle-bus` exists.
