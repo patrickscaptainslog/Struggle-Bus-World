@@ -159,7 +159,15 @@ export class RimBloom {
       // (a big rim went up on the far field's ground: as the bus comes along it, it settles on the tiles)
       else if (s.rec.r >= BIG && Math.abs(d) < 700 && now > s.at + 5) this.stand(s.rec, now);
     }
-    if (this.items >= MAX_ITEMS) return;
+    // (a lot painted in one place: the far side of it goes first)
+    if (this.items > MAX_ITEMS) {
+      const far = [...this.standing.entries()].sort((a, b) => Math.hypot(b[1].rec.x - bx, b[1].rec.z - bz) - b[1].rec.r - (Math.hypot(a[1].rec.x - bx, a[1].rec.z - bz) - a[1].rec.r));
+      for (const [k] of far) {
+        if (this.items <= MAX_ITEMS * 0.9) break;
+        this.drop(k);
+      }
+    }
+    if (this.items >= MAX_ITEMS * 0.9) return;
     let added = 0;
     for (const r of near()) {
       if (this.standing.has(r.order) || Math.hypot(r.x - bx, r.z - bz) - r.r > NEAR) continue;

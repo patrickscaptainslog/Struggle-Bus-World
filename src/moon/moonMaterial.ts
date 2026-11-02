@@ -98,7 +98,7 @@ int moonWindow(vec2 xz, float px, out vec2 t) {
   for (int k = 3; k >= 0; k--) {
     vec4 c = uClip[k];
     vec2 q = (xz - c.xy) * c.z;
-    if (c.w > 0.5 && (k == 3 || px * c.z <= 5.0) && q.x >= 3.0 && q.y >= 3.0 && q.x <= ${CLIP_N - 4}.0 && q.y <= ${CLIP_N - 4}.0) {
+    if (c.w > 0.5 && (k == 3 || px * c.z <= 4.0) && q.x >= 3.0 && q.y >= 3.0 && q.x <= ${CLIP_N - 4}.0 && q.y <= ${CLIP_N - 4}.0) {
       L = k;
       t = q;
     }
@@ -244,9 +244,12 @@ const NEAR_FS = /* glsl */ `
     float pr, pEdge, pWet, pFresh, pLift, pGlow;
     float site = moonSite(vWorldPos.xz, px);
     // what's on a crater first: a bowl keeps its colour whatever lands round it
+    // (not the long axis alone: at a grazing view that would blur what the short axis can still read)
+    float pa = length(dFdx(vWorldPos.xz)), pb = length(dFdy(vWorldPos.xz));
+    float pv = pow(max(pa, pb), 0.6) * pow(max(min(pa, pb), 0.001), 0.4);
     if (site > 0.5) {
       if (site > 1.5) light = max(light, 0.52);
-    } else if (moonClip(vWorldPos.xz, px, pr, pEdge, pLift, pGlow)) {
+    } else if (moonClip(vWorldPos.xz, pv, pr, pEdge, pLift, pGlow)) {
       ramp = pr;
       light = moonPaintLight(pr, light, pEdge, pLift, 0.0);
       glow = pGlow;
@@ -395,7 +398,7 @@ const FAR_FS = /* glsl */ `
     float site = moonSite(vWorldPos.xz, pa + pb);
     if (site > 0.5) {
       if (site > 1.5) light = max(light, 0.52);
-    } else if (moonClip(vWorldPos.xz, pa + pb, pr, pEdge, pLift, pGlow)) {
+    } else if (moonClip(vWorldPos.xz, pow(max(pa, pb), 0.6) * pow(max(min(pa, pb), 0.001), 0.4), pr, pEdge, pLift, pGlow)) {
       ramp = pr;
       light = moonPaintLight(pr, light, pEdge, pLift, 0.0);
       glow = pGlow;

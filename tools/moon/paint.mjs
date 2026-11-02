@@ -29,6 +29,8 @@ const open = async (q = '') => {
   await page.evaluate(() => {
     const g = window.__game, info = g.pipeline.renderer.info;
     window.__qa = { holdFrames: 0 };
+    window.__programs0 = g.pipeline.renderer.info.programs.length;
+    window.__names0 = new Set(g.pipeline.renderer.info.programs.map((p) => p.cacheKey));
     info.autoReset = false;
     const f = g.perf.frame.bind(g.perf);
     window.__stats = { calls: 0, triangles: 0 };
@@ -134,6 +136,7 @@ const find = (x, z, r, spread) => page.evaluate(([x, z, r, spread]) => {
 /** The bus held `back` m short of a place, `up` m over the ground there, nose at it. */
 const pose = (x, z, back, up, az = 0) => page.evaluate(([x, z, back, up, az]) => {
   const g = window.__game, h = (az * Math.PI) / 180, bx = x - Math.sin(h) * back, bz = z + Math.cos(h) * back;
+  window.__qa.topDown = null;
   window.__qa.pin = { x: bx, z: bz, y: g.city.groundAt(bx, bz) + up, heading: h };
 }, [x, z, back, up, az]);
 const settle = async (secs = 2) => {
@@ -384,6 +387,57 @@ SCRIPTS.steady = async () => {
   console.log(seen.join(' | '));
 };
 
+/** Blasts on open ground, from down there and from high over them. */
+SCRIPTS.strokes = async () => {
+  await open('lat=8.5&lon=31');
+  await run(1);
+  for (let k = 0; k < 6; k++) {
+    await tap();
+    await run(1.3);
+    await shot(`st-a${k}`);
+    await run(1.3);
+    await shot(`st-b${k}`);
+  }
+  await shot('st-low');
+  console.log(JSON.stringify(await page.evaluate(() => {
+    const g = window.__game, s = g.lastShot(), a = s?.aim;
+    return { shot: s, landed: g.city.ground.landedCount, tiles: g.city.ground.tileCount, queued: g.city.ground.queued, sample: a ? g.city.ground.sample(a[0], a[2]) : null, strokes: JSON.parse(localStorage.getItem('strugglebus.moon.strokes.v1') ?? '[]').length, recs: g.moon.paint.recs.size, site: a ? g.moon.paint.inSite(a[0], a[2]) : null };
+  })));
+  const c = await page.evaluate(() => {
+    const s = window.__game.moon.paint.strokes, m = s[s.length >> 1];
+    return { x: m.x, z: m.z };
+  });
+  await top('st-1', c.x, c.z, 900);
+  await top('st-2', c.x, c.z, 3000);
+  await top('st-3', c.x, c.z, 9000);
+};
+
+/** A minute of painting, and a look back along it from up high. */
+SCRIPTS.trail = async () => {
+  await open();
+  await run(1);
+  await playFor('t-cruise', 36, 12);
+  await stick(0, 0.9);
+  await playFor('t-surge', 24, 12);
+  await letGo();
+  const c = await page.evaluate(() => {
+    const g = window.__game, r = [...g.moon.paint.recs.values()], m = r[r.length >> 1], f = g.flight;
+    return { x: m.x, z: m.z, bx: f.x, bz: f.z, n: r.length, h: (f.heading * 180) / Math.PI };
+  });
+  console.log(JSON.stringify(c));
+  await top('t-top', c.x, c.z, 900);
+  await pose(c.x, c.z, 700, 260, c.h + 180);
+  await settle(2);
+  await shot('t-back300');
+  await pose(c.x, c.z, 1500, 900, c.h + 180);
+  await settle(2);
+  await shot('t-back1k');
+  await pose(c.x, c.z, 5000, 3000, c.h + 180);
+  await settle(2);
+  await note('t-back3k');
+  await shot('t-back3k');
+};
+
 /** A long one, every gear: nothing breaks, nothing piles up. */
 SCRIPTS.soak = async () => {
   await open();
@@ -468,6 +522,14 @@ try {
   }
 } finally {
   writeFileSync(`${out}/paint.json`, JSON.stringify(log, null, 0));
+  console.log('programs:', JSON.stringify(await page.evaluate(() => {
+    const r = window.__game?.pipeline.renderer;
+    if (!r?.info) return null;
+    return { atReady: window.__programs0, now: r.info.programs.length, added: r.info.programs.filter((p) => !window.__names0?.has(p.cacheKey)).map((p) => {
+      const gl = r.getContext(), src = gl.getShaderSource(p.vertexShader) ?? '', fs = gl.getShaderSource(p.fragmentShader) ?? '';
+      return { key: p.cacheKey.slice(0, 30), usedTimes: p.usedTimes, inst: src.includes('USE_INSTANCING_COLOR'), hasSprout: src.includes('sproutVertex'), hasDepth: fs.includes('outDepthColor'), hasParticle: src.includes('aSeed'), head: fs.slice(-300, -200) };
+    }) };
+  }).catch(() => null)));
   console.log('errors:', errors.length, errors.slice(0, 8));
   await browser.close();
 }

@@ -275,8 +275,8 @@ export class WarmUp {
     // (?moonrun has no city: its first-load number is the sky's own, not tiles', trees' and landmarks' programs that will never draw)
     if (moonrun) return;
     for (const [name, make] of sources) {
-      // (?moon has a bus and paint and a ground, and none of a city's trees, gardens, landmarks or spans)
-      if (this.ran.has(name) || (moonLow && name !== 'city')) continue;
+      // (?moon has a bus and paint and a ground, and gardens on its rims, and none of a city's trees, landmarks or spans)
+      if (this.ran.has(name) || (moonLow && name !== 'city' && name !== 'roof sprouts')) continue;
       this.ran.add(name);
       let made: THREE.Object3D | Iterable<THREE.Object3D>;
       try {
