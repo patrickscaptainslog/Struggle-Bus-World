@@ -21,7 +21,7 @@ const R_MOON_KM = 1737.4;
 export const HELD_MS = Date.parse('2026-08-05T15:20:00Z');
 /** The Sun's height (deg) and its bearing from the bus's first heading (deg): ahead and to the right, so a bowl reads as a bowl (the eye takes light as coming from the top of a picture) and the shadows come toward the view. */
 export const HELD_EL = 20;
-const HELD_SUN_OFF = 80;
+export const HELD_SUN_OFF = 80;
 /** Earth's height over the horizon (deg). */
 const HELD_EARTH_EL = 10.5;
 
@@ -71,9 +71,12 @@ export class MoonSky {
       // where they are to stand, the same angle apart
       const sunAz = (heading / DEG + HELD_SUN_OFF + 360) % 360;
       const sr = dir(sunAz, HELD_EL);
-      const q = (Math.cos(psi) - Math.sin(HELD_EL * DEG) * Math.sin(HELD_EARTH_EL * DEG)) / (Math.cos(HELD_EL * DEG) * Math.cos(HELD_EARTH_EL * DEG));
+      // (the far side never sees Earth: there it stands under the ground)
+      const farSide = Math.cos(lat0 * DEG) * Math.cos(lon0 * DEG) < -0.05;
+      const earthEl = farSide ? -35 : HELD_EARTH_EL;
+      const q = (Math.cos(psi) - Math.sin(HELD_EL * DEG) * Math.sin(earthEl * DEG)) / (Math.cos(HELD_EL * DEG) * Math.cos(earthEl * DEG));
       const delta = Math.acos(Math.min(1, Math.max(-1, q))) / DEG;
-      const er = dir(sunAz - delta, HELD_EARTH_EL);
+      const er = dir(sunAz - delta, earthEl);
       const a1 = sm, a3 = unit(cross(sm, em)), a2 = cross(a3, a1);
       const b1 = sr, b3 = unit(cross(sr, er)), b2 = cross(b3, b1);
       // (rows: render X, Y, Z in Moon fixed)

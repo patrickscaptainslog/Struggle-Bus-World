@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLSL_COMMON, GLSL_OUT, globals } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from '../world/GroundPaint';
-import { FAR, LIT_MAX, LIT_POW, SHADOW_MAX, SLOPE_MAX, type MoonTileData } from './gen';
+import { FAR, LIT_MAX, LIT_POW, LIT_TONE0, LIT_TONE1, SHADOW_MAX, SLOPE_MAX, type MoonTileData } from './gen';
 import { R_M } from './map';
 
 // The ground's two programs, near and far, and the one light they share. The near one is terrainMaterial's with the map's four bytes in place of the class texture, so paint and the shockwave land as they do
@@ -10,8 +10,8 @@ import { R_M } from './map';
 
 /** What all of the Moon's ground reads. */
 export const moonGlobals = {
-  // x flat ground's light at mid tone, y the shadow's floor, z how far grain goes (0 far off), w the fresh ejecta's lift
-  uMoonLight: { value: new THREE.Vector4(0.38, 0.012, 1, 0.3) },
+  // x flat ground's light at mid tone, y the shadow's floor
+  uMoonLight: { value: new THREE.Vector2(0.4, 0.012) },
 };
 
 /**
@@ -34,7 +34,7 @@ vec3 moonCurve(vec3 wp) {
 
 /** The four bytes back, the light, the ramp. Needs GLSL_COMMON. */
 export const GLSL_MOON_LIGHT = /* glsl */ `
-uniform vec4 uMoonLight;
+uniform vec2 uMoonLight;
 float moonDecode(float b) {
   float s = (b * 255.0 - 128.0) / 127.0;
   return s * abs(s);
@@ -51,11 +51,11 @@ void moonRead(vec4 m, out vec3 n, out float tone, out float under) {
   under = moonDecode(m.a) * ${SHADOW_MAX.toFixed(1)};
 }
 // (the brightest slopes keep their shape: they ease into the top of the ramp)
-float moonShoulder(float l) { return l / (1.0 + 0.12 * l * l); }
+float moonShoulder(float l) { return l / sqrt(1.0 + 0.3 * l * l); }
 // The light on regolith: nearly no limb darkening, so what a low Sun shows is the slope against it, measured from flat ground. Anything out of the Sun is black but for this floor.
 float moonLit(vec3 n, float tone, float sun) {
   float k = max(dot(n, uSunDir), 0.0) / max(uSunDir.y, 0.05);
-  float lit = uMoonLight.x * pow(k, ${LIT_POW.toFixed(2)}) * (0.42 + 1.16 * tone);
+  float lit = uMoonLight.x * pow(k, ${LIT_POW.toFixed(2)}) * (${LIT_TONE0.toFixed(2)} + ${LIT_TONE1.toFixed(2)} * tone);
   return uMoonLight.y + sun * moonShoulder(lit);
 }
 float moonRamp(float tone) { return tone < 0.34 ? ${Ramp.MARE}.0 : ${Ramp.REGOLITH}.0; }

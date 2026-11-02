@@ -1306,6 +1306,10 @@ export class City {
       for (const t of msg.tiles) {
         const lt = this.tiles.get(`${t.tx},${t.tz}`);
         if (lt) lt.grid = t.grid;
+        if (lt && this.moon && t.terrain) {
+          lt.terrainData = t.terrain;
+          lt.meshH = null;
+        }
       }
       this.buildRegionMesh(key, msg);
       return;
@@ -1346,6 +1350,11 @@ export class City {
   private prepTile(t: TileResult) {
     const lt = this.tiles.get(`${t.tx},${t.tz}`);
     if (!lt || lt.prep) return;
+    // (?moon: a level of detail is its own data, not only its own meshes: its heights and map come with it)
+    if (this.moon && t.terrain) {
+      lt.terrainData = t.terrain;
+      lt.meshH = null;
+    }
     const p: TilePrep = { buildings: null, caster: null, grown: t.grown, terrain: null };
     if (t.mesh) {
       p.buildings = this.makeBuildingMesh(t.mesh, t.sphere, !t.caster);

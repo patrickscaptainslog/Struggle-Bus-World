@@ -98,22 +98,6 @@ if (process.env.FARTEST) {
     const b = FAR.B * FAR.C0 * 2 ** k;
     const u = far.move(k, -4, -4);
     console.log('level', k, 'blocks', u.blocks.length / 2, 'ms', Math.round(performance.now() - t1), 'cell', FAR.C0 * 2 ** k, 'block m', b);
-    // (each level's map as the far field reads it: the tone of the slope along the Sun, black in shadow)
-    const N = FAR.N, g = new Uint8Array(N * N), dec = (v: number) => {
-      const s = (v - 128) / 127;
-      return s * Math.abs(s) * 2;
-    };
-    for (let q = 0; q < u.blocks.length / 2; q++) {
-      const ox = (u.blocks[q * 2] + 4) * FAR.B, oz = (u.blocks[q * 2 + 1] + 4) * FAR.B;
-      for (let j = 0; j < FAR.B; j++)
-        for (let i = 0; i < FAR.B; i++) {
-          const o = (q * FAR.B * FAR.B + j * FAR.B + i) * 4;
-          const sx = dec(u.map[o]), sz = dec(u.map[o + 1]);
-          const lit = u.map[o + 3] > 128 ? 0 : Math.max(0, 0.4 * (1 - (sx * sun.ax + sz * sun.az) / sun.tanE));
-          g[(oz + j) * N + ox + i] = Math.min(255, 255 * lit);
-        }
-    }
-    png(`${out}/far${k}.png`, N, N, g);
   }
   console.log('far total ms', Math.round(performance.now() - t));
   for (const lod of [1, 0] as const) {

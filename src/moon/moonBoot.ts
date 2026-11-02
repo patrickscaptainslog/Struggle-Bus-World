@@ -12,7 +12,7 @@ import { cratersNear, type CraterHit } from './craters';
 import { MOON_REGION, MOON_TILE, decodeShadow, type FarUpdate } from './gen';
 import { R_M, dirOf, findPlace, latLonToMap, latOf, lonOf, makeFrame, readAlbedo, readPlaces, type MapFrame, type Place, type PlaceRow, type WholeMap } from './map';
 import { MoonFar } from './MoonFar';
-import { MoonSky } from './MoonSky';
+import { HELD_SUN_OFF, MoonSky } from './MoonSky';
 import { makeMoonGround, moonGlobals, moonMapTexture, moonTileMap } from './moonMaterial';
 import { rockMesh, rockProxy } from './rocks';
 import type { MoonFarRequest, MoonInit, MoonReady, MoonRegionRequest } from './moonWorker';
@@ -28,8 +28,8 @@ const MAP_HALF = 128000;
 const FAR_PLANE = 420000;
 /** One seed for the one Moon: every map of it holds the same craters. */
 const SEED = 7;
-/** The bus starts this far off the central peaks of Theophilus, on this bearing from them (m, deg). */
-const THEO_START = { off: 15500, from: 262, heading: 72 };
+/** The bus starts on the crater's floor north of the central peaks (the highest at 3968, -1280), the massif ahead and to the right, Earth to the left of it. */
+const THEO_START = { x: 2866, z: -14097, heading: 167 };
 const THEOPHILUS = { lat: -11.45, lon: 26.28 };
 
 export const MOON_ROWS: Record<number, string[]> = {
@@ -38,7 +38,7 @@ export const MOON_ROWS: Record<number, string[]> = {
   [Ramp.NIGHT_SKY]: ['#000000', '#020204', '#04040a', '#06060e', '#080812', '#0a0a16', '#0c0c1a', '#0e0e1e'],
   // regolith: cool greys from a true black. Highlands, and the maria's darker, bluer row
   [Ramp.REGOLITH]: ['#050609', '#12141b', '#22252e', '#373b46', '#525661', '#747882', '#9da0a6', '#cfd0cf'],
-  [Ramp.MARE]: ['#040508', '#0e1117', '#1a1f28', '#2a303c', '#3e4552', '#59616e', '#7a828e', '#a2a9b2'],
+  [Ramp.MARE]: ['#050609', '#11141b', '#1f242e', '#313846', '#49515f', '#68707e', '#8c94a0', '#b6bcc4'],
 };
 
 export interface MoonBoot {
@@ -89,8 +89,13 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   const atTheo = !named && !hasLL;
   const frame = makeFrame(lat, lon);
   const heading = (params.has('heading') ? Number(params.get('heading')) : atTheo ? THEO_START.heading : 82) * DEG;
-  const from = (THEO_START.from * Math.PI) / 180;
-  const startX = atTheo ? Math.sin(from) * THEO_START.off : 0, startZ = atTheo ? -Math.cos(from) * THEO_START.off : 0;
+  // (a named crater: on its floor, on the side the Sun reaches, with the whole of it ahead. A held Sun stands HELD_SUN_OFF off the heading: this is away from it)
+  let startX = atTheo ? THEO_START.x : 0, startZ = atTheo ? THEO_START.z : 0;
+  if (place?.type === 'crater' || place?.type === 'basin') {
+    const away = heading + (HELD_SUN_OFF + 180) * DEG, r = place.R * (place.km < 20 ? 1.5 : 0.56);
+    startX = Math.sin(away) * r;
+    startZ = -Math.cos(away) * r;
+  }
   const site = place?.name ?? (hasLL ? `${lat.toFixed(2)}, ${lon.toFixed(2)}` : 'THEOPHILUS');
 
   // the sky first: the ground's shadows are baked for its Sun

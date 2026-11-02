@@ -794,7 +794,7 @@ async function boot() {
   const input = new Input(canvas);
   const tuner = new Tuner();
   // (the ODbL credit, then the other sources' own: ESA WorldCover's CC BY for where the trees stand)
-  const dataCredits = [manifest.attribution ? `Map data ${manifest.attribution} (ODbL)` : '', ...Object.values(manifest.credits ?? {})].filter(Boolean);
+  const dataCredits = [manifest.attribution ? (moon ? `Data ${manifest.attribution}` : `Map data ${manifest.attribution} (ODbL)`) : '', ...Object.values(manifest.credits ?? {})].filter(Boolean);
   tuner.credits = dataCredits.join('; ');
   const perf = new Perf(renderer);
   perf.setVisible(params.has('fps'));

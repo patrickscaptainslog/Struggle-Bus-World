@@ -345,6 +345,12 @@ export class MoonGen {
       if (w > 0) h += (this.win.h - h) * w;
     }
     const rough = 0.1 + 0.9 * high;
+    // a mare's own relief: wrinkle ridges, long sharp creases in the lava
+    if (mare > 0.02 && minL < 4000) {
+      const f = R_M / 9000, g = R_M / 3100;
+      const a = 1 - Math.abs(2 * noise3(d[0] * f, d[1] * f, d[2] * f, 41) - 1), b = 1 - Math.abs(2 * noise3(d[0] * g, d[1] * g, d[2] * g, 42) - 1);
+      h += mare * (46 * a * a * a * a + 14 * b * b * b);
+    }
     for (let k = 0; k < HILLS.length; k++) {
       const l = HILLS[k][0];
       if (l < minL) break;
@@ -526,10 +532,13 @@ export const FAR = {
  */
 export const LIT_MAX = 4;
 export const LIT_POW = 1.12;
+/** A pixel's tone in the light: maria read dark against highlands, and still read as ground. */
+export const LIT_TONE0 = 0.66;
+export const LIT_TONE1 = 0.72;
 function litByte(sx: number, sz: number, tone: number, sun: SunLine, cosE: number, sinE: number): number {
   const ndl = (sinE - cosE * (sx * sun.ax + sz * sun.az)) / Math.sqrt(sx * sx + sz * sz + 1);
   const k = ndl <= 0 ? 0 : ndl / Math.max(sinE, 0.05);
-  const lit = k ** LIT_POW * (0.42 + 1.16 * tone);
+  const lit = k ** LIT_POW * (LIT_TONE0 + LIT_TONE1 * tone);
   return Math.min(255, Math.round(255 * Math.sqrt(lit / LIT_MAX)));
 }
 
