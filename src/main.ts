@@ -1111,7 +1111,7 @@ async function boot() {
       globals.uFogBank.value = 1;
       rig.openingPull = 0;
     }
-    if (city.loadedRegionCount() > 0) credit?.start(simTime);
+    if (city.loadedRegionCount() > 0 && !covered) credit?.start(simTime);
     credit?.update(simTime, now);
 
     // input -> flight (substeps keep springs stable on slow frames)

@@ -2631,6 +2631,15 @@ Every number here is from main-bPdy7owl.js, a fresh build of 48794f1 (the docs a
 - **Craters by a 3D grid through the whole Moon,** a cell's candidate kept if it lands within half a cell of the sphere: no faces, no seams, no pole, and an id that holds on any map.
 - **Checked on the final build, on this laptop, nothing on a phone, no timing.** The real stick at a fixed step: cruise 26.4 m/s, surge 98.6, Jet 450, pull 40 up, G1 on the pull 448 up, dive 98, the same numbers at every height; 0 page errors; 26 programs, none new in flight; the map's edge homes in G1. Sites: Tycho, Copernicus, Tsiolkovsky, Shackleton, Apollo 11, Crisium, the Alpine Valley, a lat and lon. Numbers and left-overs: GROUND.md. Flag off against main 034672f: 0 shader bytes differ, 31 programs; three more script requests, the same code split by dynamic imports.
 
+## `?moon`: fresh eyes (2026-11-01, `spike/moonrun`)
+Flown by hand with real touches by someone who hadn't seen it: `tools/moon/hand.mjs`.
+- **Plates on the ground were hills, not data.** Straight-edged plates a few hundred metres across, the "camo" from 12 km, were value noise: it has no slope along every plane of its lattice. Tried and wrong first: Catmull's kinks (a B-spline changed nothing), 1 m height steps in the window (eight times finer changed nothing, and cost 100 KB; put back). What showed it was the plates being in the tiles alone and the far field alone, on a period that wasn't a tile's. Gradient noise fixed it.
+- **LOLA's streaks come out of the spectrum, not by a blur.** The blur left them and took the real craterlets.
+- **A start anywhere is looked for, once, at boot,** because the brief says the first impression is always strong and half the places on the Moon started in the dark. It costs one raster in the worker. The start picked by hand stays as it is.
+- **Massif multiplied its noise by the sea's height** (a sign error waiting at -3 km): Mount Pico was 1.5 km of cliff per 2 km of ground. A basin's start could be off the map, for ever: Orientale, Apollo, Hertzsprung, South Pole-Aitken.
+- **The pick no longer leans off painted craters.** A test of three leans over a natural minute: no difference in straight flight, and it fought a player who turned back.
+- **Left as it is:** a level 3 comes about once a natural minute, at tap 7 or 8, since the bus outruns its aim. Turn back for a bowl (76 degrees a second at cruise, a 20 m turn) or use MEGA. That's the producer's to weigh on a phone.
+
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
   local repo until `patrickscaptainslog/struggle-bus` exists.

@@ -344,7 +344,8 @@ export class CraterPaint {
     if ((x - f.x) * f.fx + (z - f.z) * f.fz + r < 20) return -1;
     if (this.sites.length && this.inSite(x, z)) return -1;
     const pref = Math.max(24, 0.14 * dist);
-    return (e > 0 ? e / snap + 0.2 : (0.2 * d) / r) + 0.3 * Math.abs(Math.log(r / pref)) + (level >= 3 ? 2 : 0.25 * level);
+    // (a bowl that's finished is no target. One that isn't is as good as any: a player who turns back for it means it, and the street's aim has no opinion about paint either)
+    return (e > 0 ? e / snap + 0.2 : (0.2 * d) / r) + 0.3 * Math.abs(Math.log(r / pref)) + (level >= 3 ? 2 : 0);
   }
 
   private pick(ax: number, az: number, dist: number, f: Flight, now: number) {
@@ -521,6 +522,8 @@ export class CraterPaint {
   /** A blast on open ground: GroundPaint has it near the bus, and this is what the far windows show of it. */
   private stroke(b: Blast) {
     const sp = b.spec;
+    // (nothing stays on a crewed site, nor grows there)
+    if (this.inSite(sp.x, sp.z)) return;
     this.markStroke(sp.x, sp.z, sp.r, sp.hue, (sp.seed % 6283) / 1000, b.t);
     this.strokesDirty = true;
     this.saveAt = 1;

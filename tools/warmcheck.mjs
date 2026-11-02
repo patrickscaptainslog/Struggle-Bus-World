@@ -11,6 +11,7 @@
 //   node tools/warmcheck.mjs <url> <out.json> [--throttle=4] [--late=9000]
 // --late=<ms>: far16.bin held back that long by a route, so it lands in play (City.landFar), and ready waits for it.
 // --moon: the url is ?moonrun: no city, so the phases are the flight's: TURBO's real touches, out and home.
+// --low: the url is ?moon, the ground: real touches through a cruise, a surge, Jet, a climb, a dive, a crater taken to level 3, a mega and a firehose.
 // Wall clock, real GPU (tools/browser.mjs): meaningful on a laptop, not in the cloud's SwiftShader.
 import { chromium } from 'playwright-core';
 import { writeFileSync } from 'node:fs';
@@ -163,11 +164,81 @@ const moon = async () => {
   await phase('done');
 };
 
+// (?moon: the same questions on the ground. Real touches through CDP; the crater by a hit a level at a time on what glints)
+const low = async () => {
+  const cdp = await ctx.newCDPSession(page);
+  const down = (x, y) => cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1, radiusX: 4, radiusY: 4, force: 1 }] });
+  const to = (x, y) => cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y, id: 1, radiusX: 4, radiusY: 4, force: 1 }] });
+  const up = () => cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  const tap = async (x = 196, y = 530, ms = 70) => {
+    await down(x, y);
+    await page.waitForTimeout(ms);
+    await up();
+  };
+  const pull = async (dx, dy, secs) => {
+    await down(196, 580);
+    for (let i = 1; i <= 6; i++) {
+      await to(196 + (dx * i) / 6, 580 + (dy * i) / 6);
+      await page.waitForTimeout(16);
+    }
+    await run(secs);
+    await up();
+  };
+  const centre = async (name) => {
+    const b = await page.locator(`[data-hud="${name}"]`).boundingBox();
+    return [b.x + b.width / 2, b.y + b.height / 2];
+  };
+  const breaths = async (n) => {
+    for (let i = 0; i < n; i++) {
+      await page.waitForFunction(() => window.__game.flight.fullness >= 0.999 && !!window.__game.moon.paint.target, null, { timeout: 30000, polling: 50 }).catch(() => {});
+      await tap();
+      await run(2.4);
+    }
+  };
+  await phase('cruise');
+  await run(3);
+  await phase('surge');
+  await pull(30, -70, 6);
+  await phase('paint');
+  await breaths(5);
+  await phase('level3');
+  const id = await page.evaluate(() => {
+    const g = window.__game, f = g.flight, c = g.moon.cratersNear(f.x + f.fx * 200, f.z + f.fz * 200, 500, 30).find((k) => k.r > 15 && k.r < 400 && !k.name);
+    if (c) for (const l of [1, 2, 3]) g.moon.paint.qaHit(c.id, g.clock(), l);
+    return c?.id ?? null;
+  });
+  await run(3.5);
+  await phase('mega');
+  await run(2);
+  const [mx, my] = await centre('mega');
+  await tap(mx, my, 3000);
+  await run(4);
+  await page.evaluate(() => window.__game.superSkip(100));
+  await run(1);
+  await phase('firehose');
+  await tap(mx, my, 10600);
+  await run(7);
+  await page.evaluate(() => window.__game.superSkip(100));
+  await phase('jet');
+  const [tx, ty] = await centre('turbo');
+  await tap(tx, ty);
+  await run(8);
+  await phase('climb');
+  await pull(0, 90, 22);
+  await phase('dive');
+  await pull(0, -90, 16);
+  await phase('done');
+  return { id, recs: await page.evaluate(() => window.__game.moon.paint.recs.size) };
+};
+
+let lowRun = null;
+if (opt.low) lowRun = await low();
 if (opt.moon) await moon();
-if (!opt.moon) await phase('opening-end');
-if (!opt.moon) await run(2);
+const street = !opt.moon && !opt.low;
+if (street) await phase('opening-end');
+if (street) await run(2);
 let blast = null;
-if (!opt.moon) {
+if (street) {
 // the climb to the vista (the yoke pulled: sy -1), and a look around up there
 await phase('climb');
 await page.evaluate(() => (window.__qa = { sx: 0, sy: -1 }));
@@ -228,6 +299,7 @@ const res = {
   warm: info.report && { programs: info.report.programs, draws: info.report.draws, doneMs: info.report.doneMs },
   programsAtReady: info.programsAtReady,
   blast,
+  low: lowRun,
   programsTotal: W.programs.length,
   programsAfterWarmup: after.length,
   programsAfterWarmupByPhase: after.map(([t, p]) => `${p}@${t}`),
