@@ -142,8 +142,9 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
     L.sunStrength = sky.night ? 0.2 : 0.72;
     L.ambient = sky.night ? 0.14 : 0.26;
     L.skyBounce = 0.02;
+    // (?moonland: a step up, where the ray-drawn Moon has the ground it's coming down to. The true Sun is no held low one, and there's a lot more flat ground out of the first look's shadows)
     if (sky.night) moonGlobals.uMoonLight.value.set(0.17, 0.03);
-    else moonGlobals.uMoonLight.value.set(0.4, 0.006);
+    else moonGlobals.uMoonLight.value.set(land ? 0.55 : 0.4, 0.006);
   };
   if (!land) light();
   config.fog.clearFarFull = 3e6;
@@ -300,6 +301,8 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   registerWarm('city', () => {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+    // (a tile has one, empty or not, and three keys its programs by that: ?moon had a tile to warm by the time it mattered, and from orbit there's none)
+    g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(9), 3));
     g.setIndex(new THREE.BufferAttribute(new Uint16Array([0, 1, 2]), 1));
     return [new THREE.Mesh(g, makeMoonGround(warmTex, 0, 0, 2, 2, 0, 0, 256)), rockProxy()];
   });

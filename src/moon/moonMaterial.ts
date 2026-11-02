@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLSL_COMMON, GLSL_OUT, globals } from '../render/materials';
 import { GLSL_MOON_CURVE } from '../sky/flag';
 import { HUE_RAMPS, Ramp } from '../render/palette';
+import { GLSL_MOON_SHADE, GLSL_MOON_SHADE_UNIFORMS, spaceResolveUniforms as U } from '../render/skyResolve';
 import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from '../world/GroundPaint';
 import { FAR, LIT_MAX, LIT_POW, LIT_TONE0, LIT_TONE1, SHADOW_MAX, SLOPE_MAX, type MoonTileData } from './gen';
 
@@ -391,7 +392,8 @@ const FAR_FS = /* glsl */ `
   uniform vec4 uFarRects[${FAR.HIGH_LEVELS}]; // each level's window, in from its edge
   uniform float uFarShow; // the dissolve from the ray-drawn Moon: 0 none of this, 1 all of it
   uniform float uFarHigh; // how much of the light is the ray-drawn Moon's, 1 up there, 0 by the ground
-  uniform vec4 uFarEarth; // Earth, in the lens's axes; earthshine's strength in steps
+  ${GLSL_MOON_SHADE_UNIFORMS}
+  ${GLSL_MOON_SHADE}
   in vec3 vWorldPos;
   in vec3 vRound;
   in float vTone;
@@ -433,20 +435,18 @@ const FAR_FS = /* glsl */ `
     // (out of the Sun the byte is the fill, as the near ground has it: gen.ts, fillByte. Or the lee of a mountain is a flat black hole in the picture)
     float light = uMoonLight.y + 0.03 + (under > 0.0 ? 0.1 * m.r * m.r : moonShoulder(uMoonLight.x * m.r * m.r * ${LIT_MAX.toFixed(1)}));
     float ramp = moonRamp(vTone), glow = 0.0;
-    // Up where the two meet this is the same light as the resolve's spaceMoon, on the same ramp, with the shape of the ground as what the map has baked of it: the two pictures are the same tone wherever the Sun stands, and the terminator comes
-    // where it comes. It goes over to the ground's own on the way down.
+    // Up where the two meet this is the resolve's own light for this place, the same craters on the same ramp: the mesh is the ray-drawn Moon there, and it dissolves in over itself. It goes over to the ground's own on the way down. The real relief
+    // is in both, the invented craters of the two aren't the same ones, and that's what's slowly changing on the way.
     if (uFarHigh > 0.0) {
-      vec3 nr = normalize(vRound);
-      vec3 vv = normalize(vec3(0.0, cameraPosition.y + 1737400.0, 0.0) - vRound);
-      float mu = dot(nr, uSunDir), t = vTone;
-      float shape = under > 0.0 ? 0.3 * m.r * m.r : m.r * m.r * ${LIT_MAX.toFixed(1)} / (${LIT_TONE0.toFixed(2)} + ${LIT_TONE1.toFixed(2)} * t);
-      float level = max(dot(nr, uFarEarth.xyz), 0.0) * uFarEarth.w * (0.2 + 1.1 * t) + 0.25;
-      if (mu > 0.0) level = max(level, (0.35 + 0.65 * t) * min(2.0 * mu / (mu + max(dot(nr, vv), 0.0) + 0.001), 1.05) * 7.0 * shape);
-      level -= max(level - 5.2, 0.0) * 0.45;
-      light = mix(light, level / 7.0, uFarHigh);
       const float B[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
       ivec2 c = ivec2(gl_FragCoord.xy) & 3;
-      if ((B[c.y * 4 + c.x] + 0.5) / 16.0 < uFarHigh) ramp = ${Ramp.MOON}.0;
+      float dsk = (B[c.y * 4 + c.x] + 0.5) / 16.0;
+      vec3 to = vRound - vec3(0.0, cameraPosition.y + 1737400.0, 0.0);
+      float hit = length(to), t, art;
+      vec2 uv;
+      float level = spaceMoonLight(normalize(vRound) * uMoonRot, (to / hit) * uMoonRot, hit / 1737400.0, dsk, uv, t, art);
+      light = spStep(mix(light * 7.0, level, uFarHigh), dsk) / 7.0;
+      if (dsk < uFarHigh) ramp = ${Ramp.MOON}.0;
     }
     float pr, pEdge, pLift, pGlow;
     float site = moonSite(vWorldPos.xz, pa + pb);
@@ -488,7 +488,16 @@ export function makeMoonFar(tFarH: THREE.Texture, tFarM: THREE.Texture, mask: TH
       uFarBias: { value: -0.5 },
       uFarShow: { value: 1 },
       uFarHigh: { value: 0 },
-      uFarEarth: { value: new THREE.Vector4() },
+      tMoonMap: U.tMoonMap,
+      tMoonCraters: U.tMoonCraters,
+      uMoonRot: U.uMoonRot,
+      uMoonSun: U.uMoonSun,
+      uMoonEarth: U.uMoonEarth,
+      uMoonLod: U.uMoonLod,
+      uMoonNear: U.uMoonNear,
+      uMoonLook: U.uMoonLook,
+      uMoonClose: U.uMoonClose,
+      uMoonAhead: U.uMoonAhead,
     },
     vertexShader: FAR_VS,
     fragmentShader: FAR_FS,

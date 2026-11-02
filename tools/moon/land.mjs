@@ -42,6 +42,32 @@ try {
     for (let i = 0; i < 40000 && m.trip.leg !== 'orbit'; i++) m.skip(0.05);
     m.hold(false);
     window.__p0 = info.programs.length;
+    // what compiles in flight, and what takes a frame's whole time, by name
+    window.__compiled = [];
+    const src = WebGL2RenderingContext.prototype.shaderSource;
+    WebGL2RenderingContext.prototype.shaderSource = function (sh, text) {
+      window.__compiled.push([text.length, (text.match(/uniform [^;]*;/g) ?? []).slice(-6).join(' ').slice(0, 300)]);
+      return src.call(this, sh, text);
+    };
+    window.__slow = [];
+    const g = window.__game, wrap = (o, name, label) => {
+      const f = o[name];
+      o[name] = function (...a) {
+        const t = performance.now();
+        const r = f.apply(this, a);
+        const ms = performance.now() - t;
+        if (ms > 25) window.__slow.push([label ?? name, Math.round(ms), Math.round(m.landing.height)]);
+        return r;
+      };
+    };
+    wrap(g.city, 'update', 'city.update');
+    wrap(g.pipeline, 'render', 'render');
+    wrap(g.moon.far, 'update', 'far.update');
+    wrap(g.moon.paint, 'update', 'paint.update');
+    wrap(g.controls, 'frame', 'controls.frame');
+    wrap(g.audio, 'prepare', 'audio.prepare');
+    wrap(g.audio, 'update', 'audio.update');
+    wrap(g.flight, 'step', 'flight.step');
     // a frame's length, from the page's own clock, kept round everything that could hitch
     window.__frames = [];
     let last = performance.now();
@@ -101,7 +127,10 @@ try {
     const worst = (a) => [...a].sort((x, y) => y - x).slice(0, 5);
     const flip = frames.findIndex((r) => r[1] === 'ground');
     return {
-      programsAdded: s.pipeline.renderer.info.programs.slice(window.__p0).map((p) => p.name + ' ' + String(p.cacheKey).slice(0, 80)),
+      programsAdded: window.__compiled,
+      keys: s.pipeline.renderer.info.programs.slice(window.__p0).map((p) => p.cacheKey),
+      warmKeys: s.pipeline.renderer.info.programs.slice(0, window.__p0).filter((p) => p.cacheKey.startsWith('21,22') || p.cacheKey.startsWith('37,38')).map((p) => p.cacheKey),
+      slow: window.__slow,
       legs: Object.fromEntries(Object.entries(legs).map(([k, v]) => [k, { frames: v.length, mean: Math.round(v.reduce((a, b) => a + b, 0) / v.length), worst: worst(v) }])),
       aroundShow: frames.slice(Math.max(0, frames.findIndex((r) => r[2] <= 120) - 3)).slice(0, 12).map((r) => r[0]),
       aroundGround: flip >= 0 ? frames.slice(Math.max(0, flip - 4), flip + 12).map((r) => r[0]) : [],

@@ -30,8 +30,8 @@ export const H_GROUND = 14;
 /** s: how long the mesh takes to come in over the ray-drawn Moon. */
 const DISSOLVE = 3;
 /** km over the ground: the mesh's light is the ray-drawn Moon's from here up, and its own from the lower one down. */
-const LIGHT_HIGH = 90;
-const LIGHT_LOW = 20;
+const LIGHT_HIGH = 45;
+const LIGHT_LOW = 8;
 /** A way of going down this shallow or steeper is what the place is chosen for (rad). */
 const SHALLOWEST = 25 * DEG;
 /** km between where the bus will come down and the middle of the map before the map is made again. The map is 256 km square, and the far field neither knows nor cares. */
@@ -179,8 +179,7 @@ export class Landing {
     const want = h < H_SHOW ? 1 : h > H_SHOW + 15 ? 0 : this.show;
     this.show += Math.max(-dt / DISSOLVE, Math.min(dt / DISSOLVE, want - this.show));
     far.show.value = this.show;
-    const k = Math.max(0, Math.min(1, (h - LIGHT_LOW) / (LIGHT_HIGH - LIGHT_LOW)));
-    far.high.value = k * k * (3 - 2 * k);
+    far.high.value = this.lightAt(h);
     far.object.visible = this.show > 0;
     if (this.show <= 0 && h > H_SHOW + 15) {
       this.leave();
@@ -189,6 +188,12 @@ export class Landing {
     // (late, under the mesh: the ground is a level coarser than it should be for a moment. That's a blur and no hole, so it slows the fall and doesn't hold it)
     const gov = far.readyAt(x, z, hm) ? 1 : 0.3;
     t.gov += (gov - t.gov) * (1 - Math.exp(-4 * dt));
+  }
+
+  /** How much of the mesh's light is the ray-drawn Moon's at h km. */
+  private lightAt(h: number): number {
+    const k = Math.max(0, Math.min(1, (h - LIGHT_LOW) / (LIGHT_HIGH - LIGHT_LOW)));
+    return k * k * (3 - 2 * k);
   }
 
   /** The fall held back at the height the mesh should show at, smoothly, by what's left to go. */
@@ -240,12 +245,6 @@ export class Landing {
     this.draw.view = null;
     this.pipeline.steadySnap = false;
     this.bus.set(0, 0, 0);
-  }
-
-  /** The sky has been drawn: what the mesh's own light asks of it. */
-  sky2mesh(): void {
-    const s = this.sky;
-    if (this.near) this.world!.far.earth.value.set(s.earth[0], s.earth[1], s.earth[2], U.uMoonEarth.value.w);
   }
 
   /** After the rig has set the lens, in the render frame: the sky's observer, and near the ground the lens and the bus in the world. */
@@ -339,6 +338,7 @@ export class Landing {
     this.draw.update(this.sky, dt);
     // (the ground is the ground)
     U.uMoonO.value.w = -1;
+    w.far.high.value = this.lightAt((cam.y - w.far.heightAt(cam.x, cam.z)) / 1000);
   }
 
   /**

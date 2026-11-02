@@ -406,7 +406,6 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     draw.update(sky, held0 ? Infinity : real);
     // (the ray-drawn Moon is under the mesh until the mesh has it all, and then the ground is the ground)
     if (landing && landing.show >= 1) U.uMoonO.value.w = -1;
-    landing?.sky2mesh();
     globals.uSunDir.value.set(sky.sun[0], sky.sun[1], sky.sun[2]);
     // (in Earth's shadow the bus has only its ambient)
     globals.uLight.value.x = 0.62 * sky.sunSeen;

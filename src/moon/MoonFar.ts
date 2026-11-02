@@ -83,8 +83,6 @@ export class MoonFar {
   readonly show: { value: number };
   /** How much of its light is the ray-drawn Moon's: 1 up where the two meet, 0 by the time it's ground. */
   readonly high: { value: number };
-  /** Earth, the way the sky has it: direction and earthshine's strength, for that light. */
-  readonly earth: { value: THREE.Vector4 };
 
   constructor(private readonly renderer: THREE.WebGLRenderer, private readonly post: (m: MoonFarRequest) => void, mask: THREE.Texture, maskRect: THREE.Vector4, maskSize: THREE.Vector2, private readonly LEVELS: number = FAR.LEVELS) {
     const AT = BLOCKS * V;
@@ -115,7 +113,6 @@ export class MoonFar {
     const mat = makeMoonFar(this.texH, this.texM, mask, maskRect, maskSize, grid, LEVELS, this.rects);
     this.show = mat.uniforms.uFarShow;
     this.high = mat.uniforms.uFarHigh;
-    this.earth = mat.uniforms.uFarEarth;
     this.object = new THREE.Mesh(this.geo, mat);
     this.object.frustumCulled = false;
     this.object.matrixAutoUpdate = false;
