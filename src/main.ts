@@ -942,6 +942,8 @@ async function boot() {
     canvas.style.visibility = 'hidden';
   });
   canvas.addEventListener('webglcontextrestored', () => {
+    // (?moon's far field is uploaded by hand, a block at a time: a spike starts again, as ?moonrun does)
+    if (moon) location.reload();
     // (three re-created its GL state first: its own listener was added with the renderer)
     city.reloadAll();
     everReady = false;
@@ -1346,10 +1348,12 @@ async function boot() {
       bus.root.updateMatrixWorld();
       bus.root.localToWorld(beamEye.copy(bus.eyeLocal));
       beamFwd.set(0, -Math.tan(THREE.MathUtils.degToRad(Cb.headBeamPitch)), -1).transformDirection(bus.root.matrixWorld);
-      const beamLength = hour ? hour.beamLength(vista) : Cb.headBeamLength;
+      // (in the dark of a crater the eye is all there is, and it carries)
+      const inDark = !!moon && moonSun < 0.5;
+      const beamLength = hour ? hour.beamLength(vista) : inDark ? 120 : Cb.headBeamLength;
       beamTip.copy(beamEye).addScaledVector(beamFwd, beamLength * rig.heroScale);
       const open = 0.3 + 0.7 * superPose.eye;
-      pipeline.setHeroBeam(beamEye, beamTip, 0.5 * rig.heroScale, 0.5 * (hour ? hour.beamWidth(vista) : Cb.headBeamWidth) * open * rig.heroScale, beamLength > 0 ? Cb.headBeamStrength * (0.35 + 0.65 * superPose.eye) : 0);
+      pipeline.setHeroBeam(beamEye, beamTip, 0.5 * rig.heroScale, 0.5 * (hour ? hour.beamWidth(vista) : inDark ? 46 : Cb.headBeamWidth) * open * rig.heroScale, beamLength > 0 ? Cb.headBeamStrength * (0.35 + 0.65 * superPose.eye) : 0);
     }
     if (moon) {
       moon.update(camera.position.x, camera.position.z);

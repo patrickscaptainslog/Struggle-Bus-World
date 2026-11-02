@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { GLSL_COMMON, GLSL_OUT, globals, SHADOW_LAYER } from '../render/materials';
-import { Ramp } from '../render/palette';
 import { GLSL_MOON_CURVE, GLSL_MOON_LIGHT, moonGlobals } from './moonMaterial';
 
 // (three declares instanceColor: here r is lit, g the tone.)
@@ -94,4 +93,3 @@ export function rockProxy(): THREE.InstancedMesh {
   return rockMesh(new Float32Array(7));
 }
 
-void Ramp;

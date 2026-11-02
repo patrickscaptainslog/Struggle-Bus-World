@@ -70,6 +70,8 @@ export class MoonFar {
   private landed: FarUpdate[] = [];
   private inFlight = 0;
   private started = false;
+  private askedX = 0;
+  private askedZ = 0;
   private ready0: () => void = () => {};
   /** Every level has landed and gone up. */
   readonly ready = new Promise<void>((done) => (this.ready0 = done));
@@ -142,6 +144,8 @@ export class MoonFar {
     // (three has its first upload: only blocks go up from here on, and these arrays were all zeros)
     (this.texH.image as { data: unknown }).data = new Float32Array(0);
     (this.texM.image as { data: unknown }).data = new Uint8Array(0);
+    this.askedX = x;
+    this.askedZ = z;
     const moves = this.wanted(x, z);
     this.inFlight = moves.length;
     this.post({ type: 'far', moves });
@@ -159,7 +163,10 @@ export class MoonFar {
     // at most one level's blocks a frame, all of them at once: a window doesn't move by halves
     const u = this.landed.shift();
     if (u) this.upload(u);
-    if (this.inFlight === 0 && !this.landed.length) {
+    // (the finest level moves in steps of a kilometre: nothing to ask until the view has gone a fair part of that)
+    if (this.inFlight === 0 && !this.landed.length && Math.abs(x - this.askedX) + Math.abs(z - this.askedZ) > 48) {
+      this.askedX = x;
+      this.askedZ = z;
       const moves = this.wanted(x, z);
       if (moves.length) {
         this.inFlight = moves.length;
@@ -228,7 +235,8 @@ export class MoonFar {
       const qi = Math.floor(fx / QUADS), qj = Math.floor(fz / QUADS);
       if (qi < l.bi0 || qj < l.bj0 || qi >= l.bi0 + BLOCKS || qj >= l.bj0 + BLOCKS) continue;
       const si = ((qi % BLOCKS) + BLOCKS) % BLOCKS, sj = ((qj % BLOCKS) + BLOCKS) % BLOCKS;
-      const vx = fx - qi * QUADS, vz = fz - qj * QUADS, ix = Math.floor(vx), iz = Math.floor(vz), tx = vx - ix, tz = vz - iz;
+      // (a hair under a block's edge rounds up onto it: the last quad, not the row past the atlas)
+      const vx = fx - qi * QUADS, vz = fz - qj * QUADS, ix = Math.min(QUADS - 1, Math.floor(vx)), iz = Math.min(QUADS - 1, Math.floor(vz)), tx = vx - ix, tz = vz - iz;
       const k = ((sj * V + iz) * AT + si * V + ix) * 2, H = l.H;
       return (H[k] * (1 - tx) + H[k + 2] * tx) * (1 - tz) + (H[k + AT * 2] * (1 - tx) + H[k + AT * 2 + 2] * tx) * tz;
     }

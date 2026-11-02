@@ -192,6 +192,7 @@ try {
 } finally {
   writeFileSync(`${out}/moon-fly.json`, JSON.stringify(log, null, 0));
   console.log('errors:', errors.length, errors.slice(0, 6));
+  console.log('programs:', JSON.stringify(await page.evaluate(() => ({ now: window.__game?.pipeline.renderer.info.programs.length, warmed: window.__game?.warm.report?.programs }))));
   await browser.close();
 }
 process.exit(errors.length ? 1 : 0);

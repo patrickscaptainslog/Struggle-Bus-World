@@ -11,7 +11,7 @@
 // knows the highest line of sunlight that upstream ground lets through, so one number says lit or not and by how much, and a filtered read gives a clean contour at any size, the way a font's distance field does.
 // The Sun is held, so it is baked. Between them they carry the whole look: a ground mesh only has to stand in the right place.
 
-import { Age, DMAX, OCTAVES, REACH, eachCrater, mareOf, mix32, octaveD, type Crater } from './craters';
+import { Age, OCTAVES, REACH, eachCrater, mareOf, mix32, octaveD, type Crater } from './craters';
 import { R_M, cubicAt, catmull, dirOf, latOf, linearAt, lonOf, mapOf, windowAt, type MapFrame, type Place, type WholeMap, type WindowMap } from './map';
 
 export interface MoonSource {
@@ -96,7 +96,9 @@ function stampCrater(H: Float32Array, T: Float32Array, W: number, Hh: number, x0
       if (wobbly && d2 > 0.05 && d2 < 2.6) {
         const rr = Math.sqrt(u * u + v * v), cs = u / rr, sn = v / rr;
         const c2 = cs * cs - sn * sn, s2 = 2 * cs * sn, c3 = c2 * cs - s2 * sn, s3 = s2 * cs + c2 * sn, c5 = c3 * c2 - s3 * s2, s5 = s3 * c2 + c3 * s2;
-        const w = 1 + c3 * p1 + s3 * p2 + c5 * p3 + s5 * p4;
+        // (and it fades out both ways: a wobble that stopped dead would leave a step, a thin curved line a long way round)
+        const k2 = d2 > 1.5 ? (2.6 - d2) / 1.1 : d2 < 0.25 ? (d2 - 0.05) / 0.2 : 1;
+        const w = 1 + k2 * (c3 * p1 + s3 * p2 + c5 * p3 + s5 * p4);
         d2 /= w * w;
       }
       const t = d2 * LUT_K, q = t | 0, f = t - q;
@@ -423,8 +425,6 @@ export class MoonGen {
     return H[0];
   }
 }
-
-export { DMAX };
 
 // ---- light: the sweep
 

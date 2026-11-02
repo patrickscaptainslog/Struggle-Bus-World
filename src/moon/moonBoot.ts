@@ -8,9 +8,9 @@ import { registerWarm } from '../render/warmup';
 import type { CityMoon } from '../world/City';
 import type { RegionRequest, RegionResponse } from '../world/regionLoader';
 import type { CityManifest, TerrainTile } from '../world/tiles';
-import { cratersNear, type CraterHit } from './craters';
+import { craterById, cratersNear, type Crater, type CraterHit } from './craters';
 import { MOON_REGION, MOON_TILE, decodeShadow, type FarUpdate } from './gen';
-import { R_M, dirOf, findPlace, latLonToMap, latOf, lonOf, makeFrame, readAlbedo, readPlaces, type MapFrame, type Place, type PlaceRow, type WholeMap } from './map';
+import { dirOf, findPlace, latLonToMap, latOf, lonOf, makeFrame, readAlbedo, readPlaces, type MapFrame, type Place, type PlaceRow, type WholeMap } from './map';
 import { MoonFar } from './MoonFar';
 import { HELD_SUN_OFF, MoonSky } from './MoonSky';
 import { makeMoonGround, moonGlobals, moonMapTexture, moonTileMap } from './moonMaterial';
@@ -58,8 +58,10 @@ export interface MoonBoot {
   update(x: number, z: number): void;
   /** How much of the Sun reaches a point over the ground at (x, z), 0 or 1. */
   sunAt(x: number, y: number, z: number, tile: TerrainTile | null): number;
-  /** Craters, invented and named, whose rims come within `radius` of (x, z). See craters.ts. */
+  /** Craters, invented and named, whose rims come within `radius` of (x, z), largest first. See docs/specs/moon/GROUND.md. */
   cratersNear(x: number, z: number, radius: number, minD?: number): CraterHit[];
+  /** An invented crater back from its id: place, radius, age. Null for a `p` id: those are `places`. */
+  crater(id: string): Crater | null;
 }
 
 function moonPalette(pipeline: PixelPipeline) {
@@ -108,8 +110,8 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   L.sunElevation = Math.asin(sun[1]);
   L.sunAzimuth = Math.atan2(-sun[2], sun[0]);
   // (the bus: a hard Sun and next to no sky)
-  L.sunStrength = 0.72;
-  L.ambient = 0.26;
+  L.sunStrength = sky.night ? 0.2 : 0.72;
+  L.ambient = sky.night ? 0.14 : 0.26;
   L.skyBounce = 0.02;
   config.fog.clearFarFull = 3e6;
   // no fog to hide in: the view sits lower, with more of the black over the horizon
@@ -122,7 +124,7 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   // (a crater's wall is a hill to fly up, not a tower to steer round)
   config.flight.avoidTallerThan = 2000;
   pipeline.setFar(FAR_PLANE);
-  moonGlobals.uMoonLight.value.y = sun[1] > 0 ? 0.015 : 0.05;
+  if (sky.night) moonGlobals.uMoonLight.value.set(0.17, 0.03);
   globals.uGroundRef.value = 0;
 
   const worker = new Worker(new URL('./moonWorker.ts', import.meta.url), { type: 'module' });
@@ -264,6 +266,7 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
       const g = tile!.heights[Math.round((z - tile!.originZ) / tile!.cell) * tile!.n + Math.round((x - tile!.originX) / tile!.cell)];
       return under > 0 && y < g + under ? 0 : 1;
     },
+    crater: (id) => (id.startsWith('p') ? null : craterById(frame, albedo, SEED, id)),
     cratersNear(x, z, radius, minD = 40) {
       const out = cratersNear(frame, albedo, SEED, x, z, radius, minD);
       const t = new Float64Array(2);
@@ -276,6 +279,5 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
       return out.sort((a, b) => b.r - a.r);
     },
   };
-  void R_M;
   return boot;
 }

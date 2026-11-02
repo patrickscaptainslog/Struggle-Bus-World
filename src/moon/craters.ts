@@ -101,7 +101,7 @@ export function eachCrater(f: MapFrame, alb: WholeMap, seed: number, L: number, 
   const sign = corners[w] > 0 ? 1 : -1;
   const lo = [lo0, lo1, lo2], hi = [hi0, hi1, hi2];
   const a0 = Math.floor(lo[pa] / cell) - 1, a1 = Math.floor(hi[pa] / cell) + 1, b0 = Math.floor(lo[pb] / cell) - 1, b1 = Math.floor(hi[pb] / cell) + 1;
-  const R2 = R_M * R_M, half = cell / 2, pHigh = P_HIGH[L];
+  const R2 = R_M * R_M;
   const c: Crater = { L, i: 0, j: 0, k: 0, dx: 0, dy: 0, dz: 0, x: 0, z: 0, r: 0, age: Age.Plain, a: 0, b: 0, c: 0 };
   const ids = [0, 0, 0];
   for (let ia = a0; ia <= a1; ia++)
@@ -113,56 +113,70 @@ export function eachCrater(f: MapFrame, alb: WholeMap, seed: number, L: number, 
         ids[pa] = ia;
         ids[pb] = ib;
         ids[w] = iw;
-        let h = mix32(seed ^ Math.imul(L + 1, 0x9e3779b1));
-        h = mix32(h ^ Math.imul(ids[0], 0x85ebca77));
-        h = mix32(h ^ Math.imul(ids[1], 0xc2b2ae3d));
-        h = mix32(h ^ Math.imul(ids[2], 0x27d4eb2f));
-        const p = h / 4294967296;
-        if (p >= pHigh) continue;
-        h = mix32(h + 1);
-        const px = (ids[0] + h / 4294967296) * cell;
-        h = mix32(h + 1);
-        const py = (ids[1] + h / 4294967296) * cell;
-        h = mix32(h + 1);
-        const pz = (ids[2] + h / 4294967296) * cell;
-        const r = Math.sqrt(px * px + py * py + pz * pz);
-        if (Math.abs(r - R_M) > half) continue;
-        const dx = px / r, dy = py / r, dz = pz / r;
-        mapOf(f, dx, dy, dz, tmpM);
-        const x = tmpM[0], z = tmpM[1];
-        if (x < mx0 || x > mx1 || z < mz0 || z > mz1) continue;
-        tmpD[0] = dx;
-        tmpD[1] = dy;
-        tmpD[2] = dz;
-        // (a mare keeps a third of them: the same craters, so a map's seas are the highlands' with some taken away)
-        if (p >= pHigh * P_MARE) {
-          const mare = mareOf(linearAt(alb, latOf(tmpD), lonOf(tmpD)));
-          if (p >= pHigh * (1 + (P_MARE - 1) * mare)) continue;
-        }
-        h = mix32(h + 1);
-        // a power law inside the octave too: the small end is the common one
-        const u = h / 4294967296;
-        c.r = (octaveD(L) / 2) * 2 ** -Math.sqrt(u);
-        h = mix32(h + 1);
-        const ag = h / 4294967296;
-        c.age = ag < 0.07 ? Age.Fresh : ag < 0.34 ? Age.Plain : ag < 0.7 ? Age.Old : Age.Ghost;
-        h = mix32(h + 1);
-        c.a = h / 4294967296;
-        h = mix32(h + 1);
-        c.b = h / 4294967296;
-        h = mix32(h + 1);
-        c.c = h / 4294967296;
-        c.i = ids[0];
-        c.j = ids[1];
-        c.k = ids[2];
-        c.dx = dx;
-        c.dy = dy;
-        c.dz = dz;
-        c.x = x;
-        c.z = z;
-        fn(c);
+        if (roll(f, alb, seed, L, ids[0], ids[1], ids[2], mx0, mz0, mx1, mz1, c)) fn(c);
       }
     }
+}
+
+/** One cell of octave L: does it hold a crater, and is it in the box? The one place a crater is made: fills c. */
+function roll(f: MapFrame, alb: WholeMap, seed: number, L: number, i: number, j: number, k: number, mx0: number, mz0: number, mx1: number, mz1: number, c: Crater): boolean {
+  const cell = octaveCell(L), pHigh = P_HIGH[L];
+  let h = mix32(seed ^ Math.imul(L + 1, 0x9e3779b1));
+  h = mix32(h ^ Math.imul(i, 0x85ebca77));
+  h = mix32(h ^ Math.imul(j, 0xc2b2ae3d));
+  h = mix32(h ^ Math.imul(k, 0x27d4eb2f));
+  const p = h / 4294967296;
+  if (p >= pHigh) return false;
+  h = mix32(h + 1);
+  const px = (i + h / 4294967296) * cell;
+  h = mix32(h + 1);
+  const py = (j + h / 4294967296) * cell;
+  h = mix32(h + 1);
+  const pz = (k + h / 4294967296) * cell;
+  const r = Math.sqrt(px * px + py * py + pz * pz);
+  if (Math.abs(r - R_M) > cell / 2) return false;
+  const dx = px / r, dy = py / r, dz = pz / r;
+  mapOf(f, dx, dy, dz, tmpM);
+  const x = tmpM[0], z = tmpM[1];
+  if (x < mx0 || x > mx1 || z < mz0 || z > mz1) return false;
+  tmpD[0] = dx;
+  tmpD[1] = dy;
+  tmpD[2] = dz;
+  // (a mare keeps a third of them: the same craters, so a map's seas are the highlands' with some taken away)
+  if (p >= pHigh * P_MARE) {
+    const mare = mareOf(linearAt(alb, latOf(tmpD), lonOf(tmpD)));
+    if (p >= pHigh * (1 + (P_MARE - 1) * mare)) return false;
+  }
+  h = mix32(h + 1);
+  // a power law inside the octave too: the small end is the common one
+  const u = h / 4294967296;
+  c.r = (octaveD(L) / 2) * 2 ** -Math.sqrt(u);
+  h = mix32(h + 1);
+  const ag = h / 4294967296;
+  c.age = ag < 0.07 ? Age.Fresh : ag < 0.34 ? Age.Plain : ag < 0.7 ? Age.Old : Age.Ghost;
+  h = mix32(h + 1);
+  c.a = h / 4294967296;
+  h = mix32(h + 1);
+  c.b = h / 4294967296;
+  h = mix32(h + 1);
+  c.c = h / 4294967296;
+  c.L = L;
+  c.i = i;
+  c.j = j;
+  c.k = k;
+  c.dx = dx;
+  c.dy = dy;
+  c.dz = dz;
+  c.x = x;
+  c.z = z;
+  return true;
+}
+
+/** A crater back from its id, on this map, from anywhere: null if no such crater. */
+export function craterById(f: MapFrame, alb: WholeMap, seed: number, id: string): Crater | null {
+  const [L, i, j, k] = id.split('.').map(Number);
+  const c: Crater = { L, i, j, k, dx: 0, dy: 0, dz: 0, x: 0, z: 0, r: 0, age: Age.Plain, a: 0, b: 0, c: 0 };
+  return roll(f, alb, seed, L, i, j, k, -Infinity, -Infinity, Infinity, Infinity, c) ? c : null;
 }
 
 export interface CraterHit {
@@ -177,8 +191,8 @@ export interface CraterHit {
 }
 
 /**
- * Every invented crater whose rim comes within `radius` of (x, z) on this map, largest first, down to `minD` metres across. For gameplay, not for a frame: it allocates. Named ones are gen.ts's
- * (MoonGen.cratersNear puts them in).
+ * Every invented crater whose rim comes within `radius` of (x, z) on this map, largest first, down to `minD` metres across. For gameplay, not for a frame: it allocates. The named
+ * ones come in with moonBoot's cratersNear, which is the one to call.
  */
 export function cratersNear(f: MapFrame, alb: WholeMap, seed: number, x: number, z: number, radius: number, minD = 40): CraterHit[] {
   const out: CraterHit[] = [];

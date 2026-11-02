@@ -2621,6 +2621,16 @@ Every number here is from main-bPdy7owl.js, a fresh build of 48794f1 (the docs a
 - **Bytes.** Main chunk 1,245,888 B, gzip -9 378,186 B, +9.1 KB on MAIN's 369,065 (84e77c3's is 369,784), one chunk flag on or off. `lamps.bin` 93,887 B San Francisco, 5,326 B London, 4,459 B Amsterdam.
 - **Frames,** `shots/local/s1/final/`: the opening with no paint 0-20 s, Alamo with no paint and painted, FiDi, the ceiling, the ferry, the ocean, both bridges from about 5 km, Amsterdam and London each at street and ceiling, every one beside the same pose with the flag off. Looked at, one by one: nothing broken. The ceiling's street grid is single lamp pixels, faint against the mock's. Pools along a canal are half ovals, cut by the water.
 
+## `?moon`: the ground and the sky (2026-11-01, `spike/moonrun`)
+- The producer: "i need to be able to paint the moon. thats the whole point of the game", "Use moon data the best you can and makes sure to get key moon landmarks but on the whole just use creative interpretation to fill in moon details for now", "In order for us to fly low and paint the moon". The design, the tools and the notes for what's next are in `docs/specs/moon/GROUND.md`.
+- **One generator, in TS, in a worker, no baked regions.** It writes what the game reads, so Flight, collision, GroundPaint, Splat, Aim, signs and Turbo run unchanged. 1.67 MB of relief, one real window and names; the rest is hashed from position.
+- **The far field isn't far.bin.** One grid over a 256 km map is 16 M vertices. It is eight clip levels in one draw, generated as the view moves.
+- **Shadows are baked, not a sun pass.** A 3 km rim throws an 8 km shadow, and the sun pass's window is 520 m to 1.6 km. A held Sun means a sweep can say it once. A signed distance in a byte gives a clean contour at any size.
+- **Held Earth goes past the brief.** It asked for a held Sun and the real Earth. The true Earth is 62 degrees up at Theophilus and the frame ends 16 to 20 degrees up, and the brief wanted Earth over the horizon in the frames. So the whole sky is one real moment turned rigidly, Earth 1.7 times too big. `?t=` is the true sky. The producer's call.
+- **The Sun stands ahead of the first heading, not behind.** Lit from behind the camera a bowl reads as a dome. The first pass had it behind, and it was wrong in every frame.
+- **Craters by a 3D grid through the whole Moon,** a cell's candidate kept if it lands within half a cell of the sphere: no faces, no seams, no pole, and an id that holds on any map.
+- **Checked on the final build, on this laptop, nothing on a phone, no timing.** The real stick at a fixed step: cruise 26.4 m/s, surge 98.6, Jet 450, pull 40 up, G1 on the pull 448 up, dive 98, the same numbers at every height; 0 page errors; 26 programs, none new in flight; the map's edge homes in G1. Sites: Tycho, Copernicus, Tsiolkovsky, Shackleton, Apollo 11, Crisium, the Alpine Valley, a lat and lon. Numbers and left-overs: GROUND.md. Flag off against main 034672f: 0 shader bytes differ, 31 programs; three more script requests, the same code split by dynamic imports.
+
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
   local repo until `patrickscaptainslog/struggle-bus` exists.

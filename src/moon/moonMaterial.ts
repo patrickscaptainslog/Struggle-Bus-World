@@ -11,7 +11,7 @@ import { R_M } from './map';
 /** What all of the Moon's ground reads. */
 export const moonGlobals = {
   // x flat ground's light at mid tone, y the shadow's floor
-  uMoonLight: { value: new THREE.Vector2(0.4, 0.012) },
+  uMoonLight: { value: new THREE.Vector2(0.4, 0.006) },
 };
 
 /**
@@ -56,7 +56,9 @@ float moonShoulder(float l) { return l / sqrt(1.0 + 0.3 * l * l); }
 float moonLit(vec3 n, float tone, float sun) {
   float k = max(dot(n, uSunDir), 0.0) / max(uSunDir.y, 0.05);
   float lit = uMoonLight.x * pow(k, ${LIT_POW.toFixed(2)}) * (${LIT_TONE0.toFixed(2)} + ${LIT_TONE1.toFixed(2)} * tone);
-  return uMoonLight.y + sun * moonShoulder(lit);
+  // what a sunlit wall throws back across a shadow: barely a step, and enough that a bowl full of black still has a shape from inside it
+  float fill = uMoonLight.y + 0.1 * smoothstep(0.56, 0.95, dot(n, normalize(vec3(-uSunDir.x, 0.6, -uSunDir.z))));
+  return fill + sun * moonShoulder(lit);
 }
 float moonRamp(float tone) { return tone < 0.34 ? ${Ramp.MARE}.0 : ${Ramp.REGOLITH}.0; }
 // What's between this ground and the Sun of what the sun pass draws: rocks and the bus, nothing of the ground itself, so it needs next to no bias.
@@ -279,7 +281,7 @@ const FAR_FS = /* glsl */ `
     if (f > 0.02 && L0 < uFarLevels - 1.0) m = mix(m, farMap(L0 + 1.0), f);
     float under = moonDecode(m.g);
     float lit = m.r * m.r * ${LIT_MAX.toFixed(1)};
-    float light = uMoonLight.y + (under > 0.0 ? 0.0 : moonShoulder(uMoonLight.x * lit));
+    float light = uMoonLight.y + 0.03 + (under > 0.0 ? 0.0 : moonShoulder(uMoonLight.x * lit));
     sbWrite(moonRamp(vTone), light, 0.0, 0.0, mat3(viewMatrix) * vec3(0.0, 1.0, 0.0), 0.01, 1.0);
   }
 `;

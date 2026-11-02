@@ -44,8 +44,10 @@ export class MoonSky {
   readonly ob: Observer;
   /** Held, or the true sky of ?t=. */
   readonly held: boolean;
-  /** Toward the Sun in the render frame: fixed for the whole map, what the ground's shadows were baked for. */
+  /** Toward the Sun in the render frame, or by night toward Earth: fixed for the whole map, what the ground's light was baked for. */
   readonly sun: V = [0, 1, 0];
+  /** The true sky, with the Sun down at the map's centre. */
+  readonly night: boolean;
   /** How many times too big Earth is drawn. At its true 1.9 degrees it is 20 game pixels on the high lens: a marble with no continents. Held sky only. */
   earthScale = 1;
   private readonly ms: number;
@@ -86,6 +88,13 @@ export class MoonSky {
     this.sun[0] = s.sun[0];
     this.sun[1] = s.sun[1];
     this.sun[2] = s.sun[2];
+    // the true sky at night: what lights the ground is Earth, if it's up, and the ground's map is baked for that instead
+    this.night = s.sun[1] < 0.02;
+    if (this.night && s.earth[1] > 0.05) {
+      this.sun[0] = s.earth[0];
+      this.sun[1] = s.earth[1];
+      this.sun[2] = s.earth[2];
+    }
   }
 
   /** The sky's frame goes in the scene before the warm-up. */
