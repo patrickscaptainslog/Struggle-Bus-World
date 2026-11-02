@@ -1,11 +1,13 @@
 import { config } from '../config';
 import { registerTunables } from '../ui/tunables';
 
-// Two thumbs, each with its own job, and one thumb has all of them but the look
-// (docs/specs/flight/THUMBS.md). Which thumb is which goes by order, never by a
-// line: a player with one thumb flies, flicks and taps with it, either hand.
+// Two thumbs, each with its own job (docs/specs/flight/THUMBS.md). One line decides,
+// on the landing alone: the look zone, the left lookZone of the screen's width (the
+// right, with BUTTONS: SWAP). A touch landing there never flies. Everywhere else
+// the first thumb flies, and on its own it flicks and taps too. In any order, the
+// thumb in the zone looks and the other flies. A mouse has its right button instead.
 //
-// THE FIRST THUMB FLIES: the floating bungee, anywhere on the screen. The
+// THE FIRST THUMB FLIES: the floating bungee, anywhere out of the zone. The
 // touch-down point becomes the anchor, and the vector from the anchor to the
 // finger is the stretch (sideways = carve; it's also the yoke: down = pull back
 // = climb, up = nose down = dive, or surge at the rooftops). Past ~1x stretchPx
@@ -15,27 +17,22 @@ import { registerTunables } from '../ui/tunables';
 // (onTap on pointerup, no waiting for a double-tap window; a quick tap with
 // slight movement also counts). Anything that turned into a drag never taps.
 //
-// THE SECOND THUMB is any finger landing while the first is down, and it never
-// touches the flight:
+// THE SECOND THUMB is any finger landing in the zone, alone or not, or anywhere
+// while the first is down, and it never touches the flight:
 //  - a drag that stays down looks: after lookDelayMs, so a flick doesn't swing
 //    the camera, state.look follows the thumb from where it landed, and on the
 //    lift it is off (the rig eases the view home);
 //  - a quick flick is a shift: onTurbo(+1 up / -1 down);
-//  - a tap splats on its lift, up to secondTapMs: on the landing nobody can
-//    know yet that it isn't a look;
+//  - a tap splats on its lift, up to secondTapMs (stillTapMs with nobody flying):
+//    on the landing nobody can know yet that it isn't a look;
 //  - at rest it does nothing.
 // Two fingers tapped together (nobody steering) count as one tap.
 //
-// Two lone touches, because the bus flies on by itself with no thumb down:
-//  - the second thumb's half is the left (the right, with BUTTONS: SWAP). For
-//    memoryMs after two thumbs were last together, the second there and the flying
-//    thumb on the other half, a lone touch on that half is the second thumb, so
-//    lifting the flying thumb doesn't turn the look thumb into a steering thumb. The
-//    other half always flies, whatever happened on the glass;
-//  - a lone fresh stroke that lifts fast is a flick, on either half, on the firmer
-//    rule. It steers until the lift decides: steering never waits for a verdict, and
-//    a thumb that stays down never shifts. Landing within loneAgainMs of a flick it
-//    reads the second thumb's rule: that thumb has just said what it is doing.
+// A lone fresh stroke out of the zone that lifts fast is a flick too, on the firmer
+// rule. It steers until the lift decides: steering never waits for a verdict, and a
+// thumb that stays down never shifts. Landing within loneAgainMs of a flick it reads
+// the second thumb's rule: that thumb has just said what it is doing. A stroke in
+// the zone steers nothing, so the second thumb's rule is all it needs.
 // A flick is read from the landing and the lift alone, distance over contact
 // time, so it holds at any frame rate. One touch is one reading, so the return
 // stroke never counts. A stroke landing in the bottom band (iOS owns that edge)
@@ -108,8 +105,8 @@ export const inputTune = {
   secondTapMs: 230,
   /** The look waits this long (ms) so a flick doesn't swing the camera, and for the thumb to leave tapSlopPx. */
   lookDelayMs: 100,
-  /** For this long (ms) after two thumbs were last together, a lone touch on the second thumb's half is the second thumb. */
-  memoryMs: 30000,
+  /** A touch landing in this share of the screen's width, from the left (the right, with BUTTONS: SWAP), never flies. 0: no zone. */
+  lookZone: 0.42,
   /** A flick by the second thumb: at least this far (px), in at most this long (ms), at least this fast on average (px/ms), within this many degrees of vertical. */
   flickPx: 30,
   flickMs: 230,
@@ -143,7 +140,7 @@ registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
   keyRate: [1, 30, 0.5],
   secondTapMs: [80, 450, 5],
   lookDelayMs: [0, 300, 5],
-  memoryMs: [0, 120000, 1000],
+  lookZone: [0, 0.8, 0.01],
   flickPx: [10, 120, 1],
   flickMs: [60, 450, 5],
   flickSpeed: [0.05, 2, 0.01],
@@ -164,7 +161,7 @@ const enum Role {
   None = 0,
   /** The flying thumb. */
   Fly = 1,
-  /** Any other thumb: looks, flicks, taps on its lift. */
+  /** A thumb in the look zone, or any other: looks, flicks, taps on its lift. */
   Second = 2,
   /** Swallowed with a three-finger gesture: ignored until it lifts. */
   Orphan = 3,
@@ -235,7 +232,7 @@ export class Input {
   onPress: (() => void) | null = null;
   onTripleFinger: (() => void) | null = null;
   onFirstGesture: (() => void) | null = null;
-  /** BUTTONS: SWAP: the second thumb's half is the right instead of the left. */
+  /** BUTTONS: SWAP: the look zone is on the right instead of the left. */
   swapped = false;
 
   private readonly el: HTMLElement;
@@ -255,8 +252,6 @@ export class Input {
   /** the flying thumb, and the thumb that has the view */
   private fly: Slot | null = null;
   private looker: Slot | null = null;
-  /** when two thumbs were last together, the second on its half (ms) */
-  private twoAt = -Infinity;
   /** when the last flick lifted (ms) */
   private flickedAt = -Infinity;
 
@@ -589,29 +584,28 @@ export class Input {
     }
 
     const others = this.onGlass();
-    if (this.fly) {
-      // Another finger joins. It never moves the flying anchor.
-      this.setSlot(slot, e, now, Role.Second);
-      slot.flick = this.commands(slot) ? Flick.Easy : Flick.No;
-      if (others + 1 > this.gMax) this.gMax = others + 1;
-      if (this.primarySteering(now)) return;
-      this.gMulti = true;
-      if (others + 1 >= 3 && now - this.gT0 <= inputTune.tripleWindowMs) this.triple();
-      return;
-    }
-
-    if (others === 0 && this.farSide(e.clientX - this.rectL, now)) {
-      // The bus is flying itself and the look thumb has come back.
-      this.setSlot(slot, e, now, Role.Second);
-      slot.flick = this.commands(slot) ? Flick.Easy : Flick.No;
-      this.beginGesture(now);
-      this.onPress?.();
-      return;
-    }
-
-    // The flying thumb. A second thumb that only just landed, and hasn't gone anywhere, makes this two fingers together.
+    // A second thumb that only just landed, and hasn't gone anywhere, makes this two fingers together.
     let recent = false;
     for (const s of this.slots) if (s.role === Role.Second && !s.right && now - s.t0 <= inputTune.tapMs && s.maxDist <= inputTune.tapSlopPx) recent = true;
+
+    if (this.fly || (!mouse && this.inLookZone(e.clientX - this.rectL))) {
+      // Another finger joins, or a thumb lands in the look zone. It never moves the flying anchor, and with nobody flying the bus flies itself.
+      this.setSlot(slot, e, now, Role.Second);
+      slot.flick = this.commands(slot) ? Flick.Easy : Flick.No;
+      if (others === 0) this.beginGesture(now);
+      else if (others + 1 > this.gMax) this.gMax = others + 1;
+      if (this.fly ? !this.primarySteering(now) : recent) {
+        this.gMulti = true;
+        if (others + 1 >= 3 && now - this.gT0 <= inputTune.tripleWindowMs) {
+          this.triple();
+          return;
+        }
+      }
+      if (!this.fly) this.onPress?.();
+      return;
+    }
+
+    // The flying thumb.
     this.setSlot(slot, e, now, Role.Fly);
     if (others === 0 && !mouse && this.commands(slot)) slot.flick = now - this.flickedAt <= inputTune.loneAgainMs ? Flick.Easy : Flick.Firm;
     this.beginFly(slot, now);
@@ -651,7 +645,6 @@ export class Input {
     }
     const dir = cancelled ? 0 : this.flickOf(slot, e.clientX - this.rectL, e.clientY - this.rectT, now);
     if (dir) this.flickedAt = now;
-    this.noteTogether(now, role === Role.Fly && dir !== 0);
     const quick = !cancelled && this.isQuick(slot, now);
     if (!quick) this.gAllQuick = false;
     const tap = !cancelled && this.secondTap(slot, now);
@@ -665,7 +658,7 @@ export class Input {
       if (ownsPress) this.pressEnd(Src.Button, now, cancelled);
       else if (dir) {
         this.onTurbo?.(dir, t0, now, true);
-        this.promote(t0, now);
+        this.promote(t0);
       }
       // The everyday tap: one finger, short and still -> fire on the up.
       else if (quick && !this.gMulti && !this.gAnswered) this.onTap?.();
@@ -835,34 +828,10 @@ export class Input {
     return s.type !== 'mouse' && s.y0 <= this.rectH - inputTune.flickBottomPx && s.x0 >= inputTune.flickSidePx && s.x0 <= this.rectW - inputTune.flickSidePx;
   }
 
-  /** The second thumb's half: all the memory of two thumbs holds. It says nothing about where a flick lands. */
-  private secondSide(x: number): boolean {
-    return x < this.rectW / 2 !== this.swapped;
-  }
-
-  /** A lone touch inside the memory of two thumbs: the second thumb's, on its half. The other half always flies. */
-  private farSide(x: number, now: number): boolean {
-    return now - this.twoAt <= inputTune.memoryMs && this.secondSide(x);
-  }
-
-  /**
-   * Two thumbs are together as one lifts. The memory only starts if that shows the left half is the second thumb's (the
-   * right, swapped): the second there and able to command, the flying thumb on the other half. A grip in a band, a finger on
-   * the flying thumb's own half or a flying thumb on that half changes nothing, so nobody loses their steering to a stray
-   * touch or to which of two thumbs landed first. A lone flick lifting from that half (`flicked`) shows the same thing the
-   * other way round: the thumb on the other half flies now, if it isn't a grip in a band. One lifting from the other half
-   * shows nothing.
-   */
-  private noteTogether(now: number, flicked: boolean) {
-    const f = this.fly;
-    if (!f) return;
-    for (const s of this.slots) {
-      if (s.role !== Role.Second || s.right) continue;
-      if ((flicked ? this.secondSide(f.x0) && !this.secondSide(s.x0) : this.secondSide(s.x0) && !this.secondSide(f.x0)) && this.commands(s)) {
-        this.twoAt = now;
-        return;
-      }
-    }
+  /** A touch landing here never flies: the look zone. Only the landing counts: a look that wanders out of it is still a look. */
+  private inLookZone(x: number): boolean {
+    const w = this.rectW * inputTune.lookZone;
+    return this.swapped ? x > this.rectW - w : x < w;
   }
 
   private flickOf(s: Slot, x: number, y: number, now: number): 1 | -1 | 0 {
@@ -872,10 +841,10 @@ export class Input {
     return s.flick === Flick.Firm ? readFlick(dx, dy, ms, T.loneFlickPx, T.loneFlickMs, T.loneFlickSpeed, T.loneFlickDeg) : readFlick(dx, dy, ms, T.flickPx, T.flickMs, T.flickSpeed, T.flickDeg);
   }
 
-  /** The stroke that just lifted was a command, not a flying thumb, so a thumb that landed during it is a lone touch: it flies, from where it landed, unless the memory makes it the second thumb. A grip in a band isn't one: the next thumb to land flies. */
-  private promote(t0: number, now: number) {
+  /** The stroke that just lifted was a command, not a flying thumb, so a thumb that landed during it is a lone touch: it flies, from where it landed, unless it landed in the look zone. A grip in a band isn't one: the next thumb to land flies. */
+  private promote(t0: number) {
     for (const s of this.slots) {
-      if (s.role !== Role.Second || s.right || s.t0 < t0 || !this.commands(s) || this.farSide(s.x0, now)) continue;
+      if (s.role !== Role.Second || s.right || s.t0 < t0 || !this.commands(s) || this.inLookZone(s.x0)) continue;
       if (s.looking) this.endLook(s);
       s.role = Role.Fly;
       s.flick = Flick.No;

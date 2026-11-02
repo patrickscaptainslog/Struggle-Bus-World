@@ -6,7 +6,7 @@
 // Scenarios:
 //   s_gesture.ts  the gesture table (docs/specs/flight/THUMBS.md) through the real Input, Shifter and TurboDrive with
 //                 synthetic pointer / key events: the first thumb alone, the second thumb, flicks, turbo and its
-//                 levels, the undo, the lone strokes, one thumb in either hand, the bands, the memory, MEGA and its adopted thumb, three
+//                 levels, the undo, the lone strokes, one thumb on either side, the bands, the left zone, two thumbs in any order, MEGA and its adopted thumb, three
 //                 fingers, a lost pointer, the keyboard and the mouse
 //   s_layout.ts   layoutHud against its tables, and its rules in every layout
 //   s_turbo.ts    gear shifts on the real baked city: Cruise -> Express -> Jet -> back down (speed, altitude, camera),
