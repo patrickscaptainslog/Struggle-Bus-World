@@ -2680,6 +2680,22 @@ Items 6 and 7, then flown as a stranger: Earth, Moon, ground, paint, out, home, 
 
 Nothing here has run on a phone or in Safari.
 
+## `?moonrun`: the normal camera (2026-11-02, `spike/moonrun`)
+
+The producer, after flying it: "I also do not like the zoomed out bus at all", then "Just please have normal camera angle for moon voyage". A pinch to zoom had been rejected before that. So the flight has one camera now, the game's. `docs/specs/moon/LAND.md` has how it goes. The calls:
+
+- **`busSize.ts` is gone, not flattened.** A flat curve is a file that says 1.55 and 270, and CameraRig has those. `CameraRig.sizeAt` went with it, and `rigScale`, the breath's `thin` and the flash's small radius: what stands round the bus has the numbers it had before a70e711, and the trail is the ribbon it was.
+- **There is no law of where to look.** Nothing in TripView picks a body. The chase follows the bus and up is carried along, so the disc is over the bus because the path points at it and the view looks ahead and down.
+- **The voyage flies the city's camera at 1 km, 40 and 22, and not the rig's at that height.** The rig's own pitch up high over a city is 34, which has the disc 45 px from the top of the frame, under the label. At 22 it stands at row 195 and nothing needs easing. The rig's `halfV - 3` still holds for a short frame, so there's no easing rule of the flight's own.
+- **The flight reads the city's numbers as its module loads.** `moonBoot` writes the Moon's into `config` seconds after the first frame, so a camera reading them live moved by itself and `?moonrun` and `?moonland` were two cameras. Found in the first flight on a real page: the bus and the horizon stood 62 px closer than the angles said. The Moon's numbers are `MOON_VISTA` now, and the angles come to them between 100 and 15 km over the ground, by the height alone. The orbit is the city's camera: 61 % sky, the limb 90 px over the bus.
+- **A way in levels out the way the view's top points, not north.** North was for a view framed north up. Now the pull-up is the bus pulling up with the camera behind it, no roll, and the orbit's plane is wherever the flight left it. With no view it's still north, so route-check flies what it flew.
+- **The way home has the one roll a fixed place can't avoid**, and it's done in the dark: up comes round to home's plane at most 12 degrees a second, with the disc on its axis. On the flights measured it's over before G5 lights.
+- **The disc's floor is a root, on the flight.** On the game's lens the true Moon is 5 px where the flight starts, so a 15 px floor held it flat for two thirds of the dark, and the ask was a disc growing steadily. It's 15 px at the start, never flat, 0.28 % a frame at most, and 25 m over the true radius at 300 km.
+- **`SHOW` stays, for a dive, in both loops.** I took it out with the old law. The first real flight had the bus a tail-on dot for the 45 s of the way down: the rig's own pose, what a dive over the city looks like for a moment, and not what "it doesn't shrink" means to someone looking at it. It goes by how far the view has tipped, so level flight doesn't have it, and nor do `?moon` and flag off.
+- **Found on the way:** the low game's gear lens kept its last value between stays, so a second landing would have stepped, and after the hand-over it opened the field 0.5 degrees a frame: `TurboLens.reset`, and a slow `rate` on arrival. A gear's bus scale would have stepped at the join going up: it comes back with the lens over 2.4 s. `setRig` had been leaving the flight's breath in `fxTune` for the low game: the flight's numbers go in and come out with its frame now. In orbit the frame's middle is off the Moon, so the glint stands just ahead of the bus and any ground over the bus's row can be tapped. The trail went out in a frame at 5 km/s, which a thread could and a ribbon can't: it dissolves. The rig's pitch is `viewPitch` in Ascent, one function for both loops.
+
+Nothing here has run on a phone or in Safari.
+
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
   local repo until `patrickscaptainslog/struggle-bus` exists.

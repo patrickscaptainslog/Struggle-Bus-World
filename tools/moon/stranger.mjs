@@ -65,7 +65,7 @@ try {
         cam.updateMatrixWorld();
         const p = bv.clone().project(cam), w = window.innerWidth, h = window.innerHeight;
         sv.set(m.sky.sun[0], m.sky.sun[1], m.sky.sun[2]).applyQuaternion(pq.copy(cam.quaternion).invert());
-        const lens = cam.position.distanceTo(bv), px = (s.bus.root.scale.x * s.bus.length) / lens / s.pipeline.pixelWorldSize(1);
+        const lens = cam.position.distanceTo(bv), px = ((low ? g.rig.heroScale : s.bus.root.scale.x) * s.bus.length) / lens / s.pipeline.pixelWorldSize(1);
         window.__track.push([low ? 1 : 0, +(low ? f.height / 1000 : m.landing.height).toFixed(2), Math.round((p.x * 0.5 + 0.5) * w), Math.round((0.5 - p.y * 0.5) * h), +cam.fov.toFixed(2), +lens.toFixed(0), +(low ? f.nose * 57.3 : m.trip.nose * 57.3).toFixed(1), +((sv.angleTo(psv) * 180) / Math.PI).toFixed(3), +px.toFixed(1), m.landing.near ? 1 : 0]);
         psv.copy(sv);
       }
