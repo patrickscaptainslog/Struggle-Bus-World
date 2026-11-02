@@ -29,6 +29,8 @@ function harness(mode: 'touch' | 'keyboard', fps = 60, world: any = null) {
   let t0 = clock.ms;
   const at = () => `${Math.round(clock.ms - t0)}ms`;
   input.onTap = () => evs.push(`tap@${at()}`);
+  let presses = 0;
+  input.onPress = () => presses++;
   input.onChargeStart = () => evs.push(`chargeStart@${at()}`);
   input.onChargeEnd = (h, c) => evs.push(`chargeEnd(${h.toFixed(2)}s${c ? ', cancelled' : ''})@${at()}`);
   input.onTurbo = (d, a, b, flew) => {
@@ -73,6 +75,8 @@ function harness(mode: 'touch' | 'keyboard', fps = 60, world: any = null) {
   };
   return {
     input, el, evs, drive, shifter, flight, inputTune,
+    /** how many landings froze what glints */
+    get presses() { return presses; },
     reset() { evs.length = 0; t0 = clock.ms; nextFrame = clock.ms + step; maxCharge = 0; sawDrag = false; sawThumb = false; sawTurboHeld = false; lookFrom = lookTo = -1; lookMax = 0; },
     down(id: number, x: number, y: number, primary = true, extra = {}) { el.dispatch('pointerdown', ptr('pointerdown', id, x, y, primary, extra)); },
     move(id: number, x: number, y: number, extra = {}) { el.dispatch('pointermove', ptr('pointermove', id, x, y, true, extra)); },
@@ -387,6 +391,7 @@ row('touch', 'left zone: three fingers there: the tuner', (h) => { const a = new
 row('touch', 'left zone: one finger there, two elsewhere: the tuner', (h) => { const a = newId(), b = newId(), c = newId(); h.down(a, LX, LY); h.down(b, X, Y, false); h.down(c, RX, RY, false); h.wait(100); h.up(a, LX, LY); h.up(b, X, Y); h.up(c, RX, RY); });
 row('touch', 'left zone: two fingers there, one elsewhere: the tuner', (h) => { const a = newId(), b = newId(), c = newId(); h.down(a, LX, LY); h.down(b, 140, 500, false); h.down(c, RX, RY, false); h.wait(100); h.up(a, LX, LY); h.up(b, 140, 500); h.up(c, RX, RY); });
 row('touch', 'left zone: flicks with nothing else on the glass, then a drag', (h) => { h.stroke(LX, LY, 0, -74, 85); h.wait(500); return dragAt(h, LX, LY); });
+row('touch', 'the aim: a left landing freezes what glints, alone, and not beside a flying thumb', (h) => { const id = newId(); h.down(id, LX, LY); const alone = h.presses; h.wait(90); h.up(id, LX, LY); const a = steer(h); const was = h.presses, b = newId(); h.down(b, LX, LY, false); const beside = h.presses - was; h.wait(90); h.up(b, LX, LY); h.up(a, RX + 30, RY); return { alone, beside }; });
 const zoned = (z: number, x: number) => (h: H) => { const was = inputTune.lookZone; inputTune.lookZone = z; const v = dragAt(h, x, RY); inputTune.lookZone = was; return v; };
 row('touch', 'the line: 164 px of 393 looks', (h) => dragAt(h, 164, RY));
 row('touch', 'the line: 166 px of 393 flies', (h) => dragAt(h, 166, RY));
@@ -796,6 +801,7 @@ ok(taps('left zone: two fingers, both lift at 400') === 1, 'at 400 ms: one splat
 ok(taps('left zone: two fingers, both lift at 470') === 0, 'at 470 ms: none, as anywhere');
 ok(note('left zone: a tap there while the other').on && note('left zone: a tap there while the other').tapped === 1 && taps('left zone: a tap there while the other') === 1, 'a tap beside a look fires on its own lift, and once');
 for (const g of ['left zone: three fingers', 'left zone: one finger there', 'left zone: two fingers there']) ok(n(g, 'tuner') === 1 && taps(g) === 0, `three fingers are the tuner in any order: ${g}`);
+ok(note('the aim: a left landing').alone === 1 && note('the aim: a left landing').beside === 0, `a lone left tap hits what glinted: ${JSON.stringify(note('the aim: a left landing'))}`);
 ok(by('left zone: flicks with nothing else').gear === 1, 'a flick from the zone, alone');
 looks('left zone: flicks with nothing else');
 looks('the line: 164');
