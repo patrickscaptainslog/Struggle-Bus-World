@@ -16,7 +16,7 @@ import { breathTune, MoonBreath } from './MoonBreath';
 import { LEG_NAMES, MoonTrip, PULL, TAU } from './MoonTrip';
 import { series } from './Series';
 import { SkyClock } from './SkyClock';
-import { SkyDraw } from './SkyDraw';
+import { groundTune, SkyDraw } from './SkyDraw';
 import { EARTH, MOON, R_EARTH_A, R_MOON, SkyModel, SkyState, type Observer } from './SkyModel';
 import { applySpaceTable } from './SkyTable';
 import { SpaceFx, spaceFxTune } from './SpaceFx';
@@ -264,9 +264,11 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   registerTunables('Moon run: the bus', busSize, { farPx: [4, 30, 0.5], midPx: [8, 40, 0.5], midKm: [2, 60, 1] });
   registerTunables('Moon run: what goes with it', spaceFxTune, { linePx: [1, 3, 0.1], lineLong: [0.005, 0.05, 0.001], thread: [0.05, 1, 0.01] });
   registerTunables('Moon run: the breath', breathTune, { thin: [0.05, 1, 0.01], flash: [0.005, 0.1, 0.005] });
+  registerTunables('Moon run: the ground', groundTune, { relief: [0, 8, 0.1], craters: [0, 2, 0.05], bright: [0, 2, 0.05], flat: [0, 4, 0.1], wander: [0, 2, 0.05], sharp: [-1.5, 1, 0.1], keep: [0.01, 0.3, 0.01] });
   if (params.has('tune')) tuner.toggle();
   // (the URL wins over a saved row)
   if (params.has('tau')) tripTune.tau = Number(params.get('tau')) || TAU;
+  for (const k of Object.keys(groundTune) as Array<keyof typeof groundTune>) if (params.has(k)) groundTune[k] = Number(params.get(k));
   if (pose) {
     const z = pose.busFwd.clone().negate();
     const x = pose.busUp.clone().cross(z).normalize();
@@ -315,6 +317,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   // ---- before the first frame: the programs, the maps. Both start now, side by side
   warm.add(scene);
   await Promise.all([warm.finish(), draw.load('./sky')]);
+  draw.loadGround(new URL('.', location.href).href.replace(/\/$/, ''));
   breath.load();
   breath.audio?.prepare();
   // (and the stars' and lines' real geometry was built after their proxies: same layout, same programs)

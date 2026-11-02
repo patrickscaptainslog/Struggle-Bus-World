@@ -3,6 +3,8 @@ import { Ramp } from '../render/palette';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import { spaceResolveUniforms as U } from '../render/skyResolve';
 import { gunzip, isGzip } from '../world/gunzip';
+import { TILE } from './groundSize';
+import { GROUND_H, GROUND_W, loadGround, type GroundRequest, type GroundResult } from './MoonGround';
 import { moonDrawnKm, R_EARTH_A, R_EARTH_B, R_MOON, type SkyState } from './SkyModel';
 
 // What the sky hands the frame (SKY.md section 2): the resolve's uniforms, stars and sky lines. Bodies are ray tests in the resolve (render/skyResolve.ts); this file feeds them.
@@ -155,6 +157,24 @@ function readStars(buf: ArrayBuffer): { pos: Float32Array; star: Uint8Array } {
 const EARTH_TEXEL_KM = (2 * Math.PI * R_EARTH_A) / 2048;
 const MOON_TEXEL_KM = (2 * Math.PI * R_MOON) / 1024;
 
+/** The Moon's ground, what a pixel near it gets that the map can't give: live, the tuner moves them. See MoonGround.ts and the resolve's spaceMoon. */
+export const groundTune = {
+  /** The real relief's slope, times this: a true slope at 10 km is a degree or two. */
+  relief: 2.5,
+  /** The invented craters' slope, times this. */
+  craters: 0.6,
+  /** How bright a fresh crater's ejecta and a rim are, in the map's tone. */
+  bright: 0.7,
+  /** How much of its shape a crater keeps under a high Sun. */
+  flat: 1.2,
+  /** How far the big craters push the map's read, in thousandths of a turn. */
+  wander: 0.5,
+  /** The tiles' mip: under 0 is sharper, and shimmers. */
+  sharp: -0.4,
+  /** How hard a sea drops the craters it doesn't keep. */
+  keep: 0.05,
+};
+
 export class SkyDraw {
   readonly object = new THREE.Group();
   private readonly stars: THREE.Points;
@@ -168,6 +188,11 @@ export class SkyDraw {
   air = true;
   /** The air's scale height never goes under this many game pixels (the true air is 0.3 px at 100,000 km). */
   airPx = 1.2;
+  /** The Moon's ground, once the worker has it: until then, and for good if it never comes, the tone map alone. */
+  ground: { ready: boolean; ms: number } = { ready: false, ms: 0 };
+  private moonTexelKm = MOON_TEXEL_KM;
+  private readonly tmpAhead = new THREE.Vector3();
+  private aheadSet = false;
 
   constructor(pipeline: PixelPipeline) {
     this.pipeline = pipeline;
@@ -228,6 +253,52 @@ export class SkyDraw {
     this.timing.uploadMs = Math.round(t3 - t2);
   }
 
+  /**
+   * The Moon's ground, on a worker: nothing waits for it. The flight is two minutes from needing it, and till it lands the Moon is the tone map it always was. tMoonMap changes under the resolve, which needs no new program.
+   * The upload is one frame's, over home.
+   */
+  loadGround(base: string): void {
+    const m = U.tMoonMap.value as THREE.DataTexture | null;
+    const img = m?.image as { data: Uint8Array; width: number; height: number } | undefined;
+    if (!m || !img) return;
+    const req: GroundRequest = { base, tone: img.data, toneW: img.width, toneH: img.height };
+    const t0 = performance.now();
+    const landed = (res: GroundResult | null) => {
+      if (res) this.landGround(res, m, performance.now() - t0);
+    };
+    const onThread = () => void loadGround(req).then(landed);
+    try {
+      const worker = new Worker(new URL('./moonGroundWorker.ts', import.meta.url), { type: 'module' });
+      worker.onmessage = (ev: MessageEvent<GroundResult | null>) => {
+        worker.terminate();
+        landed(ev.data);
+      };
+      // (a sandboxed host can refuse a module worker)
+      worker.onerror = () => {
+        worker.terminate();
+        onThread();
+      };
+      worker.postMessage(req);
+    } catch {
+      onThread();
+    }
+  }
+
+  private landGround(res: GroundResult, old: THREE.Texture, ms: number): void {
+    const r = this.pipeline.renderer;
+    const map = mapTexture(res.map, GROUND_W, GROUND_H, THREE.RGBAFormat);
+    const tile = mapTexture(res.tile, TILE, TILE, THREE.RGBAFormat);
+    tile.wrapT = THREE.RepeatWrapping;
+    r.initTexture(map);
+    r.initTexture(tile);
+    U.tMoonMap.value = map;
+    U.tMoonCraters.value = tile;
+    old.dispose();
+    this.moonTexelKm = (2 * Math.PI * R_MOON) / GROUND_W;
+    this.ground.ready = true;
+    this.ground.ms = Math.round(ms);
+  }
+
   /** Every frame: the sky into the resolve's uniforms and the stars' rotation. No allocation. */
   update(s: SkyState): void {
     const focal = 1 / this.pipeline.pixelWorldSize(1);
@@ -256,7 +327,20 @@ export class SkyDraw {
     U.uMoonSun.value.set(s.moonSun[0], s.moonSun[1], s.moonSun[2]);
     // (by the root of Earth's phase: a half Earth still shows the ground. The landing site is in the dark for two weeks of every month)
     U.uMoonEarth.value.set(s.moonEarth[0], s.moonEarth[1], s.moonEarth[2], 2.05 * Math.sqrt(s.earthLitAtMoon));
-    U.uMoonLod.value = Math.max(0, Math.log2((rM / R_MOON) * (Math.max(s.moonKm - R_MOON, 1) / focal / MOON_TEXEL_KM)));
+    U.uMoonLod.value = Math.max(0, Math.log2((rM / R_MOON) * (Math.max(s.moonKm - R_MOON, 1) / focal / this.moonTexelKm)));
+    const g = groundTune;
+    U.uMoonNear.value.set(this.ground.ready ? rM / focal : 0, g.relief, g.craters, g.wander);
+    U.uMoonLook.value.set(g.bright, g.flat, g.sharp, g.keep);
+    // the top of the frame, on the ground under the view: m's rows are the render frame's axes in Moon fixed, so this is up less back. Low-passed, so a turn of the view isn't a turn of the light
+    const ox2 = s.moonO[0] / s.moonKm, oy2 = s.moonO[1] / s.moonKm, oz2 = s.moonO[2] / s.moonKm;
+    let ax = m[3] - m[6], ay = m[4] - m[7], az = m[5] - m[8];
+    const on = ax * ox2 + ay * oy2 + az * oz2;
+    ax -= ox2 * on;
+    ay -= oy2 * on;
+    az -= oz2 * on;
+    const al = Math.hypot(ax, ay, az) || 1, A = U.uMoonAhead.value;
+    A.lerp(this.tmpAhead.set(ax / al, ay / al, az / al), this.aheadSet ? 0.04 : 1).normalize();
+    this.aheadSet = true;
 
     U.uSunDisc.value.set(s.sun[0], s.sun[1], s.sun[2], Math.cos(s.sunR));
     U.uSunRing.value = Math.cos(s.sunR + 1 / focal);

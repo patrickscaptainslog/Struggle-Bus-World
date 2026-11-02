@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SLOPE_MAX, TILE, TILE_KM_A, TILE_KM_B } from '../sky/groundSize';
 import { heldGlobals } from './materials';
 import { Ramp } from './palette';
 
@@ -59,7 +60,8 @@ const EARTH_K = (1 / (1 - 1 / 298.257223563)).toFixed(8);
 
 export const spaceResolveUniforms = {
   tEarthMap: { value: null as THREE.Texture | null }, // land, tone, class (0 green, .5 dry, 1 ice), lights
-  tMoonMap: { value: null as THREE.Texture | null }, // tone
+  tMoonMap: { value: null as THREE.Texture | null }, // tone; then the ground: tone, and the real relief's slope, Moon fixed (MoonGround.ts)
+  tMoonCraters: { value: null as THREE.Texture | null }, // the invented craters' tile: the height's slope, brightness, rank
   tMoonPaint: { value: null as THREE.Texture | null }, // coverage, mix and two hues, lift, reveal (MoonPaint.ts)
   uEarthRot: { value: new THREE.Matrix3() }, // render <- Earth fixed
   uEarthO: { value: new THREE.Vector4(0, 0, 3, 8) }, // the observer in Earth fixed at unit radius, z over the ellipsoid; w: |o|^2 - 1
@@ -70,6 +72,9 @@ export const spaceResolveUniforms = {
   uMoonSun: { value: new THREE.Vector3(1, 0, 0) }, // Moon fixed
   uMoonEarth: { value: new THREE.Vector4(1, 0, 0, 0) }, // Earth from the Moon, Moon fixed; w: earthshine's strength, in steps
   uMoonLod: { value: 0 },
+  uMoonNear: { value: new THREE.Vector4(0, 0, 0, 0) }, // km a pixel at one radius (0: the tone map alone, nothing near), the relief, the craters, how far they push the map's read
+  uMoonLook: { value: new THREE.Vector4(0, 0, 0, 0) }, // the craters' brightness, what they make of a high Sun, the tiles' lod bias, how sharply the seas drop them
+  uMoonAhead: { value: new THREE.Vector3(0, 0, 1) }, // the top of the frame, Moon fixed, a little behind the view: where a crater's own low light comes from
   uSunDisc: { value: new THREE.Vector4(1, 0, 0, 1) }, // direction, render frame; cos of its radius
   uSunRing: { value: 1 }, // cos of the radius of its one ring of pixels
   uMoonFirst: { value: 0 }, // 1: the Moon is the nearer: the CPU sorts, so an occultation needs no logic
@@ -83,6 +88,7 @@ export const spaceResolveUniforms = {
 export const GLSL_SPACE_UNIFORMS = /* glsl */ `
 uniform highp sampler2D tEarthMap;
 uniform highp sampler2D tMoonMap;
+uniform highp sampler2D tMoonCraters;
 uniform highp sampler2D tMoonPaint;
 uniform mat3 uEarthRot;
 uniform vec4 uEarthO;
@@ -93,6 +99,9 @@ uniform vec4 uMoonO;
 uniform vec3 uMoonSun;
 uniform vec4 uMoonEarth;
 uniform float uMoonLod;
+uniform vec4 uMoonNear;
+uniform vec4 uMoonLook;
+uniform vec3 uMoonAhead;
 uniform vec4 uSunDisc;
 uniform float uSunRing;
 uniform float uMoonFirst;
@@ -215,7 +224,7 @@ bool spaceEarth(vec3 dir, float dsk, out vec3 col) {
 // and never run through the ones between. A pixel of paint keeps the Moon's light and tone and takes them through a paint ramp, so craters and maria read through it, and it never goes under a low glow, which keeps the
 // tone too, so it shows on the night side as paint does at dusk, relief and all. Nothing is ever mixed: the ramp changes, and the step is the same dithered step. The wave is the game's shockwave ring
 // (GroundPaint's sbRing), on the true surface, in chords of the unit sphere: only while a blast is blooming.
-void spacePaint(vec3 n, vec2 uv, float t, float dsk, inout float ramp, inout float level) {
+void spacePaint(vec3 n, vec2 uv, float t, float art, float dsk, inout float ramp, inout float level) {
   // the edge's wobble: a warp of the lookup, as the ground's is, here by sines of the place: no read. In texels, so a place doesn't wobble more for being near a pole
   vec2 w = vec2(sin(n.y * 37.0 + 1.9 * sin(n.z * 23.0)), sin(n.x * 41.0 + 1.7 * sin(n.y * 29.0)));
   // (and a fine one, a few texels long, as the street's is: the grid the map is read on never shows as a straight line. Each way is pushed by the other, at every longitude: pushed by itself a line only moves, and doesn't bend)
@@ -233,6 +242,8 @@ void spacePaint(vec3 n, vec2 uv, float t, float dsk, inout float ramp, inout flo
       // (the Moon's steps through the paint's own best stretch: yellow's body sits a step up its ramp, as fxTune has it)
       float y = ramp == ${Ramp.YELLOW}.0 ? 0.7 : 0.0;
       level = max(1.6 + level * 0.5 + p.b * 1.2 + y, 1.3 + 1.9 * t + p.b * 1.6 + y);
+      // (the craters read through it at full strength: a coat of paint doesn't fill a bowl)
+      level *= 1.0 + art;
       // (the crown: where the lift is highest, a bright rim)
       if (p.b > 0.86) level += 1.5;
     }
@@ -261,6 +272,15 @@ void spacePaint(vec3 n, vec2 uv, float t, float dsk, inout float ramp, inout flo
   }
 }
 
+// One size of the crater tile at a place: its slope in the face's axes, and its brightness and rank. Each size turns on the face, so the two never line up, and a face's tiles start somewhere of their own.
+vec4 spaceTile(vec2 p, float km, float cs, float sn, float lod, float face, out vec2 s) {
+  vec2 q = vec2(cs * p.x - sn * p.y, sn * p.x + cs * p.y) * ${(1737.4 / TILE).toFixed(5)} / km + face * vec2(0.37, 0.61);
+  vec4 c = textureLod(tMoonCraters, q, lod);
+  vec2 g = (c.rg - 0.50196) * 2.00787;
+  s = vec2(cs * g.x + sn * g.y, cs * g.y - sn * g.x);
+  return c;
+}
+
 bool spaceMoon(vec3 dir, float dsk, out vec3 col) {
   vec3 d = dir * uMoonRot;
   float b = dot(uMoonO.xyz, d), c = uMoonO.w;
@@ -268,16 +288,68 @@ bool spaceMoon(vec3 dir, float dsk, out vec3 col) {
   if (b >= 0.0 || c < 0.0) return false;
   float D = b * b - c;
   if (D <= 0.0) return false;
-  vec3 n = normalize(uMoonO.xyz + d * (c / (-b + sqrt(D))));
+  float hit = c / (-b + sqrt(D));
+  vec3 n = normalize(uMoonO.xyz + d * hit);
   vec2 uv = vec2(atan(n.y, n.x) / 6.28318531 + 0.5, 0.5 - asin(clamp(n.z, -1.0, 1.0)) / 3.14159265);
-  float t = textureLod(tMoonMap, uv, uMoonLod).r;
-  float mu = dot(n, uMoonSun);
+  // ---- near, a pixel of ground is smaller than the map's texel, and what it can't show is invented: the tile at two sizes, on the six faces of a cube, the seam between two a band of dither. km: what a pixel covers here,
+  // between across the ray and along it. The sizes go out by that, each by the mip and then by a fade, so a far disc reads none of this and is the map to the bit. Two reads, and on Moon pixels near a body only.
+  vec3 lit = n, dC = vec3(0.0);
+  float art = 0.0;
+  vec2 sA = vec2(0.0), sB = sA;
+  vec4 cA = vec4(0.5, 0.5, 0.5, 1.0), cB = cA;
+  vec3 fU = vec3(0.0), fV = fU;
+  float kA = 0.0, kB = 0.0, lodA = 0.0;
+  vec2 at = uv;
+  if (uMoonNear.x > 0.0) {
+    float km = hit * uMoonNear.x / sqrt(max(-dot(n, d), 0.05));
+    lodA = log2(km / ${TILE_KM_A.toFixed(3)}) + uMoonLook.z;
+    kA = 1.0 - smoothstep(1.2, 3.2, lodA);
+    kB = 1.0 - smoothstep(3.0, 5.0, lodA);
+    if (kB > 0.0) {
+      vec3 an = abs(n);
+      float e = (dsk - 0.5) * 0.03, w = 0.0, face = 0.0;
+      if (an.z + e > max(an.x, an.y)) { fU = vec3(1.0, 0.0, 0.0); fV = vec3(0.0, 1.0, 0.0); w = n.z; }
+      else if (an.y + e > an.x) { fU = vec3(0.0, 0.0, 1.0); fV = vec3(1.0, 0.0, 0.0); w = n.y; face = 2.0; }
+      else { fU = vec3(0.0, 1.0, 0.0); fV = vec3(0.0, 0.0, 1.0); w = n.x; face = 4.0; }
+      if (w < 0.0) face += 1.0;
+      vec2 p = atan(vec2(dot(n, fU), dot(n, fV)), vec2(abs(w)));
+      cB = spaceTile(p, ${TILE_KM_B.toFixed(3)}, 0.6967, -0.7174, lodA - 2.0, face, sB);
+      // (the map's read is pushed about by the big ones, so a sea's shore wanders round craters and a contour of the map's 20 px texels never shows as one)
+      at += sB * kB * uMoonNear.w * 0.001;
+      if (kA > 0.0) cA = spaceTile(p, ${TILE_KM_A.toFixed(3)}, 0.9323, 0.3616, lodA, face, sA);
+    }
+  }
+  vec4 m = textureLod(tMoonMap, at, uMoonLod);
+  float t = m.r;
+  if (uMoonNear.x > 0.0) {
+    // the real relief, which comes in as the map's texel passes a pixel or two: it's the terminator's roughness, and the big craters' walls
+    float real = uMoonNear.y * (1.0 - smoothstep(1.5, 4.5, log2(hit * uMoonNear.x)));
+    lit += (m.gba - 0.50196) * ${(SLOPE_MAX * 2.00787).toFixed(5)} * real;
+    if (kB > 0.0) {
+      // a sea keeps a third of them
+      float keep = 0.33 + 0.67 * smoothstep(0.2, 0.5, t);
+      kA *= smoothstep(cA.a - uMoonLook.w, cA.a + uMoonLook.w, keep);
+      kB *= smoothstep(cB.a - uMoonLook.w, cB.a + uMoonLook.w, keep);
+      vec2 s = (sA * kA + sB * kB) * uMoonNear.z;
+      // (the slope points up the hill: a surface leans the other way)
+      dC = -(s.x * (fU - n * dot(n, fU)) + s.y * (fV - n * dot(n, fV)));
+      t = clamp(t + ((cA.b - 0.50196) * kA + (cB.b - 0.50196) * kB) * uMoonLook.x, 0.0, 1.0);
+      // the real Sun lights a crater only while it's low, when the shadows are the point. Higher up, and in earthshine, a slope hardly shows in lunar-Lambert: a crater keeps a low light of its own, from the top of the frame, or
+      // with the Sun behind the view every bowl would read as a dome.
+      float high = dot(n, uMoonSun);
+      keep = 1.0 - (1.0 - smoothstep(0.15, 0.55, high)) * smoothstep(-0.12, -0.02, high);
+      art = keep * uMoonLook.y * dot(dC, uMoonAhead - n * dot(n, uMoonAhead));
+      lit += dC * (1.0 - keep);
+    }
+  }
   // earthshine, one or two steps over the dark, maria a step under the highlands so a night pass has ground to read, and the floor under the lit side too or the terminator's last steps fall below the night past it. None on the far side.
-  float level = max(dot(n, uMoonEarth.xyz), 0.0) * uMoonEarth.w * (0.2 + 1.1 * t) + 0.25;
   // lunar-Lambert: flat at full, falling only near the terminator
+  float mu = dot(lit, uMoonSun);
+  float level = max(dot(lit, uMoonEarth.xyz), 0.0) * uMoonEarth.w * (0.2 + 1.1 * t) + 0.25;
   if (mu > 0.0) level = max(level, (0.35 + 0.65 * t) * min(2.0 * mu / (mu - dot(n, d) + 0.001), 1.05) * 7.0);
+  level *= 1.0 + art;
   float ramp = ${Ramp.MOON}.0;
-  spacePaint(n, uv, t, dsk, ramp, level);
+  spacePaint(n, uv, t, art, dsk, ramp, level);
   // (a blast's flash, as on the street: white-hot at the impact, and everything near it some steps up its own ramp)
   if (spFlash > 0.0) {
     if (spFlash > 0.5 + 0.3 * dsk) ramp = ${Ramp.GLOW_WHITE}.0;
