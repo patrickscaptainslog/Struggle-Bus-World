@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { migratePrefs, type Prefs } from './controlPrefs';
 import type { Input, InputMode } from './Input';
 import { Shifter, type ShiftAnswer } from './Shifter';
-import { EXPRESS, TurboDrive, type TurboEvent } from './Turbo';
+import { clamp } from './springs';
+import { TurboDrive, type TurboEvent } from './Turbo';
 import type { Flight } from './Flight';
 import type { CameraRig } from './CameraRig';
 import type { AudioEngine } from '../audio/AudioEngine';
@@ -37,8 +38,6 @@ const HINT = ['SECOND THUMB', 'FLICK UP FOR GEARS', 'TWO FLICKS TURBO', 'DRAG TO
 const HINT_SECONDS = 6.5;
 /** A flick's answer in the bus's own body: it hiccups, once, on the breath's squash spring. */
 const FLICK_SQUASH = 0.84;
-/** Express sounds like the held surge it is, up to this far along turbo's log scale, where the turbo voice has it (about 150 m/s). */
-const EXPRESS_SURGE_K = 0.2;
 
 const PREF_KEY = 'strugglebus.controls.v1';
 
@@ -197,10 +196,12 @@ export class Controls {
     return this.turbo.lifts || this.turbo.speedK > 0;
   }
 
-  /** The surge the bus's engine hears (main.ts): the stick's, or Express's, which is the same surge with no thumb on it. */
+  /** The surge the bus's engine hears (main.ts): the stick's, or the drive's on the rooftop gears, the same surge with no thumb on it. */
   get surge(): number {
     const T = this.turbo;
-    return Math.max(this.d.flight.surge, T.gear === EXPRESS ? 1 - Math.min(T.speedK / EXPRESS_SURGE_K, 1) : 0);
+    // (all of it up to turbo's top there, 224 m/s, speedK 0.5; from there to Jet's speed it gives way to the turbo voice, so a gear down from Jet doesn't swell the wind)
+    const drive = !T.lifts && (T.gear > 0 || T.boosting) ? 1 - clamp(2 * T.speedK - 1, 0, 1) : 0;
+    return Math.max(this.d.flight.surge, drive);
   }
 
   // ------------------------------------------------------------------ per frame (main.ts)

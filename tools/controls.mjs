@@ -22,6 +22,7 @@
 //   perf=<otherBaseUrl>  CPU work ms, draw calls, triangles at the same Alamo Square view (cruising at the
 //            floor, the fps meter's per-frame counters) for <otherBaseUrl> (e.g. the build before) and
 //            <baseUrl>, in one browser session                                              -> perf in controls.json
+// SB_Q=&hour=blue appends to the street page's query (thumbs, states, keyboard, audio): the same rows under a flag.
 // Launches through tools/browser.mjs (the GPU here, SwiftShader in the cloud): everything waits on the game
 // clock (fixed 1/20 s steps), never wall time.
 import { chromium } from 'playwright-core';
@@ -34,7 +35,7 @@ const perfOther = (rest.find((m) => m.startsWith('perf=')) ?? '').slice(5);
 mkdirSync(out, { recursive: true });
 
 const browser = await chromium.launch(browserOptions());
-const Q = '?lat=37.77628&lon=-122.4352&heading=88&skipintro&fixeddt=0.05';
+const Q = `?lat=37.77628&lon=-122.4352&heading=88&skipintro&fixeddt=0.05${process.env.SB_Q ?? ''}`;
 const LOG_INPUT = () => {
   const g = window.__game, inp = g.input;
   window.__ev = [];

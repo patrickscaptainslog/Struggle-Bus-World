@@ -176,7 +176,7 @@ const shiftTo = (S: { drive: TurboDrive; f: Flight }, gear: number) => { while (
     S.f.holdY = S.f.y;
     shiftTo(S, gear);
     for (let i = 0; i < lv; i++) S.drive.boostUp();
-    await S.run(30, free, 'edge');
+    await S.run(60, free, 'edge');
     const log = S.log as any[];
     rows.push({ gear, level: lv, maxOutsideM: Math.max(...log.map((r) => r.outside)), topSpeed: Math.max(...log.map((r) => r.speed)), speedAtEdge: log.find((r) => r.outside > 0)?.speed ?? null, endSpeed: log[log.length - 1].speed, endOutside: log[log.length - 1].outside });
   }

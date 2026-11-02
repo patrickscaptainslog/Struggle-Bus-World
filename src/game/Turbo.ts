@@ -259,7 +259,8 @@ export class TurboDrive {
     const spooling = Tb.speed > F.surgeSpeed && f.speed < Tb.speed * 0.9;
     const s = lifting ? 1 : spooling ? 0.7 : lv > 0 ? 0.45 : 0;
     this.strain += (s - this.strain) * (1 - Math.exp(-4 * dt));
-    this.speedK = f.speed <= F.surgeSpeed ? 0 : Math.log(f.speed / F.surgeSpeed) / Math.log(Math.max(F.surgeSpeed * 1.01, T.jetSpeed) / F.surgeSpeed);
+    // (a hair over the surge is the surge: the speed settles on Express's from above for seconds, and the detail hold and the voice shouldn't wait on it)
+    this.speedK = f.speed <= F.surgeSpeed * 1.005 ? 0 : Math.log(f.speed / F.surgeSpeed) / Math.log(Math.max(F.surgeSpeed * 1.01, T.jetSpeed) / F.surgeSpeed);
   }
 
   /** Game time (the drive's own clock, advanced by update()). */
