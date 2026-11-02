@@ -225,6 +225,9 @@ SCRIPTS.high = async () => {
   await letGo();
   await run(3);
   await playFor('km10', 18, 3);
+  await page.evaluate(() => (window.__game.flight.heading = 2.6));
+  await run(2);
+  await playFor('km10b', 15, 3);
 };
 
 /** Straight down on a map point, from this high. */

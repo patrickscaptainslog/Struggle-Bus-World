@@ -113,6 +113,8 @@ const keyOfId = (id: string) => {
   return keyOf(L, i, j, k);
 };
 
+/** How far off a crater's rim the aim can be and it still glints (m), from this far. */
+const snapOf = (dist: number) => 14 + 0.09 * dist;
 /** How long a level takes to land on a crater this big (s). */
 const landTime = (r: number) => Math.min(2.6, 0.6 + r / 160) + Math.min(1.6, r / 30000);
 /** How far a mark reaches from its centre, by level (m). */
@@ -323,10 +325,10 @@ export class CraterPaint {
 
   /** What a crater scores as the thing under the aim: lower is better, -1 not a target. */
   private score(x: number, z: number, r: number, level: number, ax: number, az: number, dist: number, f: Flight): number {
-    const d = Math.hypot(x - ax, z - az), e = d - r, snap = 14 + 0.07 * dist;
+    const d = Math.hypot(x - ax, z - az), e = d - r, snap = snapOf(dist);
     if (e > snap || r < Math.max(8.5, 0.01 * dist)) return -1;
-    // (a bowl wider than the view isn't a thing to aim at: its floor is where the targets are)
-    if (r > 2.5 * dist) return -1;
+    // (a bowl much wider than the view isn't a thing to aim at: its floor is where the targets are)
+    if (r > 4 * dist) return -1;
     if ((x - f.x) * f.fx + (z - f.z) * f.fz + r < 20) return -1;
     if (this.sites.length && this.inSite(x, z)) return -1;
     const pref = Math.max(24, 0.14 * dist);
@@ -340,7 +342,7 @@ export class CraterPaint {
     for (let i = 0; i < this.n; i++) {
       const o = i * CRATER_FLOATS, x = D[o], z = D[o + 1];
       // (the box first: thousands of these, every frame)
-      const b = D[o + 2] + 14 + 0.07 * dist;
+      const b = D[o + 2] + snapOf(dist);
       if (x - ax > b || ax - x > b || z - az > b || az - z > b) continue;
       const s = this.score(x, z, D[o + 2], this.listRec[i]?.level ?? 0, ax, az, dist, f);
       if (s >= 0 && s < best) {
@@ -349,8 +351,10 @@ export class CraterPaint {
       }
     }
     for (const c of this.named) {
-      if (Math.hypot(c.x - ax, c.z - az) - c.r > 14 + 0.07 * dist) continue;
-      const s = this.score(c.x, c.z, c.r, this.recs.get(keyOfId(c.id))?.level ?? 0, ax, az, dist, f);
+      if (Math.hypot(c.x - ax, c.z - az) - c.r > snapOf(dist)) continue;
+      const lv = this.recs.get(keyOfId(c.id))?.level ?? 0;
+      // (a name is worth aiming at: from high enough, the whole of Theophilus)
+      const s = this.score(c.x, c.z, c.r, lv, ax, az, dist, f) * (lv < 3 ? 0.25 : 1);
       if (s >= 0 && s < best) {
         best = s;
         at = -1;
@@ -421,7 +425,7 @@ export class CraterPaint {
 
   /** How wide a breath is, for a shot from this far: it stays a rainbow, not a thread. */
   width(shot: Shot, f: Flight): number {
-    return Math.min(18, Math.max(1, Math.hypot(shot.x - f.x, shot.z - f.z, shot.drop) / 260));
+    return Math.min(11, Math.max(1, Math.hypot(shot.x - f.x, shot.z - f.z, shot.drop) / 420));
   }
 
   /** The breath's flight (s) over `d` m: it arcs, it doesn't shoot. */
