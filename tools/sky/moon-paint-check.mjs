@@ -47,6 +47,17 @@ const seen = a.mips[0].data;
 let revealLeft = 0;
 for (let o = 3; o < seen.length; o += 4) if (seen[o]) revealLeft++;
 check(revealLeft === 0, 'settled: no texel still waits for a wave');
+// (the shader adds these bits to the first paint ramp: a 6 or a 7 would be the bus's yellow or a sign's green)
+let notHue = 0, levelsOk = true;
+for (const m of a.mips) {
+  for (let o = 0; o < m.data.length; o += 4) if ((m.data[o + 1] & 7) > 5 || (m.data[o + 2] & 7) > 5) notHue++;
+}
+for (let l = 1; l < a.mips.length; l++) {
+  const d = a.mips[l].data;
+  for (let o = 0; o < d.length; o += 4) if ((d[o + 1] & 7) !== (d[o + 2] & 7)) levelsOk = false;
+}
+check(notHue === 0, 'every texel of every level holds two hues');
+check(levelsOk, 'a far level holds one hue a texel: no mix to read from up there');
 
 // ---- the next flight finds it: the same bytes, built from the strokes alone
 const b = new MoonPaint(store, 999);
@@ -70,6 +81,24 @@ const none = new MoonPaint(null, 5);
 none.load();
 fly(none, places.slice(0, 3));
 check(none.strokes.length === 3, 'no store at all');
+
+// ---- a store that fills up in flight: what went in is good, paint goes on, and it catches up if there's room again
+{
+  const m = memory();
+  let room = 3;
+  const full = { get: (k) => m.get(k), set(k, v) { if (room-- <= 0) throw new Error('full'); m.set(k, v); } };
+  const p = new MoonPaint(full, 5);
+  p.load();
+  fly(p, places.slice(0, 10));
+  check(p.strokes.length === 10 && p.painted > 0, 'a full store: paint goes on');
+  const q = new MoonPaint(m, 6);
+  const kept = q.load();
+  check(kept >= 1 && kept < 10, `a full store keeps what went in: ${kept} of 10 strokes`);
+  room = 1e6;
+  fly(p, places.slice(10, 12));
+  const r = new MoonPaint(m, 7);
+  check(r.load() === 12, 'room again: the next save catches up');
+}
 
 // ---- a spoiled store: what can be read is drawn
 const bad = memory();

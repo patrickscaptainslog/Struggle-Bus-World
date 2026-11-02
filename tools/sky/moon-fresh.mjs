@@ -3,7 +3,7 @@
 // Real frame loop, real touches, and it does only what the screen shows: TURBO when the label asks. In orbit it plays for --paint seconds: it taps the paint it can see while that paint is still ahead of the bus, until
 // that's level 3, and then taps fresh ground: the middle of the frame, or a little to one side. Every tap is written down: where the finger was, where the place lands on the screen at the tap and at the impact,
 // the seconds from tap to impact, the level, how long the frames around it took. On the way home it shoots the look back. Then it reloads the page and flies again, and looks for what it painted.
-// Exits 1 if the page threw, the paint didn't come back, or a tap went astray.
+// Exits 1 if the page threw or the paint didn't come back.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
@@ -25,7 +25,7 @@ const url = `${BASE}?moonrun${t === 'now' ? '' : `&t=${t}`}&g5=${g5}${dt ? `&fix
 const open = async () => {
   const page = await ctx.newPage();
   page.on('console', (m) => {
-    if (m.type() === 'error' || m.type() === 'warning') console.log(`  [${m.type()}] ${m.text().slice(0, 300)}`);
+    if (m.type() === 'error' || m.type() === 'warning') console.log(`  [${m.type()}] ${m.text().slice(0, 300)} ${m.location().url}`);
   });
   page.on('pageerror', (e) => {
     bad++;
@@ -114,6 +114,7 @@ try {
     const turboBox = await page.locator('[data-hud="turbo"]').boundingBox();
     const tapTurbo = () => page.touchscreen.tap(turboBox.x + turboBox.width / 2, turboBox.y + turboBox.height / 2);
     const start = await read(page);
+    const pageTrips = start.trips;
     say(`flight ${trip}: ready, ${start.strokes} strokes, ${start.painted} % painted, says ${start.say}`);
     await page.screenshot({ path: join(out, `t${trip}-00-home.png`) });
     let leg = '', asked = '', askedAt = Date.now(), done = new Set(), played = false;
@@ -167,9 +168,8 @@ try {
           await touch('touchEnd');
         }
       }
-      if (s.leg === 'wait' && s.trips >= trip) {
+      if (s.leg === 'wait' && s.trips > pageTrips) {
         await once('19-home', s);
-        await once('', s);
         break;
       }
       if (prompt.startsWith('TAP TURBO') && (Date.now() - askedAt) * (dt ? dt * 60 : 1) > 1500) {
@@ -204,6 +204,7 @@ try {
       const painted = end.painted, strokes = end.strokes;
       await page.close();
       page = await open();
+      await page.waitForFunction(() => !window.__game.moon.breath.paint.rebuilding, null, { timeout: 20000, polling: 20 });
       const again = await read(page);
       say(`reloaded: ${again.strokes} strokes against ${strokes}, ${again.painted} % against ${painted} %, says ${again.say}`);
       if (again.strokes !== strokes || Math.abs(again.painted - painted) > 0.001) {

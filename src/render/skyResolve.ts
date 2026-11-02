@@ -218,9 +218,9 @@ bool spaceEarth(vec3 dir, float dsk, out vec3 col) {
 void spacePaint(vec3 n, vec2 uv, float t, float dsk, inout float ramp, inout float level) {
   // the edge's wobble: a warp of the lookup, as the ground's is, here by sines of the place: no read. In texels, so a place doesn't wobble more for being near a pole
   vec2 w = vec2(sin(n.y * 37.0 + 1.9 * sin(n.z * 23.0)), sin(n.x * 41.0 + 1.7 * sin(n.y * 29.0)));
-  // (and a fine one, a few texels long, as the street's is: the grid the map is read on never shows as a straight line)
-  vec2 f = vec2(sin(n.x * 263.0 + 2.1 * sin(n.y * 197.0)), sin(n.z * 241.0 + 2.3 * sin(n.x * 211.0)));
-  vec2 at = uv + (w + 0.8 * f) * uPaintView.w * vec2(1.0 / max(length(n.xy), 0.08), 2.0);
+  // (and a fine one, a few texels long, as the street's is: the grid the map is read on never shows as a straight line. Each way is pushed by the other, at every longitude: pushed by itself a line only moves, and doesn't bend)
+  vec2 f = vec2(sin((n.x + n.z) * 263.0 + 2.1 * sin((n.y - n.z) * 197.0)), sin((n.x + n.y) * 241.0 + 2.3 * sin((n.z - n.x) * 211.0)));
+  vec2 at = uv + (w + 0.5 * f) * uPaintView.w * vec2(1.0 / max(length(n.xy), 0.08), 2.0);
   vec4 p = textureLod(tMoonPaint, at, uPaintView.x);
   float thr = uPaintView.y + uPaintView.z * sin(n.x * 141.0 + n.y * 117.0 + 2.1 * w.y);
   if (p.r > thr) {
