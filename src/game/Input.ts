@@ -850,14 +850,15 @@ export class Input {
    * right, swapped): the second there and able to command, the flying thumb on the other half. A grip in a band, a finger on
    * the flying thumb's own half or a flying thumb on that half changes nothing, so nobody loses their steering to a stray
    * touch or to which of two thumbs landed first. A lone flick lifting from that half (`flicked`) shows the same thing the
-   * other way round: the thumb on the other half flies now. One lifting from the other half shows nothing.
+   * other way round: the thumb on the other half flies now, if it isn't a grip in a band. One lifting from the other half
+   * shows nothing.
    */
   private noteTogether(now: number, flicked: boolean) {
     const f = this.fly;
     if (!f) return;
     for (const s of this.slots) {
       if (s.role !== Role.Second || s.right) continue;
-      if (flicked ? this.secondSide(f.x0) && !this.secondSide(s.x0) : this.secondSide(s.x0) && !this.secondSide(f.x0) && this.commands(s)) {
+      if ((flicked ? this.secondSide(f.x0) && !this.secondSide(s.x0) : this.secondSide(s.x0) && !this.secondSide(f.x0)) && this.commands(s)) {
         this.twoAt = now;
         return;
       }
@@ -871,10 +872,10 @@ export class Input {
     return s.flick === Flick.Firm ? readFlick(dx, dy, ms, T.loneFlickPx, T.loneFlickMs, T.loneFlickSpeed, T.loneFlickDeg) : readFlick(dx, dy, ms, T.flickPx, T.flickMs, T.flickSpeed, T.flickDeg);
   }
 
-  /** The stroke that just lifted was a command, not a flying thumb, so a thumb that landed during it is a lone touch: it flies, from where it landed, unless the memory makes it the second thumb. */
+  /** The stroke that just lifted was a command, not a flying thumb, so a thumb that landed during it is a lone touch: it flies, from where it landed, unless the memory makes it the second thumb. A grip in a band isn't one: the next thumb to land flies. */
   private promote(t0: number, now: number) {
     for (const s of this.slots) {
-      if (s.role !== Role.Second || s.right || s.t0 < t0 || this.farSide(s.x0, now)) continue;
+      if (s.role !== Role.Second || s.right || s.t0 < t0 || !this.commands(s) || this.farSide(s.x0, now)) continue;
       if (s.looking) this.endLook(s);
       s.role = Role.Fly;
       s.flick = Flick.No;

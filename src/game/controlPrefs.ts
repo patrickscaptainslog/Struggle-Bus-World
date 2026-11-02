@@ -3,7 +3,7 @@
 export interface Prefs {
   /** cues already shown (src/ui/Coach.ts): bits 1 tap, 2 drag, 8 mega, 32 the hint (4 and 16 were TURBO's blink and the tilt chip's: they stay set in old saves and nothing reads them) */
   taught?: number;
-  /** the buttons and the flick's side mirrored for the left hand */
+  /** the buttons and the memory's half mirrored for the left hand */
   swap?: boolean;
   muted?: boolean;
   /** a desktop has seen the keys once */

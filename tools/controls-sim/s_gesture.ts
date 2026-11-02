@@ -347,6 +347,10 @@ row('touch', 'memory: swapped: a stray during a lone left flick starts nothing',
 row('touch', 'memory: a thumb promoted from a lone flick lands again and flies', (h) => { flickThenRight(h); return dragAt(h, RX, RY); });
 row('touch', 'memory: promoted, a lone right stroke is a flick', (h) => { flickThenRight(h); h.wait(400); h.evs.length = 0; h.stroke(RX, RY, 0, -74, 85); h.wait(400); });
 row('touch', 'memory: promoted, the flick\'s side is the second thumb\'s', (h) => { flickThenRight(h); return dragAt(h, LX, LY); });
+row('touch', 'memory: a fingertip in the far side band during a lone flick starts nothing', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.slide(a, LX, LY, 0, -40, 40); h.down(b, 385, 500, false); h.wait(40); h.up(a, LX, LY - 74); h.wait(100); h.up(b, 385, 500); h.wait(600); return dragAt(h, LX, LY); });
+row('touch', 'memory: a palm in the bottom band during a lone flick starts nothing', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.slide(a, LX, LY, 0, -40, 40); h.down(b, 330, 835, false); h.wait(40); h.up(a, LX, LY - 74); h.wait(100); h.up(b, 330, 835); h.wait(600); return dragAt(h, LX, LY); });
+row('touch', 'memory: swapped: a fingertip in the far side band during a lone right flick starts nothing', (h) => { h.input.swapped = true; const a = newId(), b = newId(); h.down(a, RX, RY); h.slide(a, RX, RY, 0, -40, 40); h.down(b, 8, 500, false); h.wait(40); h.up(a, RX, RY - 74); h.wait(100); h.up(b, 8, 500); h.wait(600); return dragAt(h, RX, RY); });
+row('touch', 'a fingertip resting in a band since a lone flick: the thumb lands again and flies', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.slide(a, LX, LY, 0, -40, 40); h.down(b, 385, 500, false); h.wait(40); h.up(a, LX, LY - 74); h.wait(300); const c = newId(); h.down(c, LX, LY, false); h.slide(c, LX, LY, 60, 0, 200); h.wait(30); const s = h.input.state, v = { thumb: s.thumb, look: s.look.on, sx: +s.stretch.x.toFixed(2) }; h.up(c, LX + 60, LY); h.up(b, 385, 500); return v; });
 row('touch', 'memory: promoted on one half: nothing to remember', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.slide(a, LX, LY, 0, -40, 40); h.down(b, 150, 600, false); h.wait(40); h.up(a, LX, LY - 74); h.wait(100); h.up(b, 150, 600); h.wait(600); return dragAt(h, LX, LY); });
 row('touch', 'memory: the flying thumb back down during a lone look: flies, the look stays', (h) => { together(h); h.wait(1000); const b = newId(); h.down(b, LX, LY); h.slide(b, LX, LY, 60, 0, 200); const a = newId(); h.down(a, RX, RY, false); h.slide(a, RX, RY, 40, 0, 200); h.wait(20); const on = h.input.state.look.on, thumb = h.input.state.thumb; h.up(a, RX + 40, RY); h.up(b, LX + 60, LY); return { on, thumb }; });
 row('touch', 'memory: two fingers tapped, one landing by memory: one splat', (h) => { together(h); h.wait(1000); const b = newId(), a = newId(); h.down(b, LX, LY); h.wait(30); h.down(a, RX, RY, false); h.wait(80); h.up(b, LX, LY); h.up(a, RX, RY); });
@@ -684,6 +688,10 @@ ok(by('memory: on, a look thumb landing').gear === 1, 'a look thumb stays a look
 flies('memory: off, a thumb landing during');
 flies('memory: a stray during a lone right');
 flies('memory: swapped: a stray during');
+flies('memory: a fingertip in the far side band');
+flies('memory: a palm in the bottom band');
+flies('memory: swapped: a fingertip in the far side band');
+flies('a fingertip resting in a band since');
 flies('memory: promoted on one half');
 ok(note('memory: the flying thumb back').on && note('memory: the flying thumb back').thumb, 'both jobs at once, the landings the other way round');
 ok(taps('memory: two fingers tapped') === 1, 'one splat');
