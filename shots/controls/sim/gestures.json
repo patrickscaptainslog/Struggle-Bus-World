@@ -23,6 +23,7 @@
   "loneFlickMs": 200,
   "loneFlickSpeed": 0.4,
   "loneFlickDeg": 40,
+  "loneAgainMs": 320,
   "flickBottomPx": 40,
   "flickSidePx": 20,
   "doubleMs": 320
@@ -31,11 +32,6 @@
   1.3,
   1.6,
   2
- ],
- "levelsG0": [
-  1,
-  1.3,
-  1.7
  ],
  "rows": [
   {
@@ -119,6 +115,20 @@
   {
    "mode": "touch",
    "gesture": "canvas: quick flick 20 px in 90 ms (still a tap)",
+   "events": [
+    "tap@90ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "canvas: quick flick 20 px up in 90 ms (still a tap)",
    "events": [
     "tap@90ms"
    ],
@@ -410,8 +420,7 @@
    "events": [
     "flick+@385ms",
     "first@385ms",
-    "up1@718ms",
-    "engage1@718ms"
+    "up1@718ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -440,7 +449,6 @@
    "gesture": "second: flick down at G1",
    "events": [
     "up1@300ms",
-    "engage1@301ms",
     "flick-@435ms",
     "down0@435ms"
    ],
@@ -486,8 +494,7 @@
    "events": [
     "flick+@400ms",
     "first@400ms",
-    "up1@735ms",
-    "engage1@735ms"
+    "up1@735ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -547,8 +554,7 @@
    "events": [
     "flick+@385ms",
     "first@385ms",
-    "up1@718ms",
-    "engage1@718ms"
+    "up1@718ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -592,8 +598,7 @@
    "events": [
     "flick+@385ms",
     "first@385ms",
-    "up1@733ms",
-    "engage1@733ms"
+    "up1@733ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -609,8 +614,7 @@
    "events": [
     "flick+@385ms",
     "first@385ms",
-    "up1@718ms",
-    "engage1@718ms"
+    "up1@718ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -673,30 +677,53 @@
   },
   {
    "mode": "touch",
-   "gesture": "double: the second lands past the window: a gear, then another try",
+   "gesture": "double: the second lands past the window: a gear, then the next",
    "events": [
     "flick+@385ms",
     "first@385ms",
     "up1@718ms",
-    "engage1@718ms",
     "flick+@810ms",
     "first@810ms",
-    "locked2@1136ms"
+    "up2@1136ms",
+    "engage2@1136ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
    "thumb": true,
    "turboHeld": false,
    "look": null,
-   "gear": 1,
+   "gear": 2,
    "level": 0
   },
   {
    "mode": "touch",
-   "gesture": "double: at G1, no LOCKED",
+   "gesture": "double: past the window at Jet: LOCKED, then nothing",
    "events": [
     "up1@300ms",
-    "engage1@301ms",
+    "up2@300ms",
+    "engage2@301ms",
+    "flick+@435ms",
+    "first@435ms",
+    "locked3@768ms",
+    "flick+@860ms",
+    "first@860ms",
+    "locked3@1186ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 2,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "double: at the last gear, no LOCKED",
+   "events": [
+    "up1@300ms",
+    "up2@300ms",
+    "engage2@301ms",
     "flick+@435ms",
     "first@435ms",
     "flick+@670ms",
@@ -707,8 +734,55 @@
    "thumb": true,
    "turboHeld": false,
    "look": null,
-   "gear": 1,
+   "gear": 2,
    "level": 1
+  },
+  {
+   "mode": "touch",
+   "gesture": "two spaced flicks: Express, then Jet",
+   "events": [
+    "flick+@385ms",
+    "first@385ms",
+    "up1@718ms",
+    "flick+@970ms",
+    "first@970ms",
+    "up2@1303ms",
+    "engage2@1303ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 2,
+   "level": 0,
+   "note": {
+    "one": 1,
+    "engaged": true
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flick down steps Jet to Express to Cruise",
+   "events": [
+    "up1@300ms",
+    "up2@300ms",
+    "engage2@301ms",
+    "flick-@435ms",
+    "down1@435ms",
+    "flick-@620ms",
+    "down0@620ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "one": 1
+   }
   },
   {
    "mode": "touch",
@@ -720,8 +794,7 @@
     "turbo1@620ms",
     "flick+@1205ms",
     "first@1205ms",
-    "up1@1536ms",
-    "engage1@1536ms"
+    "up1@1536ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -811,7 +884,6 @@
    "gesture": "flick down ends all turbo at once, the gear stays",
    "events": [
     "up1@300ms",
-    "engage1@301ms",
     "flick+@435ms",
     "first@435ms",
     "flick+@670ms",
@@ -840,7 +912,6 @@
    "gesture": "the next flick down drops the gear",
    "events": [
     "up1@300ms",
-    "engage1@301ms",
     "flick+@435ms",
     "first@435ms",
     "flick+@670ms",
@@ -898,12 +969,11 @@
   },
   {
    "mode": "touch",
-   "gesture": "undo: a flick down past the window, the gear engaged, is a gear down",
+   "gesture": "undo: a flick down past the window, Express in, is a gear down and leaves the bus as it was",
    "events": [
     "flick+@385ms",
     "first@385ms",
     "up1@718ms",
-    "engage1@718ms",
     "flick-@970ms",
     "down0@970ms"
    ],
@@ -915,6 +985,29 @@
    "gear": 0,
    "level": 0,
    "note": {
+    "hold": null
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "undo: a flick down past the window, Jet in, is a gear down that holds the height",
+   "events": [
+    "up1@300ms",
+    "flick+@435ms",
+    "first@435ms",
+    "up2@768ms",
+    "engage2@768ms",
+    "flick-@1020ms",
+    "down1@1020ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
     "hold": 400
    }
   },
@@ -922,18 +1015,19 @@
    "mode": "touch",
    "gesture": "undo: a gear still lifting is taken back: the bus goes back to what it was doing",
    "events": [
-    "flick+@385ms",
-    "first@385ms",
-    "up1@718ms",
-    "flick-@970ms",
-    "down0@970ms"
+    "up1@300ms",
+    "flick+@435ms",
+    "first@435ms",
+    "up2@768ms",
+    "flick-@1020ms",
+    "down1@1020ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
    "thumb": true,
    "turboHeld": false,
    "look": null,
-   "gear": 0,
+   "gear": 1,
    "level": 0,
    "note": {
     "lifting": true,
@@ -945,17 +1039,18 @@
    "gesture": "LOCKED waits for the window",
    "events": [
     "up1@300ms",
-    "engage1@301ms",
+    "up2@300ms",
+    "engage2@301ms",
     "flick+@435ms",
     "first@435ms",
-    "locked2@768ms"
+    "locked3@768ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
    "thumb": true,
    "turboHeld": false,
    "look": null,
-   "gear": 1,
+   "gear": 2,
    "level": 0,
    "note": {
     "early": []
@@ -967,8 +1062,7 @@
    "events": [
     "flick+@385ms",
     "gated@385ms",
-    "up1@1186ms",
-    "engage1@1186ms"
+    "up1@1186ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -1040,8 +1134,7 @@
    "events": [
     "flick+@85ms",
     "first@85ms",
-    "up1@417ms",
-    "engage1@417ms"
+    "up1@417ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -1061,7 +1154,6 @@
    "gesture": "lone left flick down at G1",
    "events": [
     "up1@0ms",
-    "engage1@17ms",
     "flick-@135ms",
     "down0@135ms"
    ],
@@ -1091,8 +1183,7 @@
    "events": [
     "flick+@80ms",
     "first@80ms",
-    "up1@401ms",
-    "engage1@401ms"
+    "up1@401ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -1132,8 +1223,7 @@
    "events": [
     "flick+@85ms",
     "first@85ms",
-    "up1@417ms",
-    "engage1@417ms"
+    "up1@417ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -1157,31 +1247,44 @@
   },
   {
    "mode": "touch",
-   "gesture": "lone right flick up: never a shift",
-   "events": [],
-   "maxChargeHeld": 0,
-   "dragging": true,
-   "thumb": true,
-   "turboHeld": false,
-   "look": null,
-   "gear": 0,
-   "level": 0
-  },
-  {
-   "mode": "touch",
-   "gesture": "lone right flick down: never a shift",
-   "events": [],
+   "gesture": "lone right flick up: steers, then the gear",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "up1@417ms"
+   ],
    "maxChargeHeld": 0,
    "dragging": true,
    "thumb": true,
    "turboHeld": false,
    "look": null,
    "gear": 1,
+   "level": 0,
+   "note": {
+    "steered": true,
+    "sy": 0.6948717948717954,
+    "after": false
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "lone right flick down at G1",
+   "events": [
+    "up1@0ms",
+    "flick-@135ms",
+    "down0@135ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
    "level": 0
   },
   {
    "mode": "touch",
-   "gesture": "lone right two flicks: nothing",
+   "gesture": "lone right: 34 px is under the firm rule",
    "events": [],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -1193,12 +1296,11 @@
   },
   {
    "mode": "touch",
-   "gesture": "swapped: lone right flick up is the flick",
+   "gesture": "lone right: 36 px in 80 ms is a flick",
    "events": [
-    "flick+@85ms",
-    "first@85ms",
-    "up1@417ms",
-    "engage1@417ms"
+    "flick+@80ms",
+    "first@80ms",
+    "up1@401ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -1210,7 +1312,7 @@
   },
   {
    "mode": "touch",
-   "gesture": "swapped: lone left flick up is not",
+   "gesture": "lone right: 90 px in 210 ms is too long",
    "events": [],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -1222,12 +1324,841 @@
   },
   {
    "mode": "touch",
+   "gesture": "lone right: 40 px in 120 ms is too slow",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "lone right: 38 degrees off vertical still counts",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "up1@417ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "lone right: 43 degrees off vertical does not",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "lone right: a flick at 30 touches a second reads the same",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "up1@433ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "lone right: a flick with no move event at all reads the same",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "up1@417ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "lone right: the same stroke stays down: it steers and never shifts",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "sy": 0.8679498434084855,
+    "look": false
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "lone right: a fast stroke mid-drag is never a flick",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "lone right: out and back: one touch, one reading",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "lone right: sideways is a carve",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "right thumb: a gear up, a gear down",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "up1@417ms",
+    "flick-@670ms",
+    "down0@670ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "one": 1
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "right thumb: two spaced flicks: Express, then Jet",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "up1@417ms",
+    "flick+@670ms",
+    "first@670ms",
+    "up2@1002ms",
+    "engage2@1002ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 2,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "right thumb: turbo, the waiting gear dropped",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick+@320ms",
+    "turbo1@320ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 1
+  },
+  {
+   "mode": "touch",
+   "gesture": "right thumb: the second lands inside the window and lifts after it",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick+@470ms",
+    "turbo1@470ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 1
+  },
+  {
+   "mode": "touch",
+   "gesture": "right thumb: the second lands past the window: a gear, then the next",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "up1@418ms",
+    "flick+@510ms",
+    "first@510ms",
+    "up2@835ms",
+    "engage2@835ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 2,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "right thumb: a soft second stroke in the window is the second flick",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick+@335ms",
+    "turbo1@335ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 1
+  },
+  {
+   "mode": "touch",
+   "gesture": "right thumb: the same soft stroke past the window is no flick",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "up1@418ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "right thumb: the same soft stroke with loneAgainMs at 0 is no flick",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "up1@418ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "right thumb: a soft first stroke is no flick",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "right thumb: a second double adds a level",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick+@320ms",
+    "turbo1@320ms",
+    "flick+@905ms",
+    "first@905ms",
+    "flick+@1140ms",
+    "turbo2@1140ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 2
+  },
+  {
+   "mode": "touch",
+   "gesture": "right thumb: six flicks in a row are the top level",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick+@320ms",
+    "turbo1@320ms",
+    "flick+@555ms",
+    "first@555ms",
+    "flick+@790ms",
+    "turbo2@790ms",
+    "flick+@1025ms",
+    "first@1025ms",
+    "flick+@1260ms",
+    "turbo3@1260ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 3
+  },
+  {
+   "mode": "touch",
+   "gesture": "right thumb: a fourth double is LOCKED, the level stands",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick+@320ms",
+    "turbo1@320ms",
+    "flick+@905ms",
+    "first@905ms",
+    "flick+@1140ms",
+    "turbo2@1140ms",
+    "flick+@1725ms",
+    "first@1725ms",
+    "flick+@1960ms",
+    "turbo3@1960ms",
+    "flick+@2545ms",
+    "first@2545ms",
+    "flick+@2780ms",
+    "locked1@2780ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 3
+  },
+  {
+   "mode": "touch",
+   "gesture": "right thumb: flick down ends all turbo, the gear stays, the next drops it",
+   "events": [
+    "up1@0ms",
+    "flick+@135ms",
+    "first@135ms",
+    "flick+@370ms",
+    "turbo1@370ms",
+    "flick+@955ms",
+    "first@955ms",
+    "flick+@1190ms",
+    "turbo2@1190ms",
+    "flick+@1775ms",
+    "first@1775ms",
+    "flick+@2010ms",
+    "turbo3@2010ms",
+    "flick-@2595ms",
+    "turbo-off0@2595ms",
+    "flick-@2780ms",
+    "down0@2780ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "level": 0,
+    "gear": 1
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "right thumb: a flick down takes the waiting gear back",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick-@230ms",
+    "back@230ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "right thumb: a gear taken back, with turbo on, leaves turbo",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick+@320ms",
+    "turbo1@320ms",
+    "flick+@905ms",
+    "first@905ms",
+    "flick-@1050ms",
+    "back@1050ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 1
+  },
+  {
+   "mode": "touch",
+   "gesture": "right thumb: a gear still lifting is taken back",
+   "events": [
+    "up1@0ms",
+    "flick+@135ms",
+    "first@135ms",
+    "up2@468ms",
+    "flick-@720ms",
+    "down1@720ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "lifting": true,
+    "hold": null
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "left thumb: a gear up, a gear down",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "up1@418ms",
+    "flick-@670ms",
+    "down0@670ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "one": 1
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "left thumb: two spaced flicks: Express, then Jet",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "up1@418ms",
+    "flick+@670ms",
+    "first@670ms",
+    "up2@1002ms",
+    "engage2@1002ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 2,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "left thumb: turbo, the waiting gear dropped",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick+@320ms",
+    "turbo1@320ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 1
+  },
+  {
+   "mode": "touch",
+   "gesture": "left thumb: the second lands inside the window and lifts after it",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick+@470ms",
+    "turbo1@470ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 1
+  },
+  {
+   "mode": "touch",
+   "gesture": "left thumb: the second lands past the window: a gear, then the next",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "up1@418ms",
+    "flick+@510ms",
+    "first@510ms",
+    "up2@835ms",
+    "engage2@835ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 2,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "left thumb: a soft second stroke in the window is the second flick",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick+@335ms",
+    "turbo1@335ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 1
+  },
+  {
+   "mode": "touch",
+   "gesture": "left thumb: the same soft stroke past the window is no flick",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "up1@418ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "left thumb: the same soft stroke with loneAgainMs at 0 is no flick",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "up1@418ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "left thumb: a soft first stroke is no flick",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "left thumb: a second double adds a level",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick+@320ms",
+    "turbo1@320ms",
+    "flick+@905ms",
+    "first@905ms",
+    "flick+@1140ms",
+    "turbo2@1140ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 2
+  },
+  {
+   "mode": "touch",
+   "gesture": "left thumb: six flicks in a row are the top level",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick+@320ms",
+    "turbo1@320ms",
+    "flick+@555ms",
+    "first@555ms",
+    "flick+@790ms",
+    "turbo2@790ms",
+    "flick+@1025ms",
+    "first@1025ms",
+    "flick+@1260ms",
+    "turbo3@1260ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 3
+  },
+  {
+   "mode": "touch",
+   "gesture": "left thumb: a fourth double is LOCKED, the level stands",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick+@320ms",
+    "turbo1@320ms",
+    "flick+@905ms",
+    "first@905ms",
+    "flick+@1140ms",
+    "turbo2@1140ms",
+    "flick+@1725ms",
+    "first@1725ms",
+    "flick+@1960ms",
+    "turbo3@1960ms",
+    "flick+@2545ms",
+    "first@2545ms",
+    "flick+@2780ms",
+    "locked1@2780ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 3
+  },
+  {
+   "mode": "touch",
+   "gesture": "left thumb: flick down ends all turbo, the gear stays, the next drops it",
+   "events": [
+    "up1@0ms",
+    "flick+@135ms",
+    "first@135ms",
+    "flick+@370ms",
+    "turbo1@370ms",
+    "flick+@955ms",
+    "first@955ms",
+    "flick+@1190ms",
+    "turbo2@1190ms",
+    "flick+@1775ms",
+    "first@1775ms",
+    "flick+@2010ms",
+    "turbo3@2010ms",
+    "flick-@2595ms",
+    "turbo-off0@2595ms",
+    "flick-@2780ms",
+    "down0@2780ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "level": 0,
+    "gear": 1
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "left thumb: a flick down takes the waiting gear back",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick-@230ms",
+    "back@230ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "left thumb: a gear taken back, with turbo on, leaves turbo",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick+@320ms",
+    "turbo1@320ms",
+    "flick+@905ms",
+    "first@905ms",
+    "flick-@1050ms",
+    "back@1050ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 1
+  },
+  {
+   "mode": "touch",
+   "gesture": "left thumb: a gear still lifting is taken back",
+   "events": [
+    "up1@0ms",
+    "flick+@135ms",
+    "first@135ms",
+    "up2@468ms",
+    "flick-@720ms",
+    "down1@720ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "lifting": true,
+    "hold": null
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "swapped: lone right flick up is a flick",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "up1@418ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "swapped: lone left flick up is a flick",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "up1@418ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0
+  },
+  {
+   "mode": "touch",
    "gesture": "a thumb landing during a lone flick flies, from where it landed",
    "events": [
     "flick+@80ms",
     "first@80ms",
-    "up1@401ms",
-    "engage1@401ms"
+    "up1@401ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "sx": 0.32051282051282054,
+    "look": false
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "a thumb landing during a lone right flick flies, from where it landed",
+   "events": [
+    "flick+@80ms",
+    "first@80ms",
+    "up1@401ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -1275,12 +2206,23 @@
   },
   {
    "mode": "touch",
+   "gesture": "bottom band: a lone right stroke is never a command",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
    "gesture": "bottom band: 811 px, 41 px from the bottom, is a stroke again",
    "events": [
     "flick+@85ms",
     "first@85ms",
-    "up1@417ms",
-    "engage1@417ms"
+    "up1@418ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -1346,6 +2288,34 @@
   },
   {
    "mode": "touch",
+   "gesture": "side band: a lone right stroke 10 px in is never a command",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "side band: a lone right stroke 21 px in is a stroke again",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "up1@418ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0
+  },
+  {
+   "mode": "touch",
    "gesture": "side band: a second thumb 10 px from the right edge",
    "events": [],
    "maxChargeHeld": 0,
@@ -1386,7 +2356,7 @@
    "thumb": true,
    "turboHeld": false,
    "look": {
-    "from": 5761,
+    "from": 5762,
     "to": 5878,
     "max": 60
    },
@@ -1443,8 +2413,7 @@
    "events": [
     "flick+@1750ms",
     "first@1750ms",
-    "up1@2071ms",
-    "engage1@2071ms"
+    "up1@2071ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -1542,23 +2511,30 @@
   },
   {
    "mode": "touch",
-   "gesture": "memory: left first by 30 ms: a lone right stroke is no shift",
+   "gesture": "memory: left first by 30 ms: a lone right stroke is a flick",
    "events": [
-    "tap@230ms"
+    "tap@230ms",
+    "flick+@915ms",
+    "first@915ms",
+    "up1@1236ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
    "thumb": true,
    "turboHeld": false,
    "look": null,
-   "gear": 0,
+   "gear": 1,
    "level": 0
   },
   {
    "mode": "touch",
-   "gesture": "memory: left first by 30 ms: two lone right strokes are nothing",
+   "gesture": "memory: left first by 30 ms: two lone right strokes are turbo",
    "events": [
-    "tap@230ms"
+    "tap@230ms",
+    "flick+@915ms",
+    "first@915ms",
+    "flick+@1150ms",
+    "turbo1@1150ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -1566,7 +2542,7 @@
    "turboHeld": false,
    "look": null,
    "gear": 0,
-   "level": 0
+   "level": 1
   },
   {
    "mode": "touch",
@@ -1737,12 +2713,69 @@
   },
   {
    "mode": "touch",
-   "gesture": "memory: a thumb promoted from a lone flick lands again and flies",
+   "gesture": "memory: on, a lone right flick flies until its lift",
+   "events": [
+    "flick+@1735ms",
+    "first@1735ms",
+    "up1@2071ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: on, a soft lone right stroke is under the firm rule",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: on, a look thumb landing during a lone right flick stays second",
+   "events": [
+    "flick+@1710ms",
+    "first@1710ms",
+    "up1@2037ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": {
+    "from": 1804,
+    "to": 1937,
+    "max": 60
+   },
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "thumb": false,
+    "look": true,
+    "sx": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: off, a thumb landing during a lone right flick leaves nothing to remember",
    "events": [
     "flick+@80ms",
     "first@80ms",
-    "up1@401ms",
-    "engage1@401ms"
+    "tap@180ms",
+    "up1@401ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -1759,14 +2792,84 @@
   },
   {
    "mode": "touch",
-   "gesture": "memory: promoted, a lone right stroke is no shift",
-   "events": [],
+   "gesture": "memory: a stray during a lone right flick starts nothing",
+   "events": [
+    "flick+@80ms",
+    "first@80ms",
+    "tap@180ms",
+    "up1@401ms"
+   ],
    "maxChargeHeld": 0,
    "dragging": true,
    "thumb": true,
    "turboHeld": false,
    "look": null,
    "gear": 1,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: swapped: a stray during a lone left flick starts nothing",
+   "events": [
+    "flick+@80ms",
+    "first@80ms",
+    "tap@180ms",
+    "up1@401ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: a thumb promoted from a lone flick lands again and flies",
+   "events": [
+    "flick+@80ms",
+    "first@80ms",
+    "up1@401ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: promoted, a lone right stroke is a flick",
+   "events": [
+    "flick+@1265ms",
+    "first@1265ms",
+    "up2@1587ms",
+    "engage2@1587ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 2,
    "level": 0
   },
   {
@@ -1775,8 +2878,7 @@
    "events": [
     "flick+@80ms",
     "first@80ms",
-    "up1@401ms",
-    "engage1@401ms"
+    "up1@401ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -1802,8 +2904,7 @@
     "flick+@80ms",
     "first@80ms",
     "tap@180ms",
-    "up1@401ms",
-    "engage1@401ms"
+    "up1@401ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -2367,8 +3468,7 @@
    "events": [
     "flick+@0ms",
     "first@0ms",
-    "up1@334ms",
-    "engage1@334ms"
+    "up1@334ms"
    ],
    "maxChargeHeld": 0,
    "dragging": false,
@@ -2430,8 +3530,7 @@
    "events": [
     "flick+@0ms",
     "first@0ms",
-    "up1@334ms",
-    "engage1@334ms"
+    "up1@334ms"
    ],
    "maxChargeHeld": 0,
    "dragging": false,
@@ -2448,7 +3547,6 @@
     "up1@0ms",
     "flick+@0ms",
     "first@0ms",
-    "engage1@17ms",
     "flick-@50ms",
     "back@50ms",
     "flick+@550ms",
@@ -2549,6 +3647,18 @@
   {
    "mode": "keyboard",
    "gesture": "left mouse: a quick drag on the left is no flick",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "keyboard",
+   "gesture": "left mouse: a quick drag on the right is no flick",
    "events": [],
    "maxChargeHeld": 0,
    "dragging": true,

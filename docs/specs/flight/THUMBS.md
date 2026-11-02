@@ -1,12 +1,14 @@
 # THUMBS: two thumbs, no new buttons
 
+The producer, 2026-11-02, after flying it: "I want the swipe gear changes to also work with my right thumb. I want to be able to play this with one thumb." That overrules "dont add right thumb flicks" below, which stays here as what was said.
+
 The producer, 2026-11-01: "dont add the gear strip. dont add right thumb flicks. yes, remove the turbo button, replace with two quick flicks - its intuitive enough... lets remove tilt steering completely - i dont like it." And: "yes, the boost stays on until you flick down, and if we're getting funky - lets say that turbo can be 'boosted' more until youre in max top gear." And earlier: "I don't want to add a button/joystick o anything, I just want it to be intuitive to pick up and fly."
 
-**State.** On `feat/thumbs`, off `feat/nose` 08dd842, main merged in. Built and reviewed: the two thumbs, flicks, turbo's latch and levels, the undo, the look, the aim that follows it, the flick's pop, the first run's hint; TURBO, its tab and tilt gone. The producer flew that build on an iPhone 17 Pro, 2026-11-02: "New thumb controls work great! Very intuitive." Their one note is [Gears](#gears), and Express, its answer, hasn't been on a phone. Nothing was measured on that flight, so every thumb number below is still a model or a guess.
+**State.** On `feat/thumbs`, off `feat/nose` 08dd842, main merged in. Built and reviewed: the two thumbs, flicks, turbo's latch and levels, the undo, the look, the aim that follows it, the flick's pop, the first run's hint; TURBO, its tab and tilt gone. The producer flew that build on an iPhone 17 Pro, 2026-11-02: "New thumb controls work great! Very intuitive." Their first note is [Gears](#gears), and Express, its answer, hasn't been on a phone. Their second is [One thumb](#one-thumb), which hasn't either. Nothing was measured on that flight, so every thumb number below is still a model or a guess.
 
 ## The rule
 
-The first thumb flies. Any other thumb looks, shifts and taps, and never touches the flight. A thumb that stays down steers or looks; a thumb that lifts fast is a command. Which thumb is which goes by order, never by a line, so one thumb never meets any of this.
+The first thumb flies. Any other thumb looks, shifts and taps, and never touches the flight. A thumb that stays down steers or looks; a thumb that lifts fast is a command. One thumb alone has every job but the look: it flies, it taps, and a fresh stroke of it flicks, in either hand. Which thumb is which goes by order, never by a line.
 
 | Touch | First thumb: flies | Second thumb |
 |---|---|---|
@@ -16,16 +18,16 @@ The first thumb flies. Any other thumb looks, shifts and taps, and never touches
 | Drag that stays down | Steers: the same bungee, pull and push | Looks, after 100 ms and 12 px, from where it landed |
 | Resting still | Past 450 ms, dead straight | Nothing |
 | Lift after a drag | The bus flies on | The view goes home |
-| Quick flick up | Never | Gear up. Two within the window: turbo |
-| Quick flick down | Never | Takes back a waiting gear, else ends turbo, else gear down |
+| Quick flick up | Only a fresh stroke with no other thumb down, on the firm rule: the same as the second thumb's | Gear up. Two within the window: turbo |
+| Quick flick down | The same | Takes back a waiting gear, else ends turbo, else gear down |
 | Three fingers | Tuner | Tuner |
 
 Two lone touches, because the bus flies on by itself with no thumb down:
 
-- **The memory.** For 30 s after two thumbs were last together, a lone touch on the flick side, the left half or the right with SWAP, is the second thumb, so lifting the flying thumb doesn't turn the look thumb into a steering thumb. It starts only when the second thumb was on the flick side, able to command, and the flying thumb on the other half, so a stray touch, a grip in a band or two fingers on one half change nothing. The other half always flies, whatever happened on the glass: two thumbs landing together are a coin toss, and the one that lost it must not lose its steering. A left-hander's memory is SWAP's.
-- **The lone stroke.** A fresh stroke landing on the left half that lifts fast is a flick, on a firmer rule, with no other thumb needed. It steers from its first pixel until the lift decides: steering never waits for a verdict. A stroke on the right half is never a flick. BUTTONS: SWAP mirrors the side.
+- **The memory.** For 30 s after two thumbs were last together, a lone touch on the second thumb's half, the left or the right with SWAP, is the second thumb, so lifting the flying thumb doesn't turn the look thumb into a steering thumb. It starts only when the second thumb was on that half, able to command, and the flying thumb on the other half, so a stray touch, a grip in a band or two fingers on one half change nothing. The other half always flies, whatever happened on the glass: two thumbs landing together are a coin toss, and the one that lost it must not lose its steering. A left-hander's memory is SWAP's. That half is the only side left in these rules, and it says nothing about where a flick lands.
+- **The lone stroke.** A fresh stroke that lifts fast is a flick, on either half, on a firmer rule, with no other thumb needed. It steers from its first pixel until the lift decides: steering never waits for a verdict. A thumb that stays down never shifts, and a stroke already under way never becomes a flick. BUTTONS: SWAP mirrors MEGA and the memory's half, and not this. With the memory on, the second thumb's half is the second thumb, on its rule, and the other half flies and flicks on the firm one.
 
-A thumb that lands during a lone stroke which turns out to be a flick flies from there: the flick was a command, not a flying thumb, so the memory starts as if they had landed the other way round. MEGA is what it was: tap, hold charges, slide steers. It catches its own touches, so a stroke that starts on it is MEGA's.
+A thumb that lands during a lone stroke which turns out to be a flick is a lone touch from there, because the flick was a command, not a flying thumb: it flies, from where it landed, unless the memory makes it the second thumb. A flick from the second thumb's half with a thumb landing on the other half starts the memory, as if they had landed the other way round. Any other flick shows nothing, so a stray during it starts nothing. MEGA is what it was: tap, hold charges, slide steers. It catches its own touches, so a stroke that starts on it is MEGA's.
 
 ## Reading a flick
 
@@ -35,6 +37,8 @@ The landing and the lift, nothing between: distance over contact time, not peak 
 |---|---|---|---|---|
 | Second thumb | 30 px | 230 ms | 0.25 px/ms | 50 degrees |
 | Lone stroke | 36 px | 200 ms | 0.4 px/ms | 40 degrees |
+
+A lone stroke landing within `loneAgainMs` (320 ms) of a flick's lift reads the second thumb's row: [The double](#the-double) says why.
 
 A stroke landing within 40 px of the bottom is never a command, because iOS owns that edge; nor within 20 px of a side. It still steers, looks or taps. A mouse never flicks.
 
@@ -82,6 +86,70 @@ Turbo is the boost, latched: on until a flick down, with no thumb held, at any g
 
 Measured in the game at a fixed step, full belly: 145.6, 179.2, 224 at Cruise and at Express, and 584, 719, 898 at Jet. Full pull with turbo on at Cruise: 145 up at level 1, 223 at level 3, both at 85 degrees. Run east at the map's edge: 735 m past it at most at every level of every gear, the same as no turbo, Jet at 225 m/s at the edge at level 3 (with the reach reading the gear's speed alone: 843 m, 531 m/s). Express and Cruise's first level meet it at 112 and 130 m/s.
 
+## One thumb
+
+One thumb, in either hand, has everything but the look: a flick up for a gear, a flick down, two quick flicks for turbo, the stacking, the take-back, every tap. A look needs a thumb flying, or the memory. There is no setting and nothing on screen changes: a second thumb landing is a second thumb, as ever.
+
+### What a flick costs the flight
+
+A flick steers until it lifts, because steering never waits, and the bus flies on from where the stroke left it. Model strokes through the real Flight at a fixed step, each against a twin with no stroke, the stick at the stroke's full distance by 85 ms and held to the lift:
+
+| | Flick, 74 px, 85 ms | Quick dab, 46 px, 110 ms | The rule's limit, 80 px, 200 ms | A pull held 800 ms |
+|---|---|---|---|---|
+| Nose on the path (degrees) | 9 | 5 | 25 | 62 |
+| Height at Cruise (m) | 3 | 2 | 9 | 34 |
+| Height at Express (m) | 8 | 5 | 24 | 98 |
+| Height at Jet (m) | 33 | 19 | 93 | 392 |
+| Height at Jet, level 3 (m) | 64 | 37 | 186 | 784 |
+
+A flick up is a push, so that height is lost, and a flick down gains it. At the rooftops a push surges instead: up 10 m/s for a moment, no height.
+
+### A false flick
+
+On the flying thumb a quick dab up or down can read as a flick. **The firm rule stays where it is.** The study's dabs were 15 % vertical, from before `NOSE.md`, so this reruns its invented strokes with more of them vertical [model, no real thumb]:
+
+| Firm rule | Practised flicks caught | New | False shifts per 10 min, 15 % vertical | 30 % | 50 % |
+|---|---|---|---|---|---|
+| 36 px, 200 ms, 0.4 px/ms: today | 90 % | 48 % | 3.1 | 5.7 | 9.1 |
+| 40 px | 88 % | 46 % | 2.8 | 5.1 | 8.1 |
+| 46 px | 84 % | 41 % | 2.3 | 4.2 | 6.7 |
+| 50 px, 190 ms, 0.45 px/ms | 77 % | 34 % | 1.8 | 3.3 | 5.2 |
+
+- **The landing and the lift can't tell them apart.** A vertical quick dab passes 51 % of the time and a new player's real flick 48 %. Firming pays in real flicks at about the rate it saves false shifts. Distance is the cheapest number to pay with: 0.23 to 0.30 false shifts saved per point of practised flicks lost, against 0.14 to 0.20 for speed.
+- **The strokes the rule can see aren't the path's work.** `noseRate`'s time constant is 385 ms, about twice the rule's 200, so a stroke that lifts fast enough to be a flick moves the nose 5 to 9 degrees against 62 for a held pull (the table above, real Flight). The pulls that fly the path stay down, and a thumb that stays down never shifts. The study's "6 or worse" and the 30 and 50 % here are guesses.
+- **A false flick is cheaper than when the study named it.** Then one was Jet. From Cruise it is Express now, a surge with no height, and a flick down leaves the bus as it was. A false Jet takes a false flick from Express. Up high that one bites when the window closes and heads for 450 m/s, and a flick down catches it with the height held, within 3 m, in the real Flight:
+
+| Flick down after it bit | Speed by then | Further than a twin that stayed in Express |
+|---|---|---|
+| 0.25 s | 152 m/s | 31 m |
+| 1 s | 332 m/s | 346 m |
+| 4 s | 447 m/s | 1.4 km |
+
+The phone decides this, against the study's bar: under 1 false launch per 10 minutes, at least 80 % of real flicks caught. If it fails on false shifts, `loneFlickPx` moves first: 46 px saves a quarter of them for 7 points of practised flicks.
+
+### The double
+
+**The window stays at 320 ms, and the second stroke reads the second thumb's rule.** The window runs from the first's lift to the second's landing, so landing to landing it allows 403 ms after a practised flick and 424 after a new one: about 2.4 flicks a second at the slowest. The thumb has to go back through the air, and the second thumb has to as well, so what's different with one thumb is that it also holds the phone. Going back at its own flick's speed it lands 151 ms after the lift, 179 after a new flick; at 0.75 of that speed 184 and 222; at 0.6, 218 and 265 [model: 50 ms to turn round, then the flick's distance and 15 px].
+
+So 320 ms is comfortable for a practised thumb, 98 % inside at 0.75 and 90 at 0.6, and tight for a new one at the slow end: 78 % at 0.6, or 68 % if the study's own guess at a free thumb's gap, medians 120 and 200 ms, is slowed by 0.75, against 88 % free. But the window isn't what fails. A one-thumb double is three steps, and two of them are the firm rule [model, strokes taken as independent, though a hurried second stroke is probably weaker]:
+
+| Step | Practised | New |
+|---|---|---|
+| First stroke, firm | 90 % | 48 % |
+| Back inside 320 ms, at 0.75 | 98 % | 68 % |
+| Second stroke, firm | 90 % | 48 % |
+| All three | 79 % | 15 % |
+| With a 400 ms window | 81 % | 19 % |
+| With the second stroke on the second thumb's rule | 86 % | 24 % |
+| With both | 88 % | 30 % |
+| Two thumbs today, for scale | 95 % | 49 % |
+
+So a lone stroke landing within `loneAgainMs` of a flick's lift reads the second thumb's rule. That thumb has just said what it is doing, and a false flick lives in the first stroke, which stays firm. It also makes a take-back easier, and every flick of a run after the first: all three doubles at one go, six strokes, are at least 64 % practised against 50. It costs about 0.03 false flicks per 10 minutes [model]: a dab has to land inside a window to be read this way. 400 ms would have made every lone gear wait 80 ms longer and read more hurried two-gears as turbo, 63 % against 43, for 2 and 4 points. `doubleMs` is on the tuner if the phone says otherwise.
+
+### What only a phone can say
+
+How far a right thumb's natural arc leans from vertical (the model has 14 degrees and the cone is 40: `loneFlickDeg`), and how often it lands in the bottom or side band, which are near where a right thumb rests. And all of the above.
+
 ## The look
 
 A second thumb that stays down turns the view round the bus. On the lift the view goes home: there is no stay-where-you-left-it. Nothing is drawn for it. `CameraRig.setLook` keeps one yaw offset and one pitch offset on the wall clock, so a hit-stop doesn't stall them, and `applyLook` lays them over the finished pose. The rig's own state never hears of it.
@@ -123,13 +191,15 @@ A first flick answers at once, seen at the bus: the boom's vapor ring, small, an
 On the first run's intro, once ever, a beat after the fog has lifted, four lines in the toast's slot for 6.5 s, and touches pass through it:
 
 ```
-SECOND THUMB
 FLICK UP FOR GEARS
 TWO FLICKS TURBO
+SECOND THUMB
 DRAG TO LOOK
 ```
 
-It asks for nothing and nothing ends it but its own time, or a line that matters more: a flick under the gate answers over it. The gate's own CLIMB line waits for it. `taught` bit 32; an old save gets it once, which is right, because that player's TURBO has just gone. Off wherever the first run is off, and a desktop gets its keys in the keys toast instead. Nothing else on the screen teaches any of this: the gestures are hidden, the producer's call.
+Any thumb flicks, so the flicks come first and the last two lines are the second thumb's. It says DRAG because a resting thumb does nothing.
+
+It asks for nothing and nothing ends it but its own time, or a line that matters more: a flick under the gate answers over it. The gate's own CLIMB line waits for it. `taught` bit 32; an old save gets it once, which is right, because that player's TURBO has just gone. A save that has seen it already never sees these lines. Off wherever the first run is off, and a desktop gets its keys in the keys toast instead. Nothing else on the screen teaches any of this: the gestures are hidden, the producer's call.
 
 ## Keyboard and mouse
 
@@ -137,7 +207,7 @@ E or PageUp is a flick up, so E twice within the window is turbo. Q or PageDown 
 
 ## What's tunable
 
-On the tuner (`?tune`), group Input, read live: `secondTapMs` (230), `lookDelayMs` (100), `memoryMs` (30000), `flickPx`, `flickMs`, `flickSpeed`, `flickDeg`, `loneFlickPx`, `loneFlickMs`, `loneFlickSpeed`, `loneFlickDeg`, `flickBottomPx` (40), `flickSidePx` (20), `doubleMs` (320). In `config.turbo`: `levels` ([1.3, 1.6, 2]), on every gear and at Cruise on the surge, not on the tuner: it shows numbers, and this is a list.
+On the tuner (`?tune`), group Input, read live: `secondTapMs` (230), `lookDelayMs` (100), `memoryMs` (30000), `flickPx`, `flickMs`, `flickSpeed`, `flickDeg`, `loneFlickPx`, `loneFlickMs`, `loneFlickSpeed`, `loneFlickDeg`, `loneAgainMs` (320; 0: always the firm rule), `flickBottomPx` (40), `flickSidePx` (20), `doubleMs` (320). In `config.turbo`: `levels` ([1.3, 1.6, 2]), on every gear and at Cruise on the surge, not on the tuner: it shows numbers, and this is a list.
 
 On the tuner, group camera: `lookDegPerPx` (1), `lookInvertY` (off: thumb up looks up, the opposite of the yoke, where thumb down climbs), `lookUp` (45), `lookDown` (50), `lookFollowHz` (4.5), `lookHomeHz` (1.4: home in about 1 s), `lookEaseIn` (0.2), `lookViewMax` (86), `lookAimMax` (100), `lookStreamAfter` (2), `lookStreamRate` (2).
 
@@ -148,7 +218,10 @@ Six rungs: Cruise, Express, Jet, Stratos, Rainbow Warp, and top turbo as gear si
 ## Left on purpose
 
 - **Nothing is on screen for a gear** but the readout's moment: no strip, no pips added, no button. A hidden gesture is the producer's call, and the hint on the first run is all the teaching there is. The study's worry stands: a new player may never find gears. Only a stranger's two minutes can say.
-- **A one-handed player** gets no look, and flies right-handed with no flicks unless they use SWAP.
+- **One thumb gets no look.** A lone thumb is the flying thumb, and a look needs another.
+- **A false flick down with turbo on ends all of it.** One quick pull at level 3 is six flicks to get back, with no take-back. That one flick ends all of turbo is the producer's ruling, and on the flying thumb it is the dearest false flick there is. If the phone shows it, this wants looking at before the firm rule does.
+- **A stroke that lands on MEGA is MEGA's,** and MEGA sits in a right thumb's reach. It steers there, and doesn't shift.
+- **A first run's quick push on either half now says TURBO AFTER THE BRIDGE under the gate,** and fires Express after it. The study wanted the flying thumb's flicks off until taught; the producer's ruling has them on.
 - **A resting left thumb that lands first is the flying thumb**, and the right thumb then looks. That is the order rule, and it lasts until they lift: the right half always flies again.
 - **A left-hander without SWAP** gets no memory: their look thumb flies the next time it lands.
 - **A look has no timeout.** A thumb held dead still sends nothing, so a clock can't tell it from a lost one, and a look that let go at 8 s under a still thumb was worse than what it guarded against. A lost touch is retired by the last touchend, a touchcancel, a repeated id or a primary landing.

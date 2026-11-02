@@ -765,9 +765,9 @@ rotation are set (the rattle), `controls.frame(dt, realDt)` right after
 vista snap compensation (the contrail stays with the bus up high).
 
 **The rule** (`docs/specs/flight/THUMBS.md` is the design, with its numbers): the first thumb flies, anywhere; a second
-thumb looks, flicks gears and taps on its lift; nothing on screen teaches or shows a gear but a moment's readout. Thumbs go
-by order, never by a line, except the flick side: the half a lone stroke commands from, and the only half the memory of two
-thumbs holds.
+thumb looks, flicks gears and taps on its lift; a lone fresh stroke that lifts fast is a flick too, on either half, so one
+thumb has everything but the look; nothing on screen teaches or shows a gear but a moment's readout. Thumbs go by order, never
+by a line, except the second thumb's half (`secondSide`): the only half the memory of two thumbs holds.
 
 **The input contract** (`src/game/Input.ts`):
 - `onTap(): void` a tap: a normal dragon-breath splat. A still press up to `inputTune.stillTapMs` (450 ms) on the
@@ -788,7 +788,7 @@ thumbs holds.
   Flight, the opening's climb lock, the homing and `__qa.sx/sy` don't know who wrote it. Keys (no thumb) > the bungee's own
   stretch. The aim thaws on a thumb, keys or a QA stick: `aimer.update` gets `(qaStick || st.thumb || keys) && !input.pressHeld`.
 - Roles: `Fly` (the one flying thumb), `Second` (any other, each on its own lifecycle: a look thumb outlives the flying thumb
-  and the next landing flies), `Orphan` (swallowed by three fingers). `swapped` (BUTTONS: SWAP) moves a lone flick's half.
+  and the next landing flies), `Orphan` (swallowed by three fingers). `swapped` (BUTTONS: SWAP) moves the memory's half, and never a flick.
   `flickInFlight(by, now)`: a stroke that landed by then may still be a flick, so a waiting gear waits for its lift.
 - HUD hooks: `splatButton(down, cancelled?, eventTimeMs?)` (MEGA), `adoptThumb(e, keepPress, x0, y0, t0)` (MEGA's finger
   becomes the flying thumb; a look thumb stays what it is), `adoptedMove/Up` (its events if capture didn't move).
@@ -870,7 +870,7 @@ to the panel), `toast(lines, s)` (one slot, LOCKED clears it), `setSettings`, `a
 elements carry `data-sb-ui` (Input ignores keys typed there) and `data-hud="..."` names for QA (`mega`, `settings`, `cue`).
 
 **The first run** (`src/ui/Coach.ts`, no DOM): one cue at a time, each ended by doing it, each shown once ever (`taught`
-in the prefs). The second thumb's hint is the exception: `hintDue` for one frame a beat after the fog, a toast of its own time,
+in the prefs). The hint is the exception: `hintDue` for one frame a beat after the fog, a toast of its own time,
 ended by nothing, `taught` bit 32; `Controls.climbGated` holds its line for it. Off with `?nohud`, `?skipintro`, `?nocoach`; `?coach` keeps it under skipintro. Controls runs it per frame.
 **Prefs** (`src/game/controlPrefs.ts`, `localStorage strugglebus.controls.v1`): `taught?`, `swap?`, `muted`, `keysShown`;
 what the tilt saved (`mode`, `tilt`, `chipIgnored`, `sens`) is dropped on load.
