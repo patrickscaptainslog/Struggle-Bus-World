@@ -272,14 +272,16 @@ export const config = {
     diveElevation: 78,
     divePitch: 72,
     diveRate: 1.5,
-    /** The look (docs/specs/flight/THUMBS.md): a second thumb turns the view round the bus, the thumb's offset from where it landed setting the angle (deg per px).
+    /** The look (docs/specs/flight/THUMBS.md): a second thumb turns the view round the bus, the thumb's offset from where it landed setting the angle on a curve, a x + b x^3:
+     *  lookDegPerPx at the start (deg per px), and 180 degrees at lookFullPx of thumb travel (px), so a small nudge is a small look and the look behind is still there.
      *  Thumb up looks up; lookInvertY turns that over, against the yoke's way. Sideways is the full circle; up and down it stops at lookUp and lookDown (deg). */
-    lookDegPerPx: 1,
+    lookDegPerPx: 0.4,
+    lookFullPx: 260,
     lookInvertY: false,
     lookUp: 45,
     lookDown: 50,
     /** How hard the view follows the thumb, and how hard it goes home on the lift (Hz, critically damped): 1.4 is home in about 1 s. */
-    lookFollowHz: 4.5,
+    lookFollowHz: 3,
     lookHomeHz: 1.4,
     /** A look eases in over this long (s): a flick can outlast the thumb's wait (Input's lookDelayMs), and only its lift says it was one. */
     lookEaseIn: 0.2,

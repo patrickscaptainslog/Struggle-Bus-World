@@ -4,8 +4,9 @@
 // Twin flights, one looking, the other not: what a look may change and what it may not. Every line ends in a verdict, and the
 // process fails if any is false. Flat world but for the aim.
 import { makeCam, makeGame, newCity, pump, ll, config, MODE, save, THREE } from './lib';
+import { lookDeg, lookPx } from '@src/game/CameraRig';
 import { Flight } from '@src/game/Flight';
-import { TurboDrive } from '@src/game/Turbo';
+import { JET, TurboDrive } from '@src/game/Turbo';
 import { TurboLens } from '@src/fx/Turbo';
 
 const GROUND = 10, ROOF = 20;
@@ -20,6 +21,8 @@ const check = (name: string, ok: boolean, data?: unknown) => {
   console.log(`[${MODE}] ${ok ? 'ok  ' : 'FAIL'} ${name}${data === undefined ? '' : ` ${JSON.stringify(data)}`}`);
 };
 const r2 = (x: number) => Math.round(x * 100) / 100;
+/** the thumb's offset (px, either way) that asks for this many degrees: the rows here are in degrees, whatever the curve */
+const px = (deg: number) => Math.sign(deg) * lookPx(Math.abs(deg));
 
 type Look = { x: number; y: number } | null;
 /** the same flight every time: Math.random reseeded per session */
@@ -39,9 +42,9 @@ function session(y0 = ROOF + 6.5, dt = 1 / 60) {
   const lens = new TurboLens();
   const c = makeCam();
   const s = {
-    f, drive, c, t: 0, held: false,
+    f, drive, c, t: 0,
     frame(sy: number, sx = 0, look: Look = null, simDt = dt) {
-      drive.update(simDt, f, s.held);
+      drive.update(simDt, f);
       const steps = Math.max(1, Math.ceil(simDt * 120));
       for (let i = 0; i < steps; i++) f.step(simDt / steps, { sx, sy, dragging: sy !== 0 || sx !== 0 }, flat);
       lens.update(dt, drive, c.rig, f);
@@ -70,8 +73,8 @@ function session(y0 = ROOF + 6.5, dt = 1 / 60) {
   };
   return s;
 }
-/** straight into Jet: the gear above Express */
-const toJet = (s: ReturnType<typeof session>) => { s.drive.shift(1, s.f); s.drive.shift(1, s.f); };
+/** straight into Jet */
+const toJet = (s: ReturnType<typeof session>) => { while (s.drive.gear < JET) s.drive.shift(1, s.f); };
 const same = (a: number[], b: number[]) => a.every((v, i) => v === b[i]);
 const near = (a: number[], b: number[]) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
 
@@ -118,7 +121,7 @@ const near = (a: number[], b: number[]) => Math.max(...a.map((v, i) => Math.abs(
 {
   const cases: Array<[string, (s: ReturnType<typeof session>) => void]> = [
     ['cruise', (s) => s.run(4, 0)],
-    ['surge', (s) => { s.held = true; s.run(4, 0.8); }],
+    ['surge', (s) => s.run(4, 0.8)],
     ['Express', (s) => { s.drive.shift(1, s.f); s.run(4, 0); }],
     ['Jet', (s) => { toJet(s); s.run(30, 0); }],
     ['Jet level 3', (s) => { toJet(s); s.run(20, 0); s.drive.level = 3; s.run(8, 0); }],
@@ -133,7 +136,7 @@ const near = (a: number[], b: number[]) => Math.max(...a.map((v, i) => Math.abs(
       for (let k = 0; k < 90; k++) {
         const stick = name.startsWith('turning') ? 1 : 0;
         A.frame(0, stick);
-        B.frame(0, stick, { x: lx, y: ly });
+        B.frame(0, stick, { x: px(lx), y: px(ly) });
       }
       const a = A.bus(), b = B.bus();
       const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -142,29 +145,37 @@ const near = (a: number[], b: number[]) => Math.max(...a.map((v, i) => Math.abs(
     }
 }
 
-// ---- the gearing: the offset sets the angle, reversing at once; a full circle sideways, 45 up, 50 down
+// ---- the gearing: the offset sets the angle on a curve, reversing at once; a full circle sideways, 45 up, 50 down
 {
+  // the curve, in the real rig, both ways round and up and down: a small nudge is a small look, and the look behind is still there
+  const a = config.camera.lookDegPerPx, full = config.camera.lookFullPx, b = (180 - a * full) / (full * full * full);
+  const table: Array<{ px: number; yaw: number; left: number; up: number; down: number }> = [];
+  for (const p of [5, 12, 25, 50, 100, 165, 260]) {
+    const at = (x: number, y: number) => { const q = session(); q.run(1, 0); q.run(1.5, 0, 0, { x, y }); return [q.yawOff(), q.pitchOff()]; };
+    table.push({ px: p, yaw: r2(at(p, 0)[0]), left: r2(at(-p, 0)[0]), up: r2(at(0, p)[1]), down: r2(at(0, -p)[1]) });
+  }
+  check('the curve: a x + b x^3, 0.4 degrees per px at the start, 180 at 260 px', a === 0.4 && full === 260 && table.every((r) => Math.abs(r.yaw - (a * r.px + b * r.px ** 3)) < 0.02 && Math.abs(r.left + r.yaw) < 0.02), table.map((r) => [r.px, r.yaw]));
+  check('the same gentle start up and down, with their limits', table.every((r) => Math.abs(r.up - Math.min(r.yaw, config.camera.lookUp)) < 0.02 && Math.abs(r.down + Math.min(r.yaw, config.camera.lookDown)) < 0.02), table.map((r) => [r.px, r.up, r.down]));
+  check('the curve and its inverse agree', [1, 10, 45, 50, 90, 180, 270].every((d) => Math.abs(lookDeg(lookPx(d)) - d) < 1e-6), [45, 50, 90, 180, 270].map((d) => [d, r2(lookPx(d))]));
   const s = session();
   s.run(2, 0);
-  s.run(1, 0, 0, { x: 37, y: 0 });
-  check('1 degree per px', Math.abs(s.yawOff() - 37) < 0.01, r2(s.yawOff()));
   s.run(1, 0, 0, { x: 0, y: 200 });
   const top = s.pitchOff();
   s.run(0.5, 0, 0, { x: 0, y: 190 });
   const back = s.pitchOff();
-  check('up stops at 45, and 10 px back from past it is 10 degrees back', Math.abs(top - config.camera.lookUp) < 0.01 && Math.abs(back - (config.camera.lookUp - 10)) < 0.05, { top: r2(top), back: r2(back) });
+  check('up stops at 45, and 10 px back from past it is the curve\'s own 10 px back', Math.abs(top - config.camera.lookUp) < 0.01 && Math.abs(back - lookDeg(lookPx(config.camera.lookUp) - 10)) < 0.05, { top: r2(top), back: r2(back) });
   s.run(1, 0, 0, { x: 0, y: -300 });
   check('down stops at 50', Math.abs(s.pitchOff() + config.camera.lookDown) < 0.01, r2(s.pitchOff()));
   const d0 = s.view().down;
   const s2 = session();
   s2.run(2, 0);
-  s2.run(1, 0, 0, { x: 0, y: 30 });
+  s2.run(1, 0, 0, { x: 0, y: px(30) });
   const v = s2.view(), rest = session();
   rest.run(3, 0);
   check('thumb up looks up, the lens where it was', v.down < rest.view().down - 29 && near(s2.pose().slice(0, 3), rest.pose().slice(0, 3)) < 1, { rest: r2(rest.view().down), up: r2(v.down), lookingDownMost: r2(d0) });
   const s3 = session();
   s3.run(1, 0);
-  s3.run(1, 0, 0, { x: 270, y: 0 });
+  s3.run(1, 0, 0, { x: px(270), y: 0 });
   const was = s3.view().yaw;
   s3.frame(0, 0, null);
   const after = s3.view().yaw;
@@ -172,18 +183,50 @@ const near = (a: number[], b: number[]) => Math.max(...a.map((v, i) => Math.abs(
   const s4 = session();
   s4.run(2, 0);
   const mv: number[] = [];
-  for (let k = 0; k < 30; k++) { s4.frame(0, 0, { x: k < 15 ? 90 : 30, y: 0 }); mv.push(s4.yawOff()); }
+  for (let k = 0; k < 30; k++) { s4.frame(0, 0, { x: px(k < 15 ? 90 : 30), y: 0 }); mv.push(s4.yawOff()); }
   check('the view turns back within a frame or two of the thumb', mv[17] < mv[14], mv.slice(13, 19).map(r2));
   const s5 = session();
   s5.run(1, 0);
-  s5.run(0.4, 0, 0, { x: 90, y: 0 });
+  s5.run(0.4, 0, 0, { x: px(90), y: 0 });
   const left = s5.yawOff();
   s5.run(0.25, 0);
   const was2 = s5.yawOff();
-  s5.frame(0, 0, { x: 40, y: 0 });
+  s5.frame(0, 0, { x: px(40), y: 0 });
   const next = s5.yawOff();
-  s5.run(1, 0, 0, { x: 40, y: 0 });
+  s5.run(1, 0, 0, { x: px(40), y: 0 });
   check('a thumb landing on a view still going home takes it from where it is', Math.abs(next - was2) < 3 && Math.abs(s5.yawOff() - 40) < 0.1, { left: r2(left), was: r2(was2), next: r2(next), end: r2(s5.yawOff()) });
+}
+
+// ---- calm: how the view follows the thumb, model strokes through the real rig. No overshoot, and a look behind doesn't swim with a thumb's tremor
+{
+  const rows: unknown[] = [];
+  for (const [p, ms] of [[25, 150], [90, 120], [165, 250], [260, 350]]) {
+    const s = session();
+    s.run(1, 0);
+    const want = lookDeg(p);
+    let t = 0, peak = 0, last = s.yawOff(), t90 = -1, over = 0;
+    while (t < ms / 1000 + 1) {
+      s.frame(0, 0, { x: p * Math.min(1, t / (ms / 1000)), y: 0 });
+      t += 1 / 60;
+      peak = Math.max(peak, Math.abs(s.yawOff() - last) * 60);
+      last = s.yawOff();
+      over = Math.max(over, last - want);
+      if (t90 < 0 && last >= want * 0.9) t90 = t;
+    }
+    rows.push({ px: p, ms, deg: r2(want), peakDegPerS: Math.round(peak), reaches90After: r2(t90 - ms / 1000), overshoot: r2(over) });
+  }
+  const swim = (p: number) => {
+    const s = session();
+    s.run(1, 0);
+    let lo = Infinity, hi = -Infinity;
+    for (let k = 0; k < 240; k++) {
+      s.frame(0, 0, { x: p + Math.sin((2 * Math.PI * 8 * k) / 60), y: 0 });
+      if (k > 120) { lo = Math.min(lo, s.yawOff()); hi = Math.max(hi, s.yawOff()); }
+    }
+    return r2(hi - lo);
+  };
+  const swims = [25, 165, 260].map((p) => [p, swim(p)]);
+  check('the view follows calmly, and arrives', (rows as any[]).every((r) => r.overshoot === 0 && r.reaches90After < 0.3 && r.peakDegPerS < 700) && swims.every((r) => r[1] < 0.4), { hz: config.camera.lookFollowHz, rows, swimDegPeakToPeakFor1PxAt8Hz: swims });
 }
 
 // ---- a flick that outlasts the thumb's 100 ms wait: only its lift says it was a flick, so the view has to have stayed put
@@ -216,17 +259,17 @@ const near = (a: number[], b: number[]) => Math.max(...a.map((v, i) => Math.abs(
     for (const fps of [30, 60]) {
       const s = session(ROOF + 6.5, 1 / fps);
       s.run(1, 0);
-      s.run(1, 0, 0, { x, y });
-      let t = 0, px = -1, zero = -1, at5 = 0;
+      s.run(1, 0, 0, { x: px(x), y: px(y) });
+      let t = 0, pix = -1, zero = -1, at5 = 0;
       for (let k = 0; k < 4 * fps && zero < 0; k++) {
         s.frame(0);
         t += 1 / fps;
         const m = Math.hypot(s.yawOff(), s.pitchOff());
-        if (px < 0 && m < 0.06) px = t;
+        if (pix < 0 && m < 0.06) pix = t;
         if (m === 0) zero = t;
         if (k === Math.round(0.5 * fps) - 1) at5 = m;
       }
-      path[fps] = { px: r2(px), zero: r2(zero), at5: r2(at5) };
+      path[fps] = { px: r2(pix), zero: r2(zero), at5: r2(at5) };
     }
     if (Math.abs(path[30].at5 - path[60].at5) > 0.15) same3060 = false;
     rows.push({ x, y, ...path });
@@ -240,7 +283,7 @@ const near = (a: number[], b: number[]) => Math.max(...a.map((v, i) => Math.abs(
   const s = session();
   s.run(2, 0);
   const p0 = s.f.x;
-  for (let k = 0; k < 60; k++) s.frame(0, 0, { x: 50, y: 0 }, 0);
+  for (let k = 0; k < 60; k++) s.frame(0, 0, { x: px(50), y: 0 }, 0);
   check('it turns through a hit-stop', Math.abs(s.yawOff() - 50) < 0.1 && s.f.x === p0, r2(s.yawOff()));
 }
 
@@ -265,11 +308,11 @@ const near = (a: number[], b: number[]) => Math.max(...a.map((v, i) => Math.abs(
   };
   const rest = mk();
   const down = mk();
-  down.run(1, 1, 0, { x: 0, y: -100 });
+  down.run(1, 1, 0, { x: 0, y: px(-100) });
   const up = mk();
-  up.run(1, 1, 0, { x: 0, y: 45 });
+  up.run(1, 1, 0, { x: 0, y: px(45) });
   const side = mk();
-  side.run(1, 1, 0, { x: 90, y: 0 });
+  side.run(1, 1, 0, { x: px(90), y: 0 });
   const r = rest.view(), d = down.view(), u = up.view(), si = side.view();
   check('a dive: rest, down, up, sideways', r.down > 65 && d.down > r.down && d.down <= config.camera.lookViewMax + 0.01 && u.down < r.down - 40 && Math.abs(d.roll) < 0.01 && Math.abs(si.roll) < 0.01 && Math.abs(si.down - r.down) < 3, { rest: r2(r.down), down: r2(d.down), up: r2(u.down), side: r2(si.down), roll: r2(d.roll) });
 }
@@ -287,7 +330,7 @@ const near = (a: number[], b: number[]) => Math.max(...a.map((v, i) => Math.abs(
   const row: Array<[number, number]> = [];
   for (let k = 0; k < 6 * 60; k++) {
     const held = k < 4 * 60;
-    s.frame(0, 0, held ? { x: 180, y: 0 } : null);
+    s.frame(0, 0, held ? { x: px(180), y: 0 } : null);
     s.c.rig.streamDir(flat2(s.c.cam.quaternion), out);
     if (k % 30 === 29) row.push([r2((k + 1) / 60), r2(Math.atan2(out.x, -out.z) * DEG - s.f.heading * DEG)]);
   }

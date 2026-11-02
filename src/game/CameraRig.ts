@@ -37,6 +37,27 @@ const RIGHT = new THREE.Vector3(1, 0, 0);
 /** (rad) a look arrives exactly from here: under a tenth of a game pixel, where a tail would only swim the frame */
 const LOOK_HOME = 1e-4;
 
+/** The look's curve, a x + b x^3: lookDegPerPx at the start, 180 degrees at lookFullPx. Past 180 it stays that curve, and with a start steep enough to get there on its own, a line. */
+const lookCurve = () => {
+  const C = config.camera;
+  const a = Math.max(0.01, C.lookDegPerPx), full = Math.max(1, C.lookFullPx);
+  return { a, b: Math.max(0, 180 - a * full) / (full * full * full) };
+};
+
+/** The look's angle (deg) for a thumb's offset from where it landed (px): a small nudge is a small look, and the look behind is still there. */
+export function lookDeg(px: number): number {
+  const { a, b } = lookCurve();
+  return px * (a + b * px * px);
+}
+
+/** ...and the offset that asks for an angle (Newton's, from the line above the curve: it comes down onto the root and stays there). */
+export function lookPx(deg: number): number {
+  const { a, b } = lookCurve();
+  let x = deg / a;
+  for (let i = 0; i < 6; i++) x -= (x * (a + b * x * x) - deg) / (a + 3 * b * x * x);
+  return x;
+}
+
 export class CameraRig {
   /** 0..1 vista blend (with the bus's height above the broad ground, latched while holding) */
   vista = 0;
@@ -76,7 +97,7 @@ export class CameraRig {
   private readonly lookYaw = { x: 0, v: 0 };
   private readonly lookPitch = { x: 0, v: 0 };
   private lookOn = false;
-  /** the look's up and down: where the thumb's offset says level (rad), dragged along behind the thumb at a limit */
+  /** the look's up and down: where the thumb's offset says level (px), dragged along behind the thumb at a limit */
   private lookSlack = 0;
   /** seconds this look has been held */
   private lookHeld = 0;
@@ -209,27 +230,26 @@ export class CameraRig {
   /**
    * The look, as Input reports it (state.look: the thumb's offset from where it landed, CSS px, +y up): main.ts hands
    * it over every frame, before update(), with the wall clock's dt (a hit-stop must not stall it). Geared like a second
-   * bungee: the offset sets the angle. Off under the opening's low shot, the opening's own.
+   * bungee: the offset sets the angle, on the curve (lookDeg). Off under the opening's low shot, the opening's own.
    */
   setLook(on: boolean, x: number, y: number, realDt: number) {
     const C = config.camera;
     const yaw = this.lookYaw, pitch = this.lookPitch;
     if (on) {
-      const k = THREE.MathUtils.degToRad(C.lookDegPerPx);
-      const open = 1 - this.openingLow;
-      const py = (C.lookInvertY ? -y : y) * k;
+      const k = THREE.MathUtils.DEG2RAD * (1 - this.openingLow);
+      const py = C.lookInvertY ? -y : y;
       if (!this.lookOn) {
         this.lookSlack = 0;
         this.lookHeld = 0;
         this.lookFromYaw = yaw.x;
         this.lookFromPitch = pitch.x;
       }
-      // (past a limit the landing is dragged along behind the thumb, so it turns back at once; sideways is the full circle, and has none)
-      this.lookSlack = clamp(this.lookSlack, py - THREE.MathUtils.degToRad(C.lookUp), py + THREE.MathUtils.degToRad(C.lookDown));
+      // (past a limit the landing is dragged along behind the thumb, on the thumb's own scale, so it turns back at once; sideways is the full circle, and has none)
+      this.lookSlack = clamp(this.lookSlack, py - lookPx(C.lookUp), py + lookPx(C.lookDown));
       // (it starts gently: a flick can outlast the thumb's own wait, and only the lift says it was one)
       const ease = smooth01(0, Math.max(0.01, C.lookEaseIn), this.lookHeld + realDt);
-      settle(yaw, this.lookFromYaw + (x * k * open - this.lookFromYaw) * ease, C.lookFollowHz, realDt);
-      settle(pitch, this.lookFromPitch + ((py - this.lookSlack) * open - this.lookFromPitch) * ease, C.lookFollowHz, realDt);
+      settle(yaw, this.lookFromYaw + (lookDeg(x) * k - this.lookFromYaw) * ease, C.lookFollowHz, realDt);
+      settle(pitch, this.lookFromPitch + (lookDeg(py - this.lookSlack) * k - this.lookFromPitch) * ease, C.lookFollowHz, realDt);
     } else {
       // (home the short way round, a full turn being no turn, and from a stand: what was thrown at the lift would carry on)
       if (this.lookOn) {
