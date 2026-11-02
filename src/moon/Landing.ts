@@ -38,6 +38,8 @@ const SHALLOWEST = 25 * DEG;
 const MOVE_KM = 70;
 /** s: the ground the height is read from is smoothed, or a crater going by would shake the speed. */
 const GROUND_S = 0.8;
+/** s: how fast the ray test's radius follows the ground under the bus. */
+const LIFT_S = 2;
 /** m a second: Jet's. */
 const JET = 450;
 /** The map's half side, m, and how far inside it the homing starts: down here the bus can only come back to where the world's tiles are. */
@@ -132,9 +134,12 @@ export class Landing {
   /** A frame of the flight's loop, after the trip and the view have stepped. */
   update(dt: number): void {
     const t = this.trip, w = this.world;
+    // (the figures between the stars are the flight's: the low game has none, and they go with the push, not with a change of loop)
+    this.draw.showLines(t.leg !== 'fall');
     if (t.leg !== 'fall') {
       if (this.near) this.leave();
       this.placed = false;
+      this.draw.moonLift *= Math.exp(-dt / LIFT_S);
       return;
     }
     this.pushed = true;
@@ -169,6 +174,7 @@ export class Landing {
       far.update(mt[0], mt[1], H_SHOW * 1000);
       const ready = Number.isFinite(w.datum) && far.readyAt(mt[0], mt[1], H_SHOW * 1000);
       t.gov = this.hold(dt, t.gov, ready);
+      if (ready) this.lift(dt, u, f, h);
       if (ready && h <= H_SHOW) this.come();
       return;
     }
@@ -179,6 +185,8 @@ export class Landing {
     const ground = (far.heightAt(x, z) + w.datum) / 1000;
     this.groundKm = Number.isNaN(this.groundKm) ? ground : this.groundKm + (ground - this.groundKm) * (1 - Math.exp(-dt / GROUND_S));
     t.ground = this.groundKm;
+    this.lift(dt, u, f, h);
+    mapOf(fr, u[0], u[1], u[2], mt);
     // (the map's edge turns it back, as it does in the low game: bearing to the middle, off the heading)
     const edge = Math.max(0, Math.min(1, (Math.max(Math.abs(x), Math.abs(z)) - MAP_HALF + HOME_IN) / HOME_IN)), A = this.axes;
     if (edge > 0) {
@@ -197,6 +205,14 @@ export class Landing {
     // (late, under the mesh: the ground is a level coarser than it should be for a moment. That's a blur and no hole, so it slows the fall and doesn't hold it)
     const gov = far.readyAt(x, z, hm) ? 1 : 0.3;
     t.gov += (gov - t.gov) * (1 - Math.exp(-4 * dt));
+  }
+
+  /** Seen at a slant from up here a sea 2 km under the sphere is 10 px off where the ray test has it: the sphere goes down onto the ground in the middle of the view, a height ahead of the bus, while it's still too far off to show. */
+  private lift(dt: number, u: V, f: V, h: number): void {
+    const w = this.world!, mt = this.mt, p = this.toShow;
+    this.arc(u, f, h, p);
+    mapOf(w.frame, p[0], p[1], p[2], mt);
+    this.draw.moonLift += ((w.far.heightAt(mt[0], mt[1]) + w.datum) / 1000 - this.draw.moonLift) * (1 - Math.exp(-dt / LIFT_S));
   }
 
   /** How much of the mesh's light is the ray-drawn Moon's at h km. */

@@ -6,6 +6,8 @@
 //   --late=ms the far field's first ask held back that long: the fall must hold, not show a hole
 //   --pull=h  the thumb goes down at h km, and the bus is flown back up; the run ends at the top, or at --secs
 //   --lift=h  the thumb lets go at h km for 3 s and pushes again
+//   --again   with --pull: pushed down once more from the orbit, to the ground
+//   --same=h  at h km the same moment twice, in the same pose: same-ray.png and same-mesh.png (tools/moon/same.py reads them)
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
@@ -16,7 +18,8 @@ const opt = (k, d) => args.find((a) => a.startsWith(`--${k}=`))?.split('=').slic
 const dir = args.find((a) => !a.startsWith('--'));
 const BASE = process.env.BASE ?? 'http://localhost:4179/';
 const t = opt('t', '2026-11-25T04:00:00Z'), dt = opt('dt', ''), every = Number(opt('every', 3)), push = Number(opt('push', 90)), extra = opt('q', ''), secs = Number(opt('secs', 120));
-const steer = Number(opt('steer', 0)), burst = args.includes('--burst'), late = Number(opt('late', 0)), pullAt = Number(opt('pull', 0)), liftAt = Number(opt('lift', 0));
+const steer = Number(opt('steer', 0)), burst = args.includes('--burst'), late = Number(opt('late', 0)), liftAt = Number(opt('lift', 0)), sameAt = Number(opt('same', 0)), again = args.includes('--again');
+let pullAt = Number(opt('pull', 0));
 mkdirSync(dir, { recursive: true });
 if (burst) mkdirSync(join(dir, 'burst'), { recursive: true });
 const W = 393, H = 852;
@@ -120,7 +123,7 @@ try {
   await touch('touchStart', x, y);
   for (let i = 1; i <= 6; i++) await thumb((steer * i) / 6, -(push * i) / 6);
   const log = [];
-  let n = 1, at = -1e9, s = await read(), b = 0, pulled = false, lifted = 0, liftT = 0;
+  let n = 1, at = -1e9, s = await read(), b = 0, pulled = false, lifted = 0, liftT = 0, same = false;
   const c0 = s.clock;
   const wall0 = Date.now();
   for (;;) {
@@ -131,6 +134,18 @@ try {
       at = s.clock;
       await page.screenshot({ path: join(dir, `${String(n++).padStart(2, '0')}-${s.h}km.png`) });
       console.log(`${(s.clock - c0).toFixed(1).padStart(6)} s  ${String(s.leg).padEnd(7)} ${String(s.h).padStart(7)} km  ${String(s.v).padStart(8)} m/s  nose ${String(s.nose).padStart(4)}  gov ${s.gov}  show ${s.show}  gear ${s.gear}  tiles ${s.tiles}  clearance ${s.y}`);
+    }
+    if (sameAt && !same && s.near && s.h <= sameAt) {
+      same = true;
+      await page.evaluate(() => window.__space.moon.hold(true));
+      await page.evaluate(() => (window.__space.moon.landing.show = 0));
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: join(dir, 'same-ray.png') });
+      await page.evaluate(() => (window.__space.moon.landing.show = 1));
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: join(dir, 'same-mesh.png') });
+      console.log(`  the same moment twice, at ${s.h} km`);
+      await page.evaluate(() => window.__space.moon.hold(false));
     }
     if (pullAt && !pulled && s.h <= pullAt) {
       pulled = true;
@@ -152,7 +167,11 @@ try {
     if (s.leg === 'ground' && s.y !== null && s.y < 14 && !pullAt) break;
     if (pullAt && pulled && s.leg === 'orbit') {
       console.log(`  back in orbit: ${s.h} km, ${s.v} m/s`);
-      break;
+      if (!again) break;
+      pullAt = 0;
+      await thumb(0, -push);
+      await page.waitForTimeout(500);
+      console.log('  pushed again from the orbit');
     }
     if (Date.now() - wall0 > secs * 1000) {
       console.log('out of time');

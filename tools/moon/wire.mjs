@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// What ?moon asks for, file by file, and what that is on the wire: node tools/moon/wire.mjs [dist dir]. BASE is the page (http://localhost:4179/). Compressed files as they stand; text by gzip -9, about what a CDN sends.
+// What ?moon asks for, file by file, and what that is on the wire: node tools/moon/wire.mjs [dist dir] [flag, moonland say]. BASE is the page (http://localhost:4179/). Compressed files as they stand; text by gzip -9, about what a CDN sends.
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -12,7 +12,7 @@ const browser = await chromium.launch(browserOptions(['--enable-webgl']));
 const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
 const seen = new Set();
 page.on('request', (r) => seen.add(new URL(r.url()).pathname));
-await page.goto(`${base}?moon`, { waitUntil: 'load', timeout: 60000 });
+await page.goto(`${base}?${process.argv[3] ?? 'moon'}`, { waitUntil: 'load', timeout: 60000 });
 await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 120000 });
 await page.waitForTimeout(1500);
 await browser.close();

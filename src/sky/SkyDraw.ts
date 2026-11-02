@@ -207,6 +207,8 @@ export class SkyDraw {
   private aheadSet = false;
   /** The view's up and back, Moon fixed, when the render frame isn't the view's (on the way down it's the world's: moon/Landing.ts). */
   view: Float64Array | null = null;
+  /** km on the Moon's radius: the ray test on the ground it's over, not on a sphere that can be kilometres above a sea (moon/Landing.ts). */
+  moonLift = 0;
 
   constructor(pipeline: PixelPipeline) {
     this.pipeline = pipeline;
@@ -335,7 +337,7 @@ export class SkyDraw {
 
     // the Moon at unit radius: the floor is a bigger radius
     const dot = s.sun[0] * s.moon[0] + s.sun[1] * s.moon[1] + s.sun[2] * s.moon[2];
-    const rM = moonDrawnKm(s.moonKm, focal, this.moonFloor, Math.acos(Math.min(1, Math.max(-1, dot))) * (180 / Math.PI));
+    const rM = moonDrawnKm(s.moonKm, focal, this.moonFloor, Math.acos(Math.min(1, Math.max(-1, dot))) * (180 / Math.PI)) + this.moonLift;
     const mx = s.moonO[0] / rM, my = s.moonO[1] / rM, mz = s.moonO[2] / rM;
     U.uMoonO.value.set(mx, my, mz, mx * mx + my * my + mz * mz - 1);
     U.uMoonSun.value.set(s.moonSun[0], s.moonSun[1], s.moonSun[2]);

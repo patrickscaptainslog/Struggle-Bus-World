@@ -1496,14 +1496,12 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
       enter(s) {
         // the far field and the sky come down with it, and the thumb is the low game's from here
         scene.add(m.far!.object, m.sky.object);
-        m.sky.draw.showLines(false);
         pipeline.steadySnap = false;
         Object.assign(input, groundHands);
         flight.groundUnder = flight.groundBroad = city.groundAt(s.x, s.z);
         flight.takeOver(s.x, s.y, s.z, s.heading, s.speed, s.nose);
         // (a few kilometres over it and what's ahead on the way down, not the 15 km over a ground it started on)
         config.flight.ceiling = s.y + 3000;
-        config.flight.ceilingSoft = 150;
         // Jet, by the time the law lets go of the speed
         controls.turbo.arrive();
         controls.firstGesture();
