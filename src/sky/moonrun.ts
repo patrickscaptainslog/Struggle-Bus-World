@@ -268,7 +268,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   registerTunables('Moon run: the bus', busSize, { farPx: [4, 30, 0.5], midPx: [8, 40, 0.5], midKm: [2, 60, 1] });
   registerTunables('Moon run: what goes with it', spaceFxTune, { linePx: [1, 3, 0.1], lineLong: [0.005, 0.05, 0.001], thread: [0.05, 1, 0.01] });
   registerTunables('Moon run: the breath', breathTune, { thin: [0.05, 1, 0.01], flash: [0.005, 0.1, 0.005] });
-  registerTunables('Moon run: names', nameTune, { every: [2, 20, 0.5], font: [1, 3, 0.1], high: [300, 6000, 100], fast: [30, 400, 5] });
+  registerTunables('Moon run: names', nameTune, { every: [2, 20, 0.5], font: [1, 3, 0.1], high: [300, 8000, 100], fast: [30, 600, 5] });
   registerTunables('Moon run: the ground', groundTune, { relief: [0, 8, 0.1], craters: [0, 2, 0.05], bright: [0, 2, 0.05], flat: [0, 4, 0.1], hill: [0, 2, 0.05], wander: [0, 2, 0.05], sharp: [-1.5, 1, 0.1], keep: [0.01, 0.3, 0.01] });
   if (params.has('tune')) tuner.toggle();
   // (the URL wins over a saved row)

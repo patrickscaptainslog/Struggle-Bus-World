@@ -18,10 +18,10 @@ export const nameTune = {
   every: 8,
   /** A font pixel of a sign, game px. */
   font: 1.5,
-  /** Names start at this height, km. */
-  high: 2600,
+  /** Names start at this height, km: from here Apollo 11 is far enough in from the frame's edge that it's still in frame when its sign sinks. */
+  high: 4200,
   /** Over this speed, km/s, the ground goes by too fast to read. */
-  fast: 220,
+  fast: 360,
 };
 
 /** What a name is worth, and a size's worth on top. */
