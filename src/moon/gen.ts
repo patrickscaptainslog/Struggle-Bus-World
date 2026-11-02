@@ -115,19 +115,27 @@ function stampCrater(H: Float32Array, T: Float32Array, W: number, Hh: number, x0
   }
 }
 
-// ---- noise: a value noise over the 3D lattice, so it has no seams and no idea which way is north
+// ---- noise: gradient noise over the 3D lattice, so it has no seams and no idea which way is north. Not value noise: that has no slope at all along every plane of its lattice, and the ground is drawn by its slope,
+// so a low Sun picks the lattice out as straight-edged plates a few hundred metres across.
 
-const lat3 = (i: number, j: number, k: number, s: number) => mix32(Math.imul(i, 73856093) ^ Math.imul(j, 19349663) ^ Math.imul(k, 83492791) ^ s) / 4294967296;
+/** One corner's say at (x, y, z) from it: a hashed edge of the cube, dotted. */
+function corner(i: number, j: number, k: number, s: number, x: number, y: number, z: number): number {
+  const h = mix32(Math.imul(i, 73856093) ^ Math.imul(j, 19349663) ^ Math.imul(k, 83492791) ^ s) >>> 28;
+  const u = h < 8 ? x : y, v = h < 4 ? y : h === 12 || h === 14 ? x : z;
+  return (h & 1 ? -u : u) + (h & 2 ? -v : v);
+}
 
+/** 0..1 with its middle at 0.5, spread about as value noise was. */
 function noise3(x: number, y: number, z: number, s: number): number {
   const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
   const fx = x - ix, fy = y - iy, fz = z - iz;
   const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy), uz = fz * fz * (3 - 2 * fz);
-  const a = lat3(ix, iy, iz, s), b = lat3(ix + 1, iy, iz, s), c = lat3(ix, iy + 1, iz, s), d = lat3(ix + 1, iy + 1, iz, s);
-  const e = lat3(ix, iy, iz + 1, s), f = lat3(ix + 1, iy, iz + 1, s), g = lat3(ix, iy + 1, iz + 1, s), h = lat3(ix + 1, iy + 1, iz + 1, s);
+  const a = corner(ix, iy, iz, s, fx, fy, fz), b = corner(ix + 1, iy, iz, s, fx - 1, fy, fz), c = corner(ix, iy + 1, iz, s, fx, fy - 1, fz), d = corner(ix + 1, iy + 1, iz, s, fx - 1, fy - 1, fz);
+  const e = corner(ix, iy, iz + 1, s, fx, fy, fz - 1), f = corner(ix + 1, iy, iz + 1, s, fx - 1, fy, fz - 1), g = corner(ix, iy + 1, iz + 1, s, fx, fy - 1, fz - 1), h = corner(ix + 1, iy + 1, iz + 1, s, fx - 1, fy - 1, fz - 1);
   const p = a + (b - a) * ux, q = c + (d - c) * ux, r = e + (f - e) * ux, t = g + (h - g) * ux;
   const m = p + (q - p) * uy, n = r + (t - r) * uy;
-  return m + (n - m) * uz;
+  const v = 0.5 + 0.7 * (m + (n - m) * uz);
+  return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
 /** Hills: wavelengths (m) and heights (m). Highlands take all of it, maria a tenth, and inside the real window the long ones go. */

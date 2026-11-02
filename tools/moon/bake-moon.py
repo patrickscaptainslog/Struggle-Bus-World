@@ -6,7 +6,7 @@
 # relief.bin    'SBMH', u16 w, u16 h, f32 quant (m), then i16 h[w*h] as differences along each row (the first of a row from the row above it), gzip. Height in m over the 1737.4 km sphere is
 #               value * quant. Longitude -180 at the left, row 0 at the north pole, texel centres. Moon Kit's file reads (v - 20000) / 2 m: fitted against the LOLA window, rms 124 m over its 7.6 km texels.
 # theophilus.bin  'SBMW', u16 w, u16 h, f32 quant (m), f32 lat0, lon0 (first texel's centre, degrees), f32 dlat, dlon (per texel), then i16 as above, gzip. The LOLA 118 m window with its
-#               north-south track streaks smoothed away, then every second sample: the streaks run along the tracks, so the cut is across them.
+#               north-south track streaks notched out of its spectrum (destripe), a light smooth, then every second sample.
 # places.json   [name, type, lat, lon, km, azimuth?], the 150 landmarks. The azimuth (degrees from north) of the long straight ones is read off the gazetteer's bounding box and the Moon's map by eye.
 # names.json    [name, lat, lon, km], every other named crater in the IAU gazetteer, for its sign: nothing is shaped from these, the relief has them.
 import csv
@@ -46,6 +46,23 @@ def packed(a, q):
     return d.astype('<i2').tobytes()
 
 
+def destripe(z, deg=6.0, longest_km=12.0, cell_km=0.118):
+    """LOLA's tracks run north-south, so its streaks are stripes: long along a column, short across it. In the spectrum that's a thin wedge round the east-west wave vector, and a crater, being round, has next to
+    nothing of itself in there. So the wedge goes, for wavelengths under `longest_km` (longer east-west shapes are the Moon's), and a low Sun sees no stripes and the real small craters stay. A wider wedge starts
+    to ghost north and south of the peaks."""
+    n0, n1 = z.shape
+    y, x = np.mgrid[0:n0, 0:n1]
+    a = np.c_[x.ravel(), y.ravel(), np.ones(z.size)]
+    plane = (a @ np.linalg.lstsq(a, z.ravel(), rcond=None)[0]).reshape(z.shape)
+    r = z - plane
+    # (mirrored both ways, so the window's edges don't ring)
+    f = np.fft.fft2(np.block([[r, r[:, ::-1]], [r[::-1, :], r[::-1, ::-1]]]))
+    ky, kx = np.meshgrid(np.fft.fftfreq(2 * n0), np.fft.fftfreq(2 * n1), indexing='ij')
+    wedge = np.exp(-((np.abs(ky) / np.maximum(np.abs(kx), 1e-9) / np.tan(np.radians(deg))) ** 2))
+    short = 1 - np.exp(-((kx / (cell_km / longest_km)) ** 4))
+    return np.real(np.fft.ifft2(f * (1 - wedge * short)))[:n0, :n1] + plane
+
+
 def write(name, head, body):
     raw = head + body
     gz = gzip.compress(raw, 9, mtime=0)
@@ -59,10 +76,10 @@ Q = 2.0
 print('relief', ldem.shape, ldem.min(), ldem.max())
 write('relief.bin', b'SBMH' + struct.pack('<HHf', ldem.shape[1], ldem.shape[0], Q), packed(ldem, Q))
 
-lola = np.load(DATA / 'window-theophilus-lola118' / 'theophilus_lola118.npy').astype(np.float32) * 0.5
+lola = np.load(DATA / 'window-theophilus-lola118' / 'theophilus_lola118.npy').astype(np.float64) * 0.5
 meta = json.loads((DATA / 'window-theophilus-lola118' / 'theophilus_lola118.json').read_text())
-# (the streaks are a cut across the tracks, east-west: a long sigma that way, a short one along them)
-smooth = gaussian_filter(lola, sigma=(1.0, 3.0), mode='nearest')
+# (a sample's worth of smoothing, because every second one is kept)
+smooth = gaussian_filter(destripe(lola), sigma=1.0, mode='nearest')
 half = smooth[::2, ::2]
 Qw = 1.0
 head = b'SBMW' + struct.pack('<HHfffff', half.shape[1], half.shape[0], Qw, meta['lat_of_first_row_centre'], meta['lon_of_first_col_centre'], 2 * meta['lat_step_deg'], 2 * meta['lon_step_deg'])
