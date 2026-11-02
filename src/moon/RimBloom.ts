@@ -11,7 +11,7 @@ import type { Rec } from './CraterPaint';
 const NEAR = 1500;
 const FAR = 2100;
 /** Elements standing at once, whatever's been painted. */
-const MAX_ITEMS = 9000;
+const MAX_ITEMS = 5000;
 
 export interface RimDeps {
   sprouts: RoofSprouts;
@@ -39,7 +39,7 @@ function rimPoint(r: Rec, ang: number, q: number, o: { x: number; z: number }) {
 }
 
 /** How big a thing grows on this rim: slowly with the crater, or a big one's flowers are houses and a small one's are specks. */
-const scaleOf = (r: number) => Math.min(14, Math.max(1.2, 1.7 * Math.sqrt(r / 22)));
+const scaleOf = (r: number) => Math.min(14, Math.max(1, 1.5 * Math.sqrt(r / 22)));
 
 const p = { x: 0, z: 0 };
 
@@ -60,14 +60,14 @@ function lay(r: Rec, groundAt: (x: number, z: number) => number, at: (l: number)
     return at(l) + r.T * (l === 1 ? 0.75 : 0.3 + 0.6 * d) + 0.2 * R();
   };
   // level 1: crystals and flowers, out of the first paint to reach the rim
-  const n1 = Math.min(64, Math.max(8, Math.round(P / (5.2 * s))));
+  const n1 = Math.min(64, Math.max(6, Math.round(P / (6.5 * s))));
   for (let i = 0; i < n1; i++) {
     const ang = ((i + 0.7 * R()) / n1) * Math.PI * 2, q = 0.985 + 0.1 * R();
     if (R() < 0.62) stand(SPROUT.CRYSTAL, ang, q, s * (0.4 + 0.5 * R()), 0.8 + 0.5 * R(), r.hue + Math.floor(R() * 3), 0, when(ang, 1));
     else stand(SPROUT.TUFT, ang, q, s * (0.75 + 0.5 * R()), 0.85 + 0.35 * R(), r.hue + 1 + Math.floor(R() * 4), 0.1, when(ang, 1));
   }
   if (r.level >= 2) {
-    const n2 = Math.min(110, Math.max(14, Math.round(P / (2.9 * s))));
+    const n2 = Math.min(110, Math.max(8, Math.round(P / (4.2 * s))));
     for (let i = 0; i < n2; i++) {
       const ang = ((i + 0.8 * R()) / n2) * Math.PI * 2, q = 0.97 + 0.17 * R(), u = R();
       if (u < 0.3) stand(SPROUT.CRYSTAL, ang, q, s * (0.7 + 0.8 * R()), 0.9 + 0.5 * R(), r.hue + i, 0, when(ang, 2));

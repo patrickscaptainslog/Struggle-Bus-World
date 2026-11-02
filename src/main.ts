@@ -207,7 +207,6 @@ async function boot() {
   // (a rim runs on for kilometres, and nothing else out here is near it: wider cells than a city's)
   const sprouts = new RoofSprouts(4096, moon ? 2048 : undefined);
   scene.add(sprouts.object);
-  moon?.paint.bloom(sprouts, (x, z) => city.terrainAt(x, z) !== null);
   /** buildings whose paint already thinned the fog this session (a tile streaming back in mustn't bump it again) */
   const fogBumped = new Set<number>();
   /** Rooftop garden / Hundertwasser crown on a building: drawn, and the flight's obstacle field rises over it. */
@@ -257,6 +256,7 @@ async function boot() {
   // level of the painted house beside them (every blast that splattered them escalated it too)
   city.ground.onTileReady = (tx, tz) => {
     const k = `${tx},${tz}`;
+    moon?.rocksReady(tx * manifest.tileSize, tz * manifest.tileSize, (tx + 1) * manifest.tileSize, (tz + 1) * manifest.tileSize);
     const tf = treeFields.get(k);
     const list = treeIndex.get(k);
     if (!tf || !list) return;
@@ -359,6 +359,21 @@ async function boot() {
   scene.add(superFx.object);
   const signs = new StreetSigns();
   scene.add(signs.object);
+  if (moon) {
+    const sparkAt = new THREE.Vector3();
+    moon.paint.bind({
+      sprouts,
+      groundAt: (x, z) => city.groundAt(x, z),
+      tileAt: (x, z) => city.terrainAt(x, z) !== null,
+      sparkles: (x, y, z, r, hue, n) => particles.sparkles(sparkAt.set(x, y, z), r, 0, [hue, (hue + 1) % 6, (hue + 5) % 6], n),
+      twinkle: (x, y, z, hue) => particles.ambientSparkle(sparkAt.set(x, y, z), hue),
+      splash: (x, y, z, hue, k) => particles.splash(sparkAt.set(x, y, z), hue, k),
+    });
+    moon.groundHue = (x, z) => {
+      const g = city.ground.sample(x, z);
+      return g && g.cov >= 0.5 ? g.hue : -1;
+    };
+  }
   const audio = new AudioEngine();
   // (no air, no wind)
   audio.setVolumes(moon ? { ...config.audio, ambience: 0 } : config.audio);
@@ -564,10 +579,11 @@ async function boot() {
   // is seen to its foot; else its pole grows until the blade clears the roofs in front (never a blade
   // hovering over the roofs with no pole). Nothing farther along its sightline (a tower, a landmark up
   // the hill) may hide any of the blade either: no sign beats half a blade.
-  const pendingSigns: Array<{ ref: BuildingRef | null; text: string; from: string; hue: number; cx: number; cz: number; r: number; at: number; tries: number }> = [];
+  const pendingSigns: Array<{ ref: BuildingRef | null; text: string; from: string; hue: number; cx: number; cz: number; r: number; at: number; tries: number; plain?: boolean }> = [];
   /** ref: what the blast hit first, null when nothing blooms (it stands by the spot it hit, no front to fall back on). */
   const queueSign = (ref: BuildingRef | null, hue: number, cx: number, cz: number, r: number) => {
-    const [text, from] = signName(ref, cx, cz, lastBlast.open);
+    // (?moon: what names a place is the map of the Moon, and a named crater painted says so)
+    const [text, from] = moon ? [moon.paint.nameAt(cx, cz), 'place'] : signName(ref, cx, cz, lastBlast.open);
     pendingSigns.push({ ref, text: text.toUpperCase(), from, hue, cx, cz, r, at: simTime + arrival(r, r) + signTune.showDelay, tries: 0 });
   };
   let signSpot: { x: number; y: number; z: number; facing: number; scale: number; bias: boolean; pole: number; cx: number; cz: number; r: number; text: string; until: number } | null = null;
@@ -628,7 +644,7 @@ async function boot() {
   const SIGN_RING: ReadonlyArray<readonly [number, number]> = [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6], [12, 0], [-12, 0], [0, 12], [0, -12], [9, 9], [-9, 9], [9, -9], [-9, -9]];
   /** Show (or re-flip) the sign of a blast at (cx, cz) of radius r. False: no open spot in frame yet, ask
    *  again later (`tries` so far); true once it is shown or given up on. */
-  function showSign(ref: BuildingRef | null, text: string, from: string, hue: number, cx: number, cz: number, r: number, tries: number): boolean {
+  function showSign(ref: BuildingRef | null, text: string, from: string, hue: number, cx: number, cz: number, r: number, tries: number, plain = false): boolean {
     const T = signTune;
     const life = T.riseTime + T.holdGreen + T.flipTime + T.holdRainbow + T.sinkTime;
     // another blast in the neighborhood while its sign stands: that sign flips again while it is in view
@@ -687,7 +703,7 @@ async function boot() {
             if (city.groundClassAt(x, z) === Ground.WATER) continue; // (not in the bay: the Ferry Building's far side)
             const y = city.groundAt(x, z);
             const dist = camera.position.distanceTo(signPos.set(x, y + T.poleHeight + 5, z));
-            const scale = clamp((T.minFontPx * pipeline.pixelWorldSize(dist)) / Math.max(0.05, T.texelW), 1, 4);
+            const scale = clamp((T.minFontPx * pipeline.pixelWorldSize(dist)) / Math.max(0.05, T.texelW), 1, moon ? 60 : 4);
             // the foot of the pole in view, or how much taller the pole must be for a meter of it to
             // show under the blade above the roofs in front
             const yb = y + (T.poleHeight - 1) * scale, cx0 = sx * hw * scale, cz0 = sz * hw * scale;
@@ -752,7 +768,7 @@ async function boot() {
     const sp = signSpot!;
     sp.until = simTime + life;
     // (true depth everywhere: a meter's bias against its own lawn, so painted houses in front keep covering it)
-    signs.show({ text, position: signPos.set(sp.x, sp.y, sp.z), facing: sp.facing, hue, scale: sp.scale, biasNow: true, depthBias: 1, pole: sp.pole });
+    signs.show({ text, position: signPos.set(sp.x, sp.y, sp.z), facing: sp.facing, hue, scale: sp.scale, biasNow: true, depthBias: 1, pole: sp.pole, plain });
     lastSign = { text, x: sp.x, z: sp.z, from, t: simTime };
     audio.signPop();
     return true;
@@ -767,7 +783,7 @@ async function boot() {
   /** Breathe a shot: the blast is timed to the projectile's flight (inhale + travel), at the glinting building. */
   const breathe = (shot: Shot, mega?: MegaBreath) => {
     breathTravel = shot.travel;
-    breathWidth = mega ? mega.width : 1;
+    breathWidth = (mega ? mega.width : 1) * (moonPaint?.width(shot, flight) ?? 1);
     try {
       splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, ...moonPaint?.barf(shot) });
     } finally {
@@ -992,6 +1008,7 @@ async function boot() {
     await new Promise((r) => setTimeout(r, 16));
   }
   perf.setBuild(warm.report?.resolveLinkMs ?? 0, warm.report?.resolveDrawMs ?? 0, hourName);
+  moon?.paint.prime();
   fogGround = city.lowGround();
   updateSun();
   globals.uFogBank.value = config.fog.openingBank;
@@ -1286,11 +1303,14 @@ async function boot() {
       particles.puff(puffPos, puffVel);
     }
     particles.update(dt);
+    // (?moon: a place the bus has come to says so)
+    const passing = moonPaint?.passing(dt, simTime, flight, flight.y - city.groundAt(flight.x, flight.z));
+    if (passing) pendingSigns.push({ ref: null, text: passing.text, from: 'passing', hue: 0, cx: passing.x, cz: passing.z, r: passing.r, at: simTime + 0.3, tries: 0, plain: true });
     // (a street sign waiting for its blast's bloom)
     for (let i = pendingSigns.length - 1; i >= 0; i--) {
       const ps = pendingSigns[i];
       if (simTime < ps.at) continue;
-      if (!showSign(ps.ref, ps.text, ps.from, ps.hue, ps.cx, ps.cz, ps.r, ps.tries)) {
+      if (!showSign(ps.ref, ps.text, ps.from, ps.hue, ps.cx, ps.cz, ps.r, ps.tries, ps.plain)) {
         ps.tries++;
         ps.at = simTime + 0.8;
         continue;
@@ -1308,7 +1328,7 @@ async function boot() {
       surge: flight.surge,
       fullness: flight.barfT >= 0 ? flight.belly : flight.fullness,
       altitude: flight.y - flight.groundUnder,
-      paintNearby: near.length ? painted / near.length : 0,
+      paintNearby: moonPaint ? moonPaint.nearShare : near.length ? painted / near.length : 0,
       fogBank: clamp((globals.uFogBank.value - 1) / Math.max(0.001, config.fog.openingBank - 1), 0, 1),
       high: clamp(flight.lift / 420, 0, 1),
       fogBelow: globals.uFogLayer2.value.w,

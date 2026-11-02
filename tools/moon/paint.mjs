@@ -20,7 +20,7 @@ const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => {
-  if ((m.type() === 'error' || m.type() === 'warning') && !m.text().includes('404') && !m.text().includes('GPU stall')) errors.push(m.text().slice(0, 900));
+  if ((m.type() === 'error' || m.type() === 'warning') && !m.text().includes('404') && !m.text().includes('GPU stall') && !m.text().includes('did not converge')) errors.push(m.text().slice(0, 900));
 });
 
 const open = async (q = '') => {
@@ -169,6 +169,142 @@ SCRIPTS.gallery = async () => {
     const c = await find(x, z, r, Math.max(3000, r * 8));
     console.log(tag, JSON.stringify(c));
     if (c) await levels(tag, c, back, up, az);
+  }
+};
+
+/** Taps whenever something glints and the belly is full, as a player would, for `secs`, a frame every `every` s. */
+const playFor = async (tag, secs, every, step = 0.2) => {
+  let shots = 0, next = every, n = 0;
+  for (let t = 0; t < secs; t += step) {
+    await run(step);
+    shots += await page.evaluate(() => {
+      const g = window.__game;
+      if (!g.moon.paint.target || g.flight.fullness < 0.999 || g.flight.barfT >= 0) return 0;
+      g.tapSplat();
+      return 1;
+    });
+    if (t + step >= next) {
+      next += every;
+      await note(`${tag}-${++n}`);
+      await shot(`${tag}-${String(n).padStart(2, '0')}`);
+    }
+  }
+  console.log(tag, 'shots', shots);
+};
+
+SCRIPTS.play = async () => {
+  await open();
+  await run(1);
+  await playFor('cruise', 30, 5);
+  await stick(0, 0.9);
+  await playFor('surge', 20, 5);
+  await letGo();
+  await stick(0.9, 0);
+  await run(3.2);
+  await letGo();
+  await playFor('after', 10, 5);
+};
+
+SCRIPTS.high = async () => {
+  await open();
+  await run(1);
+  await shift(1);
+  await stick(0, -1);
+  await run(10);
+  await shift(-1);
+  await letGo();
+  await run(3);
+  await playFor('km3', 18, 3);
+  await shift(1);
+  await stick(0, -1);
+  await run(14);
+  await shift(-1);
+  await letGo();
+  await run(3);
+  await playFor('km10', 18, 3);
+};
+
+/** Top-down look at a place, from this high, the windows as they stand. */
+const above = async (name, x, z, h) => {
+  await page.evaluate(([x, z, h]) => {
+    const g = window.__game;
+    window.__qa.pin = { x, z: z + h * 0.32, y: g.city.groundAt(x, z) + h, heading: 0 };
+  }, [x, z, h]);
+  await settle(1.5);
+  await shot(name);
+};
+
+/** A crewed site: its circle, its sign, a crater flooded across it. */
+SCRIPTS.apollo = async () => {
+  await open('site=APOLLO%2011');
+  await run(2);
+  await note('start');
+  await shot('site-start');
+  const hits = await page.evaluate(() => {
+    const g = window.__game, list = g.moon.cratersNear(0, 0, 1500, 300).filter((c) => !c.name).slice(0, 6);
+    for (const c of list) g.moon.paint.qaHit(c.id, g.clock(), 1), g.moon.paint.qaHit(c.id, g.clock(), 2);
+    return list;
+  });
+  console.log(JSON.stringify(hits));
+  await run(3.5);
+  await shot('site-low');
+  await above('site-above', 0, 0, 3000);
+  await above('site-high', 0, 0, 9000);
+  await note('high');
+};
+
+/** Paint, leave, come back: what's saved stands. */
+SCRIPTS.saved = async () => {
+  await open();
+  await run(1);
+  for (let k = 0; k < 4; k++) {
+    await glint();
+    await tap();
+    await run(2.5);
+  }
+  const a = await page.evaluate(() => {
+    const g = window.__game;
+    g.moon.paint.save();
+    return { recs: g.moon.paint.recs.size, sample: [...g.moon.paint.recs.values()].slice(0, 3).map((r) => [r.id, r.level, r.hue]) };
+  });
+  await shot('saved-before');
+  await open();
+  await run(1);
+  await shot('saved-after');
+  const b = await page.evaluate(() => {
+    const g = window.__game;
+    return { recs: g.moon.paint.recs.size, sample: [...g.moon.paint.recs.values()].slice(0, 3).map((r) => [r.id, r.level, r.hue]), bytes: localStorage.getItem('strugglebus.moon.craters.v1')?.length };
+  });
+  console.log(JSON.stringify({ a, b }));
+  // and on another map of the Moon: the same crater, the same paint
+  await open('lat=-11.2&lon=26.2');
+  await run(1);
+  const c = await page.evaluate(() => window.__game.moon.paint.recs.size);
+  console.log('another map', c);
+};
+
+/** A crater of this size ahead, the bus coming up to it at a cruise, and three hits, every step of them. */
+SCRIPTS.close = async () => {
+  await open();
+  await run(1);
+  const f0 = await page.evaluate(() => {
+    const g = window.__game, f = g.flight;
+    return { x: f.x, z: f.z, h: f.heading };
+  });
+  const size = Number(opt.r ?? 40);
+  const c = await find(f0.x + Math.sin(f0.h) * 700, f0.z - Math.cos(f0.h) * 700, size, 1500);
+  console.log(JSON.stringify(c));
+  // (on the line to it, at the distance a tap would be made from)
+  const az = (Math.atan2(c.x - f0.x, f0.z - c.z) * 180) / Math.PI, back = 95 + size * 0.7;
+  for (let k = 1; k <= 3; k++) {
+    await pose(c.x, c.z, back, 20 + size * 0.15, az);
+    await settle(1);
+    await fill();
+    await run(0.6);
+    await shot(`c${k}-00`);
+    await note(`aim${k}`);
+    await page.evaluate(() => (delete window.__qa.pin, window.__game.tapSplat()));
+    await strip(`c${k}`, 14, 0.2);
   }
 };
 

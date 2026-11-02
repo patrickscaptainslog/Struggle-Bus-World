@@ -167,6 +167,8 @@ export interface StreetSignOptions {
   depthBias?: number;
   /** Extra pole (m): lifts the blade clear of the roofs between it and the camera. Default 0. */
   pole?: number;
+  /** It only says where this is: it stays green, and a blast here flips it. */
+  plain?: boolean;
 }
 
 const MAX_SIGNS = 4;
@@ -222,6 +224,8 @@ interface Sign {
   peekK: number;
   /** Hue to take at the next edge-on moment of a re-flip (-1 = none). */
   pendingHue: number;
+  /** it stays green (StreetSignOptions.plain) */
+  plain: boolean;
   wobbleDir: number;
   text: string;
   scale: number;
@@ -353,6 +357,7 @@ export class StreetSigns {
         rainbow: false,
         switchAge: 0,
         pendingHue: -1,
+        plain: false,
         sinceShow: 0,
         biasK: 0,
         peekK: 0,
@@ -396,6 +401,7 @@ export class StreetSigns {
     const tSink = tFlip + T.flipTime + T.holdRainbow;
     s.sinceShow = opts.biasNow ? T.biasDelay : 0;
     if (wasActive && s.text === text && s.age > T.riseTime * 0.6 && s.age < tSink) {
+      s.plain = !!opts.plain;
       // re-splat of the same block while its sign stands: no re-pop, it flips (again) into the new paint.
       // A double-sided blade at spin 180 deg looks the same as at 0, so rewinding into the flip is seamless.
       if (s.rainbow) {
@@ -411,6 +417,7 @@ export class StreetSigns {
     s.active = true;
     s.age = 0;
     s.text = text;
+    s.plain = !!opts.plain;
     s.pendingHue = -1;
     if (!wasActive) s.biasK = opts.biasNow ? 1 : 0;
     s.scale = Math.max(0.1, opts.scale ?? 1);
@@ -573,7 +580,7 @@ export class StreetSigns {
       roll += s.wobbleDir * kick(age - tSink, wob * 0.35, T.wobbleHz * 1.4, T.wobbleDecay);
 
       // ---- flip about the pole, squashing at edge-on; swap to rainbow when edge-on
-      const tf = age - tFlip;
+      const tf = s.plain ? -1000 : age - tFlip;
       let spin = Math.PI * springStep(tf, T.flipHz, T.flipDamping);
       if (tf > -0.2 && tf < 0.05) {
         const b = Math.sin((Math.PI * (tf + 0.2)) / 0.25);

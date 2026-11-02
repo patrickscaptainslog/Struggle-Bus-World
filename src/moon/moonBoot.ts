@@ -9,14 +9,14 @@ import { registerWarm } from '../render/warmup';
 import type { CityMoon } from '../world/City';
 import type { RegionRequest, RegionResponse } from '../world/regionLoader';
 import type { CityManifest, TerrainTile } from '../world/tiles';
-import { CraterPaint } from './CraterPaint';
+import { CraterPaint, type NameRow } from './CraterPaint';
 import { craterById, cratersNear, type Crater, type CraterHit } from './craters';
 import { MOON_REGION, MOON_TILE, decodeShadow, type FarUpdate } from './gen';
 import { dirOf, findPlace, latLonToMap, latOf, lonOf, makeFrame, readAlbedo, readPlaces, type MapFrame, type Place, type PlaceRow, type WholeMap } from './map';
 import { MoonFar } from './MoonFar';
 import { HELD_SUN_OFF, MoonSky } from './MoonSky';
 import { makeMoonGround, moonGlobals, moonMapTexture, moonTileMap } from './moonMaterial';
-import { rockMesh, rockProxy } from './rocks';
+import { paintRockMesh, rockMesh, rockProxy } from './rocks';
 import type { MoonCraters, MoonFarRequest, MoonInit, MoonReady, MoonRegionRequest } from './moonWorker';
 
 // ?moon: the Moon as a place the real game loads. boot() in main.ts runs as ever with a city that happens to be generated: this file makes that city's manifest, its worker, its far field and its sky, and hands City
@@ -66,6 +66,10 @@ export interface MoonBoot {
   crater(id: string): Crater | null;
   /** The craters as buildings: what glints, what a hit does, what's saved. */
   paint: CraterPaint;
+  /** The ground paint a boulder finds is what's in reach (main.ts hands it GroundPaint's). */
+  groundHue: (x: number, z: number) => number;
+  /** Saved ground paint is on screen in this box: its boulders take it. */
+  rocksReady(x0: number, z0: number, x1: number, z1: number): void;
 }
 
 function moonPalette(pipeline: PixelPipeline) {
@@ -76,8 +80,10 @@ function moonPalette(pipeline: PixelPipeline) {
 
 export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams, scene: THREE.Scene): Promise<MoonBoot> {
   const base = new URL('.', location.href).href.replace(/\/$/, '');
-  const [rows, albBuf] = await Promise.all([
+  const [rows, nameRows, albBuf] = await Promise.all([
     fetch('./moon/places.json').then((r) => r.json() as Promise<PlaceRow[]>),
+    // (only the names of signs: a Moon with no names file is the same Moon)
+    fetch('./moon/names.json').then((r) => (r.ok ? (r.json() as Promise<NameRow[]>) : []), () => [] as NameRow[]),
     fetch('./sky/moon.bin').then(async (r) => {
       const b = await r.arrayBuffer();
       const { gunzip, isGzip } = await import('../world/gunzip');
@@ -134,6 +140,9 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   fxTune.burstOut /= G6;
   fxTune.splashUp /= G6;
   fxTune.splashOut /= G6;
+  // (and what goes up stays up: fewer of them, or a fountain is a curtain in front of the bowl it filled)
+  fxTune.burstCount *= 0.55;
+  config.splat.flashStrength *= 0.6;
   config.splat.blobTime *= G6;
   config.splat.blobTimePerM *= G6;
   // (the aim runs out as far as the ground does: a crater is a target from any height the bus can see it at)
@@ -219,19 +228,29 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
       if (!m.rocks?.length) return;
       const mesh = rockMesh(m.rocks);
       scene.add(mesh);
-      rocks.set(key, mesh);
+      const rock = { mesh, data: m.rocks };
+      rocks.set(key, rock);
+      if (paint?.recs.size) paintRockMesh(mesh, m.rocks, -Infinity, -Infinity, Infinity, Infinity, hueOfRock, -100);
     },
     regionGone: (rx, rz) => dropRocks(`${rx},${rz}`),
   };
 
   /** Each detailed region's boulders. */
-  const rocks = new Map<string, THREE.InstancedMesh>();
+  const rocks = new Map<string, { mesh: THREE.InstancedMesh; data: Float32Array }>();
   const dropRocks = (key: string) => {
     const m = rocks.get(key);
     if (!m) return;
-    scene.remove(m);
-    m.dispose();
+    scene.remove(m.mesh);
+    m.mesh.dispose();
     rocks.delete(key);
+  };
+  /** The paint a boulder stands in: a crater's, else what a blast left on open ground. */
+  const hueOfRock = (x: number, z: number) => {
+    const h = paint!.hueAt(x, z);
+    return h >= 0 ? h : boot.groundHue(x, z);
+  };
+  const paintRocks = (x0: number, z0: number, x1: number, z1: number, at: number) => {
+    for (const r of rocks.values()) paintRockMesh(r.mesh, r.data, x0, z0, x1, z1, hueOfRock, at);
   };
 
   function moonTileTexture(t: TerrainTile): THREE.DataTexture {
@@ -252,7 +271,7 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
     return [new THREE.Mesh(g, makeMoonGround(warmTex, 0, 0, 2, 2, 0, 0, 256)), rockProxy()];
   });
 
-  paint = new CraterPaint({ renderer: pipeline.renderer, post: (m) => worker.postMessage(m), frame, albedo, places, seed: SEED, groundAt: (x, z) => city.groundAt!(x, z) });
+  paint = new CraterPaint({ renderer: pipeline.renderer, post: (m) => worker.postMessage(m), frame, albedo, places, names: nameRows, seed: SEED, paintRocks });
   const dTmp = new Float64Array(3);
   const boot: MoonBoot = {
     frame,
@@ -265,6 +284,8 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
     startY,
     places,
     paint,
+    groundHue: () => -1,
+    rocksReady: (x0, z0, x1, z1) => paintRocks(x0, z0, x1, z1, -100),
     buildFar(mask, rect, size) {
       far = new MoonFar(pipeline.renderer, (m: MoonFarRequest) => worker.postMessage(m), mask, rect, size);
       boot.far = far;

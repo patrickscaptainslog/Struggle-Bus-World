@@ -138,7 +138,7 @@ const FS = /* glsl */ `
     float off = ((s - i - 0.5 - 0.62 * (a - 0.5)) / N * TAU + (n1(rr / vR * 1.7 + a * 37.0) - 0.5) * 0.1 * clamp(x, 0.0, 1.0)) * rr;
     float t = max(x, 0.0);
     float w = vR * wide * (0.55 + 0.9 * c) * (1.0 - t) * (1.0 - 0.5 * t) * (0.62 + 0.76 * n1(rr / vR * 6.0 + c * 53.0));
-    float q = (max(w, m * 0.62) - abs(off)) / m + 0.5;
+    float q = (max(w, m * 0.42) - abs(off)) / m + 0.5;
     float gap = 0.6 * sin(rr / vR * (2.9 + 5.0 * c) + a * 19.0) + 0.4 * sin(rr / vR * (8.3 + 4.0 * b) + b * 23.0);
     if (t > 0.3 && gap < (t - 0.3) * 2.3 - 0.8) return;
     q = min(q, (vR + (len - vR) * k * 1.04 - rr) / m + 0.5);
@@ -165,7 +165,7 @@ const FS = /* glsl */ `
       // level 3 throws rays over the ground, under all the rest
       if (lv > 2.5) {
         rays(dist, ang, m, 13.0, 3.4, 9.0, 0.05, seed, ease(k), base, cov, A, B, lift);
-        rays(dist, ang, m, 31.0, 1.5, 3.2, 0.028, seed + 7.0, ease(k), base + 2.0, cov, A, B, lift);
+        if (R > 30.0) rays(dist, ang, m, 31.0, 1.5, 3.2, 0.028, seed + 7.0, ease(k), base + 2.0, cov, A, B, lift);
       }
       // level 1 floods the bowl, up from where it landed
       vec2 imp = vD.xy;
@@ -285,6 +285,11 @@ export class PaintClip {
     for (let i = 0; i < 6; i++) this.geo.setAttribute(`i${'ABCDEF'[i]}`, new THREE.InterleavedBufferAttribute(ib, 4, i * 4));
   }
 
+  /** Compiles the program. */
+  prime() {
+    this.draw(0, 0, 0, 1, 1, [], 0, 0);
+  }
+
   /** Where a window's middle wants to be, for a view at (x, z) along (fx, fz). A window that moves is dirty. */
   follow(x: number, z: number, fx: number, fz: number) {
     for (let k = 0; k < CLIP_LEVELS; k++) {
@@ -318,7 +323,7 @@ export class PaintClip {
     const w = this.wins[k], cell = w.cell, r = this.renderer;
     const i0 = Math.max(0, Math.floor((x0 - w.x0) / cell)), j0 = Math.max(0, Math.floor((z0 - w.z0) / cell));
     const i1 = Math.min(CLIP_N, Math.ceil((x1 - w.x0) / cell)), j1 = Math.min(CLIP_N, Math.ceil((z1 - w.z0) / cell));
-    if (i1 <= i0 || j1 <= j0) return;
+    if (this.primed && (i1 <= i0 || j1 <= j0)) return;
     if (n > this.cap) this.grow(n);
     const b = this.buf;
     for (let q = 0, o = 0; q < n; q++, o += FLOATS) {
@@ -349,7 +354,7 @@ export class PaintClip {
     this.geo.instanceCount = n;
     this.uWin.value.set(w.x0, w.z0, 1 / (CLIP_N * cell), cell);
     this.uNow.value = now;
-    this.rt.scissor.set(i0, j0, i1 - i0, j1 - j0);
+    this.rt.scissor.set(i0 || 0, j0 || 0, Math.max(0, i1 - i0) || 0, Math.max(0, j1 - j0) || 0);
     r.setRenderTarget(this.rt, k);
     const a = r.getClearAlpha();
     r.getClearColor(this.clear);

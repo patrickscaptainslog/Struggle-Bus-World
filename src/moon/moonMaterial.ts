@@ -22,6 +22,9 @@ export const moonGlobals = {
   uGlint: { value: new THREE.Vector4() },
   uGlintM: { value: new THREE.Vector4(1, 0, 1, 0) },
   uGlintS: { value: new THREE.Vector4() },
+  // the crewed landing sites: x, z, radius, and how many there are
+  uSites: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4()) },
+  uSiteN: { value: 0 },
 };
 
 /** The four bytes back, the light, the ramp. Needs GLSL_COMMON. */
@@ -71,11 +74,22 @@ uniform vec4 uClip[3];
 uniform vec4 uGlint;
 uniform vec4 uGlintM;
 uniform vec4 uGlintS;
+uniform vec4 uSites[6];
+uniform float uSiteN;
 const float MOON_HUES[6] = float[6](${HUE_RAMPS.map((r) => r.toFixed(1)).join(', ')});
 float moonNoise(vec2 q) {
   vec2 i = floor(q), f = fract(q);
   f = f * f * (3.0 - 2.0 * f);
   return mix(mix(moonHash(i), moonHash(i + vec2(1.0, 0.0)), f.x), mix(moonHash(i + vec2(0.0, 1.0)), moonHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+// A crewed landing site: nothing lands here. 0 outside it, 1 in it, 2 on the line round it.
+float moonSite(vec2 xz, float px) {
+  for (int i = 0; i < 6 && float(i) < uSiteN; i++) {
+    vec2 d = xz - uSites[i].xy;
+    float R = uSites[i].z, dd = dot(d, d);
+    if (dd < R * R) return R - sqrt(dd) < max(2.4, 0.8 * px) ? 2.0 : 1.0;
+  }
+  return 0.0;
 }
 // Which window a place reads: the finest that holds it and that a pixel's size on the ground can read. -1: none.
 int moonWindow(vec2 xz, float px, out vec2 t) {
@@ -142,10 +156,10 @@ float moonGlint(vec2 xz, float px) {
   if (dot(d, d) > R * R * 1.7) return 0.0;
   vec2 uv = uGlintS.w < 1.5 ? vec2(d.x * uGlintM.x + d.y * uGlintM.y, d.y * uGlintM.z - d.x * uGlintM.w) : vec2(d.x, -d.y);
   float ang = atan(uv.y, uv.x), rr = length(uv) / (1.0 + dot(uGlintS.xy, vec2(cos(3.0 * ang), sin(3.0 * ang))));
-  if (abs(rr - R) > max(R * 0.014, px * 0.42)) return 0.0;
-  // a run of light round the rim, twice a second and a bit, off bright dashes
-  float s = fract(ang / 6.2832 - (uTime - uGlint.w) * 0.62);
-  return 1.0 + step(0.8, s);
+  // a run of light round the rim, a turn every second and a half, thick at its head and thinning behind it
+  float s = fract(ang / 6.2832 - (uTime - uGlint.w) * 0.66);
+  if (abs(rr - R) > max(R * 0.012, px * 0.42) * (1.0 + 2.2 * s * s * s)) return 0.0;
+  return 1.0 + step(0.76, s);
 }
 `;
 
@@ -223,8 +237,11 @@ const NEAR_FS = /* glsl */ `
     float ramp = moonRamp(tone);
     float glow = 0.0;
     float pr, pEdge, pWet, pFresh, pLift, pGlow;
+    float site = moonSite(vWorldPos.xz, px);
     // what's on a crater first: a bowl keeps its colour whatever lands round it
-    if (moonClip(vWorldPos.xz, px, pr, pEdge, pLift, pGlow)) {
+    if (site > 0.5) {
+      if (site > 1.5) light = max(light, 0.52);
+    } else if (moonClip(vWorldPos.xz, px, pr, pEdge, pLift, pGlow)) {
       ramp = pr;
       light = moonPaintLight(pr, light, pEdge, pLift, 0.0);
       glow = pGlow;
@@ -332,6 +349,7 @@ const FAR_FS = /* glsl */ `
   ${GLSL_COMMON}
   ${GLSL_MOON_LIGHT}
   ${GLSL_MOON_PAINT}
+  ${GLSL_BLAST_RING}
   uniform sampler2DArray tFarM;
   uniform vec4 uFarGrid;
   uniform float uFarLevels;
@@ -369,7 +387,10 @@ const FAR_FS = /* glsl */ `
     float light = uMoonLight.y + 0.03 + (under > 0.0 ? 0.0 : moonShoulder(uMoonLight.x * lit));
     float ramp = moonRamp(vTone), glow = 0.0;
     float pr, pEdge, pLift, pGlow;
-    if (moonClip(vWorldPos.xz, pa + pb, pr, pEdge, pLift, pGlow)) {
+    float site = moonSite(vWorldPos.xz, pa + pb);
+    if (site > 0.5) {
+      if (site > 1.5) light = max(light, 0.52);
+    } else if (moonClip(vWorldPos.xz, pa + pb, pr, pEdge, pLift, pGlow)) {
       ramp = pr;
       light = moonPaintLight(pr, light, pEdge, pLift, 0.0);
       glow = pGlow;
@@ -380,6 +401,8 @@ const FAR_FS = /* glsl */ `
       if (gl > 1.5) { ramp = ${Ramp.GLOW_WHITE}.0; light = 0.95; glow = 0.8; }
       else light = max(light + 0.22, 0.62);
     }
+    float rr, rl, rg;
+    if (sbRing(vWorldPos, vec3(0.0, 1.0, 0.0), rr, rl, rg)) { ramp = rr; light = rl; glow = rg; }
     sbWrite(ramp, light, 0.0, glow, mat3(viewMatrix) * vec3(0.0, 1.0, 0.0), 0.01, 1.0);
   }
 `;
@@ -390,6 +413,8 @@ export function makeMoonFar(tFarH: THREE.Texture, tFarM: THREE.Texture, mask: TH
     uniforms: {
       ...globals,
       ...moonGlobals,
+      uBlastRing: blastUniforms.uBlastRing,
+      uBlastRing2: blastUniforms.uBlastRing2,
       tFarH: { value: tFarH },
       tFarM: { value: tFarM },
       tMask: { value: mask },

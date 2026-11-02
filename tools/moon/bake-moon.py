@@ -8,6 +8,8 @@
 # theophilus.bin  'SBMW', u16 w, u16 h, f32 quant (m), f32 lat0, lon0 (first texel's centre, degrees), f32 dlat, dlon (per texel), then i16 as above, gzip. The LOLA 118 m window with its
 #               north-south track streaks smoothed away, then every second sample: the streaks run along the tracks, so the cut is across them.
 # places.json   [name, type, lat, lon, km, azimuth?], the 150 landmarks. The azimuth (degrees from north) of the long straight ones is read off the gazetteer's bounding box and the Moon's map by eye.
+# names.json    [name, lat, lon, km], every other named crater in the IAU gazetteer, for its sign: nothing is shaped from these, the relief has them.
+import csv
 import gzip
 import json
 import struct
@@ -77,3 +79,14 @@ for e in land:
 txt = json.dumps(rows, ensure_ascii=False, separators=(',', ':'))
 (OUT / 'places.json').write_text(txt, encoding='utf8')
 print('places.json', len(rows), 'places,', len(txt.encode('utf8')), 'B')
+
+have = {e['name'] for e in land}
+names = []
+with open(DATA / 'gazetteer-moon.csv', encoding='utf8', newline='') as f:
+    for r in csv.DictReader(f):
+        name = r['name'].upper()
+        if 'Crater' in r['type'] and name not in have and float(r['diameter_km']) >= 1:
+            names.append([name, round(float(r['lat']), 2), round(float(r['lon']), 2), round(float(r['diameter_km']), 1)])
+txt = json.dumps(names, ensure_ascii=False, separators=(',', ':'))
+(OUT / 'names.json').write_text(txt, encoding='utf8')
+print('names.json', len(names), 'names,', len(txt.encode('utf8')), 'B,', len(gzip.compress(txt.encode('utf8'), 9)), 'B gzip')

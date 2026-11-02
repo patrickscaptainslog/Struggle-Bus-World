@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { GLSL_COMMON, GLSL_OUT, globals, SHADOW_LAYER } from '../render/materials';
+import { HUE_RAMPS } from '../render/palette';
 import { GLSL_MOON_CURVE } from '../sky/flag';
 import { GLSL_MOON_LIGHT, moonGlobals } from './moonMaterial';
 
-// (three declares instanceColor: here r is lit, g the tone.)
+// (three declares instanceColor: here r is lit, plus twice one more than the hue of its paint; g the tone; b when that paint lands.)
 // Boulders: one small rock, instanced, one draw a detailed region and one more in the sun pass, which is what gives them the long hard shadows that make a low Sun worth having. The worker says where (gen.ts rocksOf).
 // The Sun's own map decides per rock whether it stands in the light: the ground's big shadows are no caster, so a rock can't learn that from the sun pass.
 
@@ -11,11 +12,12 @@ const VS = /* glsl */ `
   ${GLSL_COMMON}
   ${GLSL_MOON_CURVE}
   out vec3 vWorldPos;
-  flat out vec2 vRock;
+  flat out vec3 vRock;
   void main() {
     vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);
     vWorldPos = wp.xyz;
-    vRock = instanceColor.rg;
+    float code = instanceColor.r;
+    vRock = vec3(mod(code, 2.0), instanceColor.g, uTime >= instanceColor.b ? floor(code / 2.0) : 0.0);
     gl_Position = projectionMatrix * viewMatrix * vec4(moonCurve(wp.xyz), 1.0);
   }
 `;
@@ -24,15 +26,22 @@ const FS = /* glsl */ `
   ${GLSL_COMMON}
   ${GLSL_MOON_LIGHT}
   in vec3 vWorldPos;
-  flat in vec2 vRock;
+  flat in vec3 vRock;
   ${GLSL_OUT}
+  const float ROCK_HUES[6] = float[6](${HUE_RAMPS.map((r) => r.toFixed(1)).join(', ')});
   void main() {
     // (flat faces: a rock is what its facets catch)
     vec3 n = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
     if (n.y < 0.0 && dot(n, cameraPosition - vWorldPos) < 0.0) n = -n;
     float sun = vRock.x * sbShadow(vWorldPos, n);
     float l = moonLit(n, vRock.y, sun);
-    sbWrite(moonRamp(vRock.y), l, 0.0, 0.0, mat3(viewMatrix) * n, 0.03, 1.0);
+    float ramp = moonRamp(vRock.y);
+    // (a boulder in the paint takes it: it's the hardest light on the rock that keeps its facets)
+    if (vRock.z > 0.5) {
+      ramp = ROCK_HUES[int(vRock.z - 0.5)];
+      l = max(0.2 + 0.66 * clamp(l, 0.0, 1.0), 0.22);
+    }
+    sbWrite(ramp, l, 0.0, 0.0, mat3(viewMatrix) * n, 0.03, 1.0);
   }
 `;
 
@@ -87,6 +96,22 @@ export function rockMesh(data: Float32Array): THREE.InstancedMesh {
   mesh.matrixAutoUpdate = false;
   mesh.matrixWorldAutoUpdate = false;
   return mesh;
+}
+
+/** The boulders of a region in this box take the paint they stand in. Saved or landing: `at` is when it shows. */
+export function paintRockMesh(mesh: THREE.InstancedMesh, data: Float32Array, x0: number, z0: number, x1: number, z1: number, hueAt: (x: number, z: number) => number, at: number) {
+  const col = mesh.instanceColor!, c = col.array as Float32Array;
+  let any = false;
+  for (let i = 0, n = data.length / 7; i < n; i++) {
+    const o = i * 7, x = data[o], z = data[o + 2];
+    if (x < x0 || x > x1 || z < z0 || z > z1 || c[i * 3] >= 2) continue;
+    const h = hueAt(x, z);
+    if (h < 0) continue;
+    c[i * 3] = data[o + 5] + 2 * (h + 1);
+    c[i * 3 + 2] = at;
+    any = true;
+  }
+  if (any) col.needsUpdate = true;
 }
 
 /** The warm-up's one of them. */

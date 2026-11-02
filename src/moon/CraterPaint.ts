@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { config } from '../config';
+import { blastUniforms } from '../world/GroundPaint';
 import type { Flight } from '../game/Flight';
 import type { Shot } from '../game/Aim';
 import type { Blast, BarfOpts } from '../game/Splat';
@@ -13,6 +14,7 @@ import type { RoofSprouts } from '../world/props/sprouts';
 import { RimBloom } from './RimBloom';
 import type { MoonCraterRequest, MoonCraters } from './moonWorker';
 import { CLIP_LEVELS, PaintClip, type ClipMark } from './PaintClip';
+import { latOf, lonOf, dirOf } from './map';
 
 // Craters are the buildings of the Moon. This is what the street's buildings get from Aim, Splat and PaintState: a pick at the aim point, a target that glints, a hit that goes up a level and blooms, and what's
 // painted kept on the device under the crater's stable id (craters.ts), so it comes back on any map of the Moon. Nothing on the street changes: the bus aims as it does, and this moves the shot onto what glints.
@@ -21,8 +23,15 @@ import { CLIP_LEVELS, PaintClip, type ClipMark } from './PaintClip';
 // What it looks like is PaintClip's; what grows on it, RimBloom's.
 
 const KEY = 'strugglebus.moon.craters.v1';
+const STROKES_KEY = 'strugglebus.moon.strokes.v1';
+/** A blast on open ground is kept this many times over, for the far windows. Past that the oldest goes. */
+const MAX_STROKES = 600;
+/** Crewed landing sites stay unpainted: a grey circle this wide (m) with its name. */
+export const SITE_R = 1200;
 /** A blast reaches neighbours this much past the crater it hit (m), and at most this many. */
 const NEIGHBOURS = 14;
+/** What a splash can do to a neighbour: rays are for a direct hit, or the ground under a few blasts is nothing but rays. */
+const NEIGHBOUR_TOP = 2;
 /** The grid marks are kept on (m); a mark wider than this is looked at every time. */
 const GRID = 2048;
 
@@ -59,8 +68,37 @@ export interface PaintDeps {
   frame: MapFrame;
   albedo: WholeMap;
   places: Place[];
+  /** every other named crater, for its sign */
+  names: NameRow[];
   seed: number;
+  /** the boulders in a box: each takes the paint it stands in, at this time */
+  paintRocks: (x0: number, z0: number, x1: number, z1: number, at: number) => void;
+}
+
+/** A row of names.json: name, latitude, longitude, km across. */
+export type NameRow = [string, number, number, number];
+
+/** What the frame hands in once the props and the particles exist. */
+export interface PaintFx {
+  sprouts: RoofSprouts;
+  /** the ground: the tile's where there is one, else the far field's */
   groundAt: (x: number, z: number) => number;
+  tileAt: (x: number, z: number) => boolean;
+  /** stars over a rim, from the ground up */
+  sparkles: (x: number, y: number, z: number, r: number, hue: number, n: number) => void;
+  /** one twinkle */
+  twinkle: (x: number, y: number, z: number, hue: number) => void;
+  /** a splash where the flood reaches the rim */
+  splash: (x: number, y: number, z: number, hue: number, k: number) => void;
+}
+
+interface Spot {
+  name: string;
+  x: number;
+  z: number;
+  /** how near counts as here (m) */
+  R: number;
+  crewed: boolean;
 }
 
 const keyOf = (L: number, i: number, j: number, k: number) => mix32(Math.imul(L + 1, 0x9e3779b1) ^ Math.imul(i, 0x85ebca77) ^ Math.imul(j, 0xc2b2ae3d) ^ Math.imul(k, 0x27d4eb2f));
@@ -108,8 +146,23 @@ export class CraterPaint {
   private stampN = 0;
   /** what grows on them (main.ts hands it the props) */
   rim: RimBloom | null = null;
+  private fx: PaintFx | null = null;
+  private groundAt: (x: number, z: number) => number = () => 0;
   private busX = 0;
   private busZ = 0;
+  /** levels landing: when each reaches its rim */
+  private landing: Array<{ at: number; rec: Rec; level: number }> = [];
+  /** blasts on open ground, oldest first */
+  private readonly strokes: Rec[] = [];
+  private strokesDirty = false;
+  /** the named: where they are */
+  private readonly spots: Spot[] = [];
+  private readonly sites: Spot[] = [];
+  private lastHere: Spot | null = null;
+  private readonly signed = new Map<string, number>();
+  private hereTimer = 0;
+  /** how much of what's around the bus is painted, 0..1, for the hum */
+  nearShare = 0;
 
   constructor(private readonly d: PaintDeps) {
     this.clip = new PaintClip(d.renderer);
@@ -121,7 +174,24 @@ export class CraterPaint {
       latLonToMap(d.frame, p.lat, p.lon, t);
       this.named.push({ id: `p${p.id}`, x: t[0], z: t[1], r: p.R, a: 0.3, b: 0.5, c: 0.5, age: 0, kind: p.km >= 20 ? 1 : 0, name: p.name, wob: p.km >= 20 ? rimOf(p, d.seed) : null, turn: 0, rec: null });
     }
+    for (const p of d.places) {
+      latLonToMap(d.frame, p.lat, p.lon, t);
+      const crewed = p.type === 'site' && p.name.startsWith('APOLLO');
+      const R = p.type === 'site' ? 2600 : p.type === 'crater' || p.type === 'basin' ? p.R * 1.12 : p.type === 'valley' ? p.R * 0.7 : p.R;
+      const spot = { name: p.name, x: t[0], z: t[1], R, crewed };
+      this.spots.push(spot);
+      if (crewed) this.sites.push(spot);
+    }
+    for (const [name, lat, lon, km] of d.names) {
+      latLonToMap(d.frame, lat, lon, t);
+      this.spots.push({ name, x: t[0], z: t[1], R: km * 560, crewed: false });
+    }
+    // (the map's grey circles: only those it can reach)
+    const near = this.sites.filter((c) => Math.abs(c.x) < 2e5 && Math.abs(c.z) < 2e5).slice(0, 6);
+    moonGlobals.uSiteN.value = near.length;
+    near.forEach((c, i) => moonGlobals.uSites.value[i].set(c.x, c.z, SITE_R, 0));
     this.load();
+    this.loadStrokes();
     if (typeof window !== 'undefined') window.addEventListener('pagehide', () => this.save());
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => document.hidden && this.save());
   }
@@ -155,9 +225,63 @@ export class CraterPaint {
     this.d.post({ type: 'craters', id: ++this.askId, cx, cz, half, minR: Math.max(5, 0.006 * reach) });
   }
 
-  /** The props are made after this is. */
-  bloom(sprouts: RoofSprouts, tileAt: (x: number, z: number) => boolean) {
-    this.rim = new RimBloom({ sprouts, groundAt: this.d.groundAt, tileAt });
+  /** Before the first frame: the program that draws the windows compiles now. */
+  prime() {
+    this.clip.prime();
+  }
+
+  /** The props and the particles are made after this is. */
+  bind(fx: PaintFx) {
+    this.fx = fx;
+    this.groundAt = fx.groundAt;
+    this.rim = new RimBloom({ sprouts: fx.sprouts, groundAt: fx.groundAt, tileAt: fx.tileAt });
+  }
+
+  /** The smallest named place that holds (x, z), or the nearest there is. */
+  nameAt(x: number, z: number): string {
+    return (this.spotAt(x, z) ?? this.nearestSpot(x, z))?.name ?? 'THE MOON';
+  }
+
+  private spotAt(x: number, z: number): Spot | null {
+    let best: Spot | null = null;
+    for (const s of this.spots) {
+      const dx = s.x - x, dz = s.z - z, R = s.R;
+      if (dx * dx + dz * dz < R * R && (!best || R < best.R)) best = s;
+    }
+    return best;
+  }
+
+  private nearestSpot(x: number, z: number): Spot | null {
+    let best: Spot | null = null, bd = Infinity;
+    for (const s of this.spots) {
+      const d = Math.hypot(s.x - x, s.z - z) - s.R;
+      if (d < bd) {
+        bd = d;
+        best = s;
+      }
+    }
+    return best;
+  }
+
+  /** Is this inside a crewed site's circle? */
+  private inSite(x: number, z: number): boolean {
+    for (const c of this.sites) if (Math.hypot(c.x - x, c.z - z) < SITE_R) return true;
+    return false;
+  }
+
+  /** Twice a second: a place the bus has just come to, for its sign. Stands where it stands if that's small enough to be a place, else where the bus is going. */
+  passing(dt: number, now: number, f: Flight, height: number): { text: string; x: number; z: number; r: number } | null {
+    this.hereTimer -= dt;
+    if (this.hereTimer > 0) return null;
+    this.hereTimer = 0.5;
+    const here = this.spotAt(f.x, f.z);
+    if (here === this.lastHere) return null;
+    this.lastHere = here;
+    if (!here || now < (this.signed.get(here.name) ?? -1e9) + 70) return null;
+    this.signed.set(here.name, now);
+    const ahead = 150 + 3 * f.ground + 2.2 * height;
+    if (here.crewed) return { text: here.name, x: here.x, z: here.z, r: 40 };
+    return { text: here.name, x: f.x + f.fx * ahead, z: f.z + f.fz * ahead, r: 26 + 0.25 * height };
   }
 
   /** QA: a crater takes a level, as a hit would: an id from `cratersNear`, or a `p` one. */
@@ -184,11 +308,12 @@ export class CraterPaint {
   /** What a crater scores as the thing under the aim: lower is better, -1 not a target. */
   private score(x: number, z: number, r: number, level: number, ax: number, az: number, dist: number, f: Flight): number {
     const d = Math.hypot(x - ax, z - az), e = d - r, snap = 14 + 0.07 * dist;
-    if (e > snap || r < Math.max(5, 0.008 * dist)) return -1;
+    if (e > snap || r < Math.max(8.5, 0.01 * dist)) return -1;
     // (a bowl wider than the view isn't a thing to aim at: its floor is where the targets are)
     if (r > 2.5 * dist) return -1;
     if ((x - f.x) * f.fx + (z - f.z) * f.fz + r < 20) return -1;
-    const pref = Math.max(18, 0.12 * dist);
+    if (this.sites.length && this.inSite(x, z)) return -1;
+    const pref = Math.max(24, 0.14 * dist);
     return (e > 0 ? e / snap + 0.2 : (0.2 * d) / r) + 0.3 * Math.abs(Math.log(r / pref)) + (level >= 3 ? 2 : 0.25 * level);
   }
 
@@ -254,7 +379,7 @@ export class CraterPaint {
     const t = this.target;
     if (!t) return;
     const q = Math.hypot(ax - t.x, az - t.z) / t.r;
-    const x = t.r > 120 && q < 0.8 ? ax : t.x, z = t.r > 120 && q < 0.8 ? az : t.z, y = this.d.groundAt(x, z);
+    const x = t.r > 120 && q < 0.8 ? ax : t.x, z = t.r > 120 && q < 0.8 ? az : t.z, y = this.groundAt(x, z);
     shot.x = x;
     shot.z = z;
     shot.y = y + 0.5;
@@ -267,6 +392,11 @@ export class CraterPaint {
   /** How high a breath lobs (m over its chord): a hill of a thing, in proportion to the throw. */
   arc(from: THREE.Vector3, to: THREE.Vector3): number {
     return 3 + 0.13 * Math.hypot(to.x - from.x, to.z - from.z);
+  }
+
+  /** How wide a breath is, for a shot from this far: it stays a rainbow, not a thread. */
+  width(shot: Shot, f: Flight): number {
+    return Math.min(18, Math.max(1, Math.hypot(shot.x - f.x, shot.z - f.z, shot.drop) / 260));
   }
 
   /** The breath's flight (s) over `d` m: it arcs, it doesn't shoot. */
@@ -294,11 +424,14 @@ export class CraterPaint {
     };
   }
 
-  /** The blast lands: its crater and those around it go up a level. Returns the crater it hit. */
+  /** The blast lands: its crater and those around it go up a level. On open ground it stays as a mark on the far windows. Returns the crater it hit. */
   impact(b: Blast): Target | null {
-    const S = config.splat, t = (b.tag as Target | null) ?? null;
+    const S = config.splat, t = (b.tag as Target | null) ?? null, now = b.t;
     const cx = b.spec.x, cz = b.spec.z, base = t ? t.r + 40 : b.spec.r * 0.8;
-    const v = Math.max(S.waveSpeed, (b.spec.r * S.ringReach) / 0.5);
+    // the wave a crater's size: it crosses the bowl in half a second, whatever the bowl
+    const R = (t ? t.r * 1.25 + 30 : b.spec.r) * S.ringReach, v = Math.max(S.waveSpeed, R / 0.5);
+    blastUniforms.uBlastRing2.value.set(b.spec.hue, S.ringWidth * Math.sqrt(Math.max(1, R / 100)), v, R);
+    blastUniforms.uBlastRing.value.w = b.spec.r;
     const hits: Array<{ i: number; d: number; ang: number }> = [];
     const D = this.data;
     const maxR = t ? Math.max(30, t.r * 1.4) : base;
@@ -308,6 +441,10 @@ export class CraterPaint {
       const dx = D[o] - cx, dz = D[o + 1] - cz, d = Math.hypot(dx, dz);
       if (d - r > base) continue;
       if (t && Math.abs(D[o] - t.x) < 0.5 && Math.abs(D[o + 1] - t.z) < 0.5) continue;
+      if (this.sites.length && this.inSite(D[o], D[o + 1])) continue;
+      // (a firehose lands a dozen times a second: a crater goes up once a second at most)
+      const was = this.listRec[i];
+      if (was && now < was.t0 + 0.9) continue;
       hits.push({ i, d, ang: Math.atan2(dz, dx) });
     }
     hits.sort((p, q) => p.d - q.d);
@@ -316,23 +453,46 @@ export class CraterPaint {
     const was = t ? this.recs.get(keyOfId(t.id)) : undefined;
     const hue = was ? was.hue : this.nextHue;
     if (!was) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
-    if (t) this.paint(t, hue, b.t, cx - t.x, cz - t.z);
+    if (t) this.paint(t, hue, now, cx - t.x, cz - t.z);
+    else if (!b.hose) this.stroke(b);
     for (let k = 0; k < hits.length; k++) {
       const { i, d } = hits[k], o = i * CRATER_FLOATS, I = i * CRATER_INTS;
       const c: Target = { id: `${this.ids[I]}.${this.ids[I + 1]}.${this.ids[I + 2]}.${this.ids[I + 3]}`, x: D[o], z: D[o + 1], r: D[o + 2], age: D[o + 3] as Age, a: D[o + 4], b: D[o + 5], c: D[o + 6], kind: 0, name: null, wob: null, turn: 0, rec: null };
-      const rec = this.paint(c, (hue + k + 1) % HUE_COUNT, b.t + d / v, 0, 0);
+      const rec = this.paint(c, this.listRec[i]?.hue ?? (hue + k + 1) % HUE_COUNT, now + d / v, 0, 0, NEIGHBOUR_TOP);
       this.listRec[i] = rec;
     }
-    if (t) t.rec = this.recs.get(keyOfId(t.id)) ?? null;
+    if (t) {
+      t.rec = this.recs.get(keyOfId(t.id)) ?? null;
+      for (let i = 0; i < this.n; i++) if (Math.abs(D[i * CRATER_FLOATS] - t.x) < 0.5 && Math.abs(D[i * CRATER_FLOATS + 1] - t.z) < 0.5) this.listRec[i] = t.rec ?? undefined;
+    }
+    const reach = base + 30;
+    this.d.paintRocks(cx - reach, cz - reach, cx + reach, cz + reach, now + 0.25);
     return t;
   }
 
+  /** A blast on open ground: GroundPaint has it near the bus, and this is what the far windows show of it. */
+  private stroke(b: Blast) {
+    const sp = b.spec;
+    this.markStroke(sp.x, sp.z, sp.r, sp.hue, (sp.seed % 6283) / 1000, b.t);
+    this.strokesDirty = true;
+    this.saveAt = 1;
+  }
+
+  private markStroke(x: number, z: number, r: number, hue: number, seed: number, t0: number) {
+    const rec: Rec = { id: '', name: null, key: 0, x, z, r, reach: r * 1.1, kind: 2, a: 0, b: 0, c: 0, level: 1, hue, t0, T: 0.1, seed, ix: 0, iz: 0, wob: null, turn: 0, order: -1 };
+    this.strokes.push(rec);
+    this.file(rec);
+    if (this.strokes.length > MAX_STROKES) this.unfile(this.strokes.shift()!);
+    if (t0 > 0) this.live.push(rec);
+  }
+
   /** A crater goes up a level, or takes its first. */
-  private paint(c: Target, hue: number, t0: number, ix: number, iz: number): Rec {
+  private paint(c: Target, hue: number, t0: number, ix: number, iz: number, top = 3): Rec {
     const key = keyOfId(c.id);
     let rec = this.recs.get(key);
     if (rec) {
-      rec.level = Math.min(3, rec.level + 1);
+      if (rec.level >= top) return rec;
+      rec.level = Math.min(top, rec.level + 1);
       rec.t0 = t0;
       rec.ix = ix;
       rec.iz = iz;
@@ -351,6 +511,7 @@ export class CraterPaint {
     this.dirty = true;
     this.saveAt = 1;
     this.rim?.hit(rec, this.busX, this.busZ);
+    if (t0 > 0) this.landing.push({ at: t0 + rec.T * (rec.level === 1 ? 0.85 : 0.6), rec, level: rec.level });
     return rec;
   }
 
@@ -385,11 +546,11 @@ export class CraterPaint {
   }
 
   /** Every mark on a rectangle, biggest first. */
-  private marksIn(x0: number, z0: number, x1: number, z1: number): number {
+  private marksIn(x0: number, z0: number, x1: number, z1: number, strokes = true): number {
     const m = this.marks, stamp = ++this.stampN, seen = this.stamp;
     let n = 0;
     const take = (r: ClipMark) => {
-      if (seen.get(r) === stamp || r.x + r.reach < x0 || r.x - r.reach > x1 || r.z + r.reach < z0 || r.z - r.reach > z1) return;
+      if (seen.get(r) === stamp || r.x + r.reach < x0 || r.x - r.reach > x1 || r.z + r.reach < z0 || r.z - r.reach > z1 || (!strokes && r.kind === 2)) return;
       seen.set(r, stamp);
       m[n++] = r;
     };
@@ -414,6 +575,9 @@ export class CraterPaint {
   update(dt: number, now: number, f: Flight, ax: number, az: number, loaded: boolean, height: number) {
     this.busX = f.x;
     this.busZ = f.z;
+    // (up high the aim tips down: what it picks is under the view, a throw it can make, not at the horizon)
+    const up = Math.min(1, Math.max(0, (height - 300) / 2700));
+    config.splat.aimDown = 20 + 16 * up * up * (3 - 2 * up);
     const reach = Math.max(120, Math.min(26000, height * 3)) + 60;
     this.ask(f, reach);
     if (loaded) this.pick(ax, az, Math.max(40, Math.hypot(ax - f.x, az - f.z, height)), f, now);
@@ -435,18 +599,64 @@ export class CraterPaint {
     }
     for (let k = 0; k < CLIP_LEVELS; k++) {
       c.window(k, win);
-      if (c.dirty(k)) c.draw(k, win[0], win[1], win[2], win[3], this.marks, this.marksIn(win[0], win[1], win[2], win[3]), now);
+      // (the finest window leaves a blast on open ground to GroundPaint: that's sharper, and it's the same place)
+      if (c.dirty(k)) c.draw(k, win[0], win[1], win[2], win[3], this.marks, this.marksIn(win[0], win[1], win[2], win[3], k > 0), now);
       else if (live.length) {
         const x0 = Math.max(win[0], lx0), z0 = Math.max(win[1], lz0), x1 = Math.min(win[2], lx1), z1 = Math.min(win[3], lz1);
-        if (x1 > x0 && z1 > z0) c.draw(k, x0, z0, x1, z1, this.marks, this.marksIn(x0, z0, x1, z1), now);
+        if (x1 > x0 && z1 > z0) c.draw(k, x0, z0, x1, z1, this.marks, this.marksIn(x0, z0, x1, z1, k > 0), now);
       }
     }
+    this.landings(now);
+    this.twinkle(dt, f);
     for (let i = live.length - 1; i >= 0; i--) if (now >= live[i].t0 + live[i].T) live.splice(i, 1);
     this.rim?.sync(dt, f.x, f.z, this.nearBus);
     if (this.saveAt > 0) {
       this.saveAt -= dt;
       if (this.saveAt <= 0) this.save();
     }
+  }
+
+  /** A level reaches its rim: stars, and a crown of splashes. */
+  private landings(now: number) {
+    const l = this.landing, fx = this.fx;
+    for (let i = l.length - 1; i >= 0; i--) {
+      if (now < l[i].at) continue;
+      const { rec, level } = l[i];
+      l.splice(i, 1);
+      if (!fx) continue;
+      const y = this.groundAt(rec.x + rec.r, rec.z);
+      fx.sparkles(rec.x, y, rec.z, rec.r * 1.05, rec.hue, Math.min(60, 12 + level * 8 + rec.r * 0.2));
+      const n = Math.min(10, 3 + Math.round(rec.r / 16)), a0 = rec.seed;
+      for (let k = 0; k < n; k++) {
+        const a = a0 + (k / n) * Math.PI * 2, x = rec.x + Math.cos(a) * rec.r, z = rec.z + Math.sin(a) * rec.r;
+        fx.splash(x, this.groundAt(x, z), z, (rec.hue + k) % HUE_COUNT, Math.min(0.6, 0.2 + rec.r / 300));
+      }
+    }
+  }
+
+  /** Painted craters near the bus twinkle, and hum. */
+  private twinkle(dt: number, f: Flight) {
+    if (!this.fx || !this.recs.size || Math.random() > dt * 7) return;
+    const n = this.nearBus().filter((r) => r.kind !== 2 && Math.hypot(r.x - f.x, r.z - f.z) - r.r < 260);
+    this.nearShare = Math.min(1, n.length / 8);
+    if (!n.length) return;
+    const r = n[Math.floor(Math.random() * n.length)], a = Math.random() * Math.PI * 2, q = 0.5 + 0.6 * Math.random();
+    const x = r.x + Math.cos(a) * r.r * q, z = r.z + Math.sin(a) * r.r * q;
+    this.fx.twinkle(x, this.groundAt(x, z) + 0.6 + Math.random() * 2.5, z, r.hue);
+  }
+
+  /** The hue a boulder here takes, or -1: a bowl it lies in, or a rim. */
+  hueAt(x: number, z: number): number {
+    const l = this.grid.get((Math.floor(z / GRID) + 32768) * 65536 + Math.floor(x / GRID) + 32768);
+    if (this.sites.length && this.inSite(x, z)) return -1;
+    if (l)
+      for (const r of l) {
+        if (r.kind !== 2 && Math.hypot(r.x - x, r.z - z) < r.r * (r.level >= 2 ? 1.12 : 1)) return r.hue;
+      }
+    for (const r of this.wide) {
+      if (r.kind !== 2 && Math.hypot(r.x - x, r.z - z) < r.r * (r.level >= 2 ? 1.12 : 1)) return r.hue;
+    }
+    return -1;
   }
 
   /** The painted craters around the bus. */
@@ -493,13 +703,39 @@ export class CraterPaint {
     this.saveAt = 0;
   }
 
-  save() {
-    if (!this.dirty) return;
-    this.dirty = false;
-    const list: Array<[string, number, number]> = [];
-    for (const r of this.recs.values()) list.push([r.id, r.level, r.hue]);
+  private loadStrokes() {
     try {
-      localStorage.setItem(KEY, JSON.stringify(list));
+      const raw = localStorage.getItem(STROKES_KEY);
+      const list = raw ? (JSON.parse(raw) as number[][]) : null;
+      if (!Array.isArray(list)) return;
+      const t = new Float64Array(2);
+      for (const a of list) {
+        if (!Array.isArray(a) || a.length < 5 || !a.every(Number.isFinite)) continue;
+        latLonToMap(this.d.frame, a[0], a[1], t);
+        this.markStroke(t[0], t[1], a[2], wrap(a[3]), a[4], -1000);
+      }
+    } catch {
+      /* spoiled or blocked: the far windows go without */
+    }
+  }
+
+  save() {
+    try {
+      if (this.dirty) {
+        this.dirty = false;
+        const list: Array<[string, number, number]> = [];
+        for (const r of this.recs.values()) list.push([r.id, r.level, r.hue]);
+        localStorage.setItem(KEY, JSON.stringify(list));
+      }
+      if (this.strokesDirty) {
+        this.strokesDirty = false;
+        const d = new Float64Array(3);
+        const list = this.strokes.map((r) => {
+          dirOf(this.d.frame, r.x, r.z, d);
+          return [Math.round(latOf(d) * 1e4) / 1e4, Math.round(lonOf(d) * 1e4) / 1e4, Math.round(r.r), r.hue, Math.round(r.seed * 100) / 100];
+        });
+        localStorage.setItem(STROKES_KEY, JSON.stringify(list));
+      }
     } catch {
       /* a full or blocked store: the paint lives for this flight */
     }
@@ -510,8 +746,10 @@ export class CraterPaint {
     this.grid.clear();
     this.wide.length = 0;
     this.live.length = 0;
+    this.strokes.length = 0;
     try {
       localStorage.removeItem(KEY);
+      localStorage.removeItem(STROKES_KEY);
     } catch {
       /* blocked */
     }
