@@ -52,7 +52,8 @@ export class Shifter {
 
   private up() {
     if (this.locked) {
-      this.queued++;
+      // (no more than the ladder has left: LOCKED is a flick's answer at the top, not a queue's as it runs out)
+      if (this.queued < this.drive.rungsLeft) this.queued++;
       this.onAnswer?.('gated');
       return;
     }

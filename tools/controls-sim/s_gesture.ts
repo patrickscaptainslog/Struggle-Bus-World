@@ -223,6 +223,7 @@ row('touch', 'undo: a gear still lifting is taken back: the bus goes back to wha
 row('touch', 'the gate: a flick is answered and waits for it', (h) => { h.shifter.locked = true; const a = steer(h); flickUp(h); h.wait(800); const armed = h.shifter.armed, g0 = h.drive.gear; h.shifter.locked = false; h.wait(50); h.up(a, RX + 30, RY); return { armed, g0 }; });
 row('touch', 'the gate: a flick down takes it back', (h) => { h.shifter.locked = true; const a = steer(h); flickUp(h); h.wait(800); flickDown(h); h.wait(50); h.shifter.locked = false; h.wait(100); h.up(a, RX + 30, RY); });
 row('touch', 'the gate: two flicks wait, and two rungs go', (h) => { h.shifter.locked = true; const a = steer(h); flicks(h, 2); h.wait(500); const g0 = h.drive.gear; h.shifter.locked = false; h.wait(100); h.up(a, RX + 30, RY); return { g0 }; });
+row('touch', 'the gate: eight flicks are the six rungs there are, and no LOCKED', (h) => { h.shifter.locked = true; const a = steer(h); flicks(h, 8); h.wait(100); h.shifter.locked = false; h.wait(100); h.up(a, RX + 30, RY); });
 row('touch', 'the gate: a flick down takes back one of two', (h) => { h.shifter.locked = true; const a = steer(h); flicks(h, 2); flickDown(h); h.wait(100); const armed = h.shifter.armed; h.shifter.locked = false; h.wait(100); h.up(a, RX + 30, RY); return { armed }; });
 row('touch', 'the gate: a lone left flick is answered and waits for it', (h) => { h.shifter.locked = true; h.stroke(LX, LY, 0, -74, 85); h.wait(800); const armed = h.shifter.armed, g0 = h.drive.gear; h.shifter.locked = false; h.wait(50); return { armed, g0 }; });
 
@@ -624,6 +625,7 @@ ok(note('undo: a gear still').lifting && by('undo: a gear still').gear === EXPRE
 }
 ok(by('the gate: a flick down').gear === 0 && n('the gate: a flick down', 'back') === 1, 'taken back behind the gate');
 ok(note('the gate: two flicks wait').g0 === 0 && by('the gate: two flicks wait').gear === NONSTOP, 'a flick is a rung behind the gate too');
+ok(by('the gate: eight flicks').gear === JET && by('the gate: eight flicks').level === 3 && n('the gate: eight flicks', 'locked') === 0 && n('the gate: eight flicks', 'gated') === 8, 'behind the gate no more waits than the ladder has, and a queue running out says nothing');
 ok(note('the gate: a flick down takes back one').armed && by('the gate: a flick down takes back one').gear === EXPRESS, 'a flick down takes back one of them');
 {
   const v = note('the gate: a lone left flick');

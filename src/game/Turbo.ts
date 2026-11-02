@@ -136,9 +136,14 @@ export class TurboDrive {
     return gearAlt(this.gear) > 0;
   }
 
+  /** The rungs above this one: the gears in reach, then turbo's levels. */
+  get rungsLeft(): number {
+    return this.maxGear + config.turbo.levels.length - this.gear - this.level;
+  }
+
   /** The top of the ladder: the last gear in reach, with all of turbo on. */
   get topped(): boolean {
-    return this.gear >= this.maxGear && this.level >= config.turbo.levels.length;
+    return this.rungsLeft <= 0;
   }
 
   /** One rung, up or down: up the gears, then turbo's levels over the top gear; down, turbo first. False when nothing changed: LOCKED, or already Cruise. */

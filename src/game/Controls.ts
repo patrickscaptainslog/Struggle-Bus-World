@@ -208,7 +208,10 @@ export class Controls {
 
   /** After input.update, before the flight steps: the turbo drive writes Flight.turbo. */
   preFlight(dt: number) {
+    const waited = this.shifter.armed;
     this.shifter.tick();
+    // (the rung went: the line that said it must wait is no longer true)
+    if (waited && !this.shifter.armed) this.hud.clearToast();
     this.turbo.update(dt, this.d.flight);
   }
 
