@@ -15,20 +15,20 @@ Phase 1: single player, no server. iPhone Safari first (portrait, one thumb).
 - **Tap anywhere to splat.** A tap (a second thumb's too, on its lift) is dragon
   breath; a still press up to 0.45 s still splats, past that it is a thumb at rest.
 - **The left of the screen looks, the rest flies** (`docs/specs/flight/THUMBS.md`). Any
-  thumb shifts: a quick flick up is a gear; two flicks up are turbo, and two more a level
-  of it, up to three; a flick down takes back a gear on its way, then ends turbo, then drops
-  a gear. A thumb on the left drags to look around, alone or beside a flying thumb, and
+  thumb shifts: a quick flick up is one rung, Cruise, Express, Nonstop, Jet, then three of
+  turbo; a flick down is one rung back, turbo first. A thumb on the left drags to look around, alone or beside a flying thumb, and
   never flies; lift and the view goes home. One thumb anywhere else does all of the
   shifting from a fresh stroke that lifts fast: a thumb that stays down steers.
 - **MEGA** (right side): tap = splat, hold = charge; slide off it and the same
   finger steers (a charge keeps charging). **BUTTONS: SWAP** in settings mirrors it,
   and the side that looks, for the left hand.
 - **Turbo gears.** G1 "Express" (about 250 mph) is the surge with no thumb on it:
-  no height, it rides the rooftops. G2 "Jet" (~1,000 mph): shifted up low, the bus
-  claws its way up to ~150 m first, straining and rattling, then the gear bites and
-  it breaks the sound barrier with a boom, a vapor cone and a rainbow contrail.
+  no height, it rides the rooftops. G2 "Nonstop" (~500 mph): a low lift to ~60 m. G3
+  "Jet" (~1,000 mph): shifted up low, the bus claws its way up to ~150 m first, straining
+  and rattling, then the gear bites and it breaks the sound barrier with a boom, a vapor
+  cone and a rainbow contrail. Then TURBO, TURBO 2 and TURBO 3.
   Steering gets wider with speed. Shift down to brake back a gear and
-  hold your altitude. G3 "Stratos" and G4 "Rainbow Warp" (San Francisco to
+  hold your altitude. "Stratos" and "Rainbow Warp" (San Francisco to
   Tokyo in about five minutes) are locked until the world beyond the city
   exists ("LOCKED: WORLD TRAVEL COMING").
 - Up high the camera pulls back into a vista (it holds perfectly still while
@@ -57,8 +57,8 @@ Phase 1: single player, no server. iPhone Safari first (portrait, one thumb).
   and chimes when it's ready (a press still splats meanwhile).
 - Keyboard (desktop): arrows / WASD fly the same yoke (Down/S climbs, Up/W
   dives or surges), mouse drag is the bungee, Space breathes (hold to
-  charge), E / Q shift turbo gears, E twice is turbo, Q ends it, Shift boosts while
-  held, right mouse drag looks, Esc opens the settings.
+  charge), E / Q step the gears and turbo a rung at a time, right mouse drag looks, Esc
+  opens the settings.
 - Blast an already-painted block to escalate it: rooftop gardens, then full
   Hundertwasser.
 - Paint and your control settings are saved on your phone.

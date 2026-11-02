@@ -2740,6 +2740,30 @@ Every number here is from main-bPdy7owl.js, a fresh build of 48794f1 (the docs a
   - `s_layout` 295, `s_look` all passed, `tsc` clean on both configs, `iosfloor` parses every chunk.
 - Left: all of it waits on the phone, THUMBS "What only a phone can say". The zone has had no review.
 
+## One flick, one rung (2026-11-02, `feat/thumbs`)
+
+The producer, on an iPhone 17 Pro: "The sensitivity is too high for the camera panning. Other than that good. Let's just get rid of the double swipe for now and just gear it up with single swipes into turbo, I do think there needs to be at least one more gear before entering turbo though". To them "turbo" is what Jet feels like.
+
+- **The ladder.** Cruise 30, Express 112, Nonstop 225, Jet 450, then TURBO, TURBO 2, TURBO 3 at Jet x `config.turbo.levels`. One flick is one rung, up or down, in `TurboDrive.rung`. With no window to wait for, a gear starts on the flick. The double's whole machinery went: `doubleMs`, the first flick's held gear, `loneAgainMs`, `flickInFlight`, `flickedAt`, the two times on `onTurbo`, and `boostOff`, because a flick down drops one rung now. The pop and the clunk stayed.
+- **Turbo sits over the top gear in reach.** With `worldTravel` on it is over Rainbow Warp, pinned in both sims. There was no `levelsG0` in the code to remove: that logic was `driveSpeed`'s `g === 0 && lv === 0` and its surge underneath, and what leaned on it went too (`Controls.surge`'s `T.boosting`, the fx's `drive.lifts`, the toast a double under the gate had to clear).
+- **Shift is gone.** A held boost has nothing to sit on at Cruise or Express now, so it would have been a key that does nothing until G3. `state.turboHeld`, `HudFrame.held` and `update`'s third argument went with it.
+- **Nonstop climbs at 50 m/s.** Over low roofs, in three places: 30 bites 1.4 s after the flick at 12 degrees of pitch, a drift; 75, Jet's rate, 0.8 s at 20, a hop; 50 about 1 s at 17, 40 m up in 1.5 s. Keeps Jet's 150 m.
+- **Found on the way, the things the rung needed.**
+  - A gear still lifting drove a full surge, so Nonstop to Jet would have braked from 225 toward 140 for the length of the lift and then spooled back: speed given back at every hop. It now drives the rung under it, and `s_turbo` flies the ladder 0.1 to 4 s apart with nothing given back.
+  - A flick down a turbo level has less than the old 1.25 x to go, so it never reached the brake and the classic rate would have stopped 900 to 720 in about a second, 55 m/s per 100 ms by the sum. Onto a rung with a height it brakes all the way now, 14 at worst, and 21 from Jet to Nonstop. Not while the map's edge is fading the speed: the 735 m past it was measured on the classic rate, and that stays as it was.
+  - `shift(-1)` said engaged for any lower gear, true while Express was the only one and it has no height. A Jet taken back low would have put Nonstop's speed on a bus that hadn't reached Nonstop's height. Now it asks.
+  - The engine's surge stopped at any gear with a height, so the wind would have dropped at every lift. It runs in any gear now, giving way to the turbo voice from 225 m/s to Jet's speed.
+  - A gear's clunk and the flick's would have landed on one frame at twice the level, so going up the clunk is the flick's alone. LOCKED has no pop: the pop says a rung went.
+- **Where the build left the brief.** The gate counts flicks: two flicks under it are two rungs, one per rung as everywhere else, where a boolean would have swallowed the second. Its words stay TURBO AFTER THE BRIDGE and TURBO OFF, which now describe a gear; that's the producer's word and wasn't in the note, so THUMBS lists it. The readout's pips are 6 UI px, not 8, to fit eight of them and 2,010 MPH in the same box.
+- **The look.** Angle = a x + b x^3, `lookDegPerPx` 0.4, `lookFullPx` 260 so b is derived and the tuner's two rows are numbers a person can read: 10.1, 20.5, 44.3, 85.4 and 180 degrees at 25, 50, 100, 165 and 260 px, in the real rig. Up and down the slack is in px now, not radians. In radians a thumb far past a limit turned back at the steep end of the curve, so the gentle start would have been the landing's alone.
+- **`lookFollowHz` 3, from 4.5.** The curve did most of it: a nudge's peak 183 to 74 degrees/s, a fast 90 px 640 to 281. Then 3 Hz: 58 and 221, and a thumb's tremor at 260 px halves, 0.59 to 0.30 degrees, for 36 ms more behind the thumb, 108 against 72. At 2 Hz it trails by 147 and starts to read as a lag; that line is judgment, not a measurement, and only a phone can say.
+- **Cut with the double, and worth watching.** Every flick of a run on the flying side is on the firm rule again, 90 % practised and 48 % new each [model]. The brief said to remove the easier rule if nothing else needed it. A run up the ladder is the nearest thing to a need, so it is the first thing to look at if flicks drop on the phone.
+- **Checked** on main-Ch2mE0cF.js (laptop, Edge headless, so no fps or timing numbers, and no thumb number from this machine). Nothing here has run on a phone: there is none on this machine.
+  - `s_gesture`: 255 rows, 623 checks. `s_turbo`: 27 verdicts, new, on the real city: it had none. `s_look`: all passed. `s_layout` 295. `tsc` clean. `iosfloor` parses every chunk.
+  - `tools/controls.mjs thumbs`, real CDP multi-touch: all 49 rows. Its first run failed two rows of the hand-back, because the new ladder rows left the bus hundreds of metres up: `skimming()` now lands on the floor and runs a frame. `turbo`, `states`, `opening`, `keyboard` and `firstrun` ran too: the surge stays at 1 through both lifts, the readout reads G1 EXPRESS to G6 TURBO 3, and `firstrun` was reading its hint before the bridge since a307e25.
+  - `s_nose` runs with Express where it had Cruise's turbo.
+- Left: all of it waits on the phone, THUMBS "What only a phone can say". This has had no review.
+
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
   local repo until `patrickscaptainslog/struggle-bus` exists.

@@ -36,12 +36,13 @@ Measured in the game with the real stick, full belly, at a fixed step:
 |---|---|---|---|---|
 | Full pull | 40 | 13.2 | 72 | 72 |
 | Full pull, Express | 111.6 | 9.8 | 85 | 80 |
-| Full pull, turbo on, Cruise | 145 | 12.7 | 85 | 80 |
+| Full pull, Nonstop | 224 | 19.6 | 85 | 80 |
 | Full pull, Jet | 448 | 39 | 85 | 80 |
 | Full push | -98.2 | 8.6 | -85 | -80 |
 | Full push, Express | -111.6 | 9.8 | -85 | -80 |
-| Full push, turbo on, Cruise | -145 | 12.7 | -85 | -80 |
 | Full push, Jet | -448 | 39 | -85 | -80 |
+
+Cruise's turbo had a row here. It went on 2026-11-02 with turbo's place on the ladder: turbo is over the top gear now (`THUMBS.md`), so a pull with it is Jet's row or faster.
 
 The stick at a quarter, a half and three quarters of its travel gives 6, 27 and 54 degrees, both ways.
 

@@ -778,8 +778,7 @@ a firmer rule, because it steers until the lift; nothing on screen teaches or sh
   press on the screen NEVER charges. `state.chargeHeld` = seconds since the press while charging, else 0;
   `onChargeEnd(heldSeconds, cancelled)` on release (cancelled: pointercancel, a lost touch, focus lost). One press at
   a time (`pressHeld`: MEGA or Space); a second source while one is held taps.
-- `onTurbo(dir: 1 | -1, landed, lifted, flew)` a flick, or E / Q (the two times are ms on the performance clock; for a key, the same
-  time twice; `flew`: the stroke was on the stick). `Shifter` says what it means. `state.turboHeld`: Shift holds the boost; the latched turbo is `TurboDrive.level`.
+- `onTurbo(dir: 1 | -1, flew)` a flick, or E / Q (`flew`: the stroke was on the stick). `Shifter` says what it means.
 - `state.look: { on, x, y }` a second thumb's (or the right mouse's) offset from where it landed, CSS px, +x right, +y up;
   on only past `lookDelayMs` and the tap slop, 0, 0 when off. main.ts hands it to `CameraRig.setLook` every frame, with the wall clock's dt.
 - `onPress()` a gesture landed (the aim's press latch, glint == hit): the flying thumb, or a second thumb with nobody flying; never a
@@ -790,32 +789,29 @@ a firmer rule, because it steers until the lift; nothing on screen teaches or sh
   stretch. The aim thaws on a thumb, keys or a QA stick: `aimer.update` gets `(qaStick || st.thumb || keys) && !input.pressHeld`.
 - Roles: `Fly` (the one flying thumb), `Second` (any other, each on its own lifecycle: a look thumb outlives the flying thumb
   and the next landing out of the zone flies), `Orphan` (swallowed by three fingers). `swapped` (BUTTONS: SWAP) moves the look zone.
-  `flickInFlight(by, now)`: a stroke that landed by then may still be a flick, so a waiting gear waits for its lift.
 - HUD hooks: `splatButton(down, cancelled?, eventTimeMs?)` (MEGA), `adoptThumb(e, keepPress, x0, y0, t0)` (MEGA's finger
   becomes the flying thumb; a look thumb stays what it is), `adoptedMove/Up` (its events if capture didn't move).
 - The opening (`main.ts` with `Controls`): `controls.gearsLocked` (`Shifter.locked`) and `controls.opening`, set per frame, queue a
   gear until the bus clears the gate and drive the first run. Nothing else holds the opening. `controls.frozen` is QA's: dt 0.
 
-**Flicks** (`src/game/Shifter.ts`, no DOM): `flick(dir, landed, lifted, flew)`, `tick(now)` per frame on the wall clock, `armed`,
-`gated`, `onAnswer('first' | 'gated' | 'back')`. An up flick opens the window (`doubleMs`) and is answered at once; a second one
-landing inside it calls `TurboDrive.boostUp()`; the window closing shifts, or queues behind the gate. A down flick takes back
-what's waiting, else `boostOff()`, else `shift(-1)`, which takes back a gear still lifting too (it leaves `holdY` alone). A flick down
-on the stick pulled until its lift, so when it does any of that `Flight.unpull()` hands back the hold from before the stroke as the
-bus lets go, and the bus goes on as it was; out of a gear that bit it holds the height instead, and with nothing to do it stays a
-quick pull. LOCKED can only come out of `shift` or `boostUp`, so never before the window closes.
+**Flicks** (`src/game/Shifter.ts`, no DOM): `flick(dir, flew)`, `tick()` per frame, `armed`, `onAnswer('go' | 'gated' | 'back')`. One flick is one
+rung, at once: `TurboDrive.rung(dir, flight)`, answered the same moment; past the top LOCKED is its own answer. Under the gate a flick up
+waits, counted, and fires when it clears. A flick down takes one of those back, else `rung(-1)`, which takes back a gear still lifting too
+(it leaves `holdY` alone). A flick down on the stick pulled until its lift, so when it does any of that, or drops a turbo level,
+`Flight.unpull()` hands back the hold from before the stroke as the bus lets go, and the bus goes on as it was; out of a gear that bit it
+holds the height instead, and with nothing to do it stays a quick pull.
 
-**Turbo** (`src/game/Turbo.ts`, `TurboDrive`): `shift(dir, flight)`,
-`boostUp()`, `boostOff()`, `update(dt, flight, held)`, `gear`, `level` (the latched
-turbo), `engaged`, `lifts` (the gear has a height: Jet and up), `strain`, `speedK` (log scale: 0 at the surge, 1 at Jet),
+**Turbo** (`src/game/Turbo.ts`, `TurboDrive`): `rung(dir, flight)` (one rung of the ladder: the gears, then turbo's levels over the top gear; down, turbo first), `shift(dir, flight)`,
+`update(dt, flight)`, `gear`, `level` (turbo, over the top gear), `topped`, `engaged`, `lifts` (the gear has a height: Nonstop and up), `strain`, `speedK` (log scale: 0 at the surge, 1 at Jet),
 `boosting`, `edge`, `onEvent(ev, gear)` with ev up | down | locked | engage | boom |
-turbo | turbo-off, and Shifter's flick | back down the same path;
-`gearSpeed/gearAlt/gearClimb`, `driveSpeed(gear, level, engaged)`,
-`GEAR_NAMES`, and the gears by name (`EXPRESS`, `JET`, `STRATOS`, `WARP`: a number is a place on the ladder). Express is the surge with no
+turbo | turbo-down, and Shifter's flick | back down the same path;
+`gearSpeed/gearAlt/gearClimb`, `driveSpeed(gear, level, engaged)` (a gear still lifting drives the rung under it, so a hop gives nothing back), `rungName(gear, level)`,
+`GEAR_NAMES`, and the gears by name (`EXPRESS`, `NONSTOP`, `JET`, `STRATOS`, `WARP`: a number is a place on the ladder). Express is the surge with no
 thumb on it: no height, no floor, the classic rate, in on the shift, and a shift down out of it holds and brakes nothing. It writes **`Flight.turbo`** before each step: `speed` (target,
 0 = classic), `rate` (1/s, 0 = classic), `floor` (m ASL, a gear's floor the
 bus rides like a roof), `ceiling` (0 = config.flight.ceiling), `yaw`
 (steering authority). Flight's `lift` / `floorY` smoothing stay the
-rooftop's. Tunables: `config.turbo` (`worldTravel` gates Stratos and Rainbow Warp, `levels` is turbo's, on the gear's speed and at Cruise on the surge's). Near the map's edge what fades is a gear's or turbo's
+rooftop's. Tunables: `config.turbo` (`worldTravel` gates Stratos and Rainbow Warp, `levels` is turbo's, on the top gear's speed). Near the map's edge what fades is a gear's or turbo's
 speed over the ground, over a reach read from what it is driving at, so a bus
 going straight up keeps its gear.
 **The path** (`docs/specs/flight/NOSE.md`): on any dive, and on a pull with a
@@ -847,14 +843,14 @@ nothing stops it there (`docs/specs/bridges/BRIDGES.md`, step 5's flight list).
 
 While `Controls.tearing` (a gear selected, or braking out of one) main.ts sets
 `City.detailHold`: no level-of-detail change, arrivals are coarse. Swaps to detail
-prepare tile by tile (`prep` adopt items), the swap itself only commits. A gear waiting,
-for a second flick or the opening's gate (`gearsLocked`), is shown as `HudFrame.armed`.
+prepare tile by tile (`prep` adopt items), the swap itself only commits. A flick waiting
+for the opening's gate (`gearsLocked`) is shown as `HudFrame.armed`.
 
 **Turbo FX** (`src/fx/Turbo.ts`, `TurboFx`): the boom's rainbow hoop (one annulus,
 one draw while it lasts; every effect really draws in the warm-up), contrail ribbon (one
 interleaved dynamic buffer, one upload per frame), speed lines (instanced,
 uniforms only), vapor cone; all `sbWrite` with flags 0.5 and ordered-dither
-dissolves; events through the existing `Particles.puff/sparkles` (a first flick's
+dissolves; events through the existing `Particles.puff/sparkles` (a flick up's
 answer, `pop`, is the boom's vapor ring, small, carried along with the bus and scaled to stand as big on screen at any height: a
 phone on silent hears nothing; `Controls.pose` makes the bus hiccup on the same event); the
 rattle (`applyRattle`). **Voice** (`src/audio/turboVoice.ts`) on
