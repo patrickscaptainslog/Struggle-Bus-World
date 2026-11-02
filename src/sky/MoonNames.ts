@@ -45,8 +45,9 @@ const WIDE_PLACE_KM = 200;
 const INSIDE = 0.75;
 /** Metres from the lens to where a sign stands: past the bus, which flies in front of it. */
 const DEPTH = 2600;
-/** A place comes round again after this long, s. */
+/** A place comes round again after this long, s; sooner if it was only named from high up, and the bus has since come to it. */
 const AGAIN = 300;
+const AGAIN_NEAR = 45;
 
 interface Standing {
   place: Place;
@@ -74,7 +75,8 @@ export class MoonNames {
   readonly log: NameSeen[] = [];
   private places: Place[] = [];
   private readonly up: Standing[] = [];
-  private readonly shown = new Map<number, number>();
+  /** when each place may have its sign again, s */
+  private readonly back = new Map<number, number>();
   private wait = 0;
   private check = 0;
   private clock = 0;
@@ -130,7 +132,7 @@ export class MoonNames {
     if (!g) return null;
     let best: Standing | null = null, score = -Infinity;
     for (const p of this.places) {
-      if (this.clock < (this.shown.get(p.id) ?? -1e9) + AGAIN) continue;
+      if (this.clock < (this.back.get(p.id) ?? -1e9)) continue;
       const at = this.anchor(p, g);
       if (!this.seen(at, s) || this.p.z >= 0) continue;
       const k = focal / -this.p.z, x = this.p.x * k, y = this.p.y * k;
@@ -190,7 +192,7 @@ export class MoonNames {
         this.seen(n.at, s);
         const k = focal / -this.p.z;
         this.log.push({ name: n.place.name, at: clock, h: s.moonKm - R_MOON, x: Math.round(this.p.x * k), y: Math.round(this.p.y * k) });
-        this.shown.set(n.place.id, clock);
+        this.back.set(n.place.id, clock + (s.moonKm - R_MOON > WIDE_KM ? AGAIN_NEAR : AGAIN));
         this.up.push(n);
         this.wait = nameTune.every;
         this.signs.show({ text: n.text, position: this.at.set(c.x + this.p.x * DEPTH, c.y + this.p.y * DEPTH, c.z + this.p.z * DEPTH), facing: 0, hue: 0, scale: (nameTune.font * DEPTH) / (T.texelW * focal), biasNow: true, depthBias: 0, plain: true, riseScaled: true });
