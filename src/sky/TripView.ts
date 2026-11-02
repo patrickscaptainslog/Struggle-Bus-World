@@ -40,6 +40,8 @@ export const SHOW = 0.7;
 /** deg/s at full stretch */
 const THUMB_RATE = 70 * DEG;
 const THUMB_HOLD = 6;
+/** The view's fastest turn to north, rad/s. */
+const NORTH_RATE = 45 * DEG;
 /** The nose's fastest swing, rad/s: the tip-up reads as a move, and the first frame of it isn't a kick. */
 const NOSE_RATE = 75 * DEG;
 /** The disc's centre over the frame's, a share of the height: the sheet's cy = 0.42. */
@@ -139,10 +141,12 @@ export class TripView {
     n.addScaledVector(u, -n.dot(u)).normalize();
     const side = this.t.crossVectors(u, lv);
     const toNorth = Math.atan2(n.dot(side), n.dot(lv));
-    // (a steered leg faces the way the bus does; the wide-out ones turn to north with height. Unwrapped only while the turn is under way: left to run it collects whole turns, and those would play out on arrival)
+    // (a steered leg faces the way the bus does; the wide-out ones turn to north with height. Unwrapped only while the turn is under way: left to run it collects whole turns, and those would play out on arrival.
+    // Under way it has a top speed: a way home that passes over the pole sees north go half way round in a moment)
     const far = trip.steering ? 0 : smooth01(0.16 * R, 0.95 * R, d - R);
     this.k += (far - this.k) * (1 - Math.exp(-2 * dt));
-    this.h = this.started && this.k > 0.001 && this.k < 0.999 ? this.h + wrap(toNorth - this.h) : toNorth;
+    const most = NORTH_RATE * dt;
+    this.h = this.started && this.k > 0.001 && this.k < 0.999 ? this.h + Math.max(-most, Math.min(most, wrap(toNorth - this.h))) : toNorth;
     if (trip.steering) this.lag += (stickX * trip.yawRate - this.lag) * (1 - Math.exp(-3 * dt));
     else this.lag *= Math.exp(-3 * dt);
     const turn = this.h * this.k + this.lag / 3;

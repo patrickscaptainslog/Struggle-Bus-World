@@ -602,7 +602,7 @@ export class MoonTrip {
       }
       case 'in': {
         // one line from the disc's far floor to the orbit's: straight down, speed the law's. The pull-up is the same law: a constant turn lands level on the floor at G3 when 1 - cos(dive) = PULL tau ln(v / G3), so the dive is
-        // solved from the height every frame, and it can't miss. (What a far aim would add is under a degree here, and the path is at the disc's middle, where the view is.)
+        // solved from the height every frame, and it can't miss. (The aim's few degrees off the disc's middle end here: the path goes to the middle, where the view is.)
         const x = hM - ALT4;
         setUnit(rm, u);
         tangent(this.heading, u, this.w2);
@@ -622,7 +622,7 @@ export class MoonTrip {
         return true;
       }
       case 'orbit': {
-        // level on the floor, a great circle round the Moon, the thumb turning it. G4 arrives and G3 stays: a shift down, at the classic rate, height no part of it
+        // level on the floor, a great circle round the Moon, the thumb turning it. The way in arrives at G3 and it stays
         const p = this.ob.pos, h = this.heading;
         setUnit(p, u);
         this.yaw(stick, dt, u);

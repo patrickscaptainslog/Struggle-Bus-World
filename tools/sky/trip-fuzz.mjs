@@ -99,7 +99,14 @@ for (let n = 0; n < N; n++) {
     if (frames > 2) {
       const c = (a[0] * axes[0] + a[1] * axes[1] + a[2] * axes[2] + a[3] * axes[3] + a[4] * axes[4] + a[5] * axes[5] + a[6] * axes[6] + a[7] * axes[7] + a[8] * axes[8] - 1) / 2;
       // (the thumb's own swing is the player's, so the view's limit is read with the thumb off)
-      if (!down) bump('view', (Math.acos(Math.min(1, c)) / DEG) * k, `${trip.leg} ${trip.clock.toFixed(1)} ${say()}`);
+      if (!down) {
+        const turned = (Math.acos(Math.min(1, c)) / DEG) * k;
+        bump('view', turned, `${trip.leg} ${trip.clock.toFixed(1)} ${say()}`);
+        if (turned > 6) {
+          failures.push(`${say()}: the view turned ${turned.toFixed(1)} degrees in a frame on ${trip.leg} at ${trip.clock.toFixed(1)}`);
+          broken = true;
+        }
+      }
       bump('bus', ((2 * Math.acos(Math.min(1, Math.abs(view.busQuat.dot(q))))) / DEG) * k, `${trip.leg} ${trip.clock.toFixed(1)} ${say()}`);
       bump('lens', Math.abs(view.hfov - hfov) * k, `${trip.leg} ${say()}`);
     }

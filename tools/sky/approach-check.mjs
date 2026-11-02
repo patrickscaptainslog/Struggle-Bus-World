@@ -72,7 +72,10 @@ function fly(g5) {
 /** One way in, from the view's arrival on the body to the end of the way in. */
 function growth(rows, key, name) {
   const dead = key === 'moonPx' ? 15 : 0;
-  const n = rows.length;
+  const n = rows.length, off = key === 'moonPx' ? 'moonOff' : 'earthOff';
+  let wide = 0;
+  for (const r of rows) if (r[key] < W) wide = Math.max(wide, r[off]);
+  say(wide < 0.6, `${name}: while it's narrower than the frame it stays in the middle of it, at most ${wide.toFixed(2)} of the way to the edge`);
   let up = 0, down = 0, flat = 0, flatLong = 0, flatTop = 0, floorS = 0;
   for (let i = 1; i < n; i++) {
     const a = rows[i - 1][key], b = rows[i][key], r = b / a - 1;
