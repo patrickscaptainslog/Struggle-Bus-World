@@ -520,7 +520,7 @@ async function boot() {
       rig.kick(S.kick * Math.sqrt(k));
       bumpPaint(b.spec.x, b.spec.z, Math.min(255, 30 + 5 * b.count));
       // nothing blooms (open ground with no building in reach): no first bloom will queue a sign, so it queues here
-      if (!b.count || moon) queueSign(null, b.spec.hue, b.spec.x, b.spec.z, b.spec.r);
+      if (moon ? moon.paint.signDue(b.spec.x, b.spec.z, b.t) : !b.count) queueSign(null, b.spec.hue, b.spec.x, b.spec.z, b.spec.r);
     },
     bloom: (ref, _order, _total, hue, level, roof, flags) => {
       if (landmarkBloom(ref, hue, level)) return;
@@ -959,8 +959,10 @@ async function boot() {
   // one by one in the first frames; every region streams back in (their meshes kept no JS copy, City.reloadAll), budgeted
   // like the opening's, with the game clock standing until the city is in
   let glLost = false;
-  /** the page shows instead of the canvas: frames run at dt 0 until the city is back */
-  let covered = false;
+  /** the page shows instead of the canvas: frames run at dt 0 until the city is back (?moon: from the start, until the ground near the bus is in: the first thing seen isn't a coarse tile) */
+  let covered = !!moon;
+  /** ?moon: how long the first look waits for that, at most */
+  let coverUntil = Infinity;
   // the first ready frame adopts streamed tiles at once (as the classic streaming did); then budgeted
   let everReady = false;
   canvas.addEventListener('webglcontextlost', () => {
@@ -1408,11 +1410,16 @@ async function boot() {
     controls.hud.setMega(superView.phase);
     perf.frame(dt * 1000, performance.now() - t0);
     const cityIn = city.loadedRegionCount() > 0 && !city.loading && !later.length;
-    if (covered && cityIn) {
+    if (moon && covered && coverUntil === Infinity) coverUntil = now + 12000;
+    if (covered && (moon ? (cityIn && !city.busy) || now > coverUntil : cityIn)) {
       covered = false;
       canvas.style.visibility = '';
+      if (moon) {
+        document.documentElement.classList.add('in');
+        if (moon.lost) controls.hud.toast(['NO PLACE CALLED', moon.lost], 4);
+      }
     }
-    const ready = cityIn && (opening >= config.fog.openingDuration || params.has('openingshot'));
+    const ready = !covered && cityIn && (opening >= config.fog.openingDuration || params.has('openingshot'));
     if (ready && !everReady) {
       audio.prepare();
       if (!params.has('skipintro') && !params.has('lat')) {

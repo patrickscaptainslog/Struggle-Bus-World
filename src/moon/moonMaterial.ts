@@ -45,8 +45,11 @@ void moonRead(vec4 m, out vec3 n, out float tone, out float under) {
   tone = m.b;
   under = moonDecode(m.a) * ${SHADOW_MAX.toFixed(1)};
 }
-// (the brightest slopes keep their shape: they ease into the top of the ramp)
-float moonShoulder(float l) { return l / sqrt(1.0 + 0.3 * l * l); }
+// The brightest slopes keep their shape: as it was up to 0.72, and past that a long ease into the top of the ramp, or a whole sunlit wall of fresh ground is one flat white with its stones as black static (Shackleton, Aristarchus).
+float moonShoulder(float l) {
+  if (l <= 0.8) return l / sqrt(1.0 + 0.3 * l * l);
+  return 1.0 - 0.28 * exp(-2.74 * (l - 0.8));
+}
 // The light on regolith: nearly no limb darkening, so what a low Sun shows is the slope against it, measured from flat ground. Anything out of the Sun is black but for this floor.
 float moonLit(vec3 n, float tone, float sun) {
   float k = max(dot(n, uSunDir), 0.0) / max(uSunDir.y, 0.05);
@@ -105,6 +108,11 @@ int moonWindow(vec2 xz, float px, out vec2 t) {
   }
   return L;
 }
+// The hue one texel holds, going by its own ramp.
+float moonSaid(vec4 s) {
+  float h = floor(s.r * 255.0 + 0.5);
+  return s.g < 0.5 ? floor(h / 8.0) : mod(h, 8.0);
+}
 // The paint at a place: false on bare ground.
 bool moonClip(vec2 xz, float px, out float ramp, out float edge, out float lift, out float glow) {
   ramp = 0.0; edge = 0.0; lift = 0.0; glow = 0.0;
@@ -137,7 +145,21 @@ bool moonClip(vec2 xz, float px, out float ramp, out float edge, out float lift,
   if (w.z > m) { m = w.z; s = s01; }
   if (w.w > m) s = s11;
   float h = floor(s.r * 255.0 + 0.5), b = floor(s.b * 255.0 + 0.5);
-  float pick = which / max(sum, 1e-4) < 0.5 ? floor(h / 8.0) : mod(h, 8.0);
+  float hA = floor(h / 8.0), hB = mod(h, 8.0);
+  float pick = which / max(sum, 1e-4) < 0.5 ? hA : hB;
+  // Two marks that meet have no ramp between them: coverage is full either side and the hue just changes, a texel's corner at a time, and near the lens a texel is 20 pixels. Each of the four says its own hue, and
+  // the hue with the most of the four weights wins: that's the filtered contour between them, not a stair.
+  vec4 said = vec4(moonSaid(s00), moonSaid(s10), moonSaid(s01), moonSaid(s11));
+  if (any(greaterThan(step(0.001, w) * abs(said - hA) * abs(said - hB), vec4(0.5)))) {
+    float top = -1.0;
+    for (int i = 0; i < 4; i++) {
+      float n = dot(w, vec4(equal(said, vec4(said[i]))));
+      if (n > top) {
+        top = n;
+        pick = said[i];
+      }
+    }
+  }
   ramp = MOON_HUES[int(clamp(pick, 0.0, 5.0))];
   edge = cov - thr;
   lift = floor(b / 16.0) / 15.0;
@@ -238,7 +260,7 @@ const NEAR_FS = /* glsl */ `
     }
     float light = moonLit(n, tone, sun);
     if (stone > 0.5) light = max(light * (1.0 + 0.8 * grainK), 0.3);
-    else if (stone < -0.5) light *= 1.0 - 0.75 * grainK;
+    else if (stone < -0.5) light *= 1.0 - mix(0.75, 0.42, smoothstep(0.55, 0.95, light)) * grainK;
     float ramp = moonRamp(tone);
     float glow = 0.0;
     float pr, pEdge, pWet, pFresh, pLift, pGlow;
@@ -392,7 +414,12 @@ const FAR_FS = /* glsl */ `
     if (f > 0.02 && L0 < uFarLevels - 1.0) m = mix(m, farMap(L0 + 1.0), f);
     float under = moonDecode(m.g);
     float lit = m.r * m.r * ${LIT_MAX.toFixed(1)};
-    float light = uMoonLight.y + 0.03 + (under > 0.0 ? 0.0 : moonShoulder(uMoonLight.x * lit));
+    float light = uMoonLight.y + 0.03;
+    if (under > 0.0) {
+      // (out of the Sun: what a sunlit wall throws back, as the near ground has it, on the triangle's own slope, or the lee of a mountain is a flat black hole in the picture)
+      vec3 fn = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
+      light += 0.1 * smoothstep(0.56, 0.95, dot(fn * sign(fn.y), normalize(vec3(-uSunDir.x, 0.6, -uSunDir.z))));
+    } else light += moonShoulder(uMoonLight.x * lit);
     float ramp = moonRamp(vTone), glow = 0.0;
     float pr, pEdge, pLift, pGlow;
     float site = moonSite(vWorldPos.xz, pa + pb);

@@ -23,6 +23,11 @@
       (function () {
         try {
           var v = (window.__sbDataV = 'osm2');
+          // (?moon is black from the first paint, Safari's bars with it: no fog-grey before a black sky)
+          if (new URLSearchParams(location.search).has('moon')) {
+            document.documentElement.className = 'moon';
+            document.querySelector('meta[name=theme-color]').content = '#000000';
+          }
           if (new URLSearchParams(location.search).has('moonrun') || new URLSearchParams(location.search).has('moon')) return; // (no city in those: src/sky/moonrun.ts, src/moon/)
           var q = new URLSearchParams(location.search).get('city');
           var city = q === null ? 'sf' : q; // as main.ts reads it (an empty ?city= stays empty)
@@ -39,6 +44,12 @@
     <style>
       html, body { margin: 0; height: 100%; background: #808a94; overflow: hidden; overscroll-behavior: none; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
       canvas#game { position: fixed; inset: 0; display: block; image-rendering: pixelated; }
+      /* ?moon: a line of text on black until the ground near the bus is in (main.ts adds .in), then the picture comes up out of the black */
+      html.moon, html.moon body { background: #000; }
+      html.moon:not(.in) body::after { content: 'THE MOON'; position: fixed; left: 0; right: 0; top: 46%; text-align: center; font: 12px ui-monospace, Menlo, monospace; letter-spacing: 0.4em; color: #747882; }
+      html.moon canvas#game { transition: opacity 0.6s; }
+      html.moon:not(.in) canvas#game { opacity: 0; }
+      html.moon:not(.in) body > div { visibility: hidden; }
     </style>
   </head>
   <body>

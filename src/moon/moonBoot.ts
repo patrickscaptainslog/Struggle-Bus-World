@@ -9,10 +9,10 @@ import { registerWarm } from '../render/warmup';
 import type { CityMoon } from '../world/City';
 import type { RegionRequest, RegionResponse } from '../world/regionLoader';
 import type { CityManifest, TerrainTile } from '../world/tiles';
-import { CraterPaint, type NameRow } from './CraterPaint';
+import { CraterPaint, SITE_R, type NameRow } from './CraterPaint';
 import { craterById, cratersNear, type Crater, type CraterHit } from './craters';
 import { MOON_REGION, MOON_TILE, decodeShadow, type FarUpdate } from './gen';
-import { dirOf, findPlace, latLonToMap, latOf, lonOf, makeFrame, readAlbedo, readPlaces, type MapFrame, type Place, type PlaceRow, type WholeMap } from './map';
+import { dirOf, findNamed, findPlace, latLonToMap, latOf, lonOf, makeFrame, readAlbedo, readPlaces, type MapFrame, type Place, type PlaceRow, type WholeMap } from './map';
 import { MoonFar } from './MoonFar';
 import { HELD_SUN_OFF, MoonSky } from './MoonSky';
 import { makeMoonGround, moonGlobals, moonMapTexture, moonTileMap } from './moonMaterial';
@@ -50,6 +50,8 @@ export interface MoonBoot {
   far: MoonFar | null;
   sky: MoonSky;
   site: string;
+  /** ?site= asked for a place the Moon has no name for: this is what it asked for, and the bus starts where it always does */
+  lost: string | null;
   /** Moon-wide facts once the worker is up */
   datum: number;
   startY: number;
@@ -94,11 +96,11 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   const albedo: WholeMap = readAlbedo(albBuf);
   // where: a landmark, a place, or Theophilus, near its central peaks
   const named = params.get('site');
-  const place = named ? findPlace(places, named) : null;
+  const place = named ? (findPlace(places, named) ?? findNamed(nameRows, named)) : null;
   const hasLL = params.has('lat') && params.has('lon');
   const lat = hasLL ? Number(params.get('lat')) : (place?.lat ?? THEOPHILUS.lat);
   const lon = hasLL ? Number(params.get('lon')) : (place?.lon ?? THEOPHILUS.lon);
-  const atTheo = !named && !hasLL;
+  const atTheo = !place && !hasLL;
   const frame = makeFrame(lat, lon);
   const heading = (params.has('heading') ? Number(params.get('heading')) : atTheo ? THEO_START.heading : 82) * DEG;
   // (a named crater: on its floor, on the side the Sun reaches, with the whole of it ahead. A held Sun stands HELD_SUN_OFF off the heading: this is away from it)
@@ -107,6 +109,11 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
     const away = heading + (HELD_SUN_OFF + 180) * DEG, r = place.R * (place.km < 20 ? 1.5 : 0.56);
     startX = Math.sin(away) * r;
     startZ = -Math.cos(away) * r;
+  }
+  // (a crewed site stays unpainted: the bus comes up to its line, or the first minute is taps that don't stick)
+  if (place?.type === 'site' && place.name.startsWith('APOLLO')) {
+    startX = -Math.sin(heading) * (SITE_R + 550);
+    startZ = Math.cos(heading) * (SITE_R + 550);
   }
   const site = place?.name ?? (hasLL ? `${lat.toFixed(2)}, ${lon.toFixed(2)}` : 'THEOPHILUS');
 
@@ -280,6 +287,7 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
     far: null,
     sky,
     site,
+    lost: named && !place ? named.trim().toUpperCase().slice(0, 22) : null,
     datum,
     startY,
     places,

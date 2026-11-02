@@ -35,6 +35,8 @@ const ORBIT_KM = 6;
 const NEIGHBOURS = 14;
 /** What a splash can do to a neighbour: rays are for a direct hit, or the ground under a few blasts is nothing but rays. */
 const NEIGHBOUR_TOP = 2;
+/** A blast names the place it came down in at most this often (s). */
+const BLAST_SIGN_EVERY = 25;
 /** The grid marks are kept on (m); a mark wider than this is looked at every time. */
 const GRID = 2048;
 
@@ -167,6 +169,7 @@ export class CraterPaint {
   private readonly sites: Spot[] = [];
   private lastHere: Spot | null = null;
   private readonly signed = new Map<string, number>();
+  private readonly blastSigned = new Map<string, number>();
   private hereTimer = 0;
   private hitName: string | null = null;
   private latchTo = 0;
@@ -253,6 +256,15 @@ export class CraterPaint {
   /** What a blast's sign says: the named crater it hit, else where it came down. */
   signFor(x: number, z: number): string {
     return this.hitName ?? this.nameAt(x, z);
+  }
+
+  /** Does this blast raise a sign? A crater with a name always does. Everything inside Theophilus is in Theophilus, and a word that comes up every few seconds stops being read: a place says so again after a while. */
+  signDue(x: number, z: number, now: number): boolean {
+    if (this.hitName) return true;
+    const name = this.nameAt(x, z);
+    if (now < (this.blastSigned.get(name) ?? -1e9) + BLAST_SIGN_EVERY) return false;
+    this.blastSigned.set(name, now);
+    return true;
   }
 
   /** The smallest named place that holds (x, z), or the nearest there is. */

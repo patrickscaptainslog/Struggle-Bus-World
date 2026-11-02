@@ -195,3 +195,10 @@ export function findPlace(places: Place[], name: string): Place | null {
   const want = name.trim().toUpperCase();
   return places.find((p) => p.name === want) ?? places.find((p) => p.name.includes(want)) ?? null;
 }
+
+/** The same over the gazetteer's other craters (names.json: name, latitude, longitude, km): ?site=PTOLEMAEUS is on the Moon too, and a crater is all it can be. */
+export function findNamed(rows: Array<[string, number, number, number]>, name: string): Place | null {
+  const want = name.trim().toUpperCase();
+  const row = rows.find((r) => r[0] === want) ?? rows.find((r) => r[0].startsWith(want)) ?? rows.find((r) => r[0].includes(want));
+  return row ? readPlaces([[row[0], 'crater', row[1], row[2], row[3]]])[0] : null;
+}
