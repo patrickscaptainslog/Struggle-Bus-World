@@ -716,6 +716,40 @@ function rocksOf(gen: MoonGen, H: Float32Array, T: Float32Array, P: Float32Array
   return out.slice(0, n * ROCK_STRIDE);
 }
 
+/** Ints a crater (its octave and cell) and floats (x, z, r, age, a, b, c) in craterList. */
+export const CRATER_INTS = 4;
+export const CRATER_FLOATS = 7;
+
+/**
+ * Every crater of radius `minR` or more around (cx, cz), the biggest octave first: what paint picks from (src/moon/CraterPaint.ts). An octave reaches as far as it can be seen to be a thing: a small crater is only a
+ * target near the bus, a 5 km one from anywhere in `half`. No more than `max`, which only a mare of small craters at height ever meets: the small end goes first.
+ */
+export function craterList(gen: MoonGen, cx: number, cz: number, half: number, minR: number, max = 6000): { n: number; ids: Int32Array; data: Float32Array } {
+  const ids = new Int32Array(max * CRATER_INTS), data = new Float32Array(max * CRATER_FLOATS);
+  let n = 0;
+  const put = (c: Crater) => {
+    if (c.r < minR || n >= max) return;
+    const a = n * CRATER_INTS, b = n * CRATER_FLOATS;
+    ids[a] = c.L;
+    ids[a + 1] = c.i;
+    ids[a + 2] = c.j;
+    ids[a + 3] = c.k;
+    data[b] = c.x;
+    data[b + 1] = c.z;
+    data[b + 2] = c.r;
+    data[b + 3] = c.age;
+    data[b + 4] = c.a;
+    data[b + 5] = c.b;
+    data[b + 6] = c.c;
+    n++;
+  };
+  for (let L = 0; L < OCTAVES && octaveD(L) / 2 >= minR; L++) {
+    const h = Math.min(half, 90 * octaveD(L));
+    eachCrater(gen.frame, gen.src.albedo, gen.seed, L, cx - h, cz - h, cx + h, cz + h, put);
+  }
+  return { n, ids: ids.slice(0, n * CRATER_INTS), data: data.slice(0, n * CRATER_FLOATS) };
+}
+
 export interface MoonRegionTile {
   tx: number;
   tz: number;

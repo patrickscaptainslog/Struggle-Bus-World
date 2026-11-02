@@ -8,6 +8,7 @@ import { registerWarm } from '../render/warmup';
 import type { CityMoon } from '../world/City';
 import type { RegionRequest, RegionResponse } from '../world/regionLoader';
 import type { CityManifest, TerrainTile } from '../world/tiles';
+import { CraterPaint } from './CraterPaint';
 import { craterById, cratersNear, type Crater, type CraterHit } from './craters';
 import { MOON_REGION, MOON_TILE, decodeShadow, type FarUpdate } from './gen';
 import { dirOf, findPlace, latLonToMap, latOf, lonOf, makeFrame, readAlbedo, readPlaces, type MapFrame, type Place, type PlaceRow, type WholeMap } from './map';
@@ -15,7 +16,7 @@ import { MoonFar } from './MoonFar';
 import { HELD_SUN_OFF, MoonSky } from './MoonSky';
 import { makeMoonGround, moonGlobals, moonMapTexture, moonTileMap } from './moonMaterial';
 import { rockMesh, rockProxy } from './rocks';
-import type { MoonFarRequest, MoonInit, MoonReady, MoonRegionRequest } from './moonWorker';
+import type { MoonCraters, MoonFarRequest, MoonInit, MoonReady, MoonRegionRequest } from './moonWorker';
 
 // ?moon: the Moon as a place the real game loads. boot() in main.ts runs as ever with a city that happens to be generated: this file makes that city's manifest, its worker, its far field and its sky, and hands City
 // what differs. ?moon starts low over Theophilus near its central peaks; ?moon&site=<landmark> or ?moon&lat=&lon= start anywhere on the Moon.
@@ -62,6 +63,8 @@ export interface MoonBoot {
   cratersNear(x: number, z: number, radius: number, minD?: number): CraterHit[];
   /** An invented crater back from its id: place, radius, age. Null for a `p` id: those are `places`. */
   crater(id: string): Crater | null;
+  /** The craters as buildings: what glints, what a hit does, what's saved. */
+  paint: CraterPaint;
 }
 
 function moonPalette(pipeline: PixelPipeline) {
@@ -132,10 +135,12 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   let far: MoonFar | null = null;
   let ready0: (m: MoonReady) => void = () => {};
   const ready = new Promise<MoonReady>((done) => (ready0 = done));
-  worker.onmessage = (ev: MessageEvent<RegionResponse | FarUpdate | MoonReady>) => {
+  let paint: CraterPaint | null = null;
+  worker.onmessage = (ev: MessageEvent<RegionResponse | FarUpdate | MoonReady | MoonCraters>) => {
     const m = ev.data;
     if (m.type === 'region') onRegion?.(m);
     else if (m.type === 'far') far?.land(m);
+    else if (m.type === 'craters') paint?.land(m);
     else if (m.type === 'ready') ready0(m);
   };
   worker.onerror = (e) => console.error('moon worker:', e.message);
@@ -235,6 +240,7 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
     return [new THREE.Mesh(g, makeMoonGround(warmTex, 0, 0, 2, 2, 0, 0, 256)), rockProxy()];
   });
 
+  paint = new CraterPaint({ renderer: pipeline.renderer, post: (m) => worker.postMessage(m), frame, albedo, places, seed: SEED, groundAt: (x, z) => city.groundAt!(x, z) });
   const dTmp = new Float64Array(3);
   const boot: MoonBoot = {
     frame,
@@ -246,6 +252,7 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
     datum,
     startY,
     places,
+    paint,
     buildFar(mask, rect, size) {
       far = new MoonFar(pipeline.renderer, (m: MoonFarRequest) => worker.postMessage(m), mask, rect, size);
       boot.far = far;

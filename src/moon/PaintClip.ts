@@ -1,0 +1,335 @@
+import * as THREE from 'three';
+import { CLIP_N } from './moonMaterial';
+
+// Paint on the Moon's craters: a stack of three windows on the map, a layer each of one RGBA8 array, written by the GPU. A crater is a shape the stamp can say in a line (a squashed circle with a wobble), so what's
+// kept is the list of what is painted, and this draws it, a quad a crater, whenever a window moves or something in it changes. That holds at any size: a bowl 20 m across on the finest window, one 100 km across on
+// the coarsest, the same quad and the same contour, with no mask on any tile and no tile split out of a coarse region. Near and far ground read the same three layers (GLSL_MOON_PAINT, moonMaterial.ts).
+//
+// A window is 1024 texels a side:
+//   r  hue, 3 bits, read raw: nothing here is filtered, or two hues that meet would run through the hues between
+//   g  glow: how white-hot, while a level lands
+//   b  lift: a step or two brighter than the ground's light gives (a crown, a ray)
+//   a  coverage, a ramp across the edge. The ground bilinears it by hand and thresholds it, so an edge is a smooth contour at a fraction of a texel, as GroundPaint's is
+// A write takes the hue and keeps the most coverage (blendEquationAlpha MAX): a crater's soft edge must not bite a hole in the paint it lands on.
+//
+// Marks go on biggest first, so a small bowl in a big one stays its own colour. When one changes, every mark it touches goes on again in that order, under a scissor: a few instanced quads a frame while a level
+// lands, and nothing at all after that.
+
+export const CLIP_LEVELS = 3;
+/** Metres a texel, by window. */
+export const CLIP_CELL = [2, 16, 128];
+/** How far a window's middle may lag where it's wanted, a share of its side, before it moves. */
+const LAG = 0.15;
+/** How far ahead of the view a window's middle stands, a share of its side. */
+const LEAD = 0.2;
+
+/** One thing on the windows. */
+export interface ClipMark {
+  x: number;
+  z: number;
+  r: number;
+  /** half the side of its quad (m): the rim, or the rays */
+  reach: number;
+  /** 0 a stamped crater, 1 a named one with its own rim, 2 a blast on open ground */
+  kind: number;
+  /** the stamp's three numbers (craters.ts) */
+  a: number;
+  b: number;
+  c: number;
+  level: number;
+  hue: number;
+  /** the game clock the level landed, and the seconds it takes to land */
+  t0: number;
+  T: number;
+  seed: number;
+  /** where the breath landed, from the centre */
+  ix: number;
+  iz: number;
+  /** a named crater's rim: four harmonics (cos, sin) */
+  wob: Float32Array | null;
+  /** and the turn of its north off the map's */
+  turn: number;
+}
+
+const FLOATS = 24;
+
+const VS = /* glsl */ `
+  precision highp float;
+  in vec4 iA, iB, iC, iD, iE, iF;
+  uniform vec4 uWin; // x0, z0, 1 / side (m), cell (m)
+  out vec2 vP;
+  flat out float vR;
+  flat out vec4 vB, vC, vD, vE, vF;
+  void main() {
+    // (a mark never fades away with distance: at the far windows it stays a texel or two)
+    vR = max(iA.z, uWin.w * 0.8);
+    vP = position.xy * max(iA.w, vR * 1.3 + uWin.w * 2.0);
+    vB = iB;
+    vC = iC;
+    vD = iD;
+    vE = iE;
+    vF = iF;
+    gl_Position = vec4((iA.xy + vP - uWin.xy) * uWin.z * 2.0 - 1.0, 0.0, 1.0);
+  }
+`;
+
+const FS = /* glsl */ `
+  precision highp float;
+  uniform vec4 uWin;
+  uniform float uNow;
+  in vec2 vP;
+  flat in float vR;
+  flat in vec4 vB, vC, vD, vE, vF;
+  layout(location = 0) out highp vec4 outPaint;
+  const float PI = 3.14159265, TAU = 6.2831853;
+  float h1(float x) { return fract(sin(x * 91.17) * 47453.5453); }
+  // How far out this is as the stamp has it: the rim is at vR, wherever it wanders to. ang is the angle round it.
+  float rimDist(vec2 p, out float ang) {
+    if (vB.w < 0.5) {
+      float th = vB.x * PI, sq = 1.0 + 0.16 * (vB.y - 0.5), ct = cos(th), st = sin(th);
+      float u = (p.x * ct + p.y * st) * sq, v = (p.y * ct - p.x * st) / sq;
+      float rr = length(vec2(u, v));
+      ang = atan(v, u);
+      if (vR <= 14.0) return rr;
+      float q2 = rr * rr / (vR * vR);
+      float k2 = q2 > 1.5 ? clamp((2.6 - q2) / 1.1, 0.0, 1.0) : q2 < 0.25 ? clamp((q2 - 0.05) / 0.2, 0.0, 1.0) : 1.0;
+      float c = vB.z;
+      vec2 p3 = 0.05 * vec2(cos(c * 40.0), sin(c * 40.0)), p5 = 0.03 * vec2(cos(c * 91.0), sin(c * 91.0));
+      return rr / (1.0 + k2 * (dot(p3, vec2(cos(3.0 * ang), sin(3.0 * ang))) + dot(p5, vec2(cos(5.0 * ang), sin(5.0 * ang)))));
+    }
+    ang = atan(-p.y, p.x) + vD.w;
+    float s = 1.0 + dot(vE.xy, vec2(cos(3.0 * ang), sin(3.0 * ang))) + dot(vE.zw, vec2(cos(5.0 * ang), sin(5.0 * ang)));
+    s += dot(vF.xy, vec2(cos(8.0 * ang), sin(8.0 * ang))) + dot(vF.zw, vec2(cos(13.0 * ang), sin(13.0 * ang)));
+    return length(p) * s;
+  }
+  float ease(float k) { return k * (2.0 - k); }
+  // One set of rays thrown off the rim: N a turn at most, each its own length and width, coming apart toward its end.
+  void rays(float rr, float ang, float m, float N, float lo, float hi, float wide, float s0, float k, float base, inout float cov, inout float hue, inout float lift) {
+    float s = (ang / TAU + 0.5) * N, i = floor(s);
+    float a = h1(i + s0), b = h1(i + s0 + 17.0), c = h1(i + s0 + 41.0);
+    float off = (s - i - 0.5 - 0.62 * (a - 0.5)) / N * TAU;
+    float len = vR * (lo + (hi - lo) * b * b);
+    float x = (rr - vR) / (len - vR);
+    if (x < -0.14 || x > 1.0) return;
+    float w = max(vR * wide * (0.55 + 0.9 * c) * pow(1.0 - max(x, 0.0), 0.62), m * 0.8);
+    float q = (w - abs(off) * rr) / m + 0.5;
+    float gap = 0.6 * sin(rr / vR * (2.9 + 5.0 * c) + a * 19.0) + 0.4 * sin(rr / vR * (8.3 + 4.0 * b) + b * 23.0);
+    if (x > 0.38 && gap < (x - 0.38) * 2.0 - 0.62) return;
+    q = min(q, (vR + (len - vR) * k * 1.04 - rr) / m + 0.5);
+    if (q > cov && q > 0.02) {
+      cov = q;
+      hue = mod(base + i, 6.0);
+      lift = 0.45;
+    }
+  }
+  void main() {
+    vec2 p = vP;
+    float R = vR, m = max(uWin.w * 1.3, 0.8), lv = vC.x, base = vC.y, T = max(vC.w, 0.05), age = uNow - vC.z, seed = vD.z;
+    float cov = 0.0, hue = base, glow = 0.0, lift = 0.0, ang = 0.0;
+    float k = clamp(age / T, 0.0, 1.0);
+    if (vB.w > 1.5) {
+      // a blast on open ground, as the far windows see it: a lumpy disc, the pinwheel in it
+      ang = atan(p.y, p.x);
+      float d = length(p);
+      float e = R * (0.8 + 0.1 * sin(3.0 * ang + seed) + 0.07 * sin(5.0 * ang + seed * 1.7) + 0.05 * sin(9.0 * ang + seed * 2.3));
+      cov = min((e - d) / m + 0.5, age < 0.0 ? 0.0 : 1.0);
+      hue = mod(base + floor(fract(ang / TAU + d / R * 0.2) * 6.0), 6.0);
+    } else {
+      float dist = rimDist(p, ang);
+      // level 3 throws rays over the ground, under all the rest
+      if (lv > 2.5) {
+        rays(dist, ang, m, 11.0, 3.2, 9.0, 0.11, seed, ease(k), base, cov, hue, lift);
+        rays(dist, ang, m, 23.0, 1.7, 3.6, 0.05, seed + 7.0, ease(k), base + 2.0, cov, hue, lift);
+      }
+      // level 1 floods the bowl, up from where it landed
+      vec2 imp = vD.xy;
+      float front = lv < 1.5 ? (R + length(imp)) * 1.03 * ease(k) : 2.0 * R + length(imp);
+      float toFront = front - length(p - imp);
+      float cF = min((R * 0.985 - dist) / m, toFront / m) + 0.5;
+      if (lv < 1.5 && age < 0.0) cF = 0.0;
+      if (cF > 0.02) {
+        cov = max(cov, cF);
+        hue = base;
+        lift = 0.0;
+        if (lv < 1.5) glow = (1.0 - k) * 0.9 * step(toFront, 0.1 * R + 2.0);
+        // level 3 turns it to a pinwheel, from the middle out
+        if (lv > 2.5) {
+          float f3 = (R * 1.05) * ease(k);
+          if (dist < f3) {
+            float u = ang / TAU + 0.34 * log(0.16 + dist / R) + seed * 0.13;
+            hue = mod(base + floor(fract(u) * 6.0 + 0.5), 6.0);
+            lift = 0.12;
+          }
+          if (abs(dist - f3) < 0.05 * R + 1.0 && k < 1.0) glow = 0.85;
+        }
+      }
+      // level 2 crowns the rim: it runs round both ways, a rainbow of teeth
+      if (lv > 1.5) {
+        float N = 6.0 * clamp(floor(R / 36.0 + 0.5), 1.0, 6.0);
+        float s = (ang / TAU + 0.5) * N, i = floor(s), tooth = 1.0 - abs(2.0 * (s - i) - 1.0);
+        float cC = min((R * (1.075 + 0.075 * tooth) - dist) / m, (dist - R * 0.9) / m) + 0.5;
+        if (lv < 2.5) {
+          float a0 = seed, dA = abs(mod(ang - a0 + PI, TAU) - PI) / PI;
+          cC = min(cC, (ease(k) * 1.04 - dA) * PI * R / m + 0.5);
+          if (age < 0.0) cC = 0.0;
+          if (cC > 0.02 && k < 1.0 && ease(k) * 1.04 - dA < 0.06) glow = 0.9;
+        }
+        if (cC > 0.02) {
+          cov = max(cov, cC);
+          hue = mod(base + 1.0 + i, 6.0);
+          lift = 0.7;
+        }
+      }
+    }
+    if (cov <= 0.02) discard;
+    outPaint = vec4((hue + 0.5) / 8.0, glow, lift, min(cov, 1.0));
+  }
+`;
+
+interface Win {
+  cell: number;
+  /** its first corner, and where it wants its middle */
+  x0: number;
+  z0: number;
+  /** a mark or a move since it was last drawn: the whole of it goes again */
+  dirty: boolean;
+}
+
+export class PaintClip {
+  readonly rt: THREE.WebGLArrayRenderTarget;
+  /** x0, z0, 1 / cell, on: the ground's uClip */
+  readonly rects: THREE.Vector4[] = [];
+  private readonly wins: Win[] = [];
+  private readonly scene = new THREE.Scene();
+  private readonly cam = new THREE.Camera();
+  private readonly geo = new THREE.InstancedBufferGeometry();
+  private readonly mesh: THREE.Mesh;
+  private readonly uWin = { value: new THREE.Vector4() };
+  private readonly uNow = { value: 0 };
+  private cap = 0;
+  private buf = new Float32Array(0);
+  private ib: THREE.InstancedInterleavedBuffer | null = null;
+  private readonly clear = new THREE.Color();
+
+  constructor(private readonly renderer: THREE.WebGLRenderer) {
+    this.rt = new THREE.WebGLArrayRenderTarget(CLIP_N, CLIP_N, CLIP_LEVELS, { format: THREE.RGBAFormat, type: THREE.UnsignedByteType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, generateMipmaps: false });
+    this.rt.texture.colorSpace = THREE.NoColorSpace;
+    this.rt.scissorTest = true;
+    for (let k = 0; k < CLIP_LEVELS; k++) {
+      this.rects.push(new THREE.Vector4(0, 0, 1 / CLIP_CELL[k], 0));
+      this.wins.push({ cell: CLIP_CELL[k], x0: Infinity, z0: Infinity, dirty: true });
+    }
+    this.geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0]), 3));
+    this.geo.setIndex([0, 1, 2, 0, 2, 3]);
+    this.grow(256);
+    const mat = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: { uWin: this.uWin, uNow: this.uNow },
+      vertexShader: VS,
+      fragmentShader: FS,
+      depthTest: false,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      transparent: true,
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.ZeroFactor,
+      blendEquationAlpha: THREE.MaxEquation,
+      blendSrcAlpha: THREE.OneFactor,
+      blendDstAlpha: THREE.OneFactor,
+    });
+    this.mesh = new THREE.Mesh(this.geo, mat);
+    this.mesh.frustumCulled = false;
+    this.mesh.matrixAutoUpdate = false;
+    this.scene.add(this.mesh);
+    this.scene.matrixAutoUpdate = false;
+  }
+
+  private grow(n: number) {
+    this.cap = Math.max(n, this.cap * 2);
+    this.buf = new Float32Array(this.cap * FLOATS);
+    const ib = new THREE.InstancedInterleavedBuffer(this.buf, FLOATS);
+    ib.setUsage(THREE.DynamicDrawUsage);
+    this.geo.dispose();
+    this.ib = ib;
+    for (let i = 0; i < 6; i++) this.geo.setAttribute(`i${'ABCDEF'[i]}`, new THREE.InterleavedBufferAttribute(ib, 4, i * 4));
+  }
+
+  /** Where a window's middle wants to be, for a view at (x, z) along (fx, fz). A window that moves is dirty. */
+  follow(x: number, z: number, fx: number, fz: number) {
+    for (let k = 0; k < CLIP_LEVELS; k++) {
+      const w = this.wins[k], side = CLIP_N * w.cell, cx = x + fx * side * LEAD, cz = z + fz * side * LEAD;
+      if (Math.abs(cx - (w.x0 + side / 2)) < side * LAG && Math.abs(cz - (w.z0 + side / 2)) < side * LAG) continue;
+      // (on a grid of its own, so a contour doesn't crawl when it moves)
+      const g = w.cell * 16;
+      w.x0 = Math.round((cx - side / 2) / g) * g;
+      w.z0 = Math.round((cz - side / 2) / g) * g;
+      w.dirty = true;
+      this.rects[k].set(w.x0, w.z0, 1 / w.cell, 1);
+    }
+  }
+
+  /** Did a window move, and which: the caller hands its marks to draw(). */
+  dirty(k: number): boolean {
+    return this.wins[k].dirty;
+  }
+
+  window(k: number, out: number[]): number[] {
+    const w = this.wins[k], s = CLIP_N * w.cell;
+    out[0] = w.x0;
+    out[1] = w.z0;
+    out[2] = w.x0 + s;
+    out[3] = w.z0 + s;
+    return out;
+  }
+
+  /** Window k's rectangle (m), cleared, and the marks on it in the order given. Keep the render state as it found it. */
+  draw(k: number, x0: number, z0: number, x1: number, z1: number, marks: ClipMark[], n: number, now: number) {
+    const w = this.wins[k], cell = w.cell, r = this.renderer;
+    const i0 = Math.max(0, Math.floor((x0 - w.x0) / cell)), j0 = Math.max(0, Math.floor((z0 - w.z0) / cell));
+    const i1 = Math.min(CLIP_N, Math.ceil((x1 - w.x0) / cell)), j1 = Math.min(CLIP_N, Math.ceil((z1 - w.z0) / cell));
+    if (i1 <= i0 || j1 <= j0) return;
+    if (n > this.cap) this.grow(n);
+    const b = this.buf;
+    for (let q = 0, o = 0; q < n; q++, o += FLOATS) {
+      const m = marks[q];
+      b[o] = m.x;
+      b[o + 1] = m.z;
+      b[o + 2] = m.r;
+      b[o + 3] = m.reach;
+      b[o + 4] = m.a;
+      b[o + 5] = m.b;
+      b[o + 6] = m.c;
+      b[o + 7] = m.kind;
+      b[o + 8] = m.level;
+      b[o + 9] = m.hue;
+      b[o + 10] = m.t0;
+      b[o + 11] = m.T;
+      b[o + 12] = m.ix;
+      b[o + 13] = m.iz;
+      b[o + 14] = m.seed;
+      b[o + 15] = m.turn;
+      const wob = m.wob;
+      for (let i = 0; i < 8; i++) b[o + 16 + i] = wob ? wob[i] : 0;
+    }
+    const ib = this.ib!;
+    ib.clearUpdateRanges();
+    ib.addUpdateRange(0, n * FLOATS);
+    ib.needsUpdate = true;
+    this.geo.instanceCount = n;
+    this.uWin.value.set(w.x0, w.z0, 1 / (CLIP_N * cell), cell);
+    this.uNow.value = now;
+    this.rt.scissor.set(i0, j0, i1 - i0, j1 - j0);
+    r.setRenderTarget(this.rt, k);
+    const a = r.getClearAlpha();
+    r.getClearColor(this.clear);
+    r.setClearColor(0x000000, 0);
+    r.clear(true, false, false);
+    r.setClearColor(this.clear, a);
+    this.mesh.visible = n > 0;
+    if (n) r.render(this.scene, this.cam);
+    r.setRenderTarget(null);
+    if (i1 - i0 === CLIP_N && j1 - j0 === CLIP_N) w.dirty = false;
+  }
+}

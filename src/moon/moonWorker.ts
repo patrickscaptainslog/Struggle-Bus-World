@@ -3,7 +3,7 @@
 import { Ground } from '../world/tiles';
 import { gunzip, isGzip } from '../world/gunzip';
 import type { RegionRequest, RegionResponse, TileResult } from '../world/regionLoader';
-import { FarStore, MoonGen, makeRegion, sunLine } from './gen';
+import { FarStore, MoonGen, craterList, makeRegion, sunLine } from './gen';
 import { makeFrame, readAlbedo, readPlaces, readRelief, readWindow, type PlaceRow } from './map';
 
 export interface MoonInit {
@@ -34,6 +34,24 @@ export interface MoonReady {
 }
 
 export type MoonRegionRequest = RegionRequest & { rx: number; rz: number };
+
+/** The craters around a place, for paint to pick from. */
+export interface MoonCraterRequest {
+  type: 'craters';
+  id: number;
+  cx: number;
+  cz: number;
+  half: number;
+  minR: number;
+}
+
+export interface MoonCraters {
+  type: 'craters';
+  id: number;
+  n: number;
+  ids: Int32Array;
+  data: Float32Array;
+}
 
 let gen: MoonGen | null = null;
 let far: FarStore | null = null;
@@ -72,7 +90,7 @@ function region(q: MoonRegionRequest): void {
 
 // (one queue: nothing a far level or a region asks of the store runs beside anything else)
 let queue: Promise<void> = Promise.resolve();
-self.onmessage = (ev: MessageEvent<MoonInit | MoonFarRequest | MoonRegionRequest>) => {
+self.onmessage = (ev: MessageEvent<MoonInit | MoonFarRequest | MoonRegionRequest | MoonCraterRequest>) => {
   const m = ev.data;
   queue = queue
     .then(async () => {
@@ -83,6 +101,10 @@ self.onmessage = (ev: MessageEvent<MoonInit | MoonFarRequest | MoonRegionRequest
           post(u, [u.blocks.buffer, u.map.buffer, u.heights.buffer]);
         }
       } else if (m.type === 'region') region(m);
+      else if (m.type === 'craters') {
+        const { n, ids, data } = craterList(gen!, m.cx, m.cz, m.half, m.minR);
+        post({ type: 'craters', id: m.id, n, ids, data } satisfies MoonCraters, [ids.buffer, data.buffer]);
+      }
     })
     .catch((e) => console.error('moon worker', e));
 };

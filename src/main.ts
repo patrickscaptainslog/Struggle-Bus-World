@@ -467,6 +467,7 @@ async function boot() {
     impact: (b) => {
       const S = config.splat;
       const k = b.strength;
+      moonPaint?.impact(b);
       lastBlast.x = b.spec.x;
       lastBlast.z = b.spec.z;
       lastBlast.r = b.spec.r;
@@ -759,12 +760,14 @@ async function boot() {
   type MegaBreath = { radius: number; width: number; hitStop: number; tag: SuperTag };
   // Dragon breath aim (src/game/Aim.ts): the building that glints is the one a tap hits.
   const aimer = new Aimer(city, splatter);
+  /** (?moon: the craters are the buildings here, src/moon/CraterPaint.ts) */
+  const moonPaint = moon?.paint ?? null;
   /** Breathe a shot: the blast is timed to the projectile's flight (inhale + travel), at the glinting building. */
   const breathe = (shot: Shot, mega?: MegaBreath) => {
     breathTravel = shot.travel;
     breathWidth = mega ? mega.width : 1;
     try {
-      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag });
+      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, ...moonPaint?.barf(shot) });
     } finally {
       breathTravel = null;
       breathWidth = 1;
@@ -804,6 +807,7 @@ async function boot() {
   tuner.onResetPaint = () => {
     city.paint.resetAll();
     city.ground.resetAll();
+    moon?.paint.reset();
     location.reload();
   };
   if (params.has('tune')) tuner.toggle();
@@ -825,6 +829,7 @@ async function boot() {
     pose.squash = mega ? 0.72 : 0.8;
     squashV = 0;
     audio.heave();
+    moonPaint?.aim(shot, flight, aimer.aim.x, aimer.aim.z);
     const tgt = shot.target;
     const iy = shot.y ?? (tgt ? city.roofAtPart(tgt, shot.x, shot.z) + 0.5 : city.groundAt(shot.x, shot.z));
     lastShot = { t: simTime, aim: [shot.x, iy, shot.z], travel: config.splat.inhale + shot.travel, drop: shot.drop, busY: flight.y, wall: shot.exact, target: tgt ? { index: tgt.index, cx: tgt.cx, cz: tgt.cz, roofY: tgt.roofY } : null, mega: mega?.radius };
@@ -1175,7 +1180,7 @@ async function boot() {
     // (a committed thumb thaws the glint, as keys and a QA stick do; tilt never does; and a press that fires on its lift
     // keeps what it froze, whatever else is steering)
     const glint = aimer.update(flight, simTime, (qaStick || st.thumb || (st.dragging && input.mode === 'keyboard')) && !input.pressHeld);
-    controls.glinting = glint !== null;
+    controls.glinting = glint !== null || !!moonPaint?.target;
     paintUniforms.uTarget.value = glint ? glint.index : -1;
     paintUniforms.uTargetT.value = aimer.shownSince;
     paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);
@@ -1243,6 +1248,7 @@ async function boot() {
     // hit-stop frames hold it), instead of the paint reaching the GPU a frame late
     superSplat.update(dt);
     splatter.update(dt);
+    moonPaint?.update(dt, simTime, flight, aimer.aim.x, aimer.aim.z, Aimer.loaded(flight), flight.y - city.groundAt(flight.x, flight.z));
     if (jet && simTime >= jet.at) {
       // the inhale is over: the jet leaves the mouth and lands exactly at the impact
       particles.geyser({ source: mouthWorld, sourceVel: busVel, targets: jet.targets, duration: Math.max(0.05, jet.end - simTime), travelTime: Math.max(0.05, jet.impact - simTime), hues: jet.hues, width: jet.width });

@@ -36,6 +36,8 @@ export interface Shot {
   /** bus height above the impact (m) and the projectile's flight time from launch (s) */
   drop: number;
   travel: number;
+  /** ?moon: the crater it lands on (src/moon/CraterPaint.ts), which gives the shot its place and its time */
+  crater?: unknown;
 }
 
 const F_CLEAR = 12; // the classic shot drops about this far onto the roofs (m)

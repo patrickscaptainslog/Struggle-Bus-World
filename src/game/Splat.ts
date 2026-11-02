@@ -40,6 +40,8 @@ export interface Blast {
   primary: BuildingRef | null;
   /** which super splat made this blast, null for a tap (the stage engine's one-hit-per-area rule reads it) */
   super: SuperTag | null;
+  /** ?moon: what it was aimed at (BarfOpts.tag) */
+  tag?: unknown;
 }
 
 export interface SplatFx {
@@ -88,6 +90,10 @@ export interface BarfOpts {
   /** its ground in rainbow bands around this world point, this wide, from this hue, instead of its own pinwheel (a
    * firehose: a dozen pinwheels a second is a patchwork, one set of rings under all its impacts is a picture) */
   bands?: GroundBands;
+  /** ?moon: handed back on the Blast */
+  tag?: unknown;
+  /** ?moon: changes the blast before its ground is drawn. False: it draws no ground */
+  shape?: (spec: BlastSpec) => boolean;
 }
 
 /** BarfOpts.bands */
@@ -124,7 +130,7 @@ interface PendingBlast {
   blast: Blast;
   plan: Scheduled[];
   /** its ground paint, drawn while the projectile flies */
-  ground: GroundJob;
+  ground: GroundJob | null;
   hitStop: number;
 }
 
@@ -229,6 +235,7 @@ export class Splatter {
       spec.ox = bands.x;
       spec.oz = bands.z;
     }
+    const groundless = opts?.shape?.(spec) === false;
     const plan: Scheduled[] = [];
     let maxLevel = 1;
     const busy = hose ? this.hoseBusy(paint.data.length >> 2) : null;
@@ -253,10 +260,10 @@ export class Splatter {
       p.total = plan.length;
       if (busy) busy[p.ref.index] = p.at + S.firehoseRepop;
     }
-    const ground = city.ground.begin(spec, tImpact);
+    const ground = groundless ? null : city.ground.begin(spec, tImpact);
     this.pending.push({
       at: tImpact, plan, ground, hitStop: hose ? 0 : opts?.hitStop ?? S.hitStopFrames,
-      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, primary, super: opts?.super ?? null },
+      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, primary, super: opts?.super ?? null, tag: opts?.tag },
     });
     if (!stream) this.fx.geyser([pos.clone()], [hue]);
     return tImpact;
@@ -333,7 +340,7 @@ export class Splatter {
       const b = p.blast;
       // the whole wave goes to the GPU now (one upload): the shader times each pop
       for (const s of p.plan) this.city.paint.set(s.ref.index, { faction: FACTION_RAINBOW, color: s.hue, level: s.level, bloomTime: s.at, keep: s.keep });
-      b.dots = this.city.ground.land(p.ground);
+      b.dots = p.ground ? this.city.ground.land(p.ground) : [];
       blastUniforms.uBlastRing.value.set(b.spec.x, b.spec.z, b.t, b.spec.r);
       blastUniforms.uBlastRing2.value.set(b.spec.hue, S.ringWidth * Math.sqrt(b.strength), S.waveSpeed, waveMax(b.spec.r));
       this.fx.impact(b);

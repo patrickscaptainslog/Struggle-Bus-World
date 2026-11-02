@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import { GLSL_COMMON, GLSL_OUT, globals } from '../render/materials';
-import { Ramp } from '../render/palette';
+import { HUE_RAMPS, Ramp } from '../render/palette';
 import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from '../world/GroundPaint';
 import { FAR, LIT_MAX, LIT_POW, LIT_TONE0, LIT_TONE1, SHADOW_MAX, SLOPE_MAX, type MoonTileData } from './gen';
 import { R_M } from './map';
+
+/** Texels a side of a paint window (PaintClip.ts). */
+export const CLIP_N = 1024;
 
 // The ground's two programs, near and far, and the one light they share. The near one is terrainMaterial's with the map's four bytes in place of the class texture, so paint and the shockwave land as they do
 // on a street; the far one is the clip levels' (MoonFar.ts). Grey until painted: every ramp here is a cool grey, the shadows are black, and nothing is lit but by the Sun.
@@ -12,6 +15,13 @@ import { R_M } from './map';
 export const moonGlobals = {
   // x flat ground's light at mid tone, y the shadow's floor
   uMoonLight: { value: new THREE.Vector2(0.4, 0.006) },
+  // what's painted on the craters: PaintClip's windows, each x0, z0, 1 / cell, on
+  tPaintClip: { value: null as THREE.Texture | null },
+  uClip: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
+  // the crater that glints: x, z, rim, since; the stamp's squash; two of its wobble, and 1 stamped, 2 named, 0 none
+  uGlint: { value: new THREE.Vector4() },
+  uGlintM: { value: new THREE.Vector4(1, 0, 1, 0) },
+  uGlintS: { value: new THREE.Vector4() },
 };
 
 /**
@@ -71,6 +81,77 @@ float moonCast(vec3 wp) {
 }
 `;
 
+/** A crater's paint, read back from PaintClip's windows, and the glint on the one a tap will hit. Needs GLSL_COMMON and GLSL_MOON_LIGHT. */
+export const GLSL_MOON_PAINT = /* glsl */ `
+precision highp sampler2DArray;
+uniform sampler2DArray tPaintClip;
+uniform vec4 uClip[3];
+uniform vec4 uGlint;
+uniform vec4 uGlintM;
+uniform vec4 uGlintS;
+const float MOON_HUES[6] = float[6](${HUE_RAMPS.map((r) => r.toFixed(1)).join(', ')});
+float moonNoise(vec2 q) {
+  vec2 i = floor(q), f = fract(q);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(moonHash(i), moonHash(i + vec2(1.0, 0.0)), f.x), mix(moonHash(i + vec2(0.0, 1.0)), moonHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+// The paint at a place: false on bare ground. The finest window that holds it and that a pixel's size on the ground can read.
+bool moonClip(vec2 xz, float px, out float ramp, out float edge, out float lift, out float glow) {
+  ramp = 0.0; edge = 0.0; lift = 0.0; glow = 0.0;
+  for (int L = 0; L < 3; L++) {
+    vec4 c = uClip[L];
+    if (c.w < 0.5 || (L < 2 && px * c.z > 5.0)) continue;
+    vec2 t = (xz - c.xy) * c.z;
+    if (t.x < 3.0 || t.y < 3.0 || t.x > ${CLIP_N - 4}.0 || t.y > ${CLIP_N - 4}.0) continue;
+    // organic edges, as GroundPaint's: the texels looked up through a little warp, and the contour's height broken up
+    vec2 q = t * 0.11;
+    vec2 g = t - 0.5 + (vec2(moonNoise(q), moonNoise(q + 31.7)) - 0.5) * 1.5;
+    ivec2 i0 = ivec2(floor(g));
+    vec2 f = fract(g);
+    vec4 s00 = texelFetch(tPaintClip, ivec3(i0, L), 0), s10 = texelFetch(tPaintClip, ivec3(i0 + ivec2(1, 0), L), 0);
+    vec4 s01 = texelFetch(tPaintClip, ivec3(i0 + ivec2(0, 1), L), 0), s11 = texelFetch(tPaintClip, ivec3(i0 + ivec2(1, 1), L), 0);
+    float cov = mix(mix(s00.a, s10.a, f.x), mix(s01.a, s11.a, f.x), f.y);
+    float thr = 0.5 + (moonNoise(t * 0.45) - 0.5) * 0.26;
+    if (cov <= thr) return false;
+    // the hue of the strongest tap: read raw
+    vec4 a = vec4(s00.a, s10.a, s01.a, s11.a);
+    vec4 w = vec4((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y) * (a + 2.0 * step(0.5, a));
+    vec4 s = s00;
+    float m = w.x;
+    if (w.y > m) { m = w.y; s = s10; }
+    if (w.z > m) { m = w.z; s = s01; }
+    if (w.w > m) s = s11;
+    ramp = MOON_HUES[int(clamp(floor(s.r * 8.0), 0.0, 5.0))];
+    edge = cov - thr;
+    lift = s.b;
+    glow = s.g;
+    return true;
+  }
+  return false;
+}
+// The ground's light under paint: the crater under it still reads, on a floor of its own, and even a shadow's paint is paint.
+float moonPaintLight(float ramp, float light, float edge, float lift, float wet) {
+  float l = max(0.13 + 0.62 * clamp(light, 0.0, 1.0), 0.3);
+  if (ramp == ${Ramp.YELLOW}.0) l = max(l + 0.1, 0.6);
+  else if (ramp == ${Ramp.ORANGE}.0) l = max(l + 0.05, 0.45);
+  if (edge < 0.07) l -= 0.11;
+  else l += 0.1 * wet;
+  return l + 0.2 * lift;
+}
+// 0 off it; on the rim of what glints, 1 and up to 2 where the sweep is passing.
+float moonGlint(vec2 xz, float px) {
+  if (uGlintS.w < 0.5) return 0.0;
+  vec2 d = xz - uGlint.xy;
+  float R = uGlint.z;
+  if (dot(d, d) > R * R * 1.7) return 0.0;
+  vec2 uv = uGlintS.w < 1.5 ? vec2(d.x * uGlintM.x + d.y * uGlintM.y, d.y * uGlintM.z - d.x * uGlintM.w) : vec2(d.x, -d.y);
+  float ang = atan(uv.y, uv.x), rr = length(uv) / (1.0 + dot(uGlintS.xy, vec2(cos(3.0 * ang), sin(3.0 * ang))));
+  if (abs(rr - R) > max(R * 0.035, px * 0.8)) return 0.0;
+  float s = fract(ang / 6.2832 - (uTime - uGlint.w) * 0.85);
+  return 1.0 + step(0.74, s);
+}
+`;
+
 /** The ground's small change, near the bus. Round, and offset from a grid so it never reads as one. */
 const GLSL_MOON_STONES = /* glsl */ `
 float moonGrain(vec2 q) {
@@ -116,6 +197,7 @@ const NEAR_VS = /* glsl */ `
 const NEAR_FS = /* glsl */ `
   ${GLSL_COMMON}
   ${GLSL_MOON_LIGHT}
+  ${GLSL_MOON_PAINT}
   ${GLSL_MOON_STONES}
   uniform sampler2D tMoon;
   ${GLSL_GROUND_PAINT}
@@ -143,17 +225,23 @@ const NEAR_FS = /* glsl */ `
     else if (stone < -0.5) light *= 1.0 - 0.75 * grainK;
     float ramp = moonRamp(tone);
     float glow = 0.0;
-    float pr, pEdge, pWet, pFresh;
-    if (sbGroundPaint(vWorldPos, vClassUv, pr, pEdge, pWet, pFresh)) {
+    float pr, pEdge, pWet, pFresh, pLift, pGlow;
+    // what's on a crater first: a bowl keeps its colour whatever lands round it
+    if (moonClip(vWorldPos.xz, px, pr, pEdge, pLift, pGlow)) {
       ramp = pr;
-      // the crater under it still reads: paint takes the ground's light on a floor of its own, and even a shadow's paint is paint
-      light = max(0.2 + 0.62 * clamp(light, 0.0, 1.0) + uGroundTone.x * 0.5, 0.3);
-      if (pr == ${Ramp.YELLOW}.0) light = max(light + 0.1, 0.6);
-      else if (pr == ${Ramp.ORANGE}.0) light = max(light + 0.05, 0.45);
-      if (pEdge < 0.07) light -= 0.11;
-      else light += 0.1 * pWet;
+      light = moonPaintLight(pr, light, pEdge, pLift, 0.0);
+      glow = pGlow;
+      light = max(light, glow);
+    } else if (sbGroundPaint(vWorldPos, vClassUv, pr, pEdge, pWet, pFresh)) {
+      ramp = pr;
+      light = moonPaintLight(pr, light, pEdge, 0.0, pWet);
       glow = 0.55 * pFresh;
       light = max(light, glow);
+    }
+    float gl = moonGlint(vWorldPos.xz, px);
+    if (gl > 0.5) {
+      if (gl > 1.5) { ramp = ${Ramp.GLOW_WHITE}.0; light = 0.95; glow = 0.8; }
+      else light = max(light + 0.22, 0.62);
     }
     float rr, rl, rg;
     if (sbRing(vWorldPos, n, rr, rl, rg)) { ramp = rr; light = rl; glow = rg; }
@@ -246,7 +334,7 @@ const FAR_VS = /* glsl */ `
 const FAR_FS = /* glsl */ `
   ${GLSL_COMMON}
   ${GLSL_MOON_LIGHT}
-  precision highp sampler2DArray;
+  ${GLSL_MOON_PAINT}
   uniform sampler2DArray tFarM;
   uniform vec4 uFarGrid;
   uniform float uFarLevels;
@@ -282,7 +370,20 @@ const FAR_FS = /* glsl */ `
     float under = moonDecode(m.g);
     float lit = m.r * m.r * ${LIT_MAX.toFixed(1)};
     float light = uMoonLight.y + 0.03 + (under > 0.0 ? 0.0 : moonShoulder(uMoonLight.x * lit));
-    sbWrite(moonRamp(vTone), light, 0.0, 0.0, mat3(viewMatrix) * vec3(0.0, 1.0, 0.0), 0.01, 1.0);
+    float ramp = moonRamp(vTone), glow = 0.0;
+    float pr, pEdge, pLift, pGlow;
+    if (moonClip(vWorldPos.xz, pa + pb, pr, pEdge, pLift, pGlow)) {
+      ramp = pr;
+      light = moonPaintLight(pr, light, pEdge, pLift, 0.0);
+      glow = pGlow;
+      light = max(light, glow);
+    }
+    float gl = moonGlint(vWorldPos.xz, pa + pb);
+    if (gl > 0.5) {
+      if (gl > 1.5) { ramp = ${Ramp.GLOW_WHITE}.0; light = 0.95; glow = 0.8; }
+      else light = max(light + 0.22, 0.62);
+    }
+    sbWrite(ramp, light, 0.0, glow, mat3(viewMatrix) * vec3(0.0, 1.0, 0.0), 0.01, 1.0);
   }
 `;
 
