@@ -163,7 +163,7 @@ float moonGlint(vec2 xz, float px) {
   float ang = atan(uv.y, uv.x), rr = length(uv) / (1.0 + dot(uGlintS.xy, vec2(cos(3.0 * ang), sin(3.0 * ang))));
   // a run of light round the rim, a turn every second and a half, thick at its head and thinning behind it
   float s = fract(ang / 6.2832 - (uTime - uGlint.w) * 0.66);
-  if (abs(rr - R) > max(R * 0.012, px * 0.42) * (1.0 + 2.2 * s * s * s)) return 0.0;
+  if (abs(rr - R) > max(min(R * 0.012, 0.5), px * 0.42) * (1.0 + 2.2 * s * s * s)) return 0.0;
   return 1.0 + step(0.76, s);
 }
 `;

@@ -338,6 +338,69 @@ SCRIPTS.close = async () => {
   }
 };
 
+/** The super splat, both ways, over craters. */
+SCRIPTS.super = async () => {
+  await open();
+  await run(2);
+  const need = await page.evaluate(() => window.__game.config.splat.superCharge);
+  await glint();
+  await page.evaluate((c) => window.__game.superSplat(c * 0.6), need);
+  await strip('mega', 10, 0.5);
+  await page.evaluate(() => window.__game.superSkip(100));
+  await run(1);
+  await glint();
+  await page.evaluate((c) => window.__game.superSplat(c * 1.05), need);
+  await strip('hose', 16, 0.5);
+  console.log(JSON.stringify(await page.evaluate(() => window.__game.superState())));
+};
+
+/** A long one, every gear: nothing breaks, nothing piles up. */
+SCRIPTS.soak = async () => {
+  await open();
+  await run(1);
+  await playFor('s-cruise', 40, 20);
+  await stick(0.25, 0.9);
+  await playFor('s-surge', 40, 20);
+  await letGo();
+  await shift(1);
+  await stick(0, -0.5);
+  await run(6);
+  await letGo();
+  await playFor('s-jet', 40, 20);
+  await stick(0.4, 0);
+  await playFor('s-jet-turn', 20, 20);
+  await shift(-1);
+  await letGo();
+  await stick(0, 1);
+  await playFor('s-down', 30, 15);
+  await letGo();
+  console.log(JSON.stringify(await page.evaluate(() => {
+    const g = window.__game, p = g.moon.paint;
+    let rocks = 0, painted = 0;
+    g.scene.traverse((o) => {
+      if (o.isInstancedMesh && o.geometry.getAttribute('position').count === 60 && o.instanceColor) {
+        const c = o.instanceColor.array;
+        for (let i = 0; i < o.count; i++) {
+          rocks++;
+          if (c[i * 3] >= 2) painted++;
+        }
+      }
+    });
+    return { recs: p.recs.size, rim: p.rim.count, rocks, painted, particles: g.scene.children.length, ls: Object.keys(localStorage).filter((k) => k.startsWith('strugglebus')).map((k) => [k.slice(11, 40), localStorage.getItem(k).length]).slice(0, 12) };
+  })));
+};
+
+/** Elsewhere on the Moon: a named start, a few hits, what the signs say. */
+SCRIPTS.sites = async () => {
+  for (const [tag, q] of [['tycho', 'site=TYCHO'], ['copernicus', 'site=COPERNICUS'], ['tranq', 'lat=8.5&lon=31'], ['tsiol', 'site=TSIOLKOVSKY'], ['shack', 'site=SHACKLETON'], ['crises', 'lat=17&lon=59']]) {
+    await open(q);
+    await run(1.5);
+    await playFor(tag, 16, 8);
+    await note(`${tag}-end`);
+    await shot(`${tag}-end`);
+  }
+};
+
 const want = (opt.script ?? 'three').split(',');
 try {
   for (const name of want) {

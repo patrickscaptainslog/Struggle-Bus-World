@@ -276,7 +276,7 @@ export class CraterPaint {
   }
 
   /** Is this inside a crewed site's circle? */
-  private inSite(x: number, z: number): boolean {
+  inSite(x: number, z: number): boolean {
     for (const c of this.sites) if (Math.hypot(c.x - x, c.z - z) < SITE_R) return true;
     return false;
   }
@@ -345,6 +345,7 @@ export class CraterPaint {
       }
     }
     for (const c of this.named) {
+      if (Math.hypot(c.x - ax, c.z - az) - c.r > 14 + 0.07 * dist) continue;
       const s = this.score(c.x, c.z, c.r, this.recs.get(keyOfId(c.id))?.level ?? 0, ax, az, dist, f);
       if (s >= 0 && s < best) {
         best = s;
@@ -388,8 +389,9 @@ export class CraterPaint {
 
   // ------------------------------------------------------------------ a breath
 
-  /** A shot leaves: if a crater glints it lands on that, on the floor, at the aim point if that's on it. The rest of the way is the street's. */
-  aim(shot: Shot, f: Flight, ax: number, az: number) {
+  /** A shot leaves: if a crater glints it lands on that, on the floor, at the aim point if that's on it. The rest of the way is the street's. A mega doesn't wait for a full belly, so it looks for itself. */
+  aim(shot: Shot, f: Flight, ax: number, az: number, now: number, mega: boolean) {
+    if (mega && !this.target) this.pick(ax, az, Math.max(40, Math.hypot(ax - f.x, az - f.z, shot.drop)), f, now);
     const t = this.target;
     if (!t) return;
     const q = Math.hypot(ax - t.x, az - t.z) / t.r;
@@ -419,9 +421,10 @@ export class CraterPaint {
   }
 
   /** What a crater hit changes of a blast: no pinwheel on the ground: the grey between bowls is the contrast. Its spatter flies out over the rim. */
-  barf(shot: Shot): Pick<BarfOpts, 'tag' | 'shape'> {
+  barf(shot: Shot, mega: boolean): Pick<BarfOpts, 'tag' | 'shape'> {
     const t = shot.crater as Target | undefined;
     if (!t) return {};
+    if (mega) return { tag: t };
     return {
       tag: t,
       shape: (s: BlastSpec) => {
@@ -442,9 +445,9 @@ export class CraterPaint {
   impact(b: Blast): Target | null {
     const S = config.splat, t = (b.tag as Target | null) ?? null, now = b.t;
     this.hitName = t?.name ?? null;
-    const cx = b.spec.x, cz = b.spec.z, base = t ? t.r + 40 : b.spec.r * 0.8;
+    const cx = b.spec.x, cz = b.spec.z, big = !!b.super, base = t ? t.r + (big ? b.spec.r * 0.9 : 40) : b.spec.r * 0.8;
     // the wave a crater's size: it crosses the bowl in half a second, whatever the bowl
-    const R = (t ? t.r * 1.25 + 30 : b.spec.r) * S.ringReach, v = Math.max(S.waveSpeed, R / 0.5);
+    const R = (t && !big ? t.r * 1.25 + 30 : Math.max(b.spec.r, t?.r ?? 0)) * S.ringReach, v = Math.max(S.waveSpeed, R / 0.5);
     blastUniforms.uBlastRing2.value.set(b.spec.hue, S.ringWidth * Math.sqrt(Math.max(1, R / 100)), v, R);
     blastUniforms.uBlastRing.value.w = b.spec.r;
     const hits: Array<{ i: number; d: number; ang: number }> = [];
@@ -468,8 +471,11 @@ export class CraterPaint {
     const was = t ? this.recs.get(keyOfId(t.id)) : undefined;
     const hue = was ? was.hue : this.nextHue;
     if (!was) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
-    if (t) this.paint(t, hue, now, cx - t.x, cz - t.z);
-    else if (!b.hose) this.stroke(b);
+    if (t) {
+      this.paint(t, hue, now, cx - t.x, cz - t.z);
+      // (a super's worth: two levels at a blow)
+      if (big) this.paint(t, hue, now, cx - t.x, cz - t.z);
+    } else if (!b.hose) this.stroke(b);
     for (let k = 0; k < hits.length; k++) {
       const { i, d } = hits[k], o = i * CRATER_FLOATS, I = i * CRATER_INTS;
       const c: Target = { id: `${this.ids[I]}.${this.ids[I + 1]}.${this.ids[I + 2]}.${this.ids[I + 3]}`, x: D[o], z: D[o + 1], r: D[o + 2], age: D[o + 3] as Age, a: D[o + 4], b: D[o + 5], c: D[o + 6], kind: 0, name: null, wob: null, turn: 0, rec: null };

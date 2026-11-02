@@ -247,7 +247,7 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   /** The paint a boulder stands in: a crater's, else what a blast left on open ground. */
   const hueOfRock = (x: number, z: number) => {
     const h = paint!.hueAt(x, z);
-    return h >= 0 ? h : boot.groundHue(x, z);
+    return h >= 0 || paint!.inSite(x, z) ? h : boot.groundHue(x, z);
   };
   const paintRocks = (x0: number, z0: number, x1: number, z1: number, at: number) => {
     for (const r of rocks.values()) paintRockMesh(r.mesh, r.data, x0, z0, x1, z1, hueOfRock, at);
