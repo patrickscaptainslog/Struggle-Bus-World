@@ -1261,6 +1261,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
     }
     if (land) {
       rig.stiff = land.arriving || controls.turbo.gear >= 3 ? 1 : Math.max(0, rig.stiff - dt / 3);
+      controls.fx.lens.rate = land.arriving ? 0.3 : 2.2;
       // (the speed lines and the trail are the low game's, for a bus going along. Coming down they come in near the ground. The way out is a floor lifting the bus at 3 km/s, which draws one line across the whole frame: they go, and the flight's own take over)
       controls.fx.fade = land.arriving ? clamp((8000 - flight.height) / 6000, 0, 1) : controls.fx.fade + ((controls.turbo.gear >= 3 ? 0 : 1) - controls.fx.fade) * (1 - Math.exp(-6 * realDt));
     }
@@ -1484,7 +1485,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
     if (ready) everReady = true;
     city.eager = !everReady;
     (window as unknown as { __shotReady?: boolean }).__shotReady = ready && !city.busy && !city.farLate && !hour?.lamps.busy;
-    if (land?.up(flight)) land.back(camera, bus.root, flight, controls.turbo, rig.hfov);
+    if (land?.up(flight)) land.back(camera, bus.root, flight, controls.turbo, rig.hfov, rig.dive);
   }
   if (!land) requestAnimationFrame(frame);
   else if (moon) {
@@ -1513,7 +1514,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
         controls.turbo.arrive();
         controls.firstGesture();
         busTune.sunSoft = 0.42;
-        rig.place(camera, flight);
+        controls.fx.lens.reset(rig);
+        rig.place(camera, flight, s.dive);
         fromSky = { ...s, t: 0 };
         controls.hud.setVisible(true);
         controls.hud.arrive();

@@ -84,10 +84,11 @@ export interface LandEnter {
   heading: number;
   speed: number;
   nose: number;
-  /** the lens, off the bus, and how it's turned; the bus's turn */
+  /** the lens, off the bus, and how it's turned; the bus's turn; how far the view has tipped over a dive */
   camOff: THREE.Vector3;
   camQuat: THREE.Quaternion;
   busQuat: THREE.Quaternion;
+  dive: number;
 }
 
 type V = Float64Array;
@@ -146,8 +147,8 @@ export class Landing {
   private readonly z = new THREE.Vector3();
   private readonly pos = v3();
   private readonly face = v3();
-  /** The lens and the bus as the low game left them, on their way to where the flight's view has them. In the world. */
-  private rejoin: { t: number; off: THREE.Vector3; busQuat: THREE.Quaternion } | null = null;
+  /** The lens and the bus as the low game left them, on their way to where the flight's view has them. In the world. A gear's lens has the bus a little bigger: hero. */
+  private rejoin: { t: number; off: THREE.Vector3; busQuat: THREE.Quaternion; hero: number } | null = null;
   private dt = 0;
   private readonly groundOb: Observer = { body: MOON, free: false, pos: v3(), axes: new Float64Array(9) };
   /** the view's path and nose, in the world */
@@ -348,6 +349,7 @@ export class Landing {
       const e = j.t * j.t * (3 - 2 * j.t);
       camera.position.sub(this.bus).lerp(j.off, 1 - e).add(this.bus);
       bus.quaternion.slerpQuaternions(j.busQuat, this.qT.copy(bus.quaternion), e);
+      bus.scale.setScalar(j.hero + (bus.scale.x - j.hero) * e);
       if (j.t >= 1) this.rejoin = null;
     }
     // (the top of the frame, for the craters' own light: it's the view's, whatever frame this is)
@@ -404,6 +406,7 @@ export class Landing {
       camOff: camera.position.clone().sub(this.bus),
       camQuat: camera.quaternion.clone(),
       busQuat: bus.quaternion.clone(),
+      dive: this.view.dive,
     });
   }
 
@@ -412,8 +415,8 @@ export class Landing {
     return f.height >= H_UP * 1000 && f.vy > 0;
   }
 
-  /** The flight's loop takes the frame, from the end of this one: hand() the other way. Where the bus is and how it's going come back through the Moon's frame at this moment, and the view stays where the rig had it and goes home on its own spring. */
-  back(camera: THREE.PerspectiveCamera, bus: THREE.Object3D, f: Flight, T: TurboDrive, hfov: number): void {
+  /** The flight's loop takes the frame, from the end of this one: hand() the other way. Where the bus is and how it's going come back through the Moon's frame at this moment, and the view stays where the rig had it. */
+  back(camera: THREE.PerspectiveCamera, bus: THREE.Object3D, f: Flight, T: TurboDrive, hfov: number, dive: number): void {
     const t = this.trip, w = this.world!, F = this.model.moonFix, ax = this.ax, A = this.axes, d = this.u, p = this.pos, hd = this.face, far = w.far;
     axesOf(w.frame, f.x, f.z, ax);
     for (let k = 0; k < 3; k++) {
@@ -435,9 +438,9 @@ export class Landing {
     this.z.set(0, 0, 1).applyQuaternion(camera.quaternion);
     const inEqj = (v: THREE.Vector3) => v.set(v.x * A[0] + v.y * A[3] + v.z * A[6], v.x * A[1] + v.y * A[4] + v.z * A[7], v.x * A[2] + v.y * A[5] + v.z * A[8]);
     this.m.makeBasis(inEqj(this.x), inEqj(this.y), inEqj(this.z));
-    this.view.takeOver(this.qT.setFromRotationMatrix(this.m), t.dir, p, hfov);
+    this.view.takeOver(this.qT.setFromRotationMatrix(this.m), t.dir, hd, p, hfov, dive);
     // (off the bus where Flight has it: bus.position has the frame's snap on it, a pixel of ground, which is a lot of pixels at the bus)
-    this.rejoin = { t: 0, off: new THREE.Vector3(f.x, f.y, f.z).negate().add(camera.position), busQuat: bus.quaternion.clone() };
+    this.rejoin = { t: 0, off: new THREE.Vector3(f.x, f.y, f.z).negate().add(camera.position), busQuat: bus.quaternion.clone(), hero: bus.scale.x };
     this.ground = false;
     this.arriving = false;
     this.cameBack = true;

@@ -16,8 +16,8 @@ import { R_MOON, type SkyState } from './SkyModel';
 // true place. The impact is the game's too: flash, hit-stop, kick, splash, fountain, the 64 flung blobs, each landing on a spatter drop the map holds back for it, and sparkles where the wave has been. Those fly in
 // stand-in metres, at a gravity that gives clean slow arcs over a blast 100 km wide, and the place they land on is led by how fast that part of the ground is sliding down the frame.
 //
-// The aim is one source of truth, as Aim.ts's is. A tap on the ground ahead of the bus lands there; any other tap (the sky, under the bus, Space on a keyboard) lands where the glint is, on the ground at the middle of
-// the frame. It is a fixed place on the Moon from the tap on. Hitting paint again is what levels it up, and paint slides down the frame slowly enough to be tapped again (G3: MoonTrip.ts).
+// The aim is one source of truth, as Aim.ts's is. A tap on the ground ahead of the bus lands there; any other tap (the sky, under the bus, Space on a keyboard) lands where the glint is, on the ground just ahead of its
+// nose. It is a fixed place on the Moon from the tap on. Hitting paint again is what levels it up, and paint slides down the frame slowly enough to be tapped again (G3: MoonTrip.ts).
 
 const DEG = Math.PI / 180;
 /** The stand-in's distance from the camera, m. */
@@ -28,8 +28,8 @@ const TRAVEL = 0.92;
 const SLICE_MS = 1.5;
 /** A settled blast's reveal is cleared this long after its impact: the last blob is down. */
 const SETTLE_S = 1.7;
-/** Taps under this row (a share of the frame's height from its middle, down) are on or behind the bus's nose. */
-const BUS_ROW = 0.2;
+/** How far the glint stands over the bus's middle, a share of the focal length: just clear of its nose. */
+const AIM_OVER = 0.075;
 /** The wave's band, km: the game's 12 m, read as km, and half as much again so seven bands hold on this grid of pixels. */
 const RING_KM = 18;
 /** How far the edge's lookup wobbles, texels. */
@@ -118,6 +118,8 @@ export class MoonBreath {
   /** craters painted down there, for this map */
   private readonly lows: PaintStroke[] = [];
   private lowJob: PaintJob | null = null;
+  /** the bus's row on the frame, game px from the middle, +y up: taps under it are on or behind its nose */
+  private busPy = -61;
   /** where a press last touched, css px, and when: a tap with no press near it is a key */
   private touchX = 0;
   private touchY = 0;
@@ -204,7 +206,7 @@ export class MoonBreath {
     if (performance.now() - this.touchAt < 700) {
       px = (this.touchX / window.innerWidth - 0.5) * this.frameW;
       py = (0.5 - this.touchY / window.innerHeight) * this.frameH;
-      ground = py > -BUS_ROW * this.frameH && this.ray(px, py, n);
+      ground = py > this.busPy && this.ray(px, py, n);
     }
     if (!ground) {
       if (!this.aimOn) return false;
@@ -289,8 +291,9 @@ export class MoonBreath {
       }
     }
 
-    // ---- the aim: the ground at the middle of the frame
-    this.aimOn = orbiting && this.ray(0, 0, this.aim);
+    // ---- the aim: the ground just ahead of the bus. (The rig stands off it with no turn of its own, up here: moonrun.ts)
+    this.busPy = (-this.focal * camera.position.y) / camera.position.z;
+    this.aimOn = orbiting && this.ray(0, this.busPy + AIM_OVER * this.focal, this.aim);
     const shot = this.shot;
     const n = shot ? shot.n : this.pour ? this.pour.n : null;
     if (n) {

@@ -1,81 +1,85 @@
 import * as THREE from 'three';
-import { EARTH, MOON, type BodyId } from './SkyModel';
+import { config } from '../config';
+import { MOON_VISTA, viewPitch } from '../game/Ascent';
+import { EARTH } from './SkyModel';
 import { R_E, R_M, type MoonTrip } from './MoonTrip';
 
-// Who looks where on the flight (MOONSHOT.md section 3, trip/sheet.py's frames). On this branch the camera swings on its own; the producer rules on that after feeling it.
+// The camera on the flight is the game's: game/CameraRig.ts at full vista, as it stands over the city. The same lens, the same distance, the same angle over the bus, and nothing of its own. It goes where the bus goes and the thumb swings it. Nothing
+// here decides where to look: there's no look-back, no turn to a body, no view tipping over. No camera move that the bus or the thumb didn't ask for.
 //
-// The rig never moves: the bus at the render origin, the camera behind and above it, no rotation. Everything the camera does is `ob.axes`: the render frame's axes in EQJ, so the swing is the world turning
-// round the bus, in doubles, and the bus's own pose is just its nose read in those axes.
+// The rig never moves: the bus at the render origin, the camera behind and above it, no rotation. Everything the camera does is `ob.axes`: the render frame's axes in EQJ, so a turn is the world turning round the bus, in doubles, and the bus's own pose is
+// just its nose read in those axes. `below` is how far under the line of sight the bus stands, and moonrun.ts puts the camera there.
 //
-// One law, no leg in it. The camera looks at one body, from the view the ground game has: a level heading over that body, pitched down until the horizon is pinned near the top of the frame, then past straight
-// down by a little, which sets the disc above the bus (the sheet's 42 % of the frame). So climbing away the view tips over by itself, and that is the look-back; arriving, it runs backward. Far off, the heading
-// turns to north, so a body reads upright.
+// The chase is a way ahead and a way up, in EQJ. Ahead follows the bus on a critically damped spring: at the rig's own 1.6 Hz where the thumb steers it, and gently everywhere else, so when the bus turns for the Moon the camera comes round with it. On the
+// yoke, on the way down and up it, ahead is the level heading and not the path, as the rig's is, and a dive tips the view by the rig's own law. So the join with the low game is no join: `Landing.hand` and `Landing.back` hand over the same camera.
 //
-// The body is the one the bus has left until that has had its moment, and from then on the one it's going to, however small: the far disc is what the rest of the trip is about. The moment is the size on screen and
-// nothing else, so G5 at its floor, where Earth just fits the frame, gets a few seconds of Earth falling away, and a trip that never lights G5 gets the same look-back, later. The one jump in the law is that change:
-// it goes into an offset that decays on a critically damped spring, which is the swing round.
+// Up is carried along by that turn, so the camera adds no roll, and out in the dark nothing touches it. Over a body it's the radial wherever the radial says anything, which is wherever the flight isn't along it. A way in needs no roll for that: MoonTrip
+// takes its level from this up (`roof`), so the pull-up is the bus pulling up with the camera behind it. Home is a fixed place, so there's one roll the route can't save: up comes round to home's plane slowly, through the long dark, and the disc ahead lies on
+// its axis, so only the stars go with it.
 //
-// The lens is the same body's size, on a long slow slope in the log of it: a disc grows through all of it, and the lens takes only a share of each step, so the disc's size on screen never stalls or falls. The swing's
-// change of body is a step in that, and it's taken in the middle of the swing, with neither body in frame.
+// The angles are the city's at 1 km, all the way: the view looks ahead and a little down, so what the path points at stands over the bus, and a frame too short for that eases the pitch by the rig's own rule. The Moon's low game sits a little lower (MOON_VISTA),
+// so on the last of the way down the angles come to its own, by the height alone. The lens doesn't move, so a disc grows by its own size alone and the bus stays the size it is over the city.
 //
-// The thumb swings the camera on every leg it doesn't steer, on top of the law. Left alone for THUMB_HOLD seconds the view goes home on the same spring.
+// The thumb swings the camera on every leg it doesn't steer, on top of all this. Left alone for THUMB_HOLD seconds the view goes home on a spring of its own.
 
 const DEG = Math.PI / 180;
-const TAN12 = Math.tan(12 * DEG);
-const TAN19 = Math.tan(19 * DEG);
-/** The spring's rate, 1/s: a swing of 180 degrees peaks near 36 deg/s and is nine tenths over in about 7 s. */
+/** The thumb's spring, 1/s: a swing of 180 degrees peaks near 36 deg/s and is nine tenths over in about 7 s. */
 export const SWING = 0.55;
-/** The body behind has had its moment at this share of the frame's width, on the near lens, and the view turns ahead. Earth just fits at G5's floor. */
-export const AHEAD = 0.55;
-/** The lens's slope: 24 degrees with the disc at FROM px across on that lens, 38 by TO (it overfills the frame there), straight in between on the log of the size. */
-const LENS_FROM = Math.log(12);
-const LENS_TO = Math.log(640);
-/** The lens stays where it was while the view is further than this from where it's going, radians, and has gone over to the new body's slope by the nearer one: 120 and 40 degrees, with neither body in frame. */
-const LENS_HOLD_FAR = 2.1;
-const LENS_HOLD_NEAR = 0.7;
-/** The most the lens can do, 1/s. On the slope it's far under this. */
+/** How fast the chase comes round after a bus nothing is steering, 1/s: nine tenths of a turn in about 2.6 s. */
+const FOLLOW = 1.5;
+/** How fast it changes spring, 1/s: the rig's stiff one goes at once, and comes back slowly, so a chase that's behind isn't snatched. */
+const FOLLOW_OFF = 4;
+const FOLLOW_ON = 1;
+/** Up comes to the radial at this rate, 1/s, where the flight lies across it. */
+const ROLL = 1.5;
+/** ...and to home's plane at this rate, 1/s, all through the long dark. */
+const ROLL_HOME = 0.25;
+/** The most either may turn it, rad/s. */
+const ROLL_MOST = 12 * DEG;
+/** The lens's rate, 1/s, back from where the low game left it. */
 const LENS_RATE = 1.2;
-/** The share of its length the bus always shows the camera, the sine of the angle between its nose and the line of sight. A bus flying at what the view looks at is end on, and a dot: it lifts its nose that much, or drops it if it's coming. */
-export const SHOW = 0.7;
 /** deg/s at full stretch */
 const THUMB_RATE = 70 * DEG;
 const THUMB_HOLD = 6;
-/** The view's fastest turn to north, rad/s. */
-const NORTH_RATE = 45 * DEG;
 /** The nose's fastest swing, rad/s: the tip-up reads as a move, and the first frame of it isn't a kick. */
 const NOSE_RATE = 75 * DEG;
-/** The disc's centre over the frame's, a share of the height: the sheet's cy = 0.42. */
-const DISC_LIFT = 0.08;
-/** Degrees from the view's axis up to the horizon. Earth holds it 3 degrees under the frame's top, as the ground game does, which is 33.87 at 393 x 852; a phone's browser bars leave less. The Moon leaves a band of black sky over the rim for Earth to rise into. */
-const HORIZON_TOP = 3;
-const HORIZON_MOON = 20.5;
-/** The lens the Earth's horizon is pinned on. */
-const NEAR_LENS = 38;
+/** The city's angles, degrees, read as this module loads: on ?moonland moonBoot.ts gives config the Moon's a moment later. */
+const CITY = { elevation: config.camera.elevationVista, pitch: config.camera.pitchVista };
+/** km over the ground: the angles start for the low game's at the one, and are its own by the other, the height the two loops change hands. */
+const LOW_FROM = 100;
+const LOW_AT = 15;
 
 const smooth01 = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
 };
-const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
 export class TripView {
   /** the lens this frame */
-  hfov = 38;
+  hfov = config.camera.hfovVista;
   /** the frame, game px: the browser's bars and the phone set it (moonrun.ts) */
   width = 393;
   height = 852;
+  /** Half the lens's vertical field, degrees: moonrun.ts reads it off the real lens, as the rig does. */
+  halfV = 36.87;
   /** the bus's pose in the render frame */
   readonly busQuat = new THREE.Quaternion();
   /** the way it flies and the way its nose points, render frame */
   readonly flying = new THREE.Vector3(0, 0, -1);
   readonly nosing = new THREE.Vector3(0, 0, -1);
-  /** the body the law is looking at */
-  target: BodyId = EARTH;
-  /** the spring's rate, 1/s, and how small the body behind must be before the view leaves it: live, the tuner moves them */
+  /** the chase, EQJ: the way ahead and the way up, before pitch and thumb */
+  readonly ahead = new THREE.Vector3(0, 0, -1);
+  readonly top = new THREE.Vector3(0, 1, 0);
+  /** how far the view has tipped over a dive, 0..1: the rig's */
+  dive = 0;
+  /** degrees down from the chase's way ahead, before a dive */
+  pitch: number = CITY.pitch;
+  /** how far under the line of sight the bus stands, radians: where the rig stands */
+  below = 18 * DEG;
+  /** the thumb's spring's rate, 1/s: live, the tuner moves it */
   swing = SWING;
-  ahead = AHEAD;
 
-  /** the view in EQJ: the law's, the spring's offset, the thumb's, and all of them */
+  /** the view in EQJ: the chase's, the spring's offset, the thumb's, and all of them */
   private readonly want = new THREE.Quaternion();
   private readonly offset = new THREE.Quaternion();
   private readonly thumbQ = new THREE.Quaternion();
@@ -86,25 +90,19 @@ export class TripView {
   private yaw = 0;
   private tilt = 0;
   private idle = 0;
-  /** heading to north, unwrapped, and how far the view has gone over to it */
-  private h = 0;
-  private k = 0;
-  /** the lens when the view last let go */
-  private lensAt = 38;
-  /** the view's lag behind a hard turn */
-  private lag = 0;
+  /** the chase's turn, rad/s, and the rate of its spring, 1/s */
+  private readonly spin = new THREE.Vector3();
+  private rate = 2 * Math.PI * config.camera.yawHz;
   private bank = 0;
   private started = false;
   private readonly handed = new THREE.Quaternion();
   private isHanded = false;
 
   private readonly u = new THREE.Vector3();
-  private readonly level = new THREE.Vector3();
   private readonly right = new THREE.Vector3();
   private readonly up = new THREE.Vector3();
   private readonly fwd = new THREE.Vector3();
   private readonly back = new THREE.Vector3();
-  private readonly n = new THREE.Vector3();
   private readonly t = new THREE.Vector3();
   private readonly t2 = new THREE.Vector3();
   private readonly nose = new THREE.Vector3();
@@ -116,64 +114,59 @@ export class TripView {
   private readonly y = new THREE.Vector3();
   private readonly z = new THREE.Vector3();
 
-  /** One frame, after trip.step(). stick: the thumb, -1..1; thumb: it is down. lens: a fixed lens, 0 for the law's. */
+  /** One frame, after trip.step(). stick: the thumb, -1..1; thumb: it is down. lens: a fixed lens, 0 for the game's. */
   update(dt: number, trip: MoonTrip, stickX: number, stickY: number, thumb: boolean, lens: number): void {
-    const r = trip.r, rm = trip.rm;
-    const dE = Math.hypot(r[0], r[1], r[2]), dM = Math.hypot(rm[0], rm[1], rm[2]);
-    const aE = Math.asin(Math.min(1, R_E / dE)), aM = Math.asin(Math.min(1, R_M / dM));
-    const was = this.target;
-    if (trip.bound !== was && Math.tan(was === EARTH ? aE : aM) < this.ahead * TAN19) {
-      this.target = trip.bound;
-      this.lensAt = this.hfov;
+    const r = trip.r, rm = trip.rm, C = config.camera, dir = trip.dir, hd = trip.heading;
+    const dE = Math.hypot(r[0], r[1], r[2]), dM = Math.hypot(rm[0], rm[1], rm[2]), hE = dE - R_E, hM = dM - R_M;
+
+    // the lens is the game's, and it doesn't move: only the low game can hand it over from anywhere else
+    const hfov = lens || C.hfovVista, gap = hfov - this.hfov;
+    this.hfov = Math.abs(gap) < 0.02 ? hfov : this.hfov + gap * (1 - Math.exp(-LENS_RATE * dt));
+
+    // the radial that counts: the nearer body's, and home's once the bus is well clear of the Moon on the way there
+    const homeward = trip.bound === EARTH ? smooth01(0.5 * R_M, 3 * R_M, hM) : 0;
+    const u = homeward > 0 || hE < hM ? this.u.set(r[0] / dE, r[1] / dE, r[2] / dE) : this.u.set(rm[0] / dM, rm[1] / dM, rm[2] / dM);
+    const ahead = this.ahead, top = this.top, nose = this.nose;
+    if (!this.started) {
+      this.started = true;
+      ahead.set(dir[0], dir[1], dir[2]);
+      top.copy(u).addScaledVector(ahead, -u.dot(ahead)).normalize();
+      nose.copy(ahead);
+      this.busUp.copy(top);
     }
-    const moon = this.target === MOON;
-    const p = moon ? rm : r, d = moon ? dM : dE, R = moon ? R_M : R_E, a = moon ? aM : aE;
 
-    // the lens: 24 degrees for a small far body, 38 once it would overfill that (trip/sheet.py's picks)
-    const px24 = (this.width * Math.tan(a)) / TAN12;
-    const onSlope = 24 + 14 * smooth01(LENS_FROM, LENS_TO, Math.log(Math.max(px24, 1)));
-    const held = onSlope + (this.lensAt - onSlope) * (this.target !== was ? 1 : smooth01(LENS_HOLD_NEAR, LENS_HOLD_FAR, this.o.length()));
-    this.hfov = lens || (this.started ? this.hfov + (held - this.hfov) * (1 - Math.exp(-LENS_RATE * dt)) : onSlope);
+    // ---- the bus's nose: the path, and a level heading at rest
+    const nw = this.t.set(dir[0], dir[1], dir[2]);
+    if (trip.v < 20 && trip.leg !== 'fall') nw.set(hd[0], hd[1], hd[2]);
+    if (nose.dot(nw) < -0.98) nose.addScaledVector(this.busUp, 0.02);
+    const off = Math.acos(Math.max(-1, Math.min(1, nose.dot(nw))));
+    nose.lerp(nw, Math.min(1 - Math.exp(-6 * dt), (NOSE_RATE * dt) / Math.max(off, 1e-6))).normalize();
 
-    // ---- the law
-    const u = this.u.set(p[0] / d, p[1] / d, p[2] / d);
-    const lv = this.level.set(trip.heading[0], trip.heading[1], trip.heading[2]);
-    lv.addScaledVector(u, -lv.dot(u)).normalize();
-    const n = this.n.set(0, 0, 1);
-    n.addScaledVector(u, -n.dot(u)).normalize();
-    const side = this.t.crossVectors(u, lv);
-    const toNorth = Math.atan2(n.dot(side), n.dot(lv));
-    // (a steered leg faces the way the bus does; the wide-out ones turn to north with height. Unwrapped only while the turn is under way: left to run it collects whole turns, and those would play out on arrival.
-    // Under way it has a top speed: a way home that passes over the pole sees north go half way round in a moment)
-    const far = trip.steering ? 0 : smooth01(0.16 * R, 0.95 * R, d - R);
-    this.k += (far - this.k) * (1 - Math.exp(-2 * dt));
-    const most = NORTH_RATE * dt;
-    this.h = this.started && this.k > 0.001 && this.k < 0.999 ? this.h + Math.max(-most, Math.min(most, wrap(toNorth - this.h))) : toNorth;
-    if (trip.steering) this.lag += (stickX * trip.yawRate - this.lag) * (1 - Math.exp(-3 * dt));
-    else this.lag *= Math.exp(-3 * dt);
-    const turn = this.h * this.k + this.lag / 3;
-    const ct = Math.cos(turn), st = Math.sin(turn);
-    lv.multiplyScalar(ct).addScaledVector(side, st);
-    const focal = this.width / 2 / Math.tan((this.hfov * DEG) / 2);
-    const top = Math.atan((this.height / this.width) * Math.tan((NEAR_LENS * DEG) / 2)) / DEG - HORIZON_TOP;
-    const pinned = Math.acos(Math.min(1, R / d)) / DEG + (moon ? HORIZON_MOON : top);
-    const pitch = Math.min(pinned, 90 + Math.atan((DISC_LIFT * this.height) / focal) / DEG) * DEG;
-    const fwd = this.fwd.copy(lv).multiplyScalar(Math.cos(pitch)).addScaledVector(u, -Math.sin(pitch));
-    const right = this.right.crossVectors(lv, u).normalize();
-    const up = this.up.crossVectors(right, fwd);
+    // ---- the chase comes after it
+    const steered = trip.steering, spring = steered ? 2 * Math.PI * C.yawHz : FOLLOW;
+    this.rate += (spring - this.rate) * (1 - Math.exp(-(steered ? FOLLOW_ON : FOLLOW_OFF) * dt));
+    this.follow(trip.leg === 'fall' ? this.t.set(hd[0], hd[1], hd[2]) : nose, dt);
+    this.level(u, homeward, dt);
+
+    // ---- the rig's angles
+    const h = hM - trip.ground, low = 1 - smooth01(LOW_AT, LOW_FROM, h), city = viewPitch(0, 1, this.halfV, CITY.pitch);
+    this.pitch = city + (viewPitch(Math.max(h, 0) * 1000, MOON_VISTA.fade, this.halfV, MOON_VISTA.pitch) - city) * low;
+    const elevation = CITY.elevation + (MOON_VISTA.elevation - CITY.elevation) * low;
+    const yoke = trip.leg === 'fall' && trip.nose < 0 ? Math.max(0, Math.min(1, (-trip.nose / DEG - C.diveFrom) / Math.max(1, config.flight.noseDown - C.diveFrom))) : 0;
+    const dd = yoke - this.dive, ds = Math.max(Math.abs(dd) * (1 - Math.exp(-C.diveRate * dt)), 0.04 * dt);
+    this.dive = Math.abs(dd) <= ds ? yoke : this.dive + Math.sign(dd) * ds;
+    const p = (this.pitch + (C.divePitch - this.pitch) * this.dive) * DEG;
+    this.below = (elevation + (C.diveElevation - elevation) * this.dive) * DEG - p;
+
+    // ---- the view
+    const cp = Math.cos(p), sp = Math.sin(p);
+    const fwd = this.fwd.copy(ahead).multiplyScalar(cp).addScaledVector(top, -sp);
+    const up = this.up.copy(top).multiplyScalar(cp).addScaledVector(ahead, sp);
+    const right = this.right.crossVectors(fwd, up);
     this.back.copy(fwd).negate();
     this.want.setFromRotationMatrix(this.m.makeBasis(right, up, this.back));
 
-    if (!this.started) {
-      this.started = true;
-      this.q.copy(this.want);
-      this.nose.set(trip.dir[0], trip.dir[1], trip.dir[2]);
-      this.busUp.copy(u);
-    }
-
-    // ---- the swing: the law jumped, so the view stays where it was and that gap decays. Anything the thumb had goes with it.
-    if (this.target !== was) this.takeBack();
-    // (and handed over by the low game, the same: this.want is this frame's by now)
+    // (handed over by the low game the view stays where the rig had it, and the spring takes it from there: this.want is this frame's by now)
     if (this.isHanded) {
       this.isHanded = false;
       this.q.copy(this.handed);
@@ -208,31 +201,54 @@ export class TripView {
     ax[7] = e[9];
     ax[8] = e[10];
 
-    // ---- the bus: its nose follows the path, and a level heading at rest; its roof the radial near a body and the camera's up far off
-    const nw = this.t.set(trip.dir[0], trip.dir[1], trip.dir[2]);
-    if (trip.v < 20 && trip.leg !== 'fall') nw.set(trip.heading[0], trip.heading[1], trip.heading[2]);
-    const nose = this.nose;
-    if (nose.dot(nw) < -0.98) nose.addScaledVector(this.busUp, 0.02);
-    const off = Math.acos(Math.max(-1, Math.min(1, nose.dot(nw))));
-    nose.lerp(nw, Math.min(1 - Math.exp(-6 * dt), (NOSE_RATE * dt) / Math.max(off, 1e-6))).normalize();
-    const camUp = this.t2.set(e[4], e[5], e[6]);
-    const roof = this.busUp;
-    roof.lerp(camUp.multiplyScalar(this.k).addScaledVector(u, 1 - this.k), 1 - Math.exp(-3 * dt));
-    roof.addScaledVector(nose, -roof.dot(nose)).normalize();
+    // ---- the bus: its nose, and its roof the chase's way up
+    const roof = this.busUp, flat = this.t.copy(top).addScaledVector(nose, -top.dot(nose));
+    if (flat.lengthSq() > 1e-6) roof.copy(flat).normalize();
     this.bank += ((trip.steering ? stickX : 0) * 0.45 - this.bank) * (1 - Math.exp(-6 * dt));
     // (a carve leans the roof into the turn)
     this.t2.copy(roof).multiplyScalar(Math.cos(this.bank)).addScaledVector(this.t.crossVectors(nose, roof), Math.sin(this.bank));
     this.inRender(nose, ax, this.nosing);
     this.inRender(this.t2, ax, this.y);
-    this.inRender(this.t.set(trip.dir[0], trip.dir[1], trip.dir[2]), ax, this.flying);
-    // (end on to the camera it would be a dot: the line of sight comes down to the bus at the rig's row, and the nose goes up or down the screen by what's short)
-    const row = (0.25 * this.height) / focal, l = 1 / Math.hypot(1, row);
-    const along = -(this.nosing.y * row + this.nosing.z) * l, short = SHOW - Math.sqrt(Math.max(0, 1 - along * along));
-    if (short > 0) this.nosing.addScaledVector(this.t.set(0, l, -row * l), along > 0 ? short : -short).normalize();
+    this.inRender(this.t.set(dir[0], dir[1], dir[2]), ax, this.flying);
     const z = this.z.copy(this.nosing).negate();
     const x = this.x.crossVectors(this.y, z).normalize();
     this.y.crossVectors(z, x);
     this.busQuat.setFromRotationMatrix(this.m.makeBasis(x, this.y, z));
+
+    // (the way in reads this: it levels out the way the view's top already points)
+    trip.roof[0] = top.x;
+    trip.roof[1] = top.y;
+    trip.roof[2] = top.z;
+  }
+
+  /** One step of a critically damped spring from the way ahead to `to`, exact at any dt. It turns the short way round, so what's carried along has no roll in it. */
+  private follow(to: THREE.Vector3, dt: number): void {
+    const a = this.ahead, top = this.top, v = this.spin, w = this.rate;
+    // (x: the turn from where it should be to where it is)
+    const x = this.x.crossVectors(to, a), s = x.length();
+    if (s > 1e-9) x.multiplyScalar(Math.atan2(s, to.dot(a)) / s);
+    else x.set(0, 0, 0);
+    const e = Math.exp(-w * dt), k = this.y.copy(v).addScaledVector(x, w);
+    const step = this.z.copy(x).addScaledVector(k, dt).multiplyScalar(e).sub(x);
+    v.addScaledVector(k, -w * dt).multiplyScalar(e);
+    const ang = step.length();
+    if (ang > 1e-12) {
+      this.qt.setFromAxisAngle(step.divideScalar(ang), ang);
+      a.applyQuaternion(this.qt).normalize();
+      top.applyQuaternion(this.qt);
+    }
+    top.addScaledVector(a, -top.dot(a)).normalize();
+    v.addScaledVector(a, -v.dot(a));
+  }
+
+  /** Up comes round the way ahead to the radial, as far as the radial lies across the flight. homeward: 0..1, how far the bus is into the way home, where it goes on coming round when the radial is nearly along the flight. */
+  private level(u: THREE.Vector3, homeward: number, dt: number): void {
+    const a = this.ahead, top = this.top, p = this.t.copy(u).addScaledVector(a, -u.dot(a)), s = p.length();
+    if (s < 1e-4) return;
+    p.divideScalar(s);
+    const off = Math.atan2(a.dot(this.x.crossVectors(top, p)), top.dot(p));
+    const most = ROLL_MOST * dt, by = off * (1 - Math.exp(-Math.max(ROLL * smooth01(0.35, 0.9, s), ROLL_HOME * homeward) * dt));
+    top.applyAxisAngle(a, Math.max(-most, Math.min(most, by))).normalize();
   }
 
   private inRender(v: THREE.Vector3, a: Float64Array, o: THREE.Vector3): void {
@@ -240,16 +256,22 @@ export class TripView {
     o.set(a[0] * x + a[1] * y + a[2] * z, a[3] * x + a[4] * y + a[5] * z, a[6] * x + a[7] * y + a[8] * z);
   }
 
-  /** The low game hands the view over (?moonland): it stands where the rig had it, in EQJ, and the spring takes it home. nose: the way the bus goes; up: out from the Moon, both EQJ; hfov: the rig's lens, which comes back to the law at the lens's own rate. */
-  takeOver(q: THREE.Quaternion, nose: Float64Array, up: Float64Array, hfov: number): void {
+  /** The low game hands the bus back (?moonland): the view stands where the rig had it, in EQJ, the chase is the rig's, and what's left between them goes on the spring. nose: the way the bus goes; heading: level, the way it faces; up: out from the Moon, all EQJ; hfov and dive: the rig's. */
+  takeOver(q: THREE.Quaternion, nose: Float64Array, heading: Float64Array, up: Float64Array, hfov: number, dive: number): void {
     this.handed.copy(q);
     this.isHanded = true;
     this.nose.set(nose[0], nose[1], nose[2]);
-    this.busUp.set(up[0], up[1], up[2]).normalize();
-    this.hfov = this.lensAt = hfov;
+    this.ahead.set(heading[0], heading[1], heading[2]);
+    this.top.set(up[0], up[1], up[2]);
+    this.top.addScaledVector(this.ahead, -this.top.dot(this.ahead)).normalize();
+    this.busUp.copy(this.top);
+    this.spin.set(0, 0, 0);
+    this.rate = 2 * Math.PI * config.camera.yawHz;
+    this.dive = dive;
+    this.hfov = hfov;
   }
 
-  /** The view stays exactly where it is and the spring takes it from there: to the law's view, thumb gone. */
+  /** The view stays exactly where it is and the spring takes it from there, thumb gone. */
   private takeBack(): void {
     this.offset.copy(this.qt.copy(this.want).invert()).multiply(this.q);
     const w = this.offset.w < 0 ? -1 : 1;
@@ -259,6 +281,5 @@ export class TripView {
     else this.o.set(this.offset.x, this.offset.y, this.offset.z).multiplyScalar((w * ang) / s);
     this.oV.set(0, 0, 0);
     this.yaw = this.tilt = 0;
-    this.lensAt = this.hfov;
   }
 }

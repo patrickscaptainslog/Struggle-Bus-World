@@ -22,7 +22,7 @@ import { groundTune, SkyDraw } from './SkyDraw';
 import { EARTH, MOON, R_MOON, SkyModel, SkyState, type Observer } from './SkyModel';
 import { applySpaceTable } from './SkyTable';
 import { SpaceFx, spaceFxTune } from './SpaceFx';
-import { AHEAD, SWING, TripView } from './TripView';
+import { SWING, TripView } from './TripView';
 import { geodeticToFix, sphereToFix } from './WorldFrame';
 
 // ?moonrun: MOONSHOT.md's black box. Space only: no city streams, the bus sits at the render origin, and the real pipeline and resolve draw it. Earth, Moon and Sun come from the real sky
@@ -157,7 +157,7 @@ function readView(params: URLSearchParams, model: SkyModel, sky: SkyState, ms: n
 const thousands = (n: number) => Math.round(n).toLocaleString('en-US');
 
 /** The tuner's rows for the flight, read every frame. The bus's and the trail's live with those. */
-const tripTune = { tau: TAU, pullDegS: PULL / DEG, swing: SWING, ahead: AHEAD, busSunSoft: 0.75 };
+const tripTune = { tau: TAU, pullDegS: PULL / DEG, swing: SWING, busSunSoft: 0.75 };
 
 /** The label's font, with the one sign the HUD has never needed. */
 const LABEL: typeof HUD_SMALL = { ...HUD_SMALL, glyphs: new Map(HUD_SMALL.glyphs).set('%', { w: 3, bits: Uint8Array.from([1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1]) }) };
@@ -255,10 +255,9 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   const focalAt = () => 1 / pipeline.pixelWorldSize(1);
   const placeCamera = () => {
     bus.root.scale.setScalar(config.camera.heroScaleVista);
-    // (a quarter of the frame under its middle, the bus's row at 852 tall, wherever a browser's bars leave the bottom)
-    const D = config.camera.distanceVista, row = (0.25 * pipeline.info.height) / focalAt();
-    const k = D / Math.sqrt(1 + row * row);
-    camera.position.set(0, k * row, k);
+    // (where the rig stands, off the bus: flying, the view says how far under the line of sight that is. To look at a place, a quarter of the frame under its middle)
+    const D = config.camera.distanceVista, below = view ? view.below : Math.atan((0.25 * pipeline.info.height) / focalAt());
+    camera.position.set(0, D * Math.sin(below), D * Math.cos(below));
     camera.quaternion.setFromAxisAngle(pitchAxis, breath.kick);
   };
   const fitView = () => {
@@ -271,7 +270,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   placeCamera();
   // the tuner, as the street's: `?tune` or three fingers
   const tuner = new Tuner();
-  registerTunables('Moon run', tripTune, { tau: [4, 30, 0.5], pullDegS: [1, 10, 0.1], swing: [0.2, 1.5, 0.01], ahead: [0.2, 1, 0.01], busSunSoft: [0, 1, 0.01] });
+  registerTunables('Moon run', tripTune, { tau: [4, 30, 0.5], pullDegS: [1, 10, 0.1], swing: [0.2, 1.5, 0.01], busSunSoft: [0, 1, 0.01] });
   registerTunables('Moon run: what goes with it', spaceFxTune, { linePx: [1, 3, 0.1], lineLong: [0.005, 0.1, 0.001] });
   registerTunables('Moon run: names', nameTune, { every: [2, 20, 0.5], font: [1, 3, 0.1], high: [300, 8000, 100], fast: [30, 600, 5] });
   registerTunables('Moon run: the ground', groundTune, { relief: [0, 8, 0.1], craters: [0, 2, 0.05], bright: [0, 2, 0.05], flat: [0, 4, 0.1], hill: [0, 2, 0.05], wander: [0, 2, 0.05], sharp: [-1.5, 1, 0.1], keep: [0.01, 0.3, 0.01] });
@@ -394,7 +393,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
       trip.tau = tripTune.tau;
       trip.pull = tripTune.pullDegS * DEG;
       view.swing = tripTune.swing;
-      view.ahead = tripTune.ahead;
+      view.halfV = camera.fov / 2;
       trip.step(dt, trip.steering && st.dragging ? st.stretch.x : 0, st.dragging ? st.stretch.y : 0);
       view.update(dt, trip, st.stretch.x, st.stretch.y, st.dragging, lensParam);
       pipeline.setHfov(view.hfov);

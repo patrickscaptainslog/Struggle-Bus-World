@@ -194,6 +194,8 @@ export class MoonTrip {
   ground = 0;
   /** A stick the map's edge adds to the thumb's, as the low game's homing does (moon/Landing.ts). */
   home = 0;
+  /** The way the view's top points, EQJ: TripView writes it. A way in levels out that way, so the pull-up is the bus pulling up and the camera has nothing to turn. With no view (tools/sky/route-check.mjs) it's north. */
+  readonly roof = Float64Array.from([0, 0, 1]);
   /** Going up is gears: the speed of the gear that's taking the bus up, km/s. 0: the way down's law has the speed. */
   climbV = 0;
   /** That gear is the way out: with no thumb on it the bus goes on up, to the orbit. */
@@ -265,7 +267,7 @@ export class MoonTrip {
     return this.leg === 'wait' || this.leg === 'orbit' || this.leg === 'fall';
   }
 
-  /** The body this leg is going to: the view turns to it once the one behind has had its moment (TripView.ts). */
+  /** The body this leg is going to: TripView.ts keeps it over the bus while it lies ahead. */
   get bound(): BodyId {
     return this.leg === 'wait' || this.leg === 'leave' || this.leg === 'homeOut' || this.leg === 'homeCruise' || this.leg === 'homeIn' || this.leg === 'homeLevel' || this.leg === 'homeDrop' ? EARTH : MOON;
   }
@@ -550,13 +552,9 @@ export class MoonTrip {
     }
   }
 
-  /** North at this radial: both bodies arrive north up, which is how far views are framed, and it's the way the pull-up leaves. */
-  private headNorth(u: V): void {
-    const n = this.w3;
-    n[0] = 0;
-    n[1] = 0;
-    n[2] = 1;
-    tangent(n, u, this.heading);
+  /** Level at this radial, the way the view's top points: the way the pull-up leaves. */
+  private headUp(u: V): void {
+    if (Math.abs(dot(this.roof, u)) < 0.999) tangent(this.roof, u, this.heading);
   }
 
   /** The carve round to the Moon's azimuth, over home. */
@@ -891,14 +889,14 @@ export class MoonTrip {
     this.enter('fall');
   }
 
-  /** The law has the speed from here. Level turns north for the pull-up, unseen: a far view is framed north up. */
+  /** The law has the speed from here. Level turns to where the pull-up will go, unseen. */
   private arrive(): void {
-    this.headNorth(setUnit(this.rm, this.u));
+    this.headUp(setUnit(this.rm, this.u));
     this.enter('in');
   }
 
   private homeIn(): void {
-    this.headNorth(setUnit(this.r, this.u));
+    this.headUp(setUnit(this.r, this.u));
     this.enter('homeIn');
   }
 }

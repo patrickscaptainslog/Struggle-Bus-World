@@ -41,3 +41,11 @@ export function pitchAdd(h: number, base: number): number {
   const from = config.ascent.pitchFrom;
   return h <= from ? 0 : Math.atan2(h, base) - Math.atan2(from, base);
 }
+
+/** How far the rig's view pitches down at this height (degrees), and never so far that the horizon leaves the top of a frame with this half field (degrees). vista: how far it does at the bottom of the vista. */
+export function viewPitch(h: number, base: number, halfV: number, vista = config.camera.pitchVista): number {
+  return Math.max(5, Math.min(60, Math.min(vista + (pitchAdd(h, base) * 180) / Math.PI, halfV - 3)));
+}
+
+/** The vista on the Moon (degrees, and the far fade's end, m): there's no fog to hide in, so the view sits lower, with more of the black over the horizon. moon/moonBoot.ts sets the rig to it, and the flight comes down to it. */
+export const MOON_VISTA = { elevation: 34, pitch: 19, fade: 3e6 };

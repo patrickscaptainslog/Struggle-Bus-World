@@ -84,10 +84,21 @@ export class TurboLens {
   private kick = 0;
   private kickV = 0;
   private k = 0;
+  /** How fast the lens goes after the speed, 1/s. ?moonland holds it back on arrival, or the view that came down on the flight's lens opens out in the second after the hand-over. */
+  rate = 2.2;
 
   /** A fov punch of `deg` (rings down on a damped spring). */
   punch(deg: number) {
     this.kickV += deg * 2 * Math.PI * turboFxTune.kickHz * 2.2;
+  }
+
+  /** The bus comes in from another camera (?moonland): the lens starts from the rig's plain one, not from where it was left. */
+  reset(rig: CameraRig) {
+    this.k = this.kick = this.kickV = this.pull = this.fov = 0;
+    rig.turboPull = rig.turboFov = 0;
+    rig.turboHero = 1;
+    rig.turboLead.set(0, 0, 0);
+    rig.turboLookLead.set(0, 0, 0);
   }
 
   update(dt: number, drive: TurboDrive, rig: CameraRig, f: Flight) {
@@ -98,7 +109,7 @@ export class TurboLens {
     const want = clamp(drive.speedK, 0, 2.5);
     const d = want - this.k;
     if (Math.abs(d) < 0.004) this.k = want;
-    else this.k += d * (1 - Math.exp(-2.2 * dt));
+    else this.k += d * (1 - Math.exp(-this.rate * dt));
     const w = 2 * Math.PI * turboFxTune.kickHz;
     this.kickV += (-w * w * this.kick - 2 * 0.55 * w * this.kickV) * dt;
     this.kick += this.kickV * dt;

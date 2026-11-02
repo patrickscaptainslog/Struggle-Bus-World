@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { config } from '../config';
+import { MOON_VISTA } from '../game/Ascent';
 import { fxTune } from '../fx/Particles';
 import { globals } from '../render/materials';
 import { Ramp, dayRows, writePalette } from '../render/palette';
@@ -148,13 +149,13 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
     else moonGlobals.uMoonLight.value.set(land ? 0.55 : 0.4, 0.006, 0.03);
   };
   if (!land) light();
-  config.fog.clearFarFull = 3e6;
+  config.fog.clearFarFull = MOON_VISTA.fade;
   // no fog to hide in: the view sits lower, with more of the black over the horizon
   config.camera.elevationCruise = 13;
   config.camera.elevationSlow = 17;
   config.camera.elevationSurge = 11;
-  config.camera.elevationVista = 34;
-  config.camera.pitchVista = 19;
+  config.camera.elevationVista = MOON_VISTA.elevation;
+  config.camera.pitchVista = MOON_VISTA.pitch;
   config.camera.lookAhead = 95;
   // (a crater's wall is a hill to fly up, not a tower to steer round)
   config.flight.avoidTallerThan = 2000;

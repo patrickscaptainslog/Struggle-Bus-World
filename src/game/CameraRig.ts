@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { config } from '../config';
-import { pitchAdd } from './Ascent';
+import { viewPitch } from './Ascent';
 import { angleDelta, clamp, spring } from './springs';
 import type { Flight } from './Flight';
 
@@ -31,7 +31,7 @@ export class CameraRig {
   private lensHeight = 0;
   private lensTarget = 0;
   /** 0..1: how far the view has tipped over a dive (eases after the nose; exactly 0 once it has settled back) */
-  private dive = 0;
+  dive = 0;
   /** where the far fade ends at the ground (m, main.ts): the view looks down past it as it drops */
   fadeBase = 34000;
   /** horizontal portrait fov the pipeline should use (deg) */
@@ -75,12 +75,13 @@ export class CameraRig {
   /** 0..1, ?moonland: the follow stands where it should, with no lag: a bus coming down at kilometres a second would run out from under the springs. */
   stiff = 0;
 
-  /** The bus comes in from a height with the view at its height: the rig is where it would have got to by itself. */
-  place(cam: THREE.PerspectiveCamera, f: Flight) {
+  /** The bus comes in from a height with the view at its height: the rig is where it would have got to by itself, tipped as far over a dive as the view it takes over from. */
+  place(cam: THREE.PerspectiveCamera, f: Flight, dive: number) {
     this.initialized = true;
     this.yaw = f.heading;
     this.yawVel = 0;
     this.vista = this.vistaTarget = 1;
+    this.dive = dive;
     this.lensHeight = this.lensTarget = f.height;
     this.pos.copy(cam.position);
     this.posVel.set(0, 0, 0);
@@ -164,8 +165,7 @@ export class CameraRig {
     if (v > 0) {
       // far enough ahead that the view pitches down by pitchVista, and never so far down that
       // the horizon leaves the top of the frame (3 deg of sky) while the rig is still rising
-      const halfV = cam.fov / 2; // the lens as the pipeline set it (portrait or landscape)
-      pitch = THREE.MathUtils.degToRad(clamp(Math.min(C.pitchVista + THREE.MathUtils.radToDeg(pitchAdd(this.lensHeight, this.fadeBase)), halfV - 3), 5, 60));
+      pitch = THREE.MathUtils.degToRad(viewPitch(this.lensHeight, this.fadeBase, cam.fov / 2)); // (the lens as the pipeline set it, portrait or landscape)
       const laV = (Math.sin(el) * dist + 4) / Math.tan(pitch + (divePitch - pitch) * dive) - Math.cos(el) * dist;
       la += (Math.max(la, laV) - la) * smooth01(0, 0.35, v);
     }
