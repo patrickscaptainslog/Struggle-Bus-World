@@ -251,6 +251,9 @@ for (const [hand, x, y, yd] of [['right', RX, RY, 500], ['left', LX, LY, 500]] a
   row('touch', `${hand} thumb: turbo, the waiting gear dropped`, (h) => { twice(h); h.wait(500); });
   row('touch', `${hand} thumb: the second lands inside the window and lifts after it`, (h) => { up(h); h.wait(300); up(h); h.wait(500); });
   row('touch', `${hand} thumb: the second lands past the window: a gear, then the next`, (h) => { up(h); h.wait(340); up(h); h.wait(500); });
+  row('touch', `${hand} thumb: a soft second stroke in the window is the second flick`, (h) => { up(h); h.wait(150); h.stroke(x, y, 0, -30, 100); h.wait(500); });
+  row('touch', `${hand} thumb: the same soft stroke past the window is no flick`, (h) => { up(h); h.wait(340); h.stroke(x, y, 0, -30, 100); h.wait(500); });
+  row('touch', `${hand} thumb: the same soft stroke with loneAgainMs at 0 is no flick`, (h) => { const was = inputTune.loneAgainMs; inputTune.loneAgainMs = 0; up(h); h.wait(150); h.stroke(x, y, 0, -30, 100); h.wait(500); inputTune.loneAgainMs = was; });
   row('touch', `${hand} thumb: a soft first stroke is no flick`, (h) => { h.stroke(x, y, 0, -30, 100); h.wait(500); });
   row('touch', `${hand} thumb: a second double adds a level`, (h) => { twice(h); h.wait(500); twice(h); h.wait(500); });
   row('touch', `${hand} thumb: six flicks in a row are the top level`, (h) => { for (let i = 0; i < 6; i++) { up(h); h.wait(150); } h.wait(500); });
@@ -603,6 +606,9 @@ for (const hand of ['right', 'left']) {
   ok(by(g('turbo, the waiting')).level === 1 && by(g('turbo, the waiting')).gear === 0 && n(g('turbo, the waiting'), 'up') === 0, `${hand}: two quick flicks are turbo`);
   ok(by(g('the second lands inside')).level === 1 && by(g('the second lands inside')).gear === 0, `${hand}: the gear waits for a stroke that landed in the window`);
   ok(by(g('the second lands past')).level === 0 && by(g('the second lands past')).gear === JET, `${hand}: past the window, a gear and the next`);
+  ok(by(g('a soft second stroke')).level === 1 && by(g('a soft second stroke')).gear === 0, `${hand}: the second stroke of a pair reads the second thumb's rule`);
+  ok(by(g('the same soft stroke past')).level === 0 && by(g('the same soft stroke past')).gear === EXPRESS && n(g('the same soft stroke past'), 'flick') === 1, `${hand}: past the window the same stroke is steering`);
+  ok(by(g('the same soft stroke with')).level === 0 && by(g('the same soft stroke with')).gear === EXPRESS && n(g('the same soft stroke with'), 'flick') === 1, `${hand}: loneAgainMs 0 is the firm rule`);
   quiet(g('a soft first stroke'));
   ok(by(g('a second double')).level === 2, `${hand}: a second double, level 2`);
   ok(by(g('six flicks')).level === 3 && by(g('six flicks')).gear === 0, `${hand}: six flicks in a row, the top level, no gear`);

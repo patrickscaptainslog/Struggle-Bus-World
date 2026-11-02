@@ -34,7 +34,8 @@ import { registerTunables } from '../ui/tunables';
 //    other half always flies, whatever happened on the glass;
 //  - a lone fresh stroke that lifts fast is a flick, on either half, on the firmer
 //    rule. It steers until the lift decides: steering never waits for a verdict, and
-//    a thumb that stays down never shifts.
+//    a thumb that stays down never shifts. Landing within loneAgainMs of a flick it
+//    reads the second thumb's rule: that thumb has just said what it is doing.
 // A flick is read from the landing and the lift alone, distance over contact
 // time, so it holds at any frame rate. One touch is one reading, so the return
 // stroke never counts. A stroke landing in the bottom band (iOS owns that edge)
@@ -119,6 +120,8 @@ export const inputTune = {
   loneFlickMs: 200,
   loneFlickSpeed: 0.4,
   loneFlickDeg: 40,
+  /** A lone stroke landing this long (ms) after a flick lifted reads the second thumb's rule: one thumb's double is two firm strokes otherwise. 0: always the firm rule. */
+  loneAgainMs: 320,
   /** A stroke landing this close to the bottom (iOS owns that edge) or to a side is never a command (px). */
   flickBottomPx: 40,
   flickSidePx: 20,
@@ -149,6 +152,7 @@ registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
   loneFlickMs: [60, 450, 5],
   loneFlickSpeed: [0.05, 2, 0.01],
   loneFlickDeg: [10, 80, 1],
+  loneAgainMs: [0, 700, 5],
   flickBottomPx: [0, 120, 1],
   flickSidePx: [0, 80, 1],
   doubleMs: [100, 700, 5],
@@ -253,6 +257,8 @@ export class Input {
   private looker: Slot | null = null;
   /** when two thumbs were last together, the second on its half (ms) */
   private twoAt = -Infinity;
+  /** when the last flick lifted (ms) */
+  private flickedAt = -Infinity;
 
   // the current gesture (from the flying thumb's landing, or a lone second thumb's)
   private gT0 = 0;
@@ -607,7 +613,7 @@ export class Input {
     let recent = false;
     for (const s of this.slots) if (s.role === Role.Second && !s.right && now - s.t0 <= inputTune.tapMs && s.maxDist <= inputTune.tapSlopPx) recent = true;
     this.setSlot(slot, e, now, Role.Fly);
-    if (others === 0 && !mouse && this.commands(slot)) slot.flick = Flick.Firm;
+    if (others === 0 && !mouse && this.commands(slot)) slot.flick = now - this.flickedAt <= inputTune.loneAgainMs ? Flick.Easy : Flick.Firm;
     this.beginFly(slot, now);
     this.gMax = others + 1;
     this.gMulti = recent;
@@ -644,6 +650,7 @@ export class Input {
       return;
     }
     const dir = cancelled ? 0 : this.flickOf(slot, e.clientX - this.rectL, e.clientY - this.rectT, now);
+    if (dir) this.flickedAt = now;
     this.noteTogether(now, role === Role.Fly && dir !== 0);
     const quick = !cancelled && this.isQuick(slot, now);
     if (!quick) this.gAllQuick = false;

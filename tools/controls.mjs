@@ -196,6 +196,7 @@ if (modes.has('thumbs')) {
       while (c.turbo.gear > 0) c.turbo.shift(-1, g.flight);
       if (g.tuner.visible) g.tuner.toggle();
       g.input.twoAt = -Infinity;
+      g.input.flickedAt = -Infinity;
       g.input.swapped = false;
       g.forceReady();
     });
@@ -268,6 +269,7 @@ if (modes.has('thumbs')) {
   await row('lone right flick down at G1', async () => { await shiftUp(); await H.stamped(async () => { await H.stroke(1, RX, RY - 80, 0, 74, 85); }); await runFor(page, 0.1); }, (r) => r.gear === 0 && has(r, 'onTurbo-') === 1);
   await row('two lone left flicks: turbo', async () => { await H.stamped(async () => { await H.stroke(1, LX, LY, 0, -74, 85); await H.stroke(1, LX, LY, 0, -74, 85, 235); }); await runFor(page, 0.4); }, (r) => r.level === 1 && r.gear === 0);
   await row('two lone right flicks: turbo', async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); await H.stroke(1, RX, RY, 0, -74, 85, 235); }); await runFor(page, 0.4); }, (r) => r.level === 1 && r.gear === 0 && has(r, 'onTurbo+') === 2);
+  await row('one right thumb: a soft second stroke in the window: turbo', async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); await H.stroke(1, RX, RY, 0, -30, 100, 235); }); await runFor(page, 0.4); }, (r) => r.level === 1 && r.gear === 0);
   await row('one right thumb: a soft first stroke: nothing', async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -30, 100); }); await runFor(page, 0.4); }, (r) => r.gear === 0 && r.level === 0 && has(r, 'onTurbo+') === 0);
   const alone = async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); await H.stroke(1, RX, RY, 0, -74, 85, 235); }); await runFor(page, 0.3); };
   await row('one right thumb: stacks to the top, a fourth changes nothing, down ends it, the next a gear', async () => {
