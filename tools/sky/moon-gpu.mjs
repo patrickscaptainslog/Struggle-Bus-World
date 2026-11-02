@@ -7,7 +7,7 @@ import { browserOptions } from '../browser.mjs';
 const args = process.argv.slice(2);
 const opt = (k, d) => args.find((a) => a.startsWith(`--${k}=`))?.split('=').slice(1).join('=') ?? d;
 const NEW = process.env.BASE ?? 'http://localhost:4179/', OLD = opt('old', 'http://localhost:4180/'), px = opt('px', '390'), n = Number(opt('frames', 120));
-const VIEWS = { 'orbit, full Sun': 'view=moon&km=300&lat=10&lon=-5&heading=0&pitch=52', 'orbit, painted bits': 'view=moon&km=300&lat=40&lon=-9&heading=0&pitch=52', 'disc 460 px': 'view=moon&km=3000', 'far disc': 'view=moon&km=60000' };
+const VIEWS = { 'orbit, full Sun': 'view=moon&km=300&lat=10&lon=-5&heading=0&pitch=52', 'orbit, 40 N': 'view=moon&km=300&lat=40&lon=-9&heading=0&pitch=52', 'disc 460 px': 'view=moon&km=3000', 'far disc': 'view=moon&km=60000' };
 const browser = await chromium.launch(browserOptions([]));
 const time = async (base, q) => {
   const page = await browser.newPage({ viewport: { width: 402, height: 874 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
