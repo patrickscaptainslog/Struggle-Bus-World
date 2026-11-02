@@ -11,13 +11,13 @@
 //            back, up, down at street level, at height and in Jet low and high; in a turn; in a dive; the view coming home; a tap while
 //            looking; a long look; the flick's pop. With the game clock standing (the look runs on the wall clock): does a settled
 //            view come back pixel for pixel, and does the frame go still? SB_LOOK=street,tap,... runs a part -> look.json
-//   turbo    flicks at Alamo Square: a lone left flick into Express (no lift, its surge heard), a second into Jet (the climb,
-//            engagement, the boom), two flicks, the levels, LOCKED, flicks down to Cruise, with shots and a per-frame log -> turbo.json
+//   turbo    flicks up the map: a lone left flick into Express (no lift, its surge heard), Nonstop, Jet (the climb, engagement, the
+//            boom), the three turbo rungs, LOCKED, flicks down to Cruise, with shots and a per-frame log -> turbo.json
 //   firstrun a first visit: no card, the cues in order (TAP, DRAG, HOLD)                         -> firstrun.json
-//   opening  flicks under the opening's gate: answered, taken back, firing at the gate; a double -> opening.json
+//   opening  flicks under the opening's gate: answered, taken back, firing at the gate; two of them -> opening.json
 //   layout   real rects against layoutHud at 393 x 852, 393 x 659, 320 x 568, 852 x 393, swapped or not (shots)
 //   states   every state of MEGA and the readout, cropped (states/*.png; tools/hud-sheet.py makes a sheet of them)
-//   keyboard a desktop: Esc, Space, E, E twice, Q, Shift, the right mouse's look           -> keyboard in controls.json
+//   keyboard a desktop: Esc, Space, E up the ladder, Q back down it, the right mouse's look -> keyboard in controls.json
 //   audio    the turbo voice rendered offline through the real AudioEngine graph
 //   perf=<otherBaseUrl>  CPU work ms, draw calls, triangles at the same Alamo Square view (cruising at the
 //            floor, the fps meter's per-frame counters) for <otherBaseUrl> (e.g. the build before) and
@@ -90,11 +90,10 @@ const rectOf = (page, sel) => page.evaluate((sel) => {
 }, sel);
 const events = (page, clear = true) => page.evaluate((c) => { const e = window.__ev.slice(); if (c) window.__ev.length = 0; return e; }, clear);
 const snap = (page) => page.evaluate(() => window.__game.controls.snapshot());
-/** Straight into Jet, the gear above Express. */
+/** Straight into Jet, three gears up. */
 const toJet = (page) => page.evaluate(() => {
   const g = window.__game;
-  g.controls.turbo.shift(1, g.flight);
-  g.controls.turbo.shift(1, g.flight);
+  for (let i = 0; i < 3; i++) g.controls.turbo.shift(1, g.flight);
 });
 const wall = (ms) => new Promise((r) => setTimeout(r, ms));
 const res = {};
@@ -205,10 +204,9 @@ if (modes.has('thumbs')) {
   const clean = async () => {
     await page.evaluate(() => {
       const g = window.__game, c = g.controls;
-      c.turbo.boostOff();
+      c.turbo.level = 0;
       while (c.turbo.gear > 0) c.turbo.shift(-1, g.flight);
       if (g.tuner.visible) g.tuner.toggle();
-      g.input.flickedAt = -Infinity;
       g.input.swapped = false;
       g.forceReady();
     });
@@ -234,6 +232,8 @@ if (modes.has('thumbs')) {
   /** a lone right stroke, with a touch landing at x, y as it goes: it lifts as a flick, the touch stays down */
   const flickWith = (x, y) => H.stamped(async () => { await H.down(1, RX, RY, 0); await H.move(1, RX, RY - 40, 40); await H.down(2, x, y, 50); await H.move(1, RX, RY - 74, 85); await H.up(1, 85); });
   const shiftUp = () => page.evaluate(() => window.__game.controls.turbo.shift(1, window.__game.flight));
+  /** n quick flicks up by one thumb, each landing 235 ms after the last */
+  const flicksUp = async (id, x, y, n) => { await H.stamped(async () => { for (let i = 0; i < n; i++) await H.stroke(id, x, y, 0, -74, 85, i * 235); }); await runFor(page, 0.3); };
 
   // ---- the first thumb
   await row('first thumb: tap', async () => { await H.stamped(async () => { await H.down(1, RX, RY, 0); await H.up(1, 120); }); }, (r) => has(r, 'onTap') === 1 && r.gear === 0);
@@ -254,52 +254,45 @@ if (modes.has('thumbs')) {
     const after = await state();
     await lift1();
     return { before, during, after };
-  }, (r) => r.note.during.look.on && Math.round(r.note.during.look.x) === 60 && Math.round(r.note.during.look.y) === 40 && r.note.during.view > 15 && r.note.during.sx === r.note.before && !r.note.after.look.on && r.note.after.view < r.note.during.view && r.note.during.thumb && has(r, 'onTap') === 0 && has(r, 'onTurbo+') === 0);
+  }, (r) => r.note.during.look.on && Math.round(r.note.during.look.x) === 60 && Math.round(r.note.during.look.y) === 40 && r.note.during.view > 8 && r.note.during.view < 26 && r.note.during.sx === r.note.before && !r.note.after.look.on && r.note.after.view < r.note.during.view && r.note.during.thumb && has(r, 'onTap') === 0 && has(r, 'onTurbo+') === 0);
   await row('second: flick up: a gear', async () => { await steer(); await runFor(page, 0.1); await H.stamped(async () => { await H.stroke(2, LX, LY, 0, -74, 85); }); await runFor(page, 0.4); await lift1(); }, (r) => r.gear === 1 && has(r, 'onTurbo+') === 1);
   await row('second: flick down at G1', async () => { await page.evaluate(() => window.__game.controls.turbo.shift(1, window.__game.flight)); await steer(); await runFor(page, 0.1); await H.stamped(async () => { await H.stroke(2, LX, LY, 0, 74, 85); }); await lift1(); }, (r) => r.gear === 0 && has(r, 'onTurbo-') === 1);
-  await row('double flick: turbo, no gear', async () => { await steer(); await runFor(page, 0.1); await H.stamped(async () => { await H.stroke(2, LX, LY, 0, -74, 85); await H.stroke(2, LX, LY, 0, -74, 85, 235); }); await runFor(page, 0.5); await lift1(); }, (r) => r.level === 1 && r.gear === 0);
-  const double = async () => { await H.stamped(async () => { await H.stroke(2, LX, LY, 0, -74, 85); await H.stroke(2, LX, LY, 0, -74, 85, 235); }); await runFor(page, 0.3); };
-  await row('third double: the top level; a fourth changes nothing', async () => { await steer(); await runFor(page, 0.1); await double(); await double(); await double(); const top = (await state()).level; await double(); await lift1(); return { top }; }, (r) => r.note.top === 3 && r.level === 3);
-  await row('flick down ends all turbo, the next a gear', async () => {
-    await page.evaluate(() => window.__game.controls.turbo.shift(1, window.__game.flight));
+  await row('two quick flicks: two rungs, no turbo', async () => { await steer(); await runFor(page, 0.1); await flicksUp(2, LX, LY, 2); await lift1(); }, (r) => r.level === 0 && r.gear === 2 && has(r, 'onTurbo+') === 2);
+  await row('six flicks: the top rung; a seventh changes nothing', async () => { await steer(); await runFor(page, 0.1); await flicksUp(2, LX, LY, 6); const top = await state(); await flicksUp(2, LX, LY, 1); await lift1(); return { top }; }, (r) => r.note.top.gear === 3 && r.note.top.level === 3 && r.gear === 3 && r.level === 3);
+  await row('a flick down drops one rung, turbo first', async () => {
     await steer();
     await runFor(page, 0.1);
-    await double();
-    await double();
+    await flicksUp(2, LX, LY, 4);
     await H.stamped(async () => { await H.stroke(2, LX, LY, 0, 74, 85); });
     await runFor(page, 0.1);
-    const off = await state();
+    const one = await state();
     await H.stamped(async () => { await H.stroke(2, LX, LY, 0, 74, 85); });
     await runFor(page, 0.1);
     await lift1();
-    return { off };
-  }, (r) => r.note.off.level === 0 && r.note.off.gear === 1 && r.gear === 0);
-  await row('undo: a flick down takes the waiting gear back', async () => { await steer(); await runFor(page, 0.1); await H.stamped(async () => { await H.stroke(2, LX, LY, 0, -74, 85); await H.stroke(2, LX, LY, 0, 74, 85, 145); }); await runFor(page, 0.6); await lift1(); }, (r) => r.gear === 0 && r.level === 0 && has(r, 'onTurbo-') === 1);
+    return { one };
+  }, (r) => r.note.one.level === 0 && r.note.one.gear === 3 && r.gear === 2);
+  await row('a flick up and a flick down: up a rung and back', async () => { await steer(); await runFor(page, 0.1); await H.stamped(async () => { await H.stroke(2, LX, LY, 0, -74, 85); await H.stroke(2, LX, LY, 0, 74, 85, 145); }); await runFor(page, 0.6); await lift1(); }, (r) => r.gear === 0 && r.level === 0 && has(r, 'onTurbo+') === 1 && has(r, 'onTurbo-') === 1);
   // ---- the lone strokes: one thumb, either hand
   await row('lone left flick: a gear', async () => { await H.stamped(async () => { await H.stroke(1, LX, LY, 0, -74, 85); }); await runFor(page, 0.4); }, (r) => r.gear === 1);
   await row('lone right flick: a gear', async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); }); await runFor(page, 0.4); }, (r) => r.gear === 1 && has(r, 'onTurbo+') === 1 && has(r, 'onTap') === 0);
   await row('lone right flick down at G1', async () => { await shiftUp(); await H.stamped(async () => { await H.stroke(1, RX, RY - 80, 0, 74, 85); }); await runFor(page, 0.1); }, (r) => r.gear === 0 && has(r, 'onTurbo-') === 1);
-  await row('two lone left flicks: turbo', async () => { await H.stamped(async () => { await H.stroke(1, LX, LY, 0, -74, 85); await H.stroke(1, LX, LY, 0, -74, 85, 235); }); await runFor(page, 0.4); }, (r) => r.level === 1 && r.gear === 0);
-  await row('two lone right flicks: turbo', async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); await H.stroke(1, RX, RY, 0, -74, 85, 235); }); await runFor(page, 0.4); }, (r) => r.level === 1 && r.gear === 0 && has(r, 'onTurbo+') === 2);
-  await row('one right thumb: a soft second stroke in the window: turbo', async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); await H.stroke(1, RX, RY, 0, -30, 100, 235); }); await runFor(page, 0.4); }, (r) => r.level === 1 && r.gear === 0);
+  await row('two lone left flicks: two rungs', async () => { await flicksUp(1, LX, LY, 2); await runFor(page, 0.1); }, (r) => r.level === 0 && r.gear === 2);
+  await row('two lone right flicks: two rungs', async () => { await flicksUp(1, RX, RY, 2); await runFor(page, 0.1); }, (r) => r.level === 0 && r.gear === 2 && has(r, 'onTurbo+') === 2);
+  await row('one right thumb: a soft stroke right after a flick steers: the firm rule, every time', async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); await H.stroke(1, RX, RY, 0, -30, 100, 235); }); await runFor(page, 0.4); }, (r) => r.level === 0 && r.gear === 1 && has(r, 'onTurbo+') === 1);
   await row('one right thumb: a soft first stroke: nothing', async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -30, 100); }); await runFor(page, 0.4); }, (r) => r.gear === 0 && r.level === 0 && has(r, 'onTurbo+') === 0);
-  const alone = async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); await H.stroke(1, RX, RY, 0, -74, 85, 235); }); await runFor(page, 0.3); };
-  await row('one right thumb: stacks to the top, a fourth changes nothing, down ends it, the next a gear', async () => {
-    await shiftUp();
-    await alone();
-    await alone();
-    await alone();
+  await row('one right thumb: climbs to the top, a seventh is LOCKED, down a rung at a time', async () => {
+    await flicksUp(1, RX, RY, 6);
     const top = await state();
-    await alone();
+    await flicksUp(1, RX, RY, 1);
     const locked = await state();
     await H.stamped(async () => { await H.stroke(1, RX, RY - 80, 0, 74, 85); });
     await runFor(page, 0.1);
-    const off = await state();
+    const one = await state();
     await H.stamped(async () => { await H.stroke(1, RX, RY - 80, 0, 74, 85); });
     await runFor(page, 0.1);
-    return { top, locked, off };
-  }, (r) => r.note.top.level === 3 && r.note.locked.level === 3 && r.note.off.level === 0 && r.note.off.gear === 1 && r.gear === 0);
-  await row('one right thumb: a flick down takes the waiting gear back', async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); await H.stroke(1, RX, RY - 80, 0, 74, 85, 145); }); await runFor(page, 0.6); }, (r) => r.gear === 0 && r.level === 0 && has(r, 'onTurbo-') === 1);
+    return { top, locked, one };
+  }, (r) => r.note.top.gear === 3 && r.note.top.level === 3 && r.note.locked.level === 3 && r.note.one.level === 2 && r.note.one.gear === 3 && r.level === 1);
+  await row('one right thumb: a flick up and a flick down: up a rung and back', async () => { await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); await H.stroke(1, RX, RY - 80, 0, 74, 85, 145); }); await runFor(page, 0.6); }, (r) => r.gear === 0 && r.level === 0 && has(r, 'onTurbo-') === 1);
   await row('a lone right stroke that stays down steers, never shifts, never looks', async () => { await H.stamped(async () => { await H.down(1, RX, RY, 0); await H.move(1, RX, RY - 37, 42); await H.move(1, RX, RY - 74, 85); }); await runFor(page, 0.5); const s = await state(); await lift1(); await runFor(page, 0.1); return s; }, (r) => r.note.thumb && !r.note.look.on && r.gear === 0 && has(r, 'onTurbo+') === 0 && has(r, 'onTap') === 0);
   await row('a lone right drag ending in a fast stroke: no flick', async () => { await H.stamped(async () => { await H.down(1, RX, RY, 0); await H.move(1, RX + 40, RY, 300); await H.move(1, RX + 40, RY - 74, 385); await H.up(1, 385); }); await runFor(page, 0.4); }, (r) => r.gear === 0 && has(r, 'onTurbo+') === 0);
   await row('bottom band: no command', async () => { await H.stamped(async () => { await H.stroke(1, LX, 830, 0, -74, 85); }); await runFor(page, 0.4); }, (r) => r.gear === 0 && has(r, 'onTurbo+') === 0);
@@ -317,7 +310,7 @@ if (modes.has('thumbs')) {
     await runFor(page, 0.1);
     const after = await state();
     return { during, after };
-  }, (r) => r.note.during.look.on && Math.round(r.note.during.look.x) === 60 && Math.round(r.note.during.look.y) === 40 && r.note.during.view > 15 && !r.note.during.thumb && r.note.during.sx === 0 && !r.note.after.look.on && r.note.after.view < r.note.during.view && has(r, 'onTap') === 0 && has(r, 'onTurbo+') === 0);
+  }, (r) => r.note.during.look.on && Math.round(r.note.during.look.x) === 60 && Math.round(r.note.during.look.y) === 40 && r.note.during.view > 8 && r.note.during.view < 26 && !r.note.during.thumb && r.note.during.sx === 0 && !r.note.after.look.on && r.note.after.view < r.note.during.view && has(r, 'onTap') === 0 && has(r, 'onTurbo+') === 0);
   await row('left zone: a lone tap fires on its lift', async () => { let landed = -1; await H.stamped(async () => { await H.down(1, LX, LY, 0); landed = (await events(page, false)).length; await H.up(1, 120); }); return { landed }; }, (r) => r.note.landed === 0 && has(r, 'onTap') === 1 && r.gear === 0);
   await row('left zone: a lone rest does nothing', async () => { await H.down(1, LX, LY); await wall(600); await runFor(page, 0.1); const s = await state(); await H.up(1); return s; }, (r) => !r.note.thumb && !r.note.look.on && has(r, 'onTap') === 0 && has(r, 'onTurbo+') === 0);
   await row('left zone: a soft lone flick is a gear: it has the second thumb\'s rule', async () => { await H.stamped(async () => { await H.stroke(1, LX, LY, 0, -30, 100); }); await runFor(page, 0.4); }, (r) => r.gear === 1 && has(r, 'onTurbo+') === 1);
@@ -387,11 +380,13 @@ if (modes.has('thumbs')) {
     return s;
   }, (r) => r.note.thumb && !r.note.look.on && r.note.sx > 0.2);
   // ---- what a flick down leaves behind, the Flight feeling the stroke: one thumb's is a pull too
-  const skimming = () => page.evaluate(() => { const f = window.__game.flight; f.holdY = -Infinity; f.mode = 0; });
+  /** on the rooftops, skimming, whatever the rows before left the bus doing: a frame runs, so the Flight knows it is what the bus was doing */
+  const skimming = async () => { await page.evaluate(() => { const f = window.__game.flight; f.holdY = -Infinity; f.mode = 0; f.y = f.floorY; f.vy = 0; }); await runFor(page, 0.15); };
   const held = () => page.evaluate(() => window.__game.flight.holdY);
   await row('one right thumb: a flick down out of Express stays on the rooftops', async () => { await skimming(); await shiftUp(); await runFor(page, 0.5); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); return { hold: await held() }; }, (r) => r.gear === 0 && r.note.hold === -Infinity);
-  await row('one right thumb: Jet still lifting, taken back: the bus goes back to the rooftops', async () => { await skimming(); await shiftUp(); await runFor(page, 0.5); await shiftUp(); await runFor(page, 1); const lifting = await state(); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); return { lifting: lifting.gear, hold: await held() }; }, (r) => r.note.lifting === 2 && r.gear === 1 && r.note.hold === -Infinity);
-  await row('one right thumb: a flick up taken back in the window stays on the rooftops', async () => { await skimming(); await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); await H.felt(1, RX, RY - 80, 0, 74, 85); }); await runFor(page, 1.5); return { hold: await held() }; }, (r) => r.gear === 0 && has(r, 'onTurbo-') === 1 && r.note.hold === -Infinity);
+  await row('one right thumb: Nonstop still lifting, taken back: the bus goes back to the rooftops', async () => { await skimming(); await shiftUp(); await runFor(page, 0.5); await shiftUp(); await runFor(page, 0.4); const lifting = await state(); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); return { lifting: lifting.gear, hold: await held() }; }, (r) => r.note.lifting === 2 && r.gear === 1 && r.note.hold === -Infinity);
+  await row('one right thumb: a turbo level down hands back the hold', async () => { await skimming(); await toJet(page); await runFor(page, 3); await page.evaluate(() => window.__game.controls.turbo.rung(1, window.__game.flight)); await runFor(page, 0.5); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); return { hold: await held() }; }, (r) => r.gear === 3 && r.level === 0 && r.note.hold === -Infinity);
+  await row('one right thumb: a flick up and straight back stays on the rooftops', async () => { await skimming(); await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); await H.felt(1, RX, RY - 80, 0, 74, 85); }); await runFor(page, 1.5); return { hold: await held() }; }, (r) => r.gear === 0 && has(r, 'onTurbo-') === 1 && r.note.hold === -Infinity);
   await row('one right thumb: with nothing to do a flick down is the quick pull it looks like', async () => { await skimming(); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); return { hold: await held() }; }, (r) => Number.isFinite(r.note.hold));
   await row('SWAP: the zone moves to the right, and the firm rule to the left', async () => {
     await page.evaluate(() => { window.__game.input.swapped = true; });
@@ -738,7 +733,6 @@ if (modes.has('turbo')) {
   });
   await runFor(page, 1);
   const flick = (dy) => H.stamped(() => H.stroke(1, 100, 520, 0, dy, 85));
-  const double = () => H.stamped(async () => { await H.stroke(1, 100, 520, 0, -74, 85); await H.stroke(1, 100, 520, 0, -74, 85, 235); });
   const heard = () => page.evaluate(() => {
     const g = window.__game, c = g.controls, f = g.flight;
     return { gear: c.turbo.gear, engaged: c.turbo.engaged, speed: +f.speed.toFixed(1), y: +f.y.toFixed(1), lift: +f.lift.toFixed(1), mode: f.mode, surge: +c.surge.toFixed(2), voice: c.voice.attached, tearing: c.tearing, lines: c.fx.lines.visible, on: +c.fx.trailU.uOn.value.toFixed(2) };
@@ -746,16 +740,23 @@ if (modes.has('turbo')) {
   await flick(-74);
   await runFor(page, 0.05);
   await page.screenshot({ path: `${out}/flick-pop.png` });
-  // one flick: Express, the surge with no thumb on it, on the rooftops; its window is the wall's
-  await wall(450);
+  // one flick: Express, the surge with no thumb on it, on the rooftops
   await runFor(page, 3);
   await page.screenshot({ path: `${out}/express.png` });
   const express = await heard();
   await runFor(page, 3);
   const expressQuiet = await heard();
-  // a second flick, past the window: Jet, from there
+  // a second: Nonstop, a low lift
   await flick(-74);
-  await wall(450);
+  await runFor(page, 0.4);
+  await page.screenshot({ path: `${out}/nonstop-lifting.png` });
+  const nonstopLifting = await heard();
+  await until(page, 'g.controls.turbo.engaged', 6);
+  await until(page, 'g.flight.speed > 215', 6);
+  await page.screenshot({ path: `${out}/nonstop.png` });
+  const nonstop = await heard();
+  // a third: Jet, from there
+  await flick(-74);
   await runFor(page, 0.5);
   await page.screenshot({ path: `${out}/jet-lifting.png` });
   const lifting = await heard();
@@ -769,26 +770,30 @@ if (modes.has('turbo')) {
   await page.screenshot({ path: `${out}/g1-jet.png` });
   const speeds = { g1: (await snap(page)).flight.speed };
   for (let lv = 1; lv <= 3; lv++) {
-    await double();
+    await flick(-74);
     await runFor(page, 4);
     speeds[`level${lv}`] = (await snap(page)).flight.speed;
     await page.screenshot({ path: `${out}/g1-turbo${lv}.png` });
   }
-  await double();
+  await flick(-74);
   await runFor(page, 0.2);
   await page.screenshot({ path: `${out}/g1-locked.png` });
-  await flick(74);
-  await runFor(page, 3);
-  speeds.off = (await snap(page)).flight.speed;
+  for (let lv = 2; lv >= 0; lv--) {
+    await flick(74);
+    await runFor(page, 3);
+    speeds[`down${lv}`] = (await snap(page)).flight.speed;
+  }
   await flick(74);
   await runFor(page, 5);
   const down = await heard();
   await flick(74);
   await runFor(page, 5);
+  await flick(74);
+  await runFor(page, 5);
   const s = await snap(page);
   const ev = await events(page);
   const log = await page.evaluate(() => window.__log);
-  res.turbo = { express, expressQuiet, lifting, down, climbedToGear: climbed, boomed, speeds, end: { gear: s.turbo.gear, level: s.turbo.level, speed: s.flight.speed }, events: ev.map((e) => `${e.k}${e.a[0] > 0 ? '+' : e.a[0] < 0 ? '-' : ''}@${e.t}`), log: log.filter((_, i) => i % 8 === 0) };
+  res.turbo = { express, expressQuiet, nonstopLifting, nonstop, lifting, down, climbedToGear: climbed, boomed, speeds, end: { gear: s.turbo.gear, level: s.turbo.level, speed: s.flight.speed }, events: ev.map((e) => `${e.k}${e.a[0] > 0 ? '+' : e.a[0] < 0 ? '-' : ''}@${e.t}`), log: log.filter((_, i) => i % 8 === 0) };
   console.log('turbo:', JSON.stringify({ ...res.turbo, log: undefined }));
   writeFileSync(`${out}/turbo.json`, JSON.stringify(res.turbo, null, 1));
   await page.close();
@@ -812,14 +817,14 @@ if (modes.has('firstrun')) {
   await runFor(page, 0.2);
   FR.fogEnd = await ui();
   await page.screenshot({ path: `${out}/firstrun/01-arrive.png` });
-  // the hint: a beat after the fog, four lines in the toast's slot, and touches pass through it
+  // the hint: a beat after the bridge, three lines in the toast's slot, and touches pass through it
   const hint = () => page.evaluate(() => {
     const c = document.querySelector('[data-hud="toast"] canvas');
     if (!c) return null;
     const r = c.getBoundingClientRect();
     return { lines: (c.height - 4) / 10, top: r.top, bottom: r.bottom, width: r.width, passes: getComputedStyle(c).pointerEvents === 'none' };
   });
-  await until(page, 'document.querySelector(\'[data-hud="toast"]\') !== null', 6);
+  await until(page, '!g.controls.gearsLocked && document.querySelector(\'[data-hud="toast"]\') !== null', 60);
   FR.hint = { ...(await ui()), toast: await hint() };
   await page.screenshot({ path: `${out}/firstrun/01b-hint.png` });
   // TAP: at the first glint
@@ -848,7 +853,7 @@ if (modes.has('firstrun')) {
 }
 
 if (modes.has('opening')) {
-  // the first visit's gate, on the real bridge: a gear waits for it, a flick down takes it back, a double is turbo
+  // the first visit's gate, on the real bridge: a gear waits for it, a flick down takes it back, two flicks are two rungs
   mkdirSync(`${out}/opening`, { recursive: true });
   const R = {};
   const first = async () => {
@@ -860,7 +865,7 @@ if (modes.has('opening')) {
   };
   const state = (page) => page.evaluate(() => {
     const g = window.__game, f = g.flight, c = g.controls, s = c.snapshot();
-    return { clock: +g.clock().toFixed(2), locked: c.gearsLocked, gear: c.turbo.gear, level: c.turbo.level, armed: s.turbo.armed, gated: s.turbo.gated, y: +f.y.toFixed(1), speed: +f.speed.toFixed(0), toast: document.querySelector('[data-hud="toast"]') !== null };
+    return { clock: +g.clock().toFixed(2), locked: c.gearsLocked, gear: c.turbo.gear, level: c.turbo.level, armed: s.turbo.armed, y: +f.y.toFixed(1), speed: +f.speed.toFixed(0), toast: document.querySelector('[data-hud="toast"]') !== null };
   });
   {
     const { page, H } = await first();
@@ -887,14 +892,14 @@ if (modes.has('opening')) {
     await H.stamped(async () => { await H.stroke(1, 100, 520, 0, -74, 85); await H.stroke(1, 100, 520, 0, -74, 85, 235); });
     await runFor(page, 0.8);
     const s = await state(page);
-    // a gear taken back with turbo on: turbo stays, and no line stands: the toast false
-    await H.stamped(async () => { await H.stroke(1, 100, 520, 0, -74, 85); await H.stroke(1, 100, 520, 0, 74, 85, 145); });
+    // one taken back: the other still waits, and its line stands
+    await H.stamped(() => H.stroke(1, 100, 520, 0, 74, 85));
     await runFor(page, 0.15);
     const back = await state(page);
     await until(page, '!g.controls.gearsLocked', 60);
     await runFor(page, 0.5);
-    R.double = { s, back, after: await state(page) };
-    console.log('opening double', JSON.stringify(R.double));
+    R.two = { s, back, after: await state(page) };
+    console.log('opening two flicks', JSON.stringify(R.two));
     await page.close();
   }
   res.opening = R;
@@ -958,33 +963,36 @@ if (modes.has('states')) {
   await runFor(page, 0.4);
   await crop('mega-ready', M);
   await page.screenshot({ path: `${out}/full-g0.png` });
-  await H.stamped(() => H.stroke(1, 100, 520, 0, -74, 85));
-  await top('readout-armed');
-  await wall(450);
+  const flick = (dy) => H.stamped(() => H.stroke(1, 100, 520, 0, dy, 85));
+  await flick(-74);
   await runFor(page, 1);
   await top('readout-express');
-  await H.stamped(() => H.stroke(1, 100, 520, 0, -74, 85));
-  await wall(450);
+  await flick(-74);
+  await runFor(page, 0.3);
+  await top('readout-nonstop-lifting');
+  await until(page, 'g.controls.turbo.engaged', 12);
+  await runFor(page, 0.3);
+  await top('readout-nonstop');
+  await flick(-74);
   await runFor(page, 0.5);
   await top('readout-lifting');
   await until(page, 'g.controls.turbo.engaged', 12);
   await runFor(page, 0.3);
   await top('readout-jet');
-  await H.stamped(async () => { await H.stroke(1, 100, 520, 0, -74, 85); await H.stroke(1, 100, 520, 0, -74, 85, 235); });
+  await flick(-74);
   await runFor(page, 0.3);
   await top('readout-turbo1');
-  await H.stamped(async () => { await H.stroke(1, 100, 520, 0, -74, 85); await H.stroke(1, 100, 520, 0, -74, 85, 235); });
+  await flick(-74);
   await runFor(page, 0.3);
-  await H.stamped(async () => { await H.stroke(1, 100, 520, 0, -74, 85); await H.stroke(1, 100, 520, 0, -74, 85, 235); });
+  await top('readout-turbo2');
+  await flick(-74);
   await runFor(page, 0.3);
   await top('readout-turbo3');
-  await H.stamped(() => H.stroke(1, 100, 520, 0, -74, 85));
+  await flick(-74);
   await runFor(page, 0.8);
   await top('readout-locked');
   await page.screenshot({ path: `${out}/full-locked.png` });
-  await H.stamped(() => H.stroke(1, 100, 520, 0, 74, 85));
-  await H.stamped(() => H.stroke(1, 100, 520, 0, 74, 85));
-  await H.stamped(() => H.stroke(1, 100, 520, 0, 74, 85));
+  for (let i = 0; i < 6; i++) await flick(74);
   await runFor(page, 4);
   // MEGA
   await page.evaluate(() => window.__game.forceReady());
@@ -1050,26 +1058,17 @@ if (modes.has('keyboard')) {
   await runFor(page, 0.2);
   const tap = await events(page);
   await page.keyboard.press('KeyE');
-  await wall(450);
   await runFor(page, 0.2);
   const gear1 = (await snap(page)).turbo.gear;
-  await page.keyboard.press('KeyE');
-  await wall(100);
-  await page.keyboard.press('KeyE');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('KeyE');
   await runFor(page, 0.2);
   const turboOn = await snap(page);
   await page.keyboard.press('KeyQ');
   await runFor(page, 0.2);
   const turboOff = (await snap(page)).turbo.level;
-  await page.keyboard.press('KeyQ');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('KeyQ');
   await runFor(page, 0.2);
   const gear0 = (await snap(page)).turbo.gear;
-  await page.keyboard.down('ShiftLeft');
-  await runFor(page, 0.2);
-  const boost = (await snap(page)).turbo.boosting;
-  await page.keyboard.up('ShiftLeft');
-  await runFor(page, 0.2);
-  const boostOff = (await snap(page)).turbo.boosting;
   await page.mouse.move(640, 400);
   await page.mouse.down({ button: 'right' });
   await page.mouse.move(700, 360, { steps: 3 });
@@ -1079,7 +1078,7 @@ if (modes.has('keyboard')) {
   await page.mouse.up({ button: 'right' });
   await runFor(page, 0.2);
   const lookAfter = (await snap(page)).input.look;
-  res.keyboard = { mode: s0.mode, cog, mega, escOpens: open1, escCloses: !open2, tap, gear1, turboOn: { gear: turboOn.turbo.gear, level: turboOn.turbo.level }, turboOff, gear0, boost, boostOff, look, lookView, lookAfter };
+  res.keyboard = { mode: s0.mode, cog, mega, escOpens: open1, escCloses: !open2, tap, gear1, turboOn: { gear: turboOn.turbo.gear, level: turboOn.turbo.level }, turboOff, gear0, look, lookView, lookAfter };
   console.log('keyboard', JSON.stringify(res.keyboard));
   await page.close();
 }
