@@ -411,6 +411,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     globals.uLight.value.x = 0.62 * sky.sunSeen;
     // (a roof in full sun goes to the ramp's pale top, which from up here is the whole of a bus two pixels wide: it must stay yellow against the grey, and its shaded side isn't touched)
     busTune.sunSoft = tripTune.busSunSoft;
+    // (and on the way down it comes to the light the low game has it in)
+    if (landing?.near) landing.busLight(globals.uLight.value, config.light, busTune, tripTune.busSunSoft);
     breath.pose(busPose, dt);
     bus.update(dt, time, busPose);
     if (breath.rear > 0) bus.root.quaternion.multiply(rearQ.setFromAxisAngle(pitchAxis, breath.rear));

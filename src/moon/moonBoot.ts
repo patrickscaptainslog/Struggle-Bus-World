@@ -143,8 +143,9 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
     L.ambient = sky.night ? 0.14 : 0.26;
     L.skyBounce = 0.02;
     // (?moonland: a step up, where the ray-drawn Moon has the ground it's coming down to. The true Sun is no held low one, and there's a lot more flat ground out of the first look's shadows)
-    if (sky.night) moonGlobals.uMoonLight.value.set(0.17, 0.03);
-    else moonGlobals.uMoonLight.value.set(land ? 0.55 : 0.4, 0.006);
+    // (and by night, with so little light that the far field's bit more over its floor is a box round the tiles, none of that)
+    if (sky.night) moonGlobals.uMoonLight.value.set(0.17, 0.03, land ? 0 : 0.03);
+    else moonGlobals.uMoonLight.value.set(land ? 0.55 : 0.4, 0.006, 0.03);
   };
   if (!land) light();
   config.fog.clearFarFull = 3e6;

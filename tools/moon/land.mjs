@@ -164,6 +164,13 @@ try {
   await touch('touchEnd');
   await page.waitForTimeout(4000);
   await page.screenshot({ path: join(dir, `${String(n++).padStart(2, '0')}-skim.png`) });
+  // a tap down there: the low game's thumb, a breath, a crater
+  await touch('touchStart', x, y);
+  await page.waitForTimeout(70);
+  await touch('touchEnd');
+  await page.waitForTimeout(3000);
+  await page.screenshot({ path: join(dir, `${String(n++).padStart(2, '0')}-tap.png`) });
+  console.log('after a tap:', await page.evaluate(() => JSON.stringify({ shot: !!window.__game.lastShot(), painted: window.__game.moon.paint.recs.size })));
   const end = await page.evaluate(() => {
     const g = window.__game, f = g.flight, frames = window.__frames;
     const legs = {};

@@ -14,8 +14,8 @@ export const CLIP_N = 1024;
 
 /** What all of the Moon's ground reads. */
 export const moonGlobals = {
-  // x flat ground's light at mid tone, y the shadow's floor
-  uMoonLight: { value: new THREE.Vector2(0.4, 0.006) },
+  // x flat ground's light at mid tone, y the shadow's floor, z what the far field has over that floor
+  uMoonLight: { value: new THREE.Vector3(0.4, 0.006, 0.03) },
   // what's painted on the craters: PaintClip's windows, each x0, z0, 1 / cell, on
   tPaintClip: { value: null as THREE.Texture | null },
   uClip: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
@@ -30,7 +30,7 @@ export const moonGlobals = {
 
 /** The four bytes back, the light, the ramp. Needs GLSL_COMMON. */
 export const GLSL_MOON_LIGHT = /* glsl */ `
-uniform vec2 uMoonLight;
+uniform vec3 uMoonLight;
 float moonDecode(float b) {
   float s = (b * 255.0 - 128.0) / 127.0;
   return s * abs(s);
@@ -433,7 +433,7 @@ const FAR_FS = /* glsl */ `
     if (f > 0.02 && L0 < uFarLevels - 1.0) m = mix(m, farMap(L0 + 1.0), f);
     float under = moonDecode(m.g);
     // (out of the Sun the byte is the fill, as the near ground has it: gen.ts, fillByte. Or the lee of a mountain is a flat black hole in the picture)
-    float light = uMoonLight.y + 0.03 + (under > 0.0 ? 0.1 * m.r * m.r : moonShoulder(uMoonLight.x * m.r * m.r * ${LIT_MAX.toFixed(1)}));
+    float light = uMoonLight.y + uMoonLight.z + (under > 0.0 ? 0.1 * m.r * m.r : moonShoulder(uMoonLight.x * m.r * m.r * ${LIT_MAX.toFixed(1)}));
     float ramp = moonRamp(vTone), glow = 0.0;
     // Up where the two meet this is the resolve's own light for this place, the same craters on the same ramp: the mesh is the ray-drawn Moon there, and it dissolves in over itself. It goes over to the ground's own on the way down. The real relief
     // is in both, the invented craters of the two aren't the same ones, and that's what's slowly changing on the way.

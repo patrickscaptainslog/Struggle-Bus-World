@@ -16,7 +16,7 @@ import { latLonToLocal } from './game/geo';
 import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blastLayout';
 import { Input } from './game/Input';
 import { Controls } from './game/Controls';
-import { BusModel, type BusPose } from './bus/BusModel';
+import { BusModel, busTune, type BusPose } from './bus/BusModel';
 import { Particles } from './fx/Particles';
 import { StreetSigns, signBladeWidth, signTune } from './fx/StreetSign';
 import { Credit } from './ui/Credits';
@@ -1506,6 +1506,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
         config.flight.ceilingSoft = 150;
         // Jet, by the time the law lets go of the speed
         controls.turbo.arrive();
+        controls.firstGesture();
+        busTune.sunSoft = 0.42;
         rig.place(camera, flight);
         fromSky = { ...s, t: 0 };
         controls.hud.setVisible(true);
@@ -1624,7 +1626,8 @@ async function bootLanding() {
   const { bootMoonrun } = await import('./sky/moonrun');
   const shared = { input: new Input(canvas), audio: new AudioEngine() };
   const land = await bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: shared });
-  await boot(land!, shared);
+  // (?view= has no flight, and nothing to come down from)
+  if (land) await boot(land, shared);
 }
 
 (moonLand ? bootLanding() : moonrun ? bootSpace() : boot()).catch((e) => {

@@ -190,6 +190,8 @@ export class MoonTrip {
   gov = 1;
   /** The ground under the bus over the sphere, km, once it's known (moon/Landing.ts). */
   ground = 0;
+  /** A stick the map's edge adds to the thumb's, as the low game's homing does (moon/Landing.ts). */
+  home = 0;
   private pushT = 0;
   private readonly land: boolean;
   private readonly ms0: number;
@@ -692,7 +694,7 @@ export class MoonTrip {
         // and the bus flies on round the Moon at that height. moon/Landing.ts makes the ground under it, and holds this back by `gov` if the ground isn't there yet.
         const p = this.ob.pos, h = this.heading, Y = YOKE;
         setUnit(p, u);
-        this.yaw(stick, dt, u);
+        this.yaw(Math.max(-1, Math.min(1, stick + this.home)), dt, u);
         const pull = Math.max(0, Math.min(1, (-yoke - Y.dead) / (1 - Y.dead))), push = this.pushOf(yoke);
         const want = pull > 0 ? Y.up * pull ** Y.curve : push > 0 ? -Y.down * push ** Y.curve : 0;
         this.nose += (want - this.nose) * (1 - Math.exp(-Y.rate * dt));

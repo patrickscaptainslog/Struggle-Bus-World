@@ -40,6 +40,9 @@ const MOVE_KM = 70;
 const GROUND_S = 0.8;
 /** m a second: Jet's. */
 const JET = 450;
+/** The map's half side, m, and how far inside it the homing starts: down here the bus can only come back to where the world's tiles are. */
+const MAP_HALF = 128000;
+const HOME_IN = 16000;
 /** What the low game hands back: moonrun.ts asks this of boot(). */
 export interface LandWorld {
   readonly frame: MapFrame;
@@ -176,6 +179,12 @@ export class Landing {
     const ground = (far.heightAt(x, z) + w.datum) / 1000;
     this.groundKm = Number.isNaN(this.groundKm) ? ground : this.groundKm + (ground - this.groundKm) * (1 - Math.exp(-dt / GROUND_S));
     t.ground = this.groundKm;
+    // (the map's edge turns it back, as it does in the low game: bearing to the middle, off the heading)
+    const edge = Math.max(0, Math.min(1, (Math.max(Math.abs(x), Math.abs(z)) - MAP_HALF + HOME_IN) / HOME_IN)), A = this.axes;
+    if (edge > 0) {
+      const hx = hd[0] * A[0] + hd[1] * A[1] + hd[2] * A[2], hz = hd[0] * A[6] + hd[1] * A[7] + hd[2] * A[8];
+      t.home = edge * Math.max(-1, Math.min(1, Math.atan2(-x * -hz + -z * hx, -x * hx + -z * hz)));
+    } else t.home = 0;
     const want = h < H_SHOW ? 1 : h > H_SHOW + 15 ? 0 : this.show;
     this.show += Math.max(-dt / DISSOLVE, Math.min(dt / DISSOLVE, want - this.show));
     far.show.value = this.show;
@@ -242,6 +251,7 @@ export class Landing {
     far.object.visible = false;
     t.ground = 0;
     t.gov = 1;
+    t.home = 0;
     this.draw.view = null;
     this.pipeline.steadySnap = false;
     this.bus.set(0, 0, 0);
@@ -286,6 +296,15 @@ export class Landing {
       v[3 + i] = F[i * 3] * a[6] + F[i * 3 + 1] * a[7] + F[i * 3 + 2] * a[8];
     }
     this.draw.view = v;
+  }
+
+  /** The bus's light, on the way from what the flight gives it to what the low game does, by the height where the one hands over to the other. */
+  busLight(u: THREE.Vector3, L: { sunStrength: number; ambient: number; skyBounce: number }, tune: { sunSoft: number }, soft: number): void {
+    const k = 1 - Math.max(0, Math.min(1, (this.height - H_GROUND) / 16));
+    u.x += (L.sunStrength - u.x) * k;
+    u.y += (L.ambient - u.y) * k;
+    u.z += (L.skyBounce - u.z) * k;
+    tune.sunSoft = soft + (0.42 - soft) * k;
   }
 
   /** The pixel grid stands on the ground under the middle of the frame, and the bus takes what's left over, as it does up high in the low game. */
