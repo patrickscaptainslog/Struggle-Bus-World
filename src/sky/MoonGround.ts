@@ -131,6 +131,12 @@ const OCTAVES: Array<[number, number]> = [
   [6, 0.42],
   [3, 0.5],
 ];
+/** The mottle: cells across the tile, and how much of the brightness. */
+const MOTTLE: Array<[number, number]> = [
+  [8, 0.1],
+  [17, 0.08],
+  [37, 0.06],
+];
 /** A stamp reaches this many radii. */
 const REACH = 2.3;
 const REACH_FRESH = 3;
@@ -162,6 +168,19 @@ export function craterTile(seed = 0x5eed): Uint8Array {
   // the ones a sea keeps go on last, so what it keeps is whole
   stamps.sort((a, b) => b.rank - a.rank);
   for (const c of stamps) stamp(c, H, L, Q, n);
+  // the ground's own mottle, three octaves that wrap: the map's tone is 3 bits, so a sea is a plate of one value, which either side of a step is one flat colour or a whole plate of dither
+  for (const [cells, amp] of MOTTLE) {
+    const g = new Float32Array(cells * cells), k = cells / n;
+    for (let i = 0; i < g.length; i++) g[i] = rnd() * 2 - 1;
+    for (let j = 0; j < n; j++) {
+      const fy = j * k, y0 = Math.floor(fy), ty = fy - y0, sy = ty * ty * (3 - 2 * ty), a0 = y0 * cells, a1 = ((y0 + 1) % cells) * cells;
+      for (let i = 0; i < n; i++) {
+        const fx = i * k, x0 = Math.floor(fx), tx = fx - x0, sx = tx * tx * (3 - 2 * tx), x1 = (x0 + 1) % cells;
+        const top = g[a0 + x0] * (1 - sx) + g[a0 + x1] * sx, bot = g[a1 + x0] * (1 - sx) + g[a1 + x1] * sx;
+        L[j * n + i] += amp * (top * (1 - sy) + bot * sy);
+      }
+    }
+  }
   const out = new Uint8Array(n * n * 4);
   const byte = (v: number) => Math.round(128 + Math.max(-127, Math.min(127, v * 127)));
   for (let j = 0; j < n; j++) {

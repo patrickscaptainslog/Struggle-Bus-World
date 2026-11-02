@@ -74,6 +74,7 @@ export const spaceResolveUniforms = {
   uMoonLod: { value: 0 },
   uMoonNear: { value: new THREE.Vector4(0, 0, 0, 0) }, // km a pixel at one radius (0: the tone map alone, nothing near), the relief, the craters, how far they push the map's read
   uMoonLook: { value: new THREE.Vector4(0, 0, 0, 0) }, // the craters' brightness, what they make of a high Sun, the tiles' lod bias, how sharply the seas drop them
+  uMoonClose: { value: 0 }, // 1 from the orbit, 0 from about 9,000 km: how much of what's invented is shown
   uMoonAhead: { value: new THREE.Vector3(0, 0, 1) }, // the top of the frame, Moon fixed, a little behind the view: where a crater's own low light comes from
   uSunDisc: { value: new THREE.Vector4(1, 0, 0, 1) }, // direction, render frame; cos of its radius
   uSunRing: { value: 1 }, // cos of the radius of its one ring of pixels
@@ -101,6 +102,7 @@ uniform vec4 uMoonEarth;
 uniform float uMoonLod;
 uniform vec4 uMoonNear;
 uniform vec4 uMoonLook;
+uniform float uMoonClose;
 uniform vec3 uMoonAhead;
 uniform vec4 uSunDisc;
 uniform float uSunRing;
@@ -328,9 +330,7 @@ bool spaceMoon(vec3 dir, float dsk, out vec3 col) {
     if (kB > 0.0) {
       // a sea keeps a third of them
       float keep = 0.33 + 0.67 * smoothstep(0.2, 0.5, t);
-      kA *= smoothstep(cA.a - uMoonLook.w, cA.a + uMoonLook.w, keep);
-      kB *= smoothstep(cB.a - uMoonLook.w, cB.a + uMoonLook.w, keep);
-      vec2 s = (sA * kA + sB * kB) * uMoonNear.z;
+      vec2 s = (sA * kA * smoothstep(cA.a - uMoonLook.w, cA.a + uMoonLook.w, keep) + sB * kB * smoothstep(cB.a - uMoonLook.w, cB.a + uMoonLook.w, keep)) * uMoonNear.z;
       // (the slope points up the hill: a surface leans the other way)
       dC = -(s.x * (fU - n * dot(n, fU)) + s.y * (fV - n * dot(n, fV)));
       t = clamp(t + ((cA.b - 0.50196) * kA + (cB.b - 0.50196) * kB) * uMoonLook.x, 0.0, 1.0);
@@ -347,7 +347,9 @@ bool spaceMoon(vec3 dir, float dsk, out vec3 col) {
   float mu = dot(lit, uMoonSun);
   float level = max(dot(lit, uMoonEarth.xyz), 0.0) * uMoonEarth.w * (0.2 + 1.1 * t) + 0.25;
   if (mu > 0.0) level = max(level, (0.35 + 0.65 * t) * min(2.0 * mu / (mu - dot(n, d) + 0.001), 1.05) * 7.0);
-  level *= 1.0 + art;
+  // (near, the bright highlands come down off the top of the ramp, where a crater has nowhere to go: a slope can lift dark ground a long way, and bright ground only to where it isn't snow)
+  level -= kB * uMoonClose * max(level - 5.2, 0.0) * 0.45;
+  level = min(level * (1.0 + art), max(level, 6.0));
   float ramp = ${Ramp.MOON}.0;
   spacePaint(n, uv, t, art, dsk, ramp, level);
   // (a blast's flash, as on the street: white-hot at the impact, and everything near it some steps up its own ramp)

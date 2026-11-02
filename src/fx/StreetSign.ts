@@ -441,6 +441,19 @@ export class StreetSigns {
     for (const s of this.signs) if (s.active && s.pos.distanceToSquared(position) < 100) s.age = Math.max(s.age, tSink);
   }
 
+  /** The sign with this text stands here now, for one on something that moves (?moonrun's names). Returns where, or null if no such sign is up. */
+  moveTo(text: string, x: number, y: number, z: number): THREE.Vector3 | null {
+    for (const s of this.signs) if (s.active && s.text === text) return s.pos.set(x, y, z);
+    return null;
+  }
+
+  /** The sign with this text sinks now. */
+  sink(text: string): void {
+    const T = signTune;
+    const tSink = T.riseTime + T.holdGreen + T.flipTime + T.holdRainbow;
+    for (const s of this.signs) if (s.active && s.text === text) s.age = Math.max(s.age, tSink);
+  }
+
   private setHue(slot: number, hue: number) {
     this.signs[slot].hue = hue;
     (this.aTex.array as Float32Array)[slot * 4 + 3] = hue;

@@ -157,6 +157,13 @@ function readStars(buf: ArrayBuffer): { pos: Float32Array; star: Uint8Array } {
 const EARTH_TEXEL_KM = (2 * Math.PI * R_EARTH_A) / 2048;
 const MOON_TEXEL_KM = (2 * Math.PI * R_MOON) / 1024;
 
+const CLOSE_LOW = Math.log(300);
+const CLOSE_HIGH = Math.log(9000);
+const smooth01 = (t: number) => {
+  const x = Math.min(1, Math.max(0, t));
+  return x * x * (3 - 2 * x);
+};
+
 /** The Moon's ground, what a pixel near it gets that the map can't give: live, the tuner moves them. See MoonGround.ts and the resolve's spaceMoon. */
 export const groundTune = {
   /** The real relief's slope, times this: a true slope at 10 km is a degree or two. */
@@ -329,8 +336,11 @@ export class SkyDraw {
     U.uMoonEarth.value.set(s.moonEarth[0], s.moonEarth[1], s.moonEarth[2], 2.05 * Math.sqrt(s.earthLitAtMoon));
     U.uMoonLod.value = Math.max(0, Math.log2((rM / R_MOON) * (Math.max(s.moonKm - R_MOON, 1) / focal / this.moonTexelKm)));
     const g = groundTune;
-    U.uMoonNear.value.set(this.ground.ready ? rM / focal : 0, g.relief, g.craters, g.wander);
-    U.uMoonLook.value.set(g.bright, g.flat, g.sharp, g.keep);
+    // (what's invented comes in over the whole way down, in the log of the height: 25 % of it at 3,000 km, 70 % at 1,000 km)
+    const close = 1 - smooth01((Math.log(Math.max(s.moonKm - R_MOON, 1)) - CLOSE_LOW) / (CLOSE_HIGH - CLOSE_LOW));
+    U.uMoonClose.value = close;
+    U.uMoonNear.value.set(this.ground.ready ? rM / focal : 0, g.relief, g.craters * close, g.wander);
+    U.uMoonLook.value.set(g.bright * close, g.flat, g.sharp, g.keep);
     // the top of the frame, on the ground under the view: m's rows are the render frame's axes in Moon fixed, so this is up less back. Low-passed, so a turn of the view isn't a turn of the light
     const ox2 = s.moonO[0] / s.moonKm, oy2 = s.moonO[1] / s.moonKm, oz2 = s.moonO[2] / s.moonKm;
     let ax = m[3] - m[6], ay = m[4] - m[7], az = m[5] - m[8];

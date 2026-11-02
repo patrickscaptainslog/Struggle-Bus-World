@@ -227,6 +227,8 @@ try {
   const tripLog = await page.evaluate(() => window.__game.moon.trip.log);
   for (const l of tripLog) console.log(`  ${l.at.toFixed(1).padStart(7)} ${l.s.toFixed(1).padStart(6)} s ${String(Math.round(l.km)).padStart(7)} km ${l.leg}`);
   console.log('stats:', JSON.stringify(await page.evaluate(() => window.__stats)));
+  console.log('ground:', JSON.stringify(await page.evaluate(() => window.__game.moon.draw.ground)));
+  console.log('names:', (await page.evaluate(() => window.__game.moon.names.log)).map((n) => `${n.name} ${Math.round(n.h)}`).join(', '));
 
   // ---- what moved between two frames, on screen, in game px
   const rec = await page.evaluate(() => window.__rec);

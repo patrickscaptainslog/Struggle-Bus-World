@@ -13,6 +13,7 @@ import { C, HUD_SMALL, PixelCanvas, textWidth } from '../ui/pixelUi';
 import { Tuner } from '../ui/Tuner';
 import { registerTunables } from '../ui/tunables';
 import { breathTune, MoonBreath } from './MoonBreath';
+import { MoonNames, nameTune } from './MoonNames';
 import { LEG_NAMES, MoonTrip, PULL, TAU } from './MoonTrip';
 import { series } from './Series';
 import { SkyClock } from './SkyClock';
@@ -226,6 +227,8 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   if (fx) scene.add(fx.object);
   const breath = new MoonBreath(pipeline, bus);
   scene.add(breath.particles.object);
+  const names = trip ? new MoonNames() : null;
+  if (names) scene.add(names.object);
   const busPose: BusPose = { squash: 1, eye: 1, fullness: 1, mouth: 0, speed: 0, wheeze: 0, heave: 0 };
 
   // ---- the lens, and the chase: bus at the origin, the camera behind and above it with no rotation, so the bus sits low in the frame and the view is what the axes say
@@ -264,6 +267,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   registerTunables('Moon run: the bus', busSize, { farPx: [4, 30, 0.5], midPx: [8, 40, 0.5], midKm: [2, 60, 1] });
   registerTunables('Moon run: what goes with it', spaceFxTune, { linePx: [1, 3, 0.1], lineLong: [0.005, 0.05, 0.001], thread: [0.05, 1, 0.01] });
   registerTunables('Moon run: the breath', breathTune, { thin: [0.05, 1, 0.01], flash: [0.005, 0.1, 0.005] });
+  registerTunables('Moon run: names', nameTune, { every: [2, 20, 0.5], font: [1, 3, 0.1], high: [300, 6000, 100], fast: [30, 300, 5] });
   registerTunables('Moon run: the ground', groundTune, { relief: [0, 8, 0.1], craters: [0, 2, 0.05], bright: [0, 2, 0.05], flat: [0, 4, 0.1], wander: [0, 2, 0.05], sharp: [-1.5, 1, 0.1], keep: [0.01, 0.3, 0.01] });
   if (params.has('tune')) tuner.toggle();
   // (the URL wins over a saved row)
@@ -317,7 +321,9 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   // ---- before the first frame: the programs, the maps. Both start now, side by side
   warm.add(scene);
   await Promise.all([warm.finish(), draw.load('./sky')]);
-  draw.loadGround(new URL('.', location.href).href.replace(/\/$/, ''));
+  const page = new URL('.', location.href).href.replace(/\/$/, '');
+  draw.loadGround(page);
+  names?.load(page);
   breath.load();
   breath.audio?.prepare();
   // (and the stars' and lines' real geometry was built after their proxies: same layout, same programs)
@@ -333,6 +339,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   const fixedDt = params.has('fixeddt') ? Math.max(0.001, Number(params.get('fixeddt')) || 1 / 60) : 0;
   let last = performance.now();
   let time = 0;
+  const popSign = () => breath.audio?.signPop();
   let frames = 0;
   // (tools: time stands still and the frame goes on drawing, so a shot is of the moment it asked for)
   let held0 = false;
@@ -385,6 +392,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
     if (breath.rear > 0) bus.root.quaternion.multiply(rearQ.setFromAxisAngle(pitchAxis, breath.rear));
     bus.root.updateMatrixWorld(true);
     breath.update(dt, real, sky, trip?.leg === 'orbit', camera);
+    if (trip && names) names.update(dt, sky, trip.leg === 'in' || trip.leg === 'orbit', trip.v, trip.t, camera, focalAt(), pipeline.info.width, pipeline.info.height, popSign);
     if (trip && view && fx) {
       fx.update(dt, trip.v, trip.dir, trip.ob.axes, view.flying, view.nosing, camera, bus.root, rigScale, pipeline.pixelWorldSize(1), rig.px);
       // (the readout's names stop at G3 and the label says the gear: TURBO and its down tab are all that's wanted from the HUD)
@@ -413,6 +421,6 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
     }
     if (trip) label?.(trip, breath);
   };
-  (window as unknown as Record<string, unknown>).__game = { pipeline, scene, camera, perf, bus, input, warm, moon: { model, sky, clock, draw, pose, load, trip, view, skip, breath, tune: tripTune, hold: (on: boolean) => (held0 = on) } };
+  (window as unknown as Record<string, unknown>).__game = { pipeline, scene, camera, perf, bus, input, warm, moon: { model, sky, clock, draw, pose, load, trip, view, skip, breath, names, tune: tripTune, hold: (on: boolean) => (held0 = on) } };
   requestAnimationFrame(frame);
 }
