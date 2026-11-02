@@ -38,16 +38,19 @@ function fly(g5) {
   view.height = H;
   const model = new SkyModel(series), sky = new SkyState();
   const rows = [];
+  const was = new Float64Array(3);
   const frame = () => {
     trip.step(DT, 0);
     view.update(DT, trip, 0, 0, false, 0);
     model.frame(trip.ms, trip.ob, sky);
+    const c = Math.min(1, was[0] * trip.dir[0] + was[1] * trip.dir[1] + was[2] * trip.dir[2]), turn = (Math.acos(c) / DEG) / DT;
+    was.set(trip.dir);
     const f = W / 2 / Math.tan((view.hfov * DEG) / 2);
     const elong = Math.acos(Math.min(1, sky.sun[0] * sky.moon[0] + sky.sun[1] * sky.moon[1] + sky.sun[2] * sky.moon[2])) / DEG;
     const mR = Math.asin(Math.min(1, moonDrawnKm(sky.moonKm, f, 15, elong) / sky.moonKm));
     const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     rows.push({
-      t: +trip.t.toFixed(3), clock: +trip.clock.toFixed(2), leg: trip.leg, gear: trip.gear, v: +trip.v.toFixed(2), hE: +trip.hEarth.toFixed(2), hM: +trip.hMoon.toFixed(2), lens: +view.hfov.toFixed(3), target: view.target,
+      t: +trip.t.toFixed(3), clock: +trip.clock.toFixed(2), leg: trip.leg, gear: trip.gear, v: +trip.v.toFixed(2), turn: +turn.toFixed(2), hE: +trip.hEarth.toFixed(2), hM: +trip.hMoon.toFixed(2), lens: +view.hfov.toFixed(3), target: view.target,
       moonPx: +(2 * f * Math.tan(mR)).toFixed(2), moonTrue: +(2 * f * Math.tan(sky.moonR)).toFixed(2), earthPx: +(2 * f * Math.tan(sky.earthR)).toFixed(2),
       // how far off the frame's axis: 1 at the frame's nearer edge
       moonOff: sky.moon[2] < 0 ? +Math.hypot((sky.moon[0] / -sky.moon[2]) * f / (W / 2), (sky.moon[1] / -sky.moon[2]) * f / (H / 2)).toFixed(3) : 9,
@@ -123,18 +126,19 @@ for (const g5 of [3000, 6000, 10000]) {
     vUp = Math.max(vUp, b.v / a.v - 1);
     turn = Math.max(turn, Math.abs(b.dive - a.dive) / DT);
   }
-  say(vStep > -0.02 && vUp < 1e-6, `speed on the way in: at most ${(-vStep * 100).toFixed(2)} % down a frame, ${(vUp * 100).toFixed(4)} % up; the dive turns at most ${turn.toFixed(2)} deg/s`);
+  say(vStep > -0.02 && vUp < 1e-6 && turn < 4, `speed on the way in: at most ${(-vStep * 100).toFixed(2)} % down a frame, ${(vUp * 100).toFixed(4)} % up; the dive turns at most ${turn.toFixed(2)} deg/s`);
   growth(rows.slice(onMoon, orbitAt), 'moonPx', 'Moon');
   console.log(`  home: G5 lit at ${at(litHome).t.toFixed(1)} s, the Moon ${at(litHome).moonPx.toFixed(0)} px. The view left it at ${at(toEarth).t.toFixed(1)} s, at ${at(toEarth).moonPx.toFixed(0)} px, ${at(toEarth).hM.toFixed(0)} km; Earth on the frame's middle ${(at(onEarth).t - at(toEarth).t).toFixed(1)} s on`);
   console.log(`  the way home: from ${at(homeIn).hE.toFixed(0)} km at ${at(homeIn).v.toFixed(0)} km/s, ${at(homeIn).earthPx.toFixed(0)} px, ${(at(restAt).t - at(homeIn).t).toFixed(1)} s to rest over home`);
   growth(rows.slice(Math.max(onEarth, litHome), restAt).filter((r) => r.earthPx < 800), 'earthPx', 'Earth');
-  let v2 = 0, v3 = 0;
+  let v2 = 0, v3 = 0, bend = 0;
   for (let i = homeIn + 1; i < restAt; i++) {
     const a = rows[i - 1], b = rows[i];
     if (a.v > 5) v2 = Math.min(v2, b.v / a.v - 1);
     v3 = Math.max(v3, b.v / a.v - 1);
+    if (b.v > 60) bend = Math.max(bend, b.turn);
   }
-  say(v2 > -0.05 && v3 < 1e-6, `speed coming home: at most ${(-v2 * 100).toFixed(2)} % down a frame, ${(v3 * 100).toFixed(4)} % up`);
+  say(v2 > -0.05 && v3 < 1e-6 && bend < 21, `speed coming home: at most ${(-v2 * 100).toFixed(2)} % down a frame, ${(v3 * 100).toFixed(4)} % up; the path turns at most ${bend.toFixed(1)} deg/s over 60 km/s`);
 }
 // the bus's size on screen: as it was to about 1 km, about twice the far size at 15 km, the far size from 100 km up, in one smooth curve
 {

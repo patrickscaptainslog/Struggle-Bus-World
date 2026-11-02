@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { AudioEngine } from '../audio/AudioEngine';
-import { BusModel, type BusPose } from '../bus/BusModel';
+import { BusModel, busTune, type BusPose } from '../bus/BusModel';
 import { config } from '../config';
 import { busRig, busSize, type BusRig } from '../game/busSize';
 import { Input } from '../game/Input';
@@ -152,7 +152,7 @@ function readView(params: URLSearchParams, model: SkyModel, sky: SkyState, ms: n
 const thousands = (n: number) => Math.round(n).toLocaleString('en-US');
 
 /** The tuner's rows for the flight, read every frame. The bus's and the trail's live with those. */
-const tripTune = { tau: TAU, pullDegS: PULL / DEG, swing: SWING, ahead: AHEAD };
+const tripTune = { tau: TAU, pullDegS: PULL / DEG, swing: SWING, ahead: AHEAD, busSunSoft: 0.75 };
 
 /** The label's font, with the one sign the HUD has never needed. */
 const LABEL: typeof HUD_SMALL = { ...HUD_SMALL, glyphs: new Map(HUD_SMALL.glyphs).set('%', { w: 3, bits: Uint8Array.from([1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1]) }) };
@@ -260,7 +260,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   placeCamera();
   // the tuner, as the street's: `?tune` or three fingers
   const tuner = new Tuner();
-  registerTunables('Moon run', tripTune, { tau: [4, 30, 0.5], pullDegS: [1, 10, 0.1], swing: [0.2, 1.5, 0.01], ahead: [0.2, 1, 0.01] });
+  registerTunables('Moon run', tripTune, { tau: [4, 30, 0.5], pullDegS: [1, 10, 0.1], swing: [0.2, 1.5, 0.01], ahead: [0.2, 1, 0.01], busSunSoft: [0, 1, 0.01] });
   registerTunables('Moon run: the bus', busSize, { farPx: [4, 30, 0.5], midPx: [8, 40, 0.5], midKm: [2, 60, 1] });
   registerTunables('Moon run: what goes with it', spaceFxTune, { linePx: [1, 3, 0.1], lineLong: [0.005, 0.05, 0.001], thread: [0.05, 1, 0.01] });
   registerTunables('Moon run: the breath', breathTune, { thin: [0.05, 1, 0.01], flash: [0.005, 0.1, 0.005] });
@@ -375,6 +375,8 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
     globals.uSunDir.value.set(sky.sun[0], sky.sun[1], sky.sun[2]);
     // (in Earth's shadow the bus has only its ambient)
     globals.uLight.value.x = 0.62 * sky.sunSeen;
+    // (a roof in full sun goes to the ramp's pale top, which from up here is the whole of a bus two pixels wide: it must stay yellow against the grey, and its shaded side isn't touched)
+    busTune.sunSoft = tripTune.busSunSoft;
     breath.pose(busPose, dt);
     bus.update(dt, time, busPose);
     if (breath.rear > 0) bus.root.quaternion.multiply(rearQ.setFromAxisAngle(pitchAxis, breath.rear));
@@ -408,6 +410,6 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
     }
     if (trip) label?.(trip, breath);
   };
-  (window as unknown as Record<string, unknown>).__game = { pipeline, scene, camera, perf, bus, input, warm, moon: { model, sky, clock, draw, pose, load, trip, view, skip, breath, hold: (on: boolean) => (held0 = on) } };
+  (window as unknown as Record<string, unknown>).__game = { pipeline, scene, camera, perf, bus, input, warm, moon: { model, sky, clock, draw, pose, load, trip, view, skip, breath, tune: tripTune, hold: (on: boolean) => (held0 = on) } };
   requestAnimationFrame(frame);
 }

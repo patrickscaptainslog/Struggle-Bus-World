@@ -120,9 +120,9 @@ try {
       await shoot(`${n}r-home-g5`, s);
       if (s.earthPx >= 60) await shoot(`${n}s-earth-60`, s);
     }
-    if (s.leg === 'homeIn') {
+    if (s.leg === 'homeIn' || s.leg === 'homeLevel' || s.leg === 'homeDrop') {
       await shoot(`${n}t-home-in`, s);
-      for (const px of [120, 250, 402, 700]) if (s.earthPx >= px) await shoot(`${n}u-earth-${String(px).padStart(4, '0')}`, s);
+      for (const px of [120, 250, 402, 700, 1000, 2000]) if (s.earthPx >= px) await shoot(`${n}u-earth-${String(px).padStart(4, '0')}`, s);
     }
     if (s.leg === 'homeLevel') await shoot(`${n}x-level`, s);
     if (s.leg === 'homeDrop') await shoot(`${n}y-drop`, s);
