@@ -156,15 +156,18 @@ for (const g5 of all ? [3000, 6000, 10000] : [6000]) {
       hi = Math.max(hi, trip.hMoon);
     }
   }
+  const g3 = trip.v, gear = trip.gear;
+  // (a down tab asks for nothing here)
   trip.shiftDown();
-  for (let i = 0; i < 300; i++) trip.step(DT, 0);
-  const g3 = trip.v;
+  for (let i = 0; i < 30; i++) trip.step(DT, 0);
+  const same = trip.leg === 'orbit' && Math.abs(trip.v - 30) < 0.1;
+  // TURBO heads home from the orbit's gear, in one tap
   trip.tap();
-  for (let i = 0; i < 150; i++) trip.step(DT, 0);
-  const g4 = trip.v;
-  const ok = hi - lo < 0.01 && Math.abs(g3 - 30) < 0.1 && Math.abs(g4 - 300) < 0.5;
+  trip.step(DT, 0);
+  const left = trip.leg;
+  const ok = hi - lo < 0.01 && gear === 3 && Math.abs(g3 - 30) < 0.1 && same && left === 'leave';
   if (!ok) fails++;
-  console.log(`orbit, steering: ${lo.toFixed(3)}-${hi.toFixed(3)} km; down tab ${g3.toFixed(1)} km/s, up tab ${g4.toFixed(1)} km/s; ${ok ? 'ok' : 'FAIL'}`);
+  console.log(`orbit, steering: ${lo.toFixed(3)}-${hi.toFixed(3)} km; settles at G${gear}, ${g3.toFixed(1)} km/s; a tap: ${left}; ${ok ? 'ok' : 'FAIL'}`);
 }
 
 // Every way a trip can start or end up, across a month: launch, orbit, leave, home, from wherever the Moon and home are. It must always arrive.

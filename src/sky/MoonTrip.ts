@@ -18,6 +18,7 @@ export const R_E = 6371;
 export const R_M = R_MOON;
 
 const G0 = 0.112;
+/** The orbit's gear: a lap takes 7 minutes, against 43 s at G4, so the ground under the aim crawls and a tap lands where the player saw it land (MoonBreath.ts). */
 const G3 = 30;
 const G4 = 300;
 /** G4's floor, on both bodies, and G5's: 13,000 km, close to where Earth just fits the 38 degree lens. */
@@ -151,7 +152,7 @@ export class MoonTrip {
   /** Moves here; TripView writes its axes. */
   readonly ob: Observer = { body: EARTH, free: true, pos: v3(), axes: Float64Array.from([1, 0, 0, 0, 1, 0, 0, 0, 1]) };
   leg: Leg = 'wait';
-  /** The gear in force: 3 at rest over home, 4, 5, and 3 or 4 in orbit. */
+  /** The gear in force: 3 at rest over home and in orbit, 4, 5. */
   gear = 3;
   /** km/s */
   v = G0;
@@ -191,7 +192,6 @@ export class MoonTrip {
   private km = 0;
   private rLevel = 0;
   private rOrbit = R_M + ALT4;
-  private orbitGear = 4;
   private tapped = false;
   private downTapped = false;
   private started = false;
@@ -246,7 +246,7 @@ export class MoonTrip {
 
   /** There is something for the down tab to do. */
   get canShiftDown(): boolean {
-    return this.armed || (this.leg === 'orbit' && this.gear === 4);
+    return this.armed;
   }
 
   /** TURBO: a tap shifts up. It lands at the next step, which reads the sky. */
@@ -254,7 +254,7 @@ export class MoonTrip {
     this.tapped = true;
   }
 
-  /** The down tab: G3 in orbit, a lap in about 7 minutes; or G5 not asked for after all. */
+  /** The down tab: G5 not asked for after all. */
   shiftDown(): void {
     this.downTapped = true;
   }
@@ -323,15 +323,13 @@ export class MoonTrip {
           if (this.g5Room) this.armed = true;
           break;
         case 'orbit':
-          if (this.orbitGear === 3) this.orbitGear = this.gear = 4;
-          else this.leaveMoon();
+          this.leaveMoon();
           break;
       }
     }
     if (this.downTapped) {
       this.downTapped = false;
-      if (this.armed) this.armed = false;
-      else if (this.leg === 'orbit') this.orbitGear = this.gear = 3;
+      this.armed = false;
     }
   }
 
@@ -619,7 +617,7 @@ export class MoonTrip {
           this.heading.set(this.w2);
           this.dir.set(this.w2);
           this.rOrbit = len(rm);
-          this.orbitGear = 4;
+          this.gear = 3;
           this.enter('orbit');
           return false;
         }
@@ -632,12 +630,11 @@ export class MoonTrip {
         return true;
       }
       case 'orbit': {
-        // level on the floor, a great circle round the Moon, the thumb turning it
+        // level on the floor, a great circle round the Moon, the thumb turning it. G4 arrives and G3 stays: a shift down, at the classic rate, height no part of it
         const p = this.ob.pos, h = this.heading;
         setUnit(p, u);
         this.yaw(stick, dt, u);
-        const speed = this.orbitGear === 3 ? G3 : G4;
-        this.v += (speed - this.v) * (1 - Math.exp(-HZ * dt));
+        this.v += (G3 - this.v) * (1 - Math.exp(-HZ * dt));
         this.rOrbit += (R_M + ALT4 - this.rOrbit) * (1 - Math.exp(-2 * dt));
         const th = (this.v * dt) / this.rOrbit, c = Math.cos(th), s = Math.sin(th);
         for (let i = 0; i < 3; i++) {
