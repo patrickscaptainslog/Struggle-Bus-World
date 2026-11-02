@@ -20,5 +20,11 @@ export const heldOr = (glsl: string, day: string): string => (heldHour ? glsl : 
  */
 export const moonrun = typeof location !== 'undefined' && new URLSearchParams(location.search).has('moonrun');
 
-/** GLSL only ?moonrun compiles. */
-export const space = (glsl: string): string => (moonrun ? glsl : '');
+/**
+ * ?moon: the Moon as a place the real game loads, low over its ground (src/moon/). The same law: flag off, no fetch and no shader byte differs. What it has of the sky is ?moonrun's, so the space code's GLSL
+ * compiles for either; the ground's programs are its own, in a chunk of their own, and index.html starts no city downloads under it.
+ */
+export const moonLow = typeof location !== 'undefined' && new URLSearchParams(location.search).has('moon');
+
+/** GLSL only ?moonrun and ?moon compile. */
+export const space = (glsl: string): string => (moonrun || moonLow ? glsl : '');

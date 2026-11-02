@@ -56,7 +56,9 @@ export const Ramp = {
   CLOUD_SHADE: 44,
   SKY_LOW: 45, // the sky's far side, low (FOG by day): the haze keeps FOG
   SAND: 46, // no longer SKY_WARM's: a beach doesn't turn with the sky
-  // 47 spare, 48 up for VERDICT's ice, regolith and far rows
+  // 47 spare
+  REGOLITH: 48, // the Moon's ground (?moon only: nothing else writes them)
+  MARE: 49,
 } as const;
 
 export type RampId = (typeof Ramp)[keyof typeof Ramp];

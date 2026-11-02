@@ -170,6 +170,24 @@ async function readFarRaster(res: Promise<Response>): Promise<FarRaster | null> 
 
 const nextTick = () => new Promise((r) => setTimeout(r, 16));
 
+/** What a generated place hands City in place of a folder of files (?moon, src/moon/moonBoot.ts). */
+export interface CityMoon {
+  /** Asks its worker for a region; the answer comes to `listen`'s callback. */
+  request(msg: RegionRequest, rx: number, rz: number): void;
+  listen(fn: (m: RegionResponse) => void): void;
+  available(rx: number, rz: number): boolean;
+  /** A tile's ground, a region's ground: their maps as textures, and the material that reads them. */
+  tileTexture(t: TerrainTile): THREE.DataTexture;
+  regionTexture(t: TerrainTile): THREE.DataTexture;
+  material(tex: THREE.DataTexture, t: TerrainTile, originX: number, originZ: number, size: number, ground?: Record<string, THREE.IUniform>): THREE.ShaderMaterial;
+  regionMaterial(tex: THREE.DataTexture, t: TerrainTile, originX: number, originZ: number, size: number): THREE.ShaderMaterial;
+  /** The ground where no tile is loaded. */
+  groundAt(x: number, z: number): number;
+  /** A region landed, or went. */
+  regionLanded?(m: RegionResponse): void;
+  regionGone?(rx: number, rz: number): void;
+}
+
 /** A tile's (or a coarse region's) building mesh: the one place its vertex layout is set. `cast`: it is its own sun-pass caster. */
 function buildingMesh(m: MeshArrays, material: THREE.Material, cast: boolean): THREE.Mesh {
   const g = new THREE.BufferGeometry();
@@ -522,7 +540,7 @@ export class City {
    */
   eager = false;
 
-  constructor(readonly manifest: CityManifest & { regions: Array<[number, number, number]>; regionSize: number }, readonly baseUrl: string) {
+  constructor(readonly manifest: CityManifest & { regions: Array<[number, number, number]>; regionSize: number }, readonly baseUrl: string, private readonly moon: CityMoon | null = null) {
     this.paint = new PaintState(manifest.buildingCount + LANDMARK_SLOTS, manifest.slug);
     this.ground = new GroundPaint(manifest.tileSize, manifest.slug);
     this.sf = isSfOrigin(manifest.origin);
@@ -540,7 +558,8 @@ export class City {
     this.regionSize = manifest.regionSize;
     this.ext = (manifest as { binExt?: string }).binExt ?? '.bin';
     for (const [rx, rz] of manifest.regions) this.regionAvailable.add(`${rx},${rz}`);
-    try {
+    if (moon) moon.listen((m) => this.onRegion(m));
+    else try {
       this.worker = new Worker(new URL('./cityWorker.ts', import.meta.url), { type: 'module' });
       this.worker.onmessage = (ev: MessageEvent<RegionResponse>) => this.onRegion(ev.data);
       this.worker.onerror = () => {
@@ -579,7 +598,12 @@ export class City {
     this.water.matrixAutoUpdate = false;
     this.water.updateMatrix();
     this.water.updateMatrixWorld(true);
-    this.root.add(this.water);
+    if (!moon) this.root.add(this.water);
+  }
+
+  /** The loaded-tile mask, for whatever draws past the tiles: texture, its rect (mask.x, z of the corner, per tile), its size. */
+  get tileMask(): { tex: THREE.DataTexture; rect: THREE.Vector4; size: THREE.Vector2 } {
+    return { tex: this.loadedMask, rect: this.maskRect(), size: new THREE.Vector2(this.maskW, this.maskH) };
   }
 
   /** A fade past the default one sees further: from anywhere in the frame the plane has to end inside the fade's full fog, or the sea stops in a hard line under the true horizon. */
@@ -1023,7 +1047,7 @@ export class City {
     for (let rz = rz0; rz <= rz1; rz++)
       for (let rx = rx0; rx <= rx1; rx++) {
         const key = this.regionKey(rx, rz);
-        if (!this.regionAvailable.has(key) || this.regionsRequested.has(key)) continue;
+        if (!(this.moon ? this.moon.available(rx, rz) : this.regionAvailable.has(key)) || this.regionsRequested.has(key)) continue;
         if ((this.retryAt.get(key) ?? 0) > performance.now()) continue;
         const cx = (rx + 0.5) * R, cz = (rz + 0.5) * R;
         // distance from focus to the region rectangle
@@ -1056,7 +1080,8 @@ export class City {
       const id = this.nextId++;
       this.pending.set(id, { key, lod });
       const msg: RegionRequest = { type: 'region', id, url: new URL(`${this.baseUrl}/r_${rx}_${rz}${this.ext}${dataQuery()}`, location.href).href, classN: this.manifest.classN, lod, sf: this.sf, tileSize: this.manifest.tileSize };
-      if (this.worker) this.worker.postMessage(msg);
+      if (this.moon) this.moon.request(msg, rx, rz);
+      else if (this.worker) this.worker.postMessage(msg);
       else void loadRegion(msg).then((r) => this.onRegion(r));
     }
   }
@@ -1169,6 +1194,8 @@ export class City {
     const cls = new Uint8Array(N * N);
     const grids: THREE.BufferGeometry[] = [];
     let any = false;
+    /** (?moon: a coarse region's one map comes with any of its tiles) */
+    let moonTile: TerrainTile | null = null;
     for (let tz = rz * rs; tz < (rz + 1) * rs; tz++)
       for (let tx = rx * rs; tx < (rx + 1) * rs; tx++) {
         const lt = this.tiles.get(`${tx},${tz}`);
@@ -1186,6 +1213,7 @@ export class City {
         }
         if (lt.terrain) this.dropTileTerrain(lt);
         any = true;
+        moonTile = tr;
         const ox = (tx - rx * rs) * cn, oz = (tz - rz * rs) * cn;
         for (let j = 0; j < cn; j++) cls.set(tr.cls.subarray(j * cn, j * cn + cn), (oz + j) * N + ox);
         grids.push(this.takeGrid(lt, 4));
@@ -1210,10 +1238,12 @@ export class City {
         io += ii.length;
         g.dispose();
       }
-      const tex = new THREE.DataTexture(cls, N, N, THREE.RedFormat, THREE.UnsignedByteType);
-      tex.minFilter = tex.magFilter = THREE.NearestFilter;
-      tex.generateMipmaps = false;
-      tex.needsUpdate = true;
+      const tex = this.moon && moonTile ? this.moon.regionTexture(moonTile) : new THREE.DataTexture(cls, N, N, THREE.RedFormat, THREE.UnsignedByteType);
+      if (!this.moon) {
+        tex.minFilter = tex.magFilter = THREE.NearestFilter;
+        tex.generateMipmaps = false;
+        tex.needsUpdate = true;
+      }
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
@@ -1221,7 +1251,7 @@ export class City {
       g.computeBoundingSphere();
       dropAfterUpload(g);
       // (far ground doesn't cast: the shadow window is near the view, and buildings carry the shadows up high)
-      const mesh = groundMesh(g, makeTerrainMaterial(tex, rx * rs * ts, rz * rs * ts, rs * ts, N), false);
+      const mesh = groundMesh(g, this.moon && moonTile ? this.moon.regionMaterial(tex, moonTile, rx * rs * ts, rz * rs * ts, rs * ts) : makeTerrainMaterial(tex, rx * rs * ts, rz * rs * ts, rs * ts, N), false);
       mesh.visible = !rm.hidden;
       this.root.add(mesh);
       this.firstDraw(mesh);
@@ -1405,14 +1435,17 @@ export class City {
   /** The tile's ground mesh, in the scene but not the tile's yet. */
   private makeGround(lt: LoadedTile, step: 2 | 4): TileGround {
     const tr = lt.terrainData!;
-    const tex = new THREE.DataTexture(tr.cls, tr.classN, tr.classN, THREE.RedFormat, THREE.UnsignedByteType);
-    tex.minFilter = tex.magFilter = THREE.NearestFilter;
-    tex.generateMipmaps = false;
-    tex.needsUpdate = true;
+    const tex = this.moon ? this.moon.tileTexture(tr) : new THREE.DataTexture(tr.cls, tr.classN, tr.classN, THREE.RedFormat, THREE.UnsignedByteType);
+    if (!this.moon) {
+      tex.minFilter = tex.magFilter = THREE.NearestFilter;
+      tex.generateMipmaps = false;
+      tex.needsUpdate = true;
+    }
     const geo = this.takeGrid(lt, step);
     dropAfterUpload(geo);
     const gu = this.ground.tileUniforms();
-    const mesh = groundMesh(geo, makeTerrainMaterial(tex, tr.originX, tr.originZ, this.manifest.tileSize, tr.classN, 0, gu), step === 2);
+    // (the Moon's light on the ground is baked in its map: its ground casts nothing in the sun pass)
+    const mesh = groundMesh(geo, this.moon ? this.moon.material(tex, tr, tr.originX, tr.originZ, this.manifest.tileSize, gu) : makeTerrainMaterial(tex, tr.originX, tr.originZ, this.manifest.tileSize, tr.classN, 0, gu), step === 2 && !this.moon);
     this.root.add(mesh);
     return { mesh, classTex: tex, gu, step };
   }
@@ -1432,7 +1465,8 @@ export class City {
     const g = lt.grid;
     lt.grid = null;
     const tr = lt.terrainData!;
-    if (!g || g.step !== step) return makeHeightGrid((lt.meshH ??= meshHeights(tr)), tr.n, tr.cell, tr.originX, tr.originZ, step);
+    // (?moon: step 2 is a 4 m mesh and step 4 an 8 m one, on a 2 m or a 4 m grid)
+    if (!g || g.step !== step) return makeHeightGrid((lt.meshH ??= meshHeights(tr)), tr.n, tr.cell, tr.originX, tr.originZ, tr.moon ? (step * 2) / tr.cell : step);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(g.position, 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(g.normal, 3));
@@ -1511,6 +1545,7 @@ export class City {
     this.failCount.delete(key);
     this.retryAt.delete(key);
     if (!this.regionsRequested.has(key)) return; // unloaded while in flight
+    this.moon?.regionLanded?.(msg);
     // an already-loaded region switches level of detail in one go (detail prepares tile by tile first, so that
     // one go is only a commit); a new one adopts its tiles a few per frame
     if (this.regionsLoaded.has(key)) {
@@ -1643,6 +1678,7 @@ export class City {
 
   private unloadRegion(rx: number, rz: number) {
     const key = `${rx},${rz}`;
+    this.moon?.regionGone?.(rx, rz);
     this.regionsLoaded.delete(key);
     this.regionsRequested.delete(key);
     this.regionLod.delete(key);
@@ -1712,6 +1748,11 @@ export class City {
     return (a * (1 - ax) + b * ax) * (1 - az) + (c * (1 - ax) + d * ax) * az;
   }
 
+  /** The terrain of the tile under (x, z), if it is loaded. */
+  terrainAt(x: number, z: number): TerrainTile | null {
+    return this.tileAt(x, z)?.terrainData ?? null;
+  }
+
   private tileAt(x: number, z: number): LoadedTile | undefined {
     const ts = this.manifest.tileSize;
     return this.tileNum.get(tileKeyNum(Math.floor(x / ts), Math.floor(z / ts)));
@@ -1726,6 +1767,7 @@ export class City {
     const lt = this.tileAt(x, z);
     if (lt?.terrainData) return Math.max(hills, this.tileGround(lt.terrainData, x, z));
     if (hills >= 0) return hills;
+    if (this.moon) return this.moon.groundAt(x, z);
     const f = this.far;
     if (!f) return 0;
     const fx = Math.min(f.gridW - 1.001, Math.max(0, (x - f.minX) / f.cell));

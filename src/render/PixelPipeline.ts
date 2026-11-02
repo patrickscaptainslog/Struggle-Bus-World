@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { config } from '../config';
 import { globals, GLSL_G_READ, GLSL_LAYER_TOP, GLSL_SKY_LIGHT, SHADOW_LAYER } from './materials';
 import { HUE_RAMPS, makePaletteTexture, Ramp } from './palette';
-import { held, heldHour, heldOr, moonrun, space } from '../sky/flag';
+import { held, heldHour, heldOr, moonLow, moonrun, space } from '../sky/flag';
 import { GLSL_SKY_HELD, GLSL_SKY_HELD_UNIFORMS, GLSL_SPACE, GLSL_SPACE_UNIFORMS, heldResolveUniforms, spaceResolveUniforms } from './skyResolve';
 import type { WarmPipeline } from './warmup';
 
@@ -191,7 +191,7 @@ export class PixelPipeline implements WarmPipeline {
         uFlash: { value: new THREE.Vector4() },
         uSkyCut: { value: this.skyCut },
         ...(heldHour ? heldResolveUniforms : {}),
-        ...(moonrun ? spaceResolveUniforms : {}),
+        ...(moonrun || moonLow ? spaceResolveUniforms : {}),
       },
       vertexShader: QUAD_VS,
       fragmentShader: RESOLVE_FS,
@@ -1215,7 +1215,7 @@ void main() {
   // behind. The beam rides with the bus, which holds still on screen: its edge dither is screen-anchored.
   // (the unpainted towers' own materials are grey world too: the beam doesn't stop at a tower's face)
   bool greyR = ramp < ${Ramp.GREY_LIGHT}.5 || ramp == ${Ramp.GREEN_GREY}.0 || ramp == ${Ramp.WINDOW}.0 || ramp == ${Ramp.ROOF_DARK}.0
-    || ramp == ${Ramp.GLASS}.0 || ramp == ${Ramp.STONE}.0 || ramp == ${Ramp.GRANITE}.0${held(` || ramp == ${Ramp.SAND}.0`)};
+    || ramp == ${Ramp.GLASS}.0 || ramp == ${Ramp.STONE}.0 || ramp == ${Ramp.GRANITE}.0${held(` || ramp == ${Ramp.SAND}.0`)}${space(` || ramp == ${Ramp.REGOLITH}.0 || ramp == ${Ramp.MARE}.0`)};
   if (uBeamShape.z > 0.0 && glow < 0.02 && hAmt < 0.11 && !fogged && (greyR || heroRamp) && (depth > uBeamShape.w || heroEdge)) {
     vec2 bv = gl_FragCoord.xy - uBeam.xy;
     float bl = max(length(uBeam.zw), 1.0);

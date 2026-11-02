@@ -102,6 +102,15 @@ export interface CityManifest {
   license?: string;
 }
 
+/** What a generated tile carries in place of a 2 m class texture (src/moon/gen.ts). */
+export interface MoonTileMap {
+  map: Uint8Array;
+  mapN: number;
+  mapX: number;
+  mapZ: number;
+  mapCell: number;
+}
+
 /**
  * Building tile. One record per building *part*: a plain building is one part;
  * a LiDAR-tiered tower is several (podium, setbacks, crown...) stacked on each
@@ -263,6 +272,8 @@ export interface TerrainTile {
   streetNames: string[];
   streets: Array<{ name: number; rank: number; xz: Float32Array }>;
   hoodGrid: Uint8Array | null;
+  /** ?moon: the tile's four-byte map, and heights float, in place of the class texture and decimetres */
+  moon?: MoonTileMap;
 }
 
 export function parseTerrainTile(buf: ArrayBuffer, classN: number): TerrainTile {

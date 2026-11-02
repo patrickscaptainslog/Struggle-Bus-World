@@ -264,7 +264,8 @@ void spacePaint(vec3 n, vec2 uv, float t, float dsk, inout float ramp, inout flo
 bool spaceMoon(vec3 dir, float dsk, out vec3 col) {
   vec3 d = dir * uMoonRot;
   float b = dot(uMoonO.xyz, d), c = uMoonO.w;
-  if (b >= 0.0) return false;
+  // (c under 0: inside it, the ground of ?moon, which draws itself)
+  if (b >= 0.0 || c < 0.0) return false;
   float D = b * b - c;
   if (D <= 0.0) return false;
   vec3 n = normalize(uMoonO.xyz + d * (c / (-b + sqrt(D))));

@@ -95,6 +95,10 @@ export interface RegionResponse {
   merged?: MeshArrays | null;
   mergedSphere?: Float32Array | null;
   error?: string;
+  /** ?moon: which region, and what stands on it */
+  rx?: number;
+  rz?: number;
+  rocks?: Float32Array | null;
 }
 
 /** Distance from (x, z) to the segment a-b (m). */

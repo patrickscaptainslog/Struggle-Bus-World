@@ -34,7 +34,7 @@ import { SuperSplat } from './game/SuperSplat';
 import { SuperFx } from './fx/SuperFx';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
-import { heldHour, moonrun } from './sky/flag';
+import { heldHour, moonLow, moonrun } from './sky/flag';
 import { HeldHour } from './sky/HeldHour';
 
 // Struggle Bus — Phase 1 (real SF, solo).
@@ -52,7 +52,7 @@ if (params.has('px')) config.render.pixelWidth = Math.min(1200, Math.max(120, Nu
 applySavedTuning();
 // The far field (docs/ARCHITECTURE.md, "The far raster"): on, for any city whose far16.bin arrives. config.far.on and ?nofar turn all of it off. A tool
 // spelling any of ?farmap, ?farblocks, ?farfade asks for exactly those.
-const farOn = config.far.on && !params.has('nofar');
+const farOn = config.far.on && !params.has('nofar') && !moonLow;
 const farPicked = params.has('farmap') || params.has('farblocks') || params.has('farfade');
 if (farOn) {
   farFlags.map = !farPicked || params.has('farmap');
@@ -128,16 +128,24 @@ const base = `./city/${slug}`;
 async function boot() {
   // (first: the warm-up hasn't started a compile yet, so this query waits for nothing, and boot().catch prints a refusal)
   pipeline.checkTargets();
+  // (?moon: the place is generated, src/moon/: all that follows is the game as it is, on a city with no files)
+  const moon = moonLow ? await (await import('./moon/moonBoot')).startMoon(pipeline, params, scene) : null;
   // (index.html started this download before this script had even loaded)
-  const manifest = (await (await (bootFetch(base, 'manifest') ?? fetch(`${base}/city.json${dataQuery()}`))).json()) as Manifest;
+  const manifest = moon ? moon.manifest : ((await (await (bootFetch(base, 'manifest') ?? fetch(`${base}/city.json${dataQuery()}`))).json()) as Manifest);
   // saved paint is keyed by the folder that served the city, not the slug inside its city.json (only the
   // paint stores read manifest.slug): a bake served beside the live one (?city=sf_osm, slug 'sf') opens
   // its own stores and never drops or fills the ones ?city=sf uses
-  if (manifest.slug !== slug) manifest.slug = slug;
+  if (!moon && manifest.slug !== slug) manifest.slug = slug;
   // and by the data's id scheme (city.json "ids"): the stores the City opens need it first
   registerCityData(manifest);
-  const city = new City(manifest, base);
+  const city = new City(manifest, base, moon?.city ?? null);
   scene.add(city.root);
+  if (moon) {
+    const m = city.tileMask;
+    scene.add(moon.buildFar(m.tex, m.rect, m.size).object, moon.sky.object);
+    // (15 km over the ground it started on, as anywhere: the ceiling is a height, and the map's zero is the lowest ground near it)
+    config.flight.ceiling = moon.startY + config.flight.ceiling;
+  }
   if (hour) {
     const { lamps } = hour;
     scene.add(lamps.object);
@@ -152,8 +160,12 @@ async function boot() {
   flight.x = manifest.start.x;
   flight.z = manifest.start.z;
   flight.heading = manifest.start.heading;
-  if (params.has('lat') && params.has('lon')) [flight.x, flight.z] = latLonToLocal(Number(params.get('lat')), Number(params.get('lon')), manifest.origin);
+  if (!moon && params.has('lat') && params.has('lon')) [flight.x, flight.z] = latLonToLocal(Number(params.get('lat')), Number(params.get('lon')), manifest.origin);
   if (params.has('heading')) flight.heading = THREE.MathUtils.degToRad(Number(params.get('heading')));
+  if (moon) {
+    flight.y = moon.startY + 30;
+    moon.far!.start(flight.x, flight.z);
+  }
   // the opening: emerge from the fog bank west of the Golden Gate, glide under it
   const start = manifest.start as typeof manifest.start & { speed?: number; opening?: string };
   const ggb = manifest.landmarks.find((l) => l.kind === 'ggb') as { points?: Array<[number, number]> } | undefined;
@@ -176,6 +188,7 @@ async function boot() {
   const focus = new THREE.Vector3(flight.x, 60, flight.z);
   // (the first frame streams around the bus: the same want-list, so nothing is asked for twice)
   const primeFocus = focus.clone();
+  if (moon) focus.y = primeFocus.y = flight.y;
   city.prime(primeFocus);
   // (the fade goes with the raster, on whichever frame that lands; a city with no raster keeps its old horizon)
   if (farOn && !farPicked)
@@ -184,7 +197,7 @@ async function boot() {
       city.fitWater();
       updateSun();
     };
-  const farP = city.loadFar(renderer, () => warm.busy);
+  const farP = moon ? Promise.all([moon.far!.ready, moon.sky.load()]).then(() => {}) : city.loadFar(renderer, () => warm.busy);
   // (behind far.bin: the worker reads its heights. Nothing waits for this, the lamps land when they land)
   if (hour) void farP.then(() => hour.lamps.load(city.fileUrl('lamps'), city.groundGrid()!, manifest.tileSize), () => (hour.lamps.busy = false));
 
@@ -345,11 +358,12 @@ async function boot() {
   const signs = new StreetSigns();
   scene.add(signs.object);
   const audio = new AudioEngine();
-  audio.setVolumes(config.audio);
+  // (no air, no wind)
+  audio.setVolumes(moon ? { ...config.audio, ambience: 0 } : config.audio);
 
   // ---- paint-density map for fog clearing over painted neighborhoods
   const [minX, minZ, maxX, maxZ] = manifest.bounds;
-  const PD = 64; // m per cell
+  const PD = moon ? 2048 : 64; // m per cell (there's no fog to clear on the Moon: the texture only has to exist)
   const pdW = Math.ceil((maxX - minX) / PD), pdH = Math.ceil((maxZ - minZ) / PD);
   const pdData = new Uint8Array(pdW * pdH);
   const pdTex = new THREE.DataTexture(pdData, pdW, pdH, THREE.RedFormat, THREE.UnsignedByteType);
@@ -767,7 +781,7 @@ async function boot() {
 
   // ---- the opening's clock (0 .. config.fog.openingDuration), and the tap that skips it on repeat visits: it has been
   // seen through once, on this device (a lost flag only plays it again)
-  let opening = params.has('skipintro') ? config.fog.openingDuration : 0;
+  let opening = params.has('skipintro') || moon ? config.fog.openingDuration : 0;
   let openingSkip = false;
   let openingSeen = false;
   try {
@@ -785,7 +799,7 @@ async function boot() {
   const perf = new Perf(renderer);
   perf.setVisible(params.has('fps'));
   tuner.onAction = (name) => {
-    if (name === 'close') audio.setVolumes(config.audio);
+    if (name === 'close') audio.setVolumes(moon ? { ...config.audio, ambience: 0 } : config.audio);
   };
   tuner.onResetPaint = () => {
     city.paint.resetAll();
@@ -957,6 +971,7 @@ async function boot() {
   );
   for (;;) {
     later.shift()?.();
+    moon?.far!.update(flight.x, flight.z);
     // (a few tiles per tick: no long task while the GPU process compiles; the first frame takes the rest)
     city.update(primeFocus, renderer, 0, 12);
     if (farIn) {
@@ -998,6 +1013,7 @@ async function boot() {
   const snapPoint = new THREE.Vector3();
   const compTmp = new THREE.Vector3();
   const streamCenter = new THREE.Vector3();
+  let moonSun = 1;
   /** frames rendered (the opening's clock starts once the first one is on screen) */
   let framesDrawn = 0;
 
@@ -1316,7 +1332,8 @@ async function boot() {
     superFx.object.position.copy(particles.object.position);
     controls.fx.object.position.copy(particles.object.position);
     // (only what lies below the bus's wheels; whatever faces up there, roof, street, lawn or crown)
-    pipeline.setHeroShadow(dropShadow.x, dropShadow.z, bus.root.position.y - 2.2 * rig.heroScale, flight.fx, flight.fz, dropShadowL, dropShadowL * 0.42, 1);
+    // (on the Moon the Sun throws the bus's real one, long and off to the side)
+    pipeline.setHeroShadow(dropShadow.x, dropShadow.z, bus.root.position.y - 2.2 * rig.heroScale, flight.fx, flight.fz, dropShadowL, dropShadowL * 0.42, moon ? 0 : 1);
     // the charge's summoning circle: a rainbow pinwheel around that shadow, on the same surfaces (no decal, no draw)
     {
       const sz = 5.6 * rig.heroScale * (1 + 2.4 * superSplat.circle);
@@ -1333,6 +1350,13 @@ async function boot() {
       beamTip.copy(beamEye).addScaledVector(beamFwd, beamLength * rig.heroScale);
       const open = 0.3 + 0.7 * superPose.eye;
       pipeline.setHeroBeam(beamEye, beamTip, 0.5 * rig.heroScale, 0.5 * (hour ? hour.beamWidth(vista) : Cb.headBeamWidth) * open * rig.heroScale, beamLength > 0 ? Cb.headBeamStrength * (0.35 + 0.65 * superPose.eye) : 0);
+    }
+    if (moon) {
+      moon.update(camera.position.x, camera.position.z);
+      // (out of the Sun, the bus has only what the ground throws back: the ground's shadows are its own map's, not the sun pass's)
+      const lit = moon.sunAt(flight.x, flight.y, flight.z, city.terrainAt(flight.x, flight.z));
+      moonSun += (lit - moonSun) * (1 - Math.exp(-14 * dt));
+      globals.uLight.value.x = config.light.sunStrength * (Math.round(moonSun * 3) / 3);
     }
     pipeline.render(scene);
     framesDrawn++;
@@ -1371,7 +1395,7 @@ async function boot() {
     // (asked for now: there is no asking once the context is gone)
     const lose = renderer.getContext().getExtension('WEBGL_lose_context');
     (window as unknown as Record<string, unknown>).__game = {
-      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: hour,
+      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: hour, moon,
       /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
       get warm() {
         return warm;

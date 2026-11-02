@@ -1,0 +1,306 @@
+import * as THREE from 'three';
+import { GLSL_COMMON, GLSL_OUT, globals } from '../render/materials';
+import { Ramp } from '../render/palette';
+import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from '../world/GroundPaint';
+import { FAR, LIT_MAX, LIT_POW, SHADOW_MAX, SLOPE_MAX, type MoonTileData } from './gen';
+import { R_M } from './map';
+
+// The ground's two programs, near and far, and the one light they share. The near one is terrainMaterial's with the map's four bytes in place of the class texture, so paint and the shockwave land as they do
+// on a street; the far one is the clip levels' (MoonFar.ts). Grey until painted: every ramp here is a cool grey, the shadows are black, and nothing is lit but by the Sun.
+
+/** What all of the Moon's ground reads. */
+export const moonGlobals = {
+  // x flat ground's light at mid tone, y the shadow's floor, z how far grain goes (0 far off), w the fresh ejecta's lift
+  uMoonLight: { value: new THREE.Vector4(0.38, 0.012, 1, 0.3) },
+};
+
+/**
+ * The curve: the flat map rolled onto its sphere around the lens, so the ground falls away and has a horizon. Bearings and distances from the lens hold, which is all a horizon asks. Written so that float32
+ * keeps it near the lens: no radius minus a radius. Only the clip position takes this: everything that asks where a pixel is on the ground (paint, the class of a tile, the sun's map) reads the flat map.
+ */
+export const GLSL_MOON_CURVE = /* glsl */ `
+const float MOON_R = ${R_M.toFixed(1)};
+vec3 moonCurve(vec3 wp) {
+  vec2 d = wp.xz - cameraPosition.xz;
+  float s = length(d);
+  float th = s / MOON_R;
+  float sh = sin(0.5 * th);
+  // (height y over the sphere, so the true radius is MOON_R + y)
+  float y = wp.y * cos(th) - 2.0 * MOON_R * sh * sh;
+  float pull = th > 1e-6 ? (wp.y * sin(th) + MOON_R * (-th * th * th / 6.0 + th * th * th * th * th / 120.0)) / s : 0.0;
+  return vec3(wp.x + d.x * pull, y, wp.z + d.y * pull);
+}
+`;
+
+/** The four bytes back, the light, the ramp. Needs GLSL_COMMON. */
+export const GLSL_MOON_LIGHT = /* glsl */ `
+uniform vec4 uMoonLight;
+float moonDecode(float b) {
+  float s = (b * 255.0 - 128.0) / 127.0;
+  return s * abs(s);
+}
+float moonHash(vec2 p) {
+  vec3 q = fract(vec3(p.xyx) * 0.1031);
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.x + q.y) * q.z);
+}
+// One byte set to what it says: the slope's normal, the tone, and how far under the sunlight's edge this is (metres, + in shadow)
+void moonRead(vec4 m, out vec3 n, out float tone, out float under) {
+  n = normalize(vec3(-moonDecode(m.r) * ${SLOPE_MAX.toFixed(1)}, 1.0, -moonDecode(m.g) * ${SLOPE_MAX.toFixed(1)}));
+  tone = m.b;
+  under = moonDecode(m.a) * ${SHADOW_MAX.toFixed(1)};
+}
+// (the brightest slopes keep their shape: they ease into the top of the ramp)
+float moonShoulder(float l) { return l / (1.0 + 0.12 * l * l); }
+// The light on regolith: nearly no limb darkening, so what a low Sun shows is the slope against it, measured from flat ground. Anything out of the Sun is black but for this floor.
+float moonLit(vec3 n, float tone, float sun) {
+  float k = max(dot(n, uSunDir), 0.0) / max(uSunDir.y, 0.05);
+  float lit = uMoonLight.x * pow(k, ${LIT_POW.toFixed(2)}) * (0.42 + 1.16 * tone);
+  return uMoonLight.y + sun * moonShoulder(lit);
+}
+float moonRamp(float tone) { return tone < 0.34 ? ${Ramp.MARE}.0 : ${Ramp.REGOLITH}.0; }
+// What's between this ground and the Sun of what the sun pass draws: rocks and the bus, nothing of the ground itself, so it needs next to no bias.
+float moonCast(vec3 wp) {
+  if (uShadowOn < 0.01) return 1.0;
+  vec4 sc = uShadowMatrix * vec4(wp + vec3(0.0, 0.05, 0.0), 1.0);
+  vec3 uvz = sc.xyz / sc.w;
+  if (uvz.x <= 0.002 || uvz.x >= 0.998 || uvz.y <= 0.002 || uvz.y >= 0.998 || uvz.z >= 1.0) return 1.0;
+  return texture(uShadowMap, vec3(uvz.xy, uvz.z - 0.00004));
+}
+`;
+
+/** The ground's small change, near the bus. Round, and offset from a grid so it never reads as one. */
+const GLSL_MOON_STONES = /* glsl */ `
+float moonGrain(vec2 q) {
+  vec2 i = floor(q * 1.7), f = fract(q * 1.7);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(moonHash(i), moonHash(i + vec2(1.0, 0.0)), f.x), mix(moonHash(i + vec2(0.0, 1.0)), moonHash(i + vec2(1.0, 1.0)), f.x), f.y) - 0.5;
+}
+// +1 on a stone's sunward face, -1 in its shadow, 0 off it. A cell holds at most one, wholly inside it. (Sheared rows: a square grid's columns would show.)
+float moonStones(vec2 p, float s, float seed) {
+  vec2 q = vec2(p.x + 0.37 * p.y, p.y - 0.29 * p.x) / s + seed;
+  vec2 c = floor(q), f = q - c;
+  float h = moonHash(c + 3.1);
+  if (h > 0.3) return 0.0;
+  float r = 0.06 + 2.6 * h * h;
+  vec2 o = vec2(moonHash(c + 17.7), moonHash(c + 41.3)) * (1.0 - 2.0 * r - 0.3) + r + 0.15;
+  vec2 d = f - o;
+  vec2 sunward = normalize(vec2(uSunDir.x + 0.37 * uSunDir.z, uSunDir.z - 0.29 * uSunDir.x));
+  if (dot(d, d) < r * r) return dot(d, sunward) > -0.2 * r ? 1.0 : -1.0;
+  // the shadow: the disc slid away from the Sun, a stone's height over the Sun's
+  vec2 e = d + sunward * r * 1.2;
+  if (dot(e, e) < r * r * 0.7) return -1.0;
+  return 0.0;
+}
+`;
+
+const NEAR_VS = /* glsl */ `
+  ${GLSL_COMMON}
+  ${GLSL_MOON_CURVE}
+  uniform vec4 uTileRect; // originX, originZ, 1/size, 0
+  uniform vec4 uMapRect;  // the map's first texel, per metre, half a texel
+  out vec3 vWorldPos;
+  out vec2 vClassUv;
+  out vec2 vMapUv;
+  void main() {
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vWorldPos = wp.xyz;
+    vClassUv = (wp.xz - uTileRect.xy) * uTileRect.z;
+    vMapUv = (wp.xz - uMapRect.xy) * uMapRect.z + uMapRect.w;
+    gl_Position = projectionMatrix * viewMatrix * vec4(moonCurve(wp.xyz), 1.0);
+  }
+`;
+
+const NEAR_FS = /* glsl */ `
+  ${GLSL_COMMON}
+  ${GLSL_MOON_LIGHT}
+  ${GLSL_MOON_STONES}
+  uniform sampler2D tMoon;
+  ${GLSL_GROUND_PAINT}
+  ${GLSL_BLAST_RING}
+  in vec3 vWorldPos;
+  in vec2 vClassUv;
+  in vec2 vMapUv;
+  ${GLSL_OUT}
+  void main() {
+    vec3 n;
+    float tone, under;
+    moonRead(texture(tMoon, vMapUv), n, tone, under);
+    float sun = under > 0.0 ? 0.0 : 1.0;
+    sun *= moonCast(vWorldPos);
+    // what the map is too coarse for, only as near as it shows: stones, each with its own hard little shadow, and the grain between them
+    float px = length(dFdx(vWorldPos.xz)) + length(dFdy(vWorldPos.xz));
+    float grainK = 1.0 - smoothstep(0.6, 2.4, px);
+    float stone = 0.0;
+    if (grainK > 0.0 && sun > 0.5) {
+      stone = moonStones(vWorldPos.xz, 1.9, 0.0) + moonStones(vWorldPos.xz, 0.83, 57.0);
+      n = normalize(n + vec3(moonGrain(vWorldPos.xz) * 0.16 * grainK, 0.0, moonGrain(vWorldPos.zx + 40.0) * 0.16 * grainK));
+    }
+    float light = moonLit(n, tone, sun);
+    if (stone > 0.5) light = max(light * (1.0 + 0.8 * grainK), 0.3);
+    else if (stone < -0.5) light *= 1.0 - 0.75 * grainK;
+    float ramp = moonRamp(tone);
+    float glow = 0.0;
+    float pr, pEdge, pWet, pFresh;
+    if (sbGroundPaint(vWorldPos, vClassUv, pr, pEdge, pWet, pFresh)) {
+      ramp = pr;
+      // the crater under it still reads: paint takes the ground's light on a floor of its own, and even a shadow's paint is paint
+      light = max(0.2 + 0.62 * clamp(light, 0.0, 1.0) + uGroundTone.x * 0.5, 0.3);
+      if (pr == ${Ramp.YELLOW}.0) light = max(light + 0.1, 0.6);
+      else if (pr == ${Ramp.ORANGE}.0) light = max(light + 0.05, 0.45);
+      if (pEdge < 0.07) light -= 0.11;
+      else light += 0.1 * pWet;
+      glow = 0.55 * pFresh;
+      light = max(light, glow);
+    }
+    float rr, rl, rg;
+    if (sbRing(vWorldPos, n, rr, rl, rg)) { ramp = rr; light = rl; glow = rg; }
+    sbWrite(ramp, light, 0.0, glow, mat3(viewMatrix) * n, 0.01, 1.0);
+  }
+`;
+
+/** The texture of a map, tile or region. Its mips are what keeps a distant tile from crawling. */
+export function moonMapTexture(data: Uint8Array, N: number): THREE.DataTexture {
+  const tex = new THREE.DataTexture(data as Uint8Array<ArrayBuffer>, N, N, THREE.RGBAFormat, THREE.UnsignedByteType);
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.anisotropy = 8;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** A coarse region's tile on its own (paint split it out): that tile's square of the region's map. */
+export function moonTileMap(m: MoonTileData, ox: number, oz: number, size: number): { tex: THREE.DataTexture; x: number; z: number } {
+  const N = Math.round(size / m.mapCell) + 3, x = ox - m.mapCell, z = oz - m.mapCell;
+  const out = new Uint8Array(N * N * 4), i0 = Math.round((x - m.mapX) / m.mapCell), j0 = Math.round((z - m.mapZ) / m.mapCell);
+  for (let j = 0; j < N; j++) out.set(m.map.subarray((j0 + j) * m.mapN * 4 + i0 * 4, (j0 + j) * m.mapN * 4 + (i0 + N) * 4), j * N * 4);
+  return { tex: moonMapTexture(out, N), x, z };
+}
+
+export function makeMoonGround(tex: THREE.Texture, mapX: number, mapZ: number, mapCell: number, mapN: number, originX: number, originZ: number, size: number, ground?: Record<string, THREE.IUniform>): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3,
+    uniforms: {
+      ...globals,
+      ...moonGlobals,
+      uBlastRing: blastUniforms.uBlastRing,
+      uBlastRing2: blastUniforms.uBlastRing2,
+      tGround: { value: null },
+      uGroundOn: { value: 0 },
+      uGroundLive: blastUniforms.uGroundLive,
+      uGroundLive2: blastUniforms.uGroundLive2,
+      uGroundTone: blastUniforms.uGroundTone,
+      ...(ground ?? {}),
+      tMoon: { value: tex },
+      uTileRect: { value: new THREE.Vector4(originX, originZ, 1 / size, 0) },
+      uMapRect: { value: new THREE.Vector4(mapX, mapZ, 1 / (mapCell * mapN), 0.5 / mapN) },
+    },
+    vertexShader: NEAR_VS,
+    fragmentShader: NEAR_FS,
+  });
+}
+
+// ---- the far field: clip levels (MoonFar.ts). A block's vertices read their height from the level's atlas, so the mesh is one patch, instanced; a pixel reads its map from the finest level its size on the ground allows.
+
+const FAR_VS = /* glsl */ `
+  ${GLSL_COMMON}
+  ${GLSL_MOON_CURVE}
+  precision highp sampler2DArray;
+  uniform sampler2DArray tFarH;
+  uniform vec4 uFarGrid; // metres a texel at level 0, texels a block, quads a block, vertices a block
+  uniform sampler2D tMask;
+  uniform vec4 uMaskRect; // the map's corner, per tile
+  uniform vec2 uMaskSize;
+  in vec3 aPatch;        // block i, j, level
+  out vec3 vWorldPos;
+  out float vTone;
+  flat out float vLevel;
+  bool farCovered(vec2 p) {
+    ivec2 mc = ivec2(floor((p - uMaskRect.xy) * uMaskRect.z));
+    return all(greaterThanEqual(mc, ivec2(0))) && all(lessThan(mc, ivec2(uMaskSize))) && texelFetch(tMask, mc, 0).r > 0.5;
+  }
+  void main() {
+    float L = aPatch.z, cell = uFarGrid.x * pow(2.0, L), quad = cell * uFarGrid.y / uFarGrid.z;
+    // (a block's slot in the atlas: blocks wrap, eight a side)
+    ivec2 slot = ivec2(mod(aPatch.xy, 8.0));
+    ivec2 t = slot * int(uFarGrid.w) + ivec2(position.xz);
+    vec2 ht = texelFetch(tFarH, ivec3(t, int(L)), 0).rg;
+    float y = ht.r;
+    vTone = ht.g;
+    // (a skirt: every block's edge hangs a little wall, for where a coarser level's edge stands off a finer's)
+    y -= position.y * cell * 1.5;
+    vec3 wp = vec3((aPatch.x * uFarGrid.z + position.x) * quad, y, (aPatch.y * uFarGrid.z + position.z) * quad);
+    // Under the tiles the bus has loaded this ground sinks out of the way: a vertex with loaded tiles on every side of it goes down, so the slope to it runs under them, and wherever a tile's edge stands a
+    // little lower than this ground there is ground behind it, not the sky through a crack.
+    if (L < 3.5 && farCovered(wp.xz + vec2(1.0)) && farCovered(wp.xz - vec2(1.0)) && farCovered(wp.xz + vec2(1.0, -1.0)) && farCovered(wp.xz + vec2(-1.0, 1.0))) wp.y -= 24.0;
+    vWorldPos = wp;
+    vLevel = L;
+    gl_Position = projectionMatrix * viewMatrix * vec4(moonCurve(wp), 1.0);
+  }
+`;
+
+const FAR_FS = /* glsl */ `
+  ${GLSL_COMMON}
+  ${GLSL_MOON_LIGHT}
+  precision highp sampler2DArray;
+  uniform sampler2DArray tFarM;
+  uniform vec4 uFarGrid;
+  uniform float uFarLevels;
+  uniform float uFarBias;
+  uniform vec4 uFarRects[${FAR.LEVELS}]; // each level's window, in from its edge
+  in vec3 vWorldPos;
+  in float vTone;
+  flat in float vLevel;
+  ${GLSL_OUT}
+  vec2 farMap(float L) {
+    float cell = uFarGrid.x * pow(2.0, L);
+    return texture(tFarM, vec3((vWorldPos.xz / cell + 0.5) / (8.0 * uFarGrid.y), L)).rg;
+  }
+  // (a level's last texels would filter into its other side: it is a torus in the store)
+  float farInside(float L) {
+    for (int i = 0; i < 3; i++) {
+      vec4 r = uFarRects[int(L)];
+      if (all(greaterThanEqual(vWorldPos.xz, r.xy)) && all(lessThanEqual(vWorldPos.xz, r.zw))) break;
+      if (L >= uFarLevels - 1.0) break;
+      L += 1.0;
+    }
+    return L;
+  }
+  void main() {
+    // the finest level a pixel's size on the ground can read without crawling
+    // (not the long axis alone: at a grazing view that would blur what the short axis can still read)
+    float pa = length(dFdx(vWorldPos.xz)), pb = length(dFdy(vWorldPos.xz));
+    float px = pow(max(pa, pb), 0.65) * pow(max(min(pa, pb), 0.001), 0.35);
+    float want = clamp(log2(max(px, 0.001) / uFarGrid.x) + uFarBias, vLevel, uFarLevels - 1.0);
+    float L0 = farInside(floor(want)), f = max(want - L0, 0.0);
+    vec2 m = farMap(L0);
+    if (f > 0.02 && L0 < uFarLevels - 1.0) m = mix(m, farMap(L0 + 1.0), f);
+    float under = moonDecode(m.g);
+    float lit = m.r * m.r * ${LIT_MAX.toFixed(1)};
+    float light = uMoonLight.y + (under > 0.0 ? 0.0 : moonShoulder(uMoonLight.x * lit));
+    sbWrite(moonRamp(vTone), light, 0.0, 0.0, mat3(viewMatrix) * vec3(0.0, 1.0, 0.0), 0.01, 1.0);
+  }
+`;
+
+export function makeMoonFar(tFarH: THREE.Texture, tFarM: THREE.Texture, mask: THREE.Texture, maskRect: THREE.Vector4, maskSize: THREE.Vector2, grid: THREE.Vector4, levels: number, rects: THREE.Vector4[]): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3,
+    uniforms: {
+      ...globals,
+      ...moonGlobals,
+      tFarH: { value: tFarH },
+      tFarM: { value: tFarM },
+      tMask: { value: mask },
+      uMaskRect: { value: maskRect },
+      uMaskSize: { value: maskSize },
+      uFarGrid: { value: grid },
+      uFarLevels: { value: levels },
+      uFarRects: { value: rects },
+      uFarBias: { value: -0.5 },
+    },
+    vertexShader: FAR_VS,
+    fragmentShader: FAR_FS,
+  });
+}

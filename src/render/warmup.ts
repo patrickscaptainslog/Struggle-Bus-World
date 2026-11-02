@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { moonrun } from '../sky/flag';
+import { moonLow, moonrun } from '../sky/flag';
 
 // Shader warm-up: every program the game will draw with is compiled at boot, in parallel
 // (KHR_parallel_shader_compile: the main thread stays free while the GPU process compiles), then
@@ -275,7 +275,8 @@ export class WarmUp {
     // (?moonrun has no city: its first-load number is the sky's own, not tiles', trees' and landmarks' programs that will never draw)
     if (moonrun) return;
     for (const [name, make] of sources) {
-      if (this.ran.has(name)) continue;
+      // (?moon has a bus and paint and a ground, and none of a city's trees, gardens, landmarks or spans)
+      if (this.ran.has(name) || (moonLow && name !== 'city')) continue;
       this.ran.add(name);
       let made: THREE.Object3D | Iterable<THREE.Object3D>;
       try {
