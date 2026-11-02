@@ -7,9 +7,9 @@ import { Ramp } from '../render/palette';
 //
 //  - the lines are a lattice that stands still among the stars, turned with them, scrolled by a phase wrapped to 0..1, at a speed that is the true one on a log scale and capped, so that a streak is always
 //    longer than a frame's travel. They are a feeling, not a measurement, and nothing in them can run out of precision or strobe at any speed.
-//  - the trail is one thread from the bus's tail, straight back along the nose, with its clumps scrolling away. It's a width in game pixels, whatever the perspective does: from a speck of a bus it comes back past the camera.
+//  - the trail is one ribbon from the bus's tail, straight back along the nose, with its clumps scrolling away.
 //
-// The bus is a few pixels long out here (game/busSize.ts), and both are drawn to go with it: thin things in a big sky, never a ribbon wider than what makes it.
+// Both stand round the bus at the size they have over the city: the bus is the size it is over the city, wherever it's flying.
 //
 // Both write the G-buffer as surfaces, so they cover Earth and the Moon. Fog 0: there's no air. Added to the scene before the warm-up, so their programs never compile in flight.
 
@@ -40,11 +40,9 @@ const smooth01 = (a: number, b: number, x: number) => {
 
 /** Tuner rows ("Moon run"). */
 export const spaceFxTune = {
-  /** A speed line: game px wide, and how long, in seconds of the speed they seem to go. */
-  linePx: 1.2,
-  lineLong: 0.02,
-  /** The trail at the bus, a share of the bus's length. */
-  thread: 0.11,
+  /** A speed line: game px wide, the game's own, and how long, in seconds of the speed they seem to go. */
+  linePx: 1.7,
+  lineLong: 0.045,
 };
 
 export class SpaceFx {
@@ -57,14 +55,12 @@ export class SpaceFx {
     uCenter: { value: new THREE.Vector3() },
     uDir: { value: new THREE.Vector3(0, 0, -1) },
     uLine: { value: new THREE.Vector4(190, 100, 0.003, 0) }, // box, streak (m), width (m per m of distance), how many
-    uScale: { value: 1 },
   };
   private readonly trailU = {
     uTail: { value: new THREE.Vector3() },
     uBack: { value: new THREE.Vector3(0, 0, 1) },
-    uTrail: { value: new THREE.Vector4(260, 0.01, 0.01, 0) }, // length (m), width at the bus and at the end (m per m of distance), on
+    uTrail: { value: new THREE.Vector4(260, 3.2, 10, 0) }, // length, width at the bus and at the end (m), on
     uScroll: { value: 0 },
-    uScale: { value: 1 },
   };
   private readonly tailLocal: THREE.Vector3;
   private readonly tmp = new THREE.Vector3();
@@ -104,7 +100,6 @@ export class SpaceFx {
           uniform vec3 uCenter;
           uniform vec3 uDir;
           uniform vec4 uLine;
-          uniform float uScale;
           in vec2 aQuad;
           in vec4 aSeed;
           out float vFade;
@@ -121,7 +116,7 @@ export class SpaceFx {
             sd = sl > 1e-4 ? sd / sl : vec3(0.0, 1.0, 0.0);
             p += sd * aQuad.y * uLine.z * dist * 0.5;
             float r = length(w0) / (0.5 * uLine.x);
-            vFade = (1.0 - smoothstep(0.55, 0.95, r)) * smoothstep(30.0 * uScale, 70.0 * uScale, length(w - cameraPosition));
+            vFade = (1.0 - smoothstep(0.55, 0.95, r)) * smoothstep(30.0, 70.0, length(w - cameraPosition));
             vFade *= step(aSeed.w, uLine.w);
             // one streak in five carries a hue
             float pick = floor(aSeed.w * ${LINES}.0 + 0.5);
@@ -177,18 +172,17 @@ export class SpaceFx {
           uniform vec4 uTrail;
           in vec2 aRibbon;
           out float vU;
+          out float vSide;
           out vec3 vP;
           void main() {
             float u = aRibbon.x;
             vec3 c = uTail + uBack * u * uTrail.x;
-            vec3 toCam = cameraPosition - c;
-            float dist = length(toCam);
-            vec3 sd = cross(uBack, toCam / max(dist, 1e-3));
+            vec3 sd = cross(uBack, normalize(cameraPosition - c));
             float sl = length(sd);
             sd = sl > 1e-4 ? sd / sl : vec3(0.0, 1.0, 0.0);
-            // (off centre by a quarter of itself: a thread dead on the frame's middle lies on a line of pixel edges, and would take the two columns either side)
-            vec3 p = c + sd * (aRibbon.y + 0.46) * mix(uTrail.y, uTrail.z, u) * dist * 0.5;
+            vec3 p = c + sd * aRibbon.y * mix(uTrail.y, uTrail.z, sqrt(u)) * 0.5;
             vU = u;
+            vSide = aRibbon.y;
             vP = p;
             gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
           }
@@ -199,16 +193,23 @@ export class SpaceFx {
           ${GLSL_BAYER}
           uniform vec4 uTrail;
           uniform float uScroll;
-          uniform float uScale;
           in float vU;
+          in float vSide;
           in vec3 vP;
           void main() {
-            float along = vU * uTrail.x / (9.0 * uScale) - uScroll;
-            float clump = 0.66 * sfNoise(vec2(along * 0.9, 5.0)) + 0.34 * sfNoise(vec2(along * 2.3, 9.0));
-            float near = smoothstep(55.0 * uScale, 175.0 * uScale, length(vP - cameraPosition));
-            if (clump + (sfBayer4(ivec2(gl_FragCoord.xy)) - 0.5) * 0.1 > (1.0 - vU) * 1.55 * near) discard;
-            // the rainbow runs along a thread: across, a pixel or two wide, it would be one hue. No glow: a halo stands off a thread as two rows of dots
-            sbWrite(${Ramp.RED}.0 + mod(floor(along * 1.5), 6.0), 0.6 + 0.16 * (1.0 - vU), 0.0, 0.0, vec3(0.0, 0.0, 1.0), 0.61, 0.5);
+            float along = vU * uTrail.x / 9.0 - uScroll;
+            float set = smoothstep(0.04, 0.4, vU);
+            float reach = mix(1.0, 0.62 + 0.38 * sfNoise(vec2(along, vSide < 0.0 ? 3.0 : 11.0)), set);
+            float side = vSide / reach;
+            float edge = abs(side);
+            if (edge > 1.0) discard;
+            float clump = 0.66 * sfNoise(vec2(along * 0.9, side * 1.3 + 5.0)) + 0.34 * sfNoise(vec2(along * 2.3, side * 3.1 + 9.0));
+            float near = smoothstep(55.0, 175.0, length(vP - cameraPosition));
+            float keep = ((1.0 - vU) * 1.55 - edge * edge * 0.3) * near;
+            if (clump + (sfBayer4(ivec2(gl_FragCoord.xy)) - 0.5) * 0.1 > keep) discard;
+            float band = floor(clamp(side * 0.5 + 0.5, 0.0, 0.9999) * 6.0);
+            float fresh = 1.0 - vU;
+            sbWrite(${Ramp.RED}.0 + band, 0.52 + 0.16 * fresh + 0.1 * (1.0 - edge), 0.0, 0.55 * fresh * uTrail.w, vec3(0.0, 0.0, 1.0), 0.61, 0.5);
           }
         `,
       }),
@@ -221,15 +222,15 @@ export class SpaceFx {
 
   /**
    * One frame, once the bus's pose is final. v: km/s. dir: the path in EQJ, unit. axes: the render axes in EQJ, by rows. flying and nosing: the path and the nose in the render frame.
-   * scale: the rig's distance over the old chase's 270 m: everything here stands where it stood in the frame. pixel: metres a game pixel at 1 m. busPx: how long the bus is on screen, side on. origin: where the bus is, if not at the render origin.
+   * pixel: metres a game pixel at 1 m. origin: where the bus is, if not at the render origin.
    */
-  update(dt: number, v: number, dir: Float64Array, axes: Float64Array, flying: THREE.Vector3, nosing: THREE.Vector3, camera: THREE.Camera, bus: THREE.Object3D, scale: number, pixel: number, busPx: number, origin: THREE.Vector3 | null = null): void {
+  update(dt: number, v: number, dir: Float64Array, axes: Float64Array, flying: THREE.Vector3, nosing: THREE.Vector3, camera: THREE.Camera, bus: THREE.Object3D, pixel: number, origin: THREE.Vector3 | null = null): void {
     const on = smooth01(5, 300, v) * 0.35 + 0.3 * smooth01(300, 3000, v);
     this.lines.visible = on > 0.01;
     if (this.lines.visible) {
-      const U = this.lineU, box = 190 * scale;
+      const U = this.lineU, box = 190;
       // the speed they seem to go: the true one's log, under a third of a box a frame at 30 fps, and a streak is longer than that, so they flow and can't strobe
-      const sp = (1000 + 450 * Math.log10(Math.max(v, 1) / 300)) * scale;
+      const sp = 1000 + 450 * Math.log10(Math.max(v, 1) / 300);
       const p = this.phase;
       for (let i = 0; i < 3; i++) {
         p[i] += (dir[i] * sp * dt) / box;
@@ -244,7 +245,6 @@ export class SpaceFx {
       if (origin) U.uCenter.value.sub(origin);
       U.uCenter.value.multiplyScalar(0.45).addScaledVector(flying, sp * 0.08);
       if (origin) U.uCenter.value.add(origin);
-      U.uScale.value = scale;
     }
     const tr = smooth01(5, 60, v);
     this.trail.visible = tr > 0.01;
@@ -253,11 +253,9 @@ export class SpaceFx {
       bus.updateMatrixWorld();
       U.uTail.value.copy(bus.localToWorld(this.tmp.copy(this.tailLocal)));
       U.uBack.value.copy(nosing).negate();
-      const px = pixel * Math.max(1.1, busPx * spaceFxTune.thread);
-      U.uTrail.value.set(260 * scale, px, px, tr);
+      U.uTrail.value.set(260, 3.2, 10, tr);
       this.scroll = (this.scroll + dt * (1 + 0.8 * Math.log10(Math.max(v, 1) / 30))) % 256;
       U.uScroll.value = this.scroll;
-      U.uScale.value = scale;
     }
   }
 }

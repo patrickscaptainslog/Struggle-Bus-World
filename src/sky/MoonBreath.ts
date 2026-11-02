@@ -20,7 +20,7 @@ import { R_MOON, type SkyState } from './SkyModel';
 // the frame. It is a fixed place on the Moon from the tap on. Hitting paint again is what levels it up, and paint slides down the frame slowly enough to be tapped again (G3: MoonTrip.ts).
 
 const DEG = Math.PI / 180;
-/** The stand-in's distance from the camera, m, on a rig at its old 270 m (setRig). */
+/** The stand-in's distance from the camera, m. */
 const PROXY = 1000;
 /** The jet's flight, s. With the inhale a shot lands about a second after the tap: a long breath, as one from high over the city is. */
 const TRAVEL = 0.92;
@@ -42,23 +42,14 @@ const SPARK_AT = [0.15, 0.45, 0.8];
 /** The breath goes on pouring into the splash this long past the impact, s. */
 const POUR_S = 0.3;
 
-/**
- * A breath 400 km long, by the frame's pixels rather than by the street's: 1.75 m of stand-in is a pixel, so the blobs and speeds are a few times the game's and fall at a slow, clean rate. Those are the numbers on a rig at
- * 270 m. The rig stands much further off now and the bus is a speck, so setRig() multiplies every length here, which leaves the picture as it was, and thins what leaves the bus to go with it: a thread out of its mouth.
- */
+/** A breath 400 km long, by the frame's pixels rather than by the street's: 1.75 m of stand-in is a pixel, so the blobs and speeds are a few times the game's and fall at a slow, clean rate. */
 const TUNE = {
   ribbonRate: 3400, halfWidth0: 5.2, halfWidth1: 4.4, blobSize: 1.7, blobMouth: 0.62, sprayFrac: 0.03, sprayScatter: 4, flickRate: 120, flickOut: 12, wobbleAmp: 1.2, stretch: 0.08, maxStretch: 18, glintFrac: 0.02,
   gravity: 170, burstUp: 150, burstOut: 56, burstSize: 3.6, splashUp: 84, splashOut: 46, splashSize: 2.2, roofRadius: 1e4, hopUp: 18, hopOut: 14,
   flingSplash: 5, sparkSize: 7, sparkLife: 1.1, sparkRise: 9,
-  // (the street's own, read by the jet)
-  blast: fxTune.blast, arrive: fxTune.arrive, doorOut: fxTune.doorOut, forwardOut: fxTune.forwardOut, doorUp: fxTune.doorUp, jetDrop: fxTune.jetDrop, arcApex: fxTune.arcApex, arcSize: fxTune.arcSize, arcHalfWidth: fxTune.arcHalfWidth,
 };
-/** The fields of TUNE in metres, or metres a second. */
-const LENGTHS = ['halfWidth0', 'halfWidth1', 'blobSize', 'sprayScatter', 'flickOut', 'wobbleAmp', 'gravity', 'burstUp', 'burstOut', 'burstSize', 'splashUp', 'splashOut', 'splashSize', 'roofRadius', 'hopUp', 'hopOut', 'sparkSize', 'sparkRise', 'blast', 'arrive', 'doorOut', 'forwardOut', 'doorUp', 'jetDrop', 'arcApex', 'arcSize', 'arcHalfWidth'] as const;
-/** How much of its width the breath keeps, and of its blast's flash. Tuner rows ("Moon run"). */
-export const breathTune = { thin: 0.14, flash: 0.022 };
 
-const ss = (a: number, b: number, x: number) => {
+const ss =(a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
 };
@@ -92,8 +83,8 @@ export class MoonBreath {
 
   private readonly pipeline: PixelPipeline;
   private readonly bus: BusModel;
-  private rig = 1;
-  private thin = 0;
+  /** What fxTune held before this frame's numbers went in. */
+  private readonly kept = { ...TUNE };
   private t = 0;
   private barfT = -1;
   private fullness = 1;
@@ -149,21 +140,19 @@ export class MoonBreath {
     t.colorSpace = THREE.NoColorSpace;
     t.needsUpdate = true;
     this.tex = t;
-    this.setRig(1);
   }
 
-  /** The rig's distance over the old 270 m: every length in the breath goes with it, and the stand-in with them. A frame's work only when it changes, and in orbit it doesn't. */
-  setRig(rig: number): void {
-    const thin = breathTune.thin;
-    if (Math.abs(rig / this.rig - 1) < 0.01 && thin === this.thin) return;
-    this.rig = rig;
-    this.thin = thin;
-    Object.assign(fxTune, TUNE);
-    for (const k of LENGTHS) fxTune[k] = TUNE[k] * rig;
-    fxTune.halfWidth0 *= thin;
-    fxTune.halfWidth1 *= thin;
-    fxTune.wobbleAmp *= thin;
-    fxTune.blobSize *= Math.sqrt(thin);
+  /** fxTune is one object, and ?moonland's page has two breaths: this one's numbers go in for the flight's frame and come out at the end of it, so the low game's are the low game's, Moon gravity and all. */
+  numbersIn(): void {
+    const kept = this.kept as Record<string, number>, f = fxTune as unknown as Record<string, number>;
+    for (const k of Object.keys(TUNE)) {
+      kept[k] = f[k];
+      f[k] = (TUNE as Record<string, number>)[k];
+    }
+  }
+
+  numbersOut(): void {
+    Object.assign(fxTune, this.kept);
   }
 
   /** The saved strokes into the map and the map to the GPU, before the first frame. A long list goes on in slices once the game is running: the Moon is a far disc for minutes yet. */
@@ -319,7 +308,7 @@ export class MoonBreath {
       this.jet.travel = left;
       if (shot && !shot.jetOut && this.t >= shot.jetAt) {
         shot.jetOut = true;
-        const nose = this.busVel.set(0, 0, -1).applyQuaternion(this.bus.root.quaternion).multiplyScalar(100 * this.rig);
+        const nose = this.busVel.set(0, 0, -1).applyQuaternion(this.bus.root.quaternion).multiplyScalar(100);
         this.particles.geyser({
           source: () => this.bus.root.localToWorld(this.mouth.copy(this.frontLocal)),
           sourceVel: () => nose,
@@ -401,18 +390,18 @@ export class MoonBreath {
     const pos = this.proxy(this.dirNow, 0, camera, this.tA).clone();
     const k = EDGE_KM[level] / EDGE_KM[1];
     this.particles.splash(pos, hue, 2.2 * Math.sqrt(k));
-    this.particles.burst(pos, hue, k, pos.y - 30 * this.rig);
+    this.particles.burst(pos, hue, k, pos.y - 30);
     const to = this.tB, from = new THREE.Vector3(), dir = new THREE.Vector3();
     for (const dot of job.dots) {
       if (!dot.blob) continue;
       this.dotDir(job, dot, dir);
       const ft = this.paint.blobTime(dot, level);
       this.proxy(dir, ft, camera, to);
-      from.set(pos.x + (Math.random() - 0.5) * 8 * this.rig, pos.y + (2 + Math.random() * 4) * this.rig, pos.z + (Math.random() - 0.5) * 8 * this.rig);
-      this.particles.fling(from, to, ft, dot.hue, (2.4 + dot.rad * 0.9) * this.rig);
+      from.set(pos.x + (Math.random() - 0.5) * 8, pos.y + 2 + Math.random() * 4, pos.z + (Math.random() - 0.5) * 8);
+      this.particles.fling(from, to, ft, dot.hue, 2.4 + dot.rad * 0.9);
     }
     const p = pos.clone().project(camera);
-    this.pipeline.flash(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5, S.flashFrames + 1, S.flashStrength, breathTune.flash);
+    this.pipeline.flash(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5, S.flashFrames + 1, S.flashStrength);
     this.audio?.splatImpact(k);
     this.audio?.bloomBurst(2 + level * 2, hue, level);
     this.hitStop = S.hitStopFrames / 60;
@@ -429,7 +418,7 @@ export class MoonBreath {
     this.sparkHues[1] = (hue + 2) % 6;
     this.sparkHues[2] = (hue + 4) % 6;
     // (r km on the ground is about 2.5 m of stand-in, 400 km off and 1,000 m out)
-    this.particles.sparkles(c, r * 2.5 * this.rig, 12 * this.rig, this.sparkHues, 16 + live.job.stroke.level * 8);
+    this.particles.sparkles(c, r * 2.5, 12, this.sparkHues, 16 + live.job.stroke.level * 8);
   }
 
   /** Reveal done: every texel of the last blast shows. The next tap brings it on if it hasn't come. */
@@ -472,7 +461,7 @@ export class MoonBreath {
 
   /** The stand-in for a line of sight, `ahead` seconds on at the rate the ground is sliding. */
   private proxy(dir: THREE.Vector3, ahead: number, camera: THREE.Camera, o: THREE.Vector3): THREE.Vector3 {
-    return o.copy(dir).addScaledVector(this.dirRate, ahead).normalize().multiplyScalar(PROXY * this.rig).add(camera.position);
+    return o.copy(dir).addScaledVector(this.dirRate, ahead).normalize().multiplyScalar(PROXY).add(camera.position);
   }
 
   /** A level up's frame: one rectangle of the first level, two across the seam. */

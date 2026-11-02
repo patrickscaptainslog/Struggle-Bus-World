@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import type { Flight } from '../game/Flight';
 import { gearSpeed, type TurboDrive } from '../game/Turbo';
 import { config } from '../config';
-import { busRig, type BusRig } from '../game/busSize';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import { spaceResolveUniforms as U } from '../render/skyResolve';
 import { FALL_FLOOR, FALL_TAU, R_M, type MoonTrip } from '../sky/MoonTrip';
@@ -156,12 +155,6 @@ export class Landing {
   readonly nosing = new THREE.Vector3();
 
   constructor(private readonly trip: MoonTrip, private readonly view: TripView, private readonly pipeline: PixelPipeline, private readonly space: THREE.Scene, readonly draw: SkyDraw, private readonly model: SkyModel, private readonly sky: SkyState) {}
-
-  private readonly rig: BusRig = { px: 0, hero: 1, distance: config.camera.distanceVista };
-  /** One curve from orbit to the rooftops, for both loops: game/busSize.ts. */
-  size(h: number, focal: number, frameW: number, busLength: number): BusRig {
-    return busRig(h / 1000, focal, frameW, busLength, this.rig);
-  }
 
   /** km over the ground, as near as anything knows it. */
   get height(): number {

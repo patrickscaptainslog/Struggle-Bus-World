@@ -72,8 +72,6 @@ export class CameraRig {
 
   /** ?moon: the ground under the lens. A street has no slope to speak of; a hill behind the bus would have the lens inside it, looking out through the back of the ground. */
   floorAt: ((x: number, z: number) => number) | null = null;
-  /** ?moonland: the size the bus stands on the screen at this height, game/busSize.ts's, in place of the vista's fixed distance and scale. */
-  sizeAt: ((h: number) => { hero: number; distance: number }) | null = null;
   /** 0..1, ?moonland: the follow stands where it should, with no lag: a bus coming down at kilometres a second would run out from under the springs. */
   stiff = 0;
 
@@ -134,13 +132,12 @@ export class CameraRig {
     this.dive = Math.abs(dd) <= ds ? diveWant : this.dive + Math.sign(dd) * ds;
     const dive = this.dive * (1 - low);
     this.hfov = C.hfovPortrait + (C.hfovVista - C.hfovPortrait) * v + this.turboFov;
-    const size = this.sizeAt?.(this.lensHeight);
-    this.heroScale = (1 + ((size ? size.hero : C.heroScaleVista) - 1) * v) * this.turboHero;
+    this.heroScale = (1 + (C.heroScaleVista - 1) * v) * this.turboHero;
     const barf = this.barfTilt * (1 - v) * (1 - dive); // up high the splat lands mid-screen anyway
     let elev = this.elev + (C.elevationVista - this.elev) * v;
     elev += (C.diveElevation - elev) * dive;
     const el = THREE.MathUtils.degToRad(elev + 11 * barf + (6.5 - elev) * low);
-    const dist = (C.distance + ((size ? size.distance : C.distanceVista) - C.distance) * v + this.openingPull + this.turboPull) * (1 - low) + 150 * low;
+    const dist = (C.distance + (C.distanceVista - C.distance) * v + this.openingPull + this.turboPull) * (1 - low) + 150 * low;
     const fx = Math.sin(this.yaw), fz = -Math.cos(this.yaw);
     const bus = this.bus.set(f.x, f.y, f.z);
     const desired = this.desired.set(bus.x - fx * Math.cos(el) * dist, bus.y + Math.sin(el) * dist, bus.z - fz * Math.cos(el) * dist).addScaledVector(this.turboLead, 1 - this.stiff);

@@ -191,10 +191,6 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
   const rig = new CameraRig();
   if (openingBridge) rig.openingLow = 1;
   if (moon) rig.floorAt = (x, z) => city.groundAt(x, z);
-  if (land) {
-    // (the bus's size is one curve from orbit to the rooftops)
-    rig.sizeAt = (h) => land.size(h, 1 / pipeline.pixelWorldSize(1), pipeline.info.width, bus.length);
-  }
   const focus = new THREE.Vector3(flight.x, 60, flight.z);
   // (the first frame streams around the bus: the same want-list, so nothing is asked for twice)
   const primeFocus = focus.clone();
