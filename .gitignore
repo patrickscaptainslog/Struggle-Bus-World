@@ -7,6 +7,7 @@ shots/tmp
 shots/blast
 tools/feel-sim/.out
 tools/controls-sim/.out
+tools/moon/.out
 tools/bake/.data
 .vercel
 .env*
