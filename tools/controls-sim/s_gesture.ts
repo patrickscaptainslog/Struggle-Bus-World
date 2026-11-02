@@ -16,7 +16,8 @@ const { migratePrefs } = await import('@src/game/controlPrefs');
 type Ev = string;
 const BOUNDS = [-20000, -20000, 20000, 20000];
 
-function harness(mode: 'touch' | 'keyboard', fps = 60) {
+/** `world`: the Flight really steps under the strokes (the flown rows); without one it stands */
+function harness(mode: 'touch' | 'keyboard', fps = 60, world: any = null) {
   const el = new Target();
   const input = new Input(el as unknown as HTMLElement);
   input.setMode(mode);
@@ -30,9 +31,9 @@ function harness(mode: 'touch' | 'keyboard', fps = 60) {
   input.onTap = () => evs.push(`tap@${at()}`);
   input.onChargeStart = () => evs.push(`chargeStart@${at()}`);
   input.onChargeEnd = (h, c) => evs.push(`chargeEnd(${h.toFixed(2)}s${c ? ', cancelled' : ''})@${at()}`);
-  input.onTurbo = (d, a, b) => {
+  input.onTurbo = (d, a, b, flew) => {
     evs.push(`flick${d > 0 ? '+' : '-'}@${at()}`);
-    shifter.flick(d, a, b);
+    shifter.flick(d, a, b, flew);
   };
   input.onTripleFinger = () => evs.push(`tuner@${at()}`);
   shifter.onAnswer = (a) => evs.push(`${a}@${at()}`);
@@ -45,6 +46,7 @@ function harness(mode: 'touch' | 'keyboard', fps = 60) {
     input.update(1 / fps);
     shifter.tick(clock.ms);
     drive.update(1 / fps, flight, input.state.turboHeld);
+    if (world) for (let i = 0; i < 2; i++) flight.step(1 / fps / 2, { sx: input.state.stretch.x, sy: input.state.stretch.y, dragging: input.state.dragging }, world);
     maxCharge = Math.max(maxCharge, input.state.chargeHeld);
     if (input.state.dragging) sawDrag = true;
     if (input.state.thumb) sawThumb = true;
@@ -104,6 +106,21 @@ function row(mode: 'touch' | 'keyboard', gesture: string, fn: (h: H) => unknown,
   rows.push({ mode, gesture, ...h.result(), note });
   h.input.dispose();
 }
+/** a row that flies: the real Flight under the strokes, skimming flat rooftops at cruise */
+const ROOFS = { obstacleAt: () => 20, groundAt: () => 10 };
+function flown(gesture: string, fn: (h: H) => unknown) {
+  const h = harness('touch', 60, ROOFS);
+  Object.assign(h.flight, { y: 26.5, groundBroad: 10, fullness: 0.5, glideSpeed: 0 });
+  h.wait(1000);
+  h.reset();
+  const note = fn(h);
+  rows.push({ mode: 'touch', gesture, ...h.result(), note });
+  h.input.dispose();
+}
+/** where the bus got to */
+const flying = (h: H) => ({ hold: h.flight.holdY, over: +(h.flight.y - 26.5).toFixed(1), mode: h.flight.mode, gear: h.drive.gear });
+/** a bus holding a height, not skimming */
+const holdAt = (h: H, y: number) => { Object.assign(h.flight, { y, holdY: y, mode: 1 }); };
 /** the player's own hands, in the words of the table */
 const X = 200, Y = 600;
 const LX = 100, LY = 560; // a left thumb
@@ -263,6 +280,20 @@ for (const [hand, x, y, yd] of [['right', RX, RY, 500], ['left', LX, LY, 500]] a
   row('touch', `${hand} thumb: a gear taken back, with turbo on, leaves turbo`, (h) => { twice(h); h.wait(500); up(h); h.wait(60); down(h); h.wait(600); });
   row('touch', `${hand} thumb: a gear still lifting is taken back`, (h) => { h.flight.y = 5; h.drive.shift(1, h.flight); h.wait(50); up(h); h.wait(500); const lifting = h.drive.gear === JET && !h.drive.engaged; down(h); h.wait(100); return { lifting, hold: h.flight.holdY }; });
 }
+
+// ---- what a flick down leaves behind, the Flight under the stroke: one thumb's stroke is a pull too, a second thumb's isn't
+for (const [who, stroke] of [['right', (h: H) => h.stroke(RX, 500, 0, 74, 85)], ['left', (h: H) => h.stroke(LX, 500, 0, 74, 85)], ['second', (h: H) => { const a = newId(); h.down(a, RX, RY); h.wait(20); flickDown(h); h.up(a, RX, RY); }]] as const) {
+  flown(`flown, ${who}: out of Express: still on the rooftops`, (h) => { h.drive.shift(1, h.flight); h.wait(3000); stroke(h); h.wait(8000); return flying(h); });
+  flown(`flown, ${who}: turbo off at Cruise: still on the rooftops`, (h) => { h.drive.boostUp(); h.wait(3000); stroke(h); h.wait(8000); return flying(h); });
+  flown(`flown, ${who}: the window's take-back: still on the rooftops`, (h) => { h.stroke(RX, RY, 0, -74, 85); h.wait(100); stroke(h); h.wait(8000); return flying(h); });
+  flown(`flown, ${who}: Jet still lifting is taken back: it settles`, (h) => { h.drive.shift(1, h.flight); h.wait(2000); h.drive.shift(1, h.flight); h.wait(1000); const rose = +(h.flight.y - 26.5).toFixed(1); stroke(h); h.wait(20000); return { ...flying(h), rose }; });
+  flown(`flown, ${who}: holding 400 m, out of Express: holding 400 m`, (h) => { holdAt(h, 400); h.drive.shift(1, h.flight); h.wait(3000); stroke(h); h.wait(8000); return flying(h); });
+  flown(`flown, ${who}: Jet that bit: it holds the height`, (h) => { h.drive.shift(1, h.flight); h.drive.shift(1, h.flight); h.wait(9000); const y0 = h.flight.y; stroke(h); h.wait(6000); return { ...flying(h), y0, y: h.flight.y }; });
+}
+flown('flown: with nothing to do a quick pull is a quick pull', (h) => { h.stroke(RX, 500, 0, 74, 85); h.wait(8000); return flying(h); });
+flown('flown: a stick that moves first has chosen for itself', (h) => { h.drive.shift(1, h.flight); h.wait(3000); h.stroke(RX, 500, 0, 74, 85); h.wait(40); const a = newId(); h.down(a, RX, 500); h.slide(a, RX, 500, 0, 80, 100); h.wait(1000); h.up(a, RX, 580); h.wait(4000); return flying(h); });
+flown('flown: a hard dive let go, a flick down inside its arc: no rebound', (h) => { holdAt(h, 3000); h.drive.shift(1, h.flight); h.drive.shift(1, h.flight); h.wait(9000); h.drive.boostUp(); h.wait(3000); const a = newId(); h.down(a, RX, 500); h.slide(a, RX, 500, 0, -120, 200); h.wait(1500); h.up(a, RX, 380); h.wait(120); const y0 = h.flight.y; h.stroke(RX, 500, 0, 74, 85); h.wait(8000); return { ...flying(h), y0, y: h.flight.y, level: h.drive.level }; });
+flown('flown: a second thumb flicks down as a long pull lets go: the climb stands', (h) => { h.drive.shift(1, h.flight); h.wait(1000); const a = newId(), b = newId(); h.down(a, RX, 500); h.slide(a, RX, 500, 0, 80, 100); h.wait(1500); h.down(b, LX, 500, false); h.slide(b, LX, 500, 0, 74, 85); h.up(a, RX, 580); h.up(b, LX, 574); h.wait(4000); return flying(h); });
 
 row('touch', 'swapped: lone right flick up is a flick', (h) => { h.input.swapped = true; h.stroke(RX, RY, 0, -74, 85); });
 row('touch', 'swapped: lone left flick up is a flick', (h) => { h.input.swapped = true; h.stroke(LX, LY, 0, -74, 85); h.wait(400); });
@@ -622,6 +653,29 @@ for (const hand of ['right', 'left']) {
   ok(by(g('a gear taken back')).gear === 0 && by(g('a gear taken back')).level === 1, `${hand}: a take-back leaves turbo`);
   ok(note(g('a gear still lifting')).lifting && by(g('a gear still lifting')).gear === EXPRESS && note(g('a gear still lifting')).hold === -Infinity, `${hand}: a gear still lifting is taken back, the hold as it was`);
   for (const r of rows) if (r.gesture.startsWith(`${hand} thumb:`)) ok(r.look === null, `one thumb never looks: ${r.gesture}`);
+}
+
+// what a flick down leaves behind: either hand and the second thumb alike
+for (const who of ['right', 'left', 'second']) {
+  const g = (rest: string) => `flown, ${who}: ${rest}`;
+  const skims = (name: string) => { const v = note(g(name)); ok(v.hold === -Infinity && v.mode === 0 && Math.abs(v.over) < 1, `${who}: ${name}: ${JSON.stringify(v)}`); };
+  skims('out of Express');
+  skims('turbo off at Cruise');
+  skims("the window's take-back");
+  skims('Jet still lifting');
+  ok(note(g('Jet still lifting')).rose > 30 && note(g('Jet still lifting')).gear === EXPRESS, `${who}: it had really lifted, and the gear went back`);
+  ok(note(g('holding 400 m')).hold === 400, `${who}: holding stays holding, where it was: ${JSON.stringify(note(g('holding 400 m')))}`);
+  { const v = note(g('Jet that bit')); ok(Number.isFinite(v.hold) && Math.abs(v.y - v.y0) < 40 && v.gear === EXPRESS, `${who}: out of a gear that bit it holds the height: ${JSON.stringify(v)}`); }
+}
+{
+  const v = note('flown: with nothing to do');
+  ok(Number.isFinite(v.hold) && v.mode === 1, `a flick down with nothing to do is the quick pull it looks like: ${JSON.stringify(v)}`);
+  const w = note('flown: a stick that moves first');
+  ok(Number.isFinite(w.hold) && w.over > 20, `a pull after the flick stands: ${JSON.stringify(w)}`);
+  const d = note('flown: a hard dive let go');
+  ok(d.level === 0 && Number.isFinite(d.hold) && d.hold < d.y0 - 100, `a flick down in a dive's arc has nothing to go back to: ${JSON.stringify(d)}`);
+  const c = note('flown: a second thumb flicks down as');
+  ok(c.gear === 0 && Number.isFinite(c.hold) && c.over > 20, `only the stroke's own pull goes back: ${JSON.stringify(c)}`);
 }
 
 ok(by('swapped: lone right').gear === 1, 'BUTTONS: SWAP: a lone right flick');

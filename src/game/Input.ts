@@ -229,8 +229,8 @@ export class Input {
   onChargeStart: (() => void) | null = null;
   /** The charging press ended: held seconds (from the press), cancelled = a lost touch / focus lost. */
   onChargeEnd: ((heldSeconds: number, cancelled: boolean) => void) | null = null;
-  /** A flick (or E / Q): +1 up, -1 down; when the stroke landed and lifted (ms, performance clock). */
-  onTurbo: ((dir: 1 | -1, landed: number, lifted: number) => void) | null = null;
+  /** A flick (or E / Q): +1 up, -1 down; when the stroke landed and lifted (ms, performance clock); flew = it was on the stick. */
+  onTurbo: ((dir: 1 | -1, landed: number, lifted: number, flew: boolean) => void) | null = null;
   /** A new gesture touched down (it may become a tap, which fires on the lift): the game freezes its aim cue. */
   onPress: (() => void) | null = null;
   onTripleFinger: (() => void) | null = null;
@@ -664,12 +664,12 @@ export class Input {
       // A charge MEGA's finger carried off ends here, and only here.
       if (ownsPress) this.pressEnd(Src.Button, now, cancelled);
       else if (dir) {
-        this.onTurbo?.(dir, t0, now);
+        this.onTurbo?.(dir, t0, now, true);
         this.promote(t0, now);
       }
       // The everyday tap: one finger, short and still -> fire on the up.
       else if (quick && !this.gMulti && !this.gAnswered) this.onTap?.();
-    } else if (dir) this.onTurbo?.(dir, t0, now);
+    } else if (dir) this.onTurbo?.(dir, t0, now, false);
     else if (tap) {
       if (this.primarySteering(now)) this.answer();
       // Landed before the thumb committed to steering: still the player's tap, as soon as it commits (or when the gesture ends).
@@ -1024,7 +1024,7 @@ export class Input {
   /** E / Q: a flick with no stroke to it. */
   private flickKey(dir: 1 | -1, e: KeyboardEvent) {
     const t = evTime(e);
-    this.onTurbo?.(dir, t, t);
+    this.onTurbo?.(dir, t, t, false);
   }
 
   private releaseAll() {

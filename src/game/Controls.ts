@@ -119,7 +119,7 @@ export class Controls {
       },
     });
     d.input.swapped = !!this.prefs.swap;
-    d.input.onTurbo = (dir, landed, lifted) => this.shifter.flick(dir, landed, lifted);
+    d.input.onTurbo = (dir, landed, lifted, flew) => this.shifter.flick(dir, landed, lifted, flew);
     this.shifter.onAnswer = (a) => this.answer(a);
     this.turbo.onEvent = (ev, g) => this.onTurbo(ev, g);
     if (this.prefs.muted) d.audio.setMuted(true);

@@ -134,6 +134,19 @@ function hand(page, cdp) {
       await this.move(id, x0 + dx, y0 + dy, from + ms);
       await this.up(id, from + ms);
     },
+    /** the same with the game stepped under it, inside stamped(): stroke()'s frames stand still, so the Flight never feels the stick */
+    async felt(id, x0, y0, dx, dy, ms) {
+      const frame = async () => {
+        await page.evaluate(() => (window.__qa = { holdFrames: 1, held: false }));
+        await page.waitForFunction(() => window.__qa.held === true, null, { timeout: 60000 });
+      };
+      await this.down(id, x0, y0, 0);
+      await this.move(id, x0 + dx / 2, y0 + dy / 2, ms / 2);
+      await frame();
+      await this.move(id, x0 + dx, y0 + dy, ms);
+      await frame();
+      await this.up(id, ms);
+    },
   };
 }
 
@@ -352,6 +365,32 @@ if (modes.has('thumbs')) {
     await runFor(page, 0.4);
     return dragLeft();
   }, (r) => r.note.thumb && !r.note.look.on);
+  await row('memory: a fingertip in the right side band during a left flick starts nothing: the left thumb flies', async () => {
+    await H.stamped(async () => { await H.down(1, LX, LY, 0); await H.move(1, LX, LY - 40, 40); await H.down(2, 383, 500, 50); await H.move(1, LX, LY - 74, 85); await H.up(1, 85); });
+    await wall(60);
+    await H.up(2);
+    await runFor(page, 0.4);
+    return dragLeft();
+  }, (r) => r.gear === 1 && r.note.thumb && !r.note.look.on);
+  await row('a fingertip resting in the right side band since a left flick: the left thumb lands again and flies', async () => {
+    await H.stamped(async () => { await H.down(1, LX, LY, 0); await H.move(1, LX, LY - 40, 40); await H.down(2, 383, 500, 50); await H.move(1, LX, LY - 74, 85); await H.up(1, 85); });
+    await runFor(page, 0.4);
+    await H.down(1, LX, LY);
+    await wall(150);
+    await H.move(1, LX + 50, LY);
+    await runFor(page, 0.15);
+    const s = await state();
+    await H.up(1);
+    await H.up(2);
+    return s;
+  }, (r) => r.note.thumb && !r.note.look.on && r.note.sx > 0.2);
+  // ---- what a flick down leaves behind, the Flight feeling the stroke: one thumb's is a pull too
+  const skimming = () => page.evaluate(() => { const f = window.__game.flight; f.holdY = -Infinity; f.mode = 0; });
+  const held = () => page.evaluate(() => window.__game.flight.holdY);
+  await row('one right thumb: a flick down out of Express stays on the rooftops', async () => { await skimming(); await shiftUp(); await runFor(page, 0.5); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); return { hold: await held() }; }, (r) => r.gear === 0 && r.note.hold === -Infinity);
+  await row('one right thumb: Jet still lifting, taken back: the bus goes back to the rooftops', async () => { await skimming(); await shiftUp(); await runFor(page, 0.5); await shiftUp(); await runFor(page, 1); const lifting = await state(); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); return { lifting: lifting.gear, hold: await held() }; }, (r) => r.note.lifting === 2 && r.gear === 1 && r.note.hold === -Infinity);
+  await row('one right thumb: a flick up taken back in the window stays on the rooftops', async () => { await skimming(); await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); await H.felt(1, RX, RY - 80, 0, 74, 85); }); await runFor(page, 1.5); return { hold: await held() }; }, (r) => r.gear === 0 && has(r, 'onTurbo-') === 1 && r.note.hold === -Infinity);
+  await row('one right thumb: with nothing to do a flick down is the quick pull it looks like', async () => { await skimming(); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); return { hold: await held() }; }, (r) => Number.isFinite(r.note.hold));
   await row('SWAP: flicks stay on both halves, the memory moves to the right', async () => {
     await page.evaluate(() => { window.__game.input.swapped = true; });
     await H.stamped(async () => { await H.stroke(1, LX, LY, 0, -74, 85); });

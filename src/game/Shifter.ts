@@ -10,7 +10,8 @@ import type { TurboDrive } from './Turbo';
 //  - A second flick landing inside that window drops the waiting gear and turns
 //    turbo on, or adds a level if it is on already.
 //  - A flick down never waits: it takes a waiting gear back, else ends all turbo,
-//    else drops a gear.
+//    else drops a gear. One thumb's stroke pulled the stick until its lift, and that
+//    pull goes back with it (Flight.unpull).
 //  - Under the opening's gate a gear would lift the bus into the deck, so it waits
 //    for the gate on top: fired by itself once the gate clears. (Express lifts
 //    nothing, but the gate's one rule stands: no gear under it, and it says so.)
@@ -51,10 +52,10 @@ export class Shifter {
     return this.queued;
   }
 
-  /** A flick, or E / Q. `landed`, `lifted`: ms, performance clock. */
-  flick(dir: 1 | -1, landed: number, lifted: number): void {
+  /** A flick, or E / Q. `landed`, `lifted`: ms, performance clock. `flew`: the stroke was on the stick. */
+  flick(dir: 1 | -1, landed: number, lifted: number, flew = false): void {
     if (dir > 0) this.up(landed, lifted);
-    else this.down();
+    else this.down(flew);
   }
 
   /** Once per frame, before the drive's update (wall clock: a hit-stop doesn't stall a gear). */
@@ -80,12 +81,17 @@ export class Shifter {
     this.onAnswer?.(this.locked ? 'gated' : 'first');
   }
 
-  private down() {
-    if (this.firstAt >= 0 || this.queued) {
+  private down(flew: boolean) {
+    const d = this.drive;
+    const waiting = this.firstAt >= 0 || this.queued;
+    // (one thumb's flick down is a pull too: a flick down leaves the bus as it was, so that goes back. Out of a gear
+    // that bit it holds the height anyway, and with nothing to do it was only ever a quick pull)
+    if (flew && (waiting || d.level > 0 || (d.gear > 0 && !(d.lifts && d.engaged)))) this.flight.unpull();
+    if (waiting) {
       this.firstAt = -1;
       this.queued = false;
       this.onAnswer?.('back');
-    } else if (!this.drive.boostOff()) this.drive.shift(-1, this.flight);
+    } else if (!d.boostOff()) d.shift(-1, this.flight);
   }
 
   /** The window closed with no second flick: the gear goes, or waits on for the gate. */
