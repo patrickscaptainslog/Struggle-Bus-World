@@ -47,9 +47,14 @@ export interface Observer {
 /**
  * The radius the Moon is drawn at, km (SKY.md 4.5): a far Moon never goes under `floorPx` game px across, on a soft max, so the floor hands over to its true size with no kink in the disc's size on screen.
  * `elong`, the degrees from the Sun, releases the floor there: an eclipse must be exact, and it's under 0.27 % lit. Near, the floor adds nothing: 2 cm at 300 km.
+ * `steady` is the flight's, where a floor would hold the disc flat for most of the long dark: under `floorPx` it grows as the root of its true size, so it's never still, and it's the true size by the time it matters: 3 m at 300 km.
  */
-export function moonDrawnKm(moonKm: number, focal: number, floorPx: number, elong: number): number {
+export function moonDrawnKm(moonKm: number, focal: number, floorPx: number, elong: number, steady = false): number {
   const t = Math.min(1, Math.max(0, (elong - 6) / 6)), f = ((0.5 * floorPx * moonKm) / focal) * t * t * (3 - 2 * t);
+  if (steady) {
+    const R3 = R_MOON * R_MOON * R_MOON;
+    return Math.sqrt(Math.cbrt(R3 * (R3 + f * f * f)));
+  }
   return Math.sqrt(Math.sqrt(R_MOON * R_MOON * R_MOON * R_MOON + f * f * f * f));
 }
 

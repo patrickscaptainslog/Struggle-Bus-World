@@ -44,6 +44,8 @@ const DEG = Math.PI / 180;
 /** Half the portrait's vertical field on the 38 degree lens, degrees: what the rig's pitch rule is measured with (earth/geom.py). */
 const HALF_V = 36.87;
 const R_VIEW_EARTH = 6371;
+/** The flight's Moon, on its steady floor (SkyModel.ts's moonDrawnKm): this leaves it 15 px across where the flight starts, and growing. */
+const STEADY_FLOOR = 43;
 
 type V3 = [number, number, number];
 const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -222,6 +224,10 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
 
   const draw = new SkyDraw(pipeline);
   const landing = land && trip && view ? new Landing(trip, view, pipeline, scene, draw, model, sky) : null;
+  if (trip) {
+    draw.moonSteady = true;
+    draw.moonFloor = STEADY_FLOOR;
+  }
   if (params.has('floor')) draw.moonFloor = Number(params.get('floor')) || 0;
   if (params.get('lines') === '0') draw.showLines(false);
   draw.air = params.get('air') !== '0';

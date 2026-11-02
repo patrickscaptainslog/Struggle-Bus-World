@@ -195,6 +195,8 @@ export class SkyDraw {
   readonly timing = { fetchMs: 0, readMs: 0, uploadMs: 0 };
   /** the Moon's floor, game px across (SKY.md 4.5); released within 12 degrees of the Sun. 0: true size. */
   moonFloor = 15;
+  /** The flight's Moon: no floor to wait on, so the disc is growing from the moment it's seen (moonDrawnKm). */
+  moonSteady = false;
   /** Earth's air at the limb (false: the bare disc, to measure it). */
   air = true;
   /** The air's scale height never goes under this many game pixels (the true air is 0.3 px at 100,000 km). */
@@ -337,7 +339,7 @@ export class SkyDraw {
 
     // the Moon at unit radius: the floor is a bigger radius
     const dot = s.sun[0] * s.moon[0] + s.sun[1] * s.moon[1] + s.sun[2] * s.moon[2];
-    const rM = moonDrawnKm(s.moonKm, focal, this.moonFloor, Math.acos(Math.min(1, Math.max(-1, dot))) * (180 / Math.PI)) + this.moonLift;
+    const rM = moonDrawnKm(s.moonKm, focal, this.moonFloor, Math.acos(Math.min(1, Math.max(-1, dot))) * (180 / Math.PI), this.moonSteady) + this.moonLift;
     const mx = s.moonO[0] / rM, my = s.moonO[1] / rM, mz = s.moonO[2] / rM;
     U.uMoonO.value.set(mx, my, mz, mx * mx + my * my + mz * mz - 1);
     U.uMoonSun.value.set(s.moonSun[0], s.moonSun[1], s.moonSun[2]);
