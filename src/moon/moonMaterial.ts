@@ -413,13 +413,8 @@ const FAR_FS = /* glsl */ `
     vec2 m = farMap(L0);
     if (f > 0.02 && L0 < uFarLevels - 1.0) m = mix(m, farMap(L0 + 1.0), f);
     float under = moonDecode(m.g);
-    float lit = m.r * m.r * ${LIT_MAX.toFixed(1)};
-    float light = uMoonLight.y + 0.03;
-    if (under > 0.0) {
-      // (out of the Sun: what a sunlit wall throws back, as the near ground has it, on the triangle's own slope, or the lee of a mountain is a flat black hole in the picture)
-      vec3 fn = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
-      light += 0.1 * smoothstep(0.56, 0.95, dot(fn * sign(fn.y), normalize(vec3(-uSunDir.x, 0.6, -uSunDir.z))));
-    } else light += moonShoulder(uMoonLight.x * lit);
+    // (out of the Sun the byte is the fill, as the near ground has it: gen.ts, fillByte. Or the lee of a mountain is a flat black hole in the picture)
+    float light = uMoonLight.y + 0.03 + (under > 0.0 ? 0.1 * m.r * m.r : moonShoulder(uMoonLight.x * m.r * m.r * ${LIT_MAX.toFixed(1)}));
     float ramp = moonRamp(vTone), glow = 0.0;
     float pr, pEdge, pLift, pGlow;
     float site = moonSite(vWorldPos.xz, pa + pb);

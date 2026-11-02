@@ -300,7 +300,7 @@ export class MoonGen {
     if (b.kind === Kind.Massif) {
       const t = 1 - rr * rr;
       const n = noise3(d[0] * 900, d[1] * 900, d[2] * 900, 91) * 0.6 + noise3(d[0] * 2500, d[1] * 2500, d[2] * 2500, 92) * 0.4;
-      return Math.max(h, h * (1 - t) + (h + Math.min(2500, p.km * 80)) * t * (0.45 + 0.75 * n));
+      return h + Math.min(2500, p.km * 80) * t * (0.45 + 0.75 * n);
     }
     if (b.kind === Kind.Range) {
       // (ridged, and only where the ground is highland: a range's circle is mostly its sea)
@@ -424,6 +424,44 @@ export class MoonGen {
     for (let L = 0; L < OCTAVES && octaveD(L) >= minD; L++) eachCrater(this.frame, this.src.albedo, this.seed, L, x0, z0, x1, z1, put);
   }
 
+  /**
+   * The nearest place to (x, z) where the Sun is on the bus's ground and on the ground it looks along, and that ground isn't hemming the view in: a first look at the Moon shouldn't be the inside of a mountain's shadow,
+   * or of the mountain. A raster of its own, once, at boot, fine enough to hold what a range's ridges throw and wide enough for what stands over them: a crater's own shadow it can miss, and that's no worse than a street's.
+   * Back where it started if nothing near will do.
+   */
+  findLit(x: number, z: number, heading: number, reach = 9000, cell = 30): [number, number] {
+    const half = Math.round(reach / cell), W = 2 * half + 1, x0 = (Math.round(x / cell) - half) * cell, z0 = (Math.round(z / cell) - half) * cell;
+    const H = new Float32Array(W * W), T = new Float32Array(W * W), P = new Float32Array(W * W);
+    this.raster(x0, z0, W, W, cell, H, T);
+    sweepSun(H, W, W, x0, z0, cell, this.sun, () => -1e9, P);
+    const fx = Math.sin(heading), fz = -Math.cos(heading), sun = this.sun, e = 1 / Math.sqrt(1 + sun.tanE * sun.tanE), se = sun.tanE * e;
+    /** How much of the light flat ground gets, this ground gets: 0 in the dark. */
+    const lit = (i: number, j: number): number => {
+      if (i < 1 || j < 1 || i >= W - 1 || j >= W - 1) return 0;
+      const k = j * W + i;
+      if (P[k] > H[k]) return 0;
+      const sx = (H[k + 1] - H[k - 1]) / (2 * cell), sz = (H[k + W] - H[k + 0 - W]) / (2 * cell);
+      return Math.max(0, (se - e * (sx * sun.ax + sz * sun.az)) / Math.sqrt(sx * sx + sz * sz + 1)) / se;
+    };
+    /** Where the lens stands, the bus, and on along the view. */
+    const good = (i: number, j: number) => {
+      let sum = 0;
+      const g = H[j * W + i];
+      for (const d of [-4, -2, 0, 3, 7, 12, 18, 26]) {
+        const a = i + Math.round(fx * d), b = j + Math.round(fz * d), l = lit(a, b);
+        if (l < 0.3 || (d < 4 && Math.abs(H[b * W + a] - g) > 40)) return false;
+        sum += l;
+      }
+      return sum >= 8 * 0.85;
+    };
+    for (let r = 0; r <= half; r++)
+      for (let a = -r; a <= r; a++) {
+        const hits: Array<[number, number]> = [[half + a, half - r], [half + a, half + r], [half - r, half + a], [half + r, half + a]];
+        for (const [i, j] of hits) if (good(i, j)) return [x0 + i * cell, z0 + j * cell];
+      }
+    return [x, z];
+  }
+
   /** The height at one place with everything big enough for `cell` on it (m, world Y). A tool's question, not a frame's: it builds a raster of its own. */
   heightAt(x: number, z: number, cell = 8): number {
     const c = Math.max(1, Math.round(cell));
@@ -541,13 +579,23 @@ export const FAR = {
 export const LIT_MAX = 4;
 export const LIT_POW = 1.12;
 /** A pixel's tone in the light: maria read dark against highlands, and still read as ground. */
-export const LIT_TONE0 = 0.66;
-export const LIT_TONE1 = 0.72;
+export const LIT_TONE0 = 0.8;
+export const LIT_TONE1 = 0.58;
 function litByte(sx: number, sz: number, tone: number, sun: SunLine, cosE: number, sinE: number): number {
   const ndl = (sinE - cosE * (sx * sun.ax + sz * sun.az)) / Math.sqrt(sx * sx + sz * sz + 1);
   const k = ndl <= 0 ? 0 : ndl / Math.max(sinE, 0.05);
   const lit = k ** LIT_POW * (LIT_TONE0 + LIT_TONE1 * tone);
   return Math.min(255, Math.round(255 * Math.sqrt(lit / LIT_MAX)));
+}
+
+/**
+ * Out of the Sun that byte has nothing to say, so it says this: what moonLit's fill is on this slope, what a sunlit wall throws back. Read as byte^2, 1 on a slope that faces away from the Sun. With no normal in a far
+ * pixel it's the only way a mountain's lee side keeps a shape: the triangle's own slope would show the triangles.
+ */
+function fillByte(sx: number, sz: number, sun: SunLine, cosE: number): number {
+  const up = 0.6 / Math.sqrt(0.36 + cosE * cosE), along = cosE / Math.sqrt(0.36 + cosE * cosE);
+  const q = (up + along * (sx * sun.ax + sz * sun.az)) / Math.sqrt(sx * sx + sz * sz + 1);
+  return Math.round(255 * Math.sqrt(smooth(0.56, 0.95, q)));
 }
 
 export interface FarUpdate {
@@ -659,8 +707,9 @@ export class FarStore {
       for (let j = 0; j < B; j++)
         for (let i = 0; i < B; i++) {
           const a = (j + m) * W + i + m, o = (q * B * B + j * B + i) * 2;
-          map[o] = litByte((rh[a + 1] - rh[a - 1]) / (2 * cell), (rh[a + W] - rh[a - W]) / (2 * cell), rt[a], sun, cosE, sinE);
-          map[o + 1] = encode(P[a] - rh[a], K_SHADOW);
+          const under = P[a] - rh[a], sx = (rh[a + 1] - rh[a - 1]) / (2 * cell), sz = (rh[a + W] - rh[a - W]) / (2 * cell);
+          map[o] = under > 0 ? fillByte(sx, sz, sun, cosE) : litByte(sx, sz, rt[a], sun, cosE, sinE);
+          map[o + 1] = encode(under, K_SHADOW);
         }
     }
     return { type: 'far', k, bi0, bj0, blocks: Int32Array.from(fresh), map, heights };

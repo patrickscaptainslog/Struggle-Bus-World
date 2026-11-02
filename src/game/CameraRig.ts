@@ -70,6 +70,9 @@ export class CameraRig {
   private readonly lookTarget = new THREE.Vector3();
   private readonly lookDir = new THREE.Vector3();
 
+  /** ?moon: the ground under the lens. A street has no slope to speak of; a hill behind the bus would have the lens inside it, looking out through the back of the ground. */
+  floorAt: ((x: number, z: number) => number) | null = null;
+
   update(cam: THREE.PerspectiveCamera, focusOut: THREE.Vector3, f: Flight, dt: number) {
     const C = config.camera;
     const F = config.flight;
@@ -130,6 +133,13 @@ export class CameraRig {
       const a = w * w * (desired[k] - this.pos[k]) - 2 * C.followDamping * w * this.posVel[k];
       this.posVel[k] += a * dt;
       this.pos[k] += this.posVel[k] * dt;
+    }
+    if (this.floorAt) {
+      const y = this.floorAt(this.pos.x, this.pos.z) + 4;
+      if (this.pos.y < y) {
+        this.pos.y = y;
+        this.posVel.y = Math.max(0, this.posVel.y);
+      }
     }
     const spk = sp / F.cruiseSpeed;
     let la = C.lookAhead * (C.lookAheadSlow + (1 - C.lookAheadSlow) * clamp(spk, 0, 1) + 0.4 * clamp(spk - 1, 0, 1)) * (1 - 0.65 * barf) * (1 - dive);

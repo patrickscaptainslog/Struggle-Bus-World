@@ -40,7 +40,7 @@ export const MOON_ROWS: Record<number, string[]> = {
   [Ramp.NIGHT_SKY]: ['#000000', '#020204', '#04040a', '#06060e', '#080812', '#0a0a16', '#0c0c1a', '#0e0e1e'],
   // regolith: cool greys from a true black. Highlands, and the maria's darker, bluer row
   [Ramp.REGOLITH]: ['#050609', '#12141b', '#22252e', '#373b46', '#525661', '#747882', '#9da0a6', '#cfd0cf'],
-  [Ramp.MARE]: ['#050609', '#11141b', '#1f242e', '#313846', '#49515f', '#68707e', '#8c94a0', '#b6bcc4'],
+  [Ramp.MARE]: ['#050609', '#141821', '#272d39', '#3b4352', '#535c6b', '#6f7886', '#8f98a4', '#b6bcc4'],
 };
 
 export interface MoonBoot {
@@ -106,12 +106,14 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   // (a named crater: on its floor, on the side the Sun reaches, with the whole of it ahead. A held Sun stands HELD_SUN_OFF off the heading: this is away from it)
   let startX = atTheo ? THEO_START.x : 0, startZ = atTheo ? THEO_START.z : 0;
   if (place?.type === 'crater' || place?.type === 'basin') {
-    const away = heading + (HELD_SUN_OFF + 180) * DEG, r = place.R * (place.km < 20 ? 1.5 : 0.56);
+    // (and on the map: Orientale is 930 km across and a map is 256)
+    const away = heading + (HELD_SUN_OFF + 180) * DEG, r = Math.min(place.R * (place.km < 20 ? 1.5 : 0.56), MAP_HALF * 0.5);
     startX = Math.sin(away) * r;
     startZ = -Math.cos(away) * r;
   }
   // (a crewed site stays unpainted: the bus comes up to its line, or the first minute is taps that don't stick)
-  if (place?.type === 'site' && place.name.startsWith('APOLLO')) {
+  const crewed = place?.type === 'site' && place.name.startsWith('APOLLO');
+  if (crewed) {
     startX = -Math.sin(heading) * (SITE_R + 550);
     startZ = Math.cos(heading) * (SITE_R + 550);
   }
@@ -174,8 +176,12 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   worker.onerror = (e) => console.error('moon worker:', e.message);
 
   const bounds: [number, number, number, number] = [-MAP_HALF, -MAP_HALF, MAP_HALF, MAP_HALF];
-  worker.postMessage({ type: 'init', base, lat, lon, seed: SEED, sun: [sun[0], sun[1], sun[2]], bounds, startX, startZ } satisfies MoonInit);
-  const { datum, startY } = await ready;
+  worker.postMessage({ type: 'init', base, lat, lon, seed: SEED, sun: [sun[0], sun[1], sun[2]], bounds, startX, startZ, heading, seekLit: !atTheo && !crewed && !sky.night } satisfies MoonInit);
+  const landed = await ready;
+  const { datum, startY } = landed;
+  // (it looked for ground with the Sun on it, unless this is the start picked by hand)
+  startX = landed.startX;
+  startZ = landed.startZ;
 
   // its names, for the signs: what is near enough to be flown to
   const tmp = new Float64Array(2);

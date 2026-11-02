@@ -18,6 +18,9 @@ export interface MoonInit {
   /** where the bus starts (m), for the height it asks back */
   startX: number;
   startZ: number;
+  /** its heading (rad), and to look for lit ground near there: everywhere but the one start picked by hand */
+  heading: number;
+  seekLit: boolean;
 }
 
 export interface MoonFarRequest {
@@ -29,7 +32,9 @@ export interface MoonFarRequest {
 export interface MoonReady {
   type: 'ready';
   datum: number;
-  /** the ground under the start (world Y) */
+  /** where the bus starts after all, and the ground under it (world Y) */
+  startX: number;
+  startZ: number;
   startY: number;
 }
 
@@ -68,7 +73,8 @@ async function init(m: MoonInit) {
   const [relief, real, albedo, rows] = await Promise.all([file(`${m.base}/moon/relief.bin`), file(`${m.base}/moon/theophilus.bin`), file(`${m.base}/sky/moon.bin`), fetch(`${m.base}/moon/places.json`).then((r) => r.json() as Promise<PlaceRow[]>)]);
   gen = new MoonGen({ relief: readRelief(relief), albedo: readAlbedo(albedo), window: readWindow(real), places: readPlaces(rows) }, makeFrame(m.lat, m.lon), sunLine(m.sun[0], m.sun[1], m.sun[2]), m.seed, m.bounds);
   far = new FarStore(gen);
-  post({ type: 'ready', datum: gen.datum, startY: gen.heightAt(m.startX, m.startZ, 8) } satisfies MoonReady);
+  const [startX, startZ] = m.seekLit ? gen.findLit(m.startX, m.startZ, m.heading) : [m.startX, m.startZ];
+  post({ type: 'ready', datum: gen.datum, startX, startZ, startY: gen.heightAt(startX, startZ, 8) } satisfies MoonReady);
 }
 
 function region(q: MoonRegionRequest): void {

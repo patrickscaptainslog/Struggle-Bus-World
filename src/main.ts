@@ -185,6 +185,7 @@ async function boot() {
   }
   const rig = new CameraRig();
   if (openingBridge) rig.openingLow = 1;
+  if (moon) rig.floorAt = (x, z) => city.groundAt(x, z);
   const focus = new THREE.Vector3(flight.x, 60, flight.z);
   // (the first frame streams around the bus: the same want-list, so nothing is asked for twice)
   const primeFocus = focus.clone();
