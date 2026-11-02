@@ -670,7 +670,7 @@ export class Hud {
     this.adoptedId = -1;
   }
 
-  /** `touchend` is the canonical iOS user-activation event, and a button can be the very first touch (hitTouch has its own). */
+  /** `touchend` is the canonical iOS user-activation event, and a button can be the very first touch. */
   private unlockOnLift(el: HTMLElement) {
     el.addEventListener('touchend', () => this.cb.onGesture());
   }

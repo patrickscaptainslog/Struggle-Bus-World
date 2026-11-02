@@ -754,9 +754,13 @@ if (modes.has('opening')) {
     await H.stamped(async () => { await H.stroke(1, 100, 520, 0, -74, 85); await H.stroke(1, 100, 520, 0, -74, 85, 235); });
     await runFor(page, 0.8);
     const s = await state(page);
+    // a gear taken back with turbo on: turbo stays, and no line stands: the toast false
+    await H.stamped(async () => { await H.stroke(1, 100, 520, 0, -74, 85); await H.stroke(1, 100, 520, 0, 74, 85, 145); });
+    await runFor(page, 0.15);
+    const back = await state(page);
     await until(page, '!g.controls.gearsLocked', 60);
     await runFor(page, 0.5);
-    R.double = { s, after: await state(page) };
+    R.double = { s, back, after: await state(page) };
     console.log('opening double', JSON.stringify(R.double));
     await page.close();
   }

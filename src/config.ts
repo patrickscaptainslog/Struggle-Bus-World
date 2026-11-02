@@ -419,7 +419,7 @@ export const config = {
     glintRate: 2,
     /** Inhale: the bus squashes and gulps on the tap frame; the jet leaves this much later (s, inside impactDelay). */
     inhale: 0.09,
-    /** MEGA or Space held this long starts charging the super splat, and TURBO held this long starts the boost (s);
+    /** MEGA or Space held this long starts charging the super splat (s);
      *  shorter is a tap (Input.onChargeStart / onChargeEnd, state.chargeHeld). A press on the screen never charges. */
     holdThreshold: 0.3,
     /** A breath that comes down on nothing (open water, under this height) is a miss; it refunds this much belly. */

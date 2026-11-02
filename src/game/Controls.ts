@@ -307,7 +307,11 @@ export class Controls {
   private answer(a: ShiftAnswer) {
     this.onTurbo(a === 'back' ? 'back' : 'flick', this.turbo.gear);
     if (a === 'gated') this.hud.toast([ARMED], 2.6);
-    else if (a === 'back' && this.gearsLocked) this.hud.toast(['TURBO OFF'], 1.2);
+    else if (a === 'back' && this.gearsLocked) {
+      // (with turbo still on only a gear went: the line that promised it is no longer true, and TURBO OFF wouldn't be)
+      if (this.turbo.level === 0) this.hud.toast(['TURBO OFF'], 1.2);
+      else this.hud.clearToast();
+    }
   }
 
   private onTurbo(ev: TurboEvent, gear: number) {

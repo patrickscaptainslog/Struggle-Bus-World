@@ -146,6 +146,7 @@ row('touch', 'second: tap at 220 ms', (h) => { const a = steer(h); const b = new
 row('touch', 'second: rests 260 ms, lifts (nothing)', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.wait(260); h.up(b, LX, LY); h.up(a, RX + 30, RY); });
 row('touch', 'second: rests 1 s (nothing)', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.wait(1000); h.up(b, LX, LY); h.up(a, RX + 30, RY); });
 row('touch', 'second: on a still first, past 230 ms, tapped', (h) => { const a = newId(), b = newId(); h.down(a, X, Y); h.wait(300); h.down(b, 120, 500, false); h.wait(60); h.up(b, 120, 500); h.wait(30); h.up(a, X, Y); });
+row('touch', 'second: a tap with nobody flying, after a two-finger tap was answered', (h) => { const a = newId(), b = newId(), c = newId(); h.down(a, RX, RY); h.wait(40); h.down(b, LX, LY, false); h.wait(60); h.up(b, LX, LY); h.slide(a, RX, RY, 40, 0, 200); h.down(c, LX, LY, false); h.wait(40); h.up(a, RX + 40, RY); h.wait(40); h.up(c, LX, LY); });
 row('touch', 'second: two taps while steering', (h) => { const a = steer(h); for (let i = 0; i < 2; i++) { const b = newId(); h.down(b, LX, LY, false); h.wait(80); h.up(b, LX, LY); h.wait(200); } h.up(a, RX + 30, RY); });
 row('touch', 'second: drag that stays down: looks, the stick untouched', (h) => {
   const a = steer(h);
@@ -261,7 +262,8 @@ row('touch', 'side band: a second thumb 10 px from the right edge', (h) => { con
 row('touch', 'memory: the look thumb stays one when the flying thumb lifts', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.slide(b, LX, LY, 60, 0, 200); h.up(a, RX + 30, RY); h.wait(30); const on = h.input.state.look.on, thumb = h.input.state.thumb; h.slide(b, LX + 60, LY, 30, 0, 100); const x = h.input.state.look.x; h.up(b, LX + 90, LY); return { on, thumb, x }; });
 row('touch', 'memory: a lone touch on the far side looks, it does not steer', (h) => { together(h); h.wait(5000); const b = newId(); h.down(b, LX, LY); h.slide(b, LX, LY, 60, 0, 200); h.wait(30); const on = h.input.state.look.on, thumb = h.input.state.thumb; h.up(b, LX + 60, LY); return { on, thumb }; });
 row('touch', 'memory: a lone tap on the far side splats on its lift', (h) => { together(h); h.wait(1000); const b = newId(); h.down(b, LX, LY); h.wait(90); h.up(b, LX, LY); });
-row('touch', 'memory: a lone tap on the far side, 260 ms, does nothing', (h) => { together(h); h.wait(1000); const b = newId(); h.down(b, LX, LY); h.wait(260); h.up(b, LX, LY); });
+row('touch', 'memory: a lone tap on the far side, 300 ms: nobody is flying, a first thumb\'s limit', (h) => { together(h); h.wait(1000); const b = newId(); h.down(b, LX, LY); h.wait(300); h.up(b, LX, LY); });
+row('touch', 'memory: a lone press on the far side, 460 ms, does nothing', (h) => { together(h); h.wait(1000); const b = newId(); h.down(b, LX, LY); h.wait(460); h.up(b, LX, LY); });
 row('touch', 'memory: a lone flick on the far side reads the second thumb\'s rule', (h) => { together(h); h.wait(1000); h.stroke(LX, LY, 0, -30, 100); });
 row('touch', 'memory: a lone touch on the near side flies', (h) => { together(h); h.wait(1000); const a = newId(); h.down(a, RX, RY); h.slide(a, RX, RY, 60, 0, 200); h.wait(20); const thumb = h.input.state.thumb; h.up(a, RX + 60, RY); return { thumb }; });
 row('touch', 'memory: 29 s on, still the second thumb', (h) => { together(h); h.wait(29000); const b = newId(); h.down(b, LX, LY); h.slide(b, LX, LY, 60, 0, 200); h.wait(30); const on = h.input.state.look.on; h.up(b, LX + 60, LY); return { on }; });
@@ -397,6 +399,7 @@ ok(taps('second: rests 260') === 0, 'past 230 ms a second thumb is resting');
 ok(taps('second: rests 1 s') === 0 && by('second: rests 1 s').look === null, 'at rest it does nothing');
 quiet('second: rests 1 s');
 ok(taps('second: on a still first') === 1, 'one tap on a still first, the first lifting after it');
+ok(taps('second: a tap with nobody flying') === 2, 'a tap after the answered one, the flying thumb gone, still fires');
 ok(taps('second: two taps') === 2, 'each tap while steering is a tap');
 {
   const v = note('second: drag that stays');
@@ -505,7 +508,8 @@ quiet('side band: a second');
 }
 ok(note('memory: a lone touch on the far').on && !note('memory: a lone touch on the far').thumb, 'the far side looks');
 ok(taps('memory: a lone tap on the far side splats') === 1, 'a lone tap by memory');
-ok(taps('memory: a lone tap on the far side, 260') === 0, 'the second thumb\'s tap limit');
+ok(taps('memory: a lone tap on the far side, 300') === 1, 'with nobody flying a tap is as long as a first thumb\'s');
+ok(taps('memory: a lone press on the far side, 460') === 0, 'and no longer');
 ok(by('memory: a lone flick').gear === 1, 'the second thumb\'s rule by memory');
 ok(note('memory: a lone touch on the near').thumb, 'the near side flies');
 ok(note('memory: 29 s').on, 'inside 30 s');

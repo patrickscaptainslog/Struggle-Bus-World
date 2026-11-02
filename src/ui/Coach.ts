@@ -1,4 +1,4 @@
-// First run: one cue at a time, each ended by doing it (docs/specs/hybrid-controls.md 5).
+// First run: one cue at a time, each ended by doing it (the hint: docs/specs/flight/THUMBS.md).
 // Everything here passes touches through; a `taught` bitmask in the controls prefs
 // means each cue shows once ever. Off with ?nohud, ?skipintro, ?nocoach (?coach keeps
 // it on under skipintro, for QA).

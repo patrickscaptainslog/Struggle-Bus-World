@@ -666,7 +666,7 @@ export class Input {
     else if (tap) {
       if (this.primarySteering(now)) this.answer();
       // Landed before the thumb committed to steering: still the player's tap, as soon as it commits (or when the gesture ends).
-      else if (this.fly || this.gMulti) this.gPendingTap = true;
+      else if (this.fly || (this.gMulti && !this.gAnswered)) this.gPendingTap = true;
       else this.onTap?.();
     }
 
@@ -789,10 +789,11 @@ export class Input {
     return (dur <= inputTune.stillTapMs && s.maxDist <= inputTune.tapSlopPx) || (dur <= inputTune.quickTapMs && s.maxDist <= inputTune.quickTapSlopPx);
   }
 
-  /** The second thumb's tap: shorter than the first's, because past it the thumb is resting. */
+  /** The second thumb's tap: shorter than the first's, because past it the thumb is resting. With nobody flying, as long as the first's. */
   private secondTap(s: Slot, now: number): boolean {
     const dur = now - s.t0;
-    return (dur <= inputTune.secondTapMs && s.maxDist <= inputTune.tapSlopPx) || (dur <= inputTune.quickTapMs && s.maxDist <= inputTune.quickTapSlopPx);
+    const limit = this.fly || this.gMulti ? inputTune.secondTapMs : inputTune.stillTapMs;
+    return (dur <= limit && s.maxDist <= inputTune.tapSlopPx) || (dur <= inputTune.quickTapMs && s.maxDist <= inputTune.quickTapSlopPx);
   }
 
   /** The flying thumb has committed: moved past the tap slop or held past the tap window. */

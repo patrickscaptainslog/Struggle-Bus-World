@@ -1,5 +1,5 @@
-// Where everything on the HUD goes: one pure function, run on resize only
-// (docs/specs/hybrid-controls.md 3). No DOM, so the tables can be tested offline.
+// Where everything on the HUD goes: one pure function, run on resize only. No DOM,
+// so the tables can be tested offline.
 //
 // A control has a visual and a hit rect. The hit rect may be bigger, toward the
 // play field; it never reaches the 14 px band at the screen's left and right
