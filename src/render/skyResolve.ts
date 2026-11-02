@@ -60,7 +60,7 @@ const EARTH_K = (1 / (1 - 1 / 298.257223563)).toFixed(8);
 export const spaceResolveUniforms = {
   tEarthMap: { value: null as THREE.Texture | null }, // land, tone, class (0 green, .5 dry, 1 ice), lights
   tMoonMap: { value: null as THREE.Texture | null }, // tone
-  tMoonPaint: { value: null as THREE.Texture | null }, // coverage, hue, lift, reveal (MoonPaint.ts)
+  tMoonPaint: { value: null as THREE.Texture | null }, // coverage, mix and two hues, lift, reveal (MoonPaint.ts)
   uEarthRot: { value: new THREE.Matrix3() }, // render <- Earth fixed
   uEarthO: { value: new THREE.Vector4(0, 0, 3, 8) }, // the observer in Earth fixed at unit radius, z over the ellipsoid; w: |o|^2 - 1
   uEarthSun: { value: new THREE.Vector3(1, 0, 0) }, // Earth fixed
