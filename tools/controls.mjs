@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 // Controls QA in the real game (index.html), iPhone portrait viewport, touch + mobile emulation.
-//   node tools/controls.mjs <baseUrl> <outDir> [touch] [thumbs] [turbo] [firstrun] [opening] [layout] [states] [keyboard] [audio] [perf=<otherBaseUrl>]
+//   node tools/controls.mjs <baseUrl> <outDir> [touch] [thumbs] [look] [turbo] [firstrun] [opening] [layout] [states] [keyboard] [audio] [perf=<otherBaseUrl>]
 //
 //   touch    shots of the HUD and the settings panel; real gestures on MEGA (tap / hold / slide)      -> touch in controls.json
 //   thumbs   the gesture table through the real page: CDP multi-touch, real pointer events, the real Shifter and drive.
 //            A row's events are stamped with CDP timestamps and sent while the game loop is frozen, so a stroke is
 //            exactly as long as the row says on any host. tools/controls-sim/s_gesture.ts has every row; this is
 //            the proof that the browser's own multi-touch reaches them              -> thumbs.json
+//   look     the look with real fingers, stepped frame by frame on a fixed clock, the frames kept (look/*.png, CSS pixels): left, right,
+//            back, up, down at street level, at height and in G1; in a turn; in a dive; the view coming home; a tap while looking;
+//            the flick's pop. With the game clock standing (the look runs on the wall clock): does a settled view come back
+//            pixel for pixel, and does the frame go still?                                -> look.json
 //   turbo    flicks at Alamo Square: a lone left flick into G1 (the climb, engagement, the boom), two flicks, the levels,
 //            a flick down, LOCKED, with shots and a per-frame log                                -> turbo.json
 //   firstrun a first visit: no card, the cues in order (TAP, DRAG, HOLD)                         -> firstrun.json
@@ -25,7 +29,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
 
 const [base = 'http://127.0.0.1:5101/', out = 'shots/controls', ...rest] = process.argv.slice(2);
-const modes = new Set((rest.length ? rest : ['touch', 'thumbs', 'turbo', 'firstrun', 'opening', 'layout', 'states', 'keyboard', 'audio']).map((m) => m.split('=')[0]));
+const modes = new Set((rest.length ? rest : ['touch', 'thumbs', 'look', 'turbo', 'firstrun', 'opening', 'layout', 'states', 'keyboard', 'audio']).map((m) => m.split('=')[0]));
 const perfOther = (rest.find((m) => m.startsWith('perf=')) ?? '').slice(5);
 mkdirSync(out, { recursive: true });
 
@@ -288,6 +292,263 @@ if (modes.has('thumbs')) {
   await page.close();
 }
 
+if (modes.has('look')) {
+  const dir = `${out}/look`;
+  mkdirSync(dir, { recursive: true });
+  const DT = 1 / 30;
+  const Rx = 300, Ry = 640, Lx = 100, Ly = 520;
+  const log = [];
+  const only = new Set((process.env.SB_LOOK ?? 'street,tap,high,g1,pop,proof').split(','));
+  /** a page of its own for each run, the loop frozen between steps; `hud` keeps the HUD */
+  const start = async (lat, lon, heading, hud = false) => {
+    const page = await open(`?lat=${lat}&lon=${lon}&heading=${heading}&skipintro&fixeddt=${DT.toFixed(6)}${hud ? '' : '&nohud'}`);
+    const cdp = await page.context().newCDPSession(page);
+    await page.evaluate(() => {
+      const g = window.__game;
+      g.flight.glideSpeed = 0;
+      g.flight.fullness = 0.5; // (no breath, no glint: these frames are about the view)
+      window.__qa = { holdFrames: 0 };
+    });
+    await page.waitForFunction(() => window.__qa.held === true, null, { timeout: 120000 });
+    return { page, H: hand(page, cdp) };
+  };
+  const step = async (page, secs) => {
+    await page.evaluate((k) => { window.__qa = { ...window.__qa, holdFrames: k, held: false }; }, Math.max(1, Math.round(secs / DT)));
+    await page.waitForFunction(() => window.__qa.held === true, null, { timeout: 600000 });
+  };
+  const note = async (page, tag) => {
+    const r = await page.evaluate((tag) => {
+      const g = window.__game, f = g.flight, c = g.camera, R = g.rig, deg = 180 / Math.PI, T = g.controls.turbo;
+      const V = c.position.constructor;
+      const v = new V(f.x, f.y, f.z).project(c);
+      const d = new V();
+      c.getWorldDirection(d);
+      const n = (x, k = 1) => +x.toFixed(k);
+      return { tag, t: n(g.clock(), 2), speed: n(f.speed), h: n(f.y - f.groundUnder), gear: T.gear, level: T.level, lookYaw: n(R.lookYaw.x * deg), lookPitch: n(R.lookPitch.x * deg), aimYaw: n(R.aimYaw * deg), viewDown: n(Math.asin(-d.y) * deg), bus: [n(v.x * 0.5 + 0.5, 3), n(0.5 - v.y * 0.5, 3)], dist: n(c.position.distanceTo(new V(f.x, f.y, f.z))), calls: g.perf.calls, tris: g.perf.tris, regions: g.city.loadedRegionCount(), thumb: g.input.state.thumb };
+    }, tag);
+    log.push(r);
+    console.log(JSON.stringify(r));
+    return r;
+  };
+  const frameOf = (page, name) => page.screenshot({ path: `${dir}/${name}.png`, scale: 'css' });
+  const shot = async (page, name) => {
+    await frameOf(page, name);
+    return note(page, name);
+  };
+  /** the look thumb lands, waits out the delay, goes dx right, dy up */
+  const look = async (page, H, dx, dy) => {
+    await H.down(2, Lx, Ly);
+    await wall(130);
+    await H.move(2, Lx + dx, Ly - dy);
+  };
+  /** left, right, back, up, down, each from home, with the flying thumb at rest */
+  const fan = async (page, H, tag, settle = 1.7) => {
+    await H.down(1, Rx, Ry);
+    await step(page, 0.6);
+    await shot(page, `${tag}-rest`);
+    for (const [name, dx, dy] of [['left', -90, 0], ['right', 90, 0], ['back', 180, 0], ['up', 0, 45], ['down', 0, -50]]) {
+      await look(page, H, dx, dy);
+      await step(page, 0.9);
+      await shot(page, `${tag}-${name}`);
+      await H.up(2);
+      await step(page, settle);
+    }
+    await H.up(1);
+  };
+  /** put the bus at a height, holding it, the lens set for it, and let the city land */
+  const place = async (page, y) => {
+    await page.evaluate((v) => {
+      const g = window.__game, f = g.flight;
+      f.y = v;
+      f.holdY = v;
+      f.mode = 1;
+      f.vy = 0;
+      g.rig.vista = g.rig.vistaTarget = 1;
+      g.rig.lensHeight = g.rig.lensTarget = v - f.groundUnder;
+    }, y);
+    for (let i = 0; i < 60; i++) {
+      await step(page, 0.25);
+      if (await page.evaluate(() => !window.__game.city.busy)) break;
+    }
+  };
+  const quiet = (page) => page.evaluate(() => new Promise((res) => {
+    const g = window.__game;
+    let n = 0;
+    const tick = () => {
+      n = !g.city.busy && g.city.ground.queued === 0 ? n + 1 : 0;
+      if (n >= 30) res(null);
+      else requestAnimationFrame(tick);
+    };
+    tick();
+  }));
+  const R = {};
+  // ---- street level, at cruise
+  if (only.has('street')) {
+    const { page, H } = await start(37.7763, -122.4352, 88);
+    await step(page, 1);
+    await fan(page, H, 'street');
+    // ---- a look in a turn
+    await H.down(1, Rx, Ry);
+    await H.move(1, Rx + 46, Ry);
+    await step(page, 0.9);
+    await shot(page, 'turn-rest');
+    await look(page, H, -70, 0);
+    await step(page, 0.8);
+    await shot(page, 'turn-left');
+    await H.up(2);
+    await H.up(1);
+    await step(page, 1.7);
+    // ---- the view coming home
+    await H.down(1, Rx, Ry);
+    await look(page, H, 120, 20);
+    await step(page, 0.9);
+    await shot(page, 'home-0');
+    await H.up(2);
+    for (const [i, gap] of [[1, 0.1], [2, 0.2], [3, 0.2], [4, 0.25], [5, 0.25], [6, 0.4]]) {
+      await step(page, gap);
+      await shot(page, `home-${i}`);
+    }
+    await H.up(1);
+    await page.close();
+  }
+  // ---- a tap while looking: the flying thumb lifts and taps, the look thumb holds the view
+  if (only.has('tap')) {
+    const { page, H } = await start(37.7825, -122.4300, 90, true);
+    await step(page, 1);
+    await H.down(1, Rx, Ry);
+    await look(page, H, 70, 0);
+    await step(page, 0.8);
+    // (a breath loaded, over something that can glint)
+    let glint = null;
+    for (let i = 0; i < 40 && !glint; i++) {
+      await page.evaluate(() => window.__game.forceReady());
+      await step(page, 0.1);
+      glint = await page.evaluate(() => window.__game.glintNow());
+    }
+    await step(page, 0.2);
+    await shot(page, 'tap-glint');
+    await events(page);
+    await H.up(1);
+    await H.down(1, Rx, Ry);
+    await wall(60);
+    await H.up(1);
+    await step(page, 0.05);
+    const ev = (await events(page)).map((e) => e.k);
+    const fired = await page.evaluate(() => window.__game.lastShot());
+    await step(page, 0.3);
+    await shot(page, 'tap-jet');
+    const hitWhatGlinted = fired?.target?.index === glint?.index;
+    await step(page, 0.25);
+    await shot(page, 'tap-impact');
+    await step(page, 0.6);
+    await shot(page, 'tap-paint');
+    await H.up(2);
+    await step(page, 1.6);
+    await shot(page, 'tap-after');
+    R.tap = { glint, ev, fired, hitWhatGlinted };
+    console.log('tap while looking', JSON.stringify(R.tap));
+    await page.close();
+  }
+  // ---- at height, holding it; a dive
+  if (only.has('high')) {
+    const { page, H } = await start(37.7763, -122.4352, 88);
+    await step(page, 0.5);
+    await place(page, 1200);
+    await fan(page, H, 'high');
+    await place(page, 3200);
+    await H.down(1, Rx, Ry);
+    await H.move(1, Rx, Ry - 90);
+    await step(page, 3.5);
+    await shot(page, 'dive-rest');
+    await look(page, H, 70, 0);
+    await step(page, 0.8);
+    await shot(page, 'dive-right');
+    await H.move(2, Lx, Ly - 40);
+    await step(page, 0.8);
+    await shot(page, 'dive-up');
+    await H.move(2, Lx, Ly + 40);
+    await step(page, 0.8);
+    await shot(page, 'dive-down');
+    await H.up(2);
+    await H.up(1);
+    await page.close();
+  }
+  // ---- G1: from the south of the map, up the length of it
+  if (only.has('g1')) {
+    const { page, H } = await start(37.7150, -122.4400, 340);
+    await step(page, 1);
+    await page.evaluate(() => window.__game.controls.turbo.shift(1, window.__game.flight));
+    for (let i = 0; i < 80; i++) {
+      await step(page, 0.5);
+      if (await page.evaluate(() => window.__game.flight.speed > 440)) break;
+    }
+    await fan(page, H, 'g1', 1.5);
+    await page.close();
+  }
+  // ---- the flick's pop, at street level and at height
+  if (only.has('pop')) {
+    for (const [tag, y] of [['street', 0], ['high', 1200]]) {
+      const { page, H } = await start(37.7763, -122.4352, 88);
+      await step(page, y ? 0.5 : 1);
+      if (y) await place(page, y);
+      await H.stamped(() => H.stroke(1, Lx, Ly, 0, -74, 85));
+      for (const [i, gap] of [[0, 0.033], [1, 0.1], [2, 0.133], [3, 0.2]]) {
+        await step(page, gap);
+        await shot(page, `pop-${tag}-${i}`);
+      }
+      await page.close();
+    }
+  }
+  // ---- with the game clock standing, a look comes and goes: the same frame, pixel for pixel, and then a still one
+  const proof = async (tag, y) => {
+    const { page, H } = await start(37.7763, -122.4352, 88);
+    await step(page, 0.5);
+    if (y) await place(page, y);
+    // (no breath loaded: what glints is a fresh pick after any swing of the aim, and these frames are about the view)
+    await page.evaluate(() => { const g = window.__game; g.controls.frozen = true; g.flight.fullness = 0.5; window.__qa = null; });
+    await quiet(page);
+    const before = await page.screenshot();
+    const matrix = () => page.evaluate(() => [...window.__game.camera.matrixWorld.elements]);
+    const m0 = await matrix();
+    const rounds = [];
+    for (const [dx, dy] of [[120, 20], [-70, -40], [180, 45]]) {
+      await H.down(1, Rx, Ry);
+      await H.down(2, Lx, Ly);
+      await wall(130);
+      await H.move(2, Lx + dx, Ly - dy);
+      await page.waitForFunction((x) => Math.abs(window.__game.rig.lookYaw.x * 180 / Math.PI - x) < 2, dx, { timeout: 60000 });
+      const during = await page.screenshot();
+      await H.up(2);
+      await H.up(1);
+      const frames = await page.evaluate(() => new Promise((res) => {
+        const r = window.__game.rig;
+        let n = 0;
+        const tick = () => {
+          if (r.lookYaw.x === 0 && r.lookPitch.x === 0) res(n);
+          else { n++; requestAnimationFrame(tick); }
+        };
+        tick();
+      }));
+      await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(res)))));
+      await quiet(page);
+      const after = await page.screenshot();
+      await wall(400);
+      const later = await page.screenshot();
+      const m1 = await matrix();
+      rounds.push({ dx, dy, moved: !during.equals(before), framesToHome: frames, sameFrame: after.equals(before), still: later.equals(after), sameCamera: m1.every((v, i) => v === m0[i]) });
+    }
+    R[tag] = rounds;
+    console.log(`proof ${tag}`, JSON.stringify(rounds));
+    await page.close();
+  };
+  if (only.has('proof')) {
+    await proof('settledStreet', 0);
+    await proof('settledHigh', 1200);
+  }
+  res.look = { ...R, log };
+  writeFileSync(`${out}/look.json`, JSON.stringify(res.look, null, 1));
+}
+
 if (modes.has('turbo')) {
   // the jet: from the south of the map, up the length of it, so the map's edge has no say in what the levels reach
   const page = await open('?lat=37.7150&lon=-122.4400&heading=340&skipintro&fixeddt=0.05');
@@ -363,6 +624,16 @@ if (modes.has('firstrun')) {
   await runFor(page, 0.2);
   FR.fogEnd = await ui();
   await page.screenshot({ path: `${out}/firstrun/01-arrive.png` });
+  // the second thumb's hint: a beat after the fog, four lines in the toast's slot, and touches pass through it
+  const hint = () => page.evaluate(() => {
+    const c = document.querySelector('[data-hud="toast"] canvas');
+    if (!c) return null;
+    const r = c.getBoundingClientRect();
+    return { lines: (c.height - 4) / 10, top: r.top, bottom: r.bottom, width: r.width, passes: getComputedStyle(c).pointerEvents === 'none' };
+  });
+  await until(page, 'document.querySelector(\'[data-hud="toast"]\') !== null', 6);
+  FR.hint = { ...(await ui()), toast: await hint() };
+  await page.screenshot({ path: `${out}/firstrun/01b-hint.png` });
   // TAP: at the first glint
   await page.evaluate(() => window.__game.forceReady());
   await until(page, 'g.controls.snapshot().coach?.cue === "tap"', 120);
@@ -376,6 +647,12 @@ if (modes.has('firstrun')) {
   await H.down(1, 300, 600); await H.move(1, 340, 600); await runFor(page, 0.5); await H.up(1);
   await runFor(page, 0.3);
   FR.afterDrag = await ui();
+  // it never repeats: the same device, the next visit
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction('window.__game && window.__game.city.loadedRegionCount() > 0', null, { timeout: 400000 });
+  await until(page, '!g.controls.opening', 60);
+  await runFor(page, 3);
+  FR.nextVisit = { ...(await ui()), toast: await hint() };
   res.firstrun = FR;
   for (const k in FR) console.log('firstrun', k, JSON.stringify(FR[k]));
   writeFileSync(`${out}/firstrun.json`, JSON.stringify(FR, null, 1));
