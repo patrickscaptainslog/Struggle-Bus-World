@@ -8,7 +8,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 
 const { Input, inputTune, readFlick } = await import('@src/game/Input');
 const { Shifter } = await import('@src/game/Shifter');
-const { TurboDrive, GEAR_NAMES, EXPRESS, JET, STRATOS, WARP, gearAlt, driveSpeed } = await import('@src/game/Turbo');
+const { TurboDrive, GEAR_NAMES, EXPRESS, NONSTOP, JET, STRATOS, WARP, gearAlt, driveSpeed, rungName } = await import('@src/game/Turbo');
 const { Flight } = await import('@src/game/Flight');
 const { config } = await import('@src/config');
 const { migratePrefs } = await import('@src/game/controlPrefs');
@@ -24,7 +24,7 @@ function harness(mode: 'touch' | 'keyboard', fps = 60, world: any = null) {
   const flight = new Flight();
   flight.y = 400;
   const drive = new TurboDrive(BOUNDS);
-  const shifter = new Shifter(drive, flight, (by, now) => input.flickInFlight(by, now));
+  const shifter = new Shifter(drive, flight);
   const evs: Ev[] = [];
   let t0 = clock.ms;
   const at = () => `${Math.round(clock.ms - t0)}ms`;
@@ -33,26 +33,25 @@ function harness(mode: 'touch' | 'keyboard', fps = 60, world: any = null) {
   input.onPress = () => presses++;
   input.onChargeStart = () => evs.push(`chargeStart@${at()}`);
   input.onChargeEnd = (h, c) => evs.push(`chargeEnd(${h.toFixed(2)}s${c ? ', cancelled' : ''})@${at()}`);
-  input.onTurbo = (d, a, b, flew) => {
+  input.onTurbo = (d, flew) => {
     evs.push(`flick${d > 0 ? '+' : '-'}@${at()}`);
-    shifter.flick(d, a, b, flew);
+    shifter.flick(d, flew);
   };
   input.onTripleFinger = () => evs.push(`tuner@${at()}`);
   shifter.onAnswer = (a) => evs.push(`${a}@${at()}`);
   drive.onEvent = (ev, g) => evs.push(`${ev}${g}@${at()}`);
-  let maxCharge = 0, sawDrag = false, sawTurboHeld = false, sawThumb = false;
+  let maxCharge = 0, sawDrag = false, sawThumb = false;
   let lookFrom = -1, lookTo = -1, lookMax = 0;
   // (16.7 as main's harness had it, so a row of main's lands on the same frames)
   const step = fps === 60 ? 16.7 : 1000 / fps;
   const frame = () => {
     input.update(1 / fps);
-    shifter.tick(clock.ms);
-    drive.update(1 / fps, flight, input.state.turboHeld);
+    shifter.tick();
+    drive.update(1 / fps, flight);
     if (world) for (let i = 0; i < 2; i++) flight.step(1 / fps / 2, { sx: input.state.stretch.x, sy: input.state.stretch.y, dragging: input.state.dragging }, world);
     maxCharge = Math.max(maxCharge, input.state.chargeHeld);
     if (input.state.dragging) sawDrag = true;
     if (input.state.thumb) sawThumb = true;
-    if (input.state.turboHeld) sawTurboHeld = true;
     const L = input.state.look;
     if (L.on) {
       if (lookFrom < 0) lookFrom = Math.round(clock.ms - t0);
@@ -77,7 +76,7 @@ function harness(mode: 'touch' | 'keyboard', fps = 60, world: any = null) {
     input, el, evs, drive, shifter, flight, inputTune,
     /** how many landings froze what glints */
     get presses() { return presses; },
-    reset() { evs.length = 0; t0 = clock.ms; nextFrame = clock.ms + step; maxCharge = 0; sawDrag = false; sawThumb = false; sawTurboHeld = false; lookFrom = lookTo = -1; lookMax = 0; },
+    reset() { evs.length = 0; t0 = clock.ms; nextFrame = clock.ms + step; maxCharge = 0; sawDrag = false; sawThumb = false; lookFrom = lookTo = -1; lookMax = 0; },
     down(id: number, x: number, y: number, primary = true, extra = {}) { el.dispatch('pointerdown', ptr('pointerdown', id, x, y, primary, extra)); },
     move(id: number, x: number, y: number, extra = {}) { el.dispatch('pointermove', ptr('pointermove', id, x, y, true, extra)); },
     up(id: number, x: number, y: number, extra = {}) { el.dispatch('pointerup', ptr('pointerup', id, x, y, true, extra)); },
@@ -95,7 +94,7 @@ function harness(mode: 'touch' | 'keyboard', fps = 60, world: any = null) {
       this.up(id, x + dx, y + dy);
     },
     wait, frame,
-    result() { return { events: [...evs], maxChargeHeld: +maxCharge.toFixed(2), dragging: sawDrag, thumb: sawThumb, turboHeld: sawTurboHeld, look: lookFrom < 0 ? null : { from: lookFrom, to: lookTo, max: Math.round(lookMax) }, gear: drive.gear, level: drive.level }; },
+    result() { return { events: [...evs], maxChargeHeld: +maxCharge.toFixed(2), dragging: sawDrag, thumb: sawThumb, look: lookFrom < 0 ? null : { from: lookFrom, to: lookTo, max: Math.round(lookMax) }, gear: drive.gear, level: drive.level }; },
   };
 }
 type H = ReturnType<typeof harness>;
@@ -139,10 +138,10 @@ const leftFirst = (h: H) => { const a = newId(), b = newId(); h.down(a, LX, LY);
 const flickWith = (h: H, x: number, y: number, ox: number, oy: number) => { const a = newId(), b = newId(); h.down(a, x, y); h.slide(a, x, y, 0, -40, 40); h.down(b, ox, oy, false); h.wait(40); h.up(a, x, y - 74); return b; };
 /** a lone thumb lands and drags 60 px sideways: what did it turn out to be? */
 const dragAt = (h: H, x: number, y: number) => { const c = newId(); h.down(c, x, y); h.slide(c, x, y, 60, 0, 200); h.wait(30); const s = h.input.state, v = { thumb: s.thumb, look: s.look.on, sx: +s.stretch.x.toFixed(2) }; h.up(c, x + 60, y); return v; };
-/** turbo, a double flick by the second thumb */
-const double = (h: H) => { flickUp(h); h.wait(150); flickUp(h); };
+/** this many flicks up by the second thumb, quick ones */
+const flicks = (h: H, count: number) => { for (let i = 0; i < count; i++) { flickUp(h); h.wait(150); } };
 /** straight into the last gear, Jet */
-const toJet = (h: H) => { h.drive.shift(1, h.flight); h.drive.shift(1, h.flight); h.wait(50); };
+const toJet = (h: H) => { while (h.drive.gear < JET) h.drive.shift(1, h.flight); h.wait(50); };
 
 // ---- the first thumb alone (rows from main, same names)
 row('touch', 'canvas: quick tap (120 ms, still)', (h) => { const id = newId(); h.down(id, X, Y); h.wait(120); h.up(id, X, Y); });
@@ -191,7 +190,7 @@ row('touch', 'second: drag that stays down: looks, the stick untouched', (h) => 
 row('touch', 'second: a tap with the first hand while the other looks', (h) => { const b = newId(); h.down(b, LX, LY); h.slide(b, LX, LY, 60, 0, 200); const a = newId(); h.down(a, RX, RY, false); h.wait(90); h.up(a, RX, RY); h.wait(30); const on = h.input.state.look.on; h.up(b, LX + 60, LY); return { on }; });
 row('touch', 'second: rests 500 ms, then drags (a look at once)', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.wait(500); h.slide(b, LX, LY, 30, 0, 100); h.wait(30); const on = h.input.state.look.on; h.up(b, LX + 30, LY); h.up(a, RX + 30, RY); return { on }; });
 row('touch', 'second: a look does not count as a thumb', (h) => { const a = newId(); h.down(a, X, Y); h.wait(40); const b = newId(); h.down(b, LX, LY, false); h.slide(b, LX, LY, 40, 0, 200); const thumb = h.input.state.thumb; h.up(b, LX + 40, LY); h.up(a, X, Y); return { thumb }; });
-row('touch', 'second: flick up: answered on the lift, the gear 320 ms later', (h) => { const a = steer(h); flickUp(h); h.wait(500); h.up(a, RX + 30, RY); });
+row('touch', 'second: flick up: answered on the lift, the gear with it', (h) => { const a = steer(h); flickUp(h); h.wait(500); h.up(a, RX + 30, RY); });
 row('touch', 'second: flick down at G0 (nothing to do)', (h) => { const a = steer(h); flickDown(h); h.up(a, RX + 30, RY); });
 row('touch', 'second: flick down at G1', (h) => { const a = steer(h); h.drive.shift(1, h.flight); h.wait(50); flickDown(h); h.up(a, RX + 30, RY); });
 row('touch', 'second: flick sideways (nothing)', (h) => { const a = steer(h); h.stroke(LX, LY, 74, 0, 85, false); h.wait(400); h.up(a, RX + 30, RY); });
@@ -206,33 +205,26 @@ row('touch', 'second: out and back: one touch, one reading, the return never cou
 row('touch', 'second: a flick at 30 touches a second reads the same', (h) => { const a = steer(h); h.stroke(LX, LY, 0, -74, 85, false, 33); h.wait(400); h.up(a, RX + 30, RY); }, 30);
 row('touch', 'second: a flick with no move event at all reads the same', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.wait(85); h.up(b, LX, LY - 74); h.wait(400); h.up(a, RX + 30, RY); });
 
-// ---- two flicks, and turbo
-row('touch', 'double: turbo, the waiting gear dropped', (h) => { const a = steer(h); double(h); h.wait(500); h.up(a, RX + 30, RY); });
-row('touch', 'double: from no thumb at all, lone left strokes', (h) => { h.stroke(LX, LY, 0, -74, 85); h.wait(150); h.stroke(LX, LY, 0, -74, 85); });
-row('touch', 'double: the second lands inside the window and lifts after it: still turbo', (h) => { const a = steer(h); flickUp(h); h.wait(300); flickUp(h); h.wait(500); h.up(a, RX + 30, RY); });
-row('touch', 'double: the second lands past the window: a gear, then the next', (h) => { const a = steer(h); flickUp(h); h.wait(340); flickUp(h); h.wait(500); h.up(a, RX + 30, RY); });
-row('touch', 'double: past the window at Jet: LOCKED, then nothing', (h) => { const a = steer(h); toJet(h); flickUp(h); h.wait(340); flickUp(h); h.wait(500); h.up(a, RX + 30, RY); });
-row('touch', 'double: at the last gear, no LOCKED', (h) => { const a = steer(h); toJet(h); double(h); h.wait(500); h.up(a, RX + 30, RY); });
-row('touch', 'two spaced flicks: Express, then Jet', (h) => { const a = steer(h); flickUp(h); h.wait(500); const one = h.drive.gear, engaged = h.drive.engaged; flickUp(h); h.wait(500); h.up(a, RX + 30, RY); return { one, engaged }; });
-row('touch', 'flick down steps Jet to Express to Cruise', (h) => { const a = steer(h); toJet(h); flickDown(h); h.wait(100); const one = h.drive.gear; flickDown(h); h.wait(100); h.up(a, RX + 30, RY); return { one }; });
-row('touch', 'flick up with turbo on: a gear, turbo stays', (h) => { const a = steer(h); double(h); h.wait(500); flickUp(h); h.wait(500); h.up(a, RX + 30, RY); });
-row('touch', 'stack: a second double adds a level', (h) => { const a = steer(h); double(h); h.wait(500); double(h); h.wait(500); h.up(a, RX + 30, RY); });
-row('touch', 'stack: a third double is the top level', (h) => { const a = steer(h); for (let i = 0; i < 3; i++) { double(h); h.wait(500); } h.up(a, RX + 30, RY); });
-row('touch', 'stack: a fourth double is LOCKED, the level stands', (h) => { const a = steer(h); for (let i = 0; i < 4; i++) { double(h); h.wait(500); } h.up(a, RX + 30, RY); });
-row('touch', 'flick down ends all turbo at once, the gear stays', (h) => { const a = steer(h); h.drive.shift(1, h.flight); h.wait(50); for (let i = 0; i < 3; i++) { double(h); h.wait(500); } flickDown(h); h.wait(50); h.up(a, RX + 30, RY); });
-row('touch', 'the next flick down drops the gear', (h) => { const a = steer(h); h.drive.shift(1, h.flight); h.wait(50); double(h); h.wait(500); flickDown(h); h.wait(100); flickDown(h); h.wait(50); h.up(a, RX + 30, RY); });
-row('touch', 'undo: a flick down takes the waiting gear back', (h) => { const a = steer(h); flickUp(h); h.wait(60); flickDown(h); h.wait(600); h.up(a, RX + 30, RY); });
-row('touch', 'undo: with turbo on it takes the gear back and leaves turbo', (h) => { const a = steer(h); double(h); h.wait(500); flickUp(h); h.wait(60); flickDown(h); h.wait(600); h.up(a, RX + 30, RY); });
-row('touch', 'undo: a flick down past the window, Express in, is a gear down and leaves the bus as it was', (h) => { const a = steer(h); flickUp(h); h.wait(500); flickDown(h); h.wait(100); h.up(a, RX + 30, RY); return { hold: h.flight.holdY }; });
-row('touch', 'undo: a flick down past the window, Jet in, is a gear down that holds the height', (h) => { const a = steer(h); h.drive.shift(1, h.flight); h.wait(50); flickUp(h); h.wait(500); flickDown(h); h.wait(100); h.up(a, RX + 30, RY); return { hold: h.flight.holdY }; });
-row('touch', 'undo: a gear still lifting is taken back: the bus goes back to what it was doing', (h) => { h.flight.y = 5; const a = steer(h); h.drive.shift(1, h.flight); h.wait(50); flickUp(h); h.wait(500); const lifting = h.drive.gear === JET && !h.drive.engaged; flickDown(h); h.wait(100); h.up(a, RX + 30, RY); return { lifting, hold: h.flight.holdY }; });
-row('touch', 'LOCKED waits for the window', (h) => { const a = steer(h); toJet(h); flickUp(h); const at = h.evs.length; h.wait(200); const early = h.evs.slice(at); h.wait(300); h.up(a, RX + 30, RY); return { early }; });
-row('touch', 'the gate: a flick is answered and waits for it', (h) => { h.shifter.locked = true; const a = steer(h); flickUp(h); h.wait(800); const armed = h.shifter.armed, gated = h.shifter.gated, g0 = h.drive.gear; h.shifter.locked = false; h.wait(50); h.up(a, RX + 30, RY); return { armed, gated, g0 }; });
+// ---- the ladder: one flick is one rung, up or down, at once, gears and then turbo
+row('touch', 'ladder: two quick flicks are two rungs', (h) => { const a = steer(h); flicks(h, 2); h.up(a, RX + 30, RY); });
+row('touch', 'ladder: two quick lone left strokes are two rungs', (h) => { h.stroke(LX, LY, 0, -74, 85); h.wait(150); h.stroke(LX, LY, 0, -74, 85); });
+row('touch', 'ladder: spaced flicks: the same two rungs', (h) => { const a = steer(h); flickUp(h); h.wait(500); const one = h.drive.gear, engaged = h.drive.engaged; flickUp(h); h.wait(500); h.up(a, RX + 30, RY); return { one, engaged }; });
+row('touch', 'ladder: rung by rung to the top', (h) => { const a = steer(h); const seen: string[] = []; for (let i = 0; i < 6; i++) { flickUp(h); h.wait(60); seen.push(rungName(h.drive.gear, h.drive.level)); } h.up(a, RX + 30, RY); return { seen }; });
+row('touch', 'ladder: past the last rung: LOCKED, on the flick, and the level stands', (h) => { const a = steer(h); flicks(h, 6); const at = h.evs.length; flickUp(h); const now = h.evs.slice(at); h.wait(300); h.up(a, RX + 30, RY); return { now }; });
+row('touch', 'ladder: turbo stays on with no thumb held', (h) => { toJet(h); flickUp(h); h.wait(5000); });
+row('touch', 'ladder: down from the top, a rung a flick', (h) => { const a = steer(h); flicks(h, 6); const seen: string[] = []; for (let i = 0; i < 6; i++) { flickDown(h); h.wait(60); seen.push(rungName(h.drive.gear, h.drive.level)); } h.up(a, RX + 30, RY); return { seen }; });
+row('touch', 'ladder: a flick up over a level that came down: turbo again', (h) => { const a = steer(h); flicks(h, 5); flickDown(h); h.wait(100); flickUp(h); h.wait(100); h.up(a, RX + 30, RY); });
+row('touch', 'ladder: with world travel on, turbo sits over Rainbow Warp', (h) => { config.turbo.worldTravel = true; const a = steer(h); const seen: string[] = []; for (let i = 0; i < 8; i++) { flickUp(h); h.wait(60); seen.push(rungName(h.drive.gear, h.drive.level)); } const at = h.evs.length; flickUp(h); const now = h.evs.slice(at); h.up(a, RX + 30, RY); config.turbo.worldTravel = false; return { seen, now }; });
+row('touch', 'undo: a flick down right after a flick up: the rung comes back', (h) => { const a = steer(h); flickUp(h); h.wait(60); flickDown(h); h.wait(600); h.up(a, RX + 30, RY); });
+row('touch', 'undo: a flick down, Express in, is a gear down and leaves the bus as it was', (h) => { const a = steer(h); flickUp(h); h.wait(500); flickDown(h); h.wait(100); h.up(a, RX + 30, RY); return { hold: h.flight.holdY }; });
+row('touch', 'undo: a flick down, Nonstop in, is a gear down that holds the height', (h) => { const a = steer(h); h.drive.shift(1, h.flight); h.wait(50); flickUp(h); h.wait(500); flickDown(h); h.wait(100); h.up(a, RX + 30, RY); return { hold: h.flight.holdY }; });
+row('touch', 'undo: a flick down, Jet in, is a gear down that holds the height', (h) => { const a = steer(h); h.drive.shift(1, h.flight); h.drive.shift(1, h.flight); h.wait(50); flickUp(h); h.wait(500); flickDown(h); h.wait(100); h.up(a, RX + 30, RY); return { hold: h.flight.holdY }; });
+row('touch', 'undo: a gear still lifting is taken back: the bus goes back to what it was doing', (h) => { h.flight.y = 5; const a = steer(h); h.drive.shift(1, h.flight); h.wait(50); flickUp(h); h.wait(500); const lifting = h.drive.gear === NONSTOP && !h.drive.engaged; flickDown(h); h.wait(100); h.up(a, RX + 30, RY); return { lifting, hold: h.flight.holdY }; });
+row('touch', 'the gate: a flick is answered and waits for it', (h) => { h.shifter.locked = true; const a = steer(h); flickUp(h); h.wait(800); const armed = h.shifter.armed, g0 = h.drive.gear; h.shifter.locked = false; h.wait(50); h.up(a, RX + 30, RY); return { armed, g0 }; });
 row('touch', 'the gate: a flick down takes it back', (h) => { h.shifter.locked = true; const a = steer(h); flickUp(h); h.wait(800); flickDown(h); h.wait(50); h.shifter.locked = false; h.wait(100); h.up(a, RX + 30, RY); });
-row('touch', 'the gate: inside the window too', (h) => { h.shifter.locked = true; const a = steer(h); flickUp(h); h.wait(60); flickDown(h); h.wait(500); h.shifter.locked = false; h.wait(100); h.up(a, RX + 30, RY); });
-row('touch', 'the gate: a double is turbo, with no gear behind it', (h) => { h.shifter.locked = true; const a = steer(h); double(h); h.wait(500); h.shifter.locked = false; h.wait(100); h.up(a, RX + 30, RY); });
-row('touch', 'the gate: a lone left flick is answered and waits for it', (h) => { h.shifter.locked = true; h.stroke(LX, LY, 0, -74, 85); h.wait(800); const armed = h.shifter.armed, gated = h.shifter.gated, g0 = h.drive.gear; h.shifter.locked = false; h.wait(50); return { armed, gated, g0 }; });
-row('touch', 'the gate: a lone left double is turbo, with no gear behind it', (h) => { h.shifter.locked = true; h.stroke(LX, LY, 0, -74, 85); h.wait(150); h.stroke(LX, LY, 0, -74, 85); h.wait(500); h.shifter.locked = false; h.wait(100); });
+row('touch', 'the gate: two flicks wait, and two rungs go', (h) => { h.shifter.locked = true; const a = steer(h); flicks(h, 2); h.wait(500); const g0 = h.drive.gear; h.shifter.locked = false; h.wait(100); h.up(a, RX + 30, RY); return { g0 }; });
+row('touch', 'the gate: a flick down takes back one of two', (h) => { h.shifter.locked = true; const a = steer(h); flicks(h, 2); flickDown(h); h.wait(100); const armed = h.shifter.armed; h.shifter.locked = false; h.wait(100); h.up(a, RX + 30, RY); return { armed }; });
+row('touch', 'the gate: a lone left flick is answered and waits for it', (h) => { h.shifter.locked = true; h.stroke(LX, LY, 0, -74, 85); h.wait(800); const armed = h.shifter.armed, g0 = h.drive.gear; h.shifter.locked = false; h.wait(50); return { armed, g0 }; });
 
 // ---- the lone strokes: the left zone steers nothing, so it reads the second thumb's rule, and the flying side the firm one
 row('touch', 'left zone: a lone flick up: never on the stick, then the gear', (h) => { const id = newId(); h.down(id, LX, LY); h.slide(id, LX, LY, 0, -74, 85); const steered = h.input.state.thumb; const sy = h.input.state.stretch.y; h.up(id, LX, LY - 74); h.wait(500); return { steered, sy }; });
@@ -267,37 +259,35 @@ row('touch', 'lone right: sideways is a carve', (h) => { h.stroke(RX, RY, 74, 0,
 for (const [hand, x, y, yd] of [['right', RX, RY, 500], ['left', LX, LY, 500]] as const) {
   const up = (h: H) => h.stroke(x, y, 0, -74, 85);
   const down = (h: H) => h.stroke(x, yd, 0, 74, 85);
-  const twice = (h: H) => { up(h); h.wait(150); up(h); };
+  const six = (h: H) => { for (let i = 0; i < 6; i++) { up(h); h.wait(150); } };
   row('touch', `${hand} thumb: a gear up, a gear down`, (h) => { up(h); h.wait(500); const one = h.drive.gear; down(h); h.wait(100); return { one }; });
-  row('touch', `${hand} thumb: two spaced flicks: Express, then Jet`, (h) => { up(h); h.wait(500); up(h); h.wait(500); });
-  row('touch', `${hand} thumb: turbo, the waiting gear dropped`, (h) => { twice(h); h.wait(500); });
-  row('touch', `${hand} thumb: the second lands inside the window and lifts after it`, (h) => { up(h); h.wait(300); up(h); h.wait(500); });
-  row('touch', `${hand} thumb: the second lands past the window: a gear, then the next`, (h) => { up(h); h.wait(340); up(h); h.wait(500); });
-  row('touch', `${hand} thumb: a soft second stroke in the window is the second flick`, (h) => { up(h); h.wait(150); h.stroke(x, y, 0, -30, 100); h.wait(500); });
-  row('touch', `${hand} thumb: the same soft stroke past the window`, (h) => { up(h); h.wait(340); h.stroke(x, y, 0, -30, 100); h.wait(500); });
-  row('touch', `${hand} thumb: the same soft stroke with loneAgainMs at 0`, (h) => { const was = inputTune.loneAgainMs; inputTune.loneAgainMs = 0; up(h); h.wait(150); h.stroke(x, y, 0, -30, 100); h.wait(500); inputTune.loneAgainMs = was; });
+  row('touch', `${hand} thumb: two spaced flicks: Express, then Nonstop`, (h) => { up(h); h.wait(500); up(h); h.wait(500); });
+  row('touch', `${hand} thumb: two quick flicks: Express, then Nonstop`, (h) => { up(h); h.wait(150); up(h); h.wait(500); });
+  row('touch', `${hand} thumb: a soft stroke right after a flick`, (h) => { up(h); h.wait(150); h.stroke(x, y, 0, -30, 100); h.wait(500); });
   row('touch', `${hand} thumb: a soft first stroke`, (h) => { h.stroke(x, y, 0, -30, 100); h.wait(500); });
-  row('touch', `${hand} thumb: a second double adds a level`, (h) => { twice(h); h.wait(500); twice(h); h.wait(500); });
-  row('touch', `${hand} thumb: six flicks in a row are the top level`, (h) => { for (let i = 0; i < 6; i++) { up(h); h.wait(150); } h.wait(500); });
-  row('touch', `${hand} thumb: a fourth double is LOCKED, the level stands`, (h) => { for (let i = 0; i < 4; i++) { twice(h); h.wait(500); } });
-  row('touch', `${hand} thumb: flick down ends all turbo, the gear stays, the next drops it`, (h) => { h.drive.shift(1, h.flight); h.wait(50); for (let i = 0; i < 3; i++) { twice(h); h.wait(500); } down(h); h.wait(100); const v = { level: h.drive.level, gear: h.drive.gear }; down(h); h.wait(100); return v; });
-  row('touch', `${hand} thumb: a flick down takes the waiting gear back`, (h) => { up(h); h.wait(60); down(h); h.wait(600); });
-  row('touch', `${hand} thumb: a gear taken back, with turbo on, leaves turbo`, (h) => { twice(h); h.wait(500); up(h); h.wait(60); down(h); h.wait(600); });
-  row('touch', `${hand} thumb: a gear still lifting is taken back`, (h) => { h.flight.y = 5; h.drive.shift(1, h.flight); h.wait(50); up(h); h.wait(500); const lifting = h.drive.gear === JET && !h.drive.engaged; down(h); h.wait(100); return { lifting, hold: h.flight.holdY }; });
+  row('touch', `${hand} thumb: six flicks in a row are the top rung`, (h) => { six(h); h.wait(500); });
+  row('touch', `${hand} thumb: a seventh is LOCKED, the level stands`, (h) => { six(h); up(h); h.wait(500); });
+  row('touch', `${hand} thumb: a flick down drops one rung, turbo first`, (h) => { six(h); down(h); h.wait(100); return { level: h.drive.level, gear: h.drive.gear }; });
+  row('touch', `${hand} thumb: six flicks down from the top are Cruise`, (h) => { six(h); for (let i = 0; i < 6; i++) { down(h); h.wait(150); } });
+  row('touch', `${hand} thumb: a flick straight back`, (h) => { up(h); h.wait(60); down(h); h.wait(600); });
+  row('touch', `${hand} thumb: a gear still lifting is taken back`, (h) => { h.flight.y = 5; h.drive.shift(1, h.flight); h.wait(50); up(h); h.wait(500); const lifting = h.drive.gear === NONSTOP && !h.drive.engaged; down(h); h.wait(100); return { lifting, hold: h.flight.holdY }; });
 }
 
 // ---- what a flick down leaves behind, the Flight under the stroke: one thumb's stroke is a pull too, a second thumb's isn't
 for (const [who, stroke] of [['right', (h: H) => h.stroke(RX, 500, 0, 74, 85)], ['left', (h: H) => h.stroke(LX, 500, 0, 74, 85)], ['second', (h: H) => { const a = newId(); h.down(a, RX, RY); h.wait(20); flickDown(h); h.up(a, RX, RY); }]] as const) {
   flown(`flown, ${who}: out of Express: still on the rooftops`, (h) => { h.drive.shift(1, h.flight); h.wait(3000); stroke(h); h.wait(8000); return flying(h); });
-  flown(`flown, ${who}: turbo off at Cruise: still on the rooftops`, (h) => { h.drive.boostUp(); h.wait(3000); stroke(h); h.wait(8000); return flying(h); });
-  flown(`flown, ${who}: the window's take-back: still on the rooftops`, (h) => { h.stroke(RX, RY, 0, -74, 85); h.wait(100); stroke(h); h.wait(8000); return flying(h); });
-  flown(`flown, ${who}: Jet still lifting is taken back: it settles`, (h) => { h.drive.shift(1, h.flight); h.wait(2000); h.drive.shift(1, h.flight); h.wait(1000); const rose = +(h.flight.y - 26.5).toFixed(1); stroke(h); h.wait(20000); return { ...flying(h), rose }; });
+  flown(`flown, ${who}: Express and straight back: still on the rooftops`, (h) => { h.stroke(RX, RY, 0, -74, 85); h.wait(100); stroke(h); h.wait(8000); return flying(h); });
+  flown(`flown, ${who}: Nonstop still lifting is taken back: it settles`, (h) => { h.drive.shift(1, h.flight); h.wait(2000); h.drive.shift(1, h.flight); h.wait(800); const rose = +(h.flight.y - 26.5).toFixed(1), lifting = !h.drive.engaged; stroke(h); h.wait(20000); return { ...flying(h), rose, lifting }; });
+  flown(`flown, ${who}: Jet still lifting over Nonstop is taken back: it settles on Nonstop's`, (h) => { h.drive.shift(1, h.flight); h.drive.shift(1, h.flight); h.wait(4000); const floor = h.flight.y; h.drive.shift(1, h.flight); h.wait(600); const rose = +(h.flight.y - floor).toFixed(1), lifting = !h.drive.engaged; stroke(h); h.wait(20000); return { ...flying(h), floor, y: h.flight.y, rose, lifting, engaged: h.drive.engaged }; });
   flown(`flown, ${who}: holding 400 m, out of Express: holding 400 m`, (h) => { holdAt(h, 400); h.drive.shift(1, h.flight); h.wait(3000); stroke(h); h.wait(8000); return flying(h); });
-  flown(`flown, ${who}: Jet that bit: it holds the height`, (h) => { h.drive.shift(1, h.flight); h.drive.shift(1, h.flight); h.wait(9000); const y0 = h.flight.y; stroke(h); h.wait(6000); return { ...flying(h), y0, y: h.flight.y }; });
+  flown(`flown, ${who}: Nonstop that bit: it holds the height`, (h) => { h.drive.shift(1, h.flight); h.drive.shift(1, h.flight); h.wait(5000); const y0 = h.flight.y; stroke(h); h.wait(6000); return { ...flying(h), y0, y: h.flight.y }; });
+  flown(`flown, ${who}: Jet that bit: it holds the height`, (h) => { toJet(h); h.wait(9000); const y0 = h.flight.y; stroke(h); h.wait(6000); return { ...flying(h), y0, y: h.flight.y }; });
+  flown(`flown, ${who}: a turbo level down: on Jet's floor as it was`, (h) => { toJet(h); h.wait(9000); h.drive.rung(1, h.flight); h.wait(3000); const y0 = h.flight.y; stroke(h); h.wait(8000); return { ...flying(h), y0, y: h.flight.y, level: h.drive.level }; });
+  flown(`flown, ${who}: a turbo level down, holding: the same hold`, (h) => { holdAt(h, 900); toJet(h); h.wait(6000); h.drive.rung(1, h.flight); h.wait(3000); stroke(h); h.wait(8000); return { ...flying(h), level: h.drive.level }; });
 }
 flown('flown: with nothing to do a quick pull is a quick pull', (h) => { h.stroke(RX, 500, 0, 74, 85); h.wait(8000); return flying(h); });
 flown('flown: a stick that moves first has chosen for itself', (h) => { h.drive.shift(1, h.flight); h.wait(3000); h.stroke(RX, 500, 0, 74, 85); h.wait(40); const a = newId(); h.down(a, RX, 500); h.slide(a, RX, 500, 0, 80, 100); h.wait(1000); h.up(a, RX, 580); h.wait(4000); return flying(h); });
-flown('flown: a hard dive let go, a flick down inside its arc: no rebound', (h) => { holdAt(h, 3000); h.drive.shift(1, h.flight); h.drive.shift(1, h.flight); h.wait(9000); h.drive.boostUp(); h.wait(3000); const a = newId(); h.down(a, RX, 500); h.slide(a, RX, 500, 0, -120, 200); h.wait(1500); h.up(a, RX, 380); h.wait(120); const y0 = h.flight.y; h.stroke(RX, 500, 0, 74, 85); h.wait(8000); return { ...flying(h), y0, y: h.flight.y, level: h.drive.level }; });
+flown('flown: a hard dive let go, a flick down inside its arc: no rebound', (h) => { holdAt(h, 3000); toJet(h); h.wait(9000); h.drive.rung(1, h.flight); h.wait(3000); const a = newId(); h.down(a, RX, 500); h.slide(a, RX, 500, 0, -120, 200); h.wait(1500); h.up(a, RX, 380); h.wait(120); const y0 = h.flight.y; h.stroke(RX, 500, 0, 74, 85); h.wait(8000); return { ...flying(h), y0, y: h.flight.y, level: h.drive.level }; });
 flown('flown: a second thumb flicks down as a long pull lets go: the climb stands', (h) => { h.drive.shift(1, h.flight); h.wait(1000); const a = newId(), b = newId(); h.down(a, RX, 500); h.slide(a, RX, 500, 0, 80, 100); h.wait(1500); h.down(b, LX, 500, false); h.slide(b, LX, 500, 0, 74, 85); h.up(a, RX, 580); h.up(b, LX, 574); h.wait(4000); return flying(h); });
 
 row('touch', 'swapped: a lone right flick up, in the zone', (h) => { h.input.swapped = true; h.stroke(RX, RY, 0, -74, 85); });
@@ -413,7 +403,7 @@ row('touch', 'two thumbs, left first by 30 ms: the left looks, the right flies',
 row('touch', 'two thumbs, swapped, left first: the right looks, the left flies', (h) => { h.input.swapped = true; const a = newId(), b = newId(); h.down(a, LX, LY); h.slide(a, LX, LY, 40, 0, 200); h.down(b, RX, RY, false); h.slide(b, RX, RY, 60, 0, 200); h.wait(20); const v = both(h); h.up(b, RX + 60, RY); h.up(a, LX + 40, LY); return v; });
 row('touch', 'two thumbs, left first by 30 ms, both lift: the right thumb alone flies', (h) => { leftFirst(h); return dragAt(h, RX, RY); });
 row('touch', 'two thumbs, left first by 30 ms, both lift: a lone right stroke is a flick', (h) => { leftFirst(h); h.stroke(RX, RY, 0, -74, 85); h.wait(400); });
-row('touch', 'two thumbs, left first by 30 ms, both lift: two lone right strokes are turbo', (h) => { leftFirst(h); h.stroke(RX, RY, 0, -74, 85); h.wait(150); h.stroke(RX, RY, 0, -74, 85); h.wait(400); });
+row('touch', 'two thumbs, left first by 30 ms, both lift: two lone right strokes are two rungs', (h) => { leftFirst(h); h.stroke(RX, RY, 0, -74, 85); h.wait(150); h.stroke(RX, RY, 0, -74, 85); h.wait(400); });
 row('touch', 'two thumbs, left first by 30 ms, both lift: the left thumb alone looks', (h) => { leftFirst(h); return dragAt(h, LX, LY); });
 row('touch', 'two thumbs: the look goes on when the flying thumb lifts', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.slide(b, LX, LY, 60, 0, 200); h.up(a, RX + 30, RY); h.wait(30); const on = h.input.state.look.on, thumb = h.input.state.thumb; h.slide(b, LX + 60, LY, 30, 0, 100); const x = h.input.state.look.x; h.up(b, LX + 90, LY); return { on, thumb, x }; });
 row('touch', 'two thumbs: the bus flies on when the look lifts', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.slide(b, LX, LY, 60, 0, 200); h.up(b, LX + 60, LY); h.wait(30); const v = both(h); h.up(a, RX + 30, RY); return v; });
@@ -485,19 +475,19 @@ row('touch', 'lost: pointercancel on a lone stroke (no flick)', (h) => { const a
 row('touch', 'lost: a primary pointer retires what was left', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.slide(b, LX, LY, 60, 0, 200); const c = newId(); h.down(c, RX, RY); h.wait(30); const on = h.input.state.look.on; h.up(c, RX, RY); void a; return { on }; });
 row('touch', 'lost: a repeated id on the second thumb', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.slide(b, LX, LY, 60, 0, 200); h.down(b, LX, LY, false); h.wait(20); const on = h.input.state.look.on; h.up(b, LX, LY); h.up(a, RX + 30, RY); return { on }; });
 row('touch', 'lost: the app loses focus mid-look', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.slide(b, LX, LY, 60, 0, 200); win.dispatch('blur', {}); h.wait(30); const on = h.input.state.look.on, thumb = h.input.state.thumb; h.up(b, LX + 60, LY); h.up(a, RX + 30, RY); return { on, thumb }; });
-row('touch', 'lost: turbo survives the app losing focus', (h) => { const a = steer(h); double(h); h.wait(500); win.dispatch('blur', {}); h.up(a, RX + 30, RY); });
+row('touch', 'lost: turbo survives the app losing focus', (h) => { const a = steer(h); toJet(h); flickUp(h); h.wait(500); win.dispatch('blur', {}); h.up(a, RX + 30, RY); });
 
 // ---- keyboard, and the mouse
 row('keyboard', 'Space tap (100 ms)', (h) => { win.dispatch('keydown', key('Space')); h.wait(100); win.dispatch('keyup', key('Space')); });
 row('keyboard', 'Space hold 1.5 s (auto-repeat keydowns)', (h) => { win.dispatch('keydown', key('Space')); for (let i = 0; i < 10; i++) { h.wait(150); win.dispatch('keydown', key('Space', true)); } win.dispatch('keyup', key('Space')); });
 row('keyboard', 'Space hold 1 s, window blur', (h) => { win.dispatch('keydown', key('Space')); h.wait(1000); win.dispatch('blur', {}); win.dispatch('keyup', key('Space')); });
-row('keyboard', 'E: a gear, after the window', (h) => { win.dispatch('keydown', key('KeyE')); win.dispatch('keyup', key('KeyE')); });
-row('keyboard', 'E twice: turbo', (h) => { win.dispatch('keydown', key('KeyE')); win.dispatch('keyup', key('KeyE')); h.wait(200); win.dispatch('keydown', key('KeyE')); win.dispatch('keyup', key('KeyE')); });
-row('keyboard', 'E twice, four times: top level, then LOCKED', (h) => { for (let i = 0; i < 4; i++) { win.dispatch('keydown', key('KeyE')); win.dispatch('keyup', key('KeyE')); h.wait(200); win.dispatch('keydown', key('KeyE')); win.dispatch('keyup', key('KeyE')); h.wait(500); } });
+const press = (h: H, code: string) => { win.dispatch('keydown', key(code)); win.dispatch('keyup', key(code)); h.wait(100); };
+row('keyboard', 'E: a gear, at once', (h) => { win.dispatch('keydown', key('KeyE')); win.dispatch('keyup', key('KeyE')); });
+row('keyboard', 'E twice: two rungs', (h) => { press(h, 'KeyE'); press(h, 'KeyE'); });
+row('keyboard', 'E seven times: the top rung, then LOCKED', (h) => { for (let i = 0; i < 7; i++) press(h, 'KeyE'); });
 row('keyboard', 'E held: auto-repeat is one press', (h) => { win.dispatch('keydown', key('KeyE')); for (let i = 0; i < 5; i++) { h.wait(100); win.dispatch('keydown', key('KeyE', true)); } win.dispatch('keyup', key('KeyE')); });
-row('keyboard', 'Q: takes back, ends turbo, drops a gear', (h) => { h.drive.shift(1, h.flight); win.dispatch('keydown', key('KeyE')); h.wait(50); win.dispatch('keydown', key('KeyQ')); h.wait(500); win.dispatch('keydown', key('KeyE')); h.wait(100); win.dispatch('keydown', key('KeyE')); h.wait(500); win.dispatch('keydown', key('KeyQ')); h.wait(100); win.dispatch('keydown', key('KeyQ')); h.wait(100); });
-row('keyboard', 'Shift held 500 ms: the boost while held', (h) => { win.dispatch('keydown', key('ShiftLeft')); h.wait(500); const lv = h.drive.boosting; win.dispatch('keyup', key('ShiftLeft')); h.wait(100); return { boosting: lv, after: h.drive.boosting }; });
-row('keyboard', 'Shift on top of turbo: nothing to add, and letting go ends nothing', (h) => { win.dispatch('keydown', key('KeyE')); h.wait(100); win.dispatch('keydown', key('KeyE')); h.wait(500); win.dispatch('keydown', key('ShiftLeft')); h.wait(300); win.dispatch('keyup', key('ShiftLeft')); h.wait(100); return { boosting: h.drive.boosting }; });
+row('keyboard', 'Q steps down the ladder, a rung a press', (h) => { for (let i = 0; i < 6; i++) press(h, 'KeyE'); const seen: string[] = []; for (let i = 0; i < 7; i++) { press(h, 'KeyQ'); seen.push(rungName(h.drive.gear, h.drive.level)); } return { seen }; });
+row('keyboard', 'Shift is no key now', (h) => { win.dispatch('keydown', key('ShiftLeft')); h.wait(300); const boosting = h.drive.boosting; win.dispatch('keyup', key('ShiftLeft')); return { boosting }; });
 const mouse = { pointerType: 'mouse', button: 2 };
 const mouseL = { pointerType: 'mouse', button: 0 };
 row('keyboard', 'right mouse drag: looks, lets go on the lift', (h) => { const id = newId(); h.down(id, RX, RY, true, mouse); h.wait(20); const on = h.input.state.look.on; h.move(id, RX + 50, RY - 30, mouse); h.wait(20); const L = { ...h.input.state.look }; h.up(id, RX + 50, RY - 30, mouse); h.wait(20); return { on, L, after: h.input.state.look.on, thumb: h.input.state.thumb }; });
@@ -518,7 +508,7 @@ const atOf = (g: string, k: string) => { const e = by(g).events.find((x) => x.st
 const fails: string[] = [];
 let checks = 0;
 const ok = (c: boolean, m: string) => { checks++; if (!c) fails.push(m); };
-const quiet = (g: string) => ok(!by(g).events.some((e) => /^(flick|first|gated|back|up|down|turbo|locked|engage)/.test(e)), `no command: ${g}`);
+const quiet = (g: string) => ok(!by(g).events.some((e) => /^(flick|go|gated|back|up|down|turbo|locked|engage)/.test(e)), `no command: ${g}`);
 
 // the first thumb alone
 ok(taps('canvas: quick tap') === 1, 'quick tap');
@@ -533,7 +523,7 @@ ok(taps('canvas: two fingers, both lift at 400') === 1, 'two together at 400 ms:
 ok(taps('canvas: two fingers, both lift at 470') === 0, 'two together at 470 ms: none');
 ok(n('canvas: three fingers', 'tuner') === 1 && taps('canvas: three fingers') === 0, 'three fingers: the tuner, no tap');
 ok(taps('canvas: quick flick 20 px up') === 1, 'a small quick stroke up on the right half is a tap, not a flick');
-for (const r of rows) if (r.gesture.startsWith('canvas')) ok(!r.events.some((e) => /^(flick|first)/.test(e)), `a tap, a rest or a drag never shifts: ${r.gesture}`);
+for (const r of rows) if (r.gesture.startsWith('canvas')) ok(!r.events.some((e) => /^(flick|go)/.test(e)), `a tap, a rest or a drag never shifts: ${r.gesture}`);
 
 // the second thumb
 ok(!note('second: tap while steering').firedOnLanding, 'a second thumb does not fire on its landing');
@@ -562,8 +552,8 @@ ok(taps('second: two taps') === 2, 'each tap while steering is a tap');
 ok(note('second: rests 500').on, 'a rest, then a drag: a look at once');
 ok(taps('second: a tap with the first hand') === 1 && note('second: a tap with the first hand').on, 'a tap while the other thumb looks, and the look holds');
 ok(!note('second: a look does not count').thumb, 'a look is never st.thumb');
-ok(atOf('second: flick up', 'first') === atOf('second: flick up', 'flick+'), 'the first flick answers on its lift');
-ok(atOf('second: flick up', 'up') - atOf('second: flick up', 'first') >= 320 && atOf('second: flick up', 'up') - atOf('second: flick up', 'first') < 340, 'its gear bites 320 ms later');
+ok(atOf('second: flick up', 'go') === atOf('second: flick up', 'flick+'), 'a flick answers on its lift');
+ok(atOf('second: flick up', 'up') === atOf('second: flick up', 'flick+'), 'and its gear goes with it: there is nothing to wait for');
 ok(by('second: flick up').gear === 1 && taps('second: flick up') === 0, 'a gear, no tap');
 ok(by('second: flick up').look === null, 'a flick inside the look\'s delay never swings the view');
 ok(by('second: flick down at G0').gear === 0 && n('second: flick down at G0', 'down') === 0, 'nothing to drop');
@@ -578,74 +568,66 @@ quiet('second: out and back');
 ok(by('second: a flick at 30').gear === 1, 'a flick holds at 30 touches a second');
 ok(by('second: a flick with no move').gear === 1, 'a flick holds with no move event at all');
 
-// the ladder: six rungs, the sixth being the last gear with all of turbo on
+// the ladder: Cruise, Express, Nonstop, Jet, then turbo over the top gear in reach
 {
   const T = config.turbo, surge = config.flight.surgeSpeed;
   const near = (a: number, b: number) => Math.abs(a - b) < 0.01;
-  ok(GEAR_NAMES.join() === 'CRUISE,EXPRESS,JET,STRATOS,RAINBOW WARP' && GEAR_NAMES[EXPRESS] === 'EXPRESS' && GEAR_NAMES[JET] === 'JET' && GEAR_NAMES[STRATOS] === 'STRATOS' && GEAR_NAMES[WARP] === 'RAINBOW WARP', 'the ladder, by name');
-  ok(gearAlt(0) === 0 && gearAlt(EXPRESS) === 0 && gearAlt(JET) === 150 && gearAlt(STRATOS) === 2000 && gearAlt(WARP) === 10000, 'Express needs no height');
+  ok(GEAR_NAMES.join() === 'CRUISE,EXPRESS,NONSTOP,JET,STRATOS,RAINBOW WARP' && GEAR_NAMES[EXPRESS] === 'EXPRESS' && GEAR_NAMES[NONSTOP] === 'NONSTOP' && GEAR_NAMES[JET] === 'JET' && GEAR_NAMES[STRATOS] === 'STRATOS' && GEAR_NAMES[WARP] === 'RAINBOW WARP', 'the ladder, by name');
+  ok(gearAlt(0) === 0 && gearAlt(EXPRESS) === 0 && gearAlt(NONSTOP) === 60 && gearAlt(JET) === 150 && gearAlt(STRATOS) === 2000 && gearAlt(WARP) === 10000, 'Express needs no height, Nonstop 60 m, Jet its 150');
   const d = new TurboDrive(BOUNDS);
-  ok(d.maxGear === JET, 'unlocked with no world travel: Cruise, Express, Jet');
+  ok(d.maxGear === JET, 'unlocked with no world travel: up to Jet');
   T.worldTravel = true;
-  ok(d.maxGear === WARP, 'with world travel: all five');
+  ok(d.maxGear === WARP, 'with world travel: all of them');
   T.worldTravel = false;
-  ok(driveSpeed(0, 0, false) === 0, 'Cruise with no turbo: nothing drives');
+  ok(driveSpeed(0, 0, false) === 0, 'Cruise: nothing drives');
+  ok(driveSpeed(0, 1, false) === 0 && driveSpeed(0, 3, true) === 0, 'Cruise has no turbo of its own');
   ok(driveSpeed(EXPRESS, 0, true) === surge, 'Express is the surge');
-  ok(driveSpeed(JET, 0, true) === 450 && driveSpeed(JET, 0, false) === surge, 'Jet, and a full surge while it lifts');
-  for (const [lv, want] of [[1, 145.6], [2, 179.2], [3, 224]]) {
-    ok(near(driveSpeed(0, lv, false), want), `Cruise's level ${lv} sits on the surge`);
-    ok(near(driveSpeed(EXPRESS, lv, true), want), `Express's level ${lv}: the same`);
-  }
-  ok(near(driveSpeed(JET, 1, true), 585) && near(driveSpeed(JET, 2, true), 720) && near(driveSpeed(JET, 3, true), 900), 'Jet\'s levels stand');
-  ok(driveSpeed(0, 1, false) > driveSpeed(EXPRESS, 0, true), 'from Cruise two quick flicks beat one');
+  ok(driveSpeed(NONSTOP, 0, true) === 225 && driveSpeed(NONSTOP, 0, false) === surge, 'Nonstop, and the rung below while it lifts');
+  ok(driveSpeed(JET, 0, true) === 450 && driveSpeed(JET, 0, false) === 225, 'Jet, and the rung below while it lifts: a hop gives nothing back');
+  ok(near(driveSpeed(JET, 1, true), 585) && near(driveSpeed(JET, 2, true), 720) && near(driveSpeed(JET, 3, true), 900), 'turbo is Jet\'s speed x the levels');
+  ok(['CRUISE', 'EXPRESS', 'NONSTOP', 'JET'].every((nm, i) => rungName(i, 0) === nm) && rungName(JET, 1) === 'TURBO' && rungName(JET, 2) === 'TURBO 2' && rungName(JET, 3) === 'TURBO 3', 'every rung has its name');
 }
 
-// two flicks, and turbo
-ok(by('double: turbo').level === 1 && by('double: turbo').gear === 0 && n('double: turbo', 'up') === 0, 'a double is turbo, with the gear dropped');
-ok(atOf('double: turbo', 'turbo') > 0 && taps('double: turbo') === 0, 'turbo at the second lift');
-ok(by('double: from no thumb').level === 1 && by('double: from no thumb').gear === 0, 'a double from nothing on the glass');
-ok(by('double: the second lands inside').level === 1 && by('double: the second lands inside').gear === 0 && n('double: the second lands inside', 'locked') === 0, 'the gear waits for a stroke that landed in the window');
+// one flick, one rung
+ok(by('second: flick up').gear === 1 && n('second: flick up', 'go') === 1 && n('second: flick up', 'up') === 1, 'one flick, one rung, one answer');
+ok(by('ladder: two quick flicks').gear === NONSTOP && by('ladder: two quick flicks').level === 0 && n('ladder: two quick flicks', 'up') === 2 && n('ladder: two quick flicks', 'turbo') === 0, 'two quick flicks are two rungs: no double');
+ok(by('ladder: two quick lone left').gear === NONSTOP && by('ladder: two quick lone left').level === 0, 'from nothing on the glass too');
 {
-  const r = by('double: the second lands past');
-  ok(r.level === 0 && r.gear === JET && n('double: the second lands past', 'locked') === 0, `past the window: a gear, then the next: ${r.events}`);
-  const j = by('double: past the window at Jet');
-  ok(j.level === 0 && j.gear === JET && n('double: past the window at Jet', 'locked') === 2, `past the last gear: LOCKED: ${j.events}`);
+  const r = by('ladder: spaced flicks'), v = note('ladder: spaced flicks');
+  ok(v.one === EXPRESS && v.engaged && r.gear === NONSTOP && r.level === 0, `spaced or quick is the same two rungs: ${r.events}`);
+  ok(n('ladder: spaced flicks', 'engage1') === 0, 'Express has no height to reach: no engage of its own');
 }
-ok(by('double: at the last').level === 1 && n('double: at the last', 'locked') === 0, 'at the last gear a double is turbo, with no LOCKED');
+ok(note('ladder: rung by rung').seen.join() === 'EXPRESS,NONSTOP,JET,TURBO,TURBO 2,TURBO 3', `the ladder, flick by flick: ${note('ladder: rung by rung').seen}`);
+ok(n('ladder: rung by rung', 'turbo') === 3 && n('ladder: rung by rung', 'go') === 6, 'three of them are turbo, and every one is answered');
 {
-  const r = by('two spaced flicks'), v = note('two spaced flicks');
-  ok(v.one === EXPRESS && v.engaged && r.gear === JET && r.level === 0 && n('two spaced flicks', 'up') === 2 && n('two spaced flicks', 'turbo') === 0, `one flick is Express, in on the shift; a second after the window is Jet: ${r.events}`);
-  ok(n('two spaced flicks', 'engage1') === 0, 'Express has no height to reach: no engage of its own');
+  const r = by('ladder: past the last rung'), v = note('ladder: past the last rung');
+  ok(r.gear === JET && r.level === 3 && n('ladder: past the last rung', 'locked') === 1, `past the last rung: LOCKED, and the level stands: ${r.events}`);
+  ok(v.now.some((e: string) => e.startsWith('locked')) && !v.now.some((e: string) => e.startsWith('go')), `LOCKED on the flick, and it is its own answer: ${v.now}`);
 }
-ok(note('flick down steps').one === EXPRESS && by('flick down steps').gear === 0 && n('flick down steps', 'down') === 2, 'a flick down steps Jet to Express to Cruise');
+ok(by('ladder: turbo stays on').level === 1, 'turbo stays on with no thumb held');
+ok(note('ladder: down from the top').seen.join() === 'TURBO 2,TURBO,JET,NONSTOP,EXPRESS,CRUISE', `a flick down is one rung, turbo first: ${note('ladder: down from the top').seen}`);
+ok(by('ladder: a flick up over a level').gear === JET && by('ladder: a flick up over a level').level === 2, 'turbo comes back up where it left off');
 {
-  const r = by('flick up with turbo on');
-  ok(r.level === 1 && r.gear === 1, 'a flick with turbo on is a gear, turbo stays');
+  const v = note('ladder: with world travel');
+  ok(v.seen.join() === 'EXPRESS,NONSTOP,JET,STRATOS,RAINBOW WARP,TURBO,TURBO 2,TURBO 3' && v.now.some((e: string) => e.startsWith('locked')), `with world travel on, turbo sits over Rainbow Warp: ${v.seen}`);
 }
-ok(by('stack: a second').level === 2, 'a second double: level 2');
-ok(by('stack: a third').level === 3, 'a third double: level 3');
-ok(by('stack: a fourth').level === 3 && n('stack: a fourth', 'locked') === 1, 'a fourth: LOCKED, the level stands');
-ok(by('flick down ends').level === 0 && by('flick down ends').gear === 1, 'one flick down ends all turbo, the gear stays');
-ok(by('the next flick down').level === 0 && by('the next flick down').gear === 0, 'the next drops the gear');
-ok(by('undo: a flick down').gear === 0 && n('undo: a flick down', 'up') === 0 && n('undo: a flick down', 'back') === 1, 'undo');
-ok(by('undo: with turbo on').gear === 0 && by('undo: with turbo on').level === 1, 'undo leaves turbo on');
-ok(by('undo: a flick down past the window, Express').gear === 0 && n('undo: a flick down past the window, Express', 'down') === 1 && n('undo: a flick down past the window, Express', 'back') === 0 && note('undo: a flick down past the window, Express').hold === -Infinity, 'out of Express, past the window, it is a gear down and the hold is left alone');
-ok(by('undo: a flick down past the window, Jet').gear === EXPRESS && n('undo: a flick down past the window, Jet', 'down') === 1 && note('undo: a flick down past the window, Jet').hold === 400, 'past the window, Jet in, it is a gear down that holds the height');
+ok(by('undo: a flick down right after').gear === 0 && n('undo: a flick down right after', 'up') === 1 && n('undo: a flick down right after', 'down') === 1 && n('undo: a flick down right after', 'back') === 0, 'a flick down right after a flick up is a rung down: there is no window to take it back from');
+ok(by('undo: a flick down, Express').gear === 0 && n('undo: a flick down, Express', 'down') === 1 && note('undo: a flick down, Express').hold === -Infinity, 'out of Express it is a gear down and the hold is left alone');
+ok(by('undo: a flick down, Nonstop').gear === EXPRESS && n('undo: a flick down, Nonstop', 'down') === 1 && note('undo: a flick down, Nonstop').hold === 400, 'Nonstop in, it is a gear down that holds the height');
+ok(by('undo: a flick down, Jet').gear === NONSTOP && n('undo: a flick down, Jet', 'down') === 1 && note('undo: a flick down, Jet').hold === 400, 'Jet in, the same');
 ok(note('undo: a gear still').lifting && by('undo: a gear still').gear === EXPRESS && note('undo: a gear still').hold === -Infinity, 'a gear still lifting leaves the bus\'s hold as it was');
-ok(note('LOCKED waits').early.length === 0 && n('LOCKED waits', 'locked') === 1, 'LOCKED only once the window has closed');
 {
   const v = note('the gate: a flick is answered');
   ok(n('the gate: a flick is answered', 'gated') === 1, 'the gate answers at once');
-  ok(v.armed && v.gated && v.g0 === 0, 'it waits behind the gate');
+  ok(v.armed && v.g0 === 0, 'it waits behind the gate');
   ok(by('the gate: a flick is answered').gear === 1, 'and fires when the gate clears');
 }
 ok(by('the gate: a flick down').gear === 0 && n('the gate: a flick down', 'back') === 1, 'taken back behind the gate');
-ok(by('the gate: inside the window').gear === 0, 'taken back inside the window');
-ok(by('the gate: a double').level === 1 && by('the gate: a double').gear === 0, 'a double under the gate: turbo, no gear behind it');
+ok(note('the gate: two flicks wait').g0 === 0 && by('the gate: two flicks wait').gear === NONSTOP, 'a flick is a rung behind the gate too');
+ok(note('the gate: a flick down takes back one').armed && by('the gate: a flick down takes back one').gear === EXPRESS, 'a flick down takes back one of them');
 {
   const v = note('the gate: a lone left flick');
-  ok(n('the gate: a lone left flick', 'gated') === 1 && v.armed && v.gated && v.g0 === 0 && by('the gate: a lone left flick').gear === 1, `a lone left flick under the gate is the same flick: ${JSON.stringify(v)}`);
-  ok(by('the gate: a lone left double').level === 1 && by('the gate: a lone left double').gear === 0, 'and so is a lone left double');
+  ok(n('the gate: a lone left flick', 'gated') === 1 && v.armed && v.g0 === 0 && by('the gate: a lone left flick').gear === 1, `a lone left flick under the gate is the same flick: ${JSON.stringify(v)}`);
 }
 
 // the lone strokes
@@ -690,27 +672,21 @@ ok(by('lone right: sideways').thumb, 'sideways it carves');
 for (const hand of ['right', 'left']) {
   const g = (rest: string) => `${hand} thumb: ${rest}`;
   ok(note(g('a gear up')).one === EXPRESS && by(g('a gear up')).gear === 0, `${hand}: up a gear, down a gear`);
-  ok(by(g('two spaced')).gear === JET && by(g('two spaced')).level === 0, `${hand}: two spaced flicks are Jet`);
-  ok(by(g('turbo, the waiting')).level === 1 && by(g('turbo, the waiting')).gear === 0 && n(g('turbo, the waiting'), 'up') === 0, `${hand}: two quick flicks are turbo`);
-  ok(by(g('the second lands inside')).level === 1 && by(g('the second lands inside')).gear === 0, `${hand}: the gear waits for a stroke that landed in the window`);
-  ok(by(g('the second lands past')).level === 0 && by(g('the second lands past')).gear === JET, `${hand}: past the window, a gear and the next`);
-  ok(by(g('a soft second stroke')).level === 1 && by(g('a soft second stroke')).gear === 0, `${hand}: the second stroke of a pair reads the second thumb's rule`);
+  ok(by(g('two spaced')).gear === NONSTOP && by(g('two spaced')).level === 0, `${hand}: two spaced flicks are Nonstop`);
+  ok(by(g('two quick')).gear === NONSTOP && by(g('two quick')).level === 0 && n(g('two quick'), 'turbo') === 0, `${hand}: two quick flicks are the same`);
   if (hand === 'right') {
-    ok(by(g('the same soft stroke past')).level === 0 && by(g('the same soft stroke past')).gear === EXPRESS && n(g('the same soft stroke past'), 'flick') === 1, 'right: past the window the same stroke is steering');
-    ok(by(g('the same soft stroke with')).level === 0 && by(g('the same soft stroke with')).gear === EXPRESS && n(g('the same soft stroke with'), 'flick') === 1, 'right: loneAgainMs 0 is the firm rule');
+    ok(by(g('a soft stroke right after')).gear === EXPRESS && n(g('a soft stroke right after'), 'flick') === 1, 'right: a stroke after a flick is on the firm rule like any other: the easier rule went with the double');
     quiet(g('a soft first stroke'));
   } else {
     // (the zone steers nothing, so it has the easy rule all the time)
-    ok(n(g('the same soft stroke past'), 'flick') === 2 && by(g('the same soft stroke past')).gear === JET, 'left: past the window it is a flick all the same');
-    ok(by(g('the same soft stroke with')).level === 1, 'left: loneAgainMs has nothing to say');
+    ok(n(g('a soft stroke right after'), 'flick') === 2 && by(g('a soft stroke right after')).gear === NONSTOP, 'left: a flick all the same');
     ok(by(g('a soft first stroke')).gear === EXPRESS, 'left: a soft first stroke is a flick');
   }
-  ok(by(g('a second double')).level === 2, `${hand}: a second double, level 2`);
-  ok(by(g('six flicks')).level === 3 && by(g('six flicks')).gear === 0, `${hand}: six flicks in a row, the top level, no gear`);
-  ok(by(g('a fourth double')).level === 3 && n(g('a fourth double'), 'locked') === 1, `${hand}: a fourth double is LOCKED`);
-  ok(note(g('flick down ends')).level === 0 && note(g('flick down ends')).gear === 1 && by(g('flick down ends')).gear === 0, `${hand}: down ends all turbo, the next a gear`);
-  ok(by(g('a flick down takes')).gear === 0 && n(g('a flick down takes'), 'back') === 1 && n(g('a flick down takes'), 'up') === 0, `${hand}: a flick down before the gear bites takes it back`);
-  ok(by(g('a gear taken back')).gear === 0 && by(g('a gear taken back')).level === 1, `${hand}: a take-back leaves turbo`);
+  ok(by(g('six flicks')).gear === JET && by(g('six flicks')).level === 3, `${hand}: six flicks in a row, the top rung`);
+  ok(by(g('a seventh')).level === 3 && n(g('a seventh'), 'locked') === 1, `${hand}: a seventh is LOCKED`);
+  ok(note(g('a flick down drops')).level === 2 && note(g('a flick down drops')).gear === JET, `${hand}: a flick down is one rung, turbo first`);
+  ok(by(g('six flicks down')).gear === 0 && by(g('six flicks down')).level === 0 && n(g('six flicks down'), 'turbo-down') === 3, `${hand}: six down is Cruise`);
+  ok(by(g('a flick straight back')).gear === 0 && n(g('a flick straight back'), 'up') === 1 && n(g('a flick straight back'), 'down') === 1, `${hand}: up and straight back is a rung each way`);
   ok(note(g('a gear still lifting')).lifting && by(g('a gear still lifting')).gear === EXPRESS && note(g('a gear still lifting')).hold === -Infinity, `${hand}: a gear still lifting is taken back, the hold as it was`);
   for (const r of rows) if (r.gesture.startsWith(`${hand} thumb:`)) ok(hand === 'right' ? r.look === null : !r.thumb && !r.dragging, `${hand === 'right' ? 'one thumb never looks' : 'the left zone never flies'}: ${r.gesture}`);
 }
@@ -720,12 +696,15 @@ for (const who of ['right', 'left', 'second']) {
   const g = (rest: string) => `flown, ${who}: ${rest}`;
   const skims = (name: string) => { const v = note(g(name)); ok(v.hold === -Infinity && v.mode === 0 && Math.abs(v.over) < 1, `${who}: ${name}: ${JSON.stringify(v)}`); };
   skims('out of Express');
-  skims('turbo off at Cruise');
-  skims("the window's take-back");
-  skims('Jet still lifting');
-  ok(note(g('Jet still lifting')).rose > 30 && note(g('Jet still lifting')).gear === EXPRESS, `${who}: it had really lifted, and the gear went back`);
+  skims('Express and straight back');
+  skims('Nonstop still lifting');
+  ok(note(g('Nonstop still lifting')).rose > 10 && note(g('Nonstop still lifting')).lifting && note(g('Nonstop still lifting')).gear === EXPRESS, `${who}: it had really lifted, and the gear went back: ${JSON.stringify(note(g('Nonstop still lifting')))}`);
+  { const v = note(g('Jet still lifting over Nonstop')); ok(v.lifting && v.rose > 10 && v.gear === NONSTOP && v.engaged && Math.abs(v.y - v.floor) < 3, `${who}: it goes back to Nonstop, on Nonstop's floor: ${JSON.stringify(v)}`); }
   ok(note(g('holding 400 m')).hold === 400, `${who}: holding stays holding, where it was: ${JSON.stringify(note(g('holding 400 m')))}`);
-  { const v = note(g('Jet that bit')); ok(Number.isFinite(v.hold) && Math.abs(v.y - v.y0) < 40 && v.gear === EXPRESS, `${who}: out of a gear that bit it holds the height: ${JSON.stringify(v)}`); }
+  { const v = note(g('Nonstop that bit')); ok(Number.isFinite(v.hold) && Math.abs(v.y - v.y0) < 20 && v.gear === EXPRESS, `${who}: out of a gear that bit it holds the height: ${JSON.stringify(v)}`); }
+  { const v = note(g('Jet that bit')); ok(Number.isFinite(v.hold) && Math.abs(v.y - v.y0) < 40 && v.gear === NONSTOP, `${who}: and out of Jet: ${JSON.stringify(v)}`); }
+  { const v = note(g('a turbo level down: on')); ok(v.hold === -Infinity && v.mode === 0 && v.level === 0 && v.gear === JET && Math.abs(v.y - v.y0) < 3, `${who}: a level down hands back the hold, skimming Jet's floor: ${JSON.stringify(v)}`); }
+  { const v = note(g('a turbo level down, holding')); ok(v.hold === 900 && v.level === 0, `${who}: and a hold stands: ${JSON.stringify(v)}`); }
 }
 {
   const v = note('flown: with nothing to do');
@@ -852,7 +831,7 @@ for (const g of ['two thumbs, left first:', 'two thumbs, right first:', 'two thu
   ok(v.thumb && v.look && v.sx > 0.2 && v.x === 60, `the one in the zone looks and the other flies: ${g}: ${JSON.stringify(v)}`);
 }
 flies('two thumbs, left first by 30 ms, both lift: the right');
-ok(by('two thumbs, left first by 30 ms, both lift: a lone right').gear === 1 && by('two thumbs, left first by 30 ms, both lift: two lone right').level === 1, 'a lone right stroke commands, whatever landed first');
+ok(by('two thumbs, left first by 30 ms, both lift: a lone right').gear === 1 && by('two thumbs, left first by 30 ms, both lift: two lone right').gear === NONSTOP, 'a lone right stroke commands, whatever landed first');
 looks('two thumbs, left first by 30 ms, both lift: the left');
 {
   const v = note('two thumbs: the look goes on');
@@ -910,7 +889,7 @@ ok(taps('three: the next touch') === 1, 'the next touch is fresh');
 // a lost pointer
 ok(!note('lost: the last touch ended').on && !note('lost: the last touch ended').thumb, 'no touches left: everything lets go');
 ok(taps('lost: the last touch ended') === 1, 'and the next touch is a fresh one');
-ok(by('lost: a stroke queued').level === 1, 'a stroke queued behind a touchend is the second flick');
+ok(by('lost: a stroke queued').gear === NONSTOP, 'a stroke queued behind a touchend is the next flick');
 ok(!note('lost: pointercancel on the second').on, 'cancel ends the look');
 quiet('lost: pointercancel on the second');
 ok(taps('lost: pointercancel on a quick') === 0, 'a cancelled second thumb never taps');
@@ -922,16 +901,11 @@ ok(by('lost: turbo survives').level === 1, 'turbo is latched, it doesn\'t need a
 
 // keyboard and mouse
 ok(by('E: a gear').gear === 1, 'E is a gear');
-ok(by('E twice:').level === 1 && by('E twice:').gear === 0, 'E twice is turbo');
-ok(by('E twice, four').level === 3 && n('E twice, four', 'locked') === 1, 'E stacks too');
+ok(by('E twice:').gear === NONSTOP && by('E twice:').level === 0, 'E twice is two rungs');
+ok(by('E seven').gear === JET && by('E seven').level === 3 && n('E seven', 'locked') === 1, 'E climbs the ladder, then LOCKED');
 ok(n('E held', 'flick+') === 1, 'auto-repeat is one press');
-{
-  const e = by('Q: takes back').events.map((x) => x.split('@')[0]);
-  ok(e.includes('back') && e.indexOf('turbo-off0') > e.indexOf('back') && e.indexOf('down0') > e.indexOf('turbo-off0'), `Q undoes, ends turbo, drops a gear: ${e}`);
-  ok(by('Q: takes back').gear === 0 && by('Q: takes back').level === 0, 'and leaves nothing on');
-}
-ok(note('Shift held').boosting && !note('Shift held').after, 'Shift holds the boost');
-ok(note('Shift on top').boosting && by('Shift on top').level === 1, 'Shift ends nothing');
+ok(note('Q steps').seen.join() === 'TURBO 2,TURBO,JET,NONSTOP,EXPRESS,CRUISE,CRUISE', `Q steps down it: ${note('Q steps').seen}`);
+ok(!note('Shift is no key').boosting && by('Shift is no key').level === 0, 'Shift is no key: a held boost has nothing to sit on at Cruise');
 {
   const v = note('right mouse drag');
   ok(v.on && Math.round(v.L.x) === 50 && Math.round(v.L.y) === 30 && !v.after && !v.thumb, `the right mouse looks: ${JSON.stringify(v)}`);
@@ -971,7 +945,7 @@ ok(readFlick(36, 0, 80, 36, 200, 0.4, 40) === 0, 'sideways is none');
   ok(migratePrefs(null).prefs !== null && !migratePrefs('x').changed && !migratePrefs([1]).changed, 'junk in the save is no save');
 }
 
-for (const r of rows) console.log(`${r.mode.padEnd(8)} | ${r.gesture.padEnd(76)} | ${r.events.join(', ') || '-'}${r.maxChargeHeld ? ` | chargeHeld max ${r.maxChargeHeld}` : ''}${r.thumb ? ' | steering' : ''}${r.look ? ` | look ${r.look.from}-${r.look.to} ms, ${r.look.max} px` : ''}${r.gear ? ` | G${r.gear}` : ''}${r.level ? ` | turbo ${r.level}` : ''}${r.turboHeld ? ' | turboHeld' : ''}`);
+for (const r of rows) console.log(`${r.mode.padEnd(8)} | ${r.gesture.padEnd(76)} | ${r.events.join(', ') || '-'}${r.maxChargeHeld ? ` | chargeHeld max ${r.maxChargeHeld}` : ''}${r.thumb ? ' | steering' : ''}${r.look ? ` | look ${r.look.from}-${r.look.to} ms, ${r.look.max} px` : ''}${r.gear ? ` | G${r.gear}` : ''}${r.level ? ` | turbo ${r.level}` : ''}`);
 void doc;
 console.log(fails.length ? `FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `gesture checks: all ${checks} passed (${rows.length} rows)`);
 process.exit(fails.length ? 1 : 0);
