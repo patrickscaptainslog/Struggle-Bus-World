@@ -353,11 +353,11 @@ export class PixelPipeline implements WarmPipeline {
    * of the visible image (u, v in 0..1, v up): white-hot around it, every
    * other pixel a couple of palette steps lighter (never a free color).
    */
-  flash(u: number, v: number, frames: number, strength: number) {
+  flash(u: number, v: number, frames: number, strength: number, radius = 0.075) {
     const { width: w, height: h } = this.info;
     const W = w + MARGIN * 2, H = h + MARGIN * 2;
     this.flashLeft = Math.max(this.flashLeft, Math.round(frames));
-    this.flashU.set((MARGIN + u * w) / W, (MARGIN + v * h) / H, strength, 0.075);
+    this.flashU.set((MARGIN + u * w) / W, (MARGIN + v * h) / H, strength, radius);
   }
 
   /**

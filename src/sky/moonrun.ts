@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { AudioEngine } from '../audio/AudioEngine';
 import { BusModel, type BusPose } from '../bus/BusModel';
 import { config } from '../config';
+import { busRig, busSize, type BusRig } from '../game/busSize';
 import { Input } from '../game/Input';
 import { globals } from '../render/materials';
 import type { PixelPipeline } from '../render/PixelPipeline';
@@ -9,15 +10,17 @@ import type { WarmUp } from '../render/warmup';
 import { Hud } from '../ui/Hud';
 import { Perf } from '../ui/Perf';
 import { C, HUD_SMALL, PixelCanvas, textWidth } from '../ui/pixelUi';
-import { MoonBreath } from './MoonBreath';
-import { LEG_NAMES, MoonTrip } from './MoonTrip';
+import { Tuner } from '../ui/Tuner';
+import { registerTunables } from '../ui/tunables';
+import { breathTune, MoonBreath } from './MoonBreath';
+import { LEG_NAMES, MoonTrip, PULL, TAU } from './MoonTrip';
 import { series } from './Series';
 import { SkyClock } from './SkyClock';
 import { SkyDraw } from './SkyDraw';
-import { EARTH, MOON, R_MOON, SkyModel, SkyState, type Observer } from './SkyModel';
+import { EARTH, MOON, R_EARTH_A, R_MOON, SkyModel, SkyState, type Observer } from './SkyModel';
 import { applySpaceTable } from './SkyTable';
-import { SpaceFx } from './SpaceFx';
-import { TripView } from './TripView';
+import { SpaceFx, spaceFxTune } from './SpaceFx';
+import { AHEAD, SWING, TripView } from './TripView';
 import { geodeticToFix, sphereToFix } from './WorldFrame';
 
 // ?moonrun: MOONSHOT.md's black box. Space only: no city streams, the bus sits at the render origin, and the real pipeline and resolve draw it. Earth, Moon and Sun come from the real sky
@@ -30,13 +33,14 @@ import { geodeticToFix, sphereToFix } from './WorldFrame';
 // The lens first if it changes (`pipeline.setHfov`): `draw.update` reads the focal length. Open-space flight is `free: true`: pos in EQJ km from Earth's centre, axes the render axes in EQJ by rows, as
 // view=mid does; it needs no handover all the way to the Moon, and rebaseBody is there for when a Moon-fixed orbit wants it. The bus never leaves the render origin, so speed reaches the frame only through
 // the Observer. The camera may turn freely: rays and stars both go through the snapped camera. Whatever else draws goes into the scene before `warm.add(scene)`, or it compiles in flight.
+// The bus's size on screen is game/busSize.ts's, by the height: the rig stands off and the bus lets go of its heroic scale, so it's a speck against a body, and what goes with it thins to match.
+// `?tau=` sets the way in's time constant, and `?tune` (or three fingers) opens the tuner, whose "Moon run" rows are live: the way in, the view, the bus and what goes with it.
 // A tap in orbit is a breath: MoonBreath.ts, after the sky and the view; the paint it leaves is MoonPaint.ts's map, read by the resolve's spaceMoon. A hit-stop holds `dt` and not the screen's `real`.
 
 const DEG = Math.PI / 180;
 /** Half the portrait's vertical field on the 38 degree lens, degrees: what the rig's pitch rule is measured with (earth/geom.py). */
 const HALF_V = 36.87;
 const R_VIEW_EARTH = 6371;
-const TAN19 = Math.tan(19 * DEG);
 
 type V3 = [number, number, number];
 const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -147,6 +151,9 @@ function readView(params: URLSearchParams, model: SkyModel, sky: SkyState, ms: n
 
 const thousands = (n: number) => Math.round(n).toLocaleString('en-US');
 
+/** The tuner's rows for the flight, read every frame. The bus's and the trail's live with those. */
+const tripTune = { tau: TAU, pullDegS: PULL / DEG, swing: SWING, ahead: AHEAD };
+
 /** The label's font, with the one sign the HUD has never needed. */
 const LABEL: typeof HUD_SMALL = { ...HUD_SMALL, glyphs: new Map(HUD_SMALL.glyphs).set('%', { w: 3, bits: Uint8Array.from([1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1]) }) };
 
@@ -213,7 +220,6 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   if (params.has('airpx')) draw.airPx = Number(params.get('airpx')) || draw.airPx;
   scene.add(draw.object);
   const bus = new BusModel();
-  bus.root.scale.setScalar(config.camera.heroScaleVista);
   bus.root.visible = pose ? pose.showBus : params.get('bus') !== '0';
   scene.add(bus.root);
   const fx = flying ? new SpaceFx(bus.length) : null;
@@ -230,12 +236,16 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   pipeline.setHfov(lens);
   pipeline.setDepthRange(1.5, 30000);
   const focalAt = () => 1 / pipeline.pixelWorldSize(1);
-  /** The rig's distance over the 38 degree lens's: it keeps the bus's size on screen through a lens change. */
+  /** The rig's distance over the old chase's: what stands round the bus goes with it. */
   let rigScale = 1;
+  const rig: BusRig = { px: 0, hero: 1, distance: config.camera.distanceVista };
   const placeCamera = () => {
-    rigScale = view ? TAN19 / Math.tan((view.hfov * DEG) / 2) : 1;
+    busRig(trip ? Math.min(trip.hEarth, trip.hMoon) : Math.min(sky.earthKm - R_EARTH_A, sky.moonKm - R_MOON), focalAt(), pipeline.info.width, bus.length, rig);
+    rigScale = rig.distance / config.camera.distanceVista;
+    bus.root.scale.setScalar(rig.hero);
+    breath.setRig(rigScale);
     // (a quarter of the frame under its middle, the bus's row at 852 tall, wherever a browser's bars leave the bottom)
-    const D = config.camera.distanceVista * rigScale, row = (0.25 * pipeline.info.height) / focalAt();
+    const D = rig.distance, row = (0.25 * pipeline.info.height) / focalAt();
     const k = D / Math.sqrt(1 + row * row);
     camera.position.set(0, k * row, k);
     camera.quaternion.setFromAxisAngle(pitchAxis, breath.kick);
@@ -248,6 +258,15 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   };
   fitView();
   placeCamera();
+  // the tuner, as the street's: `?tune` or three fingers
+  const tuner = new Tuner();
+  registerTunables('Moon run', tripTune, { tau: [4, 30, 0.5], pullDegS: [1, 10, 0.1], swing: [0.2, 1.5, 0.01], ahead: [0.2, 1, 0.01] });
+  registerTunables('Moon run: the bus', busSize, { farPx: [4, 30, 0.5], midPx: [8, 40, 0.5], midKm: [2, 60, 1] });
+  registerTunables('Moon run: what goes with it', spaceFxTune, { linePx: [1, 3, 0.1], lineLong: [0.005, 0.05, 0.001], thread: [0.05, 1, 0.01] });
+  registerTunables('Moon run: the breath', breathTune, { thin: [0.05, 1, 0.01], flash: [0.005, 0.1, 0.005] });
+  if (params.has('tune')) tuner.toggle();
+  // (the URL wins over a saved row)
+  if (params.has('tau')) tripTune.tau = Number(params.get('tau')) || TAU;
   if (pose) {
     const z = pose.busFwd.clone().negate();
     const x = pose.busUp.clone().cross(z).normalize();
@@ -261,6 +280,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   const hud = input ? new Hud(input, { onTiltToggle() {}, onChip() {}, onSensitivity() {}, onRecenter() {}, onMute() {}, onSwap() {}, onSettings() {}, onGesture() {} }) : null;
   const label = flying ? tripLabel() : null;
   if (input && hud && trip) {
+    input.onTripleFinger = () => tuner.toggle();
     input.onTurbo = (dir) => {
       if (dir < 0) trip.shiftDown();
       else if (pressTaken) pressTaken = false;
@@ -339,6 +359,10 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
         pressTaken = held;
         if (held) trip.tap();
       }
+      trip.tau = tripTune.tau;
+      trip.pull = tripTune.pullDegS * DEG;
+      view.swing = tripTune.swing;
+      view.ahead = tripTune.ahead;
       trip.step(dt, trip.steering && st.dragging ? st.stretch.x : 0);
       view.update(dt, trip, st.stretch.x, st.stretch.y, st.dragging, lensParam);
       pipeline.setHfov(view.hfov);
@@ -346,6 +370,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
       bus.root.quaternion.copy(view.busQuat);
     }
     model.frame(trip ? trip.ms : clock.now(), (trip ?? pose!).ob, sky);
+    if (pose) placeCamera();
     draw.update(sky);
     globals.uSunDir.value.set(sky.sun[0], sky.sun[1], sky.sun[2]);
     // (in Earth's shadow the bus has only its ambient)
@@ -356,7 +381,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
     bus.root.updateMatrixWorld(true);
     breath.update(dt, real, sky, trip?.leg === 'orbit', camera);
     if (trip && view && fx) {
-      fx.update(dt, trip.v, trip.dir, trip.ob.axes, view.flying, view.nosing, camera, bus.root, rigScale, pipeline.pixelWorldSize(1));
+      fx.update(dt, trip.v, trip.dir, trip.ob.axes, view.flying, view.nosing, camera, bus.root, rigScale, pipeline.pixelWorldSize(1), rig.px);
       // (the readout's names stop at G3 and the label says the gear: TURBO and its down tab are all that's wanted from the HUD)
       hud?.update(dt, { gear: trip.gear, maxGear: 5, engaged: true, boosting: false, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity, tiltState: 'none', gearDown: trip.canShiftDown });
       if (frames % 6 === 0) label?.(trip, breath);
