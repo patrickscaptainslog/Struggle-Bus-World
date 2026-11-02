@@ -205,7 +205,7 @@ export class SpaceFx {
             if (edge > 1.0) discard;
             float clump = 0.66 * sfNoise(vec2(along * 0.9, side * 1.3 + 5.0)) + 0.34 * sfNoise(vec2(along * 2.3, side * 3.1 + 9.0));
             float near = smoothstep(55.0, 175.0, length(vP - cameraPosition));
-            float keep = ((1.0 - vU) * 1.55 - edge * edge * 0.3) * near;
+            float keep = ((1.0 - vU) * 1.55 - edge * edge * 0.3) * near * uTrail.w;
             if (clump + (sfBayer4(ivec2(gl_FragCoord.xy)) - 0.5) * 0.1 > keep) discard;
             float band = floor(clamp(side * 0.5 + 0.5, 0.0, 0.9999) * 6.0);
             float fresh = 1.0 - vU;
@@ -246,7 +246,8 @@ export class SpaceFx {
       U.uCenter.value.multiplyScalar(0.45).addScaledVector(flying, sp * 0.08);
       if (origin) U.uCenter.value.add(origin);
     }
-    const tr = smooth01(5, 60, v);
+    // (it comes and goes by dissolving back along itself: a ribbon this size can't go out in a frame)
+    const tr = smooth01(5, 20, v);
     this.trail.visible = tr > 0.01;
     if (this.trail.visible) {
       const U = this.trailU;
