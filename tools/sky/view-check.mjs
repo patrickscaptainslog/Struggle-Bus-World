@@ -2,6 +2,7 @@
 // "No visible jump", as a number: flies src/sky/MoonTrip.ts and src/sky/TripView.ts in Node, two round trips in a row at 30 fps and at a rough 20-40 fps, leaving the Moon from several places on the lap, and prints the largest turn of the view and of the bus between
 // two frames, leg by leg, with the lens's and the rig's. node --no-warnings tools/sky/view-check.mjs [g5] [iso]
 // Pass: the view turns at most 3.5 degrees in a frame at 30 fps (105 deg/s) and the bus 6, which is its own swing and the view's added up, and nothing is ever NaN. The rebase at 60,000 km is measured on the Sun's, Moon's and Earth's directions across that frame.
+// The view's own change of body, each way, is the swing: unhurried, so it's held to a third of that, 1.3 degrees a frame (40 deg/s), and the lens stays out of it. tools/sky/approach-check.mjs reads the disc's size on screen.
 import { registerHooks } from 'node:module';
 
 registerHooks({
@@ -83,7 +84,8 @@ for (const [rough, orbitFrames] of [[false, 300], [true, 300], [false, 150], [fa
   const { worst, rebase, frames } = fly(rough, orbitFrames);
   console.log(`${rough ? "rough 20-40 fps, per 1/30 s" : "30 fps"}, ${orbitFrames} frames in orbit: ${frames} frames. Largest step in a frame, degrees (view, bus, lens):`);
   for (const [leg, w] of worst) {
-    const over = !(w.view <= 3.5 && w.bus <= 6 && w.lens <= 0.6);
+    const swing = leg === 'cruise' || leg === 'homeCruise';
+    const over = !(w.view <= (swing ? 1.3 : 3.5) && w.bus <= 6 && w.lens <= 0.6);
     if (over) fails++;
     console.log(`  ${leg.padEnd(12)} ${w.view.toFixed(2).padStart(6)} ${w.bus.toFixed(2).padStart(6)} ${w.lens.toFixed(3).padStart(6)}${over ? '  OVER' : ''}`);
   }

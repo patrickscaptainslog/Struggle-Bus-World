@@ -44,6 +44,15 @@ export interface Observer {
   axes: Float64Array;
 }
 
+/**
+ * The radius the Moon is drawn at, km (SKY.md 4.5): a far Moon never goes under `floorPx` game px across, on a soft max, so the floor hands over to its true size with no kink in the disc's size on screen.
+ * `elong`, the degrees from the Sun, releases the floor there: an eclipse must be exact, and it's under 0.27 % lit. Near, the floor adds nothing: 2 cm at 300 km.
+ */
+export function moonDrawnKm(moonKm: number, focal: number, floorPx: number, elong: number): number {
+  const t = Math.min(1, Math.max(0, (elong - 6) / 6)), f = ((0.5 * floorPx * moonKm) / focal) * t * t * (3 - 2 * t);
+  return Math.sqrt(Math.sqrt(R_MOON * R_MOON * R_MOON * R_MOON + f * f * f * f));
+}
+
 /** Overwritten in place by frame(), read by the uniform uploader. */
 export class SkyState {
   /** unit vectors, render frame */

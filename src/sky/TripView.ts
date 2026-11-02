@@ -7,17 +7,36 @@ import { R_E, R_M, type MoonTrip } from './MoonTrip';
 // The rig never moves: the bus at the render origin, the camera behind and above it, no rotation. Everything the camera does is `ob.axes`: the render frame's axes in EQJ, so the swing is the world turning
 // round the bus, in doubles, and the bus's own pose is just its nose read in those axes.
 //
-// One law, no leg in it. The camera looks at whichever body is bigger, from the view the ground game has: a level heading over that body, pitched down until the horizon is pinned near the top of the frame,
-// then past straight down by a little, which sets the disc above the bus (the sheet's 42 % of the frame). So climbing away the view tips over by itself, and that is the look-back; arriving, it runs backward.
-// Far off, the heading turns to north, so a body reads upright. The one jump in the law is the moment the bigger body changes, near Earth = Moon: the jump goes into an offset that decays on a critically
-// damped spring, which is the swing round. The lens is a function of the same body's size.
+// One law, no leg in it. The camera looks at one body, from the view the ground game has: a level heading over that body, pitched down until the horizon is pinned near the top of the frame, then past straight
+// down by a little, which sets the disc above the bus (the sheet's 42 % of the frame). So climbing away the view tips over by itself, and that is the look-back; arriving, it runs backward. Far off, the heading
+// turns to north, so a body reads upright.
+//
+// The body is the one the bus has left until that has had its moment, and from then on the one it's going to, however small: the far disc is what the rest of the trip is about. The moment is the size on screen and
+// nothing else, so G5 at its floor, where Earth just fits the frame, gets a few seconds of Earth falling away, and a trip that never lights G5 gets the same look-back, later. The one jump in the law is that change:
+// it goes into an offset that decays on a critically damped spring, which is the swing round.
+//
+// The lens is the same body's size, on a long slow slope in the log of it: a disc grows through all of it, and the lens takes only a share of each step, so the disc's size on screen never stalls or falls. The swing's
+// change of body is a step in that, and it's taken in the middle of the swing, with neither body in frame.
 //
 // The thumb swings the camera on every leg it doesn't steer, on top of the law. Left alone for THUMB_HOLD seconds the view goes home on the same spring.
 
 const DEG = Math.PI / 180;
 const TAN12 = Math.tan(12 * DEG);
-/** The spring's rate, 1/s: a swing of 180 degrees peaks near 53 deg/s and is over in about 6 s. */
-const SWING = 0.8;
+const TAN19 = Math.tan(19 * DEG);
+/** The spring's rate, 1/s: a swing of 180 degrees peaks near 36 deg/s and is nine tenths over in about 7 s. */
+export const SWING = 0.55;
+/** The body behind has had its moment at this share of the frame's width, on the near lens, and the view turns ahead. Earth just fits at G5's floor. */
+export const AHEAD = 0.55;
+/** The lens's slope: 24 degrees with the disc at FROM px across on that lens, 38 by TO (it overfills the frame there), straight in between on the log of the size. */
+const LENS_FROM = Math.log(12);
+const LENS_TO = Math.log(640);
+/** The lens stays where it was while the view is further than this from where it's going, radians, and has gone over to the new body's slope by the nearer one: 120 and 40 degrees, with neither body in frame. */
+const LENS_HOLD_FAR = 2.1;
+const LENS_HOLD_NEAR = 0.7;
+/** The most the lens can do, 1/s. On the slope it's far under this. */
+const LENS_RATE = 1.2;
+/** The share of its length the bus always shows the camera, the sine of the angle between its nose and the line of sight. A bus flying at what the view looks at is end on, and a dot: it lifts its nose that much, or drops it if it's coming. */
+export const SHOW = 0.7;
 /** deg/s at full stretch */
 const THUMB_RATE = 70 * DEG;
 const THUMB_HOLD = 6;
@@ -50,6 +69,9 @@ export class TripView {
   readonly nosing = new THREE.Vector3(0, 0, -1);
   /** the body the law is looking at */
   target: BodyId = EARTH;
+  /** the spring's rate, 1/s, and how small the body behind must be before the view leaves it: live, the tuner moves them */
+  swing = SWING;
+  ahead = AHEAD;
 
   /** the view in EQJ: the law's, the spring's offset, the thumb's, and all of them */
   private readonly want = new THREE.Quaternion();
@@ -65,6 +87,8 @@ export class TripView {
   /** heading to north, unwrapped, and how far the view has gone over to it */
   private h = 0;
   private k = 0;
+  /** the lens when the view last let go */
+  private lensAt = 38;
   /** the view's lag behind a hard turn */
   private lag = 0;
   private bank = 0;
@@ -94,13 +118,18 @@ export class TripView {
     const dE = Math.hypot(r[0], r[1], r[2]), dM = Math.hypot(rm[0], rm[1], rm[2]);
     const aE = Math.asin(Math.min(1, R_E / dE)), aM = Math.asin(Math.min(1, R_M / dM));
     const was = this.target;
-    if (was === EARTH ? aM > aE * 1.02 : aE > aM * 1.02) this.target = was === EARTH ? MOON : EARTH;
+    if (trip.bound !== was && Math.tan(was === EARTH ? aE : aM) < this.ahead * TAN19) {
+      this.target = trip.bound;
+      this.lensAt = this.hfov;
+    }
     const moon = this.target === MOON;
     const p = moon ? rm : r, d = moon ? dM : dE, R = moon ? R_M : R_E, a = moon ? aM : aE;
 
-    // the lens: 24 degrees once the body is small, 38 once it would overfill that (trip/sheet.py's picks); a function of the body's size, so it can't step
+    // the lens: 24 degrees for a small far body, 38 once it would overfill that (trip/sheet.py's picks)
     const px24 = (this.width * Math.tan(a)) / TAN12;
-    this.hfov = lens || 24 + 14 * smooth01(250, 500, px24);
+    const onSlope = 24 + 14 * smooth01(LENS_FROM, LENS_TO, Math.log(Math.max(px24, 1)));
+    const held = onSlope + (this.lensAt - onSlope) * (this.target !== was ? 1 : smooth01(LENS_HOLD_NEAR, LENS_HOLD_FAR, this.o.length()));
+    this.hfov = lens || (this.started ? this.hfov + (held - this.hfov) * (1 - Math.exp(-LENS_RATE * dt)) : onSlope);
 
     // ---- the law
     const u = this.u.set(p[0] / d, p[1] / d, p[2] / d);
@@ -148,7 +177,7 @@ export class TripView {
     if ((this.yaw !== 0 || this.tilt !== 0) && (trip.steering || this.idle > THUMB_HOLD)) this.takeBack();
     this.thumbQ.setFromEuler(this.euler.set(this.tilt, this.yaw, 0, 'YXZ'));
 
-    this.oV.addScaledVector(this.o, -SWING * SWING * dt).multiplyScalar(Math.max(0, 1 - 2 * SWING * dt));
+    this.oV.addScaledVector(this.o, -this.swing * this.swing * dt).multiplyScalar(Math.max(0, 1 - 2 * this.swing * dt));
     this.o.addScaledVector(this.oV, dt);
     const ang = this.o.length();
     if (ang > 1e-9) this.offset.setFromAxisAngle(this.t.copy(this.o).divideScalar(ang), ang);
@@ -184,6 +213,10 @@ export class TripView {
     this.inRender(nose, ax, this.nosing);
     this.inRender(this.t2, ax, this.y);
     this.inRender(this.t.set(trip.dir[0], trip.dir[1], trip.dir[2]), ax, this.flying);
+    // (end on to the camera it would be a dot: the line of sight comes down to the bus at the rig's row, and the nose goes up or down the screen by what's short)
+    const row = (0.25 * this.height) / focal, l = 1 / Math.hypot(1, row);
+    const along = -(this.nosing.y * row + this.nosing.z) * l, short = SHOW - Math.sqrt(Math.max(0, 1 - along * along));
+    if (short > 0) this.nosing.addScaledVector(this.t.set(0, l, -row * l), along > 0 ? short : -short).normalize();
     const z = this.z.copy(this.nosing).negate();
     const x = this.x.crossVectors(this.y, z).normalize();
     this.y.crossVectors(z, x);
@@ -205,5 +238,6 @@ export class TripView {
     else this.o.set(this.offset.x, this.offset.y, this.offset.z).multiplyScalar((w * ang) / s);
     this.oV.set(0, 0, 0);
     this.yaw = this.tilt = 0;
+    this.lensAt = this.hfov;
   }
 }

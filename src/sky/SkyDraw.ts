@@ -3,7 +3,7 @@ import { Ramp } from '../render/palette';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import { spaceResolveUniforms as U } from '../render/skyResolve';
 import { gunzip, isGzip } from '../world/gunzip';
-import { R_EARTH_A, R_EARTH_B, R_MOON, type SkyState } from './SkyModel';
+import { moonDrawnKm, R_EARTH_A, R_EARTH_B, R_MOON, type SkyState } from './SkyModel';
 
 // What the sky hands the frame (SKY.md section 2): the resolve's uniforms, stars and sky lines. Bodies are ray tests in the resolve (render/skyResolve.ts); this file feeds them.
 //
@@ -154,10 +154,6 @@ function readStars(buf: ArrayBuffer): { pos: Float32Array; star: Uint8Array } {
 
 const EARTH_TEXEL_KM = (2 * Math.PI * R_EARTH_A) / 2048;
 const MOON_TEXEL_KM = (2 * Math.PI * R_MOON) / 1024;
-const smooth01 = (a: number, b: number, x: number) => {
-  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
-  return t * t * (3 - 2 * t);
-};
 
 export class SkyDraw {
   readonly object = new THREE.Group();
@@ -252,10 +248,9 @@ export class SkyDraw {
     const lod = Math.max(0, Math.log2(pxGround / EARTH_TEXEL_KM));
     U.uEarthView.value.set(lod, this.air ? Math.max(11, this.airPx * pxLimb) : 1e-3, Math.min(1, Math.max(0.14, pxLimb / 11)), 180 / Math.PI / focal);
 
-    // the Moon at unit radius: the floor is a bigger radius, released near the Sun, where eclipses must be exact and it's under 0.27 % lit
+    // the Moon at unit radius: the floor is a bigger radius
     const dot = s.sun[0] * s.moon[0] + s.sun[1] * s.moon[1] + s.sun[2] * s.moon[2];
-    const elong = Math.acos(Math.min(1, Math.max(-1, dot))) * (180 / Math.PI);
-    const rM = Math.max(R_MOON, ((0.5 * this.moonFloor * s.moonKm) / focal) * smooth01(6, 12, elong));
+    const rM = moonDrawnKm(s.moonKm, focal, this.moonFloor, Math.acos(Math.min(1, Math.max(-1, dot))) * (180 / Math.PI));
     const mx = s.moonO[0] / rM, my = s.moonO[1] / rM, mz = s.moonO[2] / rM;
     U.uMoonO.value.set(mx, my, mz, mx * mx + my * my + mz * mz - 1);
     U.uMoonSun.value.set(s.moonSun[0], s.moonSun[1], s.moonSun[2]);
