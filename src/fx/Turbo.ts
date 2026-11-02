@@ -473,7 +473,7 @@ export class TurboFx {
       this.lens.punch(T.fovKick * 0.2);
       rig.kick(0.7);
       this.backfire(bus, f, 4);
-      this.vaporRing(bus, f, 12, 10, 3);
+      this.pop(bus, f, rig, 14, 11, 3);
     } else if (ev === 'back') {
       rig.kick(0.4);
       this.backfire(bus, f, 3);
@@ -481,7 +481,7 @@ export class TurboFx {
       this.lens.punch(T.fovKick * 0.5);
       rig.kick(1.4);
       this.backfire(bus, f, 8);
-      this.vaporRing(bus, f, 20, 13, 5);
+      this.pop(bus, f, rig, 20, 13, 5);
     } else if (ev === 'turbo-off') {
       rig.kick(0.8);
       this.backfire(bus, f, 4);
@@ -717,12 +717,21 @@ export class TurboFx {
     }
   }
 
-  /** A ring of `n` vapor and rainbow puffs blasted out around the bus at `speed` m/s, perpendicular to its path: the boom's, and smaller, a flick's. */
-  private vaporRing(bus: THREE.Object3D, f: Flight, n: number, speed: number, sparkles: number) {
+  /** A flick's answer: the ring rides along with the bus at any speed, and stands as big on screen at any height. */
+  private pop(bus: THREE.Object3D, f: Flight, rig: CameraRig, n: number, speed: number, sparkles: number) {
+    const C = config.camera;
+    const k = (rig.distance / C.distance) * (Math.tan(THREE.MathUtils.degToRad(rig.hfov / 2)) / Math.tan(THREE.MathUtils.degToRad(C.hfovPortrait / 2)));
+    this.vaporRing(bus, f, n, speed * k, sparkles * k, true, k);
+  }
+
+  /** A ring of `n` vapor and rainbow puffs blasted out around the bus at `speed` m/s, perpendicular to its path: the boom's, left in the air, and smaller, a flick's, carried along. */
+  private vaporRing(bus: THREE.Object3D, f: Flight, n: number, speed: number, sparkles: number, carried = false, size = 1) {
     bus.localToWorld(this.tmp.copy(this.noseLocal));
     const fx = f.fx, fz = f.fz;
     // ring plane: the bus's right (-fz, 0, fx) and the path's up (right x path)
-    const dir = f.velocity(this.vel2).normalize();
+    const dir = f.velocity(this.vel2);
+    const along = carried ? dir.length() : 0;
+    dir.normalize();
     const ux = -fx * dir.y, uy = fz * dir.z + fx * dir.x, uz = -fz * dir.y;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2;
@@ -730,7 +739,8 @@ export class TurboFx {
       const out = speed + Math.random() * speed * 0.5;
       this.vel.set(-fz * cr * out + ux * sr * out - dir.x * 10, uy * sr * out - dir.y * 10, fx * cr * out + uz * sr * out - dir.z * 10);
       this.tmp2.copy(this.tmp).addScaledVector(this.vel, 0.08);
-      this.particles.puff(this.tmp2, this.vel, i % 2 === 0 ? Ramp.FOG : HUE_RAMPS[(i >> 1) % 6]);
+      this.vel.addScaledVector(dir, along);
+      this.particles.puff(this.tmp2, this.vel, i % 2 === 0 ? Ramp.FOG : HUE_RAMPS[(i >> 1) % 6], size);
     }
     this.particles.sparkles(this.tmp, sparkles, 5, [0, 2, 4], 26);
   }

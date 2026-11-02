@@ -32,6 +32,11 @@ import { Hud, type HudFrame } from '../ui/Hud';
 
 const ARMED = 'TURBO AFTER THE BRIDGE';
 const CLIMB_GATED = 'CLIMB AFTER THE BRIDGE';
+/** The first run's one mention of the second thumb: the gestures are hidden, and this is all the teaching they get. */
+const HINT = ['SECOND THUMB', 'FLICK UP FOR GEARS', 'TWO FLICKS TURBO', 'HOLD TO LOOK'];
+const HINT_SECONDS = 6.5;
+/** A flick's answer in the bus's own body: it hiccups, once, on the breath's squash spring. */
+const FLICK_SQUASH = 0.84;
 
 const PREF_KEY = 'strugglebus.controls.v1';
 
@@ -71,6 +76,10 @@ export class Controls {
   private keysIn = 0;
   /** the pull-back answered once: the gate holds the yoke down for ~20 s and the first thing a player tries is climbing */
   private climbToldAt = -Infinity;
+  /** seconds the hint has left: it holds the toast's slot against the gate's line, which can wait */
+  private hintLeft = 0;
+  /** a flick is being answered: the bus hiccups */
+  private hiccup = false;
   /** the first run (null: off) */
   private readonly coach: Coach | null;
   private readonly cf: CoachFrame = { glinting: false, openingOver: false, splats: 0, thumb: false, stillPress: 0, charged: false };
@@ -176,7 +185,7 @@ export class Controls {
 
   /** The yoke is being pulled back under the opening's gate (main.ts, per frame): say why nothing happens, once. */
   climbGated() {
-    if (this.shifter.gated || this.turbo.time - this.climbToldAt < 30) return;
+    if (this.shifter.gated || this.hintLeft > 0 || this.turbo.time - this.climbToldAt < 30) return;
     this.climbToldAt = this.turbo.time;
     this.hud.toast([CLIMB_GATED], 2.2);
   }
@@ -197,6 +206,10 @@ export class Controls {
   /** Before bus.update: the bus strains (wheeze, squint) and goes wide-eyed at speed. */
   pose(p: BusPose) {
     const T = this.turbo;
+    if (this.hiccup) {
+      this.hiccup = false;
+      p.squash = Math.min(p.squash, FLICK_SQUASH);
+    }
     if (T.strain > 0.05) {
       p.wheeze = Math.max(p.wheeze, T.strain);
       p.eye = Math.min(p.eye, 1 - 0.5 * T.strain);
@@ -228,7 +241,7 @@ export class Controls {
       if (this.keysIn <= 0) {
         this.prefs.keysShown = true;
         savePrefs(this.prefs);
-        this.hud.toast(['ARROWS FLY  -  SPACE SPLATS', 'E GEARS  -  ESC SETTINGS'], 5);
+        this.hud.toast(['ARROWS FLY  -  SPACE SPLATS', 'E GEARS  -  E E TURBO', 'RIGHT MOUSE LOOKS  -  ESC SETTINGS'], 5);
       }
     }
     const h = this.hf;
@@ -263,6 +276,11 @@ export class Controls {
       c.frame(dt, cf);
       hud.setCue(c.cue);
       if (c.megaDue) hud.megaHoldCue();
+      this.hintLeft = Math.max(0, this.hintLeft - dt);
+      if (c.hintDue) {
+        this.hintLeft = HINT_SECONDS;
+        hud.toast(HINT, HINT_SECONDS);
+      }
     }
     if (c?.dirty) {
       c.dirty = false;
@@ -295,6 +313,7 @@ export class Controls {
   private onTurbo(ev: TurboEvent, gear: number) {
     const d = this.d;
     this.fx.event(ev, d.bus.root, d.flight, d.rig, this.onFlash);
+    if (ev === 'flick' || ev === 'back' || ev === 'turbo') this.hiccup = true;
     const kit = d.audio.voiceKit();
     if (kit) {
       const t = kit.ctx.currentTime + LOOKAHEAD;

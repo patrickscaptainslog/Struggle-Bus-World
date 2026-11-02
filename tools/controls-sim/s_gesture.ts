@@ -556,6 +556,22 @@ ok(readFlick(36, 0, 80, 36, 200, 0.4, 40) === 0, 'sideways is none');
   ok(v.changed && JSON.stringify(v.prefs) === JSON.stringify({ taught: 21, swap: true, muted: true, keysShown: true }), `an old save loses the tilt and keeps the rest: ${JSON.stringify(v)}`);
   const w = migratePrefs({ taught: 3 });
   ok(!w.changed && w.prefs.taught === 3, 'a new save is left alone');
+  // the first run's hint: a beat after the fog, once ever, whatever an old save holds, and it asks for nothing
+  const { Coach, TAUGHT } = await import('@src/ui/Coach');
+  const hints = (taught: number, seconds: number, over: boolean) => {
+    const c = new Coach(taught);
+    let due = 0;
+    for (let i = 0; i < seconds * 60; i++) {
+      c.frame(1 / 60, { glinting: false, openingOver: over, splats: 0, thumb: false, stillPress: 0, charged: false });
+      if (c.hintDue) due++;
+    }
+    return { due, taught: c.taught };
+  };
+  ok(hints(0, 30, false).due === 0, 'no hint under the fog');
+  const first = hints(0, 30, true);
+  ok(first.due === 1 && (first.taught & TAUGHT.thumbs) !== 0, `the hint, once, and it is saved: ${JSON.stringify(first)}`);
+  ok(hints(first.taught, 30, true).due === 0, 'it never repeats');
+  ok(hints(31, 30, true).due === 1, "an old save, TURBO's blink and all, gets it once");
   ok(migratePrefs(null).prefs !== null && !migratePrefs('x').changed && !migratePrefs([1]).changed, 'junk in the save is no save');
 }
 

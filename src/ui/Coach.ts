@@ -5,13 +5,21 @@
 //
 //   0 to fog end         nothing on screen, the thumb is live
 //   fog end / first touch   MEGA arrives
+//   a beat after the fog    the hint: what the second thumb does, in one toast, once
 //   a glint, no splat yet   TAP: a fingertip ring at the cue slot
 //   first splat             DRAG: two chevrons sway, until a thumb commits or 8 s
 //   third splat, or a still press of 0.6 s   MEGA's face says HOLD
 //
+// The second thumb's gestures are hidden on purpose: the hint is all the teaching
+// there is, it asks for nothing, and nothing ends it but its own time
+// (docs/specs/flight/THUMBS.md).
+//
 // No DOM: it reads a frame's facts and leaves what is due in its fields.
 
-export const TAUGHT = { tap: 1, drag: 2, mega: 8 } as const;
+export const TAUGHT = { tap: 1, drag: 2, mega: 8, thumbs: 32 } as const;
+
+/** The hint, a beat after the fog has lifted (s). */
+const HINT_AFTER = 0.7;
 
 export type Cue = 'none' | 'tap' | 'drag';
 
@@ -33,10 +41,13 @@ export class Coach {
   cue: Cue = 'none';
   /** true for the one frame it is due: Controls consumes it */
   megaDue = false;
+  /** the same, the second thumb's hint */
+  hintDue = false;
   /** a bit changed: Controls saves */
   dirty = false;
   private dragT = 0;
   private glintT = 0;
+  private hintT = 0;
 
   constructor(taught: number) {
     this.taught = taught | 0;
@@ -59,6 +70,7 @@ export class Coach {
 
   frame(dt: number, f: CoachFrame) {
     this.megaDue = false;
+    this.hintDue = false;
     if (f.thumb) this.learn(TAUGHT.drag);
     if (f.splats > 0) this.learn(TAUGHT.tap);
     if (f.charged) this.learn(TAUGHT.mega);
@@ -77,6 +89,14 @@ export class Coach {
       }
     }
     this.cue = cue;
+
+    if (f.openingOver && !this.has(TAUGHT.thumbs)) {
+      this.hintT += dt;
+      if (this.hintT >= HINT_AFTER) {
+        this.learn(TAUGHT.thumbs);
+        this.hintDue = true;
+      }
+    }
 
     if (!this.has(TAUGHT.mega) && (f.splats >= 3 || f.stillPress >= 0.6) && f.openingOver) {
       this.learn(TAUGHT.mega);

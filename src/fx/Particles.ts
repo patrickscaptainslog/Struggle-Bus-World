@@ -1412,7 +1412,7 @@ export class Particles {
 
   // ------------------------------------------------------------------ puffs
 
-  puff(pos: THREE.Vector3, vel: THREE.Vector3, ramp: number = Ramp.GREY): void {
+  puff(pos: THREE.Vector3, vel: THREE.Vector3, ramp: number = Ramp.GREY, sizeK = 1): void {
     const T = fxTune;
     const s = this.s;
     const life = T.puffLife * (0.8 + 0.4 * rnd());
@@ -1433,7 +1433,7 @@ export class Particles {
     s[14] = 0;
     s[15] = K_PUFF;
     s[16] = ramp;
-    s[17] = T.puffSize * (0.8 + 0.4 * rnd());
+    s[17] = T.puffSize * (0.8 + 0.4 * rnd()) * sizeK;
     s[18] = rnd();
     s[19] = 0;
     s[20] = 0;
