@@ -95,7 +95,7 @@ You can't hold a look and tap with the same thumb. The flying thumb lifts and ta
 
 ## The pop
 
-A first flick answers at once, seen at the bus: the boom's vapor ring, small, and a hiccup in the bus's own body on the breath's squash spring. The ring rides along with the bus, so it is still round it at 450 m/s, and stands as big on screen at any height. Turbo's ring is the same, bigger. A silenced iPhone hears nothing, so this is the only answer it gets.
+A first flick answers at once, seen at the bus: the boom's vapor ring, small, and a hiccup in the bus's own body on the breath's squash spring. The ring rides along with the bus, so at 450 m/s it stands round it for about a quarter of a second before it slides back, and it is as big on screen at any height. Turbo's ring is the same, bigger. A silenced iPhone hears nothing, so this is the only answer it gets.
 
 ## The hint
 

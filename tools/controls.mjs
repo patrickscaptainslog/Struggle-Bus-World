@@ -213,7 +213,7 @@ if (modes.has('thumbs')) {
   await row('first thumb: tap', async () => { await H.stamped(async () => { await H.down(1, RX, RY, 0); await H.up(1, 120); }); }, (r) => has(r, 'onTap') === 1 && r.gear === 0);
   await row('first thumb: drag steers', async () => { await steer(); await runFor(page, 0.2); const s = await state(); await lift1(); return s; }, (r) => r.note.thumb && r.note.sx > 0.2 && has(r, 'onTap') === 0);
   // ---- the second thumb
-  await row('second: tap fires on its lift', async () => { await steer(); await runFor(page, 0.1); await H.down(2, LX, LY); await wall(30); const landed = (await events(page, false)).length; await H.up(2); await wall(30); await lift1(); return { landed }; }, (r) => r.note.landed === 0 && has(r, 'onTap') === 1);
+  await row('second: tap fires on its lift', async () => { await steer(); await runFor(page, 0.1); let landed = -1; await H.stamped(async () => { await H.down(2, LX, LY, 0); landed = (await events(page, false)).length; await H.up(2, 120); }); await wall(30); await lift1(); return { landed }; }, (r) => r.note.landed === 0 && has(r, 'onTap') === 1);
   await row('second: a drag looks, the stick stays', async () => {
     await steer();
     await runFor(page, 0.2);
@@ -282,7 +282,7 @@ if (modes.has('thumbs')) {
   await row('the look outlives the flying thumb', async () => { await steer(); await H.down(2, LX, LY); await wall(150); await H.move(2, LX + 50, LY); await runFor(page, 0.1); await lift1(); await runFor(page, 0.1); const s = await state(); await H.up(2); return s; }, (r) => r.note.look.on && !r.note.thumb);
   // ---- MEGA, three fingers, a lost touch
   await row('MEGA: a tap, with a thumb steering', async () => { const m = await rectOf(page, '[data-hud="mega"]'); await steer(); await runFor(page, 0.1); await H.down(2, m.x, m.y); await wall(90); await H.up(2); await wall(30); await lift1(); }, (r) => has(r, 'onTap') === 1);
-  await row('three fingers: the tuner', async () => { await H.down(1, RX, RY); await H.down(2, LX, LY); await H.down(3, 200, 300); await wall(60); await H.up(3); await H.up(2); await H.up(1); await runFor(page, 0.1); }, (r) => r.tuner && has(r, 'onTripleFinger') === 1 && has(r, 'onTap') === 0);
+  await row('three fingers: the tuner', async () => { await H.stamped(async () => { await H.down(1, RX, RY, 0); await H.down(2, LX, LY, 40); await H.down(3, 200, 300, 80); await H.up(3, 140); await H.up(2, 160); await H.up(1, 180); }); await runFor(page, 0.1); }, (r) => r.tuner && has(r, 'onTripleFinger') === 1 && has(r, 'onTap') === 0);
   await row('lost: touchcancel lets go of everything', async () => { await steer(); await H.down(2, LX, LY); await wall(150); await H.move(2, LX + 50, LY); await runFor(page, 0.1); const before = await state(); await H.cancel(); await runFor(page, 0.1); const after = await state(); return { before, after }; }, (r) => r.note.before.look.on && !r.note.after.look.on && !r.note.after.thumb);
   await row('two thumbs moving apart: the page does not zoom', async () => { const a = await page.evaluate(() => visualViewport.scale); await H.down(1, 220, 600); await H.down(2, 170, 600); for (let i = 1; i <= 6; i++) { await H.move(1, 220 + i * 20, 600); await H.move(2, 170 - i * 20, 600); } const b = await page.evaluate(() => visualViewport.scale); await H.up(2); await H.up(1); return { a, b }; }, (r) => r.note.a === r.note.b);
   res.thumbs = R;
@@ -518,12 +518,20 @@ if (modes.has('look')) {
     await H.up(1);
     await page.close();
   }
-  // ---- the flick's pop, at street level and at height
+  // ---- the flick's pop, at street level, at height and at 450 m/s
   if (only.has('pop')) {
-    for (const [tag, y] of [['street', 0], ['high', 1200]]) {
-      const { page, H } = await start(37.7763, -122.4352, 88);
+    for (const [tag, y] of [['street', 0], ['high', 1200], ['g1', 0]]) {
+      const g1 = tag === 'g1';
+      const { page, H } = await (g1 ? start(37.7150, -122.4400, 340) : start(37.7763, -122.4352, 88));
       await step(page, y ? 0.5 : 1);
       if (y) await place(page, y);
+      if (g1) {
+        await page.evaluate(() => window.__game.controls.turbo.shift(1, window.__game.flight));
+        for (let i = 0; i < 80; i++) {
+          await step(page, 0.5);
+          if (await page.evaluate(() => window.__game.flight.speed > 440)) break;
+        }
+      }
       await H.stamped(() => H.stroke(1, Lx, Ly, 0, -74, 85));
       for (const [i, gap] of [[0, 0.033], [1, 0.1], [2, 0.133], [3, 0.2]]) {
         await step(page, gap);
