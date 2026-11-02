@@ -10,7 +10,7 @@ import { makeMoonFar } from './moonMaterial';
 // Heights are an atlas of 17 x 17 blocks, read by the vertices. The map is one toroidal store a level, read by the pixels, which take the finest level their size on the ground allows: a coarser level is the
 // finer one's mip with a wider window. Both are texture arrays, one layer a level.
 
-const { LEVELS, N, B, BLOCKS, QUADS, V, C0 } = FAR;
+const { N, B, BLOCKS, QUADS, V, C0, HIGH_LEVELS } = FAR;
 const TEXEL_MARGIN = 1.5;
 
 interface Level {
@@ -75,8 +75,18 @@ export class MoonFar {
   private ready0: () => void = () => {};
   /** Every level has landed and gone up. */
   readonly ready = new Promise<void>((done) => (this.ready0 = done));
+  /** The place the worker is making: what it sent for any other is dropped. */
+  private placeId = 0;
+  /** The finest level worth making at this height. Up high a level of metres is pixels nobody has, and what it costs goes on a level that's seen. */
+  private kMin = 0;
+  /** How much of the mesh shows: 0..1, a dither. Under 1 the ray-drawn Moon shows through. */
+  readonly show: { value: number };
+  /** How much of its light is the ray-drawn Moon's: 1 up where the two meet, 0 by the time it's ground. */
+  readonly high: { value: number };
+  /** Earth, the way the sky has it: direction and earthshine's strength, for that light. */
+  readonly earth: { value: THREE.Vector4 };
 
-  constructor(private readonly renderer: THREE.WebGLRenderer, private readonly post: (m: MoonFarRequest) => void, mask: THREE.Texture, maskRect: THREE.Vector4, maskSize: THREE.Vector2) {
+  constructor(private readonly renderer: THREE.WebGLRenderer, private readonly post: (m: MoonFarRequest) => void, mask: THREE.Texture, maskRect: THREE.Vector4, maskSize: THREE.Vector2, private readonly LEVELS: number = FAR.LEVELS) {
     const AT = BLOCKS * V;
     for (let k = 0; k < LEVELS; k++) this.levels.push({ k, cell: C0 * 2 ** k, bi0: 0, bj0: 0, ready: false, wantI: NaN, wantJ: NaN, H: new Float32Array(AT * AT * 2) });
     // (the heights never filter: a vertex fetches its own texel. The map does, and wraps: a window is a torus in it)
@@ -101,8 +111,11 @@ export class MoonFar {
     this.geo.setAttribute('aPatch', this.patches);
     this.geo.instanceCount = 0;
     const grid = new THREE.Vector4(C0, B, QUADS, V);
-    for (let k = 0; k < LEVELS; k++) this.rects.push(new THREE.Vector4());
+    for (let k = 0; k < HIGH_LEVELS; k++) this.rects.push(new THREE.Vector4());
     const mat = makeMoonFar(this.texH, this.texM, mask, maskRect, maskSize, grid, LEVELS, this.rects);
+    this.show = mat.uniforms.uFarShow;
+    this.high = mat.uniforms.uFarHigh;
+    this.earth = mat.uniforms.uFarEarth;
     this.object = new THREE.Mesh(this.geo, mat);
     this.object.frustumCulled = false;
     this.object.matrixAutoUpdate = false;
@@ -113,7 +126,7 @@ export class MoonFar {
   private wanted(x: number, z: number): Array<[number, number, number]> {
     const moves: Array<[number, number, number]> = [];
     let upI = NaN, upJ = NaN;
-    for (let k = LEVELS - 1; k >= 0; k--) {
+    for (let k = this.LEVELS - 1; k >= this.kMin; k--) {
       const l = this.levels[k], b = B * l.cell;
       const fit = (p: number, was: number) => {
         if (Number.isFinite(was) && Math.abs(p / b - (was + BLOCKS / 2)) <= 1) return was;
@@ -136,42 +149,85 @@ export class MoonFar {
     return moves;
   }
 
-  /** Before the first frame: every level around the start, the first thing the worker does. */
-  start(x: number, z: number) {
-    this.started = true;
+  /** The GPU's arrays, all zeros, before anything goes up. */
+  alloc() {
     this.renderer.initTexture(this.texH);
     this.renderer.initTexture(this.texM);
     // (three has its first upload: only blocks go up from here on, and these arrays were all zeros)
     (this.texH.image as { data: unknown }).data = new Float32Array(0);
     (this.texM.image as { data: unknown }).data = new Uint8Array(0);
+  }
+
+  /** Before the first frame: every level around the start, the first thing the worker does. */
+  start(x: number, z: number) {
+    this.alloc();
+    this.ask(x, z);
+  }
+
+  private ask(x: number, z: number) {
+    this.started = true;
     this.askedX = x;
     this.askedZ = z;
     const moves = this.wanted(x, z);
     this.inFlight = moves.length;
-    this.post({ type: 'far', moves });
+    if (moves.length) this.post({ type: 'far', moves, place: this.placeId });
+  }
+
+  /** Another place, the worker's number `id`: nothing drawn from here on till its levels land. */
+  place(id: number, x: number, z: number, h: number) {
+    this.placeId = id;
+    this.landed.length = 0;
+    this.kMin = this.detail(h);
+    for (const l of this.levels) {
+      l.ready = false;
+      l.wantI = l.wantJ = NaN;
+    }
+    this.instances();
+    this.ask(x, z);
+  }
+
+  /** The finest level that shows from h metres up, on a 38 degree lens: a pixel under the bus is h / 570, and a level holds its own to about twice its texel. */
+  private detail(h: number): number {
+    return Math.max(0, Math.min(this.LEVELS - 1, Math.floor(Math.log2(Math.max(h, 1) / 570 / C0)) - 1));
   }
 
   /** A level's blocks from the worker. */
   land(u: FarUpdate) {
+    if (u.place !== this.placeId) return;
     this.landed.push(u);
     this.inFlight--;
   }
 
-  /** Every frame, from the view's place on the map. */
-  update(x: number, z: number) {
+  /** Every level this height shows is up, and round this place: what the fall waits for. */
+  readyAt(x: number, z: number, h: number): boolean {
+    for (let k = this.LEVELS - 1; k >= this.detail(h); k--) {
+      const l = this.levels[k], b = B * l.cell;
+      if (!l.ready || x < l.bi0 * b || z < l.bj0 * b || x >= (l.bi0 + BLOCKS) * b || z >= (l.bj0 + BLOCKS) * b) return false;
+    }
+    return true;
+  }
+
+  /** Every frame, from the view's place on the map and its height over the ground (m). */
+  update(x: number, z: number, h = 0) {
     if (!this.started) return;
     // at most one level's blocks a frame, all of them at once: a window doesn't move by halves
     const u = this.landed.shift();
     if (u) this.upload(u);
-    // (the finest level moves in steps of a kilometre: nothing to ask until the view has gone a fair part of that)
-    if (this.inFlight === 0 && !this.landed.length && Math.abs(x - this.askedX) + Math.abs(z - this.askedZ) > 48) {
-      this.askedX = x;
-      this.askedZ = z;
-      const moves = this.wanted(x, z);
-      if (moves.length) {
-        this.inFlight = moves.length;
-        this.post({ type: 'far', moves });
+    const kMin = this.detail(h);
+    if (kMin > this.kMin) {
+      // (going up: what's under it now is coarser, and a level left behind is one that would have to be remade from where it stood)
+      for (let k = this.kMin; k < kMin; k++) {
+        const l = this.levels[k];
+        l.ready = false;
+        l.wantI = l.wantJ = NaN;
       }
+      this.kMin = kMin;
+      this.instances();
+    }
+    // (the finest level moves in steps of a kilometre: nothing to ask until the view has gone a fair part of that)
+    if (this.inFlight === 0 && !this.landed.length && (kMin < this.kMin || Math.abs(x - this.askedX) + Math.abs(z - this.askedZ) > 48)) {
+      this.kMin = kMin;
+      this.ask(x, z);
     }
   }
 

@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { AudioEngine } from '../audio/AudioEngine';
+import { Landing } from '../moon/Landing';
+import { spaceResolveUniforms as U } from '../render/skyResolve';
 import { BusModel, busTune, type BusPose } from '../bus/BusModel';
 import { config } from '../config';
 import { busRig, busSize, type BusRig } from '../game/busSize';
@@ -14,7 +16,7 @@ import { Tuner } from '../ui/Tuner';
 import { registerTunables } from '../ui/tunables';
 import { breathTune, MoonBreath } from './MoonBreath';
 import { MoonNames, nameTune } from './MoonNames';
-import { LEG_NAMES, MoonTrip, PULL, TAU } from './MoonTrip';
+import { LEG_NAMES, MoonTrip, PULL, TAU, YOKE } from './MoonTrip';
 import { series } from './Series';
 import { SkyClock } from './SkyClock';
 import { groundTune, SkyDraw } from './SkyDraw';
@@ -191,9 +193,12 @@ export interface MoonrunContext {
   pipeline: PixelPipeline;
   scene: THREE.Scene;
   warm: WarmUp;
+  /** ?moonland: what this page's two loops share, one thumb and one sound */
+  land?: { input: Input; audio: AudioEngine };
 }
 
-export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Promise<void> {
+/** Returns what joins this to the low game, under ?moonland. */
+export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContext): Promise<Landing | null> {
   const params = new URLSearchParams(location.search);
   const t0 = performance.now();
   const renderer = pipeline.renderer;
@@ -211,11 +216,13 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   const sky = new SkyState();
   const clock = new SkyClock(params);
   const flying = !params.has('view');
-  const trip = flying ? new MoonTrip(series, clock.now(), { g5: Number(params.get('g5')) || 6000 }) : null;
+  const trip = flying ? new MoonTrip(series, clock.now(), { g5: Number(params.get('g5')) || 6000, land: !!land }) : null;
+  if (land) Object.assign(YOKE, { dead: config.flight.yokeDead, up: Math.min(config.flight.noseUp, 89) * DEG, down: Math.min(config.flight.noseDown, 89) * DEG, curve: config.flight.noseCurve, rate: config.flight.noseRate });
   const view = flying ? new TripView() : null;
   const pose = flying ? null : readView(params, model, sky, clock.now());
 
   const draw = new SkyDraw(pipeline);
+  const landing = land && trip ? new Landing(trip, pipeline, scene, draw, model, sky) : null;
   if (params.has('floor')) draw.moonFloor = Number(params.get('floor')) || 0;
   if (params.get('lines') === '0') draw.showLines(false);
   draw.air = params.get('air') !== '0';
@@ -244,7 +251,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   let rigScale = 1;
   const rig: BusRig = { px: 0, hero: 1, distance: config.camera.distanceVista };
   const placeCamera = () => {
-    busRig(trip ? Math.min(trip.hEarth, trip.hMoon) : Math.min(sky.earthKm - R_EARTH_A, sky.moonKm - R_MOON), focalAt(), pipeline.info.width, bus.length, rig);
+    busRig(trip ? Math.min(trip.hEarth, landing ? landing.height : trip.hMoon) : Math.min(sky.earthKm - R_EARTH_A, sky.moonKm - R_MOON), focalAt(), pipeline.info.width, bus.length, rig);
     rigScale = rig.distance / config.camera.distanceVista;
     bus.root.scale.setScalar(rig.hero);
     breath.setRig(rigScale);
@@ -283,7 +290,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
 
   // ---- the thumb and TURBO: the real Input and the real HUD, less what has no meaning out here. TURBO's boost has no meaning either, so a long press is a tap: the press that started it already shifted, and its lift mustn't again
   let pressTaken = false, held = false;
-  const input = flying ? new Input(renderer.domElement) : null;
+  const input = flying ? (land?.input ?? new Input(renderer.domElement)) : null;
   const hud = input ? new Hud(input, { onTiltToggle() {}, onChip() {}, onSensitivity() {}, onRecenter() {}, onMute() {}, onSwap() {}, onSettings() {}, onGesture() {} }) : null;
   const label = flying ? tripLabel() : null;
   if (input && hud && trip) {
@@ -294,7 +301,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
       else trip.tap();
     };
     // the game's sound, for the breath alone: its one-shots, no wind (there's no air) and no engine (the graph's frame never runs, so nothing but a breath makes a noise)
-    const audio = new AudioEngine();
+    const audio = land?.audio ?? new AudioEngine();
     audio.setVolumes({ ...config.audio, ambience: 0 });
     audio.warmBackend();
     input.onFirstGesture = () => audio.unlock();
@@ -346,6 +353,11 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   let held0 = false;
   const frame = (now: number) => {
     requestAnimationFrame(frame);
+    // (one page, one pump: below the ground's height the low game has the frame)
+    if (landing?.ground) {
+      landing.world!.frameAt(now);
+      return;
+    }
     const f0 = performance.now();
     if (resizeWanted) {
       resizeWanted = false;
@@ -374,16 +386,27 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
       trip.pull = tripTune.pullDegS * DEG;
       view.swing = tripTune.swing;
       view.ahead = tripTune.ahead;
-      trip.step(dt, trip.steering && st.dragging ? st.stretch.x : 0);
+      trip.step(dt, trip.steering && st.dragging ? st.stretch.x : 0, st.dragging ? st.stretch.y : 0);
       view.update(dt, trip, st.stretch.x, st.stretch.y, st.dragging, lensParam);
       pipeline.setHfov(view.hfov);
+      landing?.update(dt);
       placeCamera();
       bus.root.quaternion.copy(view.busQuat);
+      if (landing) {
+        // (the near plane out with the height, and the far plane past the horizon from the orbit: what the low game's boot left mustn't matter)
+        const near = landing.near;
+        pipeline.setDepthRange(near ? 60 : 1.5, near ? 1.6e6 : 30000);
+        if (names) names.object.visible = !near;
+        landing.pose(camera, bus.root);
+      }
     }
-    model.frame(trip ? trip.ms : clock.now(), (trip ?? pose!).ob, sky);
+    model.frame(trip ? trip.ms : clock.now(), landing ? landing.ob : (trip ?? pose!).ob, sky);
     if (pose) placeCamera();
     // (held, for a tool's frame: the light is where it would have got to)
     draw.update(sky, held0 ? Infinity : real);
+    // (the ray-drawn Moon is under the mesh until the mesh has it all, and then the ground is the ground)
+    if (landing && landing.show >= 1) U.uMoonO.value.w = -1;
+    landing?.sky2mesh();
     globals.uSunDir.value.set(sky.sun[0], sky.sun[1], sky.sun[2]);
     // (in Earth's shadow the bus has only its ambient)
     globals.uLight.value.x = 0.62 * sky.sunSeen;
@@ -392,25 +415,33 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
     breath.pose(busPose, dt);
     bus.update(dt, time, busPose);
     if (breath.rear > 0) bus.root.quaternion.multiply(rearQ.setFromAxisAngle(pitchAxis, breath.rear));
+    if (landing?.near) landing.snap(camera, bus.root);
     bus.root.updateMatrixWorld(true);
     breath.update(dt, real, sky, trip?.leg === 'orbit', camera);
     if (trip && names) names.update(dt, sky, trip.leg === 'in' || trip.leg === 'orbit', trip.v, trip.t, camera, focalAt(), pipeline.info.width, pipeline.info.height, popSign);
     if (trip && view && fx) {
-      fx.update(dt, trip.v, trip.dir, trip.ob.axes, view.flying, view.nosing, camera, bus.root, rigScale, pipeline.pixelWorldSize(1), rig.px);
+      if (landing?.near) fx.update(dt, trip.v, trip.dir, landing.axes, landing.flying.copy(view.flying).applyQuaternion(landing.q), landing.nosing.copy(view.nosing).applyQuaternion(landing.q), camera, bus.root, rigScale, pipeline.pixelWorldSize(1), rig.px, landing.bus);
+      else fx.update(dt, trip.v, trip.dir, trip.ob.axes, view.flying, view.nosing, camera, bus.root, rigScale, pipeline.pixelWorldSize(1), rig.px);
       // (the readout's names stop at G3 and the label says the gear: TURBO and its down tab are all that's wanted from the HUD)
       hud?.update(dt, { gear: trip.gear, maxGear: 5, engaged: true, boosting: false, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity, tiltState: 'none', gearDown: trip.canShiftDown });
       if (frames % 6 === 0) label?.(trip, breath);
       // (the one thing to do up here, where a first-timer's eye is, until they've done it)
-      const ask = trip.leg === 'orbit' && !breath.fired;
+      const ask = trip.leg === 'orbit' && (landing ? !landing.pushed : !breath.fired);
       if (ask !== asked) {
         asked = ask;
-        if (ask) hud?.toast(['TAP TO PAINT'], 3600);
+        if (ask) hud?.toast(landing ? ['PUSH TO LAND', 'TAP TO PAINT'] : ['TAP TO PAINT'], 3600);
         else hud?.clearToast();
       }
     }
-    pipeline.focus.set(0, 0, 0);
+    if (!landing?.near) pipeline.focus.set(0, 0, 0);
     pipeline.render(scene);
     frames++;
+    if (landing?.time) {
+      landing.hand(camera, bus.root);
+      if (label) (document.querySelector('[data-hud="trip-label"]') as HTMLElement | null)?.style.setProperty('display', 'none');
+      hud?.setVisible(false);
+      perf.setVisible(false);
+    }
     if (frames === 1) load.firstFrameMs = Math.round(performance.now() - t0);
     perf.frame(dt * 1000, performance.now() - f0);
     (window as unknown as { __shotReady?: boolean }).__shotReady = frames > 2;
@@ -423,6 +454,8 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
     }
     if (trip) label?.(trip, breath);
   };
-  (window as unknown as Record<string, unknown>).__game = { pipeline, scene, camera, perf, bus, input, warm, moon: { model, sky, clock, draw, pose, load, trip, view, skip, breath, names, tune: tripTune, hold: (on: boolean) => (held0 = on) } };
+  const qa = { pipeline, scene, camera, perf, bus, input, warm, moon: { model, sky, clock, draw, pose, load, trip, view, skip, breath, names, tune: tripTune, hold: (on: boolean) => (held0 = on), landing } };
+  (window as unknown as Record<string, unknown>)[land ? '__space' : '__game'] = qa;
   requestAnimationFrame(frame);
+  return landing;
 }

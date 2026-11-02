@@ -181,7 +181,16 @@ export class CraterPaint {
     this.clip = new PaintClip(d.renderer);
     moonGlobals.tPaintClip.value = this.clip.rt.texture;
     moonGlobals.uClip.value = this.clip.rects;
-    const t = new Float64Array(2), u = new Float64Array(2);
+    this.lay();
+    this.load();
+    this.loadStrokes();
+    if (typeof window !== 'undefined') window.addEventListener('pagehide', () => this.save());
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => document.hidden && this.save());
+  }
+
+  /** Where everything with a name stands on this map. */
+  private lay() {
+    const d = this.d, t = new Float64Array(2), u = new Float64Array(2);
     for (const p of d.places) {
       if (p.type !== 'crater') continue;
       latLonToMap(d.frame, p.lat, p.lon, t);
@@ -206,10 +215,24 @@ export class CraterPaint {
     const near = this.sites.filter((c) => Math.abs(c.x) < 2e5 && Math.abs(c.z) < 2e5).slice(0, 6);
     moonGlobals.uSiteN.value = near.length;
     near.forEach((c, i) => moonGlobals.uSites.value[i].set(c.x, c.z, SITE_R, 0));
+  }
+
+  /** The map is round another place now (?moonland): what's kept is by id and by latitude, so it all comes back where it belongs on this one. */
+  rebase() {
+    this.save();
+    this.named.length = this.spots.length = this.sites.length = this.wide.length = this.strokes.length = this.live.length = this.landing.length = 0;
+    this.recs.clear();
+    this.grid.clear();
+    this.marks = [];
+    this.stamp.clear();
+    this.target = null;
+    this.lastHere = null;
+    this.n = 0;
+    this.askedX = Infinity;
+    this.clip.rebase();
+    this.lay();
     this.load();
     this.loadStrokes();
-    if (typeof window !== 'undefined') window.addEventListener('pagehide', () => this.save());
-    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => document.hidden && this.save());
   }
 
   // ------------------------------------------------------------------ the list

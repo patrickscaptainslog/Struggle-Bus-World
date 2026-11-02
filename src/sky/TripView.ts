@@ -202,7 +202,7 @@ export class TripView {
 
     // ---- the bus: its nose follows the path, and a level heading at rest; its roof the radial near a body and the camera's up far off
     const nw = this.t.set(trip.dir[0], trip.dir[1], trip.dir[2]);
-    if (trip.v < 20) nw.set(trip.heading[0], trip.heading[1], trip.heading[2]);
+    if (trip.v < 20 && trip.leg !== 'fall') nw.set(trip.heading[0], trip.heading[1], trip.heading[2]);
     const nose = this.nose;
     if (nose.dot(nw) < -0.98) nose.addScaledVector(this.busUp, 0.02);
     const off = Math.acos(Math.max(-1, Math.min(1, nose.dot(nw))));

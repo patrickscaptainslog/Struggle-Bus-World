@@ -221,9 +221,9 @@ export class SpaceFx {
 
   /**
    * One frame, once the bus's pose is final. v: km/s. dir: the path in EQJ, unit. axes: the render axes in EQJ, by rows. flying and nosing: the path and the nose in the render frame.
-   * scale: the rig's distance over the old chase's 270 m: everything here stands where it stood in the frame. pixel: metres a game pixel at 1 m. busPx: how long the bus is on screen, side on.
+   * scale: the rig's distance over the old chase's 270 m: everything here stands where it stood in the frame. pixel: metres a game pixel at 1 m. busPx: how long the bus is on screen, side on. origin: where the bus is, if not at the render origin.
    */
-  update(dt: number, v: number, dir: Float64Array, axes: Float64Array, flying: THREE.Vector3, nosing: THREE.Vector3, camera: THREE.Camera, bus: THREE.Object3D, scale: number, pixel: number, busPx: number): void {
+  update(dt: number, v: number, dir: Float64Array, axes: Float64Array, flying: THREE.Vector3, nosing: THREE.Vector3, camera: THREE.Camera, bus: THREE.Object3D, scale: number, pixel: number, busPx: number, origin: THREE.Vector3 | null = null): void {
     const on = smooth01(5, 300, v) * 0.35 + 0.3 * smooth01(300, 3000, v);
     this.lines.visible = on > 0.01;
     if (this.lines.visible) {
@@ -239,7 +239,11 @@ export class SpaceFx {
       U.uToRender.value.set(axes[0], axes[1], axes[2], axes[3], axes[4], axes[5], axes[6], axes[7], axes[8]);
       U.uDir.value.copy(flying);
       U.uLine.value.set(box, sp * spaceFxTune.lineLong, pixel * spaceFxTune.linePx, on);
-      U.uCenter.value.copy(camera.position).multiplyScalar(0.45).addScaledVector(flying, sp * 0.08);
+      U.uCenter.value.copy(camera.position);
+      // (the bus at the render origin, or, in the world's frame on the way down, wherever it is)
+      if (origin) U.uCenter.value.sub(origin);
+      U.uCenter.value.multiplyScalar(0.45).addScaledVector(flying, sp * 0.08);
+      if (origin) U.uCenter.value.add(origin);
       U.uScale.value = scale;
     }
     const tr = smooth01(5, 60, v);

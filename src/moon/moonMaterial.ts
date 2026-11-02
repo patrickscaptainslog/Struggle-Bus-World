@@ -349,6 +349,7 @@ const FAR_VS = /* glsl */ `
   uniform vec2 uMaskSize;
   in vec3 aPatch;        // block i, j, level
   out vec3 vWorldPos;
+  out vec3 vRound;
   out float vTone;
   flat out float vLevel;
   bool farCovered(vec2 p) {
@@ -371,7 +372,10 @@ const FAR_VS = /* glsl */ `
     if (L < 3.5 && farCovered(wp.xz + vec2(1.0)) && farCovered(wp.xz - vec2(1.0)) && farCovered(wp.xz + vec2(1.0, -1.0)) && farCovered(wp.xz + vec2(-1.0, 1.0))) wp.y -= 24.0;
     vWorldPos = wp;
     vLevel = L;
-    gl_Position = projectionMatrix * viewMatrix * vec4(moonCurve(wp), 1.0);
+    vec3 rolled = moonCurve(wp);
+    // (from the sphere's middle, on the sphere that's drawn: what's up here, in the lens's axes)
+    vRound = rolled - vec3(cameraPosition.x, -MOON_R, cameraPosition.z);
+    gl_Position = projectionMatrix * viewMatrix * vec4(rolled, 1.0);
   }
 `;
 
@@ -384,8 +388,12 @@ const FAR_FS = /* glsl */ `
   uniform vec4 uFarGrid;
   uniform float uFarLevels;
   uniform float uFarBias;
-  uniform vec4 uFarRects[${FAR.LEVELS}]; // each level's window, in from its edge
+  uniform vec4 uFarRects[${FAR.HIGH_LEVELS}]; // each level's window, in from its edge
+  uniform float uFarShow; // the dissolve from the ray-drawn Moon: 0 none of this, 1 all of it
+  uniform float uFarHigh; // how much of the light is the ray-drawn Moon's, 1 up there, 0 by the ground
+  uniform vec4 uFarEarth; // Earth, in the lens's axes; earthshine's strength in steps
   in vec3 vWorldPos;
+  in vec3 vRound;
   in float vTone;
   flat in float vLevel;
   ${GLSL_OUT}
@@ -404,6 +412,15 @@ const FAR_FS = /* glsl */ `
     return L;
   }
   void main() {
+    // Coming down from orbit the ray-drawn Moon stands under this in the sky branch, and the mesh comes in over it by a dither, a pixel at a time. A pixel it leaves out says "sky", with no discard: nothing here costs a tile GPU its early depth.
+    if (uFarShow < 1.0) {
+      const float M[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+      ivec2 c = ivec2(gl_FragCoord.xy) & 3;
+      if ((M[c.y * 4 + c.x] + 0.5) / 16.0 >= uFarShow) {
+        gBuf = uvec4(0u);
+        return;
+      }
+    }
     // the finest level a pixel's size on the ground can read without crawling
     // (not the long axis alone: at a grazing view that would blur what the short axis can still read)
     float pa = length(dFdx(vWorldPos.xz)), pb = length(dFdy(vWorldPos.xz));
@@ -416,6 +433,21 @@ const FAR_FS = /* glsl */ `
     // (out of the Sun the byte is the fill, as the near ground has it: gen.ts, fillByte. Or the lee of a mountain is a flat black hole in the picture)
     float light = uMoonLight.y + 0.03 + (under > 0.0 ? 0.1 * m.r * m.r : moonShoulder(uMoonLight.x * m.r * m.r * ${LIT_MAX.toFixed(1)}));
     float ramp = moonRamp(vTone), glow = 0.0;
+    // Up where the two meet this is the same light as the resolve's spaceMoon, on the same ramp, with the shape of the ground as what the map has baked of it: the two pictures are the same tone wherever the Sun stands, and the terminator comes
+    // where it comes. It goes over to the ground's own on the way down.
+    if (uFarHigh > 0.0) {
+      vec3 nr = normalize(vRound);
+      vec3 vv = normalize(vec3(0.0, cameraPosition.y + 1737400.0, 0.0) - vRound);
+      float mu = dot(nr, uSunDir), t = vTone;
+      float shape = under > 0.0 ? 0.3 * m.r * m.r : m.r * m.r * ${LIT_MAX.toFixed(1)} / (${LIT_TONE0.toFixed(2)} + ${LIT_TONE1.toFixed(2)} * t);
+      float level = max(dot(nr, uFarEarth.xyz), 0.0) * uFarEarth.w * (0.2 + 1.1 * t) + 0.25;
+      if (mu > 0.0) level = max(level, (0.35 + 0.65 * t) * min(2.0 * mu / (mu + max(dot(nr, vv), 0.0) + 0.001), 1.05) * 7.0 * shape);
+      level -= max(level - 5.2, 0.0) * 0.45;
+      light = mix(light, level / 7.0, uFarHigh);
+      const float B[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+      ivec2 c = ivec2(gl_FragCoord.xy) & 3;
+      if ((B[c.y * 4 + c.x] + 0.5) / 16.0 < uFarHigh) ramp = ${Ramp.MOON}.0;
+    }
     float pr, pEdge, pLift, pGlow;
     float site = moonSite(vWorldPos.xz, pa + pb);
     if (site > 0.5) {
@@ -454,6 +486,9 @@ export function makeMoonFar(tFarH: THREE.Texture, tFarM: THREE.Texture, mask: TH
       uFarLevels: { value: levels },
       uFarRects: { value: rects },
       uFarBias: { value: -0.5 },
+      uFarShow: { value: 1 },
+      uFarHigh: { value: 0 },
+      uFarEarth: { value: new THREE.Vector4() },
     },
     vertexShader: FAR_VS,
     fragmentShader: FAR_FS,

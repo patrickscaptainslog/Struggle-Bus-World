@@ -40,6 +40,29 @@ export function dirOf(f: MapFrame, x: number, z: number, o: V3): void {
   o[2] = c * u[2] + a * e[2] + b * n[2];
 }
 
+/**
+ * The map's axes at (x, z) by rows, Moon fixed: its x, up, its z. They're the centre's, carried along the great circle from there. That is how the ground is rolled round a lens that stands here, so it's what a sky over the lens
+ * is turned by: a bearing from the map's centre is true, and these are square to each other, which the map's own are only near its centre.
+ */
+export function axesOf(f: MapFrame, x: number, z: number, o: V3): void {
+  const s = Math.sqrt(x * x + z * z), { u, e, n } = f;
+  if (s < 1e-6) {
+    for (let i = 0; i < 3; i++) {
+      o[i] = e[i];
+      o[3 + i] = u[i];
+      o[6 + i] = -n[i];
+    }
+    return;
+  }
+  const a = x / s, b = z / s, th = s / R_M, c = Math.cos(th), sn = Math.sin(th);
+  for (let i = 0; i < 3; i++) {
+    const R0 = a * e[i] - b * n[i], P = -b * e[i] - a * n[i], R1 = R0 * c - u[i] * sn;
+    o[i] = a * R1 - b * P;
+    o[3 + i] = u[i] * c + R0 * sn;
+    o[6 + i] = b * R1 + a * P;
+  }
+}
+
 /** A unit vector, Moon fixed, to map metres: out[0] x, out[1] z. */
 export function mapOf(f: MapFrame, dx: number, dy: number, dz: number, out: V3): void {
   const { u, e, n } = f;

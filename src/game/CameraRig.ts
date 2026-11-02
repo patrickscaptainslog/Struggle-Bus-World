@@ -72,6 +72,23 @@ export class CameraRig {
 
   /** ?moon: the ground under the lens. A street has no slope to speak of; a hill behind the bus would have the lens inside it, looking out through the back of the ground. */
   floorAt: ((x: number, z: number) => number) | null = null;
+  /** ?moonland: the size the bus stands on the screen at this height, game/busSize.ts's, in place of the vista's fixed distance and scale. */
+  sizeAt: ((h: number) => { hero: number; distance: number }) | null = null;
+  /** 0..1, ?moonland: the follow stands where it should, with no lag: a bus coming down at kilometres a second would run out from under the springs. */
+  stiff = 0;
+
+  /** The bus comes in from a height with the view at its height: the rig is where it would have got to by itself. */
+  place(cam: THREE.PerspectiveCamera, f: Flight) {
+    this.initialized = true;
+    this.yaw = f.heading;
+    this.yawVel = 0;
+    this.vista = this.vistaTarget = 1;
+    this.lensHeight = this.lensTarget = f.height;
+    this.pos.copy(cam.position);
+    this.posVel.set(0, 0, 0);
+    this.look.set(f.x + f.fx, f.y - 4, f.z + f.fz);
+    this.elev = config.camera.elevationCruise;
+  }
 
   update(cam: THREE.PerspectiveCamera, focusOut: THREE.Vector3, f: Flight, dt: number) {
     const C = config.camera;
@@ -117,12 +134,13 @@ export class CameraRig {
     this.dive = Math.abs(dd) <= ds ? diveWant : this.dive + Math.sign(dd) * ds;
     const dive = this.dive * (1 - low);
     this.hfov = C.hfovPortrait + (C.hfovVista - C.hfovPortrait) * v + this.turboFov;
-    this.heroScale = (1 + (C.heroScaleVista - 1) * v) * this.turboHero;
+    const size = this.sizeAt?.(this.lensHeight);
+    this.heroScale = (1 + ((size ? size.hero : C.heroScaleVista) - 1) * v) * this.turboHero;
     const barf = this.barfTilt * (1 - v) * (1 - dive); // up high the splat lands mid-screen anyway
     let elev = this.elev + (C.elevationVista - this.elev) * v;
     elev += (C.diveElevation - elev) * dive;
     const el = THREE.MathUtils.degToRad(elev + 11 * barf + (6.5 - elev) * low);
-    const dist = (C.distance + (C.distanceVista - C.distance) * v + this.openingPull + this.turboPull) * (1 - low) + 150 * low;
+    const dist = (C.distance + ((size ? size.distance : C.distanceVista) - C.distance) * v + this.openingPull + this.turboPull) * (1 - low) + 150 * low;
     const fx = Math.sin(this.yaw), fz = -Math.cos(this.yaw);
     const bus = this.bus.set(f.x, f.y, f.z);
     const desired = this.desired.set(bus.x - fx * Math.cos(el) * dist, bus.y + Math.sin(el) * dist, bus.z - fz * Math.cos(el) * dist).add(this.turboLead);
@@ -133,6 +151,7 @@ export class CameraRig {
       const a = w * w * (desired[k] - this.pos[k]) - 2 * C.followDamping * w * this.posVel[k];
       this.posVel[k] += a * dt;
       this.pos[k] += this.posVel[k] * dt;
+      if (this.stiff > 0) this.pos[k] += (desired[k] - this.pos[k]) * this.stiff;
     }
     if (this.floorAt) {
       const y = this.floorAt(this.pos.x, this.pos.z) + 4;

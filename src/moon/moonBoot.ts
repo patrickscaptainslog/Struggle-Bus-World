@@ -11,13 +11,14 @@ import type { RegionRequest, RegionResponse } from '../world/regionLoader';
 import type { CityManifest, TerrainTile } from '../world/tiles';
 import { CraterPaint, SITE_R, type NameRow } from './CraterPaint';
 import { craterById, cratersNear, type Crater, type CraterHit } from './craters';
-import { MOON_REGION, MOON_TILE, decodeShadow, type FarUpdate } from './gen';
+import { FAR, MOON_REGION, MOON_TILE, capSun, decodeShadow, type FarUpdate } from './gen';
 import { dirOf, findNamed, findPlace, latLonToMap, latOf, lonOf, makeFrame, readAlbedo, readPlaces, type MapFrame, type Place, type PlaceRow, type WholeMap } from './map';
 import { MoonFar } from './MoonFar';
 import { HELD_SUN_OFF, MoonSky } from './MoonSky';
+import type { SkyDraw } from '../sky/SkyDraw';
 import { makeMoonGround, moonGlobals, moonMapTexture, moonTileMap } from './moonMaterial';
 import { paintRockMesh, rockMesh, rockProxy } from './rocks';
-import type { MoonCraters, MoonFarRequest, MoonInit, MoonReady, MoonRegionRequest } from './moonWorker';
+import type { MoonCraters, MoonFarRequest, MoonInit, MoonPlace, MoonPlaced, MoonReady, MoonRegionRequest } from './moonWorker';
 
 // ?moon: the Moon as a place the real game loads. boot() in main.ts runs as ever with a city that happens to be generated: this file makes that city's manifest, its worker, its far field and its sky, and hands City
 // what differs. ?moon starts low over Theophilus near its central peaks; ?moon&site=<landmark> or ?moon&lat=&lon= start anywhere on the Moon.
@@ -68,19 +69,26 @@ export interface MoonBoot {
   crater(id: string): Crater | null;
   /** The craters as buildings: what glints, what a hit does, what's saved. */
   paint: CraterPaint;
+  /** ?moonland: the map again, round this place, in this moment's sky: everything here that has a place on it goes with it, as the worker's answer comes (`placed`). The number the far field asks by. */
+  place(lat: number, lon: number, ms: number): number;
+  /** ?moonland: the world's own, once it has its datum. */
+  placed: (() => void) | null;
   /** The ground paint a boulder finds is what's in reach (main.ts hands it GroundPaint's). */
   groundHue: (x: number, z: number) => number;
   /** Saved ground paint is on screen in this box: its boulders take it. */
   rocksReady(x0: number, z0: number, x1: number, z1: number): void;
 }
 
-function moonPalette(pipeline: PixelPipeline) {
+function moonPalette(pipeline: PixelPipeline, land: boolean) {
   const tex = pipeline.paletteTexture;
-  writePalette(tex.image.data as unknown as Uint8Array, { ...dayRows, ...MOON_ROWS });
+  // (?moonland: the sky the flight already has)
+  const rows = land ? { ...MOON_ROWS, [Ramp.NIGHT_SKY]: SPACE_ROWS[Ramp.NIGHT_SKY] } : MOON_ROWS;
+  writePalette(tex.image.data as unknown as Uint8Array, { ...dayRows, ...rows });
   tex.needsUpdate = true;
 }
 
-export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams, scene: THREE.Scene): Promise<MoonBoot> {
+/** land: ?moonland's: the flight's own sky, and no place on the Moon until a thumb says where. */
+export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams, scene: THREE.Scene, land?: { draw: SkyDraw }): Promise<MoonBoot> {
   const base = new URL('.', location.href).href.replace(/\/$/, '');
   const [rows, nameRows, albBuf] = await Promise.all([
     fetch('./moon/places.json').then((r) => r.json() as Promise<PlaceRow[]>),
@@ -95,12 +103,12 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   const places = readPlaces(rows);
   const albedo: WholeMap = readAlbedo(albBuf);
   // where: a landmark, a place, or Theophilus, near its central peaks
-  const named = params.get('site');
+  const named = land ? null : params.get('site');
   const place = named ? (findPlace(places, named) ?? findNamed(nameRows, named)) : null;
-  const hasLL = params.has('lat') && params.has('lon');
+  const hasLL = !land && params.has('lat') && params.has('lon');
   const lat = hasLL ? Number(params.get('lat')) : (place?.lat ?? THEOPHILUS.lat);
   const lon = hasLL ? Number(params.get('lon')) : (place?.lon ?? THEOPHILUS.lon);
-  const atTheo = !place && !hasLL;
+  const atTheo = !place && !hasLL && !land;
   const frame = makeFrame(lat, lon);
   const heading = (params.has('heading') ? Number(params.get('heading')) : atTheo ? THEO_START.heading : 82) * DEG;
   // (a named crater: on its floor, on the side the Sun reaches, with the whole of it ahead. A held Sun stands HELD_SUN_OFF off the heading: this is away from it)
@@ -120,18 +128,24 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   const site = place?.name ?? (hasLL ? `${lat.toFixed(2)}, ${lon.toFixed(2)}` : 'THEOPHILUS');
 
   // the sky first: the ground's shadows are baked for its Sun
-  const sky = new MoonSky(pipeline, params, lat, lon, heading);
+  const sky = new MoonSky(pipeline, params, lat, lon, heading, land?.draw);
   const sun = sky.sun;
-  moonPalette(pipeline);
+  moonPalette(pipeline, !!land);
 
   // ---- what the game's own numbers become out here, once, before anything reads them
   const L = config.light;
-  L.sunElevation = Math.asin(sun[1]);
-  L.sunAzimuth = Math.atan2(-sun[2], sun[0]);
-  // (the bus: a hard Sun and next to no sky)
-  L.sunStrength = sky.night ? 0.2 : 0.72;
-  L.ambient = sky.night ? 0.14 : 0.26;
-  L.skyBounce = 0.02;
+  /** The Sun the bus and the near ground are lit by, the one the map's baked for. Once at boot, and again for each place a flight from orbit comes down at. */
+  const light = () => {
+    L.sunElevation = Math.asin(sun[1]);
+    L.sunAzimuth = Math.atan2(-sun[2], sun[0]);
+    // (the bus: a hard Sun and next to no sky)
+    L.sunStrength = sky.night ? 0.2 : 0.72;
+    L.ambient = sky.night ? 0.14 : 0.26;
+    L.skyBounce = 0.02;
+    if (sky.night) moonGlobals.uMoonLight.value.set(0.17, 0.03);
+    else moonGlobals.uMoonLight.value.set(0.4, 0.006);
+  };
+  if (!land) light();
   config.fog.clearFarFull = 3e6;
   // no fog to hide in: the view sits lower, with more of the black over the horizon
   config.camera.elevationCruise = 13;
@@ -156,8 +170,7 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   config.splat.blobTimePerM *= G6;
   // (the aim runs out as far as the ground does: a crater is a target from any height the bus can see it at)
   config.splat.maxRange = 30000;
-  pipeline.setFar(FAR_PLANE);
-  if (sky.night) moonGlobals.uMoonLight.value.set(0.17, 0.03);
+  if (!land) pipeline.setFar(FAR_PLANE);
   globals.uGroundRef.value = 0;
 
   const worker = new Worker(new URL('./moonWorker.ts', import.meta.url), { type: 'module' });
@@ -166,17 +179,24 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   let ready0: (m: MoonReady) => void = () => {};
   const ready = new Promise<MoonReady>((done) => (ready0 = done));
   let paint: CraterPaint | null = null;
-  worker.onmessage = (ev: MessageEvent<RegionResponse | FarUpdate | MoonReady | MoonCraters>) => {
+  /** The place the worker was last asked for. */
+  let placeId = 0;
+  worker.onmessage = (ev: MessageEvent<RegionResponse | FarUpdate | MoonReady | MoonCraters | MoonPlaced>) => {
     const m = ev.data;
     if (m.type === 'region') onRegion?.(m);
     else if (m.type === 'far') far?.land(m);
     else if (m.type === 'craters') paint?.land(m);
     else if (m.type === 'ready') ready0(m);
+    else if (m.type === 'placed' && m.id === placeId) {
+      boot.datum = m.datum;
+      paint?.rebase();
+      boot.placed?.();
+    }
   };
   worker.onerror = (e) => console.error('moon worker:', e.message);
 
   const bounds: [number, number, number, number] = [-MAP_HALF, -MAP_HALF, MAP_HALF, MAP_HALF];
-  worker.postMessage({ type: 'init', base, lat, lon, seed: SEED, sun: [sun[0], sun[1], sun[2]], bounds, startX, startZ, heading, seekLit: !atTheo && !crewed && !sky.night } satisfies MoonInit);
+  worker.postMessage({ type: 'init', base, lat, lon, seed: SEED, sun: [sun[0], sun[1], sun[2]], bounds, startX, startZ, heading, seekLit: !land && !atTheo && !crewed && !sky.night, levels: land ? FAR.HIGH_LEVELS : FAR.LEVELS } satisfies MoonInit);
   const landed = await ready;
   const { datum, startY } = landed;
   // (it looked for ground with the Sun on it, unless this is the start picked by hand)
@@ -213,7 +233,7 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   };
 
   const city: CityMoon = {
-    request: (msg: RegionRequest, rx: number, rz: number) => worker.postMessage({ ...msg, rx, rz } satisfies MoonRegionRequest),
+    request: (msg: RegionRequest, rx: number, rz: number) => worker.postMessage({ ...msg, rx, rz, place: placeId } satisfies MoonRegionRequest),
     listen: (fn) => (onRegion = fn),
     available: (rx, rz) => {
       const s = MOON_REGION * MOON_TILE;
@@ -301,9 +321,21 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
     groundHue: () => -1,
     rocksReady: (x0, z0, x1, z1) => paintRocks(x0, z0, x1, z1, -100),
     buildFar(mask, rect, size) {
-      far = new MoonFar(pipeline.renderer, (m: MoonFarRequest) => worker.postMessage(m), mask, rect, size);
+      far = new MoonFar(pipeline.renderer, (m: MoonFarRequest) => worker.postMessage(m), mask, rect, size, land ? FAR.HIGH_LEVELS : FAR.LEVELS);
       boot.far = far;
       return far;
+    },
+    placed: null,
+    place(lat2, lon2, ms) {
+      placeId++;
+      Object.assign(frame, makeFrame(lat2, lon2));
+      sky.place(lat2, lon2, ms);
+      capSun(sky.sun);
+      light();
+      boot.datum = NaN;
+      const s = sky.sun, f = sky.sunFix;
+      worker.postMessage({ type: 'place', id: placeId, lat: lat2, lon: lon2, sun: [s[0], s[1], s[2]], sunFix: [f[0], f[1], f[2]], bounds } satisfies MoonPlace);
+      return placeId;
     },
     update(x, z) {
       far?.update(x, z);

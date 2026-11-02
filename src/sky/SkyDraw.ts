@@ -205,6 +205,8 @@ export class SkyDraw {
   private readonly ahead = new THREE.Vector3(0, 0, 1);
   private readonly tmpAhead = new THREE.Vector3();
   private aheadSet = false;
+  /** The view's up and back, Moon fixed, when the render frame isn't the view's (on the way down it's the world's: moon/Landing.ts). */
+  view: Float64Array | null = null;
 
   constructor(pipeline: PixelPipeline) {
     this.pipeline = pipeline;
@@ -348,7 +350,8 @@ export class SkyDraw {
     U.uMoonLook.value.set(g.bright * close, g.flat, g.sharp, g.keep);
     // the top of the frame, on the ground under the view: m's rows are the render frame's axes in Moon fixed, so this is up less back
     const ox2 = s.moonO[0] / s.moonKm, oy2 = s.moonO[1] / s.moonKm, oz2 = s.moonO[2] / s.moonKm;
-    let ax = m[3] - m[6], ay = m[4] - m[7], az = m[5] - m[8];
+    const v = this.view;
+    let ax = v ? v[0] - v[3] : m[3] - m[6], ay = v ? v[1] - v[4] : m[4] - m[7], az = v ? v[2] - v[5] : m[5] - m[8];
     const on = ax * ox2 + ay * oy2 + az * oz2;
     ax -= ox2 * on;
     ay -= oy2 * on;

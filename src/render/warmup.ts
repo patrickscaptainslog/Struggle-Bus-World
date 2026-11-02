@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { moonLow, moonrun } from '../sky/flag';
+import { moonLand, moonLow, moonrun } from '../sky/flag';
 
 // Shader warm-up: every program the game will draw with is compiled at boot, in parallel
 // (KHR_parallel_shader_compile: the main thread stays free while the GPU process compiles), then
@@ -270,10 +270,13 @@ export class WarmUp {
     this.addSources();
   }
 
+  /** ?moonland: the flight's first frame waits for its own programs and no others. The ground's come after it, in the background, with the Moon's own sources in place of the city's. */
+  sourcesOpen = !moonLand;
+
   /** Run every registered source not run yet. */
   addSources(): void {
     // (?moonrun has no city: its first-load number is the sky's own, not tiles', trees' and landmarks' programs that will never draw)
-    if (moonrun) return;
+    if (moonrun || !this.sourcesOpen) return;
     for (const [name, make] of sources) {
       // (?moon has a bus and paint and a ground, and gardens on its rims, and none of a city's trees, landmarks or spans)
       if (this.ran.has(name) || (moonLow && name !== 'city' && name !== 'roof sprouts')) continue;

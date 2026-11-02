@@ -24,7 +24,13 @@ export const moonrun = typeof location !== 'undefined' && new URLSearchParams(lo
  * ?moon: the Moon as a place the real game loads, low over its ground (src/moon/). The same law: flag off, no fetch and no shader byte differs. What it has of the sky is ?moonrun's, so the space code's GLSL
  * compiles for either; the ground's programs are its own, in a chunk of their own, and index.html starts no city downloads under it.
  */
-export const moonLow = typeof location !== 'undefined' && new URLSearchParams(location.search).has('moon');
+export const moonLow = typeof location !== 'undefined' && (new URLSearchParams(location.search).has('moon') || new URLSearchParams(location.search).has('moonland'));
+
+/**
+ * ?moonland: the one link. Earth orbit to Moon orbit as ?moonrun flies it, and a thumb's push takes the bus down from there to the ground ?moon flies over, on one page, with no reload and no fade. It's ?moon to everything that asks
+ * (its programs, its files), and the flight's own loop starts first, so the page is up as fast as ?moonrun's; src/moon/Landing.ts is what joins them.
+ */
+export const moonLand = typeof location !== 'undefined' && new URLSearchParams(location.search).has('moonland');
 
 /** GLSL only ?moonrun and ?moon compile. */
 export const space = (glsl: string): string => (moonrun || moonLow ? glsl : '');

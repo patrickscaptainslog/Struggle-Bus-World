@@ -63,7 +63,16 @@ const SITE_LON = 23.47 * DEG;
 const SITE = [Math.cos(SITE_LAT) * Math.cos(SITE_LON), Math.cos(SITE_LAT) * Math.sin(SITE_LON), Math.sin(SITE_LAT)];
 const BACK = 870 / (R_M + 150);
 
-export type Leg = 'wait' | 'climb' | 'arc' | 'out' | 'cruise' | 'in' | 'orbit' | 'leave' | 'homeOut' | 'homeCruise' | 'homeIn' | 'homeLevel' | 'homeDrop';
+/** The way down from the orbit (?moonland): the same law as the way in, on from it, to Jet's speed at this height over the ground, km. Its time constant is what leaves the orbit's speed where it is at the orbit's height, so nothing jumps at the push. */
+export const FALL_FLOOR = 2;
+const G1 = 0.45;
+export const FALL_TAU = (ALT4 - FALL_FLOOR) / (G3 - G1);
+/** The yoke, as Flight's: the dead band, the path's angle at full pull and full push (rad), the stick's curve, and how fast the path follows it (1/s). config.flight has the same numbers: moonrun.ts hands them over, so this file stays free of the game. */
+export const YOKE = { dead: 0.14, up: 85 * DEG, down: 85 * DEG, curve: 1.3, rate: 2.6 };
+/** A push held this long leaves the orbit (s): a carving thumb's drift doesn't. */
+const PUSH_HOLD = 0.15;
+
+export type Leg = 'wait' | 'climb' | 'arc' | 'out' | 'cruise' | 'in' | 'orbit' | 'fall' | 'ground' | 'leave' | 'homeOut' | 'homeCruise' | 'homeIn' | 'homeLevel' | 'homeDrop';
 
 /** What the small label calls each leg (MOONSHOT.md's table). */
 export const LEG_NAMES: Record<Leg, string> = {
@@ -74,6 +83,8 @@ export const LEG_NAMES: Record<Leg, string> = {
   cruise: 'THE LONG DARK',
   in: 'COMING IN',
   orbit: 'IN ORBIT',
+  fall: 'GOING DOWN',
+  ground: 'ON THE MOON',
   leave: 'ROUND THE MOON',
   homeOut: 'HEADING HOME',
   homeCruise: 'THE LONG DARK',
@@ -98,6 +109,8 @@ export interface TripOptions {
   /** home, degrees */
   lat?: number;
   lon?: number;
+  /** a push in orbit goes down (?moonland) */
+  land?: boolean;
 }
 
 type V = Float64Array;
@@ -171,6 +184,14 @@ export class MoonTrip {
   /** The way in's time constant, s, and the pull-up's turn, rad/s: live, the tuner moves them. */
   tau: number;
   pull = PULL;
+  /** The way the bus goes on the way down, rad, + up. */
+  nose = 0;
+  /** What's left of the fall's speed while the ground isn't made yet: 1 free, 0 held where it is (moon/Landing.ts). */
+  gov = 1;
+  /** The ground under the bus over the sphere, km, once it's known (moon/Landing.ts). */
+  ground = 0;
+  private pushT = 0;
+  private readonly land: boolean;
   private readonly ms0: number;
   private readonly now: SkyModel;
   private readonly later: SkyModel;
@@ -205,6 +226,7 @@ export class MoonTrip {
     this.ms0 = ms0;
     this.g5 = opts.g5;
     this.tau = opts.tau ?? TAU;
+    this.land = !!opts.land;
     this.now = new SkyModel(series);
     this.later = new SkyModel(series);
     geodeticToFix(opts.lat ?? 37.7749, opts.lon ?? -122.4194, 0, this.fx);
@@ -230,7 +252,7 @@ export class MoonTrip {
 
   /** The thumb steers the bus on these legs. Everywhere else it swings the camera. */
   get steering(): boolean {
-    return this.leg === 'wait' || this.leg === 'orbit';
+    return this.leg === 'wait' || this.leg === 'orbit' || this.leg === 'fall';
   }
 
   /** The body this leg is going to: the view turns to it once the one behind has had its moment (TripView.ts). */
@@ -258,8 +280,13 @@ export class MoonTrip {
     this.downTapped = true;
   }
 
-  /** One frame. stick: the thumb's x, -1..1, used only where the thumb steers. */
-  step(dt: number, stick: number): void {
+  /** The ground game has the frame: the sky's clock still runs. */
+  tick(dt: number): void {
+    this.t += dt;
+  }
+
+  /** One frame. stick: the thumb's x, -1..1, used only where the thumb steers. yoke: its y, + up, nose down, in orbit and on the way down. */
+  step(dt: number, stick: number, yoke = 0): void {
     const now = this.now;
     now.frame(this.ms, this.ob, this.nowS);
     const r = this.r, rm = this.rm, m = now.moonEqj;
@@ -277,7 +304,7 @@ export class MoonTrip {
     if (!this.started) this.begin();
     this.shifts();
     // (a leg that ends hands the same frame to the next one, so no frame stands still)
-    for (let i = 0; i < 4 && !this.fly(dt, stick); i++);
+    for (let i = 0; i < 4 && !this.fly(dt, stick, yoke); i++);
     this.t += dt;
     // where it is now, on this frame's Moon: 1 km/s stale at most, a few metres
     const p = this.ob.pos;
@@ -324,6 +351,10 @@ export class MoonTrip {
         case 'orbit':
           this.leaveMoon();
           break;
+        case 'fall':
+          // (still in the sky: below that the gears are the ground's)
+          if (this.hMoon > 150) this.leaveMoon();
+          break;
       }
     }
     if (this.downTapped) {
@@ -349,6 +380,7 @@ export class MoonTrip {
 
   /** Always by way of the level leg: a bus flying away from Earth has to carve round on the floor first, or the short way to Earth is through the Moon. */
   private leaveMoon(): void {
+    this.nose = 0;
     this.gear = 4;
     this.ti = 0;
     this.armed = false;
@@ -358,7 +390,7 @@ export class MoonTrip {
   }
 
   private enter(leg: Leg): void {
-    if (this.leg !== 'wait' && this.leg !== 'orbit' && this.km > 0) this.log.push({ leg: this.leg, at: this.legAt - this.launchedAt, s: this.t - this.legAt, km: this.km });
+    if (this.leg !== 'wait' && this.leg !== 'orbit' && this.leg !== 'fall' && this.leg !== 'ground' && this.km > 0) this.log.push({ leg: this.leg, at: this.legAt - this.launchedAt, s: this.t - this.legAt, km: this.km });
     this.leg = leg;
     this.legAt = this.t;
     this.km = 0;
@@ -522,8 +554,18 @@ export class MoonTrip {
     tangent(h, u, h);
   }
 
+  /** The way down, km/s at h km over the ground. A brake on arrival only, as the way in is: this is a limit, and climbing leaves the speed where it was. */
+  private lawFall(h: number): number {
+    return G1 + Math.max(h - FALL_FLOOR, 0) / FALL_TAU;
+  }
+
+  /** The thumb's nose down, 0..1, as Flight's yoke reads it up high. */
+  private pushOf(yoke: number): number {
+    return Math.max(0, Math.min(1, (yoke - YOKE.dead) / (1 - YOKE.dead)));
+  }
+
   /** One leg's frame. False: the leg ended here and the next one flies this frame. */
-  private fly(dt: number, stick: number): boolean {
+  private fly(dt: number, stick: number, yoke: number): boolean {
     const r = this.r, rm = this.rm, a = this.a, d = this.d, u = this.u;
     const dE = len(r), hE = dE - R_E, hM = len(rm) - R_M;
     switch (this.leg) {
@@ -625,6 +667,14 @@ export class MoonTrip {
         // level on the floor, a great circle round the Moon, the thumb turning it. The way in arrives at G3 and it stays
         const p = this.ob.pos, h = this.heading;
         setUnit(p, u);
+        this.pushT = this.land && this.pushOf(yoke) > 0 ? this.pushT + dt : 0;
+        if (this.pushT > PUSH_HOLD) {
+          this.pushT = 0;
+          this.nose = 0;
+          this.gov = 1;
+          this.enter('fall');
+          return false;
+        }
         this.yaw(stick, dt, u);
         this.v += (G3 - this.v) * (1 - Math.exp(-HZ * dt));
         this.rOrbit += (R_M + ALT4 - this.rOrbit) * (1 - Math.exp(-2 * dt));
@@ -637,6 +687,38 @@ export class MoonTrip {
         this.dir.set(h);
         return true;
       }
+      case 'fall': {
+        // The yoke as the low game has it: the thumb sets the way the bus goes, and the speed goes that way. Speed is the law's at this height, the most it may be; it never goes back up. Curved as the orbit is, so level is level: the thumb lets go
+        // and the bus flies on round the Moon at that height. moon/Landing.ts makes the ground under it, and holds this back by `gov` if the ground isn't there yet.
+        const p = this.ob.pos, h = this.heading, Y = YOKE;
+        setUnit(p, u);
+        this.yaw(stick, dt, u);
+        const pull = Math.max(0, Math.min(1, (-yoke - Y.dead) / (1 - Y.dead))), push = this.pushOf(yoke);
+        const want = pull > 0 ? Y.up * pull ** Y.curve : push > 0 ? -Y.down * push ** Y.curve : 0;
+        this.nose += (want - this.nose) * (1 - Math.exp(-Y.rate * dt));
+        this.v = Math.min(this.v, this.lawFall(hM - this.ground));
+        this.gear = this.v > G4 * 1.01 ? 5 : 3;
+        const s = this.v * this.gov * dt, cn = Math.cos(this.nose), sn = Math.sin(this.nose), R = len(p), th = (s * cn) / R, c = Math.cos(th), sa = Math.sin(th), up = R + s * sn;
+        for (let i = 0; i < 3; i++) {
+          const ui = u[i], hi = h[i];
+          p[i] = (ui * c + hi * sa) * up;
+          h[i] = hi * c - ui * sa;
+          this.dir[i] = h[i] * cn + (ui * c + hi * sa) * sn;
+        }
+        this.km += s;
+        // (pulled all the way back up: it's the orbit again, and that takes the speed back)
+        if (up >= R_M + ALT4 && this.nose > 0) {
+          this.nose = 0;
+          this.rOrbit = up;
+          tangent(this.dir, setUnit(p, u), this.dir);
+          this.gear = 3;
+          this.enter('orbit');
+        }
+        return true;
+      }
+      // (the ground game has the frame: nothing here moves)
+      case 'ground':
+        return true;
       // ---- home
       case 'leave': {
         // level on the floor, carving round to Earth and then on until it stands over the limb: trip/sim.py's arc_moon, from wherever the lap has got to. It's done once Earth is no longer behind the bus
@@ -740,6 +822,11 @@ export class MoonTrip {
         return true;
       }
     }
+  }
+
+  /** The ground game takes the bus (moon/Landing.ts). */
+  land2ground(): void {
+    this.enter('ground');
   }
 
   /** The law has the speed from here. Level turns north for the pull-up, unseen: a far view is framed north up. */

@@ -34,7 +34,8 @@ import { SuperSplat } from './game/SuperSplat';
 import { SuperFx } from './fx/SuperFx';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
-import { heldHour, moonLow, moonrun } from './sky/flag';
+import { heldHour, moonLand, moonLow, moonrun } from './sky/flag';
+import type { LandEnter, Landing } from './moon/Landing';
 import { HeldHour } from './sky/HeldHour';
 
 // Struggle Bus — Phase 1 (real SF, solo).
@@ -125,11 +126,12 @@ updateSun();
 const slug = params.get('city') ?? 'sf';
 const base = `./city/${slug}`;
 
-async function boot() {
+/** land: ?moonland: the flight's loop has started and has the frame: all of this is made ready behind it, and takes the frame when the bus comes down to it. What it shares with that loop comes in with this. */
+async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine }) {
   // (first: the warm-up hasn't started a compile yet, so this query waits for nothing, and boot().catch prints a refusal)
   pipeline.checkTargets();
   // (?moon: the place is generated, src/moon/: all that follows is the game as it is, on a city with no files)
-  const moon = moonLow ? await (await import('./moon/moonBoot')).startMoon(pipeline, params, scene) : null;
+  const moon = moonLow ? await (await import('./moon/moonBoot')).startMoon(pipeline, params, scene, land) : null;
   // (index.html started this download before this script had even loaded)
   const manifest = moon ? moon.manifest : ((await (await (bootFetch(base, 'manifest') ?? fetch(`${base}/city.json${dataQuery()}`))).json()) as Manifest);
   // saved paint is keyed by the folder that served the city, not the slug inside its city.json (only the
@@ -142,7 +144,9 @@ async function boot() {
   scene.add(city.root);
   if (moon) {
     const m = city.tileMask;
-    scene.add(moon.buildFar(m.tex, m.rect, m.size).object, moon.sky.object);
+    scene.add(moon.buildFar(m.tex, m.rect, m.size).object);
+    // (the flight has the sky, and brings it down)
+    if (!land) scene.add(moon.sky.object);
     // (15 km over the ground it started on, as anywhere: the ceiling is a height, and the map's zero is the lowest ground near it)
     config.flight.ceiling = moon.startY + config.flight.ceiling;
   }
@@ -164,7 +168,8 @@ async function boot() {
   if (params.has('heading')) flight.heading = THREE.MathUtils.degToRad(Number(params.get('heading')));
   if (moon) {
     flight.y = moon.startY + 30;
-    moon.far!.start(flight.x, flight.z);
+    if (land) moon.far!.alloc();
+    else moon.far!.start(flight.x, flight.z);
   }
   // the opening: emerge from the fog bank west of the Golden Gate, glide under it
   const start = manifest.start as typeof manifest.start & { speed?: number; opening?: string };
@@ -186,11 +191,15 @@ async function boot() {
   const rig = new CameraRig();
   if (openingBridge) rig.openingLow = 1;
   if (moon) rig.floorAt = (x, z) => city.groundAt(x, z);
+  if (land) {
+    // (the bus's size is one curve from orbit to the rooftops)
+    rig.sizeAt = (h) => land.size(h, 1 / pipeline.pixelWorldSize(1), pipeline.info.width, bus.length);
+  }
   const focus = new THREE.Vector3(flight.x, 60, flight.z);
   // (the first frame streams around the bus: the same want-list, so nothing is asked for twice)
   const primeFocus = focus.clone();
   if (moon) focus.y = primeFocus.y = flight.y;
-  city.prime(primeFocus);
+  if (!land) city.prime(primeFocus);
   // (the fade goes with the raster, on whichever frame that lands; a city with no raster keeps its old horizon)
   if (farOn && !farPicked)
     city.onFarRaster = () => {
@@ -198,7 +207,7 @@ async function boot() {
       city.fitWater();
       updateSun();
     };
-  const farP = moon ? Promise.all([moon.far!.ready, moon.sky.load()]).then(() => {}) : city.loadFar(renderer, () => warm.busy);
+  const farP = land ? Promise.resolve() : moon ? Promise.all([moon.far!.ready, moon.sky.load()]).then(() => {}) : city.loadFar(renderer, () => warm.busy);
   // (behind far.bin: the worker reads its heights. Nothing waits for this, the lamps land when they land)
   if (hour) void farP.then(() => hour.lamps.load(city.fileUrl('lamps'), city.groundGrid()!, manifest.tileSize), () => (hour.lamps.busy = false));
 
@@ -376,7 +385,7 @@ async function boot() {
       return g && g.cov >= 0.5 ? g.hue : -1;
     };
   }
-  const audio = new AudioEngine();
+  const audio = shared?.audio ?? new AudioEngine();
   // (no air, no wind)
   audio.setVolumes(moon ? { ...config.audio, ambience: 0 } : config.audio);
 
@@ -814,7 +823,9 @@ async function boot() {
   }
 
   // ---- input
-  const input = new Input(canvas);
+  const input = shared?.input ?? new Input(canvas);
+  /** ?moonland: what the flight's loop has the thumb doing: everything below takes its place, and gives it back until the bus comes down. */
+  const flightHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd };
   const tuner = new Tuner();
   // (the ODbL credit, then the other sources' own: ESA WorldCover's CC BY for where the trees stand)
   const dataCredits = [manifest.attribution ? (moon ? `Data ${manifest.attribution}` : `Map data ${manifest.attribution} (ODbL)`) : '', ...Object.values(manifest.credits ?? {})].filter(Boolean);
@@ -961,7 +972,7 @@ async function boot() {
   // like the opening's, with the game clock standing until the city is in
   let glLost = false;
   /** the page shows instead of the canvas: frames run at dt 0 until the city is back (?moon: from the start, until the ground near the bus is in: the first thing seen isn't a coarse tile) */
-  let covered = !!moon;
+  let covered = !!moon && !land;
   /** ?moon: how long the first look waits for that, at most */
   let coverUntil = Infinity;
   // the first ready frame adopts streamed tiles at once (as the classic streaming did); then budgeted
@@ -988,9 +999,16 @@ async function boot() {
 
   // ---- the warm-up's second wave: the live scene as built so far (the bus, the Golden Gate, water,
   // signs, particles, the drop shadow) and what registered while it was built (rooftop gardens)
+  warm.sourcesOpen = true;
   warm.addSources();
   warm.add(scene);
   exposeQA();
+  /** ?moonland: what the thumb does down here, until it is down here. */
+  const groundHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd };
+  if (land) {
+    Object.assign(input, flightHands);
+    controls.hud.setVisible(false);
+  }
 
   // ---- before the first frame: every program compiled and drawn once (never presented) and the far
   // city in. Meanwhile the opening's regions are adopted as they land, and the deferred landmarks are
@@ -1003,9 +1021,11 @@ async function boot() {
   );
   for (;;) {
     later.shift()?.();
-    moon?.far!.update(flight.x, flight.z);
-    // (a few tiles per tick: no long task while the GPU process compiles; the first frame takes the rest)
-    city.update(primeFocus, renderer, 0, 12);
+    if (!land) {
+      moon?.far!.update(flight.x, flight.z);
+      // (a few tiles per tick: no long task while the GPU process compiles; the first frame takes the rest)
+      city.update(primeFocus, renderer, 0, 12);
+    }
     if (farIn) {
       if (farErr) throw farErr;
       // (the far meshes, and whatever was built meanwhile: only kinds not seen yet compile)
@@ -1051,8 +1071,14 @@ async function boot() {
   let framesDrawn = 0;
 
   type QA = { sx?: number; sy?: number; holdAt?: number; holdFrames?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null; pin?: { x: number; y: number; z: number; heading: number } | null };
+  /** ?moonland: the view the flight left the bus in, for the moments the rig takes to come over from it. */
+  let fromSky: (LandEnter & { t: number }) | null = null;
+  const fromQ = new THREE.Quaternion();
+  const fromP = new THREE.Vector3();
+
   function frame(now: number) {
-    requestAnimationFrame(frame);
+    // (?moonland: the flight's loop is the pump)
+    if (!land) requestAnimationFrame(frame);
     if (glLost) {
       last = now;
       return;
@@ -1118,6 +1144,7 @@ async function boot() {
     input.update(dt);
     controls.preFlight(dt);
     const st = input.state;
+    land?.drive(flight, controls.turbo, Math.max(0, st.dragging ? st.stretch.y : 0), dt);
     const qaStick = qa && typeof qa.sx === 'number' && typeof qa.sy === 'number';
     let sx = qaStick ? qa.sx! : st.stretch.x;
     let sy = qaStick ? qa.sy! : st.stretch.y;
@@ -1183,6 +1210,10 @@ async function boot() {
     eul.set(flight.pitch + superSplat.pitch, -flight.heading, -flight.bank, 'YXZ');
     q.setFromEuler(eul);
     bus.root.quaternion.copy(q);
+    if (fromSky) {
+      fromSky.t = Math.min(1, fromSky.t + realDt / 2.4);
+      bus.root.quaternion.slerpQuaternions(fromSky.busQuat, q, fromSky.t * fromSky.t * (3 - 2 * fromSky.t));
+    }
     bus.root.position.set(flight.x, flight.y, flight.z).add(superSplat.shake);
     controls.afterPose(bus.root);
 
@@ -1217,6 +1248,16 @@ async function boot() {
     rig.update(camera, focus, flight, dt);
     superSplat.camera(camera, focus, dt);
     rig.applyKick(camera, realDt);
+    if (fromSky) {
+      // the lens comes over from where the flight left it to where the rig has it, off the bus, so nothing it does is lost
+      const e = fromSky.t * fromSky.t * (3 - 2 * fromSky.t);
+      fromQ.copy(camera.quaternion);
+      camera.quaternion.slerpQuaternions(fromSky.camQuat, fromQ, e);
+      fromP.copy(camera.position).sub(bus.root.position).lerp(fromSky.camOff, 1 - e);
+      camera.position.copy(bus.root.position).add(fromP);
+      if (fromSky.t >= 1) fromSky = null;
+    }
+    if (land) rig.stiff = land.arriving ? 1 : Math.max(0, rig.stiff - dt / 3);
     pipeline.focus.copy(focus);
     if (qa?.topDown) {
       // QA: look straight down on a lat/lon (hue layout from above)
@@ -1394,7 +1435,10 @@ async function boot() {
       pipeline.setHeroBeam(beamEye, beamTip, 0.5 * rig.heroScale, 0.5 * (hour ? hour.beamWidth(vista) : inDark ? 46 : Cb.headBeamWidth) * open * rig.heroScale, beamLength > 0 ? Cb.headBeamStrength * (0.35 + 0.65 * superPose.eye) : 0);
     }
     if (moon) {
-      moon.update(camera.position.x, camera.position.z);
+      if (land) {
+        moon.far!.update(camera.position.x, camera.position.z, flight.height);
+        land.over(realDt, camera.position);
+      } else moon.update(camera.position.x, camera.position.z);
       // (out of the Sun, the bus has only what the ground throws back: the ground's shadows are its own map's, not the sun pass's)
       const lit = moon.sunAt(flight.x, flight.y, flight.z, city.terrainAt(flight.x, flight.z));
       moonSun += (lit - moonSun) * (1 - Math.exp(-14 * dt));
@@ -1435,7 +1479,43 @@ async function boot() {
     city.eager = !everReady;
     (window as unknown as { __shotReady?: boolean }).__shotReady = ready && !city.busy && !city.farLate && !hour?.lamps.busy;
   }
-  requestAnimationFrame(frame);
+  if (!land) requestAnimationFrame(frame);
+  else if (moon) {
+    const m = moon;
+    land.world = {
+      frame: m.frame,
+      far: m.far!,
+      get datum() {
+        return m.datum;
+      },
+      place: (lat, lon, ms) => m.place(lat, lon, ms),
+      frameAt: frame,
+      enter(s) {
+        // the far field and the sky come down with it, and the thumb is the low game's from here
+        scene.add(m.far!.object, m.sky.object);
+        m.sky.draw.showLines(false);
+        pipeline.steadySnap = false;
+        Object.assign(input, groundHands);
+        flight.groundUnder = flight.groundBroad = city.groundAt(s.x, s.z);
+        flight.takeOver(s.x, s.y, s.z, s.heading, s.speed, s.nose);
+        // (a few kilometres over it and what's ahead on the way down, not the 15 km over a ground it started on)
+        config.flight.ceiling = s.y + 3000;
+        config.flight.ceilingSoft = 150;
+        // Jet, by the time the law lets go of the speed
+        const T = controls.turbo;
+        T.gear = 1;
+        T.engaged = true;
+        rig.place(camera, flight);
+        fromSky = { ...s, t: 0 };
+        controls.hud.setVisible(true);
+        controls.hud.arrive();
+        everReady = true;
+        city.eager = false;
+        audio.prepare();
+        last = performance.now();
+      },
+    };
+  }
 
   // debug hooks for scripted screenshots / QA (set before the warm-up wait: tools see the city stream in)
   function exposeQA() {
@@ -1534,7 +1614,19 @@ async function bootSpace() {
   await bootMoonrun({ pipeline, scene, warm });
 }
 
-(moonrun ? bootSpace() : boot()).catch((e) => {
+/**
+ * ?moonland's boot: one page. The flight's loop first, and its first frame comes as soon as ?moonrun's, because only its own programs and files stand in front of it. The low game's whole boot then runs behind it, with the trip's two minutes to do it in:
+ * its programs, a worker and the Moon's files, a City with nothing in it. Nothing of it waits for a place: a thumb says where (src/moon/Landing.ts).
+ */
+async function bootLanding() {
+  pipeline.checkTargets();
+  const { bootMoonrun } = await import('./sky/moonrun');
+  const shared = { input: new Input(canvas), audio: new AudioEngine() };
+  const land = await bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: shared });
+  await boot(land!, shared);
+}
+
+(moonLand ? bootLanding() : moonrun ? bootSpace() : boot()).catch((e) => {
   console.error(e);
   document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;inset:auto 0 0 0;color:#fff;font:12px monospace;padding:12px;background:#0008">${String(e)}</pre>`);
 });

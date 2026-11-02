@@ -285,6 +285,15 @@ export class PaintClip {
     for (let i = 0; i < 6; i++) this.geo.setAttribute(`i${'ABCDEF'[i]}`, new THREE.InterleavedBufferAttribute(ib, 4, i * 4));
   }
 
+  /** Nothing on any window holds: they go down again wherever they're wanted next. */
+  rebase() {
+    for (let k = 0; k < CLIP_LEVELS; k++) {
+      this.wins[k].x0 = this.wins[k].z0 = Infinity;
+      this.wins[k].dirty = true;
+      this.rects[k].w = 0;
+    }
+  }
+
   /** Compiles the program. */
   prime() {
     this.draw(0, 0, 0, 1, 1, [], 0, 0);

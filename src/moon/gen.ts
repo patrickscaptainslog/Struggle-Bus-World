@@ -12,7 +12,7 @@
 // The Sun is held, so it is baked. Between them they carry the whole look: a ground mesh only has to stand in the right place.
 
 import { Age, OCTAVES, REACH, eachCrater, mareOf, mix32, octaveD, type Crater } from './craters';
-import { R_M, cubicAt, catmull, dirOf, latOf, linearAt, lonOf, mapOf, windowAt, type MapFrame, type Place, type WholeMap, type WindowMap } from './map';
+import { R_M, axesOf, cubicAt, catmull, dirOf, latOf, linearAt, lonOf, mapOf, windowAt, type MapFrame, type Place, type WholeMap, type WindowMap } from './map';
 
 export interface MoonSource {
   relief: WholeMap;
@@ -26,6 +26,19 @@ export interface SunLine {
   ax: number;
   az: number;
   tanE: number;
+}
+
+/**
+ * The highest a Sun is baked at, as the sine of its height: ?moonland's true Sun can stand overhead, and from overhead nothing on the ground has a shape. The ray-drawn Moon has a low light of its own for that. The ground takes the Sun's bearing and
+ * this height at most. The Sun's disc in the sky stays where it is.
+ */
+export const SUN_CAP = Math.sin((30 * Math.PI) / 180);
+export function capSun(s: Float64Array | number[]): void {
+  if (s[1] <= SUN_CAP) return;
+  const l = Math.hypot(s[0], s[2]), c = Math.sqrt(1 - SUN_CAP * SUN_CAP);
+  s[0] = l > 1e-4 ? (s[0] / l) * c : c;
+  s[2] = l > 1e-4 ? (s[2] / l) * c : 0;
+  s[1] = SUN_CAP;
 }
 
 export const sunLine = (x: number, y: number, z: number): SunLine => {
@@ -193,6 +206,9 @@ export class MoonGen {
   private readonly win = { h: 0, w: 0 };
   private readonly d = new Float64Array(3);
   private active: Big[] = [];
+  /** Toward the Sun, Moon fixed, for a far field that reaches past where one Sun holds. Null: `sun` everywhere, as a held Sun is. */
+  sunFix: ArrayLike<number> | null = null;
+  private readonly axes = new Float64Array(9);
 
   constructor(readonly src: MoonSource, frame: MapFrame, readonly sun: SunLine, readonly seed: number, bounds: readonly number[]) {
     this.frame = frame;
@@ -222,6 +238,16 @@ export class MoonGen {
         low = Math.min(low, cubicAt(src.relief, latOf(d), lonOf(d)));
       }
     this.datum = Math.floor(low - 2000);
+  }
+
+  /** Toward the Sun over the ground at (x, z): along the map's x, up, along its z there. */
+  localSun(x: number, z: number, o: Float64Array): void {
+    const a = this.axes, S = this.sunFix!;
+    axesOf(this.frame, x, z, a);
+    o[0] = a[0] * S[0] + a[1] * S[1] + a[2] * S[2];
+    o[1] = a[3] * S[0] + a[4] * S[1] + a[5] * S[2];
+    o[2] = a[6] * S[0] + a[7] * S[1] + a[8] * S[2];
+    capSun(o);
   }
 
   /** Measures a big crater off the relief and sets out its shape. */
@@ -556,8 +582,9 @@ function mapBytes(H: Float32Array, T: Float32Array, P: Float32Array, W: number, 
 // ---- the far field: clip levels around the view
 
 export const FAR = {
-  /** Levels, each twice the cell of the last. Texels a side of a level's window, and of its blocks. */
+  /** Levels, each twice the cell of the last: ?moon's 8 reach 262 km, the horizon from its ceiling. A world reached from orbit has two more, to 1,048 km: from 100 km up the true horizon is 590 km off. Texels a side of a level's window, and of its blocks. */
   LEVELS: 8,
+  HIGH_LEVELS: 10,
   N: 1024,
   B: 128,
   /** Metres a texel at level 0: a coarse region's own, so the two meet at one sharpness. */
@@ -588,6 +615,14 @@ function litByte(sx: number, sz: number, tone: number, sun: SunLine, cosE: numbe
   return Math.min(255, Math.round(255 * Math.sqrt(lit / LIT_MAX)));
 }
 
+/** The same from the Sun as it stands over this ground: along the map's x, up, along its z there, unit. */
+function litSun(sx: number, sz: number, tone: number, Sx: number, Sy: number, Sz: number): number {
+  const ndl = (Sy - (sx * Sx + sz * Sz)) / Math.sqrt(sx * sx + sz * sz + 1);
+  const k = ndl <= 0 ? 0 : ndl / Math.max(Sy, 0.05);
+  const lit = k ** LIT_POW * (LIT_TONE0 + LIT_TONE1 * tone);
+  return Math.min(255, Math.round(255 * Math.sqrt(lit / LIT_MAX)));
+}
+
 /**
  * Out of the Sun that byte has nothing to say, so it says this: what moonLit's fill is on this slope, what a sunlit wall throws back. Read as byte^2, 1 on a slope that faces away from the Sun. With no normal in a far
  * pixel it's the only way a mountain's lee side keeps a shape: the triangle's own slope would show the triangles.
@@ -600,6 +635,8 @@ function fillByte(sx: number, sz: number, sun: SunLine, cosE: number): number {
 
 export interface FarUpdate {
   type: 'far';
+  /** the place it's for */
+  place: number;
   k: number;
   /** the level's window, in blocks */
   bi0: number;
@@ -627,16 +664,23 @@ interface FarLevel {
 export class FarStore {
   readonly levels: FarLevel[] = [];
   private readonly S = FAR.STORE;
+  private readonly sunT = new Float64Array(12);
 
-  constructor(private readonly gen: MoonGen) {
+  constructor(private gen: MoonGen, levels: number = FAR.LEVELS) {
     const n = this.S * this.S;
-    for (let k = 0; k < FAR.LEVELS; k++) this.levels.push({ k, cell: FAR.C0 * 2 ** k, bi0: 0, bj0: 0, ready: false, H: new Float32Array(n), P: new Float32Array(n) });
+    for (let k = 0; k < levels; k++) this.levels.push({ k, cell: FAR.C0 * 2 ** k, bi0: 0, bj0: 0, ready: false, H: new Float32Array(n), P: new Float32Array(n) });
+  }
+
+  /** Another place: the arrays stay, a store this size is the one thing here worth keeping, and nothing in them is good any more. */
+  reset(gen: MoonGen): void {
+    this.gen = gen;
+    for (const l of this.levels) l.ready = false;
   }
 
   /** The top of what stands at (x, z): the ground or the sunlight over it, from the finest level that holds the place. */
   planeAt = (x: number, z: number): number => {
     const S = this.S, step = FAR.N / S;
-    for (let k = 0; k < FAR.LEVELS; k++) {
+    for (let k = 0; k < this.levels.length; k++) {
       const l = this.levels[k];
       if (!l.ready) continue;
       const c = l.cell * step, o = (FAR.B * l.bi0) / step, q = (FAR.B * l.bj0) / step;
@@ -694,25 +738,42 @@ export class FarStore {
         }
     }
     // the long lines, over the whole window, from the level over it
-    const coarser = this.levels[k + 1];
+    const coarser = this.levels[k + 1], gen = this.gen, sc = this.sunT, side = (B * BLOCKS * cell) / 2;
+    let sun = gen.sun;
+    if (gen.sunFix) {
+      gen.localSun(bi0 * B * cell + side, bj0 * B * cell + side, sc);
+      sun = sunLine(sc[0], sc[1], sc[2]);
+    }
     l.ready = false;
-    sweepSun(l.H, S, S, bi0 * B * cell, bj0 * B * cell, cell * step, this.gen.sun, coarser?.ready ? this.planeAt : () => -1e9, l.P);
+    sweepSun(l.H, S, S, bi0 * B * cell, bj0 * B * cell, cell * step, sun, coarser?.ready ? this.planeAt : () => -1e9, l.P);
     l.ready = true;
     // then each new block's own short ones, starting from those, and its two bytes
-    const sun = this.gen.sun, cosE = 1 / Math.sqrt(1 + sun.tanE * sun.tanE), sinE = sun.tanE * cosE;
     const P = new Float32Array(W * W);
     for (let q = 0; q < n; q++) {
-      const [rh, rt] = rasters[q], bi = fresh[q * 2], bj = fresh[q * 2 + 1];
+      const [rh, rt] = rasters[q], bi = fresh[q * 2], bj = fresh[q * 2 + 1], x0 = bi * B * cell, z0 = bj * B * cell, bs = B * cell;
+      if (gen.sunFix) {
+        // A world reached from orbit runs out to the horizon, 590 km and a fifth of a right angle of Sun off, and flat ground must be lit as the ray-drawn Moon has it: a block sweeps by the true Sun over it, and each texel takes it from the four corners.
+        gen.localSun(x0, z0, sc);
+        gen.localSun(x0 + bs, z0, sc.subarray(3));
+        gen.localSun(x0, z0 + bs, sc.subarray(6));
+        gen.localSun(x0 + bs, z0 + bs, sc.subarray(9));
+        sun = sunLine((sc[0] + sc[3] + sc[6] + sc[9]) / 4, (sc[1] + sc[4] + sc[7] + sc[10]) / 4, (sc[2] + sc[5] + sc[8] + sc[11]) / 4);
+      }
+      const cosE = 1 / Math.sqrt(1 + sun.tanE * sun.tanE), sinE = sun.tanE * cosE;
       sweepSun(rh, W, W, (bi * B - m) * cell, (bj * B - m) * cell, cell, sun, this.planeAt, P);
       for (let j = 0; j < B; j++)
         for (let i = 0; i < B; i++) {
           const a = (j + m) * W + i + m, o = (q * B * B + j * B + i) * 2;
           const under = P[a] - rh[a], sx = (rh[a + 1] - rh[a - 1]) / (2 * cell), sz = (rh[a + W] - rh[a - W]) / (2 * cell);
-          map[o] = under > 0 ? fillByte(sx, sz, sun, cosE) : litByte(sx, sz, rt[a], sun, cosE, sinE);
+          if (under > 0) map[o] = fillByte(sx, sz, sun, cosE);
+          else if (gen.sunFix) {
+            const u = (i + 0.5) / B, v = (j + 0.5) / B, a0 = (1 - u) * (1 - v), a1 = u * (1 - v), a2 = (1 - u) * v, a3 = u * v;
+            map[o] = litSun(sx, sz, rt[a], a0 * sc[0] + a1 * sc[3] + a2 * sc[6] + a3 * sc[9], a0 * sc[1] + a1 * sc[4] + a2 * sc[7] + a3 * sc[10], a0 * sc[2] + a1 * sc[5] + a2 * sc[8] + a3 * sc[11]);
+          } else map[o] = litByte(sx, sz, rt[a], sun, cosE, sinE);
           map[o + 1] = encode(under, K_SHADOW);
         }
     }
-    return { type: 'far', k, bi0, bj0, blocks: Int32Array.from(fresh), map, heights };
+    return { type: 'far', place: 0, k, bi0, bj0, blocks: Int32Array.from(fresh), map, heights };
   }
 }
 

@@ -150,6 +150,24 @@ export class Flight {
     return out.set(this.fx * g, this.vy, this.fz * g);
   }
 
+  /** The bus comes in from a height, flying (?moonland): on the path, at this speed along this way, with the yoke's altitude where it is. */
+  takeOver(x: number, y: number, z: number, heading: number, speed: number, nose: number) {
+    this.x = x;
+    this.y = y;
+    this.z = z;
+    this.heading = heading;
+    this.speed = speed;
+    this.nose = nose;
+    this.vy = this.vyYoke = this.pathVy = speed * Math.sin(nose);
+    this.onPath = true;
+    this.holdY = this.targetY = y;
+    this.mode = Yoke.Dive;
+    this.groundBroad = NaN;
+    this.floorRise = NaN;
+    this.pitch = nose;
+    this.height = y - this.groundUnder;
+  }
+
   /** Returns true if a barf started. */
   tryBarf(): boolean {
     if (this.barfT >= 0 || this.fullness < 0.999) return false;

@@ -47,23 +47,41 @@ export class MoonSky {
   /** Toward the Sun in the render frame, or by night toward Earth: fixed for the whole map, what the ground's light was baked for. */
   readonly sun: V = [0, 1, 0];
   /** The true sky, with the Sun down at the map's centre. */
-  readonly night: boolean;
+  night: boolean;
+  /** What lights the ground from the map's centre (the Sun, or by night Earth), Moon fixed: a far field that reaches the horizon from 100 km up has it true over each of its blocks. */
+  readonly sunFix: V = [0, 0, 1];
   /** How many times too big Earth is drawn. At its true 1.9 degrees it is 20 game pixels on the high lens: a marble with no continents. Held sky only. */
   earthScale = 1;
-  private readonly ms: number;
+  private ms: number;
   private readonly clock: SkyClock;
+  /** The flight's own sky, the one orbit shows (?moonland): nothing here draws it, and this only says what the ground's light is baked for. */
+  private readonly shared: boolean;
 
-  constructor(pipeline: PixelPipeline, params: URLSearchParams, lat0: number, lon0: number, heading: number) {
-    this.draw = new SkyDraw(pipeline);
-    this.draw.showLines(false);
-    this.draw.moonFloor = 0;
+  constructor(pipeline: PixelPipeline, params: URLSearchParams, lat0: number, lon0: number, heading: number, shared?: SkyDraw) {
+    this.shared = !!shared;
+    this.draw = shared ?? new SkyDraw(pipeline);
+    if (!shared) {
+      this.draw.showLines(false);
+      this.draw.moonFloor = 0;
+    }
     this.clock = new SkyClock(params);
-    this.held = !params.has('t');
+    this.held = !shared && !params.has('t');
     if (this.held) this.earthScale = Number(params.get('earth')) || HELD_EARTH_SCALE;
     this.ob = { body: MOON, free: false, pos: new Float64Array(3), axes: new Float64Array(9) };
+    this.ms = this.held ? HELD_MS : this.clock.now();
+    this.night = this.look(lat0, lon0, heading);
+  }
+
+  /** Another place, at the true sky of this moment (UTC ms): ?moonland, as the world's made. */
+  place(lat0: number, lon0: number, ms: number): void {
+    this.ms = ms;
+    this.night = this.look(lat0, lon0, 0);
+  }
+
+  /** The sky over the map's centre; true if the Sun's down there. */
+  private look(lat0: number, lon0: number, heading: number): boolean {
     sphereToFix(R_MOON_KM, lat0, lon0, 0, this.ob.pos);
     axesAt(lat0, lon0, 0, this.ob.axes);
-    this.ms = this.held ? HELD_MS : this.clock.now();
     this.model.frame(this.ms, this.ob, this.state);
     const s = this.state;
     if (this.held) {
@@ -88,13 +106,20 @@ export class MoonSky {
     this.sun[0] = s.sun[0];
     this.sun[1] = s.sun[1];
     this.sun[2] = s.sun[2];
+    this.sunFix[0] = s.moonSun[0];
+    this.sunFix[1] = s.moonSun[1];
+    this.sunFix[2] = s.moonSun[2];
     // the true sky at night: what lights the ground is Earth, if it's up, and the ground's map is baked for that instead
-    this.night = s.sun[1] < 0.02;
-    if (this.night && s.earth[1] > 0.05) {
+    const night = s.sun[1] < 0.02;
+    if (night && s.earth[1] > 0.05) {
       this.sun[0] = s.earth[0];
       this.sun[1] = s.earth[1];
       this.sun[2] = s.earth[2];
+      this.sunFix[0] = s.moonEarth[0];
+      this.sunFix[1] = s.moonEarth[1];
+      this.sunFix[2] = s.moonEarth[2];
     }
+    return night;
   }
 
   /** The sky's frame goes in the scene before the warm-up. */
@@ -104,7 +129,7 @@ export class MoonSky {
 
   /** The maps and the stars. */
   load(): Promise<void> {
-    return this.draw.load('./sky');
+    return this.shared ? Promise.resolve() : this.draw.load('./sky');
   }
 
   /** Every frame, the lens set: lat, lon are where the bus is (the true sky turns over it as it goes). */
