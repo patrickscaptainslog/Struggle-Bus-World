@@ -1,6 +1,6 @@
 import { config } from '../config';
 import { blastDots, blastEdge, rng, SHAPE_LUT, wrapHue, type BlastDot, type BlastSpec } from '../game/blastLayout';
-import { MOON_LOW_KEY } from './flag';
+import { LOW_MARK, MOON_LOW_KEY } from './flag';
 import { R_MOON } from './SkyModel';
 
 // Paint on the Moon: the map the resolve reads (skyResolve.ts, spaceMoon), and the strokes it is rebuilt from. Pure TS and no three.js: tools/sky/moon-paint-check.mjs paints in Node.
@@ -12,7 +12,7 @@ import { R_MOON } from './SkyModel';
 //   r  coverage, a ramp across the edge: bilinear, then a threshold in the shader, so an edge is a smooth contour at a fraction of a texel (GroundPaint's scheme)
 //   g  high bits: mix, the same again for the boundary between two hues, which of the texel's two shows. Low 3 bits: the first hue
 //   b  high bits: lift, how many ramp steps brighter, 0..1. L1 0, up to the crown's and rays' 1. Low 3 bits: the second hue
-//   a  reveal: seconds after the impact this texel waits, in 1/100 s, 0 once settled. Fresh ground only. Paint already there is turned over by the wave too, a different way: see over()
+//   a  reveal: seconds after the impact this texel waits, in 1/100 s, 0 once settled. Fresh ground only. Paint already there is turned over by the wave too, a different way: see over(). LOW_MARK: a crater painted from low down, at a size orbit can see and the ground knows better
 // A hue is never filtered, or two of them that meet would run through every hue between, and paint is flat colour: nothing is ever mixed. So a texel holds the two hues that meet near it, read raw, and the mix is what's filtered:
 // a boundary between any two hues is as smooth a contour as the paint's edge, at a texel 20 px wide. (The hues take the low bits of two filtered channels, under 3 % of a ramp: what the map costs doesn't change.)
 // Five coarser levels, 21 to 341 km a texel, are this file's own, not an average: a splash must not fade away with distance, and hues mustn't mix. See mipLevel.
@@ -113,6 +113,8 @@ export interface PaintJob {
   n: Float64Array;
   /** map bytes are written with reveal times (false: a rebuild, settled at once) */
   live: boolean;
+  /** a crater painted from low down */
+  low: boolean;
   lut: Float32Array;
   warp: Float32Array;
   /** how far out the flood reaches, km */
@@ -347,7 +349,7 @@ export class MoonPaint {
     const rows = Math.ceil(reach / TEXEL_KM) + 1;
     const cy = Math.floor((0.5 - stroke.lat / 180) * PAINT_H), cx = Math.floor((stroke.lon / 360 + 0.5) * PAINT_W);
     const job: PaintJob = {
-      stroke, spec, c, e: east, n: north, live, lut: e.lut, warp, max: e.max, dots: blastDots(spec, e), rays,
+      stroke, spec, c, e: east, n: north, live, low: stroke.km !== undefined, lut: e.lut, warp, max: e.max, dots: blastDots(spec, e), rays,
       j: Math.max(0, cy - rows), j1: Math.min(PAINT_H - 1, cy + rows), i0: 0, iSpan: 0, dot: 0, ray: 0, rayS: 0, mip: 1,
       rect: { x0: cx, x1: cx, y0: cy, y1: cy },
       over: null,
@@ -461,7 +463,10 @@ export class MoonPaint {
   settle(job: PaintJob): void {
     const { y0, y1, x0, x1 } = job.rect, d = this.mips[0].data;
     for (let j = y0; j <= y1; j++) {
-      for (let x = x0; x <= x1; x++) d[(j * PAINT_W + (x & (PAINT_W - 1))) * 4 + 3] = 0;
+      for (let x = x0; x <= x1; x++) {
+        const o = (j * PAINT_W + (x & (PAINT_W - 1))) * 4 + 3;
+        if (d[o] !== LOW_MARK) d[o] = 0;
+      }
     }
   }
 
@@ -496,8 +501,12 @@ export class MoonPaint {
     if (c >= 0.4 && (flood || lift > (d[o + 2] & HIGH))) d[o + 2] = lift | (d[o + 2] & LOW);
     // fresh ground waits for the wave; paint that was there changes at the impact, under the flash
     if (job.live && old < 0.5 && c > 0.02) {
-      const rv = Math.max(1, Math.min(255, Math.round(reveal * 100)));
+      const rv = Math.max(1, Math.min(254, Math.round(reveal * 100)));
       if (!d[o + 3] || rv < d[o + 3]) d[o + 3] = rv;
+    } else if (!job.live) {
+      // (a mark goes on bare ground; a blast from orbit, rebuilt over one, is a blast)
+      if (!job.low) d[o + 3] = 0;
+      else if (old < 0.5) d[o + 3] = LOW_MARK;
     }
   }
 

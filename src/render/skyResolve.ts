@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { LOW_MARK } from '../sky/flag';
 import { SLOPE_MAX, TILE, TILE_KM_A, TILE_KM_B } from '../sky/groundSize';
 import { heldGlobals } from './materials';
 import { Ramp } from './palette';
@@ -80,14 +81,22 @@ export const spaceResolveUniforms = {
   uSunRing: { value: 1 }, // cos of the radius of its one ring of pixels
   uMoonFirst: { value: 0 }, // 1: the Moon is the nearer: the CPU sorts, so an occultation needs no logic
   uPaintView: { value: new THREE.Vector4(0, 0.5, 0.14, 0.001) }, // the map's lod, the edge's threshold, how far it wobbles, the warp in turns of longitude
+  uPaintOn: { value: 0 }, // 1: the map has anything on it, so the ground reads it
   uPaintLive: { value: new THREE.Vector4(-1, 0, 1, 0) }, // this blast: s since its impact (under 0: none), the wave's reach and width (chord at unit radius), its hue
   uPaintAt: { value: new THREE.Vector4(1, 0, 0, 0) }, // where it landed, Moon fixed; w: how far the wave has died, 0..1
   uPaintAim: { value: new THREE.Vector4(1, 0, 0, 0) }, // what a tap hits: Moon fixed; w: its radius (chord), 0: not loaded
   uPaintGlint: { value: new THREE.Vector2(0, 0) }, // loaded: the sweep's place across it, 0..1. On its way (y 1): how much of the flight is left, 1..0
 };
 
+/** What's painted on the Moon's map (sky/MoonPaint.ts), as the resolve reads it from orbit and the ground reads it from there all the way down (moon/moonMaterial.ts). */
+export const GLSL_MOON_PAINTED_UNIFORMS = /* glsl */ `
+uniform highp sampler2D tMoonPaint;
+uniform vec4 uPaintView;
+uniform vec4 uPaintLive;
+uniform float uPaintOn;`;
+
 /** What the Moon's light reads: the resolve, and the mesh where it takes over from the resolve (moon/moonMaterial.ts). */
-export const GLSL_MOON_SHADE_UNIFORMS = /* glsl */ `
+export const GLSL_MOON_SHADE_UNIFORMS = /* glsl */ `${GLSL_MOON_PAINTED_UNIFORMS}
 uniform highp sampler2D tMoonMap;
 uniform highp sampler2D tMoonCraters;
 uniform mat3 uMoonRot;
@@ -101,7 +110,6 @@ uniform vec4 uMoonAhead;`;
 
 export const GLSL_SPACE_UNIFORMS = /* glsl */ `
 uniform highp sampler2D tEarthMap;
-uniform highp sampler2D tMoonPaint;
 uniform mat3 uEarthRot;
 uniform vec4 uEarthO;
 uniform vec3 uEarthSun;
@@ -110,17 +118,53 @@ uniform vec4 uMoonO;${GLSL_MOON_SHADE_UNIFORMS}
 uniform vec4 uSunDisc;
 uniform float uSunRing;
 uniform float uMoonFirst;
-uniform vec4 uPaintView;
-uniform vec4 uPaintLive;
 uniform vec4 uPaintAt;
 uniform vec4 uPaintAim;
 uniform vec2 uPaintGlint;`;
+
+// Paint on the Moon: MoonPaint.ts's map, read filtered on every Moon pixel and once more, raw, on a painted one: the nearest texel's own bytes, its two hues, the filtered mix picking one, so hues meet on a clean contour and never run through the ones
+// between. A crater painted from low down stands on this map at a size orbit can see (a texel or so), more than the place holds: a ground that knows better leaves those marks out.
+export const GLSL_MOON_PAINTED = /* glsl */ `
+
+vec2 moonMapUv(vec3 n) { return vec2(atan(n.y, n.x) / 6.28318531 + 0.5, 0.5 - asin(clamp(n.z, -1.0, 1.0)) / 3.14159265); }
+
+// What's painted at a place, false on bare ground. n: unit, Moon fixed. marks: the marks from low down count. Out: its ramp, and the filtered read: r coverage, b lift.
+bool moonPainted(vec3 n, vec2 uv, bool marks, out float ramp, out vec4 p) {
+  // the edge's wobble: a warp of the lookup, as the ground's is, here by sines of the place: no read. In texels, so a place doesn't wobble more for being near a pole
+  vec2 w = vec2(sin(n.y * 37.0 + 1.9 * sin(n.z * 23.0)), sin(n.x * 41.0 + 1.7 * sin(n.y * 29.0)));
+  // (and a fine one, a few texels long, as the street's is: the grid the map is read on never shows as a straight line. Each way is pushed by the other, at every longitude: pushed by itself a line only moves, and doesn't bend)
+  vec2 f = vec2(sin((n.x + n.z) * 263.0 + 2.1 * sin((n.y - n.z) * 197.0)), sin((n.x + n.y) * 241.0 + 2.3 * sin((n.z - n.x) * 211.0)));
+  vec2 at = uv + (w + 0.5 * f) * uPaintView.w * vec2(1.0 / max(length(n.xy), 0.08), 2.0);
+  p = textureLod(tMoonPaint, at, uPaintView.x);
+  float thr = uPaintView.y + uPaintView.z * sin(n.x * 141.0 + n.y * 117.0 + 2.1 * w.y);
+  ramp = 0.0;
+  if (p.r <= thr) return false;
+  int l = int(uPaintView.x + 0.5);
+  vec2 size = vec2(textureSize(tMoonPaint, l));
+  ivec4 q = ivec4(texelFetch(tMoonPaint, ivec2(fract(at.x) * size.x, clamp(at.y, 0.0, 0.9999) * size.y), l) * 255.0 + 0.5);
+  // (a texel that was settled shows, whatever waits next to it: only fresh ground waits for the wave)
+  if (q.a == ${LOW_MARK} ? !marks : q.a != 0 && uPaintLive.x <= p.a * 2.55) return false;
+  ramp = ${Ramp.RED}.0 + float((p.g > thr ? q.b : q.g) & 7);
+  return true;
+}
+
+// The step paint stands on: it keeps the Moon's light and tone and takes them through its own ramp, so craters and maria read through it, and it never goes under a low glow, which keeps the tone too, so it shows on the night side as paint does at dusk, relief and all.
+float moonPaintLevel(float ramp, float level, float t, float lift, float art) {
+  // (the Moon's steps through the paint's own best stretch: yellow's body sits a step up its ramp, as fxTune has it)
+  float y = ramp == ${Ramp.YELLOW}.0 ? 0.7 : 0.0;
+  float l = max(1.6 + level * 0.5 + lift * 1.2 + y, 1.3 + 1.9 * t + lift * 1.6 + y);
+  // (the craters read through it at full strength: a coat of paint doesn't fill a bowl)
+  l *= 1.0 + art;
+  // (the crown: where the lift is highest, a bright rim)
+  return lift > 0.86 ? l + 1.5 : l;
+}
+`;
 
 /**
  * The Moon's light at a place: its step on the ramp, and what paint needs. The resolve's ray test ends here, and so does the mesh, up where it takes over from the ray test, so the two are one picture.
  * n: the place, unit, Moon fixed. d: the way the ray goes there, unit. hit: how far, in radii. Out: the map's coordinates, the tone, and how much a crater's own light has made of it.
  */
-export const GLSL_MOON_SHADE = /* glsl */ `
+export const GLSL_MOON_SHADE = /* glsl */ `${GLSL_MOON_PAINTED}
 
 // A level on a ramp to a step, with a narrow ordered dither at the step's edge.
 float spStep(float s, float dsk) { return clamp(floor(s + 0.5 + (dsk - 0.5) * 0.44), 0.0, 7.0); }
@@ -135,7 +179,7 @@ vec4 spaceTile(vec2 p, float km, float cs, float sn, float lod, float face, out 
 }
 
 float spaceMoonLight(vec3 n, vec3 d, float hit, float dsk, out vec2 uv, out float t, out float art) {
-  uv = vec2(atan(n.y, n.x) / 6.28318531 + 0.5, 0.5 - asin(clamp(n.z, -1.0, 1.0)) / 3.14159265);
+  uv = moonMapUv(n);
   // ---- near, a pixel of ground is smaller than the map's texel, and what it can't show is invented: the tile at two sizes, on the six faces of a cube, the seam between two a band of dither. km: what a pixel covers here,
   // between across the ray and along it. The sizes go out by that, each by the mip and then by a fade, so a far disc reads none of this and pays for none of it. Two reads, on near Moon pixels alone.
   vec3 lit = n, slope = vec3(0.0), fU = lit, fV = lit;
@@ -301,33 +345,14 @@ bool spaceEarth(vec3 dir, float dsk, out vec3 col) {
   return true;
 }
 
-// Paint on the Moon: MoonPaint.ts's map, read filtered on every Moon pixel and once more, raw, on a painted one: the nearest texel's own bytes, its two hues, the filtered mix picking one, so hues meet on a clean contour
-// and never run through the ones between. A pixel of paint keeps the Moon's light and tone and takes them through a paint ramp, so craters and maria read through it, and it never goes under a low glow, which keeps the
-// tone too, so it shows on the night side as paint does at dusk, relief and all. Nothing is ever mixed: the ramp changes, and the step is the same dithered step. The wave is the game's shockwave ring
-// (GroundPaint's sbRing), on the true surface, in chords of the unit sphere: only while a blast is blooming.
+// The paint at a place, as the resolve has it, and on it the glint and the wave. Nothing is ever mixed: the ramp changes, and the step is the same dithered step. The wave is the game's shockwave ring (GroundPaint's sbRing), on the true surface, in chords of
+// the unit sphere: only while a blast is blooming.
 void spacePaint(vec3 n, vec2 uv, float t, float art, float dsk, inout float ramp, inout float level) {
-  // the edge's wobble: a warp of the lookup, as the ground's is, here by sines of the place: no read. In texels, so a place doesn't wobble more for being near a pole
-  vec2 w = vec2(sin(n.y * 37.0 + 1.9 * sin(n.z * 23.0)), sin(n.x * 41.0 + 1.7 * sin(n.y * 29.0)));
-  // (and a fine one, a few texels long, as the street's is: the grid the map is read on never shows as a straight line. Each way is pushed by the other, at every longitude: pushed by itself a line only moves, and doesn't bend)
-  vec2 f = vec2(sin((n.x + n.z) * 263.0 + 2.1 * sin((n.y - n.z) * 197.0)), sin((n.x + n.y) * 241.0 + 2.3 * sin((n.z - n.x) * 211.0)));
-  vec2 at = uv + (w + 0.5 * f) * uPaintView.w * vec2(1.0 / max(length(n.xy), 0.08), 2.0);
-  vec4 p = textureLod(tMoonPaint, at, uPaintView.x);
-  float thr = uPaintView.y + uPaintView.z * sin(n.x * 141.0 + n.y * 117.0 + 2.1 * w.y);
-  if (p.r > thr) {
-    int l = int(uPaintView.x + 0.5);
-    vec2 size = vec2(textureSize(tMoonPaint, l));
-    ivec4 q = ivec4(texelFetch(tMoonPaint, ivec2(fract(at.x) * size.x, clamp(at.y, 0.0, 0.9999) * size.y), l) * 255.0 + 0.5);
-    // (a texel that was settled shows, whatever waits next to it: only fresh ground waits for the wave)
-    if (q.a == 0 || uPaintLive.x > p.a * 2.55) {
-      ramp = ${Ramp.RED}.0 + float((p.g > thr ? q.b : q.g) & 7);
-      // (the Moon's steps through the paint's own best stretch: yellow's body sits a step up its ramp, as fxTune has it)
-      float y = ramp == ${Ramp.YELLOW}.0 ? 0.7 : 0.0;
-      level = max(1.6 + level * 0.5 + p.b * 1.2 + y, 1.3 + 1.9 * t + p.b * 1.6 + y);
-      // (the craters read through it at full strength: a coat of paint doesn't fill a bowl)
-      level *= 1.0 + art;
-      // (the crown: where the lift is highest, a bright rim)
-      if (p.b > 0.86) level += 1.5;
-    }
+  float hue;
+  vec4 p;
+  if (moonPainted(n, uv, true, hue, p)) {
+    ramp = hue;
+    level = moonPaintLevel(hue, level, t, p.b, art);
   }
   // the glint: what a tap hits. Loaded, its disc a step up, as a glinting roof is, with the sweep going over it and a thin bright rim. A shot on its way: the rim closes on the place it will land
   if (uPaintAim.w > 0.0) {

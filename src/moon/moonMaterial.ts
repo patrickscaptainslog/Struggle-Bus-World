@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { GLSL_COMMON, GLSL_OUT, globals } from '../render/materials';
-import { GLSL_MOON_CURVE } from '../sky/flag';
+import { GLSL_MOON_CURVE, landOnly } from '../sky/flag';
 import { HUE_RAMPS, Ramp } from '../render/palette';
-import { GLSL_MOON_SHADE, GLSL_MOON_SHADE_UNIFORMS, spaceResolveUniforms as U } from '../render/skyResolve';
+import { GLSL_MOON_PAINTED, GLSL_MOON_PAINTED_UNIFORMS, GLSL_MOON_SHADE, GLSL_MOON_SHADE_UNIFORMS, spaceResolveUniforms as U } from '../render/skyResolve';
 import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from '../world/GroundPaint';
 import { FAR, LIT_MAX, LIT_POW, LIT_TONE0, LIT_TONE1, SHADOW_MAX, SLOPE_MAX, type MoonTileData } from './gen';
 
@@ -224,12 +224,15 @@ const NEAR_VS = /* glsl */ `
   out vec3 vWorldPos;
   out vec2 vClassUv;
   out vec2 vMapUv;
+  ${landOnly('out vec3 vRound;')}
   void main() {
     vec4 wp = modelMatrix * vec4(position, 1.0);
     vWorldPos = wp.xyz;
     vClassUv = (wp.xz - uTileRect.xy) * uTileRect.z;
     vMapUv = (wp.xz - uMapRect.xy) * uMapRect.z + uMapRect.w;
-    gl_Position = projectionMatrix * viewMatrix * vec4(moonCurve(wp.xyz), 1.0);
+    vec3 rolled = moonCurve(wp.xyz);
+    ${landOnly('vRound = rolled - vec3(cameraPosition.x, -MOON_R, cameraPosition.z);')}
+    gl_Position = projectionMatrix * viewMatrix * vec4(rolled, 1.0);
   }
 `;
 
@@ -241,9 +244,11 @@ const NEAR_FS = /* glsl */ `
   uniform sampler2D tMoon;
   ${GLSL_GROUND_PAINT}
   ${GLSL_BLAST_RING}
+  ${landOnly(`uniform mat3 uMoonRot;${GLSL_MOON_PAINTED_UNIFORMS}${GLSL_MOON_PAINTED}`)}
   in vec3 vWorldPos;
   in vec2 vClassUv;
   in vec2 vMapUv;
+  ${landOnly('in vec3 vRound;')}
   ${GLSL_OUT}
   void main() {
     vec3 n;
@@ -282,7 +287,15 @@ const NEAR_FS = /* glsl */ `
       light = moonPaintLight(pr, light, pEdge, 0.0, pWet);
       glow = 0.55 * pFresh;
       light = max(light, glow);
-    }
+    }${landOnly(/* glsl */ ` else if (uPaintOn > 0.5) {
+      // what orbit painted is still here when the bus has come down into it
+      vec3 place = normalize(vRound) * uMoonRot;
+      vec4 op;
+      if (moonPainted(place, moonMapUv(place), false, pr, op)) {
+        ramp = pr;
+        light = moonPaintLight(pr, light, op.r - uPaintView.y, op.b, 0.0);
+      }
+    }`)}
     float gl = moonGlint(vWorldPos.xz, px);
     if (gl > 0.5) {
       if (gl > 1.5) { ramp = ${Ramp.GLOW_WHITE}.0; light = 0.95; glow = 0.8; }
@@ -322,6 +335,11 @@ export function makeMoonGround(tex: THREE.Texture, mapX: number, mapZ: number, m
       ...moonGlobals,
       uBlastRing: blastUniforms.uBlastRing,
       uBlastRing2: blastUniforms.uBlastRing2,
+      uMoonRot: U.uMoonRot,
+      tMoonPaint: U.tMoonPaint,
+      uPaintView: U.uPaintView,
+      uPaintLive: U.uPaintLive,
+      uPaintOn: U.uPaintOn,
       tGround: { value: null },
       uGroundOn: { value: 0 },
       uGroundLive: blastUniforms.uGroundLive,
@@ -434,17 +452,18 @@ const FAR_FS = /* glsl */ `
     float under = moonDecode(m.g);
     // (out of the Sun the byte is the fill, as the near ground has it: gen.ts, fillByte. Or the lee of a mountain is a flat black hole in the picture)
     float light = uMoonLight.y + uMoonLight.z + (under > 0.0 ? 0.1 * m.r * m.r : moonShoulder(uMoonLight.x * m.r * m.r * ${LIT_MAX.toFixed(1)}));
-    float ramp = moonRamp(vTone), glow = 0.0;
+    float ramp = moonRamp(vTone), glow = 0.0, ground = light, dsk = 0.5, t = 0.0, art = 0.0, level = 0.0;
+    vec3 place = normalize(vRound) * uMoonRot;
+    vec2 uv = vec2(0.0);
     // Up where the two meet this is the resolve's own light for this place, the same craters on the same ramp: the mesh is the ray-drawn Moon there, and it dissolves in over itself. It goes over to the ground's own on the way down. The real relief
     // is in both, the invented craters of the two aren't the same ones, and that's what's slowly changing on the way.
     if (uFarHigh > 0.0) {
       const float B[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
       ivec2 c = ivec2(gl_FragCoord.xy) & 3;
-      float dsk = (B[c.y * 4 + c.x] + 0.5) / 16.0;
+      dsk = (B[c.y * 4 + c.x] + 0.5) / 16.0;
       vec3 to = vRound - vec3(0.0, cameraPosition.y + 1737400.0, 0.0);
-      float hit = length(to), t, art;
-      vec2 uv;
-      float level = spaceMoonLight(normalize(vRound) * uMoonRot, (to / hit) * uMoonRot, hit / 1737400.0, dsk, uv, t, art);
+      float hit = length(to);
+      level = spaceMoonLight(place, (to / hit) * uMoonRot, hit / 1737400.0, dsk, uv, t, art);
       light = spStep(mix(light * 7.0, level, uFarHigh), dsk) / 7.0;
       if (dsk < uFarHigh) ramp = ${Ramp.MOON}.0;
     }
@@ -457,7 +476,16 @@ const FAR_FS = /* glsl */ `
       light = moonPaintLight(pr, light, pEdge, pLift, 0.0);
       glow = pGlow;
       light = max(light, glow);
-    }
+    }${landOnly(/* glsl */ ` else if (uPaintOn > 0.5) {
+      // What orbit painted, all the way down, on the map orbit reads: up where the two meet it's the resolve's own paint, and it goes over to the ground's light with the rest. What was painted from low down is on the windows, and the map's big mark for it only shows while it's the resolve's.
+      vec4 op;
+      if (uFarHigh <= 0.0) uv = moonMapUv(place);
+      if (moonPainted(place, uv, dsk < uFarHigh, pr, op)) {
+        float low = moonPaintLight(pr, ground, op.r - uPaintView.y, op.b, 0.0);
+        light = uFarHigh > 0.0 ? spStep(mix(low * 7.0, moonPaintLevel(pr, level, t, op.b, art), uFarHigh), dsk) / 7.0 : low;
+        ramp = pr;
+      }
+    }`)}
     float gl = moonGlint(vWorldPos.xz, pa + pb);
     if (gl > 0.5) {
       if (gl > 1.5) { ramp = ${Ramp.GLOW_WHITE}.0; light = 0.95; glow = 0.8; }
@@ -490,6 +518,10 @@ export function makeMoonFar(tFarH: THREE.Texture, tFarM: THREE.Texture, mask: TH
       uFarHigh: { value: 0 },
       tMoonMap: U.tMoonMap,
       tMoonCraters: U.tMoonCraters,
+      tMoonPaint: U.tMoonPaint,
+      uPaintView: U.uPaintView,
+      uPaintLive: U.uPaintLive,
+      uPaintOn: U.uPaintOn,
       uMoonRot: U.uMoonRot,
       uMoonSun: U.uMoonSun,
       uMoonEarth: U.uMoonEarth,

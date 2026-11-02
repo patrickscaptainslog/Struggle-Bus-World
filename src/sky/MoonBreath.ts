@@ -124,6 +124,9 @@ export class MoonBreath {
   private focal = 570;
   private frameW = 393;
   private frameH = 852;
+  /** craters painted down there, for this map */
+  private readonly lows: PaintStroke[] = [];
+  private lowJob: PaintJob | null = null;
   /** where a press last touched, css px, and when: a tap with no press near it is a key */
   private touchX = 0;
   private touchY = 0;
@@ -187,6 +190,11 @@ export class MoonBreath {
     this.touchX = x;
     this.touchY = y;
     this.touchAt = performance.now();
+  }
+
+  /** A crater painted from low down that's big enough to see from here (?moonland): it goes on the map once the flight's loop has the frame. */
+  lowStroke(s: PaintStroke): void {
+    this.lows.push(s);
   }
 
   /** Loaded: the belly is full and nothing is pouring. */
@@ -277,6 +285,20 @@ export class MoonBreath {
     }
 
     if (this.paint.rebuilding && this.paint.rebuild(REBUILD_FRAME_MS, () => performance.now())) this.tex.needsUpdate = true;
+    U.uPaintOn.value = this.paint.painted > 0 ? 1 : 0;
+    // (what's been painted down there and is big enough to see from here: a slice a frame, between shots)
+    if (!this.shot && !this.paint.rebuilding) {
+      if (!this.lowJob && this.lows.length) this.lowJob = this.paint.begin(this.lows.shift()!, false);
+      if (this.lowJob) {
+        const end = performance.now() + SLICE_MS;
+        let done = false;
+        while (!(done = this.paint.work(this.lowJob, 1500)) && performance.now() < end);
+        if (done) {
+          this.upload(this.lowJob.rect, true);
+          this.lowJob = null;
+        }
+      }
+    }
 
     // ---- the aim: the ground at the middle of the frame
     this.aimOn = orbiting && this.ray(0, 0, this.aim);
