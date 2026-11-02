@@ -36,8 +36,6 @@ const say = (ok, line) => {
 function fly(g5) {
   const trip = new MoonTrip(series, Date.parse(iso), { g5, tau });
   const view = new TripView();
-  view.width = W;
-  view.height = H;
   const model = new SkyModel(series), sky = new SkyState();
   const rows = [];
   const was = new Float64Array(3);
@@ -58,6 +56,9 @@ function fly(g5) {
       t: +trip.t.toFixed(3), clock: +trip.clock.toFixed(2), leg: trip.leg, gear: trip.gear, v: +trip.v.toFixed(2), turn: +turn.toFixed(2), hE: +trip.hEarth.toFixed(2), hM: +trip.hMoon.toFixed(2), lens: +view.hfov.toFixed(3), bound: trip.bound,
       moonPx: +(2 * f * Math.tan(mR)).toFixed(2), moonTrue: +(2 * f * Math.tan(sky.moonR)).toFixed(2), earthPx: +(2 * f * Math.tan(sky.earthR)).toFixed(2),
       moonCol: col(sky.moon), moonRow: row(sky.moon), earthCol: col(sky.earth), earthRow: row(sky.earth),
+      // how far off the frame's axis: 1 at the frame's nearer edge (the plot starts where this comes under 1)
+      moonOff: sky.moon[2] < 0 ? +Math.hypot((sky.moon[0] / -sky.moon[2]) * f / (W / 2), (sky.moon[1] / -sky.moon[2]) * f / (H / 2)).toFixed(3) : 9,
+      earthOff: sky.earth[2] < 0 ? +Math.hypot((sky.earth[0] / -sky.earth[2]) * f / (W / 2), (sky.earth[1] / -sky.earth[2]) * f / (H / 2)).toFixed(3) : 9,
       // the bus's row, and how far the chase is off the way the bus goes, degrees
       busRow: +(H / 2 + f * Math.tan(view.below)).toFixed(1), off: +(Math.acos(Math.min(1, a.x * way[0] + a.y * way[1] + a.z * way[2])) / DEG).toFixed(2),
       dive: trip.leg === 'wait' ? 0 : +((Math.asin(Math.max(-1, Math.min(1, -dot(trip.dir, trip.rm) / Math.hypot(...trip.rm)))) / DEG)).toFixed(2),

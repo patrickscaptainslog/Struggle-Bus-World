@@ -59,9 +59,6 @@ const smooth01 = (a: number, b: number, x: number) => {
 export class TripView {
   /** the lens this frame */
   hfov = config.camera.hfovVista;
-  /** the frame, game px: the browser's bars and the phone set it (moonrun.ts) */
-  width = 393;
-  height = 852;
   /** Half the lens's vertical field, degrees: moonrun.ts reads it off the real lens, as the rig does. */
   halfV = 36.87;
   /** the bus's pose in the render frame */

@@ -260,13 +260,6 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     camera.position.set(0, D * Math.sin(below), D * Math.cos(below));
     camera.quaternion.setFromAxisAngle(pitchAxis, breath.kick);
   };
-  const fitView = () => {
-    if (view) {
-      view.width = pipeline.info.width;
-      view.height = pipeline.info.height;
-    }
-  };
-  fitView();
   placeCamera();
   // the tuner, as the street's: `?tune` or three fingers
   const tuner = new Tuner();
@@ -371,7 +364,6 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
       resizeWanted = false;
       pipeline.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1);
       pipeline.setHfov(view?.hfov ?? lens);
-      fitView();
       placeCamera();
     }
     const real = held0 ? 0 : fixedDt || Math.min(0.05, Math.max(0, (now - last) / 1000));
