@@ -5,12 +5,12 @@
 //
 //   0 to fog end         nothing on screen, the thumb is live
 //   fog end / first touch   MEGA arrives
-//   a beat after the fog    the hint: what the second thumb does, in one toast, once
+//   a beat after the fog    the hint: the flicks and the second thumb, in one toast, once
 //   a glint, no splat yet   TAP: a fingertip ring at the cue slot
 //   first splat             DRAG: two chevrons sway, until a thumb commits or 8 s
 //   third splat, or a still press of 0.6 s   MEGA's face says HOLD
 //
-// The second thumb's gestures are hidden on purpose: the hint is all the teaching
+// The flicks and the look are hidden on purpose: the hint is all the teaching
 // there is, it asks for nothing, and nothing ends it but its own time
 // (docs/specs/flight/THUMBS.md).
 //
@@ -41,7 +41,7 @@ export class Coach {
   cue: Cue = 'none';
   /** true for the one frame it is due: Controls consumes it */
   megaDue = false;
-  /** the same, the second thumb's hint */
+  /** the same, the hint */
   hintDue = false;
   /** a bit changed: Controls saves */
   dirty = false;
