@@ -47,5 +47,8 @@ vec3 moonCurve(vec3 wp) {
 }
 `;
 
+/** What ?moon painted from low down that's big enough to see from orbit: [lat, lon, level, seed, km]. src/moon/CraterPaint.ts writes it, src/sky/MoonPaint.ts reads it. */
+export const MOON_LOW_KEY = 'strugglebus.moon.low.v1';
+
 /** GLSL only ?moon compiles. */
 export const moonOnly = (glsl: string): string => (moonLow ? glsl : '');

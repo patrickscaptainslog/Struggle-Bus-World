@@ -368,6 +368,7 @@ async function boot() {
       sparkles: (x, y, z, r, hue, n) => particles.sparkles(sparkAt.set(x, y, z), r, 0, [hue, (hue + 1) % 6, (hue + 5) % 6], n),
       twinkle: (x, y, z, hue) => particles.ambientSparkle(sparkAt.set(x, y, z), hue),
       splash: (x, y, z, hue, k) => particles.splash(sparkAt.set(x, y, z), hue, k),
+      fountain: (x, y, z, hue, k) => particles.burst(sparkAt.set(x, y, z), hue, k, y),
     });
     moon.groundHue = (x, z) => {
       const g = city.ground.sample(x, z);
@@ -519,7 +520,7 @@ async function boot() {
       rig.kick(S.kick * Math.sqrt(k));
       bumpPaint(b.spec.x, b.spec.z, Math.min(255, 30 + 5 * b.count));
       // nothing blooms (open ground with no building in reach): no first bloom will queue a sign, so it queues here
-      if (!b.count) queueSign(null, b.spec.hue, b.spec.x, b.spec.z, b.spec.r);
+      if (!b.count || moon) queueSign(null, b.spec.hue, b.spec.x, b.spec.z, b.spec.r);
     },
     bloom: (ref, _order, _total, hue, level, roof, flags) => {
       if (landmarkBloom(ref, hue, level)) return;
@@ -583,7 +584,7 @@ async function boot() {
   /** ref: what the blast hit first, null when nothing blooms (it stands by the spot it hit, no front to fall back on). */
   const queueSign = (ref: BuildingRef | null, hue: number, cx: number, cz: number, r: number) => {
     // (?moon: what names a place is the map of the Moon, and a named crater painted says so)
-    const [text, from] = moon ? [moon.paint.nameAt(cx, cz), 'place'] : signName(ref, cx, cz, lastBlast.open);
+    const [text, from] = moon ? [moon.paint.signFor(cx, cz), 'place'] : signName(ref, cx, cz, lastBlast.open);
     pendingSigns.push({ ref, text: text.toUpperCase(), from, hue, cx, cz, r, at: simTime + arrival(r, r) + signTune.showDelay, tries: 0 });
   };
   let signSpot: { x: number; y: number; z: number; facing: number; scale: number; bias: boolean; pole: number; cx: number; cz: number; r: number; text: string; until: number } | null = null;

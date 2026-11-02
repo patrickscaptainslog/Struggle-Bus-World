@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { CLIP_N } from './moonMaterial';
 
-// Paint on the Moon's craters: a stack of three windows on the map, a layer each of one RGBA8 array, written by the GPU. A crater is a shape the stamp can say in a line (a squashed circle with a wobble), so what's
+// Paint on the Moon's craters: a stack of four windows on the map, a layer each of one RGBA8 array, written by the GPU. A crater is a shape the stamp can say in a line (a squashed circle with a wobble), so what's
 // kept is the list of what is painted, and this draws it, a quad a crater, whenever a window moves or something in it changes. That holds at any size: a bowl 20 m across on the finest window, one 100 km across on
-// the coarsest, the same quad and the same contour, with no mask on any tile and no tile split out of a coarse region. Near and far ground read the same three layers (GLSL_MOON_PAINT, moonMaterial.ts).
+// the coarsest, the same quad and the same contour, with no mask on any tile and no tile split out of a coarse region. Near and far ground read the same four layers (GLSL_MOON_PAINT, moonMaterial.ts).
 //
 // A window is 1024 texels a side:
 //   r  two hues, 3 bits each, read raw: nothing here is filtered, or two hues that meet would run through the hues between
@@ -15,13 +15,13 @@ import { CLIP_N } from './moonMaterial';
 // Marks go on biggest first, so a small bowl in a big one stays its own colour. When one changes, every mark it touches goes on again in that order, under a scissor: a few instanced quads a frame while a level
 // lands, and nothing at all after that.
 
-export const CLIP_LEVELS = 3;
-/** Metres a texel, by window. */
-export const CLIP_CELL = [2, 16, 128];
+export const CLIP_LEVELS = 4;
+/** Metres a texel, by window: 1 km, 8 km, 64 km and past the edge of any map. */
+export const CLIP_CELL = [1, 8, 64, 512];
 /** How far a window's middle may lag where it's wanted, a share of its side, before it moves. */
 const LAG = 0.15;
 /** How far ahead of the view a window's middle stands, a share of its side. */
-const LEAD = 0.2;
+const LEAD = [0.2, 0.2, 0.1, 0];
 
 /** One thing on the windows. */
 export interface ClipMark {
@@ -150,7 +150,7 @@ const FS = /* glsl */ `
   }
   void main() {
     vec2 p = vP;
-    float R = vR, m = max(uWin.w * 1.3, 0.8), lv = vC.x, base = vC.y, T = max(vC.w, 0.05), age = uNow - vC.z, seed = vD.z;
+    float R = vR, m = uWin.w * 1.3, lv = vC.x, base = vC.y, T = max(vC.w, 0.05), age = uNow - vC.z, seed = vD.z;
     float cov = 0.0, A = base, B = base, which = 1.0, glow = 0.0, lift = 0.0, ang = 0.0;
     float k = clamp(age / T, 0.0, 1.0);
     if (vB.w > 1.5) {
@@ -293,7 +293,7 @@ export class PaintClip {
   /** Where a window's middle wants to be, for a view at (x, z) along (fx, fz). A window that moves is dirty. */
   follow(x: number, z: number, fx: number, fz: number) {
     for (let k = 0; k < CLIP_LEVELS; k++) {
-      const w = this.wins[k], side = CLIP_N * w.cell, cx = x + fx * side * LEAD, cz = z + fz * side * LEAD;
+      const w = this.wins[k], side = CLIP_N * w.cell, cx = x + fx * side * LEAD[k], cz = z + fz * side * LEAD[k];
       if (Math.abs(cx - (w.x0 + side / 2)) < side * LAG && Math.abs(cz - (w.z0 + side / 2)) < side * LAG) continue;
       // (on a grid of its own, so a contour doesn't crawl when it moves)
       const g = w.cell * 16;

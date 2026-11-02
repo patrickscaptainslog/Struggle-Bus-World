@@ -224,6 +224,19 @@ SCRIPTS.high = async () => {
   await playFor('km10', 18, 3);
 };
 
+/** Straight down on a map point, from this high. */
+const top = async (name, x, z, h) => {
+  await page.evaluate(([x, z, h]) => {
+    const g = window.__game, o = g.moon.manifest.origin, c = Math.cos((o[0] * Math.PI) / 180);
+    // (qa.topDown takes a place: the game's flat degrees back from these metres)
+    const m = 111320;
+    window.__qa.topDown = { lat: o[0] - z / m, lon: o[1] + x / (m * c), height: h };
+    window.__qa.pin = { x, z, y: g.city.groundAt(x, z) + 60, heading: 0 };
+  }, [x, z, h]);
+  await settle(1.5);
+  await shot(name);
+};
+
 /** Top-down look at a place, from this high, the windows as they stand. */
 const above = async (name, x, z, h) => {
   await page.evaluate(([x, z, h]) => {
@@ -246,11 +259,28 @@ SCRIPTS.apollo = async () => {
     return list;
   });
   console.log(JSON.stringify(hits));
+  await page.evaluate(() => {
+    const g = window.__game, c = g.moon.cratersNear(0, 0, 1500, 300).find((c) => !c.name);
+    if (c) g.moon.paint.qaHit(c.id, g.clock(), 3);
+  });
   await run(3.5);
   await shot('site-low');
-  await above('site-above', 0, 0, 3000);
-  await above('site-high', 0, 0, 9000);
+  await top('site-top', 0, 0, 5200);
+  await top('site-top2', 1000, 300, 2200);
   await note('high');
+};
+
+/** The whole of a named crater, from straight above, at each level. */
+SCRIPTS.named = async () => {
+  await open();
+  await run(1);
+  const id = await page.evaluate(() => 'p' + window.__game.moon.places.find((p) => p.name === 'THEOPHILUS').id);
+  await top('th-0', 0, 0, 230000);
+  for (let l = 1; l <= 3; l++) {
+    await page.evaluate(([id, l]) => window.__game.moon.paint.qaHit(id, window.__game.clock(), l), [id, l]);
+    await run(3.4);
+    await shot(`th-${l}`);
+  }
 };
 
 /** Paint, leave, come back: what's saved stands. */

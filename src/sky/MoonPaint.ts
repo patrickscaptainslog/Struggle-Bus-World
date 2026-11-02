@@ -1,5 +1,6 @@
 import { config } from '../config';
 import { blastDots, blastEdge, rng, SHAPE_LUT, wrapHue, type BlastDot, type BlastSpec } from '../game/blastLayout';
+import { MOON_LOW_KEY } from './flag';
 import { R_MOON } from './SkyModel';
 
 // Paint on the Moon: the map the resolve reads (skyResolve.ts, spaceMoon), and the strokes it is rebuilt from. Pure TS and no three.js: tools/sky/moon-paint-check.mjs paints in Node.
@@ -70,6 +71,8 @@ export interface PaintStroke {
   level: number;
   /** the blast's seed; its hue is seed % 6 */
   seed: number;
+  /** the flood's edge (km), if not the level's: a crater painted from low down, at its own size */
+  km?: number;
 }
 
 export interface PaintMip {
@@ -225,8 +228,16 @@ export class MoonPaint {
     } catch {
       /* blocked or spoiled: what was read is drawn, and nothing more */
     }
-    this.queue = list;
     this.savedTo = list.length;
+    try {
+      const raw = this.store?.get(MOON_LOW_KEY);
+      const low = raw ? (JSON.parse(raw) as number[][]) : null;
+      // (first, so anything from orbit lands on top; they aren't this file's to save, so they stay out of `strokes`)
+      if (Array.isArray(low)) for (const a of low) if (Array.isArray(a) && a.length === 5 && a.every(Number.isFinite)) list.unshift({ lat: a[0], lon: a[1], level: a[2], seed: a[3] >>> 0, km: a[4] });
+    } catch {
+      /* the same */
+    }
+    this.queue = list;
     return list.length;
   }
 
@@ -303,8 +314,8 @@ export class MoonPaint {
 
   /** Everything a stroke needs before it is drawn. */
   begin(stroke: PaintStroke, live: boolean): PaintJob {
-    const S = config.splat, level = stroke.level;
-    const r = EDGE_KM[level] / S.groundRadius;
+    const S = config.splat, level = stroke.level, edge = stroke.km ?? EDGE_KM[level], small = edge / EDGE_KM[level];
+    const r = edge / S.groundRadius;
     // (the game's blast, its metres read as km: r is 70 to 160 here against 60 to 120, and everything in it scales with r)
     const spec: BlastSpec = {
       x: 0, z: 0, r, hue: stroke.seed % 6, seed: stroke.seed,
@@ -330,7 +341,7 @@ export class MoonPaint {
     const rays: Ray[] = [];
     if (level >= 3) {
       const rand = rng(stroke.seed ^ 0x7a3c51);
-      for (let i = 0; i < RAYS; i++) rays.push({ a: ((i + 0.7 * (rand() - 0.5)) / RAYS) * Math.PI * 2, len: RAY_KM * (0.45 + 0.55 * rand()), w: 5.5 + 5 * rand(), hue: wrapHue(spec.hue + i), rand: rand() * 1000 });
+      for (let i = 0; i < RAYS; i++) rays.push({ a: ((i + 0.7 * (rand() - 0.5)) / RAYS) * Math.PI * 2, len: RAY_KM * small * (0.45 + 0.55 * rand()), w: Math.max(3, (5.5 + 5 * rand()) * small), hue: wrapHue(spec.hue + i), rand: rand() * 1000 });
     }
     const reach = e.max + DILATE_KM + SOFT_KM;
     const rows = Math.ceil(reach / TEXEL_KM) + 1;
@@ -348,8 +359,8 @@ export class MoonPaint {
     job.i0 = cx - span;
     job.iSpan = Math.min(PAINT_W, span * 2 + 1);
     if (live && level > 1) job.over = this.keepOver(job);
-    this.strokes.push(stroke);
-    if (level > 1) this.floods.push(c[0], c[1], c[2], Math.cos((EDGE_KM[level] * 0.9) / R_MOON), level);
+    if (stroke.km === undefined) this.strokes.push(stroke);
+    if (level > 1) this.floods.push(c[0], c[1], c[2], Math.cos((edge * 0.9) / R_MOON), level);
     return job;
   }
 
@@ -509,7 +520,7 @@ export class MoonPaint {
     const cp = this.cosLat[j], sp = this.sinLat[j];
     const cosMax = Math.cos((job.max + DILATE_KM) / R_MOON);
     const S = s.sectors, lutK = SHAPE_LUT / (Math.PI * 2), scale = s.r / 60;
-    const crown = level >= 2 ? CROWN_KM : 0;
+    const crown = level >= 2 ? Math.min(CROWN_KM, job.max * 0.3) : 0;
     const lift = LIFT[level];
     for (let q = 0; q < job.iSpan; q++) {
       const i = (((job.i0 + q) % PAINT_W) + PAINT_W) % PAINT_W;
@@ -620,7 +631,7 @@ export class MoonPaint {
 
   /** A ray, or as much of it as the budget allows: thrown out along a great circle from the flood, tapering, wandering a little, and breaking up toward its end. Over everything it crosses: it's the newest paint there. */
   private ray(job: PaintJob, r: Ray, budget: number): number {
-    const step = TEXEL_KM * 0.7, level = job.stroke.level, from = EDGE_KM[level] * 0.55;
+    const step = TEXEL_KM * 0.7, level = job.stroke.level, from = (job.stroke.km ?? EDGE_KM[level]) * 0.55;
     let n = 0;
     for (let s = Math.max(from, job.rayS); ; s += step) {
       if (s >= r.len) {

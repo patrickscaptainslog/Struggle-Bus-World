@@ -17,7 +17,7 @@ export const moonGlobals = {
   uMoonLight: { value: new THREE.Vector2(0.4, 0.006) },
   // what's painted on the craters: PaintClip's windows, each x0, z0, 1 / cell, on
   tPaintClip: { value: null as THREE.Texture | null },
-  uClip: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
+  uClip: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
   // the crater that glints: x, z, rim, since; the stamp's squash; two of its wobble, and 1 stamped, 2 named, 0 none
   uGlint: { value: new THREE.Vector4() },
   uGlintM: { value: new THREE.Vector4(1, 0, 1, 0) },
@@ -70,7 +70,7 @@ float moonCast(vec3 wp) {
 export const GLSL_MOON_PAINT = /* glsl */ `
 precision highp sampler2DArray;
 uniform sampler2DArray tPaintClip;
-uniform vec4 uClip[3];
+uniform vec4 uClip[4];
 uniform vec4 uGlint;
 uniform vec4 uGlintM;
 uniform vec4 uGlintS;
@@ -95,10 +95,10 @@ float moonSite(vec2 xz, float px) {
 int moonWindow(vec2 xz, float px, out vec2 t) {
   int L = -1;
   t = vec2(0.0);
-  for (int k = 2; k >= 0; k--) {
+  for (int k = 3; k >= 0; k--) {
     vec4 c = uClip[k];
     vec2 q = (xz - c.xy) * c.z;
-    if (c.w > 0.5 && (k == 2 || px * c.z <= 5.0) && q.x >= 3.0 && q.y >= 3.0 && q.x <= ${CLIP_N - 4}.0 && q.y <= ${CLIP_N - 4}.0) {
+    if (c.w > 0.5 && (k == 3 || px * c.z <= 5.0) && q.x >= 3.0 && q.y >= 3.0 && q.x <= ${CLIP_N - 4}.0 && q.y <= ${CLIP_N - 4}.0) {
       L = k;
       t = q;
     }
@@ -111,6 +111,11 @@ bool moonClip(vec2 xz, float px, out float ramp, out float edge, out float lift,
   vec2 t;
   int L = moonWindow(xz, px, t);
   if (L < 0) return false;
+  // (most of the ground isn't painted: four looks, a little apart, and it's done)
+  ivec2 c0 = ivec2(t);
+  float near = texelFetch(tPaintClip, ivec3(c0 + ivec2(-1, -1), L), 0).a + texelFetch(tPaintClip, ivec3(c0 + ivec2(1, -1), L), 0).a;
+  near += texelFetch(tPaintClip, ivec3(c0 + ivec2(-1, 1), L), 0).a + texelFetch(tPaintClip, ivec3(c0 + ivec2(1, 1), L), 0).a;
+  if (near <= 0.0) return false;
   // organic edges, as GroundPaint's: the texels looked up through a little warp, and the contour's height broken up
   vec2 q = t * 0.11;
   vec2 g = t - 0.5 + (vec2(moonNoise(q), moonNoise(q + 31.7)) - 0.5) * 1.5;

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { config } from '../config';
+import { MOON_LOW_KEY } from '../sky/flag';
 import { blastUniforms } from '../world/GroundPaint';
 import type { Flight } from '../game/Flight';
 import type { Shot } from '../game/Aim';
@@ -28,6 +29,9 @@ const STROKES_KEY = 'strugglebus.moon.strokes.v1';
 const MAX_STROKES = 600;
 /** Crewed landing sites stay unpainted: a grey circle this wide (m) with its name. */
 export const SITE_R = 1200;
+/** A crater this wide (m of radius) is seen from orbit, on its global map, at its true size or a dot of this many km, a texel of that map. */
+const ORBIT_R = 1000;
+const ORBIT_KM = 6;
 /** A blast reaches neighbours this much past the crater it hit (m), and at most this many. */
 const NEIGHBOURS = 14;
 /** What a splash can do to a neighbour: rays are for a direct hit, or the ground under a few blasts is nothing but rays. */
@@ -90,6 +94,8 @@ export interface PaintFx {
   twinkle: (x: number, y: number, z: number, hue: number) => void;
   /** a splash where the flood reaches the rim */
   splash: (x: number, y: number, z: number, hue: number, k: number) => void;
+  /** a fountain, for the top level */
+  fountain: (x: number, y: number, z: number, hue: number, k: number) => void;
 }
 
 interface Spot {
@@ -161,6 +167,7 @@ export class CraterPaint {
   private lastHere: Spot | null = null;
   private readonly signed = new Map<string, number>();
   private hereTimer = 0;
+  private hitName: string | null = null;
   /** how much of what's around the bus is painted, 0..1, for the hum */
   nearShare = 0;
 
@@ -235,6 +242,11 @@ export class CraterPaint {
     this.fx = fx;
     this.groundAt = fx.groundAt;
     this.rim = new RimBloom({ sprouts: fx.sprouts, groundAt: fx.groundAt, tileAt: fx.tileAt });
+  }
+
+  /** What a blast's sign says: the named crater it hit, else where it came down. */
+  signFor(x: number, z: number): string {
+    return this.hitName ?? this.nameAt(x, z);
   }
 
   /** The smallest named place that holds (x, z), or the nearest there is. */
@@ -369,7 +381,9 @@ export class CraterPaint {
     g.uGlint.value.set(t.x, t.z, t.r, this.since);
     const th = t.a * Math.PI, sq = 1 + 0.16 * (t.b - 0.5), ct = Math.cos(th), st = Math.sin(th);
     g.uGlintM.value.set(ct * sq, st * sq, ct / sq, st / sq);
-    g.uGlintS.value.set(0.05 * Math.cos(t.c * 40), 0.05 * Math.sin(t.c * 40), 0, t.kind === 0 ? 1 : 2);
+    // (a named rim's first harmonic, the other way up: it's a divide there and a multiply in the writer)
+    if (t.wob) g.uGlintS.value.set(-t.wob[0], -t.wob[1], 0, 2);
+    else g.uGlintS.value.set(0.05 * Math.cos(t.c * 40), 0.05 * Math.sin(t.c * 40), 0, 1);
   }
 
   // ------------------------------------------------------------------ a breath
@@ -427,6 +441,7 @@ export class CraterPaint {
   /** The blast lands: its crater and those around it go up a level. On open ground it stays as a mark on the far windows. Returns the crater it hit. */
   impact(b: Blast): Target | null {
     const S = config.splat, t = (b.tag as Target | null) ?? null, now = b.t;
+    this.hitName = t?.name ?? null;
     const cx = b.spec.x, cz = b.spec.z, base = t ? t.r + 40 : b.spec.r * 0.8;
     // the wave a crater's size: it crosses the bowl in half a second, whatever the bowl
     const R = (t ? t.r * 1.25 + 30 : b.spec.r) * S.ringReach, v = Math.max(S.waveSpeed, R / 0.5);
@@ -467,6 +482,9 @@ export class CraterPaint {
     }
     const reach = base + 30;
     this.d.paintRocks(cx - reach, cz - reach, cx + reach, cz + reach, now + 0.25);
+    // (what the bloom's sound and the rest read)
+    b.count = hits.length + (t ? 1 : 0);
+    b.maxLevel = t?.rec?.level ?? 1;
     return t;
   }
 
@@ -630,6 +648,8 @@ export class CraterPaint {
       for (let k = 0; k < n; k++) {
         const a = a0 + (k / n) * Math.PI * 2, x = rec.x + Math.cos(a) * rec.r, z = rec.z + Math.sin(a) * rec.r;
         fx.splash(x, this.groundAt(x, z), z, (rec.hue + k) % HUE_COUNT, Math.min(0.6, 0.2 + rec.r / 300));
+        // (the top level: the whole rim goes up)
+        if (level === 3) fx.fountain(x, this.groundAt(x, z), z, (rec.hue + k) % HUE_COUNT, 0.3);
       }
     }
   }
@@ -645,16 +665,24 @@ export class CraterPaint {
     this.fx.twinkle(x, this.groundAt(x, z) + 0.6 + Math.random() * 2.5, z, r.hue);
   }
 
-  /** The hue a boulder here takes, or -1: a bowl it lies in, or a rim. */
+  /** The hue a boulder here takes, or -1. In a bowl, the hue across the wheel from its flood, or it couldn't be seen. Thrown round a rim, the rainbow by which way it lies. */
   hueAt(x: number, z: number): number {
-    const l = this.grid.get((Math.floor(z / GRID) + 32768) * 65536 + Math.floor(x / GRID) + 32768);
     if (this.sites.length && this.inSite(x, z)) return -1;
+    const at = (r: Rec): number => {
+      if (r.kind === 2) return -1;
+      const dx = x - r.x, dz = z - r.z, q = Math.hypot(dx, dz) / r.r;
+      if (q >= 1.3 + 0.3 * r.level) return -1;
+      return q < 1 ? (r.hue + 3) % HUE_COUNT : wrap(r.hue + Math.floor((Math.atan2(dz, dx) / (2 * Math.PI) + 0.5) * HUE_COUNT));
+    };
+    const l = this.grid.get((Math.floor(z / GRID) + 32768) * 65536 + Math.floor(x / GRID) + 32768);
     if (l)
       for (const r of l) {
-        if (r.kind !== 2 && Math.hypot(r.x - x, r.z - z) < r.r * (r.level >= 2 ? 1.12 : 1)) return r.hue;
+        const h = at(r);
+        if (h >= 0) return h;
       }
     for (const r of this.wide) {
-      if (r.kind !== 2 && Math.hypot(r.x - x, r.z - z) < r.r * (r.level >= 2 ? 1.12 : 1)) return r.hue;
+      const h = at(r);
+      if (h >= 0) return h;
     }
     return -1;
   }
@@ -724,8 +752,16 @@ export class CraterPaint {
       if (this.dirty) {
         this.dirty = false;
         const list: Array<[string, number, number]> = [];
-        for (const r of this.recs.values()) list.push([r.id, r.level, r.hue]);
+        const low: number[][] = [];
+        const d = new Float64Array(3);
+        for (const r of this.recs.values()) {
+          list.push([r.id, r.level, r.hue]);
+          if (r.r < ORBIT_R) continue;
+          dirOf(this.d.frame, r.x, r.z, d);
+          low.push([Math.round(latOf(d) * 100) / 100, Math.round(lonOf(d) * 100) / 100, r.level, Math.floor((r.key >>> 0) / 12) * 6 + r.hue, Math.max(ORBIT_KM, Math.round(r.r / 100) / 10)]);
+        }
         localStorage.setItem(KEY, JSON.stringify(list));
+        localStorage.setItem(MOON_LOW_KEY, JSON.stringify(low));
       }
       if (this.strokesDirty) {
         this.strokesDirty = false;
@@ -750,6 +786,7 @@ export class CraterPaint {
     try {
       localStorage.removeItem(KEY);
       localStorage.removeItem(STROKES_KEY);
+      localStorage.removeItem(MOON_LOW_KEY);
     } catch {
       /* blocked */
     }
