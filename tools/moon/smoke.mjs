@@ -21,7 +21,8 @@ try {
     await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 120000 });
     const ms = Date.now() - t0;
     await page.waitForTimeout(1500);
-    await page.screenshot({ path: join(dir, `${name}.png`) });
+    // (a shot waits for frames, and on software GL those are slow)
+    await page.screenshot({ path: join(dir, `${name}.png`), timeout: 180000 });
     const n = await page.evaluate(() => (window.__game ?? window.__space).pipeline.renderer.info.programs.length);
     console.log(`${name}: first ready frame ${ms} ms, ${n} programs, ${errors.length ? errors.join(' | ') : 'no errors'}`);
     await ctx.close();

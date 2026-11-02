@@ -15,7 +15,7 @@ Branch `feat/moonfree`, cut from `spike/moonrun`. The plan is [specs/moon/FREEFL
 ## First account: from 2026-11-04 12:00 UTC, when its weekly limit resets
 
 - [ ] Review each stage above as it's handed in, and fly the long real-time checks on a real GPU
-- [ ] Start the Moon flight on a street on Earth, so it can be felt from start to finish. It touches `src/main.ts` too: expect to merge with the stages above
+- [ ] Start the Moon flight from the ground on Earth, so it can be felt from start to finish. That's the trip's first leg, not the streets job on hold. It touches `src/main.ts` too: expect to merge with the stages above
 - [ ] `feat/thumbs` to main, once the producer says the controls can go live
 - [ ] The controls' small things: the opening still says TURBO AFTER THE BRIDGE, six flicks under the gate reach Turbo 3 at the bridge, a rare lost tap, the left look reaches about 37 degrees from mid-zone, the home leg's slow roll, a value saved in the phone's tuner beats a new default
 

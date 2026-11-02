@@ -8,7 +8,7 @@ The producer, 2026-11-02, after flying `?moonland`: "Works pretty great. I was h
 
 Low over the Moon the world is one 256 km square. `world.place()` remakes it, but only from high up with the ground off screen: `src/main.ts:1500-1504` drops everything (`city.reloadAll`, `ground.resetAll`), then `src/moon/moonBoot.ts:334-344` remakes the frame and asks the worker. Three things turn the bus back: `src/main.ts:1168-1179` in the low game, `src/game/Turbo.ts:224-235` for the gears, `src/moon/Landing.ts:228` (`HOME_IN`) in the flight's own loop.
 
-Already there: the orbit steers (`MoonTrip.steering`) and a lap takes about 7 minutes, a fall lands anywhere, the generator is a function of latitude and longitude, craters keep their ids on any map, and crater paint is kept by id and latitude.
+Already there: the orbit steers (`steering` in `src/sky/MoonTrip.ts`) and a lap takes about 7 minutes, a fall lands anywhere, the generator is a function of latitude and longitude, craters keep their ids on any map, and crater paint is kept by id and latitude.
 
 ## Stages
 
@@ -16,13 +16,13 @@ Each stage ends with a push, a pull request into `spike/moonrun` and a message t
 
 ### Stage 0: set up (under an hour)
 
-Run everything under "Running it" in `CLAUDE.md`, plus `node tools/moon/fly.mjs shots/tmp/fly --flights=cruise`. Look at one frame yourself. Report what ran, what didn't and how slow it was. If the brief is wrong, fix the brief.
+Run everything under "Running it" in `CLAUDE.md`, plus `node tools/moon/fly.mjs shots/tmp/fly --flights=cruise`, and look at one frame yourself. With no GPU that flight takes about 5 minutes, so run it in the background. Report what ran, what didn't and how slow it was. If the brief is wrong, fix the brief.
 
 ### Stage 1: flicks on the Moon (under a day)
 
-`spike/moonrun` still has the old TURBO button. `git merge origin/feat/thumbs`: 72 commits meet 44, and five files conflict, in six hunks of code plus `DECISIONS.md`.
+`spike/moonrun` still has the old TURBO button. Fetch the branch (`CLAUDE.md`, "A cloud clone"), then `git merge origin/feat/thumbs`. That changes this branch only: the controls stay off the live site until the producer says so. 72 commits meet 44, and five files conflict, in six hunks of code plus `DECISIONS.md`. Express, Nonstop, `WARP`, `h.level` and `this.shifter` are `feat/thumbs`' names, so they aren't here until you merge.
 
-- `src/fx/Turbo.ts`: both changes, `clamp(Math.max(drive.speedK, drive.boosting ? 0.5 : 0), 0, 1) * this.fade`.
+- `src/fx/Turbo.ts`: keep this branch's `* this.fade` and take `feat/thumbs`' boost: `clamp(Math.max(drive.speedK, drive.boosting ? 0.5 : 0), 0, 1) * this.fade`.
 - `src/game/CameraRig.ts`: the imports of both sides that are still used.
 - `src/game/Controls.ts`: keep `leftGround()`, drop `sheetUp` with tilt and whatever calls it. Keep `h.level`, `h.armed = this.shifter.armed` and the Moon's `h.mph` line.
 - `src/game/Turbo.ts`: `this.top || (config.turbo.worldTravel ? WARP : JET)`, and `feat/thumbs`' simpler `if (this.gear >= this.maxGear) return false;`. Gears are numbered differently on the two sides, so `controls.turbo.top = 3` in `src/main.ts` becomes `WARP`, and every other Moon line that reads a gear's number needs checking against the new ladder.
@@ -44,6 +44,8 @@ The core of the job. From Theophilus, Jet in a straight line for 500 km, low, ab
 4. One datum for the session, so Y never steps.
 
 Done when: on a fixed-step flight the frames either side of each join differ by less than the same flight's frames with no join; `tools/moon/pops.py` finds nothing; crater paint and ground paint near the bus survive every join; no program compiles; memory is flat over the flight; and the producer has flown it.
+
+On a cloud machine a second of flight at `fly.mjs`' fixed step costs about 25 seconds, so 500 km of frames is out of reach there. Add a test hook that puts the bus just short of a join, fly through it, and do that for a few joins. Leave the whole 500 km to the first account's laptop and the producer's phone, and say so in the hand-in.
 
 ### Stage 3: the whole Moon (2-3 days)
 

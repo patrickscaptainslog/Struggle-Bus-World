@@ -25,7 +25,8 @@ These beat every older doc. `README.md`, `HANDOFF.md` and `DECISIONS.md` are his
 **Controls** (on `feat/thumbs`, `docs/specs/flight/THUMBS.md`, not live yet)
 - No new button, joystick or gear strip. It must be intuitive to pick up and fly, and playable with one thumb. Gestures stay hidden, with one brief hint on the first run.
 - The left 42 % of the screen looks and never flies, the rest flies. A quick flick up or down is one gear, on either side. No double flicks, no left or right swipes, no tilt. The TURBO button is gone. MEGA stays.
-- One ladder: Cruise, Express, Nonstop, Jet, Turbo 1, 2 and 3. To the producer, "turbo" is what Jet feels like.
+- One ladder: Cruise, Express, Nonstop, Jet, Turbo 1, 2 and 3. To the producer, "turbo" is what Jet feels like. On the Moon it goes on from Jet to Stratos and Rainbow Warp (`docs/specs/moon/FREEFLIGHT.md`).
+- A branch has all this only once `feat/thumbs` is merged into it. Merging it there doesn't put it live: that's main, and the producer's word.
 
 **Camera**
 - No pinch and no zoom: tried on paper and rejected, don't raise it again. The normal chase camera and the full-size bus everywhere, the Moon voyage included.
@@ -39,7 +40,8 @@ These beat every older doc. `README.md`, `HANDOFF.md` and `DECISIONS.md` are his
 ## How we work
 
 - **Branches.** Work only on the branch `docs/TODO.md` names. Never push or merge to `main`: main is the live site.
-- **Hand-in.** A stage ends with a push and a pull request. Vercel builds a preview of every pushed branch, and that link is how the producer flies it: `https://struggle-bus-world-git-<branch with / as ->-patricks-projects-9ff6e721.vercel.app/?moonland&fps`. It needs a Vercel sign-in, which the producer's phone has. Give them the whole link, and say what to try.
+- **A cloud clone** may hold only one branch: `git fetch origin feat/thumbs spike/moonrun`, and `git fetch --unshallow` if it's shallow.
+- **Hand-in.** A stage ends with a push and a pull request. Vercel builds a preview of every pushed branch, and that link is how the producer flies it: `https://struggle-bus-world-git-<branch with / as ->-patricks-projects-9ff6e721.vercel.app/?moonland&fps`. It needs a Vercel sign-in, which the producer's phone has and you don't: `gh api repos/patrickscaptainslog/Struggle-Bus-World/commits/<sha>/status` says whether it built. Give them the whole link, and say what to try. On a cloud machine `gh pr` won't work: use the session's Create PR, or `gh api` on the repo's `pulls`.
 - **Review.** Every branch gets a code review from the other account before it merges. Code written after a review gets its own review. Rerun the checks on the final build.
 - **Honest tests.** Report only checks you ran, with what they printed, and say what you couldn't check. Fixed poses miss whole structures, so fly along a long thing end to end before calling it fine. A fix stays on what it was asked to fix.
 - **The producer's phone beats any judge.** Run an outside look at the frames only where a player would see the change, and only once.
@@ -83,7 +85,7 @@ Pages: `?moonland&fps` is the whole trip, Earth orbit to the Moon, land, skim, p
 | `tools/moon/run.mjs <file>.ts` | The generator under Node: `look.ts`, `farcost.ts`, `nans.ts` |
 | `tools/sky/route-check.mjs`, `trip-fuzz.mjs` | The flight's maths under Node, no browser |
 | `tools/warmcheck.mjs` | Nothing compiles in flight |
-| `tools/controls.mjs`, `tools/controls-sim/` | The thumbs (on `feat/thumbs`) |
+| `tools/controls.mjs`, `tools/controls-sim/` | The controls. What tests the two thumbs comes with `feat/thumbs` |
 
 **On a cloud machine** there's no GPU. Software graphics run about 1.5 frames a second, so the game runs about 14 times slower than real time and frame times mean nothing. Tools wait on the game clock, so they still work, and `tools/browser.mjs` finds the machine's Chrome by itself. Short runs at a fixed step are fine. Say in the hand-in which long real-time flights you left for a laptop or the phone.
 
