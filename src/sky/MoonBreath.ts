@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { AudioEngine } from '../audio/AudioEngine';
 import type { BusModel, BusPose } from '../bus/BusModel';
 import { config } from '../config';
 import { fxTune, Particles, type GeyserLive } from '../fx/Particles';
@@ -58,10 +59,12 @@ interface Shot {
 
 export class MoonBreath {
   readonly paint: MoonPaint;
-  readonly particles = new Particles(8000);
+  readonly particles = new Particles(10000);
   readonly tex: THREE.DataTexture;
   /** a shot has been fired this flight: the label stops asking */
   fired = false;
+  /** The game's synthesized sound, set by moonrun.ts: the hurk, the splat, the canon's next chord on the bells. */
+  audio: AudioEngine | null = null;
   /** seconds of hit-stop left: moonrun.ts holds the flight for them */
   hitStop = 0;
   /** the camera's jolt this frame, radians of pitch */
@@ -127,8 +130,8 @@ export class MoonBreath {
     this.tex = t;
     // A breath 400 km long, by the frame's pixels rather than by the street's: 1.75 m of stand-in is a pixel, so the blobs and speeds are a few times the game's and fall at a slow, clean rate.
     Object.assign(fxTune, {
-      halfWidth0: 6.5, halfWidth1: 3.4, blobSize: 1.7, blobMouth: 0.62, sprayScatter: 7, flickOut: 22, wobbleAmp: 1.6,
-      gravity: 130, burstUp: 150, burstOut: 46, burstSize: 3.6, splashUp: 74, splashOut: 40, splashSize: 2.2, roofRadius: 1e4, hopUp: 18, hopOut: 14,
+      ribbonRate: 3400, halfWidth0: 5.2, halfWidth1: 4.4, blobSize: 1.7, blobMouth: 0.62, sprayFrac: 0.03, sprayScatter: 4, flickRate: 120, flickOut: 12, wobbleAmp: 1.2, stretch: 0.08, maxStretch: 18, glintFrac: 0.02,
+      gravity: 170, burstUp: 150, burstOut: 56, burstSize: 3.6, splashUp: 84, splashOut: 46, splashSize: 2.2, roofRadius: 1e4, hopUp: 18, hopOut: 14,
       flingSplash: 5, sparkSize: 7, sparkLife: 1.1, sparkRise: 9,
     });
   }
@@ -166,6 +169,7 @@ export class MoonBreath {
   tap(inOrbit: boolean): boolean {
     if (!inOrbit || !this.loaded || !this.sky) {
       this.stats.denied++;
+      if (inOrbit) this.audio?.denied();
       return false;
     }
     const S = config.splat, n = this.hit;
@@ -195,6 +199,7 @@ export class MoonBreath {
     this.barfT = 0;
     this.fired = true;
     this.stats.shots++;
+    this.audio?.heave();
     return true;
   }
 
@@ -237,7 +242,10 @@ export class MoonBreath {
         this.barfT = -1;
         this.fullness = 0;
       }
-    } else if (this.fullness < 1) this.fullness = Math.min(1, this.fullness + dt / Math.max(0.05, S.recharge));
+    } else if (this.fullness < 1) {
+      this.fullness = Math.min(1, this.fullness + dt / Math.max(0.05, S.recharge));
+      if (this.fullness >= 1 && orbiting) this.audio?.ready();
+    }
 
     if (this.paint.rebuilding && this.paint.rebuild(REBUILD_FRAME_MS, () => performance.now())) this.tex.needsUpdate = true;
 
@@ -354,6 +362,8 @@ export class MoonBreath {
     }
     const p = pos.clone().project(camera);
     this.pipeline.flash(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5, S.flashFrames + 1, S.flashStrength);
+    this.audio?.splatImpact(k);
+    this.audio?.bloomBurst(2 + level * 2, hue, level);
     this.hitStop = S.hitStopFrames / 60;
     this.kickA = ((S.kick * Math.sqrt(k)) / config.camera.distanceVista) * 0.6;
     this.kickT = 0;

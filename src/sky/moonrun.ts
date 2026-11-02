@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { AudioEngine } from '../audio/AudioEngine';
 import { BusModel, type BusPose } from '../bus/BusModel';
 import { config } from '../config';
 import { Input } from '../game/Input';
@@ -265,6 +266,12 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
       else if (pressTaken) pressTaken = false;
       else trip.tap();
     };
+    // the game's sound, for the breath alone: its one-shots, no wind (there's no air) and no engine (the graph's frame never runs, so nothing but a breath makes a noise)
+    const audio = new AudioEngine();
+    audio.setVolumes({ ...config.audio, ambience: 0 });
+    audio.warmBackend();
+    input.onFirstGesture = () => audio.unlock();
+    breath.audio = audio;
     // a tap is a breath, as on the street: the place it touched goes in first, since Input reads the event after this
     input.onTap = () => breath.tap(trip.leg === 'orbit');
     const touched = (e: PointerEvent) => {
@@ -289,6 +296,7 @@ export async function bootMoonrun({ pipeline, scene, warm }: MoonrunContext): Pr
   warm.add(scene);
   await Promise.all([warm.finish(), draw.load('./sky')]);
   breath.load();
+  breath.audio?.prepare();
   // (and the stars' and lines' real geometry was built after their proxies: same layout, same programs)
   const load = {
     ...draw.timing,

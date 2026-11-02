@@ -446,8 +446,8 @@ export class MoonPaint {
 
   // ------------------------------------------------------------------ the raster
 
-  /** One texel of new paint over what is there. reveal in s; bare: only onto bare ground. Any new coverage is added to `painted`. */
-  private put(job: PaintJob, o: number, row: number, c: number, hue: number, lift: number, reveal: number, bare: boolean): void {
+  /** One texel of new paint over what is there. reveal in s; bare: only onto bare ground; flood: its lift is the whole of it, so an old crown under a new flood is gone. Any new coverage is added to `painted`. */
+  private put(job: PaintJob, o: number, row: number, c: number, hue: number, lift: number, reveal: number, bare: boolean, flood = false): void {
     const d = this.mips[0].data;
     const old = d[o] / 255;
     if (bare && old >= 0.5) return;
@@ -458,7 +458,7 @@ export class MoonPaint {
     if (c >= 0.5 || c > old) {
       d[o + 1] = Math.round(((hue + 0.5) / 6) * 255);
       // (the soft rim keeps its own: paint that lands here later mustn't find a lift it never had)
-      if (c >= 0.4 && lift > d[o + 2]) d[o + 2] = lift;
+      if (c >= 0.4 && (flood || lift > d[o + 2])) d[o + 2] = lift;
     }
     // fresh ground waits for the wave; paint that was there changes at the impact, under the flash
     if (job.live && old < 0.5 && c > 0.02) {
@@ -519,7 +519,7 @@ export class MoonPaint {
         continue;
       }
       const inCrown = crown > 0 && edge - dist < crown;
-      this.put(job, o, j, cov > 1 ? 1 : cov, hue, inCrown ? LIFT_CROWN : lift, this.waveAt(dist, level), false);
+      this.put(job, o, j, cov > 1 ? 1 : cov, hue, inCrown ? LIFT_CROWN : lift, this.waveAt(dist, level), false, true);
       this.touch(job, i, j);
     }
   }
