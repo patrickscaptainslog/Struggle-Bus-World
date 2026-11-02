@@ -279,6 +279,20 @@ if (modes.has('thumbs')) {
     await page.evaluate(() => window.__game.tuneGroup('Input', 'memoryMs', 30000));
     return { inside, past };
   }, (r) => r.note.inside.look.on && !r.note.inside.thumb && !r.note.past.look.on && r.note.past.thumb);
+  await row('memory: the left thumb first by a beat, both lift: the right thumb flies', async () => {
+    await H.stamped(async () => { await H.down(1, LX, LY, 0); await H.down(2, RX, RY, 30); });
+    await wall(200);
+    await H.up(2);
+    await H.up(1);
+    await runFor(page, 0.3);
+    await H.down(1, RX, RY);
+    await wall(150);
+    await H.move(1, RX + 60, RY);
+    await runFor(page, 0.15);
+    const s = await state();
+    await H.up(1);
+    return s;
+  }, (r) => r.note.thumb && !r.note.look.on && r.note.sx > 0.2);
   await row('the look outlives the flying thumb', async () => { await steer(); await H.down(2, LX, LY); await wall(150); await H.move(2, LX + 50, LY); await runFor(page, 0.1); await lift1(); await runFor(page, 0.1); const s = await state(); await H.up(2); return s; }, (r) => r.note.look.on && !r.note.thumb);
   // ---- MEGA, three fingers, a lost touch
   await row('MEGA: a tap, with a thumb steering', async () => { const m = await rectOf(page, '[data-hud="mega"]'); await steer(); await runFor(page, 0.1); await H.down(2, m.x, m.y); await wall(90); await H.up(2); await wall(30); await lift1(); }, (r) => has(r, 'onTap') === 1);
