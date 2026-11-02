@@ -7,7 +7,7 @@ import { chromium } from 'playwright-core';
 import { browserOptions } from '../browser.mjs';
 
 const BASE = process.env.BASE ?? 'http://localhost:4179/';
-const DIST = process.env.DIST ?? 'C:/Users/Utku/sb-build-perf';
+const DIST = process.env.DIST ?? '../sb-build';
 const browser = await chromium.launch(browserOptions(['--enable-webgl']));
 let bad = 0, requests = 0, flight = 0;
 try {

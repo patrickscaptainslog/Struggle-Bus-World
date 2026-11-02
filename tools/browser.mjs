@@ -1,6 +1,7 @@
 // Browser launch options shared by the QA tools (shots, blast, altitude, ...).
-// - In the cloud container (Linux, no GPU): the pinned Chromium with SwiftShader
-//   (software GL: correct but ~1.5 fps, so tools wait on the game clock).
+// - In the cloud container (Linux, no GPU): the pinned Chromium, or the Chrome that
+//   CHROME_PATH names, with SwiftShader (software GL: correct but ~1.5 fps, so tools
+//   wait on the game clock).
 // - Anywhere else, e.g. a laptop: the installed Chrome (Edge on Windows) with the
 //   real GPU, which makes every capture many times faster.
 // Overrides: CHROME_PATH=<exe>, SB_CHANNEL=chrome|msedge, SB_GPU=0|1, SB_HEADED=1
@@ -13,7 +14,8 @@ const HARDWARE_GL = ['--ignore-gpu-blocklist', '--enable-gpu-rasterization'];
 
 export function browserOptions(extraArgs = []) {
   const pinned = existsSync(PINNED);
-  const gpu = process.env.SB_GPU ? process.env.SB_GPU !== '0' : !pinned;
+  const cloud = pinned || (process.platform === 'linux' && !!process.env.CHROME_PATH);
+  const gpu = process.env.SB_GPU ? process.env.SB_GPU !== '0' : !cloud;
   const opts = { headless: !process.env.SB_HEADED };
   if (process.env.CHROME_PATH) opts.executablePath = process.env.CHROME_PATH;
   else if (pinned) opts.executablePath = PINNED;

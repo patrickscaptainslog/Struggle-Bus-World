@@ -1,0 +1,92 @@
+# Struggle Bus World
+
+A yellow school bus flies over the real world and paints it. three.js, WebGL2, Vite and TypeScript, 3D pixel art, iPhone Safari first, no server. Live at https://struggle-bus-world.vercel.app/.
+
+**Start at [docs/TODO.md](docs/TODO.md).** It says what's next and who has it.
+
+Two Claude accounts work here as engineers. Neither can see the other's chats or notes, so whatever the other needs goes in this repo, in a commit. One person, the producer, decides what the game is. They fly every change on an iPhone 17 Pro, usually reply from that phone, and go by they/them.
+
+This repo is public. No secrets, private notes or personal details in code, docs or commit messages.
+
+## The producer's rulings
+
+These beat every older doc. `README.md`, `HANDOFF.md` and `DECISIONS.md` are history where they disagree: the README still has tilt and the TURBO button. When the producer rules on something new, put it here in the same commit.
+
+**The game**
+- Painting is the whole point, on the Moon too: "i need to be able to paint the moon. thats the whole point of the game." Never treat a place as something only to look at.
+- Paint is the only saturated thing in the world, and there's no brown. Palette ramps only, in an indexed-colour G-buffer (`docs/specs/COMMON.md`).
+- It has to scale to the whole world. Data-driven looks any city gets from OpenStreetMap or Overture, no new hand-made San Francisco one-offs. Each city is its own flat map: the round Earth is unbuilt.
+- The Moon is real in its big shapes and named places, and invented below that. Crewed landing sites stay grey circles that can't be painted.
+
+**Flight**
+- Speed and climb never grow with height. Going faster is the gears' job. The one exception is the brake on arrival at the Moon.
+- The way up is a plain climb of 40 m/s or a gear, with speed following the nose up to 85 degrees either way (`docs/specs/flight/NOSE.md`, `ASCENT.md`).
+
+**Controls** (on `feat/thumbs`, `docs/specs/flight/THUMBS.md`, not live yet)
+- No new button, joystick or gear strip. It must be intuitive to pick up and fly, and playable with one thumb. Gestures stay hidden, with one brief hint on the first run.
+- The left 42 % of the screen looks and never flies, the rest flies. A quick flick up or down is one gear, on either side. No double flicks, no left or right swipes, no tilt. The TURBO button is gone. MEGA stays.
+- One ladder: Cruise, Express, Nonstop, Jet, Turbo 1, 2 and 3. To the producer, "turbo" is what Jet feels like.
+
+**Camera**
+- No pinch and no zoom: tried on paper and rejected, don't raise it again. The normal chase camera and the full-size bus everywhere, the Moon voyage included.
+
+**On hold.** Start none of these until the producer says so: streets and highways, moving things (cars, ships, trains, planes, live plane data), weather and clouds, satellites.
+
+**Numbers**
+- 393 x 852 game pixels at 3x. The floor is an A15 at 30 fps, and Safari 15 has to parse the build. 120-200 draws, 1.0-1.5 M triangles. Nothing compiles in flight.
+- Nothing has been measured on an A15. On the producer's iPhone 17 Pro a failure is loud and a pass proves little.
+
+## How we work
+
+- **Branches.** Work only on the branch `docs/TODO.md` names. Never push or merge to `main`: main is the live site.
+- **Hand-in.** A stage ends with a push and a pull request. Vercel builds a preview of every pushed branch, and that link is how the producer flies it: `https://struggle-bus-world-git-<branch with / as ->-patricks-projects-9ff6e721.vercel.app/?moonland&fps`. It needs a Vercel sign-in, which the producer's phone has. Give them the whole link, and say what to try.
+- **Review.** Every branch gets a code review from the other account before it merges. Code written after a review gets its own review. Rerun the checks on the final build.
+- **Honest tests.** Report only checks you ran, with what they printed, and say what you couldn't check. Fixed poses miss whole structures, so fly along a long thing end to end before calling it fine. A fix stays on what it was asked to fix.
+- **The producer's phone beats any judge.** Run an outside look at the frames only where a player would see the change, and only once.
+- **Downloads.** Ask the producer first, naming the file, its source and its size.
+- **Licences.** `public/sky/lines.bin` and `tools/sky/line-stars.json` are CC BY-SA and mustn't reach main unreviewed.
+- **Talking to the producer.** Plain words, short, one question at a time, with what you'd pick. They read on a phone and shouldn't need to know the code.
+- **Writing code.** Match what's around it: its comment density, its naming, its idiom.
+
+## Spending
+
+Tokens are a budget, and the producer never wants to go past a weekly limit into paid extra usage. If you get near one, stop and say so.
+
+- Opus 5.5 plans, writes the difficult code (flight, thumbs, rendering, shaders, workers, hand-overs), merges and reviews.
+- Haiku 5.5 surveys code, runs long tests and reports in short, and does docs, test tables and listed mechanical edits. One job per Haiku agent. A script decides pass or fail, never Haiku, and Haiku never pushes. Opus reads every diff before it's kept.
+- No command with a lot of context behind it should wait past about 4 minutes: the prompt cache lapses after 5, and reloading a whole context cost us about 14 % of all spend. Run long flights in the background or give them to a Haiku agent.
+- Stop an agent at about 300K tokens and carry on with a fresh one from a note. That would have saved about 15 %.
+- No big fan-outs of agents.
+
+## Running it
+
+```bash
+npm ci
+npx tsc -p tsconfig.main.json --noEmit             # types, main.ts included
+npx vite build --outDir ../sb-build
+node tools/sky/serve-dist.mjs ../sb-build 4179     # leave it running: the Moon tools read http://localhost:4179/ (BASE overrides it)
+node tools/iosfloor.mjs ../sb-build                # Safari 15 parses it
+node tools/moon/smoke.mjs shots/tmp/smoke          # ?moon and ?moonrun stand up
+```
+
+Keep frames and logs in `shots/tmp/`, which git ignores.
+
+Pages: `?moonland&fps` is the whole trip, Earth orbit to the Moon, land, skim, paint, home. `?moon&site=TYCHO&fps` starts low anywhere, `?moon&lat=&lon=` too. `&t=2026-11-25T04:00:00Z` sets the date, and so the Sun: that one is full Moon. `window.__game` and `window.__qa` are the low game, `window.__space` the flight.
+
+| Tool | What it does |
+|---|---|
+| `tools/moon/fly.mjs <out>` | The real bus at a fixed step, frames taken with the loop frozen. The cloud's best friend |
+| `tools/moon/land.mjs <out>` | The way down with a real thumb |
+| `tools/moon/hand.mjs <out>` | One browser held open, flown a step at a time |
+| `tools/moon/stranger.mjs <out>` | A whole flight, as a stranger flies it |
+| `tools/moon/edges.mjs <out>` | The corners of `?moonland` |
+| `tools/moon/run.mjs <file>.ts` | The generator under Node: `look.ts`, `farcost.ts`, `nans.ts` |
+| `tools/sky/route-check.mjs`, `trip-fuzz.mjs` | The flight's maths under Node, no browser |
+| `tools/warmcheck.mjs` | Nothing compiles in flight |
+| `tools/controls.mjs`, `tools/controls-sim/` | The thumbs (on `feat/thumbs`) |
+
+**On a cloud machine** there's no GPU. Software graphics run about 1.5 frames a second, so the game runs about 14 times slower than real time and frame times mean nothing. Tools wait on the game clock, so they still work, and `tools/browser.mjs` finds the machine's Chrome by itself. Short runs at a fixed step are fine. Say in the hand-in which long real-time flights you left for a laptop or the phone.
+
+## Where things are
+
+`docs/ARCHITECTURE.md` is how it works, `docs/specs/COMMON.md` the creative brief, `DECISIONS.md` every call with numbers (long: search it). The Moon is `src/moon/`, the voyage `src/sky/`, and the specs are `docs/specs/moon/GROUND.md`, `PAINT.md` and `LAND.md`.

@@ -6,7 +6,7 @@ import { gzipSync } from 'node:zlib';
 import { chromium } from 'playwright-core';
 import { browserOptions } from '../browser.mjs';
 
-const dir = process.argv[2] ?? 'C:/Users/Utku/sb-build-perf';
+const dir = process.argv[2] ?? '../sb-build';
 const base = process.env.BASE ?? 'http://localhost:4179/';
 const browser = await chromium.launch(browserOptions(['--enable-webgl']));
 const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
