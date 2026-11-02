@@ -168,7 +168,7 @@ export class CraterPaint {
   private strokesDirty = false;
   /** the named: where they are */
   private readonly spots: Spot[] = [];
-  private readonly sites: Spot[] = [];
+  readonly sites: Spot[] = [];
   private lastHere: Spot | null = null;
   private readonly signed = new Map<string, number>();
   private readonly blastSigned = new Map<string, number>();
@@ -694,7 +694,7 @@ export class CraterPaint {
 
   /** ?moonland, over the ground in the flight's loop: the wide windows go where the view is, so what's painted is on the far field before the low game has the frame. The fine ones are for a bus that's nearly down. */
   fly(x: number, z: number, fx: number, fz: number, now: number) {
-    this.clip.follow(x, z, fx, fz);
+    this.clip.follow(x, z, fx, fz, 2);
     this.drawWindows(now, 2);
   }
 

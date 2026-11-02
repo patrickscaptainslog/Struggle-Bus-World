@@ -109,6 +109,8 @@ export class TurboDrive {
   shift(dir: 1 | -1, f: Flight): boolean {
     if (dir > 0) {
       if (this.gear + 1 > this.maxGear) {
+        // (a world's own last gear isn't locked, it's the last)
+        if (this.top) return false;
         this.lockedAt = this.t;
         this.onEvent?.('locked', this.gear + 1);
         return false;

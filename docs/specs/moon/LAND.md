@@ -1,6 +1,6 @@
 # From orbit to the ground: `?moonland`
 
-The one link. Earth orbit to Moon orbit as `?moonrun` flies it, then a push of the thumb, and the bus goes down from 300 km to skimming the ground at the clearance it has over San Francisco, on one page, with no reload and no fade. It's all behind `?moonland` (`moonLand` in `src/sky/flag.ts`). To everything that asks, it is `?moon` (its programs, its files). `src/moon/Landing.ts` is what joins the two loops; read its header first.
+The one link. Earth orbit to Moon orbit as `?moonrun` flies it, then a push of the thumb, and the bus goes down from 300 km to skimming the ground at the clearance it has over San Francisco, on one page, with no reload and no fade. TURBO takes it back up and home, as often as you like. It's all behind `?moonland` (`moonLand` in `src/sky/flag.ts`). To everything that asks, it is `?moon` (its programs, its files). `src/moon/Landing.ts` is what joins the two loops; read its header first.
 
 ## How it goes
 
@@ -43,24 +43,35 @@ Flown with a real thumb: a full push, a shallow dive (30 degrees, 90 s), a thumb
 
 - From 45 km to 8 km the ground changes under you, as above. With a low Sun it also brightens: the ray-drawn Moon falls off toward the terminator and the ground's light doesn't. It's slow, and no seam, but the tone isn't one tone all the way.
 - A faint straight edge between two far levels, when the tones of the two differ a little, about 20-30 km up, over a sea.
+- The far side at full Moon is black: no Sun, no Earth, the bus's headlight and the stars. It flies and it paints. It's the dark side, so it's true, and it's the one place a stranger might not know what they're looking at. It's the producer's call whether night wants a light of its own.
 - The thumb's sign is the yoke's: thumb up is nose down. The brief said "push down". One word in `pushOf`/`YOKE` if the producer means the thumb going down the screen, and it's the producer's call with the new controls.
 - Going down, the bus is a speck, nose away. It reads, barely.
 - The low game's Jet contrail comes in from 8 km and is big against the bus at that height.
 
-## For the next agent: items 6 and 7
+## Back up
 
-**Back up.** There is no way out of the low game yet: `Landing.hand` has no inverse. What it wants:
-- A height over the ground in `main.ts`'s frame, say 15.5 km, climbing. `config.flight.ceiling` is `s.y + 3000` at the hand-over: move that to wherever the hand-back is.
-- `trip`: `ob.pos`, `heading`, `dir`, `nose`, `v` back from `flight`, the inverse of `Landing.pose` and `hand`; `leg = 'fall'`; `landing.ground = false`, `near` stays true. `mapOf`'s inverse is `dirOf`.
-- `view` needs its pose from the rig: `TripView.takeBack` is the spring that holds a view where it is. A `fromSky` the other way would do it.
-- Scene and thumb: far mesh and sky to `space`, `Object.assign(input, flightHands)`, the HUDs back. Those two objects are in `boot()`'s closure: put them on the `LandWorld`.
-- Above `H_SHOW + 15` the dissolve already runs backward and `leave()` hides the mesh. A pull in the flight's loop is flown and tested. TURBO in `fall` above 150 km already goes home (`leaveMoon`). Speed never grows with height on the way up: going up is gears, the ruling, and `lawFall` is only a limit.
-- `Landing.arriving` is false by the time it could matter. `trip.gov`, `trip.ground`, `trip.home` are reset by `leave()`.
-- The label and the flight's HUD are hidden at the hand-over, at the end of moonrun's frame: show them again.
-- A second map after being down: `city.reloadAll` is wired in `place`, but `RimBloom`'s gardens and the rocks' paint aren't cleared by `rebase()`. It has only been run with nothing on the ground.
+**The way out is gears, and the last gear leaves.** TURBO in the low game shifts as it always has, and on this flag it has two more: Stratos, 4.5 km/s over a floor of 2 km, and Rainbow Warp (`TurboDrive.top`; `worldTravel` stays off, so the map's edge still holds them back). G3's floor is at 17 km (`UP_FLOOR`), which it never reaches, and it holds the yoke back by itself: three taps and the bus goes up at G3's 3 km/s, with the rig's height going with it as a yoke's would. A push ends it and shifts down. The other way out is the patient one: Jet and a thumb held back, 450 m/s, 33 s to the join.
 
-**Paint.** `moonClip` already reads the windows in the far field, but `PaintClip` only follows the bus in the low game. To read the orbit's map all the way down: `spacePaint` is in `GLSL_SPACE`, needing `uv`, `t`, `art`. Move it into `GLSL_MOON_SHADE`, and the mesh has all of it from `spaceMoonLight`. `normalize(vRound) * uMoonRot` is the place, Moon fixed, at any height, in both loops (`Landing.over` keeps `uMoonRot` right): lose the `uFarHigh > 0` test on that branch of `FAR_FS` for it. Crewed sites stay grey: `moonSite` is there, in map metres.
+**The join is `Landing.back`, `hand` the other way.** At `H_UP`, 15 km over the ground and climbing, a kilometre over where the bus was handed down, so a thumb that can't make up its mind doesn't flip the loops. Where the bus is and which way it faces go back through the Moon's frame at that moment. Nose and speed are the true velocity's, not `Flight.speed`, which has no part of a gear's floor lifting the bus. The view stands where the rig had it, and `TripView.takeOver` leaves it to the spring it already has for a change of body. Lens and bus come over in 2.4 s (`REJOIN`). The low game's ceiling is 24 km over the ground under the bus, every frame, so nothing soft takes the climb off it first.
+
+**Up from there it's the gear.** `MoonTrip.climbV` is the speed of the gear the bus came up in, spooled as any gear is, the same at any height: the ruling. `lifting` is G3's way out: with no thumb on it the nose stays up and it goes to the orbit. It comes onto the orbit's height, levelling off from `FLARE_S` of its own speed under it, so it doesn't stop dead. There `TURBO` goes home, as it says. In the flight's loop TURBO under 150 km is the same shift (a fall can be called off with it), and over 150 km it goes home from where the bus is. The law, a brake on arrival, comes back only when a push ends the climb, and then the speed eases down to it.
+
+The dissolve runs backward above 135 km and `leave()` hides the mesh. Nothing is made on the way up.
+
+**What the low game leaves behind.** The engine and the hum hold their last note when the graph's frame stops, so `AudioEngine.hushGround`. The hero's beam and circle are the pipeline's: off. The glint goes with the target, or it stays on the far mesh. `globals.uLight` is the flight's own each frame now.
+
+**A second map after being down.** A rim's garden goes with the map (`RimBloom.clear`), the rocks go with their regions, and what's painted comes back by id and latitude.
+
+## Paint, from orbit all the way down
+
+`moonPainted` is the one read of `MoonPaint`'s map, in `GLSL_MOON_PAINTED`: the resolve's, the far field's and the tiles'. The place is `normalize(vRound) * uMoonRot`, Moon fixed, in both loops.
+
+- **The far field** reads it at any height, after the crater windows and under a crewed site's grey. Up where the mesh is the ray-drawn Moon it's the resolve's own step (`moonPaintLevel`), so it dissolves in over itself, and it goes over to the ground's light (`moonPaintLight`) with everything else.
+- **The tiles read it too**, under `landOnly`, or a flood from orbit has a grey hole round the bus exactly the size of what's loaded. `?moon`'s near program is unchanged, byte for byte. `uPaintOn` keeps a Moon with nothing on it from paying for the read.
+- **What goes the other way.** A crater of 1 km radius or more goes on the orbit's map the moment it's hit (`CraterPaint.onBig`, `MoonBreath.lowStroke`), a slice a frame once the flight's loop has the frame, not on the next boot. It stands there at 6 km at least, which is what orbit can see and more than the place holds, so its texels carry `LOW_MARK` in the reveal byte: the resolve shows them, the far field shows them only while it's being the resolve, by the same dither, and the tiles never do. Down there the crater's own paint is on the windows.
+- **The wide paint windows follow in the flight's loop** (`CraterPaint.fly`), so craters painted earlier are on the far field on the way down, not all at once at 14 km. The two fine ones stay off until the low game has the frame.
+- Crewed sites stay grey: `moonSite` comes first on both.
 
 ## Tools
 
-`tools/moon/land.mjs <dir>` is the flight, with `--every --burst --push --steer --late --pull --lift --again --same --t --dt`: its header says what each does. It prints a line every few seconds, then what compiled and what was slow. `same.py` compares the two pictures of `--same`. `sheet.py` makes a contact sheet of a folder. `farcost.ts` is what the far field costs a worker. `smoke.mjs` stands up `?moonrun`, `?moon` and `?moonland`. `wire.mjs <dir> moonland` is the bytes. The frames of the last flight are in `shots/local/moonland/down/`, with `burst/` for the two hand-overs.
+`tools/moon/stranger.mjs <dir>` is the whole of it with real touches: TURBO out, a thumb down, taps at what glints, TURBO out, TURBO home, with `--real --lap --splash --paint --out --again --steer --burst`. It prints every long frame, what compiled, and both sides of every join, frame by frame: where the bus stands on the screen, how far the lens moved and turned. `tools/moon/land.mjs <dir>` is the way down alone, with `--every --burst --push --steer --late --pull --lift --again --same --t --dt`: its header says what each does. It prints a line every few seconds, then what compiled and what was slow. `same.py` compares the two pictures of `--same`. `sheet.py` makes a contact sheet of a folder. `farcost.ts` is what the far field costs a worker. `smoke.mjs` stands up `?moonrun`, `?moon` and `?moonland`. `wire.mjs <dir> moonland` is the bytes. The frames of the last flight are in `shots/local/moonland/down/`, with `burst/` for the two hand-overs.

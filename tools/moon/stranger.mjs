@@ -163,7 +163,7 @@ try {
   if (real) {
     await page.waitForTimeout(3000);
     await turbo();
-    await fly('out', (s) => s.leg === 'orbit', { secs: 400, every: 15 });
+    await fly('out', (s) => s.leg === 'orbit', { secs: 400, every: 12 });
   } else {
     await page.evaluate(() => {
       const m = window.__space.moon;

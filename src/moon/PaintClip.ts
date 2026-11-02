@@ -299,9 +299,9 @@ export class PaintClip {
     this.draw(0, 0, 0, 1, 1, [], 0, 0);
   }
 
-  /** Where a window's middle wants to be, for a view at (x, z) along (fx, fz). A window that moves is dirty. */
-  follow(x: number, z: number, fx: number, fz: number) {
-    for (let k = 0; k < CLIP_LEVELS; k++) {
+  /** Where a window's middle wants to be, for a view at (x, z) along (fx, fz). A window that moves is dirty, and on: so `from` says the ones the caller will draw. */
+  follow(x: number, z: number, fx: number, fz: number, from = 0) {
+    for (let k = from; k < CLIP_LEVELS; k++) {
       const w = this.wins[k], side = CLIP_N * w.cell, cx = x + fx * side * LEAD[k], cz = z + fz * side * LEAD[k];
       if (Math.abs(cx - (w.x0 + side / 2)) < side * LAG && Math.abs(cz - (w.z0 + side / 2)) < side * LAG) continue;
       // (on a grid of its own, so a contour doesn't crawl when it moves)

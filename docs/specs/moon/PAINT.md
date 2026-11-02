@@ -71,7 +71,7 @@ Whole frame, sun pass and post included. The line is 120-200 draws, 1.0-1.5 M tr
 - Nothing that grows is an obstacle: the bus flies through a dome.
 - Far from the bus a garden is gone and the crater is colour only.
 - The orbit doesn't know about crewed sites: the map's texel is 10.7 km and a site is 2.4 km across.
-- `?moon` doesn't read what orbit painted; only this way round.
+- `?moon` doesn't read what orbit painted; only this way round. `?moonland` reads it both ways, on one page: LAND.md.
 
 ## Tools
 

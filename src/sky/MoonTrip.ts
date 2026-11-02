@@ -735,7 +735,8 @@ export class MoonTrip {
           this.v = this.settling && this.v > law ? law + (this.v - law) * Math.exp(-3 * dt) : Math.min(this.v, law);
           if (this.v <= law * 1.01) this.settling = false;
         }
-        this.gear = this.v > G4 * 1.01 ? 5 : 3;
+        // (the gear the speed is in, so the low game's Jet is what the bus comes down to and goes up from)
+        this.gear = this.v > G4 * 1.01 ? 5 : this.v > G3 * 0.5 ? 3 : this.v > 1 ? 2 : 1;
         const s = this.v * this.gov * dt, cn = Math.cos(this.nose), sn = Math.sin(this.nose), R = len(p), th = (s * cn) / R, c = Math.cos(th), sa = Math.sin(th), up = R + s * sn;
         for (let i = 0; i < 3; i++) {
           const ui = u[i], hi = h[i];
@@ -887,7 +888,6 @@ export class MoonTrip {
     this.ti = 0;
     this.gov = 1;
     this.home = 0;
-    this.gear = 3;
     this.enter('fall');
   }
 

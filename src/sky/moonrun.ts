@@ -170,7 +170,7 @@ function tripLabel(): (trip: MoonTrip, breath: MoonBreath | null) => void {
   let last = '';
   return (trip, breath) => {
     const s = Math.floor(trip.clock), leg = trip.leg;
-    const a = `${LEG_NAMES[leg]} ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    const a = `${leg === 'fall' && trip.nose > 0.02 ? 'GOING UP' : LEG_NAMES[leg]} ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
     const b = `G${trip.gear} ${leg === 'fall' && trip.v < 1 ? `${Math.round(trip.v * 1000)} M` : trip.v < 1 ? '0 KM' : `${thousands(trip.v)} KM`}/S ${thousands(Math.min(trip.hMoon, trip.hEarth))} KM`;
     const asks = (leg === 'out' || leg === 'homeOut' || leg === 'climb' || leg === 'arc' || leg === 'leave') && trip.g5Room;
     const dark = leg === 'cruise' || leg === 'homeCruise';
