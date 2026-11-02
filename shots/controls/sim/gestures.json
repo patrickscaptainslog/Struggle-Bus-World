@@ -14,7 +14,6 @@
   "chargeSlopPx": 28,
   "secondTapMs": 230,
   "lookDelayMs": 100,
-  "lookLostMs": 8000,
   "memoryMs": 30000,
   "flickPx": 30,
   "flickMs": 230,
@@ -275,6 +274,21 @@
    "maxChargeHeld": 0,
    "dragging": false,
    "thumb": false,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "second: a tap with nobody flying, after a two-finger tap was answered",
+   "events": [
+    "tap@167ms",
+    "tap@380ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
    "turboHeld": false,
    "look": null,
    "gear": 0,
@@ -1399,7 +1413,21 @@
   },
   {
    "mode": "touch",
-   "gesture": "memory: a lone tap on the far side, 260 ms, does nothing",
+   "gesture": "memory: a lone tap on the far side, 300 ms: nobody is flying, a first thumb's limit",
+   "events": [
+    "tap@1950ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: a lone press on the far side, 460 ms, does nothing",
    "events": [],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -1478,7 +1506,90 @@
   },
   {
    "mode": "touch",
-   "gesture": "memory: the other way round: left flew, a lone right touch looks",
+   "gesture": "memory: the other half always flies: left flew, a lone right touch flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: left first by 30 ms, both lift: the right thumb alone flies",
+   "events": [
+    "tap@230ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: left first by 30 ms: a lone right stroke is no shift",
+   "events": [
+    "tap@230ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: left first by 30 ms: two lone right strokes are nothing",
+   "events": [
+    "tap@230ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: left first by 30 ms: the left thumb alone is its own stroke",
+   "events": [
+    "tap@230ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: swapped: left flew, a lone right touch looks",
    "events": [],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -1487,12 +1598,224 @@
    "look": {
     "from": 1703,
     "to": 1820,
-    "max": 40
+    "max": 60
    },
    "gear": 0,
    "level": 0,
    "note": {
-    "on": true
+    "thumb": false,
+    "look": true,
+    "sx": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: swapped: left flew, a lone left touch flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: a stray on the flying thumb's own half changes nothing",
+   "events": [
+    "tap@320ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: a one-thumb left player, a stray on the right: the left thumb still flies",
+   "events": [
+    "tap@320ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: a grip in the side band changes nothing",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: a grip in the bottom band changes nothing",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: a two-finger tap on one half changes nothing",
+   "events": [
+    "tap@110ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: a two-finger tap, the left finger first: one splat, then the right thumb flies",
+   "events": [
+    "tap@100ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: a thumb promoted from a lone flick lands again and flies",
+   "events": [
+    "flick+@80ms",
+    "first@80ms",
+    "up1@401ms",
+    "engage1@401ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: promoted, a lone right stroke is no shift",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: promoted, the flick's side is the second thumb's",
+   "events": [
+    "flick+@80ms",
+    "first@80ms",
+    "up1@401ms",
+    "engage1@401ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": {
+    "from": 885,
+    "to": 1002,
+    "max": 60
+   },
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "thumb": false,
+    "look": true,
+    "sx": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: promoted on one half: nothing to remember",
+   "events": [
+    "flick+@80ms",
+    "first@80ms",
+    "tap@180ms",
+    "up1@401ms",
+    "engage1@401ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
    }
   },
   {
@@ -1802,7 +2125,7 @@
   },
   {
    "mode": "touch",
-   "gesture": "lost: a look thumb gone silent lets go of the view, and a move brings it back",
+   "gesture": "second: a look held dead still keeps the view: a still thumb sends nothing",
    "events": [],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -1810,15 +2133,27 @@
    "turboHeld": false,
    "look": {
     "from": 401,
-    "to": 8818,
-    "max": 70
+    "to": 60487,
+    "max": 60
    },
    "gear": 0,
    "level": 0,
    "note": {
-    "held": true,
-    "lapsed": true,
-    "back": true
+    "at9": {
+     "on": true,
+     "x": 60,
+     "y": 0
+    },
+    "at60": {
+     "on": true,
+     "x": 60,
+     "y": 0
+    },
+    "after": {
+     "on": false,
+     "x": 0,
+     "y": 0
+    }
    }
   },
   {

@@ -2,7 +2,7 @@
 
 The producer, 2026-11-01: "dont add the gear strip. dont add right thumb flicks. yes, remove the turbo button, replace with two quick flicks - its intuitive enough... lets remove tilt steering completely - i dont like it." And: "yes, the boost stays on until you flick down, and if we're getting funky - lets say that turbo can be 'boosted' more until youre in max top gear." And earlier: "I don't want to add a button/joystick o anything, I just want it to be intuitive to pick up and fly."
 
-**State.** On `feat/thumbs`, off `feat/nose` 08dd842. Built: the two thumbs, flicks, turbo's latch and levels, the undo, the look, the aim that follows it, the flick's pop, the first run's hint; TURBO, its tab and tilt gone. Nothing here has run on a phone. Every thumb number below is a model or a guess until the producer's thumb says otherwise.
+**State.** On `feat/thumbs`, off `feat/nose` 08dd842. Built and reviewed: the two thumbs, flicks, turbo's latch and levels, the undo, the look, the aim that follows it, the flick's pop, the first run's hint; TURBO, its tab and tilt gone. Nothing here has run on a phone. Every thumb number below is a model or a guess until the producer's thumb says otherwise.
 
 ## The rule
 
@@ -11,7 +11,7 @@ The first thumb flies. Any other thumb looks, shifts and taps, and never touches
 | Touch | First thumb: flies | Second thumb |
 |---|---|---|
 | Who it is | First finger down, anywhere, either side, exactly as ever | Any finger landing while the first is down |
-| Tap | Splat on its lift, up to 450 ms | Splat on its lift, up to 230 ms |
+| Tap | Splat on its lift, up to 450 ms | Splat on its lift, up to 230 ms; with nobody flying, up to 450 |
 | Two fingers tapped together | One splat | Same |
 | Drag that stays down | Steers: the same bungee, pull and push | Looks, after 100 ms and 12 px, from where it landed |
 | Resting still | Past 450 ms, dead straight | Nothing |
@@ -22,10 +22,10 @@ The first thumb flies. Any other thumb looks, shifts and taps, and never touches
 
 Two lone touches, because the bus flies on by itself with no thumb down:
 
-- **The memory.** For 30 s after two thumbs were last together, a lone touch on the far side from the flying thumb is the second thumb, so lifting the flying thumb doesn't turn the look thumb into a steering thumb. Far means the side of the midline the other thumb was on, by which way round the two landed, so a left-hander's works too.
+- **The memory.** For 30 s after two thumbs were last together, a lone touch on the flick side, the left half or the right with SWAP, is the second thumb, so lifting the flying thumb doesn't turn the look thumb into a steering thumb. It starts only when the second thumb was on the flick side, able to command, and the flying thumb on the other half, so a stray touch, a grip in a band or two fingers on one half change nothing. The other half always flies, whatever happened on the glass: two thumbs landing together are a coin toss, and the one that lost it must not lose its steering. A left-hander's memory is SWAP's.
 - **The lone stroke.** A fresh stroke landing on the left half that lifts fast is a flick, on a firmer rule, with no other thumb needed. It steers from its first pixel until the lift decides: steering never waits for a verdict. A stroke on the right half is never a flick. BUTTONS: SWAP mirrors the side.
 
-A thumb that lands during a lone stroke which turns out to be a flick flies from there: the flick was a command, not a flying thumb. MEGA is what it was: tap, hold charges, slide steers. It catches its own touches, so a stroke that starts on it is MEGA's.
+A thumb that lands during a lone stroke which turns out to be a flick flies from there: the flick was a command, not a flying thumb, so the memory starts as if they had landed the other way round. MEGA is what it was: tap, hold charges, slide steers. It catches its own touches, so a stroke that starts on it is MEGA's.
 
 ## Reading a flick
 
@@ -49,7 +49,7 @@ Turbo is the boost, latched: on until a flick down, with no thumb held, at any g
 - **A second flick** drops the waiting gear and turns turbo on, or adds a level. A flick up with turbo on and no second one is a gear, and turbo stays.
 - **A flick down never waits.** It takes back a waiting gear, leaving turbo as it was. Else one flick ends all of turbo; the next drops a gear. A gear still lifting hasn't bitten: that flick takes it back too, and the bus settles to where it was by its own sink or hold, 5 s from a flick 0.4 s late, 20 s from one 1.5 s late, with nothing to fly. Once a gear has bitten it holds the height, as ever.
 - **LOCKED** can only come out of a gear that really goes, so it never shows before the window has closed.
-- **The opening.** A flick under the gate answers TURBO AFTER THE BRIDGE and fires after the gate; a flick down takes it back, inside the window or after it. A double under the gate is turbo: G0's surge lifts nothing.
+- **The opening.** A flick under the gate answers TURBO AFTER THE BRIDGE and fires after the gate; a flick down takes it back, inside the window or after it, saying TURBO OFF, or clearing the line if turbo is on. A double under the gate is turbo: G0's surge lifts nothing.
 - **The map's edge.** The fade reads what is being driven at, gear and level, at G0 too.
 
 | Level | G0 (m/s) | G1 (m/s) |
@@ -116,7 +116,7 @@ E or PageUp is a flick up, so E twice within the window is turbo. Q or PageDown 
 
 ## What's tunable
 
-On the tuner (`?tune`), group Input, read live: `secondTapMs` (230), `lookDelayMs` (100), `lookLostMs` (8000: a look that has heard nothing from its thumb lets go until it moves, because an edge swipe can lose a touch with no touchend), `memoryMs` (30000), `flickPx`, `flickMs`, `flickSpeed`, `flickDeg`, `loneFlickPx`, `loneFlickMs`, `loneFlickSpeed`, `loneFlickDeg`, `flickBottomPx` (40), `flickSidePx` (20), `doubleMs` (320). In `config.turbo`: `levels` ([1.3, 1.6, 2]) and `levelsG0` ([1, 1.3, 1.7]), not on the tuner: it shows numbers, and these are lists.
+On the tuner (`?tune`), group Input, read live: `secondTapMs` (230), `lookDelayMs` (100), `memoryMs` (30000), `flickPx`, `flickMs`, `flickSpeed`, `flickDeg`, `loneFlickPx`, `loneFlickMs`, `loneFlickSpeed`, `loneFlickDeg`, `flickBottomPx` (40), `flickSidePx` (20), `doubleMs` (320). In `config.turbo`: `levels` ([1.3, 1.6, 2]) and `levelsG0` ([1, 1.3, 1.7]), not on the tuner: it shows numbers, and these are lists.
 
 On the tuner, group camera: `lookDegPerPx` (1), `lookInvertY` (off: thumb up looks up, the opposite of the yoke, where thumb down climbs), `lookUp` (45), `lookDown` (50), `lookFollowHz` (4.5), `lookHomeHz` (1.4: home in about 1 s), `lookEaseIn` (0.2), `lookViewMax` (86), `lookAimMax` (100), `lookStreamAfter` (2), `lookStreamRate` (2).
 
@@ -128,7 +128,10 @@ Six rungs, the top one being gear six: the last gear with all of turbo on, so th
 
 - **Nothing is on screen for a gear** but the readout's moment: no strip, no pips added, no button. A hidden gesture is the producer's call, and the hint on the first run is all the teaching there is. The study's worry stands: a new player may never find gears. Only a stranger's two minutes can say.
 - **A one-handed player** gets no look, and flies right-handed with no flicks unless they use SWAP.
-- **A resting left thumb that lands first is the flying thumb**, and the right thumb then looks. That is the order rule.
+- **A resting left thumb that lands first is the flying thumb**, and the right thumb then looks. That is the order rule, and it lasts until they lift: the right half always flies again.
+- **A left-hander without SWAP** gets no memory: their look thumb flies the next time it lands.
+- **A look has no timeout.** A thumb held dead still sends nothing, so a clock can't tell it from a lost one, and a look that let go at 8 s under a still thumb was worse than what it guarded against. A lost touch is retired by the last touchend, a touchcancel, a repeated id or a primary landing.
+- **Two thumbs tapping in a row can splat twice**: a still first thumb past 230 ms lifts as a tap, and the second lifts as its own, which the breath's cooldown answers with a denied sound. Main fired the second on its landing and left the first quiet. Narrow, and it needs a flag to tell the two apart.
 - **A latched turbo strains as a held one did**: the rattle and the backfire puffs stay on until a flick down. If it wears on the phone it wants its own lower strain.
 - **A level at G0 over the rooftops** is 190 m/s at the floor. Never flown by a thumb.
 - **Full up at the street is empty sky.** At 45 degrees the horizon has just left the frame, and the sky has nothing in it until SKY's S5. Looking up at the sun shows the sky function's glow bigger than it has ever been seen, with its dithered edge. By day the look's first pay-off is the paint behind you.

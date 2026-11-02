@@ -723,11 +723,12 @@ vista snap compensation (the contrail stays with the bus up high).
 
 **The rule** (`docs/specs/flight/THUMBS.md` is the design, with its numbers): the first thumb flies, anywhere; a second
 thumb looks, flicks gears and taps on its lift; nothing on screen teaches or shows a gear but a moment's readout. Thumbs go
-by order, never by a line, except a lone stroke's side.
+by order, never by a line, except the flick side: the half a lone stroke commands from, and the only half the memory of two
+thumbs holds.
 
 **The input contract** (`src/game/Input.ts`):
 - `onTap(): void` a tap: a normal dragon-breath splat. A still press up to `inputTune.stillTapMs` (450 ms) on the
-  screen, a quick wandering one, a second thumb's on its lift up to `secondTapMs` (230 ms), or a MEGA tap. `state.thumb`
+  screen, a quick wandering one, a second thumb's on its lift up to `secondTapMs` (230 ms; `stillTapMs` with nobody flying), or a MEGA tap. `state.thumb`
   never fires one.
 - `onChargeStart(): void` MEGA or Space held `config.splat.holdThreshold` (0.3 s, confirmed on a second frame); a
   press on the screen NEVER charges. `state.chargeHeld` = seconds since the press while charging, else 0;
