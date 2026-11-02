@@ -33,7 +33,7 @@ Laptop, UHD 620, headless Edge, a real touch through CDP. **Nothing here has run
 | Ray against mesh, same moment at 110 km | horizon within 1 px; ground 108.8 against 108.7 of 255; the picture 0 to 2 px off (`same.py`). So the roll onto the sphere holds to the horizon at 590 km |
 | Draws, triangles, the worst of the flight | orbit 10, 4.7 k. Under the mesh 9, 0.29 M. Low game high up 36, 1.11 M. Skimming 52, 0.87 M |
 | First frame | 2.8-3.9 s, as `?moonrun`'s 2.8-3.1 s here; the low game ready 3 s after that (warm-up 5.2-6.9 s from load), 25 programs |
-| On the wire | 2.63 MB: Moon data 1.71, sky 0.43, code 0.48. `?moon` is 2.60, `?moonrun` about 1.9 (it fetches `relief.bin` too) |
+| On the wire | 2.63 MB: Moon data 1.71, sky 0.43, code 0.48. `?moon` is 2.60, `?moonrun` 2.35: it fetches `relief.bin` too, so this adds 0.28 MB to the flight |
 | GPU, worker | far field 22.5 MB (10 levels), paint windows 16 MB; the worker holds about 21 MB |
 | Flag off against 5c90776 | 62 shader sources, 0 bytes differ, 31 programs, the same 22 files. `?moon` and `?moonrun` stand up. `iosfloor` passes |
 
