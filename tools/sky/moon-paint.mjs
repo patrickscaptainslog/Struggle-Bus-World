@@ -60,6 +60,17 @@ try {
     await page.waitForFunction(() => window.__game.moon.breath.loaded, null, { timeout: 20000, polling: 30 });
     console.log(tag, JSON.stringify(await state()));
   };
+  if (args.includes('--flash')) {
+    // (a flash lasts two drawn frames: hold the frame and give it thirty, to see what it covers)
+    await page.evaluate(() => {
+      window.__game.moon.hold(true);
+      window.__game.pipeline.flash(0.5, 0.5, 40, 1);
+    });
+    await page.waitForTimeout(120);
+    await page.screenshot({ path: join(out, '0-flash.png') });
+    await page.evaluate(() => window.__game.moon.hold(false));
+    await page.waitForTimeout(900);
+  }
   await breath('1', 196, 426);
   // the next two where the last one landed, wherever it has slid to
   const last = () => page.evaluate(() => {

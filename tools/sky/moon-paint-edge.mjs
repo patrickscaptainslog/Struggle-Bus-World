@@ -76,6 +76,13 @@ try {
     s = await read(page);
     check(s.shots === 3 && !s.tap.ground, 'Space lands at the glint', JSON.stringify(s.tap));
     await loaded(page);
+    // ---- the game's sound is up, and the graph has played something (nothing here can hear it)
+    const heard = await page.evaluate(async () => {
+      const a = window.__game.moon.breath.audio;
+      await new Promise((r) => setTimeout(r, 300));
+      return a ? { ...a.debugState(), unlocked: a.unlocked } : null;
+    });
+    check(heard && heard.unlocked, 'the sound is up', JSON.stringify(heard));
     // ---- the ground, off to one side
     await page.touchscreen.tap(80, 500);
     await page.waitForTimeout(100);

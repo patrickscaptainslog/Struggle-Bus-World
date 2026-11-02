@@ -174,7 +174,27 @@ try {
     }
     if (paint && s.leg === 'homeOut' || (paint && s.leg === 'homeCruise')) {
       if (s.hM >= 13000) await shoot(`${n}q-paint-13000`, s);
-      if (s.hM >= 100000) await shoot(`${n}q-paint-100000`, s);
+      // the thumb swings the camera back round to the Moon, as the label says it may: past about 75,000 km the law is looking at Earth
+      if (s.hM >= 76000 && !done.has('look-back')) {
+        done.add('look-back');
+        const moonAt = () => page.evaluate(() => {
+          const v = window.__game.moon.sky.moon, f = 1 / window.__game.pipeline.pixelWorldSize(1);
+          return { z: v[2], x: v[2] < 0 ? (v[0] / -v[2]) * f : 1e4 * Math.sign(v[0] || 1), y: v[2] < 0 ? (v[1] / -v[2]) * f : 0, hM: window.__game.moon.trip.hMoon };
+        });
+        await touch('touchStart', 200, 560);
+        let dx = 60, dy = 0, m;
+        for (let i = 0; i < 80; i++) {
+          m = await moonAt();
+          dx = Math.abs(m.x) > 900 ? (m.x > 0 ? 70 : -70) : Math.max(-70, Math.min(70, m.x * 0.5));
+          dy = m.z < 0 ? Math.max(-70, Math.min(70, -m.y * 0.5)) : 0;
+          await touch('touchMove', 200 + dx, 560 + dy);
+          await page.waitForTimeout(60);
+          if (m.z < 0 && Math.hypot(m.x, m.y) < 40) break;
+        }
+        console.log(wall(), 'look back:', JSON.stringify(m));
+        await shoot(`${n}q-paint-look-back`, await read());
+        await touch('touchEnd');
+      }
     }
 
     if (tab && s.leg === 'orbit' && inLeg > 19 && !done.has('orbit-tab')) {
