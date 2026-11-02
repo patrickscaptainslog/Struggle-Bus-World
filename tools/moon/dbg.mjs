@@ -10,7 +10,7 @@ page.on('pageerror', (e) => console.log('[pageerror]', e.message, e.stack?.slice
 page.on('response', (r) => {
   if (r.status() >= 400) console.log('[http]', r.status(), r.url());
 });
-await page.goto(`http://localhost:4179/?moon&fixeddt=0.0333&nohud${q ? '&' + q : ''}`, { waitUntil: 'load' });
+await page.goto(`http://localhost:4179/?moon&fixeddt=0.0333${process.env.HUD ? "" : "&nohud"}${q ? "&" + q : ""}`, { waitUntil: "load" });
 await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 90000 }).catch(() => console.log('never ready'));
 if (js) console.log('js:', JSON.stringify(await page.evaluate(js)));
 await page.waitForTimeout(wait);
