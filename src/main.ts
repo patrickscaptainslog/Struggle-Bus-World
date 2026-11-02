@@ -970,6 +970,7 @@ async function boot() {
   const sparkPos = new THREE.Vector3();
   const nearTmp: Array<{ ref: BuildingRef; d: number }> = [];
   const camFwd = new THREE.Vector3();
+  const streamFwd = new THREE.Vector3();
   const camDir = new THREE.Vector3();
   const snapPoint = new THREE.Vector3();
   const compTmp = new THREE.Vector3();
@@ -1129,6 +1130,9 @@ async function boot() {
         openingBridge = null;
       }
     }
+    // the look runs on the wall clock (a hit-stop doesn't stall it), and the aim turns with it
+    rig.setLook(st.look.on, st.look.x, st.look.y, realDt);
+    aimer.lookYaw = rig.aimYaw;
     // aim glint on the building a tap would hit (picked every frame), only while a breath is loaded
     // (a committed thumb thaws the glint, as keys and a QA stick do; and a press that fires on its lift
     // keeps what it froze, whatever else is steering)
@@ -1138,7 +1142,6 @@ async function boot() {
     paintUniforms.uTargetT.value = aimer.shownSince;
     paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);
     paintUniforms.uFloodHead.value = config.bloom.floodHead;
-    rig.setLook(st.look.on, st.look.x, st.look.y, realDt);
     rig.update(camera, focus, flight, dt);
     superSplat.camera(camera, focus, dt);
     rig.applyKick(camera, realDt);
@@ -1179,7 +1182,9 @@ async function boot() {
     if (!Fg.enabled) globals.uFog.value.z = lensFar;
     rig.fadeBase = Fg.clearFarFull;
     const hk = clamp(flight.lift / 450, 0, 1);
-    streamCenter.set(focus.x + camFwd.x * 950 * hk, focus.y, focus.z + camFwd.z * 950 * hk);
+    // (a look leaves it on the heading: a glance behind must not drop what the bus is flying into; the shadow's window below goes with the view)
+    rig.streamDir(camFwd, streamFwd);
+    streamCenter.set(focus.x + streamFwd.x * 950 * hk, focus.y, focus.z + streamFwd.z * 950 * hk);
     city.viewHeight = flight.lift;
     city.viewX = camera.position.x;
     city.viewZ = camera.position.z;

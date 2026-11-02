@@ -9,6 +9,16 @@ export function spring(x: number, v: number, target: number, hz: number, damping
   return [x, v];
 }
 
+/** A critically damped spring stepped exactly: the same path at any frame rate, stable at any dt. */
+export function settle(s: { x: number; v: number }, target: number, hz: number, dt: number) {
+  const w = 2 * Math.PI * hz;
+  const c1 = s.x - target, c2 = s.v + w * c1;
+  const e = Math.exp(-w * dt);
+  const c = c1 + c2 * dt;
+  s.x = target + c * e;
+  s.v = (c2 - w * c) * e;
+}
+
 export class Spring {
   v = 0;
   constructor(public x = 0, public hz = 1, public damping = 1) {}

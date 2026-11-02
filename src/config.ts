@@ -190,6 +190,22 @@ export const config = {
     diveElevation: 78,
     divePitch: 72,
     diveRate: 1.5,
+    /** The look (docs/specs/flight/THUMBS.md): a second thumb turns the view round the bus, the thumb's offset from where it landed setting the angle (deg per px).
+     *  Thumb up looks up; lookInvertY turns that over, against the yoke's way. Sideways is the full circle; up and down it stops at lookUp and lookDown (deg). */
+    lookDegPerPx: 1,
+    lookInvertY: false,
+    lookUp: 45,
+    lookDown: 50,
+    /** How hard the view follows the thumb, and how hard it goes home on the lift (Hz, critically damped): 1.4 is home in about 1 s. */
+    lookFollowHz: 4.5,
+    lookHomeHz: 1.4,
+    /** A dive's tilt and a look down together stop here (deg of view pitch): past straight down the view would turn over. */
+    lookViewMax: 86,
+    /** A tap goes where the view looks, sideways, out to this far off the nose (deg), and down the nose past that: no tail gun. */
+    lookAimMax: 100,
+    /** The stream stays on the heading through a look held less than this (s), then follows it at this rate (1/s). */
+    lookStreamAfter: 2,
+    lookStreamRate: 2,
     /** The bus's one eye seen from behind: its headlight beam lights what lies ahead of its face a step
      *  or two brighter, this long, this wide at its far end (m, x the eye's openness), pitched this far
      *  down (deg), this strong (0..1, x the eye's openness; 0 = off). */
