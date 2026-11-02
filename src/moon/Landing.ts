@@ -186,7 +186,6 @@ export class Landing {
     this.groundKm = Number.isNaN(this.groundKm) ? ground : this.groundKm + (ground - this.groundKm) * (1 - Math.exp(-dt / GROUND_S));
     t.ground = this.groundKm;
     this.lift(dt, u, f, h);
-    mapOf(fr, u[0], u[1], u[2], mt);
     // (the map's edge turns it back, as it does in the low game: bearing to the middle, off the heading)
     const edge = Math.max(0, Math.min(1, (Math.max(Math.abs(x), Math.abs(z)) - MAP_HALF + HOME_IN) / HOME_IN)), A = this.axes;
     if (edge > 0) {

@@ -2653,6 +2653,19 @@ The producer, on the way in: the bus "magnitudes too large", and a Moon a surfac
 - **Checked on the final build, on this laptop, nothing on a phone.** Whole trips out and back at 3,000, 6,000 and 10,000 km/s, full Moon and new Moon, with real touches, a fixed step and three shots of paint: 0 page errors, 12 programs, 8 draws, and none made in flight. What those flights showed went in: craters under paint, a far disc's rounding, the light swinging in a carve, too little to see in earthshine. Steering there with a real thumb names Sea of Tranquility, Apollo 11 and Tycho.
 - **Left as it is:** the way in still ends near 15 N, 4 W on the test date, heading north, so Sea of Tranquility and Tycho want steering, 40 to 60 s of it. Apollo 11 goes up on the way in. The far side at full Moon is black, as it is: no earthshine, so nothing for a crater to show in.
 
+## `?moonland`: from orbit to the ground (2026-11-02, `spike/moonrun`)
+
+The producer: "Why can't you land from orbit?" One link now does: `docs/specs/moon/LAND.md` has how, the numbers, what's rough, and items 6 and 7 for the next agent. The calls:
+
+- **The flight's loop reaches down; the game's doesn't reach up.** The brief had the low game's loop start at 100 km with its ceiling raised. Instead the flight's loop draws the far mesh from 120 km and the low game takes over at 14 km, under the ceiling it has always had. Everything in the low game is proven to 15 km and not past it, the flight's law and view hold at any height, and ray-to-mesh and loop-to-loop now happen far apart. The price is a second way of flying the yoke, on the sphere, in `MoonTrip`'s leg `fall`: about 30 lines.
+- **Up top the mesh is the ray-drawn Moon.** First tries matched tone by hand and the dissolve still swapped one Moon for another. So the light is one GLSL function, `spaceMoonLight`, in the resolve and in `FAR_FS`, and it hands over to the ground's own on the way down. Same moment at 110 km: horizon within 1 px, mean tone within 0.1 of 255.
+- **The ray test's sphere comes down onto the ground.** A sea 2 km under it was 8-10 px off at a slant. Under the bus wasn't the place to read it: it's the middle of the view, a height ahead.
+- **The Sun's height is capped at 30 degrees in the bake**, bearing true: from overhead a far map has no shape at all, a dark flat sheet. The Sun's disc doesn't move. The ground isn't true there, and it reads.
+- **The world is made in the fall.** Measured before building: 4 ms a block, a level in 260 ms, all that shows at the top in 1.5 s. Nothing needs making ahead, so nothing guesses where a player will go.
+- **Found on the way:** the moon ground's program was never warmed by its own source, only by a tile that happened to land first, because a tile has a `normal` attribute and three keys programs by that: a 600 ms frame at the first tile. The first shift past Mach 1 fired a boom at the hand-over. And: `git worktree remove` went through a junction and emptied `node_modules`. Put back by copying from `sbw-main`, the same lock. A junction into a temporary worktree is never to be done again.
+
+Nothing here has run on a phone or in Safari.
+
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
   local repo until `patrickscaptainslog/struggle-bus` exists.

@@ -1,5 +1,7 @@
 # The Moon's ground: `?moon`
 
+(Coming down to it from orbit, on one page, is `?moonland`: LAND.md. What's below is true of both, but that one's sky is the true one, its far field has ten levels, and the ground's bake has a true Sun over each block.)
+
 The Moon as a place the real game loads. Generated, not baked: real in its big shapes and named places, invented below that. Everything is behind `?moon` (`src/sky/flag.ts`, `moonLow`); the code is `src/moon/`, a chunk and a worker of their own. `boot()` in `main.ts` runs as ever, on a city with no files.
 
 Entry: `?moon` starts on the floor of Theophilus, north of its central peaks. `?moon&site=<landmark>` (any of the 150 in `public/moon/places.json`: `TYCHO`, `apollo 11`, part of a name will do, then any of the 1,533 craters in `names.json`: `ptolemaeus`) and `?moon&lat=&lon=` start anywhere on the Moon. A name the Moon doesn't have says so (NO PLACE CALLED) and starts at Theophilus. A map is 256 km square around where it starts, with the game's own edge homing. `?t=<date>` is the true sky (below). `?earth=1` draws Earth at its true size under the held sky.
@@ -76,7 +78,7 @@ Flag off, against main 034672f: 62 shader sources, 0 bytes differ, 31 programs. 
 - Rocks aren't obstacles: nothing out here stands over the bus's 9 m.
 - The far field draws all 400 patches, in view or not. Culling by frustum would save a third of its triangles.
 - A lost GL context reloads the page.
-- `?moon` and `?moonrun` don't join: there's no way down from orbit yet.
+- `?moon` and `?moonrun` don't join. `?moonland` is the two on one page: LAND.md.
 - In the true sky the Sun's direction is the map centre's, held for the whole map; only the disc and Earth move with the bus.
 - Line stamps (valleys, the Straight Wall) use azimuths read by eye (`AZ` in `tools/moon/bake-moon.py`). Rupes Altai is left to the relief.
 

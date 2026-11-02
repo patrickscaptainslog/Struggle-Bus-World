@@ -1491,7 +1491,12 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
       get datum() {
         return m.datum;
       },
-      place: (lat, lon, ms) => m.place(lat, lon, ms),
+      place(lat, lon, ms) {
+        // (a map is a place: nothing on the one before holds. What's painted is kept by crater and by latitude, and comes back with the place)
+        city.reloadAll();
+        city.ground.resetAll();
+        return m.place(lat, lon, ms);
+      },
       frameAt: frame,
       enter(s) {
         // the far field and the sky come down with it, and the thumb is the low game's from here
