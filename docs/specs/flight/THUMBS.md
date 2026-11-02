@@ -25,9 +25,9 @@ The first thumb flies. Any other thumb looks, shifts and taps, and never touches
 Two lone touches, because the bus flies on by itself with no thumb down:
 
 - **The memory.** For 30 s after two thumbs were last together, a lone touch on the second thumb's half, the left or the right with SWAP, is the second thumb, so lifting the flying thumb doesn't turn the look thumb into a steering thumb. It starts only when the second thumb was on that half, able to command, and the flying thumb on the other half, so a stray touch, a grip in a band or two fingers on one half change nothing. The other half always flies, whatever happened on the glass: two thumbs landing together are a coin toss, and the one that lost it must not lose its steering. A left-hander's memory is SWAP's. That half is the only side left in these rules, and it says nothing about where a flick lands.
-- **The lone stroke.** A fresh stroke that lifts fast is a flick, on either half, on a firmer rule, with no other thumb needed. It steers from its first pixel until the lift decides: steering never waits for a verdict. A thumb that stays down never shifts, and a stroke already under way never becomes a flick. BUTTONS: SWAP mirrors MEGA and the memory's half, and not this. With the memory on, the second thumb's half is the second thumb, on its rule, and the other half flies and flicks on the firm one.
+- **The lone stroke.** A fresh stroke that lifts fast is a flick, on either half, on a firmer rule, with no other thumb needed. It steers from its first pixel until the lift decides: steering never waits for a verdict. A thumb that stays down never shifts, and a stroke already under way never becomes a flick. A flick down with something to do leaves the bus as it was, its own pull included ([What a flick costs the flight](#what-a-flick-costs-the-flight)). BUTTONS: SWAP mirrors MEGA and the memory's half, and not this. With the memory on, the second thumb's half is the second thumb, on its rule, and the other half flies and flicks on the firm one.
 
-A thumb that lands during a lone stroke which turns out to be a flick is a lone touch from there, because the flick was a command, not a flying thumb: it flies, from where it landed, unless the memory makes it the second thumb. A flick from the second thumb's half with a thumb landing on the other half starts the memory, as if they had landed the other way round. Any other flick shows nothing, so a stray during it starts nothing. MEGA is what it was: tap, hold charges, slide steers. It catches its own touches, so a stroke that starts on it is MEGA's.
+A thumb that lands during a lone stroke which turns out to be a flick is a lone touch from there, because the flick was a command, not a flying thumb: it flies, from where it landed, unless the memory makes it the second thumb. A flick from the second thumb's half with a thumb landing on the other half starts the memory, as if they had landed the other way round. Any other flick shows nothing, so a stray during it starts nothing. A touch landing in a band during a flick is a grip, not a thumb: it starts no memory and takes no stick, and the next thumb to land flies. MEGA is what it was: tap, hold charges, slide steers. It catches its own touches, so a stroke that starts on it is MEGA's.
 
 ## Reading a flick
 
@@ -102,7 +102,9 @@ A flick steers until it lifts, because steering never waits, and the bus flies o
 | Height at Jet (m) | 33 | 19 | 93 | 392 |
 | Height at Jet, level 3 (m) | 64 | 37 | 186 | 784 |
 
-A flick up is a push, so that height is lost, and a flick down gains it. At the rooftops a push surges instead: up 10 m/s for a moment, no height.
+A flick up is a push, so that height is lost. At the rooftops a push surges instead: up 10 m/s for a moment, no height.
+
+A flick down is a pull, so the bus rises that much, and then it goes back. A pull's release chooses a hold, and that would have unhooked the bus from the rooftops until the next push, at the height of whatever roof it was on, the thing Express was built not to do. A Jet still lifting, taken back after 1 s, held 131 m over Alamo Square. So when a lone flick down has something to do, what its pull chose goes back as the bus lets go of it (`Flight.unpull`): out of Express, turbo off, a take-back, either hand, it goes on skimming or holding as it was, the same as a second thumb's. Three things stand: out of a gear that bit it holds the height, as ever; with nothing to do a flick down is the quick pull it looks like; and a stick that moves first has chosen for itself. On a path the stroke didn't start there is nothing to go back to, so a dive's arc doesn't rebound.
 
 ### A false flick
 
@@ -148,7 +150,7 @@ So a lone stroke landing within `loneAgainMs` of a flick's lift reads the second
 
 ### What only a phone can say
 
-How far a right thumb's natural arc leans from vertical (the model has 14 degrees and the cone is 40: `loneFlickDeg`), and how often it lands in the bottom or side band, which are near where a right thumb rests. And all of the above.
+How far a right thumb's natural arc leans from vertical (the model has 14 degrees and the cone is 40: `loneFlickDeg`), and how often it lands in the bottom or side band, which are near where a right thumb rests. Whether a hurried thumb brushes the glass on its way back: inside the window that brush reads the second thumb's rule, and one going down takes the gear back. Whether a thumb pumping the surge in quick pushes gets turbo: one push that reads as a flick makes the next easier, and the model takes strokes as independent, which those aren't. And all of the above.
 
 ## The look
 
@@ -221,6 +223,7 @@ Six rungs: Cruise, Express, Jet, Stratos, Rainbow Warp, and top turbo as gear si
 - **One thumb gets no look.** A lone thumb is the flying thumb, and a look needs another.
 - **A false flick down with turbo on ends all of it.** One quick pull at level 3 is six flicks to get back, with no take-back. That one flick ends all of turbo is the producer's ruling, and on the flying thumb it is the dearest false flick there is. If the phone shows it, this wants looking at before the firm rule does.
 - **A stroke that lands on MEGA is MEGA's,** and MEGA sits in a right thumb's reach. It steers there, and doesn't shift.
+- **A grip that lands first is still a touch.** A fingertip or a palm down in a band before the thumb flies, by the order rule, and the thumb looks until it lifts; one resting there since after keeps a fresh stroke from being lone, so no flick. One hand's grip could do either. Nothing has shown it, and only a phone can say.
 - **A first run's quick push on either half now says TURBO AFTER THE BRIDGE under the gate,** and fires Express after it. The study wanted the flying thumb's flicks off until taught; the producer's ruling has them on.
 - **A resting left thumb that lands first is the flying thumb**, and the right thumb then looks. That is the order rule, and it lasts until they lift: the right half always flies again.
 - **A left-hander without SWAP** gets no memory: their look thumb flies the next time it lands.

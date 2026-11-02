@@ -777,8 +777,8 @@ by a line, except the second thumb's half (`secondSide`): the only half the memo
   press on the screen NEVER charges. `state.chargeHeld` = seconds since the press while charging, else 0;
   `onChargeEnd(heldSeconds, cancelled)` on release (cancelled: pointercancel, a lost touch, focus lost). One press at
   a time (`pressHeld`: MEGA or Space); a second source while one is held taps.
-- `onTurbo(dir: 1 | -1, landed, lifted)` a flick, or E / Q (the two times are ms on the performance clock; for a key, the same
-  time twice). `Shifter` says what it means. `state.turboHeld`: Shift holds the boost; the latched turbo is `TurboDrive.level`.
+- `onTurbo(dir: 1 | -1, landed, lifted, flew)` a flick, or E / Q (the two times are ms on the performance clock; for a key, the same
+  time twice; `flew`: the stroke was on the stick). `Shifter` says what it means. `state.turboHeld`: Shift holds the boost; the latched turbo is `TurboDrive.level`.
 - `state.look: { on, x, y }` a second thumb's (or the right mouse's) offset from where it landed, CSS px, +x right, +y up;
   on only past `lookDelayMs` and the tap slop, 0, 0 when off. main.ts hands it to `CameraRig.setLook` every frame, with the wall clock's dt.
 - `onPress()` a gesture landed (the aim's press latch, glint == hit): the flying thumb, or a lone second thumb; never a second
@@ -795,11 +795,13 @@ by a line, except the second thumb's half (`secondSide`): the only half the memo
 - The opening (`main.ts` with `Controls`): `controls.gearsLocked` (`Shifter.locked`) and `controls.opening`, set per frame, queue a
   gear until the bus clears the gate and drive the first run. Nothing else holds the opening. `controls.frozen` is QA's: dt 0.
 
-**Flicks** (`src/game/Shifter.ts`, no DOM): `flick(dir, landed, lifted)`, `tick(now)` per frame on the wall clock, `armed`,
+**Flicks** (`src/game/Shifter.ts`, no DOM): `flick(dir, landed, lifted, flew)`, `tick(now)` per frame on the wall clock, `armed`,
 `gated`, `onAnswer('first' | 'gated' | 'back')`. An up flick opens the window (`doubleMs`) and is answered at once; a second one
 landing inside it calls `TurboDrive.boostUp()`; the window closing shifts, or queues behind the gate. A down flick takes back
-what's waiting, else `boostOff()`, else `shift(-1)`, which takes back a gear still lifting too (it leaves `holdY` alone). LOCKED can only
-come out of `shift` or `boostUp`, so never before the window closes.
+what's waiting, else `boostOff()`, else `shift(-1)`, which takes back a gear still lifting too (it leaves `holdY` alone). A flick down
+on the stick pulled until its lift, so when it does any of that `Flight.unpull()` hands back the hold from before the stroke as the
+bus lets go, and the bus goes on as it was; out of a gear that bit it holds the height instead, and with nothing to do it stays a
+quick pull. LOCKED can only come out of `shift` or `boostUp`, so never before the window closes.
 
 **Turbo** (`src/game/Turbo.ts`, `TurboDrive`): `shift(dir, flight)`,
 `boostUp()`, `boostOff()`, `update(dt, flight, held)`, `gear`, `level` (the latched

@@ -2101,6 +2101,519 @@
   },
   {
    "mode": "touch",
+   "gesture": "flown, right: out of Express: still on the rooftops",
+   "events": [
+    "up1@0ms",
+    "flick-@3085ms",
+    "down0@3085ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "hold": null,
+    "over": 0,
+    "mode": 0,
+    "gear": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown, right: turbo off at Cruise: still on the rooftops",
+   "events": [
+    "turbo1@0ms",
+    "flick-@3085ms",
+    "turbo-off0@3085ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "hold": null,
+    "over": 0,
+    "mode": 0,
+    "gear": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown, right: the window's take-back: still on the rooftops",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick-@270ms",
+    "back@270ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "hold": null,
+    "over": 0,
+    "mode": 0,
+    "gear": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown, right: Jet still lifting is taken back: it settles",
+   "events": [
+    "up1@0ms",
+    "up2@2000ms",
+    "flick-@3085ms",
+    "down1@3085ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "hold": null,
+    "over": 0,
+    "mode": 0,
+    "gear": 1,
+    "rose": 45.2
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown, right: holding 400 m, out of Express: holding 400 m",
+   "events": [
+    "up1@0ms",
+    "flick-@3085ms",
+    "down0@3085ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "hold": 400,
+    "over": 371.5,
+    "mode": 1,
+    "gear": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown, right: Jet that bit: it holds the height",
+   "events": [
+    "up1@0ms",
+    "up2@0ms",
+    "engage2@2071ms",
+    "boom2@3023ms",
+    "flick-@9085ms",
+    "down1@9085ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "hold": 181.4406272240493,
+    "over": 152.2,
+    "mode": 1,
+    "gear": 1,
+    "y0": 159.99999999999955,
+    "y": 178.73653418631625
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown, left: out of Express: still on the rooftops",
+   "events": [
+    "up1@0ms",
+    "flick-@3085ms",
+    "down0@3085ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "hold": null,
+    "over": 0,
+    "mode": 0,
+    "gear": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown, left: turbo off at Cruise: still on the rooftops",
+   "events": [
+    "turbo1@0ms",
+    "flick-@3085ms",
+    "turbo-off0@3085ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "hold": null,
+    "over": 0,
+    "mode": 0,
+    "gear": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown, left: the window's take-back: still on the rooftops",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick-@270ms",
+    "back@270ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "hold": null,
+    "over": 0,
+    "mode": 0,
+    "gear": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown, left: Jet still lifting is taken back: it settles",
+   "events": [
+    "up1@0ms",
+    "up2@2000ms",
+    "flick-@3085ms",
+    "down1@3085ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "hold": null,
+    "over": 0,
+    "mode": 0,
+    "gear": 1,
+    "rose": 45.2
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown, left: holding 400 m, out of Express: holding 400 m",
+   "events": [
+    "up1@0ms",
+    "flick-@3085ms",
+    "down0@3085ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "hold": 400,
+    "over": 371.5,
+    "mode": 1,
+    "gear": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown, left: Jet that bit: it holds the height",
+   "events": [
+    "up1@0ms",
+    "up2@0ms",
+    "engage2@2071ms",
+    "boom2@3023ms",
+    "flick-@9085ms",
+    "down1@9085ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "hold": 181.4406272240493,
+    "over": 152.2,
+    "mode": 1,
+    "gear": 1,
+    "y0": 159.99999999999955,
+    "y": 178.73653418631625
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown, second: out of Express: still on the rooftops",
+   "events": [
+    "up1@0ms",
+    "flick-@3105ms",
+    "down0@3105ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "hold": null,
+    "over": 0,
+    "mode": 0,
+    "gear": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown, second: turbo off at Cruise: still on the rooftops",
+   "events": [
+    "turbo1@0ms",
+    "flick-@3105ms",
+    "turbo-off0@3105ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "hold": null,
+    "over": 0,
+    "mode": 0,
+    "gear": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown, second: the window's take-back: still on the rooftops",
+   "events": [
+    "flick+@85ms",
+    "first@85ms",
+    "flick-@290ms",
+    "back@290ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "hold": null,
+    "over": 0,
+    "mode": 0,
+    "gear": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown, second: Jet still lifting is taken back: it settles",
+   "events": [
+    "up1@0ms",
+    "up2@2000ms",
+    "flick-@3105ms",
+    "down1@3105ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "hold": null,
+    "over": 0,
+    "mode": 0,
+    "gear": 1,
+    "rose": 45.2
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown, second: holding 400 m, out of Express: holding 400 m",
+   "events": [
+    "up1@0ms",
+    "flick-@3105ms",
+    "down0@3105ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "hold": 400,
+    "over": 371.5,
+    "mode": 1,
+    "gear": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown, second: Jet that bit: it holds the height",
+   "events": [
+    "up1@0ms",
+    "up2@0ms",
+    "engage2@2071ms",
+    "boom2@3023ms",
+    "flick-@9105ms",
+    "down1@9105ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "hold": 159.99999999999955,
+    "over": 130.8,
+    "mode": 1,
+    "gear": 1,
+    "y0": 159.99999999999955,
+    "y": 157.28151726468715
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown: with nothing to do a quick pull is a quick pull",
+   "events": [
+    "flick-@85ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "hold": 32.31958158990859,
+    "over": 3.4,
+    "mode": 1,
+    "gear": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown: a stick that moves first has chosen for itself",
+   "events": [
+    "up1@0ms",
+    "flick-@3085ms",
+    "down0@3085ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "hold": 83.77101145910375,
+    "over": 54.9,
+    "mode": 1,
+    "gear": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown: a hard dive let go, a flick down inside its arc: no rebound",
+   "events": [
+    "up1@0ms",
+    "up2@0ms",
+    "engage2@17ms",
+    "boom2@1286ms",
+    "turbo1@9000ms",
+    "flick-@13905ms",
+    "turbo-off0@13905ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 2,
+   "level": 0,
+   "note": {
+    "hold": 1937.4663274286645,
+    "over": 1908.2,
+    "mode": 1,
+    "gear": 2,
+    "y0": 2138.283301357484,
+    "y": 1934.7025483184875,
+    "level": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "flown: a second thumb flicks down as a long pull lets go: the climb stands",
+   "events": [
+    "up1@0ms",
+    "flick-@2685ms",
+    "down0@2685ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "hold": 224.31939860101625,
+    "over": 195.4,
+    "mode": 1,
+    "gear": 0
+   }
+  },
+  {
+   "mode": "touch",
    "gesture": "swapped: lone right flick up is a flick",
    "events": [
     "flick+@85ms",
@@ -2861,8 +3374,8 @@
    "events": [
     "flick+@1265ms",
     "first@1265ms",
-    "up2@1587ms",
-    "engage2@1587ms"
+    "up2@1586ms",
+    "engage2@1586ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -2899,6 +3412,93 @@
   },
   {
    "mode": "touch",
+   "gesture": "memory: a fingertip in the far side band during a lone flick starts nothing",
+   "events": [
+    "flick+@80ms",
+    "first@80ms",
+    "tap@180ms",
+    "up1@401ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: a palm in the bottom band during a lone flick starts nothing",
+   "events": [
+    "flick+@80ms",
+    "first@80ms",
+    "tap@180ms",
+    "up1@401ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "memory: swapped: a fingertip in the far side band during a lone right flick starts nothing",
+   "events": [
+    "flick+@80ms",
+    "first@80ms",
+    "tap@180ms",
+    "up1@401ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "a fingertip resting in a band since a lone flick: the thumb lands again and flies",
+   "events": [
+    "flick+@80ms",
+    "first@80ms",
+    "up1@401ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "turboHeld": false,
+   "look": null,
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
    "gesture": "memory: promoted on one half: nothing to remember",
    "events": [
     "flick+@80ms",
@@ -2928,7 +3528,7 @@
    "thumb": true,
    "turboHeld": false,
    "look": {
-    "from": 1754,
+    "from": 1753,
     "to": 2054,
     "max": 60
    },
@@ -3135,7 +3735,7 @@
    "thumb": true,
    "turboHeld": false,
    "look": {
-    "from": 1253,
+    "from": 1252,
     "to": 1470,
     "max": 60
    },
