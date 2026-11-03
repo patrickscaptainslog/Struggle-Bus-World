@@ -16,7 +16,9 @@ Each stage ends with a push, a pull request into `spike/moonrun` and a message t
 
 ### Stage 0: set up (under an hour)
 
-Run everything under "Running it" in `CLAUDE.md`, plus `node tools/moon/fly.mjs shots/tmp/fly --flights=cruise`, and look at one frame yourself. With no GPU that flight takes about 5 minutes, so run it in the background. Report what ran, what didn't and how slow it was. If the brief is wrong, fix the brief.
+Run everything under "Running it" in `CLAUDE.md`, plus `node tools/moon/fly.mjs shots/tmp/fly --flights=cruise`, and look at one frame yourself. With no GPU that flight takes about 3.5 minutes, so run it in the background. Report what ran, what didn't and how slow it was. If the brief is wrong, fix the brief.
+
+Done 2026-11-03, on a cloud machine with 4 cores and no GPU. Everything ran: `npm ci` 11 s, types 6 s, the build 2 s, `iosfloor` 1 s with every chunk parsing, `smoke` 23 s for its three pages (first ready frame 2.6 to 4.7 s, no errors), and the cruise flight 204 s for its 12 s, page and all, with no errors and 30 programs at the end, as many as `?moon` has at its first ready frame. Its last frame is the bus 9 m over a cratered floor, a mountain ahead and Earth up in the black. The brief was wrong in three places, fixed here and in `CLAUDE.md`: the clone held only `main`, and shallow; this session's `gh` was for search only, so no commit status; and the flight is shorter than it said.
 
 ### Stage 1: flicks on the Moon (under a day)
 
