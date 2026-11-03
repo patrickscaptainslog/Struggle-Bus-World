@@ -128,7 +128,7 @@ const slug = params.get('city') ?? 'sf';
 const base = `./city/${slug}`;
 
 /** land: ?moonland: the flight's loop has started and has the frame: all of this is made ready behind it, and takes the frame when the bus comes down to it. What it shares with that loop comes in with this. */
-async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine }) {
+async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine; rig: CameraRig }) {
   // (first: the warm-up hasn't started a compile yet, so this query waits for nothing, and boot().catch prints a refusal)
   pipeline.checkTargets();
   // (?moon: the place is generated, src/moon/: all that follows is the game as it is, on a city with no files)
@@ -189,7 +189,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
     flight.speed = start.speed ?? 60;
     flight.glideSpeed = start.speed ?? 60;
   }
-  const rig = new CameraRig();
+  const rig = shared?.rig ?? new CameraRig();
   if (openingBridge) rig.openingLow = 1;
   if (moon) rig.floorAt = (x, z) => city.groundAt(x, z);
   const focus = new THREE.Vector3(flight.x, 60, flight.z);
@@ -1554,7 +1554,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine 
     config.turbo.warpAlt = land.upFloor;
     // (a crater big enough to see from orbit goes on the orbit's map as it's painted)
     m.paint.onBig = (s) => land.big?.(s);
-    land.down = () => controls.hud.toast(['TURBO: BACK UP'], 3.2);
+    land.down = () => controls.hud.toast(['FLICK UP TO GO BACK UP'], 3.2);
   }
 
   // debug hooks for scripted screenshots / QA (set before the warm-up wait: tools see the city stream in)
@@ -1661,7 +1661,7 @@ async function bootSpace() {
 async function bootLanding() {
   pipeline.checkTargets();
   const { bootMoonrun } = await import('./sky/moonrun');
-  const shared = { input: new Input(canvas), audio: new AudioEngine() };
+  const shared = { input: new Input(canvas), audio: new AudioEngine(), rig: new CameraRig() };
   const land = await bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: shared });
   // (?view= has no flight, and nothing to come down from)
   if (land) await boot(land, shared);

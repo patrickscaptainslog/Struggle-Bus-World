@@ -106,6 +106,13 @@ export class CameraRig {
   private lookFromPitch = 0;
   /** where a tap goes off the nose (rad): the look, out to config.camera.lookAimMax */
   aimYaw = 0;
+  /** The look as it stands (rad, +right and +up, 0 at home): the flight's view lays the same look over its own (src/sky/TripView.ts). */
+  get lookYawNow(): number {
+    return this.lookYaw.x;
+  }
+  get lookPitchNow(): number {
+    return this.lookPitch.x;
+  }
   /** how far the stream's center has followed the look (rad): nothing until a look has been held a while */
   private streamYaw = 0;
   private readonly lookQ = new THREE.Quaternion();

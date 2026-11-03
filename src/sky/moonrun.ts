@@ -4,7 +4,8 @@ import { Landing } from '../moon/Landing';
 import { spaceResolveUniforms as U } from '../render/skyResolve';
 import { BusModel, busTune, type BusPose } from '../bus/BusModel';
 import { config } from '../config';
-import { Input } from '../game/Input';
+import { CameraRig } from '../game/CameraRig';
+import { Input, inputTune } from '../game/Input';
 import { globals } from '../render/materials';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import type { WarmUp } from '../render/warmup';
@@ -29,7 +30,8 @@ import { geodeticToFix, sphereToFix } from './WorldFrame';
 // model; everything out here is a direction or a ray test, so nothing at 384,400 km ever enters the render frame.
 //
 // `?view=` puts the bus anywhere, to look (see readView below). With none it waits 300 km over San Francisco and flies: MoonTrip.ts is the route, TripView.ts the camera and the lens, SpaceFx.ts the lines and
-// the trail. TURBO (E, PageUp) shifts up, its down tab (Q, PageDown) down; the thumb (arrows) steers over a body and swings the camera everywhere else. `?t=` sets the date and `?g5=` G5's speed in km/s.
+// the trail. A flick up (E, PageUp) shifts up, a flick down (Q, PageDown) down; the thumb (arrows) steers over a body and swings the camera everywhere else, and a thumb in the left of the screen looks, as on the street. `?t=` sets the date and
+// `?g5=` G5's speed in km/s.
 //
 // The frame's order, which flight keeps: move `pose.ob` (pos and axes, float64) -> `model.frame(ms, ob, sky)` -> `draw.update(sky)` -> the light on the bus -> bus and camera -> `pipeline.render(scene)`.
 // The lens first if it changes (`pipeline.setHfov`): `draw.update` reads the focal length. Open-space flight is `free: true`: pos in EQJ km from Earth's centre, axes the render axes in EQJ by rows, as
@@ -175,7 +177,7 @@ function tripLabel(): (trip: MoonTrip, breath: MoonBreath | null) => void {
     const b = `G${trip.gear} ${leg === 'fall' && trip.v < 1 ? `${Math.round(trip.v * 1000)} M` : trip.v < 1 ? '0 KM' : `${thousands(trip.v)} KM`}/S ${thousands(Math.min(trip.hMoon, trip.hEarth))} KM`;
     const asks = (leg === 'out' || leg === 'homeOut' || leg === 'climb' || leg === 'arc' || leg === 'leave') && trip.g5Room;
     const dark = leg === 'cruise' || leg === 'homeCruise';
-    const p = trip.armed ? 'G5 ARMED' : leg === 'wait' ? 'TAP TURBO: MOON' : leg === 'orbit' || (leg === 'fall' && trip.hMoon > 150) ? 'TAP TURBO: HOME' : leg === 'fall' && !trip.lifting ? 'TAP TURBO: UP' : asks ? 'TAP TURBO: G5' : dark ? 'DRAG TO LOOK ROUND' : '';
+    const p = trip.armed ? 'G5 ARMED' : leg === 'wait' ? 'FLICK UP FOR THE MOON' : leg === 'orbit' || (leg === 'fall' && trip.hMoon > 150) ? 'FLICK UP FOR HOME' : leg === 'fall' && !trip.lifting ? 'FLICK UP FOR ORBIT' : asks ? 'FLICK UP FOR G5' : dark ? 'DRAG TO LOOK ROUND' : '';
     // the goal, once there is any; and until the first shot, what to do about it
     const share = breath && !breath.paint.rebuilding ? breath.paint.painted * 100 : 0;
     const d = share > 0 ? `PAINTED ${share < 1 ? share.toFixed(2) : share < 10 ? share.toFixed(1) : share.toFixed(0)} % OF THE MOON` : '';
@@ -194,8 +196,8 @@ export interface MoonrunContext {
   pipeline: PixelPipeline;
   scene: THREE.Scene;
   warm: WarmUp;
-  /** ?moonland: what this page's two loops share, one thumb and one sound */
-  land?: { input: Input; audio: AudioEngine };
+  /** ?moonland: what this page's two loops share, one thumb, one sound and one look */
+  land?: { input: Input; audio: AudioEngine; rig: CameraRig };
 }
 
 /** Returns what joins this to the low game, under ?moonland. */
@@ -281,6 +283,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   // ---- the thumb and the flicks: the real Input and the real HUD, less what has no meaning out here. A flick up is what TURBO's tap was, and a flick down its down tab
   const input = flying ? (land?.input ?? new Input(renderer.domElement)) : null;
   const hud = input ? new Hud(input, { onMute() {}, onSwap() {}, onGesture() {} }) : null;
+  // (the look is the rig's: on ?moonland the low game's own, so a look held across a join goes on across it)
+  const looker = input ? (land?.rig ?? new CameraRig()) : null;
   const label = flying ? tripLabel() : null;
   if (input && hud && trip) {
     input.onTripleFinger = () => tuner.toggle();
@@ -345,11 +349,21 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
       last = now;
       return;
     }
+    // (tools: holdFrames more frames and then it stands, as the street's __qa does, and a thumb's events still land. Down there the low game reads the same)
+    const qa = (window as unknown as { __qa?: { holdFrames?: number; held?: boolean } | null }).__qa;
+    if (qa && qa.holdFrames !== undefined) {
+      if (qa.holdFrames <= 0) {
+        qa.held = true;
+        last = now;
+        return;
+      }
+      qa.holdFrames--;
+    }
     if (landing?.cameBack && input) {
       landing.cameBack = false;
       labelEl()?.style.removeProperty('display');
       hud?.setVisible(true);
-      if (trip && !trip.lifting) hud?.toast(['TAP TURBO: UP AND OUT'], 3.2);
+      if (trip && !trip.lifting) hud?.toast(['FLICK UP FOR ORBIT'], 3.2);
     }
     const f0 = performance.now();
     breath.numbersIn();
@@ -367,9 +381,16 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     globals.uTime.value = time;
 
     // ---- the flight first, then the lens, and draw.update reads the lens: the contract above
-    if (trip && view && input) {
+    if (trip && view && input && looker) {
       input.update(real);
       const st = input.state;
+      // (the look on the wall clock, as the street's; and what a flick is, so neither the swing nor the orbit's push takes one for a drag)
+      looker.setLook(st.look.on, st.look.x, st.look.y, real);
+      view.lookYaw = looker.lookYawNow;
+      view.lookPitch = looker.lookPitchNow;
+      view.swingWait = inputTune.lookDelayMs / 1000;
+      view.swingEase = config.camera.lookEaseIn;
+      YOKE.flick = inputTune.loneFlickMs / 1000;
       trip.tau = tripTune.tau;
       trip.pull = tripTune.pullDegS * DEG;
       view.swing = tripTune.swing;

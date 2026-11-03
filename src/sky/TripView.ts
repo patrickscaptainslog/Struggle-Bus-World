@@ -20,9 +20,11 @@ import { R_E, R_M, type MoonTrip } from './MoonTrip';
 // The angles are the city's at 1 km, all the way: the view looks ahead and a little down, so what the path points at stands over the bus, and a frame too short for that eases the pitch by the rig's own rule. The Moon's low game sits a little lower (MOON_VISTA),
 // so on the last of the way down the angles come to its own, by the height alone. The lens doesn't move, so a disc grows by its own size alone and the bus stays the size it is over the city.
 //
-// The thumb swings the camera on every leg it doesn't steer, on top of all this. Left alone for THUMB_HOLD seconds the view goes home on a spring of its own.
+// The thumb swings the camera on every leg it doesn't steer, on top of all this. It waits and eases in as a look does, since a flick is a stroke too and only its lift says so. Left alone for THUMB_HOLD seconds the view goes home on a spring of its own.
+// Over all of it goes the look, the rig's own (game/CameraRig.ts setLook, a thumb in the left of the screen): the whole view turns about the bus, and goes home on the lift.
 
 const DEG = Math.PI / 180;
+const RIGHT = new THREE.Vector3(1, 0, 0);
 /** The thumb's spring, 1/s: a swing of 180 degrees peaks near 36 deg/s and is nine tenths over in about 7 s. */
 export const SWING = 0.55;
 /** How fast the chase comes round after a bus nothing is steering, 1/s: nine tenths of a turn in about 2.6 s. */
@@ -77,6 +79,12 @@ export class TripView {
   below = 18 * DEG;
   /** the thumb's spring's rate, 1/s: live, the tuner moves it */
   swing = SWING;
+  /** how long a thumb is down before it swings the view, and how long the swing takes to come in, s: moonrun.ts hands over the look's own */
+  swingWait = 0.1;
+  swingEase = 0.2;
+  /** the look as the rig has it, rad, +right and +up: 0, 0 at home */
+  lookYaw = 0;
+  lookPitch = 0;
 
   /** the view in EQJ: the chase's, the spring's offset, the thumb's, and all of them */
   private readonly want = new THREE.Quaternion();
@@ -89,6 +97,10 @@ export class TripView {
   private yaw = 0;
   private tilt = 0;
   private idle = 0;
+  /** how long the thumb has been down on a leg it doesn't steer, s */
+  private held = 0;
+  private readonly viewQ = new THREE.Quaternion();
+  private readonly lookQ = new THREE.Quaternion();
   /** the chase's turn, rad/s, and the rate of its spring, 1/s */
   private readonly spin = new THREE.Vector3();
   private rate = 2 * Math.PI * config.camera.yawHz;
@@ -169,15 +181,22 @@ export class TripView {
     if (this.isHanded) {
       this.isHanded = false;
       this.q.copy(this.handed);
+      // (the rig's lens has the look on it, and here the look goes on over q: the spring takes back the view without it)
+      this.unlook(this.q, top);
       this.takeBack();
     }
 
     // ---- the thumb
     if (!trip.steering && thumb) {
-      this.yaw -= stickX * THUMB_RATE * dt;
-      this.tilt = Math.max(-1.4, Math.min(1.4, this.tilt + stickY * THUMB_RATE * dt));
+      this.held += dt;
+      const k = smooth01(this.swingWait, this.swingWait + Math.max(0.01, this.swingEase), this.held) * THUMB_RATE * dt;
+      this.yaw -= stickX * k;
+      this.tilt = Math.max(-1.4, Math.min(1.4, this.tilt + stickY * k));
       this.idle = 0;
-    } else this.idle += dt;
+    } else {
+      this.idle += dt;
+      this.held = 0;
+    }
     if ((this.yaw !== 0 || this.tilt !== 0) && (trip.steering || this.idle > THUMB_HOLD)) this.takeBack();
     this.thumbQ.setFromEuler(this.euler.set(this.tilt, this.yaw, 0, 'YXZ'));
 
@@ -187,9 +206,11 @@ export class TripView {
     if (ang > 1e-9) this.offset.setFromAxisAngle(this.t.copy(this.o).divideScalar(ang), ang);
     else this.offset.identity();
     this.q.copy(this.want).multiply(this.offset).multiply(this.thumbQ);
+    // (and the look over all of it, as the rig lays it over its pose: no part of q, which the spring takes back)
+    const view = this.look(this.q, top);
 
     // ---- into the Observer: rows are the render axes in EQJ
-    const e = this.m.makeRotationFromQuaternion(this.q).elements, ax = trip.ob.axes;
+    const e = this.m.makeRotationFromQuaternion(view).elements, ax = trip.ob.axes;
     ax[0] = e[0];
     ax[1] = e[1];
     ax[2] = e[2];
@@ -250,6 +271,29 @@ export class TripView {
     const off = Math.atan2(a.dot(this.x.crossVectors(top, p)), top.dot(p));
     const most = ROLL_MOST * dt, by = off * (1 - Math.exp(-Math.max(ROLL * smooth01(0.35, 0.9, s), ROLL_HOME * homeward) * dt));
     top.applyAxisAngle(a, Math.max(-most, Math.min(most, by))).normalize();
+  }
+
+  /**
+   * The look over the view, as the rig lays it over its pose: round the way up through the bus, then over it, never past straight down. Up, it goes under the bus, where the rig tilts the lens where it stands: out here there's nothing for a
+   * lens to stand in. At home it's q itself.
+   */
+  private look(q: THREE.Quaternion, top: THREE.Vector3): THREE.Quaternion {
+    const yaw = this.lookYaw, pitch = this.lookPitch;
+    if (yaw === 0 && pitch === 0) return q;
+    const v = this.viewQ.copy(q).premultiply(this.lookQ.setFromAxisAngle(top, -yaw));
+    let a = pitch;
+    if (pitch < 0) {
+      // (how far down the view already looks, a dive's tilt and all)
+      const fwd = this.t2.set(0, 0, -1).applyQuaternion(v);
+      a = -Math.min(-pitch, Math.max(0, config.camera.lookViewMax * DEG - Math.asin(Math.max(-1, Math.min(1, -fwd.dot(top))))));
+    }
+    return a === 0 ? v : v.multiply(this.lookQ.setFromAxisAngle(RIGHT, a));
+  }
+
+  /** What look() puts on a view, taken off it: the low game's lens comes back with the rig's look on it. */
+  private unlook(q: THREE.Quaternion, top: THREE.Vector3): void {
+    if (this.lookPitch !== 0) q.multiply(this.lookQ.setFromAxisAngle(RIGHT, -this.lookPitch));
+    if (this.lookYaw !== 0) q.premultiply(this.lookQ.setFromAxisAngle(top, this.lookYaw));
   }
 
   private inRender(v: THREE.Vector3, a: Float64Array, o: THREE.Vector3): void {

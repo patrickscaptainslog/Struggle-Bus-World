@@ -67,9 +67,9 @@ const BACK = 870 / (R_M + 150);
 export const FALL_FLOOR = 2;
 const G1 = 0.45;
 export const FALL_TAU = (ALT4 - FALL_FLOOR) / (G3 - G1);
-/** The yoke, as Flight's: the dead band, the path's angle at full pull and full push (rad), the stick's curve, and how fast the path follows it (1/s). config.flight has the same numbers: moonrun.ts hands them over, so this file stays free of the game. */
-export const YOKE = { dead: 0.14, up: 85 * DEG, down: 85 * DEG, curve: 1.3, rate: 2.6 };
-/** A push held this long leaves the orbit (s): a carving thumb's drift doesn't. */
+/** The yoke, as Flight's: the dead band, the path's angle at full pull and full push (rad), the stick's curve, how fast the path follows it (1/s), and the longest stroke that's still a flick (s). config.flight and Input have the same numbers: moonrun.ts hands them over, so this file stays free of the game. */
+export const YOKE = { dead: 0.14, up: 85 * DEG, down: 85 * DEG, curve: 1.3, rate: 2.6, flick: 0 };
+/** A push held this long leaves the orbit (s): a carving thumb's drift doesn't, and nor does a flick, a stroke that pushes until its lift says it was one. YOKE.flick is the longest of those, Input's. */
 const PUSH_HOLD = 0.15;
 /** How near the orbit's height a climb starts to level off, s of its own speed, so it comes onto the floor and doesn't stop dead under it. */
 const FLARE_S = 1.5;
@@ -277,17 +277,17 @@ export class MoonTrip {
     return YAW;
   }
 
-  /** There is something for the down tab to do. */
+  /** There is something for a flick down to do. */
   get canShiftDown(): boolean {
     return this.armed || this.lifting;
   }
 
-  /** TURBO: a tap shifts up. It lands at the next step, which reads the sky. */
+  /** A flick up, what TURBO's tap was: a shift up. It lands at the next step, which reads the sky. */
   tap(): void {
     this.tapped = true;
   }
 
-  /** The down tab: G5 not asked for after all. */
+  /** A flick down, what the down tab was: G5 not asked for after all. */
   shiftDown(): void {
     this.downTapped = true;
   }
@@ -364,7 +364,7 @@ export class MoonTrip {
           this.leaveMoon();
           break;
         case 'fall':
-          // (up here it goes home. Under that the gear goes up and the bus with it, as TURBO does on the ground: a tap is a shift, and it may be early)
+          // (up here it goes home. Under that the gear goes up and the bus with it, as a flick does on the ground: a flick is a shift, and it may be early)
           if (this.hMoon > 150) this.leaveMoon();
           else if (!this.lifting) {
             this.climbV = G3;
@@ -692,7 +692,7 @@ export class MoonTrip {
         const p = this.ob.pos, h = this.heading;
         setUnit(p, u);
         this.pushT = this.land && this.pushOf(yoke) > 0 ? this.pushT + dt : 0;
-        if (this.pushT > PUSH_HOLD) {
+        if (this.pushT > Math.max(PUSH_HOLD, YOKE.flick)) {
           this.pushT = 0;
           this.nose = 0;
           this.gov = 1;

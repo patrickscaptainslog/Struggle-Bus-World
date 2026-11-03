@@ -20,7 +20,7 @@ import type { MoonFar } from './MoonFar';
 //     with nothing changed in it and the bus and the sky keep their places. The ray-drawn Moon goes on under it in the sky branch, and the mesh comes in over it by a dither.
 //   - At H_GROUND the low game takes the frame: Flight, CameraRig, City. The two pictures are the same mesh by then, and the same camera: sky/TripView.ts is the rig's own law, so there's nothing to see.
 //   - Up is the same two joins the other way, and gears. The low game climbs as it does, and at H_UP the flight's loop takes the bus back: `back`. Going on up is the gear the bus is in, whatever the height: the law is a brake on arrival and nothing else.
-//     The low game's last gear is the way out: it lifts the bus past H_UP, and the flight's loop carries it on to the orbit at that gear's speed, where TURBO goes home.
+//     The low game's last gear is the way out: it lifts the bus past H_UP, and the flight's loop carries it on to the orbit at that gear's speed, where a flick up goes home.
 //
 // The brief had the game's loop reach up to 100 km. The flight's loop reaches down instead, for two reasons. Every number in the low game, the rig, City, the map's edge, Flight's yoke, is proven to 15 km and not past it, where the flight's law
 // and view hold at any height; and the two changes that could show, ray to mesh and one loop to the other, then happen far apart, each with the other standing still. The ceiling stays at about 15 km.
