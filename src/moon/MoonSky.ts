@@ -122,6 +122,32 @@ export class MoonSky {
     return night;
   }
 
+  /**
+   * The map slid (moonBoot.ts): the true Sun as it stands over the new middle, in the map's own carried axes (u up, e its x, n minus its z), and at night Earth if
+   * it's up, as look() has it. A held Sun is the map's and stays. True if it's night there.
+   */
+  slide(u: ArrayLike<number>, e: ArrayLike<number>, n: ArrayLike<number>): boolean {
+    if (this.held) return this.night;
+    const s = this.state;
+    const inAxes = (v: ArrayLike<number>, o: V) => {
+      o[0] = e[0] * v[0] + e[1] * v[1] + e[2] * v[2];
+      o[1] = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+      o[2] = -(n[0] * v[0] + n[1] * v[1] + n[2] * v[2]);
+    };
+    inAxes(s.moonSun, this.sun);
+    for (let i = 0; i < 3; i++) this.sunFix[i] = s.moonSun[i];
+    this.night = this.sun[1] < 0.02;
+    const earth: V = [0, 0, 0];
+    inAxes(s.moonEarth, earth);
+    if (this.night && earth[1] > 0.05) {
+      for (let i = 0; i < 3; i++) {
+        this.sun[i] = earth[i];
+        this.sunFix[i] = s.moonEarth[i];
+      }
+    }
+    return this.night;
+  }
+
   /** The sky's frame goes in the scene before the warm-up. */
   get object(): THREE.Object3D {
     return this.draw.object;

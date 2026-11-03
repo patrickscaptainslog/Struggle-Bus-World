@@ -14,6 +14,8 @@ export const CLIP_N = 1024;
 
 /** What all of the Moon's ground reads. */
 export const moonGlobals = {
+  // the map's slides so far (m), as the fine noise on the ground reads it: a stone stays where it was when the map moves under it (moonBoot.ts slide). Kept under 2^18, so it stays fine
+  uSlide: { value: new THREE.Vector2() },
   // x flat ground's light at mid tone, y the shadow's floor, z what the far field has over that floor
   uMoonLight: { value: new THREE.Vector3(0.4, 0.006, 0.03) },
   // what's painted on the craters: PaintClip's windows, each x0, z0, 1 / cell, on
@@ -31,6 +33,7 @@ export const moonGlobals = {
 /** The four bytes back, the light, the ramp. Needs GLSL_COMMON. */
 export const GLSL_MOON_LIGHT = /* glsl */ `
 uniform vec3 uMoonLight;
+uniform vec2 uSlide;
 float moonDecode(float b) {
   float s = (b * 255.0 - 128.0) / 127.0;
   return s * abs(s);
@@ -261,8 +264,9 @@ const NEAR_FS = /* glsl */ `
     float grainK = 1.0 - smoothstep(0.6, 2.4, px);
     float stone = 0.0;
     if (grainK > 0.0 && sun > 0.5) {
-      stone = moonStones(vWorldPos.xz, 1.9, 0.0) + moonStones(vWorldPos.xz, 0.83, 57.0);
-      n = normalize(n + vec3(moonGrain(vWorldPos.xz) * 0.16 * grainK, 0.0, moonGrain(vWorldPos.zx + 40.0) * 0.16 * grainK));
+      vec2 q = vWorldPos.xz + uSlide;
+      stone = moonStones(q, 1.9, 0.0) + moonStones(q, 0.83, 57.0);
+      n = normalize(n + vec3(moonGrain(q) * 0.16 * grainK, 0.0, moonGrain(q.yx + 40.0) * 0.16 * grainK));
     }
     float light = moonLit(n, tone, sun);
     if (stone > 0.5) light = max(light * (1.0 + 0.8 * grainK), 0.3);
@@ -363,6 +367,7 @@ const FAR_VS = /* glsl */ `
   precision highp sampler2DArray;
   uniform sampler2DArray tFarH;
   uniform vec4 uFarGrid; // metres a texel at level 0, texels a block, quads a block, vertices a block
+  uniform vec2 uFarSlot[${FAR.HIGH_LEVELS}]; // each level's store turned by the map's slides, in blocks (MoonFar.slide)
   uniform sampler2D tMask;
   uniform vec4 uMaskRect; // the map's corner, per tile
   uniform vec2 uMaskSize;
@@ -377,8 +382,8 @@ const FAR_VS = /* glsl */ `
   }
   void main() {
     float L = aPatch.z, cell = uFarGrid.x * pow(2.0, L), quad = cell * uFarGrid.y / uFarGrid.z;
-    // (a block's slot in the atlas: blocks wrap, eight a side)
-    ivec2 slot = ivec2(mod(aPatch.xy, 8.0));
+    // (a block's slot in the atlas: blocks wrap, eight a side, from where the map's slides have turned the level's store to)
+    ivec2 slot = ivec2(mod(aPatch.xy + uFarSlot[int(L)], 8.0));
     ivec2 t = slot * int(uFarGrid.w) + ivec2(position.xz);
     vec2 ht = texelFetch(tFarH, ivec3(t, int(L)), 0).rg;
     float y = ht.r;
@@ -408,6 +413,7 @@ const FAR_FS = /* glsl */ `
   uniform float uFarLevels;
   uniform float uFarBias;
   uniform vec4 uFarRects[${FAR.HIGH_LEVELS}]; // each level's window, in from its edge
+  uniform vec2 uFarSlot[${FAR.HIGH_LEVELS}];
   uniform float uFarShow; // the dissolve from the ray-drawn Moon: 0 none of this, 1 all of it
   uniform float uFarHigh; // how much of the light is the ray-drawn Moon's, 1 up there, 0 by the ground
   ${GLSL_MOON_SHADE_UNIFORMS}
@@ -419,7 +425,7 @@ const FAR_FS = /* glsl */ `
   ${GLSL_OUT}
   vec2 farMap(float L) {
     float cell = uFarGrid.x * pow(2.0, L);
-    return texture(tFarM, vec3((vWorldPos.xz / cell + 0.5) / (8.0 * uFarGrid.y), L)).rg;
+    return texture(tFarM, vec3((vWorldPos.xz / cell + uFarSlot[int(L)] * uFarGrid.y + 0.5) / (8.0 * uFarGrid.y), L)).rg;
   }
   // (a level's last texels would filter into its other side: it is a torus in the store)
   float farInside(float L) {
@@ -497,7 +503,7 @@ const FAR_FS = /* glsl */ `
   }
 `;
 
-export function makeMoonFar(tFarH: THREE.Texture, tFarM: THREE.Texture, mask: THREE.Texture, maskRect: THREE.Vector4, maskSize: THREE.Vector2, grid: THREE.Vector4, levels: number, rects: THREE.Vector4[]): THREE.ShaderMaterial {
+export function makeMoonFar(tFarH: THREE.Texture, tFarM: THREE.Texture, mask: THREE.Texture, maskRect: THREE.Vector4, maskSize: THREE.Vector2, grid: THREE.Vector4, levels: number, rects: THREE.Vector4[], slots: THREE.Vector2[]): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
     uniforms: {
@@ -513,6 +519,7 @@ export function makeMoonFar(tFarH: THREE.Texture, tFarM: THREE.Texture, mask: TH
       uFarGrid: { value: grid },
       uFarLevels: { value: levels },
       uFarRects: { value: rects },
+      uFarSlot: { value: slots },
       uFarBias: { value: -0.5 },
       uFarShow: { value: 1 },
       uFarHigh: { value: 0 },

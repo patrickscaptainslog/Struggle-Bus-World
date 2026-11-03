@@ -45,6 +45,11 @@ const LIGHT_LOW = 8;
 const SHALLOWEST = 25 * DEG;
 /** km between where the bus will come down and the middle of the map before the map is made again. The map is 256 km square, and the far field neither knows nor cares. */
 const MOVE_KM = 70;
+/** km over the ground: under the mesh the map moves with the bus over this, and under it the map's edge turns the bus back, as the low game's does. */
+const MOVE_OVER = H_GROUND + 2;
+/** km ahead of the bus the map is made again round, so it has the room. And s: how fast the mesh goes out for it, and comes back. */
+const MOVE_AHEAD = 30;
+const MOVE_DISSOLVE = 1.2;
 /** s: the ground the height is read from is smoothed, or a crater going by would shake the speed. */
 const GROUND_S = 0.8;
 /** s: how fast the ray test's radius follows the ground under the bus. */
@@ -125,6 +130,10 @@ export class Landing {
   readonly axes = new Float64Array(9);
 
   private placed = false;
+  /** The map moving under the mesh: 1 the mesh going out, 2 the world being made again round the bus. */
+  private moving: 0 | 1 | 2 = 0;
+  /** ...and the mesh coming back after it, as quickly as it went. */
+  private movedIn = false;
   private readonly at = v3();
   private readonly toLand = v3();
   private readonly toShow = v3();
@@ -219,18 +228,34 @@ export class Landing {
     // ---- down in the world
     mapOf(fr, u[0], u[1], u[2], mt);
     const x = mt[0], z = mt[1], hm = Math.max(h, 0) * 1000;
+    // (up here a map's edge is no wall: far from the middle the world is made again round the bus, the mesh going out to the ray-drawn Moon for it and coming back)
+    if (!this.moving && h > MOVE_OVER && Math.hypot(x, z) > MOVE_KM * 1000) this.moving = 1;
+    if (this.moving === 1 && this.show <= 0) {
+      // (this frame's map is the last one: the next reads the new)
+      this.moveTo(u, f, hm);
+      return;
+    }
+    if (this.moving === 2 && Number.isFinite(w.datum) && far.readyAt(x, z, hm)) {
+      this.moving = 0;
+      this.movedIn = true;
+      this.groundKm = NaN;
+    }
     far.update(x, z, hm);
-    const ground = (far.heightAt(x, z) + w.datum) / 1000;
-    this.groundKm = Number.isNaN(this.groundKm) ? ground : this.groundKm + (ground - this.groundKm) * (1 - Math.exp(-dt / GROUND_S));
-    t.ground = this.groundKm;
-    this.lift(dt, u, f, h);
-    // (the map's edge turns it back, as it does in the low game: bearing to the middle, off the heading)
-    const edge = Math.max(0, Math.min(1, (Math.max(Math.abs(x), Math.abs(z)) - MAP_HALF + HOME_IN) / HOME_IN)), A = this.axes;
+    if (!this.moving) {
+      const ground = (far.heightAt(x, z) + w.datum) / 1000;
+      this.groundKm = Number.isNaN(this.groundKm) ? ground : this.groundKm + (ground - this.groundKm) * (1 - Math.exp(-dt / GROUND_S));
+      t.ground = this.groundKm;
+      this.lift(dt, u, f, h);
+    }
+    // (under that, the map's edge turns it back, as it does in the low game: bearing to the middle, off the heading)
+    const edge = h > MOVE_OVER ? 0 : Math.max(0, Math.min(1, (Math.max(Math.abs(x), Math.abs(z)) - MAP_HALF + HOME_IN) / HOME_IN)), A = this.axes;
     const hx = hd[0] * A[0] + hd[1] * A[1] + hd[2] * A[2], hz = hd[0] * A[6] + hd[1] * A[7] + hd[2] * A[8];
     t.home = edge > 0 ? edge * Math.max(-1, Math.min(1, Math.atan2(-x * -hz + -z * hx, -x * hx + -z * hz))) : 0;
-    w.follow(x, z, hx, hz);
-    const want = h < H_SHOW ? 1 : h > H_SHOW + 15 ? 0 : this.show;
-    this.show += Math.max(-dt / DISSOLVE, Math.min(dt / DISSOLVE, want - this.show));
+    if (!this.moving) w.follow(x, z, hx, hz);
+    const want = this.moving ? 0 : h < H_SHOW ? 1 : h > H_SHOW + 15 ? 0 : this.show;
+    const rate = this.moving || this.movedIn ? MOVE_DISSOLVE : DISSOLVE;
+    this.show += Math.max(-dt / rate, Math.min(dt / rate, want - this.show));
+    if (this.show >= 1) this.movedIn = false;
     far.show.value = this.show;
     far.high.value = this.lightAt(h);
     far.object.visible = this.show > 0;
@@ -238,8 +263,8 @@ export class Landing {
       this.leave();
       return;
     }
-    // (late, under the mesh: the ground is a level coarser than it should be for a moment. That's a blur and no hole, so it slows the fall and doesn't hold it)
-    const gov = t.nose > 0 || far.readyAt(x, z, hm) ? 1 : 0.3;
+    // (late, under the mesh: the ground is a level coarser than it should be for a moment. That's a blur and no hole, so it slows the fall and doesn't hold it. While the map moves, a fall's held over the low game's height)
+    const gov = this.moving ? (t.nose > 0 || h > MOVE_OVER + 6 ? 1 : 0.15) : t.nose > 0 || far.readyAt(x, z, hm) ? 1 : 0.3;
     t.gov += (gov - t.gov) * (1 - Math.exp(-4 * dt));
   }
 
@@ -283,6 +308,16 @@ export class Landing {
     w.far.place(id, this.mt[0], this.mt[1], H_SHOW * 1000);
   }
 
+  /** The world made again round a place a way ahead of the bus, while the mesh is out: the far field asks for it at once. */
+  private moveTo(u: V, f: V, hm: number): void {
+    const w = this.world!, p = this.at;
+    this.arc(u, f, MOVE_AHEAD, p);
+    const id = w.place(latOf(p), lonOf(p), this.trip.ms);
+    mapOf(w.frame, u[0], u[1], u[2], this.mt);
+    w.far.place(id, this.mt[0], this.mt[1], hm);
+    this.moving = 2;
+  }
+
   /** The mesh comes into the flight's scene. */
   private come(): void {
     const far = this.world!.far;
@@ -299,6 +334,8 @@ export class Landing {
   private leave(): void {
     const far = this.world!.far, t = this.trip;
     this.near = false;
+    this.moving = 0;
+    this.movedIn = false;
     this.show = 0;
     far.object.visible = false;
     t.ground = 0;

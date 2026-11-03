@@ -55,6 +55,12 @@ Left for a laptop and the phone: the rest of `controls.mjs`, which takes over tw
 
 ### Stage 2: the map slides (about 2 days)
 
+**How it's being built, 2026-11-03, with Stage 3 the same night at the producer's word** ("Let's do the big moon project tonight. I want to be able to fly around the moon freely, the whole way").
+
+- Over 16 km, under the mesh, there is no wall now: far from the middle the mesh dissolves to the ray-drawn Moon, the world is made again 30 km ahead, and it comes back (`Landing.moving`). So the whole Moon can be flown at height already, and come down on anywhere. `flicks.mjs --high` flies it.
+- In the low game the map slides: when the bus is past 70 km from the middle on an axis, everything shifts by 65,536 m (2^16) on that axis at one moment at the top of the frame, and the frame is centred again on its own axes there. 2^16 is a whole number of blocks for far levels 0 to 7 and keeps levels 0 to 6 nested; 7 and up are made again, and at the low game's heights they're behind the horizon while they come. One datum for the session.
+- Each holder has a `slide(dx, dz)`: Flight, the rig and the camera, the trail and the lines, particles, the breath in flight, the aim, the signs, City (its tiles, keys, meshes, materials, mask, requests), ground paint, crater paint, rocks, the far field (per-level texel offsets for the toroidal maps), the worker (a new generator on the new frame, the old datum, the far store's windows by blocks). The shaders' fine noise reads the world through `uSlide`, so a stone stays where it was.
+
 The core of the job. From Theophilus, Jet in a straight line for 500 km, low, about seven joins, with no turn-back.
 
 1. A frame that can carry its axes (design notes 1 and 2).

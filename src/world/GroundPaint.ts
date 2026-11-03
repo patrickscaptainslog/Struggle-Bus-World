@@ -399,6 +399,64 @@ export class GroundPaint {
   }
 
   /**
+   * ?moon: the map slides by (dx, dz), whole tiles (dtx, dtz) (City.slide). Every tile's key, mask and origin come over, what's being painted on them, and what's
+   * saved for them: it's the place's paint, wherever the map's middle is.
+   */
+  slide(dtx: number, dtz: number, dx: number, dz: number) {
+    const key = (k: string) => {
+      const c = k.indexOf(',');
+      return `${Number(k.slice(0, c)) - dtx},${Number(k.slice(c + 1)) - dtz}`;
+    };
+    const remap = <V>(m: Map<string, V>, f?: (v: V) => void) => {
+      const all = [...m];
+      m.clear();
+      for (const [k, v] of all) {
+        f?.(v);
+        m.set(key(k), v);
+      }
+    };
+    remap(this.masks, (t) => {
+      t.ox -= dx;
+      t.oz -= dz;
+    });
+    remap(this.loaded, (t) => {
+      t.ox -= dx;
+      t.oz -= dz;
+    });
+    remap(this.store);
+    remap(this.replaying);
+    this.saveQueue.splice(0, this.saveQueue.length, ...this.saveQueue.map(key));
+    const saving = [...this.saveSet].map(key);
+    this.saveSet.clear();
+    for (const k of saving) this.saveSet.add(k);
+    for (const [n, keys] of this.serialTiles) this.serialTiles.set(n, keys.map(key));
+    this.ready.splice(0, this.ready.length, ...this.ready.map(key));
+    // (a blast's spec is one object wherever it's held: each moves once)
+    const specs = new Set<BlastSpec>();
+    for (const j of this.jobs) {
+      specs.add(j.spec);
+      if (j.only) j.only = key(j.only);
+      for (const t of j.tiles) t.key = key(t.key);
+      if (j.p) {
+        specs.add(j.p.spec);
+        j.p.minX -= dx;
+        j.p.maxX -= dx;
+        j.p.minZ -= dz;
+        j.p.maxZ -= dz;
+        for (const d of j.p.dots) {
+          d.x -= dx;
+          d.z -= dz;
+        }
+      }
+    }
+    for (const rec of this.store.values()) for (const sp of rec.p) specs.add(sp);
+    for (const sp of specs) {
+      sp.x -= dx;
+      sp.z -= dz;
+    }
+  }
+
+  /**
    * A terrain tile streamed in: its saved mask is decoded at once (one pass
    * over 16k texels) and shown with the tile; blasts that reached it while it
    * was away are queued for work().

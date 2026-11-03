@@ -4,7 +4,7 @@ import { Ground } from '../world/tiles';
 import { gunzip, isGzip } from '../world/gunzip';
 import type { RegionRequest, RegionResponse, TileResult } from '../world/regionLoader';
 import { FarStore, MoonGen, craterList, makeRegion, sunLine, type MoonSource } from './gen';
-import { makeFrame, readAlbedo, readPlaces, readRelief, readWindow, type PlaceRow } from './map';
+import { frameAt, makeFrame, readAlbedo, readPlaces, readRelief, readWindow, type PlaceRow } from './map';
 
 export interface MoonInit {
   type: 'init';
@@ -37,6 +37,17 @@ export interface MoonPlace {
   bounds: [number, number, number, number];
 }
 
+/** The map slides (MoonBoot.slide): the generator centred again at (dx, dz) of the map it had, on that map's own axes, with the same datum; the far store keeps what it can. `slide` is the count of them, which every answer carries after. */
+export interface MoonSlide {
+  type: 'slide';
+  slide: number;
+  dx: number;
+  dz: number;
+  bounds: [number, number, number, number];
+  /** toward the Sun, Moon fixed, as the sky has it over the new middle: at night Earth, if it's up */
+  sunFix: [number, number, number];
+}
+
 /** Where it stands, once it's made. */
 export interface MoonPlaced {
   type: 'placed';
@@ -52,6 +63,11 @@ export interface MoonFarRequest {
   place: number;
 }
 
+/** What a far update and a region carry: the slides made before it was. */
+export interface MoonSlid {
+  slide: number;
+}
+
 export interface MoonReady {
   type: 'ready';
   datum: number;
@@ -61,7 +77,7 @@ export interface MoonReady {
   startY: number;
 }
 
-export type MoonRegionRequest = RegionRequest & { rx: number; rz: number; place: number };
+export type MoonRegionRequest = RegionRequest & { rx: number; rz: number; place: number; slide: number };
 
 /** The craters around a place, for paint to pick from. */
 export interface MoonCraterRequest {
@@ -85,6 +101,8 @@ let gen: MoonGen | null = null;
 let far: FarStore | null = null;
 let src: MoonSource | null = null;
 let seed = 0;
+/** The slides made: the map's the generator's from the last. */
+let slides = 0;
 /** The place asked for last: read as the message arrives, not as the queue gets to it. */
 let latest = 0;
 const post = (self as unknown as Worker).postMessage.bind(self) as (m: unknown, t?: Transferable[]) => void;
@@ -113,6 +131,24 @@ function place(m: MoonPlace): void {
   post({ type: 'placed', id: m.id, datum: gen.datum } satisfies MoonPlaced);
 }
 
+function slide(m: MoonSlide): void {
+  const g = gen!, f = frameAt(g.frame, m.dx, m.dz);
+  let sun = g.sun;
+  if (g.sunFix) {
+    // (a true Sun: what it is over the new middle, as the far field's blocks already take it)
+    const o = new Float64Array(3), s = m.sunFix;
+    const e = f.e, u = f.u, n = f.n;
+    o[0] = e[0] * s[0] + e[1] * s[1] + e[2] * s[2];
+    o[1] = u[0] * s[0] + u[1] * s[1] + u[2] * s[2];
+    o[2] = -(n[0] * s[0] + n[1] * s[1] + n[2] * s[2]);
+    sun = sunLine(o[0], o[1], o[2]);
+  }
+  gen = new MoonGen(src!, f, sun, seed, m.bounds, g.datum);
+  gen.sunFix = g.sunFix ? m.sunFix : null;
+  far!.slide(gen, m.dx, m.dz);
+  slides = m.slide;
+}
+
 function region(q: MoonRegionRequest): void {
   try {
     const { tiles: list, rocks, transfer } = makeRegion(gen!, q.rx, q.rz, q.lod, far!.planeAt);
@@ -124,7 +160,7 @@ function region(q: MoonRegionRequest): void {
       },
       grid: t.grid,
     }));
-    post({ type: 'region', id: q.id, tiles, lod: q.lod, merged: null, mergedSphere: null, rx: q.rx, rz: q.rz, rocks } satisfies RegionResponse, transfer);
+    post({ type: 'region', id: q.id, tiles, lod: q.lod, merged: null, mergedSphere: null, rx: q.rx, rz: q.rz, rocks, slide: slides } satisfies RegionResponse & MoonSlid, transfer);
   } catch (e) {
     post({ type: 'region', id: q.id, tiles: [], lod: q.lod, error: String(e) } satisfies RegionResponse);
   }
@@ -132,7 +168,7 @@ function region(q: MoonRegionRequest): void {
 
 // (one queue: nothing a far level or a region asks of the store runs beside anything else)
 let queue: Promise<void> = Promise.resolve();
-self.onmessage = (ev: MessageEvent<MoonInit | MoonPlace | MoonFarRequest | MoonRegionRequest | MoonCraterRequest>) => {
+self.onmessage = (ev: MessageEvent<MoonInit | MoonPlace | MoonSlide | MoonFarRequest | MoonRegionRequest | MoonCraterRequest>) => {
   const m = ev.data;
   if (m.type === 'place') latest = m.id;
   queue = queue
@@ -140,14 +176,16 @@ self.onmessage = (ev: MessageEvent<MoonInit | MoonPlace | MoonFarRequest | MoonR
       if (m.type === 'init') await init(m);
       else if (m.type === 'place') {
         if (m.id === latest) place(m);
-      } else if (m.type === 'far') {
+      } else if (m.type === 'slide') slide(m);
+      else if (m.type === 'far') {
         for (const [k, bi0, bj0] of m.moves) {
           if (m.place !== latest) break;
           const u = far!.move(k, bi0, bj0);
-          post({ ...u, place: m.place }, [u.blocks.buffer, u.map.buffer, u.heights.buffer]);
+          post({ ...u, place: m.place, slide: slides }, [u.blocks.buffer, u.map.buffer, u.heights.buffer]);
         }
       } else if (m.type === 'region') {
-        if (m.place === latest) region(m);
+        // (asked for on a map that has slid since: City asks again on this one)
+        if (m.place === latest && m.slide === slides) region(m);
       } else if (m.type === 'craters') {
         const { n, ids, data } = craterList(gen!, m.cx, m.cz, m.half, m.minR);
         post({ type: 'craters', id: m.id, n, ids, data } satisfies MoonCraters, [ids.buffer, data.buffer]);

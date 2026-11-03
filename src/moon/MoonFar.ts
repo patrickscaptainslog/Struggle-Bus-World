@@ -12,6 +12,8 @@ import { makeMoonFar } from './moonMaterial';
 
 const { N, B, BLOCKS, QUADS, V, C0, HIGH_LEVELS } = FAR;
 const TEXEL_MARGIN = 1.5;
+/** A slide of (di, dj) of a level's blocks keeps it: whole and even, so its window still sits on the next level's (gen.ts FarStore.slide has the same rule). */
+const kept = (di: number, dj: number) => Number.isInteger(di) && Number.isInteger(dj) && di % 2 === 0 && dj % 2 === 0;
 
 interface Level {
   k: number;
@@ -83,6 +85,11 @@ export class MoonFar {
   readonly show: { value: number };
   /** How much of its light is the ray-drawn Moon's: 1 up where the two meet, 0 by the time it's ground. */
   readonly high: { value: number };
+  /** The map's slides (slide()), each one's metres: an update made before one has its blocks where they were, and comes over by those since. */
+  private slides = 0;
+  private readonly slid: Array<[number, number]> = [];
+  /** Per level, the store's slot for block 0, in blocks: blocks wrap eight a side, so a slide by a number of them that isn't eight's moves the window over the store. The shaders read it too. */
+  private readonly slots: THREE.Vector2[] = [];
 
   constructor(private readonly renderer: THREE.WebGLRenderer, private readonly post: (m: MoonFarRequest) => void, mask: THREE.Texture, maskRect: THREE.Vector4, maskSize: THREE.Vector2, private readonly LEVELS: number = FAR.LEVELS) {
     const AT = BLOCKS * V;
@@ -109,8 +116,11 @@ export class MoonFar {
     this.geo.setAttribute('aPatch', this.patches);
     this.geo.instanceCount = 0;
     const grid = new THREE.Vector4(C0, B, QUADS, V);
-    for (let k = 0; k < HIGH_LEVELS; k++) this.rects.push(new THREE.Vector4());
-    const mat = makeMoonFar(this.texH, this.texM, mask, maskRect, maskSize, grid, LEVELS, this.rects);
+    for (let k = 0; k < HIGH_LEVELS; k++) {
+      this.rects.push(new THREE.Vector4());
+      this.slots.push(new THREE.Vector2());
+    }
+    const mat = makeMoonFar(this.texH, this.texM, mask, maskRect, maskSize, grid, LEVELS, this.rects, this.slots);
     this.show = mat.uniforms.uFarShow;
     this.high = mat.uniforms.uFarHigh;
     this.object = new THREE.Mesh(this.geo, mat);
@@ -191,8 +201,61 @@ export class MoonFar {
   /** A level's blocks from the worker. */
   land(u: FarUpdate) {
     if (u.place !== this.placeId) return;
-    this.landed.push(u);
     this.inFlight--;
+    if (this.bring(u)) this.landed.push(u);
+  }
+
+  /** An update made before a slide comes over by the slides since: false if its level was let go at one, to be made again. */
+  private bring(u: FarUpdate): boolean {
+    for (let s = u.slide ?? this.slides; s < this.slides; s++) {
+      const [dx, dz] = this.slid[s], b = B * this.levels[u.k].cell, di = dx / b, dj = dz / b;
+      if (!kept(di, dj)) return false;
+      u.bi0 -= di;
+      u.bj0 -= dj;
+      for (let q = 0; q < u.blocks.length; q += 2) {
+        u.blocks[q] -= di;
+        u.blocks[q + 1] -= dj;
+      }
+    }
+    u.slide = this.slides;
+    return true;
+  }
+
+  /**
+   * The map slides by (dx, dz) (moonBoot.ts): a level a whole, even number of its blocks off keeps what it has, its window relabelled and the store's slots turned
+   * by as many, so nothing goes up again and the window still sits on the next level's blocks. The rest are let go and asked for again, coarsest last: at the low
+   * game's heights they're past the horizon while they come. The worker does the same with its store.
+   */
+  slide(dx: number, dz: number) {
+    this.slid.push([dx, dz]);
+    this.slides++;
+    for (const l of this.levels) {
+      const b = B * l.cell, di = dx / b, dj = dz / b;
+      if (kept(di, dj)) {
+        l.bi0 -= di;
+        l.bj0 -= dj;
+        l.wantI -= di;
+        l.wantJ -= dj;
+        const o = this.slots[l.k];
+        o.set((((o.x + di) % BLOCKS) + BLOCKS) % BLOCKS, (((o.y + dj) % BLOCKS) + BLOCKS) % BLOCKS);
+        const m = TEXEL_MARGIN * l.cell;
+        this.rects[l.k].set(l.bi0 * b + m, l.bj0 * b + m, (l.bi0 + BLOCKS) * b - m, (l.bj0 + BLOCKS) * b - m);
+      } else {
+        l.ready = false;
+        l.wantI = l.wantJ = NaN;
+      }
+    }
+    this.askedX -= dx;
+    this.askedZ -= dz;
+    // (and what's landed and waiting for its frame comes over with them)
+    this.landed = this.landed.filter((u) => this.bring(u));
+    this.instances();
+  }
+
+  /** A block's slot in the store, level k. */
+  private slotOf(k: number, bi: number, bj: number): [number, number] {
+    const o = this.slots[k];
+    return [(((bi + o.x) % BLOCKS) + BLOCKS) % BLOCKS, (((bj + o.y) % BLOCKS) + BLOCKS) % BLOCKS];
   }
 
   /** Every level this height shows is up, and round this place: what the fall waits for. */
@@ -239,14 +302,14 @@ export class MoonFar {
     st.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     st.bindTexture(gl.TEXTURE_2D_ARRAY, propsM.__webglTexture!);
     for (let q = 0; q < n; q++) {
-      const si = ((u.blocks[q * 2] % BLOCKS) + BLOCKS) % BLOCKS, sj = ((u.blocks[q * 2 + 1] % BLOCKS) + BLOCKS) % BLOCKS;
+      const [si, sj] = this.slotOf(u.k, u.blocks[q * 2], u.blocks[q * 2 + 1]);
       gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, si * B, sj * B, u.k, B, B, 1, gl.RG, gl.UNSIGNED_BYTE, u.map, q * B * B * 2);
     }
     st.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
     st.bindTexture(gl.TEXTURE_2D_ARRAY, propsH.__webglTexture!);
     const AT = BLOCKS * V;
     for (let q = 0; q < n; q++) {
-      const si = ((u.blocks[q * 2] % BLOCKS) + BLOCKS) % BLOCKS, sj = ((u.blocks[q * 2 + 1] % BLOCKS) + BLOCKS) % BLOCKS;
+      const [si, sj] = this.slotOf(u.k, u.blocks[q * 2], u.blocks[q * 2 + 1]);
       gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, si * V, sj * V, u.k, V, V, 1, gl.RG, gl.FLOAT, u.heights, q * V * V * 2);
       for (let j = 0; j < V; j++) l.H.set(u.heights.subarray((q * V + j) * V * 2, (q * V + j + 1) * V * 2), ((sj * V + j) * AT + si * V) * 2);
     }
@@ -287,7 +350,7 @@ export class MoonFar {
       const fx = x / (l.cell * dv), fz = z / (l.cell * dv);
       const qi = Math.floor(fx / QUADS), qj = Math.floor(fz / QUADS);
       if (qi < l.bi0 || qj < l.bj0 || qi >= l.bi0 + BLOCKS || qj >= l.bj0 + BLOCKS) continue;
-      const si = ((qi % BLOCKS) + BLOCKS) % BLOCKS, sj = ((qj % BLOCKS) + BLOCKS) % BLOCKS;
+      const [si, sj] = this.slotOf(l.k, qi, qj);
       // (a hair under a block's edge rounds up onto it: the last quad, not the row past the atlas)
       const vx = fx - qi * QUADS, vz = fz - qj * QUADS, ix = Math.min(QUADS - 1, Math.floor(vx)), iz = Math.min(QUADS - 1, Math.floor(vz)), tx = vx - ix, tz = vz - iz;
       const k = ((sj * V + iz) * AT + si * V + ix) * 2, H = l.H;

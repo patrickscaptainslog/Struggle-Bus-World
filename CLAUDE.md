@@ -53,22 +53,12 @@ These beat every older doc. `README.md`, `HANDOFF.md` and `DECISIONS.md` are his
 
 ## Spending
 
-Tokens are a budget, and the producer never wants to go past a weekly limit into paid extra usage. If you get near one, stop and say so. The producer, 2026-11-03, asked for a split between the two models "that still gives exceptional quality but saves time and tokens". This is it.
+Tokens are a budget, and the producer never wants to go past a weekly limit into paid extra usage. If you get near one, stop and say so.
 
-**Opus 5.5 keeps everything a player feels or a wrong guess breaks.** The stage's plan, the hard code (flight, thumbs, camera, rendering, shaders, workers, hand-overs), merges and conflicts, reviews, every diff before it's kept, and talking to the producer.
-
-**Haiku 5.5 does the rest,** as an Agent with `model: haiku`, in the background, one job each, from a short brief that names the files and what to report:
-- Surveys before Opus edits: every place that does a thing, as `file:line` and one line each. Opus reads only those lines, not whole files.
-- Long runs: start the server, run the tool, restart what dies, and report the pass and fail lines and the numbers asked for. A script decides pass or fail, never Haiku.
-- Edits from a list Opus wrote, old text to new: tools, renames, comments.
-- Docs from Opus's notes in the docs' own style, and frames taken at named moments for Opus to look at.
-- Haiku never pushes or merges, and never decides what the game does.
-
-**How**
-- One session for each stage, started fresh from the repo's notes (TODO and the stage's spec), with a note left in the repo for the next. A long session pays for its whole context again every turn.
-- Opus never waits on a run: it starts it in the background or hands it to Haiku, and goes on. No command with a lot of context behind it should wait past about 4 minutes: the prompt cache lapses after 5, and reloading a whole context cost us about 14 % of all spend.
+- No Haiku. The producer, 2026-11-03: "let's scrape the haiku idea if it's only saving token". Opus does the work, and time is what's short.
+- Opus never waits on a run: start it in the background and go on. No command with a lot of context behind it should wait past about 4 minutes: the prompt cache lapses after 5, and reloading a whole context cost us about 14 % of all spend.
 - On a cloud machine, frame-stepped tools at 1x (`__qa.holdFrames`, `tools/moon/flicks.mjs`). At 3x a row of `controls.mjs` takes minutes, and tools that time their legs by the wall clock (`stranger`, `edges`, `warmcheck`) can't finish there: they're for a laptop. A background job, a server too, dies at 2 hours.
-- Stop an agent at about 300K tokens and carry on with a fresh one from a note. That would have saved about 15 %. Two or three agents at a time, no big fan-outs.
+- No big fan-outs of agents.
 
 ## Running it
 

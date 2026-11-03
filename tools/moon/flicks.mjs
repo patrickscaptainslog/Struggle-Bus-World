@@ -18,6 +18,9 @@ import { flick, flickTo } from '../flick.mjs';
 
 const dir = process.argv.slice(2).find((a) => !a.startsWith('--')) ?? 'shots/tmp/flicks';
 const trip = process.argv.includes('--trip');
+// --high instead: that push let go at 60 km, flying on round the Moon there until the map has moved under the mesh (it dissolves out, the world is made
+// again ahead, it comes back), then a push down to the ground in the new world
+const high = process.argv.includes('--high');
 const BASE = process.env.BASE ?? 'http://localhost:4179/';
 mkdirSync(dir, { recursive: true });
 const W = 393, H = 852, DT = 1 / 30;
@@ -184,7 +187,48 @@ try {
     legs.push((await read()).leg);
   }
   row('push: a push held 0.3 s leaves the orbit', legs.includes('fall'), { frames: legs.length, legs: [...new Set(legs)] });
-  if (trip) {
+  if (high) {
+    const at = () => page.evaluate(() => {
+      const sp = window.__space, m = sp.moon, L = m.landing, G = window.__game;
+      return { leg: m.trip.leg, near: L.near, low: L.ground, km: +L.height.toFixed(2), moving: L.moving, show: +L.show.toFixed(2), speed: Math.round(m.trip.v * m.trip.gov * 1000), nose: +((m.trip.nose * 180) / Math.PI).toFixed(1), gear: L.ground ? G.controls.turbo.gear : m.trip.gear, programs: sp.pipeline.renderer.info.programs.length };
+    });
+    const wall = Date.now();
+    let s1 = await at(), n = 0;
+    for (; n < 300 && !(s1.near && s1.km < 60); n++) {
+      await frames(10);
+      s1 = await at();
+      if (n % 25 === 0) console.log('  down', JSON.stringify(s1));
+    }
+    await touch('touchEnd', RX, RY - 80, 300 + n * 10 * 33);
+    console.log('  let go', JSON.stringify(s1), `${n * 10} frames`);
+    const seen = [];
+    let k = 0;
+    for (; k < 400 && !(seen.includes(2) && s1.moving === 0 && s1.show >= 1); k++) {
+      await frames(10);
+      s1 = await at();
+      if (seen.at(-1) !== s1.moving) seen.push(s1.moving);
+      if (k % 20 === 0 || seen.length < 5) console.log('  level', JSON.stringify(s1));
+      if (s1.moving === 2 && !seen.includes('shot')) {
+        seen.push('shot');
+        await shot('high-moving');
+      }
+    }
+    await shot('high-moved');
+    row('high: flying on at 60 km the map moves under the mesh, and the mesh comes back', seen.includes(1) && seen.includes(2) && s1.show >= 1 && !s1.low, { frames: k * 10, seen, at: s1 });
+    begin();
+    await touch('touchStart', RX, RY, 0);
+    await touch('touchMove', RX, RY - 80, 300);
+    for (n = 0; n < 300 && !s1.low; n++) {
+      await frames(10);
+      s1 = await at();
+      if (n % 20 === 0) console.log('  down again', JSON.stringify(s1));
+    }
+    await touch('touchEnd', RX, RY - 80, 300 + n * 10 * 33);
+    await frames(30);
+    await shot('high-landed');
+    row('high: and a push down from there lands in the new world', s1.low, { frames: n * 10, at: s1 });
+    console.log(`  ${Math.round((Date.now() - wall) / 1000)} s of wall`);
+  } else if (trip) {
     // ---- the whole way down on that push, out by flicks, and home
     const at = () => page.evaluate(() => {
       const sp = window.__space, m = sp.moon, L = m.landing, G = window.__game, low = L.ground, f = G?.flight;

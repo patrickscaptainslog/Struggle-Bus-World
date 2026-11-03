@@ -63,6 +63,17 @@ export function axesOf(f: MapFrame, x: number, z: number, o: V3): void {
   }
 }
 
+/**
+ * The map centred again at its point (x, z), on its own axes there (axesOf), so nothing turns: heading, the view and the Sun's bearing go on as they were, and a point near
+ * the bus has the map metres it had less (x, z). It slides (docs/specs/moon/FREEFLIGHT.md, Stage 2). Its north is the carried one, not the meridian's.
+ */
+export function frameAt(f: MapFrame, x: number, z: number): MapFrame {
+  const a = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+  axesOf(f, x, z, a);
+  const u = [a[3], a[4], a[5]], e = [a[0], a[1], a[2]], n = [-a[6], -a[7], -a[8]];
+  return { lat0: latOf(u), lon0: lonOf(u), u, e, n };
+}
+
 /** A unit vector, Moon fixed, to map metres: out[0] x, out[1] z. */
 export function mapOf(f: MapFrame, dx: number, dy: number, dz: number, out: V3): void {
   const { u, e, n } = f;

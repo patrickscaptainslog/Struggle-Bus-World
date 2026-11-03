@@ -914,6 +914,121 @@ export class City {
     return new THREE.Vector4(this.manifest.bounds[0], this.manifest.bounds[1], 1 / this.manifest.tileSize, 0);
   }
 
+  /**
+   * ?moon: the map slides by (dx, dz), whole regions (docs/specs/moon/FREEFLIGHT.md, Stage 2). Every tile and region comes over, keys, data, meshes and the
+   * origins their materials read, and nothing loads again: a mesh keeps the vertices it had and moves by its own position. What was asked for and hadn't
+   * landed is asked for again on the new map, and the worker drops the old asks. Ground paint goes with its tiles.
+   */
+  slide(dx: number, dz: number) {
+    if (!this.moon) return;
+    const ts = this.manifest.tileSize, R = this.regionSize * ts, dtx = dx / ts, dtz = dz / ts, drx = dx / R, drz = dz / R;
+    const split = (key: string): [number, number] => {
+      const c = key.indexOf(',');
+      return [Number(key.slice(0, c)), Number(key.slice(c + 1))];
+    };
+    const region = (key: string) => {
+      const [rx, rz] = split(key);
+      return this.regionKey(rx - drx, rz - drz);
+    };
+    const tile = (key: string) => {
+      const [tx, tz] = split(key);
+      return `${tx - dtx},${tz - dtz}`;
+    };
+    const mesh = (m: THREE.Mesh | null | undefined) => {
+      if (!m) return;
+      m.position.x -= dx;
+      m.position.z -= dz;
+      m.updateMatrix();
+      const u = (m.material as THREE.ShaderMaterial).uniforms;
+      for (const name of ['uTileRect', 'uMapRect'] as const) {
+        const v = u?.[name]?.value as THREE.Vector4 | undefined;
+        if (v) {
+          v.x -= dx;
+          v.y -= dz;
+        }
+      }
+    };
+    const tex = (t: THREE.Texture | null | undefined) => {
+      const at = (t as (THREE.Texture & { moonAt?: { x: number; z: number } }) | null | undefined)?.moonAt;
+      if (at) {
+        at.x -= dx;
+        at.z -= dz;
+      }
+    };
+    const terrain = (tr: TerrainTile | null | undefined) => {
+      if (!tr) return;
+      tr.tx -= dtx;
+      tr.tz -= dtz;
+      tr.originX -= dx;
+      tr.originZ -= dz;
+      if (tr.moon) {
+        tr.moon.mapX -= dx;
+        tr.moon.mapZ -= dz;
+      }
+    };
+    // (a tile from the worker: its grid's vertices are where it was made, so it's made again from the heights)
+    const result = (t: TileResult) => {
+      t.tx -= dtx;
+      t.tz -= dtz;
+      terrain(t.terrain);
+      t.grid = null;
+    };
+    const tiles = [...this.tiles.values()];
+    this.tiles.clear();
+    this.tileNum.clear();
+    for (const lt of tiles) {
+      lt.tx -= dtx;
+      lt.tz -= dtz;
+      terrain(lt.terrainData);
+      lt.grid = null;
+      mesh(lt.terrain);
+      tex(lt.classTex);
+      if (lt.prep?.terrain) {
+        mesh(lt.prep.terrain.mesh);
+        tex(lt.prep.terrain.classTex);
+      }
+      this.tiles.set(`${lt.tx},${lt.tz}`, lt);
+      this.tileNum.set(tileKeyNum(lt.tx, lt.tz), lt);
+    }
+    const meshes = [...this.regionMeshes.entries()];
+    this.regionMeshes.clear();
+    for (const [key, rm] of meshes) {
+      mesh(rm.terrain);
+      tex(rm.classTex);
+      this.regionMeshes.set(region(key), rm);
+    }
+    const loaded = [...this.regionsLoaded].map(region);
+    this.regionsLoaded = new Set(loaded);
+    this.regionsRequested = new Set(loaded);
+    this.regionLod = new Map([...this.regionLod].map(([k, v]) => [region(k), v] as [string, 0 | 1]).filter(([k]) => this.regionsLoaded.has(k)));
+    this.ownGround = new Set([...this.ownGround].map(tile));
+    this.pending.clear();
+    this.retryAt.clear();
+    this.failCount.clear();
+    for (const a of this.adopt) {
+      a.key = region(a.key);
+      if (a.kind === 'tile' || a.kind === 'prep') result(a.t);
+      else {
+        a.msg.rx = (a.msg.rx ?? 0) - drx;
+        a.msg.rz = (a.msg.rz ?? 0) - drz;
+        for (const t of a.msg.tiles) result(t);
+      }
+    }
+    // the mask scrolls with the tiles
+    const m = this.loadedMask.image.data as Uint8Array, W = this.maskW, H = this.maskH, was = m.slice();
+    m.fill(0);
+    for (let j = 0; j < H; j++) {
+      const sj = j + dtz;
+      if (sj < 0 || sj >= H) continue;
+      for (let i = 0; i < W; i++) {
+        const si = i + dtx;
+        if (si >= 0 && si < W) m[j * W + i] = was[sj * W + si];
+      }
+    }
+    this.loadedMask.needsUpdate = true;
+    this.ground.slide(dtx, dtz, dx, dz);
+  }
+
   /** Drop every region (they stream back in): after a lost GL context, whose streamed meshes kept no JS copy. */
   reloadAll() {
     for (const key of [...this.regionsLoaded]) {

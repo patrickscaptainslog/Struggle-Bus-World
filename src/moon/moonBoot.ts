@@ -13,13 +13,13 @@ import type { CityManifest, TerrainTile } from '../world/tiles';
 import { CraterPaint, SITE_R, type NameRow } from './CraterPaint';
 import { craterById, cratersNear, type Crater, type CraterHit } from './craters';
 import { FAR, MOON_REGION, MOON_TILE, capSun, decodeShadow, type FarUpdate } from './gen';
-import { dirOf, findNamed, findPlace, latLonToMap, latOf, lonOf, makeFrame, readAlbedo, readPlaces, type MapFrame, type Place, type PlaceRow, type WholeMap } from './map';
+import { dirOf, findNamed, findPlace, frameAt, latLonToMap, latOf, lonOf, makeFrame, readAlbedo, readPlaces, type MapFrame, type Place, type PlaceRow, type WholeMap } from './map';
 import { MoonFar } from './MoonFar';
 import { HELD_SUN_OFF, MoonSky } from './MoonSky';
 import type { SkyDraw } from '../sky/SkyDraw';
 import { makeMoonGround, moonGlobals, moonMapTexture, moonTileMap } from './moonMaterial';
 import { paintRockMesh, rockMesh, rockProxy } from './rocks';
-import type { MoonCraters, MoonFarRequest, MoonInit, MoonPlace, MoonPlaced, MoonReady, MoonRegionRequest } from './moonWorker';
+import type { MoonCraters, MoonFarRequest, MoonInit, MoonPlace, MoonPlaced, MoonReady, MoonRegionRequest, MoonSlid, MoonSlide } from './moonWorker';
 
 // ?moon: the Moon as a place the real game loads. boot() in main.ts runs as ever with a city that happens to be generated: this file makes that city's manifest, its worker, its far field and its sky, and hands City
 // what differs. ?moon starts low over Theophilus near its central peaks; ?moon&site=<landmark> or ?moon&lat=&lon= start anywhere on the Moon.
@@ -74,6 +74,11 @@ export interface MoonBoot {
   place(lat: number, lon: number, ms: number): number;
   /** ?moonland: the world's own, once it has its datum. */
   placed: (() => void) | null;
+  /**
+   * The map slides by (dx, dz) (docs/specs/moon/FREEFLIGHT.md, Stage 2): centred again there on its own axes, one datum, and what this file holds that has a place on
+   * the map goes with it. main.ts slides the rest in the same moment.
+   */
+  slide(dx: number, dz: number): void;
   /** The ground paint a boulder finds is what's in reach (main.ts hands it GroundPaint's). */
   groundHue: (x: number, z: number) => number;
   /** Saved ground paint is on screen in this box: its boulders take it. */
@@ -182,11 +187,14 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   let ready0: (m: MoonReady) => void = () => {};
   const ready = new Promise<MoonReady>((done) => (ready0 = done));
   let paint: CraterPaint | null = null;
-  /** The place the worker was last asked for. */
+  /** The place the worker was last asked for, and the map's slides since boot: a region asked for before the last is no use, and comes again. */
   let placeId = 0;
+  let slideId = 0;
   worker.onmessage = (ev: MessageEvent<RegionResponse | FarUpdate | MoonReady | MoonCraters | MoonPlaced>) => {
     const m = ev.data;
-    if (m.type === 'region') onRegion?.(m);
+    if (m.type === 'region') {
+      if ((m as RegionResponse & Partial<MoonSlid>).slide === undefined || (m as RegionResponse & MoonSlid).slide === slideId) onRegion?.(m);
+    }
     else if (m.type === 'far') far?.land(m);
     else if (m.type === 'craters') paint?.land(m);
     else if (m.type === 'ready') ready0(m);
@@ -236,7 +244,7 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   };
 
   const city: CityMoon = {
-    request: (msg: RegionRequest, rx: number, rz: number) => worker.postMessage({ ...msg, rx, rz, place: placeId } satisfies MoonRegionRequest),
+    request: (msg: RegionRequest, rx: number, rz: number) => worker.postMessage({ ...msg, rx, rz, place: placeId, slide: slideId } satisfies MoonRegionRequest),
     listen: (fn) => (onRegion = fn),
     available: (rx, rz) => {
       const s = MOON_REGION * MOON_TILE;
@@ -341,6 +349,35 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
       const s = sky.sun, f = sky.sunFix;
       worker.postMessage({ type: 'place', id: placeId, lat: lat2, lon: lon2, sun: [s[0], s[1], s[2]], sunFix: [f[0], f[1], f[2]], bounds } satisfies MoonPlace);
       return placeId;
+    },
+    slide(dx, dz) {
+      slideId++;
+      Object.assign(frame, frameAt(frame, dx, dz));
+      // (the Sun over the new middle, on these axes: a true one turns 2 degrees a slide; at night it may be Earth now)
+      sky.slide(frame.u, frame.e, frame.n);
+      if (land) capSun(sky.sun);
+      light();
+      const f = sky.sunFix;
+      worker.postMessage({ type: 'slide', slide: slideId, dx, dz, bounds, sunFix: [f[0], f[1], f[2]] } satisfies MoonSlide);
+      far?.slide(dx, dz);
+      // the boulders: their meshes over, their places in their data, their keys by regions
+      const R = MOON_REGION * MOON_TILE, dr = dx / R, ds = dz / R, moved = [...rocks.entries()];
+      rocks.clear();
+      for (const [key, r] of moved) {
+        r.mesh.position.x -= dx;
+        r.mesh.position.z -= dz;
+        for (let o = 0; o < r.data.length; o += 7) {
+          r.data[o] -= dx;
+          r.data[o + 2] -= dz;
+        }
+        const c = key.indexOf(',');
+        rocks.set(`${Number(key.slice(0, c)) - dr},${Number(key.slice(c + 1)) - ds}`, r);
+      }
+      // (what's painted is kept by crater and by latitude: it lays itself out again on this map)
+      paint?.rebase();
+      // (the fine noise on the ground reads where it was, so nothing in it moves)
+      const S = moonGlobals.uSlide.value, P = 2 ** 18;
+      S.set((((S.x + dx) % P) + P) % P, (((S.y + dz) % P) + P) % P);
     },
     update(x, z) {
       far?.update(x, z);

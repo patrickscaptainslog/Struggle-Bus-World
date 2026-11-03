@@ -210,7 +210,8 @@ export class MoonGen {
   sunFix: ArrayLike<number> | null = null;
   private readonly axes = new Float64Array(9);
 
-  constructor(readonly src: MoonSource, frame: MapFrame, readonly sun: SunLine, readonly seed: number, bounds: readonly number[]) {
+  /** datum: the session's, when the map slides (one datum, so Y never steps); left out it's this map's own lowest ground, less room. */
+  constructor(readonly src: MoonSource, frame: MapFrame, readonly sun: SunLine, readonly seed: number, bounds: readonly number[], datum?: number) {
     this.frame = frame;
     for (const p of src.places) {
       if (p.type === 'crater') {
@@ -229,6 +230,10 @@ export class MoonGen {
       }
     }
     // (the lowest ground on the map, and room under it for what the places and the craters dig)
+    if (datum !== undefined) {
+      this.datum = datum;
+      return;
+    }
     let low = Infinity;
     const d = this.d;
     const [x0, z0, x1, z1] = bounds;
@@ -647,6 +652,8 @@ export interface FarUpdate {
   map: Uint8Array;
   /** V * V * 2 floats a block: height, tone */
   heights: Float32Array;
+  /** the map's slides made before it (moonWorker.ts) */
+  slide?: number;
 }
 
 interface FarLevel {
@@ -675,6 +682,21 @@ export class FarStore {
   reset(gen: MoonGen): void {
     this.gen = gen;
     for (const l of this.levels) l.ready = false;
+  }
+
+  /**
+   * The map slid by (dx, dz) onto `gen`'s frame: a level whose window is a whole, even number of its blocks off keeps what it has, relabelled; the rest are
+   * made again as they're asked for. Even, so a window still sits on the next level's blocks (MoonFar.ts).
+   */
+  slide(gen: MoonGen, dx: number, dz: number): void {
+    this.gen = gen;
+    for (const l of this.levels) {
+      const b = FAR.B * l.cell, di = dx / b, dj = dz / b;
+      if (Number.isInteger(di) && Number.isInteger(dj) && di % 2 === 0 && dj % 2 === 0) {
+        l.bi0 -= di;
+        l.bj0 -= dj;
+      } else l.ready = false;
+    }
   }
 
   /** The top of what stands at (x, z): the ground or the sunlight over it, from the finest level that holds the place. */
