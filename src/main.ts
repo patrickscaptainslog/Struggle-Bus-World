@@ -1661,6 +1661,7 @@ async function bootSpace() {
 async function bootLanding() {
   pipeline.checkTargets();
   const { bootMoonrun } = await import('./sky/moonrun');
+  // (the rig's look is the flight's too. It's made before the Moon's boot sets the camera's angles, and takes them in place() when the bus comes down)
   const shared = { input: new Input(canvas), audio: new AudioEngine(), rig: new CameraRig() };
   const land = await bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: shared });
   // (?view= has no flight, and nothing to come down from)

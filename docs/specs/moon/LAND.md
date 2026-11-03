@@ -1,5 +1,7 @@
 # From orbit to the ground: `?moonland`
 
+**Since FREEFLIGHT's Stage 1 (2026-11-03, `feat/moonfree`)** TURBO and its down tab are gone: read a flick up for every TURBO tap below and a flick down for the down tab. On the ground the ladder has Express and Nonstop under Jet, so a bus pushed down to the ground skims in Express and goes out by four flicks. Stage 4 brings the rest of this file up to date.
+
 The one link. Earth orbit to Moon orbit as `?moonrun` flies it, then a push of the thumb, and the bus goes down from 300 km to skimming the ground at the clearance it has over San Francisco, on one page, with no reload and no fade. TURBO takes it back up and home, as often as you like. It's all behind `?moonland` (`moonLand` in `src/sky/flag.ts`). To everything that asks, it is `?moon` (its programs, its files). `src/moon/Landing.ts` is what joins the two loops; read its header first.
 
 ## How it goes

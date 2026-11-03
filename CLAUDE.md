@@ -82,6 +82,7 @@ Pages: `?moonland&fps` is the whole trip, Earth orbit to the Moon, land, skim, p
 | `tools/moon/hand.mjs <out>` | One browser held open, flown a step at a time |
 | `tools/moon/stranger.mjs <out>` | A whole flight, as a stranger flies it |
 | `tools/moon/edges.mjs <out>` | The corners of `?moonland` |
+| `tools/moon/flicks.mjs <out>` | Flicks in space, a frame at a time: launch, G5, the long dark, the look, a slow flick in orbit. `tools/flick.mjs` gives any tool a real flick |
 | `tools/moon/run.mjs <file>.ts` | The generator under Node: `look.ts`, `farcost.ts`, `nans.ts` |
 | `tools/sky/route-check.mjs`, `trip-fuzz.mjs` | The flight's maths under Node, no browser |
 | `tools/warmcheck.mjs` | Nothing compiles in flight |

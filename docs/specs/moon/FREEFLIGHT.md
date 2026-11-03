@@ -36,6 +36,12 @@ Then what git can't see. `src/sky/moonrun.ts` makes a `Hud` with tilt callbacks 
 
 Done when: `?moonland` flies the whole trip on flicks with no TURBO button, the left of the screen looks, `tools/controls.mjs` and `tools/controls-sim` pass as they do on `feat/thumbs`, the plain game behaves as `feat/thumbs` does, and the producer has flown it.
 
+**Built 2026-11-03, waiting on the producer's flight.** `DECISIONS.md`, "Flicks on the Moon", has the calls and their numbers. The five files went as above, and `main.ts` merged by itself onto `feat/thumbs`' `controls.frozen || covered`, so `sheetUp` had no caller left. The compiler found the rest of what git couldn't see: `config.turbo.alt3`, the flight's `Hud` callbacks and frame, and `state.turboHeld`. Nothing found these:
+
+- Every gear the Moon names by number: `arrive`, `top`, the way out, the stiff rig, the trail's fade, the arrival, and the push held at Jet's floor, which now goes on down through Nonstop's.
+- Seven tools pressing TURBO, two reading TAP TURBO off the label, and two meaning Jet by one shift.
+- Two things a flick's stroke does out in space that a tap didn't: a slow flick could start a landing from orbit, and on the legs the thumb doesn't steer it tipped the view.
+
 ### Stage 2: the map slides (about 2 days)
 
 The core of the job. From Theophilus, Jet in a straight line for 500 km, low, about seven joins, with no turn-back.

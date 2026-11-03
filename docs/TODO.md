@@ -7,7 +7,7 @@ Tick what you finish, in the commit that finishes it. Add to it when the produce
 Branch `feat/moonfree`, cut from `spike/moonrun`. The plan is [specs/moon/FREEFLIGHT.md](specs/moon/FREEFLIGHT.md). Each stage ends with the producer flying it on their phone, and the next stage waits for that.
 
 - [x] Stage 0: set up and prove the tools run here
-- [ ] Stage 1: flicks on the Moon (merge `feat/thumbs` in)
+- [ ] Stage 1: flicks on the Moon (merge `feat/thumbs` in). Built and pushed 2026-11-03, waiting on the producer's flight
 - [ ] Stage 2: the map slides, a long straight low flight with no turn-back
 - [ ] Stage 3: the whole Moon, poles, far side, night, gears
 - [ ] Stage 4: tidy the specs and hand in
@@ -21,6 +21,7 @@ Branch `feat/moonfree`, cut from `spike/moonrun`. The plan is [specs/moon/FREEFL
 
 ## Waiting on the producer
 
+- [ ] Fly Stage 1 on `feat/moonfree`'s preview: `?moonland&fps`, the whole trip on flicks
 - [ ] OK for the two-thumb controls to go live
 
 ## Later, in this order
