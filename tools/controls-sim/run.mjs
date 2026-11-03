@@ -1,20 +1,17 @@
 #!/usr/bin/env node
 // Offline controls harness (no browser): bundles a scenario with rolldown and runs it in node against the
-// REAL game modules (Tilt, Input, Turbo, Flight, City...). Results land in shots/controls/sim/<name>.json,
-// a summary on stdout.
+// REAL game modules (Input, Shifter, Turbo, Flight, City...). Results land in shots/controls/sim/<name>.json
+// (SB_OUT moves them), a summary on stdout.
 //   node tools/controls-sim/run.mjs <scenario.ts> [args...]
 // Scenarios:
-//   s_tilt.ts     synthetic deviceorientation from a physical phone model: roll / pitch sweeps (portrait,
-//                 landscape, pointing up, past upright), yaw invariance, jitter, latency, auto-recenter,
-//                 orientation change, calibration; tilt -> Flight yaw / climb at the floor and at altitude
-//   s_perm.ts     the permission flow with a mocked DeviceOrientationEvent.requestPermission (granted, denied,
-//                 throws, granted-but-silent = the claude.ai preview), no-sensor timeout -> touch fallback
-//   s_gesture.ts  tap vs hold vs drag through Input with synthetic pointer / key events (tilt off, tilt on, MEGA
-//                 and its adopted thumb, the keyboard): the disambiguation table, with checks
-//   s_hybrid.ts   the arbitration: real Input + TiltCore + TiltMix + Flight on a scripted phone: every handover
-//   s_layout.ts   layoutHud against the spec's tables, and its rules in every layout
-//   s_turbo.ts    gear shifts on the real baked city: G0 -> G1 -> G0 (speed, altitude, camera), LOCKED, boost,
-//                 the map edge, steering authority vs speed
+//   s_gesture.ts  the gesture table (docs/specs/flight/THUMBS.md) through the real Input, Shifter and TurboDrive with
+//                 synthetic pointer / key events: the first thumb alone, the second thumb, flicks, the ladder, rung by
+//                 rung, up and down, the gate, the lone strokes, one thumb on either side, what a flick down leaves behind, the bands, the left zone, two thumbs in any order, MEGA and its adopted thumb, three
+//                 fingers, a lost pointer, the keyboard and the mouse
+//   s_layout.ts   layoutHud against its tables, and its rules in every layout
+//   s_turbo.ts    the ladder on the real baked city: every rung up and back down (speed, altitude, camera), LOCKED, the
+//                 map's edge at every rung, steering authority vs speed; turbo's levels, up and down the nose; a gear
+//                 taken back; Express against a held surge; the hop through the rungs; turbo over Rainbow Warp
 import { rolldown } from 'rolldown';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';

@@ -272,6 +272,26 @@ export const config = {
     diveElevation: 78,
     divePitch: 72,
     diveRate: 1.5,
+    /** The look (docs/specs/flight/THUMBS.md): a second thumb turns the view round the bus, the thumb's offset from where it landed setting the angle on a curve, a x + b x^3:
+     *  lookDegPerPx at the start (deg per px), and 180 degrees at lookFullPx of thumb travel (px), so a small nudge is a small look and the look behind is still there.
+     *  Thumb up looks up; lookInvertY turns that over, against the yoke's way. Sideways is the full circle; up and down it stops at lookUp and lookDown (deg). */
+    lookDegPerPx: 0.4,
+    lookFullPx: 260,
+    lookInvertY: false,
+    lookUp: 45,
+    lookDown: 50,
+    /** How hard the view follows the thumb, and how hard it goes home on the lift (Hz, critically damped): 1.4 is home in about 1 s. */
+    lookFollowHz: 3,
+    lookHomeHz: 1.4,
+    /** A look eases in over this long (s): a flick can outlast the thumb's wait (Input's lookDelayMs), and only its lift says it was one. */
+    lookEaseIn: 0.2,
+    /** A dive's tilt and a look down together stop here (deg of view pitch): past straight down the view would turn over. */
+    lookViewMax: 86,
+    /** A tap goes where the view looks, sideways, out to this far off the nose (deg), and down the nose past that: no tail gun. */
+    lookAimMax: 100,
+    /** The stream stays on the heading through a look held less than this (s), then follows it at this rate (1/s). */
+    lookStreamAfter: 2,
+    lookStreamRate: 2,
     /** The bus's one eye seen from behind: its headlight beam lights what lies ahead of its face a step
      *  or two brighter, this long, this wide at its far end (m, x the eye's openness), pitched this far
      *  down (deg), this strong (0..1, x the eye's openness; 0 = off). */
@@ -369,95 +389,49 @@ export const config = {
     wallowHz: 0.55,
   },
 
-  /** Tilt to fly (src/game/Tilt.ts): the default on phones with motion sensors. Angles in degrees. */
-  tilt: {
-    /** Tilting left/right (rolling) this far from the neutral pose is a full carve; pitching the top edge
-     *  toward / away from you this far is a full climb / dive (deg, divided by the sensitivity). */
-    rollFull: 26,
-    pitchFull: 26,
-    /** Dead zones around the neutral pose (deg): hand tremor and posture never steer. */
-    rollDead: 1.4,
-    pitchDead: 2.2,
-    /** Expo: 0 = linear, 1 = cubic (fine control near center, full authority at the edge). */
-    expo: 0.45,
-    /** Default sensitivity (0.5..2; the settings panel changes it per player). */
-    sensitivity: 1,
-    /** One-Euro jitter filter: cutoff at rest (Hz), its speed coefficient (Hz per deg/s), derivative cutoff (Hz). */
-    minCutoff: 1.6,
-    beta: 0.5,
-    dCutoff: 2.5,
-    /** Prediction to the frame time from the filtered rate, at most this far ahead (s): the filter adds no lag. */
-    predict: 0.02,
-    /** Pitch output starts at the yoke's dead band (config.flight.yokeDead) past tilt's own dead zone
-     *  (0..1; 1 = tilt's dead zone is the only one, so a gentle tilt climbs gently). */
-    yokeComp: 1,
-    /** Auto-recenter: held still (under stillRate deg/s) for stillTime s, the neutral drifts toward the
-     *  current pose with this time constant (s), only while the pose is within these bands (deg): a trim of
-     *  posture drift just past the dead zones, never a deliberate climb or carve (wider bands walked the
-     *  neutral away under a staircase of small held tilts). */
-    stillRate: 4,
-    stillTime: 1.4,
-    recenterTau: 6,
-    recenterPitchBand: 4.5,
-    recenterRollBand: 2.5,
-    /** No orientation event within this long after listening starts = no sensors: touch to fly (s). */
-    eventTimeout: 1,
-    /** Calibration: the neutral pose is the mean of the first this-long of samples (s). */
-    calibrate: 0.18,
-    /** Recentering eases the neutral over this long (s) instead of jumping. */
-    recenterEase: 0.25,
-    /** Stillness before the neutral is taken (toggle, chip, RECENTER: all corner reaches): gravity must turn slower
-     *  than settleRate deg/s for settleHold s in a row, capped at settleMax s (a phone that never settles still calibrates). */
-    settleRate: 40,
-    settleHold: 0.3,
-    settleMax: 1.5,
-    /** An undecided phone player: false = tilt is offered (the TILT TO STEER? chip); true = they count as having chosen it
-     *  (starts on the first gesture; iOS, which needs a tap, gets the chip at the end of the fog). The one switch. */
-    defaultOn: false,
-    /** Tilted this far from neutral (deg) the phone is being turned or put down, not flown: the stick fades out by awayTo. */
-    awayFrom: 58,
-    awayTo: 80,
-  },
-
-  /** Turbo gears (src/game/Turbo.ts). G0 is the classic flight (cruise / surge); each gear needs height above the ground. */
+  /** Turbo gears (src/game/Turbo.ts). Cruise is the classic flight (cruise / surge), Express the surge with no thumb on it (config.flight.surgeSpeed, no height);
+   *  from Nonstop up each gear needs height above the ground. */
   turbo: {
-    /** G2 "Stratos" and G3 "Rainbow Warp" need the world beyond the city map: off until it exists
-     *  (shifting up past G1 shows "LOCKED: world travel coming"). */
+    /** Stratos and Rainbow Warp need the world beyond the city map: off until it exists
+     *  (past Jet's turbo the ladder shows "LOCKED: world travel coming"). */
     worldTravel: false,
-    /** Gear speeds (m/s): G1 "Jet", G2 "Stratos", G3 "Rainbow Warp" (SF -> Tokyo, 8,300 km, in ~5 min). */
-    speed1: 450,
-    speed2: 4500,
-    speed3: 30000,
+    /** Gear speeds (m/s): Nonstop (about 500 mph), Jet, Stratos, Rainbow Warp (SF -> Tokyo, 8,300 km, in ~5 min). */
+    nonstopSpeed: 225,
+    jetSpeed: 450,
+    stratosSpeed: 4500,
+    warpSpeed: 30000,
     /** Height above the ground each gear needs (m): shifted up lower, the bus climbs there first. */
-    alt1: 150,
-    alt2: 2000,
-    alt3: 10000,
+    nonstopAlt: 60,
+    jetAlt: 150,
+    stratosAlt: 2000,
+    warpAlt: 10000,
     /** Climb rate while a gear lifts the bus to its height (m/s). */
-    climb1: 75,
-    climb2: 700,
-    climb3: 3000,
+    nonstopClimb: 50,
+    jetClimb: 75,
+    stratosClimb: 700,
+    warpClimb: 3000,
     /** Spool: speed reaches ~95% of the gear's in this long once at height (s); dropping a gear brakes over this long (s);
      *  both ease in over rateEase (s) so neither starts with a jolt. */
     spool: 2.4,
     brake: 3,
     rateEase: 0.35,
-    /** Holding the turbo (button / swipe-and-hold / Shift): the gear's speed x this (G0: full surge). */
-    boost: 1.3,
+    /** Turbo: the rungs over the top gear, a flick each, latched: the top gear's speed x this. */
+    levels: [1.3, 1.6, 2],
     /** Steering authority above the surge speed: yaw rate x (surge / speed)^turnExp. */
     turnExp: 0.55,
-    /** Camera: pulls back this much at G1 speed (m), widens this much (deg); the shift kicks the fov by this (deg).
+    /** Camera: pulls back this much at Jet's speed (m), widens this much (deg); the shift kicks the fov by this (deg).
      *  (The follow spring's own lag already pulls it back ~2 x speed / (2 pi followHz): camLead of it is cancelled
-     *  at G1, all of it from G2 on, so the camera never falls kilometers behind or under a climbing bus.) */
+     *  at Jet, all of it from Stratos on, so the camera never falls kilometers behind or under a climbing bus.) */
     camPull: 25,
     camFov: 5,
     fovKick: 7,
     camLead: 0.4,
-    /** The bus grows this much at G1 speed so the hero still reads with the camera pulled back (x). */
+    /** The bus grows this much at Jet's speed so the hero still reads with the camera pulled back (x). */
     heroScale: 1.25,
     /** Camera jolt at the sonic boom (m) and its palette flash strength (0..1). */
     boomKick: 3.2,
     boomFlash: 0.55,
-    /** Past the city map's edge by more than this (m) the gear runs out of world and eases back to G0 speed. */
+    /** Past the city map's edge by more than this (m) the gear runs out of world and eases back to the surge. */
     edgeFade: 300,
     /** Bus rattle while straining and at speed (m of jitter at the bus). */
     rattle: 0.32,
@@ -531,7 +505,7 @@ export const config = {
     glintRate: 2,
     /** Inhale: the bus squashes and gulps on the tap frame; the jet leaves this much later (s, inside impactDelay). */
     inhale: 0.09,
-    /** MEGA or Space held this long starts charging the super splat, and TURBO held this long starts the boost (s);
+    /** MEGA or Space held this long starts charging the super splat (s);
      *  shorter is a tap (Input.onChargeStart / onChargeEnd, state.chargeHeld). A press on the screen never charges. */
     holdThreshold: 0.3,
     /** A breath that comes down on nothing (open water, under this height) is a miss; it refunds this much belly. */

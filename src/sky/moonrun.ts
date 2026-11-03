@@ -278,18 +278,13 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     bus.root.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
   }
 
-  // ---- the thumb and TURBO: the real Input and the real HUD, less what has no meaning out here. TURBO's boost has no meaning either, so a long press is a tap: the press that started it already shifted, and its lift mustn't again
-  let pressTaken = false, held = false;
+  // ---- the thumb and the flicks: the real Input and the real HUD, less what has no meaning out here. A flick up is what TURBO's tap was, and a flick down its down tab
   const input = flying ? (land?.input ?? new Input(renderer.domElement)) : null;
-  const hud = input ? new Hud(input, { onTiltToggle() {}, onChip() {}, onSensitivity() {}, onRecenter() {}, onMute() {}, onSwap() {}, onSettings() {}, onGesture() {} }) : null;
+  const hud = input ? new Hud(input, { onMute() {}, onSwap() {}, onGesture() {} }) : null;
   const label = flying ? tripLabel() : null;
   if (input && hud && trip) {
     input.onTripleFinger = () => tuner.toggle();
-    input.onTurbo = (dir) => {
-      if (dir < 0) trip.shiftDown();
-      else if (pressTaken) pressTaken = false;
-      else trip.tap();
-    };
+    input.onTurbo = (dir) => (dir < 0 ? trip.shiftDown() : trip.tap());
     // the game's sound, for the breath alone: its one-shots, no wind (there's no air) and no engine (the graph's frame never runs, so nothing but a breath makes a noise)
     const audio = land?.audio ?? new AudioEngine();
     audio.setVolumes({ ...config.audio, ambience: 0 });
@@ -303,7 +298,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     };
     window.addEventListener('pointerdown', touched, true);
     window.addEventListener('pointerup', touched, true);
-    for (const name of ['mega', 'settings', 'recenter', 'tilt-toggle', 'tilt-chip']) hud.root.querySelector<HTMLElement>(`[data-hud="${name}"]`)?.style.setProperty('visibility', 'hidden');
+    for (const name of ['mega', 'settings']) hud.root.querySelector<HTMLElement>(`[data-hud="${name}"]`)?.style.setProperty('visibility', 'hidden');
     hud.arrive();
   }
 
@@ -351,9 +346,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
       return;
     }
     if (landing?.cameBack && input) {
-      // (TURBO was the low game's: a press still down is no new one)
       landing.cameBack = false;
-      held = pressTaken = input.state.turboHeld;
       labelEl()?.style.removeProperty('display');
       hud?.setVisible(true);
       if (trip && !trip.lifting) hud?.toast(['TAP TURBO: UP AND OUT'], 3.2);
@@ -377,11 +370,6 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     if (trip && view && input) {
       input.update(real);
       const st = input.state;
-      if (st.turboHeld !== held) {
-        held = st.turboHeld;
-        pressTaken = held;
-        if (held) trip.tap();
-      }
       trip.tau = tripTune.tau;
       trip.pull = tripTune.pullDegS * DEG;
       view.swing = tripTune.swing;
@@ -423,8 +411,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     if (trip && view && fx) {
       if (landing?.near) fx.update(dt, trip.v, trip.dir, landing.axes, landing.flying.copy(view.flying).applyQuaternion(landing.q), landing.nosing.copy(view.nosing).applyQuaternion(landing.q), camera, bus.root, pipeline.pixelWorldSize(1), landing.bus);
       else fx.update(dt, trip.v, trip.dir, trip.ob.axes, view.flying, view.nosing, camera, bus.root, pipeline.pixelWorldSize(1));
-      // (the readout's names stop at G3 and the label says the gear: TURBO and its down tab are all that's wanted from the HUD)
-      hud?.update(dt, { gear: trip.gear, maxGear: 5, engaged: true, boosting: false, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity, tiltState: 'none', gearDown: trip.canShiftDown });
+      // (the label says the gear and the readout never shows: the HUD is here for its toasts)
+      hud?.update(dt, { gear: trip.gear, maxGear: 5, engaged: true, level: 0, levels: 0, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity });
       if (frames % 6 === 0) label?.(trip, breath);
       // (the one thing to do up here, where a first-timer's eye is, until they've done it)
       const ask = trip.leg === 'orbit' && (landing ? !landing.pushed : !breath.fired);

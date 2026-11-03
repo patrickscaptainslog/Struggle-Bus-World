@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Flight } from '../game/Flight';
-import { gearSpeed, type TurboDrive } from '../game/Turbo';
+import { gearAlt, gearSpeed, JET, WARP, type TurboDrive } from '../game/Turbo';
 import { config } from '../config';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import { spaceResolveUniforms as U } from '../render/skyResolve';
@@ -50,7 +50,7 @@ const GROUND_S = 0.8;
 /** s: how fast the ray test's radius follows the ground under the bus. */
 const LIFT_S = 2;
 /** m a second: Jet's. */
-const JET = 450;
+const JET_V = 450;
 /** s: how long the lens and the bus take to come over from where the low game left them. */
 const REJOIN = 2.4;
 /** s with no thumb pushing, on the way down, before it's no longer arriving. */
@@ -442,7 +442,7 @@ export class Landing {
       p[j] = (F[j] * d[0] + F[3 + j] * d[1] + F[6 + j] * d[2]) * r;
       hd[j] = fx * A[j] + fz * A[6 + j];
     }
-    t.fromGround(p, hd, Math.atan2(f.vy, g), Math.hypot(g, f.vy) / 1000, gearSpeed(T.gear) / 1000, T.gear >= 3);
+    t.fromGround(p, hd, Math.atan2(f.vy, g), Math.hypot(g, f.vy) / 1000, gearSpeed(T.gear) / 1000, T.gear >= WARP);
     // (the lens's axes, in EQJ: what the view is made of)
     this.x.set(1, 0, 0).applyQuaternion(camera.quaternion);
     this.y.set(0, 1, 0).applyQuaternion(camera.quaternion);
@@ -479,7 +479,7 @@ export class Landing {
 
   /**
    * A frame of the low game, once the gears have written Flight.turbo: the end of the same law, down to Jet's speed at the end of the way down. The gear is Jet, so that's what the bus has when the law lets go, and from there it's the plain
-   * flight. The floor under Jet is 150 m, so a thumb still pushing there has only one thing to ask for: the gear goes down, and the bus goes on down to the rooftops.
+   * flight. The floor under Jet is 150 m, so a thumb still pushing there has only one thing to ask for: the gear goes down. Nonstop's 60 m asks the same, and the bus goes on down to the rooftops in Express, a gear a floor.
    */
   drive(f: Flight, T: TurboDrive, push: number, dt: number): void {
     // (the ceiling stands over where the bus is handed back, wherever the ground goes)
@@ -491,25 +491,26 @@ export class Landing {
     if (this.arriving) {
       // (a thumb that's let go is staying up here, and a gear that's changed has been asked for: the arrival is over, and the gear has the speed)
       this.letGo = push > 0 ? 0 : this.letGo + dt;
-      if (this.letGo > LET_GO || T.gear !== 1) {
+      if (this.letGo > LET_GO || T.gear !== JET) {
         this.arriving = false;
         return;
       }
       const h = f.height / 1000, Tb = f.turbo;
-      this.lawV = Math.min(this.lawV, JET + (Math.max(h - FALL_FLOOR, 0) / FALL_TAU) * 1000);
+      this.lawV = Math.min(this.lawV, JET_V + (Math.max(h - FALL_FLOOR, 0) / FALL_TAU) * 1000);
       // (the map's edge fades a gear; it fades this)
       Tb.speed = config.flight.surgeSpeed + (this.lawV - config.flight.surgeSpeed) * T.edge;
       Tb.rate = 30;
-      if (this.lawV <= JET + 1) this.arriving = false;
+      if (this.lawV <= JET_V + 1) this.arriving = false;
       return;
     }
-    if (T.gear === 1 && this.downT >= 0) {
+    if (T.gear <= JET && T.lifts && this.downT >= 0) {
       this.downT = push > 0 ? 0 : this.downT + dt;
       // (a thumb gone for a while means it's staying up here)
       if (this.downT > 1.5) this.downT = -1;
-      else if (push > 0 && f.y < f.groundBroad + 200) {
+      else if (push > 0 && f.y < f.groundBroad + gearAlt(T.gear) + 50) {
         T.shift(-1, f);
-        this.downT = -1;
+        // (and the gear under it, if that has a floor too, at its own)
+        if (!T.lifts) this.downT = -1;
       }
     }
   }

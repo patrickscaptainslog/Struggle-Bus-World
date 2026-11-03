@@ -37,7 +37,7 @@ const step = async (n) => {
 const state = () => page.evaluate(() => ({ speed: window.__game.flight.speed, y: window.__game.flight.y, fov: window.__game.camera.fov, gear: window.__game.controls.turbo.gear }));
 
 await step(1);
-await page.evaluate(() => window.__game.input.onTurbo(1));
+await page.evaluate(() => { const g = window.__game; for (let i = 0; i < 3; i++) g.controls.turbo.shift(1, g.flight); });
 // up to 20 frames short of Mach 1
 for (let i = 0; i < 600; i++) {
   await step(1);

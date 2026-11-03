@@ -10,7 +10,7 @@
 //   alt       the firehose from 250 m (a climb on the yoke, then a full charge) (alt-*.png)
 //   mega      an early release at 50 %: the mega blast (frames around the impact, counts, radius, cooldown) (mega-*.png)
 //   cooldown  the meter at 0 / 30 / 59 / 60 s of the cooldown after a firehose, and "not yet" (meter-*.png)
-//   jet       G1 at 450 m/s, then a charge, the firehose and the spent limp: the gear's speed through it (jet.json)
+//   jet       Jet at 450 m/s, then a charge, the firehose and the spent limp: the gear's speed through it (jet.json)
 //   first     the first charge after boot, against the second: its frames' work and gaps, real time (first.json)
 //   audio     (with cooldown) the super splat's sounds rendered offline: peak, clipping, NaN (audio.json)
 //   press     real CDP touches on the HUD's MEGA: hold to a mega, the meter above the face and docked on it (press-*.png)
@@ -26,7 +26,7 @@ const flags = Object.fromEntries(args.filter((a) => a.startsWith('--')).map((a) 
 const [base = 'http://127.0.0.1:5201/', out = 'shots/supersplat', ...modeList] = args.filter((a) => !a.startsWith('--'));
 const modes = new Set(modeList.length ? modeList : ['charge', 'sweep', 'alt', 'mega', 'cooldown']);
 mkdirSync(out, { recursive: true });
-// (touch: tilt off, no chip, and no quiet listen)
+// (touch, on a desktop browser too)
 const DT = '&fixeddt=0.0333333&controls=touch';
 
 const browser = await chromium.launch({ ...browserOptions([]) });
@@ -374,7 +374,7 @@ if (modes.has('cooldown')) {
 if (modes.has('jet')) {
   const page = await open(base + '?lat=37.7700&lon=-122.4700&heading=75&skipintro' + DT);
   await runFor(page, 1);
-  await page.evaluate(() => window.__game.controls.turbo.shift(1, window.__game.flight));
+  await page.evaluate(() => { const g = window.__game; for (let i = 0; i < 3; i++) g.controls.turbo.shift(1, g.flight); });
   await runUntil(page, 'g.flight.speed > 420', 25);
   const speed = () => page.evaluate(() => ({ speed: +window.__game.flight.speed.toFixed(1), y: +window.__game.flight.y.toFixed(1), scale: window.__game.flight.speedScale, phase: window.__game.superState().phase, impacts: window.__game.superState().stats.impacts }));
   const log = [await speed()];

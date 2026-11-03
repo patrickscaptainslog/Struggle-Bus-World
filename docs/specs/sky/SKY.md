@@ -46,7 +46,7 @@ All in `src/sky/`, replacing WORLD-TRAVEL's `src/game/Sky.ts`:
 
 | What | Rate | Cost |
 |---|---|---|
-| `SkyModel.frame()` | Every frame; at G3 the sky turns 4.4 px a second [E astro] | 1 µs, 6 bytes [M astro] |
+| `SkyModel.frame()` | Every frame; at Rainbow Warp the sky turns 4.4 px a second [E astro] | 1 µs, 6 bytes [M astro] |
 | Series window | 60 s of sim time, linear, error 1e-8° [M astro] | 158 µs, p99 1.5 ms [M astro] |
 | Key tick | When the shadow tip of the tallest building in frame would move 2 game px, floor 1 s. A 30 m wall: 40 s at 25°, 7 s at 10°, 1.7 s at 5° [M render]; a 260 m tower 8.7 times quicker. On a frame where the camera moved 3 px. Held still: within 60 s above 20°, sooner to 10°, under 10° the pixel rule anyway, so shadows creep; 60 s at 5° would jump a 100 m tip 237 px [E skeptic] | One sun pass |
 | Palette | At most 2 Hz, when a byte changes | 2 KB upload; blend 0.35-1.2 ms, numpy [M here, skeptic] |
@@ -64,7 +64,7 @@ All in `src/sky/`, replacing WORLD-TRAVEL's `src/game/Sky.ts`:
 
 **Sky branch order,** all alpha 0, dither `dsk` only: gradient, Milky Way, stars, Sun, Moon, clouds high to low, haze, the existing halo and flash. Sun and Moon snap to whole pixels with `snapCam`.
 
-**One model, street to Moon.** Only Observer and Body change: Earth fixed with air thinning to G3; EQJ past about 60,000 km; Moon fixed (`rebaseBody` at about 60,000 km [E astro]), no air, earthshine, 0 on the far side. Worst error 0.0031°, tested to 39,000 km from either body [M astro]. Bodies are ray-sphere tests in the sky branch, sorted on the CPU, so occultations need no logic and nothing at 384,400 km enters the render frame.
+**One model, street to Moon.** Only Observer and Body change: Earth fixed with air thinning to Rainbow Warp; EQJ past about 60,000 km; Moon fixed (`rebaseBody` at about 60,000 km [E astro]), no air, earthshine, 0 on the far side. Worst error 0.0031°, tested to 39,000 km from either body [M astro]. Bodies are ray-sphere tests in the sky branch, sorted on the CPU, so occultations need no logic and nothing at 384,400 km enters the render frame.
 
 **Rules everywhere.** Height comes from `dot(uZenith, dir)`; never store an elevation. `uZenith` is radial from the body, drives key and table, is +Y in the city game and replaces `dir.y` now. The camera's `uUp` stays apart: in free flight it follows the bus's nose. The sky test becomes the clear flag (`sbAux(p).a == 0`): `z >= 0.99999` turns geometry into sky at 25.0 km today and would cut `?farfade` at 29 km [M render]. The far plane is one function of height. The far fade is `uFog.w`, an air factor.
 
@@ -87,7 +87,7 @@ All in `src/sky/`, replacing WORLD-TRAVEL's `src/game/Sky.ts`:
 
 **Why ECMWF.** At what a player could really have, over 9,051 reports, it caught low decks at POD 0.67, FAR 0.57, GFS at 0.53, 0.73, while 6 hours staler; METARs within 100 km lift deck CSI from 0.38 to 0.55, own report hidden [M weather]. No model sees point fog.
 
-**System** (decision 5). One Cloudflare account, two jobs that fail apart, because METARs hold the truth up late in a run. A cron Worker relays METARs every 15 minutes ([30 s CPU, 128 MB](https://developers.cloudflare.com/workers/platform/limits/)). A cron at :17 and :47 checks for a new cycle and [starts a Container](https://developers.cloudflare.com/containers/examples/cron/): 110 MB, 1-2 minutes [E weather], ecCodes, since rasterio's GDAL can't read template 5.42 [M weather]. It writes one file per baked city to R2: ±3° at 0.25°, all 11 steps to step 36, under a fixed name, so no manifest, and one fetch covers a day and a half. **Global packs wait for world travel:** G2 and G3 are locked and the soft ceiling is 520 m, so no player passes 2 km. A file names only the city, as `./city/<slug>/` does.
+**System** (decision 5). One Cloudflare account, two jobs that fail apart, because METARs hold the truth up late in a run. A cron Worker relays METARs every 15 minutes ([30 s CPU, 128 MB](https://developers.cloudflare.com/workers/platform/limits/)). A cron at :17 and :47 checks for a new cycle and [starts a Container](https://developers.cloudflare.com/containers/examples/cron/): 110 MB, 1-2 minutes [E weather], ecCodes, since rasterio's GDAL can't read template 5.42 [M weather]. It writes one file per baked city to R2: ±3° at 0.25°, all 11 steps to step 36, under a fixed name, so no manifest, and one fetch covers a day and a half. **Global packs wait for world travel:** Stratos and Rainbow Warp are locked and the soft ceiling is 520 m, so no player passes 2 km. A file names only the city, as `./city/<slug>/` does.
 
 **Credits,** in MAP DATA (`Hud.setCredits`) and a new `public/sky/DATA_LICENSE.md`: every source above, changed data marked, no endorsement implied. ECMWF's sentences come word for word from [its notice page](https://apps.ecmwf.int/datasets/licences/general/). Add: "Sun, Moon and shadows are real. Walls are shaded for readability at midday."
 
@@ -475,7 +475,7 @@ Far-material rules, whichever renderer wins: (1) No baked light or shadow, nothi
 
 ### The Moon flight
 
-Nobody has designed it, and VERDICT step 7 is the surface only. G3 takes 3.5 hours; 5 minutes needs about 1,300 km/s [E]. This build proves the model with fixed views. The ephemeris needs no rebuild: Earth 0.00302°, Sun 0.00299° from Apollo 11 today against Horizons [M skeptic].
+Nobody has designed it, and VERDICT step 7 is the surface only. Rainbow Warp takes 3.5 hours; 5 minutes needs about 1,300 km/s [E]. This build proves the model with fixed views. The ephemeris needs no rebuild: Earth 0.00302°, Sun 0.00299° from Apollo 11 today against Horizons [M skeptic].
 
 | Flight needs | What is ready |
 |---|---|

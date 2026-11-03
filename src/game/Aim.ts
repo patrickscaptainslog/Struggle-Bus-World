@@ -22,6 +22,9 @@ import type { Splatter } from './Splat';
 //   under the player's eyes: the tap hits what glinted when they committed.
 // - fire() hands the glinting building itself to Splatter.barf (never a
 //   centroid to re-pick from).
+// - A look turns the aim with the view, sideways only (lookYaw, CameraRig's
+//   aimYaw): the glint stays in its usual spot on the screen and the world turns
+//   under it, because the view turns about the bus and so does this.
 
 export interface Shot {
   /** the building it hits (the one glinting), or null */
@@ -50,6 +53,11 @@ export class Aimer {
   target: BuildingRef | null = null;
   /** game time the shown building started glinting (the glint's sweep starts there) */
   shownSince = 0;
+  /** how far off the nose the breath goes (rad, +right): the look's, per frame (main.ts) */
+  lookYaw = 0;
+  /** the way the breath goes, flat: the nose, turned by the look */
+  fx = 0;
+  fz = 1;
   private latchRef: BuildingRef | null = null;
   private latchUntil = 0;
   private wasDrag = false;
@@ -59,8 +67,6 @@ export class Aimer {
   private ready = false;
   private x0 = 0;
   private z0 = 0;
-  private fx = 0;
-  private fz = 1;
   private readonly land = { x: 0, z: 0 };
   private horiz = 0;
   private classic = true;
@@ -83,7 +89,14 @@ export class Aimer {
     const r0 = S.range + S.rangePerSpeed * f.ground;
     const a = (clamp(S.aimDown, 2, 80) * Math.PI) / 180;
     const ca = Math.cos(a), sa = Math.sin(a);
-    const x0 = f.x, y0 = f.y, z0 = f.z, fx = f.fx, fz = f.fz;
+    const x0 = f.x, y0 = f.y, z0 = f.z;
+    let fx = f.fx, fz = f.fz;
+    if (this.lookYaw !== 0) {
+      const c = Math.cos(this.lookYaw), s = Math.sin(this.lookYaw);
+      const nx = fx;
+      fx = nx * c - fz * s;
+      fz = fz * c + nx * s;
+    }
     this.x0 = x0;
     this.y0 = y0;
     this.z0 = z0;
