@@ -183,7 +183,7 @@ function tripLabel(orbitPaint: boolean): (trip: MoonTrip, breath: MoonBreath | n
     const b = `G${trip.gear} ${leg === 'fall' && trip.v < 1 ? `${Math.round(trip.v * 1000)} M` : trip.v < 1 ? '0 KM' : `${thousands(trip.v)} KM`}/S ${thousands(Math.min(trip.hMoon, trip.hEarth))} KM`;
     const asks = (leg === 'out' || leg === 'homeOut' || leg === 'climb' || leg === 'arc' || leg === 'leave') && trip.g5Room;
     const dark = leg === 'cruise' || leg === 'homeCruise';
-    const p = trip.armed ? 'G5 ARMED' : leg === 'wait' ? 'FLICK UP FOR THE MOON' : leg === 'orbit' || (leg === 'fall' && trip.hMoon > 150) ? 'FLICK UP FOR HOME' : leg === 'fall' && !trip.lifting ? 'FLICK UP FOR ORBIT' : asks ? 'FLICK UP FOR G5' : dark ? 'DRAG TO LOOK ROUND' : '';
+    const p = trip.armed ? 'G5 ARMED' : leg === 'wait' ? 'FLICK UP FOR THE MOON' : leg === 'orbit' || (leg === 'fall' && trip.hMoon > 150) ? 'FLICK UP FOR HOME' : leg === 'fall' && !trip.lifting ? 'FLICK UP FOR ORBIT' : asks ? 'FLICK UP FOR G5' : dark ? 'DRAG TO CARVE' : '';
     // the goal, once there is any; and until the first shot, what to do about it
     const share = breath && !breath.paint.rebuilding ? breath.paint.painted * 100 : 0;
     const d = share > 0 ? `PAINTED ${share < 1 ? share.toFixed(2) : share < 10 ? share.toFixed(1) : share.toFixed(0)} % OF THE MOON` : '';
@@ -294,8 +294,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   // (the look is the rig's: on ?moonland the low game's own, so a look held across a join goes on across it)
   const looker = input ? (land?.rig ?? new CameraRig()) : null;
   // (where each panning thumb was last frame)
-  const lookAt = new THREE.Vector2(), fingerAt = new THREE.Vector2();
-  let lookOn = false, fingerOn = false;
+  const lookAt = new THREE.Vector2();
+  let lookOn = false;
   const label = flying ? tripLabel(!landing) : null;
   if (input && hud && trip) {
     input.onTripleFinger = () => tuner.toggle();
@@ -400,10 +400,10 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     if (trip && view && input && looker) {
       input.update(real);
       const st = input.state;
-      // (the left of the screen pans on every leg, and the right where it doesn't steer: as far as the finger goes, the screen's width half way round, and it stays where it's left, the producer's
-      // word: "just forget auto re-alignment. where the user pans - it goes". And the longest flick, so the orbit's push doesn't take one for a push)
+      // (the left of the screen pans on every leg: as far as the finger goes, the screen's width half way round, and it stays where it's left, the producer's word: "just forget auto re-alignment.
+      // where the user pans - it goes". The right flies: where it doesn't steer the path it carves about it, as the street turns. And the longest flick, so the orbit's push doesn't take one for a push)
       const steer = trip.steering, W = Math.max(1, window.innerWidth);
-      // (from where the finger landed on its first frame, so a quick swipe's start isn't lost: the look's offset is from there, and the right thumb's anchor is there until it follows)
+      // (from where the finger landed on its first frame, so a quick swipe's start isn't lost: the look's offset is from there)
       let dx = 0, dy = 0;
       if (st.look.on) {
         dx += st.look.x - (lookOn ? lookAt.x : 0);
@@ -411,15 +411,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
       }
       lookOn = st.look.on;
       lookAt.set(st.look.x, st.look.y);
-      const right = !steer && st.dragging && !!st.finger;
-      if (right) {
-        const from = fingerOn ? fingerAt : (st.anchor ?? st.finger!);
-        dx += st.finger!.x - from.x;
-        dy -= st.finger!.y - from.y;
-      }
-      fingerOn = right;
-      if (st.finger) fingerAt.set(st.finger.x, st.finger.y);
-      const panning = st.look.on || right;
+      const panning = st.look.on;
       looker.setLook(false, 0, 0, real);
       view.lookYaw = looker.lookYawNow;
       view.lookPitch = looker.lookPitchNow;
@@ -430,6 +422,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
       view.halfV = camera.fov / 2;
       trip.step(dt, trip.steering && st.dragging ? st.stretch.x : 0, st.dragging ? st.stretch.y : 0);
       view.steerX = steer && st.dragging ? st.stretch.x : 0;
+      view.carveX = !steer && st.dragging ? st.stretch.x : 0;
+      view.carveY = !steer && st.dragging ? st.stretch.y : 0;
       view.update(dt, trip, (-dx / W) * Math.PI * PAN_X, (dy / W) * Math.PI * PAN_Y, panning, lensParam);
       pipeline.setHfov(view.hfov);
       landing?.update(dt);

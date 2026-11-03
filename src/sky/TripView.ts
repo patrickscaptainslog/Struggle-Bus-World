@@ -20,9 +20,9 @@ import { R_E, R_M, type MoonTrip } from './MoonTrip';
 // The angles are the city's at 1 km, all the way: the view looks ahead and a little down, so what the path points at stands over the bus, and a frame too short for that eases the pitch by the rig's own rule. The Moon's low game sits a little lower (MOON_VISTA),
 // so on the last of the way down the angles come to its own, by the height alone. The lens doesn't move, so a disc grows by its own size alone and the bus stays the size it is over the city.
 //
-// A thumb pans the camera on top of all this: the left of the screen on every leg, either side where the other thumb doesn't steer. It turns as far as the finger goes, the screen's width half way round, and stays where it's left (the
-// producer: "just forget auto re-alignment. where the user pans - it goes"). A flick is a stroke too and only its lift says so, so what a flick panned goes back, quickly and not at a jump. Over all of it goes the look, the rig's own
-// (game/CameraRig.ts setLook), which only the low game's handover leaves on: the whole view turns about the bus.
+// The left of the screen pans the camera on top of all this, on every leg. It turns as far as the finger goes, the screen's width half way round, and stays where it's left (the producer: "just forget auto re-alignment. where the
+// user pans - it goes"). The right flies: where it doesn't steer the path, the bus carves about it as the street's turns, and comes back to it when let go, while the path goes on as it was. A flick is a stroke too and only its lift says
+// so, so what a flick panned or carved goes back, quickly and not at a jump. Over all of it goes the look, the rig's own (game/CameraRig.ts setLook), which only the low game's handover leaves on: the whole view turns about the bus.
 
 const DEG = Math.PI / 180;
 const RIGHT = new THREE.Vector3(1, 0, 0);
@@ -43,6 +43,14 @@ const ROLL_MOST = 12 * DEG;
 const LENS_RATE = 1.2;
 /** How fast what a flick panned goes back, 1/s. */
 const FLICK_BACK = 14;
+/**
+ * The carve, where the thumb doesn't steer: the bus turns off the path as the street's turns, at this rate at full stretch (rad/s), as far as this either way, and back to the path when let go at this rate (1/s).
+ * The path doesn't move: the producer, "even though the path is set and straight, I want to have the players be able to carve and turn and… move through the sky".
+ */
+const CARVE_RATE = 55 * DEG;
+const CARVE_YAW = 40 * DEG;
+const CARVE_PITCH = 25 * DEG;
+const CARVE_BACK = 0.7;
 /** The nose's fastest swing, rad/s: the tip-up reads as a move, and the first frame of it isn't a kick. */
 const NOSE_RATE = 75 * DEG;
 /** The share of its length the bus shows the camera in a full dive, the sine of the angle between its nose and the line of sight. The rig tips over a dive until it's looking down the bus's back, and end on a bus is its tail, a third of its size: it lifts its nose up the screen by what's short. moon/Landing.ts holds the low game to the same. */
@@ -101,6 +109,17 @@ export class TripView {
   private goingBack = false;
   /** The steering thumb's stick, -1..1, where it steers (moonrun.ts): the bus leans into the turn. */
   steerX = 0;
+  /** The right thumb's stick, -1..1, +y up, on the legs it doesn't steer (moonrun.ts): the bus carves about the path. */
+  carveX = 0;
+  carveY = 0;
+  /** the carve off the path, rad: yaw (+ left) and pitch (+ up), and as it stood when this stroke began, for a flick */
+  private cy = 0;
+  private cp = 0;
+  private cy0 = 0;
+  private cp0 = 0;
+  private carveStroke = false;
+  private carveBack = false;
+  private readonly carved = new THREE.Vector3();
   private readonly viewQ = new THREE.Quaternion();
   private readonly lookQ = new THREE.Quaternion();
   /** the chase's turn, rad/s, and the rate of its spring, 1/s */
@@ -155,10 +174,39 @@ export class TripView {
     const off = Math.acos(Math.max(-1, Math.min(1, nose.dot(nw))));
     nose.lerp(nw, Math.min(1 - Math.exp(-6 * dt), (NOSE_RATE * dt) / Math.max(off, 1e-6))).normalize();
 
+    // ---- the carve about the path, where the thumb doesn't steer: it turns as the street's does, up to a limit, and comes back on the lift. The path is what it was
+    const cx = trip.steering ? 0 : this.carveX, cyStick = trip.steering ? 0 : this.carveY;
+    if (cx !== 0 || cyStick !== 0) {
+      if (!this.carveStroke) {
+        this.carveStroke = true;
+        this.cy0 = this.cy;
+        this.cp0 = this.cp;
+      }
+    } else this.carveStroke = false;
+    // (a flick's stroke carved too, before its lift said it was a flick: that goes back quickly, to where the stroke found it)
+    if (cx !== 0 || cyStick !== 0) this.carveBack = false;
+    const back = this.carveBack, k = 1 - Math.exp(-FLICK_BACK * dt);
+    const drive = (off: number, stick: number, most: number, was: number) => {
+      if (back) return off + (was - off) * k;
+      if (stick === 0) return off * Math.exp(-CARVE_BACK * (trip.steering ? 3 : 1) * dt);
+      const out = Math.sign(stick) === Math.sign(off) ? Math.max(0, 1 - Math.abs(off) / most) : 1;
+      return off + stick * CARVE_RATE * out * dt;
+    };
+    this.cy = drive(this.cy, -cx, CARVE_YAW, this.cy0);
+    this.cp = drive(this.cp, -cyStick, CARVE_PITCH, this.cp0);
+    if (back && Math.abs(this.cy - this.cy0) + Math.abs(this.cp - this.cp0) < 1e-4) this.carveBack = false;
+    const carved = this.carved.copy(nose);
+    if (this.cy !== 0 || this.cp !== 0) {
+      carved.applyAxisAngle(this.top, this.cy);
+      const side = this.t2.crossVectors(carved, this.top);
+      if (side.lengthSq() > 1e-9) carved.applyAxisAngle(side.normalize(), this.cp);
+    }
+    const carving = Math.abs(this.cy) + Math.abs(this.cp) > 1e-3;
+
     // ---- the chase comes after it
-    const steered = trip.steering, spring = steered ? 2 * Math.PI * C.yawHz : FOLLOW;
+    const steered = trip.steering || carving, spring = steered ? 2 * Math.PI * C.yawHz : FOLLOW;
     this.rate += (spring - this.rate) * (1 - Math.exp(-(steered ? FOLLOW_ON : FOLLOW_OFF) * dt));
-    this.follow(trip.leg === 'fall' ? this.t.set(hd[0], hd[1], hd[2]) : nose, dt);
+    this.follow(trip.leg === 'fall' ? this.t.set(hd[0], hd[1], hd[2]) : carved, dt);
     this.level(u, homeward, dt);
 
     // ---- the rig's angles
@@ -192,6 +240,8 @@ export class TripView {
     if (this.flickedNow) {
       this.flickedNow = false;
       if (!thumb && this.stroke) this.goingBack = true;
+      // (and what its stroke carved goes too)
+      this.carveBack = true;
     }
     if (thumb) {
       this.goingBack = false;
@@ -237,14 +287,15 @@ export class TripView {
     ax[8] = e[10];
 
     // ---- the bus: its nose, and its roof the chase's way up
-    const roof = this.busUp, flat = this.t.copy(top).addScaledVector(nose, -top.dot(nose));
+    const roof = this.busUp, flat = this.t.copy(top).addScaledVector(carved, -top.dot(carved));
     if (flat.lengthSq() > 1e-6) roof.copy(flat).normalize();
-    this.bank += ((trip.steering ? this.steerX : 0) * 0.45 - this.bank) * (1 - Math.exp(-6 * dt));
+    this.bank += ((trip.steering ? this.steerX : cx) * 0.45 - this.bank) * (1 - Math.exp(-6 * dt));
     // (a carve leans the roof into the turn)
-    this.t2.copy(roof).multiplyScalar(Math.cos(this.bank)).addScaledVector(this.t.crossVectors(nose, roof), Math.sin(this.bank));
-    this.inRender(nose, ax, this.nosing);
+    this.t2.copy(roof).multiplyScalar(Math.cos(this.bank)).addScaledVector(this.t.crossVectors(carved, roof), Math.sin(this.bank));
+    this.inRender(carved, ax, this.nosing);
     this.inRender(this.t2, ax, this.y);
-    this.inRender(this.t.set(dir[0], dir[1], dir[2]), ax, this.flying);
+    // (carving, it goes the way it's carved, the streaks and the trail with it)
+    this.inRender(carving ? carved : this.t.set(dir[0], dir[1], dir[2]), ax, this.flying);
     const sb = Math.sin(this.below), cb = Math.cos(this.below), along = -(this.nosing.y * sb + this.nosing.z * cb), short = SHOW * this.dive - Math.sqrt(Math.max(0, 1 - along * along));
     if (short > 0) this.nosing.addScaledVector(this.t.set(0, cb, -sb), along > 0 ? short : -short).normalize();
     const z = this.z.copy(this.nosing).negate();
@@ -305,9 +356,14 @@ export class TripView {
     return a === 0 ? v : v.multiply(this.lookQ.setFromAxisAngle(RIGHT, a));
   }
 
-  /** A flick just lifted (moonrun.ts): what its stroke panned goes back, from the next frame. */
+  /** A flick just lifted (moonrun.ts): what its stroke panned goes back, from the next frame, and what it carved. */
   flicked(): void {
     this.flickedNow = true;
+  }
+
+  /** QA: the carve off the path, degrees: yaw (+ left) and pitch (+ up). */
+  get carve(): { yaw: number; pitch: number } {
+    return { yaw: (this.cy * 180) / Math.PI, pitch: (this.cp * 180) / Math.PI };
   }
 
   /** What look() puts on a view, taken off it: the low game's lens comes back with the rig's look on it. */

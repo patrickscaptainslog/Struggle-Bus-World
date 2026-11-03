@@ -9,6 +9,7 @@ The producer, 2026-11-03, after flying FREEFLIGHT's Stages 1 to 3 on `?moonland`
 - No paint from orbit. The breath in orbit goes from `?moonland` (`MoonBreath`, and the big splats it leaves on `MoonPaint`'s map). Paint at the Moon is a crater at a time, as on the street. What earlier flights painted from orbit stays where it is.
 - The pan in space goes where it's panned and stays there: nothing brings it back, not a flick's lift and not a timer. One swipe across the screen turns the view half way round (first pick: the screen's width is 180 degrees).
 - The trail on the way is alive: it wavers, its colours run along it, it sparkles and throws a puff now and then, so the frame never reads as frozen. The speed lines stay.
+- The bus carves on the way, with the right thumb, as it turns over the street: off its set path and back to it on the lift, the path itself unchanged (the producer's word after V1's first build). The left of the screen pans.
 - The Sun is drawn bigger than true, with a glow (first pick: four times). The Moon is drawn bigger from far off and comes to its true size as the bus arrives, so it grows the whole way there. Earth stays as it is.
 
 **V2: the trip's shape (second account).**

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Flicks out in space, felt a frame at a time on a fixed step (docs/specs/moon/FREEFLIGHT.md, Stage 1): node tools/moon/flicks.mjs <out dir>
 //   wait   the label asks for a flick, and a left flick up launches
-//   dark   in the long dark a drag on either side pans the view as far as the finger goes, and it stays where it's left; a flick on either side leaves it
+//   dark   in the long dark a right drag carves the bus off the path and it comes back on the lift; a left drag pans the view as far as the finger goes, and it stays; a flick on either side leaves it
 //   look   a left drag in orbit turns the view about the bus as far as the finger goes, and it stays there after the lift
 //   orbit  a right flick up as slow as the rule allows, its push felt past the old 0.15 s, goes home and starts no fall
 //   push   and a push held 0.3 s still starts one
@@ -49,7 +49,8 @@ try {
   /** the leg, what the label says, the orbit's felt push, the look, and how the bus stands in the view: its nose's yaw and pitch in the render frame (deg) */
   const read = () => page.evaluate(() => {
     const m = window.__space.moon, n = m.view.nosing, d = 180 / Math.PI;
-    return { leg: m.trip.leg, say: document.querySelector('[data-hud="trip-label"]')?.dataset.say?.split('|')[2] ?? '', pushT: +m.trip.pushT.toFixed(3), lookYaw: +(m.view.lookYaw * d).toFixed(1), noseYaw: +(Math.atan2(n.x, -n.z) * d).toFixed(2), nosePitch: +(Math.asin(Math.max(-1, Math.min(1, n.y))) * d).toFixed(2) };
+    const c = m.view.carve;
+    return { leg: m.trip.leg, say: document.querySelector('[data-hud="trip-label"]')?.dataset.say?.split('|')[2] ?? '', pushT: +m.trip.pushT.toFixed(3), lookYaw: +(m.view.lookYaw * d).toFixed(1), noseYaw: +(Math.atan2(n.x, -n.z) * d).toFixed(2), nosePitch: +(Math.asin(Math.max(-1, Math.min(1, n.y))) * d).toFixed(2), carveYaw: +c.yaw.toFixed(2), carvePitch: +c.pitch.toFixed(2) };
   });
   const skipTo = async (leg) => {
     const got = await page.evaluate((l) => {
@@ -102,12 +103,12 @@ try {
   await touch('touchMove', RX, RY - 60, 150);
   await frames(30);
   const d2 = await read();
+  await shot('dark-carve');
   await touch('touchEnd', RX, RY - 60, 150 + 1000);
-  await frames(30);
+  await frames(120);
   const d2b = await read();
-  // (out there the view goes as far as the finger: a screen's width is half a turn across, a quarter up and down, and it stays where it's left)
-  const swung = Math.hypot(d2.noseYaw - d1.noseYaw, d2.nosePitch - d1.nosePitch), tip = (60 / 393) * 90, after = Math.hypot(d2b.noseYaw - d2.noseYaw, d2b.nosePitch - d2.nosePitch);
-  row(`dark: a right drag of 60 px up tips the view as far as the finger went (${tip.toFixed(1)} deg), and it stays`, Math.abs(swung - tip) < 3 && after < 1, { swung: +swung.toFixed(1), movedAfter: +after.toFixed(2), during: d2 });
+  // (the right thumb flies out there too: where it doesn't steer the path, a drag carves the bus off it as the street's turns, and on the lift it comes back to the path)
+  row('dark: a right drag up held 1 s carves the nose down off the path, and 4 s after the lift it is back on it', d2.carvePitch < -8 && Math.abs(d2b.carvePitch) < 3 && Math.abs(d2b.carveYaw) < 3, { carved: [d2.carveYaw, d2.carvePitch], after: [d2b.carveYaw, d2b.carvePitch], during: d2 });
   await shot('dark-swung');
   // (the left of the screen pans the same way out here, and the pan stays where it's left)
   await frames(5);

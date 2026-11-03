@@ -41,6 +41,7 @@ These beat every older doc. `README.md`, `HANDOFF.md` and `DECISIONS.md` are his
 - At the Moon the bus is the player's again much higher up than now, with a WELCOME TO THE MOON that says so, and from orbit down it flies and paints exactly as over San Francisco, the gears and their flicks included: "once in orbit, i want exact functionality of our san francisco movement and paint splat mechanics".
 - The Sun and the Moon are drawn bigger, and the Moon grows as the bus comes to it: "why is the moon/sun so smally depicted in this game?" Earth stays as it is: "the earth does however look great - and the earth does slowly shrink in size, well done."
 - The trail on the way is alive and a little random, never still: "it is too static, like its frozen and im afraid players will think their game stalled."
+- On the way the bus carves and turns about its set path as it does over the street, with the right thumb, and the left pans: "On the journey to the moon, even though the path is set and straight, I want to have the players be able to carve and turn and… move through the sky. Similar to how they normally do, this might be relaxing and give more of a sense of control - like they're actually flying".
 
 **On hold.** Start none of these until the producer says so: streets and highways, moving things (cars, ships, trains, planes, live plane data), weather and clouds, satellites.
 

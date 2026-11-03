@@ -89,8 +89,10 @@ for (let n = 0; n < N; n++) {
     }
     bump('leg', leg === 'out' || leg === 'homeOut' ? 0 : legT, `${leg} ${say()}`);
     trip.step(dt, trip.steering && down ? sx : 0);
-    // (the thumb pans as a finger moving at 70 degrees a second at full stretch would, and steers the lean where it steers)
+    // (the thumb pans as a finger moving at 70 degrees a second at full stretch would, steers the lean where it steers, and carves where it doesn't)
     view.steerX = trip.steering && down ? sx : 0;
+    view.carveX = !trip.steering && down ? sx : 0;
+    view.carveY = !trip.steering && down ? sy : 0;
     view.update(dt, trip, -sx * 1.22 * dt, sy * 1.22 * dt, down, 0);
     const a = trip.ob.axes, k = 1 / 30 / dt;
     const bad = [...trip.ob.pos, ...a, ...trip.dir, ...trip.heading, view.hfov, view.busQuat.x, view.busQuat.w].some((x) => !Number.isFinite(x));
