@@ -1,10 +1,10 @@
 # VOYAGE: the Moon trip as the producer wants it
 
-The producer, 2026-11-03, after flying FREEFLIGHT's Stages 1 to 3 on `?moonland`. Their words are in `CLAUDE.md`, "The Moon trip". This is the plan for them. Nothing in it is built yet. First picks of numbers are marked, and the producer can overrule them on the phone.
+The producer, 2026-11-03, after flying FREEFLIGHT's Stages 1 to 3 on `?moonland`. Their words are in `CLAUDE.md`, "The Moon trip". This is the plan for them. V1 is built; the rest isn't yet. First picks of numbers are marked, and the producer can overrule them on the phone.
 
 ## In the order it's built
 
-**V1: what's seen at once (second account, `feat/moonfree`).**
+**V1: what's seen at once (second account, `feat/moonfree`).** Built 2026-11-03, waiting on the producer's flight: `DECISIONS.md`, "The Moon trip, its first part".
 
 - No paint from orbit. The breath in orbit goes from `?moonland` (`MoonBreath`, and the big splats it leaves on `MoonPaint`'s map). Paint at the Moon is a crater at a time, as on the street. What earlier flights painted from orbit stays where it is.
 - The pan in space goes where it's panned and stays there: nothing brings it back, not a flick's lift and not a timer. One swipe across the screen turns the view half way round (first pick: the screen's width is 180 degrees).

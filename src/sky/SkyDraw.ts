@@ -159,6 +159,9 @@ const MOON_TEXEL_KM = (2 * Math.PI * R_MOON) / 1024;
 
 /** How long a crater's own light takes to follow the top of the frame, s: a carve shouldn't swing the light over every crater at the rate of the turn. */
 const AHEAD_S = 2;
+/** km from the Moon's middle: the flight's bigger Moon is its true size from here in (the names show from 4,200 km up), and moonGrow times it at Earth's distance. */
+const GROW_NEAR = 6000;
+const GROW_FAR = 384400;
 const CLOSE_LOW = Math.log(300);
 const CLOSE_HIGH = Math.log(9000);
 const smooth01 = (t: number) => {
@@ -197,6 +200,14 @@ export class SkyDraw {
   moonFloor = 15;
   /** The flight's Moon: no floor to wait on, so the disc is growing from the moment it's seen (moonDrawnKm). */
   moonSteady = false;
+  /**
+   * The flight's Moon drawn bigger far off: this many times its true size from Earth, coming to its true size GROW_NEAR km from its middle, as a power of the distance, so it grows the whole way there
+   * (the producer: "why is the moon/sun so smally depicted in this game?"). Under GROW_NEAR it's true, where the names, the aim and the way down read it. 1: true everywhere.
+   */
+  moonGrow = 1;
+  /** The Sun's disc, times its true size, and its halo over that (the producer: "the sun is easy too small"). */
+  sunScale = 4;
+  sunHalo = 1.4;
   /** Earth's air at the limb (false: the bare disc, to measure it). */
   air = true;
   /** The air's scale height never goes under this many game pixels (the true air is 0.3 px at 100,000 km). */
@@ -339,7 +350,8 @@ export class SkyDraw {
 
     // the Moon at unit radius: the floor is a bigger radius
     const dot = s.sun[0] * s.moon[0] + s.sun[1] * s.moon[1] + s.sun[2] * s.moon[2];
-    const rM = moonDrawnKm(s.moonKm, focal, this.moonFloor, Math.acos(Math.min(1, Math.max(-1, dot))) * (180 / Math.PI), this.moonSteady) + this.moonLift;
+    const grow = this.moonGrow > 1 && s.moonKm > GROW_NEAR ? Math.pow(s.moonKm / GROW_NEAR, Math.log(this.moonGrow) / Math.log(GROW_FAR / GROW_NEAR)) : 1;
+    const rM = Math.max(moonDrawnKm(s.moonKm, focal, this.moonFloor, Math.acos(Math.min(1, Math.max(-1, dot))) * (180 / Math.PI), this.moonSteady), R_MOON * grow) + this.moonLift;
     const mx = s.moonO[0] / rM, my = s.moonO[1] / rM, mz = s.moonO[2] / rM;
     U.uMoonO.value.set(mx, my, mz, mx * mx + my * my + mz * mz - 1);
     U.uMoonSun.value.set(s.moonSun[0], s.moonSun[1], s.moonSun[2]);
@@ -365,8 +377,9 @@ export class SkyDraw {
     U.uMoonAhead.value.set(A.x, A.y, A.z, g.hill);
     this.aheadSet = true;
 
-    U.uSunDisc.value.set(s.sun[0], s.sun[1], s.sun[2], Math.cos(s.sunR));
-    U.uSunRing.value = Math.cos(s.sunR + 1 / focal);
+    const sunR = s.sunR * this.sunScale;
+    U.uSunDisc.value.set(s.sun[0], s.sun[1], s.sun[2], Math.cos(sunR));
+    U.uSunRing.value = Math.cos(sunR * this.sunHalo + 1 / focal);
     U.uMoonFirst.value = s.moonKm < s.earthKm ? 1 : 0;
     uLine.value.set(3 / focal, 1 / focal);
   }

@@ -5,7 +5,7 @@ import { spaceResolveUniforms as U } from '../render/skyResolve';
 import { BusModel, busTune, type BusPose } from '../bus/BusModel';
 import { config } from '../config';
 import { CameraRig } from '../game/CameraRig';
-import { Input, inputTune, stickOf } from '../game/Input';
+import { Input, inputTune } from '../game/Input';
 import { globals } from '../render/materials';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import type { WarmUp } from '../render/warmup';
@@ -48,6 +48,8 @@ const HALF_V = 36.87;
 const R_VIEW_EARTH = 6371;
 /** The flight's Moon, on its steady floor (SkyModel.ts's moonDrawnKm): this leaves it 15 px across where the flight starts, and growing. */
 const STEADY_FLOOR = 43;
+/** ...and drawn this many times its true size from Earth, coming to its true size near it (SkyDraw.moonGrow): about 58 px across at the start, and growing all the way. */
+const MOON_GROW = 5;
 
 type V3 = [number, number, number];
 const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -158,6 +160,10 @@ function readView(params: URLSearchParams, model: SkyModel, sky: SkyState, ms: n
 
 const thousands = (n: number) => Math.round(n).toLocaleString('en-US');
 
+/** A pan across the screen's width turns the view this many half turns; up and down, this many (a flick is a short stroke up, and what it tips goes back). */
+const PAN_X = 1;
+const PAN_Y = 0.5;
+
 /** The tuner's rows for the flight, read every frame. The bus's and the trail's live with those. */
 const tripTune = { tau: TAU, pullDegS: PULL / DEG, swing: SWING, busSunSoft: 0.75 };
 
@@ -165,7 +171,7 @@ const tripTune = { tau: TAU, pullDegS: PULL / DEG, swing: SWING, busSunSoft: 0.7
 const LABEL: typeof HUD_SMALL = { ...HUD_SMALL, glyphs: new Map(HUD_SMALL.glyphs).set('%', { w: 3, bits: Uint8Array.from([1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1]) }) };
 
 /** What the flight says: the leg and its clock, the gear, how far up, what a tap would do now, and how much of the Moon is yours. A corner of the frame, redrawn when a line changes. */
-function tripLabel(): (trip: MoonTrip, breath: MoonBreath | null) => void {
+function tripLabel(orbitPaint: boolean): (trip: MoonTrip, breath: MoonBreath | null) => void {
   const c = new PixelCanvas(122, 30, 2);
   Object.assign(c.el.style, { position: 'fixed', zIndex: '21', pointerEvents: 'none', right: 'max(14px, env(safe-area-inset-right))', top: 'max(8px, env(safe-area-inset-top))' });
   c.el.dataset.hud = 'trip-label';
@@ -181,7 +187,7 @@ function tripLabel(): (trip: MoonTrip, breath: MoonBreath | null) => void {
     // the goal, once there is any; and until the first shot, what to do about it
     const share = breath && !breath.paint.rebuilding ? breath.paint.painted * 100 : 0;
     const d = share > 0 ? `PAINTED ${share < 1 ? share.toFixed(2) : share < 10 ? share.toFixed(1) : share.toFixed(0)} % OF THE MOON` : '';
-    const e = leg === 'orbit' && breath && !breath.fired ? 'TAP TO PAINT' : ''; // (a toast says this, large)
+    const e = orbitPaint && leg === 'orbit' && breath && !breath.fired ? 'TAP TO PAINT' : ''; // (a toast says this, large)
     const text = `${a}|${b}|${p}|${d}|${e}`;
     if (text === last) return;
     last = text;
@@ -229,8 +235,10 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   if (trip) {
     draw.moonSteady = true;
     draw.moonFloor = STEADY_FLOOR;
+    draw.moonGrow = MOON_GROW;
   }
   if (params.has('floor')) draw.moonFloor = Number(params.get('floor')) || 0;
+  if (params.has('grow')) draw.moonGrow = Math.max(1, Number(params.get('grow')) || 1);
   if (params.get('lines') === '0') draw.showLines(false);
   draw.air = params.get('air') !== '0';
   if (params.has('airpx')) draw.airPx = Number(params.get('airpx')) || draw.airPx;
@@ -266,7 +274,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   // the tuner, as the street's: `?tune` or three fingers
   const tuner = new Tuner();
   registerTunables('Moon run', tripTune, { tau: [4, 30, 0.5], pullDegS: [1, 10, 0.1], swing: [0.2, 1.5, 0.01], busSunSoft: [0, 1, 0.01] });
-  registerTunables('Moon run: what goes with it', spaceFxTune, { linePx: [1, 3, 0.1], lineLong: [0.005, 0.1, 0.001] });
+  registerTunables('Moon run: what goes with it', spaceFxTune, { linePx: [1, 3, 0.1], lineLong: [0.005, 0.1, 0.001], trailWave: [0, 30, 0.5], trailFlow: [0.5, 8, 0.1], trailPuff: [0, 2, 0.05], trailSparkle: [0, 0.5, 0.01] });
   registerTunables('Moon run: names', nameTune, { every: [2, 20, 0.5], font: [1, 3, 0.1], high: [300, 8000, 100], fast: [30, 600, 5] });
   registerTunables('Moon run: the ground', groundTune, { relief: [0, 8, 0.1], craters: [0, 2, 0.05], bright: [0, 2, 0.05], flat: [0, 4, 0.1], hill: [0, 2, 0.05], wander: [0, 2, 0.05], sharp: [-1.5, 1, 0.1], keep: [0.01, 0.3, 0.01] });
   if (params.has('tune')) tuner.toggle();
@@ -285,8 +293,10 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   const hud = input ? new Hud(input, { onMute() {}, onSwap() {}, onGesture() {} }) : null;
   // (the look is the rig's: on ?moonland the low game's own, so a look held across a join goes on across it)
   const looker = input ? (land?.rig ?? new CameraRig()) : null;
-  const pan = { x: 0, y: 0 };
-  const label = flying ? tripLabel() : null;
+  // (where each panning thumb was last frame)
+  const lookAt = new THREE.Vector2(), fingerAt = new THREE.Vector2();
+  let lookOn = false, fingerOn = false;
+  const label = flying ? tripLabel(!landing) : null;
   if (input && hud && trip) {
     input.onTripleFinger = () => tuner.toggle();
     input.onTurbo = (dir) => {
@@ -300,8 +310,9 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     audio.warmBackend();
     input.onFirstGesture = () => audio.unlock();
     breath.audio = audio;
-    // a tap is a breath, as on the street: the place it touched goes in first, since Input reads the event after this
-    input.onTap = () => breath.tap(trip.leg === 'orbit');
+    // a tap is a breath, as on the street: the place it touched goes in first, since Input reads the event after this. ?moonland paints nothing from orbit, the producer's word:
+    // "i just splatted .04 percent of the moon in one shot. this is terrible". There paint is a crater at a time, from the low game
+    input.onTap = () => breath.tap(trip.leg === 'orbit' && !landing);
     const touched = (e: PointerEvent) => {
       if (e.target === renderer.domElement) breath.touched(e.clientX, e.clientY);
     };
@@ -389,10 +400,27 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     if (trip && view && input && looker) {
       input.update(real);
       const st = input.state;
-      // (where the thumb doesn't steer, either side of the screen pans, at the stick's own rate; where it does, the left of the screen looks, on the wall clock as the street's. And the longest flick, so the orbit's push doesn't take one for a push)
-      const steer = trip.steering, pans = !steer && !st.dragging && st.look.on;
-      if (pans) stickOf(st.look.x, st.look.y, pan);
-      looker.setLook(st.look.on && steer, st.look.x, st.look.y, real);
+      // (the left of the screen pans on every leg, and the right where it doesn't steer: as far as the finger goes, the screen's width half way round, and it stays where it's left, the producer's
+      // word: "just forget auto re-alignment. where the user pans - it goes". And the longest flick, so the orbit's push doesn't take one for a push)
+      const steer = trip.steering, W = Math.max(1, window.innerWidth);
+      // (from where the finger landed on its first frame, so a quick swipe's start isn't lost: the look's offset is from there, and the right thumb's anchor is there until it follows)
+      let dx = 0, dy = 0;
+      if (st.look.on) {
+        dx += st.look.x - (lookOn ? lookAt.x : 0);
+        dy += st.look.y - (lookOn ? lookAt.y : 0);
+      }
+      lookOn = st.look.on;
+      lookAt.set(st.look.x, st.look.y);
+      const right = !steer && st.dragging && !!st.finger;
+      if (right) {
+        const from = fingerOn ? fingerAt : (st.anchor ?? st.finger!);
+        dx += st.finger!.x - from.x;
+        dy -= st.finger!.y - from.y;
+      }
+      fingerOn = right;
+      if (st.finger) fingerAt.set(st.finger.x, st.finger.y);
+      const panning = st.look.on || right;
+      looker.setLook(false, 0, 0, real);
       view.lookYaw = looker.lookYawNow;
       view.lookPitch = looker.lookPitchNow;
       YOKE.flick = inputTune.loneFlickMs / 1000;
@@ -401,7 +429,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
       view.swing = tripTune.swing;
       view.halfV = camera.fov / 2;
       trip.step(dt, trip.steering && st.dragging ? st.stretch.x : 0, st.dragging ? st.stretch.y : 0);
-      view.update(dt, trip, pans ? pan.x : st.stretch.x, pans ? pan.y : st.stretch.y, st.dragging || pans, lensParam);
+      view.steerX = steer && st.dragging ? st.stretch.x : 0;
+      view.update(dt, trip, (-dx / W) * Math.PI * PAN_X, (dy / W) * Math.PI * PAN_Y, panning, lensParam);
       pipeline.setHfov(view.hfov);
       landing?.update(dt);
       placeCamera();
@@ -432,7 +461,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     if (breath.rear > 0) bus.root.quaternion.multiply(rearQ.setFromAxisAngle(pitchAxis, breath.rear));
     if (landing?.near) landing.snap(camera, bus.root);
     bus.root.updateMatrixWorld(true);
-    breath.update(dt, real, sky, trip?.leg === 'orbit', camera);
+    breath.update(dt, real, sky, trip?.leg === 'orbit' && !landing, camera);
     if (trip && names) names.update(dt, sky, trip.leg === 'in' || trip.leg === 'orbit', trip.v, trip.t, camera, focalAt(), pipeline.info.width, pipeline.info.height, popSign);
     if (trip && view && fx) {
       if (landing?.near) fx.update(dt, trip.v, trip.dir, landing.axes, landing.flying.copy(view.flying).applyQuaternion(landing.q), landing.nosing.copy(view.nosing).applyQuaternion(landing.q), camera, bus.root, pipeline.pixelWorldSize(1), landing.bus);
@@ -444,7 +473,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
       const ask = trip.leg === 'orbit' && (landing ? !landing.pushed : !breath.fired);
       if (ask !== asked) {
         asked = ask;
-        if (ask) hud?.toast(landing ? ['PUSH TO LAND', 'TAP TO PAINT'] : ['TAP TO PAINT'], 3600);
+        if (ask) hud?.toast(landing ? ['PUSH TO LAND'] : ['TAP TO PAINT'], 3600);
         else hud?.clearToast();
       }
     }

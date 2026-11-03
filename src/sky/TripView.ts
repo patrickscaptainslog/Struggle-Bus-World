@@ -20,9 +20,9 @@ import { R_E, R_M, type MoonTrip } from './MoonTrip';
 // The angles are the city's at 1 km, all the way: the view looks ahead and a little down, so what the path points at stands over the bus, and a frame too short for that eases the pitch by the rig's own rule. The Moon's low game sits a little lower (MOON_VISTA),
 // so on the last of the way down the angles come to its own, by the height alone. The lens doesn't move, so a disc grows by its own size alone and the bus stays the size it is over the city.
 //
-// The thumb swings the camera on every leg it doesn't steer, on top of all this, and either side of the screen pans it (the producer: "For the moon run, I want to be able to pan the camera like it was before"). A flick is a stroke too and
-// only its lift says so, so what a flick panned goes back. Left alone for THUMB_HOLD seconds the view goes home on a spring of its own. Over all of it goes the look, the rig's own (game/CameraRig.ts setLook), where a thumb in the left of the
-// screen can't pan, on the legs the other thumb steers: the whole view turns about the bus, and goes home on the lift.
+// A thumb pans the camera on top of all this: the left of the screen on every leg, either side where the other thumb doesn't steer. It turns as far as the finger goes, the screen's width half way round, and stays where it's left (the
+// producer: "just forget auto re-alignment. where the user pans - it goes"). A flick is a stroke too and only its lift says so, so what a flick panned goes back, quickly and not at a jump. Over all of it goes the look, the rig's own
+// (game/CameraRig.ts setLook), which only the low game's handover leaves on: the whole view turns about the bus.
 
 const DEG = Math.PI / 180;
 const RIGHT = new THREE.Vector3(1, 0, 0);
@@ -41,9 +41,8 @@ const ROLL_HOME = 0.25;
 const ROLL_MOST = 12 * DEG;
 /** The lens's rate, 1/s, back from where the low game left it. */
 const LENS_RATE = 1.2;
-/** deg/s at full stretch */
-const THUMB_RATE = 70 * DEG;
-const THUMB_HOLD = 6;
+/** How fast what a flick panned goes back, 1/s. */
+const FLICK_BACK = 14;
 /** The nose's fastest swing, rad/s: the tip-up reads as a move, and the first frame of it isn't a kick. */
 const NOSE_RATE = 75 * DEG;
 /** The share of its length the bus shows the camera in a full dive, the sine of the angle between its nose and the line of sight. The rig tips over a dive until it's looking down the bus's back, and end on a bus is its tail, a third of its size: it lifts its nose up the screen by what's short. moon/Landing.ts holds the low game to the same. */
@@ -94,12 +93,14 @@ export class TripView {
   private readonly oV = new THREE.Vector3();
   private yaw = 0;
   private tilt = 0;
-  private idle = 0;
   /** the pan as it stood when this stroke began to pan, and a flick that's just lifted: what it panned goes back */
   private stroke = false;
   private yaw0 = 0;
   private tilt0 = 0;
   private flickedNow = false;
+  private goingBack = false;
+  /** The steering thumb's stick, -1..1, where it steers (moonrun.ts): the bus leans into the turn. */
+  steerX = 0;
   private readonly viewQ = new THREE.Quaternion();
   private readonly lookQ = new THREE.Quaternion();
   /** the chase's turn, rad/s, and the rate of its spring, 1/s */
@@ -126,8 +127,8 @@ export class TripView {
   private readonly y = new THREE.Vector3();
   private readonly z = new THREE.Vector3();
 
-  /** One frame, after trip.step(). stick: the thumb, -1..1; thumb: it is down. lens: a fixed lens, 0 for the game's. */
-  update(dt: number, trip: MoonTrip, stickX: number, stickY: number, thumb: boolean, lens: number): void {
+  /** One frame, after trip.step(). panYaw, panTilt: what the thumb turned the view this frame, rad (moonrun.ts); thumb: one is panning. lens: a fixed lens, 0 for the game's. */
+  update(dt: number, trip: MoonTrip, panYaw: number, panTilt: number, thumb: boolean, lens: number): void {
     const r = trip.r, rm = trip.rm, C = config.camera, dir = trip.dir, hd = trip.heading;
     const dE = Math.hypot(r[0], r[1], r[2]), dM = Math.hypot(rm[0], rm[1], rm[2]), hE = dE - R_E, hM = dM - R_M;
 
@@ -190,23 +191,28 @@ export class TripView {
     // ---- the thumb (a flick's stroke panned before its lift said it was a flick, unless another thumb is still panning)
     if (this.flickedNow) {
       this.flickedNow = false;
-      if (!thumb && this.stroke) {
-        this.yaw = this.yaw0;
-        this.tilt = this.tilt0;
-      }
+      if (!thumb && this.stroke) this.goingBack = true;
     }
-    if (!trip.steering && thumb) {
+    if (thumb) {
+      this.goingBack = false;
       if (!this.stroke) {
         this.stroke = true;
         this.yaw0 = this.yaw;
         this.tilt0 = this.tilt;
       }
-      this.yaw -= stickX * THUMB_RATE * dt;
-      this.tilt = Math.max(-1.4, Math.min(1.4, this.tilt + stickY * THUMB_RATE * dt));
-      this.idle = 0;
-    } else this.idle += dt;
-    if (!thumb) this.stroke = false;
-    if ((this.yaw !== 0 || this.tilt !== 0) && (trip.steering || this.idle > THUMB_HOLD)) this.takeBack();
+      this.yaw += panYaw;
+      this.tilt = Math.max(-1.4, Math.min(1.4, this.tilt + panTilt));
+    } else this.stroke = false;
+    if (this.goingBack) {
+      const k = 1 - Math.exp(-FLICK_BACK * dt);
+      this.yaw += (this.yaw0 - this.yaw) * k;
+      this.tilt += (this.tilt0 - this.tilt) * k;
+      if (Math.abs(this.yaw - this.yaw0) + Math.abs(this.tilt - this.tilt0) < 1e-4) {
+        this.yaw = this.yaw0;
+        this.tilt = this.tilt0;
+        this.goingBack = false;
+      }
+    }
     this.thumbQ.setFromEuler(this.euler.set(this.tilt, this.yaw, 0, 'YXZ'));
 
     this.oV.addScaledVector(this.o, -this.swing * this.swing * dt).multiplyScalar(Math.max(0, 1 - 2 * this.swing * dt));
@@ -233,7 +239,7 @@ export class TripView {
     // ---- the bus: its nose, and its roof the chase's way up
     const roof = this.busUp, flat = this.t.copy(top).addScaledVector(nose, -top.dot(nose));
     if (flat.lengthSq() > 1e-6) roof.copy(flat).normalize();
-    this.bank += ((trip.steering ? stickX : 0) * 0.45 - this.bank) * (1 - Math.exp(-6 * dt));
+    this.bank += ((trip.steering ? this.steerX : 0) * 0.45 - this.bank) * (1 - Math.exp(-6 * dt));
     // (a carve leans the roof into the turn)
     this.t2.copy(roof).multiplyScalar(Math.cos(this.bank)).addScaledVector(this.t.crossVectors(nose, roof), Math.sin(this.bank));
     this.inRender(nose, ax, this.nosing);
@@ -299,7 +305,7 @@ export class TripView {
     return a === 0 ? v : v.multiply(this.lookQ.setFromAxisAngle(RIGHT, a));
   }
 
-  /** A flick just lifted (moonrun.ts): what its stroke panned goes back on the next frame. */
+  /** A flick just lifted (moonrun.ts): what its stroke panned goes back, from the next frame. */
   flicked(): void {
     this.flickedNow = true;
   }

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Flicks out in space, felt a frame at a time on a fixed step (docs/specs/moon/FREEFLIGHT.md, Stage 1): node tools/moon/flicks.mjs <out dir>
 //   wait   the label asks for a flick, and a left flick up launches
-//   dark   in the long dark a drag on either side pans the view, as the flight always has, and it stays where it's left; a flick on either side leaves it
-//   look   a left drag in orbit turns the view about the bus, the rig's curve, and on the lift the view comes home
+//   dark   in the long dark a drag on either side pans the view as far as the finger goes, and it stays where it's left; a flick on either side leaves it
+//   look   a left drag in orbit turns the view about the bus as far as the finger goes, and it stays there after the lift
 //   orbit  a right flick up as slow as the rule allows, its push felt past the old 0.15 s, goes home and starts no fall
 //   push   and a push held 0.3 s still starts one
 // --trip goes on from there, the whole trip on flicks: that push held to the ground, the gears coming down with it at their floors, four
@@ -103,9 +103,11 @@ try {
   await frames(30);
   const d2 = await read();
   await touch('touchEnd', RX, RY - 60, 150 + 1000);
-  await frames(2);
-  const swung = Math.hypot(d2.noseYaw - d1.noseYaw, d2.nosePitch - d1.nosePitch);
-  row('dark: a right drag held 1 s still swings it', swung > 10, { swung: +swung.toFixed(1), during: d2 });
+  await frames(30);
+  const d2b = await read();
+  // (out there the view goes as far as the finger: a screen's width is half a turn across, a quarter up and down, and it stays where it's left)
+  const swung = Math.hypot(d2.noseYaw - d1.noseYaw, d2.nosePitch - d1.nosePitch), tip = (60 / 393) * 90, after = Math.hypot(d2b.noseYaw - d2.noseYaw, d2b.nosePitch - d2.nosePitch);
+  row(`dark: a right drag of 60 px up tips the view as far as the finger went (${tip.toFixed(1)} deg), and it stays`, Math.abs(swung - tip) < 3 && after < 1, { swung: +swung.toFixed(1), movedAfter: +after.toFixed(2), during: d2 });
   await shot('dark-swung');
   // (the left of the screen pans the same way out here, and the pan stays where it's left)
   await frames(5);
@@ -119,7 +121,8 @@ try {
   await frames(30);
   const d5 = await read();
   const lpan = Math.hypot(d4.noseYaw - d3.noseYaw, d4.nosePitch - d3.nosePitch), kept = Math.hypot(d5.noseYaw - d4.noseYaw, d5.nosePitch - d4.nosePitch);
-  row('dark: a left drag held 1 s pans too, and 1 s after the lift the view is where it was left', lpan > 10 && kept < 1 && d4.lookYaw === 0, { panned: +lpan.toFixed(1), movedAfter: +kept.toFixed(2), rigLook: d4.lookYaw });
+  const lwant = (60 / 393) * 180;
+  row(`dark: a left drag of 60 px pans ${lwant.toFixed(1)} deg, and 1 s after the lift the view is where it was left`, Math.abs(lpan - lwant) < 3 && kept < 1 && d4.lookYaw === 0, { panned: +lpan.toFixed(1), movedAfter: +kept.toFixed(2), rigLook: d4.lookYaw });
   await shot('dark-left-pan');
   begin();
   await touch('touchStart', LX, LY, 0);
@@ -149,9 +152,10 @@ try {
   await frames(60);
   const o2 = await read();
   await shot('orbit-look-home');
-  const turned = o1.noseYaw - o0.noseYaw, back = Math.abs(o2.noseYaw - o0.noseYaw);
-  row('look: a left drag of 100 px turns the view 44 deg about the bus (the rig: 44.3)', Math.abs(turned + 44.3) < 4 && Math.abs(o1.lookYaw - 44.3) < 1, { turned: +turned.toFixed(1), rig: o1.lookYaw });
-  row('look: 2 s after the lift the view is home', back < 1 && o2.lookYaw === 0, { off: +back.toFixed(2), rig: o2.lookYaw });
+  // (in orbit too the left of the screen pans as far as the finger and leaves the view there: the producer, "just forget auto re-alignment. where the user pans - it goes")
+  const turned = o1.noseYaw - o0.noseYaw, stayed = Math.abs(o2.noseYaw - o1.noseYaw), owant = (100 / 393) * 180;
+  row(`look: a left drag of 100 px turns the view ${owant.toFixed(1)} deg about the bus`, Math.abs(Math.abs(turned) - owant) < 4 && o1.lookYaw === 0, { turned: +turned.toFixed(1), rig: o1.lookYaw });
+  row('look: 2 s after the lift the view is where it was left', stayed < 1 && o2.lookYaw === 0, { moved: +stayed.toFixed(2), rig: o2.lookYaw });
 
   // ---- orbit: a right flick up as slow as the rule allows, felt frame by frame until the old rule would have had it fall
   begin();

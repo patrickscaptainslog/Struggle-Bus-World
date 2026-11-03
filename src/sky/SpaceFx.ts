@@ -7,14 +7,15 @@ import { Ramp } from '../render/palette';
 //
 //  - the lines are a lattice that stands still among the stars, turned with them, scrolled by a phase wrapped to 0..1, at a speed that is the true one on a log scale and capped, so that a streak is always
 //    longer than a frame's travel. They are a feeling, not a measurement, and nothing in them can run out of precision or strobe at any speed.
-//  - the trail is one ribbon from the bus's tail, straight back along the nose, with its clumps scrolling away.
+//  - the trail is one ribbon from the bus's tail, back along the nose, with its clumps rushing away. It's alive, or a frame of it reads as a game that's stalled (the producer: "it is too static, like its frozen"): it
+//    wavers in a wave that runs back along it, swells in puffs that run back too, its rainbow twists along it and turns, and it sparkles.
 //
 // Both stand round the bus at the size they have over the city: the bus is the size it is over the city, wherever it's flying.
 //
 // Both write the G-buffer as surfaces, so they cover Earth and the Moon. Fog 0: there's no air. Added to the scene before the warm-up, so their programs never compile in flight.
 
 const LINES = 90;
-const TRAIL_SEGMENTS = 20;
+const TRAIL_SEGMENTS = 64;
 
 const GLSL_BAYER = /* glsl */ `
 float sfBayer4(ivec2 p) {
@@ -43,6 +44,11 @@ export const spaceFxTune = {
   /** A speed line: game px wide, the game's own, and how long, in seconds of the speed they seem to go. */
   linePx: 1.7,
   lineLong: 0.045,
+  /** The trail's waver at its end (m), how fast its clumps go by, how much its puffs swell it, and how often it sparkles. */
+  trailWave: 9,
+  trailFlow: 3,
+  trailPuff: 0.55,
+  trailSparkle: 0.14,
 };
 
 export class SpaceFx {
@@ -61,11 +67,13 @@ export class SpaceFx {
     uBack: { value: new THREE.Vector3(0, 0, 1) },
     uTrail: { value: new THREE.Vector4(260, 3.2, 10, 0) }, // length, width at the bus and at the end (m), on
     uScroll: { value: 0 },
+    uLife: { value: new THREE.Vector4(9, 0.55, 0.14, 0) }, // waver (m), puff, sparkle share, the clock it all runs on (s)
   };
   private readonly tailLocal: THREE.Vector3;
   private readonly tmp = new THREE.Vector3();
   private readonly phase = new Float64Array(3);
   private scroll = 0;
+  private life = 0;
 
   /** busLength: BusModel.length */
   constructor(busLength: number) {
@@ -170,17 +178,24 @@ export class SpaceFx {
           uniform vec3 uTail;
           uniform vec3 uBack;
           uniform vec4 uTrail;
+          uniform vec4 uLife;
           in vec2 aRibbon;
           out float vU;
           out float vSide;
           out vec3 vP;
           void main() {
-            float u = aRibbon.x;
+            float u = aRibbon.x, t = uLife.w;
             vec3 c = uTail + uBack * u * uTrail.x;
+            // (a waver that runs back along it, two ways at once, and none of it at the bus)
+            vec3 a1 = normalize(cross(uBack, abs(uBack.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0))), a2 = cross(uBack, a1);
+            float ph = u * 9.0 - t * 4.7, w = uLife.x * pow(u, 1.3);
+            c += (a1 * (sin(ph) + 0.35 * sin(ph * 2.3 + 1.1)) + a2 * 0.6 * cos(ph * 0.71 + 1.7)) * w;
             vec3 sd = cross(uBack, normalize(cameraPosition - c));
             float sl = length(sd);
             sd = sl > 1e-4 ? sd / sl : vec3(0.0, 1.0, 0.0);
-            vec3 p = c + sd * aRibbon.y * mix(uTrail.y, uTrail.z, sqrt(u)) * 0.5;
+            // (and puffs that swell it as they go back along it)
+            float puff = 1.0 + uLife.y * pow(max(0.0, sin(u * 6.5 - t * 5.3)), 6.0) * smoothstep(0.05, 0.3, u);
+            vec3 p = c + sd * aRibbon.y * mix(uTrail.y, uTrail.z, sqrt(u)) * 0.5 * puff;
             vU = u;
             vSide = aRibbon.y;
             vP = p;
@@ -193,6 +208,7 @@ export class SpaceFx {
           ${GLSL_BAYER}
           uniform vec4 uTrail;
           uniform float uScroll;
+          uniform vec4 uLife;
           in float vU;
           in float vSide;
           in vec3 vP;
@@ -207,9 +223,12 @@ export class SpaceFx {
             float near = smoothstep(55.0, 175.0, length(vP - cameraPosition));
             float keep = ((1.0 - vU) * 1.55 - edge * edge * 0.3) * near * uTrail.w;
             if (clump + (sfBayer4(ivec2(gl_FragCoord.xy)) - 0.5) * 0.1 > keep) discard;
-            float band = floor(clamp(side * 0.5 + 0.5, 0.0, 0.9999) * 6.0);
+            // (the rainbow twists along it, and turns as it goes)
+            float band = mod(floor(clamp(side * 0.5 + 0.5, 0.0, 0.9999) * 6.0) + floor(along * 0.3 + uLife.w * 1.6), 6.0);
             float fresh = 1.0 - vU;
-            sbWrite(${Ramp.RED}.0 + band, 0.52 + 0.16 * fresh + 0.1 * (1.0 - edge), 0.0, 0.55 * fresh * uTrail.w, vec3(0.0, 0.0, 1.0), 0.61, 0.5);
+            // (and it sparkles: a glint here and there, coming and going)
+            bool glint = vU > 0.06 && sfNoise(vec2(along * 3.1 + 17.0, side * 2.3 + uLife.w * 2.1)) > 1.0 - uLife.z;
+            sbWrite(${Ramp.RED}.0 + band, glint ? 0.97 : 0.52 + 0.16 * fresh + 0.1 * (1.0 - edge), 0.0, (glint ? 1.0 : 0.55 * fresh) * uTrail.w, vec3(0.0, 0.0, 1.0), 0.61, 0.5);
           }
         `,
       }),
@@ -255,8 +274,11 @@ export class SpaceFx {
       U.uTail.value.copy(bus.localToWorld(this.tmp.copy(this.tailLocal)));
       U.uBack.value.copy(nosing).negate();
       U.uTrail.value.set(260, 3.2, 10, tr);
-      this.scroll = (this.scroll + dt * (1 + 0.8 * Math.log10(Math.max(v, 1) / 30))) % 256;
+      this.scroll = (this.scroll + dt * spaceFxTune.trailFlow * (1 + 0.8 * Math.log10(Math.max(v, 1) / 30))) % 256;
       U.uScroll.value = this.scroll;
+      // (its own clock, turned over once an hour for the shader's precision: a twitch then, and never in a trip)
+      this.life = (this.life + dt) % 3600;
+      U.uLife.value.set(spaceFxTune.trailWave, spaceFxTune.trailPuff, spaceFxTune.trailSparkle, this.life);
     }
   }
 }
