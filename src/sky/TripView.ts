@@ -20,8 +20,9 @@ import { R_E, R_M, type MoonTrip } from './MoonTrip';
 // The angles are the city's at 1 km, all the way: the view looks ahead and a little down, so what the path points at stands over the bus, and a frame too short for that eases the pitch by the rig's own rule. The Moon's low game sits a little lower (MOON_VISTA),
 // so on the last of the way down the angles come to its own, by the height alone. The lens doesn't move, so a disc grows by its own size alone and the bus stays the size it is over the city.
 //
-// The thumb swings the camera on every leg it doesn't steer, on top of all this. It waits and eases in as a look does, since a flick is a stroke too and only its lift says so. Left alone for THUMB_HOLD seconds the view goes home on a spring of its own.
-// Over all of it goes the look, the rig's own (game/CameraRig.ts setLook, a thumb in the left of the screen): the whole view turns about the bus, and goes home on the lift.
+// The thumb swings the camera on every leg it doesn't steer, on top of all this, and either side of the screen pans it (the producer: "For the moon run, I want to be able to pan the camera like it was before"). A flick is a stroke too and
+// only its lift says so, so what a flick panned goes back. Left alone for THUMB_HOLD seconds the view goes home on a spring of its own. Over all of it goes the look, the rig's own (game/CameraRig.ts setLook), where a thumb in the left of the
+// screen can't pan, on the legs the other thumb steers: the whole view turns about the bus, and goes home on the lift.
 
 const DEG = Math.PI / 180;
 const RIGHT = new THREE.Vector3(1, 0, 0);
@@ -79,9 +80,6 @@ export class TripView {
   below = 18 * DEG;
   /** the thumb's spring's rate, 1/s: live, the tuner moves it */
   swing = SWING;
-  /** how long a thumb is down before it swings the view, and how long the swing takes to come in, s: moonrun.ts hands over the look's own */
-  swingWait = 0.1;
-  swingEase = 0.2;
   /** the look as the rig has it, rad, +right and +up: 0, 0 at home */
   lookYaw = 0;
   lookPitch = 0;
@@ -97,8 +95,11 @@ export class TripView {
   private yaw = 0;
   private tilt = 0;
   private idle = 0;
-  /** how long the thumb has been down on a leg it doesn't steer, s */
-  private held = 0;
+  /** the pan as it stood when this stroke began to pan, and a flick that's just lifted: what it panned goes back */
+  private stroke = false;
+  private yaw0 = 0;
+  private tilt0 = 0;
+  private flickedNow = false;
   private readonly viewQ = new THREE.Quaternion();
   private readonly lookQ = new THREE.Quaternion();
   /** the chase's turn, rad/s, and the rate of its spring, 1/s */
@@ -186,17 +187,25 @@ export class TripView {
       this.takeBack();
     }
 
-    // ---- the thumb
-    if (!trip.steering && thumb) {
-      this.held += dt;
-      const k = smooth01(this.swingWait, this.swingWait + Math.max(0.01, this.swingEase), this.held) * THUMB_RATE * dt;
-      this.yaw -= stickX * k;
-      this.tilt = Math.max(-1.4, Math.min(1.4, this.tilt + stickY * k));
-      this.idle = 0;
-    } else {
-      this.idle += dt;
-      this.held = 0;
+    // ---- the thumb (a flick's stroke panned before its lift said it was a flick, unless another thumb is still panning)
+    if (this.flickedNow) {
+      this.flickedNow = false;
+      if (!thumb && this.stroke) {
+        this.yaw = this.yaw0;
+        this.tilt = this.tilt0;
+      }
     }
+    if (!trip.steering && thumb) {
+      if (!this.stroke) {
+        this.stroke = true;
+        this.yaw0 = this.yaw;
+        this.tilt0 = this.tilt;
+      }
+      this.yaw -= stickX * THUMB_RATE * dt;
+      this.tilt = Math.max(-1.4, Math.min(1.4, this.tilt + stickY * THUMB_RATE * dt));
+      this.idle = 0;
+    } else this.idle += dt;
+    if (!thumb) this.stroke = false;
     if ((this.yaw !== 0 || this.tilt !== 0) && (trip.steering || this.idle > THUMB_HOLD)) this.takeBack();
     this.thumbQ.setFromEuler(this.euler.set(this.tilt, this.yaw, 0, 'YXZ'));
 
@@ -288,6 +297,11 @@ export class TripView {
       a = -Math.min(-pitch, Math.max(0, config.camera.lookViewMax * DEG - Math.asin(Math.max(-1, Math.min(1, -fwd.dot(top))))));
     }
     return a === 0 ? v : v.multiply(this.lookQ.setFromAxisAngle(RIGHT, a));
+  }
+
+  /** A flick just lifted (moonrun.ts): what its stroke panned goes back on the next frame. */
+  flicked(): void {
+    this.flickedNow = true;
   }
 
   /** What look() puts on a view, taken off it: the low game's lens comes back with the rig's look on it. */

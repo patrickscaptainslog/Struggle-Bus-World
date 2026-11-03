@@ -5,7 +5,7 @@ import { spaceResolveUniforms as U } from '../render/skyResolve';
 import { BusModel, busTune, type BusPose } from '../bus/BusModel';
 import { config } from '../config';
 import { CameraRig } from '../game/CameraRig';
-import { Input, inputTune } from '../game/Input';
+import { Input, inputTune, stickOf } from '../game/Input';
 import { globals } from '../render/materials';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import type { WarmUp } from '../render/warmup';
@@ -285,10 +285,15 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   const hud = input ? new Hud(input, { onMute() {}, onSwap() {}, onGesture() {} }) : null;
   // (the look is the rig's: on ?moonland the low game's own, so a look held across a join goes on across it)
   const looker = input ? (land?.rig ?? new CameraRig()) : null;
+  const pan = { x: 0, y: 0 };
   const label = flying ? tripLabel() : null;
   if (input && hud && trip) {
     input.onTripleFinger = () => tuner.toggle();
-    input.onTurbo = (dir) => (dir < 0 ? trip.shiftDown() : trip.tap());
+    input.onTurbo = (dir) => {
+      view?.flicked();
+      if (dir < 0) trip.shiftDown();
+      else trip.tap();
+    };
     // the game's sound, for the breath alone: its one-shots, no wind (there's no air) and no engine (the graph's frame never runs, so nothing but a breath makes a noise)
     const audio = land?.audio ?? new AudioEngine();
     audio.setVolumes({ ...config.audio, ambience: 0 });
@@ -384,19 +389,19 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     if (trip && view && input && looker) {
       input.update(real);
       const st = input.state;
-      // (the look on the wall clock, as the street's; and what a flick is, so neither the swing nor the orbit's push takes one for a drag)
-      looker.setLook(st.look.on, st.look.x, st.look.y, real);
+      // (where the thumb doesn't steer, either side of the screen pans, at the stick's own rate; where it does, the left of the screen looks, on the wall clock as the street's. And the longest flick, so the orbit's push doesn't take one for a push)
+      const steer = trip.steering, pans = !steer && !st.dragging && st.look.on;
+      if (pans) stickOf(st.look.x, st.look.y, pan);
+      looker.setLook(st.look.on && steer, st.look.x, st.look.y, real);
       view.lookYaw = looker.lookYawNow;
       view.lookPitch = looker.lookPitchNow;
-      view.swingWait = inputTune.lookDelayMs / 1000;
-      view.swingEase = config.camera.lookEaseIn;
       YOKE.flick = inputTune.loneFlickMs / 1000;
       trip.tau = tripTune.tau;
       trip.pull = tripTune.pullDegS * DEG;
       view.swing = tripTune.swing;
       view.halfV = camera.fov / 2;
       trip.step(dt, trip.steering && st.dragging ? st.stretch.x : 0, st.dragging ? st.stretch.y : 0);
-      view.update(dt, trip, st.stretch.x, st.stretch.y, st.dragging, lensParam);
+      view.update(dt, trip, pans ? pan.x : st.stretch.x, pans ? pan.y : st.stretch.y, st.dragging || pans, lensParam);
       pipeline.setHfov(view.hfov);
       landing?.update(dt);
       placeCamera();

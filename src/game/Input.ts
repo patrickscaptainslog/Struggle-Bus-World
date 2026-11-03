@@ -891,15 +891,7 @@ export class Input {
       dy *= k;
       d = maxD;
     }
-    const st = this.b;
-    const dz = Math.max(0, F.deadZonePx);
-    if (d <= dz) {
-      st.x = st.y = 0;
-      return;
-    }
-    const s = softSat((d - dz) / px, inputTune.knee);
-    st.x = (dx / d) * s;
-    st.y = (-dy / d) * s; // screen up = +y
+    stickOf(dx, -dy, this.b); // screen up = +y
   }
 
   private fireFirstGesture() {
@@ -994,6 +986,19 @@ function evTime(e: Event): number {
 }
 
 /** Linear up to `knee`, then eases asymptotically into 1 (tanh), C1-continuous. */
+/** A thumb's offset (CSS px, +y up) as the stick reads it: the dead zone, then soft-saturated toward 1 past stretchPx. The flight's pan reads a look the same way (src/sky/moonrun.ts). */
+export function stickOf(dx: number, dy: number, out: { x: number; y: number }): void {
+  const F = config.flight;
+  const d = Math.hypot(dx, dy), dz = Math.max(0, F.deadZonePx);
+  if (d <= dz) {
+    out.x = out.y = 0;
+    return;
+  }
+  const s = softSat((d - dz) / Math.max(1, F.stretchPx), inputTune.knee);
+  out.x = (dx / d) * s;
+  out.y = (dy / d) * s;
+}
+
 function softSat(s: number, knee: number): number {
   const k = Math.min(0.999, Math.max(0, knee));
   if (s <= k) return s;

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Flicks out in space, felt a frame at a time on a fixed step (docs/specs/moon/FREEFLIGHT.md, Stage 1): node tools/moon/flicks.mjs <out dir>
 //   wait   the label asks for a flick, and a left flick up launches
-//   dark   in the long dark a right thumb's flick up leaves the view where it was, and a right drag held still swings it
+//   dark   in the long dark a drag on either side pans the view, as the flight always has, and it stays where it's left; a flick on either side leaves it
 //   look   a left drag in orbit turns the view about the bus, the rig's curve, and on the lift the view comes home
 //   orbit  a right flick up as slow as the rule allows, its push felt past the old 0.15 s, goes home and starts no fall
 //   push   and a push held 0.3 s still starts one
@@ -104,6 +104,31 @@ try {
   const swung = Math.hypot(d2.noseYaw - d1.noseYaw, d2.nosePitch - d1.nosePitch);
   row('dark: a right drag held 1 s still swings it', swung > 10, { swung: +swung.toFixed(1), during: d2 });
   await shot('dark-swung');
+  // (the left of the screen pans the same way out here, and the pan stays where it's left)
+  await frames(5);
+  const d3 = await read();
+  begin();
+  await touch('touchStart', LX, LY, 0);
+  await touch('touchMove', LX + 60, LY, 150);
+  await frames(30);
+  const d4 = await read();
+  await touch('touchEnd', LX + 60, LY, 150 + 1000);
+  await frames(30);
+  const d5 = await read();
+  const lpan = Math.hypot(d4.noseYaw - d3.noseYaw, d4.nosePitch - d3.nosePitch), kept = Math.hypot(d5.noseYaw - d4.noseYaw, d5.nosePitch - d4.nosePitch);
+  row('dark: a left drag held 1 s pans too, and 1 s after the lift the view is where it was left', lpan > 10 && kept < 1 && d4.lookYaw === 0, { panned: +lpan.toFixed(1), movedAfter: +kept.toFixed(2), rigLook: d4.lookYaw });
+  await shot('dark-left-pan');
+  begin();
+  await touch('touchStart', LX, LY, 0);
+  await touch('touchMove', LX, LY - 37, 42);
+  await frames(2);
+  await touch('touchMove', LX, LY - 74, 85);
+  await frames(1);
+  await touch('touchEnd', LX, LY - 74, 85);
+  await frames(10);
+  const d6 = await read();
+  const leftFlick = Math.hypot(d6.noseYaw - d5.noseYaw, d6.nosePitch - d5.nosePitch);
+  row('dark: a left flick up (74 px, 85 ms, 3 frames) leaves the view', leftFlick < 1 + drift, { moved: +leftFlick.toFixed(2), byItself: +drift.toFixed(2) });
 
   // ---- orbit: the look, a left drag 100 px right, held, and let go
   await skipTo('orbit');
