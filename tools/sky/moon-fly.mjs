@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Flies ?moonrun in one browser and takes frames along the way: node tools/sky/moon-fly.mjs <out dir> [--g5=6000] [--t=2026-11-25T04:00:00Z] [--live=0.05]
-// BASE is the page (http://localhost:4179/). The first TURBO is a real touch on the real button; G5 is asked for at once and home leaves when the marks say so.
+// BASE is the page (http://localhost:4179/). The first flick is a real touch, in the left of the screen (TURBO's button is gone); G5 is asked for at once and home leaves when the marks say so.
 //   marks: the page almost stands still (?fixeddt small) and the flight jumps from mark to mark through __game.moon.skip, at the route's step, drawing nothing between. It says nothing about frame rate.
 //   --thumb: real touch drags on the canvas, in G5 and in orbit: the camera swings and comes back, the bus steers.
 //   --live=dt: the whole round trip through the real frame loop at that fixed step, two taps at a time, and it prints the legs. No frames.
@@ -8,6 +8,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { browserOptions } from '../browser.mjs';
+import { flick } from '../flick.mjs';
 
 const args = process.argv.slice(2);
 const opt = (k, d) => args.find((a) => a.startsWith(`--${k}=`))?.split('=')[1] ?? d;
@@ -38,7 +39,8 @@ try {
       const m = window.__game.moon, s = m.sky, tr = m.trip, px = 1 / window.__game.pipeline.pixelWorldSize(1);
       return { leg: tr.leg, gear: tr.gear, clock: +tr.clock.toFixed(1), v: Math.round(tr.v), hE: Math.round(tr.hEarth), hM: Math.round(tr.hMoon), lens: +m.view.hfov.toFixed(1), bound: m.trip.bound ? 'moon' : 'earth', body: tr.ob.body, earthPx: Math.round(2 * Math.tan(s.earthR) * px), moonPx: Math.round(2 * Math.tan(s.moonR) * px) };
     });
-  const turbo = await page.locator('[data-hud="turbo"]').boundingBox();
+  const flicks = await page.context().newCDPSession(page);
+  const flickUp = () => flick(flicks, 1);
   const hudOn = await page.evaluate(() => [...document.querySelectorAll('[data-hud]')].filter((e) => getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden').map((e) => e.dataset.hud));
   console.log('HUD shows:', hudOn.join(', '));
   if (thumbTest) {
@@ -56,7 +58,7 @@ try {
     };
     const earth = () => page.evaluate(() => [...window.__game.moon.sky.earth].map((x) => +x.toFixed(3)));
     const heading = () => page.evaluate(() => [...window.__game.moon.trip.heading]);
-    await page.touchscreen.tap(turbo.x + turbo.width / 2, turbo.y + turbo.height / 2);
+    await flickUp();
     await page.waitForFunction(() => window.__game.moon.trip.leg !== 'wait', null, { timeout: 20000 });
     await page.evaluate(() => {
       window.__game.moon.trip.tap();
@@ -85,16 +87,16 @@ try {
     await page.screenshot({ path: join(out, 'thumb-orbit.png') });
     console.log(`orbit: the thumb turned the bus ${turned.toFixed(1)} deg (the lap alone turns it about 8 deg/s); ${JSON.stringify(lap0)} then ${JSON.stringify(await say())}`);
   } else if (live) {
-    await page.touchscreen.tap(turbo.x + turbo.width / 2, turbo.y + turbo.height / 2);
+    await flickUp();
     await page.waitForFunction(() => window.__game.moon.trip.leg !== 'wait', null, { timeout: 20000 });
-    await page.touchscreen.tap(turbo.x + turbo.width / 2, turbo.y + turbo.height / 2);
+    await flickUp();
     const log = (s) => say().then((v) => console.log(s, JSON.stringify(v)));
     await page.waitForFunction(() => window.__game.moon.trip.leg === 'orbit', null, { timeout: 600000, polling: 500 });
     await log('orbit');
     await page.waitForTimeout(3000);
-    await page.touchscreen.tap(turbo.x + turbo.width / 2, turbo.y + turbo.height / 2);
+    await flickUp();
     await page.waitForFunction(() => window.__game.moon.trip.leg !== 'orbit', null, { timeout: 20000 });
-    await page.touchscreen.tap(turbo.x + turbo.width / 2, turbo.y + turbo.height / 2);
+    await flickUp();
     await page.waitForFunction(() => window.__game.moon.trip.leg === 'wait', null, { timeout: 600000, polling: 500 });
     await log('home');
     const legs = await page.evaluate(() => window.__game.moon.trip.log);
@@ -116,7 +118,7 @@ try {
       }
     };
     await shoot('00-wait');
-    await page.touchscreen.tap(turbo.x + turbo.width / 2, turbo.y + turbo.height / 2);
+    await flickUp();
     await page.waitForFunction(() => window.__game.moon.trip.leg !== 'wait', null, { timeout: 20000 });
     await page.evaluate(() => window.__game.moon.trip.tap());
     await fly(OUT.slice(1), '1');

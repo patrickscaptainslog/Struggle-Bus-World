@@ -54,7 +54,11 @@ const letGo = () => page.evaluate(() => {
   delete window.__qa.sx;
   delete window.__qa.sy;
 });
-const shift = (d) => page.evaluate((v) => window.__game.input.onTurbo(v), d);
+/** Up or down the ladder a flick at a time to a gear: Cruise 0, Express 1, Nonstop 2, Jet 3. */
+const gear = (n) => page.evaluate((k) => {
+  const g = window.__game;
+  for (let i = 0; i < 8 && g.controls.turbo.gear !== k; i++) g.input.onTurbo(g.controls.turbo.gear < k ? 1 : -1);
+}, n);
 const shot = (name) => page.screenshot({ path: `${out}/${name}.png` });
 const state = () => page.evaluate(() => {
   const g = window.__game, f = g.flight, p = g.moon.paint, t = p.target, r = (x, k = 1) => +x.toFixed(k);
@@ -211,17 +215,17 @@ SCRIPTS.play = async () => {
 SCRIPTS.high = async () => {
   await open();
   await run(1);
-  await shift(1);
+  await gear(3);
   await stick(0, -1);
   await run(10);
-  await shift(-1);
+  await gear(0);
   await letGo();
   await run(3);
   await playFor('km3', 18, 3);
-  await shift(1);
+  await gear(3);
   await stick(0, -1);
   await run(14);
-  await shift(-1);
+  await gear(0);
   await letGo();
   await run(3);
   await playFor('km10', 18, 3);
@@ -449,14 +453,14 @@ SCRIPTS.soak = async () => {
   await stick(0.25, 0.9);
   await playFor('s-surge', 40, 20);
   await letGo();
-  await shift(1);
+  await gear(3);
   await stick(0, -0.5);
   await run(6);
   await letGo();
   await playFor('s-jet', 40, 20);
   await stick(0.4, 0);
   await playFor('s-jet-turn', 20, 20);
-  await shift(-1);
+  await gear(0);
   await letGo();
   await stick(0, 1);
   await playFor('s-down', 30, 15);

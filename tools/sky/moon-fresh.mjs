@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // A whole trip, played as a person would, on today's sky unless --t says otherwise: node tools/sky/moon-fresh.mjs <out dir> [--t=now] [--paint=120] [--dt=0] [--trips=2] [--store=1] [--w=393] [--h=852] [--q=]
-// Real frame loop, real touches, and it does only what the screen shows: TURBO when the label asks. In orbit it plays for --paint seconds: it taps the paint it can see while that paint is still ahead of the bus, until
+// Real frame loop, real touches, and it does only what the screen shows: a flick up when the label asks. In orbit it plays for --paint seconds: it taps the paint it can see while that paint is still ahead of the bus, until
 // that's level 3, and then taps fresh ground: the middle of the frame, or a little to one side. Every tap is written down: where the finger was, where the place lands on the screen at the tap and at the impact,
 // the seconds from tap to impact, the level, how long the frames around it took. On the way home it shoots the look back. Then it reloads the page and flies again, and looks for what it painted.
 // Exits 1 if the page threw or the paint didn't come back.
@@ -8,6 +8,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { browserOptions } from '../browser.mjs';
+import { flick } from '../flick.mjs';
 
 const args = process.argv.slice(2);
 const opt = (k, d) => args.find((a) => a.startsWith(`--${k}=`))?.split('=')[1] ?? d;
@@ -111,8 +112,8 @@ async function playOrbit(page, seconds, name) {
 try {
   let page = await open();
   for (let trip = 1; trip <= trips; trip++) {
-    const turboBox = await page.locator('[data-hud="turbo"]').boundingBox();
-    const tapTurbo = () => page.touchscreen.tap(turboBox.x + turboBox.width / 2, turboBox.y + turboBox.height / 2);
+    const flicks = await page.context().newCDPSession(page);
+    const flickUp = () => flick(flicks, 1);
     const start = await read(page);
     const pageTrips = start.trips;
     say(`flight ${trip}: ready, ${start.strokes} strokes, ${start.painted} % painted, says ${start.say}`);
@@ -172,9 +173,9 @@ try {
         await once('19-home', s);
         break;
       }
-      if (prompt.startsWith('TAP TURBO') && (Date.now() - askedAt) * (dt ? dt * 60 : 1) > 1500) {
-        say(`TURBO: the screen says ${prompt}`);
-        await tapTurbo();
+      if (prompt.startsWith('FLICK UP') && (Date.now() - askedAt) * (dt ? dt * 60 : 1) > 1500) {
+        say(`flick up: the screen says ${prompt}`);
+        await flickUp();
         asked = '';
         await page.waitForTimeout(300);
       }

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // The corners of ?moonland that a whole flight doesn't go round: node tools/moon/edges.mjs <out dir> [--only=abort,stratos,big,site]
-//   abort    a fall called off with TURBO, then a push on the way back up, and on to the ground
-//   stratos  two taps of TURBO on the ground, and level at Stratos for a while, and down again
-//   letgo    the thumb lifted at 11 km: the arrival is over and Jet has the speed, and the down tab answers
+//   abort    a fall called off with a flick, then a push on the way back up, and on to the ground
+//   stratos  flicks up to Stratos on the ground, and level there for a while, and a flick down again
+//   letgo    the thumb lifted at 11 km: the arrival is over and Jet has the speed, and a flick down answers
 //   big      a crater over 1 km takes a level: it goes on the orbit's map, and its big mark doesn't lie on the ground
 //   site     a splash from orbit over a crewed site: inside its line it stays grey
 // The long dark is skipped, the thumbs are real, and the crater and the splash are put there by hand.
@@ -10,6 +10,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { browserOptions } from '../browser.mjs';
+import { flick, flickTo } from '../flick.mjs';
 
 const args = process.argv.slice(2);
 const opt = (k, d) => args.find((a) => a.startsWith(`--${k}=`))?.split('=').slice(1).join('=') ?? d;
@@ -49,16 +50,10 @@ async function open() {
     return { leg: tr.leg, clock: r(tr.t), h: low ? r(f.height / 1000, 2) : r(l.height), v: low ? r(f.speed) : r(tr.v * tr.gov * 1000), nose: r(((low ? f.nose : tr.nose) * 180) / Math.PI, 0), show: r(l.show, 2), near: l.near, low, gear: low ? g.controls.turbo.gear : tr.gear, climb: tr.climbV, gap: low ? r(f.y - f.floorY, 1) : null, tiles: g.city.loadedRegionCount(), say: document.querySelector('[data-hud="trip-label"]')?.dataset.say ?? '', painted: +(m.breath.paint.painted * 100).toFixed(4) };
   });
   const say = (s, note = '') => console.log(`${String(s.clock).padStart(7)} s ${s.leg.padEnd(7)} ${String(s.h).padStart(8)} km ${String(s.v).padStart(8)} m/s nose ${String(s.nose).padStart(4)} G${s.gear} show ${s.show} ${note}`);
-  const turbo = async (down) => {
-    const b = await page.evaluate((q) => {
-      const e = [...document.querySelectorAll(q)].map((x) => x.getBoundingClientRect()).find((r) => r.width > 0);
-      return e ? [e.left + e.width / 2, e.top + e.height / 2] : null;
-    }, down ? '[data-hud="gear-down"]' : '[data-hud="turbo"]');
-    if (!b) throw new Error('no such button');
-    await touch('touchStart', [[b[0], b[1], 5]]);
-    await page.waitForTimeout(60);
-    await touch('touchEnd', []);
-  };
+  // (flicks in the left of the screen: a rung up or down there, and up here what TURBO's tap and its down tab were)
+  const flickUp = () => flick(cdp, 1);
+  const flickDown = () => flick(cdp, -1);
+  const gearTo = (gear) => flickTo(page, cdp, gear);
   const push = async (dy = -90) => {
     await touch('touchStart', [[x0, y0, 1]]);
     for (let i = 1; i <= 6; i++) {
@@ -85,7 +80,7 @@ async function open() {
     }
   };
   const shot = (name) => page.screenshot({ path: join(dir, `${name}.png`) });
-  return { ctx, page, read, say, turbo, push, lift, until, shot };
+  return { ctx, page, read, say, flickUp, flickDown, gearTo, push, lift, until, shot };
 }
 
 try {
@@ -96,7 +91,7 @@ try {
     await p.until('falling', (s) => s.leg === 'fall' && s.h < 85);
     await p.lift();
     await p.page.waitForTimeout(150);
-    await p.turbo();
+    await p.flickUp();
     const s = await p.until('called off', (s) => s.h > 125 && s.nose > 0, 20);
     p.say(s, 'pushing again');
     await p.shot('abort-up');
@@ -115,16 +110,14 @@ try {
     await p.until('falling', (s) => s.leg === 'ground' && s.gap < 20);
     await p.lift();
     await p.page.waitForTimeout(1500);
-    await p.turbo();
-    await p.page.waitForTimeout(500);
-    await p.turbo();
+    await p.gearTo(4);
     await p.until('lifting to Stratos', (s) => s.h > 1.9, 20);
     for (let i = 0; i < 6; i++) {
       await p.page.waitForTimeout(3000);
       p.say(await p.read(), `tiles ${(await p.read()).tiles}`);
       if (i === 2) await p.shot('stratos');
     }
-    await p.turbo(true);
+    await p.flickDown();
     await p.page.waitForTimeout(6000);
     p.say(await p.read(), 'shifted down');
     await p.shot('stratos-jet');
@@ -140,9 +133,9 @@ try {
       await p.page.waitForTimeout(2000);
       p.say(await p.read(), 'let go');
     }
-    await p.turbo(true);
+    await p.flickDown();
     await p.page.waitForTimeout(5000);
-    p.say(await p.read(), 'down tab');
+    p.say(await p.read(), 'flicked down');
     await p.ctx.close();
   }
   if (only.includes('big')) {
@@ -164,11 +157,7 @@ try {
     console.log('  crater', JSON.stringify(hit));
     await p.page.waitForTimeout(2500);
     await p.shot('big-low');
-    await p.turbo();
-    await p.page.waitForTimeout(400);
-    await p.turbo();
-    await p.page.waitForTimeout(400);
-    await p.turbo();
+    await p.gearTo(5);
     await p.until('up', (s) => s.leg === 'fall' && s.h > 24, 30);
     await p.shot('big-24km');
     await p.until('up', (s) => s.leg === 'orbit', 30);

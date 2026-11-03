@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // The small ways a first flight goes wrong, one page each: node tools/sky/moon-misc.mjs <out dir>
-//   a long press on TURBO; the down tab; a turn of the phone in flight; the GL context lost and given back; the browser's bars coming and going; a laptop's keys and mouse; the phone's real 3x canvas.
+//   a flick up and a flick down; a turn of the phone in flight; the GL context lost and given back; the browser's bars coming and going; a laptop's keys and mouse; the phone's real 3x canvas.
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { browserOptions } from '../browser.mjs';
+import { flick } from '../flick.mjs';
 
 const out = process.argv[2];
 const BASE = process.env.BASE ?? 'http://localhost:4179/';
@@ -25,46 +26,38 @@ const open = async (query, opts = {}) => {
   await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 90000 });
   return page;
 };
-const box = (page, name) => page.locator(`[data-hud="${name}"]`).boundingBox();
 const state = (page) => page.evaluate(() => {
   const t = window.__game.moon.trip;
   return { leg: t.leg, gear: t.gear, armed: t.armed, clock: +t.clock.toFixed(1), say: document.querySelector('[data-hud="trip-label"]')?.dataset.say };
 });
-const press = async (page, b, ms) => {
-  const cdp = await page.context().newCDPSession(page);
-  const p = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [p] });
-  await page.waitForTimeout(ms);
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-};
 try {
-  // ---- a long press launches, once
+  // ---- a flick up launches, once
   {
     const page = await open('fixeddt=0.0166');
-    await press(page, await box(page, 'turbo'), 800);
+    const cdp = await page.context().newCDPSession(page);
+    await flick(cdp, 1);
     await page.waitForTimeout(300);
     const s = await state(page);
-    console.log('long press on TURBO, 800 ms:', JSON.stringify(s));
+    console.log('a flick up:', JSON.stringify(s));
     if (s.leg === 'wait' || s.armed) bad++;
-    // a press of 350 ms: both the hold and the tap: one shift only
-    await press(page, await box(page, 'turbo'), 350);
+    // the next, once in flight, asks for G5: one shift only
+    await flick(cdp, 1);
     await page.waitForTimeout(300);
     const s2 = await state(page);
-    console.log('a 350 ms press, once in flight:', JSON.stringify(s2));
+    console.log('a flick up, once in flight:', JSON.stringify(s2));
     if (!s2.armed) bad++;
-    // the down tab takes it back
-    await press(page, await box(page, 'gear-down'), 80);
+    // a flick down takes it back
+    await flick(cdp, -1);
     await page.waitForTimeout(300);
     const s3 = await state(page);
-    console.log('the down tab:', JSON.stringify(s3));
+    console.log('a flick down:', JSON.stringify(s3));
     if (s3.armed) bad++;
     await page.close();
   }
   // ---- the phone turned in flight, then back, and the browser's bars
   {
     const page = await open('fixeddt=0.05');
-    const turbo = await box(page, 'turbo');
-    await page.touchscreen.tap(turbo.x + turbo.width / 2, turbo.y + turbo.height / 2);
+    await flick(await page.context().newCDPSession(page), 1);
     await page.waitForFunction(() => window.__game.moon.trip.leg !== 'wait', null, { timeout: 20000 });
     await page.waitForTimeout(400);
     await page.setViewportSize({ width: 874, height: 402 });

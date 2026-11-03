@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // A whole flight, as a stranger flies it, with real touches and nothing but what's on the screen: node tools/moon/stranger.mjs <out dir> [options]
-// TURBO to the Moon, a thumb pushed down to the ground, skimming, taps at what glints, TURBO back out to the orbit, TURBO home. One page, one link. What it says at the end: every leg, what compiled in flight, every long frame and what was going on.
+// A flick to the Moon, a thumb pushed down to the ground, skimming, taps at what glints, flicks back out to the orbit, a flick home. One page, one link. What it says at the end: every leg, what compiled in flight, every long frame and what was going on.
 //   --t=2026-11-25T04:00:00Z   the date: full Moon by default, 2026-11-09T22:00:00Z is about new
 //   --q=                       more of the URL
 //   --real                     the flight to the Moon and home flown in real time, with a thumb dragged in the long dark to look round. Without it the long dark is skipped: the route's own step, not drawn
 //   --lap=s                    seconds of orbit skipped before the push: round to the far side (200 is about half a lap)
 //   --splash=n                 taps from orbit before going down
 //   --paint=n                  taps at what glints, down there
-//   --out=gears|pull           how it leaves: TURBO's gears, or a held thumb in Jet to the hand-back and then TURBO
+//   --out=gears|pull           how it leaves: flicks up the gears, or a held thumb in Jet to the hand-back and then a flick
 //   --again=n                  down and up this many more times before going home
 //   --steer=px                 a sideways thumb on the way down
 //   --down=s                   how long it skims before it leaves
@@ -17,6 +17,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { browserOptions } from '../browser.mjs';
+import { flick, flickTo } from '../flick.mjs';
 
 const args = process.argv.slice(2);
 const opt = (k, d) => args.find((a) => a.startsWith(`--${k}=`))?.split('=').slice(1).join('=') ?? d;
@@ -117,16 +118,8 @@ try {
   });
   const say = (s) => console.log(`${s.clock.toFixed(1).padStart(7)} s ${String(s.leg).padEnd(10)} ${String(s.h).padStart(9)} km ${String(s.v).padStart(9)} m/s nose ${String(s.nose).padStart(4)} G${s.gear} show ${s.show} ${s.low ? `clearance ${s.y} gap ${s.gap}` : ''} ${s.say.split('|').filter(Boolean).slice(2).join(' / ')} disc ${s.disc}`);
   const shot = async (name) => page.screenshot({ path: join(dir, `${String(shots++).padStart(3, '0')}-${name}.png`) });
-  const turbo = async () => {
-    const b = await page.evaluate(() => {
-      const e = [...document.querySelectorAll('[data-hud="turbo"]')].map((x) => x.getBoundingClientRect()).find((r) => r.width > 0);
-      return e ? [e.left + e.width / 2, e.top + e.height / 2] : null;
-    });
-    if (!b) throw new Error('no TURBO on the screen');
-    await touch('touchStart', [[b[0], b[1], 5]]);
-    await page.waitForTimeout(60);
-    await touch('touchEnd', []);
-  };
+  // (a flick in the left of the screen: up a rung down there, what TURBO's tap was up here)
+  const flickUp = () => flick(cdp, 1);
   const tapAt = async (x, y) => {
     await touch('touchStart', [[x, y, 6]]);
     await page.waitForTimeout(70);
@@ -168,10 +161,10 @@ try {
 
   // ---- to the Moon
   await shot('home');
-  await turbo();
+  await flickUp();
   if (real) {
     await page.waitForTimeout(3000);
-    await turbo();
+    await flickUp();
     await fly('out', (s) => s.leg === 'cruise', { secs: 120, every: 12 });
     await page.waitForTimeout(3000);
     // ---- a thumb in the long dark swings the camera, and left alone it goes home on its spring
@@ -255,7 +248,7 @@ try {
     // ---- up
     console.log(`--- up ${round + 1}, ${out}`);
     if (out === 'pull') {
-      await turbo();
+      await flickTo(page, cdp, 3);
       await page.waitForTimeout(800);
       await holdThumb(0, 110);
       s = await fly('jet', (s) => s.leg === 'fall', { secs: 80, every: 6 });
@@ -265,14 +258,8 @@ try {
       say(s);
       console.log(`  says: ${s.say}`);
       await shot('handed');
-      await turbo();
-    } else {
-      await turbo();
-      await page.waitForTimeout(700);
-      await turbo();
-      await page.waitForTimeout(700);
-      await turbo();
-    }
+      await flickUp();
+    } else await flickTo(page, cdp, 5);
     let b = 0;
     s = await fly('up', (s) => s.leg === 'orbit', {
       secs: 90,
@@ -291,10 +278,10 @@ try {
 
   // ---- home
   console.log('--- home');
-  await turbo();
+  await flickUp();
   if (real) {
     await page.waitForTimeout(5000);
-    await turbo();
+    await flickUp();
     await fly('home', (s) => s.leg === 'wait', { secs: 400, every: 15 });
   }
   else {

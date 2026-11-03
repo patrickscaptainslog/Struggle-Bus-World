@@ -55,7 +55,11 @@ const letGo = () => page.evaluate(() => {
   delete window.__qa.sx;
   delete window.__qa.sy;
 });
-const shift = (d) => page.evaluate((v) => window.__game.input.onTurbo(v), d);
+/** Up or down the ladder a flick at a time to a gear: Cruise 0, Express 1, Nonstop 2, Jet 3. */
+const gear = (n) => page.evaluate((k) => {
+  const g = window.__game;
+  for (let i = 0; i < 8 && g.controls.turbo.gear !== k; i++) g.input.onTurbo(g.controls.turbo.gear < k ? 1 : -1);
+}, n);
 const state = () => page.evaluate(() => {
   const g = window.__game, f = g.flight, c = g.camera, T = g.controls.turbo, r = (x, k = 1) => +x.toFixed(k);
   const gy = g.city.groundAt(f.x, f.z);
@@ -93,29 +97,29 @@ const FLIGHTS = {
   },
   async jet() {
     await open();
-    await shift(1);
+    await gear(3);
     await leg('jet-lift', 8, 2);
     await letGo();
     await leg('jet', 24, 6);
-    await shift(-1);
+    await gear(0);
     await leg('jet-brake', 6, 2);
   },
   async climb() {
     await open();
     await stick(0, -1);
     await leg('climb', 20, 5);
-    await shift(1);
+    await gear(3);
     await leg('climb-g1', 24, 6);
-    await shift(-1);
+    await gear(0);
     await letGo();
     await leg('hold', 6, 2);
   },
   async dive() {
     await open();
-    await shift(1);
+    await gear(3);
     await stick(0, -1);
     await run(14);
-    await shift(-1);
+    await gear(0);
     await letGo();
     await run(4);
     await note('top of the dive');
@@ -168,10 +172,10 @@ const FLIGHTS = {
     await fire('paint-2');
     await fire('paint-3');
   },
-  /** G1 for the edge of the map: the homing turns it back. */
+  /** Jet for the edge of the map: the homing turns it back. */
   async edge() {
     await open();
-    await shift(1);
+    await gear(3);
     await page.evaluate(() => {
       const g = window.__game, f = g.flight;
       f.x = 120000;

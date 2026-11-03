@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // A first-timer flies ?moonrun: node tools/sky/moon-live.mjs <out dir> [--g5=6000] [--t=2026-11-25T04:00:00Z] [--dt=0] [--trips=1] [--w=402] [--h=874] [--dsf=1] [--shots=1] [--q=fps]
-// Real frame loop, real clock, real touches, and it does only what the screen says: the top right corner is read off the label, and TURBO is tapped when the label asks and not before, a beat after it asks.
+// Real frame loop, real clock, real touches, and it does only what the screen says: the top right corner is read off the label, and it flicks up when the label asks and not before, a beat after it asks.
 // The thumb is a real drag on the canvas: in the long dark each way (the camera), and on both sides in orbit (the bus). --dt=0.05 holds the frame loop's step there, so a fast laptop flies it faster than life:
 // that's for repeat flights; the clock numbers are the same. --thumbat=25: when the thumb wanders in the long dark, seconds into the leg. --tab: the down tab in orbit, and TURBO back up.
 // --paint=6: in orbit, a real tap on the ground each time the breath is loaded, each on the paint of the last when that's still ahead of the bus, and the look back on the way home is shot at 13,000 and 100,000 km.
@@ -10,6 +10,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { browserOptions } from '../browser.mjs';
+import { flick } from '../flick.mjs';
 
 const args = process.argv.slice(2);
 const opt = (k, d) => args.find((a) => a.startsWith(`--${k}=`))?.split('=')[1] ?? d;
@@ -54,9 +55,8 @@ try {
       const m = window.__game.moon, s = m.sky, tr = m.trip, f = 1 / window.__game.pipeline.pixelWorldSize(1);
       return { leg: tr.leg, gear: tr.gear, clock: +tr.clock.toFixed(1), v: Math.round(tr.v), hE: Math.round(tr.hEarth), hM: Math.round(tr.hMoon), lens: +m.view.hfov.toFixed(1), trips: tr.trips, bound: tr.bound, moonOff: s.moon[2] < 0 ? +(Math.hypot(s.moon[0], s.moon[1]) / -s.moon[2] * f / 196).toFixed(2) : 9, earthPx: Math.round(2 * Math.tan(s.earthR) * f), moonPx: Math.round(2 * Math.tan(s.moonR) * f), say: document.querySelector('[data-hud="trip-label"]')?.dataset.say ?? '', moonLit: +s.moonLit.toFixed(3), earthLit: +s.earthLit.toFixed(3), sunSeen: +s.sunSeen.toFixed(2) };
     });
-  const turbo = await page.locator('[data-hud="turbo"]').boundingBox();
-  const tap = () => page.touchscreen.tap(turbo.x + turbo.width / 2, turbo.y + turbo.height / 2);
   const cdp = await page.context().newCDPSession(page);
+  const tap = () => flick(cdp, 1);
   const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
   /** a real thumb: down, across, held, and off */
   const drag = async (dx, dy, ms) => {
@@ -194,18 +194,17 @@ try {
 
     if (tab && s.leg === 'orbit' && inLeg > 19 && !done.has('orbit-tab')) {
       done.add('orbit-tab');
-      const b = await page.locator('[data-hud="gear-down"]').boundingBox();
-      console.log(wall(), 'the down tab');
-      await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
+      console.log(wall(), 'a flick down');
+      await flick(cdp, -1);
       await page.waitForTimeout(400);
       console.log(wall(), JSON.stringify(await read()));
     }
 
-    // ---- TURBO, when the label asks. In orbit, a look round first
+    // ---- a flick up, when the label asks. In orbit, a look round first
     const wait = s.leg === 'orbit' ? (done.has('orbit-tab') ? 3 : paint ? 24 + paint * 3 : 24) : 1.5;
-    if (prompt.startsWith('TAP TURBO') && heard > wait) {
+    if (prompt.startsWith('FLICK UP') && heard > wait) {
       if (s.leg === 'wait' && s.trips >= trips) break;
-      console.log(wall(), `TURBO (the screen says ${prompt})`);
+      console.log(wall(), `flick up (the screen says ${prompt})`);
       if (s.leg === 'wait') {
         trip = s.trips + 1;
         done.clear();

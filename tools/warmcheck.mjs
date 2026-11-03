@@ -10,12 +10,13 @@
 // still build a pipeline in flight (target: the upscale onto the canvas, never warmed, frame 1).
 //   node tools/warmcheck.mjs <url> <out.json> [--throttle=4] [--late=9000]
 // --late=<ms>: far16.bin held back that long by a route, so it lands in play (City.landFar), and ready waits for it.
-// --moon: the url is ?moonrun: no city, so the phases are the flight's: TURBO's real touches, out and home.
+// --moon: the url is ?moonrun: no city, so the phases are the flight's: real flicks, out and home.
 // --low: the url is ?moon, the ground: real touches through a cruise, a surge, Jet, a climb, a dive, a crater taken to level 3, a mega and a firehose.
 // Wall clock, real GPU (tools/browser.mjs): meaningful on a laptop, not in the cloud's SwiftShader.
 import { chromium } from 'playwright-core';
 import { writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
+import { flick, flickTo } from './flick.mjs';
 
 const args = process.argv.slice(2);
 const pos = args.filter((a) => !a.startsWith('--'));
@@ -132,8 +133,8 @@ const place = (lat, lon, y, heading) =>
 
 // (?moonrun: the flight's phases instead of the city's. It flies at the url's own fixeddt: all that's read here is what first draws, and when)
 const moon = async () => {
-  const turbo = await page.locator('[data-hud="turbo"]').boundingBox();
-  const tap = () => page.touchscreen.tap(turbo.x + turbo.width / 2, turbo.y + turbo.height / 2);
+  const cdp = await ctx.newCDPSession(page);
+  const tap = () => flick(cdp, 1);
   const until = (leg) => page.waitForFunction((l) => window.__game.moon.trip.leg === l, leg, { timeout: 600000, polling: 200 });
   await phase('wait');
   await page.waitForTimeout(1500);
@@ -220,8 +221,7 @@ const low = async () => {
   await run(7);
   await page.evaluate(() => window.__game.superSkip(100));
   await phase('jet');
-  const [tx, ty] = await centre('turbo');
-  await tap(tx, ty);
+  await flickTo(page, cdp, 3);
   await run(8);
   await phase('climb');
   await pull(0, 90, 22);
