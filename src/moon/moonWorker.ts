@@ -23,6 +23,8 @@ export interface MoonInit {
   seekLit: boolean;
   /** far levels: a world reached from orbit has more of them */
   levels: number;
+  /** a true sky's light, Moon fixed (MoonSky.sunFix): the ground is baked by it over each place. Null for a held Sun, which is the map's everywhere */
+  sunFix: [number, number, number] | null;
 }
 
 /** A world reached from orbit: the generator again, round another place, with nothing of the last one kept. Anything asked for before this is dropped. */
@@ -119,6 +121,7 @@ async function init(m: MoonInit) {
   src = { relief: readRelief(relief), albedo: readAlbedo(albedo), window: readWindow(real), places: readPlaces(rows) };
   seed = m.seed;
   gen = new MoonGen(src, makeFrame(m.lat, m.lon), sunLine(m.sun[0], m.sun[1], m.sun[2]), m.seed, m.bounds);
+  gen.sunFix = m.sunFix;
   far = new FarStore(gen, m.levels);
   const [startX, startZ] = m.seekLit ? gen.findLit(m.startX, m.startZ, m.heading) : [m.startX, m.startZ];
   post({ type: 'ready', datum: gen.datum, startX, startZ, startY: gen.heightAt(startX, startZ, 8) } satisfies MoonReady);

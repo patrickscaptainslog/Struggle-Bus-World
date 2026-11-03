@@ -37,6 +37,7 @@ import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
 import { heldHour, moonLand, moonLow, moonrun } from './sky/flag';
 import type { LandEnter, Landing } from './moon/Landing';
+import { SLIDE, SLIDE_AT } from './moon/map';
 import { HeldHour } from './sky/HeldHour';
 
 // Struggle Bus — Phase 1 (real SF, solo).
@@ -845,6 +846,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   });
   // touch / keyboard, the turbo gears and the HUD (src/game/Controls.ts)
   const controls = new Controls({ input, flight, rig, audio, particles, pipeline, camera, scene, bus, bounds: manifest.bounds, params });
+  // (the Moon's map slides under the bus: it has no edge to hold a gear back)
+  if (moon) controls.turbo.edgeless = true;
   controls.hud.setCredits(dataCredits);
   input.onTripleFinger = () => tuner.toggle();
   input.onFirstGesture = () => {
@@ -1068,11 +1071,50 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** frames rendered (the opening's clock starts once the first one is on screen) */
   let framesDrawn = 0;
 
-  type QA = { sx?: number; sy?: number; holdAt?: number; holdFrames?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null; pin?: { x: number; y: number; z: number; heading: number } | null };
+  type QA = { sx?: number; sy?: number; holdAt?: number; holdFrames?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null; pin?: { x: number; y: number; z: number; heading: number } | null; noSlide?: boolean };
   /** ?moonland: the view the flight left the bus in, for the moments the rig takes to come over from it. */
   let fromSky: (LandEnter & { t: number }) | null = null;
   const fromQ = new THREE.Quaternion();
   const fromP = new THREE.Vector3();
+
+  /**
+   * ?moon: the map slides under the bus by (dx, dz), whole regions (docs/specs/moon/FREEFLIGHT.md, Stage 2). Everything with a place on the map comes over in this one
+   * moment, at the top of a frame, and nothing loads again: so the low game's map has no edge, and nothing turns the bus back down here. The flight's loop slides it too,
+   * low over the mesh (?moonland, Landing), where its lens stands on the map as this one does.
+   */
+  const slideMap = (dx: number, dz: number) => {
+    if (!moon) return;
+    // (a thing held in two places moves once: a blast's spec, the crater it's for)
+    const moved = new Set<object>();
+    moon.slide(dx, dz, moved);
+    city.slide(dx, dz, moved);
+    splatter.slide(dx, dz, moved);
+    aimer.aim.x -= dx;
+    aimer.aim.z -= dz;
+    flight.slide(dx, dz);
+    rig.slide(dx, dz);
+    camera.position.x -= dx;
+    camera.position.z -= dz;
+    pipeline.slide(dx, dz);
+    controls.fx.slide(dx, dz);
+    particles.slide(dx, dz);
+    signs.slide(dx, dz);
+    for (const ps of pendingSigns) {
+      ps.cx -= dx;
+      ps.cz -= dz;
+    }
+    if (signSpot) {
+      signSpot.x -= dx;
+      signSpot.z -= dz;
+      signSpot.cx -= dx;
+      signSpot.cz -= dz;
+    }
+    lastBlast.x -= dx;
+    lastBlast.z -= dz;
+    if (jet) for (const t of jet.targets) t.set(t.x - dx, t.y, t.z - dz);
+    slides++;
+  };
+  let slides = 0;
 
   function frame(now: number) {
     // (?moonland: the flight's loop is the pump)
@@ -1137,6 +1179,12 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     }
     if (city.loadedRegionCount() > 0 && !covered) credit?.start(simTime);
     credit?.update(simTime, now);
+
+    // (?moon: far enough out on an axis, the map slides along it under the bus, by SLIDE: whole blocks of every far level seen from down here, and the bus is 61 km past the new middle the other way)
+    if (moon && !qa?.noSlide) {
+      const sx = Math.abs(flight.x) > SLIDE_AT ? Math.sign(flight.x) * SLIDE : 0, sz = Math.abs(flight.z) > SLIDE_AT ? Math.sign(flight.z) * SLIDE : 0;
+      if (sx || sz) slideMap(sx, sz);
+    }
 
     // input -> flight (substeps keep springs stable on slow frames)
     input.update(dt);
@@ -1511,6 +1559,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         return m.place(lat, lon, ms);
       },
       frameAt: frame,
+      slide: slideMap,
       enter(s) {
         // the far field and the sky come down with it, and the thumb is the low game's from here
         scene.add(m.far!.object, m.sky.object);
@@ -1566,6 +1615,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
       get warm() {
         return warm;
+      },
+      /** QA, ?moon: slide the map now by (dx, dz) (whole regions: SLIDE), and how many times it has */
+      slide: (dx: number, dz: number) => slideMap(dx, dz),
+      get slides() {
+        return slides;
       },
       /** QA: lose the GL context, and get it back (the game's whole path through a GPU reset) */
       loseContext: () => lose?.loseContext(),

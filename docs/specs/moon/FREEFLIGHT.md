@@ -2,7 +2,7 @@
 
 The producer, 2026-11-02, after flying `?moonland`: "Works pretty great. I was hoping to be able to free fly around the whole moon".
 
-**State.** Nothing's built. 5-7 agent-days in all, broad rather than deep. The survey below was made on `spike/moonrun` at 14215d8 and 42 of the 43 references checked hold, but line numbers drift, so search for the names.
+**State.** Stages 0 to 3 built on `feat/moonfree`, 2026-11-03, and waiting on the producer's flight; Stage 4, the specs' hand-in, is left. Planned as 5-7 agent-days in all, broad rather than deep. The survey below was made on `spike/moonrun` at 14215d8 and 42 of the 43 references checked hold, but line numbers drift, so search for the names.
 
 ## What stops it
 
@@ -55,11 +55,19 @@ Left for a laptop and the phone: the rest of `controls.mjs`, which takes over tw
 
 ### Stage 2: the map slides (about 2 days)
 
-**How it's being built, 2026-11-03, with Stage 3 the same night at the producer's word** ("Let's do the big moon project tonight. I want to be able to fly around the moon freely, the whole way").
+**Built 2026-11-03 with Stage 3, the same night, at the producer's word** ("Let's do the big moon project tonight. I want to be able to fly around the moon freely, the whole way"). **Waiting on the producer's flight.** `DECISIONS.md`, "The map slides, and the whole Moon", has the calls and their numbers.
 
-- Over 16 km, under the mesh, there is no wall now: far from the middle the mesh dissolves to the ray-drawn Moon, the world is made again 30 km ahead, and it comes back (`Landing.moving`). So the whole Moon can be flown at height already, and come down on anywhere. `flicks.mjs --high` flies it.
-- In the low game the map slides: when the bus is past 70 km from the middle on an axis, everything shifts by 65,536 m (2^16) on that axis at one moment at the top of the frame, and the frame is centred again on its own axes there. 2^16 is a whole number of blocks for far levels 0 to 7 and keeps levels 0 to 6 nested; 7 and up are made again, and at the low game's heights they're behind the horizon while they come. One datum for the session.
-- Each holder has a `slide(dx, dz)`: Flight, the rig and the camera, the trail and the lines, particles, the breath in flight, the aim, the signs, City (its tiles, keys, meshes, materials, mask, requests), ground paint, crater paint, rocks, the far field (per-level texel offsets for the toroidal maps), the worker (a new generator on the new frame, the old datum, the far store's windows by blocks). The shaders' fine noise reads the world through `uSlide`, so a stone stays where it was.
+- Over 16 km, under the mesh, there's no wall: far from the middle the mesh dissolves to the ray-drawn Moon, the world is made again 30 km ahead, and it comes back (`Landing.moving`). `flicks.mjs --high` flies it.
+- Low down the map slides: past 70 km from the middle on an axis, everything moves 131,072 m (2^17) along it at one moment at the top of the frame, and the frame is centred again there on its own carried axes. The far field's levels 0 to 7 come over as they are; `?moonland`'s 8 and 9, past the horizon from under 16 km, are made again. One datum for the session.
+- Each holder has a `slide(dx, dz)`: Flight, the rig and the camera, the lens's pixel grid, the trail and the lines, particles, the breath in flight and the crater it's for, the aim, the signs, City (tiles, keys, meshes, materials, mask, asks), ground paint, crater paint, the gardens, the boulders, the far field (each level's store turned by blocks), the worker (a new generator on the new frame, the old datum, the far store's windows by blocks, every answer tagged), the sky. Crater paint is placed again exactly, from the Moon itself, where the ground's tiles are shifted. What reads the world for a pattern reads it through `uSlide`.
+
+Checked on the final build, on a cloud machine with no GPU, at a fixed step. Nothing has run on a phone.
+
+- Types, `npm run build` (what Vercel runs), `iosfloor` and `smoke` pass, with no page errors. The controls sims pass and write Stage 1's files byte for byte.
+- `tools/moon/slide.mjs`: 24 rows, all pass, no page errors. Three joins forced from near the middle, then a breath in the air at a join, then a join the game made by itself 53 frames after the bus was let go 45 m short of 70 km: one slide, the bus where it was, the ground the same to 4 cm, no region and no far patch lost, no program compiled. Crater paint, its garden and ground paint stay where they stood at every join, and the breath lands on its crater.
+- `slide-diff.py`: no join changes the picture by more than its margin over what a frame does by itself. `pops.py` over the 74 steps round the join by itself puts the join's seventh. With the bus held still, a join changes a pixel 0.24 on average, where a still frame changes 0.07 to 0.12; before the lens kept its pixel grid, 5.5.
+
+Left for a laptop and the phone: the 500 km at Jet in real time, memory over a long flight (GPU memory went from 114 to 150 geometries across five slides that also loaded new ground, which says nothing either way about a leak), and the flight's low band, whose slide was read and not flown.
 
 The core of the job. From Theophilus, Jet in a straight line for 500 km, low, about seven joins, with no turn-back.
 
@@ -81,6 +89,17 @@ On a cloud machine a second of flight at `fly.mjs`' fixed step costs about 25 se
 - A crater painted on one side is still painted after a full lap, and out from anywhere to orbit and back down elsewhere still works, twice on one page.
 
 Done when: fixed-step flights round a great circle and over both poles show no holes and no NaNs, paint is kept, memory is flat, and the producer has flown it. Name the long real-time flights that are left for a real GPU.
+
+**Built 2026-11-03, the same night as Stage 2. Waiting on the producer's flight.**
+
+- No turn-backs at any height. The low game's homing can't come, since the bus is never past 70 km. The gears' brake at the map's edge is off on the Moon (`TurboDrive.edgeless`): at Rainbow Warp it reached 90 km in and held the speed down. In the flight's loop under 16 km the map slides as the low game's does (`LandWorld.slide`), and Landing's homing is gone.
+- Poles, the far side and the date line: the frame carries its axes, so no place is special, and the sky over the bus turns with the ground (it's drawn on the map's axes there, not true east and north).
+- Light (design note 6): a true sky's Sun is worked out over the bus every frame, and each region bakes by the Sun over it as the far blocks do, so nothing steps at a slide. Night comes on as the Sun goes down at the bus, from 1.7 degrees over the horizon to 1.7 under, to a faint fill with paint still the brightest thing. What lights the ground, the Sun or by night Earth, is chosen once for each place and kept across slides.
+- Paint: crater paint is kept by id and placed again exactly at each slide, so a crater painted on one side is where it belongs a lap later. Out to orbit and down elsewhere lays it out again from what's saved, as before.
+
+Checked the same way. `nans.ts` with slides: over the north pole (85 degrees, then four slides to 77.7 on the far side), near the south pole, on the date line and on the far side, no NaN in any far level or region. `flicks.mjs --high`: 12 of 12, the world made again at 57 km and the bus landed in it. Frames by night at true times: the near side at new Moon is lit by Earth and reads well; the far side at full Moon is dark grey with its rims drawn, the bus's lamp and the paint.
+
+Left for a real GPU: Stratos low with the far field keeping up (here the game runs 14 times slow, so the worker never falls behind), a lap, both poles flown through, the terminator crossed, and night as it looks on the phone.
 
 ### Stage 4: hand in (half a day)
 

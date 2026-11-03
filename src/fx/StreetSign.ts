@@ -291,6 +291,15 @@ export function signBladeWidth(text: string): number {
 export class StreetSigns {
   readonly object: THREE.Object3D;
   private readonly signs: Sign[] = [];
+
+  /** ?moon: the map slid by (dx, dz) (main.ts): a sign stands where it stood, by the new map. */
+  slide(dx: number, dz: number) {
+    for (const s of this.signs) {
+      if (!s.active) continue;
+      s.pos.x -= dx;
+      s.pos.z -= dz;
+    }
+  }
   private readonly mesh: THREE.InstancedMesh;
   private readonly shadowMesh: THREE.InstancedMesh;
   private readonly mat: THREE.ShaderMaterial;

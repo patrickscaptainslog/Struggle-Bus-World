@@ -6,6 +6,12 @@
 
 export const R_M = 1737400;
 const DEG = Math.PI / 180;
+/**
+ * The map slides by SLIDE along an axis (m) when the bus is past SLIDE_AT from its middle on it (main.ts, Landing.ts), and lands 61 km past the middle the other way. 2^17: a whole
+ * number of blocks at every level of the far field seen from under 16 km, and of the regions'. The far field's levels 0 to 7 come over as they are; 8 and 9, past that horizon, are made again.
+ */
+export const SLIDE = 131072;
+export const SLIDE_AT = 70000;
 
 export type V3 = Float64Array | number[];
 

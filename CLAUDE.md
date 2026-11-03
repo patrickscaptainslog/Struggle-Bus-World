@@ -21,6 +21,7 @@ These beat every older doc. `README.md`, `HANDOFF.md` and `DECISIONS.md` are his
 **Flight**
 - Speed and climb never grow with height. Going faster is the gears' job. The one exception is the brake on arrival at the Moon.
 - The way up is a plain climb of 40 m/s or a gear, with speed following the nose up to 85 degrees either way (`docs/specs/flight/NOSE.md`, `ASCENT.md`).
+- The whole Moon is flown freely, low or high, with no edge and nothing that turns the bus back: "I want to be able to fly around the moon freely, the whole way" (`docs/specs/moon/FREEFLIGHT.md`).
 
 **Controls** (on `feat/thumbs`, `docs/specs/flight/THUMBS.md`, not live yet)
 - No new button, joystick or gear strip. It must be intuitive to pick up and fly, and playable with one thumb. Gestures stay hidden, with one brief hint on the first run.
@@ -83,7 +84,8 @@ Pages: `?moonland&fps` is the whole trip, Earth orbit to the Moon, land, skim, p
 | `tools/moon/stranger.mjs <out>` | A whole flight, as a stranger flies it |
 | `tools/moon/edges.mjs <out>` | The corners of `?moonland` |
 | `tools/moon/flicks.mjs <out>` | Flicks in space, a frame at a time: launch, G5, the long dark, the look, a slow flick in orbit. `tools/flick.mjs` gives any tool a real flick |
-| `tools/moon/run.mjs <file>.ts` | The generator under Node: `look.ts`, `farcost.ts`, `nans.ts` |
+| `tools/moon/slide.mjs <out>` | The map's slide at a fixed step: joins forced both ways, paint, gardens and a breath in the air kept, then a join the game makes by itself. `slide-diff.py <out>` says how much each join changed the picture, `pops.py <out>/nat` what popped |
+| `tools/moon/run.mjs <file>.ts` | The generator under Node: `look.ts`, `farcost.ts`, `nans.ts` (`nans.ts 85 30 4` slides the map over the pole) |
 | `tools/sky/route-check.mjs`, `trip-fuzz.mjs` | The flight's maths under Node, no browser |
 | `tools/warmcheck.mjs` | Nothing compiles in flight |
 | `tools/controls.mjs`, `tools/controls-sim/` | The controls. What tests the two thumbs comes with `feat/thumbs` |

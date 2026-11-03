@@ -944,7 +944,14 @@ export function makeRegion(gen: MoonGen, rx: number, rz: number, lod: 0 | 1, edg
   const x0 = rx * side - mar * cell, z0 = rz * side - mar * cell;
   const H = new Float32Array(W * W), T = new Float32Array(W * W), P = new Float32Array(W * W);
   gen.raster(x0, z0, W, W, cell, H, T);
-  sweepSun(H, W, W, x0, z0, cell, gen.sun, edge, P);
+  // (a true Sun: the one over this region, as a far block has its own, so the ground's light is the same wherever the map's middle is)
+  let sun = gen.sun;
+  if (gen.sunFix) {
+    const sc = new Float64Array(3);
+    gen.localSun(x0 + (W * cell) / 2, z0 + (W * cell) / 2, sc);
+    sun = sunLine(sc[0], sc[1], sc[2]);
+  }
+  sweepSun(H, W, W, x0, z0, cell, sun, edge, P);
   const tiles: MoonRegionTile[] = [];
   const transfer: ArrayBuffer[] = [];
   const n = ts / cell + 1, N8 = 32, tc = ts / N8 / cell;

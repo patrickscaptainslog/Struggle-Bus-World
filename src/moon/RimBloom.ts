@@ -178,6 +178,11 @@ export class RimBloom {
     }
   }
 
+  /** ?moon: the map slid by (dx, dz) under the bus, and the craters with it (CraterPaint.slide): every garden comes over as it stands. */
+  slide(dx: number, dz: number) {
+    this.d.sprouts.slide(dx, dz);
+  }
+
   /** A map's rims go with the map (?moonland): what grew there stands again when the bus comes back to it. */
   clear() {
     for (const k of [...this.standing.keys()]) this.drop(k);

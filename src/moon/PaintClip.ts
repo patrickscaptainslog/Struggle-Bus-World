@@ -294,6 +294,22 @@ export class PaintClip {
     }
   }
 
+  /**
+   * ?moon: the map slid by (dx, dz), a whole number of every window's grid (main.ts): what's on them stays where it is on the ground. The widest goes down again: out at
+   * its edges, a few hundred km off, the old map and the new one are a texel or two apart.
+   */
+  slide(dx: number, dz: number) {
+    for (let k = 0; k < CLIP_LEVELS; k++) {
+      const w = this.wins[k];
+      if (!Number.isFinite(w.x0)) continue;
+      w.x0 -= dx;
+      w.z0 -= dz;
+      this.rects[k].x = w.x0;
+      this.rects[k].y = w.z0;
+    }
+    this.wins[CLIP_LEVELS - 1].dirty = true;
+  }
+
   /** Compiles the program. */
   prime() {
     this.draw(0, 0, 0, 1, 1, [], 0, 0);

@@ -238,7 +238,8 @@ in vec4 aBlobC;
 in vec3 aBlobR;
 uniform vec4 uKind;    // freq, dirX, dirZ, cull distance factor (0 = never cull)
 uniform float uAmpMul;
-uniform float uCull;
+uniform float uCull;${moonOnly(`
+uniform vec2 uSlide;   // the map's slides so far: a plant's sway is where it stands, not where the map's middle is`)}
 struct SproutV { vec4 world; vec3 normal; vec3 local; vec3 blobC; vec3 blobR; float hue; float seed; float part; bool hidden; };
 SproutV sproutVertex() {
   // (every field set, one return: D3D's compiler warns of an uninitialized result on an early return of a struct)
@@ -262,7 +263,7 @@ SproutV sproutVertex() {
   vec3 p = position * sc;
   vec3 c = aBlobC.xyz * sc;
   // painted things move: gentle sway (plants), flutter (bunting), wobble (domes)
-  float ph = dot(ipos.xz, vec2(0.11, 0.07)) + o.seed * 6.283;
+  float ph = dot(ipos.xz${moonOnly(' + uSlide')}, vec2(0.11, 0.07)) + o.seed * 6.283;
   float a = ic.y * uAmpMul * smoothstep(0.15, 0.9, t);
   vec3 sw = vec3(uKind.y * sin(uTime * uKind.x + ph), 0.0, uKind.z * sin(uTime * uKind.x * 1.37 + ph * 1.9)) * a;
   p += sw * aSway;
@@ -325,7 +326,8 @@ void main() {
 const SPROUT_FS = /* glsl */ `
 ${GLSL_COMMON}
 ${GLSL_PROPS}
-uniform float uLeafEdge;
+uniform float uLeafEdge;${moonOnly(`
+uniform vec2 uSlide;`)}
 in vec3 vWorldPos;
 in vec3 vWorldNormal;
 in vec3 vLocal;
@@ -374,11 +376,13 @@ void main() {
   float ramp = ${Ramp.GREEN}.0;
   float lo = 0.0;
   float glow = 0.0;
-  float nz = pNoise3(wp * 1.4 + seed * 13.0) - 0.5;
+  // (the grain reads the place it's at: on the Moon, past the map's slides)
+  vec3 grainAt = wp${moonOnly(' + vec3(uSlide.x, 0.0, uSlide.y)')};
+  float nz = pNoise3(grainAt * 1.4 + seed * 13.0) - 0.5;
   if (part == ${Part.FOLIAGE}) { ramp = ${Ramp.GREEN}.0; lo = -0.03 + nz * 0.12; }
   else if (part == ${Part.TURF}) {
     ramp = ${Ramp.GREEN}.0;
-    lo = -0.1 + (pNoise3(vec3(vWorldPos.xz * 0.45, seed * 9.0)) - 0.5) * 0.18;
+    lo = -0.1 + (pNoise3(vec3((vWorldPos.xz${moonOnly(' + uSlide')}) * 0.45, seed * 9.0)) - 0.5) * 0.18;
   }
   else if (part == ${Part.BLOSSOM}) { ramp = bloomRamp(hue); lo = 0.13; }
   else if (part == ${Part.BLOSSOM2}) {
@@ -829,7 +833,7 @@ export class RoofSprouts {
         noCull.set(def.freq, def.dir[0], def.dir[1], 0);
         depth = new THREE.ShaderMaterial({
           glslVersion: THREE.GLSL3,
-          uniforms: { uTime: globals.uTime, uKind: { value: noCull.clone() }, uAmpMul: uniforms.uAmpMul, uCull: uniforms.uCull },
+          uniforms: { uTime: globals.uTime, uSlide: globals.uSlide, uKind: { value: noCull.clone() }, uAmpMul: uniforms.uAmpMul, uCull: uniforms.uCull },
           vertexShader: SPROUT_DEPTH_VS,
           fragmentShader: DEPTH_FS,
         });
@@ -958,6 +962,32 @@ export class RoofSprouts {
       held.push([b, slot]);
     }
     this.placed.set(index, held);
+  }
+
+  /**
+   * ?moon: the map slid by (dx, dz) (main.ts, by way of RimBloom): every garden laid out by hand comes over as it stands, each element into the cell it stands in now. Nothing is
+   * laid out again, so nothing moves on the screen: not its height, not its growing.
+   */
+  slide(dx: number, dz: number): void {
+    const e = _m.elements;
+    for (const [index, held] of this.placed) {
+      const moved: Array<[Batch, number]> = [];
+      for (const [b, slot] of held) {
+        const type = this.types.findIndex((t) => t.geo === b.geo);
+        const c = b.mesh.instanceColor!.array as Float32Array, hue = c[slot * 3], amp = c[slot * 3 + 1], start = c[slot * 3 + 2];
+        _m.fromArray(b.mesh.instanceMatrix.array as Float32Array, slot * 16);
+        b.release(slot);
+        e[12] -= dx;
+        e[14] -= dz;
+        const ccx = Math.floor(e[12] / this.cell), ccz = Math.floor(e[14] / this.cell);
+        const nb = this.cellBatches((ccx + 4096) * 8192 + (ccz + 4096), ccx, ccz, e[13])[type];
+        const to = nb.alloc();
+        // (hue and seed are one number in the colour: it goes as it was)
+        nb.write(to, _m, hue, 0, amp, start);
+        moved.push([nb, to]);
+      }
+      this.placed.set(index, moved);
+    }
   }
 
   unplace(index: number): void {

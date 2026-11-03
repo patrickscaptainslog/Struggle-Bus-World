@@ -239,10 +239,13 @@ export class MoonFar {
         const o = this.slots[l.k];
         o.set((((o.x + di) % BLOCKS) + BLOCKS) % BLOCKS, (((o.y + dj) % BLOCKS) + BLOCKS) % BLOCKS);
         const m = TEXEL_MARGIN * l.cell;
-        this.rects[l.k].set(l.bi0 * b + m, l.bj0 * b + m, (l.bi0 + BLOCKS) * b - m, (l.bj0 + BLOCKS) * b - m);
+        if (l.ready) this.rects[l.k].set(l.bi0 * b + m, l.bj0 * b + m, (l.bi0 + BLOCKS) * b - m, (l.bj0 + BLOCKS) * b - m);
+        else this.rects[l.k].set(1, 1, 0, 0);
       } else {
         l.ready = false;
         l.wantI = l.wantJ = NaN;
+        // (an empty window: no pixel reads a level that's being made again)
+        this.rects[l.k].set(1, 1, 0, 0);
       }
     }
     this.askedX -= dx;

@@ -9,7 +9,7 @@ import type { BlastSpec } from '../game/blastLayout';
 import { HUE_COUNT } from '../render/palette';
 import { craterById, mix32, type Age } from './craters';
 import { CRATER_FLOATS, CRATER_INTS } from './gen';
-import { dirOf, latLonToMap, latOf, lonOf, type MapFrame, type Place, type WholeMap } from './map';
+import { dirOf, latLonToMap, latOf, lonOf, mapOf, type MapFrame, type Place, type WholeMap } from './map';
 import { moonGlobals } from './moonMaterial';
 import type { RoofSprouts } from '../world/props/sprouts';
 import type { PaintStroke } from '../sky/MoonPaint';
@@ -238,6 +238,65 @@ export class CraterPaint {
     this.lay();
     this.load();
     this.loadStrokes();
+  }
+
+  /**
+   * ?moon: the map slid by (dx, dz) under the bus, and `from` is the frame it had (main.ts, moonBoot's slide). Every painted crater and every blast on open ground goes where
+   * it stands on the new map, worked out from the Moon itself, so it's where it belongs however far off it is, and the names are laid out again. What's blooming, landing or
+   * glinting goes on as it was, and so do the gardens. The list moves with the ground until the worker has the new map's, and the windows keep what's on them. `moved`: what
+   * main.ts' other holders share, each moved once.
+   */
+  slide(from: MapFrame, dx: number, dz: number, moved: Set<object>) {
+    const to = this.d.frame, dir = this.tmpDir, t = new Float64Array(2);
+    const over = (r: { x: number; z: number }) => {
+      dirOf(from, r.x, r.z, dir);
+      mapOf(to, dir[0], dir[1], dir[2], t);
+      r.x = t[0];
+      r.z = t[1];
+    };
+    // the names and places, each with its own north on this map
+    const here = this.lastHere?.name;
+    this.named.length = this.spots.length = this.sites.length = 0;
+    this.lay();
+    this.lastHere = here === undefined ? null : (this.spots.find((s) => s.name === here) ?? null);
+    const byId = new Map(this.named.map((c) => [c.id, c]));
+    for (const r of this.recs.values()) {
+      const c = r.id.startsWith('p') ? byId.get(r.id) : undefined;
+      if (c) {
+        r.x = c.x;
+        r.z = c.z;
+        r.turn = c.turn;
+      } else over(r);
+    }
+    for (const r of this.strokes) over(r);
+    this.grid.clear();
+    this.wide.length = 0;
+    for (const r of this.recs.values()) this.file(r);
+    for (const r of this.strokes) this.file(r);
+    // (the list and what glints go with the ground; a list asked for on the old map is no use, and is asked for again)
+    const D = this.data;
+    for (let i = 0; i < this.n; i++) {
+      D[i * CRATER_FLOATS] -= dx;
+      D[i * CRATER_FLOATS + 1] -= dz;
+    }
+    if (this.asking) {
+      this.askId++;
+      this.asking = false;
+    }
+    this.askedX = Infinity;
+    const g = this.target;
+    if (g && !moved.has(g)) {
+      moved.add(g);
+      if (g.id.startsWith('p')) over(g);
+      else {
+        g.x -= dx;
+        g.z -= dz;
+      }
+    }
+    this.busX -= dx;
+    this.busZ -= dz;
+    this.clip.slide(dx, dz);
+    this.rim?.slide(dx, dz);
   }
 
   // ------------------------------------------------------------------ the list

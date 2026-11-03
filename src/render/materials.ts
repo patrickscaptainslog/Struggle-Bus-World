@@ -35,6 +35,8 @@ export const heldGlobals = {
 /** Uniforms shared by every scene material. Update in place; never replace. */
 export const globals = {
   uTime: { value: 0 },
+  // ?moon: the map's slides so far (m, main.ts): what a pattern reads the world by is the world plus this, so nothing in it moves when the map slides under it
+  uSlide: { value: new THREE.Vector2() },
   uSunDir: { value: new THREE.Vector3(0, 1, 0) }, // world, points toward the sun
   uLight: { value: new THREE.Vector3(config.light.sunStrength, config.light.ambient, config.light.skyBounce) },
   uShadowMap: { value: null as THREE.DepthTexture | null },

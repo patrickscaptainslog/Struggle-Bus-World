@@ -135,6 +135,14 @@ export class CameraRig {
   /** 0..1, ?moonland: the follow stands where it should, with no lag: a bus coming down at kilometres a second would run out from under the springs. */
   stiff = 0;
 
+  /** ?moon: the map slid by (dx, dz) (main.ts): the lens and what it looks at are where they were, by the new map. */
+  slide(dx: number, dz: number) {
+    this.pos.x -= dx;
+    this.pos.z -= dz;
+    this.look.x -= dx;
+    this.look.z -= dz;
+  }
+
   /** The bus comes in from a height with the view at its height: the rig is where it would have got to by itself, tipped as far over a dive as the view it takes over from. */
   place(cam: THREE.PerspectiveCamera, f: Flight, dive: number) {
     this.initialized = true;

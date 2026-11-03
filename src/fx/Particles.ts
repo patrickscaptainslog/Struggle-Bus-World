@@ -1544,6 +1544,31 @@ export class Particles {
     if (this.time < this.lastDeath) this.object.visible = true;
   }
 
+  /** ?moon: the map slid by (dx, dz) (main.ts): everything in the air goes on from where it was, by the new map, and the breath's streams to where they were going. */
+  slide(dx: number, dz: number) {
+    const d = this.data;
+    for (let i = 0; i < this.used; i++) {
+      const o = i * STRIDE, kind = d[o + 15];
+      d[o] -= dx;
+      d[o + 2] -= dz;
+      if (kind === K_RIBBON || kind === K_STREAM) {
+        d[o + 8] -= dx;
+        d[o + 10] -= dz;
+      }
+    }
+    for (const e of this.emitters) {
+      if (!e.active) continue;
+      for (const t of e.targets) {
+        t.x -= dx;
+        t.z -= dz;
+      }
+      e.last.x -= dx;
+      e.last.z -= dz;
+    }
+    this.dirtyStart = 0;
+    this.dirtyCount = this.used;
+  }
+
   /** Shifts the clock back so float32 ages stay precise on long sessions. */
   private rebase() {
     const shift = Math.floor(this.time);

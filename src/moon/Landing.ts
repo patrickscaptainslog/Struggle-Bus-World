@@ -9,7 +9,7 @@ import type { PaintStroke } from '../sky/MoonPaint';
 import type { SkyDraw } from '../sky/SkyDraw';
 import { MOON, type Observer, type SkyModel, type SkyState } from '../sky/SkyModel';
 import { SHOW, type TripView } from '../sky/TripView';
-import { axesOf, dirOf, latOf, lonOf, mapOf, type MapFrame } from './map';
+import { axesOf, dirOf, latOf, lonOf, mapOf, SLIDE, SLIDE_AT, type MapFrame } from './map';
 import type { MoonFar } from './MoonFar';
 
 // ?moonland: from orbit to the ground and no join in it. moonrun.ts flies the orbit and main.ts's boot() is the low game, and this is what stands between them. One page, one thumb, one way down:
@@ -45,7 +45,7 @@ const LIGHT_LOW = 8;
 const SHALLOWEST = 25 * DEG;
 /** km between where the bus will come down and the middle of the map before the map is made again. The map is 256 km square, and the far field neither knows nor cares. */
 const MOVE_KM = 70;
-/** km over the ground: under the mesh the map moves with the bus over this, and under it the map's edge turns the bus back, as the low game's does. */
+/** km over the ground: under the mesh the map moves with the bus over this, and under it the map slides, as the low game's does. */
 const MOVE_OVER = H_GROUND + 2;
 /** km ahead of the bus the map is made again round, so it has the room. And s: how fast the mesh goes out for it, and comes back. */
 const MOVE_AHEAD = 30;
@@ -60,9 +60,6 @@ const JET_V = 450;
 const REJOIN = 2.4;
 /** s with no thumb pushing, on the way down, before it's no longer arriving. */
 const LET_GO = 2.5;
-/** The map's half side, m, and how far inside it the homing starts: down here the bus can only come back to where the world's tiles are. */
-const MAP_HALF = 128000;
-const HOME_IN = 16000;
 /** What the low game hands back: moonrun.ts asks this of boot(). */
 export interface LandWorld {
   readonly frame: MapFrame;
@@ -77,6 +74,8 @@ export interface LandWorld {
   leave(): void;
   /** The low game's frame. */
   frameAt(now: number): void;
+  /** The map slides by (dx, dz) under the bus, as the low game's does (main.ts): low over the mesh, so the ground stays. */
+  slide(dx: number, dz: number): void;
   /** Over the ground in the flight's loop: what's painted goes on the windows round this place, so it's on the far field before the low game has the frame. */
   follow(x: number, z: number, fx: number, fz: number): void;
 }
@@ -227,6 +226,14 @@ export class Landing {
     }
     // ---- down in the world
     mapOf(fr, u[0], u[1], u[2], mt);
+    // (low over the mesh the map slides under the bus as the low game's does, and the ground stays: there's no edge to turn back from)
+    if (!this.moving && h <= MOVE_OVER) {
+      const sx = Math.abs(mt[0]) > SLIDE_AT ? Math.sign(mt[0]) * SLIDE : 0, sz = Math.abs(mt[1]) > SLIDE_AT ? Math.sign(mt[1]) * SLIDE : 0;
+      if (sx || sz) {
+        w.slide(sx, sz);
+        mapOf(fr, u[0], u[1], u[2], mt);
+      }
+    }
     const x = mt[0], z = mt[1], hm = Math.max(h, 0) * 1000;
     // (up here a map's edge is no wall: far from the middle the world is made again round the bus, the mesh going out to the ray-drawn Moon for it and coming back)
     if (!this.moving && h > MOVE_OVER && Math.hypot(x, z) > MOVE_KM * 1000) this.moving = 1;
@@ -247,10 +254,8 @@ export class Landing {
       t.ground = this.groundKm;
       this.lift(dt, u, f, h);
     }
-    // (under that, the map's edge turns it back, as it does in the low game: bearing to the middle, off the heading)
-    const edge = h > MOVE_OVER ? 0 : Math.max(0, Math.min(1, (Math.max(Math.abs(x), Math.abs(z)) - MAP_HALF + HOME_IN) / HOME_IN)), A = this.axes;
-    const hx = hd[0] * A[0] + hd[1] * A[1] + hd[2] * A[2], hz = hd[0] * A[6] + hd[1] * A[7] + hd[2] * A[8];
-    t.home = edge > 0 ? edge * Math.max(-1, Math.min(1, Math.atan2(-x * -hz + -z * hx, -x * hx + -z * hz))) : 0;
+    const A = this.axes, hx = hd[0] * A[0] + hd[1] * A[1] + hd[2] * A[2], hz = hd[0] * A[6] + hd[1] * A[7] + hd[2] * A[8];
+    t.home = 0;
     if (!this.moving) w.follow(x, z, hx, hz);
     const want = this.moving ? 0 : h < H_SHOW ? 1 : h > H_SHOW + 15 ? 0 : this.show;
     const rate = this.moving || this.movedIn ? MOVE_DISSOLVE : DISSOLVE;

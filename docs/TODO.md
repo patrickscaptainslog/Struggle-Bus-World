@@ -8,20 +8,20 @@ Branch `feat/moonfree`, cut from `spike/moonrun`. The plan is [specs/moon/FREEFL
 
 - [x] Stage 0: set up and prove the tools run here
 - [ ] Stage 1: flicks on the Moon (merge `feat/thumbs` in). Built and pushed 2026-11-03, waiting on the producer's flight
-- [ ] Stage 2: the map slides, a long straight low flight with no turn-back
-- [ ] Stage 3: the whole Moon, poles, far side, night, gears
+- [ ] Stage 2: the map slides, a long straight low flight with no turn-back. Built and pushed 2026-11-03 with Stage 3, waiting on the producer's flight
+- [ ] Stage 3: the whole Moon, poles, far side, night, gears. Built and pushed 2026-11-03, waiting on the producer's flight
 - [ ] Stage 4: tidy the specs and hand in
 
 ## First account: from 2026-11-04 12:00 UTC, when its weekly limit resets
 
-- [ ] Review each stage above as it's handed in, and fly the long real-time checks on a real GPU
+- [ ] Review each stage above as it's handed in, and fly the long real-time checks on a real GPU. Stages 2 and 3 leave these (FREEFLIGHT.md): 500 km low at Jet, a lap at Stratos with memory read, the worker keeping up at Stratos, the flight's low band slide by hand, and night as it looks
 - [ ] Start the Moon flight from the ground on Earth, so it can be felt from start to finish. That's the trip's first leg, not the streets job on hold. It touches `src/main.ts` too: expect to merge with the stages above
 - [ ] `feat/thumbs` to main, once the producer says the controls can go live
 - [ ] The controls' small things: the opening still says TURBO AFTER THE BRIDGE, six flicks under the gate reach Turbo 3 at the bridge, a rare lost tap, the left look reaches about 37 degrees from mid-zone, the home leg's slow roll, a value saved in the phone's tuner beats a new default
 
 ## Waiting on the producer
 
-- [ ] Fly Stage 1 on `feat/moonfree`'s preview: `?moonland&fps`, the whole trip on flicks
+- [ ] Fly Stages 1 to 3 on `feat/moonfree`'s preview: `?moonland&fps`, the whole trip on flicks, then on round the Moon, low and high
 - [ ] OK for the two-thumb controls to go live
 
 ## Later, in this order

@@ -400,9 +400,9 @@ export class GroundPaint {
 
   /**
    * ?moon: the map slides by (dx, dz), whole tiles (dtx, dtz) (City.slide). Every tile's key, mask and origin come over, what's being painted on them, and what's
-   * saved for them: it's the place's paint, wherever the map's middle is.
+   * saved for them: it's the place's paint, wherever the map's middle is. `moved`: what's been moved already, each once.
    */
-  slide(dtx: number, dtz: number, dx: number, dz: number) {
+  slide(dtx: number, dtz: number, dx: number, dz: number, moved: Set<object>) {
     const key = (k: string) => {
       const c = k.indexOf(',');
       return `${Number(k.slice(0, c)) - dtx},${Number(k.slice(c + 1)) - dtz}`;
@@ -451,6 +451,8 @@ export class GroundPaint {
     }
     for (const rec of this.store.values()) for (const sp of rec.p) specs.add(sp);
     for (const sp of specs) {
+      if (moved.has(sp)) continue;
+      moved.add(sp);
       sp.x -= dx;
       sp.z -= dz;
     }

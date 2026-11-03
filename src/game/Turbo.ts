@@ -136,8 +136,10 @@ export class TurboDrive {
     this.gearFloor = -Infinity;
   }
 
-  /** The last gear this world has, when that isn't worldTravel's to say (?moonland: the way out). The map's edge still holds them back. */
+  /** The last gear this world has, when that isn't worldTravel's to say (?moonland: the way out). */
   top = 0;
+  /** A world with no edge to hold a gear back: ?moon, whose map slides under the bus (main.ts). */
+  edgeless = false;
 
   /** The last gear that can be used now. */
   get maxGear(): number {
@@ -237,7 +239,7 @@ export class TurboDrive {
     const Tb = f.turbo;
     const g = this.gear;
     const lv = this.level;
-    this.edge = T.worldTravel ? 1 : this.edgeRoom(f, lv);
+    this.edge = T.worldTravel || this.edgeless ? 1 : this.edgeRoom(f, lv);
     const alt = gearAlt(g);
     if (alt > 0) {
       const want = this.want(f);

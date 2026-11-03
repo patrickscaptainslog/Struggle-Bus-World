@@ -153,6 +153,12 @@ export class Flight {
     return out.set(this.fx * g, this.vy, this.fz * g);
   }
 
+  /** ?moon: the map slid by (dx, dz) under the bus (main.ts): it's where it was, by the new map. */
+  slide(dx: number, dz: number) {
+    this.x -= dx;
+    this.z -= dz;
+  }
+
   /** The bus comes in from a height, flying (?moonland): on the path, at this speed along this way, with the yoke's altitude where it is. */
   takeOver(x: number, y: number, z: number, heading: number, speed: number, nose: number) {
     this.x = x;

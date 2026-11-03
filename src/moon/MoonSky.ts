@@ -48,6 +48,8 @@ export class MoonSky {
   readonly sun: V = [0, 1, 0];
   /** The true sky, with the Sun down at the map's centre. */
   night: boolean;
+  /** By night with Earth up, Earth lights the ground (look()): a slide keeps whichever it was, so nothing baked steps. */
+  byEarth = false;
   /** What lights the ground from the map's centre (the Sun, or by night Earth), Moon fixed: a far field that reaches the horizon from 100 km up has it true over each of its blocks. */
   readonly sunFix: V = [0, 0, 1];
   /** How many times too big Earth is drawn. At its true 1.9 degrees it is 20 game pixels on the high lens: a marble with no continents. Held sky only. */
@@ -111,7 +113,8 @@ export class MoonSky {
     this.sunFix[2] = s.moonSun[2];
     // the true sky at night: what lights the ground is Earth, if it's up, and the ground's map is baked for that instead
     const night = s.sun[1] < 0.02;
-    if (night && s.earth[1] > 0.05) {
+    this.byEarth = night && s.earth[1] > 0.05;
+    if (this.byEarth) {
       this.sun[0] = s.earth[0];
       this.sun[1] = s.earth[1];
       this.sun[2] = s.earth[2];
@@ -123,29 +126,16 @@ export class MoonSky {
   }
 
   /**
-   * The map slid (moonBoot.ts): the true Sun as it stands over the new middle, in the map's own carried axes (u up, e its x, n minus its z), and at night Earth if
-   * it's up, as look() has it. A held Sun is the map's and stays. True if it's night there.
+   * The map slid (moonBoot.ts): what lights the ground as it stands now, over the new middle, in the map's own carried axes (u up, e its x, n minus its z). The Sun stays
+   * the Sun and Earth stays Earth, whatever the new middle has: the ground's baked for it, and the night comes as the light at the bus goes down. A held Sun is the map's and stays.
    */
-  slide(u: ArrayLike<number>, e: ArrayLike<number>, n: ArrayLike<number>): boolean {
-    if (this.held) return this.night;
-    const s = this.state;
-    const inAxes = (v: ArrayLike<number>, o: V) => {
-      o[0] = e[0] * v[0] + e[1] * v[1] + e[2] * v[2];
-      o[1] = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
-      o[2] = -(n[0] * v[0] + n[1] * v[1] + n[2] * v[2]);
-    };
-    inAxes(s.moonSun, this.sun);
-    for (let i = 0; i < 3; i++) this.sunFix[i] = s.moonSun[i];
-    this.night = this.sun[1] < 0.02;
-    const earth: V = [0, 0, 0];
-    inAxes(s.moonEarth, earth);
-    if (this.night && earth[1] > 0.05) {
-      for (let i = 0; i < 3; i++) {
-        this.sun[i] = earth[i];
-        this.sunFix[i] = s.moonEarth[i];
-      }
-    }
-    return this.night;
+  slide(u: ArrayLike<number>, e: ArrayLike<number>, n: ArrayLike<number>): void {
+    if (this.held) return;
+    const v = this.byEarth ? this.state.moonEarth : this.state.moonSun, o = this.sun;
+    o[0] = e[0] * v[0] + e[1] * v[1] + e[2] * v[2];
+    o[1] = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    o[2] = -(n[0] * v[0] + n[1] * v[1] + n[2] * v[2]);
+    for (let i = 0; i < 3; i++) this.sunFix[i] = v[i];
   }
 
   /** The sky's frame goes in the scene before the warm-up. */
@@ -159,13 +149,15 @@ export class MoonSky {
   }
 
   /** Every frame, the lens set: lat, lon are where the bus is (the true sky turns over it as it goes). */
-  update(lat: number, lon: number): void {
+  update(lat: number, lon: number, axes?: ArrayLike<number>): void {
     const ob = this.ob;
     let ms = this.ms;
     if (!this.held) {
       ms = this.clock.now();
       sphereToFix(R_MOON_KM, lat, lon, 0, ob.pos);
-      axesAt(lat, lon, 0, ob.axes);
+      // (on the map's own axes at the bus, the ones the ground's turned by: after a long way round, its x is east no longer, and the sky turns with the ground)
+      if (axes) ob.axes.set(axes);
+      else axesAt(lat, lon, 0, ob.axes);
     }
     this.model.frame(ms, ob, this.state);
     this.draw.update(this.state);

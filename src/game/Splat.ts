@@ -140,6 +140,32 @@ export class Splatter {
   private nextHue = Math.floor(Math.random() * HUE_COUNT);
   private queue: Scheduled[] = [];
   private pending: PendingBlast[] = [];
+
+  /** ?moon: the map slid by (dx, dz) (main.ts): a breath on its way lands where it was going, by the new map, on the crater it was for. `moved`: what's been moved already, each once. */
+  slide(dx: number, dz: number, moved: Set<object>) {
+    for (const p of this.pending) {
+      const b = p.blast;
+      b.pos.x -= dx;
+      b.pos.z -= dz;
+      if (!moved.has(b.spec)) {
+        b.spec.x -= dx;
+        b.spec.z -= dz;
+        moved.add(b.spec);
+      }
+      const t = b.tag as { x?: unknown; z?: unknown } | null | undefined;
+      if (t && typeof t.x === 'number' && typeof t.z === 'number' && !moved.has(t)) {
+        t.x -= dx;
+        t.z -= dz;
+        moved.add(t);
+      }
+      for (const d of b.dots) {
+        d.x -= dx;
+        d.z -= dz;
+      }
+      for (const s of p.plan) s.at0?.set(s.at0.x - dx, s.at0.y, s.at0.z - dz);
+    }
+    for (const s of this.queue) s.at0?.set(s.at0.x - dx, s.at0.y, s.at0.z - dz);
+  }
   private near: Array<{ ref: BuildingRef; d: number }> = [];
   private reachList: Array<{ ref: BuildingRef; d: number; e: number }> = [];
   private fresh: Scheduled[] = [];

@@ -91,6 +91,9 @@ export class PixelPipeline implements WarmPipeline {
   private readonly snapUp = new THREE.Vector3();
   private readonly snapFwd = new THREE.Vector3();
   private readonly snapTmp = new THREE.Vector3();
+  /** ?moon: how far the map has slid under the lens so far (m, main.ts): the pixel grid and the sun pass's texels stay where they were on the ground, so nothing on the screen moves at a slide */
+  private readonly slid = new THREE.Vector3();
+  private readonly slidAt = new THREE.Vector3();
   private cssW = 1;
   private cssH = 1;
   private dpr = 1;
@@ -439,8 +442,9 @@ export class PixelPipeline implements WarmPipeline {
       if (this.snapLevel === null || Math.abs(lv - this.snapLevel) > 0.8) this.snapLevel = Math.round(lv);
       s = Math.pow(2, this.snapLevel / 16);
     } else this.snapLevel = null;
-    const px = cam.position.dot(right) / s;
-    const py = cam.position.dot(up) / s;
+    const at = this.slidAt.copy(cam.position).add(this.slid);
+    const px = at.dot(right) / s;
+    const py = at.dot(up) / s;
     const rx = Math.round(px);
     const ry = Math.round(py);
     const fx = px - rx;
@@ -454,6 +458,16 @@ export class PixelPipeline implements WarmPipeline {
     // the view depth at which one game pixel is s (what the upscale's sub-pixel shift is exact for)
     this.snapDepth = s / Math.max(1e-6, this.pixelWorldSize(1));
     this.snapped = true;
+  }
+
+  /** ?moon: the map slid by (dx, dz) under the lens (main.ts). */
+  slide(dx: number, dz: number) {
+    this.slid.x += dx;
+    this.slid.z += dz;
+    for (const v of [this.focus, this.shadowFocus]) {
+      v.x -= dx;
+      v.z -= dz;
+    }
   }
 
   /**
@@ -499,8 +513,9 @@ export class PixelPipeline implements WarmPipeline {
     const texel = ext / config.render.shadowMapSize;
     const right = this.sunRight.setFromMatrixColumn(sc.matrixWorld, 0);
     const up = this.sunUp.setFromMatrixColumn(sc.matrixWorld, 1);
-    const pr = sc.position.dot(right);
-    const pu = sc.position.dot(up);
+    const at = this.slidAt.copy(sc.position).add(this.slid);
+    const pr = at.dot(right);
+    const pu = at.dot(up);
     sc.position.addScaledVector(right, Math.round(pr / texel) * texel - pr).addScaledVector(up, Math.round(pu / texel) * texel - pu);
     sc.updateMatrixWorld();
     sc.updateProjectionMatrix();

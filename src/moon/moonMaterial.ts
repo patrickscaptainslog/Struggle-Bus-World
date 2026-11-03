@@ -14,8 +14,8 @@ export const CLIP_N = 1024;
 
 /** What all of the Moon's ground reads. */
 export const moonGlobals = {
-  // the map's slides so far (m), as the fine noise on the ground reads it: a stone stays where it was when the map moves under it (moonBoot.ts slide). Kept under 2^18, so it stays fine
-  uSlide: { value: new THREE.Vector2() },
+  // the map's slides so far (m), as the fine noise on the ground reads it: a stone stays where it was when the map moves under it (moonBoot.ts slide). Kept within 2^18, so it stays fine
+  uSlide: globals.uSlide,
   // x flat ground's light at mid tone, y the shadow's floor, z what the far field has over that floor
   uMoonLight: { value: new THREE.Vector3(0.4, 0.006, 0.03) },
   // what's painted on the craters: PaintClip's windows, each x0, z0, 1 / cell, on
@@ -286,7 +286,7 @@ const NEAR_FS = /* glsl */ `
       light = moonPaintLight(pr, light, pEdge, pLift, 0.0);
       glow = pGlow;
       light = max(light, glow);
-    } else if (sbGroundPaint(vWorldPos, vClassUv, pr, pEdge, pWet, pFresh)) {
+    } else if (sbGroundPaint(vWorldPos + vec3(uSlide.x, 0.0, uSlide.y), vClassUv, pr, pEdge, pWet, pFresh)) {
       ramp = pr;
       light = moonPaintLight(pr, light, pEdge, 0.0, pWet);
       glow = 0.55 * pFresh;

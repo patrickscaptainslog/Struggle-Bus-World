@@ -643,6 +643,14 @@ export class TurboFx {
     if (this.rattleRoll !== 0) root.rotateZ(this.rattleRoll);
   }
 
+  /** ?moon: the map slid by (dx, dz) (main.ts): the trail lies where it lay, by the new map. */
+  slide(dx: number, dz: number) {
+    for (let i = 0; i < TRAIL_N; i++) {
+      this.tx[i] -= dx;
+      this.tz[i] -= dz;
+    }
+  }
+
   // ------------------------------------------------------------------ internals
 
   private trailStep(tail: THREE.Vector3, on: number) {

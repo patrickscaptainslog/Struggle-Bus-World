@@ -13,7 +13,7 @@ import type { CityManifest, TerrainTile } from '../world/tiles';
 import { CraterPaint, SITE_R, type NameRow } from './CraterPaint';
 import { craterById, cratersNear, type Crater, type CraterHit } from './craters';
 import { FAR, MOON_REGION, MOON_TILE, capSun, decodeShadow, type FarUpdate } from './gen';
-import { dirOf, findNamed, findPlace, frameAt, latLonToMap, latOf, lonOf, makeFrame, readAlbedo, readPlaces, type MapFrame, type Place, type PlaceRow, type WholeMap } from './map';
+import { axesOf, dirOf, findNamed, findPlace, frameAt, latLonToMap, latOf, lonOf, makeFrame, readAlbedo, readPlaces, type MapFrame, type Place, type PlaceRow, type WholeMap } from './map';
 import { MoonFar } from './MoonFar';
 import { HELD_SUN_OFF, MoonSky } from './MoonSky';
 import type { SkyDraw } from '../sky/SkyDraw';
@@ -76,9 +76,9 @@ export interface MoonBoot {
   placed: (() => void) | null;
   /**
    * The map slides by (dx, dz) (docs/specs/moon/FREEFLIGHT.md, Stage 2): centred again there on its own axes, one datum, and what this file holds that has a place on
-   * the map goes with it. main.ts slides the rest in the same moment.
+   * the map goes with it. main.ts slides the rest in the same moment; `moved` is what's been moved already, each once.
    */
-  slide(dx: number, dz: number): void;
+  slide(dx: number, dz: number, moved: Set<object>): void;
   /** The ground paint a boulder finds is what's in reach (main.ts hands it GroundPaint's). */
   groundHue: (x: number, z: number) => number;
   /** Saved ground paint is on screen in this box: its boulders take it. */
@@ -144,14 +144,33 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   const light = () => {
     L.sunElevation = Math.asin(sun[1]);
     L.sunAzimuth = Math.atan2(-sun[2], sun[0]);
+    shade(sky.night ? 1 : 0);
+  };
+  /** Day to night by k, 0 to 1. By night there's next to nothing, and that's all the ground has but a faint fill to read it by: paint stays the brightest thing. */
+  const shade = (k: number) => {
+    const mix = (a: number, b: number) => a + (b - a) * k;
     // (the bus: a hard Sun and next to no sky)
-    L.sunStrength = sky.night ? 0.2 : 0.72;
-    L.ambient = sky.night ? 0.14 : 0.26;
+    L.sunStrength = mix(0.72, 0.2);
+    L.ambient = mix(0.26, 0.14);
     L.skyBounce = 0.02;
     // (?moonland: a step up, where the ray-drawn Moon has the ground it's coming down to. The true Sun is no held low one, and there's a lot more flat ground out of the first look's shadows)
     // (and by night, with so little light that the far field's bit more over its floor is a box round the tiles, none of that)
-    if (sky.night) moonGlobals.uMoonLight.value.set(0.17, 0.03, land ? 0 : 0.03);
-    else moonGlobals.uMoonLight.value.set(land ? 0.55 : 0.4, 0.006, 0.03);
+    moonGlobals.uMoonLight.value.set(mix(land ? 0.55 : 0.4, 0.17), mix(0.006, 0.03), mix(0.03, land ? 0 : 0.03));
+  };
+  const axesHere = new Float64Array(9), lightHere = new Float64Array(3);
+  /**
+   * A true sky, every frame: the light over the bus, on the map's axes there, as each region and far block round it is baked by (gen.ts, localSun). It turns as the bus goes, so
+   * nothing steps at a slide, and past the terminator the night comes on as the Sun goes down.
+   */
+  const here = (A: Float64Array) => {
+    const s = sky.sunFix, o = lightHere;
+    for (let i = 0; i < 3; i++) o[i] = A[i * 3] * s[0] + A[i * 3 + 1] * s[1] + A[i * 3 + 2] * s[2];
+    capSun(o);
+    L.sunElevation = Math.asin(Math.max(-1, Math.min(1, o[1])));
+    L.sunAzimuth = Math.atan2(-o[2], o[0]);
+    // (by Earth's light it's night already; by the Sun's, night is the Sun going down, over a few degrees)
+    const m = sky.state.moonSun, up = A[3] * m[0] + A[4] * m[1] + A[5] * m[2], k = Math.max(0, Math.min(1, (0.03 - up) / 0.06));
+    shade(sky.byEarth ? 1 : k * k * (3 - 2 * k));
   };
   if (!land) light();
   config.fog.clearFarFull = MOON_VISTA.fade;
@@ -207,7 +226,7 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
   worker.onerror = (e) => console.error('moon worker:', e.message);
 
   const bounds: [number, number, number, number] = [-MAP_HALF, -MAP_HALF, MAP_HALF, MAP_HALF];
-  worker.postMessage({ type: 'init', base, lat, lon, seed: SEED, sun: [sun[0], sun[1], sun[2]], bounds, startX, startZ, heading, seekLit: !land && !atTheo && !crewed && !sky.night, levels: land ? FAR.HIGH_LEVELS : FAR.LEVELS } satisfies MoonInit);
+  worker.postMessage({ type: 'init', base, lat, lon, seed: SEED, sun: [sun[0], sun[1], sun[2]], bounds, startX, startZ, heading, seekLit: !land && !atTheo && !crewed && !sky.night, levels: land ? FAR.HIGH_LEVELS : FAR.LEVELS, sunFix: sky.held ? null : [sky.sunFix[0], sky.sunFix[1], sky.sunFix[2]] } satisfies MoonInit);
   const landed = await ready;
   const { datum, startY } = landed;
   // (it looked for ground with the Sun on it, unless this is the start picked by hand)
@@ -350,22 +369,26 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
       worker.postMessage({ type: 'place', id: placeId, lat: lat2, lon: lon2, sun: [s[0], s[1], s[2]], sunFix: [f[0], f[1], f[2]], bounds } satisfies MoonPlace);
       return placeId;
     },
-    slide(dx, dz) {
+    slide(dx, dz, moved) {
       slideId++;
+      const from = { ...frame };
       Object.assign(frame, frameAt(frame, dx, dz));
-      // (the Sun over the new middle, on these axes: a true one turns 2 degrees a slide; at night it may be Earth now)
+      // (what lights the ground over the new middle, on these axes, for what's made from here on: the Sun, or Earth if the place had it. The light at the bus is here()'s, every frame)
       sky.slide(frame.u, frame.e, frame.n);
       if (land) capSun(sky.sun);
-      light();
       const f = sky.sunFix;
       worker.postMessage({ type: 'slide', slide: slideId, dx, dz, bounds, sunFix: [f[0], f[1], f[2]] } satisfies MoonSlide);
       far?.slide(dx, dz);
       // the boulders: their meshes over, their places in their data, their keys by regions
-      const R = MOON_REGION * MOON_TILE, dr = dx / R, ds = dz / R, moved = [...rocks.entries()];
+      const R = MOON_REGION * MOON_TILE, dr = dx / R, ds = dz / R, held = [...rocks.entries()];
       rocks.clear();
-      for (const [key, r] of moved) {
+      for (const [key, r] of held) {
         r.mesh.position.x -= dx;
         r.mesh.position.z -= dz;
+        // (its world matrix doesn't follow by itself)
+        r.mesh.updateMatrix();
+        if (r.mesh.parent) r.mesh.matrixWorld.multiplyMatrices(r.mesh.parent.matrixWorld, r.mesh.matrix);
+        else r.mesh.matrixWorld.copy(r.mesh.matrix);
         for (let o = 0; o < r.data.length; o += 7) {
           r.data[o] -= dx;
           r.data[o + 2] -= dz;
@@ -373,16 +396,17 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
         const c = key.indexOf(',');
         rocks.set(`${Number(key.slice(0, c)) - dr},${Number(key.slice(c + 1)) - ds}`, r);
       }
-      // (what's painted is kept by crater and by latitude: it lays itself out again on this map)
-      paint?.rebase();
-      // (the fine noise on the ground reads where it was, so nothing in it moves)
-      const S = moonGlobals.uSlide.value, P = 2 ** 18;
-      S.set((((S.x + dx) % P) + P) % P, (((S.y + dz) % P) + P) % P);
+      paint?.slide(from, dx, dz, moved);
+      // (the fine noise on the ground reads where it was, so nothing in it moves. Kept within 2^18 of nothing, so it's fine to 3 cm: it turns over once in four slides one way, 524 km)
+      const S = moonGlobals.uSlide.value, P = 2 ** 19, wrap = (v: number) => ((((v + P / 2) % P) + P) % P) - P / 2;
+      S.set(wrap(S.x + dx), wrap(S.y + dz));
     },
     update(x, z) {
       far?.update(x, z);
       dirOf(frame, x, z, dTmp);
-      sky.update(latOf(dTmp), lonOf(dTmp));
+      axesOf(frame, x, z, axesHere);
+      sky.update(latOf(dTmp), lonOf(dTmp), axesHere);
+      if (!sky.held) here(axesHere);
     },
     sunAt(x, y, z, tile) {
       const m = tile?.moon;

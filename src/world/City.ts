@@ -917,9 +917,9 @@ export class City {
   /**
    * ?moon: the map slides by (dx, dz), whole regions (docs/specs/moon/FREEFLIGHT.md, Stage 2). Every tile and region comes over, keys, data, meshes and the
    * origins their materials read, and nothing loads again: a mesh keeps the vertices it had and moves by its own position. What was asked for and hadn't
-   * landed is asked for again on the new map, and the worker drops the old asks. Ground paint goes with its tiles.
+   * landed is asked for again on the new map, and the worker drops the old asks. Ground paint goes with its tiles. `moved`: what's been moved already, each once.
    */
-  slide(dx: number, dz: number) {
+  slide(dx: number, dz: number, moved: Set<object>) {
     if (!this.moon) return;
     const ts = this.manifest.tileSize, R = this.regionSize * ts, dtx = dx / ts, dtz = dz / ts, drx = dx / R, drz = dz / R;
     const split = (key: string): [number, number] => {
@@ -938,7 +938,10 @@ export class City {
       if (!m) return;
       m.position.x -= dx;
       m.position.z -= dz;
+      // (its world matrix doesn't follow by itself: matrixWorldAutoUpdate is off)
       m.updateMatrix();
+      if (m.parent) m.matrixWorld.multiplyMatrices(m.parent.matrixWorld, m.matrix);
+      else m.matrixWorld.copy(m.matrix);
       const u = (m.material as THREE.ShaderMaterial).uniforms;
       for (const name of ['uTileRect', 'uMapRect'] as const) {
         const v = u?.[name]?.value as THREE.Vector4 | undefined;
@@ -1026,7 +1029,7 @@ export class City {
       }
     }
     this.loadedMask.needsUpdate = true;
-    this.ground.slide(dtx, dtz, dx, dz);
+    this.ground.slide(dtx, dtz, dx, dz, moved);
   }
 
   /** Drop every region (they stream back in): after a lost GL context, whose streamed meshes kept no JS copy. */
