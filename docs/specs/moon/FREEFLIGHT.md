@@ -51,6 +51,8 @@ Checked on the final build, on a cloud machine with no GPU, at a fixed step. Not
 
 Left for a laptop and the phone: the rest of `controls.mjs`, which takes over two hours here; `stranger.mjs`, `edges.mjs` and `warmcheck.mjs`, which time their legs by the wall clock; anything in real time; and every number a thumb decides.
 
+**The producer's first look**, 2026-11-03: "Flick up for the moon sounds great. For the moon run, I want to be able to pan the camera like it was before." So out in space, where the thumb doesn't steer, a drag on either side pans again at the stick's own rate from its first pixel, and the view stays where it's left; what a flick panned goes back. In orbit the left of the screen still looks. `flicks.mjs` has two more rows for it, and on the same build: a left drag held 1 s pans 48.5 degrees to the right's 49.4, the view is within 0.01 degrees of where it was left 1 s after the lift, and a flick on either side leaves it. The controls sims still write `feat/thumbs`' files byte for byte.
+
 ### Stage 2: the map slides (about 2 days)
 
 The core of the job. From Theophilus, Jet in a straight line for 500 km, low, about seven joins, with no turn-back.
