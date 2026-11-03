@@ -42,6 +42,15 @@ Done when: `?moonland` flies the whole trip on flicks with no TURBO button, the 
 - Seven tools pressing TURBO, two reading TAP TURBO off the label, and two meaning Jet by one shift.
 - Two things a flick's stroke does out in space that a tap didn't: a slow flick could start a landing from orbit, and on the legs the thumb doesn't steer it tipped the view.
 
+Checked on the final build, on a cloud machine with no GPU, at a fixed step. Nothing has run on a phone.
+
+- Types, `npm run build` (what Vercel runs), `iosfloor` and `smoke` pass, with no page errors.
+- The controls sims (`s_gesture` 625 checks, `s_layout` 295, `s_turbo` 27) and the look and nose sims pass, and write the same files byte for byte as `feat/thumbs`.
+- `tools/moon/flicks.mjs --trip`: 13 rows, all pass, no page errors, 25 programs at the push and 25 at home. A slow right flick in orbit felt 0.167 s of push and went home, and a held push left after 7 frames. A flick in the long dark moved the view 0 degrees and a drag held 1 s swung it 40. A left drag of 100 px turned the view 46.4 degrees on screen for the rig's 44.3, and it was home 2 s after the lift. One held push took the bus from orbit to the ground in 1,530 frames, the gears coming down Jet, Nonstop, Express; four flicks took Express to Rainbow Warp, 500 frames took it back to orbit, and a flick there went home.
+- `tools/controls.mjs` on both builds side by side, at 1x, since at 3x a row takes minutes on software GL. The gesture table: 47 of 49 on both, and the same two fail on both (Nonstop still lifting taken back, and MEGA's tap with a thumb steering), so it's this machine and not the merge. The numbers that differ are the look's angle, which runs on the wall clock, and two heights after a wall-clock wait. 42 look rows are the same on both in every number but the draws. At 3x its `touch` mode stops on both: the settings panel never opens.
+
+Left for a laptop and the phone: the rest of `controls.mjs`, which takes over two hours here; `stranger.mjs`, `edges.mjs` and `warmcheck.mjs`, which time their legs by the wall clock; anything in real time; and every number a thumb decides.
+
 ### Stage 2: the map slides (about 2 days)
 
 The core of the job. From Theophilus, Jet in a straight line for 500 km, low, about seven joins, with no turn-back.
