@@ -24,14 +24,23 @@ These beat every older doc. `README.md`, `HANDOFF.md` and `DECISIONS.md` are his
 - The whole Moon is flown freely, low or high, with no edge and nothing that turns the bus back: "I want to be able to fly around the moon freely, the whole way" (`docs/specs/moon/FREEFLIGHT.md`).
 
 **Controls** (on `feat/thumbs`, `docs/specs/flight/THUMBS.md`, not live yet)
-- No new button, joystick or gear strip. It must be intuitive to pick up and fly, and playable with one thumb. Gestures stay hidden, with one brief hint on the first run.
+- No new button, joystick or gear strip. It must be intuitive to pick up and fly, and playable with one thumb. Gestures stay hidden, with one brief hint on the first run. The one exception is the trip's easter egg (below).
 - The left 42 % of the screen looks and never flies, the rest flies. A quick flick up or down is one gear, on either side. No double flicks, no left or right swipes, no tilt. The TURBO button is gone. MEGA stays.
 - One ladder: Cruise, Express, Nonstop, Jet, Turbo 1, 2 and 3. To the producer, "turbo" is what Jet feels like. On the Moon it goes on from Jet to Stratos and Rainbow Warp (`docs/specs/moon/FREEFLIGHT.md`).
 - A branch has all this only once `feat/thumbs` is merged into it. Merging it there doesn't put it live: that's main, and the producer's word.
 
 **Camera**
-- No pinch and no zoom: tried on paper and rejected, don't raise it again. The normal chase camera and the full-size bus everywhere, the Moon voyage included.
-- The moon run pans as it always has: "For the moon run, I want to be able to pan the camera like it was before." Out in space a drag on either side turns the view at a rate and it stays where it's left. Where the thumb steers, in orbit, the left of the screen looks as on the street. The label's FLICK UP FOR THE MOON: "Flick up for the moon sounds great."
+- Pinch to zoom is in, 2026-11-03, where it was rejected before: "ive thought about it an i want the pinch to zoom function - i think because this game is mostly played on one hand, it can work". Earlier in the same message: "maybe incorporate zooming (just for the moon shot only, not core game)". Which of the two is asked (`docs/TODO.md`). The normal chase camera and the full-size bus otherwise.
+- On the way to the Moon and back the view goes where it's panned and stays there, and one swipe looks behind: "just forget auto re-alignment. where the user pans - it goes. also on my iphone the panning is just not good, it takes too many swipes to get to look behind me."
+
+**The Moon trip** (2026-11-03, after flying Stages 1 to 3; `docs/specs/moon/VOYAGE.md` is the plan)
+- No FLICK UP FOR THE MOON: "i dont like flick up for the moon function". Extremely high over Earth an easter-egg button comes up, TO THE MOON?, and goes if the bus comes back down: "once a player reaches a certain height away from the surface of the earth, a preferably very very tall height, extremely so". Leaving the Moon is the same: very high up, TO PLANET EARTH?.
+- The trip starts from the street: "I want to fly up high from San Francisco surface and eventually get so so high, extremely high, that an "Easter egg" button appears "to the moon?""
+- One moon boost, there or back in a bit under 6 minutes: "i want there to be one default moon boost turbo mode that brings you to and from the moon in a bit less than 6 min."
+- No paint from high orbit: "i want to completely remove the paint splat from high orbit option when you first get to the moon. i just splatted .04 percent of the moon in one shot. this is terrible."
+- At the Moon the bus is the player's again much higher up than now, with a WELCOME TO THE MOON that says so, and from orbit down it flies and paints exactly as over San Francisco, the gears and their flicks included: "once in orbit, i want exact functionality of our san francisco movement and paint splat mechanics".
+- The Sun and the Moon are drawn bigger, and the Moon grows as the bus comes to it: "why is the moon/sun so smally depicted in this game?" Earth stays as it is: "the earth does however look great - and the earth does slowly shrink in size, well done."
+- The trail on the way is alive and a little random, never still: "it is too static, like its frozen and im afraid players will think their game stalled."
 
 **On hold.** Start none of these until the producer says so: streets and highways, moving things (cars, ships, trains, planes, live plane data), weather and clouds, satellites.
 

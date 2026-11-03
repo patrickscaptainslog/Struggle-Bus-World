@@ -12,16 +12,25 @@ Branch `feat/moonfree`, cut from `spike/moonrun`. The plan is [specs/moon/FREEFL
 - [ ] Stage 3: the whole Moon, poles, far side, night, gears. Built and pushed 2026-11-03, waiting on the producer's flight
 - [ ] Stage 4: tidy the specs and hand in
 
+## Second account: the Moon trip as the producer wants it now
+
+Same branch. The producer flew Stages 1 to 3 and ruled on the trip (`CLAUDE.md`, "The Moon trip"); the plan is [specs/moon/VOYAGE.md](specs/moon/VOYAGE.md). It comes before Stage 4.
+
+- [ ] V1: no paint from orbit; the pan in space stays where it's left and one swipe looks behind; a trail that's alive; a bigger Sun and a Moon that grows on the way
+- [ ] V2: one MOON BOOST, under 6 minutes; TO THE MOON? extremely high over Earth and TO PLANET EARTH? very high over the Moon; at the Moon the street's flying and painting from orbit down, with WELCOME TO THE MOON
+- [ ] V3: pinch to zoom
+
 ## First account: from 2026-11-04 12:00 UTC, when its weekly limit resets
 
 - [ ] Review each stage above as it's handed in, and fly the long real-time checks on a real GPU. Stages 2 and 3 leave these (FREEFLIGHT.md): 500 km low at Jet, a lap at Stratos with memory read, the worker keeping up at Stratos, the flight's low band slide by hand, and night as it looks
-- [ ] Start the Moon flight from the ground on Earth, so it can be felt from start to finish. That's the trip's first leg, not the streets job on hold. It touches `src/main.ts` too: expect to merge with the stages above
+- [ ] Start the Moon flight from the ground on Earth, so it can be felt from start to finish. That's the trip's first leg, not the streets job on hold. It touches `src/main.ts` too: expect to merge with the stages above. The producer, 2026-11-03: "I want to fly up high from San Francisco surface and eventually get so so high, extremely high, that an "Easter egg" button appears "to the moon?"". It hands over to VOYAGE's V2 (`docs/specs/moon/VOYAGE.md`)
 - [ ] `feat/thumbs` to main, once the producer says the controls can go live
 - [ ] The controls' small things: the opening still says TURBO AFTER THE BRIDGE, six flicks under the gate reach Turbo 3 at the bridge, a rare lost tap, the left look reaches about 37 degrees from mid-zone, the home leg's slow roll, a value saved in the phone's tuner beats a new default
 
 ## Waiting on the producer
 
-- [ ] Fly Stages 1 to 3 on `feat/moonfree`'s preview: `?moonland&fps`, the whole trip on flicks, then on round the Moon, low and high
+- [x] Fly Stages 1 to 3 on `feat/moonfree`'s preview. Flown 2026-11-03: what they said is `CLAUDE.md`'s "The Moon trip"
+- [ ] Pinch to zoom on the trip only, or everywhere, the street included
 - [ ] OK for the two-thumb controls to go live
 
 ## Later, in this order
