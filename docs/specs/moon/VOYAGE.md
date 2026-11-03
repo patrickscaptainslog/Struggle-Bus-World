@@ -19,7 +19,7 @@ The producer, 2026-11-03, after flying FREEFLIGHT's Stages 1 to 3 on `?moonland`
 - At the Moon the bus is the player's from orbit down, and WELCOME TO THE MOON says so: the yoke, the gears and their flicks, a tap that paints the crater under the aim, as over San Francisco. Today the low game takes over at 14 km; here it goes up to the orbit.
 - Leaving, the same way up: very high over the Moon (first pick: 3,500 km, where the whole Moon just fits the view) TO PLANET EARTH? comes up, and goes on the way back down.
 
-**V3: pinch to zoom (second account).** Where it works is asked (`docs/TODO.md`). Two fingers moving apart or together zoom; one thumb still flies and the left of the screen still looks. A pinch has to be told from two thumbs at once, which the controls already allow, so it's tried on the trip first, where nothing else wants two fingers.
+**V3: pinch to zoom (second account).** Everywhere, the street included: the producer, "Pinch to zoom everywhere". Two fingers moving apart or together zoom; one thumb still flies and the left of the screen still looks. A pinch has to be told from two thumbs at once, which the controls already allow, and the controls sims (`tools/controls-sim/s_gesture.ts`) are where that's proved. It touches `Input` and `CameraRig`, `feat/thumbs`' files, so it reaches `feat/thumbs` and main only with this branch.
 
 **The launch from the street (first account, theirs in `docs/TODO.md` already).** From San Francisco the bus climbs with its gears off the city's map and on up into the flight's loop, the way the Moon's low game hands over to it, until TO THE MOON? comes up. It meets V2 there, so V2's button and boost are what it hands to.
 

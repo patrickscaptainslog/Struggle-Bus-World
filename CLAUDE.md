@@ -30,7 +30,7 @@ These beat every older doc. `README.md`, `HANDOFF.md` and `DECISIONS.md` are his
 - A branch has all this only once `feat/thumbs` is merged into it. Merging it there doesn't put it live: that's main, and the producer's word.
 
 **Camera**
-- Pinch to zoom is in, 2026-11-03, where it was rejected before: "ive thought about it an i want the pinch to zoom function - i think because this game is mostly played on one hand, it can work". Earlier in the same message: "maybe incorporate zooming (just for the moon shot only, not core game)". Which of the two is asked (`docs/TODO.md`). The normal chase camera and the full-size bus otherwise.
+- Pinch to zoom, everywhere, the street included, where it was rejected before: "ive thought about it an i want the pinch to zoom function - i think because this game is mostly played on one hand, it can work", and asked where: "Pinch to zoom everywhere" (2026-11-03). The normal chase camera and the full-size bus are where a zoom starts from.
 - On the way to the Moon and back the view goes where it's panned and stays there, and one swipe looks behind: "just forget auto re-alignment. where the user pans - it goes. also on my iphone the panning is just not good, it takes too many swipes to get to look behind me."
 
 **The Moon trip** (2026-11-03, after flying Stages 1 to 3; `docs/specs/moon/VOYAGE.md` is the plan)

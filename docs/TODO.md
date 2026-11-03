@@ -30,7 +30,7 @@ Same branch. The producer flew Stages 1 to 3 and ruled on the trip (`CLAUDE.md`,
 ## Waiting on the producer
 
 - [x] Fly Stages 1 to 3 on `feat/moonfree`'s preview. Flown 2026-11-03: what they said is `CLAUDE.md`'s "The Moon trip"
-- [ ] Pinch to zoom on the trip only, or everywhere, the street included
+- [x] Pinch to zoom on the trip only, or everywhere. Everywhere, the street included (2026-11-03)
 - [ ] OK for the two-thumb controls to go live
 
 ## Later, in this order
