@@ -104,6 +104,8 @@ export const inputTune = {
   lookDelayMs: 100,
   /** A touch landing in this share of the screen's width, from the left (the right, with BUTTONS: SWAP), never flies. 0: no zone. */
   lookZone: 0.42,
+  /** With the bus's zone on (Input.busZone): the half width of its lane, as a share of the screen's width. */
+  busLane: 0.22,
   /** A flick by the second thumb: at least this far (px), in at most this long (ms), at least this fast on average (px/ms), within this many degrees of vertical. */
   flickPx: 30,
   flickMs: 230,
@@ -134,6 +136,7 @@ registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
   secondTapMs: [80, 450, 5],
   lookDelayMs: [0, 300, 5],
   lookZone: [0, 0.8, 0.01],
+  busLane: [0.1, 0.45, 0.01],
   flickPx: [10, 120, 1],
   flickMs: [60, 450, 5],
   flickSpeed: [0.05, 2, 0.01],
@@ -225,6 +228,12 @@ export class Input {
   onFirstGesture: (() => void) | null = null;
   /** BUTTONS: SWAP: the look zone is on the right instead of the left. */
   swapped = false;
+  /**
+   * The bus's zone, CSS px of the input element, set every frame by whoever draws the bus (sky/moonrun.ts on the way to the Moon): only a touch landing in its lane flies, and one landing anywhere
+   * else looks. The producer: "what if we reserve the control the struggle bus movement space on the screen to the area directly near the struggle bus itself, and then touching anywhere but that
+   * area pans the camera?" Null: the look zone's rule. r: the lane's half width (inputTune.busLane of the screen's).
+   */
+  busZone: { x: number; y: number; r: number } | null = null;
 
   private readonly el: HTMLElement;
   private readonly slots: Slot[] = [];
@@ -568,7 +577,7 @@ export class Input {
     let recent = false;
     for (const s of this.slots) if (s.role === Role.Second && !s.right && now - s.t0 <= inputTune.tapMs && s.maxDist <= inputTune.tapSlopPx) recent = true;
 
-    if (this.fly || (!mouse && this.inLookZone(e.clientX - this.rectL))) {
+    if (this.fly || (!mouse && this.inLookZone(e.clientX - this.rectL, e.clientY - this.rectT))) {
       // Another finger joins, or a thumb lands in the look zone. It never moves the flying anchor, and with nobody flying the bus flies itself.
       this.setSlot(slot, e, now, Role.Second);
       slot.flick = this.commands(slot) ? Flick.Easy : Flick.No;
@@ -807,8 +816,14 @@ export class Input {
     return s.type !== 'mouse' && s.y0 <= this.rectH - inputTune.flickBottomPx && s.x0 >= inputTune.flickSidePx && s.x0 <= this.rectW - inputTune.flickSidePx;
   }
 
-  /** A touch landing here never flies: the look zone. Only the landing counts: a look that wanders out of it is still a look. */
-  private inLookZone(x: number): boolean {
+  /** A touch landing here never flies: the look zone, or with the bus's zone on everywhere but that. Only the landing counts: a look that wanders out of it is still a look. */
+  private inLookZone(x: number, y: number): boolean {
+    const b = this.busZone;
+    if (b) {
+      // (a lane round the bus, from just over it down to the bottom of the screen, where the thumb that flies it sits)
+      const dx = x - b.x, dy = y - b.y;
+      return !(Math.abs(dx) <= b.r && (dy >= 0 || dx * dx + dy * dy <= b.r * b.r));
+    }
     const w = this.rectW * inputTune.lookZone;
     return this.swapped ? x > this.rectW - w : x < w;
   }
@@ -823,7 +838,7 @@ export class Input {
   /** The stroke that just lifted was a command, not a flying thumb, so a thumb that landed during it is a lone touch: it flies, from where it landed, unless it landed in the look zone. A grip in a band isn't one: the next thumb to land flies. */
   private promote(t0: number) {
     for (const s of this.slots) {
-      if (s.role !== Role.Second || s.right || s.t0 < t0 || !this.commands(s) || this.inLookZone(s.x0)) continue;
+      if (s.role !== Role.Second || s.right || s.t0 < t0 || !this.commands(s) || this.inLookZone(s.x0, s.y0)) continue;
       if (s.looking) this.endLook(s);
       s.role = Role.Fly;
       s.flick = Flick.No;

@@ -31,6 +31,7 @@ Same branch. The producer flew Stages 1 to 3 and ruled on the trip (`CLAUDE.md`,
 
 - [x] Fly Stages 1 to 3 on `feat/moonfree`'s preview. Flown 2026-11-03: what they said is `CLAUDE.md`'s "The Moon trip"
 - [x] Pinch to zoom on the trip only, or everywhere. Everywhere, the street included (2026-11-03)
+- [ ] The bus's lane on the street too, in place of the left 42 % look zone? (On the trip it's built: a touch near the bus flies, anywhere else pans.) If yes, `feat/thumbs` waits for it before it goes live
 - [ ] OK for the two-thumb controls to go live
 
 ## Later, in this order

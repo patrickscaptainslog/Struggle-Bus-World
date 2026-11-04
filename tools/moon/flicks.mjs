@@ -25,7 +25,9 @@ const BASE = process.env.BASE ?? 'http://localhost:4179/';
 mkdirSync(dir, { recursive: true });
 const W = 393, H = 852, DT = 1 / 30;
 /** a right thumb, out of the left zone and clear of MEGA's place, and a left one */
-const RX = 290, RY = 600, LX = 70, LY = 560;
+// (the flying thumb's place is in the bus's lane, read off the page once it's flying: below the bus. The left one is out of it, where a touch looks)
+let RX = 196, RY = 700;
+const LX = 70, LY = 560;
 const browser = await chromium.launch(browserOptions(['--enable-webgl']));
 let bad = 0;
 const row = (name, ok, got) => {
@@ -107,6 +109,32 @@ try {
   // ---- the long dark: a right flick up is a stroke on the thumb that swings the view, and it mustn't move it
   await skipTo('cruise');
   await frames(20);
+  // (out here only a touch near the bus flies it: the lane round it, down to the bottom. The flying thumb goes there; a touch in the sky over the bus, or beside it, looks)
+  const bz = await page.evaluate(() => window.__space.input.busZone);
+  if (bz) {
+    RX = Math.round(bz.x);
+    RY = Math.round(Math.min(bz.y + 90, 780));
+  }
+  console.log('  the bus\'s lane', JSON.stringify(bz), 'the flying thumb at', RX, RY);
+  for (const [name, x, y] of [['in the sky over the bus', bz ? bz.x : 196, bz ? bz.y - 260 : 340], ['beside the bus, on the right', bz ? bz.x + bz.r + 50 : 340, bz ? bz.y : 600]]) {
+    const p0 = await read();
+    begin();
+    await touch('touchStart', x, y, 0);
+    await touch('touchMove', x + 60, y, 150);
+    await frames(30);
+    const p1 = await read();
+    await touch('touchEnd', x + 60, y, 150 + 1000);
+    await frames(10);
+    const panned = Math.hypot(p1.noseYaw - p0.noseYaw, p1.nosePitch - p0.nosePitch);
+    row(`dark: a drag ${name} pans the view and carves nothing`, panned > 20 && Math.abs(p1.carveYaw) < 1 && Math.abs(p1.carvePitch) < 1, { panned: +panned.toFixed(1), carve: [p1.carveYaw, p1.carvePitch] });
+    // (and back where it was, for the rows after)
+    begin();
+    await touch('touchStart', x + 60, y, 0);
+    await touch('touchMove', x, y, 150);
+    await frames(30);
+    await touch('touchEnd', x, y, 150 + 1000);
+    await frames(10);
+  }
   // (what the view does by itself over as many frames as the flick takes)
   const dz = await read();
   await frames(13);

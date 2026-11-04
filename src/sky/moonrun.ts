@@ -304,7 +304,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   // (the look is the rig's: on ?moonland the low game's own, so a look held across a join goes on across it)
   const looker = input ? (land?.rig ?? new CameraRig()) : null;
   // (where each panning thumb was last frame)
-  const lookAt = new THREE.Vector2();
+  const lookAt = new THREE.Vector2(), busOnScreen = new THREE.Vector3();
   let lookOn = false;
   const label = flying ? tripLabel(!landing) : null;
   // the easter eggs, and what the HUD said on arriving
@@ -375,6 +375,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     requestAnimationFrame(frame);
     // (one page, one pump: below the ground's height the low game has the frame)
     if (landing?.ground) {
+      // (the low game's thumbs are its own: the look zone's)
+      if (input) input.busZone = null;
       landing.world!.frameAt(now);
       last = now;
       return;
@@ -498,6 +500,11 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
       }
     }
     if (!landing?.near) pipeline.focus.set(0, 0, 0);
+    // (out here only a touch near the bus flies it, and one anywhere else looks: the bus's lane, where it stands on the screen this frame)
+    if (input && trip && view) {
+      const v = bus.root.getWorldPosition(busOnScreen).project(camera), W = window.innerWidth, H = window.innerHeight;
+      input.busZone = v.z < 1 ? { x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H, r: inputTune.busLane * W } : null;
+    }
     pipeline.render(scene);
     breath.numbersOut();
     frames++;
