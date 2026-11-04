@@ -58,7 +58,8 @@ try {
       },
       [secs, yoke, until ?? ''],
     );
-  const trip = () => page.evaluate(() => { const t = window.__space.moon.trip; return { leg: t.leg, egg: t.egg, rung: t.rung, km: +Math.min(t.hEarth, t.hMoon).toFixed(1), url: location.search.slice(0, 40) }; });
+  // (over Earth low down, the height over the ground, the ellipsoid's, as the join reads it: the route's sphere is 0.8 km over the ground at San Francisco's latitude)
+  const trip = () => page.evaluate(() => { const t = window.__space.moon.trip, low = (t.leg === 'wait' || t.leg === 'street') && t.hEarth < 1000; return { leg: t.leg, egg: t.egg, rung: t.rung, km: +(low ? t.hGround : Math.min(t.hEarth, t.hMoon)).toFixed(1), url: location.search.slice(0, 40) }; });
   /** In a long dark: on into the change of page, and the new page held as it comes up. */
   const change = async (to) => {
     await frames(1);
