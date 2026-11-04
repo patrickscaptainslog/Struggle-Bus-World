@@ -22,7 +22,7 @@
       // anything under public/city that follows a deploy, a re-bake or a relandmark.py run: on the old value that phone never sees it.
       (function () {
         try {
-          var v = (window.__sbDataV = 'osm2');
+          var v = (window.__sbDataV = 'osm3');
           var q = new URLSearchParams(location.search).get('city');
           var city = q === null ? 'sf' : q; // as main.ts reads it (an empty ?city= stays empty)
           var base = './city/' + city;
@@ -32,6 +32,25 @@
             return p;
           };
           window.__sbBoot = { base: base, manifest: get('city.json'), far: get('far.bin', 'low'), horizon: get('horizon.bin', 'low'), far16: function () { return get('far16.bin', 'low'); } };
+          // The first paint (SKY.md 4): the page is the day's grey until the game's first frame, seconds away on a slow line, so at dusk and at night it takes the
+          // sky's colour from the Sun's height over the city's origin, read off a copy of city.json as it lands (any city's). A small model: 0.03 degrees at worst.
+          // Not with ?sky=off, which is today's page; ?t= is the live sky's moment, ?hour=blue its held hour.
+          var qs = new URLSearchParams(location.search), t = qs.get('t');
+          if (qs.get('sky') !== 'off') {
+            var ms = t === null ? NaN : /^\d+$/.test(t) ? Number(t) : Date.parse(t);
+            if (!isFinite(ms)) ms = Date.now();
+            var sun = function (t, a, o) { var r = Math.PI / 180, d = t / 864e5 - 10957.5, g = 357.53 + 0.9856 * d, l = (280.46 + 0.98565 * d + 1.915 * Math.sin(g * r)) * r, e = 0.4091, v = Math.asin(Math.sin(e) * Math.sin(l)), h = (280.46 + 360.98565 * d + o) * r - Math.atan2(Math.cos(e) * Math.sin(l), Math.cos(l)); a *= r; return Math.asin(Math.sin(a) * Math.sin(v) + Math.cos(a) * Math.cos(v) * Math.cos(h)) / r; };
+            window.__sbBoot.manifest.then(function (r) { return r.clone().json(); }).then(function (m) {
+              var e = qs.get('hour') === 'blue' ? -6 : sun(ms, m.origin[0], m.origin[1]);
+              if (e >= 3) return;
+              // (dusk: the blue hour's horizon; night: its sky low down, the band most of a frame's sky is)
+              var c = e >= -1 ? '#5a4f9c' : '#394295', st = document.createElement('style');
+              st.textContent = 'html, body { background: ' + c + '; }';
+              document.head.appendChild(st);
+              var tc = document.querySelector('meta[name=theme-color]');
+              if (tc) tc.setAttribute('content', c);
+            }).catch(function () {});
+          }
         } catch (e) {}
       })();
     </script>

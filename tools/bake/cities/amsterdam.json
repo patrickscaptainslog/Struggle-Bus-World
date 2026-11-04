@@ -2,6 +2,7 @@
   "name": "Amsterdam (Jordaan)",
   "slug": "amsterdam",
   "origin": [52.3752, 4.8822],
+  "tz": "Europe/Amsterdam",
   "bbox": [4.8705, 52.3665, 4.8945, 52.3840],
   "overture": {"release": "2026-10-21.0", "pad": 0.002},
   "osm": {"abbrev": null, "roofDefaults": {"house": "gabled", "terrace": "gabled", "residential": "gabled", "apartments": "gabled", "": "gabled"}},

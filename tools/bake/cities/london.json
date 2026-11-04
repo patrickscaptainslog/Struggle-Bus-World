@@ -2,6 +2,7 @@
   "name": "London (Hyde Park)",
   "slug": "london",
   "origin": [51.5073, -0.1657],
+  "tz": "Europe/London",
   "bbox": [-0.1950, 51.4990, -0.1500, 51.5150],
   "overture": {"release": "2026-10-21.0", "pad": 0.002},
   "osm": {"abbrev": null},
