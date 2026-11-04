@@ -70,11 +70,12 @@ export class LiveSky {
   sunEl = 0;
   sunAz = 0;
   seenEl = 0;
-  /** the key at the last tick: height (deg; 0 for the afterglow, which casts nothing), compass azimuth of the shading vector (deg), sky time and real time of it */
+  /** the key's height at the last tick (deg; 0 for the afterglow, which casts nothing): what the sun pass reads */
   keyEl = 0;
   /** the key's own height and azimuth at the last tick (deg), the afterglow's too: what the next tick measures from */
   private keyH = 0;
   private keyAz = 0;
+  /** the shading vector's compass azimuth (deg), and the sky time and real time of the last tick */
   private shadeAz = NaN;
   private tickSky = 0;
   private tickReal = -1e9;
