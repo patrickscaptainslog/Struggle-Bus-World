@@ -17,6 +17,7 @@ These beat every older doc. `README.md`, `HANDOFF.md` and `DECISIONS.md` are his
 - Paint is the only saturated thing in the world, and there's no brown. Palette ramps only, in an indexed-colour G-buffer (`docs/specs/COMMON.md`).
 - It has to scale to the whole world. Data-driven looks any city gets from OpenStreetMap or Overture, no new hand-made San Francisco one-offs. Each city is its own flat map: the round Earth is unbuilt.
 - The Moon is real in its big shapes and named places, and invented below that. Crewed landing sites stay grey circles that can't be painted.
+- The bridges take paint, the Golden Gate and the Bay Bridge: "currently the bridges (bay and golden gate) cant be painted which i think is a mistake" (2026-11-04). The first account has it, on `feat/clock`.
 
 **Flight**
 - Speed and climb never grow with height. Going faster is the gears' job. The one exception is the brake on arrival at the Moon.
