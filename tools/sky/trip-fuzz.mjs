@@ -34,7 +34,9 @@ const failures = [];
 for (let n = 0; n < N; n++) {
   const ms = START + rnd() * YEAR, g5 = [3000, 6000, 10000][Math.floor(rnd() * 3)];
   const iso = new Date(ms).toISOString();
-  const trip = new MoonTrip(series, ms, { g5 });
+  // (every fifth player has come up off the street, climbing on some heading: src/sky/Launch.ts. Not by rnd(), so the rest fly as they did)
+  const launch = n % 5 === 4 ? (n * 37) % 360 : undefined;
+  const trip = new MoonTrip(series, ms, { g5, launch });
   const view = new TripView();
   // how this player is: how often they tap TURBO, the tab, and the stick
   const tapEvery = [3, 10, 40, 1e9][Math.floor(rnd() * 4)], tabEvery = [10, 60, 1e9][Math.floor(rnd() * 3)], stickEvery = [2, 8, 30][Math.floor(rnd() * 3)], eggEvery = [1, 6, 30][Math.floor(rnd() * 3)];
@@ -43,7 +45,7 @@ for (let n = 0; n < N; n++) {
   let sx = 0, sy = 0, down = false, stickT = 0;
   const axes = new Float64Array(9), q = view.busQuat.clone();
   let frames = 0, hfov = 38, legNow = 'wait', legT = 0, restT = 0, nextRest = rnd() * 60, t = 0, out = 0, launched = 0, outAt = 0;
-  const say = () => `${iso} g5 ${g5} ${fps || 'rough'} fps tap ${tapEvery} tab ${tabEvery}`;
+  const say = () => `${iso} g5 ${g5} ${fps || 'rough'} fps tap ${tapEvery} tab ${tabEvery}${launch === undefined ? '' : ` off the street at ${launch}`}`;
   let trips = 0, broken = false;
   for (let i = 0; i < 3e6 && !broken; i++) {
     const dt = dtNow();
