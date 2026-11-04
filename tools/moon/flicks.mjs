@@ -233,15 +233,16 @@ try {
     const paintOf = () => page.evaluate(() => {
       const m = window.__space.moon, P = window.__game.moon.paint, recs = [...P.recs.values()];
       const last = recs.reduce((a, r) => (!a || r.order > a.order ? r : a), null);
-      return { recs: recs.length, last: last ? { id: last.id, km: +(last.r / 1000).toFixed(2), level: last.level } : null, shots: m.breath.stats.shots, map: +m.breath.paint.painted.toFixed(6), craters: m.breath.craters };
+      return { recs: recs.length, last: last ? { id: last.id, km: +(last.r / 1000).toFixed(2), level: last.level } : null, shots: m.breath.stats.shots, denied: m.breath.stats.denied, loaded: m.breath.loaded, aimOn: m.breath.aimOn, map: +m.breath.paint.painted.toFixed(6), craters: m.breath.craters };
     });
+    await frames(30);
     const p0 = await paintOf();
     begin();
     await touch('touchStart', W / 2, 300, 0);
     await touch('touchEnd', W / 2, 300, 60);
     await frames(60);
     const p1 = await paintOf();
-    row('orbit: a tap paints the crater under the aim, a few km across, and no splat', p0.craters && p1.shots === p0.shots + 1 && p1.recs >= p0.recs + (p1.last?.level === 1 ? 1 : 0) && !!p1.last && p1.last.km >= 0.2 && p1.last.km <= 8 && p1.map === p0.map, { p0, p1 });
+    row('orbit: a tap paints the crater under the aim, a few km across, and no splat', p0.craters && p1.shots === p0.shots + 1 && p1.recs >= p0.recs + (p1.last?.level === 1 ? 1 : 0) && !!p1.last && p1.last.km >= 1 && p1.last.km <= 8 && p1.map === p0.map, { p0, p1 });
     await shot('orbit-crater');
   }
 

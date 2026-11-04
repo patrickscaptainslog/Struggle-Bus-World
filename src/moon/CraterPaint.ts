@@ -11,9 +11,11 @@ import { craterById, cratersNear, mix32, type Age } from './craters';
 import { CRATER_FLOATS, CRATER_INTS } from './gen';
 import { dirOf, latLonToMap, latOf, lonOf, mapOf, type MapFrame, type Place, type WholeMap } from './map';
 /** From up high (?moonland, the flight's loop, VOYAGE.md V2c), a tap's crater is chosen as the aim's would be from this far off (m) at most, and is never wider than HIGH_R (m of radius):
- *  one tap from orbit is a crater a few km across, never a region. First picks. */
+ *  one tap from orbit is a crater a few km across, never a region. First picks. It's never narrower than ORBIT_R either, or nothing of it would show from up there. */
 const HIGH_AIM = 20000;
 const HIGH_R = 8000;
+/** m: how far off its rim the place it came down may be, from up high. */
+const HIGH_SNAP = 3000;
 import { moonGlobals } from './moonMaterial';
 import type { RoofSprouts } from '../world/props/sprouts';
 import type { PaintStroke } from '../sky/MoonPaint';
@@ -424,16 +426,16 @@ export class CraterPaint {
   hitAt(lat: number, lon: number, now: number, hue: number): Rec | null {
     const p = this.v3;
     latLonToMap(this.d.frame, lat, lon, p);
-    const x = p[0], z = p[1], d = HIGH_AIM, snap = snapOf(d), pref = Math.max(24, 0.14 * d);
+    const x = p[0], z = p[1], d = HIGH_AIM, snap = HIGH_SNAP, pref = Math.max(24, 0.14 * d);
     if (this.inSite(x, z)) return null;
     // (a bowl it's in, the nearer its own size to what a breath from there takes the better, or a rim it's just off; and a finished bowl is no target)
     const score = (cx: number, cz: number, r: number, level: number) => {
       const e = Math.hypot(cx - x, cz - z) - r;
-      if (e > snap || r < Math.max(8.5, 0.01 * d) || r > HIGH_R) return -1;
+      if (e > snap || r < ORBIT_R || r > HIGH_R) return -1;
       return (e > 0 ? e / snap + 0.2 : (0.2 * (e + r)) / r) + 0.3 * Math.abs(Math.log(r / pref)) + (level >= 3 ? 2 : 0);
     };
     let best = Infinity, id = '';
-    for (const c of cratersNear(this.d.frame, this.d.albedo, this.d.seed, x, z, snap, 2 * Math.max(8.5, 0.01 * d))) {
+    for (const c of cratersNear(this.d.frame, this.d.albedo, this.d.seed, x, z, snap, 2 * ORBIT_R)) {
       const s = score(c.x, c.z, c.r, this.recs.get(keyOfId(c.id))?.level ?? 0);
       if (s >= 0 && s < best) {
         best = s;
