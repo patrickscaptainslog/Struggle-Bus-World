@@ -2977,6 +2977,14 @@ VOYAGE.md's V2c, its second part. From the orbit down to 120 km, where the groun
 - **Left:** the trail, the speed lines and MEGA carried across the hand-over; sound low over Earth; a dive from 300 km comes down where the bus was pointing, so a player has to find the city from above to land in it (the test's came down 42 km off it, past the map's edge, and was set back over it); in and out of the city low down is E4, after the producer has flown this.
 - **Checked** on a cloud machine at a fixed step at 1x, on the merged branch (E3 in, the same source as `0f50ef7`). `tools/earth/climb.mjs`, 5 rows of 5, no page errors: from 7 km a full pull in Jet, the flight takes the bus at 15.08 km over the ground, climbs on free to 24.1 km, and a held push back over the city hands it to the street at 13.98 km. `tools/earth/trip.mjs`, the whole trip from the street to the Moon's orbit and home to the street again, run by the second session: 7 rows of 7, no page errors. `tools/earth/still.mjs`, 3 of 3. `flicks.mjs --trip`, the Moon's trip from `?moonland`, 22 rows of 22, no page errors. `flag-off`: 0 flight requests, nothing of space in the plain page, none of the flight's strings in the main chunk, no page errors. In Node: `earth-check` 12 of 12; `trip-fuzz` four seeds of 120, 0 failures; `route-check`, `approach-check`, `view-check`, `resume-check`. `smoke` and `iosfloor` (the second session's, on its build of `0f50ef7`), types with `main.ts` and `npm run build`. Not run: `controls.mjs`'s thumbs on `?earth`. Nothing on a phone: two loops on one page, the flight's programs compiling behind a flying street, and memory are the phone's to say.
 
+## Over Earth, no flick up to climb (2026-11-04, `feat/earth`)
+
+The producer, after flying `?earth`: "I do not like the flick up to climb function. I just want to be able to freely fly, and then once I get to a certain very high orbital altitude the "to the moon?" Button appears".
+
+- **Free over Earth, at the top gear a flick up does nothing,** where it climbed straight up to the button. The button is flown up to: pulled up to 13,000 km it comes up, and back under 10,000 it goes, as before. The label says nothing of climbing over Earth. At the Moon the top gear's flick up to TO PLANET EARTH? is as it was, and the old launch from the plain page, off the street's ceiling, still climbs by itself.
+- **How long that is:** a held full pull in Rainbow Warp, 30 km/s with the nose at 85 degrees, takes 424 s from 300 km to 13,000 km (24 s to 1,000 km, 57 s to 2,000, 158 s to 5,000, 325 s to 10,000), in Node.
+- **Checked:** CHECKS
+
 ## The whole Earth, flown freely: E3, the page change in the long dark (2026-11-04, `feat/earthfree-e3`)
 
 `docs/specs/earth/EARTHFLIGHT.md`'s third stage, built by a second session while the first had E2. Earth's page and the Moon's stay two pages, and they change over in the long dark, the last frame held: the producer's "Ok" to a second of still stars.

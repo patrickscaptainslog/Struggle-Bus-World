@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Flicks out in space, felt a frame at a time on a fixed step (docs/specs/moon/FREEFLIGHT.md, Stage 1): node tools/moon/flicks.mjs <out dir>
-//   wait   the label says climb, a left flick up climbs, 13,000 km up TO THE MOON? pops up, a flick down takes it away, and a tap on it sets off on the moon boost
+//   wait   at the top gear the label says nothing of climbing and a left flick up leaves the bus free; a full pull to 13,000 km and TO THE MOON? pops up, a push back down takes it away, and a tap on it sets off on the moon boost
 //   dark   in the long dark a right drag carves the bus off the path and it comes back on the lift; a left drag pans the view as far as the finger goes, and it stays; a flick on either side leaves it
 //   look   a left drag in orbit turns the view about the bus as far as the finger goes, and it stays there after the lift
 //   orbit  a right flick up as slow as the rule allows, its push felt past the old 0.15 s, climbs and starts no fall; 3,500 km up TO PLANET EARTH? pops up, and a tap on it goes home
@@ -54,6 +54,19 @@ try {
     const c = m.view.carve;
     return { leg: m.trip.leg, say: document.querySelector('[data-hud="trip-label"]')?.dataset.say?.split('|')[2] ?? '', pushT: +m.trip.pushT.toFixed(3), lookYaw: +(m.view.lookYaw * d).toFixed(1), noseYaw: +(Math.atan2(n.x, -n.z) * d).toFixed(2), nosePitch: +(Math.asin(Math.max(-1, Math.min(1, n.y))) * d).toFixed(2), carveYaw: +c.yaw.toFixed(2), carvePitch: +c.pitch.toFixed(2) };
   });
+  // (over Earth the button is flown up to: a full pull for TO THE MOON?, a push back down for none, by the trip's own steps, the view stepped with it)
+  const pullTo = async (egg) => {
+    const got = await page.evaluate((e) => {
+      const m = window.__space.moon;
+      for (let i = 0; i < 40000 && m.trip.egg !== e; i++) {
+        m.trip.step(1 / 30, 0, e ? -1 : 1);
+        m.view.update(1 / 30, m.trip, 0, 0, false, 0);
+      }
+      return m.trip.egg;
+    }, egg);
+    if (got !== egg) throw new Error(`flew for the button ${egg} and it is ${got}`);
+    console.log('  flew to the button', got);
+  };
   const skipTo = async (leg) => {
     const got = await page.evaluate((l) => {
       const m = window.__space.moon;
@@ -80,31 +93,29 @@ try {
     await touch('touchEnd', b.x + b.width / 2, b.y + b.height / 2, 60);
   };
 
-  // ---- wait: the label says climb, and a left flick up climbs; extremely high TO THE MOON? comes up (VOYAGE.md V2), a flick down takes the bus back down and it goes, and a tap on it sets off
+  // ---- wait: free over Earth at the top gear the label says nothing of climbing, and a left flick up leaves the bus free (the producer, 2026-11-04: "I do not like the flick up to climb function");
+  // a full pull up to 13,000 km and TO THE MOON? comes up (VOYAGE.md V2), a push back down and it goes, and a tap on it sets off
   const w0 = await read();
   await flick(cdp, 1);
   await frames(3);
   const w1 = await read();
-  row('wait: the label says FLICK UP TO CLIMB, and a left flick up climbs', w0.say === 'FLICK UP TO CLIMB' && w0.leg === 'wait' && w1.leg === 'rise', { said: w0.say, leg: w1.leg });
-  await skipTo('high');
+  row('wait: at the top gear the label says nothing of climbing, and a left flick up leaves the bus free', w0.say === '' && w0.leg === 'wait' && w1.leg === 'wait', { said: w0.say, leg: w1.leg });
+  await pullTo('moon');
   await frames(20);
   const e1 = await egg('to-moon'), h1 = await page.evaluate(() => Math.round(window.__space.moon.trip.hEarth));
   await shot('egg-moon');
-  row('high: 13,000 km over home TO THE MOON? pops up', e1.up && e1.shown && h1 >= 12990, { up: e1.up, shown: e1.shown, km: h1 });
-  await flick(cdp, -1);
+  row('wait: a full pull to 13,000 km over home and TO THE MOON? pops up', e1.up && e1.shown && h1 >= 12900, { up: e1.up, shown: e1.shown, km: h1 });
+  await pullTo(null);
   await frames(25);
   const w2 = await read(), e2 = await egg('to-moon');
-  row('high: a flick down goes back down, and the button goes', w2.leg === 'sink' && !e2.shown, { leg: w2.leg, shown: e2.shown });
-  await skipTo('wait');
-  await flick(cdp, 1);
-  await frames(3);
-  await skipTo('high');
+  row('wait: a push back under 10,000 km and the button goes', w2.leg === 'wait' && !e2.shown, { leg: w2.leg, shown: e2.shown });
+  await pullTo('moon');
   await frames(20);
   await tapEgg('to-moon');
   await frames(4);
   // (asked for, or on already: from up here it goes on at once if the Moon's clear of Earth)
   const w3 = await read(), boost = await page.evaluate(() => window.__space.moon.trip.armed || window.__space.moon.trip.gear === 5);
-  row('high: a tap on TO THE MOON? sets off, on the moon boost', w3.leg !== 'high' && w3.leg !== 'sink' && boost, { leg: w3.leg, boost });
+  row('wait: a tap on TO THE MOON? sets off, on the moon boost', w3.leg !== 'wait' && boost, { leg: w3.leg, boost });
 
   // ---- the long dark: a right flick up is a stroke on the thumb that swings the view, and it mustn't move it
   await skipTo('cruise');
@@ -281,9 +292,7 @@ try {
   // ---- and the push still lands: home, out again, and a push held 0.3 s
   await skipTo('wait');
   await frames(2);
-  await flick(cdp, 1);
-  await frames(3);
-  await skipTo('high');
+  await pullTo('moon');
   await page.evaluate(() => window.__space.moon.trip.toMoon());
   await skipTo('orbit');
   await frames(10);

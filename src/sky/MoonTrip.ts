@@ -464,11 +464,10 @@ export class MoonTrip {
     if (this.tapped) {
       this.tapped = false;
       switch (this.leg) {
-        // (a flick up climbs: extremely high the button comes up, and that's the way on. The producer: "i dont like flick up for the moon function")
-        // (over Earth, free: a gear up, and at the top the climb straight up to the button)
+        // (extremely high the button comes up, and that's the way on. The producer: "i dont like flick up for the moon function". At the Moon, at the top gear, a flick up still climbs to its button)
+        // (over Earth, free: a gear up, and at the top nothing. The button is flown up to: the producer, 2026-11-04, "I do not like the flick up to climb function. I just want to be able to freely fly")
         case 'wait':
           if (this.rung < RUNG_TOP) this.shiftRung(1);
-          else this.rise('rise');
           break;
         case 'sink':
           this.rise('rise');

@@ -44,7 +44,7 @@ for (let n = 0; n < N; n++) {
   const dtNow = () => (fps ? 1 / fps : 1 / 60 + rnd() * (0.05 - 1 / 60));
   let sx = 0, sy = 0, down = false, stickT = 0;
   const axes = new Float64Array(9), q = view.busQuat.clone();
-  let frames = 0, hfov = 38, legNow = 'wait', legT = 0, restT = 0, nextRest = rnd() * 60, t = 0, out = 0, launched = 0, outAt = 0;
+  let going = false, frames = 0, hfov = 38, legNow = 'wait', legT = 0, restT = 0, nextRest = rnd() * 60, t = 0, out = 0, launched = 0, outAt = 0;
   const say = () => `${iso} g5 ${g5} ${fps || 'rough'} fps tap ${tapEvery} tab ${tabEvery}${launch === undefined ? '' : ` off the street at ${launch}`}`;
   let trips = 0, broken = false;
   for (let i = 0; i < 3e6 && !broken; i++) {
@@ -62,6 +62,7 @@ for (let n = 0; n < N; n++) {
     // (a player who stops: nothing but the label's tap, a beat late, on the legs that ask)
     const leg = trip.leg;
     if (leg !== legNow) {
+      going = false;
       if (legNow === 'wait' && leg !== 'wait') launched = t;
       if (leg === 'orbit') {
         out = t - launched;
@@ -83,6 +84,13 @@ for (let n = 0; n < N; n++) {
       trip.tap();
       restT = 0;
       nextRest = 1 + rnd() * 6;
+      going = leg === 'wait';
+    }
+    // (over Earth the button is flown up to: a player who stops for the label shifts up and holds a full pull until it comes up. The producer, 2026-11-04: "I just want to be able to freely fly")
+    if (going && leg === 'wait') {
+      down = true;
+      sx = 0;
+      sy = -1;
     }
     // (and the easter egg, when it's up: a player who sees it presses it, sooner or later)
     if (trip.egg && rnd() < dt / eggEvery) {

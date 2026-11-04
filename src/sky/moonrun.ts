@@ -217,11 +217,12 @@ function tripLabel(orbitPaint: boolean): (trip: MoonTrip, breath: MoonBreath | n
     // (low over Earth, the height over its ground in metres)
     const hk = leg === 'wait' ? trip.hGround : Math.min(trip.hMoon, trip.hEarth);
     const b = `${g} ${trip.v < 1 ? `${Math.round(trip.v * 1000)} M` : trip.v < 10 ? `${trip.v.toFixed(1)} KM` : `${thousands(trip.v)} KM`}/S ${hk < 10 ? `${Math.round(hk * 1000)} M` : `${thousands(hk)} KM`}`;
-    // (a flick up climbs, and extremely high the easter egg is the way on: the label says only that, and nothing of where it goes)
+    // (extremely high the easter egg is the way on: the label says nothing of where it goes)
     const dark = leg === 'cruise' || leg === 'homeCruise';
     // (at the Moon a flick up is a gear up, until the top gear: there it's the way up and out)
     const top = (leg !== 'orbit' && leg !== 'fall' && leg !== 'wait') || trip.rung >= RUNG_TOP;
-    const p = !top ? '' : leg === 'wait' || leg === 'orbit' || (leg === 'fall' && trip.hMoon > 150) ? 'FLICK UP TO CLIMB' : leg === 'fall' && !trip.lifting ? 'FLICK UP FOR ORBIT' : dark ? 'DRAG TO CARVE' : '';
+    // (over Earth nothing: the button is flown up to)
+    const p = !top ? '' : leg === 'orbit' || (leg === 'fall' && trip.hMoon > 150) ? 'FLICK UP TO CLIMB' : leg === 'fall' && !trip.lifting ? 'FLICK UP FOR ORBIT' : dark ? 'DRAG TO CARVE' : '';
     // the goal, once there is any; and until the first shot, what to do about it
     const share = breath && !breath.paint.rebuilding ? breath.paint.painted * 100 : 0;
     // (a crater from orbit is a few thousandths of a percent: it shows)

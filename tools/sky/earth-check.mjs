@@ -4,7 +4,7 @@
 //   down     from 300 km a held push in Rainbow Warp, braked by the law, levels at Warp's floor; Jet's, then Cruise's, each a gear down, never under the floor
 //   drift    an hour at Cruise and its floor: the ground it covers is Cruise's speed for an hour, and the height holds (Earth fixed: the Earth turns under EQJ)
 //   pole     turned north and flown in Rainbow Warp over the pole and down the other side, nothing comes apart
-//   button   a full pull in Rainbow Warp to the ceiling puts TO THE MOON? up; a push takes it under 10,000 km and the button goes; at the top gear a flick up climbs to it, a flick down comes back
+//   button   a full pull in Rainbow Warp to the ceiling puts TO THE MOON? up; a push takes it under 10,000 km and the button goes; at the top gear a flick up does nothing, and a pull puts it up again
 // A row passes or fails on the numbers printed with it; exit 1 if any fails.
 import { registerHooks } from 'node:module';
 
@@ -111,12 +111,14 @@ const upAt = fly(600, 0, -1);
 row('button: a full pull in Rainbow Warp to the ceiling, and TO THE MOON? is up', trip.hEarth > 12900 && trip.egg === 'moon', { km: Math.round(trip.hEarth), egg: trip.egg, low: +upAt.toFixed(1) });
 fly(200, 0, 1);
 row('button: a push takes it back under 10,000 km and the button goes', trip.hEarth < 10000 && trip.egg === null && trip.leg === 'wait', { km: Math.round(trip.hEarth), egg: trip.egg });
+// (the producer, 2026-11-04: "I do not like the flick up to climb function". At the top gear a flick up does nothing: the bus flies on free, and the button is flown up to)
+const h0 = trip.hEarth;
+let left = 0;
 trip.tap();
-fly(60);
-row('button: at the top gear a flick up climbs straight to it', trip.leg === 'high' && trip.egg === 'moon', { leg: trip.leg, km: Math.round(trip.hEarth) });
-trip.shiftDown();
-fly(60);
-row('button: and a flick down comes back to 300 km, free, the button gone', trip.leg === 'wait' && Math.abs(trip.hEarth - 300) < 2 && trip.egg === null && ok(), { leg: trip.leg, km: +trip.hEarth.toFixed(1), egg: trip.egg });
+fly(10, 0, 0, () => (left += trip.leg !== 'wait'));
+row('button: at the top gear a flick up does nothing, the bus flies on free', !left && trip.rung === 5 && trip.hEarth <= h0 + 1 && trip.egg === null && ok(), { left, rung: trip.rung, km: Math.round(trip.hEarth), was: Math.round(h0) });
+fly(600, 0, -1);
+row('button: and a pull back up to the ceiling puts it up again', trip.hEarth > 12900 && trip.egg === 'moon' && trip.leg === 'wait', { km: Math.round(trip.hEarth), egg: trip.egg });
 
 console.log(bad ? `${bad} FAIL` : 'all pass');
 process.exit(bad ? 1 : 0);

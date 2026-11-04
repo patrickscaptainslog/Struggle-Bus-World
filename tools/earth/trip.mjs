@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The whole trip from the street and back to it, both changes of page in it (docs/specs/earth/EARTHFLIGHT.md, E2 and E3), at a fixed step: node tools/earth/trip.mjs <out dir>
 //   up      ?earth: the street up and the flight behind it; Jet from 14.9 km, a full pull, and the flight has the bus at 15 km
-//   button  two flicks up to Rainbow Warp and one more: straight up to 13,000 km, TO THE MOON?, and off
+//   button  two flicks up to Rainbow Warp and a full pull: up to 13,000 km, TO THE MOON?, and off
 //   out     a few seconds into the long dark the page is ?moonland&resume, the trip carried on
 //   moon    on to the orbit, and a push held there leaves it for the ground: the Earth page's trip came over able to land
 //   home    off home, the long dark, ?earth&resume, over home, a dive, and under 14 km over the city the street has the bus
@@ -84,19 +84,18 @@ try {
     u = await trip();
   }
   row('up: the street climbs out, and the flight has the bus at 15 km', u.leg === 'wait' && u.km >= 14.9, u);
-  // ---- button
+  // ---- button (the producer, 2026-11-04: "I do not like the flick up to climb function. I just want to be able to freely fly")
   await page.evaluate(() => {
     const t = window.__space.moon.trip;
     t.tap();
     t.step(1 / 30, 0, 0);
     t.tap();
     t.step(1 / 30, 0, 0);
-    t.tap();
   });
-  await skipTo('high', 0.5);
+  const pulled = await fly(900, -1, "t.egg === 'moon'");
   await frames(4);
   const b = await trip();
-  row('button: up to Rainbow Warp and straight up: 13,000 km, TO THE MOON? up', b.leg === 'high' && b.egg === 'moon' && b.km > 12900, b);
+  row('button: up to Rainbow Warp and a full pull: 13,000 km, TO THE MOON? up', b.leg === 'wait' && b.rung === 5 && b.egg === 'moon' && b.km > 12900, { ...b, pullS: Math.round(pulled) });
   await page.evaluate(() => window.__space.moon.trip.toMoon());
   // ---- out
   const lc = await skipTo('cruise');
