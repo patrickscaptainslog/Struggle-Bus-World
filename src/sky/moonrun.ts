@@ -323,6 +323,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   const lookAt = new THREE.Vector2(), busOnScreen = new THREE.Vector3();
   let lookOn = false;
   const label = flying ? tripLabel(!landing) : null;
+  /** ?moonland: a tap now is a crater shot, from the orbit down to where the ground's mesh comes in. */
+  const craterHigh = () => !!landing?.world && !!trip && (trip.leg === 'orbit' || trip.leg === 'fall') && !landing.near && !landing.ground;
   // the easter eggs, and what the HUD said on arriving
   const eggMoon = new EasterEgg('TO THE MOON?', 'to-moon', () => trip?.toMoon());
   const eggEarth = new EasterEgg('TO PLANET EARTH?', 'to-earth', () => trip?.toEarth());
@@ -342,7 +344,13 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     breath.audio = audio;
     // a tap is a breath, as on the street: the place it touched goes in first, since Input reads the event after this. ?moonland paints nothing from orbit, the producer's word:
     // "i just splatted .04 percent of the moon in one shot. this is terrible". There paint is a crater at a time, from the low game
-    input.onTap = () => breath.tap(trip.leg === 'orbit' && !landing);
+    // From the orbit down to the ground's mesh, a tap is a crater shot: the crater under the aim takes a level, as one does from the low game (VOYAGE.md V2c). (Under the mesh's height the shot's
+    // stand-ins don't stand in the world's frame yet, so there it's nothing until the low game has the bus.)
+    input.onTap = () => {
+      const high = craterHigh();
+      breath.tap(high || (trip.leg === 'orbit' && !landing), high);
+    };
+    breath.onCrater = landing ? (lat, lon, hue) => landing.world?.paintAt(lat, lon, hue) ?? null : null;
     const touched = (e: PointerEvent) => {
       if (e.target === renderer.domElement) breath.touched(e.clientX, e.clientY);
     };
@@ -485,7 +493,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     if (breath.rear > 0) bus.root.quaternion.multiply(rearQ.setFromAxisAngle(pitchAxis, breath.rear));
     if (landing?.near) landing.snap(camera, bus.root);
     bus.root.updateMatrixWorld(true);
-    breath.update(dt, real, sky, trip?.leg === 'orbit' && !landing, camera);
+    breath.craters = craterHigh();
+    breath.update(dt, real, sky, (trip?.leg === 'orbit' && !landing) || breath.craters, camera);
     if (trip && names) names.update(dt, sky, trip.leg === 'in' || trip.leg === 'orbit' || trip.leg === 'moonRise' || trip.leg === 'moonHigh' || trip.leg === 'moonSink', trip.v, trip.t, camera, focalAt(), pipeline.info.width, pipeline.info.height, popSign);
     if (trip && view && fx) {
       if (landing?.near) fx.update(dt, trip.v, trip.dir, landing.axes, landing.flying.copy(view.flying).applyQuaternion(landing.q), landing.nosing.copy(view.nosing).applyQuaternion(landing.q), camera, bus.root, pipeline.pixelWorldSize(1), landing.bus);

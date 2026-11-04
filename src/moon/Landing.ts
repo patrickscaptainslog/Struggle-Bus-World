@@ -76,6 +76,8 @@ export interface LandWorld {
   frameAt(now: number): void;
   /** The map slides by (dx, dz) under the bus, as the low game's does (main.ts): low over the mesh, so the ground stays. */
   slide(dx: number, dz: number): void;
+  /** From up high, a crater shot came down at (lat, lon), degrees: the crater it hits takes a level (CraterPaint.hitAt). Its radius, km, or null for open ground. */
+  paintAt(lat: number, lon: number, hue: number): number | null;
   /** Over the ground in the flight's loop: what's painted goes on the windows round this place, so it's on the far field before the low game has the frame. */
   follow(x: number, z: number, fx: number, fz: number): void;
 }

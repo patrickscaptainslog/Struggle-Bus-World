@@ -7,9 +7,13 @@ import type { Shot } from '../game/Aim';
 import type { Blast, BarfOpts } from '../game/Splat';
 import type { BlastSpec } from '../game/blastLayout';
 import { HUE_COUNT } from '../render/palette';
-import { craterById, mix32, type Age } from './craters';
+import { craterById, cratersNear, mix32, type Age } from './craters';
 import { CRATER_FLOATS, CRATER_INTS } from './gen';
 import { dirOf, latLonToMap, latOf, lonOf, mapOf, type MapFrame, type Place, type WholeMap } from './map';
+/** From up high (?moonland, the flight's loop, VOYAGE.md V2c), a tap's crater is chosen as the aim's would be from this far off (m) at most, and is never wider than HIGH_R (m of radius):
+ *  one tap from orbit is a crater a few km across, never a region. First picks. */
+const HIGH_AIM = 20000;
+const HIGH_R = 8000;
 import { moonGlobals } from './moonMaterial';
 import type { RoofSprouts } from '../world/props/sprouts';
 import type { PaintStroke } from '../sky/MoonPaint';
@@ -150,6 +154,7 @@ export class CraterPaint {
   private askedZ = 0;
   private askedHalf = 0;
   private readonly named: Target[] = [];
+  private readonly v3 = new Float64Array(3);
   private readonly tmpWin = [0, 0, 0, 0];
   private readonly tmpDir = new Float64Array(3);
   private marks: ClipMark[] = [];
@@ -410,6 +415,44 @@ export class CraterPaint {
       if (k) c = { id, x: k.x, z: k.z, r: k.r, a: k.a, b: k.b, c: k.c, age: k.age, kind: 0, name: null, wob: null, turn: 0, rec: null };
     }
     return c ? this.paint(c, hue, now, 0, 0) : null;
+  }
+
+  /**
+   * From up high (?moonland, the flight's loop): a breath that came down at (lat, lon) hits the crater there, a level, as one from the low game would, chosen as the aim chooses from HIGH_AIM off.
+   * now: the low game's clock. Null: open ground, or a landing site.
+   */
+  hitAt(lat: number, lon: number, now: number, hue: number): Rec | null {
+    const p = this.v3;
+    latLonToMap(this.d.frame, lat, lon, p);
+    const x = p[0], z = p[1], d = HIGH_AIM, snap = snapOf(d), pref = Math.max(24, 0.14 * d);
+    if (this.inSite(x, z)) return null;
+    // (a bowl it's in, the nearer its own size to what a breath from there takes the better, or a rim it's just off; and a finished bowl is no target)
+    const score = (cx: number, cz: number, r: number, level: number) => {
+      const e = Math.hypot(cx - x, cz - z) - r;
+      if (e > snap || r < Math.max(8.5, 0.01 * d) || r > HIGH_R) return -1;
+      return (e > 0 ? e / snap + 0.2 : (0.2 * (e + r)) / r) + 0.3 * Math.abs(Math.log(r / pref)) + (level >= 3 ? 2 : 0);
+    };
+    let best = Infinity, id = '';
+    for (const c of cratersNear(this.d.frame, this.d.albedo, this.d.seed, x, z, snap, 2 * Math.max(8.5, 0.01 * d))) {
+      const s = score(c.x, c.z, c.r, this.recs.get(keyOfId(c.id))?.level ?? 0);
+      if (s >= 0 && s < best) {
+        best = s;
+        id = c.id;
+      }
+    }
+    let t: Target | null = null;
+    for (const c of this.named) {
+      const s = score(c.x, c.z, c.r, this.recs.get(keyOfId(c.id))?.level ?? 0);
+      if (s >= 0 && s < best) {
+        best = s;
+        t = c;
+      }
+    }
+    if (!t && id) {
+      const k = craterById(this.d.frame, this.d.albedo, this.d.seed, id);
+      if (k) t = { id, x: k.x, z: k.z, r: k.r, a: k.a, b: k.b, c: k.c, age: k.age, kind: 0, name: null, wob: null, turn: 0, rec: null };
+    }
+    return t ? this.paint(t, hue, Math.max(now, 1e-3), x, z) : null;
   }
 
   /** QA: how many are in the list, how many landing. */

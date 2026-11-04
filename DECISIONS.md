@@ -2943,6 +2943,15 @@ VOYAGE.md's V2c, its first part. The producer: "once in orbit, i want exact func
 - **A held push still leaves the orbit,** where the street dives at once: a flick is never a push, and a dive that a flick down started would leave the orbit with every gear down.
 - **Checked:** types. In Node: `trip-fuzz` 120 players on two seeds, 0 failures; `route-check` (its orbit row now flicks down to Stratos and back up), `approach-check` and `view-check` pass; a walk through the gears (arrive at 30 km/s, Stratos 4.5, Jet 0.45, back up, a held push in Stratos, a gear up under the orbit to 20.4 km/s at 205 km, the law's there). `flicks.mjs --trip` with a row for the gears in orbit is running. Nothing on a phone.
 
+## A tap from up high paints a crater (2026-11-04, `feat/moonfree`)
+
+VOYAGE.md's V2c, its second part. From the orbit down to 120 km, where the ground's mesh comes in, a tap is a crater shot: the orbit's breath, the game's, inhale, jet, splash, burst, flash, hit-stop and kick, and where it comes down the crater there takes a level, as one from the low game does (`MoonBreath`'s crater mode, `LandWorld.paintAt`, `CraterPaint.hitAt`). Nothing goes on the orbit's map but that crater, which is on it at its size, or a 6 km dot, as anything painted low and over 1 km is.
+
+- **One crater, a few km across.** It's chosen as the low game's aim chooses, from 20 km off at most, and never wider than 8 km of radius, so a tap from orbit takes about a 3 km crater, a named one if it's that small, never a region (first picks: `HIGH_AIM`, `HIGH_R`). Open ground is a small splash and the denied sound. A landing site is never painted. The glint is the size of the crater it will take, 4 km, where it was a blast's 50.
+- **Where it lands** is the orbit breath's own aim: the ground under the finger if that's ahead of the bus, else the glint just ahead of the nose.
+- **Left:** under 120 km, where the flight's loop draws the ground's mesh, a tap still paints nothing until the low game has the bus at 14 km: the shot's stand-ins are placed in the view's frame, and down there the frame is the world's. The crater's own bloom plays on the low game's clock, so painted from orbit it has bloomed by the time the bus is down to it.
+- **Checked:** types and `iosfloor`. `flicks.mjs --trip` with a row for it is running. Nothing on a phone.
+
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
   local repo until `patrickscaptainslog/struggle-bus` exists.

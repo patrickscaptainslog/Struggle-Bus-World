@@ -1618,6 +1618,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       follow(x, z, fx, fz) {
         m.paint.fly(x, z, fx, fz, simTime);
       },
+      paintAt(lat, lon, hue) {
+        const rec = m.paint.hitAt(lat, lon, simTime, hue);
+        return rec ? rec.r / 1000 : null;
+      },
     };
     controls.turbo.top = WARP;
     config.turbo.warpAlt = land.upFloor;

@@ -26,6 +26,8 @@ const PROXY = 1000;
 const TRAVEL = 0.92;
 /** ms of drawing a frame while a shot flies. */
 const SLICE_MS = 1.5;
+/** km: a crater shot's glint, about the crater it will take (CraterPaint's HIGH_AIM and HIGH_R). */
+const CRATER_GLINT_KM = 4;
 /** A settled blast's reveal is cleared this long after its impact: the last blob is down. */
 const SETTLE_S = 1.7;
 /** How far the glint stands over the bus's middle, a share of the focal length: just clear of its nose. */
@@ -56,7 +58,8 @@ const ss =(a: number, b: number, x: number) => {
 
 interface Shot {
   stroke: PaintStroke;
-  job: PaintJob;
+  /** null: a crater shot (?moonland), which paints the crater it lands on, through onCrater, and not the map */
+  job: PaintJob | null;
   /** Moon fixed */
   n: Float64Array;
   jetAt: number;
@@ -193,8 +196,16 @@ export class MoonBreath {
     return this.barfT < 0 && this.fullness >= 0.999;
   }
 
-  /** A tap. False if there was nothing to fire, or nothing to fire at. */
-  tap(inOrbit: boolean): boolean {
+  /**
+   * ?moonland, a crater shot landing: the place it came down, degrees, and its hue. What it hit is the low game's to say (CraterPaint.hitAt), and it paints that crater, the street's way, a crater at a time:
+   * the producer, "once in orbit, i want exact functionality of our san francisco movement and paint splat mechanics". Returns the crater's radius, km, or null for open ground.
+   */
+  onCrater: ((lat: number, lon: number, hue: number) => number | null) | null = null;
+  /** A tap now would be a crater shot: the glint is a crater's size, not a blast's. */
+  craters = false;
+
+  /** A tap. False if there was nothing to fire, or nothing to fire at. crater: it paints the crater it lands on (onCrater), not a splat on the map. */
+  tap(inOrbit: boolean, crater = false): boolean {
     if (!inOrbit || !this.loaded || !this.sky) {
       this.stats.denied++;
       if (inOrbit) this.audio?.denied();
@@ -218,9 +229,20 @@ export class MoonBreath {
     this.lastTap.ground = ground;
     this.touchAt = -1e9;
     this.settleNow();
+    const lat = Math.asin(Math.max(-1, Math.min(1, n[2]))) / DEG, lon = Math.atan2(n[1], n[0]) / DEG;
+    // (a crater shot: the place and a hue, and nothing on the map until it's down)
+    if (crater) {
+      const stroke: PaintStroke = { lat, lon, level: 1, seed: Math.floor(Math.random() * 6000), km: 0 };
+      this.shot = { stroke, job: null, n: Float64Array.from(n), jetAt: this.t + S.inhale, impact: this.t + S.inhale + TRAVEL, jetOut: false };
+      this.barfT = 0;
+      this.fired = true;
+      this.stats.shots++;
+      this.audio?.heave();
+      return true;
+    }
     // (the saved list must be down first: a stroke goes on the end of it)
     if (this.paint.rebuilding && this.paint.rebuild(1e9, () => performance.now())) this.tex.needsUpdate = true;
-    const stroke = this.paint.strike(Math.asin(Math.max(-1, Math.min(1, n[2]))) / DEG, Math.atan2(n[1], n[0]) / DEG);
+    const stroke = this.paint.strike(lat, lon);
     const job = this.paint.begin(stroke, true);
     // (where the stroke says: rounded to 0.01 degrees, 300 m)
     this.shot = { stroke, job, n: placeOf(stroke.lat, stroke.lon), jetAt: this.t + S.inhale, impact: this.t + S.inhale + TRAVEL, jetOut: false };
@@ -300,7 +322,7 @@ export class MoonBreath {
       if (shot) {
         // (by the clock: a stamp costs more near a pole, and a phone is not this laptop. Most of a blast is done in a frame or two; the worst is done in the flight, whatever the frame rate)
         const end = performance.now() + SLICE_MS;
-        while (!this.paint.work(shot.job, 1500) && performance.now() < end);
+        while (shot.job && !this.paint.work(shot.job, 1500) && performance.now() < end);
       }
       this.at(n, this.dirNow);
       if (this.dirKnown && dt > 0) this.dirRate.copy(this.dirNow).sub(this.dirWas).divideScalar(dt);
@@ -356,11 +378,11 @@ export class MoonBreath {
     const A = U.uPaintAim.value, G = U.uPaintGlint.value;
     if (shot && this.shot) {
       const n = shot.n, level = shot.stroke.level;
-      A.set(n[0], n[1], n[2], (EDGE_KM[level] * 0.8) / R_MOON);
+      A.set(n[0], n[1], n[2], ((shot.job ? EDGE_KM[level] * 0.8 : CRATER_GLINT_KM)) / R_MOON);
       G.set(Math.max(0, (shot.impact - this.t) / (TRAVEL + S.inhale)), 1);
     } else if (this.aimOn && this.loaded) {
       const n = this.aim, level = this.paint.levelAt(Math.asin(Math.max(-1, Math.min(1, n[2]))) / DEG, Math.atan2(n[1], n[0]) / DEG);
-      A.set(n[0], n[1], n[2], (EDGE_KM[level] * 0.8) / R_MOON);
+      A.set(n[0], n[1], n[2], (this.craters ? CRATER_GLINT_KM : EDGE_KM[level] * 0.8) / R_MOON);
       G.set((this.t * S.glintRate) % 1, 0);
     } else A.w = 0;
 
@@ -384,6 +406,10 @@ export class MoonBreath {
   /** The blast lands: the map goes up, and everything the game does at an impact. */
   private land(shot: Shot, camera: THREE.Camera): void {
     const S = config.splat, job = shot.job, hue = shot.stroke.seed % 6, level = shot.stroke.level;
+    if (!job) {
+      this.landCrater(shot, camera);
+      return;
+    }
     this.paint.work(job, Infinity);
     this.upload(job.rect, true);
     this.shot = null;
@@ -407,6 +433,30 @@ export class MoonBreath {
     this.pipeline.flash(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5, S.flashFrames + 1, S.flashStrength);
     this.audio?.splatImpact(k);
     this.audio?.bloomBurst(2 + level * 2, hue, level);
+    this.hitStop = S.hitStopFrames / 60;
+    this.kickA = ((S.kick * Math.sqrt(k)) / config.camera.distanceVista) * 0.6;
+    this.kickT = 0;
+  }
+
+  /** A crater shot lands: the crater under it is painted (onCrater), and the impact is the game's, sized to that crater, with the splash, a burst, the flash and the kick. Open ground: a small splash and the denied sound. */
+  private landCrater(shot: Shot, camera: THREE.Camera): void {
+    const S = config.splat, hue = shot.stroke.seed % 6;
+    this.shot = null;
+    this.pour = { n: shot.n, until: this.t + POUR_S };
+    const km = this.onCrater?.(shot.stroke.lat, shot.stroke.lon, hue) ?? null;
+    const pos = this.proxy(this.dirNow, 0, camera, this.tA).clone();
+    // (a crater a few km across is a level-one blast from here: the size of the impact goes with it, never past a big one's)
+    const k = km === null ? 0.3 : Math.min(2, Math.max(0.4, km / 3));
+    this.particles.splash(pos, hue, 2.2 * Math.sqrt(k));
+    if (km === null) {
+      this.audio?.denied();
+      return;
+    }
+    this.particles.burst(pos, hue, k, pos.y - 30);
+    const p = pos.clone().project(camera);
+    this.pipeline.flash(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5, S.flashFrames + 1, S.flashStrength);
+    this.audio?.splatImpact(k);
+    this.audio?.bloomBurst(4, hue, 1);
     this.hitStop = S.hitStopFrames / 60;
     this.kickA = ((S.kick * Math.sqrt(k)) / config.camera.distanceVista) * 0.6;
     this.kickT = 0;
