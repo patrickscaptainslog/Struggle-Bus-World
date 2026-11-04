@@ -34,8 +34,9 @@ import { SuperSplat } from './game/SuperSplat';
 import { SuperFx } from './fx/SuperFx';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
-import { heldHour } from './sky/flag';
+import { heldHour, skyLive } from './sky/flag';
 import { HeldHour } from './sky/HeldHour';
+import { LiveSky } from './sky/LiveSky';
 
 // Struggle Bus — Phase 1 (real SF, solo).
 
@@ -93,10 +94,11 @@ const camNear = camera.near;
 // wave: the post passes and what modules registered (tiles, trees, landmarks, bridges).
 let warm = new WarmUp(pipeline, scene);
 
-// (the held hour, ?hour=blue: SKY.md slice S1; updateSun below hands it the light)
-const hour = heldHour ? new HeldHour(pipeline) : null;
+// (the held hour, ?hour=blue: SKY.md slice S1; updateSun below hands it the light. The live sky, on unless ?sky=off: docs/specs/sky/LIVE.md, its nights that hour)
+const live = skyLive ? new LiveSky(pipeline, params) : null;
+const hour = live ? live.hour : heldHour ? new HeldHour(pipeline) : null;
 /** What the ?fps read-out calls the frame it is reading. */
-const hourName = hour ? 'blue hour' : 'day';
+const hourName = live ? 'live sky' : hour ? 'blue hour' : 'day';
 
 // --- sun: late-afternoon, low, from the WSW
 /** The city's low ground (m, City.lowGround once the far grid is in): the fog ceiling's heights are
@@ -118,7 +120,7 @@ function updateSun() {
   globals.uFogBillow.value.set(Fg.layerBillow, 1 / Math.max(10, Fg.layerBillowSize));
   // (the fog ceiling of tall far shapes: meaningless with the fog off, so off with it)
   globals.uFogStand.value.set(fogOn ? Fg.standFog : 1, fogGround + Fg.standFrom, fogGround + Math.max(Fg.standFrom + 1, Fg.standTo), Fg.standFade);
-  hour?.update();
+  (live ?? hour)?.update();
 }
 updateSun();
 
@@ -136,6 +138,7 @@ async function boot() {
   if (manifest.slug !== slug) manifest.slug = slug;
   // and by the data's id scheme (city.json "ids"): the stores the City opens need it first
   registerCityData(manifest);
+  live?.place(manifest.origin, (manifest as { tz?: string }).tz);
   const city = new City(manifest, base);
   scene.add(city.root);
   if (hour) {
@@ -1214,7 +1217,8 @@ async function boot() {
     pipeline.shadowFocusOn = true;
     pipeline.shadowFocus.set(sx0, focus.y + (city.groundAt(sx0, sz0) - focus.y) * vista, sz0);
     pipeline.shadowScale = 1 + (R.shadowExtentVista / Math.max(1, R.shadowExtent) - 1) * vista;
-    pipeline.shadowStrength = hour?.shadowsOff ? 0 : 1 + (R.shadowStrengthVista - 1) * vista;
+    live?.view(camera, camera.position.distanceTo(focus));
+    pipeline.shadowStrength = hour?.shadowsOff ? 0 : (1 + (R.shadowStrengthVista - 1) * vista) * (live ? live.passK(vista) : 1);
     pipeline.shadowEdge = 0.08 + (R.shadowEdgeVista - 0.08) * vista;
     pipeline.calm = clamp(vista / Math.max(0.01, config.render.calmVista), 0, 1);
     // tower facades: the up-high anti-crawl guard follows the view's height (with fog on or off), and their
@@ -1371,7 +1375,7 @@ async function boot() {
     // (asked for now: there is no asking once the context is gone)
     const lose = renderer.getContext().getExtension('WEBGL_lose_context');
     (window as unknown as Record<string, unknown>).__game = {
-      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: hour,
+      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: live ?? hour,
       /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
       get warm() {
         return warm;

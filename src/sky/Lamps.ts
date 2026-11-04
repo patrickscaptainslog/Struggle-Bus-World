@@ -4,7 +4,7 @@ import { globals, GLSL_COMMON, GLSL_OUT, heldGlobals } from '../render/materials
 import { Ramp } from '../render/palette';
 import { registerWarm } from '../render/warmup';
 import type { TerrainTile } from '../world/tiles';
-import { heldHour } from './flag';
+import { skyOn } from './flag';
 import { LAMP_XZ, LAMP_Y, tileKey, type LampRequest, type LampResult } from './lampData';
 import { loadLamps } from './lampLoad';
 
@@ -64,7 +64,7 @@ function lampPoints(pos: Int16Array, material: THREE.Material): THREE.Points {
 }
 
 // (the warm-up's source: nothing compiles in flight, and flag off this program doesn't exist)
-if (heldHour) registerWarm('lamps', () => lampPoints(new Int16Array(4), makeLampMaterial()));
+if (skyOn) registerWarm('lamps', () => lampPoints(new Int16Array(4), makeLampMaterial()));
 
 /** The ground grid a lamp list stands on. */
 export type LampGround = Pick<LampRequest, 'ground' | 'gridW' | 'gridH' | 'minX' | 'minZ' | 'cell'>;
@@ -136,13 +136,13 @@ export class Lamps {
     this.object.add(this.bridges);
   }
 
-  /** Every frame, the tuner's switches. */
-  update() {
+  /** Every frame, the tuner's switches; none of it while the hour is down. */
+  update(on = true) {
     const S = config.sky;
     uLampPoint.value.set(S.lampShare, S.lampLift, S.lampThin);
-    if (this.streets) this.streets.visible = !!S.lamps;
-    if (this.bridges) this.bridges.visible = !!S.bridges;
-    heldGlobals.uLamp.value = S.pools ? S.poolLift : 0;
+    if (this.streets) this.streets.visible = on && !!S.lamps;
+    if (this.bridges) this.bridges.visible = on && !!S.bridges;
+    heldGlobals.uLamp.value = on && S.pools ? S.poolLift : 0;
     heldGlobals.uLampFar.value.set(S.poolFade, S.poolEnd);
   }
 

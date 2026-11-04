@@ -142,10 +142,21 @@ export const config = {
   },
 
   /**
-   * The held hour (?hour=blue, docs/specs/sky/SKY.md slice S1). Without the flag nothing reads this, and the tuner has no such section. The switches are kill
-   * switches, live: each turns its part of the hour back to the day's. There is no clock: every number here is the one hour held.
+   * The held hour (?hour=blue, docs/specs/sky/SKY.md slice S1) and the live sky (docs/specs/sky/LIVE.md, S2), whose nights are that hour. With neither
+   * nothing reads this, and the tuner has no such section. The switches are kill switches, live: each turns its part of the hour back to the day's. Under
+   * ?hour=blue there is no clock: every number here is the one hour held.
    */
   sky: {
+    /** The live sky, read once as the page loads: off, today's day exactly (as ?sky=off). */
+    live: true,
+    /** The live sky's tick (SKY.md 2): the key moves when the shadow tip of a wall this tall (m) would have moved this many game px, at most once a second, */
+    tickWall: 30,
+    tickPx: 2,
+    /** on a frame where the view moved this many game px; held still, it waits this long at most (s) with the sun at 20 degrees and up, none by 10. */
+    tickMove: 3,
+    tickHold: 60,
+    /** The shading vector's azimuth slews this fast at most (deg an hour of sky time): near the zenith the true one swings 180 degrees in minutes. */
+    slew: 40,
     /** The blue table: off, the day's palette. */
     table: true,
     /** The blue-hour key, with no sun pass and no shadows: off, the day's sun. */

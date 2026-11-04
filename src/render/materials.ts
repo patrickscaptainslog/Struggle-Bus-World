@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { config } from '../config';
-import { held, heldHour } from '../sky/flag';
+import { held, heldOr, skyOn } from '../sky/flag';
 
 // Every scene material writes the same small G-buffer, so the post pass can
 // light-quantize, dither, outline and fog everything consistently. It is one
@@ -21,8 +21,11 @@ import { held, heldHour } from '../sky/flag';
 // Materials never output RGB colors. Use the GLSL chunks below; see
 // makeRampMaterial() for the common case.
 
-/** What the held hour adds to the globals (materials only ask for it with the flag: GLSL_SKY_LIGHT). */
+/** What the held hour and the live sky add to the globals (materials only ask for it with the flag: GLSL_SKY_LIGHT). */
 export const heldGlobals = {
+  uSkySunDir: { value: new THREE.Vector3(0, 1, 0) }, // the sky's own Sun, every frame, true plus refraction (SKY.md 2): uSunDir moves on the tick only
+  uClockHands: { value: new THREE.Vector2(2.6, -0.6) }, // a landmark clock's hour and minute hands, radians clockwise from twelve: ten to five, until the live sky reads the time
+  uShadowBias: { value: 0.0009 }, // the sun pass's depth bias, a share of its depth range: 2.7 m whatever the range (the live sky's pass reaches farther at a low sun)
   uSkyHaze: { value: 0 }, // the light the haze ends on, in place of the day's sky function (0: that function)
   uLit: { value: 0 }, // the share of windows lit, one held value: there is no clock
   uLitGlow: { value: 0 }, // a near pane's glow
@@ -58,7 +61,7 @@ export const globals = {
   uFogBillow: { value: new THREE.Vector2(config.fog.layerBillow, 1 / config.fog.layerBillowSize) },
   // the angular size of one game pixel (rad) in the scene pass, for the facades' detail by size on screen
   uPixelAngle: { value: 0.0017 },
-  ...(heldHour ? heldGlobals : {}),
+  ...(skyOn ? heldGlobals : {}),
 };
 
 /**
@@ -118,7 +121,8 @@ export function layerTopBase(x: number, z: number): number {
  * `calm` is pipeline.calm (0 at the floor, 1 with the vista fully calm).
  */
 export const GLSL_SKY_LIGHT = /* glsl */ `${held(`
-uniform float uSkyHaze;`)}
+uniform float uSkyHaze;
+uniform vec3 uSkySunDir;`)}
 float sbSkyLight(vec3 dir, vec3 sunDir, float calm) {${held(`
   if (uSkyHaze > 0.0) return uSkyHaze;`)}
   float e = clamp(dir.y * 2.6, -0.3, 1.0);
@@ -140,7 +144,8 @@ uniform vec3 uLight;            // x sun strength, y ambient, z sky bounce
 uniform sampler2DShadow uShadowMap;
 uniform mat4 uShadowMatrix;
 uniform float uShadowOn;
-uniform float uShadowEdge;
+uniform float uShadowEdge;${held(`
+uniform float uShadowBias;`)}
 uniform vec4 uFog;              // density, heightFalloff, farFull, unused
 uniform vec4 uFogStand;         // fog ceiling of tall far shapes: cap, gate from / to (m: the city's low ground + standFrom / standTo), fade end (m)
 uniform float uFogBank;
@@ -159,7 +164,7 @@ float sbShadow(vec3 worldPos, vec3 n) {
   vec4 sc = uShadowMatrix * vec4(p, 1.0);
   vec3 uvz = sc.xyz / sc.w;
   if (uvz.x <= 0.002 || uvz.x >= 0.998 || uvz.y <= 0.002 || uvz.y >= 0.998 || uvz.z >= 1.0) return 1.0;
-  float s = texture(uShadowMap, vec3(uvz.xy, uvz.z - 0.0009));
+  float s = texture(uShadowMap, vec3(uvz.xy, uvz.z - ${heldOr('uShadowBias', '0.0009')}));
   // fade shadows out near the edge of the shadow map so the boundary never pops
   vec2 e = min(uvz.xy, 1.0 - uvz.xy);
   float edge = smoothstep(0.0, uShadowEdge, min(e.x, e.y));

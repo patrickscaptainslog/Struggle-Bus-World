@@ -1,6 +1,6 @@
 import { config } from '../config';
 import { HUE_RAMPS, rampColor } from '../render/palette';
-import { heldHour } from '../sky/flag';
+import { skyOn } from '../sky/flag';
 import { onTunablesChanged, tunableGroups, type TunableGroup } from './tunables';
 import { Perf } from './Perf';
 
@@ -80,7 +80,7 @@ function walkConfig(cb: (obj: Record<string, unknown>, key: string, path: string
       // (the far field's kill switch: not a row, and no saved value can turn it)
       if (path === 'far.on') continue;
       // (the held hour's section: nothing reads it without the flag)
-      if (path === 'sky' && !heldHour) continue;
+      if (path === 'sky' && !skyOn) continue;
       if (isVal(v)) cb(obj, key, path, section || key);
       else if (v && typeof v === 'object' && !Array.isArray(v)) visit(v as Record<string, unknown>, path, section || key);
     }

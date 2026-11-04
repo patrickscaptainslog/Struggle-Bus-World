@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { config } from '../config';
 import { globals, GLSL_COMMON, GLSL_OUT, GLSL_SKY_LIGHT } from '../render/materials';
 import { Ramp, HUE_RAMPS } from '../render/palette';
-import { held, heldHour } from '../sky/flag';
+import { held, heldOr, hourUp } from '../sky/flag';
 import { Part } from './BuildingMesher';
 import { Arch } from './tiles';
 import { blastUniforms, GLSL_BLAST_RING } from './GroundPaint';
@@ -53,9 +53,9 @@ const facadeUniforms = {
   uHouseRibbon: { get value() { return F().houseRibbon; } },
   uHouseFlat: { get value() { return F().houseFlat; } },
   // (the held hour raises these: resting surfaces at 0.55 or under)
-  uCrownGlow: { get value() { return heldHour && config.sky.glow ? config.sky.crownGlow : F().crownGlow; } },
-  uGlassGlow: { get value() { return heldHour && config.sky.glow ? config.sky.glassGlow : F().glassGlow; } },
-  uGlassGlow3: { get value() { return heldHour && config.sky.glow ? config.sky.glassGlow3 : F().glassGlow3; } },
+  uCrownGlow: { get value() { return hourUp() && config.sky.glow ? config.sky.crownGlow : F().crownGlow; } },
+  uGlassGlow: { get value() { return hourUp() && config.sky.glow ? config.sky.glassGlow : F().glassGlow; } },
+  uGlassGlow3: { get value() { return hourUp() && config.sky.glow ? config.sky.glassGlow3 : F().glassGlow3; } },
   uGlassBands: { get value() { return F().glassBands; } },
   /** 0..1: the view is up high (the vista over the marine layer's height, whether or not fog is on): detail
    * needs 1.5x the room and rhythm lines 2x the spacing there (the whole view drifts by sub-pixels) */
@@ -227,7 +227,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       float gAF = 0.0;
       float gSL = 0.9;
       ${GLSL_SKY_LIGHT}
-      float skyMirror(vec3 dir) { return sbSkyLight(dir, uSunDir, uCalmF); }
+      float skyMirror(vec3 dir) { return sbSkyLight(dir, ${heldOr('uSkySunDir', 'uSunDir')}, uCalmF); }
       /** the ramp step (continuous) a light level ends on after the resolve's atmospheric mix */
       float stepPos(float L) { return mix(clamp(L, 0.0, 1.0), gSL, gAF) * 7.0; }
       /** contrast of a pattern (in steps) compressed by the fog, as the resolve would */

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
 import { Ramp } from '../render/palette';
-import { held, heldHour, heldOr } from '../sky/flag';
+import { held, heldOr, skyOn } from '../sky/flag';
 import { Ground, WATER_Y } from './tiles';
 import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from './GroundPaint';
 
@@ -134,7 +134,7 @@ const FS = /* glsl */ `
     else if (bc == ${Ground.PATH}.0) { ramp = ${Ramp.GREY_LIGHT}.0; lo = 0.0; }
     else if (bc == ${Ground.YARD}.0) { ramp = ${Ramp.GREEN_GREY}.0; lo = 0.0; }
     else if (bc == ${Ground.FOREST}.0) { ramp = ${Ramp.GREEN_GREY}.0; lo = -0.1; }
-    else if (bc == ${Ground.SAND}.0) { ramp = ${heldHour ? Ramp.SAND : Ramp.SKY_WARM}.0; lo = -0.1; }
+    else if (bc == ${Ground.SAND}.0) { ramp = ${skyOn ? Ramp.SAND : Ramp.SKY_WARM}.0; lo = -0.1; }
     else if (bc == ${Ground.RAIL}.0) { ramp = ${Ramp.ROOF_DARK}.0; lo = -0.04; }
     else if (bc == ${Ground.ROCK}.0) { ramp = ${Ramp.GREY}.0; lo = 0.06; }
     vec3 n = normalize(vWorldNormal);

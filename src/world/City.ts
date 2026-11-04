@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { config } from '../config';
 import { SHADOW_LAYER, makeRampMaterial, globals } from '../render/materials';
-import { heldHour } from '../sky/flag';
+import { hourUp, skyOn } from '../sky/flag';
 import { Ramp } from '../render/palette';
 import { makeBuildingMaterial, paintUniforms } from './buildingMaterial';
 import { makeHeightGrid, makeTerrainMaterial, makeWaterMaterial } from './terrainMaterial';
@@ -253,9 +253,9 @@ function farGridMesh(pos: Float32Array, nrm: Float32Array, ramp: Float32Array, l
  * contour saws into teeth a cell wide; interpolated, it passes through ramps nobody chose. 37: buildHorizon's mesh stands 3 m under the DEM.
  */
 /** The held hour's plain far ground, what stands in with no raster: the day's tone would be a sheet of light beside the city. */
-const heldFarLo = { get value() { return config.sky.far ? config.sky.farGroundLo : 0; } };
+const heldFarLo = { get value() { return hourUp() && config.sky.far ? config.sky.farGroundLo : 0; } };
 
-const makeHorizonMaterial = () => makeRampMaterial({ vertexRamp: true, shadowMul: 0, rampAbove: { y: 37, below: Ramp.GREY_LIGHT, above: heldHour ? Ramp.RIDGE : Ramp.GREEN_GREY } });
+const makeHorizonMaterial = () => makeRampMaterial({ vertexRamp: true, shadowMul: 0, rampAbove: { y: 37, below: Ramp.GREY_LIGHT, above: skyOn ? Ramp.RIDGE : Ramp.GREEN_GREY } });
 
 // Shader warm-up (render/warmup.ts): one of every mesh streaming makes later, made by the same
 // functions: a building tile (its vertex layout from the worker's mesher), a tile's own ground (and
@@ -854,7 +854,7 @@ export class City {
     const maskSize = new THREE.Vector2(this.maskW, this.maskH);
     const ground = raster && tex ? makeFarGroundMaterial(raster, tex, this.loadedMask, maskRect, maskSize) : undefined;
     const mesh = farGridMesh(pos, nrm, ramp, lo, gl, new THREE.BufferAttribute(idx, 1), 1, ground);
-    if (heldHour && !ground) (mesh.material as THREE.ShaderMaterial).uniforms.uLightOffset = heldFarLo;
+    if (skyOn && !ground) (mesh.material as THREE.ShaderMaterial).uniforms.uLightOffset = heldFarLo;
     this.farGroup.add(mesh);
     this.farMeshes = [mesh];
 

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT, SHADOW_LAYER } from '../../render/materials';
+import { held, heldOr } from '../../sky/flag';
 import { Ramp } from '../../render/palette';
 import { GLSL_LM_PAINT_FS, GLSL_LM_PAINT_VS, LM_DOME, LM_FLAG, landmarkPaintUniforms, type LandmarkLook } from './landmarkPaint';
 import { tuneUniform } from './common';
@@ -239,7 +240,8 @@ function landmarkMaterial(look?: LandmarkLook): THREE.ShaderMaterial {
     fragmentShader: /* glsl */ `
       ${GLSL_COMMON}
       ${GLSL_LM_PAINT_FS}
-      uniform float uLandmarkFog;
+      uniform float uLandmarkFog;${held(`
+      uniform vec2 uClockHands;`)}
       flat in float vRamp;
       flat in float vType;
       in float vLo;
@@ -325,7 +327,9 @@ function landmarkMaterial(look?: LandmarkLook): THREE.ShaderMaterial {
             lo += 0.12;
             if (mpp < 0.9 && r > 2.9) lo -= 0.28;
             float a1 = atan(q.x, q.y);
-            if (mpp < 0.6 && ((abs(a1 - 2.6) < 0.09 && r < 2.0) || (abs(a1 + 0.6) < 0.06 && r < 2.6))) lo -= 0.35;
+            ${heldOr(`// (the live sky's reads the city's time: SKY.md 4's traps)
+            vec2 ha = abs(mod(a1 - uClockHands + 3.14159, 6.28319) - 3.14159);
+            if (mpp < 0.6 && ((ha.x < 0.09 && r < 2.0) || (ha.y < 0.06 && r < 2.6))) lo -= 0.35;`, `if (mpp < 0.6 && ((abs(a1 - 2.6) < 0.09 && r < 2.0) || (abs(a1 + 0.6) < 0.06 && r < 2.6))) lo -= 0.35;`)}
           }
         }
         vec3 n = normalize(vWorldNormal);
