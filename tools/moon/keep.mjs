@@ -2,6 +2,7 @@
 // Open-ground paint on the Moon is kept by where it is (src/world/GroundPaint.ts, useGeo), at a fixed step: node tools/moon/keep.mjs <out dir> [--q=site=TYCHO]
 //   kept     a blast on open ground ahead of the bus is painted, and kept by its place on the Moon
 //   reload   the page again, a new session on a new map at the same place: the paint is where it was, by latitude and longitude
+//   heavy    200 breaths over one patch, and the page again: all of it back, within two frames of its tiles coming in (the second review's P1 and P2)
 //   slide    the map slid, a blast painted after it, and the page again: it's where it was, not a slide's 131 km off
 //   new map  the map made again round the bus, as ?moonland's high pass makes it: the paint near the bus is still there
 // The first account's review, 2026-11-04: kept by tile of a map that slides, the paint came back 131 km off, could overwrite older paint, and a new map wiped it.
@@ -80,6 +81,60 @@ try {
   await open(false);
   const a1 = await settle(a.lat, a.lon);
   row('reload: a new session at the same place, and the paint is where it was', a1.cov >= 0.5 && a1.hue === a0.hue, { before: a0, after: a1 });
+
+  // ---- heavy: 200 breaths over a patch 330 by 210 m ahead, as a player who likes a place paints it, and the page again
+  const patch = await page.evaluate(() => {
+    const g = window.__game, f = g.flight, fx = f.fx, fz = f.fz, cx = f.x + fx * 260, cz = f.z + fz * 260;
+    return { cx, cz, ax: fx, az: fz };
+  });
+  for (let k = 0; k < 200; k++) {
+    await page.evaluate(([P, k]) => {
+      const g = window.__game, u = (k % 20) / 19 - 0.5, v = Math.floor(k / 20) / 9 - 0.5;
+      // (along the way the bus faces 330 m, across it 210)
+      g.splatter.barf(P.cx + P.ax * u * 330 - P.az * v * 210, P.cz + P.az * u * 330 + P.ax * v * 210, { drop: 25 });
+    }, [patch, k]);
+    await frames(2);
+  }
+  await frames(90);
+  // (a grid of places over the patch, and what's painted there)
+  const grid = await page.evaluate((P) => {
+    const g = window.__game.city.ground, out = [];
+    for (let a = 0; a < 40; a++)
+      for (let b = 0; b < 25; b++) {
+        const u = a / 39 - 0.5, v = b / 24 - 0.5, x = P.cx + P.ax * u * 360 - P.az * v * 240, z = P.cz + P.az * u * 360 + P.ax * v * 240, s = g.sample(x, z), o = [0, 0];
+        if (!s || s.cov < 0.5) continue;
+        g.geo.toLatLon(x, z, o);
+        out.push([o[0], o[1], s.hue]);
+      }
+    return out;
+  }, patch);
+  const center = await page.evaluate((P) => { const o = [0, 0]; window.__game.city.ground.geo.toLatLon(P.cx, P.cz, o); return o; }, patch);
+  await page.reload({ waitUntil: 'load', timeout: 180000 });
+  await page.waitForFunction(() => !!window.__game?.city && window.__qa?.held === true, null, { timeout: 600000, polling: 500 });
+  // (frames until the patch's middle tile has come in, then two more)
+  let inAt = -1;
+  for (let i = 0; i < 400 && inAt < 0; i++) {
+    await frames(1);
+    const tin = await page.evaluate(([la, lo]) => { const g = window.__game.city.ground, o = [0, 0]; g.geo.toXZ(la, lo, o); const ts = window.__game.city.manifest.tileSize; return g.has(Math.floor(o[0] / ts), Math.floor(o[1] / ts)); }, center);
+    if (tin) inAt = i;
+  }
+  await frames(2);
+  const back = await page.evaluate((G) => {
+    const g = window.__game.city.ground, o = [0, 0];
+    let n = 0, hue = 0;
+    for (const [la, lo, h] of G) {
+      g.geo.toXZ(la, lo, o);
+      const s = g.sample(o[0], o[1]);
+      if (s && s.cov >= 0.5) {
+        n++;
+        if (s.hue === h) hue++;
+      }
+    }
+    return { n, hue, of: G.length };
+  }, grid);
+  await page.screenshot({ path: join(dir, 'heavy.png') });
+  row('heavy: 200 breaths over one patch, and the page again: all of it back, two frames after its tile came in', grid.length > 300 && inAt >= 0 && back.n >= grid.length * 0.99 && back.hue >= grid.length * 0.97, { painted: grid.length, back: back.n, sameHue: back.hue, tileInAtFrame: inAt });
+  await frames(150);
 
   // ---- slide, then a blast, then the page again
   await page.evaluate((d) => window.__game.slide(d, 0), D);

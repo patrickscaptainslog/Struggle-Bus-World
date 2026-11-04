@@ -210,7 +210,7 @@ export class AudioEngine {
     if (this.rt && !this.graph) this.early.push(play);
   }
 
-  /** The graph's frame has stopped (?moonland, gone up to the flight's loop, where there's no air): the engine and the hum go quiet, or they hold their last note. The next update() brings them back. */
+  /** The graph's frame has stopped (?moonland and ?earth, gone up to the flight's loop, where there's no air): the engine, the hum, the wind and the foghorn go quiet, where they held their last note. The next update() brings them back. */
   hushGround(): void {
     this.graph?.hushGround();
   }

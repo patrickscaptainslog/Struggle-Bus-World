@@ -15,7 +15,7 @@ const dir = process.argv.slice(2).find((a) => !a.startsWith('--')) ?? 'shots/tmp
 const BASE = process.env.BASE ?? 'http://localhost:4179/';
 const T = process.env.T ?? '2026-11-04T21:00:00Z';
 mkdirSync(dir, { recursive: true });
-const browser = await chromium.launch(browserOptions(['--enable-webgl']));
+const browser = await chromium.launch(browserOptions(['--enable-webgl', '--autoplay-policy=no-user-gesture-required']));
 let bad = 0;
 const row = (name, ok, got) => {
   if (!ok) bad++;
@@ -40,6 +40,9 @@ try {
     up = await page.evaluate(() => window.__space?.moon?.trip?.leg === 'street');
   }
   const b = await page.evaluate(() => ({ leg: window.__space?.moon?.trip?.leg, hud: getComputedStyle(document.querySelector('[data-hud="trip-label"]') ?? document.body).display }));
+  // (the street's sound, as a first touch wakes it: what quiets its wind in the flight is read off its graph)
+  await page.evaluate(() => window.__game.audio.unlock());
+  const wind = () => page.evaluate(() => { const g = window.__game.audio.graph; return g ? +g.ambDuck.gain.value.toFixed(3) : null; });
   row('boot: the street is up, and the flight behind it with the street keeping the bus', up && b.hud === 'none', b);
   const read = () =>
     page.evaluate(() => {
@@ -75,10 +78,13 @@ try {
   }
   const h = await read();
   const hud = await page.evaluate(() => getComputedStyle(document.querySelector('[data-hud="trip-label"]')).display);
+  const windUp = await wind();
   // (and Turbo 3 still: the street's turbos go on over Earth, at the street's speed. The producer, 2026-11-04: "Why can't we just keep the normal controls/turbos?")
   await frames(6);
   const says = await page.evaluate(() => document.querySelector('[data-hud="trip-label"]')?.dataset.say?.split('|')[1] ?? '');
   row('up: past 15 km the flight has the bus, free over Earth, its label up, in Turbo 3 still', handed >= 0 && h.leg === 'wait' && h.flightKm > 14.9 && hud !== 'none' && h.rung === 3 && h.tLevel === 3 && Math.abs(h.flightMs - 900) < 30 && /^TURBO 3 /.test(says), { handedAt: handed, ...h, label: hud, says });
+  // (no wind up there: the street's wind and foghorn quiet as the flight takes the bus, the second review's P4)
+  row("up: and the street's wind and foghorn have gone quiet", windUp !== null && windUp < 0.05, { ambienceDuck: windUp });
   // ---- on: the flight climbs on
   const fly = (secs, yoke, until) =>
     page.evaluate(
@@ -112,7 +118,9 @@ try {
   }
   await frames(20);
   d = await read();
+  const windDown = await wind();
   await page.screenshot({ path: join(dir, 'down.png') });
+  row("down: and the street's wind and foghorn are back", windDown !== null && windDown > 0.9, { ambienceDuck: windDown });
   row('down: under 14 km over the city the street has the bus again, in Turbo 3', d.leg === 'street' && d.km < 14.2 && d.km > 10 && d.gear === 3 && d.level === 3, d);
   row('no page errors', errors.length === 0, errors.slice(0, 5));
 } finally {

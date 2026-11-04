@@ -232,7 +232,6 @@ export class MoonTrip {
   /** Over Earth, turbo's level over Jet, 0 to 3, as the street has it (earthStep). Elsewhere 0. */
   level = 0;
   rungAt = -1e9;
-  /** A gear up under the orbit is taking the speed up to the gear's, as far as the law allows there. */
   /** There's still room on this leg for G5: past that the way in has the speed, and a tap would ask for nothing. */
   g5Room = true;
   /** s since boot, and of the last launch. The sky's clock is ms0 + t. */

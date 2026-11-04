@@ -51,6 +51,8 @@ export class SoundGraph {
   private readonly sfxVerbBus: GainNode;
   private readonly ambBus: GainNode;
   private readonly ambDuck: GainNode;
+  /** hushGround: the flight has the bus, and the wind and the foghorn are quiet till the street's next frame */
+  private aloft = false;
   private readonly chorusWet: GainNode;
   private readonly revSendMusic: GainNode;
   private readonly revSendSfx: GainNode;
@@ -293,6 +295,12 @@ export class SoundGraph {
         this.hum.setChord(this.currentChord, now, tr);
       }
     }
+    // (the street's frame again, after the flight had the bus: the wind and the foghorn come back as they went)
+    if (this.aloft) {
+      this.aloft = false;
+      hold(this.ambDuck.gain, now);
+      target(this.ambDuck.gain, 1, now, 0.25);
+    }
     this.wind.update(now, 0, this.speedN, this.altN, this.surge, this.paint, this.fog, tune, true, this.high);
     this.bus.update(now, 0, this.speedN, this.surge, this.fullness, tune, true);
     const humLvl = HUM_GAIN * tune.hum * Math.pow(this.paint, 1.3) * (1 - 0.3 * this.fog);
@@ -305,6 +313,10 @@ export class SoundGraph {
     const t = this.ctx.currentTime;
     this.bus.quiet(t);
     this.hum.set(t, 0, 0.25);
+    // (and the wind and the foghorn: up where the flight has the bus there's no air, and the street's frame that sets the wind has stopped at its last, loudest level. The second review, 2026-11-04)
+    this.aloft = true;
+    hold(this.ambDuck.gain, t);
+    target(this.ambDuck.gain, 0, t, 0.25);
   }
 
   private pushMix(t: number, tau: number): void {

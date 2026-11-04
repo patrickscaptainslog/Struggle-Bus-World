@@ -1263,7 +1263,6 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       superHint();
     }
     wasFull = flight.fullness >= 1;
-    // (straining at the top of the sky: a bridge deck strains the climb too, and that's no way up)
 
     // bus pose: squash on the tap frame and through the inhale, stretch as the jet leaves, heave while
     // barfing, wheeze when full (the squash spring is substepped like the flight: same at 30 and 60 fps)

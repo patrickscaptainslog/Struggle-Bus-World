@@ -158,7 +158,8 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
     moonGlobals.uMoonLight.value.set(mix(land ? 0.55 : 0.4, 0.17), mix(0.006, 0.03), mix(0.03, land ? 0 : 0.03));
   };
   const axesHere = new Float64Array(9), lightHere = new Float64Array(3), lightNow = new Float64Array(3);
-  // (the light at the bus and the night, eased: what lights the ground is chosen again at a slide, and Earth's light going over to the Sun's, at the terminator, would be a step. A second or so)
+  // (the light at the bus and the night, eased: what lights the ground is chosen again at a slide, and Earth's light going over to the Sun's, at the terminator, would be a step. A second or so of
+  // the game's clock, so a tool at a fixed step sees the fade a player does)
   let shadeNow = -1, lightAt = 0;
   /**
    * A true sky, every frame: the light over the bus, on the map's axes there, as each region and far block round it is baked by (gen.ts, localSun). It turns as the bus goes, so
@@ -168,7 +169,7 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
     const s = sky.sunFix, o = lightHere;
     for (let i = 0; i < 3; i++) o[i] = A[i * 3] * s[0] + A[i * 3 + 1] * s[1] + A[i * 3 + 2] * s[2];
     capSun(o);
-    const now = performance.now(), ease = shadeNow < 0 ? 1 : 1 - Math.exp(-Math.min(0.25, (now - lightAt) / 1000) / 0.8);
+    const now = globals.uTime.value, ease = shadeNow < 0 ? 1 : 1 - Math.exp(-Math.min(0.25, Math.max(0, now - lightAt)) / 0.8);
     lightAt = now;
     for (let i = 0; i < 3; i++) lightNow[i] = shadeNow < 0 ? o[i] : lightNow[i] + (o[i] - lightNow[i]) * ease;
     const ln = Math.hypot(lightNow[0], lightNow[1], lightNow[2]) || 1;

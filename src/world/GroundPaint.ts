@@ -50,36 +50,33 @@ const MAX_TILES = 160;
 /** Blasts kept for a tile that wasn't loaded when they landed (oldest dropped). */
 const MAX_PENDING = 6;
 /**
- * ?moon: open-ground paint is kept by where it is on the Moon, a blast at a time, as CraterPaint keeps its strokes: in cells GEO_CELL degrees on a side, GEO_PER_CELL blasts each (the oldest go),
- * GEO_CELLS cells (the longest untouched go). A tile's paint is drawn again from the blasts that reach it as it comes in, on whatever map it's on, so a slide or a map made again round the bus finds
- * it where it was. GEO_REACH (m) is the most a blast reaches past its middle. The first account's review, 2026-11-04: kept by tile of a map that slides, it came back 131 km off, could overwrite
- * older paint, and each new map round the bus (?moonland, over 16 km) wiped it.
+ * ?moon: open-ground paint is kept by where it is on the Moon, in pictures of their own laid on latitude and longitude: GEO_T degrees of latitude on a side, as wide on the ground in longitude
+ * (up to 50 times wider in degrees near a pole), GROUND_N texels a side, about 1.2 m, finer than a tile's 2 m. Every blast that lands is drawn once more into a scratch tile and copied into them
+ * (fold), and a tile that comes in, on whatever map, copies its paint out of them in one pass (pictureInto). So a slide or a map made again round the bus finds it where it was, all of it, at
+ * once. GEO_PICS are kept, the longest untouched going first, as MAX_TILES tiles are; that's about 14 km2 of painted ground. The first account's reviews, 2026-11-04: kept by tile of a map that
+ * slides it came back 131 km off and a new map wiped it; kept as a list of 32 blasts a cell, a place painted a lot lost its oldest, and came back a blast at a time over seconds.
  */
-const GEO_CELL = 0.02;
-const GEO_PER_CELL = 32;
-const GEO_CELLS = 240;
-const GEO_REACH = 400;
+const GEO_T = 0.005;
+const GEO_PICS = 600;
 
 /** ?moon: the map's x, z (m) and the Moon's latitude and longitude (degrees), each into `out`, on the map as it is when asked. */
 export interface GroundGeo {
   toLatLon(x: number, z: number, out: number[]): void;
   toXZ(lat: number, lon: number, out: number[]): void;
 }
-/** A blast kept by place: when (Date.now()), where, the middle of its bands if it has them, and the rest of it as specToArray has it. */
-interface GeoBlast {
+/** A picture of the paint on a patch of the Moon (GEO_T): its texels as a tile mask's, coverage and hue, kept encoded and opened when it's read or drawn on. */
+interface GeoPic {
   t: number;
-  lat: number;
-  lon: number;
-  olat?: number;
-  olon?: number;
-  a: number[];
+  enc: string;
+  data: Uint8Array | null;
+  dirty: boolean;
 }
-/** A row of cells' width in longitude, degrees: as wide on the ground as GEO_CELL of latitude, up to 50 times that near a pole. */
-const geoLonCell = (i: number) => GEO_CELL / Math.max(0.02, Math.cos(((i + 0.5) * GEO_CELL * Math.PI) / 180));
-const geoCellOf = (lat: number, lon: number) => {
-  const i = Math.floor(lat / GEO_CELL);
-  return `${i},${Math.floor((((lon + 180) % 360) + 360) % 360 / geoLonCell(i))}`;
-};
+/** A row of pictures' width in longitude, degrees. */
+const geoLonW = (i: number) => GEO_T / Math.max(0.02, Math.cos(((i + 0.5) * GEO_T * Math.PI) / 180));
+/** A longitude taken round to 0..360, the pictures' own grid: column j of row i runs from j * geoLonW(i), and the last column of a row is the short one before 360. */
+const lon360 = (lon: number) => (((lon + 180) % 360) + 360) % 360;
+const geoCols = (i: number) => Math.floor(360 / geoLonW(i)) + 1;
+
 export const GROUND_N = 128;
 
 /** Uniforms every material that shows the blast shares (terrain, buildings). */
@@ -321,28 +318,9 @@ export function decodeMask(str: string, d: Uint8Array): boolean {
   return false;
 }
 
-/** ?moon's cells of blasts kept by place, after the world's prefix (useGeo). */
-const GEO_KEY = 'geo:';
-function parseGeo(raw: string | null): GeoBlast[] | null {
-  if (!raw) return null;
-  try {
-    const rows = JSON.parse(raw) as unknown[];
-    if (!Array.isArray(rows)) return null;
-    const out: GeoBlast[] = [];
-    for (const r of rows) {
-      if (!Array.isArray(r) || r.length < 6 || !Number.isFinite(r[0]) || !Number.isFinite(r[1]) || !Number.isFinite(r[2]) || !Array.isArray(r[5]) || !specFromArray(r[5])) continue;
-      const b: GeoBlast = { t: r[0], lat: r[1], lon: r[2], a: r[5] };
-      if (Number.isFinite(r[3]) && Number.isFinite(r[4])) {
-        b.olat = r[3];
-        b.olon = r[4];
-      }
-      out.push(b);
-    }
-    return out.length ? out : null;
-  } catch {
-    return null;
-  }
-}
+/** ?moon's pictures by place, after the world's prefix (useGeo), and the lists of blasts the first build kept by place, which are drawn into them once and dropped. */
+const GEO_KEY = 'gpic:';
+const GEO_OLD = 'geo:';
 
 function parseTile(raw: string | null): SavedTile | null {
   if (!raw) return null;
@@ -394,8 +372,11 @@ export class GroundPaint {
 
   /** ?moon: kept by place, not by tile (useGeo), and the blasts so kept, by cell */
   private geo: GroundGeo | null = null;
-  private readonly geoCells = new Map<string, GeoBlast[]>();
+  private readonly geoPics = new Map<string, GeoPic>();
+  /** pictures opened, the last read first out once there are more than 48 */
+  private readonly geoOpen: string[] = [];
   private readonly geoTmp = [0, 0, 0];
+  private readonly geoTmp2 = [0, 0, 0];
   /** the tiles' localStorage key prefix (null: the id scheme is unknown, nothing is read or written) */
   private readonly prefix: string | null;
   readonly scheme: IdScheme | null;
@@ -422,7 +403,7 @@ export class GroundPaint {
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
           if (k && stale && stale.some((p) => k.startsWith(p))) old.push(k);
-          if (!k || !k.startsWith(prefix) || k.startsWith(prefix + GEO_KEY)) continue;
+          if (!k || !k.startsWith(prefix) || k.startsWith(prefix + GEO_KEY) || k.startsWith(prefix + GEO_OLD)) continue;
           const rec = parseTile(localStorage.getItem(k));
           if (rec) this.store.set(k.slice(prefix.length), rec);
         }
@@ -436,7 +417,8 @@ export class GroundPaint {
   }
 
   /**
-   * ?moon: from here open-ground paint is kept by place on the Moon, not by tile (GEO_CELL). What the tile store held for this world, kept by tiles of some map before, means no place any more, and is dropped.
+   * ?moon: from here open-ground paint is kept by place on the Moon, not by tile (GEO_T). What the tile store held for this world, kept by tiles of some map before, means no place any more, and
+   * is dropped; the first build's lists of blasts by place are drawn into the pictures, once.
    */
   useGeo(g: GroundGeo) {
     this.geo = g;
@@ -445,13 +427,43 @@ export class GroundPaint {
     try {
       for (const k of this.store.keys()) localStorage.removeItem(prefix + k);
       this.store.clear();
-      const gp = prefix + GEO_KEY;
+      const gp = prefix + GEO_KEY, op = prefix + GEO_OLD, old: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
-        if (!k || !k.startsWith(gp)) continue;
-        const list = parseGeo(localStorage.getItem(k));
-        if (list) this.geoCells.set(k.slice(gp.length), list);
+        if (!k) continue;
+        if (k.startsWith(op)) old.push(k);
+        if (!k.startsWith(gp)) continue;
+        try {
+          const o = JSON.parse(localStorage.getItem(k) ?? '') as { t?: number; m?: string };
+          if (typeof o.m === 'string' && o.m.length) this.geoPics.set(k.slice(gp.length), { t: typeof o.t === 'number' ? o.t : 0, enc: o.m, data: null, dirty: false });
+        } catch {
+          /* corrupt: dropped on the next write here */
+        }
       }
+      for (const k of old) {
+        try {
+          const rows = JSON.parse(localStorage.getItem(k) ?? '[]') as unknown[];
+          const o = this.geoTmp;
+          for (const r of Array.isArray(rows) ? rows : []) {
+            if (!Array.isArray(r) || r.length < 6 || !Array.isArray(r[5])) continue;
+            const sp = specFromArray(r[5] as number[]);
+            if (!sp || !Number.isFinite(r[1]) || !Number.isFinite(r[2])) continue;
+            g.toXZ(r[1] as number, r[2] as number, o);
+            sp.x = o[0];
+            sp.z = o[1];
+            if (Number.isFinite(r[3]) && Number.isFinite(r[4])) {
+              g.toXZ(r[3] as number, r[4] as number, o);
+              sp.ox = o[0];
+              sp.oz = o[1];
+            }
+            this.fold(sp);
+          }
+        } catch {
+          /* corrupt: dropped */
+        }
+        localStorage.removeItem(k);
+      }
+      this.saveGeo(Infinity);
     } catch {
       /* blocked: kept for the session */
     }
@@ -468,11 +480,9 @@ export class GroundPaint {
     this.saveSet.clear();
   }
 
-  /** Blasts kept by place (useGeo), for QA. */
+  /** Pictures of paint kept by place (useGeo), for QA. */
   get geoCount(): number {
-    let n = 0;
-    for (const list of this.geoCells.values()) n += list.length;
-    return n;
+    return this.geoPics.size;
   }
 
   /** Painted tiles in storage. */
@@ -565,7 +575,7 @@ export class GroundPaint {
     const key = `${tx},${tz}`;
     this.loaded.set(key, { ox, oz, uniforms });
     if (this.geo) {
-      this.attachGeo(key, ox, oz);
+      this.pictureInto(key, ox, oz);
       return;
     }
     const rec = this.store.get(key);
@@ -601,7 +611,7 @@ export class GroundPaint {
 
   /** True if storage holds ground paint for the tile (loaded or not). ?moon: a blast kept by place reaches it. */
   hasSaved(tx: number, tz: number): boolean {
-    if (this.geo) return this.geoAt(tx * this.tileSize, tz * this.tileSize, true).length > 0;
+    if (this.geo) return this.geoNear(tx * this.tileSize, tz * this.tileSize);
     return this.store.has(`${tx},${tz}`);
   }
 
@@ -703,7 +713,7 @@ export class GroundPaint {
     if (job.serial !== null) this.serialTiles.set(job.serial, touched);
     if (this.geo) {
       // (kept by place; a tile here that it couldn't draw has it now, and one that comes in later finds it)
-      this.keepGeo(job.spec);
+      this.fold(job.spec);
       for (const key of this.tilesOf(p))
         if (touched.indexOf(key) < 0 && this.loaded.has(key) && this.mask(key)) {
           this.replaying.set(key, (this.replaying.get(key) ?? 0) + 1);
@@ -725,6 +735,8 @@ export class GroundPaint {
     const S = config.splat;
     blastUniforms.uGroundTone.value.set(S.groundLight, S.groundSidewalk, Math.min(1, S.groundCurb), 0);
     if (this.saveTimer > 0) this.saveTimer -= dt;
+    // (?moon: a picture by place a frame, as the tiles go)
+    else if (this.geo) this.saveGeo(1);
     else if (this.saveQueue.length) {
       // a tile still drawing replays saves once they're done
       for (let k = 0; k < this.saveQueue.length; k++) {
@@ -754,7 +766,8 @@ export class GroundPaint {
     this.store.clear();
     this.saveQueue.length = 0;
     this.saveSet.clear();
-    this.geoCells.clear();
+    this.geoPics.clear();
+    this.geoOpen.length = 0;
     const prefix = this.prefix;
     if (!prefix) return;
     try {
@@ -772,6 +785,7 @@ export class GroundPaint {
 
   /** Save every changed tile now (page hide). */
   persist() {
+    if (this.geo) this.saveGeo(Infinity);
     for (const key of this.saveQueue) this.saveTile(key, true);
     this.saveQueue.length = 0;
     this.saveSet.clear();
@@ -842,26 +856,207 @@ export class GroundPaint {
     }
   }
 
-  /** ?moon: a blast kept by place (useGeo), in its cell, and the cell saved. */
-  private keepGeo(spec: BlastSpec) {
-    const g = this.geo!, o = this.geoTmp;
-    g.toLatLon(spec.x, spec.z, o);
-    const b: GeoBlast = { t: Date.now(), lat: o[0], lon: o[1], a: specToArray(spec) };
-    if (spec.ox !== undefined && spec.oz !== undefined) {
-      g.toLatLon(spec.ox, spec.oz, o);
-      b.olat = o[0];
-      b.olon = o[1];
+  /** ?moon: a picture by place, opened (decoded) to read or draw on; null when there's none and `make` is false. */
+  private geoPic(key: string, make: boolean): Uint8Array | null {
+    let pic = this.geoPics.get(key);
+    if (!pic) {
+      if (!make) return null;
+      this.geoPics.set(key, (pic = { t: Date.now(), enc: '', data: null, dirty: false }));
     }
-    const key = geoCellOf(b.lat, b.lon);
-    let list = this.geoCells.get(key);
-    if (!list) this.geoCells.set(key, (list = []));
-    list.push(b);
-    if (list.length > GEO_PER_CELL) list.shift();
+    if (!pic.data) {
+      pic.data = new Uint8Array(TEXELS * 4);
+      if (pic.enc && !decodeMask(pic.enc, pic.data)) pic.enc = '';
+      this.geoOpen.push(key);
+      // (a picture open is 64 KB: only the last 48 read stay so, the rest close again, saved first)
+      while (this.geoOpen.length > 48) {
+        const k = this.geoOpen.shift()!, q = this.geoPics.get(k);
+        if (!q || !q.data || k === key) continue;
+        if (q.dirty) this.writeGeo(k, q);
+        q.data = null;
+      }
+    }
+    return pic.data;
+  }
+
+  /**
+   * ?moon: a blast that landed, drawn once more into scratch tiles on this map's grid and copied from there into the pictures it reaches, by place: each picture texel takes the scratch texel
+   * under it, as `put` lays settled paint over what's there.
+   */
+  private fold(spec: BlastSpec) {
+    const g = this.geo!, ts = this.tileSize, p = this.prepare(spec);
+    const scratch = new Map<string, TileMask>();
+    for (const key of this.tilesOf(p)) {
+      const c = key.indexOf(','), tx = Number(key.slice(0, c)), tz = Number(key.slice(c + 1));
+      const m = { ox: tx * ts, oz: tz * ts, data: new Uint8Array(TEXELS * 4) } as unknown as TileMask;
+      this.rows(m, p, null, 0, GROUND_N - 1, null, false);
+      this.dots(m, p, null, null);
+      scratch.set(key, m);
+    }
+    // (the pictures the blast's box reaches, in latitude and longitude)
+    const box = this.boxOf(p.minX, p.minZ, p.maxX, p.maxZ);
+    if (!box) return;
+    const now = Date.now(), cs = this.cell;
+    this.eachPic(box, (i, j, w) => {
+      const key = `${i},${j}`, d = this.geoPic(key, true)!;
+      // (the picture's corners on this map, and its texels between them; a picture is 150 m, and the map is smooth over it)
+      const lat0 = i * GEO_T, lon0 = j * w - 180, c00 = [0, 0], c10 = [0, 0], c01 = [0, 0], c11 = [0, 0];
+      g.toXZ(lat0, lon0, c00);
+      g.toXZ(lat0, lon0 + w, c10);
+      g.toXZ(lat0 + GEO_T, lon0, c01);
+      g.toXZ(lat0 + GEO_T, lon0 + w, c11);
+      let any = false;
+      for (let b = 0; b < GROUND_N; b++) {
+        const v = (b + 0.5) / GROUND_N;
+        for (let a = 0; a < GROUND_N; a++) {
+          const u = (a + 0.5) / GROUND_N;
+          const x = (c00[0] * (1 - u) + c10[0] * u) * (1 - v) + (c01[0] * (1 - u) + c11[0] * u) * v;
+          const z = (c00[1] * (1 - u) + c10[1] * u) * (1 - v) + (c01[1] * (1 - u) + c11[1] * u) * v;
+          if (x < p.minX || x > p.maxX || z < p.minZ || z > p.maxZ) continue;
+          const tx = Math.floor(x / ts), tz = Math.floor(z / ts), m = scratch.get(`${tx},${tz}`);
+          if (!m) continue;
+          const i2 = Math.min(GROUND_N - 1, Math.floor((x - m.ox) / cs)), j2 = Math.min(GROUND_N - 1, Math.floor((z - m.oz) / cs));
+          const q = (j2 * GROUND_N + i2) * 4, cov = m.data[q];
+          if (!cov) continue;
+          const t = (b * GROUND_N + a) * 4, old = d[t];
+          d[t] = Math.max(old, cov);
+          if (cov >= 128 || cov > old) d[t + 1] = m.data[q + 1];
+          any = true;
+        }
+      }
+      if (any) {
+        const pic = this.geoPics.get(key)!;
+        pic.t = now;
+        pic.dirty = true;
+      }
+    });
+    this.saveTimer = 0.8;
+  }
+
+  /**
+   * ?moon: a tile comes in, and its paint is copied out of the pictures by place in one pass: each of its texels takes the picture texel at its place. What's in flight and lands later is drawn
+   * live as ever.
+   */
+  private pictureInto(key: string, ox: number, oz: number) {
+    const g = this.geo!, ts = this.tileSize;
+    if (!this.geoPics.size || !this.geoNear(ox, oz)) return;
+    const m = this.mask(key);
+    if (!m) return;
+    // (its corners' places, and its texels' between them, the longitudes taken round from the first; near a pole each texel's own)
+    const c = [[ox, oz], [ox + ts, oz], [ox, oz + ts], [ox + ts, oz + ts]].map(([x, z]) => {
+      g.toLatLon(x, z, this.geoTmp);
+      return [this.geoTmp[0], this.geoTmp[1]];
+    });
+    const polar = c.some((q) => Math.abs(q[0]) > 85);
+    for (let k = 1; k < 4; k++) c[k][1] = c[0][1] + ((((c[k][1] - c[0][1] + 180) % 360) + 360) % 360) - 180;
+    const d = m.data, o = this.geoTmp2, cs = this.cell;
+    let any = false, lastKey = '', pd: Uint8Array | null = null;
+    for (let j = 0; j < GROUND_N; j++) {
+      const v = (j + 0.5) / GROUND_N;
+      for (let i = 0; i < GROUND_N; i++) {
+        const u = (i + 0.5) / GROUND_N;
+        let lat: number, lon: number;
+        if (polar) {
+          g.toLatLon(ox + (i + 0.5) * cs, oz + (j + 0.5) * cs, o);
+          lat = o[0];
+          lon = o[1];
+        } else {
+          lat = (c[0][0] * (1 - u) + c[1][0] * u) * (1 - v) + (c[2][0] * (1 - u) + c[3][0] * u) * v;
+          lon = (c[0][1] * (1 - u) + c[1][1] * u) * (1 - v) + (c[2][1] * (1 - u) + c[3][1] * u) * v;
+        }
+        const pi = Math.floor(lat / GEO_T), w = geoLonW(pi), L = lon360(lon), pj = Math.floor(L / w), pk = `${pi},${pj}`;
+        if (pk !== lastKey) {
+          lastKey = pk;
+          pd = this.geoPics.has(pk) ? this.geoPic(pk, false) : null;
+        }
+        if (!pd) continue;
+        const a = Math.min(GROUND_N - 1, Math.floor((L / w - pj) * GROUND_N)), b = Math.min(GROUND_N - 1, Math.floor((lat / GEO_T - pi) * GROUND_N));
+        const q = (b * GROUND_N + a) * 4, cov = pd[q];
+        if (!cov) continue;
+        const t = (j * GROUND_N + i) * 4;
+        d[t] = Math.max(d[t], cov);
+        d[t + 1] = pd[q + 1];
+        any = true;
+      }
+    }
+    if (!any) return;
+    m.x0 = 0;
+    m.z0 = 0;
+    m.x1 = GROUND_N - 1;
+    m.z1 = GROUND_N - 1;
+    this.queueDirty(m);
+    this.ready.push(key);
+  }
+
+  /** ?moon: a picture by place lies under the tile at (ox, oz). */
+  private geoNear(ox: number, oz: number): boolean {
+    if (!this.geoPics.size) return false;
+    const box = this.boxOf(ox, oz, ox + this.tileSize, oz + this.tileSize);
+    let found = false;
+    if (box) this.eachPic(box, (i, j) => {
+      if (this.geoPics.has(`${i},${j}`)) found = true;
+    });
+    return found;
+  }
+
+  /** ?moon: a box on this map, in latitude and longitude, its longitudes taken round from its first corner's so one on the date line is one span; near a pole, every longitude. */
+  private boxOf(x0: number, z0: number, x1: number, z1: number): { la0: number; la1: number; lo0: number; lo1: number } | null {
+    const g = this.geo!, o = this.geoTmp;
+    let la0 = 90, la1 = -90, lo0 = Infinity, lo1 = -Infinity, ref = NaN;
+    for (let c = 0; c < 4; c++) {
+      g.toLatLon(c & 1 ? x1 : x0, c & 2 ? z1 : z0, o);
+      if (Number.isNaN(ref)) ref = o[1];
+      const lon = ref + ((((o[1] - ref + 180) % 360) + 360) % 360) - 180;
+      la0 = Math.min(la0, o[0]);
+      la1 = Math.max(la1, o[0]);
+      lo0 = Math.min(lo0, lon);
+      lo1 = Math.max(lo1, lon);
+    }
+    if (!Number.isFinite(lo0)) return null;
+    if (la1 > 89) la1 = 90;
+    if (la0 < -89) la0 = -90;
+    if (la1 >= 90 || la0 <= -90) {
+      lo0 = -180;
+      lo1 = 180;
+    }
+    return { la0, la1, lo0, lo1 };
+  }
+
+  /** ?moon: each picture a box reaches, by row and column, on the pictures' own grid (lon360), round the date line. */
+  private eachPic(box: { la0: number; la1: number; lo0: number; lo1: number }, f: (i: number, j: number, w: number) => void) {
+    const i0 = Math.max(Math.floor(-90 / GEO_T), Math.floor(box.la0 / GEO_T)), i1 = Math.min(Math.floor(90 / GEO_T) - 1, Math.floor(box.la1 / GEO_T));
+    const span = box.lo1 - box.lo0, L0 = lon360(box.lo0), L1 = L0 + span;
+    for (let i = i0; i <= i1; i++) {
+      const w = geoLonW(i), n = geoCols(i);
+      const walk = (a: number, b: number) => {
+        for (let j = Math.floor(a / w); j <= Math.min(n - 1, Math.floor(b / w)); j++) f(i, j, w);
+      };
+      // (a span past 360 goes on from 0, where column 0 starts: the last column of a row is the short one)
+      if (span >= 359.999) walk(0, 360);
+      else if (L1 < 360) walk(L0, L1);
+      else {
+        walk(L0, 360);
+        walk(0, L1 - 360);
+      }
+    }
+  }
+
+  /** ?moon: the pictures drawn on since they were saved, one a call or all (`most`), the longest untouched going first when there are more than GEO_PICS. */
+  private saveGeo(most: number) {
+    let n = 0;
+    for (const [k, pic] of this.geoPics) {
+      if (!pic.dirty) continue;
+      this.writeGeo(k, pic);
+      if (++n >= most) break;
+    }
+  }
+
+  private writeGeo(key: string, pic: GeoPic) {
+    if (pic.data) pic.enc = encodeMask(pic.data);
+    pic.dirty = false;
     const prefix = this.prefix;
     if (!this.storageOk || !prefix) return;
-    // the longest-untouched cells wash away first
-    while (this.geoCells.size > GEO_CELLS && this.evictGeo(key)) { /* evicted one */ }
-    const raw = JSON.stringify(list.map((x) => [x.t, Math.round(x.lat * 1e7) / 1e7, Math.round(x.lon * 1e7) / 1e7, x.olat === undefined ? null : Math.round(x.olat * 1e7) / 1e7, x.olon === undefined ? null : Math.round(x.olon * 1e7) / 1e7, x.a]));
+    while (this.geoPics.size > GEO_PICS && this.evictGeo(key)) { /* evicted one */ }
+    const raw = JSON.stringify({ t: pic.t, m: pic.enc });
     for (let tries = 0; tries < 6; tries++) {
       try {
         localStorage.setItem(prefix + GEO_KEY + key, raw);
@@ -874,79 +1069,20 @@ export class GroundPaint {
 
   private evictGeo(except: string): boolean {
     let best: string | null = null, bt = Infinity;
-    for (const [k, list] of this.geoCells) {
-      const t = list.length ? list[list.length - 1].t : 0;
-      if (k !== except && t < bt) {
-        bt = t;
-        best = k;
-      }
+    for (const [k, pic] of this.geoPics) if (k !== except && pic.t < bt) {
+      bt = pic.t;
+      best = k;
     }
     if (best === null) return false;
-    this.geoCells.delete(best);
+    this.geoPics.delete(best);
+    const at = this.geoOpen.indexOf(best);
+    if (at >= 0) this.geoOpen.splice(at, 1);
     try {
       if (this.prefix) localStorage.removeItem(this.prefix + GEO_KEY + best);
     } catch {
       /* blocked */
     }
     return true;
-  }
-
-  /** ?moon: a tile comes in, and the blasts kept by place that reach it are drawn on it again, in the order they landed. */
-  private attachGeo(key: string, ox: number, oz: number) {
-    const specs = this.geoAt(ox, oz, false);
-    if (!specs.length || !this.mask(key)) return;
-    for (const sp of specs) this.jobs.push({ spec: sp, tImpact: 0, serial: null, p: null, tiles: [], only: key, under: false });
-    this.replaying.set(key, specs.length);
-  }
-
-  /** ?moon: the blasts kept by place that reach the tile at (ox, oz), as specs on this map, in the order they landed; with `any`, the first one found. */
-  private geoAt(ox: number, oz: number, any: boolean): BlastSpec[] {
-    const g = this.geo!, ts = this.tileSize, o = this.geoTmp, pad = GEO_REACH, out: BlastSpec[] = [];
-    if (!this.geoCells.size) return out;
-    // (the tile and a blast's reach round it, in latitude and longitude: the longitudes taken round from the first corner's, so a tile on the date line is one span)
-    let la0 = 90, la1 = -90, lo0 = Infinity, lo1 = -Infinity, ref = NaN;
-    for (let c = 0; c < 4; c++) {
-      g.toLatLon(c & 1 ? ox + ts + pad : ox - pad, c & 2 ? oz + ts + pad : oz - pad, o);
-      if (Number.isNaN(ref)) ref = o[1];
-      const lon = ref + ((((o[1] - ref + 180) % 360) + 360) % 360) - 180;
-      la0 = Math.min(la0, o[0]);
-      la1 = Math.max(la1, o[0]);
-      lo0 = Math.min(lo0, lon);
-      lo1 = Math.max(lo1, lon);
-    }
-    // (near a pole the tile spans every longitude past it)
-    if (la1 > 89) la1 = 90;
-    if (la0 < -89) la0 = -90;
-    if (la1 >= 90 || la0 <= -90) {
-      lo0 = -180;
-      lo1 = 180;
-    }
-    const found: GeoBlast[] = [];
-    for (let i = Math.floor(la0 / GEO_CELL); i <= Math.floor(la1 / GEO_CELL); i++) {
-      const w = geoLonCell(i), j0 = Math.floor(lo0 / w), j1 = Math.min(Math.floor(lo1 / w), j0 + Math.ceil(360 / w));
-      for (let j = j0; j <= j1; j++) {
-        const list = this.geoCells.get(geoCellOf((i + 0.5) * GEO_CELL, (j + 0.5) * w));
-        if (list) for (const b of list) found.push(b);
-      }
-    }
-    found.sort((a, b) => a.t - b.t);
-    for (const b of found) {
-      const sp = specFromArray(b.a);
-      if (!sp) continue;
-      g.toXZ(b.lat, b.lon, o);
-      sp.x = o[0];
-      sp.z = o[1];
-      if (b.olat !== undefined && b.olon !== undefined) {
-        g.toXZ(b.olat, b.olon, o);
-        sp.ox = o[0];
-        sp.oz = o[1];
-      }
-      const reach = sp.r * Math.max(sp.reach, sp.edge * (1 + sp.ragged) + sp.rayLen) + 4;
-      if (sp.x + reach < ox || sp.x - reach > ox + ts || sp.z + reach < oz || sp.z - reach > oz + ts) continue;
-      out.push(sp);
-      if (any) break;
-    }
-    return out;
   }
 
   private evictOldest(except: string): boolean {
