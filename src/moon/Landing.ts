@@ -93,6 +93,8 @@ export interface LandEnter {
   camQuat: THREE.Quaternion;
   busQuat: THREE.Quaternion;
   dive: number;
+  /** the street's gear it's in (MoonTrip.rung): Jet or under it, as the low game has it from here */
+  gear: number;
 }
 
 type V = Float64Array;
@@ -449,6 +451,7 @@ export class Landing {
       camQuat: camera.quaternion.clone(),
       busQuat: bus.quaternion.clone(),
       dive: this.view.dive,
+      gear: t.rung,
     });
   }
 
@@ -484,7 +487,7 @@ export class Landing {
       p[j] = (F[j] * d[0] + F[3 + j] * d[1] + F[6 + j] * d[2]) * r;
       hd[j] = fx * A[j] + fz * A[6 + j];
     }
-    t.fromGround(p, hd, Math.atan2(f.vy, g), Math.hypot(g, f.vy) / 1000, gearSpeed(T.gear) / 1000, T.gear >= WARP);
+    t.fromGround(p, hd, Math.atan2(f.vy, g), Math.hypot(g, f.vy) / 1000, gearSpeed(T.gear) / 1000, T.gear >= WARP, T.gear);
     // (the lens's axes, in EQJ: what the view is made of)
     this.x.set(1, 0, 0).applyQuaternion(camera.quaternion);
     this.y.set(0, 1, 0).applyQuaternion(camera.quaternion);

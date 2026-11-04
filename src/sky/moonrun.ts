@@ -16,7 +16,8 @@ import { Tuner } from '../ui/Tuner';
 import { registerTunables } from '../ui/tunables';
 import { MoonBreath } from './MoonBreath';
 import { MoonNames, nameTune } from './MoonNames';
-import { LEG_NAMES, MoonTrip, PULL, TAU, YOKE } from './MoonTrip';
+import { LEG_NAMES, MoonTrip, PULL, RUNG_TOP, TAU, YOKE } from './MoonTrip';
+import { GEAR_NAMES } from '../game/Turbo';
 import { series } from './Series';
 import { SkyClock } from './SkyClock';
 import { groundTune, SkyDraw } from './SkyDraw';
@@ -190,10 +191,14 @@ function tripLabel(orbitPaint: boolean): (trip: MoonTrip, breath: MoonBreath | n
   return (trip, breath) => {
     const s = Math.floor(trip.clock), leg = trip.leg;
     const a = `${leg === 'fall' && trip.nose > 0.02 ? 'GOING UP' : LEG_NAMES[leg]} ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-    const b = `${trip.gear === 5 ? 'MOON BOOST' : `G${trip.gear}`} ${leg === 'fall' && trip.v < 1 ? `${Math.round(trip.v * 1000)} M` : trip.v < 1 ? '0 KM' : `${thousands(trip.v)} KM`}/S ${thousands(Math.min(trip.hMoon, trip.hEarth))} KM`;
+    // (at the Moon from the orbit down, the street's gear by name)
+    const g = leg === 'orbit' || leg === 'fall' ? GEAR_NAMES[trip.rung] : trip.gear === 5 ? 'MOON BOOST' : `G${trip.gear}`;
+    const b = `${g} ${trip.v < 1 ? `${Math.round(trip.v * 1000)} M` : `${thousands(trip.v)} KM`}/S ${thousands(Math.min(trip.hMoon, trip.hEarth))} KM`;
     // (a flick up climbs, and extremely high the easter egg is the way on: the label says only that, and nothing of where it goes)
     const dark = leg === 'cruise' || leg === 'homeCruise';
-    const p = leg === 'wait' || leg === 'orbit' || (leg === 'fall' && trip.hMoon > 150) ? 'FLICK UP TO CLIMB' : leg === 'fall' && !trip.lifting ? 'FLICK UP FOR ORBIT' : dark ? 'DRAG TO CARVE' : '';
+    // (at the Moon a flick up is a gear up, until the top gear: there it's the way up and out)
+    const top = (leg !== 'orbit' && leg !== 'fall') || trip.rung >= RUNG_TOP;
+    const p = !top ? '' : leg === 'wait' || leg === 'orbit' || (leg === 'fall' && trip.hMoon > 150) ? 'FLICK UP TO CLIMB' : leg === 'fall' && !trip.lifting ? 'FLICK UP FOR ORBIT' : dark ? 'DRAG TO CARVE' : '';
     // the goal, once there is any; and until the first shot, what to do about it
     const share = breath && !breath.paint.rebuilding ? breath.paint.painted * 100 : 0;
     const d = share > 0 ? `PAINTED ${share < 1 ? share.toFixed(2) : share < 10 ? share.toFixed(1) : share.toFixed(0)} % OF THE MOON` : '';
@@ -485,8 +490,9 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     if (trip && view && fx) {
       if (landing?.near) fx.update(dt, trip.v, trip.dir, landing.axes, landing.flying.copy(view.flying).applyQuaternion(landing.q), landing.nosing.copy(view.nosing).applyQuaternion(landing.q), camera, bus.root, pipeline.pixelWorldSize(1), landing.bus);
       else fx.update(dt, trip.v, trip.dir, trip.ob.axes, view.flying, view.nosing, camera, bus.root, pipeline.pixelWorldSize(1));
-      // (the label says the gear and the readout never shows: the HUD is here for its toasts)
-      hud?.update(dt, { gear: trip.gear, maxGear: 5, engaged: true, level: 0, levels: 0, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity });
+      // (at the Moon from the orbit down the gears are the street's, and so is their readout, for a moment after a shift. Everywhere else the label says the gear: the HUD is here for its toasts)
+      const ladder = trip.leg === 'orbit' || trip.leg === 'fall';
+      hud?.update(dt, { gear: ladder ? trip.rung : trip.gear, maxGear: RUNG_TOP, engaged: true, level: 0, levels: 0, mph: ladder ? trip.v * 2236.94 : 0, armed: false, sinceShift: ladder ? trip.t - trip.rungAt : Infinity, sinceLocked: Infinity });
       if (frames % 6 === 0) label?.(trip, breath);
       // (the one thing to do up here, where a first-timer's eye is, until they've done it)
       // (and on arriving, WELCOME TO THE MOON, the producer's: "some sort of "welcome to the moon" tab to appear that will essentially say you are in control of the bus again". Home, the same)

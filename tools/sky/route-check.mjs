@@ -183,17 +183,20 @@ for (const g5 of all ? [3000, 6000, 10000] : [6000]) {
     }
   }
   const g3 = trip.v, gear = trip.gear;
-  // (a down tab asks for nothing here)
+  // (the street's gears from the orbit down, VOYAGE.md V2c: a flick down is Stratos, and a flick up Rainbow Warp, the orbit's speed, again)
   trip.shiftDown();
-  for (let i = 0; i < 30; i++) trip.step(DT, 0);
-  const same = trip.leg === 'orbit' && Math.abs(trip.v - 30) < 0.1;
+  for (let i = 0; i < 90; i++) trip.step(DT, 0);
+  const down = trip.leg === 'orbit' && trip.rung === 4 && Math.abs(trip.v - 4.5) < 0.05;
+  trip.tap();
+  for (let i = 0; i < 120; i++) trip.step(DT, 0);
+  const same = down && trip.leg === 'orbit' && trip.rung === 5 && Math.abs(trip.v - 30) < 0.1;
   // TURBO heads home from the orbit's gear, in one tap
   trip.qaGo();
   trip.step(DT, 0);
   const left = trip.leg;
   const ok = hi - lo < 0.01 && gear === 3 && Math.abs(g3 - 30) < 0.1 && same && left === 'leave';
   if (!ok) fails++;
-  console.log(`orbit, steering: ${lo.toFixed(3)}-${hi.toFixed(3)} km; settles at G${gear}, ${g3.toFixed(1)} km/s; a tap: ${left}; ${ok ? 'ok' : 'FAIL'}`);
+  console.log(`orbit, steering: ${lo.toFixed(3)}-${hi.toFixed(3)} km; settles at G${gear}, ${g3.toFixed(1)} km/s; a flick down and up: ${same ? 'Stratos and back' : 'no'}; a tap: ${left}; ${ok ? 'ok' : 'FAIL'}`);
 }
 
 // Every way a trip can start or end up, across a month: launch, orbit, leave, home, from wherever the Moon and home are. It must always arrive.

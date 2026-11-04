@@ -1,5 +1,6 @@
 import { EARTH, MOON, R_MOON, SkyModel, SkyState, rebaseBody, type BodyId, type Observer, type Series } from './SkyModel';
 import { geodeticToFix } from './WorldFrame';
+import { config } from '../config';
 
 // The flight of MOONSHOT.md section 3 from stop 1's start: 300 km over San Francisco, to 300 km over the Moon, orbit, and back to 300 km over home, as often as you like.
 // Pure TS and doubles, no three.js: tools/sky/route-check.mjs flies this file in Node against verdict/route.py, and every law here is that file's or trip/sim.py's unless it says otherwise.
@@ -38,6 +39,14 @@ const EASE = 0.35;
 /** The classic rate of a shift down (Turbo.ts: 1.4 Hz's follow, times 2.2). */
 const HZ = 3.08;
 const SWITCH_KM = 60000;
+/** At the Moon, from the orbit down, the street's gears: places in Turbo.ts's GEAR_NAMES, Cruise to Rainbow Warp, whose speed is the orbit's (VOYAGE.md V2c). */
+export const RUNG_TOP = 5;
+const JET_RUNG = 3;
+/** A rung's speed, km/s: the street's numbers (config.ts), read when it's asked, as the tuner can move them. */
+export function rungV(g: number): number {
+  const T = config.turbo, F = config.flight;
+  return (g >= 5 ? T.warpSpeed : g === 4 ? T.stratosSpeed : g === 3 ? T.jetSpeed : g === 2 ? T.nonstopSpeed : g === 1 ? F.surgeSpeed : F.cruiseSpeed) / 1000;
+}
 /** How fast the path may swing at a joint, rad/s. Not route.py's, which turns on a frame. */
 const TURN = 60 * DEG;
 /** The way in's time constant, s: speed is the height over the floor over this, plus the floor's own speed. 12 s meets 6,000 km/s near 72,000 km and takes about 65 s from there. */
@@ -176,6 +185,11 @@ export class MoonTrip {
   v = G0;
   /** G5 is asked for and engages at its floor. */
   armed = false;
+  /** At the Moon, from the orbit down: the street's gear (RUNG_TOP is Rainbow Warp, the orbit's speed), and the trip's clock when it last changed (the HUD shows the change). */
+  rung = RUNG_TOP;
+  rungAt = -1e9;
+  /** A gear up under the orbit is taking the speed up to the gear's, as far as the law allows there. */
+  private rungUp = false;
   /** There's still room on this leg for G5: past that the way in has the speed, and a tap would ask for nothing. */
   g5Room = true;
   /** s since boot, and of the last launch. The sky's clock is ms0 + t. */
@@ -313,7 +327,7 @@ export class MoonTrip {
 
   /** There is something for a flick down to do. */
   get canShiftDown(): boolean {
-    return this.armed || this.lifting;
+    return this.armed || this.lifting || ((this.leg === 'orbit' || this.leg === 'fall') && this.rung > 0);
   }
 
   /** A flick up, what TURBO's tap was: a shift up. It lands at the next step, which reads the sky. */
@@ -399,12 +413,17 @@ export class MoonTrip {
           this.rise('rise');
           break;
         case 'orbit':
+          // (the street's ladder from the orbit down: a flick up is a gear up, and at the top it's the way out, to the button)
+          if (this.rung < RUNG_TOP) this.shiftRung(1);
+          else this.rise('moonRise');
+          break;
         case 'moonSink':
           this.rise('moonRise');
           break;
         case 'fall':
-          // (up here it climbs to the button. Under that the gear goes up and the bus with it, as a flick does on the ground: a flick is a shift, and it may be early)
-          if (this.hMoon > 150) this.rise('moonRise');
+          // (a gear up; at the top, up here it climbs to the button. Under that the gear goes up and the bus with it, as a flick does on the ground: a flick is a shift, and it may be early)
+          if (this.rung < RUNG_TOP) this.shiftRung(1);
+          else if (this.hMoon > 150) this.rise('moonRise');
           else if (!this.lifting) {
             this.climbV = G3;
             this.lifting = true;
@@ -420,7 +439,16 @@ export class MoonTrip {
       if (this.leg === 'rise' || this.leg === 'high') this.rise('sink');
       else if (this.leg === 'moonRise' || this.leg === 'moonHigh') this.rise('moonSink');
       else if (this.lifting) this.endClimb();
+      else if ((this.leg === 'orbit' || this.leg === 'fall') && this.rung > 0) this.shiftRung(-1);
     }
+  }
+
+  /** A gear up or down the street's ladder, at the Moon. */
+  private shiftRung(d: number): void {
+    this.rung = Math.max(0, Math.min(RUNG_TOP, this.rung + d));
+    this.rungAt = this.t;
+    this.rungUp = d > 0;
+    this.ti = 0;
   }
 
   /** Up to the button, or back down from it: G4, straight up and straight down. */
@@ -779,6 +807,8 @@ export class MoonTrip {
           this.dir.set(this.w2);
           this.rOrbit = len(rm);
           this.gear = 3;
+          // (the orbit's speed is Rainbow Warp's: that's the gear it arrives in)
+          this.rung = RUNG_TOP;
           this.enter('orbit');
           return false;
         }
@@ -804,7 +834,8 @@ export class MoonTrip {
           return false;
         }
         this.yaw(stick, dt, u);
-        this.v += (G3 - this.v) * (1 - Math.exp(-HZ * dt));
+        // (the gear's speed: Rainbow Warp's is the orbit's own)
+        this.v += (rungV(this.rung) - this.v) * (1 - Math.exp(-HZ * dt));
         this.rOrbit += (R_M + ALT4 - this.rOrbit) * (1 - Math.exp(-2 * dt));
         const th = (this.v * dt) / this.rOrbit, c = Math.cos(th), s = Math.sin(th);
         for (let i = 0; i < 3; i++) {
@@ -867,8 +898,13 @@ export class MoonTrip {
         // The way up is gears, the ruling: a gear's speed, whatever the height, on its own spool. The way down is the law, and when a climb that's over has more than the law allows it comes down to it, for all it's only a limit.
         if (this.climbV > 0) this.spool(this.climbV, dt);
         else {
-          const law = this.lawFall(hM - this.ground);
-          this.v = this.settling && this.v > law ? law + (this.v - law) * Math.exp(-3 * dt) : Math.min(this.v, law);
+          // (and the gear's speed, which the law caps: a gear down slows the bus, and a gear up takes it back up to as much as the law allows here)
+          const law = Math.min(this.lawFall(hM - this.ground), rungV(this.rung));
+          if (this.rungUp && this.v < law * 0.99) this.v += (law - this.v) * (1 - Math.exp(-HZ * dt));
+          else {
+            this.rungUp = false;
+            this.v = this.settling && this.v > law ? law + (this.v - law) * Math.exp(-3 * dt) : Math.min(this.v, law);
+          }
           if (this.v <= law * 1.01) this.settling = false;
         }
         // (the gear the speed is in, so the low game's Jet is what the bus comes down to and goes up from)
@@ -1010,7 +1046,9 @@ export class MoonTrip {
    * The ground game hands it back, climbing: where it is from the Moon's centre and the way it faces, EQJ, the way it goes and how fast, and the speed of the gear it's in. It's the way down's leg, flown up: the thumb has the same yoke, a
    * push goes back down, and a bus left alone at the height it has flies on level.
    */
-  fromGround(pos: V, heading: V, nose: number, v: number, gearV: number, lifting: boolean): void {
+  fromGround(pos: V, heading: V, nose: number, v: number, gearV: number, lifting: boolean, rung = JET_RUNG): void {
+    this.rung = Math.max(0, Math.min(RUNG_TOP, rung));
+    this.rungUp = false;
     const p = this.ob.pos, u = setUnit(pos, this.u), cn = Math.cos(nose), sn = Math.sin(nose);
     p.set(pos);
     this.rm.set(pos);

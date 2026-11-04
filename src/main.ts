@@ -1587,8 +1587,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         Object.assign(input, groundHands);
         flight.groundUnder = flight.groundBroad = city.groundAt(s.x, s.z);
         flight.takeOver(s.x, s.y, s.z, s.heading, s.speed, s.nose);
-        // Jet, by the time the law lets go of the speed
-        controls.turbo.arrive();
+        // Jet, by the time the law lets go of the speed; or the gear it's in, if that's under Jet
+        controls.turbo.arrive(s.gear);
         controls.firstGesture();
         busTune.sunSoft = 0.42;
         controls.fx.lens.reset(rig);

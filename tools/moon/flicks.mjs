@@ -211,6 +211,22 @@ try {
   row(`look: a left drag of 100 px turns the view ${owant.toFixed(1)} deg about the bus`, Math.abs(Math.abs(turned) - owant) < 4 && o1.lookYaw === 0, { turned: +turned.toFixed(1), rig: o1.lookYaw });
   row('look: 2 s after the lift the view is where it was left', stayed < 1 && o2.lookYaw === 0, { moved: +stayed.toFixed(2), rig: o2.lookYaw });
 
+  // ---- orbit: the street's gears from the orbit down (VOYAGE.md V2c): a flick down is Stratos, and the label names it; a flick up is Rainbow Warp, the orbit's speed, again
+  {
+    const gearOf = () => page.evaluate(() => {
+      const t = window.__space.moon.trip;
+      return { leg: t.leg, rung: t.rung, v: +t.v.toFixed(2), say: document.querySelector('[data-hud="trip-label"]')?.dataset.say?.split('|')[1] ?? '' };
+    });
+    await flick(cdp, -1);
+    await frames(60);
+    const g1 = await gearOf();
+    await flick(cdp, 1);
+    await frames(90);
+    const g2 = await gearOf();
+    row('orbit: a flick down is Stratos, named, and a flick up Rainbow Warp again', g1.leg === 'orbit' && g1.rung === 4 && Math.abs(g1.v - 4.5) < 0.1 && g1.say.startsWith('STRATOS') && g2.leg === 'orbit' && g2.rung === 5 && Math.abs(g2.v - 30) < 0.5 && g2.say.startsWith('RAINBOW WARP'), { g1, g2 });
+    await shot('orbit-gears');
+  }
+
   // ---- orbit: a right flick up as slow as the rule allows, felt frame by frame until the old rule would have had it fall
   begin();
   await touch('touchStart', RX, RY, 0);
