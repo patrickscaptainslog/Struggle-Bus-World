@@ -526,6 +526,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
     bus.update(dt, time, busPose);
     if (breath.rear > 0) bus.root.quaternion.multiply(rearQ.setFromAxisAngle(pitchAxis, breath.rear));
     if (landing?.near) landing.snap(camera, bus.root);
+    earthLanding?.ease(camera, bus.root, real);
     bus.root.updateMatrixWorld(true);
     breath.craters = craterHigh();
     // (the crater shot's glint if the view's own aim misses the Moon: the ground ahead along the heading, as far ahead as the view's aim about is, Moon fixed. moonFix is fixed <- EQJ by rows)
@@ -554,7 +555,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
           hud?.toast(['WELCOME TO THE MOON', 'THE BUS IS YOURS'], WELCOME_S);
           welcomeAt = time;
           asked = false;
-        } else if (trip.leg === 'wait' && legWas !== 'sink') hud?.toast(['WELCOME HOME'], WELCOME_S);
+        } else if (trip.leg === 'wait' && legWas === 'homeDrop') hud?.toast(['WELCOME HOME'], WELCOME_S);
         legWas = trip.leg;
       }
       eggMoon.update(real, trip.egg === 'moon');

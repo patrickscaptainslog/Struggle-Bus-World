@@ -1544,7 +1544,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       spaceU.uSpaceOn.value = earthJoin ? clamp((hk - SKY_FROM) / (SKY_TOP - SKY_FROM), 0, 1) : 0;
       const k = earthJoin ? clamp((hk - SKY_TOP) / (H_UP - SKY_TOP), 0, 1) : 0;
       if (k > 0) {
-        const n = camera.near, f = camera.far, d = Math.max(CUT_NEAR, f * Math.pow(CUT_NEAR / f, k));
+        // (from the far plane in to just under the lens's height, the nearest ground there is: so the city goes from the horizon in across the whole band, the ground under the bus last)
+        const n = camera.near, f = camera.far, hc = Math.max(CUT_NEAR, camera.position.y - flight.groundUnder), d = Math.max(CUT_NEAR, hc * 0.98 + (f - hc) * (1 - k) * (1 - k));
         pipeline.cutSky((f * (d - n)) / (d * (f - n)));
       } else pipeline.cutSky(null);
       earthJoin?.over(realDt, camera.position);

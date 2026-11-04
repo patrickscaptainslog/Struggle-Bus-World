@@ -1173,7 +1173,8 @@ export class MoonTrip {
     setUnit(ef, u);
     tangent(eh, u, this.eh);
     this.rung = Math.max(0, Math.min(RUNG_TOP, rung));
-    this.rungAt = this.t;
+    // (no shift: the readout stays down)
+    this.rungAt = -1e9;
     this.v = v;
     this.ti = 0;
     this.climbV = 0;

@@ -16,6 +16,9 @@ import { fixToGeodetic, geodeticToFix } from './WorldFrame';
 
 import { H_GROUND } from './earthJoin';
 
+/** s: how long the lens and the bus take to come over from where the street had them (Landing.ts's REJOIN). */
+const REJOIN = 2.4;
+
 /** What the street hands the flight, and how the flight takes it back (main.ts builds it). */
 export interface StreetWorld {
   /** the city's map's origin, [lat, lon] degrees */
@@ -53,6 +56,9 @@ export class EarthLanding {
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
   private readonly t = new THREE.Vector3();
+  private readonly qT = new THREE.Quaternion();
+  /** The lens off the bus and the way the bus lay, as the street had them, in the flight's render frame (which is its lens's own), on their way to the flight's. */
+  private rejoin: { t: number; off: THREE.Vector3; busQuat: THREE.Quaternion; hero: number } | null = null;
 
   constructor(
     private readonly trip: MoonTrip,
@@ -109,11 +115,25 @@ export class EarthLanding {
     const inEqj = (v: THREE.Vector3) => v.set(v.x * W[0] + v.y * W[3] + v.z * W[6], v.x * W[1] + v.y * W[4] + v.z * W[7], v.x * W[2] + v.y * W[5] + v.z * W[8]);
     const x = inEqj(new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion)), y = inEqj(new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion)), z = inEqj(new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion));
     this.view.takeOver(this.q.setFromRotationMatrix(this.m.makeBasis(x, y, z)), t.dir, t.heading, t.r, hfov, dive);
-    void bus;
+    // (the flight's render frame is its lens's, and the lens is handed over as the street had it: so the street's lens's own axes are the frame the offset and the bus's turn go into)
+    const qi = camera.quaternion.clone().invert();
+    this.rejoin = { t: 0, off: camera.position.clone().sub(bus.position).applyQuaternion(qi), busQuat: qi.clone().multiply(bus.quaternion), hero: bus.scale.x };
     this.ground = false;
     this.cameBack = true;
     this.world.leave();
     this.onTake?.();
+  }
+
+  /** The flight's frame, once its lens and bus are placed: they come over from where the street had them, as Landing's rejoin does. dt: the screen's, s. */
+  ease(camera: THREE.PerspectiveCamera, bus: THREE.Object3D, dt: number): void {
+    const j = this.rejoin;
+    if (!j) return;
+    j.t = Math.min(1, j.t + dt / REJOIN);
+    const e = j.t * j.t * (3 - 2 * j.t);
+    camera.position.sub(bus.position).lerp(j.off, 1 - e).add(bus.position);
+    bus.quaternion.slerpQuaternions(j.busQuat, this.qT.copy(bus.quaternion), e);
+    bus.scale.setScalar(j.hero + (bus.scale.x - j.hero) * e);
+    if (j.t >= 1) this.rejoin = null;
   }
 
   /** In the flight's frame: under H_GROUND over the city, coming down, the street takes the bus. True if it did. camera and bus: the flight's, in its render frame. */
