@@ -1,6 +1,7 @@
 import { EARTH, MOON, R_MOON, SkyModel, SkyState, rebaseBody, type BodyId, type Observer, type Series } from './SkyModel';
 import { geodeticToFix } from './WorldFrame';
 import { config } from '../config';
+import { resumeFields, saveFields, type Saved } from './tripSave';
 
 // The flight of MOONSHOT.md section 3 from stop 1's start: 300 km over San Francisco, to 300 km over the Moon, orbit, and back to 300 km over home, as often as you like.
 // Pure TS and doubles, no three.js: tools/sky/route-check.mjs flies this file in Node against verdict/route.py, and every law here is that file's or trip/sim.py's unless it says otherwise.
@@ -258,7 +259,8 @@ export class MoonTrip {
   private readonly land: boolean;
   private readonly launchDeg: number | undefined;
   private readonly onStreet: boolean;
-  private readonly ms0: number;
+  /** UTC ms at t = 0. Not readonly: resume() takes the saved one, so the sky and the route carry on from the page before. */
+  private ms0: number;
   private readonly now: SkyModel;
   private readonly later: SkyModel;
   private readonly nowS = new SkyState();
@@ -1144,6 +1146,20 @@ export class MoonTrip {
         return true;
       }
     }
+  }
+
+  /**
+   * The whole trip as JSON, for the page change in the long dark (docs/specs/earth/EARTHFLIGHT.md, E3): every number, boolean, string and vector it holds, the clock (ms0 and t) included, so on the next page the sky and
+   * the route carry on from this moment. The sky models aren't state: they're a function of the clock.
+   */
+  save(): Saved {
+    return saveFields(this);
+  }
+
+  /** The trip saved on the page before, into this one, before its first step: it carries on from there. */
+  resume(s: Saved): void {
+    resumeFields(this, s);
+    this.now.frame(this.ms, this.ob, this.nowS);
   }
 
   /** The ground game takes the bus (moon/Landing.ts). */

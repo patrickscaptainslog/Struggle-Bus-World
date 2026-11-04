@@ -62,10 +62,12 @@ Checks: `tools/earth/climb.mjs` at a fixed step: from the street a full pull to 
 
 ### E3: the seam, in the dark. About 1 day
 
+*Built 2026-11-04 on `feat/earthfree-e3` by a second session (`DECISIONS.md`, "The whole Earth, flown freely: E3"). The check is `tools/earth/swap.mjs`, from `?moonland&swap` rather than from the street, and `tools/sky/resume-check.mjs` in Node; the whole trip from the street, `trip.mjs`, waits for E2.*
+
 1. **`MoonTrip.save()` and `MoonTrip.resume()`:** the leg, the clock, the position, the velocity, the heading, the gears, the boost, the trips so far, in `sessionStorage`.
 2. **Out:** on Earth's page, a few seconds into `cruise` (the long dark: nothing but stars, the bus and its trail), take the frame (`toDataURL` right after a render), save the trip, and go to `?moonland&resume`; `index.html` shows the held frame until the flight's first one. The Moon's low game boots behind it as it does now, with the rest of the dark, three minutes or so, to do it in.
 3. **Home:** the same from `homeCruise` to `?earth&resume`, where the boot order turns round: the flight first, from the resumed trip, and the street behind it, as `?moonland` boots the Moon's low game.
-4. The sound is silent on the new page until the next touch (iOS's rule). Say so.
+4. The sound is silent on the new page until the next touch (iOS's rule). Say so. *It is: a page the browser has just loaded may not start sound until it's touched, so after each change of pages the trip is silent until the player's next touch. Out there the only sound is a tap's breath, which is a touch.*
 
 Checks: `tools/earth/trip.mjs`: from the street up, the button, the boost, the change of pages, the Moon's orbit, a landing, back to orbit, home, the change of pages back, and down to the street, with the held frame's change measured against the real one under it.
 

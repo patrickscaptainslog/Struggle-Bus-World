@@ -3,6 +3,7 @@ import { config } from '../config';
 import { MOON_VISTA, viewPitch } from '../game/Ascent';
 import { EARTH } from './SkyModel';
 import { R_E, R_M, type MoonTrip } from './MoonTrip';
+import { resumeFields, saveFields, type Saved } from './tripSave';
 
 // The camera on the flight is the game's: game/CameraRig.ts at full vista, as it stands over the city. The same lens, the same distance, the same angle over the bus, and nothing of its own. It goes where the bus goes and the thumb swings it. Nothing
 // here decides where to look: there's no look-back, no turn to a body, no view tipping over. No camera move that the bus or the thumb didn't ask for.
@@ -406,6 +407,15 @@ export class TripView {
     this.rate = 2 * Math.PI * config.camera.yawHz;
     this.dive = dive;
     this.hfov = hfov;
+  }
+
+  /** The view as JSON, with the trip's (MoonTrip.save): its vectors, quaternions and numbers. A thumb isn't carried: the new page starts with none down. */
+  save(): Saved {
+    return saveFields(this, ['steerX', 'carveX', 'carveY', 'stroke', 'carveStroke', 'flickedNow']);
+  }
+
+  resume(s: Saved): void {
+    resumeFields(this, s);
   }
 
   /** The view stays exactly where it is and the spring takes it from there, thumb gone. */
