@@ -162,6 +162,9 @@ function readView(params: URLSearchParams, model: SkyModel, sky: SkyState, ms: n
 
 const thousands = (n: number) => Math.round(n).toLocaleString('en-US');
 
+/** The crater shot's glint off the heading, km ahead for a km of height: about where the view's aim is on the ground, which is what it stands in for when that misses. */
+const AHEAD_PER_KM = 1.8;
+
 /** s the welcome stands. */
 const WELCOME_S = 5;
 
@@ -494,6 +497,15 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     if (landing?.near) landing.snap(camera, bus.root);
     bus.root.updateMatrixWorld(true);
     breath.craters = craterHigh();
+    // (the crater shot's glint if the view's own aim misses the Moon: the ground ahead along the heading, as far ahead as the view's aim about is, Moon fixed. moonFix is fixed <- EQJ by rows)
+    if (breath.craters && trip) {
+      const rm = trip.rm, hd = trip.heading, F = model.moonFix, l = Math.hypot(rm[0], rm[1], rm[2]), th = (AHEAD_PER_KM * Math.max(1, trip.hMoon)) / R_MOON;
+      const c = Math.cos(th), s = Math.sin(th), v0 = (rm[0] / l) * c + hd[0] * s, v1 = (rm[1] / l) * c + hd[1] * s, v2 = (rm[2] / l) * c + hd[2] * s;
+      breath.ahead[0] = F[0] * v0 + F[1] * v1 + F[2] * v2;
+      breath.ahead[1] = F[3] * v0 + F[4] * v1 + F[5] * v2;
+      breath.ahead[2] = F[6] * v0 + F[7] * v1 + F[8] * v2;
+    }
+    breath.aheadOn = breath.craters;
     breath.update(dt, real, sky, (trip?.leg === 'orbit' && !landing) || breath.craters, camera);
     if (trip && names) names.update(dt, sky, trip.leg === 'in' || trip.leg === 'orbit' || trip.leg === 'moonRise' || trip.leg === 'moonHigh' || trip.leg === 'moonSink', trip.v, trip.t, camera, focalAt(), pipeline.info.width, pipeline.info.height, popSign);
     if (trip && view && fx) {

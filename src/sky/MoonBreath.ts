@@ -203,6 +203,9 @@ export class MoonBreath {
   onCrater: ((lat: number, lon: number, hue: number) => number | null) | null = null;
   /** A tap now would be a crater shot: the glint is a crater's size, not a blast's. */
   craters = false;
+  /** Moon fixed, unit: the ground ahead of the bus along its heading (moonrun.ts), the crater shot's glint when the frame's own aim misses the Moon, as it does with the view panned off it. */
+  readonly ahead = new Float64Array(3);
+  aheadOn = false;
 
   /** A tap. False if there was nothing to fire, or nothing to fire at. crater: it paints the crater it lands on (onCrater), not a splat on the map. */
   tap(inOrbit: boolean, crater = false): boolean {
@@ -217,7 +220,8 @@ export class MoonBreath {
     if (performance.now() - this.touchAt < 700) {
       px = (this.touchX / window.innerWidth - 0.5) * this.frameW;
       py = (0.5 - this.touchY / window.innerHeight) * this.frameH;
-      ground = py > this.busPy && this.ray(px, py, n);
+      // (a crater shot goes where the finger touched the Moon, anywhere on it: the view may be panned any way)
+      ground = (crater || py > this.busPy) && this.ray(px, py, n);
     }
     if (!ground) {
       if (!this.aimOn) return false;
@@ -316,6 +320,11 @@ export class MoonBreath {
     // ---- the aim: the ground just ahead of the bus. (The rig stands off it with no turn of its own, up here: moonrun.ts)
     this.busPy = (-this.focal * camera.position.y) / camera.position.z;
     this.aimOn = orbiting && this.ray(0, this.busPy + AIM_OVER * this.focal, this.aim);
+    // (a crater shot has a glint wherever the view looks: the ground ahead of the bus, as the street's has)
+    if (orbiting && !this.aimOn && this.craters && this.aheadOn) {
+      this.aim.set(this.ahead);
+      this.aimOn = true;
+    }
     const shot = this.shot;
     const n = shot ? shot.n : this.pour ? this.pour.n : null;
     if (n) {
