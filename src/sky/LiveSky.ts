@@ -115,6 +115,8 @@ export class LiveSky {
     axesAt(this.lat, this.lon, 0, this.ob.axes);
     this.ticks = 0;
     this.shadeAz = NaN;
+    // (the moment's table and light now, not at the first frame: the warm-up runs in between, and a night page reads its table before it)
+    this.update();
   }
 
   /** Once a frame, after the camera is placed: what the tick reads of the view. `focusDist` the lens's distance to the bus (m). */
