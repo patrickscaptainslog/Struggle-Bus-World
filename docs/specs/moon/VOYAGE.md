@@ -21,7 +21,7 @@ The producer, 2026-11-03, after flying FREEFLIGHT's Stages 1 to 3 on `?moonland`
 
 **V3: pinch to zoom (second account).** Everywhere, the street included: the producer, "Pinch to zoom everywhere". Two fingers moving apart or together zoom; one thumb still flies and the left of the screen still looks. A pinch has to be told from two thumbs at once, which the controls already allow, and the controls sims (`tools/controls-sim/s_gesture.ts`) are where that's proved. It touches `Input` and `CameraRig`, `feat/thumbs`' files, so it reaches `feat/thumbs` and main only with this branch.
 
-**The launch from the street (second account since 2026-11-04, at the producer's word; it was the first account's).** From San Francisco the bus climbs with its gears off the city's map and on up into the flight's loop, the way the Moon's low game hands over to it, until TO THE MOON? comes up. It meets V2 there, so V2's button and boost are what it hands to.
+**The launch from the street (second account since 2026-11-04, at the producer's word; it was the first account's).** Built 2026-11-04, waiting on the producer's flight (`DECISIONS.md`, "The launch from the street"). At the street's ceiling, 15 km, a bus that goes on pulling up leaves the air: the sky goes dark from the top and the stars come out, and the trip's page has the bus from there, climbing over the same place the way it was flying, until TO THE MOON? comes up. Not the Moon's join with no seam, for want of a far Earth to join with: a page and a dark, where space loads. The way back down to the street is still to do.
 
 ## What it costs
 

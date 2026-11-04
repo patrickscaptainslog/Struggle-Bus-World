@@ -235,7 +235,18 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   const sky = new SkyState();
   const clock = new SkyClock(params);
   const flying = !params.has('view');
-  const trip = flying ? new MoonTrip(series, clock.now(), { g5: Number(params.get('g5')) || MOON_BOOST, land: !!land }) : null;
+  // (?launch=: up off the street, climbing, the way the bus was flying; ?home=lat,lon: over where it left from. src/sky/Launch.ts)
+  const launch = flying && params.has('launch') ? Number(params.get('launch')) || 0 : undefined;
+  const home = (params.get('home') ?? '').split(',').map(Number);
+  const homeAt = home.length === 2 && home.every(Number.isFinite) ? { lat: home[0], lon: home[1] } : {};
+  const trip = flying ? new MoonTrip(series, clock.now(), { g5: Number(params.get('g5')) || MOON_BOOST, land: !!land, launch, ...homeAt }) : null;
+  // (and it comes up out of the dark the street went into)
+  let dark: HTMLDivElement | null = null;
+  if (launch !== undefined) {
+    dark = document.createElement('div');
+    Object.assign(dark.style, { position: 'fixed', inset: '0', zIndex: '40', background: '#000', pointerEvents: 'none', transition: 'opacity 1.6s ease-out' });
+    document.body.append(dark);
+  }
   if (land) Object.assign(YOKE, { dead: config.flight.yokeDead, up: Math.min(config.flight.noseUp, 89) * DEG, down: Math.min(config.flight.noseDown, 89) * DEG, curve: config.flight.noseCurve, rate: config.flight.noseRate });
   const view = flying ? new TripView() : null;
   const pose = flying ? null : readView(params, model, sky, clock.now());
@@ -513,6 +524,12 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
       perf.setVisible(false);
     }
     if (frames === 1) load.firstFrameMs = Math.round(performance.now() - t0);
+    if (dark && frames === 3) {
+      const d = dark;
+      d.style.opacity = '0';
+      setTimeout(() => d.remove(), 2000);
+      dark = null;
+    }
     perf.frame(dt * 1000, performance.now() - f0);
     (window as unknown as { __shotReady?: boolean }).__shotReady = frames > 2;
   };

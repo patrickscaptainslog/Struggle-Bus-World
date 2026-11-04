@@ -121,6 +121,8 @@ export interface TripOptions {
   lon?: number;
   /** a push in orbit goes down (?moonland) */
   land?: boolean;
+  /** The bus has come up off the street (?launch=, main.ts): it starts climbing over home, facing this way, degrees from north, as it was flying down there. */
+  launch?: number;
 }
 
 type V = Float64Array;
@@ -212,6 +214,7 @@ export class MoonTrip {
   private settling = false;
   private pushT = 0;
   private readonly land: boolean;
+  private readonly launchDeg: number | undefined;
   private readonly ms0: number;
   private readonly now: SkyModel;
   private readonly later: SkyModel;
@@ -247,6 +250,7 @@ export class MoonTrip {
     this.g5 = opts.g5;
     this.tau = opts.tau ?? TAU;
     this.land = !!opts.land;
+    this.launchDeg = opts.launch;
     this.now = new SkyModel(series);
     this.later = new SkyModel(series);
     geodeticToFix(opts.lat ?? 37.7749, opts.lon ?? -122.4194, 0, this.fx);
@@ -374,6 +378,15 @@ export class MoonTrip {
     sub(this.now.moonEqj, this.r, this.w);
     tangent(this.w, u, this.heading);
     this.dir.set(this.heading);
+    if (this.launchDeg === undefined) return;
+    // (up off the street: the way it was flying, on the compass over home, and on up, as a flick up from here climbs. Earth's north in EQJ is the fixed frame's third row)
+    const f = this.now.earthFix, h = this.launchDeg * DEG, e = this.w, n = this.w2;
+    cross(Float64Array.from([f[6], f[7], f[8]]), u, e);
+    setUnit(e, e);
+    cross(u, e, n);
+    for (let i = 0; i < 3; i++) this.heading[i] = e[i] * Math.sin(h) + n[i] * Math.cos(h);
+    this.dir.set(this.heading);
+    this.rise('rise');
   }
 
   private shifts(): void {

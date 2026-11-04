@@ -36,6 +36,7 @@ import { SuperFx } from './fx/SuperFx';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
 import { heldHour, moonLand, moonLow, moonrun } from './sky/flag';
+import { Launch } from './sky/Launch';
 import type { LandEnter, Landing } from './moon/Landing';
 import { SLIDE, SLIDE_AT } from './moon/map';
 import { HeldHour } from './sky/HeldHour';
@@ -48,6 +49,8 @@ const LANDMARK_NAMES: Record<string, string> = { sutro: 'Sutro Tower', transamer
 
 /** The opening was seen through once on this device: a tap skips it from then on. */
 const OPENING_SEEN_KEY = 'strugglebus.opening.v1';
+/** m under the ceiling: from here up, straining is leaving the air (src/sky/Launch.ts). */
+const LAUNCH_TOP = 1000;
 
 const params = new URLSearchParams(location.search);
 if (params.has('fog')) config.fog.enabled = true;
@@ -346,6 +349,15 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // ---- the hero
   const bus = new BusModel();
   const busOnScreen = new THREE.Vector3();
+  // ---- the launch from the street: at the top of the sky, going on pulling up leaves the air, and the trip's page has the bus from there, over the same place and flying the same way (src/sky/Launch.ts)
+  const launch = moon || land
+    ? null
+    : new Launch(() => {
+        const [lat0, lon0] = manifest.origin, lat = lat0 - flight.z / 111320, lon = lon0 + flight.x / (111320 * Math.cos(lat0 * THREE.MathUtils.DEG2RAD));
+        const deg = ((THREE.MathUtils.radToDeg(flight.heading) % 360) + 360) % 360;
+        const keep = ['fps', 't', 'tune', 'g5', 'fixeddt'].filter((k) => params.has(k)).map((k) => `&${k}${params.get(k) ? `=${encodeURIComponent(params.get(k)!)}` : ''}`);
+        return `${location.pathname}?moonland&launch=${deg.toFixed(1)}&home=${lat.toFixed(4)},${lon.toFixed(4)}${keep.join('')}`;
+      });
   scene.add(bus.root);
 
   // drop shadow straight below the bus: grounds the hero (how high it flies). No decal: the resolve pass
@@ -1237,6 +1249,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       superHint();
     }
     wasFull = flight.fullness >= 1;
+    // (straining at the top of the sky: a bridge deck strains the climb too, and that's no way up)
+    launch?.update(realDt, flight.y > config.flight.ceiling - LAUNCH_TOP && flight.strain > 0.3);
 
     // bus pose: squash on the tap frame and through the inhale, stretch as the jet leaves, heave while
     // barfing, wheeze when full (the squash spring is substepped like the flight: same at 30 and 60 fps)
@@ -1617,7 +1631,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // (asked for now: there is no asking once the context is gone)
     const lose = renderer.getContext().getExtension('WEBGL_lose_context');
     (window as unknown as Record<string, unknown>).__game = {
-      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: hour, moon,
+      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: hour, moon, launch,
       /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
       get warm() {
         return warm;
