@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // The street to the flight and back, on one page (?earth; docs/specs/earth/EARTHFLIGHT.md, E2), at a fixed step: node tools/earth/climb.mjs <out dir>
 //   boot    the street comes up, and the flight behind it, with the street keeping the bus
-//   up      in Jet from 7 km a full pull: the sky turns space's from 8 km, the city goes into the plain Earth from 11 km, and at 15 km the flight has the bus, frames either side of it (handover-*.png)
+//   up      in Turbo 3 from 7 km a full pull: the sky turns space's from 8 km, the city goes into the plain Earth from 11 km, and at 15 km the flight has the bus, frames either side of it (handover-*.png)
 //   on      the flight flies on, free over Earth, climbing
-//   down    a held push back down over the city: under 14 km the street has the bus again
+//   down    a held push back down over the city: under 14 km the street has the bus again, Turbo 3 both ways
 // The street's stick is __qa's (sy -1 a full pull); the flight is flown with its own calls between frames. BASE is the page (http://localhost:4179/). Frames: compare handover-*.png with tools/sky/sheet.py or by eye.
 // A row passes or fails on the numbers printed with it; exit 1 if any fails.
 import { mkdirSync } from 'node:fs';
@@ -44,14 +44,15 @@ try {
   const read = () =>
     page.evaluate(() => {
       const g = window.__game, t = window.__space.moon.trip;
-      return { leg: t.leg, km: +(g.flight.height / 1000).toFixed(2), flightKm: +t.hGround.toFixed(2), gear: g.controls.turbo.gear };
+      return { leg: t.leg, km: +(g.flight.height / 1000).toFixed(2), flightKm: +t.hGround.toFixed(2), gear: g.controls.turbo.gear, level: g.controls.turbo.level, rung: t.rung, tLevel: t.level, ms: Math.round(g.flight.speed), flightMs: Math.round(t.v * 1000) };
     });
-  // ---- up: Jet, from 7 km, a full pull
+  // ---- up: Turbo 3, from 7 km, a full pull
   const at = await page.evaluate(() => ({ x: window.__game.flight.x, z: window.__game.flight.z, heading: window.__game.flight.heading }));
   await frames(2, { sx: 0, sy: 0 }, { ...at, y: 7000 });
   await page.evaluate(() => {
     const g = window.__game;
     for (let i = 0; i < 3; i++) g.controls.turbo.shift(1, g.flight);
+    for (let i = 0; i < 3; i++) g.controls.turbo.rung(1, g.flight);
   });
   const pull = { sx: 0, sy: -1 };
   const shotAt = [8.5, 11, 13, 14.6];
@@ -74,7 +75,10 @@ try {
   }
   const h = await read();
   const hud = await page.evaluate(() => getComputedStyle(document.querySelector('[data-hud="trip-label"]')).display);
-  row('up: past 15 km the flight has the bus, free over Earth, its label up', handed >= 0 && h.leg === 'wait' && h.flightKm > 14.9 && hud !== 'none', { handedAt: handed, ...h, label: hud });
+  // (and Turbo 3 still: the street's turbos go on over Earth, at the street's speed. The producer, 2026-11-04: "Why can't we just keep the normal controls/turbos?")
+  await frames(6);
+  const says = await page.evaluate(() => document.querySelector('[data-hud="trip-label"]')?.dataset.say?.split('|')[1] ?? '');
+  row('up: past 15 km the flight has the bus, free over Earth, its label up, in Turbo 3 still', handed >= 0 && h.leg === 'wait' && h.flightKm > 14.9 && hud !== 'none' && h.rung === 3 && h.tLevel === 3 && Math.abs(h.flightMs - 900) < 30 && /^TURBO 3 /.test(says), { handedAt: handed, ...h, label: hud, says });
   // ---- on: the flight climbs on
   const fly = (secs, yoke, until) =>
     page.evaluate(
@@ -109,7 +113,7 @@ try {
   await frames(20);
   d = await read();
   await page.screenshot({ path: join(dir, 'down.png') });
-  row('down: under 14 km over the city the street has the bus again', d.leg === 'street' && d.km < 14.2 && d.km > 10, d);
+  row('down: under 14 km over the city the street has the bus again, in Turbo 3', d.leg === 'street' && d.km < 14.2 && d.km > 10 && d.gear === 3 && d.level === 3, d);
   row('no page errors', errors.length === 0, errors.slice(0, 5));
 } finally {
   await browser.close();

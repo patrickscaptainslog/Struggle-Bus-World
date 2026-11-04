@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { config } from '../config';
 import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
 import { Ramp } from '../render/palette';
 
@@ -74,6 +75,9 @@ export class SpaceFx {
   private readonly phase = new Float64Array(3);
   private scroll = 0;
   private life = 0;
+  /** The bus is free over Earth (MoonTrip's 'wait'): the lines and the trail are the street's, at its speeds. */
+  overEarth = false;
+  private earthK = 0;
 
   /** busLength: BusModel.length */
   constructor(busLength: number) {
@@ -244,12 +248,20 @@ export class SpaceFx {
    * pixel: metres a game pixel at 1 m. origin: where the bus is, if not at the render origin.
    */
   update(dt: number, v: number, dir: Float64Array, axes: Float64Array, flying: THREE.Vector3, nosing: THREE.Vector3, camera: THREE.Camera, bus: THREE.Object3D, pixel: number, origin: THREE.Vector3 | null = null): void {
-    const on = smooth01(5, 300, v) * 0.35 + 0.3 * smooth01(300, 3000, v);
+    // (over Earth, free, they're the street's, at the street's speeds: fx/Turbo.ts's strength, by speedK's scale, 0 at the surge and 1 at Jet, and on up the gears. The producer, 2026-11-04,
+    // of the lull past the hand-over: "Why can't we just keep the normal controls/turbos?". Eased, so the way out of Earth's sky, at TO THE MOON?, goes over to space's as the speed goes up)
+    this.earthK += ((this.overEarth ? 1 : 0) - this.earthK) * (1 - Math.exp(-2 * dt));
+    if (this.earthK < 0.001) this.earthK = 0;
+    const e = this.earthK, F = config.flight, ms = v * 1000;
+    const k = Math.max(0, Math.log(Math.max(ms, F.surgeSpeed) / F.surgeSpeed) / Math.log(Math.max(F.surgeSpeed * 1.01, config.turbo.jetSpeed) / F.surgeSpeed));
+    const street = Math.min(1, Math.max(0, (ms - F.surgeSpeed * 0.9) / 140)) * Math.min(1, k + 0.25);
+    const on = Math.max(smooth01(5, 300, v) * 0.35 + 0.3 * smooth01(300, 3000, v), e * (0.35 * street + 0.3 * smooth01(1.5, 4, k)));
     this.lines.visible = on > 0.01;
     if (this.lines.visible) {
       const U = this.lineU, box = 190;
       // the speed they seem to go: the true one's log, under a third of a box a frame at 30 fps, and a streak is longer than that, so they flow and can't strobe
-      const sp = 1000 + 450 * Math.log10(Math.max(v, 1) / 300);
+      // (over Earth the true speed, up to a third of a box a frame at 30 fps: the street's lines go by at the bus's speed)
+      const sp = (1 - e) * (1000 + 450 * Math.log10(Math.max(v, 1) / 300)) + e * Math.min(1800, ms);
       const p = this.phase;
       for (let i = 0; i < 3; i++) {
         p[i] += (dir[i] * sp * dt) / box;
@@ -266,7 +278,7 @@ export class SpaceFx {
       if (origin) U.uCenter.value.add(origin);
     }
     // (it comes and goes by dissolving back along itself: a ribbon this size can't go out in a frame)
-    const tr = smooth01(5, 20, v);
+    const tr = Math.max(smooth01(5, 20, v), e * Math.min(1, k));
     this.trail.visible = tr > 0.01;
     if (this.trail.visible) {
       const U = this.trailU;
@@ -274,7 +286,8 @@ export class SpaceFx {
       U.uTail.value.copy(bus.localToWorld(this.tmp.copy(this.tailLocal)));
       U.uBack.value.copy(nosing).negate();
       U.uTrail.value.set(260, 3.2, 10, tr);
-      this.scroll = (this.scroll + dt * spaceFxTune.trailFlow * (1 + 0.8 * Math.log10(Math.max(v, 1) / 30))) % 256;
+      // (never slower than a third of its flow at 30 km/s: at the street's speeds over Earth the log would run it backwards)
+      this.scroll = (this.scroll + dt * spaceFxTune.trailFlow * Math.max(0.35, 1 + 0.8 * Math.log10(Math.max(v, 1) / 30))) % 256;
       U.uScroll.value = this.scroll;
       // (its own clock, turned over once an hour for the shader's precision: a twitch then, and never in a trip)
       this.life = (this.life + dt) % 3600;

@@ -48,8 +48,9 @@ try {
   const gear = (g) =>
     page.evaluate((g) => {
       const t = window.__space.moon.trip;
-      for (let i = 0; i < 8 && t.rung !== g; i++) {
-        if (t.rung > g) t.shiftDown();
+      // (over Earth turbo's levels are steps over Jet: a gear here is one with none on)
+      for (let i = 0; i < 12 && (t.rung !== g || t.level); i++) {
+        if (t.rung > g || (t.rung === g && t.level)) t.shiftDown();
         else t.tap();
         t.step(1 / 30, 0, 0);
       }

@@ -103,12 +103,12 @@ export class EarthLanding {
   }
 
   /** The flight takes the bus, climbing past H_UP: where it is and how it's going, and the view as the street's rig had it. */
-  back(camera: THREE.PerspectiveCamera, bus: THREE.Object3D, f: { x: number; y: number; z: number; heading: number; speed: number; vy: number; ground: number }, gear: number, hfov: number, dive: number): void {
+  back(camera: THREE.PerspectiveCamera, bus: THREE.Object3D, f: { x: number; y: number; z: number; heading: number; speed: number; vy: number; ground: number }, gear: number, level: number, hfov: number, dive: number): void {
     const t = this.trip, A = this.axesAt(f.x, f.y, f.z, this.ax), ef = this.fixOf(f.x, f.y, f.z, this.e);
     // (the heading, from the map's (sin, -cos) to Earth fixed along the street's axes)
     const fx = Math.sin(f.heading), fz = -Math.cos(f.heading), eh = this.b;
     for (let i = 0; i < 3; i++) eh[i] = fx * A[i] + fz * A[6 + i];
-    t.fromStreet(ef, eh, Math.atan2(f.vy, Math.max(1, f.ground)), Math.hypot(f.ground, f.vy) / 1000, gear);
+    t.fromStreet(ef, eh, Math.atan2(f.vy, Math.max(1, f.ground)), Math.hypot(f.ground, f.vy) / 1000, gear, level);
     // (the lens's axes into EQJ, what the view is made of: the street's axes, Earth fixed, then EQJ <- fixed)
     const F = this.model.earthFix, W = this.w;
     for (let k = 0; k < 3; k++) for (let j = 0; j < 3; j++) W[k * 3 + j] = F[j] * A[k * 3] + F[3 + j] * A[k * 3 + 1] + F[6 + j] * A[k * 3 + 2];
@@ -172,7 +172,7 @@ export class EarthLanding {
     const camOff = toMap(this.t.copy(camera.position).sub(bus.position)).clone();
     this.ground = true;
     t.toStreet();
-    this.world.enter({ x, y, z, heading: Math.atan2(hx, -hz), speed: t.v * 1000, nose: t.nose, camOff, camQuat, busQuat, dive: this.view.dive, gear: t.rung });
+    this.world.enter({ x, y, z, heading: Math.atan2(hx, -hz), speed: t.v * 1000, nose: t.nose, camOff, camQuat, busQuat, dive: this.view.dive, gear: Math.min(t.rung, 3), level: t.rung > 3 ? 3 : t.level });
     return true;
   }
 }

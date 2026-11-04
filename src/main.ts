@@ -1589,7 +1589,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     city.eager = !everReady;
     (window as unknown as { __shotReady?: boolean }).__shotReady = ready && !city.busy && !city.farLate && !hour?.lamps.busy;
     if (land?.up(flight)) land.back(camera, bus.root, flight, controls.turbo, rig.hfov, rig.dive);
-    if (earthJoin?.ground && flight.height >= H_UP * 1000) earthJoin.back(camera, bus.root, flight, controls.turbo.level > 0 ? 3 : Math.min(controls.turbo.gear, 3), rig.hfov, rig.dive);
+    if (earthJoin?.ground && flight.height >= H_UP * 1000) earthJoin.back(camera, bus.root, flight, Math.min(controls.turbo.gear, 3), controls.turbo.level, rig.hfov, rig.dive);
   }
 
   /** ?earth: the flight's loop, behind the street, with the street as what it hands the bus to (sky/EarthLanding.ts). The thumb's hands are the street's until the flight has the bus. */
@@ -1610,7 +1610,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         if (streetHands) Object.assign(input, streetHands);
         flight.groundUnder = flight.groundBroad = city.groundAt(s.x, s.z);
         flight.takeOver(s.x, s.y, s.z, s.heading, s.speed, s.nose);
-        controls.turbo.arrive(s.gear);
+        // (the gear and turbo's level, as the flight had them over Earth: its two faster gears are Turbo 3 here)
+        controls.turbo.arrive(s.gear, s.level);
         controls.firstGesture();
         controls.fx.lens.reset(rig);
         rig.place(camera, flight, s.dive);

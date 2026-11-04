@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The free leg over the plain Earth (docs/specs/earth/EARTHFLIGHT.md, E1), in Node: node --no-warnings tools/sky/earth-check.mjs
-//   gears    over home, flicks down to Cruise and its speed is Cruise's
+//   gears    over home, the street's ladder: flicks down through Stratos, Turbo 3 to 1 and Jet to Cruise, and its speed is Cruise's; back up, the turbos at the street's speeds
 //   down     from 300 km a held push in Rainbow Warp, braked by the law, levels at Warp's floor; Jet's, then Cruise's, each a gear down, never under the floor
 //   drift    an hour at Cruise and its floor: the ground it covers is Cruise's speed for an hour, and the height holds (Earth fixed: the Earth turns under EQJ)
 //   pole     turned north and flown in Rainbow Warp over the pole and down the other side, nothing comes apart
@@ -39,19 +39,24 @@ const latOf = () => Math.asin(trip.ef[2] / Math.hypot(...trip.ef)) / DEG;
 fly(2);
 row('start: free over home, 300 km up, in Rainbow Warp', trip.leg === 'wait' && Math.abs(trip.hEarth - 300) < 1 && trip.rung === 5, { leg: trip.leg, km: +trip.hEarth.toFixed(1), rung: trip.rung });
 
-// ---- gears
-for (let i = 0; i < 5; i++) {
+// ---- gears: over Earth the street's ladder, Turbo 1 to 3 over Jet, then Stratos and Rainbow Warp (the producer, 2026-11-04)
+const said = [];
+const step = () => `${trip.rung}${trip.level ? `+${trip.level}` : ''}`;
+for (let i = 0; i < 8; i++) {
   trip.shiftDown();
   fly(0.5);
+  said.push(step());
 }
 fly(3);
-row('gears: five flicks down are Cruise, at its speed', trip.rung === 0 && Math.abs(trip.v * 1000 - rungV(0) * 1000) < 0.5, { rung: trip.rung, ms: +(trip.v * 1000).toFixed(1) });
-for (let i = 0; i < 5; i++) {
+row('gears: eight flicks down are Stratos, Turbo 3, 2 and 1, Jet, Nonstop, Express and Cruise', said.join(' ') === '4 3+3 3+2 3+1 3 2 1 0' && Math.abs(trip.v * 1000 - rungV(0) * 1000) < 0.5, { said: said.join(' '), ms: +(trip.v * 1000).toFixed(1) });
+const turboV = [];
+for (let i = 0; i < 8; i++) {
   trip.tap();
-  fly(0.5);
+  fly(i >= 3 && i <= 6 ? 8 : 0.5);
+  if (trip.level) turboV.push(Math.round(trip.v * 1000));
 }
 fly(6);
-row('gears: and five back up are Rainbow Warp', trip.rung === 5 && Math.abs(trip.v - 30) < 0.3, { rung: trip.rung, kms: +trip.v.toFixed(2) });
+row("gears: and eight back up are Rainbow Warp, with the street's turbo speeds over Jet on the way", trip.rung === 5 && !trip.level && Math.abs(trip.v - 30) < 0.3 && turboV.join(' ') === [1.3, 1.6, 2].map((x) => Math.round(rungV(3) * 1000 * x)).join(' '), { rung: trip.rung, kms: +trip.v.toFixed(2), turboMs: turboV });
 
 // ---- down, a floor a gear
 let overLaw = 0;
@@ -60,12 +65,12 @@ const low1 = fly(90, 0, 1, () => {
   if (trip.nose < -0.05) overLaw = Math.max(overLaw, trip.v - lawAt(trip.hGround) * 1.05 - 0.05);
 });
 row("down: a held push in Rainbow Warp, braked by the law, levels at Warp's 10 km floor", low1 > 9.5 && trip.hGround < 10.6 && overLaw <= 0, { low: +low1.toFixed(2), now: +trip.hGround.toFixed(2), overLaw: +overLaw.toFixed(3), kms: +trip.v.toFixed(2) });
-trip.shiftDown();
-fly(0.3, 0, 1);
-trip.shiftDown();
-fly(0.3, 0, 1);
+for (let i = 0; i < 5; i++) {
+  trip.shiftDown();
+  fly(0.3, 0, 1);
+}
 const low2 = fly(60, 0, 1);
-row("down: two gears down, Jet's floor, 150 m", trip.rung === 3 && low2 > 0.14 && trip.hGround < 0.3, { rung: trip.rung, low: +(low2 * 1000).toFixed(0), now: +(trip.hGround * 1000).toFixed(0) });
+row("down: five steps down, Jet's floor, 150 m", trip.rung === 3 && !trip.level && low2 > 0.14 && trip.hGround < 0.3, { rung: trip.rung, level: trip.level, low: +(low2 * 1000).toFixed(0), now: +(trip.hGround * 1000).toFixed(0) });
 for (let i = 0; i < 3; i++) {
   trip.shiftDown();
   fly(0.3, 0, 1);
@@ -87,7 +92,7 @@ const want = rungV(0) * 3600;
 row('drift: an hour at Cruise covers Cruise\'s hour of ground, and the height holds', Math.abs(path / want - 1) < 0.01 && hi - lo < 0.002 && ok(), { km: +path.toFixed(2), want: +want.toFixed(2), heightM: [+(lo * 1000).toFixed(1), +(hi * 1000).toFixed(1)] });
 
 // ---- over the pole
-for (let i = 0; i < 5; i++) {
+for (let i = 0; i < 8; i++) {
   trip.tap();
   fly(0.3);
 }

@@ -16,8 +16,8 @@ import { Tuner } from '../ui/Tuner';
 import { registerTunables } from '../ui/tunables';
 import { MoonBreath } from './MoonBreath';
 import { MoonNames, nameTune } from './MoonNames';
-import { LEG_NAMES, MoonTrip, PULL, RUNG_TOP, TAU, YOKE } from './MoonTrip';
-import { GEAR_NAMES } from '../game/Turbo';
+import { earthStep, LEG_NAMES, MoonTrip, PULL, RUNG_TOP, TAU, YOKE } from './MoonTrip';
+import { GEAR_NAMES, rungName } from '../game/Turbo';
 import { series } from './Series';
 import { SkyClock } from './SkyClock';
 import { groundTune, SkyDraw } from './SkyDraw';
@@ -213,7 +213,7 @@ function tripLabel(orbitPaint: boolean): (trip: MoonTrip, breath: MoonBreath | n
     const s = Math.floor(trip.clock), leg = trip.leg;
     const a = `${leg === 'fall' && trip.nose > 0.02 ? 'GOING UP' : LEG_NAMES[leg]} ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
     // (at the Moon from the orbit down, the street's gear by name)
-    const g = leg === 'orbit' || leg === 'fall' || leg === 'wait' ? GEAR_NAMES[trip.rung] : trip.gear === 5 ? 'MOON BOOST' : `G${trip.gear}`;
+    const g = leg === 'wait' ? rungName(trip.rung, trip.level) : leg === 'orbit' || leg === 'fall' ? GEAR_NAMES[trip.rung] : trip.gear === 5 ? 'MOON BOOST' : `G${trip.gear}`;
     // (low over Earth, the height over its ground in metres)
     const hk = leg === 'wait' ? trip.hGround : Math.min(trip.hMoon, trip.hEarth);
     const b = `${g} ${trip.v < 1 ? `${Math.round(trip.v * 1000)} M` : trip.v < 10 ? `${trip.v.toFixed(1)} KM` : `${thousands(trip.v)} KM`}/S ${hk < 10 ? `${Math.round(hk * 1000)} M` : `${thousands(hk)} KM`}`;
@@ -588,11 +588,14 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
     breath.update(dt, real, sky, (trip?.leg === 'orbit' && !landing) || breath.craters, camera);
     if (trip && names) names.update(dt, sky, trip.leg === 'in' || trip.leg === 'orbit' || trip.leg === 'moonRise' || trip.leg === 'moonHigh' || trip.leg === 'moonSink', trip.v, trip.t, camera, focalAt(), pipeline.info.width, pipeline.info.height, popSign);
     if (trip && view && fx) {
+      fx.overEarth = trip.leg === 'wait';
       if (landing?.near) fx.update(dt, trip.v, trip.dir, landing.axes, landing.flying.copy(view.flying).applyQuaternion(landing.q), landing.nosing.copy(view.nosing).applyQuaternion(landing.q), camera, bus.root, pipeline.pixelWorldSize(1), landing.bus);
       else fx.update(dt, trip.v, trip.dir, trip.ob.axes, view.flying, view.nosing, camera, bus.root, pipeline.pixelWorldSize(1));
       // (at the Moon from the orbit down the gears are the street's, and so is their readout, for a moment after a shift. Everywhere else the label says the gear: the HUD is here for its toasts)
       const ladder = trip.leg === 'orbit' || trip.leg === 'fall' || trip.leg === 'wait';
-      hud?.update(dt, { gear: ladder ? trip.rung : trip.gear, maxGear: RUNG_TOP, engaged: true, level: 0, levels: 0, mph: ladder ? trip.v * 2236.94 : 0, armed: false, sinceShift: ladder ? trip.t - trip.rungAt : Infinity, sinceLocked: Infinity });
+      // (over Earth the street's ladder, turbo's levels over Jet and the two faster gears over them: one pip a step, and the step's name)
+      const earth = trip.leg === 'wait';
+      hud?.update(dt, { gear: earth ? earthStep(trip.rung, trip.level) : ladder ? trip.rung : trip.gear, maxGear: RUNG_TOP, engaged: true, level: 0, levels: earth ? 3 : 0, name: earth ? rungName(trip.rung, trip.level) : undefined, mph: ladder ? trip.v * 2236.94 : 0, armed: false, sinceShift: ladder ? trip.t - trip.rungAt : Infinity, sinceLocked: Infinity });
       if (frames % 6 === 0) label?.(trip, breath);
       // (the one thing to do up here, where a first-timer's eye is, until they've done it)
       // (and on arriving, WELCOME TO THE MOON, the producer's: "some sort of "welcome to the moon" tab to appear that will essentially say you are in control of the bus again". Home, the same)

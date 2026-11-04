@@ -85,7 +85,7 @@ All taken by the producer, 2026-11-04: "Ok. It's a go", with Opus 5.5 at extra h
 
 | What | Pick |
 |---|---|
-| Gears over Earth's sky | the Moon's ladder, Cruise to Rainbow Warp; at the top a flick up climbs to the button |
+| Gears over Earth's sky | the Moon's ladder, Cruise to Rainbow Warp; at the top a flick up climbs to the button. Since 2026-11-04 the street's ladder, Turbo 1 to 3 included, with Stratos and Rainbow Warp over Turbo 3, and no flick up to climb (the producer: "Yes I like your pick") |
 | The brake coming down to Earth | the Moon's law, Jet by 2 km |
 | The floor over the plain Earth | 60 m over sea level |
 | The free leg's ceiling, where TO THE MOON? is up | 13,000 km, and gone under 10,000. Since 2026-11-04 the ceiling stays and the button is up from 2,000 km and gone under 1,500, with no flick up to climb (the producer: "I think we can do 2000km") |

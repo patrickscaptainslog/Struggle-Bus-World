@@ -58,6 +58,8 @@ export interface HudFrame {
   /** seconds since the last shift / LOCKED attempt (Infinity = never) */
   sinceShift: number;
   sinceLocked: number;
+  /** the rung's name, where it isn't rungName's (the flight over Earth, whose two faster gears are over turbo's levels) */
+  name?: string;
 }
 
 export interface HudCallbacks {
@@ -822,7 +824,7 @@ export class Hud {
     const g = `G${shown}`;
     this.outlineOver(p, g, 2, 2, f.armed ? (blink ? C.yellow : C.dim) : C.yellow);
     const x = 2 + textWidth(g) + 5;
-    this.outlineOver(p, rungName(f.gear + (f.armed ? 1 : 0), f.level), x, 2, !f.armed && (f.engaged || f.gear === 0) ? C.cream : C.dim);
+    this.outlineOver(p, f.name ?? rungName(f.gear + (f.armed ? 1 : 0), f.level), x, 2, !f.armed && (f.engaged || f.gear === 0) ? C.cream : C.dim);
     // pips: one per rung; lit up to the rung, dim if usable, dark if locked (what's over the top gear in reach comes last)
     const levels = f.levels;
     const last = GEAR_NAMES.length - 1 + levels;

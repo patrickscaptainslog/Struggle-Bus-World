@@ -127,10 +127,10 @@ export class TurboDrive {
   constructor(private readonly bounds: readonly number[]) {}
 
   /** The bus comes in from a height already going faster than sound (?moonland): Jet is in, and there's nothing to boom through. */
-  /** gear: the one it comes down in, from the Moon's sky (MoonTrip.rung): Jet, unless it's under Jet. */
-  arrive(gear = JET): void {
+  /** gear: the one it comes down in, from the Moon's sky (MoonTrip.rung): Jet, unless it's under Jet. level: turbo's over Jet, from Earth's sky (?earth). */
+  arrive(gear = JET, level = 0): void {
     this.gear = Math.max(0, Math.min(JET, gear));
-    this.level = 0;
+    this.level = this.gear === JET ? Math.max(0, Math.min(this.levels, level)) : 0;
     this.engaged = true;
     this.machArmed = false;
     this.braking = false;

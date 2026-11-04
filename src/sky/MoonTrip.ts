@@ -43,11 +43,18 @@ const SWITCH_KM = 60000;
 /** At the Moon, from the orbit down, the street's gears: places in Turbo.ts's GEAR_NAMES, Cruise to Rainbow Warp, whose speed is the orbit's (VOYAGE.md V2c). */
 export const RUNG_TOP = 5;
 const JET_RUNG = 3;
-/** A rung's speed, km/s: the street's numbers (config.ts), read when it's asked, as the tuner can move them. */
-export function rungV(g: number): number {
+/** A rung's speed, km/s: the street's numbers (config.ts), read when it's asked, as the tuner can move them. level: turbo's over Jet, over Earth (config.turbo.levels, as the street's). */
+export function rungV(g: number, level = 0): number {
   const T = config.turbo, F = config.flight;
-  return (g >= 5 ? T.warpSpeed : g === 4 ? T.stratosSpeed : g === 3 ? T.jetSpeed : g === 2 ? T.nonstopSpeed : g === 1 ? F.surgeSpeed : F.cruiseSpeed) / 1000;
+  return ((g >= 5 ? T.warpSpeed : g === 4 ? T.stratosSpeed : g === 3 ? T.jetSpeed : g === 2 ? T.nonstopSpeed : g === 1 ? F.surgeSpeed : F.cruiseSpeed) * (g === JET_RUNG && level > 0 ? T.levels[Math.min(level, T.levels.length) - 1] : 1)) / 1000;
 }
+/** Over Earth the ladder is the street's, Turbo 1 to 3 over Jet, and Stratos and Rainbow Warp over those (the producer, 2026-11-04: "Yes I like your pick", which was the street's
+ *  gears as they are, nothing changing at the hand-over, and two faster ones over Turbo 3 off the street). A place on it: the gear, and turbo's level at Jet. */
+export function earthStep(rung: number, level: number): number {
+  return rung < JET_RUNG ? rung : rung === JET_RUNG ? JET_RUNG + level : rung + EARTH_LEVELS;
+}
+const EARTH_LEVELS = 3;
+const EARTH_TOP = RUNG_TOP + EARTH_LEVELS;
 /** How fast the path may swing at a joint, rad/s. Not route.py's, which turns on a frame. */
 const TURN = 60 * DEG;
 /** The way in's time constant, s: speed is the height over the floor over this, plus the floor's own speed. 12 s meets 6,000 km/s near 72,000 km and takes about 65 s from there. */
@@ -218,6 +225,8 @@ export class MoonTrip {
   armed = false;
   /** At the Moon, from the orbit down: the street's gear (RUNG_TOP is Rainbow Warp, the orbit's speed), and the trip's clock when it last changed (the HUD shows the change). */
   rung = RUNG_TOP;
+  /** Over Earth, turbo's level over Jet, 0 to 3, as the street has it (earthStep). Elsewhere 0. */
+  level = 0;
   rungAt = -1e9;
   /** A gear up under the orbit is taking the speed up to the gear's, as far as the law allows there. */
   private rungUp = false;
@@ -379,7 +388,7 @@ export class MoonTrip {
 
   /** There is something for a flick down to do. */
   get canShiftDown(): boolean {
-    return this.armed || this.lifting || ((this.leg === 'orbit' || this.leg === 'fall' || this.leg === 'wait') && this.rung > 0);
+    return this.armed || this.lifting || ((this.leg === 'orbit' || this.leg === 'fall' || this.leg === 'wait') && this.rung + this.level > 0);
   }
 
   /** A flick up, what TURBO's tap was: a shift up. It lands at the next step, which reads the sky. */
@@ -469,7 +478,7 @@ export class MoonTrip {
         // (extremely high the button comes up, and that's the way on. The producer: "i dont like flick up for the moon function". At the Moon, at the top gear, a flick up still climbs to its button)
         // (over Earth, free: a gear up, and at the top nothing. The button is flown up to: the producer, 2026-11-04, "I do not like the flick up to climb function. I just want to be able to freely fly")
         case 'wait':
-          if (this.rung < RUNG_TOP) this.shiftRung(1);
+          this.shiftEarth(1);
           break;
         case 'sink':
           this.rise('rise');
@@ -501,13 +510,25 @@ export class MoonTrip {
       if (this.leg === 'rise' || this.leg === 'high') this.rise('sink');
       else if (this.leg === 'moonRise' || this.leg === 'moonHigh') this.rise('moonSink');
       else if (this.lifting) this.endClimb();
-      else if ((this.leg === 'orbit' || this.leg === 'fall' || this.leg === 'wait') && this.rung > 0) this.shiftRung(-1);
+      else if (this.leg === 'wait') this.shiftEarth(-1);
+      else if ((this.leg === 'orbit' || this.leg === 'fall') && this.rung > 0) this.shiftRung(-1);
     }
   }
 
   /** A gear up or down the street's ladder, at the Moon. */
   private shiftRung(d: number): void {
     this.rung = Math.max(0, Math.min(RUNG_TOP, this.rung + d));
+    this.rungAt = this.t;
+    this.rungUp = d > 0;
+    this.ti = 0;
+  }
+
+  /** A step up or down Earth's ladder (earthStep): the gears to Jet, turbo's levels over it, then Stratos and Rainbow Warp. Down from Stratos is Turbo 3. */
+  private shiftEarth(d: number): void {
+    const n = earthStep(this.rung, this.level) + d;
+    if (n < 0 || n > EARTH_TOP) return;
+    this.rung = n <= JET_RUNG ? n : n <= JET_RUNG + EARTH_LEVELS ? JET_RUNG : n - EARTH_LEVELS;
+    this.level = this.rung === JET_RUNG ? n - JET_RUNG : 0;
     this.rungAt = this.t;
     this.rungUp = d > 0;
     this.ti = 0;
@@ -774,7 +795,7 @@ export class MoonTrip {
         if (h < floor) aim = Math.max(aim, Math.asin(Math.min(1, (floor - h) / flare)));
         this.nose += (aim - this.nose) * (1 - Math.exp(-Y.rate * dt));
         // (the gear's speed, over the ground; on a dive no more than the law allows at this height, and level again it comes back up to the gear's)
-        const gearV = rungV(this.rung), law = this.lawFall(h);
+        const gearV = rungV(this.rung, this.level), law = this.lawFall(h);
         const want2 = this.nose < -0.02 ? Math.min(gearV, law) : gearV;
         if (this.nose < -0.02 && this.v > law) this.v = law + (this.v - law) * Math.exp(-6 * dt);
         // (a gear down brakes at the classic rate, as the orbit's does; a gear up spools)
@@ -920,6 +941,7 @@ export class MoonTrip {
           this.gear = 3;
           // (the orbit's speed is Rainbow Warp's: that's the gear it arrives in)
           this.rung = RUNG_TOP;
+          this.level = 0;
           this.enter('orbit');
           return false;
         }
@@ -1138,6 +1160,7 @@ export class MoonTrip {
           this.tripSeconds = this.t - this.launchedAt;
           // (home, and free over it, in the orbit's gear)
           this.rung = RUNG_TOP;
+          this.level = 0;
           this.hold(this.hc, R_E + ALT4);
           this.enterEarth();
           return false;
@@ -1181,9 +1204,9 @@ export class MoonTrip {
 
   /**
    * ?earth: the street hands the bus up, free over Earth from where it is: its place and the way it faces, Earth fixed (km, unit), the way it goes over the level (rad), its speed (km/s) and the street's gear
-   * (Turbo.ts's, Cruise 0 to Jet 3; a turbo level is Jet). The sky model is brought to this moment first: the street's frames only ticked the clock.
+   * (Turbo.ts's, Cruise 0 to Jet 3, and turbo's level over Jet, 0 to 3). The sky model is brought to this moment first: the street's frames only ticked the clock.
    */
-  fromStreet(ef: V, eh: V, nose: number, v: number, rung: number): void {
+  fromStreet(ef: V, eh: V, nose: number, v: number, rung: number, level = 0): void {
     this.started = true;
     this.now.frame(this.ms, this.ob, this.nowS);
     const u = this.u;
@@ -1191,6 +1214,7 @@ export class MoonTrip {
     setUnit(ef, u);
     tangent(eh, u, this.eh);
     this.rung = Math.max(0, Math.min(RUNG_TOP, rung));
+    this.level = this.rung === JET_RUNG ? Math.max(0, Math.min(EARTH_LEVELS, level)) : 0;
     // (no shift: the readout stays down)
     this.rungAt = -1e9;
     this.v = v;
@@ -1215,6 +1239,7 @@ export class MoonTrip {
    */
   fromGround(pos: V, heading: V, nose: number, v: number, gearV: number, lifting: boolean, rung = JET_RUNG): void {
     this.rung = Math.max(0, Math.min(RUNG_TOP, rung));
+    this.level = 0;
     this.rungUp = false;
     const p = this.ob.pos, u = setUnit(pos, this.u), cn = Math.cos(nose), sn = Math.sin(nose);
     p.set(pos);

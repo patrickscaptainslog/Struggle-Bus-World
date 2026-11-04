@@ -97,6 +97,8 @@ export interface LandEnter {
   dive: number;
   /** the street's gear it's in (MoonTrip.rung): Jet or under it, as the low game has it from here */
   gear: number;
+  /** and turbo's level over Jet (MoonTrip.level: over Earth only) */
+  level?: number;
 }
 
 type V = Float64Array;
