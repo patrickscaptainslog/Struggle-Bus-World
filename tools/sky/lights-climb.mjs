@@ -21,7 +21,7 @@ try {
   await page.addStyleTag({ content: '[data-hud] { visibility: hidden !important; }' });
   const turbo = await page.evaluate(() => {
     const m = window.__game.moon;
-    m.trip.tap();
+    m.trip.qaGo();
     m.skip(0.1);
     window.__game.scene.traverse((o) => {
       if (o.material?.uniforms?.uTrail || o.material?.uniforms?.uLine) o.layers.set(31);

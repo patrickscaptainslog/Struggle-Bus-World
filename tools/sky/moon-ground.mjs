@@ -35,9 +35,9 @@ try {
     const m = window.__game.moon;
     m.hold(true);
     m.skip(0.1);
-    m.trip.tap();
+    m.trip.qaGo();
     m.skip(0.1);
-    m.trip.tap();
+    m.trip.qaGo();
   });
   for (const km of list('hs', '13000,6000,3000,1500,800,500,300')) {
     await page.evaluate((km) => {

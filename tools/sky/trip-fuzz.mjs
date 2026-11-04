@@ -37,7 +37,7 @@ for (let n = 0; n < N; n++) {
   const trip = new MoonTrip(series, ms, { g5 });
   const view = new TripView();
   // how this player is: how often they tap TURBO, the tab, and the stick
-  const tapEvery = [3, 10, 40, 1e9][Math.floor(rnd() * 4)], tabEvery = [10, 60, 1e9][Math.floor(rnd() * 3)], stickEvery = [2, 8, 30][Math.floor(rnd() * 3)];
+  const tapEvery = [3, 10, 40, 1e9][Math.floor(rnd() * 4)], tabEvery = [10, 60, 1e9][Math.floor(rnd() * 3)], stickEvery = [2, 8, 30][Math.floor(rnd() * 3)], eggEvery = [1, 6, 30][Math.floor(rnd() * 3)];
   const fps = [60, 30, 20, 0][Math.floor(rnd() * 4)];
   const dtNow = () => (fps ? 1 / fps : 1 / 60 + rnd() * (0.05 - 1 / 60));
   let sx = 0, sy = 0, down = false, stickT = 0;
@@ -81,6 +81,11 @@ for (let n = 0; n < N; n++) {
       trip.tap();
       restT = 0;
       nextRest = 1 + rnd() * 6;
+    }
+    // (and the easter egg, when it's up: a player who sees it presses it, sooner or later)
+    if (trip.egg && rnd() < dt / eggEvery) {
+      if (trip.egg === 'moon') trip.toMoon();
+      else trip.toEarth();
     }
     const lim = LEG_LIMIT[leg];
     if (lim && legT > lim) {

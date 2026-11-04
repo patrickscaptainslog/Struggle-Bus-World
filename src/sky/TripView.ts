@@ -195,11 +195,12 @@ export class TripView {
     this.cy = drive(this.cy, -cx, CARVE_YAW, this.cy0);
     this.cp = drive(this.cp, -cyStick, CARVE_PITCH, this.cp0);
     if (back && Math.abs(this.cy - this.cy0) + Math.abs(this.cp - this.cp0) < 1e-4) this.carveBack = false;
-    const carved = this.carved.copy(nose);
+    // (about the bus's own roof, square to its nose, and not the view's top: on a climb straight up the nose and the top are one line, and a turn about it is any turn)
+    const carved = this.carved.copy(nose), roof0 = this.busUp;
     if (this.cy !== 0 || this.cp !== 0) {
-      carved.applyAxisAngle(this.top, this.cy);
-      const side = this.t2.crossVectors(carved, this.top);
-      if (side.lengthSq() > 1e-9) carved.applyAxisAngle(side.normalize(), this.cp);
+      carved.applyAxisAngle(roof0, this.cy);
+      const side = this.t2.crossVectors(carved, roof0);
+      if (side.lengthSq() > 1e-6) carved.applyAxisAngle(side.normalize(), this.cp);
     }
     const carving = Math.abs(this.cy) + Math.abs(this.cp) > 1e-3;
 
@@ -213,7 +214,8 @@ export class TripView {
     const h = hM - trip.ground, low = 1 - smooth01(LOW_AT, LOW_FROM, h), city = viewPitch(0, 1, this.halfV, CITY.pitch);
     this.pitch = city + (viewPitch(Math.max(h, 0) * 1000, MOON_VISTA.fade, this.halfV, MOON_VISTA.pitch) - city) * low;
     const elevation = CITY.elevation + (MOON_VISTA.elevation - CITY.elevation) * low;
-    const yoke = trip.leg === 'fall' && trip.nose < 0 ? Math.max(0, Math.min(1, (-trip.nose / DEG - C.diveFrom) / Math.max(1, config.flight.noseDown - C.diveFrom))) : 0;
+    // (and held high over a body for the easter egg, the view tips down over the bus as a full dive's does, so the whole of the world under it is in the frame with the button)
+    const yoke = trip.leg === 'fall' && trip.nose < 0 ? Math.max(0, Math.min(1, (-trip.nose / DEG - C.diveFrom) / Math.max(1, config.flight.noseDown - C.diveFrom))) : trip.egg ? 1 : 0;
     const dd = yoke - this.dive, ds = Math.max(Math.abs(dd) * (1 - Math.exp(-C.diveRate * dt)), 0.04 * dt);
     this.dive = Math.abs(dd) <= ds ? yoke : this.dive + Math.sign(dd) * ds;
     const p = (this.pitch + (C.divePitch - this.pitch) * this.dive) * DEG;

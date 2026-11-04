@@ -65,14 +65,14 @@ function fly(g5) {
     });
   };
   frame();
-  trip.tap();
+  trip.qaGo();
   frame();
-  trip.tap();
+  trip.qaGo();
   for (let i = 0; i < 40000 && trip.leg !== 'orbit'; i++) frame();
   for (let i = 0; i < 300; i++) frame();
-  trip.tap();
+  trip.qaGo();
   frame();
-  trip.tap();
+  trip.qaGo();
   for (let i = 0; i < 40000 && trip.leg !== 'wait'; i++) frame();
   for (let i = 0; i < 90; i++) frame();
   return rows;

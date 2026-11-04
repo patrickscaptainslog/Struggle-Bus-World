@@ -30,9 +30,9 @@ const open = async (ctx) => {
 };
 const orbit = (page) => page.evaluate(() => {
   const m = window.__game.moon;
-  m.trip.tap();
+  m.trip.qaGo();
   m.skip(0.1);
-  m.trip.tap();
+  m.trip.qaGo();
   for (let i = 0; i < 6000 && m.trip.leg !== 'orbit'; i++) m.skip(0.1);
   m.skip(4);
 });

@@ -35,9 +35,9 @@ async function open() {
   await page.evaluate(() => {
     const m = window.__space.moon;
     m.hold(true);
-    m.trip.tap();
+    m.trip.qaGo();
     m.skip(0.1);
-    m.trip.tap();
+    m.trip.qaGo();
     for (let i = 0; i < 40000 && m.trip.leg !== 'orbit'; i++) m.skip(0.05);
     m.hold(false);
   });

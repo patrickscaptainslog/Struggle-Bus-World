@@ -33,9 +33,9 @@ try {
     const m = window.__game.moon;
     m.hold(true);
     m.skip(0.1);
-    m.trip.tap();
+    m.trip.qaGo();
     m.skip(0.1);
-    m.trip.tap();
+    m.trip.qaGo();
   });
   let at = 0.1;
   for (const s of marks('out')) {
@@ -48,9 +48,9 @@ try {
       const m = window.__game.moon;
       for (let i = 0; i < 6000 && m.trip.leg !== 'orbit'; i++) m.skip(0.1);
       m.skip(6);
-      m.trip.tap();
+      m.trip.qaGo();
       m.skip(0.1);
-      m.trip.tap();
+      m.trip.qaGo();
     });
     at = 0.1;
     for (const s of marks('home')) {

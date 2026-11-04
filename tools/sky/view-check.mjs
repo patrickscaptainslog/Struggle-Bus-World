@@ -69,14 +69,14 @@ function fly(rough, orbitFrames) {
   frame();
   // (twice in a row: the second launch starts where the first came home)
   for (let n = 0; n < 2; n++) {
-    trip.tap();
+    trip.qaGo();
     frame();
-    trip.tap();
+    trip.qaGo();
     for (let i = 0; i < 40000 && trip.leg !== 'orbit'; i++) frame();
     for (let i = 0; i < orbitFrames; i++) frame();
-    trip.tap();
+    trip.qaGo();
     frame();
-    trip.tap();
+    trip.qaGo();
     for (let i = 0; i < 40000 && trip.leg !== 'wait'; i++) frame();
     for (let i = 0; i < 60; i++) frame();
     if (trip.leg !== 'wait' || trip.trips !== n + 1) fails++;

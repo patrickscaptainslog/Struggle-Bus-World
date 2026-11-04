@@ -24,9 +24,9 @@ try {
     const m = window.__game.moon;
     m.hold(true);
     m.skip(0.1);
-    m.trip.tap();
+    m.trip.qaGo();
     m.skip(0.1);
-    m.trip.tap();
+    m.trip.qaGo();
     for (let i = 0; i < 12000 && !(m.trip.leg === 'in' && m.trip.hMoon <= from); i++) m.skip(0.05);
     m.hold(false);
   }, from);

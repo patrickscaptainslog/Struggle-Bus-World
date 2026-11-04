@@ -61,7 +61,7 @@ try {
     await flickUp();
     await page.waitForFunction(() => window.__game.moon.trip.leg !== 'wait', null, { timeout: 20000 });
     await page.evaluate(() => {
-      window.__game.moon.trip.tap();
+      window.__game.moon.trip.qaGo();
       window.__game.moon.skip(70);
     });
     await page.waitForTimeout(600);
@@ -120,16 +120,16 @@ try {
     await shoot('00-wait');
     await flickUp();
     await page.waitForFunction(() => window.__game.moon.trip.leg !== 'wait', null, { timeout: 20000 });
-    await page.evaluate(() => window.__game.moon.trip.tap());
+    await page.evaluate(() => window.__game.moon.trip.qaGo());
     await fly(OUT.slice(1), '1');
     await page.evaluate(() => {
       const m = window.__game.moon;
       for (let i = 0; i < 4000 && m.trip.leg !== 'orbit'; i++) m.skip(0.1);
-      m.trip.tap();
+      m.trip.qaGo();
     });
     at = 0;
     await page.evaluate(() => window.__game.moon.skip(0.1));
-    await page.evaluate(() => window.__game.moon.trip.tap());
+    await page.evaluate(() => window.__game.moon.trip.qaGo());
     await fly(BACK, '2');
   }
 } finally {

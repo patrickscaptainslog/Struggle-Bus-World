@@ -28,9 +28,9 @@ try {
   for (const n of [1, 2]) {
     await page.evaluate(() => {
       const m = window.__game.moon;
-      m.trip.tap();
+      m.trip.qaGo();
       m.skip(0.1);
-      m.trip.tap();
+      m.trip.qaGo();
       m.skip(3);
     });
     await page.waitForTimeout(300);
@@ -38,9 +38,9 @@ try {
     console.log(`trip ${n} orbit:`, JSON.stringify(await until('orbit')));
     await page.evaluate(() => {
       const m = window.__game.moon;
-      m.trip.tap();
+      m.trip.qaGo();
       m.skip(0.1);
-      m.trip.tap();
+      m.trip.qaGo();
     });
     const home = await until('wait');
     await page.waitForTimeout(300);

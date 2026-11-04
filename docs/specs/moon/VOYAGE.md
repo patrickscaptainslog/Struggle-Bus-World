@@ -1,6 +1,6 @@
 # VOYAGE: the Moon trip as the producer wants it
 
-The producer, 2026-11-03, after flying FREEFLIGHT's Stages 1 to 3 on `?moonland`. Their words are in `CLAUDE.md`, "The Moon trip". This is the plan for them. V1 is built; the rest isn't yet. First picks of numbers are marked, and the producer can overrule them on the phone.
+The producer, 2026-11-03, after flying FREEFLIGHT's Stages 1 to 3 on `?moonland`. Their words are in `CLAUDE.md`, "The Moon trip". This is the plan for them. V1 is built, and V2 but for the street's flying at the Moon from orbit down. First picks of numbers are marked, and the producer can overrule them on the phone.
 
 ## In the order it's built
 
@@ -12,7 +12,7 @@ The producer, 2026-11-03, after flying FREEFLIGHT's Stages 1 to 3 on `?moonland`
 - The bus carves on the way, with the right thumb, as it turns over the street: off its set path and back to it on the lift, the path itself unchanged (the producer's word after V1's first build). The left of the screen pans.
 - The Sun is drawn bigger than true, with a glow (first pick: four times). The Moon is drawn bigger from far off and comes to its true size as the bus arrives, so it grows the whole way there. Earth stays as it is.
 
-**V2: the trip's shape (second account).**
+**V2: the trip's shape (second account).** The boost, both buttons and the welcome built 2026-11-03 and waiting on the producer's flight (`DECISIONS.md`, "The Moon trip, its second part"); the street's flying at the Moon from orbit down is still to do.
 
 - One MOON BOOST, there or back in a bit under 6 minutes (first pick: 5.5). The gears in space become that one.
 - TO THE MOON? comes up extremely high over Earth (first pick: 13,000 km, where the whole Earth just fits the view) and goes if the bus comes back under 10,000 km. Tapping it starts the boost. Until the launch from the street is in, the trip starts in Earth orbit as it does now, and the bus climbs from there.

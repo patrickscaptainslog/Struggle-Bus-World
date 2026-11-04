@@ -45,9 +45,9 @@ try {
     const s = window.__space, m = s.moon, info = s.pipeline.renderer.info;
     m.hold(true);
     m.skip(0.1);
-    m.trip.tap();
+    m.trip.qaGo();
     m.skip(0.1);
-    m.trip.tap();
+    m.trip.qaGo();
     for (let i = 0; i < 40000 && m.trip.leg !== 'orbit'; i++) m.skip(0.05);
     m.hold(false);
     if (late) {

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Flicks out in space, felt a frame at a time on a fixed step (docs/specs/moon/FREEFLIGHT.md, Stage 1): node tools/moon/flicks.mjs <out dir>
-//   wait   the label asks for a flick, and a left flick up launches
+//   wait   the label says climb, a left flick up climbs, 13,000 km up TO THE MOON? pops up, a flick down takes it away, and a tap on it sets off on the moon boost
 //   dark   in the long dark a right drag carves the bus off the path and it comes back on the lift; a left drag pans the view as far as the finger goes, and it stays; a flick on either side leaves it
 //   look   a left drag in orbit turns the view about the bus as far as the finger goes, and it stays there after the lift
-//   orbit  a right flick up as slow as the rule allows, its push felt past the old 0.15 s, goes home and starts no fall
+//   orbit  a right flick up as slow as the rule allows, its push felt past the old 0.15 s, climbs and starts no fall; 3,500 km up TO PLANET EARTH? pops up, and a tap on it goes home
 //   push   and a push held 0.3 s still starts one
 // --trip goes on from there, the whole trip on flicks: that push held to the ground, the gears coming down with it at their floors, four
 // flicks out of Express by Rainbow Warp, the flight's loop back to the orbit, and a flick home. About 2,000 frames: half an hour on software GL.
@@ -66,18 +66,43 @@ try {
   const touch = (type, x, y, ms) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 4, radiusX: 4, radiusY: 4, force: 1 }], timestamp: t0 + ms / 1000 });
   const begin = () => (t0 = Date.now() / 1000 - 2);
   const shot = (name) => page.screenshot({ path: join(dir, `${name}.png`) });
+  // the easter egg's button (src/sky/EasterEgg.ts): up, on screen, where; and a real tap on its middle
+  const egg = (qa) => page.evaluate((q) => {
+    const e = document.querySelector(`[data-hud="${q}"]`);
+    return { up: e?.dataset.up === '1', shown: !!e && getComputedStyle(e).display !== 'none', box: e ? e.getBoundingClientRect().toJSON() : null };
+  }, qa);
+  const tapEgg = async (qa) => {
+    const b = (await egg(qa)).box;
+    begin();
+    await touch('touchStart', b.x + b.width / 2, b.y + b.height / 2, 0);
+    await touch('touchEnd', b.x + b.width / 2, b.y + b.height / 2, 60);
+  };
 
-  // ---- wait: the label asks, and a left flick up launches
+  // ---- wait: the label says climb, and a left flick up climbs; extremely high TO THE MOON? comes up (VOYAGE.md V2), a flick down takes the bus back down and it goes, and a tap on it sets off
   const w0 = await read();
   await flick(cdp, 1);
   await frames(3);
   const w1 = await read();
-  row('wait: the label asks for a flick, and a left flick up launches', w0.say === 'FLICK UP FOR THE MOON' && w0.leg === 'wait' && w1.leg !== 'wait', { said: w0.say, leg: w1.leg });
-  // (the next asks for G5, and the long dark is G5's)
+  row('wait: the label says FLICK UP TO CLIMB, and a left flick up climbs', w0.say === 'FLICK UP TO CLIMB' && w0.leg === 'wait' && w1.leg === 'rise', { said: w0.say, leg: w1.leg });
+  await skipTo('high');
+  await frames(20);
+  const e1 = await egg('to-moon'), h1 = await page.evaluate(() => Math.round(window.__space.moon.trip.hEarth));
+  await shot('egg-moon');
+  row('high: 13,000 km over home TO THE MOON? pops up', e1.up && e1.shown && h1 >= 12990, { up: e1.up, shown: e1.shown, km: h1 });
+  await flick(cdp, -1);
+  await frames(25);
+  const w2 = await read(), e2 = await egg('to-moon');
+  row('high: a flick down goes back down, and the button goes', w2.leg === 'sink' && !e2.shown, { leg: w2.leg, shown: e2.shown });
+  await skipTo('wait');
   await flick(cdp, 1);
   await frames(3);
-  const armed = await page.evaluate(() => window.__space.moon.trip.armed);
-  row('out: the next flick up asks for G5', armed, { armed });
+  await skipTo('high');
+  await frames(20);
+  await tapEgg('to-moon');
+  await frames(4);
+  // (asked for, or on already: from up here it goes on at once if the Moon's clear of Earth)
+  const w3 = await read(), boost = await page.evaluate(() => window.__space.moon.trip.armed || window.__space.moon.trip.gear === 5);
+  row('high: a tap on TO THE MOON? sets off, on the moon boost', w3.leg !== 'high' && w3.leg !== 'sink' && boost, { leg: w3.leg, boost });
 
   // ---- the long dark: a right flick up is a stroke on the thumb that swings the view, and it mustn't move it
   await skipTo('cruise');
@@ -173,13 +198,24 @@ try {
   await touch('touchEnd', RX, RY - 80, 195);
   await frames(4);
   const o3 = await read();
-  row('orbit: a right flick up of 80 px in 195 ms, its push felt past 0.15 s, goes home and starts no fall', felt > 0.15 && !fell && o3.leg === 'leave', { felt, fell, leg: o3.leg });
+  row('orbit: a right flick up of 80 px in 195 ms, its push felt past 0.15 s, climbs and starts no fall', felt > 0.15 && !fell && o3.leg === 'moonRise', { felt, fell, leg: o3.leg });
+  // (and over the Moon the same easter egg: 3,500 km up, TO PLANET EARTH?, and a tap on it goes home)
+  await skipTo('moonHigh');
+  await frames(20);
+  const e4 = await egg('to-earth'), h4 = await page.evaluate(() => Math.round(window.__space.moon.trip.hMoon));
+  await shot('egg-earth');
+  await tapEgg('to-earth');
+  await frames(4);
+  const o4 = await read();
+  row('moonHigh: 3,500 km over the Moon TO PLANET EARTH? pops up, and a tap on it goes home', e4.up && e4.shown && h4 >= 3490 && o4.leg === 'leave', { up: e4.up, km: h4, leg: o4.leg });
 
   // ---- and the push still lands: home, out again, and a push held 0.3 s
   await skipTo('wait');
   await frames(2);
   await flick(cdp, 1);
   await frames(3);
+  await skipTo('high');
+  await page.evaluate(() => window.__space.moon.trip.toMoon());
   await skipTo('orbit');
   await frames(10);
   begin();
@@ -242,7 +278,12 @@ try {
     const wall = Date.now(), gears = [];
     let s1 = await at(), n = 0;
     const p0 = s1.programs;
-    for (; n < 400 && !(s1.low && s1.gap !== null && s1.gap < 20 && s1.km < 1); n++) {
+    // (down on a gear's floor near the ground; and if that gear's over Express, 10 s more for the push held there to take it on down, as a push at a floor does)
+    let onFloor = -1;
+    for (; n < 400; n++) {
+      const down = s1.low && s1.gap !== null && s1.gap < 20 && s1.km < 1;
+      if (down && onFloor < 0) onFloor = n;
+      if (down && (s1.gear <= 1 || n - onFloor >= 30)) break;
       await frames(10);
       s1 = await at();
       if (s1.low && gears.at(-1) !== s1.gear) gears.push(s1.gear);
@@ -271,7 +312,7 @@ try {
     await flick(cdp, 1);
     await frames(4);
     const s5 = await at();
-    row('trip: and a flick up there goes home', s5.leg === 'leave', { leg: s5.leg });
+    row('trip: and a flick up there climbs to the button', s5.leg === 'moonRise', { leg: s5.leg });
     console.log(`  programs: ${p0} at the push, ${s5.programs} home; ${Math.round((Date.now() - wall) / 1000)} s of wall for the trip`);
   } else await touch('touchEnd', RX, RY - 80, 300 + legs.length * 33);
   await page.evaluate(() => (window.__qa = null));

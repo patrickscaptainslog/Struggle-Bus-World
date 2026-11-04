@@ -67,13 +67,13 @@ function flyTrip(g5, iso) {
   const trip = new MoonTrip(series, Date.parse(iso) + 35400, { g5 });
   const run = (until, tap) => {
     for (let i = 0; i < 400000 && !until(); i++) {
-      if (tap?.()) trip.tap();
+      if (tap?.()) trip.qaGo();
       trip.step(DT, 0);
     }
     if (!until()) throw new Error(`never reached: ${until}`);
   };
   trip.step(DT, 0);
-  trip.tap();
+  trip.qaGo();
   let asked = false;
   run(() => trip.leg === 'orbit', () => {
     if (asked || trip.leg === 'wait') return false;
@@ -89,7 +89,7 @@ function flyTrip(g5, iso) {
   });
   const lapAt = trip.t;
   const orbitH = trip.hMoon;
-  trip.tap();
+  trip.qaGo();
   asked = false;
   run(() => trip.leg === 'wait', () => {
     if (asked || trip.leg === 'orbit') return false;
@@ -153,13 +153,13 @@ for (const g5 of all ? [3000, 6000, 10000] : [6000]) {
   const trip = new MoonTrip(series, Date.parse('2026-11-25T04:00:35Z'), { g5: 6000 });
   trip.step(DT, 0);
   for (let n = 0; n < 2; n++) {
-    trip.tap();
+    trip.qaGo();
     trip.step(DT, 0);
-    trip.tap();
+    trip.qaGo();
     for (let i = 0; i < 40000 && trip.leg !== 'orbit'; i++) trip.step(DT, 0);
-    trip.tap();
+    trip.qaGo();
     trip.step(DT, 0);
-    trip.tap();
+    trip.qaGo();
     for (let i = 0; i < 40000 && trip.leg !== 'wait'; i++) trip.step(DT, 0);
     console.log(`trip ${n + 1}: home after ${trip.clock.toFixed(1)} s, ${trip.hEarth.toFixed(1)} km up, ${trip.leg}`);
     if (trip.leg !== 'wait' || trip.trips !== n + 1) fails++;
@@ -170,9 +170,9 @@ for (const g5 of all ? [3000, 6000, 10000] : [6000]) {
 {
   const trip = new MoonTrip(series, Date.parse('2026-11-25T04:00:35Z'), { g5: 6000 });
   trip.step(DT, 0);
-  trip.tap();
+  trip.qaGo();
   trip.step(DT, 0);
-  trip.tap();
+  trip.qaGo();
   for (let i = 0; i < 40000 && trip.leg !== 'orbit'; i++) trip.step(DT, 0);
   let lo = Infinity, hi = 0;
   for (let i = 0; i < 1800; i++) {
@@ -188,7 +188,7 @@ for (const g5 of all ? [3000, 6000, 10000] : [6000]) {
   for (let i = 0; i < 30; i++) trip.step(DT, 0);
   const same = trip.leg === 'orbit' && Math.abs(trip.v - 30) < 0.1;
   // TURBO heads home from the orbit's gear, in one tap
-  trip.tap();
+  trip.qaGo();
   trip.step(DT, 0);
   const left = trip.leg;
   const ok = hi - lo < 0.01 && gear === 3 && Math.abs(g3 - 30) < 0.1 && same && left === 'leave';
@@ -208,18 +208,18 @@ if (all) {
       if (trip.log.length || trip.leg !== 'wait') lowEarth = Math.min(lowEarth, trip.hEarth);
     };
     step();
-    trip.tap();
+    trip.qaGo();
     step();
-    trip.tap();
+    trip.qaGo();
     for (let i = 0; i < 60000 && trip.leg !== 'orbit'; i++) step();
     const out = trip.clock;
     const nOut = trip.log.length;
     // a part-lap with the thumb working, so it leaves from anywhere, facing any way: the far side too, and flying dead away from Earth
     for (let i = 0; i < 37 * k; i++) step(k % 3 ? Math.sin(i / 50) : 0);
     const t0 = trip.t;
-    trip.tap();
+    trip.qaGo();
     step();
-    trip.tap();
+    trip.qaGo();
     for (let i = 0; i < 60000 && trip.leg !== 'wait'; i++) {
       step();
       lowHomeEarth = Math.min(lowHomeEarth, trip.hEarth);

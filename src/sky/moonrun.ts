@@ -23,6 +23,7 @@ import { groundTune, SkyDraw } from './SkyDraw';
 import { EARTH, MOON, R_MOON, SkyModel, SkyState, type Observer } from './SkyModel';
 import { applySpaceTable } from './SkyTable';
 import { SpaceFx, spaceFxTune } from './SpaceFx';
+import { EasterEgg } from './EasterEgg';
 import { SWING, TripView } from './TripView';
 import { geodeticToFix, sphereToFix } from './WorldFrame';
 
@@ -160,6 +161,15 @@ function readView(params: URLSearchParams, model: SkyModel, sky: SkyState, ms: n
 
 const thousands = (n: number) => Math.round(n).toLocaleString('en-US');
 
+/** s the welcome stands. */
+const WELCOME_S = 5;
+
+/**
+ * The moon boost, km/s: from TO THE MOON? to the orbit in 4.7 to 5.1 minutes, and from TO PLANET EARTH? to over home in 5.4 to 6.0, as MoonTrip flies it in Node on four dates of five (DECISIONS.md).
+ * When the Moon is behind Earth the level run round it adds two.
+ */
+const MOON_BOOST = 1550;
+
 /** A pan across the screen's width turns the view this many half turns; up and down, this many (a flick is a short stroke up, and what it tips goes back). */
 const PAN_X = 1;
 const PAN_Y = 0.5;
@@ -180,10 +190,10 @@ function tripLabel(orbitPaint: boolean): (trip: MoonTrip, breath: MoonBreath | n
   return (trip, breath) => {
     const s = Math.floor(trip.clock), leg = trip.leg;
     const a = `${leg === 'fall' && trip.nose > 0.02 ? 'GOING UP' : LEG_NAMES[leg]} ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-    const b = `G${trip.gear} ${leg === 'fall' && trip.v < 1 ? `${Math.round(trip.v * 1000)} M` : trip.v < 1 ? '0 KM' : `${thousands(trip.v)} KM`}/S ${thousands(Math.min(trip.hMoon, trip.hEarth))} KM`;
-    const asks = (leg === 'out' || leg === 'homeOut' || leg === 'climb' || leg === 'arc' || leg === 'leave') && trip.g5Room;
+    const b = `${trip.gear === 5 ? 'MOON BOOST' : `G${trip.gear}`} ${leg === 'fall' && trip.v < 1 ? `${Math.round(trip.v * 1000)} M` : trip.v < 1 ? '0 KM' : `${thousands(trip.v)} KM`}/S ${thousands(Math.min(trip.hMoon, trip.hEarth))} KM`;
+    // (a flick up climbs, and extremely high the easter egg is the way on: the label says only that, and nothing of where it goes)
     const dark = leg === 'cruise' || leg === 'homeCruise';
-    const p = trip.armed ? 'G5 ARMED' : leg === 'wait' ? 'FLICK UP FOR THE MOON' : leg === 'orbit' || (leg === 'fall' && trip.hMoon > 150) ? 'FLICK UP FOR HOME' : leg === 'fall' && !trip.lifting ? 'FLICK UP FOR ORBIT' : asks ? 'FLICK UP FOR G5' : dark ? 'DRAG TO CARVE' : '';
+    const p = leg === 'wait' || leg === 'orbit' || (leg === 'fall' && trip.hMoon > 150) ? 'FLICK UP TO CLIMB' : leg === 'fall' && !trip.lifting ? 'FLICK UP FOR ORBIT' : dark ? 'DRAG TO CARVE' : '';
     // the goal, once there is any; and until the first shot, what to do about it
     const share = breath && !breath.paint.rebuilding ? breath.paint.painted * 100 : 0;
     const d = share > 0 ? `PAINTED ${share < 1 ? share.toFixed(2) : share < 10 ? share.toFixed(1) : share.toFixed(0)} % OF THE MOON` : '';
@@ -225,7 +235,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   const sky = new SkyState();
   const clock = new SkyClock(params);
   const flying = !params.has('view');
-  const trip = flying ? new MoonTrip(series, clock.now(), { g5: Number(params.get('g5')) || 6000, land: !!land }) : null;
+  const trip = flying ? new MoonTrip(series, clock.now(), { g5: Number(params.get('g5')) || MOON_BOOST, land: !!land }) : null;
   if (land) Object.assign(YOKE, { dead: config.flight.yokeDead, up: Math.min(config.flight.noseUp, 89) * DEG, down: Math.min(config.flight.noseDown, 89) * DEG, curve: config.flight.noseCurve, rate: config.flight.noseRate });
   const view = flying ? new TripView() : null;
   const pose = flying ? null : readView(params, model, sky, clock.now());
@@ -297,6 +307,10 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   const lookAt = new THREE.Vector2();
   let lookOn = false;
   const label = flying ? tripLabel(!landing) : null;
+  // the easter eggs, and what the HUD said on arriving
+  const eggMoon = new EasterEgg('TO THE MOON?', 'to-moon', () => trip?.toMoon());
+  const eggEarth = new EasterEgg('TO PLANET EARTH?', 'to-earth', () => trip?.toEarth());
+  let legWas = trip?.leg ?? 'wait', welcomeAt = -1e9;
   if (input && hud && trip) {
     input.onTripleFinger = () => tuner.toggle();
     input.onTurbo = (dir) => {
@@ -456,7 +470,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     if (landing?.near) landing.snap(camera, bus.root);
     bus.root.updateMatrixWorld(true);
     breath.update(dt, real, sky, trip?.leg === 'orbit' && !landing, camera);
-    if (trip && names) names.update(dt, sky, trip.leg === 'in' || trip.leg === 'orbit', trip.v, trip.t, camera, focalAt(), pipeline.info.width, pipeline.info.height, popSign);
+    if (trip && names) names.update(dt, sky, trip.leg === 'in' || trip.leg === 'orbit' || trip.leg === 'moonRise' || trip.leg === 'moonHigh' || trip.leg === 'moonSink', trip.v, trip.t, camera, focalAt(), pipeline.info.width, pipeline.info.height, popSign);
     if (trip && view && fx) {
       if (landing?.near) fx.update(dt, trip.v, trip.dir, landing.axes, landing.flying.copy(view.flying).applyQuaternion(landing.q), landing.nosing.copy(view.nosing).applyQuaternion(landing.q), camera, bus.root, pipeline.pixelWorldSize(1), landing.bus);
       else fx.update(dt, trip.v, trip.dir, trip.ob.axes, view.flying, view.nosing, camera, bus.root, pipeline.pixelWorldSize(1));
@@ -464,7 +478,19 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
       hud?.update(dt, { gear: trip.gear, maxGear: 5, engaged: true, level: 0, levels: 0, mph: 0, armed: false, sinceShift: Infinity, sinceLocked: Infinity });
       if (frames % 6 === 0) label?.(trip, breath);
       // (the one thing to do up here, where a first-timer's eye is, until they've done it)
-      const ask = trip.leg === 'orbit' && (landing ? !landing.pushed : !breath.fired);
+      // (and on arriving, WELCOME TO THE MOON, the producer's: "some sort of "welcome to the moon" tab to appear that will essentially say you are in control of the bus again". Home, the same)
+      if (trip.leg !== legWas) {
+        // (from the trip's way in: not back up from the ground, nor back down from the button)
+        if (trip.leg === 'orbit' && legWas !== 'fall' && legWas !== 'moonSink' && legWas !== 'ground') {
+          hud?.toast(['WELCOME TO THE MOON', 'THE BUS IS YOURS'], WELCOME_S);
+          welcomeAt = time;
+          asked = false;
+        } else if (trip.leg === 'wait' && legWas !== 'sink') hud?.toast(['WELCOME HOME'], WELCOME_S);
+        legWas = trip.leg;
+      }
+      eggMoon.update(real, trip.egg === 'moon');
+      eggEarth.update(real, trip.egg === 'earth');
+      const ask = trip.leg === 'orbit' && time > welcomeAt + WELCOME_S && (landing ? !landing.pushed : !breath.fired);
       if (ask !== asked) {
         asked = ask;
         if (ask) hud?.toast(landing ? ['PUSH TO LAND'] : ['TAP TO PAINT'], 3600);

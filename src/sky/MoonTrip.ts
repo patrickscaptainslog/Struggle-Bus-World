@@ -27,6 +27,8 @@ const G4 = 300;
 /** G4's floor, on both bodies, and G5's: 13,000 km, close to where Earth just fits the 38 degree lens. */
 const ALT4 = 300;
 const ALT5 = 13000;
+/** km over the Moon where TO PLANET EARTH? comes up, as TO THE MOON? does at ALT5 over home: where the whole of it just fits the lens (VOYAGE.md). */
+const MOON_HIGH = 3500;
 /** The level run, when the target is behind the Earth (MOONSHOT.md section 3, Appendix A). */
 const ARC_H = 3000;
 /** Degrees of clearance over a limb before the path may leave for the far body. */
@@ -74,17 +76,23 @@ const PUSH_HOLD = 0.15;
 /** How near the orbit's height a climb starts to level off, s of its own speed, so it comes onto the floor and doesn't stop dead under it. */
 const FLARE_S = 1.5;
 
-export type Leg = 'wait' | 'climb' | 'arc' | 'out' | 'cruise' | 'in' | 'orbit' | 'fall' | 'ground' | 'leave' | 'homeOut' | 'homeCruise' | 'homeIn' | 'homeLevel' | 'homeDrop';
+export type Leg = 'wait' | 'rise' | 'high' | 'sink' | 'climb' | 'arc' | 'out' | 'cruise' | 'in' | 'orbit' | 'moonRise' | 'moonHigh' | 'moonSink' | 'fall' | 'ground' | 'leave' | 'homeOut' | 'homeCruise' | 'homeIn' | 'homeLevel' | 'homeDrop';
 
 /** What the small label calls each leg (MOONSHOT.md's table). */
 export const LEG_NAMES: Record<Leg, string> = {
   wait: 'OVER HOME',
+  rise: 'CLIMBING',
+  high: 'HIGH OVER HOME',
+  sink: 'GOING BACK DOWN',
   climb: 'CLIMBING CLEAR',
   arc: 'LEVEL RUN',
   out: 'LEAVING',
   cruise: 'THE LONG DARK',
   in: 'COMING IN',
   orbit: 'IN ORBIT',
+  moonRise: 'CLIMBING',
+  moonHigh: 'HIGH OVER THE MOON',
+  moonSink: 'GOING BACK DOWN',
   fall: 'GOING DOWN',
   ground: 'ON THE MOON',
   leave: 'ROUND THE MOON',
@@ -264,12 +272,34 @@ export class MoonTrip {
 
   /** The thumb steers the bus on these legs. Everywhere else it swings the camera. */
   get steering(): boolean {
-    return this.leg === 'wait' || this.leg === 'orbit' || this.leg === 'fall';
+    return this.leg === 'wait' || this.leg === 'high' || this.leg === 'orbit' || this.leg === 'moonHigh' || this.leg === 'fall';
+  }
+
+  /** The easter egg up now, if any: TO THE MOON? high over home, TO PLANET EARTH? high over the Moon (moonrun.ts draws it, and a tap on it is toMoon() or toEarth()). */
+  get egg(): 'moon' | 'earth' | null {
+    return this.leg === 'high' ? 'moon' : this.leg === 'moonHigh' ? 'earth' : null;
+  }
+
+  /** TO THE MOON?: off from high over home, by the moon boost. */
+  toMoon(): void {
+    if (this.leg === 'high') this.launch();
+  }
+
+  /** TO PLANET EARTH?: home from high over the Moon, the same way. */
+  toEarth(): void {
+    if (this.leg === 'moonHigh') this.leaveMoon();
+  }
+
+  /** QA (tools/sky/route-check.mjs and the like): what a flick did before the easter egg: off for the Moon from over home, home from the orbit or high on the way down, and anywhere else a flick. */
+  qaGo(): void {
+    if (this.leg === 'wait') this.launch();
+    else if (this.leg === 'orbit' || (this.leg === 'fall' && this.hMoon > 150)) this.leaveMoon();
+    else this.tap();
   }
 
   /** The body this leg is going to: TripView.ts keeps it over the bus while it lies ahead. */
   get bound(): BodyId {
-    return this.leg === 'wait' || this.leg === 'leave' || this.leg === 'homeOut' || this.leg === 'homeCruise' || this.leg === 'homeIn' || this.leg === 'homeLevel' || this.leg === 'homeDrop' ? EARTH : MOON;
+    return this.leg === 'wait' || this.leg === 'rise' || this.leg === 'high' || this.leg === 'sink' || this.leg === 'leave' || this.leg === 'homeOut' || this.leg === 'homeCruise' || this.leg === 'homeIn' || this.leg === 'homeLevel' || this.leg === 'homeDrop' ? EARTH : MOON;
   }
 
   /** Full stick's turn, rad/s. */
@@ -287,7 +317,7 @@ export class MoonTrip {
     this.tapped = true;
   }
 
-  /** A flick down, what the down tab was: G5 not asked for after all. */
+  /** A flick down, what the down tab was: a climb out of the orbit's floor let go. The moon boost isn't to be had or not: there's one, and it's on. */
   shiftDown(): void {
     this.downTapped = true;
   }
@@ -350,22 +380,18 @@ export class MoonTrip {
     if (this.tapped) {
       this.tapped = false;
       switch (this.leg) {
+        // (a flick up climbs: extremely high the button comes up, and that's the way on. The producer: "i dont like flick up for the moon function")
         case 'wait':
-          this.launch();
-          break;
-        case 'climb':
-        case 'arc':
-        case 'out':
-        case 'leave':
-        case 'homeOut':
-          if (this.g5Room) this.armed = true;
+        case 'sink':
+          this.rise('rise');
           break;
         case 'orbit':
-          this.leaveMoon();
+        case 'moonSink':
+          this.rise('moonRise');
           break;
         case 'fall':
-          // (up here it goes home. Under that the gear goes up and the bus with it, as a flick does on the ground: a flick is a shift, and it may be early)
-          if (this.hMoon > 150) this.leaveMoon();
+          // (up here it climbs to the button. Under that the gear goes up and the bus with it, as a flick does on the ground: a flick is a shift, and it may be early)
+          if (this.hMoon > 150) this.rise('moonRise');
           else if (!this.lifting) {
             this.climbV = G3;
             this.lifting = true;
@@ -377,9 +403,23 @@ export class MoonTrip {
     }
     if (this.downTapped) {
       this.downTapped = false;
-      this.armed = false;
-      if (this.lifting) this.endClimb();
+      // (and a flick down goes back down, the button with it)
+      if (this.leg === 'rise' || this.leg === 'high') this.rise('sink');
+      else if (this.leg === 'moonRise' || this.leg === 'moonHigh') this.rise('moonSink');
+      else if (this.lifting) this.endClimb();
     }
+  }
+
+  /** Up to the button, or back down from it: G4, straight up and straight down. */
+  private rise(leg: 'rise' | 'sink' | 'moonRise' | 'moonSink'): void {
+    this.gear = 4;
+    this.ti = 0;
+    this.nose = 0;
+    this.climbV = 0;
+    this.lifting = this.settling = false;
+    // (from rest, or turning straight round on a radial, the path is free: there's no side to swing it by, and the view eases the nose round)
+    this.atRest = true;
+    this.enter(leg);
   }
 
   /** The gear lets go of the speed, and the law takes it from there. */
@@ -396,7 +436,8 @@ export class MoonTrip {
     this.ti = 0;
     this.v = G0;
     this.eta = 280;
-    this.armed = false;
+    // (one moon boost, the producer's: "i want there to be one default moon boost turbo mode that brings you to and from the moon in a bit less than 6 min". It's asked for at the launch, and goes on at G5's floor)
+    this.armed = true;
     this.g5Room = true;
     this.facing = false;
     // (from rest the path is free: only the nose has to swing, and TripView eases that)
@@ -411,7 +452,8 @@ export class MoonTrip {
     this.lifting = this.settling = false;
     this.gear = 4;
     this.ti = 0;
-    this.armed = false;
+    // (and home the same way)
+    this.armed = true;
     this.g5Room = true;
     this.rLevel = len(this.ob.pos);
     this.enter('leave');
@@ -552,6 +594,16 @@ export class MoonTrip {
     }
   }
 
+  /** Held at radius k along the radial u, of the body this frame is on, level, slow: the end of a climb to the button or a way back down. */
+  private hold(u: V, k: number): void {
+    const p = this.ob.pos;
+    for (let i = 0; i < 3; i++) p[i] = u[i] * k;
+    tangent(this.heading, u, this.heading);
+    this.dir.set(this.heading);
+    this.v = G0;
+    this.ti = 0;
+  }
+
   /** Level at this radial, the way the view's top points: the way the pull-up leaves. */
   private headUp(u: V): void {
     if (Math.abs(dot(this.roof, u)) < 0.999) tangent(this.roof, u, this.heading);
@@ -603,6 +655,41 @@ export class MoonTrip {
         this.dir.set(this.heading);
         return true;
       }
+      // ---- up to the button high over home, and back down to over home (VOYAGE.md V2)
+      case 'rise': {
+        if (hE >= ALT5) {
+          this.hold(setUnit(r, u), R_E + ALT5);
+          this.enter('high');
+          return false;
+        }
+        this.spool(G4, dt);
+        this.go(setUnit(r, u), dt);
+        return true;
+      }
+      case 'high': {
+        // held there, the thumb turning it, as over home: TO THE MOON? is up (moonrun.ts)
+        const p = this.ob.pos;
+        setUnit(r, u);
+        this.yaw(stick, dt, u);
+        this.v = G0;
+        for (let i = 0; i < 3; i++) p[i] = u[i] * (R_E + ALT5);
+        this.dir.set(this.heading);
+        return true;
+      }
+      case 'sink': {
+        // (to over home as it is now: Earth has turned under the bus while it was up)
+        const hc = this.hc;
+        for (let i = 0; i < 3; i++) d[i] = hc[i] * (R_E + ALT4) - r[i];
+        if (len(d) < Math.max(5, this.v * dt) || hE <= ALT4) {
+          this.hold(hc, R_E + ALT4);
+          this.enter('wait');
+          return false;
+        }
+        setUnit(d, d);
+        this.spool(G4, dt);
+        this.go(d, dt);
+        return true;
+      }
       // ---- out
       case 'climb':
         if (this.moonClear()) {
@@ -610,6 +697,8 @@ export class MoonTrip {
           return false;
         }
         if (hE >= ARC_H) {
+          // (at the height it's at: from TO THE MOON? the bus may face the run's way already, and the run takes its height only from a turn)
+          this.rLevel = dE;
           this.enter('arc');
           return false;
         }
@@ -711,6 +800,42 @@ export class MoonTrip {
           h[i] = hi * c - ui * s;
         }
         this.dir.set(h);
+        return true;
+      }
+      // ---- up to the button high over the Moon, and back down to the orbit
+      case 'moonRise': {
+        setUnit(rm, u);
+        if (hM >= MOON_HIGH) {
+          this.hold(u, R_M + MOON_HIGH);
+          this.enter('moonHigh');
+          return false;
+        }
+        this.spool(G4, dt);
+        this.go(u, dt);
+        return true;
+      }
+      case 'moonHigh': {
+        // held there, the thumb turning it: TO PLANET EARTH? is up
+        const p = this.ob.pos;
+        setUnit(p, u);
+        this.yaw(stick, dt, u);
+        this.v = G0;
+        for (let i = 0; i < 3; i++) p[i] = u[i] * (R_M + MOON_HIGH);
+        this.dir.set(this.heading);
+        return true;
+      }
+      case 'moonSink': {
+        setUnit(rm, u);
+        if (hM <= ALT4) {
+          this.hold(u, R_M + ALT4);
+          this.rOrbit = R_M + ALT4;
+          this.gear = 3;
+          this.enter('orbit');
+          return false;
+        }
+        for (let i = 0; i < 3; i++) this.w[i] = -u[i];
+        this.spool(G4, dt);
+        this.go(this.w, dt);
         return true;
       }
       case 'fall': {
