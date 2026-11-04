@@ -35,7 +35,7 @@ The street's side: `config.flight.ceiling` 15 km (`docs/specs/flight/ASCENT.md`)
 
 ## The stages
 
-Each ends with checks run on the final build (the tools below), a push to `feat/earthfree`, and the producer's preview link: `https://struggle-bus-world-git-feat-earthfree-patricks-projects-9ff6e721.vercel.app/?earth&fps`, or for E1 `?moonland&fps`. The next stage starts at once unless the producer says wait (first pick: theirs to say).
+Each ends with checks run on the final build (the tools below), a push to `feat/earth`, and the producer's preview link: `https://struggle-bus-world-git-feat-earth-patricks-projects-9ff6e721.vercel.app/?earth&fps`, or for E1 `?moonland&fps`. The next stage starts at once unless the producer says wait (first pick: theirs to say).
 
 ### E1: the free leg over the plain Earth (in `?moonland`, no street yet). About 2 days
 
@@ -93,7 +93,7 @@ All taken by the producer, 2026-11-04: "Ok. It's a go", with Opus 5.5 at extra h
 | The flight's far field over a city | from 60 km down |
 | The page change to and from the Moon | a few seconds into the long dark, the last frame held |
 | The flag | `?earth`, the street's default only on the producer's word |
-| The branch | `feat/earthfree`, cut from `feat/moonfree`, so the Moon's work can be reviewed and merged on its own |
+| The branch | `feat/earthfree`, cut from `feat/moonfree`, so the Moon's work can be reviewed and merged on its own. Renamed `feat/earth` on 2026-11-04: the preview's host name for `feat/earthfree` is 64 characters, one over what a name may be, so the link didn't exist |
 
 ## Risks
 
