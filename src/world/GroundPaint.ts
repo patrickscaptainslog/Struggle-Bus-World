@@ -377,6 +377,8 @@ export class GroundPaint {
   private readonly geoOpen: string[] = [];
   private readonly geoTmp = [0, 0, 0];
   private readonly geoTmp2 = [0, 0, 0];
+  /** fold's scratch tiles, kept for the next blast */
+  private readonly scratchPool: Uint8Array[] = [];
   /** the tiles' localStorage key prefix (null: the id scheme is unknown, nothing is read or written) */
   private readonly prefix: string | null;
   readonly scheme: IdScheme | null;
@@ -884,13 +886,20 @@ export class GroundPaint {
    */
   private fold(spec: BlastSpec) {
     const g = this.geo!, ts = this.tileSize, p = this.prepare(spec);
-    const scratch = new Map<string, TileMask>();
+    // (the splat and its spatter apart: spatter only lands on bare ground, so it goes into a picture only where that's bare, as it lands on a tile)
+    const scratch = new Map<string, [TileMask, TileMask]>();
+    let used = 0;
     for (const key of this.tilesOf(p)) {
       const c = key.indexOf(','), tx = Number(key.slice(0, c)), tz = Number(key.slice(c + 1));
-      const m = { ox: tx * ts, oz: tz * ts, data: new Uint8Array(TEXELS * 4) } as unknown as TileMask;
-      this.rows(m, p, null, 0, GROUND_N - 1, null, false);
-      this.dots(m, p, null, null);
-      scratch.set(key, m);
+      const two = [0, 1].map(() => {
+        const data = (this.scratchPool[used] ??= new Uint8Array(TEXELS * 4));
+        used++;
+        data.fill(0);
+        return { ox: tx * ts, oz: tz * ts, data } as unknown as TileMask;
+      }) as [TileMask, TileMask];
+      this.rows(two[0], p, null, 0, GROUND_N - 1, null, false);
+      this.dots(two[1], p, null, null);
+      scratch.set(key, two);
     }
     // (the pictures the blast's box reaches, in latitude and longitude)
     const box = this.boxOf(p.minX, p.minZ, p.maxX, p.maxZ);
@@ -912,14 +921,23 @@ export class GroundPaint {
           const x = (c00[0] * (1 - u) + c10[0] * u) * (1 - v) + (c01[0] * (1 - u) + c11[0] * u) * v;
           const z = (c00[1] * (1 - u) + c10[1] * u) * (1 - v) + (c01[1] * (1 - u) + c11[1] * u) * v;
           if (x < p.minX || x > p.maxX || z < p.minZ || z > p.maxZ) continue;
-          const tx = Math.floor(x / ts), tz = Math.floor(z / ts), m = scratch.get(`${tx},${tz}`);
-          if (!m) continue;
+          const tx = Math.floor(x / ts), tz = Math.floor(z / ts), two = scratch.get(`${tx},${tz}`);
+          if (!two) continue;
+          const [m, dm] = two;
           const i2 = Math.min(GROUND_N - 1, Math.floor((x - m.ox) / cs)), j2 = Math.min(GROUND_N - 1, Math.floor((z - m.oz) / cs));
-          const q = (j2 * GROUND_N + i2) * 4, cov = m.data[q];
-          if (!cov) continue;
-          const t = (b * GROUND_N + a) * 4, old = d[t];
-          d[t] = Math.max(old, cov);
-          if (cov >= 128 || cov > old) d[t + 1] = m.data[q + 1];
+          const q = (j2 * GROUND_N + i2) * 4, cov = m.data[q], dc = dm.data[q];
+          if (!cov && !dc) continue;
+          const t = (b * GROUND_N + a) * 4;
+          if (cov) {
+            const old = d[t];
+            d[t] = Math.max(old, cov);
+            if (cov >= 128 || cov > old) d[t + 1] = m.data[q + 1];
+          }
+          if (dc && d[t] < 128) {
+            const old = d[t];
+            d[t] = Math.max(old, dc);
+            if (dc >= 128 || dc > old) d[t + 1] = dm.data[q + 1];
+          }
           any = true;
         }
       }

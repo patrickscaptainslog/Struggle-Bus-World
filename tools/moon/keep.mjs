@@ -73,7 +73,8 @@ try {
   // ---- kept
   await open(true);
   const a = await blast(), a0 = await paintAt(a.lat, a.lon);
-  const stored = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.includes('ground') && k.includes('geo:')).length);
+  await frames(30);
+  const stored = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.includes('ground') && k.includes('gpic:')).length);
   row('kept: a blast on open ground is painted, and kept by its place on the Moon', a0.cov >= 0.5 && a0.kept >= 1 && stored >= 1, { at: a, paint: a0, cells: stored });
   await page.screenshot({ path: join(dir, 'kept.png') });
 
