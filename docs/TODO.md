@@ -22,15 +22,19 @@ Same branch. The producer flew Stages 1 to 3 and ruled on the trip (`CLAUDE.md`,
 - [x] E3 of the whole Earth, the page change in the long dark, on `feat/earthfree-e3` by a second session of this account, merged into `feat/earthfree` by the first session when it passes (the producer, 2026-11-04: "Ok let's do it", two sessions at once). E2 stays with the first session. Built and pushed 2026-11-04 (`DECISIONS.md`, "E3"), and merged the same night, its whole-trip test passing on the merged branch
 - [ ] The whole Earth, flown freely (the producer, 2026-11-04; `CLAUDE.md`, "The Moon trip"): one page from the street up with no cut, free flight anywhere over a plain temporary Earth at any height, TO THE MOON? very high up, and back down to the street over San Francisco. The plan is [specs/earth/EARTHFLIGHT.md](specs/earth/EARTHFLIGHT.md), stages E1 to E4, on `feat/earth` (first `feat/earthfree`, whose preview link was too long to exist) cut from this branch. Earth and the Moon swap pages in the dark between them, a second of still stars: the producer's "Ok". The first picks are the producer's ("It's a go", 2026-11-04), and E1 started that night. E1, E2 and E3 built and pushed that night, waiting on the producer's flight; E4, in and out of the city low down, waits for that flight (EARTHFLIGHT.md)
 - [ ] V3: pinch to zoom
-- [ ] The first account's review, [reviews/moonfree-earth-2026-11-04.md](reviews/moonfree-earth-2026-11-04.md): the two blockers and nine majors fixed before anything goes to `main`, then reviewed again; the minors after
+- [ ] The first account's review, [reviews/moonfree-earth-2026-11-04.md](reviews/moonfree-earth-2026-11-04.md): the two blockers and nine majors fixed before anything goes to `main`, then reviewed again; the minors after. Fixed 2026-11-04 (4badd9b) and reviewed again the same day, [reviews/earth-fixes-2026-11-04.md](reviews/earth-fixes-2026-11-04.md): nine of the eleven hold, and two of the fixes brought four new problems to fix before `main`: P1, a cell of the Moon's open ground keeps 32 blasts, so much-painted ground loses paint on the next visit; P2, after a reload the paint comes back blast by blast over seconds; P3, `geoAt` misses cells at a tile's east or west end; P4, the street's wind plays on in space. Then the minors
+- [ ] Home from the Moon comes down wherever the player aims, not over the city the trip left (the producer, 2026-11-04: "I want someone to return to earth and land wherever on earth they aim at and fly into"; `CLAUDE.md`, "The Moon trip"). Over a city with a street the street takes the bus; anywhere else it's the plain Earth until the living Earth fills it in (LIVING.md, stage 1)
+- [ ] Sign `docs/specs/earth/CONTRACT.md` once the first account has drafted it, or change it with the first account until both can; then life, LIVING.md's stage 1, on `feat/life`
 
 ## First account: from 2026-11-05 13:00 UTC (5 am Pacific), when its weekly limit resets (the producer, 2026-11-04)
 
 Start with [BRIEF.md](BRIEF.md): what the second account built meanwhile, what isn't live, and what to agree on.
 
 - [x] Review `feat/moonfree`, then `feat/earth` on it (BRIEF.md says where to look hardest). Done 2026-11-04, with the real-GPU checks: [reviews/moonfree-earth-2026-11-04.md](reviews/moonfree-earth-2026-11-04.md)
-- [ ] Review again: the second account's fixes for that review's two blockers and nine majors, on `feat/earth` from 4badd9b to 8992444 (`DECISIONS.md`, "The first account's review, its blockers and majors fixed", says what changed and what was checked). The minors are still to do, after
-- [ ] Plan a living Earth, real terrain and buildings and things that move, live planes and ships among them (the producer, 2026-11-04; BRIEF.md has their words and the questions). Drafted 2026-11-04 as [specs/earth/LIVING.md](specs/earth/LIVING.md), waiting for the producer's approval. Nothing is built before it
+- [x] Review again: the second account's fixes for that review's two blockers and nine majors, on `feat/earth` from 4badd9b to 8992444 (`DECISIONS.md`, "The first account's review, its blockers and majors fixed", says what changed and what was checked). The minors are still to do, after. Done 2026-11-04, with the real-GPU checks: [reviews/earth-fixes-2026-11-04.md](reviews/earth-fixes-2026-11-04.md). Its long frames, taken while the sky build ran on the same laptop, get run again quiet
+- [x] Plan a living Earth, real terrain and buildings and things that move, live planes and ships among them (the producer, 2026-11-04; BRIEF.md has their words and the questions). Drafted 2026-11-04 as [specs/earth/LIVING.md](specs/earth/LIVING.md) and approved the same day: "Ok. I love this living earth plan", with their additions in it (cargo ships simulated on the real lanes and painted, ferries simulated everywhere, weather noted for way later)
+- [ ] `docs/specs/earth/CONTRACT.md`: what a tile gives life, what life gives the renderer, how a mover takes paint, and the weather as an input held at clear. Drafted by this account, signed by the second, before either builds (LIVING.md, "Who does what")
+- [ ] Stage 0's downloads: the Bay Area's inputs listed one by one for the producer's OK, with file, source and size, then archived before Overture deletes the release (LIVING.md, "Stage 0")
 - [ ] The real sky, live (the producer, 2026-11-04: "put in blue hour live and make the time of day change with realtime time of day, while also putting in the stars"). Being built on `feat/clock`, cut from `main`, with its brief in `docs/specs/sky/LIVE.md` there: the Sun on the real clock, night in the blue hour's look, stars, planets and the Moon. It changes `skyResolve.ts`, `PixelPipeline.ts`, `main.ts` and `config.ts`, and ports `SkyModel.ts` and the sky's data from this branch byte for byte. So once it's on `main`, `feat/earth` merges `main`
 
 - [ ] Review each stage above as it's handed in, and fly the long real-time checks on a real GPU. Stages 2 and 3 leave these (FREEFLIGHT.md): 500 km low at Jet, a lap at Stratos with memory read, the worker keeping up at Stratos, the flight's low band slide by hand, and night as it looks
@@ -44,6 +48,8 @@ Start with [BRIEF.md](BRIEF.md): what the second account built meanwhile, what i
 - [x] Pinch to zoom on the trip only, or everywhere. Everywhere, the street included (2026-11-03)
 - [x] The bus's lane on the street too, in place of the left 42 % look zone? Yes (2026-11-04): "Yes San Francisco should work the same, replacing the left side look". So `feat/thumbs` waits for it before it goes live: it's built on `feat/moonfree` and reaches `feat/thumbs` from there
 - [ ] OK for the two-thumb controls to go live
+- [x] Approve the living Earth plan: "Ok. I love this living earth plan" (2026-11-04)
+- [ ] A used iPhone 13, bought, for the game's floor (LIVING.md's pick: now, about $210-290). The engineers can't buy anything
 
 ## Later, in this order
 
@@ -55,4 +61,4 @@ Start with [BRIEF.md](BRIEF.md): what the second account built meanwhile, what i
 
 ## On hold
 
-Don't start these: streets and highways, weather and clouds, satellites. Moving things are off hold for the plan above.
+Don't start these: streets and highways (but for freeway surfaces, which the cars need: LIVING.md's approved pick), weather and clouds (planned, way later), satellites. Moving things are the living Earth now, approved, and start after `CONTRACT.md`.

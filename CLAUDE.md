@@ -13,6 +13,7 @@ This repo is public. No secrets, private notes or personal details in code, docs
 These beat every older doc. `README.md`, `HANDOFF.md` and `DECISIONS.md` are history where they disagree: the README still has tilt and the TURBO button. When the producer rules on something new, put it here in the same commit.
 
 **The game**
+- We work as a world-class game studio, and every call is made that way: "I also want to emphasize that you are a world class game design studio - and at building this game and making decisions through that lens - strive to build an extraordinary, beautiful, engaging game at all times" (2026-11-04). A choice between the quick thing and the extraordinary one is the producer's to make, not ours to make quietly.
 - Painting is the whole point, on the Moon too: "i need to be able to paint the moon. thats the whole point of the game." Never treat a place as something only to look at.
 - Paint is the only saturated thing in the world, and there's no brown. Palette ramps only, in an indexed-colour G-buffer (`docs/specs/COMMON.md`).
 - It has to scale to the whole world. Data-driven looks any city gets from OpenStreetMap or Overture, no new hand-made San Francisco one-offs. Each city is its own flat map: the round Earth is unbuilt.
@@ -46,8 +47,14 @@ These beat every older doc. `README.md`, `HANDOFF.md` and `DECISIONS.md` are his
 - The Sun and the Moon are drawn bigger, and the Moon grows as the bus comes to it: "why is the moon/sun so smally depicted in this game?" Earth stays as it is: "the earth does however look great - and the earth does slowly shrink in size, well done."
 - The trail on the way is alive and a little random, never still: "it is too static, like its frozen and im afraid players will think their game stalled."
 - On the way the bus carves and turns about its set path as it does over the street, with the right thumb, and the left pans: "On the journey to the moon, even though the path is set and straight, I want to have the players be able to carve and turn and… move through the sky. Similar to how they normally do, this might be relaxing and give more of a sense of control - like they're actually flying".
+- Home from the Moon comes down wherever the player aims, not over the city they left: "I want someone to return to earth and land wherever on earth they aim at and fly into" (2026-11-04, on reading that the return ends at the city you started in). Today the trip home flies itself back to 300 km over the page's city.
 
-**On hold.** Start none of these until the producer says so: streets and highways, weather and clouds, satellites. Moving things are off hold for planning: the producer, 2026-11-04, "I want to start populating the earth map with real terrain/buildings ... I want to add: people, cars ferries planes (real live real time planes) and like cruise ships and sailboats in popular bays and harbor. I want to bring life into this game." The plan comes first, the first account's, and the producer approves it (`docs/BRIEF.md`).
+**The living Earth** (approved 2026-11-04: "Ok. I love this living earth plan"; `docs/specs/earth/LIVING.md` is the plan)
+- Real terrain and every building, and life on them: people, cars, ferries, sailboats, cruise ships, cargo ships and planes. Life follows paint: grey life is quiet, painted life comes alive, and paint stays the only saturated thing.
+- Planes are live, from ADS-B, through one small relay. Everything else is simulated on the real map by the real local time. Ferries: "ferries don't need I be live accurate - just very educated guess simulated across the world". Cargo ships cross the oceans, simulated as the world's real fleet on the real lanes, since accurate live data isn't easy to get, and players paint them: "Add cargo ships going across oceans - if easy to get accurate live data - do that - if not do your best to accurately simulate the worlds cargo ship ecosystem and allow for players to paint".
+- The first account has the world (`feat/world`), the second has life (`feat/life`), the Bay Area first for both, and nothing is built before `docs/specs/earth/CONTRACT.md` is signed by both.
+
+**On hold.** Start none of these until the producer says so: streets and highways (but for freeway surfaces, which the cars need: LIVING.md's approved pick, lane lines and the rest still held), weather and clouds, satellites. Weather is planned, way later: "just note in the design schema that we will eventually plan to add weather. But way later" (2026-11-04). Life takes the weather as an input from the start, held at clear.
 
 **Numbers**
 - 393 x 852 game pixels at 3x. The floor is an A15 at 30 fps, and Safari 15 has to parse the build. 120-200 draws, 1.0-1.5 M triangles. Nothing compiles in flight.
