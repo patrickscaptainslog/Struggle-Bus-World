@@ -196,7 +196,7 @@ function tripLabel(orbitPaint: boolean): (trip: MoonTrip, breath: MoonBreath | n
     const a = `${leg === 'fall' && trip.nose > 0.02 ? 'GOING UP' : LEG_NAMES[leg]} ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
     // (at the Moon from the orbit down, the street's gear by name)
     const g = leg === 'orbit' || leg === 'fall' ? GEAR_NAMES[trip.rung] : trip.gear === 5 ? 'MOON BOOST' : `G${trip.gear}`;
-    const b = `${g} ${trip.v < 1 ? `${Math.round(trip.v * 1000)} M` : `${thousands(trip.v)} KM`}/S ${thousands(Math.min(trip.hMoon, trip.hEarth))} KM`;
+    const b = `${g} ${trip.v < 1 ? `${Math.round(trip.v * 1000)} M` : trip.v < 10 ? `${trip.v.toFixed(1)} KM` : `${thousands(trip.v)} KM`}/S ${thousands(Math.min(trip.hMoon, trip.hEarth))} KM`;
     // (a flick up climbs, and extremely high the easter egg is the way on: the label says only that, and nothing of where it goes)
     const dark = leg === 'cruise' || leg === 'homeCruise';
     // (at the Moon a flick up is a gear up, until the top gear: there it's the way up and out)
@@ -204,7 +204,8 @@ function tripLabel(orbitPaint: boolean): (trip: MoonTrip, breath: MoonBreath | n
     const p = !top ? '' : leg === 'wait' || leg === 'orbit' || (leg === 'fall' && trip.hMoon > 150) ? 'FLICK UP TO CLIMB' : leg === 'fall' && !trip.lifting ? 'FLICK UP FOR ORBIT' : dark ? 'DRAG TO CARVE' : '';
     // the goal, once there is any; and until the first shot, what to do about it
     const share = breath && !breath.paint.rebuilding ? breath.paint.painted * 100 : 0;
-    const d = share > 0 ? `PAINTED ${share < 1 ? share.toFixed(2) : share < 10 ? share.toFixed(1) : share.toFixed(0)} % OF THE MOON` : '';
+    // (a crater from orbit is a few thousandths of a percent: it shows)
+    const d = share > 0 ? `PAINTED ${share < 0.01 ? share.toFixed(4) : share < 1 ? share.toFixed(2) : share < 10 ? share.toFixed(1) : share.toFixed(0)} % OF THE MOON` : '';
     const e = orbitPaint && leg === 'orbit' && breath && !breath.fired ? 'TAP TO PAINT' : ''; // (a toast says this, large)
     const text = `${a}|${b}|${p}|${d}|${e}`;
     if (text === last) return;
