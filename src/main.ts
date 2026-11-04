@@ -39,9 +39,8 @@ import { earthFly, earthResume, heldHour, moonLand, moonLow, moonrun } from './s
 import { CUT_NEAR, EARTH_CEILING, H_UP, SKY_FROM, SKY_TOP } from './sky/earthJoin';
 import type { EarthLanding, StreetWorld } from './sky/EarthLanding';
 import { spaceResolveUniforms as spaceU } from './render/skyResolve';
-import { Launch } from './sky/Launch';
 import type { LandEnter, Landing } from './moon/Landing';
-import { SLIDE, SLIDE_AT } from './moon/map';
+import { dirOf, latLonToMap, latOf, lonOf, SLIDE, SLIDE_AT } from './moon/map';
 import { HeldHour } from './sky/HeldHour';
 
 // Struggle Bus — Phase 1 (real SF, solo).
@@ -52,8 +51,6 @@ const LANDMARK_NAMES: Record<string, string> = { sutro: 'Sutro Tower', transamer
 
 /** The opening was seen through once on this device: a tap skips it from then on. */
 const OPENING_SEEN_KEY = 'strugglebus.opening.v1';
-/** m under the ceiling: from here up, straining is leaving the air (src/sky/Launch.ts). */
-const LAUNCH_TOP = 1000;
 
 const params = new URLSearchParams(location.search);
 if (params.has('fog')) config.fog.enabled = true;
@@ -157,6 +154,20 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (!land) scene.add(moon.sky.object);
     // (15 km over the ground it started on, as anywhere: the ceiling is a height, and the map's zero is the lowest ground near it)
     config.flight.ceiling = moon.startY + config.flight.ceiling;
+    // (open-ground paint kept by where it is on the Moon, on the map as it is: a slide or a new map round the bus finds it where it was. The first account's review, 2026-11-04)
+    const mf = moon.frame, d = [0, 0, 0];
+    city.ground.useGeo({
+      toLatLon(x, z, out) {
+        dirOf(mf, x, z, d);
+        out[0] = latOf(d);
+        out[1] = lonOf(d);
+      },
+      toXZ(lat, lon, out) {
+        latLonToMap(mf, lat, lon, d);
+        out[0] = d[0];
+        out[1] = d[1];
+      },
+    });
   }
   // (?earth: the street climbs on past its ceiling to where the flight takes it, H_UP)
   if (earthFly) config.flight.ceiling = EARTH_CEILING;
@@ -354,15 +365,6 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // ---- the hero
   const bus = new BusModel();
   const busOnScreen = new THREE.Vector3();
-  // ---- the launch from the street: at the top of the sky, going on pulling up leaves the air, and the trip's page has the bus from there, over the same place and flying the same way (src/sky/Launch.ts)
-  const launch = moon || land || earthFly
-    ? null
-    : new Launch(() => {
-        const [lat0, lon0] = manifest.origin, lat = lat0 - flight.z / 111320, lon = lon0 + flight.x / (111320 * Math.cos(lat0 * THREE.MathUtils.DEG2RAD));
-        const deg = ((THREE.MathUtils.radToDeg(flight.heading) % 360) + 360) % 360;
-        const keep = ['fps', 't', 'tune', 'g5', 'fixeddt'].filter((k) => params.has(k)).map((k) => `&${k}${params.get(k) ? `=${encodeURIComponent(params.get(k)!)}` : ''}`);
-        return `${location.pathname}?moonland&launch=${deg.toFixed(1)}&home=${lat.toFixed(4)},${lon.toFixed(4)}${keep.join('')}`;
-      });
   scene.add(bus.root);
 
   // drop shadow straight below the bus: grounds the hero (how high it flies). No decal: the resolve pass
@@ -1262,7 +1264,6 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     }
     wasFull = flight.fullness >= 1;
     // (straining at the top of the sky: a bridge deck strains the climb too, and that's no way up)
-    launch?.update(realDt, flight.y > config.flight.ceiling - LAUNCH_TOP && flight.strain > 0.3);
 
     // bus pose: squash on the tap frame and through the inhale, stretch as the jet leaves, heave while
     // barfing, wheeze when full (the squash spring is substepped like the flight: same at 30 and 60 fps)
@@ -1596,8 +1597,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   function bootSky() {
     earthBooting = true;
     if (resumed) skyHands = resumed.hands;
-    const hands = (): Partial<Input> => ({ onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd });
-    streetHands = hands();
+    // (the street's own: on ?earth&resume the flight's are on the thumb by now, so they're the ones kept from before it. The first account's review, 2026-11-04: the street took the flight's for good)
+    streetHands = resumed ? groundHands : { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd };
     const world: StreetWorld = {
       origin: [manifest.origin[0], manifest.origin[1]],
       // (the map and the reach it gives at the join's height: ASCENT.md, mapReach)
@@ -1644,9 +1645,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       .then(({ bootMoonrun }) => bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: { input, audio, rig }, earth: world }))
       .then((j) => {
         earthJoin = j as EarthLanding;
-        // (the flight set its own hands as it booted: the street keeps the bus, and its hands, until it hands up)
-        skyHands = hands();
-        if (streetHands) Object.assign(input, streetHands);
+        // (the flight made its hands as it booted, and left the street's on: the street keeps the bus, and its hands, until it hands up)
+        skyHands = earthJoin.hands;
       })
       .catch((e) => console.error('the flight behind the street', e));
   }
@@ -1661,9 +1661,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         return m.datum;
       },
       place(lat, lon, ms) {
-        // (a map is a place: nothing on the one before holds. What's painted is kept by crater and by latitude, and comes back with the place)
+        // (a map is a place: nothing on the one before holds. What's painted is kept by crater, by latitude and, on open ground, by place (GroundPaint.useGeo), and comes back with the place)
         city.reloadAll();
-        city.ground.resetAll();
+        city.ground.newMap();
         return m.place(lat, lon, ms);
       },
       frameAt: frame,
@@ -1722,7 +1722,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // (asked for now: there is no asking once the context is gone)
     const lose = renderer.getContext().getExtension('WEBGL_lose_context');
     (window as unknown as Record<string, unknown>).__game = {
-      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: hour, moon, launch,
+      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: hour, moon,
       /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
       get warm() {
         return warm;

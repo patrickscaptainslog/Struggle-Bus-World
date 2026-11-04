@@ -13,6 +13,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { browserOptions } from '../browser.mjs';
+import { flick } from '../flick.mjs';
 
 const dir = process.argv.slice(2).find((a) => !a.startsWith('--')) ?? 'shots/tmp/earth-swap';
 const BASE = process.env.BASE ?? 'http://localhost:4179/';
@@ -153,6 +154,19 @@ try {
   const st2 = await page.evaluate(() => ({ y: window.__game.flight.y, x: window.__game.flight.x, z: window.__game.flight.z }));
   await shot('home-street');
   row('home: dived from 300 km, the street takes the bus under 14 km over the city', took && st2.y > 10000 && st2.y < 14500, { diveS: +down.s.toFixed(1), km: +down.km.toFixed(2), offKm: down.offKm, took, street: [Math.round(st2.x), Math.round(st2.y), Math.round(st2.z)] });
+  // (and the thumb is the street's: a flick down shifts its ladder, not the trip's, and a tap is the street's, not a breath in the flight's unseen world. The first account's review, 2026-11-04: on this page the street took the flight's hands for good)
+  const cdp = await page.context().newCDPSession(page);
+  const hands = () => page.evaluate(() => { const T = window.__game.controls.turbo, m = window.__space.moon; return { gear: T.gear, level: T.level, rung: m.trip.rung, tLevel: m.trip.level, breaths: m.breath.stats.shots + m.breath.stats.denied }; });
+  const h0 = await hands();
+  await flick(cdp, -1, { x: 196, y: 640 });
+  await frames(6);
+  const h1 = await hands();
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 120, y: 300, id: 11, radiusX: 4, radiusY: 4, force: 1 }], timestamp: Date.now() / 1000 });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: Date.now() / 1000 + 0.06 });
+  await frames(6);
+  const h2 = await hands();
+  row("home: on the street the thumb is the street's: a flick down shifts its ladder, and a tap breathes nothing in the flight", h1.gear + h1.level === h0.gear + h0.level - 1, { before: h0, flicked: h1, tapped: h2 });
+  row("home: and the flight's own ladder and breath are left alone", h1.rung === h0.rung && h1.tLevel === h0.tLevel && h2.breaths === h0.breaths, { before: h0, flicked: h1, tapped: h2 });
 } catch (e) {
   bad++;
   console.log('FAIL ', e.message);

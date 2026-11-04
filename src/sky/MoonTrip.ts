@@ -233,7 +233,6 @@ export class MoonTrip {
   level = 0;
   rungAt = -1e9;
   /** A gear up under the orbit is taking the speed up to the gear's, as far as the law allows there. */
-  private rungUp = false;
   /** There's still room on this leg for G5: past that the way in has the speed, and a tap would ask for nothing. */
   g5Room = true;
   /** s since boot, and of the last launch. The sky's clock is ms0 + t. */
@@ -524,7 +523,6 @@ export class MoonTrip {
     // (a climb held at its gear's speed, up from the Moon's ground, goes on at the new gear's: the way up is gears)
     if (this.climbV > 0) this.climbV = rungV(this.rung, this.level);
     this.rungAt = this.t;
-    this.rungUp = d > 0;
     this.ti = 0;
   }
 
@@ -736,7 +734,7 @@ export class MoonTrip {
     tangent(this.eh, u, this.eh);
     this.nose = 0;
     this.climbV = 0;
-    this.lifting = this.settling = this.rungUp = false;
+    this.lifting = this.settling = false;
     this.ti = 0;
     this.enter('wait');
   }
@@ -1028,13 +1026,13 @@ export class MoonTrip {
         // The way up is gears, the ruling: a gear's speed, whatever the height, on its own spool. The way down is the law, and when a climb that's over has more than the law allows it comes down to it, for all it's only a limit.
         if (this.climbV > 0) this.spool(this.climbV, dt);
         else {
-          // (and the gear's speed, which the law caps: a gear down slows the bus, and a gear up takes it back up to as much as the law allows here)
-          const law = Math.min(this.lawFall(hM - this.ground), rungV(this.rung, this.level));
-          if (this.rungUp && this.v < law * 0.99) this.v += (law - this.v) * (1 - Math.exp(-HZ * dt));
-          else {
-            this.rungUp = false;
-            this.v = this.settling && this.v > law ? law + (this.v - law) * Math.exp(-3 * dt) : Math.min(this.v, law);
-          }
+          // (the gear's speed, level or climbing, as over Earth; on a dive no more than the law allows at this height, the arrival's brake, and level again it comes back up to the gear's. The first account's review,
+          // 2026-11-04: the law held it down level and climbing too, so back up to TO PLANET EARTH? after a dive took 6.6 minutes in Rainbow Warp, at 4.95 km/s)
+          const gearV = rungV(this.rung, this.level), law = this.lawFall(hM - this.ground), diving = this.nose < -0.02;
+          const want = diving ? Math.min(gearV, law) : gearV;
+          if (diving && this.v > law) this.v = law + (this.v - law) * Math.exp(-(this.settling ? 3 : 6) * dt);
+          else if (this.v > want) this.v += (want - this.v) * (1 - Math.exp(-HZ * dt));
+          else this.spool(want, dt);
           if (this.v <= law * 1.01) this.settling = false;
         }
         // (the gear the speed is in, so the low game's Jet is what the bus comes down to and goes up from)
@@ -1187,7 +1185,7 @@ export class MoonTrip {
   /** ?earth: the street takes the bus (sky/EarthLanding.ts). */
   toStreet(): void {
     this.climbV = 0;
-    this.lifting = this.settling = this.rungUp = false;
+    this.lifting = this.settling = false;
     this.eggUp = false;
     this.enter('street');
   }
@@ -1210,7 +1208,7 @@ export class MoonTrip {
     this.v = v;
     this.ti = 0;
     this.climbV = 0;
-    this.lifting = this.settling = this.rungUp = false;
+    this.lifting = this.settling = false;
     this.eggUp = false;
     this.nose = nose;
     const F = this.now.earthFix, cn = Math.cos(nose), sn = Math.sin(nose);
@@ -1230,7 +1228,6 @@ export class MoonTrip {
   fromGround(pos: V, heading: V, nose: number, v: number, gearV: number, lifting: boolean, rung = JET_RUNG, level = 0): void {
     this.rung = Math.max(0, Math.min(RUNG_TOP, rung));
     this.level = this.rung === JET_RUNG ? Math.max(0, Math.min(EARTH_LEVELS, level)) : 0;
-    this.rungUp = false;
     const p = this.ob.pos, u = setUnit(pos, this.u), cn = Math.cos(nose), sn = Math.sin(nose);
     p.set(pos);
     this.rm.set(pos);

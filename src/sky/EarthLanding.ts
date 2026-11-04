@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { Input } from '../game/Input';
 import { latLonToLocal, localToLatLon } from '../game/geo';
 import type { LandEnter } from '../moon/Landing';
 import type { MoonTrip } from './MoonTrip';
@@ -43,6 +44,8 @@ export class EarthLanding {
   ground = true;
   /** The street has just handed back: moonrun.ts takes up the HUD and the label, once. */
   cameBack = false;
+  /** ?earth, the street up first: the flight's hands on the thumb, for when it has the bus (moonrun.ts makes them, main.ts puts them on at the hand-up). */
+  hands: Partial<Input> | null = null;
   /** The flight sets the frame's state it needs as it takes the frame (moonrun.ts). */
   onTake: (() => void) | null = null;
   private readonly ob: Observer = { body: EARTH, free: false, pos: v3(), axes: new Float64Array(9) };

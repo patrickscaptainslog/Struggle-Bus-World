@@ -49,6 +49,37 @@ const OLD_KEY = 'strugglebus.ground.v1';
 const MAX_TILES = 160;
 /** Blasts kept for a tile that wasn't loaded when they landed (oldest dropped). */
 const MAX_PENDING = 6;
+/**
+ * ?moon: open-ground paint is kept by where it is on the Moon, a blast at a time, as CraterPaint keeps its strokes: in cells GEO_CELL degrees on a side, GEO_PER_CELL blasts each (the oldest go),
+ * GEO_CELLS cells (the longest untouched go). A tile's paint is drawn again from the blasts that reach it as it comes in, on whatever map it's on, so a slide or a map made again round the bus finds
+ * it where it was. GEO_REACH (m) is the most a blast reaches past its middle. The first account's review, 2026-11-04: kept by tile of a map that slides, it came back 131 km off, could overwrite
+ * older paint, and each new map round the bus (?moonland, over 16 km) wiped it.
+ */
+const GEO_CELL = 0.02;
+const GEO_PER_CELL = 32;
+const GEO_CELLS = 240;
+const GEO_REACH = 400;
+
+/** ?moon: the map's x, z (m) and the Moon's latitude and longitude (degrees), each into `out`, on the map as it is when asked. */
+export interface GroundGeo {
+  toLatLon(x: number, z: number, out: number[]): void;
+  toXZ(lat: number, lon: number, out: number[]): void;
+}
+/** A blast kept by place: when (Date.now()), where, the middle of its bands if it has them, and the rest of it as specToArray has it. */
+interface GeoBlast {
+  t: number;
+  lat: number;
+  lon: number;
+  olat?: number;
+  olon?: number;
+  a: number[];
+}
+/** A row of cells' width in longitude, degrees: as wide on the ground as GEO_CELL of latitude, up to 50 times that near a pole. */
+const geoLonCell = (i: number) => GEO_CELL / Math.max(0.02, Math.cos(((i + 0.5) * GEO_CELL * Math.PI) / 180));
+const geoCellOf = (lat: number, lon: number) => {
+  const i = Math.floor(lat / GEO_CELL);
+  return `${i},${Math.floor((((lon + 180) % 360) + 360) % 360 / geoLonCell(i))}`;
+};
 export const GROUND_N = 128;
 
 /** Uniforms every material that shows the blast shares (terrain, buildings). */
@@ -290,6 +321,29 @@ export function decodeMask(str: string, d: Uint8Array): boolean {
   return false;
 }
 
+/** ?moon's cells of blasts kept by place, after the world's prefix (useGeo). */
+const GEO_KEY = 'geo:';
+function parseGeo(raw: string | null): GeoBlast[] | null {
+  if (!raw) return null;
+  try {
+    const rows = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(rows)) return null;
+    const out: GeoBlast[] = [];
+    for (const r of rows) {
+      if (!Array.isArray(r) || r.length < 6 || !Number.isFinite(r[0]) || !Number.isFinite(r[1]) || !Number.isFinite(r[2]) || !Array.isArray(r[5]) || !specFromArray(r[5])) continue;
+      const b: GeoBlast = { t: r[0], lat: r[1], lon: r[2], a: r[5] };
+      if (Number.isFinite(r[3]) && Number.isFinite(r[4])) {
+        b.olat = r[3];
+        b.olon = r[4];
+      }
+      out.push(b);
+    }
+    return out.length ? out : null;
+  } catch {
+    return null;
+  }
+}
+
 function parseTile(raw: string | null): SavedTile | null {
   if (!raw) return null;
   try {
@@ -338,6 +392,10 @@ export class GroundPaint {
   /** A new blast will paint these tiles (keys "tx,tz"); called before its paint is drawn. */
   onTilesTouched: ((keys: string[]) => void) | null = null;
 
+  /** ?moon: kept by place, not by tile (useGeo), and the blasts so kept, by cell */
+  private geo: GroundGeo | null = null;
+  private readonly geoCells = new Map<string, GeoBlast[]>();
+  private readonly geoTmp = [0, 0, 0];
   /** the tiles' localStorage key prefix (null: the id scheme is unknown, nothing is read or written) */
   private readonly prefix: string | null;
   readonly scheme: IdScheme | null;
@@ -364,7 +422,7 @@ export class GroundPaint {
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
           if (k && stale && stale.some((p) => k.startsWith(p))) old.push(k);
-          if (!k || !k.startsWith(prefix)) continue;
+          if (!k || !k.startsWith(prefix) || k.startsWith(prefix + GEO_KEY)) continue;
           const rec = parseTile(localStorage.getItem(k));
           if (rec) this.store.set(k.slice(prefix.length), rec);
         }
@@ -375,6 +433,46 @@ export class GroundPaint {
       }
     }
     if (typeof window !== 'undefined') window.addEventListener('pagehide', () => this.persist());
+  }
+
+  /**
+   * ?moon: from here open-ground paint is kept by place on the Moon, not by tile (GEO_CELL). What the tile store held for this world, kept by tiles of some map before, means no place any more, and is dropped.
+   */
+  useGeo(g: GroundGeo) {
+    this.geo = g;
+    const prefix = this.prefix;
+    if (!this.storageOk || !prefix) return;
+    try {
+      for (const k of this.store.keys()) localStorage.removeItem(prefix + k);
+      this.store.clear();
+      const gp = prefix + GEO_KEY;
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || !k.startsWith(gp)) continue;
+        const list = parseGeo(localStorage.getItem(k));
+        if (list) this.geoCells.set(k.slice(gp.length), list);
+      }
+    } catch {
+      /* blocked: kept for the session */
+    }
+  }
+
+  /** A new map of the same world (?moonland's, made again round the bus): what memory holds of the one before goes. What's kept by place (useGeo) stays, and comes in with the new map's tiles. */
+  newMap() {
+    if (!this.geo) {
+      this.resetAll();
+      return;
+    }
+    this.store.clear();
+    this.saveQueue.length = 0;
+    this.saveSet.clear();
+  }
+
+  /** Blasts kept by place (useGeo), for QA. */
+  get geoCount(): number {
+    let n = 0;
+    for (const list of this.geoCells.values()) n += list.length;
+    return n;
   }
 
   /** Painted tiles in storage. */
@@ -466,6 +564,10 @@ export class GroundPaint {
   attach(tx: number, tz: number, ox: number, oz: number, uniforms: { tGround: THREE.IUniform; uGroundOn: THREE.IUniform }) {
     const key = `${tx},${tz}`;
     this.loaded.set(key, { ox, oz, uniforms });
+    if (this.geo) {
+      this.attachGeo(key, ox, oz);
+      return;
+    }
     const rec = this.store.get(key);
     if (!rec) return;
     const m = this.mask(key)!;
@@ -497,8 +599,9 @@ export class GroundPaint {
     for (let i = this.jobs.length - 1; i >= 0; i--) if (this.jobs[i].only === key) this.jobs.splice(i, 1);
   }
 
-  /** True if storage holds ground paint for the tile (loaded or not). */
+  /** True if storage holds ground paint for the tile (loaded or not). ?moon: a blast kept by place reaches it. */
   hasSaved(tx: number, tz: number): boolean {
+    if (this.geo) return this.geoAt(tx * this.tileSize, tz * this.tileSize, true).length > 0;
     return this.store.has(`${tx},${tz}`);
   }
 
@@ -595,10 +698,18 @@ export class GroundPaint {
       q.length = 0;
       this.markDirty(t.m, p);
       touched.push(t.key);
-      this.queueSave(t.key);
+      if (!this.geo) this.queueSave(t.key);
     }
     if (job.serial !== null) this.serialTiles.set(job.serial, touched);
-    for (const key of this.tilesOf(p)) if (touched.indexOf(key) < 0) this.addPending(key, job.spec);
+    if (this.geo) {
+      // (kept by place; a tile here that it couldn't draw has it now, and one that comes in later finds it)
+      this.keepGeo(job.spec);
+      for (const key of this.tilesOf(p))
+        if (touched.indexOf(key) < 0 && this.loaded.has(key) && this.mask(key)) {
+          this.replaying.set(key, (this.replaying.get(key) ?? 0) + 1);
+          this.jobs.push({ spec: job.spec, tImpact: 0, serial: null, p: null, tiles: [], only: key, under: false });
+        }
+    } else for (const key of this.tilesOf(p)) if (touched.indexOf(key) < 0) this.addPending(key, job.spec);
     this.saveTimer = 0.8;
     this.landed++;
     return p.dots;
@@ -643,6 +754,7 @@ export class GroundPaint {
     this.store.clear();
     this.saveQueue.length = 0;
     this.saveSet.clear();
+    this.geoCells.clear();
     const prefix = this.prefix;
     if (!prefix) return;
     try {
@@ -679,6 +791,8 @@ export class GroundPaint {
    * then keeps them. An unloaded tile writes its entry as it stands.
    */
   private saveTile(key: string, force: boolean): boolean {
+    // (kept by place, not by tile: useGeo)
+    if (this.geo) return true;
     const m = this.masks.get(key);
     let rec = this.store.get(key) ?? null;
     if (m) {
@@ -726,6 +840,113 @@ export class GroundPaint {
         if (!this.evictOldest(key)) return;
       }
     }
+  }
+
+  /** ?moon: a blast kept by place (useGeo), in its cell, and the cell saved. */
+  private keepGeo(spec: BlastSpec) {
+    const g = this.geo!, o = this.geoTmp;
+    g.toLatLon(spec.x, spec.z, o);
+    const b: GeoBlast = { t: Date.now(), lat: o[0], lon: o[1], a: specToArray(spec) };
+    if (spec.ox !== undefined && spec.oz !== undefined) {
+      g.toLatLon(spec.ox, spec.oz, o);
+      b.olat = o[0];
+      b.olon = o[1];
+    }
+    const key = geoCellOf(b.lat, b.lon);
+    let list = this.geoCells.get(key);
+    if (!list) this.geoCells.set(key, (list = []));
+    list.push(b);
+    if (list.length > GEO_PER_CELL) list.shift();
+    const prefix = this.prefix;
+    if (!this.storageOk || !prefix) return;
+    // the longest-untouched cells wash away first
+    while (this.geoCells.size > GEO_CELLS && this.evictGeo(key)) { /* evicted one */ }
+    const raw = JSON.stringify(list.map((x) => [x.t, Math.round(x.lat * 1e7) / 1e7, Math.round(x.lon * 1e7) / 1e7, x.olat === undefined ? null : Math.round(x.olat * 1e7) / 1e7, x.olon === undefined ? null : Math.round(x.olon * 1e7) / 1e7, x.a]));
+    for (let tries = 0; tries < 6; tries++) {
+      try {
+        localStorage.setItem(prefix + GEO_KEY + key, raw);
+        return;
+      } catch {
+        if (!this.evictGeo(key)) return;
+      }
+    }
+  }
+
+  private evictGeo(except: string): boolean {
+    let best: string | null = null, bt = Infinity;
+    for (const [k, list] of this.geoCells) {
+      const t = list.length ? list[list.length - 1].t : 0;
+      if (k !== except && t < bt) {
+        bt = t;
+        best = k;
+      }
+    }
+    if (best === null) return false;
+    this.geoCells.delete(best);
+    try {
+      if (this.prefix) localStorage.removeItem(this.prefix + GEO_KEY + best);
+    } catch {
+      /* blocked */
+    }
+    return true;
+  }
+
+  /** ?moon: a tile comes in, and the blasts kept by place that reach it are drawn on it again, in the order they landed. */
+  private attachGeo(key: string, ox: number, oz: number) {
+    const specs = this.geoAt(ox, oz, false);
+    if (!specs.length || !this.mask(key)) return;
+    for (const sp of specs) this.jobs.push({ spec: sp, tImpact: 0, serial: null, p: null, tiles: [], only: key, under: false });
+    this.replaying.set(key, specs.length);
+  }
+
+  /** ?moon: the blasts kept by place that reach the tile at (ox, oz), as specs on this map, in the order they landed; with `any`, the first one found. */
+  private geoAt(ox: number, oz: number, any: boolean): BlastSpec[] {
+    const g = this.geo!, ts = this.tileSize, o = this.geoTmp, pad = GEO_REACH, out: BlastSpec[] = [];
+    if (!this.geoCells.size) return out;
+    // (the tile and a blast's reach round it, in latitude and longitude: the longitudes taken round from the first corner's, so a tile on the date line is one span)
+    let la0 = 90, la1 = -90, lo0 = Infinity, lo1 = -Infinity, ref = NaN;
+    for (let c = 0; c < 4; c++) {
+      g.toLatLon(c & 1 ? ox + ts + pad : ox - pad, c & 2 ? oz + ts + pad : oz - pad, o);
+      if (Number.isNaN(ref)) ref = o[1];
+      const lon = ref + ((((o[1] - ref + 180) % 360) + 360) % 360) - 180;
+      la0 = Math.min(la0, o[0]);
+      la1 = Math.max(la1, o[0]);
+      lo0 = Math.min(lo0, lon);
+      lo1 = Math.max(lo1, lon);
+    }
+    // (near a pole the tile spans every longitude past it)
+    if (la1 > 89) la1 = 90;
+    if (la0 < -89) la0 = -90;
+    if (la1 >= 90 || la0 <= -90) {
+      lo0 = -180;
+      lo1 = 180;
+    }
+    const found: GeoBlast[] = [];
+    for (let i = Math.floor(la0 / GEO_CELL); i <= Math.floor(la1 / GEO_CELL); i++) {
+      const w = geoLonCell(i), j0 = Math.floor(lo0 / w), j1 = Math.min(Math.floor(lo1 / w), j0 + Math.ceil(360 / w));
+      for (let j = j0; j <= j1; j++) {
+        const list = this.geoCells.get(geoCellOf((i + 0.5) * GEO_CELL, (j + 0.5) * w));
+        if (list) for (const b of list) found.push(b);
+      }
+    }
+    found.sort((a, b) => a.t - b.t);
+    for (const b of found) {
+      const sp = specFromArray(b.a);
+      if (!sp) continue;
+      g.toXZ(b.lat, b.lon, o);
+      sp.x = o[0];
+      sp.z = o[1];
+      if (b.olat !== undefined && b.olon !== undefined) {
+        g.toXZ(b.olat, b.olon, o);
+        sp.ox = o[0];
+        sp.oz = o[1];
+      }
+      const reach = sp.r * Math.max(sp.reach, sp.edge * (1 + sp.ragged) + sp.rayLen) + 4;
+      if (sp.x + reach < ox || sp.x - reach > ox + ts || sp.z + reach < oz || sp.z - reach > oz + ts) continue;
+      out.push(sp);
+      if (any) break;
+    }
+    return out;
   }
 
   private evictOldest(except: string): boolean {

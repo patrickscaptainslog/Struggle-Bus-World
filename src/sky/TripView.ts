@@ -54,6 +54,12 @@ const CARVE_PITCH = 25 * DEG;
 const CARVE_BACK = 0.7;
 /** The nose's fastest swing, rad/s: the tip-up reads as a move, and the first frame of it isn't a kick. */
 const NOSE_RATE = 75 * DEG;
+/** The bus's roof, from the chase's way up squared to its nose: that says nothing under ROOF_LOST (the sine of the angle between them), all of it over ROOF_SURE. Short of that the roof turns to it at
+ *  ROOF_RATE at most, rad/s; sure of it, it's the chase's up at once, as it always was, unless that's more than ROOF_SNAP away. */
+const ROOF_LOST = 0.05;
+const ROOF_SURE = 0.3;
+const ROOF_RATE = 270 * DEG;
+const ROOF_SNAP = 20 * DEG;
 /** The share of its length the bus shows the camera in a full dive, the sine of the angle between its nose and the line of sight. The rig tips over a dive until it's looking down the bus's back, and end on a bus is its tail, a third of its size: it lifts its nose up the screen by what's short. moon/Landing.ts holds the low game to the same. */
 export const SHOW = 0.7;
 /** The city's angles, degrees, read as this module loads: on ?moonland moonBoot.ts gives config the Moon's a moment later. */
@@ -138,10 +144,15 @@ export class TripView {
   private readonly back = new THREE.Vector3();
   private readonly t = new THREE.Vector3();
   private readonly t2 = new THREE.Vector3();
+  private readonly t3 = new THREE.Vector3();
+  private readonly t4 = new THREE.Vector3();
+  private readonly t5 = new THREE.Vector3();
   private readonly nose = new THREE.Vector3();
   /** What the chase follows: the heading on a free leg, the path everywhere else, and from one to the other no faster than the nose swings, or a free leg left in a steep climb turns the view in a frame. */
   private readonly aim = new THREE.Vector3();
   private readonly busUp = new THREE.Vector3();
+  /** The path's roof: the chase's way up squared to the path's nose (roofOf). */
+  private readonly pathUp = new THREE.Vector3();
   private readonly m = new THREE.Matrix4();
   private readonly qt = new THREE.Quaternion();
   private readonly euler = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -171,6 +182,7 @@ export class TripView {
       nose.copy(ahead);
       this.aim.copy(ahead);
       this.busUp.copy(top);
+      this.pathUp.copy(top);
       if (trip.leg === 'rise') this.dive = 1;
     }
 
@@ -205,11 +217,18 @@ export class TripView {
     this.cp = drive(this.cp, -cyStick, CARVE_PITCH, this.cp0);
     if (back && Math.abs(this.cy - this.cy0) + Math.abs(this.cp - this.cp0) < 1e-4) this.carveBack = false;
     // (about the bus's own roof, square to its nose, and not the view's top: on a climb straight up the nose and the top are one line, and a turn about it is any turn)
-    const carved = this.carved.copy(nose), roof0 = this.busUp;
+    // (the carve turns the path's nose and its roof together, so the bus's roof is the path's, carved: it never comes from the carved nose, which it turns, and the two can't feed each other. The first account's
+    // review, 2026-11-04: they did, after TO THE MOON? from a steep climb with a pull held, and the bus tumbled 85 to 180 degrees a frame for up to 4 s)
+    const pathUp = this.roofOf(this.pathUp, nose, top, dt);
+    const carved = this.carved.copy(nose), roof = this.busUp.copy(pathUp);
     if (this.cy !== 0 || this.cp !== 0) {
-      carved.applyAxisAngle(roof0, this.cy);
-      const side = this.t2.crossVectors(carved, roof0);
-      if (side.lengthSq() > 1e-6) carved.applyAxisAngle(side.normalize(), this.cp);
+      carved.applyAxisAngle(pathUp, this.cy);
+      const side = this.t2.crossVectors(carved, pathUp);
+      if (side.lengthSq() > 1e-6) {
+        side.normalize();
+        carved.applyAxisAngle(side, this.cp);
+        roof.applyAxisAngle(side, this.cp);
+      }
     }
     const carving = Math.abs(this.cy) + Math.abs(this.cp) > 1e-3;
 
@@ -303,8 +322,6 @@ export class TripView {
     ax[8] = e[10];
 
     // ---- the bus: its nose, and its roof the chase's way up
-    const roof = this.busUp, flat = this.t.copy(top).addScaledVector(carved, -top.dot(carved));
-    if (flat.lengthSq() > 1e-6) roof.copy(flat).normalize();
     this.bank += ((trip.steering ? this.steerX : cx) * 0.45 - this.bank) * (1 - Math.exp(-6 * dt));
     // (a carve leans the roof into the turn)
     this.t2.copy(roof).multiplyScalar(Math.cos(this.bank)).addScaledVector(this.t.crossVectors(carved, roof), Math.sin(this.bank));
@@ -315,6 +332,10 @@ export class TripView {
     const sb = Math.sin(this.below), cb = Math.cos(this.below), along = -(this.nosing.y * sb + this.nosing.z * cb), short = SHOW * this.dive - Math.sqrt(Math.max(0, 1 - along * along));
     if (short > 0) this.nosing.addScaledVector(this.t.set(0, cb, -sb), along > 0 ? short : -short).normalize();
     const z = this.z.copy(this.nosing).negate();
+    // (and the roof square to the nose as it's drawn, which the show just above tips: should they line up, the view's up, then its back)
+    this.y.addScaledVector(z, -this.y.dot(z));
+    if (this.y.lengthSq() < 1e-6) this.y.set(0, 1, 0).addScaledVector(z, -z.y);
+    if (this.y.lengthSq() < 1e-6) this.y.set(0, 0, 1).addScaledVector(z, -z.z);
     const x = this.x.crossVectors(this.y, z).normalize();
     this.y.crossVectors(z, x);
     this.busQuat.setFromRotationMatrix(this.m.makeBasis(x, this.y, z));
@@ -323,6 +344,25 @@ export class TripView {
     trip.roof[0] = top.x;
     trip.roof[1] = top.y;
     trip.roof[2] = top.z;
+  }
+
+  /**
+   * A roof square to the nose n, in r: the chase's way up squared to n, as far as that says where the roof is. Where the up lies along the nose, as a launch from a steep climb or a look round to the front
+   * leaves it, it says nothing, and r, the roof it had, squared to n, turns to it at ROOF_RATE at most. Sure of it, it's the up at once, as it always was.
+   */
+  private roofOf(r: THREE.Vector3, n: THREE.Vector3, top: THREE.Vector3, dt: number): THREE.Vector3 {
+    const keep = this.t3.copy(r).addScaledVector(n, -r.dot(n));
+    if (keep.lengthSq() < 1e-6) keep.set(Math.abs(n.x) < 0.9 ? 1 : 0, Math.abs(n.x) < 0.9 ? 0 : 1, 0).addScaledVector(n, Math.abs(n.x) < 0.9 ? -n.x : -n.y);
+    keep.normalize();
+    const flat = this.t4.copy(top).addScaledVector(n, -top.dot(n)), fl = flat.length(), sure = smooth01(ROOF_LOST, ROOF_SURE, fl);
+    r.copy(keep);
+    if (sure > 0) {
+      flat.divideScalar(fl);
+      const cr = this.t5.crossVectors(keep, flat), ang = Math.atan2(cr.length(), keep.dot(flat));
+      const turn = sure >= 1 && ang < ROOF_SNAP ? ang : Math.min(ang, sure * ROOF_RATE * dt);
+      r.applyAxisAngle(n, (cr.dot(n) < 0 ? -1 : 1) * turn).normalize();
+    }
+    return r;
   }
 
   /** One step of a critically damped spring from the way ahead to `to`, exact at any dt. It turns the short way round, so what's carried along has no roll in it. */
@@ -403,6 +443,7 @@ export class TripView {
     this.top.set(up[0], up[1], up[2]);
     this.top.addScaledVector(this.ahead, -this.top.dot(this.ahead)).normalize();
     this.busUp.copy(this.top);
+    this.pathUp.copy(this.top);
     this.spin.set(0, 0, 0);
     this.rate = 2 * Math.PI * config.camera.yawHz;
     this.dive = dive;

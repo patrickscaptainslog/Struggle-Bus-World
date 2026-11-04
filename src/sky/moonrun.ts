@@ -181,9 +181,10 @@ const MOON_BOOST = 1550;
 const PAN_X = 1;
 const PAN_Y = 0.5;
 
-/** The page change in the long dark (docs/specs/earth/EARTHFLIGHT.md, E3): s of trip into 'cruise' or 'homeCruise', where nothing but the stars, the bus and its trail is on screen, and what the next page keeps of this one's URL. */
+/** The page change in the long dark (docs/specs/earth/EARTHFLIGHT.md, E3): s of trip into 'cruise' or 'homeCruise', where nothing but the stars, the bus and its trail is on screen, and what the next page keeps of this one's URL:
+ *  the city and the hour too, so a trip from ?earth&city=london comes home to London's street (the first account's review, 2026-11-04: it came home to San Francisco's, with London as the trip's home). */
 const SWAP_AFTER = 3;
-const SWAP_KEEP = ['fps', 't', 'tune', 'g5', 'fixeddt'];
+const SWAP_KEEP = ['fps', 't', 'tune', 'g5', 'fixeddt', 'city', 'hour'];
 
 /** The trip and its view the page before saved (?resume), taken out of storage as they're read: a reload starts afresh. */
 function readSwap(): { trip: Record<string, unknown>; view: Record<string, unknown> } | null {
@@ -271,7 +272,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
   const sky = new SkyState();
   const clock = new SkyClock(params);
   const flying = !params.has('view');
-  // (?launch=: up off the street, climbing, the way the bus was flying; ?home=lat,lon: over where it left from. src/sky/Launch.ts)
+  // (?launch=: a trip that starts climbing, the way the bus was flying, over ?home=lat,lon: where the old launch from the street, gone now, went. trip-fuzz.mjs's every fifth player starts so)
   const launch = flying && params.has('launch') ? Number(params.get('launch')) || 0 : undefined;
   const home = (params.get('home') ?? '').split(',').map(Number);
   const homeAt = home.length === 2 && home.every(Number.isFinite) ? { lat: home[0], lon: home[1] } : {};
@@ -380,6 +381,9 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
   const eggEarth = new EasterEgg('TO PLANET EARTH?', 'to-earth', () => trip?.toEarth());
   let legWas = trip?.leg ?? 'wait', welcomeAt = -1e9;
   if (input && hud && trip) {
+    // (?earth, the street up first: the thumb is the street's until the flight has the bus, and through the boot too, which may fail. The flight's hands are made here and handed to the join, and the street's put back
+    // before anything is waited on. The first account's review, 2026-11-04: they went to the flight for the boot, and for good if it failed)
+    const streetHands = earth && !flightFirst ? { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture } : null;
     input.onTripleFinger = () => tuner.toggle();
     input.onTurbo = (dir) => {
       view?.flicked();
@@ -388,7 +392,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
     };
     // the game's sound, for the breath alone: its one-shots, no wind (there's no air) and no engine (the graph's frame never runs, so nothing but a breath makes a noise)
     const audio = land?.audio ?? new AudioEngine();
-    audio.setVolumes({ ...config.audio, ambience: 0 });
+    // (the street's engine is the street's: its wind and foghorn stay as it set them, where this turned them off for the session)
+    if (!streetHands) audio.setVolumes({ ...config.audio, ambience: 0 });
     audio.warmBackend();
     input.onFirstGesture = () => audio.unlock();
     breath.audio = audio;
@@ -408,6 +413,10 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
     window.addEventListener('pointerup', touched, true);
     for (const name of ['mega', 'settings']) hud.root.querySelector<HTMLElement>(`[data-hud="${name}"]`)?.style.setProperty('visibility', 'hidden');
     hud.arrive();
+    if (streetHands && earthLanding) {
+      earthLanding.hands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture };
+      Object.assign(input, streetHands);
+    }
   }
 
   const rearQ = new THREE.Quaternion();

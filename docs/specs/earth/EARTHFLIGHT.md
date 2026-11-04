@@ -53,7 +53,7 @@ Checks: `trip-fuzz` with players who dive anywhere, fly low for minutes, turn ov
 
 ### E2: one page from the street up (`?earth`). About 3 days
 
-*Built 2026-11-04 (`DECISIONS.md`, "E2"). Its check is `tools/earth/climb.mjs`, and the whole trip from the street and back is `tools/earth/trip.mjs`. Home is the street's map's origin. Item 5 as built: the old launch stays only on the page with no flag, where there's no flight behind the street.*
+*Built 2026-11-04 (`DECISIONS.md`, "E2"). Its check is `tools/earth/climb.mjs`, and the whole trip from the street and back is `tools/earth/trip.mjs`. Home is the street's map's origin. Item 5: the old launch is gone from every page, `src/sky/Launch.ts` and `tools/moon/launch.mjs` with it. It stayed on the page with no flag at first, and the first account's review made that a blocker: a cut to space, which the producer rejected, on the page that mustn't change.*
 
 1. **`?earth`** in `flag.ts`, and `space()` true under it. The resolve's space branch gated at run time by a uniform, so on the street with the flag the sky is the street's until the flight says otherwise.
 2. **Boot:** the street boots as it does now, with its own pump and its opening. Behind it, once its first frame is up, the flight's module boots (`bootMoonrun` with an Earth `land`), its programs warmed then. When the flight is ready the pump moves to the flight's loop, which calls the street's frame while the street has the bus (`landing.ground`, as `?moonland` does). Risk: the flight's 12 programs compiling behind a flying street. If that hitches on the phone, warm them in the street's own warm-up at boot instead, which costs boot time and nothing in flight (`CLAUDE.md`: nothing compiles in flight).

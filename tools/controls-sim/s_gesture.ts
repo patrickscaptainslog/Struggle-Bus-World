@@ -412,6 +412,13 @@ row('touch', 'the lane: the right looks', laned((h) => dragAt(h, 340, 720)));
 row('touch', 'the lane: a flick out of it is a gear', laned((h) => { h.stroke(340, 600, 0, -74, 85); h.wait(500); }));
 row('touch', 'the lane: a flick in it is a gear', laned((h) => { h.stroke(196, 720, 0, -74, 85); h.wait(500); }));
 row('touch', 'the lane: a tap out of it splats', laned((h) => { const id = newId(); h.down(id, 340, 300); h.wait(90); h.up(id, 340, 300); }));
+// (looking up past about 20 degrees puts the bus under the screen's bottom edge: its lane is kept on the screen, so a touch at the bottom still flies. The first account's review, 2026-11-04)
+const lowLane = (fn: (h: H) => unknown) => (h: H) => {
+  h.input.busZone = { x: 196, y: 980, r: LANE.r };
+  return fn(h);
+};
+row('touch', 'the lane: the bus under the screen, the bottom over it flies', lowLane((h) => dragAt(h, 196, 800)));
+row('touch', 'the lane: the bus under the screen, the sky looks', lowLane((h) => dragAt(h, 196, 400)));
 row('touch', 'the lane: one in it flies and one out of it looks', laned((h) => { const a = newId(), b = newId(); h.down(a, 196, 720); h.slide(a, 196, 720, 40, 0, 200); h.down(b, 340, 300, false); h.slide(b, 340, 300, 60, 0, 200); h.wait(30); const s = h.input.state, v = { thumb: s.thumb, look: s.look.on, sx: +s.stretch.x.toFixed(2) }; h.up(b, 400, 300); h.up(a, 236, 720); return v; }));
 
 // ---- two thumbs, in any order: the one in the zone looks, the other flies

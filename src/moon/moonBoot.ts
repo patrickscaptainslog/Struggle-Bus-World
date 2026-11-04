@@ -157,7 +157,9 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
     // (and by night, with so little light that the far field's bit more over its floor is a box round the tiles, none of that)
     moonGlobals.uMoonLight.value.set(mix(land ? 0.55 : 0.4, 0.17), mix(0.006, 0.03), mix(0.03, land ? 0 : 0.03));
   };
-  const axesHere = new Float64Array(9), lightHere = new Float64Array(3);
+  const axesHere = new Float64Array(9), lightHere = new Float64Array(3), lightNow = new Float64Array(3);
+  // (the light at the bus and the night, eased: what lights the ground is chosen again at a slide, and Earth's light going over to the Sun's, at the terminator, would be a step. A second or so)
+  let shadeNow = -1, lightAt = 0;
   /**
    * A true sky, every frame: the light over the bus, on the map's axes there, as each region and far block round it is baked by (gen.ts, localSun). It turns as the bus goes, so
    * nothing steps at a slide, and past the terminator the night comes on as the Sun goes down.
@@ -166,11 +168,16 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
     const s = sky.sunFix, o = lightHere;
     for (let i = 0; i < 3; i++) o[i] = A[i * 3] * s[0] + A[i * 3 + 1] * s[1] + A[i * 3 + 2] * s[2];
     capSun(o);
-    L.sunElevation = Math.asin(Math.max(-1, Math.min(1, o[1])));
-    L.sunAzimuth = Math.atan2(-o[2], o[0]);
+    const now = performance.now(), ease = shadeNow < 0 ? 1 : 1 - Math.exp(-Math.min(0.25, (now - lightAt) / 1000) / 0.8);
+    lightAt = now;
+    for (let i = 0; i < 3; i++) lightNow[i] = shadeNow < 0 ? o[i] : lightNow[i] + (o[i] - lightNow[i]) * ease;
+    const ln = Math.hypot(lightNow[0], lightNow[1], lightNow[2]) || 1;
+    L.sunElevation = Math.asin(Math.max(-1, Math.min(1, lightNow[1] / ln)));
+    L.sunAzimuth = Math.atan2(-lightNow[2], lightNow[0]);
     // (by Earth's light it's night already; by the Sun's, night is the Sun going down, over a few degrees)
-    const m = sky.state.moonSun, up = A[3] * m[0] + A[4] * m[1] + A[5] * m[2], k = Math.max(0, Math.min(1, (0.03 - up) / 0.06));
-    shade(sky.byEarth ? 1 : k * k * (3 - 2 * k));
+    const m = sky.state.moonSun, up = A[3] * m[0] + A[4] * m[1] + A[5] * m[2], k = Math.max(0, Math.min(1, (0.03 - up) / 0.06)), want = sky.byEarth ? 1 : k * k * (3 - 2 * k);
+    shadeNow = shadeNow < 0 ? want : shadeNow + (want - shadeNow) * ease;
+    shade(shadeNow);
   };
   if (!land) light();
   config.fog.clearFarFull = MOON_VISTA.fade;
@@ -373,7 +380,7 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
       slideId++;
       const from = { ...frame };
       Object.assign(frame, frameAt(frame, dx, dz));
-      // (what lights the ground over the new middle, on these axes, for what's made from here on: the Sun, or Earth if the place had it. The light at the bus is here()'s, every frame)
+      // (what lights the ground over the new middle, on these axes, for what's made from here on: the Sun, or by night Earth where it's up, chosen again for that middle (MoonSky.slide). The light at the bus is here()'s, every frame)
       sky.slide(frame.u, frame.e, frame.n);
       if (land) capSun(sky.sun);
       const f = sky.sunFix;

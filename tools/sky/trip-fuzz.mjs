@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Players who haven't read anything: node --no-warnings tools/sky/trip-fuzz.mjs [trips=120] [seed=1]
 // Flies src/sky/MoonTrip.ts and TripView.ts in Node: a random date in the coming year, a random speed, a rough frame rate, and a thumb and a TURBO that do what they like: taps at any moment, tabs down, the stick held
-// over and let go at random, long rests in orbit. Every frame is checked, and a trip fails if it never gets home, comes apart (NaN), dives through a body or turns the view in one frame. Prints the worst of each.
+// over and let go at random, long rests in orbit. Every frame is checked, and a trip fails if it never gets home, comes apart (NaN), dives through a body, or turns the view or the bus in one frame. Prints the worst of each.
 import { registerHooks } from 'node:module';
 
 registerHooks({
@@ -34,7 +34,7 @@ const failures = [];
 for (let n = 0; n < N; n++) {
   const ms = START + rnd() * YEAR, g5 = [3000, 6000, 10000][Math.floor(rnd() * 3)];
   const iso = new Date(ms).toISOString();
-  // (every fifth player has come up off the street, climbing on some heading: src/sky/Launch.ts. Not by rnd(), so the rest fly as they did)
+  // (every fifth player has come up off the street, climbing on some heading: MoonTrip's `launch`, where the old launch from the street went. Not by rnd(), so the rest fly as they did)
   const launch = n % 5 === 4 ? (n * 37) % 360 : undefined;
   const trip = new MoonTrip(series, ms, { g5, launch });
   const view = new TripView();
@@ -127,7 +127,13 @@ for (let n = 0; n < N; n++) {
           broken = true;
         }
       }
-      bump('bus', ((2 * Math.acos(Math.min(1, Math.abs(view.busQuat.dot(q))))) / DEG) * k, `${trip.leg} ${trip.clock.toFixed(1)} ${say()}`);
+      // (and the bus, thumb or not: 30 degrees a frame is a tumble. The first account's review, 2026-11-04: after TO THE MOON? from a steep climb it turned 85 to 344 a frame, and the fuzz only said so)
+      const busTurn = ((2 * Math.acos(Math.min(1, Math.abs(view.busQuat.dot(q))))) / DEG) * k;
+      bump('bus', busTurn, `${trip.leg} ${trip.clock.toFixed(1)} ${say()}`);
+      if (busTurn > 30) {
+        failures.push(`${say()}: the bus turned ${busTurn.toFixed(1)} degrees in a frame on ${trip.leg} at ${trip.clock.toFixed(1)}`);
+        broken = true;
+      }
       bump('lens', Math.abs(view.hfov - hfov) * k, `${trip.leg} ${say()}`);
     }
     axes.set(a);

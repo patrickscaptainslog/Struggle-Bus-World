@@ -126,12 +126,15 @@ export class MoonSky {
   }
 
   /**
-   * The map slid (moonBoot.ts): what lights the ground as it stands now, over the new middle, in the map's own carried axes (u up, e its x, n minus its z). The Sun stays
-   * the Sun and Earth stays Earth, whatever the new middle has: the ground's baked for it, and the night comes as the light at the bus goes down. A held Sun is the map's and stays.
+   * The map slid (moonBoot.ts): what lights the ground as it stands now, over the new middle, in the map's own carried axes (u up, e its x, n minus its z). What lights it is chosen again for the new
+   * middle, as place() chooses: the Sun, or by night Earth where it's up. The ground made from here on is baked for that; what's made already keeps its own, and the light at the bus eases over
+   * (moonBoot.ts, here). A held Sun is the map's and stays. The first account's review, 2026-11-04: chosen once a session, a night lit by Earth never got its day, and past Earth's limb went black.
    */
   slide(u: ArrayLike<number>, e: ArrayLike<number>, n: ArrayLike<number>): void {
     if (this.held) return;
-    const v = this.byEarth ? this.state.moonEarth : this.state.moonSun, o = this.sun;
+    const S = this.state.moonSun, E = this.state.moonEarth;
+    this.byEarth = u[0] * S[0] + u[1] * S[1] + u[2] * S[2] < 0.02 && u[0] * E[0] + u[1] * E[1] + u[2] * E[2] > 0.05;
+    const v = this.byEarth ? E : S, o = this.sun;
     o[0] = e[0] * v[0] + e[1] * v[1] + e[2] * v[2];
     o[1] = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
     o[2] = -(n[0] * v[0] + n[1] * v[1] + n[2] * v[2]);

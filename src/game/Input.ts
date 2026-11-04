@@ -820,8 +820,10 @@ export class Input {
   private inLookZone(x: number, y: number): boolean {
     const b = this.busZone;
     if (b) {
-      // (a lane round the bus, from just over it down to the bottom of the screen, where the thumb that flies it sits)
-      const dx = x - b.x, dy = y - b.y;
+      // (a lane round the bus, from just over it down to the bottom of the screen, where the thumb that flies it sits. Kept on the screen: a look up past about 20 degrees
+      // puts the bus under its bottom edge, and the lane went with it, so no touch could fly. The first account's review, 2026-11-04)
+      const bx = Math.max(b.r, Math.min(this.rectW - b.r, b.x)), by = Math.min(b.y, this.rectH - b.r);
+      const dx = x - bx, dy = y - by;
       return !(Math.abs(dx) <= b.r && (dy >= 0 || dx * dx + dy * dy <= b.r * b.r));
     }
     const w = this.rectW * inputTune.lookZone;

@@ -4,6 +4,7 @@
 //   gears    the street's ladder there: eight flicks down are Stratos, Turbo 3, 2 and 1, Jet, Nonstop, Express and Cruise, and eight back up Rainbow Warp, the turbos at the street's speeds
 //   top      at the top a flick up does nothing: no climb to the button
 //   pull     a pull held climbs out of the orbit, free; at 2,000 km TO PLANET EARTH? is up, and the bus flies on up to 3,500 km; a push back under 1,500 and it goes
+//   dive     a dive to 50 km, braked by the law, and back up to the button at the gear's speed
 //   home     a pull back up, a tap on it, and the trip goes home to Earth
 // A row passes or fails on the numbers printed with it; exit 1 if any fails.
 import { registerHooks } from 'node:module';
@@ -85,6 +86,14 @@ let inFall = 0;
 trip.tap();
 fly(5, 0, undefined, () => (inFall += trip.leg !== 'fall'));
 row('top: free over the Moon at the top gear a flick up does nothing', !inFall && trip.rung === 5 && trip.leg === 'fall', { left: inFall, rung: trip.rung });
+
+// ---- a dive low, then back up: level or climbing the speed is the gear's, as over Earth (the first account's review, 2026-11-04: it stayed the law's, 4.95 km/s, and the way back up took 6.6 minutes)
+fly(900, 1, () => trip.hMoon < 50);
+const lowKms = trip.v;
+let topKms = 0;
+const back = fly(900, -1, () => trip.egg === 'earth', () => (topKms = Math.max(topKms, trip.v)));
+row('dive: down to 50 km in Rainbow Warp, braked by the law, and back up to the button in a minute or so at the gear\'s speed', lowKms < 6 && topKms > 29.7 && back < 90 && trip.egg === 'earth', { lowKms: +lowKms.toFixed(2), topKms: +topKms.toFixed(2), backS: Math.round(back) });
+fly(600, 1, () => trip.egg === null);
 
 // ---- home
 const again = fly(600, -1, () => trip.egg === 'earth');

@@ -28,13 +28,14 @@ try {
   await page.waitForTimeout(6000);
   const got = await page.evaluate(() => {
     const p = window.__game.pipeline, fs = p.resolveMaterial.fragmentShader;
-    return { spaceSky: fs.includes('spaceSky'), spaceUniforms: Object.keys(p.resolveMaterial.uniforms).filter((k) => /Earth|Moon|SunDisc/.test(k)).length, programs: p.renderer.info.programs.length, hudTurbo: !!document.querySelector('[data-hud="turbo"]'), label: !!document.querySelector('[data-hud="trip-label"]') };
+    return { spaceSky: fs.includes('spaceSky'), spaceUniforms: Object.keys(p.resolveMaterial.uniforms).filter((k) => /Earth|Moon|SunDisc/.test(k)).length, programs: p.renderer.info.programs.length, hudTurbo: !!document.querySelector('[data-hud="turbo"]'), label: !!document.querySelector('[data-hud="trip-label"]'), launch: !!document.querySelector('[data-hud="launch"]') };
   });
   const main = readdirSync(join(DIST, 'assets')).find((f) => /^main-.*\.js$/.test(f));
   const text = readFileSync(join(DIST, 'assets', main), 'utf8');
-  const strings = ['THE LONG DARK', 'homeCruise', 'uToRender', 'SWITCH_KM'].filter((s) => text.includes(s));
+  // (and no way off the page to the flight's: the old launch at the ceiling, a fade and a page change to ?moonland, was a cut the producer rejected. The first account's review, 2026-11-04)
+  const strings = ['THE LONG DARK', 'homeCruise', 'uToRender', 'SWITCH_KM', 'moonland&launch'].filter((s) => text.includes(s));
   console.log(JSON.stringify({ requests, flightRequests: flight, ...got, main, flightStringsInMain: strings, pageErrors: bad }));
-  if (flight || got.spaceSky || got.spaceUniforms || got.label || strings.length) bad++;
+  if (flight || got.spaceSky || got.spaceUniforms || got.label || got.launch || strings.length) bad++;
 } finally {
   await browser.close();
 }
