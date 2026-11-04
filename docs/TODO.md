@@ -29,6 +29,7 @@ Same branch. The producer flew Stages 1 to 3 and ruled on the trip (`CLAUDE.md`,
 Start with [BRIEF.md](BRIEF.md): what the second account built meanwhile, what isn't live, and what to agree on.
 
 - [x] Review `feat/moonfree`, then `feat/earth` on it (BRIEF.md says where to look hardest). Done 2026-11-04, with the real-GPU checks: [reviews/moonfree-earth-2026-11-04.md](reviews/moonfree-earth-2026-11-04.md)
+- [ ] Review again: the second account's fixes for that review's two blockers and nine majors, on `feat/earth` from 4badd9b to 8992444 (`DECISIONS.md`, "The first account's review, its blockers and majors fixed", says what changed and what was checked). The minors are still to do, after
 - [ ] Plan a living Earth, real terrain and buildings and things that move, live planes and ships among them (the producer, 2026-11-04; BRIEF.md has their words and the questions). Drafted 2026-11-04 as [specs/earth/LIVING.md](specs/earth/LIVING.md), waiting for the producer's approval. Nothing is built before it
 - [ ] The real sky, live (the producer, 2026-11-04: "put in blue hour live and make the time of day change with realtime time of day, while also putting in the stars"). Being built on `feat/clock`, cut from `main`, with its brief in `docs/specs/sky/LIVE.md` there: the Sun on the real clock, night in the blue hour's look, stars, planets and the Moon. It changes `skyResolve.ts`, `PixelPipeline.ts`, `main.ts` and `config.ts`, and ports `SkyModel.ts` and the sky's data from this branch byte for byte. So once it's on `main`, `feat/earth` merges `main`
 
