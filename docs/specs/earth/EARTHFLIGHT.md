@@ -75,6 +75,8 @@ The street turns the bus back at its map's edge (`mapReach`). Under `?earth` the
 
 ## First picks, in one place
 
+All taken by the producer, 2026-11-04: "Ok. It's a go", with Opus 5.5 at extra high for the first night.
+
 | What | Pick |
 |---|---|
 | Gears over Earth's sky | the Moon's ladder, Cruise to Rainbow Warp; at the top a flick up climbs to the button |
