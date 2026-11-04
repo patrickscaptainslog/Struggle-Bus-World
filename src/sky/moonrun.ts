@@ -195,12 +195,14 @@ function tripLabel(orbitPaint: boolean): (trip: MoonTrip, breath: MoonBreath | n
     const s = Math.floor(trip.clock), leg = trip.leg;
     const a = `${leg === 'fall' && trip.nose > 0.02 ? 'GOING UP' : LEG_NAMES[leg]} ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
     // (at the Moon from the orbit down, the street's gear by name)
-    const g = leg === 'orbit' || leg === 'fall' ? GEAR_NAMES[trip.rung] : trip.gear === 5 ? 'MOON BOOST' : `G${trip.gear}`;
-    const b = `${g} ${trip.v < 1 ? `${Math.round(trip.v * 1000)} M` : trip.v < 10 ? `${trip.v.toFixed(1)} KM` : `${thousands(trip.v)} KM`}/S ${thousands(Math.min(trip.hMoon, trip.hEarth))} KM`;
+    const g = leg === 'orbit' || leg === 'fall' || leg === 'wait' ? GEAR_NAMES[trip.rung] : trip.gear === 5 ? 'MOON BOOST' : `G${trip.gear}`;
+    // (low over Earth, the height over its ground in metres)
+    const hk = leg === 'wait' ? trip.hGround : Math.min(trip.hMoon, trip.hEarth);
+    const b = `${g} ${trip.v < 1 ? `${Math.round(trip.v * 1000)} M` : trip.v < 10 ? `${trip.v.toFixed(1)} KM` : `${thousands(trip.v)} KM`}/S ${hk < 10 ? `${Math.round(hk * 1000)} M` : `${thousands(hk)} KM`}`;
     // (a flick up climbs, and extremely high the easter egg is the way on: the label says only that, and nothing of where it goes)
     const dark = leg === 'cruise' || leg === 'homeCruise';
     // (at the Moon a flick up is a gear up, until the top gear: there it's the way up and out)
-    const top = (leg !== 'orbit' && leg !== 'fall') || trip.rung >= RUNG_TOP;
+    const top = (leg !== 'orbit' && leg !== 'fall' && leg !== 'wait') || trip.rung >= RUNG_TOP;
     const p = !top ? '' : leg === 'wait' || leg === 'orbit' || (leg === 'fall' && trip.hMoon > 150) ? 'FLICK UP TO CLIMB' : leg === 'fall' && !trip.lifting ? 'FLICK UP FOR ORBIT' : dark ? 'DRAG TO CARVE' : '';
     // the goal, once there is any; and until the first shot, what to do about it
     const share = breath && !breath.paint.rebuilding ? breath.paint.painted * 100 : 0;
@@ -513,7 +515,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
       if (landing?.near) fx.update(dt, trip.v, trip.dir, landing.axes, landing.flying.copy(view.flying).applyQuaternion(landing.q), landing.nosing.copy(view.nosing).applyQuaternion(landing.q), camera, bus.root, pipeline.pixelWorldSize(1), landing.bus);
       else fx.update(dt, trip.v, trip.dir, trip.ob.axes, view.flying, view.nosing, camera, bus.root, pipeline.pixelWorldSize(1));
       // (at the Moon from the orbit down the gears are the street's, and so is their readout, for a moment after a shift. Everywhere else the label says the gear: the HUD is here for its toasts)
-      const ladder = trip.leg === 'orbit' || trip.leg === 'fall';
+      const ladder = trip.leg === 'orbit' || trip.leg === 'fall' || trip.leg === 'wait';
       hud?.update(dt, { gear: ladder ? trip.rung : trip.gear, maxGear: RUNG_TOP, engaged: true, level: 0, levels: 0, mph: ladder ? trip.v * 2236.94 : 0, armed: false, sinceShift: ladder ? trip.t - trip.rungAt : Infinity, sinceLocked: Infinity });
       if (frames % 6 === 0) label?.(trip, breath);
       // (the one thing to do up here, where a first-timer's eye is, until they've done it)

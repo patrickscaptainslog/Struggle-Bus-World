@@ -22,7 +22,7 @@ const rnd = () => {
 const DEG = Math.PI / 180;
 const START = Date.parse('2026-11-01T00:00:00Z'), YEAR = 365 * 864e5;
 const LEG_LIMIT = { climb: 60, arc: 80, cruise: 140, in: 100, leave: 240, homeCruise: 140, homeIn: 110, homeLevel: 110, homeDrop: 100 };
-const worst = { view: [0], bus: [0], lens: [0], hMoon: [1e9], hEarth: [1e9], out: [0], home: [0], leg: [0] };
+const worst = { view: [0], bus: [0], lens: [0], hMoon: [1e9], hEarth: [1e9], ground: [1e9], out: [0], home: [0], leg: [0] };
 const bump = (k, v, why) => {
   if (v > worst[k][0]) worst[k] = [v, why];
 };
@@ -95,7 +95,8 @@ for (let n = 0; n < N; n++) {
       broken = true;
     }
     bump('leg', leg === 'out' || leg === 'homeOut' ? 0 : legT, `${leg} ${say()}`);
-    trip.step(dt, trip.steering && down ? sx : 0);
+    // (and the yoke, which flies the free legs: over Earth from the floor to the button, docs/specs/earth/EARTHFLIGHT.md)
+    trip.step(dt, trip.steering && down ? sx : 0, down ? sy : 0);
     // (the thumb pans as a finger moving at 70 degrees a second at full stretch would, steers the lean where it steers, and carves where it doesn't)
     view.steerX = trip.steering && down ? sx : 0;
     view.carveX = !trip.steering && down ? sx : 0;
@@ -125,7 +126,14 @@ for (let n = 0; n < N; n++) {
     q.copy(view.busQuat);
     hfov = view.hfov;
     frames++;
-    if (trip.leg !== 'wait') {
+    if (trip.leg === 'wait') {
+      // (free over Earth: never under its floor, over the ellipsoid it's drawn on)
+      dip('ground', trip.hGround, `${trip.leg} ${say()}`);
+      if (trip.hGround < 0.02) {
+        failures.push(`${say()}: under the floor over Earth: ${(trip.hGround * 1000).toFixed(0)} m`);
+        broken = true;
+      }
+    } else {
       dip('hMoon', trip.hMoon, `${trip.leg} ${say()}`);
       dip('hEarth', trip.hEarth, `${trip.leg} ${say()}`);
       if (trip.hMoon < 0 || trip.hEarth < 0) {

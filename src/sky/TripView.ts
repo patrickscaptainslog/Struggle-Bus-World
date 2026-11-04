@@ -138,6 +138,8 @@ export class TripView {
   private readonly t = new THREE.Vector3();
   private readonly t2 = new THREE.Vector3();
   private readonly nose = new THREE.Vector3();
+  /** What the chase follows: the heading on a free leg, the path everywhere else, and from one to the other no faster than the nose swings, or a free leg left in a steep climb turns the view in a frame. */
+  private readonly aim = new THREE.Vector3();
   private readonly busUp = new THREE.Vector3();
   private readonly m = new THREE.Matrix4();
   private readonly qt = new THREE.Quaternion();
@@ -166,6 +168,7 @@ export class TripView {
       ahead.set(v[0], v[1], v[2]);
       top.copy(u).addScaledVector(ahead, -u.dot(ahead)).normalize();
       nose.copy(ahead);
+      this.aim.copy(ahead);
       this.busUp.copy(top);
       if (trip.leg === 'rise') this.dive = 1;
     }
@@ -174,7 +177,7 @@ export class TripView {
     // back, as it does held there: it never looks up the climb into the stars. Off the street, that's San Francisco under the bus. (The bus itself points up the climb: that's the path's, below)
     const upDown = trip.leg === 'rise' || trip.leg === 'sink' || trip.leg === 'moonRise' || trip.leg === 'moonSink';
     const nw = this.t.set(dir[0], dir[1], dir[2]);
-    if ((trip.v < 20 && trip.leg !== 'fall') || upDown) nw.set(hd[0], hd[1], hd[2]);
+    if ((trip.v < 20 && !trip.free) || upDown) nw.set(hd[0], hd[1], hd[2]);
     if (nose.dot(nw) < -0.98) nose.addScaledVector(this.busUp, 0.02);
     const off = Math.acos(Math.max(-1, Math.min(1, nose.dot(nw))));
     nose.lerp(nw, Math.min(1 - Math.exp(-6 * dt), (NOSE_RATE * dt) / Math.max(off, 1e-6))).normalize();
@@ -212,15 +215,20 @@ export class TripView {
     // ---- the chase comes after it
     const steered = trip.steering || carving, spring = steered ? 2 * Math.PI * C.yawHz : FOLLOW;
     this.rate += (spring - this.rate) * (1 - Math.exp(-(steered ? FOLLOW_ON : FOLLOW_OFF) * dt));
-    this.follow(trip.leg === 'fall' ? this.t.set(hd[0], hd[1], hd[2]) : carved, dt);
+    const aim = this.aim, to = trip.free ? this.t.set(hd[0], hd[1], hd[2]) : carved;
+    if (aim.dot(to) < -0.98) aim.addScaledVector(this.busUp, 0.02);
+    const offA = Math.acos(Math.max(-1, Math.min(1, aim.dot(to))));
+    aim.lerp(to, Math.min(1 - Math.exp(-6 * dt), (NOSE_RATE * dt) / Math.max(offA, 1e-6))).normalize();
+    this.follow(aim, dt);
     this.level(u, homeward, dt);
 
     // ---- the rig's angles
-    const h = hM - trip.ground, low = 1 - smooth01(LOW_AT, LOW_FROM, h), city = viewPitch(0, 1, this.halfV, CITY.pitch);
+    // (over Earth the height is over its ellipsoid, the ground the plain map is drawn on: low over it the view is the street's)
+    const h = hE < hM ? trip.hGround : hM - trip.ground, low = 1 - smooth01(LOW_AT, LOW_FROM, h), city = viewPitch(0, 1, this.halfV, CITY.pitch);
     this.pitch = city + (viewPitch(Math.max(h, 0) * 1000, MOON_VISTA.fade, this.halfV, MOON_VISTA.pitch) - city) * low;
     const elevation = CITY.elevation + (MOON_VISTA.elevation - CITY.elevation) * low;
     // (and held high over a body for the easter egg, the view tips down over the bus as a full dive's does, so the whole of the world under it is in the frame with the button)
-    const yoke = trip.leg === 'fall' && trip.nose < 0 ? Math.max(0, Math.min(1, (-trip.nose / DEG - C.diveFrom) / Math.max(1, config.flight.noseDown - C.diveFrom))) : trip.egg || upDown ? 1 : 0;
+    const yoke = trip.free && trip.nose < 0 ? Math.max(0, Math.min(1, (-trip.nose / DEG - C.diveFrom) / Math.max(1, config.flight.noseDown - C.diveFrom))) : trip.egg || upDown ? 1 : 0;
     const dd = yoke - this.dive, ds = Math.max(Math.abs(dd) * (1 - Math.exp(-C.diveRate * dt)), 0.04 * dt);
     this.dive = Math.abs(dd) <= ds ? yoke : this.dive + Math.sign(dd) * ds;
     const p = (this.pitch + (C.divePitch - this.pitch) * this.dive) * DEG;
@@ -389,6 +397,7 @@ export class TripView {
     this.handed.copy(q);
     this.isHanded = true;
     this.nose.set(nose[0], nose[1], nose[2]);
+    this.aim.set(heading[0], heading[1], heading[2]);
     this.ahead.set(heading[0], heading[1], heading[2]);
     this.top.set(up[0], up[1], up[2]);
     this.top.addScaledVector(this.ahead, -this.top.dot(this.ahead)).normalize();
