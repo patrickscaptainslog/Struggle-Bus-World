@@ -247,6 +247,8 @@ export const config = {
     moonKeyMax: 1.5,
     /** The lift at the ceiling's pull (SKY.md 4.15): the view tips up this far (deg) while the bus strains up there, and back, at this rate (1/s). */
     liftPull: 27,
+    /** ...only over this height (m): under it the ceiling is a deck's, or a test's (?ceiling=520), not the sky's. */
+    liftFrom: 5000,
     liftRate: 1.6,
   },
 

@@ -1171,7 +1171,7 @@ async function boot() {
     paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);
     paintUniforms.uFloodHead.value = config.bloom.floodHead;
     // (the live sky's lift: pulling at the ceiling, the view tips up to the sky the bus can't reach yet, SKY.md 4.15)
-    if (live) rig.skyLiftTarget = flight.strain > 0.3 && flight.y > 0.5 * config.flight.ceiling ? config.sky.liftPull : 0;
+    if (live) rig.skyLiftTarget = flight.strain > 0.3 && flight.y > config.sky.liftFrom ? config.sky.liftPull : 0;
     rig.update(camera, focus, flight, dt);
     superSplat.camera(camera, focus, dt);
     rig.applyKick(camera, realDt);
