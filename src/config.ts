@@ -207,7 +207,7 @@ export const config = {
     glassGlow: 0.3,
     glassGlow3: 0.5,
     crownGlow: 0.75,
-    /** The share of windows lit: one held value, there is no clock yet (S2 makes it two, homes and offices, from local time). */
+    /** The share of windows lit in the evening: the held hour's, and the live sky's at its city's 18:00-21:30, which runs it by that clock (LiveSky.ts LIT_CLOCK). */
     litShare: 0.3,
     /** A near pane's glow; 0 past the panes, so share x glow on far surfaces is 0 (SKY.md 4.4 allows 0.06). */
     litGlow: 0.25,
@@ -220,7 +220,7 @@ export const config = {
     bridgeSpacing: 10,
     /** A lamp's head over the ground (m), read when the list lands. */
     lampHead: 6,
-    /** The share of lamps on: one held value (S2's wave runs it from the sun). */
+    /** The share of lamps that ever come on (the live sky's wave brings them on between sun -2 and -4 degrees). */
     lampShare: 1,
     /** How far a lamp stands over its 32 m height per metre from the lens: the far mesh's 64 m cells stand a few metres off it. */
     lampLift: 0.002,

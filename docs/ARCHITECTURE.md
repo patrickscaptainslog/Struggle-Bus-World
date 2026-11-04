@@ -568,6 +568,9 @@ program, no shader source that differs by a byte, so every line of GLSL the hour
   `farLights`. All of them off under `?hour=blue` draws main's frames, exactly. The numbers below them are the one hour held.
 - **A table** (`src/sky/SkyTable.ts`, `BLUE_TABLE`): one colour per (ramp, step) for the whole frame. Every ramp runs dark to light, sky rows too. FOG is the haze there, its step 4 the
   far side's horizon; the sky takes SKY_LOW. `HeldHour.update()` writes it into the palette texture when a switch moves, and runs at the end of `updateSun()` every frame.
+  The live sky blends eight (`TableBlend`; noon, morning, golden, sunset and dawn in `SkyTables.ts`, written by `tools/sky/tables.py`): by the Sun's height, setting and rising
+  crossed by its hour angle, in OKLCH by the short arc with the brown clamp, into the palette when the Sun has moved 0.05 degrees. The hour comes up as a weight
+  (`flag.ts` `hourK`, `byHour`): what read `hourUp()` as a switch reads its number lerped from the day's.
 - **Light.** The afterglow: the sun's azimuth held at +8 degrees, `uLight` mid-range (a .34, b .20, k .20), the sun pass off, the table carrying the dark. `sunR`, the windows' glint and
   the water's swell take `uLight.x / 0.52`.
 - **Sky** (`src/render/skyResolve.ts`): 16 bands in four rows of the live table (`uSkyRows`), by the clear flag. The far side at height a reads as the sun side at 8.2 + 8.2 sqrt(a + .5), so

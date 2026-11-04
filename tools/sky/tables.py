@@ -161,7 +161,13 @@ for n in ('NIGHT_SKY', 'TWILIGHT', 'CLOUD', 'MOON', 'SNOW', 'LIT', 'LAMP', 'CLOU
 DAYT[RAMP['OPEN_SEA']] = DAY[RAMP['WATER']]
 DAYT[RAMP['LIMB']] = DAY[RAMP['FOG']]
 DAYT[RAMP['DRY_LAND']] = DAY[RAMP['SAND']]
-extra = {r: DAYT[r] for r in NAMED if r not in DAY}
+# (and today's world rows take the cap: today's BRIDGE_ORANGE passes the one rule under today's sun and not under a higher one, LIVE.md stage A's noon)
+dcap = 0.74 * paint_median(DAYT)
+for r in NAMED:
+    if r not in PAINT and r not in HERO and r in DAY:
+        DAYT[r] = hexes(clamp(arr(DAYT[r]), dcap))
+extra = {r: DAYT[r] for r in NAMED if r not in DAY or DAYT[r] != DAY[r]}
+notes.insert(0, 'day: capped ' + (', '.join(NAME[r] for r in NAMED if r in DAY and DAYT[r] != DAY[r]) or 'none'))
 
 out = ['// Written by tools/sky/tables.py: run it again, don\'t edit by hand. The live sky\'s clear tables (LIVE.md stage B, SKY.md 4): every row named, dark to light.',
        '// ' + '; '.join(notes) + '.', '',
@@ -177,7 +183,7 @@ def emit(const, T, doc):
     out.append('')
 
 
-emit('DAY_EXTRA', extra, "The rows today's table doesn't name, which the day keyframe needs for the blend: noon's sky rows and lights, the rest from today's kin.")
+emit('DAY_EXTRA', extra, "The day keyframe's rows over today's: the rows today's table doesn't name (noon's sky rows and lights, the rest from today's kin), and today's world rows under the cap.")
 docs = {'NOON': 'Noon, the Sun 35 degrees up and higher: cleaner, cooler top steps, a deeper shade step. The day\'s sky.',
         'MORNING': 'Morning, the rising Sun at 16 degrees: crisp, cream light. The day\'s sky.',
         'GOLDEN': 'Golden hour, the setting Sun at 7 degrees: honey-rose, paint\'s own hour. The bands\' sky.',

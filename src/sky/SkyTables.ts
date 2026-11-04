@@ -1,16 +1,18 @@
 // Written by tools/sky/tables.py: run it again, don't edit by hand. The live sky's clear tables (LIVE.md stage B, SKY.md 4): every row named, dark to light.
-// noon: kin 0.00, paint median 0.1648, world peak 0.1223 (0.742), brown 0; morning: kin 0.08, paint median 0.1648, world peak 0.1227 (0.745), brown 0; golden: kin 0.01, paint median 0.1635, world peak 0.1214 (0.743), brown 0; sunset: kin 0.20, paint median 0.1665, world peak 0.1239 (0.744), brown 0; dawn: kin 0.00, paint median 0.1679, world peak 0.1247 (0.743), brown 0.
+// day: capped BRIDGE_ORANGE, LIT; noon: kin 0.00, paint median 0.1648, world peak 0.1223 (0.742), brown 0; morning: kin 0.08, paint median 0.1648, world peak 0.1227 (0.745), brown 0; golden: kin 0.01, paint median 0.1635, world peak 0.1214 (0.743), brown 0; sunset: kin 0.20, paint median 0.1665, world peak 0.1239 (0.744), brown 0; dawn: kin 0.00, paint median 0.1679, world peak 0.1247 (0.743), brown 0.
 
 import { Ramp } from '../render/palette';
 
-/** The rows today's table doesn't name, which the day keyframe needs for the blend: noon's sky rows and lights, the rest from today's kin. */
+/** The day keyframe's rows over today's: the rows today's table doesn't name (noon's sky rows and lights, the rest from today's kin), and today's world rows under the cap. */
 export const DAY_EXTRA: Record<number, string[]> = {
+  [Ramp.BRIDGE_ORANGE]: ['#24121f', '#3d1828', '#5e2131', '#842c38', '#9c4140', '#b3574b', '#bf7a6c', '#c9a197'],
   [Ramp.NIGHT_SKY]: ['#789fd8', '#8aaddd', '#94b6e0', '#a3c0e4', '#adc7e6', '#b6cde7', '#bcd1e8', '#c0d4e9'],
   [Ramp.OPEN_SEA]: ['#111a24', '#172330', '#1f2e3d', '#2c3d4e', '#3f5164', '#5b6c7e', '#7d8b99', '#a3adb7'],
   [Ramp.LIMB]: ['#5d6873', '#6e7984', '#808a94', '#939ca5', '#a7aeb5', '#bbc1c6', '#cfd3d6', '#e2e4e5'],
   [Ramp.CLOUD]: ['#bcc8d6', '#c6d0dc', '#d0d8e1', '#dae1e7', '#e4e9ed', '#edf0f3', '#f6f8f9', '#ffffff'],
   [Ramp.DRY_LAND]: ['#7d8791', '#919aa1', '#a6abae', '#bbbbb9', '#cfcbc3', '#dfd8cc', '#ece3d4', '#f7eedf'],
   [Ramp.TWILIGHT]: ['#789fd8', '#8aaddd', '#94b6e0', '#a3c0e4', '#adc7e6', '#b6cde7', '#bcd1e8', '#c0d4e9'],
+  [Ramp.LIT]: ['#3a1f4a', '#7a2f58', '#b65861', '#e48c62', '#f6b466', '#fecf74', '#ffe7a4', '#fff7dc'],
   [Ramp.MOON]: ['#3d4a73', '#5c698c', '#7e8aa6', '#99a1b5', '#b4b9c4', '#cececd', '#e9e4d6', '#fffbe9'],
   [Ramp.SNOW]: ['#4b5b92', '#6475a9', '#7e8fc0', '#93a3ce', '#a9b7dc', '#c4cee8', '#dfe6f4', '#ffffff'],
   [Ramp.CLOUD_SHADE]: ['#7c8895', '#848d98', '#8b939b', '#97979f', '#9e9ea3', '#a3a2a6', '#a9a8aa', '#aeaeae'],
