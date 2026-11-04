@@ -53,6 +53,8 @@ const CARVE_PITCH = 25 * DEG;
 const CARVE_BACK = 0.7;
 /** The nose's fastest swing, rad/s: the tip-up reads as a move, and the first frame of it isn't a kick. */
 const NOSE_RATE = 75 * DEG;
+/** /s: how fast the view comes round to the heading on a climb straight up or down, and back to the path after it. */
+const UPDOWN_RATE = 1.2;
 /** The share of its length the bus shows the camera in a full dive, the sine of the angle between its nose and the line of sight. The rig tips over a dive until it's looking down the bus's back, and end on a bus is its tail, a third of its size: it lifts its nose up the screen by what's short. moon/Landing.ts holds the low game to the same. */
 export const SHOW = 0.7;
 /** The city's angles, degrees, read as this module loads: on ?moonland moonBoot.ts gives config the Moon's a moment later. */
@@ -127,6 +129,8 @@ export class TripView {
   private rate = 2 * Math.PI * config.camera.yawHz;
   private bank = 0;
   private started = false;
+  /** 0..1: how much the view follows the heading for a climb straight up or down (UPDOWN_RATE) and not the path. */
+  private upDown = 0;
   private readonly handed = new THREE.Quaternion();
   private isHanded = false;
 
@@ -165,6 +169,8 @@ export class TripView {
       top.copy(u).addScaledVector(ahead, -u.dot(ahead)).normalize();
       nose.copy(ahead);
       this.busUp.copy(top);
+      // (a trip that starts climbing, off the street, starts looking down)
+      if (trip.leg === 'rise') this.upDown = 1;
     }
 
     // ---- the bus's nose: the path, and a level heading at rest
@@ -207,7 +213,11 @@ export class TripView {
     // ---- the chase comes after it
     const steered = trip.steering || carving, spring = steered ? 2 * Math.PI * C.yawHz : FOLLOW;
     this.rate += (spring - this.rate) * (1 - Math.exp(-(steered ? FOLLOW_ON : FOLLOW_OFF) * dt));
-    this.follow(trip.leg === 'fall' ? this.t.set(hd[0], hd[1], hd[2]) : carved, dt);
+    // (straight up to a button or straight back down from it, the view keeps the heading and looks down at the world going away or coming back, as it does held there: it never looks up the climb into the stars. Off the street, that's San Francisco under the bus)
+    const upDown = trip.leg === 'rise' || trip.leg === 'sink' || trip.leg === 'moonRise' || trip.leg === 'moonSink';
+    this.upDown += ((upDown ? 1 : 0) - this.upDown) * (1 - Math.exp(-UPDOWN_RATE * dt));
+    const hdv = this.t.set(hd[0], hd[1], hd[2]);
+    this.follow(trip.leg === 'fall' ? hdv : this.upDown > 1e-3 ? hdv.lerp(carved, 1 - this.upDown).normalize() : carved, dt);
     this.level(u, homeward, dt);
 
     // ---- the rig's angles
@@ -215,7 +225,7 @@ export class TripView {
     this.pitch = city + (viewPitch(Math.max(h, 0) * 1000, MOON_VISTA.fade, this.halfV, MOON_VISTA.pitch) - city) * low;
     const elevation = CITY.elevation + (MOON_VISTA.elevation - CITY.elevation) * low;
     // (and held high over a body for the easter egg, the view tips down over the bus as a full dive's does, so the whole of the world under it is in the frame with the button)
-    const yoke = trip.leg === 'fall' && trip.nose < 0 ? Math.max(0, Math.min(1, (-trip.nose / DEG - C.diveFrom) / Math.max(1, config.flight.noseDown - C.diveFrom))) : trip.egg ? 1 : 0;
+    const yoke = trip.leg === 'fall' && trip.nose < 0 ? Math.max(0, Math.min(1, (-trip.nose / DEG - C.diveFrom) / Math.max(1, config.flight.noseDown - C.diveFrom))) : trip.egg || upDown ? 1 : 0;
     const dd = yoke - this.dive, ds = Math.max(Math.abs(dd) * (1 - Math.exp(-C.diveRate * dt)), 0.04 * dt);
     this.dive = Math.abs(dd) <= ds ? yoke : this.dive + Math.sign(dd) * ds;
     const p = (this.pitch + (C.divePitch - this.pitch) * this.dive) * DEG;
