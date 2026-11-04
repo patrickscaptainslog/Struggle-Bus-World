@@ -1,6 +1,6 @@
 # VOYAGE: the Moon trip as the producer wants it
 
-The producer, 2026-11-03, after flying FREEFLIGHT's Stages 1 to 3 on `?moonland`. Their words are in `CLAUDE.md`, "The Moon trip". This is the plan for them. V1 is built, and V2 but for the street's flying at the Moon from orbit down. First picks of numbers are marked, and the producer can overrule them on the phone.
+The producer, 2026-11-03, after flying FREEFLIGHT's Stages 1 to 3 on `?moonland`. Their words are in `CLAUDE.md`, "The Moon trip". This is the plan for them. V1, V2 and the launch from the street are built, all but a tap's paint between 120 and 14 km over the Moon. First picks of numbers are marked, and the producer can overrule them on the phone.
 
 ## In the order it's built
 
@@ -19,10 +19,10 @@ The producer, 2026-11-03, after flying FREEFLIGHT's Stages 1 to 3 on `?moonland`
 - At the Moon the bus is the player's from orbit down, and WELCOME TO THE MOON says so: the yoke, the gears and their flicks, a tap that paints the crater under the aim, as over San Francisco. Today the low game takes over at 14 km; here it goes up to the orbit.
 - Leaving, the same way up: very high over the Moon (first pick: 3,500 km, where the whole Moon just fits the view) TO PLANET EARTH? comes up, and goes on the way back down.
 
-**V2c, the street's flying at the Moon from orbit down (second account, started 2026-11-04).** In two parts, each pushed when it's ready. First picks are marked.
+**V2c, the street's flying at the Moon from orbit down (second account).** Built 2026-11-04, both parts, waiting on the producer's flight (`DECISIONS.md`, "The street's gears at the Moon" and "A tap from up high paints a crater"). Under 120 km, down to the low game's 14, a tap still paints nothing. First picks are marked.
 
 - *The gears, first.* The orbit is Rainbow Warp's speed, 30 km/s, so that's the gear the bus arrives in. A flick down shifts down the Moon's ladder, Rainbow Warp, Stratos, Jet, Nonstop, Express, Cruise, and a flick up shifts back up, in orbit and anywhere under it, with the street's gear readout. At Rainbow Warp a flick up is the way out, as it is on the ground: in orbit it climbs to TO PLANET EARTH?, and under the orbit it climbs back to it. The gear is the speed; on the way down the law still brakes it (the arrival's brake, the one exception), so a dive from orbit comes down to the low game as it does now, and the low game takes the bus in its gear, or in Jet if the gear is higher. A push held in orbit still leaves it, as a flick is never a push.
-- *Then the paint.* A tap paints the crater under the aim from any height, as the low game's does (CraterPaint's pick). First pick: the crater it takes is chosen as from 20 km up at most, so a tap from orbit is one crater a few km across, never a region.
+- *Then the paint.* A tap paints the crater under the aim from any height, as the low game's does (CraterPaint's pick). First picks: the crater it takes is chosen as from 20 km up at most, 1 to 16 km across, within 8 km of where the shot comes down (16 if there's none), so a tap from orbit is one crater a few km across, never a region.
 
 **V3: pinch to zoom (second account).** Everywhere, the street included: the producer, "Pinch to zoom everywhere". Two fingers moving apart or together zoom; one thumb still flies and the left of the screen still looks. A pinch has to be told from two thumbs at once, which the controls already allow, and the controls sims (`tools/controls-sim/s_gesture.ts`) are where that's proved. It touches `Input` and `CameraRig`, `feat/thumbs`' files, so it reaches `feat/thumbs` and main only with this branch.
 

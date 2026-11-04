@@ -17,8 +17,8 @@ Branch `feat/moonfree`, cut from `spike/moonrun`. The plan is [specs/moon/FREEFL
 Same branch. The producer flew Stages 1 to 3 and ruled on the trip (`CLAUDE.md`, "The Moon trip"); the plan is [specs/moon/VOYAGE.md](specs/moon/VOYAGE.md). It comes before Stage 4.
 
 - [ ] V1: no paint from orbit; the pan in space stays where it's left and one swipe looks behind; a trail that's alive; a bigger Sun and a Moon that grows on the way. Built and pushed 2026-11-03, waiting on the producer's flight
-- [ ] V2: one MOON BOOST, under 6 minutes; TO THE MOON? extremely high over Earth and TO PLANET EARTH? very high over the Moon; at the Moon the street's flying and painting from orbit down, with WELCOME TO THE MOON. The boost, the buttons and the welcome built and pushed 2026-11-03, waiting on the producer's flight; the street's flying from orbit down to do
-- [ ] The launch from the street: from San Francisco the bus climbs off the city's map into the flight's loop until TO THE MOON? comes up (VOYAGE.md). Taken from the first account's list, 2026-11-04
+- [ ] V2: one MOON BOOST, under 6 minutes; TO THE MOON? extremely high over Earth and TO PLANET EARTH? very high over the Moon; at the Moon the street's flying and painting from orbit down, with WELCOME TO THE MOON. The boost, the buttons and the welcome built and pushed 2026-11-03; the street's gears and a tap's crater from orbit down 2026-11-04 (but a tap between 120 and 14 km, still nothing). Waiting on the producer's flight
+- [ ] The launch from the street: from San Francisco the bus climbs off the city's map into the flight's loop until TO THE MOON? comes up (VOYAGE.md). Taken from the first account's list, 2026-11-04. Built and pushed the same day, waiting on the producer's flight. The way back down to the street isn't built: asked
 - [ ] V3: pinch to zoom
 
 ## First account: from 2026-11-04 12:00 UTC, when its weekly limit resets
