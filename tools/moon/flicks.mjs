@@ -237,12 +237,13 @@ try {
     });
     await frames(30);
     const p0 = await paintOf();
-    begin();
-    await touch('touchStart', W / 2, 300, 0);
-    await touch('touchEnd', W / 2, 300, 60);
+    // (a finger of its own: one the rows before have used may still be down to Input)
+    const t1 = Date.now() / 1000 - 2;
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: W / 2, y: 300, id: 17, radiusX: 4, radiusY: 4, force: 1 }], timestamp: t1 });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: t1 + 0.06 });
     await frames(60);
     const p1 = await paintOf();
-    row('orbit: a tap paints the crater under the aim, a few km across, and no splat', p0.craters && p1.shots === p0.shots + 1 && p1.recs >= p0.recs + (p1.last?.level === 1 ? 1 : 0) && !!p1.last && p1.last.km >= 1 && p1.last.km <= 8 && p1.map === p0.map, { p0, p1 });
+    row('orbit: a tap paints the crater under the aim, a few km across, and no splat', p0.craters && p1.shots === p0.shots + 1 && p1.recs >= p0.recs + (p1.last?.level === 1 ? 1 : 0) && !!p1.last && p1.last.km >= 0.5 && p1.last.km <= 8 && p1.map === p0.map, { p0, p1 });
     await shot('orbit-crater');
   }
 

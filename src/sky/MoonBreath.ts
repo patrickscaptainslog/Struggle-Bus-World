@@ -26,8 +26,8 @@ const PROXY = 1000;
 const TRAVEL = 0.92;
 /** ms of drawing a frame while a shot flies. */
 const SLICE_MS = 1.5;
-/** km: a crater shot's glint, about the crater it will take (CraterPaint's HIGH_AIM and HIGH_R). */
-const CRATER_GLINT_KM = 4;
+/** km: a crater shot's glint, about as far as the crater it takes may be from it (CraterPaint's HIGH_SNAP). */
+const CRATER_GLINT_KM = 8;
 /** A settled blast's reveal is cleared this long after its impact: the last blob is down. */
 const SETTLE_S = 1.7;
 /** How far the glint stands over the bus's middle, a share of the focal length: just clear of its nose. */

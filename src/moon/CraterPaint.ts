@@ -14,8 +14,8 @@ import { dirOf, latLonToMap, latOf, lonOf, mapOf, type MapFrame, type Place, typ
  *  one tap from orbit is a crater a few km across, never a region. First picks. It's never narrower than ORBIT_R either, or nothing of it would show from up there. */
 const HIGH_AIM = 20000;
 const HIGH_R = 8000;
-/** m: how far off its rim the place it came down may be, from up high. */
-const HIGH_SNAP = 3000;
+/** m: how far off its rim the place it came down may be, from up high: about the glint's size (MoonBreath's CRATER_GLINT_KM). A 3 km reach found a crater on a tenth of the Moon's places. */
+const HIGH_SNAP = 8000;
 import { moonGlobals } from './moonMaterial';
 import type { RoofSprouts } from '../world/props/sprouts';
 import type { PaintStroke } from '../sky/MoonPaint';
@@ -36,7 +36,7 @@ const MAX_STROKES = 600;
 /** Crewed landing sites stay unpainted: a grey circle this wide (m) with its name. */
 export const SITE_R = 1200;
 /** A crater this wide (m of radius) is seen from orbit, on its global map, at its true size or a dot of this many km, a texel of that map. */
-const ORBIT_R = 1000;
+const ORBIT_R = 500;
 const ORBIT_KM = 6;
 /** A blast reaches neighbours this much past the crater it hit (m), and at most this many. */
 const NEIGHBOURS = 14;
