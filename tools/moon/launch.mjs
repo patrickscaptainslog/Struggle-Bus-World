@@ -23,6 +23,10 @@ const row = (name, ok, got) => {
 const errors = [];
 try {
   const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
+  // (the trip's page stands from its first frames, so what it does from the start is seen: the street's page is stepped by hand from the start too)
+  await ctx.addInitScript(() => {
+    if (location.search.includes('moonland')) window.__qa = { holdFrames: 4, held: false };
+  });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && errors.push(m.text().slice(0, 200)));
@@ -76,7 +80,7 @@ try {
   const q = new URL(page.url()).searchParams;
   const home = (q.get('home') ?? '').split(',').map(Number);
   row('out: the dark has the screen and the page is the trip, from here', q.has('moonland') && Math.abs(Number(q.get('launch')) - HEADING) < 3 && Math.abs(home[0] - 37.77) < 0.05 && Math.abs(home[1] + 122.43) < 0.05 && q.has('fixeddt'), { last, url: page.url().replace(BASE, '') });
-  await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000, polling: 500 });
+  await page.waitForFunction(() => window.__shotReady === true && window.__qa?.held === true, null, { timeout: 300000, polling: 500 });
   const space = () =>
     page.evaluate(() => {
       const m = window.__space.moon, t = m.trip, f = t.now.earthFix, u = t.hc, h = t.heading;
