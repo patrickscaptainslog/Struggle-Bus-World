@@ -79,6 +79,12 @@ export class SpaceFx {
   overEarth = false;
   private earthK = 0;
 
+  /** The flight takes the bus from the street (?earth): the street's lines and trail, at once, as the street had them. */
+  fromStreet(): void {
+    this.overEarth = true;
+    this.earthK = 1;
+  }
+
   /** busLength: BusModel.length */
   constructor(busLength: number) {
     this.tailLocal = new THREE.Vector3(0, 0.9, busLength * 0.5 + 0.4);
@@ -255,7 +261,7 @@ export class SpaceFx {
     const e = this.earthK, F = config.flight, ms = v * 1000;
     const k = Math.max(0, Math.log(Math.max(ms, F.surgeSpeed) / F.surgeSpeed) / Math.log(Math.max(F.surgeSpeed * 1.01, config.turbo.jetSpeed) / F.surgeSpeed));
     const street = Math.min(1, Math.max(0, (ms - F.surgeSpeed * 0.9) / 140)) * Math.min(1, k + 0.25);
-    const on = Math.max(smooth01(5, 300, v) * 0.35 + 0.3 * smooth01(300, 3000, v), e * (0.35 * street + 0.3 * smooth01(1.5, 4, k)));
+    const on = Math.max(smooth01(5, 300, v) * 0.35 + 0.3 * smooth01(300, 3000, v), e * Math.min(1, 0.65 * street + 0.35 * smooth01(1.5, 4, k)));
     this.lines.visible = on > 0.01;
     if (this.lines.visible) {
       const U = this.lineU, box = 190;
@@ -270,7 +276,8 @@ export class SpaceFx {
       U.uPhase.value.set(p[0], p[1], p[2]);
       U.uToRender.value.set(axes[0], axes[1], axes[2], axes[3], axes[4], axes[5], axes[6], axes[7], axes[8]);
       U.uDir.value.copy(flying);
-      U.uLine.value.set(box, sp * spaceFxTune.lineLong, pixel * spaceFxTune.linePx, on);
+      // (over Earth as long as the street's, its blur: fx/Turbo.ts's lineBlur)
+      U.uLine.value.set(box, sp * (spaceFxTune.lineLong + e * (0.07 - spaceFxTune.lineLong)), pixel * spaceFxTune.linePx, on);
       U.uCenter.value.copy(camera.position);
       // (the bus at the render origin, or, in the world's frame on the way down, wherever it is)
       if (origin) U.uCenter.value.sub(origin);

@@ -490,6 +490,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
     }
     if (earthLanding?.cameBack) {
       earthLanding.cameBack = false;
+      fx?.fromStreet();
       labelEl()?.style.removeProperty('display');
       hud?.setVisible(true);
       perf.setVisible(params.has('fps'));
