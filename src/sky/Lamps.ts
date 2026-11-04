@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { config } from '../config';
 import { globals, GLSL_COMMON, GLSL_OUT, heldGlobals } from '../render/materials';
-import { Ramp } from '../render/palette';
+import { HUE_RAMPS, Ramp } from '../render/palette';
+import { paintUniforms } from '../world/buildingMaterial';
 import { registerWarm } from '../render/warmup';
 import type { TerrainTile } from '../world/tiles';
 import { skyOn } from './flag';
@@ -13,12 +14,30 @@ import { loadLamps } from './lampLoad';
 // point lands on the same snapped grid as every surface. A lamp doesn't glow: a pixel is under the halo's gate at any glow, and thousands of them far off would only boil
 // it (8 % of pixels at glow 1 boils 84 % of the area), so share x glow is 0.
 
+// A painted bridge's necklace (SPAN, the spans' own draw): each light takes the next hue of its bridge's paint down the
+// deck as the paint's run reaches it, from the bridge's texel and its hit (the same vectors its material reads), so a
+// rainbow string of lights at night costs a texel fetch a light and nothing a frame.
 const LAMP_VS = /* glsl */ `
   ${GLSL_COMMON}
   uniform vec4 uLampPoint;    // the share lit, a head's lift a metre from the lens (m), the distance past which they thin out (m), how far the dusk's wave has come
   flat out float vLight;
   flat out float vFog;
+  #ifdef SPAN
+  precision highp sampler2D;
+  uniform sampler2D uPaint;
+  uniform float uPaintW;
+  in float aTag;              // its bridge (1, 2) + 4 x its hue step
+  uniform vec2 uSpanIdx;      // the two bridges' paint texels (-1: not paintable yet)
+  uniform vec4 uSpanHit1;     // where each bridge's breath hit and when (its material's uLmHit)
+  uniform vec4 uSpanHit2;
+  uniform float uSpanRun;     // how fast its paint runs along it (m/s)
+  flat out float vRamp;
+  const float SPAN_HUES[6] = float[6](${HUE_RAMPS.map((r) => r.toFixed(1)).join(', ')});
+  #endif
   void main() {
+    #ifdef SPAN
+    vRamp = ${Ramp.LAMP}.0;
+    #endif
     gl_PointSize = 1.0;
     vec3 wp = position * vec3(${LAMP_XZ.toFixed(1)}, ${LAMP_Y.toFixed(2)}, ${LAMP_XZ.toFixed(1)});
     float h = fract(sin(dot(wp.xz, vec2(12.9898, 78.233))) * 43758.5453);
@@ -35,6 +54,20 @@ const LAMP_VS = /* glsl */ `
     vLight = (h < 0.3 ? 6.0 : 7.0) / 7.0;
     vFog = uFog.x > 0.0 || dist > uFog.z * 0.55 ? sbFog(wp) : 0.0;
     gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+    #ifdef SPAN
+    float g = mod(aTag, 4.0);
+    float idx = g < 1.5 ? uSpanIdx.x : uSpanIdx.y;
+    if (idx >= 0.0) {
+      vec4 paint = texelFetch(uPaint, ivec2(int(mod(idx, uPaintW)), int(floor(idx / uPaintW))), 0);
+      vec4 hit = g < 1.5 ? uSpanHit1 : uSpanHit2;
+      // (an escalation is painted already; a fresh bloom lights up as its run passes, light by light)
+      bool run = paint.a < 1.5 && hit.w > paint.b - 4.0 && hit.w < paint.b + 0.3;
+      if (paint.g > 0.5 && uTime >= paint.b && (!run || distance(wp, hit.xyz) < uSpanRun * (uTime - hit.w))) {
+        vRamp = SPAN_HUES[int(mod(floor(paint.r + 0.5) + floor(aTag / 4.0) + 60.0, 6.0))];
+        vLight = 0.8;
+      }
+    }
+    #endif
   }
 `;
 
@@ -42,22 +75,41 @@ const LAMP_FS = /* glsl */ `
   ${GLSL_COMMON}
   flat in float vLight;
   flat in float vFog;
+  #ifdef SPAN
+  flat in float vRamp;
+  #endif
   ${GLSL_OUT}
   void main() {
+    #ifdef SPAN
+    sbWrite(vRamp, vLight, vFog, 0.0, vec3(0.0, 0.0, 1.0), 0.03, 0.5);
+    #else
     sbWrite(${Ramp.LAMP}.0, vLight, vFog, 0.0, vec3(0.0, 0.0, 1.0), 0.03, 0.5);
+    #endif
   }
 `;
 
 const uLampPoint = { value: new THREE.Vector4() };
 
-function makeLampMaterial(): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: { ...globals, uLampPoint }, vertexShader: LAMP_VS, fragmentShader: LAMP_FS });
+/** The lamps' material; `span`, the spans' (their lights take a painted bridge's hues). */
+function makeLampMaterial(span = false): THREE.ShaderMaterial {
+  const uniforms: Record<string, THREE.IUniform> = { ...globals, uLampPoint };
+  if (span)
+    Object.assign(uniforms, {
+      uPaint: paintUniforms.uPaint,
+      uPaintW: paintUniforms.uPaintW,
+      uSpanIdx: { value: new THREE.Vector2(-1, -1) },
+      uSpanHit1: { value: new THREE.Vector4(0, 0, 0, -1e9) },
+      uSpanHit2: { value: new THREE.Vector4(0, 0, 0, -1e9) },
+      uSpanRun: { value: 0 },
+    });
+  return new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, defines: span ? { SPAN: 1 } : {}, uniforms, vertexShader: LAMP_VS, fragmentShader: LAMP_FS });
 }
 
-/** A lamp list's one draw. `pos`: 4 i16 a lamp, in the list's units. */
-function lampPoints(pos: Int16Array, material: THREE.Material): THREE.Points {
+/** A lamp list's one draw. `pos`: 4 i16 a lamp, in the list's units; `tags`: a span light's bridge and hue step. */
+function lampPoints(pos: Int16Array, material: THREE.Material, tags?: Uint8Array): THREE.Points {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 4));
+  if (tags) g.setAttribute('aTag', new THREE.BufferAttribute(tags, 1));
   const p = new THREE.Points(g, material);
   p.frustumCulled = false;
   p.matrixAutoUpdate = false;
@@ -66,7 +118,7 @@ function lampPoints(pos: Int16Array, material: THREE.Material): THREE.Points {
 }
 
 // (the warm-up's source: nothing compiles in flight, and flag off this program doesn't exist)
-if (skyOn) registerWarm('lamps', () => lampPoints(new Int16Array(4), makeLampMaterial()));
+if (skyOn) registerWarm('lamps', () => [lampPoints(new Int16Array(4), makeLampMaterial()), lampPoints(new Int16Array(4), makeLampMaterial(true), new Uint8Array(1))]);
 
 /** The ground grid a lamp list stands on. */
 export type LampGround = Pick<LampRequest, 'ground' | 'gridW' | 'gridH' | 'minX' | 'minZ' | 'cell'>;
@@ -74,6 +126,7 @@ export type LampGround = Pick<LampRequest, 'ground' | 'gridW' | 'gridH' | 'minX'
 export class Lamps {
   readonly object = new THREE.Group();
   private readonly mat = makeLampMaterial();
+  private readonly spanMat = makeLampMaterial(true);
   private streets: THREE.Points | null = null;
   private bridges: THREE.Points | null = null;
   private data: LampResult | null = null;
@@ -124,8 +177,11 @@ export class Lamps {
     this.onLanded?.();
   }
 
-  /** The spans' lights, x, y, z a light (Bridges.ts bridgeLights): their own draw, there from the first frame. */
-  setBridges(xyz: number[]) {
+  /**
+   * The spans' lights, x, y, z a light (Bridges.ts bridgeLights): their own draw, there from the first frame. `tags`: each
+   * light's bridge (1, 2) + 4 x its hue step; `run`: how fast a bridge's paint runs along it (m/s).
+   */
+  setBridges(xyz: number[], tags: number[], run: number) {
     const n = xyz.length / 3;
     if (!n) return;
     const pos = new Int16Array(n * 4);
@@ -134,8 +190,16 @@ export class Lamps {
       pos[i * 4 + 1] = Math.round(xyz[i * 3 + 1] / LAMP_Y);
       pos[i * 4 + 2] = Math.round(xyz[i * 3 + 2] / LAMP_XZ);
     }
-    this.bridges = lampPoints(pos, this.mat);
+    this.spanMat.uniforms.uSpanRun.value = run;
+    this.bridges = lampPoints(pos, this.spanMat, Uint8Array.from(tags));
     this.object.add(this.bridges);
+  }
+
+  /** Bridge `group` (1, 2) paints from texel `index`, its breath's hit read from its material's own vector. */
+  paintSpan(group: number, index: number, hit: THREE.Vector4) {
+    const u = this.spanMat.uniforms;
+    (u.uSpanIdx.value as THREE.Vector2).setComponent(group - 1, index);
+    u[group === 1 ? 'uSpanHit1' : 'uSpanHit2'].value = hit;
   }
 
   /** Every frame, the tuner's switches. `wave`: how far the dusk's wave has come, 0 none on (the day), 1 all of them. */

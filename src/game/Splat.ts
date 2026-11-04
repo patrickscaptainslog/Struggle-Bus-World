@@ -72,6 +72,8 @@ export interface BarfOpts {
   target?: BuildingRef | null;
   /** impact height (m; a breath that slams into a tower's wall), default: the roof at the landing point */
   y?: number;
+  /** the bus's height (m ASL): a landmark seen from there (a breath from under a deck lands under it), default from above */
+  from?: number;
   /** land exactly at (x, z) (a wall face), instead of on the target's footprint nearest to it */
   exact?: boolean;
   /** blast radius (m), default blastRadiusFor(drop): the super splat's mega blast and firehose */
@@ -160,10 +162,11 @@ export class Splatter {
   /**
    * The building a projectile aimed at (x, z) would hit: the one under the aim point (the tallest of
    * overlapping footprints), else the nearest by true footprint distance within `radius` (so a tower or a
-   * warehouse is hit wherever you aim into it, and a shot into the street snaps to the nearest wall).
+   * warehouse is hit wherever you aim into it, and a shot into the street snaps to the nearest wall). Seen
+   * from fromY, the bus's height: a deck over it is no target.
    */
-  pick(x: number, z: number, radius = config.splat.snapRadius): BuildingRef | null {
-    return this.city.nearestBuilding(x, z, radius, config.splat.minTargetHeight);
+  pick(x: number, z: number, radius = config.splat.snapRadius, fromY = Infinity): BuildingRef | null {
+    return this.city.nearestBuilding(x, z, radius, config.splat.minTargetHeight, fromY);
   }
 
   /** Blast radius for a barf from `drop` meters above the impact (m). */
@@ -181,7 +184,8 @@ export class Splatter {
     const city = this.city;
     const paint = city.paint;
     const drop = opts?.drop ?? 0;
-    const primary = opts?.target !== undefined ? opts.target : this.pick(x, z, this.pickRadius(drop));
+    const from = opts?.from ?? Infinity;
+    const primary = opts?.target !== undefined ? opts.target : this.pick(x, z, this.pickRadius(drop), from);
     const tImpact = this.t + (opts?.travel ?? S.impactDelay);
     const r = opts?.radius ?? blastRadiusFor(drop);
     const hose = !!opts?.hose;
@@ -191,7 +195,7 @@ export class Splatter {
     const land = primary && !opts?.exact ? city.landingOn(primary, x, z, S.landInset, this.land, S.smallRad) : null;
     const cx = land ? land.x : x;
     const cz = land ? land.z : z;
-    const pos = new THREE.Vector3(cx, opts?.y ?? (land && primary ? city.roofAtPart(primary, cx, cz) + 0.5 : city.groundAt(x, z)), cz);
+    const pos = new THREE.Vector3(cx, opts?.y ?? (land && primary ? city.roofAtPart(primary, cx, cz, from) + 0.5 : city.groundAt(x, z)), cz);
     // the blast's center hue: an escalating primary keeps its color, a fresh one takes the next hue
     const pRec = primary ? paint.get(primary.index) : null;
     const bands = opts?.bands;

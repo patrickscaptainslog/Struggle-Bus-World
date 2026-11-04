@@ -25,7 +25,7 @@ import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { paintLandmark, bindLandmarkPaint, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
 import { Tuner, applySavedTuning } from './ui/Tuner';
-import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles, bridgeLights } from './world/Bridges';
+import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles, bridgeLights, paintBridge, BRIDGE_RUN } from './world/Bridges';
 import { heroLandmarks, SpireRide } from './world/props/landmarks';
 import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
@@ -42,7 +42,7 @@ import { LiveSky } from './sky/LiveSky';
 
 type Manifest = CityManifest & { regions: Array<[number, number, number]>; regionSize: number };
 /** What the street sign says when a landmark is hit. */
-const LANDMARK_NAMES: Record<string, string> = { sutro: 'Sutro Tower', transamerica: 'Transamerica' };
+const LANDMARK_NAMES: Record<string, string> = { sutro: 'Sutro Tower', transamerica: 'Transamerica', ggb: 'Golden Gate Bridge', baybridge: 'Bay Bridge' };
 
 /** The opening was seen through once on this device: a tap skips it from then on. */
 const OPENING_SEEN_KEY = 'strugglebus.opening.v1';
@@ -281,20 +281,37 @@ async function boot() {
     const ref = paintLandmark(city, key, obj, { name });
     if (ref && city.paint.level(ref.index) > 0.5) bumpPaint(ref.cx, ref.cz, 40);
   };
-  /** the spans' lights, x, y, z: the held hour's */
+  /** the spans' lights, x, y, z, and their tags: the held hour's (a light takes its bridge's paint: Lamps.setBridges) */
   const spanLights: number[] = [];
+  const spanTags: number[] = [];
+  const spanLit = (kind: 'ggb' | 'baybridge', pts: Array<[number, number]>, deck: NonNullable<typeof manifest.landmarks[number]['deck']>, group: number) => {
+    const steps: number[] = [];
+    spanLights.push(...bridgeLights(kind, pts, deck, config.sky.bridgeSpacing, steps));
+    for (const st of steps) spanTags.push(group + 4 * st);
+  };
+  /** the bridges, made paintable after every other landmark (slots are handed out in call order: theirs come last) */
+  const bridges: Array<{ kind: 'ggb' | 'baybridge'; obj: THREE.Object3D; group: number }> = [];
+  let spans = 0;
   for (const lm of manifest.landmarks) {
     const pts = (lm as { points?: Array<[number, number]> }).points;
     const deck = lm.deck;
     if (lm.kind === 'ggb' && pts && deck && lm.supports) {
-      scene.add(makeGoldenGate(pts, deck, lm.supports));
+      const obj = makeGoldenGate(pts, deck, lm.supports);
+      const group = ++spans;
+      scene.add(obj);
+      bridges.push({ kind: 'ggb', obj, group });
       city.addObstacles(bridgeObstacles('ggb', pts, deck, lm.supports));
-      if (hour) spanLights.push(...bridgeLights('ggb', pts, deck, config.sky.bridgeSpacing));
+      if (hour) spanLit('ggb', pts, deck, group);
     } else if (lm.kind === 'baybridge' && pts && deck && lm.supports) {
       const { supports } = lm;
+      const group = ++spans;
       city.addObstacles(bridgeObstacles('baybridge', pts, deck, supports));
-      later.push(() => scene.add(makeBayBridgeWest(pts, deck, supports)));
-      if (hour) spanLights.push(...bridgeLights('baybridge', pts, deck, config.sky.bridgeSpacing));
+      later.push(() => {
+        const obj = makeBayBridgeWest(pts, deck, supports);
+        scene.add(obj);
+        bridges.push({ kind: 'baybridge', obj, group });
+      });
+      if (hour) spanLit('baybridge', pts, deck, group);
     } else {
       // Sutro's legs / the pyramid: solid posts the flight model steers around
       city.addObstacles([{ x: lm.x, z: lm.z, r: lm.kind === 'sutro' ? 45 : 30, top: lm.y + lm.height + 5, under: -Infinity }]);
@@ -308,7 +325,7 @@ async function boot() {
       });
     }
   }
-  hour?.lamps.setBridges(spanLights);
+  hour?.lamps.setBridges(spanLights, spanTags, BRIDGE_RUN);
   // the hand-built heroes the footprints can't draw: Coit Tower, the Ferry Building, 181 Fremont's spire
   later.push(() => {
     for (const h of heroLandmarks(manifest.origin)) {
@@ -326,6 +343,16 @@ async function boot() {
         later.push(() => paintable(p.key, h.object, p.name));
       }
     }
+    // the bridges, after them (lm:ggb, lm:baybridge: never renamed), their necklaces taking their paint at night
+    later.push(() => {
+      for (const b of bridges) {
+        const ref = paintBridge(city, `lm:${b.kind}`, b.obj, LANDMARK_NAMES[b.kind]);
+        if (!ref) continue;
+        if (city.paint.level(ref.index) > 0.5) bumpPaint(ref.cx, ref.cz, 40);
+        const mesh = b.obj.children[0] as THREE.Mesh;
+        hour?.lamps.paintSpan(b.group, ref.index, (mesh.material as THREE.ShaderMaterial).uniforms.uLmHit.value as THREE.Vector4);
+      }
+    });
   });
 
   // ---- the hero
@@ -570,7 +597,9 @@ async function boot() {
     let need = 0;
     for (let i = 1; i <= 10; i++) {
       const t = Math.min(0.9, (i * 6) / d);
-      const over = city.surfaceAt(x + (c.x - x) * t, z + (c.z - z) * t) - (y + (c.y - y) * t);
+      // (seen from the line itself: it can pass under a deck)
+      const ly = y + (c.y - y) * t;
+      const over = city.surfaceAt(x + (c.x - x) * t, z + (c.z - z) * t, ly) - ly;
       // (lifting the point by h lifts the line there by h (1 - t))
       if (over > 0) need = Math.max(need, over / (1 - t));
       if (t >= 0.9) break;
@@ -610,7 +639,8 @@ async function boot() {
       for (let s = 6; s < 0.9 * d; s += 6) {
         const t = s / d, qx = px + (c.x - px) * t, qz = pz + (c.z - pz) * t;
         // (half a meter of slack at the blade, as sightLift's 0.5 m)
-        if (Math.max(city.roofAt(qx, qz) ?? -Infinity, city.landmarkSurfaceAt(qx, qz)) > yb + (c.y - yb) * t + 0.5 * (1 - t)) return false;
+        const ly = yb + (c.y - yb) * t;
+        if (Math.max(city.roofAt(qx, qz) ?? -Infinity, city.landmarkSurfaceAt(qx, qz, ly)) > ly + 0.5 * (1 - t)) return false;
       }
     }
     return true;
@@ -758,7 +788,7 @@ async function boot() {
     breathTravel = shot.travel;
     breathWidth = mega ? mega.width : 1;
     try {
-      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag });
+      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: flight.y, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag });
     } finally {
       breathTravel = null;
       breathWidth = 1;
@@ -820,7 +850,7 @@ async function boot() {
     squashV = 0;
     audio.heave();
     const tgt = shot.target;
-    const iy = shot.y ?? (tgt ? city.roofAtPart(tgt, shot.x, shot.z) + 0.5 : city.groundAt(shot.x, shot.z));
+    const iy = shot.y ?? (tgt ? city.roofAtPart(tgt, shot.x, shot.z, flight.y) + 0.5 : city.groundAt(shot.x, shot.z));
     lastShot = { t: simTime, aim: [shot.x, iy, shot.z], travel: config.splat.inhale + shot.travel, drop: shot.drop, busY: flight.y, wall: shot.exact, target: tgt ? { index: tgt.index, cx: tgt.cx, cz: tgt.cz, roofY: tgt.roofY } : null, mega: mega?.radius };
     breathe(shot, mega);
     if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;

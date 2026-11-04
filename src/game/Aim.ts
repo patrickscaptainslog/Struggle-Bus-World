@@ -113,7 +113,7 @@ export class Aimer {
     this.classic = hit < 0 || hit * ca < r0;
     aim.x = x0 + fx * horiz;
     aim.z = z0 + fz * horiz;
-    aim.y = city.surfaceAt(aim.x, aim.z);
+    aim.y = city.surfaceAt(aim.x, aim.z, y0);
     aim.wall = false;
     const hx = aim.x - x0, hz = aim.z - z0;
     aim.dist = Math.hypot(hx, hz, y0 - aim.y);
@@ -121,9 +121,10 @@ export class Aimer {
     aim.drop = Math.max(0, y0 - aim.y);
   }
 
-  /** The ray t m from the bus along the aim is at or under a roof, a tree or the ground (a landmark's collision
-   * post or a bridge deck isn't what the breath lands on). A bound arrow: no allocation per frame. */
-  private readonly below = (t: number): boolean => this.y0 - t * this.sa <= this.city.surfaceAt(this.x0 + this.fx * t * this.ca, this.z0 + this.fz * t * this.ca);
+  /** The ray t m from the bus along the aim is at or under a roof, a tree, the ground or a landmark's surface (a
+   * landmark's collision post isn't what the breath lands on; a deck over the bus is overhead). A bound arrow: no
+   * allocation per frame. */
+  private readonly below = (t: number): boolean => this.y0 - t * this.sa <= this.city.surfaceAt(this.x0 + this.fx * t * this.ca, this.z0 + this.fz * t * this.ca, this.y0);
 
   /**
    * The blast flies straight from the mouth to where it lands on `target` (or the aim point): a
@@ -137,6 +138,7 @@ export class Aimer {
     const aim = this.aim;
     this.wallRef = null;
     if (!this.classic) return false;
+    const x0 = this.x0, z0 = this.z0, y0 = this.y0;
     let ex = aim.x, ez = aim.z, ey = aim.y + 0.5;
     const tLm = target !== null && city.isLandmark(target);
     let top = ey;
@@ -144,13 +146,12 @@ export class Aimer {
       const l = city.landingOn(target, aim.x, aim.z, S.landInset, this.land, S.smallRad);
       ex = l.x;
       ez = l.z;
-      ey = top = city.roofAtPart(target, ex, ez) + 0.5;
+      ey = top = city.roofAtPart(target, ex, ez, y0) + 0.5;
       // a landmark's surface at the aim point can be 100 m above the bus (the pyramid's slope, Coit's
       // column): the classic shot flies level onto it and slams into its face at about the bus's height,
       // never under the ground it stands on (Coit's hilltop over a bus at the floor down the slope)
       if (tLm) ey = Math.min(top, Math.max(this.y0 - F_CLEAR, city.groundAt(ex, ez) + LM_GROUND));
     }
-    const x0 = this.x0, z0 = this.z0, y0 = this.y0;
     const dx = ex - x0, dz = ez - z0;
     const L = Math.hypot(dx, dz);
     if (L < 12) return false;
@@ -170,7 +171,8 @@ export class Aimer {
     for (let s = 10; s < sEnd; s += 2) {
       const px = x0 + ux * s, pz = z0 + uz * s;
       const chordY = y0 + (ey - y0) * (s / L);
-      const ref = city.buildingAbove(px, pz, chordY + S.wallClear);
+      // (a landmark by its surface seen from the line: under a deck the line passes under it)
+      const ref = city.buildingAbove(px, pz, chordY + S.wallClear, chordY);
       // (the target itself is no wall in its own way, unless it is a landmark: its face is what the shot meets)
       if (!ref || (ref === target && !tLm) || ref.roofY - ref.baseY < S.minTargetHeight) continue;
       if (s >= L - S.wallSkip && ref !== target) continue;
@@ -181,7 +183,8 @@ export class Aimer {
       for (let i = 0; i < 5; i++) {
         const m = (lo + hi) * 0.5;
         const qx = x0 + ux * m, qz = z0 + uz * m;
-        if (city.contains(ref, qx, qz) && (!lm || city.landmarkSurfaceAt(qx, qz) > y0 + (ey - y0) * (m / L))) hi = m;
+        const my = y0 + (ey - y0) * (m / L);
+        if (city.contains(ref, qx, qz) && (!lm || city.landmarkSurfaceAt(qx, qz, my) > my)) hi = m;
         else lo = m;
       }
       const w = Math.max(4, lo - 0.6);
@@ -218,7 +221,8 @@ export class Aimer {
   /** Is r still a fair target: ahead, and within `reach` m of the line of fire over its last `along` m
    * up to the aim point (a target the aim point has just slid past stays, one beside the line goes)? */
   private holds(r: BuildingRef | null, reach: number, along: number): boolean {
-    if (!r || !this.ahead(r)) return false;
+    // (nor one overhead: a bus that dived under a deck aims at what is under it)
+    if (!r || !this.ahead(r) || this.city.lmOverhead(r, this.aim.x, this.aim.z, this.y0)) return false;
     const n = along > 0 ? 3 : 0;
     for (let i = 0; i <= n; i++) {
       const h = this.horiz - (along * i) / Math.max(1, n);
@@ -251,7 +255,7 @@ export class Aimer {
     const r = this.splatter.pickRadius(this.aim.drop);
     const k = this.aim.drop > 40 ? 1 + this.aim.drop / 150 : 1;
     const hold = Math.min(r, S.aimHold * k);
-    if (!this.holds(this.target, hold, S.aimHoldAlong)) this.target = this.splatter.pick(this.aim.x, this.aim.z, r);
+    if (!this.holds(this.target, hold, S.aimHoldAlong)) this.target = this.splatter.pick(this.aim.x, this.aim.z, r, f.y);
     // (a latch is a commitment: it holds while the building stays within a narrow cone of the nose, which
     // from altitude is wider than the pick radius: the bungee settles a few degrees after the thumb lifts)
     if (this.latchRef && (t >= this.latchUntil || !this.holds(this.latchRef, Math.max(r, S.aimLatchCone * this.horiz), S.aimHoldAlong))) this.latchRef = null;
@@ -295,7 +299,7 @@ export class Aimer {
   aimShot(f: Flight): Shot {
     this.point(f);
     const aim = this.aim;
-    const pick = this.splatter.pick(aim.x, aim.z, this.splatter.pickRadius(aim.drop));
+    const pick = this.splatter.pick(aim.x, aim.z, this.splatter.pickRadius(aim.drop), f.y);
     this.occlude(pick);
     return this.shotAt(f, this.wallRef ?? pick);
   }
@@ -310,7 +314,7 @@ export class Aimer {
       x = l.x;
       z = l.z;
     }
-    const iy = y ?? (target ? this.city.roofAtPart(target, x, z) + 0.5 : this.city.groundAt(x, z));
+    const iy = y ?? (target ? this.city.roofAtPart(target, x, z, f.y) + 0.5 : this.city.groundAt(x, z));
     const dist = Math.hypot(x - f.x, z - f.z, f.y - iy);
     this.latchRef = null;
     return { target, x, z, y, exact: wall, drop: Math.max(0, f.y - iy), travel: this.travelFor(dist, f.ground) };

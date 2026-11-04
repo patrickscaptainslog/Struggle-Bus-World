@@ -152,7 +152,7 @@ class LandmarkKit {
   }
 
   /** Level-3 accents: golden onion domes (a faceted lathe) and rainbow bunting (pennants on a sagging string). */
-  private accents(look: LandmarkLook) {
+  accents(look: LandmarkLook) {
     // the onion's profile (radius, height) in units of its widest radius / 1.32
     const prof: Array<[number, number]> = [[0.75, 0], [1.0, 0.25], [1.25, 0.7], [1.32, 1.15], [1.2, 1.6], [0.9, 2.05], [0.55, 2.45], [0.28, 2.8], [0.1, 3.1], [0, 3.3]];
     for (const [cx, cy, cz, r] of look.domes ?? []) {
@@ -168,10 +168,11 @@ class LandmarkKit {
           this.quad(P(k, j), P(k + 1, j), P(k + 1, j + 1), P(k, j + 1), Ramp.GREY_LIGHT, 0, LM_DOME, [k / segs, v0, (k + 1) / segs, v0, (k + 1) / segs, v1, k / segs, v1], [H, H, H, H]);
         }
     }
-    // pennants: u = hue step (+0.5 on the fluttering tip), v = order along all strings, w = count
+    // pennants: u = hue step (+0.5 on the fluttering tip), v = order along all strings (from both ends of each, all at
+    // once, with buntingFromEnds), w = count
     const strings = look.bunting ?? [];
     let total = 0;
-    const lens = strings.map((b) => Math.max(4, Math.round(Math.hypot(b.to[0] - b.from[0], b.to[1] - b.from[1], b.to[2] - b.from[2]) / 1.7)));
+    const lens = strings.map((b) => Math.max(4, Math.round(Math.hypot(b.to[0] - b.from[0], b.to[1] - b.from[1], b.to[2] - b.from[2]) / (1.7 * (b.size ?? 1)))));
     for (const n of lens) total += n;
     let order = 0;
     const at = (b: (typeof strings)[number], t: number) =>
@@ -181,21 +182,39 @@ class LandmarkKit {
       for (let i = 0; i < n; i++) {
         const p0 = at(b, (i + 0.08) / n), p1 = at(b, (i + 0.92) / n);
         const tip = p0.clone().add(p1).multiplyScalar(0.5);
-        tip.y -= 1.35;
+        tip.y -= 1.35 * (b.size ?? 1);
         const hue = (order % 6) + 0;
+        const v = look.buntingFromEnds ? Math.min(i, n - 1 - i) : order;
         const n1 = new THREE.Vector3().subVectors(p1, p0).cross(new THREE.Vector3().subVectors(tip, p0)).normalize();
         const n2 = n1.clone().negate();
         // both sides (the landmark material culls back faces)
-        this.vert(p0, n1, Ramp.GREY_LIGHT, 0, hue, order, LM_FLAG, total);
-        this.vert(p1, n1, Ramp.GREY_LIGHT, 0, hue, order, LM_FLAG, total);
-        this.vert(tip, n1, Ramp.GREY_LIGHT, 0, hue + 0.5, order, LM_FLAG, total);
-        this.vert(p0, n2, Ramp.GREY_LIGHT, 0, hue, order, LM_FLAG, total);
-        this.vert(tip, n2, Ramp.GREY_LIGHT, 0, hue + 0.5, order, LM_FLAG, total);
-        this.vert(p1, n2, Ramp.GREY_LIGHT, 0, hue, order, LM_FLAG, total);
+        this.vert(p0, n1, Ramp.GREY_LIGHT, 0, hue, v, LM_FLAG, total);
+        this.vert(p1, n1, Ramp.GREY_LIGHT, 0, hue, v, LM_FLAG, total);
+        this.vert(tip, n1, Ramp.GREY_LIGHT, 0, hue + 0.5, v, LM_FLAG, total);
+        this.vert(p0, n2, Ramp.GREY_LIGHT, 0, hue, v, LM_FLAG, total);
+        this.vert(tip, n2, Ramp.GREY_LIGHT, 0, hue + 0.5, v, LM_FLAG, total);
+        this.vert(p1, n2, Ramp.GREY_LIGHT, 0, hue, v, LM_FLAG, total);
         order++;
       }
     });
   }
+}
+
+/**
+ * A look's level-3 accents alone, as LandmarkKit builds them (position, normal, ramp, lightOffset, aPat), for a
+ * landmark another kit builds (Bridges.ts): null when the look has none.
+ */
+export function accentGeometry(look: LandmarkLook): THREE.BufferGeometry | null {
+  const k = new LandmarkKit();
+  k.accents(look);
+  if (!k.pos.length) return null;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(k.pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(k.nrm, 3));
+  g.setAttribute('ramp', new THREE.Float32BufferAttribute(k.ramp, 1));
+  g.setAttribute('lightOffset', new THREE.Float32BufferAttribute(k.lo, 1));
+  g.setAttribute('aPat', new THREE.Float32BufferAttribute(k.pat, 4));
+  return g;
 }
 
 // One material per landmark (its own paint texel and accents in uniforms); the
