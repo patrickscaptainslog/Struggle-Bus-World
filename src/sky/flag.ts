@@ -32,8 +32,14 @@ export const moonLow = typeof location !== 'undefined' && (new URLSearchParams(l
  */
 export const moonLand = typeof location !== 'undefined' && new URLSearchParams(location.search).has('moonland');
 
-/** GLSL only ?moonrun and ?moon compile. */
-export const space = (glsl: string): string => (moonrun || moonLow ? glsl : '');
+/**
+ * ?earth: the street with the flight booted behind it, one page from the ground up past satellite height, and the whole Earth flown freely (docs/specs/earth/EARTHFLIGHT.md, E2). The same law as the others: flag off,
+ * no fetch and no shader byte differs. Under it the space branch is compiled into the street's resolve, and a uniform (uSpaceOn) keeps it off until height brings it in.
+ */
+export const earthFly = typeof location !== 'undefined' && new URLSearchParams(location.search).has('earth') && !moonLow && !moonrun;
+
+/** GLSL only ?moonrun, ?moon and ?earth compile. */
+export const space = (glsl: string): string => (moonrun || moonLow || earthFly ? glsl : '');
 
 /**
  * The flat map rolled onto its sphere around the lens, so the ground falls away and has a horizon. Bearings and distances from the lens hold, which is all a horizon asks. Written so that float32 keeps it near the

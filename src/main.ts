@@ -35,7 +35,10 @@ import { SuperSplat } from './game/SuperSplat';
 import { SuperFx } from './fx/SuperFx';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
-import { heldHour, moonLand, moonLow, moonrun } from './sky/flag';
+import { earthFly, heldHour, moonLand, moonLow, moonrun } from './sky/flag';
+import { CUT_NEAR, EARTH_CEILING, H_UP, SKY_FROM, SKY_TOP } from './sky/earthJoin';
+import type { EarthLanding, StreetWorld } from './sky/EarthLanding';
+import { spaceResolveUniforms as spaceU } from './render/skyResolve';
 import { Launch } from './sky/Launch';
 import type { LandEnter, Landing } from './moon/Landing';
 import { SLIDE, SLIDE_AT } from './moon/map';
@@ -155,6 +158,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // (15 km over the ground it started on, as anywhere: the ceiling is a height, and the map's zero is the lowest ground near it)
     config.flight.ceiling = moon.startY + config.flight.ceiling;
   }
+  // (?earth: the street climbs on past its ceiling to where the flight takes it, H_UP)
+  if (earthFly) config.flight.ceiling = EARTH_CEILING;
   if (hour) {
     const { lamps } = hour;
     scene.add(lamps.object);
@@ -350,7 +355,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const bus = new BusModel();
   const busOnScreen = new THREE.Vector3();
   // ---- the launch from the street: at the top of the sky, going on pulling up leaves the air, and the trip's page has the bus from there, over the same place and flying the same way (src/sky/Launch.ts)
-  const launch = moon || land
+  const launch = moon || land || earthFly
     ? null
     : new Launch(() => {
         const [lat0, lon0] = manifest.origin, lat = lat0 - flight.z / 111320, lon = lon0 + flight.x / (111320 * Math.cos(lat0 * THREE.MathUtils.DEG2RAD));
@@ -1087,6 +1092,12 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   type QA = { sx?: number; sy?: number; holdAt?: number; holdFrames?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null; pin?: { x: number; y: number; z: number; heading: number } | null; noSlide?: boolean };
   /** ?moonland: the view the flight left the bus in, for the moments the rig takes to come over from it. */
   let fromSky: (LandEnter & { t: number }) | null = null;
+  // ?earth (docs/specs/earth/EARTHFLIGHT.md, E2): the flight's loop, booted behind the street once it's up, and the join between them (sky/EarthLanding.ts). Until it's up the street pumps its own frames
+  let pumpSelf = true;
+  let earthJoin: EarthLanding | null = null;
+  let earthBooting = false;
+  let streetHands: Partial<Input> | null = null;
+  let skyHands: Partial<Input> | null = null;
   const fromQ = new THREE.Quaternion();
   const fromP = new THREE.Vector3();
 
@@ -1130,8 +1141,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   let slides = 0;
 
   function frame(now: number) {
-    // (?moonland: the flight's loop is the pump)
-    if (!land) requestAnimationFrame(frame);
+    // (?moonland: the flight's loop is the pump; ?earth: it is from when it's up)
+    if (!land && pumpSelf) requestAnimationFrame(frame);
     if (glLost) {
       last = now;
       return;
@@ -1527,6 +1538,17 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       const v = bus.root.getWorldPosition(busOnScreen).project(camera), W = window.innerWidth, H = window.innerHeight;
       input.busZone = v.z < 1 ? { x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H, r: inputTune.busLane * W } : null;
     }
+    // (?earth: up from SKY_FROM the sky is space's, up from SKY_TOP the ground goes into the plain Earth from the horizon in, and at H_UP the street's picture is the flight's. The sky's uniforms are the flight's, over this lens)
+    if (earthFly) {
+      const hk = flight.height / 1000;
+      spaceU.uSpaceOn.value = earthJoin ? clamp((hk - SKY_FROM) / (SKY_TOP - SKY_FROM), 0, 1) : 0;
+      const k = earthJoin ? clamp((hk - SKY_TOP) / (H_UP - SKY_TOP), 0, 1) : 0;
+      if (k > 0) {
+        const n = camera.near, f = camera.far, d = Math.max(CUT_NEAR, f * Math.pow(CUT_NEAR / f, k));
+        pipeline.cutSky((f * (d - n)) / (d * (f - n)));
+      } else pipeline.cutSky(null);
+      earthJoin?.over(realDt, camera.position);
+    }
     pipeline.render(scene);
     framesDrawn++;
     // (a tap in the grey has skipped it already)
@@ -1559,9 +1581,61 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       }
     }
     if (ready) everReady = true;
+    if (ready && earthFly && !earthBooting) bootSky();
     city.eager = !everReady;
     (window as unknown as { __shotReady?: boolean }).__shotReady = ready && !city.busy && !city.farLate && !hour?.lamps.busy;
     if (land?.up(flight)) land.back(camera, bus.root, flight, controls.turbo, rig.hfov, rig.dive);
+    if (earthJoin?.ground && flight.height >= H_UP * 1000) earthJoin.back(camera, bus.root, flight, controls.turbo.level > 0 ? 3 : Math.min(controls.turbo.gear, 3), rig.hfov, rig.dive);
+  }
+
+  /** ?earth: the flight's loop, behind the street, with the street as what it hands the bus to (sky/EarthLanding.ts). The thumb's hands are the street's until the flight has the bus. */
+  function bootSky() {
+    earthBooting = true;
+    const hands = (): Partial<Input> => ({ onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd });
+    streetHands = hands();
+    const world: StreetWorld = {
+      origin: [manifest.origin[0], manifest.origin[1]],
+      // (the map and the reach it gives at the join's height: ASCENT.md, mapReach)
+      covers: (x, z) => x > minX - 6000 && x < maxX + 6000 && z > minZ - 6000 && z < maxZ + 6000,
+      frameAt: frame,
+      pumpOff() {
+        pumpSelf = false;
+      },
+      enter(s) {
+        if (streetHands) Object.assign(input, streetHands);
+        flight.groundUnder = flight.groundBroad = city.groundAt(s.x, s.z);
+        flight.takeOver(s.x, s.y, s.z, s.heading, s.speed, s.nose);
+        controls.turbo.arrive(s.gear);
+        controls.firstGesture();
+        controls.fx.lens.reset(rig);
+        rig.place(camera, flight, s.dive);
+        fromSky = { ...s, t: 0 };
+        controls.hud.setVisible(true);
+        // (what the flight set on the frame, the street's again)
+        pipeline.setFar(FADE_END + FADE_FAR);
+        updateSun();
+        perf.setVisible(params.has('fps'));
+        last = performance.now();
+      },
+      leave() {
+        if (skyHands) Object.assign(input, skyHands);
+        controls.hud.setVisible(false);
+        controls.leftGround();
+        audio.hushGround();
+        perf.setVisible(false);
+        spaceU.uSpaceOn.value = 1;
+        pipeline.cutSky(null);
+      },
+    };
+    void import('./sky/moonrun')
+      .then(({ bootMoonrun }) => bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: { input, audio, rig }, earth: world }))
+      .then((j) => {
+        earthJoin = j as EarthLanding;
+        // (the flight set its own hands as it booted: the street keeps the bus, and its hands, until it hands up)
+        skyHands = hands();
+        if (streetHands) Object.assign(input, streetHands);
+      })
+      .catch((e) => console.error('the flight behind the street', e));
   }
   if (!land) requestAnimationFrame(frame);
   else if (moon) {
@@ -1743,10 +1817,16 @@ async function bootLanding() {
   const shared = { input: new Input(canvas), audio: new AudioEngine(), rig: new CameraRig() };
   const land = await bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: shared });
   // (?view= has no flight, and nothing to come down from)
-  if (land) await boot(land, shared);
+  if (land) await boot(land as Landing, shared);
 }
 
-(moonLand ? bootLanding() : moonrun ? bootSpace() : boot()).catch((e) => {
+/** ?earth's boot: the street as it is, with the thumb, the sound and the look made to be shared, and the flight booted behind it once the street is up (boot's bootSky). */
+async function bootEarth() {
+  pipeline.checkTargets();
+  await boot(undefined, { input: new Input(canvas), audio: new AudioEngine(), rig: new CameraRig() });
+}
+
+(moonLand ? bootLanding() : moonrun ? bootSpace() : earthFly ? bootEarth() : boot()).catch((e) => {
   console.error(e);
   document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;inset:auto 0 0 0;color:#fff;font:12px monospace;padding:12px;background:#0008">${String(e)}</pre>`);
 });

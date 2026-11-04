@@ -26,6 +26,7 @@ import { applySpaceTable } from './SkyTable';
 import { SpaceFx, spaceFxTune } from './SpaceFx';
 import { EasterEgg } from './EasterEgg';
 import { SWING, TripView } from './TripView';
+import { EarthLanding, type StreetWorld } from './EarthLanding';
 import { geodeticToFix, sphereToFix } from './WorldFrame';
 
 // ?moonrun: MOONSHOT.md's black box. Space only: no city streams, the bus sits at the render origin, and the real pipeline and resolve draw it. Earth, Moon and Sun come from the real sky
@@ -225,19 +226,24 @@ export interface MoonrunContext {
   warm: WarmUp;
   /** ?moonland: what this page's two loops share, one thumb, one sound and one look */
   land?: { input: Input; audio: AudioEngine; rig: CameraRig };
+  /** ?earth: the street, which has the bus and the frame until it hands them up (EarthLanding.ts). land is what the two share, as under ?moonland, and there's no Moon's low game */
+  earth?: StreetWorld;
 }
 
-/** Returns what joins this to the low game, under ?moonland. */
-export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContext): Promise<Landing | null> {
+/** Returns what joins this to the low game, under ?moonland; under ?earth, the join to the street. */
+export async function bootMoonrun({ pipeline, scene, warm, land, earth }: MoonrunContext): Promise<Landing | EarthLanding | null> {
   const params = new URLSearchParams(location.search);
   const t0 = performance.now();
   const renderer = pipeline.renderer;
-  // (the sky is the clear flag and nothing else; no sun pass, no fog; calm pixels on the bus, as up high)
-  pipeline.setFar(30000);
-  pipeline.shadowStrength = 0;
-  pipeline.calm = 1;
+  // (the sky is the clear flag and nothing else; no sun pass, no fog; calm pixels on the bus, as up high. Under ?earth the street has the frame and these wait for the flight to take it)
+  const takeFrame = () => {
+    pipeline.setFar(30000);
+    pipeline.shadowStrength = 0;
+    pipeline.calm = 1;
+    globals.uLight.value.set(0.62, 0.2, 0.05);
+  };
+  if (!earth) takeFrame();
   applySpaceTable(pipeline.paletteTexture);
-  globals.uLight.value.set(0.62, 0.2, 0.05);
 
   const perf = new Perf(renderer);
   perf.setVisible(params.has('fps'));
@@ -250,7 +256,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   const launch = flying && params.has('launch') ? Number(params.get('launch')) || 0 : undefined;
   const home = (params.get('home') ?? '').split(',').map(Number);
   const homeAt = home.length === 2 && home.every(Number.isFinite) ? { lat: home[0], lon: home[1] } : {};
-  const trip = flying ? new MoonTrip(series, clock.now(), { g5: Number(params.get('g5')) || MOON_BOOST, land: !!land, launch, ...homeAt }) : null;
+  const trip = flying ? new MoonTrip(series, clock.now(), { g5: Number(params.get('g5')) || MOON_BOOST, land: !!land && !earth, launch, street: !!earth, ...(earth ? { lat: earth.origin[0], lon: earth.origin[1] } : homeAt) }) : null;
   // (and it comes up out of the dark the street went into)
   let dark: HTMLDivElement | null = null;
   if (launch !== undefined) {
@@ -263,7 +269,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   const pose = flying ? null : readView(params, model, sky, clock.now());
 
   const draw = new SkyDraw(pipeline);
-  const landing = land && trip && view ? new Landing(trip, view, pipeline, scene, draw, model, sky) : null;
+  const landing = land && !earth && trip && view ? new Landing(trip, view, pipeline, scene, draw, model, sky) : null;
+  const earthLanding = earth && trip && view ? new EarthLanding(trip, view, model, sky, draw, earth) : null;
   if (trip) {
     draw.moonSteady = true;
     draw.moonFloor = STEADY_FLOOR;
@@ -292,8 +299,11 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   const pitchAxis = new THREE.Vector3(1, 0, 0);
   const lensParam = Number(params.get('lens')) || 0;
   const lens = lensParam || config.camera.hfovVista;
-  pipeline.setHfov(lens);
-  pipeline.setDepthRange(1.5, 30000);
+  const lensOn = () => {
+    pipeline.setHfov(lens);
+    pipeline.setDepthRange(1.5, 30000);
+  };
+  if (!earth) lensOn();
   const focalAt = () => 1 / pipeline.pixelWorldSize(1);
   const placeCamera = () => {
     bus.root.scale.setScalar(config.camera.heroScaleVista);
@@ -302,7 +312,14 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     camera.position.set(0, D * Math.sin(below), D * Math.cos(below));
     camera.quaternion.setFromAxisAngle(pitchAxis, breath.kick);
   };
-  placeCamera();
+  if (!earth) placeCamera();
+  // (under ?earth all of that is the flight's when it takes the frame from the street)
+  if (earthLanding)
+    earthLanding.onTake = () => {
+      takeFrame();
+      lensOn();
+      placeCamera();
+    };
   // the tuner, as the street's: `?tune` or three fingers
   const tuner = new Tuner();
   registerTunables('Moon run', tripTune, { tau: [4, 30, 0.5], pullDegS: [1, 10, 0.1], swing: [0.2, 1.5, 0.01], busSunSoft: [0, 1, 0.01] });
@@ -403,7 +420,12 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   let held0 = false;
   const frame = (now: number) => {
     requestAnimationFrame(frame);
-    // (one page, one pump: below the ground's height the low game has the frame)
+    // (one page, one pump: below the ground's height the low game has the frame; under ?earth the street, which had it first)
+    if (earthLanding?.ground) {
+      earthLanding.world.frameAt(now);
+      last = now;
+      return;
+    }
     if (landing?.ground) {
       landing.world!.frameAt(now);
       last = now;
@@ -418,6 +440,12 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
         return;
       }
       qa.holdFrames--;
+    }
+    if (earthLanding?.cameBack) {
+      earthLanding.cameBack = false;
+      labelEl()?.style.removeProperty('display');
+      hud?.setVisible(true);
+      perf.setVisible(params.has('fps'));
     }
     if (landing?.cameBack && input) {
       landing.cameBack = false;
@@ -547,6 +575,12 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     pipeline.render(scene);
     breath.numbersOut();
     frames++;
+    // (?earth: under the street's height over its city, coming down, the street has it from the next frame)
+    if (earthLanding?.update(camera, bus.root)) {
+      if (label) labelEl()?.style.setProperty('display', 'none');
+      hud?.setVisible(false);
+      perf.setVisible(false);
+    }
     if (landing?.time) {
       landing.hand(camera, bus.root);
       if (label) labelEl()?.style.setProperty('display', 'none');
@@ -573,6 +607,13 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
   };
   const qa = { pipeline, scene, camera, perf, bus, input, warm, moon: { model, sky, clock, draw, pose, load, trip, view, skip, breath, names, tune: tripTune, hold: (on: boolean) => (held0 = on), landing } };
   (window as unknown as Record<string, unknown>)[land ? '__space' : '__game'] = qa;
+  // (?earth: the street has the frame and the thumb; the flight's HUD and label wait for it to hand up, and from here this loop is the pump)
+  if (earthLanding) {
+    if (label) labelEl()?.style.setProperty('display', 'none');
+    hud?.setVisible(false);
+    perf.setVisible(false);
+    earthLanding.world.pumpOff();
+  }
   requestAnimationFrame(frame);
-  return landing;
+  return earthLanding ?? landing;
 }

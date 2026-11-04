@@ -60,6 +60,7 @@ vec3 skyBands(vec3 dir, float dsk) {
 const EARTH_K = (1 / (1 - 1 / 298.257223563)).toFixed(8);
 
 export const spaceResolveUniforms = {
+  uSpaceOn: { value: 1 }, // the share of the sky that's space's, dithered: 1 everywhere but the street under ?earth, where height brings it in
   tEarthMap: { value: null as THREE.Texture | null }, // land, tone, class (0 green, .5 dry, 1 ice), lights
   tMoonMap: { value: null as THREE.Texture | null }, // tone; then the ground: tone, and the real relief's slope, Moon fixed (MoonGround.ts)
   tMoonCraters: { value: null as THREE.Texture | null }, // the invented craters' tile: the height's slope, brightness, rank
@@ -109,6 +110,7 @@ uniform float uMoonClose;
 uniform vec4 uMoonAhead;`;
 
 export const GLSL_SPACE_UNIFORMS = /* glsl */ `
+uniform float uSpaceOn;
 uniform highp sampler2D tEarthMap;
 uniform mat3 uEarthRot;
 uniform vec4 uEarthO;
@@ -262,6 +264,34 @@ bool spLights(vec2 deg, float size, float px, float share, float want0, inout fl
   return true;
 }
 
+// Value noise on hash cells, smooth between them: the plain Earth's breakup low down.
+float spNoise(vec2 q) {
+  vec2 i = floor(q), f = fract(q);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(spHash(i), spHash(i + vec2(1.0, 0.0)), f.x), mix(spHash(i + vec2(0.0, 1.0)), spHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+
+// km over the ellipsoid: |o|^2 - 1 at unit radius is about 2h/R.
+float spEarthHeight() { return uEarthO.w * 3189.07; }
+
+// From inside the air, low over Earth (docs/specs/earth/EARTHFLIGHT.md, E1): by day the street's sky, pale at the horizon and deeper overhead, thinning into space's black from 15 km to 80 km, dithered
+// into the stars. By night, space's dark sky as it is.
+bool spaceAir(vec3 dir, float dsk, out vec3 col) {
+  float air = 1.0 - smoothstep(15.0, 80.0, spEarthHeight());
+  if (air <= 0.0) return false;
+  vec3 e = dir * uEarthRot;
+  vec3 up = normalize(vec3(uEarthO.xy, uEarthO.z * ${EARTH_K}));
+  float sunEl = dot(up, uEarthSun);
+  float k = air * smoothstep(-0.12, 0.06, sunEl);
+  if (k + (dsk - 0.5) * 0.6 < 0.5) return false;
+  float el = dot(e, up), sw = dot(e, uEarthSun);
+  float st = 6.6 - 3.2 * clamp(el * 1.5, 0.0, 1.0) - 2.4 * (1.0 - air);
+  float ramp = sw > 0.93 ? ${Ramp.SKY_WARM}.0 : ${Ramp.FOG}.0;
+  if (sunEl < 0.07 && sw > 0.2) ramp = ${Ramp.TWILIGHT}.0;
+  col = pal(ramp, spStep(st, dsk));
+  return true;
+}
+
 bool spaceEarth(vec3 dir, float dsk, out vec3 col) {
   vec3 e = dir * uEarthRot;
   vec3 ds = vec3(e.xy, e.z * ${EARTH_K});
@@ -289,13 +319,30 @@ bool spaceEarth(vec3 dir, float dsk, out vec3 col) {
   float mu = dot(n, uEarthSun);
   float cosi = -dot(n, e);
   float bx = dsk - 0.5;
-  bool land = m.r > 0.5;
+  // Low over it, a breakup anchored to the ground, so speed reads and the coasts have some edge to them (EARTHFLIGHT.md, E1): octaves of noise from 30 m to 30 km, each only where it's a few pixels or more,
+  // all of it gone by 150 km up, where the map is the Earth as it was. Palette steps only: it moves a step, never a colour.
+  float nz = 0.0;
+  float bk = 1.0 - smoothstep(30.0, 150.0, spEarthHeight());
+  if (bk > 0.0) {
+    float pxk = t * uEarthView.w * 111.32;
+    vec2 q = vec2(lat, lon * cos(lat)) * 6378.137;
+    float sc = 0.03;
+    for (int o = 0; o < 6; o++) {
+      nz += smoothstep(1.5 * pxk, 4.0 * pxk, sc) * (spNoise(q / sc + float(o) * 37.0) - 0.5) * (o < 3 ? 0.7 : 1.0);
+      sc *= 4.0;
+    }
+    nz *= bk;
+  }
+  bool land = m.r + 0.22 * nz > 0.5;
   bool ice = land && m.b > 0.75;
   bool dry = land && m.b > 0.25;
   // the light falling off toward the terminator; the sea stays dark and the land carries the frame
   float fall = sqrt(clamp((mu + 0.03) / 0.33, 0.0, 1.0));
   float sea = min(0.3 + 3.9 * fall, 4.2);
-  float ls = clamp(0.9 + 5.4 * fall * (0.82 + 0.18 * clamp(cosi * 3.0, 0.0, 1.0)) + (m.g - 0.45) * 1.6, 0.0, 7.0);
+  float ls = 0.9 + 5.4 * fall * (0.82 + 0.18 * clamp(cosi * 3.0, 0.0, 1.0)) + (m.g - 0.45) * 1.6;
+  // (the breakup needs room to move both ways: lit land stands at the top of its ramp, so low down it comes off it a little)
+  ls = clamp(mix(ls, min(ls, 5.4), bk) + 2.2 * nz, 0.0, 7.0);
+  sea += 1.1 * nz;
   float ramp = ${Ramp.OPEN_SEA}.0;
   float st = spStep(sea, dsk);
   if (mu < -0.03) {
@@ -303,7 +350,7 @@ bool spaceEarth(vec3 dir, float dsk, out vec3 col) {
     ramp = ${Ramp.INK}.0;
     st = 1.0;
     if (ice) { ramp = ${Ramp.GREY}.0; st = 2.0; }
-    else if (land) st = clamp(floor(m.g * 1.2 + 3.2 + bx * 0.6), 0.0, 7.0);
+    else if (land) st = clamp(floor(m.g * 1.2 + 3.2 + bx * 0.6 + nz), 0.0, 7.0);
   }
   else if (ice) { ramp = ${Ramp.WHITE}.0; st = spStep(clamp((ls - 1.6) * 1.2, 0.0, 7.0), dsk); }
   else if (dry) { ramp = ${Ramp.DRY_LAND}.0; st = spStep(ls, dsk); }
@@ -409,6 +456,7 @@ vec3 spaceSky(ivec2 p, vec3 dir, float dsk) {
   } else if (spaceEarth(dir, dsk, c) || spaceMoon(dir, dsk, c)) return c;
   float s = dot(dir, uSunDisc.xyz);
   if (s > uSunRing) return pal(s > uSunDisc.w ? ${Ramp.GLOW_WHITE}.0 : ${Ramp.SKY_WARM}.0, 7.0);
+  if (spaceAir(dir, dsk, c)) return c;
   uint g = texelFetch(tG, p, 0).r;
   if ((g & 255u) != 0u) return pal(float(g & 255u), float(g >> 8u));
   return pal(${Ramp.NIGHT_SKY}.0, 1.0);

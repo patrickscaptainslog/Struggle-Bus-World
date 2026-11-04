@@ -92,10 +92,11 @@ const PUSH_HOLD = 0.15;
 /** How near the orbit's height a climb starts to level off, s of its own speed, so it comes onto the floor and doesn't stop dead under it. */
 const FLARE_S = 1.5;
 
-export type Leg = 'wait' | 'rise' | 'high' | 'sink' | 'climb' | 'arc' | 'out' | 'cruise' | 'in' | 'orbit' | 'moonRise' | 'moonHigh' | 'moonSink' | 'fall' | 'ground' | 'leave' | 'homeOut' | 'homeCruise' | 'homeIn' | 'homeLevel' | 'homeDrop';
+export type Leg = 'street' | 'wait' | 'rise' | 'high' | 'sink' | 'climb' | 'arc' | 'out' | 'cruise' | 'in' | 'orbit' | 'moonRise' | 'moonHigh' | 'moonSink' | 'fall' | 'ground' | 'leave' | 'homeOut' | 'homeCruise' | 'homeIn' | 'homeLevel' | 'homeDrop';
 
 /** What the small label calls each leg (MOONSHOT.md's table). */
 export const LEG_NAMES: Record<Leg, string> = {
+  street: 'ON THE STREET',
   wait: 'OVER EARTH',
   rise: 'CLIMBING',
   high: 'HIGH OVER EARTH',
@@ -139,6 +140,8 @@ export interface TripOptions {
   land?: boolean;
   /** The bus has come up off the street (?launch=, main.ts): it starts climbing over home, facing this way, degrees from north, as it was flying down there. */
   launch?: number;
+  /** ?earth: the street has the bus from the start, and hands it up (fromStreet) (docs/specs/earth/EARTHFLIGHT.md, E2). */
+  street?: boolean;
 }
 
 type V = Float64Array;
@@ -254,6 +257,7 @@ export class MoonTrip {
   private pushT = 0;
   private readonly land: boolean;
   private readonly launchDeg: number | undefined;
+  private readonly onStreet: boolean;
   private readonly ms0: number;
   private readonly now: SkyModel;
   private readonly later: SkyModel;
@@ -295,6 +299,7 @@ export class MoonTrip {
     this.tau = opts.tau ?? TAU;
     this.land = !!opts.land;
     this.launchDeg = opts.launch;
+    this.onStreet = !!opts.street;
     this.now = new SkyModel(series);
     this.later = new SkyModel(series);
     geodeticToFix(opts.lat ?? 37.7749, opts.lon ?? -122.4194, 0, this.fx);
@@ -358,7 +363,7 @@ export class MoonTrip {
 
   /** The body this leg is going to: TripView.ts keeps it over the bus while it lies ahead. */
   get bound(): BodyId {
-    return this.leg === 'wait' || this.leg === 'rise' || this.leg === 'high' || this.leg === 'sink' || this.leg === 'leave' || this.leg === 'homeOut' || this.leg === 'homeCruise' || this.leg === 'homeIn' || this.leg === 'homeLevel' || this.leg === 'homeDrop' ? EARTH : MOON;
+    return this.leg === 'street' || this.leg === 'wait' || this.leg === 'rise' || this.leg === 'high' || this.leg === 'sink' || this.leg === 'leave' || this.leg === 'homeOut' || this.leg === 'homeCruise' || this.leg === 'homeIn' || this.leg === 'homeLevel' || this.leg === 'homeDrop' ? EARTH : MOON;
   }
 
   /** Full stick's turn, rad/s. */
@@ -433,6 +438,10 @@ export class MoonTrip {
     sub(this.now.moonEqj, this.r, this.w);
     tangent(this.w, u, this.heading);
     this.dir.set(this.heading);
+    if (this.onStreet) {
+      this.enter('street');
+      return;
+    }
     if (this.launchDeg === undefined) {
       this.enterEarth();
       return;
@@ -1026,8 +1035,9 @@ export class MoonTrip {
         }
         return true;
       }
-      // (the ground game has the frame: nothing here moves)
+      // (the ground game has the frame: nothing here moves; on Earth, the street)
       case 'ground':
+      case 'street':
         return true;
       // ---- home
       case 'leave': {
@@ -1139,6 +1149,42 @@ export class MoonTrip {
   /** The ground game takes the bus (moon/Landing.ts). */
   land2ground(): void {
     this.enter('ground');
+  }
+
+  /** ?earth: the street takes the bus (sky/EarthLanding.ts). */
+  toStreet(): void {
+    this.climbV = 0;
+    this.lifting = this.settling = this.rungUp = false;
+    this.eggUp = false;
+    this.enter('street');
+  }
+
+  /**
+   * ?earth: the street hands the bus up, free over Earth from where it is: its place and the way it faces, Earth fixed (km, unit), the way it goes over the level (rad), its speed (km/s) and the street's gear
+   * (Turbo.ts's, Cruise 0 to Jet 3; a turbo level is Jet). The sky model is brought to this moment first: the street's frames only ticked the clock.
+   */
+  fromStreet(ef: V, eh: V, nose: number, v: number, rung: number): void {
+    this.now.frame(this.ms, this.ob, this.nowS);
+    const u = this.u;
+    this.ef.set(ef);
+    setUnit(ef, u);
+    tangent(eh, u, this.eh);
+    this.rung = Math.max(0, Math.min(RUNG_TOP, rung));
+    this.rungAt = this.t;
+    this.v = v;
+    this.ti = 0;
+    this.climbV = 0;
+    this.lifting = this.settling = this.rungUp = false;
+    this.eggUp = false;
+    this.nose = nose;
+    const F = this.now.earthFix, cn = Math.cos(nose), sn = Math.sin(nose);
+    for (let i = 0; i < 3; i++) this.ed[i] = this.eh[i] * cn + u[i] * sn;
+    fromFix(F, this.ef, this.ob.pos);
+    fromFix(F, this.eh, this.heading);
+    fromFix(F, this.ed, this.dir);
+    this.r.set(this.ob.pos);
+    sub(this.r, this.now.moonEqj, this.rm);
+    this.enter('wait');
   }
 
   /**

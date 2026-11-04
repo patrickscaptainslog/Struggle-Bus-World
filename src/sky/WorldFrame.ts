@@ -1,5 +1,5 @@
 // What hands the sky model its Observer in the city and from any place on a body: true position in the body's fixed frame and render axes as a mat3 (SKY.md section 2). The model
-// never sees a latitude. Grid convergence (a city's tmerc frame against true north) and the inverse of geo.ts are stop 2's: nothing here has a city yet.
+// never sees a latitude. Grid convergence (a city's tmerc frame against true north) and the inverse of geo.ts are stop 2's. fixToGeodetic is the street's join's (docs/specs/earth/EARTHFLIGHT.md, E2).
 
 const DEG = Math.PI / 180;
 const WGS_A = 6378.137;
@@ -13,6 +13,20 @@ export function geodeticToFix(latDeg: number, lonDeg: number, hKm: number, o: Fl
   o[1] = (N + hKm) * c * Math.sin(lonDeg * DEG);
   o[2] = (N * (1 - WGS_E2) + hKm) * s;
   return o;
+}
+
+/** Earth fixed, km, to WGS84 geodetic: [latitude, longitude] in degrees and the height over the ellipsoid, km, into o. Bowring's start and four rounds: sub-millimetre from the ground to the Moon. */
+export function fixToGeodetic(p: Float64Array | number[], o: Float64Array | number[]): void {
+  const x = p[0], y = p[1], z = p[2], q = Math.hypot(x, y);
+  let lat = Math.atan2(z, q * (1 - WGS_E2)), h = 0;
+  for (let i = 0; i < 4; i++) {
+    const s = Math.sin(lat), N = WGS_A / Math.sqrt(1 - WGS_E2 * s * s);
+    h = Math.abs(Math.cos(lat)) > 1e-9 ? q / Math.cos(lat) - N : Math.abs(z) - N * (1 - WGS_E2);
+    lat = Math.atan2(z, q * (1 - (WGS_E2 * N) / (N + h)));
+  }
+  o[0] = lat / DEG;
+  o[1] = Math.atan2(y, x) / DEG;
+  o[2] = h;
 }
 
 /** A place on a sphere of radius R to that body's fixed frame, km. */

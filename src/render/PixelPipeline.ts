@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { config } from '../config';
 import { globals, GLSL_G_READ, GLSL_LAYER_TOP, GLSL_SKY_LIGHT, SHADOW_LAYER } from './materials';
 import { HUE_RAMPS, makePaletteTexture, Ramp } from './palette';
-import { held, heldHour, heldOr, moonLow, moonrun, space } from '../sky/flag';
+import { earthFly, held, heldHour, heldOr, moonLow, moonrun, space } from '../sky/flag';
 import { GLSL_SKY_HELD, GLSL_SKY_HELD_UNIFORMS, GLSL_SPACE, GLSL_SPACE_UNIFORMS, heldResolveUniforms, spaceResolveUniforms } from './skyResolve';
 import type { WarmPipeline } from './warmup';
 
@@ -194,7 +194,7 @@ export class PixelPipeline implements WarmPipeline {
         uFlash: { value: new THREE.Vector4() },
         uSkyCut: { value: this.skyCut },
         ...(heldHour ? heldResolveUniforms : {}),
-        ...(moonrun || moonLow ? spaceResolveUniforms : {}),
+        ...(moonrun || moonLow || earthFly ? spaceResolveUniforms : {}),
       },
       vertexShader: QUAD_VS,
       fragmentShader: RESOLVE_FS,
@@ -401,6 +401,11 @@ export class PixelPipeline implements WarmPipeline {
   }
 
   /** The far plane moves (?farfade): the sky is the clear flag alone from here on, or the far fade ends in a hard cut. */
+  /** ?earth: geometry past this depth turns to sky this frame, so the street's ground goes into the plain Earth from the horizon in as it climbs (main.ts); null: the cut setFar() keeps. */
+  cutSky(z: number | null): void {
+    this.resolveMat.uniforms.uSkyCut.value = z ?? this.skyCut;
+  }
+
   setFar(far: number) {
     this.camera.far = far;
     this.camera.updateProjectionMatrix();
@@ -999,7 +1004,8 @@ void main() {
   // at 1.5 m, z >= 0.99999 is a distance, 25 km at a 30 km far plane, 29 km at 36 km. uSkyCut keeps that distance while the far
   // fade stands at 20 km, so frames don't change; setFar() takes it away.
   if (a.a == 0.0 || z >= uSkyCut) {${space(`
-    {
+    // (?earth: the street's own sky until height brings space in, dithered: uSpaceOn)
+    if (dsk < uSpaceOn) {
       // (out in space the sky is GLSL_SPACE: bodies, the Sun, stars; what the bus glows still lands on it)
       spFlash = flashK;
       vec3 sc = spaceSky(p, dir, dsk);
