@@ -300,6 +300,8 @@ export class MoonTrip {
     this.land = !!opts.land;
     this.launchDeg = opts.launch;
     this.onStreet = !!opts.street;
+    // (the street has the bus from the first frame, and the flight steps nothing until it hands up: the leg is the street's from here, not from the first step)
+    if (this.onStreet) this.leg = 'street';
     this.now = new SkyModel(series);
     this.later = new SkyModel(series);
     geodeticToFix(opts.lat ?? 37.7749, opts.lon ?? -122.4194, 0, this.fx);
@@ -1164,6 +1166,7 @@ export class MoonTrip {
    * (Turbo.ts's, Cruise 0 to Jet 3; a turbo level is Jet). The sky model is brought to this moment first: the street's frames only ticked the clock.
    */
   fromStreet(ef: V, eh: V, nose: number, v: number, rung: number): void {
+    this.started = true;
     this.now.frame(this.ms, this.ob, this.nowS);
     const u = this.u;
     this.ef.set(ef);
