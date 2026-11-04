@@ -235,6 +235,11 @@ try {
       const last = recs.reduce((a, r) => (!a || r.order > a.order ? r : a), null);
       return { recs: recs.length, last: last ? { id: last.id, km: +(last.r / 1000).toFixed(2), level: last.level } : null, shots: m.breath.stats.shots, denied: m.breath.stats.denied, loaded: m.breath.loaded, aimOn: m.breath.aimOn, map: +m.breath.paint.painted.toFixed(6), craters: m.breath.craters };
     });
+    // (the rows before have panned the view and it stays where it's left: back to the bus, so the ground is in front of it and the aim is on it)
+    await page.evaluate(() => {
+      const v = window.__space.moon.view;
+      v.lookYaw = v.lookPitch = 0;
+    });
     await frames(30);
     const p0 = await paintOf();
     // (a finger of its own: one the rows before have used may still be down to Input)
