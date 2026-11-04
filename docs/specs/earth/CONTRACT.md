@@ -384,7 +384,7 @@ Both: the milliseconds a frame in the busiest view, on the laptop's GPU and on t
 | O13 | The flag: `?life`, the default only on the producer's word, as `?earth` | Yes |
 | O14 | The store's caps (2,000 records, 256 KB) and the 7-day loss | As section 3 |
 | O15 | "One hook" (`LIVING.md`, "Hot spots") read as section 6's list, or one block, which would need the producer's word | The list |
-| O16 | "One cruise ship at Pier 27 on its real port calls" (`LIVING.md`, stage 1): nothing in the world's data has port calls. Life simulates believable calls from terminals and lanes, by season; or the world names a schedule source as a download | Simulated, and the producer asked whether that's what they meant |
+| O16 | "One cruise ship at Pier 27 on its real port calls" (`LIVING.md`, stage 1): nothing in the world's data has port calls, and no open source has them worldwide. Life simulates believable calls from terminals and lanes, by season; or the world names a schedule source as a download | Simulated, as the producer ruled for ferries ("very educated guess"); "real port calls" was the plan's wording, not theirs, and they're told so (2026-11-04) |
 
 **Downloads** (none fetched; each is the producer's to OK with file, source and size first, `CLAUDE.md`; sizes aren't read yet, and each is read from its source's page before asking; each goes on `LIVING.md` stage 0's list beside Overture, GLO-30, WorldCover and GEBCO):
 
