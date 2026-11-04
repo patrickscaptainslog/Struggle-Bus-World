@@ -25,6 +25,11 @@ Same branch. The producer flew Stages 1 to 3 and ruled on the trip (`CLAUDE.md`,
 
 ## First account: from 2026-11-05 13:00 UTC (5 am Pacific), when its weekly limit resets (the producer, 2026-11-04)
 
+Start with [BRIEF.md](BRIEF.md): what the second account built meanwhile, what isn't live, and what to agree on.
+
+- [ ] Review `feat/moonfree`, then `feat/earth` on it (BRIEF.md says where to look hardest). New work from both accounts goes on `feat/earth`
+- [ ] Plan a living Earth, real terrain and buildings and things that move, live planes and ships among them (the producer, 2026-11-04; BRIEF.md has their words and the questions). A plan for the producer to approve, in `docs/specs/`, before anything is built
+
 - [ ] Review each stage above as it's handed in, and fly the long real-time checks on a real GPU. Stages 2 and 3 leave these (FREEFLIGHT.md): 500 km low at Jet, a lap at Stratos with memory read, the worker keeping up at Stratos, the flight's low band slide by hand, and night as it looks
 - [ ] ~~Start the Moon flight from the ground on Earth~~: the second account has it now, on `feat/moonfree` (the producer, 2026-11-04: "I'm hoping we may be able to get to launch from SF on this account tonight"). Review it instead. It was: start the Moon flight from the ground on Earth, so it can be felt from start to finish. That's the trip's first leg, not the streets job on hold. It touches `src/main.ts` too: expect to merge with the stages above. The producer, 2026-11-03: "I want to fly up high from San Francisco surface and eventually get so so high, extremely high, that an "Easter egg" button appears "to the moon?"". It hands over to VOYAGE's V2 (`docs/specs/moon/VOYAGE.md`)
 - [ ] `feat/thumbs` to main, once the producer says the controls can go live. It waits for the bus's lane now (the producer, 2026-11-04: near the bus flies, anywhere else looks, on the street too), which is on `feat/moonfree`: `Input.busZone`, the low game's and the flight's loop's lines that set it, the hint, THUMBS.md's rule, and the gesture sim's lane rows
@@ -47,4 +52,4 @@ Same branch. The producer flew Stages 1 to 3 and ruled on the trip (`CLAUDE.md`,
 
 ## On hold
 
-Don't start these: streets and highways, moving things, weather and clouds, satellites.
+Don't start these: streets and highways, weather and clouds, satellites. Moving things are off hold for the plan above.

@@ -46,7 +46,7 @@ These beat every older doc. `README.md`, `HANDOFF.md` and `DECISIONS.md` are his
 - The trail on the way is alive and a little random, never still: "it is too static, like its frozen and im afraid players will think their game stalled."
 - On the way the bus carves and turns about its set path as it does over the street, with the right thumb, and the left pans: "On the journey to the moon, even though the path is set and straight, I want to have the players be able to carve and turn and… move through the sky. Similar to how they normally do, this might be relaxing and give more of a sense of control - like they're actually flying".
 
-**On hold.** Start none of these until the producer says so: streets and highways, moving things (cars, ships, trains, planes, live plane data), weather and clouds, satellites.
+**On hold.** Start none of these until the producer says so: streets and highways, weather and clouds, satellites. Moving things are off hold for planning: the producer, 2026-11-04, "I want to start populating the earth map with real terrain/buildings ... I want to add: people, cars ferries planes (real live real time planes) and like cruise ships and sailboats in popular bays and harbor. I want to bring life into this game." The plan comes first, the first account's, and the producer approves it (`docs/BRIEF.md`).
 
 **Numbers**
 - 393 x 852 game pixels at 3x. The floor is an A15 at 30 fps, and Safari 15 has to parse the build. 120-200 draws, 1.0-1.5 M triangles. Nothing compiles in flight.
