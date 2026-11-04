@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { config } from '../config';
 import { SHADOW_LAYER, makeRampMaterial, globals } from '../render/materials';
-import { hourUp, skyOn } from '../sky/flag';
+import { byHour, skyOn } from '../sky/flag';
 import { Ramp } from '../render/palette';
 import { makeBuildingMaterial, paintUniforms } from './buildingMaterial';
 import { makeHeightGrid, makeTerrainMaterial, makeWaterMaterial } from './terrainMaterial';
@@ -253,7 +253,7 @@ function farGridMesh(pos: Float32Array, nrm: Float32Array, ramp: Float32Array, l
  * contour saws into teeth a cell wide; interpolated, it passes through ramps nobody chose. 37: buildHorizon's mesh stands 3 m under the DEM.
  */
 /** The held hour's plain far ground, what stands in with no raster: the day's tone would be a sheet of light beside the city. */
-const heldFarLo = { get value() { return hourUp() && config.sky.far ? config.sky.farGroundLo : 0; } };
+const heldFarLo = { get value() { return byHour(0, config.sky.farGroundLo, config.sky.far); } };
 
 const makeHorizonMaterial = () => makeRampMaterial({ vertexRamp: true, shadowMul: 0, rampAbove: { y: 37, below: Ramp.GREY_LIGHT, above: skyOn ? Ramp.RIDGE : Ramp.GREEN_GREY } });
 

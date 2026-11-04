@@ -26,7 +26,7 @@ export const heldGlobals = {
   uSkySunDir: { value: new THREE.Vector3(0, 1, 0) }, // the sky's own Sun, every frame, true plus refraction (SKY.md 2): uSunDir moves on the tick only
   uClockHands: { value: new THREE.Vector2(2.6, -0.6) }, // a landmark clock's hour and minute hands, radians clockwise from twelve: ten to five, until the live sky reads the time
   uShadowBias: { value: 0.0009 }, // the sun pass's depth bias, a share of its depth range: 2.7 m whatever the range (the live sky's pass reaches farther at a low sun)
-  uSkyHaze: { value: 0 }, // the light the haze ends on, in place of the day's sky function (0: that function)
+  uSkyHaze: { value: new THREE.Vector2() }, // the light the haze ends on, and how far it has gone there from the day's sky function (0: that function)
   uLit: { value: 0 }, // the share of windows lit, one held value: there is no clock
   uLitGlow: { value: 0 }, // a near pane's glow
   uLamp: { value: 0 }, // how many steps a lamp's pool lifts the paved ground
@@ -121,17 +121,17 @@ export function layerTopBase(x: number, z: number): number {
  * `calm` is pipeline.calm (0 at the floor, 1 with the vista fully calm).
  */
 export const GLSL_SKY_LIGHT = /* glsl */ `${held(`
-uniform float uSkyHaze;
+uniform vec2 uSkyHaze;
 uniform vec3 uSkySunDir;`)}
 float sbSkyLight(vec3 dir, vec3 sunDir, float calm) {${held(`
-  if (uSkyHaze > 0.0) return uSkyHaze;`)}
+  if (uSkyHaze.y >= 1.0) return uSkyHaze.x;`)}
   float e = clamp(dir.y * 2.6, -0.3, 1.0);
   float sunNear = pow(max(dot(dir, sunDir), 0.0), 16.0);
   // (at the floor the sky band is the frame's top ~10 deg: it holds one step there, so its first step
   // change, a dithered stripe, never rides the top edge of the chase view; up high it deepens as before)
   float l = 0.9 - mix(0.25, 0.5, calm) * max(e, 0.0) + 0.12 * sunNear;
   l -= 0.6 * max(-e, 0.0);
-  return clamp(l, 0.0, 1.0);
+  return ${heldOr('mix(clamp(l, 0.0, 1.0), uSkyHaze.x, uSkyHaze.y)', 'clamp(l, 0.0, 1.0)')};
 }
 `;
 

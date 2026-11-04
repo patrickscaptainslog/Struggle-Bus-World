@@ -1002,7 +1002,8 @@ void main() {
   // fade stands at 20 km, so frames don't change; setFar() takes it away.
   if (a.a == 0.0 || z >= uSkyCut) {${held(`
     vec3 sc;
-    if (uSkyRows.x >= 0.0) sc = skyBands(dir, dsk);
+    // (the live sky hands the day's sky to the bands over the 15 degrees to golden hour: a dither of the two, the game's one way to mix)
+    if (uSkyRows.x >= 0.0 && bayer4(p + ivec2(1, 2)) < uSkySun.w) sc = skyBands(dir, dsk);
     else {`)}
     float skyL = skyLight(dir);
     // up high the sky above the horizon deepens a little faster and sits a touch darker than the

@@ -1,11 +1,12 @@
 import type * as THREE from 'three';
 import { config } from '../config';
 import { globals, heldGlobals } from '../render/materials';
-import { Ramp } from '../render/palette';
+import { dayRows, Ramp, writePalette } from '../render/palette';
 import type { PixelPipeline } from '../render/PixelPipeline';
-import { hourUp, setHourUp } from './flag';
+import { setHourUp } from './flag';
 import { HeldHour } from './HeldHour';
 import { series } from './Series';
+import { fogLuma, fogLumaOf, TableBlend } from './SkyTable';
 import { SkyClock } from './SkyClock';
 import { EARTH, SkyModel, SkyState, type Observer } from './SkyModel';
 import { axesAt, geodeticToFix } from './WorldFrame';
@@ -13,7 +14,7 @@ import { axesAt, geodeticToFix } from './WorldFrame';
 // The live sky (docs/specs/sky/LIVE.md, SKY.md S2): the real Sun over the city's origin at the real time, or ?t= and ?rate= (SkyClock). A player anywhere sees the
 // city's sky as it is there. Four vectors (SKY.md 2): the sky's own Sun every frame, true plus refraction (uSkySunDir, the disc and the day sky's glow); the key, true,
 // on the tick (pipeline.keyDir, the sun pass); the shading vector, the key with the noon knee (uSunDir, every material, as today). Light moves, tables colour: the
-// day keeps today's table, and from sunset to sunrise the held hour is up (HeldHour.ts, hourUp), its blue table and its lights. Stage B blends the tables.
+// tables blend by the Sun's height (SkyTable.ts TableBlend), and the held hour (HeldHour.ts) comes up with them, its lights by the city's clock and the lamps' wave.
 //
 // Nothing here allocates once it's built: frame() runs every render frame.
 
@@ -24,10 +25,22 @@ const SUNSET = -50 / 60;
 
 /**
  * SKY.md 4's key table by the true Sun's height (deg): height, ambient, sky bounce, key. Setting and rising differ above the horizon and are one under it. From
- * 0.5 degrees down the key is the afterglow, .30 to .06 over dusk (research-render.md 2.3), and the pass has gone. Heights fall; above the first row it holds.
+ * 0.5 degrees down the key is the afterglow and the pass has gone. Night keeps the blue hour's look (LIVE.md decision 2): from -4 down it is S1's held light,
+ * .34 / .20 / .20, where research-render's curve ran on to .04, a darker city than the one the producer flew. Heights fall; past either end a row holds.
  */
-const SETTING = new Float64Array([35, 0.3, 0.22, 0.46, 22, 0.3, 0.24, 0.52, 7, 0.31, 0.12, 0.66, 1.5, 0.34, 0.1, 0.62, 0.5, 0.34, 0.2, 0.3, -6, 0.34, 0.2, 0.06, -12, 0.3, 0.24, 0.04]);
-const RISING = new Float64Array([35, 0.3, 0.22, 0.46, 16, 0.33, 0.22, 0.5, 1, 0.36, 0.12, 0.46, 0.5, 0.34, 0.2, 0.3, -6, 0.34, 0.2, 0.06, -12, 0.3, 0.24, 0.04]);
+const SETTING = new Float64Array([35, 0.3, 0.22, 0.46, 22, 0.3, 0.24, 0.52, 7, 0.31, 0.12, 0.66, 1.5, 0.34, 0.1, 0.62, 0.5, 0.34, 0.2, 0.3, -4, 0.34, 0.2, 0.2]);
+const RISING = new Float64Array([35, 0.3, 0.22, 0.46, 16, 0.33, 0.22, 0.5, 1, 0.36, 0.12, 0.46, 0.5, 0.34, 0.2, 0.3, -4, 0.34, 0.2, 0.2]);
+
+/** The share of the evening's windows lit by the city's clock (local hour, share): homes and offices as one, since a window has one threshold (SKY.md 4.4). */
+const LIT_CLOCK = new Float64Array([0, 0.6, 2, 0.35, 4, 0.22, 5.5, 0.25, 7, 0.55, 9, 0.4, 16, 0.5, 18, 1, 21.5, 1, 23, 0.8, 24, 0.6]);
+
+/** A row of LIT_CLOCK at that hour. */
+function litAt(hr: number): number {
+  let i = 0;
+  while (i + 2 < LIT_CLOCK.length - 2 && hr >= LIT_CLOCK[i + 2]) i += 2;
+  const u = Math.min(1, Math.max(0, (hr - LIT_CLOCK[i]) / (LIT_CLOCK[i + 2] - LIT_CLOCK[i])));
+  return LIT_CLOCK[i + 1] + (LIT_CLOCK[i + 3] - LIT_CLOCK[i + 1]) * u;
+}
 
 /** A row of `t` at height h into o[0..2]. */
 function keyAt(t: Float64Array, h: number, o: Float64Array): void {
@@ -94,6 +107,13 @@ export class LiveSky {
   /** the shading vector and uLight at the last tick: written every frame, over the day's light that updateSun wrote first */
   readonly shade = new Float64Array([0, 1, 0]);
   readonly light = new Float64Array([config.light.sunStrength, config.light.ambient, config.light.skyBounce]);
+  /** the tables, and the Sun's height, the setting share and the switches they were last written for */
+  readonly tables = new TableBlend();
+  private tableH = NaN;
+  private tableW = 0;
+  private tableKey = -1;
+  /** the Sun was under SUNSET at the last frame: crossing it the key leaves the Sun or comes back to it at once */
+  private down = false;
   /** the city's time against UTC (min) and the sky minute it was read for; the zone, when its city.json names one */
   private tz: string | undefined;
   private tzOffset = 0;
@@ -103,6 +123,8 @@ export class LiveSky {
   constructor(private readonly pipeline: PixelPipeline, params: URLSearchParams) {
     this.clock = new SkyClock(params);
     this.hour = new HeldHour(pipeline, true);
+    // (none of the hour until the city is placed: the day's)
+    this.hour.bands = this.hour.lit = this.hour.wave = 0;
   }
 
   /** The city's origin [lat, lon] (deg), and its zone if its city.json names one. Until then the sky stands at the day's. */
@@ -172,20 +194,47 @@ export class LiveSky {
     heldGlobals.uSkySunDir.value.set(ca * ce, Math.sin(seen * DEG), cz * ce);
     // (the disc where the eye can see it: down to the horizon's dip at this height)
     const dip = Math.acos(6371000 / (6371000 + Math.max(0, this.camY))) / DEG;
-    const up = h < SUNSET;
+    // the tables, and the hour as far as they have come to it
+    const w = this.setting(), T = this.tables;
+    T.place(h, w);
+    this.table(h, w);
     this.pipeline.sunRad = s.sunR;
-    this.pipeline.sunRing = seen + s.sunR / DEG > -dip ? (up && S.table ? Ramp.TWILIGHT : Ramp.SKY_WARM) : -1;
+    this.pipeline.sunRing = seen + s.sunR / DEG > -dip ? (T.bands > 0.5 && S.table ? Ramp.TWILIGHT : Ramp.SKY_WARM) : -1;
     // (the day sky's warm band is a low sun's; under the hour the bands bend toward the Sun until it's deep down: S1 held it at -5.9)
     this.pipeline.heldUniforms.uSkyWarm.value.set((1 - smooth(25, 45, h)) * smooth(-6, 0, h), smooth(-18, -8, h));
 
-    const changed = up !== hourUp();
-    setHourUp(up);
+    const down = h < SUNSET, changed = down !== this.down;
+    this.down = down;
+    setHourUp(T.hour);
     this.tick(ms, h, az, changed);
     const d = this.shade, l = this.light;
     globals.uSunDir.value.set(d[0], d[1], d[2]);
     globals.uLight.value.set(l[0], l[1], l[2]);
-    this.hour.update(az);
     this.clockHands(ms);
+    // windows by the city's clock as the dark comes (the hour's own blend); lamps in a wave from -2 to -4 degrees, by a threshold each (Lamps.ts)
+    const local = ((((ms / 60000 + this.tzOffset) % 1440) + 1440) % 1440) / 60;
+    this.hour.bands = T.bands;
+    this.hour.lit = litAt(local) * T.hour;
+    this.hour.wave = Math.min(1, Math.max(0, (-2 - h) / 2));
+    this.hour.update(az);
+  }
+
+  /** The palette takes the moment's table when the Sun has moved 0.05 degrees (12 s or so at San Francisco's sunset) or a switch moved: never a frame of its own. */
+  private table(h: number, w: number): void {
+    const S = config.sky, key = (S.table ? 1 : 0) + (S.paint ? 2 : 0);
+    if (key === this.tableKey && Math.abs(h - this.tableH) < 0.05 && Math.abs(w - this.tableW) < 0.01) return;
+    this.tableKey = key;
+    this.tableH = h;
+    this.tableW = w;
+    const tex = this.pipeline.paletteTexture, data = tex.image.data as unknown as Uint8Array, fog = this.pipeline.heldUniforms.uFogLuma.value;
+    if (S.table) {
+      this.tables.write(data, !!S.paint);
+      fogLumaOf(data, fog);
+    } else {
+      writePalette(data, dayRows);
+      fogLuma(false, fog);
+    }
+    tex.needsUpdate = true;
   }
 
   /**
@@ -244,7 +293,7 @@ export class LiveSky {
     return H > 6 ? 1 - smooth(10.5, 13.5, H) : H < -6 ? 1 - smooth(10.5, 13.5, H + 24) : smooth(-1.5, 1.5, H);
   }
 
-  /** A landmark clock's hands: the city's time, from its zone when its city.json names one (stage B), else the mean Sun's at its longitude. */
+  /** A landmark clock's hands, and the windows' clock: the city's time, from its zone (city.json's tz), else the mean Sun's at its longitude. */
   private clockHands(ms: number): void {
     const minute = Math.floor(ms / 60000);
     if (minute !== this.tzAt) {

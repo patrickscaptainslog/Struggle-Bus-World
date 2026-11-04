@@ -15,7 +15,7 @@ import { loadLamps } from './lampLoad';
 
 const LAMP_VS = /* glsl */ `
   ${GLSL_COMMON}
-  uniform vec3 uLampPoint;    // the share lit, a head's lift a metre from the lens (m), the distance past which they thin out (m)
+  uniform vec4 uLampPoint;    // the share lit, a head's lift a metre from the lens (m), the distance past which they thin out (m), how far the dusk's wave has come
   flat out float vLight;
   flat out float vFog;
   void main() {
@@ -28,6 +28,8 @@ const LAMP_VS = /* glsl */ `
     gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
     // (far off they crowd into rows a pixel apart: a stable hash thins them with distance, so a lamp goes out alone, never a row at a time)
     if (h >= uLampPoint.x || h * dist >= uLampPoint.z) return;
+    // (they come on in waves near sun -2 to -4 degrees, SKY.md 4.4: a 300 m block's photocells near together, the blocks at their own times)
+    if (0.8 * fract(sin(dot(floor(wp.xz / 300.0), vec2(127.1, 311.7))) * 43758.5453) + 0.2 * h >= uLampPoint.w) return;
     // (the far mesh's 64 m cells stand a few metres off the lamp's 32 m heights)
     wp.y += dist * uLampPoint.y;
     vLight = (h < 0.3 ? 6.0 : 7.0) / 7.0;
@@ -46,7 +48,7 @@ const LAMP_FS = /* glsl */ `
   }
 `;
 
-const uLampPoint = { value: new THREE.Vector3() };
+const uLampPoint = { value: new THREE.Vector4() };
 
 function makeLampMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: { ...globals, uLampPoint }, vertexShader: LAMP_VS, fragmentShader: LAMP_FS });
@@ -136,13 +138,13 @@ export class Lamps {
     this.object.add(this.bridges);
   }
 
-  /** Every frame, the tuner's switches; none of it while the hour is down. */
-  update(on = true) {
-    const S = config.sky;
-    uLampPoint.value.set(S.lampShare, S.lampLift, S.lampThin);
+  /** Every frame, the tuner's switches. `wave`: how far the dusk's wave has come, 0 none on (the day), 1 all of them. */
+  update(wave: number) {
+    const S = config.sky, on = wave > 0;
+    uLampPoint.value.set(S.lampShare, S.lampLift, S.lampThin, wave);
     if (this.streets) this.streets.visible = on && !!S.lamps;
     if (this.bridges) this.bridges.visible = on && !!S.bridges;
-    heldGlobals.uLamp.value = on && S.pools ? S.poolLift : 0;
+    heldGlobals.uLamp.value = S.pools ? S.poolLift * wave : 0;
     heldGlobals.uLampFar.value.set(S.poolFade, S.poolEnd);
   }
 

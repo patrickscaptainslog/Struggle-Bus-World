@@ -8,7 +8,7 @@ import { Ramp } from './palette';
 
 export const heldResolveUniforms = {
   uSkyRows: { value: new THREE.Vector4(-1, 0, 0, 0) }, // far side low and high, sun side low and high (x under 0: the day's sky)
-  uSkySun: { value: new THREE.Vector3(1, 0, 3) }, // the sun's azimuth, a unit vector in xz; how fast the sun side falls away with it (a power)
+  uSkySun: { value: new THREE.Vector4(1, 0, 3, 1) }, // the sun's azimuth, a unit vector in xz; how fast the sun side falls away with it (a power); the share of the sky's pixels the bands draw
   uSkyHaze: heldGlobals.uSkyHaze,
   uSkySunDir: heldGlobals.uSkySunDir,
   uSunDisc: { value: new THREE.Vector4(0, 0, 0, -1) }, // the live sky's Sun: its centre in buffer px (a pixel's centre), radius in px, the ring's row (under 0: no disc)
@@ -20,7 +20,7 @@ export const heldResolveUniforms = {
 
 export const GLSL_SKY_HELD_UNIFORMS = /* glsl */ `
 uniform vec4 uSkyRows;
-uniform vec3 uSkySun;
+uniform vec4 uSkySun;
 uniform vec4 uSunDisc;
 uniform vec2 uSkyWarm;
 uniform vec2 uFogLuma;

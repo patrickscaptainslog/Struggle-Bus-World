@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { config } from '../config';
 import { globals, GLSL_COMMON, GLSL_OUT, GLSL_SKY_LIGHT } from '../render/materials';
 import { Ramp, HUE_RAMPS } from '../render/palette';
-import { held, heldOr, hourUp } from '../sky/flag';
+import { byHour, held, heldOr } from '../sky/flag';
 import { Part } from './BuildingMesher';
 import { Arch } from './tiles';
 import { blastUniforms, GLSL_BLAST_RING } from './GroundPaint';
@@ -52,10 +52,10 @@ const facadeUniforms = {
   uLodJitter: { get value() { return F().lodJitter; } },
   uHouseRibbon: { get value() { return F().houseRibbon; } },
   uHouseFlat: { get value() { return F().houseFlat; } },
-  // (the held hour raises these: resting surfaces at 0.55 or under)
-  uCrownGlow: { get value() { return hourUp() && config.sky.glow ? config.sky.crownGlow : F().crownGlow; } },
-  uGlassGlow: { get value() { return hourUp() && config.sky.glow ? config.sky.glassGlow : F().glassGlow; } },
-  uGlassGlow3: { get value() { return hourUp() && config.sky.glow ? config.sky.glassGlow3 : F().glassGlow3; } },
+  // (the hour raises these, as far as it is up: resting surfaces at 0.55 or under)
+  uCrownGlow: { get value() { return byHour(F().crownGlow, config.sky.crownGlow, config.sky.glow); } },
+  uGlassGlow: { get value() { return byHour(F().glassGlow, config.sky.glassGlow, config.sky.glow); } },
+  uGlassGlow3: { get value() { return byHour(F().glassGlow3, config.sky.glassGlow3, config.sky.glow); } },
   uGlassBands: { get value() { return F().glassBands; } },
   /** 0..1: the view is up high (the vista over the marine layer's height, whether or not fog is on): detail
    * needs 1.5x the room and rhythm lines 2x the spacing there (the whole view drifts by sub-pixels) */

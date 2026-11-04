@@ -20,13 +20,17 @@ export const skyLive = !!query && !heldHour && query.get('sky') !== 'off' && con
 /** What the hour's GLSL compiles for: the held hour, or the live sky, whose nights are that hour. */
 export const skyOn = heldHour || skyLive;
 
-let up = heldHour;
-/** The hour is up: always under ?hour=blue; the live sky raises it at sunset and drops it at sunrise. What reads config.sky's switches asks this first. */
-export const hourUp = (): boolean => up;
+let up = heldHour ? 1 : 0;
+/** How far the hour is up, 0..1: always 1 under ?hour=blue; the live sky's blend, from 0 at sunset (the Sun 1.5 degrees up) to 1 at blue hour (-5), and back at dawn. */
+export const hourK = (): number => up;
+/** The hour is up at all. */
+export const hourUp = (): boolean => up > 0;
 /** (LiveSky's, once a frame) */
-export const setHourUp = (v: boolean): void => {
+export const setHourUp = (v: number): void => {
   up = v;
 };
+/** The day's number, or the hour's as far as the hour is up. `on`: the tuner's switch, off the day's. What reads config.sky's numbers asks this. */
+export const byHour = (day: number, hour: number, on: unknown = true): number => (on ? day + (hour - day) * up : day);
 
 /** GLSL only the hour compiles. Put it at the end of a line: without the flag it is nothing, and the line is the line it always was. */
 export const held = (glsl: string): string => (skyOn ? glsl : '');
