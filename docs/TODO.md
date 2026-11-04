@@ -24,14 +24,14 @@ Same branch. The producer flew Stages 1 to 3 and ruled on the trip (`CLAUDE.md`,
 
 - [ ] Review each stage above as it's handed in, and fly the long real-time checks on a real GPU. Stages 2 and 3 leave these (FREEFLIGHT.md): 500 km low at Jet, a lap at Stratos with memory read, the worker keeping up at Stratos, the flight's low band slide by hand, and night as it looks
 - [ ] Start the Moon flight from the ground on Earth, so it can be felt from start to finish. That's the trip's first leg, not the streets job on hold. It touches `src/main.ts` too: expect to merge with the stages above. The producer, 2026-11-03: "I want to fly up high from San Francisco surface and eventually get so so high, extremely high, that an "Easter egg" button appears "to the moon?"". It hands over to VOYAGE's V2 (`docs/specs/moon/VOYAGE.md`)
-- [ ] `feat/thumbs` to main, once the producer says the controls can go live
+- [ ] `feat/thumbs` to main, once the producer says the controls can go live. It waits for the bus's lane now (the producer, 2026-11-04: near the bus flies, anywhere else looks, on the street too), which is on `feat/moonfree`: `Input.busZone`, the low game's and the flight's loop's lines that set it, the hint, THUMBS.md's rule, and the gesture sim's lane rows
 - [ ] The controls' small things: the opening still says TURBO AFTER THE BRIDGE, six flicks under the gate reach Turbo 3 at the bridge, a rare lost tap, the left look reaches about 37 degrees from mid-zone, the home leg's slow roll, a value saved in the phone's tuner beats a new default
 
 ## Waiting on the producer
 
 - [x] Fly Stages 1 to 3 on `feat/moonfree`'s preview. Flown 2026-11-03: what they said is `CLAUDE.md`'s "The Moon trip"
 - [x] Pinch to zoom on the trip only, or everywhere. Everywhere, the street included (2026-11-03)
-- [ ] The bus's lane on the street too, in place of the left 42 % look zone? (On the trip it's built: a touch near the bus flies, anywhere else pans.) If yes, `feat/thumbs` waits for it before it goes live
+- [x] The bus's lane on the street too, in place of the left 42 % look zone? Yes (2026-11-04): "Yes San Francisco should work the same, replacing the left side look". So `feat/thumbs` waits for it before it goes live: it's built on `feat/moonfree` and reaches `feat/thumbs` from there
 - [ ] OK for the two-thumb controls to go live
 
 ## Later, in this order

@@ -375,8 +375,6 @@ export async function bootMoonrun({ pipeline, scene, warm, land }: MoonrunContex
     requestAnimationFrame(frame);
     // (one page, one pump: below the ground's height the low game has the frame)
     if (landing?.ground) {
-      // (the low game's thumbs are its own: the look zone's)
-      if (input) input.busZone = null;
       landing.world!.frameAt(now);
       last = now;
       return;

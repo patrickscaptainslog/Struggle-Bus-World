@@ -25,14 +25,14 @@ These beat every older doc. `README.md`, `HANDOFF.md` and `DECISIONS.md` are his
 
 **Controls** (on `feat/thumbs`, `docs/specs/flight/THUMBS.md`, not live yet)
 - No new button, joystick or gear strip. It must be intuitive to pick up and fly, and playable with one thumb. Gestures stay hidden, with one brief hint on the first run. The one exception is the trip's easter egg (below).
-- The left 42 % of the screen looks and never flies, the rest flies. A quick flick up or down is one gear, on either side. No double flicks, no left or right swipes, no tilt. The TURBO button is gone. MEGA stays.
+- Only a touch landing near the bus flies it, in a lane round the bus down to the bottom of the screen, and one landing anywhere else looks, on the street as on the way to the Moon (`Input.busZone`): "Yes San Francisco should work the same, replacing the left side look" (2026-11-04). It replaced the left 42 %. A quick flick up or down is one gear, anywhere. No double flicks, no left or right swipes, no tilt. The TURBO button is gone. MEGA stays.
 - One ladder: Cruise, Express, Nonstop, Jet, Turbo 1, 2 and 3. To the producer, "turbo" is what Jet feels like. On the Moon it goes on from Jet to Stratos and Rainbow Warp (`docs/specs/moon/FREEFLIGHT.md`).
 - A branch has all this only once `feat/thumbs` is merged into it. Merging it there doesn't put it live: that's main, and the producer's word.
 
 **Camera**
 - Pinch to zoom, everywhere, the street included, where it was rejected before: "ive thought about it an i want the pinch to zoom function - i think because this game is mostly played on one hand, it can work", and asked where: "Pinch to zoom everywhere" (2026-11-03). The normal chase camera and the full-size bus are where a zoom starts from.
 - On the way to the Moon and back the view goes where it's panned and stays there, and one swipe looks behind: "just forget auto re-alignment. where the user pans - it goes. also on my iphone the panning is just not good, it takes too many swipes to get to look behind me."
-- On the way only a touch landing near the bus flies it, and one landing anywhere else pans: "what if we reserve the control the struggle bus movement space on the screen to the area directly near the struggle bus itself, and then touching anywhere but that area pans the camera?" A lane round the bus down to the bottom of the screen (`Input.busZone`). Whether the street takes it too, in place of the left 42 %, is asked (`docs/TODO.md`).
+- The bus's lane came from the producer, for the way to the Moon first: "what if we reserve the control the struggle bus movement space on the screen to the area directly near the struggle bus itself, and then touching anywhere but that area pans the camera?" (Controls, above, has where it holds.)
 
 **The Moon trip** (2026-11-03, after flying Stages 1 to 3; `docs/specs/moon/VOYAGE.md` is the plan)
 - No FLICK UP FOR THE MOON: "i dont like flick up for the moon function". Extremely high over Earth an easter-egg button comes up, TO THE MOON?, and goes if the bus comes back down: "once a player reaches a certain height away from the surface of the earth, a preferably very very tall height, extremely so". Leaving the Moon is the same: very high up, TO PLANET EARTH?.

@@ -14,7 +14,7 @@ import { Splatter, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './
 import { Aimer, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
 import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blastLayout';
-import { Input } from './game/Input';
+import { Input, inputTune } from './game/Input';
 import { Controls } from './game/Controls';
 import { WARP } from './game/Turbo';
 import { BusModel, busTune, type BusPose } from './bus/BusModel';
@@ -345,6 +345,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
 
   // ---- the hero
   const bus = new BusModel();
+  const busOnScreen = new THREE.Vector3();
   scene.add(bus.root);
 
   // drop shadow straight below the bus: grounds the hero (how high it flies). No decal: the resolve pass
@@ -1506,6 +1507,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       const lit = moon.sunAt(flight.x, flight.y, flight.z, city.terrainAt(flight.x, flight.z));
       moonSun += (lit - moonSun) * (1 - Math.exp(-14 * dt));
       globals.uLight.value.x = config.light.sunStrength * (Math.round(moonSun * 3) / 3);
+    }
+    // (only a touch near the bus flies it, and one anywhere else looks: the bus's lane, where it stands on the screen this frame. The producer: "Yes San Francisco should work the same, replacing the left side look")
+    {
+      const v = bus.root.getWorldPosition(busOnScreen).project(camera), W = window.innerWidth, H = window.innerHeight;
+      input.busZone = v.z < 1 ? { x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H, r: inputTune.busLane * W } : null;
     }
     pipeline.render(scene);
     framesDrawn++;
