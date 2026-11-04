@@ -426,9 +426,18 @@ export class CraterPaint {
   hitAt(lat: number, lon: number, now: number, hue: number): Rec | null {
     const p = this.v3;
     latLonToMap(this.d.frame, lat, lon, p);
-    const x = p[0], z = p[1], d = HIGH_AIM, snap = HIGH_SNAP, pref = Math.max(24, 0.14 * d);
+    const x = p[0], z = p[1], d = HIGH_AIM, pref = Math.max(24, 0.14 * d);
     if (this.inSite(x, z)) return null;
-    // (a bowl it's in, the nearer its own size to what a breath from there takes the better, or a rim it's just off; and a finished bowl is no target)
+    // (within the glint, and if there's nothing there, twice as far: a tap from up there paints something, near where it came down, about five times in six at the first reach and nearly always at the second)
+    for (const snap of [HIGH_SNAP, 2 * HIGH_SNAP]) {
+      const t = this.highPick(x, z, snap, pref);
+      if (t) return this.paint(t, hue, Math.max(now, 1e-3), x, z);
+    }
+    return null;
+  }
+
+  /** hitAt's crater: a bowl (x, z) is in, the nearer its own size to what a breath from up there takes the better, or a rim it's just off; and a finished bowl is no target. */
+  private highPick(x: number, z: number, snap: number, pref: number): Target | null {
     const score = (cx: number, cz: number, r: number, level: number) => {
       const e = Math.hypot(cx - x, cz - z) - r;
       if (e > snap || r < ORBIT_R || r > HIGH_R) return -1;
@@ -454,7 +463,7 @@ export class CraterPaint {
       const k = craterById(this.d.frame, this.d.albedo, this.d.seed, id);
       if (k) t = { id, x: k.x, z: k.z, r: k.r, a: k.a, b: k.b, c: k.c, age: k.age, kind: 0, name: null, wob: null, turn: 0, rec: null };
     }
-    return t ? this.paint(t, hue, Math.max(now, 1e-3), x, z) : null;
+    return t;
   }
 
   /** QA: how many are in the list, how many landing. */
