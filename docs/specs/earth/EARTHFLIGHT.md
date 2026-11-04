@@ -39,6 +39,8 @@ Each ends with checks run on the final build (the tools below), a push to `feat/
 
 ### E1: the free leg over the plain Earth (in `?moonland`, no street yet). About 2 days
 
+*Built 2026-11-04 (`DECISIONS.md`, "E1"). Its checks are `tools/sky/earth-check.mjs` in Node and `tools/earth/low.mjs` in the browser. Sound low over Earth, item 5, is left.*
+
 1. **`MoonTrip`, leg `earth`:** the Moon's `fall` turned to Earth: Earth-fixed position and heading, the yoke (`YOKE`), the turn (`yaw`), `rung` and `rungV`, `lawFall` on Earth's height, a floor (first pick: 60 m over sea level everywhere, since `earth.bin` has no heights), a ceiling at `ALT5`. It replaces `wait`, `high` and `sink`: the trip starts in it 300 km over home, level, in Rainbow Warp, and comes home into it. `rise` stays, as the top gear's flick up. The egg is `earth`'s at the ceiling, by height with the 10,000 km rule. `qaGo`, `toMoon` and `launch` start from it. Keep `wait` as a word the tools can still say, or change every tool that says it (`route-check`, `approach-check`, `view-check`, `trip-fuzz`, `flicks.mjs`, `launch.mjs`).
 2. **`TripView` over Earth:** the height rules by `hEarth` where the Moon's go by `hMoon - ground` (`LOW_AT`, `LOW_FROM`, `CITY`, `MOON_VISTA`), so low over the Earth the view is the street's and high up it's the vista. The nose and the climb as at the Moon.
 3. **The ground, low down (`skyResolve.ts`, `spaceEarth`):** under about 150 km a breakup in Earth-fixed coordinates fades in, two or three octaves of value noise on the land's tone and the sea's step, palette ramps only, so speed reads low down. The sea a flat ramp with the Sun's glint as it has. No new saturated colour (`docs/specs/COMMON.md`). Check its cost: it runs on every ground pixel, the whole lower screen low down.
@@ -51,6 +53,8 @@ Checks: `trip-fuzz` with players who dive anywhere, fly low for minutes, turn ov
 
 ### E2: one page from the street up (`?earth`). About 3 days
 
+*Built 2026-11-04 (`DECISIONS.md`, "E2"). Its check is `tools/earth/climb.mjs`, and the whole trip from the street and back is `tools/earth/trip.mjs`. Home is the street's map's origin. Item 5 as built: the old launch stays only on the page with no flag, where there's no flight behind the street.*
+
 1. **`?earth`** in `flag.ts`, and `space()` true under it. The resolve's space branch gated at run time by a uniform, so on the street with the flag the sky is the street's until the flight says otherwise.
 2. **Boot:** the street boots as it does now, with its own pump and its opening. Behind it, once its first frame is up, the flight's module boots (`bootMoonrun` with an Earth `land`), its programs warmed then. When the flight is ready the pump moves to the flight's loop, which calls the street's frame while the street has the bus (`landing.ground`, as `?moonland` does). Risk: the flight's 12 programs compiling behind a flying street. If that hitches on the phone, warm them in the street's own warm-up at boot instead, which costs boot time and nothing in flight (`CLAUDE.md`: nothing compiles in flight).
 3. **`EarthLanding`** (`src/sky/EarthLanding.ts`), `Landing.ts`'s twin for a city, smaller: the street keeps its own world all the way up to the hand-over, so the flight never draws the street's meshes. The street's map is the city's transverse Mercator (`geo.ts`'s `localToLatLon`, `WorldFrame.ts`'s `fixToGeodetic`, both new); its render axes at a place are found by stepping 10 m along the map, so the grid's convergence can't be got the wrong way round. The street takes the bus at 14 km over the city and gives it back at 15, its heading, nose, speed and gear both ways, and the lens and the bus turned from one frame into the other.
@@ -62,7 +66,7 @@ Checks: `tools/earth/climb.mjs` at a fixed step: from the street a full pull to 
 
 ### E3: the seam, in the dark. About 1 day
 
-*Built 2026-11-04 on `feat/earthfree-e3` by a second session (`DECISIONS.md`, "The whole Earth, flown freely: E3"). The check is `tools/earth/swap.mjs`, from `?moonland&swap` rather than from the street, and `tools/sky/resume-check.mjs` in Node; the whole trip from the street, `trip.mjs`, waits for E2.*
+*Built 2026-11-04 on `feat/earthfree-e3` by a second session (`DECISIONS.md`, "The whole Earth, flown freely: E3"). The check is `tools/earth/swap.mjs`, from `?moonland&swap` rather than from the street, and `tools/sky/resume-check.mjs` in Node; the whole trip from the street, `tools/earth/trip.mjs`, came once E2 was in, and passes on the merged branch.*
 
 1. **`MoonTrip.save()` and `MoonTrip.resume()`:** the leg, the clock, the position, the velocity, the heading, the gears, the boost, the trips so far, in `sessionStorage`.
 2. **Out:** on Earth's page, a few seconds into `cruise` (the long dark: nothing but stars, the bus and its trail), take the frame (`toDataURL` right after a render), save the trip, and go to `?moonland&resume`; `index.html` shows the held frame until the flight's first one. The Moon's low game boots behind it as it does now, with the rest of the dark, three minutes or so, to do it in.
