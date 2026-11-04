@@ -68,7 +68,7 @@ These beat every older doc. `README.md`, `HANDOFF.md` and `DECISIONS.md` are his
 
 Tokens are a budget, and the producer never wants to go past a weekly limit into paid extra usage. If you get near one, stop and say so.
 
-- No Haiku. The producer, 2026-11-03: "let's scrape the haiku idea if it's only saving token". Opus does the work, and time is what's short.
+- The model is chosen by analysis, job by job. The producer lifted the old "No Haiku" (2026-11-04: "Can you please do a proper analysis and disregard what I said about haiku 5.5 earlier"). For the whole-Earth job the pick is Opus 5.5 at high, xhigh for its hardest stage (`docs/specs/earth/EARTHFLIGHT.md`, "Which model"). Time is what's short.
 - Opus never waits on a run: start it in the background and go on. No command with a lot of context behind it should wait past about 4 minutes: the prompt cache lapses after 5, and reloading a whole context cost us about 14 % of all spend.
 - On a cloud machine, frame-stepped tools at 1x (`__qa.holdFrames`, `tools/moon/flicks.mjs`). At 3x a row of `controls.mjs` takes minutes, and tools that time their legs by the wall clock (`stranger`, `edges`, `warmcheck`) can't finish there: they're for a laptop. A background job, a server too, dies at 2 hours.
 - No big fan-outs of agents.

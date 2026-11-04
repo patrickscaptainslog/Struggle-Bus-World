@@ -98,6 +98,23 @@ The street turns the bus back at its map's edge (`mapReach`). Under `?earth` the
 
 Detail for the plain Earth: heights, a land cover a few hundred metres a texel, coastlines, from open data, around each city first and then everywhere. Each download the producer OKs first (`CLAUDE.md`). Places' names over Earth, as `MoonNames` has the Moon's. Paint on the plain Earth. The other cities (London, Amsterdam, Ross) as homes: their maps work as San Francisco's does, once E2 is in.
 
+## Which model
+
+The producer asked for an analysis (2026-11-04, lifting the old "No Haiku"). API prices per million tokens, from the `claude-api` reference cached 2026-10-06; how the producer's plan counts each against the weekly limit isn't visible from here, but a pricier model spends it faster.
+
+| Model | Input | Cached input | Output | For this job |
+|---|---|---|---|---|
+| Haiku 5.5 | $0.10, $0.50 past 100K of prompt | | $0.50, $2.50 past 100K | Chores only: reading logs, finding code. These sessions run past 100K, so it's about 8 times cheaper than Opus there, not 40 |
+| Sonnet 5.5 | $2 | $0.20 | $10 | The budget valve: the plainer stretches (test tools, docs, E3) if the limit runs short |
+| Opus 5.5 | $4 | $0.20 | $20 | The pick, at high; xhigh for E2 |
+| Fable 5.1 | $10 | $0.25 | $50 | Only if Opus can't get a join right: slower turns, and 2.5 times Opus for what it writes and thinks |
+
+- **What the cost is.** A long session is mostly cached reading, and that's $0.20 to $0.25 on all three of Sonnet, Opus and Fable. What differs is what the model writes and thinks: there Sonnet is half Opus and Fable two and a half times.
+- **What the job is.** The joins, Earth's turning and the shaders are where today's mistakes were (a view that jumped 78 degrees in a frame, a crater too small to see, an aim off the Moon after a pan), and each was found by a run of 15 to 20 minutes on this machine. A cheaper model that needs more fix-and-run rounds costs more in the end, in tokens and in the producer's flights. So the cost that counts is per finished stage, not per token.
+- **Effort:** high on Opus 5.5 (its default is medium, which is too low for this), xhigh for E2, the street-to-space join. Max is for planning.
+- **Fast mode** (`/fast`): about twice the cost a token for up to two and a half times the speed of writing. Not worth it here: the slow part is the cloud machine's software rendering, not the model.
+- **A fresh session for each stage.** A long session re-reads its whole history at every step; this one did, and it's the biggest saving there is.
+
 ## How to work it
 
 Fixed-step tools at 1x on the cloud machine (`CLAUDE.md`). Start a server with the longest background timeout, 7,200,000 ms; the default is 30 minutes, and a run dies with it. Never rebuild the served folder while a run is reading it. A tool that changes page holds the new page from its first frames (`addInitScript` with `window.__qa = { holdFrames }`), or the page runs on before the tool looks. Give each test touch its own finger id. `trip-fuzz` on four seeds is the earliest warning of a view that jumps: run it on every change to `MoonTrip` or `TripView`.
