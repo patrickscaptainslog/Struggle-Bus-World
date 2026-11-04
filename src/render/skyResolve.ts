@@ -16,6 +16,14 @@ export const heldResolveUniforms = {
   uFogLuma: { value: new THREE.Vector2(0.3955, 0.071) }, // FOG's luma: step 0, per step (the value-matched handover reads it from the live table)
   uBeamGain: { value: 2.6 }, // steps the headlight lifts at most
   uPaintCap: { value: 7 }, // the step paint stays at or under, outside a glint
+  // the live sky's Moon (sky/StreetSky.ts): a disc in buffer px, lit as a sphere
+  uMoonDisc: { value: new THREE.Vector4(0, 0, 0, 0) }, // its centre (a pixel's centre), radius in px (0: no Moon), earthshine in steps (0: none, the dark side is sky)
+  uMoonView: { value: new THREE.Matrix3() }, // the disc's right, up and back toward the eye, render frame (columns)
+  uMoonSun: { value: new THREE.Vector4(1, 0, 0, 0) }, // the Sun from the Moon, render frame; how much it's a day Moon (pale)
+  uMoonRot: { value: new THREE.Matrix3() }, // render <- Moon fixed
+  uMoonShadow: { value: new THREE.Vector4(0, 0, -2, -1) }, // Earth's shadow on the disc, in the Moon's radii: its axis, the umbra's radius, the penumbra's
+  uMoonLod: { value: 0 },
+  tMoonMap: { value: null as THREE.Texture | null }, // the Moon's tone (moon.bin), R
 };
 
 export const GLSL_SKY_HELD_UNIFORMS = /* glsl */ `
@@ -25,7 +33,14 @@ uniform vec4 uSunDisc;
 uniform vec2 uSkyWarm;
 uniform vec2 uFogLuma;
 uniform float uBeamGain;
-uniform float uPaintCap;`;
+uniform float uPaintCap;
+uniform vec4 uMoonDisc;
+uniform mat3 uMoonView;
+uniform vec4 uMoonSun;
+uniform mat3 uMoonRot;
+uniform vec4 uMoonShadow;
+uniform float uMoonLod;
+uniform sampler2D tMoonMap;`;
 
 export const GLSL_SKY_HELD = /* glsl */ `
 
@@ -61,6 +76,47 @@ export const GLSL_SUN_DISC = /* glsl */ `
       float r2 = dot(q, q);
       if (r2 < uSunDisc.z * uSunDisc.z) sc = pal(${Ramp.GLOW_WHITE}.0, 7.0);
       else if (r2 < (uSunDisc.z + 1.0) * (uSunDisc.z + 1.0)) sc = pal(uSunDisc.w, 7.0);
+    }`;
+
+// A star or a planet (SKY.md 4.6): sky/StreetSky.ts draws them into the buffer with flags 0, so their pixels are still sky here, one fetch. One shows where it
+// outshines the sky behind it, as the eye sees them come out at dusk: a dim one in a bright band near the horizon is gone, not a dark hole.
+export const GLSL_SKY_STARS = /* glsl */ `
+    uint gs = texelFetch(tG, p, 0).r;
+    if (a.a == 0.0 && (gs & 255u) != 0u) {
+      vec3 st = pal(float(gs & 255u), float(gs >> 8u));
+      if (dot(st, vec3(0.299, 0.587, 0.114)) > dot(sc, vec3(0.299, 0.587, 0.114)) + 0.04) sc = st;
+    }`;
+
+// The Moon (SKY.md 4.5): a disc test like the Sun's, then a sphere with no phase or tilt maths: the pixel's normal from the disc's axes, lit where it faces the
+// Sun, its tone from the map through the Moon's own frame, so the phase, the tilt and the maria are the real ones. Lunar-Lambert, flat at full; earthshine one or
+// two steps on the dark side at night, which by day is sky; a day Moon pale. In Earth's shadow it goes rose at the rim to violet at the core, never copper.
+// It covers the stars and the Sun: last in the sky, under everything the buffer drew.
+export const GLSL_SKY_MOON = /* glsl */ `
+    if (uMoonDisc.z > 0.0) {
+      vec2 mq = (gl_FragCoord.xy - uMoonDisc.xy) / uMoonDisc.z;
+      float mr = dot(mq, mq);
+      if (mr < 1.0) {
+        float mz = sqrt(1.0 - mr);
+        vec3 mn = uMoonView * vec3(mq, mz);
+        vec3 mf = mn * uMoonRot;
+        float mt = textureLod(tMoonMap, vec2(atan(mf.y, mf.x) / 6.28318531 + 0.5, 0.5 - asin(clamp(mf.z, -1.0, 1.0)) / 3.14159265), uMoonLod).r;
+        float mu = dot(mn, uMoonSun.xyz);
+        float md = length(mq - uMoonShadow.xy);
+        float ml = uMoonDisc.w * (0.3 + 0.9 * mt);
+        vec3 mc;
+        bool dark = mu <= 0.0;
+        if (!dark) {
+          ml = max(ml, (0.45 + 0.65 * mt) * min(2.0 * mu / (mu + mz + 0.001), 1.05) * 7.0);
+          ml = mix(ml, 4.0 + 0.4 * (ml - 4.0), uMoonSun.w);
+          // (the penumbra's inner third takes three steps; the umbra its own ramp, its core three steps of TWILIGHT, its rim the top)
+          ml -= 3.0 * (1.0 - smoothstep(uMoonShadow.z, mix(uMoonShadow.z, uMoonShadow.w, 0.3), md));
+        }
+        if (!dark && md < uMoonShadow.z) {
+          float core = md / max(uMoonShadow.z, 0.1);
+          mc = pal(${Ramp.TWILIGHT}.0, clamp(floor(3.0 + 4.0 * core * core + (dsk - 0.5) * 0.6), 2.0, 7.0));
+        } else mc = pal(${Ramp.MOON}.0, clamp(floor(ml + 0.5 + (dsk - 0.5) * 0.44), 0.0, 7.0));
+        if (!dark || (uMoonDisc.w > 0.0 && dot(mc, vec3(0.299, 0.587, 0.114)) > dot(sc, vec3(0.299, 0.587, 0.114)) + 0.02)) sc = mc;
+      }
     }`;
 
 const discV = new THREE.Vector3();

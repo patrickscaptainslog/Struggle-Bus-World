@@ -139,6 +139,11 @@ async function boot() {
   // and by the data's id scheme (city.json "ids"): the stores the City opens need it first
   registerCityData(manifest);
   live?.place(manifest.origin, (manifest as { tz?: string }).tz);
+  if (live) {
+    // the stars, the planets and the Moon's map: their draw warms with the scene's, and the files land in it (sky/StreetSky.ts)
+    scene.add(live.street.object);
+    void live.street.load('./sky').catch((e) => console.warn('sky files', e));
+  }
   const city = new City(manifest, base);
   scene.add(city.root);
   if (hour) {
@@ -1165,6 +1170,8 @@ async function boot() {
     paintUniforms.uTargetT.value = aimer.shownSince;
     paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);
     paintUniforms.uFloodHead.value = config.bloom.floodHead;
+    // (the live sky's lift: pulling at the ceiling, the view tips up to the sky the bus can't reach yet, SKY.md 4.15)
+    if (live) rig.skyLiftTarget = flight.strain > 0.3 && flight.y > 0.5 * config.flight.ceiling ? config.sky.liftPull : 0;
     rig.update(camera, focus, flight, dt);
     superSplat.camera(camera, focus, dt);
     rig.applyKick(camera, realDt);

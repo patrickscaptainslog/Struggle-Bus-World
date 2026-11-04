@@ -3,7 +3,7 @@ import { config } from '../config';
 import { globals, heldGlobals, GLSL_G_READ, GLSL_LAYER_TOP, GLSL_SKY_LIGHT, SHADOW_LAYER } from './materials';
 import { HUE_RAMPS, makePaletteTexture, Ramp } from './palette';
 import { held, heldOr, skyLive, skyOn } from '../sky/flag';
-import { GLSL_SKY_HELD, GLSL_SKY_HELD_UNIFORMS, GLSL_SUN_DISC, heldResolveUniforms, sunDisc } from './skyResolve';
+import { GLSL_SKY_HELD, GLSL_SKY_HELD_UNIFORMS, GLSL_SKY_MOON, GLSL_SKY_STARS, GLSL_SUN_DISC, heldResolveUniforms, sunDisc } from './skyResolve';
 import type { WarmPipeline } from './warmup';
 
 // Low-res 3D pixel-art renderer.
@@ -106,6 +106,8 @@ export class PixelPipeline implements WarmPipeline {
   /** The live sky's Sun on its disc: angular radius (rad), and the ring's row (under 0: no disc). */
   sunRad = 0;
   sunRing = -1;
+  /** The live sky's Moon and stars (sky/StreetSky.ts), from the camera the buffer is drawn with, W x H the buffer: once a frame. */
+  skyBodies: ((cam: THREE.PerspectiveCamera, W: number, H: number) => void) | null = null;
   /** impact flash: rendered frames left, and (buffer uv x, y, strength, radius) */
   private flashLeft = 0;
   private readonly flashU = new THREE.Vector4();
@@ -644,6 +646,7 @@ export class PixelPipeline implements WarmPipeline {
     ru.uCamWorld.value.copy(this.snapCam.matrixWorld);
     ru.uCamPos.value.copy(this.snapCam.position);
     if (skyLive) sunDisc(this.snapCam, heldGlobals.uSkySunDir.value, this.sunRad, this.sunRing, this.gbuf.width, this.gbuf.height, ru.uSunDisc.value);
+    if (skyLive) this.skyBodies?.(this.snapCam, this.gbuf.width, this.gbuf.height);
     ru.uCalm.value = Math.min(1, Math.max(0, this.calm));
     ru.uDitherWidth.value = config.render.ditherWidth;
     ru.uHaze.value.set(config.render.ditherHazeFrom, Math.max(config.render.ditherHazeFrom + 0.01, config.render.ditherHazeTo), Math.max(0.004, config.render.fogBandMin), config.render.fogSliver);
@@ -1021,7 +1024,7 @@ void main() {
     // narrow dithered band where the warm glow begins; the sky gets tighter dither bands (tighter
     // still up high, where its gradient spans more of the frame: calm bands, not dotted stripes)
     ${heldOr('sc', 'vec3 sc')} = pal(warmS > dsk ? RAMP_SKY_WARM : RAMP_FOG, rampStepW(skyL, dsk, 0.09 - 0.04 * uCalm));${held(`
-    }${GLSL_SUN_DISC}`)}
+    }${GLSL_SKY_STARS}${GLSL_SUN_DISC}${GLSL_SKY_MOON}`)}
     vec3 halo = texture(tGlow, vUv).rgb;
     float hAmt = max(halo.r, max(halo.g, halo.b));
     // (alpha 0 marks plain sky: the upscale leaves it unshifted, it holds still on the screen)

@@ -232,6 +232,22 @@ export const config = {
     /** Pools fade out between these distances from the lens (m): past them they would be a few 2 m texels on a pixel. */
     poolFade: 500,
     poolEnd: 1200,
+    /** The live sky's stars and planets (SKY.md 4.6): off, none. */
+    stars: true,
+    /** Extinction a unit of air (V): the real 0.2 leaves one star in the street's band [SKY.md 4.6]. */
+    starExtinction: 0.05,
+    /** The live sky's Moon (SKY.md 4.5): off, none, and no moonlight. */
+    moon: true,
+    /** The Moon's floor, game px across (true: 8-9 at the street); released within 12 degrees of the Sun, so an eclipse is exact. */
+    moonFloor: 15,
+    /** Earthshine on the dark side at night, in steps of MOON at Earth full from the Moon. */
+    earthshine: 1.2,
+    /** Moonlight on the night's key (SKY.md 4.5): k = min(max, this x lit / max(sin el, 0.15)), the key times 1 + k. */
+    moonKey: 0.22,
+    moonKeyMax: 1.5,
+    /** The lift at the ceiling's pull (SKY.md 4.15): the view tips up this far (deg) while the bus strains up there, and back, at this rate (1/s). */
+    liftPull: 27,
+    liftRate: 1.6,
   },
 
   city: {

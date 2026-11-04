@@ -8,6 +8,7 @@ import { HeldHour } from './HeldHour';
 import { series } from './Series';
 import { fogLuma, fogLumaOf, TableBlend } from './SkyTable';
 import { SkyClock } from './SkyClock';
+import { StreetSky } from './StreetSky';
 import { EARTH, SkyModel, SkyState, type Observer } from './SkyModel';
 import { axesAt, geodeticToFix } from './WorldFrame';
 
@@ -15,6 +16,7 @@ import { axesAt, geodeticToFix } from './WorldFrame';
 // city's sky as it is there. Four vectors (SKY.md 2): the sky's own Sun every frame, true plus refraction (uSkySunDir, the disc and the day sky's glow); the key, true,
 // on the tick (pipeline.keyDir, the sun pass); the shading vector, the key with the noon knee (uSunDir, every material, as today). Light moves, tables colour: the
 // tables blend by the Sun's height (SkyTable.ts TableBlend), and the held hour (HeldHour.ts) comes up with them, its lights by the city's clock and the lamps' wave.
+// The stars, the planets and the Moon are StreetSky.ts's; at night the Moon, when it's up, takes the key (SKY.md 4.5).
 //
 // Nothing here allocates once it's built: frame() runs every render frame.
 
@@ -76,6 +78,8 @@ export class LiveSky {
   readonly state = new SkyState();
   /** The held hour, which draws the nights. */
   readonly hour: HeldHour;
+  /** The stars, the planets and the Moon. */
+  readonly street: StreetSky;
   private readonly ob: Observer = { body: EARTH, free: false, pos: new Float64Array(3), axes: new Float64Array(9) };
   private lat = NaN;
   private lon = 0;
@@ -96,6 +100,8 @@ export class LiveSky {
   private dueSince = -1;
   /** ticks so far (QA) */
   ticks = 0;
+  /** the moonlight's weight at the last tick: a tick is due when it has moved */
+  private tickMoon = 0;
   /** the view, from view(): its height (m), metres a game pixel is at the bus, game px it moved last frame */
   private camY = 0;
   private pxM = 0.17;
@@ -123,6 +129,7 @@ export class LiveSky {
   constructor(private readonly pipeline: PixelPipeline, params: URLSearchParams) {
     this.clock = new SkyClock(params);
     this.hour = new HeldHour(pipeline, true);
+    this.street = new StreetSky(pipeline);
     // (none of the hour until the city is placed: the day's)
     this.hour.bands = this.hour.lit = this.hour.wave = 0;
   }
@@ -202,6 +209,8 @@ export class LiveSky {
     this.pipeline.sunRing = seen + s.sunR / DEG > -dip ? (T.bands > 0.5 && S.table ? Ramp.TWILIGHT : Ramp.SKY_WARM) : -1;
     // (the day sky's warm band is a low sun's; under the hour the bands bend toward the Sun until it's deep down: S1 held it at -5.9)
     this.pipeline.heldUniforms.uSkyWarm.value.set((1 - smooth(25, 45, h)) * smooth(-6, 0, h), smooth(-18, -8, h));
+    const mh = Math.asin(Math.max(-1, Math.min(1, s.moon[1]))) / DEG;
+    this.street.update(ms, s, this.model, h, T.hour, this.camY, mh + refraction(mh, air));
 
     const down = h < SUNSET, changed = down !== this.down;
     this.down = down;
@@ -250,7 +259,7 @@ export class LiveSky {
       const dAz = Math.abs(((az - this.keyAz + 540) % 360) - 180) * DEG;
       const l0 = shadowLength(S.tickWall, this.keyH), l1 = shadowLength(S.tickWall, kEl);
       const px = Math.hypot(l1 - l0, l1 * dAz) / this.pxM;
-      if (px < S.tickPx || now - this.tickReal < 1000) {
+      if ((px < S.tickPx && Math.abs(this.street.moonKey - this.tickMoon) < 0.02) || now - this.tickReal < 1000) {
         this.dueSince = -1;
         return;
       }
@@ -272,6 +281,19 @@ export class LiveSky {
     d[0] = Math.sin(this.shadeAz * DEG) * ec;
     d[1] = Math.sin(e);
     d[2] = -Math.cos(this.shadeAz * DEG) * ec;
+    // moonlight: the shading vector goes over to the Moon's as its weight comes, with the knee, while there's no sun pass to swing a shadow (StreetSky.moonKey)
+    const mk = this.street.moonKey, m = this.state.moon, mf = Math.hypot(m[0], m[2]);
+    this.tickMoon = mk;
+    if (mk > 0 && mf > 1e-9) {
+      const me = knee(this.street.moonEl) * DEG, mc = Math.cos(me) / mf;
+      d[0] += (m[0] * mc - d[0]) * mk;
+      d[1] += (Math.sin(me) - d[1]) * mk;
+      d[2] += (m[2] * mc - d[2]) * mk;
+      const dl = Math.hypot(d[0], d[1], d[2]);
+      d[0] /= dl;
+      d[1] /= dl;
+      d[2] /= dl;
+    }
     // the light, by the true height: setting after solar noon, rising before it, crossing over three hours round noon and midnight
     keyAt(SETTING, h, this.row);
     keyAt(RISING, h, this.row2);
@@ -279,6 +301,8 @@ export class LiveSky {
     l[0] = q[2] + (r[2] - q[2]) * w;
     l[1] = q[0] + (r[0] - q[0]) * w;
     l[2] = q[1] + (r[1] - q[1]) * w;
+    // (and its strength: the night's key times 1 + k, k = min(max, 0.22 x lit / max(sin el, 0.15)))
+    if (mk > 0) l[0] *= 1 + mk * Math.min(S.moonKeyMax, (S.moonKey * this.street.moonLit) / Math.max(Math.sin(this.street.moonEl * DEG), 0.15));
     this.tickSky = ms;
     this.tickReal = now;
     this.dueSince = -1;
