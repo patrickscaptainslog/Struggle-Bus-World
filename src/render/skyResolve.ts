@@ -61,6 +61,7 @@ const EARTH_K = (1 / (1 - 1 / 298.257223563)).toFixed(8);
 
 export const spaceResolveUniforms = {
   uSpaceOn: { value: 1 }, // the share of the sky that's space's, dithered: 1 everywhere but the street under ?earth, where height brings it in
+  uCutSoft: { value: 0 }, // ?earth: the sky cut's edge as a dither, this much depth across (PixelPipeline.cutSky)
   tEarthMap: { value: null as THREE.Texture | null }, // land, tone, class (0 green, .5 dry, 1 ice), lights
   tMoonMap: { value: null as THREE.Texture | null }, // tone; then the ground: tone, and the real relief's slope, Moon fixed (MoonGround.ts)
   tMoonCraters: { value: null as THREE.Texture | null }, // the invented craters' tile: the height's slope, brightness, rank
@@ -111,6 +112,7 @@ uniform vec4 uMoonAhead;`;
 
 export const GLSL_SPACE_UNIFORMS = /* glsl */ `
 uniform float uSpaceOn;
+uniform float uCutSoft;
 uniform highp sampler2D tEarthMap;
 uniform mat3 uEarthRot;
 uniform vec4 uEarthO;

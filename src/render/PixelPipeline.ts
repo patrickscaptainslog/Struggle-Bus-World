@@ -402,8 +402,11 @@ export class PixelPipeline implements WarmPipeline {
 
   /** The far plane moves (?farfade): the sky is the clear flag alone from here on, or the far fade ends in a hard cut. */
   /** ?earth: geometry past this depth turns to sky this frame, so the street's ground goes into the plain Earth from the horizon in as it climbs (main.ts); null: the cut setFar() keeps. */
-  cutSky(z: number | null): void {
+  cutSky(z: number | null, soft = 0): void {
     this.resolveMat.uniforms.uSkyCut.value = z ?? this.skyCut;
+    // (the cut's edge as a dither, a band of depth either side of it: under the flags only, where the uniform is)
+    const u = this.resolveMat.uniforms.uCutSoft;
+    if (u) u.value = z === null ? 0 : soft;
   }
 
   setFar(far: number) {
@@ -1003,7 +1006,7 @@ void main() {
   // The sky is what nothing wrote: every sbWrite has flags >= 0.5, the clear is 0. A depth can't say that: with the near plane
   // at 1.5 m, z >= 0.99999 is a distance, 25 km at a 30 km far plane, 29 km at 36 km. uSkyCut keeps that distance while the far
   // fade stands at 20 km, so frames don't change; setFar() takes it away.
-  if (a.a == 0.0 || z >= uSkyCut) {${space(`
+  if (a.a == 0.0 || z >= uSkyCut${space(' + (dsk - 0.5) * uCutSoft')}) {${space(`
     // (?earth: the street's own sky until height brings space in, dithered: uSpaceOn)
     if (dsk < uSpaceOn) {
       // (out in space the sky is GLSL_SPACE: bodies, the Sun, stars; what the bus glows still lands on it)
