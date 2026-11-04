@@ -1675,8 +1675,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         Object.assign(input, groundHands);
         flight.groundUnder = flight.groundBroad = city.groundAt(s.x, s.z);
         flight.takeOver(s.x, s.y, s.z, s.heading, s.speed, s.nose);
-        // Jet, by the time the law lets go of the speed; or the gear it's in, if that's under Jet
-        controls.turbo.arrive(s.gear);
+        // Jet, by the time the law lets go of the speed, and turbo's level; or the gear it's in, if that's under Jet
+        controls.turbo.arrive(s.gear, s.level);
         controls.firstGesture();
         busTune.sunSoft = 0.42;
         controls.fx.lens.reset(rig);
@@ -1711,11 +1711,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         return rec ? rec.r / 1000 : null;
       },
     };
-    controls.turbo.top = WARP;
-    config.turbo.warpAlt = land.upFloor;
+    // (the street's ladder, Turbo 1 to 3 over Jet, and past Turbo 3 a flick is nothing: the way up and out is a pull, and the flight's gears past 15 km. The producer, 2026-11-04: "Can you also apply this same mechanics and user experience to exiting the moon?")
+    controls.turbo.quietTop = true;
     // (a crater big enough to see from orbit goes on the orbit's map as it's painted)
     m.paint.onBig = (s) => land.big?.(s);
-    land.down = () => controls.hud.toast(['FLICK UP TO GO BACK UP'], 3.2);
   }
 
   // debug hooks for scripted screenshots / QA (set before the warm-up wait: tools see the city stream in)

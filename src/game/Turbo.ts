@@ -141,6 +141,8 @@ export class TurboDrive {
   top = 0;
   /** A world with no edge to hold a gear back: ?moon, whose map slides under the bus (main.ts). */
   edgeless = false;
+  /** A flick past the top of the ladder is nothing, not LOCKED: the way on is up, flown (?moonland's ground). */
+  quietTop = false;
 
   /** The last gear that can be used now. */
   get maxGear(): number {
@@ -172,7 +174,7 @@ export class TurboDrive {
     if (dir < 0) return this.boostDown() || this.shift(-1, f);
     if (this.topped) {
       // (a world's own last gear isn't locked, it's the last)
-      if (this.top) return false;
+      if (this.top || this.quietTop) return false;
       this.lockedAt = this.t;
       this.onEvent?.('locked', this.gear);
       return false;

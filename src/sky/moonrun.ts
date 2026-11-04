@@ -16,8 +16,8 @@ import { Tuner } from '../ui/Tuner';
 import { registerTunables } from '../ui/tunables';
 import { MoonBreath } from './MoonBreath';
 import { MoonNames, nameTune } from './MoonNames';
-import { earthStep, LEG_NAMES, MoonTrip, PULL, RUNG_TOP, TAU, YOKE } from './MoonTrip';
-import { GEAR_NAMES, rungName } from '../game/Turbo';
+import { ALT4, earthStep, LEG_NAMES, MoonTrip, PULL, RUNG_TOP, TAU, YOKE } from './MoonTrip';
+import { rungName } from '../game/Turbo';
 import { series } from './Series';
 import { SkyClock } from './SkyClock';
 import { groundTune, SkyDraw } from './SkyDraw';
@@ -213,16 +213,15 @@ function tripLabel(orbitPaint: boolean): (trip: MoonTrip, breath: MoonBreath | n
     const s = Math.floor(trip.clock), leg = trip.leg;
     const a = `${leg === 'fall' && trip.nose > 0.02 ? 'GOING UP' : LEG_NAMES[leg]} ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
     // (at the Moon from the orbit down, the street's gear by name)
-    const g = leg === 'wait' ? rungName(trip.rung, trip.level) : leg === 'orbit' || leg === 'fall' ? GEAR_NAMES[trip.rung] : trip.gear === 5 ? 'MOON BOOST' : `G${trip.gear}`;
+    const g = leg === 'wait' || leg === 'orbit' || leg === 'fall' ? rungName(trip.rung, trip.level) : trip.gear === 5 ? 'MOON BOOST' : `G${trip.gear}`;
     // (low over Earth, the height over its ground in metres)
     const hk = leg === 'wait' ? trip.hGround : Math.min(trip.hMoon, trip.hEarth);
     const b = `${g} ${trip.v < 1 ? `${Math.round(trip.v * 1000)} M` : trip.v < 10 ? `${trip.v.toFixed(1)} KM` : `${thousands(trip.v)} KM`}/S ${hk < 10 ? `${Math.round(hk * 1000)} M` : `${thousands(hk)} KM`}`;
     // (extremely high the easter egg is the way on: the label says nothing of where it goes)
     const dark = leg === 'cruise' || leg === 'homeCruise';
-    // (at the Moon a flick up is a gear up, until the top gear: there it's the way up and out)
+    // (free, over Earth and at the Moon, a flick up is a step up, and at the top nothing: the button is flown up to. Only with no ground to go down to, ?moonrun's, is it the climb to TO PLANET EARTH? still)
     const top = (leg !== 'orbit' && leg !== 'fall' && leg !== 'wait') || trip.rung >= RUNG_TOP;
-    // (over Earth nothing: the button is flown up to)
-    const p = !top ? '' : leg === 'orbit' || (leg === 'fall' && trip.hMoon > 150) ? 'FLICK UP TO CLIMB' : leg === 'fall' && !trip.lifting ? 'FLICK UP FOR ORBIT' : dark ? 'DRAG TO CARVE' : '';
+    const p = !top ? '' : orbitPaint && leg === 'orbit' ? 'FLICK UP TO CLIMB' : dark ? 'DRAG TO CARVE' : '';
     // the goal, once there is any; and until the first shot, what to do about it
     const share = breath && !breath.paint.rebuilding ? breath.paint.painted * 100 : 0;
     // (a crater from orbit is a few thousandths of a percent: it shows)
@@ -374,7 +373,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
   let lookOn = false;
   const label = flying ? tripLabel(!landing) : null;
   /** ?moonland: a tap now is a crater shot, from the orbit down to where the ground's mesh comes in. */
-  const craterHigh = () => !!landing?.world && !!trip && (trip.leg === 'orbit' || trip.leg === 'fall') && !landing.near && !landing.ground;
+  // (from the orbit down: over it, where the free leg flies on up to TO PLANET EARTH?, nothing, as there's no paint from high orbit)
+  const craterHigh = () => !!landing?.world && !!trip && (trip.leg === 'orbit' || (trip.leg === 'fall' && trip.hMoon <= ALT4 + 1)) && !landing.near && !landing.ground;
   // the easter eggs, and what the HUD said on arriving
   const eggMoon = new EasterEgg('TO THE MOON?', 'to-moon', () => trip?.toMoon());
   const eggEarth = new EasterEgg('TO PLANET EARTH?', 'to-earth', () => trip?.toEarth());
@@ -490,16 +490,16 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
     }
     if (earthLanding?.cameBack) {
       earthLanding.cameBack = false;
-      fx?.fromStreet();
+      fx?.fromGround();
       labelEl()?.style.removeProperty('display');
       hud?.setVisible(true);
       perf.setVisible(params.has('fps'));
     }
     if (landing?.cameBack && input) {
       landing.cameBack = false;
+      fx?.fromGround();
       labelEl()?.style.removeProperty('display');
       hud?.setVisible(true);
-      if (trip && !trip.lifting) hud?.toast(['FLICK UP FOR ORBIT'], 3.2);
     }
     const f0 = performance.now();
     breath.numbersIn();
@@ -589,14 +589,13 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
     breath.update(dt, real, sky, (trip?.leg === 'orbit' && !landing) || breath.craters, camera);
     if (trip && names) names.update(dt, sky, trip.leg === 'in' || trip.leg === 'orbit' || trip.leg === 'moonRise' || trip.leg === 'moonHigh' || trip.leg === 'moonSink', trip.v, trip.t, camera, focalAt(), pipeline.info.width, pipeline.info.height, popSign);
     if (trip && view && fx) {
-      fx.overEarth = trip.leg === 'wait';
+      fx.free = trip.leg === 'wait' || trip.leg === 'orbit' || trip.leg === 'fall';
       if (landing?.near) fx.update(dt, trip.v, trip.dir, landing.axes, landing.flying.copy(view.flying).applyQuaternion(landing.q), landing.nosing.copy(view.nosing).applyQuaternion(landing.q), camera, bus.root, pipeline.pixelWorldSize(1), landing.bus);
       else fx.update(dt, trip.v, trip.dir, trip.ob.axes, view.flying, view.nosing, camera, bus.root, pipeline.pixelWorldSize(1));
       // (at the Moon from the orbit down the gears are the street's, and so is their readout, for a moment after a shift. Everywhere else the label says the gear: the HUD is here for its toasts)
       const ladder = trip.leg === 'orbit' || trip.leg === 'fall' || trip.leg === 'wait';
-      // (over Earth the street's ladder, turbo's levels over Jet and the two faster gears over them: one pip a step, and the step's name)
-      const earth = trip.leg === 'wait';
-      hud?.update(dt, { gear: earth ? earthStep(trip.rung, trip.level) : ladder ? trip.rung : trip.gear, maxGear: RUNG_TOP, engaged: true, level: 0, levels: earth ? 3 : 0, name: earth ? rungName(trip.rung, trip.level) : undefined, mph: ladder ? trip.v * 2236.94 : 0, armed: false, sinceShift: ladder ? trip.t - trip.rungAt : Infinity, sinceLocked: Infinity });
+      // (the street's ladder, turbo's levels over Jet and the two faster gears over them: one pip a step, and the step's name)
+      hud?.update(dt, { gear: ladder ? earthStep(trip.rung, trip.level) : trip.gear, maxGear: RUNG_TOP, engaged: true, level: 0, levels: ladder ? 3 : 0, name: ladder ? rungName(trip.rung, trip.level) : undefined, mph: ladder ? trip.v * 2236.94 : 0, armed: false, sinceShift: ladder ? trip.t - trip.rungAt : Infinity, sinceLocked: Infinity });
       if (frames % 6 === 0) label?.(trip, breath);
       // (the one thing to do up here, where a first-timer's eye is, until they've done it)
       // (and on arriving, WELCOME TO THE MOON, the producer's: "some sort of "welcome to the moon" tab to appear that will essentially say you are in control of the bus again". Home, the same)

@@ -75,13 +75,13 @@ export class SpaceFx {
   private readonly phase = new Float64Array(3);
   private scroll = 0;
   private life = 0;
-  /** The bus is free over Earth (MoonTrip's 'wait'): the lines and the trail are the street's, at its speeds. */
-  overEarth = false;
+  /** The bus is free, over Earth or the Moon (MoonTrip's 'wait', 'orbit' and 'fall'): the lines and the trail are the street's, at its speeds. */
+  free = false;
   private earthK = 0;
 
-  /** The flight takes the bus from the street (?earth): the street's lines and trail, at once, as the street had them. */
-  fromStreet(): void {
-    this.overEarth = true;
+  /** The flight takes the bus from a low game (?earth's street, ?moonland's ground): the street's lines and trail, at once, as it had them. */
+  fromGround(): void {
+    this.free = true;
     this.earthK = 1;
   }
 
@@ -254,9 +254,9 @@ export class SpaceFx {
    * pixel: metres a game pixel at 1 m. origin: where the bus is, if not at the render origin.
    */
   update(dt: number, v: number, dir: Float64Array, axes: Float64Array, flying: THREE.Vector3, nosing: THREE.Vector3, camera: THREE.Camera, bus: THREE.Object3D, pixel: number, origin: THREE.Vector3 | null = null): void {
-    // (over Earth, free, they're the street's, at the street's speeds: fx/Turbo.ts's strength, by speedK's scale, 0 at the surge and 1 at Jet, and on up the gears. The producer, 2026-11-04,
-    // of the lull past the hand-over: "Why can't we just keep the normal controls/turbos?". Eased, so the way out of Earth's sky, at TO THE MOON?, goes over to space's as the speed goes up)
-    this.earthK += ((this.overEarth ? 1 : 0) - this.earthK) * (1 - Math.exp(-2 * dt));
+    // (free, over Earth and at the Moon, they're the street's, at the street's speeds: fx/Turbo.ts's strength, by speedK's scale, 0 at the surge and 1 at Jet, and on up the gears. The producer, 2026-11-04,
+    // of the lull past the hand-over: "Why can't we just keep the normal controls/turbos?". Eased, so the way out, at either button, goes over to space's as the speed goes up)
+    this.earthK += ((this.free ? 1 : 0) - this.earthK) * (1 - Math.exp(-2 * dt));
     if (this.earthK < 0.001) this.earthK = 0;
     const e = this.earthK, F = config.flight, ms = v * 1000;
     const k = Math.max(0, Math.log(Math.max(ms, F.surgeSpeed) / F.surgeSpeed) / Math.log(Math.max(F.surgeSpeed * 1.01, config.turbo.jetSpeed) / F.surgeSpeed));

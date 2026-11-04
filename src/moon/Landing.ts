@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Flight } from '../game/Flight';
-import { gearAlt, gearSpeed, JET, WARP, type TurboDrive } from '../game/Turbo';
+import { driveSpeed, gearAlt, JET, WARP, type TurboDrive } from '../game/Turbo';
 import { config } from '../config';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import { spaceResolveUniforms as U } from '../render/skyResolve';
@@ -32,8 +32,6 @@ export const H_SHOW = 120;
 export const H_GROUND = 14;
 /** km over the ground: the flight's loop takes it back, climbing. Over H_GROUND, so a thumb that can't make up its mind there doesn't flip the loops. */
 export const H_UP = 15;
-/** The low game's last gear lifts the bus to this, km over the ground, which it never gets to: it's past H_UP first. */
-const UP_FLOOR = 17;
 /** km over the ground: the low game's ceiling, far enough over H_UP that a gear's soft ceiling doesn't take the climb off it first. */
 const UP_CEILING = 24;
 /** s: how long the mesh takes to come in over the ray-drawn Moon. */
@@ -119,8 +117,6 @@ export class Landing {
   arriving = false;
   /** The low game has just handed back: moonrun.ts takes up the thumb and the HUD, once. */
   cameBack = false;
-  /** m over the ground: what the low game's last gear lifts to. */
-  readonly upFloor = UP_FLOOR * 1000;
   /** The bus is down for the first time: the one thing to say about getting back up (main.ts). */
   down: (() => void) | null = null;
   private told = false;
@@ -455,7 +451,9 @@ export class Landing {
       camQuat: camera.quaternion.clone(),
       busQuat: bus.quaternion.clone(),
       dive: this.view.dive,
-      gear: t.rung,
+      gear: Math.min(t.rung, JET),
+      // (and turbo's level over Jet; Stratos and Rainbow Warp come down as Jet, where the law has the speed by the ground)
+      level: t.rung === JET ? t.level : 0,
     });
   }
 
@@ -491,7 +489,8 @@ export class Landing {
       p[j] = (F[j] * d[0] + F[3 + j] * d[1] + F[6 + j] * d[2]) * r;
       hd[j] = fx * A[j] + fz * A[6 + j];
     }
-    t.fromGround(p, hd, Math.atan2(f.vy, g), Math.hypot(g, f.vy) / 1000, gearSpeed(T.gear) / 1000, T.gear >= WARP, T.gear);
+    // (the gear and turbo's level go up as they are, and the climb at their speed: the street's ladder, as over Earth)
+    t.fromGround(p, hd, Math.atan2(f.vy, g), Math.hypot(g, f.vy) / 1000, driveSpeed(T.gear, T.level, true) / 1000, T.gear >= WARP, T.gear, T.level);
     // (the lens's axes, in EQJ: what the view is made of)
     this.x.set(1, 0, 0).applyQuaternion(camera.quaternion);
     this.y.set(0, 1, 0).applyQuaternion(camera.quaternion);
@@ -557,7 +556,8 @@ export class Landing {
       // (a thumb gone for a while means it's staying up here)
       if (this.downT > 1.5) this.downT = -1;
       else if (push > 0 && f.y < f.groundBroad + gearAlt(T.gear) + 50) {
-        T.shift(-1, f);
+        // (a step down the ladder: turbo's levels first, as a flick down takes them)
+        T.rung(-1, f);
         // (and the gear under it, if that has a floor too, at its own)
         if (!T.lifts) this.downT = -1;
       }

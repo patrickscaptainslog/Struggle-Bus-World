@@ -3,10 +3,10 @@
 //   wait   at the top gear the label says nothing of climbing and a left flick up leaves the bus free; a full pull and at 2,000 km TO THE MOON? pops up, a push back under 1,500 takes it away, and a tap on it sets off on the moon boost
 //   dark   in the long dark a right drag carves the bus off the path and it comes back on the lift; a left drag pans the view as far as the finger goes, and it stays; a flick on either side leaves it
 //   look   a left drag in orbit turns the view about the bus as far as the finger goes, and it stays there after the lift
-//   orbit  a right flick up as slow as the rule allows, its push felt past the old 0.15 s, climbs and starts no fall; 3,500 km up TO PLANET EARTH? pops up, and a tap on it goes home
+//   orbit  a right flick up as slow as the rule allows, its push felt past the old 0.15 s, starts no fall and at the top gear climbs nothing; a right pull held climbs out, free; at 2,000 km TO PLANET EARTH? pops up, and a tap on it goes home
 //   push   and a push held 0.3 s still starts one
-// --trip goes on from there, the whole trip on flicks: that push held to the ground, the gears coming down with it at their floors, four
-// flicks out of Express by Rainbow Warp, the flight's loop back to the orbit, and a flick home. About 2,000 frames: half an hour on software GL.
+// --trip goes on from there, the whole trip on flicks: that push held to the ground, the gears coming down with it at their floors, five
+// flicks out of Express to Turbo 3, a pull held up to the flight's loop at 15 km in Turbo 3, two flicks to Rainbow Warp, and a full pull to TO PLANET EARTH?. About 2,500 frames: half an hour on software GL.
 // The thumbs are real touches through CDP, stamped 2 s back so the stroke is as long as the row says, and the loop is stepped between
 // them (window.__qa.holdFrames). The long dark between is skipped at the route's step. BASE is the page (http://localhost:4179/).
 // A row passes or fails on the numbers printed with it; exit 1 if any fails.
@@ -54,7 +54,19 @@ try {
     const c = m.view.carve;
     return { leg: m.trip.leg, say: document.querySelector('[data-hud="trip-label"]')?.dataset.say?.split('|')[2] ?? '', pushT: +m.trip.pushT.toFixed(3), lookYaw: +(m.view.lookYaw * d).toFixed(1), noseYaw: +(Math.atan2(n.x, -n.z) * d).toFixed(2), nosePitch: +(Math.asin(Math.max(-1, Math.min(1, n.y))) * d).toFixed(2), carveYaw: +c.yaw.toFixed(2), carvePitch: +c.pitch.toFixed(2) };
   });
-  // (over Earth the button is flown up to: a full pull for TO THE MOON?, a push back down for none, by the trip's own steps, the view stepped with it)
+  // (the buttons are flown up to: a full pull for TO THE MOON? over Earth, a push back down for none, by the trip's own steps, the view stepped with it; and over the Moon a full pull for TO PLANET EARTH?)
+  const moonPullTo = async (egg) => {
+    const got = await page.evaluate((e) => {
+      const m = window.__space.moon;
+      for (let i = 0; i < 40000 && m.trip.egg !== e; i++) {
+        m.trip.step(1 / 30, 0, -1);
+        m.view.update(1 / 30, m.trip, 0, 0, false, 0);
+      }
+      return m.trip.egg;
+    }, egg);
+    if (got !== egg) throw new Error(`flew for the button ${egg} and it is ${got}`);
+    console.log('  flew to the button', got);
+  };
   const pullTo = async (egg) => {
     const got = await page.evaluate((e) => {
       const m = window.__space.moon;
@@ -278,16 +290,30 @@ try {
   await touch('touchEnd', RX, RY - 80, 195);
   await frames(4);
   const o3 = await read();
-  row('orbit: a right flick up of 80 px in 195 ms, its push felt past 0.15 s, climbs and starts no fall', felt > 0.15 && !fell && o3.leg === 'moonRise', { felt, fell, leg: o3.leg });
-  // (and over the Moon the same easter egg: 3,500 km up, TO PLANET EARTH?, and a tap on it goes home)
-  await skipTo('moonHigh');
+  // (at the top gear a flick up is nothing: the way up and out is a pull, the producer's, 2026-11-04: "Can you also apply this same mechanics and user experience to exiting the moon?")
+  row('orbit: a right flick up of 80 px in 195 ms, its push felt past 0.15 s, starts no fall, and at the top gear climbs nothing', felt > 0.15 && !fell && o3.leg === 'orbit', { felt, fell, leg: o3.leg });
+  // (a right pull held climbs out of the orbit, free, and over the Moon the same easter egg as over Earth: at 2,000 km TO PLANET EARTH?, and a tap on it goes home)
+  begin();
+  await touch('touchStart', RX, RY, 0);
+  await touch('touchMove', RX, RY + 40, 150);
+  await touch('touchMove', RX, RY + 80, 300);
+  const pl = [];
+  for (let i = 0; i < 15 && !pl.includes('fall'); i++) {
+    await frames(1);
+    pl.push((await read()).leg);
+  }
+  await frames(6);
+  const nose = await page.evaluate(() => +((window.__space.moon.trip.nose * 180) / Math.PI).toFixed(1));
+  await touch('touchEnd', RX, RY + 80, 300 + pl.length * 33 + 200);
+  row('orbit: a right pull held climbs out of the orbit, free', pl.includes('fall') && nose > 5, { frames: pl.length, legs: [...new Set(pl)], nose });
+  await moonPullTo('earth');
   await frames(20);
   const e4 = await egg('to-earth'), h4 = await page.evaluate(() => Math.round(window.__space.moon.trip.hMoon));
   await shot('egg-earth');
   await tapEgg('to-earth');
   await frames(4);
   const o4 = await read();
-  row('moonHigh: 3,500 km over the Moon TO PLANET EARTH? pops up, and a tap on it goes home', e4.up && e4.shown && h4 >= 3490 && o4.leg === 'leave', { up: e4.up, km: h4, leg: o4.leg });
+  row('fall: a full pull, and at 2,000 km over the Moon TO PLANET EARTH? pops up, and a tap on it goes home', e4.up && e4.shown && h4 >= 2000 && h4 < 2200 && o4.leg === 'leave', { up: e4.up, km: h4, leg: o4.leg });
 
   // ---- and the push still lands: home, out again, and a push held 0.3 s
   await skipTo('wait');
@@ -351,7 +377,7 @@ try {
     // ---- the whole way down on that push, out by flicks, and home
     const at = () => page.evaluate(() => {
       const sp = window.__space, m = sp.moon, L = m.landing, G = window.__game, low = L.ground, f = G?.flight;
-      return { leg: m.trip.leg, low, km: +(low ? f.height / 1000 : L.height).toFixed(2), gear: low ? G.controls.turbo.gear : m.trip.gear, gap: low ? +(f.y - f.floorY).toFixed(1) : null, speed: low ? Math.round(f.speed) : Math.round(m.trip.v * 1000), programs: sp.pipeline.renderer.info.programs.length };
+      return { leg: m.trip.leg, low, km: +(low ? f.height / 1000 : L.height).toFixed(2), gear: low ? G.controls.turbo.gear : m.trip.gear, level: low ? G.controls.turbo.level : m.trip.level, rung: m.trip.rung, gap: low ? +(f.y - f.floorY).toFixed(1) : null, speed: low ? Math.round(f.speed) : Math.round(m.trip.v * 1000), programs: sp.pipeline.renderer.info.programs.length };
     });
     const wall = Date.now(), gears = [];
     let s1 = await at(), n = 0;
@@ -375,22 +401,42 @@ try {
     await frames(45);
     await shot('trip-skim');
     const s2 = await at();
-    await flickTo(page, cdp, 5);
-    const s3 = await at();
-    row('trip: on the ground four flicks out of Express reach Rainbow Warp', s2.gear === 1 && s3.gear === 5, { from: s2.gear, to: s3.gear });
+    // (the street's ladder on the Moon's ground: Jet, then Turbo 1 to 3, and past Turbo 3 a flick is nothing)
+    await flickTo(page, cdp, 3);
+    for (let i = 0; i < 3; i++) {
+      const lv = await page.evaluate(() => window.__game.controls.turbo.level);
+      await flick(cdp, 1);
+      await page.waitForFunction((was) => window.__game.controls.turbo.level !== was, lv, { timeout: 60000, polling: 50 });
+    }
+    await flick(cdp, 1);
+    await frames(10);
+    const s3 = await at(), locked = await page.evaluate(() => window.__game.controls.turbo.lockedAt > -Infinity);
+    row('trip: on the ground five flicks out of Express reach Turbo 3, and one more is nothing', s2.gear === 1 && s3.gear === 3 && s3.level === 3 && !locked, { from: s2.gear, to: s3.gear, level: s3.level, locked });
+    // (and up and out is a pull: at 15 km the flight's loop has the bus, in Turbo 3 still)
+    begin();
+    await touch('touchStart', RX, RY, 0);
+    await touch('touchMove', RX, RY + 80, 300);
     let s4 = s3, k = 0;
-    for (; k < 300 && s4.leg !== 'orbit'; k++) {
+    for (; k < 300 && (s4.low || s4.leg !== 'fall'); k++) {
       await frames(10);
       s4 = await at();
       if (k % 10 === 0) console.log('  up', JSON.stringify(s4));
       if (k === 15) await shot('trip-up');
     }
-    row('trip: Rainbow Warp lifts it out, and the flight\'s loop takes it back to the orbit', s4.leg === 'orbit' && !s4.low, { frames: k * 10, at: s4 });
-    await shot('trip-orbit-again');
+    await touch('touchEnd', RX, RY + 80, 300 + k * 10 * 33);
+    row("trip: a pull held takes it up, and at 15 km the flight's loop has it, in Turbo 3 still", s4.leg === 'fall' && !s4.low && s4.rung === 3 && s4.level === 3, { frames: k * 10, at: s4 });
+    await shot('trip-up-out');
     await flick(cdp, 1);
-    await frames(4);
+    await frames(30);
+    await flick(cdp, 1);
+    await frames(60);
     const s5 = await at();
-    row('trip: and a flick up there climbs to the button', s5.leg === 'moonRise', { leg: s5.leg });
+    row('trip: two flicks up there are Stratos and Rainbow Warp', s5.leg === 'fall' && s5.rung === 5 && !s5.level, { at: s5 });
+    await moonPullTo('earth');
+    await frames(20);
+    const e6 = await egg('to-earth'), s6 = await at();
+    await shot('trip-egg-earth');
+    row('trip: and a full pull from there puts TO PLANET EARTH? up at 2,000 km', e6.shown && s6.leg === 'fall', { shown: e6.shown, at: s6 });
     console.log(`  programs: ${p0} at the push, ${s5.programs} home; ${Math.round((Date.now() - wall) / 1000)} s of wall for the trip`);
   } else await touch('touchEnd', RX, RY - 80, 300 + legs.length * 33);
   await page.evaluate(() => (window.__qa = null));
