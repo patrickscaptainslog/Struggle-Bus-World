@@ -62,8 +62,10 @@ const YAW = 42.5 * DEG;
  *  (config.turbo's heights; ?moonland moves Rainbow Warp's for the Moon's way out, so these are their own). */
 const EARTH_FLOOR = 0.06;
 const RUNG_FLOOR = [0.06, 0.06, 0.06, 0.15, 2, 10];
-/** TO THE MOON? goes when the bus comes back under this, km over Earth (VOYAGE.md), once the ceiling has put it up. */
-const EGG_LOW = 10000;
+/** TO THE MOON?, km over Earth, free: up from EGG_UP, the producer's after flying up to it ("I think we can do 2000km", 2026-11-04; it was the ceiling, 13,000 km, 7 minutes of
+ *  full pull from 300 km), and gone again when the bus comes back under EGG_LOW. The free leg flies on up to ALT5, and the moon boost still goes on there. */
+const EGG_UP = 2000;
+const EGG_LOW = 1500;
 /** The ellipsoid the map is drawn on (render/skyResolve.ts, spaceEarth), km: low down, height is over it, not the route's sphere, which is 7 km under the ground at the equator and 14 over it at the poles. */
 const E_A = 6378.137;
 const E_B = 6356.752;
@@ -284,7 +286,7 @@ export class MoonTrip {
   private readonly ef = v3();
   private readonly eh = v3();
   private readonly ed = v3();
-  /** TO THE MOON? is up: from the ceiling, or the climb to it, until the bus is back under EGG_LOW. */
+  /** TO THE MOON? is up: from EGG_UP, until the bus is back under EGG_LOW. */
   private eggUp = false;
   // (scratch: nothing here allocates per frame)
   private readonly a = v3();
@@ -793,8 +795,8 @@ export class MoonTrip {
         fromFix(F, ef, this.ob.pos);
         fromFix(F, eh, this.heading);
         fromFix(F, ed, this.dir);
-        // TO THE MOON?: up at the ceiling, and gone again under EGG_LOW
-        if (R >= R_E + ALT5 - 50) this.eggUp = true;
+        // TO THE MOON?: up from EGG_UP, and gone again under EGG_LOW
+        if (R >= R_E + EGG_UP) this.eggUp = true;
         else if (R < R_E + EGG_LOW) this.eggUp = false;
         return true;
       }

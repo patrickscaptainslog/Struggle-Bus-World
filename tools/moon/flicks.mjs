@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Flicks out in space, felt a frame at a time on a fixed step (docs/specs/moon/FREEFLIGHT.md, Stage 1): node tools/moon/flicks.mjs <out dir>
-//   wait   at the top gear the label says nothing of climbing and a left flick up leaves the bus free; a full pull to 13,000 km and TO THE MOON? pops up, a push back down takes it away, and a tap on it sets off on the moon boost
+//   wait   at the top gear the label says nothing of climbing and a left flick up leaves the bus free; a full pull and at 2,000 km TO THE MOON? pops up, a push back under 1,500 takes it away, and a tap on it sets off on the moon boost
 //   dark   in the long dark a right drag carves the bus off the path and it comes back on the lift; a left drag pans the view as far as the finger goes, and it stays; a flick on either side leaves it
 //   look   a left drag in orbit turns the view about the bus as far as the finger goes, and it stays there after the lift
 //   orbit  a right flick up as slow as the rule allows, its push felt past the old 0.15 s, climbs and starts no fall; 3,500 km up TO PLANET EARTH? pops up, and a tap on it goes home
@@ -94,7 +94,7 @@ try {
   };
 
   // ---- wait: free over Earth at the top gear the label says nothing of climbing, and a left flick up leaves the bus free (the producer, 2026-11-04: "I do not like the flick up to climb function");
-  // a full pull up to 13,000 km and TO THE MOON? comes up (VOYAGE.md V2), a push back down and it goes, and a tap on it sets off
+  // a full pull and at 2,000 km TO THE MOON? comes up (VOYAGE.md V2; the producer, 2026-11-04: "I think we can do 2000km"), a push back under 1,500 and it goes, and a tap on it sets off
   const w0 = await read();
   await flick(cdp, 1);
   await frames(3);
@@ -104,11 +104,11 @@ try {
   await frames(20);
   const e1 = await egg('to-moon'), h1 = await page.evaluate(() => Math.round(window.__space.moon.trip.hEarth));
   await shot('egg-moon');
-  row('wait: a full pull to 13,000 km over home and TO THE MOON? pops up', e1.up && e1.shown && h1 >= 12900, { up: e1.up, shown: e1.shown, km: h1 });
+  row('wait: a full pull, and at 2,000 km over home TO THE MOON? pops up', e1.up && e1.shown && h1 >= 2000 && h1 < 2200, { up: e1.up, shown: e1.shown, km: h1 });
   await pullTo(null);
   await frames(25);
   const w2 = await read(), e2 = await egg('to-moon');
-  row('wait: a push back under 10,000 km and the button goes', w2.leg === 'wait' && !e2.shown, { leg: w2.leg, shown: e2.shown });
+  row('wait: a push back under 1,500 km and the button goes', w2.leg === 'wait' && !e2.shown, { leg: w2.leg, shown: e2.shown });
   await pullTo('moon');
   await frames(20);
   await tapEgg('to-moon');

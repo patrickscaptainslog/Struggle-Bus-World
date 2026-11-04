@@ -4,7 +4,7 @@
 //   down     from 300 km a held push in Rainbow Warp, braked by the law, levels at Warp's floor; Jet's, then Cruise's, each a gear down, never under the floor
 //   drift    an hour at Cruise and its floor: the ground it covers is Cruise's speed for an hour, and the height holds (Earth fixed: the Earth turns under EQJ)
 //   pole     turned north and flown in Rainbow Warp over the pole and down the other side, nothing comes apart
-//   button   a full pull in Rainbow Warp to the ceiling puts TO THE MOON? up; a push takes it under 10,000 km and the button goes; at the top gear a flick up does nothing, and a pull puts it up again
+//   button   a full pull in Rainbow Warp puts TO THE MOON? up at 2,000 km and flies on to the ceiling; a push takes it under 1,500 km and the button goes; at the top gear a flick up does nothing, and a pull puts it up again
 // A row passes or fails on the numbers printed with it; exit 1 if any fails.
 import { registerHooks } from 'node:module';
 
@@ -106,19 +106,28 @@ fly(400, 0, 0, () => {
 });
 row('pole: north in Rainbow Warp, over the pole and down the other side, whole', crossed && ok() && trip.hGround > 9, { maxLat: +maxLat.toFixed(2), lat: +latOf().toFixed(1), km: +trip.hGround.toFixed(1), finite: ok() });
 
-// ---- the button
-const upAt = fly(600, 0, -1);
-row('button: a full pull in Rainbow Warp to the ceiling, and TO THE MOON? is up', trip.hEarth > 12900 && trip.egg === 'moon', { km: Math.round(trip.hEarth), egg: trip.egg, low: +upAt.toFixed(1) });
-fly(200, 0, 1);
-row('button: a push takes it back under 10,000 km and the button goes', trip.hEarth < 10000 && trip.egg === null && trip.leg === 'wait', { km: Math.round(trip.hEarth), egg: trip.egg });
+// ---- the button: up from 2,000 km and gone under 1,500 (the producer, 2026-11-04: "I think we can do 2000km"), the free leg on up to its ceiling
+/** n seconds of flight with the yoke as given; the height where the button last came up or went, km */
+const flyEgg = (s, yoke) => {
+  let at = null, was = trip.egg;
+  fly(s, 0, yoke, () => {
+    if (trip.egg !== was) at = Math.round(trip.hEarth);
+    was = trip.egg;
+  });
+  return at;
+};
+const upAt = flyEgg(600, -1);
+row('button: a full pull in Rainbow Warp, TO THE MOON? up at 2,000 km, and free on up to the ceiling', upAt >= 2000 && upAt < 2040 && trip.hEarth > 12900 && trip.egg === 'moon' && trip.leg === 'wait', { upAt, km: Math.round(trip.hEarth), egg: trip.egg });
+const goneAt = flyEgg(600, 1);
+row('button: a push takes it back down, and under 1,500 km the button goes', goneAt <= 1500 && goneAt > 1460 && trip.egg === null && trip.leg === 'wait', { goneAt, km: Math.round(trip.hEarth), egg: trip.egg });
 // (the producer, 2026-11-04: "I do not like the flick up to climb function". At the top gear a flick up does nothing: the bus flies on free, and the button is flown up to)
 const h0 = trip.hEarth;
 let left = 0;
 trip.tap();
 fly(10, 0, 0, () => (left += trip.leg !== 'wait'));
-row('button: at the top gear a flick up does nothing, the bus flies on free', !left && trip.rung === 5 && trip.hEarth <= h0 + 1 && trip.egg === null && ok(), { left, rung: trip.rung, km: Math.round(trip.hEarth), was: Math.round(h0) });
-fly(600, 0, -1);
-row('button: and a pull back up to the ceiling puts it up again', trip.hEarth > 12900 && trip.egg === 'moon' && trip.leg === 'wait', { km: Math.round(trip.hEarth), egg: trip.egg });
+row('button: at the top gear a flick up does nothing, the bus flies on free', !left && trip.rung === 5 && trip.hEarth <= h0 + 1 && ok(), { left, rung: trip.rung, km: Math.round(trip.hEarth), was: Math.round(h0) });
+const againAt = flyEgg(600, -1);
+row('button: and a pull back up puts it up again at 2,000 km', againAt >= 2000 && againAt < 2040 && trip.egg === 'moon' && trip.leg === 'wait', { againAt, km: Math.round(trip.hEarth), egg: trip.egg });
 
 console.log(bad ? `${bad} FAIL` : 'all pass');
 process.exit(bad ? 1 : 0);

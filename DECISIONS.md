@@ -2982,7 +2982,8 @@ VOYAGE.md's V2c, its second part. From the orbit down to 120 km, where the groun
 The producer, after flying `?earth`: "I do not like the flick up to climb function. I just want to be able to freely fly, and then once I get to a certain very high orbital altitude the "to the moon?" Button appears".
 
 - **Free over Earth, at the top gear a flick up does nothing,** where it climbed straight up to the button. The button is flown up to: pulled up to 13,000 km it comes up, and back under 10,000 it goes, as before. The label says nothing of climbing over Earth. At the Moon the top gear's flick up to TO PLANET EARTH? is as it was, and the old launch from the plain page, off the street's ceiling, still climbs by itself.
-- **How long that is:** a held full pull in Rainbow Warp, 30 km/s with the nose at 85 degrees, takes 424 s from 300 km to 13,000 km (24 s to 1,000 km, 57 s to 2,000, 158 s to 5,000, 325 s to 10,000), in Node.
+- **How long that is:** a held full pull in Rainbow Warp, 30 km/s with the nose at 85 degrees, takes 424 s from 300 km to 13,000 km (24 s to 1,000 km, 57 s to 2,000, 158 s to 5,000, 325 s to 10,000), in Node. Seven minutes, longer than the trip to the Moon, so the producer was asked, and picked 2,000 km: "I think we can do 2000km".
+- **The button at 2,000 km:** TO THE MOON? is up from 2,000 km over Earth (`EGG_UP`) and goes under 1,500 (`EGG_LOW`, a first pick in the old ratio), about a minute's full pull from orbit. The free leg's ceiling stays at 13,000 km, and so does where the moon boost goes on (`ALT5`, G5's floor), so a trip set off from 2,000 km climbs at G4 to it first, as one from 300 km always has (`route-check`). From 2,000 km the whole Earth is wider than the lens; from 13,000 it just fit.
 - **Checked:** CHECKS
 
 ## The whole Earth, flown freely: E3, the page change in the long dark (2026-11-04, `feat/earthfree-e3`)
