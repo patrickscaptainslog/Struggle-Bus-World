@@ -35,7 +35,7 @@ import { SuperSplat } from './game/SuperSplat';
 import { SuperFx } from './fx/SuperFx';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
-import { earthFly, heldHour, moonLand, moonLow, moonrun } from './sky/flag';
+import { earthFly, earthResume, heldHour, moonLand, moonLow, moonrun } from './sky/flag';
 import { CUT_NEAR, EARTH_CEILING, H_UP, SKY_FROM, SKY_TOP } from './sky/earthJoin';
 import type { EarthLanding, StreetWorld } from './sky/EarthLanding';
 import { spaceResolveUniforms as spaceU } from './render/skyResolve';
@@ -135,7 +135,7 @@ const slug = params.get('city') ?? 'sf';
 const base = `./city/${slug}`;
 
 /** land: ?moonland: the flight's loop has started and has the frame: all of this is made ready behind it, and takes the frame when the bus comes down to it. What it shares with that loop comes in with this. */
-async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine; rig: CameraRig }) {
+async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine; rig: CameraRig }, resumed?: StreetResumed) {
   // (first: the warm-up hasn't started a compile yet, so this query waits for nothing, and boot().catch prints a refusal)
   pipeline.checkTargets();
   // (?moon: the place is generated, src/moon/: all that follows is the game as it is, on a city with no files)
@@ -829,7 +829,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
 
   // ---- the opening's clock (0 .. config.fog.openingDuration), and the tap that skips it on repeat visits: it has been
   // seen through once, on this device (a lost flag only plays it again)
-  let opening = params.has('skipintro') || moon ? config.fog.openingDuration : 0;
+  let opening = params.has('skipintro') || resumed || moon ? config.fog.openingDuration : 0;
   let openingSkip = false;
   let openingSeen = false;
   try {
@@ -1023,7 +1023,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   exposeQA();
   /** ?moonland: what the thumb does down here, until it is down here. */
   const groundHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd };
-  if (land) {
+  // (and ?earth&resume: the flight has the bus while the street boots behind it)
+  if (land || resumed) {
     Object.assign(input, flightHands);
     controls.hud.setVisible(false);
   }
@@ -1093,7 +1094,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** ?moonland: the view the flight left the bus in, for the moments the rig takes to come over from it. */
   let fromSky: (LandEnter & { t: number }) | null = null;
   // ?earth (docs/specs/earth/EARTHFLIGHT.md, E2): the flight's loop, booted behind the street once it's up, and the join between them (sky/EarthLanding.ts). Until it's up the street pumps its own frames
-  let pumpSelf = true;
+  let pumpSelf = !resumed;
   let earthJoin: EarthLanding | null = null;
   let earthBooting = false;
   let streetHands: Partial<Input> | null = null;
@@ -1592,6 +1593,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** ?earth: the flight's loop, behind the street, with the street as what it hands the bus to (sky/EarthLanding.ts). The thumb's hands are the street's until the flight has the bus. */
   function bootSky() {
     earthBooting = true;
+    if (resumed) skyHands = resumed.hands;
     const hands = (): Partial<Input> => ({ onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd });
     streetHands = hands();
     const world: StreetWorld = {
@@ -1628,6 +1630,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         pipeline.cutSky(null);
       },
     };
+    // (?earth&resume: the flight is up already, and has the bus: the street joins it)
+    if (resumed) {
+      earthJoin = resumed.join;
+      world.leave();
+      resumed.attach(world);
+      return;
+    }
     void import('./sky/moonrun')
       .then(({ bootMoonrun }) => bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: { input, audio, rig }, earth: world }))
       .then((j) => {
@@ -1638,7 +1647,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       })
       .catch((e) => console.error('the flight behind the street', e));
   }
-  if (!land) requestAnimationFrame(frame);
+  if (resumed) bootSky();
+  else if (!land) requestAnimationFrame(frame);
   else if (moon) {
     const m = moon;
     land.world = {
@@ -1827,7 +1837,29 @@ async function bootEarth() {
   await boot(undefined, { input: new Input(canvas), audio: new AudioEngine(), rig: new CameraRig() });
 }
 
-(moonLand ? bootLanding() : moonrun ? bootSpace() : earthFly ? bootEarth() : boot()).catch((e) => {
+/** ?earth&resume: what the flight, booted first, hands the street that boots behind it: its join, its hands on the thumb, and where the street goes into the join once it's made. */
+interface StreetResumed {
+  join: EarthLanding;
+  hands: Partial<Input>;
+  attach(w: StreetWorld): void;
+}
+
+/**
+ * ?earth&resume: home from the Moon's page, in the long dark (docs/specs/earth/EARTHFLIGHT.md, E3). ?moonland's boot order: the flight first, resumed from the trip the Moon's page saved, and the street's whole boot behind it, with the rest of the
+ * way home to do it in. The street draws nothing until the flight hands it the bus over the city.
+ */
+async function bootEarthResumed() {
+  pipeline.checkTargets();
+  const { bootMoonrun, laterStreet } = await import('./sky/moonrun');
+  const shared = { input: new Input(canvas), audio: new AudioEngine(), rig: new CameraRig() };
+  const street = laterStreet();
+  const join = (await bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: shared, earth: street.world })) as EarthLanding | null;
+  const i = shared.input;
+  const hands: Partial<Input> = { onTap: i.onTap, onTurbo: i.onTurbo, onTripleFinger: i.onTripleFinger, onFirstGesture: i.onFirstGesture, onPress: i.onPress, onChargeStart: i.onChargeStart, onChargeEnd: i.onChargeEnd };
+  if (join) await boot(undefined, shared, { join, hands, attach: street.attach });
+}
+
+(moonLand ? bootLanding() : moonrun ? bootSpace() : earthResume ? bootEarthResumed() : earthFly ? bootEarth() : boot()).catch((e) => {
   console.error(e);
   document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;inset:auto 0 0 0;color:#fff;font:12px monospace;padding:12px;background:#0008">${String(e)}</pre>`);
 });

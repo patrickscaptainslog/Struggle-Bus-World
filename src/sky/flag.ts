@@ -38,6 +38,22 @@ export const moonLand = typeof location !== 'undefined' && new URLSearchParams(l
  */
 export const earthFly = typeof location !== 'undefined' && new URLSearchParams(location.search).has('earth') && !moonLow && !moonrun;
 
+/** The page change in the long dark between Earth's page and the Moon's (docs/specs/earth/EARTHFLIGHT.md, E3): the trip and its view, and the frame held on the screen (index.html reads that key by its own name). */
+export const SWAP_KEY = 'strugglebus.swap.v1';
+export const SWAP_FRAME = 'strugglebus.swap.frame.v1';
+
+/** ?earth&resume with a trip saved by the Moon's page: the flight boots first, and the street behind it (main.ts, bootEarthResumed). */
+export const earthResume =
+  earthFly &&
+  new URLSearchParams(location.search).has('resume') &&
+  (() => {
+    try {
+      return !!sessionStorage.getItem(SWAP_KEY);
+    } catch {
+      return false;
+    }
+  })();
+
 /** GLSL only ?moonrun, ?moon and ?earth compile. */
 export const space = (glsl: string): string => (moonrun || moonLow || earthFly ? glsl : '');
 

@@ -27,6 +27,8 @@ import { SpaceFx, spaceFxTune } from './SpaceFx';
 import { EasterEgg } from './EasterEgg';
 import { SWING, TripView } from './TripView';
 import { EarthLanding, type StreetWorld } from './EarthLanding';
+import { earthResume, SWAP_FRAME, SWAP_KEY } from './flag';
+export { laterStreet } from './EarthLanding';
 import { geodeticToFix, sphereToFix } from './WorldFrame';
 
 // ?moonrun: MOONSHOT.md's black box. Space only: no city streams, the bus sits at the render origin, and the real pipeline and resolve draw it. Earth, Moon and Sun come from the real sky
@@ -179,6 +181,21 @@ const MOON_BOOST = 1550;
 const PAN_X = 1;
 const PAN_Y = 0.5;
 
+/** The page change in the long dark (docs/specs/earth/EARTHFLIGHT.md, E3): s of trip into 'cruise' or 'homeCruise', where nothing but the stars, the bus and its trail is on screen, and what the next page keeps of this one's URL. */
+const SWAP_AFTER = 3;
+const SWAP_KEEP = ['fps', 't', 'tune', 'g5', 'fixeddt'];
+
+/** The trip and its view the page before saved (?resume), taken out of storage as they're read: a reload starts afresh. */
+function readSwap(): { trip: Record<string, unknown>; view: Record<string, unknown> } | null {
+  try {
+    const s = sessionStorage.getItem(SWAP_KEY);
+    sessionStorage.removeItem(SWAP_KEY);
+    return s ? JSON.parse(s) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The tuner's rows for the flight, read every frame. The bus's and the trail's live with those. */
 const tripTune = { tau: TAU, pullDegS: PULL / DEG, swing: SWING, busSunSoft: 0.75 };
 
@@ -242,7 +259,9 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
     pipeline.calm = 1;
     globals.uLight.value.set(0.62, 0.2, 0.05);
   };
-  if (!earth) takeFrame();
+  // (?earth&resume: home from the Moon's page, the flight has the frame from the start, and the street boots behind it)
+  const flightFirst = !earth || earthResume;
+  if (flightFirst) takeFrame();
   applySpaceTable(pipeline.paletteTexture);
 
   const perf = new Perf(renderer);
@@ -266,11 +285,18 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
   }
   if (land) Object.assign(YOKE, { dead: config.flight.yokeDead, up: Math.min(config.flight.noseUp, 89) * DEG, down: Math.min(config.flight.noseDown, 89) * DEG, curve: config.flight.noseCurve, rate: config.flight.noseRate });
   const view = flying ? new TripView() : null;
+  // (?resume: the trip goes on from the page before, from the moment its last frame was taken, which index.html holds on the screen until this page's third)
+  const resumed = trip && view && params.has('resume') ? readSwap() : null;
+  if (resumed && trip && view) {
+    trip.resume(resumed.trip);
+    view.resume(resumed.view);
+  }
   const pose = flying ? null : readView(params, model, sky, clock.now());
 
   const draw = new SkyDraw(pipeline);
   const landing = land && !earth && trip && view ? new Landing(trip, view, pipeline, scene, draw, model, sky) : null;
   const earthLanding = earth && trip && view ? new EarthLanding(trip, view, model, sky, draw, earth) : null;
+  if (earthLanding && flightFirst) earthLanding.ground = false;
   if (trip) {
     draw.moonSteady = true;
     draw.moonFloor = STEADY_FLOOR;
@@ -303,7 +329,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
     pipeline.setHfov(lens);
     pipeline.setDepthRange(1.5, 30000);
   };
-  if (!earth) lensOn();
+  if (flightFirst) lensOn();
   const focalAt = () => 1 / pipeline.pixelWorldSize(1);
   const placeCamera = () => {
     bus.root.scale.setScalar(config.camera.heroScaleVista);
@@ -312,7 +338,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
     camera.position.set(0, D * Math.sin(below), D * Math.cos(below));
     camera.quaternion.setFromAxisAngle(pitchAxis, breath.kick);
   };
-  if (!earth) placeCamera();
+  if (flightFirst) placeCamera();
   // (under ?earth all of that is the flight's when it takes the frame from the street)
   if (earthLanding)
     earthLanding.onTake = () => {
@@ -418,7 +444,27 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
   let frames = 0;
   // (tools: time stands still and the frame goes on drawing, so a shot is of the moment it asked for)
   let held0 = false;
+  // (the long dark: when the leg began, and the page this one has gone to, if it has)
+  let darkLeg = trip?.leg, darkAt = trip?.t ?? 0, gone = false;
+  /** The page for where the bus is going, in the long dark: the Moon's out of Earth's, Earth's home from the Moon's. ?moonland&swap: out of the Moon's too, for tools/earth/swap.mjs. */
+  const swapTo = (): string | null => (!trip ? null : trip.leg === 'cruise' && (earthLanding || params.has('swap')) ? 'moonland' : trip.leg === 'homeCruise' && landing ? 'earth' : null);
+  /** The frame just drawn, the trip and the view into sessionStorage, and on to the next page. False if storage won't have them: the trip goes on on this page. */
+  const swap = (to: string): boolean => {
+    if (!trip || !view) return false;
+    try {
+      sessionStorage.setItem(SWAP_FRAME, renderer.domElement.toDataURL('image/jpeg', 0.85));
+      sessionStorage.setItem(SWAP_KEY, JSON.stringify({ trip: trip.save(), view: view.save() }));
+    } catch {
+      return false;
+    }
+    const keep = SWAP_KEEP.filter((k) => params.has(k)).map((k) => (params.get(k) ? `&${k}=${encodeURIComponent(params.get(k)!)}` : `&${k}`));
+    location.replace(`${location.pathname}?${to}&resume${keep.join('')}`);
+    return true;
+  };
+  // (the frame the page before left on the screen, until this one's third: index.html put it up)
+  let heldFrame = document.getElementById('held-frame');
   const frame = (now: number) => {
+    if (gone) return;
     requestAnimationFrame(frame);
     // (one page, one pump: below the ground's height the low game has the frame; under ?earth the street, which had it first)
     if (earthLanding?.ground) {
@@ -589,6 +635,19 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
       perf.setVisible(false);
     }
     if (frames === 1) load.firstFrameMs = Math.round(performance.now() - t0);
+    if (heldFrame && frames === 3) {
+      heldFrame.remove();
+      heldFrame = null;
+    }
+    // (the long dark: a few seconds in, the page changes over to the one for where the bus is going, this frame held on the screen)
+    if (trip) {
+      if (trip.leg !== darkLeg) {
+        darkLeg = trip.leg;
+        darkAt = trip.t;
+      }
+      const to = trip.t - darkAt >= SWAP_AFTER ? swapTo() : null;
+      if (to && swap(to)) gone = true;
+    }
     if (dark && frames === 3) {
       const d = dark;
       d.style.opacity = '0';
@@ -606,10 +665,10 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
     }
     if (trip) label?.(trip, breath);
   };
-  const qa = { pipeline, scene, camera, perf, bus, input, warm, moon: { model, sky, clock, draw, pose, load, trip, view, skip, breath, names, tune: tripTune, hold: (on: boolean) => (held0 = on), landing } };
+  const qa = { pipeline, scene, camera, perf, bus, input, warm, moon: { model, sky, clock, draw, pose, load, trip, view, skip, breath, names, tune: tripTune, hold: (on: boolean) => (held0 = on), landing, earthLanding, resumed } };
   (window as unknown as Record<string, unknown>)[land ? '__space' : '__game'] = qa;
   // (?earth: the street has the frame and the thumb; the flight's HUD and label wait for it to hand up, and from here this loop is the pump)
-  if (earthLanding) {
+  if (earthLanding && !flightFirst) {
     if (label) labelEl()?.style.setProperty('display', 'none');
     hud?.setVisible(false);
     perf.setVisible(false);

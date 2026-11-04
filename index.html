@@ -57,6 +57,23 @@
   </head>
   <body>
     <canvas id="game"></canvas>
+    <script>
+      // ?resume: the page before's last frame, on the screen at once, until the flight's third frame takes it away (src/sky/moonrun.ts). The page change in the long dark between Earth and the Moon,
+      // docs/specs/earth/EARTHFLIGHT.md, E3: a second or so where the stars stand still. Under the HUD, which the new page puts up as it boots.
+      (function () {
+        try {
+          if (!new URLSearchParams(location.search).has('resume')) return;
+          var src = sessionStorage.getItem('strugglebus.swap.frame.v1');
+          sessionStorage.removeItem('strugglebus.swap.frame.v1');
+          if (!src) return;
+          var img = document.createElement('img');
+          img.id = 'held-frame';
+          img.src = src;
+          img.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;display:block;image-rendering:pixelated;z-index:1;pointer-events:none';
+          document.body.appendChild(img);
+        } catch (e) {}
+      })();
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

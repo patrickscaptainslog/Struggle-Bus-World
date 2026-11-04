@@ -176,3 +176,26 @@ export class EarthLanding {
     return true;
   }
 }
+
+/**
+ * ?earth&resume (docs/specs/earth/EARTHFLIGHT.md, E3): the flight boots first and the street behind it, so the join is made before there's a street to join. This stands in for the street until main.ts attaches it,
+ * and nothing is under the bus till then. origin: home until then, for what's made before (the resumed trip has its own).
+ */
+export function laterStreet(origin: readonly [number, number] = [37.7749, -122.4194]): { world: StreetWorld; attach(w: StreetWorld): void } {
+  let s: StreetWorld | null = null;
+  return {
+    world: {
+      get origin() {
+        return s?.origin ?? origin;
+      },
+      covers: (x, z) => !!s && s.covers(x, z),
+      enter: (e) => s?.enter(e),
+      leave: () => s?.leave(),
+      frameAt: (now) => s?.frameAt(now),
+      pumpOff: () => s?.pumpOff(),
+    },
+    attach(w) {
+      s = w;
+    },
+  };
+}
