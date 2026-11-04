@@ -64,7 +64,7 @@ On `feat/clock`: `38cf6b8` the port, `0b4f2b3` the live sky, `6f55511` and `9a1d
 - Two are the day table under a new light, stage B's: the Golden Gate's BRIDGE_ORANGE step 4 at 0.847 of paint's median, and 2,439 paint px over step 5.45 with the day's paint unclamped.
 
 **Not done in A.**
-- The bands' height term: below the true horizon at 12-15 km, still S1's wedges (HANDOFF; with far-field day 3).
+- The bands' height term: below the true horizon at 12-15 km, still S1's wedges (HANDOFF; with far-field day 3). Fixed after review: the bands' height is from the horizon's dip at the eye, and under it the bend lets go over 6 degrees (`skyBands`), so the glow hangs under the horizon and fades to the far side's row, no stripes. The land under it is still far-field day 3's.
 - The Sun's glare across silhouettes, and the Belt of Venus.
 - `uFog.w` and the far plane by height.
 - The noon table and every other table, the boot colour, `city.tz`, windows by the clock, lamp waves (stage B).

@@ -48,11 +48,15 @@ export const GLSL_SKY_HELD = /* glsl */ `
 // so t, a height on the sun side's scale, slides between the two with the azimuth: under the sun it is the height, opposite it the far side's. The sky's own bands
 // bend down toward the sun, and that bend is the glow, with nothing laid over them (SKY.md 4.1). Under 14 t reads the sun side's rows; from there, back on the far side's
 // scale, the far side's, where the colours meet, so the rows hand over with no seam. (Near the zenith dir.xz is 0: a guard, the far side.)
+// Height is from the horizon the eye sees, its dip under the level by the eye's height (sqrt(2h / R), 3.9 degrees from 15 km). Under it, in the sky the flat world
+// leaves up high (some 18 degrees at the ceiling), the height holds at the horizon and the bend lets go over 6 degrees, so the glow hangs under the horizon and
+// fades to the far side's horizon row: held with the bend whole, that sky was the horizon's one row by azimuth, drawn down in stripes.
 vec3 skyBands(vec3 dir, float dsk) {
-  float alt = max(dir.y, 0.0) * 57.3;
+  float h = dir.y * 57.3 + 57.3 * sqrt(2.0 * max(uCamPos.y, 0.0) / 6371000.0);
+  float alt = max(h, 0.0);
   float l = length(dir.xz);
   float t = 8.2 + 8.2 * sqrt(alt + 0.5);
-  if (l > 1e-3) t = mix(t, alt, pow(max(0.5 + 0.5 * dot(dir.xz, uSkySun.xy) / l, 0.0), uSkySun.z) * uSkyWarm.y);
+  if (l > 1e-3) t = mix(t, alt, pow(max(0.5 + 0.5 * dot(dir.xz, uSkySun.xy) / l, 0.0), uSkySun.z) * uSkyWarm.y * clamp(1.0 + h / 6.0, 0.0, 1.0));
   bool sun = t < 14.0;
   if (sun) alt = t;
   else {
