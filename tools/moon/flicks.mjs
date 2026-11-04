@@ -248,7 +248,7 @@ try {
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: t1 + 0.06 });
     await frames(60);
     const p1 = await paintOf();
-    row('orbit: a tap paints the crater under the aim, a few km across, and no splat', p0.craters && p1.shots === p0.shots + 1 && p1.recs >= p0.recs + (p1.last?.level === 1 ? 1 : 0) && !!p1.last && p1.last.km >= 0.5 && p1.last.km <= 8 && p1.map === p0.map, { p0, p1 });
+    row('orbit: a tap paints the crater under the aim, a few km across, and only its dot goes on the map, no splat', p0.craters && p1.shots === p0.shots + 1 && p1.recs >= p0.recs + (p1.last?.level === 1 ? 1 : 0) && !!p1.last && p1.last.km >= 0.5 && p1.last.km <= 8 && p1.map - p0.map < 0.00004, { p0, p1 });
     await shot('orbit-crater');
   }
 
