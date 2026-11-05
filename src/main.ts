@@ -245,6 +245,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const farP = land ? Promise.resolve() : moon ? Promise.all([moon.far!.ready, moon.sky.load()]).then(() => {}) : city.loadFar(renderer, () => warm.busy);
   // (behind far.bin: the worker reads its heights. Nothing waits for this, the lamps land when they land)
   if (hour) void farP.then(() => hour.lamps.load(city.fileUrl('lamps'), city.groundGrid()!, manifest.tileSize), () => (hour.lamps.busy = false));
+  // (that's the request: it goes once the city is in and the Sun is low, Lamps.ask in frame(). By day nothing fetches it)
 
   // ---- props: trees stream with tiles, landmarks are placed once
   const treeFields = new Map<string, TreeField>();
@@ -1643,6 +1644,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     controls.hud.setMega(superView.phase);
     perf.frame(dt * 1000, performance.now() - t0);
     const cityIn = city.loadedRegionCount() > 0 && !city.loading && !later.length;
+    // (the lamps' list once the city's first tiles are in, and only with the Sun low enough that they light soon: Lamps.ask. ?hour=blue's night is always low)
+    hour?.lamps.ask(cityIn, live ? live.sunEl : -90);
     if (!skyAsked && live) {
       if (firstFrameAt < 0) firstFrameAt = t0;
       if (cityIn || (live.street.night && t0 - firstFrameAt > SKY_FILES_WAIT)) {

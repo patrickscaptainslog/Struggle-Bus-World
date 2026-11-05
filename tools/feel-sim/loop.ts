@@ -63,7 +63,7 @@ export function makeGame(city: City): Game {
       if (!flight.tryBarf()) return { fired: false, target: null, glint: shown };
       g.squash = 0.8; squashV = 0;
       breathTravel = shot.travel;
-      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact });
+      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: flight.y });
       breathTravel = null;
       if (splatter.lastMiss) flight.refund = config.splat.missRefund;
       return { fired: true, target: shot.target, glint: shown };

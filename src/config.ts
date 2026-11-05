@@ -147,7 +147,7 @@ export const config = {
    * ?hour=blue there is no clock: every number here is the one hour held.
    */
   sky: {
-    /** The live sky, read once as the page loads: off, today's day exactly (as ?sky=off). */
+    /** The live sky, read once as the page loads: off, today's day exactly (as ?sky=off). Not on the tuner, which comes after it: set here. */
     live: true,
     /** The live sky's tick (SKY.md 2): the key moves when the shadow tip of a wall this tall (m) would have moved this many game px, at most once a second, */
     tickWall: 30,

@@ -81,7 +81,7 @@ All in `src/sky/`, replacing WORLD-TRAVEL's `src/game/Sky.ts`:
 | Line figures, names | Stellarium `western` | CC BY-SA [M astro] | 2,349 [M astro] | Look-up |
 | Earth from space | Blue and Black Marble | NASA | 1,888 [M astro] | `?view`, flight |
 | Eclipses to 2035 | Baked with full astronomy-engine | Ours | Under 1 KB [E] | With stars |
-| Lamps | `lamps.bin` from the bake's road list | ODbL; add to `public/city/DATA_LICENSE.md` | 106,633 SF, 6,035 London, 4,957 Amsterdam [M here] | Boot if the sun is under +6°, else when it gets there |
+| Lamps | `lamps.bin` from the bake's road list | ODbL; add to `public/city/DATA_LICENSE.md` | 106,633 SF, 6,035 London, 4,957 Amsterdam [M here] | Boot if the sun is under +6°, else when it gets there. Built: once the city's first tiles are in and the sun is under +3°, at low priority (DECISIONS, the review of what went live) |
 | City weather | [ECMWF open data](https://www.ecmwf.int/en/forecasts/datasets/open-data) 0.25°, AWS mirror; smoke, dust from [GEFS](https://registry.opendata.aws/noaa-gefs/) | CC BY 4.0; NODD, attribution asked | About 50 KB a file [E from 1,153 B a step, 4 of 16 channels, M here] | Boot, new run |
 | Point weather | [METAR](https://aviationweather.gov/data/api/), same window, our relay (no CORS) | Non-US rights unconfirmed | Under 1.3 KB: 2-102 stations at 12 B [M here] | Boot, 15 min |
 

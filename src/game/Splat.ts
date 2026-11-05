@@ -243,6 +243,9 @@ export class Splatter {
     const reach = this.reachList;
     reach.length = 0;
     for (const n of near) {
+      // (a landmark standing wholly over the bus where the breath comes down, a deck seen from under, is out of its reach, as `from` keeps the landing off it: a
+      // breath from under the Golden Gate into the water no longer takes the bridge up a level. Seen from its height or above, it's in reach as it always was)
+      if (n.ref !== primary && city.lmOverhead(n.ref, cx, cz, from)) continue;
       const e = n.ref.rad <= S.smallRad ? Math.hypot(n.ref.cx - cx, n.ref.cz - cz) - 0.55 * Math.sqrt(n.ref.area) : n.d;
       if (e <= r) reach.push({ ref: n.ref, d: n.d, e: n.ref === primary ? -1e9 : e });
     }

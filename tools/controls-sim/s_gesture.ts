@@ -432,6 +432,11 @@ const lowLane = (fn: (h: H) => unknown) => (h: H) => {
 row('touch', 'the lane: the bus under the screen, the bottom over it flies', lowLane((h) => dragAt(h, 196, 800)));
 row('touch', 'the lane: the bus under the screen, low on the right flies', lowLane((h) => dragAt(h, 360, 800)));
 row('touch', 'the lane: the bus under the screen, the sky looks', lowLane((h) => dragAt(h, 196, 400)));
+// (a look far round puts the bus behind the lens: main.ts leaves the lane where the bus was last on the screen, where it handed Input none and the left 42 % ruled, so
+// a thumb landing low on the left, under where the bus was, looked. feat/earth's c11baeb. Input's half: the lane it's left with decides, and with none, the left 42 %)
+row('touch', 'the lane: the bus behind the lens, its lane where it was last: low on the left flies', laned((h) => dragAt(h, 40, 790)));
+row('touch', 'the lane: the bus behind the lens, its lane where it was last: over where it was looks', laned((h) => dragAt(h, 196, 300)));
+row('touch', 'the lane: none, as main.ts gave Input with the bus behind the lens: low on the left looks', (h) => { h.input.busZone = null; return dragAt(h, 40, 790); });
 // (the strain at the 15 km ceiling tips the view up and sinks the bus to about y 830: it counts as on its usual line, laneLow, so a right thumb landing again under and beside it flies. The review of feat/clock)
 row('touch', 'the lane: the bus sunk to the bottom edge, a thumb landing again low and to the right flies', (h) => { h.input.busZone = { ...LANE, y: 830 }; return dragAt(h, 320, 690); });
 row('touch', 'the lane: the bus sunk to the bottom edge, over its usual line out of the half disc looks', (h) => { h.input.busZone = { ...LANE, y: 830 }; return dragAt(h, 320, 420); });
@@ -938,6 +943,9 @@ flies('the lane: the bus under the screen, low on the right');
 looks('the lane: the bus under the screen, the sky');
 flies('the lane: the bus sunk to the bottom edge, a thumb');
 looks('the lane: the bus sunk to the bottom edge, over');
+flies('the lane: the bus behind the lens, its lane where it was last: low');
+looks('the lane: the bus behind the lens, its lane where it was last: over');
+looks('the lane: none, as main.ts gave');
 {
   const v = note('the lane: the bus off the left edge');
   ok(v.low.thumb && !v.low.look && v.up.look && !v.up.thumb, `a bus off the left edge keeps its lane on the screen: ${JSON.stringify(v)}`);

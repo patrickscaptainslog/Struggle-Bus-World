@@ -26,19 +26,37 @@ await page.addInitScript(() => {
     v.controls.frozen = true;
     // (a build from before the tilt went stands on its motion sheet's status)
     if (v.controls.tilt) v.controls.tilt.status = 'requesting';
+    // (the live sky's stars come in over 1.6 s of game time once their files are read, and __shotReady waits for that: with the
+    // clock standing they never would. They come in at once, as shots --det has them)
+    const st = v.sky && v.sky.street;
+    if (st && typeof st.load === 'function') {
+      const load = st.load;
+      st.load = function (...a) {
+        return load.apply(this, a).then((r) => {
+          if (!('land' in this) || !('landedAt' in this)) console.error('contextloss: StreetSky has no land or landedAt: the stars wait for a clock that stands');
+          else if (this.landedAt >= 0) {
+            this.land = 1;
+            this.busy = false;
+          }
+          return r;
+        });
+      };
+    }
   } });
 });
 await page.goto(url + (opt.query ?? '?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud&fixeddt=0.03333333333333333'), { waitUntil: 'load' });
 await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000 });
+// (a city that never goes quiet, a region that never answers, fails the job after 300 s instead of hanging it)
 const settle = () =>
   page.evaluate(
     () =>
-      new Promise((res) => {
-        const c = window.__game.city;
+      new Promise((res, rej) => {
+        const c = window.__game.city, t0 = performance.now();
         let q = 0;
         const t = () => {
           q = !c.busy ? q + 1 : 0;
           if (q >= 60) res(null);
+          else if (performance.now() - t0 > 300000) rej(new Error(`contextloss: the city didn't settle in 300 s: pending ${c.pending.size}, adopt ${c.adopt.length}, far ${c.farBusy ? 1 : 0}`));
           else requestAnimationFrame(t);
         };
         t();

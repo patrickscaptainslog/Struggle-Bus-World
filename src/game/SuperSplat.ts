@@ -594,11 +594,13 @@ export class SuperSplat {
     const grow = blastRadiusFor(drop) / S.blastRadius;
     // (seen from just over where it lands: a stream under a deck lands under it)
     const target = h.city.buildingAt(x, z, y + 2);
+    // (and the bus's height as it was aimed is the blast's `from`, as a tap's and a MEGA's: a deck standing over it is out of its reach)
+    const from = y + drop;
     const travel = Math.max(0.02, this.hT[best] - this.t);
     if (finale) {
-      h.splatter.barf(x, z, { radius: S.firehoseRadius * S.firehoseFinale * grow, travel, drop, target, y: y + 0.3, exact: true, stream: true, hitStop: S.firehoseFinaleHitStop, super: this.closerTag, bands: this.bands });
+      h.splatter.barf(x, z, { radius: S.firehoseRadius * S.firehoseFinale * grow, travel, drop, target, y: y + 0.3, from, exact: true, stream: true, hitStop: S.firehoseFinaleHitStop, super: this.closerTag, bands: this.bands });
     } else {
-      h.splatter.barf(x, z, { radius: S.firehoseRadius * grow, travel, drop, target, y: y + 0.3, exact: true, hose: true, super: this.hoseTag, bands: this.bands });
+      h.splatter.barf(x, z, { radius: S.firehoseRadius * grow, travel, drop, target, y: y + 0.3, from, exact: true, hose: true, super: this.hoseTag, bands: this.bands });
       this.stats.impacts++;
       if (h.splatter.lastMiss) this.stats.misses++;
     }
