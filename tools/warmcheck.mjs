@@ -116,6 +116,16 @@ await page.evaluate(() => {
       tick();
     });
 });
+// (the warm-up's end: on ?earth the flight boots behind the street and warms its own programs in a round after ready, so ready is too soon to read it. It's over
+// once the flight is up (window.__space) and the report counts every program the renderer has, or 30 s on, said)
+await page
+  .waitForFunction(() => {
+    const g = window.__game, w = g.warm;
+    if (!w) return true;
+    if (/[?&]earth\b/.test(location.search) && !window.__space?.moon) return false;
+    return !!w.report && !w.running && w.report.programs >= g.pipeline.renderer.info.programs.length;
+  }, null, { timeout: 30000, polling: 250 })
+  .catch(() => console.log('[warm] its report never counted every program the renderer has: read 30 s after ready'));
 // (a build without the warm-up: everything after ready counts)
 const info = await page.evaluate(() => ({ warmDoneAt: Math.round(window.__game.warm?.doneAt ?? performance.now()), report: window.__game.warm?.report ?? null, programsAtReady: window.__game.pipeline.renderer.info.programs.length }));
 const phase = (p) => page.evaluate((x) => (window.__wc.phase = x), p);
