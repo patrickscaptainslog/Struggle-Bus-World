@@ -179,7 +179,7 @@ const c = {
   outside: 0, edgesAcross: 0,
   portals: 0, lineNotPortal: 0, lineDeadEnds: 0, lineDeadC1: 0,
   idTwiceInFile: 0, idKinds: 0, noKey: 0,
-  byDir: {}, oneWay: 0,
+  byDir: {}, oneWay: 0, noCars: 0, noCarsKm: 0, noCarsOff: 0, minors: new Set(),
   tunnelUndrawn: 0, undrawnKm: {}, kmByClass: {},
   land: 0, landNoTile: 0, landWorst: 0, landWhere: null, landOver: 0, steps: 0,
   water: 0, waterOff: 0, waterWorst: 0,
@@ -212,6 +212,7 @@ for (const [rx, rz] of regions) {
   const g = parseRegionGraph(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength), REGION_M);
   if (!g || g.rx !== rx || g.rz !== rz) { c.parseFail++; continue; }
   const { nodes, edges, pts, areas } = g;
+  c.minors.add(g.minor);
   c.nodes += nodes.n; c.edges += edges.n; c.points += pts.length / 3; c.areas += areas.n; c.tris += areas.xyz.length / 9;
   const x0 = rx * REGION_M, z0 = rz * REGION_M, x1 = x0 + REGION_M, z1 = z0 + REGION_M;
   const out = (x, z, tol) => x < x0 - tol || x > x1 + tol || z < z0 - tol || z > z1 + tol;
@@ -285,7 +286,8 @@ for (const [rx, rz] of regions) {
     c.kmByClass[name] = (c.kmByClass[name] ?? 0) + len / 1000;
     if (f & EdgeFlag.UNDRAWN) c.undrawnKm[name] = (c.undrawnKm[name] ?? 0) + len / 1000;
     if (f & EdgeFlag.TUNNEL && f & EdgeFlag.UNDRAWN) c.tunnelUndrawn++;
-    const dk = `${KIND[kind]} ${['BOTH', 'FORWARD', 'BACKWARD'][edges.dir[e]] ?? edges.dir[e]}`;
+    if (f & EdgeFlag.NO_CARS) { if (kind === 1) { c.noCars++; c.noCarsKm += len / 1000; } else c.noCarsOff++; }
+    const dk =`${KIND[kind]} ${['BOTH', 'FORWARD', 'BACKWARD'][edges.dir[e]] ?? edges.dir[e]}`;
     c.byDir[dk] = (c.byDir[dk] ?? 0) + 1;
     if (edges.dir[e] !== 0) c.oneWay++;
     c.byKind[name] = (c.byKind[name] ?? 0) + 1;
@@ -473,6 +475,12 @@ report('nodes on a region line with edges one side only', `${c.lineDeadEnds}, ${
 report('direction', Object.entries(c.byDir).sort().map(([k, v]) => `${k} ${v}`).join(', '), '');
 report('one-way edges against the bake\'s count', `${c.oneWay} in the files, ${life.stats?.oneWay?.edges} in life.stats (from ${life.stats?.oneWay?.rulesRead} rules read)`, 'the same', c.oneWay === life.stats?.oneWay?.edges);
 report('tunnels that are UNDRAWN', c.tunnelUndrawn, '0', c.tunnelUndrawn === 0);
+{
+  // C6: NO_CARS on roads only, in files of minor 1 and up, and set wherever the bake read a rule closing a road to cars
+  const rules = life.stats?.noCars?.segmentsWithARule ?? 0;
+  report('NO_CARS (C6)', `${c.noCars} road edges, ${c.noCarsKm.toFixed(1)} km; ${c.noCarsOff} not roads; files of minor ${[...c.minors].sort().join(', ')}; ${rules} road segments with a rule closing cars out (life.stats)`,
+    'roads only, minor 1, some wherever a rule says', c.noCarsOff === 0 && [...c.minors].every((m) => m >= 1) && (rules === 0 || c.noCars > 0));
+}
 const mw = c.kmByClass.motorway ?? 0, mu = c.undrawnKm.motorway ?? 0;
 report('UNDRAWN km by class', km(c.undrawnKm) || 'none', '', null, `motorway ${mw ? ((100 * mu) / mw).toFixed(0) : 0} % of ${mw.toFixed(1)} km (the audit's surface share: 68 %)`);
 report('land within 0.5 m of the grid', `${c.land} land nodes and ${c.steps} steps of 4 m or less along land edges; worst ${c.landWorst.toFixed(3)} m (${c.landWhere}); ${c.landOver} over; ${c.landNoTile} with no tile`, '0 over 0.5 m', c.landOver === 0);

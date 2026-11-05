@@ -5,7 +5,7 @@ and never changes.
 
 Writes, beside the tiles in public/city/<slug>/ (or --out):
   g_<rx>_<rz>.bin   one for every region in city.json `regions`, 'SBG1': roads, footways, rail, ferries' pieces, areas
-  routes.bin        'SBR1': the ferry routes that touch the map, whole; their terminals; the map's marinas; airports
+  routes.bin        'SBC1' (C7): the ferry routes that touch the map, whole; their terminals; the map's marinas; airports
   gkeys.bin         'SBK1': every id and its source key, for W2. The game never fetches it
   city.json         gains "life" (the files' versions and the bake's counts), "vdatum", "geoid" and "geoidSpread"
 The byte layouts are written once, in src/world/lifeData.ts, which reads them.
@@ -57,7 +57,7 @@ ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 BATCH = 4096
 CAP_MB = float(os.environ.get('SB_GRAPHS_CAP_MB', 950))   # a pass stops past this, working set or private bytes
 WATER_Y = -0.6                 # src/world/tiles.ts
-GRAPH_VERSION = (1, 0)         # major, minor
+GRAPH_VERSION = (1, 1)         # major, minor: 1.1 sets NO_CARS (C6)
 ROUTES_VERSION = (1, 0)
 KEYS_VERSION = (1, 0)
 KEY_KINDS = ('node', 'edge', 'area', 'ferry', 'terminal', 'marina', 'airport')   # gkeys.bin's kind byte
@@ -71,7 +71,7 @@ FOOT_CLASS = {'FOOTWAY': 1, 'SIDEWALK': 2, 'CROSSING': 3, 'PATH': 4, 'STEPS': 5,
 FOOT_OF = {'footway': 'FOOTWAY', 'path': 'PATH', 'bridleway': 'PATH', 'steps': 'STEPS', 'cycleway': 'CYCLEWAY',
            'pedestrian': 'PEDESTRIAN'}
 DIR_BOTH, DIR_FORWARD, DIR_BACKWARD = 0, 1, 2
-BRIDGE, TUNNEL, UNDRAWN, LINK, ROUNDABOUT, SEASONAL = 1, 2, 4, 8, 16, 32   # ROUNDABOUT, SEASONAL: no source, never set
+BRIDGE, TUNNEL, UNDRAWN, LINK, ROUNDABOUT, SEASONAL, NO_CARS = 1, 2, 4, 8, 16, 32, 64   # ROUNDABOUT, SEASONAL: no source, never set
 PORTAL, SIGNAL, STOP = 1, 2, 4
 AREA = {'PLAZA': 1, 'PARK': 2, 'BEACH': 3, 'MARINA': 4, 'FERRY_TERMINAL': 5, 'CRUISE_TERMINAL': 6, 'APRON': 7, 'OPEN_WATER': 8}
 AREA_NAME = {v: k for k, v in AREA.items()}
@@ -546,7 +546,8 @@ def oneway_rule(r):
 
 
 def closed_rule(r):
-    """True when this rule closes the way to motor vehicles both ways (C6's count; no flag until it's Agreed)."""
+    """True when this rule closes the way to motor vehicles both ways, at all times: denied, with no heading, time, use,
+    recognition or vehicle condition, and no mode or a car's (a weight or height limit is a vehicle condition)."""
     if not r or r.get('access_type') != 'denied':
         return False
     w = r.get('when') or {}
@@ -554,6 +555,22 @@ def closed_rule(r):
         return False
     mode = w.get('mode')
     return not mode or bool(set(mode) & CAR_MODES)
+
+
+def lets_cars_in(r):
+    """True when this rule allows cars on some terms: allowed or designated, with no mode or a car's. A bus's or a taxi's
+    alone doesn't (C6: Market Street's car-free blocks allow buses)."""
+    if not r or r.get('access_type') not in ('allowed', 'designated'):
+        return False
+    mode = (r.get('when') or {}).get('mode')
+    return not mode or bool(set(mode) & CAR_MODES)
+
+
+def no_cars(rules, f):
+    """C6's NO_CARS at a piece's middle f (pieces are cut at every access rule's range): a rule covering it closes it to
+    motor vehicles, and none covering it lets cars in."""
+    rs = [r for r in rules or [] if r and covers(r.get('between'), f)]
+    return any(closed_rule(r) for r in rs) and not any(lets_cars_in(r) for r in rs)
 
 
 def speed_at(rules, f):
@@ -804,7 +821,6 @@ class Bake:
                       for v in (r.get('values') or [])]
         lvl_rules = [(int(r['value']), r.get('between')) for r in (row['level_rules'] or []) if r and r.get('value') is not None]
         ow_rules = [(oneway_rule(r), r.get('between')) for r in (row['access'] or []) if oneway_rule(r)]
-        closed = any(closed_rule(r) and r.get('between') is None for r in (row['access'] or []))
         ways = self.ways_of(row)
         seg_skip = bool({v for v, _ in flag_rules} & GROUND_SKIPS) or (bool(lvl_rules) and max(v for v, _ in lvl_rules) != 0)
         # the cuts: (t, priority, kind, info)
@@ -828,7 +844,7 @@ class Bake:
         for _, b in flag_rules + lvl_rules + ow_rules:
             if b:
                 rng.update(b)
-        for b in range_ends(row['speed']) + [v for _, bb in ways if bb for v in bb]:
+        for b in range_ends(row['speed']) + range_ends(row['access']) + [v for _, bb in ways if bb for v in bb]:
             rng.add(b)
         for f in rng:
             if 1e-9 < f < 1 - 1e-9:
@@ -920,6 +936,10 @@ class Bake:
                     if covers(b, fm):
                         d = DIR_FORWARD if hd == 'backward' else DIR_BACKWARD
             speed = speed_at(row['speed'], fm) if kind == KIND['ROAD'] else 0
+            closed = kind == KIND['ROAD'] and no_cars(row['access'], fm)
+            if closed:
+                flags |= NO_CARS
+                st['NO_CARS pieces (C6)'] += 1
             # the piece's way: the one with most of its length
             way, best = None, 0.0
             for wk, b in ways:
@@ -960,8 +980,8 @@ class Bake:
             st['level (part)'] += sum(1 for _, b in lvl_rules if b)
             st['oneway'] += len(ow_rules)
             st['oneway (part)'] += sum(1 for _, b in ow_rules if b)
-            if closed and kind == KIND['ROAD']:
-                st['closed to cars (C6)'] += 1
+            if any(closed_rule(r) for r in (row['access'] or [])) and kind == KIND['ROAD']:
+                st['segments with a rule closing cars out'] += 1
             if row['speed']:
                 st['speed segments'] += 1
                 st['speed rules'] += len(row['speed'])
@@ -1843,7 +1863,7 @@ class Bake:
 
         def deg(v):
             return int(round(v * 1e7))
-        out = bytearray(b'SBR1' + struct.pack('<HH', *ROUTES_VERSION))
+        out = bytearray(b'SBC1' + struct.pack('<HH', *ROUTES_VERSION))   # C7: 'SBR1' is the region bundles'
         ferries.sort(key=lambda f: f['key'])
         out += struct.pack('<I', len(ferries))
         for f in ferries:
@@ -2008,6 +2028,7 @@ class Bake:
             'areas': {k[6:]: v for k, v in st['counts'].items() if k.startswith('areas ')},
             'nodes': st['counts'].get('nodes', 0), 'points': st['counts'].get('points', 0),
             'oneWay': {'rulesRead': st['rules'].get('oneway', 0), 'edges': st['oneWayEdges']},
+            'noCars': {'segmentsWithARule': st['rules'].get('segments with a rule closing cars out', 0), 'edges': st['rules'].get('NO_CARS pieces (C6)', 0)},
             'nodeFlags': st['nodeFlags'], 'km': st['kmInside'], 'dropped': dict(st['dropped']),
             'files': st['files'], 'routes': st['routes']}}
         path = os.path.join(self.out, 'city.json')
