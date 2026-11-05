@@ -267,7 +267,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
   };
   // (?earth&resume: home from the Moon's page, the flight has the frame from the start, and the street boots behind it)
   const flightFirst = !earth || earthResume;
-  if (flightFirst) takeFrame(true);
+  // (with the day's world rows only where there's no street table: ?earth&resume's street wrote its live sky's before this, main.ts, and that's what the way home draws on)
+  if (flightFirst) takeFrame(!earth);
   // (behind the street, the space sky's own rows at once: from 8 km up the street draws space's sky and from 11 km the plain Earth, and nothing else names those rows.
   // Before, they waited for the hand-up, and the whole first climb by day drew them black. Review four, 5)
   else applySpaceTable(pipeline.paletteTexture, false);
