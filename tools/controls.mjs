@@ -15,7 +15,8 @@
 //            boom), the three turbo rungs, LOCKED, flicks down to Cruise, with shots and a per-frame log -> turbo.json
 //   firstrun a first visit: no card, the cues in order (TAP, DRAG, HOLD)                         -> firstrun.json
 //   opening  flicks under the opening's gate: answered, taken back, firing at the gate; two of them. The low shot has no look, so a drag landing over
-//            the bus, out of the lane's half disc, flies until the gate and looks after it                    -> opening.json
+//            the bus, out of the lane's half disc, flies until the gate and looks after it. A flick in the grey, before the first frame, waits for
+//            the gate too. SB_OPENING=grey,low,... runs a part                                                 -> opening.json
 //   layout   real rects against layoutHud at 393 x 852, 393 x 659, 320 x 568, 852 x 393, swapped or not (shots)
 //   states   every state of MEGA and the readout, cropped (states/*.png; tools/hud-sheet.py makes a sheet of them)
 //   keyboard a desktop: Esc, Space, E up the ladder, Q back down it, the right mouse's look -> keyboard in controls.json
@@ -880,9 +881,22 @@ if (modes.has('opening')) {
   // the first visit's gate, on the real bridge: a gear waits for it, a flick down takes it back, and one rung waits however many flicks: two are one, six are Express at the bridge, not TURBO 3
   mkdirSync(`${out}/opening`, { recursive: true });
   const R = {};
+  // (SB_OPENING=grey,low,... runs a part: gate, two, six, low, grey)
+  const parts = new Set((process.env.SB_OPENING ?? 'gate,two,six,low,grey').split(','));
+  /** every line the toast is given from now, with the game clock: the toast is a canvas, its words aren't in the page */
+  const logToasts = (page) => page.evaluate(() => {
+    const g = window.__game, hud = g.controls.hud, toast = hud.toast.bind(hud);
+    window.__toasts = [];
+    hud.toast = (lines, s) => {
+      window.__toasts.push({ t: +g.clock().toFixed(2), lines: lines.join(' / ') });
+      return toast(lines, s);
+    };
+  });
+  const toasts = (page) => page.evaluate(() => window.__toasts.map((x) => x.lines));
   const first = async () => {
     const page = await open('?fixeddt=0.05', null, base, { ready: 'window.__game && window.__game.city.loadedRegionCount() > 0' });
     const cdp = await page.context().newCDPSession(page);
+    await logToasts(page);
     await until(page, '!g.controls.opening', 60);
     await runFor(page, 0.3);
     return { page, H: hand(page, cdp) };
@@ -891,7 +905,7 @@ if (modes.has('opening')) {
     const g = window.__game, f = g.flight, c = g.controls, s = c.snapshot();
     return { clock: +g.clock().toFixed(2), locked: c.gearsLocked, gear: c.turbo.gear, level: c.turbo.level, armed: s.turbo.armed, y: +f.y.toFixed(1), speed: +f.speed.toFixed(0), toast: document.querySelector('[data-hud="toast"]') !== null };
   });
-  {
+  if (parts.has('gate')) {
     const { page, H } = await first();
     const locked0 = (await state(page)).locked;
     await H.stamped(() => H.stroke(1, 100, 520, 0, -74, 85));
@@ -911,7 +925,7 @@ if (modes.has('opening')) {
     console.log('opening gate', JSON.stringify(R.gate));
     await page.close();
   }
-  {
+  if (parts.has('two')) {
     const { page, H } = await first();
     await H.stamped(async () => { await H.stroke(1, 100, 520, 0, -74, 85); await H.stroke(1, 100, 520, 0, -74, 85, 235); });
     await runFor(page, 0.8);
@@ -926,7 +940,7 @@ if (modes.has('opening')) {
     console.log('opening two flicks', JSON.stringify(R.two));
     await page.close();
   }
-  {
+  if (parts.has('six')) {
     const { page, H } = await first();
     await H.stamped(async () => { for (let i = 0; i < 6; i++) await H.stroke(1, 100, 520, 0, -74, 85, i * 235); });
     await runFor(page, 0.8);
@@ -937,7 +951,7 @@ if (modes.has('opening')) {
     console.log('opening six flicks', JSON.stringify(R.six));
     await page.close();
   }
-  {
+  if (parts.has('low')) {
     // the low shot has no look, so until the gate a lone touch anywhere flies (Input.lookOff, set with the gears' lock), even one landing where the lane would give it the look
     const { page, H } = await first();
     /** a lone touch lands straight over the bus, 40 px out of the lane's half disc, and drags 50 px right: what it was, whether the lane's rule alone would have looked there, how far the bus turned */
@@ -973,23 +987,72 @@ if (modes.has('opening')) {
     console.log('opening low shot', JSON.stringify(R.low));
     await page.close();
   }
-  const G = R.gate, T = R.two, S = R.six, L = R.low;
-  const checks = [
-    ['the gate is shut at first', G.locked0],
-    ['a flick under it waits, said', G.armed.armed && G.armed.gear === 0 && G.armed.toast],
-    ['a flick down takes it back', !G.back.armed && G.back.gear === 0],
-    ['a flick again waits again', G.again.armed && G.again.gear === 0],
-    ['and goes at the gate', G.cleared && !G.after.armed && G.after.gear === 1 && G.after.level === 0],
-    ['two flicks: one waits', T.s.armed && T.s.gear === 0],
-    ['a flick down takes it back, and none is left', !T.back.armed && T.back.gear === 0 && T.after.gear === 0],
-    ['six flicks: one waits', S.s.armed && S.s.gear === 0],
-    ['six flicks are Express at the bridge, not TURBO 3', S.after.gear === 1 && S.after.level === 0 && !S.after.armed],
-    ['under the low shot the lane is off, with the gears', L.low.lookOff && L.low.locked && L.low.lookOffAfter && L.low.lockedAfter],
-    ['the drags land where the lane alone gives the look, over the bus out of its half disc', L.low.laneLooks && L.after.laneLooks],
-    ['under the low shot that drag flies: the stick and the heading move', L.low.thumb && !L.low.look && L.low.sx > 0.2 && L.low.turned > 0],
-    ['past the gate the lane is back, with the gears', !L.after.lookOff && !L.after.locked && !L.after.lookOffAfter],
-    ['and the same landing looks', L.after.look && !L.after.thumb && L.after.sx === 0],
-  ];
+  if (parts.has('grey')) {
+    // a flick in the grey, before the first frame: the page takes touches while the warm-up compiles, and the gate used to shut only with the first frame (main.ts),
+    // so a flick there was a gear at once, under the low shot. The loop is held from the page's first script (__qa.holdFrames 0), so the flick lands before any
+    // frame has run however soon the warm-up ends: frame() returns before the gate's line until the loop is let go
+    const page = await open('?fixeddt=0.05', 'window.__qa = { holdFrames: 0 };', base, { ready: 'window.__game && window.__game.controls' });
+    const cdp = await page.context().newCDPSession(page);
+    const H = hand(page, cdp);
+    await logToasts(page);
+    // (stamped() dates a stroke from 2 s back on the page's clock: the page must be that old)
+    await page.waitForFunction(() => performance.now() > 2500, null, { timeout: 60000 });
+    const now = () => page.evaluate(() => {
+      const g = window.__game, c = g.controls;
+      return { clock: g.clock(), warming: g.warm.busy, locked: c.gearsLocked, lookOff: g.input.lookOff, gear: c.turbo.gear, armed: c.shifter.armed };
+    });
+    const pre = await now();
+    let grey = null;
+    await H.stamped(async () => {
+      await H.stroke(1, 100, 520, 0, -74, 85);
+      grey = { ...(await now()), toasts: await toasts(page) };
+    });
+    // (let go: the city streams in, the fog lifts, the low shot glides to the bridge)
+    await page.waitForFunction(() => window.__game.city.loadedRegionCount() > 0, null, { timeout: 400000 });
+    await until(page, '!g.controls.opening', 60);
+    await runFor(page, 0.5);
+    const low = await state(page);
+    const cleared = await until(page, '!g.controls.gearsLocked', 60);
+    await runFor(page, 0.5);
+    R.grey = { pre, grey, low, cleared, after: await state(page) };
+    console.log('opening grey', JSON.stringify(R.grey));
+    await page.close();
+  }
+  const G = R.gate, T = R.two, S = R.six, L = R.low, Y = R.grey;
+  const checks = [];
+  if (G)
+    checks.push(
+      ['the gate is shut at first', G.locked0],
+      ['a flick under it waits, said', G.armed.armed && G.armed.gear === 0 && G.armed.toast],
+      ['a flick down takes it back', !G.back.armed && G.back.gear === 0],
+      ['a flick again waits again', G.again.armed && G.again.gear === 0],
+      ['and goes at the gate', G.cleared && !G.after.armed && G.after.gear === 1 && G.after.level === 0],
+    );
+  if (T)
+    checks.push(
+      ['two flicks: one waits', T.s.armed && T.s.gear === 0],
+      ['a flick down takes it back, and none is left', !T.back.armed && T.back.gear === 0 && T.after.gear === 0],
+    );
+  if (S)
+    checks.push(
+      ['six flicks: one waits', S.s.armed && S.s.gear === 0],
+      ['six flicks are Express at the bridge, not TURBO 3', S.after.gear === 1 && S.after.level === 0 && !S.after.armed],
+    );
+  if (L)
+    checks.push(
+      ['under the low shot the lane is off, with the gears', L.low.lookOff && L.low.locked && L.low.lookOffAfter && L.low.lockedAfter],
+      ['the drags land where the lane alone gives the look, over the bus out of its half disc', L.low.laneLooks && L.after.laneLooks],
+      ['under the low shot that drag flies: the stick and the heading move', L.low.thumb && !L.low.look && L.low.sx > 0.2 && L.low.turned > 0],
+      ['past the gate the lane is back, with the gears', !L.after.lookOff && !L.after.locked && !L.after.lookOffAfter],
+      ['and the same landing looks', L.after.look && !L.after.thumb && L.after.sx === 0],
+    );
+  if (Y)
+    checks.push(
+      ['in the grey, before any frame has run, the gate and the lane are shut', Y.pre.clock === 0 && Y.pre.locked && Y.pre.lookOff],
+      ['a flick there waits for the gate, said', Y.grey.clock === 0 && Y.grey.gear === 0 && Y.grey.armed && Y.grey.toasts.includes('GEARS AFTER THE BRIDGE')],
+      ['under the low shot it still waits, and the bus glides low', Y.low.gear === 0 && Y.low.armed && Y.low.y < 30 && Y.low.speed < 60],
+      ['and it goes at the gate', Y.cleared && Y.after.gear === 1 && Y.after.level === 0 && !Y.after.armed],
+    );
   const badO = checks.filter(([, v]) => !v).map(([k]) => k);
   console.log(badO.length ? `opening: FAILED ${badO.length} of ${checks.length}: ${badO.join('; ')}` : `opening: all ${checks.length} checks passed`);
   res.opening = R;

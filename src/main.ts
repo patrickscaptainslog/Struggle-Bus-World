@@ -818,8 +818,6 @@ async function boot() {
 
   // ---- input
   const input = new Input(canvas);
-  // (from the first touch: one landing in the grey, before the first frame sets it with the gate, flies too)
-  input.lookOff = !!openingBridge;
   const tuner = new Tuner();
   // (the ODbL credit, then the other sources' own: ESA WorldCover's CC BY for where the trees stand)
   const dataCredits = [manifest.attribution ? `Map data ${manifest.attribution} (ODbL)` : '', ...Object.values(manifest.credits ?? {})].filter(Boolean);
@@ -841,6 +839,10 @@ async function boot() {
   });
   // touch / keyboard, the turbo gears and the HUD (src/game/Controls.ts)
   const controls = new Controls({ input, flight, rig, audio, particles, pipeline, camera, scene, bus, bounds: manifest.bounds, params });
+  // (the opening's gate is shut from the first touch, not from the first frame, which sets it each frame after: the grey before that frame takes touches, and
+  // a flick there was a gear at once, which the gate never held, lifting the bus toward the deck under the low shot. The lane waits with it: a landing in the grey flies)
+  controls.gearsLocked = !!openingBridge;
+  input.lookOff = controls.gearsLocked;
   controls.hud.setCredits(dataCredits);
   input.onTripleFinger = () => tuner.toggle();
   input.onFirstGesture = () => {
