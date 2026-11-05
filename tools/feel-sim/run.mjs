@@ -15,6 +15,8 @@
 //   s_breath.ts        anticipation timing at 30/60/120 fps, the jet's speed profile
 //   s_nose.ts [dt]     the path on a flat world: TURBO and Express on the pull, Jet to the ceiling, dives, releases, a deck, the map's edge
 //   s_look.ts [--no-city]  twin flights with and without a look: what it may change and what it may not; the aim over the real city
+//   s_deck.ts          tools/bridge-paint.mjs's aim rows on the real Golden Gate: from the deck's height and from 350 m it glints and goes up a level, from
+//                      under its deck nothing glints and it stays where it was
 // SB_SRC=<src dir> runs it against another source tree (with SB_LOOP=<loop.ts> for its main.ts glue).
 import { rolldown } from 'rolldown';
 import { spawnSync } from 'node:child_process';
