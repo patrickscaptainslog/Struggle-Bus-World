@@ -85,6 +85,8 @@ export const GLSL_SUN_DISC = /* glsl */ `
 // A star or a planet (SKY.md 4.6): sky/StreetSky.ts draws them into the buffer with flags 0, so their pixels are still sky here, one fetch. One shows where it
 // outshines the sky behind it, as the eye sees them come out at dusk: a dim one in a bright band near the horizon is gone, not a dark hole.
 export const GLSL_SKY_STARS = /* glsl */ `
+    // (the sky's own colour, under its stars and the Sun: the Moon's dark side is that, GLSL_SKY_MOON)
+    vec3 skyOwn = sc;
     uint gs = texelFetch(tG, p, 0).r;
     if (a.a == 0.0 && (gs & 255u) != 0u) {
       vec3 st = pal(float(gs & 255u), float(gs >> 8u));
@@ -94,7 +96,7 @@ export const GLSL_SKY_STARS = /* glsl */ `
 // The Moon (SKY.md 4.5): a disc test like the Sun's, then a sphere with no phase or tilt maths: the pixel's normal from the disc's axes, lit where it faces the
 // Sun, its tone from the map through the Moon's own frame, so the phase, the tilt and the maria are the real ones. Lunar-Lambert, flat at full; earthshine one or
 // two steps on the dark side at night, which by day is sky; a day Moon pale. In Earth's shadow it goes rose at the rim to violet at the core, never copper.
-// It covers the stars and the Sun: last in the sky, under everything the buffer drew.
+// It covers the stars, the planets and the Sun, its dark side too: last in the sky, under everything the buffer drew.
 export const GLSL_SKY_MOON = /* glsl */ `
     if (uMoonDisc.z > 0.0) {
       vec2 mq = (gl_FragCoord.xy - uMoonDisc.xy) / uMoonDisc.z;
@@ -119,7 +121,8 @@ export const GLSL_SKY_MOON = /* glsl */ `
           float core = md / max(uMoonShadow.z, 0.1);
           mc = pal(${Ramp.TWILIGHT}.0, clamp(floor(3.0 + 4.0 * core * core + (dsk - 0.5) * 0.6), 2.0, 7.0));
         } else mc = pal(${Ramp.MOON}.0, clamp(floor(ml + 0.5 + (dsk - 0.5) * 0.44), 0.0, 7.0));
-        if (!dark || (uMoonDisc.w > 0.0 && dot(mc, vec3(0.299, 0.587, 0.114)) > dot(sc, vec3(0.299, 0.587, 0.114)) + 0.02)) sc = mc;
+        // (the dark side is the sky's own colour, where earthshine doesn't outshine it: never a star, a planet or the Sun behind it)
+        sc = !dark || (uMoonDisc.w > 0.0 && dot(mc, vec3(0.299, 0.587, 0.114)) > dot(skyOwn, vec3(0.299, 0.587, 0.114)) + 0.02) ? mc : skyOwn;
       }
     }`;
 
