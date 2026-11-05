@@ -2319,6 +2319,10 @@ def main():
     tree_lat_max = cfg.get('treeLatMax', 90)
     _, lat_r = to_local.transform(gxr, -gzr, direction='INVERSE')
     u = rng.uniform(size=cls.shape)
+    # (each place's kind and size are drawn with it, as its position and its chance are: drawn one kept tree after
+    # another, a tree gained or lost anywhere gave every tree after it, row by row, another kind and size, so a re-bake
+    # that changed one street changed the trees of every park south of it)
+    kind_u, size_u = rng.uniform(size=cls.shape), rng.uniform(size=cls.shape)
     if treeable is not None:
         ix = np.clip(((gxr - minX) / DEM_RES).astype(int), 0, W - 1)
         iz = np.clip(((gzr - minZ) / DEM_RES).astype(int), 0, H - 1)
@@ -2343,9 +2347,9 @@ def main():
         del f, p, tz_, room
     else:
         keep = (cls == GROUND_GRASS) & (dd > 20) & (u < 0.55) & (slope < 0.2) & (lat_r < tree_lat_max)
-    for x, z in zip(GX.ravel()[keep], GZ.ravel()[keep]):
-        kind = 2 if rng.uniform() < 0.18 else 1
-        trees.append((float(x), float(z), 0.75 + 0.7 * rng.uniform(), kind))
+    for x, z, ku, su in zip(GX.ravel()[keep], GZ.ravel()[keep], kind_u[keep], size_u[keep]):
+        trees.append((float(x), float(z), 0.75 + 0.7 * float(su), 2 if ku < 0.18 else 1))
+    del kind_u, size_u
     nstreet = 0
     for b in buildings:
         if b['front'] == 255 or b['arch'] not in (ARCH['victorian'], ARCH['flats'], ARCH['stucco'], ARCH['marina']):
