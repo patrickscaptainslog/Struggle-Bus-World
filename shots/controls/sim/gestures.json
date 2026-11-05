@@ -3846,6 +3846,52 @@
   },
   {
    "mode": "touch",
+   "gesture": "the lane: out of it during a lone flick, then the flick lifts: it looks",
+   "events": [
+    "flick+@80ms",
+    "go@80ms",
+    "up1@80ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": {
+    "from": 150,
+    "to": 301,
+    "max": 60
+   },
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "thumb": false,
+    "look": true
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: out of it during a lone flick, the lane under it by the lift: it still looks",
+   "events": [
+    "flick+@80ms",
+    "go@80ms",
+    "up1@80ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": {
+    "from": 150,
+    "to": 301,
+    "max": 60
+   },
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "thumb": false,
+    "look": true
+   }
+  },
+  {
+   "mode": "touch",
    "gesture": "the lane: one in it flies and one out of it looks",
    "events": [],
    "maxChargeHeld": 0,
