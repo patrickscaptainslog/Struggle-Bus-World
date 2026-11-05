@@ -13,13 +13,13 @@ export const heldResolveUniforms = {
   uSkySun: { value: new THREE.Vector4(1, 0, 3, 1) }, // the sun's azimuth, a unit vector in xz; how fast the sun side falls away with it (a power); the share of the sky's pixels the bands draw
   uSkyHaze: heldGlobals.uSkyHaze,
   uSkySunDir: heldGlobals.uSkySunDir,
-  uSunDisc: { value: new THREE.Vector4(0, 0, 0, -1) }, // the live sky's Sun: its centre in buffer px (a pixel's centre), radius in px, the ring's row (under 0: no disc)
+  uSkySunDisc: { value: new THREE.Vector4(0, 0, 0, -1) }, // the live sky's Sun: its centre in buffer px (a pixel's centre), radius in px, the ring's row (under 0: no disc)
   uSkyWarm: { value: new THREE.Vector2(1, 1) }, // how much sun side there is: the day sky's warm band toward its azimuth (a low sun's, none at noon or at night), the bands' bend (gone by deep night)
   uFogLuma: { value: new THREE.Vector2(0.3955, 0.071) }, // FOG's luma: step 0, per step (the value-matched handover reads it from the live table)
   uBeamGain: { value: 2.6 }, // steps the headlight lifts at most
   uPaintCap: { value: 7 }, // the step paint stays at or under, outside a glint
-  // the live sky's Moon (sky/StreetSky.ts): a disc in buffer px, lit as a sphere. (uSkyMoon*, tSkyMoon on feat/earth, where main's uMoon* and tMoonMap: ?earth compiles
-  // the flight's space branch into the street's resolve too, and that branch has its own uMoonSun, uMoonRot, uMoonLod and tMoonMap)
+  // the live sky's Moon (sky/StreetSky.ts): a disc in buffer px, lit as a sphere. (uSkyMoon*, tSkyMoon and uSkySunDisc on feat/earth, where main's uMoon*, tMoonMap and uSunDisc: ?earth compiles
+  // the flight's space branch into the street's resolve too, and that branch has its own uMoonSun, uMoonRot, uMoonLod, tMoonMap and uSunDisc)
   uMoonDisc: { value: new THREE.Vector4(0, 0, 0, 0) }, // its centre (a pixel's centre), radius in px (0: no Moon), earthshine in steps (0: none, the dark side is sky)
   uMoonView: { value: new THREE.Matrix3() }, // the disc's right, up and back toward the eye, render frame (columns)
   uSkyMoonSun: { value: new THREE.Vector4(1, 0, 0, 0) }, // the Sun from the Moon, render frame; how much it's a day Moon (pale)
@@ -32,7 +32,7 @@ export const heldResolveUniforms = {
 export const GLSL_SKY_HELD_UNIFORMS = /* glsl */ `
 uniform vec4 uSkyRows;
 uniform vec4 uSkySun;
-uniform vec4 uSunDisc;
+uniform vec4 uSkySunDisc;
 uniform vec2 uSkyWarm;
 uniform vec2 uFogLuma;
 uniform float uBeamGain;
@@ -493,11 +493,11 @@ vec3 spaceSky(ivec2 p, vec3 dir, float dsk) {
 // The Sun's disc (SKY.md 4.1), a circle test on the buffer's pixels: GLOW_WHITE 7, one ring of SKY_WARM 7, TWILIGHT when low. The centre is a pixel's centre, so
 // the disc holds its shape and moves a whole pixel at a time. Plain sky, alpha 0: the bus, the city and the far field cover it.
 export const GLSL_SUN_DISC = /* glsl */ `
-    if (uSunDisc.w >= 0.0) {
-      vec2 q = gl_FragCoord.xy - uSunDisc.xy;
+    if (uSkySunDisc.w >= 0.0) {
+      vec2 q = gl_FragCoord.xy - uSkySunDisc.xy;
       float r2 = dot(q, q);
-      if (r2 < uSunDisc.z * uSunDisc.z) sc = pal(${Ramp.GLOW_WHITE}.0, 7.0);
-      else if (r2 < (uSunDisc.z + 1.0) * (uSunDisc.z + 1.0)) sc = pal(uSunDisc.w, 7.0);
+      if (r2 < uSkySunDisc.z * uSkySunDisc.z) sc = pal(${Ramp.GLOW_WHITE}.0, 7.0);
+      else if (r2 < (uSkySunDisc.z + 1.0) * (uSkySunDisc.z + 1.0)) sc = pal(uSkySunDisc.w, 7.0);
     }`;
 
 // A star or a planet (SKY.md 4.6): sky/StreetSky.ts draws them into the buffer with flags 0, so their pixels are still sky here, one fetch. One shows where it

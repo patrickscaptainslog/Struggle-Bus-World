@@ -28,7 +28,9 @@ try {
   await page.waitForTimeout(6000);
   const got = await page.evaluate(() => {
     const p = window.__game.pipeline, fs = p.resolveMaterial.fragmentShader;
-    return { spaceSky: fs.includes('spaceSky'), spaceUniforms: Object.keys(p.resolveMaterial.uniforms).filter((k) => /Earth|Moon|SunDisc/.test(k)).length, programs: p.renderer.info.programs.length, hudTurbo: !!document.querySelector('[data-hud="turbo"]'), label: !!document.querySelector('[data-hud="trip-label"]'), launch: !!document.querySelector('[data-hud="launch"]') };
+    // (the street's own sky since main's 6b494b7, the live Sun's disc and the Moon from the street: not the flight's)
+    const STREET_SKY = ['uSkySunDisc', 'uMoonDisc', 'uMoonView', 'uSkyMoonSun', 'uSkyMoonRot', 'uMoonShadow', 'uSkyMoonLod', 'tSkyMoon'];
+    return { spaceSky: fs.includes('spaceSky'), spaceUniforms: Object.keys(p.resolveMaterial.uniforms).filter((k) => /Earth|Moon|SunDisc|Space/.test(k) && !STREET_SKY.includes(k)).length, programs: p.renderer.info.programs.length, hudTurbo: !!document.querySelector('[data-hud="turbo"]'), label: !!document.querySelector('[data-hud="trip-label"]'), launch: !!document.querySelector('[data-hud="launch"]') };
   });
   const main = readdirSync(join(DIST, 'assets')).find((f) => /^main-.*\.js$/.test(f));
   const text = readFileSync(join(DIST, 'assets', main), 'utf8');

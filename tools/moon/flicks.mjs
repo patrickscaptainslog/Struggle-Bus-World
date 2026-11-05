@@ -25,9 +25,10 @@ const BASE = process.env.BASE ?? 'http://localhost:4179/';
 mkdirSync(dir, { recursive: true });
 const W = 393, H = 852, DT = 1 / 30;
 /** a right thumb, out of the left zone and clear of MEGA's place, and a left one */
-// (the flying thumb's place is in the bus's lane, read off the page once it's flying: below the bus. The left one is out of it, where a touch looks)
+// (the flying thumb's place is in the bus's lane, read off the page once it's flying: below the bus. The left one is out of it, over the bus's line and out of the
+// lane's half disc, where a touch looks: since main's 6b494b7 the lane opens out to the screen's whole width under the bus, the producer's bigger lane)
 let RX = 196, RY = 700;
-const LX = 70, LY = 560;
+let LX = 70, LY = 380;
 const browser = await chromium.launch(browserOptions(['--enable-webgl']));
 let bad = 0;
 const row = (name, ok, got) => {
@@ -137,8 +138,9 @@ try {
   if (bz) {
     RX = Math.round(bz.x);
     RY = Math.round(Math.min(bz.y + 90, 780));
+    LY = Math.round(Math.max(60, bz.y - 120));
   }
-  console.log('  the bus\'s lane', JSON.stringify(bz), 'the flying thumb at', RX, RY);
+  console.log('  the bus\'s lane', JSON.stringify(bz), 'the flying thumb at', RX, RY, 'the look thumb at', LX, LY);
   for (const [name, x, y] of [['in the sky over the bus', bz ? bz.x : 196, bz ? bz.y - 260 : 340], ['beside the bus, on the right', bz ? bz.x + bz.r + 50 : 340, bz ? bz.y : 600]]) {
     const p0 = await read();
     begin();
