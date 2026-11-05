@@ -2,6 +2,24 @@
 
 Tick what you finish, in the commit that finishes it. Add to it when the producer asks for something. Written 2026-11-02.
 
+## Morning report: the second account (2026-11-05)
+
+**Done tonight**
+- **What went live on main, reviewed.** Nothing blocking: seven small things for the first account to fix on `feat/clock` ([reviews/main-live-2026-11-05.md](reviews/main-live-2026-11-05.md)).
+- **Main merged into `feat/earth`.** Your bigger lane, the real sky and the bridges' paint, with the Moon trip on top. One clash found and fixed on the way: the street's sky and the flight's had the same names in one shader, so `?earth` didn't draw.
+- **The first account's fourth review, fixed.** All seven majors and most of the minors. On `?earth`: space no longer draws black on the first climb by day, nothing jumps in colour at 15 km, and you can look around the whole way home from the Moon. On the Moon: kept paint can't be lost to a slow or broken store, and a big blast no longer stalls a frame. Back with the first account to check.
+- **The living-Earth contract.** Signed by both, and the first account's seven changes for the map data agreed (0.6).
+- **Life, started on `feat/life`.** Planes over San Francisco, live from real flight data on the deployed page, and made up when that's down. You can paint them: climb toward one until it glints, then tap. A MEGA paints every plane in its blast. A painted plane trails a streak of its own paint across the sky, rainbow at the top level, and at night a grey plane is a blinking light. **Those two looks are my call: tell me if you don't like them.** Painted planes stay a dot of colour all the way up to orbit.
+
+**Pushed**: `feat/earth` at e0c89d8, `feat/life` at 3339e28. Nothing went to main. Vercel's build status can't be read from here; `npm run build`, which is what Vercel runs, passes on both.
+
+**To fly**
+1. Life: https://struggle-bus-world-git-feat-life-patricks-projects-9ff6e721.vercel.app/?life&fps. Look up for planes. Then `?earth&life&fps` and climb past 15 km: they stay with you.
+2. On your iPhone, the check page: https://struggle-bus-world-git-feat-life-patricks-projects-9ff6e721.vercel.app/life-check.html. It should say MATCHES ... WITHIN 1 CM. It's the one test only Safari can run.
+3. The fixed trip: https://struggle-bus-world-git-feat-earth-patricks-projects-9ff6e721.vercel.app/?earth&fps. Climb by day (space shouldn't go black), go to the Moon and come home (the look should work all the way).
+
+**Waiting**: boats, ships and cars wait for the first account's map data (planned tonight in GRAPHS.md, not built yet).
+
 ## Tonight, both accounts (the night of 2026-11-04, Pacific)
 
 The producer, going to bed: "Yes to all of your plan". Stage 0 of the living Earth ([specs/earth/LIVING.md](specs/earth/LIVING.md)), then stage 1 as far as stage 0 lets it start. Nothing goes live: `main` stays at 6b494b7 until the producer says. Each account pushes to its own branches all night without asking: the second to `feat/earth` and `feat/life`; the first to `feat/world` and `feat/clock`, and to `feat/earth` only for its reviews (`docs/reviews/`) and this list. Never `main`, no spending, no Vercel settings. The only downloads are the first account's 21, OK'd tonight. Whoever is waiting on the other fetches every 30 minutes and keeps going. A push refused because the other just pushed: fetch, rebase, push again. In the morning each writes a short report here, at the top: what's done, what's pushed, the preview links, and what the producer should fly.
