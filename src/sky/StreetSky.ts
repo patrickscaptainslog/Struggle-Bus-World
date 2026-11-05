@@ -362,6 +362,9 @@ export class StreetSky {
     this.planetLimit = this.night ? this.limit + moonWash + PLANET_BONUS : -10;
     // (as the files land: from the brightest to the moment's limit, never over it; none between the stars' read and the Moon's)
     if (this.land < 1) {
+      // (landed on another loop's clock: on ?earth&resume the files land while the flight has the frame and writes uTime from its own clock, and the street writes its own,
+      // earlier, as it takes the bus, so the fade waited for the street's clock to pass the flight's and came in seconds late. Then it's in: the merge's review, m1)
+      if (this.landedAt > globals.uTime.value) this.landedAt = globals.uTime.value - LAND_S;
       const u = (this.land = this.landedAt < 0 ? 0 : smooth(0, LAND_S, globals.uTime.value - this.landedAt));
       this.limit = Math.min(this.limit, LAND_STARS + (this.limit - LAND_STARS) * u);
       this.planetLimit = Math.min(this.planetLimit, LAND_PLANETS + (this.planetLimit - LAND_PLANETS) * u);

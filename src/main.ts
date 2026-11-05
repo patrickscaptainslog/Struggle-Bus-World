@@ -1968,6 +1968,19 @@ interface StreetResumed {
  */
 async function bootEarthResumed() {
   pipeline.checkTargets();
+  // (the street's sky table for its place and moment, before the flight's first frame: the way home draws the plain Earth, its air and its lights on the street's rows, and
+  // with the day's there they were the day's colours all the way home, turning 90 % of the picture as the street took the bus at night. Then held till the street has the
+  // bus, which writes it again. The city's data index.html fetched, read through a copy so the street's boot still has it. The merge's review, M1)
+  if (live) {
+    try {
+      const b = (globalThis as { __sbBoot?: { manifest?: Promise<Response> } }).__sbBoot;
+      const m = b?.manifest ? ((await b.manifest.then((r) => r.clone().json())) as { origin?: [number, number]; tz?: string }) : null;
+      if (m?.origin) live.place(m.origin, m.tz);
+    } catch {
+      /* the street's boot writes it as it takes the bus */
+    }
+    live.held = true;
+  }
   const { bootMoonrun, laterStreet } = await import('./sky/moonrun');
   const shared = { input: new Input(canvas), audio: new AudioEngine(), rig: new CameraRig() };
   const street = laterStreet();
