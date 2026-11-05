@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The bridges take paint (landmarkPaint.ts, Bridges.ts paintBridge), in the real game (index.html, iPhone portrait viewport).
-//   node tools/bridge-paint.mjs <baseUrl> <outDir> [probe] [aim] [levels] [frames]
+//   node tools/bridge-paint.mjs <baseUrl> <outDir> [probe] [aim] [levels] [frames] [allocs]   (default: all but allocs)
 //
 //   probe   the six landmarks in their slots (Sutro, the pyramid, Coit, the Ferry Building, then lm:ggb and lm:baybridge),
 //           each texel, seed and ring; saved paint the four older ones had comes back on them; the bridges' surface seen
@@ -9,8 +9,9 @@
 //           the target, the breath comes down on its deck); one from under the Golden Gate's deck lands on the water
 //   levels  three taps from above each bridge escalate it L1 -> L2 -> L3, then a reload: both come back at L3, saved
 //           under lm:ggb and lm:baybridge in the landmark store
-//   frames  both bridges grey, at L1 and at L3, at noon and at night (?t=, the sky's clock): <bridge>-<moment>-<state>.png,
-//           and one contact sheet, sheet.png
+//   frames  both bridges grey, the paint's run 0.75 s after the first breath, L1 and L3, at noon and at night (?t=, the sky's
+//           clock): <bridge>-<moment>-<state>.png, and one contact sheet, sheet.png; the programs at ready and after
+//   allocs  allocation over 10 s of flight beside a painted Golden Gate at night, its deck glinting (tools/allocs.mjs's profiler)
 // Results: <outDir>/bridge-paint.json. Everything steps on a fixed 1/30 s game clock and waits on it, never on wall time.
 // The browser comes from tools/browser.mjs (the real GPU off the cloud machine).
 import { chromium } from 'playwright-core';
@@ -214,6 +215,9 @@ if (modes.has('aim')) {
 if (modes.has('levels')) {
   const page = await open(START + Q);
   report.levels = {};
+  // (no level of a bridge compiles a program: every one is the warm-up's)
+  const programs = () => page.evaluate(() => window.__game.pipeline.renderer.info.programs.length);
+  report.levels.programsBefore = await programs();
   for (const kind of ['ggb', 'baybridge']) {
     const rows = [];
     for (let L = 1; L <= 3; L++) {
@@ -225,6 +229,7 @@ if (modes.has('levels')) {
       console.log('levels', kind, JSON.stringify(rows[rows.length - 1]));
     }
     report.levels[kind] = rows;
+    report.levels[`programsAfter_${kind}`] = await programs();
   }
   await runFor(page, 1.5); // the paint save timer
   await page.reload({ waitUntil: 'load' });
@@ -246,13 +251,13 @@ async function framePose(page, kind) {
   await page.evaluate((k) => {
     const b = window.__br.bridge(k);
     const m = b.at(0.5);
-    // (a tower, 150 m on along the span: the deck runs on past it into the frame)
+    // (a tower, 150 m on along the span, from 900 m out: the deck runs on past it into the frame)
     const [tx, tz] = b.points[k === 'ggb' ? 1 : 2];
     const px = tx + m.ux * 150, pz = tz + m.uz * 150;
     const side = k === 'ggb' ? 1 : -1;
-    const x = px - m.uz * side * 430 - m.ux * 150, z = pz + m.ux * side * 430 - m.uz * 150;
+    const x = px - m.uz * side * 900 - m.ux * 300, z = pz + m.ux * side * 900 - m.uz * 300;
     const L = Math.hypot(px - x, pz - z);
-    window.__br.place(x, z, k === 'ggb' ? 95 : 85, (px - x) / L, (pz - z) / L);
+    window.__br.place(x, z, k === 'ggb' ? 75 : 65, (px - x) / L, (pz - z) / L);
   }, kind);
 }
 
@@ -268,6 +273,7 @@ if (modes.has('frames')) {
   const shots = [];
   for (const [moment, t] of Object.entries(MOMENTS)) {
     const page = await open(START + Q + `&t=${t}&rate=0`);
+    console.log('frames', moment, 'programs at ready', await page.evaluate(() => window.__game.pipeline.renderer.info.programs.length));
     for (const kind of ['ggb', 'baybridge']) {
       const name = (s) => `${out}/${kind}-${moment}-${s}.png`;
       await frame(page, kind, name('grey'));
@@ -288,7 +294,7 @@ if (modes.has('frames')) {
           shots.push([kind, moment, `L${L}`]);
         }
       }
-      console.log('frames', kind, moment, JSON.stringify(await page.evaluate((k) => window.__br.info(window.__br.bridge(k).ref), kind)));
+      console.log('frames', kind, moment, JSON.stringify(await page.evaluate((k) => ({ ...window.__br.info(window.__br.bridge(k).ref), programs: window.__game.pipeline.renderer.info.programs.length }), kind)));
     }
     await page.close();
   }
@@ -303,6 +309,55 @@ if (modes.has('frames')) {
   await sheet.setContent(`<style>body{margin:10px;background:#222;font:14px sans-serif;color:#ddd}.row{display:flex;gap:10px;margin-bottom:10px}figure{margin:0}img{width:300px;height:650px;display:block;image-rendering:pixelated}</style>${rows.join('')}`);
   await sheet.screenshot({ path: `${out}/sheet.png`, fullPage: true });
   report.frames = shots;
+}
+
+if (modes.has('allocs')) {
+  // allocation in flight beside a painted Golden Gate at night (tools/allocs.mjs's profiler): the aim reads the bridge's
+  // surface every frame, its run and its necklace are on; 10 s of wall time, as allocs.mjs
+  const page = await open(START + Q + `&t=${MOMENTS.night}&rate=0`);
+  await pose(page, 'ggb', 'above');
+  await tap(page);
+  await runFor(page, 1);
+  await page.evaluate(() => {
+    const b = window.__br.bridge('ggb');
+    const m = b.at(0.25);
+    window.__br.place(m.x - m.uz * 60, m.z + m.ux * 60, m.top + 2, m.ux, m.uz, 18);
+  });
+  await runFor(page, 1);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('HeapProfiler.enable');
+  await cdp.send('HeapProfiler.startSampling', { samplingInterval: 8192, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
+  const glints = await page.evaluate(
+    () =>
+      new Promise((res) => {
+        // (how many frames the bridge glinted: the aim was reading it)
+        const g = window.__game, idx = window.__br.bridge('ggb').ref.index, t0 = performance.now();
+        let n = 0, on = 0;
+        const tick = () => {
+          g.forceReady();
+          n++;
+          if (window.__br.target() === idx) on++;
+          if (performance.now() - t0 < 10000) requestAnimationFrame(tick);
+          else res({ frames: n, glinting: on });
+        };
+        tick();
+      }),
+  );
+  const { profile } = await cdp.send('HeapProfiler.stopSampling');
+  let total = 0;
+  const sites = new Map();
+  const walk = (n) => {
+    total += n.selfSize;
+    if (n.selfSize) {
+      const k = `${n.callFrame.functionName || '(anon)'} ${n.callFrame.url.split('/').pop()}:${n.callFrame.lineNumber}:${n.callFrame.columnNumber}`;
+      sites.set(k, (sites.get(k) ?? 0) + n.selfSize);
+    }
+    for (const c of n.children) walk(c);
+  };
+  walk(profile.head);
+  report.allocs = { mbPerS: +(total / 1048576 / 10).toFixed(2), ...glints, top: [...sites].sort((a, b) => b[1] - a[1]).slice(0, 14).map(([k, v]) => `${(v / 1024 / 10).toFixed(0)} KB/s ${k}`) };
+  console.log('allocs', JSON.stringify(report.allocs, null, 1));
+  await page.close();
 }
 
 writeFileSync(`${out}/bridge-paint.json`, JSON.stringify(report, null, 1));

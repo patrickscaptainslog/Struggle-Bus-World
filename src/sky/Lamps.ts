@@ -64,7 +64,7 @@ const LAMP_VS = /* glsl */ `
       bool run = paint.a < 1.5 && hit.w > paint.b - 4.0 && hit.w < paint.b + 0.3;
       if (paint.g > 0.5 && uTime >= paint.b && (!run || distance(wp, hit.xyz) < uSpanRun * (uTime - hit.w))) {
         vRamp = SPAN_HUES[int(mod(floor(paint.r + 0.5) + floor(aTag / 4.0) + 60.0, 6.0))];
-        vLight = 0.8;
+        vLight = 0.7;
       }
     }
     #endif

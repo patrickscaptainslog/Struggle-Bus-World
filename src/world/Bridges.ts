@@ -85,19 +85,30 @@ class Deck {
 
   /** out = [station, m left of the line] of (x, z), by the nearest span; past either end the end span runs on. */
   toFrame(x: number, z: number, out: number[]) {
+    // (squared distances, no Math.hypot: the aim asks this every frame by a bridge)
     let best = Infinity;
     for (let i = 0; i + 1 < this.pts.length; i++) {
-      const [ax, az] = this.pts[i], [bx, bz] = this.pts[i + 1];
-      const dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz);
+      const a = this.pts[i], b = this.pts[i + 1];
+      const ax = a[0], az = a[1], dx = b[0] - ax, dz = b[1] - az, L = Math.sqrt(dx * dx + dz * dz);
       const t = ((x - ax) * dx + (z - az) * dz) / (L * L);
       const tc = Math.min(i + 2 < this.pts.length ? 1 : Infinity, Math.max(i > 0 ? 0 : -Infinity, t));
-      const d = Math.hypot(ax + dx * tc - x, az + dz * tc - z);
+      const ex = ax + dx * tc - x, ez = az + dz * tc - z, d = ex * ex + ez * ez;
       if (d < best) {
         best = d;
         out[0] = this.s[i] + L * tc;
         out[1] = ((x - ax) * -dz + (z - az) * dx) / L;
       }
     }
+  }
+
+  /** out = the point at a station, `left` m left of its span (no mitre), allocating nothing: the aim's. */
+  place(s: number, left: number, out: number[]) {
+    let i = 0;
+    while (i + 2 < this.pts.length && s > this.s[i + 1]) i++;
+    const a = this.pts[i], b = this.pts[i + 1];
+    const dx = b[0] - a[0], dz = b[1] - a[1], L = Math.sqrt(dx * dx + dz * dz), t = (s - this.s[i]) / L;
+    out[0] = a[0] + dx * t - (dz / L) * left;
+    out[1] = a[1] + dz * t + (dx / L) * left;
   }
 
   /** The point at a station, `left` m left of the line (toFrame's inverse; past either end the end span runs on). */
@@ -135,26 +146,36 @@ interface Box {
   h: [number, number, number];
 }
 
+/** The box between two 3D points, w across, h thick (Kit.beam's): its basis as the beam's, or null when a and b meet. */
+function beamBox(a: THREE.Vector3, b: THREE.Vector3, w: number, h: number): Box | null {
+  const d = new THREE.Vector3().subVectors(b, a);
+  const len = d.length();
+  if (len < 0.01) return null;
+  const z = d.clone().normalize();
+  const up = Math.abs(z.y) > 0.95 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+  const x = new THREE.Vector3().crossVectors(up, z).normalize();
+  const y = new THREE.Vector3().crossVectors(z, x).normalize();
+  return { c: a.clone().add(b).multiplyScalar(0.5), ax: [x, y, z], h: [w / 2, h / 2, len / 2] };
+}
+
 class Kit {
   parts: THREE.BufferGeometry[] = [];
   /** the boxes a breath can land on: every part but a cable */
   solids: Box[] = [];
 
   /** Oriented box between two 3D points (w across, h vertical-ish thickness). */
-  beam(a: THREE.Vector3, b: THREE.Vector3, w: number, h: number, ramp: number, lo = 0, part = Part.STEEL) {
-    const d = new THREE.Vector3().subVectors(b, a);
-    const len = d.length();
-    if (len < 0.01) return;
-    const g = new THREE.BoxGeometry(w, h, len);
-    const m = new THREE.Matrix4();
-    const z = d.clone().normalize();
-    const up = Math.abs(z.y) > 0.95 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
-    const x = new THREE.Vector3().crossVectors(up, z).normalize();
-    const y = new THREE.Vector3().crossVectors(z, x).normalize();
-    m.makeBasis(x, y, z);
-    const c = a.clone().add(b).multiplyScalar(0.5);
-    m.setPosition(c);
-    this.add(g, 2, () => g.applyMatrix4(m), ramp, lo, part, { c, ax: [x, y, z], h: [w / 2, h / 2, len / 2] });
+  beam(a: THREE.Vector3, b: THREE.Vector3, w: number, h: number, ramp: number, lo = 0, part = Part.STEEL, solid = part !== Part.CABLE) {
+    const box = beamBox(a, b, w, h);
+    if (!box) return;
+    const g = new THREE.BoxGeometry(w, h, box.h[2] * 2);
+    const m = new THREE.Matrix4().makeBasis(...box.ax).setPosition(box.c);
+    this.add(g, 2, () => g.applyMatrix4(m), ramp, lo, part, solid ? box : null);
+  }
+
+  /** A box a breath lands on that draws nothing (a deck span's bands as one). */
+  solid(a: THREE.Vector3, b: THREE.Vector3, w: number, h: number) {
+    const box = beamBox(a, b, w, h);
+    if (box) this.solids.push(box);
   }
 
   /** Axis-aligned-in-bridge-frame box: center, half extents, yaw. */
@@ -169,22 +190,23 @@ class Kit {
    * `long`, its long axis: a beam's length, a block's height, so vines climb a tower and a beam's faces run along it),
    * then placed (as ever: the same float steps, so the same vertices). Every part but a cable is a solid.
    */
-  private add(g: THREE.BoxGeometry, long: number, place: () => void, ramp: number, lo: number, part: Part, box: Box) {
+  private add(g: THREE.BoxGeometry, long: number, place: () => void, ramp: number, lo: number, part: Part, box: Box | null) {
     const pos = g.getAttribute('position'), nrm = g.getAttribute('normal');
     const pat = new Float32Array(pos.count * 4);
+    const { width, height, depth } = g.parameters, half = [width / 2, height / 2, depth / 2];
     for (let i = 0; i < pos.count; i++) {
       const nx = Math.abs(nrm.getX(i)), ny = Math.abs(nrm.getY(i));
       const face = nx > 0.5 ? 0 : ny > 0.5 ? 1 : 2;
       const u = face === long ? (long === 0 ? 1 : 0) : 3 - face - long;
-      const w = box.h[u] * 2;
-      pat[i * 4] = (pos.getComponent(i, u) + box.h[u]) / w;
+      const w = half[u] * 2;
+      pat[i * 4] = (pos.getComponent(i, u) + half[u]) / w;
       pat[i * 4 + 2] = part;
       pat[i * 4 + 3] = w;
     }
     g.setAttribute('aPat', new THREE.BufferAttribute(pat, 4));
     place();
     this.parts.push(setVertexRamp(g.toNonIndexed(), ramp, lo));
-    if (part !== Part.CABLE) this.solids.push(box);
+    if (box) this.solids.push(box);
   }
 
   /** The last part's paint pattern, from each vertex's world position and normal (the deck's, the cables'). */
@@ -390,12 +412,27 @@ function deckMesh(k: Kit, d: Deck, bands: DeckBand[]) {
   for (let i = 0; i + 1 < P.length; i++) {
     // (the paint's frame on this span: the station along it, the road's top there, across it)
     const sx = P[i + 1][0] - P[i][0], sz = P[i + 1][1] - P[i][1], sl = Math.hypot(sx, sz);
+    // what a breath lands on: the span's bands as one box, as wide as the widest, top to bottom (they touch)
+    {
+      let w = 0, d0 = Infinity, d1 = -Infinity;
+      for (const q of bands) {
+        w = Math.max(w, q.w);
+        d0 = Math.min(d0, q.depth - q.h / 2);
+        d1 = Math.max(d1, q.depth + q.h / 2);
+      }
+      const dm = (d0 + d1) / 2;
+      const a = new THREE.Vector3(P[i][0], P[i][2] - dm, P[i][1]), b = new THREE.Vector3(P[i + 1][0], P[i + 1][2] - dm, P[i + 1][1]);
+      const on = b.clone().sub(a).normalize();
+      if (i > 0) a.addScaledVector(on, -0.5 - (w / 2) * Math.tan(bend(i) / 2));
+      if (i + 2 < P.length) b.addScaledVector(on, 0.5 + (w / 2) * Math.tan(bend(i + 1) / 2));
+      k.solid(a, b, w, d1 - d0);
+    }
     for (const { depth, w, h, ramp, lo, under } of bands) {
       const a = new THREE.Vector3(P[i][0], P[i][2] - depth, P[i][1]), b = new THREE.Vector3(P[i + 1][0], P[i + 1][2] - depth, P[i + 1][1]);
       const on = b.clone().sub(a).normalize();
       if (i > 0) a.addScaledVector(on, -0.5 - (w / 2) * Math.tan(bend(i) / 2));
       if (i + 2 < P.length) b.addScaledVector(on, 0.5 + (w / 2) * Math.tan(bend(i + 1) / 2));
-      k.beam(a, b, w, h, ramp, lo, Part.DECK);
+      k.beam(a, b, w, h, ramp, lo, Part.DECK, false);
       // (a box's fourth face, -y, is the underside: six vertices, unindexed)
       if (under !== undefined) (k.parts[k.parts.length - 1].getAttribute('lightOffset').array as Float32Array).fill(under, 18, 24);
       // its paint: the road band's top is the road (x across it 0..1), the rest the deck (x m under the road); y the station
@@ -566,7 +603,7 @@ export function makeGoldenGate(pts: P2[], deck: DeckPoint[], supports: Support[]
   }
   // what the deck stands on: the anchorages' blocks and the approaches' supports
   for (const { p, across, along, yaw, top } of ggBlocks(d, pts, supports)) k.block(p[0], top / 2, p[1], across, top, along, yaw, C, -0.05);
-  return bridgeGroup(k, wires, look, { deck: d, towers: [T1, T2], towerH });
+  return bridgeGroup(k, wires, look, { deck: d, towers: [T1, T2], towerH, half });
 }
 
 /** The Bay Bridge's sizes, the mesh's and the collision's. w1: W1's vertex in the deck list. */
@@ -645,7 +682,7 @@ export function makeBayBridgeWest(pts: P2[], deck: DeckPoint[], supports: Suppor
       look.bunting!.push(spanBunting(c, pa, pb));
     }
   }
-  return bridgeGroup(k, wires, look, { deck: d, towers: BAY.towers.map((i) => pts[i]), towerH });
+  return bridgeGroup(k, wires, look, { deck: d, towers: BAY.towers.map((i) => pts[i]), towerH, half });
 }
 
 /** How fast a bridge's paint runs out along it from where the breath hit (m/s): the Golden Gate's 2.7 km in about 3 s. */
@@ -659,6 +696,8 @@ interface BridgeShape {
   deck: Deck;
   towers: P2[];
   towerH: number;
+  /** the deck's half width (m) */
+  half: number;
 }
 
 /** The bridge's two meshes (the cables cast no shadow): the crowns on the solid one, the bunting on the cables'. */
@@ -679,7 +718,7 @@ export function paintBridge(city: City, key: string, obj: THREE.Object3D, name: 
   const b = obj.userData.bridge as (BridgeShape & { solids: Box[] }) | undefined;
   if (!b) return null;
   // (a blast's wave reaches a bridge from far: its run starts where that breath came down)
-  return paintLandmark(city, key, obj, { name, surface: bridgeSurface(b.deck, b.solids, b.towers, b.towerH), hitReach: 160 });
+  return paintLandmark(city, key, obj, { name, surface: bridgeSurface(b.deck, b.solids, b.towers, b.towerH, b.half), hitReach: 160 });
 }
 
 /** The vertical line through (x, z) inside box b: out = [bottom, top] (m), or false. */
@@ -703,9 +742,9 @@ function boxSpan(b: Box, x: number, z: number, out: number[]): boolean {
   return true;
 }
 
-/** Height-field cells (m): what a breath lands on, by 2 m square. */
+/** Height-field cells (m): what a breath lands on, by 2 m square; spans of solid a cell holds at most (a tower's middle: its pier, five struts, the deck). */
 const CELL = 2;
-const cellKey = (i: number, j: number) => (i + 32768) * 65536 + (j + 32768);
+const SPANS = 8;
 
 /**
  * A bridge's surface from its boxes: per 2 m cell, the spans of solid over it ([bottom, top], merged where they touch),
@@ -713,8 +752,47 @@ const cellKey = (i: number, j: number) => (i + 32768) * 65536 + (j + 32768);
  * under it on what is below. Its ring: the deck's line, as wide as what stands at each station. Its sparkles: slices
  * along the deck and up the towers. Built once, when it is made paintable.
  */
-function bridgeSurface(d: Deck, solids: Box[], towers: P2[], towerH: number): LandmarkSurface {
-  const lists = new Map<number, number[]>();
+function bridgeSurface(d: Deck, solids: Box[], towers: P2[], towerH: number, half: number): LandmarkSurface {
+  // (cell -> its slot in the pool of spans: merged as they come in, so a deck's four bands are one span, no sort)
+  const cells = new Map<number, number>();
+  let sp = new Float32Array(8192 * SPANS * 2), cnt = new Uint8Array(8192), used = 0;
+  const put = (key: number, lo: number, hi: number) => {
+    let o = cells.get(key);
+    if (o === undefined) {
+      if (used === cnt.length) {
+        const s2 = new Float32Array(sp.length * 2), c2 = new Uint8Array(cnt.length * 2);
+        s2.set(sp);
+        c2.set(cnt);
+        sp = s2;
+        cnt = c2;
+      }
+      cells.set(key, (o = used++));
+    }
+    const base = o * SPANS * 2;
+    let c = cnt[o];
+    for (let k = 0; k < c; ) {
+      const a = sp[base + k * 2], b = sp[base + k * 2 + 1];
+      if (lo > b + 0.75 || hi < a - 0.75) {
+        k++;
+        continue;
+      }
+      // (touching: one span, and the last takes its place)
+      lo = Math.min(lo, a);
+      hi = Math.max(hi, b);
+      c--;
+      sp[base + k * 2] = sp[base + c * 2];
+      sp[base + k * 2 + 1] = sp[base + c * 2 + 1];
+    }
+    // (a ninth span: into the last, which only widens it)
+    if (c === SPANS) {
+      c--;
+      lo = Math.min(lo, sp[base + c * 2]);
+      hi = Math.max(hi, sp[base + c * 2 + 1]);
+    }
+    sp[base + c * 2] = lo;
+    sp[base + c * 2 + 1] = hi;
+    cnt[o] = c + 1;
+  };
   const span = [0, 0], hit = [0, 0];
   const corner = new THREE.Vector3();
   const corners = (b: Box, f: (p: THREE.Vector3) => void) => {
@@ -724,11 +802,23 @@ function bridgeSurface(d: Deck, solids: Box[], towers: P2[], towerH: number): La
       f(corner);
     }
   };
+  // (a cell's key from its place in the bridge's own bounds: a small integer, never a heap number, so a lookup allocates nothing)
+  let ci0 = Infinity, cj0 = Infinity, cj1 = -Infinity;
+  for (const b of solids)
+    corners(b, (p) => {
+      ci0 = Math.min(ci0, Math.floor(p.x / CELL));
+      cj0 = Math.min(cj0, Math.floor(p.z / CELL));
+      cj1 = Math.max(cj1, Math.floor(p.z / CELL));
+    });
+  const rows = cj1 - cj0 + 1;
+  const cellKey = (i: number, j: number) => (i - ci0) * rows + (j - cj0);
   let top = -Infinity;
   for (const b of solids) {
     // (a long beam in pieces along its length: its plan bounds alone would be a square kilometre of open water)
     const long = b.h[0] * Math.hypot(b.ax[0].x, b.ax[0].z) > b.h[2] * Math.hypot(b.ax[2].x, b.ax[2].z) ? 0 : 2;
     const pieces = Math.max(1, Math.ceil((2 * b.h[long]) / 8));
+    // (four points a cell where it is thin in plan: a 2.6 m brace across a cell's corner still lands; else its centre)
+    const pts = Math.min(b.h[0], b.h[2]) < 1.5 ? 4 : 1;
     for (let k = 0; k < pieces; k++) {
       const piece: Box = { c: b.c.clone().addScaledVector(b.ax[long], ((k + 0.5) / pieces - 0.5) * 2 * b.h[long]), ax: b.ax, h: [...b.h] as Box['h'] };
       piece.h[long] = b.h[long] / pieces;
@@ -742,47 +832,43 @@ function bridgeSurface(d: Deck, solids: Box[], towers: P2[], towerH: number): La
       });
       for (let j = Math.floor(z0 / CELL); j <= Math.floor(z1 / CELL); j++)
         for (let i = Math.floor(x0 / CELL); i <= Math.floor(x1 / CELL); i++) {
-          // (four points a cell: a 2.6 m brace across a cell's corner still lands)
           let lo = Infinity, hi = -Infinity;
-          for (let q = 0; q < 4; q++) {
-            if (!boxSpan(piece, (i + 0.25 + 0.5 * (q & 1)) * CELL, (j + 0.25 + 0.5 * (q >> 1)) * CELL, hit)) continue;
+          for (let q = 0; q < pts; q++) {
+            const u = pts > 1 ? 0.25 + 0.5 * (q & 1) : 0.5, v = pts > 1 ? 0.25 + 0.5 * (q >> 1) : 0.5;
+            if (!boxSpan(piece, (i + u) * CELL, (j + v) * CELL, hit)) continue;
             lo = Math.min(lo, hit[0]);
             hi = Math.max(hi, hit[1]);
           }
-          if (lo > hi) continue;
-          const key = cellKey(i, j);
-          let l = lists.get(key);
-          if (!l) lists.set(key, (l = []));
-          l.push(lo, hi);
+          if (lo <= hi) put(cellKey(i, j), lo, hi);
         }
     }
   }
-  // packed: per cell its count, then its merged spans, bottom first
-  const cells = new Map<number, number>();
-  const packed: number[] = [];
-  for (const [key, l] of lists) {
-    const order = Array.from({ length: l.length / 2 }, (_, i) => i).sort((a, b) => l[a * 2] - l[b * 2]);
-    const at = packed.length;
-    packed.push(0);
-    for (const i of order) {
-      const n = packed.length;
-      if (n > at + 1 && l[i * 2] <= packed[n - 1] + 0.75) packed[n - 1] = Math.max(packed[n - 1], l[i * 2 + 1]);
-      else packed.push(l[i * 2], l[i * 2 + 1]);
-    }
-    packed[at] = (packed.length - at - 1) / 2;
-    cells.set(key, at);
-  }
-  const iv = new Float32Array(packed);
+  // (kept packed: a cell's spans from off[o] to off[o + 1], about one a cell)
+  const off = new Uint32Array(used + 1);
+  for (let o = 0; o < used; o++) off[o + 1] = off[o] + cnt[o];
+  const iv = new Float32Array(off[used] * 2);
+  for (let o = 0; o < used; o++) for (let k = 0; k < cnt[o] * 2; k++) iv[off[o] * 2 + k] = sp[o * SPANS * 2 + k];
   const heightAt = (x: number, z: number, fromY = Infinity): number => {
-    const o = cells.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
+    const j = Math.floor(z / CELL) - cj0;
+    if (j < 0 || j >= rows) return -Infinity;
+    const o = cells.get((Math.floor(x / CELL) - ci0) * rows + j);
     if (o === undefined) return -Infinity;
     let y = -Infinity;
-    for (let i = 0, n = iv[o]; i < n; i++) if (iv[o + 1 + i * 2] <= fromY && iv[o + 2 + i * 2] > y) y = iv[o + 2 + i * 2];
+    for (let k = off[o] * 2, e = off[o + 1] * 2; k < e; k += 2) if (iv[k] <= fromY && iv[k + 1] > y) y = iv[k + 1];
     return y;
+  };
+  // overhead: where a shot from (x, z) lands, the deck nearest it (a metre in from its edge), nothing of it at or under fromY
+  const fr = [0, 0];
+  const overhead = (x: number, z: number, fromY: number): boolean => {
+    d.toFrame(x, z, fr);
+    d.place(fr[0], Math.max(-half + 1, Math.min(half - 1, fr[1])), fr);
+    return heightAt(fr[0], fr[1], fromY) === -Infinity && heightAt(fr[0], fr[1]) > fromY;
   };
 
   // the ring: along the deck's line (on past its ends where a block does), as wide as what stands at each station
-  const reach: Array<[number, number, number]> = solids.map((b) => {
+  // (each box's station range and reach across, three numbers a box)
+  const reach = new Float64Array(solids.length * 3);
+  solids.forEach((b, k) => {
     let s0 = Infinity, s1 = -Infinity, w = 0;
     corners(b, (p) => {
       d.toFrame(p.x, p.z, span);
@@ -790,23 +876,34 @@ function bridgeSurface(d: Deck, solids: Box[], towers: P2[], towerH: number): La
       s1 = Math.max(s1, span[0]);
       w = Math.max(w, Math.abs(span[1]));
     });
-    return [s0, s1, w + 0.5];
+    reach[k * 3] = s0;
+    reach[k * 3 + 1] = s1;
+    reach[k * 3 + 2] = w + 0.5;
   });
   const widthAt = (s: number) => {
     let w = 0;
-    for (const [s0, s1, r] of reach) if (s >= s0 && s <= s1 && r > w) w = r;
+    for (let k = 0; k < reach.length; k += 3) if (s >= reach[k] && s <= reach[k + 1] && reach[k + 2] > w) w = reach[k + 2];
     return w;
   };
-  const stations = new Set<number>();
-  const sMin = Math.min(...reach.map((r) => r[0])), sMax = Math.max(...reach.map((r) => r[1]));
-  for (let s = sMin; s < sMax; s += 4) stations.add(s);
-  for (const [s0, s1] of reach) for (const s of [s0 - 0.01, s0 + 0.01, s1 - 0.01, s1 + 0.01]) if (s >= sMin && s <= sMax) stations.add(s);
-  for (const s of d.s) if (s >= sMin && s <= sMax) stations.add(s);
-  stations.add(sMax);
-  const ss = [...stations].sort((a, b) => a - b).filter((s) => widthAt(s) > 0);
-  const left = ss.map((s) => d.fromFrame(s, widthAt(s)));
-  const right = ss.map((s) => d.fromFrame(s, -widthAt(s))).reverse();
-  const ring = simplifyRing([...left, ...right]);
+  let sMin = Infinity, sMax = -Infinity;
+  for (let k = 0; k < reach.length; k += 3) {
+    sMin = Math.min(sMin, reach[k]);
+    sMax = Math.max(sMax, reach[k + 1]);
+  }
+  // (between a box's ends and the deck's bends the outline runs straight: those stations are all it needs)
+  const stations: number[] = [sMin, sMax];
+  for (let k = 0; k < reach.length; k += 3) for (const s of [reach[k] - 0.01, reach[k] + 0.01, reach[k + 1] - 0.01, reach[k + 1] + 0.01]) if (s >= sMin && s <= sMax) stations.push(s);
+  for (const s of d.s) if (s >= sMin && s <= sMax) stations.push(s);
+  const left: P2[] = [], right: P2[] = [];
+  let last = NaN;
+  for (const s of Float64Array.from(stations).sort()) {
+    const w = s === last ? 0 : widthAt(s);
+    last = s;
+    if (w <= 0) continue;
+    left.push(d.fromFrame(s, w));
+    right.push(d.fromFrame(s, -w));
+  }
+  const ring = simplifyRing(left.concat(right.reverse()));
 
   // sparkles: slices along the deck, over the road, and up each tower
   const sparkles: SparkleSlices = [];
@@ -816,7 +913,7 @@ function bridgeSurface(d: Deck, solids: Box[], towers: P2[], towerH: number): La
     sparkles.push({ center: new THREE.Vector3(x, y + 8, z), radius: 22, height: 16 });
   }
   for (const [x, z] of towers) for (let k = 0; k < 3; k++) sparkles.push({ center: new THREE.Vector3(x, (towerH * (k + 1)) / 3, z), radius: 24, height: towerH / 3 });
-  return { ring, top, heightAt, sparkles };
+  return { ring, top, heightAt, overhead, sparkles };
 }
 
 /** A ring with every point that lies on the line through its neighbours (within 5 cm) taken out. */

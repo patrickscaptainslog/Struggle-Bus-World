@@ -1979,18 +1979,14 @@ export class City {
   }
 
   /**
-   * Is ref a landmark standing wholly above fromY at (x, z), or at the point of its ring nearest it (where a shot at it
-   * would land)? The open air under a deck: what a breath from under it never lands on. No allocation.
+   * Is ref a landmark standing wholly above fromY where a shot from (x, z) at it would land (its own overhead: a
+   * bridge's deck over a bus under it)? What a breath from under a deck never lands on. No allocation.
    */
   lmOverhead(ref: BuildingRef, x: number, z: number, fromY: number): boolean {
-    if (fromY === Infinity || ref.index < this.manifest.buildingCount) return false;
+    if (fromY >= ref.roofY || ref.index < this.manifest.buildingCount) return false;
     const lm = this.landmarks[ref.index - this.manifest.buildingCount];
-    if (!lm?.heightAt) return false;
-    const p = this.contains(ref, x, z) ? null : this.landingOn(ref, x, z, 1.5, this.overTmp);
-    const px = p ? p.x : x, pz = p ? p.z : z;
-    return lm.heightAt(px, pz, fromY) === -Infinity && lm.heightAt(px, pz) > fromY;
+    return !!lm?.overhead && lm.overhead(x, z, fromY);
   }
-  private readonly overTmp = { x: 0, z: 0 };
 
   /**
    * Register a building the bake doesn't have (a hand-built landmark prop) as
@@ -2076,7 +2072,7 @@ export class City {
     };
     // (bounds + reach as a baked ref's: it lives in the area index, where every aim, pick and blast query looks)
     const ref: BuildingRef = { index, stableId: -1 - k, tile, local: 0, parts: 1, top: 0, cx, cz, baseY: lb.baseY, roofY: lb.roofY, roofBuild: one(Uint8Array, 0), area: Math.abs(area) / 2, hood, x0, z0, x1, z1, rad, q: 0 };
-    this.landmarks.push({ ref, x0, z0, x1, z1, rad, heightAt: lb.heightAt ?? null });
+    this.landmarks.push({ ref, x0, z0, x1, z1, rad, heightAt: lb.heightAt ?? null, overhead: lb.overhead ?? null });
     this.indexRef(ref);
     this.paint.register(index, lb.key);
     return ref;
@@ -2601,6 +2597,8 @@ export interface LandmarkBuilding {
   /** its surface height (m ASL) over a point inside the ring (what a breath lands on), default roofY; seen from
    * fromY when it has an underside (a bridge's deck: what stands wholly above fromY is overhead, -Infinity there) */
   heightAt?: (x: number, z: number, fromY?: number) => number;
+  /** it stands wholly above fromY where a shot from (x, z) at it would land (the open air under a deck); default never */
+  overhead?: (x: number, z: number, fromY: number) => boolean;
 }
 
 interface LandmarkRec {
@@ -2612,4 +2610,5 @@ interface LandmarkRec {
   z1: number;
   rad: number;
   heightAt: ((x: number, z: number, fromY?: number) => number) | null;
+  overhead: ((x: number, z: number, fromY: number) => boolean) | null;
 }

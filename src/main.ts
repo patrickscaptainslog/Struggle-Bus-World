@@ -343,16 +343,15 @@ async function boot() {
         later.push(() => paintable(p.key, h.object, p.name));
       }
     }
-    // the bridges, after them (lm:ggb, lm:baybridge: never renamed), their necklaces taking their paint at night
-    later.push(() => {
-      for (const b of bridges) {
+    // the bridges, after them (lm:ggb, lm:baybridge: never renamed), one a tick, their necklaces taking their paint at night
+    for (const b of bridges)
+      later.push(() => {
         const ref = paintBridge(city, `lm:${b.kind}`, b.obj, LANDMARK_NAMES[b.kind]);
-        if (!ref) continue;
+        if (!ref) return;
         if (city.paint.level(ref.index) > 0.5) bumpPaint(ref.cx, ref.cz, 40);
         const mesh = b.obj.children[0] as THREE.Mesh;
         hour?.lamps.paintSpan(b.group, ref.index, (mesh.material as THREE.ShaderMaterial).uniforms.uLmHit.value as THREE.Vector4);
-      }
-    });
+      });
   });
 
   // ---- the hero

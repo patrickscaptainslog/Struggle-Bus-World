@@ -404,6 +404,8 @@ export interface LandmarkSurface {
   ring: Array<[number, number]>;
   top: number;
   heightAt: (x: number, z: number, fromY?: number) => number;
+  /** it stands wholly above fromY where a shot from (x, z) at it would land (City.lmOverhead) */
+  overhead: (x: number, z: number, fromY: number) => boolean;
   sparkles: SparkleSlices;
 }
 
@@ -431,7 +433,7 @@ export function paintLandmark(city: City, key: string, obj: THREE.Object3D, opts
   obj.updateMatrixWorld(true);
   const s = opts.surface;
   if (s) {
-    const ref = city.addLandmarkBuilding({ key, ring: s.ring, baseY: obj.getWorldPosition(new THREE.Vector3()).y, roofY: s.top, name: opts.name, arch: opts.arch, heightAt: s.heightAt });
+    const ref = city.addLandmarkBuilding({ key, ring: s.ring, baseY: obj.getWorldPosition(new THREE.Vector3()).y, roofY: s.top, name: opts.name, arch: opts.arch, heightAt: s.heightAt, overhead: s.overhead });
     if (!ref) return null;
     bound.push({ ref, mats: bindLandmarkPaint(obj, ref), sparkles: s.sparkles, hitReach: opts.hitReach ?? 2 });
     return ref;
@@ -515,7 +517,10 @@ export function landmarkHit(city: City, p: THREE.Vector3, t: number): void {
     if (city.edgeDistance(b.ref, p.x, p.z) > b.hitReach) continue;
     // (a run that is still going keeps its start: a firehose's dozen impacts a second would restart it at each)
     const last = b.mats[0]?.uniforms.uLmHit.value as THREE.Vector4 | undefined;
-    if (b.hitReach > 2 && last && t - last.w < RUN_MATCH + 2) continue;
+    if (b.hitReach > 2 && last && t - last.w < RUN_MATCH + 2) {
+      const bloom = city.paint.data[b.ref.index * 4 + 2];
+      if (bloom > last.w - 0.3 && bloom < last.w + RUN_MATCH) continue;
+    }
     for (const m of b.mats) (m.uniforms.uLmHit.value as THREE.Vector4).set(p.x, p.y, p.z, t);
   }
 }
