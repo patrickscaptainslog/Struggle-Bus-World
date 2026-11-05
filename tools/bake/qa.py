@@ -22,6 +22,11 @@ What it compares (on the city frame, cut into 128 m cells; WorldCover on the bak
           (a tidal marsh drawn as grass, a coastline or a lake OSM lacks, a lake that isn't there).
   sand    baked sand where WorldCover sees neither bare ground (60) nor water, and WorldCover bare
           ground where the bake has grass or woods.
+  bridges the fifteen checks of docs/specs/bridges/BRIDGES.md section 4 (bridge_checks()): the heroes against the
+          map, what's drawn against the map's bridges, the street figure; bridges.py plans the map's decks. Each
+          value carries its unit (m, a share, a count, a ratio); a check with nothing to read prints NOT READ.
+          They run first, before the WorldCover reference (a city baked without it gets them too), and fail a
+          bake only once QA_DEFAULTS 'bridgeGate' is 'fail' (step 6): until then they are reported.
 Writes:
   city.json stats.qa                         the summary (pass, the failed checks, counts, the parks)
   tools/bake/.cache/qa/<name>/report.md      the checks, the worst disagreements with lat / lon and a
@@ -33,7 +38,8 @@ Writes:
 Exit status: 0 PASS, 3 FAIL (a threshold exceeded; bake.py exits 3 too unless --qa=warn) with a loud
 '!!! QA FAIL' block on stdout. Thresholds: QA_DEFAULTS (FAIL when a share exceeds its ...Max and the
 count behind it reaches 'minFlagged' cells / 'minUnsupported' trees: a small --bbox test bake's few
-cells don't fail on one lagoon); a city config's "qa": {...} overrides any of them. Calibration (2026-10
+cells don't fail on one lagoon); a city config's "qa": {...} sets any of them, but a limit or a floor
+(TIGHTER) only tighter: a looser one is ignored, logged and listed in the report. Calibration (2026-10
 test bakes, five frames in San Francisco and London): the old "trees in every park" rule scored
 unsupported 2-39 % (FAIL in three: the Crissy Field frame 39 % with 19 of 65 cells on open land), the
 evidence rule <= 0.11 % and 0 cells; water and sand on all of San Francisco 0.06 % and 0.10 %.
@@ -71,7 +77,36 @@ QA_DEFAULTS = {
     'worst': 30,             # disagreements listed in the report
     'crops': 8,              # parks / open spaces cropped
     'cropMax': 2400.0,       # m: the longest side of a crop (bigger parks: their middle)
+    # bridges (docs/specs/bridges/BRIDGES.md section 4, bridge_checks()): reported on every bake; they fail one only once
+    # this is 'fail' (step 6). A check is over when its value passes its limit and its count reaches its floor
+    'bridgeGate': 'report',
+    'heroOffDataMax': 15.0,       # m: a hero row's typed point from the centre of the OSM row it names (or the id is gone)
+    'towerOffDeckMax': 1.0,       # x half the drawn deck's width: a drawn tower's centre from the deck's centre line
+    'deckNoCollisionMax': 0.02,   # share of a drawn deck's area no collision post covers
+    'deckFreeEndMax': 3.0,        # m: a drawn deck's free end (no kept way, deck or building within 12 m) over the ground
+    'waterRoadNoDeckMax': 0.05,   # share of the real bridge road and rail over water with no deck or ground bridge...
+    'waterRoadNoDeckMinM': 50.0,  # ...and at least this many m of it
+    'bridgeNoDeckMax': 0.05,      # share of all the real bridge road and rail with no deck or ground bridge...
+    'bridgeNoDeckMinM': 100.0,    # ...and at least this many m of it
+    'bareSupportsMax': 0,         # real supports standing in the water with nothing drawn on them
+    'standInsMax': 3,             # baked buildings of 12 m or more standing mostly on a deck, their top within 15 m of it or over
+    'tallNothingMax': 0,          # towers and masts in the data of tallNothingHeight or more with nothing drawn
+    'tallNothingHeight': 50.0,    # m
+    'streetFigureMin': 0.9,       # ratio: the largest street piece drawn, to the largest the full map gives in the frame
+    'atGradeLossMax': 0.005,      # share of the road kept: road surface lost on land, on no bridge
+    'deckContinuityMax': 3.0,     # m: two decks of one bridge miss by this in plan (or 1.5 m in height)
+    'deckClearanceMin': 4.5,      # m between two crossing decks
+    'deckBuriedMax': 0.05,        # share of a meshed deck over 0.5 m under the ground, away from a tunnel
+    'deckSlopeMax': 0.08,         # a road deck's grade between samples, after the spike filter
 }
+# The limits and floors a city config's "qa" may only tighten: -1 lower is tighter, +1 higher is (a value floor, or the gate
+# set to fail). The other keys say how a check measures (cell sizes, reaches, the report's lengths): the config sets them.
+TIGHTER = {'unsupportedMax': -1, 'openCellsMax': -1, 'waterCellsMax': -1, 'sandCellsMax': -1, 'woodCellsMax': -1, 'minFlagged': -1,
+           'minUnsupported': -1, 'bridgeGate': +1, 'heroOffDataMax': -1, 'towerOffDeckMax': -1, 'deckNoCollisionMax': -1, 'deckFreeEndMax': -1,
+           'waterRoadNoDeckMax': -1, 'waterRoadNoDeckMinM': -1, 'bridgeNoDeckMax': -1, 'bridgeNoDeckMinM': -1, 'bareSupportsMax': -1,
+           'standInsMax': -1, 'tallNothingMax': -1, 'tallNothingHeight': -1, 'streetFigureMin': +1, 'atGradeLossMax': -1,
+           'deckContinuityMax': -1, 'deckClearanceMin': +1, 'deckBuriedMax': -1, 'deckSlopeMax': -1}
+GATE = ('report', 'fail')
 
 # ground classes (src/world/tiles.ts Ground; osm.py)
 PAVED, GRASS, WATER, SIDEWALK, PLAZA, PATH, SAND, RAIL, FOREST, YARD, ROCK = range(11)
@@ -107,20 +142,503 @@ def top_classes(vals, names):
 
 
 def load_city(city):
-    """(cls uint8 [H, W] at the class texel (2 m), trees float [n, 3] x, z, kind) inside the frame"""
+    """(cls uint8 [H, W] at the class texel (2 m), trees float [n, 3] x, z, kind, the terrain's heights float32 at its
+    vertices every `cell` m from the frame's corner, cell) inside the frame"""
     m = city.manifest
     minX, minZ, maxX, maxZ = m['bounds']
     n = city.classN
     res = m['tileSize'] / n
     W, H = int(round((maxX - minX) / res)), int(round((maxZ - minZ) / res))
     cls = np.full((H, W), WATER, np.uint8)  # (bake.py writes no terrain tile for an all-water tile)
+    N = m.get('terrainN', 65)
+    cell = m['tileSize'] / (N - 1)
+    Wc, Hc = int(round((maxX - minX) / cell)), int(round((maxZ - minZ) / cell))
+    hgt = np.zeros((Hc + 1, Wc + 1), np.float32)  # (and such a tile is water at 0)
     trees = []
     for t in city.terrain_tiles():
         j0, i0 = int(round((t['originX'] - minX) / res)), int(round((t['originZ'] - minZ) / res))
         if 0 <= i0 <= H - n and 0 <= j0 <= W - n:  # (tiles outside the frame hold edge buildings' records only)
             cls[i0:i0 + n, j0:j0 + n] = t['cls']
+        a0, b0 = int(round((t['originX'] - minX) / cell)), int(round((t['originZ'] - minZ) / cell))
+        if 0 <= b0 <= Hc - (N - 1) and 0 <= a0 <= Wc - (N - 1):
+            hgt[b0:b0 + N, a0:a0 + N] = t['heights']
         trees += [(x, z, k) for x, z, y, s, k in t['trees'] if minX <= x < maxX and minZ <= z < maxZ]
-    return cls, res, np.array(trees, np.float64).reshape(-1, 3)
+    return cls, res, np.array(trees, np.float64).reshape(-1, 3), hgt, cell
+
+
+def thresholds(over, log=_log):
+    """QA_DEFAULTS with a city config's "qa": a limit or floor (TIGHTER) only where the config tightens it. A looser one
+    keeps its default, is logged and is listed in the report: [(key, the config's value, the default)]."""
+    Q = dict(QA_DEFAULTS)
+    refused = []
+    for k, v in over.items():
+        if k in TIGHTER and k in Q:
+            if k == 'bridgeGate':
+                looser = v not in GATE or GATE.index(v) < GATE.index(Q[k])
+            else:
+                looser = not isinstance(v, (int, float)) or (v - Q[k]) * TIGHTER[k] < 0
+            if looser:
+                refused.append((k, v, Q[k]))
+                log(f'the config\'s "qa" can tighten a limit, never loosen one: {k} {v!r} ignored, {Q[k]!r} stands')
+                continue
+        Q[k] = v
+    return Q, refused
+
+
+UNIT = {'m': ' m', 'm2': ' m²', 'share': '%', 'count': '', 'ratio': '', 'grade': '%'}
+
+
+def fmt(v, unit):
+    """a check's value with its unit: m and m² as they are, a share or a grade in %, a count, a ratio"""
+    if v is None:
+        return 'NOT READ'
+    if v == float('inf'):
+        return 'an id is gone'
+    if unit in ('share', 'grade'):
+        return f'{v * 100:.2f}%'
+    if unit == 'count':
+        return f'{int(round(v)):,}'
+    if unit == 'ratio':
+        return f'{v:.3f}'
+    return f'{v:,.2f}{UNIT[unit]}'
+
+
+def largest_piece(m):
+    """(pieces, the largest piece's share of the mask) of a bool mask, 8-connected"""
+    from scipy import ndimage
+    try:
+        lab, n = ndimage.label(m, structure=np.ones((3, 3), bool), output=np.uint16)
+    except RuntimeError:  # (more pieces than 16 bits hold)
+        lab, n = ndimage.label(m, structure=np.ones((3, 3), bool))
+    if not n:
+        return 0, 0.0
+    sz = np.zeros(n + 1, np.int64)
+    for r0 in range(0, lab.shape[0], 512):  # (bincount casts to 64 bits: a block at a time)
+        sz += np.bincount(lab[r0:r0 + 512].ravel(), minlength=n + 1)
+    del lab
+    return int(n), float(sz[1:].max() / max(1, sz[1:].sum()))
+
+
+def bridge_checks(cfg, city, osm, ground, Q, ll2xz, lonlat, city_dir, log=_log):
+    """The fifteen bridge checks of BRIDGES.md section 4 on the baked city: [{key, what, value, unit, limit, count, floor,
+    over, read, why, detail, rows}]. Until step 5 the decks drawn are the heroes' (city.json's landmark rows with a deck,
+    as Bridges.ts's kits draw them), and the decks of the map are bridges.py's plan. A check with nothing to read (no hero,
+    no drawn deck, no bridges.bin yet), or one that fails to read, is NOT READ: value None, never a pass. No check reads a
+    coordinate or a city name of its own."""
+    import traceback
+    import shapely
+    from shapely.geometry import LineString, Point
+    from shapely.strtree import STRtree
+    from scipy.spatial import cKDTree
+    import rasterio
+    from rasterio.features import rasterize
+    import bridges as B
+    import osm as O
+    man = city.manifest
+    minX, minZ, maxX, maxZ = man['bounds']
+    out = []
+
+    def check(key, what, unit, limit, floor=1, count_unit='count', lower=False):
+        rec = {'key': key, 'what': what, 'unit': unit, 'limit': limit, 'floor': floor, 'countUnit': count_unit, 'lower': lower,
+               'value': None, 'count': None, 'over': False, 'read': False, 'why': '', 'detail': '', 'rows': []}
+        out.append(rec)
+        return rec
+
+    def done(rec, value, count, detail='', rows=()):
+        over = value < rec['limit'] if rec['lower'] else value > rec['limit']
+        rec.update(value=float(value), count=count, detail=detail, rows=list(rows), read=True, over=bool(over and count >= rec['floor']))
+
+    def where(x, z):
+        la, lo = lonlat(x, z)
+        return f'{la:.5f}, {lo:.5f}'
+
+    # ---------------------------------------------------------------- what they read
+    kept = osm.segments()
+    di, gi = osm.read('infrastructure')
+    idx = {B.osm_ref(v): i for i, v in enumerate(di['osm_id'])} if di is not None else {}
+    itags = [B.tags_of(t) for t in di['tags']] if di is not None else []
+    pids = {lm['kind']: lm.get('pointIds') for lm in cfg.get('landmarks', [])}
+    drawn = []  # the decks drawn today: the heroes' kits, along their rows' deck lists
+    for lm in man.get('landmarks', []):
+        if lm.get('deck') and lm['kind'] in B.HERO_KIT and len(lm['deck']) >= 2:
+            xyz = np.array(lm['deck'], float)
+            ids = pids.get(lm['kind'])
+            pts = [tuple(p) for p in lm.get('points', [])]
+            tw = [p for p, oid in zip(pts, ids or ()) if oid in idx and B.is_tower(itags[idx[oid]])] if ids and len(ids) == len(pts) else None
+            drawn.append({'kind': lm['kind'], 'line': LineString(xyz[:, :2]), 'xyz': xyz, 'half': B.HERO_KIT[lm['kind']]['half'], 'points': pts,
+                          'ids': ids, 'towers': tw, 'supports': lm.get('supports', [])})
+    foot = [h['line'].buffer(h['half'], cap_style='flat') for h in drawn]
+    feet = shapely.unary_union(foot) if foot else None
+    if feet is not None:
+        shapely.prepare(feet)
+    plan = B.plan(osm, ground, kept, B.hero_rows(man), log=lambda m: log('bridges: ' + m))
+    decks = plan['decks']
+    meshed = [d for d in decks if d['cls'] != 'S' and not d['skip']]
+    bbin = os.path.join(city_dir, 'bridges.bin')
+
+    def guarded(rec, fn):
+        try:
+            fn(rec)
+        except Exception as e:  # noqa: BLE001 (a check that can't be read says so; it never stops the QA)
+            rec.update(read=False, value=None, why=f'failed to read: {e!r}'[:240])
+            log(f'{rec["key"]}: ' + traceback.format_exc().strip().splitlines()[-1])
+
+    # ---------------------------------------------------------------- the heroes, against the map
+    def hero_off(rec):
+        rows = [lm for lm in cfg.get('landmarks', []) if lm.get('points')]
+        if not rows:
+            return rec.update(why='no hero row with typed points in the config')
+        bad = [lm['kind'] for lm in rows if len(lm.get('pointIds') or ()) != len(lm['points'])]
+        if bad:
+            return rec.update(why='no OSM id for each typed point (pointIds): ' + ', '.join(bad))
+        res = []
+        for lm in rows:
+            for k, ((la, lo), oid) in enumerate(zip(lm['points'], lm['pointIds'])):
+                p = Point(ll2xz(lo, la))
+                i = idx.get(oid)
+                res.append((float('inf') if i is None else float(shapely.distance(shapely.centroid(gi[i]), p)), lm['kind'], k, oid, p))
+        nover = sum(1 for r in res if r[0] > rec['limit'])
+        done(rec, max(r[0] for r in res), nover, f'{len(res)} typed points in {len(rows)} hero rows, from the centre of the row each names',
+             [f'{kd} point {k} {oid} at {where(p.x, p.y)}: ' + (f'{v:.2f} m' if v != float('inf') else 'gone from the extract')
+              for v, kd, k, oid, p in sorted(res, key=lambda r: -r[0])])
+
+    def tower_off(rec):
+        if not drawn:
+            return rec.update(why='no drawn deck (a hero row with a deck)')
+        if any(h['towers'] is None for h in drawn):
+            return rec.update(why='a drawn deck whose hero row has no OSM id for each typed point: its towers are unknown')
+        res = [(h['line'].distance(Point(p)) / (h['half'] * Q['towerOffDeckMax']), h['line'].distance(Point(p)), h['half'] * Q['towerOffDeckMax'], h['kind'], p)
+               for h in drawn for p in h['towers']]
+        if not res:
+            return rec.update(why='no drawn tower stands on a drawn deck')
+        worst = max(res)
+        rec['limit'] = worst[2]  # (each tower's own: half its deck's width)
+        done(rec, worst[1], sum(1 for r in res if r[0] > 1), f'{len(res)} drawn towers; the limit is half the deck\'s width under each',
+             [f'{kd} tower at {where(*p)}: {d:.2f} m from the deck\'s centre, half its width {lim:.1f} m' for _, d, lim, kd, p in sorted(res, reverse=True)])
+
+    def no_collision(rec):
+        if not drawn:
+            return rec.update(why='no drawn deck (a hero row with a deck)')
+        res = []
+        for h in drawn:
+            xyz = h['xyz']
+            seg = np.hypot(*np.diff(xyz[:, :2], axis=0).T)
+            st = np.r_[0.0, np.cumsum(seg)]
+            L = float(st[-1])
+            # (the posts as Bridges.ts deckPosts lays them: every 12 m or less, half the width + 6 m round; the towers' r 30)
+            n = int(math.ceil(L / 12))
+            sk = np.arange(n + 1) / n * L
+            posts = np.column_stack([np.interp(sk, st, xyz[:, 0]), np.interp(sk, st, xyz[:, 1])])
+            # (the deck's area on a 1 m grid in its own frame: along its line, across its width)
+            s, p, t = B.frames_along(h['line'], 1.0)
+            o = np.arange(-h['half'] + 0.5, h['half'], 1.0)
+            nrm = np.column_stack([-t[:, 1], t[:, 0]])
+            g = (p[:, None, :] + nrm[:, None, :] * o[None, :, None]).reshape(-1, 2)
+            cov = cKDTree(posts).query(g)[0] <= h['half'] + 6.0
+            if h['towers']:
+                cov |= cKDTree(np.array(h['towers'])).query(g)[0] <= 30.0
+            res.append((1.0 - float(cov.mean()), h['kind'], len(g), len(posts)))
+        done(rec, max(r[0] for r in res), sum(1 for r in res if r[0] > rec['limit']), f'{len(res)} drawn decks on a 1 m grid',
+             [f'{kd}: {v * 100:.3f}% of {n:,} grid points under no post ({m} deck posts)' for v, kd, n, m in res])
+
+    def free_end(rec):
+        if not drawn:
+            return rec.update(why='no drawn deck (a hero row with a deck)')
+        kt = STRtree([q[0] for q in kept]) if kept else None
+        res = []
+        for h in drawn:
+            for e in (h['xyz'][0], h['xyz'][-1]):
+                p = Point(e[:2])
+                way = kt is not None and len(kt.query(p, predicate='dwithin', distance=12.0)) > 0
+                deck = any(o['line'].distance(p) <= 12.0 for o in drawn if o is not h)
+                bld = bool(ground.in_building([e[:2]], reach=12.0)[0])
+                gy = float(ground.at([e[:2]])[0][0])
+                res.append((None if way or deck or bld else e[2] - gy, h['kind'], e, gy, way, deck, bld))
+        free = [r for r in res if r[0] is not None]
+        done(rec, max([r[0] for r in free], default=0.0), sum(1 for r in free if r[0] > rec['limit']), f'{len(free)} free of {len(res)} drawn deck ends',
+             [f'{kd} end at {where(*e[:2])}: top {e[2]:.1f} m, ground {gy:.1f} m' + (f', {v:.1f} m over it, free' if v is not None else
+              ': ' + ', '.join(n for n, b in (('a kept way', w), ('a deck', dk), ('a building', b_)) if b) + ' within 12 m') for v, kd, e, gy, w, dk, b_ in res])
+
+    # ---------------------------------------------------------------- the map's bridges, against what's drawn
+    ways = [w for w in plan['ways'] if w['use'] in ('road', 'rail')]
+
+    def samples():
+        pts, wt, wi = [], [], []
+        for k, w in enumerate(ways):
+            L = w['line'].length
+            n = max(1, int(math.ceil(L / 2.0)))
+            pts.append(shapely.get_coordinates(shapely.line_interpolate_point(w['line'], (np.arange(n) + 0.5) * L / n)))
+            wt.append(np.full(n, L / n))
+            wi.append(np.full(n, k))
+        p, wt, wi = np.vstack(pts), np.concatenate(wt), np.concatenate(wi)
+        ok = ground.inside(p)
+        p, wt, wi = p[ok], wt[ok], wi[ok]
+        cov = shapely.contains_xy(feet, p[:, 0], p[:, 1]) if feet is not None else np.zeros(len(p), bool)
+        return p, wt, ground.at(p)[1], cov, wi
+
+    def water_road(rec):
+        if not ways:
+            return rec.update(why='no bridge road or rail in the frame')
+        p, wt, wet, cov, wi = samples()
+        tot = float(wt[wet].sum())
+        if tot <= 0:
+            return rec.update(why='no bridge road or rail over the baked water')
+        m = wet & ~cov
+        un = float(wt[m].sum())
+        # (by name: each named bridge's metres over water with no deck, and where its longest way is)
+        by = {}
+        for k in np.unique(wi[m]):
+            w = ways[int(k)]
+            r = by.setdefault(w['name'] or '(unnamed)', [0.0, 0.0, None])
+            r[0] += float(wt[m & (wi == k)].sum())
+            if w['line'].length > r[1]:
+                r[1], r[2] = w['line'].length, w['line'].interpolate(0.5, normalized=True)
+        done(rec, un / tot, un, f'{un:,.0f} of {tot:,.0f} m of real bridge road and rail over water under no deck or ground bridge',
+             [f'{nm}: {v:,.0f} m, at {where(c.x, c.y)}' for nm, (v, _, c) in sorted(by.items(), key=lambda q: -q[1][0])])
+
+    def bridge_no_deck(rec):
+        if not ways:
+            return rec.update(why='no bridge road or rail in the frame')
+        p, wt, wet, cov, wi = samples()
+        tot = float(wt.sum())
+        un = float(wt[~cov].sum())
+        done(rec, un / tot, un, f'{un:,.0f} of {tot:,.0f} m of real bridge road and rail in the frame under no deck or ground bridge')
+
+    def bare_supports(rec):
+        sups = [s for s in plan['supports'] if s['area'] >= 50 and s['g'].geom_type in ('Polygon', 'MultiPolygon')]
+        if not sups:
+            return rec.update(why='no bridge support or pier of 50 m² or more in the frame')
+        big = [d for d in decks if d['cls'] in ('L', 'XL')]
+        bt = STRtree([d['line'] for d in big]) if big else None
+        cand = []
+        for s in sups:
+            c = shapely.centroid(s['g'])
+            r = math.sqrt(s['area'] / math.pi) + 8
+            ring = [(c.x + dx * r, c.y + dz * r) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1), (.7, .7), (-.7, -.7), (.7, -.7), (-.7, .7))]
+            if int(ground.at(ring)[1].sum()) < 5:
+                continue  # (not standing in the water)
+            if s['kind'] == 'pier':
+                # (a harbour pier is no support: only one an L or XL deck stands high over)
+                if bt is None or not any(big[j]['line'].distance(c) <= 8 and big[j]['y'][int(np.argmin(np.hypot(*(big[j]['xz'] - [c.x, c.y]).T)))] >= 8
+                                         for j in bt.query(c, predicate='dwithin', distance=8)):
+                    continue
+            cand.append((s['area'], c, s))
+        one = []
+        for a, c, s in sorted(cand, key=lambda q: -q[0]):
+            if all(c.distance(q[1]) > 40 for q in one):
+                one.append((a, c, s))
+        bare = []
+        for a, c, s in one:
+            on = any(math.hypot(c.x - p[0], c.y - p[1]) <= 30 for h in drawn for p in h['points'])
+            on = on or (feet is not None and feet.contains(c))
+            on = on or any(math.hypot(c.x - b[0], c.y - b[1]) <= math.hypot(b[2], b[3]) / 2 + 5 for h in drawn for b in h['supports'])
+            if not on:
+                bare.append((a, c, s))
+        done(rec, len(bare), len(bare), f'{len(one)} real supports stand in the water; {len(bare)} with nothing drawn on them',
+             [f'{s["osm"]} {s["name"] or s["tags"].get("ref") or ""} ({s["kind"]}, {a:,.0f} m²) at {where(c.x, c.y)}' for a, c, s in bare])
+
+    def stand_ins(rec):
+        if not meshed:
+            return rec.update(why='no meshed deck in the map')
+        polys = [shapely.buffer(d['line'], max(1.5, d['width'] / 2), cap_style='flat') for d in meshed]
+        dt = STRtree(polys)
+        T_ = man['tileSize']
+        near = set()
+        for q in polys:
+            x0, z0, x1, z1 = q.bounds
+            near |= {(tx, tz) for tx in range(int((x0 - 40) // T_), int((x1 + 40) // T_) + 1) for tz in range(int((z0 - 40) // T_), int((z1 + 40) // T_) + 1)}
+        found = {}
+        for t in city.building_tiles(near):
+            vs, xz = t['vertStart'], t['xz']
+            for i in range(t['count']):
+                top, grd = float(t['roofY'][i]), float(t['groundY'][i])
+                if top - grd < 12 or vs[i + 1] - vs[i] < 3:
+                    continue
+                q = shapely.make_valid(shapely.Polygon(xz[vs[i]:vs[i + 1]]))
+                hit = dt.query(q, predicate='intersects')
+                if not len(hit) or q.area <= 0:
+                    continue
+                ov, j = max((shapely.intersection(q, polys[j]).area / q.area, j) for j in hit)
+                c = shapely.get_coordinates(shapely.centroid(q))[0]
+                d = meshed[j]
+                deck = float(d['y'][int(np.argmin(np.hypot(*(d['xz'] - c).T)))])
+                if ov >= 0.5 and top >= deck - 15:
+                    sid = int(t['stableId'][i])
+                    if sid not in found or found[sid][0] < top:
+                        found[sid] = (top, grd, deck, c, int(t['source'][i]) & 7, d['name'])
+        src = lambda k: ('OSM', 'Overture', 'USA Structures', 'LiDAR')[k] if k < 4 else str(k)  # noqa: E731 (bake.py's sources)
+        by = {}
+        for v in found.values():
+            by[src(v[4])] = by.get(src(v[4]), 0) + 1
+        done(rec, len(found), len(found), f'{len(found)} buildings' + (f' ({", ".join(f"{n} {k}" for k, n in sorted(by.items()))})' if by else '') + f' on {len(meshed)} meshed decks of the map, '
+             'their tops by the rule (no LiDAR until step 5)',
+             [f'{src(s_)} at {where(*c)}: top {top:.1f} m, ground {g:.1f} m, the deck {dk:.1f} m ({nm or "unnamed"})'
+              for top, g, dk, c, s_, nm in sorted(found.values(), key=lambda v: -v[0])])
+
+    def tall_nothing(rec):
+        if di is None:
+            return rec.update(why='no infrastructure theme in the extract')
+        TALL = {'tower', 'mast', 'chimney', 'flagpole', 'water_tower', 'lighthouse', 'crane'}
+        cand, blind = [], 0
+        for i, row in enumerate(di.itertuples(index=False)):
+            t = itags[i]
+            if row.subtype == 'bridge' or not (t.get('man_made') in TALL or row.subtype in ('tower', 'communication') or t.get('tower:type')):
+                continue
+            h = row.height
+            if h is None or h != h:
+                blind += 1
+                continue
+            if h >= Q['tallNothingHeight']:
+                cand.append((float(h), B.osm_ref(row.osm_id), row.name or '', row.klass, shapely.get_coordinates(shapely.centroid(gi[i]))[0]))
+        hero_ids = {oid for lm in cfg.get('landmarks', []) for oid in (lm.get('pointIds') or ())}
+        lms = [(l['x'], l['z']) for l in man.get('landmarks', [])]
+        near = set()
+        for c in cand:
+            near |= city.tiles_around(c[4][0], c[4][1], 40)
+        parts = []
+        for t in city.building_tiles(near):
+            vs, xz = t['vertStart'], t['xz']
+            parts += [(shapely.Polygon(xz[vs[i]:vs[i + 1]]), float(t['roofY'][i]) - float(t['groundY'][i])) for i in range(t['count']) if vs[i + 1] - vs[i] >= 3]
+        pt = STRtree([q for q, _ in parts]) if parts else None
+        missing = []
+        for h, oid, nm, kl, p in cand:
+            ok = oid in hero_ids or any(math.hypot(p[0] - x, p[1] - z) < 30 for x, z in lms)
+            best = max((parts[j][1] for j in pt.query(Point(p), predicate='dwithin', distance=15.0)), default=0.0) if pt is not None else 0.0
+            if not ok and best < 0.7 * h:
+                missing.append((h, oid, nm, kl, p, best))
+        done(rec, len(missing), len(missing), f'{len(cand)} towers and masts of {Q["tallNothingHeight"]:.0f} m or more in the data; {blind} with no height can\'t be judged',
+             [f'{oid} {nm or "(unnamed)"} ({kl}, {h:.0f} m) at {where(*p)}: the tallest drawn within 15 m {b:.1f} m' for h, oid, nm, kl, p, b in missing])
+
+    # ---------------------------------------------------------------- the street map: drawn, and what the full map gives
+    def streets(rec_fig, rec_loss):
+        H, W = ground.cls.shape
+        aff = rasterio.Affine(ground.res, 0, minX, 0, ground.res, minZ)
+
+        def rast(shapes):
+            shapes = [(q, 1) for q in shapes if q is not None and not q.is_empty]
+            return rasterize(shapes, out_shape=(H, W), transform=aff, fill=0, dtype=np.uint8).view(bool) if shapes else np.zeros((H, W), bool)
+        VEH = {'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'unclassified', 'living_street', 'service', 'unknown'}
+        kv = [q for q in kept if q[1] == PAVED and q[4] in VEH]
+        if not kv:
+            for r in (rec_fig, rec_loss):
+                r.update(why='no street drawn in the frame')
+            return
+        K = rast(shapely.buffer(np.array([q[0] for q in kv], dtype=object), np.array([q[2] for q in kv]) / 2, cap_style='flat'))
+        nK = int(K.sum())
+        # (every vehicular segment, sized as OSM.segments() sizes it; the ones it leaves out, in whole or in part)
+        d, g = osm.read('segment')
+        P = osm.P
+        full, flagged = [], []
+        for i, row in enumerate(d.itertuples(index=False)):
+            cl = O.sv(row.klass) or 'unknown'
+            if O.sv(row.subtype) != 'road' or cl not in VEH or g[i] is None or g[i].geom_type != 'LineString':
+                continue
+            fl = set(O.sv(row.road_flags).split(',')) | set(O.sv(row.rail_flags).split(','))
+            lv = row.level_max
+            if not (fl & O.OFF_GROUND or (lv is not None and lv == lv and int(lv) != 0)) or fl & {'is_tunnel', 'is_indoor'}:
+                continue
+            w = O.num(row.width)
+            if w is None or w < 2.0:
+                sub = O.sv(row.subclass)
+                w = P['linkWidth'] if sub == 'link' else P['serviceWidth'][sub] if cl == 'service' and sub in P['serviceWidth'] else P['roadWidth'].get(cl, P['roadWidth']['unknown'])
+            full.append((g[i], w))
+            if 'is_bridge' in fl:
+                flagged.append((g[i], w))
+        del d, g
+        # atGradeLoss: the bridge-flagged road the bake leaves out, on land and on no real bridge (6 m of a bridge way, 2 m of its polygon)
+        D = rast(shapely.buffer(np.array([q[0] for q in flagged], dtype=object), np.array([q[1] for q in flagged]) / 2, cap_style='flat')) if flagged else np.zeros((H, W), bool)
+        D[K] = False
+        br = [gi[i] for i, row in enumerate(di.itertuples(index=False)) if row.subtype == 'bridge' and row.klass in ('bridge', 'viaduct', 'movable')] if di is not None else []
+        if br:
+            ba = np.array(br, dtype=object)
+            R = rast(shapely.buffer(ba, np.where(shapely.get_type_id(ba) == 1, 6.0, 2.0)))
+            D[R] = False
+            del R
+        D[ground.cls == WATER] = False
+        lost = int(D.sum())
+        del D
+        a = ground.res ** 2
+        done(rec_loss, lost / max(1, nK), lost * a, f'{lost * a / 1e4:,.2f} ha lost of {nK * a / 1e4:,.2f} ha of road kept')
+        # streetFigure: the largest piece of the road the bake drew, to the largest the full map gives in the same frame
+        K &= ground.cls == PAVED
+        n0, s0 = largest_piece(K)
+        F = rast(shapely.buffer(np.array([q[0] for q in full], dtype=object), np.array([q[1] for q in full]) / 2, cap_style='flat')) if full else np.zeros((H, W), bool)
+        F |= K
+        del K
+        n1, s1 = largest_piece(F)
+        del F
+        done(rec_fig, s0 / max(1e-9, s1), 1, f'drawn: {n0:,} pieces, the largest {s0 * 100:.1f}% of the road; the full map: {n1:,} pieces, the largest {s1 * 100:.1f}%')
+
+    # ---------------------------------------------------------------- the decks as baked: bridges.bin, step 5's
+    def baked_decks(rec):
+        rec.update(why='reads the decks as baked, bridges.bin: ' + ('no reader for it yet' if os.path.exists(bbin) else 'none in the city dir until step 5'))
+
+    lim = lambda k: Q[k]  # noqa: E731
+    guarded(check('heroOffData', "a hero row's typed point from the OSM row it names", 'm', lim('heroOffDataMax')), hero_off)
+    guarded(check('towerOffDeck', "a drawn tower's centre from its drawn deck's centre line", 'm', lim('towerOffDeckMax')), tower_off)
+    guarded(check('deckNoCollision', "a drawn deck's area under no collision post", 'share', lim('deckNoCollisionMax')), no_collision)
+    guarded(check('deckFreeEnd', "a drawn deck's free end over the ground", 'm', lim('deckFreeEndMax')), free_end)
+    guarded(check('waterRoadNoDeck', 'real bridge road and rail over water with no deck or ground bridge', 'share', lim('waterRoadNoDeckMax'),
+                  lim('waterRoadNoDeckMinM'), 'm'), water_road)
+    guarded(check('bridgeNoDeck', 'real bridge road and rail with no deck or ground bridge', 'share', lim('bridgeNoDeckMax'), lim('bridgeNoDeckMinM'), 'm'),
+            bridge_no_deck)
+    guarded(check('bareSupports', 'real supports in the water with nothing drawn on them', 'count', lim('bareSupportsMax')), bare_supports)
+    guarded(check('standIns', 'baked buildings of 12 m or more standing mostly on a deck, their top within 15 m of it or over', 'count',
+                  lim('standInsMax')), stand_ins)
+    guarded(check('tallNothing', f'towers and masts of {Q["tallNothingHeight"]:.0f} m or more in the data with nothing drawn', 'count',
+                  lim('tallNothingMax')), tall_nothing)
+    fig = check('streetFigure', 'the largest street piece drawn, to the largest the full map gives', 'ratio', lim('streetFigureMin'), lower=True)
+    loss = check('atGradeLoss', 'road surface lost on land, on no bridge, of the road kept', 'share', lim('atGradeLossMax'), 0, 'm2')
+    try:
+        streets(fig, loss)
+    except Exception as e:  # noqa: BLE001
+        for r in (fig, loss):
+            if not r['read']:
+                r.update(why=f'failed to read: {e!r}'[:240])
+        log('streets: ' + traceback.format_exc().strip().splitlines()[-1])
+    for key, what, k in (('deckContinuity', 'two decks of one bridge miss each other (plan or height)', 'deckContinuityMax'),
+                         ('deckClearance', 'two crossing decks stand under this far apart', 'deckClearanceMin'),
+                         ('deckBuried', "a meshed deck's length over 0.5 m under the ground, away from a tunnel", 'deckBuriedMax'),
+                         ('deckSlope', "a road deck's steepest grade between samples", 'deckSlopeMax')):
+        guarded(check(key, what, 'm' if k in ('deckContinuityMax', 'deckClearanceMin') else 'share' if k == 'deckBuriedMax' else 'grade',
+                      lim(k), lower=k == 'deckClearanceMin'), baked_decks)
+    spans = [(round(d['length']), d['name'] or '(unnamed)', where(*d['xz'][len(d['xz']) // 2])) for d in B.open_spans(decks)]
+    classes = {c: (sum(1 for d in decks if d['cls'] == c and not d['skip']), round(sum(d['length'] for d in decks if d['cls'] == c and not d['skip']) / 1000, 2))
+               for c in B.CLASSES}
+    return out, {'classes': classes, 'openSpans': spans, 'skipped': sum(1 for d in decks if d['skip']),
+                 'heroes': {h: sorted({i for d in decks if d['hero'] == h for i in d['ids']}) for h in {d['hero'] for d in decks if d['hero']}}}
+
+
+def open_spaces(osm, frame, n):
+    """the n largest parks and open spaces in the frame (OSM land use and land, LU_OPEN / LAND_OPEN), the same place mapped
+    twice once: [{name, class, geom}] (the report's crops, and tour.py's)"""
+    import shapely
+    import osm as O
+    cand = []
+    for typ, classes in (('land_use', LU_OPEN), ('land', LAND_OPEN)):
+        dd, gg = osm.read(typ)
+        if dd is None:
+            continue
+        for i, row in enumerate(dd.itertuples(index=False)):
+            if row.klass not in classes or gg[i] is None or gg[i].geom_type not in ('Polygon', 'MultiPolygon'):
+                continue
+            try:
+                g = shapely.make_valid(gg[i]).intersection(frame)
+            except shapely.errors.GEOSException:
+                continue
+            if g.is_empty or g.area < 1e4:
+                continue
+            nm = O.sv(getattr(row, 'name', None)) or f'{row.klass} (unnamed)'
+            cand.append((g.area, nm, row.klass, g))
+    cand.sort(key=lambda c: -c[0])
+    parks = []
+    for a, nm, kl, g in cand:
+        if len(parks) >= n:
+            break
+        if any(g.intersection(p['geom']).area / max(1.0, g.union(p['geom']).area) >= 0.6 for p in parks):
+            continue  # (the same place mapped twice)
+        parks.append({'name': nm, 'class': kl, 'geom': g})
+    return parks
 
 
 def run(slug, city_dir, log=_log, crops=None):
@@ -131,16 +649,14 @@ def run(slug, city_dir, log=_log, crops=None):
     import shapely
     from shapely.geometry import box
     from citydata import City
+    import bridges as B
     import osm as O
     import worldcover as WCm
 
     t0 = time.time()
     name = os.path.basename(os.path.normpath(city_dir))
     cfg = json.load(open(os.path.join(HERE, 'cities', f'{slug}.json')))
-    if cfg.get('worldcover', True) is False:
-        log('skipped: the config bakes without WorldCover ("worldcover": false), the reference of the QA')
-        return True
-    Q = dict(QA_DEFAULTS, **cfg.get('qa', {}))
+    Q, refused = thresholds(cfg.get('qa', {}), log)
     if crops is not None:
         Q['crops'] = crops
     out = os.path.join(HERE, '.cache', 'qa', name)
@@ -159,10 +675,34 @@ def run(slug, city_dir, log=_log, crops=None):
         lo, la = inv.transform(x, -z)
         return float(la), float(lo)
 
-    cls, res2, T = load_city(city)
-    # mapped (OSM natural=tree / tree_row) or procedural: the baked position is the mapped one to the decimetre
+    def ll2xz(lon, lat):
+        e, n = to_local.transform(lon, lat)
+        return float(e), -float(n)
+
+    cls, res2, T, hgt, cell = load_city(city)
     osm = O.OSM(cfg, slug, to_local, lambda *a: None)
     osm.set_frame(minX, minZ, maxX, maxZ)
+    # ---------------------------------------------------------------- bridges (they read the bake, the extract and the config,
+    # not WorldCover: a city baked without it gets them too)
+    bridge, bplan = bridge_checks(cfg, city, osm, B.Ground(man['bounds'], cls, res2, hgt, cell, city), Q, ll2xz, lonlat, city_dir, log)
+    del hgt
+    bfailed = [c['key'] for c in bridge if c['over']] if Q['bridgeGate'] == 'fail' else []
+    for c in bridge:
+        log(bridge_line(c, Q['bridgeGate']))
+    if cfg.get('worldcover', True) is False:
+        log('the rest skipped: the config bakes without WorldCover ("worldcover": false), the reference of the QA')
+        summary = {'pass': not bfailed, 'failed': bfailed, 'bridgeGate': Q['bridgeGate'], 'bridges': bridge_summary(bridge), 'bridgePlan': bplan,
+                   'report': os.path.relpath(os.path.join(out, 'report.md'), ROOT).replace('\\', '/')}
+        with open(os.path.join(out, 'report.md'), 'w', encoding='utf-8') as f:
+            f.write('\n'.join([f'# Bake QA: {name} ({man.get("name", slug)}): bridges only', '', 'The config bakes without WorldCover, the '
+                               'reference of the other checks.', ''] + bridge_section(bridge, bplan, Q, refused)))
+        mp = os.path.join(city_dir, 'city.json')
+        m2 = json.load(open(mp))
+        m2.setdefault('stats', {})['qa'] = summary
+        with open(mp, 'w') as f:
+            json.dump(m2, f)
+        return not bfailed
+    # mapped (OSM natural=tree / tree_row) or procedural: the baked position is the mapped one to the decimetre
     mapped = np.array([(x, z) for x, z, k, s in osm.trees()], np.float64).reshape(-1, 2)
     src = np.where(T[:, 2] == 0, 2, 1).astype(np.int8)  # 0 mapped, 1 park / woods, 2 street
     if len(mapped) and len(T):
@@ -273,7 +813,7 @@ def run(slug, city_dir, log=_log, crops=None):
         ('sandCells', 'land cells whose sand disagrees with WorldCover bare ground',
          nflag['sand'] / max(1, nland), Q['sandCellsMax'], f'{nflag["sand"]} of {nland:,}', nflag['sand'], mc),
     ]
-    failed = [c[0] for c in checks if c[2] > c[3] and c[5] >= c[6]]
+    failed = [c[0] for c in checks if c[2] > c[3] and c[5] >= c[6]] + bfailed
     ok = not failed
 
     # ---------------------------------------------------------------- trees overall
@@ -300,31 +840,7 @@ def run(slug, city_dir, log=_log, crops=None):
     scrub_ex = [(*lonlat(minX + (j + 0.5) * Q['cell'], minZ + (i + 0.5) * Q['cell']), float(wct[i, j])) for i, j in scrub_cells[:5]]
 
     # ---------------------------------------------------------------- parks / open spaces
-    frame = box(minX, minZ, maxX, maxZ)
-    cand = []
-    for typ, classes in (('land_use', LU_OPEN), ('land', LAND_OPEN)):
-        dd, gg = osm.read(typ)
-        if dd is None:
-            continue
-        for i, row in enumerate(dd.itertuples(index=False)):
-            if row.klass not in classes or gg[i] is None or gg[i].geom_type not in ('Polygon', 'MultiPolygon'):
-                continue
-            try:
-                g = shapely.make_valid(gg[i]).intersection(frame)
-            except shapely.errors.GEOSException:
-                continue
-            if g.is_empty or g.area < 1e4:
-                continue
-            nm = O.sv(getattr(row, 'name', None)) or f'{row.klass} (unnamed)'
-            cand.append((g.area, nm, row.klass, g))
-    cand.sort(key=lambda c: -c[0])
-    parks = []
-    for a, nm, kl, g in cand:
-        if len(parks) >= Q['crops']:
-            break
-        if any(g.intersection(p['geom']).area / max(1.0, g.union(p['geom']).area) >= 0.6 for p in parks):
-            continue  # (the same place mapped twice)
-        parks.append({'name': nm, 'class': kl, 'geom': g})
+    parks = open_spaces(osm, box(minX, minZ, maxX, maxZ), Q['crops'])
     from rasterio.features import rasterize
     import rasterio
     for p in parks:
@@ -372,9 +888,10 @@ def run(slug, city_dir, log=_log, crops=None):
         'flags': nflag, 'trees': tree_stats, 'scrubWoodedExamples': [[round(la, 5), round(lo, 5)] for la, lo, w in scrub_ex],
         'parks': [{k: p[k] for k in ('name', 'ha', 'wcTree', 'trees', 'mapped', 'park', 'street', 'perHa', 'haOpen', 'procOpen', 'perHaOpen')}
                   for p in parks],
+        'bridgeGate': Q['bridgeGate'], 'bridges': bridge_summary(bridge), 'bridgePlan': bplan,
         'report': os.path.relpath(os.path.join(out, 'report.md'), ROOT).replace('\\', '/'),
     }
-    write_report(out, name, slug, man, Q, checks, ok, tree_stats, worst, parks, ny, nx, len(T), nproc, scrub_ex)
+    write_report(out, name, slug, man, Q, checks, ok, tree_stats, worst, parks, ny, nx, len(T), nproc, scrub_ex, bridge_section(bridge, bplan, Q, refused))
     mp = os.path.join(city_dir, 'city.json')
     m2 = json.load(open(mp))
     m2.setdefault('stats', {})['qa'] = summary
@@ -382,10 +899,12 @@ def run(slug, city_dir, log=_log, crops=None):
         json.dump(m2, f)
     verdict = 'PASS' if ok else 'FAIL'
     lines = [f'{"FAIL" if c[0] in failed else "ok"}: {c[1]}: {c[2] * 100:.2f}% ({c[4]}), max {c[3] * 100:.1f}% (and >= {c[6]})'
-             + ('  <-- FAIL' if c[0] in failed else '') for c in checks]
+             + ('  <-- FAIL' if c[0] in failed else '') for c in checks] + [bridge_line(c, Q['bridgeGate']) for c in bridge if c['key'] in failed]
+    bsum = (f'; bridges ({Q["bridgeGate"]}): {sum(1 for c in bridge if c["over"])} of {len(bridge)} over their limits, '
+            f'{sum(1 for c in bridge if not c["read"])} NOT READ')
     if ok:
         log('PASS (' + '; '.join(f'{c[0]} {c[2] * 100:.2f}%' + (f' ({c[5]}, under the minimum {c[6]})' if c[2] > c[3] else '') for c in checks)
-            + f') in {time.time() - t0:.0f} s; ' + summary['report'])
+            + f'{bsum}) in {time.time() - t0:.0f} s; ' + summary['report'])
     else:
         bar = '!' * 78
         print('\n'.join(['', bar, f'!!! QA FAIL: {name} ({slug}): ' + ', '.join(failed), *[f'!!! {s}' for s in lines],
@@ -510,7 +1029,64 @@ def draw_cells(cls, res2, flags, scrub_cells, Q, minX, minZ, maxX, maxZ, out):
     plt.close(fig)
 
 
-def write_report(out, name, slug, man, Q, checks, ok, ts, worst, parks, ny, nx, ntrees, nproc, scrub_ex=()):
+def limit_text(c):
+    """'<= 15.00 m (and >= 50 m)': a bridge check's limit and its floor"""
+    t = ('>= ' if c['lower'] else '<= ') + fmt(c['limit'], c['unit'])
+    if c['floor'] and (c['countUnit'] != 'count' or c['floor'] > 1):
+        t += f' (and >= {fmt(c["floor"], c["countUnit"])})'
+    return t
+
+
+def bridge_line(c, gate):
+    """one bridge check for the log"""
+    if not c['read']:
+        return f'bridges: {c["key"]}: NOT READ ({c["why"]})'
+    v = fmt(c['value'], c['unit']) + (f' ({fmt(c["count"], c["countUnit"])})' if c['countUnit'] != 'count' else '')
+    state = ('FAIL' if gate == 'fail' else 'OVER (reported, not failed)') if c['over'] else 'ok'
+    return f'bridges: {c["key"]} {v}, limit {limit_text(c)}: {state}; {c["what"]}' + (f'; {c["detail"]}' if c['detail'] else '')
+
+
+def bridge_summary(bridge):
+    """the bridge checks for city.json stats.qa (an id gone is value None with gone: true)"""
+    def num(v):
+        return None if v is None or not math.isfinite(v) else round(v, 4)
+    return {c['key']: {'value': num(c['value']), 'unit': c['unit'], 'limit': num(c['limit']), 'count': num(c['count']) if c['count'] is not None else None,
+                       'floor': c['floor'], 'over': c['over'], 'read': c['read'], **({'why': c['why']} if not c['read'] else {}),
+                       **({'gone': True} if c['value'] == float('inf') else {})} for c in bridge}
+
+
+def bridge_section(bridge, bplan, Q, refused):
+    """the report's bridge checks (BRIDGES.md section 4) and what bridges.py's plan made of the map"""
+    gate = Q['bridgeGate']
+    L = ['## Bridges', '',
+         f'The fifteen checks of `docs/specs/bridges/BRIDGES.md` section 4, '
+         + ('**failing the bake** when over.' if gate == 'fail' else 'reported, **never failing the bake** (`"bridgeGate": "report"`) until step 6 sets them to fail.')
+         + ' A check is over when its value passes its limit and its count reaches its floor. NOT READ: nothing to read yet, never a pass. Until '
+         'step 5 the decks drawn are the heroes\' kits (city.json landmark rows with a deck) and the decks of the map are `tools/bake/bridges.py`\'s plan, '
+         'its tops by the rule with no LiDAR.', '', '| check | value | limit | | what |', '|---|---|---|---|---|']
+    for c in bridge:
+        v = fmt(c['value'], c['unit']) + (f' ({fmt(c["count"], c["countUnit"])})' if c['read'] and c['countUnit'] != 'count' else '')
+        st = 'NOT READ' if not c['read'] else ('**FAIL**' if gate == 'fail' else '**over**') if c['over'] else 'ok'
+        L.append(f'| `{c["key"]}` | {v} | {limit_text(c)} | {st} | {c["what"]}' + (f': {c["detail"]}' if c['detail'] else '')
+                 + (f' ({c["why"]})' if not c['read'] else '') + ' |')
+    if refused:
+        L += ['', 'The config\'s `"qa"` tried to loosen these, which it may not; the defaults stand: '
+              + ', '.join(f'`{k}` {v!r} (default {d!r})' for k, v, d in refused) + '.']
+    cl = bplan['classes']
+    L += ['', f'**The map\'s decks** (bridges.py): ' + ', '.join(f'{c} {n} ({km:.2f} km)' for c, (n, km) in cl.items())
+          + f'; {bplan["skipped"]} tram-only S decks skipped. The heroes draw: '
+          + ('; '.join(f'{h} its ways {", ".join(ids)}' for h, ids in sorted(bplan['heroes'].items())) or 'none') + '.', '',
+          '**Spans of 1 km or more with no tower and no structure tag** (the thin-data case no check can measure; the tour takes the longest): '
+          + ('; '.join(f'{nm} {n:,} m at {ll}' for n, nm, ll in bplan['openSpans']) or 'none') + '.']
+    for c in bridge:
+        if c['rows']:
+            L += ['', f'### `{c["key"]}`', ''] + [f'- {r}' for r in c['rows'][:int(Q['worst'])]]
+            if len(c['rows']) > Q['worst']:
+                L.append(f'- ... and {len(c["rows"]) - int(Q["worst"])} more')
+    return L + ['']
+
+
+def write_report(out, name, slug, man, Q, checks, ok, ts, worst, parks, ny, nx, ntrees, nproc, scrub_ex=(), bridge_lines=()):
     minX, minZ, maxX, maxZ = man['bounds']
     L = [f'# Bake QA: {name} ({man.get("name", slug)}): **{"PASS" if ok else "FAIL"}**', '',
          f'Written {time.strftime("%Y-%m-%d %H:%M")} by `tools/bake/qa.py` against ESA WorldCover 10 m (2021). Frame '
@@ -519,6 +1095,7 @@ def write_report(out, name, slug, man, Q, checks, ok, ts, worst, parks, ny, nx, 
     for key, what, v, mx, detail, n, mn in checks:
         verdict = 'ok' if v <= mx else '**FAIL**' if n >= mn else f'ok (over the share, under the minimum of {mn})'
         L.append(f'| {what} | {v * 100:.2f}% ({detail}) | <= {mx * 100:.1f}% (or < {mn}) | {verdict} |')
+    L += [''] + list(bridge_lines)
     L += ['', '## Trees', '',
           f'{ntrees:,} trees: {ts["mapped"]:,} mapped (OSM natural=tree / tree_row), {ts["park"]:,} procedural park / woods trees, '
           f'{ts["street"]:,} procedural street trees. WorldCover tree cover: {ts["wcTreeCover"] * 100:.1f}% of the land. Procedural park / '
@@ -567,7 +1144,7 @@ def write_report(out, name, slug, man, Q, checks, ok, ts, worst, parks, ny, nx, 
     for p in parks:
         if p.get('png'):
             L += [f'### {p["name"]}', '', f'![{p["name"]}]({p["png"]})', '']
-    L += ['## Thresholds', '', 'Defaults in `tools/bake/qa.py` QA_DEFAULTS; the city config\'s `"qa": {...}` overrides:', '',
+    L += ['## Thresholds', '', 'Defaults in `tools/bake/qa.py` QA_DEFAULTS; the city config\'s `"qa": {...}` sets them, a limit only tighter:', '',
           '```', json.dumps({k: Q[k] for k in QA_DEFAULTS}, indent=1), '```', '']
     with open(os.path.join(out, 'report.md'), 'w', encoding='utf-8') as f:
         f.write('\n'.join(L))
