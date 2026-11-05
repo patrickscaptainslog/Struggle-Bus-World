@@ -1,10 +1,12 @@
 import { config } from '../config';
 import { registerTunables } from '../ui/tunables';
 
-// Two thumbs, each with its own job (docs/specs/flight/THUMBS.md). One line decides,
-// on the landing alone: the look zone, the left lookZone of the screen's width (the
-// right, with BUTTONS: SWAP). A touch landing there never flies. Everywhere else
-// the first thumb flies, and on its own it flicks and taps too. In any order, the
+// Two thumbs, each with its own job (docs/specs/flight/THUMBS.md). One rule decides,
+// on the landing alone: the look zone, which is everywhere but the bus's lane (busZone,
+// set each frame from where the bus stands on the screen: round the bus and anywhere
+// under it). With no bus on the screen it is the left lookZone of the screen's width
+// (the right, with BUTTONS: SWAP). A touch landing in the zone never flies. Everywhere
+// else the first thumb flies, and on its own it flicks and taps too. In any order, the
 // thumb in the zone looks and the other flies. A mouse has its right button instead.
 //
 // THE FIRST THUMB FLIES: the floating bungee, anywhere out of the zone. The
