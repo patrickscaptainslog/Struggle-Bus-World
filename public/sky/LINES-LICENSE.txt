@@ -1,0 +1,4 @@
+lines.bin: the constellation figures drawn in the flight's sky, from Stellarium's western sky culture
+(https://github.com/Stellarium/stellarium/tree/master/skycultures), licensed CC BY-SA.
+This file, as adapted here (star pairs as u16 indices into stars.bin, tools/sky/bake-space.py), is under the same licence:
+CC BY-SA 4.0, https://creativecommons.org/licenses/by-sa/4.0/

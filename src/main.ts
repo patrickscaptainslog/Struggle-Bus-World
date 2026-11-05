@@ -901,7 +901,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const flightHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd };
   const tuner = new Tuner();
   // (the ODbL credit, then the other sources' own: ESA WorldCover's CC BY for where the trees stand)
-  const dataCredits = [manifest.attribution ? (moon ? `Data ${manifest.attribution}` : `Map data ${manifest.attribution} (ODbL)`) : '', ...Object.values(manifest.credits ?? {})].filter(Boolean);
+  const dataCredits = [manifest.attribution ? (moon ? `Data ${manifest.attribution}` : `Map data ${manifest.attribution} (ODbL)`) : '', ...Object.values(manifest.credits ?? {}),
+    // (the flight's constellation figures, public/sky/lines.bin: Stellarium's western sky culture, CC BY-SA; see public/sky/LINES-LICENSE.txt)
+    ...(params.has('earth') || moon ? ['Constellation lines Stellarium (CC BY-SA)'] : [])].filter(Boolean);
   tuner.credits = dataCredits.join('; ');
   const perf = new Perf(renderer);
   perf.setVisible(params.has('fps'));
