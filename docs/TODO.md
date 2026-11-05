@@ -22,7 +22,7 @@ Tick what you finish, in the commit that finishes it. Add to it when the produce
 2. On your iPhone, the check page: https://struggle-bus-world-git-feat-life-patricks-projects-9ff6e721.vercel.app/life-check.html. It should say MATCHES ... WITHIN 1 CM. It's the one test only Safari can run.
 3. The fixed trip: https://struggle-bus-world-git-feat-earth-patricks-projects-9ff6e721.vercel.app/?earth&fps. Climb by day (space shouldn't go black), go to the Moon, fly down to its ground (grey all the way, never black), and come home (the look works all the way, and at night the colours don't jump).
 
-**Waiting**: cars, boats and ships wait for the first account's map data (planned tonight in GRAPHS.md, not built yet).
+**Next**: cars, ferries and boats, on the first account's graphs (built this morning on `feat/world`). The contract's eight changes go into the graphs first, then life builds on them.
 
 ## Tonight, both accounts (the night of 2026-11-04, Pacific)
 
