@@ -1,0 +1,249 @@
+# GRAPHS: the world's first graphs for life
+
+What the world builds first for life's stage 1, and how: San Francisco's graphs from the Bay archive, in the contract's files, the parser life reads, and W1. Built to `CONTRACT.md` 0.5. Where the contract can't be met as written, the change is at the end, Proposed, for the second account (`CONTRACT.md` section 8). Nothing is built on a change before it's Agreed.
+
+**State.** 2026-11-05, the first account, on `feat/world`, with `feat/earth` merged in at e8c44a7 (77d212c: the contract signed by both, main's 6b494b7). A plan: nothing in it is built yet. Facts are marked as `LIVING.md` marks them. MEASURED here means read tonight from the archive (`bay-2026-10-21`, read only) or from the repo, with throwaway scripts that read one row group at a time. They aren't in the repo. The bake's own report prints the same counts.
+
+## In one minute
+
+- **One map, as it ships.** San Francisco's: origin 37.7749, -122.4194, bounds x -8,704 to 5,632 and z -9,984 to 7,680, 195 regions of 4 x 4 tiles. Its tiles aren't re-baked. Beside them go a `g_<rx>_<rz>.bin` a region (`SBG1`), one `routes.bin` and a `life` block in `city.json`.
+- **From the archive alone.** Overture's raw row groups for segments and connectors, which keep the `between` ranges the flattened extract drops; the base types for areas; OurAirports; the EGM96 grid. Every height comes from the city's own baked terrain grids, a deck's from the deck City draws there (C2) or else the bridges spec's profile, and water's is `WATER_Y`. No download.
+- **New code.** `tools/bake/graphs.py`, the bake. `tools/bake/decks.py`, the bridges spec's deck profile, written once for the graphs now and for bridges step 5 later. `src/world/lifeData.ts`, the types and the two parsers, worker-safe. `tools/world/graph-check.mjs`, W1.
+- **Under 1 GB.** The map touches 8 of the archive's 64 segment row groups. Read in batches of 4,096 rows with only the leaf columns it needs, one thread for Arrow and one for OpenBLAS, it stays in the low hundreds of MB (MEASURED below). Pieces spill to disk by region, and each region is built alone.
+- **Five places the contract can't be met as written, and two smaller asks**: "CONTRACT: changes", at the end.
+
+## What the archive holds for the map (MEASURED)
+
+Everything that touches the bounds, from the raw row groups:
+
+| | Count | Notes |
+|---|---|---|
+| Segments | 56,327 | 55,779 road, 528 rail, 20 water. 5,130 km inside the bounds |
+| Car classes | 2,554 km | residential 1,164, service 482, tertiary 233, secondary 224, primary 144, motorway 131, unclassified 84, track 39, trunk 33, unknown 18, living street 3 |
+| Foot classes | 2,219 km | footway 1,961 (subclass: 7,661 sidewalks, 6,907 crossings), path 127, cycleway 70, steps 38, pedestrian 23 |
+| Connectors | 85,932 | 85,321 name an OSM node (99.3 %). 75,207 references sit inside a segment, not at its end, so a segment is several edges |
+| Road flags | 2,186 rules | is_link 721, is_bridge 663, is_covered 308, is_tunnel 291, is_indoor 147, is_under_construction 46, is_abandoned 10. 1,002 cover part of a segment only (`between`) |
+| Levels | 1,252 rules | -4 to 5, 732 on part of a segment |
+| One-way | 6,893 rules | `denied`, heading `backward`, no mode: 6,749 on the whole segment, 144 on part |
+| Closed to cars | 383 road segments | motor vehicles denied and nothing allowing cars. 52 are Market Street's, buses allowed |
+| Speed limits | 5,468 segments | 5,574 rules in mph, 4 in km/h, 259 on part |
+| OSM ways a segment | | one: 44,518; two or more: 11,393, up to 48; none: 416 |
+| Ferry routes | 20 | 107.7 km inside the bounds; whole, 2.8 to 45.4 km (Vallejo). Not one has an access rule, a speed, a flag or a time |
+| Ferry terminals | 16 | 15 points (the Ferry Building's gates B to G, Pier 41's two gates, the Alcatraz landing at Pier 33, Pier 48.5, Oracle Park, Sausalito, Treasure Island, Alcatraz, Red & White Fleet) and one polygon, the Ferry Building, 9,900 m². The six gates have no name |
+| Marinas | 9 | 48.5 ha, all named. One maps its berths: `capacity` 161 |
+| Areas | | parks 347 (2,074 ha), dog parks 36, pedestrian areas 249 and plazas 18 (31 ha), beaches 47 (136 ha), piers 221 polygons (47.5 ha) and 1,153 lines, docks 2, land 27 polygons (the coastline) |
+| Traffic signals | 2,248 | 75.0 % within 0.5 m of a connector, 86.3 % within 3 m |
+| Stop signs | 4,710 | 24.3 % within 0.5 m of a connector, 99.0 % within 15 m: they sit on the approach |
+| Aeroways | none | helipads only. OurAirports has heliports and closed fields inside the bounds, no airport |
+
+Not in it: lanes (Overture's segments have no such column: the S3 footer lists 21 and none is lanes), roundabouts (no flag value says so), OSM's own tags on segments (`seasonal`, `oneway`), a cruise terminal (nothing in these types names one; buildings and places, items 1 and 5, weren't fetched), turn restrictions (`prohibited_transitions`, not fetched).
+
+The map's region grid: 15 x 18 = 270 cells inside the bounds, 195 of them with tiles. The other 75 hold no tile because they're all water: the Pacific off Ocean Beach, the strait, the water north of the city and the Bay to the east. The region files are 25.5 MB gzipped, median 127 KB, largest 280 KB.
+
+## What the bake makes
+
+### Edges and nodes
+
+Each segment is cut into edges at its connectors, wherever a flag, level, one-way, speed or OSM-way range starts or ends, at the map's bounds, and at every region line (x and z at multiples of 1,024 m). Then an edge has one value of everything and lies in one region.
+
+| Overture | Kind | cls |
+|---|---|---|
+| road: motorway, trunk, primary, secondary, tertiary, residential, unclassified, living_street, service, track, unknown | ROAD | the RoadClass of that name (living_street: LIVING) |
+| road: footway (subclass sidewalk: SIDEWALK; crosswalk: CROSSING; else FOOTWAY), path and bridleway (PATH), steps, cycleway, pedestrian | FOOT | FootClass |
+| rail, every class | RAIL | 0 |
+| water: all 20 are ferry routes | FERRY | 0 |
+| nothing tonight | WATER | in-map ship lanes come with `lanes.bin`'s raster |
+
+Left out, as the bridges spec leaves them out: is_indoor, is_under_construction, is_abandoned.
+
+- **dir.** FORWARD where a `denied` rule with heading `backward`, and no mode or a car's, covers the edge. BACKWARD for heading `forward`. Else BOTH. FOOT edges are BOTH.
+- **speed.** The rule with no `when`, else the first. mph x 1.609344, rounded. 0 where there's none.
+- **level.** `level_rules` on the edge's range, else 0.
+- **lanes.** 0 everywhere: no source.
+- **flags.** BRIDGE (is_bridge). TUNNEL (is_tunnel, and is_covered: hidden under what covers it). LINK (subclass link, or is_link). UNDRAWN, below. ROUNDABOUT and SEASONAL never: no source. NO_CARS if C6 is Agreed.
+- **UNDRAWN** where the ground bake left the segment out (`osm.py`, `segments()` ~353-368: any bridge, tunnel, indoor, covered or construction flag on it, or `level_max` not 0), unless the edge is TUNNEL or on a deck City draws. That's exactly what today's tiles don't draw, because `segments()` judged whole segments. Bridges step 4 (`between`) and step 5 (decks) give it back, and the flags clear with them.
+- **Nodes.** A connector, or a cut. SIGNAL on a connector within 0.5 m of a traffic signal. STOP on the junction a stop sign faces, within 15 m along its edge. PORTAL on a cut at a region line, in both regions' files with one id. An edge the bounds cut ends on the bounds, and life knows the bounds from `city.json`.
+- **Shapes.** Simplified to 0.25 m in plan, `osm.py`'s footprint tolerance. Then a point goes in wherever the straight line between two points misses the terrain grid by more than 0.5 m at any 4 m step. On San Francisco's hills a 100 m block can crest by metres between its corners, and life moves cars along those straight lines.
+
+### Keys and ids (1.3)
+
+| Thing | Key |
+|---|---|
+| A connector's node | its OSM node, `n65293476`; else `g` and its GERS id |
+| Any other node: a cut at a region line, the bounds or a range | its edge's OSM way and its own place in whole decimetres of the map, `w31772645@-71680,-22103` (C4) |
+| An edge | its OSM way and its piece, `w31772645#2`, the pieces counted along the way as it runs (a closed way from its smallest node key). An edge over two ways takes the one with more of its length. With no OSM way, `g` and the segment's GERS id |
+| An area | its element, `w453930841` or `r14551816`. OPEN_WATER, which has none: `water@<rx>,<rz>#k` |
+| A ferry route | its OSM way, `w31772645` |
+| A terminal, a marina | its OSM element. A terminal the bake makes at a route's end: that end's OSM node |
+| An airport, a runway | its ICAO code, `KSFO`; `KSFO:28L` |
+
+Ids: FNV-1a of the key into a range a kind (nodes, edges, areas, ferries, terminals, marinas, airports), probed in key order over the whole city, as `IdAlloc` does (`bake.py` ~994). Every id's key goes in `public/city/<slug>/gkeys.bin`, gzipped, which the game never fetches: W2 compares two bakes' copies.
+
+### Heights
+
+| Point | y |
+|---|---|
+| On land | bilinear over its tile's 65 x 65 grid, as `tiles.ts` reads it: the baked heights, never `meshHeights` |
+| On water: a FERRY point on a WATER texel, or in a tile or cell with no tile | `WATER_Y`, -0.6 |
+| On a deck City draws | that deck's top, once C2 is Agreed; the profile below until then. A stack's lower deck: 5.5 m a level under the top |
+| On any other bridge, or above level 0 | `decks.py`, the bridges spec's rule (`BRIDGES.md`, "Height profile"), on the chain of edges it's in |
+| In a tunnel | straight between the tunnel's two ends, which stand on the ground or a deck |
+| An area's vertex | as land or water above |
+
+The rule in `decks.py`: over water 1.5 m plus 4.5 % of the crossing's water length, 1.5 to 80 m; over land the ground, smoothed, plus 5.5 m a level; never down faster than 3 % (road), 2 % (rail) or 6 % (foot); a chain's ends on the ground where it meets ground edges. No LiDAR tonight: San Francisco's LiDAR rasters cover only the 128 m chunks that hold a building (`lidar.py`), so a deck over water isn't in them, and reading the decks' own points is a download. With no LiDAR the rule's error on San Francisco's decks is a median of 3.3 m, 87 % within 10 m (`BRIDGES.md`, SOURCE).
+
+Piers stand in the grid: the city bake raised piers over the water to 2.5 m (`bake.py` ~1613-1621). So a FERRY edge ends on its berth's node at the pier's height, and the boat stops where its edge leaves the water.
+
+### Areas
+
+| AreaKind | From |
+|---|---|
+| PLAZA | land_use pedestrian and plaza; infrastructure pier polygons (piers are PLAZA, as in the class raster) |
+| PARK | land_use park, dog_park, village_green. Not the protected areas: those are boundaries over land and water |
+| BEACH | land sand, class beach |
+| MARINA | land_use marina |
+| FERRY_TERMINAL | infrastructure ferry_terminal polygons: the Ferry Building |
+| CRUISE_TERMINAL, APRON | none on this map |
+| OPEN_WATER | the class raster's WATER texels, region by region, as polygons. A cell with no tile is water whole (C1) |
+
+Each is clipped to its region and cut into triangles on a quadtree of the 4 m grid: 64 m cells, split down to 4 m wherever a cell's two triangles miss one of the grid's points by more than 0.5 m. OPEN_WATER is flat at `WATER_Y`. Names come from Overture's `names.primary`.
+
+### routes.bin
+
+- **Ferries.** The 20 routes that touch the map, whole. `from` and `to`: the terminal within 150 m of each end. `seasonal`: false, with no source. Four of the 20 names say "(Seasonal)", and the contract rules the name out, so the game-day ferries run every day. `lengthM`: geodesic.
+- **Terminals.** The archive's ferry_terminal elements at those ends, from the whole Bay (Larkspur's, Vallejo's and Oakland's are off the map). An end with none gets a terminal of its own, at its end node. `berthM`: the longest side over water of the pier it stands on, else 60 (ESTIMATE, a ferry slip).
+- **Marinas.** The 9 on the map. `berths`: `capacity` where it's mapped, else the polygon's area over 450 m², Schoonmaker Point's own ratio (161 berths in 72,396 m²; an ESTIMATE everywhere else).
+- **Airports.** OurAirports' scheduled service within 50 km of the origin: SFO (17.7 km), OAK (18.5), SQL (32.7), CCR (39.8). `elevM`: feet x 0.3048. Runways from `runways.csv`: open, both ends, width in feet x 0.3048, one entry a landing direction (`KSFO:28L`, its threshold first). No ODbL runways tonight: there are none on this map.
+
+### city.json
+
+- `"life": { "graph": 1, "routes": 1 }`, with `regions` if C1 is Agreed, and `stats`: the bake's counts (rules read, rules applied, edges by kind), as `stats` sits beside the city bake's output.
+- PlaceInit's inputs: `"vdatum": "NAVD88"` (`docs/ARCHITECTURE.md`, "World conventions") and `"geoid": -32.24`, EGM96's N at the origin (MEASURED tonight from item 21, bilinear). Over the bounds N runs -32.46 to -32.12 m, so one number a place holds (O9). Life's worker draws no live plane under 1 km while its place has no N (`feat/life`, `src/life/lifeWorker.ts`, `NO_GEOID_FLOOR`).
+- `__sbDataV` goes from osm3 to osm4 with the files (`docs/ARCHITECTURE.md`: every re-bake bumps it).
+
+### Sizes (ESTIMATE)
+
+About 145,000 edges and 100,000 nodes: 126,000 pieces between connectors (from the connectors on each segment), about 6,500 region cuts (5,130 km of lines on a 1 km grid), the rest at ranges. About 10 MB before gzip and 5 MB after: 20-30 KB a region on average, the busiest perhaps 80 KB, under the contract's 128 KB. `routes.bin`: tens of KB, under 256 KB. W1 measures both.
+
+## How it streams
+
+Measured tonight on this laptop (8 GB, 620-980 MB free during the runs):
+
+| Read | Peak working set | Peak private bytes |
+|---|---|---|
+| The survey: every segment row group of the Bay one at a time, whole, 15 columns, then the connectors and four base types, default threads | 531 MB | 837 MB |
+| Every segment row group in batches of 8,192 rows, keeping the map's 56,327 segments as Python tuples | 543 MB | 944 MB |
+| Batches of 4,096, leaf columns only (`names.primary`, three fields of `sources`), Arrow's system pool on one CPU and one IO thread, nothing kept | 118 MB | 352 MB |
+| Importing numpy, shapely, pyproj and scipy, nothing else | 76 MB | 521 MB |
+| The same with `OPENBLAS_NUM_THREADS=1` | 75 MB | 50 MB |
+| The map's 56,327 segments kept as tuples, OpenBLAS on one thread | 366 MB | 364 MB |
+
+The thread pools under numpy and scipy (OpenBLAS, OpenMP) take 470 MB of commit before any data is read. So the bake sets `OPENBLAS_NUM_THREADS=1` and `OMP_NUM_THREADS=1` before it imports numpy, and Arrow's one-thread settings, and it never holds a whole type. The city bake loads the same libraries and would save the same. The passes:
+
+1. **Read**, streamed. Only the row groups whose footer statistics touch the map: 8 of 64 for segments (37.6 MB), 2 of 34 for connectors, 2 to 8 for each base type (MEASURED). Batches of 4,096 rows with only the leaf columns the graph reads. Each segment is cut into pieces as above, and each piece is appended to its region's spill file under `tools/bake/.cache/<slug>/graph/` (numpy, a few MB each). The connectors are two arrays, keys and places, 86,000 rows. Areas the same way, clipped to regions as they come.
+2. **Global**, small. Every key sorted and given its id. The bridge chains and their profiles: 663 bridge rules in the map. The ferry routes whole, the terminals, the marinas and the airports.
+3. **Region by region.** One region's spill and its tiles (`citydata.py` reads the packed `r_*.bin`): nodes merged by key, heights, shapes densified, areas cut, `g_<rx>_<rz>.bin` written gzipped. Nothing else is in memory.
+4. **`routes.bin` and `city.json`.**
+
+San Francisco alone would fit in memory (366 MB, above). The Bay's 974,750 segments, 17 times as many, would not, and pass 1 is the same code there. It runs at below-normal priority. ESTIMATE: a few minutes.
+
+## The parser life reads
+
+`src/world/lifeData.ts`, the world's (CONTRACT section 0). Worker-safe: no three.js and no DOM, only typed arrays, `DataView` and `TextDecoder`, which Safari 15's workers have. The contract's types as written. `parseRegionGraph(buf)` and `parseCityRoutes(buf, origin)` take an inflated buffer (`gunzip.ts` inflates it in the worker) and give null for a magic they don't know or a major version they can't read: never a throw into life. A parse makes the arrays it returns, and nothing per element but the names. Nothing runs per frame. The const enums compile as the repo's eleven others do (`isolatedModules`). W1 bundles the file with rolldown, as `tools/moon/run.mjs` does, because Node's own type stripping refuses enums.
+
+The byte layout is written once, at the top of the parser, as `tiles.ts` does for the tiles. In outline, all little-endian, each section column by column:
+
+```
+g_<rx>_<rz>.bin, gzip of:
+  'SBG1', u16 version, u16 0, i32 rx, rz, f32 baseY; u32 counts: nodes, edges, points, areas, area vertices, area triangles, names
+  nodes   u32 id, i16 x, z (dm from the region's corner, rx * 1024, rz * 1024), i16 y (dm over baseY), u8 flags
+  edges   u32 id, u16 a, b (u32 past 65,535 nodes), u8 kind, cls, dir, lanes, speed, i8 level, u16 flags, u32 shape[n + 1]
+  points  i16 x, z, y
+  areas   u32 id, u8 kind, u16 name, u32 tri[n + 1]; vertices i16 x, z, y; triangles u16 (u32 past 65,535) x 3
+  names   u8 length, utf-8
+routes.bin, gzip of: magic (C7), u16 version, then ferries, terminals, marinas and airports, each a u32 count and its rows;
+  latitudes and longitudes i32 at 1e-7 degree, strings a length and utf-8
+```
+
+The parser expands the areas into the contract's triangles of 9 floats.
+
+Then, in the same file and small: PlaceInit, `makePlaceFrame` and `weatherAt`, with W3 (sections 1.1 and 4). Life's worker places its live planes with `latLonToLocal` and keeps its own `CLEAR` while it waits for them (`feat/life`, `src/life/lifeWorker.ts`, `src/life/weather.ts`).
+
+## W1: tools/world/graph-check.mjs
+
+`node tools/world/graph-check.mjs sf`, in Node, so it runs on the cloud machine too. It reads `city.json`, parses every graph file and `routes.bin` with the shipped parser, and reads the tiles' heights and classes with `tiles.ts`'s own parser from the `r_*.bin` files, one region at a time. It prints each count beside its limit and exits 1 on any failure.
+
+| Invariant (1.2) | What W1 counts | Fails at |
+|---|---|---|
+| Every file parses with the shipped parser | files parsed, by version; bytes gzipped against 128 KB and 256 KB | any |
+| Every edge's two nodes exist | edges whose a or b isn't a node; points more than 0.1 m outside their region | 1 |
+| A node where an edge leaves its region is a PORTAL, with the same id next door | portals; portals with no twin; twins more than 1 cm apart; nodes on a region line that aren't PORTAL; edges across a line | 1 |
+| Ids | an id twice in one city but a portal's twin; a key with two ids | 1 |
+| Direction as mapped, BOTH where nothing says | edges by dir and class; one-way rules read against edges made one-way, from `life.stats` | the two differ |
+| TUNNEL and UNDRAWN apart | tunnel edges that are also UNDRAWN; UNDRAWN km by class (motorways should come near the audit's 68 %, SOURCE) | 1 tunnel |
+| A land node within 0.5 m of the tile's grid | land nodes, points, and every 4 m along every land edge, against the 65 x 65 grid, bilinear; the worst and where | 1 over 0.5 m |
+| A water node at `WATER_Y` | water nodes and points off -0.6 by over 1 mm | 1 |
+| A deck's top from the graph's data, decks told apart by level | deck points within 15 m of a landmark deck's line against its top: median and worst (within 0.3 m once C2 is Agreed); stacked edges whose higher level isn't higher | C2's gate; 1 inversion |
+| FERRY and WATER edges on water, but their last 150 m, which ends on a terminal, berth or port area | every 10 m along them against the class raster at 2 m (no tile: water); ends not on a terminal, a berth or PLAZA | 1 |
+| The same past the map | `routes.bin`'s ferries every 10 m against Overture's land polygons along them, in a file the bake writes (C3); until then "past the map: not checked" | 1 |
+| Areas | the grid's points inside each area against its triangles; OPEN_WATER triangles off WATER | 1 over 0.5 m |
+| Places may be named; nothing names a person or a vessel | every name in the files, printed once for a person to read: W1 can't tell a person's name by itself | none |
+
+The 4 m test along edges asks more than the contract, which asks it of nodes. It's what a car on a hill needs.
+
+## The order
+
+1. `graphs.py`, passes 1 and 2: the cuts, the keys and ids, `routes.bin`. Its report prints the archive table above, so this file and the bake agree or the report says where they don't.
+2. `decks.py` and the heights, the areas, pass 3, `city.json`.
+3. `lifeData.ts`: the types and both parsers.
+4. W1, then the bake fixed until W1 passes. Its numbers go in `DECISIONS.md` and here.
+5. Commit and push to `feat/world`, and a line in `docs/TODO.md` on `feat/earth` saying what life can read.
+6. Next: PlaceInit, `makePlaceFrame`, `weatherAt` and W3.
+
+ESTIMATE: about a day of agent time for steps 1 to 4. Nothing here changes what a player sees, so there's nothing for the producer to fly until life reads it.
+
+## Left for later
+
+- **Places and buildings** (items 5 and 1, waiting on the producer's OK of their sizes): a cruise terminal at Pier 27 (nothing in tonight's types names one, so life's "one cruise ship at Pier 27" has no terminal yet), and better names and outlines for terminals and marinas.
+- **The Bay beyond the city** (O10, the world's call by stage 1's first week): San Francisco's map grown, or maps for Oakland and Marin. Either needs city tiles there first (any-city, `VERDICT.md` step 4; GLO-30 and WorldCover are in the archive). The graph bake is the same code on any map.
+- **The ocean lanes**, `lanes.bin` and W4, from the World Bank's commercial layer (item 15, still zipped, 480 MB), with in-map WATER edges from the same raster.
+- **`airports.bin`** for the planet (O11): every airport with scheduled service in OurAirports.
+- **The coastline**, item 20: a retry, for W4.
+- **LiDAR on decks**: a download of the decks' own points, so the profile is LiDAR's wherever it can be.
+- **W2** once a second bake exists; **W5** with City's `onRegion`.
+- **Freeway surfaces** (bridges steps 4 and 5): as each is drawn, its edges lose UNDRAWN.
+
+## CONTRACT: changes
+
+For the second account. Each is Proposed until it marks it Agreed, and then goes into `CONTRACT.md` in a commit whose message starts `CONTRACT:` (section 8). Until then the bake does what the contract says, as each item says.
+
+The five it can't meet as written:
+
+- **C1. Graphs where City has no tile** (1.2, the files; 1.4). As written, a graph file sits on City's region grid and life finds the files through `city.json`'s `regions`, which lists only the 195 regions with tiles. 75 of the 270 cells inside the bounds have none, and they're the open water: the ferries to Marin and the East Bay cross them on their way off the map, and the sailboats would sail there (read off the region grid, not measured route by route). Proposed: a graph file in every cell inside the bounds with anything in it. A cell with no tile holds OPEN_WATER whole, at `WATER_Y`, and the ferry edges across it. `city.json` lists them, `"life": { "graph": 1, "routes": 1, "regions": [[rx, rz, bytes], ...] }`, and life reads that in place of `regions`. Old readers skip the key. Until Agreed: files only where City has a region, ferries whole from `routes.bin`, no OPEN_WATER in those 75 cells.
+- **C2. Decks City draws** (1.2, the heights). As written, a deck's y comes from the graph's own data, San Francisco's landmark decks are only a check, and y is what a mover stands on. On a drawn deck those disagree. With no LiDAR, the rule puts the Golden Gate at 74 m and the Bay Bridge at 73 m (`BRIDGES.md`), where their drawn decks rise from 57 to 77 m and from 29 to 79 m (`city.json`), so cars would hover over or sink into the two bridges the opening shows. Proposed: an edge on a deck City draws takes that deck's top, within 0.3 m (W1), and every other deck takes the profile. Today the drawn decks are San Francisco's two landmark rows. From bridges step 5 they're `bridges.bin`'s, made by the same `decks.py`, so the two agree by construction. It's no San Francisco code: it's whatever a city draws. The pick this plan started from, "decks from the landmarks", is this change. Until Agreed: the profile everywhere, and W1 prints the gap on the two bridges.
+- **C3. The coastline past the map** (1.2; W4). As written, past a map the check is against OSM's land polygons, a download. Item 20 didn't come: its host refused the connection (`DOWNLOADS.md`). Overture's `land` rows of class land, in the same archive, are made from OSM's coastline (their source is OpenStreetMap with no element named, MEASURED; 27 polygons inside the bounds), and the city bake already takes the sea from them (`osm.py`, `water()`). Proposed: inside an Overture extract's box, W1 checks the ferries past the map against those. W4 keeps item 20 for the oceans. Until Agreed: W1 checks the ferries inside the map only, and says so.
+- **C4. Keys for nodes with no connector** (1.3). As written, a PORTAL keys on its way and the region line, `w31772645@x-7168.0`. A piece with no junction can cross one line twice (a winding road), and then two portals share a key, which W2 can't tell apart. A cut where a range ends, such as a bridge starting inside a segment, has no key form at all. Proposed: every node with no connector keys on its edge's OSM way and its own place in whole decimetres of the map, `w31772645@-71680,-22103`.
+- **C5. Map metres from the routes parser** (1.2). As written, the files table says the parser also gives map metres, and `CityRoutes` has no field for them. Proposed: `parseCityRoutes(buf, origin)` adds `xz: Float32Array` to each ferry, and `x` and `z` to each terminal, marina, airport and runway end, from `geo.ts`. Old readers skip them.
+
+Two smaller asks:
+
+- **C6. Roads closed to cars** (1.2, `EdgeFlag`). An addition: `NO_CARS: 64`, on an edge where a whole-edge rule denies motor vehicles and none allows cars (buses and taxis aside). That's 383 road segments inside the bounds, 52 of them Market Street's car-free blocks (MEASURED). Without it life's grey cars drive down Market Street. A minor version.
+- **C7. Two magics already taken** (1.2). `routes.bin`'s `SBR1` is the region bundles' and `far16.bin`'s (`pack.py`, `farmap.py`), and `lanes.bin`'s `SBL1` is `lamps.bin`'s (`lamps.py`). Each parser checks its magic first, so a file handed to the wrong one would pass. Proposed: `routes.bin` `SBC1`, `lanes.bin` `SBS1`.
+
+Readings, where the contract leaves it open (the second account says if it reads them otherwise):
+
+- `edges.a` and `b` are indices into the region's own `nodes`, not ids.
+- `lanes` is 0 everywhere, ROUNDABOUT and SEASONAL are never set, and `seasonal` is false on every route: there's no source for any of them (above).
+- `level` is Overture's `level_rules`, by range: its segments keep no OSM `layer`.
+- TUNNEL covers is_covered too. A node that only tunnel edges touch is under ground: its y runs straight between the tunnel's ends, and W1 counts it apart from land nodes.
+- A FERRY edge's points on water are at `WATER_Y`, and its end on the berth is at the grid's height, 2.5 m on a pier.
+
+## Not checked
+
+- Nothing here is built. Every count of the output is an ESTIMATE until W1 runs.
+- That Overture keeps an OSM way's direction in its segment, which the one-way rules' `backward` reads against. W1 compares the rules with the edges, not with the streets.
+- The client changes a few of San Francisco's class texels at load: under the hidden stand-ins over water, SIDEWALK becomes WATER (`towerStyles.ts`, `clearStandInGround`). W1 reads the files as baked, not as drawn there.
+- The deck rule's error is `BRIDGES.md`'s, measured on the drawn decks' LiDAR, not on the graph's edges.
+- The 450 m² a berth rests on one marina. The 60 m slip is a guess.
+- Whether life wants RAIL edges at all: trains are "Later" in `LIVING.md`.
+- Peak memory was measured on reads only, not on a bake that cuts and writes.
