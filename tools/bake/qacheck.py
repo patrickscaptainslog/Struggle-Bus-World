@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""qa.py's own rules on made-up input (BRIDGES.md section 4): what a city config's "qa" may set. No data and no network.
+"""qa.py's own rules on made-up input (BRIDGES.md section 4): what a city config's "qa" may set, and that the bridge
+checks never stop the QA (what they all read failing makes every one NOT READ). No data and no network.
 
 usage: python3 -I tools/bake/qacheck.py [dir]     (default: the qa.py beside it; a dir holding an older tools/bake fails)
 """
 import importlib.util
 import os
 import sys
+
+import numpy as np
 
 sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -49,8 +52,62 @@ def overrides(qa):
     return why
 
 
+
+# ---------------------------------------------------------------- the bridge checks when what they read fails
+class Boom(Exception):
+    pass
+
+
+class Extract:
+    """the extract as bridge_checks() reads it: an empty frame, or one whose segments(), read() or bridges.py's plan()
+    raises"""
+    def __init__(self, fail):
+        self.fail = fail
+
+    def segments(self):
+        if self.fail == 'segments':
+            raise Boom('segments() failed')
+        return []
+
+    def read(self, typ):
+        if self.fail == 'read':
+            raise Boom(f'read({typ!r}) failed')
+        return None, np.array([], dtype=object)
+
+
+class Baked:
+    manifest = {'bounds': [0.0, 0.0, 256.0, 256.0], 'tileSize': 256.0, 'landmarks': []}
+
+
+def unread(qa):
+    """every failure gives the fifteen, each NOT READ saying why; nothing to read gives the fifteen NOT READ too"""
+    import bridges as B
+    why = []
+    ground = B.Ground((0.0, 0.0, 256.0, 256.0), np.full((128, 128), B.Ground.WATER, np.uint8), 2.0, np.zeros((65, 65), np.float32), 4.0)
+    Q = qa.thresholds({}, log=lambda *a: None)[0]
+    plan = B.plan
+    for fail in (None, 'segments', 'read', 'plan'):
+        if fail == 'plan':
+            def boom(*a, **k):
+                raise Boom('plan() failed')
+            B.plan = boom
+        try:
+            recs, _ = qa.bridge_checks({}, Baked(), Extract(fail), ground, Q, lambda lo, la: (lo, -la), lambda x, z: (-z, x), '.', log=lambda *a: None)
+        except Exception as e:  # noqa: BLE001
+            why.append(f'{fail or "an empty frame"}: raised {e!r}'[:120])
+            continue
+        finally:
+            B.plan = plan
+        if len(recs) != 15 or any(r['read'] for r in recs):
+            why.append(f'{fail or "an empty frame"}: {len(recs)} checks, {sum(1 for r in recs if r["read"])} read')
+        elif fail and not all('failed' in r['why'] for r in recs):
+            why.append(f'{fail}: ' + ', '.join(r['key'] for r in recs if 'failed' not in r['why']) + " don't say why")
+    return why
+
+
 CHECKS = [
     ("a city config's \"qa\" tightens a check, never loosens it, and never sets how the city is cut up", overrides),
+    ('the bridge checks never stop the QA: what they all read failing makes the fifteen NOT READ', unread),
 ]
 
 

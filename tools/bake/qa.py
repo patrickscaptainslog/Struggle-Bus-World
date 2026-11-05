@@ -263,28 +263,62 @@ def bridge_checks(cfg, city, osm, ground, Q, ll2xz, lonlat, city_dir, log=_log):
         la, lo = lonlat(x, z)
         return f'{la:.5f}, {lo:.5f}'
 
+    # ---------------------------------------------------------------- the fifteen, made before anything is read: when
+    # what they all read fails, every one is NOT READ and says why, and the QA goes on
+    lim = lambda k: Q[k]  # noqa: E731
+    c_hero = check('heroOffData', "a hero row's typed point from the OSM row it names", 'm', lim('heroOffDataMax'))
+    c_tower = check('towerOffDeck', "a drawn tower's centre from its drawn deck's centre line", 'm', lim('towerOffDeckMax'))
+    c_posts = check('deckNoCollision', "a drawn deck's area under no collision post", 'share', lim('deckNoCollisionMax'))
+    c_end = check('deckFreeEnd', "a drawn deck's free end over the ground", 'm', lim('deckFreeEndMax'))
+    c_water = check('waterRoadNoDeck', 'real bridge road and rail over water with no deck or ground bridge', 'share', lim('waterRoadNoDeckMax'),
+                    lim('waterRoadNoDeckMinM'), 'm')
+    c_bridge = check('bridgeNoDeck', 'real bridge road and rail with no deck or ground bridge', 'share', lim('bridgeNoDeckMax'), lim('bridgeNoDeckMinM'), 'm')
+    c_bare = check('bareSupports', 'real supports in the water with nothing drawn on them', 'count', lim('bareSupportsMax'))
+    c_stand = check('standIns', 'baked buildings of 12 m or more standing mostly on a deck, their top within 15 m of it or over', 'count', lim('standInsMax'))
+    c_tall = check('tallNothing', f'towers and masts of {Q["tallNothingHeight"]:.0f} m or more in the data with nothing drawn', 'count', lim('tallNothingMax'))
+    c_fig = check('streetFigure', 'the largest street piece drawn, to the largest the full map gives', 'ratio', lim('streetFigureMin'), lower=True)
+    c_loss = check('atGradeLoss', 'road surface lost on land, on no bridge, of the road kept', 'share', lim('atGradeLossMax'), 0, 'm2')
+    c_decks = [check(key, what, 'm' if k in ('deckContinuityMax', 'deckClearanceMin') else 'share' if k == 'deckBuriedMax' else 'grade', lim(k),
+                     lower=k == 'deckClearanceMin')
+               for key, what, k in (('deckContinuity', 'two decks of one bridge miss each other (plan or height)', 'deckContinuityMax'),
+                                    ('deckClearance', 'two crossing decks stand under this far apart', 'deckClearanceMin'),
+                                    ('deckBuried', "a meshed deck's length over 0.5 m under the ground, away from a tunnel", 'deckBuriedMax'),
+                                    ('deckSlope', "a road deck's steepest grade between samples", 'deckSlopeMax'))]
+    nothing = {'classes': {c: (0, 0.0) for c in B.CLASSES}, 'openSpans': [], 'skipped': 0, 'heroes': {}}
+
+    def failed(e, what):
+        for rec in out:
+            if not rec['read']:
+                rec.update(why=f'failed to read: {e!r}'[:240])
+        log(f'bridges: {what} failed: ' + traceback.format_exc().strip().splitlines()[-1])
+
     # ---------------------------------------------------------------- what they read
-    kept = osm.segments()
-    di, gi = osm.read('infrastructure')
-    idx = {B.osm_ref(v): i for i, v in enumerate(di['osm_id'])} if di is not None else {}
-    itags = [B.tags_of(t) for t in di['tags']] if di is not None else []
-    pids = {lm['kind']: lm.get('pointIds') for lm in cfg.get('landmarks', [])}
-    drawn = []  # the decks drawn today: the heroes' kits, along their rows' deck lists
-    for lm in man.get('landmarks', []):
-        if lm.get('deck') and lm['kind'] in B.HERO_KIT and len(lm['deck']) >= 2:
-            xyz = np.array(lm['deck'], float)
-            ids = pids.get(lm['kind'])
-            pts = [tuple(p) for p in lm.get('points', [])]
-            tw = [p for p, oid in zip(pts, ids or ()) if oid in idx and B.is_tower(itags[idx[oid]])] if ids and len(ids) == len(pts) else None
-            drawn.append({'kind': lm['kind'], 'line': LineString(xyz[:, :2]), 'xyz': xyz, 'half': B.HERO_KIT[lm['kind']]['half'], 'points': pts,
-                          'ids': ids, 'towers': tw, 'supports': lm.get('supports', [])})
-    foot = [h['line'].buffer(h['half'], cap_style='flat') for h in drawn]
-    feet = shapely.unary_union(foot) if foot else None
-    if feet is not None:
-        shapely.prepare(feet)
-    plan = B.plan(osm, ground, kept, B.hero_rows(man), log=lambda m: log('bridges: ' + m))
-    decks = plan['decks']
-    meshed = [d for d in decks if d['cls'] != 'S' and not d['skip']]
+    try:
+        kept = osm.segments()
+        di, gi = osm.read('infrastructure')
+        idx = {B.osm_ref(v): i for i, v in enumerate(di['osm_id'])} if di is not None else {}
+        itags = [B.tags_of(t) for t in di['tags']] if di is not None else []
+        pids = {lm['kind']: lm.get('pointIds') for lm in cfg.get('landmarks', [])}
+        drawn = []  # the decks drawn today: the heroes' kits, along their rows' deck lists
+        for lm in man.get('landmarks', []):
+            if lm.get('deck') and lm['kind'] in B.HERO_KIT and len(lm['deck']) >= 2:
+                xyz = np.array(lm['deck'], float)
+                ids = pids.get(lm['kind'])
+                pts = [tuple(p) for p in lm.get('points', [])]
+                tw = [p for p, oid in zip(pts, ids or ()) if oid in idx and B.is_tower(itags[idx[oid]])] if ids and len(ids) == len(pts) else None
+                drawn.append({'kind': lm['kind'], 'line': LineString(xyz[:, :2]), 'xyz': xyz, 'half': B.HERO_KIT[lm['kind']]['half'], 'points': pts,
+                              'ids': ids, 'towers': tw, 'supports': lm.get('supports', [])})
+        foot = [h['line'].buffer(h['half'], cap_style='flat') for h in drawn]
+        feet = shapely.unary_union(foot) if foot else None
+        if feet is not None:
+            shapely.prepare(feet)
+        plan = B.plan(osm, ground, kept, B.hero_rows(man), log=lambda m: log('bridges: ' + m))
+        decks = plan['decks']
+        meshed = [d for d in decks if d['cls'] != 'S' and not d['skip']]
+        ways = [w for w in plan['ways'] if w['use'] in ('road', 'rail')]
+    except Exception as e:  # noqa: BLE001 (it never stops the QA: a bridges.py that throws on a city's data reports, in report mode too)
+        failed(e, 'what the checks read (the extract, bridges.py\'s plan)')
+        return out, nothing
     bbin = os.path.join(city_dir, 'bridges.bin')
 
     def guarded(rec, fn):
@@ -371,8 +405,6 @@ def bridge_checks(cfg, city, osm, ground, Q, ll2xz, lonlat, city_dir, log=_log):
               ': ' + ', '.join(n for n, b in (('a kept way', w), ('a deck', dk), ('a building', b_)) if b) + ' within 12 m') for v, kd, e, gy, w, dk, b_ in res])
 
     # ---------------------------------------------------------------- the map's bridges, against what's drawn
-    ways = [w for w in plan['ways'] if w['use'] in ('road', 'rail')]
-
     def samples():
         pts, wt, wi = [], [], []
         for k, w in enumerate(ways):
@@ -584,40 +616,27 @@ def bridge_checks(cfg, city, osm, ground, Q, ll2xz, lonlat, city_dir, log=_log):
     def baked_decks(rec):
         rec.update(why='reads the decks as baked, bridges.bin: ' + ('no reader for it yet' if os.path.exists(bbin) else 'none in the city dir until step 5'))
 
-    lim = lambda k: Q[k]  # noqa: E731
-    guarded(check('heroOffData', "a hero row's typed point from the OSM row it names", 'm', lim('heroOffDataMax')), hero_off)
-    guarded(check('towerOffDeck', "a drawn tower's centre from its drawn deck's centre line", 'm', lim('towerOffDeckMax')), tower_off)
-    guarded(check('deckNoCollision', "a drawn deck's area under no collision post", 'share', lim('deckNoCollisionMax')), no_collision)
-    guarded(check('deckFreeEnd', "a drawn deck's free end over the ground", 'm', lim('deckFreeEndMax')), free_end)
-    guarded(check('waterRoadNoDeck', 'real bridge road and rail over water with no deck or ground bridge', 'share', lim('waterRoadNoDeckMax'),
-                  lim('waterRoadNoDeckMinM'), 'm'), water_road)
-    guarded(check('bridgeNoDeck', 'real bridge road and rail with no deck or ground bridge', 'share', lim('bridgeNoDeckMax'), lim('bridgeNoDeckMinM'), 'm'),
-            bridge_no_deck)
-    guarded(check('bareSupports', 'real supports in the water with nothing drawn on them', 'count', lim('bareSupportsMax')), bare_supports)
-    guarded(check('standIns', 'baked buildings of 12 m or more standing mostly on a deck, their top within 15 m of it or over', 'count',
-                  lim('standInsMax')), stand_ins)
-    guarded(check('tallNothing', f'towers and masts of {Q["tallNothingHeight"]:.0f} m or more in the data with nothing drawn', 'count',
-                  lim('tallNothingMax')), tall_nothing)
-    fig = check('streetFigure', 'the largest street piece drawn, to the largest the full map gives', 'ratio', lim('streetFigureMin'), lower=True)
-    loss = check('atGradeLoss', 'road surface lost on land, on no bridge, of the road kept', 'share', lim('atGradeLossMax'), 0, 'm2')
+    for rec, fn in ((c_hero, hero_off), (c_tower, tower_off), (c_posts, no_collision), (c_end, free_end), (c_water, water_road),
+                    (c_bridge, bridge_no_deck), (c_bare, bare_supports), (c_stand, stand_ins), (c_tall, tall_nothing)):
+        guarded(rec, fn)
     try:
-        streets(fig, loss)
+        streets(c_fig, c_loss)
     except Exception as e:  # noqa: BLE001
-        for r in (fig, loss):
+        for r in (c_fig, c_loss):
             if not r['read']:
                 r.update(why=f'failed to read: {e!r}'[:240])
         log('streets: ' + traceback.format_exc().strip().splitlines()[-1])
-    for key, what, k in (('deckContinuity', 'two decks of one bridge miss each other (plan or height)', 'deckContinuityMax'),
-                         ('deckClearance', 'two crossing decks stand under this far apart', 'deckClearanceMin'),
-                         ('deckBuried', "a meshed deck's length over 0.5 m under the ground, away from a tunnel", 'deckBuriedMax'),
-                         ('deckSlope', "a road deck's steepest grade between samples", 'deckSlopeMax')):
-        guarded(check(key, what, 'm' if k in ('deckContinuityMax', 'deckClearanceMin') else 'share' if k == 'deckBuriedMax' else 'grade',
-                      lim(k), lower=k == 'deckClearanceMin'), baked_decks)
-    spans = [(round(d['length']), d['name'] or '(unnamed)', where(*d['xz'][len(d['xz']) // 2])) for d in B.open_spans(decks)]
-    classes = {c: (sum(1 for d in decks if d['cls'] == c and not d['skip']), round(sum(d['length'] for d in decks if d['cls'] == c and not d['skip']) / 1000, 2))
-               for c in B.CLASSES}
-    return out, {'classes': classes, 'openSpans': spans, 'skipped': sum(1 for d in decks if d['skip']),
-                 'heroes': {h: sorted({i for d in decks if d['hero'] == h for i in d['ids']}) for h in {d['hero'] for d in decks if d['hero']}}}
+    for rec in c_decks:
+        guarded(rec, baked_decks)
+    try:
+        spans = [(round(d['length']), d['name'] or '(unnamed)', where(*d['xz'][len(d['xz']) // 2])) for d in B.open_spans(decks)]
+        classes = {c: (sum(1 for d in decks if d['cls'] == c and not d['skip']), round(sum(d['length'] for d in decks if d['cls'] == c and not d['skip']) / 1000, 2))
+                   for c in B.CLASSES}
+        return out, {'classes': classes, 'openSpans': spans, 'skipped': sum(1 for d in decks if d['skip']),
+                     'heroes': {h: sorted({i for d in decks if d['hero'] == h for i in d['ids']}) for h in {d['hero'] for d in decks if d['hero']}}}
+    except Exception:  # noqa: BLE001 (the plan's summary, for the report: the checks stand without it)
+        log('bridges: the plan\'s summary failed: ' + traceback.format_exc().strip().splitlines()[-1])
+        return out, nothing
 
 
 def open_spaces(osm, frame, n):
