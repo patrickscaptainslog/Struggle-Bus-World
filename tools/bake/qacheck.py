@@ -105,9 +105,29 @@ def unread(qa):
     return why
 
 
+
+# ---------------------------------------------------------------- bridges.py's classes: a tower over its deck
+def tower_over(qa):
+    """a tower's height tag is over its own ground, a deck's top is over the sea: a 300 m deck 10 m over ground at 50 m,
+    a tower beside it 40 m over that ground (90 m) stands 30 m over the deck, an XL; 20 m over it (70 m) doesn't, an L;
+    in the water a tower's ground is the sea's 0"""
+    import bridges as B
+    from shapely.geometry import LineString
+    why = []
+    for base, top, deck, want in ((50.0, 40.0, 60.0, 'XL'), (50.0, 20.0, 60.0, 'L'), (0.0, 227.0, 75.0, 'XL'), (0.0, 60.0, 75.0, 'L')):
+        d = {'length': 300.0, 'line': LineString([(0.0, 0.0), (300.0, 0.0)]), 'y': np.full(11, deck), 'hAbove': np.full(11, deck - base),
+             'tags': {}, 'waterLen': 0.0, 'waterRun': 0.0, 'uses': {'road'}}
+        tws = [{'xz': np.array([150.0, 10.0]), 'top': top, 'base': base, 'n': 1, 'ids': ['w1'], 'ref': None}]
+        got = B.classify(d, tws, None)
+        if got != want:
+            why.append(f'a tower {top:g} m over ground at {base:g} m by a deck topped at {deck:g} m: {got}, want {want}')
+    return why
+
+
 CHECKS = [
     ("a city config's \"qa\" tightens a check, never loosens it, and never sets how the city is cut up", overrides),
     ('the bridge checks never stop the QA: what they all read failing makes the fifteen NOT READ', unread),
+    ("a tower stands over its deck by its top over the sea, not over its own ground (bridges.py's XL)", tower_over),
 ]
 
 

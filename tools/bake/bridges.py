@@ -179,9 +179,11 @@ def load(osm):
     return ways, polys, sups
 
 
-def towers(sups):
+def towers(sups, ground=None):
     """tower rows (bridge:support=pylon, or a bridge's man_made=tower) clustered within TOWER_CLUSTER m: one per tower, its
-    top the highest height tag. A tower with no height is kept with top None: no class reads it, the report lists it."""
+    top the highest height tag (over its own ground) and its base that ground (the sea's 0 in the water, as a deck's;
+    0 outside the frame or with no ground). A tower with no height is kept with top None: no class reads it, the report
+    lists it."""
     from scipy.spatial import cKDTree
     from scipy.sparse import coo_matrix
     from scipy.sparse.csgraph import connected_components
@@ -196,7 +198,9 @@ def towers(sups):
     for k in np.unique(lab):
         m = np.flatnonzero(lab == k)
         hs = [tw[i]['h'] for i in m if tw[i]['h']]
-        out.append({'xz': c[m].mean(axis=0), 'top': max(hs) if hs else None, 'n': len(m), 'ids': [tw[i]['osm'] for i in m],
+        xz = c[m].mean(axis=0)
+        g = float(ground.at([xz])[0][0]) if ground is not None else 0.0
+        out.append({'xz': xz, 'top': max(hs) if hs else None, 'base': max(0.0, g) if g == g else 0.0, 'n': len(m), 'ids': [tw[i]['osm'] for i in m],
                     'ref': next((tw[i]['tags'].get('ref') for i in m if tw[i]['tags'].get('ref')), None)})
     return out
 
@@ -692,7 +696,9 @@ def solve(decks, rounds=4):
 def classify(d, tws, kept_tree):
     """XL, L, M or S by BRIDGES.md "What gets drawn, by size": the first row that matches"""
     L = d['length']
-    d['towers'] = [t for t in tws if t['top'] is not None and d['line'].distance(Point(t['xz'])) <= TOWER_REACH and t['top'] >= d['y'].max() + TOWER_OVER]
+    # (a tower's height tag is over its own ground, a deck's top over the sea: on land the two differ by the ground)
+    d['towers'] = [t for t in tws if t['top'] is not None and d['line'].distance(Point(t['xz'])) <= TOWER_REACH
+                   and t.get('base', 0.0) + t['top'] >= d['y'].max() + TOWER_OVER]
     near = [t for t in tws if t['top'] is not None and d['line'].distance(Point(t['xz'])) <= TOWER_REACH]
     st = d['tags'].get('bridge:structure')
     # (something under it: a kept road or rail meets the deck away from its ends; a street that carries on from an end isn't)
@@ -773,7 +779,7 @@ def plan(osm, ground, kept, heroes=(), log=_log):
     ways, polys, sups = load(osm)
     if not ways:
         log('no bridge ways in the frame')
-        return {'decks': [], 'towers': towers(sups), 'supports': sups, 'polygons': polys, 'ways': ways}
+        return {'decks': [], 'towers': towers(sups, ground), 'supports': sups, 'polygons': polys, 'ways': ways}
     decks = build(ways)
     n0 = len(decks)
     for d in decks:
@@ -785,7 +791,7 @@ def plan(osm, ground, kept, heroes=(), log=_log):
     sample(decks, ground)
     ends_of(decks, ground, kept)
     solve(decks)
-    tws = towers(sups)
+    tws = towers(sups, ground)
     kt = STRtree([q[0] for q in kept if q[1] in (0, 7)]) if kept else None  # (PAVED, RAIL: what passes under a deck)
     for d in decks:
         d['cls'] = classify(d, tws, kt)
