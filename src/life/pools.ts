@@ -12,8 +12,24 @@ import { Kind, Pool } from './kinds';
 /** Instances a pool holds at most (CONTRACT.md section 2). */
 export const POOL_MAX: Record<Pool, number> = { [Pool.SMALL]: 4096, [Pool.MIDDLE]: 2048, [Pool.LARGE]: 512 };
 export const SPECKS_MAX = 16384;
+/** The marks (CONTRACT.md section 2, O6): vertices at most, and the points along each ribbon. */
+export const MARK_VERTS = 8192;
+export const MARK_POINTS = 12;
+export const MARKS_MAX = Math.floor(MARK_VERTS / (MARK_POINTS * 2));
 
 const PAINT_LO = Math.min(...HUE_RAMPS), PAINT_HI = Math.max(...HUE_RAMPS);
+
+/** An attribute's first `count` elements go up this frame, its one range object reused: three's addUpdateRange makes one a call (as SuperFx.flush keeps its own). */
+type Range = { start: number; count: number };
+function upTo(a: THREE.BufferAttribute, r: Range, count: number): void {
+  const rs = a.updateRanges;
+  rs.length = 0;
+  r.start = 0;
+  r.count = count;
+  rs.push(r);
+  a.needsUpdate = true;
+}
+const range = (): Range => ({ start: 0, count: 0 });
 
 /** One box of a kind's model: its centre and size (m), the model's nose along +X, up +Y. */
 type Box = [number, number, number, number, number, number];
@@ -131,6 +147,90 @@ const SPECK_FS = /* glsl */ `
   }
 `;
 
+const MARK_VS = /* glsl */ `
+  ${GLSL_COMMON}
+  in float aRamp;
+  in float aAge;
+  flat out float vRamp;
+  out float vAge;
+  out vec3 vWorldPos;
+  void main() {
+    vRamp = aRamp;
+    vAge = aAge;
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vWorldPos = wp.xyz;
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }
+`;
+
+const MARK_FS = /* glsl */ `
+  ${GLSL_COMMON}
+  flat in float vRamp;
+  in float vAge;
+  in vec3 vWorldPos;
+  ${GLSL_OUT}
+  const int BAYER[16] = int[16](0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5);
+  void main() {
+    // (a mark fades as paint can in an indexed G-buffer: pixels drop out by a 4 x 4 ordered dither, the oldest end first, the first third solid)
+    ivec2 c = ivec2(gl_FragCoord.xy) & 3;
+    if ((float(BAYER[c.y * 4 + c.x]) + 0.5) / 16.0 < smoothstep(0.33, 1.0, vAge)) discard;
+    float fog = sbFog(vWorldPos) * 0.35;
+    sbWrite(floor(vRamp + 0.5), 0.62, fog, 0.0, vec3(0.0, 0.0, 1.0), 0.5, 0.5);
+  }
+`;
+
+/**
+ * The marks (CONTRACT.md O6): one draw of ribbons, each a strip of MARK_POINTS points the host lays along a painted mover's path, two vertices a point, turned to face the
+ * lens. Paint ramps only, flags 0.5, no shadow. Contrails first; wakes and tracks, on the water and the roads, are the same ribbons laid on the graph's heights.
+ */
+export class Marks {
+  readonly object: THREE.Mesh;
+  readonly pos: Float32Array;
+  readonly ramp: Float32Array;
+  readonly age: Float32Array;
+  private readonly posA: THREE.BufferAttribute;
+  private readonly rampA: THREE.BufferAttribute;
+  private readonly ageA: THREE.BufferAttribute;
+  private readonly ranges = [range(), range(), range()];
+
+  constructor() {
+    const g = new THREE.BufferGeometry(), n = MARKS_MAX * MARK_POINTS * 2;
+    this.posA = new THREE.BufferAttribute((this.pos = new Float32Array(n * 3)), 3);
+    this.rampA = new THREE.BufferAttribute((this.ramp = new Float32Array(n)), 1);
+    this.ageA = new THREE.BufferAttribute((this.age = new Float32Array(n)), 1);
+    for (const a of [this.posA, this.rampA, this.ageA]) a.setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('position', this.posA);
+    g.setAttribute('aRamp', this.rampA);
+    g.setAttribute('aAge', this.ageA);
+    // (the strips' triangles, made once: ribbon r, segment j, its two points' left and right)
+    const idx = new Uint16Array(MARKS_MAX * (MARK_POINTS - 1) * 6);
+    let k = 0;
+    for (let r = 0; r < MARKS_MAX; r++)
+      for (let j = 0; j < MARK_POINTS - 1; j++) {
+        const a = (r * MARK_POINTS + j) * 2;
+        idx.set([a, a + 1, a + 2, a + 1, a + 3, a + 2], k);
+        k += 6;
+      }
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    g.setDrawRange(0, 0);
+    const m = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: { ...globals }, vertexShader: MARK_VS, fragmentShader: MARK_FS, side: THREE.DoubleSide });
+    this.object = new THREE.Mesh(g, m);
+    this.object.frustumCulled = false;
+    this.object.visible = false;
+  }
+
+  /** `n` ribbons are written: their vertices go up, the live range only. */
+  commit(n: number): void {
+    const v = n * MARK_POINTS * 2;
+    this.object.geometry.setDrawRange(0, n * (MARK_POINTS - 1) * 6);
+    this.object.visible = n > 0;
+    if (!n) return;
+    upTo(this.posA, this.ranges[0], v * 3);
+    upTo(this.rampA, this.ranges[1], v);
+    upTo(this.ageA, this.ranges[2], v);
+  }
+}
+
 /** One pool: its mesh and the per-instance arrays the host fills. */
 export class MoverPool {
   readonly mesh: THREE.InstancedMesh;
@@ -139,6 +239,7 @@ export class MoverPool {
   readonly glint: Float32Array;
   readonly surf: Float32Array;
   private readonly attrs: THREE.InstancedBufferAttribute[];
+  private readonly ranges = [range(), range(), range(), range(), range()];
   readonly max: number;
 
   constructor(kinds: Kind[], max: number) {
@@ -167,14 +268,8 @@ export class MoverPool {
     m.count = n;
     m.visible = n > 0;
     if (!n) return;
-    m.instanceMatrix.clearUpdateRanges();
-    m.instanceMatrix.addUpdateRange(0, n * 16);
-    m.instanceMatrix.needsUpdate = true;
-    for (const a of this.attrs) {
-      a.clearUpdateRanges();
-      a.addUpdateRange(0, n);
-      a.needsUpdate = true;
-    }
+    upTo(m.instanceMatrix, this.ranges[4], n * 16);
+    for (let i = 0; i < 4; i++) upTo(this.attrs[i], this.ranges[i], n);
   }
 }
 
@@ -185,6 +280,7 @@ export class Specks {
   readonly ramp: Float32Array;
   private readonly posA: THREE.BufferAttribute;
   private readonly rampA: THREE.BufferAttribute;
+  private readonly ranges = [range(), range()];
 
   constructor() {
     const g = new THREE.BufferGeometry();
@@ -205,24 +301,21 @@ export class Specks {
     this.object.geometry.setDrawRange(0, n);
     this.object.visible = n > 0;
     if (!n) return;
-    this.posA.clearUpdateRanges();
-    this.posA.addUpdateRange(0, n * 3);
-    this.posA.needsUpdate = true;
-    this.rampA.clearUpdateRanges();
-    this.rampA.addUpdateRange(0, n);
-    this.rampA.needsUpdate = true;
+    upTo(this.posA, this.ranges[0], n * 3);
+    upTo(this.rampA, this.ranges[1], n);
   }
 }
 
-/** Every pool and the specks: what the scene holds, and what the warm-up draws once each. */
+/** Every pool, the specks and the marks: what the scene holds, and what the warm-up draws once each. */
 export class Pools {
   readonly middle = new MoverPool([Kind.SMALL_PLANE], POOL_MAX[Pool.MIDDLE]);
   readonly large = new MoverPool([Kind.AIRLINER], POOL_MAX[Pool.LARGE]);
   readonly specks = new Specks();
+  readonly marks = new Marks();
   readonly group = new THREE.Group();
 
   constructor() {
-    this.group.add(this.middle.mesh, this.large.mesh, this.specks.object);
+    this.group.add(this.middle.mesh, this.large.mesh, this.specks.object, this.marks.object);
   }
 
   pool(p: Pool): MoverPool {
@@ -241,6 +334,10 @@ export class Pools {
     s.geometry.setDrawRange(0, 1);
     s.frustumCulled = false;
     out.push(s);
+    const k = new THREE.Mesh(this.marks.object.geometry.clone(), this.marks.object.material);
+    k.geometry.setDrawRange(0, 6);
+    k.frustumCulled = false;
+    out.push(k);
     return out;
   }
 }

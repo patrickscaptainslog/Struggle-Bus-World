@@ -1,5 +1,6 @@
 import { fnv1a, mix, unit } from '../hash';
 import { Col, Kind, ROW, RowFlag } from '../kinds';
+import { CLEAR, type Weather } from '../weather';
 
 // The planes (LIFE.md, "Planes"). Worker-safe and pure: a plane is a function of the place, its slot and utcMs, so every player sees the same one.
 //
@@ -25,7 +26,8 @@ const lerp = (a: number[], t: number) => a[0] + (a[1] - a[0]) * t;
  * The scripted flights within `reach` of (bx, bz) at utcMs, as rows from `at` in `out`; the place by its key (a city's slug). Returns the next free row, at most `max`.
  * `keys`, if given, is told each row's key (the host asks for one by its hash when a breath lands).
  */
-export function scriptedPlanes(place: string, utcMs: number, bx: number, bz: number, reach: number, out: Float32Array, at: number, max: number, keys?: (hash: number, key: string) => void): number {
+export function scriptedPlanes(place: string, utcMs: number, bx: number, bz: number, reach: number, out: Float32Array, at: number, max: number, keys?: (hash: number, key: string) => void, _weather: Weather = CLEAR): number {
+  // (the weather, CONTRACT.md section 4: airliners fly over it, and stage 1 has none; a headwind on a track is where it will come in)
   const seed = fnv1a(place), u32 = new Uint32Array(out.buffer, out.byteOffset, out.length);
   const b1 = Math.floor(utcMs / 60000), b0 = Math.floor((utcMs - LONGEST * 1000) / 60000);
   const r2 = reach * reach;

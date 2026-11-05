@@ -12,8 +12,12 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
+        // (L1's WebKit leg, CONTRACT.md section 7: a page of its own, which the game's pages never load)
+        lifecheck: resolve(__dirname, 'life-check.html'),
       },
     },
   },
   worker: { format: 'es' },
+  // (W6, tools/life/flag-off.mjs: SB_NO_LIFE=1 builds the same commit with life left out, for the page with ?life off to be held to)
+  define: { __SB_NO_LIFE__: JSON.stringify(process.env.SB_NO_LIFE === '1') },
 });

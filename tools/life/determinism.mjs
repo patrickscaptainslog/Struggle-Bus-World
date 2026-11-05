@@ -4,11 +4,13 @@
 //   steps     3,600 steps of a second end where one jump of an hour does (a plane's place is a function of the clock, never a sum of steps)
 //   places    two places differ
 //   sky       how many scripted planes are up over the place across a day, and the fewest and most at once
+//   weather   L7: CLEAR and no weather give the same snapshot
 // Exit 1 on a failure.
 import { registerHooks } from 'node:module';
 registerHooks({ resolve(spec, ctx, next) { return next(/^\.\.?\//.test(spec) && !/\.[a-z]+$/.test(spec) ? `${spec}.ts` : spec, ctx); } });
 const { scriptedPlanes } = await import('../../src/life/sim/planes.ts');
 const { ROW } = await import('../../src/life/kinds.ts');
+const { CLEAR } = await import('../../src/life/weather.ts');
 
 let bad = 0;
 const row = (name, ok, got) => {
@@ -16,8 +18,8 @@ const row = (name, ok, got) => {
   console.log(`${ok ? 'pass' : 'FAIL'}  ${name.padEnd(70)} ${JSON.stringify(got)}`);
 };
 const MAX = 4096, T0 = Date.parse('2026-11-05T17:30:00Z');
-const snap = (place, t, reach = 80000, bx = 0, bz = 0) => {
-  const out = new Float32Array(MAX * ROW), n = scriptedPlanes(place, t, bx, bz, reach, out, 0, MAX);
+const snap = (place, t, reach = 80000, bx = 0, bz = 0, ...weather) => {
+  const out = new Float32Array(MAX * ROW), n = scriptedPlanes(place, t, bx, bz, reach, out, 0, MAX, undefined, ...weather);
   return { n, bytes: Buffer.from(out.buffer, 0, n * ROW * 4) };
 };
 {
@@ -44,6 +46,12 @@ const snap = (place, t, reach = 80000, bx = 0, bz = 0) => {
     sum += n;
   }
   row('sky: over the place all day, never an empty sky, never a crowd', lo >= 8 && hi <= 60, { fewest: lo, most: hi, mean: +(sum / k).toFixed(1) });
+}
+{
+  // (L7: the weather is an input from the start, held at clear: CLEAR handed in and none give the same sky, at every hour of a day)
+  let same = 0, k = 0;
+  for (let t = T0; t < T0 + 86400000; t += 3600000, k++) if (snap('sf', t, 150000, 0, 0).bytes.equals(snap('sf', t, 150000, 0, 0, CLEAR).bytes)) same++;
+  row('weather: CLEAR and no weather give the same snapshot, every hour of a day', same === k, { same, hours: k });
 }
 console.log(bad ? `${bad} FAIL` : 'all pass');
 process.exit(bad ? 1 : 0);

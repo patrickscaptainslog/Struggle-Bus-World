@@ -1,6 +1,7 @@
 import { latLonToLocal } from '../game/geo';
 import { livePlanes, LIVE_HOLD, scriptedPlanes, type LivePlane } from './sim/planes';
 import { MAX_ROWS, view, writeKey } from './snapshot';
+import { CLEAR, type Weather } from './weather';
 
 // Life's simulation (LIFE.md, "The worker"; CONTRACT.md section 5): every mover near the bus as a function of the place and utcMs, into the snapshot the host
 // sends with each tick. It fetches the relay's planes itself, every RELAY_MS while it's ticking; a failed or empty answer leaves the scripted sky.
@@ -11,6 +12,8 @@ export interface LifeInit {
   origin: [number, number];
   /** the page's URL, for the relay (api/planes); null: no relay (a test, or a page with nothing to ask) */
   relay: string | null;
+  /** CONTRACT.md section 4: held at CLEAR until weather has an owner */
+  weather?: Weather;
 }
 export interface LifeTick {
   type: 'tick';
@@ -30,6 +33,7 @@ const RELAY_MS = 10000;
 const NO_GEOID_FLOOR = 1000;
 
 let place: LifeInit | null = null;
+let weather: Weather = CLEAR;
 let live: LivePlane[] = [];
 let liveAt = -Infinity;
 let asking = false;
@@ -80,7 +84,7 @@ function tick(t: LifeTick): void {
       keyAt = next;
       sent.add(h);
     };
-    n = fresh ? livePlanes(live, t.utcMs, t.x, t.z, t.reach, v.rows, 0, MAX_ROWS, keys) : scriptedPlanes(place.slug, t.utcMs, t.x, t.z, t.reach, v.rows, 0, MAX_ROWS, keys);
+    n = fresh ? livePlanes(live, t.utcMs, t.x, t.z, t.reach, v.rows, 0, MAX_ROWS, keys) : scriptedPlanes(place.slug, t.utcMs, t.x, t.z, t.reach, v.rows, 0, MAX_ROWS, keys, weather);
     v.u32[3] = Math.max(0, keyAt);
   } else v.u32[3] = 0;
   v.f64[0] = t.utcMs;
@@ -92,6 +96,7 @@ self.onmessage = (e: MessageEvent<LifeInit | LifeTick>) => {
   const m = e.data;
   if (m.type === 'init') {
     place = m;
+    weather = m.weather ?? CLEAR;
     live = [];
     sent.clear();
   } else if (m.type === 'tick') tick(m);

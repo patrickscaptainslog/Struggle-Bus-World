@@ -2,6 +2,7 @@
 // A mover takes paint (CONTRACT.md section 3; L5), at a fixed step on the street under ?life: node tools/life/paint.mjs <out dir>. BASE is the page.
 //   aim       a ray straight at a plane finds it, and the aim's answer is where it will be when the breath gets there
 //   hit       a breath's hit takes at its impact, not before: grey until then, then the breath's hue at level 1; a second hit goes up a level and keeps the hue
+//   contrail  the painted plane streams a ribbon of its paint behind it (O6)
 //   tap       the bus put behind a plane with its nose on it: a real tap's breath paints it, and nothing under it
 //   kept      the page again at the same moment: the plane is still painted, from the test store, and the real store has nothing
 // Exit 1 if any fails.
@@ -76,6 +77,21 @@ try {
     await frames(20);
     const twice = await page.evaluate((key) => window.__game.life.painted.get(window.__game.life.keyHash(key)) ?? null, p.key);
     row('hit: grey until the impact, then its hue at level 1; again, level 2 and the same hue', r.fresh && !r.before && after?.hue === 2 && after.level === 1 && !again && twice?.hue === 2 && twice.level === 2, { ...r, after, again, twice });
+  }
+  {
+    // (O6: the painted plane's ribbon, the only one: its paint's ramp, solid at the plane and its far end the oldest, laid back along the plane's path)
+    const k = await page.evaluate((key) => {
+      const l = window.__game.life, K = l.pools.marks, g = window.__game, s = l.snap, h = l.keyHash(key);
+      let behind = null;
+      for (let i = 0; i < s.u32[2]; i++)
+        if (s.rowsU32[i * 16] === h) {
+          const o = i * 16, dt = (l.utc - s.f64[0]) / 1000, x = s.rows[o + 2] + s.rows[o + 5] * dt, z = s.rows[o + 4] + s.rows[o + 7] * dt;
+          const e = 22 * 3, tx = (K.pos[e] + K.pos[e + 3]) / 2, tz = (K.pos[e + 2] + K.pos[e + 5]) / 2;
+          behind = Math.round((tx - x) * s.rows[o + 5] + (tz - z) * s.rows[o + 7]);
+        }
+      return { marks: l.qa.marks, ramp: K.ramp[0], want: g.HUE_RAMPS[l.painted.get(h)?.hue ?? 0], age0: K.age[0], ageEnd: K.age[23], behind };
+    }, p.key);
+    row('contrail: the painted plane streams its paint behind it, solid at the plane, the far end the oldest', k.marks === 1 && k.ramp === k.want && k.age0 === 0 && k.ageEnd === 1 && k.behind < 0, k);
   }
   {
     // (the bus 1.5 km behind another plane, at its height, nose along its track: a real tap)

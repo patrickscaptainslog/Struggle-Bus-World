@@ -8,7 +8,7 @@ Life's own spec, the second account's (`CONTRACT.md`, the line between it and th
 
 | File | What |
 |---|---|
-| `src/life/boot.ts` | `bootLife(ctx)`: under `?life` only, never rejects into the boot. Makes the pools, the worker and the planes' feed, and returns the `Life` of `CONTRACT.md` section 6 |
+| `src/life/lifeBoot.ts` | `bootLife(ctx)`: under `?life` only, never rejects into the boot. Makes the pools, the worker and the planes' feed, and returns the `Life` of `CONTRACT.md` section 6 |
 | `src/life/Life.ts` | The host: once a frame it carries every mover on from the last snapshot, picks each one's level of detail, fills the pools, answers the aim |
 | `src/life/lifeWorker.ts` | The simulation: every mover near the bus, as a function of the place, its data and `utcMs` (section 5 of the contract), into a snapshot |
 | `src/life/kinds.ts` | The kinds of mover: their size, pool, shape and speeds. Worker-safe |

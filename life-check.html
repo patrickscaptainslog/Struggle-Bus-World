@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>Life check</title>
+    <!-- L1's WebKit leg (CONTRACT.md section 7): the scripted sky worked out in this browser's engine against V8's, within 1 cm. src/life/check.ts -->
+    <style>
+      html, body { margin: 0; background: #101114; color: #c9ccd3; font: 15px/1.45 ui-monospace, Menlo, monospace; }
+      main { padding: 24px 16px; max-width: 34rem; }
+      h1 { font-size: 18px; letter-spacing: 0.2em; margin: 0 0 16px; }
+      #verdict { font-size: 22px; margin: 16px 0; padding: 12px; border: 2px solid #3a3d45; }
+      #verdict.ok { border-color: #5fae6e; color: #9fe0a8; }
+      #verdict.no { border-color: #c4574f; color: #f0a39c; }
+      pre { white-space: pre-wrap; font-size: 12px; color: #8a8e98; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>LIFE CHECK</h1>
+      <div id="verdict">working...</div>
+      <pre id="log"></pre>
+    </main>
+    <script type="module" src="/src/life/check.ts"></script>
+  </body>
+</html>

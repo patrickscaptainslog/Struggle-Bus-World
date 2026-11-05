@@ -62,7 +62,7 @@ try {
         at[d[i * 4]] = [((cx / cw) * 0.5 + 0.5) * W, (0.5 - (cy / cw) * 0.5) * H];
       }
       const t = window.__space.moon.trip;
-      return { leg: t.leg, km: +(g.flight.height / 1000).toFixed(2), flightKm: +t.hGround.toFixed(1), sky: l.qa.sky, rows: l.qa.rows, models: l.qa.models, specks: l.qa.specks, drawn: n, home: l.pools.group.parent === g.scene, at };
+      return { leg: t.leg, km: +(g.flight.height / 1000).toFixed(2), flightKm: +t.hGround.toFixed(1), sky: l.qa.sky, rows: l.qa.rows, models: l.qa.models, specks: l.qa.specks, marks: l.qa.marks, drawn: n, home: l.pools.group.parent === g.scene, at };
     });
   const s0 = await screen();
   row('street: life is up under ?earth, its planes painted, the street drawing them', up && painted > 0 && !s0.sky && s0.home && s0.drawn > 0, { painted, ...s0, at: Object.keys(s0.at).length });
@@ -76,13 +76,14 @@ try {
   });
   const pull = { sx: 0, sy: -1 };
   let s = await screen();
-  for (let n = 0; n < 4000 && s.leg === 'street' && s.km < 14.8; n += 10) {
+  // (in tens to 14.4 km: a full pull in Turbo 3 climbs 0.3 km in ten frames, and the hand-over at 15 km must come a frame at a time)
+  for (let n = 0; n < 4000 && s.leg === 'street' && s.km < 14.4; n += 10) {
     await frames(10, pull);
     s = await screen();
   }
   const seen = [];
   let k = -1;
-  for (let i = 0; i < 80 && (k < 0 || seen.length < k + 3); i++) {
+  for (let i = 0; i < 150 && (k < 0 || seen.length < k + 3); i++) {
     await frames(1, pull);
     seen.push(await screen());
     if (k < 0 && seen[seen.length - 1].leg !== 'street') k = seen.length - 1;
@@ -119,7 +120,7 @@ try {
   await frames(6);
   const f40 = await screen();
   await page.screenshot({ path: join(dir, 'flight-40km.png') });
-  row('flight: at 40 km the flight draws them, from its own scene', f40.leg === 'wait' && f40.flightKm > 39 && f40.sky && !f40.home && f40.drawn > 0, { ...f40, at: undefined });
+  row('flight: at 40 km the flight draws them and their contrails, from its own scene', f40.leg === 'wait' && f40.flightKm > 39 && f40.sky && !f40.home && f40.drawn > 0 && f40.marks > 0, { ...f40, at: undefined });
   // ---- home: back down over the city, the street takes the bus and its planes
   await fly(300, 1, 't.hGround < 14.1');
   let d = await screen();

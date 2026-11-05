@@ -78,9 +78,13 @@ export const held = (glsl: string): string => (skyOn ? glsl : '');
 /** One word of GLSL or the other: a number that becomes a uniform under the hour, say. */
 export const heldOr = (glsl: string, day: string): string => (skyOn ? glsl : day);
 
+/** A build with life left out (SB_NO_LIFE=1 at build time, vite.config.ts): W6's other half, tools/life/flag-off.mjs, against which the page with ?life off must be the same. */
+declare const __SB_NO_LIFE__: boolean | undefined;
+const noLife = typeof __SB_NO_LIFE__ !== 'undefined' && __SB_NO_LIFE__;
+
 /** ?life: the living Earth's movers (docs/specs/earth/LIVING.md, LIFE.md; CONTRACT.md O13): on Earth's pages only, and the default only on the producer's word. Flag off, nothing
  *  of it is fetched or compiled: its chunk is imported under the flag alone (main.ts). */
-export const lifeOn = !!query?.has('life') && !moonLow && !moonrun;
+export const lifeOn = !noLife && !!query?.has('life') && !moonLow && !moonrun;
 
 /** GLSL only ?moonrun, ?moon and ?earth compile. */
 export const space = (glsl: string): string => (moonrun || moonLow || earthFly ? glsl : '');

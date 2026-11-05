@@ -3,6 +3,7 @@
 //   up        the street boots with life: its worker ticks, snapshots come back, planes in them, drawn as models or specks
 //   carried   between snapshots each plane is carried on by its velocity: a plane moves every frame, not every tenth of a second
 //   programs  nothing compiles after the warm-up: the programs at the first frame are the programs 300 frames on (L6's cloud leg)
+//   worker    L2: the host's two snapshot buffers go out and come back, none lost and none made
 //   no life   the same page without ?life has no life on it
 // A row passes or fails on the numbers printed with it; exit 1 if any fails.
 import { mkdirSync } from 'node:fs';
@@ -45,12 +46,16 @@ try {
   await frames(1);
   const p1 = await at();
   row('carried: from one frame to the next a plane moves, between snapshots too', p0.some((v, i) => v !== p1[i]), { p0, p1 });
-  await frames(270);
+  // (in steps of 30: on a loaded cloud machine 270 frames at once outran the wait)
+  for (let i = 0; i < 9; i++) await frames(30);
   const programs1 = await page.evaluate(() => window.__game.pipeline.renderer.info.programs.length);
   row('programs: nothing compiles after the warm-up, 300 frames on', programs1 === programs0, { atFirst: programs0, after300: programs1, life: await q() });
+  // (L2: the host's two buffers, each with the host, in a snapshot it holds, or out with a tick: none lost and none made)
+  const bufs = await page.evaluate(() => { const l = window.__game.life; return { sent: l.qa.sent, back: l.qa.snaps, free: l.free.length, held: l.snap ? 1 : 0 }; });
+  row('worker: every buffer comes back, the same two all along', bufs.free + bufs.held + (bufs.sent - bufs.back) === 2 && bufs.back >= bufs.sent - 2 && bufs.sent > 50, bufs);
   await page.screenshot({ path: join(dir, 'life.png') });
   await open('');
-  const none = await page.evaluate(() => ({ life: window.__game.life ?? null, workers: performance.getEntriesByType('resource').filter((r) => /lifeWorker|life\/boot|boot-.*\.js/.test(r.name)).map((r) => r.name.split('/').pop()) }));
+  const none = await page.evaluate(() => ({ life: window.__game.life ?? null, workers: performance.getEntriesByType('resource').filter((r) => /lifeWorker|lifeBoot/.test(r.name)).map((r) => r.name.split('/').pop()) }));
   row('no life: the same page without ?life has no life, and fetched none of it', none.life === null && none.workers.length === 0, none);
 } catch (e) {
   bad++;

@@ -11,7 +11,7 @@ import type { LifeTick } from './lifeWorker';
 import { fnv1a } from './hash';
 import { Col, KINDS, Pool, ROW } from './kinds';
 import type { MoverStore } from './paint';
-import { GREY_RAMP, type Pools, SPECKS_MAX } from './pools';
+import { GREY_RAMP, MARK_POINTS, MARKS_MAX, type Pools, SPECKS_MAX } from './pools';
 import { MAX_ROWS, readKeys, SNAP_BYTES, view, type SnapView } from './snapshot';
 
 // Life's host (LIFE.md): it ticks the worker at 10 Hz of the page's clock, and every frame carries each mover in the last snapshot on by its velocity to the
@@ -27,14 +27,19 @@ const REACH = 80000;
 const SKY_NEAR = 25000;
 /** SkyModel's EARTH (an import would bring the sky's model into life's chunk). The ellipsoid's radius at the equator and its flattening's stretch of z, km. */
 const EARTH_ID = 0;
+/** A painted mover's contrail (O6): the longest it streams, s of its flight; its width, px a level over the first, and m at the least. */
+const TRAIL_S = 40;
+const TRAIL_PX = 1;
+const TRAIL_M = 8;
 /** QA: how many of the movers drawn a frame are noted, by key and place (tools/life/sky.mjs: nothing jumps on the screen when the flight takes the bus) */
 const DRAWN = 64;
 const WGS_A = 6378.137, WGS_K = 1 / (1 - 1 / 298.257223563);
 
-/** A mover's paint as drawn: its colour (an index into HUE_RAMPS) and level. */
+/** A mover's paint as drawn: its colour (an index into HUE_RAMPS), level, and the page clock's UTC ms it took it (0: kept from before, its contrail whole). */
 export interface MoverPaint {
   hue: number;
   level: number;
+  at: number;
 }
 
 export class LifeHost {
@@ -52,7 +57,7 @@ export class LifeHost {
   private readonly p = new THREE.Vector3();
   private readonly s = new THREE.Vector3();
   /** QA: the last frame's rows, models and specks, the snapshots taken, the loop that drew it; and the first DRAWN movers drawn, each its key's hash and where (the loop's frame) */
-  readonly qa = { rows: 0, models: 0, specks: 0, snaps: 0, hits: 0, sky: false, drawn: 0 };
+  readonly qa = { rows: 0, models: 0, specks: 0, marks: 0, sent: 0, snaps: 0, hits: 0, sky: false, drawn: 0 };
   readonly drawn = new Float64Array(DRAWN * 4);
   /** the frame's clocks, for the aim between frames */
   private utc = 0;
@@ -104,7 +109,7 @@ export class LifeHost {
 
   /** What was kept, painted again (bootLife, once the store is read). */
   restore(records: Array<{ key: string; hue: number; level: number }>): void {
-    for (const r of records) this.painted.set(fnv1a(r.key), { hue: r.hue, level: r.level });
+    for (const r of records) this.painted.set(fnv1a(r.key), { hue: r.hue, level: r.level, at: 0 });
   }
 
   /** Once a rendered frame, by the loop that has the bus (CONTRACT.md section 6). */
@@ -153,7 +158,8 @@ export class LifeHost {
     for (let i = this.hits.length - 1; i >= 0; i--) {
       const h = this.hits[i];
       if (simTime < h.arrive) continue;
-      this.painted.set(h.h, { hue: h.hue, level: h.level });
+      // (a level up keeps its contrail going from when it was first painted)
+      this.painted.set(h.h, { hue: h.hue, level: h.level, at: this.painted.get(h.h)?.at ?? this.utc });
       this.store.put({ key: h.key, hue: h.hue, level: h.level, until: h.until, ns: this.ns });
       this.hits.splice(i, 1);
     }
@@ -172,21 +178,69 @@ export class LifeHost {
     t.reach = reach;
     t.buf = this.free.pop()!;
     this.worker.postMessage(t, [t.buf]);
+    this.qa.sent++;
   }
 
-  private commit(nm: number, nl: number, ns: number, n: number): void {
+  private commit(nm: number, nl: number, ns: number, n: number, nk = 0): void {
     const P = this.pools;
     P.middle.commit(Math.min(nm, P.middle.max));
     P.large.commit(Math.min(nl, P.large.max));
     P.specks.commit(ns);
+    P.marks.commit(nk);
     this.qa.rows = n;
     this.qa.models = nm + nl;
     this.qa.specks = ns;
+    this.qa.marks = nk;
+  }
+
+  /**
+   * A painted mover's contrail (CONTRACT.md O6), ribbon `r`: back along its path from its tail, as far as it has flown since it took the paint and TRAIL_S s of it at
+   * most, turned to the lens, wider a level up; at level 3 it runs through the paint's hues. In the drawing loop's frame: (ux, uy, uz) the way it's going, `half` its
+   * half length (m), `near` the flight's clamp (0: none). False: nothing to draw yet.
+   */
+  private trail(r: number, x: number, y: number, z: number, ux: number, uy: number, uz: number, speed: number, half: number, paint: MoverPaint, cam: THREE.Vector3, ang: number, near: number): boolean {
+    const L = speed * Math.min(TRAIL_S, Math.max(0, (this.utc - paint.at) / 1000));
+    if (L < 1) return false;
+    const K = this.pools.marks, wpx = TRAIL_PX * (paint.level + 1);
+    for (let j = 0; j < MARK_POINTS; j++) {
+      const t = j / (MARK_POINTS - 1), back = half + L * t;
+      let px = x - ux * back, py = y - uy * back, pz = z - uz * back;
+      const tx = cam.x - px, ty = cam.y - py, tz = cam.z - pz, d = Math.sqrt(tx * tx + ty * ty + tz * tz);
+      let sx = uy * tz - uz * ty, sy = uz * tx - ux * tz, sz = ux * ty - uy * tx;
+      const sl = Math.sqrt(sx * sx + sy * sy + sz * sz);
+      if (sl < 1e-9) {
+        sx = 0;
+        sy = 1;
+        sz = 0;
+      } else {
+        sx /= sl;
+        sy /= sl;
+        sz /= sl;
+      }
+      let w = 0.5 * Math.max(TRAIL_M, wpx * d * ang);
+      if (near > 0 && d > near) {
+        const k = near / d;
+        px = cam.x - tx * k;
+        py = cam.y - ty * k;
+        pz = cam.z - tz * k;
+        w *= k;
+      }
+      const v = (r * MARK_POINTS + j) * 2, ramp = HUE_RAMPS[paint.level >= 3 ? (paint.hue + Math.floor(t * 5.999)) % 6 : paint.hue];
+      K.pos[v * 3] = px - sx * w;
+      K.pos[v * 3 + 1] = py - sy * w;
+      K.pos[v * 3 + 2] = pz - sz * w;
+      K.pos[v * 3 + 3] = px + sx * w;
+      K.pos[v * 3 + 4] = py + sy * w;
+      K.pos[v * 3 + 5] = pz + sz * w;
+      K.ramp[v] = K.ramp[v + 1] = ramp;
+      K.age[v] = K.age[v + 1] = t;
+    }
+    return true;
   }
 
   private draw(utcMs: number, camera: THREE.Camera): void {
     const s = this.snap, P = this.pools, cam = camera.position, ang = Math.max(1e-6, globals.uPixelAngle.value as number);
-    let nm = 0, nl = 0, ns = 0, n = 0, nd = 0;
+    let nm = 0, nl = 0, ns = 0, n = 0, nd = 0, nk = 0;
     this.qMap.identity();
     if (s) {
       const rows = s.rows, u32 = s.rowsU32, dt = (utcMs - s.f64[0]) / 1000, sp = P.specks;
@@ -213,11 +267,15 @@ export class LifeHost {
           ns++;
         } else continue;
         this.note(nd++, u32[o + Col.KEY], x, y, z);
+        if (paint && nk < MARKS_MAX) {
+          const vx = rows[o + Col.VX], vy = rows[o + Col.VY], vz = rows[o + Col.VZ], v = Math.sqrt(vx * vx + vy * vy + vz * vz);
+          if (v > 1 && this.trail(nk, x, y, z, vx / v, vy / v, vz / v, v, 0.5 * info.size * scale, paint, cam, ang, 0)) nk++;
+        }
       }
     }
     this.qa.sky = false;
     this.qa.drawn = Math.min(nd, DRAWN);
-    this.commit(nm, nl, ns, n);
+    this.commit(nm, nl, ns, n, nk);
   }
 
   private note(i: number, hash: number, x: number, y: number, z: number): void {
@@ -261,7 +319,7 @@ export class LifeHost {
   /** The flight's loop: each mover from Earth fixed into the render frame, none behind the Earth, the far ones drawn nearer the lens as big as they are. */
   private drawSky(utcMs: number, ob: Observer): void {
     const s = this.snap, P = this.pools, cam = this.skyCam!.position, ang = Math.max(1e-6, globals.uPixelAngle.value as number);
-    let nm = 0, nl = 0, ns = 0, n = 0, nd = 0;
+    let nm = 0, nl = 0, ns = 0, n = 0, nd = 0, nk = 0;
     if (s) {
       if (this.fixFor !== s) this.toFix(s);
       const R = ob.axes, b = ob.pos, F = this.fix, A = this.ax, rows = s.rows, u32 = s.rowsU32, dt = (utcMs - s.f64[0]) / 1000, sp = P.specks;
@@ -283,6 +341,7 @@ export class LifeHost {
         }
         let x = (R[0] * ex + R[1] * ey + R[2] * ez) * 1000, y = (R[3] * ex + R[4] * ey + R[5] * ez) * 1000, z = (R[6] * ex + R[7] * ey + R[8] * ez) * 1000;
         const lx = x - cam.x, ly = y - cam.y, lz = z - cam.z, d = Math.sqrt(lx * lx + ly * ly + lz * lz);
+        const x0 = x, y0 = y, z0 = z;
         let scale = rows[o + Col.SCALE];
         const px = (info.size * scale) / Math.max(1, d * ang), paint = this.painted.get(u32[o + Col.KEY]), ramp = paint ? HUE_RAMPS[paint.hue] : GREY_RAMP;
         if (!paint && px < 1) continue;
@@ -307,11 +366,17 @@ export class LifeHost {
           ns++;
         } else continue;
         this.note(nd++, u32[o + Col.KEY], x, y, z);
+        if (paint && nk < MARKS_MAX) {
+          // (its velocity into the render frame, and the ribbon laid from where it truly is, each point nearer the lens on its own line of sight if it's far)
+          const wx = F[q + 3], wy = F[q + 4], wz = F[q + 5], vx = R[0] * wx + R[1] * wy + R[2] * wz, vy = R[3] * wx + R[4] * wy + R[5] * wz, vz = R[6] * wx + R[7] * wy + R[8] * wz;
+          const v = Math.sqrt(vx * vx + vy * vy + vz * vz);
+          if (v > 1e-3 && this.trail(nk, x0, y0, z0, vx / v, vy / v, vz / v, v * 1000, 0.5 * info.size * rows[o + Col.SCALE], paint, cam, ang, SKY_NEAR)) nk++;
+        }
       }
     }
     this.qa.sky = true;
     this.qa.drawn = Math.min(nd, DRAWN);
-    this.commit(nm, nl, ns, n);
+    this.commit(nm, nl, ns, n, nk);
   }
 
   /**
