@@ -820,6 +820,7 @@ export class GroundPaint {
         this.ready.push(key);
         this.took.add(key);
       }
+      this.pics!.recycle(d);
     }
     const pend = this.pics!.pendingOver(ox, oz, ox + this.tileSize, oz + this.tileSize);
     if (pend.length && this.mask(key)) {
@@ -850,11 +851,12 @@ export class GroundPaint {
       this.took.add(key);
       // (and what stands in its paint, the boulders, takes it now, as when the copy came first. Review four, 8)
       this.ready.push(key);
+      this.pics!.recycle(d);
       return;
     }
     this.prepared.set(key, d);
     // (copies waiting for tiles that don't come: the oldest go, and are copied again if they do)
-    if (this.prepared.size > 64) this.prepared.delete(this.prepared.keys().next().value!);
+    if (this.prepared.size > 64) this.dropPrepared();
     const c = key.indexOf(',');
     this.onPaintReady?.(Number(key.slice(0, c)), Number(key.slice(c + 1)));
   }
@@ -864,14 +866,23 @@ export class GroundPaint {
     let d: Uint8Array | null = null;
     for (let t = 0; t < md.length; t += 4) {
       if (!md[t]) continue;
-      d ??= new Uint8Array(TEXELS * 4);
+      d ??= this.pics ? this.pics.take() : new Uint8Array(TEXELS * 4);
       d[t] = md[t];
       d[t + 1] = md[t + 1];
     }
     if (!d) return;
+    const was = this.prepared.get(key);
+    if (was) this.pics?.recycle(was);
     this.prepared.delete(key);
     this.prepared.set(key, d);
-    if (this.prepared.size > 64) this.prepared.delete(this.prepared.keys().next().value!);
+    if (this.prepared.size > 64) this.dropPrepared();
+  }
+
+  /** The oldest copy waiting for its tile goes, its array back to the pool. */
+  private dropPrepared() {
+    const k = this.prepared.keys().next().value!, d = this.prepared.get(k);
+    this.prepared.delete(k);
+    if (d) this.pics?.recycle(d);
   }
 
   private evictOldest(except: string): boolean {

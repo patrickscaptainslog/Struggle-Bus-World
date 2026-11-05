@@ -33,6 +33,8 @@ export const BUDGET = 64 * 1024 * 1024;
 const OPEN = 96;
 /** Closed pictures' texels kept for new ones. */
 const FREE = 32;
+/** Pictures evicted a write at most, the rest at the writes after (one a second while over the budget). */
+const EVICT = 400;
 /** ms a frame for all of it: tiles' paint copied out, blasts drawn in and what's changed coded for the store (Node's ms: a phone's page takes two or three times them). */
 const WORK_MS = 2;
 /** No step starts in the last of it: a step's first work (a MEGA's pictures found, a picture coded) is about this. */
@@ -223,7 +225,8 @@ export class GeoPaint {
     } catch {
       rows = new Map();
     }
-    for (const [k, [t, n]] of rows) this.note(k, t, n);
+    // (the index in the order its pictures were last painted, the longest untouched first: each touch moves one to the end, so an eviction walks it from the head. Review four, 17)
+    for (const [k, [t, n]] of [...rows].sort((a, b) => a[1][0] - b[1][0])) this.note(k, t, n);
     // (the journal the page before left, then what builds before this one kept elsewhere)
     const put: Array<[number, number, string]> = [];
     const blasts: BlastSpec[] = [];
@@ -313,7 +316,10 @@ export class GeoPaint {
 
   private note(k: number, t: number, n: number): void {
     const was = this.index.get(k);
-    if (was) this.bytes -= was.bytes;
+    if (was) {
+      this.bytes -= was.bytes;
+      this.index.delete(k);
+    }
     this.index.set(k, { t, bytes: n });
     this.bytes += n;
   }
@@ -588,6 +594,16 @@ export class GeoPaint {
     this.copies.push({ key, ox, oz, keys, pics: null, C: [0, 0, 0, 0, 0, 0, 0, 0], polar: false, d: null, j: 0, any: false });
   }
 
+  /** A tile's 64 KB, done with: kept for the next copy or picture (review four, 18). A fresh one for every copy and every painted tile let go was ~5 MB a second for the collector, flying over painted ground. */
+  recycle(d: Uint8Array): void {
+    if (d.length === TEXELS * 4 && this.free.length < FREE) this.free.push(d);
+  }
+
+  /** One of the pool's arrays, zeroed, or a new one. */
+  take(): Uint8Array {
+    return this.free.pop()?.fill(0) ?? new Uint8Array(TEXELS * 4);
+  }
+
   /** The tile's paint is being copied out. */
   copyingTile(key: string): boolean {
     return this.copying.has(key);
@@ -618,7 +634,7 @@ export class GeoPaint {
       }
       c.polar = Math.max(Math.abs(C[0]), Math.abs(C[2]), Math.abs(C[4]), Math.abs(C[6])) > 85;
       c.pics = pics;
-      c.d = new Uint8Array(TEXELS * 4);
+      c.d = this.free.pop()?.fill(0) ?? new Uint8Array(TEXELS * 4);
     }
     const C = c.C, pics = c.pics, d = c.d!;
     let last = -1, pd: Uint8Array | undefined;
@@ -763,9 +779,10 @@ export class GeoPaint {
     if (this.bytes > this.budget) {
       const busy = this.busy();
       for (const r of this.coded) busy.add(r[0]);
-      const old = [...this.index].filter(([k]) => !busy.has(k) && !this.open.get(k)?.pins).sort((a, b) => a[1].t - b[1].t);
-      for (const [k, m] of old) {
-        if (this.bytes <= this.budget * 0.9) break;
+      // (from the index's head, the longest untouched, EVICT a write at most: the whole index sorted and thousands of deletes in one frame was tens of ms. Review four, 17)
+      for (const [k, m] of this.index) {
+        if (this.bytes <= this.budget * 0.9 || drop.length >= EVICT) break;
+        if (busy.has(k) || this.open.get(k)?.pins || this.open.get(k)?.dirty) continue;
         drop.push(k);
         this.bytes -= m.bytes;
         this.index.delete(k);
@@ -817,24 +834,12 @@ export class GeoPaint {
   }
 
   /**
-   * The page is going (pagehide): blasts not drawn in are drawn in now where their pictures are in memory, and what's left of them, with every picture not yet written, goes into the
-   * journal, synchronously, for the next boot to write.
+   * The page is going (pagehide) or hidden: the blasts not drawn in yet, whole, and every picture not yet written go into the journal, synchronously, for the next boot to write.
    */
   persist(): void {
-    const keep: Array<[number, number, number | null, number | null, number[]]> = [];
-    // (before the store's read nothing can say what's painted where, so a blast then goes into the journal whole; and once one can't be finished, every one after
-    // it goes whole too, in order, so none drawn now lands under one drawn at the next boot. Review four, 1)
-    let whole = !this.ready;
-    for (let k = 0; k < this.folds.length; ) {
-      const f = this.folds[k];
-      let ok = !whole;
-      while (f.phase <= 1 && ok) ok = this.foldStep(f, Infinity);
-      if (f.phase <= 1) {
-        whole = true;
-        keep.push([f.lat, f.lon, f.olat, f.olon, this.toArray(f.spec)]);
-        k++;
-      } else this.folds.splice(k, 1);
-    }
+    // (every blast not drawn in yet goes into the journal whole, in order, and none is drawn now: on a hide that was the whole backlog in the handler, up to a second on a
+    // phone after a firehose, and a fold that waited sent the rest out of order. The page that comes back goes on drawing them; the next boot draws what's left. Review four, 1, 13)
+    const keep: Array<[number, number, number | null, number | null, number[]]> = this.folds.map((f) => [f.lat, f.lon, f.olat, f.olon, this.toArray(f.spec)]);
     // (what's being written and what's coded for it, then what's changed: a page that comes back from being hidden goes on writing them, and its next boot takes the newest of each)
     const pics: Array<[number, number, string]> = [...this.sent, ...this.coded];
     for (const [k, pic] of this.open) {
