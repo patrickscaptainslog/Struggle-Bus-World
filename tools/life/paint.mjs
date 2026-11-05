@@ -116,23 +116,22 @@ try {
     }, others);
     let tapped = null;
     if (target) {
+      // (held level behind it, as a player flying after a plane holds the nose on it: let go, the bus here noses down and slows while the plane draws away at 170 m/s)
       tapped = await page.evaluate((t) => {
-        const g = window.__game, f = g.flight, sp = Math.hypot(t.vx, t.vz) || 1, ux = t.vx / sp, uz = t.vz / sp;
-        f.x = t.x - ux * 600;
-        f.z = t.z - uz * 600;
-        f.y = t.y;
-        f.heading = Math.atan2(ux, -uz);
-        f.nose = 0;
-        return { at: [Math.round(f.x), Math.round(f.y), Math.round(f.z)], key: t.key };
+        const sp = Math.hypot(t.vx, t.vz) || 1, ux = t.vx / sp, uz = t.vz / sp;
+        const pin = { x: t.x - ux * 600, y: t.y, z: t.z - uz * 600, heading: Math.atan2(ux, -uz), nose: 0 };
+        window.__qa.pin = pin;
+        return { at: [Math.round(pin.x), Math.round(pin.y), Math.round(pin.z)], key: t.key };
       }, target);
       await frames(2);
-      const glinting = await page.evaluate(() => window.__game.controls.glinting);
+      const glint = await page.evaluate(() => window.__game.life.glintKey);
       await page.evaluate(() => window.__game.tapSplat());
+      await page.evaluate(() => delete window.__qa.pin);
       await frames(90);
       const got = await page.evaluate((key) => ({ painted: window.__game.life.painted.get(window.__game.life.keyHash(key)) ?? null, hits: window.__game.life.qa.hits }), target.key);
-      tapped = { ...tapped, glinting, ...got };
+      tapped = { ...tapped, glint, ...got };
     }
-    row('tap: the bus behind a plane, nose on it: a real tap paints it', !!tapped && tapped.glinting && !!tapped.painted && tapped.painted.level >= 1, tapped);
+    row('tap: the bus behind a plane, nose on it: the plane glints, and a real tap paints it', !!tapped && tapped.glint === tapped.key && !!tapped.painted && tapped.painted.level >= 1, tapped);
   }
   await page.screenshot({ path: join(dir, 'painted.png') });
   await frames(30);

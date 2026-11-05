@@ -82,27 +82,30 @@ try {
     await frames(10, pull);
     s = await screen();
   }
+  // (the flight's first frame is the first one life is drawn from the flight's loop; the frame before it is the hand-over's, which the street draws and then hands up, the
+  // lens changed after it was drawn, so it's read neither way)
   const seen = [];
   let k = -1;
   for (let i = 0; i < 150 && (k < 0 || seen.length < k + 3); i++) {
     await frames(1, pull);
     seen.push(await screen());
-    if (k < 0 && seen[seen.length - 1].leg !== 'street') k = seen.length - 1;
+    if (k < 0 && seen[seen.length - 1].sky) k = seen.length - 1;
   }
   await page.screenshot({ path: join(dir, 'handover.png') });
-  // (each plane on the flight's first frame against where its last two street frames had it going: the bus climbs at 900 m/s, so a plane moves a few pixels a frame either way)
+  // (each plane on the flight's first frame against where the street's last two whole frames had it going, two frames on: the bus climbs at 900 m/s, so a plane moves a few
+  // pixels a frame either way)
   const miss = [];
-  if (k >= 2)
+  if (k >= 3)
     for (const h of Object.keys(seen[k].at)) {
-      const a = seen[k - 2].at[h], b = seen[k - 1].at[h], c = seen[k].at[h];
+      const a = seen[k - 3].at[h], b = seen[k - 2].at[h], c = seen[k].at[h];
       if (!a || !b || !c) continue;
-      miss.push(Math.hypot(c[0] - (2 * b[0] - a[0]), c[1] - (2 * b[1] - a[1])));
+      miss.push(Math.hypot(c[0] - (b[0] + 2 * (b[0] - a[0])), c[1] - (b[1] + 2 * (b[1] - a[1]))));
     }
   miss.sort((x, y) => x - y);
   const worst = miss.length ? +miss[miss.length - 1].toFixed(2) : null, med = miss.length ? +miss[miss.length >> 1].toFixed(2) : null;
-  const before = k >= 1 ? seen[k - 1] : null, after = k >= 0 ? seen[k] : null;
-  row('handover: the flight takes the bus, and draws the planes the street did', k >= 1 && after.sky && !after.home && after.drawn > 0 && Math.abs(after.drawn - before.drawn) <= 2, { handedAt: k, before: before && { ...before, at: undefined }, after: after && { ...after, at: undefined } });
-  row('handover: no plane jumps on the screen, against its own motion the two frames before (px)', miss.length >= 3 && worst < 4 && med < 1.5, { planes: miss.length, median: med, worst });
+  const before = k >= 2 ? seen[k - 2] : null, after = k >= 0 ? seen[k] : null;
+  row('handover: the flight takes the bus, and draws the planes the street did', k >= 2 && !before.sky && after.sky && !after.home && after.drawn > 0 && Math.abs(after.drawn - before.drawn) <= 2, { flightFrom: k, before: before && { ...before, at: undefined }, after: after && { ...after, at: undefined } });
+  row('handover: no plane jumps on the screen, against its own motion before the hand-over (px)', miss.length >= 3 && worst < 6 && med < 3, { planes: miss.length, median: med, worst });
   // ---- flight: on up, the flight's own calls between frames, as climb.mjs flies it
   const fly = (secs, yoke, until) =>
     page.evaluate(
