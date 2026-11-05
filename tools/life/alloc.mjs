@@ -6,6 +6,7 @@
 //   people   frame() low over a street's ground, once its tiles round the bus are sampled (two arrays a tile, as it comes near)
 //   dance    frame() the same with the worker's people on those tiles in the snapshot, every one painted, so they stop and dance
 //   cars     frame() low over a grid of streets at night with the worker's cars on them, every one painted: they bounce, lay their tyre tracks and show their lights
+//   boats    frame() low over the water with a ferry line and a marina's loops by it, every boat painted: they rock and lay their wakes
 //   each     what the heap grows by over the 10,000 calls, after a collection: under 64 KB (the contract's bar). Printed beside it, what they made before one: in V8 a
 //            double stored in an object's field, or passed to a call it doesn't inline, is boxed, 16 bytes dropped at once (measured: six doubles to a call not inlined,
 //            96 bytes; six small integers, none), which JavaScriptCore never makes, keeping a double in the value itself
@@ -188,6 +189,46 @@ measure('people', people, () => walkHost.walked.size > 0, walkHost);
   measure('cars', drive, (q) => q.bouncers > 20 && q.tracks > 20 && q.lights > 0, carHost);
   heldGlobals.uLit.value = 0;
   console.log(`      cars: ${n} in the snapshot, every one painted; ${carHost.qa.bouncers} drawn bouncing, ${carHost.qa.tracks} laying tracks, ${carHost.qa.lights} lit as specks`);
+}
+{
+  // (boats, as lifeWorker.ts fills them: a ferry line across the water by the lens, run every five minutes, and a marina's water laid open round it; every boat painted)
+  const { ferryLines, ferriesOn, harbourOf, sailsOn } = await import('../../src/life/sim/boats.ts');
+  const xz = new Float32Array([-6000, 300, 0, 260, 6000, 300]);
+  const lines = ferryLines({ ferries: [{ id: 1, key: 'w1', name: '', from: 1, to: 2, seasonal: false, lengthM: 12000, lat: new Float64Array(3), lon: new Float64Array(3), xz }], terminals: [], marinas: [], airports: [] }).map((f) => ({ ...f, head: 300, vessels: Math.ceil(f.cycle / 300) }));
+  // (open water: one area of two triangles, 6 km a side round the marina)
+  const sea = { version: 1, minor: 2, rx: 0, rz: 0, names: [], pts: new Float32Array(0), nodes: { n: 0, id: new Uint32Array(0), xyz: new Float32Array(0), flags: new Uint8Array(0) }, edges: { n: 0, shape: new Uint32Array(1) },
+    areas: { n: 1, id: new Uint32Array([1]), kind: new Uint8Array([8]), name: new Uint16Array([0xffff]), tri: new Uint32Array([0, 2]), xyz: new Float32Array([-3000, 0, -3000, 3000, 0, -3000, 3000, 0, 3000, -3000, 0, -3000, 3000, 0, 3000, -3000, 0, 3000]) } };
+  const harbour = harbourOf({ key: 'm1', x: 0, z: 0, berths: 400 }, [sea]);
+  const boatWorker = { postMessage: () => {}, onmessage: null }, boatPools = new Pools(), boatScene = new THREE.Scene();
+  boatScene.add(boatPools.group);
+  const boatHost = new LifeHost(boatWorker, boatPools, store, 'sf', ORIGIN);
+  // (a Saturday afternoon, 14:00 in San Francisco)
+  const buf = new ArrayBuffer(SNAP_BYTES), v = view(buf), T = Date.parse('2026-11-07T22:00:00Z');
+  let keyAt = 0;
+  const key = (h, k) => {
+    const next = writeKey(v, keyAt, h, k);
+    if (next >= 0) keyAt = next;
+  };
+  let n = ferriesOn(lines, T, -480, 0, 0, 20000, v.rows, 0, MAX_ROWS, key);
+  const ferries = n;
+  n = sailsOn(harbour, T, -480, 0, 0, 5000, v.rows, n, MAX_ROWS, key);
+  v.u32[3] = keyAt;
+  v.f64[0] = T;
+  v.u32[2] = n;
+  boatWorker.onmessage({ data: { type: 'snap', buf } });
+  // (painted as if kept from before: a kept paint's wake is whole at once, where a fresh one grows from its hit, which the swinging clock here goes back past)
+  boatHost.restore([...boatHost.keys.values()].map((k) => ({ key: k, hue: fnv1a(k) % 6, level: 1 })));
+  const lowCam = new THREE.PerspectiveCamera(24, 393 / 852, 1.5, 30000);
+  lowCam.position.set(0, 120, 900);
+  lowCam.lookAt(0, 0, 0);
+  lowCam.updateMatrixWorld();
+  let i = 0, bsim = 1;
+  const sail = () => {
+    bsim += 1 / 60;
+    boatHost.frame(1 / 60, bsim, T + 3000 * Math.sin(++i / 200), { x: 0, y: 60, z: 0 }, lowCam);
+  };
+  measure('boats', sail, (q) => q.boats > 10 && q.bouncers > 0 && q.marks > 5, boatHost);
+  console.log(`      boats: ${ferries} ferries and ${n - ferries} sailboats in the snapshot, every one painted; ${boatHost.qa.boats} drawn, ${boatHost.qa.marks} wakes`);
 }
 {
   // (a snapshot's arrival: a fresh buffer each, as a transfer gives, its keys known already)

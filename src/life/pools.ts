@@ -31,7 +31,7 @@ function upTo(a: THREE.BufferAttribute, r: Range, count: number): void {
 }
 const range = (): Range => ({ start: 0, count: 0 });
 
-/** One box of a kind's model: its centre and size (m), the model's nose along +X, up +Y; a seventh, 1, makes it a lamp (KindInfo's beacon and lights). */
+/** One box of a kind's model: its centre and size (m), the model's nose along +X, up +Y; a seventh makes it a lamp, 1 steady (KindInfo's lights), 2 blinking (its beacon). */
 type Box = [number, number, number, number, number, number, number?];
 
 /** The kinds' models, pixel art at 6-40 px: a few boxes, as the bridges' kit is made. */
@@ -45,7 +45,26 @@ const MODELS: Record<number, Box[]> = {
     [5, -2.8, 10, 5, 2.6, 2.6],
     [5, -2.8, -10, 5, 2.6, 2.6],
     // (the beacon, on the fin's top)
-    [-26.5, 8.9, 0, 1.6, 0.8, 1.6, 1],
+    [-26.5, 8.9, 0, 1.6, 0.8, 1.6, 2],
+  ],
+  // a ferry, 40 m, its waterline at the origin: the hull, two decks of cabin and the wheelhouse forward on top, each deck's windows a lamp along either side
+  [Kind.FERRY]: [
+    [0, 0.6, 0, 40, 2.4, 10.4],
+    [-2, 3, 0, 30, 2.4, 9.4],
+    [-5, 5.1, 0, 18, 1.8, 8.4],
+    [6, 6.7, 0, 5, 1.4, 6],
+    [-2, 3.2, 4.74, 28, 0.7, 0.08, 1],
+    [-2, 3.2, -4.74, 28, 0.7, 0.08, 1],
+    [-5, 5.2, 4.24, 16, 0.6, 0.08, 1],
+    [-5, 5.2, -4.24, 16, 0.6, 0.08, 1],
+  ],
+  // a sailboat, 9 m on the water and 12 m to its masthead: the hull, its cabin, the mast, the mainsail aft of it and the jib forward
+  [Kind.SAILBOAT]: [
+    [0, 0.35, 0, 9, 0.9, 2.8],
+    [-0.6, 1, 0, 3.2, 0.5, 2],
+    [0.6, 6.3, 0, 0.16, 11.5, 0.16],
+    [-1.3, 6, 0, 3.6, 9.4, 0.08],
+    [2.6, 4.6, 0, 3.4, 7, 0.06],
   ],
   // a person, 1.7 m, standing on its feet at the origin and facing +X: legs, a body a little wider across than deep, a head
   [Kind.PERSON]: [
@@ -67,7 +86,7 @@ const MODELS: Record<number, Box[]> = {
     [0.6, 0.9, 0, 1.6, 0.25, 11],
     [-3.8, 0.8, 0, 1.1, 1.4, 0.2],
     [-3.8, 0.2, 0, 0.9, 0.15, 3.2],
-    [-3.8, 1.6, 0, 0.4, 0.3, 0.4, 1],
+    [-3.8, 1.6, 0, 0.4, 0.3, 0.4, 2],
   ],
   // a car, 4.4 m, its wheels on the ground at the origin: an axle's pair of wheels front and back, the body, the cabin a little back, two headlights
   [Kind.CAR]: [
@@ -80,14 +99,14 @@ const MODELS: Record<number, Box[]> = {
   ],
 };
 
-/** The models of the kinds in a pool, one geometry, each vertex marked with its kind, a lamp's a quarter over it. */
+/** The models of the kinds in a pool, one geometry, each vertex marked with its kind, a steady lamp's a quarter over it and a blinking one's 0.45 (under the half the fold reads). */
 function poolGeometry(kinds: Kind[]): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   for (const k of kinds)
     for (const [x, y, z, sx, sy, sz, lamp] of MODELS[k] ?? []) {
       const g = new THREE.BoxGeometry(sx, sy, sz).translate(x, y, z).toNonIndexed();
       g.deleteAttribute('uv');
-      g.setAttribute('aPart', new THREE.BufferAttribute(new Float32Array(g.getAttribute('position').count).fill(k + (lamp ? 0.25 : 0)), 1));
+      g.setAttribute('aPart', new THREE.BufferAttribute(new Float32Array(g.getAttribute('position').count).fill(k + (lamp === 2 ? 0.45 : lamp ? 0.25 : 0)), 1));
       parts.push(g);
     }
   const g = mergeGeometries(parts, false)!;
@@ -110,9 +129,10 @@ const POOL_VS = /* glsl */ `
   out vec3 vWorldNormal;
   out vec3 vViewNormal;
   void main() {
-    // (the instance's own kind only: every other part folds to a point, and draws nothing. A lamp: a car's steady, 1, a plane's beacon, 2)
+    // (the instance's own kind only: every other part folds to a point, and draws nothing. A lamp: steady, 1, a car's or a ferry's; blinking, 2, a plane's beacon)
     float on = 1.0 - step(0.5, abs(aPart - aKind));
-    vLamp = fract(aPart) > 0.1 ? (abs(aKind - ${Kind.CAR}.0) < 0.5 ? 1.0 : 2.0) : 0.0;
+    float lamp = fract(aPart + 0.001);
+    vLamp = lamp > 0.1 ? (lamp > 0.35 ? 2.0 : 1.0) : 0.0;
     vec4 wp = modelMatrix * instanceMatrix * vec4(position * on, 1.0);
     vWorldPos = wp.xyz;
     vWorldNormal = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
@@ -141,7 +161,8 @@ const POOL_FS = /* glsl */ `
     float ramp = floor(vRamp + 0.5);
     bool painted = ramp >= ${PAINT_LO}.0 && ramp <= ${PAINT_HI}.0;
     float fog0 = sbFog(vWorldPos);
-    // (at night, when the windows light: a car's headlights on, painted or grey, and a grey plane's beacon an eighth of each 1.2 s, as its speck's, on its own phase)
+    // (at night, when the windows light: a car's headlights and a ferry's windows on, painted or grey, and a grey plane's beacon an eighth of each 1.2 s, as its speck's,
+    // on its own phase)
     if (uLit > 0.0 && (vLamp == 1.0 || (vLamp == 2.0 && !painted && fract(uTime / 1.2 + vSurf) < 0.125))) {
       sbWrite(${Ramp.LAMP}.0, 1.0, fog0 * 0.5, 0.0, gl_FrontFacing ? vViewNormal : -vViewNormal, vSurf, 1.0);
       return;
@@ -368,7 +389,7 @@ export class Specks {
 export class Pools {
   readonly small = new MoverPool([Kind.PERSON, Kind.CHEER], POOL_MAX[Pool.SMALL]);
   readonly middle = new MoverPool([Kind.SMALL_PLANE, Kind.CAR], POOL_MAX[Pool.MIDDLE]);
-  readonly large = new MoverPool([Kind.AIRLINER], POOL_MAX[Pool.LARGE]);
+  readonly large = new MoverPool([Kind.AIRLINER, Kind.FERRY, Kind.SAILBOAT], POOL_MAX[Pool.LARGE]);
   readonly specks = new Specks();
   readonly marks = new Marks();
   readonly group = new THREE.Group();

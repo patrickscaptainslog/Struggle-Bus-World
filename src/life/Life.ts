@@ -46,8 +46,11 @@ const LAMP_PX = 14, LIT_PX = 0.3;
 /** Painted cars' tyre tracks (KindInfo's track): as many cars at once, a point every TRACK_STEP m of the road behind each, the wheels' lines either side of the middle
  *  (m), each line's width at the least (m) and in px, and how far over the road it's laid (m) */
 const TRACKS = 48, TRACK_STEP = 2.2, TRACK_SIDE = 0.72, TRACK_M = 0.32, TRACK_PX = 1, TRACK_LIFT = 0.12;
-/** a car's rear axle behind its middle, and its lamps ahead of it and over the road (m, the model's: pools.ts) */
-const CAR_REAR = 1.35, CAR_NOSE = 2.3, CAR_LAMP_Y = 0.84;
+/** a car's rear axle behind its middle, and its lamps over the road (m, the model's: pools.ts) */
+const CAR_REAR = 1.35, CAR_LAMP_Y = 0.84;
+/** A painted boat's wake (KindInfo's wake): its width at the stern, a share of the boat's length, spreading to three times that at its far end, and how far over the water
+ *  it's laid (m) */
+const WAKE_W = 0.3, WAKE_LIFT = 0.15;
 const WGS_A = 6378.137, WGS_K = 1 / (1 - 1 / 298.257223563);
 
 /** A mover's paint as drawn: its colour (an index into HUE_RAMPS), level, and the page clock's UTC ms it took it (0: kept from before, its contrail whole). */
@@ -81,7 +84,7 @@ export class LifeHost {
   private readonly p = new THREE.Vector3();
   private readonly s = new THREE.Vector3();
   /** QA: the last frame's rows, models and specks, the snapshots taken, the loop that drew it; and the first DRAWN movers drawn, each its key's hash and where (the loop's frame) */
-  readonly qa = { rows: 0, models: 0, people: 0, specks: 0, marks: 0, sent: 0, snaps: 0, hits: 0, sky: false, drawn: 0, dancers: 0, cars: 0, lights: 0, tracks: 0, bouncers: 0 };
+  readonly qa = { rows: 0, models: 0, people: 0, specks: 0, marks: 0, sent: 0, snaps: 0, hits: 0, sky: false, drawn: 0, dancers: 0, cars: 0, boats: 0, lights: 0, tracks: 0, bouncers: 0 };
   readonly drawn = new Float64Array(DRAWN * 4);
   /** QA: the last painted person drawn dancing this frame: its key's hash, where (the hop in it), and its pose (Kind.PERSON or Kind.CHEER) */
   readonly danced = new Float64Array(5);
@@ -90,6 +93,7 @@ export class LifeHost {
   readonly bounced = new Float64Array(5);
   private bouncers = 0;
   private cars = 0;
+  private boats = 0;
   private lights = 0;
   private trackRibbons = 0;
   /** painted cars' tyre tracks: each ring's car (its key's hash, 0 none), the frame it was last drawn, its points (x, y, z), the newest's index, how many it has, and
@@ -327,6 +331,8 @@ export class LifeHost {
     this.bouncers = 0;
     this.qa.cars = this.cars;
     this.cars = 0;
+    this.qa.boats = this.boats;
+    this.boats = 0;
     this.qa.lights = this.lights;
     this.lights = 0;
     this.qa.tracks = this.trackRibbons;
@@ -336,17 +342,20 @@ export class LifeHost {
   /**
    * A painted mover's contrail (CONTRACT.md O6), ribbon `r`: back along its path from its tail, as far as it has flown since it took the paint and TRAIL_S s of it at
    * most, turned to the lens, wider a level up; at level 3 it runs through the paint's hues. In the drawing loop's frame: (ux, uy, uz) the way it's going, `half` its
-   * half length (m), `near` the distance past which the loop draws a point nearer its lens (0: none). False: nothing to draw yet.
+   * half length (m), `near` the distance past which the loop draws a point nearer its lens (0: none). `wake`, a boat's length (m): a wake instead, flat on the water,
+   * WAKE_W of that wide at the stern and spreading to three times it, in every hue at any level. False: nothing to draw yet.
    */
-  private trail(r: number, x: number, y: number, z: number, ux: number, uy: number, uz: number, speed: number, half: number, paint: MoverPaint, cam: THREE.Vector3, ang: number, near: number): boolean {
+  private trail(r: number, x: number, y: number, z: number, ux: number, uy: number, uz: number, speed: number, half: number, paint: MoverPaint, cam: THREE.Vector3, ang: number, near: number, wake = 0): boolean {
     const L = speed * Math.min(TRAIL_S, Math.max(0, (this.utc - paint.at) / 1000));
     if (L < 1) return false;
     const K = this.pools.marks, wpx = TRAIL_PX * (paint.level + 1);
     for (let j = 0; j < MARK_POINTS; j++) {
       const t = j / (MARK_POINTS - 1), back = half + L * t;
       let px = x - ux * back, py = y - uy * back, pz = z - uz * back;
+      if (wake) py += WAKE_LIFT;
       const tx = cam.x - px, ty = cam.y - py, tz = cam.z - pz, d = Math.sqrt(tx * tx + ty * ty + tz * tz);
-      let sx = uy * tz - uz * ty, sy = uz * tx - ux * tz, sz = ux * ty - uy * tx;
+      // (across its way: to the lens for a contrail, level across the water for a wake)
+      let sx = wake ? -uz : uy * tz - uz * ty, sy = wake ? 0 : uz * tx - ux * tz, sz = wake ? ux : ux * ty - uy * tx;
       const sl = Math.sqrt(sx * sx + sy * sy + sz * sz);
       if (sl < 1e-9) {
         sx = 0;
@@ -357,7 +366,7 @@ export class LifeHost {
         sy /= sl;
         sz /= sl;
       }
-      let w = 0.5 * Math.max(TRAIL_M, wpx * d * ang);
+      let w = 0.5 * Math.max(wake ? wake * WAKE_W * (1 + 2 * t) : TRAIL_M, wpx * d * ang);
       if (near > 0 && d > near) {
         const k = near / d;
         px = cam.x - tx * k;
@@ -365,7 +374,7 @@ export class LifeHost {
         pz = cam.z - tz * k;
         w *= k;
       }
-      const v = (r * MARK_POINTS + j) * 2, ramp = HUE_RAMPS[paint.level >= 3 ? (paint.hue + Math.floor(t * 5.999)) % 6 : paint.hue];
+      const v = (r * MARK_POINTS + j) * 2, ramp = HUE_RAMPS[paint.level >= 3 || wake ? (paint.hue + Math.floor(t * 5.999)) % 6 : paint.hue];
       K.pos[v * 3] = px - sx * w;
       K.pos[v * 3 + 1] = py - sy * w;
       K.pos[v * 3 + 2] = pz - sz * w;
@@ -421,13 +430,13 @@ export class LifeHost {
           if (k >= P.pool(info.pool).max) continue;
           this.put(P.pool(info.pool), k, o, x, y, z, scale, ramp);
           if (alive) y += this.dance(P.small, k, o, x, y, z, scale, cam, utcMs);
-          else if (paint && info.track) y += this.bounce(P.pool(info.pool), k, o, x, y, z, scale, utcMs);
+          else if (paint && (info.track || info.wake)) y += this.bounce(P.pool(info.pool), k, o, x, y, z, scale, utcMs, !!info.wake);
           pc[info.pool]++;
           // (a car's lights at night while its model's lamps are too small to see: a speck at its nose, which its body hides from behind)
-          if (lit && info.lights && px < LAMP_PX && ns < SPECKS_MAX) {
-            const h = rows[o + Col.HEADING], pt = rows[o + Col.PITCH], cp = Math.cos(pt) * CAR_NOSE * scale;
+          if (lit && info.nose && px < LAMP_PX && ns < SPECKS_MAX) {
+            const h = rows[o + Col.HEADING], pt = rows[o + Col.PITCH], cp = Math.cos(pt) * info.nose * scale;
             sp.pos[ns * 3] = x + Math.cos(h) * cp;
-            sp.pos[ns * 3 + 1] = y + Math.sin(pt) * CAR_NOSE * scale + CAR_LAMP_Y * scale;
+            sp.pos[ns * 3 + 1] = y + Math.sin(pt) * info.nose * scale + CAR_LAMP_Y * scale;
             sp.pos[ns * 3 + 2] = z + Math.sin(h) * cp;
             sp.ramp[ns] = ramp;
             sp.phase[ns] = 2;
@@ -443,12 +452,13 @@ export class LifeHost {
           ns++;
           if (lit && info.lights) this.lights++;
         } else continue;
-        if (info.lights) this.cars++;
+        if (info.track) this.cars++;
+        else if (info.wake) this.boats++;
         this.note(nd++, u32[o + Col.KEY], x, y, z);
         if (paint && info.track && nk + 2 <= MARKS_MAX && this.tracks(nk, u32[o + Col.KEY], o, x0, y0, z0, rows[o + Col.SCALE], paint, cam, ang)) nk += 2;
-        if (paint && info.mark && nk < MARKS_MAX) {
+        if (paint && (info.mark || info.wake) && nk < MARKS_MAX) {
           const vx = rows[o + Col.VX], vy = rows[o + Col.VY], vz = rows[o + Col.VZ], v = Math.sqrt(vx * vx + vy * vy + vz * vz);
-          if (v > 1 && this.trail(nk, x0, y0, z0, vx / v, vy / v, vz / v, v, 0.5 * info.size * rows[o + Col.SCALE], paint, cam, ang, near)) nk++;
+          if (v > 1 && this.trail(nk, x0, y0, z0, vx / v, vy / v, vz / v, v, 0.5 * info.size * rows[o + Col.SCALE], paint, cam, ang, near, info.wake ? info.size * rows[o + Col.SCALE] : 0)) nk++;
         }
       }
     }
@@ -503,14 +513,16 @@ export class LifeHost {
 
   /**
    * A painted car's instance, `put` already, made to bounce (LIVING.md: painted life comes alive): a hop on its own beat (its key's), about 2.2 a second and 0.3 m
-   * high, squashed as it lands and stretched as it leaves, its nose nodding and its body rocking. Returns the hop's lift (m).
+   * high, squashed as it lands and stretched as it leaves, its nose nodding and its body rocking. A boat (`rock`) rides a swell instead, about once in 1.6 s, its bow
+   * and its sides rising and falling in turn, a metre a 40 m of it. Returns the lift (m).
    */
-  private bounce(pool: Pools['middle'], k: number, o: number, x: number, y: number, z: number, scale: number, utcMs: number): number {
-    const rows = this.snap!.rows, key = this.snap!.rowsU32[o + Col.KEY], beat = (utcMs / 1000) * 2.2 + (key & 255) / 256;
-    const up = Math.abs(Math.sin(Math.PI * beat)), lift = 0.3 * up * scale, sq = (1 - up) ** 3;
-    this.e.set(rows[o + Col.BANK] + 0.05 * Math.sin(Math.PI * beat), -rows[o + Col.HEADING], rows[o + Col.PITCH] + 0.07 * Math.sin(2 * Math.PI * beat));
+  private bounce(pool: Pools['middle'], k: number, o: number, x: number, y: number, z: number, scale: number, utcMs: number, rock = false): number {
+    const rows = this.snap!.rows, key = this.snap!.rowsU32[o + Col.KEY], beat = (utcMs / 1000) * (rock ? 0.62 : 2.2) + (key & 255) / 256;
+    const up = rock ? 0.5 + 0.5 * Math.sin(2 * Math.PI * beat) : Math.abs(Math.sin(Math.PI * beat)), lift = (rock ? 0.025 * KINDS[rows[o + Col.KIND]].size : 0.3) * up * scale;
+    const sq = rock ? 0 : (1 - up) ** 3, a = rock ? 1.6 : 1;
+    this.e.set(rows[o + Col.BANK] + 0.05 * a * Math.sin(Math.PI * beat * (rock ? 2 : 1) + (rock ? 1.3 : 0)), -rows[o + Col.HEADING], rows[o + Col.PITCH] + 0.07 * (rock ? 0.6 : 1) * Math.sin(2 * Math.PI * beat));
     this.q.setFromEuler(this.e).premultiply(this.qMap);
-    const sy = 1.06 - 0.22 * sq, sxz = 0.97 + 0.11 * sq;
+    const sy = rock ? 1 : 1.06 - 0.22 * sq, sxz = rock ? 1 : 0.97 + 0.11 * sq;
     this.m.compose(this.p.set(x, y + lift, z), this.q, this.s.set(scale * sxz, scale * sy, scale * sxz));
     this.m.toArray(pool.mesh.instanceMatrix.array as Float32Array, k * 16);
     const B = this.bounced;

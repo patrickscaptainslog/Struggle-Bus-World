@@ -194,6 +194,51 @@ try {
     const b = got?.bounce;
     row('cars: painted, it bounces, squashed as it lands, and lays two rainbow tyre tracks flat on the road', !!b && b.frames >= 20 && b.hop > 0.15 && b.squash < 0.9 && b.tracks >= 1 && b.marks >= 2 && b.hues >= 4 && b.edgesM < 0.01 && b.overRoadM < 1, b);
   }
+  {
+    // (a ferry: the bus 40 m up behind the nearest one underway, nose along its way, as a player chasing it holds; tried from 150, 250 and 400 m back. It glints, a
+    // real tap paints it, and painted it lays a wake on the water behind it in every hue; its paint is kept, by vessel. A frame of it three seconds on, following it)
+    const ferry = () => page.evaluate(() => {
+      const g = window.__game, l = g.life, s = l.snap, rows = s.rows, dt = (l.utc - s.f64[0]) / 1000;
+      let best = null;
+      for (let i = 0; i < s.u32[2]; i++) {
+        const o = i * 16, key = l.keys.get(s.rowsU32[o]), v = Math.hypot(rows[o + 5], rows[o + 7]);
+        if (!key || rows[o + 1] !== 6 || v < 3) continue;
+        const f = { key, x: rows[o + 2] + rows[o + 5] * dt, z: rows[o + 4] + rows[o + 7] * dt, ux: rows[o + 5] / v, uz: rows[o + 7] / v, d: Math.hypot(rows[o + 2] - g.flight.x, rows[o + 4] - g.flight.z) };
+        if (!best || f.d < best.d) best = f;
+      }
+      return best;
+    });
+    const f = await ferry();
+    let got = null;
+    if (f)
+      for (const back of [150, 250, 400]) {
+        const at = await now(f.key);
+        if (!at) break;
+        const heading = Math.atan2(f.ux, -f.uz);
+        await page.evaluate((p) => (window.__qa.pin = p), { x: at.x - f.ux * back, y: 40, z: at.z - f.uz * back, heading, nose: 0 });
+        await frames(30);
+        if ((await page.evaluate(() => window.__game.life.glintKey)) !== f.key) continue;
+        await page.screenshot({ path: join(dir, 'ferry-glint.png') });
+        await page.evaluate(() => window.__game.tapSplat());
+        for (let k = 0; k < 9; k++) {
+          const a = await now(f.key);
+          if (a) await page.evaluate((p) => (window.__qa.pin = p), { x: a.x - f.ux * back, y: 40, z: a.z - f.uz * back, heading, nose: 0 });
+          await frames(10);
+        }
+        await page.screenshot({ path: join(dir, 'ferry-wake.png') });
+        got = await page.evaluate((key) => {
+          const l = window.__game.life, K = l.pools.marks, hues = new Set();
+          for (let j = 1; j < 12; j++) hues.add(K.ramp[j * 2]);
+          return { key, back: 0, painted: l.painted.get(l.keyHash(key)) ?? null, marks: l.qa.marks, hues: hues.size, flat: +Math.abs(K.pos[1] - K.pos[4]).toFixed(3) };
+        }, f.key);
+        got.back = back;
+        break;
+      }
+    await page.evaluate(() => delete window.__qa.pin);
+    await frames(10);
+    const kept = await testStore('ferry:');
+    row('ferries: the bus behind one underway: it glints, a real tap paints it, kept by vessel; painted, it lays a wake flat on the water in every hue', !!got?.painted && got.painted.level >= 1 && kept >= 1 && got.marks >= 1 && got.hues >= 4 && got.flat < 0.01, { ...got, kept });
+  }
   // (a plane in the snapshot (kinds 1 and 2: people are 3, cars 5), the farthest from the map's middle, so the nearest is left grey for the tap: its key, where it is now, its velocity)
   const plane = () => page.evaluate(() => {
     const l = window.__game.life, s = l.snap, rows = s.rows, u32 = s.rowsU32, n = s.u32[2], dt = (l.utc - s.f64[0]) / 1000;
@@ -232,7 +277,7 @@ try {
     row('hit: grey until the impact, then its hue at level 1; again, level 2 and the same hue', r.fresh && !r.before && after?.hue === 2 && after.level === 1 && !again && twice?.hue === 2 && twice.level === 2, { ...r, after, again, twice });
   }
   {
-    // (O6: the painted plane's ribbon, the only one: its paint's ramp, solid at the plane and its far end the oldest, laid back along the plane's path)
+    // (O6: the painted plane's ribbon, the first (planes are the first rows; a painted ferry's wake and a car's tracks after it): its paint's ramp, solid at the plane and its far end the oldest, laid back along the plane's path)
     const k = await page.evaluate((key) => {
       const l = window.__game.life, K = l.pools.marks, g = window.__game, s = l.snap, h = l.keyHash(key);
       let behind = null;
@@ -245,7 +290,7 @@ try {
         }
       return { marks: l.qa.marks, ramp: K.ramp[0], want: g.HUE_RAMPS[l.painted.get(h)?.hue ?? 0], age0: K.age[0], ageEnd: K.age[23], behind };
     }, p.key);
-    row('contrail: the painted plane streams its paint behind it, solid at the plane, the far end the oldest', k.marks === 1 && k.ramp === k.want && k.age0 === 0 && k.ageEnd === 1 && k.behind < 0, k);
+    row('contrail: the painted plane streams its paint behind it, solid at the plane, the far end the oldest', k.marks >= 1 && k.ramp === k.want && k.age0 === 0 && k.ageEnd === 1 && k.behind < 0, k);
   }
   {
     // (the bus 1.5 km behind another plane, at its height, nose along its track: a real tap)

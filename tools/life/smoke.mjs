@@ -6,6 +6,7 @@
 //   people    on the sidewalks round the bus at the Ferry Building: drawn, those within 300 m of the lens as models, each on a walkable cell (but the odd one where a run's line between two 2 m cells' middles clips a kerb) and on the ground
 //   cars      on the roads round the bus at 09:30, from the world's graphs, none past 1.2 km: drawn, the near ones as models, each on the ground's height (but where a
 //             drawn deck carries it)
+//   ferries   on their routes from routes.bin, the Ferry Building their hub: out on the water at 09:30, each at the water's height, drawn
 //   night     the same at 21:00, fewer, with their lights on: a speck at each one's nose that's too small to show its model's lamps (a frame of it, night.png)
 //   worker    L2: the host's two snapshot buffers go out and come back, none lost and none made
 //   no life   the same page without ?life has no life on it
@@ -97,6 +98,22 @@ try {
   for (let i = 0; i < 6 && (await carsNow()).cars < 50; i++) await frames(30);
   const cars = await carsNow();
   row("cars: on the roads round the bus at 09:30, drawn, the near ones as models, each on the ground's height but on a drawn deck", cars.cars > 50 && cars.near > 0 && cars.drawn >= cars.cars * 0.9 && cars.offGround === 0 && cars.farthestM <= 1200 && cars.lights === 0, cars);
+  // (ferries: every vessel in the snapshot, on the water, the near ones drawn; underway is a speed over 1 m/s)
+  const boats = await page.evaluate(() => {
+    const g = window.__game, l = g.life, s = l.snap, rows = s.rows, n = s.u32[2];
+    let ferries = 0, underway = 0, offWater = 0, sails = 0, near = 0;
+    for (let i = 0; i < n; i++) {
+      const o = i * 16, k = rows[o + 1];
+      if (k === 7) sails++;
+      if (k !== 6) continue;
+      ferries++;
+      if (Math.hypot(rows[o + 5], rows[o + 7]) > 1) underway++;
+      if (Math.abs(rows[o + 3] + 0.6) > 0.01) offWater++;
+      if (Math.hypot(rows[o + 2] - g.flight.x, rows[o + 4] - g.flight.z) < 3000) near++;
+    }
+    return { ferries, underway, offWater, near, sails, drawn: l.qa.boats };
+  });
+  row('ferries: on their routes at 09:30, out on the water, at its height, the near ones drawn', boats.ferries >= 10 && boats.underway >= 5 && boats.offWater === 0 && boats.near > 0 && boats.drawn >= boats.near, boats);
   // (L2: the host's two buffers, each with the host, in a snapshot it holds, or out with a tick: none lost and none made)
   const bufs = await page.evaluate(() => { const l = window.__game.life; return { sent: l.qa.sent, back: l.qa.snaps, free: l.free.length, held: l.snap ? 1 : 0 }; });
   row('worker: every buffer comes back, the same two all along', bufs.free + bufs.held + (bufs.sent - bufs.back) === 2 && bufs.back >= bufs.sent - 2 && bufs.sent > 50, bufs);

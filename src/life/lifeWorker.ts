@@ -1,6 +1,7 @@
 import { latLonToLocal } from '../game/geo';
 import { gunzip, isGzip } from '../world/gunzip';
-import { parseRegionGraph, type RegionGraph } from '../world/lifeData';
+import { parseCityRoutes, parseRegionGraph, type CityRoutes, type RegionGraph } from '../world/lifeData';
+import { ferriesOn, ferryLines, harbourOf, sailsOn, WATER_R, type FerryLine, type Harbour } from './sim/boats';
 import { buildNet, carsOn, type CarNet } from './sim/cars';
 import { peopleOn, type WalkTile } from './sim/people';
 import { livePlanes, LIVE_HOLD, scriptedPlanes, type LivePlane } from './sim/planes';
@@ -20,9 +21,9 @@ export interface LifeInit {
   weather?: Weather;
   /** the place's time zone (IANA, city.json's tz), for the local hour's traffic; none: the mean Sun's at its origin */
   tz?: string;
-  /** the world's road graphs (CONTRACT.md section 1.2, city.json's life.regions): a region's URL with g_RXRZ for its name, the regions there are, and a region's side
-   *  (m); none: no cars */
-  graphs?: { url: string; regions: Array<[number, number]>; regionM: number };
+  /** the world's graphs (CONTRACT.md section 1.2, city.json's life.regions): a region's URL with g_RXRZ for its name, the regions there are, a region's side (m), and
+   *  routes.bin's URL; none: no cars, boats or ferries */
+  graphs?: { url: string; regions: Array<[number, number]>; regionM: number; routes?: string };
 }
 /** A tile's ground for people, sampled by the host (Life.ts, sampleGround): its arrays transferred. `walk` null: the tile is far, and dropped. */
 export interface LifeWalk {
@@ -55,6 +56,9 @@ const CAR_FULL = 700, CAR_REACH = 1200, CAR_THIN = 1500, CAR_ALT = 2500;
 /** The road graphs are loaded for regions within CAR_LOAD of the bus, two at a time, and dropped past CAR_DROP (m): far enough out that a car driving into the
  *  reach was born in them */
 const CAR_LOAD = 2100, CAR_DROP = 3500;
+/** Sailboats: a marina's are sailed while the bus is within BOAT_NEAR of it and under BOAT_ALT (m), filled to BOAT_REACH round the bus (a boat is 2 px at about 5 km);
+ *  its regions' graphs, within WATER_R of it, are loaded for its water */
+const BOAT_NEAR = 6000, BOAT_ALT = 6000, BOAT_REACH = 5000;
 
 let place: LifeInit | null = null;
 let weather: Weather = CLEAR;
@@ -69,6 +73,10 @@ const walkTiles = new Map<string, WalkTile>();
 /** the road graphs by region ("rx,rz"): loaded, being fetched, or failed (null: not asked again); the net cars drive, built from those loaded when they change */
 const graphs = new Map<string, RegionGraph | 'asking' | null>();
 let fetching = 0;
+/** routes.bin, once: the ferry lines, and the marinas, each's water once its regions are in (by its key) */
+let routes: CityRoutes | 'asking' | null = null;
+let lines: FerryLine[] = [];
+const harbours = new Map<string, Harbour>();
 let net: CarNet | null = null;
 let netStale = false;
 /** the place's offset from UTC (min), worked out once a minute */
@@ -95,21 +103,52 @@ function zoneOffset(utcMs: number): number {
   return tzMin;
 }
 
-/** The road graphs round the bus: the nearest regions in CAR_LOAD not asked for yet fetched, two at a time, and those past CAR_DROP dropped. */
-function roads(x: number, z: number): void {
+/** How far (m) the square of region (rx, rz), side M, is from (x, z). */
+const regionFrom = (rx: number, rz: number, M: number, x: number, z: number) => Math.hypot(Math.max(rx * M - x, 0, x - (rx + 1) * M), Math.max(rz * M - z, 0, z - (rz + 1) * M));
+
+/** routes.bin, fetched once: the ferry lines and the marinas. */
+function askRoutes(): void {
+  const url = place?.graphs?.routes;
+  if (!url || routes !== null) return;
+  routes = 'asking';
+  fetch(url)
+    .then((r) => (r.ok ? r.arrayBuffer() : null))
+    .then((b) => (b && isGzip(b) ? gunzip(b) : b))
+    .then((b) => {
+      const r = b ? parseCityRoutes(b, place!.origin) : null;
+      if (routes !== 'asking') return;
+      routes = r ?? null;
+      lines = r ? ferryLines(r) : [];
+      // (a failed file isn't asked for again)
+      if (!r) routes = { version: 0, minor: 0, ferries: [], terminals: [], marinas: [], airports: [] };
+    })
+    .catch(() => (routes = { version: 0, minor: 0, ferries: [], terminals: [], marinas: [], airports: [] }));
+}
+
+/** The marinas being sailed now: within BOAT_NEAR of the bus while it's under BOAT_ALT. */
+function activeMarinas(x: number, y: number, z: number): CityRoutes['marinas'] {
+  if (!routes || routes === 'asking' || y >= BOAT_ALT) return [];
+  return routes.marinas.filter((m) => (m.x - x) ** 2 + (m.z - z) ** 2 < BOAT_NEAR * BOAT_NEAR);
+}
+
+/**
+ * The graphs round the bus: the nearest regions not asked for yet that cars want (in CAR_LOAD, the bus under CAR_ALT) or a marina being sailed wants (in WATER_R of
+ * it) fetched, two at a time, and those past CAR_DROP that no marina wants dropped.
+ */
+function roads(x: number, y: number, z: number, marinas: CityRoutes['marinas']): void {
   const G = place?.graphs;
   if (!G) return;
   const M = G.regionM;
   let near: Array<[number, string, number, number]> | null = null;
   for (const [rx, rz] of G.regions) {
-    const dx = Math.max(rx * M - x, 0, x - (rx + 1) * M), dz = Math.max(rz * M - z, 0, z - (rz + 1) * M), d = Math.sqrt(dx * dx + dz * dz), k = `${rx},${rz}`;
-    const had = graphs.get(k);
-    if (d > CAR_DROP) {
+    const d = regionFrom(rx, rz, M, x, z), k = `${rx},${rz}`, had = graphs.get(k);
+    const boats = marinas.some((m) => regionFrom(rx, rz, M, m.x, m.z) <= WATER_R);
+    if (d > CAR_DROP && !boats) {
       if (had !== undefined && had !== 'asking') {
         graphs.delete(k);
         if (had) netStale = true;
       }
-    } else if (d <= CAR_LOAD && had === undefined && fetching < 2) (near ??= []).push([d, k, rx, rz]);
+    } else if (((y < CAR_ALT && d <= CAR_LOAD) || boats) && had === undefined && fetching < 2) (near ??= []).push([d, k, rx, rz]);
   }
   if (!near) return;
   near.sort((p, q) => p[0] - q[0]);
@@ -129,6 +168,23 @@ function roads(x: number, z: number): void {
       .catch(() => graphs.get(k) === 'asking' && graphs.set(k, null))
       .finally(() => fetching--);
   }
+}
+
+/** A marina's water, once every region in WATER_R of it is in (or failed): built from those alone, so every player's is the same. */
+function harbourFor(m: CityRoutes['marinas'][number]): Harbour | null {
+  const had = harbours.get(m.key);
+  if (had) return had;
+  const G = place!.graphs!, M = G.regionM, mine: RegionGraph[] = [];
+  for (const [rx, rz] of G.regions) {
+    if (regionFrom(rx, rz, M, m.x, m.z) > WATER_R) continue;
+    const g = graphs.get(`${rx},${rz}`);
+    if (g === undefined || g === 'asking') return null;
+    if (g) mine.push(g);
+  }
+  mine.sort((p, q) => p.rx - q.rx || p.rz - q.rz);
+  const h = harbourOf(m, mine);
+  harbours.set(m.key, h);
+  return h;
 }
 
 /** The net from the graphs loaded, in the regions' order, so every player's is the same. */
@@ -189,11 +245,19 @@ function tick(t: LifeTick): void {
       const day = Math.floor(t.utcMs / 86400000);
       for (const w of walkTiles.values()) n = peopleOn(w, day, t.utcMs, t.x, t.z, PEOPLE_REACH, v.rows, n, MAX_ROWS, keys);
     }
+    // (ferries on their routes, whatever the height: a ferry is 2 px at about 19 km; sailboats off the marinas near the bus)
+    askRoutes();
+    const tz = zoneOffset(t.utcMs), marinas = activeMarinas(t.x, t.y, t.z);
+    if (lines.length) n = ferriesOn(lines, t.utcMs, tz, t.x, t.z, t.reach, v.rows, n, MAX_ROWS, keys);
+    for (const m of marinas) {
+      const h = harbourFor(m);
+      if (h) n = sailsOn(h, t.utcMs, tz, t.x, t.z, BOAT_REACH, v.rows, n, MAX_ROWS, keys);
+    }
+    roads(t.x, t.y, t.z, marinas);
     // (cars on the roads round the bus, fewer as it climbs away from them, by the place's hour)
     if (t.y < CAR_ALT) {
-      roads(t.x, t.z);
       if (netStale) rebuild();
-      if (net) n = carsOn(net, t.utcMs, zoneOffset(t.utcMs), t.x, t.z, CAR_FULL, CAR_REACH, Math.min(1, (CAR_ALT - t.y) / (CAR_ALT - CAR_THIN)), v.rows, n, MAX_ROWS, keys);
+      if (net) n = carsOn(net, t.utcMs, tz, t.x, t.z, CAR_FULL, CAR_REACH, Math.min(1, (CAR_ALT - t.y) / (CAR_ALT - CAR_THIN)), v.rows, n, MAX_ROWS, keys);
     }
     v.u32[3] = Math.max(0, keyAt);
   } else v.u32[3] = 0;
@@ -211,6 +275,9 @@ self.onmessage = (e: MessageEvent<LifeInit | LifeTick | LifeWalk>) => {
     sent.clear();
     walkTiles.clear();
     graphs.clear();
+    harbours.clear();
+    routes = null;
+    lines = [];
     net = null;
     netStale = false;
     tzAt = -1;

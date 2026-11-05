@@ -2,12 +2,12 @@
 
 // (constant objects, not const enums: Node's checks load these files as they are, tools/life/)
 
-/** The pools, one draw each: people; cars, boats and small planes; ships and airliners. */
+/** The pools, one draw each: people; cars and small planes; ships, boats and airliners (the large pool's instances are few, so a kind's boxes cost least there). */
 export const Pool = { SMALL: 0, MIDDLE: 1, LARGE: 2 } as const;
 export type Pool = (typeof Pool)[keyof typeof Pool];
 
 // (CHEER is a pose, never a row's kind, so KINDS has none: a painted person's arms up as they dance, LIVING.md's "stop, look up, wave, dance")
-export const Kind = { AIRLINER: 1, SMALL_PLANE: 2, PERSON: 3, CHEER: 4, CAR: 5 } as const;
+export const Kind = { AIRLINER: 1, SMALL_PLANE: 2, PERSON: 3, CHEER: 4, CAR: 5, FERRY: 6, SAILBOAT: 7 } as const;
 export type Kind = (typeof Kind)[keyof typeof Kind];
 
 export interface KindInfo {
@@ -18,10 +18,14 @@ export interface KindInfo {
   mark?: boolean;
   /** at night its lamp blinks, grey: a plane's beacon, on its model's fin and as its speck */
   beacon?: boolean;
-  /** at night its lamps are on, grey or painted: a car's headlights, on its model and as a speck at its nose */
+  /** at night its lamps are on, grey or painted: a car's headlights, a ferry's windows; its speck is them */
   lights?: boolean;
+  /** its lamps ahead of its middle (m): under LAMP_PX a speck there is them (a car's headlights) */
+  nose?: number;
   /** painted, it leaves tyre tracks on the road behind it, in every hue, and bounces as it drives */
   track?: boolean;
+  /** painted, it leaves a wake flat on the water behind it, in every hue, and rocks as it goes */
+  wake?: boolean;
   /** its paint is kept (CONTRACT.md section 3); a person's and a car's aren't, `walk:` and `car:` "only while it's near" */
   kept: boolean;
   /**
@@ -36,7 +40,9 @@ export const KINDS: Record<number, KindInfo> = {
   [Kind.AIRLINER]: { pool: Pool.LARGE, size: 60, mark: true, beacon: true, kept: true },
   [Kind.SMALL_PLANE]: { pool: Pool.MIDDLE, size: 11, mark: true, beacon: true, kept: true },
   [Kind.PERSON]: { pool: Pool.SMALL, size: 1.7, kept: false, onLine: true },
-  [Kind.CAR]: { pool: Pool.MIDDLE, size: 4.4, lights: true, track: true, kept: false, onLine: true },
+  [Kind.CAR]: { pool: Pool.MIDDLE, size: 4.4, lights: true, nose: 2.3, track: true, kept: false, onLine: true },
+  [Kind.FERRY]: { pool: Pool.LARGE, size: 40, lights: true, wake: true, kept: true },
+  [Kind.SAILBOAT]: { pool: Pool.LARGE, size: 11, wake: true, kept: false },
 };
 
 /** A snapshot row (LIFE.md, "The worker"): 16 floats. */

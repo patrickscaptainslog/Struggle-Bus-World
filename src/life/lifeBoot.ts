@@ -30,7 +30,9 @@ function roadsOf(city: CityForLife | undefined, fileUrl: ((name: string) => stri
   const regions = city?.life?.regions;
   if (!fileUrl || !Array.isArray(regions) || !city?.regionSize || !city.tileSize) return undefined;
   const list = regions.filter((r): r is [number, number] => Array.isArray(r) && Number.isInteger(r[0]) && Number.isInteger(r[1])).map((r): [number, number] => [r[0], r[1]]);
-  return list.length ? { url: new URL(fileUrl('g_RXRZ'), location.href).href, regions: list, regionM: city.regionSize * city.tileSize } : undefined;
+  return list.length
+    ? { url: new URL(fileUrl('g_RXRZ'), location.href).href, regions: list, regionM: city.regionSize * city.tileSize, routes: new URL(fileUrl('routes'), location.href).href }
+    : undefined;
 }
 
 export async function bootLife(ctx: LifeContext): Promise<LifeHost | null> {

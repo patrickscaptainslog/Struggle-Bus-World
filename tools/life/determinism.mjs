@@ -9,6 +9,9 @@
 //   cars      on San Francisco's own road graphs round the Financial District, as the worker fills them: the same twice and with the regions loaded in another order, ten minutes' steps where
 //             the jump is, fewer at 3 am than at 8, every one in a lane of a way cars may drive (never UNDRAWN, NO_CARS or in a tunnel), and no jump or snap of its
 //             heading from one moment to the next for 20 s at 50 Hz, round every bend
+//   ferries   on routes.bin: the same twice, a day's steps where the jump is, out by day and all laid up at 3 am, none jumping or snapping round a whole day, berths
+//             and turns included
+//   sailboats off the marinas on the graphs' open water: the same twice, more on a Saturday than a Thursday, none before nine, every one on open water
 // Exit 1 on a failure.
 import { registerHooks } from 'node:module';
 registerHooks({ resolve(spec, ctx, next) { return next(/^\.\.?\//.test(spec) && !/\.[a-z]+$/.test(spec) ? `${spec}.ts` : spec, ctx); } });
@@ -24,11 +27,12 @@ const { mkdirSync, readFileSync, writeFileSync } = await import('node:fs');
 const { fileURLToPath, pathToFileURL } = await import('node:url');
 const here = fileURLToPath(new URL('.', import.meta.url)), root = fileURLToPath(new URL('../..', import.meta.url)), outDir = `${here}.out`;
 mkdirSync(outDir, { recursive: true });
-writeFileSync(`${outDir}/entry.ts`, `export { parseRegionGraph } from '${root.replace(/\\/g, '/')}src/world/lifeData.ts';`);
+writeFileSync(`${outDir}/entry.ts`, `export { parseRegionGraph, parseCityRoutes } from '${root.replace(/\\/g, '/')}src/world/lifeData.ts';`);
 const bundle = await rolldown({ input: `${outDir}/entry.ts`, platform: 'node', logLevel: 'warn' });
 await bundle.write({ dir: outDir, format: 'esm', entryFileNames: 'lifedata.mjs' });
 await bundle.close();
-const { parseRegionGraph } = await import(pathToFileURL(`${outDir}/lifedata.mjs`).href);
+const { parseRegionGraph, parseCityRoutes } = await import(pathToFileURL(`${outDir}/lifedata.mjs`).href);
+const { ferryLines, ferriesOn, harbourOf, sailsOn, WATER_R } = await import('../../src/life/sim/boats.ts');
 
 let bad = 0;
 const row = (name, ok, got) => {
@@ -198,6 +202,96 @@ const snap = (place, t, reach = 80000, bx = 0, bz = 0, ...weather) => {
     prev = now;
   }
   row('cars: no jump past its speed, nor a snap of its heading, 20 s at 50 Hz', pairs > 10000 && jumps === 0 && snaps === 0, { pairs, jumps, worstJumpM: +worstJ.toFixed(2), snaps, worstTurnRad: +worstH.toFixed(2) });
+}
+{
+  // (ferries, on the city's routes: the morning of a Thursday, 09:30 in San Francisco)
+  const man = JSON.parse(readFileSync(`${root}public/city/sf/city.json`, 'utf8')), M = man.regionSize * man.tileSize, tz = -480;
+  let b = readFileSync(`${root}public/city/sf/routes.bin`);
+  if (b[0] === 0x1f && b[1] === 0x8b) b = gunzipSync(b);
+  const routes = parseCityRoutes(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength), man.origin), lines = ferryLines(routes);
+  const out = new Float32Array(MAX * ROW), u32 = new Uint32Array(out.buffer);
+  const ferries = (t) => {
+    const k = ferriesOn(lines, t, tz, 0, 0, 200000, out, 0, MAX);
+    return { n: k, bytes: Buffer.from(out.buffer, 0, k * ROW * 4) };
+  };
+  const a = ferries(T0), moving = (k) => Array.from({ length: k }, (_, q) => Math.hypot(out[q * ROW + 5], out[q * ROW + 7])).filter((v) => v > 0.5).length;
+  const outNow = moving(a.n);
+  row('ferries: the same routes and moment twice, the same bytes', a.n > 10 && a.bytes.equals(ferries(T0).bytes), { routes: routes.ferries.length, lines: lines.length, vessels: a.n, underway: outNow });
+  let last = null;
+  for (let k = 1; k <= 3600; k++) last = ferries(T0 + k * 1000);
+  row("ferries: 3,600 steps of a second end where an hour's jump does", last.bytes.equals(ferries(T0 + 3600000).bytes), { vessels: last.n });
+  const night = ferries(Date.parse('2026-11-05T11:00:00Z')), nightOut = moving(night.n);
+  row('ferries: out by day, every one laid up at 3 am', outNow >= 8 && night.n === a.n && nightOut === 0, { underwayAt0930: outNow, underwayAt0300: nightOut, vessels: night.n });
+  // (a whole day at a 2 s step: none moves past its speed, and none turns faster than a fast ferry can, about 10 degrees a second: a snap would be half round)
+  let prev = new Map(), jumps = 0, worstJ = 0, snaps = 0, worstH = 0, pairs = 0;
+  const day0 = Date.parse('2026-11-05T08:00:00Z');
+  for (let t = day0; t <= day0 + 86400000; t += 2000) {
+    const k = ferriesOn(lines, t, tz, 0, 0, 200000, out, 0, MAX), now = new Map();
+    for (let q = 0; q < k; q++) {
+      const o = q * ROW, x = out[o + 2], z = out[o + 4], h = out[o + 8], v = Math.hypot(out[o + 5], out[o + 7]), p = prev.get(u32[o]);
+      now.set(u32[o], [x, z, h, v]);
+      if (!p) continue;
+      pairs++;
+      const j = Math.hypot(x - p[0], z - p[1]) - Math.max(v, p[3]) * 2 * 1.05, dh = Math.abs(((h - p[2] + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
+      worstJ = Math.max(worstJ, j);
+      worstH = Math.max(worstH, dh);
+      if (j > 2) jumps++;
+      if (dh > 0.35) snaps++;
+    }
+    prev = now;
+  }
+  row('ferries: none jumps past its speed nor snaps round, a whole day at a 2 s step', pairs > 10000 && jumps === 0 && snaps === 0, { pairs, jumps, worstJumpM: +worstJ.toFixed(2), snaps, worstTurnRad: +worstH.toFixed(3) });
+  // (sailboats: each marina's water from the graphs of the regions round it, as the worker builds it)
+  const graphOf = new Map();
+  const harbours = routes.marinas.map((m) => {
+    const mine = [];
+    for (const [rx, rz] of man.life.regions) {
+      if (Math.hypot(Math.max(rx * M - m.x, 0, m.x - (rx + 1) * M), Math.max(rz * M - m.z, 0, m.z - (rz + 1) * M)) > WATER_R) continue;
+      const k = `${rx},${rz}`;
+      if (!graphOf.has(k)) {
+        let g = readFileSync(`${root}public/city/sf/g_${rx}_${rz}.bin`);
+        if (g[0] === 0x1f && g[1] === 0x8b) g = gunzipSync(g);
+        graphOf.set(k, parseRegionGraph(g.buffer.slice(g.byteOffset, g.byteOffset + g.byteLength), M));
+      }
+      mine.push(graphOf.get(k));
+    }
+    mine.sort((p, q) => p.rx - q.rx || p.rz - q.rz);
+    return harbourOf(m, mine);
+  });
+  const slots = harbours.reduce((s, h) => s + h.loops.length / 5, 0), looped = harbours.reduce((s, h) => s + Array.from({ length: h.loops.length / 5 }, (_, i) => h.loops[i * 5 + 2] > 0).filter(Boolean).length, 0);
+  const sails = (t) => {
+    let k = 0;
+    for (const h of harbours) k = sailsOn(h, t, tz, 0, -4000, 50000, out, k, MAX);
+    return { n: k, bytes: Buffer.from(out.buffer, 0, k * ROW * 4) };
+  };
+  // (14:00 on Thursday the 5th and Saturday the 7th, and 07:00 on the Saturday)
+  const thu = sails(Date.parse('2026-11-05T22:00:00Z')), sat = sails(Date.parse('2026-11-07T22:00:00Z')), early = sails(Date.parse('2026-11-07T15:00:00Z'));
+  row('sailboats: the same twice; more on a Saturday afternoon than a Thursday, none at 07:00', thu.n > 5 && thu.bytes.equals(sails(Date.parse('2026-11-05T22:00:00Z')).bytes) && sat.n > thu.n && early.n === 0, { marinas: harbours.length, slots, withALoop: looped, thursday: thu.n, saturday: sat.n, at0700: early.n });
+  // (every one on open water: in an OPEN_WATER triangle of its marina's graphs, every minute of the Saturday's sailing)
+  const inWater = (x, z) => {
+    for (const g of graphOf.values()) {
+      const A = g.areas;
+      for (let ai = 0; ai < A.n; ai++) {
+        if (A.kind[ai] !== 8) continue;
+        for (let tr = A.tri[ai]; tr < A.tri[ai + 1]; tr++) {
+          const o = tr * 9, ax = A.xyz[o], az = A.xyz[o + 2], bx = A.xyz[o + 3], bz = A.xyz[o + 5], cx = A.xyz[o + 6], cz = A.xyz[o + 8];
+          if (x < Math.min(ax, bx, cx) || x > Math.max(ax, bx, cx) || z < Math.min(az, bz, cz) || z > Math.max(az, bz, cz)) continue;
+          const d = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz), l1 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / d, l2 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / d;
+          if (l1 >= -1e-6 && l2 >= -1e-6 && l1 + l2 <= 1 + 1e-6) return true;
+        }
+      }
+    }
+    return false;
+  };
+  let seen = 0, dry = 0;
+  for (let t = Date.parse('2026-11-07T17:30:00Z'); t < Date.parse('2026-11-08T03:00:00Z'); t += 600000) {
+    const k = sails(t).n;
+    for (let q = 0; q < k; q++) {
+      seen++;
+      if (!inWater(out[q * ROW + 2], out[q * ROW + 4])) dry++;
+    }
+  }
+  row('sailboats: every one on open water, every 10 minutes of a Saturday', seen > 200 && dry === 0, { seen, dry });
 }
 console.log(bad ? `${bad} FAIL` : 'all pass');
 process.exit(bad ? 1 : 0);
