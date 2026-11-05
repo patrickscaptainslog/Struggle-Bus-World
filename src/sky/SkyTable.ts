@@ -119,6 +119,28 @@ function mixLch(a: Float32Array, i: number, b: Float32Array, j: number, t: numbe
   o[k + 2] = ha + dh * t;
 }
 
+/** An OKLCH swatch (hue in radians) into a palette's bytes at d. */
+function toBytes(L: number, C: number, hh: number, data: Uint8Array, d: number): void {
+  const A = C * Math.cos(hh), B = C * Math.sin(hh);
+  const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3, m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3, q = (L - 0.0894841775 * A - 1.291485548 * B) ** 3;
+  data[d] = Math.round(255 * Math.min(1, Math.max(0, gam(Math.max(0, 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * q)))));
+  data[d + 1] = Math.round(255 * Math.min(1, Math.max(0, gam(Math.max(0, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * q)))));
+  data[d + 2] = Math.round(255 * Math.min(1, Math.max(0, gam(Math.max(0, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * q)))));
+  data[d + 3] = 255;
+}
+
+/** The bytes at d are brown or taupe by art's gate, as skycheck tests a frame's pixels (tools/sky/oklch.mjs): OKLCH hue 35-100, L < 0.60 and C > 0.03, or L < 0.72 and 0.02 < C < 0.09. */
+function brownBytes(data: Uint8Array, d: number): boolean {
+  const r = lin(data[d] / 255), g = lin(data[d + 1] / 255), b = lin(data[d + 2] / 255);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
+  const A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+  const C = Math.hypot(A, B), h = ((Math.atan2(B, A) * 180) / Math.PI + 360) % 360;
+  return h > 35 && h < 100 && ((L < 0.6 && C > 0.03) || (L < 0.72 && C > 0.02 && C < 0.09));
+}
+
 /** Where h sits on a chain: the two keyframes (KEYS) and how far between. */
 function onChain(H: number[], K: number[], h: number, o: Float64Array): void {
   let i = 0;
@@ -190,12 +212,10 @@ export class TableBlend {
         // (the clamp: art's gate, OKLCH hue 35-100 and dark, or taupe; a little under its floor, so a byte's rounding can't lift it back)
         const deg = ((((hh * 180) / Math.PI) % 360) + 360) % 360;
         if (!hue && deg > 35 && deg < 100 && C > 0.016 && (L < 0.6 || (L < 0.72 && C < 0.09))) C = 0.016;
-        const A = C * Math.cos(hh), B = C * Math.sin(hh);
-        const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3, m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3, q = (L - 0.0894841775 * A - 1.291485548 * B) ** 3;
-        data[d] = Math.round(255 * Math.min(1, Math.max(0, gam(Math.max(0, 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * q)))));
-        data[d + 1] = Math.round(255 * Math.min(1, Math.max(0, gam(Math.max(0, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * q)))));
-        data[d + 2] = Math.round(255 * Math.min(1, Math.max(0, gam(Math.max(0, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * q)))));
-        data[d + 3] = 255;
+        toBytes(L, C, hh, data, d);
+        // (and the gate again on the bytes, as skycheck tests them: a swatch just past the floats' line rounds back over it, GREEN_GREY 7 at L 0.7201 to #aea38f,
+        // L 0.719, a minute after every sunrise. The floats' clamp then, and neutral if even that rounds brown)
+        if (!hue && brownBytes(data, d)) toBytes(L, C > 0.016 ? 0.016 : 0, hh, data, d);
       }
     }
   }

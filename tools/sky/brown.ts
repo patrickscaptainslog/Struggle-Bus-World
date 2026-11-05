@@ -1,0 +1,46 @@
+// No byte of the live tables is brown or taupe at any height of the Sun (docs/reviews/main-live-2026-11-05.md, m3): the real TableBlend from 80 to -20 degrees by 0.01,
+// setting and rising, and by 0.05 at the setting shares between (noon and midnight), every row it writes, rounded to the bytes the palette holds, through skycheck's
+// own test (tools/sky/oklch.mjs). Paint on and off. No browser: node tools/sky/run.mjs brown.ts. Exit 1 on any brown byte.
+import { isBrown, lch } from './oklch.mjs';
+import { Ramp, RAMP_COUNT, RAMP_STEPS } from '@src/render/palette';
+import { TableBlend } from '@src/sky/SkyTable';
+
+const NAME = Object.fromEntries(Object.entries(Ramp).map(([k, v]) => [v, k]));
+const T = new TableBlend();
+const data = new Uint8Array(RAMP_COUNT * RAMP_STEPS * 4);
+/** every brown swatch: (row, step) -> how often, the heights it was brown at, and one of its colours */
+const found = new Map<number, { n: number; lo: number; hi: number; w: Set<string>; c: number }>();
+let tables = 0;
+
+const sweep = (w: number, n: number, paint: boolean) => {
+  for (let k = 0; k <= 100 * n; k++) {
+    const h = (80 * n - k) / n;
+    T.place(h, w);
+    T.write(data, paint);
+    tables++;
+    for (let r = 0; r < RAMP_COUNT; r++)
+      for (let s = 0; s < RAMP_STEPS; s++) {
+        const i = (r * RAMP_STEPS + s) * 4, c = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+        if (!isBrown(c)) continue;
+        const key = r * RAMP_STEPS + s;
+        const f = found.get(key) ?? { n: 0, lo: Infinity, hi: -Infinity, w: new Set<string>(), c };
+        f.n++;
+        f.lo = Math.min(f.lo, h);
+        f.hi = Math.max(f.hi, h);
+        f.w.add(w === 1 ? 'setting' : w === 0 ? 'rising' : `share ${w}`);
+        found.set(key, f);
+      }
+  }
+};
+for (const paint of [true, false]) {
+  sweep(1, 100, paint);
+  sweep(0, 100, paint);
+  for (let k = 1; k < 10; k++) sweep(k / 10, 20, paint);
+}
+
+for (const [key, f] of found) {
+  const [L, C, h] = lch(f.c);
+  console.log(`FAIL  ${NAME[Math.floor(key / RAMP_STEPS)] ?? `row ${Math.floor(key / RAMP_STEPS)}`} ${key % RAMP_STEPS}: brown or taupe in ${f.n} tables, the Sun ${f.lo.toFixed(2)} to ${f.hi.toFixed(2)} degrees (${[...f.w].join(', ')}), e.g. #${f.c.toString(16).padStart(6, '0')} (L ${L.toFixed(3)}, C ${C.toFixed(3)}, hue ${h.toFixed(1)})`);
+}
+console.log(found.size ? `${found.size} swatches brown or taupe somewhere, of ${tables} tables` : `no byte brown or taupe in ${tables} tables, every row, 80 to -20 degrees, paint on and off`);
+process.exit(found.size ? 1 : 0);
