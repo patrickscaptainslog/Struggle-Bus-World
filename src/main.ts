@@ -1407,12 +1407,15 @@ async function boot() {
     // should work the same, replacing the left side look", and "anywhere a player touches in the general vicinity below the bus belongs to control of bus")
     {
       const v = bus.root.getWorldPosition(busOnScreen).project(camera), W = window.innerWidth, H = window.innerHeight;
-      busLane.x = ((v.x + 1) / 2) * W;
-      busLane.y = ((1 - v.y) / 2) * H;
-      // (of the screen's narrow side: in landscape the width made it 230 px and the lane all but the top corners)
-      busLane.r = inputTune.laneHalf * Math.min(W, H);
-      busLane.open = inputTune.laneOpen * H;
-      input.busZone = v.z < 1 ? busLane : null;
+      // (with the bus behind the lens the lane stays where the bus was last on the screen, where it fell back to the left 42 %: feat/earth's c11baeb, the first review's minor)
+      if (v.z < 1) {
+        busLane.x = ((v.x + 1) / 2) * W;
+        busLane.y = ((1 - v.y) / 2) * H;
+        // (of the screen's narrow side: in landscape the width made it 230 px and the lane all but the top corners)
+        busLane.r = inputTune.laneHalf * Math.min(W, H);
+        busLane.open = inputTune.laneOpen * H;
+        input.busZone = busLane;
+      }
     }
     pipeline.render(scene);
     framesDrawn++;
