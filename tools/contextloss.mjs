@@ -46,15 +46,17 @@ await page.addInitScript(() => {
 });
 await page.goto(url + (opt.query ?? '?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud&fixeddt=0.03333333333333333'), { waitUntil: 'load' });
 await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000 });
+// (a city that never goes quiet, a region that never answers, fails the job after 300 s instead of hanging it)
 const settle = () =>
   page.evaluate(
     () =>
-      new Promise((res) => {
-        const c = window.__game.city;
+      new Promise((res, rej) => {
+        const c = window.__game.city, t0 = performance.now();
         let q = 0;
         const t = () => {
           q = !c.busy ? q + 1 : 0;
           if (q >= 60) res(null);
+          else if (performance.now() - t0 > 300000) rej(new Error(`contextloss: the city didn't settle in 300 s: pending ${c.pending.size}, adopt ${c.adopt.length}, far ${c.farBusy ? 1 : 0}`));
           else requestAnimationFrame(t);
         };
         t();

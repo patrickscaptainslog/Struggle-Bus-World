@@ -222,6 +222,11 @@ async function open(query) {
           else if (k === 'barf') g.barfAtLatLon(a, b);
         }
       };
+      // what keeps the city busy, for a wait that gave up
+      window.__detBusy = () => {
+        const c = g.city;
+        return `pending ${c.pending.size}, adopt ${c.adopt.length}, far ${c.farBusy ? 1 : 0}, far landing ${c.farLanding ? c.farLanding.length : 0}, pools ${c.poolAt ?? 0} of ${c.poolTiles ? c.poolTiles.length : 0}, ground queued ${c.ground.queued}`;
+      };
       Object.defineProperty(window, '__game', {
         configurable: true,
         get: () => g,
@@ -294,6 +299,9 @@ const frames = (page, n) => page.evaluate((k) => new Promise((res) => requestAni
 // height it reached), so whether one runs before the next evaluate mustn't be the machine's timing either. --gap=<n>: n more frames
 // standing before each run, to show the run doesn't care. --split: the inputs in an evaluate of their own before those frames, as
 // the harness had it before 2026-11-04: the race on purpose (--split --gap=2 gives the swap shot's bad frame, on main too).
+// A wait for the city gives up after WAIT ms, with what kept it busy: a region that never answers fails the job instead of
+// hanging it, and the browser with it.
+const WAIT = 300000;
 async function runDet(page, seconds) {
   let ops = staged.get(page) ?? [];
   staged.delete(page);
@@ -303,11 +311,14 @@ async function runDet(page, seconds) {
   }
   if (Number(opt.gap) > 0) await frames(page, Number(opt.gap));
   await page.evaluate(
-    ({ s, ops }) =>
-      new Promise((res) => {
-        const g = window.__game, qa = window.__qa;
+    ({ s, ops, wait }) =>
+      new Promise((res, rej) => {
+        const g = window.__game, qa = window.__qa, t0 = performance.now();
         const go = () => {
-          if (g.city.busy) return requestAnimationFrame(go);
+          if (g.city.busy) {
+            if (performance.now() - t0 > wait) return rej(new Error(`shots --det: the city was busy ${wait / 1000} s before a run: ${window.__detBusy()}`));
+            return requestAnimationFrame(go);
+          }
           window.__detOps(ops);
           qa.held = false;
           qa.holdAt = g.clock() + s;
@@ -317,9 +328,9 @@ async function runDet(page, seconds) {
         };
         go();
       }),
-    { s: seconds, ops },
+    { s: seconds, ops, wait: WAIT },
   );
-  await page.waitForFunction(() => window.__qa.held === true, null, { timeout: 300000, polling: 50 });
+  await page.waitForFunction(() => window.__qa.held === true, null, { timeout: WAIT, polling: 50 });
   await page.evaluate(() => {
     window.__detRunning = false;
     window.__freeze(true);
@@ -333,17 +344,19 @@ async function runDet(page, seconds) {
 // next batch is only asked for a frame after the last one lands), then a few frames
 async function settle(page) {
   await page.evaluate(
-    () =>
-      new Promise((res) => {
-        const g = window.__game;
+    (wait) =>
+      new Promise((res, rej) => {
+        const g = window.__game, t0 = performance.now();
         let quiet = 0;
         const tick = () => {
           quiet = !g.city.busy && g.city.ground.queued === 0 ? quiet + 1 : 0;
           if (quiet >= 30) res(null);
+          else if (performance.now() - t0 > wait) rej(new Error(`shots --det: the city didn't settle in ${wait / 1000} s: ${window.__detBusy()}`));
           else requestAnimationFrame(tick);
         };
         tick();
       }),
+    WAIT,
   );
   await page.waitForTimeout(200);
 }
