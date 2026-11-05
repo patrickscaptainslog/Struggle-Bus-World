@@ -245,6 +245,30 @@ if (!only || only === 'between')
   row('between: a tile in between a MEGA\'s impact and its fold\'s end shows it', n > 1000 && g.geoPaint.pending > 0, { painted: n, pendingStill: g.geoPaint.pending });
 }
 
+// ---- late: review five's 33, a MEGA's tiles coming in three a frame after its job has started, as City.update splits them out of their regions' ground
+if (!only || only === 'late')
+  for (const moon of [true, false]) {
+    const { globals } = await import('../../src/render/materials.ts');
+    const g = moon ? await page(5, 5, new Map()) : new GroundPaint(TS, 'late_check', 'rank');
+    const r = 468, x = 3 * TS, z = 3 * TS, flight = 2.8, middle = tilesAround(x, z, r * 0.6), all = tilesAround(x, z, r + 8);
+    globals.uTime.value = 100;
+    const job = g.begin(makeBlastSpec(x, z, r, 2, nextSeed()), 100 + flight);
+    // (three tiles in before the job's first slice, then three a frame, its first region's first row first, as the splits go)
+    let k = 0;
+    const three = () => {
+      for (let n = 0; n < 3 && k < all.length; n++, k++) g.attach(all[k][0], all[k][1], all[k][0] * TS, all[k][1] * TS, uni());
+    };
+    three();
+    for (let f = 0; f < Math.round(flight * 30); f++) {
+      g.work();
+      globals.uTime.value += 1 / 30;
+      three();
+    }
+    g.land(job);
+    const showing = middle.filter(([tx, tz]) => painted(g.masks.get(`${tx},${tz}`)) > 0).length;
+    row(`late, ${moon ? 'the Moon' : 'Earth'}: a MEGA's tiles in three a frame after its job began, every tile of its middle shows it at the impact`, showing === middle.length, { middle: middle.length, showing, tiles: all.length });
+  }
+
 // ---- budget: the store full, then a MEGA over old paint
 if (!only || only === 'budget')
 {
