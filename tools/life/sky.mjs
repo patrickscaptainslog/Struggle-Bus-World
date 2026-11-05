@@ -5,6 +5,7 @@
 //   flight    the flight's loop draws them, from its own scene
 //   home      back down under 14 km, the street's loop has them again
 //   orbit     up again and on to 300 km: specks only, each a pixel of its paint
+//   programs  L6 through it all: what the street's warm-up compiled is all life draws with, in either loop
 // Exit 1 if any fails. The stick and the climb are climb.mjs's.
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -62,7 +63,7 @@ try {
         at[d[i * 4]] = [((cx / cw) * 0.5 + 0.5) * W, (0.5 - (cy / cw) * 0.5) * H];
       }
       const t = window.__space.moon.trip;
-      return { leg: t.leg, km: +(g.flight.height / 1000).toFixed(2), flightKm: +t.hGround.toFixed(1), sky: l.qa.sky, rows: l.qa.rows, models: l.qa.models, specks: l.qa.specks, marks: l.qa.marks, drawn: n, home: l.pools.group.parent === g.scene, at };
+      return { leg: t.leg, km: +(g.flight.height / 1000).toFixed(2), flightKm: +t.hGround.toFixed(1), sky: l.qa.sky, rows: l.qa.rows, models: l.qa.models, specks: l.qa.specks, marks: l.qa.marks, drawn: n, home: l.pools.group.parent === g.scene, programs: g.pipeline.renderer.info.programs.length, at };
     });
   const s0 = await screen();
   row('street: life is up under ?earth, its planes painted, the street drawing them', up && painted > 0 && !s0.sky && s0.home && s0.drawn > 0, { painted, ...s0, at: Object.keys(s0.at).length });
@@ -148,6 +149,8 @@ try {
   const f300 = await screen();
   await page.screenshot({ path: join(dir, 'flight-300km.png') });
   row('orbit: at 300 km the flight draws them as specks only, each a pixel of its paint', f300.flightKm > 299 && f300.sky && f300.specks > 0 && f300.models === 0, { ...f300, at: undefined });
+  // (L6 through the hand-over: life's draws in the flight's scene are the programs the street's warm-up made)
+  row('programs: nothing compiled from the street up through the hand-over, home and on to orbit', f300.programs === s0.programs, { street: s0.programs, orbit: f300.programs });
 } catch (e) {
   bad++;
   console.log('FAIL ', e.message);
