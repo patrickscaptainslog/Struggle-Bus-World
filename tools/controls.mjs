@@ -16,7 +16,8 @@
 //   firstrun a first visit: no card, the cues in order (TAP, DRAG, HOLD)                         -> firstrun.json
 //   opening  flicks under the opening's gate: answered, taken back, firing at the gate; two of them. The low shot has no look, so a drag landing over
 //            the bus, out of the lane's half disc, flies until the gate and looks after it. A flick in the grey, before the first frame, waits for
-//            the gate too. Once open, a carve shuts it again only under the low shot's line. SB_OPENING=grey,... runs a part
+//            the gate too. Once open, a carve shuts it again only under the low shot's line. A lone flick down under it, nothing
+//            waiting, says CLIMB AFTER THE BRIDGE. SB_OPENING=grey,... runs a part
 //                                                                                                              -> opening.json
 //   layout   real rects against layoutHud at 393 x 852, 393 x 659, 320 x 568, 852 x 393, swapped or not (shots)
 //   states   every state of MEGA and the readout, cropped (states/*.png; tools/hud-sheet.py makes a sheet of them)
@@ -882,8 +883,8 @@ if (modes.has('opening')) {
   // the first visit's gate, on the real bridge: a gear waits for it, a flick down takes it back, and one rung waits however many flicks: two are one, six are Express at the bridge, not TURBO 3
   mkdirSync(`${out}/opening`, { recursive: true });
   const R = {};
-  // (SB_OPENING=grey,low,... runs a part: gate, two, six, low, grey, carve)
-  const parts = new Set((process.env.SB_OPENING ?? 'gate,two,six,low,grey,carve').split(','));
+  // (SB_OPENING=grey,low,... runs a part: gate, two, six, low, grey, carve, pull)
+  const parts = new Set((process.env.SB_OPENING ?? 'gate,two,six,low,grey,carve,pull').split(','));
   /** every line the toast is given from now, with the game clock: the toast is a canvas, its words aren't in the page */
   const logToasts = (page) => page.evaluate(() => {
     const g = window.__game, hud = g.controls.hud, toast = hud.toast.bind(hud);
@@ -1095,7 +1096,22 @@ if (modes.has('opening')) {
     console.log('opening carve frames', log.map((s) => `${s.t} ${s.along} ${s.deg}deg ${s.locked ? 'L' : '-'}${s.lookOff ? 'O' : '-'} ${s.low}`).join(' | '));
     await page.close();
   }
-  const G = R.gate, T = R.two, S = R.six, L = R.low, Y = R.grey, C = R.carve;
+  if (parts.has('pull')) {
+    // a lone flick down under the gate with nothing waiting: the stroke pulls the stick until it lifts and the climb is held, so it says CLIMB AFTER THE BRIDGE, as every
+    // pull there did on main. It lands over the bus, out of the half disc, where the lane alone made it the second thumb, which never pulls. The studio's call (DECISIONS)
+    const { page, H } = await first();
+    await events(page);
+    const at = await page.evaluate(() => {
+      const L = window.__game.input.busZone;
+      return { x: Math.round(L.x), y: Math.round(Math.min(L.y, innerHeight * 0.6) - L.r - 40) };
+    });
+    await H.stamped(() => H.felt(1, at.x, at.y, 0, 74, 85));
+    await runFor(page, 0.3);
+    R.pull = { at, ...(await state(page)), flicks: (await events(page)).filter((e) => e.k === 'onTurbo').map((e) => e.a), toasts: await toasts(page) };
+    console.log('opening pull', JSON.stringify(R.pull));
+    await page.close();
+  }
+  const G = R.gate, T = R.two, S = R.six, L = R.low, Y = R.grey, C = R.carve, P = R.pull;
   const checks = [];
   if (G)
     checks.push(
@@ -1138,6 +1154,11 @@ if (modes.has('opening')) {
       ["under the low shot's line the gate shuts again, the lane with the gears: that landing flies", C.back.along < 180 && C.low.locked && C.low.lookOff && C.low.laneLooks && C.low.flew],
       ['every frame of the carve: the gears and the lane shut under 180 m along, together', C.log.length > 2 && C.rule],
     );
+  if (P)
+    checks.push([
+      "a lone flick down under the gate with nothing waiting says CLIMB AFTER THE BRIDGE, its pull's answer, as on main (the studio's call)",
+      P.flicks.length === 1 && P.flicks[0][0] === -1 && P.toasts.includes('CLIMB AFTER THE BRIDGE') && P.gear === 0 && !P.armed,
+    ]);
   const badO = checks.filter(([, v]) => !v).map(([k]) => k);
   console.log(badO.length ? `opening: FAILED ${badO.length} of ${checks.length}: ${badO.join('; ')}` : `opening: all ${checks.length} checks passed`);
   res.opening = R;
