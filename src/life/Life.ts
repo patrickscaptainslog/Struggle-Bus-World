@@ -7,8 +7,8 @@ import { globals, heldGlobals } from '../render/materials';
 import { HUE_RAMPS } from '../render/palette';
 import type { Observer } from '../sky/SkyModel';
 import { axesAt, fixToGeodetic, geodeticToFix } from '../sky/WorldFrame';
-import type { LifeTick, LifeWalk } from './lifeWorker';
-import { WALK_CELL } from './sim/people';
+import type { LifeLawn, LifeTick } from './lifeWorker';
+import { LAWN_CELL, LookBit } from './sim/parks';
 import { Ground } from '../world/tiles';
 import { fnv1a } from './hash';
 import { Col, Kind, KINDS, ROW } from './kinds';
@@ -35,9 +35,12 @@ const EARTH_ID = 0;
 const TRAIL_S = 40;
 const TRAIL_PX = 1;
 const TRAIL_M = 8;
-/** People's ground round the bus (LIFE.md, "What today's tiles have"): tiles in this far (m) are sampled, a few rows of their 2 m cells a frame (512 of the world's queries
+/** People's ground round the bus (LIFE.md, "People"): tiles in this far (m) are sampled for their grass, a few rows of their 2 m cells a frame (512 of the world's queries
  *  of each kind: CONTRACT.md section 6's few hundred), and dropped past FORGET. */
-const WALK_REACH = 700, WALK_FORGET = 1600, WALK_ROWS = 4;
+const LAWN_REACH = 700, LAWN_FORGET = 1600, LAWN_ROWS = 4;
+/** A painted picnic's people, up and dancing: where each stands (m, the blanket's model's, pools.ts: the sitters' and the one lying's places, by their look bits), how
+ *  much bigger than a person's model, and each one's beat behind the last (a share of a hop) */
+const DANCE_AT = [-0.95, 0.45, 0.95, 0.45, 0, 0.95, -0.4, -0.45], DANCER = 1.25, DANCE_BEAT = 0.27;
 /** QA: how many of the movers drawn a frame are noted, by key and place (tools/life/sky.mjs: nothing jumps on the screen when the flight takes the bus) */
 const DRAWN = 64;
 /** A car's lights at night (KindInfo's lights): under this many pixels its model's own lamps are too small to see, and a speck at its nose is them; a grey car's
@@ -75,8 +78,6 @@ export class LifeHost {
   readonly keys = new Map<number, string>();
   /** the painted movers, by key hash */
   readonly painted = new Map<number, MoverPaint>();
-  /** a painted person, where the paint found them: they stop there, as the worker walks them on (by key's hash) */
-  private readonly stood = new Map<number, { x: number; y: number; z: number }>();
   private readonly tick: LifeTick = { type: 'tick', utcMs: 0, x: 0, y: 0, z: 0, lat: 0, lon: 0, reach: 0, buf: null as unknown as ArrayBuffer };
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
@@ -86,7 +87,7 @@ export class LifeHost {
   /** QA: the last frame's rows, models and specks, the snapshots taken, the loop that drew it; and the first DRAWN movers drawn, each its key's hash and where (the loop's frame) */
   readonly qa = { rows: 0, models: 0, people: 0, specks: 0, marks: 0, sent: 0, snaps: 0, hits: 0, sky: false, drawn: 0, dancers: 0, cars: 0, boats: 0, lights: 0, tracks: 0, bouncers: 0 };
   readonly drawn = new Float64Array(DRAWN * 4);
-  /** QA: the last painted person drawn dancing this frame: its key's hash, where (the hop in it), and its pose (Kind.PERSON or Kind.CHEER) */
+  /** QA: the last painted picnic's dancer drawn this frame: its group's key's hash, where (the hop in it), and its pose (Kind.PERSON or Kind.CHEER) */
   readonly danced = new Float64Array(5);
   private dancers = 0;
   /** QA: the last painted car drawn bouncing this frame: its key's hash, where (the hop in it), and its height's scale (the squash) */
@@ -137,11 +138,11 @@ export class LifeHost {
 
   /** the street's ground, for people; the tile being sampled now, the tiles sent (by a number), and those that weren't in yet, when to try them again (a frame count) */
   private readonly world: LifeWorld | null;
-  private walking: { key: number; tx: number; tz: number; j: number; walk: Uint8Array; h: Float32Array; count: number } | null = null;
+  private walking: { key: number; tx: number; tz: number; j: number; grass: Uint8Array; h: Float32Array; count: number } | null = null;
   private readonly walked = new Set<number>();
   private readonly walkLater = new Map<number, number>();
   private frames = 0;
-  private readonly walkMsg: LifeWalk = { type: 'walk', tile: null, tx: 0, tz: 0 };
+  private readonly walkMsg: LifeLawn = { type: 'lawn', tile: null, tx: 0, tz: 0 };
 
   constructor(worker: Worker, pools: Pools, store: MoverStore, ns: string, origin: readonly [number, number], world: LifeWorld | null = null) {
     this.world = world;
@@ -182,17 +183,17 @@ export class LifeHost {
   }
 
   /**
-   * People's ground (LIFE.md, "What today's tiles have"): the nearest tile in WALK_REACH not sent yet, WALK_ROWS rows of its 2 m cells a frame through the world's own
-   * queries, which may be walked (sidewalk, plaza, path) and the ground's height there; sent to the worker whole, its arrays transferred. A tile not in yet is tried
-   * again a second on; tiles past WALK_FORGET are dropped. Two arrays a tile sampled, not a frame.
+   * People's ground (LIFE.md, "People"): the nearest tile in LAWN_REACH not sent yet, LAWN_ROWS rows of its 2 m cells a frame through the world's own queries, which
+   * are grass and the ground's height there; sent to the worker whole, its arrays transferred, where the parks' areas say which grass is a park's. A tile not in yet
+   * is tried again a second on; tiles past LAWN_FORGET are dropped. Two arrays a tile sampled, not a frame.
    */
   private sampleGround(bx: number, bz: number): void {
     const w = this.world;
     if (!w) return;
     this.frames++;
-    const ts = w.tileSize, n = Math.round(ts / WALK_CELL);
+    const ts = w.tileSize, n = Math.round(ts / LAWN_CELL);
     if (!this.walking) {
-      const ctx = Math.floor(bx / ts), ctz = Math.floor(bz / ts), R = Math.ceil(WALK_REACH / ts);
+      const ctx = Math.floor(bx / ts), ctz = Math.floor(bz / ts), R = Math.ceil(LAWN_REACH / ts);
       let bd = Infinity, btx = 0, btz = 0;
       for (let dz = -R; dz <= R; dz++)
         for (let dx = -R; dx <= R; dx++) {
@@ -200,7 +201,7 @@ export class LifeHost {
           const tx = ctx + dx, tz = ctz + dz, key = (tx + 4096) * 8192 + (tz + 4096);
           if (this.walked.has(key) || (this.walkLater.get(key) ?? 0) > this.frames) continue;
           const cx = (tx + 0.5) * ts - bx, cz = (tz + 0.5) * ts - bz, d = cx * cx + cz * cz;
-          if (d < bd && d < (WALK_REACH + ts * 0.71) ** 2) {
+          if (d < bd && d < (LAWN_REACH + ts * 0.71) ** 2) {
             bd = d;
             btx = tx;
             btz = tz;
@@ -210,7 +211,7 @@ export class LifeHost {
       // (and the far ones dropped, here, where a tile's picked: not every frame)
       for (const k of this.walked) {
         const tx = Math.floor(k / 8192) - 4096, tz = (k % 8192) - 4096, cx = (tx + 0.5) * ts - bx, cz = (tz + 0.5) * ts - bz;
-        if (cx * cx + cz * cz < WALK_FORGET * WALK_FORGET) continue;
+        if (cx * cx + cz * cz < LAWN_FORGET * LAWN_FORGET) continue;
         this.walked.delete(k);
         const m = this.walkMsg;
         m.tile = null;
@@ -218,21 +219,21 @@ export class LifeHost {
         m.tz = tz;
         this.worker.postMessage(m);
       }
-      this.walking = { key: (btx + 4096) * 8192 + (btz + 4096), tx: btx, tz: btz, j: 0, walk: new Uint8Array(n * n), h: new Float32Array(n * n), count: 0 };
+      this.walking = { key: (btx + 4096) * 8192 + (btz + 4096), tx: btx, tz: btz, j: 0, grass: new Uint8Array(n * n), h: new Float32Array(n * n), count: 0 };
     }
     const t = this.walking, x0 = t.tx * ts, z0 = t.tz * ts;
-    for (let r = 0; r < WALK_ROWS && t.j < n; r++, t.j++) {
-      const z = z0 + (t.j + 0.5) * WALK_CELL;
+    for (let r = 0; r < LAWN_ROWS && t.j < n; r++, t.j++) {
+      const z = z0 + (t.j + 0.5) * LAWN_CELL;
       for (let i = 0; i < n; i++) {
-        const x = x0 + (i + 0.5) * WALK_CELL, c = w.groundClassAt(x, z);
+        const x = x0 + (i + 0.5) * LAWN_CELL, c = w.groundClassAt(x, z);
         if (c === null) {
           // (not in yet: again in a second or so)
           this.walkLater.set(t.key, this.frames + 30);
           this.walking = null;
           return;
         }
-        const q = t.j * n + i, ok = c === Ground.SIDEWALK || c === Ground.PLAZA || c === Ground.PATH;
-        t.walk[q] = ok ? 1 : 0;
+        const q = t.j * n + i, ok = c === Ground.GRASS;
+        t.grass[q] = ok ? 1 : 0;
         if (ok) t.count++;
         t.h[q] = w.groundAt(x, z);
       }
@@ -243,10 +244,10 @@ export class LifeHost {
     this.walking = null;
     if (!t.count) return;
     const m = this.walkMsg;
-    m.tile = { tx: t.tx, tz: t.tz, x0, z0, cell: WALK_CELL, n, walk: t.walk, h: t.h, count: t.count };
+    m.tile = { tx: t.tx, tz: t.tz, x0, z0, cell: LAWN_CELL, n, grass: t.grass, h: t.h, count: t.count };
     m.tx = t.tx;
     m.tz = t.tz;
-    this.worker.postMessage(m, [t.walk.buffer, t.h.buffer]);
+    this.worker.postMessage(m, [t.grass.buffer, t.h.buffer]);
     m.tile = null;
   }
 
@@ -288,8 +289,8 @@ export class LifeHost {
       if (simTime < h.arrive) continue;
       // (a level up keeps its contrail going from when it was first painted)
       this.painted.set(h.h, { hue: h.hue, level: h.level, at: this.painted.get(h.h)?.at ?? this.utc });
-      // (a person's paint and a car's are the session's: `walk:` and `car:` live only while they're near, CONTRACT.md section 3)
-      if (!h.key.startsWith('walk:') && !h.key.startsWith('car:')) this.store.put({ key: h.key, hue: h.hue, level: h.level, until: h.until, ns: this.ns });
+      // (a picnic's paint and a car's are the session's: `picnic:` and `car:` live only while they're near, CONTRACT.md section 3)
+      if (!h.key.startsWith('picnic:') && !h.key.startsWith('car:')) this.store.put({ key: h.key, hue: h.hue, level: h.level, until: h.until, ns: this.ns });
       this.hits.splice(i, 1);
     }
   }
@@ -403,17 +404,10 @@ export class LifeHost {
       for (let i = 0; i < n; i++) {
         const o = i * ROW, info = KINDS[rows[o + Col.KIND]];
         if (!info) continue;
-        let x0 = rows[o + Col.X] + rows[o + Col.VX] * dt, y0 = rows[o + Col.Y] + rows[o + Col.VY] * dt, z0 = rows[o + Col.Z] + rows[o + Col.VZ] * dt;
+        const x0 = rows[o + Col.X] + rows[o + Col.VX] * dt, y0 = rows[o + Col.Y] + rows[o + Col.VY] * dt, z0 = rows[o + Col.Z] + rows[o + Col.VZ] * dt;
         const paint = this.painted.get(u32[o + Col.KEY]);
-        // (painted life comes alive, LIVING.md: a person stops where the paint found them, turns to the bus and dances; the worker walks them on, unseen)
-        const alive = paint !== undefined && rows[o + Col.KIND] === Kind.PERSON;
-        if (alive) {
-          let st = this.stood.get(u32[o + Col.KEY]);
-          if (!st) this.stood.set(u32[o + Col.KEY], (st = { x: x0, y: y0, z: z0 }));
-          x0 = st.x;
-          y0 = st.y;
-          z0 = st.z;
-        }
+        // (painted life comes alive, LIVING.md: a painted picnic's people get up off the blanket, turn to the bus and dance)
+        const alive = paint !== undefined && rows[o + Col.KIND] === Kind.PICNIC;
         const dx = x0 - cam.x, dy = y0 - cam.y, dz = z0 - cam.z, d = Math.sqrt(dx * dx + dy * dy + dz * dz);
         let scale = rows[o + Col.SCALE], x = x0, y = y0, z = z0;
         const px = (info.size * scale) / (Math.max(1, d) * ang);
@@ -429,7 +423,7 @@ export class LifeHost {
           const k = pc[info.pool];
           if (k >= P.pool(info.pool).max) continue;
           this.put(P.pool(info.pool), k, o, x, y, z, scale, ramp);
-          if (alive) y += this.dance(P.small, k, o, x, y, z, scale, cam, utcMs);
+          if (alive) this.party(k, o, x, y, z, scale, cam, utcMs);
           else if (paint && (info.track || info.wake)) y += this.bounce(P.pool(info.pool), k, o, x, y, z, scale, utcMs, !!info.wake);
           pc[info.pool]++;
           // (a car's lights at night while its model's lamps are too small to see: a speck at its nose, which its body hides from behind)
@@ -487,20 +481,40 @@ export class LifeHost {
     pool.ramp[k] = ramp;
     pool.glint[k] = key === this.glintHash ? config.splat.glintLift : 0;
     pool.surf[k] = (key & 0xffff) / 65536;
+    pool.look[k] = rows[o + Col.LOOK];
   }
 
   /**
-   * A painted person's instance, `put` already, made to dance: turned to the lens, a hop on its own beat (its key's), about 1.7 a second and 0.3 m high, both arms
-   * up over the top half of it. Returns the hop's lift (m).
+   * A painted picnic, `put` already at small-pool instance k: its people up off the blanket, which keeps its basket and umbrella, each dancing where they sat or lay,
+   * a little bigger than they were and a beat behind the last, as instances of their own after the group's.
    */
-  private dance(pool: Pools['small'], k: number, o: number, x: number, y: number, z: number, scale: number, cam: THREE.Vector3, utcMs: number): number {
-    const key = this.snap!.rowsU32[o + Col.KEY], up = Math.abs(Math.sin(Math.PI * ((utcMs / 1000) * 1.7 + (key & 255) / 256))), lift = 0.3 * up * scale;
+  private party(k: number, o: number, x: number, y: number, z: number, scale: number, cam: THREE.Vector3, utcMs: number): void {
+    const P = this.pools.small, rows = this.snap!.rows, look = rows[o + Col.LOOK], h = rows[o + Col.HEADING], c = Math.cos(h), sn = Math.sin(h);
+    P.look[k] = look & (LookBit.BASKET | LookBit.UMBRELLA);
+    for (let j = 0, b = 1; j < 4; j++, b <<= 1) {
+      if (!(look & b) || this.pc[0] + 1 >= P.max) continue;
+      const ox = DANCE_AT[j * 2] * scale, oz = DANCE_AT[j * 2 + 1] * scale;
+      this.dance(P, ++this.pc[0], o, x + ox * c - oz * sn, y, z + ox * sn + oz * c, scale * DANCER, cam, utcMs, j * DANCE_BEAT);
+    }
+  }
+
+  /**
+   * A dancer, small-pool instance k, for row o's painted picnic: turned to the lens, a hop on its group's beat (its key's) and `beat` behind it, about 1.7 a second
+   * and 0.3 m high, both arms up over the top half of it. Returns the hop's lift (m).
+   */
+  private dance(pool: Pools['small'], k: number, o: number, x: number, y: number, z: number, scale: number, cam: THREE.Vector3, utcMs: number, beat = 0): number {
+    const key = this.snap!.rowsU32[o + Col.KEY], up = Math.abs(Math.sin(Math.PI * ((utcMs / 1000) * 1.7 + (key & 255) / 256 + beat))), lift = 0.3 * up * scale;
     // (the model faces +X, a heading turned as the worker's: atan2 of the way it faces)
     this.e.set(0, -Math.atan2(cam.z - z, cam.x - x), 0);
     this.q.setFromEuler(this.e).premultiply(this.qMap);
     this.m.compose(this.p.set(x, y + lift, z), this.q, this.s.set(scale, scale, scale));
     this.m.toArray(pool.mesh.instanceMatrix.array as Float32Array, k * 16);
     pool.kind[k] = up > 0.5 ? Kind.CHEER : Kind.PERSON;
+    // (its group's paint, the instance before it or the dancer before that)
+    pool.ramp[k] = pool.ramp[k - 1];
+    pool.glint[k] = 0;
+    pool.surf[k] = pool.surf[k - 1];
+    pool.look[k] = 0;
     const D = this.danced;
     D[0] = key;
     D[1] = x;
@@ -802,7 +816,6 @@ export class LifeHost {
   /** The tuner's reset: every mover grey again. */
   resetPaint(): void {
     this.painted.clear();
-    this.stood.clear();
     this.trackOf.fill(0);
     this.hits.length = 0;
     this.store.clear();

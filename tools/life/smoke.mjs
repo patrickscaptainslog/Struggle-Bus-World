@@ -3,7 +3,7 @@
 //   up        the street boots with life: its worker ticks, snapshots come back, planes in them, drawn as models or specks
 //   carried   between snapshots each plane is carried on by its velocity: a plane moves every frame, not every tenth of a second
 //   programs  nothing compiles after the warm-up: the programs at the first frame are the programs 300 frames on (L6's cloud leg)
-//   people    on the sidewalks round the bus at the Ferry Building: drawn, those within 300 m of the lens as models, each on a walkable cell (but the odd one where a run's line between two 2 m cells' middles clips a kerb) and on the ground
+//   picnics   in Mission Dolores Park on a Saturday at 15:00: drawn, those within 300 m of the lens as models, each on grass and on the ground there (a frame, picnics.png)
 //   cars      on the roads round the bus at 09:30, from the world's graphs, none past 1.2 km: drawn, the near ones as models, each on the ground's height (but where a
 //             drawn deck carries it)
 //   ferries   on their routes from routes.bin, the Ferry Building their hub: out on the water at 09:30, each at the water's height, drawn
@@ -36,8 +36,8 @@ try {
     await page.evaluate((k) => (window.__qa = { holdFrames: k, held: false }), n);
     await page.waitForFunction(() => window.__qa?.held === true, null, { timeout: 600000, polling: 50 });
   };
-  const open = async (q, t = '2026-11-05T17:30:00Z') => {
-    await page.goto(`${BASE}?nohud&fixeddt=0.033333&t=${t}&lat=37.7955&lon=-122.3937${q}`, { waitUntil: 'load', timeout: 180000 });
+  const open = async (q, t = '2026-11-05T17:30:00Z', at = 'lat=37.7955&lon=-122.3937') => {
+    await page.goto(`${BASE}?nohud&fixeddt=0.033333&t=${t}&${at}${q}`, { waitUntil: 'load', timeout: 180000 });
     await page.waitForFunction(() => !!window.__game?.city && window.__qa?.held === true, null, { timeout: 600000, polling: 500 });
   };
   await open('&life');
@@ -55,24 +55,6 @@ try {
   for (let i = 0; i < 9; i++) await frames(30);
   const programs1 = await page.evaluate(() => window.__game.pipeline.renderer.info.programs.length);
   row('programs: nothing compiles after the warm-up, 300 frames on', programs1 === programs0, { atFirst: programs0, after300: programs1, life: await q() });
-  // (people: on the sidewalks, plazas and paths round the bus at the Ferry Building, each on a walkable cell and standing on the ground there)
-  const ppl = await page.evaluate(() => {
-    const g = window.__game, l = g.life, s = l.snap, rows = s.rows, n = s.u32[2], dt = (l.utc - s.f64[0]) / 1000;
-    const cam = g.camera.position;
-    let people = 0, off = 0, worstY = 0, near = 0;
-    for (let i = 0; i < n; i++) {
-      const o = i * 16;
-      if (rows[o + 1] !== 3) continue;
-      people++;
-      const x = rows[o + 2] + rows[o + 5] * dt, z = rows[o + 4] + rows[o + 7] * dt, c = g.city.groundClassAt(x, z);
-      if (Math.hypot(x - cam.x, rows[o + 3] - cam.y, z - cam.z) < 300) near++;
-      if (c !== 3 && c !== 4 && c !== 5) off++;
-      worstY = Math.max(worstY, Math.abs(rows[o + 3] - g.city.groundAt(x, z)));
-    }
-    // (drawn as models from 2 px, specks under that: every one within 300 m of the lens is 3 px or more, so a model; and the bus's height)
-    return { people, near, models: l.qa.people, specks: l.qa.specks, off, worstYm: +worstY.toFixed(2), busY: Math.round(g.flight.y) };
-  });
-  row('people: on the sidewalks round the bus, drawn, the near ones as models, each on a walkable cell and on the ground', ppl.people > 20 && ppl.near > 0 && ppl.models >= ppl.near && ppl.models + ppl.specks >= ppl.people * 0.9 && ppl.off <= ppl.people * 0.05 && ppl.worstYm < 1, ppl);
   // (cars: on the roads round the bus, each on the ground's height there but where a deck carries it over, and how many of them the graphs' regions in gave)
   const carsNow = () => page.evaluate(() => {
     const g = window.__game, l = g.life, s = l.snap, rows = s.rows, n = s.u32[2], cam = g.camera.position;
@@ -124,6 +106,26 @@ try {
   const night = await carsNow();
   row('night: fewer cars at 21:00, their lights on, a speck at the nose of each too small to show its lamps', night.cars > 20 && night.cars < cars.cars && night.lights > 0, night);
   await page.screenshot({ path: join(dir, 'night.png') });
+  // (picnics: Mission Dolores Park on a Saturday at 15:00, the bus low over its north-east corner; its grass comes in a tile at a time, and its park with its region's graph)
+  await open('&life', '2026-11-07T23:00:00Z', 'lat=37.7605&lon=-122.4262');
+  const lawn = () => page.evaluate(() => {
+    const g = window.__game, l = g.life, s = l.snap, rows = s.rows, n = s.u32[2], cam = g.camera.position;
+    let groups = 0, near = 0, offGrass = 0, worstY = 0;
+    for (let i = 0; i < n; i++) {
+      const o = i * 16;
+      if (rows[o + 1] !== 8) continue;
+      groups++;
+      const x = rows[o + 2], z = rows[o + 4];
+      if (Math.hypot(x - cam.x, rows[o + 3] - cam.y, z - cam.z) < 300) near++;
+      if (g.city.groundClassAt(x, z) !== 1) offGrass++;
+      worstY = Math.max(worstY, Math.abs(rows[o + 3] - g.city.groundAt(x, z)));
+    }
+    return { groups, near, models: l.qa.people, offGrass, worstYm: +worstY.toFixed(2), busY: Math.round(g.flight.y) };
+  });
+  for (let i = 0; i < 12 && (await lawn()).groups < 50; i++) await frames(30);
+  const pic = await lawn();
+  row('picnics: in Dolores Park on a Saturday at 15:00, drawn, the near ones as models, each on grass and on the ground there', pic.groups > 50 && pic.near > 0 && pic.models >= pic.near && pic.offGrass === 0 && pic.worstYm < 0.5, pic);
+  await page.screenshot({ path: join(dir, 'picnics.png') });
   await open('');
   const none = await page.evaluate(() => ({ life: window.__game.life ?? null, workers: performance.getEntriesByType('resource').filter((r) => /lifeWorker|lifeBoot/.test(r.name)).map((r) => r.name.split('/').pop()) }));
   row('no life: the same page without ?life has no life, and fetched none of it', none.life === null && none.workers.length === 0, none);

@@ -5,7 +5,8 @@
 //   places    two places differ
 //   sky       how many scripted planes are up over the place across a day, and the fewest and most at once
 //   weather   L7: CLEAR and no weather give the same snapshot
-//   people    on a tile of sidewalks: the same twice, an hour's steps where its jump is, every one on a walkable cell and on its ground, none where nothing's walkable
+//   picnics   on a park's grass: the same twice, an hour's steps where its jump is, a Saturday fuller than a Thursday and none in the morning or at night, every one
+//             on the park's grass and its ground, none sharing a block, none off a park
 //   cars      on San Francisco's own road graphs round the Financial District, as the worker fills them: the same twice and with the regions loaded in another order, ten minutes' steps where
 //             the jump is, fewer at 3 am than at 8, every one in a lane of a way cars may drive (never UNDRAWN, NO_CARS or in a tunnel), and no jump or snap of its
 //             heading from one moment to the next for 20 s at 50 Hz, round every bend
@@ -18,7 +19,7 @@ registerHooks({ resolve(spec, ctx, next) { return next(/^\.\.?\//.test(spec) && 
 const { scriptedPlanes } = await import('../../src/life/sim/planes.ts');
 const { ROW } = await import('../../src/life/kinds.ts');
 const { CLEAR } = await import('../../src/life/weather.ts');
-const { peopleOn, WALK_CELL } = await import('../../src/life/sim/people.ts');
+const { parkBlocks, picnicsOn, LAWN_CELL } = await import('../../src/life/sim/parks.ts');
 const { buildNet, carsOn } = await import('../../src/life/sim/cars.ts');
 // (the world's parser, bundled with rolldown as tools/world/graph-check.mjs does: Node's own type stripping refuses its enums)
 const { rolldown } = await import('rolldown');
@@ -76,41 +77,49 @@ const snap = (place, t, reach = 80000, bx = 0, bz = 0, ...weather) => {
   row('weather: CLEAR and no weather give the same snapshot, every hour of a day', same === k, { same, hours: k });
 }
 {
-  // (people, on a tile laid out as a city block's sidewalks: every eighth row and column of its 2 m cells walkable, the ground rising 1 m every 40 m)
-  const n = Math.round(256 / WALK_CELL), walk = new Uint8Array(n * n), h = new Float32Array(n * n);
+  // (people picnicking: a tile of grass with a path every 32 m, the ground rising 1 m every 40 m, and a park over its west half, two triangles in a graph shaped as
+  // lifeData.ts gives one; a Saturday and a Thursday in San Francisco, UTC-8)
+  const n = Math.round(256 / LAWN_CELL), grass = new Uint8Array(n * n), h = new Float32Array(n * n);
   let count = 0;
   for (let j = 0; j < n; j++)
     for (let i = 0; i < n; i++) {
-      const ok = i % 8 === 0 || j % 8 === 0 ? 1 : 0;
-      walk[j * n + i] = ok;
+      const ok = i % 16 === 0 || j % 16 === 0 ? 0 : 1;
+      grass[j * n + i] = ok;
       count += ok;
-      h[j * n + i] = 12 + (i * WALK_CELL) / 40;
+      h[j * n + i] = 12 + ((i + 0.5) * LAWN_CELL) / 40;
     }
-  const tile = { tx: 3, tz: -2, x0: 768, z0: -512, cell: WALK_CELL, n, walk, h, count };
-  const day = Math.floor(T0 / 86400000), out = new Float32Array(MAX * ROW);
-  const people = (t, bx = 896, bz = -384, r = 800) => {
-    const k = peopleOn(tile, day, t, bx, bz, r, out, 0, MAX);
+  const tile = { tx: 3, tz: -2, x0: 768, z0: -512, cell: LAWN_CELL, n, grass, h, count }, X1 = 768 + 128;
+  const park = { areas: { n: 1, kind: new Uint8Array([2]), tri: new Uint32Array([0, 2]), xyz: new Float32Array([768, 0, -512, X1, 0, -512, X1, 0, -256, 768, 0, -512, X1, 0, -256, 768, 0, -256]) } };
+  const blocks = parkBlocks(tile, [park]), out = new Float32Array(MAX * ROW), tz = -480;
+  const SAT = Date.parse('2026-11-07T23:00:00Z'), THU = Date.parse('2026-11-05T23:00:00Z');
+  const picnics = (t, bx = 896, bz = -384, r = 800) => {
+    const k = picnicsOn(tile, blocks, t, tz, bx, bz, r, out, 0, MAX);
     return { n: k, bytes: Buffer.from(out.buffer, 0, k * ROW * 4) };
   };
-  const a = people(T0), b = people(T0);
-  row('people: the same tile and moment twice, the same bytes', a.n > 0 && a.bytes.equals(b.bytes), { people: a.n });
+  const a = picnics(SAT), b = picnics(SAT);
+  row('picnics: the same tile and moment twice, the same bytes', a.n > 20 && a.bytes.equals(b.bytes), { blocks: blocks.length, groups: a.n });
   let last = null;
-  for (let k = 1; k <= 3600; k++) last = people(T0 + k * 1000);
-  row("people: 3,600 steps of a second end where one hour's jump does", last.bytes.equals(people(T0 + 3600000).bytes), { people: last.n });
-  // (every person on a walkable cell, and on its ground, every ten seconds of an hour)
-  let off = 0, seen = 0, worstY = 0;
-  for (let t = T0; t < T0 + 3600000; t += 10000) {
-    const k = peopleOn(tile, day, t, 896, -384, 800, out, 0, MAX);
+  for (let k = 1; k <= 3600; k++) last = picnics(SAT + k * 1000);
+  row("picnics: 3,600 steps of a second end where one hour's jump does", last.bytes.equals(picnics(SAT + 3600000).bytes), { groups: last.n });
+  const thu = picnics(THU).n, morning = picnics(Date.parse('2026-11-07T17:00:00Z')).n, night = picnics(Date.parse('2026-11-08T05:00:00Z')).n;
+  row('picnics: a Saturday afternoon fuller than a Thursday one, none at 09:00 or at 21:00', a.n > thu && thu > 0 && morning === 0 && night === 0, { saturday: a.n, thursday: thu, at0900: morning, at2100: night });
+  // (every one on the park's grass, its whole block, on its ground, and none on another's block, every 10 minutes of the Saturday afternoon)
+  let seen = 0, off = 0, worstY = 0, shared = 0;
+  for (let t = Date.parse('2026-11-07T19:00:00Z'); t < Date.parse('2026-11-08T03:30:00Z'); t += 600000) {
+    const k = picnicsOn(tile, blocks, t, tz, 896, -384, 800, out, 0, MAX), at = new Set();
     for (let q = 0; q < k; q++) {
-      const x = out[q * ROW + 2], y = out[q * ROW + 3], z = out[q * ROW + 4], i = Math.floor((x - tile.x0) / WALK_CELL), j = Math.floor((z - tile.z0) / WALK_CELL);
+      const x = out[q * ROW + 2], y = out[q * ROW + 3], z = out[q * ROW + 4], i = Math.floor((x - tile.x0) / LAWN_CELL), j = Math.floor((z - tile.z0) / LAWN_CELL);
       seen++;
-      if (i < 0 || j < 0 || i >= n || j >= n || !walk[j * n + i]) off++;
+      const bi = i - (i % 2), bj = j - (j % 2), key = `${bi},${bj}`;
+      if (at.has(key)) shared++;
+      at.add(key);
+      for (const [di, dj] of [[0, 0], [1, 0], [0, 1], [1, 1]]) if (!grass[(bj + dj) * n + bi + di] || tile.x0 + (bi + di + 0.5) * LAWN_CELL > X1) off++;
       worstY = Math.max(worstY, Math.abs(y - (12 + (x - tile.x0) / 40)));
     }
   }
-  row('people: every one on a walkable cell and on its ground, every 10 s of an hour', seen > 1000 && off === 0 && worstY < 0.1, { seen, off, worstYm: +worstY.toFixed(3) });
-  const none = peopleOn({ ...tile, walk: new Uint8Array(n * n), count: 0 }, day, T0, 896, -384, 800, out, 0, MAX);
-  row('people: none on a tile with nowhere to walk, and none past the reach', none === 0 && people(T0, 50000, 50000, 800).n === 0, { none });
+  row('picnics: every one on the park\'s grass, its whole block, on its ground, none sharing a block, every 10 minutes of a Saturday', seen > 300 && off === 0 && shared === 0 && worstY < 0.05, { seen, off, shared, worstYm: +worstY.toFixed(3) });
+  const none = picnicsOn(tile, parkBlocks({ ...tile, grass: new Uint8Array(n * n), count: 0 }, [park]), SAT, tz, 896, -384, 800, out, 0, MAX);
+  row('picnics: none on a park with no grass, none off a park, and none past the reach', none === 0 && picnicsOn(tile, parkBlocks(tile, []), SAT, tz, 896, -384, 800, out, 0, MAX) === 0 && picnics(SAT, 50000, 50000, 800).n === 0, { none });
 }
 {
   // (cars on the city's own graphs: the regions within 2.1 km of the Financial District, as the worker loads them, every car in 700 m and fewer on out to 1.2 km)

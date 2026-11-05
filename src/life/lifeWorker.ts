@@ -3,7 +3,7 @@ import { gunzip, isGzip } from '../world/gunzip';
 import { parseCityRoutes, parseRegionGraph, type CityRoutes, type RegionGraph } from '../world/lifeData';
 import { ferriesOn, ferryLines, harbourOf, sailsOn, WATER_R, type FerryLine, type Harbour } from './sim/boats';
 import { buildNet, carsOn, type CarNet } from './sim/cars';
-import { peopleOn, type WalkTile } from './sim/people';
+import { parkBlocks, picnicsOn, type LawnTile } from './sim/parks';
 import { livePlanes, LIVE_HOLD, scriptedPlanes, type LivePlane } from './sim/planes';
 import { MAX_ROWS, view, writeKey } from './snapshot';
 import { CLEAR, type Weather } from './weather';
@@ -25,10 +25,10 @@ export interface LifeInit {
    *  routes.bin's URL; none: no cars, boats or ferries */
   graphs?: { url: string; regions: Array<[number, number]>; regionM: number; routes?: string };
 }
-/** A tile's ground for people, sampled by the host (Life.ts, sampleGround): its arrays transferred. `walk` null: the tile is far, and dropped. */
-export interface LifeWalk {
-  type: 'walk';
-  tile: WalkTile | null;
+/** A tile's grass for people, sampled by the host (Life.ts, sampleGround): its arrays transferred. `tile` null: the tile is far, and dropped. */
+export interface LifeLawn {
+  type: 'lawn';
+  tile: LawnTile | null;
   tx: number;
   tz: number;
 }
@@ -46,8 +46,9 @@ export interface LifeTick {
 }
 
 const RELAY_MS = 10000;
-/** People are filled this far round the bus (m): a person is 2 px at about 800 m on the portrait lens */
-const PEOPLE_REACH = 800;
+/** People are filled this far round the bus (m): a picnic is 2 px at about 1.2 km on the portrait lens. At most PICNICS_MOST of them, the nearest tiles' first (the
+ *  host samples the nearest first): Golden Gate Park's meadows would be thousands, and 276 triangles each */
+const PEOPLE_REACH = 800, PICNICS_MOST = 1200;
 /** O9: with no geoid for the place, no live plane is drawn under this (m) */
 const NO_GEOID_FLOOR = 1000;
 /** Cars round the bus (m): every one in CAR_FULL, fewer on out to none at CAR_REACH (3.5 px on the portrait lens), all of them while the bus is under CAR_THIN and fewer
@@ -68,8 +69,8 @@ let asking = false;
 let askedAt = -Infinity;
 /** keys the host has been sent */
 const sent = new Set<number>();
-/** the ground round the bus people walk, by tile */
-const walkTiles = new Map<string, WalkTile>();
+/** the grass round the bus, by tile, and its park grass in blocks once its region's graph is in (null till then) */
+const lawns = new Map<string, { tile: LawnTile; blocks: Uint32Array | null }>();
 /** the road graphs by region ("rx,rz"): loaded, being fetched, or failed (null: not asked again); the net cars drive, built from those loaded when they change */
 const graphs = new Map<string, RegionGraph | 'asking' | null>();
 let fetching = 0;
@@ -240,10 +241,17 @@ function tick(t: LifeTick): void {
       sent.add(h);
     };
     n = fresh ? livePlanes(live, t.utcMs, t.x, t.z, t.reach, v.rows, 0, MAX_ROWS, keys) : scriptedPlanes(place.slug, t.utcMs, t.x, t.z, t.reach, v.rows, 0, MAX_ROWS, keys, weather);
-    // (people on the ground round the bus, low enough to see them: by the day, UTC)
-    if (t.y < 1500) {
-      const day = Math.floor(t.utcMs / 86400000);
-      for (const w of walkTiles.values()) n = peopleOn(w, day, t.utcMs, t.x, t.z, PEOPLE_REACH, v.rows, n, MAX_ROWS, keys);
+    // (people picnicking in the parks round the bus, low enough to see them, by the place's day and hour; a tile's park grass once its region's graph is in)
+    if (t.y < 1500 && place.graphs) {
+      const tz = zoneOffset(t.utcMs), M = place.graphs.regionM, n0 = n;
+      for (const l of lawns.values()) {
+        if (!l.blocks) {
+          const side = l.tile.n * l.tile.cell, g = graphs.get(`${Math.floor((l.tile.tx * side) / M)},${Math.floor((l.tile.tz * side) / M)}`);
+          if (g === undefined || g === 'asking') continue;
+          l.blocks = g ? parkBlocks(l.tile, [g]) : new Uint32Array(0);
+        }
+        n = picnicsOn(l.tile, l.blocks, t.utcMs, tz, t.x, t.z, PEOPLE_REACH, v.rows, n, Math.min(MAX_ROWS, n0 + PICNICS_MOST), keys);
+      }
     }
     // (ferries on their routes, whatever the height: a ferry is 2 px at about 19 km; sailboats off the marinas near the bus)
     askRoutes();
@@ -266,14 +274,14 @@ function tick(t: LifeTick): void {
   (self as unknown as Worker).postMessage({ type: 'snap', buf: t.buf }, [t.buf]);
 }
 
-self.onmessage = (e: MessageEvent<LifeInit | LifeTick | LifeWalk>) => {
+self.onmessage = (e: MessageEvent<LifeInit | LifeTick | LifeLawn>) => {
   const m = e.data;
   if (m.type === 'init') {
     place = m;
     weather = m.weather ?? CLEAR;
     live = [];
     sent.clear();
-    walkTiles.clear();
+    lawns.clear();
     graphs.clear();
     harbours.clear();
     routes = null;
@@ -283,8 +291,8 @@ self.onmessage = (e: MessageEvent<LifeInit | LifeTick | LifeWalk>) => {
     tzAt = -1;
     tzFmt = null;
   } else if (m.type === 'tick') tick(m);
-  else if (m.type === 'walk') {
-    if (m.tile) walkTiles.set(`${m.tx},${m.tz}`, m.tile);
-    else walkTiles.delete(`${m.tx},${m.tz}`);
+  else if (m.type === 'lawn') {
+    if (m.tile) lawns.set(`${m.tx},${m.tz}`, { tile: m.tile, blocks: null });
+    else lawns.delete(`${m.tx},${m.tz}`);
   }
 };

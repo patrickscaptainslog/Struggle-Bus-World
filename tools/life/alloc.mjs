@@ -3,8 +3,8 @@
 //   street   frame() 10,000 times after a warm-up of 30,000, on the sky over the city with every plane painted, so models, specks and contrails are all drawn
 //   flight   frameSky() the same, the bus 40 km over the city
 //   aim      aim() 10,000 times, along a line through the sky
-//   people   frame() low over a street's ground, once its tiles round the bus are sampled (two arrays a tile, as it comes near)
-//   dance    frame() the same with the worker's people on those tiles in the snapshot, every one painted, so they stop and dance
+//   people   frame() low over a park's grass, once its tiles round the bus are sampled (two arrays a tile, as it comes near)
+//   dance    frame() the same with the worker's picnics on those tiles in the snapshot, every one painted, so their people get up and dance
 //   cars     frame() low over a grid of streets at night with the worker's cars on them, every one painted: they bounce, lay their tyre tracks and show their lights
 //   boats    frame() low over the water with a ferry line and a marina's loops by it, every boat painted: they rock and lay their wakes
 //   each     what the heap grows by over the 10,000 calls, after a collection: under 64 KB (the contract's bar). Printed beside it, what they made before one: in V8 a
@@ -83,10 +83,10 @@ const aim = () => {
   if (host.aim(bus.x, bus.y, bus.z, x - bus.x, y - bus.y, z - bus.z, 30, 2)) aimed++;
 };
 // (a long warm-up first: what the JIT keeps of its own while it optimises isn't life's)
-// (a host with the street's ground behind it, a sidewalk every 32 m, the bus low over it: people sampled, sent and drawn)
+// (a host with the street's ground behind it, grass with a path every 32 m, the bus low over it: its grass sampled and sent)
 const { Ground } = await import('../../src/world/tiles.ts');
-const world = { tileSize: 256, groundAt: () => 4, groundClassAt: (x, z) => (Math.floor(x / 4) % 8 === 0 || Math.floor(z / 4) % 8 === 0 ? Ground.SIDEWALK : Ground.PAVED) };
-const walkTiles = [], walkWorker = { postMessage: (m) => m?.type === 'walk' && m.tile && walkTiles.push(m.tile), onmessage: null }, walkPools = new Pools(), walkScene = new THREE.Scene();
+const world = { tileSize: 256, groundAt: () => 4, groundClassAt: (x, z) => (Math.floor(x / 4) % 8 === 0 || Math.floor(z / 4) % 8 === 0 ? Ground.PATH : Ground.GRASS) };
+const walkTiles = [], walkWorker = { postMessage: (m) => m?.type === 'lawn' && m.tile && walkTiles.push(m.tile), onmessage: null }, walkPools = new Pools(), walkScene = new THREE.Scene();
 walkScene.add(walkPools.group);
 const walkHost = new LifeHost(walkWorker, walkPools, store, 'sf', ORIGIN, world);
 let wutc = T0, wsim = 1;
@@ -116,16 +116,18 @@ measure('aim', aim, () => aimed > 0);
 // (its tiles sampled in the warm-up, two arrays each, as a tile comes near: after that a frame keeps nothing)
 measure('people', people, () => walkHost.walked.size > 0, walkHost);
 {
-  // (the worker's tick for people as lifeWorker.ts makes it, from the tiles the host sent, every one of them painted, and a lens low over them: each frame they dance)
-  const { peopleOn } = await import('../../src/life/sim/people.ts');
-  const buf = new ArrayBuffer(SNAP_BYTES), v = view(buf), day = Math.floor(wutc / 86400000);
+  // (the worker's tick for picnics as lifeWorker.ts makes it, from the tiles the host sent, a park over all of them, on a Saturday afternoon, every group painted, and a
+  // lens low over them: each frame their people dance)
+  const { parkBlocks, picnicsOn } = await import('../../src/life/sim/parks.ts');
+  const park = { areas: { n: 1, kind: new Uint8Array([2]), tri: new Uint32Array([0, 2]), xyz: new Float32Array([-5000, 0, -5000, 5000, 0, -5000, 5000, 0, 5000, -5000, 0, -5000, 5000, 0, 5000, -5000, 0, 5000]) } };
+  const buf = new ArrayBuffer(SNAP_BYTES), v = view(buf), SAT = Date.parse('2026-11-07T23:00:00Z');
   let keyAt = 0, n = 0;
-  for (const t of walkTiles) n = peopleOn(t, day, wutc, low.x, low.z, 800, v.rows, n, MAX_ROWS, (h, k) => {
+  for (const t of walkTiles) n = picnicsOn(t, parkBlocks(t, [park]), SAT, -480, low.x, low.z, 800, v.rows, n, MAX_ROWS, (h, k) => {
     const next = writeKey(v, keyAt, h, k);
     if (next >= 0) keyAt = next;
   });
   v.u32[3] = keyAt;
-  v.f64[0] = wutc;
+  v.f64[0] = SAT;
   v.u32[2] = n;
   walkWorker.onmessage({ data: { type: 'snap', buf } });
   for (const key of walkHost.keys.values()) walkHost.hit(key, fnv1a(key) % 6, wutc, 0);
@@ -139,7 +141,7 @@ measure('people', people, () => walkHost.walked.size > 0, walkHost);
     walkHost.frame(1 / 60, wsim, wutc, low, lowCam);
   };
   measure('dance', dance, () => walkHost.qa.dancers > 20, walkHost);
-  console.log(`      dance: ${n} people in the snapshot, every one painted, ${walkHost.qa.dancers} of them near enough to be drawn dancing`);
+  console.log(`      dance: ${n} picnics in the snapshot, every one painted, ${walkHost.qa.dancers} of their people near enough to be drawn dancing`);
 }
 {
   // (cars, as lifeWorker.ts fills them, on a grid of two-way secondary streets 80 m apart round the bus, a graph shaped as lifeData.ts gives one; every car painted, the

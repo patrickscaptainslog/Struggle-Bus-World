@@ -5,8 +5,8 @@
 //   contrail  the painted plane streams a ribbon of its paint behind it (O6)
 //   tap       the bus put behind a plane with its nose on it: a real tap's breath paints it, and nothing under it
 //   kept      the page again at the same moment: the plane is still painted, from the test store, and the real store has nothing
-//   people    the bus low behind someone on the sidewalk with its aim on them: they glint, a real tap paints them, and none of it is kept (walk:);
-//             painted, they stop where the paint found them and dance (LIVING.md: "stop, look up, wave, dance"), while the worker walks their row on
+//   picnics   in Mission Dolores Park on a Saturday afternoon, the bus low behind a group with its aim on it: it glints, a real tap paints it, none of it is kept
+//             (picnic:); painted, its people get up and dance (LIVING.md: "stop, look up, wave, dance")
 //   cars      the same with a car on the road: it glints, a tap paints it, none of it kept (car:); painted, it bounces and lays rainbow tyre tracks
 // Frames as a player sees them (the first account's GPU review, M1): each glint once the camera has followed the bus, the dance and the car once the spray is gone, the
 // plane's streak three seconds after its hit, the bus following it.
@@ -39,17 +39,19 @@ try {
   // (a moment a scripted plane crosses the city at 5.8 km, so the bus can be put behind it over the map: a breath has no aim past the map's reach, where the bus can't be)
   const T = '2026-11-05T18:22:20Z';
   const url = `${BASE}?life&nohud&skipintro&fixeddt=0.033333&t=${T}&lat=37.7955&lon=-122.3937`;
-  const open = async (first) => {
-    if (first) await page.goto(url, { waitUntil: 'load', timeout: 180000 });
+  // (and Mission Dolores Park on a Saturday at 15:00, for its picnics)
+  const park = `${BASE}?life&nohud&skipintro&fixeddt=0.033333&t=2026-11-07T23:00:00Z&lat=37.7605&lon=-122.4262`;
+  const open = async (first, at = url) => {
+    if (first) await page.goto(at, { waitUntil: 'load', timeout: 180000 });
     else await page.reload({ waitUntil: 'load', timeout: 180000 });
     await page.waitForFunction(() => !!window.__game?.city && window.__qa?.held === true, null, { timeout: 600000, polling: 500 });
     await frames(40);
   };
-  await open(true);
-  // (a mover on the ground, kind 3 a person and 5 a car, where one is now)
+  await open(true, park);
+  // (a mover on the ground, kind 8 a picnic and 5 a car, where one is now)
   const now = (key) => page.evaluate((k) => {
     const l = window.__game.life, s = l.snap, rows = s.rows, dt = (l.utc - s.f64[0]) / 1000;
-    for (let i = 0; i < s.u32[2]; i++) if (l.keys.get(s.rowsU32[i * 16]) === k) { const o = i * 16; return { x: rows[o + 2] + rows[o + 5] * dt, y: rows[o + 3], z: rows[o + 4] + rows[o + 7] * dt }; }
+    for (let i = 0; i < s.u32[2]; i++) if (l.keys.get(s.rowsU32[i * 16]) === k) { const o = i * 16; return { x: rows[o + 2] + rows[o + 5] * dt, y: rows[o + 3], z: rows[o + 4] + rows[o + 7] * dt, vx: rows[o + 5], vz: rows[o + 7] }; }
     return null;
   }, key);
   /**
@@ -112,9 +114,13 @@ try {
     r.onerror = () => ok(-2);
   }), prefix);
   {
-    // (people: they glint, a real tap paints them, and painted they come alive: drawn where the paint found them while their row walks on, hopping, arms up on the
-    // up-beat; a frame at a time, past a whole hop, and a frame of it once the breath's spray has gone)
-    const a = await aimAt(3, 0.9, 'person-glint.png');
+    // (picnics: one glints, a real tap paints it, and painted it comes alive: its people up off the blanket, each hopping where they sat or lay, arms up on the
+    // up-beat; a frame at a time, past a whole hop, and a frame of it once the breath's spray has gone. Its grass and its park come in a tile at a time first)
+    for (let i = 0; i < 12; i++) {
+      if ((await page.evaluate(() => { const s = window.__game.life.snap; let k = 0; for (let i = 0; i < s.u32[2]; i++) if (s.rows[i * 16 + 1] === 8) k++; return k; })) >= 30) break;
+      await frames(30);
+    }
+    const a = await aimAt(8, 0.5, 'picnic-glint.png');
     let got = null;
     if (a.key) {
       await page.evaluate(() => window.__game.tapSplat());
@@ -124,30 +130,28 @@ try {
       for (let f = 0; f < 24; f++) {
         await frames(1);
         seen.push(await page.evaluate((key) => {
-          const l = window.__game.life, D = l.danced;
-          return { dancers: l.qa.dancers, mine: D[0] === l.keyHash(key), x: D[1], y: D[2], z: D[3], pose: D[4] };
+          const l = window.__game.life, D = l.danced, s = l.snap, h = l.keyHash(key);
+          let look = -1;
+          for (let i = 0; i < s.u32[2]; i++) if (s.rowsU32[i * 16] === h) look = s.rows[i * 16 + 14];
+          return { dancers: l.qa.dancers, mine: D[0] === h, y: D[2], pose: D[4], look };
         }, a.key));
       }
-      const walked = await now(a.key), mine = seen.filter((v) => v.mine && v.dancers > 0), xs = mine.map((v) => v.x), ys = mine.map((v) => v.y), zs = mine.map((v) => v.z);
-      const spread = (v) => (v.length ? Math.max(...v) - Math.min(...v) : 0);
-      got.dance = {
-        frames: mine.length,
-        held: +Math.max(spread(xs), spread(zs)).toFixed(3),
-        rowWalked: mine.length && walked ? +Math.hypot(walked.x - xs[0], walked.z - zs[0]).toFixed(2) : null,
-        hop: +spread(ys).toFixed(2),
-        poses: [...new Set(mine.map((v) => v.pose))].sort(),
-      };
+      // (its people: the look's four low bits, each one a dancer)
+      const mine = seen.filter((v) => v.mine && v.dancers > 0), ys = mine.map((v) => v.y), people = [1, 2, 4, 8].filter((b) => (seen[0]?.look ?? 0) & b).length;
+      got.dance = { frames: mine.length, people, dancers: Math.min(...seen.map((v) => v.dancers)), hop: +(ys.length ? Math.max(...ys) - Math.min(...ys) : 0).toFixed(2), poses: [...new Set(mine.map((v) => v.pose))].sort() };
       await frames(60);
-      await page.screenshot({ path: join(dir, 'person-dance.png') });
+      await page.screenshot({ path: join(dir, 'picnic-dance.png') });
     }
     await page.evaluate(() => delete window.__qa.pin);
     await frames(10);
-    // (walk: is "only while it's near", CONTRACT.md section 3: none in the test store)
-    const walkKept = await testStore('walk:');
-    row('people: the bus low behind one, its aim on them: they glint, a real tap paints them, none of it kept', !!got?.painted && got.painted.level >= 1 && walkKept === 0, { people: a.near, tries: a.tries, key: got?.key, painted: got?.painted, walkKept });
+    // (picnic: is "only while it's near", CONTRACT.md section 3: none in the test store)
+    const picnicKept = await testStore('picnic:');
+    row('picnics: the bus low behind one, its aim on it: it glints, a real tap paints it, none of it kept', !!got?.painted && got.painted.level >= 1 && picnicKept === 0, { picnics: a.near, tries: a.tries, key: got?.key, painted: got?.painted, picnicKept });
     const dn = got?.dance;
-    row('people: painted, they stop where the paint found them as their row walks on, and dance, a hop with their arms up on its up-beat', !!dn && dn.frames >= 20 && dn.held < 0.01 && dn.rowWalked > 0.2 && dn.hop > 0.15 && dn.poses.length === 2, dn);
+    row('picnics: painted, its people get up and dance, every one of them, a hop with their arms up on its up-beat', !!dn && dn.frames >= 20 && dn.people >= 1 && dn.dancers >= dn.people && dn.hop > 0.15 && dn.poses.length === 2, dn);
   }
+  // (the rest at the Ferry Building on a Thursday morning)
+  await open(true);
   {
     // (cars: the same, on the road. Painted, a car bounces as it drives, squashed as it lands, and lays two tyre tracks flat on the road behind it, each stretch its own
     // hue; a frame of it three seconds on, the pin following it. Its paint isn't kept: car:, "only while it's near")
@@ -177,12 +181,13 @@ try {
         return { tracks: l.qa.tracks, marks: l.qa.marks, hues: hues.size, edgesM: +flat.toFixed(3), overRoadM: +worstOver.toFixed(2), painted: l.painted.get(l.keyHash(key)) ?? null };
       }, a.key);
       got.bounce = { frames: mine.length, hop: +(ys.length ? Math.max(...ys) - Math.min(...ys) : 0).toFixed(2), squash: +(sys.length ? Math.min(...sys) : 1).toFixed(2), ...tr };
-      // (three seconds on, the bus following it as a player chases it, the spray gone: the bounce and the tracks as seen)
+      // (three seconds on, the bus following it as a player chases it, far enough back that the bus doesn't hide it, the spray gone: the bounce and the tracks as seen)
       for (let k = 0; k < 9; k++) {
         const at = await now(a.key);
         if (!at) break;
-        const ux = Math.sin(a.heading), uz = -Math.cos(a.heading);
-        await page.evaluate((p) => (window.__qa.pin = p), { x: at.x - ux * 50, y: at.y + 30, z: at.z - uz * 50, heading: a.heading, nose: 0 });
+        // (behind it along its own way, which turns with the road)
+        const v = Math.hypot(at.vx, at.vz) || 1, ux = at.vx / v, uz = at.vz / v;
+        await page.evaluate((p) => (window.__qa.pin = p), { x: at.x - ux * 110, y: at.y + 32, z: at.z - uz * 110, heading: Math.atan2(ux, -uz), nose: 0 });
         await frames(10);
       }
       await page.screenshot({ path: join(dir, 'car-painted.png') });

@@ -25,7 +25,7 @@ The creative brief already says it: "Nothing moves in grey." So life doesn't arr
 | Cruise ships | Simulated on real port calls | A grey floating block in its terminal, leaving on schedule | A building that sails: level 1 bloom, 2 gardens on deck, 3 Hundertwasser | It sails off carrying the paint out of the bay |
 | Sailboats | Simulated in bays with marinas, more at weekends | Grey sails, tacking | Rainbow sails, and a painted bay starts a regatta | The bay becomes the canvas: the sails are the painting |
 | Cars | Simulated on the real roads, by road class and local hour | Grey lines in traffic, headlights at night | Bright and bouncy, honking in the chord | Rainbow tyre tracks on the streets they drive |
-| People | Simulated on sidewalks, plazas and parks near the bus | Grey, heads down, walking | They light up, stop, look up, wave, dance, follow the bus | A painted place draws a crowd that stays |
+| People | Simulated in the parks near the bus, an afternoon field day on blankets (the producer, 2026-11-05: none on the sidewalks) | Grey, on gingham blankets, sitting and lying, a little over life size so they read from the air | They get up, look up, wave, dance, follow the bus | A painted place draws a crowd that stays |
 
 **The rules.**
 1. Real where data is real, believable everywhere else, never random noise. A local should recognise their ferry, their rush hour, their flight path into SFO.

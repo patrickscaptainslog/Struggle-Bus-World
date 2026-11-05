@@ -31,8 +31,12 @@ function upTo(a: THREE.BufferAttribute, r: Range, count: number): void {
 }
 const range = (): Range => ({ start: 0, count: 0 });
 
-/** One box of a kind's model: its centre and size (m), the model's nose along +X, up +Y; a seventh makes it a lamp, 1 steady (KindInfo's lights), 2 blinking (its beacon). */
-type Box = [number, number, number, number, number, number, number?];
+/**
+ * One box of a kind's model: its centre and size (m), the model's nose along +X, up +Y. A seventh says how it's lit: 1 a steady lamp (KindInfo's lights), 2 a
+ * blinking one (its beacon), 3 gingham, 4 a step darker (a head of hair). An eighth puts it in a slot, 1 to 6, drawn only when the instance's look has that bit
+ * (a picnic's who's on the blanket).
+ */
+type Box = [number, number, number, number, number, number, number?, number?];
 
 /** The kinds' models, pixel art at 6-40 px: a few boxes, as the bridges' kit is made. */
 const MODELS: Record<number, Box[]> = {
@@ -72,7 +76,7 @@ const MODELS: Record<number, Box[]> = {
     [0, 1.13, 0, 0.26, 0.58, 0.44],
     [0, 1.56, 0, 0.22, 0.26, 0.22],
   ],
-  // the same person with both arms straight up, the dance's up-beat
+  // the same person with both arms straight up, the dance's up-beat (both drawn at a picnic's people's places when it's painted)
   [Kind.CHEER]: [
     [0, 0.42, 0, 0.22, 0.84, 0.34],
     [0, 1.13, 0, 0.26, 0.58, 0.44],
@@ -88,6 +92,25 @@ const MODELS: Record<number, Box[]> = {
     [-3.8, 0.2, 0, 0.9, 0.15, 3.2],
     [-3.8, 1.6, 0, 0.4, 0.3, 0.4, 2],
   ],
+  // a picnic, a blanket of gingham 2.6 by 2 m on the ground and who's on it by the look's slots, a little over life size so a group reads from the air: two sitting at
+  // either end facing each other (1, 2), one at its far side facing in (3), one lying along it (4), a basket (5), an umbrella at its corner (6)
+  [Kind.PICNIC]: [
+    [0, 0.03, 0, 2.6, 0.06, 2, 3],
+    [-0.6, 0.13, 0.45, 0.7, 0.2, 0.42, 0, 1],
+    [-0.95, 0.52, 0.45, 0.38, 0.72, 0.52, 0, 1],
+    [-0.95, 1.05, 0.45, 0.34, 0.34, 0.34, 4, 1],
+    [0.6, 0.13, 0.45, 0.7, 0.2, 0.42, 0, 2],
+    [0.95, 0.52, 0.45, 0.38, 0.72, 0.52, 0, 2],
+    [0.95, 1.05, 0.45, 0.34, 0.34, 0.34, 4, 2],
+    [0, 0.13, 0.6, 0.42, 0.2, 0.7, 0, 3],
+    [0, 0.52, 0.95, 0.52, 0.72, 0.38, 0, 3],
+    [0, 1.05, 0.95, 0.34, 0.34, 0.34, 4, 3],
+    [-0.35, 0.17, -0.45, 1.3, 0.26, 0.5, 0, 4],
+    [0.46, 0.2, -0.45, 0.32, 0.3, 0.32, 4, 4],
+    [0.88, 0.17, -0.55, 0.42, 0.32, 0.32, 4, 5],
+    [1.15, 1.15, 0.85, 0.07, 2.3, 0.07, 0, 6],
+    [1.15, 2.3, 0.85, 2.2, 0.14, 2.2, 0, 6],
+  ],
   // a car, 4.4 m, its wheels on the ground at the origin: an axle's pair of wheels front and back, the body, the cabin a little back, two headlights
   [Kind.CAR]: [
     [1.35, 0.33, 0, 0.66, 0.66, 1.84],
@@ -99,14 +122,19 @@ const MODELS: Record<number, Box[]> = {
   ],
 };
 
-/** The models of the kinds in a pool, one geometry, each vertex marked with its kind, a steady lamp's a quarter over it and a blinking one's 0.45 (under the half the fold reads). */
+/** How a box's light is marked over its kind in aPart (under the half the fold reads): a blinking lamp, a steady one, gingham, a step darker. */
+const LIT_MARK = [0, 0.25, 0.45, 0.15, 0.08];
+
+/** The models of the kinds in a pool, one geometry, each vertex marked with its kind and its light (aPart) and its slot (aSlot). */
 function poolGeometry(kinds: Kind[]): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   for (const k of kinds)
-    for (const [x, y, z, sx, sy, sz, lamp] of MODELS[k] ?? []) {
+    for (const [x, y, z, sx, sy, sz, lit, slot] of MODELS[k] ?? []) {
       const g = new THREE.BoxGeometry(sx, sy, sz).translate(x, y, z).toNonIndexed();
       g.deleteAttribute('uv');
-      g.setAttribute('aPart', new THREE.BufferAttribute(new Float32Array(g.getAttribute('position').count).fill(k + (lamp === 2 ? 0.45 : lamp ? 0.25 : 0)), 1));
+      const count = g.getAttribute('position').count;
+      g.setAttribute('aPart', new THREE.BufferAttribute(new Float32Array(count).fill(k + LIT_MARK[lit ?? 0]), 1));
+      g.setAttribute('aSlot', new THREE.BufferAttribute(new Float32Array(count).fill(slot ?? 0), 1));
       parts.push(g);
     }
   const g = mergeGeometries(parts, false)!;
@@ -117,22 +145,28 @@ function poolGeometry(kinds: Kind[]): THREE.BufferGeometry {
 const POOL_VS = /* glsl */ `
   ${GLSL_COMMON}
   in float aPart;
+  in float aSlot;
   in float aKind;
   in float aRamp;
   in float aGlint;
   in float aSurf;
+  in float aLook;
   flat out float vRamp;
   flat out float vGlint;
   flat out float vSurf;
   flat out float vLamp;
+  out vec3 vLocal;
   out vec3 vWorldPos;
   out vec3 vWorldNormal;
   out vec3 vViewNormal;
   void main() {
     // (the instance's own kind only: every other part folds to a point, and draws nothing. A lamp: steady, 1, a car's or a ferry's; blinking, 2, a plane's beacon)
     float on = 1.0 - step(0.5, abs(aPart - aKind));
+    // (and a slotted box only if the instance's look has its bit)
+    if (aSlot > 0.5) on *= mod(floor(aLook / exp2(aSlot - 1.0) + 0.001), 2.0);
     float lamp = fract(aPart + 0.001);
-    vLamp = lamp > 0.1 ? (lamp > 0.35 ? 2.0 : 1.0) : 0.0;
+    vLamp = lamp > 0.35 ? 2.0 : lamp > 0.2 ? 1.0 : lamp > 0.11 ? 3.0 : lamp > 0.04 ? 4.0 : 0.0;
+    vLocal = position;
     vec4 wp = modelMatrix * instanceMatrix * vec4(position * on, 1.0);
     vWorldPos = wp.xyz;
     vWorldNormal = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
@@ -151,6 +185,7 @@ const POOL_FS = /* glsl */ `
   flat in float vGlint;
   flat in float vSurf;
   flat in float vLamp;
+  in vec3 vLocal;
   in vec3 vWorldPos;
   in vec3 vWorldNormal;
   in vec3 vViewNormal;
@@ -170,6 +205,9 @@ const POOL_FS = /* glsl */ `
     float light = sbLight(vWorldPos, n, 0.0, 1.0);
     // (paint lives in the saturated middle of its ramp, as on the buildings)
     if (painted) light = 0.2 + light * 0.52;
+    // (a blanket's gingham, 0.43 m squares a step apart; a head a step darker than its body)
+    if (vLamp == 3.0) light += mod(floor(vLocal.x / 0.43) + floor(vLocal.z / 0.43), 2.0) > 0.5 ? 0.1 : -0.14;
+    else if (vLamp == 4.0) light -= 0.2;
     // (the aim's glint: a full ramp step, as on the buildings)
     light += vGlint;
     sbWrite(ramp, light, fog0, 0.0, gl_FrontFacing ? vViewNormal : -vViewNormal, vSurf, 1.0);
@@ -310,8 +348,10 @@ export class MoverPool {
   readonly ramp: Float32Array;
   readonly glint: Float32Array;
   readonly surf: Float32Array;
+  /** its look: which of its model's slotted boxes it draws (a picnic's who's on the blanket) */
+  readonly look: Float32Array;
   private readonly attrs: THREE.InstancedBufferAttribute[];
-  private readonly ranges = [range(), range(), range(), range(), range()];
+  private readonly ranges = [range(), range(), range(), range(), range(), range()];
   readonly max: number;
 
   constructor(kinds: Kind[], max: number) {
@@ -323,8 +363,8 @@ export class MoverPool {
       geo.setAttribute(name, a);
       return a;
     };
-    this.attrs = [add('aKind'), add('aRamp'), add('aGlint'), add('aSurf')];
-    [this.kind, this.ramp, this.glint, this.surf] = this.attrs.map((a) => a.array as Float32Array);
+    this.attrs = [add('aKind'), add('aRamp'), add('aGlint'), add('aSurf'), add('aLook')];
+    [this.kind, this.ramp, this.glint, this.surf, this.look] = this.attrs.map((a) => a.array as Float32Array);
     const mat = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: { ...globals, uLit: heldGlobals.uLit }, vertexShader: POOL_VS, fragmentShader: POOL_FS });
     this.mesh = new THREE.InstancedMesh(geo, mat, max);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -340,8 +380,8 @@ export class MoverPool {
     m.count = n;
     m.visible = n > 0;
     if (!n) return;
-    upTo(m.instanceMatrix, this.ranges[4], n * 16);
-    for (let i = 0; i < 4; i++) upTo(this.attrs[i], this.ranges[i], n);
+    upTo(m.instanceMatrix, this.ranges[5], n * 16);
+    for (let i = 0; i < 5; i++) upTo(this.attrs[i], this.ranges[i], n);
   }
 }
 
@@ -387,7 +427,7 @@ export class Specks {
 
 /** Every pool, the specks and the marks: what the scene holds, and what the warm-up draws once each. */
 export class Pools {
-  readonly small = new MoverPool([Kind.PERSON, Kind.CHEER], POOL_MAX[Pool.SMALL]);
+  readonly small = new MoverPool([Kind.PERSON, Kind.CHEER, Kind.PICNIC], POOL_MAX[Pool.SMALL]);
   readonly middle = new MoverPool([Kind.SMALL_PLANE, Kind.CAR], POOL_MAX[Pool.MIDDLE]);
   readonly large = new MoverPool([Kind.AIRLINER, Kind.FERRY, Kind.SAILBOAT], POOL_MAX[Pool.LARGE]);
   readonly specks = new Specks();

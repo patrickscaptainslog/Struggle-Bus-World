@@ -6,8 +6,9 @@
 export const Pool = { SMALL: 0, MIDDLE: 1, LARGE: 2 } as const;
 export type Pool = (typeof Pool)[keyof typeof Pool];
 
-// (CHEER is a pose, never a row's kind, so KINDS has none: a painted person's arms up as they dance, LIVING.md's "stop, look up, wave, dance")
-export const Kind = { AIRLINER: 1, SMALL_PLANE: 2, PERSON: 3, CHEER: 4, CAR: 5, FERRY: 6, SAILBOAT: 7 } as const;
+// (PERSON and CHEER are poses, never a row's kind, so KINDS has none: a painted picnic's people up and dancing, arms down and up, LIVING.md's "stop, look up, wave,
+// dance". A PICNIC is a group on a blanket in a park, one row: who's on it is its row's LOOK)
+export const Kind = { AIRLINER: 1, SMALL_PLANE: 2, PERSON: 3, CHEER: 4, CAR: 5, FERRY: 6, SAILBOAT: 7, PICNIC: 8 } as const;
 export type Kind = (typeof Kind)[keyof typeof Kind];
 
 export interface KindInfo {
@@ -26,7 +27,7 @@ export interface KindInfo {
   track?: boolean;
   /** painted, it leaves a wake flat on the water behind it, in every hue, and rocks as it goes */
   wake?: boolean;
-  /** its paint is kept (CONTRACT.md section 3); a person's and a car's aren't, `walk:` and `car:` "only while it's near" */
+  /** its paint is kept (CONTRACT.md section 3); a picnic's and a car's aren't, `picnic:` and `car:` "only while it's near" */
   kept: boolean;
   /**
    * the aim takes it on the line of fire alone: within its own size of the line, which runs on past the aim point onto the street under it, with no building
@@ -39,7 +40,7 @@ export interface KindInfo {
 export const KINDS: Record<number, KindInfo> = {
   [Kind.AIRLINER]: { pool: Pool.LARGE, size: 60, mark: true, beacon: true, kept: true },
   [Kind.SMALL_PLANE]: { pool: Pool.MIDDLE, size: 11, mark: true, beacon: true, kept: true },
-  [Kind.PERSON]: { pool: Pool.SMALL, size: 1.7, kept: false, onLine: true },
+  [Kind.PICNIC]: { pool: Pool.SMALL, size: 2.6, kept: false, onLine: true },
   [Kind.CAR]: { pool: Pool.MIDDLE, size: 4.4, lights: true, nose: 2.3, track: true, kept: false, onLine: true },
   [Kind.FERRY]: { pool: Pool.LARGE, size: 40, lights: true, wake: true, kept: true },
   [Kind.SAILBOAT]: { pool: Pool.LARGE, size: 11, wake: true, kept: false },
@@ -63,6 +64,8 @@ export const Col = {
   FLAGS: 12,
   /** s from the snapshot's utcMs until it leaves the place or lands: what a paint record keeps it for (CONTRACT.md section 3, `until`) */
   UNTIL: 13,
+  /** what it looks like, a kind's own bits: a picnic's who's on the blanket (sim/parks.ts LookBit) */
+  LOOK: 14,
 } as const;
 
 /** A row's flags. */

@@ -94,18 +94,34 @@ try {
   await page.screenshot({ path: join(dir, 'handover.png') });
   // (each plane on the flight's first frame against where the street's last two whole frames had it going, two frames on: the bus climbs at 900 m/s, so a plane moves a few
   // pixels a frame either way)
-  const miss = [];
+  const miss = [], byMover = [];
   if (k >= 3)
     for (const h of Object.keys(seen[k].at)) {
       const a = seen[k - 3].at[h], b = seen[k - 2].at[h], c = seen[k].at[h];
       if (!a || !b || !c) continue;
-      miss.push(Math.hypot(c[0] - (b[0] + 2 * (b[0] - a[0])), c[1] - (b[1] + 2 * (b[1] - a[1]))));
+      const m = Math.hypot(c[0] - (b[0] + 2 * (b[0] - a[0])), c[1] - (b[1] + 2 * (b[1] - a[1])));
+      // (and the same guess made between the street's own frames just before, three frames earlier: what a mover's own motion on the screen misses by, a ferry
+      // below the climbing bus far more than a plane far off. A jump is what the hand-over misses by past that)
+      const a0 = seen[k - 6]?.at[h], b0 = seen[k - 5]?.at[h], c0 = seen[k - 3]?.at[h];
+      const base = a0 && b0 && c0 ? Math.hypot(c0[0] - (b0[0] + 2 * (b0[0] - a0[0])), c0[1] - (b0[1] + 2 * (b0[1] - a0[1]))) : 0;
+      miss.push(Math.max(0, m - base));
+      byMover.push([h, m, base, Math.hypot(b[0] - a[0], b[1] - a[1])]);
     }
   miss.sort((x, y) => x - y);
+  // (the three that jump most past their own motion's miss, by key, with that miss and how far each moved a frame on the screen before)
+  byMover.sort((x, y) => y[1] - y[2] - (x[1] - x[2]));
+  const named = await page.evaluate((w) => w.map(([h, m, b, v]) => ({ key: String(window.__game.life.keys.get(Number(h)) ?? h), missPx: +m.toFixed(2), streetPx: +b.toFixed(2), movesPx: +v.toFixed(2) })), byMover);
+  // (planes, against the limit; and the movers on the ground, ferries a dozen km off among them, printed: they jump at the hand-over where the street's own frames
+  // don't, an open finding in LIFE.md, "From the flight's loop")
+  const planes = named.filter((m) => m.key.startsWith('plane:')), ground = named.filter((m) => !m.key.startsWith('plane:'));
+  const jumpOf = (m) => Math.max(0, m.missPx - m.streetPx), planeJumps = planes.map(jumpOf).sort((x, y) => x - y);
+  const worstThree = planes.slice(0, 3), groundWorst = ground.slice(0, 3);
   const worst = miss.length ? +miss[miss.length - 1].toFixed(2) : null, med = miss.length ? +miss[miss.length >> 1].toFixed(2) : null;
   const before = k >= 2 ? seen[k - 2] : null, after = k >= 0 ? seen[k] : null;
   row('handover: the flight takes the bus, and draws the planes the street did', k >= 2 && !before.sky && after.sky && !after.home && after.drawn > 0 && Math.abs(after.drawn - before.drawn) <= 2, { flightFrom: k, before: before && { ...before, at: undefined }, after: after && { ...after, at: undefined } });
-  row('handover: no plane jumps on the screen, against its own motion before the hand-over (px)', miss.length >= 3 && worst < 6 && med < 3, { planes: miss.length, median: med, worst });
+  const pWorst = planeJumps.length ? +planeJumps[planeJumps.length - 1].toFixed(2) : null, pMed = planeJumps.length ? +planeJumps[planeJumps.length >> 1].toFixed(2) : null;
+  row("handover: no plane jumps on the screen, past what the same guess misses by on the street's own frames before (px)", planeJumps.length >= 3 && pWorst < 6 && pMed < 3, { planes: planeJumps.length, median: pMed, worst: pWorst, worstThree });
+  console.log(`      handover, on the ground (open): ${ground.length} movers, all of them with planes ${miss.length}, median ${med} px, worst ${worst} px:`, JSON.stringify(groundWorst));
   // ---- flight: on up, the flight's own calls between frames, as climb.mjs flies it
   const fly = (secs, yoke, until) =>
     page.evaluate(
