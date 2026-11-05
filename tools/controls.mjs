@@ -16,7 +16,8 @@
 //   firstrun a first visit: no card, the cues in order (TAP, DRAG, HOLD)                         -> firstrun.json
 //   opening  flicks under the opening's gate: answered, taken back, firing at the gate; two of them. The low shot has no look, so a drag landing over
 //            the bus, out of the lane's half disc, flies until the gate and looks after it. A flick in the grey, before the first frame, waits for
-//            the gate too. SB_OPENING=grey,low,... runs a part                                                 -> opening.json
+//            the gate too. Once open, a carve shuts it again only under the low shot's line. SB_OPENING=grey,... runs a part
+//                                                                                                              -> opening.json
 //   layout   real rects against layoutHud at 393 x 852, 393 x 659, 320 x 568, 852 x 393, swapped or not (shots)
 //   states   every state of MEGA and the readout, cropped (states/*.png; tools/hud-sheet.py makes a sheet of them)
 //   keyboard a desktop: Esc, Space, E up the ladder, Q back down it, the right mouse's look -> keyboard in controls.json
@@ -881,8 +882,8 @@ if (modes.has('opening')) {
   // the first visit's gate, on the real bridge: a gear waits for it, a flick down takes it back, and one rung waits however many flicks: two are one, six are Express at the bridge, not TURBO 3
   mkdirSync(`${out}/opening`, { recursive: true });
   const R = {};
-  // (SB_OPENING=grey,low,... runs a part: gate, two, six, low, grey)
-  const parts = new Set((process.env.SB_OPENING ?? 'gate,two,six,low,grey').split(','));
+  // (SB_OPENING=grey,low,... runs a part: gate, two, six, low, grey, carve)
+  const parts = new Set((process.env.SB_OPENING ?? 'gate,two,six,low,grey,carve').split(','));
   /** every line the toast is given from now, with the game clock: the toast is a canvas, its words aren't in the page */
   const logToasts = (page) => page.evaluate(() => {
     const g = window.__game, hud = g.controls.hud, toast = hud.toast.bind(hud);
@@ -1018,7 +1019,83 @@ if (modes.has('opening')) {
     console.log('opening grey', JSON.stringify(R.grey));
     await page.close();
   }
-  const G = R.gate, T = R.two, S = R.six, L = R.low, Y = R.grey;
+  if (parts.has('carve')) {
+    // past the gate a hard carve takes the bus back under 230 m along, the gate being along the heading: it shut again there, the gears, the climb and the lane, with the
+    // view rising, the look answering and the bridge passed. Once open it shuts again only under the low shot's line, 180 m, where a lone landing brings the low shot back.
+    // The carve is the QA stick, full right
+    const { page, H } = await first();
+    await until(page, '!g.controls.gearsLocked', 60);
+    await page.evaluate(() => (window.__qa = { holdFrames: 0 }));
+    // (the gap the gate is measured from, as main.ts finds it, and along the heading from it where each frame measured it: before the frame's first step)
+    await page.evaluate(async () => {
+      const g = window.__game, f = g.flight;
+      const m = await (await fetch(`./city/sf/city.json?v=${window.__sbDataV}`)).json();
+      const [, t1, t2] = m.landmarks.find((l) => l.kind === 'ggb').points;
+      const sx = t2[0] - t1[0], sz = t2[1] - t1[1], sl = Math.hypot(sx, sz);
+      const gap = [t1[0] + (sx / sl) * 85, t1[1] + (sz / sl) * 85];
+      const step = f.step.bind(f);
+      let c = NaN;
+      window.__gate = { along: NaN };
+      f.step = (...a) => {
+        if (g.clock() !== c) {
+          c = g.clock();
+          window.__gate.along = (f.x - gap[0]) * f.fx + (f.z - gap[1]) * f.fz;
+        }
+        return step(...a);
+      };
+    });
+    /** carve until cond holds of a frame ({ along, locked, lookOff, low }), then hold the loop on that frame; every frame logged */
+    const carve = (cond) => page.evaluate((cond) => new Promise((res) => {
+      const g = window.__game, f = g.flight, log = [], t0 = g.clock();
+      const test = new Function('s', `return (${cond});`);
+      let seen = g.clock();
+      window.__qa = { sx: 1, sy: 0 };
+      const tick = () => {
+        if (g.clock() !== seen) {
+          seen = g.clock();
+          const s = { t: +seen.toFixed(2), along: window.__gate.along, locked: g.controls.gearsLocked, lookOff: g.input.lookOff, low: +g.rig.openingLow.toFixed(2), deg: Math.round((f.heading * 180) / Math.PI) };
+          log.push(s);
+          if (test(s)) return (window.__qa = { holdFrames: 0 }), res(log);
+        }
+        if (g.clock() - t0 > 6) return (window.__qa = { holdFrames: 0 }), res(log);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }), cond);
+    /** with the loop held, a lone touch lands where the lane alone gives the look, straight over the bus 40 px out of its half disc: did it fly? It is cancelled */
+    const landing = async () => {
+      const at = await page.evaluate(() => {
+        const g = window.__game, i = g.input, L = i.busZone;
+        const x = Math.round(Math.max(L.r, Math.min(innerWidth - L.r, L.x))), y = Math.round(Math.min(L.y, innerHeight - L.r, innerHeight * 0.6) - L.r - 40);
+        const off = i.lookOff;
+        i.lookOff = false;
+        const laneLooks = i.inLookZone(x, y);
+        i.lookOff = off;
+        return { x, y, laneLooks, lookOff: off, locked: g.controls.gearsLocked };
+      });
+      await H.down(1, at.x, at.y);
+      const flew = await page.evaluate(() => !window.__game.input.canAdopt);
+      await H.cancel();
+      await wall(100);
+      return { ...at, flew };
+    };
+    const clear = await carve('s.along >= 185 && s.along <= 225');
+    const lane = await landing();
+    // (and a flick up there is a gear at once: under the gate it would say GEARS AFTER THE BRIDGE and wait)
+    await H.stamped(() => H.stroke(1, 100, 520, 0, -74, 85));
+    const flick = { gear: (await state(page)).gear, toasts: await toasts(page) };
+    const back = await carve('s.along < 175');
+    const low = await landing();
+    await page.evaluate(() => (window.__qa = null));
+    const log = [...clear, ...back].map((s) => ({ ...s, along: +s.along.toFixed(1) }));
+    R.carve = { gate: log[0], clear: log[clear.length - 1], lane, flick, back: log.at(-1), low, log };
+    // (the rule on the frames themselves, at full precision: once open, the gate shuts again under 180 m along, the gears and the lane together)
+    R.carve.rule = [...clear, ...back].every((s) => s.locked === s.along < 180 && s.lookOff === s.locked);
+    console.log('opening carve', JSON.stringify({ ...R.carve, log: `${log.length} frames` }));
+    console.log('opening carve frames', log.map((s) => `${s.t} ${s.along} ${s.deg}deg ${s.locked ? 'L' : '-'}${s.lookOff ? 'O' : '-'} ${s.low}`).join(' | '));
+    await page.close();
+  }
+  const G = R.gate, T = R.two, S = R.six, L = R.low, Y = R.grey, C = R.carve;
   const checks = [];
   if (G)
     checks.push(
@@ -1052,6 +1129,14 @@ if (modes.has('opening')) {
       ['a flick there waits for the gate, said', Y.grey.clock === 0 && Y.grey.gear === 0 && Y.grey.armed && Y.grey.toasts.includes('GEARS AFTER THE BRIDGE')],
       ['under the low shot it still waits, and the bus glides low', Y.low.gear === 0 && Y.low.armed && Y.low.y < 30 && Y.low.speed < 60],
       ['and it goes at the gate', Y.cleared && Y.after.gear === 1 && Y.after.level === 0 && !Y.after.armed],
+    );
+  if (C)
+    checks.push(
+      ['a hard carve past the gate takes the bus back under 230 m along, and the gate stays open there', !C.gate.locked && C.clear.along >= 185 && C.clear.along <= 225 && !C.clear.locked && !C.clear.lookOff],
+      ['there the view is rising, and the lane stays: a landing the lane gives the look looks', !C.lane.locked && !C.lane.lookOff && C.lane.laneLooks && !C.lane.flew],
+      ['and a flick up there is a gear at once, not GEARS AFTER THE BRIDGE', C.flick.gear === 1 && !C.flick.toasts.includes('GEARS AFTER THE BRIDGE')],
+      ["under the low shot's line the gate shuts again, the lane with the gears: that landing flies", C.back.along < 180 && C.low.locked && C.low.lookOff && C.low.laneLooks && C.low.flew],
+      ['every frame of the carve: the gears and the lane shut under 180 m along, together', C.log.length > 2 && C.rule],
     );
   const badO = checks.filter(([, v]) => !v).map(([k]) => k);
   console.log(badO.length ? `opening: FAILED ${badO.length} of ${checks.length}: ${badO.join('; ')}` : `opening: all ${checks.length} checks passed`);

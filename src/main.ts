@@ -47,6 +47,8 @@ const LANDMARK_NAMES: Record<string, string> = { sutro: 'Sutro Tower', transamer
 
 /** The opening was seen through once on this device: a tap skips it from then on. */
 const OPENING_SEEN_KEY = 'strugglebus.opening.v1';
+/** The opening's low shot holds while the bus is nearer the Golden Gate's gap than this along its heading (m), with nobody steering or near the bridge, and comes back for a bus pointing back there. */
+const OPENING_LOW_ALONG = 180;
 
 const params = new URLSearchParams(location.search);
 if (params.has('fog')) config.fog.enabled = true;
@@ -166,6 +168,8 @@ async function boot() {
   const start = manifest.start as typeof manifest.start & { speed?: number; opening?: string };
   const ggb = manifest.landmarks.find((l) => l.kind === 'ggb') as { points?: Array<[number, number]> } | undefined;
   let openingBridge: [number, number] | null = null;
+  /** the opening's gate has opened once: from then a carve shuts it again (it is along the heading) only where the low shot comes back */
+  let gateOpened = false;
   if (!params.has('lat') && start.opening === 'golden-gate' && ggb?.points) {
     // thread the gap just north of the south tower so the tower fills the
     // narrow portrait lens as we glide under the deck
@@ -1123,19 +1127,24 @@ async function boot() {
     let sy = qaStick ? qa.sy! : st.stretch.y;
     // the opening: the yoke can't climb until the bus (and the low camera trailing 150 m behind
     // it) is clear of the Golden Gate, so the bus always threads under the deck and the camera
-    // never rises through the cables (turning away ends it: `along` is along the heading)
+    // never rises through the cables (turning away ends it: `along` is along the heading). Once open, a carve shuts it again only under the
+    // low shot's own line, where a bus with nobody steering brings the low shot back. Between that and openingClimbAfter the view is rising
+    // out of the low shot, which isn't wanted there, and a carve there said GEARS AFTER THE BRIDGE past the bridge, over the first run's hint,
+    // and took the lane
     const gateAlong = openingBridge ? (flight.x - openingBridge[0]) * flight.fx + (flight.z - openingBridge[1]) * flight.fz : 0;
     const gateDist = openingBridge ? Math.hypot(flight.x - openingBridge[0], flight.z - openingBridge[1]) : Infinity;
-    if (openingBridge && gateAlong < config.camera.openingClimbAfter) {
+    const gateShut = !!openingBridge && gateAlong < (gateOpened ? OPENING_LOW_ALONG : config.camera.openingClimbAfter);
+    if (!gateShut) gateOpened = true;
+    if (gateShut) {
       if (sy < -0.5 && opening >= config.fog.openingDuration) controls.climbGated();
       sy = Math.max(0, sy);
       // (and it glides level: the floor over the strait drops 19 m in each tile the data has, and the one under the deck ends just past it)
       flight.turbo.floor = Math.max(flight.turbo.floor, config.camera.openingGlide);
     }
     // (nor can a gear lift it: a shift waits for the gate)
-    controls.gearsLocked = !!openingBridge && gateAlong < config.camera.openingClimbAfter;
-    // (and the low shot has no look, so until the gate a touch anywhere flies, as it always did there: the lane starts with the hint that teaches it)
-    input.lookOff = controls.gearsLocked;
+    controls.gearsLocked = gateShut;
+    // (and the low shot has no look, so while the gate is shut a touch anywhere flies, as it always did there: the lane starts with the hint that teaches it)
+    input.lookOff = gateShut;
     controls.opening = opening < config.fog.openingDuration;
     const dragging = qaStick ? true : st.dragging;
     // past the edge of the map the bus homes back toward the city, gently; the edge gives way with the height, and out
@@ -1197,9 +1206,9 @@ async function boot() {
     if (openingBridge) {
       // stay low and level until we're well past the bridge, then rise into the normal chase view
       // (steering takes over early, but never near the bridge: the chase camera would fly through the cables)
-      const want = gateAlong < 180 && (!dragging || gateDist < 320) ? 1 : 0;
+      const want = gateAlong < OPENING_LOW_ALONG && (!dragging || gateDist < 320) ? 1 : 0;
       rig.openingLow += (want - rig.openingLow) * (1 - Math.exp(-(want ? 4 : 0.7) * dt));
-      if (rig.openingLow < 0.01 && want === 0 && (gateAlong >= 180 || gateDist > 1500)) {
+      if (rig.openingLow < 0.01 && want === 0 && (gateAlong >= OPENING_LOW_ALONG || gateDist > 1500)) {
         rig.openingLow = 0;
         openingBridge = null;
       }

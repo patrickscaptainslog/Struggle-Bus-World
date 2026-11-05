@@ -246,7 +246,7 @@ export class Input {
    * Null: the look zone's rule. r: the lane's half width round the bus (inputTune.laneHalf of the screen's narrow side); open: how far under the bus it covers the screen's whole width (inputTune.laneOpen of its height).
    */
   busZone: { x: number; y: number; r: number; open: number } | null = null;
-  /** The opening's low shot, until the gate (main.ts): it has no look, so a landing anywhere flies, as every touch there always did. */
+  /** The opening's low shot, while its gate is shut (main.ts, with the gears' lock): it has no look, so a landing anywhere flies, as every touch there always did. */
   lookOff = false;
 
   private readonly el: HTMLElement;
