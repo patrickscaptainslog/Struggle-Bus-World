@@ -2,7 +2,7 @@
 // Open-ground paint on the Moon is kept by where it is (src/world/GeoPaint.ts, GroundPaint.useGeo), at a fixed step: node tools/moon/keep.mjs <out dir> [--q=site=TYCHO] [--runs=N]
 //   kept     a blast on open ground ahead of the bus is painted, and kept by its place on the Moon
 //   reload   the page again, a new session on a new map at the same place: the paint is where it was, by latitude and longitude
-//   heavy    200 breaths over one patch, and the page again: all of it back, within two frames of its tiles coming in (the second review's P1 and P2)
+//   heavy    200 breaths over one patch, and the page again: all of it back, two frames after its tiles came in, each with its paint on (the second review's P1 and P2)
 //   slide    the map slid, a blast painted after it, and the page again: it's where it was, not a slide's 131 km off
 //   new map  the map made again round the bus, as ?moonland's high pass makes it: the paint near the bus is still there
 //   one name a page started 25 km off, ?moon&lat=&lon=, and ?moonland: the same store, and on the first the paint where the bus reaches it
@@ -138,12 +138,22 @@ for (let run = 0; run < RUNS; run++) {
     const center = await page.evaluate((P) => { const o = [0, 0]; window.__game.city.ground.geo.toLatLon(P.cx, P.cz, o); return o; }, patch);
     await page.reload({ waitUntil: 'load', timeout: 180000 });
     await page.waitForFunction(() => !!window.__game?.city && window.__qa?.held === true, null, { timeout: 600000, polling: 500 });
-    // (frames until the patch's middle tile has come in, then two more)
-    let inAt = -1;
+    // (frames until every tile of the patch has come in with its paint, each when its paint's copied out of the pictures, then two more)
+    let inAt = -1, firstAt = -1;
     for (let i = 0; i < 400 && inAt < 0; i++) {
       await frames(1);
-      const tin = await page.evaluate(([la, lo]) => { const g = window.__game.city.ground, o = [0, 0]; g.geo.toXZ(la, lo, o); const ts = window.__game.city.manifest.tileSize; return g.has(Math.floor(o[0] / ts), Math.floor(o[1] / ts)); }, center);
-      if (tin) inAt = i;
+      const tin = await page.evaluate((G) => {
+        const g = window.__game.city.ground, o = [0, 0], ts = window.__game.city.manifest.tileSize, keys = new Set();
+        for (const [la, lo] of G) {
+          g.geo.toXZ(la, lo, o);
+          keys.add(`${Math.floor(o[0] / ts)},${Math.floor(o[1] / ts)}`);
+        }
+        let n = 0;
+        for (const k of keys) if (g.has(...k.split(',').map(Number))) n++;
+        return [n, keys.size];
+      }, grid);
+      if (tin[0] > 0 && firstAt < 0) firstAt = i;
+      if (tin[0] === tin[1]) inAt = i;
     }
     await frames(2);
     const back = await page.evaluate((G) => {
@@ -160,7 +170,7 @@ for (let run = 0; run < RUNS; run++) {
       return { n, hue, of: G.length };
     }, grid);
     await page.screenshot({ path: join(dir, 'heavy.png') });
-    row('heavy: 200 breaths over one patch, and the page again: all of it back, two frames after its tile came in', grid.length > 300 && inAt >= 0 && back.n >= grid.length * 0.99 && back.hue >= grid.length * 0.97, { painted: grid.length, back: back.n, sameHue: back.hue, tileInAtFrame: inAt });
+    row('heavy: 200 breaths over one patch, and the page again: all of it back, two frames after its tiles came in', grid.length > 300 && inAt >= 0 && back.n >= grid.length * 0.99 && back.hue >= grid.length * 0.97, { painted: grid.length, back: back.n, sameHue: back.hue, firstTileAtFrame: firstAt, allTilesAtFrame: inAt });
     await frames(150);
 
     // ---- slide, then a blast, then the page again

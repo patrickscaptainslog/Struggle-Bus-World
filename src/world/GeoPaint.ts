@@ -539,6 +539,11 @@ export class GeoPaint {
     this.copies.push({ key, ox, oz, keys, pics: null, C: [0, 0, 0, 0, 0, 0, 0, 0], polar: false, d: null, j: 0, any: false });
   }
 
+  /** The tile's paint is being copied out. */
+  copyingTile(key: string): boolean {
+    return this.copying.has(key);
+  }
+
   /** There's paint kept under the tile at (ox, oz). */
   has(ox: number, oz: number): boolean {
     if (!this.index.size && !this.open.size) return false;

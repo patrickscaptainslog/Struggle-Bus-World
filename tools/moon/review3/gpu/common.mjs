@@ -1,6 +1,8 @@
 // The GPU half's shared setup: its own server for a build, the browser as tools/browser.mjs opens it (393 x 852 at 3x, the real GPU), and an init script that, from the first frame,
 // records each rAF frame time, each long task (PerformanceObserver 'longtask'), and each call to three of GroundPaint's methods, wrapped on the instance the page holds
 // (window.__game.city.ground; the build's minifier keeps property names): pictureInto (a tile's paint copied out of the pictures), attach (which calls it) and fold (a landed blast into the pictures).
+// Since the second account's fix of this review (96ee034) the copy and the fold are spread over frames in the pictures' own GeoPaint (window.__game.city.ground.geoPaint), a step at a
+// time: "pictureInto" is each of its copySteps (a tile's rows until the frame's 2 ms are up, or all of them), "fold" each foldStep (a picture's rows of one blast), under the old names.
 // Prints nothing itself.
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright-core';
@@ -22,26 +24,40 @@ const INIT = () => {
   window.__lt = [];
   window.__calls = { pictureInto: [], attach: [], fold: [] };
   window.__wrapped = null;
+  window.__wrappedP = null;
+  window.__wrapMiss = [];
   const wrap = () => {
     const g = window.__game?.city?.ground;
-    if (!g || window.__wrapped === g) return;
-    window.__wrapped = g;
-    window.__wrapMiss = [];
-    for (const name of ['pictureInto', 'attach', 'fold']) {
-      const orig = g[name];
+    if (!g) return;
+    // (the ground once, and its pictures by place once they're made: useGeo comes after the city)
+    const P = g.geoPaint ?? null;
+    if (window.__wrapped === g && window.__wrappedP === P) return;
+    const one = (name, on, as) => {
+      const orig = on[as];
       if (typeof orig !== 'function') {
         window.__wrapMiss.push(name);
-        continue;
+        return;
       }
-      g[name] = function (...a) {
+      on[as] = function (...a) {
         const t0 = performance.now();
         try {
           return orig.apply(this, a);
         } finally {
           // [start, ms, tile key or the blast's radius]
-          window.__calls[name].push([t0, performance.now() - t0, name === 'fold' ? a[0]?.r : a[0]]);
+          window.__calls[name].push([t0, performance.now() - t0, name === 'fold' ? (a[0]?.spec ?? a[0])?.r : (a[0]?.key ?? a[0])]);
         }
       };
+    };
+    if (window.__wrapped !== g) {
+      window.__wrapped = g;
+      window.__wrapMiss = [];
+      one('attach', g, 'attach');
+      if (!P) for (const n of ['pictureInto', 'fold']) if (typeof g[n] === 'function') one(n, g, n);
+    }
+    if (P && window.__wrappedP !== P) {
+      window.__wrappedP = P;
+      one('pictureInto', P, 'copyStep');
+      one('fold', P, 'foldStep');
     }
   };
   let last = 0;

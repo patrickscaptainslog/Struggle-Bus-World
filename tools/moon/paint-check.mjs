@@ -6,6 +6,7 @@
 //   tiles    a painted region's 16 tiles ask for their paint at once: the copies spread over frames, under about 4 ms in any one
 //   between  a tile that comes in between a blast's impact and the end of its fold shows the blast
 //   budget   the store at its budget, then a MEGA over old paint: nothing thrown, and the old paint under it kept
+//   near     a tile near the bus, which asks for nothing before it comes: its paint follows it in; its ground made again (a region's change of detail), the paint's on it at once
 //   old      what builds before this one kept in localStorage, a picture under two pages' names and a list of blasts: moved in once, the two as one, the blast drawn in
 // The third review, 2026-11-05 (docs/reviews/earth-pictures-2026-11-04.md): each row its "done". A row passes or fails on the numbers printed with it; exit 1 if any fails.
 import { registerHooks } from 'node:module';
@@ -254,6 +255,51 @@ if (!only || only === 'budget')
   // (each texel that had old paint has paint after: the MEGA's over it or the old)
   const b = await backOn(g2, tiles, before);
   row('budget: the store at its budget, a MEGA over old paint: nothing thrown, the old paint kept', !threw && b.had > 1000 && b.backPct >= 99, { threw, storeMB: +([...rows.values()].reduce((s, [, e]) => s + e.length, 0) / 1048576).toFixed(1), ...b });
+}
+
+// ---- near: tiles attached as a detailed region attaches them, with no hasSaved first
+if (!only || only === 'near')
+{
+  const rows = new Map();
+  let g = await page(-11.45, 26.28, rows);
+  const x = 300, z = 300, r = blastRadiusFor(25), tiles = tilesAround(x, z, r * 3);
+  for (const [tx, tz] of tiles) g.attach(tx, tz, tx * TS, tz * TS, uni());
+  g.blast(makeBlastSpec(x, z, r, 3, nextSeed()), 0);
+  await frames(g, 400);
+  await frames(g, 70);
+  for (let i = 0; i < 5; i++) await tick();
+  const before = new Map();
+  for (const [tx, tz] of tiles) {
+    const m = g.masks.get(`${tx},${tz}`);
+    if (m && painted(m)) before.set(`${tx},${tz}`, Uint8Array.from(m.data));
+  }
+  const same = (g) => {
+    let had = 0, back = 0, hue = 0;
+    for (const [k, was] of before) {
+      const m = g.masks.get(k);
+      for (let t = 0; t < was.length; t += 4) {
+        if (was[t] < 128) continue;
+        had++;
+        if (!m || m.data[t] < 128) continue;
+        back++;
+        if (m.data[t + 1] >> 5 === was[t + 1] >> 5) hue++;
+      }
+    }
+    return { had, back, hue, backPct: had ? +((100 * back) / had).toFixed(2) : 0, huePct: had ? +((100 * hue) / had).toFixed(2) : 0 };
+  };
+  g = await page(-11.45, 26.28, rows);
+  for (const [tx, tz] of tiles) g.attach(tx, tz, tx * TS, tz * TS, uni());
+  let n = 0;
+  for (; n < 400 && [...before.keys()].some((k) => !g.masks.has(k)); n++) {
+    g.geoPaint.work(1 / 30);
+    g.work();
+    await tick();
+  }
+  const inn = same(g);
+  for (const [tx, tz] of tiles) g.detach(tx, tz);
+  for (const [tx, tz] of tiles) g.attach(tx, tz, tx * TS, tz * TS, uni());
+  const again = same(g);
+  row("near: a tile that asked for nothing gets its paint as it comes, and made again it's on at once", inn.had > 1000 && inn.backPct >= 97 && inn.huePct >= 93 && again.back === inn.back && again.hue === inn.hue, { tiles: before.size, framesTillIn: n, came: inn, madeAgain: again });
 }
 
 // ---- old: a build before this one's pictures and lists in localStorage, by the page's start place

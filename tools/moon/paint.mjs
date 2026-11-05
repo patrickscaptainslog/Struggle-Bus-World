@@ -97,6 +97,8 @@ const strip = async (tag, n, every) => {
 };
 /** Clear the device between scripts. */
 const wipe = () => page.evaluate(() => {
+  // (the open ground's pictures by place are in IndexedDB: src/world/GeoPaint.ts)
+  window.__game?.city.ground.geoPaint?.clear();
   for (const k of Object.keys(localStorage)) if (k.startsWith('strugglebus.moon') || k.startsWith('strugglebus.ground')) localStorage.removeItem(k);
 });
 

@@ -524,6 +524,8 @@ export class GroundPaint {
     this.replaying.delete(key);
     const m = this.masks.get(key);
     if (m) {
+      // (?moon: what it shows, settled, kept for it coming back, as a region's change of detail makes its tiles' ground again; not while its copy's on its way, which comes then)
+      if (this.pics && !this.pics.copyingTile(key)) this.keepShown(key, m.data);
       m.gone = true;
       m.tex.dispose();
       this.masks.delete(key);
@@ -645,7 +647,10 @@ export class GroundPaint {
       // (kept by place, drawn into the pictures over the frames after this; a tile here that it couldn't draw has it now, and one that comes in before it's drawn in draws it itself)
       this.pics.add(job.spec, p);
       for (const key of this.tilesOf(p))
-        if (touched.indexOf(key) < 0 && this.loaded.has(key) && this.mask(key)) {
+        if (!this.loaded.has(key)) {
+          // (a copy waiting for a tile, made before this: copied again when the tile comes, with it)
+          this.prepared.delete(key);
+        } else if (touched.indexOf(key) < 0 && this.mask(key)) {
           this.replaying.set(key, (this.replaying.get(key) ?? 0) + 1);
           this.jobs.push({ spec: job.spec, tImpact: 0, serial: null, p: null, tiles: [], only: key, under: false });
         }
@@ -793,7 +798,9 @@ export class GroundPaint {
    */
   private attachGeo(key: string, ox: number, oz: number) {
     const d = this.prepared.get(key);
-    if (d) {
+    // (none waiting for it: copied now, if there's paint under it, and put under what it shows when it's done)
+    if (!d) this.pics!.want(key, ox, oz);
+    else {
       this.prepared.delete(key);
       const m = this.mask(key);
       if (m) {
@@ -839,6 +846,21 @@ export class GroundPaint {
     if (this.prepared.size > 64) this.prepared.delete(this.prepared.keys().next().value!);
     const c = key.indexOf(',');
     this.onPaintReady?.(Number(key.slice(0, c)), Number(key.slice(c + 1)));
+  }
+
+  /** ?moon: a tile's mask as its paint waiting for it, settled (no reveal), if it shows any. */
+  private keepShown(key: string, md: Uint8Array) {
+    let d: Uint8Array | null = null;
+    for (let t = 0; t < md.length; t += 4) {
+      if (!md[t]) continue;
+      d ??= new Uint8Array(TEXELS * 4);
+      d[t] = md[t];
+      d[t + 1] = md[t + 1];
+    }
+    if (!d) return;
+    this.prepared.delete(key);
+    this.prepared.set(key, d);
+    if (this.prepared.size > 64) this.prepared.delete(this.prepared.keys().next().value!);
   }
 
   private evictOldest(except: string): boolean {
