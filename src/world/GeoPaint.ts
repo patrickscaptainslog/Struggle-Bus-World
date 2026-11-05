@@ -35,6 +35,8 @@ const OPEN = 96;
 const FREE = 32;
 /** ms a frame for all of it: tiles' paint copied out, blasts drawn in and what's changed coded for the store (Node's ms: a phone's page takes two or three times them). */
 const WORK_MS = 2;
+/** No step starts in the last of it: a step's first work (a MEGA's pictures found, a picture coded) is about this. */
+const STEP_MS = 0.3;
 /** s between writes to the store. */
 const FLUSH_S = 1;
 /** The journal: what the page hadn't written when it was hidden (localStorage, synchronous). */
@@ -398,8 +400,17 @@ export class GeoPaint {
       b1 = Math.max(b1, v);
     }
     const i0 = Math.max(0, Math.floor(a0 * N) - 2), i1 = Math.min(N - 1, Math.ceil(a1 * N) + 2), j0 = Math.max(0, Math.floor(b0 * N) - 2), j1 = Math.min(N - 1, Math.ceil(b1 * N) + 2);
-    return i0 > i1 || j0 > j1 ? null : [i0, i1, j0, j1];
+    if (i0 > i1 || j0 > j1) return null;
+    // (one array, filled again each call: a MEGA asks this for each of its dots in each of its pictures, and a new one each time was what Node's collector stopped frames for)
+    const r = this.range;
+    r[0] = i0;
+    r[1] = i1;
+    r[2] = j0;
+    r[3] = j1;
+    return r;
   }
+
+  private readonly range: [number, number, number, number] = [0, 0, 0, 0];
 
   private readonly corners = new Float64Array(8);
 
@@ -650,12 +661,19 @@ export class GeoPaint {
   /** A frame's share, WORK_MS of it: tiles' paint copied out first, as a tile waits on it, then blasts drawn in, then what's changed coded; and every FLUSH_S what's coded written. */
   work(dt: number): void {
     if (!this.ready) return;
-    const t0 = performance.now(), end = t0 + WORK_MS;
-    for (let k = 0; k < this.copies.length && performance.now() < end; ) {
+    const t0 = performance.now(), end = t0 + WORK_MS, last = end - STEP_MS;
+    // (every FLUSH_S, what's changed is queued to be coded, and what's open past OPEN closed: first, inside the frame's share)
+    this.flushIn -= dt;
+    if (this.flushIn <= 0 && !this.coding.length && !this.writing) {
+      this.flushIn = FLUSH_S;
+      for (const [k, pic] of this.open) if (pic.dirty) this.coding.push(k);
+      this.close();
+    }
+    for (let k = 0; k < this.copies.length && performance.now() < last; ) {
       if (this.copyStep(this.copies[k], end)) this.copies.splice(k, 1);
       else k++;
     }
-    for (let k = 0; k < this.folds.length && performance.now() < end; ) {
+    for (let k = 0; k < this.folds.length && performance.now() < last; ) {
       const f = this.folds[k];
       if (!this.foldStep(f, end)) {
         k++;
@@ -663,7 +681,7 @@ export class GeoPaint {
       }
       if (f.phase > 1) this.folds.splice(k, 1);
     }
-    while (this.coding.length && performance.now() < end) {
+    while (this.coding.length && performance.now() < last) {
       const k = this.coding.pop()!, pic = this.open.get(k);
       if (!pic?.dirty) continue;
       const enc = encodeMask(pic.data);
@@ -674,12 +692,6 @@ export class GeoPaint {
     }
     if (!this.coding.length && !this.writing && (this.coded.length || this.bytes > this.budget)) this.write();
     this.qa.workMs = Math.max(this.qa.workMs, performance.now() - t0);
-    this.flushIn -= dt;
-    if (this.flushIn <= 0 && !this.coding.length && !this.writing) {
-      this.flushIn = FLUSH_S;
-      for (const [k, pic] of this.open) if (pic.dirty) this.coding.push(k);
-      this.close();
-    }
   }
 
   /** A picture closed, its texels kept for the next one made (a picture's 64 KB, made and dropped as the bus flies, is what the page's collector would stop a frame for). */
