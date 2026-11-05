@@ -1,6 +1,6 @@
 # GRAPHS: the world's first graphs for life
 
-What the world builds first for life's stage 1, and how: San Francisco's graphs from the Bay archive, in the contract's files, the parser life reads, and W1. Built to `CONTRACT.md` 0.5. Where the contract can't be met as written, the change is at the end, Proposed, for the second account (`CONTRACT.md` section 8). Nothing is built on a change before it's Agreed.
+What the world builds first for life's stage 1, and how: San Francisco's graphs from the Bay archive, in the contract's files, the parser life reads, and W1. Built to `CONTRACT.md` 0.6, where the second account Agreed this plan's C1 to C7 (its section 10). C8 and C9, at the end, are still Proposed (`CONTRACT.md` section 8): C8 isn't built on, and C9 is a field life may read or not.
 
 **State.** 2026-11-05, the first account, on `feat/world`, with `feat/earth` merged in at e8c44a7 (77d212c: the contract signed by both, main's 6b494b7). Planned, then built the same night: steps 1 to 4 of the order and San Francisco's files ("Built", below). Where the build left the plan, the plan's text says so in place. Facts are marked as `LIVING.md` marks them. MEASURED here means read tonight from the archive (`bay-2026-10-21`, read only) or from the repo, with throwaway scripts that read one row group at a time. They aren't in the repo. The bake's own report prints the same counts.
 
@@ -70,28 +70,29 @@ Left out, as the bridges spec leaves them out: is_indoor, is_under_construction,
 | Thing | Key |
 |---|---|
 | A connector's node | its OSM node, `n65293476`; else its GERS id, as it is (the contract's "else Overture's GERS id") |
-| A cut at a region line | the contract's form, its way and the line, `w31772645@x-7168.0`, where that names one place; where it names two or more, C4's below (built so: 309 keys named two places or more, MEASURED, C4) |
-| Any other node: a cut at the bounds, at a range's end, a segment's end with no connector | its edge's OSM way and its own place in whole decimetres of the map, `w31772645@-71680,-22103` (C4: the contract has no form for these) |
+| Any other node: a cut at a region line (a portal), at the bounds, at a range's end, a segment's end with no connector | its edge's OSM way and its own place in whole decimetres of the map, `w31772645@-71680,-22103` (C4, 0.6). Cuts with no connector under 10 cm apart are one node, since they'd share a key. The 0.5 bake keyed portals on their line, `w31772645@x-7168.0`, where that named one place: 309 such keys named two places or more (MEASURED) |
 | An edge | its OSM way and its piece, `w31772645#2`, the pieces counted from 0 along the way as it runs (from a node no piece of the way leads into, the smallest key first; a closed way from its smallest node key). An edge over two ways takes the one with more of its length. With no OSM way, the segment's GERS id and its piece, `<gers>#0` |
 | An area | its element, `w453930841` or `r14551816`. OPEN_WATER, which has none: `water@<rx>,<rz>`, one a region |
 | A ferry route | its OSM way, `w31772645` |
 | A terminal, a marina | its OSM element. A terminal the bake makes at a route's end: that end's OSM node |
 | An airport, a runway | its ICAO code, `KSFO`; `KSFO:28L` |
 
-Ids: FNV-1a of the key into a range a kind (nodes, edges, areas, ferries, terminals, marinas, airports), probed in key order over the whole city, as `IdAlloc` does (`bake.py` ~994). Every id's key goes in `public/city/<slug>/gkeys.bin`, gzipped, with its kind, which the game never fetches: W2 compares two bakes' copies. A key is unique within its kind: one OSM element can be two kinds, a marina's area and the marina in `routes.bin` (20 keys on this map).
+Ids: FNV-1a of the key into a range a kind (nodes, edges, areas, ferries, terminals, marinas, airports), probed in key order over the whole city, as `IdAlloc` does (`bake.py` ~994). Every id's key goes in `tools/world/data/<slug>/gkeys.bin`, gzipped, with its kind: in the repo for W2 to compare two bakes' copies from git, and not in `public/`, so no preview deploys it (the game never fetches it). A key is unique within its kind: one OSM element can be two kinds, a marina's area and the marina in `routes.bin` (20 keys on this map).
 
 ### Heights
 
 | Point | y |
 |---|---|
 | On land | bilinear over its tile's 65 x 65 grid, as `tiles.ts` reads it: the baked heights, never `meshHeights` |
+| On the ground over the sea: a road or footway point on a WATER texel the grid holds at 2 m or under | the grid, but never under `WATER_Y` (`stand()`): footways out to the ferries' gates and onto docks stood 0.5 m under the drawn water. With no tile, `WATER_Y` |
 | On water: a FERRY point on a WATER texel, or in a tile or cell with no tile | `WATER_Y`, -0.6 |
-| An area's vertex on the sea or the Bay: a WATER texel the grid holds at 2 m or under, or no tile | `WATER_Y` |
+| An area's vertex | as a node on the ground stands (`stand()`): the grid, never under `WATER_Y`, which also keeps a pier's plaza from sloping into the sea at its edge. OPEN_WATER is flat at `WATER_Y` |
 | An area's vertex on a lake: a WATER texel higher up | the grid, where the city draws the lake (C8) |
-| On a deck City draws | that deck's top, once C2 is Agreed; the profile below until then. A stack's lower deck: 5.5 m a level under the top |
-| On any other bridge, or above level 0 | `decks.py`, the bridges spec's rule (`BRIDGES.md`, "Height profile"), on the chain of edges it's in |
-| In a tunnel | straight between the tunnel's two ends, which stand on the ground or a deck |
-| An area's vertex | as land or water above |
+| An area on a roof or a deck (OSM's `level` over 0, else `location=roof` or `bridge`, else Overture's `level` over 0) | left out: the bake has no buildings to stand it on (item 1), and the street under it is the wrong place. Salesforce Park stood at street level, 21 m under its roof |
+| On a deck City draws (C2, 0.6): within 22 m of its line, between its ends, heading within 30 degrees of it | that deck's top. A lower level 5.5 m a level under the highest level along it: the Bay Bridge's eastbound deck, level 1, 5.5 m under the westbound top, level 2 |
+| A sidewalk or path on a bridge within 15 m of a road's deck, at its level and heading with it | that road deck's height: profiled apart, the Golden Gate's walkers stood up to 41 m under its cars |
+| On any other bridge, or above level 0 | `decks.py`, the bridges spec's rule (`BRIDGES.md`, "Height profile"), on the chain of edges it's in, from any fixed heights above; over water from the water's own surface (a lake's grid, the sea's 0); on land never under the ground |
+| In a tunnel | straight between the tunnel's two ends, which stand on the ground or a deck, but never over the ground or the bed, and 5.5 m a level under it away from its ends, going down at the end grade (`decks.under()`) |
 
 The rule in `decks.py`: over water 1.5 m plus 4.5 % of the crossing's water length, 1.5 to 80 m; over land the ground, smoothed, plus 5.5 m a level; never down faster than 3 % (road), 2 % (rail) or 6 % (foot); a chain's ends on the ground where it meets ground edges. No LiDAR tonight: San Francisco's LiDAR rasters cover only the 128 m chunks that hold a building (`lidar.py`), so a deck over water isn't in them, and reading the decks' own points is a download. With no LiDAR the rule's error on San Francisco's decks is a median of 3.3 m, 87 % within 10 m (`BRIDGES.md`, SOURCE).
 
@@ -120,7 +121,7 @@ Each is clipped to its region and cut into triangles on one terrain TIN a region
 
 ### city.json
 
-- `"life": { "graph": 1, "routes": 1 }`, with `regions` if C1 is Agreed, and `stats`: the bake's counts (rules read, rules applied, edges by kind), as `stats` sits beside the city bake's output.
+- `"life": { "graph": 1, "routes": 1, "regions": [[rx, rz, bytes], ...] }` (C1: every file, the open water's included), and `stats`: the bake's counts (rules read, rules applied, edges by kind, NO_CARS), as `stats` sits beside the city bake's output.
 - PlaceInit's inputs: `"vdatum": "NAVD88"` (`docs/ARCHITECTURE.md`, "World conventions") and `"geoid": -32.24`, EGM96's N at the origin (MEASURED tonight from item 21, bilinear). Over the bounds N runs -32.46 to -32.12 m, so one number a place holds (O9). Life's worker draws no live plane under 1 km while its place has no N (`feat/life`, `src/life/lifeWorker.ts`, `NO_GEOID_FLOOR`).
 - `__sbDataV` goes from osm3 to osm4 with the files (`docs/ARCHITECTURE.md`: every re-bake bumps it).
 
@@ -152,7 +153,7 @@ San Francisco alone would fit in memory (366 MB, above). The Bay's 974,750 segme
 
 ## The parser life reads
 
-`src/world/lifeData.ts`, the world's (CONTRACT section 0). Worker-safe: no three.js and no DOM, only typed arrays, `DataView` and `TextDecoder`, which Safari 15's workers have. The contract's types as written. `parseRegionGraph(buf)` and `parseCityRoutes(buf)` (with `origin` once C5 is Agreed) take an inflated buffer (`gunzip.ts` inflates it in the worker) and give null for a magic they don't know, a major version they can't read or a file cut short: never a throw into life. A parse makes the arrays it returns, and nothing per element but the names. Nothing runs per frame. The const enums compile as the repo's eleven others do (`isolatedModules`). W1 bundles the file with rolldown, as `tools/moon/run.mjs` does, because Node's own type stripping refuses enums.
+`src/world/lifeData.ts`, the world's (CONTRACT section 0). Worker-safe: no three.js and no DOM, only typed arrays, `DataView` and `TextDecoder`, which Safari 15's workers have. The contract's types as written, with C5's map metres and C9's `minor`. `parseRegionGraph(buf, regionM)` and `parseCityRoutes(buf, origin)` take an inflated buffer (`gunzip.ts` inflates it in the worker), the region's side (city.json's `regionSize` x `tileSize`, 1,024 m by default) and the city's origin, and give null for a magic they don't know, a major version they can't read, a file cut short or with bytes left over, an area's triangle starts that go back, or a name past the names: never a throw into life. A parse makes the arrays it returns, and nothing per element but the names and a pair a place for the routes' map metres (`geo.ts`'s `latLonToLocal`). Nothing runs per frame. The const enums compile as the repo's eleven others do (`isolatedModules`). W1 bundles the file with rolldown, as `tools/moon/run.mjs` does, because Node's own type stripping refuses enums.
 
 The byte layout is written once, at the top of the parser, as `tiles.ts` does for the tiles. In outline, all little-endian, each section column by column:
 
@@ -174,7 +175,7 @@ Then, in the same file and small: PlaceInit, `makePlaceFrame` and `weatherAt`, w
 
 ## W1: tools/world/graph-check.mjs
 
-`node tools/world/graph-check.mjs sf`, in Node, so it runs on the cloud machine too. It reads `city.json`, parses every graph file and `routes.bin` with the shipped parser, and reads the tiles' heights and classes with `tiles.ts`'s own parser from the `r_*.bin` files, one region at a time. It prints each count beside its limit and exits 1 on any failure.
+`node tools/world/graph-check.mjs sf`, in Node, so it runs on the cloud machine too. It reads `city.json`, parses every graph file in `life.regions` and `routes.bin` with the shipped parser, and reads the tiles' heights and classes with `tiles.ts`'s own parser from the `r_*.bin` files, one region at a time. From `tools/world/data/<slug>/`, in the repo and never on the site, it reads `gkeys.bin` and the bake's check file, `checks.json.gz`: every one-way and car-closing rule's place on its segment's own line, the areas on a roof or a deck, and the land along the ferries (C3). So direction and NO_CARS are read against the rules, not against the bake's own counts. It prints each count beside its limit and exits 1 on any failure.
 
 | Invariant (1.2) | What W1 counts | Fails at |
 |---|---|---|
@@ -182,14 +183,22 @@ Then, in the same file and small: PlaceInit, `makePlaceFrame` and `weatherAt`, w
 | Every edge's two nodes exist | edges whose a or b isn't a node; points more than 0.1 m outside their region | 1 |
 | A node where an edge leaves its region is a PORTAL, with the same id next door | portals; portals with no twin; twins more than 1 cm apart; nodes on a region line that aren't PORTAL; edges across a line | 1 |
 | Ids | an id twice in one city but a portal's twin or an area's part in another region; a key with two ids within its kind | 1 |
-| Direction as mapped, BOTH where nothing says | edges by dir and class; one-way rules read against edges made one-way, from `life.stats` | the two differ |
+| Direction as mapped, BOTH where nothing says | edges by dir and class; each one-way rule at its range's middle, from the check file, against the road or rail edge of its kind and level through that place (nearest within 0.6 m, heading within 30 degrees), which must run the way the rule lets travel go; the files' one-way count against `life.stats` | 1 wrong; over 1 % not found; the counts differ |
+| NO_CARS (C6) | each closing rule's place against its edge's flag; NO_CARS on a non-road; a file under minor 1 | 1 |
+| Keys (C4) | every node key with no connector `way@x,z`, its place the node's within a decimetre; an edge from a node to itself (edges under 5 cm printed) | 1 |
+| Files (C1) | every file in `life.regions` there with its bytes, every City region listed, none outside the bounds; a node on a region line with edges one side only where the cell across, inside the bounds, has no file | 1 |
 | TUNNEL and UNDRAWN apart | tunnel edges that are also UNDRAWN; UNDRAWN km by class (motorways should come near the audit's 68 %, SOURCE) | 1 tunnel |
-| A land node within 0.5 m of the tile's grid | land nodes, points, and every 4 m along every land edge, against the 65 x 65 grid, bilinear; the worst and where | 1 over 0.5 m |
+| A land node within 0.5 m of the tile's grid | land nodes, points, and every 4 m along every land edge, against the 65 x 65 grid, bilinear, never under `WATER_Y` on the sea (`stand()`); the worst and where | 1 over 0.5 m |
+| Nothing on the ground under the drawn water | land nodes and steps on the sea more than 0.3 m under `WATER_Y` (a step crossing from a grid under it onto the sea dips that far between texels) | 1 |
 | A water node at `WATER_Y` | water nodes and points off -0.6 by over 1 mm | 1 |
-| A deck's top from the graph's data, decks told apart by level | deck points within 15 m of a landmark deck's line against its top: median and worst (within 0.3 m once C2 is Agreed); deck points within 3 m of a higher level on another structure (no chain of deck edges joins them in the region) where the higher isn't 0.1 m higher. Pairs on one structure are its ramps between levels, counted and not checked | C2's gate; 1 inversion |
-| FERRY and WATER edges on water, but their last 150 m, which ends on a terminal, berth or port area | every 10 m along them against the class raster at 2 m (no tile: water); ends not on a terminal, a berth or PLAZA | 1 |
-| The same past the map | `routes.bin`'s ferries every 10 m against Overture's land polygons along them, in a file the bake writes (C3); until then "past the map: not checked" | 1 |
-| Areas | the grid's points inside each area against its triangles (`WATER_Y` on the sea, the grid elsewhere, a lake too); OPEN_WATER's texel centres off the sea, its vertices off `WATER_Y` | 1 over 0.5 m; 1 |
+| Decks on the drawn decks (C2) | edges with 60 % of their steps within 21.5 m of a drawn deck's line, between its ends, heading within 28 degrees (inside the bake's 22 m and 30), their steps within 40 m against its top, a lower level 5.5 m a level under the highest along it unless the ground holds it up | 1 over 0.3 m |
+| Decks never in the ground or the water | every deck step against the grid on land (0.5 m), `WATER_Y` on the sea, a lake's grid (0.5 m) | 1 |
+| A sidewalk rides its carriageway | foot deck steps within 14 m of a road deck step at their level, heading with it | 1 over 1 m |
+| Decks told apart by level | deck points within 3 m of a higher level on another structure (no chain of deck edges joins them) where the higher isn't 0.1 m higher. Pairs on one structure are its ramps between levels, counted and not checked | 1 inversion |
+| Tunnels under the ground | every tunnel step over the ground or the bed by 0.5 m, but where it comes down from an end of its edge at 10 % or less | 1 |
+| FERRY and WATER edges on water, but their last 150 m, which ends on a terminal, berth or port area | every 10 m along them against the class raster at 2 m (no tile: water); an end node of one ferry edge, not a portal or on the bounds, that no road or footway meets, off PLAZA and over 30 m from a terminal; `routes.bin`'s ends over 150 m from the terminal they name | 1 |
+| The same past the map (C3) | `routes.bin`'s ferries every 10 m inside the archive's box, but within 150 m of their ends, against Overture's land (class land, OSM's coastline) within 300 m of the routes less Overture's water polygons (the coastline runs on up the Mare Island Strait), from the check file | 1 |
+| Areas | the grid's points inside each area against its triangles (`stand()`: the grid, never under `WATER_Y`, a lake's grid); OPEN_WATER's texel centres off the sea, its vertices off `WATER_Y`; an area the bake read on a roof or a deck found in the files | 1 over 0.5 m; 1; 1 |
 | Places may be named; nothing names a person or a vessel | every name in the files, printed once for a person to read: W1 can't tell a person's name by itself | none |
 
 The 4 m test along edges asks more than the contract, which asks it of nodes. It's what a car on a hill needs.
@@ -228,7 +237,13 @@ Steps 1 to 4 and the files, in 6d98b0f (the bake), 7996b4e (the parser), efd827d
 - Node keys: C4's for the nodes the contract can't key (C4, below).
 - A connector with no OSM node keys on its GERS id as it is, and an edge with no OSM way on its segment's GERS id and its piece.
 
+## Rebuilt to 0.6 after the review (2026-11-05)
+
+The review of the build above found it baked to 0.5, and four majors (`DECISIONS.md`, "Life's graphs to the contract's 0.6"). The files now: 270 `g_*.bin` (195 where City has tiles, 75 open water, C1), 5.05 MB gzipped, largest 93.5 KB; `routes.bin` `SBC1`, 6.1 KB; 154,259 edges (64,300 road, 84,885 foot, 4,898 rail, 176 ferry; 852 NO_CARS, 53.9 km), 109,118 nodes, 23,465 keyed on way and place (C4). The bake: 332 s, peak 335 MB working set, 532 MB private. W1 passes every check but four, on residuals: 28 deck steps up to 1.8 m under the ground, 25 tunnel steps up to 2.8 m over it, 1 drawn-deck step 1.18 m off, 170 sidewalk steps over 1 m from their road (the Golden Gate's north end, past its drawn deck). The numbers in "Built" above are the 0.5 bake's.
+
 ## Left for later
+
+- **W1's four residuals** (above): the next pass on the decks.
 
 - **Places and buildings** (items 5 and 1, waiting on the producer's OK of their sizes): a cruise terminal at Pier 27 (nothing in tonight's types names one, so life's "one cruise ship at Pier 27" has no terminal yet), and better names and outlines for terminals and marinas.
 - **The Bay beyond the city** (O10, the world's call by stage 1's first week): San Francisco's map grown, or maps for Oakland and Marin. Either needs city tiles there first (any-city, `VERDICT.md` step 4; GLO-30 and WorldCover are in the archive). The graph bake is the same code on any map.
@@ -239,11 +254,12 @@ Steps 1 to 4 and the files, in 6d98b0f (the bake), 7996b4e (the parser), efd827d
 - **W2** once a second bake exists; **W5** with City's `onRegion`.
 - **Freeway surfaces** (bridges steps 4 and 5): as each is drawn, its edges lose UNDRAWN.
 - **Lakes as OPEN_WATER**, at the grid's height, once C8 is Agreed.
-- **The Bay's pass 2**: its keys spilled too, since it would hold 17 times San Francisco's 264,235.
+- **The Bay's pass 2**: its keys spilled too, since it would hold 17 times San Francisco's 264,509. Until then the bake stops at its 950 MB guard on a map much bigger than San Francisco's (the review's minor: holds, not fixed; no other map has tiles yet).
+- **Areas on roofs and decks** (18 on this map, Salesforce Park and Rooftop Park among them): left out until the buildings (item 1) give them a roof to stand on.
 
 ## CONTRACT: changes
 
-For the second account. Each is Proposed until it marks it Agreed, and then goes into `CONTRACT.md` in a commit whose message starts `CONTRACT:` (section 8). Until then the bake does what the contract says, as each item says.
+For the second account. Each is Proposed until it marks it Agreed, and then goes into `CONTRACT.md` in a commit whose message starts `CONTRACT:` (section 8). **C1 to C7 are Agreed (0.6) and built as each says** (the review's fixes, "Built", below); the "until Agreed" lines are the 0.5 bake's. C8 and C9 are open.
 
 The five it can't meet as written:
 
@@ -256,6 +272,10 @@ The five it can't meet as written:
 And one found while building:
 
 - **C8. Lakes stand where the city draws them** (1.2, the water's surface). As written, the water's surface is `WATER_Y` on every map today. On San Francisco's map that holds for the sea and the Bay: of the 4.11 million WATER texels on its tiles, 3.59 million sit at 0.5 m or under in the grid (2.73 million under -0.3 m), and the plane draws them at -0.6 m. It doesn't hold for its lakes: 334,000 WATER texels sit 5 to 200 m up the grid (Lake Merced, Golden Gate Park's lakes), and the ground mesh draws them there, on the ground (`tiles.ts`, `meshHeights`). Between 2 and 5 m there are only 8,727 (MEASURED, every texel centre of every tile, bilinear over the grid). An area at `WATER_Y` on a lake would stand tens of metres under the water drawn there. Proposed: a WATER texel the grid holds more than 2 m up is a lake, and a lake is OPEN_WATER at the grid's height, the level the city already draws it at, so "when lakes get their own level" is today, from the grid. Until Agreed: OPEN_WATER is the sea and the Bay alone (WATER texels at 2 m or under, and tile slots and cells with no tile), flat at `WATER_Y`. Lakes have no OPEN_WATER, and any other area over a lake takes the grid there, as land does. No FERRY or WATER edge is on a lake on this map.
+
+And one from the review of the build:
+
+- **C9. The files' minor version, parsed** (1.3). As written, `RegionGraph` and `CityRoutes` have a `version` and no minor, so life can't tell a 1.0 file, which never sets NO_CARS, from a 1.1 file whose road has no closure. Proposed: both parsed shapes give `minor` too. A field life may read or not, so it's built: if the second account says no, it goes.
 
 Two smaller asks:
 
