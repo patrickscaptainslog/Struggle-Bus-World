@@ -38,10 +38,14 @@ const RIGHT = new THREE.Vector3(1, 0, 0);
 const LOOK_HOME = 1e-4;
 
 /** The look's curve, a x + b x^3: lookDegPerPx at the start, 180 degrees at lookFullPx. Past 180 it stays that curve, and with a start steep enough to get there on its own, a line. */
+const curve = { a: 0, b: 0 };
+/** (fills `curve` from the tuner's numbers, read live, in place: it runs four times a frame while a look is held) */
 const lookCurve = () => {
   const C = config.camera;
   const a = Math.max(0.01, C.lookDegPerPx), full = Math.max(1, C.lookFullPx);
-  return { a, b: Math.max(0, 180 - a * full) / (full * full * full) };
+  curve.a = a;
+  curve.b = Math.max(0, 180 - a * full) / (full * full * full);
+  return curve;
 };
 
 /** The look's angle (deg) for a thumb's offset from where it landed (px): a small nudge is a small look, and the look behind is still there. */
@@ -93,6 +97,9 @@ export class CameraRig {
   turboHero = 1;
   readonly turboLead = new THREE.Vector3();
   readonly turboLookLead = new THREE.Vector3();
+  /** The live sky's lift (SKY.md 4.15): the view tips up toward this (deg), eased, and holds there; skyLift is where it is now */
+  skyLiftTarget = 0;
+  skyLift = 0;
   /** the look (setLook): how far a thumb has the view off the rig (rad, x = +right, y = +up; exactly 0 once home) */
   private readonly lookYaw = { x: 0, v: 0 };
   private readonly lookPitch = { x: 0, v: 0 };
@@ -263,6 +270,11 @@ export class CameraRig {
       this.lookDir.set(ax * Math.cos(dp), -Math.sin(dp), az * Math.cos(dp));
       cam.lookAt(this.lookDir.add(this.pos));
     } else cam.lookAt(this.look);
+    // (it moves briefly, then holds still and exactly: a rotation can't be snapped, so the frame swims only while it moves; never so far that the bus leaves the frame)
+    const lift = Math.min(this.skyLiftTarget, cam.fov / 2 - 6);
+    const dl2 = Math.max(0, lift) - this.skyLift;
+    this.skyLift = Math.abs(dl2) < 0.02 ? Math.max(0, lift) : this.skyLift + dl2 * (1 - Math.exp(-config.sky.liftRate * dt));
+    if (this.skyLift !== 0) cam.rotateX(THREE.MathUtils.degToRad(this.skyLift));
     this.distance = this.pos.distanceTo(bus);
     focusOut.copy(bus);
     this.applyLook(cam, bus);

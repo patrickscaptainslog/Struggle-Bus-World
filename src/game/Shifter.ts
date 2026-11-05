@@ -1,5 +1,6 @@
 import type { Flight } from './Flight';
 import type { TurboDrive } from './Turbo';
+import { inputTune } from './Input';
 
 // What a flick means (docs/specs/flight/THUMBS.md). No DOM: the keys and the
 // thumbs land here alike, and the offline harness runs it.
@@ -10,9 +11,10 @@ import type { TurboDrive } from './Turbo';
 //  - A flick down drops exactly one rung, turbo first. One thumb's stroke pulled the
 //    stick until its lift, and that pull goes back with it (Flight.unpull).
 //  - Under the opening's gate a gear would lift the bus into the deck, so a flick up
-//    waits for the gate, fired by itself once it clears, and a flick down takes one
-//    back. (Express lifts nothing, but the gate's one rule stands: no gear under it,
-//    and it says so.)
+//    waits for the gate, fired by itself once it clears, and a flick down takes it
+//    back. One rung waits, however many flicks: the gate says when, it isn't a queue,
+//    and six flicks under it were TURBO 3 at the bridge. (Express lifts nothing, but
+//    the gate's one rule stands: no gear under it, and it says so.)
 
 export type ShiftAnswer =
   /** a flick up: a rung goes, now */
@@ -26,7 +28,7 @@ export class Shifter {
   /** the opening's gate (main.ts, per frame) */
   locked = false;
   onAnswer: ((a: ShiftAnswer) => void) | null = null;
-  /** flicks up waiting for the gate */
+  /** the rung waiting for the gate: 0 or 1 */
   private queued = 0;
 
   constructor(
@@ -52,8 +54,8 @@ export class Shifter {
 
   private up() {
     if (this.locked) {
-      // (no more than the ladder has left: LOCKED is a flick's answer at the top, not a queue's as it runs out)
-      if (this.queued < this.drive.rungsLeft) this.queued++;
+      // (one rung, and only if the ladder has one left: a flick under the gate never stacks gears up for later, and LOCKED is a flick's answer at the top, not the gate's)
+      if (this.queued < Math.min(1, this.drive.rungsLeft)) this.queued++;
       this.onAnswer?.('gated');
       return;
     }
@@ -65,8 +67,10 @@ export class Shifter {
     const d = this.drive;
     const waiting = this.queued > 0;
     // (one thumb's flick down is a pull too: a flick down leaves the bus as it was, so that goes back. Out of a gear
-    // that bit it holds the height anyway, and with nothing to do it was only ever a quick pull)
-    if (flew && (waiting || d.level > 0 || (d.gear > 0 && !(d.lifts && d.engaged)))) this.flight.unpull();
+    // that bit it holds the height anyway, and with nothing to do it was only ever a quick pull. A gear still lifting
+    // that bit inside the stroke bit on the stroke's own pull: it was still lifting when the thumb meant to take it back)
+    const bit = d.lifts && d.engaged && !(flew && d.time - d.engagedAt <= inputTune.loneFlickMs / 1000);
+    if (flew && (waiting || d.level > 0 || (d.gear > 0 && !bit))) this.flight.unpull();
     if (waiting) {
       this.queued--;
       this.onAnswer?.('back');

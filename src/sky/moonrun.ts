@@ -371,7 +371,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
   // (the look is the rig's: on ?moonland the low game's own, so a look held across a join goes on across it)
   const looker = input ? (land?.rig ?? new CameraRig()) : null;
   // (where each panning thumb was last frame)
-  const lookAt = new THREE.Vector2(), busOnScreen = new THREE.Vector3(), busZone = { x: 0, y: 0, r: 0 };
+  const lookAt = new THREE.Vector2(), busOnScreen = new THREE.Vector3(), busZone = { x: 0, y: 0, r: 0, open: 0 };
   let lookOn = false;
   const label = flying ? tripLabel(!landing) : null;
   /** ?moonland: a tap now is a crater shot, from the orbit down to where the ground's mesh comes in. */
@@ -646,7 +646,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
       }
     }
     if (!landing?.near) pipeline.focus.set(0, 0, 0);
-    // (out here only a touch near the bus flies it, and one anywhere else looks: the bus's lane, where it stands on the screen this frame)
+    // (out here only a touch near the bus or anywhere under it flies it, and one over it or beside it looks: the bus's lane, where it stands on the screen this frame, the street's
+    // shape and numbers. The producer, going live: "anywhere a player touches in the general vicinity below the bus belongs to control of bus")
     if (input && trip && view) {
       const v = bus.root.getWorldPosition(busOnScreen).project(camera), W = window.innerWidth, H = window.innerHeight;
       // (one object, set again each frame: Input reads it as a touch lands, and keeps nothing of it. With the bus behind the lens the lane stays where the bus was last on the
@@ -654,7 +655,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
       if (v.z < 1) {
         busZone.x = ((v.x + 1) / 2) * W;
         busZone.y = ((1 - v.y) / 2) * H;
-        busZone.r = inputTune.busLane * W;
+        busZone.r = inputTune.laneHalf * Math.min(W, H);
+        busZone.open = inputTune.laneOpen * H;
         input.busZone = busZone;
       }
     }

@@ -1,11 +1,13 @@
 import { config } from '../config';
 import { registerTunables } from '../ui/tunables';
 
-// Two thumbs, each with its own job (docs/specs/flight/THUMBS.md). One line decides,
-// on the landing alone: the look zone, everywhere but the bus's lane (busZone, which
-// the game sets each frame); before the game's first frame, the left lookZone of the
-// screen's width (the right, with BUTTONS: SWAP). A touch landing there never flies. Everywhere else
-// the first thumb flies, and on its own it flicks and taps too. In any order, the
+// Two thumbs, each with its own job (docs/specs/flight/THUMBS.md). One rule decides,
+// on the landing alone: the look zone, which is everywhere but the bus's lane (busZone,
+// set each frame from where the bus stands on the screen: round the bus and anywhere
+// under it). With no bus on the screen it is the left lookZone of the screen's width
+// (the right, with BUTTONS: SWAP). Until the opening's gate there is no zone (lookOff):
+// its low shot has no look. A touch landing in the zone never flies. Everywhere
+// else the first thumb flies, and on its own it flicks and taps too. In any order, the
 // thumb in the zone looks and the other flies. A mouse has its right button instead.
 //
 // THE FIRST THUMB FLIES: the floating bungee, anywhere out of the zone. The
@@ -103,10 +105,16 @@ export const inputTune = {
   secondTapMs: 230,
   /** The look waits this long (ms) so a flick doesn't swing the camera, and for the thumb to leave tapSlopPx. */
   lookDelayMs: 100,
-  /** Before the game sets the bus's lane (its first frame): a touch landing in this share of the screen's width, from the left (the right, with BUTTONS: SWAP), never flies. 0: no zone. */
+  /** A touch landing in this share of the screen's width, from the left (the right, with BUTTONS: SWAP), never flies. 0: no zone. */
   lookZone: 0.42,
-  /** With the bus's zone on (Input.busZone): the half width of its lane, as a share of the screen's width. */
-  busLane: 0.22,
+  /** With the bus's zone on (Input.busZone): the half width of its lane round the bus, as a share of the screen's narrow side (its width, upright), and how far under the bus
+   *  it has opened out to the screen's whole width, as a share of the screen's height (0: whole width from the bus's line down). New names, 2026-11-04:
+   *  the lane grew, and a value a phone's tuner saved for the old busLane must not hold it at 0.22. */
+  laneHalf: 0.27,
+  laneOpen: 0.25,
+  /** ...and the bus counts as standing no lower than this share of the screen's height, about its usual line: the strain at the ceiling or a look up sinks
+   *  it toward the bottom edge, and the lane under it is where the thumb rests, which doesn't move with the bus. */
+  laneLow: 0.6,
   /** A flick by the second thumb: at least this far (px), in at most this long (ms), at least this fast on average (px/ms), within this many degrees of vertical. */
   flickPx: 30,
   flickMs: 230,
@@ -136,7 +144,10 @@ registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
   keyRate: [1, 30, 0.5],
   secondTapMs: [80, 450, 5],
   lookDelayMs: [0, 300, 5],
-  busLane: [0.1, 0.45, 0.01],
+  lookZone: [0, 0.8, 0.01],
+  laneHalf: [0.1, 0.5, 0.01],
+  laneOpen: [0, 0.6, 0.01],
+  laneLow: [0.3, 1, 0.01],
   flickPx: [10, 120, 1],
   flickMs: [60, 450, 5],
   flickSpeed: [0.05, 2, 0.01],
@@ -231,11 +242,14 @@ export class Input {
   /** BUTTONS: SWAP: the look zone is on the right instead of the left. */
   swapped = false;
   /**
-   * The bus's zone, CSS px of the input element, set every frame by whoever draws the bus (sky/moonrun.ts on the way to the Moon): only a touch landing in its lane flies, and one landing anywhere
+   * The bus's zone, CSS px of the input element, set every frame by whoever draws the bus (main.ts, from where the bus stands on the screen): only a touch landing in its lane flies, and one landing anywhere
    * else looks. The producer: "what if we reserve the control the struggle bus movement space on the screen to the area directly near the struggle bus itself, and then touching anywhere but that
-   * area pans the camera?" Null: the look zone's rule. r: the lane's half width (inputTune.busLane of the screen's).
+   * area pans the camera?" And on going live, 2026-11-04: "anywhere a player touches in the general vicinity below the bus belongs to control of bus - not pan- as that's where the thumb naturally lies".
+   * Null: the look zone's rule. r: the lane's half width round the bus (inputTune.laneHalf of the screen's narrow side); open: how far under the bus it covers the screen's whole width (inputTune.laneOpen of its height).
    */
-  busZone: { x: number; y: number; r: number } | null = null;
+  busZone: { x: number; y: number; r: number; open: number } | null = null;
+  /** The opening's low shot, while its gate is shut (main.ts, with the gears' lock): it has no look, so a landing anywhere flies, as every touch there always did. */
+  lookOff = false;
 
   private readonly el: HTMLElement;
   private readonly slots: Slot[] = [];
@@ -434,6 +448,9 @@ export class Input {
     const p = this.fly;
     // A thumb resting still past the tap window is steering (at neutral).
     if (p && !this.pointerDragging && now - p.t0 >= inputTune.stillTapMs) this.commitDrag();
+    // A tap waiting on two fingers together, with nobody flying: once no finger still down can be the other half of one, it was a tap of its own
+    // (a tap landing just after a thumb that then stayed down to look was lost, before).
+    if (!p && this.gPendingTap && !this.gAnswered && !this.tapStillDown(now)) this.answer();
     st.thumb = this.pointerDragging;
     // the look starts on the clock too: a thumb can stop moving inside the delay
     for (let i = 0; i < MAX_POINTERS; i++) {
@@ -652,8 +669,12 @@ export class Input {
         this.onTurbo?.(dir, true);
         this.promote(t0);
       }
-      // The everyday tap: one finger, short and still -> fire on the up.
-      else if (quick && !this.gMulti && !this.gAnswered) this.onTap?.();
+      // The everyday tap: one finger, short and still -> fire on the up. Beside a finger that landed with it, it waits: two fingers tapped together
+      // are one tap at the last lift, and if the other turns out to be no tap (it looks, rests or flicks), this one was a tap of its own (update).
+      else if (quick && !this.gAnswered) {
+        if (this.gMulti) this.gPendingTap = true;
+        else this.onTap?.();
+      }
     } else if (dir) this.onTurbo?.(dir, false);
     else if (tap) {
       if (this.primarySteering(now)) this.answer();
@@ -694,6 +715,9 @@ export class Input {
 
   /** The flying thumb touched down. */
   private beginFly(slot: Slot, now: number) {
+    // (a tap still waiting on a finger that landed with it, the other half of two fingers tapped together if it lifts as fast, was the player's tap: a thumb landing
+    // to fly starts a new gesture, which forgot it, so a tap and the same thumb back down to steer beside a resting or looking thumb splatted nothing)
+    if (this.gPendingTap && !this.gAnswered) this.answer();
     this.fly = slot;
     this.beginGesture(now);
     this.pointerDragging = false;
@@ -789,6 +813,12 @@ export class Input {
     return (dur <= limit && s.maxDist <= inputTune.tapSlopPx) || (dur <= inputTune.quickTapMs && s.maxDist <= inputTune.quickTapSlopPx);
   }
 
+  /** A second thumb still down could yet lift as a tap. */
+  private tapStillDown(now: number): boolean {
+    for (const s of this.slots) if (s.role === Role.Second && !s.right && this.isQuick(s, now)) return true;
+    return false;
+  }
+
   /** The flying thumb has committed: moved past the tap slop or held past the tap window. */
   private primarySteering(now: number): boolean {
     const p = this.fly;
@@ -821,15 +851,23 @@ export class Input {
     return s.type !== 'mouse' && s.y0 <= this.rectH - inputTune.flickBottomPx && s.x0 >= inputTune.flickSidePx && s.x0 <= this.rectW - inputTune.flickSidePx;
   }
 
-  /** A touch landing here never flies: the look zone, or with the bus's zone on everywhere but that. Only the landing counts: a look that wanders out of it is still a look. */
+  /** A touch landing here never flies: the look zone, or with the bus's zone on everywhere but that, and nowhere while lookOff. Only the landing counts: a look that wanders out of it is still a look. */
   private inLookZone(x: number, y: number): boolean {
+    if (this.lookOff) return false;
     const b = this.busZone;
     if (b) {
-      // (a lane round the bus, from just over it down to the bottom of the screen, where the thumb that flies it sits. Kept on the screen: a look up past about 20 degrees
-      // puts the bus under its bottom edge, and the lane went with it, so no touch could fly. The first account's review, 2026-11-04)
-      const bx = Math.max(b.r, Math.min(this.rectW - b.r, b.x)), by = Math.min(b.y, this.rectH - b.r);
+      // (the lane: a half disc over the bus, and from the bus's line down a funnel that opens out to the screen's whole width `open` under it, and stays that wide down to the
+      // bottom, where the thumb that flies it rests: so a look is a touch over the bus's line, or out to a side beside it. Kept on the screen: a look up past about 20 degrees
+      // puts the bus under its bottom edge, and the lane went with it, so no touch could fly. So the bus stands no lower than its usual line (laneLow) or r over the bottom
+      // edge: the strain at the ceiling tips the view up and sinks the bus to the edge too, and a thumb landing again where it rests must still fly. A bus sitting low opens
+      // out sooner, so that last r is always the whole width; and it stands no higher than the top edge, which would have made the whole screen the lane)
+      const r = b.r, W = this.rectW, H = this.rectH;
+      const bx = Math.max(r, Math.min(W - r, b.x)), by = Math.max(0, Math.min(H - r, H * inputTune.laneLow, b.y));
       const dx = x - bx, dy = y - by;
-      return !(Math.abs(dx) <= b.r && (dy >= 0 || dx * dx + dy * dy <= b.r * b.r));
+      if (dy < 0) return dx * dx + dy * dy > r * r;
+      const open = Math.min(b.open, H - r - by);
+      const k = open > 0 ? Math.min(1, dy / open) : 1;
+      return x < (bx - r) * (1 - k) || x > bx + r + (W - bx - r) * k;
     }
     const w = this.rectW * inputTune.lookZone;
     return this.swapped ? x > this.rectW - w : x < w;
@@ -845,7 +883,7 @@ export class Input {
   /** The stroke that just lifted was a command, not a flying thumb, so a thumb that landed during it is a lone touch: it flies, from where it landed, unless it landed in the look zone. A grip in a band isn't one: the next thumb to land flies. */
   private promote(t0: number) {
     for (const s of this.slots) {
-      // (where it landed as the lane was then, not as it is at this lift: the bus moves on the screen. The first review's minor)
+      // (where it landed as the lane was then, not as it is at this lift: the bus moves on the screen. feat/earth's c11baeb, the first review's minor)
       if (s.role !== Role.Second || s.right || s.t0 < t0 || !this.commands(s) || s.inLook) continue;
       if (s.looking) this.endLook(s);
       s.role = Role.Fly;
@@ -914,7 +952,15 @@ export class Input {
       dy *= k;
       d = maxD;
     }
-    stickOf(dx, -dy, this.b); // screen up = +y
+    const st = this.b;
+    const dz = Math.max(0, F.deadZonePx);
+    if (d <= dz) {
+      st.x = st.y = 0;
+      return;
+    }
+    const s = softSat((d - dz) / px, inputTune.knee);
+    st.x = (dx / d) * s;
+    st.y = (-dy / d) * s; // screen up = +y
   }
 
   private fireFirstGesture() {
@@ -1009,19 +1055,6 @@ function evTime(e: Event): number {
 }
 
 /** Linear up to `knee`, then eases asymptotically into 1 (tanh), C1-continuous. */
-/** A thumb's offset (CSS px, +y up) as the stick reads it: the dead zone, then soft-saturated toward 1 past stretchPx. The flight's pan reads a look the same way (src/sky/moonrun.ts). */
-export function stickOf(dx: number, dy: number, out: { x: number; y: number }): void {
-  const F = config.flight;
-  const d = Math.hypot(dx, dy), dz = Math.max(0, F.deadZonePx);
-  if (d <= dz) {
-    out.x = out.y = 0;
-    return;
-  }
-  const s = softSat((d - dz) / Math.max(1, F.stretchPx), inputTune.knee);
-  out.x = (dx / d) * s;
-  out.y = (dy / d) * s;
-}
-
 function softSat(s: number, knee: number): number {
   const k = Math.min(0.999, Math.max(0, knee));
   if (s <= k) return s;

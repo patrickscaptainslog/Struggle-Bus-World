@@ -31,11 +31,14 @@ import { Hud, type HudFrame } from '../ui/Hud';
 // the bus's pose is set (the rattle), frame(dt, realDt) after the bus's matrix
 // is final (effects, voice, HUD).
 
-const ARMED = 'TURBO AFTER THE BRIDGE';
+/** The gate's lines: a flick under it is heard, and its gear waits for the bridge (it said TURBO, from when the button was TURBO). */
+const ARMED = 'GEARS AFTER THE BRIDGE';
+const ARMED_OFF = 'GEAR OFF';
 const CLIMB_GATED = 'CLIMB AFTER THE BRIDGE';
 /** The first run's one mention of the flicks and the look: the gestures are hidden, and this is all the teaching they get. Any thumb flicks, so that comes first; then the bus's lane (Input.busZone):
- *  only a touch near the bus flies it, and one anywhere else looks. It fits the toast at 116 of the screen's 131 px. */
-const hint = () => ['FLICK UP FOR GEARS', 'STEER BY THE BUS', 'DRAG ELSEWHERE TO LOOK'];
+ *  a touch near the bus or anywhere under it flies it, and one high over it looks (or beside it, which the hint leaves to the thumb to find): just over
+ *  the bus is the lane's half disc, and a drag up there is the yoke's nose-down, so the hint says HIGH UP, not ABOVE IT. It fits the toast at 116 of the screen's 131 px. */
+const hint = () => ['FLICK UP FOR GEARS', 'STEER BELOW THE BUS', 'DRAG HIGH UP TO LOOK'];
 const HINT_SECONDS = 6.5;
 /** A flick's answer in the bus's own body: it hiccups, once, on the breath's squash spring. */
 const FLICK_SQUASH = 0.84;
@@ -329,8 +332,8 @@ export class Controls {
   private answer(a: ShiftAnswer) {
     this.onTurbo(a === 'back' ? 'back' : 'flick', this.turbo.gear);
     if (a === 'gated') this.hud.toast([ARMED], 2.6);
-    // (with another flick still waiting the line stands)
-    else if (a === 'back' && this.gearsLocked && !this.shifter.armed) this.hud.toast(['TURBO OFF'], 1.2);
+    // (the gear that waited is taken back: one waits at most, so nothing is left waiting)
+    else if (a === 'back' && this.gearsLocked && !this.shifter.armed) this.hud.toast([ARMED_OFF], 1.2);
   }
 
   private onTurbo(ev: TurboEvent, gear: number) {

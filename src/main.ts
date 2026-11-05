@@ -26,7 +26,7 @@ import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { paintLandmark, bindLandmarkPaint, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
 import { Tuner, applySavedTuning } from './ui/Tuner';
-import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles, bridgeLights } from './world/Bridges';
+import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles, bridgeLights, paintBridge, BRIDGE_RUN } from './world/Bridges';
 import { heroLandmarks, SpireRide } from './world/props/landmarks';
 import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
@@ -35,22 +35,26 @@ import { SuperSplat } from './game/SuperSplat';
 import { SuperFx } from './fx/SuperFx';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
-import { earthFly, earthResume, heldHour, moonLand, moonLow, moonrun } from './sky/flag';
+import { earthFly, earthResume, heldHour, moonLand, moonLow, moonrun, skyLive } from './sky/flag';
 import { CUT_NEAR, EARTH_CEILING, H_UP, SKY_FROM, SKY_TOP } from './sky/earthJoin';
 import type { EarthLanding, StreetWorld } from './sky/EarthLanding';
 import { spaceResolveUniforms as spaceU } from './render/skyResolve';
 import type { LandEnter, Landing } from './moon/Landing';
 import { dirOf, latLonToMap, latOf, lonOf, SLIDE, SLIDE_AT } from './moon/map';
 import { HeldHour } from './sky/HeldHour';
+import { LiveSky } from './sky/LiveSky';
+import { spanTag } from './sky/Lamps';
 
 // Struggle Bus — Phase 1 (real SF, solo).
 
 type Manifest = CityManifest & { regions: Array<[number, number, number]>; regionSize: number };
 /** What the street sign says when a landmark is hit. */
-const LANDMARK_NAMES: Record<string, string> = { sutro: 'Sutro Tower', transamerica: 'Transamerica' };
+const LANDMARK_NAMES: Record<string, string> = { sutro: 'Sutro Tower', transamerica: 'Transamerica', ggb: 'Golden Gate Bridge', baybridge: 'Bay Bridge' };
 
 /** The opening was seen through once on this device: a tap skips it from then on. */
 const OPENING_SEEN_KEY = 'strugglebus.opening.v1';
+/** The opening's low shot holds while the bus is nearer the Golden Gate's gap than this along its heading (m), with nobody steering or near the bridge, and comes back for a bus pointing back there. */
+const OPENING_LOW_ALONG = 180;
 
 const params = new URLSearchParams(location.search);
 if (params.has('fog')) config.fog.enabled = true;
@@ -99,10 +103,11 @@ const camNear = camera.near;
 // wave: the post passes and what modules registered (tiles, trees, landmarks, bridges).
 let warm = new WarmUp(pipeline, scene);
 
-// (the held hour, ?hour=blue: SKY.md slice S1; updateSun below hands it the light)
-const hour = heldHour ? new HeldHour(pipeline) : null;
+// (the held hour, ?hour=blue: SKY.md slice S1; updateSun below hands it the light. The live sky, on unless ?sky=off: docs/specs/sky/LIVE.md, its nights that hour)
+const live = skyLive ? new LiveSky(pipeline, params) : null;
+const hour = live ? live.hour : heldHour ? new HeldHour(pipeline) : null;
 /** What the ?fps read-out calls the frame it is reading. */
-const hourName = hour ? 'blue hour' : 'day';
+const hourName = live ? 'live sky' : hour ? 'blue hour' : 'day';
 
 // --- sun: late-afternoon, low, from the WSW
 /** The city's low ground (m, City.lowGround once the far grid is in): the fog ceiling's heights are
@@ -124,7 +129,7 @@ function updateSun() {
   globals.uFogBillow.value.set(Fg.layerBillow, 1 / Math.max(10, Fg.layerBillowSize));
   // (the fog ceiling of tall far shapes: meaningless with the fog off, so off with it)
   globals.uFogStand.value.set(fogOn ? Fg.standFog : 1, fogGround + Fg.standFrom, fogGround + Math.max(Fg.standFrom + 1, Fg.standTo), Fg.standFade);
-  hour?.update();
+  (live ?? hour)?.update();
 }
 updateSun();
 
@@ -145,6 +150,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   if (!moon && manifest.slug !== slug) manifest.slug = slug;
   // and by the data's id scheme (city.json "ids"): the stores the City opens need it first
   registerCityData(manifest);
+  live?.place(manifest.origin, (manifest as { tz?: string }).tz);
+  if (live) {
+    // the stars, the planets and the Moon's map: their draw warms with the scene's, and the files land in it after the city's first tiles (sky/StreetSky.ts, frame())
+    scene.add(live.street.object);
+  }
   const city = new City(manifest, base, moon?.city ?? null);
   scene.add(city.root);
   if (moon) {
@@ -196,6 +206,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const start = manifest.start as typeof manifest.start & { speed?: number; opening?: string };
   const ggb = manifest.landmarks.find((l) => l.kind === 'ggb') as { points?: Array<[number, number]> } | undefined;
   let openingBridge: [number, number] | null = null;
+  /** the opening's gate has opened once: from then a carve shuts it again (it is along the heading) only where the low shot comes back */
+  let gateOpened = false;
   if (!params.has('lat') && start.opening === 'golden-gate' && ggb?.points) {
     // thread the gap just north of the south tower so the tower fills the
     // narrow portrait lens as we glide under the deck
@@ -315,20 +327,37 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const ref = paintLandmark(city, key, obj, { name });
     if (ref && city.paint.level(ref.index) > 0.5) bumpPaint(ref.cx, ref.cz, 40);
   };
-  /** the spans' lights, x, y, z: the held hour's */
+  /** the spans' lights, x, y, z, and their tags: the held hour's (a light takes its bridge's paint: Lamps.setBridges) */
   const spanLights: number[] = [];
+  const spanTags: number[] = [];
+  const spanLit = (kind: 'ggb' | 'baybridge', pts: Array<[number, number]>, deck: NonNullable<typeof manifest.landmarks[number]['deck']>, group: number) => {
+    const steps: number[] = [];
+    spanLights.push(...bridgeLights(kind, pts, deck, config.sky.bridgeSpacing, steps));
+    for (const st of steps) spanTags.push(spanTag(group, st));
+  };
+  /** the bridges, made paintable after every other landmark (slots are handed out in call order: theirs come last) */
+  const bridges: Array<{ kind: 'ggb' | 'baybridge'; obj: THREE.Object3D; group: number }> = [];
+  let spans = 0;
   for (const lm of manifest.landmarks) {
     const pts = (lm as { points?: Array<[number, number]> }).points;
     const deck = lm.deck;
     if (lm.kind === 'ggb' && pts && deck && lm.supports) {
-      scene.add(makeGoldenGate(pts, deck, lm.supports));
+      const obj = makeGoldenGate(pts, deck, lm.supports);
+      const group = ++spans;
+      scene.add(obj);
+      bridges.push({ kind: 'ggb', obj, group });
       city.addObstacles(bridgeObstacles('ggb', pts, deck, lm.supports));
-      if (hour) spanLights.push(...bridgeLights('ggb', pts, deck, config.sky.bridgeSpacing));
+      if (hour) spanLit('ggb', pts, deck, group);
     } else if (lm.kind === 'baybridge' && pts && deck && lm.supports) {
       const { supports } = lm;
+      const group = ++spans;
       city.addObstacles(bridgeObstacles('baybridge', pts, deck, supports));
-      later.push(() => scene.add(makeBayBridgeWest(pts, deck, supports)));
-      if (hour) spanLights.push(...bridgeLights('baybridge', pts, deck, config.sky.bridgeSpacing));
+      later.push(() => {
+        const obj = makeBayBridgeWest(pts, deck, supports);
+        scene.add(obj);
+        bridges.push({ kind: 'baybridge', obj, group });
+      });
+      if (hour) spanLit('baybridge', pts, deck, group);
     } else {
       // Sutro's legs / the pyramid: solid posts the flight model steers around
       city.addObstacles([{ x: lm.x, z: lm.z, r: lm.kind === 'sutro' ? 45 : 30, top: lm.y + lm.height + 5, under: -Infinity }]);
@@ -342,7 +371,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       });
     }
   }
-  hour?.lamps.setBridges(spanLights);
+  hour?.lamps.setBridges(spanLights, spanTags, BRIDGE_RUN);
   // the hand-built heroes the footprints can't draw: Coit Tower, the Ferry Building, 181 Fremont's spire
   later.push(() => {
     for (const h of heroLandmarks(manifest.origin)) {
@@ -360,11 +389,22 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         later.push(() => paintable(p.key, h.object, p.name));
       }
     }
+    // the bridges, after them (lm:ggb, lm:baybridge: never renamed), one a tick, their necklaces taking their paint at night
+    for (const b of bridges)
+      later.push(() => {
+        const ref = paintBridge(city, `lm:${b.kind}`, b.obj, LANDMARK_NAMES[b.kind]);
+        if (!ref) return;
+        if (city.paint.level(ref.index) > 0.5) bumpPaint(ref.cx, ref.cz, 40);
+        const mesh = b.obj.children[0] as THREE.Mesh;
+        hour?.lamps.paintSpan(b.group, ref.index, (mesh.material as THREE.ShaderMaterial).uniforms.uLmHit.value as THREE.Vector4);
+      });
   });
 
   // ---- the hero
   const bus = new BusModel();
-  const busOnScreen = new THREE.Vector3(), busZone = { x: 0, y: 0, r: 0 };
+  const busOnScreen = new THREE.Vector3();
+  /** the bus's lane, handed to the thumbs each frame (Input.busZone): one object, filled in place */
+  const busLane = { x: 0, y: 0, r: 0, open: 0 };
   scene.add(bus.root);
 
   // drop shadow straight below the bus: grounds the hero (how high it flies). No decal: the resolve pass
@@ -477,8 +517,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const flingFrom = new THREE.Vector3();
   const flingTo = new THREE.Vector3();
   const flashPos = new THREE.Vector3();
-  /** Where a flung blob comes down: the roof it hits, else the ground. */
-  const landingY = (x: number, z: number) => city.roofAt(x, z) ?? city.groundAt(x, z);
+  /** Where a flung blob comes down: the roof it hits, else the ground (seen from fromY: never on a deck over it). */
+  const landingY = (x: number, z: number, fromY: number) => city.roofAt(x, z, fromY) ?? city.groundAt(x, z);
   /** Trees standing in the blast's fresh ground paint bloom (or escalate) as the shockwave reaches them. */
   const paintTrees = (b: Blast, freshOnly = false) => {
     const ts = manifest.tileSize;
@@ -535,7 +575,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       for (const dot of b.dots) {
         if (!dot.blob) continue;
         flingFrom.set(b.pos.x + (Math.random() - 0.5) * 3, b.pos.y + 0.8 + Math.random() * 1.5, b.pos.z + (Math.random() - 0.5) * 3);
-        flingTo.set(dot.x, landingY(dot.x, dot.z) + 0.15, dot.z);
+        flingTo.set(dot.x, landingY(dot.x, dot.z, flingFrom.y) + 0.15, dot.z);
         particles.fling(flingFrom, flingTo, blobFlight(dot), dot.hue, 0.7 + dot.rad * 0.5);
       }
       paintTrees(b);
@@ -624,7 +664,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     let need = 0;
     for (let i = 1; i <= 10; i++) {
       const t = Math.min(0.9, (i * 6) / d);
-      const over = city.surfaceAt(x + (c.x - x) * t, z + (c.z - z) * t) - (y + (c.y - y) * t);
+      // (seen from the line itself: it can pass under a deck)
+      const ly = y + (c.y - y) * t;
+      const over = city.surfaceAt(x + (c.x - x) * t, z + (c.z - z) * t, ly) - ly;
       // (lifting the point by h lifts the line there by h (1 - t))
       if (over > 0) need = Math.max(need, over / (1 - t));
       if (t >= 0.9) break;
@@ -664,7 +706,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       for (let s = 6; s < 0.9 * d; s += 6) {
         const t = s / d, qx = px + (c.x - px) * t, qz = pz + (c.z - pz) * t;
         // (half a meter of slack at the blade, as sightLift's 0.5 m)
-        if (Math.max(city.roofAt(qx, qz) ?? -Infinity, city.landmarkSurfaceAt(qx, qz)) > yb + (c.y - yb) * t + 0.5 * (1 - t)) return false;
+        const ly = yb + (c.y - yb) * t;
+        if (Math.max(city.roofAt(qx, qz, ly) ?? -Infinity, city.landmarkSurfaceAt(qx, qz, ly)) > ly + 0.5 * (1 - t)) return false;
       }
     }
     return true;
@@ -814,7 +857,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     breathTravel = shot.travel;
     breathWidth = (mega ? mega.width : 1) * (moonPaint?.width(shot, flight) ?? 1);
     try {
-      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, ...moonPaint?.barf(shot, !!mega) });
+      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: flight.y, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, ...moonPaint?.barf(shot, !!mega) });
     } finally {
       breathTravel = null;
       breathWidth = 1;
@@ -870,6 +913,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   if (moon) controls.turbo.edgeless = true;
   // (?earth: past Turbo 3 a flick is nothing, not LOCKED: the way on is up, a climb to the flight. The first review's minor)
   if (earthFly || earthResume) controls.turbo.quietTop = true;
+  // (the opening's gate is shut from the first touch, not from the first frame, which sets it each frame after: the grey before that frame takes touches, and
+  // a flick there was a gear at once, which the gate never held, lifting the bus toward the deck under the low shot. The lane waits with it: a landing in the grey flies)
+  controls.gearsLocked = !!openingBridge;
+  input.lookOff = controls.gearsLocked;
   controls.hud.setCredits(dataCredits);
   input.onTripleFinger = () => tuner.toggle();
   input.onFirstGesture = () => {
@@ -887,7 +934,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     audio.heave();
     moonPaint?.aim(shot, flight, aimer.aim.x, aimer.aim.z, simTime, !!mega);
     const tgt = shot.target;
-    const iy = shot.y ?? (tgt ? city.roofAtPart(tgt, shot.x, shot.z) + 0.5 : city.groundAt(shot.x, shot.z));
+    const iy = shot.y ?? (tgt ? city.roofAtPart(tgt, shot.x, shot.z, flight.y) + 0.5 : city.groundAt(shot.x, shot.z));
     lastShot = { t: simTime, aim: [shot.x, iy, shot.z], travel: config.splat.inhale + shot.travel, drop: shot.drop, busY: flight.y, wall: shot.exact, target: tgt ? { index: tgt.index, cx: tgt.cx, cz: tgt.cz, roofY: tgt.roofY } : null, mega: mega?.radius };
     breathe(shot, mega);
     if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
@@ -1093,6 +1140,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   let moonSun = 1;
   /** frames rendered (the opening's clock starts once the first one is on screen) */
   let framesDrawn = 0;
+  /** the sky's files are asked for once the city's first tiles are in, or at night this long (ms) after the first frame on a line too slow for them: the stars a moment after it */
+  const SKY_FILES_WAIT = 1500;
+  let skyAsked = !live;
+  let firstFrameAt = -1;
 
   type QA = { sx?: number; sy?: number; holdAt?: number; holdFrames?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null; pin?: { x: number; y: number; z: number; heading: number } | null; noSlide?: boolean };
   /** ?moonland: the view the flight left the bus in, for the moments the rig takes to come over from it. */
@@ -1231,17 +1282,24 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     }
     // the opening: the yoke can't climb until the bus (and the low camera trailing 150 m behind
     // it) is clear of the Golden Gate, so the bus always threads under the deck and the camera
-    // never rises through the cables (turning away ends it: `along` is along the heading)
+    // never rises through the cables (turning away ends it: `along` is along the heading). Once open, a carve shuts it again only under the
+    // low shot's own line, where a bus with nobody steering brings the low shot back. Between that and openingClimbAfter the view is rising
+    // out of the low shot, which isn't wanted there, and a carve there said GEARS AFTER THE BRIDGE past the bridge, over the first run's hint,
+    // and took the lane
     const gateAlong = openingBridge ? (flight.x - openingBridge[0]) * flight.fx + (flight.z - openingBridge[1]) * flight.fz : 0;
     const gateDist = openingBridge ? Math.hypot(flight.x - openingBridge[0], flight.z - openingBridge[1]) : Infinity;
-    if (openingBridge && gateAlong < config.camera.openingClimbAfter) {
+    const gateShut = !!openingBridge && gateAlong < (gateOpened ? OPENING_LOW_ALONG : config.camera.openingClimbAfter);
+    if (!gateShut) gateOpened = true;
+    if (gateShut) {
       if (sy < -0.5 && opening >= config.fog.openingDuration) controls.climbGated();
       sy = Math.max(0, sy);
       // (and it glides level: the floor over the strait drops 19 m in each tile the data has, and the one under the deck ends just past it)
       flight.turbo.floor = Math.max(flight.turbo.floor, config.camera.openingGlide);
     }
     // (nor can a gear lift it: a shift waits for the gate)
-    controls.gearsLocked = !!openingBridge && gateAlong < config.camera.openingClimbAfter;
+    controls.gearsLocked = gateShut;
+    // (and the low shot has no look, so while the gate is shut a touch anywhere flies, as it always did there: the lane starts with the hint that teaches it)
+    input.lookOff = gateShut;
     controls.opening = opening < config.fog.openingDuration;
     const dragging = qaStick ? true : st.dragging;
     // past the edge of the map the bus homes back toward the city, gently; the edge gives way with the height, and out
@@ -1299,8 +1357,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     bus.root.position.set(flight.x, flight.y, flight.z).add(superSplat.shake);
     controls.afterPose(bus.root);
 
-    // drop shadow on whatever is below: the roof of the part under the bus, else the street
-    const below = city.roofAt(flight.x, flight.z) ?? flight.groundUnder;
+    // drop shadow on whatever is below: the roof of the part under the bus, else the street (under a deck, the water)
+    const below = city.roofAt(flight.x, flight.z, flight.y) ?? flight.groundUnder;
     dropShadow.set(flight.x, below, flight.z);
     // (half length ~0.32 bus length, half width 0.42 of that: about the bus's own footprint, a little
     // bigger with a breath loaded; it shrinks with the gap below)
@@ -1310,9 +1368,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (openingBridge) {
       // stay low and level until we're well past the bridge, then rise into the normal chase view
       // (steering takes over early, but never near the bridge: the chase camera would fly through the cables)
-      const want = gateAlong < 180 && (!dragging || gateDist < 320) ? 1 : 0;
+      const want = gateAlong < OPENING_LOW_ALONG && (!dragging || gateDist < 320) ? 1 : 0;
       rig.openingLow += (want - rig.openingLow) * (1 - Math.exp(-(want ? 4 : 0.7) * dt));
-      if (rig.openingLow < 0.01 && want === 0 && (gateAlong >= 180 || gateDist > 1500)) {
+      if (rig.openingLow < 0.01 && want === 0 && (gateAlong >= OPENING_LOW_ALONG || gateDist > 1500)) {
         rig.openingLow = 0;
         openingBridge = null;
       }
@@ -1330,6 +1388,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     paintUniforms.uTargetT.value = aimer.shownSince;
     paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);
     paintUniforms.uFloodHead.value = config.bloom.floodHead;
+    // (the live sky's lift: pulling at the ceiling, the view tips up to the sky the bus can't reach yet, SKY.md 4.15)
+    if (live) rig.skyLiftTarget = flight.strain > 0.3 && flight.y > config.sky.liftFrom ? config.sky.liftPull : 0;
     rig.update(camera, focus, flight, dt);
     superSplat.camera(camera, focus, dt);
     rig.applyKick(camera, realDt);
@@ -1399,7 +1459,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     pipeline.shadowFocusOn = true;
     pipeline.shadowFocus.set(sx0, focus.y + (city.groundAt(sx0, sz0) - focus.y) * vista, sz0);
     pipeline.shadowScale = 1 + (R.shadowExtentVista / Math.max(1, R.shadowExtent) - 1) * vista;
-    pipeline.shadowStrength = hour?.shadowsOff ? 0 : 1 + (R.shadowStrengthVista - 1) * vista;
+    live?.view(camera, camera.position.distanceTo(focus));
+    pipeline.shadowStrength = hour?.shadowsOff ? 0 : (1 + (R.shadowStrengthVista - 1) * vista) * (live ? live.passK(vista) : 1);
     pipeline.shadowEdge = 0.08 + (R.shadowEdgeVista - 0.08) * vista;
     pipeline.calm = clamp(vista / Math.max(0.01, config.render.calmVista), 0, 1);
     // tower facades: the up-high anti-crawl guard follows the view's height (with fog on or off), and their
@@ -1536,18 +1597,6 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       moonSun += (lit - moonSun) * (1 - Math.exp(-14 * dt));
       globals.uLight.value.x = config.light.sunStrength * (Math.round(moonSun * 3) / 3);
     }
-    // (only a touch near the bus flies it, and one anywhere else looks: the bus's lane, where it stands on the screen this frame. The producer: "Yes San Francisco should work the same, replacing the left side look")
-    {
-      const v = bus.root.getWorldPosition(busOnScreen).project(camera), W = window.innerWidth, H = window.innerHeight;
-      // (one object, set again each frame: Input reads it as a touch lands, and keeps nothing of it. With the bus behind the lens the lane stays where the bus was last on the
-      // screen, where it fell back to the left 42 % before. The first review's minor)
-      if (v.z < 1) {
-        busZone.x = ((v.x + 1) / 2) * W;
-        busZone.y = ((1 - v.y) / 2) * H;
-        busZone.r = inputTune.busLane * W;
-        input.busZone = busZone;
-      }
-    }
     // (?earth: up from SKY_FROM the sky is space's, up from SKY_TOP the ground goes into the plain Earth from the horizon in, and at H_UP the street's picture is the flight's. The sky's uniforms are the flight's, over this lens)
     if (earthFly) {
       const hk = flight.height / 1000;
@@ -1562,6 +1611,20 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       } else pipeline.cutSky(null);
       earthJoin?.over(realDt, camera.position);
     }
+    // (only a touch near the bus or anywhere under it flies it, and one over it or beside it looks: the bus's lane, where it stands on the screen this frame. The producer: "Yes San Francisco
+    // should work the same, replacing the left side look", and "anywhere a player touches in the general vicinity below the bus belongs to control of bus")
+    {
+      const v = bus.root.getWorldPosition(busOnScreen).project(camera), W = window.innerWidth, H = window.innerHeight;
+      // (with the bus behind the lens the lane stays where the bus was last on the screen, where it fell back to the left 42 %: feat/earth's c11baeb, the first review's minor)
+      if (v.z < 1) {
+        busLane.x = ((v.x + 1) / 2) * W;
+        busLane.y = ((1 - v.y) / 2) * H;
+        // (of the screen's narrow side: in landscape the width made it 230 px and the lane all but the top corners)
+        busLane.r = inputTune.laneHalf * Math.min(W, H);
+        busLane.open = inputTune.laneOpen * H;
+        input.busZone = busLane;
+      }
+    }
     pipeline.render(scene);
     framesDrawn++;
     // (a tap in the grey has skipped it already)
@@ -1573,6 +1636,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     controls.hud.setMega(superView.phase);
     perf.frame(dt * 1000, performance.now() - t0);
     const cityIn = city.loadedRegionCount() > 0 && !city.loading && !later.length;
+    if (!skyAsked && live) {
+      if (firstFrameAt < 0) firstFrameAt = t0;
+      if (cityIn || (live.street.night && t0 - firstFrameAt > SKY_FILES_WAIT)) {
+        skyAsked = true;
+        void live.street.load('./sky').catch((e) => console.warn('sky files', e));
+      }
+    }
     if (moon && covered && coverUntil === Infinity) coverUntil = now + 12000;
     if (covered && (moon ? (cityIn && !city.busy) || now > coverUntil : cityIn)) {
       covered = false;
@@ -1596,7 +1666,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (ready) everReady = true;
     if (ready && earthFly && !earthBooting) bootSky();
     city.eager = !everReady;
-    (window as unknown as { __shotReady?: boolean }).__shotReady = ready && !city.busy && !city.farLate && !hour?.lamps.busy;
+    (window as unknown as { __shotReady?: boolean }).__shotReady = ready && !city.busy && !city.farLate && !hour?.lamps.busy && !live?.street.busy;
     if (land?.up(flight)) land.back(camera, bus.root, flight, controls.turbo, rig.hfov, rig.dive);
     if (earthJoin?.ground && flight.height >= H_UP * 1000) earthJoin.back(camera, bus.root, flight, Math.min(controls.turbo.gear, 3), controls.turbo.level, rig.hfov, rig.dive);
   }
@@ -1732,7 +1802,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // (asked for now: there is no asking once the context is gone)
     const lose = renderer.getContext().getExtension('WEBGL_lose_context');
     (window as unknown as Record<string, unknown>).__game = {
-      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: hour, moon,
+      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: live ?? hour, moon,
       /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
       get warm() {
         return warm;

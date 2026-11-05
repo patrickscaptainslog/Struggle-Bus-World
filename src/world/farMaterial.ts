@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { config } from '../config';
 import { globals, GLSL_COMMON, GLSL_OUT, heldGlobals } from '../render/materials';
 import { Ramp } from '../render/palette';
-import { held, heldHour, heldOr } from '../sky/flag';
+import { byHour, held, heldOr, skyOn } from '../sky/flag';
 import { GLSL_WATER } from './terrainMaterial';
 import { Ground, WATER_Y, type FarData, type FarRaster, type FarTowers } from './tiles';
 import { Fam, Variant, styleFor } from './towerStyles';
@@ -51,7 +51,7 @@ CLASS_RAMP[Ground.WATER] = Ramp.WATER;
 CLASS_RAMP[Ground.SIDEWALK] = Ramp.GREY_LIGHT;
 CLASS_RAMP[Ground.PLAZA] = Ramp.GREY_LIGHT;
 CLASS_RAMP[Ground.PATH] = Ramp.GREY_LIGHT;
-CLASS_RAMP[Ground.SAND] = heldHour ? Ramp.SAND : Ramp.SKY_WARM;
+CLASS_RAMP[Ground.SAND] = skyOn ? Ramp.SAND : Ramp.SKY_WARM;
 CLASS_RAMP[Ground.RAIL] = Ramp.ROOF_DARK;
 CLASS_RAMP[Ground.FOREST] = Ramp.GREEN_GREY;
 CLASS_RAMP[Ground.YARD] = Ramp.GREEN_GREY;
@@ -100,7 +100,7 @@ const FIT_STREET = 0.12;
  * How much of that fit is on. It was fitted against a sun: it takes the shadows the near tiles throw out of the far band's tone. The held hour has no shadows, so most of
  * it goes (hold-still swaps at Downtown, Presidio and Sunset: mean luma across the swap +0.5, +1.2, +0.5 at 1, within 0.3 at this hour's number).
  */
-const farFit = () => (heldHour && config.sky.far ? config.sky.farFit : config.far.fit);
+const farFit = () => byHour(config.far.fit, config.sky.farFit, config.sky.far);
 
 /** A far lit surface under the hour, what a near face past the ribbons shows: FARGLOW, one tone, a dim warm mosaic, never a pattern of pixels. */
 const FAR_LIT = `${Ramp.FARGLOW}.0, 3.0 / 7.0`;
@@ -422,7 +422,7 @@ export function makeFarTowerMaterial(mask: THREE.Texture, maskRect: THREE.Vector
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
     defines: farFlags.debug ? { FAR_DEBUG: 1 } : {},
-    uniforms: { ...globals, uMask: { value: mask }, uMaskRect: { value: maskRect }, uMaskSize: { value: maskSize }, ...(heldHour ? { uFarFace: heldGlobals.uFarFace } : {}) },
+    uniforms: { ...globals, uMask: { value: mask }, uMaskRect: { value: maskRect }, uMaskSize: { value: maskSize }, ...(skyOn ? { uFarFace: heldGlobals.uFarFace } : {}) },
     vertexShader: TOWER_VS,
     fragmentShader: TOWER_FS,
   });
@@ -462,7 +462,7 @@ export function makeFarBlockMaterial(affine: readonly number[], mask: THREE.Text
       uMaskSize: { value: maskSize },
       uFarCell: { value: new THREE.Vector4(affine[0], affine[2], affine[4], affine[5]) },
       uBlockFar,
-      uBlockLit: { get value() { return heldHour && config.sky.farLights ? config.sky.farBoxLit : config.far.blockLit; } },
+      uBlockLit: { get value() { return byHour(config.far.blockLit, config.sky.farBoxLit, config.sky.farLights); } },
       uBlockGlow: { get value() { return config.far.blockGlow; } },
       uToneK: { get value() { return config.far.toneK; } },
       uFit: { get value() { return farFit(); } },
@@ -566,7 +566,7 @@ export function makeFarGroundMaterial(r: Pick<FarRaster, 'W' | 'H' | 'affine'>, 
       uClassBias: { get value() { return config.far.classBias; } },
       uFit: { get value() { return farFit(); } },
       uBlockFar,
-      ...(heldHour ? { uFarLit: heldGlobals.uFarLit } : {}),
+      ...(skyOn ? { uFarLit: heldGlobals.uFarLit } : {}),
     },
     vertexShader: VS,
     fragmentShader: FS,

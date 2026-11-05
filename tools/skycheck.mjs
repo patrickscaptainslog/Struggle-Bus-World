@@ -26,7 +26,10 @@ const opt = Object.fromEntries(args.filter((a) => a.startsWith('--')).map((a) =>
 const [url, today, out] = pos;
 if (!out) throw new Error('usage: skycheck.mjs <url> <today url> <out dir> [--views=] [--q=] [--have]');
 const views = (opt.views ?? 'opening,grey,painted,fidi,ceiling,amsterdam,london').split(',');
-const q = opt.q ?? 'hour=blue';
+// (the frames and the palette are separate page loads: under the live sky each would hold its own moment, and the table is rewritten every 0.05 degrees of Sun,
+// so an unpinned run reads its frames against another moment's palette. The run's start pins the clock, standing still, unless --q names t= or rate=)
+const q0 = opt.q ?? 'hour=blue';
+const q = `${q0}${/(^|&)t=/.test(q0) ? '' : `&t=${new Date().toISOString()}`}${/(^|&)rate=/.test(q0) ? '' : '&rate=0'}`;
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PYTHON = process.env.SB_PYTHON ?? (existsSync('C:/Users/Utku/sb-venv/Scripts/python.exe') ? 'C:/Users/Utku/sb-venv/Scripts/python.exe' : 'python3');
 

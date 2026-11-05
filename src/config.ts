@@ -142,10 +142,21 @@ export const config = {
   },
 
   /**
-   * The held hour (?hour=blue, docs/specs/sky/SKY.md slice S1). Without the flag nothing reads this, and the tuner has no such section. The switches are kill
-   * switches, live: each turns its part of the hour back to the day's. There is no clock: every number here is the one hour held.
+   * The held hour (?hour=blue, docs/specs/sky/SKY.md slice S1) and the live sky (docs/specs/sky/LIVE.md, S2), whose nights are that hour. With neither
+   * nothing reads this, and the tuner has no such section. The switches are kill switches, live: each turns its part of the hour back to the day's. Under
+   * ?hour=blue there is no clock: every number here is the one hour held.
    */
   sky: {
+    /** The live sky, read once as the page loads: off, today's day exactly (as ?sky=off). */
+    live: true,
+    /** The live sky's tick (SKY.md 2): the key moves when the shadow tip of a wall this tall (m) would have moved this many game px, at most once a second, */
+    tickWall: 30,
+    tickPx: 2,
+    /** on a frame where the view moved this many game px; held still, it waits this long at most (s) with the sun at 20 degrees and up, none by 10. */
+    tickMove: 3,
+    tickHold: 60,
+    /** The shading vector's azimuth slews this fast at most (deg an hour of sky time): near the zenith the true one swings 180 degrees in minutes. */
+    slew: 40,
     /** The blue table: off, the day's palette. */
     table: true,
     /** The blue-hour key, with no sun pass and no shadows: off, the day's sun. */
@@ -196,7 +207,7 @@ export const config = {
     glassGlow: 0.3,
     glassGlow3: 0.5,
     crownGlow: 0.75,
-    /** The share of windows lit: one held value, there is no clock yet (S2 makes it two, homes and offices, from local time). */
+    /** The share of windows lit in the evening: the held hour's, and the live sky's at its city's 18:00-21:30, which runs it by that clock (LiveSky.ts LIT_CLOCK). */
     litShare: 0.3,
     /** A near pane's glow; 0 past the panes, so share x glow on far surfaces is 0 (SKY.md 4.4 allows 0.06). */
     litGlow: 0.25,
@@ -209,7 +220,7 @@ export const config = {
     bridgeSpacing: 10,
     /** A lamp's head over the ground (m), read when the list lands. */
     lampHead: 6,
-    /** The share of lamps on: one held value (S2's wave runs it from the sun). */
+    /** The share of lamps that ever come on (the live sky's wave brings them on between sun -2 and -4 degrees). */
     lampShare: 1,
     /** How far a lamp stands over its 32 m height per metre from the lens: the far mesh's 64 m cells stand a few metres off it. */
     lampLift: 0.002,
@@ -221,6 +232,24 @@ export const config = {
     /** Pools fade out between these distances from the lens (m): past them they would be a few 2 m texels on a pixel. */
     poolFade: 500,
     poolEnd: 1200,
+    /** The live sky's stars and planets (SKY.md 4.6): off, none. */
+    stars: true,
+    /** Extinction a unit of air (V): the real 0.2 leaves one star in the street's band [SKY.md 4.6]. */
+    starExtinction: 0.05,
+    /** The live sky's Moon (SKY.md 4.5): off, none, and no moonlight. */
+    moon: true,
+    /** The Moon's floor, game px across (true: 8-9 at the street); released within 12 degrees of the Sun, so an eclipse is exact. */
+    moonFloor: 15,
+    /** Earthshine on the dark side at night, in steps of MOON at Earth full from the Moon. */
+    earthshine: 1.2,
+    /** Moonlight on the night's key (SKY.md 4.5): k = min(max, this x lit / max(sin el, 0.15)), the key times 1 + k. */
+    moonKey: 0.22,
+    moonKeyMax: 1.5,
+    /** The lift at the ceiling's pull (SKY.md 4.15): the view tips up this far (deg) while the bus strains up there, and back, at this rate (1/s). */
+    liftPull: 27,
+    /** ...only over this height (m): under it the ceiling is a deck's, or a test's (?ceiling=520), not the sky's. */
+    liftFrom: 5000,
+    liftRate: 1.6,
   },
 
   city: {
