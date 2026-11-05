@@ -10,9 +10,10 @@ import type { TurboDrive } from './Turbo';
 //  - A flick down drops exactly one rung, turbo first. One thumb's stroke pulled the
 //    stick until its lift, and that pull goes back with it (Flight.unpull).
 //  - Under the opening's gate a gear would lift the bus into the deck, so a flick up
-//    waits for the gate, fired by itself once it clears, and a flick down takes one
-//    back. (Express lifts nothing, but the gate's one rule stands: no gear under it,
-//    and it says so.)
+//    waits for the gate, fired by itself once it clears, and a flick down takes it
+//    back. One rung waits, however many flicks: the gate says when, it isn't a queue,
+//    and six flicks under it were TURBO 3 at the bridge. (Express lifts nothing, but
+//    the gate's one rule stands: no gear under it, and it says so.)
 
 export type ShiftAnswer =
   /** a flick up: a rung goes, now */
@@ -26,7 +27,7 @@ export class Shifter {
   /** the opening's gate (main.ts, per frame) */
   locked = false;
   onAnswer: ((a: ShiftAnswer) => void) | null = null;
-  /** flicks up waiting for the gate */
+  /** the rung waiting for the gate: 0 or 1 */
   private queued = 0;
 
   constructor(
@@ -52,8 +53,8 @@ export class Shifter {
 
   private up() {
     if (this.locked) {
-      // (no more than the ladder has left: LOCKED is a flick's answer at the top, not a queue's as it runs out)
-      if (this.queued < this.drive.rungsLeft) this.queued++;
+      // (one rung, and only if the ladder has one left: a flick under the gate never stacks gears up for later, and LOCKED is a flick's answer at the top, not the gate's)
+      if (this.queued < Math.min(1, this.drive.rungsLeft)) this.queued++;
       this.onAnswer?.('gated');
       return;
     }

@@ -31,7 +31,9 @@ import { Hud, type HudFrame } from '../ui/Hud';
 // the bus's pose is set (the rattle), frame(dt, realDt) after the bus's matrix
 // is final (effects, voice, HUD).
 
-const ARMED = 'TURBO AFTER THE BRIDGE';
+/** The gate's lines: a flick under it is heard, and its gear waits for the bridge (it said TURBO, from when the button was TURBO). */
+const ARMED = 'GEARS AFTER THE BRIDGE';
+const ARMED_OFF = 'GEAR OFF';
 const CLIMB_GATED = 'CLIMB AFTER THE BRIDGE';
 /** The first run's one mention of the flicks and the look: the gestures are hidden, and this is all the teaching they get. Any thumb flicks, so that comes first; then the bus's lane (Input.busZone):
  *  a touch near the bus or anywhere under it flies it, and one over it looks (or beside it, which the hint leaves to the thumb to find). It fits the toast at 116 of the screen's 131 px. */
@@ -321,8 +323,8 @@ export class Controls {
   private answer(a: ShiftAnswer) {
     this.onTurbo(a === 'back' ? 'back' : 'flick', this.turbo.gear);
     if (a === 'gated') this.hud.toast([ARMED], 2.6);
-    // (with another flick still waiting the line stands)
-    else if (a === 'back' && this.gearsLocked && !this.shifter.armed) this.hud.toast(['TURBO OFF'], 1.2);
+    // (the gear that waited is taken back: one waits at most, so nothing is left waiting)
+    else if (a === 'back' && this.gearsLocked && !this.shifter.armed) this.hud.toast([ARMED_OFF], 1.2);
   }
 
   private onTurbo(ev: TurboEvent, gear: number) {
