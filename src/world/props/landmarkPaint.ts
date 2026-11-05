@@ -515,11 +515,14 @@ export function landmarkHit(city: City, p: THREE.Vector3, t: number): void {
   for (const b of bound) {
     // (a hit on a wall that is the hull's edge lands just outside it: the Ferry Building's front, Coit's base)
     if (city.edgeDistance(b.ref, p.x, p.z) > b.hitReach) continue;
-    // (a run that is still going keeps its start: a firehose's dozen impacts a second would restart it at each)
     const last = b.mats[0]?.uniforms.uLmHit.value as THREE.Vector4 | undefined;
-    if (b.hitReach > 2 && last && t - last.w < RUN_MATCH + 2) {
+    if (b.hitReach > 2) {
+      // (only a hit that bloomed it is where its paint runs from: this impact's plan is written before it
+      // lands, so a blast next door that left it alone keeps away from the next breath's run)
       const bloom = city.paint.data[b.ref.index * 4 + 2];
-      if (bloom > last.w - 0.3 && bloom < last.w + RUN_MATCH) continue;
+      if (!(bloom > t - 0.3 && bloom < t + RUN_MATCH)) continue;
+      // (a run that is still going keeps its start: a firehose's dozen impacts a second would restart it at each)
+      if (last && t - last.w < RUN_MATCH + 2 && bloom > last.w - 0.3 && bloom < last.w + RUN_MATCH) continue;
     }
     for (const m of b.mats) (m.uniforms.uLmHit.value as THREE.Vector4).set(p.x, p.y, p.z, t);
   }
