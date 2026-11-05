@@ -548,7 +548,7 @@ export class Hud {
       // the desktop's whole manual
       col.append(label('CONTROLS'));
       col.append(this.button('KEYBOARD + MOUSE', W, true, false, () => {}));
-      for (const t of ['ARROWS / WASD: FLY', 'DOWN CLIMBS, UP DIVES', 'SPACE: SPLAT', 'E / Q: GEARS', 'E TWICE: TURBO, Q ENDS IT', 'SHIFT: BOOST', 'RIGHT MOUSE: LOOK']) col.append(label(t, C.cream));
+      for (const t of ['ARROWS / WASD: FLY', 'DOWN CLIMBS, UP DIVES', 'SPACE: SPLAT', 'E: GEAR UP', 'Q: GEAR DOWN', 'RIGHT MOUSE: LOOK']) col.append(label(t, C.cream));
     } else {
       col.append(this.button('BUTTONS: SWAP', W, this.settings.swap, true, () => this.cb.onSwap(!this.settings.swap)));
     }
