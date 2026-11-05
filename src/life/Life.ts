@@ -3,7 +3,7 @@ import { config } from '../config';
 import type { MoverTarget } from '../game/Aim';
 import { latLonToLocal, localToLatLon } from '../game/geo';
 import type { SuperTag } from '../game/Splat';
-import { globals } from '../render/materials';
+import { globals, heldGlobals } from '../render/materials';
 import { HUE_RAMPS } from '../render/palette';
 import type { Observer } from '../sky/SkyModel';
 import { axesAt, fixToGeodetic, geodeticToFix } from '../sky/WorldFrame';
@@ -35,10 +35,19 @@ const EARTH_ID = 0;
 const TRAIL_S = 40;
 const TRAIL_PX = 1;
 const TRAIL_M = 8;
-/** People's ground round the bus (LIFE.md, "What today's tiles have"): tiles in this far (m) are sampled, a few rows of their 4 m cells a frame, and dropped past FORGET. */
-const WALK_REACH = 700, WALK_FORGET = 1600, WALK_ROWS = 8;
+/** People's ground round the bus (LIFE.md, "What today's tiles have"): tiles in this far (m) are sampled, a few rows of their 2 m cells a frame (512 of the world's queries
+ *  of each kind: CONTRACT.md section 6's few hundred), and dropped past FORGET. */
+const WALK_REACH = 700, WALK_FORGET = 1600, WALK_ROWS = 4;
 /** QA: how many of the movers drawn a frame are noted, by key and place (tools/life/sky.mjs: nothing jumps on the screen when the flight takes the bus) */
 const DRAWN = 64;
+/** A car's lights at night (KindInfo's lights): under this many pixels its model's own lamps are too small to see, and a speck at its nose is them; a grey car's
+ *  speck is drawn down to LIT_PX at night, where by day it's gone under 1 px */
+const LAMP_PX = 14, LIT_PX = 0.3;
+/** Painted cars' tyre tracks (KindInfo's track): as many cars at once, a point every TRACK_STEP m of the road behind each, the wheels' lines either side of the middle
+ *  (m), each line's width at the least (m) and in px, and how far over the road it's laid (m) */
+const TRACKS = 48, TRACK_STEP = 2.2, TRACK_SIDE = 0.72, TRACK_M = 0.32, TRACK_PX = 1, TRACK_LIFT = 0.12;
+/** a car's rear axle behind its middle, and its lamps ahead of it and over the road (m, the model's: pools.ts) */
+const CAR_REAR = 1.35, CAR_NOSE = 2.3, CAR_LAMP_Y = 0.84;
 const WGS_A = 6378.137, WGS_K = 1 / (1 - 1 / 298.257223563);
 
 /** A mover's paint as drawn: its colour (an index into HUE_RAMPS), level, and the page clock's UTC ms it took it (0: kept from before, its contrail whole). */
@@ -72,11 +81,28 @@ export class LifeHost {
   private readonly p = new THREE.Vector3();
   private readonly s = new THREE.Vector3();
   /** QA: the last frame's rows, models and specks, the snapshots taken, the loop that drew it; and the first DRAWN movers drawn, each its key's hash and where (the loop's frame) */
-  readonly qa = { rows: 0, models: 0, people: 0, specks: 0, marks: 0, sent: 0, snaps: 0, hits: 0, sky: false, drawn: 0, dancers: 0 };
+  readonly qa = { rows: 0, models: 0, people: 0, specks: 0, marks: 0, sent: 0, snaps: 0, hits: 0, sky: false, drawn: 0, dancers: 0, cars: 0, lights: 0, tracks: 0, bouncers: 0 };
   readonly drawn = new Float64Array(DRAWN * 4);
   /** QA: the last painted person drawn dancing this frame: its key's hash, where (the hop in it), and its pose (Kind.PERSON or Kind.CHEER) */
   readonly danced = new Float64Array(5);
   private dancers = 0;
+  /** QA: the last painted car drawn bouncing this frame: its key's hash, where (the hop in it), and its height's scale (the squash) */
+  readonly bounced = new Float64Array(5);
+  private bouncers = 0;
+  private cars = 0;
+  private lights = 0;
+  private trackRibbons = 0;
+  /** painted cars' tyre tracks: each ring's car (its key's hash, 0 none), the frame it was last drawn, its points (x, y, z), the newest's index, how many it has, and
+   *  how many it has ever had (a point's hue is its own: the rainbow stays where it was laid) */
+  private readonly trackOf = new Uint32Array(TRACKS);
+  private readonly trackSeen = new Int32Array(TRACKS);
+  private readonly trackPts = new Float32Array(TRACKS * (MARK_POINTS - 1) * 3);
+  private readonly trackHead = new Int32Array(TRACKS);
+  private readonly trackN = new Int32Array(TRACKS);
+  private readonly trackAll = new Int32Array(TRACKS);
+  /** one car's track's points as laid, the axle first */
+  private readonly trackLay = new Float64Array(MARK_POINTS * 3);
+  private drawFrames = 0;
   /** the frame's clocks, for the aim between frames */
   private utc = 0;
   private sim = 0;
@@ -152,7 +178,7 @@ export class LifeHost {
   }
 
   /**
-   * People's ground (LIFE.md, "What today's tiles have"): the nearest tile in WALK_REACH not sent yet, WALK_ROWS rows of its 4 m cells a frame through the world's own
+   * People's ground (LIFE.md, "What today's tiles have"): the nearest tile in WALK_REACH not sent yet, WALK_ROWS rows of its 2 m cells a frame through the world's own
    * queries, which may be walked (sidewalk, plaza, path) and the ground's height there; sent to the worker whole, its arrays transferred. A tile not in yet is tried
    * again a second on; tiles past WALK_FORGET are dropped. Two arrays a tile sampled, not a frame.
    */
@@ -258,8 +284,8 @@ export class LifeHost {
       if (simTime < h.arrive) continue;
       // (a level up keeps its contrail going from when it was first painted)
       this.painted.set(h.h, { hue: h.hue, level: h.level, at: this.painted.get(h.h)?.at ?? this.utc });
-      // (a person's paint is the session's: `walk:` lives only while it's near, CONTRACT.md section 3)
-      if (!h.key.startsWith('walk:')) this.store.put({ key: h.key, hue: h.hue, level: h.level, until: h.until, ns: this.ns });
+      // (a person's paint and a car's are the session's: `walk:` and `car:` live only while they're near, CONTRACT.md section 3)
+      if (!h.key.startsWith('walk:') && !h.key.startsWith('car:')) this.store.put({ key: h.key, hue: h.hue, level: h.level, until: h.until, ns: this.ns });
       this.hits.splice(i, 1);
     }
   }
@@ -297,6 +323,14 @@ export class LifeHost {
     this.qa.marks = nk;
     this.qa.dancers = this.dancers;
     this.dancers = 0;
+    this.qa.bouncers = this.bouncers;
+    this.bouncers = 0;
+    this.qa.cars = this.cars;
+    this.cars = 0;
+    this.qa.lights = this.lights;
+    this.lights = 0;
+    this.qa.tracks = this.trackRibbons;
+    this.trackRibbons = 0;
   }
 
   /**
@@ -350,9 +384,10 @@ export class LifeHost {
     // so a painted plane keeps its pixel out there; the haze has the rest by then)
     const near = 0.9 * ((camera as THREE.PerspectiveCamera).far || SKY_NEAR);
     let ns = 0, n = 0, nd = 0, nk = 0;
-    const pc = this.pc;
+    const pc = this.pc, lit = (heldGlobals.uLit.value as number) > 0;
     pc[0] = pc[1] = pc[2] = 0;
     this.qMap.identity();
+    this.drawFrames++;
     if (s) {
       const rows = s.rows, u32 = s.rowsU32, dt = (utcMs - s.f64[0]) / 1000, sp = P.specks;
       n = s.u32[2];
@@ -386,16 +421,31 @@ export class LifeHost {
           if (k >= P.pool(info.pool).max) continue;
           this.put(P.pool(info.pool), k, o, x, y, z, scale, ramp);
           if (alive) y += this.dance(P.small, k, o, x, y, z, scale, cam, utcMs);
+          else if (paint && info.track) y += this.bounce(P.pool(info.pool), k, o, x, y, z, scale, utcMs);
           pc[info.pool]++;
-        } else if ((paint || px >= 1) && ns < SPECKS_MAX) {
+          // (a car's lights at night while its model's lamps are too small to see: a speck at its nose, which its body hides from behind)
+          if (lit && info.lights && px < LAMP_PX && ns < SPECKS_MAX) {
+            const h = rows[o + Col.HEADING], pt = rows[o + Col.PITCH], cp = Math.cos(pt) * CAR_NOSE * scale;
+            sp.pos[ns * 3] = x + Math.cos(h) * cp;
+            sp.pos[ns * 3 + 1] = y + Math.sin(pt) * CAR_NOSE * scale + CAR_LAMP_Y * scale;
+            sp.pos[ns * 3 + 2] = z + Math.sin(h) * cp;
+            sp.ramp[ns] = ramp;
+            sp.phase[ns] = 2;
+            ns++;
+            this.lights++;
+          }
+        } else if ((paint || px >= (lit && info.lights ? LIT_PX : 1)) && ns < SPECKS_MAX) {
           sp.pos[ns * 3] = x;
           sp.pos[ns * 3 + 1] = y;
           sp.pos[ns * 3 + 2] = z;
           sp.ramp[ns] = ramp;
-          sp.phase[ns] = info.beacon ? (u32[o + Col.KEY] & 1023) / 1024 : -1;
+          sp.phase[ns] = info.beacon ? (u32[o + Col.KEY] & 1023) / 1024 : info.lights ? 2 : -1;
           ns++;
+          if (lit && info.lights) this.lights++;
         } else continue;
+        if (info.lights) this.cars++;
         this.note(nd++, u32[o + Col.KEY], x, y, z);
+        if (paint && info.track && nk + 2 <= MARKS_MAX && this.tracks(nk, u32[o + Col.KEY], o, x0, y0, z0, rows[o + Col.SCALE], paint, cam, ang)) nk += 2;
         if (paint && info.mark && nk < MARKS_MAX) {
           const vx = rows[o + Col.VX], vy = rows[o + Col.VY], vz = rows[o + Col.VZ], v = Math.sqrt(vx * vx + vy * vy + vz * vz);
           if (v > 1 && this.trail(nk, x0, y0, z0, vx / v, vy / v, vz / v, v, 0.5 * info.size * rows[o + Col.SCALE], paint, cam, ang, near)) nk++;
@@ -449,6 +499,109 @@ export class LifeHost {
     D[4] = pool.kind[k];
     this.dancers++;
     return lift;
+  }
+
+  /**
+   * A painted car's instance, `put` already, made to bounce (LIVING.md: painted life comes alive): a hop on its own beat (its key's), about 2.2 a second and 0.3 m
+   * high, squashed as it lands and stretched as it leaves, its nose nodding and its body rocking. Returns the hop's lift (m).
+   */
+  private bounce(pool: Pools['middle'], k: number, o: number, x: number, y: number, z: number, scale: number, utcMs: number): number {
+    const rows = this.snap!.rows, key = this.snap!.rowsU32[o + Col.KEY], beat = (utcMs / 1000) * 2.2 + (key & 255) / 256;
+    const up = Math.abs(Math.sin(Math.PI * beat)), lift = 0.3 * up * scale, sq = (1 - up) ** 3;
+    this.e.set(rows[o + Col.BANK] + 0.05 * Math.sin(Math.PI * beat), -rows[o + Col.HEADING], rows[o + Col.PITCH] + 0.07 * Math.sin(2 * Math.PI * beat));
+    this.q.setFromEuler(this.e).premultiply(this.qMap);
+    const sy = 1.06 - 0.22 * sq, sxz = 0.97 + 0.11 * sq;
+    this.m.compose(this.p.set(x, y + lift, z), this.q, this.s.set(scale * sxz, scale * sy, scale * sxz));
+    this.m.toArray(pool.mesh.instanceMatrix.array as Float32Array, k * 16);
+    const B = this.bounced;
+    B[0] = key;
+    B[1] = x;
+    B[2] = y + lift;
+    B[3] = z;
+    B[4] = sy;
+    this.bouncers++;
+    return lift;
+  }
+
+  /**
+   * A painted car's tyre tracks (KindInfo's track), ribbons `r` and `r + 1`: two lines flat on the road from its rear axle back along where it has been, a point every
+   * TRACK_STEP m to MARK_POINTS of them, each stretch its own hue round all six where it was laid, the oldest end fading first. Row `o` at (x, y, z), the street's frame.
+   * False: it has no road behind it yet, or no ring is free.
+   */
+  private tracks(r: number, hash: number, o: number, x: number, y: number, z: number, scale: number, paint: MoverPaint, cam: THREE.Vector3, ang: number): boolean {
+    const R = MARK_POINTS - 1, rows = this.snap!.rows, h = rows[o + Col.HEADING], fx = Math.cos(h), fz = Math.sin(h);
+    const ax = x - fx * CAR_REAR * scale, az = z - fz * CAR_REAR * scale;
+    // (its ring, or a free one: else the one not drawn longest, if it's a second gone)
+    let t = -1, old = -1;
+    for (let i = 0; i < TRACKS; i++) {
+      if (this.trackOf[i] === hash) {
+        t = i;
+        break;
+      }
+      if (old < 0 || this.trackSeen[i] < this.trackSeen[old]) old = i;
+    }
+    if (t < 0) {
+      if (this.trackOf[old] !== 0 && this.trackSeen[old] > this.drawFrames - 60) return false;
+      t = old;
+      this.trackOf[t] = hash;
+      this.trackN[t] = this.trackAll[t] = this.trackHead[t] = 0;
+    }
+    this.trackSeen[t] = this.drawFrames;
+    const T = this.trackPts, base = t * R * 3;
+    let q = base + this.trackHead[t] * 3;
+    const moved = (ax - T[q]) ** 2 + (az - T[q + 2]) ** 2;
+    // (a jump, a car not drawn for a while: its track starts again where it is)
+    if (moved > 9 * TRACK_STEP * TRACK_STEP) this.trackN[t] = 0;
+    if (!this.trackN[t] || moved >= TRACK_STEP * TRACK_STEP) {
+      this.trackHead[t] = (this.trackHead[t] + 1) % R;
+      q = base + this.trackHead[t] * 3;
+      T[q] = ax;
+      T[q + 1] = y;
+      T[q + 2] = az;
+      this.trackN[t] = Math.min(R, this.trackN[t] + 1);
+      this.trackAll[t]++;
+    }
+    const n = this.trackN[t];
+    if (n < 2) return false;
+    const K = this.pools.marks, head = this.trackHead[t], all = this.trackAll[t], L = this.trackLay;
+    // (point j: the axle now, then the ring newest first; past its oldest, the oldest again, a stretch of nothing)
+    L[0] = ax;
+    L[1] = y;
+    L[2] = az;
+    for (let j = 1; j < MARK_POINTS; j++) {
+      const p = base + ((head - Math.min(j, n) + 1 + R) % R) * 3;
+      L[j * 3] = T[p];
+      L[j * 3 + 1] = T[p + 1];
+      L[j * 3 + 2] = T[p + 2];
+    }
+    for (let j = 0; j < MARK_POINTS; j++) {
+      const px = L[j * 3], py = L[j * 3 + 1] + TRACK_LIFT, pz = L[j * 3 + 2], a = Math.max(0, j - 1) * 3, b = Math.min(MARK_POINTS - 1, j + 1) * 3;
+      // (across the road there: square to the way between its neighbours, else the car's)
+      let dx = L[a] - L[b], dz = L[a + 2] - L[b + 2];
+      const dl = Math.sqrt(dx * dx + dz * dz);
+      if (dl < 1e-3) {
+        dx = fx;
+        dz = fz;
+      } else {
+        dx /= dl;
+        dz /= dl;
+      }
+      const sx = -dz, sz = dx, d = Math.sqrt((cam.x - px) ** 2 + (cam.y - py) ** 2 + (cam.z - pz) ** 2), w = 0.5 * Math.max(TRACK_M, TRACK_PX * d * ang);
+      const ramp = HUE_RAMPS[(paint.hue + all - Math.min(j, n) + 600) % 6], age = j / (MARK_POINTS - 1);
+      for (let side = 0; side < 2; side++) {
+        const off = (side ? -TRACK_SIDE : TRACK_SIDE) * scale, cx = px + sx * off, cz = pz + sz * off, v = ((r + side) * MARK_POINTS + j) * 2;
+        K.pos[v * 3] = cx - sx * w;
+        K.pos[v * 3 + 1] = py;
+        K.pos[v * 3 + 2] = cz - sz * w;
+        K.pos[v * 3 + 3] = cx + sx * w;
+        K.pos[v * 3 + 4] = py;
+        K.pos[v * 3 + 5] = cz + sz * w;
+        K.ramp[v] = K.ramp[v + 1] = ramp;
+        K.age[v] = K.age[v + 1] = age;
+      }
+    }
+    this.trackRibbons++;
+    return true;
   }
 
   /** The snapshot's rows Earth fixed, once a snapshot: each place exactly (the map's projection, then the ellipsoid), each velocity along the map's axes at its origin. */
@@ -638,6 +791,7 @@ export class LifeHost {
   resetPaint(): void {
     this.painted.clear();
     this.stood.clear();
+    this.trackOf.fill(0);
     this.hits.length = 0;
     this.store.clear();
   }

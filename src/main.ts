@@ -1085,7 +1085,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // CONTRACT.md section 6's hook, in its lines: this, the frame's, the tuner's reset and the QA object's)
   const life = lifeOn
     ? await import('./life/lifeBoot')
-        .then((m) => m.bootLife({ params, scene, place: { slug: manifest.slug, origin: [manifest.origin[0], manifest.origin[1]] }, world: { groundAt: (x, z) => city.groundAt(x, z), groundClassAt: (x, z) => city.groundClassAt(x, z), tileSize: manifest.tileSize } }))
+        .then((m) => m.bootLife({ params, scene, place: { slug: manifest.slug, origin: [manifest.origin[0], manifest.origin[1]], city: manifest, fileUrl: (name) => city.fileUrl(name) }, world: { groundAt: (x, z) => city.groundAt(x, z), groundClassAt: (x, z) => city.groundClassAt(x, z), tileSize: manifest.tileSize } }))
         .catch(() => null)
     : null;
   // (and the aim asks it for a mover on the line of fire)

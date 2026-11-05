@@ -124,6 +124,21 @@ try {
   await frames(6);
   const f40 = await screen();
   await page.screenshot({ path: join(dir, 'flight-40km.png') });
+  // (and as a player sees them out of Turbo 3, whose own speed lines a speck or a contrail can't be told from (the first account's GPU review, M1): down to Cruise, a
+  // second of frames for the lines to go, a frame, and back up to Turbo 3 for the rest)
+  const gears = (up, n) => page.evaluate(([up, n]) => {
+    const m = window.__space.moon;
+    for (let i = 0; i < n; i++) {
+      if (up) m.trip.tap();
+      else m.trip.shiftDown();
+      m.trip.step(1 / 30, 0, 0);
+      m.view.update(1 / 30, m.trip, 0, 0, false, 0);
+    }
+  }, [up, n]);
+  await gears(false, 6);
+  await frames(30);
+  await page.screenshot({ path: join(dir, 'flight-40km-cruise.png') });
+  await gears(true, 6);
   row('flight: at 40 km the flight draws them and their contrails, from its own scene', f40.leg === 'wait' && f40.flightKm > 39 && f40.sky && !f40.home && f40.drawn > 0 && f40.marks > 0, { ...f40, at: undefined });
   // ---- home: back down over the city, the street takes the bus and its planes
   await fly(300, 1, 't.hGround < 14.1');
@@ -151,6 +166,9 @@ try {
   await frames(6);
   const f300 = await screen();
   await page.screenshot({ path: join(dir, 'flight-300km.png') });
+  await gears(false, 6);
+  await frames(30);
+  await page.screenshot({ path: join(dir, 'flight-300km-cruise.png') });
   row('orbit: at 300 km the flight draws them as specks only, each a pixel of its paint', f300.flightKm > 299 && f300.sky && f300.specks > 0 && f300.models === 0, { ...f300, at: undefined });
   // (L6 through the hand-over: life's draws in the flight's scene are the programs the street's warm-up made)
   row('programs: nothing compiled from the street up through the hand-over, home and on to orbit', f300.programs === s0.programs, { street: s0.programs, orbit: f300.programs });

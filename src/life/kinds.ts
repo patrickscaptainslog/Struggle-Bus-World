@@ -2,12 +2,12 @@
 
 // (constant objects, not const enums: Node's checks load these files as they are, tools/life/)
 
-/** The pools, one draw each: people; cars and boats; ships and planes. */
+/** The pools, one draw each: people; cars, boats and small planes; ships and airliners. */
 export const Pool = { SMALL: 0, MIDDLE: 1, LARGE: 2 } as const;
 export type Pool = (typeof Pool)[keyof typeof Pool];
 
 // (CHEER is a pose, never a row's kind, so KINDS has none: a painted person's arms up as they dance, LIVING.md's "stop, look up, wave, dance")
-export const Kind = { AIRLINER: 1, SMALL_PLANE: 2, PERSON: 3, CHEER: 4 } as const;
+export const Kind = { AIRLINER: 1, SMALL_PLANE: 2, PERSON: 3, CHEER: 4, CAR: 5 } as const;
 export type Kind = (typeof Kind)[keyof typeof Kind];
 
 export interface KindInfo {
@@ -16,9 +16,13 @@ export interface KindInfo {
   size: number;
   /** painted, it leaves a mark behind it (O6): a plane's contrail */
   mark?: boolean;
-  /** grey, at night, a speck of it is its lights: a plane's beacon */
+  /** at night its lamp blinks, grey: a plane's beacon, on its model's fin and as its speck */
   beacon?: boolean;
-  /** its paint is kept (CONTRACT.md section 3); a person's isn't, `walk:` "only while it's near" */
+  /** at night its lamps are on, grey or painted: a car's headlights, on its model and as a speck at its nose */
+  lights?: boolean;
+  /** painted, it leaves tyre tracks on the road behind it, in every hue, and bounces as it drives */
+  track?: boolean;
+  /** its paint is kept (CONTRACT.md section 3); a person's and a car's aren't, `walk:` and `car:` "only while it's near" */
   kept: boolean;
   /**
    * the aim takes it on the line of fire alone: within its own size of the line, which runs on past the aim point onto the street under it, with no building
@@ -32,6 +36,7 @@ export const KINDS: Record<number, KindInfo> = {
   [Kind.AIRLINER]: { pool: Pool.LARGE, size: 60, mark: true, beacon: true, kept: true },
   [Kind.SMALL_PLANE]: { pool: Pool.MIDDLE, size: 11, mark: true, beacon: true, kept: true },
   [Kind.PERSON]: { pool: Pool.SMALL, size: 1.7, kept: false, onLine: true },
+  [Kind.CAR]: { pool: Pool.MIDDLE, size: 4.4, lights: true, track: true, kept: false, onLine: true },
 };
 
 /** A snapshot row (LIFE.md, "The worker"): 16 floats. */
@@ -57,4 +62,5 @@ export const Col = {
 /** A row's flags. */
 export const RowFlag = {
   LIVE: 1, // from the relay, not the simulation
+  DECK: 2, // on a bridge's deck the world draws, over the ground (a car on the Bay Bridge)
 } as const;

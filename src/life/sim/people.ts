@@ -3,7 +3,7 @@ import { Col, Kind, ROW } from '../kinds';
 
 // People (LIVING.md, "People": on sidewalks, plazas and paths near the bus, grey, heads down, walking). Worker-safe and pure: a person is a function of the tile's ground,
 // its slot, the day and utcMs, so every player sees the same one. Before the world's graphs (GRAPHS.md: footways, plazas and parks) people walk what today's tiles
-// have, the host's 4 m sampling of the 2 m ground classes round the bus (LIFE.md, "What today's tiles have"). Each walks one straight run of walkable cells, there and
+// have, the host's 2 m sampling of the 2 m ground classes round the bus (LIFE.md, "What today's tiles have"). Each walks one straight run of walkable cells, there and
 // back, all day: a closed form of the clock, so an hour's steps end where one jump does. Never saved: `walk:` lives only while it's near (CONTRACT.md section 3).
 
 /** A tile's ground as the host sampled it: its corner (m), its cells' side (m) and count a side, which may be walked (sidewalk, plaza, path), and the ground's height there. */
@@ -20,10 +20,11 @@ export interface WalkTile {
   count: number;
 }
 
-/** The host's sampling: 4 m cells, 64 a side of a 256 m tile. */
-export const WALK_CELL = 4;
+/** The host's sampling: 2 m cells, the ground classes' own, 128 a side of a 256 m tile (the first account's GPU review, m1: on 4 m cells 1 in 37 stood off a sidewalk
+ *  in the browser, where a run between two walkable cells' middles crossed a kerb, up to 0.71 m off the ground) */
+export const WALK_CELL = 2;
 /** People a walkable cell, the most a tile, and how far a run goes each way from where one starts (cells). */
-const PER_CELL = 1 / 24, MOST = 32, RUN = 10;
+const PER_CELL = 1 / 96, MOST = 32, RUN = 20;
 /** Walking speeds, m/s. */
 const V = [0.9, 1.5];
 /** The eight ways a run can go, along the grid and its diagonals. */
