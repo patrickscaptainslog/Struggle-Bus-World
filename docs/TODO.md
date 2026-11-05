@@ -15,7 +15,7 @@ Tick what you finish, in the commit that finishes it. Add to it when the produce
 - **People, on the sidewalks.** Fly low and they walk San Francisco's sidewalks, plazas and paths round the bus, the same people for every player. Aim right at one until they glint and tap, or MEGA them: painted, they stop, turn to you and dance. Their paint lasts while you're there and isn't saved, as the contract has it for people.
 - **Three looks are my call: the plane's streak, the blinking light, and the dance.** People are small from up high, so the dance shows best when you're low. Tell me if you'd change any of them.
 
-**Pushed**: `feat/earth` at 2bd70a0 and this report, `feat/life` at f56267a. Nothing went to main. Vercel's build status can't be read from here; `npm run build`, which is what Vercel runs, passes on both.
+**Pushed**: `feat/earth` at 2bd70a0 and this report, `feat/life` at 0e0148e, with these fixes merged in. Nothing went to main. Vercel's build status can't be read from here; `npm run build`, which is what Vercel runs, passes on both.
 
 **To fly**
 1. Life: https://struggle-bus-world-git-feat-life-patricks-projects-9ff6e721.vercel.app/?life&fps. Fly low by the Ferry Building for people, and look up for planes. Then `?earth&life&fps` and climb past 15 km: the planes stay with you.
