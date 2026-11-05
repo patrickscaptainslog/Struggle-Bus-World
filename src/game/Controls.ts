@@ -36,8 +36,9 @@ const ARMED = 'GEARS AFTER THE BRIDGE';
 const ARMED_OFF = 'GEAR OFF';
 const CLIMB_GATED = 'CLIMB AFTER THE BRIDGE';
 /** The first run's one mention of the flicks and the look: the gestures are hidden, and this is all the teaching they get. Any thumb flicks, so that comes first; then the bus's lane (Input.busZone):
- *  a touch near the bus or anywhere under it flies it, and one over it looks (or beside it, which the hint leaves to the thumb to find). It fits the toast at 116 of the screen's 131 px. */
-const hint = () => ['FLICK UP FOR GEARS', 'STEER BELOW THE BUS', 'DRAG ABOVE IT TO LOOK'];
+ *  a touch near the bus or anywhere under it flies it, and one high over it looks (or beside it, which the hint leaves to the thumb to find): just over
+ *  the bus is the lane's half disc, and a drag up there is the yoke's nose-down, so the hint says HIGH UP, not ABOVE IT. It fits the toast at 116 of the screen's 131 px. */
+const hint = () => ['FLICK UP FOR GEARS', 'STEER BELOW THE BUS', 'DRAG HIGH UP TO LOOK'];
 const HINT_SECONDS = 6.5;
 /** A flick's answer in the bus's own body: it hiccups, once, on the breath's squash spring. */
 const FLICK_SQUASH = 0.84;

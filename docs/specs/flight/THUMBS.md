@@ -221,10 +221,10 @@ On the first run's intro, once ever, a beat after the bridge, three lines in the
 ```
 FLICK UP FOR GEARS
 STEER BELOW THE BUS
-DRAG ABOVE IT TO LOOK
+DRAG HIGH UP TO LOOK
 ```
 
-Any thumb flicks, so the flicks come first and the last two lines are the bus's lane (2026-11-04: it said LEFT SIDE, DRAG TO LOOK, and RIGHT SIDE with BUTTONS: SWAP, then STEER BY THE BUS, DRAG ELSEWHERE TO LOOK until the lane opened out below the bus). Beside the bus looks too, which the hint leaves to the thumb to find. It says DRAG because a resting thumb does nothing.
+Any thumb flicks, so the flicks come first and the last two lines are the bus's lane (2026-11-04: it said LEFT SIDE, DRAG TO LOOK, and RIGHT SIDE with BUTTONS: SWAP, then STEER BY THE BUS, DRAG ELSEWHERE TO LOOK until the lane opened out below the bus, then DRAG ABOVE IT TO LOOK, which sent a thumb into the half disc just over the bus, where a drag up dives). Beside the bus looks too, which the hint leaves to the thumb to find. It says DRAG because a resting thumb does nothing.
 
 It asks for nothing and nothing ends it but its own time, or LOCKED, which takes the slot. It waits for the gate, so the gate's own lines have had their turn. `taught` bit 32; an old save gets it once, which is right, because that player's TURBO has just gone. A save that has seen it already never sees these lines. Off wherever the first run is off, and a desktop gets its keys in the keys toast instead. Nothing else on the screen teaches any of this: the gestures are hidden, the producer's call.
 
