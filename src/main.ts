@@ -143,6 +143,8 @@ const base = `./city/${slug}`;
 async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine; rig: CameraRig }, resumed?: StreetResumed) {
   // (first: the warm-up hasn't started a compile yet, so this query waits for nothing, and boot().catch prints a refusal)
   pipeline.checkTargets();
+  // (?earth&resume: the flight has the frame, and the street booting behind it writes no sky table onto it till it has the bus. Review four, 7)
+  if (resumed && live) live.held = true;
   // (?moon: the place is generated, src/moon/: all that follows is the game as it is, on a city with no files)
   const moon = moonLow ? await (await import('./moon/moonBoot')).startMoon(pipeline, params, scene, land) : null;
   // (index.html started this download before this script had even loaded)
@@ -211,7 +213,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   let openingBridge: [number, number] | null = null;
   /** the opening's gate has opened once: from then a carve shuts it again (it is along the heading) only where the low shot comes back */
   let gateOpened = false;
-  if (!params.has('lat') && start.opening === 'golden-gate' && ggb?.points) {
+  // (not on ?earth&resume: the bus comes home from the Moon, wherever the trip brings it down, and the opening's gate and low shot are the first flight's. Review four, 6)
+  if (!params.has('lat') && !resumed && start.opening === 'golden-gate' && ggb?.points) {
     // thread the gap just north of the south tower so the tower fills the
     // narrow portrait lens as we glide under the deck
     const [, t1, t2] = ggb.points;
@@ -1706,10 +1709,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         pumpSelf = false;
       },
       enter(s) {
+        input.endPress();
         if (streetHands) Object.assign(input, streetHands);
         // (the flight wrote space's palette: the live sky's table again, or the held hour's)
-        if (live) live.repaint();
-        else hour?.repaint();
+        if (live) {
+          live.held = false;
+          live.repaint();
+        } else hour?.repaint();
         flight.groundUnder = flight.groundBroad = city.groundAt(s.x, s.z);
         flight.takeOver(s.x, s.y, s.z, s.heading, s.speed, s.nose);
         // (the gear and turbo's level, as the flight had them over Earth: its two faster gears are Turbo 3 here)
@@ -1726,7 +1732,12 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         last = performance.now();
       },
       leave() {
+        input.endPress();
         if (skyHands) Object.assign(input, skyHands);
+        // (the flight's thumb looks wherever it lands off the bus's lane: the street's gate is the street's)
+        input.lookOff = false;
+        // (and the street's sky writes no table onto the flight's while it has the frame)
+        if (live) live.held = true;
         controls.hud.setVisible(false);
         controls.leftGround();
         audio.hushGround();
@@ -1773,6 +1784,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         // the far field and the sky come down with it, and the thumb is the low game's from here
         scene.add(m.far!.object, m.sky.object);
         pipeline.steadySnap = false;
+        input.endPress();
         Object.assign(input, groundHands);
         flight.groundUnder = flight.groundBroad = city.groundAt(s.x, s.z);
         flight.takeOver(s.x, s.y, s.z, s.heading, s.speed, s.nose);
@@ -1792,6 +1804,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       },
       leave() {
         // (the low game's sound and what it set on the frame stop with its frame, and the flight's loop has neither)
+        input.endPress();
         Object.assign(input, flightHands);
         controls.hud.setVisible(false);
         controls.leftGround();

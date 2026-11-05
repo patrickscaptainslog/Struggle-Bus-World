@@ -256,17 +256,21 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
   const t0 = performance.now();
   const renderer = pipeline.renderer;
   // (the sky is the clear flag and nothing else; no sun pass, no fog; calm pixels on the bus, as up high. Under ?earth the street has the frame and these wait for the flight to take it)
-  const takeFrame = () => {
+  const takeFrame = (world: boolean) => {
     pipeline.setFar(30000);
     pipeline.shadowStrength = 0;
     pipeline.calm = 1;
     globals.uLight.value.set(0.62, 0.2, 0.05);
-    // (and the palette: under ?earth the street's until here, so ?hour=blue's stays on the street. The first review's minor)
-    applySpaceTable(pipeline.paletteTexture);
+    // (and the palette: with the day's world rows where the flight has the page first; at the street's hand-up its own rows alone, so the bus and the rest keep the
+    // street's table, the live sky's or the held hour's, with no jump at 15 km. Review four, 7)
+    applySpaceTable(pipeline.paletteTexture, world);
   };
   // (?earth&resume: home from the Moon's page, the flight has the frame from the start, and the street boots behind it)
   const flightFirst = !earth || earthResume;
-  if (flightFirst) takeFrame();
+  if (flightFirst) takeFrame(true);
+  // (behind the street, the space sky's own rows at once: from 8 km up the street draws space's sky and from 11 km the plain Earth, and nothing else names those rows.
+  // Before, they waited for the hand-up, and the whole first climb by day drew them black. Review four, 5)
+  else applySpaceTable(pipeline.paletteTexture, false);
 
   const perf = new Perf(renderer);
   perf.setVisible(params.has('fps'));
@@ -348,7 +352,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
   // (under ?earth all of that is the flight's when it takes the frame from the street)
   if (earthLanding)
     earthLanding.onTake = () => {
-      takeFrame();
+      takeFrame(false);
       lensOn();
       placeCamera();
     };
@@ -377,7 +381,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
   // (where each panning thumb was last frame)
   const lookAt = new THREE.Vector2(), busOnScreen = new THREE.Vector3(), busZone = { x: 0, y: 0, r: 0, open: 0 };
   let lookOn = false;
-  const label = flying ? tripLabel(!landing) : null;
+  // (on Earth's page a Moon reached with its page change refused has nothing to paint from orbit, and nothing says there is: review four, 21)
+  const label = flying ? tripLabel(!landing && !earthLanding) : null;
   /** ?moonland: a tap now is a crater shot, from the orbit down to where the ground's mesh comes in. */
   // (from the orbit down: over it, where the free leg flies on up to TO PLANET EARTH?, nothing, as there's no paint from high orbit)
   const craterHigh = () => !!landing?.world && !!trip && (trip.leg === 'orbit' || (trip.leg === 'fall' && trip.hMoon <= ALT4 + 1)) && !landing.near && !landing.ground;
@@ -408,7 +413,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
     // stand-ins don't stand in the world's frame yet, so there it's nothing until the low game has the bus.)
     input.onTap = () => {
       const high = craterHigh();
-      breath.tap(high || (trip.leg === 'orbit' && !landing), high);
+      breath.tap(high || (trip.leg === 'orbit' && !landing && !earthLanding), high);
     };
     // (out here there's no MEGA to charge: a press on Space is the flight's, and a hold ends as a breath, where on ?earth it charged the street's MEGA under the flight. The first review's minor)
     const flightTap = input.onTap;
@@ -643,7 +648,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
       breath.ahead[2] = F[6] * v0 + F[7] * v1 + F[8] * v2;
     }
     breath.aheadOn = breath.craters;
-    breath.update(dt, real, sky, (trip?.leg === 'orbit' && !landing) || breath.craters, camera);
+    breath.update(dt, real, sky, (trip?.leg === 'orbit' && !landing && !earthLanding) || breath.craters, camera);
     if (trip && names) names.update(dt, sky, trip.leg === 'in' || trip.leg === 'orbit' || trip.leg === 'moonRise' || trip.leg === 'moonHigh' || trip.leg === 'moonSink', trip.v, trip.t, camera, focalAt(), pipeline.info.width, pipeline.info.height, popSign);
     if (trip && view && fx) {
       fx.free = trip.leg === 'wait' || trip.leg === 'orbit' || trip.leg === 'fall';
@@ -667,7 +672,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
       }
       eggMoon.update(real, trip.egg === 'moon');
       eggEarth.update(real, trip.egg === 'earth');
-      const ask = trip.leg === 'orbit' && time > welcomeAt + WELCOME_S && (landing ? !landing.pushed : !breath.fired);
+      const ask = trip.leg === 'orbit' && !earthLanding && time > welcomeAt + WELCOME_S && (landing ? !landing.pushed : !breath.fired);
       if (ask !== asked) {
         asked = ask;
         if (ask) hud?.toast(landing ? ['PUSH TO LAND'] : ['TAP TO PAINT'], 3600);

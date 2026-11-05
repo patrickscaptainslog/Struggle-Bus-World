@@ -39,7 +39,7 @@ const THEOPHILUS = { lat: -11.45, lon: 26.28 };
 export const MOON_ROWS: Record<number, string[]> = {
   ...SPACE_ROWS,
   // no air: the sky is black, and a black with no blue in it
-  [Ramp.NIGHT_SKY]: ['#000000', '#020204', '#04040a', '#06060e', '#080812', '#0a0a16', '#0c0c1a', '#0e0e1e'],
+  [Ramp.SPACE_DARK]: ['#000000', '#020204', '#04040a', '#06060e', '#080812', '#0a0a16', '#0c0c1a', '#0e0e1e'],
   // regolith: cool greys from a true black. Highlands, and the maria's darker, bluer row
   [Ramp.REGOLITH]: ['#050609', '#12141b', '#22252e', '#373b46', '#525661', '#747882', '#9da0a6', '#cfd0cf'],
   [Ramp.MARE]: ['#050609', '#141821', '#272d39', '#3b4352', '#535c6b', '#6f7886', '#8f98a4', '#b6bcc4'],
@@ -88,7 +88,7 @@ export interface MoonBoot {
 function moonPalette(pipeline: PixelPipeline, land: boolean) {
   const tex = pipeline.paletteTexture;
   // (?moonland: the sky the flight already has)
-  const rows = land ? { ...MOON_ROWS, [Ramp.NIGHT_SKY]: SPACE_ROWS[Ramp.NIGHT_SKY] } : MOON_ROWS;
+  const rows = land ? { ...MOON_ROWS, [Ramp.SPACE_DARK]: SPACE_ROWS[Ramp.SPACE_DARK] } : MOON_ROWS;
   writePalette(tex.image.data as unknown as Uint8Array, { ...dayRows, ...rows });
   tex.needsUpdate = true;
 }

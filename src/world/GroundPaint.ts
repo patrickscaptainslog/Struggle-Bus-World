@@ -275,6 +275,8 @@ export class GroundPaint {
   private pics: GeoPaint | null = null;
   /** ?moon: tiles' paint copied out of the pictures, waiting for each tile to come in (onPaintReady tells the city) */
   private readonly prepared = new Map<string, Uint8Array>();
+  /** ?moon: tiles in, their kept paint on them: a region made again asks them for nothing more (review four, 3) */
+  private readonly took = new Set<string>();
   /** ?moon: a tile's paint is copied out and waiting: the city gives it ground of its own, and attach copies it in */
   onPaintReady: ((tx: number, tz: number) => void) | null = null;
   /** the tiles' localStorage key prefix (null: the id scheme is unknown, nothing is read or written) */
@@ -393,6 +395,7 @@ export class GroundPaint {
     this.saveQueue.length = 0;
     this.saveSet.clear();
     this.prepared.clear();
+    this.took.clear();
     this.pics.moved();
   }
 
@@ -526,6 +529,9 @@ export class GroundPaint {
     if (m) {
       // (?moon: what it shows, settled, kept for it coming back, as a region's change of detail makes its tiles' ground again; not while its copy's on its way, which comes then)
       if (this.pics && !this.pics.copyingTile(key)) this.keepShown(key, m.data);
+      // (and a copy on its way for a tile that's gone is dropped: they were never, and read their pictures and made 64 KB for nothing. Review four, 15)
+      this.pics?.dropCopy(key);
+      this.took.delete(key);
       m.gone = true;
       m.tex.dispose();
       this.masks.delete(key);
@@ -541,6 +547,9 @@ export class GroundPaint {
       // (and a blast that reaches it and isn't in the pictures yet gives it ground of its own at once: the city asks as it makes a region's ground, and needn't ask again)
       const key = `${tx},${tz}`, ox = tx * this.tileSize, oz = tz * this.tileSize;
       if (this.prepared.has(key)) return true;
+      // (in, with its kept paint on it: a region made again for another tile's copy asked every painted tile for its copy again, 2n - 1 for n, and a tile whose copy
+      // was queued again lost what it showed at a change of detail. Review four, 3)
+      if (this.took.has(key) && this.masks.has(key)) return true;
       this.pics.want(key, ox, oz);
       return this.pics.pendingOver(ox, oz, ox + this.tileSize, oz + this.tileSize).length > 0;
     }
@@ -811,7 +820,9 @@ export class GroundPaint {
         m.z1 = GROUND_N - 1;
         this.queueDirty(m);
         this.ready.push(key);
+        this.took.add(key);
       }
+      this.pics!.recycle(d);
     }
     const pend = this.pics!.pendingOver(ox, oz, ox + this.tileSize, oz + this.tileSize);
     if (pend.length && this.mask(key)) {
@@ -839,11 +850,15 @@ export class GroundPaint {
       m.x1 = GROUND_N - 1;
       m.z1 = GROUND_N - 1;
       this.queueDirty(m);
+      this.took.add(key);
+      // (and what stands in its paint, the boulders, takes it now, as when the copy came first. Review four, 8)
+      this.ready.push(key);
+      this.pics!.recycle(d);
       return;
     }
     this.prepared.set(key, d);
     // (copies waiting for tiles that don't come: the oldest go, and are copied again if they do)
-    if (this.prepared.size > 64) this.prepared.delete(this.prepared.keys().next().value!);
+    if (this.prepared.size > 64) this.dropPrepared();
     const c = key.indexOf(',');
     this.onPaintReady?.(Number(key.slice(0, c)), Number(key.slice(c + 1)));
   }
@@ -853,14 +868,23 @@ export class GroundPaint {
     let d: Uint8Array | null = null;
     for (let t = 0; t < md.length; t += 4) {
       if (!md[t]) continue;
-      d ??= new Uint8Array(TEXELS * 4);
+      d ??= this.pics ? this.pics.take() : new Uint8Array(TEXELS * 4);
       d[t] = md[t];
       d[t + 1] = md[t + 1];
     }
     if (!d) return;
+    const was = this.prepared.get(key);
+    if (was) this.pics?.recycle(was);
     this.prepared.delete(key);
     this.prepared.set(key, d);
-    if (this.prepared.size > 64) this.prepared.delete(this.prepared.keys().next().value!);
+    if (this.prepared.size > 64) this.dropPrepared();
+  }
+
+  /** The oldest copy waiting for its tile goes, its array back to the pool. */
+  private dropPrepared() {
+    const k = this.prepared.keys().next().value!, d = this.prepared.get(k);
+    this.prepared.delete(k);
+    if (d) this.pics?.recycle(d);
   }
 
   private evictOldest(except: string): boolean {

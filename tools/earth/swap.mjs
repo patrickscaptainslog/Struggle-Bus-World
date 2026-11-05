@@ -123,6 +123,10 @@ try {
   await frames(6);
   const st1 = await page.evaluate(() => ({ x: window.__game.flight.x, z: window.__game.flight.z, y: window.__game.flight.y, hud: getComputedStyle(document.querySelector('[data-hud="trip-label"]')).display }));
   row('home: the street is booted behind, the flight has the bus, the street stands still', st0.ground === false && st0.x === st1.x && st0.z === st1.z && st1.hud !== 'none', { ground: st0.ground, street: [Math.round(st1.x), Math.round(st1.y), Math.round(st1.z)], label: st1.hud });
+  // (the opening's gate is the first flight's, never armed on the way home: the flight's look is on, and the street behind has no low shot. Review four, 6)
+  const gate = () => page.evaluate(() => ({ lookOff: window.__space.input.lookOff, gearsLocked: window.__game.controls.gearsLocked, openingLow: window.__game.rig.openingLow }));
+  const g0 = await gate();
+  row("home: no opening's gate on the way home: the look is on, nothing locked, no low shot", !g0.lookOff && !g0.gearsLocked && g0.openingLow === 0, g0);
   const home = await skipTo('wait', 0.5);
   const h = await read();
   row('home: on to over home', home === 'wait' && Math.abs(h.hEarth - 300) < 3, { leg: h.leg, km: +h.hEarth.toFixed(1) });
@@ -154,6 +158,8 @@ try {
   const st2 = await page.evaluate(() => ({ y: window.__game.flight.y, x: window.__game.flight.x, z: window.__game.flight.z }));
   await shot('home-street');
   row('home: dived from 300 km, the street takes the bus under 14 km over the city', took && st2.y > 10000 && st2.y < 14500, { diveS: +down.s.toFixed(1), km: +down.km.toFixed(2), offKm: down.offKm, took, street: [Math.round(st2.x), Math.round(st2.y), Math.round(st2.z)] });
+  const g1 = await gate();
+  row('home: and the street that takes the bus has no gate either', !g1.lookOff && !g1.gearsLocked && g1.openingLow === 0, g1);
   // (and the thumb is the street's: a flick down shifts its ladder, not the trip's, and a tap is the street's, not a breath in the flight's unseen world. The first account's review, 2026-11-04: on this page the street took the flight's hands for good)
   const cdp = await page.context().newCDPSession(page);
   const hands = () => page.evaluate(() => { const T = window.__game.controls.turbo, m = window.__space.moon; return { gear: T.gear, level: T.level, rung: m.trip.rung, tLevel: m.trip.level, breaths: m.breath.stats.shots + m.breath.stats.denied }; });

@@ -239,8 +239,13 @@ export class LiveSky {
     this.pageRgb = -1;
   }
 
+  /** While the flight has the frame (?earth over 15 km, and ?earth&resume till the street has the bus): no table is written onto the flight's, by the street's boot or
+   *  its far raster landing; the street writes it again as it takes the bus (repaint). Review four, 7 */
+  held = false;
+
   /** The palette takes the moment's table when the Sun has moved 0.05 degrees (12 s or so at San Francisco's sunset) or a switch moved: never a frame of its own. */
   private table(h: number, w: number): void {
+    if (this.held) return;
     const S = config.sky, key = (S.table ? 1 : 0) + (S.paint ? 2 : 0);
     if (key === this.tableKey && Math.abs(h - this.tableH) < 0.05 && Math.abs(w - this.tableW) < 0.01) return;
     this.tableKey = key;

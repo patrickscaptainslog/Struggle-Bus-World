@@ -270,6 +270,8 @@ export class MoonTrip {
   private settling = false;
   private pushT = 0;
   private readonly land: boolean;
+  /** ?earth's page: a Moon reached on it has no ground to go down to (its storage refused the page change), and no flick climbs from its orbit either (review four, 21) */
+  private readonly earthPage: boolean;
   private readonly launchDeg: number | undefined;
   private readonly onStreet: boolean;
   /** UTC ms at t = 0. Not readonly: resume() takes the saved one, so the sky and the route carry on from the page before. */
@@ -317,6 +319,7 @@ export class MoonTrip {
     this.g5 = opts.g5;
     this.tau = opts.tau ?? TAU;
     this.land = !!opts.land;
+    this.earthPage = !!opts.street;
     this.launchDeg = opts.launch;
     this.onStreet = !!opts.street;
     // (the street has the bus from the first frame, and the flight steps nothing until it hands up: the leg is the street's from here, not from the first step)
@@ -492,7 +495,7 @@ export class MoonTrip {
         case 'orbit':
           // (the street's ladder, as over Earth: a flick up is a step up, and at the top nothing, the button flown up to. Only with no ground to go down to, ?moonrun's, is it still the climb to the button)
           if (earthStep(this.rung, this.level) < EARTH_TOP) this.shiftEarth(1);
-          else if (!this.land) this.rise('moonRise');
+          else if (!this.land && !this.earthPage) this.rise('moonRise');
           break;
         case 'moonSink':
           this.rise('moonRise');
