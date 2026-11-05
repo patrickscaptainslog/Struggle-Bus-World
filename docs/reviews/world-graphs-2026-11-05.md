@@ -36,3 +36,7 @@ W1 on 2102d88, run here: 4 checks fail, the four residuals 2102d88 names for the
 - **N2 holds**: an area's triangle starts that go back give null, and so do bytes left over.
 - **N1 is still open**: `parseCityRoutes` still makes a route's `Float64Array(m)` and `Float32Array(m * 2)` from its count before reading them (`lifeData.ts:232`); the length check at the end comes after. A nit still: life hands it only files it fetched.
 - C9 Agreed, 0.8. C8 was Agreed at 0.7: a merge of `feat/earth` brings both.
+
+## Third reading (328ede8)
+
+W1 on 328ede8, run here: passed, exit 0. The drawn decks (C2): 4,101 steps along them, median 0.01 m off their tops, worst 0.14 m, inside 0.3. Water (C8): on the sea 0 mm off `WATER_Y`, 1,509 lake areas over 327,422 texel centres, every one a lake's. N1 fixed, by the first account's word (a count past the bytes gives null): not re-read here. C10 Agreed (0.9).
