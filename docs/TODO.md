@@ -2,6 +2,24 @@
 
 Tick what you finish, in the commit that finishes it. Add to it when the producer asks for something. Written 2026-11-02.
 
+## Tonight, both accounts (the night of 2026-11-04, Pacific)
+
+The producer, going to bed: "Yes to all of your plan". Stage 0 of the living Earth ([specs/earth/LIVING.md](specs/earth/LIVING.md)), then stage 1 as far as stage 0 lets it start. Nothing goes live: `main` stays at 6b494b7 until the producer says. Each account pushes to its own branches all night without asking: the second to `feat/earth` and `feat/life`; the first to `feat/world` and `feat/clock`, and to `feat/earth` only for its reviews (`docs/reviews/`) and this list. Never `main`, no spending, no Vercel settings. The only downloads are the first account's 21, OK'd tonight. Whoever is waiting on the other fetches every 30 minutes and keeps going. A push refused because the other just pushed: fetch, rebase, push again. In the morning each writes a short report here, at the top: what's done, what's pushed, the preview links, and what the producer should fly.
+
+The second account:
+1. Review what went live before your review: `main` from 034672f to 6b494b7 (its item below). Findings in `docs/reviews/`, as the first account's are. Don't fix `main`: the first account fixes on `feat/clock`, and the producer says when that goes live.
+2. Merge `main` into `feat/earth` (its item below: the lane and `busLane`), with your checks, and say here what the first account should fly on the GPU.
+3. Sign or change [specs/earth/CONTRACT.md](specs/earth/CONTRACT.md) (its section 9 has what's open). The first account answers a change within the half hour.
+4. Fix the first account's findings as they come in `docs/reviews/`.
+5. Then life, stage 1, on `feat/life` cut from `feat/earth`: the mover system (three pools, the levels of detail, the worker, paint on a mover), then live planes over San Francisco through the relay, with the scripted fallback. Until the first account's graphs come, read what today's tiles have. If the review isn't closed yet, cut it anyway and merge `feat/earth` again when it is.
+
+The first account:
+1. Review the third review's fixes and the first review's minors, `feat/earth` from 96ee034 to 087e135, with the GPU runs its item under "First account" asks for. Findings in `docs/reviews/`.
+2. The Bay Area's 21 downloads, archived outside the repo, with what came, from where, its size and its checksum written down on `feat/world`.
+3. When `main` is merged here: the whole trip flown on the GPU with the new controls, street to Moon and back, and the merge reviewed.
+4. Stage 1's world on `feat/world`, cut from `feat/earth`: the graphs for life in the Bay Area's tiles (roads with class and direction, footways, plazas and parks, water lanes and ferry routes, marinas, terminals, airports), from the downloads, to the contract.
+5. The race in `feat/clock`'s deterministic run (its `DECISIONS.md`), when its hunt ends.
+
 ## Second account: the whole Moon
 
 Branch `feat/moonfree`, cut from `spike/moonrun`. The plan is [specs/moon/FREEFLIGHT.md](specs/moon/FREEFLIGHT.md). Each stage ends with the producer flying it on their phone, and the next stage waits for that.
