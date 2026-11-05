@@ -1,0 +1,9 @@
+{
+  "about": "W1's known exceptions on this map (tools/world/graph-check.mjs): each class is counted and passes up to its count and its worst, as a person read them in a reviewed bake; past either it fails. The studio's calls are in docs/specs/earth/GRAPHS.md, 'Where the ground wins'; the walls along the decks are the next pass's. A map with no file has none. Set from the bake of 2026-11-05 (osm7), each worst 0.1 m over tonight's.",
+  "heldNodes": { "count": 1, "worstM": 23.1, "what": "a node where a ground way meets a drawn deck mid-span, on the deck's top (call 3: the Golden Gate's north tower)" },
+  "heldSteps": { "count": 1, "what": "steps of those ways climbing to it" },
+  "feet": { "count": 31, "worstM": 5.6, "what": "sidewalk steps at their own feet on the ground beside their road still up (call 1)" },
+  "held": { "count": 11, "worstM": 4.3, "what": "sidewalk steps the ground holds over their road (call 2)" },
+  "otherRoad": { "count": 16, "what": "sidewalk steps riding a road within 1 m that isn't the nearest" },
+  "walls": { "count": 61, "worstM": 39.4, "what": "foot deck steps rising over 1 m faster than a ramp's 50 % (a stair's 77.5 % on stairs): at feet the calls' and pits in the grid, along the decks riding that flips between two carriageways and the Bay Bridge's cycleway; found 2026-11-05, not fixed" }
+}

@@ -7,7 +7,8 @@ named after their south-west corner:
 
   https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_N36W123_Map.tif
 
-Only the city's window is read (HTTP range reads of the COG blocks through GDAL's /vsicurl);
+Only the city's window is read (HTTP range reads of the COG blocks through GDAL's /vsicurl), a strip
+of rows at a time, so a window the Bay Area's size (540 M pixels) is never in memory whole;
 bboxes spanning tiles are mosaicked on the global pixel grid (exact integer offsets). Tiles that
 don't exist are open sea (WorldCover has a tile for every 3 x 3 degree cell with land): filled
 with water. The crop is cached as tools/bake/.cache/worldcover/<slug>.tif (deflate GeoTIFF), grown
@@ -18,6 +19,7 @@ Classes (uint8, 0 = no data): 10 tree cover, 20 shrubland, 30 grassland, 40 crop
 95 mangroves, 100 moss and lichen.
 
   ensure(slug, bounds)                            the cached crop covering lon/lat bounds (fetched / grown on demand)
+  window_bytes(bounds)                            what fetching that crop reads, from the tiles' headers
   local_grid(slug, proj, minX, minZ, W, H, res)   classes on a local frame's grid (row 0 = minZ), nearest neighbour
   fraction(mask, cells)                           local fraction of a mask (0..200) over a square window
   tree_mask(wc)                                   WorldCover's trees: tree cover (10) and mangroves (95)
@@ -27,7 +29,8 @@ overture.py fetches the crop with the city's extracts; bake.py (trees) and qa.py
 License: CC BY 4.0. (c) ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data
 (2021) processed by ESA WorldCover consortium.
 
-usage: python3 -I tools/bake/worldcover.py <slug> [--refresh]    (fetch / refresh the city's crop by hand)
+usage: python3 -I tools/bake/worldcover.py <slug> [--refresh] [--max-mb=N]    (fetch / refresh the city's crop by hand;
+       --max-mb: a fetch that would read more than N MB reads nothing and exits 3)
 """
 import json
 import math
@@ -45,6 +48,7 @@ URL = 'https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_Wo
 PX = 12000            # pixels per degree (the global grid every tile sits on)
 TILE_DEG = 3
 PAD = 0.003           # degrees fetched around what a bake asks for (filters at the frame edge)
+STRIP = 1024          # rows read and written at a time (whole blocks of the tiles: theirs are 1024 or a divisor of it)
 
 TREE, SHRUB, GRASS, CROP, BUILT, BARE, SNOW, WATER, WETLAND, MANGROVE, MOSS = 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 100
 NAMES = {0: 'no data', 10: 'tree cover', 20: 'shrubland', 30: 'grassland', 40: 'cropland', 50: 'built-up', 60: 'bare / sparse',
@@ -92,38 +96,96 @@ def _pixels(w, s, e, n):
             int(math.ceil((e + 180.0) * PX)), int(math.ceil((90.0 - s) * PX)))
 
 
-def _read(c0, r0, c1, r1, log):
-    """uint8 classes for global pixels [r0, r1) x [c0, c1), mosaicked from the tiles."""
-    import rasterio
-    from rasterio.windows import Window
-    out = np.zeros((r1 - r0, c1 - c0), np.uint8)
+def _parts(c0, r0, c1, r1):
+    """[(name, url, tc0, tr0, a0, b0, a1, b1)]: each tile the global pixels [r0, r1) x [c0, c1) touch, its global
+    pixel origin and the part of it they cover."""
     w, n = c0 / PX - 180.0, 90.0 - r0 / PX
     e, s = c1 / PX - 180.0, 90.0 - r1 / PX
-    with rasterio.Env(**GDAL_ENV):
-        for name, lat, lon in tiles_for(w, s, e, n):
-            tc0, tr0 = (lon + 180) * PX, (90 - (lat + TILE_DEG)) * PX   # the tile's global pixel origin
-            a0, b0 = max(c0, tc0), max(r0, tr0)
-            a1, b1 = min(c1, tc0 + TILE_DEG * PX), min(r1, tr0 + TILE_DEG * PX)
-            if a1 <= a0 or b1 <= b0:
-                continue
-            url = URL.format(tile=name)
-            if not _exists(url):
-                out[b0 - r0:b1 - r0, a0 - c0:a1 - c0] = WATER
-                log(f'worldcover: no tile {name} (open sea): water')
-                continue
-            t0 = time.time()
-            for k in range(4):
-                try:
-                    with rasterio.open('/vsicurl/' + url) as src:
-                        out[b0 - r0:b1 - r0, a0 - c0:a1 - c0] = src.read(1, window=Window(a0 - tc0, b0 - tr0, a1 - a0, b1 - b0))
-                    break
-                except rasterio.errors.RasterioIOError as ex:
-                    if k == 3:
-                        raise SystemExit(f'worldcover: {url}: {ex}')
-                    log(f'worldcover: {name}: {ex}; retrying')
-                    time.sleep(3 * (k + 1))
-            log(f'worldcover: {name} window {a1 - a0} x {b1 - b0} px in {time.time() - t0:.1f} s')
+    out = []
+    for name, lat, lon in tiles_for(w, s, e, n):
+        tc0, tr0 = (lon + 180) * PX, (90 - (lat + TILE_DEG)) * PX   # the tile's global pixel origin
+        a0, b0 = max(c0, tc0), max(r0, tr0)
+        a1, b1 = min(c1, tc0 + TILE_DEG * PX), min(r1, tr0 + TILE_DEG * PX)
+        if a1 > a0 and b1 > b0:
+            out.append((name, URL.format(tile=name), tc0, tr0, a0, b0, a1, b1))
     return out
+
+
+def _bands(r0, r1, rows=STRIP):
+    """Row ranges [a, b) covering global rows [r0, r1), cut at each tile row's edge and every `rows` rows from it, so
+    a strip never straddles two tiles' rows and reads whole blocks of each."""
+    T = TILE_DEG * PX
+    a = r0
+    while a < r1:
+        base = a // T * T
+        b = min(r1, base + T, base + ((a - base) // rows + 1) * rows)
+        yield a, b
+        a = b
+
+
+def _strips(c0, r0, c1, r1, log):
+    """(row offset, uint8 classes) for global pixels [r0, r1) x [c0, c1), mosaicked from the tiles a strip of rows at
+    a time: a city's crop is a few MB, the Bay Area's is 540 M pixels, more than the bake laptop has free."""
+    import rasterio
+    from rasterio.windows import Window
+    parts = _parts(c0, r0, c1, r1)
+    have = {}
+    srcs = {}
+    t0 = time.time()
+    try:
+        for a, b in _bands(r0, r1):
+            out = np.zeros((b - a, c1 - c0), np.uint8)
+            for name, url, tc0, tr0, a0, b0, a1, b1 in parts:
+                ra, rb = max(a, b0), min(b, b1)
+                if rb <= ra:
+                    continue
+                if name not in have:
+                    have[name] = _exists(url)
+                    if not have[name]:
+                        log(f'worldcover: no tile {name} (open sea): water')
+                if not have[name]:
+                    out[ra - a:rb - a, a0 - c0:a1 - c0] = WATER
+                    continue
+                for k in range(4):
+                    try:
+                        if name not in srcs:
+                            srcs[name] = rasterio.open('/vsicurl/' + url)
+                        out[ra - a:rb - a, a0 - c0:a1 - c0] = srcs[name].read(1, window=Window(a0 - tc0, ra - tr0, a1 - a0, rb - ra))
+                        break
+                    except rasterio.errors.RasterioIOError as ex:
+                        if k == 3:
+                            raise SystemExit(f'worldcover: {url}: {ex}')
+                        log(f'worldcover: {name}: {ex}; retrying')
+                        s = srcs.pop(name, None)
+                        if s is not None:
+                            s.close()
+                        time.sleep(3 * (k + 1))
+            if r1 - r0 > STRIP:
+                log(f'worldcover: rows {b - r0} of {r1 - r0} ({(b - r0) / (r1 - r0) * 100:.0f} %) in {time.time() - t0:.0f} s')
+            yield a - r0, out
+    finally:
+        for s in srcs.values():
+            s.close()
+
+
+def window_bytes(bounds_list):
+    """Bytes of the tiles' blocks a crop over every (w, s, e, n) in bounds_list (+ PAD) reads: the size of its fetch,
+    known before it (from the tiles' headers, a few KB each)."""
+    import rasterio
+    want = [_pixels(w - PAD, s - PAD, e + PAD, n + PAD) for w, s, e, n in bounds_list]
+    c0, r0 = min(p[0] for p in want), min(p[1] for p in want)
+    c1, r1 = max(p[2] for p in want), max(p[3] for p in want)
+    total = 0
+    with rasterio.Env(**GDAL_ENV):
+        for name, url, tc0, tr0, a0, b0, a1, b1 in _parts(c0, r0, c1, r1):
+            if not _exists(url):
+                continue
+            with rasterio.open('/vsicurl/' + url) as src:
+                bh, bw = src.block_shapes[0]
+                for by in range((b0 - tr0) // bh, (b1 - 1 - tr0) // bh + 1):
+                    for bx in range((a0 - tc0) // bw, (a1 - 1 - tc0) // bw + 1):
+                        total += int(src.get_tag_item(f'BLOCK_SIZE_{bx}_{by}', 'TIFF', bidx=1) or 0)
+    return total
 
 
 def ensure(slug, bounds_list, log=print, refresh=False):
@@ -143,18 +205,22 @@ def ensure(slug, bounds_list, log=print, refresh=False):
             return path
         c0, r0, c1, r1 = min(c0, h[0]), min(r0, h[1]), max(c1, h[2]), max(r1, h[3])
         log('worldcover: the cached crop is too small for this bake: growing it')
+    from rasterio.windows import Window
     t0 = time.time()
-    a = _read(c0, r0, c1, r1, log)
-    prof = {'driver': 'GTiff', 'dtype': 'uint8', 'count': 1, 'width': a.shape[1], 'height': a.shape[0], 'nodata': 0,
+    W, H = c1 - c0, r1 - r0
+    prof = {'driver': 'GTiff', 'dtype': 'uint8', 'count': 1, 'width': W, 'height': H, 'nodata': 0,
             'crs': 'EPSG:4326', 'transform': rasterio.Affine(1.0 / PX, 0, c0 / PX - 180.0, 0, -1.0 / PX, 90.0 - r0 / PX),
             'compress': 'deflate', 'tiled': True, 'blockxsize': 256, 'blockysize': 256}
-    with rasterio.open(path + '.part.tif', 'w', **prof) as dst:
-        dst.write(a, 1)
-        dst.update_tags(source=URL.format(tile='<tile>'), license='CC BY 4.0', attribution=ATTRIBUTION)
+    counts = np.zeros(256, np.int64)
+    with rasterio.Env(**GDAL_ENV, GDAL_CACHEMAX=128):
+        with rasterio.open(path + '.part.tif', 'w', **prof) as dst:
+            for off, a in _strips(c0, r0, c1, r1, log):
+                dst.write(a, 1, window=Window(0, off, W, a.shape[0]))
+                counts += np.bincount(a.ravel(), minlength=256)
+            dst.update_tags(source=URL.format(tile='<tile>'), license='CC BY 4.0', attribution=ATTRIBUTION)
     os.replace(path + '.part.tif', path)
-    v, c = np.unique(a, return_counts=True)
-    log(f'worldcover: {a.shape[1]} x {a.shape[0]} px -> {path} in {time.time() - t0:.0f} s; '
-        + ', '.join(f'{NAMES.get(int(k), k)} {n / a.size * 100:.0f}%' for k, n in zip(v, c) if n / a.size >= 0.005))
+    log(f'worldcover: {W} x {H} px -> {path} in {time.time() - t0:.0f} s; '
+        + ', '.join(f'{NAMES.get(k, k)} {n / (W * H) * 100:.0f}%' for k, n in enumerate(counts) if n / (W * H) >= 0.005))
     return path
 
 
@@ -200,10 +266,18 @@ def fraction(mask, cells):
 
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    flags = dict((a[2:].split('=', 1) + [''])[:2] for a in sys.argv[1:] if a.startswith('--'))
     slug = args[0] if args else 'sf'
     cfg = json.load(open(os.path.join(HERE, 'cities', f'{slug}.json')))
     w, s, e, n = cfg['bbox']
-    print(ensure(slug, [(w, s, e, n)], refresh='--refresh' in sys.argv))
+    if flags.get('max-mb') and (flags.keys() & {'refresh'} or not os.path.exists(os.path.join(CACHE, f'{slug}.tif'))):
+        # the size first: a fetch over the cap reads nothing but the tiles' headers
+        nb = window_bytes([(w, s, e, n)])
+        print(f'worldcover: the window reads {nb / 1e6:.1f} MB of the tiles (cap {flags["max-mb"]} MB)', flush=True)
+        if nb > float(flags['max-mb']) * 1e6:
+            print('worldcover: over the cap: nothing fetched', flush=True)
+            sys.exit(3)
+    print(ensure(slug, [(w, s, e, n)], refresh='refresh' in flags))
 
 
 if __name__ == '__main__':
