@@ -256,17 +256,21 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
   const t0 = performance.now();
   const renderer = pipeline.renderer;
   // (the sky is the clear flag and nothing else; no sun pass, no fog; calm pixels on the bus, as up high. Under ?earth the street has the frame and these wait for the flight to take it)
-  const takeFrame = () => {
+  const takeFrame = (world: boolean) => {
     pipeline.setFar(30000);
     pipeline.shadowStrength = 0;
     pipeline.calm = 1;
     globals.uLight.value.set(0.62, 0.2, 0.05);
-    // (and the palette: under ?earth the street's until here, so ?hour=blue's stays on the street. The first review's minor)
-    applySpaceTable(pipeline.paletteTexture);
+    // (and the palette: with the day's world rows where the flight has the page first; at the street's hand-up its own rows alone, so the bus and the rest keep the
+    // street's table, the live sky's or the held hour's, with no jump at 15 km. Review four, 7)
+    applySpaceTable(pipeline.paletteTexture, world);
   };
   // (?earth&resume: home from the Moon's page, the flight has the frame from the start, and the street boots behind it)
   const flightFirst = !earth || earthResume;
-  if (flightFirst) takeFrame();
+  if (flightFirst) takeFrame(true);
+  // (behind the street, the space sky's own rows at once: from 8 km up the street draws space's sky and from 11 km the plain Earth, and nothing else names those rows.
+  // Before, they waited for the hand-up, and the whole first climb by day drew them black. Review four, 5)
+  else applySpaceTable(pipeline.paletteTexture, false);
 
   const perf = new Perf(renderer);
   perf.setVisible(params.has('fps'));
@@ -346,7 +350,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
   // (under ?earth all of that is the flight's when it takes the frame from the street)
   if (earthLanding)
     earthLanding.onTake = () => {
-      takeFrame();
+      takeFrame(false);
       lensOn();
       placeCamera();
     };

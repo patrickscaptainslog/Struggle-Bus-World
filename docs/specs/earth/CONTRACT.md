@@ -187,7 +187,7 @@ The street measured 161 draws and 1.17 M triangles at Alamo Square from the ceil
 
 **The G-buffer** (Agreed, `ARCHITECTURE.md`, "Rendering contract"; `src/render/materials.ts`):
 - Every material ends in `sbWrite(ramp, light, fog, glow, viewNormal, surfaceId, flags)`: GLSL3, `GLSL_COMMON` and `GLSL_OUT`, `globals` spread in, fog through `sbFog`, never an RGB colour.
-- Ramps: grey life uses the grey world's rows (GREY, GREY_LIGHT, GREEN_GREY, WINDOW, ROOF_DARK, WHITE, INK, WATER; at night LIT and LAMP). Paint uses `HUE_RAMPS` (rows 8-13) and nothing else saturated. BUS_YELLOW and BUS_BLACK are the bus's alone. A new row is claimed by name in `palette.ts`: 47 and 50-63 are free (`palette.ts` ~115, MEASURED).
+- Ramps: grey life uses the grey world's rows (GREY, GREY_LIGHT, GREEN_GREY, WINDOW, ROOF_DARK, WHITE, INK, WATER; at night LIT and LAMP). Paint uses `HUE_RAMPS` (rows 8-13) and nothing else saturated. BUS_YELLOW and BUS_BLACK are the bus's alone. A new row is claimed by name in `palette.ts`: 47 and 56-63 are free (`palette.ts` ~115, MEASURED; 50-55 the space sky's own since review four).
 - `flags`: 1.0 for a model (it gets outlines), 0.5 for specks, wakes and contrails, never 0 (what nothing wrote is sky).
 - `surfaceId` a hash per mover, so two touching cars keep a seam. Glow only for lights at night, paint's own effects and the aim's glint on a mover (section 3). The hero's beam and drop shadow are the resolve's, and life's draws obey the sky cut (`pipeline.cutSky`) as every material does.
 

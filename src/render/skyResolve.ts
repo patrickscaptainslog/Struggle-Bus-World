@@ -76,7 +76,7 @@ vec3 skyBands(vec3 dir, float dsk) {
 `;
 
 // ---- Space (?moonrun, MOONSHOT.md stop 1; SKY.md 2 and 4.5-4.7). Earth and Moon are ray tests in the sky branch: nothing at 384,400 km enters the render frame, no geometry, no draw.
-// All alpha 0, dither `dsk` only: the sky only turns with the view. Every colour is pal(ramp, step); light is carried by steps, and the rows are SkyTable.ts's SPACE_ROWS.
+// All alpha 0, dither `dsk` only: the sky only turns with the view. Every colour is pal(ramp, step); light is carried by steps, and the rows are SkyTable.ts's SPACE_ROWS, the space sky's own (50-55).
 //
 // The ray tests are the stable form (ENGINE's float32 test): each body at unit radius, so nothing in the shader is in km, with the near root as c / (-b + sqrt D) and c = |o|^2 - 1 from
 // the CPU, in double: that subtraction is the one float32 can't do near a surface. Earth is the WGS84 ellipsoid by one scale on z (A/B), since a plain sphere is 5-7 px off near the limb.
@@ -314,7 +314,7 @@ bool spaceAir(vec3 dir, float dsk, out vec3 col) {
   float el = dot(e, up), sw = dot(e, uEarthSun);
   float st = 6.6 - 3.2 * clamp(el * 1.5, 0.0, 1.0) - 2.4 * (1.0 - air);
   float ramp = sw > 0.93 ? ${Ramp.SKY_WARM}.0 : ${Ramp.FOG}.0;
-  if (sunEl < 0.07 && sw > 0.2) ramp = ${Ramp.TWILIGHT}.0;
+  if (sunEl < 0.07 && sw > 0.2) ramp = ${Ramp.SPACE_DUSK}.0;
   col = pal(ramp, spStep(st, dsk));
   return true;
 }
@@ -333,7 +333,7 @@ bool spaceEarth(vec3 dir, float dsk, out vec3 col) {
     float mut = dot((uEarthO.xyz - ds * (B / A)) / r, uEarthSun);
     float lit = clamp((mut + 0.12) / 0.24, 0.0, 1.0);
     if (glow * lit <= 0.035) return false;
-    col = abs(mut) < 0.07 ? pal(${Ramp.TWILIGHT}.0, spStep(glow * 7.0 * lit + 1.0, dsk)) : pal(${Ramp.LIMB}.0, spStep(glow * 7.2 * (0.35 + 0.65 * lit), dsk));
+    col = abs(mut) < 0.07 ? pal(${Ramp.SPACE_DUSK}.0, spStep(glow * 7.0 * lit + 1.0, dsk)) : pal(${Ramp.SPACE_LIMB}.0, spStep(glow * 7.2 * (0.35 + 0.65 * lit), dsk));
     return true;
   }
   float t = C / (-B + sqrt(D));
@@ -370,7 +370,7 @@ bool spaceEarth(vec3 dir, float dsk, out vec3 col) {
   // (the breakup needs room to move both ways: lit land stands at the top of its ramp, so low down it comes off it a little)
   ls = clamp(mix(ls, min(ls, 5.4), bk) + 2.2 * nz, 0.0, 7.0);
   sea += 1.1 * nz;
-  float ramp = ${Ramp.OPEN_SEA}.0;
+  float ramp = ${Ramp.SPACE_SEA}.0;
   float st = spStep(sea, dsk);
   if (mu < -0.03) {
     // the night side: everything falls to the dark rows
@@ -380,21 +380,21 @@ bool spaceEarth(vec3 dir, float dsk, out vec3 col) {
     else if (land) st = clamp(floor(m.g * 1.2 + 3.2 + bx * 0.6 + nz), 0.0, 7.0);
   }
   else if (ice) { ramp = ${Ramp.WHITE}.0; st = spStep(clamp((ls - 1.6) * 1.2, 0.0, 7.0), dsk); }
-  else if (dry) { ramp = ${Ramp.DRY_LAND}.0; st = spStep(ls, dsk); }
+  else if (dry) { ramp = ${Ramp.SPACE_LAND}.0; st = spStep(ls, dsk); }
   else if (land) { ramp = ${Ramp.GREEN_GREY}.0; st = spStep(ls, dsk); }
   // the terminator: a dithered veil of rose over what lies under it, strongest just on the night side of the line, gone by 6 degrees
   float veil = pow(clamp(1.0 - abs(mu - 0.015) / (mu > 0.015 ? 0.075 : 0.105), 0.0, 1.0), 1.3);
-  if (veil * 0.92 + bx > 0.5) { ramp = ${Ramp.TWILIGHT}.0; st = spStep(clamp((mu + 0.105) / 0.165, 0.0, 1.0) * 6.2 + 0.4, dsk); }
+  if (veil * 0.92 + bx > 0.5) { ramp = ${Ramp.SPACE_DUSK}.0; st = spStep(clamp((mu + 0.105) / 0.165, 0.0, 1.0) * 6.2 + 0.4, dsk); }
   // haze toward the limb, on the lit side
   float grz = 1.0 - clamp(cosi, 0.0, 1.0);
   grz *= grz;
   grz *= grz * grz;
-  if (grz * clamp((mu + 0.05) / 0.3, 0.0, 1.0) + bx * 0.25 > 0.42) { ramp = ${Ramp.LIMB}.0; st = spStep(3.5 + 3.0 * clamp(mu * 2.0, 0.0, 1.0), dsk); }
+  if (grz * clamp((mu + 0.05) / 0.3, 0.0, 1.0) + bx * 0.25 > 0.42) { ramp = ${Ramp.SPACE_LIMB}.0; st = spStep(3.5 + 3.0 * clamp(mu * 2.0, 0.0, 1.0), dsk); }
   if (!land && mu > 0.03) {
     // the Sun on the water
     float glk = clamp((dot(e + 2.0 * cosi * n, uEarthSun) - 0.9965) / 0.0035, 0.0, 1.0);
     if (glk > 0.0) {
-      ramp = ${Ramp.OPEN_SEA}.0;
+      ramp = ${Ramp.SPACE_SEA}.0;
       st = spStep(min(sea + glk * 3.6, 7.0), dsk);
       if (spHash(floor(vec2(lat, lon) * 630.25)) < pow(glk, 2.2) * 0.5) { ramp = ${Ramp.GLOW_WHITE}.0; st = 5.0; }
     }
@@ -464,7 +464,7 @@ bool spaceMoon(vec3 dir, float dsk, out vec3 col) {
   vec2 uv;
   float t, art;
   float level = spaceMoonLight(n, d, hit, dsk, uv, t, art);
-  float ramp = ${Ramp.MOON}.0;
+  float ramp = ${Ramp.SPACE_MOON}.0;
   spacePaint(n, uv, t, art, dsk, ramp, level);
   // (a blast's flash, as on the street: white-hot at the impact, and everything near it some steps up its own ramp)
   if (spFlash > 0.0) {
@@ -486,7 +486,7 @@ vec3 spaceSky(ivec2 p, vec3 dir, float dsk) {
   if (spaceAir(dir, dsk, c)) return c;
   uint g = texelFetch(tG, p, 0).r;
   if ((g & 255u) != 0u) return pal(float(g & 255u), float(g >> 8u));
-  return pal(${Ramp.NIGHT_SKY}.0, 1.0);
+  return pal(${Ramp.SPACE_DARK}.0, 1.0);
 }
 `;
 
