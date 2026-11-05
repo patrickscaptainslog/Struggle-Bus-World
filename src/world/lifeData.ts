@@ -20,7 +20,8 @@
 // so it sums back exactly. A triangle stores its first vertex less the last triangle's first, and its other two less its
 // first, modulo the index's width. Small steps, which gzip takes far better than the places themselves.
 //
-// A minor version adds and never moves: 1.1 sets EdgeFlag.NO_CARS, which a 1.0 file never had (`minor` says which).
+// A minor version adds and never moves (`minor` says which): 1.1 sets EdgeFlag.NO_CARS, which a 1.0 file never had; 1.2
+// has the lakes as OPEN_WATER at the grid's height (C8), where a 1.1 file has OPEN_WATER on the sea alone, at WATER_Y.
 //
 // routes.bin (gzip of), one a city; places i32 at 1e-7 degree, strings a u8 length and utf-8:
 //   'SBC1' (C7: 'SBR1' is the region bundles'), u16 version (major), u16 minor
@@ -46,7 +47,7 @@ export const enum ShipKind { CONTAINER = 0, BULK, TANKER, CAR_CARRIER, CRUISE } 
 
 export interface RegionGraph {
   version: number; rx: number; rz: number;
-  /** the file's minor version (C9, Proposed; read it or not): 1 and up can set NO_CARS */
+  /** the file's minor version (C9, Proposed; read it or not): 1 and up can set NO_CARS, 2 and up have the lakes (C8) */
   minor: number;
   /** map metres; y is what a mover stands on there: the ground, a deck or a quay (never the drawn mesh) */
   nodes: { n: number; id: Uint32Array; xyz: Float32Array; flags: Uint8Array };
@@ -138,6 +139,7 @@ export function parseRegionGraph(buf: ArrayBuffer, regionM: number = REGION_M): 
     const tri = new Uint32Array(buf, o, na + 1).slice();
     o += (na + 1) * 4;
     if (tri[na] !== nt) return null;
+    // starts only go up, as shape's do (N2): one stepping down hands life an area whose triangles run off xyz
     for (let i = 0; i < na; i++) if (tri[i] > tri[i + 1] || (name[i] !== 0xffff && name[i] >= nNames)) return null;
     const verts = places(buf, o, nv, ox, oz, baseY, true);
     o = pad4(o + nv * 6);
@@ -225,10 +227,16 @@ export function parseCityRoutes(buf: ArrayBuffer, origin: readonly [number, numb
     const f32 = () => { const v = dv.getFloat32(o, true); o += 4; return v; };
     const deg = () => { const v = dv.getInt32(o, true); o += 4; return v / 1e7; };
     const str = () => { const len = u8(); const s = dec.decode(new Uint8Array(buf, o, len)); o += len; return s; };
+    // every count against the bytes left before anything is made from it or read for it (N1): a corrupt point count
+    // asked for up to 2^32 eight-byte values a column. A row is at least its fixed fields and a length byte a string
+    const fits = (n: number, row: number) => n * row <= buf.byteLength - o;
     const ferries: CityRoutes['ferries'] = [];
-    for (let i = 0, n = u32(); i < n; i++) {
+    const nf = u32();
+    if (!fits(nf, 23)) return null;
+    for (let i = 0; i < nf; i++) {
       const id = u32(), key = str(), name = str(), from = u32(), to = u32(), seasonal = u8() !== 0, lengthM = f32();
       const m = u32();
+      if (!fits(m, 8)) return null;
       const lat = new Float64Array(m), lon = new Float64Array(m), xz = new Float32Array(m * 2);
       for (let k = 0; k < m; k++) lat[k] = deg();
       for (let k = 0; k < m; k++) lon[k] = deg();
@@ -239,22 +247,30 @@ export function parseCityRoutes(buf: ArrayBuffer, origin: readonly [number, numb
       ferries.push({ id, key, name, from, to, seasonal, lengthM, lat, lon, xz });
     }
     const terminals: CityRoutes['terminals'] = [];
-    for (let i = 0, n = u32(); i < n; i++) {
+    const nt = u32();
+    if (!fits(nt, 19)) return null;
+    for (let i = 0; i < nt; i++) {
       const id = u32(), key = str(), kind = u8() === 1 ? 'cruise' : 'ferry', name = str(), lat = deg(), lon = deg(), berthM = f32();
       const [x, z] = latLonToLocal(lat, lon, origin);
       terminals.push({ id, key, kind, name, lat, lon, x, z, berthM });
     }
     const marinas: CityRoutes['marinas'] = [];
-    for (let i = 0, n = u32(); i < n; i++) {
+    const nm = u32();
+    if (!fits(nm, 16)) return null;
+    for (let i = 0; i < nm; i++) {
       const id = u32(), key = str(), name = str(), lat = deg(), lon = deg(), berths = u16();
       const [x, z] = latLonToLocal(lat, lon, origin);
       marinas.push({ id, key, name, lat, lon, x, z, berths });
     }
     const airports: CityRoutes['airports'] = [];
-    for (let i = 0, n = u32(); i < n; i++) {
+    const na = u32();
+    if (!fits(na, 20)) return null;
+    for (let i = 0; i < na; i++) {
       const id = u32(), icao = str(), iata = str(), lat = deg(), lon = deg(), elevM = f32();
       const runways: CityRoutes['airports'][number]['runways'] = [];
-      for (let k = 0, m = u16(); k < m; k++) {
+      const nr = u16();
+      if (!fits(nr, 21)) return null;
+      for (let k = 0; k < nr; k++) {
         const rname = str(), lat0 = deg(), lat1 = deg(), lon0 = deg(), lon1 = deg(), widthM = f32();
         const p0 = latLonToLocal(lat0, lon0, origin), p1 = latLonToLocal(lat1, lon1, origin);
         runways.push({ name: rname, lat: [lat0, lat1], lon: [lon0, lon1], x: [p0[0], p1[0]], z: [p0[1], p1[1]], widthM });
