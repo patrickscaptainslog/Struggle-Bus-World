@@ -156,6 +156,9 @@ export class Lamps {
   private req: LampRequest | null = null;
   private cityIn = false;
   private asked = false;
+  /** QA: performance.now() when the list was asked for, and when it landed or said it won't (-1 until then): tools/warmcheck.mjs reads them against ready */
+  askedAt = -1;
+  landedAt = -1;
 
   constructor() {
     this.object.matrixAutoUpdate = false;
@@ -183,8 +186,10 @@ export class Lamps {
     if (!req) return;
     this.asked = true;
     this.busy = true;
+    this.askedAt = performance.now();
     const landed = (r: LampResult | null) => {
       this.busy = false;
+      this.landedAt = performance.now();
       if (r) this.land(r);
     };
     const onThread = () => void loadLamps(req).then(landed);
