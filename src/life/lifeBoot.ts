@@ -50,7 +50,10 @@ export async function bootLife(ctx: LifeContext): Promise<LifeHost | null> {
     // (what's painted, kept by key: a test's clock has a store of its own, CONTRACT.md section 3)
     const store = new MoverStore(p.has('t') || p.has('rate') || p.has('fixeddt'));
     const host = new LifeHost(worker, pools, store, ctx.place.slug, ctx.place.origin, ctx.world ?? null);
-    void store.load(Date.now()).then((r) => host.restore(r));
+    // (read against the page's clock as it starts, which a record's `until` is on: the real clock but under ?t=, as SkyClock reads it. A test's records kept at a
+    // pinned moment were dropped once the real clock passed their `until`)
+    const t = p.get('t'), at = t === null ? NaN : /^\d+$/.test(t) ? Number(t) : Date.parse(t);
+    void store.load(Number.isFinite(at) ? at : Date.now()).then((r) => host.restore(r));
     return host;
   } catch (e) {
     console.warn('life', e);

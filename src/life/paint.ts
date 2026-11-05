@@ -1,5 +1,5 @@
-// A mover's paint, kept (LIFE.md, "Paint on a mover"; CONTRACT.md section 3, O14): one record a painted mover, its key, hue, level, `until` (UTC ms, read
-// against Date.now()) and the namespace that placed it, in a database of its own in IndexedDB. 2,000 records and 256 KB at most, the soonest `until` first out.
+// A mover's paint, kept (LIFE.md, "Paint on a mover"; CONTRACT.md section 3, O14): one record a painted mover, its key, hue, level, `until` (UTC ms on the page's
+// clock, which is the real one but under ?t=) and the namespace that placed it, in a database of its own in IndexedDB. 2,000 records and 256 KB at most, the soonest `until` first out.
 // Under ?t=, ?rate= or ?fixeddt a test store of its own, so a test never expires or purges the real one. Blocked IndexedDB: the paint lasts the session.
 
 export interface PaintRecord {
@@ -34,7 +34,7 @@ export class MoverStore {
     return this.db;
   }
 
-  /** Everything kept that hasn't expired, `now` the real clock's (Date.now()): what's past its `until` goes. */
+  /** Everything kept that hasn't expired, `now` the page's clock as it starts (Date.now() but under ?t=): what's past its `until` goes. */
   async load(now: number): Promise<PaintRecord[]> {
     try {
       const db = await this.open();
