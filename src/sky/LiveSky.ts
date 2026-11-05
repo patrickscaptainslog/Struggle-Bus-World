@@ -131,8 +131,8 @@ export class LiveSky {
   private pageRgb = -1;
   private themeTag: Element | null = null;
 
-  constructor(private readonly pipeline: PixelPipeline, params: URLSearchParams) {
-    this.clock = new SkyClock(params);
+  constructor(private readonly pipeline: PixelPipeline, params: URLSearchParams, clock = new SkyClock(params)) {
+    this.clock = clock;
     this.hour = new HeldHour(pipeline, true);
     this.street = new StreetSky(pipeline);
     // (none of the hour until the city is placed: the day's)
@@ -231,6 +231,12 @@ export class LiveSky {
     this.hour.lit = litAt(local) * T.hour;
     this.hour.wave = Math.min(1, Math.max(0, (-2 - h) / 2));
     this.hour.update(az);
+  }
+
+  /** The palette someone else wrote (?earth's flight, as it takes the frame): the moment's table is written again on the next update. */
+  repaint(): void {
+    this.tableKey = -1;
+    this.pageRgb = -1;
   }
 
   /** The palette takes the moment's table when the Sun has moved 0.05 degrees (12 s or so at San Francisco's sunset) or a switch moved: never a frame of its own. */

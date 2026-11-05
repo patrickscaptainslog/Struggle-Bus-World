@@ -43,6 +43,7 @@ import type { LandEnter, Landing } from './moon/Landing';
 import { dirOf, latLonToMap, latOf, lonOf, SLIDE, SLIDE_AT } from './moon/map';
 import { HeldHour } from './sky/HeldHour';
 import { LiveSky } from './sky/LiveSky';
+import { SkyClock } from './sky/SkyClock';
 import { spanTag } from './sky/Lamps';
 
 // Struggle Bus — Phase 1 (real SF, solo).
@@ -104,7 +105,9 @@ const camNear = camera.near;
 let warm = new WarmUp(pipeline, scene);
 
 // (the held hour, ?hour=blue: SKY.md slice S1; updateSun below hands it the light. The live sky, on unless ?sky=off: docs/specs/sky/LIVE.md, its nights that hour)
-const live = skyLive ? new LiveSky(pipeline, params) : null;
+/** The page's one clock (docs/specs/earth/CONTRACT.md, O3): the live sky reads it, and the flight booted on this page takes it. Under ?fixeddt it steps with the frames */
+const skyClock = new SkyClock(params);
+const live = skyLive ? new LiveSky(pipeline, params, skyClock) : null;
 const hour = live ? live.hour : heldHour ? new HeldHour(pipeline) : null;
 /** What the ?fps read-out calls the frame it is reading. */
 const hourName = live ? 'live sky' : hour ? 'blue hour' : 'day';
@@ -1219,6 +1222,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       }
       qa.holdFrames--;
     }
+    skyClock.frame(now);
     const t0 = performance.now();
     if (resizeWanted) {
       resizeWanted = false;
@@ -1687,8 +1691,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       },
       enter(s) {
         if (streetHands) Object.assign(input, streetHands);
-        // (the flight wrote space's palette: the held hour's again)
-        hour?.repaint();
+        // (the flight wrote space's palette: the live sky's table again, or the held hour's)
+        if (live) live.repaint();
+        else hour?.repaint();
         flight.groundUnder = flight.groundBroad = city.groundAt(s.x, s.z);
         flight.takeOver(s.x, s.y, s.z, s.heading, s.speed, s.nose);
         // (the gear and turbo's level, as the flight had them over Earth: its two faster gears are Turbo 3 here)
@@ -1722,7 +1727,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       return;
     }
     void import('./sky/moonrun')
-      .then(({ bootMoonrun }) => bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: { input, audio, rig }, earth: world }))
+      .then(({ bootMoonrun }) => bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: { input, audio, rig }, earth: world, clock: skyClock }))
       .then((j) => {
         earthJoin = j as EarthLanding;
         // (the flight made its hands as it booted, and left the street's on: the street keeps the bus, and its hands, until it hands up)
@@ -1896,7 +1901,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
 async function bootSpace() {
   pipeline.checkTargets();
   const { bootMoonrun } = await import('./sky/moonrun');
-  await bootMoonrun({ pipeline, scene, warm });
+  await bootMoonrun({ pipeline, scene, warm, clock: skyClock });
 }
 
 /**
@@ -1908,7 +1913,7 @@ async function bootLanding() {
   const { bootMoonrun } = await import('./sky/moonrun');
   // (the rig's look is the flight's too. It's made before the Moon's boot sets the camera's angles, and takes them in place() when the bus comes down)
   const shared = { input: new Input(canvas), audio: new AudioEngine(), rig: new CameraRig() };
-  const land = await bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: shared });
+  const land = await bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: shared, clock: skyClock });
   // (?view= has no flight, and nothing to come down from)
   if (land) await boot(land as Landing, shared);
 }
@@ -1935,7 +1940,7 @@ async function bootEarthResumed() {
   const { bootMoonrun, laterStreet } = await import('./sky/moonrun');
   const shared = { input: new Input(canvas), audio: new AudioEngine(), rig: new CameraRig() };
   const street = laterStreet();
-  const join = (await bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: shared, earth: street.world })) as EarthLanding | null;
+  const join = (await bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: shared, earth: street.world, clock: skyClock })) as EarthLanding | null;
   const i = shared.input;
   const hands: Partial<Input> = { onTap: i.onTap, onTurbo: i.onTurbo, onTripleFinger: i.onTripleFinger, onFirstGesture: i.onFirstGesture, onPress: i.onPress, onChargeStart: i.onChargeStart, onChargeEnd: i.onChargeEnd };
   if (join) await boot(undefined, shared, { join, hands, attach: street.attach });

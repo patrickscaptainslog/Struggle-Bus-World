@@ -246,10 +246,12 @@ export interface MoonrunContext {
   land?: { input: Input; audio: AudioEngine; rig: CameraRig };
   /** ?earth: the street, which has the bus and the frame until it hands them up (EarthLanding.ts). land is what the two share, as under ?moonland, and there's no Moon's low game */
   earth?: StreetWorld;
+  /** the page's one clock (CONTRACT.md O3): the street's live sky reads it too. Without it the flight makes its own */
+  clock?: SkyClock;
 }
 
 /** Returns what joins this to the low game, under ?moonland; under ?earth, the join to the street. */
-export async function bootMoonrun({ pipeline, scene, warm, land, earth }: MoonrunContext): Promise<Landing | EarthLanding | null> {
+export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: pageClock }: MoonrunContext): Promise<Landing | EarthLanding | null> {
   const params = new URLSearchParams(location.search);
   const t0 = performance.now();
   const renderer = pipeline.renderer;
@@ -271,7 +273,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
 
   const model = new SkyModel(series);
   const sky = new SkyState();
-  const clock = new SkyClock(params);
+  const clock = pageClock ?? new SkyClock(params);
   const flying = !params.has('view');
   // (?launch=: a trip that starts climbing, the way the bus was flying, over ?home=lat,lon: where the old launch from the street, gone now, went. trip-fuzz.mjs's every fifth player starts so)
   const launch = flying && params.has('launch') ? Number(params.get('launch')) || 0 : undefined;
@@ -516,6 +518,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
       }
       qa.holdFrames--;
     }
+    // (?fixeddt: the page's clock steps with this frame, once, if the street's loop under it hasn't already)
+    clock.frame(now);
     if (earthLanding?.cameBack) {
       earthLanding.cameBack = false;
       fx?.fromGround();
