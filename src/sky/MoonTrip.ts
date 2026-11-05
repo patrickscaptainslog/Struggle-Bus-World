@@ -553,8 +553,9 @@ export class MoonTrip {
     this.trips++;
     this.gear = 4;
     this.ti = 0;
-    // (from the speed it has: pressed in free flight in Rainbow Warp it went to 0.112 km/s for a moment, then spooled up. The first review's minor)
-    this.v = Math.max(this.v, G0);
+    // (from G0, as the route has it. Kept from the speed it had, the first review's minor, pressed in Rainbow Warp the bus tumbled 30 to 40 degrees in a frame on
+    // the way out, 17 trips in 120 in trip-fuzz: back, with the minor's dip to 0.112 km/s for a moment open again, till the view can carry a launch at speed)
+    this.v = G0;
     this.eta = 280;
     // (one moon boost, the producer's: "i want there to be one default moon boost turbo mode that brings you to and from the moon in a bit less than 6 min". It's asked for at the launch, and goes on at G5's floor)
     this.armed = true;

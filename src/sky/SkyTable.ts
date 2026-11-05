@@ -107,11 +107,13 @@ export const AIR_LOW = 15, AIR_TOP = 30;
  * space rows are space's own throughout. Written only when the blend moves a 128th. Review five, 36 and 45.
  */
 export class AirAxis {
+  private readonly tex: THREE.DataTexture;
   private readonly street: Uint8Array;
   private readonly day: Uint8Array;
   private k = -1;
 
-  constructor(private readonly tex: THREE.DataTexture) {
+  constructor(tex: THREE.DataTexture) {
+    this.tex = tex;
     const n = (tex.image.data as unknown as Uint8Array).length;
     this.street = new Uint8Array(n);
     this.day = new Uint8Array(n);
