@@ -13,6 +13,11 @@ The producer's five, in order: main into both branches, the first account's note
 - **Ferries on the bay's 19 real routes**, on a timetable I made from each route: 6 am to 10 pm, every half hour on the short runs and every hour on the long ones, turning round at each berth, tied up overnight, windows lit after dark. Paint one: its paint is kept, and it leaves a rainbow wake.
 - **Sailboats out of the nine marinas** by day, more at weekends, leaning with the westerly. Paint one: it rides the swell and leaves a rainbow wake.
 
+**After you flew it** (the same afternoon, your words in `CLAUDE.md`):
+- **People in the parks, not on the sidewalks.** Picnics on the grass of every park in the afternoon, groups on gingham blankets, sitting and lying, bigger than life so they read from the air; a blanket every 13 m or so at a Saturday's peak, half that on a weekday, none in the morning or at night. Paint one: its people get up and dance.
+- **Vehicles you can see and hit.** A third over life size, white, silver, grey and black, with dark glass and tyres; buses one in ten on the arterials, with SUVs, pickups, box trucks and semis; the aim now takes one the line of fire passes within a few metres of, and it glints twice as bright.
+- **For the first account**: buses run by share on the arterials, not on Muni's real routes. Those need the routes in the world's files (OSM's `route=bus` relations, each road edge's routes): a change to propose in `CONTRACT.md`, yours to take or not.
+
 **My calls, say if you'd change any**: a car lives a minute or so, growing in where it starts and out where it ends; traffic thins into the distance from 700 m to 1.2 km rather than stopping at an edge; the ferries' timetable; sailboats sailing loops off their marina.
 
 **Not built yet** (all in the plan): a painted car's honk, a ferry's horn and its decks in rainbow, rainbow sails and the regatta a painted bay starts, a sailboat sailing out of its berth.
