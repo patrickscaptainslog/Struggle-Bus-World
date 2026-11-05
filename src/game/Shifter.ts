@@ -1,5 +1,6 @@
 import type { Flight } from './Flight';
 import type { TurboDrive } from './Turbo';
+import { inputTune } from './Input';
 
 // What a flick means (docs/specs/flight/THUMBS.md). No DOM: the keys and the
 // thumbs land here alike, and the offline harness runs it.
@@ -66,8 +67,10 @@ export class Shifter {
     const d = this.drive;
     const waiting = this.queued > 0;
     // (one thumb's flick down is a pull too: a flick down leaves the bus as it was, so that goes back. Out of a gear
-    // that bit it holds the height anyway, and with nothing to do it was only ever a quick pull)
-    if (flew && (waiting || d.level > 0 || (d.gear > 0 && !(d.lifts && d.engaged)))) this.flight.unpull();
+    // that bit it holds the height anyway, and with nothing to do it was only ever a quick pull. A gear still lifting
+    // that bit inside the stroke bit on the stroke's own pull: it was still lifting when the thumb meant to take it back)
+    const bit = d.lifts && d.engaged && !(flew && d.time - d.engagedAt <= inputTune.loneFlickMs / 1000);
+    if (flew && (waiting || d.level > 0 || (d.gear > 0 && !bit))) this.flight.unpull();
     if (waiting) {
       this.queued--;
       this.onAnswer?.('back');
