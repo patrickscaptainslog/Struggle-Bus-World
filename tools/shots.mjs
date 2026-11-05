@@ -26,6 +26,8 @@
 // the first frame two traces part at.
 // --jitter=<ms> (with --det): a loaded machine on purpose, each region answered up to <ms> late and each adoption up to a tenth of it
 // slower; --gap=<n>: n more frames with the clock standing before every run. A deterministic run must come out the same under both.
+// --split: a run's inputs in an evaluate of their own, as before 2026-11-04, the race that staging closed (with --gap=2 the swap
+// shot's bad frame comes back).
 // (A view script stages what a run starts with, glide(), stick(), unstick(), barf(), and runDet hands it over as the clock starts.)
 // The live sky is on unless --q=sky=off; its frames are the same twice only with its clock pinned (--q=t=2026-11-06T08:00:00Z&rate=0).
 // hold-sunset, hold-presidio, hold-downtown (with --det, by name): SPIKE.md's hold-still swap. Nothing loads past the start on the way up (?loadr=1),
@@ -210,6 +212,16 @@ async function open(query) {
           });
         };
       };
+      // a run's inputs, handed over (runDet's own task; with --split, one of their own)
+      window.__detOps = (ops) => {
+        const qa = window.__qa;
+        for (const [k, a, b] of ops) {
+          if (k === 'glide') g.flight.glideSpeed = a;
+          else if (k === 'stick') Object.assign(qa, { sx: a, sy: b });
+          else if (k === 'unstick') delete qa.sx, delete qa.sy;
+          else if (k === 'barf') g.barfAtLatLon(a, b);
+        }
+      };
       Object.defineProperty(window, '__game', {
         configurable: true,
         get: () => g,
@@ -280,10 +292,15 @@ const frames = (page, n) => page.evaluate((k) => new Promise((res) => requestAni
 // (it stands whenever the city is busy, from the start too), and the run's inputs land in that same task. After it, two frames with
 // the clock standing, every time: such a frame still steps the flight at dt 0 and can settle something there (a dive's path at the
 // height it reached), so whether one runs before the next evaluate mustn't be the machine's timing either. --gap=<n>: n more frames
-// standing before each run, to show the run doesn't care.
+// standing before each run, to show the run doesn't care. --split: the inputs in an evaluate of their own before those frames, as
+// the harness had it before 2026-11-04: the race on purpose (--split --gap=2 gives the swap shot's bad frame, on main too).
 async function runDet(page, seconds) {
-  const ops = staged.get(page) ?? [];
+  let ops = staged.get(page) ?? [];
   staged.delete(page);
+  if ('split' in opt && ops.length) {
+    await page.evaluate((o) => window.__detOps(o), ops);
+    ops = [];
+  }
   if (Number(opt.gap) > 0) await frames(page, Number(opt.gap));
   await page.evaluate(
     ({ s, ops }) =>
@@ -291,12 +308,7 @@ async function runDet(page, seconds) {
         const g = window.__game, qa = window.__qa;
         const go = () => {
           if (g.city.busy) return requestAnimationFrame(go);
-          for (const [k, a, b] of ops) {
-            if (k === 'glide') g.flight.glideSpeed = a;
-            else if (k === 'stick') Object.assign(qa, { sx: a, sy: b });
-            else if (k === 'unstick') delete qa.sx, delete qa.sy;
-            else if (k === 'barf') g.barfAtLatLon(a, b);
-          }
+          window.__detOps(ops);
           qa.held = false;
           qa.holdAt = g.clock() + s;
           window.__freeze(false);
