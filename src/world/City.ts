@@ -409,6 +409,8 @@ const UNLOAD_RADIUS_HIGH = 2800;
 const ADOPT_MIN = 2;
 const ADOPT_MS = 2.5;
 const ADOPT_BYTES = 3 << 20;
+/** Tiles split out of their region's merged ground a frame (a mesh, a map and a material each, ~0.2-0.4 ms on a laptop): a MEGA's 49 in about half a second of its 2.8 s flight. Review four, 4 */
+const SPLITS = 3;
 /** The far boxes' chunks, in tiles a side (?farblocks; ?farchunk= overrides it): a region's 4, one draw each, none where the region is in. */
 const FAR_CHUNK_TILES = 4;
 /** A far box's roof in steps of this (m): equal tops merge. */
@@ -1062,11 +1064,19 @@ export class City {
   update(focus: THREE.Vector3, renderer: THREE.WebGLRenderer, dt: number, adoptMs?: number) {
     // (a frame's update: the frame before it drew what was fresh then)
     if (adoptMs === undefined && this.framesRun++ > 0 && this.firsts.length) this.firstsDone();
-    for (const rkey of this.groundStale) {
-      const rm = this.regionMeshes.get(rkey);
-      if (rm) this.buildRegionGround(rkey, rm);
+    // (a few tiles split out of the merged ground a frame, SPLITS of them: a MEGA's let-go made its 43-49 tiles' ground in one frame, 17-25 ms. The rest stay merged, their
+    // regions made again on the frames after, all of it inside the breath's flight, and their masks are drawn into either way. Review four, 4)
+    this.splitsLeft = SPLITS;
+    if (this.groundStale.size) {
+      const stale = [...this.groundStale];
+      this.groundStale.clear();
+      for (const rkey of stale) {
+        const rm = this.regionMeshes.get(rkey);
+        if (!rm) continue;
+        if (this.splitsLeft <= 0) this.groundStale.add(rkey);
+        else this.buildRegionGround(rkey, rm);
+      }
     }
-    this.groundStale.clear();
     this.request(focus);
     const R = this.regionSize * this.manifest.tileSize;
     const hk = Math.min(1, Math.max(0, (this.viewHeight - 40) / 460));
@@ -1332,12 +1342,15 @@ export class City {
         this.setMask(tx, tz, 255);
         if (this.ground.hasSaved(tx, tz)) this.ownGround.add(`${tx},${tz}`);
         if (this.ownGround.has(`${tx},${tz}`)) {
-          // its own ground (painted: ground paint attaches per tile)
-          if (lt.terrainStep !== 4) {
+          // its own ground (painted: ground paint attaches per tile), if this frame has a split left; else merged once more, and the region comes up again
+          if (lt.terrainStep === 4) continue;
+          if (this.splitsLeft > 0) {
+            this.splitsLeft--;
             this.dropTileTerrain(lt);
             this.makeTileTerrain(lt, 4);
+            continue;
           }
-          continue;
+          this.groundStale.add(key);
         }
         if (lt.terrain) this.dropTileTerrain(lt);
         any = true;
@@ -1406,8 +1419,9 @@ export class City {
     this.groundStale.add(`${Math.floor(tx / rs)},${Math.floor(tz / rs)}`);
   }
 
-  /** Regions whose ground is made again in the next update (setOwnGround). */
+  /** Regions whose ground is made again in the next update (setOwnGround), and the tiles that may still be split out of a region's merged ground this frame. */
   private readonly groundStale = new Set<string>();
+  private splitsLeft = SPLITS;
 
   private disposeRegionMesh(key: string) {
     const rm = this.regionMeshes.get(key);
