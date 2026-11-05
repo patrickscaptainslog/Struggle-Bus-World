@@ -1,12 +1,13 @@
 // index.html's first paint against the colour the game gives the page (LiveSky.page, SkyTable.ts pageRgb), by the Sun's height, setting and rising, off the
 // real TableBlend. No browser: node tools/sky/run.mjs firstpaint.ts [--write] [--html=<file>]
 //   --write   the boot's rows (`var P = ..., B = ...;` in index.html) written from the real tables, then the check. Run it after any change to SkyTable.ts,
-//             SkyTables.ts or tools/sky/tables.py: until it's run this check fails on the new tables, so the two can't drift apart unseen.
+//             SkyTables.ts or tools/sky/tables.py: until it's run this check fails on the new tables, so the two can't drift apart unseen. tables.py runs it
+//             itself once it has written SkyTables.ts.
 //   --html    another index.html (the old one, say)
 // The boot script runs as index.html holds it, in a sandbox:
 //   1. its colour by the Sun's height and hour angle (__sbBoot.sky) against the game's, from 80 to -20 degrees in 0.01 steps, setting (3 h past noon) and rising
 //      (3 h before), and in 0.05 steps across the hour angles where the two cross over (noon and midnight)
-//   2. the whole script at real moments (?t=, ?lat=&lon=): San Francisco, London and Amsterdam every 20 minutes for a year from 2026-11-05, against SkyModel's
+//   2. the whole script at real moments (?t=, ?lat=&lon=): San Francisco, London, Amsterdam, Helsinki, Tromso and Sydney every 20 minutes for a year from 2026-11-05, against SkyModel's
 //      Sun, LiveSky's hour angle and the tables. A moment past TOL passes only where the game's Sun is within NEAR degrees of the bands' handover, which the
 //      boot's small model (0.03 degrees at worst) can put a moment early or late
 //   3. it's plain ES5: TypeScript prints it the same at ES5 as at ESNext. And its size
@@ -20,10 +21,8 @@ import { series } from '@src/sky/series.gen.js';
 import { EARTH, SkyModel, SkyState } from '@src/sky/SkyModel';
 import { axesAt, geodeticToFix } from '@src/sky/WorldFrame';
 
-/** The most a channel may be off (of 255). */
+/** The most a channel may be off (of 255), the chains' crossings too: the boot mixes them in OKLCH, as the tables are. */
 const TOL = 3;
-/** The most a channel may be off where the boot mixes the two chains (of 255). */
-const MIX = 10;
 /** A row's fit: the most a knot's straight line is off the table between knots (of 255). */
 const FIT = 1.5;
 /** degrees from the handover a real moment may disagree by */
@@ -170,14 +169,15 @@ else {
   sweep('rising, 80 to -20 degrees by 0.01', [-3], heights(100));
   const cross: number[] = [];
   for (let k = -6; k <= 6; k++) cross.push(k / 4, 12 - k / 4, -12 + k / 4);
-  // (between the two chains the boot mixes them in sRGB where the game mixes them in OKLCH, so here it's held to MIX: a Sun under 16 degrees at noon is a city north
-  // of about 50 degrees in winter, London and Amsterdam, whose real moments below are held to TOL; at midnight our cities' Sun is under -14, where the chains are one)
-  sweep(`the crossings, the hour angle -1.5 to 1.5 and 10.5 to 13.5 h by 0.25, the heights by 0.05, within ${MIX}`, cross, heights(20), MIX);
+  // (a Sun under 16 degrees at noon is a city north of about 50 degrees in winter, and one over -14 at midnight a city north of about 52 in summer: the boot mixed the
+  // chains in sRGB once, 9 of 255 off the game's OKLCH at a northern winter noon, fix/live's review of m1)
+  sweep('the crossings, the hour angle -1.5 to 1.5 and 10.5 to 13.5 h by 0.25, the heights by 0.05', cross, heights(20));
 }
 
 // ---- 2. real moments, the whole script
 {
-  const CITIES: Array<[string, number, number]> = [['San Francisco', 37.7749, -122.4194], ['London', 51.5073, -0.1657], ['Amsterdam', 52.3752, 4.8822]];
+  // (Helsinki for a low winter noon, Tromso for the polar night and the midnight Sun, Sydney for a southern sky)
+  const CITIES: Array<[string, number, number]> = [['San Francisco', 37.7749, -122.4194], ['London', 51.5073, -0.1657], ['Amsterdam', 52.3752, 4.8822], ['Helsinki', 60.1699, 24.9384], ['Tromso', 69.6492, 18.9553], ['Sydney', -33.8688, 151.2093]];
   const model = new SkyModel(series), st = new SkyState();
   const t0 = Date.parse('2026-11-05T00:00:00Z'), STEP = 20 * 60000, N = (365 * 24 * 60) / 20;
   for (const [name, lat, lon] of CITIES) {

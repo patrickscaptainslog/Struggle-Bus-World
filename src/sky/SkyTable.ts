@@ -257,7 +257,7 @@ export function settingShare(H: number): number {
 /**
  * The page's colour under the canvas and the status bar's (0xRRGGBB) off a table's bytes: the day's sky is FOG 2, and while the bands draw half the sky or more it's
  * SKY_LOW 3, the band most of a frame's sky is (LiveSky.page). index.html's first paint carries these colours by the Sun's height, written from the real tables:
- * after any change to the tables, `node tools/sky/run.mjs firstpaint.ts --write`, which writes them and checks them.
+ * after any change to the tables, `node tools/sky/run.mjs firstpaint.ts --write`, which writes them and checks them (tools/sky/tables.py runs it itself).
  */
 export function pageRgb(data: Uint8Array, bands: boolean): number {
   const i = ((bands ? Ramp.SKY_LOW : Ramp.FOG) * RAMP_STEPS + (bands ? 3 : 2)) * 4;
