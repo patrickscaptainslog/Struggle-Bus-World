@@ -19,7 +19,7 @@ registerHooks({ resolve(spec, ctx, next) { return next(/^\.\.?\//.test(spec) && 
 const { scriptedPlanes } = await import('../../src/life/sim/planes.ts');
 const { ROW } = await import('../../src/life/kinds.ts');
 const { CLEAR } = await import('../../src/life/weather.ts');
-const { parkBlocks, picnicsOn, LAWN_CELL } = await import('../../src/life/sim/parks.ts');
+const { parkBlocks, picnicsOn, LAWN_CELL, PICNIC_BLOCK } = await import('../../src/life/sim/parks.ts');
 const { buildNet, carsOn } = await import('../../src/life/sim/cars.ts');
 // (the world's parser, bundled with rolldown as tools/world/graph-check.mjs does: Node's own type stripping refuses its enums)
 const { rolldown } = await import('rolldown');
@@ -110,10 +110,10 @@ const snap = (place, t, reach = 80000, bx = 0, bz = 0, ...weather) => {
     for (let q = 0; q < k; q++) {
       const x = out[q * ROW + 2], y = out[q * ROW + 3], z = out[q * ROW + 4], i = Math.floor((x - tile.x0) / LAWN_CELL), j = Math.floor((z - tile.z0) / LAWN_CELL);
       seen++;
-      const bi = i - (i % 2), bj = j - (j % 2), key = `${bi},${bj}`;
+      const B = PICNIC_BLOCK, bi = i - (i % B), bj = j - (j % B), key = `${bi},${bj}`;
       if (at.has(key)) shared++;
       at.add(key);
-      for (const [di, dj] of [[0, 0], [1, 0], [0, 1], [1, 1]]) if (!grass[(bj + dj) * n + bi + di] || tile.x0 + (bi + di + 0.5) * LAWN_CELL > X1) off++;
+      for (let dj = 0; dj < B; dj++) for (let di = 0; di < B; di++) if (!grass[(bj + dj) * n + bi + di] || tile.x0 + (bi + di + 0.5) * LAWN_CELL > X1) off++;
       worstY = Math.max(worstY, Math.abs(y - (12 + (x - tile.x0) / 40)));
     }
   }
@@ -189,6 +189,31 @@ const snap = (place, t, reach = 80000, bx = 0, bz = 0, ...weather) => {
     }
   }
   row("cars: every one in a lane of a way cars may drive, every 30 s of ten minutes", seen > 1000 && off === 0 && banned === 0, { seen, off, banned, worstM: +worst.toFixed(2) });
+  // (what they are: buses one in ten or so on the arterials, the rest of the big ones too, and each big one in its way's kerb lane, right of its way's line by its
+  // lanes' width less half a lane, within a metre)
+  {
+    const types = { car: 0, bus: 0, box: 0, semi: 0 }, onArterial = { all: 0, bus: 0 };
+    let heavyOff = 0, heavy = 0;
+    for (let t = T0; t < T0 + 600000; t += 30000) {
+      const k = carsOn(net, t, tz, BX, BZ, R0, R, 1, out, 0, MAX, undefined, ways);
+      for (let q = 0; q < k; q++) {
+        const o = q * ROW, kind = out[o + 1], look = out[o + 14] & 7, w = ways[q], cls = net.graphs[net.g[w]].edges.cls[net.e[w]];
+        const big = kind === 9, name = big ? (look === 1 ? 'bus' : look === 2 ? 'box' : 'semi') : 'car';
+        types[name]++;
+        if (cls === 3 || cls === 4) {
+          onArterial.all++;
+          if (name === 'bus') onArterial.bus++;
+        }
+        if (!big) continue;
+        heavy++;
+        // (its offset from the way's line: the way's local direction from its heading, and the nearest point of its line)
+        const d = near(net.graphs[net.g[w]], net.e[w], out[o + 2], out[o + 4]), L = net.lanes[w], want = net.two[w] ? (L - 0.5) * 3.2 : (L / 2 - 0.5) * 3.2;
+        if (Math.abs(d - want) > 1.6 && L > 1) heavyOff++;
+      }
+    }
+    const busShare = onArterial.all ? +(onArterial.bus / onArterial.all).toFixed(3) : 0;
+    row('cars: buses about one in ten on the arterials, box trucks and semis too, each big one in its kerb lane', busShare > 0.05 && busShare < 0.2 && types.box > 0 && types.semi > 0 && heavyOff === 0, { ...types, busShareOnArterials: busShare, heavy, heavyOffTheKerbLane: heavyOff });
+  }
   // (from one moment to the next, 20 s at 50 Hz: none jumps past where its speed takes it, a lane's slide in it, nor snaps round, at a bend or anywhere. A jump is
   // the same size at any step and motion isn't: at a 20 ms step a break of 0.3 m stands out from the fastest car's travel)
   let prev = new Map(), pairs = 0, jumps = 0, worstJ = 0, snaps = 0, worstH = 0;

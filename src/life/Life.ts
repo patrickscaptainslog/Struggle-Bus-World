@@ -13,7 +13,7 @@ import { Ground } from '../world/tiles';
 import { fnv1a } from './hash';
 import { Col, Kind, KINDS, ROW } from './kinds';
 import type { MoverStore } from './paint';
-import { GREY_RAMP, MARK_POINTS, MARKS_MAX, type Pools, SPECKS_MAX } from './pools';
+import { GREY_RAMP, MARK_POINTS, MARKS_MAX, type Pools, SPECKS_MAX, VEHICLE_TONES } from './pools';
 import { MAX_ROWS, readKeys, SNAP_BYTES, view, type SnapView } from './snapshot';
 
 // Life's host (LIFE.md): it ticks the worker at 10 Hz of the page's clock, and every frame carries each mover in the last snapshot on by its velocity to the
@@ -48,9 +48,15 @@ const DRAWN = 64;
 const LAMP_PX = 14, LIT_PX = 0.3;
 /** Painted cars' tyre tracks (KindInfo's track): as many cars at once, a point every TRACK_STEP m of the road behind each, the wheels' lines either side of the middle
  *  (m), each line's width at the least (m) and in px, and how far over the road it's laid (m) */
-const TRACKS = 48, TRACK_STEP = 2.2, TRACK_SIDE = 0.72, TRACK_M = 0.32, TRACK_PX = 1, TRACK_LIFT = 0.12;
-/** a car's rear axle behind its middle, and its lamps over the road (m, the model's: pools.ts) */
-const CAR_REAR = 1.35, CAR_LAMP_Y = 0.84;
+const TRACKS = 48, TRACK_STEP = 2.2, TRACK_M = 0.32, TRACK_PX = 1, TRACK_LIFT = 0.12;
+/** a car's lamps over the road (m, the model's: pools.ts) */
+const CAR_LAMP_Y = 0.84;
+/**
+ * The aim on what's on the ground (KindInfo's onLine: cars, buses, picnics), taken within this cone of the line of fire (rad, and a metre more) and 1.2 of its half
+ * size: the producer couldn't hit a car, "the hit splat forces me to hit the surrounding buildings", where it had to be within its own half size and 2 % of the
+ * distance. And its glint, this many of a building's, so a car's shows
+ */
+const GROUND_CONE = 0.045, GROUND_GLINT = 2;
 /** A painted boat's wake (KindInfo's wake): its width at the stern, a share of the boat's length, spreading to three times that at its far end, and how far over the water
  *  it's laid (m) */
 const WAKE_W = 0.3, WAKE_LIFT = 0.15;
@@ -85,7 +91,7 @@ export class LifeHost {
   private readonly p = new THREE.Vector3();
   private readonly s = new THREE.Vector3();
   /** QA: the last frame's rows, models and specks, the snapshots taken, the loop that drew it; and the first DRAWN movers drawn, each its key's hash and where (the loop's frame) */
-  readonly qa = { rows: 0, models: 0, people: 0, specks: 0, marks: 0, sent: 0, snaps: 0, hits: 0, sky: false, drawn: 0, dancers: 0, cars: 0, boats: 0, lights: 0, tracks: 0, bouncers: 0 };
+  readonly qa = { rows: 0, models: 0, people: 0, specks: 0, marks: 0, sent: 0, snaps: 0, hits: 0, sky: false, drawn: 0, dancers: 0, cars: 0, heavy: 0, boats: 0, lights: 0, tracks: 0, bouncers: 0 };
   readonly drawn = new Float64Array(DRAWN * 4);
   /** QA: the last painted picnic's dancer drawn this frame: its group's key's hash, where (the hop in it), and its pose (Kind.PERSON or Kind.CHEER) */
   readonly danced = new Float64Array(5);
@@ -269,7 +275,7 @@ export class LifeHost {
     if (!sky || ob.body !== EARTH_ID || ob.free) {
       this.qa.sky = true;
       this.qa.drawn = 0;
-      this.pc[0] = this.pc[1] = this.pc[2] = 0;
+      this.pc[0] = this.pc[1] = this.pc[2] = this.pc[3] = 0;
       this.commit(this.pc, 0, 0);
       return;
     }
@@ -312,18 +318,20 @@ export class LifeHost {
   }
 
   /** The models a pool drew this frame: small, middle, large. */
-  private readonly pc = [0, 0, 0];
+  private readonly pc = [0, 0, 0, 0];
 
   private commit(pc: number[], ns: number, n: number, nk = 0): void {
     const P = this.pools;
     P.small.commit(Math.min(pc[0], P.small.max));
     P.middle.commit(Math.min(pc[1], P.middle.max));
     P.large.commit(Math.min(pc[2], P.large.max));
+    P.heavy.commit(Math.min(pc[3], P.heavy.max));
     P.specks.commit(ns);
     P.marks.commit(nk);
     this.qa.rows = n;
     this.qa.people = pc[0];
-    this.qa.models = pc[0] + pc[1] + pc[2];
+    this.qa.models = pc[0] + pc[1] + pc[2] + pc[3];
+    this.qa.heavy = pc[3];
     this.qa.specks = ns;
     this.qa.marks = nk;
     this.qa.dancers = this.dancers;
@@ -395,7 +403,7 @@ export class LifeHost {
     const near = 0.9 * ((camera as THREE.PerspectiveCamera).far || SKY_NEAR);
     let ns = 0, n = 0, nd = 0, nk = 0;
     const pc = this.pc, lit = (heldGlobals.uLit.value as number) > 0;
-    pc[0] = pc[1] = pc[2] = 0;
+    pc[0] = pc[1] = pc[2] = pc[3] = 0;
     this.qMap.identity();
     this.drawFrames++;
     if (s) {
@@ -411,7 +419,8 @@ export class LifeHost {
         const dx = x0 - cam.x, dy = y0 - cam.y, dz = z0 - cam.z, d = Math.sqrt(dx * dx + dy * dy + dz * dz);
         let scale = rows[o + Col.SCALE], x = x0, y = y0, z = z0;
         const px = (info.size * scale) / (Math.max(1, d) * ang);
-        const ramp = paint ? HUE_RAMPS[paint.hue] : GREY_RAMP;
+        // (a grey vehicle in its own tone, white, silver, grey or black)
+        const ramp = paint ? HUE_RAMPS[paint.hue] : info.track ? VEHICLE_TONES[(rows[o + Col.LOOK] >> 6) & 3] : GREY_RAMP;
         if (d > near) {
           const k = near / d;
           x = cam.x + dx * k;
@@ -479,7 +488,7 @@ export class LifeHost {
     this.m.toArray(pool.mesh.instanceMatrix.array as Float32Array, k * 16);
     pool.kind[k] = rows[o + Col.KIND];
     pool.ramp[k] = ramp;
-    pool.glint[k] = key === this.glintHash ? config.splat.glintLift : 0;
+    pool.glint[k] = key === this.glintHash ? config.splat.glintLift * (KINDS[rows[o + Col.KIND]]?.onLine ? GROUND_GLINT : 1) : 0;
     pool.surf[k] = (key & 0xffff) / 65536;
     pool.look[k] = rows[o + Col.LOOK];
   }
@@ -556,7 +565,7 @@ export class LifeHost {
    */
   private tracks(r: number, hash: number, o: number, x: number, y: number, z: number, scale: number, paint: MoverPaint, cam: THREE.Vector3, ang: number): boolean {
     const R = MARK_POINTS - 1, rows = this.snap!.rows, h = rows[o + Col.HEADING], fx = Math.cos(h), fz = Math.sin(h);
-    const ax = x - fx * CAR_REAR * scale, az = z - fz * CAR_REAR * scale;
+    const axle = KINDS[rows[o + Col.KIND]].axle ?? [1.35, 0.72], ax = x - fx * axle[0] * scale, az = z - fz * axle[0] * scale;
     // (its ring, or a free one: else the one not drawn longest, if it's a second gone)
     let t = -1, old = -1;
     for (let i = 0; i < TRACKS; i++) {
@@ -615,7 +624,7 @@ export class LifeHost {
       const sx = -dz, sz = dx, d = Math.sqrt((cam.x - px) ** 2 + (cam.y - py) ** 2 + (cam.z - pz) ** 2), w = 0.5 * Math.max(TRACK_M, TRACK_PX * d * ang);
       const ramp = HUE_RAMPS[(paint.hue + all - Math.min(j, n) + 600) % 6], age = j / (MARK_POINTS - 1);
       for (let side = 0; side < 2; side++) {
-        const off = (side ? -TRACK_SIDE : TRACK_SIDE) * scale, cx = px + sx * off, cz = pz + sz * off, v = ((r + side) * MARK_POINTS + j) * 2;
+        const off = (side ? -axle[1] : axle[1]) * scale, cx = px + sx * off, cz = pz + sz * off, v = ((r + side) * MARK_POINTS + j) * 2;
         K.pos[v * 3] = cx - sx * w;
         K.pos[v * 3 + 1] = py;
         K.pos[v * 3 + 2] = cz - sz * w;
@@ -651,7 +660,7 @@ export class LifeHost {
     const s = this.snap, P = this.pools, cam = this.skyCam!.position, ang = Math.max(1e-6, globals.uPixelAngle.value as number);
     let ns = 0, n = 0, nd = 0, nk = 0;
     const pc = this.pc;
-    pc[0] = pc[1] = pc[2] = 0;
+    pc[0] = pc[1] = pc[2] = pc[3] = 0;
     if (s) {
       if (this.fixFor !== s) this.toFix(s);
       const R = ob.axes, b = ob.pos, F = this.fix, A = this.ax, rows = s.rows, u32 = s.rowsU32, dt = (utcMs - s.f64[0]) / 1000, sp = P.specks;
@@ -675,7 +684,8 @@ export class LifeHost {
         const lx = x - cam.x, ly = y - cam.y, lz = z - cam.z, d = Math.sqrt(lx * lx + ly * ly + lz * lz);
         const x0 = x, y0 = y, z0 = z;
         let scale = rows[o + Col.SCALE];
-        const px = (info.size * scale) / (Math.max(1, d) * ang), paint = this.painted.get(u32[o + Col.KEY]), ramp = paint ? HUE_RAMPS[paint.hue] : GREY_RAMP;
+        const px = (info.size * scale) / (Math.max(1, d) * ang), paint = this.painted.get(u32[o + Col.KEY]);
+        const ramp = paint ? HUE_RAMPS[paint.hue] : info.track ? VEHICLE_TONES[(rows[o + Col.LOOK] >> 6) & 3] : GREY_RAMP;
         if (!paint && px < 1) continue;
         if (d > SKY_NEAR) {
           const k = SKY_NEAR / d;
@@ -740,7 +750,7 @@ export class LifeHost {
       z += vz * tt;
       along = (x - ox) * ux + (y - oy) * uy + (z - oz) * uz;
       const px = x - ox - ux * along, py = y - oy - uy * along, pz = z - oz - uz * along, d = Math.sqrt(px * px + py * py + pz * pz);
-      const R = (info.onLine ? 0 : pickR) + 0.5 * info.size * rows[o + Col.SCALE] + along * 0.02;
+      const R = info.onLine ? 1 + 0.6 * info.size * rows[o + Col.SCALE] + along * GROUND_CONE : pickR + 0.5 * info.size * rows[o + Col.SCALE] + along * 0.02;
       if (d > R || d >= bestD || !this.keys.has(u32[o + Col.KEY])) continue;
       best = i;
       bestD = d;

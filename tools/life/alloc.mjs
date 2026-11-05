@@ -188,9 +188,23 @@ measure('people', people, () => walkHost.walked.size > 0, walkHost);
     csim += 1 / 60;
     carHost.frame(1 / 60, csim, T + 3000 * Math.sin(++i / 200), { x: 100, y: 40, z: 100 }, lowCam);
   };
-  measure('cars', drive, (q) => q.bouncers > 20 && q.tracks > 20 && q.lights > 0, carHost);
+  measure('cars', drive, (q) => q.bouncers > 20 && q.tracks > 20 && q.lights > 0 && q.heavy > 0, carHost);
   heldGlobals.uLit.value = 0;
-  console.log(`      cars: ${n} in the snapshot, every one painted; ${carHost.qa.bouncers} drawn bouncing, ${carHost.qa.tracks} laying tracks, ${carHost.qa.lights} lit as specks`);
+  console.log(`      cars: ${n} in the snapshot, every one painted, ${carHost.qa.heavy} of them buses and trucks; ${carHost.qa.bouncers} drawn bouncing, ${carHost.qa.tracks} laying tracks, ${carHost.qa.lights} lit as specks`);
+  // (the aim on a car, from 45 m up and 80 m back along a line that misses its middle by 5 m to one side, and by 30: the near miss is the car's, the far one isn't. It
+  // used to take a car only within its own half size and 2 % of the distance, under 4 m here)
+  {
+    const s0 = carHost.snap, rows = s0.rows, dt = (carHost.utc - s0.f64[0]) / 1000;
+    let o = -1;
+    for (let q = 0; q < s0.u32[2] && o < 0; q++) if (rows[q * 16 + 1] === 5) o = q * 16;
+    const cx = rows[o + 2] + rows[o + 5] * dt, cy = rows[o + 3], cz = rows[o + 4] + rows[o + 7] * dt, key = carHost.keys.get(s0.rowsU32[o]);
+    const from = (side) => {
+      const ox = cx - 80, oy = cy + 45, oz = cz + side, t = carHost.aim(ox, oy, oz, cx - ox, cy + 0.8 - oy, cz + side - oz, 28, 0.6);
+      return t ? t.key : null;
+    };
+    const five = from(5), thirty = from(30);
+    row('aim: a car the line of fire misses by 5 m at 90 m is taken, one it misses by 30 m isn\'t', five === key && thirty !== key, { car: key, missBy5: five, missBy30: thirty });
+  }
 }
 {
   // (boats, as lifeWorker.ts fills them: a ferry line across the water by the lens, run every five minutes, and a marina's water laid open round it; every boat painted)

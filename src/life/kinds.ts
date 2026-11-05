@@ -2,13 +2,15 @@
 
 // (constant objects, not const enums: Node's checks load these files as they are, tools/life/)
 
-/** The pools, one draw each: people; cars and small planes; ships, boats and airliners (the large pool's instances are few, so a kind's boxes cost least there). */
-export const Pool = { SMALL: 0, MIDDLE: 1, LARGE: 2 } as const;
+/** The pools, one draw each: people; cars and small planes; ships, boats and airliners (the large pool's instances are few, so a kind's boxes cost least there); buses and
+ *  trucks (a pool's every instance draws every box in it, and theirs are many: in the middle pool every car would draw them) */
+export const Pool = { SMALL: 0, MIDDLE: 1, LARGE: 2, HEAVY: 3 } as const;
 export type Pool = (typeof Pool)[keyof typeof Pool];
 
 // (PERSON and CHEER are poses, never a row's kind, so KINDS has none: a painted picnic's people up and dancing, arms down and up, LIVING.md's "stop, look up, wave,
 // dance". A PICNIC is a group on a blanket in a park, one row: who's on it is its row's LOOK)
-export const Kind = { AIRLINER: 1, SMALL_PLANE: 2, PERSON: 3, CHEER: 4, CAR: 5, FERRY: 6, SAILBOAT: 7, PICNIC: 8 } as const;
+// (CAR is a sedan, an SUV or a pickup by its look, TRUCK a bus, a box truck or a semi: sim/cars.ts VehicleLook)
+export const Kind = { AIRLINER: 1, SMALL_PLANE: 2, PERSON: 3, CHEER: 4, CAR: 5, FERRY: 6, SAILBOAT: 7, PICNIC: 8, TRUCK: 9 } as const;
 export type Kind = (typeof Kind)[keyof typeof Kind];
 
 export interface KindInfo {
@@ -23,8 +25,9 @@ export interface KindInfo {
   lights?: boolean;
   /** its lamps ahead of its middle (m): under LAMP_PX a speck there is them (a car's headlights) */
   nose?: number;
-  /** painted, it leaves tyre tracks on the road behind it, in every hue, and bounces as it drives */
+  /** painted, it leaves tyre tracks on the road behind it, in every hue, and bounces as it drives: from its rear axle behind its middle, and its wheels either side (m) */
   track?: boolean;
+  axle?: [number, number];
   /** painted, it leaves a wake flat on the water behind it, in every hue, and rocks as it goes */
   wake?: boolean;
   /** its paint is kept (CONTRACT.md section 3); a picnic's and a car's aren't, `picnic:` and `car:` "only while it's near" */
@@ -41,7 +44,8 @@ export const KINDS: Record<number, KindInfo> = {
   [Kind.AIRLINER]: { pool: Pool.LARGE, size: 60, mark: true, beacon: true, kept: true },
   [Kind.SMALL_PLANE]: { pool: Pool.MIDDLE, size: 11, mark: true, beacon: true, kept: true },
   [Kind.PICNIC]: { pool: Pool.SMALL, size: 2.6, kept: false, onLine: true },
-  [Kind.CAR]: { pool: Pool.MIDDLE, size: 4.4, lights: true, nose: 2.3, track: true, kept: false, onLine: true },
+  [Kind.CAR]: { pool: Pool.MIDDLE, size: 4.4, lights: true, nose: 2.3, track: true, axle: [1.35, 0.72], kept: false, onLine: true },
+  [Kind.TRUCK]: { pool: Pool.HEAVY, size: 12, lights: true, nose: 6, track: true, axle: [3.8, 1.05], kept: false, onLine: true },
   [Kind.FERRY]: { pool: Pool.LARGE, size: 40, lights: true, wake: true, kept: true },
   [Kind.SAILBOAT]: { pool: Pool.LARGE, size: 11, wake: true, kept: false },
 };

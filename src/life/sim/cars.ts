@@ -9,6 +9,12 @@ import type { RegionGraph } from '../../world/lifeData';
 // at its own speed, in a lane on the right, round each bend rather than through its corner. Its place at utcMs is that path walked for its age: a closed form, so a
 // minute's steps end where one jump does. It grows in and out over FADE s where it's born and where it ends. In a tunnel it isn't drawn. Never saved: `car:`
 // lives only while it's near (CONTRACT.md section 3).
+//
+// What it is comes from its slot's hash and its road's class (the producer, 2026-11-05: "where are all the buses? There are a lot of buses in sf, and different sized
+// cars - trucks, suvs, semis etc"): a sedan, an SUV or a pickup (Kind.CAR), or a city bus, a box truck or a semi (Kind.TRUCK), a bus about one in ten on the city's
+// arterials and a semi mostly on its freeways; white, silver, grey or black, the buses white. A little over life size ("maybe make the cars slightly larger than
+// reality for starters"): the cars a third, the big ones a seventh. The big ones keep to the kerb's lane, and a slot whose vehicle would be born on top of the one
+// before it at the way's start isn't born.
 
 // (lifeData.ts's values: its file has const enums, which Node's checks can't load, so only its types come in)
 const ROAD = 1, FORWARD = 1, BACKWARD = 2;
@@ -29,6 +35,44 @@ export const LIFE_MIN = 45, LIFE_MAX = 90;
 const HEAD_MIN = 2, FADE = 1.2;
 /** A lane's width (m), and the half chord a car's place and heading are taken on (m): placeOn. */
 const LANE_W = 3.2, CHORD = 4;
+
+/** A vehicle's look (the row's LOOK): its body's bit, its model's slot (pools.ts), and its tone over it (VEHICLE_TONES, pools.ts); a truck's kind is Kind.TRUCK. */
+export const VehicleLook = { SEDAN: 1, SUV: 2, PICKUP: 4, BUS: 1, BOX: 2, SEMI: 4, TONE: 64 } as const;
+/** By class group (motorway and trunk; primary and secondary; tertiary; the rest): the share of a sedan, an SUV, a pickup, a box truck, a semi and a bus, summed. */
+const MIX = [
+  [0.48, 0.74, 0.82, 0.89, 0.97, 1],
+  [0.5, 0.74, 0.8, 0.87, 0.89, 1],
+  [0.54, 0.79, 0.86, 0.91, 0.92, 1],
+  [0.6, 0.87, 0.95, 0.99, 0.99, 1],
+];
+const mixOf = (cls: number) => MIX[cls <= 2 ? 0 : cls <= 4 ? 1 : cls === 5 ? 2 : 3];
+/** Each look's scale over its model (a third over life for the cars, a seventh for the big ones), and its length then (m): sedan, SUV, pickup, box truck, semi, bus. */
+const LOOK_SCALE = [1.3, 1.4, 1.46, 1.1, 1.15, 1.15];
+const LOOK_LEN = [5.7, 6.2, 6.4, 10.2, 23.8, 13.8];
+/** Its tone by look: the cars' white, silver, grey and black at 30, 30, 20 and 20 %, summed; a box truck's white or silver; a semi's mostly white; a bus white. */
+const TONES = [
+  [0.3, 0.6, 0.8, 1],
+  [0.3, 0.6, 0.8, 1],
+  [0.3, 0.6, 0.8, 1],
+  [0.6, 1, 1, 1],
+  [0.4, 0.7, 0.9, 1],
+  [1, 1, 1, 1],
+];
+/** A slot's vehicle by its hash and its road's class: 0 to 5, sedan, SUV, pickup, box truck, semi, bus. */
+function typeOf(s: number, cls: number): number {
+  const u = unit(mix(s, 11)), m = mixOf(cls);
+  let t = 0;
+  while (t < 5 && u >= m[t]) t++;
+  return t;
+}
+/** Its look: its body's bit and its tone. */
+function lookOf(s: number, type: number): number {
+  const u = unit(mix(s, 12)), tn = TONES[type];
+  let tone = 0;
+  while (tone < 3 && u >= tn[tone]) tone++;
+  const body = type < 3 ? 1 << type : type === 5 ? VehicleLook.BUS : type === 3 ? VehicleLook.BOX : VehicleLook.SEMI;
+  return body + tone * VehicleLook.TONE;
+}
 
 /** The roads cars may drive, every driven way of an edge its own: built once each time the graphs loaded change. */
 export interface CarNet {
@@ -87,9 +131,9 @@ const pointsOf = (net: CarNet, w: number) => {
   return G.edges.shape[i + 1] - G.edges.shape[i] + 2;
 };
 
-/** A way's lateral place for a car in lane-hash `lh` (m, + to the right of its way). */
+/** A way's lateral place for a car in lane-hash `lh` (m, + to the right of its way); under 0, the kerb's lane (a bus, a truck). */
 function laneOff(net: CarNet, w: number, lh: number): number {
-  const L = net.lanes[w], lane = lh % L;
+  const L = net.lanes[w], lane = lh < 0 ? L - 1 : lh % L;
   return net.two[w] ? (lane + 0.5) * LANE_W : (lane + 0.5 - L / 2) * LANE_W;
 }
 
@@ -305,6 +349,12 @@ export function carsOn(net: CarNet, utcMs: number, tzMin: number, bx: number, bz
       if (a < 0 || a > LIFE_MAX || d0 - vmax * a > reach) continue;
       const s = mix(seed, k, 1);
       if (unit(s) >= traffic(tb / 3600 + tzMin / 60)) continue;
+      // (what it is; and not born on top of the slot before's, if that one was born: their middles apart by their half lengths and 3 m at the way's speed)
+      const cls = net.graphs[net.g[w0]].edges.cls[net.e[w0]], type = typeOf(s, cls);
+      {
+        const tp = (k - 1 + 0.5 * unit(mix(seed, k - 1))) * H, sp = mix(seed, k - 1, 1);
+        if (unit(sp) < traffic(tp / 3600 + tzMin / 60) && (tb - tp) * net.v[w0] < (LOOK_LEN[typeOf(sp, cls)] + LOOK_LEN[type]) / 2 + 3) continue;
+      }
       const T = LIFE_MIN + (LIFE_MAX - LIFE_MIN) * unit(mix(s, 2));
       const share = unit(mix(s, 3));
       if (a > T || share >= keep) continue;
@@ -352,13 +402,13 @@ export function carsOn(net: CarNet, utcMs: number, tzMin: number, bx: number, bz
         got += net.len[x];
         x = next(net, x, s, st++);
       }
-      placeOn(net, at0, mix(s, 4));
+      placeOn(net, at0, type >= 3 ? -1 : mix(s, 4));
       const d = Math.sqrt((C.x - bx) * (C.x - bx) + (C.z - bz) * (C.z - bz));
       if (d > full && share >= keep * Math.max(0, (reach - d) / (reach - full))) continue;
       const fade = Math.min(1, a / FADE, (T - a) / FADE, endIn / FADE), v = net.v[w];
       const o = at * ROW, key = `car:${net.id[w0]}:${net.rev[w0]}:${k}`, kh = fnv1a(key);
       u32[o + Col.KEY] = kh;
-      out[o + Col.KIND] = Kind.CAR;
+      out[o + Col.KIND] = type >= 3 ? Kind.TRUCK : Kind.CAR;
       out[o + Col.X] = C.x;
       out[o + Col.Y] = C.y;
       out[o + Col.Z] = C.z;
@@ -368,9 +418,10 @@ export function carsOn(net: CarNet, utcMs: number, tzMin: number, bx: number, bz
       out[o + Col.HEADING] = Math.atan2(C.uz, C.ux);
       out[o + Col.PITCH] = Math.asin(Math.max(-1, Math.min(1, C.uy)));
       out[o + Col.BANK] = 0;
-      out[o + Col.SCALE] = Math.max(0.05, fade) * (0.94 + 0.12 * unit(mix(s, 5)));
+      out[o + Col.SCALE] = Math.max(0.05, fade) * LOOK_SCALE[type] * (0.96 + 0.08 * unit(mix(s, 5)));
       out[o + Col.FLAGS] = net.deck[w] ? RowFlag.DECK : 0;
       out[o + Col.UNTIL] = T - a;
+      out[o + Col.LOOK] = lookOf(s, type);
       if (ways) ways[at] = w;
       keys?.(kh, key);
       at++;

@@ -5,7 +5,7 @@ import type { RegionGraph } from '../../world/lifeData';
 // People (LIVING.md, "People"), in the parks: the producer, 2026-11-05, "let's just remove people, or, if anything, let's include them in parks like mission Dolores
 // park where it can be a field day any day of the week in the afternoon, people lying on blankets etc. But they need to appear more pixelated and noticeable, more fun".
 // A picnic is a group on a blanket on the grass of a park: the graphs' PARK areas (CONTRACT.md section 1.2) over the host's 2 m sampling of the ground classes, GRASS
-// cells only, so never on a path, a court or a playground. Each 4 m block of park grass may hold one; a park's blocks are a tile's slots, and a slot's group comes on a
+// cells only, so never on a path, a court or a playground. Each 6 m block of park grass may hold one; a park's blocks are a tile's slots, and a slot's group comes on a
 // day by its hash, every one at a weekend and half of them on a weekday, arriving after 11:00 local and staying one to four hours, home by 19:30. Worker-safe and pure:
 // a group is a function of the tile's ground, the park, its slot, the local day and utcMs, so every player sees the same one. Never saved: `picnic:` lives only while
 // it's near (CONTRACT.md section 3).
@@ -26,15 +26,17 @@ export interface LawnTile {
 
 /** The host's sampling: 2 m cells, the ground classes' own, 128 a side of a 256 m tile. */
 export const LAWN_CELL = 2;
-/** A group's block (cells a side), slots a square metre of park grass (about half of them out at the busiest: a blanket every 10 m or so, the producer's picture of
- *  Dolores at its peak, everywhere), and the most a tile. */
-const BLOCK = 2, DENSITY = 0.016, MOST = 240;
+/** A group's block (cells a side: 6 m, room for its blanket at its scale turned any way), slots a square metre of park grass (about half of them out at the busiest:
+ *  a blanket every 11 m or so, toward the producer's picture of Dolores at its peak, everywhere), the most a tile, and its scale over the model (pools.ts: a third
+ *  over that again, "more pixelated and noticeable") */
+export const PICNIC_BLOCK = 3;
+const BLOCK = PICNIC_BLOCK, DENSITY = 0.016, MOST = 300, PICNIC_SCALE = 1.35;
 /** The day: a slot's group comes this share of weekdays (every one at a weekend), arrives from ARRIVE for ARRIVE_SPAN, stays STAY to STAY + STAY_SPAN, leaves by HOME
  *  (local, s from midnight); and grows in and out over FADE (s). */
 const WEEKDAY = 0.5, ARRIVE = 11 * 3600, ARRIVE_SPAN = 5.5 * 3600, STAY = 3600, STAY_SPAN = 3 * 3600, HOME = 19.5 * 3600, FADE = 20;
 const PARK = 2;
 
-/** A tile's park grass as blocks: each block's corner cell (i, j) packed j * n + i, every cell of it grass in a park. */
+/** A tile's park grass as blocks of PICNIC_BLOCK cells a side: each block's corner cell (i, j) packed j * n + i, every cell of it grass in a park. */
 export function parkBlocks(t: LawnTile, graphs: RegionGraph[]): Uint32Array {
   const n = t.n, park = new Uint8Array(n * n), x1 = t.x0 + n * t.cell, z1 = t.z0 + n * t.cell;
   for (const G of graphs) {
@@ -116,7 +118,7 @@ export function picnicsOn(t: LawnTile, blocks: Uint32Array, utcMs: number, tzMin
     const t0 = ARRIVE + unit(mix(h, 4)) * ARRIVE_SPAN, t1 = Math.min(HOME, t0 + STAY + unit(mix(h, 5)) * STAY_SPAN);
     if (sec < t0 || sec > t1) continue;
     const b = blocks[(start + s * stride) % N], bi = b % t.n, bj = (b - bi) / t.n;
-    const x = t.x0 + (bi + BLOCK / 2) * t.cell + (unit(mix(h, 6)) - 0.5) * 0.8, z = t.z0 + (bj + BLOCK / 2) * t.cell + (unit(mix(h, 7)) - 0.5) * 0.8;
+    const x = t.x0 + (bi + BLOCK / 2) * t.cell + (unit(mix(h, 6)) - 0.5) * 0.6, z = t.z0 + (bj + BLOCK / 2) * t.cell + (unit(mix(h, 7)) - 0.5) * 0.6;
     if ((x - bx) * (x - bx) + (z - bz) * (z - bz) > r2) continue;
     const heading = unit(mix(h, 8)) * Math.PI * 2, fx = Math.cos(heading), fz = Math.sin(heading);
     // (lying on the slope: its pitch along its way and its roll across it, from the ground a metre either side; Dolores is a hillside)
@@ -133,7 +135,7 @@ export function picnicsOn(t: LawnTile, blocks: Uint32Array, utcMs: number, tzMin
     out[o + Col.HEADING] = heading;
     out[o + Col.PITCH] = Math.atan(along);
     out[o + Col.BANK] = -Math.atan(across);
-    out[o + Col.SCALE] = Math.max(0.05, Math.min(1, (sec - t0) / FADE, (t1 - sec) / FADE)) * (0.92 + 0.16 * unit(mix(h, 9)));
+    out[o + Col.SCALE] = Math.max(0.05, Math.min(1, (sec - t0) / FADE, (t1 - sec) / FADE)) * PICNIC_SCALE * (0.92 + 0.16 * unit(mix(h, 9)));
     out[o + Col.FLAGS] = 0;
     out[o + Col.UNTIL] = t1 - sec;
     out[o + Col.LOOK] = lookOf(h);

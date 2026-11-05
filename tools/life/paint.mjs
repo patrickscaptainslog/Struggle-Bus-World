@@ -156,8 +156,20 @@ try {
     // (cars: the same, on the road. Painted, a car bounces as it drives, squashed as it lands, and lays two tyre tracks flat on the road behind it, each stretch its own
     // hue; a frame of it three seconds on, the pin following it. Its paint isn't kept: car:, "only while it's near")
     const a = await aimAt(5, 0.8, 'car-glint.png');
-    let got = null;
+    let got = null, beside = null;
     if (a.key) {
+      // (the producer couldn't hit a car: the line of fire had to pass within its half size. The bus put 5 m to one side of where it glinted, its line of fire with it,
+      // two frames: the car still glints, the aim's cone has it)
+      beside = await page.evaluate((key) => {
+        const f = window.__game.flight, p = { ...window.__qa.pin }, ux = Math.sin(p.heading), uz = -Math.cos(p.heading);
+        window.__qa.pin = { ...p, x: p.x - uz * 5, z: p.z + ux * 5 };
+        return { key, was: window.__game.life.glintKey, dx: +(-uz * 5).toFixed(2), dz: +(ux * 5).toFixed(2), busY: Math.round(f.y) };
+      }, a.key);
+      await frames(2);
+      beside.now = await page.evaluate(() => window.__game.life.glintKey);
+      // (back on it for the tap)
+      await page.evaluate(([dx, dz]) => { const p = window.__qa.pin; window.__qa.pin = { ...p, x: p.x - dx, z: p.z - dz }; }, [beside.dx, beside.dz]);
+      await frames(2);
       await page.evaluate(() => window.__game.tapSplat());
       await frames(45);
       got = await page.evaluate((key) => ({ key, painted: window.__game.life.painted.get(window.__game.life.keyHash(key)) ?? null }), a.key);
@@ -196,6 +208,7 @@ try {
     await frames(10);
     const carKept = await testStore('car:');
     row('cars: the bus low behind one, its aim on it: it glints, a real tap paints it, none of it kept', !!got?.painted && got.painted.level >= 1 && carKept === 0, { cars: a.near, tries: a.tries, key: got?.key, painted: got?.painted, carKept });
+    row('cars: the bus put 5 m to one side, its line of fire missing the car: it still glints, in the aim\'s cone', !!beside && beside.now === beside.key, beside);
     const b = got?.bounce;
     row('cars: painted, it bounces, squashed as it lands, and lays two rainbow tyre tracks flat on the road', !!b && b.frames >= 20 && b.hop > 0.15 && b.squash < 0.9 && b.tracks >= 1 && b.marks >= 2 && b.hues >= 4 && b.edgesM < 0.01 && b.overRoadM < 1, b);
   }

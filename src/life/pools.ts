@@ -10,7 +10,7 @@ import { Kind, Pool } from './kinds';
 // drawn with `count` set to what's live and one upload each a frame.
 
 /** Instances a pool holds at most (CONTRACT.md section 2). */
-export const POOL_MAX: Record<Pool, number> = { [Pool.SMALL]: 4096, [Pool.MIDDLE]: 2048, [Pool.LARGE]: 512 };
+export const POOL_MAX: Record<Pool, number> = { [Pool.SMALL]: 4096, [Pool.MIDDLE]: 2048, [Pool.LARGE]: 512, [Pool.HEAVY]: 512 };
 export const SPECKS_MAX = 16384;
 /** The marks (CONTRACT.md section 2, O6): vertices at most, and the points along each ribbon. */
 export const MARK_VERTS = 8192;
@@ -33,8 +33,8 @@ const range = (): Range => ({ start: 0, count: 0 });
 
 /**
  * One box of a kind's model: its centre and size (m), the model's nose along +X, up +Y. A seventh says how it's lit: 1 a steady lamp (KindInfo's lights), 2 a
- * blinking one (its beacon), 3 gingham, 4 a step darker (a head of hair). An eighth puts it in a slot, 1 to 6, drawn only when the instance's look has that bit
- * (a picnic's who's on the blanket).
+ * blinking one (its beacon), 3 gingham, 4 a step darker (a head of hair, a tyre), 5 glass (dark by day, a lamp at night: a bus's windows). An eighth puts it in a
+ * slot, 1 to 6, drawn only when the instance's look has that bit (a picnic's who's on the blanket, a vehicle's body).
  */
 type Box = [number, number, number, number, number, number, number?, number?];
 
@@ -111,19 +111,48 @@ const MODELS: Record<number, Box[]> = {
     [1.15, 1.15, 0.85, 0.07, 2.3, 0.07, 0, 6],
     [1.15, 2.3, 0.85, 2.2, 0.14, 2.2, 0, 6],
   ],
-  // a car, 4.4 m, its wheels on the ground at the origin: an axle's pair of wheels front and back, the body, the cabin a little back, two headlights
+  // a car, 4.4 m before its scale (sim/cars.ts draws it a third over life size), its wheels on the ground at the origin: an axle's pair of dark tyres front and back,
+  // the body, and by its look a sedan's cabin a little back (1), an SUV's taller and longer (2) or a pickup's cab forward of its bed (3), of glass; two headlights
   [Kind.CAR]: [
-    [1.35, 0.33, 0, 0.66, 0.66, 1.84],
-    [-1.35, 0.33, 0, 0.66, 0.66, 1.84],
+    [1.35, 0.33, 0, 0.66, 0.66, 1.84, 4],
+    [-1.35, 0.33, 0, 0.66, 0.66, 1.84, 4],
     [0, 0.74, 0, 4.4, 0.64, 1.76],
-    [-0.3, 1.3, 0, 2.3, 0.5, 1.56],
+    [-0.3, 1.3, 0, 2.3, 0.5, 1.56, 5, 1],
+    [-0.4, 1.44, 0, 3.1, 0.78, 1.62, 5, 2],
+    [0.45, 1.4, 0, 1.5, 0.7, 1.62, 5, 3],
     [2.22, 0.84, 0.56, 0.08, 0.24, 0.44, 1],
     [2.22, 0.84, -0.56, 0.08, 0.24, 0.44, 1],
   ],
+  // the big ones on the road, by their look: a city bus 12 m long, its windows down either side and its windscreen lit at night (1); a box truck, its cab and its box
+  // (2); a semi, its tractor and a 16 m trailer (3). Each its own dark tyres and two headlights
+  [Kind.TRUCK]: [
+    [0, 1.8, 0, 12, 2.9, 2.55, 0, 1],
+    [0.4, 2.3, 1.29, 10.6, 0.95, 0.04, 5, 1],
+    [0.4, 2.3, -1.29, 10.6, 0.95, 0.04, 5, 1],
+    [6.02, 2.25, 0, 0.06, 1.2, 2.3, 5, 1],
+    [3.6, 0.5, 0, 1, 1, 2.6, 4, 1],
+    [-3.8, 0.5, 0, 1, 1, 2.6, 4, 1],
+    [6.03, 0.9, 0.9, 0.06, 0.3, 0.45, 1, 1],
+    [6.03, 0.9, -0.9, 0.06, 0.3, 0.45, 1, 1],
+    [3.4, 1.45, 0, 2.4, 2.3, 2.4, 0, 2],
+    [4.62, 1.95, 0, 0.06, 0.9, 2.1, 5, 2],
+    [-1.4, 2.05, 0, 6.6, 3.3, 2.55, 0, 2],
+    [3.4, 0.5, 0, 1, 1, 2.5, 4, 2],
+    [-3.0, 0.5, 0, 1, 1, 2.5, 4, 2],
+    [4.63, 0.95, 0.85, 0.06, 0.3, 0.45, 1, 2],
+    [4.63, 0.95, -0.85, 0.06, 0.3, 0.45, 1, 2],
+    [8.6, 1.9, 0, 3.2, 2.9, 2.5, 0, 3],
+    [10.22, 2.6, 0, 0.06, 1, 2.2, 5, 3],
+    [-2.2, 2.35, 0, 16, 3.7, 2.6, 0, 3],
+    [8.2, 0.55, 0, 3.2, 1.1, 2.5, 4, 3],
+    [-8.3, 0.55, 0, 2.2, 1.1, 2.6, 4, 3],
+    [10.23, 1, 0.9, 0.06, 0.3, 0.45, 1, 3],
+    [10.23, 1, -0.9, 0.06, 0.3, 0.45, 1, 3],
+  ],
 };
 
-/** How a box's light is marked over its kind in aPart (under the half the fold reads): a blinking lamp, a steady one, gingham, a step darker. */
-const LIT_MARK = [0, 0.25, 0.45, 0.15, 0.08];
+/** How a box's light is marked over its kind in aPart (under the half the fold reads): a steady lamp, a blinking one, gingham, a step darker, glass. */
+const LIT_MARK = [0, 0.25, 0.45, 0.15, 0.08, 0.32];
 
 /** The models of the kinds in a pool, one geometry, each vertex marked with its kind and its light (aPart) and its slot (aSlot). */
 function poolGeometry(kinds: Kind[]): THREE.BufferGeometry {
@@ -165,7 +194,7 @@ const POOL_VS = /* glsl */ `
     // (and a slotted box only if the instance's look has its bit)
     if (aSlot > 0.5) on *= mod(floor(aLook / exp2(aSlot - 1.0) + 0.001), 2.0);
     float lamp = fract(aPart + 0.001);
-    vLamp = lamp > 0.35 ? 2.0 : lamp > 0.2 ? 1.0 : lamp > 0.11 ? 3.0 : lamp > 0.04 ? 4.0 : 0.0;
+    vLamp = lamp > 0.4 ? 2.0 : lamp > 0.28 ? 5.0 : lamp > 0.2 ? 1.0 : lamp > 0.11 ? 3.0 : lamp > 0.04 ? 4.0 : 0.0;
     vLocal = position;
     vec4 wp = modelMatrix * instanceMatrix * vec4(position * on, 1.0);
     vWorldPos = wp.xyz;
@@ -198,7 +227,7 @@ const POOL_FS = /* glsl */ `
     float fog0 = sbFog(vWorldPos);
     // (at night, when the windows light: a car's headlights and a ferry's windows on, painted or grey, and a grey plane's beacon an eighth of each 1.2 s, as its speck's,
     // on its own phase)
-    if (uLit > 0.0 && (vLamp == 1.0 || (vLamp == 2.0 && !painted && fract(uTime / 1.2 + vSurf) < 0.125))) {
+    if (uLit > 0.0 && (vLamp == 1.0 || vLamp == 5.0 || (vLamp == 2.0 && !painted && fract(uTime / 1.2 + vSurf) < 0.125))) {
       sbWrite(${Ramp.LAMP}.0, 1.0, fog0 * 0.5, 0.0, gl_FrontFacing ? vViewNormal : -vViewNormal, vSurf, 1.0);
       return;
     }
@@ -208,6 +237,8 @@ const POOL_FS = /* glsl */ `
     // (a blanket's gingham, 0.43 m squares a step apart; a head a step darker than its body)
     if (vLamp == 3.0) light += mod(floor(vLocal.x / 0.43) + floor(vLocal.z / 0.43), 2.0) > 0.5 ? 0.1 : -0.14;
     else if (vLamp == 4.0) light -= 0.2;
+    // (glass by day: two steps down, so a car's cabin and a bus's windows read against its body)
+    else if (vLamp == 5.0) light -= 0.26;
     // (the aim's glint: a full ramp step, as on the buildings)
     light += vGlint;
     sbWrite(ramp, light, fog0, 0.0, gl_FrontFacing ? vViewNormal : -vViewNormal, vSurf, 1.0);
@@ -430,22 +461,23 @@ export class Pools {
   readonly small = new MoverPool([Kind.PERSON, Kind.CHEER, Kind.PICNIC], POOL_MAX[Pool.SMALL]);
   readonly middle = new MoverPool([Kind.SMALL_PLANE, Kind.CAR], POOL_MAX[Pool.MIDDLE]);
   readonly large = new MoverPool([Kind.AIRLINER, Kind.FERRY, Kind.SAILBOAT], POOL_MAX[Pool.LARGE]);
+  readonly heavy = new MoverPool([Kind.TRUCK], POOL_MAX[Pool.HEAVY]);
   readonly specks = new Specks();
   readonly marks = new Marks();
   readonly group = new THREE.Group();
 
   constructor() {
-    this.group.add(this.small.mesh, this.middle.mesh, this.large.mesh, this.specks.object, this.marks.object);
+    this.group.add(this.small.mesh, this.middle.mesh, this.large.mesh, this.heavy.mesh, this.specks.object, this.marks.object);
   }
 
   pool(p: Pool): MoverPool {
-    return p === Pool.LARGE ? this.large : p === Pool.SMALL ? this.small : this.middle;
+    return p === Pool.LARGE ? this.large : p === Pool.SMALL ? this.small : p === Pool.HEAVY ? this.heavy : this.middle;
   }
 
   /** One of each, as drawn (render/warmup.ts registerWarm): a pool with one instance, the specks with one point. */
   warmObjects(): THREE.Object3D[] {
     const out: THREE.Object3D[] = [];
-    for (const p of [this.small, this.middle, this.large]) {
+    for (const p of [this.small, this.middle, this.large, this.heavy]) {
       const m = new THREE.InstancedMesh(p.mesh.geometry, p.mesh.material, 1);
       m.frustumCulled = false;
       out.push(m);
@@ -464,3 +496,5 @@ export class Pools {
 
 /** The grey a grey mover draws in, from the grey world's rows. */
 export const GREY_RAMP = Ramp.GREY_LIGHT;
+/** A grey vehicle's tones, by its look's tone (sim/cars.ts): white, silver, grey and black, the street's own greys, so a car stands out from the road it's on */
+export const VEHICLE_TONES = [Ramp.WHITE, Ramp.GREY_LIGHT, Ramp.GREY, Ramp.ROOF_DARK];
