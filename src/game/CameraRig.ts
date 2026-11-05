@@ -38,10 +38,14 @@ const RIGHT = new THREE.Vector3(1, 0, 0);
 const LOOK_HOME = 1e-4;
 
 /** The look's curve, a x + b x^3: lookDegPerPx at the start, 180 degrees at lookFullPx. Past 180 it stays that curve, and with a start steep enough to get there on its own, a line. */
+const curve = { a: 0, b: 0 };
+/** (fills `curve` from the tuner's numbers, read live, in place: it runs four times a frame while a look is held) */
 const lookCurve = () => {
   const C = config.camera;
   const a = Math.max(0.01, C.lookDegPerPx), full = Math.max(1, C.lookFullPx);
-  return { a, b: Math.max(0, 180 - a * full) / (full * full * full) };
+  curve.a = a;
+  curve.b = Math.max(0, 180 - a * full) / (full * full * full);
+  return curve;
 };
 
 /** The look's angle (deg) for a thumb's offset from where it landed (px): a small nudge is a small look, and the look behind is still there. */
