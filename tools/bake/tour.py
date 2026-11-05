@@ -5,18 +5,27 @@ picked from its data, with no city in the code. tools/tour.mjs takes the photos 
   python3 -I tools/bake/tour.py <slug> [--dir=public/city/<name>]
 
 writes tools/bake/.cache/qa/<name>/tour.json (qa.py leaves it there): the frames, 27 at most, each the bus's pose
-(lat, lon, y m, heading degrees) and what it looks at (name, OSM id, lat, lon):
+(lat, lon, y m, heading degrees), the camera it's seen with, what it looks at (name, OSM id, lat, lon) and its marks,
+points of the subject in the bake's frame that tools/tour.mjs finds in the shot:
 
   bridges          every XL up to 3, then the others, longest first, a span of 1 km or more with no tower and no structure
                    tag before the rest (the thin-data case: the sheet lists every one), five bridges at most, none within
                    1,200 m of another. An XL takes 4 frames: along the span at a quarter and at three quarters (20 m over
-                   the deck, heading along it), beside it (350 m off, at deck height, facing it) and under it (halfway
-                   between the deck and what's below, along it). The others take 2: along and beside
+                   the deck, heading along it), beside it (350 m off its tower nearest the middle, or the middle with
+                   none, the low camera: the water or ground to the tower's top in the frame, the tower 5 degrees off
+                   the heading so the bus doesn't stand where the deck meets it) and under it (the middle of its
+                   longest stretch between the towers and supports under it, along it, the low camera under the deck).
+                   The others take 2: along and beside (350 m off the middle, from where the deck falls mid-frame)
   small bridges    the two widest S decks and the longest M deck: 1 each, from 40 m
   tallest towers   the top 3 by height over their ground, buildings and towers together, 300 m apart, none on a big
-                   deck: 1 each, from 300 m at half its height
+                   deck: 1 each, from 300 m, from where its middle falls mid-frame
   largest parks    the top 3 open spaces, as qa.py lists them: 1 each, from 220 m up
   biggest stations the top 2 train_station or transportation footprints, else station rows: 1 each, from 120 m
+
+The cameras are the game's (CAMERAS): the chase camera, the player's, sits 63 m over the bus and looks down 19 degrees,
+so a subject at the bus's height falls into the frame's top quarter, and a bus under a deck has its camera over it; the
+opening's low camera (CameraRig.openingLow), 17 m over the bus and looking level, is the one that sees a span from the
+side and from under it. A side of a bridge is the one with the lower ground under the camera.
 
 The decks are bridges.py's plan (its tops by the rule: until step 5 the frames along a deck fly over the drawn one by the
 rule's margin, not the LiDAR's).
@@ -43,11 +52,19 @@ TOWER_APART = 300.0  # m between two towers
 TOWER_FROM = 300.0   # m: a tower is seen from this far, at half its height
 TOWER_MIN = 25.0     # m over the ground: a tower candidate
 OVER_DECK = 20.0     # m over the deck, flying along it
-BESIDE = 350.0       # m off a deck's middle
+BESIDE = 350.0       # m off a deck's middle (an XL's tower)
+BESIDE_TURN = 5.0    # degrees an XL's tower is seen off the bus's heading: the low camera puts the bus where the deck meets it
+UNDER_CAM = 18.0     # m: the low camera this far under a deck's top (a 12 m double deck's underside, and 6 m)
+UNDER_FLOOR = 8.0    # m: the bus no lower than this over what's under the deck
 SMALL_FROM = 40.0    # m from a small bridge
 PARK_UP = 220.0      # m over a park
 STATION_FROM = 120.0 # m from a station
 STATION_CLASSES = ('train_station', 'transportation')
+# The game's cameras for a bus held at cruise (tour.mjs holds it; its speed runs up to cruise), as src/config.ts camera
+# and src/game/CameraRig.ts set them: (m behind the bus, degrees up from it, m ahead of it it looks at, m over it it looks
+# at). 'chase' the player's (distance, elevationCruise, lookAhead, 4 m under); 'low' the opening's (openingLow: 150 m at
+# 6.5 degrees, three look-aheads, 10 m over). tour.mjs records where each camera stood: a change there shows in the marks.
+CAMERAS = {'chase': (155.0, 24.0, 55.0, -4.0), 'low': (150.0, 6.5, 165.0, 10.0)}
 
 
 def _log(*a):
@@ -61,11 +78,28 @@ def heading_to(fx, fz):
 
 def deck_at(d, f):
     """(x, z, top, unit direction over 80 m) a share f of the way along a planned deck"""
-    s = f * d['length']
+    return deck_at_s(d, f * d['length'])
+
+
+def deck_at_s(d, s):
+    """deck_at, s m along it"""
     k = int(np.argmin(np.abs(d['ss'] - s)))
     a, b = d['line'].interpolate(max(0.0, s - 40.0)), d['line'].interpolate(min(d['length'], s + 40.0))
     t = np.array([b.x - a.x, b.y - a.y])
     return float(d['xz'][k, 0]), float(d['xz'][k, 1]), float(d['y'][k]), t / max(1e-6, float(np.hypot(*t)))
+
+
+def cam_offset(cam):
+    """(m up, m back) of a camera over and behind the bus"""
+    dist, el = CAMERAS[cam][:2]
+    return dist * math.sin(math.radians(el)), dist * math.cos(math.radians(el))
+
+
+def centred(cam, y, ahead):
+    """the bus's height that puts a point `ahead` m in front of it, at height y, in the middle of the frame"""
+    dist, el, la, ly = CAMERAS[cam]
+    up, back = cam_offset(cam)
+    return y - up + (back + ahead) * (up - ly) / (back + la)
 
 
 def tour(slug, city_dir, log=_log):
@@ -96,11 +130,13 @@ def tour(slug, city_dir, log=_log):
 
     frames = []
 
-    def frame(subject, kind, name, oid, look, bus, y, heading):
+    def frame(subject, kind, name, oid, look, bus, y, heading, camera='chase', marks=()):
         lo, la = inv.transform(bus[0], -bus[1])
         llo, lla = inv.transform(look[0], -look[1])
         frames.append({'subject': subject, 'kind': kind, 'name': name or '(unnamed)', 'osm': oid or '', 'lat': round(float(la), 6), 'lon': round(float(lo), 6),
-                       'y': round(float(y), 1), 'heading': round(heading, 1), 'look': {'lat': round(float(lla), 6), 'lon': round(float(llo), 6)}})
+                       'y': round(float(y), 1), 'heading': round(heading, 1), 'camera': camera, 'xz': [round(float(bus[0]), 1), round(float(bus[1]), 1)],
+                       'look': {'lat': round(float(lla), 6), 'lon': round(float(llo), 6)},
+                       'marks': [[w, round(float(mx), 1), round(float(my), 1), round(float(mz), 1)] for w, mx, my, mz in marks]})
 
     # ---------------------------------------------------------------- bridges
     p = B.plan(osm, ground, osm.segments(), B.hero_rows(man), log=lambda m: log('bridges: ' + m))
@@ -129,13 +165,41 @@ def tour(slug, city_dir, log=_log):
         for f in ((0.25, 0.75) if d['cls'] == 'XL' else (0.5,)):
             x, z, top, t = deck_at(d, f)
             frame(f'{tag}, along at {f:.2f}', 'bridge', nm, d['osm'], (x, z), (x, z), top + OVER_DECK, heading_to(*t))
-        x, z, top, t = deck_at(d, 0.5)
+        # beside: an XL from the side with the low camera, its tower nearest the middle in the frame from the water (or
+        # ground) to its top; the others with the chase camera from where the deck's middle falls mid-frame
+        xl = d['cls'] == 'XL'
+        cam = 'low' if xl else 'chase'
+        up, back = cam_offset(cam)
+        tower = min(d['towers'], key=lambda q: abs(d['line'].project(Point(q['xz'])) - d['length'] / 2)) if xl and d['towers'] else None
+        x, z, top, t = deck_at_s(d, d['line'].project(Point(tower['xz']))) if tower else deck_at(d, 0.5)
         n = np.array([-t[1], t[0]])
-        bx, bz = x + n[0] * BESIDE, z + n[1] * BESIDE
-        frame(f'{tag}, beside, {BESIDE:.0f} m off', 'bridge', nm, d['osm'], (x, z), (bx, bz), top, heading_to(x - bx, z - bz))
-        if d['cls'] == 'XL':
+        side = min((1.0, -1.0), key=lambda k: gy(x + n[0] * k * (BESIDE + back), z + n[1] * k * (BESIDE + back)))
+        bx, bz = x + n[0] * side * BESIDE, z + n[1] * side * BESIDE
+        marks = [('deck', x, top, z)]
+        if tower:
+            tx, tz = (float(v) for v in tower['xz'])
+            marks += [('tower top', tx, tower['base'] + tower['top'], tz), ('tower foot', tx, tower['base'], tz)]
+            y = centred(cam, tower['base'] + tower['top'] / 2, BESIDE)
+        else:
+            y = centred(cam, top, BESIDE)
+        frame(f'{tag}, beside' + (' its tower' if tower else '') + f', {BESIDE:.0f} m off', 'bridge', nm, d['osm'], (x, z), (bx, bz),
+              max(y, gy(bx, bz) + UNDER_FLOOR), (heading_to(x - bx, z - bz) + (BESIDE_TURN if xl else 0.0)) % 360.0, cam, marks)
+        if xl:
+            # under it: the middle of its longest stretch between the towers and supports under it (with fewer than two,
+            # its ends too: not over an approach, not in an anchorage), heading along it, the low camera behind the bus
+            # and under the deck too where the stretch has room for it
+            up, back = cam_offset('low')
+            under = [q['xz'] for q in d['towers']] + [shapely.get_coordinates(shapely.centroid(s['g']))[0] for s in p['supports']
+                                                      if s['kind'] == 'support' and d['line'].distance(shapely.centroid(s['g'])) <= d['width'] / 2 + 10]
+            cuts = sorted({round(d['line'].project(Point(q)), 1) for q in under})
+            if len(cuts) < 2:
+                cuts = sorted({0.0, d['length'], *cuts})
+            a, b = max(zip(cuts, cuts[1:]), key=lambda q: q[1] - q[0])
+            s = (a + b) / 2 if b - a < back + 40 else min(max((a + b) / 2, a + back + 20), b - 20)
+            x, z, top, t = deck_at_s(d, s)
             g = gy(x, z)
-            frame(f'{tag}, under it', 'bridge', nm, d['osm'], (x, z), (x, z), g + (top - g) / 2, heading_to(*t))
+            frame(f'{tag}, under it', 'bridge', nm, d['osm'], (x, z), (x, z), max(g + UNDER_FLOOR, min(g + (top - g) / 2, top - UNDER_CAM - up)),
+                  heading_to(*t), 'low', [('deck', x, top, z)])
     # ---------------------------------------------------------------- small bridges: the two widest S, the longest M
     small = []
     for d in sorted([d for d in decks if d['cls'] == 'S'], key=lambda d: -d['width']):
@@ -195,7 +259,9 @@ def tour(slug, city_dir, log=_log):
     for h, x, z, oid in tw:
         nm, ref = names.get((x, z), ('', oid))
         g = gy(x, z)
-        frame(f'tower, {h:.0f} m over its ground, from {TOWER_FROM:.0f} m', 'tower', nm, ref or oid, (x, z), (x, z + TOWER_FROM), g + h / 2, 0.0)
+        # (from where its middle falls mid-frame: at half its height the chase camera's pitch cut a tall one's top off)
+        frame(f'tower, {h:.0f} m over its ground, from {TOWER_FROM:.0f} m', 'tower', nm, ref or oid, (x, z), (x, z + TOWER_FROM),
+              centred('chase', g + h / 2, TOWER_FROM), 0.0, marks=[('top', x, g + h, z), ('foot', x, g, z)])
     # ---------------------------------------------------------------- the largest parks
     for pk in qa.open_spaces(osm, box(minX, minZ, maxX, maxZ), 3):
         c = pk['geom'].representative_point()

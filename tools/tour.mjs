@@ -4,11 +4,13 @@
 //   node tools/tour.mjs <baseUrl> <slug> [--list=tools/bake/.cache/qa/<slug>/tour.json] [--out=shots/local/tour/<slug>]
 //        [--qa=<city.json with stats.qa>] [--only=1,5,9] [--w=393 --h=852 --dpr=1]
 // Each frame is a fresh page at ?city=<slug>&lat=&lon=&heading=&skipintro&nohud: the bus held there, every frame, as
-// tools/sweep.mjs holds it (its x, z and heading from the URL, its height from the list) until the city around it has
-// streamed in, then __qa.holdFrames freezes the game and the shot is taken. --qa: a city.json whose stats.qa holds the
-// bridge checks (qa.py's): the sheet's head lists those NOT READ and those over their limits. The head lists the spans of
-// 1 km or more with no tower and no structure tag either way (tour.json's openSpans).
-// Writes <out>/<nn>.png, <out>/sheet.png and <out>/tour-run.json (per frame: the bus as held, draws, triangles, seconds).
+// tools/sweep.mjs holds it (where the list puts it, x, z, heading and height, until the city around it has streamed in),
+// then __qa.holdFrames freezes the game and the shot is taken. A frame the list gives the 'low' camera is taken with the
+// opening's (CameraRig.openingLow: 17 m over the bus, looking level), the others with the chase camera.
+// --qa: a city.json whose stats.qa holds the bridge checks (qa.py's): the sheet's head lists those NOT READ and those over
+// their limits. The head lists the spans of 1 km or more with no tower and no structure tag either way (openSpans).
+// Writes <out>/<nn>.png, <out>/sheet.png and <out>/tour-run.json (per frame: the bus as held, draws, triangles, seconds,
+// where the camera stood, and where the bus and the list's marks fell in the frame, x and y from its top left, 0-1).
 // No pass or fail: one look, once. Exit code 1 if a page throws or a frame never settles.
 import { chromium } from 'playwright-core';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -45,11 +47,13 @@ for (const [k, f] of list.frames.entries()) {
   try {
     await page.goto(`${base}?city=${slug}&lat=${f.lat}&lon=${f.lon}&heading=${f.heading}&skipintro&nohud`, { waitUntil: 'load' });
     await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000 });
-    // (held every frame: no flying off, no climbing out; the camera starts over behind the bus)
-    await page.evaluate((y) => {
+    // (held every frame, where the list put it: from the load to here the bus has flown on at cruise, 45 m or so. No flying
+    // off, no climbing out; the camera starts over behind the bus, the opening's low one if asked)
+    await page.evaluate(([y, low, xz, heading]) => {
       const g = window.__game, fl = g.flight;
-      const hold = (window.__hold = { x: fl.x, z: fl.z, y, heading: fl.heading });
+      const hold = (window.__hold = { x: xz ? xz[0] : fl.x, z: xz ? xz[1] : fl.z, y, heading: (heading * Math.PI) / 180 });
       Object.assign(fl, { y, vy: 0, holdY: y, speed: 0, glideSpeed: 0 });
+      g.rig.openingLow = low ? 1 : 0;
       g.rig.initialized = false;
       const tick = () => {
         fl.x = hold.x;
@@ -60,7 +64,7 @@ for (const [k, f] of list.frames.entries()) {
         requestAnimationFrame(tick);
       };
       tick();
-    }, f.y);
+    }, [f.y, f.camera === 'low', f.xz ?? null, f.heading]);
     const until = (cond, maxS) =>
       page.evaluate(
         ([c, m]) =>
@@ -80,10 +84,30 @@ for (const [k, f] of list.frames.entries()) {
     await page.waitForFunction(() => window.__qa?.held === true, null, { timeout: 30000 });
     const file = `${String(n).padStart(2, '0')}.png`;
     await page.screenshot({ path: `${out}/${file}` });
-    Object.assign(rec, await page.evaluate(() => {
-      const g = window.__game;
-      return { bus: [g.flight.x, g.flight.y, g.flight.z].map((v) => +v.toFixed(1)), draws: window.__stats?.calls ?? null, tris: window.__stats?.triangles ?? null };
-    }));
+    Object.assign(rec, await page.evaluate((marks) => {
+      const g = window.__game, fl = g.flight, cam = g.camera;
+      // (where a point fell in the frame: from the camera as the rig set it, by its own lens, the rig's hfov across the
+      // portrait frame; null behind it)
+      const P = new cam.position.constructor(), Q = new cam.quaternion.constructor();
+      cam.updateMatrixWorld(true);
+      cam.getWorldPosition(P);
+      cam.getWorldQuaternion(Q);
+      const th = Math.tan((g.rig.hfov * Math.PI) / 360), tv = (th * innerHeight) / innerWidth;
+      const at = ([x, y, z]) => {
+        const v = new P.constructor(x, y, z).sub(P).applyQuaternion(Q.clone().invert());
+        return -v.z > 0.1 ? [+(0.5 + v.x / -v.z / th / 2).toFixed(3), +(0.5 - v.y / -v.z / tv / 2).toFixed(3)] : null;
+      };
+      return {
+        bus: [fl.x, fl.y, fl.z].map((v) => +v.toFixed(1)),
+        draws: window.__stats?.calls ?? null,
+        tris: window.__stats?.triangles ?? null,
+        cam: [P.x, P.y, P.z].map((v) => +v.toFixed(1)),
+        camLow: g.rig.openingLow,
+        speed: +fl.speed.toFixed(1),
+        busAt: at([fl.x, fl.y, fl.z]),
+        marksAt: marks.map(([what, x, y, z]) => [what, at([x, y, z])]),
+      };
+    }, f.marks ?? []));
     Object.assign(rec, { file, ok: true });
   } catch (e) {
     rec.error = String(e.message ?? e).slice(0, 300);
@@ -111,7 +135,7 @@ if (flags.qa && existsSync(flags.qa)) {
 const spans = (list.openSpans ?? []).map((s) => `${s.name} ${s.length.toLocaleString('en')} m (${s.osm}, ${s.lat}, ${s.lon})`);
 const cells = run.frames
   .filter((r) => r.ok)
-  .map((r) => `<figure><img src="${img(r.file)}"><figcaption><b>${r.n}. ${esc(r.name)}</b> ${esc(r.osm)}<br>${esc(r.subject)}<br>looks at ${r.look.lat}, ${r.look.lon}<br>bus ${r.lat}, ${r.lon}, y ${r.y}, heading ${r.heading}</figcaption></figure>`);
+  .map((r) => `<figure><img src="${img(r.file)}"><figcaption><b>${r.n}. ${esc(r.name)}</b> ${esc(r.osm)}<br>${esc(r.subject)}<br>looks at ${r.look.lat}, ${r.look.lon}<br>bus ${r.lat}, ${r.lon}, y ${r.y}, heading ${r.heading}${r.camera === 'low' ? ', the low camera' : ''}</figcaption></figure>`);
 const sheet = await browser.newPage();
 await sheet.setViewportSize({ width: 9 * 310 + 20, height: 400 });
 await sheet.setContent(
