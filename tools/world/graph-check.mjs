@@ -123,7 +123,8 @@ const sea = (x, z) => { const c = klass(x, z); return c === 255 || (c === WATER 
 const life = man.life;
 report('city.json life block', life ? `graph ${life.graph}, routes ${life.routes}` : 'none', '', !!life);
 if (!life) process.exit(1);
-const regions = man.regions.map((r) => [r[0], r[1]]);
+// C1 (0.6): life finds its files in life.regions, every cell inside the bounds with anything in it, water with no tile too
+const regions = (life.regions ?? man.regions).map((r) => [r[0], r[1], r[2]]); // (City's, to check the rest of a 0.5 bake)
 const regionSet = new Set(regions.map(([a, b]) => `${a},${b}`));
 const [bx0, bz0, bx1, bz1] = man.bounds;
 
@@ -177,7 +178,7 @@ const c = {
   files: 0, missing: 0, parseFail: 0, tooBig: 0, gz: 0, raw: 0, sizes: [],
   nodes: 0, edges: 0, points: 0, areas: 0, tris: 0,
   outside: 0, edgesAcross: 0, selfLoops: 0, shortEdges: 0,
-  portals: 0, lineNotPortal: 0, lineDeadEnds: 0, lineDeadC1: 0,
+  portals: 0, lineNotPortal: 0, lineDeadEnds: 0, lineDeadC1: 0, cellsOut: 0, bytesOff: 0,
   idTwiceInFile: 0, idKinds: 0, noKey: 0,
   byDir: {}, oneWay: 0, noCars: 0, noCarsKm: 0, noCarsOff: 0, minors: new Set(),
   tunnelUndrawn: 0, undrawnKm: {}, kmByClass: {},
@@ -199,13 +200,15 @@ const edgeSeen = new Map();
 const onLine = (v) => { const k = Math.round(v / REGION_M); return Math.abs(v - k * REGION_M) < 1e-3; };
 const SAMPLE = 4;
 
-for (const [rx, rz] of regions) {
+for (const [rx, rz, bytes] of regions) {
   const p = `${dir}/g_${rx}_${rz}.bin`;
   if (!existsSync(p)) { c.missing++; continue; }
+  if (rx < Math.floor(bx0 / REGION_M) || rx >= Math.ceil(bx1 / REGION_M) || rz < Math.floor(bz0 / REGION_M) || rz >= Math.ceil(bz1 / REGION_M)) c.cellsOut++;
   const gz = readFileSync(p);
   c.files++;
   c.gz += gz.length;
   c.sizes.push([gz.length, rx, rz]);
+  if (gz.length !== bytes) c.bytesOff++;
   if (gz.length > G_LIMIT) c.tooBig++;
   const raw = gunzipSync(gz);
   c.raw += raw.length;
@@ -438,7 +441,8 @@ for (const [id, l] of nodeSeen) {
     const across = [];
     if (onLine(q.x)) across.push(Math.abs(q.x - rx * REGION_M) < 1e-3 ? [rx - 1, rz] : [rx + 1, rz]);
     if (onLine(q.z)) across.push(Math.abs(q.z - rz * REGION_M) < 1e-3 ? [rx, rz - 1] : [rx, rz + 1]);
-    if (across.some(([a, b]) => !regionSet.has(`${a},${b}`))) c.lineDeadC1++;
+    const inBounds = ([a, b]) => a >= Math.floor(bx0 / REGION_M) && a < Math.ceil(bx1 / REGION_M) && b >= Math.floor(bz0 / REGION_M) && b < Math.ceil(bz1 / REGION_M);
+    if (across.some((q) => inBounds(q) && !regionSet.has(`${q[0]},${q[1]}`))) c.lineDeadC1++;
   }
 }
 for (const id of nodeSeen.keys()) if (edgeSeen.has(id) || areaSeen.has(id)) c.idKinds++;
@@ -449,7 +453,13 @@ const largest = c.sizes.sort((a, b) => b[0] - a[0])[0] ?? [0, 0, 0];
 const med = c.sizes.length ? c.sizes.map((s) => s[0]).sort((a, b) => a - b)[c.sizes.length >> 1] : 0;
 
 console.log(`\nW1 ${slug}: ${dir}`);
-report('graph files', `${c.files} of ${regions.length} regions, ${c.missing} missing`, 'one a region of city.json regions', c.missing === 0);
+{
+  const listed = new Set(regions.map(([a, b]) => `${a},${b}`));
+  const tileless = regions.filter(([a, b]) => !man.regions.some((r) => r[0] === a && r[1] === b)).length;
+  const unlisted = man.regions.filter((r) => !listed.has(`${r[0]},${r[1]}`)).length;
+  report('graph files (C1)', `${c.files} of ${regions.length} in life.regions, ${c.missing} missing, ${tileless} where City has no tile, ${unlisted} of City's ${man.regions.length} regions not listed, ${c.cellsOut} outside the bounds, ${c.bytesOff} whose bytes aren't listed's`,
+    'every file listed, every City region listed', !!life.regions && regions.length > 0 && c.missing === 0 && unlisted === 0 && c.cellsOut === 0 && c.bytesOff === 0);
+}
 report('graph files parse with the shipped parser', `${c.files - c.parseFail} of ${c.files}, version ${L.GRAPH_VERSION}`, 'every one', c.parseFail === 0);
 report('graph file sizes', `${(c.gz / 1e6).toFixed(2)} MB gzipped (${(c.raw / 1e6).toFixed(2)} MB raw), median ${(med / 1024).toFixed(1)} KB, largest ${(largest[0] / 1024).toFixed(1)} KB at ${largest[1]}, ${largest[2]}`, '128 KB each', c.tooBig === 0);
 report('counts', `${c.nodes} nodes, ${c.edges} edges, ${c.points} inner points, ${c.areas} areas, ${c.tris} triangles`, '');
@@ -479,7 +489,7 @@ report('keys', `${keysOf.size} in gkeys.bin; ${keyDup} keys with two ids within 
   report('node keys (C4)', Object.entries(f).map(([k, v]) => `${k} ${v}`).join(', ') + (where ? ` (first: ${where})` : ''), 'no other form, each place the node\'s', f['another form'] === 0 && f['place not the node\'s'] === 0);
 }
 report('edges from a node to itself', `${c.selfLoops}; ${c.shortEdges} edges under 5 cm in plan (a cut by a junction: both ends can fall in one decimetre)`, '0', c.selfLoops === 0);
-report('nodes on a region line with edges one side only', `${c.lineDeadEnds}, ${c.lineDeadC1} of them on a cell with no file (C1)`, '');
+report('nodes on a region line with edges one side only', `${c.lineDeadEnds}, ${c.lineDeadC1} of them where the cell across, inside the bounds, has no file (C1)`, '0 where the cell across has no file', c.lineDeadC1 === 0);
 report('direction', Object.entries(c.byDir).sort().map(([k, v]) => `${k} ${v}`).join(', '), '');
 report('one-way edges against the bake\'s count', `${c.oneWay} in the files, ${life.stats?.oneWay?.edges} in life.stats (from ${life.stats?.oneWay?.rulesRead} rules read)`, 'the same', c.oneWay === life.stats?.oneWay?.edges);
 report('tunnels that are UNDRAWN', c.tunnelUndrawn, '0', c.tunnelUndrawn === 0);

@@ -649,7 +649,11 @@ class Bake:
         m = self.man
         self.R = float(m['tileSize']) * int(m.get('regionSize', 4))
         self.bounds = [float(v) for v in m['bounds']]
-        self.regions = {(r[0], r[1]) for r in m['regions']}
+        self.tile_regions = {(r[0], r[1]) for r in m['regions']}
+        # C1: a graph file in every cell inside the bounds with anything in it, the open water with no City tile included
+        bx0, bz0, bx1, bz1 = self.bounds
+        self.regions = {(rx, rz) for rx in range(math.floor(bx0 / self.R), math.ceil(bx1 / self.R))
+                        for rz in range(math.floor(bz0 / self.R), math.ceil(bz1 / self.R))}
         self.fwd = Transformer.from_crs('EPSG:4326', m['proj'], always_xy=True)
         self.inv = Transformer.from_crs(m['proj'], 'EPSG:4326', always_xy=True)
         x0, z0, x1, z1 = self.bounds
@@ -912,9 +916,6 @@ class Bake:
             flags_here = {v for v, b in flag_rules if covers(b, fm)}
             if flags_here & LEFT_OUT:
                 self.stats['dropped']['indoor, building or abandoned'] += 1
-                continue
-            if reg not in self.regions:
-                self.stats['dropped'][f'no tile in the cell (C1): {KIND_NAME[kind]}'] += 1
                 continue
             if self.only and reg != self.only:
                 continue
@@ -1383,18 +1384,24 @@ class Bake:
         worst = (0, None)
         for r in regs:
             buf, c = self.build_region(r)
+            path = os.path.join(self.out, f'g_{r[0]}_{r[1]}.bin')
+            if not c.get('nodes') and not any(k.startswith('areas ') for k in c):
+                if os.path.exists(path):
+                    os.remove(path)   # a cell with nothing in it has no file (C1)
+                continue
             for k, v in c.items():
                 counts[k] += v
             tri_total += c.get('triangles', 0)
             gz = gzip.compress(buf, compresslevel=9, mtime=0)
             self.files[r] = (len(buf), len(gz))
-            with open(os.path.join(self.out, f'g_{r[0]}_{r[1]}.bin'), 'wb') as f:
+            with open(path, 'wb') as f:
                 f.write(gz)
             if len(gz) > worst[0]:
                 worst = (len(gz), r)
             guard(f'region {r}')
         sizes = sorted(v[1] for v in self.files.values())
-        self.stats['files'] = {'regions': len(sizes), 'gzBytes': sum(sizes), 'rawBytes': sum(v[0] for v in self.files.values()),
+        self.stats['files'] = {'regions': len(sizes), 'noTile': sum(1 for r in self.files if r not in self.tile_regions),
+                               'gzBytes': sum(sizes), 'rawBytes': sum(v[0] for v in self.files.values()),
                                'median': sizes[len(sizes) // 2] if sizes else 0, 'largest': [worst[0], list(worst[1]) if worst[1] else None]}
         self.stats['counts'] = dict(counts)
         self.note(f'regions: {len(sizes)} files, {sum(sizes) / 1e6:.2f} MB gzipped, largest {worst[0] / 1024:.1f} KB at {worst[1]}')
@@ -1999,7 +2006,9 @@ class Bake:
             m['geoid'] = g[0]
             m['geoidSpread'] = [g[1], g[2]]
         st = self.stats
-        m['life'] = {'graph': GRAPH_VERSION[0], 'routes': ROUTES_VERSION[0], 'stats': {
+        m['life'] = {'graph': GRAPH_VERSION[0], 'routes': ROUTES_VERSION[0],
+                     'regions': [[r[0], r[1], self.files[r][1]] for r in sorted(self.files)],   # C1: every cell with a file
+                     'stats': {
             'edges': {k[6:]: v for k, v in st['counts'].items() if k.startswith('edges ')},
             'areas': {k[6:]: v for k, v in st['counts'].items() if k.startswith('areas ')},
             'nodes': st['counts'].get('nodes', 0), 'points': st['counts'].get('points', 0),
