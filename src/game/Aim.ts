@@ -35,6 +35,8 @@ export interface MoverTarget {
   z: number;
   arrive: number;
   pickR: number;
+  /** taken on the line of fire alone (a person, `KindInfo.onLine`): a building near the aim point doesn't have the shot from it, but a latched one keeps it */
+  onLine: boolean;
 }
 
 /** What the aim asks life (src/life/Life.ts): the mover nearest a line of fire, and which one glints. */
@@ -76,7 +78,7 @@ export class Aimer {
   private mover: MoverTarget | null = null;
   private moverLatch: MoverTarget | null = null;
   private moverLatchUntil = 0;
-  private readonly moverHeld: MoverTarget = { mover: true, key: '', x: 0, y: 0, z: 0, arrive: 0, pickR: 0 };
+  private readonly moverHeld: MoverTarget = { mover: true, key: '', x: 0, y: 0, z: 0, arrive: 0, pickR: 0, onLine: false };
   /** game time the shown building started glinting (the glint's sweep starts there) */
   shownSince = 0;
   /** how far off the nose the breath goes (rad, +right): the look's, per frame (main.ts) */
@@ -317,18 +319,37 @@ export class Aimer {
       const dx = aim.x - f.x, dy = aim.y - f.y, dz = aim.z - f.z;
       // (the building's distance: a mover nearer the bus than it takes the shot, one past it doesn't: the jet couldn't get through)
       const bd = shown ? (shown.cx - f.x) ** 2 + (shown.roofY - f.y) ** 2 + (shown.cz - f.z) ** 2 : Infinity;
-      const near = (q: MoverTarget | null) => !!q && (q.x - f.x) ** 2 + (q.y - f.y) ** 2 + (q.z - f.z) ** 2 < bd;
+      const near = (q: MoverTarget | null) => !!q && ((q.onLine && !this.latchRef) || (q.x - f.x) ** 2 + (q.y - f.y) ** 2 + (q.z - f.z) ** 2 < bd);
       m = life.aim(f.x, f.y, f.z, dx, dy, dz, r, aim.travel);
+      if (m?.onLine && !this.clearTo(m)) m = null;
       if (!near(m)) {
         // (along the nose, as far as a breath's reach: a plane alongside or ahead, which from high up is nearer than any roof under the aim)
         const reach = config.splat.moverReach, c = Math.cos(f.nose), speed = aim.dist / Math.max(0.05, aim.travel);
         m = life.aim(f.x, f.y, f.z, this.fx * c * reach, Math.sin(f.nose) * reach, this.fz * c * reach, r, reach / Math.max(1, speed));
+        if (m?.onLine && !this.clearTo(m)) m = null;
         if (!near(m)) m = null;
       }
     }
     this.mover = m;
     life.glint(m ? m.key : null);
     return m ? null : shown;
+  }
+
+  /**
+   * ?life: no building stands between the mouth and a person on the line of fire (their middle), marched as `occlude` marches a shot: one clearly over the
+   * line stops it, a grazed roof edge doesn't, and the last metres are the street they stand in. No allocation.
+   */
+  private clearTo(q: MoverTarget): boolean {
+    const S = config.splat, city = this.city, x0 = this.x0, y0 = this.y0, z0 = this.z0;
+    const dx = q.x - x0, dz = q.z - z0, ey = q.y + 0.9, L = Math.hypot(dx, dz);
+    if (L < 6) return true;
+    const ux = dx / L, uz = dz / L;
+    for (let s = 4; s < L - 2; s += 2) {
+      const chordY = y0 + (ey - y0) * (s / L);
+      const ref = city.buildingAbove(x0 + ux * s, z0 + uz * s, chordY + S.wallClear, chordY);
+      if (ref && ref.roofY - ref.baseY >= S.minTargetHeight) return false;
+    }
+    return true;
   }
 
   /** A touch went down that may become a tap: freeze what glints (taps fire on the lift). */

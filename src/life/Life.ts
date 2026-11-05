@@ -11,7 +11,7 @@ import type { LifeTick, LifeWalk } from './lifeWorker';
 import { WALK_CELL } from './sim/people';
 import { Ground } from '../world/tiles';
 import { fnv1a } from './hash';
-import { Col, KINDS, ROW } from './kinds';
+import { Col, Kind, KINDS, ROW } from './kinds';
 import type { MoverStore } from './paint';
 import { GREY_RAMP, MARK_POINTS, MARKS_MAX, type Pools, SPECKS_MAX } from './pools';
 import { MAX_ROWS, readKeys, SNAP_BYTES, view, type SnapView } from './snapshot';
@@ -22,6 +22,8 @@ import { MAX_ROWS, readKeys, SNAP_BYTES, view, type SnapView } from './snapshot'
 const TICK_MS = 100;
 /** Under this many pixels a mover is a speck; a grey one under 1 px isn't drawn, a painted one keeps its 1 px to orbit (CONTRACT.md 1.4). */
 const MODEL_PX = 2;
+/** how far past the aim point a person on the line of fire may stand (m): the street under the rooftops' margin a 45 m drop over a 16 m one */
+const ON_LINE_PAST = 60;
 /** The street's reach (m): as far as a plane can be seen from where the bus is, the sky over the place. From the flight's loop it's the horizon. */
 const REACH = 80000;
 /** The flight's loop draws to 30 km (moonrun.ts, setFar): past this (m) a mover is drawn nearer the lens along its own line of sight, its size cut to match, so it's where it
@@ -61,6 +63,8 @@ export class LifeHost {
   readonly keys = new Map<number, string>();
   /** the painted movers, by key hash */
   readonly painted = new Map<number, MoverPaint>();
+  /** a painted person, where the paint found them: they stop there, as the worker walks them on (by key's hash) */
+  private readonly stood = new Map<number, { x: number; y: number; z: number }>();
   private readonly tick: LifeTick = { type: 'tick', utcMs: 0, x: 0, y: 0, z: 0, lat: 0, lon: 0, reach: 0, buf: null as unknown as ArrayBuffer };
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
@@ -68,15 +72,18 @@ export class LifeHost {
   private readonly p = new THREE.Vector3();
   private readonly s = new THREE.Vector3();
   /** QA: the last frame's rows, models and specks, the snapshots taken, the loop that drew it; and the first DRAWN movers drawn, each its key's hash and where (the loop's frame) */
-  readonly qa = { rows: 0, models: 0, people: 0, specks: 0, marks: 0, sent: 0, snaps: 0, hits: 0, sky: false, drawn: 0 };
+  readonly qa = { rows: 0, models: 0, people: 0, specks: 0, marks: 0, sent: 0, snaps: 0, hits: 0, sky: false, drawn: 0, dancers: 0 };
   readonly drawn = new Float64Array(DRAWN * 4);
+  /** QA: the last painted person drawn dancing this frame: its key's hash, where (the hop in it), and its pose (Kind.PERSON or Kind.CHEER) */
+  readonly danced = new Float64Array(5);
+  private dancers = 0;
   /** the frame's clocks, for the aim between frames */
   private utc = 0;
   private sim = 0;
   /** the mover glinting (its key's hash, 0: none), and the aim's answer, one object reused */
   private glintHash = 0;
   private glintKey: string | null = null;
-  private readonly target: MoverTarget = { mover: true, key: '', x: 0, y: 0, z: 0, arrive: 0, pickR: 0 };
+  private readonly target: MoverTarget = { mover: true, key: '', x: 0, y: 0, z: 0, arrive: 0, pickR: 0, onLine: false };
   /** hits on their way: each takes at its impact's game time */
   private readonly hits: Array<{ h: number; key: string; hue: number; level: number; arrive: number; until: number }> = [];
   private readonly worker: Worker;
@@ -288,6 +295,8 @@ export class LifeHost {
     this.qa.models = pc[0] + pc[1] + pc[2];
     this.qa.specks = ns;
     this.qa.marks = nk;
+    this.qa.dancers = this.dancers;
+    this.dancers = 0;
   }
 
   /**
@@ -350,11 +359,20 @@ export class LifeHost {
       for (let i = 0; i < n; i++) {
         const o = i * ROW, info = KINDS[rows[o + Col.KIND]];
         if (!info) continue;
-        const x0 = rows[o + Col.X] + rows[o + Col.VX] * dt, y0 = rows[o + Col.Y] + rows[o + Col.VY] * dt, z0 = rows[o + Col.Z] + rows[o + Col.VZ] * dt;
+        let x0 = rows[o + Col.X] + rows[o + Col.VX] * dt, y0 = rows[o + Col.Y] + rows[o + Col.VY] * dt, z0 = rows[o + Col.Z] + rows[o + Col.VZ] * dt;
+        const paint = this.painted.get(u32[o + Col.KEY]);
+        // (painted life comes alive, LIVING.md: a person stops where the paint found them, turns to the bus and dances; the worker walks them on, unseen)
+        const alive = paint !== undefined && rows[o + Col.KIND] === Kind.PERSON;
+        if (alive) {
+          let st = this.stood.get(u32[o + Col.KEY]);
+          if (!st) this.stood.set(u32[o + Col.KEY], (st = { x: x0, y: y0, z: z0 }));
+          x0 = st.x;
+          y0 = st.y;
+          z0 = st.z;
+        }
         const dx = x0 - cam.x, dy = y0 - cam.y, dz = z0 - cam.z, d = Math.sqrt(dx * dx + dy * dy + dz * dz);
         let scale = rows[o + Col.SCALE], x = x0, y = y0, z = z0;
-        const px = (info.size * scale) / Math.max(1, d * ang);
-        const paint = this.painted.get(u32[o + Col.KEY]);
+        const px = (info.size * scale) / (Math.max(1, d) * ang);
         const ramp = paint ? HUE_RAMPS[paint.hue] : GREY_RAMP;
         if (d > near) {
           const k = near / d;
@@ -367,6 +385,7 @@ export class LifeHost {
           const k = pc[info.pool];
           if (k >= P.pool(info.pool).max) continue;
           this.put(P.pool(info.pool), k, o, x, y, z, scale, ramp);
+          if (alive) y += this.dance(P.small, k, o, x, y, z, scale, cam, utcMs);
           pc[info.pool]++;
         } else if ((paint || px >= 1) && ns < SPECKS_MAX) {
           sp.pos[ns * 3] = x;
@@ -408,6 +427,28 @@ export class LifeHost {
     pool.ramp[k] = ramp;
     pool.glint[k] = key === this.glintHash ? config.splat.glintLift : 0;
     pool.surf[k] = (key & 0xffff) / 65536;
+  }
+
+  /**
+   * A painted person's instance, `put` already, made to dance: turned to the lens, a hop on its own beat (its key's), about 1.7 a second and 0.3 m high, both arms
+   * up over the top half of it. Returns the hop's lift (m).
+   */
+  private dance(pool: Pools['small'], k: number, o: number, x: number, y: number, z: number, scale: number, cam: THREE.Vector3, utcMs: number): number {
+    const key = this.snap!.rowsU32[o + Col.KEY], up = Math.abs(Math.sin(Math.PI * ((utcMs / 1000) * 1.7 + (key & 255) / 256))), lift = 0.3 * up * scale;
+    // (the model faces +X, a heading turned as the worker's: atan2 of the way it faces)
+    this.e.set(0, -Math.atan2(cam.z - z, cam.x - x), 0);
+    this.q.setFromEuler(this.e).premultiply(this.qMap);
+    this.m.compose(this.p.set(x, y + lift, z), this.q, this.s.set(scale, scale, scale));
+    this.m.toArray(pool.mesh.instanceMatrix.array as Float32Array, k * 16);
+    pool.kind[k] = up > 0.5 ? Kind.CHEER : Kind.PERSON;
+    const D = this.danced;
+    D[0] = key;
+    D[1] = x;
+    D[2] = y + lift;
+    D[3] = z;
+    D[4] = pool.kind[k];
+    this.dancers++;
+    return lift;
   }
 
   /** The snapshot's rows Earth fixed, once a snapshot: each place exactly (the map's projection, then the ellipsoid), each velocity along the map's axes at its origin. */
@@ -455,7 +496,7 @@ export class LifeHost {
         const lx = x - cam.x, ly = y - cam.y, lz = z - cam.z, d = Math.sqrt(lx * lx + ly * ly + lz * lz);
         const x0 = x, y0 = y, z0 = z;
         let scale = rows[o + Col.SCALE];
-        const px = (info.size * scale) / Math.max(1, d * ang), paint = this.painted.get(u32[o + Col.KEY]), ramp = paint ? HUE_RAMPS[paint.hue] : GREY_RAMP;
+        const px = (info.size * scale) / (Math.max(1, d) * ang), paint = this.painted.get(u32[o + Col.KEY]), ramp = paint ? HUE_RAMPS[paint.hue] : GREY_RAMP;
         if (!paint && px < 1) continue;
         if (d > SKY_NEAR) {
           const k = SKY_NEAR / d;
@@ -510,7 +551,9 @@ export class LifeHost {
       const vx = rows[o + Col.VX], vy = rows[o + Col.VY], vz = rows[o + Col.VZ];
       let x = rows[o + Col.X] + vx * t0, y = rows[o + Col.Y] + vy * t0, z = rows[o + Col.Z] + vz * t0;
       let along = (x - ox) * ux + (y - oy) * uy + (z - oz) * uz;
-      if (along <= 0 || along > L * 1.25) continue;
+      // (one on the line alone may stand past its end, ON_LINE_PAST at most: the line ends on the obstacle grid, roofs plus 3 m, which stands over the
+      // sidewalk by a building, so the street under it is on the line too; whether a wall stands between is the aim's, Aim.clearTo)
+      if (along <= 0 || along > (info.onLine ? L + ON_LINE_PAST : L * 1.25)) continue;
       // (where it is when the breath gets there: once round is near enough at a plane's speed against the breath's)
       const tt = along / speed;
       x += vx * tt;
@@ -518,7 +561,7 @@ export class LifeHost {
       z += vz * tt;
       along = (x - ox) * ux + (y - oy) * uy + (z - oz) * uz;
       const px = x - ox - ux * along, py = y - oy - uy * along, pz = z - oz - uz * along, d = Math.sqrt(px * px + py * py + pz * pz);
-      const R = pickR + 0.5 * info.size * rows[o + Col.SCALE] + along * 0.02;
+      const R = (info.onLine ? 0 : pickR) + 0.5 * info.size * rows[o + Col.SCALE] + along * 0.02;
       if (d > R || d >= bestD || !this.keys.has(u32[o + Col.KEY])) continue;
       best = i;
       bestD = d;
@@ -536,6 +579,7 @@ export class LifeHost {
     t.z = bz;
     t.arrive = this.sim + bt;
     t.pickR = bR;
+    t.onLine = KINDS[rows[best * ROW + Col.KIND]]?.onLine === true;
     return t;
   }
 
@@ -593,6 +637,7 @@ export class LifeHost {
   /** The tuner's reset: every mover grey again. */
   resetPaint(): void {
     this.painted.clear();
+    this.stood.clear();
     this.hits.length = 0;
     this.store.clear();
   }

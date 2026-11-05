@@ -226,12 +226,13 @@ export interface MoverTarget {
   x: number; y: number; z: number;          // the impact point, map metres, where its path puts it at arrival
   arrive: number;                           // the game time (simTime, s) the breath lands
   pickR: number;                            // the radius it was picked at (m)
+  onLine: boolean;                          // taken on the line of fire alone (a person): no building near the aim point has the shot from it (life's side, LIFE.md)
 }
 // Shot.target becomes BuildingRef | MoverTarget | null; fire() sets shot.y for a mover, so main.ts reads no roof for it.
 // Splatter.barf takes opts.mover: no water miss, no refund, the flash and hit-stop of a hit.
 ```
 
-- `Aimer.update` asks `life.aim(...)` every frame with the aim's ray (`config.splat.aimDown`), the bus's forward, the pick radius for its height (`Splat.ts` ~187, `pickRadius(drop)`) and the breath's flight time. Life answers with the mover nearest that line at the moment the breath arrives, or null. Past the aim's ray it may look along the bus's forward, so a plane flown alongside can be painted. A mover nearer the line of fire than the building target wins, and the press and latch (`Aim.ts` ~278) hold it as they hold a building.
+- `Aimer.update` asks `life.aim(...)` every frame with the aim's ray (`config.splat.aimDown`), the bus's forward, the pick radius for its height (`Splat.ts` ~187, `pickRadius(drop)`) and the breath's flight time. Life answers with the mover nearest that line at the moment the breath arrives, or null. Past the aim's ray it may look along the bus's forward, so a plane flown alongside can be painted. A person is taken only on the line itself (`onLine`), so a crowd on a sidewalk never steals a building's glint: how near is life's (`LIFE.md`), and nothing of the world's changes. A mover nearer the line of fire than the building target wins, and the press and latch (`Aim.ts` ~278) hold it as they hold a building.
 - The glint: building glint lives in the city's material, so a mover's is a channel in life's pools: life lights the target's instance by its key.
 - `life.hit(key, color, utcMs, arrive)` is called at fire time and takes effect at `arrive`, the impact's game time. Life decides the level (fresh: 1; painted: its own level + 1, at most 3) and returns `true` if a fresh mover took `color`, so `Splatter` advances `nextHue` (`Splat.ts` ~255) as it does for a fresh building.
 - Area hits: `life.blast(x, y, z, r, hue, superTag, arrive)` for mega, super and hose blasts (`SuperSplat`, `opts.radius`, `opts.hose`, `main.ts` ~913-925): every mover in the radius at arrival takes paint as a building in it would. A mega over a regatta is the obvious move.

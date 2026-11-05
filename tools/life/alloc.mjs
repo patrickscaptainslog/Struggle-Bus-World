@@ -4,6 +4,7 @@
 //   flight   frameSky() the same, the bus 40 km over the city
 //   aim      aim() 10,000 times, along a line through the sky
 //   people   frame() low over a street's ground, once its tiles round the bus are sampled (two arrays a tile, as it comes near)
+//   dance    frame() the same with the worker's people on those tiles in the snapshot, every one painted, so they stop and dance
 //   each     what the heap grows by over the 10,000 calls, after a collection: under 64 KB (the contract's bar). Printed beside it, what they made before one: in V8 a
 //            double stored in an object's field, or passed to a call it doesn't inline, is boxed, 16 bytes dropped at once (measured: six doubles to a call not inlined,
 //            96 bytes; six small integers, none), which JavaScriptCore never makes, keeping a double in the value itself
@@ -83,7 +84,7 @@ const aim = () => {
 // (a host with the street's ground behind it, a sidewalk every eighth 4 m cell, the bus low over it: people sampled, sent and drawn)
 const { Ground } = await import('../../src/world/tiles.ts');
 const world = { tileSize: 256, groundAt: () => 4, groundClassAt: (x, z) => (Math.floor(x / 4) % 8 === 0 || Math.floor(z / 4) % 8 === 0 ? Ground.SIDEWALK : Ground.PAVED) };
-const walkWorker = { postMessage: () => {}, onmessage: null }, walkPools = new Pools(), walkScene = new THREE.Scene();
+const walkTiles = [], walkWorker = { postMessage: (m) => m?.type === 'walk' && m.tile && walkTiles.push(m.tile), onmessage: null }, walkPools = new Pools(), walkScene = new THREE.Scene();
 walkScene.add(walkPools.group);
 const walkHost = new LifeHost(walkWorker, walkPools, store, 'sf', ORIGIN, world);
 let wutc = T0, wsim = 1;
@@ -93,7 +94,7 @@ const people = () => {
   wsim += 1 / 60;
   walkHost.frame(1 / 60, wsim, wutc, low, camera);
 };
-const measure = (name, fn, check) => {
+const measure = (name, fn, check, h = host) => {
   for (let i = 0; i < 30000; i++) fn();
   gc();
   gc();
@@ -103,7 +104,7 @@ const measure = (name, fn, check) => {
   gc();
   gc();
   const kept = process.memoryUsage().heapUsed - h0;
-  const q = { ...host.qa };
+  const q = { ...h.qa };
   row(`${name}: 10,000 calls grow the heap by under 64 KB`, kept < LIMIT && check(q), { keptKB: +(kept / 1024).toFixed(1), madeKB: +(made / 1024).toFixed(1), rows: q.rows, models: q.models, specks: q.specks, marks: q.marks });
 };
 measure('street', street, (q) => q.rows > 0 && q.specks + q.models > 0 && q.marks > 0);
@@ -111,7 +112,33 @@ host.attachSky(skyScene, skyCam);
 measure('flight', flight, (q) => q.rows > 0 && q.sky && q.specks + q.models > 0 && q.marks > 0);
 measure('aim', aim, () => aimed > 0);
 // (its tiles sampled in the warm-up, two arrays each, as a tile comes near: after that a frame keeps nothing)
-measure('people', people, () => walkHost.walked.size > 0);
+measure('people', people, () => walkHost.walked.size > 0, walkHost);
+{
+  // (the worker's tick for people as lifeWorker.ts makes it, from the tiles the host sent, every one of them painted, and a lens low over them: each frame they dance)
+  const { peopleOn } = await import('../../src/life/sim/people.ts');
+  const buf = new ArrayBuffer(SNAP_BYTES), v = view(buf), day = Math.floor(wutc / 86400000);
+  let keyAt = 0, n = 0;
+  for (const t of walkTiles) n = peopleOn(t, day, wutc, low.x, low.z, 800, v.rows, n, MAX_ROWS, (h, k) => {
+    const next = writeKey(v, keyAt, h, k);
+    if (next >= 0) keyAt = next;
+  });
+  v.u32[3] = keyAt;
+  v.f64[0] = wutc;
+  v.u32[2] = n;
+  walkWorker.onmessage({ data: { type: 'snap', buf } });
+  for (const key of walkHost.keys.values()) walkHost.hit(key, fnv1a(key) % 6, wutc, 0);
+  const lowCam = new THREE.PerspectiveCamera(24, 393 / 852, 1.5, 30000);
+  lowCam.position.set(low.x, low.y + 20, low.z + 60);
+  lowCam.lookAt(low.x, 4, low.z);
+  lowCam.updateMatrixWorld();
+  const dance = () => {
+    wutc += 16;
+    wsim += 1 / 60;
+    walkHost.frame(1 / 60, wsim, wutc, low, lowCam);
+  };
+  measure('dance', dance, () => walkHost.qa.dancers > 20, walkHost);
+  console.log(`      dance: ${n} people in the snapshot, every one painted, ${walkHost.qa.dancers} of them near enough to be drawn dancing`);
+}
 {
   // (a snapshot's arrival: a fresh buffer each, as a transfer gives, its keys known already)
   const bufs = Array.from({ length: 200 }, () => {

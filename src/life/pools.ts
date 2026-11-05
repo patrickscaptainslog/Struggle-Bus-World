@@ -51,6 +51,14 @@ const MODELS: Record<number, Box[]> = {
     [0, 1.13, 0, 0.26, 0.58, 0.44],
     [0, 1.56, 0, 0.22, 0.26, 0.22],
   ],
+  // the same person with both arms straight up, the dance's up-beat
+  [Kind.CHEER]: [
+    [0, 0.42, 0, 0.22, 0.84, 0.34],
+    [0, 1.13, 0, 0.26, 0.58, 0.44],
+    [0, 1.56, 0, 0.22, 0.26, 0.22],
+    [0, 1.72, 0.29, 0.1, 0.64, 0.1],
+    [0, 1.72, -0.29, 0.1, 0.64, 0.1],
+  ],
   // a small plane, 9 m, high wing
   [Kind.SMALL_PLANE]: [
     [0, 0, 0, 8.5, 1.4, 1.2],
@@ -332,7 +340,7 @@ export class Specks {
 
 /** Every pool, the specks and the marks: what the scene holds, and what the warm-up draws once each. */
 export class Pools {
-  readonly small = new MoverPool([Kind.PERSON], POOL_MAX[Pool.SMALL]);
+  readonly small = new MoverPool([Kind.PERSON, Kind.CHEER], POOL_MAX[Pool.SMALL]);
   readonly middle = new MoverPool([Kind.SMALL_PLANE], POOL_MAX[Pool.MIDDLE]);
   readonly large = new MoverPool([Kind.AIRLINER], POOL_MAX[Pool.LARGE]);
   readonly specks = new Specks();

@@ -6,7 +6,8 @@
 export const Pool = { SMALL: 0, MIDDLE: 1, LARGE: 2 } as const;
 export type Pool = (typeof Pool)[keyof typeof Pool];
 
-export const Kind = { AIRLINER: 1, SMALL_PLANE: 2, PERSON: 3 } as const;
+// (CHEER is a pose, never a row's kind, so KINDS has none: a painted person's arms up as they dance, LIVING.md's "stop, look up, wave, dance")
+export const Kind = { AIRLINER: 1, SMALL_PLANE: 2, PERSON: 3, CHEER: 4 } as const;
 export type Kind = (typeof Kind)[keyof typeof Kind];
 
 export interface KindInfo {
@@ -19,12 +20,18 @@ export interface KindInfo {
   beacon?: boolean;
   /** its paint is kept (CONTRACT.md section 3); a person's isn't, `walk:` "only while it's near" */
   kept: boolean;
+  /**
+   * the aim takes it on the line of fire alone: within its own size of the line, which runs on past the aim point onto the street under it, with no building
+   * standing between (Aim.clearTo), not the breath's pick radius round it; and then no building the aim point is near has it instead (a person, among the
+   * buildings the breath paints, would otherwise steal every glint on a street)
+   */
+  onLine?: boolean;
 }
 
 export const KINDS: Record<number, KindInfo> = {
   [Kind.AIRLINER]: { pool: Pool.LARGE, size: 60, mark: true, beacon: true, kept: true },
   [Kind.SMALL_PLANE]: { pool: Pool.MIDDLE, size: 11, mark: true, beacon: true, kept: true },
-  [Kind.PERSON]: { pool: Pool.SMALL, size: 1.7, kept: false },
+  [Kind.PERSON]: { pool: Pool.SMALL, size: 1.7, kept: false, onLine: true },
 };
 
 /** A snapshot row (LIFE.md, "The worker"): 16 floats. */

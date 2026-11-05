@@ -5,6 +5,8 @@
 //   contrail  the painted plane streams a ribbon of its paint behind it (O6)
 //   tap       the bus put behind a plane with its nose on it: a real tap's breath paints it, and nothing under it
 //   kept      the page again at the same moment: the plane is still painted, from the test store, and the real store has nothing
+//   people    the bus low behind someone on the sidewalk with its aim on them: they glint, a real tap paints them, and none of it is kept (walk:);
+//             painted, they stop where the paint found them and dance (LIVING.md: "stop, look up, wave, dance"), while the worker walks their row on
 // Exit 1 if any fails.
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -41,13 +43,101 @@ try {
     await frames(40);
   };
   await open(true);
-  // (a plane in the snapshot, the farthest from the map's middle, so the nearest is left grey for the tap: its key, where it is now, its velocity)
+  {
+    // (people: the bus 45 m over one on the sidewalk, put back along its own line of fire from them, so the line runs through them, as a player low over a street
+    // aims at someone. The aim takes a person on the line of fire alone, and not behind a building: the nearest dozen are tried, each from four sides, and how many
+    // tries it took is said)
+    const people = await page.evaluate(() => {
+      const g = window.__game, l = g.life, s = l.snap, rows = s.rows, n = s.u32[2], dt = (l.utc - s.f64[0]) / 1000, f = g.flight, out = [];
+      for (let i = 0; i < n; i++) {
+        const o = i * 16, key = l.keys.get(s.rowsU32[o]);
+        if (key && rows[o + 1] === 3) out.push({ key, d: Math.hypot(rows[o + 2] + rows[o + 5] * dt - f.x, rows[o + 4] + rows[o + 7] * dt - f.z) });
+      }
+      return out.sort((a, b) => a.d - b.d).slice(0, 12);
+    });
+    // (where one is now)
+    const now = (key) => page.evaluate((k) => {
+      const l = window.__game.life, s = l.snap, rows = s.rows, dt = (l.utc - s.f64[0]) / 1000;
+      for (let i = 0; i < s.u32[2]; i++) if (l.keys.get(s.rowsU32[i * 16]) === k) { const o = i * 16; return { x: rows[o + 2] + rows[o + 5] * dt, y: rows[o + 3], z: rows[o + 4] + rows[o + 7] * dt }; }
+      return null;
+    }, key);
+    const own = await page.evaluate(() => window.__game.flight.heading);
+    let got = null, tries = 0;
+    for (const t of people.flatMap((p) => [0, 1, 2, 3].map((q) => ({ ...p, heading: own + (q * Math.PI) / 2 })))) {
+      if (got) break;
+      tries++;
+      const heading = t.heading, ux = Math.sin(heading), uz = -Math.cos(heading);
+      let at = await now(t.key);
+      if (!at) continue;
+      let pin = { x: at.x - ux * 60, y: at.y + 45, z: at.z - uz * 60, heading, nose: 0 };
+      // (the line of fire for the pose, from the bus to the aim point, and the bus put back along it from their middle: twice)
+      for (let k = 0; k < 2; k++) {
+        await page.evaluate((p) => (window.__qa.pin = p), pin);
+        await frames(2);
+        const r = await page.evaluate(() => { const g = window.__game, f = g.flight, a = g.aimer.aim; return { dx: a.x - f.x, dy: a.y - f.y, dz: a.z - f.z }; });
+        at = (await now(t.key)) ?? at;
+        const L = Math.hypot(r.dx, r.dy, r.dz), down = -r.dy / L;
+        if (down < 0.05) break;
+        const along = (pin.y - (at.y + 0.9)) / down;
+        pin = { ...pin, x: at.x - (r.dx / L) * along, z: at.z - (r.dz / L) * along };
+      }
+      await page.evaluate((p) => (window.__qa.pin = p), pin);
+      await frames(2);
+      const glint = await page.evaluate(() => window.__game.life.glintKey);
+      if (glint !== t.key) continue;
+      // (they glint, as the player sees it)
+      await page.screenshot({ path: join(dir, 'person-glint.png') });
+      await page.evaluate(() => window.__game.tapSplat());
+      await frames(60);
+      await page.screenshot({ path: join(dir, 'person.png') });
+      got = await page.evaluate((key) => ({ key, painted: window.__game.life.painted.get(window.__game.life.keyHash(key)) ?? null }), t.key);
+      // (painted, they come alive: drawn where the paint found them while their row walks on, hopping, arms up on the up-beat; a frame at a time, past a whole hop)
+      const seen = [];
+      for (let f = 0; f < 24; f++) {
+        await frames(1);
+        seen.push(await page.evaluate((key) => {
+          const l = window.__game.life, D = l.danced;
+          return { dancers: l.qa.dancers, mine: D[0] === l.keyHash(key), x: D[1], y: D[2], z: D[3], pose: D[4] };
+        }, t.key));
+        if (f === 6) await page.screenshot({ path: join(dir, 'person-dance.png') });
+      }
+      const walked = await now(t.key), mine = seen.filter((v) => v.mine && v.dancers > 0), xs = mine.map((v) => v.x), ys = mine.map((v) => v.y), zs = mine.map((v) => v.z);
+      const spread = (a) => (a.length ? Math.max(...a) - Math.min(...a) : 0);
+      got.dance = {
+        frames: mine.length,
+        held: +Math.max(spread(xs), spread(zs)).toFixed(3),
+        rowWalked: mine.length && walked ? +Math.hypot(walked.x - xs[0], walked.z - zs[0]).toFixed(2) : null,
+        hop: +spread(ys).toFixed(2),
+        poses: [...new Set(mine.map((v) => v.pose))].sort(),
+      };
+      break;
+    }
+    await page.evaluate(() => delete window.__qa.pin);
+    await frames(10);
+    // (walk: is "only while it's near", CONTRACT.md section 3: none in the test store)
+    const walkKept = await page.evaluate(() => new Promise((ok) => {
+      const r = indexedDB.open('strugglebus.life.test.v1', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('paint', { keyPath: 'key' });
+      r.onsuccess = () => {
+        const db = r.result;
+        if (!db.objectStoreNames.contains('paint')) return ok(0);
+        const q = db.transaction('paint').objectStore('paint').getAll();
+        q.onsuccess = () => ok(q.result.filter((x) => String(x.key).startsWith('walk:')).length);
+        q.onerror = () => ok(-1);
+      };
+      r.onerror = () => ok(-2);
+    }));
+    row('people: the bus low behind one, its aim on them: they glint, a real tap paints them, none of it kept', !!got?.painted && got.painted.level >= 1 && walkKept === 0, { people: people.length, tries, key: got?.key, painted: got?.painted, walkKept });
+    const dn = got?.dance;
+    row('people: painted, they stop where the paint found them as their row walks on, and dance, a hop with their arms up on its up-beat', !!dn && dn.frames >= 20 && dn.held < 0.01 && dn.rowWalked > 0.2 && dn.hop > 0.15 && dn.poses.length === 2, dn);
+  }
+  // (a plane in the snapshot (people are kind 3), the farthest from the map's middle, so the nearest is left grey for the tap: its key, where it is now, its velocity)
   const plane = () => page.evaluate(() => {
     const l = window.__game.life, s = l.snap, rows = s.rows, u32 = s.rowsU32, n = s.u32[2], dt = (l.utc - s.f64[0]) / 1000;
     let best = null;
     for (let i = 0; i < n; i++) {
       const o = i * 16, key = l.keys.get(u32[o]);
-      if (!key) continue;
+      if (!key || rows[o + 1] === 3) continue;
       const p = { key, x: rows[o + 2] + rows[o + 5] * dt, y: rows[o + 3] + rows[o + 6] * dt, z: rows[o + 4] + rows[o + 7] * dt, vx: rows[o + 5], vy: rows[o + 6], vz: rows[o + 7], size: rows[o + 11] };
       if (!best || Math.hypot(p.x, p.z) > Math.hypot(best.x, best.z)) best = p;
     }
@@ -102,13 +192,13 @@ try {
       for (let i = 0; i < s.u32[2]; i++) out.push(l.keys.get(s.rowsU32[i * 16]));
       return out;
     });
-    // (the unpainted plane nearest the map's middle)
+    // (the unpainted plane nearest the map's middle, people left out)
     const target = await page.evaluate((keys) => {
       const l = window.__game.life, s = l.snap, rows = s.rows, dt = (l.utc - s.f64[0]) / 1000;
       let best = null;
       for (let i = 0; i < s.u32[2]; i++) {
         const o = i * 16, key = l.keys.get(s.rowsU32[o]);
-        if (!key || l.painted.has(s.rowsU32[o])) continue;
+        if (!key || rows[o + 1] === 3 || l.painted.has(s.rowsU32[o])) continue;
         const p = { key, x: rows[o + 2] + rows[o + 5] * dt, y: rows[o + 3], z: rows[o + 4] + rows[o + 7] * dt, vx: rows[o + 5], vz: rows[o + 7] };
         if (!best || Math.hypot(p.x, p.z) < Math.hypot(best.x, best.z)) best = p;
       }
