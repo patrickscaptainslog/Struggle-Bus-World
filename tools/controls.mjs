@@ -14,7 +14,8 @@
 //   turbo    flicks up the map: a lone left flick into Express (no lift, its surge heard), Nonstop, Jet (the climb, engagement, the
 //            boom), the three turbo rungs, LOCKED, flicks down to Cruise, with shots and a per-frame log -> turbo.json
 //   firstrun a first visit: no card, the cues in order (TAP, DRAG, HOLD)                         -> firstrun.json
-//   opening  flicks under the opening's gate: answered, taken back, firing at the gate; two of them -> opening.json
+//   opening  flicks under the opening's gate: answered, taken back, firing at the gate; two of them. The low shot has no look, so a drag landing over
+//            the bus, out of the lane's half disc, flies until the gate and looks after it                    -> opening.json
 //   layout   real rects against layoutHud at 393 x 852, 393 x 659, 320 x 568, 852 x 393, swapped or not (shots)
 //   states   every state of MEGA and the readout, cropped (states/*.png; tools/hud-sheet.py makes a sheet of them)
 //   keyboard a desktop: Esc, Space, E up the ladder, Q back down it, the right mouse's look -> keyboard in controls.json
@@ -936,7 +937,43 @@ if (modes.has('opening')) {
     console.log('opening six flicks', JSON.stringify(R.six));
     await page.close();
   }
-  const G = R.gate, T = R.two, S = R.six;
+  {
+    // the low shot has no look, so until the gate a lone touch anywhere flies (Input.lookOff, set with the gears' lock), even one landing where the lane would give it the look
+    const { page, H } = await first();
+    /** a lone touch lands straight over the bus, 40 px out of the lane's half disc, and drags 50 px right: what it was, whether the lane's rule alone would have looked there, how far the bus turned */
+    const overBus = async () => {
+      const at = await page.evaluate(() => {
+        const g = window.__game, i = g.input, L = i.busZone;
+        // (where the lane counts the bus: no nearer a side or the bottom than its half width, nor lower than its usual line, inputTune.laneLow)
+        const x = Math.round(Math.max(L.r, Math.min(innerWidth - L.r, L.x))), y = Math.round(Math.min(L.y, innerHeight - L.r, innerHeight * 0.6) - L.r - 40);
+        const off = i.lookOff;
+        i.lookOff = false;
+        const laneLooks = i.inLookZone(x, y);
+        i.lookOff = off;
+        return { x, y, laneLooks, lookOff: off, locked: g.controls.gearsLocked, lane: { x: Math.round(L.x), y: Math.round(L.y), r: Math.round(L.r) }, clock: +g.clock().toFixed(2), h0: g.flight.heading };
+      });
+      await H.down(1, at.x, at.y);
+      await wall(150);
+      await H.move(1, at.x + 50, at.y);
+      await runFor(page, 0.3);
+      const s = await page.evaluate((h0) => {
+        const g = window.__game, s = g.controls.snapshot();
+        return { thumb: s.input.thumb, sx: +s.input.sx.toFixed(2), look: s.input.look.on, turned: +(((g.flight.heading - h0) * 180) / Math.PI).toFixed(2), lookOffAfter: g.input.lookOff, lockedAfter: g.controls.gearsLocked };
+      }, at.h0);
+      await H.up(1);
+      await runFor(page, 0.2);
+      const { h0, ...where } = at;
+      return { ...where, ...s };
+    };
+    const low = await overBus();
+    await until(page, '!g.controls.gearsLocked', 60);
+    await runFor(page, 0.3);
+    const after = await overBus();
+    R.low = { low, after };
+    console.log('opening low shot', JSON.stringify(R.low));
+    await page.close();
+  }
+  const G = R.gate, T = R.two, S = R.six, L = R.low;
   const checks = [
     ['the gate is shut at first', G.locked0],
     ['a flick under it waits, said', G.armed.armed && G.armed.gear === 0 && G.armed.toast],
@@ -947,6 +984,11 @@ if (modes.has('opening')) {
     ['a flick down takes it back, and none is left', !T.back.armed && T.back.gear === 0 && T.after.gear === 0],
     ['six flicks: one waits', S.s.armed && S.s.gear === 0],
     ['six flicks are Express at the bridge, not TURBO 3', S.after.gear === 1 && S.after.level === 0 && !S.after.armed],
+    ['under the low shot the lane is off, with the gears', L.low.lookOff && L.low.locked && L.low.lookOffAfter && L.low.lockedAfter],
+    ['the drags land where the lane alone gives the look, over the bus out of its half disc', L.low.laneLooks && L.after.laneLooks],
+    ['under the low shot that drag flies: the stick and the heading move', L.low.thumb && !L.low.look && L.low.sx > 0.2 && L.low.turned > 0],
+    ['past the gate the lane is back, with the gears', !L.after.lookOff && !L.after.locked && !L.after.lookOffAfter],
+    ['and the same landing looks', L.after.look && !L.after.thumb && L.after.sx === 0],
   ];
   const badO = checks.filter(([, v]) => !v).map(([k]) => k);
   console.log(badO.length ? `opening: FAILED ${badO.length} of ${checks.length}: ${badO.join('; ')}` : `opening: all ${checks.length} checks passed`);

@@ -5,7 +5,8 @@ import { registerTunables } from '../ui/tunables';
 // on the landing alone: the look zone, which is everywhere but the bus's lane (busZone,
 // set each frame from where the bus stands on the screen: round the bus and anywhere
 // under it). With no bus on the screen it is the left lookZone of the screen's width
-// (the right, with BUTTONS: SWAP). A touch landing in the zone never flies. Everywhere
+// (the right, with BUTTONS: SWAP). Until the opening's gate there is no zone (lookOff):
+// its low shot has no look. A touch landing in the zone never flies. Everywhere
 // else the first thumb flies, and on its own it flicks and taps too. In any order, the
 // thumb in the zone looks and the other flies. A mouse has its right button instead.
 //
@@ -245,6 +246,8 @@ export class Input {
    * Null: the look zone's rule. r: the lane's half width round the bus (inputTune.laneHalf of the screen's narrow side); open: how far under the bus it covers the screen's whole width (inputTune.laneOpen of its height).
    */
   busZone: { x: number; y: number; r: number; open: number } | null = null;
+  /** The opening's low shot, until the gate (main.ts): it has no look, so a landing anywhere flies, as every touch there always did. */
+  lookOff = false;
 
   private readonly el: HTMLElement;
   private readonly slots: Slot[] = [];
@@ -840,8 +843,9 @@ export class Input {
     return s.type !== 'mouse' && s.y0 <= this.rectH - inputTune.flickBottomPx && s.x0 >= inputTune.flickSidePx && s.x0 <= this.rectW - inputTune.flickSidePx;
   }
 
-  /** A touch landing here never flies: the look zone, or with the bus's zone on everywhere but that. Only the landing counts: a look that wanders out of it is still a look. */
+  /** A touch landing here never flies: the look zone, or with the bus's zone on everywhere but that, and nowhere while lookOff. Only the landing counts: a look that wanders out of it is still a look. */
   private inLookZone(x: number, y: number): boolean {
+    if (this.lookOff) return false;
     const b = this.busZone;
     if (b) {
       // (the lane: a half disc over the bus, and from the bus's line down a funnel that opens out to the screen's whole width `open` under it, and stays that wide down to the

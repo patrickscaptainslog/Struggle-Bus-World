@@ -818,6 +818,8 @@ async function boot() {
 
   // ---- input
   const input = new Input(canvas);
+  // (from the first touch: one landing in the grey, before the first frame sets it with the gate, flies too)
+  input.lookOff = !!openingBridge;
   const tuner = new Tuner();
   // (the ODbL credit, then the other sources' own: ESA WorldCover's CC BY for where the trees stand)
   const dataCredits = [manifest.attribution ? `Map data ${manifest.attribution} (ODbL)` : '', ...Object.values(manifest.credits ?? {})].filter(Boolean);
@@ -1130,6 +1132,8 @@ async function boot() {
     }
     // (nor can a gear lift it: a shift waits for the gate)
     controls.gearsLocked = !!openingBridge && gateAlong < config.camera.openingClimbAfter;
+    // (and the low shot has no look, so until the gate a touch anywhere flies, as it always did there: the lane starts with the hint that teaches it)
+    input.lookOff = controls.gearsLocked;
     controls.opening = opening < config.fog.openingDuration;
     const dragging = qaStick ? true : st.dragging;
     // past the edge of the map the bus homes back toward the city, gently; the edge gives way with the height, and out

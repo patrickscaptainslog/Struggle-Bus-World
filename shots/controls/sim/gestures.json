@@ -17,6 +17,7 @@
   "lookZone": 0.42,
   "laneHalf": 0.27,
   "laneOpen": 0.25,
+  "laneLow": 0.6,
   "flickPx": 30,
   "flickMs": 230,
   "flickSpeed": 0.25,
@@ -4013,6 +4014,42 @@
   },
   {
    "mode": "touch",
+   "gesture": "the lane: the bus sunk to the bottom edge, a thumb landing again low and to the right flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: the bus sunk to the bottom edge, over its usual line out of the half disc looks",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": {
+    "from": 100,
+    "to": 217,
+    "max": 60
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": false,
+    "look": true,
+    "sx": 0
+   }
+  },
+  {
+   "mode": "touch",
    "gesture": "the lane: the bus off the left edge, the lane hugs it: low on the left flies, the upper right looks",
    "events": [],
    "maxChargeHeld": 0,
@@ -4150,6 +4187,243 @@
    },
    "gear": 1,
    "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "the low shot: over the bus, out of the half disc, flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the low shot: the sky over the bus flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the low shot: beside the bus at its height, on the left, flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the low shot: beside the bus at its height, 112 px off on the right, flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the low shot: just under the bus, far out on the right, flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the low shot: a tap over the bus splats on its lift",
+   "events": [
+    "tap@90ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "the low shot: a lone stroke over the bus is the flying thumb's: 74 px in 85 ms is a flick, 30 px in 100 ms steers",
+   "events": [
+    "flick+@85ms",
+    "gated@85ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "one": 2,
+    "steered": true
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the low shot: a finger over the bus while one flies is the second thumb: its tap splats on its lift",
+   "events": [
+    "tap@410ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "landed": 0,
+    "same": true
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the low shot: a finger over the bus while one flies is the second thumb: its drag looks, the stick untouched",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": {
+    "from": 434,
+    "to": 534,
+    "max": 72
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "L": {
+     "on": true,
+     "x": 60,
+     "y": 40
+    },
+    "same": true,
+    "flying": true
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the low shot: a finger over the bus while one flies is the second thumb: its flick is answered on its lift, and waits for the gate",
+   "events": [
+    "flick+@385ms",
+    "gated@385ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "armed": true,
+    "gear": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the low shot: a thumb landing over the bus during a lone flick flies",
+   "events": [
+    "flick+@80ms",
+    "gated@80ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the low shot: a thumb that landed under it flies on past the gate",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the low shot: past the gate the same landings look",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": {
+    "from": 935,
+    "to": 1887,
+    "max": 60
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "low": {
+     "thumb": true,
+     "look": false,
+     "sx": 0.71
+    },
+    "over": {
+     "thumb": false,
+     "look": true,
+     "sx": 0
+    },
+    "beside": {
+     "thumb": false,
+     "look": true,
+     "sx": 0
+    }
+   }
   },
   {
    "mode": "touch",

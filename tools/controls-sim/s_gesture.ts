@@ -443,6 +443,32 @@ row('touch', 'lost tap: a tap just before a thumb that lands beside it and stays
 row('touch', 'lost tap: in the lane, a tap under the bus just after a thumb over it that looks fires', laned((h) => { const a = newId(), b = newId(); h.down(a, 196, 300); h.wait(100); h.down(b, 196, 720, false); h.wait(90); h.up(b, 196, 720); h.slide(a, 196, 300, 60, 0, 200); h.wait(300); const on = h.input.state.look.on; h.up(a, 256, 300); return { on }; }));
 row('touch', 'lost tap: a tap just after a thumb that rests fires once, when the rest is past a tap', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(100); h.down(b, RX, RY, false); h.wait(90); h.up(b, RX, RY); h.wait(1200); h.up(a, LX, LY); });
 row('touch', 'lost tap: a tap just after a thumb that flicks fires, and so does the flick', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(60); h.down(b, RX, RY, false); h.wait(60); h.up(b, RX, RY); h.slide(a, LX, LY, 0, -74, 85); h.up(a, LX, LY - 74); h.wait(400); });
+// The opening's low shot has no look (CameraRig scales it by 1 - openingLow), on every load of the city without ?lat. So until the gate main.ts sets Input.lookOff with the gears' lock: a lone
+// landing anywhere flies, as every touch did there on main, and the lane starts when the gears unlock, with the hint that teaches it. A finger landing while one flies is still the second thumb.
+// The lane here is the street's, as above: the real page has the low shot's bus at about the same place, (197, 512)
+const lowShot = (fn: (h: H) => unknown) => (h: H) => {
+  h.input.busZone = LANE;
+  h.input.lookOff = true;
+  h.shifter.locked = true;
+  return fn(h);
+};
+/** the gate opens: the gears and the lane together, as main.ts has them */
+const gateOpens = (h: H) => { h.input.lookOff = false; h.shifter.locked = false; };
+/** a thumb flying from under the bus, moved off its landing */
+const lowSteer = (h: H) => { const a = newId(); h.down(a, 196, 720); h.slide(a, 196, 720, 30, 0, 300); return a; };
+row('touch', 'the low shot: over the bus, out of the half disc, flies', lowShot((h) => dragAt(h, 280, 420)));
+row('touch', 'the low shot: the sky over the bus flies', lowShot((h) => dragAt(h, 196, 300)));
+row('touch', 'the low shot: beside the bus at its height, on the left, flies', lowShot((h) => dragAt(h, 60, 506)));
+row('touch', 'the low shot: beside the bus at its height, 112 px off on the right, flies', lowShot((h) => dragAt(h, 196 + 112, 506)));
+row('touch', 'the low shot: just under the bus, far out on the right, flies', lowShot((h) => dragAt(h, 360, 546)));
+row('touch', 'the low shot: a tap over the bus splats on its lift', lowShot((h) => { const id = newId(); h.down(id, 280, 420); h.wait(90); h.up(id, 280, 420); }));
+row('touch', 'the low shot: a lone stroke over the bus is the flying thumb\'s: 74 px in 85 ms is a flick, 30 px in 100 ms steers', lowShot((h) => { h.stroke(280, 420, 0, -74, 85); h.wait(300); const one = h.evs.length; const id = newId(); h.down(id, 280, 420); h.slide(id, 280, 420, 0, -30, 100); const steered = h.input.state.thumb; h.up(id, 280, 390); h.wait(300); return { one, steered }; }));
+row('touch', 'the low shot: a finger over the bus while one flies is the second thumb: its tap splats on its lift', lowShot((h) => { const a = lowSteer(h); h.wait(20); const sx = h.input.state.stretch.x; const b = newId(); h.down(b, 280, 420, false); const landed = h.evs.length; h.wait(90); h.up(b, 280, 420); const same = h.input.state.stretch.x === sx; h.wait(100); h.up(a, 226, 720); return { landed, same }; }));
+row('touch', 'the low shot: a finger over the bus while one flies is the second thumb: its drag looks, the stick untouched', lowShot((h) => { const a = lowSteer(h); h.wait(20); const sx = h.input.state.stretch.x, sy = h.input.state.stretch.y; const b = newId(); h.down(b, 280, 420, false); h.slide(b, 280, 420, 60, -40, 200); h.wait(20); const L = { ...h.input.state.look }, same = h.input.state.stretch.x === sx && h.input.state.stretch.y === sy, flying = h.input.state.thumb; h.up(b, 340, 380); h.up(a, 226, 720); return { L, same, flying }; }));
+row('touch', 'the low shot: a finger over the bus while one flies is the second thumb: its flick is answered on its lift, and waits for the gate', lowShot((h) => { const a = lowSteer(h); h.stroke(280, 420, 0, -74, 85, false); h.wait(300); const armed = h.shifter.armed, gear = h.drive.gear; h.up(a, 226, 720); return { armed, gear }; }));
+row('touch', 'the low shot: a thumb landing over the bus during a lone flick flies', lowShot((h) => { const b = flickWith(h, 196, 720, 280, 420); h.slide(b, 280, 420, 60, 0, 200); h.wait(30); const s = h.input.state, v = { thumb: s.thumb, look: s.look.on, sx: +s.stretch.x.toFixed(2) }; h.up(b, 340, 420); h.wait(400); return v; }));
+row('touch', 'the low shot: a thumb that landed under it flies on past the gate', lowShot((h) => { const c = newId(); h.down(c, 280, 420); h.slide(c, 280, 420, 30, 0, 150); gateOpens(h); h.slide(c, 310, 420, 30, 0, 150); h.wait(30); const s = h.input.state, v = { thumb: s.thumb, look: s.look.on, sx: +s.stretch.x.toFixed(2) }; h.up(c, 340, 420); return v; }));
+row('touch', 'the low shot: past the gate the same landings look', lowShot((h) => { const low = dragAt(h, 280, 420); gateOpens(h); h.wait(600); const over = dragAt(h, 280, 420); h.wait(600); const beside = dragAt(h, 60, 506); return { low, over, beside }; }));
 
 // ---- two thumbs, in any order: the one in the zone looks, the other flies
 const both = (h: H) => { const s = h.input.state; return { thumb: s.thumb, look: s.look.on, sx: +s.stretch.x.toFixed(2), x: Math.round(s.look.x) }; };
@@ -883,6 +909,34 @@ for (const g of ['lost tap: a tap just after a thumb that stays', 'lost tap: a t
 }
 ok(taps('lost tap: a tap just after a thumb that rests') === 1 && atOf('lost tap: a tap just after a thumb that rests', 'tap') <= 100 + 450 + 20, `beside a rest, once, when the rest is past a tap: ${JSON.stringify(by('lost tap: a tap just after a thumb that rests').events)}`);
 ok(taps('lost tap: a tap just after a thumb that flicks') === 1 && by('lost tap: a tap just after a thumb that flicks').gear === 1, `beside a flick, the tap and the gear: ${JSON.stringify(by('lost tap: a tap just after a thumb that flicks').events)}`);
+// the low shot: no look, so every lone landing flies until the gate, and the lane comes back with the gears
+flies('the low shot: over the bus, out of');
+flies('the low shot: the sky over');
+flies('the low shot: beside the bus at its height, on the left');
+flies('the low shot: beside the bus at its height, 112 px');
+flies('the low shot: just under the bus, far out');
+for (const r of rows) if (r.gesture.startsWith('the low shot:') && !r.gesture.includes('while one flies') && !r.gesture.includes('past the gate the same')) ok(r.look === null, `nothing looks under the low shot: ${r.gesture}`);
+ok(taps('the low shot: a tap over the bus') === 1 && atOf('the low shot: a tap over the bus', 'tap') >= 90, `a tap there splats on its lift: ${JSON.stringify(by('the low shot: a tap over the bus').events)}`);
+{
+  const g = 'the low shot: a lone stroke over the bus';
+  ok(n(g, 'flick+') === 1 && n(g, 'gated') === 1 && note(g).one === by(g).events.length && note(g).steered, `a lone stroke there is the flying thumb's, on the firm rule: ${JSON.stringify({ ...note(g), events: by(g).events })}`);
+}
+{
+  const g = 'the low shot: a finger over the bus while one flies is the second thumb: its tap';
+  ok(note(g).landed === 0 && taps(g) === 1 && atOf(g, 'tap') > 380 && note(g).same, `a finger landing beside a flying thumb taps on its lift and leaves the stick alone: ${JSON.stringify({ ...note(g), events: by(g).events })}`);
+  const d = note('the low shot: a finger over the bus while one flies is the second thumb: its drag');
+  ok(d.L.on && Math.round(d.L.x) === 60 && Math.round(d.L.y) === 40 && d.same && d.flying, `its drag is the look, the stick untouched: ${JSON.stringify(d)}`);
+  const f = 'the low shot: a finger over the bus while one flies is the second thumb: its flick';
+  ok(n(f, 'gated') === 1 && note(f).armed && note(f).gear === 0 && atOf(f, 'flick+') >= 385, `its flick is answered on its lift and waits for the gate: ${JSON.stringify({ ...note(f), events: by(f).events })}`);
+}
+flies('the low shot: a thumb landing over the bus during');
+ok(n('the low shot: a thumb landing over the bus during', 'gated') === 1, 'and the flick it landed during counts');
+flies('the low shot: a thumb that landed under it');
+{
+  const v = note('the low shot: past the gate the same');
+  ok(v.low.thumb && !v.low.look && v.low.sx > 0.2, `under the low shot it flies: ${JSON.stringify(v.low)}`);
+  ok(v.over.look && !v.over.thumb && v.over.sx === 0 && v.beside.look && !v.beside.thumb && v.beside.sx === 0, `past the gate the same landings look: ${JSON.stringify(v)}`);
+}
 looks('bottom band: a lone left touch looks');
 looks('side band: a lone left touch');
 ok(taps('bottom band: a lone left touch taps') === 1, 'a tap in the band, alone');
