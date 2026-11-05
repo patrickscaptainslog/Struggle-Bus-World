@@ -5,9 +5,10 @@
 // (tiles.ts's parser), their class rasters and WATER_Y. Prints each count beside its limit, exits 1 on any failure.
 // The plan says what each count stands for: docs/specs/earth/GRAPHS.md, "W1".
 //
-//   node tools/world/graph-check.mjs sf [--dir=public/city/sf] [--tiles=DIR] [--names]
+//   node tools/world/graph-check.mjs sf [--dir=public/city/sf] [--tiles=DIR] [--data=DIR] [--names]
 //     --dir    the city's folder (a copy, to try a broken file)
 //     --tiles  where its r_*.bin tiles are, if not there
+//     --data   where its gkeys.bin and checks.json.gz are (tools/world/data/<slug>/; with --dir, that folder)
 //     --names  print every name in the files (places may be named; nothing names a person or a vessel: a person reads them)
 import { rolldown } from 'rolldown';
 import { gunzipSync } from 'node:zlib';
@@ -22,6 +23,8 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 const root = resolve(here, '../..');
 const dir = resolve(flags.dir ?? `${root}/public/city/${slug}`);
 const tilesDir = resolve(flags.tiles ?? dir);
+// the bake's files for checks, kept in the repo and never shipped: gkeys.bin (W2) and checks.json.gz (the rules' places, C3's land)
+const dataDir = resolve(flags.data ?? (flags.dir ? dir : `${root}/tools/world/data/${slug}`));
 
 // the shipped parsers, bundled
 const out = `${here}.out`;
@@ -117,7 +120,17 @@ const wet = (x, z) => { const c = klass(x, z); return c === 255 || c === WATER; 
 /** the sea and the Bay, at WATER_Y: no tile, or a WATER texel the grid holds at 2 m or under. Higher up it's a lake,
  *  drawn on the ground at the grid's height (graphs.py, sea()) */
 const LAKE_M = 2;
+// a step on the sea may dip under its surface this far, where a polyline crosses from a grid under WATER_Y (land
+// texels at the Bay's -1.1) onto the sea's at WATER_Y: the 0.5 bake's footways stood 0.5 m under it on the sea itself
+const UNDER_TOL = 0.3;
 const sea = (x, z) => { const c = klass(x, z); return c === 255 || (c === WATER && ground(x, z) <= LAKE_M); };
+/** what a mover on the ground stands on (graphs.py stand()): the grid, never under the sea's surface, WATER_Y with no tile */
+const standAt = (x, z) => { const h = ground(x, z); return Number.isNaN(h) ? WATER_Y : sea(x, z) ? Math.max(h, WATER_Y) : h; };
+/** |y - standAt|, read either side of a texel line within 0.1 m: a file's point moves up to 5 cm in its decimetres, and
+ *  standAt steps where the sea meets a grid under WATER_Y */
+const OFF = [[0, 0], [0.1, 0], [-0.1, 0], [0, 0.1], [0, -0.1]];
+const standErr = (x, z, y) => { let e = Infinity; for (const [dx, dz] of OFF) { e = Math.min(e, Math.abs(y - standAt(x + dx, z + dz))); if (e <= 0.3) break; } return e; };
+const seaAll = (x, z) => OFF.every(([dx, dz]) => sea(x + dx, z + dz));
 
 // ------------------------------------------------------------ the files
 const life = man.life;
@@ -148,7 +161,8 @@ report('routes.bin size', `${(routesGz.length / 1024).toFixed(1)} KB gzipped`, '
 const keysOf = new Map(), idOfKey = new Map();
 let keyDup = 0, idDup = 0;
 {
-  const kb = gunzipSync(readFileSync(`${dir}/gkeys.bin`));
+  const kp = existsSync(`${dataDir}/gkeys.bin`) ? `${dataDir}/gkeys.bin` : `${dir}/gkeys.bin`;
+  const kb = gunzipSync(readFileSync(kp));
   const dv = new DataView(kb.buffer, kb.byteOffset, kb.byteLength);
   const n = dv.getUint32(8, true);
   let o = 12;
@@ -165,6 +179,16 @@ let keyDup = 0, idDup = 0;
   }
 }
 
+// the bake's check file: each one-way rule at its range's middle with the way travel goes, each car-closing rule's place
+// (from the segments' own lines, so W1 reads direction and NO_CARS against the rules), C3's land along the ferries
+const checksPath = `${dataDir}/checks.json.gz`;
+const checks = existsSync(checksPath) ? JSON.parse(gunzipSync(readFileSync(checksPath)).toString('utf8')) : null;
+report('check file', checks ? `${checks.oneway.length} one-way rules, ${checks.noCars.length} closing rules, ${checks.land.length} land polygons (${checksPath})` : `none at ${checksPath}`, '', !!checks);
+const ruleAt = new Map(); // region -> [[kind 0 one-way / 1 NO_CARS, x, z, ux, uz]]
+// (each with its segment's kind and level: Market Street's road and the subway under it share a line)
+for (const [x, z, ux, uz, kind, lv] of checks?.oneway ?? []) { const k = `${Math.floor(x / REGION_M)},${Math.floor(z / REGION_M)}`; if (!ruleAt.has(k)) ruleAt.set(k, []); ruleAt.get(k).push([0, x, z, ux, uz, kind, lv]); }
+for (const [x, z, lv] of checks?.noCars ?? []) { const k = `${Math.floor(x / REGION_M)},${Math.floor(z / REGION_M)}`; if (!ruleAt.has(k)) ruleAt.set(k, []); ruleAt.get(k).push([1, x, z, 0, 0, 1, lv]); }
+
 const routeEnds = []; // map metres of each ferry route's two ends, for the 150 m exemption
 const termById = new Map(routes?.terminals.map((t) => [t.id, t]) ?? []);
 for (const f of routes?.ferries ?? []) {
@@ -173,6 +197,18 @@ for (const f of routes?.ferries ?? []) {
 }
 const nearEnd = (x, z) => routeEnds.some(([ex, ez]) => Math.hypot(x - ex, z - ez) <= 150);
 const decks = (man.landmarks ?? []).filter((l) => l.deck).map((l) => l.deck);
+const near = (x, z, d) => {
+  let best = Infinity, top = 0, tr = 0, seg = 0;
+  for (let i = 0; i < d.length - 1; i++) {
+    const [ax, az, ay] = d[i], [bx, bz, by] = d[i + 1];
+    const vx = bx - ax, vz = bz - az, L2 = vx * vx + vz * vz;
+    const r = L2 > 0 ? ((x - ax) * vx + (z - az) * vz) / L2 : 0, t = Math.min(1, Math.max(0, r));
+    const dd = Math.hypot(ax + t * vx - x, az + t * vz - z);
+    if (dd < best) { best = dd; top = ay + t * (by - ay); tr = r; seg = i; }
+  }
+  const [ax, az] = d[seg], [bx, bz] = d[seg + 1];
+  return { best, top, ext: (seg === 0 && tr < 0) || (seg === d.length - 2 && tr > 1), vx: (bx - ax) / Math.hypot(bx - ax, bz - az), vz: (bz - az) / Math.hypot(bx - ax, bz - az) };
+};
 
 const c = {
   files: 0, missing: 0, parseFail: 0, tooBig: 0, gz: 0, raw: 0, sizes: [],
@@ -184,12 +220,17 @@ const c = {
   tunnelUndrawn: 0, undrawnKm: {}, kmByClass: {},
   land: 0, landNoTile: 0, landWorst: 0, landWhere: null, landOver: 0, steps: 0,
   water: 0, waterOff: 0, waterWorst: 0,
-  deckSamples: [], stackPairs: 0, rampPairs: 0, inversions: 0, inversionWhere: null,
+  drawnPts: [], topLevel: [], footDeck: [], roadDeck: [], stackPairs: 0, rampPairs: 0, inversions: 0, inversionWhere: null,
+  underWater: 0, underWhere: null, deckGround: 0, deckDrawn: 0, deckUnder: 0, deckUnderWorst: 0, deckUnderWhere: null,
+  tunnelPts: 0, tunnelOver: 0, tunnelOverWorst: 0, tunnelOverWhere: null,
+  ruleSeen: [0, 0], ruleMiss: [0, 0], ruleWrong: [0, 0], ruleWhere: [null, null], areaOnStructure: 0, areaOnStructureWhere: null,
   ferrySamples: 0, ferryOnLand: 0, ferryLandWhere: null, ferryExempt: 0,
   areaPts: 0, areaWorst: 0, areaOver: 0, areaWhere: null, waterTris: 0, waterTexels: 0, waterOffTexels: 0, waterTriY: 0,
   names: new Set(), byKind: {}, areaByKind: {},
 };
 const nodeSeen = new Map(); // node id -> [{r, x, y, z, portal, line}]
+const onStructure = new Set(checks?.onStructure ?? []); // areas the bake knows stand on a roof or a deck
+const ferryEnd = new Map(); // node id -> its FERRY edges in every file, whether a road or footway meets it, a portal, where
 const deckParent = new Map(); // node id -> parent, the decks' structures
 const deckFind = (a) => { let p = deckParent.get(a) ?? a; while (p !== a) { const g = deckParent.get(p) ?? p; deckParent.set(a, g); a = p; p = g; } return a; };
 const deckJoin = (a, b) => { const p = deckFind(a), q = deckFind(b); if (p !== q) deckParent.set(Math.max(p, q), Math.min(p, q)); };
@@ -255,14 +296,12 @@ for (const [rx, rz, bytes] of regions) {
     l.push({ r: `${rx},${rz}`, x, y, z, portal, line });
     const t = touch[i];
     if (t & 1) {
-      const h = ground(x, z);
-      if (Number.isNaN(h)) c.landNoTile++;
-      else {
-        c.land++;
-        const e = Math.abs(y - h);
-        if (e > c.landWorst) { c.landWorst = e; c.landWhere = `node ${id} at ${x.toFixed(1)}, ${z.toFixed(1)}`; }
-        if (e > 0.5) c.landOver++;
-      }
+      if (Number.isNaN(ground(x, z))) c.landNoTile++;
+      c.land++;
+      const e = standErr(x, z, y);
+      if (e > c.landWorst) { c.landWorst = e; c.landWhere = `node ${id} at ${x.toFixed(1)}, ${z.toFixed(1)}`; }
+      if (e > 0.5) c.landOver++;
+      if (y < WATER_Y - UNDER_TOL && seaAll(x, z)) { c.underWater++; c.underWhere ??= `node ${id} at ${x.toFixed(1)}, ${z.toFixed(1)}: ${y.toFixed(1)}`; }
     } else if (t === 8 && wet(x, z)) {
       c.water++;
       const e = Math.abs(y - WATER_Y);
@@ -271,7 +310,7 @@ for (const [rx, rz, bytes] of regions) {
     }
   }
   // edges: their points, the grid every 4 m, water, decks
-  const deckPts = [];
+  const deckPts = [], segs = [];
   for (let e = 0; e < edges.n; e++) {
     const k = cls(e), kind = edges.kind[e], f = edges.flags[e];
     const s0 = edges.shape[e], s1 = edges.shape[e + 1];
@@ -279,10 +318,11 @@ for (const [rx, rz, bytes] of regions) {
     for (let s = s0; s < s1; s++) P.push([pts[s * 3], pts[s * 3 + 1], pts[s * 3 + 2]]);
     P.push([nodes.xyz[edges.b[e] * 3], nodes.xyz[edges.b[e] * 3 + 1], nodes.xyz[edges.b[e] * 3 + 2]]);
     let len = 0, across = false;
+    const pre = [0]; // the way along the edge to each point
     for (let i = 0; i < P.length; i++) {
       if (i > 0 && i < P.length - 1 && out(P[i][0], P[i][2], 0.1)) c.outside++;
       if (out(P[i][0], P[i][2], 1e-3)) across = true;
-      if (i) len += Math.hypot(P[i][0] - P[i - 1][0], P[i][2] - P[i - 1][2]);
+      if (i) { len += Math.hypot(P[i][0] - P[i - 1][0], P[i][2] - P[i - 1][2]); pre.push(len); }
     }
     if (across) c.edgesAcross++;
     if (edges.a[e] === edges.b[e]) c.selfLoops++;
@@ -296,7 +336,15 @@ for (const [rx, rz, bytes] of regions) {
     c.byDir[dk] = (c.byDir[dk] ?? 0) + 1;
     if (edges.dir[e] !== 0) c.oneWay++;
     c.byKind[name] = (c.byKind[name] ?? 0) + 1;
+    if (kind === 4) for (const [q, other] of [[edges.a[e], edges.b[e]], [edges.b[e], edges.a[e]]]) {
+      const id = nodes.id[q];
+      let r = ferryEnd.get(id);
+      if (!r) ferryEnd.set(id, (r = { deg: 0, joined: false, portal: (nodes.flags[q] & NodeFlag.PORTAL) !== 0, x: nodes.xyz[q * 3], z: nodes.xyz[q * 3 + 2] }));
+      r.deg++;
+      if (touch[q] & 7) r.joined = true; // a road or a footway meets it: a berth
+    }
     for (let i = 0; i < P.length - 1; i++) {
+      if (kind === 1 || kind === 3) segs.push([e, P[i][0], P[i][2], P[i + 1][0], P[i + 1][2]]);
       const [ax, ay, az] = P[i], [bx, by, bz] = P[i + 1];
       const d = Math.hypot(bx - ax, bz - az);
       const n = Math.max(1, Math.ceil(d / SAMPLE));
@@ -304,14 +352,28 @@ for (const [rx, rz, bytes] of regions) {
         const t = j / n, x = ax + t * (bx - ax), z = az + t * (bz - az), y = ay + t * (by - ay);
         if (k === 1) {
           if ((j === 0 && i === 0) || (j === n && i === P.length - 2)) continue; // the nodes, counted above
-          const h = ground(x, z);
-          if (Number.isNaN(h)) { c.landNoTile++; continue; }
+          if (Number.isNaN(ground(x, z))) c.landNoTile++;
           c.steps++;
-          const er = Math.abs(y - h);
+          const er = standErr(x, z, y);
           if (er > c.landWorst) { c.landWorst = er; c.landWhere = `edge ${edges.id[e]} at ${x.toFixed(1)}, ${z.toFixed(1)}`; }
           if (er > 0.5) c.landOver++;
+          if (y < WATER_Y - UNDER_TOL && seaAll(x, z)) { c.underWater++; c.underWhere ??= `edge ${edges.id[e]} at ${x.toFixed(1)}, ${z.toFixed(1)}: ${y.toFixed(1)}`; }
         } else if (k === 2) {
-          deckPts.push([x, y, z, edges.level[e], e]);
+          deckPts.push([x, y, z, edges.level[e], e, d > 0 ? (bx - ax) / d : 0, d > 0 ? (bz - az) / d : 0, edges.kind[e]]);
+          // a deck never under the ground on land, under the sea's surface, or under a lake's (the grid there)
+          const h = ground(x, z), lake = !sea(x, z) && wet(x, z);
+          const under = sea(x, z) ? WATER_Y - y : h - 0.5 - y;
+          c.deckGround++;
+          if (under > 0 && decks.some((dk) => { const r = near(x, z, dk); return r.best <= 44 && !r.ext; })) c.deckDrawn++; // C2's: City draws it there
+          else if (under > 0) { c.deckUnder++; if (under > c.deckUnderWorst) { c.deckUnderWorst = under; c.deckUnderWhere = `edge ${edges.id[e]} (${keysOf.get(edges.id[e])?.slice(2)}) at ${x.toFixed(1)}, ${z.toFixed(1)}: ${y.toFixed(1)}, ${sea(x, z) ? 'the sea' : lake ? 'a lake' : 'the ground'} ${(sea(x, z) ? WATER_Y : h).toFixed(1)}`; } }
+        } else if (k === 4) {
+          // a tunnel never over the ground (the bed, where wet; WATER_Y with no tile), but where it comes down from an
+          // end of its edge at 10 % or less: a portal can stand over the ground (decks.under)
+          const h = Number.isNaN(ground(x, z)) ? WATER_Y : ground(x, z);
+          const sa = pre[i] + t * d, ya = P[0][1], yb = P[P.length - 1][1];
+          c.tunnelPts++;
+          const gr = kind === 3 ? 0.035 : kind === 2 ? 0.1 : 0.06; // decks.py GRADE_END
+          if (y > Math.max(h + 0.5, ya - gr * sa + 0.5, yb - gr * (len - sa) + 0.5)) { c.tunnelOver++; if (y - h > c.tunnelOverWorst) { c.tunnelOverWorst = y - h; c.tunnelOverWhere = `edge ${edges.id[e]} at ${x.toFixed(1)}, ${z.toFixed(1)}: ${y.toFixed(1)} over ${h.toFixed(1)}`; } }
         }
       }
       if (k === 8) {
@@ -334,19 +396,65 @@ for (const [rx, rz, bytes] of regions) {
       }
     }
   }
-  // decks: against the drawn decks' tops (C2's gap, printed), and stacked decks by level
-  for (const [x, y, z] of deckPts) {
-    for (const d of decks) {
-      let best = Infinity, top = 0;
-      for (let i = 0; i < d.length - 1; i++) {
-        const [ax, az, ay] = d[i], [bx, bz, by] = d[i + 1];
-        const vx = bx - ax, vz = bz - az, L2 = vx * vx + vz * vz;
-        const t = L2 > 0 ? Math.min(1, Math.max(0, ((x - ax) * vx + (z - az) * vz) / L2)) : 0;
-        const dd = Math.hypot(ax + t * vx - x, az + t * vz - z);
-        if (dd < best) { best = dd; top = ay + t * (by - ay); }
-      }
-      if (best <= 15) c.deckSamples.push(y - top);
+  // the rules: the road or rail edge through each rule's place, along it within 30 degrees, nearest within 0.6 m. A
+  // one-way's must run the way the rule lets travel go; a closing rule's must be NO_CARS
+  {
+    const sg = new Map();
+    for (const s of segs) {
+      for (let gx = Math.floor((Math.min(s[1], s[3]) - 1) / 8); gx <= Math.floor((Math.max(s[1], s[3]) + 1) / 8); gx++)
+        for (let gz = Math.floor((Math.min(s[2], s[4]) - 1) / 8); gz <= Math.floor((Math.max(s[2], s[4]) + 1) / 8); gz++) {
+          const k = `${gx},${gz}`;
+          if (!sg.has(k)) sg.set(k, []);
+          sg.get(k).push(s);
+        }
     }
+    for (const [what, x, z, ux, uz, kind, lv] of ruleAt.get(`${rx},${rz}`) ?? []) {
+      let best = 0.6, hit = null;
+      for (const s of sg.get(`${Math.floor(x / 8)},${Math.floor(z / 8)}`) ?? []) {
+        const vx = s[3] - s[1], vz = s[4] - s[2], L = Math.hypot(vx, vz);
+        if (L < 1e-6 || edges.kind[s[0]] !== kind || edges.level[s[0]] !== Math.max(-128, Math.min(127, lv))) continue;
+        const t = Math.min(1, Math.max(0, ((x - s[1]) * vx + (z - s[2]) * vz) / (L * L)));
+        const d = Math.hypot(s[1] + t * vx - x, s[2] + t * vz - z);
+        if (d < best && (what === 1 || Math.abs((vx * ux + vz * uz) / L) >= Math.cos(Math.PI / 6))) { best = d; hit = [s[0], vx / L, vz / L]; }
+      }
+      if (!hit) { c.ruleMiss[what]++; continue; }
+      const [e, vx, vz] = hit;
+      if (what === 1) { c.ruleSeen[1]++; if (!(edges.flags[e] & EdgeFlag.NO_CARS)) { c.ruleWrong[1]++; c.ruleWhere[1] ??= `edge ${edges.id[e]} (${keysOf.get(edges.id[e])?.slice(2)}) at ${x}, ${z}`; } continue; }
+      c.ruleSeen[0]++;
+      const dir = edges.dir[e], along = vx * ux + vz * uz > 0; // the rule's way of travel along the edge's a to b
+      if (!(dir === 1 && along) && !(dir === 2 && !along)) { c.ruleWrong[0]++; c.ruleWhere[0] ??= `edge ${edges.id[e]} (${keysOf.get(edges.id[e])?.slice(2)}) at ${x}, ${z}: ${['BOTH', 'FORWARD', 'BACKWARD'][dir]}, travel ${along ? 'a to b' : 'b to a'}`; }
+    }
+  }
+  // decks along a deck City draws (C2): an edge most of whose steps run within 22 m of its line, between its ends and
+  // heading within 30 degrees of it takes its top at every step between its ends within 44 m, a lower level 5.5 m a
+  // level under the highest along it, never under the ground. Checked after the files, on the edges well inside that
+  // (60 % of their steps within 21.5 m and 28 degrees) and their steps within 40 m
+  const along = new Map(); // `${edge},${deck}` -> [steps, steps along]
+  for (const [x, , z, , e, ux, uz] of deckPts) {
+    for (let k = 0; k < decks.length; k++) {
+      const q = near(x, z, decks[k]), key = `${e},${k}`, a = along.get(key) ?? [0, 0, 0];
+      a[0]++;
+      const heading = Math.abs(ux * q.vx + uz * q.vz) >= Math.cos((28 * Math.PI) / 180);
+      if (q.best <= 21.5 && !q.ext && heading) a[1]++;
+      if (q.best <= 40 && !q.ext && heading) a[2]++;
+      along.set(key, a);
+    }
+  }
+  // an edge ending on the ground beside a drawn deck is a ramp down off it, not on it (the bake's rule, at 44 m; 48 here)
+  const offRamp = (e, k) => [edges.a[e], edges.b[e]].some((q) => (touch[q] & 1) && (() => { const r = near(nodes.xyz[q * 3], nodes.xyz[q * 3 + 2], decks[k]); return r.best <= 48 && !r.ext; })());
+  for (const [x, y, z, lv, e, ux, uz, kind] of deckPts) {
+    for (let k = 0; k < decks.length; k++) {
+      const a = along.get(`${e},${k}`);
+      if (!a) continue;
+      if (a[1] >= 0.5 * a[0]) c.topLevel[k] = Math.max(c.topLevel[k] ?? 1, Math.max(1, lv)); // the highest level along it, as the bake reads it
+      if (a[2] < 0.6 * a[0] || offRamp(e, k)) continue;
+      // a node a street meets stands on the street (the bake's anchors win)
+      if ([edges.a[e], edges.b[e]].some((q) => (touch[q] & 1) && Math.hypot(nodes.xyz[q * 3] - x, nodes.xyz[q * 3 + 2] - z) < 0.01)) continue;
+      const q = near(x, z, decks[k]);
+      if (q.best <= 40 && !q.ext) c.drawnPts.push([k, y, q.top, Math.max(1, lv), edges.id[e], x, z, sea(x, z) || wet(x, z) ? NaN : ground(x, z)]);
+    }
+    if (kind === 2) c.footDeck.push([x, y, z, Math.max(1, lv), ux, uz]);
+    else if (kind === 1) c.roadDeck.push([x, y, z, Math.max(1, lv), ux, uz]);
   }
   // decks a chain of deck edges joins, anywhere in the city (by node ids: a portal is one id in two files), are one
   // structure, its levels changing along its ramps; stacking is checked between two that nothing joins, after the files
@@ -362,6 +470,7 @@ for (const [rx, rz, bytes] of regions) {
     if (l.has(`${rx},${rz}`)) c.idTwiceInFile++;
     l.add(`${rx},${rz}`);
     if (!keysOf.has(areas.id[a])) c.noKey++;
+    if (onStructure.has(keysOf.get(areas.id[a])?.slice(2))) { c.areaOnStructure++; c.areaOnStructureWhere ??= keysOf.get(areas.id[a]).slice(2); }
     for (let t = areas.tri[a]; t < areas.tri[a + 1]; t++) {
       const v = areas.xyz.subarray(t * 9, t * 9 + 9);
       const minx = Math.min(v[0], v[3], v[6]), maxx = Math.max(v[0], v[3], v[6]);
@@ -389,7 +498,7 @@ for (const [rx, rz, bytes] of regions) {
         if (l0 < -1e-9 || l1 < -1e-9 || l2 < -1e-9) continue;
         let h = ground(x, z);
         if (Number.isNaN(h)) continue;
-        if (sea(x, z)) h = WATER_Y; // an area on the sea stands at the water, as a water node does; on a lake, at the grid
+        h = standAt(x, z); // an area stands as a node does: the grid, never under the sea's surface; on a lake, the grid
         c.areaPts++;
         const er = Math.abs(l0 * v[1] + l1 * v[4] + l2 * v[7] - h);
         if (er > c.areaWorst) { c.areaWorst = er; c.areaWhere = `area ${areas.id[a]} (${AREA[kind]}) at ${x}, ${z}`; }
@@ -492,6 +601,15 @@ report('edges from a node to itself', `${c.selfLoops}; ${c.shortEdges} edges und
 report('nodes on a region line with edges one side only', `${c.lineDeadEnds}, ${c.lineDeadC1} of them where the cell across, inside the bounds, has no file (C1)`, '0 where the cell across has no file', c.lineDeadC1 === 0);
 report('direction', Object.entries(c.byDir).sort().map(([k, v]) => `${k} ${v}`).join(', '), '');
 report('one-way edges against the bake\'s count', `${c.oneWay} in the files, ${life.stats?.oneWay?.edges} in life.stats (from ${life.stats?.oneWay?.rulesRead} rules read)`, 'the same', c.oneWay === life.stats?.oneWay?.edges);
+{
+  // direction and NO_CARS against the rules themselves (the check file), not the bake's counts: a swap of FORWARD and
+  // BACKWARD, or every edge BOTH, fails here
+  const n = [checks?.oneway.length ?? 0, checks?.noCars.length ?? 0];
+  for (const [w, name, lim] of [[0, 'one-way rules against the edges', 'travel as the rule lets it'], [1, 'closing rules against NO_CARS (C6)', 'NO_CARS']]) {
+    report(name, `${c.ruleSeen[w]} of ${n[w]} rules found on their edge, ${c.ruleWrong[w]} wrong${c.ruleWhere[w] ? ` (first: ${c.ruleWhere[w]})` : ''}, ${c.ruleMiss[w]} not found within 0.6 m${w === 0 ? `; ${checks?.onewayConflicts ?? 0} places two headings cover, not checked` : ''}`,
+      `${lim}; under 1 % not found`, !!checks && n[w] > 0 && c.ruleWrong[w] === 0 && c.ruleMiss[w] <= 0.01 * n[w]);
+  }
+}
 report('tunnels that are UNDRAWN', c.tunnelUndrawn, '0', c.tunnelUndrawn === 0);
 {
   // C6: NO_CARS on roads only, in files of minor 1 and up, and set wherever the bake read a rule closing a road to cars
@@ -501,10 +619,50 @@ report('tunnels that are UNDRAWN', c.tunnelUndrawn, '0', c.tunnelUndrawn === 0);
 }
 const mw = c.kmByClass.motorway ?? 0, mu = c.undrawnKm.motorway ?? 0;
 report('UNDRAWN km by class', km(c.undrawnKm) || 'none', '', null, `motorway ${mw ? ((100 * mu) / mw).toFixed(0) : 0} % of ${mw.toFixed(1)} km (the audit's surface share: 68 %)`);
-report('land within 0.5 m of the grid', `${c.land} land nodes and ${c.steps} steps of 4 m or less along land edges; worst ${c.landWorst.toFixed(3)} m (${c.landWhere}); ${c.landOver} over; ${c.landNoTile} with no tile`, '0 over 0.5 m', c.landOver === 0);
+report('land within 0.5 m of the grid', `${c.land} land nodes and ${c.steps} steps of 4 m or less along land edges, against the grid and never under the sea's surface; worst ${c.landWorst.toFixed(3)} m (${c.landWhere}); ${c.landOver} over; ${c.landNoTile} with no tile, at WATER_Y`, '0 over 0.5 m', c.landOver === 0);
+report('ground under the drawn water', `${c.underWater} land nodes and steps under WATER_Y on the sea${c.underWhere ? ` (first: ${c.underWhere})` : ''}`, '0', c.underWater === 0);
 report('water at WATER_Y', `${c.water} water nodes and points, worst ${c.waterWorst.toFixed(4)} m off; ${c.waterOff} off by over 1 mm`, '0', c.waterOff === 0);
-const ds = c.deckSamples.map(Math.abs).sort((a, b) => a - b);
-report('decks against the drawn decks (C2)', ds.length ? `${ds.length} deck samples within 15 m of a landmark deck: median ${ds[ds.length >> 1].toFixed(1)} m, 90th ${ds[Math.floor(ds.length * 0.9)].toFixed(1)} m, worst ${ds[ds.length - 1].toFixed(1)} m (mean signed ${(c.deckSamples.reduce((a, b) => a + b, 0) / ds.length).toFixed(1)} m)` : 'no deck samples near a drawn deck', 'printed: within 0.3 m once C2 is Agreed', null);
+report('decks over the ground and the water', `${c.deckGround} deck steps, ${c.deckDrawn} under the ground on a drawn deck (C2: where City draws it); ${c.deckUnder} more under the ground by over 0.5 m, under the sea's surface, or a lake's by over 0.5 m${c.deckUnderWhere ? ` (worst ${c.deckUnderWorst.toFixed(1)} m: ${c.deckUnderWhere})` : ''}`, '0', c.deckUnder === 0);
+report('tunnels under the ground', `${c.tunnelPts} tunnel steps; ${c.tunnelOver} over the ground or the bed by over 0.5 m${c.tunnelOverWhere ? ` (worst ${c.tunnelOverWorst.toFixed(1)} m: ${c.tunnelOverWhere})` : ''}`, '0', c.tunnelOver === 0);
+{
+  // C2 (0.6): a deck along a deck City draws takes its top within 0.3 m, a lower level 5.5 m a level under the highest
+  // along it. W1 checks the points well inside the bake's reach (21.5 m of 22, 28 degrees of 30)
+  const topLevel = decks.map((_, k) => c.topLevel[k] ?? 1);
+  const off = [];
+  let where = null, worst = 0;
+  let grounded = 0;
+  for (const [k, y, top, lv, id, x, z, h] of c.drawnPts) {
+    const want = top - 5.5 * (topLevel[k] - lv);
+    if (lv < topLevel[k] && h > want) { grounded++; continue; } // a lower deck the ground holds up: the check above
+    const er = Math.abs(y - want);
+    off.push(er);
+    if (er > worst) { worst = er; where = `edge ${id} (${keysOf.get(id)?.slice(2)}) at ${x.toFixed(1)}, ${z.toFixed(1)}, level ${lv} of ${topLevel[k]}`; }
+  }
+  off.sort((a, b) => a - b);
+  const over = off.filter((v) => v > 0.3).length;
+  report('decks along the drawn decks (C2)', off.length ? `${off.length} deck steps along ${decks.length} drawn decks (top levels ${topLevel.join(', ')}; ${grounded} of a lower level on the ground, not checked here): median ${off[off.length >> 1].toFixed(2)} m off, worst ${worst.toFixed(2)} m (${where}); ${over} over 0.3 m` : 'no deck steps along a drawn deck',
+    'within 0.3 m', decks.length === 0 || (off.length > 0 && over === 0));
+}
+{
+  // a sidewalk on a bridge rides its carriageway: foot deck steps within 14 m of a road deck's at one level, heading with it
+  const grid = new Map();
+  for (const q of c.roadDeck) { const k = `${Math.floor(q[0] / 15)},${Math.floor(q[2] / 15)}`; let l = grid.get(k); if (!l) grid.set(k, (l = [])); l.push(q); }
+  let n = 0, over = 0, worst = 0, where = null;
+  for (const [x, y, z, lv, ux, uz] of c.footDeck) {
+    let best = 14, by = null;
+    const gx = Math.floor(x / 15), gz = Math.floor(z / 15);
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) for (const r of grid.get(`${gx + dx},${gz + dz}`) ?? []) {
+      const d = Math.hypot(r[0] - x, r[2] - z);
+      if (d < best && r[3] === lv && Math.abs(r[4] * ux + r[5] * uz) >= Math.cos((28 * Math.PI) / 180)) { best = d; by = r[1]; }
+    }
+    if (by === null) continue;
+    n++;
+    const er = Math.abs(y - by);
+    if (er > 1) over++;
+    if (er > worst) { worst = er; where = `${x.toFixed(1)}, ${z.toFixed(1)}: ${y.toFixed(1)} beside ${by.toFixed(1)}`; }
+  }
+  report('sidewalks beside their carriageway', `${n} foot deck steps within 14 m of a road deck at their level; worst ${worst.toFixed(1)} m${where ? ` (${where})` : ''}; ${over} over 1 m`, '0 over 1 m', over === 0);
+}
 report('stacked decks by level', `${c.stackPairs} pairs of deck points within 3 m of a higher level on another structure; ${c.inversions} where the higher isn't 0.1 m higher${c.inversionWhere ? ` (${c.inversionWhere})` : ''}; ${c.rampPairs} pairs on one structure, across its ramps, not checked`, '0', c.inversions === 0);
 report('ferries on water inside the map', `${c.ferrySamples} samples every 10 m, ${c.ferryExempt} within 150 m of a route's end; ${c.ferryOnLand} on land${c.ferryLandWhere ? ` (first: ${c.ferryLandWhere})` : ''}`, '0', c.ferryOnLand === 0);
 let endsOff = 0, endsIn = 0, endClass = {};
@@ -523,9 +681,50 @@ for (const f of routes?.ferries ?? []) {
     }
   }
 }
-report('ferry routes\' ends on a terminal', `${(routes?.ferries.length ?? 0) * 2} ends, ${endsOff} not within 150 m of the terminal they name; ${endsIn} inside the map, on ${JSON.stringify(endClass)}`, '0', endsOff === 0);
-report('ferries past the map', 'not checked: the coastline download (item 20) was refused, and C3 is Proposed', '', null);
-report('areas against the grid', `${c.areaPts} grid points inside area triangles, worst ${c.areaWorst.toFixed(3)} m${c.areaWhere ? ` (${c.areaWhere})` : ''}; ${c.areaOver} over`, '0 over 0.5 m', c.areaOver === 0);
+report('ferry routes\' ends on a terminal', `${(routes?.ferries.length ?? 0) * 2} ends, ${endsOff} not within 150 m of the terminal they name; ${endsIn} inside the map, on ${JSON.stringify(endClass)}`, '0', !!routes && routes.ferries.length > 0 && endsOff === 0);
+{
+  // the graphs' ferry edges end on a terminal, a berth or a port area: an end node (one FERRY edge in every file, no
+  // portal, not on the bounds) a road or footway meets, on a PLAZA texel, or within 30 m of a terminal in routes.bin
+  let ends = 0, off = 0, where = null;
+  const terms = routes?.terminals ?? [];
+  for (const [id, r] of ferryEnd) {
+    if (r.deg !== 1 || r.portal) continue;
+    if (Math.abs(r.x - bx0) < 0.05 || Math.abs(r.x - bx1) < 0.05 || Math.abs(r.z - bz0) < 0.05 || Math.abs(r.z - bz1) < 0.05) continue;
+    ends++;
+    const ok = r.joined || klass(r.x, r.z) === PLAZA || terms.some((t) => Math.hypot(t.x - r.x, t.z - r.z) <= 30);
+    if (!ok) { off++; where ??= `node ${id} at ${r.x.toFixed(1)}, ${r.z.toFixed(1)}`; }
+  }
+  report('ferry edges\' ends on a terminal, berth or port area', `${ends} ends in the map, ${off} on none${where ? ` (first: ${where})` : ''}`, '0', off === 0);
+}
+{
+  // C3 (0.6): past the map, inside the archive's box, the routes every 10 m against Overture's land (OSM's coastline),
+  // but within 150 m of their ends
+  const polys = (checks?.land ?? []).map((rings) => rings.map((r) => r.map(([x, z]) => [x / 10, z / 10])));
+  const boxes = polys.map((rings) => { let a = Infinity, b = Infinity, cc = -Infinity, d = -Infinity; for (const [x, z] of rings[0]) { a = Math.min(a, x); b = Math.min(b, z); cc = Math.max(cc, x); d = Math.max(d, z); } return [a, b, cc, d]; });
+  const inRing = (r, x, z) => { let ins = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const [xi, zi] = r[i], [xj, zj] = r[j]; if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) ins = !ins; } return ins; };
+  const onLand = (x, z) => polys.some((rings, k) => { const b = boxes[k]; return x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3] && inRing(rings[0], x, z) && !rings.slice(1).some((h) => inRing(h, x, z)); });
+  const [lo0, la0, lo1, la1] = checks?.landBox ?? [0, 0, 0, 0];
+  let n = 0, land = 0, outBox = 0, where = null;
+  for (const f of routes?.ferries ?? []) {
+    const m = f.lat.length, ends = [[f.xz[0], f.xz[1]], [f.xz[m * 2 - 2], f.xz[m * 2 - 1]]];
+    for (let i = 0; i < m - 1; i++) {
+      const ax = f.xz[i * 2], az = f.xz[i * 2 + 1], bx = f.xz[i * 2 + 2], bz = f.xz[i * 2 + 3];
+      const k = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 10));
+      for (let j = 0; j < k; j++) {
+        const t = j / k, x = ax + t * (bx - ax), z = az + t * (bz - az);
+        if (x >= bx0 && x <= bx1 && z >= bz0 && z <= bz1) continue; // the map's own check, above
+        if (ends.some(([ex, ez]) => Math.hypot(x - ex, z - ez) <= 150)) continue;
+        const lat = f.lat[i] + t * (f.lat[i + 1] - f.lat[i]), lon = f.lon[i] + t * (f.lon[i + 1] - f.lon[i]);
+        if (lon < lo0 || lon > lo1 || lat < la0 || lat > la1) { outBox++; continue; }
+        n++;
+        if (onLand(x, z)) { land++; where ??= `${f.key} at ${lat.toFixed(5)}, ${lon.toFixed(5)}`; }
+      }
+    }
+  }
+  report('ferries past the map (C3)', `${n} samples every 10 m inside the archive's box against ${polys.length} land polygons; ${land} on land${where ? ` (first: ${where})` : ''}; ${outBox} past the box, not checked`, '0', !!checks && n > 0 && land === 0);
+}
+report('areas against the grid', `${c.areaPts} grid points inside area triangles, against the grid and never under the sea's surface, worst ${c.areaWorst.toFixed(3)} m${c.areaWhere ? ` (${c.areaWhere})` : ''}; ${c.areaOver} over`, '0 over 0.5 m', c.areaOver === 0);
+report('areas on a roof or a deck left out', `${c.areaOnStructure} in the files of the ${onStructure.size} the bake read on a structure${c.areaOnStructureWhere ? ` (first: ${c.areaOnStructureWhere})` : ''}`, '0', !!checks && c.areaOnStructure === 0);
 report('OPEN_WATER on water', `${c.waterTris} triangles, ${c.waterTexels} texel centres inside them, ${c.waterOffTexels} not the sea (WATER at 2 m or under, or no tile); ${c.waterTriY} triangles off WATER_Y`, '0 and 0', c.waterOffTexels === 0 && c.waterTriY === 0);
 report('areas by kind', Object.entries(c.areaByKind).map(([k, v]) => `${k} ${v}`).join(', '), '');
 const allNames = new Set(c.names);

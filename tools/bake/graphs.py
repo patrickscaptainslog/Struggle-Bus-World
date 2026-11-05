@@ -4,9 +4,10 @@ from an archive of Overture's raw row groups (tools/bake/fetch_archive.py) and t
 and never changes.
 
 Writes, beside the tiles in public/city/<slug>/ (or --out):
-  g_<rx>_<rz>.bin   one for every region in city.json `regions`, 'SBG1': roads, footways, rail, ferries' pieces, areas
+  g_<rx>_<rz>.bin   one for every cell inside the bounds with anything in it (C1), listed in city.json's life.regions, 'SBG1'
   routes.bin        'SBC1' (C7): the ferry routes that touch the map, whole; their terminals; the map's marinas; airports
-  gkeys.bin         'SBK1': every id and its source key, for W2. The game never fetches it
+  gkeys.bin         'SBK1': every id and its source key, for W2, in tools/world/data/<slug>/ (the repo, not the site)
+  checks.json.gz    beside it, for W1: the rules' places and the land along the ferries past the map (C3)
   city.json         gains "life" (the files' versions and the bake's counts), "vdatum", "geoid" and "geoidSpread"
 The byte layouts are written once, in src/world/lifeData.ts, which reads them.
 
@@ -90,6 +91,10 @@ AREA_CELL, AREA_TOL = 64.0, 0.4   # areas: a TIN of the 4 m grid from a 64 m lat
 WATER_SIMPLIFY = 0.9           # OPEN_WATER's staircase, under half a 2 m texel
 LAKE_M = 2.0                   # a WATER texel the grid holds higher than this is a lake, not the sea (sea())
 SIGNAL_M = 0.5
+DRAWN_REACH_M = 22.0           # a deck City draws, from its line: the Golden Gate's half, 13.5 m, and OSM's sidewalks 9-22 m out (C2)
+DRAWN_COS = math.cos(math.radians(30))   # heading along it, not across
+CHECK_LAND_M = 300.0           # W1's land along the ferries past the map (C3), each side of the routes
+FOLLOW_M = 15.0                # a sidewalk on a bridge rides its carriageway's deck this close, at one level
 STOP_ALONG_M, STOP_NEAR_M = 15.0, 3.0
 TERMINAL_M = 150.0             # a route's end to its terminal
 BERTH_DEFAULT_M = 60.0         # ESTIMATE: a ferry slip
@@ -473,9 +478,10 @@ def drape(xz, tiles):
     """A land edge's points with heights from the grid: the plan's points, and more wherever the straight line between
     two misses the grid by over DRAPE_TOL at any sample: every metre, and wherever it crosses one of the grid's lines,
     where the bilinear grid bends (4 m steps hid a 0.88 m miss over a bump, 2 m steps one of 0.84 m across a bend;
-    between samples a metre apart the grid can't bulge more than a few centimetres). Returns (m, 3) x, z, y; no tile
-    reads WATER_Y."""
+    between samples a metre apart the grid can't bulge more than a few centimetres). Returns (m, 3) x, z, y, heights as a
+    mover stands there (stand()): never under the sea, WATER_Y with no tile."""
     ts, si = [], []
+    TX = tiles.T / tiles.N
     for i in range(len(xz) - 1):
         p, q = xz[i], xz[i + 1]
         d = math.hypot(q[0] - p[0], q[1] - p[1])
@@ -486,7 +492,12 @@ def drape(xz, tiles):
                 lo, hi = sorted((p[a], q[a]))
                 g = np.arange(math.floor(lo / GRID_M) + 1, math.ceil(hi / GRID_M)) * GRID_M
                 t.append((g - p[a]) / (q[a] - p[a]))
+                # either side of a texel line, where stand() can step between the sea's surface and a grid under it
+                tx = np.arange(math.floor(lo / TX) + 1, math.ceil(hi / TX)) * TX
+                tt = (tx - p[a]) / (q[a] - p[a])
+                t.extend([tt, tt - 0.06 / max(d, 1e-9), tt + 0.06 / max(d, 1e-9)])   # 6 cm: past the file's dm rounding
         t = np.unique(np.concatenate(t))
+        t = t[t <= 1.0]   # (a texel line within 6 cm of the end); t = 1, the next plan point, stays last
         t = t[(t > 1e-9)]
         ts.append(t)
         si.append(np.full(len(t), i))
@@ -495,8 +506,8 @@ def drape(xz, tiles):
     seg = np.diff(xz, axis=0)
     S = np.vstack([xz[:1], xz[si] + t[:, None] * seg[si]])
     vi = np.concatenate([[0], np.cumsum([len(x) for x in ts])])   # each plan point's index among the samples
-    h, _ = tiles.sample(S[:, 0], S[:, 1])
-    h = np.where(np.isnan(h), WATER_Y, h)
+    h, c = tiles.sample(S[:, 0], S[:, 1])
+    h = stand(h, c)
     keep = np.zeros(len(S), bool)
     keep[vi] = True
     todo = [(int(vi[i]), int(vi[i + 1])) for i in range(len(seg))]
@@ -573,6 +584,22 @@ def no_cars(rules, f):
     motor vehicles, and none covering it lets cars in."""
     rs = [r for r in rules or [] if r and covers(r.get('between'), f)]
     return any(closed_rule(r) for r in rs) and not any(lets_cars_in(r) for r in rs)
+
+
+def on_structure(level, tags):
+    """Whether an area stands on a roof, a deck or a bridge rather than the ground: OSM's level tag when it has one
+    (Mission Creek Park says 0 under a layer of 1), else location=roof or bridge=*, else Overture's level (OSM's
+    layer) over 0."""
+    t = dict(tags or [])
+    lv = t.get('level')
+    if lv is not None:
+        try:
+            return float(str(lv).split(';')[0]) > 0
+        except ValueError:
+            pass
+    if t.get('location') in ('roof', 'rooftop') or t.get('bridge') not in (None, 'no'):
+        return True
+    return (level or 0) > 0
 
 
 def speed_at(rules, f):
@@ -665,7 +692,8 @@ class Bake:
         self.decks = load_module('decks')
         self.cache = os.path.join(HERE, '.cache', slug, 'graph')
         self.stats = {'read': {}, 'dropped': defaultdict(int), 'rules': defaultdict(int)}
-        self.drawn_decks = [np.array([[p[0], p[1]] for p in lm['deck']], float) for lm in m.get('landmarks', []) if lm.get('deck')]
+        # decks City draws (C2): today the landmark rows' [x, z, y] lines, the deck's top; bridges.bin's from step 5
+        self.drawn_decks = [np.array(lm['deck'], float) for lm in m.get('landmarks', []) if lm.get('deck')]
         self.t0 = time.time()
 
     def xz(self, lon, lat):
@@ -726,6 +754,7 @@ class Bake:
         for f in glob.glob(os.path.join(self.cache, '*.pkl')):
             os.remove(f)
         self.spill = Spill(self.cache, 'e')
+        self.checks = {'oneway': [], 'onewayConflicts': 0, 'noCars': []}
         self.special = []   # decks and tunnels, whole: (pid, region, rec)
         self.ferry_rows = {}  # the ferry routes that touch the map, whole: key -> [(gers, name, lonlat, end connector ids)]
         self.pid = 0
@@ -902,6 +931,7 @@ class Bake:
                     p[info[0]] = info[1]
                 nodes.append((dm_key(way, p[0], p[1]), p, False))
         kept = 0
+        kept_t = []
         self.touched = False
         for k in range(len(cs) - 1):
             ta, tb = cs[k][0], cs[k + 1][0]
@@ -962,6 +992,7 @@ class Bake:
             if hc in ('deck', 'tunnel'):
                 self.special.append((reg, rec))
             kept += 1
+            kept_t.append((ta, tb))
             Lp = tb - ta
             if kind == KIND['ROAD']:
                 km[cl] += Lp
@@ -989,21 +1020,90 @@ class Bake:
                 st[f'ways {min(len(ways), 2)}'] += 1
             else:
                 st['ways 0'] += 1
+        # W1's checks (graph-check.mjs): each one-way and car-closing rule at its range's middle, on the segment's own
+        # line, so W1 reads direction and NO_CARS against the rules, not against the bake's own counts
+        if kept_t and kind in (KIND['ROAD'], KIND['RAIL']):
+            def at(f):
+                t = f * L
+                if not any(ta - 1e-9 <= t <= tb + 1e-9 for ta, tb in kept_t):
+                    return None
+                p = point_at(xz, s, t)
+                if not self.inside(p[0], p[1]):
+                    return None
+                i = int(np.clip(np.searchsorted(s, t, side='right') - 1, 0, len(s) - 2))
+                u = (xz[i + 1] - xz[i]) / max(float(s[i + 1] - s[i]), 1e-9)
+                return [round(float(p[0]), 2), round(float(p[1]), 2), round(float(u[0]), 4), round(float(u[1]), 4)]
+            for hd, b in ow_rules:
+                f = 0.5 * (b[0] + b[1]) if b else 0.5
+                q = at(f)
+                if q is None:
+                    continue
+                if len({h for h, bb in ow_rules if covers(bb, f)}) > 1:
+                    self.checks['onewayConflicts'] += 1   # two headings over one place: the bake takes the last
+                    continue
+                sg = 1 if hd == 'backward' else -1      # 'backward' denied: travel along the line
+                lv = next((v for v, bb in reversed(lvl_rules) if covers(bb, f)), 0)   # as the pieces take it
+                self.checks['oneway'].append([q[0], q[1], sg * q[2], sg * q[3], kind, lv])
+            if kind == KIND['ROAD']:
+                for r in row['access'] or []:
+                    if closed_rule(r):
+                        b = r.get('between')
+                        f = 0.5 * (b[0] + b[1]) if b else 0.5
+                        q = at(f)
+                        if q is not None and no_cars(row['access'], f):
+                            lv = next((v for v, bb in reversed(lvl_rules) if covers(bb, f)), 0)
+                            self.checks['noCars'].append(q[:2] + [lv])
         return kept
 
-    def on_drawn_deck(self, shape):
-        if not self.drawn_decks:
-            return False
-        p = shape[len(shape) // 2] if len(shape) > 2 else 0.5 * (shape[0] + shape[-1])
-        for d in self.drawn_decks:
-            a, b = d[:-1], d[1:]
+    def drawn_at(self, xs, zs, ux, uz, reach=DRAWN_REACH_M):
+        """For points heading (ux, uz): (index of the deck City draws they run along, or -1; that deck's top there). Along
+        one: within reach of its line, between its two ends, heading within 30 degrees of it (C2); ux None: any
+        heading."""
+        n = len(xs)
+        hit = np.full(n, -1)
+        top = np.zeros(n)
+        best = np.full(n, np.inf)
+        P = np.column_stack([xs, zs])
+        for k, d in enumerate(self.drawn_decks):
+            a, b = d[:-1, :2], d[1:, :2]
             ab = b - a
-            L2 = np.maximum((ab * ab).sum(1), 1e-9)
-            t = np.clip(((p - a) * ab).sum(1) / L2, 0, 1)
-            q = a + t[:, None] * ab
-            if np.min(np.hypot(*(q - p).T)) < 15.0:
-                return True
-        return False
+            L = np.maximum(np.hypot(ab[:, 0], ab[:, 1]), 1e-9)
+            tr = ((P[:, None, :] - a[None]) * ab[None]).sum(2) / (L * L)[None]      # (n, segments)
+            t = np.clip(tr, 0, 1)
+            q = a[None] + t[..., None] * ab[None]
+            dist = np.hypot(q[..., 0] - P[:, None, 0], q[..., 1] - P[:, None, 1])
+            j = np.argmin(dist, axis=1)
+            dj = dist[np.arange(n), j]
+            tj = tr[np.arange(n), j]
+            ext = ((j == 0) & (tj < 0)) | ((j == len(ab) - 1) & (tj > 1))
+            cos = np.ones(n) if ux is None else np.abs(ux * ab[j, 0] / L[j] + uz * ab[j, 1] / L[j])
+            ok = (dj <= reach) & ~ext & (cos >= DRAWN_COS) & (dj < best)
+            tc = np.clip(tj, 0, 1)
+            y = d[j, 2] + tc * (d[j + 1, 2] - d[j, 2])
+            hit = np.where(ok, k, hit)
+            top = np.where(ok, y, top)
+            best = np.where(ok, dj, best)
+        return hit, top
+
+    def drawn_piece(self, shape, reach=DRAWN_REACH_M):
+        """The deck City draws that most of a piece runs along (drawn_at), or -1."""
+        if not self.drawn_decks or len(shape) < 2:
+            return -1
+        seg = np.diff(shape, axis=0)
+        L = np.hypot(seg[:, 0], seg[:, 1])
+        ok = L > 1e-6
+        if not ok.any():
+            return -1
+        mid = 0.5 * (shape[:-1] + shape[1:])[ok]
+        hit, _ = self.drawn_at(mid[:, 0], mid[:, 1], seg[ok, 0] / L[ok], seg[ok, 1] / L[ok], reach=reach)
+        for k in range(len(self.drawn_decks)):
+            if float(L[ok][hit == k].sum()) >= 0.5 * float(L[ok].sum()):
+                return k
+        return -1
+
+    def on_drawn_deck(self, shape):
+        """Whether most of a piece runs along a deck City draws: then it isn't UNDRAWN, and it takes the deck's top."""
+        return self.drawn_piece(shape) >= 0
 
     # ---------------------------------------------------------- pass 1: the base types
 
@@ -1076,9 +1176,11 @@ class Bake:
         uses = {('park', 'park'): 'PARK', ('park', 'dog_park'): 'PARK', ('park', 'village_green'): 'PARK',
                 ('pedestrian', 'pedestrian'): 'PLAZA', ('pedestrian', 'plaza'): 'PLAZA', ('recreation', 'marina'): 'MARINA'}
         self.marinas_src = []
+        self.checks['onStructure'] = []
         for typ, table in (('land_use', uses), ('land', {('sand', 'beach'): 'BEACH'})):
             want = pa.array(sorted({c for _, c in table}))
-            cols = ['id', 'names.primary', 'sources', 'subtype', 'class', 'source_tags', 'geometry', 'bbox']
+            cols = ['id', 'names.primary', 'sources', 'subtype', 'class', 'source_tags', 'geometry', 'bbox'] + (
+                ['level'] if typ == 'land_use' else [])
             for b in batches(self.rel, typ, self.box, cols, self.stats['read'], keep=lambda b: pc.is_in(b.column('class'), want)):
                 g = shapely.from_wkb(b.column('geometry').to_numpy(zero_copy_only=False))
                 cls = b.column('class').to_pylist()
@@ -1087,12 +1189,19 @@ class Bake:
                 names = primary(b.column('names'))
                 src = b.column('sources').to_pylist()
                 tags = b.column('source_tags').to_pylist()
+                lvl = b.column('level').to_pylist() if typ == 'land_use' else [None] * len(gid)
                 for i in range(len(gid)):
                     kind = table.get((sub[i], cls[i]))
                     geom = g[i]
                     if not kind or geom is None or geom.geom_type not in ('Polygon', 'MultiPolygon'):
                         continue
                     k = osm_key(src[i]) or gid[i]
+                    if on_structure(lvl[i], tags[i]):
+                        # a roof garden or a deck: no height for it until the buildings come (item 1), and the
+                        # street under it is the wrong place (Salesforce Park, 21 m up, stood at street level)
+                        self.stats['dropped'][f'{kind} on a structure'] += 1
+                        self.checks['onStructure'].append(k)
+                        continue
                     self.area_rows.append((k, AREA[kind], names[i] or '', geom))
                     if kind == 'MARINA':
                         cap = dict(tags[i] or []).get('capacity') if tags[i] else None
@@ -1296,9 +1405,18 @@ class Bake:
             comps = defaultdict(list)
             for rec in recs:
                 comps[find(rec[7])].append(rec)
-            # the lowest structures first, so one crossing over another is placed against it (decks.Stacked)
+            # the lowest structures first, so one crossing over another is placed against it (decks.Stacked); at one
+            # level a structure with a road first, so a sidewalk beside it can ride its deck (FOLLOW_M)
             self.stacked = self.decks.Stacked()
-            for comp in sorted(comps.values(), key=lambda c: (max(r[5] for r in c), min(min(r[7], r[8]) for r in c))):
+            self.follow = defaultdict(list)
+            if which == 'deck':
+                self.drawn_level = [1] * len(self.drawn_decks)   # each drawn deck's top: the highest level along it
+                for rec in recs:
+                    k = self.drawn_piece(rec[9])
+                    if k >= 0:
+                        self.drawn_level[k] = max(self.drawn_level[k], max(rec[5], 1))
+            for comp in sorted(comps.values(), key=lambda c: (max(r[5] for r in c), min(r[12] for r in c),
+                                                             min(min(r[7], r[8]) for r in c))):
                 self.component(which, comp)
             guard(which)
         self.note(f'decks and tunnels: {sum(1 for _, r in self.special if r[13] == "deck")} deck pieces, '
@@ -1339,16 +1457,76 @@ class Bake:
         g, c = self.tiles.sample(xs, zs)
         water = np.isnan(g) | (c == 2)
         ground = np.where(np.isnan(g), WATER_Y, g)
+        base = np.where(sea(g, c), 0.0, ground)   # the water's surface under a deck: the sea's datum, else a lake's grid
         anchors = {}
         for key, i in node_s.items():
             b = self.node_bits.get(key, 0)
             if b & 1:
-                anchors[i] = float(ground[i]) if not np.isnan(g[i]) else WATER_Y
+                anchors[i] = float(stand(g[i:i + 1], c[i:i + 1])[0])
+        # each sample's heading along its piece
+        X, Z = np.array(xs), np.array(zs)
+        ux, uz = np.zeros(len(xs)), np.zeros(len(xs))
+        for ids in piece_s.values():
+            ii = np.array(ids)
+            dx = np.gradient(X[ii]) if len(ii) > 1 else np.zeros(1)
+            dz = np.gradient(Z[ii]) if len(ii) > 1 else np.zeros(1)
+            L = np.maximum(np.hypot(dx, dz), 1e-9)
+            ux[ii], uz[ii] = dx / L, dz / L
         if which == 'deck':
             # (a tunnel's end on this deck takes the deck's height: tunnels come after)
+            lv = np.maximum(np.array(lvl), 1)
+            fixed = {}
+            hit = np.full(len(xs), -1)
+            if self.drawn_decks:
+                # C2: a piece that runs along a deck City draws (most of its length, on_drawn_deck) takes its top at
+                # every sample between the deck's ends within twice the reach (OSM's sidewalks run 9-25 m off the
+                # Golden Gate's line); a lower level 5.5 m a level under the top level along it, and never under the
+                # ground: it isn't drawn
+                # a piece that ends on the ground alongside the deck isn't on it: a ramp down to the street beside
+                # the Bay Bridge's anchorage was pinned 27 m over its own foot
+                along = np.full(len(xs), -1)
+                for rec in comp:
+                    k = self.drawn_piece(rec[9], 2 * DRAWN_REACH_M)
+                    if k >= 0:
+                        for key, p in ((rec[7], rec[9][0]), (rec[8], rec[9][-1])):
+                            if self.node_bits.get(key, 0) & 1 and self.drawn_at(p[:1], p[1:2], None, None, reach=2 * DRAWN_REACH_M)[0][0] == k:
+                                k = -1
+                    along[piece_s[rec[0]]] = np.maximum(along[piece_s[rec[0]]], k)
+                h2, top = self.drawn_at(X, Z, None, None, reach=2 * DRAWN_REACH_M)
+                hit = np.where((along >= 0) & (h2 == along), h2, -1)
+                for i in np.nonzero(hit >= 0)[0]:
+                    y = float(top[i] - self.decks.LEVEL_M * (self.drawn_level[hit[i]] - lv[i]))
+                    if lv[i] < self.drawn_level[hit[i]] and not water[i]:
+                        y = max(y, float(ground[i]))
+                    fixed[int(i)] = y
+            # a sidewalk or path beside a road's deck at one level rides it, as it does on the bridge: profiled apart,
+            # the Golden Gate's walkers stood up to 41 m under its cars
+            mine = defaultdict(list)   # this structure's own roads on a drawn deck: its sidewalks off it ride them too
+            for i, y in fixed.items():
+                if grade[i] == 0:
+                    mine[(math.floor(xs[i] / FOLLOW_M), math.floor(zs[i] / FOLLOW_M))].append((xs[i], zs[i], int(lv[i]), y, ux[i], uz[i]))
+            for i in range(len(xs)):
+                if grade[i] != 2 or i in fixed:
+                    continue
+                best, by = FOLLOW_M, None
+                cx, cz = math.floor(xs[i] / FOLLOW_M), math.floor(zs[i] / FOLLOW_M)
+                for dx in (-1, 0, 1):
+                    for dz in (-1, 0, 1):
+                        for x, z, l2, y2, vx, vz in [*self.follow.get((cx + dx, cz + dz), ()), *mine.get((cx + dx, cz + dz), ())]:
+                            d = math.hypot(x - xs[i], z - zs[i])
+                            if d < best and l2 == lv[i] and abs(vx * ux[i] + vz * uz[i]) >= DRAWN_COS:
+                                best, by = d, y2
+                if by is not None:
+                    fixed[i] = by
             lo, hi = self.stacked.bounds(xs, zs, lvl)
-            y = self.decks.profile(ground, water, lvl, grade, links, anchors, lo, hi)
+            y = self.decks.profile(ground, water, lvl, grade, links, anchors, lo, hi, base=base, fixed=fixed)
             self.stacked.add(xs, zs, lvl, y)
+            for i in range(len(xs)):
+                if grade[i] == 0:
+                    self.follow[(math.floor(xs[i] / FOLLOW_M), math.floor(zs[i] / FOLLOW_M))].append(
+                        (xs[i], zs[i], int(lv[i]), float(y[i]), ux[i], uz[i]))
+            self.stats['rules']['deck samples on a drawn deck (C2)'] += int(sum(1 for i in fixed if self.drawn_decks and hit[i] >= 0))
+            self.stats['rules']['deck samples riding a road deck'] += int(sum(1 for i in fixed if not (self.drawn_decks and hit[i] >= 0)))
         else:
             for key, i in node_s.items():
                 b = self.node_bits.get(key, 0)
@@ -1366,12 +1544,17 @@ class Bake:
                 anchors = {next(iter(node_s.values())): float(ground[next(iter(node_s.values()))])}
             y = self.decks.along(None, links, anchors, len(xs))
             y = np.where(np.isnan(y), ground, y)
+            # never over the ground, and deeper by its level away from its ends (decks.under)
+            cap = self.decks.under(ground, lvl, grade, links, anchors)
+            free = np.ones(len(xs), bool)
+            free[list(anchors)] = False
+            y = np.where(free, np.minimum(y, cap), y)
         for key, i in node_s.items():
             if not (self.node_bits.get(key, 0) & 1):
                 self.deck_y[key] = float(y[i])
         for pid, ids in piece_s.items():
             p = np.column_stack([np.array(xs)[ids], np.array(zs)[ids], y[ids]])
-            p = simplify3(p, 0.1, 0.25)
+            p = simplify3(p, 0.1, 0.15 if which == "deck" else 0.25)   # a drawn deck is checked to 0.3 m
             self.inner[pid] = p[1:-1]
 
     # ---------------------------------------------------------- pass 3: regions
@@ -1460,10 +1643,11 @@ class Bake:
         bits = np.array([self.node_bits[k] for k in keys], int) if nn else np.zeros(0, int)
         if nn:
             g, c = self.tiles.sample(nxz[:, 0], nxz[:, 1])
+            st = stand(g, c)
             for i, k in enumerate(keys):
                 b = bits[i]
                 if b & 1:
-                    ny[i] = WATER_Y if np.isnan(g[i]) else g[i]
+                    ny[i] = st[i]
                 elif b & 2 or b & 4:
                     ny[i] = self.deck_y.get(k, WATER_Y if np.isnan(g[i]) else g[i])
                 else:
@@ -1585,19 +1769,20 @@ class Bake:
         return np.column_stack([xz, y]), tri
 
     def region_grid(self, r):
-        """The region's 4 m grid: points (n, n) x and z, and what stands there: the baked heights, WATER_Y on the sea
-        (sea(): an area's vertex there is at the water, as a node is), nan where no tile."""
+        """The region's 4 m grid: points (n, n) x and z, and what stands there: the baked heights, never under the sea's
+        surface (stand(), as a node), nan where no tile."""
         n = int(round(self.R / 4.0)) + 1
         gx, gz = np.meshgrid(r[0] * self.R + 4.0 * np.arange(n), r[1] * self.R + 4.0 * np.arange(n))
         gh, gc = self.tiles.sample(gx.ravel(), gz.ravel())
-        gh = np.where(sea(gh, gc) & ~np.isnan(gh), WATER_Y, gh)
+        gh = np.where(np.isnan(gh), np.nan, stand(gh, gc))
         return gx, gz, gh.reshape(n, n)
 
     def surface(self, xs, zs):
-        """What an area's vertex stands on: WATER_Y on the sea and where no tile is, else the grid (a lake too: the
-        city draws it on the ground, at the grid's height)."""
+        """What an area's vertex stands on, as a node does (stand()): the grid, never under the sea's surface, WATER_Y
+        where no tile is (a lake: the grid, where the city draws it). A pier's edge took WATER_Y on texels the pier's
+        raised grid holds at 2 m or under, and its plaza sloped 3 m into the water. OPEN_WATER is flat apart."""
         g, c = self.tiles.sample(xs, zs)
-        return np.where(sea(g, c), WATER_Y, g)
+        return stand(g, c)
 
     def region_tin(self, grid, polys, extra=None):
         """One terrain TIN for the region's areas: the grid's points under them (and one step round them) inserted
@@ -1888,6 +2073,7 @@ class Bake:
                                 'marinas': len(marinas), 'marinaBerthsMapped': sum(1 for m in marinas if m['mapped']),
                                 'airports': [a['icao'] for a in airports], 'bytes': [len(out), len(gz)]}
         self.route_rows = (ferries, tlist, marinas, airports)
+        self.land_along(ferries)
         self.note(f'routes.bin: {len(ferries)} ferries, {len(tlist)} terminals, {len(marinas)} marinas, '
                   f'{len(airports)} airports; {len(gz) / 1024:.1f} KB gzipped')
 
@@ -1990,6 +2176,56 @@ class Bake:
         ns = [at(lo, la) for lo, la in zip(lon, lat)]
         return round(float(n0), 2), round(float(min(ns)), 2), round(float(max(ns)), 2)
 
+    def land_along(self, ferries):
+        """C3 (0.6): Overture's land rows of class land (OSM's coastline) within CHECK_LAND_M of the ferry routes, for W1
+        to check the routes past the map against, inside the archive's box. Polygons in map dm, simplified to 2 m."""
+        if not ferries:
+            self.checks['land'], self.checks['landBox'] = [], list(self.archive_box())
+            return
+        lines = [shapely.LineString(self.tf(np.asarray(f['ll'], float))) for f in ferries]
+        corridor = shapely.union_all([shapely.buffer(l, CHECK_LAND_M) for l in lines])
+        allll = np.vstack([np.asarray(f['ll'], float) for f in ferries])
+        box = (float(allll[:, 0].min()) - 0.01, float(allll[:, 1].min()) - 0.01, float(allll[:, 0].max()) + 0.01,
+               float(allll[:, 1].max()) + 0.01)
+        # the coastline's land runs on up rivers and straits to the tidal limit (the Vallejo ferry's last kilometres up
+        # the Mare Island Strait): Overture's water polygons there are water
+        wet = []
+        for b in batches(self.rel, 'water', box, ['id', 'geometry', 'bbox'], None):
+            for geom in shapely.from_wkb(b.column('geometry').to_numpy(zero_copy_only=False)):
+                if geom is not None and geom.geom_type in ('Polygon', 'MultiPolygon'):
+                    w = shapely.intersection(shapely.make_valid(shapely.transform(geom, self.tf)), corridor)
+                    if not w.is_empty:
+                        wet.append(w)
+        wet = shapely.union_all(wet) if wet else None
+        polys = []
+        for b in batches(self.rel, 'land', box, ['id', 'class', 'geometry', 'bbox'], None,
+                         keep=lambda b: pc.equal(b.column('class'), 'land')):
+            for geom in shapely.from_wkb(b.column('geometry').to_numpy(zero_copy_only=False)):
+                if geom is None:
+                    continue
+                p = shapely.intersection(shapely.make_valid(shapely.transform(geom, self.tf)), corridor)
+                if wet is not None and not p.is_empty:
+                    p = shapely.difference(p, wet)
+                p = shapely.simplify(p, 2.0, preserve_topology=True)
+                for q in getattr(p, 'geoms', [p]):
+                    if q.geom_type == 'Polygon' and not q.is_empty and q.area > 1.0:
+                        polys.append([np.round(np.asarray(r.coords) * 10).astype(int).tolist()
+                                      for r in [q.exterior] + list(q.interiors)])
+        self.checks['land'] = polys
+        self.checks['landBox'] = list(self.archive_box())
+        self.note(f'land along the ferries (C3): {len(polys)} polygons within {CHECK_LAND_M:.0f} m of the routes')
+
+    def write_checks(self):
+        """W1's check file, beside gkeys.bin in tools/world/data/<slug>/ (the repo, not the site): the rules' places
+        for direction and NO_CARS, and the land along the ferries past the map (C3)."""
+        d = os.path.join(ROOT, 'tools', 'world', 'data', self.slug) if self.out == self.city else self.out
+        os.makedirs(d, exist_ok=True)
+        body = json.dumps({'version': 1, **self.checks}, separators=(',', ':')).encode('utf-8')
+        with open(os.path.join(d, 'checks.json.gz'), 'wb') as f:
+            f.write(gzip.compress(body, compresslevel=9, mtime=0))
+        self.note(f'checks.json.gz: {len(self.checks["oneway"])} one-way rules, {len(self.checks["noCars"])} closing rules, '
+                  f'{len(self.checks["land"])} land polygons')
+
     def write_keys(self):
         """gkeys.bin, for W2: 'SBK1', u16 version, u16 minor, u32 count, then by id: u32 id, u8 kind (KEY_KINDS),
         u8 length, utf-8 key. A key is unique within its kind; one OSM element can be two kinds (a marina's area and
@@ -2005,7 +2241,9 @@ class Bake:
             b = k.encode('utf-8')
             out += struct.pack('<IBB', i, kind, len(b)) + b
         gz = gzip.compress(bytes(out), compresslevel=9, mtime=0)
-        with open(os.path.join(self.out, 'gkeys.bin'), 'wb') as f:
+        d = os.path.join(ROOT, 'tools', 'world', 'data', self.slug) if self.out == self.city else self.out
+        os.makedirs(d, exist_ok=True)   # in the repo for W2, not on the site: the game never fetches it
+        with open(os.path.join(d, 'gkeys.bin'), 'wb') as f:
             f.write(gz)
         self.stats['keys'] = {'count': len(rows), 'bytes': [len(out), len(gz)]}
         self.note(f'gkeys.bin: {len(rows)} keys, {len(gz) / 1024:.0f} KB gzipped')
@@ -2055,6 +2293,7 @@ class Bake:
         self.stats['oneWayEdges'] = one
         self.routes()
         self.write_keys()
+        self.write_checks()
         if not self.only:
             self.write_city()
         if not self.keep:
@@ -2088,6 +2327,14 @@ def sea(g, c):
     higher up is a lake, which the city draws on the ground at the grid's height (San Francisco's stand 5 to 90 m up:
     Lake Merced, Golden Gate Park's), so it takes the grid as land does."""
     return np.isnan(g) | ((c == 2) & (g <= LAKE_M))
+
+
+def stand(g, c):
+    """What a mover on the ground stands on: the grid, never under the sea's surface where the class raster says sea
+    (the plane City draws at WATER_Y covers the grid there), and WATER_Y with no tile. Footways out to a ferry's gate
+    and onto docks stood 0.5 m under the drawn water."""
+    g = np.asarray(g, float)
+    return np.where(np.isnan(g), WATER_Y, np.where(sea(g, c), np.maximum(g, WATER_Y), g))
 
 
 def triangulate(geom):
