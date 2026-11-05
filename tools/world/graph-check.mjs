@@ -36,7 +36,7 @@ const bundle = await rolldown({ input: `${out}/entry.ts`, platform: 'node', logL
 await bundle.write({ dir: out, format: 'esm', entryFileNames: 'w1.mjs' });
 await bundle.close();
 const L = await import(pathToFileURL(`${out}/w1.mjs`).href);
-const { parseRegionGraph, parseCityRoutes, parseTerrainTile, WATER_Y, latLonToLocal, EdgeFlag, NodeFlag, REGION_M } = L;
+const { parseRegionGraph, parseCityRoutes, parseTerrainTile, WATER_Y, latLonToLocal, EdgeFlag, NodeFlag } = L;
 
 const KIND = ['', 'ROAD', 'FOOT', 'RAIL', 'FERRY', 'WATER', 'TAXI', 'RUNWAY'];
 const ROAD = ['', 'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'unclassified', 'living', 'service', 'track', 'unknown'];
@@ -56,6 +56,7 @@ function report(name, value, limit, ok, note = '') {
 
 // ------------------------------------------------------------ the tiles, as tiles.ts reads them
 const T = man.tileSize, CN = man.classN ?? 128, RS = man.regionSize ?? 4;
+const REGION_M = T * RS; // the parser takes it from city.json as life does
 const have = new Set(man.tiles.map((t) => `${t[0]},${t[1]}`));
 const tileCache = new Map();
 function regionTiles(rx, rz) {
@@ -129,9 +130,18 @@ const [bx0, bz0, bx1, bz1] = man.bounds;
 const routesPath = `${dir}/routes.bin`;
 const routesGz = readFileSync(routesPath);
 const rb = gunzipSync(routesGz);
-const routes = parseCityRoutes(rb.buffer.slice(rb.byteOffset, rb.byteOffset + rb.byteLength));
-report('routes.bin parses', routes ? `version ${routes.version}: ${routes.ferries.length} ferries, ${routes.terminals.length} terminals, ${routes.marinas.length} marinas, ${routes.airports.length} airports` : 'null', '', !!routes);
+const routes = parseCityRoutes(rb.buffer.slice(rb.byteOffset, rb.byteOffset + rb.byteLength), man.origin);
+report('routes.bin parses', routes ? `${rb.subarray(0, 4).toString('latin1')} ${routes.version}.${routes.minor}: ${routes.ferries.length} ferries, ${routes.terminals.length} terminals, ${routes.marinas.length} marinas, ${routes.airports.length} airports` : `null (magic ${rb.subarray(0, 4).toString('latin1')})`, "SBC1 (C7)", !!routes);
 report('routes.bin size', `${(routesGz.length / 1024).toFixed(1)} KB gzipped`, '256 KB', routesGz.length <= R_LIMIT);
+{
+  // C5: the parser's map metres against geo.ts, at every place it gives them
+  let n = 0, worst = 0;
+  const at = (lat, lon, x, z) => { const [ex, ez] = latLonToLocal(lat, lon, man.origin); n++; worst = Math.max(worst, Math.hypot(ex - x, ez - z)); };
+  for (const f of routes?.ferries ?? []) for (let i = 0; i < f.lat.length; i++) at(f.lat[i], f.lon[i], f.xz[i * 2], f.xz[i * 2 + 1]);
+  for (const t of [...(routes?.terminals ?? []), ...(routes?.marinas ?? []), ...(routes?.airports ?? [])]) at(t.lat, t.lon, t.x, t.z);
+  for (const a of routes?.airports ?? []) for (const w of a.runways) for (const i of [0, 1]) at(w.lat[i], w.lon[i], w.x[i], w.z[i]);
+  report('routes in map metres (C5)', `${n} places, worst ${(worst * 100).toFixed(1)} cm from geo.ts`, 'within 5 cm (f32)', !!routes && n > 0 && worst < 0.05);
+}
 
 // keys
 const keysOf = new Map(), idOfKey = new Map();
@@ -158,7 +168,7 @@ const routeEnds = []; // map metres of each ferry route's two ends, for the 150 
 const termById = new Map(routes?.terminals.map((t) => [t.id, t]) ?? []);
 for (const f of routes?.ferries ?? []) {
   const n = f.lat.length;
-  routeEnds.push(latLonToLocal(f.lat[0], f.lon[0], man.origin), latLonToLocal(f.lat[n - 1], f.lon[n - 1], man.origin));
+  routeEnds.push([f.xz[0], f.xz[1]], [f.xz[n * 2 - 2], f.xz[n * 2 - 1]]);
 }
 const nearEnd = (x, z) => routeEnds.some(([ex, ez]) => Math.hypot(x - ex, z - ez) <= 150);
 const decks = (man.landmarks ?? []).filter((l) => l.deck).map((l) => l.deck);
@@ -199,7 +209,7 @@ for (const [rx, rz] of regions) {
   if (gz.length > G_LIMIT) c.tooBig++;
   const raw = gunzipSync(gz);
   c.raw += raw.length;
-  const g = parseRegionGraph(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength));
+  const g = parseRegionGraph(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength), REGION_M);
   if (!g || g.rx !== rx || g.rz !== rz) { c.parseFail++; continue; }
   const { nodes, edges, pts, areas } = g;
   c.nodes += nodes.n; c.edges += edges.n; c.points += pts.length / 3; c.areas += areas.n; c.tris += areas.xyz.length / 9;

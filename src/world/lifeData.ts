@@ -20,8 +20,10 @@
 // so it sums back exactly. A triangle stores its first vertex less the last triangle's first, and its other two less its
 // first, modulo the index's width. Small steps, which gzip takes far better than the places themselves.
 //
+// A minor version adds and never moves: 1.1 sets EdgeFlag.NO_CARS, which a 1.0 file never had (`minor` says which).
+//
 // routes.bin (gzip of), one a city; places i32 at 1e-7 degree, strings a u8 length and utf-8:
-//   'SBR1', u16 version (major), u16 minor
+//   'SBC1' (C7: 'SBR1' is the region bundles'), u16 version (major), u16 minor
 //   u32 ferries,   each u32 id, key, name, u32 from, u32 to (terminal ids), u8 seasonal, f32 lengthM,
 //                  u32 n, i32 lat[n], i32 lon[n]
 //   u32 terminals, each u32 id, key, u8 kind (0 ferry, 1 cruise), name, i32 lat, i32 lon, f32 berthM
@@ -29,19 +31,23 @@
 //   u32 airports,  each u32 id, icao, iata, i32 lat, i32 lon, f32 elevM, u16 runways,
 //                  each runway name, i32 lat0, lat1, lon0, lon1 (its threshold first), f32 widthM
 
+import { latLonToLocal } from '../game/geo';
+
 export const GRAPH_VERSION = 1;
 export const ROUTES_VERSION = 1;
 export const enum Kind { ROAD = 1, FOOT, RAIL, FERRY, WATER, TAXI, RUNWAY }
 export const enum RoadClass { MOTORWAY = 1, TRUNK, PRIMARY, SECONDARY, TERTIARY, RESIDENTIAL, UNCLASSIFIED, LIVING, SERVICE, TRACK, UNKNOWN }
 export const enum FootClass { FOOTWAY = 1, SIDEWALK, CROSSING, PATH, STEPS, CYCLEWAY, PEDESTRIAN }
 export const enum Dir { BOTH = 0, FORWARD = 1, BACKWARD = 2 } // FORWARD: from a to b only
-export const EdgeFlag = { BRIDGE: 1, TUNNEL: 2, UNDRAWN: 4, LINK: 8, ROUNDABOUT: 16, SEASONAL: 32 } as const;
+export const EdgeFlag = { BRIDGE: 1, TUNNEL: 2, UNDRAWN: 4, LINK: 8, ROUNDABOUT: 16, SEASONAL: 32, NO_CARS: 64 } as const; // NO_CARS (C6, minor 1): a whole-edge rule denies motor vehicles and none allows cars, buses and taxis aside
 export const NodeFlag = { PORTAL: 1, SIGNAL: 2, STOP: 4 } as const; // PORTAL: the same id is in the next region
 export const enum AreaKind { PLAZA = 1, PARK, BEACH, MARINA, FERRY_TERMINAL, CRUISE_TERMINAL, APRON, OPEN_WATER }
 export const enum ShipKind { CONTAINER = 0, BULK, TANKER, CAR_CARRIER, CRUISE } // 5 kinds, traffic's and ports' order
 
 export interface RegionGraph {
   version: number; rx: number; rz: number;
+  /** the file's minor version (C9, Proposed; read it or not): 1 and up can set NO_CARS */
+  minor: number;
   /** map metres; y is what a mover stands on there: the ground, a deck or a quay (never the drawn mesh) */
   nodes: { n: number; id: Uint32Array; xyz: Float32Array; flags: Uint8Array };
   edges: { n: number; id: Uint32Array; a: Uint32Array; b: Uint32Array; kind: Uint8Array; cls: Uint8Array; dir: Uint8Array;
@@ -53,14 +59,16 @@ export interface RegionGraph {
            tri: Uint32Array /* starts into xyz, in triangles (9 floats each) */; xyz: Float32Array /* with heights */ };
   names: string[];
 }
+/** Map metres (C5): x east and z south of the city's origin, as geo.ts latLonToLocal gives them. */
 export interface CityRoutes {
   version: number;
-  /** seasonal: OSM's `seasonal=*` on the route (or its `opening_hours`), never from the name */
-  ferries: Array<{ id: number; key: string /* 'w31772645' */; name: string; from: number; to: number /* terminal ids */; seasonal: boolean; lengthM: number; lat: Float64Array; lon: Float64Array }>;
-  terminals: Array<{ id: number; key: string; kind: 'ferry' | 'cruise'; name: string; lat: number; lon: number; berthM: number }>;
-  marinas: Array<{ id: number; key: string; name: string; lat: number; lon: number; berths: number /* mapped, else estimated from the area */ }>;
-  airports: Array<{ id: number; icao: string; iata: string; lat: number; lon: number; elevM: number /* over sea level */;
-                    runways: Array<{ name: string /* '28L' */; lat: [number, number]; lon: [number, number]; widthM: number }> }>;
+  minor: number;
+  /** seasonal: OSM's `seasonal=*` on the route (or its `opening_hours`), never from the name. xz: x, z of each point */
+  ferries: Array<{ id: number; key: string /* 'w31772645' */; name: string; from: number; to: number /* terminal ids */; seasonal: boolean; lengthM: number; lat: Float64Array; lon: Float64Array; xz: Float32Array }>;
+  terminals: Array<{ id: number; key: string; kind: 'ferry' | 'cruise'; name: string; lat: number; lon: number; x: number; z: number; berthM: number }>;
+  marinas: Array<{ id: number; key: string; name: string; lat: number; lon: number; x: number; z: number; berths: number /* mapped, else estimated from the area */ }>;
+  airports: Array<{ id: number; icao: string; iata: string; lat: number; lon: number; x: number; z: number; elevM: number /* over sea level */;
+                    runways: Array<{ name: string /* '28L' */; lat: [number, number]; lon: [number, number]; x: [number, number]; z: [number, number]; widthM: number }> }>;
 }
 export interface OceanLanes {
   version: number;
@@ -69,23 +77,25 @@ export interface OceanLanes {
   lanes: Array<{ id: number; key: string; a: number; b: number /* port ids */; lat: Float64Array; lon: Float64Array; traffic: Float32Array /* 10 */ }>;
 }
 
-/** The region's side in map metres: 4 tiles of 256 m (city.json regionSize, tileSize). */
+/** A region's side in map metres where city.json says nothing else: 4 tiles of 256 m (regionSize x tileSize). */
 export const REGION_M = 1024;
 const MAGIC_GRAPH = 0x31474253; // 'SBG1'
-const MAGIC_ROUTES = 0x31524253; // 'SBR1'
+const MAGIC_ROUTES = 0x31434253; // 'SBC1'
 const HEAD = 48;
 const pad4 = (o: number) => o + ((4 - (o & 3)) & 3);
 
-/** One region's graph from its inflated g_<rx>_<rz>.bin, or null. */
-export function parseRegionGraph(buf: ArrayBuffer): RegionGraph | null {
+/** One region's graph from its inflated g_<rx>_<rz>.bin, or null. regionM: the city's region side, city.json's
+ *  regionSize x tileSize (the file's places are from the region's corner, so a wrong side moves every one). */
+export function parseRegionGraph(buf: ArrayBuffer, regionM: number = REGION_M): RegionGraph | null {
   try {
     if (buf.byteLength < HEAD) return null;
     const dv = new DataView(buf);
     if (dv.getUint32(0, true) !== MAGIC_GRAPH || dv.getUint16(4, true) !== GRAPH_VERSION) return null;
+    const minor = dv.getUint16(6, true);
     const rx = dv.getInt32(8, true), rz = dv.getInt32(12, true), baseY = dv.getFloat32(16, true);
     const nn = dv.getUint32(20, true), ne = dv.getUint32(24, true), np = dv.getUint32(28, true);
     const na = dv.getUint32(32, true), nv = dv.getUint32(36, true), nt = dv.getUint32(40, true), nNames = dv.getUint32(44, true);
-    const ox = rx * REGION_M, oz = rz * REGION_M;
+    const ox = rx * regionM, oz = rz * regionM;
     let o = HEAD;
     // nodes
     const nodeId = new Uint32Array(buf, o, nn).slice();
@@ -128,6 +138,7 @@ export function parseRegionGraph(buf: ArrayBuffer): RegionGraph | null {
     const tri = new Uint32Array(buf, o, na + 1).slice();
     o += (na + 1) * 4;
     if (tri[na] !== nt) return null;
+    for (let i = 0; i < na; i++) if (tri[i] > tri[i + 1] || (name[i] !== 0xffff && name[i] >= nNames)) return null;
     const verts = places(buf, o, nv, ox, oz, baseY, true);
     o = pad4(o + nv * 6);
     const wideT = nv > 65535;
@@ -157,8 +168,9 @@ export function parseRegionGraph(buf: ArrayBuffer): RegionGraph | null {
       names.push(dec.decode(new Uint8Array(buf, o + 1, len)));
       o += 1 + len;
     }
+    if (o !== buf.byteLength) return null; // cut short reads past the end and throws; anything left over is damage too
     return {
-      version: GRAPH_VERSION, rx, rz,
+      version: GRAPH_VERSION, minor, rx, rz,
       nodes: { n: nn, id: nodeId, xyz, flags: nodeFlags },
       edges: { n: ne, id: edgeId, a, b, kind, cls, dir, lanes, speed, level, flags, shape },
       pts,
@@ -199,11 +211,12 @@ function indices(buf: ArrayBuffer, o: number, n: number, wide: boolean): Uint32A
   return out;
 }
 
-/** The city's routes from its inflated routes.bin, or null. */
-export function parseCityRoutes(buf: ArrayBuffer): CityRoutes | null {
+/** The city's routes from its inflated routes.bin, or null. origin: city.json's [lat, lon], for the map metres (C5). */
+export function parseCityRoutes(buf: ArrayBuffer, origin: readonly [number, number] | readonly number[]): CityRoutes | null {
   try {
     const dv = new DataView(buf);
     if (buf.byteLength < 8 || dv.getUint32(0, true) !== MAGIC_ROUTES || dv.getUint16(4, true) !== ROUTES_VERSION) return null;
+    const minor = dv.getUint16(6, true);
     const dec = new TextDecoder();
     let o = 8;
     const u8 = () => dv.getUint8(o++);
@@ -216,20 +229,26 @@ export function parseCityRoutes(buf: ArrayBuffer): CityRoutes | null {
     for (let i = 0, n = u32(); i < n; i++) {
       const id = u32(), key = str(), name = str(), from = u32(), to = u32(), seasonal = u8() !== 0, lengthM = f32();
       const m = u32();
-      const lat = new Float64Array(m), lon = new Float64Array(m);
+      const lat = new Float64Array(m), lon = new Float64Array(m), xz = new Float32Array(m * 2);
       for (let k = 0; k < m; k++) lat[k] = deg();
       for (let k = 0; k < m; k++) lon[k] = deg();
-      ferries.push({ id, key, name, from, to, seasonal, lengthM, lat, lon });
+      for (let k = 0; k < m; k++) {
+        const p = latLonToLocal(lat[k], lon[k], origin);
+        xz[k * 2] = p[0]; xz[k * 2 + 1] = p[1];
+      }
+      ferries.push({ id, key, name, from, to, seasonal, lengthM, lat, lon, xz });
     }
     const terminals: CityRoutes['terminals'] = [];
     for (let i = 0, n = u32(); i < n; i++) {
       const id = u32(), key = str(), kind = u8() === 1 ? 'cruise' : 'ferry', name = str(), lat = deg(), lon = deg(), berthM = f32();
-      terminals.push({ id, key, kind, name, lat, lon, berthM });
+      const [x, z] = latLonToLocal(lat, lon, origin);
+      terminals.push({ id, key, kind, name, lat, lon, x, z, berthM });
     }
     const marinas: CityRoutes['marinas'] = [];
     for (let i = 0, n = u32(); i < n; i++) {
       const id = u32(), key = str(), name = str(), lat = deg(), lon = deg(), berths = u16();
-      marinas.push({ id, key, name, lat, lon, berths });
+      const [x, z] = latLonToLocal(lat, lon, origin);
+      marinas.push({ id, key, name, lat, lon, x, z, berths });
     }
     const airports: CityRoutes['airports'] = [];
     for (let i = 0, n = u32(); i < n; i++) {
@@ -237,11 +256,14 @@ export function parseCityRoutes(buf: ArrayBuffer): CityRoutes | null {
       const runways: CityRoutes['airports'][number]['runways'] = [];
       for (let k = 0, m = u16(); k < m; k++) {
         const rname = str(), lat0 = deg(), lat1 = deg(), lon0 = deg(), lon1 = deg(), widthM = f32();
-        runways.push({ name: rname, lat: [lat0, lat1], lon: [lon0, lon1], widthM });
+        const p0 = latLonToLocal(lat0, lon0, origin), p1 = latLonToLocal(lat1, lon1, origin);
+        runways.push({ name: rname, lat: [lat0, lat1], lon: [lon0, lon1], x: [p0[0], p1[0]], z: [p0[1], p1[1]], widthM });
       }
-      airports.push({ id, icao, iata, lat, lon, elevM, runways });
+      const [x, z] = latLonToLocal(lat, lon, origin);
+      airports.push({ id, icao, iata, lat, lon, x, z, elevM, runways });
     }
-    return { version: ROUTES_VERSION, ferries, terminals, marinas, airports };
+    if (o !== buf.byteLength) return null;
+    return { version: ROUTES_VERSION, minor, ferries, terminals, marinas, airports };
   } catch {
     return null;
   }
