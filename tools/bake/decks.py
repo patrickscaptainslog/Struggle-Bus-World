@@ -16,7 +16,8 @@ The rule, on a deck's samples (every 4 m or less along it, joined where the deck
                on from them
   the ground   never under it on land: a ramp from a free end at a hill's foot ran 79 m into the hill
 Not here: LiDAR (none on these decks tonight), and "never lower than 1 m over a building under it".
-Tunnels, under(): never over the ground, and 5.5 m a level under it away from their ends, going down at the end grade.
+Tunnels, under(): never over the ground, and 5.5 m a level under it away from their ends, going down at a road's or a
+railway's end grade, or a stair's on foot.
 
   from decks import profile, Stacked
   placed = Stacked()                                   # structures lowest level first
@@ -34,6 +35,10 @@ GAP_M = 120.0                      # land between two waters that still counts a
 SMOOTH_M = 16.0                    # the ground's smoothing, each way
 GRADE_DOWN = (0.03, 0.02, 0.06)    # by grade class: 0 road, 1 rail, 2 foot
 GRADE_END = (0.06, 0.035, 0.10)
+# a tunnel's or covered way's way down from an end: a road's and a railway's as a free end's, a footway's a stair's. At
+# 10 % the Embarcadero Center's covered sidewalks, between the street and stairs up to its podium at 16.6 m, stood
+# 2.5 m over the street 100 m from the stairs
+GRADE_STAIR = (0.06, 0.035, 0.5)
 
 
 def water_rise(length):
@@ -192,13 +197,13 @@ def profile(ground, water, level, grade, links, anchors, floor=None, cap=None, b
 def under(ground, level, grade, links, anchors):
     """The highest a tunnel's samples may stand: never over the ground (the sea's or a lake's bed where wet), and
     LEVEL_M a level under it (a covered way at level 0: at it) away from the ends it stands on, going down from each at
-    the end grade (6 %, 3.5 % or 10 %). An end over the ground (a deck's free end at a portal: Yerba Buena Island's
-    east one) comes down from its own height at that grade, not off a cliff. A straight line between two portals ran
-    48 m over the Bay. anchors: {i: height}. Returns n floats."""
+    GRADE_STAIR (6 %, 3.5 %, or a stair's 50 % on foot). An end over the ground (a deck's free end at a portal: Yerba
+    Buena Island's east one) comes down from its own height at that grade, not off a cliff. A straight line between two
+    portals ran 48 m over the Bay. anchors: {i: height}. Returns n floats."""
     n = len(ground)
     ground = np.asarray(ground, float)
     depth = LEVEL_M * np.maximum(0, -np.asarray(level, int))
-    up = np.array([GRADE_END[c] for c in grade]) if n else np.zeros(0)
+    up = np.array([GRADE_STAIR[c] for c in grade]) if n else np.zeros(0)
     nb = [[] for _ in range(n)]
     for i, j, d in links:
         nb[i].append((j, d))

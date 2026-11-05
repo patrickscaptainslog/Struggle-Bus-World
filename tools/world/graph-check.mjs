@@ -5,11 +5,13 @@
 // (tiles.ts's parser), their class rasters and WATER_Y. Prints each count beside its limit, exits 1 on any failure.
 // The plan says what each count stands for: docs/specs/earth/GRAPHS.md, "W1".
 //
-//   node tools/world/graph-check.mjs sf [--dir=public/city/sf] [--tiles=DIR] [--data=DIR] [--names]
+//   node tools/world/graph-check.mjs sf [--dir=public/city/sf] [--tiles=DIR] [--data=DIR] [--names] [--parser=FILE]
 //     --dir    the city's folder (a copy, to try a broken file)
 //     --tiles  where its r_*.bin tiles are, if not there
 //     --data   where its gkeys.bin and checks.json.gz are (tools/world/data/<slug>/; with --dir, that folder)
 //     --names  print every name in the files (places may be named; nothing names a person or a vessel: a person reads them)
+//     --parser another copy of lifeData.ts to read them with (an old one, to see the parser's checks fail on it);
+//              --parser-only stops after those
 import { rolldown } from 'rolldown';
 import { gunzipSync } from 'node:zlib';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -31,7 +33,7 @@ const out = `${here}.out`;
 mkdirSync(out, { recursive: true });
 const fwd = (p) => p.replace(/\\/g, '/');
 writeFileSync(`${out}/entry.ts`, [
-  `export * from '${fwd(root)}/src/world/lifeData.ts';`,
+  `export * from '${fwd(flags.parser ? resolve(flags.parser) : `${root}/src/world/lifeData.ts`)}';`,
   `export { parseTerrainTile, WATER_Y } from '${fwd(root)}/src/world/tiles.ts';`,
   `export { latLonToLocal } from '${fwd(root)}/src/game/geo.ts';`,
 ].join('\n'));
@@ -55,6 +57,82 @@ function report(name, value, limit, ok, note = '') {
   results.push({ name, ok });
   if (ok === false) failed++;
   console.log(`${ok === false ? 'FAIL' : ok === true ? 'pass' : '    '}  ${name}: ${value}${limit !== '' ? `  (${limit})` : ''}${note ? `  ${note}` : ''}`);
+}
+
+// ------------------------------------------------------------ the parser on broken files (the review's N1 and N2)
+// The city's own files, each with one thing broken: every one must come back null, never a throw. N1: routes.bin with
+// each count the parser loops on corrupt (the first ferry's points too), and nothing asked for bigger than the file
+// could hold: a count is checked against the bytes before an array is made from it. N2: a region's area starts
+// stepping down, which hands life an area whose triangles run off its xyz
+{
+  const inflate = (p) => { const b = gunzipSync(readFileSync(p)); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
+  const NAMES = ['Float64Array', 'Float32Array', 'Uint32Array', 'Uint16Array', 'Int16Array', 'Uint8Array', 'Int8Array'];
+  /** fn()'s result, or what it threw, and the most elements any typed array was asked for meanwhile (past `limit`
+   *  the ask throws a RangeError, as an engine short of memory would, rather than taking gigabytes) */
+  const spy = (fn, limit) => {
+    const real = {};
+    let most = 0, r;
+    for (const n of NAMES) {
+      real[n] = globalThis[n];
+      globalThis[n] = new Proxy(real[n], { construct(t, a) {
+        if (typeof a[0] === 'number') { most = Math.max(most, a[0]); if (a[0] > limit) throw new RangeError(`${a[0]} elements`); }
+        return Reflect.construct(t, a);
+      } });
+    }
+    try { r = fn(); } catch (e) { r = e; } finally { Object.assign(globalThis, real); }
+    return [r, most];
+  };
+  const rb0 = inflate(`${dir}/routes.bin`);
+  // where each count sits: the ferries', the first ferry's points, the terminals', marinas', airports', the first runways'
+  const at = [], dv = new DataView(rb0);
+  let o = 8;
+  const str = () => { o += 1 + dv.getUint8(o); };
+  at.push(['ferries', o, 4]);
+  const nf = dv.getUint32(o, true); o += 4;
+  for (let i = 0; i < nf; i++) { o += 4; str(); str(); o += 13; if (i === 0) at.push(['the first ferry\'s points', o, 4]); const m = dv.getUint32(o, true); o += 4 + m * 8; }
+  for (const [what, row] of [['terminals', (k) => { o += 4; str(); o += 1; str(); o += 12; }], ['marinas', () => { o += 4; str(); str(); o += 10; }]]) {
+    at.push([what, o, 4]);
+    const n = dv.getUint32(o, true); o += 4;
+    for (let i = 0; i < n; i++) row(i);
+  }
+  at.push(['airports', o, 4]);
+  if (dv.getUint32(o, true) > 0) { o += 8; str(); str(); o += 12; at.push(['the first airport\'s runways', o, 2]); }
+  const bad = [];
+  let most = 0;
+  for (const [what, off, w] of at) {
+    const b = rb0.slice(0);
+    if (w === 4) new DataView(b).setUint32(off, 0x40000000, true); else new DataView(b).setUint16(off, 0xffff, true);
+    const [r, m] = spy(() => parseCityRoutes(b, man.origin), rb0.byteLength);
+    most = Math.max(most, m);
+    if (r !== null || m > rb0.byteLength) bad.push(`${what}: ${r === null ? 'null' : r instanceof Error ? `threw ${r.message}` : 'parsed'}, ${m} elements asked for`);
+  }
+  report('routes.bin with a corrupt count (N1)', `${at.length} copies, each with one count the parser loops on set past the file (${at.map((a) => a[0]).join(', ')}); ${bad.length} not null or asking for more than the file holds${bad.length ? ` (${bad.join('; ')})` : `, the most any asked for ${most} elements`}`,
+    `null, and no array past the file's ${rb0.byteLength} bytes`, bad.length === 0);
+  // N2: the first region with two areas or more, its second area's start past the last triangle
+  let done = false;
+  for (const [rx, rz] of (man.life?.regions ?? [])) {
+    const p = `${dir}/g_${rx}_${rz}.bin`;
+    if (!existsSync(p)) continue;
+    const b = inflate(p), v = new DataView(b);
+    const nn = v.getUint32(20, true), ne = v.getUint32(24, true), np = v.getUint32(28, true), na = v.getUint32(32, true), nt = v.getUint32(40, true);
+    if (na < 2) continue;
+    const p4 = (x) => x + ((4 - (x & 3)) & 3), wide = nn > 65535 ? 4 : 2;
+    let q = 48 + nn * 4;
+    q = p4(p4(q + nn * 6) + nn);
+    q = p4(p4(q + ne * 4 + ne * wide) + ne * wide);
+    q = p4(p4(q + ne * 6) + ne * 2) + (ne + 1) * 4;
+    q = p4(q + np * 6) + na * 4;
+    q = p4(p4(q + na) + na * 2); // tri[]
+    const ok = parseRegionGraph(b.slice(0), man.tileSize * (man.regionSize ?? 4)) !== null && v.getUint32(q + na * 4, true) === nt;
+    v.setUint32(q + 4, nt + 1, true); // tri[1] past the triangles, so tri[2] steps down
+    const [r] = spy(() => parseRegionGraph(b, man.tileSize * (man.regionSize ?? 4)), Infinity);
+    report('a region\'s area starts stepping down (N2)', `g_${rx}_${rz}.bin, ${na} areas, its second area's start set to ${nt + 1} of ${nt} triangles: ${r === null ? 'null' : r instanceof Error ? `threw ${r.message}` : 'parsed'}${ok ? '' : '; the file unbroken did not parse, or its layout is not the one read here'}`,
+      'null', ok && r === null);
+    done = true;
+    break;
+  }
+  if (!done) report('a region\'s area starts stepping down (N2)', 'no region with two areas', 'null', false);
+  if (flags['parser-only']) { console.log(`\nW1 parser checks ${failed ? `FAILED: ${failed}` : 'passed'}`); process.exit(failed ? 1 : 0); }
 }
 
 // ------------------------------------------------------------ the tiles, as tiles.ts reads them
@@ -197,6 +275,9 @@ for (const f of routes?.ferries ?? []) {
 }
 const nearEnd = (x, z) => routeEnds.some(([ex, ez]) => Math.hypot(x - ex, z - ez) <= 150);
 const decks = (man.landmarks ?? []).filter((l) => l.deck).map((l) => l.deck);
+for (const d of decks) { d.cum = [0]; for (let i = 1; i < d.length; i++) d.cum.push(d.cum[i - 1] + Math.hypot(d[i][0] - d[i - 1][0], d[i][1] - d[i - 1][1])); }
+/** a place against a drawn deck: its distance from the line and the top there, past an end (ext), the line's heading,
+ *  and the way along it from its first point (s, unclipped past the ends) of its length */
 const near = (x, z, d) => {
   let best = Infinity, top = 0, tr = 0, seg = 0;
   for (let i = 0; i < d.length - 1; i++) {
@@ -206,9 +287,12 @@ const near = (x, z, d) => {
     const dd = Math.hypot(ax + t * vx - x, az + t * vz - z);
     if (dd < best) { best = dd; top = ay + t * (by - ay); tr = r; seg = i; }
   }
-  const [ax, az] = d[seg], [bx, bz] = d[seg + 1];
-  return { best, top, ext: (seg === 0 && tr < 0) || (seg === d.length - 2 && tr > 1), vx: (bx - ax) / Math.hypot(bx - ax, bz - az), vz: (bz - az) / Math.hypot(bx - ax, bz - az) };
+  const [ax, az] = d[seg], [bx, bz] = d[seg + 1], L = Math.hypot(bx - ax, bz - az);
+  const f = seg === 0 || seg === d.length - 2 ? tr : Math.min(1, Math.max(0, tr));
+  return { best, top, ext: (seg === 0 && tr < 0) || (seg === d.length - 2 && tr > 1), vx: (bx - ax) / L, vz: (bz - az) / L, s: d.cum[seg] + f * L, length: d.cum[d.length - 1] };
 };
+/** a place on a drawn deck, between its ends, at its top or a level or two under it (C2), within 0.3 m */
+const onDrawnTop = (x, y, z) => decks.some((d) => { const q = near(x, z, d); return q.best <= 44 && !q.ext && [0, 1, 2].some((m) => Math.abs(y - (q.top - 5.5 * m)) <= 0.3); });
 
 const c = {
   files: 0, missing: 0, parseFail: 0, tooBig: 0, gz: 0, raw: 0, sizes: [],
@@ -219,7 +303,9 @@ const c = {
   byDir: {}, oneWay: 0, noCars: 0, noCarsKm: 0, noCarsOff: 0, minors: new Set(),
   tunnelUndrawn: 0, undrawnKm: {}, kmByClass: {},
   land: 0, landNoTile: 0, landWorst: 0, landWhere: null, landOver: 0, steps: 0,
-  water: 0, waterOff: 0, waterWorst: 0,
+  held: 0, heldWorst: 0, heldWhere: null, heldSteps: 0,
+  water: 0, waterOff: 0, waterWorst: 0, waterLake: 0,
+  lakeTexels: 0, lakeCovered: 0, lakeOffTexels: 0, seaTexels: 0, seaCovered: 0, lakeTris: 0, lakeAreas: 0, seaAreas: 0,
   drawnPts: [], topLevel: [], footDeck: [], roadDeck: [], stackPairs: 0, rampPairs: 0, inversions: 0, inversionWhere: null,
   underWater: 0, underWhere: null, deckGround: 0, deckDrawn: 0, deckUnder: 0, deckUnderWorst: 0, deckUnderWhere: null,
   tunnelPts: 0, tunnelOver: 0, tunnelOverWorst: 0, tunnelOverWhere: null,
@@ -270,9 +356,11 @@ for (const [rx, rz, bytes] of regions) {
     return 1;
   };
   const seenHere = new Set();
+  const deckDeg = new Uint8Array(nodes.n); // deck edges at each node: a foot has one, a junction mid-span two or more
   for (let e = 0; e < edges.n; e++) {
     const k = cls(e);
     touch[edges.a[e]] |= k; touch[edges.b[e]] |= k;
+    if (k === 2) { deckDeg[edges.a[e]]++; deckDeg[edges.b[e]]++; }
     const id = edges.id[e];
     if (seenHere.has(id)) c.idTwiceInFile++;
     seenHere.add(id);
@@ -281,6 +369,7 @@ for (const [rx, rz, bytes] of regions) {
     if (!keysOf.has(id)) c.noKey++;
   }
   // nodes
+  const heldNode = new Uint8Array(nodes.n);
   for (let i = 0; i < nodes.n; i++) {
     const x = nodes.xyz[i * 3], y = nodes.xyz[i * 3 + 1], z = nodes.xyz[i * 3 + 2];
     if (out(x, z, 0.1)) c.outside++;
@@ -295,7 +384,14 @@ for (const [rx, rz, bytes] of regions) {
     if (!l) nodeSeen.set(id, (l = []));
     l.push({ r: `${rx},${rz}`, x, y, z, portal, line });
     const t = touch[i];
-    if (t & 1) {
+    if (t & 1 && deckDeg[i] >= 2 && standErr(x, z, y) > 0.5 && onDrawnTop(x, y, z)) {
+      // where a ground way meets a drawn deck mid-span the deck wins, and the way climbs to it at its end (GRAPHS.md,
+      // "Where the ground wins"): counted, and its ways' first steps with it
+      heldNode[i] = 1;
+      c.held++;
+      const er = standErr(x, z, y);
+      if (er > c.heldWorst) { c.heldWorst = er; c.heldWhere = `node ${id} (${keysOf.get(id)?.slice(2)}) at ${x.toFixed(1)}, ${z.toFixed(1)}: ${y.toFixed(1)}, the ground ${ground(x, z).toFixed(1)}`; }
+    } else if (t & 1) {
       if (Number.isNaN(ground(x, z))) c.landNoTile++;
       c.land++;
       const e = standErr(x, z, y);
@@ -303,10 +399,12 @@ for (const [rx, rz, bytes] of regions) {
       if (e > 0.5) c.landOver++;
       if (y < WATER_Y - UNDER_TOL && seaAll(x, z)) { c.underWater++; c.underWhere ??= `node ${id} at ${x.toFixed(1)}, ${z.toFixed(1)}: ${y.toFixed(1)}`; }
     } else if (t === 8 && wet(x, z)) {
+      // on the sea at WATER_Y; on a lake at its own height, the grid (C8)
       c.water++;
-      const e = Math.abs(y - WATER_Y);
-      c.waterWorst = Math.max(c.waterWorst, e);
-      if (e > 1e-3) c.waterOff++;
+      const e = sea(x, z) ? Math.abs(y - WATER_Y) : Math.abs(y - ground(x, z));
+      c.waterWorst = Math.max(c.waterWorst, sea(x, z) ? e : 0);
+      if (sea(x, z) ? e > 1e-3 : e > 0.5) c.waterOff++;
+      if (!sea(x, z)) c.waterLake++;
     }
   }
   // edges: their points, the grid every 4 m, water, decks
@@ -352,6 +450,7 @@ for (const [rx, rz, bytes] of regions) {
         const t = j / n, x = ax + t * (bx - ax), z = az + t * (bz - az), y = ay + t * (by - ay);
         if (k === 1) {
           if ((j === 0 && i === 0) || (j === n && i === P.length - 2)) continue; // the nodes, counted above
+          if ((i === 0 && heldNode[edges.a[e]]) || (i === P.length - 2 && heldNode[edges.b[e]])) { c.heldSteps++; continue; } // climbing to a deck that holds its end
           if (Number.isNaN(ground(x, z))) c.landNoTile++;
           c.steps++;
           const er = standErr(x, z, y);
@@ -359,10 +458,17 @@ for (const [rx, rz, bytes] of regions) {
           if (er > 0.5) c.landOver++;
           if (y < WATER_Y - UNDER_TOL && seaAll(x, z)) { c.underWater++; c.underWhere ??= `edge ${edges.id[e]} at ${x.toFixed(1)}, ${z.toFixed(1)}: ${y.toFixed(1)}`; }
         } else if (k === 2) {
-          deckPts.push([x, y, z, edges.level[e], e, d > 0 ? (bx - ax) / d : 0, d > 0 ? (bz - az) / d : 0, edges.kind[e]]);
-          // a deck never under the ground on land, under the sea's surface, or under a lake's (the grid there)
+          // (its last field: a step at a node a ground way meets, the deck's own foot, where the bake's anchors win)
+          const foot = (i === 0 && j === 0 && (touch[edges.a[e]] & 1) !== 0) || (i === P.length - 2 && j === n && (touch[edges.b[e]] & 1) !== 0);
+          const node = i === 0 && j === 0 ? nodes.id[edges.a[e]] : i === P.length - 2 && j === n ? nodes.id[edges.b[e]] : -1; // a step at a node, each of its edges'
+          // within 5 m of its foot (the bake's 4 m, a sample's step): a road's climb to the ground there, no carriageway
+          const sa = pre[i] + t * d, nearFoot = ((touch[edges.a[e]] & 1) !== 0 && sa < 5) || ((touch[edges.b[e]] & 1) !== 0 && len - sa < 5);
+          deckPts.push([x, y, z, edges.level[e], e, d > 0 ? (bx - ax) / d : 0, d > 0 ? (bz - az) / d : 0, edges.kind[e], foot, node, nearFoot]);
+          // a deck never under the ground on land, under the sea's surface, or under a lake's (the grid there). On the
+          // sea within a millimetre, as the water's own check: a deck's foot on the sea stands at WATER_Y, which the
+          // file's f32 reads as -0.6000000238
           const h = ground(x, z), lake = !sea(x, z) && wet(x, z);
-          const under = sea(x, z) ? WATER_Y - y : h - 0.5 - y;
+          const under = sea(x, z) ? WATER_Y - 1e-3 - y : h - 0.5 - y;
           c.deckGround++;
           if (under > 0 && decks.some((dk) => { const r = near(x, z, dk); return r.best <= 44 && !r.ext; })) c.deckDrawn++; // C2's: City draws it there
           else if (under > 0) { c.deckUnder++; if (under > c.deckUnderWorst) { c.deckUnderWorst = under; c.deckUnderWhere = `edge ${edges.id[e]} (${keysOf.get(edges.id[e])?.slice(2)}) at ${x.toFixed(1)}, ${z.toFixed(1)}: ${y.toFixed(1)}, ${sea(x, z) ? 'the sea' : lake ? 'a lake' : 'the ground'} ${(sea(x, z) ? WATER_Y : h).toFixed(1)}`; } }
@@ -387,10 +493,11 @@ for (const [rx, rz, bytes] of regions) {
         }
         for (const q of [P[i + 1]]) {
           if (i + 1 < P.length - 1 && wet(q[0], q[2])) {
+            // on the sea at WATER_Y; on a lake at its own height, the grid (C8)
             c.water++;
-            const er = Math.abs(q[1] - WATER_Y);
-            c.waterWorst = Math.max(c.waterWorst, er);
-            if (er > 1e-3) c.waterOff++;
+            const s = sea(q[0], q[2]), er = s ? Math.abs(q[1] - WATER_Y) : Math.abs(q[1] - ground(q[0], q[2]));
+            if (s) c.waterWorst = Math.max(c.waterWorst, er); else c.waterLake++;
+            if (s ? er > 1e-3 : er > 0.5) c.waterOff++;
           }
         }
       }
@@ -440,9 +547,15 @@ for (const [rx, rz, bytes] of regions) {
       along.set(key, a);
     }
   }
-  // an edge ending on the ground beside a drawn deck is a ramp down off it, not on it (the bake's rule, at 44 m; 48 here)
-  const offRamp = (e, k) => [edges.a[e], edges.b[e]].some((q) => (touch[q] & 1) && (() => { const r = near(nodes.xyz[q * 3], nodes.xyz[q * 3 + 2], decks[k]); return r.best <= 48 && !r.ext; })());
-  for (const [x, y, z, lv, e, ux, uz, kind] of deckPts) {
+  // an edge whose foot (its structure's end on the ground: a ground way meets it, no other deck edge does) stands
+  // beside a drawn deck well inside its ends is a ramp down to the street, not on it (the bake's rule: 44 m from the
+  // line, more than 44 m in from each end; 48 and 40 here). A foot by a drawn deck's end is where the deck meets the
+  // ground: the edge is on the deck to there
+  const offRamp = (e, k) => [edges.a[e], edges.b[e]].some((q) => (touch[q] & 1) && deckDeg[q] === 1 && (() => {
+    const r = near(nodes.xyz[q * 3], nodes.xyz[q * 3 + 2], decks[k]);
+    return r.best <= 48 && r.s > 40 && r.s < r.length - 40;
+  })());
+  for (const [x, y, z, lv, e, ux, uz, kind, foot, node, nearFoot] of deckPts) {
     for (let k = 0; k < decks.length; k++) {
       const a = along.get(`${e},${k}`);
       if (!a) continue;
@@ -453,16 +566,21 @@ for (const [rx, rz, bytes] of regions) {
       const q = near(x, z, decks[k]);
       if (q.best <= 40 && !q.ext) c.drawnPts.push([k, y, q.top, Math.max(1, lv), edges.id[e], x, z, sea(x, z) || wet(x, z) ? NaN : ground(x, z)]);
     }
-    if (kind === 2) c.footDeck.push([x, y, z, Math.max(1, lv), ux, uz]);
-    else if (kind === 1) c.roadDeck.push([x, y, z, Math.max(1, lv), ux, uz]);
+    if (kind === 2) c.footDeck.push([x, y, z, Math.max(1, lv), ux, uz, foot, node]);
+    else if (kind === 1 && !foot && !nearFoot) c.roadDeck.push([x, y, z, Math.max(1, lv), ux, uz]); // a road's foot is the ground's: no carriageway
   }
   // decks a chain of deck edges joins, anywhere in the city (by node ids: a portal is one id in two files), are one
   // structure, its levels changing along its ramps; stacking is checked between two that nothing joins, after the files
   for (let e = 0; e < edges.n; e++) if (cls(e) === 2) deckJoin(nodes.id[edges.a[e]], nodes.id[edges.b[e]]);
   for (const q of deckPts) allDeck.push([q[0], q[1], q[2], q[3], edges.id[q[4]], nodes.id[edges.a[q[4]]]]);
-  // areas: the grid's points inside each triangle; OPEN_WATER on water
+  // areas: the grid's points inside each triangle; OPEN_WATER on water: the sea's (`water@`) flat at WATER_Y on the
+  // sea's texels, a lake's (`lake@`, C8) on the lake's texels at the grid's height; both cover their texels whole
+  const cover = new Uint8Array((REGION_M / 2) * (REGION_M / 2)); // per texel: 1 the sea's area covers its centre, 2 a lake's
+  const mark = (x, z, b) => { const i = Math.floor((x - x0) / 2), j = Math.floor((z - z0) / 2); if (i >= 0 && j >= 0 && i < REGION_M / 2 && j < REGION_M / 2) cover[j * (REGION_M / 2) + i] |= b; };
   for (let a = 0; a < areas.n; a++) {
     const kind = areas.kind[a];
+    const lake = kind === 8 && (keysOf.get(areas.id[a]) ?? '').slice(2).startsWith('lake@');
+    if (kind === 8) { if (lake) c.lakeAreas++; else c.seaAreas++; }
     c.areaByKind[AREA[kind]] = (c.areaByKind[AREA[kind]] ?? 0) + 1;
     if (areas.name[a] !== 0xffff) c.names.add(g.names[areas.name[a]]);
     let l = areaSeen.get(areas.id[a]);
@@ -483,15 +601,21 @@ for (const [rx, rz, bytes] of regions) {
         return [l0, l1, 1 - l0 - l1];
       };
       if (kind === 8) {
-        c.waterTris++;
-        if (Math.abs(v[1] - WATER_Y) > 1e-3 || Math.abs(v[4] - WATER_Y) > 1e-3 || Math.abs(v[7] - WATER_Y) > 1e-3) c.waterTriY++;
-        for (let x = Math.floor(minx / 2) * 2 + 1; x < maxx; x += 2) for (let z = Math.floor(minz / 2) * 2 + 1; z < maxz; z += 2) {
-          const [l0, l1, l2] = bary(x, z);
-          if (l0 < 1e-9 || l1 < 1e-9 || l2 < 1e-9) continue;
-          c.waterTexels++;
-          if (!sea(x, z)) c.waterOffTexels++;
+        // texel centres on the triangle's edge count for covering; strictly inside, for what they are
+        if (lake) c.lakeTris++;
+        else {
+          c.waterTris++;
+          if (Math.abs(v[1] - WATER_Y) > 1e-3 || Math.abs(v[4] - WATER_Y) > 1e-3 || Math.abs(v[7] - WATER_Y) > 1e-3) c.waterTriY++;
         }
-        continue;
+        for (let x = Math.floor(minx / 2) * 2 + 1; x <= maxx; x += 2) for (let z = Math.floor(minz / 2) * 2 + 1; z <= maxz; z += 2) {
+          const [l0, l1, l2] = bary(x, z);
+          if (l0 < -1e-6 || l1 < -1e-6 || l2 < -1e-6) continue;
+          mark(x, z, lake ? 2 : 1);
+          if (l0 < 1e-9 || l1 < 1e-9 || l2 < 1e-9) continue;
+          if (lake) { c.lakeTexelsIn = (c.lakeTexelsIn ?? 0) + 1; if (sea(x, z) || !wet(x, z)) c.lakeOffTexels++; }
+          else { c.waterTexels++; if (!sea(x, z)) c.waterOffTexels++; }
+        }
+        if (!lake) continue; // a lake's heights: the grid's, below
       }
       for (let x = Math.ceil(minx / 4) * 4; x <= maxx; x += 4) for (let z = Math.ceil(minz / 4) * 4; z <= maxz; z += 4) {
         const [l0, l1, l2] = bary(x, z);
@@ -501,9 +625,27 @@ for (const [rx, rz, bytes] of regions) {
         h = standAt(x, z); // an area stands as a node does: the grid, never under the sea's surface; on a lake, the grid
         c.areaPts++;
         const er = Math.abs(l0 * v[1] + l1 * v[4] + l2 * v[7] - h);
-        if (er > c.areaWorst) { c.areaWorst = er; c.areaWhere = `area ${areas.id[a]} (${AREA[kind]}) at ${x}, ${z}`; }
+        if (er > c.areaWorst) { c.areaWorst = er; c.areaWhere = `area ${areas.id[a]} (${lake ? 'OPEN_WATER, a lake' : AREA[kind]}) at ${x}, ${z}`; }
         if (er > 0.5) c.areaOver++;
       }
+    }
+  }
+  // every WATER texel of the region's tiles under its own water's area, the sea's or a lake's, and every texel of a
+  // tile slot with no tile inside the bounds under the sea's (C1, C8)
+  for (let j = 0; j < RS; j++) for (let i = 0; i < RS; i++) {
+    const tx = rx * RS + i, tz = rz * RS + j, ox = tx * T, oz = tz * T;
+    if (ox + T <= bx0 || ox >= bx1 || oz + T <= bz0 || oz >= bz1) continue;
+    const t = have.has(`${tx},${tz}`) ? regionTiles(rx, rz).get(`${tx},${tz}`) ?? null : null;
+    const W = REGION_M / 2, k0 = (oz - z0) / 2, l0 = (ox - x0) / 2;
+    for (let q = 0; q < CN; q++) for (let p = 0; p < CN; p++) {
+      const cv = cover[(k0 + q) * W + l0 + p];
+      if (!t) { c.seaTexels++; if (cv & 1) c.seaCovered++; continue; }
+      if ((t.cls[q * CN + p] & 15) !== WATER) continue;
+      const fx = Math.min(t.n - 1.001, Math.max(0, ((p + 0.5) * (T / CN)) / t.cell)), fz = Math.min(t.n - 1.001, Math.max(0, ((q + 0.5) * (T / CN)) / t.cell));
+      const ix = Math.floor(fx), iz = Math.floor(fz), ax = fx - ix, az = fz - iz, hh = t.heights, n = t.n;
+      const H = (hh[iz * n + ix] * (1 - ax) + hh[iz * n + ix + 1] * ax) * (1 - az) + (hh[(iz + 1) * n + ix] * (1 - ax) + hh[(iz + 1) * n + ix + 1] * ax) * az;
+      if (H > LAKE_M) { c.lakeTexels++; if (cv & 2) c.lakeCovered++; else c.lakeMissWhere ??= `${(ox + (p + 0.5) * 2).toFixed(0)}, ${(oz + (q + 0.5) * 2).toFixed(0)}`; }
+      else { c.seaTexels++; if (cv & 1) c.seaCovered++; else c.seaMissWhere ??= `${(ox + (p + 0.5) * 2).toFixed(0)}, ${(oz + (q + 0.5) * 2).toFixed(0)}`; }
     }
   }
 }
@@ -620,8 +762,9 @@ report('tunnels that are UNDRAWN', c.tunnelUndrawn, '0', c.tunnelUndrawn === 0);
 const mw = c.kmByClass.motorway ?? 0, mu = c.undrawnKm.motorway ?? 0;
 report('UNDRAWN km by class', km(c.undrawnKm) || 'none', '', null, `motorway ${mw ? ((100 * mu) / mw).toFixed(0) : 0} % of ${mw.toFixed(1)} km (the audit's surface share: 68 %)`);
 report('land within 0.5 m of the grid', `${c.land} land nodes and ${c.steps} steps of 4 m or less along land edges, against the grid and never under the sea's surface; worst ${c.landWorst.toFixed(3)} m (${c.landWhere}); ${c.landOver} over; ${c.landNoTile} with no tile, at WATER_Y`, '0 over 0.5 m', c.landOver === 0);
+report('  where a drawn deck wins (known, not failures)', `${c.held} nodes where a ground way meets a drawn deck mid-span stand on its top${c.held ? ` (worst ${c.heldWorst.toFixed(1)} m over the grid: ${c.heldWhere})` : ''}, and ${c.heldSteps} steps of their ways climbing to it`, '', null);
 report('ground under the drawn water', `${c.underWater} land nodes and steps under WATER_Y on the sea${c.underWhere ? ` (first: ${c.underWhere})` : ''}`, '0', c.underWater === 0);
-report('water at WATER_Y', `${c.water} water nodes and points, worst ${c.waterWorst.toFixed(4)} m off; ${c.waterOff} off by over 1 mm`, '0', c.waterOff === 0);
+report('water at WATER_Y, a lake at its height (C8)', `${c.water} water nodes and points, ${c.waterLake} of them on a lake; on the sea worst ${c.waterWorst.toFixed(4)} m off WATER_Y; ${c.waterOff} off by over 1 mm on the sea or 0.5 m from a lake's grid`, '0', c.waterOff === 0);
 report('decks over the ground and the water', `${c.deckGround} deck steps, ${c.deckDrawn} under the ground on a drawn deck (C2: where City draws it); ${c.deckUnder} more under the ground by over 0.5 m, under the sea's surface, or a lake's by over 0.5 m${c.deckUnderWhere ? ` (worst ${c.deckUnderWorst.toFixed(1)} m: ${c.deckUnderWhere})` : ''}`, '0', c.deckUnder === 0);
 report('tunnels under the ground', `${c.tunnelPts} tunnel steps; ${c.tunnelOver} over the ground or the bed by over 0.5 m${c.tunnelOverWhere ? ` (worst ${c.tunnelOverWorst.toFixed(1)} m: ${c.tunnelOverWhere})` : ''}`, '0', c.tunnelOver === 0);
 {
@@ -647,21 +790,50 @@ report('tunnels under the ground', `${c.tunnelPts} tunnel steps; ${c.tunnelOver}
   // a sidewalk on a bridge rides its carriageway: foot deck steps within 14 m of a road deck's at one level, heading with it
   const grid = new Map();
   for (const q of c.roadDeck) { const k = `${Math.floor(q[0] / 15)},${Math.floor(q[2] / 15)}`; let l = grid.get(k); if (!l) grid.set(k, (l = [])); l.push(q); }
-  let n = 0, over = 0, worst = 0, where = null;
-  for (const [x, y, z, lv, ux, uz] of c.footDeck) {
-    let best = 14, by = null;
+  // Where the ground wins (GRAPHS.md, "Where the ground wins"), counted and not checked: a sidewalk's own foot, where
+  // a ground way meets it and the bake's anchors stand it on the ground (as the drawn decks' check has it), and a step
+  // the ground holds over its road, which a sidewalk riding it never goes under
+  // A road's own foot is no carriageway (it's the ground's, left out of roadDeck). A step at a node is one per edge
+  // there, each against the road its own edge heads along: a node has one height, so it rides one of them, and passes
+  // if it rides any (where a crossing meets a sidewalk between two carriageways at two heights)
+  // It rides a carriageway: within 1 m of a road deck beside it, any within 14 m at its level heading with it. The bake
+  // rides the nearest by its own samples, and W1's steps lie elsewhere, so between two carriageways at two heights
+  // (one 12.6 m away at 39.9 m, one 13.1 m away at 41.1) the nearest flips: counted when it rides one but the nearest
+  let n = 0, over = 0, worst = 0, where = null, other = 0;
+  const known = { feet: [0, 0, null], held: [0, 0, null] };
+  const note = (w, er, at) => { const q = known[w]; q[0]++; if (er > q[1]) { q[1] = er; q[2] = at; } };
+  const atNode = new Map(); // node id -> its steps' [er, at, held], one an edge
+  for (const [x, y, z, lv, ux, uz, foot, node] of c.footDeck) {
+    let best = 14, near = null, er = Infinity, by = null;
     const gx = Math.floor(x / 15), gz = Math.floor(z / 15);
     for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) for (const r of grid.get(`${gx + dx},${gz + dz}`) ?? []) {
       const d = Math.hypot(r[0] - x, r[2] - z);
-      if (d < best && r[3] === lv && Math.abs(r[4] * ux + r[5] * uz) >= Math.cos((28 * Math.PI) / 180)) { best = d; by = r[1]; }
+      if (d >= 14 || r[3] !== lv || Math.abs(r[4] * ux + r[5] * uz) < Math.cos((28 * Math.PI) / 180)) continue;
+      if (d < best) { best = d; near = r[1]; }
+      if (Math.abs(y - r[1]) < er) { er = Math.abs(y - r[1]); by = r[1]; }
     }
     if (by === null) continue;
+    if (er <= 1 && Math.abs(y - near) > 1) other++;
+    const at = `${x.toFixed(1)}, ${z.toFixed(1)}: ${y.toFixed(1)} beside ${by.toFixed(1)}`;
+    if (er > 1 && foot) { note('feet', er, at); continue; }
+    const held = er > 1 && !wet(x, z) && Math.abs(y - ground(x, z)) <= 0.5 && ground(x, z) > by + 1;
+    if (node >= 0) { let l = atNode.get(node); if (!l) atNode.set(node, (l = [])); l.push([er, held ? `${at}, the ground ${ground(x, z).toFixed(1)}` : at, held]); continue; }
+    if (held) { note('held', er, `${at}, the ground ${ground(x, z).toFixed(1)}`); continue; }
     n++;
-    const er = Math.abs(y - by);
     if (er > 1) over++;
-    if (er > worst) { worst = er; where = `${x.toFixed(1)}, ${z.toFixed(1)}: ${y.toFixed(1)} beside ${by.toFixed(1)}`; }
+    if (er > worst) { worst = er; where = at; }
   }
-  report('sidewalks beside their carriageway', `${n} foot deck steps within 14 m of a road deck at their level; worst ${worst.toFixed(1)} m${where ? ` (${where})` : ''}; ${over} over 1 m`, '0 over 1 m', over === 0);
+  for (const l of atNode.values()) {
+    l.sort((a, b) => a[0] - b[0]);
+    const [er, at, held] = l[0]; // the road it rides, if it rides one
+    if (held) { note('held', er, at); continue; }
+    n++;
+    if (er > 1) over++;
+    if (er > worst) { worst = er; where = at; }
+  }
+  const kn = (q, what) => `${q[0]} ${what}${q[0] ? ` (worst ${q[1].toFixed(1)} m: ${q[2]})` : ''}`;
+  report('sidewalks beside their carriageway', `${n} foot deck steps within 14 m of a road deck at their level; worst ${worst.toFixed(1)} m from the nearest in height${where ? ` (${where})` : ''}; ${over} over 1 m; ${other} riding a road beside them that isn't the nearest`, '0 over 1 m', over === 0);
+  report('  where the ground wins (known, not failures)', `${kn(known.feet, 'at their own feet on the ground')}; ${kn(known.held, 'held by the ground over their road')}`, '', null);
 }
 report('stacked decks by level', `${c.stackPairs} pairs of deck points within 3 m of a higher level on another structure; ${c.inversions} where the higher isn't 0.1 m higher${c.inversionWhere ? ` (${c.inversionWhere})` : ''}; ${c.rampPairs} pairs on one structure, across its ramps, not checked`, '0', c.inversions === 0);
 report('ferries on water inside the map', `${c.ferrySamples} samples every 10 m, ${c.ferryExempt} within 150 m of a route's end; ${c.ferryOnLand} on land${c.ferryLandWhere ? ` (first: ${c.ferryLandWhere})` : ''}`, '0', c.ferryOnLand === 0);
@@ -725,7 +897,10 @@ report('ferry routes\' ends on a terminal', `${(routes?.ferries.length ?? 0) * 2
 }
 report('areas against the grid', `${c.areaPts} grid points inside area triangles, against the grid and never under the sea's surface, worst ${c.areaWorst.toFixed(3)} m${c.areaWhere ? ` (${c.areaWhere})` : ''}; ${c.areaOver} over`, '0 over 0.5 m', c.areaOver === 0);
 report('areas on a roof or a deck left out', `${c.areaOnStructure} in the files of the ${onStructure.size} the bake read on a structure${c.areaOnStructureWhere ? ` (first: ${c.areaOnStructureWhere})` : ''}`, '0', !!checks && c.areaOnStructure === 0);
-report('OPEN_WATER on water', `${c.waterTris} triangles, ${c.waterTexels} texel centres inside them, ${c.waterOffTexels} not the sea (WATER at 2 m or under, or no tile); ${c.waterTriY} triangles off WATER_Y`, '0 and 0', c.waterOffTexels === 0 && c.waterTriY === 0);
+report('OPEN_WATER on the sea', `${c.seaAreas} areas, ${c.waterTris} triangles, ${c.waterTexels} texel centres inside them, ${c.waterOffTexels} not the sea (WATER at 2 m or under, or no tile); ${c.waterTriY} triangles off WATER_Y; the sea's texels under it ${c.seaCovered} of ${c.seaTexels}${c.seaMissWhere ? ` (first not: ${c.seaMissWhere})` : ''}`,
+  '0 and 0, every one', c.waterOffTexels === 0 && c.waterTriY === 0 && c.seaCovered === c.seaTexels);
+report('lakes as OPEN_WATER at the grid\'s height (C8)', `${c.lakeAreas} areas (a lake's part in each region), ${c.lakeTris} triangles, ${c.lakeTexelsIn ?? 0} texel centres inside them, ${c.lakeOffTexels} not a lake (WATER the grid holds over 2 m); the lakes' texels under them ${c.lakeCovered} of ${c.lakeTexels}${c.lakeMissWhere ? ` (first not: ${c.lakeMissWhere})` : ''}; their heights in the areas' check above; files of minor ${[...c.minors].sort().join(', ')}`,
+  '0, every one, minor 2', c.lakeOffTexels === 0 && c.lakeCovered === c.lakeTexels && (c.lakeTexels === 0 || [...c.minors].every((m) => m >= 2)));
 report('areas by kind', Object.entries(c.areaByKind).map(([k, v]) => `${k} ${v}`).join(', '), '');
 const allNames = new Set(c.names);
 for (const f of routes?.ferries ?? []) allNames.add(f.name);
