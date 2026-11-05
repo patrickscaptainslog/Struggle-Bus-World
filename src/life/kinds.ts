@@ -36,6 +36,8 @@ export const Col = {
   BANK: 10,
   SCALE: 11,
   FLAGS: 12,
+  /** s from the snapshot's utcMs until it leaves the place or lands: what a paint record keeps it for (CONTRACT.md section 3, `until`) */
+  UNTIL: 13,
 } as const;
 
 /** A row's flags. */

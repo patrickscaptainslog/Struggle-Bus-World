@@ -26,9 +26,28 @@ import type { Splatter } from './Splat';
 //   aimYaw): the glint stays in its usual spot on the screen and the world turns
 //   under it, because the view turns about the bus and so does this.
 
+/** A mover the aim took (?life, src/life; CONTRACT.md section 3): its key, where it will be when the breath gets there, and that game time. */
+export interface MoverTarget {
+  readonly mover: true;
+  key: string;
+  x: number;
+  y: number;
+  z: number;
+  arrive: number;
+  pickR: number;
+}
+
+/** What the aim asks life (src/life/Life.ts): the mover nearest a line of fire, and which one glints. */
+export interface MoverAim {
+  aim(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, pickR: number, travel: number): MoverTarget | null;
+  glint(key: string | null): void;
+}
+
 export interface Shot {
   /** the building it hits (the one glinting), or null */
   target: BuildingRef | null;
+  /** ?life: a mover it hits instead, nearer the line of fire than any building (then target is null) */
+  mover?: MoverTarget | null;
   /** where it lands (on the target: its footprint, the aim point if that is on it) */
   x: number;
   z: number;
@@ -51,6 +70,13 @@ export class Aimer {
   readonly aim = { x: 0, y: 0, z: 0, dist: 0, travel: 0, drop: 0, wall: false };
   /** the sticky pick at the aim point */
   target: BuildingRef | null = null;
+  /** ?life: the movers (main.ts sets it under the flag; with none the aim is the street's as it was) */
+  life: MoverAim | null = null;
+  /** the mover this frame's aim takes, and one held by a press, as the building latch is */
+  private mover: MoverTarget | null = null;
+  private moverLatch: MoverTarget | null = null;
+  private moverLatchUntil = 0;
+  private readonly moverHeld: MoverTarget = { mover: true, key: '', x: 0, y: 0, z: 0, arrive: 0, pickR: 0 };
   /** game time the shown building started glinting (the glint's sweep starts there) */
   shownSince = 0;
   /** how far off the nose the breath goes (rad, +right): the look's, per frame (main.ts) */
@@ -275,16 +301,55 @@ export class Aimer {
     // from altitude is wider than the pick radius: the bungee settles a few degrees after the thumb lifts)
     if (this.latchRef && (t >= this.latchUntil || !this.holds(this.latchRef, Math.max(r, S.aimLatchCone * this.horiz), S.aimHoldAlong))) this.latchRef = null;
     this.occlude(this.latchRef ?? this.target);
+    if (this.life) return this.noteShown(this.pickMover(f, t, r));
     return this.noteShown(this.shown());
+  }
+
+  /**
+   * ?life: a mover on the line of fire, nearer than the building, takes the shot and the glint; past the aim's ray the nose's, so a plane flown alongside can be
+   * painted. Returns the building that glints now (none while a mover does).
+   */
+  private pickMover(f: Flight, t: number, r: number): BuildingRef | null {
+    const life = this.life!, aim = this.aim, shown = this.shown();
+    if (this.moverLatch && t >= this.moverLatchUntil) this.moverLatch = null;
+    let m: MoverTarget | null = this.moverLatch;
+    if (!m) {
+      const dx = aim.x - f.x, dy = aim.y - f.y, dz = aim.z - f.z;
+      // (the building's distance: a mover nearer the bus than it takes the shot, one past it doesn't: the jet couldn't get through)
+      const bd = shown ? (shown.cx - f.x) ** 2 + (shown.roofY - f.y) ** 2 + (shown.cz - f.z) ** 2 : Infinity;
+      const near = (q: MoverTarget | null) => !!q && (q.x - f.x) ** 2 + (q.y - f.y) ** 2 + (q.z - f.z) ** 2 < bd;
+      m = life.aim(f.x, f.y, f.z, dx, dy, dz, r, aim.travel);
+      if (!near(m)) {
+        // (along the nose, as far as a breath's reach: a plane alongside or ahead, which from high up is nearer than any roof under the aim)
+        const reach = config.splat.moverReach, c = Math.cos(f.nose), speed = aim.dist / Math.max(0.05, aim.travel);
+        m = life.aim(f.x, f.y, f.z, this.fx * c * reach, Math.sin(f.nose) * reach, this.fz * c * reach, r, reach / Math.max(1, speed));
+        if (!near(m)) m = null;
+      }
+    }
+    this.mover = m;
+    life.glint(m ? m.key : null);
+    return m ? null : shown;
   }
 
   /** A touch went down that may become a tap: freeze what glints (taps fire on the lift). */
   press(): void {
+    if (this.mover && !this.moverLatch) {
+      // (a mover held as it glinted: a copy, since the aim's answer is filled again next frame)
+      Object.assign(this.moverHeld, this.mover);
+      this.moverLatch = this.moverHeld;
+      this.moverLatchUntil = this.t + config.splat.aimLatch;
+      return;
+    }
     if (!this.ready || this.latchRef) return;
     const s = this.shown();
     if (!s) return;
     this.latchRef = s;
     this.latchUntil = this.t + config.splat.aimLatch;
+  }
+
+  /** ?life: a mover glints now. */
+  get moverGlinting(): boolean {
+    return this.mover !== null;
   }
 
   /** The building glinting right now (the latch while it holds, else the live target). */
@@ -302,8 +367,21 @@ export class Aimer {
     return s;
   }
 
-  /** The shot a tap fires now: at the glinting building (call before Flight.tryBarf, between frames). */
+  /** The shot a tap fires now: at the glinting building (call before Flight.tryBarf, between frames), or ?life's glinting mover. */
   fire(f: Flight): Shot {
+    if (this.mover) {
+      const m = this.mover, shot = this.shotAt(f, null);
+      shot.mover = m;
+      shot.x = m.x;
+      shot.z = m.z;
+      shot.y = m.y;
+      shot.exact = true;
+      // (the breath's flight is to the mover, and it lands at its height)
+      shot.travel = Math.max(0.05, m.arrive - this.t);
+      shot.drop = Math.max(0, f.y - m.y);
+      this.moverLatch = null;
+      return shot;
+    }
     return this.shotAt(f, this.shown());
   }
 

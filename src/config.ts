@@ -527,6 +527,8 @@ export const config = {
     /** Aim latch: lifting the thumb (or touching down) to tap freezes the glinting target this long (s), while it
      *  stays within the pick radius or this cone of the line of fire (lateral m per m of range). */
     aimLatch: 0.5,
+    /** ?life: how far along the nose the aim looks for a mover past the aim's own ray (m): a plane flown alongside or ahead */
+    moverReach: 2500,
     aimLatchCone: 0.2,
     /** Aim glint: light lift on the target (0.125 = one ramp step), the sweep's extra lift, sweeps per second. */
     glintLift: 0.13,

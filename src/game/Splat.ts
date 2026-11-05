@@ -96,6 +96,9 @@ export interface BarfOpts {
   tag?: unknown;
   /** ?moon: changes the blast before its ground is drawn. False: it draws no ground */
   shape?: (spec: BlastSpec) => boolean;
+  /** ?life: a mover it hits (src/life): the blast is in the air at (x, opts.y, z), and paints no building and no ground; `moverFresh`, it took the breath's hue */
+  mover?: { x: number; y: number; z: number };
+  moverFresh?: boolean;
 }
 
 /** BarfOpts.bands */
@@ -140,6 +143,10 @@ const HUE_TRY = [0, 1, -1, 2, -2, 3];
 
 export class Splatter {
   private nextHue = Math.floor(Math.random() * HUE_COUNT);
+  /** The hue the next fresh hit takes (?life: a mover hit takes it, main.ts). */
+  get hueNext(): number {
+    return this.nextHue;
+  }
   private queue: Scheduled[] = [];
   private pending: PendingBlast[] = [];
 
@@ -222,6 +229,7 @@ export class Splatter {
     const r = opts?.radius ?? blastRadiusFor(drop);
     const hose = !!opts?.hose;
     const stream = hose || !!opts?.stream;
+    if (opts?.mover) return this.barfMover(opts.mover, tImpact, r, hose, !!opts.moverFresh, opts);
     // where it lands: the aim point if it is on the building, else the building's nearest edge, a few
     // meters in (a big block is hit where you aimed, not at a centroid 100 m away)
     const land = primary && !opts?.exact ? city.landingOn(primary, x, z, S.landInset, this.land, S.smallRad) : null;
@@ -296,6 +304,23 @@ export class Splatter {
       blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, primary, super: opts?.super ?? null, tag: opts?.tag },
     });
     if (!stream) this.fx.geyser([pos.clone()], [hue]);
+    return tImpact;
+  }
+
+  /**
+   * ?life: a breath that hits a mover (CONTRACT.md section 3, O5): a hit's flash and hit-stop at its impact, in the air where the mover will be, and no building or
+   * ground under it painted. Life paints the mover; a fresh one took this breath's hue, so the next breath's moves on, as after a fresh building.
+   */
+  private barfMover(m: { x: number; y: number; z: number }, tImpact: number, r: number, hose: boolean, fresh: boolean, opts: BarfOpts): number {
+    const S = config.splat, hue = this.nextHue, pos = new THREE.Vector3(m.x, m.y, m.z);
+    if (fresh) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
+    this.seed = (Math.imul(this.seed ^ 0x2545f491, 0x9e3779b1) + 0x7f4a7c15) >>> 0;
+    const spec = makeBlastSpec(m.x, m.z, r, hue, this.seed);
+    this.pending.push({
+      at: tImpact, plan: [], ground: null, hitStop: hose ? 0 : opts.hitStop ?? S.hitStopFrames,
+      blast: { spec, pos, t: tImpact, count: 1, maxLevel: 1, strength: r / S.blastRadius, dots: [], hose, primary: null, super: opts.super ?? null, tag: opts.tag },
+    });
+    this.lastMiss = false;
     return tImpact;
   }
 

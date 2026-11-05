@@ -2,6 +2,7 @@ import type * as THREE from 'three';
 import { registerWarm } from '../render/warmup';
 import { LifeHost } from './Life';
 import type { LifeInit } from './lifeWorker';
+import { MoverStore } from './paint';
 import { Pools } from './pools';
 
 // Life's boot (LIFE.md, CONTRACT.md section 6): under ?life only, and it never rejects into the street's boot: anything that fails gives null, and the street
@@ -25,7 +26,11 @@ export async function bootLife(ctx: LifeContext): Promise<LifeHost | null> {
     const deployed = typeof location !== 'undefined' && !/^(localhost|127\.|\[::1\])/.test(location.hostname);
     const init: LifeInit = { type: 'init', slug: ctx.place.slug, origin: ctx.place.origin, relay: real && deployed ? new URL('api/planes', location.href).href : null };
     worker.postMessage(init);
-    return new LifeHost(worker, pools);
+    // (what's painted, kept by key: a test's clock has a store of its own, CONTRACT.md section 3)
+    const store = new MoverStore(p.has('t') || p.has('rate') || p.has('fixeddt'));
+    const host = new LifeHost(worker, pools, store, ctx.place.slug);
+    void store.load(Date.now()).then((r) => host.restore(r));
+    return host;
   } catch (e) {
     console.warn('life', e);
     return null;

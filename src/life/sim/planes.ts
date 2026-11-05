@@ -58,6 +58,7 @@ export function scriptedPlanes(place: string, utcMs: number, bx: number, bz: num
       out[o + Col.BANK] = 0;
       out[o + Col.SCALE] = 0.85 + 0.3 * unit(mix(h, 7));
       out[o + Col.FLAGS] = 0;
+      out[o + Col.UNTIL] = (L - along) / v;
       keys?.(kh, key);
       at++;
     }
@@ -110,6 +111,8 @@ export function livePlanes(planes: readonly LivePlane[], utcMs: number, bx: numb
     out[o + Col.BANK] = 0;
     out[o + Col.SCALE] = 1;
     out[o + Col.FLAGS] = RowFlag.LIVE;
+    // (a live plane's paint lasts till it lands, at most 24 h on, CONTRACT.md section 3: its landing isn't known here, so the most)
+    out[o + Col.UNTIL] = 24 * 3600;
     keys?.(kh, key);
     at++;
   }

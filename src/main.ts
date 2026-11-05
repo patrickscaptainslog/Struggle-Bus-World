@@ -860,7 +860,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     breathTravel = shot.travel;
     breathWidth = (mega ? mega.width : 1) * (moonPaint?.width(shot, flight) ?? 1);
     try {
-      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: flight.y, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, ...moonPaint?.barf(shot, !!mega) });
+      // (?life: a breath at a mover paints the mover, at the impact's game time, and nothing under it. CONTRACT.md section 3)
+      const mover = shot.mover && life ? shot.mover : null;
+      const moverFresh = mover ? life!.hit(mover.key, splatter.hueNext, skyClock.now(), simTime + config.splat.inhale + shot.travel) : false;
+      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: flight.y, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, ...moonPaint?.barf(shot, !!mega), ...(mover ? { mover, moverFresh } : {}) });
     } finally {
       breathTravel = null;
       breathWidth = 1;
@@ -1077,6 +1080,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const life = lifeOn
     ? await import('./life/boot').then((m) => m.bootLife({ params, scene, place: { slug: manifest.slug, origin: [manifest.origin[0], manifest.origin[1]] } })).catch(() => null)
     : null;
+  // (and the aim asks it for a mover on the line of fire)
+  if (life) aimer.life = life;
   warm.sourcesOpen = true;
   warm.addSources();
   warm.add(scene);
@@ -1393,7 +1398,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // keeps what it froze, whatever else is steering)
     const steering = (qaStick || st.thumb || (st.dragging && input.mode === 'keyboard')) && !input.pressHeld;
     const glint = aimer.update(flight, simTime, steering);
-    controls.glinting = glint !== null || !!moonPaint?.target;
+    controls.glinting = glint !== null || !!moonPaint?.target || aimer.moverGlinting;
     paintUniforms.uTarget.value = glint ? glint.index : -1;
     paintUniforms.uTargetT.value = aimer.shownSince;
     paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);
