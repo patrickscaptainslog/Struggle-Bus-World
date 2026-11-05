@@ -543,8 +543,14 @@ export class GroundPaint {
     for (const job of this.jobs) {
       const p = job.p;
       if (job.serial === null || !p || ox > p.maxX || ox + S < p.minX || oz > p.maxZ || oz + S < p.minZ) continue;
+      // (an entry for it on a mask that's gone, a change of detail under the blast, is taken out and the tile joins again: its rows from the first. Review six, 53)
       let had = false;
-      for (const t of job.tiles) if (t.key === key) had = true;
+      for (let i = job.tiles.length - 1; i >= 0; i--) {
+        const t = job.tiles[i];
+        if (t.key !== key) continue;
+        if (this.masks.get(key) === t.m) had = true;
+        else job.tiles.splice(i, 1);
+      }
       if (!had) this.joinTile(job, key);
     }
   }

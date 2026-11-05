@@ -1791,6 +1791,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       leave() {
         // (the low game's sound and what it set on the frame stop with its frame, and the flight's loop has neither)
         input.endPress();
+        // (and a firehose under way, as at ?earth's hand-up: review six, 56)
+        superSplat.endHose();
         Object.assign(input, flightHands);
         controls.hud.setVisible(false);
         controls.leftGround();

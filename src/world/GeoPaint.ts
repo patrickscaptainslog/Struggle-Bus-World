@@ -722,6 +722,8 @@ export class GeoPaint {
     this.store
       .get(keys)
       .then((got) => {
+        // (a read that comes back clears the count: refusals in a row send a store to the fallback, not two frames' outage. Review six, 55)
+        this.fails = 0;
         for (const k of keys) {
           this.loading.delete(k);
           // (nor one cleared while it was read: the tuner's reset)

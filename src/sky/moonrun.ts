@@ -558,7 +558,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
     last = now;
     time += dt;
     globals.uTime.value = time;
-    if (air && trip) air.at(trip.hEarth);
+    // (over the ellipsoid near the ground, as the hand-overs and the free leg read it: over the sphere a city near the equator started partway in. Review six, 59)
+    if (air && trip) air.at(trip.hEarth < 1000 ? trip.hGround : trip.hEarth);
 
     // ---- the flight first, then the lens, and draw.update reads the lens: the contract above
     if (trip && view && input && looker) {

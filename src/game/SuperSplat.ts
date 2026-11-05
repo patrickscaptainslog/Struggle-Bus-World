@@ -449,6 +449,8 @@ export class SuperSplat {
     this.since = 0;
     this.cooldownTotal = this.cooldownLeft = Math.max(1, config.splat.superCooldown);
     this.stats.endedAt = this.t;
+    // (and its stream: a flow of 0 is no ribbon, flicks or dribble, where the emitter's 4 s poured on at the hand-down, painting nothing. Review six, 57)
+    this.live.rate = 0;
   }
 
   // ------------------------------------------------------------------ firehose
