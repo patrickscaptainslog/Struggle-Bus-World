@@ -275,8 +275,6 @@ export class GroundPaint {
   private pics: GeoPaint | null = null;
   /** ?moon: tiles' paint copied out of the pictures, waiting for each tile to come in (onPaintReady tells the city) */
   private readonly prepared = new Map<string, Uint8Array>();
-  /** ?moon: tiles in, their kept paint on them: a region made again asks them for nothing more (review four, 3) */
-  private readonly took = new Set<string>();
   /** ?moon: a tile's paint is copied out and waiting: the city gives it ground of its own, and attach copies it in */
   onPaintReady: ((tx: number, tz: number) => void) | null = null;
   /** the tiles' localStorage key prefix (null: the id scheme is unknown, nothing is read or written) */
@@ -395,7 +393,6 @@ export class GroundPaint {
     this.saveQueue.length = 0;
     this.saveSet.clear();
     this.prepared.clear();
-    this.took.clear();
     this.pics.moved();
   }
 
@@ -502,17 +499,38 @@ export class GroundPaint {
     this.loaded.set(key, { ox, oz, uniforms });
     if (this.pics) {
       this.attachGeo(key, ox, oz);
+      this.joinLive(key, ox, oz);
       return;
     }
     const rec = this.store.get(key);
-    if (!rec) return;
+    if (!rec) {
+      this.joinLive(key, ox, oz);
+      return;
+    }
     const m = this.mask(key)!;
     if (rec.m && !decodeMask(rec.m, m.data)) rec.m = null; // corrupt entry: dropped on its next save
     if (rec.p.length) {
       this.replaying.set(key, rec.p.length);
       for (const s of rec.p) this.jobs.push({ spec: s, tImpact: 0, serial: null, p: null, tiles: [], only: key, under: false });
     }
+    this.joinLive(key, ox, oz);
     this.ready.push(key);
+  }
+
+  /**
+   * A tile come in while a blast is in flight over it joins that blast, so it's drawn by the impact, not replayed after it: City splits a MEGA's tiles out of their
+   * regions' ground three a frame, after its job has started (review five's 33). Its replays, queued above, are older and go under it; a kept copy that lands later
+   * goes under what the mask shows (paintCopied).
+   */
+  private joinLive(key: string, ox: number, oz: number) {
+    const S = this.tileSize;
+    for (const job of this.jobs) {
+      const p = job.p;
+      if (job.serial === null || !p || ox > p.maxX || ox + S < p.minX || oz > p.maxZ || oz + S < p.minZ) continue;
+      let had = false;
+      for (const t of job.tiles) if (t.key === key) had = true;
+      if (!had) this.joinTile(job, key);
+    }
   }
 
   detach(tx: number, tz: number) {
@@ -529,15 +547,31 @@ export class GroundPaint {
     if (m) {
       // (?moon: what it shows, settled, kept for it coming back, as a region's change of detail makes its tiles' ground again; not while its copy's on its way, which comes then)
       if (this.pics && !this.pics.copyingTile(key)) this.keepShown(key, m.data);
-      // (and a copy on its way for a tile that's gone is dropped: they were never, and read their pictures and made 64 KB for nothing. Review four, 15)
-      this.pics?.dropCopy(key);
-      this.took.delete(key);
       m.gone = true;
       m.tex.dispose();
       this.masks.delete(key);
     }
+    // (and a copy on its way for a tile that's gone is dropped, mask or none: they were never, and read their pictures and made 64 KB for nothing. Review four, 15;
+    // review five, 41)
+    this.pics?.dropCopy(key);
     // queued replays of this tile are dropped (its entry still holds them: they redraw when it comes back)
     for (let i = this.jobs.length - 1; i >= 0; i--) if (this.jobs[i].only === key) this.jobs.splice(i, 1);
+  }
+
+  /**
+   * ?moon: a tile's region unloaded. One with ground of its own detached already; a merged one, never attached, may have a copy asked for it (hasSaved, as its
+   * region's ground was made) and waiting: dropped, so it doesn't read pictures, take the share, push out copies for tiles that come, and give ground to a region
+   * that's gone. Review five, 41
+   */
+  forget(tx: number, tz: number) {
+    const key = `${tx},${tz}`;
+    if (!this.pics || this.loaded.has(key)) return;
+    this.pics.dropCopy(key);
+    const d = this.prepared.get(key);
+    if (d) {
+      this.prepared.delete(key);
+      this.pics.recycle(d);
+    }
   }
 
   /** True if storage holds ground paint for the tile (loaded or not). ?moon: a blast kept by place reaches it. */
@@ -547,9 +581,10 @@ export class GroundPaint {
       // (and a blast that reaches it and isn't in the pictures yet gives it ground of its own at once: the city asks as it makes a region's ground, and needn't ask again)
       const key = `${tx},${tz}`, ox = tx * this.tileSize, oz = tz * this.tileSize;
       if (this.prepared.has(key)) return true;
-      // (in, with its kept paint on it: a region made again for another tile's copy asked every painted tile for its copy again, 2n - 1 for n, and a tile whose copy
-      // was queued again lost what it showed at a change of detail. Review four, 3)
-      if (this.took.has(key) && this.masks.has(key)) return true;
+      // (in, with a mask: what it shows is on it, its kept paint copied in or on its way under it. A region made again for another tile's copy asked every painted
+      // tile for its copy again, 2n - 1 for n, and a tile whose copy was queued again lost what it showed at a change of detail: review four, 3. And not only a tile
+      // that took a kept copy, which left one painted this session, or any after a slide: review five, 37)
+      if (this.masks.has(key)) return true;
       this.pics.want(key, ox, oz);
       return this.pics.pendingOver(ox, oz, ox + this.tileSize, oz + this.tileSize).length > 0;
     }
@@ -820,7 +855,6 @@ export class GroundPaint {
         m.z1 = GROUND_N - 1;
         this.queueDirty(m);
         this.ready.push(key);
-        this.took.add(key);
       }
       this.pics!.recycle(d);
     }
@@ -850,7 +884,6 @@ export class GroundPaint {
       m.x1 = GROUND_N - 1;
       m.z1 = GROUND_N - 1;
       this.queueDirty(m);
-      this.took.add(key);
       // (and what stands in its paint, the boulders, takes it now, as when the copy came first. Review four, 8)
       this.ready.push(key);
       this.pics!.recycle(d);
@@ -933,19 +966,19 @@ export class GroundPaint {
   private start(job: GroundJob) {
     const p = this.prepare(job.spec);
     job.p = p;
-    const cs = this.cell;
-    const R = p.max + 3;
-    for (const key of job.only ? [job.only] : this.tilesOf(p)) {
-      if (!this.loaded.has(key)) continue;
-      const m = this.mask(key);
-      if (!m) continue;
-      // replays still queued here are older: they go under this blast
-      if (job.serial !== null) for (const r of this.jobs) if (r.only === key) r.under = true;
-      const s = job.spec;
-      const i0 = Math.max(0, Math.floor((s.x - R - m.ox) / cs)), i1 = Math.min(GROUND_N - 1, Math.floor((s.x + R - m.ox) / cs));
-      const j0 = Math.max(0, Math.floor((s.z - R - m.oz) / cs)), j1 = Math.min(GROUND_N - 1, Math.floor((s.z + R - m.oz) / cs));
-      job.tiles.push({ key, m, j: j0, j1: i0 > i1 ? j0 - 1 : j1, i0, i1, dots: false, deferred: [] });
-    }
+    for (const key of job.only ? [job.only] : this.tilesOf(p)) if (this.loaded.has(key)) this.joinTile(job, key);
+  }
+
+  /** A started job takes a loaded tile: the rows and columns of its mask the blast reaches. */
+  private joinTile(job: GroundJob, key: string) {
+    const m = this.mask(key);
+    if (!m) return;
+    // replays still queued here are older: they go under this blast
+    if (job.serial !== null) for (const r of this.jobs) if (r.only === key) r.under = true;
+    const s = job.spec, cs = this.cell, R = job.p!.max + 3;
+    const i0 = Math.max(0, Math.floor((s.x - R - m.ox) / cs)), i1 = Math.min(GROUND_N - 1, Math.floor((s.x + R - m.ox) / cs));
+    const j0 = Math.max(0, Math.floor((s.z - R - m.oz) / cs)), j1 = Math.min(GROUND_N - 1, Math.floor((s.z + R - m.oz) / cs));
+    job.tiles.push({ key, m, j: j0, j1: i0 > i1 ? j0 - 1 : j1, i0, i1, dots: false, deferred: [] });
   }
 
   /** Draw up to `budget` texels of a started job; returns the budget left. */

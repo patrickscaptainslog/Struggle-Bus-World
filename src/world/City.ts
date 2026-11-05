@@ -1298,7 +1298,7 @@ export class City {
   }
 
   /** A coarse region's two meshes: its merged buildings and its ground (one grid, one class texture). */
-  private buildRegionMesh(key: string, msg: RegionResponse) {
+  private buildRegionMesh(key: string, msg: RegionResponse, swap = false) {
     this.disposeRegionMesh(key);
     const merged = msg.merged ?? null;
     // (coarse buildings are their own sun-pass casters: one quad per wall already)
@@ -1307,7 +1307,7 @@ export class City {
     if (rm.buildings && this.tileKeysOf(key).some((k) => this.tiles.get(k)?.growthShown)) rm.buildings.geometry.setDrawRange(0, Infinity);
     if (rm.buildings) this.firstDraw(rm.buildings);
     this.regionMeshes.set(key, rm);
-    this.buildRegionGround(key, rm);
+    this.buildRegionGround(key, rm, swap);
   }
 
   /**
@@ -1315,7 +1315,7 @@ export class City {
    * every street edge), except the tiles that own their ground (setOwnGround):
    * those get their own mesh on the same 8 m grid, so the seams match.
    */
-  private buildRegionGround(key: string, rm: RegionMesh) {
+  private buildRegionGround(key: string, rm: RegionMesh, swap = false) {
     if (rm.terrain) {
       this.root.remove(rm.terrain);
       rm.terrain.geometry.dispose();
@@ -1342,10 +1342,12 @@ export class City {
         this.setMask(tx, tz, 255);
         if (this.ground.hasSaved(tx, tz)) this.ownGround.add(`${tx},${tz}`);
         if (this.ownGround.has(`${tx},${tz}`)) {
-          // its own ground (painted: ground paint attaches per tile), if this frame has a split left; else merged once more, and the region comes up again
+          // its own ground (painted: ground paint attaches per tile), if this frame has a split left; else merged once more, and the region comes up again. A swap to
+          // coarse splits all its own: it is the frame's whole budget already, and a painted region going coarse showed its other tiles bare till their splits came,
+          // three a frame (review five, 38)
           if (lt.terrainStep === 4) continue;
-          if (this.splitsLeft > 0) {
-            this.splitsLeft--;
+          if (swap || this.splitsLeft > 0) {
+            if (!swap) this.splitsLeft--;
             this.dropTileTerrain(lt);
             this.makeTileTerrain(lt, 4);
             continue;
@@ -1455,7 +1457,7 @@ export class City {
           lt.meshH = null;
         }
       }
-      this.buildRegionMesh(key, msg);
+      this.buildRegionMesh(key, msg, true);
       return;
     }
     for (const t of msg.tiles) {
@@ -1860,6 +1862,8 @@ export class City {
         if (mx >= 0 && mz >= 0 && mx < this.maskW && mz < this.maskH) (this.loadedMask.image.data as Uint8Array)[mz * this.maskW + mx] = this.maskedForGood.has(k) ? MASK_STAND_IN : 0;
         this.tiles.delete(k);
         this.tileNum.delete(tileKeyNum(tx, tz));
+        // (a merged tile never attached, so never detaches: its paint's copy, asked for as its region's ground was made, goes with it. Review five, 41)
+        this.ground.forget(tx, tz);
         this.onTileUnload?.(tx, tz);
       }
     this.loadedMask.needsUpdate = true;

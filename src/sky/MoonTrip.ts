@@ -493,7 +493,8 @@ export class MoonTrip {
           this.rise('rise');
           break;
         case 'orbit':
-          // (the street's ladder, as over Earth: a flick up is a step up, and at the top nothing, the button flown up to. Only with no ground to go down to, ?moonrun's, is it still the climb to the button)
+          // (the street's ladder, as over Earth: a flick up is a step up, and at the top nothing, the button flown up to. Only with no ground to go down to, ?moonrun's, is it still the climb to the button;
+          // Earth's page has none either, and climbs out on a pull held, as the Moon's own page does)
           if (earthStep(this.rung, this.level) < EARTH_TOP) this.shiftEarth(1);
           else if (!this.land && !this.earthPage) this.rise('moonRise');
           break;
@@ -552,8 +553,9 @@ export class MoonTrip {
     this.trips++;
     this.gear = 4;
     this.ti = 0;
-    // (from the speed it has: pressed in free flight in Rainbow Warp it went to 0.112 km/s for a moment, then spooled up. The first review's minor)
-    this.v = Math.max(this.v, G0);
+    // (from G0, as the route has it. Kept from the speed it had, the first review's minor, pressed in Rainbow Warp the bus tumbled 30 to 40 degrees in a frame on
+    // the way out, 17 trips in 120 in trip-fuzz: back, with the minor's dip to 0.112 km/s for a moment open again, till the view can carry a launch at speed)
+    this.v = G0;
     this.eta = 280;
     // (one moon boost, the producer's: "i want there to be one default moon boost turbo mode that brings you to and from the moon in a bit less than 6 min". It's asked for at the launch, and goes on at G5's floor)
     this.armed = true;
@@ -953,8 +955,15 @@ export class MoonTrip {
         const p = this.ob.pos, h = this.heading;
         setUnit(p, u);
         this.pushT = this.land && this.pushOf(yoke) > 0 ? this.pushT + dt : 0;
-        // (and a pull held climbs out of it, free, up to the button: the producer, 2026-11-04, of leaving the Moon as Earth is left. A flick is a gear, never a pull or a push)
-        this.pullT = this.land && -yoke > YOKE.dead ? this.pullT + dt : 0;
+        // (and a pull held climbs out of it, free, up to the button: the producer, 2026-11-04, of leaving the Moon as Earth is left. A flick is a gear, never a pull or a push.
+        // On Earth's page, which a page change refused in the long dark leaves here with no ground to go down to (storage blocked: review five's 35), the pull climbs
+        // straight to the button, and a push does nothing)
+        this.pullT = (this.land || this.earthPage) && -yoke > YOKE.dead ? this.pullT + dt : 0;
+        if (!this.land && this.pullT > Math.max(PUSH_HOLD, YOKE.flick)) {
+          this.pullT = 0;
+          this.rise('moonRise');
+          return false;
+        }
         if (this.pushT > Math.max(PUSH_HOLD, YOKE.flick) || this.pullT > Math.max(PUSH_HOLD, YOKE.flick)) {
           this.pushT = this.pullT = 0;
           this.nose = 0;

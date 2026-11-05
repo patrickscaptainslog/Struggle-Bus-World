@@ -97,6 +97,48 @@ export function applySpaceTable(tex: THREE.DataTexture, world = true): void {
   tex.needsUpdate = true;
 }
 
+/** Where SKY.md 4's Air axis starts and ends over Earth (km): the street's hand-up and hand-down, and the ungraded space table above. */
+export const AIR_LOW = 15, AIR_TOP = 30;
+
+/**
+ * SKY.md 4's Air axis for the flight over Earth's pages: the world rows go from the street's table at AIR_LOW, as the street hands the bus up (or as ?earth&resume's
+ * boot found it, the live sky's or the held hour's), to the day's, ungraded, by AIR_TOP, and back down the same way. So every page change, in the long dark, is the
+ * day's rows to the day's, and every hand-over the street's to the street's, by night too: before, the bus and the stars changed colour at the page change. The
+ * space rows are space's own throughout. Written only when the blend moves a 128th. Review five, 36 and 45.
+ */
+export class AirAxis {
+  private readonly tex: THREE.DataTexture;
+  private readonly street: Uint8Array;
+  private readonly day: Uint8Array;
+  private k = -1;
+
+  constructor(tex: THREE.DataTexture) {
+    this.tex = tex;
+    const n = (tex.image.data as unknown as Uint8Array).length;
+    this.street = new Uint8Array(n);
+    this.day = new Uint8Array(n);
+  }
+
+  /** The street's table, as the palette has it now: what the blend starts from. The rows no table names keep the street's bytes both ends. */
+  take(): void {
+    this.street.set(this.tex.image.data as unknown as Uint8Array);
+    this.day.set(this.street);
+    writePalette(this.day, { ...dayRows, ...SPACE_ROWS });
+    this.k = -1;
+  }
+
+  /** The blend for the bus's height over Earth (km). */
+  at(hKm: number): void {
+    const x = Math.min(1, Math.max(0, (hKm - AIR_LOW) / (AIR_TOP - AIR_LOW))), k = Math.round(x * x * (3 - 2 * x) * 128) / 128;
+    if (k === this.k) return;
+    this.k = k;
+    const out = this.tex.image.data as unknown as Uint8Array, S = this.street, D = this.day;
+    const lo = Ramp.SPACE_DARK * RAMP_STEPS * 4, hi = (Ramp.SPACE_MOON + 1) * RAMP_STEPS * 4;
+    for (let i = 0; i < out.length; i++) out[i] = i >= lo && i < hi ? D[i] : Math.round(S[i] + (D[i] - S[i]) * k);
+    this.tex.needsUpdate = true;
+  }
+}
+
 // The live sky's tables (LIVE.md stage B, SKY.md 4): a keyframe at each of the key table's heights, setting and rising, crossed by the same hour angle the light
 // crosses by. Night is the blue table (LIVE.md decision 2), so the setting chain is noon 35, day 22 (today's bytes), golden 7, sunset 1.5, blue -5, and the rising one
 // noon 35, morning 16, dawn 1, blue -5. Two keyframes blend in OKLCH by the short hue arc (a grey takes the other's hue): sRGB and OKLab cross the neutral

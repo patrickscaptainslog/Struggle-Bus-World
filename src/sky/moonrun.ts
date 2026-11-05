@@ -22,7 +22,7 @@ import { series } from './Series';
 import { SkyClock } from './SkyClock';
 import { groundTune, SkyDraw } from './SkyDraw';
 import { EARTH, MOON, R_MOON, SkyModel, SkyState, type Observer } from './SkyModel';
-import { applySpaceTable } from './SkyTable';
+import { AirAxis, applySpaceTable } from './SkyTable';
 import { SpaceFx, spaceFxTune } from './SpaceFx';
 import { EasterEgg } from './EasterEgg';
 import { SWING, TripView } from './TripView';
@@ -267,6 +267,10 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
   };
   // (?earth&resume: home from the Moon's page, the flight has the frame from the start, and the street boots behind it)
   const flightFirst = !earth || earthResume;
+  // (over Earth's pages the world rows follow SKY.md 4's Air axis, from the street's table at the hand-up to the day's by 30 km: review five, 36. ?earth&resume's
+  // street wrote its live sky's table before this, main.ts, and that's where the way home comes down to)
+  const air = earth ? new AirAxis(pipeline.paletteTexture) : null;
+  if (earthResume) air?.take();
   // (with the day's world rows only where there's no street table: ?earth&resume's street wrote its live sky's before this, main.ts, and that's what the way home draws on)
   if (flightFirst) takeFrame(!earth);
   // (behind the street, the space sky's own rows at once: from 8 km up the street draws space's sky and from 11 km the plain Earth, and nothing else names those rows.
@@ -353,6 +357,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
   // (under ?earth all of that is the flight's when it takes the frame from the street)
   if (earthLanding)
     earthLanding.onTake = () => {
+      air?.take();
       takeFrame(false);
       lensOn();
       placeCamera();
@@ -558,6 +563,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
     last = now;
     time += dt;
     globals.uTime.value = time;
+    if (air && trip) air.at(trip.hEarth);
 
     // ---- the flight first, then the lens, and draw.update reads the lens: the contract above
     if (trip && view && input && looker) {
@@ -745,7 +751,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
     }
     if (trip) label?.(trip, breath);
   };
-  const qa = { pipeline, scene, camera, perf, bus, input, warm, moon: { model, sky, clock, draw, pose, load, trip, view, skip, breath, names, tune: tripTune, hold: (on: boolean) => (held0 = on), landing, earthLanding, resumed } };
+  const qa = { pipeline, scene, camera, perf, bus, input, warm, moon: { model, sky, clock, draw, pose, load, trip, view, skip, breath, names, tune: tripTune, hold: (on: boolean) => (held0 = on), landing, earthLanding, resumed, air } };
   (window as unknown as Record<string, unknown>)[land ? '__space' : '__game'] = qa;
   // (?earth: the street has the frame and the thumb; the flight's HUD and label wait for it to hand up, and from here this loop is the pump)
   if (earthLanding && !flightFirst) {

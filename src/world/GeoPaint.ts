@@ -618,6 +618,8 @@ export class GeoPaint {
 
   /** The tile is gone (unloaded, or its ground made again): its copy, if one's queued, goes with it; it's asked for again if the tile comes back without its paint. */
   dropCopy(key: string): void {
+    // (and one asked for before the store was read, which would be queued then: review five, 41)
+    this.early.delete(key);
     if (!this.copying.delete(key)) return;
     const k = this.copies.findIndex((c) => c.key === key);
     if (k < 0) return;
@@ -716,7 +718,8 @@ export class GeoPaint {
       .then((got) => {
         for (const k of keys) {
           this.loading.delete(k);
-          if (this.open.has(k)) continue;
+          // (nor one cleared while it was read: the tuner's reset)
+          if (this.open.has(k) || !this.index.has(k)) continue;
           const enc = got.get(k);
           const pic = this.make(k);
           this.qa.made--;
@@ -726,7 +729,18 @@ export class GeoPaint {
       })
       .catch(() => {
         for (const k of keys) this.loading.delete(k);
+        // (a store that won't read after opening again counts toward the memory fallback as one that won't write: folds in strict order would wait on its picture for the
+        // session, drawing nothing, so writing nothing, so never failing a write. The fallback's reads give a blank for what it can't. Review five, 43)
+        this.failed();
       });
+  }
+
+  /** A call the store refused, after opening it again once: three running, and what's written from then on is kept in memory (Fallback), 16 MB more of it. */
+  private failed(): void {
+    if (++this.fails < 3 || this.store instanceof Fallback) return;
+    this.store = new Fallback(this.store);
+    this.budget = Math.max(this.budget, this.bytes + BUDGET / 4);
+    this.fails = 0;
   }
 
   // ---- each frame
@@ -818,7 +832,9 @@ export class GeoPaint {
     const rows = this.coded;
     this.coded = [];
     this.sent = rows;
-    Promise.all([rows.length ? this.store.put(rows) : null, drop.length ? this.store.remove(drop) : null])
+    // (the room first, then what takes it: put and remove sent together ran the put first, which a store at its quota refused before anything was freed. Review five, 44)
+    (drop.length ? this.store.remove(drop) : Promise.resolve())
+      .then(() => (rows.length ? this.store.put(rows) : undefined))
       .then(
         () => {
           this.fails = 0;
@@ -839,11 +855,7 @@ export class GeoPaint {
           // then on in memory, 16 MB more of it, and journals it at each hide, as far as localStorage takes it; what IndexedDB held is still read from it and never deleted)
           const full = (e as { name?: string } | null)?.name === 'QuotaExceededError';
           if (full) this.budget = Math.max(BUDGET / 64, Math.min(this.budget, this.bytes * 0.8));
-          if (++this.fails >= 3 && !(this.store instanceof Fallback)) {
-            this.store = new Fallback(this.store);
-            this.budget = Math.max(this.budget, this.bytes + BUDGET / 4);
-            this.fails = 0;
-          }
+          this.failed();
           for (const [k, t, enc] of rows) {
             const pic = this.open.get(k);
             if (pic) pic.dirty = true;
@@ -950,6 +962,12 @@ export class GeoPaint {
     this.folds.length = 0;
     this.copies.length = 0;
     this.copying.clear();
+    // (and what was being coded, written or read: the reload's pagehide journalled the rows mid-write, and the next boot put them back. Review five, 49)
+    this.coding = [];
+    this.coded = [];
+    this.sent = [];
+    this.loading.clear();
+    this.early.clear();
     this.bytes = 0;
     void this.store.clear().catch(() => undefined);
     try {
