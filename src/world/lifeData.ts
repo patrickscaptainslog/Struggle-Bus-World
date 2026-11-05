@@ -48,7 +48,7 @@ export const enum ShipKind { CONTAINER = 0, BULK, TANKER, CAR_CARRIER, CRUISE } 
 
 export interface RegionGraph {
   version: number; rx: number; rz: number;
-  /** the file's minor version (C9, Proposed; read it or not): 1 and up can set NO_CARS, 2 and up have the lakes (C8) */
+  /** the file's minor version (C9, Agreed at 0.8): 1 and up can set NO_CARS, 2 and up have the lakes (C8) */
   minor: number;
   /** map metres; y is what a mover stands on there: the ground, a deck or a quay (never the drawn mesh) */
   nodes: { n: number; id: Uint32Array; xyz: Float32Array; flags: Uint8Array };
