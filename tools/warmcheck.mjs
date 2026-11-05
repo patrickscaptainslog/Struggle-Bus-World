@@ -10,8 +10,8 @@
 // still build a pipeline in flight (target: the upscale onto the canvas, never warmed, frame 1).
 //   node tools/warmcheck.mjs <url> <out.json> [--throttle=4] [--late=9000]
 // --late=<ms>: far16.bin held back that long by a route, so it lands in play (City.landFar), and ready waits for it.
-// `lamps` in the report: when the street lamps' list was asked for and landed, ms after ready (a dusk with them in flight: ?t=2026-11-07T00:01:00Z&rate=120).
 // Wall clock, real GPU (tools/browser.mjs): meaningful on a laptop, not in the cloud's SwiftShader.
+// `lamps` in the report: when the street lamps' list was asked for and landed, ms after ready (a dusk with them in flight: ?t=2026-11-07T00:01:00Z&rate=120).
 import { chromium } from 'playwright-core';
 import { writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
