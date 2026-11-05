@@ -6,6 +6,9 @@
 //   tiles    a painted region's 16 tiles ask for their paint at once: the copies spread over frames, under about 4 ms in any one
 //   between  a tile that comes in between a blast's impact and the end of its fold shows the blast
 //   budget   the store at its budget, then a MEGA over old paint: nothing thrown, and the old paint under it kept
+//   lost     review four's 2: the store's connection lost mid-session, every call refused: back after two writes, nothing it held deleted; gone for good, the paint
+//            after it, written to memory and across a hide, back at the next boot by the journal
+//   order    review four's 1: a MEGA over kept paint read from a slow store, a breath on its splat two frames after it: after a reload the breath is on top, as on screen
 //   near     a tile near the bus, which asks for nothing before it comes: its paint follows it in; its ground made again (a region's change of detail), the paint's on it at once
 //   blocked  a store that takes nothing (IndexedDB blocked): 150 breaths flown on, then back to the first: its paint's there, this session's, and what's open stays small
 //   quota    a store full at 3 MB, under the budget: the budget comes down to it, the longest untouched go, and the last of the paint is there after a reload
@@ -77,12 +80,13 @@ const tilesAround = (x, z, r) => {
   return out;
 };
 const painted = (m) => {
+  if (!m) return 0;
   let n = 0;
   for (let t = 0; t < m.data.length; t += 4) if (m.data[t] >= 128) n++;
   return n;
 };
 /** the tiles' paint after a reload: asked for, copied out over frames, attached, and held against what they had */
-const backOn = async (g, tiles, before) => {
+const backOn = async (g, tiles, before, where = null) => {
   for (const [tx, tz] of tiles) g.hasSaved(tx, tz);
   for (let i = 0; i < 400 && tiles.some(([tx, tz]) => before.get(`${tx},${tz}`) && !g.hasSaved(tx, tz)); i++) {
     g.geoPaint.work(1 / 30);
@@ -96,6 +100,8 @@ const backOn = async (g, tiles, before) => {
     const m = g.masks.get(`${tx},${tz}`);
     for (let t = 0; t < was.length; t += 4) {
       if (was[t] < 128) continue;
+      // (only the texels where `where` says, by their place on the map: a tile's texel (i, j) sits at its corner plus (i + 0.5, j + 0.5) of 2 m)
+      if (where && !where(tx * TS + (((t >> 2) & 127) + 0.5) * (TS / 128), tz * TS + ((t >> 9) + 0.5) * (TS / 128))) continue;
       had++;
       if (m && m.data[t] >= 128) {
         back++;
@@ -108,7 +114,7 @@ const backOn = async (g, tiles, before) => {
 
 // ---- pole
 if (!only || only === 'pole')
-for (const [name, lat0, lon0] of [['60', 60, 10], ['88.9', 88.9, 40], ['Shackleton', -89.67, 129.2], ['89.9', 89.9, -70], ['the pole', 90, 0]]) {
+for (const [name, lat0, lon0] of [['60', 60, 10], ['88, the edge of the cap', 88, 25], ['88.9', 88.9, 40], ['Shackleton', -89.67, 129.2], ['89.9', 89.9, -70], ['the pole', 90, 0]]) {
   const rows = new Map(), g = await page(lat0, lon0, rows);
   const out = [];
   let ok = true;
@@ -215,6 +221,17 @@ if (!only || only === 'tiles')
   }
   const readyN = tiles.filter(([tx, tz]) => g.hasSaved(tx, tz)).length;
   row("tiles: a painted region's 16 tiles ask at once: their copies over frames, under 4.5 ms in any one", readyN === 16 && worst < 4.5, { ready: readyN, frames: n, worstMs: +worst.toFixed(2) });
+  // (review four, 3: the tiles come in with their paint, then the region's made again, which asks each of them; and again: no copy is queued twice)
+  for (const [tx, tz] of tiles) g.attach(tx, tz, tx * TS, tz * TS, uni());
+  const copies = () => g.geoPaint.copies.length;
+  for (let k = 0; k < 3; k++) for (const [tx, tz] of tiles) g.hasSaved(tx, tz);
+  const queued = copies(), copying = tiles.filter(([tx, tz]) => g.geoPaint.copyingTile(`${tx},${tz}`)).length;
+  // (and one dropped for a change of detail comes back with what it showed, at once)
+  const [dx, dz] = tiles[5], had = painted(g.masks.get(`${dx},${dz}`));
+  g.detach(dx, dz);
+  g.attach(dx, dz, dx * TS, dz * TS, uni());
+  const again = painted(g.masks.get(`${dx},${dz}`));
+  row('tiles: in with their paint, the region made again asks them for no copy, and one made again keeps what it showed', queued === 0 && copying === 0 && had > 1000 && again === had, { queued, copying, had, again });
 }
 
 // ---- between: a tile that comes in between a blast's impact and its fold's end
@@ -227,6 +244,30 @@ if (!only || only === 'between')
   const m = g.masks.get('0,0'), n = m ? painted(m) : 0;
   row('between: a tile in between a MEGA\'s impact and its fold\'s end shows it', n > 1000 && g.geoPaint.pending > 0, { painted: n, pendingStill: g.geoPaint.pending });
 }
+
+// ---- late: review five's 33, a MEGA's tiles coming in three a frame after its job has started, as City.update splits them out of their regions' ground
+if (!only || only === 'late')
+  for (const moon of [true, false]) {
+    const { globals } = await import('../../src/render/materials.ts');
+    const g = moon ? await page(5, 5, new Map()) : new GroundPaint(TS, 'late_check', 'rank');
+    const r = 468, x = 3 * TS, z = 3 * TS, flight = 2.8, middle = tilesAround(x, z, r * 0.6), all = tilesAround(x, z, r + 8);
+    globals.uTime.value = 100;
+    const job = g.begin(makeBlastSpec(x, z, r, 2, nextSeed()), 100 + flight);
+    // (three tiles in before the job's first slice, then three a frame, its first region's first row first, as the splits go)
+    let k = 0;
+    const three = () => {
+      for (let n = 0; n < 3 && k < all.length; n++, k++) g.attach(all[k][0], all[k][1], all[k][0] * TS, all[k][1] * TS, uni());
+    };
+    three();
+    for (let f = 0; f < Math.round(flight * 30); f++) {
+      g.work();
+      globals.uTime.value += 1 / 30;
+      three();
+    }
+    g.land(job);
+    const showing = middle.filter(([tx, tz]) => painted(g.masks.get(`${tx},${tz}`)) > 0).length;
+    row(`late, ${moon ? 'the Moon' : 'Earth'}: a MEGA's tiles in three a frame after its job began, every tile of its middle shows it at the impact`, showing === middle.length, { middle: middle.length, showing, tiles: all.length });
+  }
 
 // ---- budget: the store full, then a MEGA over old paint
 if (!only || only === 'budget')
@@ -268,6 +309,98 @@ if (!only || only === 'budget')
   // (each texel that had old paint has paint after: the MEGA's over it or the old)
   const b = await backOn(g2, tiles, before);
   row('budget: the store at its budget, a MEGA over old paint: nothing thrown, the old paint kept', !threw && b.had > 1000 && b.backPct >= 99, { threw, storeMB: +([...rows.values()].reduce((s, [, e]) => s + e.length, 0) / 1048576).toFixed(1), ...b });
+}
+
+// ---- order: a MEGA over kept paint, then a breath on its splat while the MEGA's fold still waits on the store (review four, 1)
+if (!only || only === 'order')
+{
+  const rows = new Map();
+  // (old paint over the ground both will reach, written and closed: the next page reads it from a store that answers a few frames late, as IndexedDB can)
+  let g = await page(0, 0, rows);
+  for (let n = 0; n < 36; n++) g.blast(makeBlastSpec(-750 + (n % 6) * 300, -750 + Math.floor(n / 6) * 300, blastRadiusFor(25), 4, nextSeed()), 0);
+  await frames(g, 6000);
+  await frames(g, 70);
+  for (let i = 0; i < 5; i++) await tick();
+  const inner = new MemoryStore(rows);
+  const slow = { load: () => inner.load(), get: async (k) => { for (let i = 0; i < 3; i++) await tick(); return inner.get(k); }, put: (r) => inner.put(r), remove: (k) => inner.remove(k), clear: () => inner.clear() };
+  g = new GroundPaint(TS, 'moon_check', 'rank');
+  g.useGeo(geoAt(0, 0), slow);
+  for (let i = 0; i < 50 && !g.geoPaint.ready; i++) await tick();
+  // (the breath 300 m off the MEGA's middle, north and south: the MEGA's fold walks its pictures a row at a time, and the breath lands two frames after it)
+  const out = [];
+  for (const bz of [-300, 300]) {
+    const r = 65, tiles = tilesAround(0, bz, r * 2.5);
+    for (const [tx, tz] of tiles) g.attach(tx, tz, tx * TS, tz * TS, uni());
+    for (let i = 0; i < 30; i++) { g.geoPaint.work(1 / 30); g.work(); await tick(); }
+    g.blast(makeBlastSpec(0, 0, 468, 1, nextSeed()), 0);
+    for (let i = 0; i < 2; i++) { g.geoPaint.work(1 / 30); g.work(); await tick(); }
+    g.blast(makeBlastSpec(0, bz, r, 5, nextSeed()), 0);
+    await frames(g, 8000);
+    await frames(g, 70);
+    for (let i = 0; i < 10; i++) await tick();
+    // (what the screen shows on the breath's tiles, the breath on top, against the store's after a reload, in the breath's middle)
+    const before = new Map();
+    for (const [tx, tz] of tiles) { const m = g.masks.get(`${tx},${tz}`); if (m) before.set(`${tx},${tz}`, Uint8Array.from(m.data)); }
+    const g2 = await page(0, 0, rows);
+    out.push({ bz, ...(await backOn(g2, tiles, before, (x, z) => Math.hypot(x, z - bz) < r * 0.6)) });
+  }
+  row("order: a MEGA over kept paint, a breath on it as the MEGA waits on the store: after a reload the breath's on top, as the screen had it", out.every((o) => o.had > 500 && o.huePct >= 97), out);
+}
+
+// ---- lost: the store's connection lost mid-session, every call refused, as iOS can after a while in the background (review four, 2)
+if (!only || only === 'lost')
+{
+  const rows = new Map(), run = async (g, n, until = () => false) => { for (let i = 0; i < n && !until(); i++) { g.geoPaint.work(1 / 30); g.work(); await tick(); } };
+  let g = await page(0, 0, rows);
+  // (old paint, written)
+  for (let n = 0; n < 12; n++) g.blast(makeBlastSpec(-330 + n * 60, -200, blastRadiusFor(25), 3, nextSeed()), 0);
+  await frames(g, 4000);
+  await run(g, 90);
+  for (let i = 0; i < 5; i++) await tick();
+  const oldKeys = [...rows.keys()], oldTiles = tilesAround(0, -200, 420), oldBefore = new Map();
+  const ref = await page(0, 0, new Map(rows));
+  for (const [tx, tz] of oldTiles) ref.hasSaved(tx, tz);
+  await run(ref, 200);
+  for (const [tx, tz] of oldTiles) if (ref.hasSaved(tx, tz)) { ref.attach(tx, tz, tx * TS, tz * TS, uni()); oldBefore.set(`${tx},${tz}`, Uint8Array.from(ref.masks.get(`${tx},${tz}`).data)); }
+  // (a page over a store whose connection dies: every get, put and remove refused, not for want of room)
+  const inner = new MemoryStore(rows);
+  let dead = false;
+  const no = () => Promise.reject(Object.assign(new Error('Connection to Indexed Database server lost'), { name: 'UnknownError' }));
+  const store = { load: () => inner.load(), get: (k) => (dead ? no() : inner.get(k)), put: (r) => (dead ? no() : inner.put(r)), remove: (k) => (dead ? no() : inner.remove(k)), clear: () => inner.clear() };
+  g = new GroundPaint(TS, 'moon_check', 'rank');
+  g.useGeo(geoAt(0, 0), store);
+  for (let i = 0; i < 50 && !g.geoPaint.ready; i++) await tick();
+  const paint = async (z, hue) => {
+    const tiles = tilesAround(0, z, 420);
+    for (const [tx, tz] of tiles) g.attach(tx, tz, tx * TS, tz * TS, uni());
+    for (let n = 0; n < 12; n++) g.blast(makeBlastSpec(-330 + n * 60, z, blastRadiusFor(25), hue, nextSeed()), 0);
+    await frames(g, 4000);
+    return tiles;
+  };
+  const shown = (tiles) => { const m = new Map(); for (const [tx, tz] of tiles) { const k = g.masks.get(`${tx},${tz}`); if (k) m.set(`${tx},${tz}`, Uint8Array.from(k.data)); } return m; };
+  // (dead for two writes, then back: nothing it held may go for a budget brought down while it was gone)
+  dead = true;
+  const t1 = await paint(300, 5);
+  await run(g, 400, () => g.geoPaint.fails >= 2);
+  dead = false;
+  await run(g, 120);
+  const kept = oldKeys.filter((k) => rows.has(k)).length;
+  row('lost: dead for two writes, then back: none of what it held deleted, the budget where it was', kept === oldKeys.length && g.geoPaint.budget === BUDGET, { oldKeys: oldKeys.length, kept, budgetMB: +(g.geoPaint.budget / 1048576).toFixed(1) });
+  // (then dead for good: the paint goes on in memory, and a hide, more paint, and the page killed at the next hide)
+  dead = true;
+  const t2 = await paint(800, 1);
+  await run(g, 900, () => g.geoPaint.store?.constructor?.name === 'Fallback');
+  const fell = g.geoPaint.store?.constructor?.name === 'Fallback';
+  await run(g, 120);
+  g.geoPaint.persist();
+  const t3 = await paint(1300, 4);
+  await run(g, 120);
+  const before2 = shown(t2), before3 = shown(t3), before1 = shown(t1);
+  g.geoPaint.persist();
+  const g2 = await page(0, 0, rows);
+  await run(g2, 30);
+  const o = await backOn(g2, oldTiles, oldBefore), a1 = await backOn(g2, t1, before1), a2 = await backOn(g2, t2, before2), a3 = await backOn(g2, t3, before3);
+  row('lost: then gone for good: the old paint whole, and all painted after it back at the next boot, by the journal', fell && o.backPct >= 99 && [a1, a2, a3].every((x) => x.had > 1000 && x.backPct >= 97), { fell, old: o.backPct, back: [a1.backPct, a2.backPct, a3.backPct], had: [a1.had, a2.had, a3.had] });
 }
 
 // ---- near: tiles attached as a detailed region attaches them, with no hasSaved first
@@ -366,7 +499,8 @@ if (!only || only === 'quota')
       const add = r.reduce((s, [k, , e]) => s + e.length - (rows.get(k)?.[1].length ?? 0), 0);
       if (size() + add > CAP) {
         refused++;
-        throw new Error('QuotaExceededError');
+        // (as a browser's IndexedDB names it: a full store is the one failure that brings the budget down, review four's 2)
+        throw Object.assign(new Error('the quota has been exceeded'), { name: 'QuotaExceededError' });
       }
       return inner.put(r);
     },

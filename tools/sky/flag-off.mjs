@@ -18,6 +18,8 @@ try {
   });
   page.on('request', (r) => {
     requests++;
+    // (the street's own night sky, since main's 6b494b7: its stars and its Moon, StreetSky.load, once the city is in at night. Anything else under /sky/ is the flight's)
+    if (/\/sky\/(stars|moon)\.bin/.test(r.url())) return;
     if (/\/sky\/|moonrun/.test(r.url())) {
       flight++;
       console.log('  flight request:', r.url());

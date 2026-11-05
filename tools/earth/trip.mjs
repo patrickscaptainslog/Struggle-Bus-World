@@ -11,6 +11,12 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { browserOptions } from '../browser.mjs';
+import { registerHooks } from 'node:module';
+registerHooks({ resolve: (spec, ctx, next) => next(/^\.\.?\//.test(spec) && !/\.[a-z]+$/.test(spec) ? `${spec}.ts` : spec, ctx) });
+// (the rows the flight draws the world with, the day's: review five, 36's page changes are held to them. A row only one page writes and no flight draws, the Moon's
+// ground on its page or the street's own Moon, isn't one)
+const { dayRows } = await import('../../src/render/palette.ts');
+const WORLD_ROWS = Object.keys(dayRows).map(Number);
 
 const dir = process.argv.slice(2).find((a) => !a.startsWith('--')) ?? 'shots/tmp/earth-trip';
 const BASE = process.env.BASE ?? 'http://localhost:4179/';
@@ -100,9 +106,16 @@ try {
   await page.evaluate(() => window.__space.moon.trip.toMoon());
   // ---- out
   const lc = await skipTo('cruise');
+  // (review five, 36, SKY.md 4's Air axis: the world rows are the day's high over Earth, as the Moon's page has them, so the page change
+  // in the long dark is the day's to the day's, by night as by day)
+  const rowsHash = () => page.evaluate((rows) => { const d = (window.__space ?? window.__game).pipeline.paletteTexture.image.data; let h = 2166136261; for (const r of rows) for (let i = r * 32; i < r * 32 + 32; i++) h = Math.imul(h ^ d[i], 16777619) >>> 0; return h.toString(16); }, WORLD_ROWS);
+  await frames(1);
+  const outRows = await rowsHash();
   await change('moonland');
   const o = await trip();
   row('out: a few seconds into the long dark the page is the Moon\'s, the trip carried on', lc === 'cruise' && o.url.includes('moonland&resume') && o.leg === 'cruise', o);
+  const inRows = await rowsHash();
+  row("out: the page change is the day's rows to the day's: Earth's flight in the long dark, and the Moon's page", outRows === inRows, { earth: outRows, moon: inRows });
   // ---- moon
   await skipTo('orbit', 1);
   await page.waitForFunction(() => !!window.__space.moon.landing?.world, null, { timeout: 600000, polling: 1000 });

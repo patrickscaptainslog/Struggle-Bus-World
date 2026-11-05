@@ -59,6 +59,15 @@ export const Ramp = {
   // 47 spare
   REGOLITH: 48, // the Moon's ground (?moon only: nothing else writes them)
   MARE: 49,
+  // 50-55: the space sky's own (skyResolve.ts's space branch; SkyTable.ts's SPACE_ROWS): the dark between, Earth's sea, its air's limb, its land, the terminator,
+  // the Moon from far off. Rows of their own since review four (its 5 and 7): the street's live sky names 32-44 in every table, so where the two shared a row
+  // each wrote over the other, and the climb from the street drew space black by day
+  SPACE_DARK: 50,
+  SPACE_SEA: 51,
+  SPACE_LIMB: 52,
+  SPACE_LAND: 53,
+  SPACE_DUSK: 54,
+  SPACE_MOON: 55,
 } as const;
 
 export type RampId = (typeof Ramp)[keyof typeof Ramp];
@@ -112,7 +121,7 @@ RAMPS[Ramp.SAND] = RAMPS[Ramp.SKY_WARM];
 RAMPS[Ramp.RIDGE] = RAMPS[Ramp.GREEN_GREY];
 RAMPS[Ramp.FARGLOW] = RAMPS[Ramp.GREY]; // (the held hour's far lit faces, with its table switched off)
 
-export const RAMP_COUNT = 64; // texture rows (8x64 RGBA8, 2 KB; rows 24-31 and 47-63 reserved or spare, a row no table names is black)
+export const RAMP_COUNT = 64; // texture rows (8x64 RGBA8, 2 KB; rows 24-31, 47 and 56-63 reserved or spare, a row no table names is black)
 
 /** Linear-ish sRGB triplets 0..1 for CPU use (e.g. CSS colors, splash screens). */
 export function rampColor(ramp: number, step: number): string {

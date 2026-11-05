@@ -129,7 +129,7 @@ All in `src/sky/`, replacing WORLD-TRAVEL's `src/game/Sky.ts`:
 
 **Air axis.** One table colours a whole frame, so from orbit a dawn table would grade the sunlit and night sides alike. Above about 30 km it blends to an ungraded space table and light is carried by steps.
 
-**Rows.** `RAMP_COUNT` 64, +512 B. 32 NIGHT_SKY, 33 OPEN_SEA, 34 LIMB, 35 CLOUD, 36 DRY_LAND, 37 TWILIGHT, 38 LIT, 39 LAMP, 40 MOON, 41 SNOW, 42 FARGLOW, 43 RIDGE, 44 CLOUD_SHADE, 45 SKY_LOW (equal to FOG by day; lets the sky go black while haze stays bright), 46 SAND (stops borrowing SKY_WARM), 48 up for VERDICT's ice, regolith and far rows.
+**Rows.** `RAMP_COUNT` 64, +512 B. 32 NIGHT_SKY, 33 OPEN_SEA, 34 LIMB, 35 CLOUD, 36 DRY_LAND, 37 TWILIGHT, 38 LIT, 39 LAMP, 40 MOON, 41 SNOW, 42 FARGLOW, 43 RIDGE, 44 CLOUD_SHADE, 45 SKY_LOW (equal to FOG by day; lets the sky go black while haze stays bright), 46 SAND (stops borrowing SKY_WARM), 47 free, 48 REGOLITH and 49 MARE the Moon's ground, and 56 up for VERDICT's ice and far rows. The space sky draws on rows of its own, 50 SPACE_DARK, 51 SPACE_SEA, 52 SPACE_LIMB, 53 SPACE_LAND, 54 SPACE_DUSK and 55 SPACE_MOON (`SkyTable.ts`'s SPACE_ROWS), since review four: the live sky names 32-44 in every table, and where the two skies shared a row each wrote over the other.
 
 **First paint.** `body` and `theme-color` are a fixed `#808a94` and the table lives in the main script, so a night load sits grey about 11.7 s at 30 KB/s (352 KB, the brief's figure). The inline boot script gains a sun height: 319 B, worst error 0.03°, wrong colour band on 0.05 % of hours at most, seven sites [M here], from the default city's origin or another city's `city.json`.
 

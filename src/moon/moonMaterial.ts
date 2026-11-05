@@ -471,7 +471,7 @@ const FAR_FS = /* glsl */ `
       float hit = length(to);
       level = spaceMoonLight(place, (to / hit) * uMoonRot, hit / 1737400.0, dsk, uv, t, art);
       light = spStep(mix(light * 7.0, level, uFarHigh), dsk) / 7.0;
-      if (dsk < uFarHigh) ramp = ${Ramp.MOON}.0;
+      if (dsk < uFarHigh) ramp = ${Ramp.SPACE_MOON}.0;
     }
     float pr, pEdge, pLift, pGlow;
     float site = moonSite(vWorldPos.xz, pa + pb);
