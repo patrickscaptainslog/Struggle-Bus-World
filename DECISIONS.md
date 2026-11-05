@@ -2805,6 +2805,14 @@ The producer, on an iPhone 17 Pro: "The sensitivity is too high for the camera p
   - Both fixes before and after in the real page, first visit, on the real bridge. `s_gesture`: 256 rows, 625 checks, a new row for eight flicks. `tools/controls.mjs`: `thumbs` all 49 rows, `opening`, `firstrun`, `keyboard`, `turbo`, `states`. `s_turbo` 27 of 27, `s_look` all passed, `s_layout` 295, `tsc` clean, `iosfloor` parses every chunk.
 - Left: all of it waits on the phone, THUMBS "What only a phone can say". Once the producer likes it on the phone the branch is ready to go live: it is ahead of main with nothing to merge.
 
+## The bus's lane (2026-11-04, from `feat/moonfree`)
+
+The producer, first for the trip to the Moon: "Regarding pan: it's too hard to pan right now, what if we reserve the control the struggle bus movement space on the screen to the area directly near the struggle bus itself, and then touching anywhere but that area pans the camera?" Built on `feat/moonfree` (0893d78); this branch takes the lane and not the trip, which it doesn't have.
+
+- **Only a touch near the bus flies.** A lane round the bus, from just over it down to the bottom of the screen where the thumb that flies it sits, 0.22 of the screen's width either side of the bus (86 px on a 393 px screen; `inputTune.busLane`). A touch landing in it flies, as one out of the left 42 % did; one landing anywhere else is the second thumb, and its drag looks. Flicks are gears and taps paint wherever they land, as before.
+- **It's the look zone's rule with another shape.** `Input.inLookZone` reads the landing's place against `Input.busZone` when that's set, and against the left 42 % when it isn't. Everything THUMBS.md says about a second thumb, a lone stroke, two thumbs and a flick holds as it was.
+- **Pinch to zoom fits it** (V3 of `feat/moonfree`'s VOYAGE.md): two fingers both landing out of the lane are a pinch to tell from a pan; one in it is a flying thumb and the other a look.
+
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a
   local repo until `patrickscaptainslog/struggle-bus` exists.
