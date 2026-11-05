@@ -1904,8 +1904,9 @@ class Bake:
                     # (a ground way's end the deck it meets mid-span holds: held, below)
                     ny[i] = self.deck_y.get(k, WATER_Y if np.isnan(g[i]) else g[i])
                 else:
-                    # on water: the sea's surface, a lake's own height (C8: the grid, where the city draws it)
-                    ny[i] = WATER_Y if sw[i] else g[i]
+                    # on water: the sea's surface, a lake's own height (C8: the grid, where the city draws it), and
+                    # never under the sea's surface off it (a ferry's berth on a quay's grid at the Bay's -1.1)
+                    ny[i] = WATER_Y if sw[i] else max(float(g[i]), WATER_Y)
         nflags = np.array([self.node_flags.get(k, 0) for k in keys], np.uint8)
         pts = []
         shape_start = [0]
@@ -1922,7 +1923,9 @@ class Bake:
                 inner = shape[1:-1]
                 if len(inner):
                     g, c = self.tiles.sample(inner[:, 0], inner[:, 1])
-                    y = np.where(sea(g, c), WATER_Y, g)   # a ferry on a lake at its height (C8), on a pier at the pier's
+                    # a ferry on a lake at its height (C8), on a pier at the pier's, and never under the sea's surface:
+                    # off the water texels into Pier 41 the grid holds the Bay's -1.1, and the Sausalito ferry sank to it
+                    y = np.where(sea(g, c), WATER_Y, np.maximum(g, WATER_Y))
                     inner = np.column_stack([inner, y])
                 else:
                     inner = np.zeros((0, 3))

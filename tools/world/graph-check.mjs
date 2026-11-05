@@ -327,7 +327,7 @@ const c = {
   tunnelUndrawn: 0, undrawnKm: {}, kmByClass: {},
   land: 0, landNoTile: 0, landWorst: 0, landWhere: null, landOver: 0, steps: 0,
   held: 0, heldWorst: 0, heldWhere: null, heldSteps: 0,
-  water: 0, waterOff: 0, waterWorst: 0, waterLake: 0,
+  water: 0, waterOff: 0, waterWorst: 0, waterLake: 0, afloat: 0, afloatUnder: 0, afloatWorst: 0, afloatWhere: null,
   lakeTexels: 0, lakeCovered: 0, lakeOffTexels: 0, seaTexels: 0, seaCovered: 0, lakeTris: 0, lakeAreas: 0, seaAreas: 0,
   drawnPts: [], topLevel: [], footDeck: [], roadDeck: [], stackPairs: 0, rampPairs: 0, inversions: 0, inversionWhere: null,
   underWater: 0, underWhere: null, deckGround: 0, deckDrawn: 0, deckUnder: 0, deckUnderWorst: 0, deckUnderWhere: null,
@@ -513,6 +513,11 @@ for (const [rx, rz, bytes] of regions) {
           c.ferrySamples++;
           if (nearEnd(x, z)) { c.ferryExempt++; continue; }
           if (!wet(x, z)) { c.ferryOnLand++; c.ferryLandWhere ??= `edge ${edges.id[e]} at ${x.toFixed(1)}, ${z.toFixed(1)}`; }
+        }
+        // anywhere along it, on water, a pier or its last 150 m, never under the sea's surface: a boat floats
+        for (const q of i === 0 ? [P[0], P[1]] : [P[i + 1]]) {
+          c.afloat++;
+          if (q[1] < WATER_Y - 1e-3) { c.afloatUnder++; if (WATER_Y - q[1] > c.afloatWorst) { c.afloatWorst = WATER_Y - q[1]; c.afloatWhere = `edge ${edges.id[e]} (${keysOf.get(edges.id[e])?.slice(2)}) at ${q[0].toFixed(1)}, ${q[2].toFixed(1)}: ${q[1].toFixed(2)}`; } }
         }
         for (const q of [P[i + 1]]) {
           if (i + 1 < P.length - 1 && wet(q[0], q[2])) {
@@ -788,6 +793,7 @@ report('land within 0.5 m of the grid', `${c.land} land nodes and ${c.steps} ste
 report('  where a drawn deck wins (known, not failures)', `${c.held} nodes where a ground way meets a drawn deck mid-span stand on its top${c.held ? ` (worst ${c.heldWorst.toFixed(1)} m over the grid: ${c.heldWhere})` : ''}, and ${c.heldSteps} steps of their ways climbing to it`, '', null);
 report('ground under the drawn water', `${c.underWater} land nodes and steps under WATER_Y on the sea${c.underWhere ? ` (first: ${c.underWhere})` : ''}`, '0', c.underWater === 0);
 report('water at WATER_Y, a lake at its height (C8)', `${c.water} water nodes and points, ${c.waterLake} of them on a lake; on the sea worst ${c.waterWorst.toFixed(4)} m off WATER_Y; ${c.waterOff} off by over 1 mm on the sea or 0.5 m from a lake's grid`, '0', c.waterOff === 0);
+report('ferries and water edges never under the water', `${c.afloat} nodes and points of FERRY and WATER edges, anywhere along them; ${c.afloatUnder} more than 1 mm under WATER_Y${c.afloatWhere ? ` (worst ${c.afloatWorst.toFixed(2)} m under: ${c.afloatWhere})` : ''}`, '0', c.afloatUnder === 0);
 report('decks over the ground and the water', `${c.deckGround} deck steps, ${c.deckDrawn} under the ground on a drawn deck (C2: where City draws it); ${c.deckUnder} more under the ground by over 0.5 m, under the sea's surface, or a lake's by over 0.5 m${c.deckUnderWhere ? ` (worst ${c.deckUnderWorst.toFixed(1)} m: ${c.deckUnderWhere})` : ''}`, '0', c.deckUnder === 0);
 report('tunnels under the ground', `${c.tunnelPts} tunnel steps; ${c.tunnelOver} over the ground or the bed by over 0.5 m${c.tunnelOverWhere ? ` (worst ${c.tunnelOverWorst.toFixed(1)} m: ${c.tunnelOverWhere})` : ''}`, '0', c.tunnelOver === 0);
 {
