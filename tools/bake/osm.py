@@ -452,15 +452,15 @@ class OSM:
             lv = row.level_max
             off = bool(flags & OFF_GROUND) or (lv is not None and lv == lv and int(lv) != 0)
             pieces = None   # (the whole line)
-            if ranged and (off or sv(row.level_rules)):
-                # (by the rules, range by range: a level of 0 for one stretch hides another's from level_max)
+            if ranged and off:
+                # (by the rules, range by range. Only a segment the flags or its top level take off the ground: one whose
+                # top level is 0 was drawn whole before the ranges, a stretch under 0 and all, and stays whole)
                 spans = off_ground(row.road_flag_rules, row.rail_flag_rules, row.level_rules)
-                if spans:
-                    pieces = at_grade(line, spans)
-                    if not pieces:
-                        continue
-                elif off:
+                if not spans:
                     continue  # (the flags say it's off the ground and no rule says where: all of it, as before)
+                pieces = at_grade(line, spans)
+                if not pieces:
+                    continue
             elif off:
                 continue
             cls = sv(row.klass) or 'unknown'

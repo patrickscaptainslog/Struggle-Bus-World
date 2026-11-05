@@ -52,8 +52,12 @@ CASES = [
          road=[flag('is_bridge', 0.1, 0.3), flag('is_covered', 0.25, 0.5), flag(['is_tunnel', 'is_link'], 0.8, 0.9)]),
     case('a tunnel with no range: all of it', [(0, 0), (80, 0)], [], cls='primary', road=[flag('is_tunnel', None, None)]),
     case('a bridge from end to end', [(0, 0), (80, 0)], [], cls='motorway', road=[flag('is_bridge', 0.0, 1.0)]),
-    case('a level of 0 beside one that is not', [(0, 0), (100, 0)], [(0, 50)], cls='tertiary',
+    # (a row whose top level is 0 was drawn whole before step 4, a stretch under 0 and all: step 4 only brings streets
+    # back, so it stays whole; under 0 on a row off the ground anyway, that stretch is cut with the rest)
+    case('a level under 0 beside a 0: the top level 0, the line itself', [(0, 0), (100, 0)], None, cls='tertiary',
          level=[{'value': 0, 'between': [0.0, 0.5]}, {'value': -1, 'between': [0.5, 1.0]}]),
+    case('a level under 0 at one end, nothing at 0', [(0, 0), (100, 0)], [(30, 100)], cls='tertiary',
+         level=[{'value': -1, 'between': [0.0, 0.3]}]),
     case('a level off the ground at one end', [(0, 0), (100, 0)], [(0, 70)], cls='motorway',
          level=[{'value': 1, 'between': [0.7, 1.0]}]),
     case('a stretch at grade under the shortest', [(0, 0), (100, 0)], [], road=[flag('is_bridge', 0.005, 1.0)]),
