@@ -1,0 +1,7 @@
+{
+  "name": "San Francisco Bay Area",
+  "slug": "bay",
+  "bbox": [-123.52, 36.78, -121.38, 38.52],
+  "overture": {"release": "2026-10-21.0", "pad": 0.004},
+  "note": "Stage 0's archive box (docs/specs/earth/LIVING.md): the Bay plus 36 km, so nothing seen from the 15 km ceiling is missing. Fetched by tools/bake/fetch_archive.py; not a bake config yet (no origin, start or heights)."
+}
