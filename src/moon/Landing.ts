@@ -234,6 +234,8 @@ export class Landing {
       if (sx || sz) {
         w.slide(sx, sz);
         mapOf(fr, u[0], u[1], u[2], mt);
+        // (and the world's middle with it: a later way down from high up measures from where the map is now. The first review's minor)
+        this.at.set(fr.u);
       }
     }
     const x = mt[0], z = mt[1], hm = Math.max(h, 0) * 1000;

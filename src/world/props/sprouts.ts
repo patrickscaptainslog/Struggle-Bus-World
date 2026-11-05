@@ -414,6 +414,8 @@ class Batch {
   caster: THREE.InstancedMesh | null = null;
   capacity: number;
   hwm = 0;
+  /** slots in use: none, and it draws nothing */
+  live = 0;
   private free: number[] = [];
 
   constructor(
@@ -471,6 +473,7 @@ class Batch {
   }
 
   alloc(): number {
+    this.live++;
     if (this.free.length) return this.free.pop()!;
     if (this.hwm >= this.capacity) this.grow();
     const s = this.hwm++;
@@ -507,6 +510,16 @@ class Batch {
     ic.addUpdateRange(slot * 3, 3);
     ic.needsUpdate = true;
     this.free.push(slot);
+    // (the last gone, as a slide takes a cell's sprouts to the cells they're in now: it draws nothing, where it drew its zeroed instances. The first review's minor)
+    if (--this.live > 0) return;
+    this.hwm = 0;
+    this.free.length = 0;
+    this.mesh.count = 0;
+    this.mesh.visible = false;
+    if (this.caster) {
+      this.caster.count = 0;
+      this.caster.visible = false;
+    }
   }
 
   dispose() {
@@ -988,6 +1001,12 @@ export class RoofSprouts {
       }
       this.placed.set(index, moved);
     }
+    // (and the cells left with nothing in them go)
+    for (const [key, bs] of this.cells)
+      if (bs.every((b) => b.live === 0)) {
+        for (const b of bs) b.dispose();
+        this.cells.delete(key);
+      }
   }
 
   unplace(index: number): void {

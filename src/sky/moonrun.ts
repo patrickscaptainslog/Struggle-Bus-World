@@ -259,11 +259,12 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
     pipeline.shadowStrength = 0;
     pipeline.calm = 1;
     globals.uLight.value.set(0.62, 0.2, 0.05);
+    // (and the palette: under ?earth the street's until here, so ?hour=blue's stays on the street. The first review's minor)
+    applySpaceTable(pipeline.paletteTexture);
   };
   // (?earth&resume: home from the Moon's page, the flight has the frame from the start, and the street boots behind it)
   const flightFirst = !earth || earthResume;
   if (flightFirst) takeFrame();
-  applySpaceTable(pipeline.paletteTexture);
 
   const perf = new Perf(renderer);
   perf.setVisible(params.has('fps'));
@@ -370,7 +371,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
   // (the look is the rig's: on ?moonland the low game's own, so a look held across a join goes on across it)
   const looker = input ? (land?.rig ?? new CameraRig()) : null;
   // (where each panning thumb was last frame)
-  const lookAt = new THREE.Vector2(), busOnScreen = new THREE.Vector3();
+  const lookAt = new THREE.Vector2(), busOnScreen = new THREE.Vector3(), busZone = { x: 0, y: 0, r: 0 };
   let lookOn = false;
   const label = flying ? tripLabel(!landing) : null;
   /** ?moonland: a tap now is a crater shot, from the orbit down to where the ground's mesh comes in. */
@@ -383,7 +384,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
   if (input && hud && trip) {
     // (?earth, the street up first: the thumb is the street's until the flight has the bus, and through the boot too, which may fail. The flight's hands are made here and handed to the join, and the street's put back
     // before anything is waited on. The first account's review, 2026-11-04: they went to the flight for the boot, and for good if it failed)
-    const streetHands = earth && !flightFirst ? { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture } : null;
+    const streetHands = earth && !flightFirst ? { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd } : null;
     input.onTripleFinger = () => tuner.toggle();
     input.onTurbo = (dir) => {
       view?.flicked();
@@ -405,6 +406,13 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
       const high = craterHigh();
       breath.tap(high || (trip.leg === 'orbit' && !landing), high);
     };
+    // (out here there's no MEGA to charge: a press on Space is the flight's, and a hold ends as a breath, where on ?earth it charged the street's MEGA under the flight. The first review's minor)
+    const flightTap = input.onTap;
+    input.onPress = null;
+    input.onChargeStart = null;
+    input.onChargeEnd = (_held, cancelled) => {
+      if (!cancelled) flightTap();
+    };
     breath.onCrater = landing ? (lat, lon, hue) => landing.world?.paintAt(lat, lon, hue) ?? null : null;
     const touched = (e: PointerEvent) => {
       if (e.target === renderer.domElement) breath.touched(e.clientX, e.clientY);
@@ -414,7 +422,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
     for (const name of ['mega', 'settings']) hud.root.querySelector<HTMLElement>(`[data-hud="${name}"]`)?.style.setProperty('visibility', 'hidden');
     hud.arrive();
     if (streetHands && earthLanding) {
-      earthLanding.hands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture };
+      earthLanding.hands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd };
       Object.assign(input, streetHands);
     }
   }
@@ -455,17 +463,28 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
   // (tools: time stands still and the frame goes on drawing, so a shot is of the moment it asked for)
   let held0 = false;
   // (the long dark: when the leg began, and the page this one has gone to, if it has)
-  let darkLeg = trip?.leg, darkAt = trip?.t ?? 0, gone = false;
+  let darkLeg = trip?.leg, darkAt = trip?.t ?? 0, gone = false, swapTried = false;
   /** The page for where the bus is going, in the long dark: the Moon's out of Earth's, Earth's home from the Moon's. ?moonland&swap: out of the Moon's too, for tools/earth/swap.mjs. */
   const swapTo = (): string | null => (!trip ? null : trip.leg === 'cruise' && (earthLanding || params.has('swap')) ? 'moonland' : trip.leg === 'homeCruise' && landing ? 'earth' : null);
-  /** The frame just drawn, the trip and the view into sessionStorage, and on to the next page. False if storage won't have them: the trip goes on on this page. */
+  /**
+   * The trip and the view into sessionStorage, and the frame just drawn if there's room for it (without, the change is a cut in the dark), and on to the next page. False if storage
+   * won't have even the trip: the trip goes on on this page, and it's tried once a leg, not each frame. The first review's minor: a full-screen JPEG a frame, while storage was full.
+   */
   const swap = (to: string): boolean => {
     if (!trip || !view) return false;
     try {
-      sessionStorage.setItem(SWAP_FRAME, renderer.domElement.toDataURL('image/jpeg', 0.85));
       sessionStorage.setItem(SWAP_KEY, JSON.stringify({ trip: trip.save(), view: view.save() }));
     } catch {
       return false;
+    }
+    try {
+      sessionStorage.setItem(SWAP_FRAME, renderer.domElement.toDataURL('image/jpeg', 0.85));
+    } catch {
+      try {
+        sessionStorage.removeItem(SWAP_FRAME);
+      } catch {
+        /* blocked */
+      }
     }
     const keep = SWAP_KEEP.filter((k) => params.has(k)).map((k) => (params.get(k) ? `&${k}=${encodeURIComponent(params.get(k)!)}` : `&${k}`));
     location.replace(`${location.pathname}?${to}&resume${keep.join('')}`);
@@ -630,7 +649,14 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
     // (out here only a touch near the bus flies it, and one anywhere else looks: the bus's lane, where it stands on the screen this frame)
     if (input && trip && view) {
       const v = bus.root.getWorldPosition(busOnScreen).project(camera), W = window.innerWidth, H = window.innerHeight;
-      input.busZone = v.z < 1 ? { x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H, r: inputTune.busLane * W } : null;
+      // (one object, set again each frame: Input reads it as a touch lands, and keeps nothing of it. With the bus behind the lens the lane stays where the bus was last on the
+      // screen, where it fell back to the left 42 % before. The first review's minor)
+      if (v.z < 1) {
+        busZone.x = ((v.x + 1) / 2) * W;
+        busZone.y = ((1 - v.y) / 2) * H;
+        busZone.r = inputTune.busLane * W;
+        input.busZone = busZone;
+      }
     }
     pipeline.render(scene);
     breath.numbersOut();
@@ -657,9 +683,13 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
       if (trip.leg !== darkLeg) {
         darkLeg = trip.leg;
         darkAt = trip.t;
+        swapTried = false;
       }
-      const to = trip.t - darkAt >= SWAP_AFTER ? swapTo() : null;
-      if (to && swap(to)) gone = true;
+      const to = !swapTried && trip.t - darkAt >= SWAP_AFTER ? swapTo() : null;
+      if (to) {
+        swapTried = true;
+        if (swap(to)) gone = true;
+      }
     }
     if (dark && frames === 3) {
       const d = dark;

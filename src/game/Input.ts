@@ -2,8 +2,9 @@ import { config } from '../config';
 import { registerTunables } from '../ui/tunables';
 
 // Two thumbs, each with its own job (docs/specs/flight/THUMBS.md). One line decides,
-// on the landing alone: the look zone, the left lookZone of the screen's width (the
-// right, with BUTTONS: SWAP). A touch landing there never flies. Everywhere else
+// on the landing alone: the look zone, everywhere but the bus's lane (busZone, which
+// the game sets each frame); before the game's first frame, the left lookZone of the
+// screen's width (the right, with BUTTONS: SWAP). A touch landing there never flies. Everywhere else
 // the first thumb flies, and on its own it flicks and taps too. In any order, the
 // thumb in the zone looks and the other flies. A mouse has its right button instead.
 //
@@ -102,7 +103,7 @@ export const inputTune = {
   secondTapMs: 230,
   /** The look waits this long (ms) so a flick doesn't swing the camera, and for the thumb to leave tapSlopPx. */
   lookDelayMs: 100,
-  /** A touch landing in this share of the screen's width, from the left (the right, with BUTTONS: SWAP), never flies. 0: no zone. */
+  /** Before the game sets the bus's lane (its first frame): a touch landing in this share of the screen's width, from the left (the right, with BUTTONS: SWAP), never flies. 0: no zone. */
   lookZone: 0.42,
   /** With the bus's zone on (Input.busZone): the half width of its lane, as a share of the screen's width. */
   busLane: 0.22,
@@ -135,7 +136,6 @@ registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
   keyRate: [1, 30, 0.5],
   secondTapMs: [80, 450, 5],
   lookDelayMs: [0, 300, 5],
-  lookZone: [0, 0.8, 0.01],
   busLane: [0.1, 0.45, 0.01],
   flickPx: [10, 120, 1],
   flickMs: [60, 450, 5],
@@ -192,6 +192,8 @@ interface Slot {
   right: boolean;
   /** Adopted from MEGA with its press still held: the lift ends that press and nothing else. */
   ownsPress: boolean;
+  /** It landed in the look zone, as the zone was then (the bus's lane moves with the bus). */
+  inLook: boolean;
 }
 
 const enum Src {
@@ -318,7 +320,7 @@ export class Input {
 
   constructor(el: HTMLElement) {
     this.el = el;
-    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false });
+    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false, inLook: false });
 
     const s = el.style as CSSStyleDeclaration & { webkitUserSelect?: string; webkitTouchCallout?: string; webkitTapHighlightColor?: string };
     s.touchAction = 'none';
@@ -577,9 +579,11 @@ export class Input {
     let recent = false;
     for (const s of this.slots) if (s.role === Role.Second && !s.right && now - s.t0 <= inputTune.tapMs && s.maxDist <= inputTune.tapSlopPx) recent = true;
 
-    if (this.fly || (!mouse && this.inLookZone(e.clientX - this.rectL, e.clientY - this.rectT))) {
+    const inLook = !mouse && this.inLookZone(e.clientX - this.rectL, e.clientY - this.rectT);
+    if (this.fly || inLook) {
       // Another finger joins, or a thumb lands in the look zone. It never moves the flying anchor, and with nobody flying the bus flies itself.
       this.setSlot(slot, e, now, Role.Second);
+      slot.inLook = inLook;
       slot.flick = this.commands(slot) ? Flick.Easy : Flick.No;
       if (others === 0) this.beginGesture(now);
       else if (others + 1 > this.gMax) this.gMax = others + 1;
@@ -713,6 +717,7 @@ export class Input {
     slot.looking = false;
     slot.right = false;
     slot.ownsPress = false;
+    slot.inLook = false;
   }
 
   private free(s: Slot) {
@@ -840,7 +845,8 @@ export class Input {
   /** The stroke that just lifted was a command, not a flying thumb, so a thumb that landed during it is a lone touch: it flies, from where it landed, unless it landed in the look zone. A grip in a band isn't one: the next thumb to land flies. */
   private promote(t0: number) {
     for (const s of this.slots) {
-      if (s.role !== Role.Second || s.right || s.t0 < t0 || !this.commands(s) || this.inLookZone(s.x0, s.y0)) continue;
+      // (where it landed as the lane was then, not as it is at this lift: the bus moves on the screen. The first review's minor)
+      if (s.role !== Role.Second || s.right || s.t0 < t0 || !this.commands(s) || s.inLook) continue;
       if (s.looking) this.endLook(s);
       s.role = Role.Fly;
       s.flick = Flick.No;

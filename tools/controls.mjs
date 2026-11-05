@@ -324,7 +324,7 @@ if (modes.has('thumbs')) {
   await row('left zone: a soft lone flick is a gear: it has the second thumb\'s rule', async () => { await H.stamped(async () => { await H.stroke(1, LX, LY, 0, -30, 100); }); await runFor(page, 0.4); }, (r) => r.gear === 1 && has(r, 'onTurbo+') === 1);
   // (the lane's side: out of it looks, in it flies. Its half width is the page's, 0.22 of the screen)
   await row('the lane: 10 px out of its side looks, 10 px in flies', async () => { const r0 = lane ? lane.r : 86; const inside = await dragAt(RX + r0 + 10, RY); await runFor(page, 0.3); const past = await dragAt(RX + r0 - 10, RY); return { inside, past }; }, (r) => r.note.inside.look.on && !r.note.inside.thumb && r.note.past.thumb && !r.note.past.look.on && r.note.past.sx > 0.2);
-  await row('the line is on the tuner: lookZone 0.25, the left thumb flies', async () => { await page.evaluate(() => window.__game.tuneGroup('Input', 'lookZone', 0.25)); const s = await dragAt(LX + 30, LY); await page.evaluate(() => window.__game.tuneGroup('Input', 'lookZone', 0.42)); return s; }, (r) => r.note.thumb && !r.note.look.on);
+  // (lookZone, the left 42 %, rules only before the game's first frame sets the lane: its tuner row is gone, and the row that moved it passed because its point was in the lane. The first review's minor)
   await row('two thumbs, left first: the left looks, the right flies', async () => {
     await H.down(1, LX, LY);
     await wall(150);

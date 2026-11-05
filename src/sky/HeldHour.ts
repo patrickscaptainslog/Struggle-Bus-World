@@ -34,6 +34,11 @@ export class HeldHour {
     return config.sky.beam ? config.sky.beamWidth + (C.headBeamWidth - config.sky.beamWidth) * vista : C.headBeamWidth;
   }
 
+  /** The palette someone else wrote (?earth's flight): the hour's is written again on the next update. */
+  repaint(): void {
+    this.tableKey = -1;
+  }
+
   /** After the day's light is set, every frame: what this hour replaces. Writes in place, and the palette only when a switch moved. */
   update(): void {
     const S = config.sky;

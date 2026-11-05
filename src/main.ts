@@ -364,7 +364,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
 
   // ---- the hero
   const bus = new BusModel();
-  const busOnScreen = new THREE.Vector3();
+  const busOnScreen = new THREE.Vector3(), busZone = { x: 0, y: 0, r: 0 };
   scene.add(bus.root);
 
   // drop shadow straight below the bus: grounds the hero (how high it flies). No decal: the resolve pass
@@ -868,6 +868,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const controls = new Controls({ input, flight, rig, audio, particles, pipeline, camera, scene, bus, bounds: manifest.bounds, params });
   // (the Moon's map slides under the bus: it has no edge to hold a gear back)
   if (moon) controls.turbo.edgeless = true;
+  // (?earth: past Turbo 3 a flick is nothing, not LOCKED: the way on is up, a climb to the flight. The first review's minor)
+  if (earthFly || earthResume) controls.turbo.quietTop = true;
   controls.hud.setCredits(dataCredits);
   input.onTripleFinger = () => tuner.toggle();
   input.onFirstGesture = () => {
@@ -1537,7 +1539,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // (only a touch near the bus flies it, and one anywhere else looks: the bus's lane, where it stands on the screen this frame. The producer: "Yes San Francisco should work the same, replacing the left side look")
     {
       const v = bus.root.getWorldPosition(busOnScreen).project(camera), W = window.innerWidth, H = window.innerHeight;
-      input.busZone = v.z < 1 ? { x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H, r: inputTune.busLane * W } : null;
+      // (one object, set again each frame: Input reads it as a touch lands, and keeps nothing of it. With the bus behind the lens the lane stays where the bus was last on the
+      // screen, where it fell back to the left 42 % before. The first review's minor)
+      if (v.z < 1) {
+        busZone.x = ((v.x + 1) / 2) * W;
+        busZone.y = ((1 - v.y) / 2) * H;
+        busZone.r = inputTune.busLane * W;
+        input.busZone = busZone;
+      }
     }
     // (?earth: up from SKY_FROM the sky is space's, up from SKY_TOP the ground goes into the plain Earth from the horizon in, and at H_UP the street's picture is the flight's. The sky's uniforms are the flight's, over this lens)
     if (earthFly) {
@@ -1608,6 +1617,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       },
       enter(s) {
         if (streetHands) Object.assign(input, streetHands);
+        // (the flight wrote space's palette: the held hour's again)
+        hour?.repaint();
         flight.groundUnder = flight.groundBroad = city.groundAt(s.x, s.z);
         flight.takeOver(s.x, s.y, s.z, s.heading, s.speed, s.nose);
         // (the gear and turbo's level, as the flight had them over Earth: its two faster gears are Turbo 3 here)

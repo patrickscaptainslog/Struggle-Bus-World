@@ -81,17 +81,20 @@ export class EarthLanding {
   /** The street's render axes at (x, z), Earth fixed by rows: +X along the map's x, +Y up, +Z along its z, by steps of 10 m on the map. */
   private axesAt(x: number, y: number, z: number, o: V): V {
     const p = this.fixOf(x, y, z, this.p), a = this.fixOf(x + 10, y, z, this.a), b = this.fixOf(x, y, z + 10, this.b);
-    const ex = [a[0] - p[0], a[1] - p[1], a[2] - p[2]], ez = [b[0] - p[0], b[1] - p[1], b[2] - p[2]];
-    const lx = Math.hypot(ex[0], ex[1], ex[2]), lz = Math.hypot(ez[0], ez[1], ez[2]);
+    // (into o's rows as they're made, x then z then up, then z again square to x: nothing new a frame. The first review's minor)
+    const lx = Math.hypot(a[0] - p[0], a[1] - p[1], a[2] - p[2]), lz = Math.hypot(b[0] - p[0], b[1] - p[1], b[2] - p[2]);
     for (let i = 0; i < 3; i++) {
-      ex[i] /= lx;
-      ez[i] /= lz;
+      o[i] = (a[i] - p[i]) / lx;
+      o[6 + i] = (b[i] - p[i]) / lz;
     }
     // up, square to both; then z made square to x, so the rows are a frame
-    const up = [ez[1] * ex[2] - ez[2] * ex[1], ez[2] * ex[0] - ez[0] * ex[2], ez[0] * ex[1] - ez[1] * ex[0]], lu = Math.hypot(up[0], up[1], up[2]);
-    for (let i = 0; i < 3; i++) up[i] /= lu;
-    const zz = [ex[1] * up[2] - ex[2] * up[1], ex[2] * up[0] - ex[0] * up[2], ex[0] * up[1] - ex[1] * up[0]];
-    o.set([ex[0], ex[1], ex[2], up[0], up[1], up[2], zz[0], zz[1], zz[2]]);
+    const ux = o[7] * o[2] - o[8] * o[1], uy = o[8] * o[0] - o[6] * o[2], uz = o[6] * o[1] - o[7] * o[0], lu = Math.hypot(ux, uy, uz);
+    o[3] = ux / lu;
+    o[4] = uy / lu;
+    o[5] = uz / lu;
+    o[6] = o[1] * o[5] - o[2] * o[4];
+    o[7] = o[2] * o[3] - o[0] * o[5];
+    o[8] = o[0] * o[4] - o[1] * o[3];
     return o;
   }
 
