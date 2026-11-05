@@ -80,6 +80,10 @@ US_DIR = {'north': 'N', 'south': 'S', 'east': 'E', 'west': 'W'}
 OFF_GROUND = {'is_bridge', 'is_tunnel', 'is_indoor', 'is_covered', 'is_under_construction'}
 CUT_SNAP = 0.05     # m: a cut this close to a vertex is made at the vertex (where the OSM way it stands for ends)
 CUT_SHORTEST = 1.0  # m: a stretch at grade shorter than this, between two cuts or a cut and an end, is left out
+# what the ground reads of the segment extract (segments(), qa.py): an extract may hold more, such as the connectors,
+# access restrictions and speed limits overture.py keeps for the world's graphs, the largest columns it has
+SEGMENT_COLUMNS = ('subtype', 'class', 'subclass', 'name', 'width', 'level_max', 'road_flags', 'rail_flags', 'road_flag_rules',
+                   'rail_flag_rules', 'level_rules', 'name_rules')
 
 
 def hash32(s):
@@ -257,11 +261,16 @@ class OSM:
     def local(self, g):
         return shapely.transform(g, self._proj)
 
-    def read(self, typ):
+    def read(self, typ, columns=None):
+        """(the rows as a DataFrame, their geometries in the local frame) of one extract type, with all its columns or
+        only those of `columns` it has"""
         path = os.path.join(self.dir, f'{typ}.parquet')
         if not os.path.exists(path):
             return None, np.array([], dtype=object)
-        t = pq.read_table(path)
+        if columns is not None:
+            have = set(pq.read_schema(path).names)
+            columns = [c for c in columns if c in have and c != 'geometry'] + ['geometry']
+        t = pq.read_table(path, columns=columns)
         geoms = shapely.from_wkb(t['geometry'].to_numpy(zero_copy_only=False))
         # ('class' is a Python keyword: itertuples would rename it)
         d = t.drop_columns(['geometry']).to_pandas().rename(columns={'class': 'klass'})
@@ -438,7 +447,7 @@ class OSM:
         keeps its stretches at grade, each a line of its own with the name Overture gives that stretch (off_ground(),
         at_grade(), stretch_name(): the extract's *_rules columns say which part is which; an extract written before
         them has no ranges and leaves the whole segment out)."""
-        d, g = self.read('segment')
+        d, g = self.read('segment', SEGMENT_COLUMNS)
         P = self.P
         ranged = 'road_flag_rules' in d.columns
         named = 'name_rules' in d.columns

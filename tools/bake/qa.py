@@ -569,7 +569,7 @@ def bridge_checks(cfg, city, osm, ground, Q, ll2xz, lonlat, city_dir, log=_log):
         K = rast(shapely.buffer(np.array([q[0] for q in kv], dtype=object), np.array([q[2] for q in kv]) / 2, cap_style='flat'))
         nK = int(K.sum())
         # (every vehicular segment, sized as OSM.segments() sizes it; the ones it leaves out, in whole or in part)
-        d, g = osm.read('segment')
+        d, g = osm.read('segment', O.SEGMENT_COLUMNS)
         P = osm.P
         full, flagged = [], []
         for i, row in enumerate(d.itertuples(index=False)):
