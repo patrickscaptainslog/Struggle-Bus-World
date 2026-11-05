@@ -77,8 +77,8 @@ function walkConfig(cb: (obj: Record<string, unknown>, key: string, path: string
     for (const key of Object.keys(obj)) {
       const v = obj[key];
       const path = prefix ? `${prefix}.${key}` : key;
-      // (the far field's kill switch: not a row, and no saved value can turn it)
-      if (path === 'far.on') continue;
+      // (the far field's kill switch: not a row, and no saved value can turn it. Nor the live sky's: sky/flag.ts reads it as the modules load, before any saved value)
+      if (path === 'far.on' || path === 'sky.live') continue;
       // (the held hour's section: nothing reads it without the flag)
       if (path === 'sky' && !skyOn) continue;
       if (isVal(v)) cb(obj, key, path, section || key);
