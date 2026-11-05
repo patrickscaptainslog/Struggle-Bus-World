@@ -104,7 +104,7 @@ export const inputTune = {
   lookDelayMs: 100,
   /** A touch landing in this share of the screen's width, from the left (the right, with BUTTONS: SWAP), never flies. 0: no zone. */
   lookZone: 0.42,
-  /** With the bus's zone on (Input.busZone): the half width of its lane round the bus, as a share of the screen's width, and how far under the bus
+  /** With the bus's zone on (Input.busZone): the half width of its lane round the bus, as a share of the screen's narrow side (its width, upright), and how far under the bus
    *  it has opened out to the screen's whole width, as a share of the screen's height (0: whole width from the bus's line down). New names, 2026-11-04:
    *  the lane grew, and a value a phone's tuner saved for the old busLane must not hold it at 0.22. */
   laneHalf: 0.27,
@@ -240,7 +240,7 @@ export class Input {
    * The bus's zone, CSS px of the input element, set every frame by whoever draws the bus (main.ts, from where the bus stands on the screen): only a touch landing in its lane flies, and one landing anywhere
    * else looks. The producer: "what if we reserve the control the struggle bus movement space on the screen to the area directly near the struggle bus itself, and then touching anywhere but that
    * area pans the camera?" And on going live, 2026-11-04: "anywhere a player touches in the general vicinity below the bus belongs to control of bus - not pan- as that's where the thumb naturally lies".
-   * Null: the look zone's rule. r: the lane's half width round the bus (inputTune.laneHalf of the screen's width); open: how far under the bus it covers the screen's whole width (inputTune.laneOpen of its height).
+   * Null: the look zone's rule. r: the lane's half width round the bus (inputTune.laneHalf of the screen's narrow side); open: how far under the bus it covers the screen's whole width (inputTune.laneOpen of its height).
    */
   busZone: { x: number; y: number; r: number; open: number } | null = null;
 

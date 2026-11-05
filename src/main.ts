@@ -1393,7 +1393,8 @@ async function boot() {
       const v = bus.root.getWorldPosition(busOnScreen).project(camera), W = window.innerWidth, H = window.innerHeight;
       busLane.x = ((v.x + 1) / 2) * W;
       busLane.y = ((1 - v.y) / 2) * H;
-      busLane.r = inputTune.laneHalf * W;
+      // (of the screen's narrow side: in landscape the width made it 230 px and the lane all but the top corners)
+      busLane.r = inputTune.laneHalf * Math.min(W, H);
       busLane.open = inputTune.laneOpen * H;
       input.busZone = v.z < 1 ? busLane : null;
     }
