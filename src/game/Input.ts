@@ -109,6 +109,9 @@ export const inputTune = {
    *  the lane grew, and a value a phone's tuner saved for the old busLane must not hold it at 0.22. */
   laneHalf: 0.27,
   laneOpen: 0.25,
+  /** ...and the bus counts as standing no lower than this share of the screen's height, about its usual line: the strain at the ceiling or a look up sinks
+   *  it toward the bottom edge, and the lane under it is where the thumb rests, which doesn't move with the bus. */
+  laneLow: 0.6,
   /** A flick by the second thumb: at least this far (px), in at most this long (ms), at least this fast on average (px/ms), within this many degrees of vertical. */
   flickPx: 30,
   flickMs: 230,
@@ -141,6 +144,7 @@ registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
   lookZone: [0, 0.8, 0.01],
   laneHalf: [0.1, 0.5, 0.01],
   laneOpen: [0, 0.6, 0.01],
+  laneLow: [0.3, 1, 0.01],
   flickPx: [10, 120, 1],
   flickMs: [60, 450, 5],
   flickSpeed: [0.05, 2, 0.01],
@@ -840,10 +844,11 @@ export class Input {
     if (b) {
       // (the lane: a half disc over the bus, and from the bus's line down a funnel that opens out to the screen's whole width `open` under it, and stays that wide down to the
       // bottom, where the thumb that flies it rests: so a look is a touch over the bus's line, or out to a side beside it. Kept on the screen: a look up past about 20 degrees
-      // puts the bus under its bottom edge, and the lane went with it, so no touch could fly. So the bus stands no lower than r over the bottom edge, and a bus sitting low
-      // opens out sooner, so that last r is always the whole width; and no higher than the top edge, which would have made the whole screen the lane)
+      // puts the bus under its bottom edge, and the lane went with it, so no touch could fly. So the bus stands no lower than its usual line (laneLow) or r over the bottom
+      // edge: the strain at the ceiling tips the view up and sinks the bus to the edge too, and a thumb landing again where it rests must still fly. A bus sitting low opens
+      // out sooner, so that last r is always the whole width; and it stands no higher than the top edge, which would have made the whole screen the lane)
       const r = b.r, W = this.rectW, H = this.rectH;
-      const bx = Math.max(r, Math.min(W - r, b.x)), by = Math.max(0, Math.min(H - r, b.y));
+      const bx = Math.max(r, Math.min(W - r, b.x)), by = Math.max(0, Math.min(H - r, H * inputTune.laneLow, b.y));
       const dx = x - bx, dy = y - by;
       if (dy < 0) return dx * dx + dy * dy > r * r;
       const open = Math.min(b.open, H - r - by);

@@ -432,6 +432,9 @@ const lowLane = (fn: (h: H) => unknown) => (h: H) => {
 row('touch', 'the lane: the bus under the screen, the bottom over it flies', lowLane((h) => dragAt(h, 196, 800)));
 row('touch', 'the lane: the bus under the screen, low on the right flies', lowLane((h) => dragAt(h, 360, 800)));
 row('touch', 'the lane: the bus under the screen, the sky looks', lowLane((h) => dragAt(h, 196, 400)));
+// (the strain at the 15 km ceiling tips the view up and sinks the bus to about y 830: it counts as on its usual line, laneLow, so a right thumb landing again under and beside it flies. The review of feat/clock)
+row('touch', 'the lane: the bus sunk to the bottom edge, a thumb landing again low and to the right flies', (h) => { h.input.busZone = { ...LANE, y: 830 }; return dragAt(h, 320, 690); });
+row('touch', 'the lane: the bus sunk to the bottom edge, over its usual line out of the half disc looks', (h) => { h.input.busZone = { ...LANE, y: 830 }; return dragAt(h, 320, 420); });
 row('touch', 'the lane: the bus off the left edge, the lane hugs it: low on the left flies, the upper right looks', (h) => { h.input.busZone = { ...LANE, x: -50 }; const low = dragAt(h, 30, 600); h.wait(600); const up = dragAt(h, 340, 400); return { low, up }; });
 row('touch', 'the lane: one in it flies and one out of it looks', laned((h) => { const a = newId(), b = newId(); h.down(a, 196, 720); h.slide(a, 196, 720, 40, 0, 200); h.down(b, 340, 300, false); h.slide(b, 340, 300, 60, 0, 200); h.wait(30); const s = h.input.state, v = { thumb: s.thumb, look: s.look.on, sx: +s.stretch.x.toFixed(2) }; h.up(b, 400, 300); h.up(a, 236, 720); return v; }));
 // (a tap landing within 230 ms of a thumb that then stays down to look was taken for half of two fingers tapped together, and lost when the other looked: it fires once the other can't be a tap)
@@ -863,6 +866,8 @@ ok(taps('the lane: a tap low on the right') === 1 && !by('the lane: a tap low on
 flies('the lane: the bus under the screen, the bottom');
 flies('the lane: the bus under the screen, low on the right');
 looks('the lane: the bus under the screen, the sky');
+flies('the lane: the bus sunk to the bottom edge, a thumb');
+looks('the lane: the bus sunk to the bottom edge, over');
 {
   const v = note('the lane: the bus off the left edge');
   ok(v.low.thumb && !v.low.look && v.up.look && !v.up.thumb, `a bus off the left edge keeps its lane on the screen: ${JSON.stringify(v)}`);
