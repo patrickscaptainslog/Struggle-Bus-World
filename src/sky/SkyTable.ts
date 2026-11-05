@@ -243,13 +243,15 @@ export function fogLumaOf(data: Uint8Array, out: THREE.Vector2): THREE.Vector2 {
   return out.set(base, (luma(7) - base) / 7);
 }
 
+/** 0 at a to 1 at b, smoothly. Out here, not in settingShare: that runs every frame, and a function made inside it would be a new closure each call. */
+const smooth = (a: number, b: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
 /** How much of the light and the tables is the setting Sun's, 0..1, by its hour angle (h, westward): 1 from 1.5 h after solar noon to 1.5 h before midnight. */
 export function settingShare(H: number): number {
-  const s = (a: number, b: number, x: number) => {
-    const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
-    return t * t * (3 - 2 * t);
-  };
-  return H > 6 ? 1 - s(10.5, 13.5, H) : H < -6 ? 1 - s(10.5, 13.5, H + 24) : s(-1.5, 1.5, H);
+  return H > 6 ? 1 - smooth(10.5, 13.5, H) : H < -6 ? 1 - smooth(10.5, 13.5, H + 24) : smooth(-1.5, 1.5, H);
 }
 
 /**
