@@ -645,7 +645,7 @@ export class PixelPipeline implements WarmPipeline {
     ru.uInvProj.value.copy(this.snapCam.projectionMatrixInverse);
     ru.uCamWorld.value.copy(this.snapCam.matrixWorld);
     ru.uCamPos.value.copy(this.snapCam.position);
-    if (skyLive) sunDisc(this.snapCam, heldGlobals.uSkySunDir.value, this.sunRad, this.sunRing, this.gbuf.width, this.gbuf.height, ru.uSunDisc.value);
+    if (skyLive) sunDisc(this.snapCam, heldGlobals.uSkySunDir.value, this.sunRad, this.sunRing, this.gbuf.width, this.gbuf.height, ru.uSkySunDisc.value);
     if (skyLive) this.skyBodies?.(this.snapCam, this.gbuf.width, this.gbuf.height);
     ru.uCalm.value = Math.min(1, Math.max(0, this.calm));
     ru.uDitherWidth.value = config.render.ditherWidth;
