@@ -2,7 +2,8 @@
 // The live sky's checks that need no browser, on the game's real modules: node tools/sky/run.mjs <check.ts> [args...]. Bundles tools/sky/<check.ts> with rolldown, as
 // tools/feel-sim does (the game's modules as @src/...), into shots/tmp/sky-run/, and runs it. Exit 1 on a failure.
 //   firstpaint.ts [--write] [--html=<file>]   index.html's first paint against the page colour the game writes (LiveSky.page), by the Sun's height, setting and rising
-//   brown.ts                                  no byte of a row the street draws is brown or taupe at any height of the Sun (skycheck's own test)
+//   brown.ts                                  no byte of a row the street draws is brown or taupe at any height of the Sun (skycheck's own test), nor any
+//                                             swatch the gate writes, whatever the tables
 //   lamps.ts                                  lamps.bin waits for the city and for a Sun low enough that the lamps light soon
 //   tuner.ts                                  the tuner has no sky.live row, and no saved value turns it
 import { rolldown } from 'rolldown';

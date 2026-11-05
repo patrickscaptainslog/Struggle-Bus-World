@@ -141,6 +141,24 @@ function brownBytes(data: Uint8Array, d: number): boolean {
   return h > 35 && h < 100 && ((L < 0.6 && C > 0.03) || (L < 0.72 && C > 0.02 && C < 0.09));
 }
 
+/**
+ * A world row's swatch (OKLCH, hue in radians) into a palette's bytes at d, through art's brown gate (OKLCH hue 35-100 and dark, or taupe): on the floats, a little
+ * under its floor so a byte's rounding can't lift it back, then on the bytes as skycheck tests them, where a swatch just past the floats' line rounds back over it
+ * (GREEN_GREY 7 at L 0.7201 to #aea38f, L 0.719, a minute after every sunrise). The floats' clamp then, and neutral if even that rounds brown.
+ */
+export function gatedBytes(L: number, C: number, hh: number, data: Uint8Array, d: number): void {
+  const deg = ((((hh * 180) / Math.PI) % 360) + 360) % 360;
+  if (deg > 35 && deg < 100 && C > 0.016 && (L < 0.6 || (L < 0.72 && C < 0.09))) C = 0.016;
+  toBytes(L, C, hh, data, d);
+  if (!brownBytes(data, d)) return;
+  // (and that clamp's bytes are tested again: near black, or on the gate's hue lines, a byte moves the hue by degrees, and 0.016 can round to #040300's taupe)
+  if (C > 0.016) {
+    toBytes(L, 0.016, hh, data, d);
+    if (!brownBytes(data, d)) return;
+  }
+  toBytes(L, 0, hh, data, d);
+}
+
 /** Where h sits on a chain: the two keyframes (KEYS) and how far between. */
 function onChain(H: number[], K: number[], h: number, o: Float64Array): void {
   let i = 0;
@@ -207,15 +225,9 @@ export class TableBlend {
         mixLch(s0, i, s1, i, S[2], a, 0);
         mixLch(r0, i, r1, i, R[2], b, 0);
         mixLch(b, 0, a, 0, w, a, 0);
-        const L = a[0], hh = a[2];
-        let C = a[1];
-        // (the clamp: art's gate, OKLCH hue 35-100 and dark, or taupe; a little under its floor, so a byte's rounding can't lift it back)
-        const deg = ((((hh * 180) / Math.PI) % 360) + 360) % 360;
-        if (!hue && deg > 35 && deg < 100 && C > 0.016 && (L < 0.6 || (L < 0.72 && C < 0.09))) C = 0.016;
-        toBytes(L, C, hh, data, d);
-        // (and the gate again on the bytes, as skycheck tests them: a swatch just past the floats' line rounds back over it, GREEN_GREY 7 at L 0.7201 to #aea38f,
-        // L 0.719, a minute after every sunrise. The floats' clamp then, and neutral if even that rounds brown)
-        if (!hue && brownBytes(data, d)) toBytes(L, C > 0.016 ? 0.016 : 0, hh, data, d);
+        // (paint and the bus as they come, every other row through the brown gate)
+        if (hue) toBytes(a[0], a[1], a[2], data, d);
+        else gatedBytes(a[0], a[1], a[2], data, d);
       }
     }
   }
