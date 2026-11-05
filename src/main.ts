@@ -140,9 +140,8 @@ async function boot() {
   registerCityData(manifest);
   live?.place(manifest.origin, (manifest as { tz?: string }).tz);
   if (live) {
-    // the stars, the planets and the Moon's map: their draw warms with the scene's, and the files land in it (sky/StreetSky.ts)
+    // the stars, the planets and the Moon's map: their draw warms with the scene's, and the files land in it after the city's first tiles (sky/StreetSky.ts, frame())
     scene.add(live.street.object);
-    void live.street.load('./sky').catch((e) => console.warn('sky files', e));
   }
   const city = new City(manifest, base);
   scene.add(city.root);
@@ -1037,6 +1036,10 @@ async function boot() {
   const streamCenter = new THREE.Vector3();
   /** frames rendered (the opening's clock starts once the first one is on screen) */
   let framesDrawn = 0;
+  /** the sky's files are asked for once the city's first tiles are in, or at night this long (ms) after the first frame on a line too slow for them: the stars a moment after it */
+  const SKY_FILES_WAIT = 1500;
+  let skyAsked = !live;
+  let firstFrameAt = -1;
 
   type QA = { sx?: number; sy?: number; holdAt?: number; holdFrames?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null };
   function frame(now: number) {
@@ -1385,6 +1388,13 @@ async function boot() {
     controls.hud.setMega(superView.phase);
     perf.frame(dt * 1000, performance.now() - t0);
     const cityIn = city.loadedRegionCount() > 0 && !city.loading && !later.length;
+    if (!skyAsked && live) {
+      if (firstFrameAt < 0) firstFrameAt = t0;
+      if (cityIn || (live.street.night && t0 - firstFrameAt > SKY_FILES_WAIT)) {
+        skyAsked = true;
+        void live.street.load('./sky').catch((e) => console.warn('sky files', e));
+      }
+    }
     if (covered && cityIn) {
       covered = false;
       canvas.style.visibility = '';
@@ -1402,7 +1412,7 @@ async function boot() {
     }
     if (ready) everReady = true;
     city.eager = !everReady;
-    (window as unknown as { __shotReady?: boolean }).__shotReady = ready && !city.busy && !city.farLate && !hour?.lamps.busy;
+    (window as unknown as { __shotReady?: boolean }).__shotReady = ready && !city.busy && !city.farLate && !hour?.lamps.busy && !live?.street.busy;
   }
   requestAnimationFrame(frame);
 

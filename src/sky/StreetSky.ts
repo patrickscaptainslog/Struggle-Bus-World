@@ -47,6 +47,12 @@ const LIMIT_SUN = new Float64Array([-2, -1.5, -5, 1, -10, 4, -14, 9]);
 const LIMIT_UP = new Float64Array([0, 5, 520, 5.5, 10000, 6.5]);
 /** The planets' limit is the stars' plus this: a planet holds still and shines through a twilight that hides a star of its magnitude. */
 const PLANET_BONUS = 2.5;
+/** The files' landing (game s): the limits rise from these (V) to the moment's, so the stars come out brightest first, the planets ahead of them, and the Moon's map comes into focus. */
+const LAND_S = 1.6;
+const LAND_STARS = -2;
+const LAND_PLANETS = -5;
+/** moon.bin's mean tone, 4.73 of 7: the one tone until the map lands, and its last mip, so the Moon's focus starts where that tone stood. */
+const MOON_MEAN = 172;
 
 const STAR_VS = /* glsl */ `
   precision highp float;
@@ -120,9 +126,9 @@ const smooth = (a: number, b: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 
-/** A gzipped file under public/sky. */
+/** A gzipped file under public/sky, at low priority: the city's tiles go first. */
 async function file(url: string): Promise<ArrayBuffer> {
-  const r = await fetch(url);
+  const r = await fetch(url, { priority: 'low' });
   if (!r.ok) throw new Error(`${url}: ${r.status}`);
   const b = await r.arrayBuffer();
   return isGzip(b) ? gunzip(b) : b;
@@ -192,6 +198,13 @@ export class StreetSky {
   private star: THREE.BufferAttribute;
   /** ms the files took to fetch and inflate, and to read (QA) */
   readonly timing = { fetchMs: 0, readMs: 0 };
+  /** until the files have landed and come in, or failed: __shotReady waits for it */
+  busy = true;
+  /** the stars would be out now: main.ts asks for the files sooner when they would */
+  night = false;
+  /** when the files landed (game s), and how far they have come in, 0..1 */
+  private landedAt = -1;
+  private land = 0;
   /** this frame (QA): the stars' limit, the planets', how many vertices draw, the Moon's height and lit share (deg, 0..1), its disc's radius (game px) and the moonlight's weight */
   limit = -10;
   planetLimit = -10;
@@ -233,14 +246,27 @@ export class StreetSky {
     o.matrixWorldAutoUpdate = false;
     o.renderOrder = 1;
     o.name = 'stars';
-    const t = new THREE.DataTexture(new Uint8Array([128]) as Uint8Array<ArrayBuffer>, 1, 1, THREE.RedFormat, THREE.UnsignedByteType);
+    const t = new THREE.DataTexture(new Uint8Array([MOON_MEAN]) as Uint8Array<ArrayBuffer>, 1, 1, THREE.RedFormat, THREE.UnsignedByteType);
     t.needsUpdate = true;
     U.tMoonMap.value = t;
     pipeline.skyBodies = (cam, W, H) => this.bodies(cam, W, H);
   }
 
-  /** The stars and the Moon's map, fetched and read once, after the city: until then there are none, and the Moon is one tone. */
+  /**
+   * The stars and the Moon's map, fetched and read once, after the city's first tiles (main.ts): until then there are none, and the Moon is one tone. They come in
+   * over LAND_S, and the stars and the Moon's map are read in tasks of their own, so no frame takes both.
+   */
   async load(base: string): Promise<void> {
+    try {
+      await this.read(base);
+      this.landedAt = globals.uTime.value;
+    } catch (e) {
+      this.busy = false;
+      throw e;
+    }
+  }
+
+  private async read(base: string): Promise<void> {
     const t0 = performance.now();
     const [stars, moon] = await Promise.all([file(`${base}/stars.bin`), file(`${base}/moon.bin`)]);
     const t1 = performance.now();
@@ -283,12 +309,16 @@ export class StreetSky {
     g.setDrawRange(0, 0);
     this.mags = M;
     this.planetMinute = NaN;
+    let readMs = performance.now() - t1;
+    await new Promise((r) => setTimeout(r, 0));
+    const t2 = performance.now();
     const map = moonMap(moon);
     this.pipeline.renderer.initTexture(map);
     U.tMoonMap.value?.dispose();
     U.tMoonMap.value = map;
+    readMs += performance.now() - t2;
     this.timing.fetchMs = Math.round(t1 - t0);
-    this.timing.readMs = Math.round(performance.now() - t1);
+    this.timing.readMs = Math.max(1, Math.round(readMs));
   }
 
   /**
@@ -327,8 +357,16 @@ export class StreetSky {
     // the stars' limit: as the Sun goes down, by the eye's height, less what the Moon washes out
     const moonWash = 1.5 * s.moonLit * smooth(-2, 5, el) * (1 - this.umbra);
     const open = sunEl >= LIMIT_SUN[0] ? -10 : rowAt(LIMIT_SUN, sunEl);
+    this.night = S.stars && sunEl < LIMIT_SUN[0];
     this.limit = S.stars ? Math.min(open, rowAt(LIMIT_UP, camY, true)) - moonWash : -10;
-    this.planetLimit = S.stars && sunEl < LIMIT_SUN[0] ? this.limit + moonWash + PLANET_BONUS : -10;
+    this.planetLimit = this.night ? this.limit + moonWash + PLANET_BONUS : -10;
+    // (as the files land: from the brightest to the moment's limit, never over it)
+    if (this.landedAt >= 0 && this.land < 1) {
+      const u = (this.land = smooth(0, LAND_S, globals.uTime.value - this.landedAt));
+      this.limit = Math.min(this.limit, LAND_STARS + (this.limit - LAND_STARS) * u);
+      this.planetLimit = Math.min(this.planetLimit, LAND_PLANETS + (this.planetLimit - LAND_PLANETS) * u);
+      if (u >= 1) this.busy = false;
+    }
     // (the twinkle: a 12 fps tick of the game's clock, its chance thinning with the air over the eye, none past 30 km)
     this.uStarSky.value.set(this.limit, this.planetLimit, Math.floor(globals.uTime.value * 12), camY < 30000 ? Math.exp(-Math.max(0, camY) / 8000) : 0);
     this.uStarView.value.z = S.starExtinction;
@@ -430,7 +468,9 @@ export class StreetSky {
     U.uMoonView.value.set(R.x, ux, B.x, R.y, uy, B.y, R.z, uz, B.z);
     // (the map's texels across a pixel at the disc's middle)
     const map = U.tMoonMap.value as THREE.DataTexture | null, mw = (map?.image as { width: number } | undefined)?.width ?? 1;
-    U.uMoonLod.value = Math.max(0, Math.log2(mw / (2 * Math.PI * disc.z)));
+    const lod = Math.max(0, Math.log2(mw / (2 * Math.PI * disc.z)));
+    // (as the map lands it comes into focus from its last mip, the one tone it took over from)
+    U.uMoonLod.value = lod + (Math.log2(mw) - lod) * (1 - this.land);
     // Earth's shadow on the disc's axes
     const sh = U.uMoonShadow.value;
     if (sh.z > 0) sh.set(this.shadowAxis.dot(R), this.shadowAxis.x * ux + this.shadowAxis.y * uy + this.shadowAxis.z * uz, sh.z, sh.w);
