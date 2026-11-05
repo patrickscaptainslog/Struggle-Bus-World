@@ -401,7 +401,9 @@ if (modes.has('thumbs')) {
   const skimming = async () => { await page.evaluate(() => { const f = window.__game.flight; f.holdY = -Infinity; f.mode = 0; f.y = f.floorY; f.vy = 0; }); await runFor(page, 0.15); };
   const held = () => page.evaluate(() => window.__game.flight.holdY);
   await row('one right thumb: a flick down out of Express stays on the rooftops', async () => { await skimming(); await shiftUp(); await runFor(page, 0.5); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); return { hold: await held() }; }, (r) => r.gear === 0 && r.note.hold === -Infinity);
-  await row('one right thumb: Nonstop still lifting, taken back: the bus goes back to the rooftops', async () => { await skimming(); await shiftUp(); await runFor(page, 0.5); await shiftUp(); await runFor(page, 0.4); const lifting = await state(); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); return { lifting: lifting.gear, hold: await held() }; }, (r) => r.note.lifting === 2 && r.gear === 1 && r.note.hold === -Infinity);
+  // (Nonstop's height is over the broad ground, and wherever the rows before left the bus, on a hill, its rooftops can be over that already: Nonstop bit on its
+  // first frame there, and a gear that bit holds the height, as it should. So for this row Nonstop's height is out of reach, and the gear is surely still lifting)
+  await row('one right thumb: Nonstop still lifting, taken back: the bus goes back to the rooftops', async () => { const alt = await page.evaluate(() => { const T = window.__game.config.turbo, a = T.nonstopAlt; T.nonstopAlt = 400; return a; }); await skimming(); await shiftUp(); await runFor(page, 0.5); await shiftUp(); await runFor(page, 0.4); const lifting = await state(); const bitBefore = await page.evaluate(() => window.__game.controls.turbo.engaged); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); const hold = await held(); await page.evaluate((a) => { window.__game.config.turbo.nonstopAlt = a; }, alt); return { lifting: lifting.gear, bitBefore, hold }; }, (r) => r.note.lifting === 2 && !r.note.bitBefore && r.gear === 1 && r.note.hold === -Infinity);
   await row('one right thumb: a turbo level down hands back the hold', async () => { await skimming(); await toJet(page); await runFor(page, 3); await page.evaluate(() => window.__game.controls.turbo.rung(1, window.__game.flight)); await runFor(page, 0.5); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); return { hold: await held() }; }, (r) => r.gear === 3 && r.level === 0 && r.note.hold === -Infinity);
   await row('one right thumb: a flick up and straight back stays on the rooftops', async () => { await skimming(); await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); await H.felt(1, RX, RY - 80, 0, 74, 85); }); await runFor(page, 1.5); return { hold: await held() }; }, (r) => r.gear === 0 && has(r, 'onTurbo-') === 1 && r.note.hold === -Infinity);
   await row('one right thumb: with nothing to do a flick down is the quick pull it looks like', async () => { await skimming(); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); return { hold: await held() }; }, (r) => Number.isFinite(r.note.hold));
@@ -693,7 +695,11 @@ if (modes.has('look')) {
       await H.down(2, Lx, Ly);
       await wall(130);
       await H.move(2, Lx + dx, Ly - dy);
-      await page.waitForFunction((x) => Math.abs(window.__game.rig.lookYaw.x * 180 / Math.PI - x) < 2, dx, { timeout: 60000 });
+      // (the offset sets the angle on the look's curve, a x + b x^3, CameraRig's lookDeg: 120 px is about 55 degrees, not 120)
+      await page.waitForFunction((x) => {
+        const C = window.__game.config.camera, a = Math.max(0.01, C.lookDegPerPx), full = Math.max(1, C.lookFullPx), b = Math.max(0, 180 - a * full) / (full * full * full);
+        return Math.abs(window.__game.rig.lookYaw.x * 180 / Math.PI - x * (a + b * x * x)) < 2;
+      }, dx, { timeout: 60000 });
       const during = await page.screenshot();
       await H.up(2);
       await H.up(1);
