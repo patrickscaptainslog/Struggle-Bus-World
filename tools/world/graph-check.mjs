@@ -235,7 +235,20 @@ const LAKE_M = 2;
 // a step on the sea may dip under its surface this far, where a polyline crosses from a grid under WATER_Y (land
 // texels at the Bay's -1.1) onto the sea's at WATER_Y: the 0.5 bake's footways stood 0.5 m under it on the sea itself
 const UNDER_TOL = 0.3;
-const sea = (x, z) => { const c = klass(x, z); return c === 255 || (c === WATER && ground(x, z) <= LAKE_M); };
+const sea = (x, z) => { const c = klass(x, z); return c === 255 || (c === WATER && (ground(x, z) <= LAKE_M || seaHeldAt(x, z))); };
+// C10 (0.9): a run of WATER texels the grid holds over LAKE_M that touches the sea, 4-connected, is the sea's (seaHeld,
+// read from the tiles below, before the files)
+const K = REGION_M / 2; // 2 m texels on a region's side
+const seaHeld = new Map(); // `${rx},${rz}` -> the region's texel indices (row * K + column) in a raised run that is the sea's
+function seaHeldAt(x, z) {
+  const t = tileOf(x, z);
+  if (!t || !seaHeld.size) return false;
+  const tx = Math.round(t.originX / T), tz = Math.round(t.originZ / T), rx = Math.floor(tx / RS), rz = Math.floor(tz / RS);
+  const s = seaHeld.get(`${rx},${rz}`);
+  if (!s) return false;
+  const i = Math.min(CN - 1, Math.max(0, Math.floor(((x - t.originX) / T) * CN))), j = Math.min(CN - 1, Math.max(0, Math.floor(((z - t.originZ) / T) * CN)));
+  return s.has(((tz - rz * RS) * CN + j) * K + (tx - rx * RS) * CN + i);
+}
 /** what a mover on the ground stands on (graphs.py stand()): the grid, never under the sea's surface, WATER_Y with no tile */
 const standAt = (x, z) => { const h = ground(x, z); return Number.isNaN(h) ? WATER_Y : sea(x, z) ? Math.max(h, WATER_Y) : h; };
 /** |y - standAt|, read either side of a texel line within 0.1 m: a file's point moves up to 5 cm in its decimetres, and
@@ -252,6 +265,88 @@ if (!life) process.exit(1);
 const regions = (life.regions ?? man.regions).map((r) => [r[0], r[1], r[2]]); // (City's, to check the rest of a 0.5 bake)
 const regionSet = new Set(regions.map(([a, b]) => `${a},${b}`));
 const [bx0, bz0, bx1, bz1] = man.bounds;
+
+// C10, read from the tiles as the bake reads them (graphs.py sea_runs), not from the files: each region's raised WATER
+// in 4-connected runs, joined across region lines; a run any part of which has the sea beside it is the sea's
+const runs = { sea: 0, seaTexels: 0, highest: 0, where: null, over5: 0, lakes: 0 };
+{
+  const par = new Map();
+  const find = (a) => { while (par.has(a) && par.get(a) !== a) { const p = par.get(a); par.set(a, par.get(p) ?? p); a = p; } return a; };
+  const join = (a, b) => { a = find(a); b = find(b); if (a !== b) { if (a < b) par.set(b, a); else par.set(a, b); } };
+  const touch = new Set(), info = new Map(), kept = new Map(), border = new Map();
+  for (const [rx, rz] of regions) {
+    const sea = new Uint8Array(K * K), lab = new Int32Array(K * K), H = new Float32Array(K * K);
+    const tiles = regionTiles(rx, rz);
+    for (let j = 0; j < RS; j++) for (let i = 0; i < RS; i++) {
+      const tx = rx * RS + i, tz = rz * RS + j, ox = tx * T, oz = tz * T;
+      if (ox + T <= bx0 || ox >= bx1 || oz + T <= bz0 || oz >= bz1) continue;
+      const t = have.has(`${tx},${tz}`) ? tiles.get(`${tx},${tz}`) ?? null : null;
+      for (let q = 0; q < CN; q++) for (let p = 0; p < CN; p++) {
+        const idx = (j * CN + q) * K + i * CN + p;
+        if (!t) { sea[idx] = 1; continue; }
+        if ((t.cls[q * CN + p] & 15) !== WATER) continue;
+        const fx = Math.min(t.n - 1.001, Math.max(0, ((p + 0.5) * (T / CN)) / t.cell)), fz = Math.min(t.n - 1.001, Math.max(0, ((q + 0.5) * (T / CN)) / t.cell));
+        const ix = Math.floor(fx), iz = Math.floor(fz), ax = fx - ix, az = fz - iz, hh = t.heights, n = t.n;
+        const h = (hh[iz * n + ix] * (1 - ax) + hh[iz * n + ix + 1] * ax) * (1 - az) + (hh[(iz + 1) * n + ix] * (1 - ax) + hh[(iz + 1) * n + ix + 1] * ax) * az;
+        if (h > LAKE_M) { lab[idx] = -1; H[idx] = h; } else sea[idx] = 1;
+      }
+    }
+    // label the raised texels, 4-connected, and which have the sea beside them
+    let n = 0;
+    const idxs = [], labs = [];
+    for (let s = 0; s < K * K; s++) {
+      if (lab[s] !== -1) continue;
+      n++;
+      const key = `${rx},${rz},${n}`;
+      let cnt = 0, top = -Infinity, at = s, wet = false;
+      const stack = [s];
+      lab[s] = n;
+      while (stack.length) {
+        const v = stack.pop(), vi = v % K, vj = (v - vi) / K;
+        cnt++; if (H[v] > top) { top = H[v]; at = v; } idxs.push(v); labs.push(n);
+        for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const ni = vi + di, nj = vj + dj;
+          if (ni < 0 || nj < 0 || ni >= K || nj >= K) continue;
+          const w = nj * K + ni;
+          if (sea[w]) wet = true;
+          else if (lab[w] === -1) { lab[w] = n; stack.push(w); }
+        }
+      }
+      info.set(key, [cnt, top, `${(rx * REGION_M + (at % K) * 2 + 1).toFixed(0)}, ${(rz * REGION_M + Math.floor(at / K) * 2 + 1).toFixed(0)}`]);
+      find(key);
+      if (wet) touch.add(key);
+    }
+    if (n) kept.set(`${rx},${rz}`, [Int32Array.from(idxs), Int32Array.from(labs)]);
+    const col = (i) => { const o = new Int32Array(K), w = new Uint8Array(K); for (let j = 0; j < K; j++) { o[j] = Math.max(0, lab[j * K + i]); w[j] = sea[j * K + i]; } return [o, w]; };
+    const row = (j) => [Int32Array.from(lab.subarray(j * K, j * K + K), (v) => Math.max(0, v)), sea.slice(j * K, j * K + K)];
+    border.set(`${rx},${rz}`, { w: col(0), e: col(K - 1), n: row(0), s: row(K - 1) });
+  }
+  for (const [rk, b] of border) {
+    const [rx, rz] = rk.split(',').map(Number);
+    for (const [nk, mine, theirs] of [[`${rx + 1},${rz}`, b.e, 'w'], [`${rx},${rz + 1}`, b.s, 'n']]) {
+      const o = border.get(nk);
+      if (!o) continue;
+      const [ml, ms] = mine, [tl, ts] = o[theirs];
+      for (let k = 0; k < K; k++) {
+        if (ml[k] && tl[k]) join(`${rk},${ml[k]}`, `${nk},${tl[k]}`);
+        if (ml[k] && ts[k]) touch.add(`${rk},${ml[k]}`);
+        if (tl[k] && ms[k]) touch.add(`${nk},${tl[k]}`);
+      }
+    }
+  }
+  const wet = new Set([...touch].map(find)), comp = new Map();
+  for (const [key, [cnt, top, where]] of info) {
+    const r = find(key), q = comp.get(r) ?? [0, -Infinity, null];
+    q[0] += cnt; if (top > q[1]) { q[1] = top; q[2] = where; }
+    comp.set(r, q);
+  }
+  for (const [r, [cnt, top, where]] of comp) if (wet.has(r)) { runs.sea++; runs.seaTexels += cnt; if (top > runs.highest) { runs.highest = top; runs.where = where; } if (top > 5.5) runs.over5++; } else runs.lakes++;
+  for (const [rk, [idxs, labs]] of kept) {
+    let s = null;
+    for (let k = 0; k < idxs.length; k++) if (wet.has(find(`${rk},${labs[k]}`))) (s ??= new Set()).add(idxs[k]);
+    if (s) seaHeld.set(rk, s);
+  }
+}
 
 const routesPath = `${dir}/routes.bin`;
 const routesGz = readFileSync(routesPath);
@@ -340,7 +435,7 @@ const c = {
   held: 0, heldWorst: 0, heldWhere: null, heldSteps: 0,
   footDeckSteps: 0, walls: 0, wallsAtFeet: 0, wallWorst: 0, wallWhere: null,
   water: 0, waterOff: 0, waterWorst: 0, waterLake: 0, afloat: 0, afloatUnder: 0, afloatWorst: 0, afloatWhere: null,
-  lakeTexels: 0, lakeCovered: 0, lakeOffTexels: 0, seaTexels: 0, seaCovered: 0, lakeTris: 0, lakeAreas: 0, seaAreas: 0,
+  lakeTexels: 0, lakeCovered: 0, lakeOffTexels: 0, seaTexels: 0, seaCovered: 0, seaRaised: 0, lakeTris: 0, lakeAreas: 0, seaAreas: 0,
   drawnPts: [], topLevel: [], footDeck: [], roadDeck: [], stackPairs: 0, rampPairs: 0, inversions: 0, inversionWhere: null,
   underWater: 0, underWhere: null, deckGround: 0, deckDrawn: 0, deckUnder: 0, deckUnderWorst: 0, deckUnderWhere: null,
   tunnelPts: 0, tunnelOver: 0, tunnelOverWorst: 0, tunnelOverWhere: null,
@@ -685,7 +780,9 @@ for (const [rx, rz, bytes] of regions) {
     }
   }
   // every WATER texel of the region's tiles under its own water's area, the sea's or a lake's, and every texel of a
-  // tile slot with no tile inside the bounds under the sea's (C1, C8)
+  // tile slot with no tile inside the bounds under the sea's (C1, C8); raised WATER in a run that touches the sea, the
+  // sea's (C10)
+  const held = seaHeld.get(`${rx},${rz}`);
   for (let j = 0; j < RS; j++) for (let i = 0; i < RS; i++) {
     const tx = rx * RS + i, tz = rz * RS + j, ox = tx * T, oz = tz * T;
     if (ox + T <= bx0 || ox >= bx1 || oz + T <= bz0 || oz >= bz1) continue;
@@ -698,8 +795,8 @@ for (const [rx, rz, bytes] of regions) {
       const fx = Math.min(t.n - 1.001, Math.max(0, ((p + 0.5) * (T / CN)) / t.cell)), fz = Math.min(t.n - 1.001, Math.max(0, ((q + 0.5) * (T / CN)) / t.cell));
       const ix = Math.floor(fx), iz = Math.floor(fz), ax = fx - ix, az = fz - iz, hh = t.heights, n = t.n;
       const H = (hh[iz * n + ix] * (1 - ax) + hh[iz * n + ix + 1] * ax) * (1 - az) + (hh[(iz + 1) * n + ix] * (1 - ax) + hh[(iz + 1) * n + ix + 1] * ax) * az;
-      if (H > LAKE_M) { c.lakeTexels++; if (cv & 2) c.lakeCovered++; else c.lakeMissWhere ??= `${(ox + (p + 0.5) * 2).toFixed(0)}, ${(oz + (q + 0.5) * 2).toFixed(0)}`; }
-      else { c.seaTexels++; if (cv & 1) c.seaCovered++; else c.seaMissWhere ??= `${(ox + (p + 0.5) * 2).toFixed(0)}, ${(oz + (q + 0.5) * 2).toFixed(0)}`; }
+      if (H > LAKE_M && !held?.has((k0 + q) * W + l0 + p)) { c.lakeTexels++; if (cv & 2) c.lakeCovered++; else c.lakeMissWhere ??= `${(ox + (p + 0.5) * 2).toFixed(0)}, ${(oz + (q + 0.5) * 2).toFixed(0)}`; }
+      else { c.seaTexels++; if (H > LAKE_M) c.seaRaised++; if (cv & 1) c.seaCovered++; else c.seaMissWhere ??= `${(ox + (p + 0.5) * 2).toFixed(0)}, ${(oz + (q + 0.5) * 2).toFixed(0)}`; }
     }
   }
 }
@@ -964,7 +1061,8 @@ report('ferry routes\' ends on a terminal', `${(routes?.ferries.length ?? 0) * 2
 }
 report('areas against the grid', `${c.areaPts} grid points inside area triangles, against the grid and never under the sea's surface, worst ${c.areaWorst.toFixed(3)} m${c.areaWhere ? ` (${c.areaWhere})` : ''}; ${c.areaOver} over`, '0 over 0.5 m', c.areaOver === 0);
 report('areas on a roof or a deck left out', `${c.areaOnStructure} in the files of the ${onStructure.size} the bake read on a structure${c.areaOnStructureWhere ? ` (first: ${c.areaOnStructureWhere})` : ''}`, '0', !!checks && c.areaOnStructure === 0);
-report('OPEN_WATER on the sea', `${c.seaAreas} areas, ${c.waterTris} triangles, ${c.waterTexels} texel centres inside them, ${c.waterOffTexels} not the sea (WATER at 2 m or under, or no tile); ${c.waterTriY} triangles off WATER_Y; the sea's texels under it ${c.seaCovered} of ${c.seaTexels}${c.seaMissWhere ? ` (first not: ${c.seaMissWhere})` : ''}`,
+report('raised water that touches the sea is the sea\'s (C10)', `${runs.sea} runs of WATER the grid holds over 2 m touch the sea, ${runs.seaTexels} texels, the highest ${runs.highest.toFixed(1)} m (${runs.where}), ${runs.over5} with a texel over 5.5 m, read from the tiles; ${runs.lakes} runs don't, the lakes; ${c.seaRaised} of those texels in the regions' files checked under the sea's area next`, '', null);
+report('OPEN_WATER on the sea', `${c.seaAreas} areas, ${c.waterTris} triangles, ${c.waterTexels} texel centres inside them, ${c.waterOffTexels} not the sea (WATER at 2 m or under or in a run that touches the sea, or no tile); ${c.waterTriY} triangles off WATER_Y; the sea's texels under it ${c.seaCovered} of ${c.seaTexels}${c.seaMissWhere ? ` (first not: ${c.seaMissWhere})` : ''}`,
   '0 and 0, every one', c.waterOffTexels === 0 && c.waterTriY === 0 && c.seaCovered === c.seaTexels);
 report('lakes as OPEN_WATER at the grid\'s height (C8)', `${c.lakeAreas} areas (a lake's part in each region), ${c.lakeTris} triangles, ${c.lakeTexelsIn ?? 0} texel centres inside them, ${c.lakeOffTexels} not a lake (WATER the grid holds over 2 m); the lakes' texels under them ${c.lakeCovered} of ${c.lakeTexels}${c.lakeMissWhere ? ` (first not: ${c.lakeMissWhere})` : ''}; their heights in the areas' check above; files of minor ${[...c.minors].sort().join(', ')}`,
   '0, every one, minor 2', c.lakeOffTexels === 0 && c.lakeCovered === c.lakeTexels && (c.lakeTexels === 0 || [...c.minors].every((m) => m >= 2)));

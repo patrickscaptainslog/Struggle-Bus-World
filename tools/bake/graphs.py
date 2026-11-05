@@ -282,6 +282,7 @@ class Tiles:
         self.have = {(t[0], t[1]) for t in man['tiles']}
         self.cache = OrderedDict()
         self.keep = keep
+        self.sea_extra = {}   # (tx, tz): the class raster's indices of raised WATER the sea holds (C10, sea_runs()), 16 set
 
     def _region(self, rx, rz):
         key = (rx, rz)
@@ -315,6 +316,9 @@ class Tiles:
         o += 4 + tc * 8
         o += (-(o - o0)) % 4
         cls = (np.frombuffer(buf, 'u1', self.N * self.N, o) & 15).reshape(self.N, self.N).copy()
+        extra = self.sea_extra.get((tx, tz))
+        if extra is not None:
+            cls.flat[extra] |= 16   # WATER the grid holds up, which is the sea's (C10): sea() reads the bit
         return (h.astype(np.float64), cls, float(ox), float(oz), float(cell), n)
 
     def tile(self, tx, tz):
@@ -1611,7 +1615,7 @@ class Bake:
                 links.append((a, b, float(math.hypot(xs[a] - xs[b], zs[a] - zs[b]))))
             piece_s[rec[0]] = ids
         g, c = self.tiles.sample(xs, zs)
-        water = np.isnan(g) | (c == 2)
+        water = np.isnan(g) | ((c & 15) == 2)
         ground = np.where(np.isnan(g), WATER_Y, g)
         base = np.where(sea(g, c), 0.0, ground)   # the water's surface under a deck: the sea's datum, else a lake's grid
         anchors = {}
@@ -1964,8 +1968,7 @@ class Bake:
         for r in regs:
             if self.water_mask(r)[0].any():
                 keys.add(f'water@{r[0]},{r[1]}')
-        self.lakes()
-        keys.update(self.lake_key.values())
+        keys.update(self.lake_key.values())   # (lakes(), before the decks)
         self.area_id, a_c = alloc('area', keys)
         self.stats['idCollisions']['area'] = a_c
         counts = defaultdict(int)
@@ -1997,13 +2000,19 @@ class Bake:
 
     def water_mask(self, r, lakes=False):
         """The region's sea at 2 m (sea()): the class raster's WATER texels the grid holds at LAKE_M or under, at their
-        centres, and the whole of any tile slot with no tile, inside the map's bounds. lakes: its lakes instead (C8), the
-        WATER texels the grid holds higher, where the city draws them on the ground. (mask[z, x], origin)"""
+        centres, those higher in a run that touches the sea (C10), and the whole of any tile slot with no tile, inside
+        the map's bounds. lakes: its lakes instead (C8), the other WATER texels the grid holds higher, where the city
+        draws them on the ground. (mask[z, x], origin)"""
+        s, l, _, o = self.water_masks(r)
+        return (l if lakes else s), o
+
+    def water_masks(self, r):
+        """water_mask()'s two, and the grid at each texel's centre (nan off the tiles): (sea, lakes, H, origin)."""
         T = self.tiles.T
         N = self.tiles.N
         rs = self.tiles.rs
         k = int(round(self.R / (T / N)))
-        m = np.zeros((k, k), bool)
+        s, l, HH = np.zeros((k, k), bool), np.zeros((k, k), bool), np.full((k, k), np.nan)
         x0, z0, x1, z1 = self.bounds
         for j in range(rs):
             for i in range(rs):
@@ -2014,7 +2023,7 @@ class Bake:
                 t = self.tiles.tile(tx, tz)
                 sl = (slice(j * N, (j + 1) * N), slice(i * N, (i + 1) * N))
                 if t is None:
-                    m[sl] = not lakes
+                    s[sl] = True
                 else:
                     hh, cls, _, _, cell, n = t
                     f = (np.arange(N) + 0.5) * (T / N) / cell        # texel centres in grid steps
@@ -2022,8 +2031,86 @@ class Bake:
                     a = f - f0
                     rows = hh[f0, :] * (1 - a)[:, None] + hh[f0 + 1, :] * a[:, None]
                     H = rows[:, f0] * (1 - a)[None, :] + rows[:, f0 + 1] * a[None, :]
-                    m[sl] = (cls == 2) & ((H > LAKE_M) if lakes else (H <= LAKE_M))
-        return m, (r[0] * self.R, r[1] * self.R)
+                    w, up = (cls & 15) == 2, (cls & 16) != 0
+                    s[sl] = w & ((H <= LAKE_M) | up)
+                    l[sl] = w & (H > LAKE_M) & ~up
+                    HH[sl] = H
+        return s, l, HH, (r[0] * self.R, r[1] * self.R)
+
+    def sea_runs(self):
+        """C10 (0.9): a run of raised WATER texels that touches the sea, 4-connected, is the sea's, OPEN_WATER at WATER_Y
+        with it, and a lake (C8) is a run that doesn't: San Francisco's 1,297 such runs are the Bay's own water under a
+        pier's or a quay's raised grid. A run is joined across region lines as a lake is (lakes()), so a run is the sea's
+        or a lake whole, and it touches the sea across a line too. Marks its texels in Tiles (sea_extra), so sea() and
+        both masks read them as the sea from here on. Before the decks, which stand over the water's surface."""
+        from scipy.ndimage import label, maximum
+        regs = sorted(self.regions if not self.only else {self.only})
+        par = {}
+
+        def find(a):
+            while par.setdefault(a, a) != a:
+                par[a] = par[par[a]]
+                a = par[a]
+            return a
+        touch, info, edges = set(), {}, {}
+        for r in regs:
+            s, lk, H, _ = self.water_masks(r)
+            lab, n = label(lk) if lk.any() else (np.zeros(lk.shape, np.int32), 0)
+            if n:
+                near = np.zeros_like(s)
+                near[1:, :] |= s[:-1, :]
+                near[:-1, :] |= s[1:, :]
+                near[:, 1:] |= s[:, :-1]
+                near[:, :-1] |= s[:, 1:]
+                touch.update((r[0], r[1], int(v)) for v in np.unique(lab[(lab > 0) & near]))
+                cnt = np.bincount(lab.ravel(), minlength=n + 1)
+                top = maximum(H, lab, index=np.arange(1, n + 1))
+                for v in range(1, n + 1):
+                    info[(r[0], r[1], v)] = (int(cnt[v]), float(top[v - 1]))
+                    find((r[0], r[1], v))
+            edges[r] = (lab[:, 0].copy(), lab[:, -1].copy(), lab[0, :].copy(), lab[-1, :].copy(),
+                        s[:, 0].copy(), s[:, -1].copy(), s[0, :].copy(), s[-1, :].copy())   # west, east, north, south
+            guard('sea runs')
+        for (rx, rz), e in edges.items():
+            for nb, mine, mine_s, theirs, theirs_s in (((rx + 1, rz), e[1], e[5], 0, 4), ((rx, rz + 1), e[3], e[7], 2, 6)):
+                o = edges.get(nb)
+                if o is None:
+                    continue
+                tl, ts = o[theirs], o[theirs_s]
+                both = (mine > 0) & (tl > 0)
+                for a, b in zip(mine[both], tl[both]):
+                    ra, rb = find((rx, rz, int(a))), find((nb[0], nb[1], int(b)))
+                    if ra != rb:
+                        par[max(ra, rb)] = min(ra, rb)
+                touch.update((rx, rz, int(a)) for a in np.unique(mine[(mine > 0) & ts]))
+                touch.update((nb[0], nb[1], int(b)) for b in np.unique(tl[(tl > 0) & mine_s]))
+        wet = {find(k) for k in touch}
+        parts = defaultdict(set)   # region: its runs' labels that are the sea's
+        runs = defaultdict(lambda: [0, 0.0])
+        for k, (cnt, top) in info.items():
+            c = find(k)
+            if c in wet:
+                parts[(k[0], k[1])].add(k[2])
+                runs[c][0] += cnt
+                runs[c][1] = max(runs[c][1], top)
+        T, N, rs = self.tiles.T, self.tiles.N, self.tiles.rs
+        for r, labels in sorted(parts.items()):
+            _, lk, _, _ = self.water_masks(r)
+            lab, _ = label(lk)   # as above: the same mask, the same labels
+            m = np.isin(lab, sorted(labels))
+            for j in range(rs):
+                for i in range(rs):
+                    idx = np.flatnonzero(m[j * N:(j + 1) * N, i * N:(i + 1) * N])
+                    if len(idx):
+                        self.tiles.sea_extra[(r[0] * rs + i, r[1] * rs + j)] = idx
+        self.tiles.cache.clear()   # read again, marked
+        tops = sorted((v[1] for v in runs.values()), reverse=True)
+        self.stats['seaRuns'] = {'runs': len(runs), 'parts': sum(len(v) for v in parts.values()),
+                                 'texels': int(sum(v[0] for v in runs.values())), 'largestTexels': max((v[0] for v in runs.values()), default=0),
+                                 'highest': [round(t, 2) for t in tops[:5]], 'over5m': sum(1 for t in tops if t > 5.0),
+                                 'lakesLeft': len({find(k) for k in info} - wet)}
+        self.note(f'sea runs (C10): {len(runs)} runs of raised WATER touch the sea, {self.stats["seaRuns"]["texels"]} texels, '
+                  f'the highest at {tops[:3]} m: the sea\'s')
 
     def lake_labels(self, r):
         """The region's lakes, each 4-connected run of lake texels labelled (water_mask, lakes): (labels[z, x], 0 none;
@@ -2767,6 +2854,8 @@ class Bake:
         self.read_areas()
         self.spill_areas()
         del self.area_rows
+        self.sea_runs()   # C10: the raised water by the piers is the sea's, before the decks stand over it
+        self.lakes()
         self.global_pass()
         self.region_pass()
         one = 0
@@ -2807,10 +2896,12 @@ class Bake:
 
 
 def sea(g, c):
-    """The sea and the Bay, at WATER_Y: no tile, or a WATER texel the grid holds at LAKE_M or under. A WATER texel
-    higher up is a lake, which the city draws on the ground at the grid's height (San Francisco's stand 5 to 90 m up:
-    Lake Merced, Golden Gate Park's), so it takes the grid as land does."""
-    return np.isnan(g) | ((c == 2) & (g <= LAKE_M))
+    """The sea and the Bay, at WATER_Y: no tile, or a WATER texel the grid holds at LAKE_M or under, or one higher up
+    in a run that touches the sea (C10: the Bay's own water under a pier's raised grid; Tiles marks it with 16). A
+    WATER texel higher up is otherwise a lake, which the city draws on the ground at the grid's height (San Francisco's
+    stand 5 to 90 m up: Lake Merced, Golden Gate Park's), so it takes the grid as land does."""
+    c = np.asarray(c)
+    return np.isnan(g) | (((c & 15) == 2) & ((g <= LAKE_M) | ((c & 16) != 0)))
 
 
 def stand(g, c):
