@@ -1083,7 +1083,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // (?life: the living Earth's movers, docs/specs/earth/LIFE.md. Its pools register with the warm-up before the sources below are read; it never rejects into the boot.
   // CONTRACT.md section 6's hook, in its lines: this, the frame's, the tuner's reset and the QA object's)
   const life = lifeOn
-    ? await import('./life/lifeBoot').then((m) => m.bootLife({ params, scene, place: { slug: manifest.slug, origin: [manifest.origin[0], manifest.origin[1]] } })).catch(() => null)
+    ? await import('./life/lifeBoot')
+        .then((m) => m.bootLife({ params, scene, place: { slug: manifest.slug, origin: [manifest.origin[0], manifest.origin[1]] }, world: { groundAt: (x, z) => city.groundAt(x, z), groundClassAt: (x, z) => city.groundClassAt(x, z), tileSize: manifest.tileSize } }))
+        .catch(() => null)
     : null;
   // (and the aim asks it for a mover on the line of fire)
   if (life) aimer.life = life;

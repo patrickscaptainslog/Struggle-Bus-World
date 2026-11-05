@@ -7,9 +7,11 @@ import { globals } from '../render/materials';
 import { HUE_RAMPS } from '../render/palette';
 import type { Observer } from '../sky/SkyModel';
 import { axesAt, fixToGeodetic, geodeticToFix } from '../sky/WorldFrame';
-import type { LifeTick } from './lifeWorker';
+import type { LifeTick, LifeWalk } from './lifeWorker';
+import { WALK_CELL } from './sim/people';
+import { Ground } from '../world/tiles';
 import { fnv1a } from './hash';
-import { Col, KINDS, Pool, ROW } from './kinds';
+import { Col, KINDS, ROW } from './kinds';
 import type { MoverStore } from './paint';
 import { GREY_RAMP, MARK_POINTS, MARKS_MAX, type Pools, SPECKS_MAX } from './pools';
 import { MAX_ROWS, readKeys, SNAP_BYTES, view, type SnapView } from './snapshot';
@@ -31,6 +33,8 @@ const EARTH_ID = 0;
 const TRAIL_S = 40;
 const TRAIL_PX = 1;
 const TRAIL_M = 8;
+/** People's ground round the bus (LIFE.md, "What today's tiles have"): tiles in this far (m) are sampled, a few rows of their 4 m cells a frame, and dropped past FORGET. */
+const WALK_REACH = 700, WALK_FORGET = 1600, WALK_ROWS = 8;
 /** QA: how many of the movers drawn a frame are noted, by key and place (tools/life/sky.mjs: nothing jumps on the screen when the flight takes the bus) */
 const DRAWN = 64;
 const WGS_A = 6378.137, WGS_K = 1 / (1 - 1 / 298.257223563);
@@ -40,6 +44,13 @@ export interface MoverPaint {
   hue: number;
   level: number;
   at: number;
+}
+
+/** What life asks of the street's world (CONTRACT.md section 6, WorldForLife's first two queries): per query, a few hundred a frame at the most. */
+export interface LifeWorld {
+  groundAt(x: number, z: number): number;
+  groundClassAt(x: number, z: number): number | null;
+  readonly tileSize: number;
 }
 
 export class LifeHost {
@@ -57,7 +68,7 @@ export class LifeHost {
   private readonly p = new THREE.Vector3();
   private readonly s = new THREE.Vector3();
   /** QA: the last frame's rows, models and specks, the snapshots taken, the loop that drew it; and the first DRAWN movers drawn, each its key's hash and where (the loop's frame) */
-  readonly qa = { rows: 0, models: 0, specks: 0, marks: 0, sent: 0, snaps: 0, hits: 0, sky: false, drawn: 0 };
+  readonly qa = { rows: 0, models: 0, people: 0, specks: 0, marks: 0, sent: 0, snaps: 0, hits: 0, sky: false, drawn: 0 };
   readonly drawn = new Float64Array(DRAWN * 4);
   /** the frame's clocks, for the aim between frames */
   private utc = 0;
@@ -87,7 +98,16 @@ export class LifeHost {
   private readonly f3 = new Float64Array(3);
   private readonly g3 = [0, 0, 0];
 
-  constructor(worker: Worker, pools: Pools, store: MoverStore, ns: string, origin: readonly [number, number]) {
+  /** the street's ground, for people; the tile being sampled now, the tiles sent (by a number), and those that weren't in yet, when to try them again (a frame count) */
+  private readonly world: LifeWorld | null;
+  private walking: { key: number; tx: number; tz: number; j: number; walk: Uint8Array; h: Float32Array; count: number } | null = null;
+  private readonly walked = new Set<number>();
+  private readonly walkLater = new Map<number, number>();
+  private frames = 0;
+  private readonly walkMsg: LifeWalk = { type: 'walk', tile: null, tx: 0, tz: 0 };
+
+  constructor(worker: Worker, pools: Pools, store: MoverStore, ns: string, origin: readonly [number, number], world: LifeWorld | null = null) {
+    this.world = world;
     this.worker = worker;
     this.pools = pools;
     this.store = store;
@@ -120,7 +140,77 @@ export class LifeHost {
     this.land(simTime);
     const ll = localToLatLon(bus.x, bus.z, this.origin, this.ll);
     this.send(utcMs, bus.x, bus.y, bus.z, ll[0], ll[1], REACH);
+    if (bus.y < 1500) this.sampleGround(bus.x, bus.z);
     this.draw(utcMs, camera);
+  }
+
+  /**
+   * People's ground (LIFE.md, "What today's tiles have"): the nearest tile in WALK_REACH not sent yet, WALK_ROWS rows of its 4 m cells a frame through the world's own
+   * queries, which may be walked (sidewalk, plaza, path) and the ground's height there; sent to the worker whole, its arrays transferred. A tile not in yet is tried
+   * again a second on; tiles past WALK_FORGET are dropped. Two arrays a tile sampled, not a frame.
+   */
+  private sampleGround(bx: number, bz: number): void {
+    const w = this.world;
+    if (!w) return;
+    this.frames++;
+    const ts = w.tileSize, n = Math.round(ts / WALK_CELL);
+    if (!this.walking) {
+      const ctx = Math.floor(bx / ts), ctz = Math.floor(bz / ts), R = Math.ceil(WALK_REACH / ts);
+      let bd = Infinity, btx = 0, btz = 0;
+      for (let dz = -R; dz <= R; dz++)
+        for (let dx = -R; dx <= R; dx++) {
+          // (a key small enough to stay an integer in the engine, tiles within 4,096 of the origin: a bigger one is a boxed double each lookup in V8)
+          const tx = ctx + dx, tz = ctz + dz, key = (tx + 4096) * 8192 + (tz + 4096);
+          if (this.walked.has(key) || (this.walkLater.get(key) ?? 0) > this.frames) continue;
+          const cx = (tx + 0.5) * ts - bx, cz = (tz + 0.5) * ts - bz, d = cx * cx + cz * cz;
+          if (d < bd && d < (WALK_REACH + ts * 0.71) ** 2) {
+            bd = d;
+            btx = tx;
+            btz = tz;
+          }
+        }
+      if (bd === Infinity) return;
+      // (and the far ones dropped, here, where a tile's picked: not every frame)
+      for (const k of this.walked) {
+        const tx = Math.floor(k / 8192) - 4096, tz = (k % 8192) - 4096, cx = (tx + 0.5) * ts - bx, cz = (tz + 0.5) * ts - bz;
+        if (cx * cx + cz * cz < WALK_FORGET * WALK_FORGET) continue;
+        this.walked.delete(k);
+        const m = this.walkMsg;
+        m.tile = null;
+        m.tx = tx;
+        m.tz = tz;
+        this.worker.postMessage(m);
+      }
+      this.walking = { key: (btx + 4096) * 8192 + (btz + 4096), tx: btx, tz: btz, j: 0, walk: new Uint8Array(n * n), h: new Float32Array(n * n), count: 0 };
+    }
+    const t = this.walking, x0 = t.tx * ts, z0 = t.tz * ts;
+    for (let r = 0; r < WALK_ROWS && t.j < n; r++, t.j++) {
+      const z = z0 + (t.j + 0.5) * WALK_CELL;
+      for (let i = 0; i < n; i++) {
+        const x = x0 + (i + 0.5) * WALK_CELL, c = w.groundClassAt(x, z);
+        if (c === null) {
+          // (not in yet: again in a second or so)
+          this.walkLater.set(t.key, this.frames + 30);
+          this.walking = null;
+          return;
+        }
+        const q = t.j * n + i, ok = c === Ground.SIDEWALK || c === Ground.PLAZA || c === Ground.PATH;
+        t.walk[q] = ok ? 1 : 0;
+        if (ok) t.count++;
+        t.h[q] = w.groundAt(x, z);
+      }
+    }
+    if (t.j < n) return;
+    this.walked.add(t.key);
+    this.walkLater.delete(t.key);
+    this.walking = null;
+    if (!t.count) return;
+    const m = this.walkMsg;
+    m.tile = { tx: t.tx, tz: t.tz, x0, z0, cell: WALK_CELL, n, walk: t.walk, h: t.h, count: t.count };
+    m.tx = t.tx;
+    m.tz = t.tz;
+    this.worker.postMessage(m, [t.walk.buffer, t.h.buffer]);
+    m.tile = null;
   }
 
   /** The flight's scene and lens, where the pools draw while its loop has the bus (moonrun.ts, once). */
@@ -141,7 +231,8 @@ export class LifeHost {
     if (!sky || ob.body !== EARTH_ID || ob.free) {
       this.qa.sky = true;
       this.qa.drawn = 0;
-      this.commit(0, 0, 0, 0);
+      this.pc[0] = this.pc[1] = this.pc[2] = 0;
+      this.commit(this.pc, 0, 0);
       return;
     }
     if (this.pools.group.parent !== sky) sky.add(this.pools.group);
@@ -160,7 +251,8 @@ export class LifeHost {
       if (simTime < h.arrive) continue;
       // (a level up keeps its contrail going from when it was first painted)
       this.painted.set(h.h, { hue: h.hue, level: h.level, at: this.painted.get(h.h)?.at ?? this.utc });
-      this.store.put({ key: h.key, hue: h.hue, level: h.level, until: h.until, ns: this.ns });
+      // (a person's paint is the session's: `walk:` lives only while it's near, CONTRACT.md section 3)
+      if (!h.key.startsWith('walk:')) this.store.put({ key: h.key, hue: h.hue, level: h.level, until: h.until, ns: this.ns });
       this.hits.splice(i, 1);
     }
   }
@@ -181,14 +273,19 @@ export class LifeHost {
     this.qa.sent++;
   }
 
-  private commit(nm: number, nl: number, ns: number, n: number, nk = 0): void {
+  /** The models a pool drew this frame: small, middle, large. */
+  private readonly pc = [0, 0, 0];
+
+  private commit(pc: number[], ns: number, n: number, nk = 0): void {
     const P = this.pools;
-    P.middle.commit(Math.min(nm, P.middle.max));
-    P.large.commit(Math.min(nl, P.large.max));
+    P.small.commit(Math.min(pc[0], P.small.max));
+    P.middle.commit(Math.min(pc[1], P.middle.max));
+    P.large.commit(Math.min(pc[2], P.large.max));
     P.specks.commit(ns);
     P.marks.commit(nk);
     this.qa.rows = n;
-    this.qa.models = nm + nl;
+    this.qa.people = pc[0];
+    this.qa.models = pc[0] + pc[1] + pc[2];
     this.qa.specks = ns;
     this.qa.marks = nk;
   }
@@ -243,7 +340,9 @@ export class LifeHost {
     // (the street's lens draws to 36 km and the sky is filled to 80: past nine tenths of its reach a mover is drawn nearer on its own line of sight, as the flight's are,
     // so a painted plane keeps its pixel out there; the haze has the rest by then)
     const near = 0.9 * ((camera as THREE.PerspectiveCamera).far || SKY_NEAR);
-    let nm = 0, nl = 0, ns = 0, n = 0, nd = 0, nk = 0;
+    let ns = 0, n = 0, nd = 0, nk = 0;
+    const pc = this.pc;
+    pc[0] = pc[1] = pc[2] = 0;
     this.qMap.identity();
     if (s) {
       const rows = s.rows, u32 = s.rowsU32, dt = (utcMs - s.f64[0]) / 1000, sp = P.specks;
@@ -265,21 +364,20 @@ export class LifeHost {
           scale *= k;
         }
         if (px >= MODEL_PX) {
-          const big = info.pool === Pool.LARGE, k = big ? nl : nm;
+          const k = pc[info.pool];
           if (k >= P.pool(info.pool).max) continue;
           this.put(P.pool(info.pool), k, o, x, y, z, scale, ramp);
-          if (big) nl++;
-          else nm++;
+          pc[info.pool]++;
         } else if ((paint || px >= 1) && ns < SPECKS_MAX) {
           sp.pos[ns * 3] = x;
           sp.pos[ns * 3 + 1] = y;
           sp.pos[ns * 3 + 2] = z;
           sp.ramp[ns] = ramp;
-          sp.phase[ns] = (u32[o + Col.KEY] & 1023) / 1024;
+          sp.phase[ns] = info.beacon ? (u32[o + Col.KEY] & 1023) / 1024 : -1;
           ns++;
         } else continue;
         this.note(nd++, u32[o + Col.KEY], x, y, z);
-        if (paint && nk < MARKS_MAX) {
+        if (paint && info.mark && nk < MARKS_MAX) {
           const vx = rows[o + Col.VX], vy = rows[o + Col.VY], vz = rows[o + Col.VZ], v = Math.sqrt(vx * vx + vy * vy + vz * vz);
           if (v > 1 && this.trail(nk, x0, y0, z0, vx / v, vy / v, vz / v, v, 0.5 * info.size * rows[o + Col.SCALE], paint, cam, ang, near)) nk++;
         }
@@ -287,7 +385,7 @@ export class LifeHost {
     }
     this.qa.sky = false;
     this.qa.drawn = Math.min(nd, DRAWN);
-    this.commit(nm, nl, ns, n, nk);
+    this.commit(pc, ns, n, nk);
   }
 
   private note(i: number, hash: number, x: number, y: number, z: number): void {
@@ -331,7 +429,9 @@ export class LifeHost {
   /** The flight's loop: each mover from Earth fixed into the render frame, none behind the Earth, the far ones drawn nearer the lens as big as they are. */
   private drawSky(utcMs: number, ob: Observer): void {
     const s = this.snap, P = this.pools, cam = this.skyCam!.position, ang = Math.max(1e-6, globals.uPixelAngle.value as number);
-    let nm = 0, nl = 0, ns = 0, n = 0, nd = 0, nk = 0;
+    let ns = 0, n = 0, nd = 0, nk = 0;
+    const pc = this.pc;
+    pc[0] = pc[1] = pc[2] = 0;
     if (s) {
       if (this.fixFor !== s) this.toFix(s);
       const R = ob.axes, b = ob.pos, F = this.fix, A = this.ax, rows = s.rows, u32 = s.rowsU32, dt = (utcMs - s.f64[0]) / 1000, sp = P.specks;
@@ -365,21 +465,20 @@ export class LifeHost {
           scale *= k;
         }
         if (px >= MODEL_PX) {
-          const big = info.pool === Pool.LARGE, k = big ? nl : nm;
+          const k = pc[info.pool];
           if (k >= P.pool(info.pool).max) continue;
           this.put(P.pool(info.pool), k, o, x, y, z, scale, ramp);
-          if (big) nl++;
-          else nm++;
+          pc[info.pool]++;
         } else if (ns < SPECKS_MAX) {
           sp.pos[ns * 3] = x;
           sp.pos[ns * 3 + 1] = y;
           sp.pos[ns * 3 + 2] = z;
           sp.ramp[ns] = ramp;
-          sp.phase[ns] = (u32[o + Col.KEY] & 1023) / 1024;
+          sp.phase[ns] = info.beacon ? (u32[o + Col.KEY] & 1023) / 1024 : -1;
           ns++;
         } else continue;
         this.note(nd++, u32[o + Col.KEY], x, y, z);
-        if (paint && nk < MARKS_MAX) {
+        if (paint && info.mark && nk < MARKS_MAX) {
           // (its velocity into the render frame, and the ribbon laid from where it truly is, each point nearer the lens on its own line of sight if it's far)
           const wx = F[q + 3], wy = F[q + 4], wz = F[q + 5], vx = R[0] * wx + R[1] * wy + R[2] * wz, vy = R[3] * wx + R[4] * wy + R[5] * wz, vz = R[6] * wx + R[7] * wy + R[8] * wz;
           const v = Math.sqrt(vx * vx + vy * vy + vz * vz);
@@ -389,7 +488,7 @@ export class LifeHost {
     }
     this.qa.sky = true;
     this.qa.drawn = Math.min(nd, DRAWN);
-    this.commit(nm, nl, ns, n, nk);
+    this.commit(pc, ns, n, nk);
   }
 
   /**

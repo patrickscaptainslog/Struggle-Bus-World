@@ -3,6 +3,7 @@
 //   up        the street boots with life: its worker ticks, snapshots come back, planes in them, drawn as models or specks
 //   carried   between snapshots each plane is carried on by its velocity: a plane moves every frame, not every tenth of a second
 //   programs  nothing compiles after the warm-up: the programs at the first frame are the programs 300 frames on (L6's cloud leg)
+//   people    on the sidewalks round the bus at the Ferry Building: drawn, each on a walkable cell (but the odd one where a run's 4 m cells cross a 2 m kerb) and on the ground
 //   worker    L2: the host's two snapshot buffers go out and come back, none lost and none made
 //   no life   the same page without ?life has no life on it
 // A row passes or fails on the numbers printed with it; exit 1 if any fails.
@@ -50,6 +51,22 @@ try {
   for (let i = 0; i < 9; i++) await frames(30);
   const programs1 = await page.evaluate(() => window.__game.pipeline.renderer.info.programs.length);
   row('programs: nothing compiles after the warm-up, 300 frames on', programs1 === programs0, { atFirst: programs0, after300: programs1, life: await q() });
+  // (people: on the sidewalks, plazas and paths round the bus at the Ferry Building, each on a walkable cell and standing on the ground there)
+  const ppl = await page.evaluate(() => {
+    const g = window.__game, l = g.life, s = l.snap, rows = s.rows, n = s.u32[2], dt = (l.utc - s.f64[0]) / 1000;
+    let people = 0, off = 0, worstY = 0;
+    for (let i = 0; i < n; i++) {
+      const o = i * 16;
+      if (rows[o + 1] !== 3) continue;
+      people++;
+      const x = rows[o + 2] + rows[o + 5] * dt, z = rows[o + 4] + rows[o + 7] * dt, c = g.city.groundClassAt(x, z);
+      if (c !== 3 && c !== 4 && c !== 5) off++;
+      worstY = Math.max(worstY, Math.abs(rows[o + 3] - g.city.groundAt(x, z)));
+    }
+    // (drawn as models from 2 px, specks under that: from the bus's height here most are specks; and the bus's height)
+    return { people, models: l.qa.people, specks: l.qa.specks, off, worstYm: +worstY.toFixed(2), busY: Math.round(g.flight.y) };
+  });
+  row('people: on the sidewalks round the bus, drawn, each on a walkable cell and on the ground', ppl.people > 20 && ppl.models + ppl.specks >= ppl.people * 0.9 && ppl.off <= ppl.people * 0.05 && ppl.worstYm < 1, ppl);
   // (L2: the host's two buffers, each with the host, in a snapshot it holds, or out with a tick: none lost and none made)
   const bufs = await page.evaluate(() => { const l = window.__game.life; return { sent: l.qa.sent, back: l.qa.snaps, free: l.free.length, held: l.snap ? 1 : 0 }; });
   row('worker: every buffer comes back, the same two all along', bufs.free + bufs.held + (bufs.sent - bufs.back) === 2 && bufs.back >= bufs.sent - 2 && bufs.sent > 50, bufs);

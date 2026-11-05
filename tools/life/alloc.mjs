@@ -3,6 +3,7 @@
 //   street   frame() 10,000 times after a warm-up of 30,000, on the sky over the city with every plane painted, so models, specks and contrails are all drawn
 //   flight   frameSky() the same, the bus 40 km over the city
 //   aim      aim() 10,000 times, along a line through the sky
+//   people   frame() low over a street's ground, once its tiles round the bus are sampled (two arrays a tile, as it comes near)
 //   each     what the heap grows by over the 10,000 calls, after a collection: under 64 KB (the contract's bar). Printed beside it, what they made before one: in V8 a
 //            double stored in an object's field, or passed to a call it doesn't inline, is boxed, 16 bytes dropped at once (measured: six doubles to a call not inlined,
 //            96 bytes; six small integers, none), which JavaScriptCore never makes, keeping a double in the value itself
@@ -79,6 +80,19 @@ const aim = () => {
   if (host.aim(bus.x, bus.y, bus.z, x - bus.x, y - bus.y, z - bus.z, 30, 2)) aimed++;
 };
 // (a long warm-up first: what the JIT keeps of its own while it optimises isn't life's)
+// (a host with the street's ground behind it, a sidewalk every eighth 4 m cell, the bus low over it: people sampled, sent and drawn)
+const { Ground } = await import('../../src/world/tiles.ts');
+const world = { tileSize: 256, groundAt: () => 4, groundClassAt: (x, z) => (Math.floor(x / 4) % 8 === 0 || Math.floor(z / 4) % 8 === 0 ? Ground.SIDEWALK : Ground.PAVED) };
+const walkWorker = { postMessage: () => {}, onmessage: null }, walkPools = new Pools(), walkScene = new THREE.Scene();
+walkScene.add(walkPools.group);
+const walkHost = new LifeHost(walkWorker, walkPools, store, 'sf', ORIGIN, world);
+let wutc = T0, wsim = 1;
+const low = { x: 100, y: 40, z: 100 };
+const people = () => {
+  wutc += 16;
+  wsim += 1 / 60;
+  walkHost.frame(1 / 60, wsim, wutc, low, camera);
+};
 const measure = (name, fn, check) => {
   for (let i = 0; i < 30000; i++) fn();
   gc();
@@ -96,6 +110,8 @@ measure('street', street, (q) => q.rows > 0 && q.specks + q.models > 0 && q.mark
 host.attachSky(skyScene, skyCam);
 measure('flight', flight, (q) => q.rows > 0 && q.sky && q.specks + q.models > 0 && q.marks > 0);
 measure('aim', aim, () => aimed > 0);
+// (its tiles sampled in the warm-up, two arrays each, as a tile comes near: after that a frame keeps nothing)
+measure('people', people, () => walkHost.walked.size > 0);
 {
   // (a snapshot's arrival: a fresh buffer each, as a transfer gives, its keys known already)
   const bufs = Array.from({ length: 200 }, () => {

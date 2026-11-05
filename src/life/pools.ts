@@ -45,6 +45,12 @@ const MODELS: Record<number, Box[]> = {
     [5, -2.8, 10, 5, 2.6, 2.6],
     [5, -2.8, -10, 5, 2.6, 2.6],
   ],
+  // a person, 1.7 m, standing on its feet at the origin and facing +X: legs, a body a little wider across than deep, a head
+  [Kind.PERSON]: [
+    [0, 0.42, 0, 0.22, 0.84, 0.34],
+    [0, 1.13, 0, 0.26, 0.58, 0.44],
+    [0, 1.56, 0, 0.22, 0.26, 0.22],
+  ],
   // a small plane, 9 m, high wing
   [Kind.SMALL_PLANE]: [
     [0, 0, 0, 8.5, 1.4, 1.2],
@@ -150,7 +156,7 @@ const SPECK_FS = /* glsl */ `
     float fog = sbFog(vWorldPos) * (painted ? 0.35 : 1.0);
     // (at night, when the windows light, a grey plane is its lights: a beacon on the lamps' ramp an eighth of each 1.2 s, each plane its own phase. uLit is the live
     // sky's and the held hour's, 0 by day and with ?sky=off)
-    if (!painted && uLit > 0.0 && fract(uTime / 1.2 + vPhase) < 0.125) {
+    if (!painted && uLit > 0.0 && vPhase >= 0.0 && fract(uTime / 1.2 + vPhase) < 0.125) {
       sbWrite(${Ramp.LAMP}.0, 1.0, fog * 0.5, 0.0, vec3(0.0, 0.0, 1.0), 0.5, 0.5);
       return;
     }
@@ -289,7 +295,7 @@ export class Specks {
   readonly object: THREE.Points;
   readonly pos: Float32Array;
   readonly ramp: Float32Array;
-  /** each speck's beacon's phase at night, 0..1, from its key */
+  /** each speck's beacon's phase at night, 0..1, from its key; under 0, no beacon (a person) */
   readonly phase: Float32Array;
   private readonly posA: THREE.BufferAttribute;
   private readonly rampA: THREE.BufferAttribute;
@@ -326,6 +332,7 @@ export class Specks {
 
 /** Every pool, the specks and the marks: what the scene holds, and what the warm-up draws once each. */
 export class Pools {
+  readonly small = new MoverPool([Kind.PERSON], POOL_MAX[Pool.SMALL]);
   readonly middle = new MoverPool([Kind.SMALL_PLANE], POOL_MAX[Pool.MIDDLE]);
   readonly large = new MoverPool([Kind.AIRLINER], POOL_MAX[Pool.LARGE]);
   readonly specks = new Specks();
@@ -333,17 +340,17 @@ export class Pools {
   readonly group = new THREE.Group();
 
   constructor() {
-    this.group.add(this.middle.mesh, this.large.mesh, this.specks.object, this.marks.object);
+    this.group.add(this.small.mesh, this.middle.mesh, this.large.mesh, this.specks.object, this.marks.object);
   }
 
   pool(p: Pool): MoverPool {
-    return p === Pool.LARGE ? this.large : this.middle;
+    return p === Pool.LARGE ? this.large : p === Pool.SMALL ? this.small : this.middle;
   }
 
   /** One of each, as drawn (render/warmup.ts registerWarm): a pool with one instance, the specks with one point. */
   warmObjects(): THREE.Object3D[] {
     const out: THREE.Object3D[] = [];
-    for (const p of [this.middle, this.large]) {
+    for (const p of [this.small, this.middle, this.large]) {
       const m = new THREE.InstancedMesh(p.mesh.geometry, p.mesh.material, 1);
       m.frustumCulled = false;
       out.push(m);

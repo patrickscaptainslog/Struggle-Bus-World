@@ -1,4 +1,5 @@
 import { latLonToLocal } from '../game/geo';
+import { peopleOn, type WalkTile } from './sim/people';
 import { livePlanes, LIVE_HOLD, scriptedPlanes, type LivePlane } from './sim/planes';
 import { MAX_ROWS, view, writeKey } from './snapshot';
 import { CLEAR, type Weather } from './weather';
@@ -15,6 +16,13 @@ export interface LifeInit {
   /** CONTRACT.md section 4: held at CLEAR until weather has an owner */
   weather?: Weather;
 }
+/** A tile's ground for people, sampled by the host (Life.ts, sampleGround): its arrays transferred. `walk` null: the tile is far, and dropped. */
+export interface LifeWalk {
+  type: 'walk';
+  tile: WalkTile | null;
+  tx: number;
+  tz: number;
+}
 export interface LifeTick {
   type: 'tick';
   utcMs: number;
@@ -29,6 +37,8 @@ export interface LifeTick {
 }
 
 const RELAY_MS = 10000;
+/** People are filled this far round the bus (m): a person is 2 px at about 800 m on the portrait lens */
+const PEOPLE_REACH = 800;
 /** O9: with no geoid for the place, no live plane is drawn under this (m) */
 const NO_GEOID_FLOOR = 1000;
 
@@ -40,6 +50,8 @@ let asking = false;
 let askedAt = -Infinity;
 /** keys the host has been sent */
 const sent = new Set<number>();
+/** the ground round the bus people walk, by tile */
+const walkTiles = new Map<string, WalkTile>();
 
 /** The relay's answer as live planes on this map. */
 function takeRelay(j: { now?: number; ac?: Array<Record<string, unknown>> }, utcMs: number): void {
@@ -85,6 +97,11 @@ function tick(t: LifeTick): void {
       sent.add(h);
     };
     n = fresh ? livePlanes(live, t.utcMs, t.x, t.z, t.reach, v.rows, 0, MAX_ROWS, keys) : scriptedPlanes(place.slug, t.utcMs, t.x, t.z, t.reach, v.rows, 0, MAX_ROWS, keys, weather);
+    // (people on the ground round the bus, low enough to see them: by the day, UTC)
+    if (t.y < 1500) {
+      const day = Math.floor(t.utcMs / 86400000);
+      for (const w of walkTiles.values()) n = peopleOn(w, day, t.utcMs, t.x, t.z, PEOPLE_REACH, v.rows, n, MAX_ROWS, keys);
+    }
     v.u32[3] = Math.max(0, keyAt);
   } else v.u32[3] = 0;
   v.f64[0] = t.utcMs;
@@ -92,12 +109,17 @@ function tick(t: LifeTick): void {
   (self as unknown as Worker).postMessage({ type: 'snap', buf: t.buf }, [t.buf]);
 }
 
-self.onmessage = (e: MessageEvent<LifeInit | LifeTick>) => {
+self.onmessage = (e: MessageEvent<LifeInit | LifeTick | LifeWalk>) => {
   const m = e.data;
   if (m.type === 'init') {
     place = m;
     weather = m.weather ?? CLEAR;
     live = [];
     sent.clear();
+    walkTiles.clear();
   } else if (m.type === 'tick') tick(m);
+  else if (m.type === 'walk') {
+    if (m.tile) walkTiles.set(`${m.tx},${m.tz}`, m.tile);
+    else walkTiles.delete(`${m.tx},${m.tz}`);
+  }
 };

@@ -1,6 +1,6 @@
 import type * as THREE from 'three';
 import { registerWarm } from '../render/warmup';
-import { LifeHost } from './Life';
+import { LifeHost, type LifeWorld } from './Life';
 import type { LifeInit } from './lifeWorker';
 import { MoverStore } from './paint';
 import { Pools } from './pools';
@@ -13,6 +13,8 @@ export interface LifeContext {
   scene: THREE.Scene;
   /** the place: a city's slug and its map's origin (degrees) */
   place: { slug: string; origin: [number, number] };
+  /** the street's ground, for people (CONTRACT.md section 6's WorldForLife, its first queries) */
+  world?: LifeWorld;
 }
 
 export async function bootLife(ctx: LifeContext): Promise<LifeHost | null> {
@@ -28,7 +30,7 @@ export async function bootLife(ctx: LifeContext): Promise<LifeHost | null> {
     worker.postMessage(init);
     // (what's painted, kept by key: a test's clock has a store of its own, CONTRACT.md section 3)
     const store = new MoverStore(p.has('t') || p.has('rate') || p.has('fixeddt'));
-    const host = new LifeHost(worker, pools, store, ctx.place.slug, ctx.place.origin);
+    const host = new LifeHost(worker, pools, store, ctx.place.slug, ctx.place.origin, ctx.world ?? null);
     void store.load(Date.now()).then((r) => host.restore(r));
     return host;
   } catch (e) {

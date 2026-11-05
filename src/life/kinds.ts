@@ -6,18 +6,25 @@
 export const Pool = { SMALL: 0, MIDDLE: 1, LARGE: 2 } as const;
 export type Pool = (typeof Pool)[keyof typeof Pool];
 
-export const Kind = { AIRLINER: 1, SMALL_PLANE: 2 } as const;
+export const Kind = { AIRLINER: 1, SMALL_PLANE: 2, PERSON: 3 } as const;
 export type Kind = (typeof Kind)[keyof typeof Kind];
 
 export interface KindInfo {
   pool: Pool;
   /** its long size, m: what its pixels on the screen are reckoned from */
   size: number;
+  /** painted, it leaves a mark behind it (O6): a plane's contrail */
+  mark?: boolean;
+  /** grey, at night, a speck of it is its lights: a plane's beacon */
+  beacon?: boolean;
+  /** its paint is kept (CONTRACT.md section 3); a person's isn't, `walk:` "only while it's near" */
+  kept: boolean;
 }
 
 export const KINDS: Record<number, KindInfo> = {
-  [Kind.AIRLINER]: { pool: Pool.LARGE, size: 60 },
-  [Kind.SMALL_PLANE]: { pool: Pool.MIDDLE, size: 11 },
+  [Kind.AIRLINER]: { pool: Pool.LARGE, size: 60, mark: true, beacon: true, kept: true },
+  [Kind.SMALL_PLANE]: { pool: Pool.MIDDLE, size: 11, mark: true, beacon: true, kept: true },
+  [Kind.PERSON]: { pool: Pool.SMALL, size: 1.7, kept: false },
 };
 
 /** A snapshot row (LIFE.md, "The worker"): 16 floats. */
