@@ -474,3 +474,32 @@ On a build of e0c89d8 (the tip's paint code is the same), on this laptop. The fi
 In this order:
 1. The four new majors, before `main`, each with a row that fails before its fix and passes after, as review four's had. 34, 35 and 36 name theirs: `land.mjs --same=60` with `same.py`, or a Node row on the rows a Moon page's shaders read; a trip with `street: true` and `land: false` that leaves the orbit; a `swap.mjs` row at a night `?t=` across the page change and the resumed hand-down. 33's needs `GroundPaint` run in City's order, since `paint-check` runs no City. Some go together: 36 with 45 (one rule for the flight's table, as SKY.md's Air axis gives), and 33 with 38 (both 4's splits).
 2. The minors, then the nits: 42 with 44 (a store that refuses), and 39 with 48 (the codes a get returns, decoded as they're needed).
+
+## On the GPU (the first account, 2026-11-05)
+
+Build: origin/feat/earth at 81690092 (the tip when fetched), exported with `git archive`, built with `vite build` into a build dir outside the repos, served by `tools/sky/serve-dist.mjs` on port 4179 for keep.mjs and climb.mjs; m2-fold and m4-attach served their own copies on 4192 and 4191. Edge headless on this laptop's Intel UHD 620, 8 GB. Free memory at each browser start: m2-fold 803 MB, m4-attach 949 MB, keep.mjs 1182 MB (one browser for all twenty runs), climb 1012, 1703 and 1663 MB. Each start was at or above the 700 MB rule. These are this laptop's numbers under its own load, not a phone's.
+
+### M2 (`tools/moon/review3/gpu/m2-fold.mjs`, five MEGAs from 600 m, five breaths)
+Bar (the third review's Done): the longest frame after each blast within a vsync of plain flight.
+- MEGA frame maxima (the 6 s after the let-go): 33.4, 17.1, 33.2, 17.1, 17.0 ms. Three of five within a vsync (16.7 ms, plain 17.0 to 17.5). MEGA 1 and MEGA 3 each show one 33 ms frame, a dropped vsync. The script does not place the frame in time, so it is not tied to a fold. No frame over 50 ms, no long task.
+- Fold calls: each MEGA's train starts 2.73 to 2.75 s after the let-go, when the impact falls, and runs to 3.76 to 4.14 s: 251 to 311 calls a MEGA, each at most 2.1 ms, 20 to 32 of them at 2 ms or more.
+- Breaths: frames at most 17.0 to 17.5 ms (median 16.7). Fold calls at most 1.5 ms, 11 to 41 a breath. The review's breath fold at 12 to 33 ms is not reproduced here.
+- The let-go frame (bar 4) is inside the 6 s window and is not separated out, so it is not measured.
+- Review five's major 33 (the splits after the MEGA's job starts): m2-fold sees no folds before the impact and the fold train starting there. It wraps neither the splits, the job nor the replays, so it neither confirms nor refutes 33. The two 33 ms frames are not located in time against the train.
+
+### M4 (`tools/moon/review3/gpu/m4-attach.mjs`, two rounds, a painted strip 8 km by 1 km, 360 blasts a round)
+Bar (the third review's Done): the painted flight's worst frame under 34 ms, where the unpainted one's is 17 to 18 ms.
+- Round 1, painted: 2312 frames, median 16.7, p95 16.8, p99 17.0, max 17.6 ms, none over 33 ms. Unpainted: 2314 frames, max 17.2 ms. Pass.
+- Round 2, painted: 2281 frames, median 16.7, p99 17.0, max 533.2 ms. Two frames over 33 ms, one over 50, one over 100: the 533 ms frame at 11.37 s into the flight, with no long JS task. Unpainted round 2: max 33.5 ms. Fail on the painted flight's worst frame. Not seen in round 1; cause not found; not rerun.
+- Copies (the painted flight, round 1): 482 copies, median 1.1 ms, max 2 ms, at most 4 in a frame. `pictureInto` 936 calls, max 2 ms. `attach` 206 calls, max 0.2 ms. Round 2: 517 copies, max 2 ms.
+- Not measured by the script: `City.update` time in those frames and `copySteps` for a tile's key after its attach (bar 3), and `renderer.info.render.calls` over the strip (bar 9). Those bars are not answered by this run.
+
+### keep.mjs, twenty runs (`--runs=20`, one browser, a new context each run, on this build)
+- kept, reload, heavy, new map, one name, no page errors: 20 of 20 each. The new-map row, the third review's gate, passed 20 of 20.
+- slide: 18 of 20. It failed in runs 8 and 11. After the page came back the blast's point had cover 1 and kept 16 or 17, as before, but the hue differed: 3 then 2 (run 8), 2 then 1 (run 11). The row checks the hue exactly. The gate of twenty of twenty is not met. Not investigated further.
+
+### climb.mjs, three runs (`tools/earth/climb.mjs`, the default `?earth` at 21:00 UTC, by day)
+- All nine rows and "no page errors" pass in each run: boot (the space rows, none black); the hand-up at 15 km (4 of 4 rows the same either side); the flight has the bus past 15 km in Turbo 3; the wind and foghorn quiet going up (duck 0.027, 0.027 and 0.033); the flight climbs on to 33.35 km; the wind back going down (duck 0.919, 0.923 and 0.923); the street has the bus again under 14 km (13.66 km) in Turbo 3.
+- Frames `up-11km`, `up-13km`, `up-14.6km` and `handover-*` are saved under `shots/local/gpu4/climb-N`, not compared by eye here. climb.mjs printed no palette row (bar 5's row 33 check), only the boot's none-black row.
+
+Summary: met, the painted flight's round 1 (M4), climb three of three, keep's new-map row twenty of twenty. Not met: M2 two of five MEGAs with a 33 ms frame; M4's round 2 with one 533 ms frame; keep's slide row, 18 of 20. Not run: M4's City.update and copySteps counts, and render calls (bars 3 and 9); the let-go frame (bar 4).
