@@ -114,7 +114,7 @@ const backOn = async (g, tiles, before, where = null) => {
 
 // ---- pole
 if (!only || only === 'pole')
-for (const [name, lat0, lon0] of [['60', 60, 10], ['88.9', 88.9, 40], ['Shackleton', -89.67, 129.2], ['89.9', 89.9, -70], ['the pole', 90, 0]]) {
+for (const [name, lat0, lon0] of [['60', 60, 10], ['88, the edge of the cap', 88, 25], ['88.9', 88.9, 40], ['Shackleton', -89.67, 129.2], ['89.9', 89.9, -70], ['the pole', 90, 0]]) {
   const rows = new Map(), g = await page(lat0, lon0, rows);
   const out = [];
   let ok = true;

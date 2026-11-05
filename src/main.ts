@@ -1693,6 +1693,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         pumpSelf = false;
       },
       enter(s) {
+        input.endPress();
         if (streetHands) Object.assign(input, streetHands);
         // (the flight wrote space's palette: the live sky's table again, or the held hour's)
         if (live) {
@@ -1715,6 +1716,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         last = performance.now();
       },
       leave() {
+        input.endPress();
         if (skyHands) Object.assign(input, skyHands);
         // (the flight's thumb looks wherever it lands off the bus's lane: the street's gate is the street's)
         input.lookOff = false;
@@ -1766,6 +1768,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         // the far field and the sky come down with it, and the thumb is the low game's from here
         scene.add(m.far!.object, m.sky.object);
         pipeline.steadySnap = false;
+        input.endPress();
         Object.assign(input, groundHands);
         flight.groundUnder = flight.groundBroad = city.groundAt(s.x, s.z);
         flight.takeOver(s.x, s.y, s.z, s.heading, s.speed, s.nose);
@@ -1785,6 +1788,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       },
       leave() {
         // (the low game's sound and what it set on the frame stop with its frame, and the flight's loop has neither)
+        input.endPress();
         Object.assign(input, flightHands);
         controls.hud.setVisible(false);
         controls.leftGround();

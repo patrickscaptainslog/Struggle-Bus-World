@@ -458,7 +458,9 @@ export class GeoPaint {
   private inside(key: number, a: number, b: number): boolean {
     if (key < CAP_KEY) return true;
     const k = key - CAP_KEY, r = k >= 1e7 ? k - 1e7 : k, pi = Math.floor(r / 2000) - 1000, pj = (r % 2000) - 1000;
-    return Math.hypot((pi + (a + 0.5) / N) * PIC_M, (pj + (b + 0.5) / N) * PIC_M) <= CAP_R;
+    // (any of it in the cap, not only its middle: a point just inside 88 degrees reads the cap texel it falls in, which was never drawn when its middle lay outside, a 2 m
+    // hole every 27 m along the circle. Review four, 14)
+    return Math.hypot((pi + (a + 0.5) / N) * PIC_M, (pj + (b + 0.5) / N) * PIC_M) <= CAP_R + (PIC_M / N) * Math.SQRT1_2;
   }
 
   /** The splat drawn into a picture from its row `from`, a row at a time until `until`: the row to go on from, or -1 when it's done. */

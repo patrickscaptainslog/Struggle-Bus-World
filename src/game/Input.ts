@@ -560,6 +560,12 @@ export class Input {
     if (this.prSrc !== Src.None) this.pressEnd(this.prSrc, now, true);
   }
 
+  /** A press held as the hands change (?earth's and ?moonland's hand-overs) ends cancelled with the hands that took it, so its owner's charge goes back to ready
+   *  and its sound stops: a MEGA held through the hand-up drones on in space and fired by itself at the hand-down. Review four, 20 */
+  endPress(): void {
+    this.pressCancel(performance.now());
+  }
+
   // ---------------------------------------------------------------- pointers
 
   private pointerDown(e: PointerEvent) {
