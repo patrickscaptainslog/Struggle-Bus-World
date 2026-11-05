@@ -721,7 +721,7 @@ def run(slug, city_dir, log=_log, crops=None):
         log(bridge_line(c, Q['bridgeGate']))
     if cfg.get('worldcover', True) is False:
         log('the rest skipped: the config bakes without WorldCover ("worldcover": false), the reference of the QA')
-        summary = {'pass': not bfailed, 'failed': bfailed, 'bridgeGate': Q['bridgeGate'], 'bridges': bridge_summary(bridge), 'bridgePlan': bplan,
+        summary = {'pass': not bfailed, 'failed': bfailed, 'bridgeGate': Q['bridgeGate'], 'bridges': bridge_summary(bridge),
                    'report': os.path.relpath(os.path.join(out, 'report.md'), ROOT).replace('\\', '/')}
         with open(os.path.join(out, 'report.md'), 'w', encoding='utf-8') as f:
             f.write('\n'.join([f'# Bake QA: {name} ({man.get("name", slug)}): bridges only', '', 'The config bakes without WorldCover, the '
@@ -918,7 +918,7 @@ def run(slug, city_dir, log=_log, crops=None):
         'flags': nflag, 'trees': tree_stats, 'scrubWoodedExamples': [[round(la, 5), round(lo, 5)] for la, lo, w in scrub_ex],
         'parks': [{k: p[k] for k in ('name', 'ha', 'wcTree', 'trees', 'mapped', 'park', 'street', 'perHa', 'haOpen', 'procOpen', 'perHaOpen')}
                   for p in parks],
-        'bridgeGate': Q['bridgeGate'], 'bridges': bridge_summary(bridge), 'bridgePlan': bplan,
+        'bridgeGate': Q['bridgeGate'], 'bridges': bridge_summary(bridge),
         'report': os.path.relpath(os.path.join(out, 'report.md'), ROOT).replace('\\', '/'),
     }
     write_report(out, name, slug, man, Q, checks, ok, tree_stats, worst, parks, ny, nx, len(T), nproc, scrub_ex, bridge_section(bridge, bplan, Q, refused))
@@ -1077,12 +1077,12 @@ def bridge_line(c, gate):
 
 
 def bridge_summary(bridge):
-    """the bridge checks for city.json stats.qa (an id gone is value None with gone: true)"""
+    """the bridge checks for city.json stats.qa, short: the game reads that file on every boot, and the units, limits,
+    reasons and rows are the report's (an id gone is value None with gone: true)"""
     def num(v):
         return None if v is None or not math.isfinite(v) else round(v, 4)
-    return {c['key']: {'value': num(c['value']), 'unit': c['unit'], 'limit': num(c['limit']), 'count': num(c['count']) if c['count'] is not None else None,
-                       'floor': c['floor'], 'over': c['over'], 'read': c['read'], **({'why': c['why']} if not c['read'] else {}),
-                       **({'gone': True} if c['value'] == float('inf') else {})} for c in bridge}
+    return {c['key']: {'value': num(c['value']), 'over': c['over'], 'read': c['read'], **({'gone': True} if c['value'] == float('inf') else {})}
+            for c in bridge}
 
 
 def bridge_section(bridge, bplan, Q, refused):
