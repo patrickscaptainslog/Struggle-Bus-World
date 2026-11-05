@@ -4,5 +4,6 @@
   "heldSteps": { "count": 1, "what": "steps of those ways climbing to it" },
   "feet": { "count": 31, "worstM": 5.6, "what": "sidewalk steps at their own feet on the ground beside their road still up (call 1)" },
   "held": { "count": 11, "worstM": 4.3, "what": "sidewalk steps the ground holds over their road (call 2)" },
-  "otherRoad": { "count": 16, "what": "sidewalk steps riding a road within 1 m that isn't the nearest" }
+  "otherRoad": { "count": 16, "what": "sidewalk steps riding a road within 1 m that isn't the nearest" },
+  "walls": { "count": 61, "worstM": 39.4, "what": "foot deck steps rising over 1 m faster than a ramp's 50 % (a stair's 77.5 % on stairs): at feet the calls' and pits in the grid, along the decks riding that flips between two carriageways and the Bay Bridge's cycleway; found 2026-11-05, not fixed" }
 }

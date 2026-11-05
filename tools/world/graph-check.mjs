@@ -338,6 +338,7 @@ const c = {
   tunnelUndrawn: 0, undrawnKm: {}, kmByClass: {},
   land: 0, landNoTile: 0, landWorst: 0, landWhere: null, landOver: 0, steps: 0,
   held: 0, heldWorst: 0, heldWhere: null, heldSteps: 0,
+  footDeckSteps: 0, walls: 0, wallsAtFeet: 0, wallWorst: 0, wallWhere: null,
   water: 0, waterOff: 0, waterWorst: 0, waterLake: 0, afloat: 0, afloatUnder: 0, afloatWorst: 0, afloatWhere: null,
   lakeTexels: 0, lakeCovered: 0, lakeOffTexels: 0, seaTexels: 0, seaCovered: 0, lakeTris: 0, lakeAreas: 0, seaAreas: 0,
   drawnPts: [], topLevel: [], footDeck: [], roadDeck: [], stackPairs: 0, rampPairs: 0, inversions: 0, inversionWhere: null,
@@ -457,6 +458,20 @@ for (const [rx, rz, bytes] of regions) {
       if (i) { len += Math.hypot(P[i][0] - P[i - 1][0], P[i][2] - P[i - 1][2]); pre.push(len); }
     }
     if (across) c.edgesAcross++;
+    if (k === 2 && kind === 2) {
+      // a walker on a deck never meets a wall: a step between two of a foot deck's points that rises over 1 m faster
+      // than a ramp's 50 %, or on stairs a stair's 77.5 % (decks.py STAIR_MAX; a decimetre's rounding over it)
+      const stairs = edges.cls[e] === 5;
+      for (let i = 0; i < P.length - 1; i++) {
+        const dy = Math.abs(P[i + 1][1] - P[i][1]), d = Math.hypot(P[i + 1][0] - P[i][0], P[i + 1][2] - P[i][2]);
+        c.footDeckSteps++;
+        if (dy > 1 && dy > (stairs ? 0.775 * d + 0.1 : 0.5 * d)) {
+          c.walls++;
+          if ((i === 0 && touch[edges.a[e]] & 1) || (i === P.length - 2 && touch[edges.b[e]] & 1)) c.wallsAtFeet++;
+          if (dy > c.wallWorst) { c.wallWorst = dy; c.wallWhere = `edge ${edges.id[e]} (${keysOf.get(edges.id[e])?.slice(2)}, ${FOOT[edges.cls[e]]}) at ${P[i][0].toFixed(1)}, ${P[i][2].toFixed(1)}: ${P[i][1].toFixed(1)} to ${P[i + 1][1].toFixed(1)} in ${d.toFixed(1)} m`; }
+        }
+      }
+    }
     if (edges.a[e] === edges.b[e]) c.selfLoops++;
     if (len < 0.05) c.shortEdges++;
     const name = kind === 1 ? ROAD[edges.cls[e]] : kind === 2 ? 'foot:' + FOOT[edges.cls[e]] : KIND[kind].toLowerCase();
@@ -605,7 +620,7 @@ for (const [rx, rz, bytes] of regions) {
       const q = near(x, z, decks[k]);
       if (q.best <= 40 && !q.ext) c.drawnPts.push([k, y, q.top, Math.max(1, lv), edges.id[e], x, z, sea(x, z) || wet(x, z) ? NaN : ground(x, z)]);
     }
-    if (kind === 2) c.footDeck.push([x, y, z, Math.max(1, lv), ux, uz, foot, node]);
+    if (kind === 2 && edges.cls[e] !== 5) c.footDeck.push([x, y, z, Math.max(1, lv), ux, uz, foot, node]); // stairs climb: they ride nothing
     else if (kind === 1 && !foot && !nearFoot) c.roadDeck.push([x, y, z, Math.max(1, lv), ux, uz]); // a road's foot is the ground's: no carriageway
   }
   // decks a chain of deck edges joins, anywhere in the city (by node ids: a portal is one id in two files), are one
@@ -879,6 +894,13 @@ report('tunnels under the ground', `${c.tunnelPts} tunnel steps; ${c.tunnelOver}
   report('sidewalks beside their carriageway', `${n} foot deck steps within 14 m of a road deck at their level; worst ${worst.toFixed(1)} m from the nearest in height${where ? ` (${where})` : ''}; ${over} over 1 m; ${other} riding a road beside them that isn't the nearest`, `0 over 1 m; riding another ${lo}`, over === 0 && oo);
   const [fa, la] = capOf('feet', known.feet[0], known.feet[1]), [ha, lh] = capOf('held', known.held[0], known.held[1]);
   report('  where the ground wins (known)', `${kn(known.feet, 'at their own feet on the ground')}; ${kn(known.held, 'held by the ground over their road')}`, `feet ${la}; held ${lh}`, fa && ha);
+}
+{
+  // the walls the studio's calls leave at a deck's feet (a foot on the ground beside a deck held up, a drawn deck held
+  // mid-span), and those along the decks that W1 found the night it learned to look, in the files before too (one
+  // traced: riding that flips between two carriageways at two heights): known, the next pass's, and nothing past them
+  const [ok, l] = capOf('walls', c.walls, c.wallWorst);
+  report('walls on foot decks (known)', `${c.footDeckSteps} steps between foot deck points; ${c.walls} rising over 1 m faster than a ramp's 50 % or, on stairs, a stair's 77.5 %, ${c.wallsAtFeet} of them at a foot${c.wallWhere ? ` (worst ${c.wallWorst.toFixed(1)} m: ${c.wallWhere})` : ''}`, l, ok);
 }
 report('stacked decks by level', `${c.stackPairs} pairs of deck points within 3 m of a higher level on another structure; ${c.inversions} where the higher isn't 0.1 m higher${c.inversionWhere ? ` (${c.inversionWhere})` : ''}; ${c.rampPairs} pairs on one structure, across its ramps, not checked`, '0', c.inversions === 0);
 report('ferries on water inside the map', `${c.ferrySamples} samples every 10 m, ${c.ferryExempt} within 150 m of a route's end; ${c.ferryOnLand} on land${c.ferryLandWhere ? ` (first: ${c.ferryLandWhere})` : ''}`, '0', c.ferryOnLand === 0);

@@ -10,6 +10,7 @@ The rule, on a deck's samples (every 4 m or less along it, joined where the deck
   stacked      over water too, 5.5 m a level over level 1, so a lower deck stays under the top
   coming down  never faster than 3 % (road), 2 % (rail) or 6 % (foot)
   a free end   on the ground where a kept road or path meets it, coming up at 6 %, 3.5 % or 10 %
+  a stair      to a deck's foot (grade class 3): on the ground, but where it climbs to the deck, at up to 77.5 %
   crossing     a deck over another structure's lower one 5.5 m a level over it, one under a higher one as far under
                (Stacked: San Francisco's level-2 footbridge over a level-1 road came down to its steps under it)
   fixed        heights the deck must take: a deck City draws (C2), a sidewalk riding its carriageway; the rule runs
@@ -33,12 +34,15 @@ LEVEL_M = 5.5                      # a level's rise
 WATER_BASE, WATER_K, WATER_MAX = 1.5, 0.045, 80.0
 GAP_M = 120.0                      # land between two waters that still counts as one crossing
 SMOOTH_M = 16.0                    # the ground's smoothing, each way
-GRADE_DOWN = (0.03, 0.02, 0.06)    # by grade class: 0 road, 1 rail, 2 foot
-GRADE_END = (0.06, 0.035, 0.10)
+# a flight of stairs that climbs to a deck's foot (grade class 3, graphs.py's stair chains): the steepest a building code
+# lets a stair climb, a 7.75 in riser on a 10 in tread
+STAIR_MAX = 0.775
+GRADE_DOWN = (0.03, 0.02, 0.06, STAIR_MAX)    # by grade class: 0 road, 1 rail, 2 foot, 3 a stair to a deck
+GRADE_END = (0.06, 0.035, 0.10, STAIR_MAX)
 # a tunnel's or covered way's way down from an end: a road's and a railway's as a free end's, a footway's a stair's. At
 # 10 % the Embarcadero Center's covered sidewalks, between the street and stairs up to its podium at 16.6 m, stood
 # 2.5 m over the street 100 m from the stairs
-GRADE_STAIR = (0.06, 0.035, 0.5)
+GRADE_STAIR = (0.06, 0.035, 0.5, 0.5)
 
 
 def water_rise(length):
@@ -147,6 +151,8 @@ def profile(ground, water, level, grade, links, anchors, floor=None, cap=None, b
         if water[i]:
             r = u.find(i)
             h[i] = wet_base.get(r, 0.0) + water_rise(wet_len.get(r, 0.0)) + LEVEL_M * (lv[i] - 1)
+        elif grade[i] == 3:
+            h[i] = ground[i]   # a stair to a deck stands on the ground but where it climbs to it
         else:
             h[i] = g[i] + LEVEL_M * lv[i]
     for i, y in fixed.items():

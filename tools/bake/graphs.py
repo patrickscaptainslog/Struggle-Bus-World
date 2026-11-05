@@ -34,6 +34,7 @@ os.environ.setdefault('OMP_NUM_THREADS', '1')
 import csv
 import glob
 import gzip
+import heapq
 import json
 import math
 import pickle
@@ -96,6 +97,8 @@ DRAWN_COS = math.cos(math.radians(30))   # heading along it, not across
 CHECK_LAND_M = 300.0           # W1's land along the ferries past the map (C3), each side of the routes
 FOLLOW_M = 15.0                # a sidewalk on a bridge rides its carriageway's deck this close, at one level
 FOOT_END_M = 2 * DRAWN_REACH_M  # a foot on the ground this far inside a drawn deck's ends is a ramp's beside it, not the deck's own
+STAIR_CHAIN_M = 100.0          # steps from a deck's foot, this long or less, are the stair up to it (stair_chains())
+STAIR = 3                      # the grade class of a stair to a deck (decks.py STAIR_MAX)
 STOP_ALONG_M, STOP_NEAR_M = 15.0, 3.0
 TERMINAL_M = 150.0             # a route's end to its terminal
 BERTH_DEFAULT_M = 60.0         # ESTIMATE: a ferry slip
@@ -1252,11 +1255,22 @@ class Bake:
         clash = defaultdict(set)
         stop_best = {}
         stops = np.array([p for p, _ in self.stops]) if self.stops else np.zeros((0, 2))
+        # for ground_onto_decks(): every ground piece at each node, its steps apart, and the ground foot pieces that
+        # might be on a deck: steps anywhere, and any between two nodes a deck meets
+        deck_keys = {k for _, rec in self.special if rec[13] == 'deck' for k in (rec[7], rec[8])}
+        gcount, gsteps, cand = defaultdict(int), defaultdict(int), []
         for r in regs:
             lines, recs = [], []
             for rec in self.spill.read(r):
                 pid, kind = rec[0], rec[1]
                 ak, bk, shape = rec[7], rec[8], rec[9]
+                if rec[13] == 'ground':
+                    steps = kind == KIND['FOOT'] and rec[2] == FOOT_CLASS['STEPS']
+                    for key in (ak, bk):
+                        gcount[key] += 1
+                        gsteps[key] += steps
+                    if kind == KIND['FOOT'] and (steps or (ak in deck_keys and bk in deck_keys)):
+                        cand.append((r, rec))
                 for key, p, con in ((ak, shape[0], rec[14]), (bk, shape[-1], rec[15])):
                     node_reg[key].add(r)
                     node_bits[key] |= bits[rec[13]]
@@ -1276,6 +1290,8 @@ class Bake:
                 self.match_stops(r, lines, recs, stops, stop_best)
             guard('global pass')
         self.node_reg, self.node_bits, self.node_xz = node_reg, node_bits, node_xz
+        self.ground_onto_decks(cand, gcount, gsteps, deck_keys)
+        del cand, gcount, gsteps, deck_keys
         forms = defaultdict(int)
         for k in node_reg:
             if k[0] == 'n' and '@' not in k:
@@ -1384,6 +1400,123 @@ class Bake:
             if prev is None or d < prev[0]:
                 best[si] = (d, key)
 
+    def ground_onto_decks(self, cand, gcount, gsteps, deck_keys):
+        """Ground foot pieces a deck holds up, found before the decks' heights ("Where the ground wins", 1):
+        - between two feet: a foot piece whose two ends are each a footway deck's foot and nothing else on the ground,
+          running beside a road deck at their level for its whole length (FOLLOW_M, heading with it), is on that
+          bridge. OSM ends a sidewalk's bridge pieces where it goes on untagged across the bridge: on w28715669, over a
+          primary road in a trench, its east sidewalk's walkers dropped 8.1 m to the road under it for 20 m and climbed
+          10.2 m back up. The piece is made a deck piece of theirs, BRIDGE at their level, and rides the road with them.
+        - a stair: steps from a deck's foot where only steps meet it, STAIR_CHAIN_M or less to where they meet the
+          ground, kept for component(): where the deck is held up over that foot, the stair takes the climb and the
+          foot stands at the deck's height (a footway's last 0.9 m climbed 10.2 m from stairs lying flat on a trench's
+          floor to a bridge's sidewalk).
+        gcount, gsteps: ground pieces at each node key, and of them steps. Fills self.promoted (pid: the piece as a deck
+        piece, for build_region) and self.stair_chains (a foot's key: its stair)."""
+        self.promoted, self.stair_chains = {}, {}
+        deck_at = defaultdict(list)
+        roads = defaultdict(list)   # road decks' segments, by FOLLOW_M cell of anything within FOLLOW_M of them
+        for _, rec in self.special:
+            if rec[13] != 'deck':
+                continue
+            deck_at[rec[7]].append(rec)
+            deck_at[rec[8]].append(rec)
+            if rec[12] == 0:
+                for p, q in zip(rec[9][:-1], rec[9][1:]):
+                    for cx in range(math.floor((min(p[0], q[0]) - FOLLOW_M) / FOLLOW_M), math.floor((max(p[0], q[0]) + FOLLOW_M) / FOLLOW_M) + 1):
+                        for cz in range(math.floor((min(p[1], q[1]) - FOLLOW_M) / FOLLOW_M), math.floor((max(p[1], q[1]) + FOLLOW_M) / FOLLOW_M) + 1):
+                            roads[(cx, cz)].append((float(p[0]), float(p[1]), float(q[0]), float(q[1]), max(rec[5], 1)))
+
+        def beside(shape, lv):
+            for p, q in zip(shape[:-1], shape[1:]):
+                d = float(np.hypot(*(q - p)))
+                if d < 1e-9:
+                    continue
+                ux, uz = (q - p) / d
+                k = max(1, int(math.ceil(d / DRAPE_STEP)))
+                for j in range(k + 1):
+                    x, z = p + (j / k) * (q - p)
+                    ok = False
+                    for ax, az, bx, bz, l2 in roads.get((math.floor(x / FOLLOW_M), math.floor(z / FOLLOW_M)), ()):
+                        vx, vz = bx - ax, bz - az
+                        L = math.hypot(vx, vz)
+                        if l2 != lv or L < 1e-9 or abs((vx * ux + vz * uz) / L) < DRAWN_COS:
+                            continue
+                        t = min(1.0, max(0.0, ((x - ax) * vx + (z - az) * vz) / (L * L)))
+                        if math.hypot(ax + t * vx - x, az + t * vz - z) <= FOLLOW_M:
+                            ok = True
+                            break
+                    if not ok:
+                        return False
+            return True
+        bits = self.node_bits
+        steps_at = defaultdict(list)
+        for r, rec in cand:
+            ak, bk = rec[7], rec[8]
+            if rec[2] == FOOT_CLASS['STEPS']:
+                steps_at[ak].append(rec)
+                steps_at[bk].append(rec)
+                continue
+            ends = (deck_at[ak], deck_at[bk])
+            if ak == bk or any(gcount[k] != 1 or bits[k] & 12 for k in (ak, bk)) or any(d[12] != 2 for e in ends for d in e):
+                continue
+            lv = max(d[5] for e in ends for d in e)
+            if not beside(rec[9], max(lv, 1)):
+                continue
+            new = rec[:5] + (lv, rec[6] | BRIDGE | (0 if self.on_drawn_deck(rec[9]) else UNDRAWN)) + rec[7:13] + ('deck',) + rec[14:]
+            self.promoted[rec[0]] = new
+            self.special.append((r, new))
+            for k in (ak, bk):
+                bits[k] = (bits[k] & ~1) | 2
+                gcount[k] -= 1
+            self.stats['rules']['ground foot pieces on a bridge between its feet'] += 1
+        # the stairs: from each foot only steps meet, along steps through nodes only steps meet, to where something
+        # else on the ground meets them (the stair's foot, on the ground) or they end; never onto another deck
+        claimed = set()
+        far_keys = []
+        for F in sorted(k for k in deck_keys if gsteps[k] and gcount[k] == gsteps[k] and bits[k] & 1 and not bits[k] & 12):
+            dist, todo, pieces, far, ok = {F: 0.0}, [(0.0, F)], {}, {}, True
+            while todo and ok:
+                d0, k = heapq.heappop(todo)
+                if d0 > dist[k] + 1e-9:
+                    continue
+                if k != F and (k in deck_keys or bits[k] & 12):
+                    ok = False   # onto another deck, a tunnel or a ferry: not a plain stair
+                    break
+                if k != F and gcount[k] != gsteps[k]:
+                    far[k] = d0   # the stair's foot, where the ground goes on
+                    continue
+                for rec in steps_at[k]:
+                    if rec[0] in pieces:
+                        continue
+                    if rec[0] in claimed:
+                        ok = False
+                        break
+                    pieces[rec[0]] = rec
+                    o = rec[8] if rec[7] == k else rec[7]
+                    nd = d0 + float(cumlen(rec[9])[-1])
+                    if nd > STAIR_CHAIN_M:
+                        ok = False
+                        break
+                    if nd < dist.get(o, math.inf):
+                        dist[o] = nd
+                        heapq.heappush(todo, (nd, o))
+            if ok and pieces:
+                claimed.update(pieces)
+                self.stair_chains[F] = {'pieces': list(pieces.values()), 'far': far, 'cap': math.inf}
+                far_keys.extend((F, k, d) for k, d in far.items())
+        if far_keys:
+            # how high the stair can climb: from each of its feet on the ground at STAIR_MAX along it
+            xz = np.array([self.node_xz[k] for _, k, _ in far_keys])
+            g, c = self.tiles.sample(xz[:, 0], xz[:, 1])
+            st = stand(g, c)
+            for (F, k, d), y in zip(far_keys, st):
+                ch = self.stair_chains[F]
+                ch['cap'] = min(ch['cap'], float(y) + self.decks.STAIR_MAX * d)
+        self.stairs_up = []
+        self.note(f'ground onto decks: {len(self.promoted)} foot pieces between a bridge\'s feet, {len(self.stair_chains)} '
+                  f'stairs from a deck\'s foot ({sum(len(c["pieces"]) for c in self.stair_chains.values())} pieces)')
+
     def special_heights(self):
         """Decks: the bridges spec's profile on each joined chain of deck pieces (decks.py). Tunnels: straight between
         the ends they stand on. Fills self.deck_y (node key: y), self.inner (pid: inner points x, z, y) and self.held (the
@@ -1429,6 +1562,7 @@ class Bake:
                 done.append(self.component(which, comp))
             if which == 'deck':
                 self.ride(done)
+                self.place_stairs()
             del done
             guard(which)
         self.note(f'decks and tunnels: {sum(1 for _, r in self.special if r[13] == "deck")} deck pieces, '
@@ -1560,7 +1694,8 @@ class Bake:
                 if by is not None:
                     fixed[i] = by if water[i] else max(by, float(ground[i]))   # riding, but never under the ground
             lo, hi = self.stacked.bounds(xs, zs, lvl)
-            y = self.decks.profile(ground, water, lvl, grade, links, anchors, lo, hi, base=base, fixed=fixed)
+            y = self.climb_stairs(node_s, links, anchors, lambda a: self.decks.profile(
+                ground, water, lvl, grade, links, a, lo, hi, base=base, fixed=fixed))
             self.stacked.add(xs, zs, lvl, y)
             for i, hs in heads.items():
                 for u, v, gr, nf in hs:
@@ -1684,14 +1819,104 @@ class Bake:
             fixed.update(new)
             for i in np.nonzero(S['grade'] != 2)[0]:
                 fixed.setdefault(int(i), float(S['y'][i]))
-            S['y'] = self.decks.profile(S['ground'], S['water'], S['lvl'], S['grade'], S['links'], S['anchors'], S['lo'],
-                                        S['hi'], base=S['base'], fixed=fixed)
+            S['y'] = self.climb_stairs(S['node_s'], S['links'], S['anchors'], lambda a: self.decks.profile(
+                S['ground'], S['water'], S['lvl'], S['grade'], S['links'], a, S['lo'], S['hi'], base=S['base'], fixed=fixed))
             self.place(S)
             again += 1
             samples += len(new)
         self.stats['rules']['structures profiled again with their sidewalks riding'] += again
         self.stats['rules']['sidewalk samples riding in that pass'] += samples
         self.note(f'decks: {again} structures profiled again, {samples} sidewalk samples riding their carriageway')
+
+    def climb_stairs(self, node_s, links, anchors, prof):
+        """A deck's heights, prof(anchors), with its stairs taking the climb where it's held up over a foot: a foot a
+        stair meets (ground_onto_decks), left on the ground under a deck that riding or a drawn top holds up, was a
+        wall in the deck's last step. It stands at the deck's height instead, as high as its stair can climb
+        (STAIR_MAX from where the stair meets the ground), and place_stairs() runs the stair down from it. anchors is
+        changed in place, so a second profile (ride()) keeps it."""
+        y = prof(anchors)
+        ups = []
+        for key, i in node_s.items():
+            if key in self.stair_chains and i in anchors:
+                for a, b, d in links:
+                    if i in (a, b) and y[b if a == i else a] - y[i] > max(1.0, 0.5 * d):
+                        ups.append((key, i))
+                        break
+        if not ups:
+            return y
+        for key, i in ups:
+            del anchors[i]
+        y = prof(anchors)
+        capped = [(key, i) for key, i in ups if y[i] > self.stair_chains[key]['cap']]
+        for key, i in capped:
+            anchors[i] = self.stair_chains[key]['cap']
+        if capped:
+            y = prof(anchors)
+        for key, i in ups:
+            self.node_bits[key] &= ~1   # its only ground pieces are its stair's, a deck's from here
+            if key not in self.stairs_up:
+                self.stairs_up.append(key)
+                self.stats['rules']['stairs taking the climb to a deck held up over its foot'] += 1
+        self.stats['rules']['of them as high as the stair can climb, under the deck'] += len(capped)
+        return y
+
+    def place_stairs(self):
+        """Each stair that takes the climb to its deck's foot (component()), once the deck stands where it ends: down
+        from the foot's height at up to STAIR_MAX to its own feet on the ground, never under the ground and on it
+        wherever it doesn't climb (decks.profile, grade class STAIR). Its pieces are deck pieces from here on, BRIDGE,
+        and its nodes but its feet on the ground stand on it."""
+        for F in self.stairs_up:
+            ch = self.stair_chains[F]
+            xs, zs, node_s, links, piece_s = [], [], {}, [], {}
+
+            def sample(x, z):
+                xs.append(float(x))
+                zs.append(float(z))
+                return len(xs) - 1
+            for rec in ch['pieces']:
+                shape = rec[9]
+                for key, p in ((rec[7], shape[0]), (rec[8], shape[-1])):
+                    if key not in node_s:
+                        node_s[key] = sample(p[0], p[1])
+                ids = [node_s[rec[7]]]
+                for i in range(len(shape) - 1):
+                    p, q = shape[i], shape[i + 1]
+                    k = max(1, int(math.ceil(float(np.hypot(*(q - p))) / DRAPE_STEP)))
+                    for j in range(1, k):
+                        ids.append(sample(*(p + (j / k) * (q - p))))
+                    if i < len(shape) - 2:
+                        ids.append(sample(q[0], q[1]))
+                ids.append(node_s[rec[8]])
+                for a, b in zip(ids[:-1], ids[1:]):
+                    links.append((a, b, float(math.hypot(xs[a] - xs[b], zs[a] - zs[b]))))
+                piece_s[rec[0]] = ids
+            g, c = self.tiles.sample(xs, zs)
+            n = len(xs)
+            water = np.isnan(g) | ((c & 15) == 2)
+            ground = np.where(np.isnan(g), WATER_Y, g)
+            anchors = {i: float(stand(g[i:i + 1], c[i:i + 1])[0]) for key, i in node_s.items() if key in ch['far']}
+            if anchors:
+                # one flight between the deck and the ground, straight by the way along it as a tunnel is (decks.along),
+                # never under the ground: no steeper than STAIR_MAX, since the foot is no higher than that lets it
+                anchors[node_s[F]] = self.deck_y[F]
+                y = self.decks.along(None, links, anchors, n)
+                y = np.where(np.isnan(y), ground, y)
+                y = np.where(water, y, np.maximum(y, ground))
+            else:
+                # stairs that end with nothing at their foot: down from the deck at up to STAIR_MAX to the ground
+                y = self.decks.profile(ground, water, [0] * n, [STAIR] * n, links, {},
+                                       base=np.where(sea(g, c), 0.0, ground), fixed={node_s[F]: self.deck_y[F]})
+            for key in node_s:
+                if key != F and key not in ch['far']:
+                    self.node_bits[key] = (self.node_bits[key] & ~1) | 2   # on the stair now
+                elif key in ch['far']:
+                    self.node_bits[key] |= 2   # a stair's foot: on the ground, where a deck meets it
+            self.place({'which': 'deck', 'xs': np.array(xs), 'zs': np.array(zs), 'y': y, 'node_s': node_s,
+                        'piece_s': piece_s, 'drawn': np.zeros(n, bool)})
+            for rec in ch['pieces']:
+                flags = rec[6] | BRIDGE | (0 if self.on_drawn_deck(rec[9]) else UNDRAWN)
+                self.promoted[rec[0]] = rec[:6] + (flags,) + rec[7:12] + (STAIR, 'deck') + rec[14:]
+            self.stats['rules']['stair pieces on a deck, climbing to it'] += len(ch['pieces'])
 
     def carriageway(self, x, z, lv, heads, indexes):
         """The height of the road deck a sidewalk sample rides (FOLLOW_M): the nearest road sample at its level within
@@ -1884,7 +2109,7 @@ class Bake:
         return [(k, AREA['OPEN_WATER'], '', shapely.union_all(ps)) for k, ps in sorted(polys.items())]
 
     def build_region(self, r):
-        recs = list(self.spill.read(r))
+        recs = [self.promoted.get(rec[0], rec) for rec in self.spill.read(r)]   # ground pieces a deck holds up as deck pieces
         recs.sort(key=lambda rec: self.edge_id[self.edge_key[rec[0]]])
         keys = sorted({k for rec in recs for k in (rec[7], rec[8])}, key=lambda k: self.node_id[k])
         idx = {k: i for i, k in enumerate(keys)}
