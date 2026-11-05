@@ -14,6 +14,12 @@ import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { browserOptions } from '../browser.mjs';
 import { flick } from '../flick.mjs';
+import { registerHooks } from 'node:module';
+registerHooks({ resolve: (spec, ctx, next) => next(/^\.\.?\//.test(spec) && !/\.[a-z]+$/.test(spec) ? `${spec}.ts` : spec, ctx) });
+// (the rows the flight draws the world with, the day's: review five, 36's page changes are held to them. A row only one page writes and no flight draws, the Moon's
+// ground on its page or the street's own Moon, isn't one)
+const { dayRows } = await import('../../src/render/palette.ts');
+const WORLD_ROWS = Object.keys(dayRows).map(Number);
 
 const dir = process.argv.slice(2).find((a) => !a.startsWith('--')) ?? 'shots/tmp/earth-swap';
 const BASE = process.env.BASE ?? 'http://localhost:4179/';
@@ -116,6 +122,9 @@ try {
     m.skip(0.1);
   });
   row('home: skipped to the long dark home', (await skipTo('homeCruise')) === 'homeCruise', {});
+  // (review five, 36: the day's world rows, as the Moon's page has them in the long dark home, for the page change)
+  const rowsHash = () => page.evaluate((rows) => { const d = (window.__space ?? window.__game).pipeline.paletteTexture.image.data; let h = 2166136261; for (const r of rows) for (let i = r * 32; i < r * 32 + 32; i++) h = Math.imul(h ^ d[i], 16777619) >>> 0; return h.toString(16); }, WORLD_ROWS);
+  const moonRows = await rowsHash();
   await change('home', 'homeCruise', 'earth');
   // (the street boots behind, and draws nothing until the flight hands it the bus)
   await page.waitForFunction(() => !!window.__game?.flight, null, { timeout: 600000, polling: 1000 });
@@ -127,10 +136,12 @@ try {
   const gate = () => page.evaluate(() => ({ lookOff: window.__space.input.lookOff, gearsLocked: window.__game.controls.gearsLocked, openingLow: window.__game.rig.openingLow }));
   const g0 = await gate();
   row("home: no opening's gate on the way home: the look is on, nothing locked, no low shot", !g0.lookOff && !g0.gearsLocked && g0.openingLow === 0, g0);
-  // (the merge's review, M1: the street's palette rows, all but the space sky's 50-55, as the flight home draws on them, the street's table from the page's first frames: at
-  // night the night's, and the same bytes the street has once it takes the bus)
+  // (the palette rows, all but the space sky's 50-55. Review five, 36, SKY.md 4's Air axis: high over Earth the flight home draws on the day's rows, as the Moon's page
+  // did, so the page change is the day's to the day's; by 15 km on the way down it's the street's table, the night's at night, the bytes the street has once it takes
+  // the bus: the merge's review, M1)
   const streetRows = () => page.evaluate(() => { const d = window.__game?.pipeline.paletteTexture.image.data ?? window.__space.pipeline.paletteTexture.image.data; let h = 2166136261; for (let r = 0; r < 64; r++) { if (r >= 50 && r <= 55) continue; for (let i = r * 32; i < r * 32 + 32; i++) h = Math.imul(h ^ d[i], 16777619) >>> 0; } return h.toString(16); });
-  const flightRows = await streetRows();
+  const highRows = await rowsHash();
+  row("home: the page change is the day's rows to the day's: the Moon's page in the long dark, and Earth's flight high up", moonRows === highRows, { moon: moonRows, earth: highRows });
   const home = await skipTo('wait', 0.5);
   const h = await read();
   row('home: on to over home', home === 'wait' && Math.abs(h.hEarth - 300) < 3, { leg: h.leg, km: +h.hEarth.toFixed(1) });
@@ -151,8 +162,17 @@ try {
     const off = Math.hypot(t.ef[0] - t.fx[0], t.ef[1] - t.fx[1], t.ef[2] - t.fx[2]), k = Math.hypot(...t.ef) / Math.hypot(...t.fx);
     for (let j = 0; j < 3; j++) t.ef[j] = t.fx[j] * k;
     fly(14.3);
-    return { s: i / 30, km: t.hGround, offKm: Math.round(off) };
+    // (and the Air axis where the bus is now, as the flight's next frame has it, read before the street takes the bus)
+    m.air?.at(t.hEarth);
+    const d = window.__space.pipeline.paletteTexture.image.data;
+    let h = 2166136261;
+    for (let r = 0; r < 64; r++) {
+      if (r >= 50 && r <= 55) continue;
+      for (let j = r * 32; j < r * 32 + 32; j++) h = Math.imul(h ^ d[j], 16777619) >>> 0;
+    }
+    return { s: i / 30, km: t.hGround, offKm: Math.round(off), rows: h.toString(16) };
   });
+  const flightRows = down.rows;
   let took = false;
   for (let k = 0; k < 20 && !took; k++) {
     await frames(1);
@@ -165,7 +185,7 @@ try {
   const g1 = await gate();
   row('home: and the street that takes the bus has no gate either', !g1.lookOff && !g1.gearsLocked && g1.openingLow === 0, g1);
   const streetRowsDown = await streetRows();
-  row("home: the flight home drew on the street's table, the same rows the street has once it takes the bus", flightRows === streetRowsDown, { flight: flightRows, street: streetRowsDown });
+  row("home: by 15 km the flight home draws on the street's table, the same rows the street has once it takes the bus", flightRows === streetRowsDown, { flight: flightRows, street: streetRowsDown, high: highRows });
   // (and the thumb is the street's: a flick down shifts its ladder, not the trip's, and a tap is the street's, not a breath in the flight's unseen world. The first account's review, 2026-11-04: on this page the street took the flight's hands for good)
   const cdp = await page.context().newCDPSession(page);
   const hands = () => page.evaluate(() => { const T = window.__game.controls.turbo, m = window.__space.moon; return { gear: T.gear, level: T.level, rung: m.trip.rung, tLevel: m.trip.level, breaths: m.breath.stats.shots + m.breath.stats.denied }; });
