@@ -161,7 +161,7 @@ export class Lamps {
     this.object.matrixAutoUpdate = false;
   }
 
-  /** lamps.bin's request, with the far grid's heights, once far.bin is in: ask() sends it when it's due. A city with none has none. */
+  /** lamps.bin's request, with the far grid's own heights (City.groundGrid: no copy, as it's held until the dusk), once far.bin is in: ask() sends it when it's due. A city with none has none. */
   load(url: string, ground: LampGround, tileSize: number) {
     this.tileSize = tileSize;
     this.req = { url: new URL(url, location.href).href, ...ground, tileSize, head: config.sky.lampHead };

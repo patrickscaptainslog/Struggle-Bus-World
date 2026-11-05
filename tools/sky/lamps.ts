@@ -2,7 +2,8 @@
 // whether the city's first tiles are in, the Sun's height), and the margin LAMPS_SUN leaves before the lamps light, from SkyModel's Sun over a year. No browser:
 //   node tools/sky/run.mjs lamps.ts
 // The pools' stamping follows the list (Lamps.onLanded, City.setPools), so with no list there is none. A Lamps with no ask() (the old one) is run as main.ts ran
-// it: the request at far.bin, nothing a frame. Exit 1 on any failure.
+// it: the request at far.bin, nothing a frame. And what the request holds until the dusk is far.bin's own heights, not a copy (City.groundGrid, fix/live's
+// review). Exit 1 on any failure.
 const fetches: Array<{ url: string; init?: RequestInit }> = [];
 const g = globalThis as Record<string, unknown>;
 g.location = { href: 'http://local/', search: '' };
@@ -17,8 +18,12 @@ const SUN = mod.LAMPS_SUN ?? NaN;
 const { series } = await import('@src/sky/series.gen.js');
 const { EARTH, SkyModel, SkyState } = await import('@src/sky/SkyModel');
 const { axesAt, geodeticToFix } = await import('@src/sky/WorldFrame');
+const { City } = await import('@src/world/City');
 
 const GROUND = { ground: new Float32Array(4), gridW: 2, gridH: 2, minX: 0, minZ: 0, cell: 64 };
+/** far.bin's grid as City holds it, San Francisco's size, and what main.ts's line hands Lamps.load: the real City.groundGrid of it */
+const FAR = { heights: new Float32Array(449 * 553), gridW: 449, gridH: 553, minX: 0, minZ: 0, cell: 64 };
+const groundGrid = () => (City.prototype.groundGrid as unknown as (this: { far: typeof FAR }) => typeof GROUND).call({ far: FAR });
 const settle = () => new Promise((r) => setTimeout(r, 20));
 type L = InstanceType<typeof Lamps> & { ask?: (cityIn: boolean, sunEl: number) => void };
 /** a frame of main.ts's, for the Lamps */
@@ -48,6 +53,14 @@ await row('far.bin in, by day, a thousand frames with the city in: nothing fetch
   for (let i = 0; i < 1000; i++) ask(l, true, 30);
   await settle();
   return fetches.length ? `${fetches.length} fetched, priority ${priority(0)}` : l.busy ? 'still busy' : null;
+});
+await row("far.bin in, by day, the city in: what Lamps keeps is far.bin's own heights, no copy of them (1 MB in San Francisco, held all day)", async () => {
+  const l = new Lamps() as L;
+  l.load('./city/sf/lamps.bin?v=osm3', groundGrid(), 256);
+  for (let i = 0; i < 1000; i++) ask(l, true, 30);
+  await settle();
+  const held = (l as unknown as { req?: { ground?: Float32Array } | null }).req?.ground;
+  return held && held !== FAR.heights ? `a copy of ${held.byteLength.toLocaleString('en-US')} bytes` : null;
 });
 await row('at night, the city not in yet: nothing fetched, and QA waits', async () => {
   const l = staged();
