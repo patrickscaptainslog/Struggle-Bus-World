@@ -360,9 +360,9 @@ export class StreetSky {
     this.night = S.stars && sunEl < LIMIT_SUN[0];
     this.limit = S.stars ? Math.min(open, rowAt(LIMIT_UP, camY, true)) - moonWash : -10;
     this.planetLimit = this.night ? this.limit + moonWash + PLANET_BONUS : -10;
-    // (as the files land: from the brightest to the moment's limit, never over it)
-    if (this.landedAt >= 0 && this.land < 1) {
-      const u = (this.land = smooth(0, LAND_S, globals.uTime.value - this.landedAt));
+    // (as the files land: from the brightest to the moment's limit, never over it; none between the stars' read and the Moon's)
+    if (this.land < 1) {
+      const u = (this.land = this.landedAt < 0 ? 0 : smooth(0, LAND_S, globals.uTime.value - this.landedAt));
       this.limit = Math.min(this.limit, LAND_STARS + (this.limit - LAND_STARS) * u);
       this.planetLimit = Math.min(this.planetLimit, LAND_PLANETS + (this.planetLimit - LAND_PLANETS) * u);
       if (u >= 1) this.busy = false;
