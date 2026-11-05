@@ -1,12 +1,12 @@
 import type * as THREE from 'three';
 import { config } from '../config';
 import { globals, heldGlobals } from '../render/materials';
-import { dayRows, RAMP_STEPS, Ramp, writePalette } from '../render/palette';
+import { dayRows, Ramp, writePalette } from '../render/palette';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import { setHourUp } from './flag';
 import { HeldHour } from './HeldHour';
 import { series } from './Series';
-import { fogLuma, fogLumaOf, TableBlend } from './SkyTable';
+import { fogLuma, fogLumaOf, pageRgb, settingShare, TableBlend } from './SkyTable';
 import { SkyClock } from './SkyClock';
 import { StreetSky } from './StreetSky';
 import { EARTH, SkyModel, SkyState, type Observer } from './SkyModel';
@@ -258,8 +258,7 @@ export class LiveSky {
    * on the first paint's own write, if city.json lands for it later, leaves it alone (__sbPage).
    */
   private page(data: Uint8Array, bands: boolean): void {
-    const i = ((bands ? Ramp.SKY_LOW : Ramp.FOG) * RAMP_STEPS + (bands ? 3 : 2)) * 4;
-    const rgb = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+    const rgb = pageRgb(data, bands);
     if (rgb === this.pageRgb || typeof document === 'undefined') return;
     this.pageRgb = rgb;
     (globalThis as { __sbPage?: boolean }).__sbPage = true;
@@ -339,7 +338,7 @@ export class LiveSky {
     const s = this.state.sun, p = this.lat * DEG;
     // (east, north, up: the hour angle against the local meridian, westward)
     const H = Math.atan2(-s[0], s[1] * Math.cos(p) + s[2] * Math.sin(p)) / DEG / 15;
-    return H > 6 ? 1 - smooth(10.5, 13.5, H) : H < -6 ? 1 - smooth(10.5, 13.5, H + 24) : smooth(-1.5, 1.5, H);
+    return settingShare(H);
   }
 
   /** A landmark clock's hands, and the windows' clock: the city's time, from its zone (city.json's tz), else the mean Sun's at its longitude. */

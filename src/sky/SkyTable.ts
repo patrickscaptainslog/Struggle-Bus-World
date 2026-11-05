@@ -210,3 +210,22 @@ export function fogLumaOf(data: Uint8Array, out: THREE.Vector2): THREE.Vector2 {
   const base = luma(0);
   return out.set(base, (luma(7) - base) / 7);
 }
+
+/** How much of the light and the tables is the setting Sun's, 0..1, by its hour angle (h, westward): 1 from 1.5 h after solar noon to 1.5 h before midnight. */
+export function settingShare(H: number): number {
+  const s = (a: number, b: number, x: number) => {
+    const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
+  return H > 6 ? 1 - s(10.5, 13.5, H) : H < -6 ? 1 - s(10.5, 13.5, H + 24) : s(-1.5, 1.5, H);
+}
+
+/**
+ * The page's colour under the canvas and the status bar's (0xRRGGBB) off a table's bytes: the day's sky is FOG 2, and while the bands draw half the sky or more it's
+ * SKY_LOW 3, the band most of a frame's sky is (LiveSky.page). index.html's first paint carries these colours by the Sun's height, written from the real tables:
+ * after any change to the tables, `node tools/sky/run.mjs firstpaint.ts --write`, which writes them and checks them.
+ */
+export function pageRgb(data: Uint8Array, bands: boolean): number {
+  const i = ((bands ? Ramp.SKY_LOW : Ramp.FOG) * RAMP_STEPS + (bands ? 3 : 2)) * 4;
+  return (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+}
