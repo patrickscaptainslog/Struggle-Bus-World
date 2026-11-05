@@ -797,8 +797,10 @@ half disc `laneHalf` (0.27 of the width) round the bus over its line, and from i
   and the next landing out of the zone flies), `Orphan` (swallowed by three fingers). `swapped` (BUTTONS: SWAP) moves the look zone.
 - HUD hooks: `splatButton(down, cancelled?, eventTimeMs?)` (MEGA), `adoptThumb(e, keepPress, x0, y0, t0)` (MEGA's finger
   becomes the flying thumb; a look thumb stays what it is), `adoptedMove/Up` (its events if capture didn't move).
-- The opening (`main.ts` with `Controls`): `controls.gearsLocked` (`Shifter.locked`) and `controls.opening`, set per frame, queue a
-  gear until the bus clears the gate and drive the first run. Nothing else holds the opening. `controls.frozen` is QA's: dt 0.
+- The opening (`main.ts` with `Controls`): `controls.gearsLocked` (`Shifter.locked`), `input.lookOff` with it, and `controls.opening`,
+  set when the Controls are made and then per frame, queue a gear while the gate is shut and drive the first run. The gate is along the
+  heading from the Golden Gate's gap: shut under `openingClimbAfter` (230 m), and once open shut again only under the low shot's line
+  (`OPENING_LOW_ALONG`, 180 m). Nothing else holds the opening. `controls.frozen` is QA's: dt 0.
 
 **Flicks** (`src/game/Shifter.ts`, no DOM): `flick(dir, flew)`, `tick()` per frame, `armed`, `onAnswer('go' | 'gated' | 'back')`. One flick is one
 rung, at once: `TurboDrive.rung(dir, flight)`, answered the same moment; past the top LOCKED is its own answer. Under the gate a flick up
