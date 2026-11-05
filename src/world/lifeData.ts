@@ -1,7 +1,8 @@
 // What the world gives life (docs/specs/earth/CONTRACT.md, the world's file): the graphs' types and their parsers.
 // Writer: tools/bake/graphs.py (keep in sync). Worker-safe: no three.js and no DOM, only typed arrays, DataView and
 // TextDecoder. A parse takes the inflated file (gunzip.ts inflates it in the worker) and gives null for a magic it
-// doesn't know, a major version it can't read or a file that's cut short: never a throw into life.
+// doesn't know, a major version it can't read, a file that's cut short, a count past its bytes or a float that isn't a
+// number: never a throw into life. A wrong value inside the coordinates themselves can't be seen: there's no checksum.
 //
 // The byte layout, all little-endian, each section column by column and padded to 4 bytes:
 //
@@ -94,6 +95,7 @@ export function parseRegionGraph(buf: ArrayBuffer, regionM: number = REGION_M): 
     if (dv.getUint32(0, true) !== MAGIC_GRAPH || dv.getUint16(4, true) !== GRAPH_VERSION) return null;
     const minor = dv.getUint16(6, true);
     const rx = dv.getInt32(8, true), rz = dv.getInt32(12, true), baseY = dv.getFloat32(16, true);
+    if (!Number.isFinite(baseY)) return null; // every height is over it: a NaN or an infinity there is every node's
     const nn = dv.getUint32(20, true), ne = dv.getUint32(24, true), np = dv.getUint32(28, true);
     const na = dv.getUint32(32, true), nv = dv.getUint32(36, true), nt = dv.getUint32(40, true), nNames = dv.getUint32(44, true);
     const ox = rx * regionM, oz = rz * regionM;
@@ -224,7 +226,9 @@ export function parseCityRoutes(buf: ArrayBuffer, origin: readonly [number, numb
     const u8 = () => dv.getUint8(o++);
     const u16 = () => { const v = dv.getUint16(o, true); o += 2; return v; };
     const u32 = () => { const v = dv.getUint32(o, true); o += 4; return v; };
-    const f32 = () => { const v = dv.getFloat32(o, true); o += 4; return v; };
+    // a length, a berth, an elevation or a width that isn't a number is a broken file: the catch below makes it null,
+    // as it does a read past the end
+    const f32 = () => { const v = dv.getFloat32(o, true); o += 4; if (!Number.isFinite(v)) throw new RangeError('f32'); return v; };
     const deg = () => { const v = dv.getInt32(o, true); o += 4; return v / 1e7; };
     const str = () => { const len = u8(); const s = dec.decode(new Uint8Array(buf, o, len)); o += len; return s; };
     // every count against the bytes left before anything is made from it or read for it (N1): a corrupt point count

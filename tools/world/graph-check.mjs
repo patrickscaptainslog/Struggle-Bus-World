@@ -89,7 +89,9 @@ function report(name, value, limit, ok, note = '') {
   const str = () => { o += 1 + dv.getUint8(o); };
   at.push(['ferries', o, 4]);
   const nf = dv.getUint32(o, true); o += 4;
-  for (let i = 0; i < nf; i++) { o += 4; str(); str(); o += 13; if (i === 0) at.push(['the first ferry\'s points', o, 4]); const m = dv.getUint32(o, true); o += 4 + m * 8; }
+  const floats = []; // where an f32 sits: the first ferry's length, the first terminal's berth
+  for (let i = 0; i < nf; i++) { o += 4; str(); str(); o += 13; if (i === 0) { at.push(['the first ferry\'s points', o, 4]); floats.push(['the first ferry\'s length', o - 4]); } const m = dv.getUint32(o, true); o += 4 + m * 8; }
+  { const t = dv.getUint32(o, true); if (t > 0) { let q = o + 8; q += 1 + dv.getUint8(q); q += 1; q += 1 + dv.getUint8(q); floats.push(['the first terminal\'s berth', q + 8]); } }
   for (const [what, row] of [['terminals', (k) => { o += 4; str(); o += 1; str(); o += 12; }], ['marinas', () => { o += 4; str(); str(); o += 10; }]]) {
     at.push([what, o, 4]);
     const n = dv.getUint32(o, true); o += 4;
@@ -108,6 +110,27 @@ function report(name, value, limit, ok, note = '') {
   }
   report('routes.bin with a corrupt count (N1)', `${at.length} copies, each with one count the parser loops on set past the file (${at.map((a) => a[0]).join(', ')}); ${bad.length} not null or asking for more than the file holds${bad.length ? ` (${bad.join('; ')})` : `, the most any asked for ${most} elements`}`,
     `null, and no array past the file's ${rb0.byteLength} bytes`, bad.length === 0);
+  // a float that isn't a number: routes.bin's f32s (each NaN, then infinite) and a region's baseY, over which every
+  // height in its file stands
+  const nan = [];
+  for (const [what, off] of floats) for (const v of [NaN, Infinity]) {
+    const b = rb0.slice(0);
+    new DataView(b).setFloat32(off, v, true);
+    const [r] = spy(() => parseCityRoutes(b, man.origin), Infinity);
+    if (r !== null) nan.push(`${what} ${v}: ${r instanceof Error ? `threw ${r.message}` : 'parsed'}`);
+  }
+  {
+    const [rx, rz] = (man.life?.regions ?? [])[0] ?? [];
+    const p = `${dir}/g_${rx}_${rz}.bin`;
+    if (existsSync(p)) for (const v of [NaN, -Infinity]) {
+      const b = inflate(p);
+      new DataView(b).setFloat32(16, v, true);
+      const [r] = spy(() => parseRegionGraph(b, man.tileSize * (man.regionSize ?? 4)), Infinity);
+      if (r !== null) nan.push(`g_${rx}_${rz}.bin's baseY ${v}: ${r instanceof Error ? `threw ${r.message}` : 'parsed'}`);
+    }
+  }
+  report('a float that isn\'t a number', `${floats.length * 2 + 2} copies, routes.bin's ${floats.map((f) => f[0]).join(' and ')} each NaN and infinite, a region's baseY NaN and -infinite; ${nan.length} not null${nan.length ? ` (${nan.join('; ')})` : ''}`,
+    'null', nan.length === 0 && floats.length === 2);
   // N2: the first region with two areas or more, its second area's start past the last triangle
   let done = false;
   for (const [rx, rz] of (man.life?.regions ?? [])) {
