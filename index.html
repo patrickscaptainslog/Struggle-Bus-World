@@ -27,7 +27,7 @@
       // anything under public/city that follows a deploy, a re-bake or a relandmark.py run: on the old value that phone never sees it.
       (function () {
         try {
-          var v = (window.__sbDataV = 'osm3');
+          var v = (window.__sbDataV = 'osm8');
           var q = new URLSearchParams(location.search).get('city');
           var city = q === null ? 'sf' : q; // as main.ts reads it (an empty ?city= stays empty)
           var base = './city/' + city;
