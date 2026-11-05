@@ -80,8 +80,8 @@ Files (Proposed). Separate files, not new sections in `r_*.bin`, so the page wit
 | File | Holds | Coordinates |
 |---|---|---|
 | `public/city/<slug>/g_<rx>_<rz>.bin`, magic `SBG1`, one per region, the grid of `r_<rx>_<rz>.bin` | Roads, footways, plazas, parks, beaches, marinas' berths, terminals' and aprons' outlines, taxiways and runways inside the region | Decimetres (i16) from the region's origin; heights i16 decimetres over the region's f32 base, because an absolute i16 stops at 3,276.7 m and La Paz is 3,640 m (`VERDICT.md` names the clip) |
-| `public/city/<slug>/routes.bin`, `SBR1`, one per city | Ferry routes whole, ferry and cruise terminals, marinas, airports with runways: what's longer than a region, or needed whole | Int32 at 1e-7 degree (OSM's own step, about 1 cm); the parser also gives map metres |
-| `public/earth/lanes.bin`, `SBL1`, the planet (on R2 from stage 2) | Ports and the ocean lanes between them, from the World Bank's density raster (`LIVING.md`; a download, section 9) | Int32 at 1e-7 degree |
+| `public/city/<slug>/routes.bin`, `SBC1` (C7, 0.6: `SBR1` is the region bundles'), one per city | Ferry routes whole, ferry and cruise terminals, marinas, airports with runways: what's longer than a region, or needed whole | Int32 at 1e-7 degree (OSM's own step, about 1 cm); the parser also gives map metres: `xz` on each ferry, `x` and `z` on each terminal, marina, airport and runway end (C5, 0.6) |
+| `public/earth/lanes.bin`, `SBS1` (C7, 0.6: `SBL1` is `lamps.bin`'s), the planet (on R2 from stage 2) | Ports and the ocean lanes between them, from the World Bank's density raster (`LIVING.md`; a download, section 9) | Int32 at 1e-7 degree |
 | `public/earth/airports.bin`, `SBA1` | Every airport with scheduled flights, for planes off the maps and the scripted fallback (O11) | Int32 at 1e-7 degree |
 
 All little-endian and gzipped like the tiles (`src/world/gunzip.ts` inflates them in a worker). The byte layout is the world's, written beside the parser as `tiles.ts` does for the tiles. What life codes against is the parsed shape. Every offset array is n + 1 starts, counted in the unit its comment names:
@@ -92,7 +92,7 @@ export const enum Kind { ROAD = 1, FOOT, RAIL, FERRY, WATER, TAXI, RUNWAY }
 export const enum RoadClass { MOTORWAY = 1, TRUNK, PRIMARY, SECONDARY, TERTIARY, RESIDENTIAL, UNCLASSIFIED, LIVING, SERVICE, TRACK, UNKNOWN }
 export const enum FootClass { FOOTWAY = 1, SIDEWALK, CROSSING, PATH, STEPS, CYCLEWAY, PEDESTRIAN }
 export const enum Dir { BOTH = 0, FORWARD = 1, BACKWARD = 2 }   // FORWARD: from a to b only
-export const EdgeFlag = { BRIDGE: 1, TUNNEL: 2, UNDRAWN: 4, LINK: 8, ROUNDABOUT: 16, SEASONAL: 32 } as const;
+export const EdgeFlag = { BRIDGE: 1, TUNNEL: 2, UNDRAWN: 4, LINK: 8, ROUNDABOUT: 16, SEASONAL: 32, NO_CARS: 64 } as const;   // NO_CARS (C6, 0.6): a whole-edge rule denies motor vehicles and none allows cars, buses and taxis aside
 export const NodeFlag = { PORTAL: 1, SIGNAL: 2, STOP: 4 } as const;   // PORTAL: the same id is in the next region
 export const enum AreaKind { PLAZA = 1, PARK, BEACH, MARINA, FERRY_TERMINAL, CRUISE_TERMINAL, APRON, OPEN_WATER }
 export const enum ShipKind { CONTAINER = 0, BULK, TANKER, CAR_CARRIER, CRUISE }   // 5 kinds, traffic's and ports' order
@@ -139,7 +139,7 @@ What the world guarantees, and checks (W1, W4):
 
 Proposed:
 - An id is a u32 from FNV-1a of a source key, as the buildings' stable ids are (`tools/bake/bake.py`, `ID_RANGES`, `IdAlloc`, ~978-1006), each kind in its own range. A collision probes to the next free id in the range, in key order, so an id depends on every other key in that bake: a new way can take an old id without its own source changing. An id is unique within one city's bake only (every city's `IdAlloc` uses the same ranges), and is for indexing that bake's files. Nothing saved or shared keys on it: paint keys on the source keys (section 3), which every file carries as `key`.
-- Source keys: the OSM way and its piece (`w31772645#2`, never the `@version`), else Overture's GERS id. A PORTAL node, which has no source of its own: its way's key and the region edge it sits on, in integer decimetres of the map (`w31772645@x-7168.0`, with the whole decimetres written). A port its UN/LOCODE, else the OSM or GERS id of its harbour area: never a position. An airport its ICAO code; a runway `KSFO:28L`; a lane its two ports' keys sorted, and a variant.
+- Source keys: the OSM way and its piece (`w31772645#2`, never the `@version`), else Overture's GERS id. A node with no connector of its own, a PORTAL or a cut where a range ends: its edge's OSM way and its own place, in whole decimetres of the map (`w31772645@-71680,-22103`; C4, 0.6: a winding road crosses one region line twice, and a range's end has no line). A port its UN/LOCODE, else the OSM or GERS id of its harbour area: never a position. An airport its ICAO code; a runway `KSFO:28L`; a lane its two ports' keys sorted, and a variant.
 - Ids hold across bakes while their source holds. W2 checks every kept id is the same source key, lists every ferry route, lane, terminal and airport dropped, and every one whose slot inputs moved (a route's `lengthM` or a lane's `traffic` by more than 1 %): a re-bake that drops or moves one ends that mover's paint, and W2 says how many.
 - Every file starts with its magic and a u16 version. city.json gains `"life": { "graph": 1, "routes": 1 }`. Files under `/city/` take `?v=` as every city URL does (`dataQuery`, `City.ts` ~156); `/earth/` gets a version of its own beside `__sbDataV` in `index.html`. Life handed a version it doesn't know runs without that part, and the page goes on.
 
@@ -147,7 +147,7 @@ Proposed:
 
 | Where the bus is | The ground under it | What life gets | How life learns |
 |---|---|---|---|
-| Over a map, the street has the bus (to 15 km going up, from 14 km coming down: `EarthLanding`) | City's tiles, regions out to 1,500-1,900 m (`City.ts` ~399, `config.city.loadRadiusHigh`), the far field past them. From 11 km to 15 km the street's ground goes into the plain Earth (`earthJoin.ts`, `SKY_TOP` to `H_UP`) | Region graphs in its own radius, the city's routes whole, the lanes | Life fetches `g_*.bin` itself by region index (city.json `regions`). `world.onRegion` (section 6) says what City draws in each region: 0 nothing, 1 the far field (its 16 m raster), 2 coarse (8 m ground mesh), 3 detail (4 m; `City.ts` ~91). Life can hide or settle movers over a coarse region |
+| Over a map, the street has the bus (to 15 km going up, from 14 km coming down: `EarthLanding`) | City's tiles, regions out to 1,500-1,900 m (`City.ts` ~399, `config.city.loadRadiusHigh`), the far field past them. From 11 km to 15 km the street's ground goes into the plain Earth (`earthJoin.ts`, `SKY_TOP` to `H_UP`) | Region graphs in its own radius, the city's routes whole, the lanes | Life fetches `g_*.bin` itself by region index, from `city.json`'s `life.regions` (C1, 0.6: every cell inside the map's bounds with anything in it, the open water that has no City tile included, `"life": { "graph": 1, "routes": 1, "regions": [[rx, rz, bytes], ...] }`). `world.onRegion` (section 6) says what City draws in each region: 0 nothing, 1 the far field (its 16 m raster), 2 coarse (8 m ground mesh), 3 detail (4 m; `City.ts` ~91). Life can hide or settle movers over a coarse region |
 | Over a map, the flight has the bus (from 15 km) | The plain Earth, `spaceEarth`; `EARTHFLIGHT.md`'s far field over a city from 60 km down isn't built | Routes, lanes, airports | No region events: no map is drawn |
 | Off every map, any height | `public/sky/earth.bin` today: 2048 x 1024, about 20 km a texel, a class byte, a tone in 16 levels and the night's lights, and no heights (`SkyDraw.ts` ~99-113, MEASURED). The planet layer once built: relief, surface and built on a cube-sphere tree, parent first (`VERDICT.md` step 5), the Bay Area first in stage 1 | Lanes, airports, `planet` queries | `planet.onTile` events, once the planet layer exists |
 | The Moon's pages | | Nothing | Life isn't booted there |
@@ -187,7 +187,7 @@ The street measured 161 draws and 1.17 M triangles at Alamo Square from the ceil
 
 **The G-buffer** (Agreed, `ARCHITECTURE.md`, "Rendering contract"; `src/render/materials.ts`):
 - Every material ends in `sbWrite(ramp, light, fog, glow, viewNormal, surfaceId, flags)`: GLSL3, `GLSL_COMMON` and `GLSL_OUT`, `globals` spread in, fog through `sbFog`, never an RGB colour.
-- Ramps: grey life uses the grey world's rows (GREY, GREY_LIGHT, GREEN_GREY, WINDOW, ROOF_DARK, WHITE, INK, WATER; at night LIT and LAMP). Paint uses `HUE_RAMPS` (rows 8-13) and nothing else saturated. BUS_YELLOW and BUS_BLACK are the bus's alone. A new row is claimed by name in `palette.ts`: 47 and 50-63 are free (`palette.ts` ~115, MEASURED).
+- Ramps: grey life uses the grey world's rows (GREY, GREY_LIGHT, GREEN_GREY, WINDOW, ROOF_DARK, WHITE, INK, WATER; at night LIT and LAMP). Paint uses `HUE_RAMPS` (rows 8-13) and nothing else saturated. BUS_YELLOW and BUS_BLACK are the bus's alone. A new row is claimed by name in `palette.ts`: 47 and 56-63 are free (`palette.ts` ~115, MEASURED; 50-55 the space sky's own since review four).
 - `flags`: 1.0 for a model (it gets outlines), 0.5 for specks, wakes and contrails, never 0 (what nothing wrote is sky).
 - `surfaceId` a hash per mover, so two touching cars keep a seam. Glow only for lights at night, paint's own effects and the aim's glint on a mover (section 3). The hero's beam and drop shadow are the resolve's, and life's draws obey the sky cut (`pipeline.cutSky`) as every material does.
 
@@ -398,6 +398,22 @@ Both: the milliseconds a frame in the busiest view, on the laptop's GPU and on t
 | EGM96 15' grid | NGA | The geoid (O9) | Public domain | No: before planes under 1 km |
 | timezone-boundary-builder, with oceans | its GitHub releases | The hour off a map (O8) | ODbL, credited | No: stage 2 |
 
+## 10. After signing: the world's first graphs (0.6)
+
+Proposed by the first account in `docs/specs/earth/GRAPHS.md` (`feat/world`, 08849a6), where the contract couldn't be met as written; **Agreed** by the second account, 0.6. The lines above say each where it bears.
+
+| | Change | Why |
+|---|---|---|
+| C1 | A graph file in every cell inside the map's bounds with anything in it, open water with no City tile included (OPEN_WATER whole at `WATER_Y`, and the ferry edges over it), listed in `city.json`'s `life.regions` | 75 of San Francisco's 270 cells have no tile, the water the ferries to Marin and the East Bay cross, and the sailboats' |
+| C2 | An edge on a deck City draws takes that deck's top, within 0.3 m (W1); every other deck the bridges spec's profile | With no LiDAR the profile puts the Golden Gate at 74 m and the Bay Bridge at 73 where their drawn decks run 57-77 and 29-79: cars would float over or sink into the two bridges the opening shows. Whatever a city draws, so no one city's code |
+| C3 | Past the map, inside an Overture extract's box, W1 checks the ferries against Overture's `land` rows, made from OSM's coastline; W4 keeps item 20 for the oceans | Item 20 didn't come (its host refused the connection), and the archive has the same coastline |
+| C4 | A node with no connector keys on its edge's way and its own place in whole decimetres (1.3) | A winding road crosses one line twice; a range's end has no line |
+| C5 | `parseCityRoutes(buf, origin)` gives map metres: `xz` on each ferry, `x` and `z` on each terminal, marina, airport and runway end | The files table said so and `CityRoutes` had no field |
+| C6 | `EdgeFlag.NO_CARS`, 64, a minor version | 383 segments in the bounds, 52 of them Market Street's car-free blocks: without it life's cars drive down Market Street |
+| C7 | `routes.bin` is `SBC1`, `lanes.bin` `SBS1` | `SBR1` and `SBL1` were taken, so a file handed to the wrong parser would pass its magic |
+
+GRAPHS.md's readings, as life reads them too: `edges.a` and `b` index the region's own `nodes`; `lanes` 0 everywhere, ROUNDABOUT and SEASONAL never set, no route seasonal; `level` from Overture's `level_rules`, by range; TUNNEL covers `is_covered`, and a node only tunnels touch is under ground, its y straight between the tunnel's ends; a FERRY edge's points on water at `WATER_Y`, its end on the berth at the grid's height.
+
 ## Signatures
 
 - The first account: drafted 2026-11-04 (0.1, then 0.2 after a reading). Signed 2026-11-05 (0.4), with O6, O9 and O14 Agreed as marked there, and L1's WebKit leg Proposed by the first account. Until the second account marks that Agreed, L1's Chromium legs hold and its WebKit leg waits.
@@ -408,5 +424,6 @@ Both: the milliseconds a frame in the busiest view, on the laptop's GPU and on t
 - 0.1, 2026-11-04: the first draft, by the first account. Not committed.
 - 0.3, 2026-11-05, the second account: signed. Section 9 answered; O2 and O3 the second account's, with main's merge; Proposed: O6 (every mark life's own draw, none through `GroundPaint`), O9 (N a number a place, from the bake), O14 (life's store in IndexedDB), L1 (WebKit's leg on the laptop).
 - 0.5, 2026-11-05, the second account: L1's WebKit leg Agreed as the first account proposed it, a check page on the producer's iPhone until Playwright's WebKit is OK'd. Nothing open.
+- 0.6, 2026-11-05, the second account: GRAPHS.md's C1 to C7 Agreed (section 10), and its readings read the same; the space sky's rows 50-55 claimed in `palette.ts` (section 2's free rows are 47 and 56-63). Nothing open.
 - 0.4, 2026-11-05, the first account: signed. O6, O9 and O14 Agreed, with notes: a mark draws as paint does, with a depth offset and no shadow, and its fade keeps the player's own hits the loudest; the bake writes N and how far it spreads; life's store takes whatever the review of `GeoPaint`'s store finds. Section 3 says the store is IndexedDB. L1's WebKit leg Proposed again: a check page on the producer's iPhone until Playwright's WebKit is OK'd as a download.
 - 0.2, 2026-11-04: after a reading of 0.1. Mover keys from source keys, with slots and days defined; ids unique per bake only, W2 checks source keys and slot inputs; a ferry's paint to the end of its vessel's day; the store drops a key only when its own place's data lacks it, expires by `Date.now`, and has a test store; a units table and `vdatum`, the geoid's sign; `PlaceInit` and `makePlaceFrame`; `MoverTarget`, `opts.mover`, `life.blast`, and every line life adds to `main.ts` and `moonrun.ts`, `bootLife` guarded; determinism within 1 cm across engines, painted movers and live planes excluded; TUNNEL and UNDRAWN apart, deck heights from the graph in every city; water ends at terminals exempt, a real coastline for W4; the worker's protocol, rows and record moved to life's spec; budget lines for aim, marks, the worker's heap, pool and file sizes; `onRegion`'s mesh steps corrected; the downloads table; O15 and O16.
