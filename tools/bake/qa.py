@@ -38,8 +38,9 @@ Writes:
 Exit status: 0 PASS, 3 FAIL (a threshold exceeded; bake.py exits 3 too unless --qa=warn) with a loud
 '!!! QA FAIL' block on stdout. Thresholds: QA_DEFAULTS (FAIL when a share exceeds its ...Max and the
 count behind it reaches 'minFlagged' cells / 'minUnsupported' trees: a small --bbox test bake's few
-cells don't fail on one lagoon); a city config's "qa": {...} sets any of them, but a limit or a floor
-(TIGHTER) only tighter: a looser one is ignored, logged and listed in the report. Calibration (2026-10
+cells don't fail on one lagoon); a city config's "qa": {...} sets them, but a limit, a floor or how
+strictly a check measures (TIGHTER) only tighter, and how the city is cut up into cells (FIXED) not at
+all: a refused one is ignored, logged and listed in the report. Calibration (2026-10
 test bakes, five frames in San Francisco and London): the old "trees in every park" rule scored
 unsupported 2-39 % (FAIL in three: the Crissy Field frame 39 % with 19 of 65 cells on open land), the
 evidence rule <= 0.11 % and 0 cells; water and sand on all of San Francisco 0.06 % and 0.10 %.
@@ -99,13 +100,18 @@ QA_DEFAULTS = {
     'deckBuriedMax': 0.05,        # share of a meshed deck over 0.5 m under the ground, away from a tunnel
     'deckSlopeMax': 0.08,         # a road deck's grade between samples, after the spike filter
 }
-# The limits and floors a city config's "qa" may only tighten: -1 lower is tighter, +1 higher is (a value floor, or the gate
-# set to fail). The other keys say how a check measures (cell sizes, reaches, the report's lengths): the config sets them.
+# The limits and floors a city config's "qa" may only tighten, and the same for the keys that say how strictly a check
+# measures (a reach, the share that flags a cell, the cover that makes one wooded, trees per ha): -1 lower is tighter, +1
+# higher is (a value floor, trees per ha, or the gate set to fail). FIXED: how the city is cut up to be measured (the
+# cells, WorldCover's grid), which no direction makes stricter: a config can't set them. The rest are the report's
+# lengths: the config sets them.
 TIGHTER = {'unsupportedMax': -1, 'openCellsMax': -1, 'waterCellsMax': -1, 'sandCellsMax': -1, 'woodCellsMax': -1, 'minFlagged': -1,
-           'minUnsupported': -1, 'bridgeGate': +1, 'heroOffDataMax': -1, 'towerOffDeckMax': -1, 'deckNoCollisionMax': -1, 'deckFreeEndMax': -1,
+           'minUnsupported': -1, 'support': -1, 'openCellTrees': -1, 'waterDiff': -1, 'sandDiff': -1, 'woodCover': -1, 'woodPerHa': +1,
+           'bridgeGate': +1, 'heroOffDataMax': -1, 'towerOffDeckMax': -1, 'deckNoCollisionMax': -1, 'deckFreeEndMax': -1,
            'waterRoadNoDeckMax': -1, 'waterRoadNoDeckMinM': -1, 'bridgeNoDeckMax': -1, 'bridgeNoDeckMinM': -1, 'bareSupportsMax': -1,
            'standInsMax': -1, 'tallNothingMax': -1, 'tallNothingHeight': -1, 'streetFigureMin': +1, 'atGradeLossMax': -1,
            'deckContinuityMax': -1, 'deckClearanceMin': +1, 'deckBuriedMax': -1, 'deckSlopeMax': -1}
+FIXED = ('cell', 'wcRes')
 GATE = ('report', 'fail')
 
 # ground classes (src/world/tiles.ts Ground; osm.py)
@@ -167,11 +173,16 @@ def load_city(city):
 
 
 def thresholds(over, log=_log):
-    """QA_DEFAULTS with a city config's "qa": a limit or floor (TIGHTER) only where the config tightens it. A looser one
-    keeps its default, is logged and is listed in the report: [(key, the config's value, the default)]."""
+    """QA_DEFAULTS with a city config's "qa": a limit, a floor or how strictly a check measures (TIGHTER) only where the
+    config tightens it, and never how the city is cut up (FIXED). A refused one keeps its default, is logged and is
+    listed in the report: [(key, the config's value, the default)]."""
     Q = dict(QA_DEFAULTS)
     refused = []
     for k, v in over.items():
+        if k in FIXED:
+            refused.append((k, v, Q[k]))
+            log(f'the config\'s "qa" can\'t set how the city is cut up to be measured: {k} {v!r} ignored, {Q[k]!r} stands')
+            continue
         if k in TIGHTER and k in Q:
             if k == 'bridgeGate':
                 looser = v not in GATE or GATE.index(v) < GATE.index(Q[k])
@@ -1070,7 +1081,7 @@ def bridge_section(bridge, bplan, Q, refused):
         L.append(f'| `{c["key"]}` | {v} | {limit_text(c)} | {st} | {c["what"]}' + (f': {c["detail"]}' if c['detail'] else '')
                  + (f' ({c["why"]})' if not c['read'] else '') + ' |')
     if refused:
-        L += ['', 'The config\'s `"qa"` tried to loosen these, which it may not; the defaults stand: '
+        L += ['', 'The config\'s `"qa"` tried to loosen these, or to set how the city is cut up, which it may not; the defaults stand: '
               + ', '.join(f'`{k}` {v!r} (default {d!r})' for k, v, d in refused) + '.']
     cl = bplan['classes']
     L += ['', f'**The map\'s decks** (bridges.py): ' + ', '.join(f'{c} {n} ({km:.2f} km)' for c, (n, km) in cl.items())
@@ -1144,7 +1155,8 @@ def write_report(out, name, slug, man, Q, checks, ok, ts, worst, parks, ny, nx, 
     for p in parks:
         if p.get('png'):
             L += [f'### {p["name"]}', '', f'![{p["name"]}]({p["png"]})', '']
-    L += ['## Thresholds', '', 'Defaults in `tools/bake/qa.py` QA_DEFAULTS; the city config\'s `"qa": {...}` sets them, a limit only tighter:', '',
+    L += ['## Thresholds', '', 'Defaults in `tools/bake/qa.py` QA_DEFAULTS; the city config\'s `"qa": {...}` sets them, a limit, a floor or how strictly '
+          'a check measures only tighter, the cells not at all:', '',
           '```', json.dumps({k: Q[k] for k in QA_DEFAULTS}, indent=1), '```', '']
     with open(os.path.join(out, 'report.md'), 'w', encoding='utf-8') as f:
         f.write('\n'.join(L))
