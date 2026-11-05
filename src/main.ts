@@ -37,6 +37,7 @@ import { farFlags } from './world/farMaterial';
 import { heldHour, skyLive } from './sky/flag';
 import { HeldHour } from './sky/HeldHour';
 import { LiveSky } from './sky/LiveSky';
+import { spanTag } from './sky/Lamps';
 
 // Struggle Bus — Phase 1 (real SF, solo).
 
@@ -286,7 +287,7 @@ async function boot() {
   const spanLit = (kind: 'ggb' | 'baybridge', pts: Array<[number, number]>, deck: NonNullable<typeof manifest.landmarks[number]['deck']>, group: number) => {
     const steps: number[] = [];
     spanLights.push(...bridgeLights(kind, pts, deck, config.sky.bridgeSpacing, steps));
-    for (const st of steps) spanTags.push(group + 4 * st);
+    for (const st of steps) spanTags.push(spanTag(group, st));
   };
   /** the bridges, made paintable after every other landmark (slots are handed out in call order: theirs come last) */
   const bridges: Array<{ kind: 'ggb' | 'baybridge'; obj: THREE.Object3D; group: number }> = [];

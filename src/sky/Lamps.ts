@@ -17,6 +17,15 @@ import { loadLamps } from './lampLoad';
 // A painted bridge's necklace (SPAN, the spans' own draw): each light takes the next hue of its bridge's paint down the
 // deck as the paint's run reaches it, from the bridge's texel and its hit (the same vectors its material reads), so a
 // rainbow string of lights at night costs a texel fetch a light and nothing a frame.
+
+/** How many bridges' necklaces take paint: as many as the landmark paint reserve holds (City's LANDMARK_SLOTS), the last
+ * one kept for the lights of a bridge past it, which stay plain. A light's tag (u8) is its slot + SPANS x its hue step 0-5. */
+const SPANS = 32;
+
+/** A span light's tag: bridge `group` (1, 2, ...) and its hue step (0-5). */
+export function spanTag(group: number, step: number): number {
+  return Math.min(group - 1, SPANS - 1) + SPANS * step;
+}
 const LAMP_VS = /* glsl */ `
   ${GLSL_COMMON}
   uniform vec4 uLampPoint;    // the share lit, a head's lift a metre from the lens (m), the distance past which they thin out (m), how far the dusk's wave has come
@@ -26,10 +35,9 @@ const LAMP_VS = /* glsl */ `
   precision highp sampler2D;
   uniform sampler2D uPaint;
   uniform float uPaintW;
-  in float aTag;              // its bridge (1, 2) + 4 x its hue step
-  uniform vec2 uSpanIdx;      // the two bridges' paint texels (-1: not paintable yet)
-  uniform vec4 uSpanHit1;     // where each bridge's breath hit and when (its material's uLmHit)
-  uniform vec4 uSpanHit2;
+  in float aTag;              // its bridge's slot + ${SPANS} x its hue step (spanTag)
+  uniform float uSpanIdx[${SPANS}];  // each bridge's paint texel (-1: not paintable yet)
+  uniform vec4 uSpanHit[${SPANS}];   // where each bridge's breath hit and when (its material's uLmHit)
   uniform float uSpanRun;     // how fast its paint runs along it (m/s)
   flat out float vRamp;
   const float SPAN_HUES[6] = float[6](${HUE_RAMPS.map((r) => r.toFixed(1)).join(', ')});
@@ -55,15 +63,15 @@ const LAMP_VS = /* glsl */ `
     vFog = uFog.x > 0.0 || dist > uFog.z * 0.55 ? sbFog(wp) : 0.0;
     gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
     #ifdef SPAN
-    float g = mod(aTag, 4.0);
-    float idx = g < 1.5 ? uSpanIdx.x : uSpanIdx.y;
+    int g = int(mod(aTag, ${SPANS}.0));
+    float idx = uSpanIdx[g];
     if (idx >= 0.0) {
       vec4 paint = texelFetch(uPaint, ivec2(int(mod(idx, uPaintW)), int(floor(idx / uPaintW))), 0);
-      vec4 hit = g < 1.5 ? uSpanHit1 : uSpanHit2;
+      vec4 hit = uSpanHit[g];
       // (an escalation is painted already; a fresh bloom lights up as its run passes, light by light)
       bool run = paint.a < 1.5 && hit.w > paint.b - 4.0 && hit.w < paint.b + 0.3;
       if (paint.g > 0.5 && uTime >= paint.b && (!run || distance(wp, hit.xyz) < uSpanRun * (uTime - hit.w))) {
-        vRamp = SPAN_HUES[int(mod(floor(paint.r + 0.5) + floor(aTag / 4.0) + 60.0, 6.0))];
+        vRamp = SPAN_HUES[int(mod(floor(paint.r + 0.5) + floor(aTag / ${SPANS}.0) + 60.0, 6.0))];
         vLight = 0.7;
       }
     }
@@ -97,9 +105,8 @@ function makeLampMaterial(span = false): THREE.ShaderMaterial {
     Object.assign(uniforms, {
       uPaint: paintUniforms.uPaint,
       uPaintW: paintUniforms.uPaintW,
-      uSpanIdx: { value: new THREE.Vector2(-1, -1) },
-      uSpanHit1: { value: new THREE.Vector4(0, 0, 0, -1e9) },
-      uSpanHit2: { value: new THREE.Vector4(0, 0, 0, -1e9) },
+      uSpanIdx: { value: new Float32Array(SPANS).fill(-1) },
+      uSpanHit: { value: Array.from({ length: SPANS }, () => new THREE.Vector4(0, 0, 0, -1e9)) },
       uSpanRun: { value: 0 },
     });
   return new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, defines: span ? { SPAN: 1 } : {}, uniforms, vertexShader: LAMP_VS, fragmentShader: LAMP_FS });
@@ -179,7 +186,7 @@ export class Lamps {
 
   /**
    * The spans' lights, x, y, z a light (Bridges.ts bridgeLights): their own draw, there from the first frame. `tags`: each
-   * light's bridge (1, 2) + 4 x its hue step; `run`: how fast a bridge's paint runs along it (m/s).
+   * light's spanTag (its bridge and hue step); `run`: how fast a bridge's paint runs along it (m/s).
    */
   setBridges(xyz: number[], tags: number[], run: number) {
     const n = xyz.length / 3;
@@ -195,11 +202,12 @@ export class Lamps {
     this.object.add(this.bridges);
   }
 
-  /** Bridge `group` (1, 2) paints from texel `index`, its breath's hit read from its material's own vector. */
+  /** Bridge `group` (1, 2, ...) paints from texel `index`, its breath's hit read from its material's own vector. */
   paintSpan(group: number, index: number, hit: THREE.Vector4) {
+    if (group < 1 || group >= SPANS) return;
     const u = this.spanMat.uniforms;
-    (u.uSpanIdx.value as THREE.Vector2).setComponent(group - 1, index);
-    u[group === 1 ? 'uSpanHit1' : 'uSpanHit2'].value = hit;
+    (u.uSpanIdx.value as Float32Array)[group - 1] = index;
+    (u.uSpanHit.value as THREE.Vector4[])[group - 1] = hit;
   }
 
   /** Every frame, the tuner's switches. `wave`: how far the dusk's wave has come, 0 none on (the day), 1 all of them. */
