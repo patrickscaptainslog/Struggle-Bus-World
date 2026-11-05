@@ -5,6 +5,8 @@ import { HUE_RAMPS, Ramp } from '../render/palette';
 import { uploadRect } from '../render/upload';
 import { arrival, bandHue, blastDots, blastEdge, LAYOUT_BANDS, SHAPE_LUT, specFromArray, specToArray, type BlastDot, type BlastSpec } from '../game/blastLayout';
 import { resolveIdScheme, type CityData, type IdScheme } from './PaintState';
+import { decodeMask, encodeMask, GROUND_N, TEXELS, type Prepared } from './groundMask';
+import { GeoPaint, IdbStore, type GroundGeo, type PicStore } from './GeoPaint';
 
 // Paint on the ground: streets, sidewalks and parks splattered by blasts.
 //
@@ -49,35 +51,8 @@ const OLD_KEY = 'strugglebus.ground.v1';
 const MAX_TILES = 160;
 /** Blasts kept for a tile that wasn't loaded when they landed (oldest dropped). */
 const MAX_PENDING = 6;
-/**
- * ?moon: open-ground paint is kept by where it is on the Moon, in pictures of their own laid on latitude and longitude: GEO_T degrees of latitude on a side, as wide on the ground in longitude
- * (up to 50 times wider in degrees near a pole), GROUND_N texels a side, about 1.2 m, finer than a tile's 2 m. Every blast that lands is drawn once more into a scratch tile and copied into them
- * (fold), and a tile that comes in, on whatever map, copies its paint out of them in one pass (pictureInto). So a slide or a map made again round the bus finds it where it was, all of it, at
- * once. GEO_PICS are kept, the longest untouched going first, as MAX_TILES tiles are; that's about 14 km2 of painted ground. The first account's reviews, 2026-11-04: kept by tile of a map that
- * slides it came back 131 km off and a new map wiped it; kept as a list of 32 blasts a cell, a place painted a lot lost its oldest, and came back a blast at a time over seconds.
- */
-const GEO_T = 0.005;
-const GEO_PICS = 600;
-
-/** ?moon: the map's x, z (m) and the Moon's latitude and longitude (degrees), each into `out`, on the map as it is when asked. */
-export interface GroundGeo {
-  toLatLon(x: number, z: number, out: number[]): void;
-  toXZ(lat: number, lon: number, out: number[]): void;
-}
-/** A picture of the paint on a patch of the Moon (GEO_T): its texels as a tile mask's, coverage and hue, kept encoded and opened when it's read or drawn on. */
-interface GeoPic {
-  t: number;
-  enc: string;
-  data: Uint8Array | null;
-  dirty: boolean;
-}
-/** A row of pictures' width in longitude, degrees. */
-const geoLonW = (i: number) => GEO_T / Math.max(0.02, Math.cos(((i + 0.5) * GEO_T * Math.PI) / 180));
-/** A longitude taken round to 0..360, the pictures' own grid: column j of row i runs from j * geoLonW(i), and the last column of a row is the short one before 360. */
-const lon360 = (lon: number) => (((lon + 180) % 360) + 360) % 360;
-const geoCols = (i: number) => Math.floor(360 / geoLonW(i)) + 1;
-
-export const GROUND_N = 128;
+export type { GroundGeo } from './GeoPaint';
+export { decodeMask, encodeMask, GROUND_N } from './groundMask';
 
 /** Uniforms every material that shows the blast shares (terrain, buildings). */
 export const blastUniforms = {
@@ -240,85 +215,9 @@ export interface GroundJob {
   under: boolean;
 }
 
-interface Prepared {
-  spec: BlastSpec;
-  lut: Float32Array;
-  /** per-angle boundary warp noise (-1..1) for the hue layout */
-  warp: Float32Array;
-  /** shockwave arrival time by distance, 0..max over WAVE_LUT steps */
-  wave: Float32Array;
-  max: number;
-  dots: BlastDot[];
-  /** world bbox of everything this blast paints */
-  minX: number;
-  minZ: number;
-  maxX: number;
-  maxZ: number;
-}
 
-const TEXELS = GROUND_N * GROUND_N;
-/** encoder scratch: worst case one (value, run) pair per texel */
-const RLE = new Uint8Array(TEXELS * 2);
 
-/**
- * A mask's settled paint as a short string: per texel coverage (5 bits) and
- * hue (3 bits), run-length coded ((value, run - 1) byte pairs), base64.
- * Empty string = nothing painted.
- */
-export function encodeMask(d: Uint8Array): string {
-  let w = 0, prev = -1, run = 0, any = false;
-  for (let k = 0, o = 0; k < TEXELS; k++, o += 4) {
-    const q = (d[o] * 31 + 127) / 255 | 0;
-    const v = q > 0 ? (q << 3) | Math.min(5, d[o + 1] >> 5) : 0;
-    if (v === prev && run < 256) {
-      run++;
-      continue;
-    }
-    if (run) {
-      RLE[w++] = prev;
-      RLE[w++] = run - 1;
-    }
-    if (v) any = true;
-    prev = v;
-    run = 1;
-  }
-  RLE[w++] = prev;
-  RLE[w++] = run - 1;
-  if (!any) return '';
-  let bin = '';
-  for (let k = 0; k < w; k += 0x2000) bin += String.fromCharCode.apply(null, RLE.subarray(k, Math.min(w, k + 0x2000)) as unknown as number[]);
-  return btoa(bin);
-}
-
-/** Decodes encodeMask() into a mask's data (settled: no reveal, no serial). False if corrupt. */
-export function decodeMask(str: string, d: Uint8Array): boolean {
-  let bin: string;
-  try {
-    bin = atob(str);
-  } catch {
-    return false;
-  }
-  let k = 0;
-  for (let i = 0; i + 1 < bin.length; i += 2) {
-    const v = bin.charCodeAt(i);
-    const q = v >> 3;
-    const cov = q ? Math.round((q * 255) / 31) : 0;
-    const g = q ? Math.min(5, v & 7) * 32 + 16 : 0;
-    const e = k + bin.charCodeAt(i + 1) + 1;
-    if (e > TEXELS) break;
-    for (let o = k * 4; k < e; k++, o += 4) {
-      d[o] = cov;
-      d[o + 1] = g;
-      d[o + 2] = 0;
-      d[o + 3] = 0;
-    }
-  }
-  if (k === TEXELS) return true;
-  d.fill(0);
-  return false;
-}
-
-/** ?moon's pictures by place, after the world's prefix (useGeo), and the lists of blasts the first build kept by place, which are drawn into them once and dropped. */
+/** What builds before GeoPaint kept of the Moon's paint by place, in localStorage after a Moon page's prefix: pictures, and before them lists of blasts. They move to its store once. */
 const GEO_KEY = 'gpic:';
 const GEO_OLD = 'geo:';
 
@@ -371,14 +270,13 @@ export class GroundPaint {
   onTilesTouched: ((keys: string[]) => void) | null = null;
 
   /** ?moon: kept by place, not by tile (useGeo), and the blasts so kept, by cell */
-  private geo: GroundGeo | null = null;
-  private readonly geoPics = new Map<string, GeoPic>();
-  /** pictures opened, the last read first out once there are more than 48 */
-  private readonly geoOpen: string[] = [];
-  private readonly geoTmp = [0, 0, 0];
-  private readonly geoTmp2 = [0, 0, 0];
-  /** fold's scratch tiles, kept for the next blast */
-  private readonly scratchPool: Uint8Array[] = [];
+  /** ?moon: the map's places, and the paint kept by them (GeoPaint) */
+  geo: GroundGeo | null = null;
+  private pics: GeoPaint | null = null;
+  /** ?moon: tiles' paint copied out of the pictures, waiting for each tile to come in (onPaintReady tells the city) */
+  private readonly prepared = new Map<string, Uint8Array>();
+  /** ?moon: a tile's paint is copied out and waiting: the city gives it ground of its own, and attach copies it in */
+  onPaintReady: ((tx: number, tz: number) => void) | null = null;
   /** the tiles' localStorage key prefix (null: the id scheme is unknown, nothing is read or written) */
   private readonly prefix: string | null;
   readonly scheme: IdScheme | null;
@@ -419,33 +317,40 @@ export class GroundPaint {
   }
 
   /**
-   * ?moon: from here open-ground paint is kept by place on the Moon, not by tile (GEO_T). What the tile store held for this world, kept by tiles of some map before, means no place any more, and
-   * is dropped; the first build's lists of blasts by place are drawn into the pictures, once.
+   * ?moon: from here open-ground paint is kept by place on the Moon, not by tile (GeoPaint.ts). What the tile store held for this world, kept by tiles of some map before, means no place any
+   * more, and is dropped. The pictures and lists of blasts builds before this one kept in localStorage, under any Moon page's prefix, move to the pictures' store once. `store`: theirs (tools).
    */
-  useGeo(g: GroundGeo) {
+  useGeo(g: GroundGeo, store: PicStore = new IdbStore()) {
     this.geo = g;
     const prefix = this.prefix;
-    if (!this.storageOk || !prefix) return;
-    try {
-      for (const k of this.store.keys()) localStorage.removeItem(prefix + k);
-      this.store.clear();
-      const gp = prefix + GEO_KEY, op = prefix + GEO_OLD, old: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (!k) continue;
-        if (k.startsWith(op)) old.push(k);
-        if (!k.startsWith(gp)) continue;
-        try {
-          const o = JSON.parse(localStorage.getItem(k) ?? '') as { t?: number; m?: string };
-          if (typeof o.m === 'string' && o.m.length) this.geoPics.set(k.slice(gp.length), { t: typeof o.t === 'number' ? o.t : 0, enc: o.m, data: null, dirty: false });
-        } catch {
-          /* corrupt: dropped on the next write here */
-        }
+    if (this.storageOk && prefix) {
+      try {
+        for (const k of this.store.keys()) localStorage.removeItem(prefix + k);
+      } catch {
+        /* blocked */
       }
-      for (const k of old) {
-        try {
+    }
+    this.store.clear();
+    this.pics = new GeoPaint(g, store, (sp) => this.prepare(sp), (key, data) => this.paintCopied(key, data), this.tileSize, () => this.oldGeo());
+  }
+
+  /** What builds before this one kept by place in localStorage, as pictures and blasts for GeoPaint, and a way to drop it once they're in its store. */
+  private oldGeo(): { pics: Array<[number, number, string]>; blasts: BlastSpec[]; done: () => void } {
+    const pics: Array<[number, number, string]> = [], blasts: BlastSpec[] = [], keys: string[] = [], g = this.geo!, o = [0, 0];
+    try {
+      for (let n = 0; n < localStorage.length; n++) {
+        const k = localStorage.key(n);
+        if (!k || !/^strugglebus\.ground\.v\d+\.moon_/.test(k)) continue;
+        const at = k.indexOf(':' + GEO_KEY), ot = k.indexOf(':' + GEO_OLD);
+        if (at >= 0) {
+          keys.push(k);
+          const [i, j] = k.slice(at + 1 + GEO_KEY.length).split(',').map(Number);
+          const v = JSON.parse(localStorage.getItem(k) ?? '{}') as { t?: number; m?: string };
+          // (its rows and columns are the pictures' own short of the caps; past them they were drawn on a grid that's gone, and are left)
+          if (Number.isInteger(i) && Number.isInteger(j) && Math.abs((i + 0.5) * 0.005) < 88 && typeof v.m === 'string' && v.m.length) pics.push([(i + 20000) * 100000 + j, typeof v.t === 'number' ? v.t : 0, v.m]);
+        } else if (ot >= 0) {
+          keys.push(k);
           const rows = JSON.parse(localStorage.getItem(k) ?? '[]') as unknown[];
-          const o = this.geoTmp;
           for (const r of Array.isArray(rows) ? rows : []) {
             if (!Array.isArray(r) || r.length < 6 || !Array.isArray(r[5])) continue;
             const sp = specFromArray(r[5] as number[]);
@@ -458,33 +363,47 @@ export class GroundPaint {
               sp.ox = o[0];
               sp.oz = o[1];
             }
-            this.fold(sp);
+            blasts.push(sp);
           }
-        } catch {
-          /* corrupt: dropped */
         }
-        localStorage.removeItem(k);
       }
-      this.saveGeo(Infinity);
     } catch {
-      /* blocked: kept for the session */
+      /* blocked, or corrupt: left */
     }
+    return {
+      pics,
+      blasts,
+      done: () => {
+        try {
+          for (const k of keys) localStorage.removeItem(k);
+        } catch {
+          /* blocked */
+        }
+      },
+    };
   }
 
   /** A new map of the same world (?moonland's, made again round the bus): what memory holds of the one before goes. What's kept by place (useGeo) stays, and comes in with the new map's tiles. */
   newMap() {
-    if (!this.geo) {
+    if (!this.pics) {
       this.resetAll();
       return;
     }
     this.store.clear();
     this.saveQueue.length = 0;
     this.saveSet.clear();
+    this.prepared.clear();
+    this.pics.moved();
+  }
+
+  /** ?moon: the pictures by place, for QA. */
+  get geoPaint(): GeoPaint | null {
+    return this.pics;
   }
 
   /** Pictures of paint kept by place (useGeo), for QA. */
   get geoCount(): number {
-    return this.geoPics.size;
+    return this.pics?.count ?? 0;
   }
 
   /** Painted tiles in storage. */
@@ -535,6 +454,8 @@ export class GroundPaint {
     });
     remap(this.store);
     remap(this.replaying);
+    remap(this.prepared);
+    this.pics?.slid(dtx, dtz, dx, dz);
     this.saveQueue.splice(0, this.saveQueue.length, ...this.saveQueue.map(key));
     const saving = [...this.saveSet].map(key);
     this.saveSet.clear();
@@ -576,8 +497,8 @@ export class GroundPaint {
   attach(tx: number, tz: number, ox: number, oz: number, uniforms: { tGround: THREE.IUniform; uGroundOn: THREE.IUniform }) {
     const key = `${tx},${tz}`;
     this.loaded.set(key, { ox, oz, uniforms });
-    if (this.geo) {
-      this.pictureInto(key, ox, oz);
+    if (this.pics) {
+      this.attachGeo(key, ox, oz);
       return;
     }
     const rec = this.store.get(key);
@@ -613,7 +534,14 @@ export class GroundPaint {
 
   /** True if storage holds ground paint for the tile (loaded or not). ?moon: a blast kept by place reaches it. */
   hasSaved(tx: number, tz: number): boolean {
-    if (this.geo) return this.geoNear(tx * this.tileSize, tz * this.tileSize);
+    if (this.pics) {
+      // (its paint copied out first, a little each frame, and only then ground of its own: onPaintReady says when)
+      // (and a blast that reaches it and isn't in the pictures yet gives it ground of its own at once: the city asks as it makes a region's ground, and needn't ask again)
+      const key = `${tx},${tz}`, ox = tx * this.tileSize, oz = tz * this.tileSize;
+      if (this.prepared.has(key)) return true;
+      this.pics.want(key, ox, oz);
+      return this.pics.pendingOver(ox, oz, ox + this.tileSize, oz + this.tileSize).length > 0;
+    }
     return this.store.has(`${tx},${tz}`);
   }
 
@@ -710,12 +638,12 @@ export class GroundPaint {
       q.length = 0;
       this.markDirty(t.m, p);
       touched.push(t.key);
-      if (!this.geo) this.queueSave(t.key);
+      if (!this.pics) this.queueSave(t.key);
     }
     if (job.serial !== null) this.serialTiles.set(job.serial, touched);
-    if (this.geo) {
-      // (kept by place; a tile here that it couldn't draw has it now, and one that comes in later finds it)
-      this.fold(job.spec);
+    if (this.pics) {
+      // (kept by place, drawn into the pictures over the frames after this; a tile here that it couldn't draw has it now, and one that comes in before it's drawn in draws it itself)
+      this.pics.add(job.spec, p);
       for (const key of this.tilesOf(p))
         if (touched.indexOf(key) < 0 && this.loaded.has(key) && this.mask(key)) {
           this.replaying.set(key, (this.replaying.get(key) ?? 0) + 1);
@@ -736,10 +664,12 @@ export class GroundPaint {
   flush(renderer: THREE.WebGLRenderer, dt: number) {
     const S = config.splat;
     blastUniforms.uGroundTone.value.set(S.groundLight, S.groundSidewalk, Math.min(1, S.groundCurb), 0);
+    // (?moon: the pictures by place, a few ms a frame)
+    this.pics?.work(dt);
     if (this.saveTimer > 0) this.saveTimer -= dt;
-    // (?moon: a picture by place a frame, as the tiles go)
-    else if (this.geo) this.saveGeo(1);
-    else if (this.saveQueue.length) {
+    else if (this.pics) {
+      /* the pictures write themselves */
+    } else if (this.saveQueue.length) {
       // a tile still drawing replays saves once they're done
       for (let k = 0; k < this.saveQueue.length; k++) {
         const key = this.saveQueue[k];
@@ -768,8 +698,8 @@ export class GroundPaint {
     this.store.clear();
     this.saveQueue.length = 0;
     this.saveSet.clear();
-    this.geoPics.clear();
-    this.geoOpen.length = 0;
+    this.prepared.clear();
+    this.pics?.clear();
     const prefix = this.prefix;
     if (!prefix) return;
     try {
@@ -787,7 +717,7 @@ export class GroundPaint {
 
   /** Save every changed tile now (page hide). */
   persist() {
-    if (this.geo) this.saveGeo(Infinity);
+    this.pics?.persist();
     for (const key of this.saveQueue) this.saveTile(key, true);
     this.saveQueue.length = 0;
     this.saveSet.clear();
@@ -858,249 +788,57 @@ export class GroundPaint {
     }
   }
 
-  /** ?moon: a picture by place, opened (decoded) to read or draw on; null when there's none and `make` is false. */
-  private geoPic(key: string, make: boolean): Uint8Array | null {
-    let pic = this.geoPics.get(key);
-    if (!pic) {
-      if (!make) return null;
-      this.geoPics.set(key, (pic = { t: Date.now(), enc: '', data: null, dirty: false }));
-    }
-    if (!pic.data) {
-      pic.data = new Uint8Array(TEXELS * 4);
-      if (pic.enc && !decodeMask(pic.enc, pic.data)) pic.enc = '';
-      this.geoOpen.push(key);
-      // (a picture open is 64 KB: only the last 48 read stay so, the rest close again, saved first)
-      while (this.geoOpen.length > 48) {
-        const k = this.geoOpen.shift()!, q = this.geoPics.get(k);
-        if (!q || !q.data || k === key) continue;
-        if (q.dirty) this.writeGeo(k, q);
-        q.data = null;
+  /**
+   * ?moon: a tile comes in: the paint copied out of the pictures for it goes onto its mask in one go, and the blasts that landed and aren't in the pictures yet are drawn on it as replays.
+   */
+  private attachGeo(key: string, ox: number, oz: number) {
+    const d = this.prepared.get(key);
+    if (d) {
+      this.prepared.delete(key);
+      const m = this.mask(key);
+      if (m) {
+        m.data.set(d);
+        m.x0 = 0;
+        m.z0 = 0;
+        m.x1 = GROUND_N - 1;
+        m.z1 = GROUND_N - 1;
+        this.queueDirty(m);
+        this.ready.push(key);
       }
     }
-    return pic.data;
+    const pend = this.pics!.pendingOver(ox, oz, ox + this.tileSize, oz + this.tileSize);
+    if (pend.length && this.mask(key)) {
+      this.replaying.set(key, (this.replaying.get(key) ?? 0) + pend.length);
+      for (const p of pend) this.jobs.push({ spec: p.spec, tImpact: 0, serial: null, p: null, tiles: [], only: key, under: false });
+    }
   }
 
   /**
-   * ?moon: a blast that landed, drawn once more into scratch tiles on this map's grid and copied from there into the pictures it reaches, by place: each picture texel takes the scratch texel
-   * under it, as `put` lays settled paint over what's there.
+   * ?moon: a tile's paint copied out of the pictures. If the tile's here already (painted this session, so it took ground of its own), it goes under what's on its mask; otherwise it waits
+   * for the tile, and the city is told to give it ground of its own (onPaintReady), so the tile comes in with its paint on.
    */
-  private fold(spec: BlastSpec) {
-    const g = this.geo!, ts = this.tileSize, p = this.prepare(spec);
-    // (the splat and its spatter apart: spatter only lands on bare ground, so it goes into a picture only where that's bare, as it lands on a tile)
-    const scratch = new Map<string, [TileMask, TileMask]>();
-    let used = 0;
-    for (const key of this.tilesOf(p)) {
-      const c = key.indexOf(','), tx = Number(key.slice(0, c)), tz = Number(key.slice(c + 1));
-      const two = [0, 1].map(() => {
-        const data = (this.scratchPool[used] ??= new Uint8Array(TEXELS * 4));
-        used++;
-        data.fill(0);
-        return { ox: tx * ts, oz: tz * ts, data } as unknown as TileMask;
-      }) as [TileMask, TileMask];
-      this.rows(two[0], p, null, 0, GROUND_N - 1, null, false);
-      this.dots(two[1], p, null, null);
-      scratch.set(key, two);
-    }
-    // (the pictures the blast's box reaches, in latitude and longitude)
-    const box = this.boxOf(p.minX, p.minZ, p.maxX, p.maxZ);
-    if (!box) return;
-    const now = Date.now(), cs = this.cell;
-    this.eachPic(box, (i, j, w) => {
-      const key = `${i},${j}`, d = this.geoPic(key, true)!;
-      // (the picture's corners on this map, and its texels between them; a picture is 150 m, and the map is smooth over it)
-      const lat0 = i * GEO_T, lon0 = j * w - 180, c00 = [0, 0], c10 = [0, 0], c01 = [0, 0], c11 = [0, 0];
-      g.toXZ(lat0, lon0, c00);
-      g.toXZ(lat0, lon0 + w, c10);
-      g.toXZ(lat0 + GEO_T, lon0, c01);
-      g.toXZ(lat0 + GEO_T, lon0 + w, c11);
-      let any = false;
-      for (let b = 0; b < GROUND_N; b++) {
-        const v = (b + 0.5) / GROUND_N;
-        for (let a = 0; a < GROUND_N; a++) {
-          const u = (a + 0.5) / GROUND_N;
-          const x = (c00[0] * (1 - u) + c10[0] * u) * (1 - v) + (c01[0] * (1 - u) + c11[0] * u) * v;
-          const z = (c00[1] * (1 - u) + c10[1] * u) * (1 - v) + (c01[1] * (1 - u) + c11[1] * u) * v;
-          if (x < p.minX || x > p.maxX || z < p.minZ || z > p.maxZ) continue;
-          const tx = Math.floor(x / ts), tz = Math.floor(z / ts), two = scratch.get(`${tx},${tz}`);
-          if (!two) continue;
-          const [m, dm] = two;
-          const i2 = Math.min(GROUND_N - 1, Math.floor((x - m.ox) / cs)), j2 = Math.min(GROUND_N - 1, Math.floor((z - m.oz) / cs));
-          const q = (j2 * GROUND_N + i2) * 4, cov = m.data[q], dc = dm.data[q];
-          if (!cov && !dc) continue;
-          const t = (b * GROUND_N + a) * 4;
-          if (cov) {
-            const old = d[t];
-            d[t] = Math.max(old, cov);
-            if (cov >= 128 || cov > old) d[t + 1] = m.data[q + 1];
-          }
-          if (dc && d[t] < 128) {
-            const old = d[t];
-            d[t] = Math.max(old, dc);
-            if (dc >= 128 || dc > old) d[t + 1] = dm.data[q + 1];
-          }
-          any = true;
-        }
+  private paintCopied(key: string, d: Uint8Array) {
+    const m = this.loaded.has(key) ? this.mask(key) : null;
+    if (m) {
+      const md = m.data;
+      for (let t = 0; t < md.length; t += 4) {
+        const c = d[t];
+        if (!c || c <= md[t]) continue;
+        if (md[t] < 128) md[t + 1] = d[t + 1];
+        md[t] = c;
       }
-      if (any) {
-        const pic = this.geoPics.get(key)!;
-        pic.t = now;
-        pic.dirty = true;
-      }
-    });
-    this.saveTimer = 0.8;
-  }
-
-  /**
-   * ?moon: a tile comes in, and its paint is copied out of the pictures by place in one pass: each of its texels takes the picture texel at its place. What's in flight and lands later is drawn
-   * live as ever.
-   */
-  private pictureInto(key: string, ox: number, oz: number) {
-    const g = this.geo!, ts = this.tileSize;
-    if (!this.geoPics.size || !this.geoNear(ox, oz)) return;
-    const m = this.mask(key);
-    if (!m) return;
-    // (its corners' places, and its texels' between them, the longitudes taken round from the first; near a pole each texel's own)
-    const c = [[ox, oz], [ox + ts, oz], [ox, oz + ts], [ox + ts, oz + ts]].map(([x, z]) => {
-      g.toLatLon(x, z, this.geoTmp);
-      return [this.geoTmp[0], this.geoTmp[1]];
-    });
-    const polar = c.some((q) => Math.abs(q[0]) > 85);
-    for (let k = 1; k < 4; k++) c[k][1] = c[0][1] + ((((c[k][1] - c[0][1] + 180) % 360) + 360) % 360) - 180;
-    const d = m.data, o = this.geoTmp2, cs = this.cell;
-    let any = false, lastKey = '', pd: Uint8Array | null = null;
-    for (let j = 0; j < GROUND_N; j++) {
-      const v = (j + 0.5) / GROUND_N;
-      for (let i = 0; i < GROUND_N; i++) {
-        const u = (i + 0.5) / GROUND_N;
-        let lat: number, lon: number;
-        if (polar) {
-          g.toLatLon(ox + (i + 0.5) * cs, oz + (j + 0.5) * cs, o);
-          lat = o[0];
-          lon = o[1];
-        } else {
-          lat = (c[0][0] * (1 - u) + c[1][0] * u) * (1 - v) + (c[2][0] * (1 - u) + c[3][0] * u) * v;
-          lon = (c[0][1] * (1 - u) + c[1][1] * u) * (1 - v) + (c[2][1] * (1 - u) + c[3][1] * u) * v;
-        }
-        const pi = Math.floor(lat / GEO_T), w = geoLonW(pi), L = lon360(lon), pj = Math.floor(L / w), pk = `${pi},${pj}`;
-        if (pk !== lastKey) {
-          lastKey = pk;
-          pd = this.geoPics.has(pk) ? this.geoPic(pk, false) : null;
-        }
-        if (!pd) continue;
-        const a = Math.min(GROUND_N - 1, Math.floor((L / w - pj) * GROUND_N)), b = Math.min(GROUND_N - 1, Math.floor((lat / GEO_T - pi) * GROUND_N));
-        const q = (b * GROUND_N + a) * 4, cov = pd[q];
-        if (!cov) continue;
-        const t = (j * GROUND_N + i) * 4;
-        d[t] = Math.max(d[t], cov);
-        d[t + 1] = pd[q + 1];
-        any = true;
-      }
+      m.x0 = 0;
+      m.z0 = 0;
+      m.x1 = GROUND_N - 1;
+      m.z1 = GROUND_N - 1;
+      this.queueDirty(m);
+      return;
     }
-    if (!any) return;
-    m.x0 = 0;
-    m.z0 = 0;
-    m.x1 = GROUND_N - 1;
-    m.z1 = GROUND_N - 1;
-    this.queueDirty(m);
-    this.ready.push(key);
-  }
-
-  /** ?moon: a picture by place lies under the tile at (ox, oz). */
-  private geoNear(ox: number, oz: number): boolean {
-    if (!this.geoPics.size) return false;
-    const box = this.boxOf(ox, oz, ox + this.tileSize, oz + this.tileSize);
-    let found = false;
-    if (box) this.eachPic(box, (i, j) => {
-      if (this.geoPics.has(`${i},${j}`)) found = true;
-    });
-    return found;
-  }
-
-  /** ?moon: a box on this map, in latitude and longitude, its longitudes taken round from its first corner's so one on the date line is one span; near a pole, every longitude. */
-  private boxOf(x0: number, z0: number, x1: number, z1: number): { la0: number; la1: number; lo0: number; lo1: number } | null {
-    const g = this.geo!, o = this.geoTmp;
-    let la0 = 90, la1 = -90, lo0 = Infinity, lo1 = -Infinity, ref = NaN;
-    for (let c = 0; c < 4; c++) {
-      g.toLatLon(c & 1 ? x1 : x0, c & 2 ? z1 : z0, o);
-      if (Number.isNaN(ref)) ref = o[1];
-      const lon = ref + ((((o[1] - ref + 180) % 360) + 360) % 360) - 180;
-      la0 = Math.min(la0, o[0]);
-      la1 = Math.max(la1, o[0]);
-      lo0 = Math.min(lo0, lon);
-      lo1 = Math.max(lo1, lon);
-    }
-    if (!Number.isFinite(lo0)) return null;
-    if (la1 > 89) la1 = 90;
-    if (la0 < -89) la0 = -90;
-    if (la1 >= 90 || la0 <= -90) {
-      lo0 = -180;
-      lo1 = 180;
-    }
-    return { la0, la1, lo0, lo1 };
-  }
-
-  /** ?moon: each picture a box reaches, by row and column, on the pictures' own grid (lon360), round the date line. */
-  private eachPic(box: { la0: number; la1: number; lo0: number; lo1: number }, f: (i: number, j: number, w: number) => void) {
-    const i0 = Math.max(Math.floor(-90 / GEO_T), Math.floor(box.la0 / GEO_T)), i1 = Math.min(Math.floor(90 / GEO_T) - 1, Math.floor(box.la1 / GEO_T));
-    const span = box.lo1 - box.lo0, L0 = lon360(box.lo0), L1 = L0 + span;
-    for (let i = i0; i <= i1; i++) {
-      const w = geoLonW(i), n = geoCols(i);
-      const walk = (a: number, b: number) => {
-        for (let j = Math.floor(a / w); j <= Math.min(n - 1, Math.floor(b / w)); j++) f(i, j, w);
-      };
-      // (a span past 360 goes on from 0, where column 0 starts: the last column of a row is the short one)
-      if (span >= 359.999) walk(0, 360);
-      else if (L1 < 360) walk(L0, L1);
-      else {
-        walk(L0, 360);
-        walk(0, L1 - 360);
-      }
-    }
-  }
-
-  /** ?moon: the pictures drawn on since they were saved, one a call or all (`most`), the longest untouched going first when there are more than GEO_PICS. */
-  private saveGeo(most: number) {
-    let n = 0;
-    for (const [k, pic] of this.geoPics) {
-      if (!pic.dirty) continue;
-      this.writeGeo(k, pic);
-      if (++n >= most) break;
-    }
-  }
-
-  private writeGeo(key: string, pic: GeoPic) {
-    if (pic.data) pic.enc = encodeMask(pic.data);
-    pic.dirty = false;
-    const prefix = this.prefix;
-    if (!this.storageOk || !prefix) return;
-    while (this.geoPics.size > GEO_PICS && this.evictGeo(key)) { /* evicted one */ }
-    const raw = JSON.stringify({ t: pic.t, m: pic.enc });
-    for (let tries = 0; tries < 6; tries++) {
-      try {
-        localStorage.setItem(prefix + GEO_KEY + key, raw);
-        return;
-      } catch {
-        if (!this.evictGeo(key)) return;
-      }
-    }
-  }
-
-  private evictGeo(except: string): boolean {
-    let best: string | null = null, bt = Infinity;
-    for (const [k, pic] of this.geoPics) if (k !== except && pic.t < bt) {
-      bt = pic.t;
-      best = k;
-    }
-    if (best === null) return false;
-    this.geoPics.delete(best);
-    const at = this.geoOpen.indexOf(best);
-    if (at >= 0) this.geoOpen.splice(at, 1);
-    try {
-      if (this.prefix) localStorage.removeItem(this.prefix + GEO_KEY + best);
-    } catch {
-      /* blocked */
-    }
-    return true;
+    this.prepared.set(key, d);
+    // (copies waiting for tiles that don't come: the oldest go, and are copied again if they do)
+    if (this.prepared.size > 64) this.prepared.delete(this.prepared.keys().next().value!);
+    const c = key.indexOf(',');
+    this.onPaintReady?.(Number(key.slice(0, c)), Number(key.slice(c + 1)));
   }
 
   private evictOldest(except: string): boolean {

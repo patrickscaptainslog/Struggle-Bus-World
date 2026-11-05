@@ -553,6 +553,8 @@ export class City {
         this.setOwnGround(tx, tz);
       }
     };
+    // (?moon: a tile's paint, kept by place, is copied out and waiting for it: it takes ground of its own, and comes in with its paint on)
+    this.ground.onPaintReady = (tx, tz) => this.setOwnGround(tx, tz);
     paintUniforms.uPaint.value = this.paint.texture;
     paintUniforms.uPaintW.value = this.paint.width;
     this.regionSize = manifest.regionSize;
@@ -1005,6 +1007,9 @@ export class City {
     this.regionsRequested = new Set(loaded);
     this.regionLod = new Map([...this.regionLod].map(([k, v]) => [region(k), v] as [string, 0 | 1]).filter(([k]) => this.regionsLoaded.has(k)));
     this.ownGround = new Set([...this.ownGround].map(tile));
+    const stale = [...this.groundStale].map(region);
+    this.groundStale.clear();
+    for (const k of stale) this.groundStale.add(k);
     this.pending.clear();
     this.retryAt.clear();
     this.failCount.clear();
@@ -1057,6 +1062,11 @@ export class City {
   update(focus: THREE.Vector3, renderer: THREE.WebGLRenderer, dt: number, adoptMs?: number) {
     // (a frame's update: the frame before it drew what was fresh then)
     if (adoptMs === undefined && this.framesRun++ > 0 && this.firsts.length) this.firstsDone();
+    for (const rkey of this.groundStale) {
+      const rm = this.regionMeshes.get(rkey);
+      if (rm) this.buildRegionGround(rkey, rm);
+    }
+    this.groundStale.clear();
     this.request(focus);
     const R = this.regionSize * this.manifest.tileSize;
     const hk = Math.min(1, Math.max(0, (this.viewHeight - 40) / 460));
@@ -1391,11 +1401,13 @@ export class City {
     if (own === this.ownGround.has(k)) return;
     if (own) this.ownGround.add(k);
     else this.ownGround.delete(k);
+    // (its region's ground is made again in this frame's update, once, however many of its tiles changed: a MEGA's 43 tiles made the same regions again and again in one frame. The third review)
     const rs = this.regionSize;
-    const rkey = `${Math.floor(tx / rs)},${Math.floor(tz / rs)}`;
-    const rm = this.regionMeshes.get(rkey);
-    if (rm) this.buildRegionGround(rkey, rm);
+    this.groundStale.add(`${Math.floor(tx / rs)},${Math.floor(tz / rs)}`);
   }
+
+  /** Regions whose ground is made again in the next update (setOwnGround). */
+  private readonly groundStale = new Set<string>();
 
   private disposeRegionMesh(key: string) {
     const rm = this.regionMeshes.get(key);

@@ -42,7 +42,15 @@ try {
   const b = await page.evaluate(() => ({ leg: window.__space?.moon?.trip?.leg, hud: getComputedStyle(document.querySelector('[data-hud="trip-label"]') ?? document.body).display }));
   // (the street's sound, as a first touch wakes it: what quiets its wind in the flight is read off its graph)
   await page.evaluate(() => window.__game.audio.unlock());
-  const wind = () => page.evaluate(() => { const g = window.__game.audio.graph; return g ? +g.ambDuck.gain.value.toFixed(3) : null; });
+  // (where it was sent, and what it is once the audio clock is three time constants past that going down, or about 0.6 s going up: the frames here are fixed-step, the audio clock real time.
+  // The third review: read part way, the rows failed five readings in six on a laptop)
+  const wind = () => page.evaluate(async () => {
+    const g = window.__game.audio.graph;
+    if (!g) return null;
+    const wait = g.ambTo ? 0.6 : 0.75, t0 = performance.now();
+    while (g.ctx.currentTime < g.ambAt + wait && performance.now() - t0 < 5000) await new Promise((r) => setTimeout(r, 50));
+    return { to: g.ambTo, duck: +g.ambDuck.gain.value.toFixed(3), past: +(g.ctx.currentTime - g.ambAt).toFixed(2) };
+  });
   row('boot: the street is up, and the flight behind it with the street keeping the bus', up && b.hud === 'none', b);
   const read = () =>
     page.evaluate(() => {
@@ -84,7 +92,7 @@ try {
   const says = await page.evaluate(() => document.querySelector('[data-hud="trip-label"]')?.dataset.say?.split('|')[1] ?? '');
   row('up: past 15 km the flight has the bus, free over Earth, its label up, in Turbo 3 still', handed >= 0 && h.leg === 'wait' && h.flightKm > 14.9 && hud !== 'none' && h.rung === 3 && h.tLevel === 3 && Math.abs(h.flightMs - 900) < 30 && /^TURBO 3 /.test(says), { handedAt: handed, ...h, label: hud, says });
   // (no wind up there: the street's wind and foghorn quiet as the flight takes the bus, the second review's P4)
-  row("up: and the street's wind and foghorn have gone quiet", windUp !== null && windUp < 0.05, { ambienceDuck: windUp });
+  row("up: and the street's wind and foghorn have gone quiet", windUp !== null && windUp.to === 0 && windUp.past >= 0.75 && windUp.duck < 0.05, { ambience: windUp });
   // ---- on: the flight climbs on
   const fly = (secs, yoke, until) =>
     page.evaluate(
@@ -120,7 +128,7 @@ try {
   d = await read();
   const windDown = await wind();
   await page.screenshot({ path: join(dir, 'down.png') });
-  row("down: and the street's wind and foghorn are back", windDown !== null && windDown > 0.9, { ambienceDuck: windDown });
+  row("down: and the street's wind and foghorn are back", windDown !== null && windDown.to === 1 && windDown.past >= 0.6 && windDown.duck > 0.9, { ambience: windDown });
   row('down: under 14 km over the city the street has the bus again, in Turbo 3', d.leg === 'street' && d.km < 14.2 && d.km > 10 && d.gear === 3 && d.level === 3, d);
   row('no page errors', errors.length === 0, errors.slice(0, 5));
 } finally {

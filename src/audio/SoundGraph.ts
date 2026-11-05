@@ -53,6 +53,9 @@ export class SoundGraph {
   private readonly ambDuck: GainNode;
   /** hushGround: the flight has the bus, and the wind and the foghorn are quiet till the street's next frame */
   private aloft = false;
+  /** QA: where the wind and the foghorn were last sent (1 there, 0 quiet), and when on the audio clock: an AudioParam can't say where it's going */
+  ambTo = 1;
+  ambAt = 0;
   private readonly chorusWet: GainNode;
   private readonly revSendMusic: GainNode;
   private readonly revSendSfx: GainNode;
@@ -300,6 +303,8 @@ export class SoundGraph {
       this.aloft = false;
       hold(this.ambDuck.gain, now);
       target(this.ambDuck.gain, 1, now, 0.25);
+      this.ambTo = 1;
+      this.ambAt = now;
     }
     this.wind.update(now, 0, this.speedN, this.altN, this.surge, this.paint, this.fog, tune, true, this.high);
     this.bus.update(now, 0, this.speedN, this.surge, this.fullness, tune, true);
@@ -317,6 +322,8 @@ export class SoundGraph {
     this.aloft = true;
     hold(this.ambDuck.gain, t);
     target(this.ambDuck.gain, 0, t, 0.25);
+    this.ambTo = 0;
+    this.ambAt = t;
   }
 
   private pushMix(t: number, tau: number): void {
