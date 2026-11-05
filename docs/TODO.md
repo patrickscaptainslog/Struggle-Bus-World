@@ -5,7 +5,7 @@ Tick what you finish, in the commit that finishes it. Add to it when the produce
 ## Morning report: the second account (2026-11-05)
 
 **Done tonight**
-- **What went live on main, reviewed.** Nothing blocking: seven small things for the first account to fix on `feat/clock` ([reviews/main-live-2026-11-05.md](reviews/main-live-2026-11-05.md)).
+- **What went live on main, reviewed.** Nothing blocking: seven small things, which the first account fixed overnight on `feat/clock`, and I've read their fixes: they hold, so `feat/clock` is ready for main whenever you say ([reviews/main-live-2026-11-05.md](reviews/main-live-2026-11-05.md)).
 - **Main merged into `feat/earth`.** Your bigger lane, the real sky and the bridges' paint, with the Moon trip on top. One clash found and fixed on the way: the street's sky and the flight's had the same names in one shader, so `?earth` didn't draw.
 - **The first account's fourth review, fixed.** All seven majors and most of the minors. On `?earth`: space no longer draws black on the first climb by day, nothing jumps in colour at 15 km, and you can look around the whole way home from the Moon. On the Moon: kept paint can't be lost to a slow or broken store, and a big blast no longer stalls a frame.
 - **The first account's check of the merge on a real GPU, fixed.** Everything passed but one: coming home from the Moon at night, Earth came down in daytime colours and the street's first frame jumped. Now the way home has the street's own colours from its first frame, and the stars are already out when the street takes over.
