@@ -82,6 +82,7 @@ LEFT_OUT = {'is_indoor', 'is_under_construction', 'is_abandoned'}   # as the bri
 CAR_MODES = {'vehicle', 'motor_vehicle', 'car'}
 SNAP_M = 0.5                   # a range's end this close to a connector is the connector
 MERGE_M = 0.01                 # cuts closer than this are one
+DM_M = 0.1                     # cuts with no connector this close would share a key (C4: a place in whole dm): one
 SIMPLIFY_M = 0.25              # plan tolerance, osm.py's footprints'
 DRAPE_STEP, DRAPE_TOL = 4.0, 0.4   # every 4 m along a land edge within 0.4 m of the grid (the contract's 0.5 less dm steps)
 GRID_M = 4.0                   # the terrain grid's step: tiles' 65 heights over 256 m
@@ -196,7 +197,8 @@ def osm_key(sources, prefixes='wnr'):
 
 
 def dm_key(way, x, z):
-    """A node with no connector (C4, Proposed; the contract has no form for these): its way and its place, whole dm."""
+    """A node with no connector of its own, a portal, a cut where a range ends or at the bounds (C4, 0.6): its way and its
+    own place in whole decimetres of the map."""
     return f'{way}@{int(round(x * 10))},{int(round(z * 10))}'
 
 
@@ -722,7 +724,6 @@ class Bake:
         self.spill = Spill(self.cache, 'e')
         self.special = []   # decks and tunnels, whole: (pid, region, rec)
         self.ferry_rows = {}  # the ferry routes that touch the map, whole: key -> [(gers, name, lonlat, end connector ids)]
-        self.line_pos = defaultdict(set)  # the contract's portal keys and the places each names
         self.pid = 0
         cols = ['id', 'names.primary', 'sources', 'subtype', 'class', 'subclass', 'road_flags', 'rail_flags', 'level_rules',
                 'connectors', 'access_restrictions', 'speed_limits', 'geometry', 'bbox']
@@ -852,7 +853,7 @@ class Bake:
         cuts.sort(key=lambda c: (c[0], c[1]))
         merged = []
         for c in cuts:
-            if merged and c[0] - merged[-1][0] < MERGE_M:
+            if merged and (c[0] - merged[-1][0] < MERGE_M or (c[0] - merged[-1][0] < DM_M and "c" not in (c[2], merged[-1][2]))):
                 if c[1] < merged[-1][1]:
                     merged[-1] = c
                 continue
@@ -890,9 +891,7 @@ class Bake:
                 axis, v = info
                 p = point_at(xz, s, t).copy()
                 p[axis] = v
-                key = f'{way}@{"xz"[axis]}{v:.1f}'
-                self.line_pos[key].add((round(float(p[0]), 2), round(float(p[1]), 2)))
-                nodes.append((key, p, False))
+                nodes.append((dm_key(way, p[0], p[1]), p, False))
             else:
                 p = point_at(xz, s, t).copy()
                 if ty == 'b':
@@ -1118,23 +1117,8 @@ class Bake:
 
     # ---------------------------------------------------------- pass 2: global
 
-    def fix(self, rec):
-        """A spilled piece with its node keys final: a portal key the contract's form gives two places (a way across
-        one region line twice) becomes C4's, the way and the node's own place, at each of them."""
-        ak, bk = rec[7], rec[8]
-        if ak in self.clash or bk in self.clash:
-            sh = rec[9]
-            if ak in self.clash:
-                ak = dm_key(ak.split('@', 1)[0], sh[0][0], sh[0][1])
-            if bk in self.clash:
-                bk = dm_key(bk.split('@', 1)[0], sh[-1][0], sh[-1][1])
-            rec = rec[:7] + (ak, bk) + rec[9:]
-        return rec
-
     def global_pass(self):
         regs = sorted(self.regions if not self.only else {self.only})
-        self.clash = {k for k, ps in self.line_pos.items() if len(ps) > 1}
-        self.special = [(r, self.fix(rec)) for r, rec in self.special]
         node_reg = defaultdict(set)
         node_bits = defaultdict(int)
         node_xz = {}
@@ -1147,7 +1131,6 @@ class Bake:
         for r in regs:
             lines, recs = [], []
             for rec in self.spill.read(r):
-                rec = self.fix(rec)
                 pid, kind = rec[0], rec[1]
                 ak, bk, shape = rec[7], rec[8], rec[9]
                 for key, p, con in ((ak, shape[0], rec[14]), (bk, shape[-1], rec[15])):
@@ -1175,18 +1158,11 @@ class Bake:
                 forms['connector, OSM node'] += 1
             elif '@' not in k:
                 forms['connector, GERS id'] += 1
-            elif '@x' in k or '@z' in k:
-                forms['portal, the contract\'s form'] += 1
             else:
-                forms['C4: way and place'] += 1
+                forms['way and place (C4)'] += 1
         self.stats['nodeKeys'] = dict(forms)
-        self.stats['portalKeyClashes'] = {'keys': len(self.clash), 'nodes': sum(len(self.line_pos[k]) for k in self.clash),
-                                          'examples': sorted(self.clash)[:4]}
-        if self.clash:
-            log(f'  ! {len(self.clash)} portal keys in the contract\'s form name two places or more; their nodes take C4\'s form: '
-                f'{sorted(self.clash)[:4]}')
         if clash:
-            log(f'  ! {len(clash)} other node keys name two places: {sorted(clash)[:5]}')
+            log(f'  ! {len(clash)} node keys name two places over 1 cm apart: {sorted(clash)[:5]}')
         self.stats['otherKeyClashes'] = len(clash)
         # pieces numbered along their ways (a closed way from its smallest node key); no way: the segment's GERS id
         self.edge_key = {}
@@ -1454,7 +1430,7 @@ class Bake:
         return m, (r[0] * self.R, r[1] * self.R)
 
     def build_region(self, r):
-        recs = [self.fix(rec) for rec in self.spill.read(r)]
+        recs = list(self.spill.read(r))
         recs.sort(key=lambda rec: self.edge_id[self.edge_key[rec[0]]])
         keys = sorted({k for rec in recs for k in (rec[7], rec[8])}, key=lambda k: self.node_id[k])
         idx = {k: i for i, k in enumerate(keys)}
@@ -2075,7 +2051,7 @@ class Bake:
         log(f'  rules on kept segments {dict(sorted(st["rules"].items()))}')
         log(f'  areas (count, ha) {st.get("areas")}')
         log(f'  dropped {dict(st["dropped"])}')
-        log(f'  node flags {st.get("nodeFlags")}; portal key clashes {st.get("portalKeyClashes")}; id collisions {st.get("idCollisions")}')
+        log(f"  node flags {st.get('nodeFlags')}; id collisions {st.get('idCollisions')}")
         log(f'  node keys by form {st.get("nodeKeys")}; other keys naming two places {st.get("otherKeyClashes")}')
         log(f'  one-way edges {st.get("oneWayEdges")}')
         log(f'  counts {st.get("counts")}')

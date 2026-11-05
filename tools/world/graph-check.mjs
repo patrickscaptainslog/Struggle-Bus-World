@@ -176,7 +176,7 @@ const decks = (man.landmarks ?? []).filter((l) => l.deck).map((l) => l.deck);
 const c = {
   files: 0, missing: 0, parseFail: 0, tooBig: 0, gz: 0, raw: 0, sizes: [],
   nodes: 0, edges: 0, points: 0, areas: 0, tris: 0,
-  outside: 0, edgesAcross: 0,
+  outside: 0, edgesAcross: 0, selfLoops: 0, shortEdges: 0,
   portals: 0, lineNotPortal: 0, lineDeadEnds: 0, lineDeadC1: 0,
   idTwiceInFile: 0, idKinds: 0, noKey: 0,
   byDir: {}, oneWay: 0, noCars: 0, noCarsKm: 0, noCarsOff: 0, minors: new Set(),
@@ -282,6 +282,8 @@ for (const [rx, rz] of regions) {
       if (i) len += Math.hypot(P[i][0] - P[i - 1][0], P[i][2] - P[i - 1][2]);
     }
     if (across) c.edgesAcross++;
+    if (edges.a[e] === edges.b[e]) c.selfLoops++;
+    if (len < 0.05) c.shortEdges++;
     const name = kind === 1 ? ROAD[edges.cls[e]] : kind === 2 ? 'foot:' + FOOT[edges.cls[e]] : KIND[kind].toLowerCase();
     c.kmByClass[name] = (c.kmByClass[name] ?? 0) + len / 1000;
     if (f & EdgeFlag.UNDRAWN) c.undrawnKm[name] = (c.undrawnKm[name] ?? 0) + len / 1000;
@@ -460,17 +462,23 @@ report('portals', `${c.portals} portal nodes; ${twinless} with no twin; ${twinsA
 report('ids twice', `${c.idTwiceInFile} twice in one file or edge ids twice; ${idOther} node ids in two regions but not portals; ${c.idKinds} ids of two kinds`, '0', c.idTwiceInFile === 0 && idOther === 0 && c.idKinds === 0);
 report('keys', `${keysOf.size} in gkeys.bin; ${keyDup} keys with two ids within a kind, ${idDup} ids with two keys, ${c.noKey} ids with no key`, '0', keyDup === 0 && idDup === 0 && c.noKey === 0);
 {
-  // node keys by form: the contract's (1.3) and C4's, which the contract has no form for or whose form names two places
-  const f = { 'connector, OSM node': 0, 'connector, GERS id': 0, "portal, the contract's form": 0, 'C4, way and place': 0 };
-  for (const k of keysOf.values()) {
-    if (!k.startsWith('0:')) continue;
+  // node keys (1.3, C4 0.6): a connector's OSM node or GERS id; every other node its edge's way and its own place in
+  // whole decimetres, `w31772645@-71680,-22103`, which must be where the node is
+  const f = { 'connector, OSM node': 0, 'connector, GERS id': 0, 'way and place (C4)': 0, 'another form': 0, 'place not the node\'s': 0 };
+  let where = null;
+  for (const [id, l] of nodeSeen) {
+    const k = keysOf.get(id);
+    if (!k || !k.startsWith('0:')) continue;
     const s = k.slice(2);
-    if (!s.includes('@')) f[s[0] === 'n' && /^n\d+$/.test(s) ? 'connector, OSM node' : 'connector, GERS id']++;
-    else if (/@[xz]-?\d+\.\d$/.test(s)) f["portal, the contract's form"]++;
-    else f['C4, way and place']++;
+    if (!s.includes('@')) { f[/^n\d+$/.test(s) ? 'connector, OSM node' : 'connector, GERS id']++; continue; }
+    const m = /@(-?\d+),(-?\d+)$/.exec(s);
+    if (!m) { f['another form']++; where ??= s; continue; }
+    f['way and place (C4)']++;
+    if (Math.abs(Number(m[1]) - l[0].x * 10) > 1 || Math.abs(Number(m[2]) - l[0].z * 10) > 1) { f['place not the node\'s']++; where ??= `${s} at ${l[0].x.toFixed(1)}, ${l[0].z.toFixed(1)}`; }
   }
-  report('node keys by form', Object.entries(f).map(([k, v]) => `${k} ${v}`).join(', '), '');
+  report('node keys (C4)', Object.entries(f).map(([k, v]) => `${k} ${v}`).join(', ') + (where ? ` (first: ${where})` : ''), 'no other form, each place the node\'s', f['another form'] === 0 && f['place not the node\'s'] === 0);
 }
+report('edges from a node to itself', `${c.selfLoops}; ${c.shortEdges} edges under 5 cm in plan (a cut by a junction: both ends can fall in one decimetre)`, '0', c.selfLoops === 0);
 report('nodes on a region line with edges one side only', `${c.lineDeadEnds}, ${c.lineDeadC1} of them on a cell with no file (C1)`, '');
 report('direction', Object.entries(c.byDir).sort().map(([k, v]) => `${k} ${v}`).join(', '), '');
 report('one-way edges against the bake\'s count', `${c.oneWay} in the files, ${life.stats?.oneWay?.edges} in life.stats (from ${life.stats?.oneWay?.rulesRead} rules read)`, 'the same', c.oneWay === life.stats?.oneWay?.edges);
