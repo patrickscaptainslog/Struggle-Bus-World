@@ -46,14 +46,44 @@
           if (qs.get('sky') !== 'off') {
             var ms = t === null ? NaN : /^\d+$/.test(t) ? Number(t) : Date.parse(t);
             if (!isFinite(ms)) ms = Date.now();
-            var sun = function (t, a, o) { var r = Math.PI / 180, d = t / 864e5 - 10957.5, g = 357.53 + 0.9856 * d, l = (280.46 + 0.98565 * d + 1.915 * Math.sin(g * r)) * r, e = 0.4091, v = Math.asin(Math.sin(e) * Math.sin(l)), h = (280.46 + 360.98565 * d + o) * r - Math.atan2(Math.cos(e) * Math.sin(l), Math.cos(l)); a *= r; return Math.asin(Math.sin(a) * Math.sin(v) + Math.cos(a) * Math.cos(v) * Math.cos(h)) / r; };
+            // (the Sun's height, deg, and its hour angle, h)
+            var sun = function (t, a, o) { var r = Math.PI / 180, d = t / 864e5 - 10957.5, g = 357.53 + 0.9856 * d, l = (280.46 + 0.98565 * d + 1.915 * Math.sin(g * r)) * r, e = 0.4091, v = Math.asin(Math.sin(e) * Math.sin(l)), h = (280.46 + 360.98565 * d + o) * r - Math.atan2(Math.cos(e) * Math.sin(l), Math.cos(l)); a *= r; return [Math.asin(Math.sin(a) * Math.sin(v) + Math.cos(a) * Math.cos(v) * Math.cos(h)) / r, h / r / 15]; };
+            // The colour the game gives the page (LiveSky.page): its live table's FOG 2 by day, SKY_LOW 3 once the bands draw half the sky or more, on the two chains of
+            // tables, setting and rising, crossed by the hour angle as the light is (SkyTable.ts settingShare). P: rows of height (deg, falling) and colour, FOG 2 setting
+            // and rising, then SKY_LOW 3 setting and rising; B: where the bands start and end, setting and rising. `node tools/sky/run.mjs firstpaint.ts --write` writes
+            // them from the real tables, and without --write checks them against the game's.
+            var P = [[21.7, '808a94', 20.85, '818894', 15.3, '85808d', 11.4, '887b84', 8, '87787b'], [15.75, '808a94', 8, '7a7989'], [15, 'b8acb8', 10.8, 'cdb7b9', 7, 'd8c5b9', 5.35, 'd4b4ab', 4.1, 'd1a7a6', 3.65, 'cfa2a4', 1.7, 'c390a5', 0.2, 'ae7ba2', -0.55, 'a171a1', -2.65, '76589f', -4.2, '50499a', -5, '394295'], [15, '949da7', 8.5, '9ca0b2', 1, 'aca3ba', -1.5, '8178ab', -5, '394295']], B = [16, 13, 10, 7];
+            var sm = function (a, b, x) { x = Math.min(1, Math.max(0, (x - a) / (b - a))); return x * x * (3 - 2 * x); };
+            var at = function (k, e, n) { var i = 0; while (i + 2 < k.length && e < k[i + 2]) i += 2; var j = Math.min(i + 2, k.length - 2), u = j > i ? Math.min(1, Math.max(0, (k[i] - e) / (k[i] - k[j]))) : 0, a = parseInt(k[i + 1].substr(n, 2), 16); return a + (parseInt(k[j + 1].substr(n, 2), 16) - a) * u; };
+            // (a row's colour at e in OKLCH, L, C and hue: the two chains cross in OKLCH, as the tables do, where sRGB is up to 9 of 255 off at a northern winter noon)
+            var lch = function (k, e) {
+              for (var q = [], n = 0, v; n < 6; n += 2) q.push((v = at(k, e, n) / 255) <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+              var l = Math.pow(0.4122214708 * q[0] + 0.5363325363 * q[1] + 0.0514459929 * q[2], 1 / 3), m = Math.pow(0.2119034982 * q[0] + 0.6806995451 * q[1] + 0.1073969566 * q[2], 1 / 3), s = Math.pow(0.0883024619 * q[0] + 0.2817188376 * q[1] + 0.6299787005 * q[2], 1 / 3);
+              var A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, Z = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+              return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, Math.sqrt(A * A + Z * Z), Math.atan2(Z, A)];
+            };
+            var col = (window.__sbBoot.sky = function (e, H) {
+              H = (((H % 24) + 36) % 24) - 12;
+              var w = H > 6 ? 1 - sm(10.5, 13.5, H) : H < -6 ? 1 - sm(10.5, 13.5, H + 24) : sm(-1.5, 1.5, H), r = sm(B[2], B[3], e), f = r + (sm(B[0], B[1], e) - r) * w >= 0.5 ? 2 : 0, c = '#';
+              // (rising to setting by the short hue arc, a grey taking the other's hue: SkyTable.ts mixLch; then OKLCH to sRGB, as toBytes)
+              var a = lch(P[f + 1], e), b = lch(P[f], e), ha = a[1] < 0.012 ? b[2] : a[2], dh = (b[1] < 0.012 ? ha : b[2]) - ha;
+              dh -= 2 * Math.PI * Math.round(dh / (2 * Math.PI));
+              var L = a[0] + (b[0] - a[0]) * w, C = a[1] + (b[1] - a[1]) * w, A = C * Math.cos(ha + dh * w), Z = C * Math.sin(ha + dh * w);
+              var l = Math.pow(L + 0.3963377774 * A + 0.2158037573 * Z, 3), m = Math.pow(L - 0.1055613458 * A - 0.0638541728 * Z, 3), s = Math.pow(L - 0.0894841775 * A - 1.291485548 * Z, 3);
+              var q = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s];
+              for (var n = 0; n < 3; n++) {
+                var v = Math.max(0, q[n]);
+                c += ('0' + Math.round(255 * Math.min(1, v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055)).toString(16)).slice(-2);
+              }
+              return c;
+            });
             var blue = qs.get('hour') === 'blue', st = null;
             var paint = function (lat, lon) {
               if (window.__sbPage) return;
-              var e = blue ? -6 : sun(ms, lat, lon);
-              if (e >= 3 && !st) return;
-              // (dusk: the blue hour's horizon; night: its sky low down, the band most of a frame's sky is; day, after a wrong guess: today's grey)
-              var c = e >= 3 ? '#808a94' : e >= -1 ? '#5a4f9c' : '#394295';
+              // (?hour=blue: its held hour's -6 degrees)
+              var s = blue ? [-6, 12] : sun(ms, lat, lon), c = col(s[0], s[1]);
+              // (by day the page's own grey stands; after a wrong guess it's painted back)
+              if (c === '#808a94' && !st) return;
               if (!st) document.head.appendChild((st = document.createElement('style')));
               st.textContent = 'html, body { background: ' + c + '; }';
               var tc = document.querySelector('meta[name=theme-color]');

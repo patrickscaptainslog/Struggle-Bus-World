@@ -248,7 +248,7 @@ export class StreetSky {
     o.name = 'stars';
     const t = new THREE.DataTexture(new Uint8Array([MOON_MEAN]) as Uint8Array<ArrayBuffer>, 1, 1, THREE.RedFormat, THREE.UnsignedByteType);
     t.needsUpdate = true;
-    U.tMoonMap.value = t;
+    U.tSkyMoon.value = t;
     pipeline.skyBodies = (cam, W, H) => this.bodies(cam, W, H);
   }
 
@@ -314,8 +314,8 @@ export class StreetSky {
     const t2 = performance.now();
     const map = moonMap(moon);
     this.pipeline.renderer.initTexture(map);
-    U.tMoonMap.value?.dispose();
-    U.tMoonMap.value = map;
+    U.tSkyMoon.value?.dispose();
+    U.tSkyMoon.value = map;
     readMs += performance.now() - t2;
     this.timing.fetchMs = Math.round(t1 - t0);
     this.timing.readMs = Math.max(1, Math.round(readMs));
@@ -345,9 +345,9 @@ export class StreetSky {
     const ce = Math.cos(seen);
     if (flat > 1e-9) this.moonSeen.set((mx / flat) * ce, Math.sin(seen), (mz / flat) * ce);
     else this.moonSeen.set(0, 1, 0);
-    U.uMoonRot.value.set(s.moonRot[0], s.moonRot[1], s.moonRot[2], s.moonRot[3], s.moonRot[4], s.moonRot[5], s.moonRot[6], s.moonRot[7], s.moonRot[8]);
+    U.uSkyMoonRot.value.set(s.moonRot[0], s.moonRot[1], s.moonRot[2], s.moonRot[3], s.moonRot[4], s.moonRot[5], s.moonRot[6], s.moonRot[7], s.moonRot[8]);
     const sx = s.sun[0] * s.sunKm - mx * s.moonKm, sy = s.sun[1] * s.sunKm - my * s.moonKm, sz = s.sun[2] * s.sunKm - mz * s.moonKm, sl = Math.hypot(sx, sy, sz);
-    U.uMoonSun.value.set(sx / sl, sy / sl, sz / sl, 1 - hour);
+    U.uSkyMoonSun.value.set(sx / sl, sy / sl, sz / sl, 1 - hour);
     this.shadow(s, model);
     // (earthshine as Earth is lit from the Moon, at night: by day the dark side is sky)
     U.uMoonDisc.value.w = S.earthshine * Math.sqrt(s.earthLitAtMoon) * hour;
@@ -467,10 +467,10 @@ export class StreetSky {
     const ux = B.y * R.z - B.z * R.y, uy = B.z * R.x - B.x * R.z, uz = B.x * R.y - B.y * R.x;
     U.uMoonView.value.set(R.x, ux, B.x, R.y, uy, B.y, R.z, uz, B.z);
     // (the map's texels across a pixel at the disc's middle)
-    const map = U.tMoonMap.value as THREE.DataTexture | null, mw = (map?.image as { width: number } | undefined)?.width ?? 1;
+    const map = U.tSkyMoon.value as THREE.DataTexture | null, mw = (map?.image as { width: number } | undefined)?.width ?? 1;
     const lod = Math.max(0, Math.log2(mw / (2 * Math.PI * disc.z)));
     // (as the map lands it comes into focus from its last mip, the one tone it took over from)
-    U.uMoonLod.value = lod + (Math.log2(mw) - lod) * (1 - this.land);
+    U.uSkyMoonLod.value = lod + (Math.log2(mw) - lod) * (1 - this.land);
     // Earth's shadow on the disc's axes
     const sh = U.uMoonShadow.value;
     if (sh.z > 0) sh.set(this.shadowAxis.dot(R), this.shadowAxis.x * ux + this.shadowAxis.y * uy + this.shadowAxis.z * uz, sh.z, sh.w);

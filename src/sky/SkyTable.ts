@@ -119,6 +119,46 @@ function mixLch(a: Float32Array, i: number, b: Float32Array, j: number, t: numbe
   o[k + 2] = ha + dh * t;
 }
 
+/** An OKLCH swatch (hue in radians) into a palette's bytes at d. */
+function toBytes(L: number, C: number, hh: number, data: Uint8Array, d: number): void {
+  const A = C * Math.cos(hh), B = C * Math.sin(hh);
+  const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3, m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3, q = (L - 0.0894841775 * A - 1.291485548 * B) ** 3;
+  data[d] = Math.round(255 * Math.min(1, Math.max(0, gam(Math.max(0, 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * q)))));
+  data[d + 1] = Math.round(255 * Math.min(1, Math.max(0, gam(Math.max(0, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * q)))));
+  data[d + 2] = Math.round(255 * Math.min(1, Math.max(0, gam(Math.max(0, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * q)))));
+  data[d + 3] = 255;
+}
+
+/** The bytes at d are brown or taupe by art's gate, as skycheck tests a frame's pixels (tools/sky/oklch.mjs): OKLCH hue 35-100, L < 0.60 and C > 0.03, or L < 0.72 and 0.02 < C < 0.09. */
+function brownBytes(data: Uint8Array, d: number): boolean {
+  const r = lin(data[d] / 255), g = lin(data[d + 1] / 255), b = lin(data[d + 2] / 255);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
+  const A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+  const C = Math.hypot(A, B), h = ((Math.atan2(B, A) * 180) / Math.PI + 360) % 360;
+  return h > 35 && h < 100 && ((L < 0.6 && C > 0.03) || (L < 0.72 && C > 0.02 && C < 0.09));
+}
+
+/**
+ * A world row's swatch (OKLCH, hue in radians) into a palette's bytes at d, through art's brown gate (OKLCH hue 35-100 and dark, or taupe): on the floats, a little
+ * under its floor so a byte's rounding can't lift it back, then on the bytes as skycheck tests them, where a swatch just past the floats' line rounds back over it
+ * (GREEN_GREY 7 at L 0.7201 to #aea38f, L 0.719, a minute after every sunrise). The floats' clamp then, and neutral if even that rounds brown.
+ */
+export function gatedBytes(L: number, C: number, hh: number, data: Uint8Array, d: number): void {
+  const deg = ((((hh * 180) / Math.PI) % 360) + 360) % 360;
+  if (deg > 35 && deg < 100 && C > 0.016 && (L < 0.6 || (L < 0.72 && C < 0.09))) C = 0.016;
+  toBytes(L, C, hh, data, d);
+  if (!brownBytes(data, d)) return;
+  // (and that clamp's bytes are tested again: near black, or on the gate's hue lines, a byte moves the hue by degrees, and 0.016 can round to #040300's taupe)
+  if (C > 0.016) {
+    toBytes(L, 0.016, hh, data, d);
+    if (!brownBytes(data, d)) return;
+  }
+  toBytes(L, 0, hh, data, d);
+}
+
 /** Where h sits on a chain: the two keyframes (KEYS) and how far between. */
 function onChain(H: number[], K: number[], h: number, o: Float64Array): void {
   let i = 0;
@@ -185,17 +225,9 @@ export class TableBlend {
         mixLch(s0, i, s1, i, S[2], a, 0);
         mixLch(r0, i, r1, i, R[2], b, 0);
         mixLch(b, 0, a, 0, w, a, 0);
-        const L = a[0], hh = a[2];
-        let C = a[1];
-        // (the clamp: art's gate, OKLCH hue 35-100 and dark, or taupe; a little under its floor, so a byte's rounding can't lift it back)
-        const deg = ((((hh * 180) / Math.PI) % 360) + 360) % 360;
-        if (!hue && deg > 35 && deg < 100 && C > 0.016 && (L < 0.6 || (L < 0.72 && C < 0.09))) C = 0.016;
-        const A = C * Math.cos(hh), B = C * Math.sin(hh);
-        const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3, m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3, q = (L - 0.0894841775 * A - 1.291485548 * B) ** 3;
-        data[d] = Math.round(255 * Math.min(1, Math.max(0, gam(Math.max(0, 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * q)))));
-        data[d + 1] = Math.round(255 * Math.min(1, Math.max(0, gam(Math.max(0, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * q)))));
-        data[d + 2] = Math.round(255 * Math.min(1, Math.max(0, gam(Math.max(0, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * q)))));
-        data[d + 3] = 255;
+        // (paint and the bus as they come, every other row through the brown gate)
+        if (hue) toBytes(a[0], a[1], a[2], data, d);
+        else gatedBytes(a[0], a[1], a[2], data, d);
       }
     }
   }
@@ -209,4 +241,25 @@ export function fogLumaOf(data: Uint8Array, out: THREE.Vector2): THREE.Vector2 {
   };
   const base = luma(0);
   return out.set(base, (luma(7) - base) / 7);
+}
+
+/** 0 at a to 1 at b, smoothly. Out here, not in settingShare: that runs every frame, and a function made inside it would be a new closure each call. */
+const smooth = (a: number, b: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/** How much of the light and the tables is the setting Sun's, 0..1, by its hour angle (h, westward): 1 from 1.5 h after solar noon to 1.5 h before midnight. */
+export function settingShare(H: number): number {
+  return H > 6 ? 1 - smooth(10.5, 13.5, H) : H < -6 ? 1 - smooth(10.5, 13.5, H + 24) : smooth(-1.5, 1.5, H);
+}
+
+/**
+ * The page's colour under the canvas and the status bar's (0xRRGGBB) off a table's bytes: the day's sky is FOG 2, and while the bands draw half the sky or more it's
+ * SKY_LOW 3, the band most of a frame's sky is (LiveSky.page). index.html's first paint carries these colours by the Sun's height, written from the real tables:
+ * after any change to the tables, `node tools/sky/run.mjs firstpaint.ts --write`, which writes them and checks them (tools/sky/tables.py runs it itself).
+ */
+export function pageRgb(data: Uint8Array, bands: boolean): number {
+  const i = ((bands ? Ramp.SKY_LOW : Ramp.FOG) * RAMP_STEPS + (bands ? 3 : 2)) * 4;
+  return (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
 }

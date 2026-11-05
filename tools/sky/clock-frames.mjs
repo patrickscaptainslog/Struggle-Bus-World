@@ -11,8 +11,11 @@
 //                                9th, and from the 17th to the 29th it's up at midnight but higher than the ceiling's lift can show)
 //   moonless  2026-11-06T08:00Z  local midnight, the Moon 46 degrees under the horizon
 //   dawn      2026-11-06T14:28Z  -3.2 degrees, rising, a 7 % crescent 24 degrees up in the east-southeast
+//   occultation 2026-12-02T10:10Z  the Moon 12.5 degrees up at azimuth 101, 37 % lit, the Sun -57.8, and a magnitude 4.2 star 0.22 degrees from the Moon's centre, on
+//                                its dark side, which the Moon must cover (docs/reviews/main-live-2026-11-05.md, m4). Not in the default list: --moments=occultation
 // Places: alamo (Alamo Square, heading east, at the rooftops), opening (the Golden Gate opening), ceiling (Alamo Square, put at 14.9 km and pulled up into the
-// 15 km ceiling, where the view lifts to the sky: SKY.md 4.15). The sky's clock stands at the moment (&rate=0).
+// 15 km ceiling, where the view lifts to the sky: SKY.md 4.15), and by name only moonward (the ceiling facing azimuth 101, for the occultation: --moments=occultation
+// --places=moonward). The sky's clock stands at the moment (&rate=0).
 // Writes <outDir>/<moment>-<place>.png, sheet.png and frames.json.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -33,12 +36,17 @@ const MOMENTS = {
   moonless: '2026-11-06T08:00:00Z',
   dawn: '2026-11-06T14:28:00Z',
 };
+// (asked for by name only, so the default sheet stays the seven it was)
+const EXTRA = { occultation: '2026-12-02T10:10:00Z' };
 const ALAMO = '?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud';
 const PLACES = {
   alamo: { query: ALAMO },
   opening: { query: '?openingshot&nohud' },
   ceiling: { query: ALAMO, ceiling: true },
 };
+// (by name only too: the ceiling facing azimuth 101, the occultation's Moon in the middle of the frame. At the rooftops the sky is a band a few degrees deep at the
+// frame's top, so a Moon 12.5 degrees up is out of any heading's frame there)
+const EXTRA_PLACES = { moonward: { query: ALAMO.replace('heading=88', 'heading=101'), ceiling: true } };
 const moments = (opt.moments ?? Object.keys(MOMENTS).join(',')).split(',');
 const places = (opt.places ?? Object.keys(PLACES).join(',')).split(',');
 mkdirSync(out, { recursive: true });
@@ -48,11 +56,11 @@ const report = { base, frames: {} };
 
 for (const m of moments)
   for (const pl of places) {
-    const P = PLACES[pl], name = `${m}-${pl}`;
+    const P = PLACES[pl] ?? EXTRA_PLACES[pl], name = `${m}-${pl}`;
     const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
     page.on('pageerror', (e) => console.log(`[${name} pageerror]`, e.message));
     page.on('console', (c) => c.type() === 'error' && !c.text().includes('404') && console.log(`[${name} console]`, c.text()));
-    await page.goto(`${base}${P.query}&t=${MOMENTS[m]}&rate=0${opt.q ? `&${opt.q}` : ''}`, { waitUntil: 'load' });
+    await page.goto(`${base}${P.query}&t=${MOMENTS[m] ?? EXTRA[m]}&rate=0${opt.q ? `&${opt.q}` : ''}`, { waitUntil: 'load' });
     await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000 });
     if (!report.gpu)
       report.gpu = await page.evaluate(() => {
@@ -100,8 +108,10 @@ for (const m of moments)
     }
     const sky = await page.evaluate(() => {
       const k = window.__game.sky, s = k?.street, f = window.__game.flight;
+      // (where the Moon's disc is in the buffer, x, y and radius in px: null where none is drawn, off the frame or under the horizon)
+      const d = window.__game.pipeline.heldUniforms?.uMoonDisc?.value;
       return k
-        ? { utc: k.utc, sunEl: +k.sunEl.toFixed(2), stars: s.limit > -5 ? +s.limit.toFixed(2) : null, drawn: s.drawn, moonEl: +s.moonEl.toFixed(1), moonLit: +s.moonLit.toFixed(2), moonPx: +s.moonPx.toFixed(1), moonKey: +s.moonKey.toFixed(2), lift: +window.__game.rig.skyLift.toFixed(1), y: Math.round(f.y) }
+        ? { utc: k.utc, sunEl: +k.sunEl.toFixed(2), stars: s.limit > -5 ? +s.limit.toFixed(2) : null, drawn: s.drawn, moonEl: +s.moonEl.toFixed(1), moonLit: +s.moonLit.toFixed(2), moonPx: +s.moonPx.toFixed(1), moonKey: +s.moonKey.toFixed(2), moonDisc: d && d.z > 0 ? [Math.round(d.x), Math.round(d.y), +d.z.toFixed(1)] : null, lift: +window.__game.rig.skyLift.toFixed(1), y: Math.round(f.y) }
         : null;
     });
     const avg = (k) => +(stats.reduce((a, s) => a + s[k], 0) / stats.length).toFixed(2);
@@ -115,7 +125,7 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 900 }, dev
 const cell = (m, pl) => {
   const name = `${m}-${pl}`, f = report.frames[name];
   const src = `data:image/png;base64,${readFileSync(join(out, `${name}.png`)).toString('base64')}`;
-  return `<figure><img src="${src}"><figcaption>${name}<br>${MOMENTS[m].slice(5, 16).replace('T', ' ')}Z &middot; ${f.frameMs} ms</figcaption></figure>`;
+  return `<figure><img src="${src}"><figcaption>${name}<br>${(MOMENTS[m] ?? EXTRA[m]).slice(5, 16).replace('T', ' ')}Z &middot; ${f.frameMs} ms</figcaption></figure>`;
 };
 await page.setContent(`<!doctype html><style>
   body { margin: 0; padding: 8px; background: #111; color: #ddd; font: 11px/1.3 system-ui, sans-serif; }

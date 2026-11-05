@@ -4014,6 +4014,62 @@
   },
   {
    "mode": "touch",
+   "gesture": "the lane: the bus behind the lens, its lane where it was last: low on the left flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: the bus behind the lens, its lane where it was last: over where it was looks",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": {
+    "from": 100,
+    "to": 217,
+    "max": 60
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": false,
+    "look": true,
+    "sx": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: none, as main.ts gave Input with the bus behind the lens: low on the left looks",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": {
+    "from": 100,
+    "to": 217,
+    "max": 60
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": false,
+    "look": true,
+    "sx": 0
+   }
+  },
+  {
+   "mode": "touch",
    "gesture": "the lane: the bus sunk to the bottom edge, a thumb landing again low and to the right flies",
    "events": [],
    "maxChargeHeld": 0,
@@ -4073,6 +4129,52 @@
      "look": true,
      "sx": 0
     }
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: out of it during a lone flick, then the flick lifts: it looks",
+   "events": [
+    "flick+@80ms",
+    "go@80ms",
+    "up1@80ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": {
+    "from": 150,
+    "to": 301,
+    "max": 60
+   },
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "thumb": false,
+    "look": true
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: out of it during a lone flick, the lane under it by the lift: it still looks",
+   "events": [
+    "flick+@80ms",
+    "go@80ms",
+    "up1@80ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": {
+    "from": 150,
+    "to": 301,
+    "max": 60
+   },
+   "gear": 1,
+   "level": 0,
+   "note": {
+    "thumb": false,
+    "look": true
    }
   },
   {
