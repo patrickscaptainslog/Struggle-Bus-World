@@ -12,6 +12,8 @@ The producer, 2026-11-01: "dont add the gear strip. dont add right thumb flicks.
 
 ## The rule
 
+**2026-11-04 evening, going live, the producer: "Ok I want to go live, but while playing, I want the area surrounding th bus for bus control to be a touch larger, especially the area below the bus - anywhere a player touches in the general vicinity below the bus belongs to control of bus - not pan- as that's where the thumb naturally lies."** So the lane is bigger and opens out under the bus. Over the bus's line it is a half disc 0.27 of the screen's width round the bus (`laneHalf`, 106 px on a 393 px screen). From the bus's line down it is a funnel: its sides run out from the half disc's to the screen's edges a quarter of the screen's height under the bus (`laneOpen`, 213 px on an 852 px screen), and it is the whole width from there to the bottom. A touch landing in it flies, so a thumb resting anywhere in the lower part of the screen flies. A look is a touch landing over the bus's line, out of the half disc, or out to a side beside the bus, where the funnel hasn't opened that far yet. The lane stays on the screen: the bus counts as no lower than the half width over the bottom edge and no higher than the top, and a bus that low opens out sooner, so the bottom 106 px are always the whole width (a look up past about 20 degrees puts the bus under the bottom edge). The two names are new, in place of `busLane` (0.22), so a value a phone's tuner saved for the old lane can't hold it. That overrules the 0.22 column in the next paragraph, which stays as what was built first.
+
 **2026-11-04, the producer: "Yes San Francisco should work the same, replacing the left side look".** The zone below is the bus's lane now, on the street as on `feat/moonfree`'s way to the Moon, where it began: a touch landing near the bus flies, in a lane from just over the bus down to the bottom of the screen, 0.22 of the screen's width either side of it (`Input.busZone`, set each frame from where the bus stands on the screen; `inputTune.busLane`), and a touch landing anywhere else is the second thumb, which looks. Read "out of the zone" below as "in the lane", and "in the zone" as "anywhere else"; everything else in this section holds as it was. The left 42 % is what's left when no bus has said where it is.
 
 The left of the screen looks and the rest flies. A touch landing in the left 42 % of the screen's width (`lookZone`, the right 42 % with BUTTONS: SWAP) never flies. There, alone or beside a flying thumb, it is a second thumb. Anywhere else the first thumb flies, and a thumb landing while it does is a second thumb too. A second thumb looks, shifts and taps, and never touches the flight: the bus flies on by itself. A thumb that stays down steers or looks; a thumb that lifts fast is a command. Two thumbs in any order: the one in the zone looks and the other flies.
@@ -158,7 +160,7 @@ A stroke is read on its own. The double's easier rule for a stroke right after a
 
 ### What only a phone can say
 
-How far a right thumb's natural arc leans from vertical (the model has 14 degrees and the cone is 40: `loneFlickDeg`), and how often it lands in the bottom or side band, which are near where a right thumb rests. Whether a run of flicks up the ladder on one thumb drops some, now each is on the firm rule. Whether a thumb pumping the surge in quick pushes climbs gears: a push that reads as a flick is a rung, at once. Whether 225 m/s is the right middle, and whether Nonstop's lift reads as a lift. Whether a clunk and a whoosh together, and a pop with a gear's own kick on the same frame, read as one shift. Where the line belongs: 42 % is 169 px on an iPhone 17 Pro, so does a right thumb reaching across land left of it and look when it meant to fly, and does a left thumb reaching in land right of it and fly when it meant to look (`lookZone`)? How often a quick glance on the left is a gear, on the second thumb's easy rule. Whether a left thumb that means to rest creeps past 12 px and swings the view. And all of the above.
+How far a right thumb's natural arc leans from vertical (the model has 14 degrees and the cone is 40: `loneFlickDeg`), and how often it lands in the bottom or side band, which are near where a right thumb rests. Whether a run of flicks up the ladder on one thumb drops some, now each is on the firm rule. Whether a thumb pumping the surge in quick pushes climbs gears: a push that reads as a flick is a rung, at once. Whether 225 m/s is the right middle, and whether Nonstop's lift reads as a lift. Whether a clunk and a whoosh together, and a pop with a gear's own kick on the same frame, read as one shift. Whether the lane's funnel is the right shape: a left thumb resting low on the left flies now, so a look is a reach up over the bus's line or out beside it, and how often a thumb meaning to look lands under the line (`laneHalf`, `laneOpen`). Where the line belongs (when no bus has said where it is): 42 % is 169 px on an iPhone 17 Pro, so does a right thumb reaching across land left of it and look when it meant to fly, and does a left thumb reaching in land right of it and fly when it meant to look (`lookZone`)? How often a quick glance on the left is a gear, on the second thumb's easy rule. Whether a left thumb that means to rest creeps past 12 px and swings the view. And all of the above.
 
 ## The look
 
@@ -218,11 +220,11 @@ On the first run's intro, once ever, a beat after the bridge, three lines in the
 
 ```
 FLICK UP FOR GEARS
-STEER BY THE BUS
-DRAG ELSEWHERE TO LOOK
+STEER BELOW THE BUS
+DRAG ABOVE IT TO LOOK
 ```
 
-Any thumb flicks, so the flicks come first and the last two lines are the bus's lane (2026-11-04; it said LEFT SIDE, DRAG TO LOOK, and RIGHT SIDE with BUTTONS: SWAP). It says DRAG because a resting thumb does nothing.
+Any thumb flicks, so the flicks come first and the last two lines are the bus's lane (2026-11-04: it said LEFT SIDE, DRAG TO LOOK, and RIGHT SIDE with BUTTONS: SWAP, then STEER BY THE BUS, DRAG ELSEWHERE TO LOOK until the lane opened out below the bus). Beside the bus looks too, which the hint leaves to the thumb to find. It says DRAG because a resting thumb does nothing.
 
 It asks for nothing and nothing ends it but its own time, or LOCKED, which takes the slot. It waits for the gate, so the gate's own lines have had their turn. `taught` bit 32; an old save gets it once, which is right, because that player's TURBO has just gone. A save that has seen it already never sees these lines. Off wherever the first run is off, and a desktop gets its keys in the keys toast instead. Nothing else on the screen teaches any of this: the gestures are hidden, the producer's call.
 
@@ -232,7 +234,7 @@ E or PageUp is a flick up, Q or PageDown a flick down: they step the ladder. Shi
 
 ## What's tunable
 
-On the tuner (`?tune`), group Input, read live: `lookZone` (0.42; 0: no zone), `secondTapMs` (230), `lookDelayMs` (100), `flickPx`, `flickMs`, `flickSpeed`, `flickDeg`, `loneFlickPx`, `loneFlickMs`, `loneFlickSpeed`, `loneFlickDeg`, `flickBottomPx` (40), `flickSidePx` (20). In `config.turbo`: `levels` ([1.3, 1.6, 2]), over the top gear, not on the tuner: it shows numbers, and this is a list.
+On the tuner (`?tune`), group Input, read live: `laneHalf` (0.27 of the width round the bus) and `laneOpen` (0.25 of the height under it, where the lane is the whole width; 0: from the bus's line), `lookZone` (0.42; 0: no zone, and only when no bus has said where it is), `secondTapMs` (230), `lookDelayMs` (100), `flickPx`, `flickMs`, `flickSpeed`, `flickDeg`, `loneFlickPx`, `loneFlickMs`, `loneFlickSpeed`, `loneFlickDeg`, `flickBottomPx` (40), `flickSidePx` (20). In `config.turbo`: `levels` ([1.3, 1.6, 2]), over the top gear, not on the tuner: it shows numbers, and this is a list.
 
 On the tuner, group camera: `lookDegPerPx` (0.4), `lookFullPx` (260), `lookInvertY` (off: thumb up looks up, the opposite of the yoke, where thumb down climbs), `lookUp` (45), `lookDown` (50), `lookFollowHz` (3), `lookHomeHz` (1.4: home in about 1 s), `lookEaseIn` (0.2), `lookViewMax` (86), `lookAimMax` (100), `lookStreamAfter` (2), `lookStreamRate` (2). In group turbo: `nonstopSpeed` (225), `nonstopAlt` (60), `nonstopClimb` (50).
 

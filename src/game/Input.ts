@@ -104,8 +104,11 @@ export const inputTune = {
   lookDelayMs: 100,
   /** A touch landing in this share of the screen's width, from the left (the right, with BUTTONS: SWAP), never flies. 0: no zone. */
   lookZone: 0.42,
-  /** With the bus's zone on (Input.busZone): the half width of its lane, as a share of the screen's width. */
-  busLane: 0.22,
+  /** With the bus's zone on (Input.busZone): the half width of its lane round the bus, as a share of the screen's width, and how far under the bus
+   *  it has opened out to the screen's whole width, as a share of the screen's height (0: whole width from the bus's line down). New names, 2026-11-04:
+   *  the lane grew, and a value a phone's tuner saved for the old busLane must not hold it at 0.22. */
+  laneHalf: 0.27,
+  laneOpen: 0.25,
   /** A flick by the second thumb: at least this far (px), in at most this long (ms), at least this fast on average (px/ms), within this many degrees of vertical. */
   flickPx: 30,
   flickMs: 230,
@@ -136,7 +139,8 @@ registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
   secondTapMs: [80, 450, 5],
   lookDelayMs: [0, 300, 5],
   lookZone: [0, 0.8, 0.01],
-  busLane: [0.1, 0.45, 0.01],
+  laneHalf: [0.1, 0.5, 0.01],
+  laneOpen: [0, 0.6, 0.01],
   flickPx: [10, 120, 1],
   flickMs: [60, 450, 5],
   flickSpeed: [0.05, 2, 0.01],
@@ -231,9 +235,10 @@ export class Input {
   /**
    * The bus's zone, CSS px of the input element, set every frame by whoever draws the bus (main.ts, from where the bus stands on the screen): only a touch landing in its lane flies, and one landing anywhere
    * else looks. The producer: "what if we reserve the control the struggle bus movement space on the screen to the area directly near the struggle bus itself, and then touching anywhere but that
-   * area pans the camera?" Null: the look zone's rule. r: the lane's half width (inputTune.busLane of the screen's).
+   * area pans the camera?" And on going live, 2026-11-04: "anywhere a player touches in the general vicinity below the bus belongs to control of bus - not pan- as that's where the thumb naturally lies".
+   * Null: the look zone's rule. r: the lane's half width round the bus (inputTune.laneHalf of the screen's width); open: how far under the bus it covers the screen's whole width (inputTune.laneOpen of its height).
    */
-  busZone: { x: number; y: number; r: number } | null = null;
+  busZone: { x: number; y: number; r: number; open: number } | null = null;
 
   private readonly el: HTMLElement;
   private readonly slots: Slot[] = [];
@@ -820,9 +825,17 @@ export class Input {
   private inLookZone(x: number, y: number): boolean {
     const b = this.busZone;
     if (b) {
-      // (a lane round the bus, from just over it down to the bottom of the screen, where the thumb that flies it sits)
-      const dx = x - b.x, dy = y - b.y;
-      return !(Math.abs(dx) <= b.r && (dy >= 0 || dx * dx + dy * dy <= b.r * b.r));
+      // (the lane: a half disc over the bus, and from the bus's line down a funnel that opens out to the screen's whole width `open` under it, and stays that wide down to the
+      // bottom, where the thumb that flies it rests: so a look is a touch over the bus's line, or out to a side beside it. Kept on the screen: a look up past about 20 degrees
+      // puts the bus under its bottom edge, and the lane went with it, so no touch could fly. So the bus stands no lower than r over the bottom edge, and a bus sitting low
+      // opens out sooner, so that last r is always the whole width; and no higher than the top edge, which would have made the whole screen the lane)
+      const r = b.r, W = this.rectW, H = this.rectH;
+      const bx = Math.max(r, Math.min(W - r, b.x)), by = Math.max(0, Math.min(H - r, b.y));
+      const dx = x - bx, dy = y - by;
+      if (dy < 0) return dx * dx + dy * dy > r * r;
+      const open = Math.min(b.open, H - r - by);
+      const k = open > 0 ? Math.min(1, dy / open) : 1;
+      return x < (bx - r) * (1 - k) || x > bx + r + (W - bx - r) * k;
     }
     const w = this.rectW * inputTune.lookZone;
     return this.swapped ? x > this.rectW - w : x < w;

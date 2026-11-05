@@ -771,7 +771,10 @@ vista snap compensation (the contrail stays with the bus up high).
 `lookZone`, 42 %, of the width, the right with SWAP) never flies; anywhere else the first thumb flies. A second thumb, which is any
 thumb in the zone, alone or not, or any thumb landing while one flies, looks, flicks gears and taps on its lift. Two thumbs in
 any order: the one in the zone looks and the other flies. A lone fresh stroke out of the zone that lifts fast is a flick too, on
-a firmer rule, because it steers until the lift; nothing on screen teaches or shows a gear but a moment's readout.
+a firmer rule, because it steers until the lift; nothing on screen teaches or shows a gear but a moment's readout. With the bus's
+lane on (`busZone`, which main.ts sets each frame from where the bus stands on the screen) the zone is everywhere but the lane: a
+half disc `laneHalf` (0.27 of the width) round the bus over its line, and from its line down a funnel that is the whole width
+`laneOpen` (0.25 of the height) under it, kept on the screen.
 
 **The input contract** (`src/game/Input.ts`):
 - `onTap(): void` a tap: a normal dragon-breath splat. A still press up to `inputTune.stillTapMs` (450 ms) on the

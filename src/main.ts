@@ -357,6 +357,8 @@ async function boot() {
   // ---- the hero
   const bus = new BusModel();
   const busOnScreen = new THREE.Vector3();
+  /** the bus's lane, handed to the thumbs each frame (Input.busZone): one object, filled in place */
+  const busLane = { x: 0, y: 0, r: 0, open: 0 };
   scene.add(bus.root);
 
   // drop shadow straight below the bus: grounds the hero (how high it flies). No decal: the resolve pass
@@ -1385,10 +1387,15 @@ async function boot() {
       const open = 0.3 + 0.7 * superPose.eye;
       pipeline.setHeroBeam(beamEye, beamTip, 0.5 * rig.heroScale, 0.5 * (hour ? hour.beamWidth(vista) : Cb.headBeamWidth) * open * rig.heroScale, beamLength > 0 ? Cb.headBeamStrength * (0.35 + 0.65 * superPose.eye) : 0);
     }
-    // (only a touch near the bus flies it, and one anywhere else looks: the bus's lane, where it stands on the screen this frame. The producer: "Yes San Francisco should work the same, replacing the left side look")
+    // (only a touch near the bus or anywhere under it flies it, and one over it or beside it looks: the bus's lane, where it stands on the screen this frame. The producer: "Yes San Francisco
+    // should work the same, replacing the left side look", and "anywhere a player touches in the general vicinity below the bus belongs to control of bus")
     {
       const v = bus.root.getWorldPosition(busOnScreen).project(camera), W = window.innerWidth, H = window.innerHeight;
-      input.busZone = v.z < 1 ? { x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H, r: inputTune.busLane * W } : null;
+      busLane.x = ((v.x + 1) / 2) * W;
+      busLane.y = ((1 - v.y) / 2) * H;
+      busLane.r = inputTune.laneHalf * W;
+      busLane.open = inputTune.laneOpen * H;
+      input.busZone = v.z < 1 ? busLane : null;
     }
     pipeline.render(scene);
     framesDrawn++;
