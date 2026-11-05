@@ -15,6 +15,7 @@
   "secondTapMs": 230,
   "lookDelayMs": 100,
   "lookZone": 0.42,
+  "busLane": 0.22,
   "flickPx": 30,
   "flickMs": 230,
   "flickSpeed": 0.25,
@@ -3634,6 +3635,197 @@
     "thumb": false,
     "look": true,
     "sx": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: under the bus flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: just over the bus flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: at its side, 85 px off, flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: 89 px off looks",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": {
+    "from": 100,
+    "to": 217,
+    "max": 60
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": false,
+    "look": true,
+    "sx": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: the sky over the bus looks",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": {
+    "from": 100,
+    "to": 217,
+    "max": 60
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": false,
+    "look": true,
+    "sx": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: the left looks",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": {
+    "from": 100,
+    "to": 217,
+    "max": 60
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": false,
+    "look": true,
+    "sx": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: the right looks",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": {
+    "from": 100,
+    "to": 217,
+    "max": 60
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": false,
+    "look": true,
+    "sx": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: a flick out of it is a gear",
+   "events": [
+    "flick+@85ms",
+    "go@85ms",
+    "up1@85ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": null,
+   "gear": 1,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: a flick in it is a gear",
+   "events": [
+    "flick+@85ms",
+    "go@85ms",
+    "up1@85ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 1,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: a tap out of it splats",
+   "events": [
+    "tap@90ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: one in it flies and one out of it looks",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": {
+    "from": 301,
+    "to": 417,
+    "max": 60
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": true,
+    "sx": 0.45
    }
   },
   {

@@ -395,6 +395,24 @@ row('touch', 'the line: swapped: the left flies', (h) => { h.input.swapped = tru
 row('touch', 'the line: swapped: the right looks', (h) => { h.input.swapped = true; return dragAt(h, RX, RY); });
 row('touch', 'the line: swapped: 226 px flies', (h) => { h.input.swapped = true; return dragAt(h, 226, RY); });
 row('touch', 'the line: swapped: 229 px looks', (h) => { h.input.swapped = true; return dragAt(h, 229, RY); });
+// The bus's lane (2026-11-04, the producer: "Yes San Francisco should work the same, replacing the left side look"): only a touch landing near the bus flies, in a lane from just over it down to the
+// bottom, and one landing anywhere else is the second thumb and looks. Here the bus stands at (196, 560) of the 393 px screen, as the game sets it each frame (Input.busZone)
+const LANE = { x: 196, y: 560, r: 0.22 * 393 };
+const laned = (fn: (h: H) => unknown) => (h: H) => {
+  h.input.busZone = LANE;
+  return fn(h);
+};
+row('touch', 'the lane: under the bus flies', laned((h) => dragAt(h, 196, 720)));
+row('touch', 'the lane: just over the bus flies', laned((h) => dragAt(h, 196, 500)));
+row('touch', 'the lane: at its side, 85 px off, flies', laned((h) => dragAt(h, 196 + 85, 720)));
+row('touch', 'the lane: 89 px off looks', laned((h) => dragAt(h, 196 + 89, 720)));
+row('touch', 'the lane: the sky over the bus looks', laned((h) => dragAt(h, 196, 300)));
+row('touch', 'the lane: the left looks', laned((h) => dragAt(h, LX, 720)));
+row('touch', 'the lane: the right looks', laned((h) => dragAt(h, 340, 720)));
+row('touch', 'the lane: a flick out of it is a gear', laned((h) => { h.stroke(340, 600, 0, -74, 85); h.wait(500); }));
+row('touch', 'the lane: a flick in it is a gear', laned((h) => { h.stroke(196, 720, 0, -74, 85); h.wait(500); }));
+row('touch', 'the lane: a tap out of it splats', laned((h) => { const id = newId(); h.down(id, 340, 300); h.wait(90); h.up(id, 340, 300); }));
+row('touch', 'the lane: one in it flies and one out of it looks', laned((h) => { const a = newId(), b = newId(); h.down(a, 196, 720); h.slide(a, 196, 720, 40, 0, 200); h.down(b, 340, 300, false); h.slide(b, 340, 300, 60, 0, 200); h.wait(30); const s = h.input.state, v = { thumb: s.thumb, look: s.look.on, sx: +s.stretch.x.toFixed(2) }; h.up(b, 400, 300); h.up(a, 236, 720); return v; }));
 
 // ---- two thumbs, in any order: the one in the zone looks, the other flies
 const both = (h: H) => { const s = h.input.state; return { thumb: s.thumb, look: s.look.on, sx: +s.stretch.x.toFixed(2), x: Math.round(s.look.x) }; };
@@ -796,6 +814,20 @@ flies('the line: swapped: the left');
 looks('the line: swapped: the right');
 flies('the line: swapped: 226');
 looks('the line: swapped: 229');
+flies('the lane: under the bus');
+flies('the lane: just over the bus');
+flies('the lane: at its side');
+looks('the lane: 89 px off');
+looks('the lane: the sky over the bus');
+looks('the lane: the left');
+looks('the lane: the right');
+ok(by('the lane: a flick out of it').gear === 1, `a flick out of the lane is a gear: ${by('the lane: a flick out of it').gear}`);
+ok(by('the lane: a flick in it').gear === 1, `a flick in the lane is a gear: ${by('the lane: a flick in it').gear}`);
+ok(taps('the lane: a tap out of it') === 1, 'a tap out of the lane splats');
+{
+  const v = note('the lane: one in it flies');
+  ok(v.thumb && v.look && v.sx > 0.2, `one flies in the lane and one looks out of it: ${JSON.stringify(v)}`);
+}
 looks('bottom band: a lone left touch looks');
 looks('side band: a lone left touch');
 ok(taps('bottom band: a lone left touch taps') === 1, 'a tap in the band, alone');
