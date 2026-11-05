@@ -1777,7 +1777,8 @@ facade shader, no 30 fps lock, no fewer detail regions, no coarser pixels, nothi
   shadow and no height cue; the WATER ramp now takes it (a ~360 px oval one
   step darker on the water at the opening's 2 s and 5 s).
 - **The Golden Gate is International Orange**, muted, even in the grey world
-  (it is never painted, so color still comes from paint): `Ramp.BRIDGE_ORANGE`
+  (it was never painted then, so color still came from paint; since 2026-11-04 it paints, and painted the
+  orange goes: "The bridges take paint"): `Ramp.BRIDGE_ORANGE`
   (row 23, after the tower facades' GLASS / STONE / GRANITE; see Palette rows), shadows to rose and plum, the upper steps dusty (the fog
   compresses distant parts onto them, so they are what reads at range); towers,
   truss, cables and suspenders orange, the roadway asphalt grey, piers and
@@ -1898,7 +1899,7 @@ facade shader, no 30 fps lock, no fewer detail regions, no coarser pixels, nothi
   rows, read by id (corrected: this said "real coordinates", and they were typed points
   up to 414 m off: "Bridges from map data"); Sutro Tower and the Transamerica Pyramid are props.
   (They were grey in Phase 1; they paint now, see Paintable landmarks. The
-  bridges stay grey, except the Golden Gate, which is its muted International
+  bridges stayed grey (they paint since 2026-11-04: "The bridges take paint"), except the Golden Gate, which is its muted International
   Orange even in the grey world: Look polish.)
 - The horizon (Marin Headlands, East Bay hills, San Bruno Mountain) comes from
   the USGS 3DEP 1/3 arc-second DEM, read remotely from the COG's overviews; the
@@ -1965,7 +1966,8 @@ facade shader, no 30 fps lock, no fewer detail regions, no coarser pixels, nothi
 - **Rooftop sprouts stay off landmarks** (a garden rect at the top of a spire
   floats in the air); their gardens are in the shader. Bloom sparkles follow the
   landmark's shape (four slices up its height, each as wide as the prop there).
-- The bridges stay unpaintable for now (brief).
+- The bridges stayed unpaintable (the old brief), until the producer overruled it on 2026-11-04: "The bridges
+  take paint", below.
 - **Measured** (tools/landmarks.mjs in the real game): from the rooftops the
   classic shot hits the pyramid's west face at the bus's height (55-95 m up) and
   the glint lights it; from 428 m the 20-degree ray lands 214 m up its face
@@ -2620,6 +2622,30 @@ Every number here is from main-bPdy7owl.js, a fresh build of 48794f1 (the docs a
 - **Draws and triangles, the whole frame.** The opening, every 2 s to 20 s: 37-41, 268-285 k -> 33-37, 257-269 k. Ceiling over Downtown, held on the spot: 183, 1,209,555 -> 104, 738,780. The worst hillside, Noe at 350 m, heading 135: 206, 1,674,592 -> 92, 794,612; Bernal 138, 1,292,519 -> 96, 770,737. The sun pass is most of it. Under the hour about 52,000 points besides: the lamps and the spans' lights.
 - **Bytes.** Main chunk 1,245,888 B, gzip -9 378,186 B, +9.1 KB on MAIN's 369,065 (84e77c3's is 369,784), one chunk flag on or off. `lamps.bin` 93,887 B San Francisco, 5,326 B London, 4,459 B Amsterdam.
 - **Frames,** `shots/local/s1/final/`: the opening with no paint 0-20 s, Alamo with no paint and painted, FiDi, the ceiling, the ferry, the ocean, both bridges from about 5 km, Amsterdam and London each at street and ceiling, every one beside the same pose with the flag off. Looked at, one by one: nothing broken. The ceiling's street grid is single lamp pixels, faint against the mock's. Pools along a canal are half ovals, cut by the water.
+
+## The bridges take paint (producer, 2026-11-04: "also to note for the live build: currently the bridges (bay and golden gate) cant be painted which i think is a mistake."; feat/clock)
+- **The ruling.** It overrules the old brief's "the bridges stay unpaintable" ("Paintable landmarks") and the old "Paint" in `docs/specs/bridges/BRIDGES.md`. The Golden Gate and the Bay Bridge's west span are now first-class paintable landmarks, `lm:ggb` and `lm:baybridge`, saved in the landmark store like the others. They go live in the same build as the real sky (`docs/specs/sky/LIVE.md`). It's built into the kit (`Bridges.ts`: `Part`, `Kit.solids`, the bridge material, `paintBridge`), so any bridge the kit builds later takes paint the same way. `tools/bridge-paint.mjs` checks it.
+- **Slots.** A landmark's place in the call order fixes four things: its texel (`buildingCount + k`), its `stableId` (`-1 - k`), its tile seed (`(k * 97 + 31) & 255`) and its shader seed (`index % 7`). Paint is saved by name, so the order loses no paint. But a landmark that moved slot would get other windows' accents and another band phase. So the bridges register after the Ferry Building: Sutro 0, the pyramid 1, Coit 2, the Ferry Building 3, as on main, then the Golden Gate 4 and the Bay Bridge 5, each in a warm-up tick of its own. Measured: seeds 31, 128, 225, 66, 163, 4. Saved paint for the four older landmarks, seeded before the load, came back on each one.
+- **Where a breath lands.** The bridge's surface comes from its kit's boxes, not its triangles. A deck span's bands count as one box, and cables and suspenders count as none, so a breath never stops on air or on a 1.8 m line. Each 2 m cell holds its spans of solid (bottom, top), merged where they touch. Seen from a height `fromY`, a breath lands on the highest top whose bottom is at or under `fromY`. `surfaceAt`, `landmarkSurfaceAt`, `buildingAt`, `buildingAbove`, `nearestBuilding` and `roofAtPart` take `fromY` (default: from above, as before). The Aimer passes the bus's height (its march, its pick, its landing) and the chord's height for the line of fire. `Splatter.barf` takes `from`, the firehose passes its landing height and the signs' sightlines pass the line's height. A landmark that says it stands wholly above the bus where the shot would land (`lmOverhead`, the bridge's deck nearest the aim) is no target and is not held. The ring follows the deck's line, as wide as whatever stands at each station (76 and 106 points).
+- **Measured** (`tools/bridge-paint.mjs`, this laptop's UHD 620, Edge):
+  - From the deck's height, 110 m beside the middle (bus 79.8 m), the Golden Gate glints, is the target, and the breath lands on its deck at 77.4 m. The Bay Bridge's lands on its deck's face at 69.9 m (a wall, deck top 78.9). From 350 m both land on the deck, at 77.3 and 79.0 m.
+  - From under the Golden Gate's deck (bus 25.5 m) nothing glints and there's no target. The breath lands on the water at y 0. Its blast reaches the bridge's ring at distance 0 and blooms it, as a blast blooms any big block whose edge it reaches: the producer's call.
+  - Three taps from above take each bridge L1 -> L2 -> L3. After a reload both are back at L3, saved as `lm:ggb: [1, h, 3]` and `lm:baybridge: [1, h, 3]`, with no `lm:` key in the building store.
+  - 35 programs at ready under the sky (33 before: the bridge material, and the spans' lights' variant) and 35 after both bridges are painted to L3, at noon and at night.
+- **The look.** Level 1: the paint runs out along the bridge from where the breath hit, at 520 m/s, its front ragged (`LandmarkLook.run`). A 1.6 m swell rides that front instead of a pop, which on a mesh built in world coordinates would have thrown the bridge sideways. The deck, towers and cables take the hue, so the Golden Gate's orange goes. The concrete takes white trim and the tower tops are lit. Level 2: vines up the towers and piers, both rails planted, and a garden hanging down the truss, all in the shader. Level 3: a rainbow road (six lanes in six hues with wavy edges), Hundertwasser bands up the towers and along the deck, cables in six hues, golden crowns on every tower top and on the Bay's anchorage, and bunting along every main cable on the cable's own curve, strung out from both ends at once (`buntingFromEnds`, 2.4x pennants). The accents are the last vertices of the bridge's two meshes and the draw range stops before them until level 3. Sparkles run along the deck and up the towers. Frames: `shots/local/bridge-paint/sheet.png`, both bridges grey, mid-run, L1 and L3, at noon and at night, looked at.
+- **At night** a painted bridge reads as painted, and its necklace takes its hues: each light down the deck takes the next hue as the run reaches it. That's the spans' own draw (`Lamps.ts`, `SPAN`) reading the bridge's texel and the material's own hit vector, so there's no new draw and nothing per frame.
+- **Cost.**
+  - Draws: none added. The bridges were two meshes each and still are.
+  - Programs: 35 on and 32 off (31 before), 0 after the warm-up (`warmcheck` at noon, at night and with `?sky=off`). The only first draw is the upscale.
+  - Pixels: `shots --det --q=sky=off` against main's build gives 8 of 8 identical, the opening included. Nothing glints from under the deck. One earlier branch run of `swap` differed by 7 % and the next was identical: three runs of main's `swap` all matched, so it is the run, not this code.
+  - Build time: the surface builds in 30-70 ms a bridge here, before the first frame. Where a warm-up ends first, it's one frame each early in the opening.
+  - Allocation: beside a painted Golden Gate at night, 3.02 MB/s (the street cruise: 3.28 noon, 3.06 night, 2.64 off). The aim's queries show in the top sites: `edgeDistance` 126 KB/s over the ring, `landmarkSurfaceAt` 119, the march 108, `hypot` 86. These are heap numbers from calls that don't inline, the existing code's pattern near any big landmark. A heap-number Map key on every lookup and a ring walk a frame are gone.
+- **What it doesn't do.**
+  - One key a bridge: one breath paints the whole 2.7 km span (the run makes it a moment). Paint by span would take more slots.
+  - The tower-top lights sit inside the L3 crowns.
+  - At L3 the Bay's 85 m anchorage is a gilt block, the trim rule applied to a big wall.
+  - It has never run on a phone, and the swell has never been judged in motion.
+- **For `feat/earth`'s CLAUDE.md:** the bridges take paint (`lm:ggb`, `lm:baybridge`). A bridge's surface is seen from a height, and a new landmark registers after them.
 
 ## Logistics
 - The GitHub connection can't create repositories (403), so the project lives in a

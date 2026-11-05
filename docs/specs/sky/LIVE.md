@@ -121,3 +121,10 @@ On `feat/clock`: `9ffbf1f` the port (`stars.bin`, `moon.bin` from `origin/feat/e
 - Twinkle not judged in motion; skycheck's bursts don't hold a star long enough to read it.
 - Midnight with the Moon up can't be framed from the street this month: it's over the top of every street frame. The frames show it from the ceiling.
 - No phone has run any of it, and the fps above is this laptop's.
+
+## The bridges take paint, in the same build
+
+The producer, 2026-11-04: "also to note for the live build: currently the bridges (bay and golden gate) cant be painted which i think is a mistake." So the Golden Gate and the Bay Bridge take paint on `feat/clock` and go live with the sky, in the same merge. `docs/specs/bridges/BRIDGES.md` "Paint" describes it, and `DECISIONS.md` "The bridges take paint" has the numbers. `tools/bridge-paint.mjs` checks it.
+
+- With `?sky=off`, a bridge that isn't painted is today's to the byte: `shots --det` is 0 pixels against `main`, the opening included.
+- Under the new sky a painted bridge reads as painted at noon and at night, and at night its lights take its hues (`Lamps.ts` `SPAN`, the spans' own draw, so no new draw is added).
