@@ -417,6 +417,12 @@ export class GeoPaint {
 
   /** The map's metres of a picture's four corners, the box they make, and the texel range of a box of the map in it, two texels wide of it each way; null when the two don't meet. */
   private rangeOf(key: number, x0: number, z0: number, x1: number, z1: number, c: Float64Array): [number, number, number, number] | null {
+    this.cornersOf(key, c);
+    return this.rangeIn(c, x0, z0, x1, z1);
+  }
+
+  /** A picture's four corners on the map, into c. */
+  private cornersOf(key: number, c: Float64Array): void {
     const o = this.t0;
     for (let q = 0; q < 4; q++) {
       cornerOf(key, q & 1, q >> 1, o);
@@ -424,6 +430,10 @@ export class GeoPaint {
       c[q * 2] = this.t1[0];
       c[q * 2 + 1] = this.t1[1];
     }
+  }
+
+  /** The texel range of a box of the map in the picture whose corners are c (rangeOf's second half). */
+  private rangeIn(c: Float64Array, x0: number, z0: number, x1: number, z1: number): [number, number, number, number] | null {
     const bx0 = Math.min(c[0], c[2], c[4], c[6]), bx1 = Math.max(c[0], c[2], c[4], c[6]), bz0 = Math.min(c[1], c[3], c[5], c[7]), bz1 = Math.max(c[1], c[3], c[5], c[7]);
     if (bx1 < x0 || bx0 > x1 || bz1 < z0 || bz0 > z1) return null;
     // (the picture's sides as a parallelogram from its first corner: its texels are near enough to it over 150 m to find a range by, and each is drawn at its own place)
@@ -494,9 +504,11 @@ export class GeoPaint {
   private drawDots(key: number, pic: Pic | null, p: Prepared, from: number, until: number): number {
     const c = this.corners, dots = p.dots;
     let d = pic?.data ?? null, any = false, q = from;
+    // (the picture's corners once a step, not once a dot: four trig-heavy places a dot were a sixth of a breath's fold. Review four, 27)
+    this.cornersOf(key, c);
     for (; q < dots.length; q++) {
       if (q > from && performance.now() >= until) break;
-      const dot = dots[q], rr = dot.rad * dot.elong + 1.5, r = this.rangeOf(key, dot.x - rr, dot.z - rr, dot.x + rr, dot.z + rr, c);
+      const dot = dots[q], rr = dot.rad * dot.elong + 1.5, r = this.rangeIn(c, dot.x - rr, dot.z - rr, dot.x + rr, dot.z + rr);
       if (!r) continue;
       const ca = Math.cos(dot.ang), sa = Math.sin(dot.ang), o = this.t1;
       for (let b = r[2]; b <= r[3]; b++)
@@ -602,6 +614,16 @@ export class GeoPaint {
   /** One of the pool's arrays, zeroed, or a new one. */
   take(): Uint8Array {
     return this.free.pop()?.fill(0) ?? new Uint8Array(TEXELS * 4);
+  }
+
+  /** The tile is gone (unloaded, or its ground made again): its copy, if one's queued, goes with it; it's asked for again if the tile comes back without its paint. */
+  dropCopy(key: string): void {
+    if (!this.copying.delete(key)) return;
+    const k = this.copies.findIndex((c) => c.key === key);
+    if (k < 0) return;
+    const c = this.copies[k];
+    this.copies.splice(k, 1);
+    if (c.d) this.recycle(c.d);
   }
 
   /** The tile's paint is being copied out. */
@@ -720,8 +742,10 @@ export class GeoPaint {
       for (const [k, pic] of this.open) if (pic.dirty) this.coding.push(k);
       this.close();
     }
-    for (let k = 0; k < this.copies.length && performance.now() < last; ) {
-      if (this.copyStep(this.copies[k], end)) this.copies.splice(k, 1);
+    // (copies first, as a tile waits on one, but with blasts or coding waiting, not past six tenths of the share: at Jet over painted ground they took all of it. Review four, 15)
+    const copyEnd = this.folds.length || this.coding.length ? t0 + WORK_MS * 0.6 : end, copyLast = Math.min(last, copyEnd);
+    for (let k = 0; k < this.copies.length && performance.now() < copyLast; ) {
+      if (this.copyStep(this.copies[k], copyEnd)) this.copies.splice(k, 1);
       else k++;
     }
     // (in order, the next one's stored pictures asked for as this one's drawn: a fold waiting on its pictures holds the ones after it, or a later blast drawn first

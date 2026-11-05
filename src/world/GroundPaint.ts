@@ -529,6 +529,8 @@ export class GroundPaint {
     if (m) {
       // (?moon: what it shows, settled, kept for it coming back, as a region's change of detail makes its tiles' ground again; not while its copy's on its way, which comes then)
       if (this.pics && !this.pics.copyingTile(key)) this.keepShown(key, m.data);
+      // (and a copy on its way for a tile that's gone is dropped: they were never, and read their pictures and made 64 KB for nothing. Review four, 15)
+      this.pics?.dropCopy(key);
       this.took.delete(key);
       m.gone = true;
       m.tex.dispose();
