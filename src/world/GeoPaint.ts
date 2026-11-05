@@ -137,6 +137,8 @@ interface Fold {
   phase: 0 | 1;
   /** in the picture at `at`: the row of its splat, or the dot, to go on from */
   row: number;
+  /** its stored pictures asked for, all in one read */
+  asked?: boolean;
 }
 
 /** A tile whose paint is being copied out: its key on the map, its corner, and the pictures under it. */
@@ -253,8 +255,21 @@ export class GeoPaint {
       byKey.set(r[0], was ? merged(was, r) : r);
     }
     const rowsIn = [...byKey.values()];
+    let wrote = true;
     if (rowsIn.length) {
-      let wrote = true;
+      // (a journal row over a stored picture is merged with it, the journal's paint over the store's, never put in its place: a picture opened blank because its read
+      // failed, then painted, holds only its new paint, and put whole it would take the old for good. Review four, 2)
+      const stored = rowsIn.filter((r) => this.index.has(r[0])).map((r) => r[0]);
+      if (stored.length)
+        try {
+          const got = await this.store.get(stored);
+          for (let q = 0; q < rowsIn.length; q++) {
+            const r = rowsIn[q], enc = got.get(r[0]);
+            if (enc) rowsIn[q] = merged([r[0], this.index.get(r[0])!.t, enc], r);
+          }
+        } catch {
+          /* unread: the journal's rows as they are */
+        }
       try {
         await this.store.put(rowsIn);
       } catch {
@@ -273,14 +288,22 @@ export class GeoPaint {
       }
     }
     this.ready = true;
+    // (the journal's blasts are older than any that landed while the store was read: they go first. Review four, 1)
+    const later = this.folds.splice(0);
     for (const sp of blasts) this.add(sp);
-    // (the blasts not drawn in yet journalled again, before what held them goes: they're drawn in over the next frames, and the journal goes once they're written)
+    this.folds.push(...later);
+    // (the blasts not drawn in yet journalled again, before what held them goes: they're drawn in over the next frames, and the journal goes once they're written. A store
+    // that refused the journal's pictures keeps them in memory, and the journal and the old build's pictures stay till a store that lasts has them. Review four, 11)
     try {
-      if (this.folds.length) {
-        localStorage.setItem(JOURNAL, JSON.stringify({ pics: [], blasts: this.folds.map((f) => [f.lat, f.lon, f.olat, f.olon, this.toArray(f.spec)]) }));
+      const blastsLeft = this.folds.map((f) => [f.lat, f.lon, f.olat, f.olon, this.toArray(f.spec)]);
+      if (!wrote) {
+        localStorage.setItem(JOURNAL, JSON.stringify({ pics: rowsIn, blasts: blastsLeft }));
+        this.journal = true;
+      } else if (this.folds.length) {
+        localStorage.setItem(JOURNAL, JSON.stringify({ pics: [], blasts: blastsLeft }));
         this.journal = true;
       } else localStorage.removeItem(JOURNAL);
-      done?.();
+      if (wrote) done?.();
     } catch {
       /* blocked or full: what held them stays, and comes again at the next boot */
     }
@@ -355,9 +378,19 @@ export class GeoPaint {
     f.frame = this.frame;
   }
 
+  /** A fold's stored pictures not open yet, asked for in one read (one transaction for a MEGA's hundred, where each was a frame's wait). Review four, 1 and 28 */
+  private ask(f: Fold): void {
+    if (f.asked) return;
+    this.ready_(f);
+    f.asked = true;
+    const want: number[] = [];
+    for (const k of f.keys!) if (!this.open.has(k) && this.index.has(k) && !this.loading.has(k)) want.push(k);
+    if (want.length) this.load(want);
+  }
+
   /** One fold's step: its splat, or its spatter, drawn into a picture until `until` (performance.now()) or the picture's done. False while that picture is still on its way in. */
   private foldStep(f: Fold, until: number): boolean {
-    this.ready_(f);
+    this.ask(f);
     const keys = f.keys!, key = keys[f.at];
     const pic = this.pic(key);
     if (pic === undefined) return false;
@@ -673,13 +706,13 @@ export class GeoPaint {
       if (this.copyStep(this.copies[k], end)) this.copies.splice(k, 1);
       else k++;
     }
-    for (let k = 0; k < this.folds.length && performance.now() < last; ) {
-      const f = this.folds[k];
-      if (!this.foldStep(f, end)) {
-        k++;
-        continue;
-      }
-      if (f.phase > 1) this.folds.splice(k, 1);
+    // (in order, the next one's stored pictures asked for as this one's drawn: a fold waiting on its pictures holds the ones after it, or a later blast drawn first
+    // would be kept under an older one, as the live tiles never show it. Review four, 1)
+    if (this.folds.length > 1) this.ask(this.folds[1]);
+    while (this.folds.length && performance.now() < last) {
+      const f = this.folds[0];
+      if (!this.foldStep(f, end)) break;
+      if (f.phase > 1) this.folds.shift();
     }
     while (this.coding.length && performance.now() < last) {
       const k = this.coding.pop()!, pic = this.open.get(k);
@@ -746,8 +779,8 @@ export class GeoPaint {
       .then(
         () => {
           this.fails = 0;
-          // (all of it in the store, the page having come back from being hidden: the journal it left is old)
-          if (this.journal && !this.folds.length && !this.coded.length && !this.coding.length && ![...this.open.values()].some((p) => p.dirty)) {
+          // (all of it in the store, the page having come back from being hidden: the journal it left is old. Not in memory: there the journal's the store that lasts)
+          if (this.journal && !(this.store instanceof Fallback) && !this.folds.length && !this.coded.length && !this.coding.length && ![...this.open.values()].some((p) => p.dirty)) {
             this.journal = false;
             try {
               localStorage.removeItem(JOURNAL);
@@ -756,14 +789,16 @@ export class GeoPaint {
             }
           }
         },
-        () => {
+        (e: unknown) => {
           // (not written: changed again, so the next flush tries them again; a picture closed since comes back to be written. A store full before its budget, as a browser's quota
-          // can be, has its budget brought down under what it holds, and the longest untouched go; one that takes nothing three times running, IndexedDB blocked as in some private
-          // windows, keeps what's written from then on in memory, an hour's painting of it, this session's, as the street's paint is with its storage blocked)
-          if (++this.fails < 3) this.budget = Math.max(BUDGET / 64, Math.min(this.budget, this.bytes * 0.8));
-          else if (!(this.store instanceof Fallback)) {
+          // can be, has its budget brought down under what it holds, and the longest untouched go: on a full store only, never on a lost connection, which the store opened
+          // again once already (review four, 2). One that takes nothing three times running, IndexedDB blocked as in some private windows or gone, keeps what's written from
+          // then on in memory, 16 MB more of it, and journals it at each hide, as far as localStorage takes it; what IndexedDB held is still read from it and never deleted)
+          const full = (e as { name?: string } | null)?.name === 'QuotaExceededError';
+          if (full) this.budget = Math.max(BUDGET / 64, Math.min(this.budget, this.bytes * 0.8));
+          if (++this.fails >= 3 && !(this.store instanceof Fallback)) {
             this.store = new Fallback(this.store);
-            this.budget = BUDGET / 4;
+            this.budget = Math.max(this.budget, this.bytes + BUDGET / 4);
             this.fails = 0;
           }
           for (const [k, t, enc] of rows) {
@@ -785,12 +820,15 @@ export class GeoPaint {
    */
   persist(): void {
     const keep: Array<[number, number, number | null, number | null, number[]]> = [];
+    // (before the store's read nothing can say what's painted where, so a blast then goes into the journal whole; and once one can't be finished, every one after
+    // it goes whole too, in order, so none drawn now lands under one drawn at the next boot. Review four, 1)
+    let whole = !this.ready;
     for (let k = 0; k < this.folds.length; ) {
       const f = this.folds[k];
-      // (before the store's read nothing can say what's painted where, so a blast then goes into the journal whole)
-      let ok = this.ready;
+      let ok = !whole;
       while (f.phase <= 1 && ok) ok = this.foldStep(f, Infinity);
       if (f.phase <= 1) {
+        whole = true;
         keep.push([f.lat, f.lon, f.olat, f.olon, this.toArray(f.spec)]);
         k++;
       } else this.folds.splice(k, 1);
@@ -802,9 +840,28 @@ export class GeoPaint {
       const enc = encodeMask(pic.data);
       if (enc) pics.push([k, pic.t, enc]);
     }
-    if (!pics.length && !keep.length) return;
+    // (in memory, with IndexedDB gone: what's in memory goes into the journal too, the newest first, as much as localStorage takes; it's the store that lasts then)
+    let mem: Array<[number, number, string]> = [];
+    if (this.store instanceof Fallback) {
+      const has = new Set(pics.map((r) => r[0]));
+      mem = [...this.store.mem.rows].filter(([k]) => !has.has(k)).map(([k, [t, enc]]): [number, number, string] => [k, t, enc]).sort((a, b) => b[1] - a[1]);
+    }
+    if (!pics.length && !keep.length && !mem.length) return;
     try {
-      localStorage.setItem(JOURNAL, JSON.stringify({ pics, blasts: keep }));
+      // (a hide before the store's read: the last session's journal isn't read yet, and is kept, this session's blasts after its own. Review four, 11)
+      if (!this.ready) {
+        const raw = localStorage.getItem(JOURNAL), j = raw ? (JSON.parse(raw) as { pics?: Array<[number, number, string]>; blasts?: typeof keep }) : null;
+        if (j?.pics) pics.unshift(...j.pics);
+        if (j?.blasts) keep.unshift(...j.blasts);
+      }
+      for (;;)
+        try {
+          localStorage.setItem(JOURNAL, JSON.stringify({ pics: mem.length ? [...pics, ...mem] : pics, blasts: keep }));
+          break;
+        } catch (e) {
+          if (!mem.length) throw e;
+          mem = mem.slice(0, mem.length >> 1);
+        }
       this.journal = true;
     } catch {
       /* full or blocked: the next flush, if the page lives on, writes them */
@@ -882,22 +939,59 @@ export class IdbStore implements PicStore {
   }
 
   private open(): Promise<IDBDatabase> {
-    this.db ??= new Promise((ok, no) => {
+    if (this.db) return this.db;
+    const p = new Promise<IDBDatabase>((ok, no) => {
       const r = indexedDB.open(this.name, 1);
       r.onupgradeneeded = () => {
         r.result.createObjectStore('pics');
         r.result.createObjectStore('meta');
       };
-      r.onsuccess = () => ok(r.result);
-      r.onerror = () => no(r.error);
+      r.onsuccess = () => {
+        const db = r.result;
+        // (a connection the browser closes, or another tab's upgrade, is let go of: the next call opens a new one)
+        db.onclose = () => this.drop(p);
+        db.onversionchange = () => {
+          db.close();
+          this.drop(p);
+        };
+        ok(db);
+      };
+      r.onerror = () => {
+        this.drop(p);
+        no(r.error);
+      };
     });
-    return this.db;
+    this.db = p;
+    return p;
   }
 
+  private drop(p: Promise<IDBDatabase> | null): void {
+    if (this.db !== p) return;
+    this.db = null;
+    void p?.then((db) => db.close()).catch(() => undefined);
+  }
+
+  /** One transaction, on a connection opened again once if it fails: iOS can drop a page's connection after a while in the background ("Connection to Indexed
+   *  Database server lost"), and every call on the old one fails. Review four, 2 */
   private async tx<T>(mode: IDBTransactionMode, f: (pics: IDBObjectStore, meta: IDBObjectStore) => T): Promise<T> {
+    try {
+      return await this.once(mode, f);
+    } catch {
+      this.drop(this.db);
+      return await this.once(mode, f);
+    }
+  }
+
+  private async once<T>(mode: IDBTransactionMode, f: (pics: IDBObjectStore, meta: IDBObjectStore) => T): Promise<T> {
     const db = await this.open();
     return new Promise((ok, no) => {
-      const t = db.transaction(['pics', 'meta'], mode);
+      let t: IDBTransaction;
+      try {
+        t = db.transaction(['pics', 'meta'], mode);
+      } catch (e) {
+        no(e);
+        return;
+      }
       const out = f(t.objectStore('pics'), t.objectStore('meta'));
       t.oncomplete = () => ok(out);
       t.onerror = () => no(t.error);
@@ -986,8 +1080,8 @@ class Fallback implements PicStore {
     return this.mem.put(rows);
   }
 
+  /** What's evicted goes from memory only: what IndexedDB held stays there for the next boot (review four, 2 and 10). */
   remove(keys: number[]): Promise<void> {
-    void this.was.remove(keys).catch(() => undefined);
     return this.mem.remove(keys);
   }
 
