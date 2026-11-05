@@ -437,6 +437,9 @@ export class Input {
     const p = this.fly;
     // A thumb resting still past the tap window is steering (at neutral).
     if (p && !this.pointerDragging && now - p.t0 >= inputTune.stillTapMs) this.commitDrag();
+    // A tap waiting on two fingers together, with nobody flying: once no finger still down can be the other half of one, it was a tap of its own
+    // (a tap landing just after a thumb that then stayed down to look was lost, before).
+    if (!p && this.gPendingTap && !this.gAnswered && !this.tapStillDown(now)) this.answer();
     st.thumb = this.pointerDragging;
     // the look starts on the clock too: a thumb can stop moving inside the delay
     for (let i = 0; i < MAX_POINTERS; i++) {
@@ -653,8 +656,12 @@ export class Input {
         this.onTurbo?.(dir, true);
         this.promote(t0);
       }
-      // The everyday tap: one finger, short and still -> fire on the up.
-      else if (quick && !this.gMulti && !this.gAnswered) this.onTap?.();
+      // The everyday tap: one finger, short and still -> fire on the up. Beside a finger that landed with it, it waits: two fingers tapped together
+      // are one tap at the last lift, and if the other turns out to be no tap (it looks, rests or flicks), this one was a tap of its own (update).
+      else if (quick && !this.gAnswered) {
+        if (this.gMulti) this.gPendingTap = true;
+        else this.onTap?.();
+      }
     } else if (dir) this.onTurbo?.(dir, false);
     else if (tap) {
       if (this.primarySteering(now)) this.answer();
@@ -787,6 +794,12 @@ export class Input {
     const dur = now - s.t0;
     const limit = this.fly || this.gMulti ? inputTune.secondTapMs : inputTune.stillTapMs;
     return (dur <= limit && s.maxDist <= inputTune.tapSlopPx) || (dur <= inputTune.quickTapMs && s.maxDist <= inputTune.quickTapSlopPx);
+  }
+
+  /** A second thumb still down could yet lift as a tap. */
+  private tapStillDown(now: number): boolean {
+    for (const s of this.slots) if (s.role === Role.Second && !s.right && this.isQuick(s, now)) return true;
+    return false;
   }
 
   /** The flying thumb has committed: moved past the tap slop or held past the tap window. */
