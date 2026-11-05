@@ -78,6 +78,10 @@ export const held = (glsl: string): string => (skyOn ? glsl : '');
 /** One word of GLSL or the other: a number that becomes a uniform under the hour, say. */
 export const heldOr = (glsl: string, day: string): string => (skyOn ? glsl : day);
 
+/** ?life: the living Earth's movers (docs/specs/earth/LIVING.md, LIFE.md; CONTRACT.md O13): on Earth's pages only, and the default only on the producer's word. Flag off, nothing
+ *  of it is fetched or compiled: its chunk is imported under the flag alone (main.ts). */
+export const lifeOn = !!query?.has('life') && !moonLow && !moonrun;
+
 /** GLSL only ?moonrun, ?moon and ?earth compile. */
 export const space = (glsl: string): string => (moonrun || moonLow || earthFly ? glsl : '');
 

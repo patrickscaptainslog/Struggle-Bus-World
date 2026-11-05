@@ -35,7 +35,7 @@ import { SuperSplat } from './game/SuperSplat';
 import { SuperFx } from './fx/SuperFx';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
-import { earthFly, earthResume, heldHour, moonLand, moonLow, moonrun, skyLive } from './sky/flag';
+import { earthFly, earthResume, heldHour, lifeOn, moonLand, moonLow, moonrun, skyLive } from './sky/flag';
 import { CUT_NEAR, EARTH_CEILING, H_UP, SKY_FROM, SKY_TOP } from './sky/earthJoin';
 import type { EarthLanding, StreetWorld } from './sky/EarthLanding';
 import { spaceResolveUniforms as spaceU } from './render/skyResolve';
@@ -903,6 +903,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     city.paint.resetAll();
     city.ground.resetAll();
     moon?.paint.reset();
+    life?.resetPaint();
     location.reload();
   };
   if (params.has('tune')) tuner.toggle();
@@ -1071,6 +1072,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
 
   // ---- the warm-up's second wave: the live scene as built so far (the bus, the Golden Gate, water,
   // signs, particles, the drop shadow) and what registered while it was built (rooftop gardens)
+  // (?life: the living Earth's movers, docs/specs/earth/LIFE.md. Its pools register with the warm-up before the sources below are read; it never rejects into the boot.
+  // CONTRACT.md section 6's hook, in its lines: this, the frame's, the tuner's reset and the QA object's)
+  const life = lifeOn
+    ? await import('./life/boot').then((m) => m.bootLife({ params, scene, place: { slug: manifest.slug, origin: [manifest.origin[0], manifest.origin[1]] } })).catch(() => null)
+    : null;
   warm.sourcesOpen = true;
   warm.addSources();
   warm.add(scene);
@@ -1524,6 +1530,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       pendingSigns.splice(i, 1);
     }
     signs.update(dt, camera);
+    life?.frame(dt, simTime, skyClock.now(), flight, camera);
 
     // painted neighborhoods hum
     const near = city.buildingsNear(flight.x, flight.z, 90, nearTmp);
@@ -1807,7 +1814,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // (asked for now: there is no asking once the context is gone)
     const lose = renderer.getContext().getExtension('WEBGL_lose_context');
     (window as unknown as Record<string, unknown>).__game = {
-      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: live ?? hour, moon,
+      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: live ?? hour, moon, life,
       /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
       get warm() {
         return warm;
