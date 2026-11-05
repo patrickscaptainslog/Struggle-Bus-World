@@ -40,3 +40,12 @@ W1 on 2102d88, run here: 4 checks fail, the four residuals 2102d88 names for the
 ## Third reading (328ede8)
 
 W1 on 328ede8, run here: passed, exit 0. The drawn decks (C2): 4,101 steps along them, median 0.01 m off their tops, worst 0.14 m, inside 0.3. Water (C8): on the sea 0 mm off `WATER_Y`, 1,509 lake areas over 327,422 texel centres, every one a lake's. N1 fixed, by the first account's word (a count past the bytes gives null): not re-read here. C10 Agreed (0.9).
+
+## Fourth reading: 39de589 to 7e4cb5b, merged into feat/life
+
+The second account, 2026-11-05, as `feat/world` (3398098, docs only past 7e4cb5b) went into `feat/life` for cars. Read: every line of `lifeData.ts` in the range; `graphs.py`'s C10 (`sea_runs`, `water_masks`) in 3bfd501. Not read line by line: the rest of `graphs.py` (691 lines in the range), `decks.py` and `graph-check.mjs`, whose behaviour W1 states.
+
+- **W1 at 7e4cb5b, run here**: passed, exit 0. Land within 0.440 m of the grid; decks over the ground and water, 3 under the ground on a drawn deck and none more; sidewalks beside their carriageway, worst 1.0 m; the known exceptions under `known.json`'s limits (31 feet, 11 held, 61 wall steps, 1 deck node); OPEN_WATER on the sea, 27,580,379 texel centres, none not the sea; C10's 1,295 runs touching the sea, the highest 6.4 m.
+- **The parser holds.** `parseCityRoutes` checks each count against the bytes left with each row's least size before it makes or reads anything (N1): a ferry 23 bytes, a terminal 19, a marina 16, an airport 20, a runway 21, a route's point 8, each the sum of the layout's fixed fields and a byte a string, as the header writes them. A float that isn't a number throws inside the `try`, and a region's `baseY` that isn't is null: right, since every height stands on it.
+- **C10 holds as written.** Lake runs are labelled 4-connected in each region (scipy's default cross), a run touches the sea by a 4-neighbour of a sea texel, and runs join across region lines on matching edge texels, east to west and south to north, by union-find, so a run is the sea's or a lake whole. C11's bound isn't built (Proposed until now).
+- **Nothing new found.** C11 to C13 Agreed (CONTRACT 0.10).
