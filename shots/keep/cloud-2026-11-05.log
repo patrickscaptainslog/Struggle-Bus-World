@@ -1,0 +1,165 @@
+# tools/moon/keep.mjs --short, twenty runs in the cloud at a fixed step, 2026-11-05, on the build of c11baeb's source (the third review's new-map row).
+# Three batches: the first hit its 2-hour limit in its eighth run (7 complete; the browser closed under it, so the rest of its 20 print 'browser has been closed'), the second lost its server in its seventh (6 complete), the third ran 7.
+
+## batch 1
+---- run 1 of 20
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58398.395073940075,"z":-22748.28263106039,"lat":-42.549501333025084,"lon":-11.539337044054951},"before":{"x":58398,"z":-22748,"cov":1,"hue":5,"kept":6},"after":{"x":-7134,"z":-22744,"cov":1,"hue":5,"kept":6}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7187.276275859808,"z":-22741.30177809871,"lat":-42.54958566374224,"lon":-11.54172856173517},"before":{"x":-7187,"z":-22741,"cov":1,"hue":1,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":1,"kept":6}}
+pass  no page errors                                                               []
+---- run 2 of 20
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58398.395073940075,"z":-22748.28263106039,"lat":-42.549501333025084,"lon":-11.539337044054951},"before":{"x":58398,"z":-22748,"cov":1,"hue":0,"kept":5},"after":{"x":-7134,"z":-22744,"cov":1,"hue":0,"kept":5}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7189.890557487047,"z":-22740.934364776673,"lat":-42.54959744960291,"lon":-11.541845648096379},"before":{"x":-7190,"z":-22741,"cov":1,"hue":5,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":5,"kept":6}}
+pass  no page errors                                                               []
+---- run 3 of 20
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58401.009355498616,"z":-22748.650044372775,"lat":-42.549489561040744,"lon":-11.539219953027143},"before":{"x":58401,"z":-22749,"cov":1,"hue":4,"kept":5},"after":{"x":-7131,"z":-22744,"cov":1,"hue":4,"kept":5}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7195.990548063084,"z":-22740.077067009443,"lat":-42.54962494947685,"lon":-11.542118849783707},"before":{"x":-7196,"z":-22740,"cov":1,"hue":2,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":2,"kept":6}}
+pass  no page errors                                                               []
+---- run 4 of 20
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58400.137928312426,"z":-22748.527573268646,"lat":-42.54949348504885,"lon":-11.539258983364824},"before":{"x":58400,"z":-22749,"cov":1,"hue":3,"kept":6},"after":{"x":-7132,"z":-22744,"cov":1,"hue":3,"kept":6}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7188.1477030665765,"z":-22741.17930699169,"lat":-42.54958959237583,"lon":-11.541767590517198},"before":{"x":-7188,"z":-22741,"cov":1,"hue":0,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":0,"kept":6}}
+pass  no page errors                                                               []
+---- run 5 of 20
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58401.009355498616,"z":-22748.650044372775,"lat":-42.549489561040744,"lon":-11.539219953027143},"before":{"x":58401,"z":-22749,"cov":1,"hue":2,"kept":6},"after":{"x":-7131,"z":-22744,"cov":1,"hue":2,"kept":6}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7187.276275859808,"z":-22741.30177809871,"lat":-42.54958566374224,"lon":-11.54172856173517},"before":{"x":-7187,"z":-22741,"cov":1,"hue":0,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":0,"kept":6}}
+pass  no page errors                                                               []
+---- run 6 of 20
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58398.395073940075,"z":-22748.28263106039,"lat":-42.549501333025084,"lon":-11.539337044054951},"before":{"x":58398,"z":-22748,"cov":1,"hue":4,"kept":5},"after":{"x":-7134,"z":-22744,"cov":1,"hue":4,"kept":5}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7189.890557487047,"z":-22740.934364776673,"lat":-42.54959744960291,"lon":-11.541845648096379},"before":{"x":-7190,"z":-22741,"cov":1,"hue":4,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":4,"kept":6}}
+pass  no page errors                                                               []
+---- run 7 of 20
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58400.137928312426,"z":-22748.527573268646,"lat":-42.54949348504885,"lon":-11.539258983364824},"before":{"x":58400,"z":-22749,"cov":1,"hue":2,"kept":6},"after":{"x":-7132,"z":-22744,"cov":1,"hue":2,"kept":6}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7230.847667337463,"z":-22735.178218371293,"lat":-42.54978207917686,"lon":-11.543680008279138},"before":{"x":-7231,"z":-22735,"cov":1,"hue":5,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":5,"kept":6}}
+pass  no page errors                                                               []
+---- run 8 of 20
+FAIL  page.waitForFunction: Target page, context or browser has been closed
+pass  no page errors                                                               []
+---- run 9 of 20
+FAIL  browser.newContext: Target page, context or browser has been closed
+pass  no page errors                                                               []
+---- run 10 of 20
+FAIL  browser.newContext: Target page, context or browser has been closed
+pass  no page errors                                                               []
+---- run 11 of 20
+FAIL  browser.newContext: Target page, context or browser has been closed
+pass  no page errors                                                               []
+---- run 12 of 20
+FAIL  browser.newContext: Target page, context or browser has been closed
+pass  no page errors                                                               []
+---- run 13 of 20
+FAIL  browser.newContext: Target page, context or browser has been closed
+pass  no page errors                                                               []
+---- run 14 of 20
+FAIL  browser.newContext: Target page, context or browser has been closed
+pass  no page errors                                                               []
+---- run 15 of 20
+FAIL  browser.newContext: Target page, context or browser has been closed
+pass  no page errors                                                               []
+---- run 16 of 20
+FAIL  browser.newContext: Target page, context or browser has been closed
+pass  no page errors                                                               []
+---- run 17 of 20
+FAIL  browser.newContext: Target page, context or browser has been closed
+pass  no page errors                                                               []
+---- run 18 of 20
+FAIL  browser.newContext: Target page, context or browser has been closed
+pass  no page errors                                                               []
+---- run 19 of 20
+FAIL  browser.newContext: Target page, context or browser has been closed
+pass  no page errors                                                               []
+---- run 20 of 20
+FAIL  browser.newContext: Target page, context or browser has been closed
+pass  no page errors                                                               []
+pass  7 of 7  slide: painted after a slide, and the page again: where it was, by latitude and longitude
+pass  7 of 7  new map: made again round the bus, and the paint near it is still there
+pass  20 of 20  no page errors
+13 FAIL
+exit 124
+
+## batch 2
+---- run 1 of 10
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58401.009355498616,"z":-22748.650044372775,"lat":-42.549489561040744,"lon":-11.539219953027143},"before":{"x":58401,"z":-22749,"cov":1,"hue":2,"kept":6},"after":{"x":-7131,"z":-22744,"cov":1,"hue":2,"kept":6}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7189.890557487047,"z":-22740.934364776673,"lat":-42.54959744960291,"lon":-11.541845648096379},"before":{"x":-7190,"z":-22741,"cov":1,"hue":1,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":1,"kept":6}}
+pass  no page errors                                                               []
+---- run 2 of 10
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58398.395073940075,"z":-22748.28263106039,"lat":-42.549501333025084,"lon":-11.539337044054951},"before":{"x":58398,"z":-22748,"cov":1,"hue":3,"kept":6},"after":{"x":-7134,"z":-22744,"cov":1,"hue":3,"kept":6}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7189.019130275576,"z":-22741.056835884356,"lat":-42.54959352099605,"lon":-11.541806619304264},"before":{"x":-7189,"z":-22741,"cov":1,"hue":4,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":4,"kept":6}}
+pass  no page errors                                                               []
+---- run 3 of 10
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58391.4236564503,"z":-22747.302862227327,"lat":-42.549532724396954,"lon":-11.539649287012368},"before":{"x":58391,"z":-22747,"cov":1,"hue":5,"kept":6},"after":{"x":-7141,"z":-22743,"cov":1,"hue":5,"kept":6}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7189.019130275576,"z":-22741.056835884356,"lat":-42.54959352099605,"lon":-11.541806619304264},"before":{"x":-7189,"z":-22741,"cov":1,"hue":0,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":0,"kept":6}}
+pass  no page errors                                                               []
+---- run 4 of 10
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58401.009355498616,"z":-22748.650044372775,"lat":-42.549489561040744,"lon":-11.539219953027143},"before":{"x":58401,"z":-22749,"cov":1,"hue":4,"kept":6},"after":{"x":-7131,"z":-22744,"cov":1,"hue":4,"kept":6}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7187.276275859808,"z":-22741.30177809871,"lat":-42.54958566374224,"lon":-11.54172856173517},"before":{"x":-7187,"z":-22741,"cov":1,"hue":0,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":0,"kept":6}}
+pass  no page errors                                                               []
+---- run 5 of 10
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58398.395073940075,"z":-22748.28263106039,"lat":-42.549501333025084,"lon":-11.539337044054951},"before":{"x":58398,"z":-22748,"cov":1,"hue":0,"kept":6},"after":{"x":-7134,"z":-22744,"cov":1,"hue":0,"kept":6}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7229.104806958113,"z":-22735.423161423776,"lat":-42.54977422318023,"lon":-11.543601949969},"before":{"x":-7229,"z":-22735,"cov":1,"hue":2,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":2,"kept":6}}
+pass  no page errors                                                               []
+---- run 6 of 10
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58385.32366614606,"z":-22746.445564498288,"lat":-42.54956019114774,"lon":-11.539922499858548},"before":{"x":58385,"z":-22746,"cov":1,"hue":5,"kept":6},"after":{"x":-7147,"z":-22742,"cov":1,"hue":5,"kept":6}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7188.1477030665765,"z":-22741.17930699169,"lat":-42.54958959237583,"lon":-11.541767590517198},"before":{"x":-7188,"z":-22741,"cov":1,"hue":4,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":4,"kept":6}}
+pass  no page errors                                                               []
+---- run 7 of 10
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58401.009355498616,"z":-22748.650044372775,"lat":-42.549489561040744,"lon":-11.539219953027143},"before":{"x":58401,"z":-22749,"cov":1,"hue":0,"kept":5},"after":{"x":-7131,"z":-22744,"cov":1,"hue":0,"kept":5}}
+FAIL  page.waitForFunction: Target page, context or browser has been closed
+pass  no page errors                                                               []
+---- run 8 of 10
+FAIL  browser.newContext: Target page, context or browser has been closed
+pass  no page errors                                                               []
+---- run 9 of 10
+FAIL  browser.newContext: Target page, context or browser has been closed
+pass  no page errors                                                               []
+---- run 10 of 10
+FAIL  browser.newContext: Target page, context or browser has been closed
+pass  no page errors                                                               []
+pass  7 of 7  slide: painted after a slide, and the page again: where it was, by latitude and longitude
+pass  6 of 6  new map: made again round the bus, and the paint near it is still there
+pass  10 of 10  no page errors
+4 FAIL
+
+## batch 3
+---- run 1 of 7
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58401.009355498616,"z":-22748.650044372775,"lat":-42.549489561040744,"lon":-11.539219953027143},"before":{"x":58401,"z":-22749,"cov":1,"hue":1,"kept":6},"after":{"x":-7131,"z":-22744,"cov":1,"hue":1,"kept":6}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7187.276275859808,"z":-22741.30177809871,"lat":-42.54958566374224,"lon":-11.54172856173517},"before":{"x":-7187,"z":-22741,"cov":1,"hue":0,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":0,"kept":6}}
+pass  no page errors                                                               []
+---- run 2 of 7
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58401.009355498616,"z":-22748.650044372775,"lat":-42.549489561040744,"lon":-11.539219953027143},"before":{"x":58401,"z":-22749,"cov":1,"hue":4,"kept":6},"after":{"x":-7131,"z":-22744,"cov":1,"hue":4,"kept":6}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7187.276275859808,"z":-22741.30177809871,"lat":-42.54958566374224,"lon":-11.54172856173517},"before":{"x":-7187,"z":-22741,"cov":1,"hue":0,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":0,"kept":6}}
+pass  no page errors                                                               []
+---- run 3 of 7
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58401.009355498616,"z":-22748.650044372775,"lat":-42.549489561040744,"lon":-11.539219953027143},"before":{"x":58401,"z":-22749,"cov":1,"hue":1,"kept":6},"after":{"x":-7131,"z":-22744,"cov":1,"hue":1,"kept":6}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7187.276275859808,"z":-22741.30177809871,"lat":-42.54958566374224,"lon":-11.54172856173517},"before":{"x":-7187,"z":-22741,"cov":1,"hue":3,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":3,"kept":6}}
+pass  no page errors                                                               []
+---- run 4 of 7
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58401.009355498616,"z":-22748.650044372775,"lat":-42.549489561040744,"lon":-11.539219953027143},"before":{"x":58401,"z":-22749,"cov":1,"hue":5,"kept":5},"after":{"x":-7131,"z":-22744,"cov":1,"hue":5,"kept":5}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7187.276275859808,"z":-22741.30177809871,"lat":-42.54958566374224,"lon":-11.54172856173517},"before":{"x":-7187,"z":-22741,"cov":1,"hue":2,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":2,"kept":6}}
+pass  no page errors                                                               []
+---- run 5 of 7
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58401.009355498616,"z":-22748.650044372775,"lat":-42.549489561040744,"lon":-11.539219953027143},"before":{"x":58401,"z":-22749,"cov":1,"hue":4,"kept":6},"after":{"x":-7131,"z":-22744,"cov":1,"hue":4,"kept":6}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7187.276275859808,"z":-22741.30177809871,"lat":-42.54958566374224,"lon":-11.54172856173517},"before":{"x":-7187,"z":-22741,"cov":1,"hue":0,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":0,"kept":6}}
+pass  no page errors                                                               []
+---- run 6 of 7
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58401.009355498616,"z":-22748.650044372775,"lat":-42.549489561040744,"lon":-11.539219953027143},"before":{"x":58401,"z":-22749,"cov":1,"hue":1,"kept":5},"after":{"x":-7131,"z":-22744,"cov":1,"hue":1,"kept":5}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7187.276275859808,"z":-22741.30177809871,"lat":-42.54958566374224,"lon":-11.54172856173517},"before":{"x":-7187,"z":-22741,"cov":1,"hue":5,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":5,"kept":6}}
+pass  no page errors                                                               []
+---- run 7 of 7
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58401.009355498616,"z":-22748.650044372775,"lat":-42.549489561040744,"lon":-11.539219953027143},"before":{"x":58401,"z":-22749,"cov":1,"hue":3,"kept":6},"after":{"x":-7131,"z":-22744,"cov":1,"hue":3,"kept":6}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7187.276275859808,"z":-22741.30177809871,"lat":-42.54958566374224,"lon":-11.54172856173517},"before":{"x":-7187,"z":-22741,"cov":1,"hue":4,"kept":6},"after":{"x":39,"z":-5,"cov":1,"hue":4,"kept":6}}
+pass  no page errors                                                               []
+pass  7 of 7  slide: painted after a slide, and the page again: where it was, by latitude and longitude
+pass  7 of 7  new map: made again round the bus, and the paint near it is still there
+pass  7 of 7  no page errors
+all pass
+exit 0
+
+## the full keep.mjs once, on the build before b1b8a36 (the heavy row on its old hue bar, 97 %)
+pass  kept: a blast on open ground is painted, and kept by its place on the Moon   {"at":{"x":-7189.890557487047,"z":-22740.934364776673,"lat":-42.54959744960291,"lon":-11.541845648096379},"paint":{"x":-7190,"z":-22741,"cov":1,"hue":4,"kept":4},"cells":4}
+pass  reload: a new session at the same place, and the paint is where it was       {"before":{"x":-7190,"z":-22741,"cov":1,"hue":4,"kept":4},"after":{"x":-7190,"z":-22741,"cov":1,"hue":4,"kept":4}}
+FAIL  heavy: 200 breaths over one patch, and the page again: all of it back, two frames after its tiles came in {"painted":1000,"back":1000,"sameHue":924,"firstTileAtFrame":0,"allTilesAtFrame":0}
+pass  slide: painted after a slide, and the page again: where it was, by latitude and longitude {"at":{"x":58403.62363705713,"z":-22749.01745768516,"lat":-42.5494777889365,"lon":-11.539102862043636},"before":{"x":58404,"z":-22749,"cov":1,"hue":2,"kept":18},"after":{"x":-7129,"z":-22745,"cov":1,"hue":2,"kept":18}}
+pass  new map: made again round the bus, and the paint near it is still there      {"at":{"x":-7187.276275859808,"z":-22741.30177809871,"lat":-42.54958566374224,"lon":-11.54172856173517},"before":{"x":-7187,"z":-22741,"cov":1,"hue":5,"kept":18},"after":{"x":39,"z":-5,"cov":1,"hue":5,"kept":18}}
+pass  one name: 25 km off and on ?moonland the same store, and the paint where the bus reaches it {"pictures":[18,18,18],"there":{"x":-24999,"z":165},"before":{"x":37,"z":-5,"cov":1,"hue":2,"kept":18},"after":{"x":-24999,"z":165,"cov":1,"hue":2,"kept":18}}
+pass  no page errors                                                               []
+1 FAIL
+exit 1
