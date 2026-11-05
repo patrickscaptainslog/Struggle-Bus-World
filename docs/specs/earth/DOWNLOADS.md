@@ -45,7 +45,7 @@ Item 2 is the one to look at. On disk it is 8.1 MB, 43 % over its list of 5.7 MB
 | 1 | Overture buildings | 499,537,311 bytes (499.5 MB), list 360 MB, +39 % | Over the list. Nothing of the rows kept. | Producer OK for the new size; rerun with `--ok`. Before Overture removes release 2026-10-21.0 (about 16 Dec). The footer statistics (`footers/building.json`, derived, 7.8 MB) are in the archive. |
 | 5 | Overture places | 65,794,373 bytes (65.8 MB), list 48 MB, +37 % | Over the list. Nothing of the rows kept. | Producer OK for the new size; rerun with `--ok`. Same deadline. Item 6's place footers are kept. |
 | 18 | GEBCO_2026, the Bay and its approaches | not fetched | The download is the producer's click in GEBCO's web app (download.gebco.net). Its 933 MB fallback tile was not OK'd. | The producer clicks in GEBCO's app. |
-| 20 | Land polygons (coastline), split, WGS84 | not fetched | The download host refused the connection (osmdata.openstreetmap.de, 2026-11-05 08:08 UTC), so its size is unknown and can't be checked against the list. | Retry, then check the size against the list. |
+| 20 | Land polygons (coastline), split, WGS84 | not fetched | The download host refused the connection (osmdata.openstreetmap.de, 2026-11-05 08:08 UTC). The retry at 15:40 UTC timed out connecting (139.17.3.227, port 443, over IPv4 too) while www.openstreetmap.org answered. So its size is unknown and can't be checked against the list. | Retry later, then check the size against the list. |
 
 ## Credit lines the game must show
 
@@ -73,7 +73,7 @@ Notes on the credits:
 1. Item 1 (buildings) at 499.5 MB, list 360 MB. OK the new size, or the release goes before we fetch it (about 16 Dec).
 2. Item 5 (places) at 65.8 MB, list 48 MB. Same deadline.
 3. Item 18 (GEBCO): the producer's click in GEBCO's web app. The 933 MB fallback tile is not OK'd.
-4. Item 20 (land polygons): the host refused the connection. A retry, then its size.
+4. Item 20 (land polygons): the host refused the connection overnight and timed out again at 15:40 UTC. Another retry later, then its size.
 5. Foursquare rows are among the places. Foursquare's NOTICE.txt must ship once places come.
 6. Item 2 on disk is 8.1 MB against a list of 5.7 MB (+43 %). The run recorded 6.58 MB. Decide whether that is within the list.
 7. Item 1's footers were read live on 2026-10-23, before this list was OK'd on 2026-11-04. The footer statistics are in the archive.
