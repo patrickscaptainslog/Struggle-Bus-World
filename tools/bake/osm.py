@@ -31,6 +31,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 import shapely
 from shapely.geometry import Polygon, MultiPolygon, box
+from shapely.ops import substring
 from shapely.strtree import STRtree
 
 CACHE = os.environ.get('SB_OVERTURE_CACHE', os.path.join(os.path.dirname(os.path.abspath(__file__)), '.cache', 'overture'))
@@ -73,6 +74,12 @@ US_SUFFIX = {'street': 'St', 'avenue': 'Ave', 'boulevard': 'Blvd', 'drive': 'Dr'
              'crescent': 'Cres', 'heights': 'Hts', 'point': 'Pt', 'park': 'Park', 'walk': 'Walk', 'path': 'Path',
              'row': 'Row', 'loop': 'Loop', 'gardens': 'Gdns'}
 US_DIR = {'north': 'N', 'south': 'S', 'east': 'E', 'west': 'W'}
+
+# a stretch of street, path or rail that isn't on the ground (segments()): a bridge, a tunnel, an indoor or covered
+# way, one under construction, or one off level 0
+OFF_GROUND = {'is_bridge', 'is_tunnel', 'is_indoor', 'is_covered', 'is_under_construction'}
+CUT_SNAP = 0.05     # m: a cut this close to a vertex is made at the vertex (where the OSM way it stands for ends)
+CUT_SHORTEST = 1.0  # m: a stretch at grade shorter than this, between two cuts or a cut and an end, is left out
 
 
 def hash32(s):
@@ -149,6 +156,81 @@ def sv(v):
 
 def strip_version(rid):
     return rid.split('@', 1)[0] if isinstance(rid, str) else None
+
+
+def off_ground(road_rules, rail_rules, level_rules):
+    """The stretches of one segment that aren't on the ground, from its rules as overture.py keeps them (the JSON of the
+    road_flag_rules, rail_flag_rules and level_rules columns): [(from, to)] as fractions of its length, sorted, the
+    ones that overlap or touch merged. A rule with no range covers the whole segment, and so does one whose range
+    doesn't read as two fractions in order."""
+    spans = []
+    for js in (road_rules, rail_rules):
+        for r in (json.loads(js) if js else None) or []:
+            if r and OFF_GROUND & set(r.get('values') or []):
+                spans.append(r.get('between'))
+    for r in (json.loads(level_rules) if level_rules else None) or []:
+        if r and r.get('value') not in (None, 0):
+            spans.append(r.get('between'))
+    out = []
+    for b in spans:
+        a, z = 0.0, 1.0
+        if isinstance(b, list) and len(b) == 2:
+            f0, f1 = num(b[0]), num(b[1])
+            if f0 is not None and f1 is not None and -1e-9 <= f0 < f1 <= 1 + 1e-9:
+                a, z = max(0.0, f0), min(1.0, f1)
+        out.append((a, z))
+    merged = []
+    for a, z in sorted(out):
+        if merged and a <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], z))
+        else:
+            merged.append((a, z))
+    return merged
+
+
+def at_grade(line, spans):
+    """The pieces of a (projected) line that the spans of off_ground() leave on the ground, each cut out with
+    shapely.ops.substring: [(LineString, the fraction of the segment's length at its middle)], none under CUT_SHORTEST
+    m. Overture's fractions are of the segment's length on the ellipsoid; the bake's projection keeps that to the
+    centimetre (it puts every range end of San Francisco's within 7 mm of a vertex), so a cut is a fraction of the
+    projected length, made at the vertex within CUT_SNAP."""
+    c = np.asarray(line.coords)[:, :2]
+    s = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(c, axis=0).T))])
+    if s[-1] <= 0:
+        return []
+
+    def at(f):
+        d = f * s[-1]
+        j = int(np.argmin(np.abs(s - d)))
+        return float(s[j]) if abs(s[j] - d) <= CUT_SNAP else d
+    out = []
+    lo = 0.0
+    for a, z in spans + [(1.0, 1.0)]:
+        if a > lo:
+            d0, d1 = at(lo), at(a)
+            if d1 - d0 >= CUT_SHORTEST:
+                p = substring(line, d0, d1)
+                if p.geom_type == 'LineString' and not p.is_empty:
+                    out.append((p, 0.5 * (d0 + d1) / s[-1]))
+        lo = max(lo, z)
+    return out
+
+
+def stretch_name(name_rules, f):
+    """The name Overture gives a segment's stretch at fraction f (the JSON of the name_rules column): the common name, in
+    no particular language, of the rule whose range holds f, a ranged rule before one for the whole segment; None if
+    none does."""
+    whole = None
+    for r in (json.loads(name_rules) if name_rules else None) or []:
+        if not r or r.get('variant') != 'common' or r.get('language') or not r.get('value'):
+            continue
+        b = r.get('between')
+        if not b:
+            whole = whole or r['value']
+        elif isinstance(b, list) and len(b) == 2 and num(b[0]) is not None and num(b[1]) is not None \
+                and num(b[0]) - 1e-9 <= f <= num(b[1]) + 1e-9:
+            return r['value']
+    return whole
 
 
 class OSM:
@@ -352,48 +434,74 @@ class OSM:
     # ------------------------------------------------------------------ ground
     def segments(self):
         """Street, path and rail centerlines: [(line, kind, width, name, cls)] (bridges, tunnels, indoor and
-        elevated ways left out: the ground under them is something else)."""
+        elevated ways left out: the ground under them is something else). A segment that is one of them only in part
+        keeps its stretches at grade, each a line of its own with the name Overture gives that stretch (off_ground(),
+        at_grade(), stretch_name(): the extract's *_rules columns say which part is which; an extract written before
+        them has no ranges and leaves the whole segment out)."""
         d, g = self.read('segment')
         P = self.P
+        ranged = 'road_flag_rules' in d.columns
+        named = 'name_rules' in d.columns
         out = []
+        part = [0, 0, 0.0]   # segments kept in part: segments, pieces, metres
         for i, row in enumerate(d.itertuples(index=False)):
             line = g[i]
             if line is None or line.is_empty or line.geom_type != 'LineString':
                 continue
             flags = set(sv(row.road_flags).split(',')) | set(sv(row.rail_flags).split(','))
-            if flags & {'is_bridge', 'is_tunnel', 'is_indoor', 'is_covered', 'is_under_construction'}:
-                continue
             lv = row.level_max
-            if lv is not None and lv == lv and int(lv) != 0:
+            off = bool(flags & OFF_GROUND) or (lv is not None and lv == lv and int(lv) != 0)
+            pieces = None   # (the whole line)
+            if ranged and (off or sv(row.level_rules)):
+                # (by the rules, range by range: a level of 0 for one stretch hides another's from level_max)
+                spans = off_ground(row.road_flag_rules, row.rail_flag_rules, row.level_rules)
+                if spans:
+                    pieces = at_grade(line, spans)
+                    if not pieces:
+                        continue
+                elif off:
+                    continue  # (the flags say it's off the ground and no rule says where: all of it, as before)
+            elif off:
                 continue
             cls = sv(row.klass) or 'unknown'
             sub = sv(row.subclass)
             name = sv(row.name)
             if sv(row.subtype) == 'rail':
-                if cls in ('standard_gauge', 'light_rail', 'narrow_gauge', 'rail', 'monorail'):
-                    out.append((line, RAIL, P['railWidth'], '', cls))
+                if cls not in ('standard_gauge', 'light_rail', 'narrow_gauge', 'rail', 'monorail'):
+                    continue
+                rec = (RAIL, P['railWidth'], '', cls)
+            elif sv(row.subtype) != 'road':
                 continue
-            if sv(row.subtype) != 'road':
-                continue
-            w = num(row.width)
-            if cls in ('footway', 'path', 'steps', 'cycleway', 'bridleway', 'track'):
+            elif cls in ('footway', 'path', 'steps', 'cycleway', 'bridleway', 'track'):
                 if sub == 'crosswalk' or sub == 'cycle_crossing':
                     continue  # part of the road it crosses
+                w = num(row.width)
                 kind = SIDEWALK if sub == 'sidewalk' else PATH
-                out.append((line, kind, max(P['pathWidth'], w or 0.0) if cls != 'track' else P['roadWidth']['track'], name, cls))
+                rec = (kind, max(P['pathWidth'], w or 0.0) if cls != 'track' else P['roadWidth']['track'], name, cls)
+            elif cls == 'pedestrian':
+                rec = (PLAZA, num(row.width) or P['plazaWidth'], name, cls)
+            else:
+                w = num(row.width)
+                if w is None or w < 2.0:
+                    if sub == 'link':
+                        w = P['linkWidth']
+                    elif cls == 'service' and sub in P['serviceWidth']:
+                        w = P['serviceWidth'][sub]
+                    else:
+                        w = P['roadWidth'].get(cls, P['roadWidth']['unknown'])
+                rec = (PAVED, w, name, cls)
+            if pieces is None:
+                out.append((line,) + rec)
                 continue
-            if cls == 'pedestrian':
-                out.append((line, PLAZA, w or P['plazaWidth'], name, cls))
-                continue
-            if w is None or w < 2.0:
-                if sub == 'link':
-                    w = P['linkWidth']
-                elif cls == 'service' and sub in P['serviceWidth']:
-                    w = P['serviceWidth'][sub]
-                else:
-                    w = P['roadWidth'].get(cls, P['roadWidth']['unknown'])
-            out.append((line, PAVED, w, name, cls))
-        self.log(f'osm: {len(out)} street / path / rail segments for the ground')
+            # (the segment's primary name is often its bridge's or tunnel's: "Golden Gate Bridge" on Presidio Parkway)
+            out += [(p, rec[0], rec[1], (named and rec[2] and stretch_name(row.name_rules, f)) or rec[2], rec[3]) for p, f in pieces]
+            part[0] += 1
+            part[1] += len(pieces)
+            part[2] += sum(p.length for p, _ in pieces)
+        self.log(f'osm: {len(out)} street / path / rail segments for the ground' +
+                 (f' ({part[1]} of them are the stretches at grade, {part[2] / 1000:.1f} km, of {part[0]} segments a bridge, '
+                  'tunnel or level takes off the ground in part)' if ranged else
+                  ' (the extract has no ranges: a segment off the ground in part is left out whole)'))
         return out
 
     def street_lines(self, segs):

@@ -18,7 +18,9 @@ shapely), and <slug>/extract.json: the box, and each type's rows, licence, credi
   building        footprints: height, min_height, num_floors, roof_* , facade_*, names, OSM ids
   building_part   building:part=* (tower massing), same attributes + building_id
   segment         transportation: roads, paths, rail, ferry routes (subtype, class, subclass, names, width; as JSON:
-                  connectors, the junctions it meets and where along it, access_restrictions, speed_limits)
+                  connectors, the junctions it meets and where along it, access_restrictions, speed_limits, and
+                  road_flag_rules, rail_flag_rules, level_rules and name_rules: the flags, levels and names with the
+                  stretch each covers)
   connector       transportation: the junctions themselves (points)
   place           places: marinas, terminals, airports...: names, basic_category, taxonomy, brand, addresses,
                   websites, confidence (never emails, phones or socials). Not ODbL: each provider's own licence
@@ -43,10 +45,15 @@ fetched again). --max-footer-mb=N: a type with no footers cached reads them only
 (0: never), or exits 4. --max-mb=N: a type whose row groups and footers come to more than N MB fetches nothing and
 exits 3. --threads=N: row groups fetched at once (default 4). --check: each type's size, as a line
 `SIZE {json}` (the touched footers are read to know it, and kept), and nothing else fetched or written.
+--raw=DIR: nothing from the network. DIR is an Overture cache laid out as this one, such as an archive's overture/
+with the archive's manifest.json in it or beside it: what a type needs that this cache lacks (the footers' index, the
+files' footers, the row groups) is copied from there, each file's sha256 and size checked against the manifest as it
+is read. A file DIR lacks, one the manifest doesn't list or one that doesn't match exits 5. WorldCover isn't touched.
 
 usage: python3 -I tools/bake/overture.py <slug> [--types=building,segment,...] [--refresh] [--no-worldcover]
-                                         [--max-mb=N] [--max-footer-mb=N] [--threads=N] [--check]
+                                         [--max-mb=N] [--max-footer-mb=N] [--threads=N] [--check] [--raw=DIR]
 """
+import hashlib
 import json
 import os
 import struct
@@ -292,6 +299,16 @@ def flatten(t, typ):
     for fl in ('road_flags', 'rail_flags'):
         if fl in t.column_names:
             cols[fl] = pa.array([(','.join(sorted({v for r in f for v in (r['values'] or [])})) if f else None) for f in t[fl].to_pylist()], pa.string())
+    # the same three rule by rule, with the stretch each covers, as JSON: [{"values": [...] (a level: "value": n),
+    # "between": [from, to] or null for the whole segment}]. The fractions are of the segment's length on the
+    # ellipsoid, which the bake's projection keeps to the centimetre. The ground keeps what a bridge, tunnel or level
+    # leaves at grade (osm.py segments()); the columns above stay as they were for every other reader. And a segment's
+    # names the same way, so a stretch kept at grade takes its own name, not the primary one (often the bridge's)
+    for fl, name in (('road_flags', 'road_flag_rules'), ('rail_flags', 'rail_flag_rules'), ('level_rules', 'level_rules')):
+        if fl in t.column_names:
+            cols[name] = jsons(t[fl])
+    if typ == 'segment' and 'names' in t.column_names:
+        cols['name_rules'] = jsons(pc.struct_field(t['names'], 'rules'))
     if 'road_surface' in t.column_names:
         cols['surface'] = pa.array([(rs[0]['value'] if rs else None) for rs in t['road_surface'].to_pylist()], pa.string())
     return pa.table(cols), seen
@@ -336,7 +353,70 @@ def fetch_parts(fs, release, typ, cols, jobs, mds, threads):
         list(ex.map(get, todo))
 
 
-def extract(slug, types=DEFAULT, refresh=False, worldcover=True, max_mb=None, max_footer_mb=None, threads=4, check=False):
+def manifest(raw):
+    """--raw: {path: (sha256, bytes)} of every file the archive's manifest.json lists (the one in raw or in the folder over
+    it; its paths are from its own folder), each path absolute and in the case the OS compares."""
+    for d in (raw, os.path.dirname(os.path.abspath(raw))):
+        mp = os.path.join(d, 'manifest.json')
+        if os.path.exists(mp):
+            return {os.path.normcase(os.path.abspath(os.path.join(d, f['path']))): (f['sha256'], f['bytes'])
+                    for f in json.load(open(mp, encoding='utf-8'))['files']}
+    log(f'--raw={raw}: no manifest.json in it or over it to check its files against: nothing read')
+    sys.exit(5)
+
+
+def take(raw, man, dst):
+    """--raw: the cache file dst copied from the same path under raw, its sha256 and size checked against the manifest as
+    it is read (a file that fails is not kept). False if raw doesn't hold it; exits 5 if the manifest doesn't list it or
+    it doesn't match."""
+    src = os.path.join(raw, os.path.relpath(dst, CACHE))
+    if not os.path.exists(src):
+        return False
+    want = man.get(os.path.normcase(os.path.abspath(src)))
+    if want is None:
+        log(f'--raw: {src} is not in the manifest: not read')
+        sys.exit(5)
+    h = hashlib.sha256()
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with open(src, 'rb') as f, open(dst + '.part', 'wb') as o:
+        for b in iter(lambda: f.read(1 << 20), b''):
+            h.update(b)
+            o.write(b)
+    if (h.hexdigest(), os.path.getsize(dst + '.part')) != tuple(want):
+        os.remove(dst + '.part')
+        log(f'--raw: {src} does not match the sha256 and size its manifest lists: not used')
+        sys.exit(5)
+    os.replace(dst + '.part', dst)
+    log(f'  --raw: {os.path.relpath(dst, CACHE)} taken, sha256 as listed')
+    return True
+
+
+def stage(raw, man, release, typ, cols, bb):
+    """--raw: what a type needs for the box that this cache lacks, taken from raw: the footers' index, the touched files'
+    footers and the touched row groups, with every column the type keeps. Exits 5 if raw can't give all of it, since
+    nothing is fetched with --raw."""
+    idx = os.path.join(CACHE, release, 'footers', f'{typ}.json')
+    need = []
+    if not os.path.exists(idx) and not take(raw, man, idx):
+        need.append(idx)
+    else:
+        jobs = [(path, i) for path, rgs in json.load(open(idx)) for i in wanted(rgs, bb)]
+        for p in sorted({p for p, _ in jobs}):
+            fp = footer_path(release, typ, p)
+            if not os.path.exists(fp) and not take(raw, man, fp):
+                need.append(fp)
+        for p, i in jobs:
+            pp = part_path(release, typ, p, i)
+            if not held(pp, cols) and not (take(raw, man, pp) and held(pp, cols)):
+                need.append(pp)
+    if need:
+        log(f'{typ}: --raw={raw} lacks {len(need)} file(s) this needs: '
+            + ', '.join(os.path.relpath(p, CACHE) for p in need[:4]) + (' ...' if len(need) > 4 else ''))
+        sys.exit(5)
+
+
+def extract(slug, types=DEFAULT, refresh=False, worldcover=True, max_mb=None, max_footer_mb=None, threads=4, check=False,
+            raw=None):
     cfg = json.load(open(os.path.join(HERE, 'cities', f'{slug}.json')))
     oc = cfg.get('overture', {})
     release = oc.get('release', DEFAULT_RELEASE)
@@ -345,7 +425,9 @@ def extract(slug, types=DEFAULT, refresh=False, worldcover=True, max_mb=None, ma
     bb = (lon0 - pad, lat0 - pad, lon1 + pad, lat1 + pad)
     odir = os.path.join(CACHE, release, slug)
     os.makedirs(odir, exist_ok=True)
-    fs = s3fs()
+    # (--raw: no S3 at all; stage() has put everything the run reads in the cache before anything would fetch it)
+    fs = None if raw else s3fs()
+    man = manifest(raw) if raw else None
     epath = os.path.join(odir, 'extract.json')
     ex = json.load(open(epath)) if os.path.exists(epath) else {}
     if ex.get('release') != release or ex.get('bbox') != list(bb):
@@ -371,6 +453,8 @@ def extract(slug, types=DEFAULT, refresh=False, worldcover=True, max_mb=None, ma
             log(f'{typ}: cached {dst} ({n} rows)')
             ex['counts'].setdefault(typ, n)
             continue
+        if raw:
+            stage(raw, man, release, typ, cols, bb)
         ft = footers(fs, release, theme, typ, max_mb=max_footer_mb)
         jobs = [(path, i) for path, rgs in ft for i in wanted(rgs, bb)]
         files = sorted({p for p, _ in jobs})
@@ -470,8 +554,9 @@ def main():
 
     def num(k):
         return float(flags[k]) if flags.get(k) else None
-    extract(slug, types, refresh='refresh' in flags, worldcover='no-worldcover' not in flags, max_mb=num('max-mb'),
-            max_footer_mb=num('max-footer-mb'), threads=int(flags.get('threads') or 4), check='check' in flags)
+    raw = flags.get('raw') or None
+    extract(slug, types, refresh='refresh' in flags, worldcover='no-worldcover' not in flags and not raw, max_mb=num('max-mb'),
+            max_footer_mb=num('max-footer-mb'), threads=int(flags.get('threads') or 4), check='check' in flags, raw=raw)
 
 
 if __name__ == '__main__':
