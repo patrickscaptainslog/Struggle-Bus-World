@@ -4,6 +4,8 @@ Technical director's design for world travel, the layer that the turbo gears
 (`config.turbo`, branch feat/controls) are waiting on. Date 2026-10-23.
 Status: proposal. Nothing in the repo was edited and no browser was run.
 
+**Gear numbers here are from before Express (2026-11-02):** G0 is Cruise, and this file's G1, G2 and G3 are Jet, Stratos and Rainbow Warp, which are G2, G3 and G4 in the game (`docs/specs/flight/THUMBS.md`, "Gears").
+
 **Parts of this are superseded (2026-10-31).** Read `docs/specs/far-field/VERDICT.md` §8 (its table lists each section and what replaces it) and `docs/specs/sky/SKY.md` §9 first; they override this file where they differ. The full rewrite waits for the far-field proof (`docs/specs/far-field/SPIKE.md`).
 
 **Producer ask:** "The struggle bus able to fly from SF to Tokyo across the

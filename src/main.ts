@@ -834,7 +834,7 @@ async function boot() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) city.ground.persist();
   });
-  // tilt / touch / keyboard, the turbo gears and the HUD (src/game/Controls.ts)
+  // touch / keyboard, the turbo gears and the HUD (src/game/Controls.ts)
   const controls = new Controls({ input, flight, rig, audio, particles, pipeline, camera, scene, bus, bounds: manifest.bounds, params });
   controls.hud.setCredits(dataCredits);
   input.onTripleFinger = () => tuner.toggle();
@@ -1031,6 +1031,7 @@ async function boot() {
   const sparkPos = new THREE.Vector3();
   const nearTmp: Array<{ ref: BuildingRef; d: number }> = [];
   const camFwd = new THREE.Vector3();
+  const streamFwd = new THREE.Vector3();
   const camDir = new THREE.Vector3();
   const snapPoint = new THREE.Vector3();
   const compTmp = new THREE.Vector3();
@@ -1073,8 +1074,8 @@ async function boot() {
     // (never negative: the first frame's timestamp can predate `last`, by the whole warm-up on a slow GPU)
     let dt = fixedDt || Math.min(0.05, Math.max(0, (now - last) / 1000));
     const realDt = dt;
-    // the game holds under iOS's motion sheet, and while a restored context streams the city back in
-    const held = controls.sheetUp || covered;
+    // the game holds while a restored context streams the city back in (and for a QA tool's freeze)
+    const held = controls.frozen || covered;
     // the opening runs on the wall clock from when the first frame reached the screen (the second
     // frame's callback): it overlaps loading, and slow frames (down to 4 fps) don't stretch it. A
     // longer gap (a tab switch, a locked phone, a long task) moves it 0.25 s at most, so the reveal
@@ -1194,8 +1195,11 @@ async function boot() {
         openingBridge = null;
       }
     }
+    // the look runs on the wall clock (a hit-stop doesn't stall it), and the aim turns with it
+    rig.setLook(st.look.on, st.look.x, st.look.y, realDt);
+    aimer.lookYaw = rig.aimYaw;
     // aim glint on the building a tap would hit (picked every frame), only while a breath is loaded
-    // (a committed thumb thaws the glint, as keys and a QA stick do; tilt never does; and a press that fires on its lift
+    // (a committed thumb thaws the glint, as keys and a QA stick do; and a press that fires on its lift
     // keeps what it froze, whatever else is steering)
     const glint = aimer.update(flight, simTime, (qaStick || st.thumb || (st.dragging && input.mode === 'keyboard')) && !input.pressHeld);
     controls.glinting = glint !== null;
@@ -1245,7 +1249,9 @@ async function boot() {
     if (!Fg.enabled) globals.uFog.value.z = lensFar;
     rig.fadeBase = Fg.clearFarFull;
     const hk = clamp(flight.lift / 450, 0, 1);
-    streamCenter.set(focus.x + camFwd.x * 950 * hk, focus.y, focus.z + camFwd.z * 950 * hk);
+    // (a look leaves it on the heading: a glance behind must not drop what the bus is flying into; the shadow's window below goes with the view)
+    rig.streamDir(camFwd, streamFwd);
+    streamCenter.set(focus.x + streamFwd.x * 950 * hk, focus.y, focus.z + streamFwd.z * 950 * hk);
     city.viewHeight = flight.lift;
     city.viewX = camera.position.x;
     city.viewZ = camera.position.z;
@@ -1321,7 +1327,7 @@ async function boot() {
     for (const n of near) if (city.paint.level(n.ref.index) > 0.5) painted++;
     audio.update(dt, {
       speed: flight.speed,
-      surge: flight.surge,
+      surge: controls.surge,
       fullness: flight.barfT >= 0 ? flight.belly : flight.fullness,
       altitude: flight.y - flight.groundUnder,
       paintNearby: near.length ? painted / near.length : 0,

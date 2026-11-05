@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { config } from '../config';
 import { pitchAdd } from './Ascent';
-import { angleDelta, clamp, spring } from './springs';
+import { angleDelta, clamp, settle, spring } from './springs';
 import type { Flight } from './Flight';
 
 // Telephoto chase camera: behind and above, lagging so turns sweep. It tilts
@@ -17,11 +17,46 @@ import type { Flight } from './Flight';
 // A dive is the one exception to the sky at the top of the frame: the view
 // tips over the bus until the place it is heading for is on screen, driven by
 // the yoke alone, and it leaves nothing behind when it eases out.
+//
+// The look: a second thumb turns the finished view round the bus, one yaw offset
+// and one pitch offset on the wall clock (a hit-stop doesn't stall them), with a
+// spring home on the lift. It moves the pose after everything above has run and
+// touches none of its state: settled, the rig is exactly what it was. Sideways
+// and down the whole pose turns about the bus, so the bus stands where it stood,
+// the follow's lag and all, at any speed. Up the lens tilts where it is, because
+// lowering it would stand it among the roofs; past about 19 degrees the bus
+// leaves by the bottom of the frame. Zoom and distance don't change.
 
 const smooth01 = (a: number, b: number, x: number) => {
   const t = clamp((x - a) / (b - a), 0, 1);
   return t * t * (3 - 2 * t);
 };
+
+const UP = new THREE.Vector3(0, 1, 0);
+const RIGHT = new THREE.Vector3(1, 0, 0);
+/** (rad) a look arrives exactly from here: under a tenth of a game pixel, where a tail would only swim the frame */
+const LOOK_HOME = 1e-4;
+
+/** The look's curve, a x + b x^3: lookDegPerPx at the start, 180 degrees at lookFullPx. Past 180 it stays that curve, and with a start steep enough to get there on its own, a line. */
+const lookCurve = () => {
+  const C = config.camera;
+  const a = Math.max(0.01, C.lookDegPerPx), full = Math.max(1, C.lookFullPx);
+  return { a, b: Math.max(0, 180 - a * full) / (full * full * full) };
+};
+
+/** The look's angle (deg) for a thumb's offset from where it landed (px): a small nudge is a small look, and the look behind is still there. */
+export function lookDeg(px: number): number {
+  const { a, b } = lookCurve();
+  return px * (a + b * px * px);
+}
+
+/** ...and the offset that asks for an angle (Newton's, from the line above the curve: it comes down onto the root and stays there). */
+export function lookPx(deg: number): number {
+  const { a, b } = lookCurve();
+  let x = deg / a;
+  for (let i = 0; i < 6; i++) x -= (x * (a + b * x * x) - deg) / (a + 3 * b * x * x);
+  return x;
+}
 
 export class CameraRig {
   /** 0..1 vista blend (with the bus's height above the broad ground, latched while holding) */
@@ -61,6 +96,24 @@ export class CameraRig {
   /** The live sky's lift (SKY.md 4.15): the view tips up toward this (deg), eased, and holds there; skyLift is where it is now */
   skyLiftTarget = 0;
   skyLift = 0;
+  /** the look (setLook): how far a thumb has the view off the rig (rad, x = +right, y = +up; exactly 0 once home) */
+  private readonly lookYaw = { x: 0, v: 0 };
+  private readonly lookPitch = { x: 0, v: 0 };
+  private lookOn = false;
+  /** the look's up and down: where the thumb's offset says level (px), dragged along behind the thumb at a limit */
+  private lookSlack = 0;
+  /** seconds this look has been held */
+  private lookHeld = 0;
+  /** where this look found the view (rad): it starts from there */
+  private lookFromYaw = 0;
+  private lookFromPitch = 0;
+  /** where a tap goes off the nose (rad): the look, out to config.camera.lookAimMax */
+  aimYaw = 0;
+  /** how far the stream's center has followed the look (rad): nothing until a look has been held a while */
+  private streamYaw = 0;
+  private readonly lookQ = new THREE.Quaternion();
+  private readonly lookV = new THREE.Vector3();
+  private readonly lookAxis = new THREE.Vector3();
   /** 0..1 while barfing: tilt down and pull the look point in so the splat below the bus is visible */
   barfTilt = 0;
   shake = 0;
@@ -179,6 +232,82 @@ export class CameraRig {
     if (this.skyLift !== 0) cam.rotateX(THREE.MathUtils.degToRad(this.skyLift));
     this.distance = this.pos.distanceTo(bus);
     focusOut.copy(bus);
+    this.applyLook(cam, bus);
+  }
+
+  /**
+   * The look, as Input reports it (state.look: the thumb's offset from where it landed, CSS px, +y up): main.ts hands
+   * it over every frame, before update(), with the wall clock's dt (a hit-stop must not stall it). Geared like a second
+   * bungee: the offset sets the angle, on the curve (lookDeg). Off under the opening's low shot, the opening's own.
+   */
+  setLook(on: boolean, x: number, y: number, realDt: number) {
+    const C = config.camera;
+    const yaw = this.lookYaw, pitch = this.lookPitch;
+    if (on) {
+      const k = THREE.MathUtils.DEG2RAD * (1 - this.openingLow);
+      const py = C.lookInvertY ? -y : y;
+      if (!this.lookOn) {
+        this.lookSlack = 0;
+        this.lookHeld = 0;
+        this.lookFromYaw = yaw.x;
+        this.lookFromPitch = pitch.x;
+      }
+      // (past a limit the landing is dragged along behind the thumb, on the thumb's own scale, so it turns back at once; sideways is the full circle, and has none)
+      this.lookSlack = clamp(this.lookSlack, py - lookPx(C.lookUp), py + lookPx(C.lookDown));
+      // (it starts gently: a flick can outlast the thumb's own wait, and only the lift says it was one)
+      const ease = smooth01(0, Math.max(0.01, C.lookEaseIn), this.lookHeld + realDt);
+      settle(yaw, this.lookFromYaw + (lookDeg(x) * k - this.lookFromYaw) * ease, C.lookFollowHz, realDt);
+      settle(pitch, this.lookFromPitch + (lookDeg(py - this.lookSlack) * k - this.lookFromPitch) * ease, C.lookFollowHz, realDt);
+    } else {
+      // (home the short way round, a full turn being no turn, and from a stand: what was thrown at the lift would carry on)
+      if (this.lookOn) {
+        yaw.x = angleDelta(0, yaw.x);
+        yaw.v = pitch.v = 0;
+      }
+      settle(yaw, 0, C.lookHomeHz, realDt);
+      settle(pitch, 0, C.lookHomeHz, realDt);
+      // (it arrives exactly)
+      if (Math.abs(yaw.x) < LOOK_HOME && Math.abs(yaw.v) < LOOK_HOME * 20) yaw.x = yaw.v = 0;
+      if (Math.abs(pitch.x) < LOOK_HOME && Math.abs(pitch.v) < LOOK_HOME * 20) pitch.x = pitch.v = 0;
+    }
+    this.lookOn = on;
+    this.lookHeld = on ? this.lookHeld + realDt : 0;
+    const off = angleDelta(0, yaw.x);
+    // a tap goes where the view looks, sideways only, and down the nose past the limit: no tail gun
+    this.aimYaw = Math.abs(off) <= THREE.MathUtils.degToRad(C.lookAimMax) ? off : 0;
+    // a glance doesn't move what streams in; a long look takes it along
+    const want = this.lookHeld >= C.lookStreamAfter ? off : 0;
+    const ds = angleDelta(this.streamYaw, want);
+    this.streamYaw = Math.abs(ds) < 0.005 ? want : this.streamYaw + ds * (1 - Math.exp(-C.lookStreamRate * realDt));
+  }
+
+  /** The stream's way from the view's, both flat: the rig's, whatever a look is doing, until a long look takes it along. */
+  streamDir(view: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+    const d = this.streamYaw - this.lookYaw.x;
+    if (d === 0) return out.copy(view);
+    const c = Math.cos(d), s = Math.sin(d);
+    return out.set(view.x * c - view.z * s, 0, view.z * c + view.x * s);
+  }
+
+  /** The finished pose, turned by the look. Nothing to do at home, so home is exactly the rig. */
+  private applyLook(cam: THREE.PerspectiveCamera, bus: THREE.Vector3) {
+    const yaw = this.lookYaw.x, pitch = this.lookPitch.x;
+    if (yaw === 0 && pitch === 0) return;
+    const q = this.lookQ, v = this.lookV.copy(cam.position).sub(bus);
+    // the whole pose, about the bus: lag and all, the bus stands where it stood
+    q.setFromAxisAngle(UP, -yaw);
+    v.applyQuaternion(q);
+    cam.quaternion.premultiply(q);
+    if (pitch > 0) cam.quaternion.multiply(q.setFromAxisAngle(RIGHT, pitch));
+    else if (pitch < 0) {
+      // over the bus, on top of a dive's tilt, and never past looking straight down
+      const axis = this.lookAxis.set(0, 0, -1).applyQuaternion(cam.quaternion);
+      const room = THREE.MathUtils.degToRad(config.camera.lookViewMax) - Math.asin(clamp(-axis.y, -1, 1));
+      q.setFromAxisAngle(axis.copy(RIGHT).applyQuaternion(cam.quaternion), -Math.min(-pitch, Math.max(0, room)));
+      v.applyQuaternion(q);
+      cam.quaternion.premultiply(q);
+    }
+    cam.position.copy(bus).add(v);
   }
 
   /** Blast kick: a jolt of `amount` m that rings down within config.splat.kickDecay. */

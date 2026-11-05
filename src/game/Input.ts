@@ -1,52 +1,69 @@
 import { config } from '../config';
 import { registerTunables } from '../ui/tunables';
-import type { TiltMix } from './Hybrid';
 
-// One-thumb input: the "floating bungee".
+// Two thumbs, each with its own job (docs/specs/flight/THUMBS.md). One line decides,
+// on the landing alone: the look zone, the left lookZone of the screen's width (the
+// right, with BUTTONS: SWAP). A touch landing there never flies. Everywhere else
+// the first thumb flies, and on its own it flicks and taps too. In any order, the
+// thumb in the zone looks and the other flies. A mouse has its right button instead.
 //
-// Touch anywhere: the touch-down point becomes the anchor, and the vector from
-// the anchor to the finger is the bungee stretch (sideways = carve; it's also
-// the yoke: down = pull back = climb, up = nose down = dive, or surge at the
-// rooftops). Past ~1x stretchPx the stretch soft-saturates toward 1; past
-// `leash` x stretchPx the anchor is dragged along behind the finger, so the
-// thumb never runs out of room and reversing direction responds immediately.
+// THE FIRST THUMB FLIES: the floating bungee, anywhere out of the zone. The
+// touch-down point becomes the anchor, and the vector from the anchor to the
+// finger is the stretch (sideways = carve; it's also the yoke: down = pull back
+// = climb, up = nose down = dive, or surge at the rooftops). Past ~1x stretchPx
+// the stretch soft-saturates toward 1; past `leash` x stretchPx the anchor is
+// dragged along behind the finger, so the thumb never runs out of room and
+// reversing direction responds immediately. A short, still touch is a tap
+// (onTap on pointerup, no waiting for a double-tap window; a quick tap with
+// slight movement also counts). Anything that turned into a drag never taps.
 //
-// Taps (the splat):
-//  - a short, still touch fires onTap on pointerup (no waiting for a
-//    double-tap window), and a quick tap with slight movement also counts;
-//  - while steering, any OTHER finger touching down fires onTap on that
-//    pointerdown, without touching the steering finger's anchor/stretch;
-//  - two fingers tapped together (nobody steering) count as one tap;
-//  - anything that turned into a drag never fires a tap.
+// THE SECOND THUMB is any finger landing in the zone, alone or not, or anywhere
+// while the first is down, and it never touches the flight:
+//  - a drag that stays down looks: after lookDelayMs, so a flick doesn't swing
+//    the camera, state.look follows the thumb from where it landed, and on the
+//    lift it is off (the rig eases the view home);
+//  - a quick flick is a shift: onTurbo(+1 up / -1 down);
+//  - a tap splats on its lift, up to secondTapMs (stillTapMs with nobody flying):
+//    on the landing nobody can know yet that it isn't a look;
+//  - at rest it does nothing.
+// Two fingers tapped together (nobody steering) count as one tap.
+//
+// A lone fresh stroke out of the zone that lifts fast is a flick too, on the firmer
+// rule. It steers until the lift decides: steering never waits for a verdict, and a
+// thumb that stays down never shifts. A stroke in the zone steers nothing, so the
+// second thumb's rule is all it needs.
+// A flick is read from the landing and the lift alone, distance over contact
+// time, so it holds at any frame rate. One touch is one reading, so the return
+// stroke never counts. A stroke landing in the bottom band (iOS owns that edge)
+// or the side band is never a command.
+//
 // Three fingers down together (while not steering) fire onTripleFinger and
 // swallow the gesture (no tap, no steering).
 //
-// Desktop dev: mouse drag = thumb, click / Space = tap, arrows / WASD =
-// stretch, flown like a yoke: Down / S = pull back (climb), Up / W = nose down
-// (dive; surge at the rooftops), Left / Right / A / D = carve.
+// Desktop dev: mouse drag = thumb, right mouse drag = the look, click / Space =
+// tap, arrows / WASD = stretch, flown like a yoke: Down / S = pull back (climb),
+// Up / W = nose down (dive; surge at the rooftops), Left / Right / A / D = carve.
 //
 // Modes (`mode`, set by src/game/Controls.ts; read-only for gameplay code):
-//  - 'touch'    the bungee above, tilt or no tilt: while tilt runs `mix`
-//               (src/game/Hybrid.ts) arbitrates, the same gestures everywhere.
-//               The HUD's MEGA (splatButton()) taps and holds; TURBO shifts and
-//               boosts. A still press on the screen is a tap up to stillTapMs and
-//               steering after that: it never charges.
+//  - 'touch'    the thumbs above. The HUD's MEGA (splatButton()) taps and holds.
+//               A still press on the screen is a tap up to stillTapMs and steering
+//               after that: it never charges.
 //  - 'keyboard' desktop: the bungee on the mouse, keys as above.
 // The splat press (MEGA, or Space): released before config.splat.holdThreshold =
 // onTap; held that long = onChargeStart, then onChargeEnd(heldSeconds, cancelled)
-// on release (cancelled = a third finger, a lost touch, or focus lost);
-// state.chargeHeld = seconds held while charging, else 0.
-// Turbo: onTurbo(+1 / -1) shifts a gear (TURBO, its down tab, E / Q, PageUp /
-// PageDown); state.turboHeld = the boost is held (TURBO held, Shift).
+// on release (cancelled = a lost touch, or focus lost); state.chargeHeld = seconds
+// held while charging, else 0.
+// The ladder: onTurbo(dir, flew) = a flick, or E / Q, PageUp / PageDown (what it means
+// is src/game/Shifter.ts's).
 
 export type InputMode = 'touch' | 'keyboard';
 
 export interface InputState {
-  /** A thumb, a key or a deflected tilt is steering. */
+  /** A thumb or a key is steering. */
   dragging: boolean;
-  /** A committed bungee thumb (not a key, not the tilt). */
+  /** A committed bungee thumb (not a key, and never the look). */
   thumb: boolean;
-  /** The arbitrated stick, in units of config.flight.stretchPx, +x right, +y UP (screen up), soft-saturated so |stretch| <= 1. */
+  /** The stick, in units of config.flight.stretchPx, +x right, +y UP (screen up), soft-saturated so |stretch| <= 1. */
   stretch: { x: number; y: number };
   /** Bungee anchor, CSS px relative to the input element (null when no steering finger is down). */
   anchor: { x: number; y: number } | null;
@@ -54,8 +71,8 @@ export interface InputState {
   finger: { x: number; y: number } | null;
   /** Seconds the splat press has been held, while it charges the super splat (from the press; 0 when not charging). */
   chargeHeld: number;
-  /** The turbo boost is held. */
-  turboHeld: boolean;
+  /** The look: `on` while a second thumb (or the right mouse) has the view; x, y = its offset from where it landed, CSS px, +x right, +y UP. 0, 0 when off. */
+  look: { on: boolean; x: number; y: number };
 }
 
 /** Live-tunable gesture numbers (tuner group "Input"). */
@@ -63,7 +80,7 @@ export const inputTune = {
   /** A still press up to this long (ms) splats on its lift; past it, it is a thumb at neutral. Stays inside
    *  config.splat.aimLatch (500 ms), so glint == hit holds. */
   stillTapMs: 450,
-  /** The first finger, still, counts as steering after this long (ms): another finger's touch is then a tap of its own. */
+  /** The first finger, still, counts as steering after this long (ms): another finger's tap then fires on its own lift. */
   tapMs: 230,
   tapSlopPx: 12,
   /** A very quick touch (ms) may wander a little further and still be a tap. */
@@ -81,14 +98,30 @@ export const inputTune = {
   holdSlopPx: 14,
   /** ...and one that slides this far while charging keeps charging and steers too (px). */
   chargeSlopPx: 28,
-  /** A press landing this close to the left or right edge is a gripping finger: it never clutches the tilt by resting (px). */
-  edgePx: 14,
+  /** The second thumb's tap: lifted within this long (ms), inside the tap slops. */
+  secondTapMs: 230,
+  /** The look waits this long (ms) so a flick doesn't swing the camera, and for the thumb to leave tapSlopPx. */
+  lookDelayMs: 100,
+  /** A touch landing in this share of the screen's width, from the left (the right, with BUTTONS: SWAP), never flies. 0: no zone. */
+  lookZone: 0.42,
+  /** A flick by the second thumb: at least this far (px), in at most this long (ms), at least this fast on average (px/ms), within this many degrees of vertical. */
+  flickPx: 30,
+  flickMs: 230,
+  flickSpeed: 0.25,
+  flickDeg: 50,
+  /** The firmer rule of a lone stroke: it steers too, so it has more to prove. */
+  loneFlickPx: 36,
+  loneFlickMs: 200,
+  loneFlickSpeed: 0.4,
+  loneFlickDeg: 40,
+  /** A stroke landing this close to the bottom (iOS owns that edge) or to a side is never a command (px). */
+  flickBottomPx: 40,
+  flickSidePx: 20,
 };
 
 registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
   holdSlopPx: [4, 40, 1],
   chargeSlopPx: [10, 120, 1],
-  edgePx: [0, 40, 1],
   stillTapMs: [150, 500, 5],
   tapMs: [80, 400, 5],
   tapSlopPx: [2, 40, 1],
@@ -98,18 +131,41 @@ registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
   leash: [1.2, 5, 0.05],
   knee: [0.3, 1, 0.01],
   keyRate: [1, 30, 0.5],
+  secondTapMs: [80, 450, 5],
+  lookDelayMs: [0, 300, 5],
+  lookZone: [0, 0.8, 0.01],
+  flickPx: [10, 120, 1],
+  flickMs: [60, 450, 5],
+  flickSpeed: [0.05, 2, 0.01],
+  flickDeg: [10, 80, 1],
+  loneFlickPx: [10, 120, 1],
+  loneFlickMs: [60, 450, 5],
+  loneFlickSpeed: [0.05, 2, 0.01],
+  loneFlickDeg: [10, 80, 1],
+  flickBottomPx: [0, 120, 1],
+  flickSidePx: [0, 80, 1],
 });
 
 const MAX_POINTERS = 10;
 
 const enum Role {
   None = 0,
-  /** The steering finger of the current gesture. */
-  Primary = 1,
-  /** Any other finger of the current gesture. */
-  Secondary = 2,
-  /** Left over from an earlier gesture: ignored until it lifts. */
+  /** The flying thumb. */
+  Fly = 1,
+  /** A thumb in the look zone, or any other: looks, flicks, taps on its lift. */
+  Second = 2,
+  /** Swallowed with a three-finger gesture: ignored until it lifts. */
   Orphan = 3,
+}
+
+/** What a touch may turn out to be on its lift. */
+const enum Flick {
+  /** never a command */
+  No = 0,
+  /** the second thumb's rule */
+  Easy = 1,
+  /** a lone stroke's rule */
+  Firm = 2,
 }
 
 interface Slot {
@@ -119,12 +175,18 @@ interface Slot {
   x0: number;
   y0: number;
   t0: number;
+  /** Landing order: what touched down after a touchend can't be what that touchend left behind. */
+  seq: number;
+  /** Where it is now. */
+  x: number;
+  y: number;
   /** Largest distance from the touch-down point so far (px). */
   maxDist: number;
-  /** Already produced a tap (second-finger tap on down). */
-  counted: boolean;
-  /** Landed in the edge band: a resting grip never clutches. */
-  edge: boolean;
+  flick: Flick;
+  /** This thumb has the view. */
+  looking: boolean;
+  /** The mouse's right button: a look from the first pixel, and nothing else. */
+  right: boolean;
   /** Adopted from MEGA with its press still held: the lift ends that press and nothing else. */
   ownsPress: boolean;
 }
@@ -136,21 +198,33 @@ const enum Src {
   Key = 3,
 }
 
+/**
+ * A stroke read from its landing and its lift alone: +1 up, -1 down, 0 not a flick. dx, dy = px from the landing (screen
+ * y, so up is negative), ms = contact time. Distance over contact time, not peak speed: it holds at any touch rate.
+ */
+export function readFlick(dx: number, dy: number, ms: number, px: number, maxMs: number, speed: number, deg: number): 1 | -1 | 0 {
+  if (ms > maxMs) return 0;
+  const d = Math.hypot(dx, dy);
+  if (d < px || d / Math.max(1, ms) < speed) return 0;
+  if (Math.abs(dx) > Math.abs(dy) * Math.tan((Math.min(89, deg) * Math.PI) / 180)) return 0;
+  return dy < 0 ? 1 : -1;
+}
+
 export class Input {
-  readonly state: InputState = { dragging: false, thumb: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, turboHeld: false };
+  readonly state: InputState = { dragging: false, thumb: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, look: { on: false, x: 0, y: 0 } };
   onTap: (() => void) | null = null;
   /** The splat press has lasted config.splat.holdThreshold: the super splat charges. */
   onChargeStart: (() => void) | null = null;
   /** The charging press ended: held seconds (from the press), cancelled = a lost touch / focus lost. */
   onChargeEnd: ((heldSeconds: number, cancelled: boolean) => void) | null = null;
-  /** Shift a turbo gear up (+1) or down (-1). */
-  onTurbo: ((dir: 1 | -1) => void) | null = null;
-  /** The tilt's mixer (src/game/Hybrid.ts); while it is live it arbitrates the stick. */
-  mix: TiltMix | null = null;
+  /** A flick (or E / Q): +1 up, -1 down; flew = it was on the stick. */
+  onTurbo: ((dir: 1 | -1, flew: boolean) => void) | null = null;
   /** A new gesture touched down (it may become a tap, which fires on the lift): the game freezes its aim cue. */
   onPress: (() => void) | null = null;
   onTripleFinger: (() => void) | null = null;
   onFirstGesture: (() => void) | null = null;
+  /** BUTTONS: SWAP: the look zone is on the right instead of the left. */
+  swapped = false;
 
   private readonly el: HTMLElement;
   private readonly slots: Slot[] = [];
@@ -160,26 +234,29 @@ export class Input {
   private rectL = 0;
   private rectT = 0;
   private rectW = 0;
+  private rectH = 0;
   private firstDone = false;
-  /** the thumb's stretch (applyStretch), arbitrated in update() */
+  private landings = 0;
+  /** the thumb's stretch (applyStretch) */
   private readonly b = { x: 0, y: 0 };
-  private lastUpdate = -1;
 
-  // current gesture (from the steering finger's touch-down until every member lifts)
-  private primary: Slot | null = null;
+  /** the flying thumb, and the thumb that has the view */
+  private fly: Slot | null = null;
+  private looker: Slot | null = null;
+
+  // the current gesture (from the flying thumb's landing, or a lone second thumb's)
   private gT0 = 0;
-  private gMembers = 0;
+  /** The most fingers on the glass at once. */
   private gMax = 0;
-  /** More than one finger took part before anyone started steering. */
+  /** A second finger landed before anyone started steering. */
   private gMulti = false;
-  private gTriple = false;
   /** Every member that lifted so far was a tap-like touch. */
   private gAllQuick = true;
   /** A tap was already fired for this gesture by another finger. */
   private gAnswered = false;
   /** A finger tapped before the thumb committed: fire when it commits (or at the end). */
   private gPendingTap = false;
-  /** The steering finger committed to a drag at some point. */
+  /** The flying thumb committed to a drag at some point. */
   private gSteered = false;
   private pointerDragging = false;
 
@@ -191,9 +268,6 @@ export class Input {
   /** a frame saw the press past the threshold: the next frame that still sees it starts the charge (a release
    *  queued behind one slow frame is still a tap: its timestamp says how long it really was) */
   private prArmed = false;
-  // the boost held by TURBO, by Shift
-  private hudHold = false;
-  private keyBoost = false;
 
   // keyboard
   private kL = false;
@@ -230,15 +304,12 @@ export class Input {
   private readonly onKeyUp = (e: KeyboardEvent) => this.key(e, false);
   private readonly onBlur = () => this.releaseAll();
   private readonly onVisibility = () => {
-    if (document.hidden) {
-      this.releaseAll();
-      this.mix?.sleep();
-    } else this.wakeMix();
+    if (document.hidden) this.releaseAll();
   };
 
   constructor(el: HTMLElement) {
     this.el = el;
-    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, maxDist: 0, counted: false, edge: false, ownsPress: false });
+    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false });
 
     const s = el.style as CSSStyleDeclaration & { webkitUserSelect?: string; webkitTouchCallout?: string; webkitTapHighlightColor?: string };
     s.touchAction = 'none';
@@ -291,67 +362,30 @@ export class Input {
     } else this.pressEnd(Src.Button, now, cancelled);
   }
 
-  /** The HUD's TURBO / down tab: a tap shifts a gear. */
-  turboShift(dir: 1 | -1): void {
-    this.fireFirstGesture();
-    this.onTurbo?.(dir);
-  }
-
-  /** The HUD's TURBO held: boost. */
-  turboHold(down: boolean): void {
-    this.hudHold = down;
-    this.state.turboHeld = this.hudHold || this.keyBoost;
-  }
-
-  /** Any HUD press or lift: the hand shakes the phone (the calm window). */
-  hudBlip(): void {
-    this.mix?.blip();
-  }
-
-  /** TURBO, its down tab or the tilt toggle pressed: a reach that clutches the tilt... */
-  reachDown(): void {
-    this.mix?.reachDown();
-  }
-
-  /** ...until the finger lifts. */
-  reachUp(): void {
-    this.mix?.reachUp();
-  }
-
-  /** Tilt went live, the settings closed, the app came back: the mixer eases in (a thumb down stays clutched). */
-  wakeMix(): void {
-    this.mix?.wake(this.pointerDragging);
-  }
-
   /** The MEGA press is charging (the HUD's slide rule). */
   get charging(): boolean {
     return this.prCharging;
   }
 
-  /** Seconds the steering finger has rested without moving past the tap slop (0: no such finger). */
+  /** Seconds the flying thumb has rested without moving past the tap slop (0: no such finger). */
   stillFor(now: number): number {
-    const p = this.primary;
-    return p && p.maxDist <= inputTune.tapSlopPx && !this.gTriple ? (now - p.t0) / 1000 : 0;
-  }
-
-  /** A finger is on the screen or a splat press is held. */
-  get anyHeld(): boolean {
-    return this.primary !== null || this.prSrc !== Src.None;
+    const p = this.fly;
+    return p && p.maxDist <= inputTune.tapSlopPx ? (now - p.t0) / 1000 : 0;
   }
 
   /** Is there room for MEGA's finger to steer? */
   get canAdopt(): boolean {
-    return this.primary === null;
+    return this.fly === null;
   }
 
   /**
-   * A HUD finger (MEGA's) becomes the steering thumb: the pointer moves over to the canvas and the gesture starts here,
+   * A HUD finger (MEGA's) becomes the flying thumb: the pointer moves over to the canvas and the gesture starts here,
    * from where the finger is now (no stretch step), while its slot remembers the press's own point and time (client
    * px, ms), so one lift ends in exactly one result. keepPress = a held charge stays alive and ends on this lift.
-   * False if a thumb already steers. (The tilt chip's finger comes here too.)
+   * False if a thumb already flies.
    */
   adoptThumb(e: PointerEvent, keepPress: boolean, x0: number, y0: number, t0: number): boolean {
-    if (this.primary) return false;
+    if (this.fly) return false;
     const slot = this.alloc(e.pointerId);
     if (!slot) return false;
     try {
@@ -359,23 +393,16 @@ export class Input {
     } catch {
       /* pointer already gone */
     }
-    for (const s of this.slots) if (s !== slot && (s.role === Role.Secondary || s.role === Role.Primary)) s.role = Role.Orphan;
-    const r = this.el.getBoundingClientRect();
-    this.rectL = r.left;
-    this.rectT = r.top;
-    this.rectW = r.width;
-    this.setSlot(slot, e, t0, Role.Primary);
+    this.readRect();
+    this.setSlot(slot, e, t0, Role.Fly);
     const x = slot.x0, y = slot.y0;
     slot.x0 = x0 - this.rectL;
     slot.y0 = y0 - this.rectT;
     slot.maxDist = Math.hypot(x - slot.x0, y - slot.y0);
-    slot.edge = false;
     slot.ownsPress = keepPress;
-    this.beginGesture(slot, t0);
+    this.beginFly(slot, t0);
     this.anchorPt.x = this.fingerPt.x = x;
     this.anchorPt.y = this.fingerPt.y = y;
-    // (a HUD press never reached pointerDown's land(), and the stick was tilt's until now: this is what it hands over)
-    this.mix?.land();
     this.commitDrag();
     return true;
   }
@@ -388,28 +415,24 @@ export class Input {
     this.pointerUp(e, cancelled);
   }
 
-  /** Call once per frame before reading `state` (keyboard easing, hold-to-steer, the splat hold, the arbitration). */
+  /** Call once per frame before reading `state` (keyboard easing, hold-to-steer, the look's clock, the splat hold). */
   update(dt: number): void {
     const now = performance.now();
     this.pressTick(now);
     const st = this.state;
-    st.turboHeld = this.hudHold || this.keyBoost;
-    const mix = this.mix;
-    const mixLive = mix !== null && mix.live;
-    const p = this.primary;
-    // A thumb resting still past the tap window is steering (at neutral); a resting grip on the edge doesn't kill the tilt.
-    if (p && !this.gTriple && !this.pointerDragging && now - p.t0 >= inputTune.stillTapMs && !(mixLive && p.edge)) this.commitDrag();
+    const p = this.fly;
+    // A thumb resting still past the tap window is steering (at neutral).
+    if (p && !this.pointerDragging && now - p.t0 >= inputTune.stillTapMs) this.commitDrag();
     st.thumb = this.pointerDragging;
-    if (mixLive) {
-      // (wall clock: a hit-stop must not stall a handover)
-      const wall = this.lastUpdate >= 0 ? Math.min(0.1, (now - this.lastUpdate) / 1000) : 0;
-      mix.update(wall, this.b.x, this.b.y);
+    // the look starts on the clock too: a thumb can stop moving inside the delay
+    for (let i = 0; i < MAX_POINTERS; i++) {
+      const s = this.slots[i];
+      if (s.role === Role.Second && !s.looking) this.lookStep(s, now);
     }
-    this.lastUpdate = now;
     const tx = (this.kR ? 1 : 0) - (this.kL ? 1 : 0);
     const ty = (this.kU ? 1 : 0) - (this.kD ? 1 : 0);
     if ((tx !== 0 || ty !== 0) && !this.pointerDragging) {
-      // the keys win over the tilt, the thumb wins over the keys
+      // the thumb wins over the keys
       const len = Math.hypot(tx, ty);
       const k = 1 - Math.exp(-inputTune.keyRate * Math.max(0, dt));
       this.kx += (tx / len - this.kx) * k;
@@ -420,15 +443,9 @@ export class Input {
       return;
     }
     this.kx = this.ky = 0;
-    if (mixLive) {
-      st.stretch.x = mix.out.x;
-      st.stretch.y = mix.out.y;
-      st.dragging = this.pointerDragging || mix.out.x !== 0 || mix.out.y !== 0;
-    } else {
-      st.stretch.x = this.b.x;
-      st.stretch.y = this.b.y;
-      st.dragging = this.pointerDragging;
-    }
+    st.stretch.x = this.b.x;
+    st.stretch.y = this.b.y;
+    st.dragging = this.pointerDragging;
   }
 
   dispose(): void {
@@ -518,11 +535,11 @@ export class Input {
   // ---------------------------------------------------------------- pointers
 
   private pointerDown(e: PointerEvent) {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const mouse = e.pointerType === 'mouse';
+    if (mouse && e.button !== 0 && e.button !== 2) return;
     // First thing, synchronously inside the event: iOS audio unlock.
     this.fireFirstGesture();
     if (e.cancelable) e.preventDefault();
-    this.mix?.blip();
     // Never get stuck on a pointer whose up was lost: a repeated id, or a
     // "primary" pointer (the browser says no other touch is down), retires leftovers.
     const dup = this.find(e.pointerId);
@@ -536,40 +553,46 @@ export class Input {
       /* pointer already gone */
     }
     const now = evTime(e);
+    this.readRect();
 
-    if (!this.primary) {
-      // A new gesture: anything still down from an earlier one is ignored.
-      for (const s of this.slots) if (s.role === Role.Secondary || s.role === Role.Primary) s.role = Role.Orphan;
-      const r = this.el.getBoundingClientRect();
-      this.rectL = r.left;
-      this.rectT = r.top;
-      this.rectW = r.width;
-      this.setSlot(slot, e, now, Role.Primary);
-      this.beginGesture(slot, now);
-      this.mix?.land();
-      this.onPress?.();
+    if (mouse && e.button === 2) {
+      // (the right mouse: one job, and it never joins a gesture)
+      this.setSlot(slot, e, now, Role.Second);
+      slot.right = true;
+      this.lookStep(slot, now);
       return;
     }
 
-    // Another finger joins the gesture. It never moves the steering anchor.
-    this.setSlot(slot, e, now, Role.Secondary);
-    this.gMembers++;
-    if (this.gMembers > this.gMax) this.gMax = this.gMembers;
-    if (this.gTriple) return;
-    if (this.primarySteering(now)) {
-      // Second-finger tap while steering: fire right now, on the down.
-      slot.counted = true;
-      this.gAnswered = true; // the steering finger's own release can't also tap
-      this.onTap?.();
+    const others = this.onGlass();
+    // A second thumb that only just landed, and hasn't gone anywhere, makes this two fingers together.
+    let recent = false;
+    for (const s of this.slots) if (s.role === Role.Second && !s.right && now - s.t0 <= inputTune.tapMs && s.maxDist <= inputTune.tapSlopPx) recent = true;
+
+    if (this.fly || (!mouse && this.inLookZone(e.clientX - this.rectL))) {
+      // Another finger joins, or a thumb lands in the look zone. It never moves the flying anchor, and with nobody flying the bus flies itself.
+      this.setSlot(slot, e, now, Role.Second);
+      slot.flick = this.commands(slot) ? Flick.Easy : Flick.No;
+      if (others === 0) this.beginGesture(now);
+      else if (others + 1 > this.gMax) this.gMax = others + 1;
+      if (this.fly ? !this.primarySteering(now) : recent) {
+        this.gMulti = true;
+        if (others + 1 >= 3 && now - this.gT0 <= inputTune.tripleWindowMs) {
+          this.triple();
+          return;
+        }
+      }
+      if (!this.fly) this.onPress?.();
       return;
     }
-    this.gMulti = true;
-    if (this.gMembers >= 3 && now - this.gT0 <= inputTune.tripleWindowMs) {
-      this.gTriple = true;
-      this.gPendingTap = false;
-      this.endSteering();
-      this.onTripleFinger?.();
-    }
+
+    // The flying thumb.
+    this.setSlot(slot, e, now, Role.Fly);
+    if (others === 0 && !mouse && this.commands(slot)) slot.flick = Flick.Firm;
+    this.beginFly(slot, now);
+    this.gMax = others + 1;
+    this.gMulti = recent;
+    if (others + 1 >= 3 && recent) this.triple();
+    else this.onPress?.();
   }
 
   private pointerMove(e: PointerEvent) {
@@ -577,13 +600,18 @@ export class Input {
     if (!slot) return;
     const x = e.clientX - this.rectL;
     const y = e.clientY - this.rectT;
+    slot.x = x;
+    slot.y = y;
     const d = Math.hypot(x - slot.x0, y - slot.y0);
     if (d > slot.maxDist) slot.maxDist = d;
-    if (slot !== this.primary || this.gTriple) return;
-    this.fingerPt.x = x;
-    this.fingerPt.y = y;
-    if (!this.pointerDragging && slot.maxDist > inputTune.tapSlopPx) this.commitDrag();
-    if (this.pointerDragging) this.applyStretch();
+    if (slot === this.fly) {
+      this.fingerPt.x = x;
+      this.fingerPt.y = y;
+      if (!this.pointerDragging && slot.maxDist > inputTune.tapSlopPx) this.commitDrag();
+      if (this.pointerDragging) this.applyStretch();
+    } else if (slot.role === Role.Second) {
+      this.lookStep(slot, evTime(e));
+    }
   }
 
   private pointerUp(e: PointerEvent, cancelled: boolean) {
@@ -591,35 +619,40 @@ export class Input {
     if (!slot) return;
     const now = evTime(e);
     const role = slot.role;
+    if (role === Role.Orphan || slot.right) {
+      this.free(slot);
+      return;
+    }
+    const dir = cancelled ? 0 : this.flickOf(slot, e.clientX - this.rectL, e.clientY - this.rectT, now);
     const quick = !cancelled && this.isQuick(slot, now);
-    this.mix?.blip();
-    slot.role = Role.None;
-    slot.id = -1;
-    if (role === Role.Orphan) return;
-
-    this.gMembers--;
     if (!quick) this.gAllQuick = false;
-    if (role === Role.Primary) {
-      this.primary = null;
+    const tap = !cancelled && this.secondTap(slot, now);
+    const ownsPress = slot.ownsPress, t0 = slot.t0;
+    this.free(slot);
+
+    if (role === Role.Fly) {
+      this.fly = null;
       this.endSteering();
       // A charge MEGA's finger carried off ends here, and only here.
-      if (slot.ownsPress) this.pressEnd(Src.Button, now, cancelled || this.gTriple);
+      if (ownsPress) this.pressEnd(Src.Button, now, cancelled);
+      else if (dir) {
+        this.onTurbo?.(dir, true);
+        this.promote(t0);
+      }
       // The everyday tap: one finger, short and still -> fire on the up.
-      else if (quick && !this.gMulti && !this.gTriple && !this.gAnswered) this.onTap?.();
-    } else if (!slot.counted && quick && !this.gTriple && !this.gAnswered && this.primary) {
-      // A finger that landed before the thumb committed to steering and
-      // tapped: still the player's tap. Fire now if the thumb is steering,
-      // else as soon as it commits (or when the gesture ends).
-      slot.counted = true;
+      else if (quick && !this.gMulti && !this.gAnswered) this.onTap?.();
+    } else if (dir) this.onTurbo?.(dir, false);
+    else if (tap) {
       if (this.primarySteering(now)) this.answer();
-      else this.gPendingTap = true;
+      // Landed before the thumb committed to steering: still the player's tap, as soon as it commits (or when the gesture ends).
+      else if (this.fly || (this.gMulti && !this.gAnswered)) this.gPendingTap = true;
+      else this.onTap?.();
     }
 
-    if (this.gMembers <= 0) {
+    if (this.onGlass() === 0) {
       // Two fingers tapped together, nobody steering: one tap at the last lift.
       const together = this.gMulti && this.gAllQuick && !this.gSteered && this.gMax === 2 && now - this.gT0 <= inputTune.stillTapMs + 150;
-      if (!this.gTriple && !this.gAnswered && (together || this.gPendingTap)) this.answer();
-      this.gMembers = 0;
+      if (!this.gAnswered && (together || this.gPendingTap)) this.answer();
       this.gMulti = false;
       this.gPendingTap = false;
     }
@@ -627,18 +660,29 @@ export class Input {
 
   // ---------------------------------------------------------------- helpers
 
-  /** A new gesture: the steering finger touched down. */
-  private beginGesture(slot: Slot, now: number) {
-    this.primary = slot;
+  private readRect() {
+    const r = this.el.getBoundingClientRect();
+    this.rectL = r.left;
+    this.rectT = r.top;
+    this.rectW = r.width;
+    this.rectH = r.height;
+  }
+
+  /** A new gesture's bookkeeping. */
+  private beginGesture(now: number) {
     this.gT0 = now;
-    this.gMembers = 1;
     this.gMax = 1;
     this.gMulti = false;
-    this.gTriple = false;
     this.gAllQuick = true;
     this.gAnswered = false;
     this.gPendingTap = false;
     this.gSteered = false;
+  }
+
+  /** The flying thumb touched down. */
+  private beginFly(slot: Slot, now: number) {
+    this.fly = slot;
+    this.beginGesture(now);
     this.pointerDragging = false;
     // Show where the bungee is pinned right away; it only steers once committed.
     this.anchorPt.x = this.fingerPt.x = slot.x0;
@@ -651,43 +695,49 @@ export class Input {
     slot.id = e.pointerId;
     slot.role = role;
     slot.type = e.pointerType;
-    slot.x0 = e.clientX - this.rectL;
-    slot.y0 = e.clientY - this.rectT;
+    slot.x0 = slot.x = e.clientX - this.rectL;
+    slot.y0 = slot.y = e.clientY - this.rectT;
     slot.t0 = now;
+    slot.seq = ++this.landings;
     slot.maxDist = 0;
-    slot.counted = false;
-    slot.edge = slot.x0 < inputTune.edgePx || slot.x0 > this.rectW - inputTune.edgePx;
+    slot.flick = Flick.No;
+    slot.looking = false;
+    slot.right = false;
     slot.ownsPress = false;
+  }
+
+  private free(s: Slot) {
+    if (s.looking) this.endLook(s);
+    s.role = Role.None;
+    s.id = -1;
   }
 
   /** Forget a pointer without any tap (stale / lost). */
   private drop(s: Slot) {
     const role = s.role;
-    s.role = Role.None;
-    s.id = -1;
-    if (role === Role.Primary) {
-      this.primary = null;
+    this.free(s);
+    if (role === Role.Fly) {
+      this.fly = null;
       this.endSteering();
       // (a lost touch never leaves a charge running)
       if (s.ownsPress) this.pressEnd(Src.Button, performance.now(), true);
     }
-    if (role === Role.Primary || role === Role.Secondary) {
-      this.gMembers = Math.max(0, this.gMembers - 1);
-      this.gAllQuick = false;
-    }
+    if (role === Role.Fly || role === Role.Second) this.gAllQuick = false;
   }
 
   /**
    * touchend/touchcancel with no fingers left: any touch pointer still held
    * lost its pointerup. Checked a beat later so a pointerup dispatched after
-   * the touch event (engine order varies) still lands first.
+   * the touch event (engine order varies) still lands first. What landed
+   * since is a new touch, whatever its timestamp says: the next of two quick
+   * flicks can be queued behind this touchend on a slow frame.
    */
   private touchesGone(e: TouchEvent) {
     if (e.touches.length > 0) return;
-    const at = performance.now();
+    const seq = this.landings;
     window.clearTimeout(this.staleTimer);
     this.staleTimer = window.setTimeout(() => {
-      for (const s of this.slots) if (s.role !== Role.None && s.type === 'touch' && s.t0 < at) this.drop(s);
+      for (const s of this.slots) if (s.role !== Role.None && s.type === 'touch' && s.seq <= seq) this.drop(s);
     }, 60);
   }
 
@@ -706,14 +756,28 @@ export class Input {
     return null;
   }
 
+  /** Thumbs on the glass (not the mouse's right button, not what a three-finger gesture swallowed). */
+  private onGlass(): number {
+    let n = 0;
+    for (const s of this.slots) if ((s.role === Role.Fly || s.role === Role.Second) && !s.right) n++;
+    return n;
+  }
+
   private isQuick(s: Slot, now: number): boolean {
     const dur = now - s.t0;
     return (dur <= inputTune.stillTapMs && s.maxDist <= inputTune.tapSlopPx) || (dur <= inputTune.quickTapMs && s.maxDist <= inputTune.quickTapSlopPx);
   }
 
-  /** The steering finger has committed: moved past the tap slop or held past the tap window. */
+  /** The second thumb's tap: shorter than the first's, because past it the thumb is resting. With nobody flying, as long as the first's. */
+  private secondTap(s: Slot, now: number): boolean {
+    const dur = now - s.t0;
+    const limit = this.fly || this.gMulti ? inputTune.secondTapMs : inputTune.stillTapMs;
+    return (dur <= limit && s.maxDist <= inputTune.tapSlopPx) || (dur <= inputTune.quickTapMs && s.maxDist <= inputTune.quickTapSlopPx);
+  }
+
+  /** The flying thumb has committed: moved past the tap slop or held past the tap window. */
   private primarySteering(now: number): boolean {
-    const p = this.primary;
+    const p = this.fly;
     if (!p) return false;
     return this.pointerDragging || p.maxDist > inputTune.tapSlopPx || now - p.t0 > inputTune.tapMs;
   }
@@ -725,21 +789,85 @@ export class Input {
     this.onTap?.();
   }
 
+  /** Three fingers: the tuner. Everything down is swallowed until it lifts. */
+  private triple() {
+    this.gPendingTap = false;
+    this.fly = null;
+    this.endSteering();
+    for (const s of this.slots) {
+      if ((s.role !== Role.Fly && s.role !== Role.Second) || s.right) continue;
+      if (s.looking) this.endLook(s);
+      s.role = Role.Orphan;
+    }
+    this.onTripleFinger?.();
+  }
+
+  /** May this touch be a command at all? Not by a mouse, and not landing where iOS owns the edge or a hand grips the phone. */
+  private commands(s: Slot): boolean {
+    return s.type !== 'mouse' && s.y0 <= this.rectH - inputTune.flickBottomPx && s.x0 >= inputTune.flickSidePx && s.x0 <= this.rectW - inputTune.flickSidePx;
+  }
+
+  /** A touch landing here never flies: the look zone. Only the landing counts: a look that wanders out of it is still a look. */
+  private inLookZone(x: number): boolean {
+    const w = this.rectW * inputTune.lookZone;
+    return this.swapped ? x > this.rectW - w : x < w;
+  }
+
+  private flickOf(s: Slot, x: number, y: number, now: number): 1 | -1 | 0 {
+    const T = inputTune;
+    if (s.flick === Flick.No) return 0;
+    const dx = x - s.x0, dy = y - s.y0, ms = now - s.t0;
+    return s.flick === Flick.Firm ? readFlick(dx, dy, ms, T.loneFlickPx, T.loneFlickMs, T.loneFlickSpeed, T.loneFlickDeg) : readFlick(dx, dy, ms, T.flickPx, T.flickMs, T.flickSpeed, T.flickDeg);
+  }
+
+  /** The stroke that just lifted was a command, not a flying thumb, so a thumb that landed during it is a lone touch: it flies, from where it landed, unless it landed in the look zone. A grip in a band isn't one: the next thumb to land flies. */
+  private promote(t0: number) {
+    for (const s of this.slots) {
+      if (s.role !== Role.Second || s.right || s.t0 < t0 || !this.commands(s) || this.inLookZone(s.x0)) continue;
+      if (s.looking) this.endLook(s);
+      s.role = Role.Fly;
+      s.flick = Flick.No;
+      this.beginFly(s, s.t0);
+      this.fingerPt.x = s.x;
+      this.fingerPt.y = s.y;
+      if (s.maxDist > inputTune.tapSlopPx) this.commitDrag();
+      return;
+    }
+  }
+
+  /** Should this thumb have the view? Then it does, from where it landed. Only one thumb looks at a time. */
+  private lookStep(s: Slot, now: number) {
+    if (!s.looking) {
+      if (this.looker) return;
+      if (!s.right && (now - s.t0 < inputTune.lookDelayMs || s.maxDist <= inputTune.tapSlopPx)) return;
+      s.looking = true;
+      this.looker = s;
+      this.state.look.on = true;
+    }
+    this.state.look.x = s.x - s.x0;
+    this.state.look.y = s.y0 - s.y;
+  }
+
+  private endLook(s: Slot) {
+    s.looking = false;
+    this.looker = null;
+    const L = this.state.look;
+    L.on = false;
+    L.x = L.y = 0;
+  }
+
   private commitDrag() {
-    if (this.gTriple || !this.primary) return;
+    if (!this.fly) return;
     this.pointerDragging = true;
     this.gSteered = true;
     if (this.gPendingTap && !this.gAnswered) this.answer();
     this.kx = this.ky = 0;
-    this.mix?.clutch();
     this.applyStretch();
   }
 
   private endSteering() {
-    const was = this.pointerDragging;
     this.pointerDragging = false;
     this.b.x = this.b.y = 0;
-    if (was) this.mix?.release('thumb');
     const st = this.state;
     st.anchor = null;
     st.finger = null;
@@ -821,16 +949,11 @@ export class Input {
         break;
       case 'KeyE':
       case 'PageUp':
-        if (down && !e.repeat) this.onTurbo?.(1);
+        if (down && !e.repeat) this.onTurbo?.(1, false);
         break;
       case 'KeyQ':
       case 'PageDown':
-        if (down && !e.repeat) this.onTurbo?.(-1);
-        break;
-      case 'ShiftLeft':
-      case 'ShiftRight':
-        this.keyBoost = down;
-        this.state.turboHeld = this.hudHold || this.keyBoost;
+        if (down && !e.repeat) this.onTurbo?.(-1, false);
         break;
       default:
         used = false;
@@ -842,18 +965,15 @@ export class Input {
   }
 
   private releaseAll() {
-    // (focus lost mid-hold: the charge ends cancelled; no stuck boost)
+    // (focus lost mid-hold: the charge ends cancelled)
     this.pressCancel(performance.now());
-    this.hudHold = this.keyBoost = false;
-    this.state.turboHeld = false;
     for (const s of this.slots) {
+      if (s.looking) this.endLook(s);
       s.role = Role.None;
       s.id = -1;
     }
-    this.primary = null;
-    this.gMembers = 0;
+    this.fly = null;
     this.gMulti = false;
-    this.gTriple = false;
     this.gPendingTap = false;
     this.kL = this.kR = this.kU = this.kD = false;
     this.kx = this.ky = 0;

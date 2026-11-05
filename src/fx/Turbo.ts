@@ -93,7 +93,7 @@ export class TurboLens {
   update(dt: number, drive: TurboDrive, rig: CameraRig, f: Flight) {
     const T = config.turbo;
     const C = config.camera;
-    // the turbo speed on a log scale (0 surge, 1 at G1), eased; it snaps exactly once close, so a held
+    // the turbo speed on a log scale (0 surge, 1 at Jet), eased; it snaps exactly once close, so a held
     // gear's lens holds perfectly still (a lens that breathes rescales the snapped pixel grid)
     const want = clamp(drive.speedK, 0, 2.5);
     const d = want - this.k;
@@ -109,7 +109,7 @@ export class TurboLens {
     rig.turboPull = this.pull;
     rig.turboFov = this.fov;
     rig.turboHero = 1 + (T.heroScale - 1) * Math.min(this.k, 1);
-    // cancel part of the follow springs' lag (all of it from G2 on): position spring 2 zeta / omega, look 1/6 s
+    // cancel part of the follow springs' lag (all of it from Stratos on): position spring 2 zeta / omega, look 1/6 s
     const lead = clamp(T.camLead * Math.min(this.k, 1) + (1 - T.camLead) * clamp((this.k - 1) / 1.5, 0, 1), 0, 1);
     const lagT = (2 * C.followDamping) / (2 * Math.PI * Math.max(0.05, C.followHz));
     const vx = f.fx * f.ground, vz = f.fz * f.ground;
@@ -465,10 +465,27 @@ export class TurboFx {
     this.object.add(this.hoop);
   }
 
-  /** Turbo events: the shift, the engagement, the sonic boom, LOCKED. */
+  /** Turbo events: the shift, the engagement, the sonic boom, LOCKED, turbo on and off, and a flick's own answers. */
   event(ev: string, bus: THREE.Object3D, f: Flight, rig: CameraRig, flash: (pos: THREE.Vector3, strength: number) => void) {
     const T = config.turbo;
-    if (ev === 'up') {
+    if (ev === 'flick') {
+      // a flick up, this frame: a silenced iPhone hears nothing, so the bus has to show it
+      this.lens.punch(T.fovKick * 0.2);
+      rig.kick(0.7);
+      this.backfire(bus, f, 4);
+      this.pop(bus, f, rig, 14, 11, 3);
+    } else if (ev === 'back') {
+      rig.kick(0.4);
+      this.backfire(bus, f, 3);
+    } else if (ev === 'turbo') {
+      this.lens.punch(T.fovKick * 0.5);
+      rig.kick(1.4);
+      this.backfire(bus, f, 8);
+      this.pop(bus, f, rig, 20, 13, 5);
+    } else if (ev === 'turbo-down') {
+      rig.kick(0.8);
+      this.backfire(bus, f, 4);
+    } else if (ev === 'up') {
       this.lens.punch(T.fovKick * 0.4);
       rig.kick(1.1);
       this.backfire(bus, f, 7);
@@ -484,7 +501,7 @@ export class TurboFx {
       this.hoopT = 0;
       this.hoop.visible = true;
       this.hoopU.uSeed.value = Math.floor(Math.random() * 64);
-      this.vaporRing(bus, f);
+      this.vaporRing(bus, f, 30, 16, 7);
       bus.localToWorld(this.tmp.copy(this.noseLocal));
       flash(this.tmp, T.boomFlash);
     } else if (ev === 'down') {
@@ -503,7 +520,8 @@ export class TurboFx {
     const X = turboFxTune;
     this.time += dt;
     this.lens.update(realDt, drive, rig, f);
-    const on = clamp(Math.max(drive.speedK, drive.boosting && drive.gear > 0 ? 0.5 : 0), 0, 1);
+    // (a boost on a gear still lifting shows before its speed does)
+    const on = clamp(Math.max(drive.speedK, drive.boosting ? 0.5 : 0), 0, 1);
 
     // ---- the strain: rattle + backfire puffs while lifting, spooling, boosting, and a buzz at speed
     const shake = clamp(drive.strain + 0.35 * on, 0, 1.2);
@@ -700,21 +718,31 @@ export class TurboFx {
     }
   }
 
-  /** The boom: a ring of vapor and rainbow puffs blasted out around the bus, perpendicular to its path. */
-  private vaporRing(bus: THREE.Object3D, f: Flight) {
+  /** A flick's answer: the ring rides along with the bus at any speed, and stands as big on screen at any height. */
+  private pop(bus: THREE.Object3D, f: Flight, rig: CameraRig, n: number, speed: number, sparkles: number) {
+    const C = config.camera;
+    const k = (rig.distance / C.distance) * (Math.tan(THREE.MathUtils.degToRad(rig.hfov / 2)) / Math.tan(THREE.MathUtils.degToRad(C.hfovPortrait / 2)));
+    this.vaporRing(bus, f, n, speed * k, sparkles * k, true, k);
+  }
+
+  /** A ring of `n` vapor and rainbow puffs blasted out around the bus at `speed` m/s, perpendicular to its path: the boom's, left in the air, and smaller, a flick's, carried along. */
+  private vaporRing(bus: THREE.Object3D, f: Flight, n: number, speed: number, sparkles: number, carried = false, size = 1) {
     bus.localToWorld(this.tmp.copy(this.noseLocal));
     const fx = f.fx, fz = f.fz;
     // ring plane: the bus's right (-fz, 0, fx) and the path's up (right x path)
-    const dir = f.velocity(this.vel2).normalize();
+    const dir = f.velocity(this.vel2);
+    const along = carried ? dir.length() : 0;
+    dir.normalize();
     const ux = -fx * dir.y, uy = fz * dir.z + fx * dir.x, uz = -fz * dir.y;
-    for (let i = 0; i < 30; i++) {
-      const a = (i / 30) * Math.PI * 2;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
       const cr = Math.cos(a), sr = Math.sin(a);
-      const out = 16 + Math.random() * 8;
+      const out = speed + Math.random() * speed * 0.5;
       this.vel.set(-fz * cr * out + ux * sr * out - dir.x * 10, uy * sr * out - dir.y * 10, fx * cr * out + uz * sr * out - dir.z * 10);
       this.tmp2.copy(this.tmp).addScaledVector(this.vel, 0.08);
-      this.particles.puff(this.tmp2, this.vel, i % 2 === 0 ? Ramp.FOG : HUE_RAMPS[(i >> 1) % 6]);
+      this.vel.addScaledVector(dir, along);
+      this.particles.puff(this.tmp2, this.vel, i % 2 === 0 ? Ramp.FOG : HUE_RAMPS[(i >> 1) % 6], size);
     }
-    this.particles.sparkles(this.tmp, 7, 5, [0, 2, 4], 26);
+    this.particles.sparkles(this.tmp, sparkles, 5, [0, 2, 4], 26);
   }
 }

@@ -115,6 +115,9 @@ export class Flight {
   private onPath = false;
   /** the path's own vertical speed (m/s): the rest of `speed` goes over the ground (a floor lifting the bus takes nothing from it) */
   private pathVy = 0;
+  /** the hold before the stick last moved it (NaN: the bus was on the path, nothing to go back to), and that it goes back when the bus lets go: unpull() */
+  private holdBefore = -Infinity;
+  private unpulled = false;
   private floorSmooth = 60;
   /** the rooftop floor the vertical spring chases: rises eased (no lurch at every roof edge), falls at once */
   private floorRise = NaN;
@@ -163,6 +166,15 @@ export class Flight {
     return this.barfT >= 0 && this.barfT < config.splat.duration;
   }
 
+  /**
+   * The stroke on the stick lifted as a flick down: a command, and it pulled until its lift said so, because steering never waits. What
+   * that pull chose goes back when the bus lets go of it, so the bus goes on as it was, skimming or holding (Shifter). A stick that moves
+   * first has chosen for itself.
+   */
+  unpull() {
+    if ((this.mode === Yoke.Climb || this.mode === Yoke.Dive) && !Number.isNaN(this.holdBefore)) this.unpulled = true;
+  }
+
   step(dt: number, inp: FlightInput, world: WorldQuery) {
     const F = config.flight;
     const S = config.splat;
@@ -199,6 +211,8 @@ export class Flight {
     // dead band as the pull, so a carving thumb's upward drift doesn't dive and speed up a held altitude
     const push = this.holdY > -1e8 ? clamp((sy - dz) / (1 - dz), 0, 1) : Math.max(0, sy);
     this.surge = push;
+    if (pull > 0 || push > 0) this.unpulled = false;
+    else if (!this.unpulled) this.holdBefore = this.onPath ? NaN : this.holdY;
 
     // ---- speed
     const cruise = this.glideSpeed > 0 && !inp.dragging ? this.glideSpeed : F.cruiseSpeed;
@@ -350,7 +364,8 @@ export class Flight {
       if (this.mode === Yoke.Climb || this.mode === Yoke.Dive) {
         // released: coast to a stop (critically damped, no bounce back) and hold there
         const w = 2 * F.holdGain;
-        this.holdY = this.y - belly + this.vy / Math.max(0.1, w);
+        this.holdY = this.unpulled ? this.holdBefore : this.y - belly + this.vy / Math.max(0.1, w);
+        this.unpulled = false;
       }
       // a dive that reached the floor (or a hold buried by rising ground for good) hands back to the floor
       if (this.holdY + belly < floor - 0.5 && (this.mode === Yoke.Dive || push > 0)) this.holdY = -Infinity;

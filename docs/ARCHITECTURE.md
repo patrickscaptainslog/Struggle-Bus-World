@@ -754,9 +754,9 @@ live in `src/config.ts`.
 | Game glue | `src/main.ts`, `src/game/*` | flight, camera, splat, bloom, persistence |
 | Ground paint | `src/world/GroundPaint.ts`, `src/game/blastLayout.ts` | per-tile splat masks, blast shape + hue layout, shockwave ring GLSL |
 | Super splat | `src/game/SuperSplat.ts`, `src/fx/SuperFx.ts`, `src/ui/SuperMeter.ts`, `src/audio/superSfx.ts`, `src/audio/superAudioCheck.ts` | hold to charge, mega blast, firehose, cooldown (see below) |
-| Controls | `src/game/Controls.ts`, `src/game/controlPrefs.ts`, `src/game/Tilt.ts`, `src/game/Hybrid.ts`, `src/game/Turbo.ts`, `src/fx/Turbo.ts`, `src/audio/turboVoice.ts`, `src/ui/Hud.ts`, `src/ui/hudLayout.ts`, `src/ui/Coach.ts`, `src/ui/pixelUi.ts` | scheme + permission, tilt stick, thumb / tilt arbitration, turbo gears, turbo FX / voice, the HUD, its layout, the first run |
+| Controls | `src/game/Controls.ts`, `src/game/controlPrefs.ts`, `src/game/Shifter.ts`, `src/game/Turbo.ts`, `src/fx/Turbo.ts`, `src/audio/turboVoice.ts`, `src/ui/Hud.ts`, `src/ui/hudLayout.ts`, `src/ui/Coach.ts`, `src/ui/pixelUi.ts` | the scheme, what a flick means, turbo gears and levels, turbo FX / voice, the HUD, its layout, the first run |
 
-## Controls: the hybrid (tilt + thumb), keyboard, turbo gears
+## Controls: two thumbs, keyboard, turbo gears
 `src/game/Controls.ts` owns the scheme and wires everything below. main.ts
 makes five calls per frame, in this order: `controls.preFlight(dt)` right
 after `input.update(dt)` (the turbo drive writes `Flight.turbo`),
@@ -767,74 +767,58 @@ rotation are set (the rattle), `controls.frame(dt, realDt)` right after
 `controls.fx.object.position.copy(particles.object.position)` after the
 vista snap compensation (the contrail stays with the bus up high).
 
-**The rule** (`docs/specs/hybrid-controls.md` is the design, with its numbers): the phone flies the bus
-until a thumb flies it, a tap splats, buttons do what they say. There are no control modes: one gesture model
-(the floating bungee), one layout. The tilt switch decides one thing: may the phone steer when no thumb is.
+**The rule** (`docs/specs/flight/THUMBS.md` is the design, with its numbers): a touch landing in the look zone (`inLookZone`: the left
+`lookZone`, 42 %, of the width, the right with SWAP) never flies; anywhere else the first thumb flies. A second thumb, which is any
+thumb in the zone, alone or not, or any thumb landing while one flies, looks, flicks gears and taps on its lift. Two thumbs in
+any order: the one in the zone looks and the other flies. A lone fresh stroke out of the zone that lifts fast is a flick too, on
+a firmer rule, because it steers until the lift; nothing on screen teaches or shows a gear but a moment's readout.
 
 **The input contract** (`src/game/Input.ts`):
 - `onTap(): void` a tap: a normal dragon-breath splat. A still press up to `inputTune.stillTapMs` (450 ms) on the
-  screen, a quick wandering one, a second finger while steering, or a MEGA tap. `state.thumb` never fires one.
+  screen, a quick wandering one, a second thumb's on its lift up to `secondTapMs` (230 ms; `stillTapMs` with nobody flying), or a MEGA tap. `state.thumb`
+  never fires one.
 - `onChargeStart(): void` MEGA or Space held `config.splat.holdThreshold` (0.3 s, confirmed on a second frame); a
   press on the screen NEVER charges. `state.chargeHeld` = seconds since the press while charging, else 0;
   `onChargeEnd(heldSeconds, cancelled)` on release (cancelled: pointercancel, a lost touch, focus lost). One press at
   a time (`pressHeld`: MEGA or Space); a second source while one is held taps.
-- `onTurbo(dir: 1 | -1)` shift a gear; `state.turboHeld` the boost.
-- `onPress()` a gesture landed (the aim's press latch, glint == hit).
-- `mode: 'touch' | 'keyboard'`. Tilt running is `controls.tilt.active`, not a mode.
-- `state.thumb` a committed bungee thumb. `state.dragging`: a thumb, keys, or a non-zero tilt stick.
-  `state.stretch`: the arbitrated stick, the same semantics as ever: Flight, the opening's climb lock, the homing and
-  `__qa.sx/sy` don't know who wrote it. The aim thaws on a thumb, keys or a QA stick, never on tilt:
-  `aimer.update` gets `(qaStick || st.thumb || keys) && !input.pressHeld`.
-- The arbitration is one site, `Input.update`: keys (no thumb) > `input.mix` while live > the bungee's own stretch `b`.
-  With tilt off `state.stretch` is `b`, bit for bit (`s_hybrid` row 1).
-- HUD hooks: `splatButton(down, cancelled?, eventTimeMs?)` (MEGA), `turboShift(dir)`, `turboHold(down)`, `hudBlip()` (any
-  HUD press or lift), `reachDown()` / `reachUp()` (TURBO, the tab, the toggle), `adoptThumb(e, keepPress, x0, y0, t0)`
-  (MEGA's or the chip's finger becomes the thumb; it notes the pose with `mix.land()`, since no canvas touch-down did),
-  `adoptedMove/Up` (its events if capture didn't move), `wakeMix()`.
-- The opening (`main.ts` with `Controls`): nothing but the sheet holds it. `controls.sheetUp` (iOS's motion sheet) stands the
-  game and the opening at any time; `controls.gearsLocked` and `controls.opening`, set per frame, queue a shift until the bus clears the gate and
-  drive the first run. "Gate cleared" is `!opening && !gearsLocked`, true at fog end in a city with no bridge.
+- `onTurbo(dir: 1 | -1, flew)` a flick, or E / Q (`flew`: the stroke was on the stick). `Shifter` says what it means.
+- `state.look: { on, x, y }` a second thumb's (or the right mouse's) offset from where it landed, CSS px, +x right, +y up;
+  on only past `lookDelayMs` and the tap slop, 0, 0 when off. main.ts hands it to `CameraRig.setLook` every frame, with the wall clock's dt.
+- `onPress()` a gesture landed (the aim's press latch, glint == hit): the flying thumb, or a second thumb with nobody flying; never a
+  second thumb with a flying one down.
+- `mode: 'touch' | 'keyboard'`.
+- `state.thumb` a committed flying thumb, never a look. `state.dragging`: a thumb or keys. `state.stretch`: the stick:
+  Flight, the opening's climb lock, the homing and `__qa.sx/sy` don't know who wrote it. Keys (no thumb) > the bungee's own
+  stretch. The aim thaws on a thumb, keys or a QA stick: `aimer.update` gets `(qaStick || st.thumb || keys) && !input.pressHeld`.
+- Roles: `Fly` (the one flying thumb), `Second` (any other, each on its own lifecycle: a look thumb outlives the flying thumb
+  and the next landing out of the zone flies), `Orphan` (swallowed by three fingers). `swapped` (BUTTONS: SWAP) moves the look zone.
+- HUD hooks: `splatButton(down, cancelled?, eventTimeMs?)` (MEGA), `adoptThumb(e, keepPress, x0, y0, t0)` (MEGA's finger
+  becomes the flying thumb; a look thumb stays what it is), `adoptedMove/Up` (its events if capture didn't move).
+- The opening (`main.ts` with `Controls`): `controls.gearsLocked` (`Shifter.locked`) and `controls.opening`, set per frame, queue a
+  gear until the bus clears the gate and drive the first run. Nothing else holds the opening. `controls.frozen` is QA's: dt 0.
 
-**The mixer** (`src/game/Hybrid.ts`, `TiltMix`, no DOM, tuner group "Hybrid"): phases `live | thumb | settle`, one flag
-per owner (`thumbHeld`, `reachHeld`). An uncommitted touch leaves tilt live, only the calm window runs (no speed term,
-no prediction for 180 ms). A committed thumb, past 12 px or 450 ms, replaces tilt on both axes, fading it out over
-160 ms. A primary that lands within 14 px of the side edge and stays still never clutches (a grip must not kill tilt).
-TURBO, the tab and the toggle clutch too, remembering the pose ~0.45 s before the press (`TiltCore.pastG`): a reach
-swings the phone before the finger lands; a boost stays clutched until the lift. MEGA never clutches. On the last owner's
-lift: phone within 5 degrees of where it was, `handBack()` at once, continuously; moved, stick 0 until the hand settles
-(`settle`), then `handBack()`. `handBack` moves `TiltCore.neutral`, the only zero, so tilt reads `(1 - f) * cap`, where
-`cap` is what it handed over and `f` says "new hold" (time only counts for a thumb). Sensitivity never changes. A
-master gain `g` eases everything in and out: `wake()` is the only thing that raises it (`Input.wakeMix`: tilt live,
-settings closed, app back), `sleep()` (settings, hidden) and `turnOff()` (the toggle) drop it; `Controls.frame` stops the
-tilt only when `offPending` and `g === 0`.
+**Flicks** (`src/game/Shifter.ts`, no DOM): `flick(dir, flew)`, `tick()` per frame, `armed`, `onAnswer('go' | 'gated' | 'back')`. One flick is one
+rung, at once: `TurboDrive.rung(dir, flight)`, answered the same moment; past the top LOCKED is its own answer. Under the gate a flick up
+waits, counted, and fires when it clears. A flick down takes one of those back, else `rung(-1)`, which takes back a gear still lifting too
+(it leaves `holdY` alone). A flick down on the stick pulled until its lift, so when it does any of that, or drops a turbo level,
+`Flight.unpull()` hands back the hold from before the stroke as the bus lets go, and the bus goes on as it was; out of a gear that bit it
+holds the height instead, and with nothing to do it stays a quick pull.
 
-**Tilt** (`src/game/Tilt.ts`): `TiltCore` (no DOM; `feed(beta, gamma,
-screenDeg, tSeconds)`, `update(tSeconds)`, `sx` / `sy`, `calibrate()`,
-`recenter()`, `recenterStill()`, `sensitivity`; for the mixer `calm`, `autoHold`,
-`gRate` / `gStill`, `pastG`, `anglesOf`, `stickFor`, `rebase`) and `TiltControl` (DOM:
-`request()` must be called synchronously in a user gesture, `listen()`, `probe()` (a
-quiet listen that ends at off and steers nothing), `stop()`, `status`: off | requesting |
-waiting | calibrating | active | denied | blocked | unavailable). `denied` is an answer
-from the sheet and is saved; `blocked` (requestPermission threw) is not, the next press
-retries. Calibration and RECENTER wait for stillness (`config.tilt.settleRate`,
-`settleHold`, capped by `settleMax`): those buttons are corner reaches.
-Gravity only (alpha cancels), screen frame, swing split along the neutral
-frame's horizontal axes, One-Euro + prediction, dead zone + expo, auto-
-recenter. Tunables: `config.tilt`.
-
-**Turbo** (`src/game/Turbo.ts`, `TurboDrive`): `shift(dir, flight)`,
-`update(dt, flight, held)`, `gear`, `engaged`, `strain`, `speedK` (log
-scale: 0 at the surge, 1 at G1), `boosting`, `edge`, `onEvent(ev, gear)`
-with ev up | down | locked | engage | boom; `gearSpeed/gearAlt/gearClimb`,
-`GEAR_NAMES`. It writes **`Flight.turbo`** before each step: `speed` (target,
+**Turbo** (`src/game/Turbo.ts`, `TurboDrive`): `rung(dir, flight)` (one rung of the ladder: the gears, then turbo's levels over the top gear; down, turbo first), `shift(dir, flight)`,
+`update(dt, flight)`, `gear`, `level` (turbo, over the top gear), `topped`, `engaged`, `lifts` (the gear has a height: Nonstop and up), `strain`, `speedK` (log scale: 0 at the surge, 1 at Jet),
+`boosting`, `edge`, `onEvent(ev, gear)` with ev up | down | locked | engage | boom |
+turbo | turbo-down, and Shifter's flick | back down the same path;
+`gearSpeed/gearAlt/gearClimb`, `driveSpeed(gear, level, engaged)` (a gear still lifting drives the rung under it, so a hop gives nothing back), `rungName(gear, level)`,
+`GEAR_NAMES`, and the gears by name (`EXPRESS`, `NONSTOP`, `JET`, `STRATOS`, `WARP`: a number is a place on the ladder). Express is the surge with no
+thumb on it: no height, no floor, the classic rate, in on the shift, and a shift down out of it holds and brakes nothing. It writes **`Flight.turbo`** before each step: `speed` (target,
 0 = classic), `rate` (1/s, 0 = classic), `floor` (m ASL, a gear's floor the
 bus rides like a roof), `ceiling` (0 = config.flight.ceiling), `yaw`
 (steering authority). Flight's `lift` / `floorY` smoothing stay the
-rooftop's. Tunables: `config.turbo` (`worldTravel` gates G2 / G3). Near the
-map's edge what fades is a gear's speed over the ground, so a bus going
-straight up keeps its gear.
+rooftop's. Tunables: `config.turbo` (`worldTravel` gates Stratos and Rainbow Warp, `levels` is turbo's, on the top gear's speed). Near the map's edge what fades is a gear's or turbo's
+speed over the ground, over a reach read from what it is driving at, so a bus
+going straight up keeps its gear.
 **The path** (`docs/specs/flight/NOSE.md`): on any dive, and on a pull with a
-gear or the boost, `Flight.speed` is the speed along the path, `Flight.nose`
+gear or turbo, `Flight.speed` is the speed along the path, `Flight.nose`
 its angle, and `Flight.ground` what goes over the ground; off the path
 `ground` is `speed` and `nose` tracks the real path. Whatever means velocity
 over the ground reads `ground` or `Flight.velocity(out)`; HUD mph, the boom,
@@ -845,6 +829,12 @@ only), in both of its branches, and comes back to exactly 0.
 (x heroScale), `turboLead` / `turboLookLead` (m added to the follow / look
 targets: cancel part of the springs' lag at turbo speeds); written by
 `TurboLens` (`src/fx/Turbo.ts`), which also punches the fov.
+**The look** (`docs/specs/flight/THUMBS.md`): `CameraRig.setLook(on, x, y, realDt)` before `aimer.update`, two exactly stepped
+springs (`settle`) on the wall clock. `applyLook` runs last in `update()` and only moves the camera's pose: sideways and down the
+pose turns about the bus, up the lens tilts in place. It writes none of the rig's own state, and at home it returns on its first
+line. `aimYaw` is what `Aimer.lookYaw` turns `point()` by; `Aimer.fx`, `fz` are the breath's way (`SuperSplat.hoseAim` reads them).
+`streamDir(view, out)` gives main.ts the stream centre's way: the view's flat forward, turned back to the heading until a look has
+been held `lookStreamAfter` s. `camFwd` itself stays the view's, for the shadow's window. `city.viewX`, `viewZ` are the lens wherever it is.
 
 **Under a bridge deck** (`City.overheadAt`: the bus is under a post with an open `under`) nothing lifts the bus: the floor
 stops 8 m under the underside, the underside is a hard stop, the hard floor reads no post (`City.hardAt`, which over a
@@ -856,40 +846,41 @@ nothing stops it there (`docs/specs/bridges/BRIDGES.md`, step 5's flight list).
 
 While `Controls.tearing` (a gear selected, or braking out of one) main.ts sets
 `City.detailHold`: no level-of-detail change, arrivals are coarse. Swaps to detail
-prepare tile by tile (`prep` adopt items), the swap itself only commits. A shift up
-under the opening's gate (`gearsLocked`) is queued and shown as `HudFrame.armed`.
+prepare tile by tile (`prep` adopt items), the swap itself only commits. A flick waiting
+for the opening's gate (`gearsLocked`) is shown as `HudFrame.armed`.
 
 **Turbo FX** (`src/fx/Turbo.ts`, `TurboFx`): the boom's rainbow hoop (one annulus,
 one draw while it lasts; every effect really draws in the warm-up), contrail ribbon (one
 interleaved dynamic buffer, one upload per frame), speed lines (instanced,
 uniforms only), vapor cone; all `sbWrite` with flags 0.5 and ordered-dither
-dissolves; events through the existing `Particles.puff/sparkles`; the
+dissolves; events through the existing `Particles.puff/sparkles` (a flick up's
+answer, `pop`, is the boom's vapor ring, small, carried along with the bus and scaled to stand as big on screen at any height: a
+phone on silent hears nothing; `Controls.pose` makes the bus hiccup on the same event); the
 rattle (`applyRattle`). **Voice** (`src/audio/turboVoice.ts`) on
 `AudioEngine.voiceKit()` (the sfx bus).
 
 **HUD** (`src/ui/Hud.ts`): pixel canvases at 2 CSS px per UI px, palette colours only, redrawn on change only, with no
 per-frame DOM writes while idle (`tools/jet.mjs --idle=1`). `src/ui/hudLayout.ts` is one pure function, `layoutHud(w, h,
 insets, swap, compact)`, run on resize only. Hit wrappers catch touches and the visuals inside them are pointer-events
-none; no hit rect reaches the 14 px band at the left and right edges, in any layout, swapped or not. Only toggle, TURBO,
-the tab, MEGA, recenter, settings and the chip catch touches. TURBO: tap = next level, hold = boost, the level shown by
-three chevrons. The tab (`gear-down`) exists with a gear or an armed shift. MEGA: tap = splat, hold = charge, slide =
-the thumb (`adoptThumb`). `slot('super')` is a 68 x 86 box above MEGA (beside it turned) that docks on its face for the
-cooldown (`setMega(phase)`, from main.ts per frame). TURBO and MEGA rest after 8 s with `PixelCanvas.punch` (a checker of
-cleared pixels on the panels). `hitTouch` is the toggle's and the chip's tap (the chip's with `steer`: a short still tap only, a drag becomes the thumb). `onGesture` runs after it in the same `touchend`, and no other listener on those two may run it first. The callback runs inside `touchend`,
-first thing, because iOS asks there. Top-right buttons fade after 6 s and a tap there wakes them; a desktop has no
-buttons at all (Esc: `openSettings`). `setCredits(lines)` (settings' MAP DATA page, wrapped to the panel), `toast(lines, s)` (one slot, LOCKED clears it), `setSettings`,
-`arrive()`, `setCue`, `turboCue`, `megaHoldCue`, `showChip`, `flyChip`. All HUD elements carry `data-sb-ui` (Input ignores
-keys typed there) and `data-hud="..."` names for QA (`turbo`, `gear-down`, `mega`, `tilt-toggle`, `tilt-chip`, `cue`).
+none; no hit rect reaches the 14 px band at the left and right edges, in any layout, swapped or not. Only MEGA and
+settings catch touches. MEGA: tap = splat, hold = charge, slide = the thumb (`adoptThumb`). `slot('super')` is a 68 x 86
+box above MEGA (beside it turned) that docks on its face for the cooldown (`setMega(phase)`, from main.ts per frame). MEGA
+rests after 8 s with `PixelCanvas.punch` (a checker of cleared pixels on the panels). The settings button fades after 6 s
+and a tap there wakes it; a desktop has no buttons at all (Esc: `openSettings`). The gear readout is the only gear on
+screen, and only for a moment: a latched turbo doesn't keep it up. `setCredits(lines)` (settings' MAP DATA page, wrapped
+to the panel), `toast(lines, s)` (one slot, LOCKED clears it), `setSettings`, `arrive()`, `setCue`, `megaHoldCue`. All HUD
+elements carry `data-sb-ui` (Input ignores keys typed there) and `data-hud="..."` names for QA (`mega`, `settings`, `cue`).
 
 **The first run** (`src/ui/Coach.ts`, no DOM): one cue at a time, each ended by doing it, each shown once ever (`taught`
-in the prefs). Off with `?nohud`, `?skipintro`, `?nocoach`; `?coach` keeps it under skipintro. Controls runs it per frame and
-owns the chip. **Prefs** (`src/game/controlPrefs.ts`, `localStorage strugglebus.controls.v1`): `tilt?` (true / false /
-absent = undecided), `taught?`, `swap?`, `chipIgnored?`, `sens`, `muted`, `keysShown`; an old `mode` is migrated on load.
-`config.tilt.defaultOn` is the one switch between offering tilt (false) and assuming it.
+in the prefs). The hint is the exception: `hintDue` for one frame a beat after the fog, a toast of its own time,
+ended by nothing, `taught` bit 32; `Controls.climbGated` holds its line for it. Off with `?nohud`, `?skipintro`, `?nocoach`; `?coach` keeps it under skipintro. Controls runs it per frame.
+**Prefs** (`src/game/controlPrefs.ts`, `localStorage strugglebus.controls.v1`): `taught?`, `swap?`, `muted`, `keysShown`;
+what the tilt saved (`mode`, `tilt`, `chipIgnored`, `sens`) is dropped on load.
 
-QA: `window.__game.controls` (`snapshot()`: mode, tilt, turbo, flight,
-camera, HUD, input), `tools/controls.mjs` (browser) and
-`tools/controls-sim/` (offline: s_tilt, s_tune, s_perm, s_gesture, s_turbo, s_hybrid, s_layout).
+QA: `window.__game.controls` (`snapshot()`: mode, turbo, flight, camera, HUD, input, look), `tools/controls.mjs` (browser, real
+CDP multi-touch, stamped so a stroke is as long as its row says: a touchEnd lists the point that lifts; `look` steps the look
+frame by frame and keeps the frames) and `tools/controls-sim/` (offline: s_gesture, s_turbo, s_layout).
+The look: `tools/feel-sim/s_look.ts` (offline, twin flights, the aim over the real city).
 The path: `tools/nose.mjs` (browser, the real stick, frames) and `tools/feel-sim/s_nose.ts` (offline, at any step).
 
 ## Height (`src/game/Ascent.ts`, `docs/specs/flight/ASCENT.md`)
@@ -1065,7 +1056,7 @@ numbers in the tuner groups `SuperSplat`, `SuperFx`, `SuperAudio`.
   `node tools/feel-sim/run.mjs s_super.ts` (offline: charge, mega, cancel,
   firehose counts and cost), `tools/controls-sim/run.mjs s_gesture.ts` (the
   press), `node tools/supersplat.mjs <url> <out> [charge sweep alt mega
-  cooldown jet first audio base] [--base=<url>]` (`&controls=touch`: tilt off, no chip).
+  cooldown jet first audio base] [--base=<url>]` (`&controls=touch`: the phone's scheme on a desktop browser).
 
 ## Paintable landmarks (hand-built props)
 A landmark prop (Transamerica, Sutro Tower, any `LandmarkKit` prop) is a
