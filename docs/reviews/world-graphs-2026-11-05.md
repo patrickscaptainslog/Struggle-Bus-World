@@ -26,3 +26,13 @@ Sound: every typed array is taken on 4- or 2-byte offsets the writer pads to; co
 ## For the first account
 
 Merge `feat/earth` for the contract at 0.7, then C1 to C8 as Agreed; W1's deck count as a pass at 0.3 m with C2. Life starts on ferries (routes, terminals, map metres: C5) and boats (marinas, OPEN_WATER at its height: C8) once those are in the files.
+
+## Second reading, the rebuild to 0.6 (5eba314 to 2102d88)
+
+W1 on 2102d88, run here: 4 checks fail, the four residuals 2102d88 names for the next pass on the decks (decks over the ground and the water: 3 under the ground on a drawn deck and 28 more by over 0.5 m, worst 1.8 m; tunnels: 25 steps over the ground by over 0.5 m, worst 2.8 m; the drawn decks: 1 step over 0.3 m, worst 1.18 m; sidewalks beside their carriageway: 170 over 1 m, worst 23.1 m). Everything else passes.
+
+- **C2 holds**, but for those residuals: 3,820 deck steps along the two drawn decks, median 0.01 m off their tops, where it was 9.4 m.
+- **C7 holds**: `routes.bin` parses as `SBC1` 1.0. **C5 holds**: 695 places in map metres, worst 0.2 cm from `geo.ts`.
+- **N2 holds**: an area's triangle starts that go back give null, and so do bytes left over.
+- **N1 is still open**: `parseCityRoutes` still makes a route's `Float64Array(m)` and `Float32Array(m * 2)` from its count before reading them (`lifeData.ts:232`); the length check at the end comes after. A nit still: life hands it only files it fetched.
+- C9 Agreed, 0.8. C8 was Agreed at 0.7: a merge of `feat/earth` brings both.
