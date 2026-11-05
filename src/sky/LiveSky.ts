@@ -1,7 +1,7 @@
 import type * as THREE from 'three';
 import { config } from '../config';
 import { globals, heldGlobals } from '../render/materials';
-import { dayRows, Ramp, writePalette } from '../render/palette';
+import { dayRows, RAMP_STEPS, Ramp, writePalette } from '../render/palette';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import { setHourUp } from './flag';
 import { HeldHour } from './HeldHour';
@@ -127,6 +127,9 @@ export class LiveSky {
   private tzOffset = 0;
   private tzAt = NaN;
   private tzFmt: Intl.DateTimeFormat | null = null;
+  /** the page's colour as last written (0xRRGGBB), and the status bar's tag */
+  private pageRgb = -1;
+  private themeTag: Element | null = null;
 
   constructor(private readonly pipeline: PixelPipeline, params: URLSearchParams) {
     this.clock = new SkyClock(params);
@@ -246,6 +249,25 @@ export class LiveSky {
       fogLuma(false, fog);
     }
     tex.needsUpdate = true;
+    this.page(data, !!S.table && this.tables.bands >= 0.5);
+  }
+
+  /**
+   * The status bar (theme-color) and the page under the canvas follow the sky, from the table just written: the day's sky is FOG 2, the grey the page was, and
+   * under the bands it's SKY_LOW 3, the band most of a frame's sky is, as index.html's first paint took them. Written only when the colour changes, and from then
+   * on the first paint's own write, if city.json lands for it later, leaves it alone (__sbPage).
+   */
+  private page(data: Uint8Array, bands: boolean): void {
+    const i = ((bands ? Ramp.SKY_LOW : Ramp.FOG) * RAMP_STEPS + (bands ? 3 : 2)) * 4;
+    const rgb = (data[i] << 16) | (data[i + 1] << 8) | data[i + 2];
+    if (rgb === this.pageRgb || typeof document === 'undefined') return;
+    this.pageRgb = rgb;
+    (globalThis as { __sbPage?: boolean }).__sbPage = true;
+    const c = `#${rgb.toString(16).padStart(6, '0')}`;
+    this.themeTag ??= document.querySelector('meta[name=theme-color]');
+    this.themeTag?.setAttribute('content', c);
+    document.documentElement.style.backgroundColor = c;
+    document.body.style.backgroundColor = c;
   }
 
   /**

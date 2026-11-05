@@ -11,6 +11,11 @@
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./icon-180.png" />
     <title>Struggle Bus</title>
+    <!-- (before the boot script: the first paint's style comes after it, so it wins) -->
+    <style>
+      html, body { margin: 0; height: 100%; background: #808a94; overflow: hidden; overscroll-behavior: none; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+      canvas#game { position: fixed; inset: 0; display: block; image-rendering: pixelated; }
+    </style>
     <script>
       // The boot downloads start now, not after the game's script has loaded and run: the game
       // takes these responses over (bootFetch in src/world/City.ts), so nothing downloads twice.
@@ -33,31 +38,44 @@
           };
           window.__sbBoot = { base: base, manifest: get('city.json'), far: get('far.bin', 'low'), horizon: get('horizon.bin', 'low'), far16: function () { return get('far16.bin', 'low'); } };
           // The first paint (SKY.md 4): the page is the day's grey until the game's first frame, seconds away on a slow line, so at dusk and at night it takes the
-          // sky's colour from the Sun's height over the city's origin, read off a copy of city.json as it lands (any city's). A small model: 0.03 degrees at worst.
+          // sky's colour from the Sun's height over the city, by a small model (0.03 degrees at worst). Where the city is, before its city.json: ?lat=&lon=, else
+          // its origin as its own city.json gave it on the last visit (any city's, kept by its folder), so a night load is the night's from its first paint; a first
+          // visit waits for city.json, read off a copy as it lands. Once the game writes the sky's colour (LiveSky.page) this leaves the page to it.
           // Not with ?sky=off, which is today's page; ?t= is the live sky's moment, ?hour=blue its held hour.
           var qs = new URLSearchParams(location.search), t = qs.get('t');
           if (qs.get('sky') !== 'off') {
             var ms = t === null ? NaN : /^\d+$/.test(t) ? Number(t) : Date.parse(t);
             if (!isFinite(ms)) ms = Date.now();
             var sun = function (t, a, o) { var r = Math.PI / 180, d = t / 864e5 - 10957.5, g = 357.53 + 0.9856 * d, l = (280.46 + 0.98565 * d + 1.915 * Math.sin(g * r)) * r, e = 0.4091, v = Math.asin(Math.sin(e) * Math.sin(l)), h = (280.46 + 360.98565 * d + o) * r - Math.atan2(Math.cos(e) * Math.sin(l), Math.cos(l)); a *= r; return Math.asin(Math.sin(a) * Math.sin(v) + Math.cos(a) * Math.cos(v) * Math.cos(h)) / r; };
-            window.__sbBoot.manifest.then(function (r) { return r.clone().json(); }).then(function (m) {
-              var e = qs.get('hour') === 'blue' ? -6 : sun(ms, m.origin[0], m.origin[1]);
-              if (e >= 3) return;
-              // (dusk: the blue hour's horizon; night: its sky low down, the band most of a frame's sky is)
-              var c = e >= -1 ? '#5a4f9c' : '#394295', st = document.createElement('style');
+            var blue = qs.get('hour') === 'blue', st = null;
+            var paint = function (lat, lon) {
+              if (window.__sbPage) return;
+              var e = blue ? -6 : sun(ms, lat, lon);
+              if (e >= 3 && !st) return;
+              // (dusk: the blue hour's horizon; night: its sky low down, the band most of a frame's sky is; day, after a wrong guess: today's grey)
+              var c = e >= 3 ? '#808a94' : e >= -1 ? '#5a4f9c' : '#394295';
+              if (!st) document.head.appendChild((st = document.createElement('style')));
               st.textContent = 'html, body { background: ' + c + '; }';
-              document.head.appendChild(st);
               var tc = document.querySelector('meta[name=theme-color]');
               if (tc) tc.setAttribute('content', c);
+            };
+            var key = 'strugglebus.origin.v1:' + city, la = Number(qs.get('lat')), lo = Number(qs.get('lon')), was = null;
+            try {
+              was = JSON.parse(localStorage.getItem(key) || 'null');
+            } catch (e) {}
+            if (qs.has('lat') && qs.has('lon') && isFinite(la) && isFinite(lo)) paint(la, lo);
+            else if (was && isFinite(was[0]) && isFinite(was[1])) paint(was[0], was[1]);
+            else if (blue) paint(0, 0);
+            window.__sbBoot.manifest.then(function (r) { return r.clone().json(); }).then(function (m) {
+              try {
+                localStorage.setItem(key, JSON.stringify([m.origin[0], m.origin[1]]));
+              } catch (e) {}
+              paint(m.origin[0], m.origin[1]);
             }).catch(function () {});
           }
         } catch (e) {}
       })();
     </script>
-    <style>
-      html, body { margin: 0; height: 100%; background: #808a94; overflow: hidden; overscroll-behavior: none; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-      canvas#game { position: fixed; inset: 0; display: block; image-rendering: pixelated; }
-    </style>
   </head>
   <body>
     <canvas id="game"></canvas>
