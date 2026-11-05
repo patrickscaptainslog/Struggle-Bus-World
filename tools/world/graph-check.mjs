@@ -497,11 +497,11 @@ for (const [rx, rz, bytes] of regions) {
           else if (under > 0) { c.deckUnder++; if (under > c.deckUnderWorst) { c.deckUnderWorst = under; c.deckUnderWhere = `edge ${edges.id[e]} (${keysOf.get(edges.id[e])?.slice(2)}) at ${x.toFixed(1)}, ${z.toFixed(1)}: ${y.toFixed(1)}, ${sea(x, z) ? 'the sea' : lake ? 'a lake' : 'the ground'} ${(sea(x, z) ? WATER_Y : h).toFixed(1)}`; } }
         } else if (k === 4) {
           // a tunnel never over the ground (the bed, where wet; WATER_Y with no tile), but where it comes down from an
-          // end of its edge at 10 % or less: a portal can stand over the ground (decks.under)
+          // end of its edge at the bake's grade: a portal can stand over the ground (decks.under)
           const h = Number.isNaN(ground(x, z)) ? WATER_Y : ground(x, z);
           const sa = pre[i] + t * d, ya = P[0][1], yb = P[P.length - 1][1];
           c.tunnelPts++;
-          const gr = kind === 3 ? 0.035 : kind === 2 ? 0.1 : 0.06; // decks.py GRADE_END
+          const gr = kind === 3 ? 0.035 : kind === 2 ? 0.5 : 0.06; // decks.py GRADE_STAIR: a road's 6 %, a railway's 3.5 %, a stair's 50 % on foot
           if (y > Math.max(h + 0.5, ya - gr * sa + 0.5, yb - gr * (len - sa) + 0.5)) { c.tunnelOver++; if (y - h > c.tunnelOverWorst) { c.tunnelOverWorst = y - h; c.tunnelOverWhere = `edge ${edges.id[e]} at ${x.toFixed(1)}, ${z.toFixed(1)}: ${y.toFixed(1)} over ${h.toFixed(1)}`; } }
         }
       }
