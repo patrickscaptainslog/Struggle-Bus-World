@@ -564,6 +564,8 @@ export class Input {
    *  and its sound stops: a MEGA held through the hand-up drones on in space and fired by itself at the hand-down. Review four, 20 */
   endPress(): void {
     this.pressCancel(performance.now());
+    // (and no finger owns it after: a MEGA finger carried off the button into steering, on through the hand-overs, would end the next MEGA held when it lifts. Review five, 51)
+    for (const s of this.slots) s.ownsPress = false;
   }
 
   // ---------------------------------------------------------------- pointers

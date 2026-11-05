@@ -1717,6 +1717,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       },
       leave() {
         input.endPress();
+        // (and a firehose under way stops with the street's frame, into its cooldown, not frozen to pour on where the bus comes down. Review five, 46)
+        superSplat.endHose();
         if (skyHands) Object.assign(input, skyHands);
         // (the flight's thumb looks wherever it lands off the bus's lane: the street's gate is the street's)
         input.lookOff = false;

@@ -437,6 +437,20 @@ export class SuperSplat {
     Object.assign(this.stats, { kind: 'mega', charge: k, impacts: 1, blooms: 0, misses: 0, radius, startedAt: this.t, endedAt: this.t });
   }
 
+  /**
+   * The street gives the bus to the flight (?earth's hand-up): a hose under way stops where it is, with no closer, into its cooldown as one run dry goes. Its
+   * impacts in flight still land. Before, it froze with the street's frame and poured the rest of itself, with no sound, wherever the bus came down. Review five, 46
+   */
+  endHose(): void {
+    if (this.phase !== 'firehose') return;
+    this.finale = true;
+    this.phase = 'cooldown';
+    this.hoseBorn = true;
+    this.since = 0;
+    this.cooldownTotal = this.cooldownLeft = Math.max(1, config.splat.superCooldown);
+    this.stats.endedAt = this.t;
+  }
+
   // ------------------------------------------------------------------ firehose
 
   private startFirehose() {
