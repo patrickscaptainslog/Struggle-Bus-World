@@ -1011,7 +1011,7 @@ class Bake:
         """Bay-wide: ferry terminals and piers (the routes' ends, the berths). In the map: signals, stops, pier and
         terminal polygons."""
         want = pa.array(['traffic_signals', 'stop', 'pier', 'ferry_terminal'])
-        bay = self.bay_box()
+        bay = self.archive_box()
         self.signals, self.stops = [], []
         self.terminals_src = []
         self.piers = []
@@ -1049,14 +1049,27 @@ class Bake:
                                                 'terminals (Bay)': len(self.terminals_src), 'piers (Bay)': len(self.piers)}
         self.note(f'infrastructure: {len(self.signals)} signals, {len(self.stops)} stops, {len(self.terminals_src)} terminals and {len(self.piers)} pier polygons')
 
-    def bay_box(self):
+    def archive_box(self):
+        """The archive's own box (lon0, lat0, lon1, lat1), where terminals, piers and the routes' far ends are read (a
+        route's far end lies off the map): the city config's archiveBox, else the extract's record in the archive
+        (overture/<release>/<extract>/extract.json, which fetch_archive.py writes), else the map's own box. Any city's
+        archive gives its own: none falls back to the Bay's."""
+        if getattr(self, '_abox', None):
+            return self._abox
         bb = self.cfg.get('archiveBox')
-        if bb:
-            return tuple(bb)
-        p = os.path.join(HERE, 'cities', 'bay.json')
-        if os.path.exists(p):
-            return tuple(json.load(open(p, encoding='utf-8'))['bbox'])
-        return self.box
+        if not bb:
+            for p in sorted(glob.glob(os.path.join(self.rel, '*', 'extract.json'))):
+                bb = json.load(open(p, encoding='utf-8')).get('bbox')
+                if bb:
+                    break
+        if not bb:
+            log("  ! the archive has no extract record: terminals and the routes' ends are read in the map's box only")
+            bb = self.box
+        bb = tuple(float(v) for v in bb)
+        if not (bb[0] <= self.box[0] and bb[1] <= self.box[1] and bb[2] >= self.box[2] and bb[3] >= self.box[3]):
+            raise SystemExit(f'graphs: the map\'s box {self.box} isn\'t inside the archive\'s {bb}')
+        self._abox = bb
+        return bb
 
     def read_areas(self):
         """Parks, plazas, beaches and marinas from land use and land, in the map."""
@@ -1891,7 +1904,7 @@ class Bake:
             return {}
         want = pa.array(sorted(need))
         out = {}
-        for b in batches(self.rel, 'connector', self.bay_box(), ['id', 'sources', 'geometry', 'bbox'], None,
+        for b in batches(self.rel, 'connector', self.archive_box(), ['id', 'sources', 'geometry', 'bbox'], None,
                          keep=lambda b: pc.is_in(b.column('id'), want)):
             g = shapely.from_wkb(b.column('geometry').to_numpy(zero_copy_only=False))
             src = b.column('sources').to_pylist()
