@@ -843,7 +843,10 @@ if (modes.has('firstrun')) {
   // DRAG: after the first splat, until a thumb commits
   FR.afterSplat = await ui();
   await page.screenshot({ path: `${out}/firstrun/03-drag.png` });
-  await H.down(1, 300, 600); await H.move(1, 340, 600); await runFor(page, 0.5); await H.up(1);
+  // (a drag that flies lands in the bus's lane, under the bus; one anywhere else looks and teaches nothing)
+  const fl = await page.evaluate(() => window.__game?.input?.busZone ?? null);
+  const fx = fl ? Math.round(fl.x) : 300, fy = fl ? Math.round(Math.min(fl.y + 90, 780)) : 600;
+  await H.down(1, fx, fy); await H.move(1, fx + 40, fy); await runFor(page, 0.5); await H.up(1);
   await runFor(page, 0.3);
   FR.afterDrag = await ui();
   // it never repeats: the same device, the next visit
