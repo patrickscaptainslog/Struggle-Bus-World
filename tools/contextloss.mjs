@@ -26,6 +26,22 @@ await page.addInitScript(() => {
     v.controls.frozen = true;
     // (a build from before the tilt went stands on its motion sheet's status)
     if (v.controls.tilt) v.controls.tilt.status = 'requesting';
+    // (the live sky's stars come in over 1.6 s of game time once their files are read, and __shotReady waits for that: with the
+    // clock standing they never would. They come in at once, as shots --det has them)
+    const st = v.sky && v.sky.street;
+    if (st && typeof st.load === 'function') {
+      const load = st.load;
+      st.load = function (...a) {
+        return load.apply(this, a).then((r) => {
+          if (!('land' in this) || !('landedAt' in this)) console.error('contextloss: StreetSky has no land or landedAt: the stars wait for a clock that stands');
+          else if (this.landedAt >= 0) {
+            this.land = 1;
+            this.busy = false;
+          }
+          return r;
+        });
+      };
+    }
   } });
 });
 await page.goto(url + (opt.query ?? '?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud&fixeddt=0.03333333333333333'), { waitUntil: 'load' });

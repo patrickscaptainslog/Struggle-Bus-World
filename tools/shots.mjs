@@ -27,6 +27,7 @@
 // --jitter=<ms> (with --det): a loaded machine on purpose, each region answered up to <ms> late and each adoption up to a tenth of it
 // slower; --gap=<n>: n more frames with the clock standing before every run. A deterministic run must come out the same under both.
 // (A view script stages what a run starts with, glide(), stick(), unstick(), barf(), and runDet hands it over as the clock starts.)
+// The live sky is on unless --q=sky=off; its frames are the same twice only with its clock pinned (--q=t=2026-11-06T08:00:00Z&rate=0).
 // hold-sunset, hold-presidio, hold-downtown (with --det, by name): SPIKE.md's hold-still swap. Nothing loads past the start on the way up (?loadr=1),
 // the clock stands, the frame is shot; the radius comes back, what streams in lands with the clock still standing, and it is shot again, the camera
 // where it was: <name>-<sun>-0.png, <name>-<sun>-1.png, for the game's sun (day), 75 degrees (high), 5 degrees (low) and a night made of light alone
@@ -191,12 +192,31 @@ async function open(query) {
         if (c.tilt) c.tilt.status = on ? 'requesting' : 'off';
       };
       window.__freeze = (on) => freeze(g.controls, on);
+      // the live sky's stars and Moon map come in over 1.6 s of game time once their files are read (StreetSky.load), and
+      // __shotReady waits for that: with the clock standing from the first frame it never came, and no run started. They come
+      // in at once instead, as they stand 1.6 s on (and if the landing has moved, it says so, and __shotReady still waits)
+      const landSky = (v) => {
+        const st = v.sky && v.sky.street;
+        if (!st || typeof st.load !== 'function') return;
+        const load = st.load;
+        st.load = function (...a) {
+          return load.apply(this, a).then((r) => {
+            if (!('land' in this) || !('landedAt' in this)) console.error('shots --det: StreetSky has no land or landedAt: the stars wait for a clock that stands');
+            else if (this.landedAt >= 0 && v.controls.frozen) {
+              this.land = 1;
+              this.busy = false;
+            }
+            return r;
+          });
+        };
+      };
       Object.defineProperty(window, '__game', {
         configurable: true,
         get: () => g,
         set: (v) => {
           g = v;
           freeze(v.controls, true);
+          landSky(v);
           if (T) hooks(v);
           if (jit) jitter(v.city);
           // (while it runs, the clock stands whenever regions are on their way: streaming lands at the same game
