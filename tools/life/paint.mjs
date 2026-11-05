@@ -68,12 +68,12 @@ try {
   {
     const r = await page.evaluate((key) => {
       const l = window.__game.life, g = window.__game, now = g.clock();
-      const fresh = l.hit(key, 2, Date.parse(T), now + 1);
+      const fresh = l.hit(key, 2, window.__game.life.utc, now + 1);
       return { fresh, before: l.painted.has(window.__game.life.keyHash(key)) };
     }, p.key);
     await frames(40);
     const after = await page.evaluate((key) => window.__game.life.painted.get(window.__game.life.keyHash(key)) ?? null, p.key);
-    const again = await page.evaluate((key) => window.__game.life.hit(key, 5, Date.parse(T), window.__game.clock() + 0.2), p.key);
+    const again = await page.evaluate((key) => window.__game.life.hit(key, 5, window.__game.life.utc, window.__game.clock() + 0.2), p.key);
     await frames(20);
     const twice = await page.evaluate((key) => window.__game.life.painted.get(window.__game.life.keyHash(key)) ?? null, p.key);
     row('hit: grey until the impact, then its hue at level 1; again, level 2 and the same hue', r.fresh && !r.before && after?.hue === 2 && after.level === 1 && !again && twice?.hue === 2 && twice.level === 2, { ...r, after, again, twice });
@@ -85,9 +85,10 @@ try {
       let behind = null;
       for (let i = 0; i < s.u32[2]; i++)
         if (s.rowsU32[i * 16] === h) {
-          const o = i * 16, dt = (l.utc - s.f64[0]) / 1000, x = s.rows[o + 2] + s.rows[o + 5] * dt, z = s.rows[o + 4] + s.rows[o + 7] * dt;
-          const e = 22 * 3, tx = (K.pos[e] + K.pos[e + 3]) / 2, tz = (K.pos[e + 2] + K.pos[e + 5]) / 2;
-          behind = Math.round((tx - x) * s.rows[o + 5] + (tz - z) * s.rows[o + 7]);
+          const o = i * 16;
+          // (its far end against its near one, along the plane's way: a far plane's ribbon is drawn nearer the lens, which keeps that sign)
+          const e = 22 * 3, tx = (K.pos[e] + K.pos[e + 3]) / 2, tz = (K.pos[e + 2] + K.pos[e + 5]) / 2, sx = (K.pos[0] + K.pos[3]) / 2, sz = (K.pos[2] + K.pos[5]) / 2;
+          behind = Math.round((tx - sx) * s.rows[o + 5] + (tz - sz) * s.rows[o + 7]);
         }
       return { marks: l.qa.marks, ramp: K.ramp[0], want: g.HUE_RAMPS[l.painted.get(h)?.hue ?? 0], age0: K.age[0], ageEnd: K.age[23], behind };
     }, p.key);

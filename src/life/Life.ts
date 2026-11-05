@@ -240,6 +240,9 @@ export class LifeHost {
 
   private draw(utcMs: number, camera: THREE.Camera): void {
     const s = this.snap, P = this.pools, cam = camera.position, ang = Math.max(1e-6, globals.uPixelAngle.value as number);
+    // (the street's lens draws to 36 km and the sky is filled to 80: past nine tenths of its reach a mover is drawn nearer on its own line of sight, as the flight's are,
+    // so a painted plane keeps its pixel out there; the haze has the rest by then)
+    const near = 0.9 * ((camera as THREE.PerspectiveCamera).far || SKY_NEAR);
     let nm = 0, nl = 0, ns = 0, n = 0, nd = 0, nk = 0;
     this.qMap.identity();
     if (s) {
@@ -248,11 +251,19 @@ export class LifeHost {
       for (let i = 0; i < n; i++) {
         const o = i * ROW, info = KINDS[rows[o + Col.KIND]];
         if (!info) continue;
-        const x = rows[o + Col.X] + rows[o + Col.VX] * dt, y = rows[o + Col.Y] + rows[o + Col.VY] * dt, z = rows[o + Col.Z] + rows[o + Col.VZ] * dt;
-        const dx = x - cam.x, dy = y - cam.y, dz = z - cam.z, d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        const scale = rows[o + Col.SCALE], px = (info.size * scale) / Math.max(1, d * ang);
+        const x0 = rows[o + Col.X] + rows[o + Col.VX] * dt, y0 = rows[o + Col.Y] + rows[o + Col.VY] * dt, z0 = rows[o + Col.Z] + rows[o + Col.VZ] * dt;
+        const dx = x0 - cam.x, dy = y0 - cam.y, dz = z0 - cam.z, d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        let scale = rows[o + Col.SCALE], x = x0, y = y0, z = z0;
+        const px = (info.size * scale) / Math.max(1, d * ang);
         const paint = this.painted.get(u32[o + Col.KEY]);
         const ramp = paint ? HUE_RAMPS[paint.hue] : GREY_RAMP;
+        if (d > near) {
+          const k = near / d;
+          x = cam.x + dx * k;
+          y = cam.y + dy * k;
+          z = cam.z + dz * k;
+          scale *= k;
+        }
         if (px >= MODEL_PX) {
           const big = info.pool === Pool.LARGE, k = big ? nl : nm;
           if (k >= P.pool(info.pool).max) continue;
@@ -269,7 +280,7 @@ export class LifeHost {
         this.note(nd++, u32[o + Col.KEY], x, y, z);
         if (paint && nk < MARKS_MAX) {
           const vx = rows[o + Col.VX], vy = rows[o + Col.VY], vz = rows[o + Col.VZ], v = Math.sqrt(vx * vx + vy * vy + vz * vz);
-          if (v > 1 && this.trail(nk, x, y, z, vx / v, vy / v, vz / v, v, 0.5 * info.size * scale, paint, cam, ang, 0)) nk++;
+          if (v > 1 && this.trail(nk, x0, y0, z0, vx / v, vy / v, vz / v, v, 0.5 * info.size * rows[o + Col.SCALE], paint, cam, ang, near)) nk++;
         }
       }
     }
