@@ -130,6 +130,13 @@ if (skyOn) registerWarm('lamps', () => [lampPoints(new Int16Array(4), makeLampMa
 /** The ground grid a lamp list stands on. */
 export type LampGround = Pick<LampRequest, 'ground' | 'gridW' | 'gridH' | 'minX' | 'minZ' | 'cell'>;
 
+/**
+ * The list is fetched once the Sun is under this (deg), the city's first tiles in: the first lamps come on at -2 (LiveSky's wave), and from here to there is 25 to 44
+ * minutes of a setting Sun over San Francisco, London and Amsterdam (tools/sky/run.mjs lamps.ts), against seconds to fetch, read and stamp it. By day nothing
+ * fetches it or stamps a pool.
+ */
+export const LAMPS_SUN = 3;
+
 export class Lamps {
   readonly object = new THREE.Group();
   private readonly mat = makeLampMaterial();
@@ -140,20 +147,42 @@ export class Lamps {
   /** tile key -> its run in the list */
   private readonly runs = new Map<number, number>();
   private tileSize = 256;
-  /** the list hasn't landed, or told us it won't (QA's __shotReady waits) */
+  /** QA's __shotReady waits on it: until the first frame with the city in says the list isn't due; while it's due and hasn't landed or told us it won't; and,
+   *  where main.ts clears it, far.bin never came */
   busy = true;
   /** Called once if the list comes: every loaded tile's pools go on the queue. */
   onLanded: (() => void) | null = null;
+  /** lamps.bin's request, from load(), until ask() sends it; the city's first tiles were in once; it's been sent */
+  private req: LampRequest | null = null;
+  private cityIn = false;
+  private asked = false;
 
   constructor() {
     this.object.matrixAutoUpdate = false;
   }
 
-  /** lamps.bin, off the main thread, with the far grid's heights. A city with none has none. */
+  /** lamps.bin's request, with the far grid's heights, once far.bin is in: ask() sends it when it's due. A city with none has none. */
   load(url: string, ground: LampGround, tileSize: number) {
     this.tileSize = tileSize;
+    this.req = { url: new URL(url, location.href).href, ...ground, tileSize, head: config.sky.lampHead };
+  }
+
+  /**
+   * Every frame (main.ts), whether the city's first tiles are in and the Sun's height (deg): the list goes off the main thread at low priority once the city has
+   * been in and the Sun is under LAMPS_SUN, once. Until then nothing waits for it.
+   */
+  ask(cityIn: boolean, sunEl: number) {
+    if (cityIn) this.cityIn = true;
+    if (this.asked || !this.cityIn) return;
+    if (sunEl >= LAMPS_SUN) {
+      this.busy = false;
+      return;
+    }
+    // (far.bin's grid isn't in yet: busy stands as it is, true until it comes, false once main.ts hears it won't)
+    const req = this.req;
+    if (!req) return;
+    this.asked = true;
     this.busy = true;
-    const req: LampRequest = { url: new URL(url, location.href).href, ...ground, tileSize, head: config.sky.lampHead };
     const landed = (r: LampResult | null) => {
       this.busy = false;
       if (r) this.land(r);
