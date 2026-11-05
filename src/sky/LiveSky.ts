@@ -32,6 +32,8 @@ const SUNSET = -50 / 60;
  */
 const SETTING = new Float64Array([35, 0.3, 0.22, 0.46, 22, 0.3, 0.24, 0.52, 7, 0.31, 0.12, 0.66, 1.5, 0.34, 0.1, 0.62, 0.5, 0.34, 0.2, 0.3, -4, 0.34, 0.2, 0.2]);
 const RISING = new Float64Array([35, 0.3, 0.22, 0.46, 16, 0.33, 0.22, 0.5, 1, 0.36, 0.12, 0.46, 0.5, 0.34, 0.2, 0.3, -4, 0.34, 0.2, 0.2]);
+/** The rows' last height (deg): the night's light from here down. */
+const NIGHT = SETTING[SETTING.length - 4];
 
 /** The share of the evening's windows lit by the city's clock (local hour, share): homes and offices as one, since a window has one threshold (SKY.md 4.4). */
 const LIT_CLOCK = new Float64Array([0, 0.6, 2, 0.35, 4, 0.22, 5.5, 0.25, 7, 0.55, 9, 0.4, 16, 0.5, 18, 1, 21.5, 1, 23, 0.8, 24, 0.6]);
@@ -254,7 +256,8 @@ export class LiveSky {
   private tick(ms: number, h: number, az: number, force: boolean): void {
     const S = config.sky, now = performance.now();
     const sun = h >= 0.5;
-    const kEl = sun ? h : S.keyHeight;
+    // (under 0.5 the key's height goes over to keyHeight's as the light's rows go over to the night's, so no roof steps at the crossing)
+    const kEl = sun ? h : 0.5 + (S.keyHeight - 0.5) * Math.min(1, (0.5 - h) / (0.5 - NIGHT));
     if (!force && this.ticks > 0) {
       const dAz = Math.abs(((az - this.keyAz + 540) % 360) - 180) * DEG;
       const l0 = shadowLength(S.tickWall, this.keyH), l1 = shadowLength(S.tickWall, kEl);
