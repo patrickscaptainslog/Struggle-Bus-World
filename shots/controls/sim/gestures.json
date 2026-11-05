@@ -15,7 +15,8 @@
   "secondTapMs": 230,
   "lookDelayMs": 100,
   "lookZone": 0.42,
-  "busLane": 0.22,
+  "laneHalf": 0.27,
+  "laneOpen": 0.25,
   "flickPx": 30,
   "flickMs": 230,
   "flickSpeed": 0.25,
@@ -349,7 +350,9 @@
   {
    "mode": "touch",
    "gesture": "second: a look does not count as a thumb",
-   "events": [],
+   "events": [
+    "tap@240ms"
+   ],
    "maxChargeHeld": 0,
    "dragging": false,
    "thumb": false,
@@ -1008,21 +1011,19 @@
   },
   {
    "mode": "touch",
-   "gesture": "the gate: two flicks wait, and two rungs go",
+   "gesture": "the gate: two flicks are one rung: it waits, and goes",
    "events": [
     "flick+@385ms",
     "gated@385ms",
     "flick+@620ms",
     "gated@620ms",
-    "up1@1286ms",
-    "up2@1286ms",
-    "engage2@1286ms"
+    "up1@1286ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
    "thumb": true,
    "look": null,
-   "gear": 2,
+   "gear": 1,
    "level": 0,
    "note": {
     "g0": 0
@@ -1030,7 +1031,7 @@
   },
   {
    "mode": "touch",
-   "gesture": "the gate: eight flicks are the six rungs there are, and no LOCKED",
+   "gesture": "the gate: six flicks are one rung at the bridge, not TURBO 3, and no LOCKED",
    "events": [
     "flick+@385ms",
     "gated@385ms",
@@ -1044,45 +1045,34 @@
     "gated@1325ms",
     "flick+@1560ms",
     "gated@1560ms",
-    "flick+@1795ms",
-    "gated@1795ms",
-    "flick+@2030ms",
-    "gated@2030ms",
-    "up1@2288ms",
-    "up2@2288ms",
-    "up3@2288ms",
-    "turbo1@2288ms",
-    "turbo2@2288ms",
-    "turbo3@2288ms",
-    "engage3@2288ms"
-   ],
-   "maxChargeHeld": 0,
-   "dragging": true,
-   "thumb": true,
-   "look": null,
-   "gear": 3,
-   "level": 3
-  },
-  {
-   "mode": "touch",
-   "gesture": "the gate: a flick down takes back one of two",
-   "events": [
-    "flick+@385ms",
-    "gated@385ms",
-    "flick+@620ms",
-    "gated@620ms",
-    "flick-@855ms",
-    "back@855ms",
-    "up1@969ms"
+    "up1@1820ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
    "thumb": true,
    "look": null,
    "gear": 1,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "the gate: two flicks and a flick down: nothing waits",
+   "events": [
+    "flick+@385ms",
+    "gated@385ms",
+    "flick+@620ms",
+    "gated@620ms",
+    "flick-@855ms",
+    "back@855ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
    "level": 0,
    "note": {
-    "armed": true
+    "armed": false
    }
   },
   {
@@ -2500,7 +2490,8 @@
    "events": [
     "up1@0ms",
     "flick-@3105ms",
-    "down0@3105ms"
+    "down0@3105ms",
+    "tap@3105ms"
    ],
    "maxChargeHeld": 0,
    "dragging": false,
@@ -2523,7 +2514,8 @@
     "go@85ms",
     "up1@85ms",
     "flick-@290ms",
-    "down0@290ms"
+    "down0@290ms",
+    "tap@290ms"
    ],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -2545,7 +2537,8 @@
     "up1@0ms",
     "up2@2000ms",
     "flick-@2905ms",
-    "down1@2905ms"
+    "down1@2905ms",
+    "tap@2905ms"
    ],
    "maxChargeHeld": 0,
    "dragging": false,
@@ -2571,7 +2564,8 @@
     "engage2@1019ms",
     "up3@4000ms",
     "flick-@4705ms",
-    "down2@4705ms"
+    "down2@4705ms",
+    "tap@4705ms"
    ],
    "maxChargeHeld": 0,
    "dragging": false,
@@ -2597,7 +2591,8 @@
    "events": [
     "up1@0ms",
     "flick-@3105ms",
-    "down0@3105ms"
+    "down0@3105ms",
+    "tap@3105ms"
    ],
    "maxChargeHeld": 0,
    "dragging": false,
@@ -2620,7 +2615,8 @@
     "up2@0ms",
     "engage2@1019ms",
     "flick-@5105ms",
-    "down1@5105ms"
+    "down1@5105ms",
+    "tap@5105ms"
    ],
    "maxChargeHeld": 0,
    "dragging": false,
@@ -2647,7 +2643,8 @@
     "engage3@2071ms",
     "boom3@2739ms",
     "flick-@9155ms",
-    "down2@9155ms"
+    "down2@9155ms",
+    "tap@9155ms"
    ],
    "maxChargeHeld": 0,
    "dragging": false,
@@ -2675,7 +2672,8 @@
     "boom3@2739ms",
     "turbo1@9050ms",
     "flick-@12155ms",
-    "turbo-down0@12155ms"
+    "turbo-down0@12155ms",
+    "tap@12155ms"
    ],
    "maxChargeHeld": 0,
    "dragging": false,
@@ -2704,7 +2702,8 @@
     "boom3@1286ms",
     "turbo1@6050ms",
     "flick-@9155ms",
-    "turbo-down0@9155ms"
+    "turbo-down0@9155ms",
+    "tap@9155ms"
    ],
    "maxChargeHeld": 0,
    "dragging": false,
@@ -3671,7 +3670,7 @@
   },
   {
    "mode": "touch",
-   "gesture": "the lane: at its side, 85 px off, flies",
+   "gesture": "the lane: low on the right flies",
    "events": [],
    "maxChargeHeld": 0,
    "dragging": true,
@@ -3687,7 +3686,115 @@
   },
   {
    "mode": "touch",
-   "gesture": "the lane: 89 px off looks",
+   "gesture": "the lane: low on the left flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: under the bus and to the right, where it opens out, flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: beside the bus at its height, 100 px off, flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: beside the bus at its height, 112 px off on the right, looks",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": {
+    "from": 100,
+    "to": 217,
+    "max": 60
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": false,
+    "look": true,
+    "sx": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: beside the bus at its height, on the left, looks",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": {
+    "from": 100,
+    "to": 217,
+    "max": 60
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": false,
+    "look": true,
+    "sx": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: just under the bus, far out on the right, looks",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": {
+    "from": 100,
+    "to": 217,
+    "max": 60
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": false,
+    "look": true,
+    "sx": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: over the bus, out of the half disc, looks",
    "events": [],
    "maxChargeHeld": 0,
    "dragging": false,
@@ -3727,7 +3834,7 @@
   },
   {
    "mode": "touch",
-   "gesture": "the lane: the left looks",
+   "gesture": "the lane: the upper left looks",
    "events": [],
    "maxChargeHeld": 0,
    "dragging": false,
@@ -3747,7 +3854,7 @@
   },
   {
    "mode": "touch",
-   "gesture": "the lane: the right looks",
+   "gesture": "the lane: the upper right looks",
    "events": [],
    "maxChargeHeld": 0,
    "dragging": false,
@@ -3763,6 +3870,22 @@
     "thumb": false,
     "look": true,
     "sx": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: opening at once (laneOpen 0), just under the bus far out on the right flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
    }
   },
   {
@@ -3797,6 +3920,21 @@
   },
   {
    "mode": "touch",
+   "gesture": "the lane: a flick low on the right is a gear",
+   "events": [
+    "flick+@85ms",
+    "go@85ms",
+    "up1@85ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 1,
+   "level": 0
+  },
+  {
+   "mode": "touch",
    "gesture": "the lane: a tap out of it splats",
    "events": [
     "tap@90ms"
@@ -3807,6 +3945,98 @@
    "look": null,
    "gear": 0,
    "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: a tap low on the right splats",
+   "events": [
+    "tap@90ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: the bus under the screen, the bottom over it flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: the bus under the screen, low on the right flies",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": true,
+    "look": false,
+    "sx": 0.71
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: the bus under the screen, the sky looks",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": {
+    "from": 100,
+    "to": 217,
+    "max": 60
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "thumb": false,
+    "look": true,
+    "sx": 0
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the lane: the bus off the left edge, the lane hugs it: low on the left flies, the upper right looks",
+   "events": [],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": {
+    "from": 935,
+    "to": 1052,
+    "max": 60
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "low": {
+     "thumb": true,
+     "look": false,
+     "sx": 0.71
+    },
+    "up": {
+     "thumb": false,
+     "look": true,
+     "sx": 0
+    }
+   }
   },
   {
    "mode": "touch",
@@ -3827,6 +4057,99 @@
     "look": true,
     "sx": 0.45
    }
+  },
+  {
+   "mode": "touch",
+   "gesture": "lost tap: a tap just after a thumb that stays down to look fires",
+   "events": [
+    "tap@250ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": {
+    "from": 250,
+    "to": 685,
+    "max": 60
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "on": true
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "lost tap: a tap just before a thumb that lands beside it and stays down to look fires",
+   "events": [
+    "tap@200ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": {
+    "from": 167,
+    "to": 601,
+    "max": 60
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "on": true
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "lost tap: in the lane, a tap under the bus just after a thumb over it that looks fires",
+   "events": [
+    "tap@250ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": {
+    "from": 250,
+    "to": 685,
+    "max": 60
+   },
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "on": true
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "lost tap: a tap just after a thumb that rests fires once, when the rest is past a tap",
+   "events": [
+    "tap@451ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
+  },
+  {
+   "mode": "touch",
+   "gesture": "lost tap: a tap just after a thumb that flicks fires, and so does the flick",
+   "events": [
+    "tap@150ms",
+    "flick+@205ms",
+    "go@205ms",
+    "up1@205ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": {
+    "from": 150,
+    "to": 200,
+    "max": 59
+   },
+   "gear": 1,
+   "level": 0
   },
   {
    "mode": "touch",
