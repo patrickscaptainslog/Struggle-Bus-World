@@ -51,6 +51,17 @@ const G_LIMIT = 128 * 1024, R_LIMIT = 256 * 1024;
 const WATER = 2, PLAZA = 4;
 
 const man = JSON.parse(readFileSync(`${dir}/city.json`, 'utf8'));
+// the known exceptions, each a studio's call (GRAPHS.md, "Where the ground wins"), counted and not failed up to the
+// count and the worst a person read in a reviewed bake and wrote here: past either, a class fails. A map with no file
+// has none
+const knownPath = `${dataDir}/known.json`;
+const KNOWN = existsSync(knownPath) ? JSON.parse(readFileSync(knownPath, 'utf8')) : {};
+/** a known class against its cap: [ok, what it says] */
+const capOf = (name, n, worst) => {
+  const k = KNOWN[name] ?? { count: 0 };
+  const ok = n <= k.count && (worst === undefined || k.worstM === undefined || n === 0 || worst <= k.worstM);
+  return [ok, `at most ${k.count}${k.worstM !== undefined ? `, worst at most ${k.worstM} m` : ''} (${existsSync(knownPath) ? 'known.json' : 'no known.json: none'})`];
+};
 const results = [];
 let failed = 0;
 function report(name, value, limit, ok, note = '') {
@@ -790,7 +801,10 @@ report('tunnels that are UNDRAWN', c.tunnelUndrawn, '0', c.tunnelUndrawn === 0);
 const mw = c.kmByClass.motorway ?? 0, mu = c.undrawnKm.motorway ?? 0;
 report('UNDRAWN km by class', km(c.undrawnKm) || 'none', '', null, `motorway ${mw ? ((100 * mu) / mw).toFixed(0) : 0} % of ${mw.toFixed(1)} km (the audit's surface share: 68 %)`);
 report('land within 0.5 m of the grid', `${c.land} land nodes and ${c.steps} steps of 4 m or less along land edges, against the grid and never under the sea's surface; worst ${c.landWorst.toFixed(3)} m (${c.landWhere}); ${c.landOver} over; ${c.landNoTile} with no tile, at WATER_Y`, '0 over 0.5 m', c.landOver === 0);
-report('  where a drawn deck wins (known, not failures)', `${c.held} nodes where a ground way meets a drawn deck mid-span stand on its top${c.held ? ` (worst ${c.heldWorst.toFixed(1)} m over the grid: ${c.heldWhere})` : ''}, and ${c.heldSteps} steps of their ways climbing to it`, '', null);
+{
+  const [a, la] = capOf('heldNodes', c.held, c.heldWorst), [b, lb] = capOf('heldSteps', c.heldSteps);
+  report('  where a drawn deck wins (known)', `${c.held} nodes where a ground way meets a drawn deck mid-span stand on its top${c.held ? ` (worst ${c.heldWorst.toFixed(1)} m over the grid: ${c.heldWhere})` : ''}, and ${c.heldSteps} steps of their ways climbing to it`, `nodes ${la}; steps ${lb}`, a && b);
+}
 report('ground under the drawn water', `${c.underWater} land nodes and steps under WATER_Y on the sea${c.underWhere ? ` (first: ${c.underWhere})` : ''}`, '0', c.underWater === 0);
 report('water at WATER_Y, a lake at its height (C8)', `${c.water} water nodes and points, ${c.waterLake} of them on a lake; on the sea worst ${c.waterWorst.toFixed(4)} m off WATER_Y; ${c.waterOff} off by over 1 mm on the sea or 0.5 m from a lake's grid`, '0', c.waterOff === 0);
 report('ferries and water edges never under the water', `${c.afloat} nodes and points of FERRY and WATER edges, anywhere along them; ${c.afloatUnder} more than 1 mm under WATER_Y${c.afloatWhere ? ` (worst ${c.afloatWorst.toFixed(2)} m under: ${c.afloatWhere})` : ''}`, '0', c.afloatUnder === 0);
@@ -861,8 +875,10 @@ report('tunnels under the ground', `${c.tunnelPts} tunnel steps; ${c.tunnelOver}
     if (er > worst) { worst = er; where = at; }
   }
   const kn = (q, what) => `${q[0]} ${what}${q[0] ? ` (worst ${q[1].toFixed(1)} m: ${q[2]})` : ''}`;
-  report('sidewalks beside their carriageway', `${n} foot deck steps within 14 m of a road deck at their level; worst ${worst.toFixed(1)} m from the nearest in height${where ? ` (${where})` : ''}; ${over} over 1 m; ${other} riding a road beside them that isn't the nearest`, '0 over 1 m', over === 0);
-  report('  where the ground wins (known, not failures)', `${kn(known.feet, 'at their own feet on the ground')}; ${kn(known.held, 'held by the ground over their road')}`, '', null);
+  const [oo, lo] = capOf('otherRoad', other);
+  report('sidewalks beside their carriageway', `${n} foot deck steps within 14 m of a road deck at their level; worst ${worst.toFixed(1)} m from the nearest in height${where ? ` (${where})` : ''}; ${over} over 1 m; ${other} riding a road beside them that isn't the nearest`, `0 over 1 m; riding another ${lo}`, over === 0 && oo);
+  const [fa, la] = capOf('feet', known.feet[0], known.feet[1]), [ha, lh] = capOf('held', known.held[0], known.held[1]);
+  report('  where the ground wins (known)', `${kn(known.feet, 'at their own feet on the ground')}; ${kn(known.held, 'held by the ground over their road')}`, `feet ${la}; held ${lh}`, fa && ha);
 }
 report('stacked decks by level', `${c.stackPairs} pairs of deck points within 3 m of a higher level on another structure; ${c.inversions} where the higher isn't 0.1 m higher${c.inversionWhere ? ` (${c.inversionWhere})` : ''}; ${c.rampPairs} pairs on one structure, across its ramps, not checked`, '0', c.inversions === 0);
 report('ferries on water inside the map', `${c.ferrySamples} samples every 10 m, ${c.ferryExempt} within 150 m of a route's end; ${c.ferryOnLand} on land${c.ferryLandWhere ? ` (first: ${c.ferryLandWhere})` : ''}`, '0', c.ferryOnLand === 0);
