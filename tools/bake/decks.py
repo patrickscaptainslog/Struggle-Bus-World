@@ -3,19 +3,25 @@
 Written once, for life's graphs now (tools/bake/graphs.py) and for bridges step 5 later, so the two agree by construction.
 
 The rule, on a deck's samples (every 4 m or less along it, joined where the deck's pieces meet):
-  over water   1.5 m + 4.5 % of the crossing's water length, 1.5 to 80 m; land gaps up to 120 m stay one crossing
+  over water   1.5 m + 4.5 % of the crossing's water length, 1.5 to 80 m, over the water's surface: the sea's datum, 0,
+               or a lake's own height (a footbridge in Golden Gate Park stood 66 m under its lake from 0);
+               land gaps up to 120 m stay one crossing
   over land    the ground, smoothed, plus 5.5 m a level (a deck with no level is level 1)
   stacked      over water too, 5.5 m a level over level 1, so a lower deck stays under the top
   coming down  never faster than 3 % (road), 2 % (rail) or 6 % (foot)
   a free end   on the ground where a kept road or path meets it, coming up at 6 %, 3.5 % or 10 %
   crossing     a deck over another structure's lower one 5.5 m a level over it, one under a higher one as far under
                (Stacked: San Francisco's level-2 footbridge over a level-1 road came down to its steps under it)
+  fixed        heights the deck must take: a deck City draws (C2), a sidewalk riding its carriageway; the rule runs
+               on from them
+  the ground   never under it on land: a ramp from a free end at a hill's foot ran 79 m into the hill
 Not here: LiDAR (none on these decks tonight), and "never lower than 1 m over a building under it".
+Tunnels, under(): never over the ground, and 5.5 m a level under it away from their ends, going down at the end grade.
 
   from decks import profile, Stacked
   placed = Stacked()                                   # structures lowest level first
   lo, hi = placed.bounds(xs, zs, level)
-  y = profile(ground, water, level, grade, links, anchors, lo, hi)
+  y = profile(ground, water, level, grade, links, anchors, lo, hi, base, fixed)
   placed.add(xs, zs, level, y)
 """
 import heapq
@@ -51,17 +57,24 @@ class _Union:
             self.p[max(a, b)] = min(a, b)
 
 
-def profile(ground, water, level, grade, links, anchors, floor=None, cap=None):
+def profile(ground, water, level, grade, links, anchors, floor=None, cap=None, base=None, fixed=None):
     """Heights (m) for n samples of one deck component.
     ground: n floats, the ground's height there (any value where water); water: n bools; level: n ints (Overture's
     level_rules, 0 none); grade: n ints, the grade class (0 road, 1 rail, 2 foot); links: (i, j, metres) between
     neighbouring samples; anchors: {i: height}, the ends that stand on the ground. floor, cap: n floats or None, the
     heights another structure crossing here leaves it (stacked(), below): over a lower deck at least 5.5 m a level
-    up, under a higher one as far down; they win over the rule, but not over an anchor. Returns n floats."""
+    up, under a higher one as far down; they win over the rule, but not over an anchor. base: n floats or None, the
+    water's surface under each water sample (0 the sea, a lake's height), a crossing over its highest. fixed: {i:
+    height} or None, heights the deck takes (a drawn deck's top): the rule comes down from them, never moves them, and
+    an anchor still wins. On land the deck is never under the ground. Returns n floats."""
     n = len(ground)
     ground = np.asarray(ground, float)
     water = np.asarray(water, bool)
     lv = np.maximum(np.asarray(level, int), 1)
+    fixed = fixed or {}
+    pinned = np.zeros(n, bool)
+    for i in fixed:
+        pinned[i] = True
     nb = [[] for _ in range(n)]
     for i, j, d in links:
         nb[i].append((j, d))
@@ -94,6 +107,11 @@ def profile(ground, water, level, grade, links, anchors, floor=None, cap=None):
         if share:
             r = u.find(i if water[i] else j)
             wet_len[r] = wet_len.get(r, 0.0) + d * share
+    wet_base = {}
+    if base is not None:
+        for i in np.nonzero(water)[0]:
+            r = u.find(int(i))
+            wet_base[r] = max(wet_base.get(r, -np.inf), float(base[i]))
     # the ground, smoothed along the deck: a mean over the samples within SMOOTH_M by the deck's own links
     g = ground.copy()
     if (~water).any():
@@ -122,9 +140,12 @@ def profile(ground, water, level, grade, links, anchors, floor=None, cap=None):
     h = np.empty(n)
     for i in range(n):
         if water[i]:
-            h[i] = water_rise(wet_len.get(u.find(i), 0.0)) + LEVEL_M * (lv[i] - 1)
+            r = u.find(i)
+            h[i] = wet_base.get(r, 0.0) + water_rise(wet_len.get(r, 0.0)) + LEVEL_M * (lv[i] - 1)
         else:
             h[i] = g[i] + LEVEL_M * lv[i]
+    for i, y in fixed.items():
+        h[i] = y
     # coming down no faster than the grade: every sample at least its neighbour's height less the grade times the way
     down = np.array([GRADE_DOWN[c] for c in grade]) if n else np.zeros(0)
     todo = [(-h[i], i) for i in range(n)]
@@ -135,7 +156,7 @@ def profile(ground, water, level, grade, links, anchors, floor=None, cap=None):
             continue
         for b, d in nb[a]:
             c = h[a] - min(down[a], down[b]) * d
-            if c > h[b] + 1e-9:
+            if c > h[b] + 1e-9 and not pinned[b]:
                 h[b] = c
                 heapq.heappush(todo, (-c, b))
     # free ends on the ground, the deck coming up from them no steeper than the end's grade
@@ -156,14 +177,47 @@ def profile(ground, water, level, grade, links, anchors, floor=None, cap=None):
                 if c < ramp[b] - 1e-9:
                     ramp[b] = c
                     heapq.heappush(todo, (c, b))
-        h = np.minimum(h, ramp)
+        h = np.where(pinned, h, np.minimum(h, ramp))
     if floor is not None:
-        h = np.maximum(h, floor)
+        h = np.where(pinned, h, np.maximum(h, floor))
     if cap is not None:
-        h = np.minimum(h, cap)
+        h = np.where(pinned, h, np.minimum(h, cap))
+    # never under the ground on land: a ramp's grade from a free end at a hill's foot, or a cap, would put it inside
+    h = np.where(water | pinned, h, np.maximum(h, ground))
     for i, y in (anchors or {}).items():
         h[i] = y
     return h
+
+
+def under(ground, level, grade, links, anchors):
+    """The highest a tunnel's samples may stand: never over the ground (the sea's or a lake's bed where wet), and
+    LEVEL_M a level under it (a covered way at level 0: at it) away from the ends it stands on, going down from each at
+    the end grade (6 %, 3.5 % or 10 %). A straight line between two portals ran 48 m over the Bay. Returns n floats."""
+    n = len(ground)
+    ground = np.asarray(ground, float)
+    depth = LEVEL_M * np.maximum(0, -np.asarray(level, int))
+    up = np.array([GRADE_END[c] for c in grade]) if n else np.zeros(0)
+    nb = [[] for _ in range(n)]
+    for i, j, d in links:
+        nb[i].append((j, d))
+        nb[j].append((i, d))
+    # how far down it can be at each sample: the end grade times the way from the nearest end, at most its depth
+    reach = np.full(n, np.inf)
+    todo = []
+    for i in anchors:
+        reach[i] = 0.0
+        todo.append((0.0, i))
+    heapq.heapify(todo)
+    while todo:
+        c0, a = heapq.heappop(todo)
+        if c0 > reach[a] + 1e-9:
+            continue
+        for b, d in nb[a]:
+            c = reach[a] + min(up[a], up[b]) * d
+            if c < reach[b] - 1e-9:
+                reach[b] = c
+                heapq.heappush(todo, (c, b))
+    return ground - np.minimum(depth, reach)
 
 
 class Stacked:
