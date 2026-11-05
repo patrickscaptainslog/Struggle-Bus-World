@@ -8,6 +8,7 @@ shots/blast
 tools/feel-sim/.out
 tools/controls-sim/.out
 tools/moon/.out
+tools/world/.out
 tools/bake/.data
 .vercel
 .env*
