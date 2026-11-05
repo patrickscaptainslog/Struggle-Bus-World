@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { config } from '../config';
 import { SHADOW_LAYER, makeRampMaterial, globals } from '../render/materials';
-import { heldHour } from '../sky/flag';
+import { byHour, skyOn } from '../sky/flag';
 import { Ramp } from '../render/palette';
 import { makeBuildingMaterial, paintUniforms } from './buildingMaterial';
 import { makeHeightGrid, makeTerrainMaterial, makeWaterMaterial } from './terrainMaterial';
@@ -271,9 +271,9 @@ function farGridMesh(pos: Float32Array, nrm: Float32Array, ramp: Float32Array, l
  * contour saws into teeth a cell wide; interpolated, it passes through ramps nobody chose. 37: buildHorizon's mesh stands 3 m under the DEM.
  */
 /** The held hour's plain far ground, what stands in with no raster: the day's tone would be a sheet of light beside the city. */
-const heldFarLo = { get value() { return config.sky.far ? config.sky.farGroundLo : 0; } };
+const heldFarLo = { get value() { return byHour(0, config.sky.farGroundLo, config.sky.far); } };
 
-const makeHorizonMaterial = () => makeRampMaterial({ vertexRamp: true, shadowMul: 0, rampAbove: { y: 37, below: Ramp.GREY_LIGHT, above: heldHour ? Ramp.RIDGE : Ramp.GREEN_GREY } });
+const makeHorizonMaterial = () => makeRampMaterial({ vertexRamp: true, shadowMul: 0, rampAbove: { y: 37, below: Ramp.GREY_LIGHT, above: skyOn ? Ramp.RIDGE : Ramp.GREEN_GREY } });
 
 // Shader warm-up (render/warmup.ts): one of every mesh streaming makes later, made by the same
 // functions: a building tile (its vertex layout from the worker's mesher), a tile's own ground (and
@@ -880,7 +880,7 @@ export class City {
     const maskSize = new THREE.Vector2(this.maskW, this.maskH);
     const ground = raster && tex ? makeFarGroundMaterial(raster, tex, this.loadedMask, maskRect, maskSize) : undefined;
     const mesh = farGridMesh(pos, nrm, ramp, lo, gl, new THREE.BufferAttribute(idx, 1), 1, ground);
-    if (heldHour && !ground) (mesh.material as THREE.ShaderMaterial).uniforms.uLightOffset = heldFarLo;
+    if (skyOn && !ground) (mesh.material as THREE.ShaderMaterial).uniforms.uLightOffset = heldFarLo;
     this.farGroup.add(mesh);
     this.farMeshes = [mesh];
 
@@ -2140,21 +2140,33 @@ export class City {
       }
   }
 
-  /** Tallest roof, tree or ground at a point, without the landmark posts and bridge decks (what a breath lands on). */
-  surfaceAt(x: number, z: number): number {
+  /** Tallest roof, tree or ground at a point, without the landmark posts and bridge decks (what a breath lands on).
+   * Seen from fromY (m ASL; default from above): a bridge's deck wholly above it is overhead, not under the breath. */
+  surfaceAt(x: number, z: number, fromY = Infinity): number {
     // (and a landmark's real surface: a breath lands on the pyramid's slope, not on its collision post)
-    return this.landmarks.length ? Math.max(this.baseObstacleAt(x, z), this.landmarkSurfaceAt(x, z)) : this.baseObstacleAt(x, z);
+    return this.landmarks.length ? Math.max(this.baseObstacleAt(x, z), this.landmarkSurfaceAt(x, z, fromY)) : this.baseObstacleAt(x, z);
   }
 
-  /** The highest landmark surface over (x, z), or -Infinity (no allocation). */
-  landmarkSurfaceAt(x: number, z: number): number {
+  /** The highest landmark surface over (x, z), seen from fromY (see surfaceAt), or -Infinity (no allocation). */
+  landmarkSurfaceAt(x: number, z: number, fromY = Infinity): number {
     let y = -Infinity;
     for (const lm of this.landmarks) {
-      if (x < lm.x0 || x > lm.x1 || z < lm.z0 || z > lm.z1 || !ringContains(lm.ref.tile, 0, x, z)) continue;
-      const h = lm.heightAt ? lm.heightAt(x, z) : lm.ref.roofY;
-      if (h > y) y = h;
+      if (x < lm.x0 || x > lm.x1 || z < lm.z0 || z > lm.z1) continue;
+      // (its own surface before its ring: most points in a bridge's long bounds are open water)
+      const h = lm.heightAt ? lm.heightAt(x, z, fromY) : lm.ref.roofY;
+      if (h > y && ringContains(lm.ref.tile, 0, x, z)) y = h;
     }
     return y;
+  }
+
+  /**
+   * Is ref a landmark standing wholly above fromY where a shot from (x, z) at it would land (its own overhead: a
+   * bridge's deck over a bus under it)? What a breath from under a deck never lands on. No allocation.
+   */
+  lmOverhead(ref: BuildingRef, x: number, z: number, fromY: number): boolean {
+    if (fromY >= ref.roofY || ref.index < this.manifest.buildingCount) return false;
+    const lm = this.landmarks[ref.index - this.manifest.buildingCount];
+    return !!lm?.overhead && lm.overhead(x, z, fromY);
   }
 
   /**
@@ -2241,7 +2253,7 @@ export class City {
     };
     // (bounds + reach as a baked ref's: it lives in the area index, where every aim, pick and blast query looks)
     const ref: BuildingRef = { index, stableId: -1 - k, tile, local: 0, parts: 1, top: 0, cx, cz, baseY: lb.baseY, roofY: lb.roofY, roofBuild: one(Uint8Array, 0), area: Math.abs(area) / 2, hood, x0, z0, x1, z1, rad, q: 0 };
-    this.landmarks.push({ ref, x0, z0, x1, z1, rad, heightAt: lb.heightAt ?? null });
+    this.landmarks.push({ ref, x0, z0, x1, z1, rad, heightAt: lb.heightAt ?? null, overhead: lb.overhead ?? null });
     this.indexRef(ref);
     this.paint.register(index, lb.key);
     return ref;
@@ -2322,10 +2334,11 @@ export class City {
     return out;
   }
 
-  /** Roof height at (x, z) of the building whose footprint contains it (its part there), or null (no allocation, no sort). */
-  roofAt(x: number, z: number): number | null {
-    const ref = this.buildingAt(x, z);
-    return ref ? this.roofAtPart(ref, x, z) : null;
+  /** Roof height at (x, z) of the building whose footprint contains it (its part there), or null (no allocation, no sort).
+   * Seen from fromY (see surfaceAt): a bridge's deck wholly above it is no roof there. */
+  roofAt(x: number, z: number, fromY = Infinity): number | null {
+    const ref = this.buildingAt(x, z, fromY);
+    return ref ? this.roofAtPart(ref, x, z, fromY) : null;
   }
 
   /** Add (or remove) a ref in every area-index cell its footprint bounds overlap. */
@@ -2352,13 +2365,16 @@ export class City {
    * footprints overlap: a LiDAR tower over a lot the footprint data still has), or null. One cell lookup.
    * A landmark ranks by its surface right there, not its top: between Sutro's legs the transmitter
    * building's roof wins over the 298 m tower whose hull holds it. */
-  buildingAt(x: number, z: number): BuildingRef | null {
+  buildingAt(x: number, z: number, fromY = Infinity): BuildingRef | null {
     const list = this.areaHash.get(this.hashKey(x, z));
     if (!list) return null;
     let best: BuildingRef | null = null, by = -Infinity;
     for (const r of list) {
       if (x < r.x0 || x > r.x1 || z < r.z0 || z > r.z1) continue;
-      const y = r.index >= this.manifest.buildingCount ? this.ownTop(r, x, z) : r.roofY;
+      // (seen from fromY: a deck overhead is no building here)
+      const lm = r.index >= this.manifest.buildingCount;
+      if (lm && this.lmOverhead(r, x, z, fromY)) continue;
+      const y = lm ? this.ownTop(r, x, z, fromY) : r.roofY;
       if ((!best || y > by) && this.contains(r, x, z)) {
         best = r;
         by = y;
@@ -2368,8 +2384,9 @@ export class City {
   }
 
   /** A building whose roof right at (x, z) stands above y (the tallest), or null: the line-of-fire test.
-   * Buildings whose top is below y are skipped before any ring test (most of them, near the rooftops). */
-  buildingAbove(x: number, z: number, y: number): BuildingRef | null {
+   * Buildings whose top is below y are skipped before any ring test (most of them, near the rooftops).
+   * A landmark by its surface seen from fromY (a line of fire under a deck passes under it). */
+  buildingAbove(x: number, z: number, y: number, fromY = Infinity): BuildingRef | null {
     const list = this.areaHash.get(this.hashKey(x, z));
     if (!list) return null;
     let best: BuildingRef | null = null, by = y;
@@ -2377,7 +2394,7 @@ export class City {
       if (r.roofY <= by || x < r.x0 || x > r.x1 || z < r.z0 || z > r.z1) continue;
       if (!this.contains(r, x, z)) continue;
       // (a landmark by its own surface: nothing of Sutro stands in the line of fire between its legs)
-      const ry = r.index >= this.manifest.buildingCount ? this.ownTop(r, x, z) : this.roofAtPart(r, x, z);
+      const ry = r.index >= this.manifest.buildingCount ? this.ownTop(r, x, z, fromY) : this.roofAtPart(r, x, z);
       if (ry > by) {
         by = ry;
         best = r;
@@ -2406,9 +2423,10 @@ export class City {
    * The building nearest to (x, z) by true footprint distance (0 inside: the tallest containing one),
    * within r, or null; buildings lower than minHeight (sheds, slivers) are skipped. Sets nearestDist.
    * Uses the area index: big footprints count by their edge, never by a far-away centroid. No allocation.
+   * Seen from fromY: a landmark overhead there (a deck over a bus under it) is skipped.
    */
-  nearestBuilding(x: number, z: number, r: number, minHeight = 0): BuildingRef | null {
-    const inside = this.buildingAt(x, z);
+  nearestBuilding(x: number, z: number, r: number, minHeight = 0, fromY = Infinity): BuildingRef | null {
+    const inside = this.buildingAt(x, z, fromY);
     if (inside && inside.roofY - inside.baseY >= minHeight) {
       this.nearestDist = 0;
       return inside;
@@ -2427,7 +2445,7 @@ export class City {
           ref.q = stamp;
           // bounds first: most refs in reach are culled without touching their rings
           const bx = Math.max(ref.x0 - x, 0, x - ref.x1), bz = Math.max(ref.z0 - z, 0, z - ref.z1);
-          if (bx * bx + bz * bz > bd * bd || ref.roofY - ref.baseY < minHeight) continue;
+          if (bx * bx + bz * bz > bd * bd || ref.roofY - ref.baseY < minHeight || this.lmOverhead(ref, x, z, fromY)) continue;
           const d = this.edgeDistance(ref, x, z);
           if (d < bd || (d === bd && best && ref.roofY > best.roofY)) {
             bd = d;
@@ -2514,25 +2532,26 @@ export class City {
   }
 
   /** A landmark's own surface over (x, z) (m ASL): its height field inside its ring (its top without one),
-   * -Infinity outside it or where nothing of it stands (between Sutro's legs). What it is ranked by. */
-  private ownTop(ref: BuildingRef, x: number, z: number): number {
+   * -Infinity outside it or where nothing of it stands (between Sutro's legs; under a deck, seen from fromY). What it is ranked by. */
+  private ownTop(ref: BuildingRef, x: number, z: number, fromY = Infinity): number {
     const lm = this.landmarks[ref.index - this.manifest.buildingCount];
     if (!lm || !ringContains(ref.tile, 0, x, z)) return -Infinity;
     if (!lm.heightAt) return ref.roofY;
-    const h = lm.heightAt(x, z);
+    const h = lm.heightAt(x, z, fromY);
     return h > -Infinity ? Math.max(ref.baseY, h) : -Infinity;
   }
 
   /** Roof height of ref right at (x, z): the highest of its parts covering the point (a tiered
    * tower's podium roof is not the top of its tower; a mapped roof's slope where the point is, as drawn),
-   * or ref.roofY if none does. No allocation (the aim calls it every frame). */
-  roofAtPart(ref: BuildingRef, x: number, z: number): number {
+   * or ref.roofY if none does. No allocation (the aim calls it every frame). A landmark seen from fromY (see surfaceAt). */
+  roofAtPart(ref: BuildingRef, x: number, z: number, fromY = Infinity): number {
     if (ref.index >= this.manifest.buildingCount) {
       // a landmark: its real surface (a pyramid's slope, not its spire's top); where nothing of it stands
-      // (between Sutro's legs) a breath comes down on what is there: a roof, a tree crown, the ground
+      // (between Sutro's legs; under a deck, seen from below it) a breath comes down on what is there: a roof, a
+      // tree crown, the ground, the water
       const lm = this.landmarks[ref.index - this.manifest.buildingCount];
       if (!lm?.heightAt || !ringContains(ref.tile, 0, x, z)) return ref.roofY;
-      const h = lm.heightAt(x, z);
+      const h = lm.heightAt(x, z, fromY);
       return h > -Infinity ? Math.max(ref.baseY, h) : this.baseObstacleAt(x, z);
     }
     const b = ref.tile, kinds = ref.roofBuild;
@@ -2757,8 +2776,11 @@ export interface LandmarkBuilding {
   arch?: number;
   /** what the street sign says when it is hit (default: the neighborhood it stands in) */
   name?: string;
-  /** its surface height (m ASL) over a point inside the ring (what a breath lands on), default roofY */
-  heightAt?: (x: number, z: number) => number;
+  /** its surface height (m ASL) over a point inside the ring (what a breath lands on), default roofY; seen from
+   * fromY when it has an underside (a bridge's deck: what stands wholly above fromY is overhead, -Infinity there) */
+  heightAt?: (x: number, z: number, fromY?: number) => number;
+  /** it stands wholly above fromY where a shot from (x, z) at it would land (the open air under a deck); default never */
+  overhead?: (x: number, z: number, fromY: number) => boolean;
 }
 
 interface LandmarkRec {
@@ -2769,5 +2791,6 @@ interface LandmarkRec {
   x1: number;
   z1: number;
   rad: number;
-  heightAt: ((x: number, z: number) => number) | null;
+  heightAt: ((x: number, z: number, fromY?: number) => number) | null;
+  overhead: ((x: number, z: number, fromY: number) => boolean) | null;
 }

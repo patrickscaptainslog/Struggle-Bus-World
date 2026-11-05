@@ -22,3 +22,5 @@ Built by `tools/moon/bake-moon.py` from files already on disk: cut down and quan
 | the albedo (`moon.bin`, above) | NASA SVS CGI Moon Kit, from the LROC mosaics | Credit LROC Team, Arizona State University; Wagner et al. 2015 |
 
 `tools/sky/line-stars.json`, the crosswalk from the figures' Hipparcos numbers to Yale's, was read out of HYG v4.1 (CC BY-SA): review it with `lines.bin`.
+
+On the street (main, since 6b494b7): it reads `moon.bin` box-filtered to a quarter of its size, and the planets come from JPL's Keplerian elements in `src/sky/series.gen.js` (no file of their own).

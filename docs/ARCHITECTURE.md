@@ -568,6 +568,9 @@ program, no shader source that differs by a byte, so every line of GLSL the hour
   `farLights`. All of them off under `?hour=blue` draws main's frames, exactly. The numbers below them are the one hour held.
 - **A table** (`src/sky/SkyTable.ts`, `BLUE_TABLE`): one colour per (ramp, step) for the whole frame. Every ramp runs dark to light, sky rows too. FOG is the haze there, its step 4 the
   far side's horizon; the sky takes SKY_LOW. `HeldHour.update()` writes it into the palette texture when a switch moves, and runs at the end of `updateSun()` every frame.
+  The live sky blends eight (`TableBlend`; noon, morning, golden, sunset and dawn in `SkyTables.ts`, written by `tools/sky/tables.py`): by the Sun's height, setting and rising
+  crossed by its hour angle, in OKLCH by the short arc with the brown clamp, into the palette when the Sun has moved 0.05 degrees. The hour comes up as a weight
+  (`flag.ts` `hourK`, `byHour`): what read `hourUp()` as a switch reads its number lerped from the day's.
 - **Light.** The afterglow: the sun's azimuth held at +8 degrees, `uLight` mid-range (a .34, b .20, k .20), the sun pass off, the table carrying the dark. `sunR`, the windows' glint and
   the water's swell take `uLight.x / 0.52`.
 - **Sky** (`src/render/skyResolve.ts`): 16 bands in four rows of the live table (`uSkyRows`), by the clear flag. The far side at height a reads as the sun side at 8.2 + 8.2 sqrt(a + .5), so
@@ -768,7 +771,10 @@ vista snap compensation (the contrail stays with the bus up high).
 `lookZone`, 42 %, of the width, the right with SWAP) never flies; anywhere else the first thumb flies. A second thumb, which is any
 thumb in the zone, alone or not, or any thumb landing while one flies, looks, flicks gears and taps on its lift. Two thumbs in
 any order: the one in the zone looks and the other flies. A lone fresh stroke out of the zone that lifts fast is a flick too, on
-a firmer rule, because it steers until the lift; nothing on screen teaches or shows a gear but a moment's readout.
+a firmer rule, because it steers until the lift; nothing on screen teaches or shows a gear but a moment's readout. With the bus's
+lane on (`busZone`, which main.ts sets each frame from where the bus stands on the screen) the zone is everywhere but the lane: a
+half disc `laneHalf` (0.27 of the width) round the bus over its line, and from its line down a funnel that is the whole width
+`laneOpen` (0.25 of the height) under it, kept on the screen.
 
 **The input contract** (`src/game/Input.ts`):
 - `onTap(): void` a tap: a normal dragon-breath splat. A still press up to `inputTune.stillTapMs` (450 ms) on the
@@ -791,8 +797,10 @@ a firmer rule, because it steers until the lift; nothing on screen teaches or sh
   and the next landing out of the zone flies), `Orphan` (swallowed by three fingers). `swapped` (BUTTONS: SWAP) moves the look zone.
 - HUD hooks: `splatButton(down, cancelled?, eventTimeMs?)` (MEGA), `adoptThumb(e, keepPress, x0, y0, t0)` (MEGA's finger
   becomes the flying thumb; a look thumb stays what it is), `adoptedMove/Up` (its events if capture didn't move).
-- The opening (`main.ts` with `Controls`): `controls.gearsLocked` (`Shifter.locked`) and `controls.opening`, set per frame, queue a
-  gear until the bus clears the gate and drive the first run. Nothing else holds the opening. `controls.frozen` is QA's: dt 0.
+- The opening (`main.ts` with `Controls`): `controls.gearsLocked` (`Shifter.locked`), `input.lookOff` with it, and `controls.opening`,
+  set when the Controls are made and then per frame, queue a gear while the gate is shut and drive the first run. The gate is along the
+  heading from the Golden Gate's gap: shut under `openingClimbAfter` (230 m), and once open shut again only under the low shot's line
+  (`OPENING_LOW_ALONG`, 180 m). Nothing else holds the opening. `controls.frozen` is QA's: dt 0.
 
 **Flicks** (`src/game/Shifter.ts`, no DOM): `flick(dir, flew)`, `tick()` per frame, `armed`, `onAnswer('go' | 'gated' | 'back')`. One flick is one
 rung, at once: `TurboDrive.rung(dir, flight)`, answered the same moment; past the top LOCKED is its own answer. Under the gate a flick up

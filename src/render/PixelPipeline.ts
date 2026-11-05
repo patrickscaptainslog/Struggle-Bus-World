@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { config } from '../config';
-import { globals, GLSL_G_READ, GLSL_LAYER_TOP, GLSL_SKY_LIGHT, SHADOW_LAYER } from './materials';
+import { globals, heldGlobals, GLSL_G_READ, GLSL_LAYER_TOP, GLSL_SKY_LIGHT, SHADOW_LAYER } from './materials';
 import { HUE_RAMPS, makePaletteTexture, Ramp } from './palette';
-import { earthFly, held, heldHour, heldOr, moonLow, moonrun, space } from '../sky/flag';
-import { GLSL_SKY_HELD, GLSL_SKY_HELD_UNIFORMS, GLSL_SPACE, GLSL_SPACE_UNIFORMS, heldResolveUniforms, spaceResolveUniforms } from './skyResolve';
+import { earthFly, held, heldOr, moonLow, moonrun, skyLive, skyOn, space } from '../sky/flag';
+import { GLSL_SKY_HELD, GLSL_SKY_HELD_UNIFORMS, GLSL_SKY_MOON, GLSL_SKY_STARS, GLSL_SPACE, GLSL_SPACE_UNIFORMS, GLSL_SUN_DISC, heldResolveUniforms, spaceResolveUniforms, sunDisc } from './skyResolve';
 import type { WarmPipeline } from './warmup';
 
 // Low-res 3D pixel-art renderer.
@@ -103,7 +103,14 @@ export class PixelPipeline implements WarmPipeline {
    * The depth at and past which geometry still turns to sky. The sky is the clear flag (see RESOLVE_FS); this is the old
    * test's distance, kept so that frames don't change until the far fade takes it away (setFar: over 1, never).
    */
-  private skyCut = heldHour ? 2 : 0.99999;
+  private skyCut = skyOn ? 2 : 0.99999;
+  /** The live sky's key (SKY.md 2, uKeyDir), true, moved on its tick: the sun pass looks down it. Without the live sky the pass reads uSunDir, as it always has. */
+  readonly keyDir = new THREE.Vector3(0, 1, 0);
+  /** The live sky's Sun on its disc: angular radius (rad), and the ring's row (under 0: no disc). */
+  sunRad = 0;
+  sunRing = -1;
+  /** The live sky's Moon and stars (sky/StreetSky.ts), from the camera the buffer is drawn with, W x H the buffer: once a frame. */
+  skyBodies: ((cam: THREE.PerspectiveCamera, W: number, H: number) => void) | null = null;
   /** impact flash: rendered frames left, and (buffer uv x, y, strength, radius) */
   private flashLeft = 0;
   private readonly flashU = new THREE.Vector4();
@@ -193,7 +200,7 @@ export class PixelPipeline implements WarmPipeline {
         uHeroCircle: { value: new THREE.Vector4() },
         uFlash: { value: new THREE.Vector4() },
         uSkyCut: { value: this.skyCut },
-        ...(heldHour ? heldResolveUniforms : {}),
+        ...(skyOn ? heldResolveUniforms : {}),
         ...(moonrun || moonLow || earthFly ? spaceResolveUniforms : {}),
       },
       vertexShader: QUAD_VS,
@@ -495,7 +502,7 @@ export class PixelPipeline implements WarmPipeline {
       globals.uShadowOn.value = 0;
       return;
     }
-    const sun = globals.uSunDir.value;
+    const sun = this.passDir;
     // a wider window up high, in 1/8-octave steps so the texel grid holds still between steps
     const steps = Math.round(Math.log2(Math.max(0.25, this.shadowScale)) * 8) / 8;
     const ext = config.render.shadowExtent * Math.pow(2, steps);
@@ -505,16 +512,21 @@ export class PixelPipeline implements WarmPipeline {
     sc.top = ext / 2;
     sc.bottom = -ext / 2;
     sc.near = 1;
-    sc.far = 3000;
+    // (the live sky's low sun: the window's casters stand farther up the ray, research-render.md 2.3; at 19 degrees and up it is today's 1,400 m)
+    const D = skyLive ? Math.min(6000, Math.max(1400, (0.55 * ext) / Math.max(0.01, Math.tan(Math.asin(Math.min(1, sun.y)))) + 300)) : 1400;
+    sc.far = skyLive ? 2 * D + 600 : 3000;
+    if (skyLive) heldGlobals.uShadowBias.value = 2.7 / (sc.far - sc.near);
     const center = this.sunCenter.copy(this.shadowFocusOn ? this.shadowFocus : this.focus);
     // shift the shadow window forward along the view so more of what's visible is covered
     const fwd = this.sunFwd;
     this.camera.getWorldDirection(fwd);
     fwd.y = 0;
     if (fwd.lengthSq() > 1e-6) center.addScaledVector(fwd.normalize(), ext * 0.22);
-    sc.position.copy(center).addScaledVector(sun, 1400);
+    sc.position.copy(center).addScaledVector(sun, D);
     sc.up.set(0, 1, 0);
-    if (Math.abs(sun.y) > 0.99) sc.up.set(0, 0, 1);
+    // (a real sun reaches 82 degrees and over, where this up would turn the texel lattice in one frame: north never meets a sun the pass runs for)
+    if (skyLive) sc.up.set(0, 0, -1);
+    else if (Math.abs(sun.y) > 0.99) sc.up.set(0, 0, 1);
     sc.lookAt(center);
     sc.updateMatrixWorld();
     // snap to shadow texel grid in light space to stop shadow-edge crawl
@@ -574,7 +586,7 @@ export class PixelPipeline implements WarmPipeline {
    */
   private cullCasters(scene: THREE.Scene, center: THREE.Vector3, ext: number) {
     const cc = this.cullCam, sn = this.snapCam;
-    const sy = Math.max(0.1, globals.uSunDir.value.y);
+    const sy = Math.max(skyLive ? 0.02 : 0.1, this.passDir.y);
     const reach = 0.5 * ext * Math.sqrt(1 + 1 / (sy * sy));
     cc.fov = sn.fov;
     cc.aspect = sn.aspect;
@@ -592,8 +604,8 @@ export class PixelPipeline implements WarmPipeline {
     const bs = (o as THREE.Mesh).geometry.boundingSphere;
     if (!bs) return;
     const s = this.cullSphere.copy(bs).applyMatrix4(o.matrixWorld);
-    const sun = globals.uSunDir.value;
-    const L = (2 * s.radius) / Math.max(0.1, sun.y);
+    const sun = this.passDir;
+    const L = (2 * s.radius) / Math.max(skyLive ? 0.02 : 0.1, sun.y);
     const b = this.cullBox.setFromCenterAndSize(s.center, this.cullSize.setScalar(2 * s.radius));
     this.cullBox2.copy(b).translate(this.cullOff.copy(sun).multiplyScalar(-L));
     b.union(this.cullBox2);
@@ -601,6 +613,11 @@ export class PixelPipeline implements WarmPipeline {
     o.visible = false;
     this.culled.push(o);
   };
+
+  /** What the sun pass looks down: the live sky's true key, or the one light vector. */
+  private get passDir(): THREE.Vector3 {
+    return skyLive ? this.keyDir : globals.uSunDir.value;
+  }
 
   /** Walk the scene's cull roots (top-level children marked `userData.cullRoot`; the whole scene if none is). */
   private visitCullRoots(scene: THREE.Scene, visit: (o: THREE.Object3D) => void) {
@@ -652,6 +669,8 @@ export class PixelPipeline implements WarmPipeline {
     ru.uInvProj.value.copy(this.snapCam.projectionMatrixInverse);
     ru.uCamWorld.value.copy(this.snapCam.matrixWorld);
     ru.uCamPos.value.copy(this.snapCam.position);
+    if (skyLive) sunDisc(this.snapCam, heldGlobals.uSkySunDir.value, this.sunRad, this.sunRing, this.gbuf.width, this.gbuf.height, ru.uSkySunDisc.value);
+    if (skyLive) this.skyBodies?.(this.snapCam, this.gbuf.width, this.gbuf.height);
     ru.uCalm.value = Math.min(1, Math.max(0, this.calm));
     ru.uDitherWidth.value = config.render.ditherWidth;
     ru.uHaze.value.set(config.render.ditherHazeFrom, Math.max(config.render.ditherHazeFrom + 0.01, config.render.ditherHazeTo), Math.max(0.004, config.render.fogBandMin), config.render.fogSliver);
@@ -917,13 +936,15 @@ vec3 worldDir(vec2 uv) {
 // behind them. Returns the continuous light level; the caller quantizes.
 // (materials.ts GLSL_SKY_LIGHT: the tower facades mirror the same function)
 ${GLSL_SKY_LIGHT}
-float skyLight(vec3 dir) { return sbSkyLight(dir, uSunDir, uCalm); }
-float skyWarm(vec3 dir) {
-  vec3 sunFlat = normalize(vec3(uSunDir.x, 0.0, uSunDir.z));
+float skyLight(vec3 dir) { return sbSkyLight(dir, ${heldOr('uSkySunDir', 'uSunDir')}, uCalm); }
+float skyWarm(vec3 dir) {${heldOr(`
+  // (the sky's own Sun; its azimuth has no length at the zenith, 89.9 degrees at Lagos, and the band is a low sun's: uSkyWarm)
+  vec3 sunFlat = vec3(uSkySunDir.x, 0.0, uSkySunDir.z) / max(length(uSkySunDir.xz), 1e-4);`, `
+  vec3 sunFlat = normalize(vec3(uSunDir.x, 0.0, uSunDir.z));`)}
   vec3 dirFlat = normalize(vec3(dir.x, 0.0001, dir.z));
-  float az = pow(max(dot(dirFlat, sunFlat), 0.0), 4.0);
+  float az = pow(max(dot(dirFlat, sunFlat), 0.0), 4.0)${held(' * uSkyWarm.x')};
   float e = clamp(dir.y * 2.6, 0.0, 1.0);
-  return az * (1.0 - e) + pow(max(dot(dir, uSunDir), 0.0), 20.0);
+  return az * (1.0 - e) + pow(max(dot(dir, ${heldOr('uSkySunDir', 'uSunDir')}), 0.0), 20.0);
 }
 
 // The top of the marine layer seen from above: where the view ray enters the
@@ -947,8 +968,8 @@ vec2 seaShade(vec3 dir, float sl) {
   // a soft, bright top: lit billows near white, their lee a cool mid grey
   float l = 0.8 + 0.8 * (ndl - uSunDir.y) + 0.05 * pow(max(dot(dir, uSunDir), 0.0), 8.0);
   // warm light on the sunward billows, seen when looking toward the low sun (a broad glow, not spots)
-  float toSun = max(dot(normalize(vec3(dir.x, 0.0, dir.z)), normalize(vec3(uSunDir.x, 0.0, uSunDir.z))), 0.0);
-  float warm = smoothstep(-0.06, 0.12, ndl - uSunDir.y) * toSun * toSun;
+  float toSun = max(dot(normalize(vec3(dir.x, 0.0, dir.z)), ${heldOr('vec3(uSunDir.x, 0.0, uSunDir.z) / max(length(uSunDir.xz), 1e-4)', 'normalize(vec3(uSunDir.x, 0.0, uSunDir.z))')}), 0.0);
+  float warm = smoothstep(-0.06, 0.12, ndl - uSunDir.y) * toSun * toSun${held(' * uSkyWarm.x')};
   // (the billows carry far, flattening into the streaks a cloud deck makes toward the horizon)
   float far = smoothstep(2500.0, 18000.0, t);
   return vec2(clamp(mix(l, sl, far), 0.0, 1.0), warm * (1.0 - far));
@@ -1020,7 +1041,8 @@ void main() {
       return;
     }`)}${held(`
     vec3 sc;
-    if (uSkyRows.x >= 0.0) sc = skyBands(dir, dsk);
+    // (the live sky hands the day's sky to the bands over the 15 degrees to golden hour: a dither of the two, the game's one way to mix)
+    if (uSkyRows.x >= 0.0 && bayer4(p + ivec2(1, 2)) < uSkySun.w) sc = skyBands(dir, dsk);
     else {`)}
     float skyL = skyLight(dir);
     // up high the sky above the horizon deepens a little faster and sits a touch darker than the
@@ -1038,7 +1060,7 @@ void main() {
     // narrow dithered band where the warm glow begins; the sky gets tighter dither bands (tighter
     // still up high, where its gradient spans more of the frame: calm bands, not dotted stripes)
     ${heldOr('sc', 'vec3 sc')} = pal(warmS > dsk ? RAMP_SKY_WARM : RAMP_FOG, rampStepW(skyL, dsk, 0.09 - 0.04 * uCalm));${held(`
-    }`)}
+    }${GLSL_SKY_STARS}${GLSL_SUN_DISC}${GLSL_SKY_MOON}`)}
     vec3 halo = texture(tGlow, vUv).rgb;
     float hAmt = max(halo.r, max(halo.g, halo.b));
     // (alpha 0 marks plain sky: the upscale leaves it unshifted, it holds still on the screen)

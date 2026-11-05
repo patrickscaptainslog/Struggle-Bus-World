@@ -551,7 +551,7 @@ export class SuperSplat {
     if (Math.hypot(a.x - f.x, a.z - f.z) < want) {
       out.x = f.x + h.aimer.fx * want;
       out.z = f.z + h.aimer.fz * want;
-      out.y = h.city.surfaceAt(out.x, out.z);
+      out.y = h.city.surfaceAt(out.x, out.z, f.y);
     }
     out.drop = Math.max(0, f.y - out.y);
     const dist = Math.hypot(out.x - f.x, out.z - f.z, out.drop);
@@ -576,7 +576,8 @@ export class SuperSplat {
     this.hUsed = this.hT[best];
     const x = this.hX[best], z = this.hZ[best], y = this.hY[best], drop = this.hD[best];
     const grow = blastRadiusFor(drop) / S.blastRadius;
-    const target = h.city.buildingAt(x, z);
+    // (seen from just over where it lands: a stream under a deck lands under it)
+    const target = h.city.buildingAt(x, z, y + 2);
     const travel = Math.max(0.02, this.hT[best] - this.t);
     if (finale) {
       h.splatter.barf(x, z, { radius: S.firehoseRadius * S.firehoseFinale * grow, travel, drop, target, y: y + 0.3, exact: true, stream: true, hitStop: S.firehoseFinaleHitStop, super: this.closerTag, bands: this.bands });
@@ -610,7 +611,7 @@ export class SuperSplat {
     for (const dot of b.dots) {
       if (!dot.blob || this.blobN++ % every !== 0) continue;
       const from = this.v0.set(b.pos.x + (Math.random() - 0.5) * 4, b.pos.y + 1 + Math.random() * 2, b.pos.z + (Math.random() - 0.5) * 4);
-      const to = this.v1.set(dot.x, (h.city.roofAt(dot.x, dot.z) ?? h.city.groundAt(dot.x, dot.z)) + 0.15, dot.z);
+      const to = this.v1.set(dot.x, (h.city.roofAt(dot.x, dot.z, from.y) ?? h.city.groundAt(dot.x, dot.z)) + 0.15, dot.z);
       P.fling(from, to, blobFlight(dot), dot.hue, 0.7 + dot.rad * 0.5);
     }
     h.rig.kick(S.firehoseShake * Math.sqrt(b.strength));

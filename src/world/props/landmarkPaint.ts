@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { config } from '../../config';
 import { HUE_RAMPS, Ramp } from '../../render/palette';
-import { heldHour } from '../../sky/flag';
+import { byHour } from '../../sky/flag';
 import { paintUniforms } from '../buildingMaterial';
 import type { BuildingRef, City } from '../City';
 
@@ -26,6 +26,9 @@ import type { BuildingRef, City } from '../City';
 //            trim and a golden crown
 // The pop and the wobble are the buildings' (the pop scaled down: these are
 // big). Fog and outlines are written exactly as every other surface's.
+// A long landmark (a bridge: LandmarkLook.run, Bridges.ts) takes the same
+// levels, but its paint runs out along it from where the breath hit instead of
+// pouring from the top, and a swell rides the paint's front instead of a pop.
 //
 // Adopting it in a LandmarkKit prop: nothing in the prop's shader beyond what
 // landmarks.ts already does (GLSL_LM_PAINT_VS / GLSL_LM_PAINT_FS + lmPaint() at
@@ -49,8 +52,17 @@ export interface LandmarkLook {
   /** level 3 accents (LandmarkKit builds them; drawn only from level 3 on, so they cost nothing before):
    *  golden onion domes [x, y, z, widest radius] standing on (x, y, z)... */
   domes?: Array<[number, number, number, number]>;
-  /** ...and rainbow bunting: pennants on a string between two points, sagging `sag` m in the middle */
-  bunting?: Array<{ from: [number, number, number]; to: [number, number, number]; sag: number }>;
+  /** ...and rainbow bunting: pennants on a string between two points, sagging `sag` m in the middle, `size` x the
+   *  pyramid's pennants (default 1) */
+  bunting?: Array<{ from: [number, number, number]; to: [number, number, number]; sag: number; size?: number }>;
+  /** the bunting strings out from both ends of every string at once (a bridge's cables, from its towers), instead of
+   *  one string after another */
+  buntingFromEnds?: boolean;
+  /** a long landmark (a bridge, built in world coordinates): the paint runs out along it from where the breath hit at
+   *  this speed (m/s) instead of pouring down from the top, and it doesn't pop about its base: it ripples */
+  run?: number;
+  /** ...the ripple riding the paint's front (m up at its crest; the feet stay put) */
+  ripple?: number;
 }
 
 /** Pattern ids of the level-3 accent geometry (aPat.z): golden onion domes, bunting pennants. */
@@ -73,7 +85,7 @@ const floodUniform = {
 } as THREE.IUniform;
 const fxUniform = {
   get value() {
-    return fxV.set(config.bloom.landmarkPop, heldHour && config.sky.glow ? config.sky.glassGlow : config.bloom.landmarkGlassGlow);
+    return fxV.set(config.bloom.landmarkPop, byHour(config.bloom.landmarkGlassGlow, config.sky.glassGlow, config.sky.glow));
   },
   set value(_v: THREE.Vector2) {
     /* read-only: edit config.bloom */
@@ -102,8 +114,13 @@ export function landmarkPaintUniforms(look: LandmarkLook = {}): Record<string, T
     uLmHit: { value: new THREE.Vector4(0, 0, 0, -1e9) },
     uLmLook: { value: new THREE.Vector4(look.glowFrom ?? 1e9, look.vines ?? 0.42, look.band ?? 9, look.paintBands ?? 0) },
     uLmLook2: { value: new THREE.Vector4(look.planted?.[0] ?? 1e9, look.planted?.[1] ?? -1e9, look.blink ? 1 : 0, 0) },
+    /** x the paint's run along a long landmark (m/s, 0 = it pours from the top), y the ripple's crest (m), z its half-width (m) */
+    uLmRun: { value: new THREE.Vector4(look.run ?? 0, look.ripple ?? 0, 26, 0) },
   };
 }
+
+/** A run landmark's breath and its bloom belong together this long apart (s): the blast wave reaches it from where the breath came down. */
+const RUN_MATCH = 4;
 
 /**
  * Vertex stage: reads the paint texel, pops and wobbles the prop like a
@@ -119,6 +136,8 @@ uniform vec2 uWobble;
 uniform float uLmIdx;
 uniform vec4 uLmBox;
 uniform vec2 uLmFx;
+uniform vec4 uLmRun;
+uniform vec4 uLmHit;
 flat out vec4 vPaint;
 out vec3 vLmLocal;
 vec3 lmVertex(vec3 p, vec4 pat) {
@@ -130,6 +149,16 @@ vec3 lmVertex(vec3 p, vec4 pat) {
   float tb = uTime - paint.b;
   // (a prop riding its building, SpireRide, gets the pop and the wobble from the CPU: never twice)
   if (paint.g < 0.5 || tb < 0.0 || uLmBox.w > 0.5) return p;
+  vec3 q = p;
+  if (uLmRun.x > 0.0) {
+    // a long landmark (a bridge) doesn't pop about its base: a swell rides the paint's front out from where the
+    // breath hit (the bloom it belongs to), dying as it runs; what stands in the water stays put
+    float since = uTime - uLmHit.w;
+    if (uLmHit.w > paint.b - ${RUN_MATCH}.0 && uLmHit.w < paint.b + 0.3 && since < 6.0) {
+      float d = distance((modelMatrix * vec4(p, 1.0)).xyz, uLmHit.xyz) - uLmRun.x * since;
+      q.y += uLmRun.y * exp(-1.2 * since) * exp(-d * d / (2.0 * uLmRun.z * uLmRun.z)) * clamp(p.y / 40.0, 0.0, 1.0);
+    }
+  } else {
   // the buildings' squash & stretch pop about the base, scaled down, and their gentle wobble
   float pop = 0.0;
   if (tb < uBloom.x * 1.6) {
@@ -138,12 +167,13 @@ vec3 lmVertex(vec3 p, vec4 pat) {
   }
   float sy = 1.0 + pop;
   float sxz = 1.0 / sqrt(max(sy, 0.4));
-  vec3 q = vec3(p.x * sxz, p.y * sy, p.z * sxz);
+  q = vec3(p.x * sxz, p.y * sy, p.z * sxz);
   float h01 = clamp(p.y / max(uLmBox.x, 1.0), 0.0, 1.0);
   float w = uWobble.x * h01 * smoothstep(0.0, 0.6, tb);
   float t = uTime * uWobble.y;
   q.x += w * sin(p.y * 0.33 + p.z * 0.21 + t);
   q.z += w * sin(p.y * 0.29 + p.x * 0.23 + t * 0.87);
+  }
   // bunting flutters (its tips)
   if (pat.z > ${LM_FLAG}.0 - 0.5 && fract(pat.x) > 0.25) {
     q.x += 0.3 * sin(uTime * 4.6 + pat.y * 0.7);
@@ -167,6 +197,7 @@ export const GLSL_LM_PAINT_FS = /* glsl */ `
 uniform float uLmIdx;
 uniform vec4 uLmBox;
 uniform vec4 uLmHit;
+uniform vec4 uLmRun;
 uniform vec4 uLmLook;
 uniform vec4 uLmLook2;
 uniform vec4 uLmFlood;
@@ -203,7 +234,12 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
   // an escalation (already painted) stays painted while the blast wave travels to it
   if (painted && vPaint.a < 1.5) {
     bool on = false;
-    if (tb >= 0.0) {
+    if (tb >= 0.0 && uLmRun.x > 0.0 && uLmHit.w > vPaint.b - ${RUN_MATCH}.0 && uLmHit.w < vPaint.b + 0.3) {
+      // a long landmark (a bridge): the paint runs out along it from where the breath hit, its front ragged
+      // (streaks racing ahead along the deck)
+      float run = uLmRun.x * (uTime - uLmHit.w);
+      on = distance(wp, uLmHit.xyz) < run * (0.86 + 0.28 * lmNoise(wp.xz * 0.03 + wp.y * 0.05));
+    } else if (tb >= 0.0) {
       // the flood pours down from the top, fingers of paint running ahead of it
       float k = clamp(tb / max(uLmFlood.x, 0.05), 0.0, 1.0);
       float ang = atan(vLmLocal.z, vLmLocal.x);
@@ -356,11 +392,29 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
 
 // ------------------------------------------------------------------ registration
 
+/** Sparkle slices (center, radius, height each): a bloom's sparkles hug the landmark's shape. */
+export type SparkleSlices = Array<{ center: THREE.Vector3; radius: number; height: number }>;
+
+/**
+ * A landmark's surface, when its kit knows it better than its triangles do (a bridge: its deck has an underside, its
+ * cables are too thin to land on): its ring in plan, its top, what a breath lands on seen from fromY (m ASL: what
+ * stands wholly above it is overhead, the open air under a deck; omitted, seen from above), and its sparkle slices.
+ */
+export interface LandmarkSurface {
+  ring: Array<[number, number]>;
+  top: number;
+  heightAt: (x: number, z: number, fromY?: number) => number;
+  /** it stands wholly above fromY where a shot from (x, z) at it would land (City.lmOverhead) */
+  overhead: (x: number, z: number, fromY: number) => boolean;
+  sparkles: SparkleSlices;
+}
+
 interface Bound {
   ref: BuildingRef;
   mats: THREE.ShaderMaterial[];
-  /** sparkle slices up the landmark (center, radius, height): a bloom's sparkles hug its shape */
-  sparkles: Array<{ center: THREE.Vector3; radius: number; height: number }>;
+  sparkles: SparkleSlices;
+  /** an impact this near its ring (m) is where its paint starts from */
+  hitReach: number;
 }
 const bound: Bound[] = [];
 
@@ -371,10 +425,19 @@ const bound: Bound[] = [];
  * legs the ground) go to City.addLandmarkBuilding under `key` (paint is saved
  * under it: use 'lm:<name>'), and its materials are bound to the paint texel.
  * Call once, after positioning the object. `name` is what the street sign
- * says when it is hit. Returns the ref (null if the reserve is full).
+ * says when it is hit. `surface`: its kit's own (a bridge's), instead of its triangles'; `hitReach`: an impact this
+ * near its ring starts its paint (default 2 m: a hit on it; a run landmark's blast wave reaches it from farther).
+ * Returns the ref (null if the reserve is full).
  */
-export function paintLandmark(city: City, key: string, obj: THREE.Object3D, opts: { name?: string; arch?: number; cell?: number } = {}): BuildingRef | null {
+export function paintLandmark(city: City, key: string, obj: THREE.Object3D, opts: { name?: string; arch?: number; cell?: number; surface?: LandmarkSurface; hitReach?: number } = {}): BuildingRef | null {
   obj.updateMatrixWorld(true);
+  const s = opts.surface;
+  if (s) {
+    const ref = city.addLandmarkBuilding({ key, ring: s.ring, baseY: obj.getWorldPosition(new THREE.Vector3()).y, roofY: s.top, name: opts.name, arch: opts.arch, heightAt: s.heightAt, overhead: s.overhead });
+    if (!ref) return null;
+    bound.push({ ref, mats: bindLandmarkPaint(obj, ref), sparkles: s.sparkles, hitReach: opts.hitReach ?? 2 });
+    return ref;
+  }
   const pts: number[] = [];
   const tris: number[] = [];
   const v = new THREE.Vector3();
@@ -410,7 +473,7 @@ export function paintLandmark(city: City, key: string, obj: THREE.Object3D, opts
     const r = grid.radiusAbove(ref.cx, ref.cz, baseY + (H * (k + 0.5)) / 4);
     if (r > 0) sparkles.push({ center: new THREE.Vector3(ref.cx, y1, ref.cz), radius: r + 2, height: H / 4 });
   }
-  bound.push({ ref, mats, sparkles });
+  bound.push({ ref, mats, sparkles, hitReach: opts.hitReach ?? 2 });
   return ref;
 }
 
@@ -451,7 +514,16 @@ export function bindLandmarkPaint(obj: THREE.Object3D, ref: BuildingRef, opts: {
 export function landmarkHit(city: City, p: THREE.Vector3, t: number): void {
   for (const b of bound) {
     // (a hit on a wall that is the hull's edge lands just outside it: the Ferry Building's front, Coit's base)
-    if (city.edgeDistance(b.ref, p.x, p.z) > 2) continue;
+    if (city.edgeDistance(b.ref, p.x, p.z) > b.hitReach) continue;
+    const last = b.mats[0]?.uniforms.uLmHit.value as THREE.Vector4 | undefined;
+    if (b.hitReach > 2) {
+      // (only a hit that bloomed it is where its paint runs from: this impact's plan is written before it
+      // lands, so a blast next door that left it alone keeps away from the next breath's run)
+      const bloom = city.paint.data[b.ref.index * 4 + 2];
+      if (!(bloom > t - 0.3 && bloom < t + RUN_MATCH)) continue;
+      // (a run that is still going keeps its start: a firehose's dozen impacts a second would restart it at each)
+      if (last && t - last.w < RUN_MATCH + 2 && bloom > last.w - 0.3 && bloom < last.w + RUN_MATCH) continue;
+    }
     for (const m of b.mats) (m.uniforms.uLmHit.value as THREE.Vector4).set(p.x, p.y, p.z, t);
   }
 }

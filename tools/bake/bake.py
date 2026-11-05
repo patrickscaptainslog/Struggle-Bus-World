@@ -2586,8 +2586,9 @@ def main():
     # -------------------------------------------------------------- manifest
     # (the landmarks and start blocks: landmarkrows.py, as relandmark.py writes them with no bake)
     rows = load_module('landmarkrows')
+    # (tz: the city's IANA zone, from its config: the live sky's windows and the landmark clock read the city's time with Intl, SKY.md 4.4)
     manifest = {
-        'name': cfg['name'], 'slug': slug, 'origin': cfg['origin'], 'proj': proj,
+        'name': cfg['name'], 'slug': slug, 'origin': cfg['origin'], **({'tz': cfg['tz']} if cfg.get('tz') else {}), 'proj': proj,
         'tileSize': TILE, 'terrainN': TERRAIN_N, 'obstN': OBST_N, 'classN': CLASS_N,
         'bounds': [minX, minZ, maxX, maxZ],
         'buildingCount': len(buildings),

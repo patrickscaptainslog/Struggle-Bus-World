@@ -246,10 +246,12 @@ export interface MoonrunContext {
   land?: { input: Input; audio: AudioEngine; rig: CameraRig };
   /** ?earth: the street, which has the bus and the frame until it hands them up (EarthLanding.ts). land is what the two share, as under ?moonland, and there's no Moon's low game */
   earth?: StreetWorld;
+  /** the page's one clock (CONTRACT.md O3): the street's live sky reads it too. Without it the flight makes its own */
+  clock?: SkyClock;
 }
 
 /** Returns what joins this to the low game, under ?moonland; under ?earth, the join to the street. */
-export async function bootMoonrun({ pipeline, scene, warm, land, earth }: MoonrunContext): Promise<Landing | EarthLanding | null> {
+export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: pageClock }: MoonrunContext): Promise<Landing | EarthLanding | null> {
   const params = new URLSearchParams(location.search);
   const t0 = performance.now();
   const renderer = pipeline.renderer;
@@ -271,7 +273,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
 
   const model = new SkyModel(series);
   const sky = new SkyState();
-  const clock = new SkyClock(params);
+  const clock = pageClock ?? new SkyClock(params);
   const flying = !params.has('view');
   // (?launch=: a trip that starts climbing, the way the bus was flying, over ?home=lat,lon: where the old launch from the street, gone now, went. trip-fuzz.mjs's every fifth player starts so)
   const launch = flying && params.has('launch') ? Number(params.get('launch')) || 0 : undefined;
@@ -371,7 +373,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
   // (the look is the rig's: on ?moonland the low game's own, so a look held across a join goes on across it)
   const looker = input ? (land?.rig ?? new CameraRig()) : null;
   // (where each panning thumb was last frame)
-  const lookAt = new THREE.Vector2(), busOnScreen = new THREE.Vector3(), busZone = { x: 0, y: 0, r: 0 };
+  const lookAt = new THREE.Vector2(), busOnScreen = new THREE.Vector3(), busZone = { x: 0, y: 0, r: 0, open: 0 };
   let lookOn = false;
   const label = flying ? tripLabel(!landing) : null;
   /** ?moonland: a tap now is a crater shot, from the orbit down to where the ground's mesh comes in. */
@@ -516,6 +518,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
       }
       qa.holdFrames--;
     }
+    // (?fixeddt: the page's clock steps with this frame, once, if the street's loop under it hasn't already)
+    clock.frame(now);
     if (earthLanding?.cameBack) {
       earthLanding.cameBack = false;
       fx?.fromGround();
@@ -646,7 +650,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
       }
     }
     if (!landing?.near) pipeline.focus.set(0, 0, 0);
-    // (out here only a touch near the bus flies it, and one anywhere else looks: the bus's lane, where it stands on the screen this frame)
+    // (out here only a touch near the bus or anywhere under it flies it, and one over it or beside it looks: the bus's lane, where it stands on the screen this frame, the street's
+    // shape and numbers. The producer, going live: "anywhere a player touches in the general vicinity below the bus belongs to control of bus")
     if (input && trip && view) {
       const v = bus.root.getWorldPosition(busOnScreen).project(camera), W = window.innerWidth, H = window.innerHeight;
       // (one object, set again each frame: Input reads it as a touch lands, and keeps nothing of it. With the bus behind the lens the lane stays where the bus was last on the
@@ -654,7 +659,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth }: Moonru
       if (v.z < 1) {
         busZone.x = ((v.x + 1) / 2) * W;
         busZone.y = ((1 - v.y) / 2) * H;
-        busZone.r = inputTune.busLane * W;
+        busZone.r = inputTune.laneHalf * Math.min(W, H);
+        busZone.open = inputTune.laneOpen * H;
         input.busZone = busZone;
       }
     }

@@ -14,7 +14,11 @@
 //   turbo    flicks up the map: a lone left flick into Express (no lift, its surge heard), Nonstop, Jet (the climb, engagement, the
 //            boom), the three turbo rungs, LOCKED, flicks down to Cruise, with shots and a per-frame log -> turbo.json
 //   firstrun a first visit: no card, the cues in order (TAP, DRAG, HOLD)                         -> firstrun.json
-//   opening  flicks under the opening's gate: answered, taken back, firing at the gate; two of them -> opening.json
+//   opening  flicks under the opening's gate: answered, taken back, firing at the gate; two of them. The low shot has no look, so a drag landing over
+//            the bus, out of the lane's half disc, flies until the gate and looks after it. A flick in the grey, before the first frame, waits for
+//            the gate too. Once open, a carve shuts it again only under the low shot's line. A lone flick down under it, nothing
+//            waiting, says CLIMB AFTER THE BRIDGE. SB_OPENING=grey,... runs a part
+//                                                                                                              -> opening.json
 //   layout   real rects against layoutHud at 393 x 852, 393 x 659, 320 x 568, 852 x 393, swapped or not (shots)
 //   states   every state of MEGA and the readout, cropped (states/*.png; tools/hud-sheet.py makes a sheet of them)
 //   keyboard a desktop: Esc, Space, E up the ladder, Q back down it, the right mouse's look -> keyboard in controls.json
@@ -222,15 +226,17 @@ if (modes.has('thumbs')) {
     R.push(r);
     console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${name} ${JSON.stringify({ ...r, name: undefined, ok: undefined })}`);
   };
-  // (only a touch near the bus flies it, in its lane, and one anywhere else looks: the flying thumb goes under the bus, where the page says the bus is. The left one is out of the lane)
-  const LX = 100, LY = 520;
+  // (only a touch near the bus or under it flies it, in its lane, and one over it or beside it looks: the flying thumb goes under the bus, where the page says the bus is. The left one is over
+  // the bus's line, out of the lane's half disc: low on the left would fly now)
+  let LX = 100, LY = 520;
   let RX = 300, RY = 600;
   const lane = await page.evaluate(() => window.__game?.input?.busZone ?? null);
   if (lane) {
     RX = Math.round(lane.x);
     RY = Math.round(Math.min(lane.y + 90, 780));
+    LY = Math.round(lane.y - 120);
   }
-  console.log('  the bus\'s lane', JSON.stringify(lane), 'the flying thumb at', RX, RY);
+  console.log('  the bus\'s lane', JSON.stringify(lane), 'the flying thumb at', RX, RY, 'the look thumb at', LX, LY);
   const has = (r, k) => r.events.filter((e) => e === k).length;
   /** the right thumb flying, moved off its landing */
   const steer = async () => { await H.down(1, RX, RY); await H.move(1, RX + 30, RY); };
@@ -322,9 +328,15 @@ if (modes.has('thumbs')) {
   await row('left zone: a lone tap fires on its lift', async () => { let landed = -1; await H.stamped(async () => { await H.down(1, LX, LY, 0); landed = (await events(page, false)).length; await H.up(1, 120); }); return { landed }; }, (r) => r.note.landed === 0 && has(r, 'onTap') === 1 && r.gear === 0);
   await row('left zone: a lone rest does nothing', async () => { await H.down(1, LX, LY); await wall(600); await runFor(page, 0.1); const s = await state(); await H.up(1); return s; }, (r) => !r.note.thumb && !r.note.look.on && has(r, 'onTap') === 0 && has(r, 'onTurbo+') === 0);
   await row('left zone: a soft lone flick is a gear: it has the second thumb\'s rule', async () => { await H.stamped(async () => { await H.stroke(1, LX, LY, 0, -30, 100); }); await runFor(page, 0.4); }, (r) => r.gear === 1 && has(r, 'onTurbo+') === 1);
-  // (the lane's side: out of it looks, in it flies. Its half width is the page's, 0.22 of the screen)
-  await row('the lane: 10 px out of its side looks, 10 px in flies', async () => { const r0 = lane ? lane.r : 86; const inside = await dragAt(RX + r0 + 10, RY); await runFor(page, 0.3); const past = await dragAt(RX + r0 - 10, RY); return { inside, past }; }, (r) => r.note.inside.look.on && !r.note.inside.thumb && r.note.past.thumb && !r.note.past.look.on && r.note.past.sx > 0.2);
-  // (lookZone, the left 42 %, rules only before the game's first frame sets the lane: its tuner row is gone, and the row that moved it passed because its point was in the lane. The first review's minor)
+  // (the lane's side at the bus's height: out of it looks, in it flies. Its half width is the page's, 0.27 of the screen. Under the bus it opens out to the whole width, a quarter of the
+  // screen's height down, so low on either side flies, where the thumb rests; over the bus's line, out of the half disc, looks)
+  const LB = lane ? Math.round(lane.y) : 506, r0 = lane ? lane.r : 106;
+  await row('the lane: beside the bus at its height, 10 px out of its side looks, 10 px in flies', async () => { const out = await dragAt(RX + r0 + 10, LB); await runFor(page, 0.3); const inside = await dragAt(RX + r0 - 10, LB); return { out, inside }; }, (r) => r.note.out.look.on && !r.note.out.thumb && r.note.inside.thumb && !r.note.inside.look.on && r.note.inside.sx > 0.2);
+  await row('the lane: beside the bus at its height on the left looks', () => dragAt(Math.max(30, Math.round(RX - r0 - 30)), LB), (r) => r.note.look.on && !r.note.thumb);
+  await row('the lane: above the bus looks', () => dragAt(RX, Math.round(LB - r0 - 40)), (r) => r.note.look.on && !r.note.thumb);
+  await row('the lane: low on the right flies', () => dragAt(340, 780), (r) => r.note.thumb && !r.note.look.on && r.note.sx > 0.2);
+  await row('the lane: low on the left flies', () => dragAt(40, 780), (r) => r.note.thumb && !r.note.look.on && r.note.sx > 0.2);
+  await row('the lane is on the tuner: laneHalf 0.4, 140 px beside the bus at its height flies', async () => { await page.evaluate(() => window.__game.tuneGroup('Input', 'laneHalf', 0.4)); await runFor(page, 0.1); const s = await dragAt(RX + 140, LB); await page.evaluate(() => window.__game.tuneGroup('Input', 'laneHalf', 0.27)); await runFor(page, 0.1); return s; }, (r) => r.note.thumb && !r.note.look.on);
   await row('two thumbs, left first: the left looks, the right flies', async () => {
     await H.down(1, LX, LY);
     await wall(150);
@@ -393,7 +405,9 @@ if (modes.has('thumbs')) {
   const skimming = async () => { await page.evaluate(() => { const f = window.__game.flight; f.holdY = -Infinity; f.mode = 0; f.y = f.floorY; f.vy = 0; }); await runFor(page, 0.15); };
   const held = () => page.evaluate(() => window.__game.flight.holdY);
   await row('one right thumb: a flick down out of Express stays on the rooftops', async () => { await skimming(); await shiftUp(); await runFor(page, 0.5); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); return { hold: await held() }; }, (r) => r.gear === 0 && r.note.hold === -Infinity);
-  await row('one right thumb: Nonstop still lifting, taken back: the bus goes back to the rooftops', async () => { await skimming(); await shiftUp(); await runFor(page, 0.5); await shiftUp(); await runFor(page, 0.4); const lifting = await state(); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); return { lifting: lifting.gear, hold: await held() }; }, (r) => r.note.lifting === 2 && r.gear === 1 && r.note.hold === -Infinity);
+  // (Nonstop's height is over the broad ground, and wherever the rows before left the bus, on a hill, its rooftops can be over that already: Nonstop bit on its
+  // first frame there, and a gear that bit holds the height, as it should. So for this row Nonstop's height is out of reach, and the gear is surely still lifting)
+  await row('one right thumb: Nonstop still lifting, taken back: the bus goes back to the rooftops', async () => { const alt = await page.evaluate(() => { const T = window.__game.config.turbo, a = T.nonstopAlt; T.nonstopAlt = 400; return a; }); await skimming(); await shiftUp(); await runFor(page, 0.5); await shiftUp(); await runFor(page, 0.4); const lifting = await state(); const bitBefore = await page.evaluate(() => window.__game.controls.turbo.engaged); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); const hold = await held(); await page.evaluate((a) => { window.__game.config.turbo.nonstopAlt = a; }, alt); return { lifting: lifting.gear, bitBefore, hold }; }, (r) => r.note.lifting === 2 && !r.note.bitBefore && r.gear === 1 && r.note.hold === -Infinity);
   await row('one right thumb: a turbo level down hands back the hold', async () => { await skimming(); await toJet(page); await runFor(page, 3); await page.evaluate(() => window.__game.controls.turbo.rung(1, window.__game.flight)); await runFor(page, 0.5); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); return { hold: await held() }; }, (r) => r.gear === 3 && r.level === 0 && r.note.hold === -Infinity);
   await row('one right thumb: a flick up and straight back stays on the rooftops', async () => { await skimming(); await H.stamped(async () => { await H.stroke(1, RX, RY, 0, -74, 85); await H.felt(1, RX, RY - 80, 0, 74, 85); }); await runFor(page, 1.5); return { hold: await held() }; }, (r) => r.gear === 0 && has(r, 'onTurbo-') === 1 && r.note.hold === -Infinity);
   await row('one right thumb: with nothing to do a flick down is the quick pull it looks like', async () => { await skimming(); await H.stamped(() => H.felt(1, RX, RY - 80, 0, 74, 85)); await runFor(page, 1.5); return { hold: await held() }; }, (r) => Number.isFinite(r.note.hold));
@@ -685,7 +699,11 @@ if (modes.has('look')) {
       await H.down(2, Lx, Ly);
       await wall(130);
       await H.move(2, Lx + dx, Ly - dy);
-      await page.waitForFunction((x) => Math.abs(window.__game.rig.lookYaw.x * 180 / Math.PI - x) < 2, dx, { timeout: 60000 });
+      // (the offset sets the angle on the look's curve, a x + b x^3, CameraRig's lookDeg: 120 px is about 55 degrees, not 120)
+      await page.waitForFunction((x) => {
+        const C = window.__game.config.camera, a = Math.max(0.01, C.lookDegPerPx), full = Math.max(1, C.lookFullPx), b = Math.max(0, 180 - a * full) / (full * full * full);
+        return Math.abs(window.__game.rig.lookYaw.x * 180 / Math.PI - x * (a + b * x * x)) < 2;
+      }, dx, { timeout: 60000 });
       const during = await page.screenshot();
       await H.up(2);
       await H.up(1);
@@ -843,7 +861,10 @@ if (modes.has('firstrun')) {
   // DRAG: after the first splat, until a thumb commits
   FR.afterSplat = await ui();
   await page.screenshot({ path: `${out}/firstrun/03-drag.png` });
-  await H.down(1, 300, 600); await H.move(1, 340, 600); await runFor(page, 0.5); await H.up(1);
+  // (a drag that flies lands in the bus's lane, under the bus; one anywhere else looks and teaches nothing)
+  const fl = await page.evaluate(() => window.__game?.input?.busZone ?? null);
+  const fx = fl ? Math.round(fl.x) : 300, fy = fl ? Math.round(Math.min(fl.y + 90, 780)) : 600;
+  await H.down(1, fx, fy); await H.move(1, fx + 40, fy); await runFor(page, 0.5); await H.up(1);
   await runFor(page, 0.3);
   FR.afterDrag = await ui();
   // it never repeats: the same device, the next visit
@@ -859,12 +880,25 @@ if (modes.has('firstrun')) {
 }
 
 if (modes.has('opening')) {
-  // the first visit's gate, on the real bridge: a gear waits for it, a flick down takes it back, two flicks are two rungs
+  // the first visit's gate, on the real bridge: a gear waits for it, a flick down takes it back, and one rung waits however many flicks: two are one, six are Express at the bridge, not TURBO 3
   mkdirSync(`${out}/opening`, { recursive: true });
   const R = {};
+  // (SB_OPENING=grey,low,... runs a part: gate, two, six, low, grey, carve, pull)
+  const parts = new Set((process.env.SB_OPENING ?? 'gate,two,six,low,grey,carve,pull').split(','));
+  /** every line the toast is given from now, with the game clock: the toast is a canvas, its words aren't in the page */
+  const logToasts = (page) => page.evaluate(() => {
+    const g = window.__game, hud = g.controls.hud, toast = hud.toast.bind(hud);
+    window.__toasts = [];
+    hud.toast = (lines, s) => {
+      window.__toasts.push({ t: +g.clock().toFixed(2), lines: lines.join(' / ') });
+      return toast(lines, s);
+    };
+  });
+  const toasts = (page) => page.evaluate(() => window.__toasts.map((x) => x.lines));
   const first = async () => {
     const page = await open('?fixeddt=0.05', null, base, { ready: 'window.__game && window.__game.city.loadedRegionCount() > 0' });
     const cdp = await page.context().newCDPSession(page);
+    await logToasts(page);
     await until(page, '!g.controls.opening', 60);
     await runFor(page, 0.3);
     return { page, H: hand(page, cdp) };
@@ -873,7 +907,7 @@ if (modes.has('opening')) {
     const g = window.__game, f = g.flight, c = g.controls, s = c.snapshot();
     return { clock: +g.clock().toFixed(2), locked: c.gearsLocked, gear: c.turbo.gear, level: c.turbo.level, armed: s.turbo.armed, y: +f.y.toFixed(1), speed: +f.speed.toFixed(0), toast: document.querySelector('[data-hud="toast"]') !== null };
   });
-  {
+  if (parts.has('gate')) {
     const { page, H } = await first();
     const locked0 = (await state(page)).locked;
     await H.stamped(() => H.stroke(1, 100, 520, 0, -74, 85));
@@ -893,12 +927,12 @@ if (modes.has('opening')) {
     console.log('opening gate', JSON.stringify(R.gate));
     await page.close();
   }
-  {
+  if (parts.has('two')) {
     const { page, H } = await first();
     await H.stamped(async () => { await H.stroke(1, 100, 520, 0, -74, 85); await H.stroke(1, 100, 520, 0, -74, 85, 235); });
     await runFor(page, 0.8);
     const s = await state(page);
-    // one taken back: the other still waits, and its line stands
+    // taken back: one waited, so none does now
     await H.stamped(() => H.stroke(1, 100, 520, 0, 74, 85));
     await runFor(page, 0.15);
     const back = await state(page);
@@ -908,6 +942,225 @@ if (modes.has('opening')) {
     console.log('opening two flicks', JSON.stringify(R.two));
     await page.close();
   }
+  if (parts.has('six')) {
+    const { page, H } = await first();
+    await H.stamped(async () => { for (let i = 0; i < 6; i++) await H.stroke(1, 100, 520, 0, -74, 85, i * 235); });
+    await runFor(page, 0.8);
+    const s = await state(page);
+    await until(page, '!g.controls.gearsLocked', 60);
+    await runFor(page, 0.5);
+    R.six = { s, after: await state(page) };
+    console.log('opening six flicks', JSON.stringify(R.six));
+    await page.close();
+  }
+  if (parts.has('low')) {
+    // the low shot has no look, so until the gate a lone touch anywhere flies (Input.lookOff, set with the gears' lock), even one landing where the lane would give it the look
+    const { page, H } = await first();
+    /** a lone touch lands straight over the bus, 40 px out of the lane's half disc, and drags 50 px right: what it was, whether the lane's rule alone would have looked there, how far the bus turned */
+    const overBus = async () => {
+      const at = await page.evaluate(() => {
+        const g = window.__game, i = g.input, L = i.busZone;
+        // (where the lane counts the bus: no nearer a side or the bottom than its half width, nor lower than its usual line, inputTune.laneLow)
+        const x = Math.round(Math.max(L.r, Math.min(innerWidth - L.r, L.x))), y = Math.round(Math.min(L.y, innerHeight - L.r, innerHeight * 0.6) - L.r - 40);
+        const off = i.lookOff;
+        i.lookOff = false;
+        const laneLooks = i.inLookZone(x, y);
+        i.lookOff = off;
+        return { x, y, laneLooks, lookOff: off, locked: g.controls.gearsLocked, lane: { x: Math.round(L.x), y: Math.round(L.y), r: Math.round(L.r) }, clock: +g.clock().toFixed(2), h0: g.flight.heading };
+      });
+      await H.down(1, at.x, at.y);
+      await wall(150);
+      await H.move(1, at.x + 50, at.y);
+      await runFor(page, 0.3);
+      const s = await page.evaluate((h0) => {
+        const g = window.__game, s = g.controls.snapshot();
+        return { thumb: s.input.thumb, sx: +s.input.sx.toFixed(2), look: s.input.look.on, turned: +(((g.flight.heading - h0) * 180) / Math.PI).toFixed(2), lookOffAfter: g.input.lookOff, lockedAfter: g.controls.gearsLocked };
+      }, at.h0);
+      await H.up(1);
+      await runFor(page, 0.2);
+      const { h0, ...where } = at;
+      return { ...where, ...s };
+    };
+    const low = await overBus();
+    await until(page, '!g.controls.gearsLocked', 60);
+    await runFor(page, 0.3);
+    const after = await overBus();
+    R.low = { low, after };
+    console.log('opening low shot', JSON.stringify(R.low));
+    await page.close();
+  }
+  if (parts.has('grey')) {
+    // a flick in the grey, before the first frame: the page takes touches while the warm-up compiles, and the gate used to shut only with the first frame (main.ts),
+    // so a flick there was a gear at once, under the low shot. The loop is held from the page's first script (__qa.holdFrames 0), so the flick lands before any
+    // frame has run however soon the warm-up ends: frame() returns before the gate's line until the loop is let go
+    const page = await open('?fixeddt=0.05', 'window.__qa = { holdFrames: 0 };', base, { ready: 'window.__game && window.__game.controls' });
+    const cdp = await page.context().newCDPSession(page);
+    const H = hand(page, cdp);
+    await logToasts(page);
+    // (stamped() dates a stroke from 2 s back on the page's clock: the page must be that old)
+    await page.waitForFunction(() => performance.now() > 2500, null, { timeout: 60000 });
+    const now = () => page.evaluate(() => {
+      const g = window.__game, c = g.controls;
+      return { clock: g.clock(), warming: g.warm.busy, locked: c.gearsLocked, lookOff: g.input.lookOff, gear: c.turbo.gear, armed: c.shifter.armed };
+    });
+    const pre = await now();
+    let grey = null;
+    await H.stamped(async () => {
+      await H.stroke(1, 100, 520, 0, -74, 85);
+      grey = { ...(await now()), toasts: await toasts(page) };
+    });
+    // (let go: the city streams in, the fog lifts, the low shot glides to the bridge)
+    await page.waitForFunction(() => window.__game.city.loadedRegionCount() > 0, null, { timeout: 400000 });
+    await until(page, '!g.controls.opening', 60);
+    await runFor(page, 0.5);
+    const low = await state(page);
+    const cleared = await until(page, '!g.controls.gearsLocked', 60);
+    await runFor(page, 0.5);
+    R.grey = { pre, grey, low, cleared, after: await state(page) };
+    console.log('opening grey', JSON.stringify(R.grey));
+    await page.close();
+  }
+  if (parts.has('carve')) {
+    // past the gate a hard carve takes the bus back under 230 m along, the gate being along the heading: it shut again there, the gears, the climb and the lane, with the
+    // view rising, the look answering and the bridge passed. Once open it shuts again only under the low shot's line, 180 m, where a lone landing brings the low shot back.
+    // The carve is the QA stick, full right
+    const { page, H } = await first();
+    await until(page, '!g.controls.gearsLocked', 60);
+    await page.evaluate(() => (window.__qa = { holdFrames: 0 }));
+    // (the gap the gate is measured from, as main.ts finds it, and along the heading from it where each frame measured it: before the frame's first step)
+    await page.evaluate(async () => {
+      const g = window.__game, f = g.flight;
+      const m = await (await fetch(`./city/sf/city.json?v=${window.__sbDataV}`)).json();
+      const [, t1, t2] = m.landmarks.find((l) => l.kind === 'ggb').points;
+      const sx = t2[0] - t1[0], sz = t2[1] - t1[1], sl = Math.hypot(sx, sz);
+      const gap = [t1[0] + (sx / sl) * 85, t1[1] + (sz / sl) * 85];
+      const step = f.step.bind(f);
+      let c = NaN;
+      window.__gate = { along: NaN };
+      f.step = (...a) => {
+        if (g.clock() !== c) {
+          c = g.clock();
+          window.__gate.along = (f.x - gap[0]) * f.fx + (f.z - gap[1]) * f.fz;
+        }
+        return step(...a);
+      };
+    });
+    /** carve until cond holds of a frame ({ along, locked, lookOff, low }), then hold the loop on that frame; every frame logged */
+    const carve = (cond) => page.evaluate((cond) => new Promise((res) => {
+      const g = window.__game, f = g.flight, log = [], t0 = g.clock();
+      const test = new Function('s', `return (${cond});`);
+      let seen = g.clock();
+      window.__qa = { sx: 1, sy: 0 };
+      const tick = () => {
+        if (g.clock() !== seen) {
+          seen = g.clock();
+          const s = { t: +seen.toFixed(2), along: window.__gate.along, locked: g.controls.gearsLocked, lookOff: g.input.lookOff, low: +g.rig.openingLow.toFixed(2), deg: Math.round((f.heading * 180) / Math.PI) };
+          log.push(s);
+          if (test(s)) return (window.__qa = { holdFrames: 0 }), res(log);
+        }
+        if (g.clock() - t0 > 6) return (window.__qa = { holdFrames: 0 }), res(log);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }), cond);
+    /** with the loop held, a lone touch lands where the lane alone gives the look, straight over the bus 40 px out of its half disc: did it fly? It is cancelled */
+    const landing = async () => {
+      const at = await page.evaluate(() => {
+        const g = window.__game, i = g.input, L = i.busZone;
+        const x = Math.round(Math.max(L.r, Math.min(innerWidth - L.r, L.x))), y = Math.round(Math.min(L.y, innerHeight - L.r, innerHeight * 0.6) - L.r - 40);
+        const off = i.lookOff;
+        i.lookOff = false;
+        const laneLooks = i.inLookZone(x, y);
+        i.lookOff = off;
+        return { x, y, laneLooks, lookOff: off, locked: g.controls.gearsLocked };
+      });
+      await H.down(1, at.x, at.y);
+      const flew = await page.evaluate(() => !window.__game.input.canAdopt);
+      await H.cancel();
+      await wall(100);
+      return { ...at, flew };
+    };
+    const clear = await carve('s.along >= 185 && s.along <= 225');
+    const lane = await landing();
+    // (and a flick up there is a gear at once: under the gate it would say GEARS AFTER THE BRIDGE and wait)
+    await H.stamped(() => H.stroke(1, 100, 520, 0, -74, 85));
+    const flick = { gear: (await state(page)).gear, toasts: await toasts(page) };
+    const back = await carve('s.along < 175');
+    const low = await landing();
+    await page.evaluate(() => (window.__qa = null));
+    const log = [...clear, ...back].map((s) => ({ ...s, along: +s.along.toFixed(1) }));
+    R.carve = { gate: log[0], clear: log[clear.length - 1], lane, flick, back: log.at(-1), low, log };
+    // (the rule on the frames themselves, at full precision: once open, the gate shuts again under 180 m along, the gears and the lane together)
+    R.carve.rule = [...clear, ...back].every((s) => s.locked === s.along < 180 && s.lookOff === s.locked);
+    console.log('opening carve', JSON.stringify({ ...R.carve, log: `${log.length} frames` }));
+    console.log('opening carve frames', log.map((s) => `${s.t} ${s.along} ${s.deg}deg ${s.locked ? 'L' : '-'}${s.lookOff ? 'O' : '-'} ${s.low}`).join(' | '));
+    await page.close();
+  }
+  if (parts.has('pull')) {
+    // a lone flick down under the gate with nothing waiting: the stroke pulls the stick until it lifts and the climb is held, so it says CLIMB AFTER THE BRIDGE, as every
+    // pull there did on main. It lands over the bus, out of the half disc, where the lane alone made it the second thumb, which never pulls. The studio's call (DECISIONS)
+    const { page, H } = await first();
+    await events(page);
+    const at = await page.evaluate(() => {
+      const L = window.__game.input.busZone;
+      return { x: Math.round(L.x), y: Math.round(Math.min(L.y, innerHeight * 0.6) - L.r - 40) };
+    });
+    await H.stamped(() => H.felt(1, at.x, at.y, 0, 74, 85));
+    await runFor(page, 0.3);
+    R.pull = { at, ...(await state(page)), flicks: (await events(page)).filter((e) => e.k === 'onTurbo').map((e) => e.a), toasts: await toasts(page) };
+    console.log('opening pull', JSON.stringify(R.pull));
+    await page.close();
+  }
+  const G = R.gate, T = R.two, S = R.six, L = R.low, Y = R.grey, C = R.carve, P = R.pull;
+  const checks = [];
+  if (G)
+    checks.push(
+      ['the gate is shut at first', G.locked0],
+      ['a flick under it waits, said', G.armed.armed && G.armed.gear === 0 && G.armed.toast],
+      ['a flick down takes it back', !G.back.armed && G.back.gear === 0],
+      ['a flick again waits again', G.again.armed && G.again.gear === 0],
+      ['and goes at the gate', G.cleared && !G.after.armed && G.after.gear === 1 && G.after.level === 0],
+    );
+  if (T)
+    checks.push(
+      ['two flicks: one waits', T.s.armed && T.s.gear === 0],
+      ['a flick down takes it back, and none is left', !T.back.armed && T.back.gear === 0 && T.after.gear === 0],
+    );
+  if (S)
+    checks.push(
+      ['six flicks: one waits', S.s.armed && S.s.gear === 0],
+      ['six flicks are Express at the bridge, not TURBO 3', S.after.gear === 1 && S.after.level === 0 && !S.after.armed],
+    );
+  if (L)
+    checks.push(
+      ['under the low shot the lane is off, with the gears', L.low.lookOff && L.low.locked && L.low.lookOffAfter && L.low.lockedAfter],
+      ['the drags land where the lane alone gives the look, over the bus out of its half disc', L.low.laneLooks && L.after.laneLooks],
+      ['under the low shot that drag flies: the stick and the heading move', L.low.thumb && !L.low.look && L.low.sx > 0.2 && L.low.turned > 0],
+      ['past the gate the lane is back, with the gears', !L.after.lookOff && !L.after.locked && !L.after.lookOffAfter],
+      ['and the same landing looks', L.after.look && !L.after.thumb && L.after.sx === 0],
+    );
+  if (Y)
+    checks.push(
+      ['in the grey, before any frame has run, the gate and the lane are shut', Y.pre.clock === 0 && Y.pre.locked && Y.pre.lookOff],
+      ['a flick there waits for the gate, said', Y.grey.clock === 0 && Y.grey.gear === 0 && Y.grey.armed && Y.grey.toasts.includes('GEARS AFTER THE BRIDGE')],
+      ['under the low shot it still waits, and the bus glides low', Y.low.gear === 0 && Y.low.armed && Y.low.y < 30 && Y.low.speed < 60],
+      ['and it goes at the gate', Y.cleared && Y.after.gear === 1 && Y.after.level === 0 && !Y.after.armed],
+    );
+  if (C)
+    checks.push(
+      ['a hard carve past the gate takes the bus back under 230 m along, and the gate stays open there', !C.gate.locked && C.clear.along >= 185 && C.clear.along <= 225 && !C.clear.locked && !C.clear.lookOff],
+      ['there the view is rising, and the lane stays: a landing the lane gives the look looks', !C.lane.locked && !C.lane.lookOff && C.lane.laneLooks && !C.lane.flew],
+      ['and a flick up there is a gear at once, not GEARS AFTER THE BRIDGE', C.flick.gear === 1 && !C.flick.toasts.includes('GEARS AFTER THE BRIDGE')],
+      ["under the low shot's line the gate shuts again, the lane with the gears: that landing flies", C.back.along < 180 && C.low.locked && C.low.lookOff && C.low.laneLooks && C.low.flew],
+      ['every frame of the carve: the gears and the lane shut under 180 m along, together', C.log.length > 2 && C.rule],
+    );
+  if (P)
+    checks.push([
+      "a lone flick down under the gate with nothing waiting says CLIMB AFTER THE BRIDGE, its pull's answer, as on main (the studio's call)",
+      P.flicks.length === 1 && P.flicks[0][0] === -1 && P.toasts.includes('CLIMB AFTER THE BRIDGE') && P.gear === 0 && !P.armed,
+    ]);
+  const badO = checks.filter(([, v]) => !v).map(([k]) => k);
+  console.log(badO.length ? `opening: FAILED ${badO.length} of ${checks.length}: ${badO.join('; ')}` : `opening: all ${checks.length} checks passed`);
   res.opening = R;
   writeFileSync(`${out}/opening.json`, JSON.stringify(R, null, 1));
 }
