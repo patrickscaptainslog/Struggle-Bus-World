@@ -192,7 +192,9 @@ def profile(ground, water, level, grade, links, anchors, floor=None, cap=None, b
 def under(ground, level, grade, links, anchors):
     """The highest a tunnel's samples may stand: never over the ground (the sea's or a lake's bed where wet), and
     LEVEL_M a level under it (a covered way at level 0: at it) away from the ends it stands on, going down from each at
-    the end grade (6 %, 3.5 % or 10 %). A straight line between two portals ran 48 m over the Bay. Returns n floats."""
+    the end grade (6 %, 3.5 % or 10 %). An end over the ground (a deck's free end at a portal: Yerba Buena Island's
+    east one) comes down from its own height at that grade, not off a cliff. A straight line between two portals ran
+    48 m over the Bay. anchors: {i: height}. Returns n floats."""
     n = len(ground)
     ground = np.asarray(ground, float)
     depth = LEVEL_M * np.maximum(0, -np.asarray(level, int))
@@ -217,7 +219,23 @@ def under(ground, level, grade, links, anchors):
             if c < reach[b] - 1e-9:
                 reach[b] = c
                 heapq.heappush(todo, (c, b))
-    return ground - np.minimum(depth, reach)
+    # coming down from each end's own height at the end grade
+    ramp = np.full(n, -np.inf)
+    todo = []
+    for i, y in anchors.items():
+        ramp[i] = y
+        todo.append((-y, i))
+    heapq.heapify(todo)
+    while todo:
+        c0, a = heapq.heappop(todo)
+        if -c0 < ramp[a] - 1e-9:
+            continue
+        for b, d in nb[a]:
+            c = ramp[a] - min(up[a], up[b]) * d
+            if c > ramp[b] + 1e-9:
+                ramp[b] = c
+                heapq.heappush(todo, (-c, b))
+    return np.maximum(ground - np.minimum(depth, reach), ramp)
 
 
 class Stacked:
