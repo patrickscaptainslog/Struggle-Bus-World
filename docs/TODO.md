@@ -2,6 +2,30 @@
 
 Tick what you finish, in the commit that finishes it. Add to it when the producer asks for something. Written 2026-11-02.
 
+## Afternoon report: the second account (2026-11-05)
+
+The producer's five, in order: main into both branches, the first account's notes, cars, the world's review and C11 to C13, then ferries and sailboats.
+
+**Done today**
+- **Main merged** (34d55cf, the live build's fixes) into `feat/earth` and `feat/life`. Both build and pass their checks.
+- **The first account's notes, read and answered.** Its world, `feat/world` to 3398098, is merged into `feat/life` and reviewed again: nothing new ([reviews/world-graphs-2026-11-05.md](reviews/world-graphs-2026-11-05.md), the fourth reading). C11 to C13 agreed: the contract is at 0.10, every change in it agreed by both. Its GPU review of life ([reviews/life-gpu-2026-11-05.md](reviews/life-gpu-2026-11-05.md)): people now stand on the sidewalk (in the browser 0 of 170 off it, from 13 of 485), a plane close up blinks at night too, and the tools take their pictures as a player would see them.
+- **Cars on San Francisco's streets.** Busy at rush hour, a tenth of that at 3 am, by the kind of road; grey, with headlights at night. Paint one: it bounces, squashing as it lands, and leaves rainbow tyre tracks. Bridges whose decks aren't drawn yet stay empty until the first account's decks land; the Golden Gate and the Bay Bridge, which are drawn, have cars on them.
+- **Ferries on the bay's 19 real routes**, on a timetable I made from each route: 6 am to 10 pm, every half hour on the short runs and every hour on the long ones, turning round at each berth, tied up overnight, windows lit after dark. Paint one: its paint is kept, and it leaves a rainbow wake.
+- **Sailboats out of the nine marinas** by day, more at weekends, leaning with the westerly. Paint one: it rides the swell and leaves a rainbow wake.
+
+**My calls, say if you'd change any**: a car lives a minute or so, growing in where it starts and out where it ends; traffic thins into the distance from 700 m to 1.2 km rather than stopping at an edge; the ferries' timetable; sailboats sailing loops off their marina.
+
+**Not built yet** (all in the plan): a painted car's honk, a ferry's horn and its decks in rainbow, rainbow sails and the regatta a painted bay starts, a sailboat sailing out of its berth.
+
+**Pushed**: `feat/life` (cars ab55d5d, boats 3007cf6, the last fixes after them) and `feat/earth` with this report. Nothing went to main. Vercel's status can't be read from here; `npm run build`, what Vercel runs, passes.
+
+**To fly**: https://struggle-bus-world-git-feat-life-patricks-projects-9ff6e721.vercel.app/?life&fps
+1. Fly low along the Embarcadero by the Ferry Building: cars on the streets and ferries coming and going. Aim at a car until it glints and tap.
+2. Night: add `&t=2026-11-06T05:00:00Z` (9 pm there): headlights, lit ferries, blinking planes.
+3. Sailboats: add `&t=2026-11-07T22:00:00Z` (a Saturday, 2 pm) and fly out over the water off the Marina or Pier 39.
+
+**Not checked**: nothing on a phone or a GPU (this machine draws in software), so no frame times, and life's draws and triangles are counted from the code, not measured. The live planes through the relay need the preview.
+
 ## Morning report: the first account (2026-11-05)
 
 **Done tonight**
@@ -64,6 +88,7 @@ The first account:
    - **Known, counted by W1** ([specs/earth/GRAPHS.md](specs/earth/GRAPHS.md) on `feat/world`, "Where the ground wins", the studio's calls): a sidewalk's foot stands on the ground beside a road still up (31 steps, worst 5.5 m), a sidewalk never goes under its own ground beside a lower ramp (11, worst 4.2 m), and at the Golden Gate's north tower a footway climbs 23 m to the deck it meets. W1 fails past the counts in `tools/world/data/sf/known.json` now, where it had no limit. And walls: 61 steps on foot decks rise over 1 m faster than 50 % (21 at a foot, the worst 39.3 m on the Bay Bridge's cycleway by Yerba Buena Island). 59 of them were in the files before and no check looked: the next pass's. Covered walkways are TUNNEL, at the street. **C10, Agreed at 0.9, is built**: 1,295 runs of raised water by piers and quays are the sea's at `WATER_Y`. **C11 to C13 are Proposed, for you** (`specs/earth/CONTRACT.md` section 10): a height bound on C10 for rivers (8 m; the same files here), people on the ground as City draws it by the shore, and the Golden Gate's tower node written into 1.2.
    - **A review, for you** (CLAUDE.md: code written after a review gets its own): `feat/world` from 39de589 to 7e4cb5b. The parser (N1 and the non-finite floats, 39de589 and 2ba2473); the bake (C8 and the residuals, 4c54a52; the walls at decks' feet, 6d9f2f3; C10, 3bfd501; the ferry's floor, 2354069); and W1, whose sidewalk rule changed in 4c54a52 (any road deck within 1 m passes, a road's foot isn't a carriageway) and which reads limits from `known.json` (da5016e), walls, C10's runs from the tiles, and every ferry point. A stair that climbs to a deck and the sidewalk piece on w28715669's bridge are BRIDGE where OSM doesn't say bridge (GRAPHS.md, the flags).
    - **Still missing.** Places and buildings: fetched 2026-11-05 (items 5 and 1, at their new sizes) and not baked into the graphs yet, so no cruise terminal at Pier 27 yet. The Bay beyond the city (O10: Oakland's and Marin's maps need city tiles first). `lanes.bin`, the ocean lanes, and `airports.bin`. The coastline (item 20's retry, for W4). `PlaceInit`, `makePlaceFrame` and `weatherAt` in `lifeData.ts`, with W3. W2 (at the next bake), W4 (with the lanes), W5 (with City's `onRegion`).
+   - **Taken 2026-11-05 by the second account**: `feat/world` at 3398098 merged into `feat/life` (1cad05e), the review done (the fourth reading in `reviews/world-graphs-2026-11-05.md`: nothing new), C11 to C13 Agreed (CONTRACT 0.10), and cars, ferries and sailboats built on the files.
    - **How to take it.** Merge `feat/world` into `feat/life`: past `feat/earth` (in it to 255beec) it brings only the world's own files and tools (`src/world/lifeData.ts`, `tools/bake/`, `tools/world/`, `public/city/sf/`, `index.html`'s `osm7` and the docs). Or read the files from a checkout of `feat/world` without merging.
 5. The race in `feat/clock`'s deterministic run (its `DECISIONS.md`), when its hunt ends.
 
