@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
+import { globals, GLSL_COMMON, GLSL_OUT, heldGlobals } from '../render/materials';
 import { HUE_RAMPS, Ramp } from '../render/palette';
 import { Kind, Pool } from './kinds';
 
@@ -122,10 +122,13 @@ const POOL_FS = /* glsl */ `
 const SPECK_VS = /* glsl */ `
   ${GLSL_COMMON}
   in float aRamp;
+  in float aPhase;
   flat out float vRamp;
+  flat out float vPhase;
   out vec3 vWorldPos;
   void main() {
     vRamp = aRamp;
+    vPhase = aPhase;
     vec4 wp = modelMatrix * vec4(position, 1.0);
     vWorldPos = wp.xyz;
     gl_PointSize = 1.0;
@@ -135,7 +138,9 @@ const SPECK_VS = /* glsl */ `
 
 const SPECK_FS = /* glsl */ `
   ${GLSL_COMMON}
+  uniform float uLit;
   flat in float vRamp;
+  flat in float vPhase;
   in vec3 vWorldPos;
   ${GLSL_OUT}
   void main() {
@@ -143,6 +148,12 @@ const SPECK_FS = /* glsl */ `
     bool painted = ramp >= ${PAINT_LO}.0 && ramp <= ${PAINT_HI}.0;
     // (a painted speck holds its colour through the haze: it's the player's mark on the sky, to orbit)
     float fog = sbFog(vWorldPos) * (painted ? 0.35 : 1.0);
+    // (at night, when the windows light, a grey plane is its lights: a beacon on the lamps' ramp an eighth of each 1.2 s, each plane its own phase. uLit is the live
+    // sky's and the held hour's, 0 by day and with ?sky=off)
+    if (!painted && uLit > 0.0 && fract(uTime / 1.2 + vPhase) < 0.125) {
+      sbWrite(${Ramp.LAMP}.0, 1.0, fog * 0.5, 0.0, vec3(0.0, 0.0, 1.0), 0.5, 0.5);
+      return;
+    }
     sbWrite(ramp, painted ? 0.62 : 0.55, fog, 0.0, vec3(0.0, 0.0, 1.0), 0.5, 0.5);
   }
 `;
@@ -278,20 +289,26 @@ export class Specks {
   readonly object: THREE.Points;
   readonly pos: Float32Array;
   readonly ramp: Float32Array;
+  /** each speck's beacon's phase at night, 0..1, from its key */
+  readonly phase: Float32Array;
   private readonly posA: THREE.BufferAttribute;
   private readonly rampA: THREE.BufferAttribute;
-  private readonly ranges = [range(), range()];
+  private readonly phaseA: THREE.BufferAttribute;
+  private readonly ranges = [range(), range(), range()];
 
   constructor() {
     const g = new THREE.BufferGeometry();
     this.posA = new THREE.BufferAttribute((this.pos = new Float32Array(SPECKS_MAX * 3)), 3);
     this.rampA = new THREE.BufferAttribute((this.ramp = new Float32Array(SPECKS_MAX)), 1);
+    this.phaseA = new THREE.BufferAttribute((this.phase = new Float32Array(SPECKS_MAX)), 1);
     this.posA.setUsage(THREE.DynamicDrawUsage);
     this.rampA.setUsage(THREE.DynamicDrawUsage);
+    this.phaseA.setUsage(THREE.DynamicDrawUsage);
     g.setAttribute('position', this.posA);
     g.setAttribute('aRamp', this.rampA);
+    g.setAttribute('aPhase', this.phaseA);
     g.setDrawRange(0, 0);
-    const m = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: { ...globals }, vertexShader: SPECK_VS, fragmentShader: SPECK_FS });
+    const m = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: { ...globals, uLit: heldGlobals.uLit }, vertexShader: SPECK_VS, fragmentShader: SPECK_FS });
     this.object = new THREE.Points(g, m);
     this.object.frustumCulled = false;
     this.object.visible = false;
@@ -303,6 +320,7 @@ export class Specks {
     if (!n) return;
     upTo(this.posA, this.ranges[0], n * 3);
     upTo(this.rampA, this.ranges[1], n);
+    upTo(this.phaseA, this.ranges[2], n);
   }
 }
 

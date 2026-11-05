@@ -196,7 +196,7 @@ export class LifeHost {
   /**
    * A painted mover's contrail (CONTRACT.md O6), ribbon `r`: back along its path from its tail, as far as it has flown since it took the paint and TRAIL_S s of it at
    * most, turned to the lens, wider a level up; at level 3 it runs through the paint's hues. In the drawing loop's frame: (ux, uy, uz) the way it's going, `half` its
-   * half length (m), `near` the flight's clamp (0: none). False: nothing to draw yet.
+   * half length (m), `near` the distance past which the loop draws a point nearer its lens (0: none). False: nothing to draw yet.
    */
   private trail(r: number, x: number, y: number, z: number, ux: number, uy: number, uz: number, speed: number, half: number, paint: MoverPaint, cam: THREE.Vector3, ang: number, near: number): boolean {
     const L = speed * Math.min(TRAIL_S, Math.max(0, (this.utc - paint.at) / 1000));
@@ -275,6 +275,7 @@ export class LifeHost {
           sp.pos[ns * 3 + 1] = y;
           sp.pos[ns * 3 + 2] = z;
           sp.ramp[ns] = ramp;
+          sp.phase[ns] = (u32[o + Col.KEY] & 1023) / 1024;
           ns++;
         } else continue;
         this.note(nd++, u32[o + Col.KEY], x, y, z);
@@ -374,6 +375,7 @@ export class LifeHost {
           sp.pos[ns * 3 + 1] = y;
           sp.pos[ns * 3 + 2] = z;
           sp.ramp[ns] = ramp;
+          sp.phase[ns] = (u32[o + Col.KEY] & 1023) / 1024;
           ns++;
         } else continue;
         this.note(nd++, u32[o + Col.KEY], x, y, z);
