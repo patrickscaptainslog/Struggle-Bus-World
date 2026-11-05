@@ -7,6 +7,8 @@
 //   between  a tile that comes in between a blast's impact and the end of its fold shows the blast
 //   budget   the store at its budget, then a MEGA over old paint: nothing thrown, and the old paint under it kept
 //   near     a tile near the bus, which asks for nothing before it comes: its paint follows it in; its ground made again (a region's change of detail), the paint's on it at once
+//   blocked  a store that takes nothing (IndexedDB blocked): 150 breaths flown on, then back to the first: its paint's there, this session's, and what's open stays small
+//   quota    a store full at 3 MB, under the budget: the budget comes down to it, the longest untouched go, and the last of the paint is there after a reload
 //   old      what builds before this one kept in localStorage, a picture under two pages' names and a list of blasts: moved in once, the two as one, the blast drawn in
 // The third review, 2026-11-05 (docs/reviews/earth-pictures-2026-11-04.md): each row its "done". A row passes or fails on the numbers printed with it; exit 1 if any fails.
 import { registerHooks } from 'node:module';
@@ -300,6 +302,91 @@ if (!only || only === 'near')
   for (const [tx, tz] of tiles) g.attach(tx, tz, tx * TS, tz * TS, uni());
   const again = same(g);
   row("near: a tile that asked for nothing gets its paint as it comes, and made again it's on at once", inn.had > 1000 && inn.backPct >= 97 && inn.huePct >= 93 && again.back === inn.back && again.hue === inn.hue, { tiles: before.size, framesTillIn: n, came: inn, madeAgain: again });
+}
+
+// ---- blocked: IndexedDB blocked, every call refused
+if (!only || only === 'blocked')
+{
+  const no = () => Promise.reject(new Error('blocked'));
+  const store = { load: no, get: no, put: no, remove: no, clear: no };
+  const g = new GroundPaint(TS, 'moon_check', 'rank');
+  g.useGeo(geoAt(-11.45, 26.28), store);
+  for (let i = 0; i < 50 && !g.geoPaint.ready; i++) await tick();
+  const r = blastRadiusFor(150), first = tilesAround(-800000, 0, r * 3);
+  for (const [tx, tz] of first) g.attach(tx, tz, tx * TS, tz * TS, uni());
+  let threw = null, most = 0;
+  try {
+    for (let n = 0; n < 150; n++) {
+      g.blast(makeBlastSpec(-800000 + n * 1170, 0, r, n % 6, nextSeed()), 0);
+      if (n === 0) await frames(g, 400);
+      for (let k = 0; k < 78; k++) {
+        g.geoPaint.work(1 / 30);
+        if (k % 13 === 0) await tick();
+      }
+      most = Math.max(most, g.geoPaint.open.size);
+    }
+  } catch (e) {
+    threw = String(e);
+  }
+  const before = new Map();
+  for (const [tx, tz] of first) {
+    const m = g.masks.get(`${tx},${tz}`);
+    if (m && painted(m)) before.set(`${tx},${tz}`, Uint8Array.from(m.data));
+    g.detach(tx, tz);
+  }
+  // (and the tiles again, much later, the pictures under them long closed)
+  g.prepared.clear();
+  const b = await backOn(g, first, before);
+  row('blocked: a store that takes nothing: the first breath back after 150 more, what is open small', !threw && b.had > 1000 && b.backPct >= 97 && most < 200, { threw, mostOpen: most, ...b });
+}
+
+// ---- quota: the store full at 3 MB
+if (!only || only === 'quota')
+{
+  const rows = new Map(), inner = new MemoryStore(rows), CAP = 3 * 1048576;
+  let refused = 0;
+  const size = () => [...rows.values()].reduce((s, [, e]) => s + e.length, 0);
+  const store = {
+    load: () => inner.load(),
+    get: (k) => inner.get(k),
+    remove: (k) => inner.remove(k),
+    clear: () => inner.clear(),
+    put: async (r) => {
+      const add = r.reduce((s, [k, , e]) => s + e.length - (rows.get(k)?.[1].length ?? 0), 0);
+      if (size() + add > CAP) {
+        refused++;
+        throw new Error('QuotaExceededError');
+      }
+      return inner.put(r);
+    },
+  };
+  const mk = async () => {
+    const g = new GroundPaint(TS, 'moon_check', 'rank');
+    g.useGeo(geoAt(-11.45, 26.28), store);
+    for (let i = 0; i < 50 && !g.geoPaint.ready; i++) await tick();
+    return g;
+  };
+  let g = await mk();
+  const r = blastRadiusFor(150), N = 400, last = tilesAround(-800000 + (N - 1) * 1170, 0, r * 3);
+  for (let n = 0; n < N; n++) {
+    if (n === N - 1) for (const [tx, tz] of last) g.attach(tx, tz, tx * TS, tz * TS, uni());
+    g.blast(makeBlastSpec(-800000 + n * 1170, 0, r, n % 6, nextSeed()), 0);
+    for (let k = 0; k < 78; k++) {
+      g.geoPaint.work(1 / 30);
+      if (k % 13 === 0) await tick();
+    }
+  }
+  await frames(g, 200);
+  for (let i = 0; i < 10; i++) await tick();
+  const before = new Map();
+  for (const [tx, tz] of last) {
+    const m = g.masks.get(`${tx},${tz}`);
+    if (m && painted(m)) before.set(`${tx},${tz}`, Uint8Array.from(m.data));
+  }
+  const kept = g.geoPaint.kept;
+  g = await mk();
+  const b = await backOn(g, last, before);
+  row('quota: a store full at 3 MB: the budget comes down to it, and the last breath is there after a reload', refused > 0 && size() <= CAP && b.had > 1000 && b.backPct >= 97, { refused, storeMB: +(size() / 1048576).toFixed(2), keptMB: +(kept / 1048576).toFixed(2), ...b });
 }
 
 // ---- old: a build before this one's pictures and lists in localStorage, by the page's start place

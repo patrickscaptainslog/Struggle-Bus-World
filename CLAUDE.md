@@ -106,6 +106,7 @@ Pages: `?moonland&fps` is the whole trip, Earth orbit to the Moon, land, skim, p
 | `tools/moon/edges.mjs <out>` | The corners of `?moonland` |
 | `tools/moon/flicks.mjs <out>` | Flicks in space, a frame at a time: launch, G5, the long dark, the look, a slow flick in orbit. `tools/flick.mjs` gives any tool a real flick |
 | `tools/moon/slide.mjs <out>` | The map's slide at a fixed step: joins forced both ways, paint, gardens and a breath in the air kept, then a join the game makes by itself. `slide-diff.py <out>` says how much each join changed the picture, `pops.py <out>/nat` what popped |
+| `tools/moon/paint-check.mjs`, `keep.mjs <out>` | The Moon's open-ground paint kept by place: by the poles, an hour's painting, the frame's cost, the store full, in Node; `keep.mjs` the same in the browser, over reloads, a slide, a new map and three pages |
 | `tools/moon/run.mjs <file>.ts` | The generator under Node: `look.ts`, `farcost.ts`, `nans.ts` (`nans.ts 85 30 4` slides the map over the pole) |
 | `tools/sky/route-check.mjs`, `trip-fuzz.mjs` | The flight's maths under Node, no browser |
 | `tools/warmcheck.mjs` | Nothing compiles in flight |

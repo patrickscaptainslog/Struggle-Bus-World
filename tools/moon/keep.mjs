@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Open-ground paint on the Moon is kept by where it is (src/world/GeoPaint.ts, GroundPaint.useGeo), at a fixed step: node tools/moon/keep.mjs <out dir> [--q=site=TYCHO] [--runs=N]
+// Open-ground paint on the Moon is kept by where it is (src/world/GeoPaint.ts, GroundPaint.useGeo), at a fixed step: node tools/moon/keep.mjs <out dir> [--q=site=TYCHO] [--runs=N] [--short]
 //   kept     a blast on open ground ahead of the bus is painted, and kept by its place on the Moon
 //   reload   the page again, a new session on a new map at the same place: the paint is where it was, by latitude and longitude
 //   heavy    200 breaths over one patch, and the page again: all of it back, two frames after its tiles came in, each with its paint on (the second review's P1 and P2)
@@ -8,7 +8,7 @@
 //   one name a page started 25 km off, ?moon&lat=&lon=, and ?moonland: the same store, and on the first the paint where the bus reaches it
 // The first account's review, 2026-11-04: kept by tile of a map that slides, the paint came back 131 km off, could overwrite older paint, and a new map wiped it. The third, 2026-11-05: the
 // store was named by the page's start place, and the new-map row failed once in four. --runs=N runs it all N times in one browser, a new context each, and counts the runs each row passed.
-// BASE is the page (http://localhost:4179/). A row passes or fails on the numbers printed with it; exit 1 if any fails.
+// --short runs only what leads up to the new map. BASE is the page (http://localhost:4179/). A row passes or fails on the numbers printed with it; exit 1 if any fails.
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
@@ -29,7 +29,7 @@ const row = (name, ok, got) => {
   tally.set(name, [t[0] + (ok ? 1 : 0), t[1] + 1]);
   console.log(`${ok ? 'pass' : 'FAIL'}  ${name.padEnd(76)} ${JSON.stringify(got)}`);
 };
-const RUNS = Math.max(1, Number(opt.runs ?? 1));
+const RUNS = Math.max(1, Number(opt.runs ?? 1)), SHORT = !!opt.short;
 for (let run = 0; run < RUNS; run++) {
   if (RUNS > 1) console.log(`---- run ${run + 1} of ${RUNS}`);
   const errors = [];
@@ -96,82 +96,88 @@ for (let run = 0; run < RUNS; run++) {
       return p;
     };
 
-    // ---- kept
-    await open(true);
-    const a = await blast(), a0 = await paintAt(a.lat, a.lon);
-    await frames(30);
-    const stored = await storedPics();
-    row('kept: a blast on open ground is painted, and kept by its place on the Moon', a0.cov >= 0.5 && a0.kept >= 1 && stored >= 1, { at: a, paint: a0, cells: stored });
-    await page.screenshot({ path: join(dir, 'kept.png') });
+    // (--short: only what leads up to the new map, as the third review saw it fail: a page, a slide, a blast and the page again, a blast)
+    let a = null;
+    if (SHORT) await open(true);
+    else {
+      // ---- kept
+      await open(true);
+      a = await blast();
+      const a0 = await paintAt(a.lat, a.lon);
+      await frames(30);
+      const stored = await storedPics();
+      row('kept: a blast on open ground is painted, and kept by its place on the Moon', a0.cov >= 0.5 && a0.kept >= 1 && stored >= 1, { at: a, paint: a0, cells: stored });
+      await page.screenshot({ path: join(dir, 'kept.png') });
 
-    // ---- reload
-    await open(false);
-    const a1 = await settle(a.lat, a.lon);
-    row('reload: a new session at the same place, and the paint is where it was', a1.cov >= 0.5 && a1.hue === a0.hue, { before: a0, after: a1 });
+      // ---- reload
+      await open(false);
+      const a1 = await settle(a.lat, a.lon);
+      row('reload: a new session at the same place, and the paint is where it was', a1.cov >= 0.5 && a1.hue === a0.hue, { before: a0, after: a1 });
 
-    // ---- heavy: 200 breaths over a patch 330 by 210 m ahead, as a player who likes a place paints it, and the page again
-    const patch = await page.evaluate(() => {
-      const g = window.__game, f = g.flight, fx = f.fx, fz = f.fz, cx = f.x + fx * 260, cz = f.z + fz * 260;
-      return { cx, cz, ax: fx, az: fz };
-    });
-    for (let k = 0; k < 200; k++) {
-      await page.evaluate(([P, k]) => {
-        const g = window.__game, u = (k % 20) / 19 - 0.5, v = Math.floor(k / 20) / 9 - 0.5;
-        // (along the way the bus faces 330 m, across it 210)
-        g.splatter.barf(P.cx + P.ax * u * 330 - P.az * v * 210, P.cz + P.az * u * 330 + P.ax * v * 210, { drop: 25 });
-      }, [patch, k]);
-      await frames(2);
-    }
-    await frames(90);
-    // (a grid of places over the patch, and what's painted there)
-    const grid = await page.evaluate((P) => {
-      const g = window.__game.city.ground, out = [];
-      for (let a = 0; a < 40; a++)
-        for (let b = 0; b < 25; b++) {
-          const u = a / 39 - 0.5, v = b / 24 - 0.5, x = P.cx + P.ax * u * 360 - P.az * v * 240, z = P.cz + P.az * u * 360 + P.ax * v * 240, s = g.sample(x, z), o = [0, 0];
-          if (!s || s.cov < 0.5) continue;
-          g.geo.toLatLon(x, z, o);
-          out.push([o[0], o[1], s.hue]);
-        }
-      return out;
-    }, patch);
-    const center = await page.evaluate((P) => { const o = [0, 0]; window.__game.city.ground.geo.toLatLon(P.cx, P.cz, o); return o; }, patch);
-    await page.reload({ waitUntil: 'load', timeout: 180000 });
-    await page.waitForFunction(() => !!window.__game?.city && window.__qa?.held === true, null, { timeout: 600000, polling: 500 });
-    // (frames until every tile of the patch has come in with its paint, each when its paint's copied out of the pictures, then two more)
-    let inAt = -1, firstAt = -1;
-    for (let i = 0; i < 400 && inAt < 0; i++) {
-      await frames(1);
-      const tin = await page.evaluate((G) => {
-        const g = window.__game.city.ground, o = [0, 0], ts = window.__game.city.manifest.tileSize, keys = new Set();
-        for (const [la, lo] of G) {
-          g.geo.toXZ(la, lo, o);
-          keys.add(`${Math.floor(o[0] / ts)},${Math.floor(o[1] / ts)}`);
-        }
-        let n = 0;
-        for (const k of keys) if (g.has(...k.split(',').map(Number))) n++;
-        return [n, keys.size];
-      }, grid);
-      if (tin[0] > 0 && firstAt < 0) firstAt = i;
-      if (tin[0] === tin[1]) inAt = i;
-    }
-    await frames(2);
-    const back = await page.evaluate((G) => {
-      const g = window.__game.city.ground, o = [0, 0];
-      let n = 0, hue = 0;
-      for (const [la, lo, h] of G) {
-        g.geo.toXZ(la, lo, o);
-        const s = g.sample(o[0], o[1]);
-        if (s && s.cov >= 0.5) {
-          n++;
-          if (s.hue === h) hue++;
-        }
+      // ---- heavy: 200 breaths over a patch 330 by 210 m ahead, as a player who likes a place paints it, and the page again
+      const patch = await page.evaluate(() => {
+        const g = window.__game, f = g.flight, fx = f.fx, fz = f.fz, cx = f.x + fx * 260, cz = f.z + fz * 260;
+        return { cx, cz, ax: fx, az: fz };
+      });
+      for (let k = 0; k < 200; k++) {
+        await page.evaluate(([P, k]) => {
+          const g = window.__game, u = (k % 20) / 19 - 0.5, v = Math.floor(k / 20) / 9 - 0.5;
+          // (along the way the bus faces 330 m, across it 210)
+          g.splatter.barf(P.cx + P.ax * u * 330 - P.az * v * 210, P.cz + P.az * u * 330 + P.ax * v * 210, { drop: 25 });
+        }, [patch, k]);
+        await frames(2);
       }
-      return { n, hue, of: G.length };
-    }, grid);
-    await page.screenshot({ path: join(dir, 'heavy.png') });
-    row('heavy: 200 breaths over one patch, and the page again: all of it back, two frames after its tiles came in', grid.length > 300 && inAt >= 0 && back.n >= grid.length * 0.99 && back.hue >= grid.length * 0.97, { painted: grid.length, back: back.n, sameHue: back.hue, firstTileAtFrame: firstAt, allTilesAtFrame: inAt });
-    await frames(150);
+      await frames(90);
+      // (a grid of places over the patch, and what's painted there)
+      const grid = await page.evaluate((P) => {
+        const g = window.__game.city.ground, out = [];
+        for (let a = 0; a < 40; a++)
+          for (let b = 0; b < 25; b++) {
+            const u = a / 39 - 0.5, v = b / 24 - 0.5, x = P.cx + P.ax * u * 360 - P.az * v * 240, z = P.cz + P.az * u * 360 + P.ax * v * 240, s = g.sample(x, z), o = [0, 0];
+            if (!s || s.cov < 0.5) continue;
+            g.geo.toLatLon(x, z, o);
+            out.push([o[0], o[1], s.hue]);
+          }
+        return out;
+      }, patch);
+      const center = await page.evaluate((P) => { const o = [0, 0]; window.__game.city.ground.geo.toLatLon(P.cx, P.cz, o); return o; }, patch);
+      await page.reload({ waitUntil: 'load', timeout: 180000 });
+      await page.waitForFunction(() => !!window.__game?.city && window.__qa?.held === true, null, { timeout: 600000, polling: 500 });
+      // (frames until every tile of the patch has come in with its paint, each when its paint's copied out of the pictures, then two more)
+      let inAt = -1, firstAt = -1;
+      for (let i = 0; i < 400 && inAt < 0; i++) {
+        await frames(1);
+        const tin = await page.evaluate((G) => {
+          const g = window.__game.city.ground, o = [0, 0], ts = window.__game.city.manifest.tileSize, keys = new Set();
+          for (const [la, lo] of G) {
+            g.geo.toXZ(la, lo, o);
+            keys.add(`${Math.floor(o[0] / ts)},${Math.floor(o[1] / ts)}`);
+          }
+          let n = 0;
+          for (const k of keys) if (g.has(...k.split(',').map(Number))) n++;
+          return [n, keys.size];
+        }, grid);
+        if (tin[0] > 0 && firstAt < 0) firstAt = i;
+        if (tin[0] === tin[1]) inAt = i;
+      }
+      await frames(2);
+      const back = await page.evaluate((G) => {
+        const g = window.__game.city.ground, o = [0, 0];
+        let n = 0, hue = 0;
+        for (const [la, lo, h] of G) {
+          g.geo.toXZ(la, lo, o);
+          const s = g.sample(o[0], o[1]);
+          if (s && s.cov >= 0.5) {
+            n++;
+            if (s.hue === h) hue++;
+          }
+        }
+        return { n, hue, of: G.length };
+      }, grid);
+      await page.screenshot({ path: join(dir, 'heavy.png') });
+      row('heavy: 200 breaths over one patch, and the page again: all of it back, two frames after its tiles came in', grid.length > 300 && inAt >= 0 && back.n >= grid.length * 0.99 && back.hue >= grid.length * 0.97, { painted: grid.length, back: back.n, sameHue: back.hue, firstTileAtFrame: firstAt, allTilesAtFrame: inAt });
+      await frames(150);
+    }
 
     // ---- slide, then a blast, then the page again
     await page.evaluate((d) => window.__game.slide(d, 0), D);
@@ -198,30 +204,32 @@ for (let run = 0; run < RUNS; run++) {
     await page.screenshot({ path: join(dir, 'new-map.png') });
     row('new map: made again round the bus, and the paint near it is still there', c0.cov >= 0.5 && c1.cov >= 0.5 && c1.hue === c0.hue, { at: c, before: c0, after: c1 });
 
-    // ---- one name: the first blast's place from a page started 25 km east of it, and ?moonland
-    await frames(60);
-    const aLast = await paintAt(a.lat, a.lon), n0 = await storedPics();
-    const lon25 = a.lon + (25000 / 1737400 / Math.cos((a.lat * Math.PI) / 180)) * (180 / Math.PI);
-    await page.goto(`${BASE}?moon&nohud&fixeddt=${DT.toFixed(6)}&lat=${a.lat.toFixed(5)}&lon=${lon25.toFixed(5)}`, { waitUntil: 'load', timeout: 180000 });
-    await page.waitForFunction(() => !!window.__game?.city && window.__game.city.loadedRegionCount() > 0 && window.__qa?.held === true, null, { timeout: 600000, polling: 500 });
-    await frames(60);
-    const n1 = await storedPics();
-    // (the bus taken to the place, as if it had flown there: the tiles round it come in, and draw what's kept)
-    const there = await page.evaluate(([la, lo]) => {
-      const g = window.__game, f = g.flight, o = [0, 0];
-      g.city.ground.geo.toXZ(la, lo, o);
-      f.x = o[0] - f.fx * 90;
-      f.z = o[1] - f.fz * 90;
-      return { x: Math.round(o[0]), z: Math.round(o[1]) };
-    }, [a.lat, a.lon]);
-    await frames(30);
-    const a2 = await settle(a.lat, a.lon);
-    await page.screenshot({ path: join(dir, 'one-name.png') });
-    await page.goto(`${BASE}?moonland&nohud`, { waitUntil: 'load', timeout: 180000 });
-    await page.waitForFunction(() => !!window.__space, null, { timeout: 600000, polling: 500 });
-    await page.waitForTimeout(3000);
-    const n2 = await storedPics();
-    row('one name: 25 km off and on ?moonland the same store, and the paint where the bus reaches it', n0 > 0 && n1 >= n0 && n2 >= n0 && a2.cov >= 0.5 && a2.hue === aLast.hue, { pictures: [n0, n1, n2], there, before: aLast, after: a2 });
+    if (!SHORT) {
+      // ---- one name: the first blast's place from a page started 25 km east of it, and ?moonland
+      await frames(60);
+      const aLast = await paintAt(a.lat, a.lon), n0 = await storedPics();
+      const lon25 = a.lon + (25000 / 1737400 / Math.cos((a.lat * Math.PI) / 180)) * (180 / Math.PI);
+      await page.goto(`${BASE}?moon&nohud&fixeddt=${DT.toFixed(6)}&lat=${a.lat.toFixed(5)}&lon=${lon25.toFixed(5)}`, { waitUntil: 'load', timeout: 180000 });
+      await page.waitForFunction(() => !!window.__game?.city && window.__game.city.loadedRegionCount() > 0 && window.__qa?.held === true, null, { timeout: 600000, polling: 500 });
+      await frames(60);
+      const n1 = await storedPics();
+      // (the bus taken to the place, as if it had flown there: the tiles round it come in, and draw what's kept)
+      const there = await page.evaluate(([la, lo]) => {
+        const g = window.__game, f = g.flight, o = [0, 0];
+        g.city.ground.geo.toXZ(la, lo, o);
+        f.x = o[0] - f.fx * 90;
+        f.z = o[1] - f.fz * 90;
+        return { x: Math.round(o[0]), z: Math.round(o[1]) };
+      }, [a.lat, a.lon]);
+      await frames(30);
+      const a2 = await settle(a.lat, a.lon);
+      await page.screenshot({ path: join(dir, 'one-name.png') });
+      await page.goto(`${BASE}?moonland&nohud`, { waitUntil: 'load', timeout: 180000 });
+      await page.waitForFunction(() => !!window.__space, null, { timeout: 600000, polling: 500 });
+      await page.waitForTimeout(3000);
+      const n2 = await storedPics();
+      row('one name: 25 km off and on ?moonland the same store, and the paint where the bus reaches it', n0 > 0 && n1 >= n0 && n2 >= n0 && a2.cov >= 0.5 && a2.hue === aLast.hue, { pictures: [n0, n1, n2], there, before: aLast, after: a2 });
+    }
   } catch (e) {
     bad++;
     console.log('FAIL ', e.message);

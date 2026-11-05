@@ -25,8 +25,8 @@ const CAP_R = (90 - CAP_LAT) * DEG * R_M;
 /** Rows of the grid by latitude, and the last one short of the cap each way. */
 const ROW_MAX = Math.round(CAP_LAT / PIC_DEG) - 1;
 /**
- * The store's size, bytes of coded pictures: about five hours of painting at Jet low, more slowly, a breath every 2.6 s, about 12 MB an hour, and at Express about 5 MB; from high up a breath
- * is bigger and the hours fewer. Past it the longest untouched go.
+ * The store's size, bytes of coded pictures: about four hours of painting at Jet low, flying on and breathing every 2.6 s, 15 MB an hour (tools/moon/paint-check.mjs, "hours"), more
+ * at slower gears and less from high up, where a breath is bigger. Past it the longest untouched go.
  */
 export const BUDGET = 64 * 1024 * 1024;
 /** What's open in memory at most, beyond what a blast or a tile is drawing: 64 KB a picture. */
@@ -174,6 +174,9 @@ export class GeoPaint {
   private readonly early = new Map<string, [number, number]>();
   /** closed pictures' texels, for the next made */
   private readonly free: Uint8Array[] = [];
+  /** writes failed in a row, and the store's size, which they bring down */
+  private fails = 0;
+  private budget = BUDGET;
   /** a journal's been left (persist), and the page lived on */
   private journal = false;
   private readonly spot: Spot = { key: 0, a: 0, b: 0 };
@@ -188,7 +191,7 @@ export class GeoPaint {
    * gives (the pictures and blasts of builds before this one) goes into it then.
    */
   readonly geo: GroundGeo;
-  private readonly store: PicStore;
+  private store: PicStore;
   private readonly prepare: (s: BlastSpec) => Prepared;
   private readonly onPrepared: (key: string, data: Uint8Array) => void;
   private readonly size: number;
@@ -669,7 +672,7 @@ export class GeoPaint {
       this.coded.push([k, pic.t, enc]);
       this.note(k, pic.t, enc.length);
     }
-    if (!this.coding.length && !this.writing && (this.coded.length || this.bytes > BUDGET)) this.write();
+    if (!this.coding.length && !this.writing && (this.coded.length || this.bytes > this.budget)) this.write();
     this.qa.workMs = Math.max(this.qa.workMs, performance.now() - t0);
     this.flushIn -= dt;
     if (this.flushIn <= 0 && !this.coding.length && !this.writing) {
@@ -710,12 +713,12 @@ export class GeoPaint {
   /** What's coded, written to the store; and past BUDGET, the longest untouched go, down to nine tenths of it so that it's seldom. */
   private write(): void {
     const drop: number[] = [];
-    if (this.bytes > BUDGET) {
+    if (this.bytes > this.budget) {
       const busy = this.busy();
       for (const r of this.coded) busy.add(r[0]);
       const old = [...this.index].filter(([k]) => !busy.has(k) && !this.open.get(k)?.pins).sort((a, b) => a[1].t - b[1].t);
       for (const [k, m] of old) {
-        if (this.bytes <= BUDGET * 0.9) break;
+        if (this.bytes <= this.budget * 0.9) break;
         drop.push(k);
         this.bytes -= m.bytes;
         this.index.delete(k);
@@ -728,25 +731,36 @@ export class GeoPaint {
     this.coded = [];
     this.sent = rows;
     Promise.all([rows.length ? this.store.put(rows) : null, drop.length ? this.store.remove(drop) : null])
-      .catch(() => {
-        // (not written: changed again, so the next flush tries them again; a picture closed since comes back to be written)
-        for (const [k, t, enc] of rows) {
-          const pic = this.open.get(k);
-          if (pic) pic.dirty = true;
-          else this.coded.push([k, t, enc]);
-        }
-      })
-      .then(() => {
-        // (all of it in the store, the page having come back from being hidden: the journal it left is old)
-        if (this.journal && !this.folds.length && !this.coded.length && !this.coding.length && ![...this.open.values()].some((p) => p.dirty)) {
-          this.journal = false;
-          try {
-            localStorage.removeItem(JOURNAL);
-          } catch {
-            /* blocked */
+      .then(
+        () => {
+          this.fails = 0;
+          // (all of it in the store, the page having come back from being hidden: the journal it left is old)
+          if (this.journal && !this.folds.length && !this.coded.length && !this.coding.length && ![...this.open.values()].some((p) => p.dirty)) {
+            this.journal = false;
+            try {
+              localStorage.removeItem(JOURNAL);
+            } catch {
+              /* blocked */
+            }
           }
-        }
-      })
+        },
+        () => {
+          // (not written: changed again, so the next flush tries them again; a picture closed since comes back to be written. A store full before its budget, as a browser's quota
+          // can be, has its budget brought down under what it holds, and the longest untouched go; one that takes nothing three times running, IndexedDB blocked as in some private
+          // windows, keeps what's written from then on in memory, an hour's painting of it, this session's, as the street's paint is with its storage blocked)
+          if (++this.fails < 3) this.budget = Math.max(BUDGET / 64, Math.min(this.budget, this.bytes * 0.8));
+          else if (!(this.store instanceof Fallback)) {
+            this.store = new Fallback(this.store);
+            this.budget = BUDGET / 4;
+            this.fails = 0;
+          }
+          for (const [k, t, enc] of rows) {
+            const pic = this.open.get(k);
+            if (pic) pic.dirty = true;
+            else this.coded.push([k, t, enc]);
+          }
+        },
+      )
       .finally(() => {
         this.sent = [];
         this.writing = false;
@@ -930,6 +944,44 @@ export class IdbStore implements PicStore {
       pics.clear();
       meta.clear();
     });
+  }
+}
+
+/** A store that wouldn't take writes: what's written from then on is kept in memory, and what it held is still read from it. */
+class Fallback implements PicStore {
+  readonly mem = new MemoryStore();
+  private readonly was: PicStore;
+  constructor(was: PicStore) {
+    this.was = was;
+  }
+
+  load(): Promise<Map<number, [number, number]>> {
+    return this.mem.load();
+  }
+
+  async get(keys: number[]): Promise<Map<number, string>> {
+    const out = await this.mem.get(keys), rest = keys.filter((k) => !out.has(k));
+    if (rest.length)
+      try {
+        for (const [k, v] of await this.was.get(rest)) out.set(k, v);
+      } catch {
+        /* none */
+      }
+    return out;
+  }
+
+  put(rows: Array<[number, number, string]>): Promise<void> {
+    return this.mem.put(rows);
+  }
+
+  remove(keys: number[]): Promise<void> {
+    void this.was.remove(keys).catch(() => undefined);
+    return this.mem.remove(keys);
+  }
+
+  clear(): Promise<void> {
+    void this.was.clear().catch(() => undefined);
+    return this.mem.clear();
   }
 }
 
