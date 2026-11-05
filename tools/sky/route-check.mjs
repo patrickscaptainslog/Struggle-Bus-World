@@ -199,6 +199,38 @@ for (const g5 of all ? [3000, 6000, 10000] : [6000]) {
   console.log(`orbit, steering: ${lo.toFixed(3)}-${hi.toFixed(3)} km; settles at G${gear}, ${g3.toFixed(1)} km/s; a flick down and up: ${same ? 'Stratos and back' : 'no'}; a tap: ${left}; ${ok ? 'ok' : 'FAIL'}`);
 }
 
+// Earth's page with its page change refused in the long dark (storage blocked, review five's 35): the trip flies on into the Moon's orbit there. A flick is a gear,
+// and a pull held climbs out of it to TO PLANET EARTH?, and home.
+{
+  const { geodeticToFix } = await import('../../src/sky/WorldFrame.ts');
+  const trip = new MoonTrip(series, Date.parse('2026-11-25T04:00:35Z'), { g5: 6000, street: true });
+  trip.fromStreet(geodeticToFix(37.7749, -122.4194, 15, new Float64Array(3)), new Float64Array([0, 0, 1]), 0, 0.3, 3, 3);
+  trip.step(DT, 0);
+  trip.qaGo();
+  trip.step(DT, 0);
+  trip.qaGo();
+  for (let i = 0; i < 40000 && trip.leg !== 'orbit'; i++) trip.step(DT, 0);
+  const orbit = trip.leg;
+  for (let i = 0; i < 3; i++) {
+    trip.tap();
+    for (let k = 0; k < 30; k++) trip.step(DT, 0);
+  }
+  const flicked = trip.leg;
+  for (let i = 0; i < 4 * 30 && trip.leg === 'orbit'; i++) trip.step(DT, 0, -1);
+  const pulled = trip.leg;
+  let egg = null;
+  for (let i = 0; i < 40000 && !egg; i++) {
+    trip.step(DT, 0, -1);
+    egg = trip.egg;
+  }
+  const eggKm = trip.hMoon;
+  trip.toEarth();
+  for (let i = 0; i < 60000 && trip.leg !== 'wait'; i++) trip.step(DT, 0);
+  const ok = orbit === 'orbit' && flicked === 'orbit' && pulled === 'moonRise' && egg === 'earth' && trip.leg === 'wait';
+  if (!ok) fails++;
+  console.log(`Earth's page, its page change refused: ${orbit}; three flicks up: ${flicked}; a pull held: ${pulled}; ${egg ? `TO PLANET EARTH? at ${eggKm.toFixed(0)} km` : 'no button'}; then ${trip.leg}; ${ok ? 'ok' : 'FAIL'}`);
+}
+
 // Every way a trip can start or end up, across a month: launch, orbit, leave, home, from wherever the Moon and home are. It must always arrive.
 if (all) {
   let worstOut = 0, worstHome = 0, level = 0, n = 0, lowMoon = Infinity, lowEarth = Infinity, lowHomeEarth = Infinity;
