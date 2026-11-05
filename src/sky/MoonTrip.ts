@@ -1179,8 +1179,8 @@ export class MoonTrip {
    * the route carry on from this moment. The sky models aren't state: they're a function of the clock.
    */
   save(): Saved {
-    // (what this page made the trip for stays this page's: whether a push in orbit lands, and whether the street had the bus first)
-    return saveFields(this, ['land', 'onStreet', 'launchDeg']);
+    // (what this page made the trip for stays this page's: whether a push in orbit lands, whether the street had the bus first, and whether it's Earth's page. Review six, 66)
+    return saveFields(this, ['land', 'onStreet', 'launchDeg', 'earthPage']);
   }
 
   /** The trip saved on the page before, into this one, before its first step: it carries on from there. */

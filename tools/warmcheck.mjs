@@ -13,6 +13,7 @@
 // --moon: the url is ?moonrun: no city, so the phases are the flight's: real flicks, out and home.
 // --low: the url is ?moon, the ground: real touches through a cruise, a surge, Jet, a climb, a dive, a crater taken to level 3, a mega and a firehose.
 // Wall clock, real GPU (tools/browser.mjs): meaningful on a laptop, not in the cloud's SwiftShader.
+// `lamps` in the report: when the street lamps' list was asked for and landed, ms after ready (a dusk with them in flight: ?t=2026-11-07T00:01:00Z&rate=120).
 import { chromium } from 'playwright-core';
 import { writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
@@ -96,6 +97,7 @@ const t0 = Date.now();
 await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 300000 });
 await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000, polling: 100 });
 const readyMs = Date.now() - t0;
+const readyAt = await page.evaluate(() => performance.now());
 
 // in-page helpers: city-local meters from lat/lon (tools mirror src/game/geo.ts), a game-clock wait
 await page.evaluate(() => {
@@ -306,6 +308,11 @@ const res = {
   url,
   throttle: opt.throttle ?? 1,
   readyMs,
+  // (the street lamps' list, asked for once the city is in and the Sun is under 3 degrees: ms after ready, under 0 before it, null if it never was)
+  lamps: await page.evaluate((r) => {
+    const s = window.__game.sky, l = s?.hour?.lamps ?? s?.lamps, at = (t) => (t >= 0 ? Math.round(t - r) : null);
+    return l && 'askedAt' in l ? { askedAfterReadyMs: at(l.askedAt), landedAfterReadyMs: at(l.landedAt) } : null;
+  }, readyAt),
   warm: info.report && { programs: info.report.programs, draws: info.report.draws, doneMs: info.report.doneMs },
   programsAtReady: info.programsAtReady,
   blast,

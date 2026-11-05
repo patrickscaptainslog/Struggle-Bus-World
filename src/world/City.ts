@@ -1159,10 +1159,13 @@ export class City {
     if (!uploadRect(renderer, tex, ox, oz, cn, cn, gl.RED, gl.UNSIGNED_BYTE, 1)) tex.needsUpdate = true;
   }
 
-  /** far.bin's ground grid for the lamps' worker, a copy (null before it is in). */
+  /**
+   * far.bin's ground grid for the lamps' worker, null before it is in: its own heights, not a copy, since the lamps hold their request until the dusk (1 MB in San
+   * Francisco). The message to the worker clones them, and the main thread's fallback only reads them: nothing may transfer them or write to them.
+   */
   groundGrid(): { ground: Float32Array; gridW: number; gridH: number; minX: number; minZ: number; cell: number } | null {
     const f = this.far;
-    return f ? { ground: f.heights.slice(), gridW: f.gridW, gridH: f.gridH, minX: f.minX, minZ: f.minZ, cell: f.cell } : null;
+    return f ? { ground: f.heights, gridW: f.gridW, gridH: f.gridH, minX: f.minX, minZ: f.minZ, cell: f.cell } : null;
   }
 
   /** A city file's URL, the data's version on it. */

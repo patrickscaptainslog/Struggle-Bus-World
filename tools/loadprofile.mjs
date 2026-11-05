@@ -8,7 +8,7 @@
 // incl. the first getProgramParameter status poll, where drivers finish linking), and
 // the number of programs, the first draw into the canvas (the first presented real frame),
 // when each program was created (and how many after ready), and when each region request
-// went out. A fresh browser context each run, so nothing is cached.
+// and lamps.bin went out, both off workers. A fresh browser context each run, so nothing is cached.
 import { chromium } from 'playwright-core';
 import { writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
@@ -80,10 +80,14 @@ await page.addInitScript(() => {
 const reqs = new Map();
 cdp.on('Network.requestWillBeSent', (e) => reqs.set(e.requestId, { url: e.request.url, t0: e.timestamp }));
 cdp.on('Network.loadingFinished', (e) => { const r = reqs.get(e.requestId); if (r) { r.t1 = e.timestamp; r.bytes = e.encodedDataLength; } });
-// the city worker's region fetches (the page's CDP session doesn't see a worker's requests; the context does)
+// the city worker's region fetches, and the lamps' list off its own worker (the page's CDP session doesn't see a worker's requests; the context does)
 const regionReq = new Map();
-ctx.on('request', (r) => { if (/\/r_-?\d+_-?\d+/.test(r.url())) regionReq.set(r, { name: r.url().replace(/^.*\//, ''), start: Date.now() }); });
-ctx.on('requestfinished', (r) => { const q = regionReq.get(r); if (q) q.end = Date.now(); });
+const lampReq = new Map();
+ctx.on('request', (r) => {
+  if (/\/r_-?\d+_-?\d+/.test(r.url())) regionReq.set(r, { name: r.url().replace(/^.*\//, ''), start: Date.now() });
+  else if (/\/lamps\.bin/.test(r.url())) lampReq.set(r, { start: Date.now() });
+});
+ctx.on('requestfinished', (r) => { const q = regionReq.get(r) ?? lampReq.get(r); if (q) q.end = Date.now(); });
 const t0 = Date.now();
 await page.goto(url + (opt.query ?? ''), { waitUntil: 'domcontentloaded', timeout: 300000 });
 const dcl = Date.now() - t0;
@@ -121,6 +125,8 @@ const res = {
   boot: list.filter((r) => /city\.json|far\.|far16\.|horizon\./.test(r.url)).map((r) => [r.url, r.start, r.ms]),
   // [file, start, ms] from the start of navigation (Date.now based: comparable between runs, ~10 ms coarse)
   regions: [...regionReq.values()].map((q) => [q.name, q.start - t0, q.end ? q.end - q.start : null]).sort((a, b) => a[1] - b[1]),
+  // lamps.bin as the regions are, [start, ms]: none if it hadn't gone out by ready (by day it never does)
+  lamps: [...lampReq.values()].map((q) => [q.start - t0, q.end ? q.end - q.start : null]),
 };
 writeFileSync(out, JSON.stringify(res, null, 2));
 console.log(JSON.stringify(res, null, 1));

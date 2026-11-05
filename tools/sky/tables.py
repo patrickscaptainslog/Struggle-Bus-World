@@ -7,8 +7,10 @@ The day is today's bytes and the blue hour (and night, LIVE.md decision 2) is S1
 - LIT and LAMP are the blue table's: a light has one colour at any hour.
 - Rows art has no colour for are named from their kin: between the day's row and the blue table's, as far as the table's city is from the day's toward blue.
 - World rows (all but paint and the bus) stop at 0.74 of the table's paint median chroma, steps 2-5 of the six hues: the one rule's 0.75, with room for the blend.
-- Then art's gate: a swatch that would read brown or taupe drops to neutral chroma, 0.016 (the run-time blend clamps the same way). Exit 1 if any swatch still fails."""
-import os, re, sys
+- Then art's gate: a swatch that would read brown or taupe drops to neutral chroma, 0.016 (the run-time blend clamps the same way). Exit 1 if any swatch still fails.
+Last, index.html's first paint, which carries the page's colour off these tables: `node tools/sky/run.mjs firstpaint.ts --write` writes its rows again from them and
+checks them against the game's. Exit 1 if that fails: until it passes the boot's first paint can disagree with the game's."""
+import os, re, subprocess, sys
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -193,3 +195,7 @@ for const, _, _ in KEYS:
     emit(const + '_TABLE', tables[const], docs[const])
 open(os.path.join(ROOT, 'src/sky/SkyTables.ts'), 'w', encoding='utf8', newline='\n').write('\n'.join(out))
 print('\n'.join(notes))
+
+# index.html's first paint off the tables just written: its rows again, and the check
+if subprocess.run(['node', os.path.join(ROOT, 'tools', 'sky', 'run.mjs'), 'firstpaint.ts', '--write'], cwd=ROOT).returncode:
+    sys.exit('the first paint fails against these tables: node tools/sky/run.mjs firstpaint.ts says where')

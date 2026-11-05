@@ -169,6 +169,11 @@ export class GeoPaint {
   private readonly copying = new Set<string>();
   /** the index read: before that nothing can say what's painted */
   ready = false;
+  /**
+   * The journal's blasts as the boot finds them, once they're folds: the tiles in before the store was read asked for their paint early and found no folds over
+   * them, and come in under the pictures alone, so they're told. Review five, 40
+   */
+  onJournal: ((blasts: BlastSpec[]) => void) | null = null;
   private frame = 0;
   private flushIn = FLUSH_S;
   private writing = false;
@@ -295,6 +300,7 @@ export class GeoPaint {
     const later = this.folds.splice(0);
     for (const sp of blasts) this.add(sp);
     this.folds.push(...later);
+    if (blasts.length) this.onJournal?.(blasts);
     // (the blasts not drawn in yet journalled again, before what held them goes: they're drawn in over the next frames, and the journal goes once they're written. A store
     // that refused the journal's pictures keeps them in memory, and the journal and the old build's pictures stay till a store that lasts has them. Review four, 11)
     try {
@@ -716,6 +722,8 @@ export class GeoPaint {
     this.store
       .get(keys)
       .then((got) => {
+        // (a read that comes back clears the count: refusals in a row send a store to the fallback, not two frames' outage. Review six, 55)
+        this.fails = 0;
         for (const k of keys) {
           this.loading.delete(k);
           // (nor one cleared while it was read: the tuner's reset)

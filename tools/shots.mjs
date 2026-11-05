@@ -19,6 +19,17 @@
 // --set=far.blockEnd:5000,far.blockSink:4000 (with --det): config values, from the first frame.
 // --descent (with --det): and the full dive from there to the rooftops: a frame every half second of game time (<name>-descent-00.png ...), and a
 // six-frame burst 3 s in (<name>-dive-0.png .. 5), for the crawl on the way down.
+// --trace (with --det): <name>-trace.json beside each shot, every game frame from the first (one a run's end holds does nothing, and isn't
+// one): the clock, dt, whether it stood, the flight's state, the world queries its steps made (a count and a hash), the camera and what
+// the city streams from, city.busy and its counts, Math.random's draws, and every arrival stamped with its frame (a region asked for and
+// answered, a tile adopted, a swap, a stamp, resource timing). --trace=stacks: and where each draw came from. tools/tracediff.mjs finds
+// the first frame two traces part at.
+// --jitter=<ms> (with --det): a loaded machine on purpose, each region answered up to <ms> late and each adoption up to a tenth of it
+// slower; --gap=<n>: n more frames with the clock standing before every run; --stand=<n>: n more at the end of every stand in a run
+// (two come anyway). A deterministic run must come out the same under all three. --split: a run's inputs in an evaluate of their
+// own, as before 2026-11-04, the race that staging closed (with --gap=2 the swap shot's bad frame comes back).
+// (A view script stages what a run starts with, glide(), stick(), unstick(), barf(), and runDet hands it over as the clock starts.)
+// The live sky is on unless --q=sky=off; its frames are the same twice only with its clock pinned (--q=t=2026-11-06T08:00:00Z&rate=0).
 // hold-sunset, hold-presidio, hold-downtown (with --det, by name): SPIKE.md's hold-still swap. Nothing loads past the start on the way up (?loadr=1),
 // the clock stands, the frame is shot; the radius comes back, what streams in lands with the clock still standing, and it is shot again, the camera
 // where it was: <name>-<sun>-0.png, <name>-<sun>-1.png, for the game's sun (day), 75 degrees (high), 5 degrees (low) and a night made of light alone
@@ -33,6 +44,7 @@ const opt = Object.fromEntries(args.filter((a) => a.startsWith('--')).map((a) =>
 const base = pos[0] ?? 'http://127.0.0.1:5173/';
 const out = pos[1] ?? 'shots';
 const det = 'det' in opt;
+const trace = det && 'trace' in opt ? opt.trace : null;
 mkdirSync(out, { recursive: true });
 
 // (PW_WS: connect to a running tools/pw-server.mjs instead of launching a browser)
@@ -52,13 +64,127 @@ async function open(query) {
   page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.log('[console]', m.text()));
   if (opt.drop) await page.route(`**/${opt.drop}*`, (r) => r.fulfill({ status: 404, body: '' }));
   if (det) {
-    await page.addInitScript(() => {
+    await page.addInitScript(({ tr, jit, stand }) => {
       // Math.random reseeded from the game clock on every frame, and again after the streaming step: a
       // build that makes a few more three.js objects (each draws UUID randoms) can't shift hues or particles
       let s = 1;
       let g = null;
       const seed = () => (s = 1 + ((987654321 + (g ? Math.round(g.clock() * 30) : 0) * 48271) % 2147483646));
-      Math.random = () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
+      const draw = () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
+      // --jitter=<ms>: a loaded machine on purpose (each region answered up to that late, each adoption up to a tenth of it slower), with
+      // randoms of its own: the deterministic run must come out the same
+      const wild = () => crypto.getRandomValues(new Uint32Array(1))[0] / 4294967296;
+      const jitter = (c) => {
+        const J = Number(jit);
+        const onRegion = c.onRegion;
+        c.onRegion = function (msg) {
+          setTimeout(() => onRegion.call(this, msg), wild() * J);
+        };
+        for (const name of ['addTile', 'prepTile', 'swapRegion', 'buildRegionMesh']) {
+          const fn = c[name];
+          if (typeof fn === 'function')
+            c[name] = function (...a) {
+              if (wild() < 0.5) for (const end = performance.now() + (wild() * J) / 10; performance.now() < end; );
+              return fn.apply(this, a);
+            };
+        }
+      };
+      // (--trace: T.f, one row a game frame, its columns T.cols; T.ev, the arrivals, each [frames so far, clock, inside city.update, kind, ...])
+      const T = tr ? (window.__trace = { cols: null, f: [], ev: [], n: 0, draws: 0, sites: tr === 'stacks' ? {} : null, frame: null }) : null;
+      Math.random = T
+        ? () => {
+            T.draws++;
+            if (T.sites) {
+              const k = (new Error().stack.split('\n')[2] || '').trim();
+              T.sites[k] = (T.sites[k] || 0) + 1;
+            }
+            return draw();
+          }
+        : draw;
+      const hooks = (v) => {
+        const f = v.flight, c = v.city, cam = v.camera, rig = v.rig, aim = v.aimer;
+        let inStep = false, depth = 0, qn = 0, qh = 0, steps = 0, lastT = 0, lastId = c.nextId ?? 0;
+        T.upd = false;
+        const ev = (...e) => T.ev.push([T.n, g.clock(), T.upd ? 1 : 0, ...e]);
+        // (what the flight's steps asked the world, the top calls only: a count and a hash of the answers)
+        const num = (r) => (typeof r === 'boolean' ? +r : Number.isFinite(r) ? Math.round(r * 1e4) : r > 0 ? 1e9 + 7 : r < 0 ? -1e9 - 7 : -3);
+        for (const m of ['obstacleAt', 'groundAt', 'overheadAt', 'hardAt', 'solidAt']) {
+          const fn = c[m];
+          if (typeof fn !== 'function') continue;
+          c[m] = function (...a) {
+            const top = inStep && depth === 0;
+            depth++;
+            let r;
+            try {
+              r = fn.apply(this, a);
+            } finally {
+              depth--;
+            }
+            if (top) {
+              qn++;
+              qh = (Math.imul(qh, 31) + num(r)) | 0;
+            }
+            return r;
+          };
+        }
+        const step = f.step;
+        f.step = function (...a) {
+          inStep = true;
+          steps++;
+          try {
+            return step.apply(this, a);
+          } finally {
+            inStep = false;
+          }
+        };
+        const onRegion = c.onRegion;
+        c.onRegion = function (msg) {
+          const p = c.pending.get(msg.id);
+          ev('resp', msg.id, p ? p.key : null, msg.lod, msg.tiles ? msg.tiles.length : -1, msg.error ? 1 : 0, Math.round(performance.now()));
+          return onRegion.call(this, msg);
+        };
+        const wrap = (name, say) => {
+          const fn = c[name];
+          if (typeof fn === 'function')
+            c[name] = function (...a) {
+              ev(name, ...say(...a));
+              return fn.apply(this, a);
+            };
+        };
+        wrap('addTile', (t, coarse) => [`${t.tx},${t.tz}`, coarse ? 1 : 0]);
+        wrap('prepTile', (t) => [`${t.tx},${t.tz}`]);
+        wrap('swapRegion', (key, msg) => [key, msg.lod]);
+        wrap('buildRegionMesh', (key) => [key]);
+        wrap('unloadRegion', (rx, rz) => [`${rx},${rz}`]);
+        wrap('stampProp', (p) => [Math.round(p.clear.cx), Math.round(p.clear.cz)]);
+        wrap('raiseRoof', (r, top) => [Math.round(r.cx), Math.round(r.cz), top]);
+        wrap('growTo', (ref, level) => [ref.index, level]);
+        const barf = v.barfAtLatLon;
+        v.barfAtLatLon = (...a) => (ev('barf', ...a), barf(...a));
+        try {
+          new PerformanceObserver((l) => {
+            for (const e of l.getEntries()) ev('res', e.name.replace(location.origin, '').slice(0, 96), Math.round(e.startTime), Math.round(e.responseEnd));
+          }).observe({ type: 'resource', buffered: true });
+        } catch {
+          // (no resource timing: the arrivals the city reports still are)
+        }
+        T.cols = ['n', 't', 'dt', 'held', 'running', 'steps', 'qn', 'qh', 'draws', 'x', 'y', 'z', 'heading', 'speed', 'vy', 'nose', 'mode', 'onPath', 'pathVy', 'vyYoke', 'yawRate', 'yawAcc', 'bank', 'pitch', 'floorY', 'floorRise', 'floorSmooth', 'holdY', 'targetY', 'groundUnder', 'obstacleUnder', 'groundBroad', 'lift', 'height', 'strain', 'glideSpeed', 'barfT', 'fullness', 'relief', 'speedScale', 'surge', 'tbFloor', 'tbSpeed', 'tbRate', 'tbCeiling', 'tbYaw', 'qaSx', 'qaSy', 'qaHoldAt', 'camX', 'camY', 'camZ', 'hfov', 'viewHeight', 'viewX', 'viewZ', 'detailScale', 'detailHold', 'eager', 'busy', 'pending', 'adopt', 'farBusy', 'farLanding', 'poolAt', 'poolTiles', 'regions', 'tiles', 'groundQueued', 'farLate', 'wall', 'sites', 'glint', 'glintSince'];
+        // (the requests an update made: every call's, the warm-up's too)
+        T.reqs = () => {
+          for (; c.nextId !== undefined && lastId < c.nextId; lastId++) {
+            const q = c.pending.get(lastId);
+            ev('req', lastId, q ? q.key : null, q ? q.lod : -1);
+          }
+        };
+        T.frame = (held) => {
+          T.n++;
+          const t = g.clock(), tb = f.turbo, p = cam.position, qa = window.__qa || {};
+          T.f.push([T.n, t, t - lastT, held ? 1 : 0, window.__detRunning ? 1 : 0, steps, qn, qh, T.draws, f.x, f.y, f.z, f.heading, f.speed, f.vy, f.nose, f.mode, f.onPath ? 1 : 0, f.pathVy, f.vyYoke, f.yawRate, f.yawAcc, f.bank, f.pitch, f.floorY, f.floorRise, f.floorSmooth, f.holdY, f.targetY, f.groundUnder, f.obstacleUnder, f.groundBroad, f.lift, f.height, f.strain, f.glideSpeed, f.barfT, f.fullness, f.relief, f.speedScale, f.surge, tb.floor, tb.speed, tb.rate, tb.ceiling, tb.yaw, qa.sx ?? null, qa.sy ?? null, qa.holdAt ?? null, p.x, p.y, p.z, rig.hfov, c.viewHeight, c.viewX, c.viewZ, c.detailScale, c.detailHold ? 1 : 0, c.eager ? 1 : 0, c.busy ? 1 : 0, c.pending.size, c.adopt.length, c.farBusy ? 1 : 0, c.farLanding ? c.farLanding.length : 0, c.poolAt ?? 0, c.poolTiles ? c.poolTiles.length : 0, c.regionsLoaded.size, c.tiles.size, c.ground.queued, c.farLate ? 1 : 0, Math.round(performance.now()), T.sites, aim ? (aim.shown()?.index ?? -1) : null, aim ? aim.shownSince : null]);
+          lastT = t;
+          steps = qn = qh = T.draws = 0;
+          if (T.sites) T.sites = {};
+        };
+      };
       const raf = window.requestAnimationFrame.bind(window);
       window.requestAnimationFrame = (cb) => raf((t) => (seed(), cb(t)));
       // the game clock stands from the first frame (frames run at dt 0): the city streams in with the bus still
@@ -68,23 +194,76 @@ async function open(query) {
         if (c.tilt) c.tilt.status = on ? 'requesting' : 'off';
       };
       window.__freeze = (on) => freeze(g.controls, on);
+      // the live sky's stars and Moon map come in over 1.6 s of game time once their files are read (StreetSky.load), and
+      // __shotReady waits for that: with the clock standing from the first frame it never came, and no run started. They come
+      // in at once instead, as they stand 1.6 s on (and if the landing has moved, it says so, and __shotReady still waits)
+      const landSky = (v) => {
+        const st = v.sky && v.sky.street;
+        if (!st || typeof st.load !== 'function') return;
+        const load = st.load;
+        st.load = function (...a) {
+          return load.apply(this, a).then((r) => {
+            if (!('land' in this) || !('landedAt' in this)) console.error('shots --det: StreetSky has no land or landedAt: the stars wait for a clock that stands');
+            else if (this.landedAt >= 0 && v.controls.frozen) {
+              this.land = 1;
+              this.busy = false;
+            }
+            return r;
+          });
+        };
+      };
+      // a run's inputs, handed over (runDet's own task; with --split, one of their own)
+      window.__detOps = (ops) => {
+        const qa = window.__qa;
+        for (const [k, a, b] of ops) {
+          if (k === 'glide') g.flight.glideSpeed = a;
+          else if (k === 'stick') Object.assign(qa, { sx: a, sy: b });
+          else if (k === 'unstick') delete qa.sx, delete qa.sy;
+          else if (k === 'barf') g.barfAtLatLon(a, b);
+        }
+      };
+      // what keeps the city busy, for a wait that gave up
+      window.__detBusy = () => {
+        const c = g.city;
+        return `pending ${c.pending.size}, adopt ${c.adopt.length}, far ${c.farBusy ? 1 : 0}, far landing ${c.farLanding ? c.farLanding.length : 0}, pools ${c.poolAt ?? 0} of ${c.poolTiles ? c.poolTiles.length : 0}, ground queued ${c.ground.queued}`;
+      };
       Object.defineProperty(window, '__game', {
         configurable: true,
         get: () => g,
         set: (v) => {
           g = v;
           freeze(v.controls, true);
+          landSky(v);
+          if (T) hooks(v);
+          if (jit) jitter(v.city);
           // (while it runs, the clock stands whenever regions are on their way: streaming lands at the same game
           // time on any machine, and a query that fell back to the far grid here can't move the camera a hair)
+          // Such a stand is a frame or several, as the worker answers, and each steps the flight at dt 0 on the city as it
+          // stood a frame before. So it ends with `stand` more frames on the city as it landed, as a run does: what a frame at dt 0
+          // still settles (a dive's path left at the floor, then its floor's sink; the glint's start on a building that just
+          // landed) settles there, the same however many frames the regions took and whichever came last
+          let left = -1;
           const update = v.city.update;
           v.city.update = function (...a) {
+            // (the frame's own call has no adoption budget: the warm-up's has)
+            const own = a.length < 4, held = v.controls.frozen;
+            if (T) T.upd = true;
             update.apply(this, a);
+            if (T) T.upd = false;
             seed();
-            if (window.__detRunning) freeze(v.controls, this.busy);
+            if (window.__detRunning && own) {
+              if (this.busy) left = stand;
+              else if (left > 0) left--;
+              else left = -1;
+              freeze(v.controls, left >= 0);
+            } else if (window.__detRunning) freeze(v.controls, this.busy || left >= 0);
+            if (T) T.reqs();
+            if (T && own) T.frame(held);
           };
+          window.__detStart = () => (left = -1);
         },
       });
-    });
+    }, { tr: trace, jit: opt.jitter ?? null, stand: 2 + Math.max(0, Number(opt.stand) || 0) });
     query += `&fixeddt=${STEP}`;
   }
   await page.goto(base + query, { waitUntil: 'load' });
@@ -112,39 +291,88 @@ async function open(query) {
   return page;
 }
 
-// --det: the clock runs to exactly `seconds` later (frame-exact on the fixed step), then stands again
+// --det: what the next run starts with (the stick, the glide, a breath), handed to the game in the task that starts the clock.
+// A frame with the clock standing still steps the flight at dt 0, and that step still decides: a push there enters the dive's path
+// before the speed's first step instead of after it (Flight.step), so the swap shot's dive started 0.65 m/s apart and the shot came
+// out a pixel over. Set in an evaluate of its own, whether such a frame ran before the clock did was the machine's timing.
+const staged = new Map();
+const stage = (page, ...op) => (staged.get(page) ?? staged.set(page, []).get(page)).push(op);
+const glide = (page, v) => stage(page, 'glide', v);
+const stick = (page, sy, sx = 0) => stage(page, 'stick', sx, sy);
+const unstick = (page) => stage(page, 'unstick');
+const barf = (page, lat, lon) => stage(page, 'barf', lat, lon);
+/** n frames, with the clock as it is */
+const frames = (page, n) => page.evaluate((k) => new Promise((res) => requestAnimationFrame(function f() { if (--k > 0) requestAnimationFrame(f); else res(null); })), n);
+
+// --det: the clock runs to exactly `seconds` later (frame-exact on the fixed step), then stands again. It starts with the city quiet
+// (it stands whenever the city is busy, from the start too), and the run's inputs land in that same task. After it, two frames with
+// the clock standing, every time: such a frame still steps the flight at dt 0 and can settle something there (a dive's path at the
+// height it reached), so whether one runs before the next evaluate mustn't be the machine's timing either. --gap=<n>: n more frames
+// standing before each run, to show the run doesn't care. --split: the inputs in an evaluate of their own before those frames, as
+// the harness had it before 2026-11-04: the race on purpose (--split --gap=2 gives the swap shot's bad frame, on main too).
+// A wait for the city gives up after WAIT ms, with what kept it busy: a region that never answers fails the job instead of
+// hanging it, and the browser with it.
+const WAIT = 300000;
 async function runDet(page, seconds) {
-  await page.evaluate((s) => {
-    const g = window.__game;
-    window.__qa.held = false;
-    window.__qa.holdAt = g.clock() + s;
-    window.__freeze(false);
-    window.__detRunning = true;
-  }, seconds);
-  await page.waitForFunction(() => window.__qa.held === true, null, { timeout: 300000, polling: 50 });
+  let ops = staged.get(page) ?? [];
+  staged.delete(page);
+  if ('split' in opt && ops.length) {
+    await page.evaluate((o) => window.__detOps(o), ops);
+    ops = [];
+  }
+  if (Number(opt.gap) > 0) await frames(page, Number(opt.gap));
+  await page.evaluate(
+    ({ s, ops, wait }) =>
+      new Promise((res, rej) => {
+        const g = window.__game, qa = window.__qa, t0 = performance.now(), T = window.__trace;
+        let waited = 0;
+        const go = () => {
+          if (g.city.busy) {
+            if (performance.now() - t0 > wait) return rej(new Error(`shots --det: the city was busy ${wait / 1000} s before a run: ${window.__detBusy()}`));
+            waited++;
+            return requestAnimationFrame(go);
+          }
+          // (--trace: a run's start, and the frames it waited for the city)
+          if (T) T.ev.push([T.n, g.clock(), 0, 'go', waited]);
+          window.__detOps(ops);
+          qa.held = false;
+          qa.holdAt = g.clock() + s;
+          window.__detStart();
+          window.__freeze(false);
+          window.__detRunning = true;
+          res(null);
+        };
+        go();
+      }),
+    { s: seconds, ops, wait: WAIT },
+  );
+  await page.waitForFunction(() => window.__qa.held === true, null, { timeout: WAIT, polling: 50 });
   await page.evaluate(() => {
     window.__detRunning = false;
     window.__freeze(true);
     window.__qa.holdAt = undefined;
     window.__qa.held = false;
   });
+  await frames(page, 2);
 }
 
 // --det: with the clock standing, streaming and the ground paint finish (quiet for 30 frames in a row: a region's
 // next batch is only asked for a frame after the last one lands), then a few frames
 async function settle(page) {
   await page.evaluate(
-    () =>
-      new Promise((res) => {
-        const g = window.__game;
+    (wait) =>
+      new Promise((res, rej) => {
+        const g = window.__game, t0 = performance.now();
         let quiet = 0;
         const tick = () => {
           quiet = !g.city.busy && g.city.ground.queued === 0 ? quiet + 1 : 0;
           if (quiet >= 30) res(null);
+          else if (performance.now() - t0 > wait) rej(new Error(`shots --det: the city didn't settle in ${wait / 1000} s: ${window.__detBusy()}`));
           else requestAnimationFrame(tick);
         };
         tick();
       }),
+    WAIT,
   );
   await page.waitForTimeout(200);
 }
@@ -191,17 +419,17 @@ async function detShot(name, query, script) {
     }
   }
   if ('pan' in opt) {
-    await page.evaluate(() => Object.assign(window.__qa, { sx: 0.6, sy: 0 }));
+    stick(page, 0, 0.6);
     await runDet(page, 0.6);
     for (let i = 0; i <= 5; i++) {
       if (i) await runDet(page, STEP);
       await page.waitForTimeout(200);
       await page.screenshot({ path: `${out}/${name}-pan-${i}.png` });
     }
-    await page.evaluate(() => delete window.__qa.sx);
+    unstick(page);
   }
   if ('descent' in opt) {
-    await page.evaluate(() => Object.assign(window.__qa, { sx: 0, sy: 1 }));
+    stick(page, 1);
     for (let i = 0; i < 80; i++) {
       await runDet(page, 0.5);
       await page.waitForTimeout(120);
@@ -214,61 +442,63 @@ async function detShot(name, query, script) {
         }
       if (await page.evaluate(() => window.__game.flight.mode === 0)) break;
     }
-    await page.evaluate(() => delete window.__qa.sy);
+    unstick(page);
   }
+  staged.delete(page);
   stats[name] = await page.evaluate(() => {
     const r = window.__game.pipeline.renderer.info;
     const g = window.__game, f = g.flight, p = g.pipeline;
     return { clock: g.clock(), y: f.y, x: f.x, z: f.z, heading: f.heading, groundBroad: f.groundBroad, cam: g.camera.position.toArray(), focus: p.focus.toArray(), sub: p.subPixel.toArray(), snapLevel: p.snapLevel, regions: g.city.regionsLoaded.size, tiles: g.city.tiles.size, lods: [...g.city.regionLod.entries()].sort().join(' '), maskSum: g.city.loadedMask.image.data.reduce((a, b) => a + b, 0) };
   });
+  // (Infinity and NaN as strings: JSON has neither)
+  if (trace) writeFileSync(`${out}/${name}-trace.json`, await page.evaluate(() => JSON.stringify(window.__trace, (k, v) => (typeof v === 'number' && !Number.isFinite(v) ? String(v) : v))));
   await page.close();
   console.log('shot', name);
 }
 
 if (det) {
-  const glide = (page, v) => page.evaluate((s) => (window.__game.flight.glideSpeed = s), v);
-  const stick = (page, sy) => page.evaluate((v) => Object.assign(window.__qa, { sx: 0, sy: v }), sy);
+  // (glide, stick, unstick and barf are staged: the next runDet hands them over as its clock starts)
   await detShot('grey', '?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud', async (p) => {
-    await glide(p, 19.2);
+    glide(p, 19.2);
     await runDet(p, 3);
   });
   await detShot('painted', '?lat=37.77615&lon=-122.4340&heading=88&skipintro&nohud', async (p) => {
-    await glide(p, 6);
+    glide(p, 6);
     await runDet(p, 2);
     for (const lat of [37.7754, 37.7758, 37.7762, 37.7766, 37.777, 37.7762, 37.7758]) {
-      await p.evaluate((la) => window.__game.barfAtLatLon(la, -122.43262), lat);
+      barf(p, lat, -122.43262);
       await runDet(p, 1.3);
     }
     await runDet(p, 2.5);
   });
   await detShot('opening', '?openingshot&nohud', (p) => runDet(p, 4.5));
   await detShot('fidi', '?lat=37.7925&lon=-122.4010&heading=0&skipintro&nohud', async (p) => {
-    await glide(p, 19.2);
+    glide(p, 19.2);
     await runDet(p, 3);
   });
   await detShot('soma', '?lat=37.782&lon=-122.399&heading=330&skipintro&nohud', async (p) => {
-    await glide(p, 19.2);
+    glide(p, 19.2);
     await runDet(p, 3);
   });
   await detShot('high', '?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud', async (p) => {
     await runDet(p, 1);
-    await stick(p, -1);
+    stick(p, -1);
     await runDet(p, 6.5);
-    await p.evaluate(() => (delete window.__qa.sx, delete window.__qa.sy));
+    unstick(p);
     await runDet(p, 1);
   });
   await detShot('ceiling', '?lat=37.7925&lon=-122.4010&heading=0&skipintro&nohud', async (p) => {
     await runDet(p, 1);
-    await stick(p, -1);
+    stick(p, -1);
     await runDet(p, 16);
-    await p.evaluate(() => (delete window.__qa.sx, delete window.__qa.sy));
+    unstick(p);
     await runDet(p, 1);
   });
   const ceilingAt = async (p) => {
     await runDet(p, 1);
-    await stick(p, -1);
+    stick(p, -1);
     await runDet(p, 16);
-    await p.evaluate(() => (delete window.__qa.sx, delete window.__qa.sy));
+    unstick(p);
     await runDet(p, 1);
   };
   await detShot('sunset', '?lat=37.7530&lon=-122.4950&heading=90&skipintro&nohud', ceilingAt);
@@ -323,19 +553,19 @@ if (det) {
   await holdSwap('hold-presidio', '?lat=37.7990&lon=-122.4660&heading=180&skipintro&nohud');
   await holdSwap('hold-downtown', '?lat=37.7700&lon=-122.4300&heading=45&skipintro&nohud');
   await detShot('swap', '?lat=37.7820&lon=-122.4010&heading=0&skipintro&nohud', async (p) => {
-    await glide(p, 6);
+    glide(p, 6);
     await runDet(p, 1);
     // three blasts on the towers ahead (rooftop gardens, domes), up out of detail, down into it again, stopping short of them
     for (let i = 0; i < 3; i++) {
-      await p.evaluate(() => window.__game.barfAtLatLon(37.7925, -122.401));
+      barf(p, 37.7925, -122.401);
       await runDet(p, 2.5);
     }
-    await stick(p, -1);
+    stick(p, -1);
     await runDet(p, 9);
-    await stick(p, 1);
+    stick(p, 1);
     await runDet(p, 7);
-    await p.evaluate(() => (delete window.__qa.sx, delete window.__qa.sy));
-    await glide(p, 6);
+    unstick(p);
+    glide(p, 6);
     await runDet(p, 1);
   });
   writeFileSync(`${out}/stats.json`, JSON.stringify(stats, null, 2));
