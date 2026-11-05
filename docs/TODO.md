@@ -2,6 +2,24 @@
 
 Tick what you finish, in the commit that finishes it. Add to it when the producer asks for something. Written 2026-11-02.
 
+## Morning report: the first account (2026-11-05)
+
+**Done tonight**
+- **The live build's fixes, on your sky preview.** The second account's seven small things from what went live, and its trivial one, fixed on `feat/clock` (34d55cf): the page's colour at dusk right from the first moment, the lamps' file only toward dusk, no brown at sunrise, no star through the Moon's dark side, a breath or the FIREHOSE from under a bridge deck leaving the bridge alone, the lane kept when the bus is behind the lens, and a touch read where it landed. Every check on the GPU passed, and the second account read every line again: nothing new. Ready for main when you say.
+- **The test that flaked, found.** Not the game: the screenshot tool now and then moved the bus a frame early, on main too, where no player could see it. Fixed in the tool; the shot comes out the same 12 times in 12.
+- **The Bay Area's map data.** 17 of the 21 downloads, 2.1 GB, each with its size and checksum ([specs/earth/DOWNLOADS.md](specs/earth/DOWNLOADS.md) on `feat/world`). Four wait: buildings (500 MB) and places (66 MB), each about 38 % bigger than the list said, for your OK at the new size; the sea floor, your click on GEBCO's page; the coastline, whose server refused us, to retry.
+- **San Francisco's map for life, on `feat/world`.** Roads with their direction and their car-free blocks, sidewalks and paths, plazas and parks, the 20 ferry routes with their terminals and 9 marinas, the airports, the bridge decks at their real heights, and the open water: 270 files, 5 MB, built to the contract and checked by the contract's own tool. Its last pass is finishing this morning. Ferries, boats and cars are built on it next.
+- **Three rounds of review of the second account's work, each answered the same night.** My review of its latest fixes found seven serious problems, its fixes of those four more, and the third round none. Its merged trip, flown on this laptop's GPU, passes street to Moon and back with the new controls; the one jump it found, at 14 km on the way home at night, is fixed.
+- **The contract**: signed by both (0.8), nothing open.
+
+**For you, one at a time**
+1. Put the sky preview's fixes live? My pick: yes. Fly it first if you like: https://struggle-bus-world-git-feat-clock-patricks-projects-9ff6e721.vercel.app/
+2. OK buildings (500 MB) and places (66 MB) at their new sizes, before Overture removes the release in mid-December, and click the sea floor's box on GEBCO's page (DOWNLOADS.md says where).
+3. Found on main, older than last night's work: at sunrise the Golden Gate opening shimmers, about a quarter of its pixels changing frame to frame, against 2 % before the live sky. My pick: look into it today.
+4. Main makes about 2.7 MB of garbage a second in flight, where the rule is none. My pick: a pass on it after the shimmer.
+
+**Not checked**: nothing ran on a phone. This laptop's GPU ran with about 0.9 GB free all night, so its frame times are a busy laptop's, not a phone's.
+
 ## Morning report: the second account (2026-11-05)
 
 **Done tonight**
