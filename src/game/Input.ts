@@ -711,6 +711,9 @@ export class Input {
 
   /** The flying thumb touched down. */
   private beginFly(slot: Slot, now: number) {
+    // (a tap still waiting on a finger that landed with it, the other half of two fingers tapped together if it lifts as fast, was the player's tap: a thumb landing
+    // to fly starts a new gesture, which forgot it, so a tap and the same thumb back down to steer beside a resting or looking thumb splatted nothing)
+    if (this.gPendingTap && !this.gAnswered) this.answer();
     this.fly = slot;
     this.beginGesture(now);
     this.pointerDragging = false;

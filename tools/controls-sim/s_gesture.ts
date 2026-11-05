@@ -443,6 +443,24 @@ row('touch', 'lost tap: a tap just before a thumb that lands beside it and stays
 row('touch', 'lost tap: in the lane, a tap under the bus just after a thumb over it that looks fires', laned((h) => { const a = newId(), b = newId(); h.down(a, 196, 300); h.wait(100); h.down(b, 196, 720, false); h.wait(90); h.up(b, 196, 720); h.slide(a, 196, 300, 60, 0, 200); h.wait(300); const on = h.input.state.look.on; h.up(a, 256, 300); return { on }; }));
 row('touch', 'lost tap: a tap just after a thumb that rests fires once, when the rest is past a tap', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(100); h.down(b, RX, RY, false); h.wait(90); h.up(b, RX, RY); h.wait(1200); h.up(a, LX, LY); });
 row('touch', 'lost tap: a tap just after a thumb that flicks fires, and so does the flick', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(60); h.down(b, RX, RY, false); h.wait(60); h.up(b, RX, RY); h.slide(a, LX, LY, 0, -74, 85); h.up(a, LX, LY - 74); h.wait(400); });
+// (a tap waits on a thumb that landed with it, which may be the other half of two fingers tapped together; the tapping thumb landing again to fly started a new gesture,
+// which forgot the tap: no splat. The review of feat/clock, 2026-11-04)
+/** a tap from (ax, ay), a thumb landing at (ox, oy) 100 ms in that then rests, and the tapping thumb back down at (bx, by) 100 ms after its lift, to fly 40 px right */
+const tapBack = (h: H, ax: number, ay: number, ox: number, oy: number, bx: number, by: number) => {
+  const a = newId(), o = newId(), b = newId();
+  h.down(a, ax, ay); h.wait(100);
+  h.down(o, ox, oy, false); h.wait(50);
+  h.up(a, ax, ay); h.wait(100);
+  h.down(b, bx, by, false);
+  const atLanding = h.evs.filter((e) => e.startsWith('tap')).length;
+  h.slide(b, bx, by, 40, 0, 200); h.wait(30);
+  const flew = h.input.state.thumb;
+  h.wait(300);
+  h.up(b, bx + 40, by); h.up(o, ox, oy);
+  return { atLanding, flew };
+};
+row('touch', 'lost tap: back down to fly: a tap, then the same thumb down again beside a thumb that landed with it, fires on that landing', (h) => tapBack(h, RX, RY, LX, LY, RX, RY));
+row('touch', 'lost tap: back down to fly in the lane: the same thumb down again under the bus, beside one over it, fires on that landing', laned((h) => tapBack(h, 196, 720, 340, 300, 196, 720)));
 // The opening's low shot has no look (CameraRig scales it by 1 - openingLow), on every load of the city without ?lat. So until the gate main.ts sets Input.lookOff with the gears' lock: a lone
 // landing anywhere flies, as every touch did there on main, and the lane starts when the gears unlock, with the hint that teaches it. A finger landing while one flies is still the second thumb.
 // The lane here is the street's, as above: the real page has the low shot's bus at about the same place, (197, 512)
@@ -469,6 +487,8 @@ row('touch', 'the low shot: a finger over the bus while one flies is the second 
 row('touch', 'the low shot: a thumb landing over the bus during a lone flick flies', lowShot((h) => { const b = flickWith(h, 196, 720, 280, 420); h.slide(b, 280, 420, 60, 0, 200); h.wait(30); const s = h.input.state, v = { thumb: s.thumb, look: s.look.on, sx: +s.stretch.x.toFixed(2) }; h.up(b, 340, 420); h.wait(400); return v; }));
 row('touch', 'the low shot: a thumb that landed under it flies on past the gate', lowShot((h) => { const c = newId(); h.down(c, 280, 420); h.slide(c, 280, 420, 30, 0, 150); gateOpens(h); h.slide(c, 310, 420, 30, 0, 150); h.wait(30); const s = h.input.state, v = { thumb: s.thumb, look: s.look.on, sx: +s.stretch.x.toFixed(2) }; h.up(c, 340, 420); return v; }));
 row('touch', 'the low shot: past the gate the same landings look', lowShot((h) => { const low = dragAt(h, 280, 420); gateOpens(h); h.wait(600); const over = dragAt(h, 280, 420); h.wait(600); const beside = dragAt(h, 60, 506); return { low, over, beside }; }));
+// (with no lane, a thumb landing again anywhere flies: where the lane would have made it the second thumb, the tap it left waiting was kept, and with the lane off it was lost)
+row('touch', 'the low shot: back down to fly: the same thumb down again over the bus, beside one that landed with it, fires on that landing', lowShot((h) => tapBack(h, 196, 720, 280, 420, 280, 420)));
 
 // ---- two thumbs, in any order: the one in the zone looks, the other flies
 const both = (h: H) => { const s = h.input.state; return { thumb: s.thumb, look: s.look.on, sx: +s.stretch.x.toFixed(2), x: Math.round(s.look.x) }; };
@@ -909,6 +929,9 @@ for (const g of ['lost tap: a tap just after a thumb that stays', 'lost tap: a t
 }
 ok(taps('lost tap: a tap just after a thumb that rests') === 1 && atOf('lost tap: a tap just after a thumb that rests', 'tap') <= 100 + 450 + 20, `beside a rest, once, when the rest is past a tap: ${JSON.stringify(by('lost tap: a tap just after a thumb that rests').events)}`);
 ok(taps('lost tap: a tap just after a thumb that flicks') === 1 && by('lost tap: a tap just after a thumb that flicks').gear === 1, `beside a flick, the tap and the gear: ${JSON.stringify(by('lost tap: a tap just after a thumb that flicks').events)}`);
+// a tap waiting on a thumb that landed with it fires when the tapping thumb lands again to fly: the new gesture forgot it, before
+for (const g of ['lost tap: back down to fly:', 'lost tap: back down to fly in the lane', 'the low shot: back down to fly'])
+  ok(taps(g) === 1 && note(g).atLanding === 1 && note(g).flew && Math.abs(atOf(g, 'tap') - 250) <= 2, `a tap, then the same thumb back down to fly beside one that landed with it: one tap, on that landing: ${g}: ${JSON.stringify({ ...note(g), events: by(g).events })}`);
 // the low shot: no look, so every lone landing flies until the gate, and the lane comes back with the gears
 flies('the low shot: over the bus, out of');
 flies('the low shot: the sky over');

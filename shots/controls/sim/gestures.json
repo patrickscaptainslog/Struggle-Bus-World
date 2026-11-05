@@ -4190,6 +4190,40 @@
   },
   {
    "mode": "touch",
+   "gesture": "lost tap: back down to fly: a tap, then the same thumb down again beside a thumb that landed with it, fires on that landing",
+   "events": [
+    "tap@250ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "atLanding": 1,
+    "flew": true
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "lost tap: back down to fly in the lane: the same thumb down again under the bus, beside one over it, fires on that landing",
+   "events": [
+    "tap@250ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "atLanding": 1,
+    "flew": true
+   }
+  },
+  {
+   "mode": "touch",
    "gesture": "the low shot: over the bus, out of the half disc, flies",
    "events": [],
    "maxChargeHeld": 0,
@@ -4423,6 +4457,23 @@
      "look": true,
      "sx": 0
     }
+   }
+  },
+  {
+   "mode": "touch",
+   "gesture": "the low shot: back down to fly: the same thumb down again over the bus, beside one that landed with it, fires on that landing",
+   "events": [
+    "tap@250ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": true,
+   "thumb": true,
+   "look": null,
+   "gear": 0,
+   "level": 0,
+   "note": {
+    "atLanding": 1,
+    "flew": true
    }
   },
   {
