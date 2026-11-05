@@ -2,7 +2,7 @@
 
 The line between the two accounts' work on the living Earth (`LIVING.md`, "Who does what"). The world is the first account's, on `feat/world`. Life is the second account's, on `feat/life`. Both branch from `feat/earth`, and nothing on either is built before both have signed this.
 
-**State.** Draft 0.2, by the first account on 2026-11-04, after a reading of 0.1 that found 21 points (the change log says what moved). Not signed. Section 9 lists what the second account decides or changes before it signs.
+**State.** 0.3, 2026-11-05. Drafted by the first account (0.1, 0.2), signed by the second with section 9 answered: twelve picks taken as drafted, O2 and O3 taken on by the second account, and four changes marked Proposed (O6, O9, O14, L1), which hold once the first account marks them Agreed (section 8).
 
 **Marks.** Every rule is one of three. **Agreed**: already binding, because the producer approved it (`LIVING.md`, `CLAUDE.md`) or the code already works that way. **Proposed**: this draft's pick, which the second account takes or changes. **Open**: no pick yet (section 9). Facts are marked as `LIVING.md` marks them: MEASURED (read or run here on 2026-11-04, file and line given; lines move), SOURCE (a page or a doc, not rechecked today), ESTIMATE (arithmetic, with its assumption).
 
@@ -173,12 +173,12 @@ Agreed (`LIVING.md`, `CLAUDE.md`): instanced pools, small (people), middle (cars
 
 | | Street's loop | Flight's loop |
 |---|---|---|
-| Scene-pass draws | 3, one a pool's models; 1 for all the specks; 1 for all the contrails | 1 for the specks, 1 for the contrails |
+| Scene-pass draws | 3, one a pool's models; 1 for all the specks; 1 for all the contrails (Proposed, O6: all the marks, contrails, wakes and tracks) | 1 for the specks, 1 for the contrails |
 | Sun-pass draws | At most 3 (casters, as `StreetSign`'s shadow box) | None |
 | Triangles | 80 K scene, 20 K sun | 10 K |
 | Pools, at their largest (made so at boot) | people 4,096, middle 2,048, large 512, specks 16,384, contrail vertices 8,192 (ESTIMATE) | the same objects |
 | Main thread, a frame | 1.5 ms in all: `life.aim`, carrying every mover on between snapshots, unpack, matrices, one upload a pool (`addUpdateRange` of the live range, `count` set) | 0.5 ms |
-| Marks | `GroundPaint` trail uploads at most 0.3 ms a frame, outside the 1.5; the shimmer texture (O7) one R8 256 x 256, 64 KB, written at most once a second | None |
+| Marks | Proposed (the second account, 0.3, O6): life's own marks draw, inside the 1.5 ms, where this was `GroundPaint` trail uploads at most 0.3 ms a frame; the shimmer texture (O7) one R8 256 x 256, 64 KB, written at most once a second | None |
 | Worker | 6 ms a tick, off the main thread; its heap under 64 MB | the same worker |
 | Memory | GPU 4 MB in all; snapshot buffers 1 MB each at most | |
 | Files, gzipped | a `g_*.bin` 128 KB, a `routes.bin` 256 KB, `lanes.bin` 4 MB, `airports.bin` 1 MB (the iPhone 13 has 4 GB) | |
@@ -349,7 +349,7 @@ The world's (first account):
 
 Life's (second account):
 - **W6** is life's, `tools/life/flag-off.mjs`, new (`tools/sky/flag-off.mjs` loads only the plain page and looks for `/sky/` and moonrun): the build with `?life` off against the same commit built without life, on the plain page and on `?earth`: the same requests, the same programs. Against the same commit, so the world's own stage 1 changes don't trip it.
-- **L1** `tools/life/determinism.mjs` (Node, then Chromium and WebKit through Playwright): one place and moment twice gives the same snapshot bytes on one engine; the same moment in Chromium and WebKit within 1 cm; 3,600 steps of a second end where one jump of an hour does, within 1 cm, for ships and ferries; two places differ.
+- **L1** `tools/life/determinism.mjs` (Node, then Chromium and WebKit through Playwright): one place and moment twice gives the same snapshot bytes on one engine; the same moment in Chromium and WebKit within 1 cm (Proposed, the second account, 0.3: Chromium in the cloud, WebKit on the laptop by the first account, since the cloud machine has only Chromium and Playwright's WebKit would be a download); 3,600 steps of a second end where one jump of an hour does, within 1 cm, for ships and ferries; two places differ.
 - **L2** `tools/life/worker.mjs` (browser, fixed step): life's protocol as life's spec has it, every buffer back, nothing allocated per message; the build has no `SharedArrayBuffer` or `Atomics` (a parse, as `iosfloor` does).
 - **L3** `tools/life/budget.mjs` (browser, `?fixeddt`): draws and triangles from `renderer.info` in the busiest view within section 2.
 - **L4** `tools/life/alloc.mjs` (Node, `--expose-gc`): `frame()` 10,000 times after a warm-up grows the heap by under 64 KB.
@@ -369,22 +369,22 @@ Both: the milliseconds a frame in the busiest view, on the laptop's GPU and on t
 
 | | Question | This draft's pick |
 |---|---|---|
-| O1 | Draws: 5 in the scene pass and 3 in the sun pass, or `LIVING.md`'s 3 (specks folded into the models' draws) | 5 and 3 |
-| O2 | The clock under `?fixeddt`: stepped inside `SkyClock` (the first account adds it on `feat/clock`), or a clock life's tests drive through `__qa` | Inside `SkyClock` |
-| O3 | One `SkyClock` a page: today the flight makes its own (`moonrun.ts` ~273), the street on `feat/earth` none, and `feat/clock`'s street another | The page makes one, `bootMoonrun` takes it |
-| O4 | Life's second call, `frameSky`, in `moonrun.ts`: above 15 km the flight's loop has the frame. The flight is the second account's | Yes, said in `docs/TODO.md` |
-| O5 | The aim and the tap for movers: `MoverTarget` in `Aim.ts`, `opts.mover` in `Splat.ts`, by life, reviewed by the world | Yes |
-| O6 | Marks: wakes and tyre tracks through `GroundPaint`, with a trail call life adds; contrails as life's own draw. How marks fade, so a city doesn't fill with colour by itself (`LIVING.md`, "Risks"), is life's | Yes |
-| O7 | The far shimmer on roads and water (`LIVING.md`'s smallest band): the world's ground shaders read a small density texture life fills, or carry life's GLSL chunk | The texture, the world's shaders |
-| O8 | The local hour off a map: a time-zone index in the planet layer (timezone-boundary-builder), or the Sun's own hour | The index |
-| O9 | The geoid in `PlaceFrame` (an EGM96 grid), or 0 for now | 0 at stage 1's start; the grid before any plane is drawn under about 1 km |
-| O10 | The Bay Area in stage 1: San Francisco's map grown, or several maps (Oakland, Marin). Keys from source keys hold either way | The world's call, by stage 1's first week |
-| O11 | The planet's airports: OurAirports (public domain) or Overture's aeroways (ODbL) | OurAirports, with ODbL runways where a map has them |
-| O12 | An Overture extract with `access_restrictions`, `speed_limits` and `connectors` | Yes, among stage 0's downloads |
-| O13 | The flag: `?life`, the default only on the producer's word, as `?earth` | Yes |
-| O14 | The store's caps (2,000 records, 256 KB) and the 7-day loss | As section 3 |
-| O15 | "One hook" (`LIVING.md`, "Hot spots") read as section 6's list, or one block, which would need the producer's word | The list |
-| O16 | "One cruise ship at Pier 27 on its real port calls" (`LIVING.md`, stage 1): nothing in the world's data has port calls, and no open source has them worldwide. Life simulates believable calls from terminals and lanes, by season; or the world names a schedule source as a download | Simulated, as the producer ruled for ferries ("very educated guess"); "real port calls" was the plan's wording, not theirs, and they're told so (2026-11-04) |
+| O1 | Draws: 5 in the scene pass and 3 in the sun pass, or `LIVING.md`'s 3 (specks folded into the models' draws) | 5 and 3. **Agreed** (the second account, 0.3): specks are points and marks another material, and folding them into the models would cost more vertex work than a draw each |
+| O2 | The clock under `?fixeddt`: stepped inside `SkyClock` (the first account adds it on `feat/clock`), or a clock life's tests drive through `__qa` | Inside `SkyClock`. **Agreed**, and the second account adds it on `feat/earth` with main's merge, where the street's `LiveSky` and the flight's clock meet: `feat/clock` is live now, and the street's tools step it the same way |
+| O3 | One `SkyClock` a page: today the flight makes its own (`moonrun.ts` ~273), the street on `feat/earth` none, and `feat/clock`'s street another | The page makes one, `bootMoonrun` takes it. **Agreed**, by the second account with the merge. The trip still runs on its own stepped time from that clock's start (`MoonTrip`, `ms0 + t * 1000`), which `?earth&resume` carries across the page change; life reads the page's clock |
+| O4 | Life's second call, `frameSky`, in `moonrun.ts`: above 15 km the flight's loop has the frame. The flight is the second account's | Yes, said in `docs/TODO.md`. **Agreed** |
+| O5 | The aim and the tap for movers: `MoverTarget` in `Aim.ts`, `opts.mover` in `Splat.ts`, by life, reviewed by the world | Yes. **Agreed** |
+| O6 | Marks: wakes and tyre tracks through `GroundPaint`, with a trail call life adds; contrails as life's own draw. How marks fade, so a city doesn't fill with colour by itself (`LIVING.md`, "Risks"), is life's | Yes. **Proposed change** (the second account, 0.3): every mark is life's own draw, wakes on the water, tracks on the road's own heights and contrails in the sky, one scene draw, and none goes through `GroundPaint`. `GroundPaint` keeps every texel it holds (its tiles saved in `localStorage`, 160 at most, `MAX_TILES`) and nothing in it fades: a ferry's wake across the bay would spend the street's own store and stay painted for good, which is the saturation `LIVING.md` warns of. A mark is drawn from what's saved anyway, the painted mover's record and its path, which is a function of the clock (a ferry's wake is its route from where it was painted to where it is now, so the next crossing repaints the lane), faded by age, so nothing is saved for a mark. Section 2's budget loses its `GroundPaint` row, and the draws stay 5 and 3 |
+| O7 | The far shimmer on roads and water (`LIVING.md`'s smallest band): the world's ground shaders read a small density texture life fills, or carry life's GLSL chunk | The texture, the world's shaders. **Agreed**: with no `?life` they read a 1 x 1 texture of nothing, so the programs are the same with the flag off (W6) |
+| O8 | The local hour off a map: a time-zone index in the planet layer (timezone-boundary-builder), or the Sun's own hour | The index. **Agreed**, in stage 2 with its download; in stage 1 what life has off a map, ships on lanes and planes, keys on UTC, and anything that wants an hour there takes the Sun's |
+| O9 | The geoid in `PlaceFrame` (an EGM96 grid), or 0 for now | 0 at stage 1's start; the grid before any plane is drawn under about 1 km. **Proposed change** (the second account, 0.3): no grid in the browser. N is one number a place, `PlaceInit.geoid`, written by the bake from the grid (a download, the producer's OK): across a city it changes by under a metre (ESTIMATE), well inside a plane's own drawn size. Off every map, planes are over 1 km bar the ones landing at a mapped airport, and those take that airport's city's N. A place with no N yet keeps 0, and life draws no plane under 1 km there |
+| O10 | The Bay Area in stage 1: San Francisco's map grown, or several maps (Oakland, Marin). Keys from source keys hold either way | The world's call, by stage 1's first week. **Agreed** |
+| O11 | The planet's airports: OurAirports (public domain) or Overture's aeroways (ODbL) | OurAirports, with ODbL runways where a map has them. **Agreed** |
+| O12 | An Overture extract with `access_restrictions`, `speed_limits` and `connectors` | Yes, among stage 0's downloads. **Agreed** |
+| O13 | The flag: `?life`, the default only on the producer's word, as `?earth` | Yes. **Agreed** |
+| O14 | The store's caps (2,000 records, 256 KB) and the 7-day loss | As section 3. **Proposed change** (the second account, 0.3): the caps as drafted, but life's store is a database of its own in IndexedDB, as the Moon's open-ground paint is since 96ee034 (`src/world/GeoPaint.ts`: written a few records a frame, a journal in `localStorage` on hide), and `localStorage`'s 5 MB stays the street's and `PaintState`'s. Blocked IndexedDB (some private windows): paint kept for the session, as the Moon's is. The 7-day loss stands: it's every script-written store's |
+| O15 | "One hook" (`LIVING.md`, "Hot spots") read as section 6's list, or one block, which would need the producer's word | The list. **Agreed** |
+| O16 | "One cruise ship at Pier 27 on its real port calls" (`LIVING.md`, stage 1): nothing in the world's data has port calls, and no open source has them worldwide. Life simulates believable calls from terminals and lanes, by season; or the world names a schedule source as a download | Simulated, as the producer ruled for ferries ("very educated guess"); "real port calls" was the plan's wording, not theirs, and they're told so (2026-11-04). **Agreed** |
 
 **Downloads** (none fetched; each is the producer's to OK with file, source and size first, `CLAUDE.md`; sizes aren't read yet, and each is read from its source's page before asking; each goes on `LIVING.md` stage 0's list beside Overture, GLO-30, WorldCover and GEBCO):
 
@@ -400,9 +400,10 @@ Both: the milliseconds a frame in the busiest view, on the laptop's GPU and on t
 ## Signatures
 
 - The first account: drafted 2026-11-04 (0.1, then 0.2 after a reading), for the second account to sign.
-- The second account: not yet signed.
+- The second account: signed 2026-11-05, with section 9 answered as marked there. O6, O9, O14 and L1 are changes, Proposed until the first account marks them Agreed; until then nothing is built on them, and the rest of life's stage 1 goes ahead on what's Agreed.
 
 ## Change log
 
 - 0.1, 2026-11-04: the first draft, by the first account. Not committed.
+- 0.3, 2026-11-05, the second account: signed. Section 9 answered; O2 and O3 the second account's, with main's merge; Proposed: O6 (every mark life's own draw, none through `GroundPaint`), O9 (N a number a place, from the bake), O14 (life's store in IndexedDB), L1 (WebKit's leg on the laptop).
 - 0.2, 2026-11-04: after a reading of 0.1. Mover keys from source keys, with slots and days defined; ids unique per bake only, W2 checks source keys and slot inputs; a ferry's paint to the end of its vessel's day; the store drops a key only when its own place's data lacks it, expires by `Date.now`, and has a test store; a units table and `vdatum`, the geoid's sign; `PlaceInit` and `makePlaceFrame`; `MoverTarget`, `opts.mover`, `life.blast`, and every line life adds to `main.ts` and `moonrun.ts`, `bootLife` guarded; determinism within 1 cm across engines, painted movers and live planes excluded; TUNNEL and UNDRAWN apart, deck heights from the graph in every city; water ends at terminals exempt, a real coastline for W4; the worker's protocol, rows and record moved to life's spec; budget lines for aim, marks, the worker's heap, pool and file sizes; `onRegion`'s mesh steps corrected; the downloads table; O15 and O16.
