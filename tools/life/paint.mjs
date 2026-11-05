@@ -30,7 +30,9 @@ try {
     await page.evaluate((k) => (window.__qa = { ...window.__qa, holdFrames: k, held: false }), n);
     await page.waitForFunction(() => window.__qa?.held === true, null, { timeout: 600000, polling: 50 });
   };
-  const url = `${BASE}?life&nohud&skipintro&fixeddt=0.033333&t=2026-11-05T17:30:00Z&lat=37.7955&lon=-122.3937`;
+  // (a moment a scripted plane crosses the city at 5.8 km, so the bus can be put behind it over the map: a breath has no aim past the map's reach, where the bus can't be)
+  const T = '2026-11-05T18:22:20Z';
+  const url = `${BASE}?life&nohud&skipintro&fixeddt=0.033333&t=${T}&lat=37.7955&lon=-122.3937`;
   const open = async (first) => {
     if (first) await page.goto(url, { waitUntil: 'load', timeout: 180000 });
     else await page.reload({ waitUntil: 'load', timeout: 180000 });
@@ -38,15 +40,17 @@ try {
     await frames(40);
   };
   await open(true);
-  // (a plane in the snapshot: its key, where it is now, its velocity)
+  // (a plane in the snapshot, the farthest from the map's middle, so the nearest is left grey for the tap: its key, where it is now, its velocity)
   const plane = () => page.evaluate(() => {
     const l = window.__game.life, s = l.snap, rows = s.rows, u32 = s.rowsU32, n = s.u32[2], dt = (l.utc - s.f64[0]) / 1000;
+    let best = null;
     for (let i = 0; i < n; i++) {
       const o = i * 16, key = l.keys.get(u32[o]);
       if (!key) continue;
-      return { key, x: rows[o + 2] + rows[o + 5] * dt, y: rows[o + 3] + rows[o + 6] * dt, z: rows[o + 4] + rows[o + 7] * dt, vx: rows[o + 5], vy: rows[o + 6], vz: rows[o + 7], size: rows[o + 11] };
+      const p = { key, x: rows[o + 2] + rows[o + 5] * dt, y: rows[o + 3] + rows[o + 6] * dt, z: rows[o + 4] + rows[o + 7] * dt, vx: rows[o + 5], vy: rows[o + 6], vz: rows[o + 7], size: rows[o + 11] };
+      if (!best || Math.hypot(p.x, p.z) > Math.hypot(best.x, best.z)) best = p;
     }
-    return null;
+    return best;
   });
   const p = await plane();
   row('a plane in the sky with its key', !!p, p);
@@ -63,12 +67,12 @@ try {
   {
     const r = await page.evaluate((key) => {
       const l = window.__game.life, g = window.__game, now = g.clock();
-      const fresh = l.hit(key, 2, Date.parse('2026-11-05T17:30:00Z'), now + 1);
+      const fresh = l.hit(key, 2, Date.parse(T), now + 1);
       return { fresh, before: l.painted.has(window.__game.life.keyHash(key)) };
     }, p.key);
     await frames(40);
     const after = await page.evaluate((key) => window.__game.life.painted.get(window.__game.life.keyHash(key)) ?? null, p.key);
-    const again = await page.evaluate((key) => window.__game.life.hit(key, 5, Date.parse('2026-11-05T17:30:00Z'), window.__game.clock() + 0.2), p.key);
+    const again = await page.evaluate((key) => window.__game.life.hit(key, 5, Date.parse(T), window.__game.clock() + 0.2), p.key);
     await frames(20);
     const twice = await page.evaluate((key) => window.__game.life.painted.get(window.__game.life.keyHash(key)) ?? null, p.key);
     row('hit: grey until the impact, then its hue at level 1; again, level 2 and the same hue', r.fresh && !r.before && after?.hue === 2 && after.level === 1 && !again && twice?.hue === 2 && twice.level === 2, { ...r, after, again, twice });
@@ -81,14 +85,17 @@ try {
       for (let i = 0; i < s.u32[2]; i++) out.push(l.keys.get(s.rowsU32[i * 16]));
       return out;
     });
+    // (the unpainted plane nearest the map's middle)
     const target = await page.evaluate((keys) => {
       const l = window.__game.life, s = l.snap, rows = s.rows, dt = (l.utc - s.f64[0]) / 1000;
+      let best = null;
       for (let i = 0; i < s.u32[2]; i++) {
         const o = i * 16, key = l.keys.get(s.rowsU32[o]);
         if (!key || l.painted.has(s.rowsU32[o])) continue;
-        return { key, x: rows[o + 2] + rows[o + 5] * dt, y: rows[o + 3], z: rows[o + 4] + rows[o + 7] * dt, vx: rows[o + 5], vz: rows[o + 7] };
+        const p = { key, x: rows[o + 2] + rows[o + 5] * dt, y: rows[o + 3], z: rows[o + 4] + rows[o + 7] * dt, vx: rows[o + 5], vz: rows[o + 7] };
+        if (!best || Math.hypot(p.x, p.z) < Math.hypot(best.x, best.z)) best = p;
       }
-      return null;
+      return best;
     }, others);
     let tapped = null;
     if (target) {

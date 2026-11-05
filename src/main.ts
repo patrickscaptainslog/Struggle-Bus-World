@@ -557,6 +557,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       const S = config.splat;
       const k = b.strength;
       moonPaint?.impact(b);
+      // (?life: a MEGA, a hose's every impact and its closer paint every mover in reach, as the buildings in it: CONTRACT.md section 3)
+      if (b.super) life?.blast(b.pos.x, b.pos.y, b.pos.z, b.spec.r, b.spec.hue, b.super, simTime);
       lastBlast.x = b.spec.x;
       lastBlast.z = b.spec.z;
       lastBlast.r = b.spec.r;
@@ -1695,6 +1697,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     streetHands = resumed ? groundHands : { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd };
     const world: StreetWorld = {
       origin: [manifest.origin[0], manifest.origin[1]],
+      // (?life: the movers the flight's loop draws while it has the bus, CONTRACT.md O4)
+      life,
       // (the map and the reach it gives at the join's height: ASCENT.md, mapReach)
       covers: (x, z) => x > minX - 6000 && x < maxX + 6000 && z > minZ - 6000 && z < maxZ + 6000,
       frameAt: frame,

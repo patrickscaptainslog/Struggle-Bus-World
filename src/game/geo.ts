@@ -14,8 +14,8 @@ function meridian(phi: number): number {
   return A * ((1 - E2 / 4 - (3 * E4) / 64 - (5 * E6) / 256) * phi - ((3 * E2) / 8 + (3 * E4) / 32 + (45 * E6) / 1024) * Math.sin(2 * phi) + ((15 * E4) / 256 + (45 * E6) / 1024) * Math.sin(4 * phi) - ((35 * E6) / 3072) * Math.sin(6 * phi));
 }
 
-/** (lat, lon) in degrees -> [x, z] city-local meters about origin [lat0, lon0]. */
-export function latLonToLocal(lat: number, lon: number, origin: readonly [number, number] | readonly number[]): [number, number] {
+/** (lat, lon) in degrees -> [x, z] city-local meters about origin [lat0, lon0], into `o` if it's given (a loop that mustn't allocate). */
+export function latLonToLocal(lat: number, lon: number, origin: readonly [number, number] | readonly number[], o: [number, number] = [0, 0]): [number, number] {
   const r = Math.PI / 180;
   const phi = lat * r, phi0 = origin[0] * r;
   const s = Math.sin(phi), c = Math.cos(phi), t = Math.tan(phi);
@@ -26,14 +26,16 @@ export function latLonToLocal(lat: number, lon: number, origin: readonly [number
   const a2 = a * a;
   const x = N * (a + ((1 - T + C) * a2 * a) / 6 + ((5 - 18 * T + T * T + 72 * C - 58 * EP2) * a2 * a2 * a) / 120);
   const y = meridian(phi) - meridian(phi0) + N * t * (a2 / 2 + ((5 - T + 9 * C + 4 * C * C) * a2 * a2) / 24 + ((61 - 58 * T + T * T + 600 * C - 330 * EP2) * a2 * a2 * a2) / 720);
-  return [x, -y];
+  o[0] = x;
+  o[1] = -y;
+  return o;
 }
 
 /**
  * City-local metres about origin [lat0, lon0] -> [lat, lon] in degrees: the inverse of latLonToLocal, Snyder's series again (eqs. 8-18 to 8-25), sub-millimetre at city scale and a few
- * centimetres 100 km out. The street's join with the flight goes through here (docs/specs/earth/EARTHFLIGHT.md, E2).
+ * centimetres 100 km out. The street's join with the flight goes through here (docs/specs/earth/EARTHFLIGHT.md, E2). Into `o` if it's given.
  */
-export function localToLatLon(x: number, z: number, origin: readonly [number, number] | readonly number[]): [number, number] {
+export function localToLatLon(x: number, z: number, origin: readonly [number, number] | readonly number[], o: [number, number] = [0, 0]): [number, number] {
   const r = Math.PI / 180;
   const e1 = (1 - Math.sqrt(1 - E2)) / (1 + Math.sqrt(1 - E2));
   const mu = (meridian(origin[0] * r) - z) / (A * (1 - E2 / 4 - (3 * E4) / 64 - (5 * E6) / 256));
@@ -43,5 +45,7 @@ export function localToLatLon(x: number, z: number, origin: readonly [number, nu
   const D2 = D * D;
   const lat = p1 - ((N1 * t) / R1) * (D2 / 2 - ((5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * EP2) * D2 * D2) / 24 + ((61 + 90 * T1 + 298 * C1 + 45 * T1 * T1 - 252 * EP2 - 3 * C1 * C1) * D2 * D2 * D2) / 720);
   const lon = origin[1] * r + (D - ((1 + 2 * T1 + C1) * D2 * D) / 6 + ((5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * EP2 + 24 * T1 * T1) * D2 * D2 * D) / 120) / c;
-  return [lat / r, lon / r];
+  o[0] = lat / r;
+  o[1] = lon / r;
+  return o;
 }

@@ -34,6 +34,14 @@ export interface StreetWorld {
   frameAt(now: number): void;
   /** the street stops pumping its own frames: the flight's loop calls frameAt from now on */
   pumpOff(): void;
+  /** ?life: the street's movers, which the flight's loop draws while it has the bus over Earth (CONTRACT.md section 6, O4). Null: no life on the page */
+  readonly life?: SkyLife | null;
+}
+
+/** What the flight's loop asks of life (src/life/Life.ts): its scene and lens once, then each frame the bus Earth fixed with the render axes in that frame. */
+export interface SkyLife {
+  attachSky(scene: THREE.Object3D, camera: THREE.Camera): void;
+  frameSky(dt: number, utcMs: number, ob: Observer): void;
 }
 
 type V = Float64Array;
@@ -50,6 +58,7 @@ export class EarthLanding {
   onTake: (() => void) | null = null;
   private readonly ob: Observer = { body: EARTH, free: false, pos: v3(), axes: new Float64Array(9) };
   private readonly g = [0, 0, 0];
+  private readonly ll: [number, number] = [0, 0];
   private readonly ax = new Float64Array(9);
   private readonly w = new Float64Array(9);
   private readonly a = v3();
@@ -74,7 +83,7 @@ export class EarthLanding {
 
   /** Earth fixed, km, of map metres (x, y over the sea, z). */
   private fixOf(x: number, y: number, z: number, o: V): V {
-    const [lat, lon] = localToLatLon(x, z, this.world.origin);
+    const [lat, lon] = localToLatLon(x, z, this.world.origin, this.ll);
     return geodeticToFix(lat, lon, y / 1000, o);
   }
 
@@ -199,6 +208,9 @@ export function laterStreet(origin: readonly [number, number] = [37.7749, -122.4
       leave: () => s?.leave(),
       frameAt: (now) => s?.frameAt(now),
       pumpOff: () => s?.pumpOff(),
+      get life() {
+        return s?.life ?? null;
+      },
     },
     attach(w) {
       s = w;

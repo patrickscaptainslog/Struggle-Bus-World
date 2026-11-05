@@ -28,7 +28,7 @@ export async function bootLife(ctx: LifeContext): Promise<LifeHost | null> {
     worker.postMessage(init);
     // (what's painted, kept by key: a test's clock has a store of its own, CONTRACT.md section 3)
     const store = new MoverStore(p.has('t') || p.has('rate') || p.has('fixeddt'));
-    const host = new LifeHost(worker, pools, store, ctx.place.slug);
+    const host = new LifeHost(worker, pools, store, ctx.place.slug, ctx.place.origin);
     void store.load(Date.now()).then((r) => host.restore(r));
     return host;
   } catch (e) {

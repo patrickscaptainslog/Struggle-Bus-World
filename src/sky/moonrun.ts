@@ -184,7 +184,7 @@ const PAN_Y = 0.5;
 /** The page change in the long dark (docs/specs/earth/EARTHFLIGHT.md, E3): s of trip into 'cruise' or 'homeCruise', where nothing but the stars, the bus and its trail is on screen, and what the next page keeps of this one's URL:
  *  the city and the hour too, so a trip from ?earth&city=london comes home to London's street (the first account's review, 2026-11-04: it came home to San Francisco's, with London as the trip's home). */
 const SWAP_AFTER = 3;
-const SWAP_KEEP = ['fps', 't', 'tune', 'g5', 'fixeddt', 'city', 'hour'];
+const SWAP_KEEP = ['fps', 't', 'tune', 'g5', 'fixeddt', 'city', 'hour', 'life'];
 
 /** The trip and its view the page before saved (?resume), taken out of storage as they're read: a reload starts afresh. */
 function readSwap(): { trip: Record<string, unknown>; view: Record<string, unknown> } | null {
@@ -294,6 +294,8 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
   if (resumed && trip && view) {
     trip.resume(resumed.trip);
     view.resume(resumed.view);
+    // (and the page's clock with it: the street's sky and life read it, CONTRACT.md section 6)
+    clock.resumeAt(trip.ms);
   }
   const pose = flying ? null : readView(params, model, sky, clock.now());
 
@@ -494,6 +496,9 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
   };
   // (the frame the page before left on the screen, until this one's third: index.html put it up)
   let heldFrame = document.getElementById('held-frame');
+  // (?life: life's movers join this loop's scene the first frame it has them, and are drawn from the bus Earth fixed)
+  let lifeIn = false;
+  const lifeOb: Observer = { body: EARTH, free: false, pos: new Float64Array(3), axes: new Float64Array(9) };
   const frame = (now: number) => {
     if (gone) return;
     requestAnimationFrame(frame);
@@ -608,6 +613,26 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
     if (landing?.near) landing.snap(camera, bus.root);
     earthLanding?.ease(camera, bus.root, real);
     bus.root.updateMatrixWorld(true);
+    // (?life: the street's movers, from this loop while it has the bus over Earth, CONTRACT.md O4: the bus Earth fixed, and the render axes in that frame)
+    const life = earthLanding?.world.life;
+    if (life && trip) {
+      if (!lifeIn) {
+        life.attachSky(scene, camera);
+        lifeIn = true;
+      }
+      const tob = trip.ob, F = model.earthFix, p = tob.pos, R = tob.axes;
+      lifeOb.body = tob.body;
+      if (tob.free)
+        for (let i = 0; i < 3; i++) {
+          lifeOb.pos[i] = F[i * 3] * p[0] + F[i * 3 + 1] * p[1] + F[i * 3 + 2] * p[2];
+          for (let j = 0; j < 3; j++) lifeOb.axes[j * 3 + i] = F[i * 3] * R[j * 3] + F[i * 3 + 1] * R[j * 3 + 1] + F[i * 3 + 2] * R[j * 3 + 2];
+        }
+      else {
+        lifeOb.pos.set(p);
+        lifeOb.axes.set(R);
+      }
+      life.frameSky(dt, clock.now(), lifeOb);
+    }
     breath.craters = craterHigh();
     // (the crater shot's glint if the view's own aim misses the Moon: the ground ahead along the heading, as far ahead as the view's aim about is, Moon fixed. moonFix is fixed <- EQJ by rows)
     if (breath.craters && trip) {

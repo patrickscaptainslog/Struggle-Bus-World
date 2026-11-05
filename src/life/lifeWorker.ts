@@ -15,10 +15,12 @@ export interface LifeInit {
 export interface LifeTick {
   type: 'tick';
   utcMs: number;
-  /** the bus on the map (m) and the radius to fill round it */
+  /** the bus on the map (m), where that is (degrees, for the relay), and the radius to fill round it */
   x: number;
   y: number;
   z: number;
+  lat: number;
+  lon: number;
   reach: number;
   buf: ArrayBuffer;
 }
@@ -51,11 +53,10 @@ function takeRelay(j: { now?: number; ac?: Array<Record<string, unknown>> }, utc
   liveAt = utcMs;
 }
 
-function ask(utcMs: number, x: number, z: number): void {
+function ask(utcMs: number, lat: number, lon: number): void {
   if (!place?.relay || asking || utcMs - askedAt < RELAY_MS) return;
   asking = true;
   askedAt = utcMs;
-  const lat = place.origin[0] - z / 111320, lon = place.origin[1] + x / (111320 * Math.cos((place.origin[0] * Math.PI) / 180));
   fetch(`${place.relay}?lat=${lat.toFixed(3)}&lon=${lon.toFixed(3)}&r=60`)
     .then((r) => (r.ok ? r.json() : null))
     .then((j) => {
@@ -69,7 +70,7 @@ function tick(t: LifeTick): void {
   const v = view(t.buf);
   let n = 0;
   if (place) {
-    ask(t.utcMs, t.x, t.z);
+    ask(t.utcMs, t.lat, t.lon);
     const fresh = live.length > 0 && t.utcMs - liveAt < RELAY_MS * 3 + LIVE_HOLD;
     let keyAt = 0;
     const keys = (h: number, k: string) => {

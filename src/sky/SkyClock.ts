@@ -5,8 +5,8 @@
 // steps with the frames, fixeddt each (O2), so a tool at a fixed step sees the sky a player does: frame() steps it once for each frame drawn, whichever loop draws it.
 
 export class SkyClock {
-  private readonly start: number;
-  private readonly wall = performance.now();
+  private start: number;
+  private wall = performance.now();
   private readonly rate: number;
   private readonly real: boolean;
   /** ?fixeddt: s a frame, and the frames it has stepped (0: not stepped) */
@@ -29,6 +29,15 @@ export class SkyClock {
     if (!this.stepS || frameMs === this.lastFrame) return;
     this.lastFrame = frameMs;
     this.steps++;
+  }
+
+  /** ?resume: the trip the page before saved goes on at `ms`, and so does this page's clock, not from the URL's ?t= again (CONTRACT.md section 6). The real clock is right as it is. */
+  resumeAt(ms: number): void {
+    if (this.real || !Number.isFinite(ms)) return;
+    this.start = ms;
+    this.wall = performance.now();
+    this.steps = 0;
+    this.lastFrame = NaN;
   }
 
   /** UTC ms now. */
