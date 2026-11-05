@@ -611,7 +611,7 @@ export class SuperSplat {
     for (const dot of b.dots) {
       if (!dot.blob || this.blobN++ % every !== 0) continue;
       const from = this.v0.set(b.pos.x + (Math.random() - 0.5) * 4, b.pos.y + 1 + Math.random() * 2, b.pos.z + (Math.random() - 0.5) * 4);
-      const to = this.v1.set(dot.x, (h.city.roofAt(dot.x, dot.z) ?? h.city.groundAt(dot.x, dot.z)) + 0.15, dot.z);
+      const to = this.v1.set(dot.x, (h.city.roofAt(dot.x, dot.z, from.y) ?? h.city.groundAt(dot.x, dot.z)) + 0.15, dot.z);
       P.fling(from, to, blobFlight(dot), dot.hue, 0.7 + dot.rad * 0.5);
     }
     h.rig.kick(S.firehoseShake * Math.sqrt(b.strength));

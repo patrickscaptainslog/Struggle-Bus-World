@@ -451,8 +451,8 @@ async function boot() {
   const flingFrom = new THREE.Vector3();
   const flingTo = new THREE.Vector3();
   const flashPos = new THREE.Vector3();
-  /** Where a flung blob comes down: the roof it hits, else the ground. */
-  const landingY = (x: number, z: number) => city.roofAt(x, z) ?? city.groundAt(x, z);
+  /** Where a flung blob comes down: the roof it hits, else the ground (seen from fromY: never on a deck over it). */
+  const landingY = (x: number, z: number, fromY: number) => city.roofAt(x, z, fromY) ?? city.groundAt(x, z);
   /** Trees standing in the blast's fresh ground paint bloom (or escalate) as the shockwave reaches them. */
   const paintTrees = (b: Blast, freshOnly = false) => {
     const ts = manifest.tileSize;
@@ -508,7 +508,7 @@ async function boot() {
       for (const dot of b.dots) {
         if (!dot.blob) continue;
         flingFrom.set(b.pos.x + (Math.random() - 0.5) * 3, b.pos.y + 0.8 + Math.random() * 1.5, b.pos.z + (Math.random() - 0.5) * 3);
-        flingTo.set(dot.x, landingY(dot.x, dot.z) + 0.15, dot.z);
+        flingTo.set(dot.x, landingY(dot.x, dot.z, flingFrom.y) + 0.15, dot.z);
         particles.fling(flingFrom, flingTo, blobFlight(dot), dot.hue, 0.7 + dot.rad * 0.5);
       }
       paintTrees(b);
@@ -639,7 +639,7 @@ async function boot() {
         const t = s / d, qx = px + (c.x - px) * t, qz = pz + (c.z - pz) * t;
         // (half a meter of slack at the blade, as sightLift's 0.5 m)
         const ly = yb + (c.y - yb) * t;
-        if (Math.max(city.roofAt(qx, qz) ?? -Infinity, city.landmarkSurfaceAt(qx, qz, ly)) > ly + 0.5 * (1 - t)) return false;
+        if (Math.max(city.roofAt(qx, qz, ly) ?? -Infinity, city.landmarkSurfaceAt(qx, qz, ly)) > ly + 0.5 * (1 - t)) return false;
       }
     }
     return true;
@@ -1176,8 +1176,8 @@ async function boot() {
     bus.root.position.set(flight.x, flight.y, flight.z).add(superSplat.shake);
     controls.afterPose(bus.root);
 
-    // drop shadow on whatever is below: the roof of the part under the bus, else the street
-    const below = city.roofAt(flight.x, flight.z) ?? flight.groundUnder;
+    // drop shadow on whatever is below: the roof of the part under the bus, else the street (under a deck, the water)
+    const below = city.roofAt(flight.x, flight.z, flight.y) ?? flight.groundUnder;
     dropShadow.set(flight.x, below, flight.z);
     // (half length ~0.32 bus length, half width 0.42 of that: about the bus's own footprint, a little
     // bigger with a breath loaded; it shrinks with the gap below)

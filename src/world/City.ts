@@ -2153,10 +2153,11 @@ export class City {
     return out;
   }
 
-  /** Roof height at (x, z) of the building whose footprint contains it (its part there), or null (no allocation, no sort). */
-  roofAt(x: number, z: number): number | null {
-    const ref = this.buildingAt(x, z);
-    return ref ? this.roofAtPart(ref, x, z) : null;
+  /** Roof height at (x, z) of the building whose footprint contains it (its part there), or null (no allocation, no sort).
+   * Seen from fromY (see surfaceAt): a bridge's deck wholly above it is no roof there. */
+  roofAt(x: number, z: number, fromY = Infinity): number | null {
+    const ref = this.buildingAt(x, z, fromY);
+    return ref ? this.roofAtPart(ref, x, z, fromY) : null;
   }
 
   /** Add (or remove) a ref in every area-index cell its footprint bounds overlap. */
