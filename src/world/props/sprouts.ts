@@ -977,6 +977,8 @@ interface Rec extends Holder {
   /** this frame's want (RoofSprouts.update) */
   want: number;
   far: number;
+  /** ?lift: its house has leapt, and its bounds stand LIFT_TALL taller (makeTall) */
+  tall: boolean;
 }
 
 /** One element of a garden laid out by hand: where it stands (world), its turn, size and hue; when it springs up (game clock). */
@@ -1040,11 +1042,24 @@ export const GARDEN_BUDGET = {
   hyst: 12,
   slack: 0.03,
   slackM: 4,
-  /** elements in and out per frame at most: a look behind adds the nearest first */
-  moves: 6000,
+  /** elements in per frame at most, and out: each its own, so what goes never holds up what comes (a look behind adds the nearest first) */
+  moves: 12000,
+  outs: 6000,
+  /** the hold lets out (half a hundredth a frame) when what this much more reach would add still fits, and not for this many frames after it held in */
+  probe: 1.01,
+  calm: 30,
 };
-/** a lifted house's garden rides up to ~125 m over its roof (LIFT.md's highest rest and its heave): its bounds stand that tall */
+/** a lifted house's garden rides up to ~125 m over its roof (LIFT.md's highest rest and its heave): its bounds stand that tall, from its leap
+ * on (shed()). One on its ground only crouches (0.35 m): its bounds are a roof's, so ?lift draws no more than the street does */
 const LIFT_TALL = 130;
+/** A garden's bounds made tall: its middle up half of LIFT_TALL, and its radius over the same roof that much taller. */
+function makeTall(rec: Rec) {
+  if (rec.tall) return;
+  const flat = Math.max(0, (2 * (rec.r - 1)) ** 2 - rec.top ** 2);
+  rec.y += LIFT_TALL / 2;
+  rec.r = 0.5 * Math.sqrt(flat + (rec.top + LIFT_TALL) ** 2) + 1;
+  rec.tall = true;
+}
 
 export class RoofSprouts {
   readonly object: THREE.Object3D;
@@ -1063,7 +1078,14 @@ export class RoofSprouts {
   private readonly lod = !moonLow;
   /** a lens has been seen (before the first, every garden is drawn whole) */
   private seen = false;
-  private last = { tris: 0, sunTris: 0, moved: 0, drawn: 0, elements: 0 };
+  private readonly last = { tris: 0, sunTris: 0, moved: 0, outed: 0, elements: 0, pending: 0, grow: 0 };
+  // (update()'s own, kept from frame to frame: the gardens coming in, going and changing their sun; what more reach would add; the hold's rest)
+  private readonly ins: Rec[] = [];
+  private readonly outs: Rec[] = [];
+  private readonly suns: Rec[] = [];
+  private grow = 0;
+  private probe = false;
+  private calm = 0;
   /** QA: the budget (tools/gardens/budget.mjs sets it) */
   readonly budget = GARDEN_BUDGET;
   private readonly coreAt: number[] = [];
@@ -1172,6 +1194,8 @@ export class RoofSprouts {
     const rec = this.recs.get(buildingIndex);
     const cell = rec ? this.cells.get(rec.cell) : undefined;
     if (!rec || !cell) return 0;
+    // (it rides up from now: its bounds stand tall)
+    makeTall(rec);
     let n = 0, kept = 0, drawn = 0;
     const N = rec.type.length;
     const type = new Uint8Array(N), data = new Float32Array(N * STRIDE), at = new Int32Array(N);
@@ -1182,7 +1206,7 @@ export class RoofSprouts {
         data.set(rec.data.subarray(k * STRIDE, (k + 1) * STRIDE), kept * STRIDE);
         at[kept] = s;
         if (s >= 0) {
-          cell[t].rekey(s, kept);
+          this.batchOf(cell, rec, t).rekey(s, kept);
           drawn++;
         }
         kept++;
@@ -1292,9 +1316,10 @@ export class RoofSprouts {
       cm: 0,
       wantCm: 0,
       x: roof.cx,
-      y: roof.y + top / 2 + (ground !== undefined ? LIFT_TALL / 2 : 0),
+      y: roof.y + top / 2,
       z: roof.cz,
-      r: 0.5 * Math.hypot(Math.max(roof.w, 1.2), Math.max(roof.d, 1.2), top + (ground !== undefined ? LIFT_TALL : 0)) + 1,
+      r: 0.5 * Math.hypot(Math.max(roof.w, 1.2), Math.max(roof.d, 1.2), top) + 1,
+      tall: false,
       top,
       want: 0,
       far: 0,
@@ -1303,6 +1328,7 @@ export class RoofSprouts {
       rec.type[k] = list[k][0];
       rec.data.set(data.subarray(list[k][1], list[k][1] + STRIDE), k * STRIDE);
     }
+    if (shed) makeTall(rec);
     this.recs.set(buildingIndex, rec);
     // (drawn as the last frame's lens sees it: before the first, whole)
     if (this.lod && this.seen) {
@@ -1354,27 +1380,46 @@ export class RoofSprouts {
   private sunScale = 0;
   private sunOn = false;
 
-  /** How many of its elements a garden wants drawn this frame (rec.want), and whether its casters cast (rec.sun's want, in rec.far: 1 cast, 0 not). */
+  /** What one element of type `t` costs drawn, both passes: in its far form or not (`cm`), casting or not. */
+  private cost(t: number, cm: number, sun: boolean): number {
+    const ty = this.types[t];
+    return ((cm >> t) & 1 ? ty.coreTris : ty.tris) * (sun && ty.depth && this.sunOn ? 2 : 1);
+  }
+
+  /** How far a shadow from `h` m over its roof can fall: the pipeline's sun goes as low as 0.02 over the horizon, and none lands past its window. */
+  private shadowLen(h: number): number {
+    return this.sunOn ? Math.min(1 / Math.max(this.sunScale, 1e-6), h / Math.max(0.02, this.sunDir.y)) : 0;
+  }
+
+  /**
+   * How many of its elements a garden wants drawn this frame (rec.want), and whether its casters cast (rec.sun's want, in rec.far: 1 cast, 0 not).
+   * While the hold is in, what letting it out would add goes on `grow`.
+   */
   private judge(rec: Rec) {
     const dx = rec.x - this.eye.x, dy = rec.y - this.eye.y, dz = rec.z - this.eye.z;
-    const dist = Math.hypot(dx, dy, dz);
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
     const B = GARDEN_BUDGET;
-    // its shadow's length, at most: the view sees a garden whose shadow it sees
-    const L = Math.min(160, rec.top / Math.max(0.12, this.sunDir.y));
-    // (in the view: its body or its shadow, and the slack round the edges; once in, a little more slack to go out)
-    const slack = rec.r + L + B.slackM + B.slack * dist + (rec.drawn > 0 ? B.hyst + 0.05 * dist : 0);
+    // its shadow: from its middle down the sun's way, as far as its top's can fall. The view sees a garden whose body or shadow it sees: a
+    // capsule from the one to the other, so a low sun's long shadow is in, and a garden it doesn't fall from isn't. (A leapt house's falls from
+    // as high as it rides)
+    const L = this.shadowLen(rec.top + (rec.tall ? LIFT_TALL : 0));
+    const ox = -this.sunDir.x * L, oy = -this.sunDir.y * L, oz = -this.sunDir.z * L;
+    // (in the view: and the slack round the edges; once in, a little more slack to go out)
+    const slack = rec.r + B.slackM + B.slack * dist + (rec.drawn > 0 ? B.hyst + 0.05 * dist : 0);
     const planes = _frustum.planes;
     let seen = true;
-    for (let i = 0; i < 6; i++)
-      if (planes[i].normal.x * rec.x + planes[i].normal.y * rec.y + planes[i].normal.z * rec.z + planes[i].constant < -slack) {
+    for (let i = 0; i < 6; i++) {
+      const n = planes[i].normal, a = n.x * rec.x + n.y * rec.y + n.z * rec.z + planes[i].constant;
+      if (a < -slack && a + n.x * ox + n.y * oy + n.z * oz < -slack) {
         seen = false;
         break;
       }
+    }
     let want = 0;
     const lo = Math.max(0, dist - rec.r), reach = propsTune.sproutCull * this.uReach.value;
+    const N = rec.type.length;
     if (seen) {
       want = rec.drawn;
-      const N = rec.type.length;
       while (want < N && this.types[rec.type[want]].cull * reach > lo) want++;
       while (want > 0 && this.types[rec.type[want - 1]].cull * reach < lo - B.hyst) want--;
     }
@@ -1396,11 +1441,31 @@ export class RoofSprouts {
       const mg = 0.1 + (rec.r + L + 20) * this.sunScale;
       rec.far = u > -mg && u < 1 + mg && v > -mg && v < 1 + mg ? 1 : 0;
     }
+    // what letting the hold out would add: the elements the probe's longer reach takes in, and the far forms it gives back
+    if (seen && this.probe) {
+      const r2 = reach * B.probe, sun = rec.far === 1;
+      let g = 0;
+      for (let w = want; w < N && this.types[rec.type[w]].cull * r2 > lo; w++) g += this.cost(rec.type[w], cm, sun);
+      for (const t of this.coreTypes)
+        if ((cm >> t) & 1 && lo < this.types[t].core * r2) {
+          const more = this.cost(t, 0, sun) - this.cost(t, 1 << t, sun);
+          for (let k = 0; k < want; k++) if (rec.type[k] === t) g += more;
+        }
+      this.grow += g;
+    }
+  }
+
+  /** A garden's casters into the sun pass, or out of it. */
+  private resun(rec: Rec, on: boolean) {
+    rec.sun = on;
+    const cell = this.cells.get(rec.cell)!;
+    for (let k = 0; k < rec.drawn; k++) this.batchOf(cell, rec, rec.type[k]).setSun(rec.at[k], on);
   }
 
   /**
    * Once a frame, before the render: the view's lens. Each garden is drawn as far as it's seen (the budget, above), the nearest first when
-   * more come in than a frame takes, and the reaches held in while the gardens' triangles are over the budget.
+   * more come in than a frame takes, and the reaches held in while the gardens' triangles are over the budget. What comes in goes first, from
+   * its own moves; what goes, from its own: until it's gone it only costs, and on a look behind it never holds up what's coming.
    */
   update(camera: THREE.Camera): void {
     this.uEye.value.copy(camera.position);
@@ -1416,39 +1481,60 @@ export class RoofSprouts {
     if (this.sunOn) {
       this.sunDir.set(-e[2], -e[6], -e[10]).normalize();
       if (this.sunDir.y < 0) this.sunDir.negate();
-      this.sunScale = Math.hypot(e[0], e[4], e[8]);
+      this.sunScale = Math.sqrt(e[0] * e[0] + e[4] * e[4] + e[8] * e[8]);
     }
     const B = GARDEN_BUDGET;
-    let moves = B.moves;
-    const adds: Rec[] = [];
+    let moves = B.moves, outs = B.outs;
+    const ins = this.ins, gone = this.outs, suns = this.suns;
+    ins.length = gone.length = suns.length = 0;
+    this.grow = 0;
+    this.probe = this.uReach.value < 1;
     for (const rec of this.recs.values()) {
       this.judge(rec);
-      const cell = this.cells.get(rec.cell)!;
-      if (rec.want < rec.drawn && moves > 0) {
-        const to = Math.max(rec.want, rec.drawn - moves);
-        moves -= rec.drawn - to;
-        this.fit(rec, cell, to);
+      if (rec.drawn === 0) {
+        // (none of it drawn: it takes its far forms and its sun as it wants them, and nothing moves)
+        rec.cm = rec.wantCm;
+        rec.sun = rec.far === 1;
+      }
+      if (rec.want < rec.drawn) {
+        gone.push(rec);
+        continue;
       }
       // (a far form gives back first of all: past its edge the small growth would be missing)
-      if (rec.wantCm !== rec.cm) moves -= this.reform(rec, cell);
-      if ((rec.far === 1) !== rec.sun && moves > 0) {
-        rec.sun = rec.far === 1;
-        for (let k = 0; k < rec.drawn; k++) this.batchOf(cell, rec, rec.type[k]).setSun(rec.at[k], rec.sun);
-        moves -= rec.drawn;
-      }
-      if (rec.want > rec.drawn) adds.push(rec);
+      if (rec.wantCm !== rec.cm) moves -= this.reform(rec, this.cells.get(rec.cell)!);
+      if ((rec.far === 1) !== rec.sun) suns.push(rec);
+      if (rec.want > rec.drawn) ins.push(rec);
     }
-    // (the nearest first, when there's more than a frame takes: a look behind)
+    // 1. what comes in, the nearest first when there's more than a frame takes (a look behind)
     let need = 0;
-    for (const r of adds) need += r.want - r.drawn;
-    if (need > moves) adds.sort((a, b) => (a.x - this.eye.x) ** 2 + (a.z - this.eye.z) ** 2 - ((b.x - this.eye.x) ** 2 + (b.z - this.eye.z) ** 2));
-    for (const rec of adds) {
+    for (const r of ins) need += r.want - r.drawn;
+    if (need > moves) ins.sort(this.nearer);
+    for (const rec of ins) {
       if (moves <= 0) break;
       const to = Math.min(rec.want, rec.drawn + moves);
       moves -= to - rec.drawn;
       this.fit(rec, this.cells.get(rec.cell)!, to);
     }
-    // what's drawn now, both passes, and the reaches held in while it's over (a hundredth a frame) or let out again under 85 % of it
+    // 2. what goes, from its own moves, and then its far forms and its sun as it wants them
+    for (const rec of gone) {
+      const cell = this.cells.get(rec.cell)!;
+      if (outs > 0) {
+        const to = Math.max(rec.want, rec.drawn - outs);
+        outs -= rec.drawn - to;
+        this.fit(rec, cell, to);
+      }
+      if (rec.wantCm !== rec.cm) outs -= this.reform(rec, cell);
+      if ((rec.far === 1) !== rec.sun) suns.push(rec);
+    }
+    // 3. the sun pass: a caster coming into its window from what's left of the moves in, one leaving it from what's left of the moves out
+    for (const rec of suns) {
+      const on = rec.far === 1;
+      if (on ? moves <= 0 : outs <= 0) continue;
+      this.resun(rec, on);
+      if (on) moves -= rec.drawn;
+      else outs -= rec.drawn;
+    }
+    // what's drawn now, both passes, and what's still to come in or go (a frame's moves ran out): the hold goes by what it comes to
     let tris = 0, sunTris = 0, elements = 0;
     for (const cell of this.cells.values())
       for (let i = 0; i < cell.length; i++) {
@@ -1458,45 +1544,95 @@ export class RoofSprouts {
         tris += b.live * this.batchTris[i];
         if (b.caster) sunTris += b.sun * this.batchTris[i];
       }
-    const all = tris + (this.sunOn ? sunTris : 0);
+    let pending = 0;
+    for (const rec of ins) for (let k = rec.drawn; k < rec.want; k++) pending += this.cost(rec.type[k], rec.cm, rec.sun);
+    for (const rec of gone) for (let k = rec.want; k < rec.drawn; k++) pending -= this.cost(rec.type[k], rec.cm, rec.sun);
+    // the hold: in by a hundredth a frame while it's over; out by half that once it's been under for a second and what the longer reach
+    // would add still fits (so it lets out wherever there's room, at the street after a climb too)
+    const all = tris + (this.sunOn ? sunTris : 0) + pending;
     const k = this.uReach.value;
-    if (all > B.tris) this.uReach.value = Math.max(B.hold, k * 0.99);
-    else if (all < 0.85 * B.tris && k < 1) this.uReach.value = Math.min(1, k * 1.005);
-    this.last = { tris, sunTris, moved: B.moves - moves, drawn: 0, elements };
+    if (all > B.tris) {
+      this.uReach.value = Math.max(B.hold, k * 0.99);
+      this.calm = B.calm;
+    } else if (k < 1 && --this.calm <= 0 && all + this.grow <= B.tris) this.uReach.value = Math.min(1, k * 1.005);
+    const last = this.last;
+    last.tris = tris;
+    last.sunTris = sunTris;
+    last.moved = B.moves - moves;
+    last.outed = B.outs - outs;
+    last.elements = elements;
+    last.pending = pending;
+    last.grow = this.grow;
   }
+
+  /** (the nearer garden first, on the ground) */
+  private readonly nearer = (a: Rec, b: Rec) => {
+    const e = this.eye;
+    return (a.x - e.x) ** 2 + (a.z - e.z) ** 2 - ((b.x - e.x) ** 2 + (b.z - e.z) ** 2);
+  };
 
   /**
    * QA (tools/gardens/budget.mjs): against this lens, each element one by one. `missing`: not drawn, though it stands in the view and inside the
    * part of its reach where it's whole (it would have popped in). `early`: drawn in its far form while its own distance is inside the core reach
-   * (its small growth would have popped out). `shadow`: a caster in the view not drawn by the sun pass, its garden inside the sun's window.
+   * (its small growth would have popped out). `shadow`: a caster inside the sun's window whose shadow falls in the view, not drawn or not in
+   * the sun pass, its body in the view or not. A garden whose house has leapt (?lift) rides where the CPU doesn't follow it: it's taken as
+   * anywhere up to LIFT_TALL over its rest, as its bounds stand, and its far forms aren't judged (`lifted`: how many of those were checked).
+   * One on its ground is judged as any (its crouch sinks it 0.35 m).
    */
-  audit(camera: THREE.Camera): { missing: number; early: number; shadow: number; checked: number } {
-    const out = { missing: 0, early: 0, shadow: 0, checked: 0 };
+  audit(camera: THREE.Camera): { missing: number; early: number; shadow: number; checked: number; lifted: number } {
+    const out = { missing: 0, early: 0, shadow: 0, checked: 0, lifted: 0 };
     if (!this.lod) return out;
     camera.updateMatrixWorld();
     const f = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
-    const eye = camera.position, reach = propsTune.sproutCull * this.uReach.value, sph = new THREE.Sphere();
+    const eye = camera.position, reach = propsTune.sproutCull * this.uReach.value, sd = this.sunDir;
+    // (the hull of n points, r round: in the view unless it's all past one plane)
+    const P = new Float32Array(12);
+    const hull = (n: number, r: number) => {
+      for (const p of f.planes) {
+        let i = 0;
+        while (i < n && p.normal.x * P[i * 3] + p.normal.y * P[i * 3 + 1] + p.normal.z * P[i * 3 + 2] + p.constant < -r) i++;
+        if (i === n) return false;
+      }
+      return true;
+    };
     for (const rec of this.recs.values()) {
       for (let k = 0; k < rec.type.length; k++) {
         const t = rec.type[k], o = k * STRIDE, d = rec.data;
-        if (rec.data[o + 19] >= 0) continue; // (a lifted garden rides where the CPU doesn't follow it: its bounds stand tall instead)
-        sph.center.set(d[o + 12], d[o + 13], d[o + 14]);
-        sph.radius = this.typeTop[t] * Math.hypot(d[o + 4], d[o + 5], d[o + 6]) + 1;
-        const dist = sph.center.distanceTo(eye);
-        if (!f.intersectsSphere(sph)) continue;
+        // (a lifted one: anywhere on the column from its rest up LIFT_TALL, and its shadow anywhere its height on that column throws it)
+        const lifted = rec.tall;
+        const up = lifted ? LIFT_TALL : 0;
+        const x = d[o + 12], y = d[o + 13], z = d[o + 14];
+        const top = this.typeTop[t] * Math.hypot(d[o + 4], d[o + 5], d[o + 6]), rad = top + 1;
+        // its distance: the column's nearest point
+        const cy = Math.max(y, Math.min(y + up, eye.y));
+        const dist = Math.hypot(x - eye.x, cy - eye.y, z - eye.z);
+        const cast = !!this.types[t].depth && this.sunOn && rec.far === 1;
+        P.set([x, y, z, x, y + up, z]);
+        const body = hull(2, rad);
+        let shade = false;
+        if (cast && !body) {
+          const roof = rec.y - rec.top / 2 - up / 2, h = y - roof + top, L0 = this.shadowLen(h), L1 = this.shadowLen(h + up);
+          P.set([x - sd.x * L0, y - sd.y * L0, z - sd.z * L0, x - sd.x * L1, y + up - sd.y * L1, z - sd.z * L1], 6);
+          shade = hull(4, rad);
+        }
+        if (!body && !shade) continue;
         out.checked++;
+        if (lifted) out.lifted++;
         if (rec.at[k] < 0) {
-          if (dist < 0.8 * this.types[t].cull * reach) out.missing++;
+          if (dist < 0.8 * this.types[t].cull * reach) {
+            if (body) out.missing++;
+            else out.shadow++;
+          }
           continue;
         }
-        if ((rec.cm >> t) & 1 && dist < this.types[t].core * reach) out.early++;
-        if (this.types[t].depth && this.sunOn && rec.far === 1 && !rec.sun) out.shadow++;
+        if (!lifted && (rec.cm >> t) & 1 && dist < this.types[t].core * reach) out.early++;
+        if (cast && !rec.sun) out.shadow++;
       }
     }
     return out;
   }
 
-  /** QA: what the gardens drew last frame: triangles in the view and the sun pass, elements, gardens drawn, the reaches' hold, the frame's moves. */
+  /** QA: what the gardens drew last frame: triangles in the view and the sun pass, elements, gardens drawn, the reaches' hold, the frame's moves in and out, what was still to come or go, and what letting the hold out would add. */
   stats() {
     let drawn = 0;
     for (const r of this.recs.values()) if (r.drawn > 0) drawn++;
