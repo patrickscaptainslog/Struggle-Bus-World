@@ -861,6 +861,13 @@ if (modes.has('zone')) {
   await runFor(page, 6);
   await page.screenshot({ path: `${out}/zone-2-balloons.png` });
   R.balloons = await st();
+  // their draw: the same frame with them held hidden (Balloons.update sets visible every frame), then shown again
+  await page.evaluate(() => { const b = window.__game.controls.balloons; b.__upd = b.update; b.update = (...a) => { b.__upd(...a); b.object.visible = false; }; });
+  await runFor(page, 0.2);
+  R.balloonsHidden = await st();
+  await page.evaluate(() => { const b = window.__game.controls.balloons; b.update = b.__upd; delete b.__upd; });
+  await runFor(page, 0.2);
+  R.balloonsShown = await st();
   // a held right thumb, sideways: on the spot
   const h0 = R.balloons.heading;
   await H.down(2, 300, 640);
@@ -909,7 +916,7 @@ if (modes.has('zone')) {
   ok(R.flicked.below === 1 && R.flicked.name === 'SCHOOL ZONE', 'a real flick down from Cruise is School Zone');
   ok(R.at15s.speed < 2.5 && R.hover.speed < 0.6, `it eases to a hover in about 1.5 s: ${R.at15s.speed}, ${R.hover.speed} m/s`);
   ok(Math.abs(R.hover.cam / R.cruise.cam - 0.7) < 0.06, `the lens comes in 30 %: ${R.cruise.cam} to ${R.hover.cam} m`);
-  ok(R.balloons.balloons >= 4 && R.balloons.calls - R.hover.calls <= 2, `balloons out of the hatch (${R.balloons.balloons}), one draw: ${R.hover.calls} to ${R.balloons.calls} draws`);
+  ok(R.balloons.balloons >= 4 && R.balloonsShown.calls - R.balloonsHidden.calls === 1, `balloons out of the hatch (${R.balloons.balloons}), one draw: ${R.balloonsHidden.calls} hidden, ${R.balloonsShown.calls} shown`);
   ok(R.turnDegPerS > 50 && R.turning.ground < 1, `a held right thumb sideways turns on the spot: ${R.turnDegPerS} deg/s at ${R.turning.ground} m/s`);
   ok(R.drift.ground > 4 && R.drift.ground <= 8.05 && R.drift.pitch < -3, `the stick up drifts forward, nose down: ${R.drift.ground} m/s, ${R.drift.pitch} deg`);
   ok(R.climb.vy > 10 && R.climb.vy <= 15.5 && R.climb.ground < 1, `the stick down climbs at about 15 m/s: ${R.climb.vy}`);
