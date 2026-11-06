@@ -36,8 +36,10 @@ order the section's list of fixes needs them:
            the longest border with (one of their own place's family first: the outline they're part of and its other
            parts), keeping both names ("A / B"); a whole piece of land under it stays, godless (Alcatraz)
   split    anything over 3 km2 into strips across its longer side, parks whole, named West and East, or North and South
-  hearts   one square each: in its biggest park, else its highest open ground, never on a tagged place, at least 450 m from
-           every other heart; a neighbourhood whose heart can't be placed joins the neighbour in its way
+  hearts   one square each: in its biggest park (on open ground: not a park on a roof), else its highest open ground, else
+           its highest square, never on a tagged place, at least 450 m from every other heart; within a park or a tier
+           a square with no tagged place in it first; a neighbourhood whose heart can't be placed joins the neighbour in
+           its way
   tagged   squares where worship, cemetery, memorial, school or hospital cover a quarter of the land: stages 4 and 5 stay off
 A rerun on the same inputs writes the same bytes.
 
@@ -1129,8 +1131,11 @@ class Hoods:
     # ------------------------------------------------------------------ hearts
 
     def candidates(self, ti):
-        """The squares a heart may take, best first: its biggest park's, its other parks' by size, then the highest open
-        ground, then any; tagged squares never, and squares with any tagged place only after every clean one."""
+        """The squares a heart may take, best first, tagged squares never: its biggest park's, its other parks' by size,
+        then the highest open ground, then the highest square. A park's square counts only on open ground (a park on a
+        roof is no ground for a god: Salesforce Park), and within a park or a tier a square with no tagged place in it at
+        all comes before one with a sliver of one (a church's corner doesn't push North Beach's heart out of Washington
+        Square onto a roof)."""
         sq = self.squares(ti)
         mine = set(sq.tolist())
         W = self.w
@@ -1150,27 +1155,25 @@ class Hoods:
             if not inside.any():
                 continue
             f = p['n'] / np.maximum(self.landN[p['sq']], 1)
-            ps = p['sq'][inside & (f >= PARK_SQUARE)]
-            if len(ps):
-                parks.append((-float(p['n'][inside].sum()), pi, ps, f[inside & (f >= PARK_SQUARE)]))
+            ok = inside & (f >= PARK_SQUARE) & (self.open[p['sq']] >= OPEN_HEART) & ~self.tag[p['sq']]
+            if ok.any():
+                parks.append((-float(p['n'][inside].sum()), pi, p['sq'][ok], f[ok]))
         for _, pi, ps, f in sorted(parks, key=lambda t: (t[0], t[1])):
             p = self.parks[pi]
             mx = np.average([self.centre(s)[0] for s in ps], weights=f)
             mz = np.average([self.centre(s)[1] for s in ps], weights=f)
-            order = sorted(zip(ps.tolist(), f.tolist()), key=lambda t: (-round(t[1], 2), -ring[t[0]],
+            order = sorted(zip(ps.tolist(), f.tolist()), key=lambda t: (bool(self.tag_any[t[0]]), -round(t[1], 2), -ring[t[0]],
                            round(math.hypot(self.centre(t[0])[0] - mx, self.centre(t[0])[1] - mz), 1), t[0]))
             order = [s for s, _ in order if s not in seen]
             tiers += [(s, 'park', p['name'] or 'a park', 0, len(order)) for s in order]
             seen |= set(order)
-        high = sorted((s for s in sq.tolist() if s not in seen), key=lambda s: (
-            self.open[s] < OPEN_HEART, -round(float(self.high[s]) if np.isfinite(self.high[s]) else -1e9, 1),
+        high = sorted((s for s in sq.tolist() if s not in seen and not self.tag[s]), key=lambda s: (
+            self.open[s] < OPEN_HEART, bool(self.tag_any[s]), -round(float(self.high[s]) if np.isfinite(self.high[s]) else -1e9, 1),
             -round(self.open[s], 2), -ring[s], s))
         n_open = sum(1 for s in high if self.open[s] >= OPEN_HEART)
         tiers += [(s, 'high ground', None, 1, n_open) if self.open[s] >= OPEN_HEART else (s, 'built ground', None, 2, len(high) - n_open)
                   for s in high]
-        clean = [c for c in tiers if not self.tag_any[c[0]]]
-        light = [c for c in tiers if self.tag_any[c[0]] and not self.tag[c[0]]]
-        return clean + light
+        return tiers
 
     def hearts(self):
         """The most hemmed in first: a park heart before high ground, the park with the fewest squares first, the

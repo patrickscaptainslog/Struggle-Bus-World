@@ -8,7 +8,9 @@ exit 1 on any failure. Against the city's own baked tiles and Overture extract, 
            neighbourhood on each piece of land, but a park of more than hoods.PARK_WHOLE squares, which a split may cut
            (the Presidio); a park named for a neighbourhood it lies in or touches is held by that one (Mission
            Dolores Park by the Mission), the longest name it holds first
-  hearts   each on its own neighbourhood's squares, none on a tagged square, at least 450 m apart (the godless aside)
+  hearts   each on its own neighbourhood's squares, none on a tagged square, at least 450 m apart (the godless aside);
+           none on built ground while open ground was clear for it, none out of its parks while one had open, untagged
+           ground clear for it (clear: 450 m from every other god's heart, where the bake could have put it)
   sizes    0.25-3 km2; under 0.25 only a whole piece of land, and godless (Alcatraz)
   names    one each, none empty or over 255 bytes, no two that are one place (hoods.norm: Castro, Castro District),
            none with a slash of its own beside another; every place the bake seeds from named on the neighbourhood
@@ -102,6 +104,11 @@ class World:
             held[own] = True
             if len(own):
                 self.parks.append((name or f'park {pid}', own))
+        # each square's open ground (grass, plaza, path, sand, forest or rock) by hoods.py's reading, and whether a park
+        # covers a quarter of it: what a heart stands on
+        self.open = hd.open.copy()
+        self.landshare = hd.land.copy()
+        self.parksq = held.copy()
         # places off the map: outlines mostly past the frame with under 0.25 km2 of land on it (hoods.OFF_MAP), whose names
         # no neighbourhood carries, unless a point of the same name is on the map
         areas, ag = hd.src['areas']
@@ -178,6 +185,39 @@ def carried(names):
             out.setdefault(H.norm(part), set()).add(k)
             out.setdefault(H.norm(base_of(part)), set()).add(k)
     return out
+
+
+def gods(W, t):
+    """{god: its heart's grid cell}, and a function giving which of some cells are at least 450 m from every other god's
+    heart (where the bake could have put that god's heart)."""
+    hc = {k: W.cell(t['hearts'][k], t) for k in range(len(t['names'])) if not t['flags'][k]}
+    xy = {k: ((W.ix0 + c % W.w + 0.5) * H.SQ, (W.iz0 + c // W.w + 0.5) * H.SQ) for k, c in hc.items()}
+
+    def clear(k, cells):
+        others = np.array([xy[j] for j in hc if j != k]).reshape(-1, 2)
+        if not len(others):
+            return np.ones(len(cells), bool)
+        cx = (W.ix0 + cells % W.w + 0.5) * H.SQ
+        cz = (W.iz0 + cells // W.w + 0.5) * H.SQ
+        return np.hypot(cx[:, None] - others[:, 0], cz[:, None] - others[:, 1]).min(axis=1) >= H.HEARTS_APART - 1e-6
+    return hc, clear
+
+
+def heart_ground(W, t):
+    """(built, off its parks): gods whose heart is on built ground (under a quarter of open ground) while their
+    neighbourhood had open ground clear of the other gods' hearts; gods whose heart is in none of their parks while one
+    had an open, untagged square clear of them."""
+    g = t['grid']
+    hc, clear = gods(W, t)
+    built, off = [], []
+    for k, h in hc.items():
+        sq = np.nonzero(g == k + 1)[0]
+        ok = clear(k, sq) & ~t['tagged'][sq] & (W.open[sq] >= H.OPEN_HEART)
+        if W.open[h] < H.OPEN_HEART and ok.any():
+            built.append(f'{t["names"][k]} (open {W.open[h]:.2f})')
+        if not W.parksq[h] and (ok & W.parksq[sq]).any():
+            off.append(t['names'][k])
+    return built, off
 
 
 def contains(pw, w):
@@ -301,6 +341,12 @@ def check(W, t, man_hoods, rep):
             pts.append(((W.ix0 + c % W.w + 0.5) * H.SQ, (W.iz0 + c // W.w + 0.5) * H.SQ, nm))
     rep('hearts: off their own squares', len(off), '0' + (f'; {", ".join(off[:6])}' if off else ''), not off)
     rep('hearts: on a tagged square', len(tag), '0' + (f'; {", ".join(tag[:6])}' if tag else ''), not tag)
+    if not off:
+        built, offpark = heart_ground(W, t)
+        rep('hearts: on built ground while their neighbourhood had open ground for them', len(built), '0' +
+            (f'; {"; ".join(built[:8])}' if built else ''), not built)
+        rep('hearts: out of their parks while one had open, untagged ground for them', len(offpark), '0' +
+            (f'; {"; ".join(offpark[:8])}' if offpark else ''), not offpark)
     near = []
     if len(pts) > 1:
         from scipy.spatial import cKDTree
@@ -417,6 +463,16 @@ def broken(W, t, man_hoods):
     if best:
         _, m, s = best
         case('two hearts close', 'hearts: closer than 450 m', lambda c, mh: c['hearts'].__setitem__(m, W.key(s)))
+    # a heart moved off open ground, and one moved out of its park, each onto its own other square
+    hc, _ = gods(W, t)
+    for target, moved, there in (('hearts: on built ground while their neighbourhood had open ground for them', 'onto built ground',
+                                  lambda h, s: W.open[h] >= H.OPEN_HEART and W.open[s] < H.OPEN_HEART),
+                                 ('hearts: out of their parks while one had open, untagged ground for them', 'out of its park',
+                                  lambda h, s: W.parksq[h] and not W.parksq[s])):
+        pick = next(((k, int(s)) for k, h in hc.items() for s in np.nonzero(g == k + 1)[0].tolist()
+                     if there(h, s) and not t['tagged'][s]), None)
+        if pick:
+            case(f'a heart moved {moved}', target, lambda c, mh, k=pick[0], s=pick[1]: c['hearts'].__setitem__(k, W.key(s)))
     k0 = next(k for k in range(len(t['names'])) if not t['flags'][k])
     case('a heart off its squares', 'hearts: off their own squares',
          lambda c, mh: c['hearts'].__setitem__(k0, t['hearts'][(k0 + 1) % len(t['names'])]))
