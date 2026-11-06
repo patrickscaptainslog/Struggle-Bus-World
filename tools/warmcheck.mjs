@@ -291,7 +291,8 @@ if (opt.crew) {
     await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
     await run(0.3);
   };
-  const spots = [[37.7762, -122.4306], [37.7762, -122.4286], [37.7776, -122.4326], [37.7748, -122.4326], [37.7776, -122.4306]];
+  // (about 400 m apart: an 85 m splat from the bus's height grows to about 130 m, so no faction's blasts reach another's spot. Review of step 1, 12)
+  const spots = [[37.7762, -122.4306], [37.7762, -122.4261], [37.7798, -122.4351], [37.7726, -122.4351], [37.7798, -122.4306]];
   const keys = ['atlantis', 'elderwood', 'hyperglow', 'inferno', 'rainbow'];
   // (--crewr=60: the blasts at that radius, today's before the shots' rework, to tell the switch's cost from the bigger splat's)
   if (opt.crewr) await page.evaluate((r) => (window.__game.config.splat.blastRadius = r), Number(opt.crewr));
