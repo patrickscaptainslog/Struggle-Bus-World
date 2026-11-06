@@ -114,7 +114,8 @@ try {
   row('gotcha: the glint on a captain, a real tap rides it', !!gotcha && gotcha.glint === 'recess:1' && gotcha.rode, gotcha);
   // ---- possessed: the player ridden by Inferno ----
   // (Inferno's breath, white-hot and on the player, landing on the next step: the hit through the brain's own events, as a captain's lands)
-  const ramp0 = await page.evaluate(() => { const a = window.__game.scene.getObjectByName('BusRoot').getObjectByName('StruggleBus').geometry.getAttribute('ramp'); let y = 0; for (let i = 0; i < a.count; i++) if (a.getX(i) === 14) y++; return y; });
+  // (the bus's own yellow: what its colours drain back to)
+  const ramp0 = await page.evaluate(() => window.__recess.busRamp.filter((r) => r === 14).length);
   await page.evaluate(() => {
     const S = window.__recess.sim, me = S.buses[0];
     me.state = 'free';
@@ -172,6 +173,8 @@ try {
     const R = window.__recess, S = R.sim, me = S.buses[0];
     R.hitGear = 3;
     me.state = 'free';
+    // (a fresh pair: Atlantis may already have ridden the player twice in two minutes, when the pair rule turns a third away)
+    S.pairs.clear();
     S.breaths.push({ id: 9998, from: 1, target: 0, x: me.x, z: me.z, tx: me.x, tz: me.z, vx: 0, vz: 0, arrive: S.t + 0.04, born: S.t - 1, white: true });
   });
   await frames(20);
