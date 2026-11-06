@@ -2,6 +2,39 @@
 
 Tick what you finish, in the commit that finishes it. Add to it when the producer asks for something. Written 2026-11-02.
 
+## Today, both accounts (2026-11-06, the producer away for the day)
+
+The producer approved the shots redesign whole ("Everything in the doc is excellent"), with Belly Flop, Waterfall, Sonic Boom and Parade, and asked for a massive run while they're away. [specs/shots/SHOTS.md](specs/shots/SHOTS.md) is the plan, and its "Who builds what" is the split; `CLAUDE.md`'s "Shots" block has the rulings it changes. The rules for today:
+- Push a working branch when you're confident in it; `main` stays the producer's.
+- One account edits each file, as SHOTS.md's table says. A change the other side needs goes in as a small named hook, said here.
+- Each step is reviewed hard inside its own run and checked on what it can be checked on.
+- Stop well short of your weekly limit.
+- Leave an evening report at the top of this file, with the preview links and what to try.
+
+**Second account** (life and Recess), in this order:
+- [ ] `feat/life`: the parks from 9 am (under "Tonight", below).
+- [ ] `feat/recess`: B21, a match keeps its paint to itself: under `?recess`, load nothing and save nothing.
+- [ ] `feat/recess`: the freezes (M22: only hits involving the player freeze the screen, at most 2 s a match, and the match clock never stops) and the paint agreeing with the brain (M23).
+- [ ] `feat/life`: every mover inside a splat's circle painted. `life.blast` paints every car, person, picnic and boat in the circle the first account's splat passes, 85 m across at roof height. The splat's own size is the first account's now, so only one account edits `Splat.ts`.
+- [ ] `feat/recess`: Recess you can find (SHOTS.md, "Seeing them"): the wider view under `?recess` through a hook on the camera, the start, the kickoff, the edge chevrons, the fence, and the captains on your ladder.
+- [ ] `feat/recess`: being hit, made loud (SHOTS.md, "Being hit"), with the forced gear both ways behind a link, `&hit=nonstop` or `&hit=jet`.
+- [ ] When the first account says here that hold to aim is pushed on `feat/shots`: merge it. Then lock-on for boats and planes, the Torpedo's boat side and the plane ribbon on `feat/life`, then the rival lock, the white window, the dodge and the incoming marker on `feat/recess`.
+- [ ] `feat/life`: Curb's road side (SHOTS.md, "Curb"): a lane the bus can roll on beside the cars, pacing the car beside it, as an API the first account's Curb calls. Then Parade.
+- [ ] Then the older lists below: life's re-review majors (M8 to M11), C18, the decks review, and the heal once the producer rules on it.
+
+**First account** (the shots, the flight, the camera and the GPU), on `feat/shots`, cut from `feat/factions` e0f1dde:
+- [x] The Lift to the producer's notes: no pillars, a swell like boats, uneven heights. `feat/factions` e0f1dde, pushed; its notes are `docs/specs/factions/LIFT.md` there.
+- [ ] MEGA off and the faction button on `?crew` links.
+- [ ] The rooftop gardens' budget, checked on the GPU over a whole Recess match.
+- [ ] The bigger splat: 85 m at roof height, calling `life.blast` with its whole circle.
+- [ ] Hold to aim and the Hose. Then say here that it's pushed, with its hook, for the second account.
+- [ ] The probe that checks every gear, then the Comet.
+- [ ] The Bomb, behind its link until the producer's grip test.
+- [ ] Streak and the tap's feel pass.
+- [ ] Lob, Cloudburst and School Zone.
+- [ ] Sonic Boom, Belly Flop and Waterfall.
+- [ ] Curb: the street camera preview first, then its flight, camera and landing on the second account's road side.
+
 ## Tonight, both accounts (the night of 2026-11-05, Pacific)
 
 The producer approved the factions plan, [specs/factions/FACTIONS.md](specs/factions/FACTIONS.md), all 26 of its picks ("i vote all your recommendations for the rest of the plan"), and asked for a big run tonight on both accounts: "Go for tonight's plan". On 2026-11-06 they approved 27 and 28 as the first account picked them ("Regarding 27 and 28, yes I approve both"): five stages re-cut, every 128 m square climbing four and the fifth, a god, belonging to a neighbourhood; territory ruled by neighbourhood and fought by square (FACTIONS.md §1, "The studio's view", and §3, "Neighbourhoods"). `main` is at 058217c: `feat/life` 92b4884 and the showcase's credit line, so it has everything built so far behind its flags.
