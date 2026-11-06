@@ -43,7 +43,7 @@ export const BLUE_TABLE: Record<number, string[]> = {
   // (the factions' paint by the same rule as the six hues above, art's paint grade for this hour: tools/sky/tables.py's faction_row)
   [Ramp.MAGENTA]: ['#330038', '#5b0058', '#88007c', '#b9009f', '#e800b9', '#f74fc3', '#f19ecd', '#ebd1de'],
   [Ramp.CYAN]: ['#041c3b', '#003757', '#005a7b', '#0080a1', '#00a6c5', '#00cbe6', '#6ee2ee', '#c0e8ea'],
-  [Ramp.TEAL]: ['#001a54', '#004366', '#007d8e', '#009799', '#00bbb1', '#00d6b6', '#95e5d7', '#d3e7e3'],
+  [Ramp.TEAL]: ['#070260', '#003d6e', '#006c98', '#008eb4', '#00bbb1', '#00d6b6', '#95e5d7', '#d3e7e3'],
   [Ramp.PEARL]: ['#402b57', '#624676', '#836492', '#a485ac', '#bfa3c3', '#d5bbd5', '#e1cfe2', '#e8e3e8'],
   [Ramp.MOSS]: ['#031312', '#00281c', '#003f04', '#00590c', '#077900', '#609100', '#a4b500', '#d9d769'],
   [Ramp.CHROME]: ['#261972', '#413799', '#7765e2', '#9790e8', '#bba6e8', '#d1bde8', '#e0dee5', '#e7e6e8'],

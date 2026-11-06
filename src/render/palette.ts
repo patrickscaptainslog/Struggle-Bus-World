@@ -40,7 +40,7 @@ export const Ramp = {
   // six hues above. Paint, as they are: every table names them and grades them as paint is, with no world row's cap or brown gate
   MAGENTA: 24, // Hyperglow's neon
   CYAN: 25, // Hyperglow's neon
-  TEAL: 26, // Atlantis: deep indigo to foam white
+  TEAL: 26, // Atlantis: deep indigo to foam white, its shade steps the deep sea's blue
   PEARL: 27, // lilac shadows to pearl white: Atlantis's marble, the Elderwood's bark and stone (and Inferno's bones, when people take paint)
   MOSS: 28, // the Elderwood: emerald depths to lime
   CHROME: 29, // Hyperglow's lavender chrome, silver in the light
@@ -123,7 +123,7 @@ const RAMPS: Record<number, string[]> = {
   // never brown; a faction's gold is YELLOW's and Inferno's flame its own steps 6-7, which paint reaches only in a glint)
   [Ramp.MAGENTA]: ['#2f0133', '#580055', '#87007b', '#ba00a1', '#eb16be', '#ff6bcd', '#ffb3dd', '#ffe7f3'],
   [Ramp.CYAN]: ['#051a36', '#003754', '#005e7b', '#1c87a5', '#18b1cd', '#3adaf2', '#91f4ff', '#d9fdff'],
-  [Ramp.TEAL]: ['#021a4d', '#074564', '#0f8392', '#15a0a1', '#1cc7bd', '#2ee5c7', '#b1f8eb', '#ebfdf9'],
+  [Ramp.TEAL]: ['#060756', '#063f6a', '#127299', '#1c97b9', '#1cc7bd', '#2ee5c7', '#b1f8eb', '#ebfdf9'],
   [Ramp.PEARL]: ['#402e55', '#654c77', '#8a6e97', '#af93b6', '#cdb4d1', '#e6cfe6', '#f5e5f6', '#fffaff'],
   [Ramp.MOSS]: ['#03100f', '#01261b', '#033e0d', '#065b1b', '#287e0a', '#6d9a11', '#b3c41a', '#eceb8b'],
   [Ramp.CHROME]: ['#261e6b', '#443e95', '#8073e2', '#a5a0ef', '#cbb8f4', '#e3d1f8', '#f6f4fb', '#fefdff'],

@@ -43,11 +43,12 @@ const { TEAL, PEARL, MOSS, CHROME, MAGENTA, CYAN, CRIMSON, OBSIDIAN, RED, YELLOW
 export const FACTION_LOOKS: readonly FactionLook[] = (() => {
   const looks: FactionLook[] = [];
   for (let f = 0; f <= FACTION_ROOM; f++) looks.push(RAINBOW);
-  // Atlantis: teal walls from deep indigo to foam, pearl marble and foam-white trim, gold domes, and coral (RED) as the spice
+  // Atlantis: teal walls, the deep sea's blue in shade, foam-white trim and pearl marble only as a highlight (a sixth of the accents: a band, a bay, a
+  // gable or a roof on a house in three), gold domes, and coral (RED) only in windows, a third of them, as the spice
   looks[FACTION_ATLANTIS] = {
     body: [TEAL, TEAL, TEAL, TEAL, TEAL, TEAL],
-    accent: [PEARL, TEAL, PEARL, TEAL, PEARL, RED],
-    glass: [PEARL, TEAL, PEARL, TEAL, PEARL, RED],
+    accent: [PEARL, TEAL, TEAL, TEAL, TEAL, TEAL],
+    glass: [PEARL, RED, WHITE, PEARL, RED, PEARL],
     ground: [TEAL, TEAL, PEARL, TEAL, TEAL, PEARL],
     spray: [TEAL, PEARL, TEAL, WHITE, TEAL, PEARL],
     trim: WHITE,
