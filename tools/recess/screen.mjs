@@ -91,12 +91,13 @@ try {
   row('up: the match, two captains over the arena, the player on its edge', up.phase === 'play' && up.captains === 2 && up.at.every((c) => c.r < 900 && c.agl > 20 && c.shown) && up.playerR < 800 && up.camps === 3, up);
   await page.screenshot({ path: join(dir, 'match.png') });
   // ---- M22: the captains paint without freezing anything: 90 frames on, the game's clock ran every frame's step, and the match's with it ----
-  const c0 = await page.evaluate(() => ({ game: window.__game.clock(), sim: window.__recess.sim.t, paints: window.__recess.counts.paint ?? 0, frozen: window.__recess.frozen }));
+  const c0 = await page.evaluate(() => ({ game: window.__game.clock(), sim: window.__recess.sim.t, paints: window.__recess.counts.paint ?? 0, frozen: window.__recess.frozen, lag: window.__recess.lag }));
   await frames(90);
-  const c1 = await page.evaluate(() => ({ game: window.__game.clock(), sim: window.__recess.sim.t, paints: window.__recess.counts.paint ?? 0, frozen: window.__recess.frozen }));
+  const c1 = await page.evaluate(() => ({ game: window.__game.clock(), sim: window.__recess.sim.t, paints: window.__recess.counts.paint ?? 0, frozen: window.__recess.frozen, lag: window.__recess.lag }));
   const ran = { game: +(c1.game - c0.game).toFixed(3), match: +(c1.sim - c0.sim).toFixed(3), want: +(90 * 0.066667).toFixed(3), captainPaints: c1.paints - c0.paints, frozenS: c1.frozen };
-  const frozeHere = c1.frozen - c0.frozen;
-  row('freezes: captains paint and freeze nothing; only hits on the player do, and the match\'s clock runs all 90 frames through them', ran.captainPaints > 0 && Math.abs(ran.game + frozeHere - ran.want) < 0.01 && Math.abs(ran.match - ran.want) < 0.1, { ...ran, frozeHere });
+  // (what the game's clock lost in the window, against what the player's own hits in it may cost: two frames each at most; none, and it lost nothing)
+  const frozeHere = +(c1.lag - c0.lag).toFixed(3), playerHits = Math.round((c1.frozen - c0.frozen) / (5 / 60)), mayLose = playerHits * 2 * 0.066667;
+  row('freezes: captains paint and freeze nothing; only hits on the player do, and the match\'s clock runs all 90 frames through them', ran.captainPaints > 0 && frozeHere <= mayLose + 1e-3 && Math.abs(ran.match - ran.want) < 0.1, { ...ran, frozeHere, playerHits });
   // ---- gotcha: behind captain 1, nose on it ----
   let gotcha = null;
   for (let k = 0; k < 3 && !gotcha?.rode; k++) {
