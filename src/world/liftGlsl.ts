@@ -52,10 +52,13 @@ const smooth = (a: number, b: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 
-/** Rest height (m) of a house of footprint `area` (m2) and `height` (m over its ground): small houses high, big buildings low, +-15 %. */
+/**
+ * Rest height (m) of a house of footprint `area` (m2) and `height` (m over its ground): small houses 38-50 m, big buildings 18-32, spread evenly by
+ * a hash, so a row breaks up into houses that each jumped (+-15 % read as one block on legs from the street: the first outside look).
+ */
 export function liftRest(area: number, height: number, index: number): number {
   const big = Math.max(smooth(180, 1400, area), smooth(14, 40, height));
-  let H = (46 - 29 * big) * (0.85 + 0.3 * liftSeed(index, 1));
+  let H = 38 - 20 * big + (12 + 2 * big) * liftSeed(index, 1);
   H = Math.min(LIFT.hMax, Math.max(LIFT.hMin, H));
   return Math.min(H, Math.max(LIFT.hMin, LIFT.topMax - height));
 }
@@ -133,28 +136,34 @@ vec2 sbLift(float idx, vec2 cxz) {
 }
 `;
 
+/** How far the lake floods out past a floating house's footprint (m): the yards, the alleys and the street between, one lake under a lifted block. */
+export const LAKE_FLOOD = 12;
+
 /**
- * GLSL: the lake of paint under a floating house (the terrain's fragment shader, so it lies on any slope and costs no draw). tLake: RG32F over the
- * neighbourhood at 1 / uLakeRect.z m a texel from (uLakeRect.x, uLakeRect.y): x the house's index + 1 (0 none), y the signed distance to its
- * footprint's edge (m, + inside). It shows once its house is 0.3 m up, in rings of the house's faction hues that follow the footprint and flow in
- * toward the jet, lit as ground paint is (so the house's floating shadow lies on it), a darker rim and a moving glint. Needs GLSL_LIFT, GLSL_FACTION,
- * uPaint and uPaintW, uGroundTone.
+ * GLSL: the lake of paint under the floating houses (the terrain's fragment shader, so it lies on any slope and costs no draw). tLake: RGBA32F over
+ * the neighbourhood at 1 / uLakeRect.z m a texel from (uLakeRect.x, uLakeRect.y), on its squares only: x the nearest liftable house's index + 1
+ * (0 none), y the signed distance to its footprint's edge (m, + inside, down to -LAKE_FLOOD), z and w its jet's foot. Each texel is its nearest
+ * house's: once that one is 0.3 m up the ground there is lake, so a lifted block floods as one, yards and streets with it, and a lone house lifted
+ * by a hit leaves a pool to its grounded neighbours' halfway. Rings of the faction's hues, tinted by the house above, run out from each jet's foot,
+ * with foam in them and a foam shore; it glows a little, so from a kilometre the lifted block reads as a pool of light. Needs GLSL_LIFT,
+ * GLSL_FACTION, uPaint and uPaintW, uGroundTone.
  */
 export const GLSL_LAKE = /* glsl */ `
 uniform highp sampler2D tLake;
 uniform vec4 uLakeRect;
 bool sbLake(vec3 wp, float flatL, out float ramp, out float light, out float glow) {
   ramp = 0.0; light = 0.0; glow = 0.0;
+  if (wp.x < uLiftRect.x || wp.x > uLiftRect.z || wp.z < uLiftRect.y || wp.z > uLiftRect.w) return false;
   vec2 g = (wp.xz - uLakeRect.xy) * uLakeRect.z - 0.5;
   ivec2 sz = textureSize(tLake, 0);
   if (g.x < 0.0 || g.y < 0.0 || g.x > float(sz.x) - 2.0 || g.y > float(sz.y) - 2.0) return false;
   ivec2 i0 = ivec2(floor(g));
   vec2 f = fract(g);
-  vec2 a = texelFetch(tLake, i0, 0).rg, b = texelFetch(tLake, i0 + ivec2(1, 0), 0).rg;
-  vec2 c = texelFetch(tLake, i0 + ivec2(0, 1), 0).rg, d = texelFetch(tLake, i0 + ivec2(1, 1), 0).rg;
+  vec4 a = texelFetch(tLake, i0, 0), b = texelFetch(tLake, i0 + ivec2(1, 0), 0);
+  vec4 c = texelFetch(tLake, i0 + ivec2(0, 1), 0), d = texelFetch(tLake, i0 + ivec2(1, 1), 0);
   float sd = mix(mix(a.y, b.y, f.x), mix(c.y, d.y, f.x), f.y);
-  if (sd <= 0.0) return false;
-  vec2 best = a;
+  if (sd <= -${F(LAKE_FLOOD)} + 0.25) return false;
+  vec4 best = a;
   if (b.y > best.y) best = b;
   if (c.y > best.y) best = c;
   if (d.y > best.y) best = d;
@@ -165,18 +174,25 @@ bool sbLake(vec3 wp, float flatL, out float ramp, out float light, out float glo
   if (L.y <= 0.0 || t < 0.0 || sbLiftAt(t, uTime, L.y, L.z).x < 0.3) return false;
   vec4 pt = texelFetch(uPaint, ivec2(int(mod(idx, uPaintW)), int(floor(idx / uPaintW))), 0);
   int fac = sbFac(pt.a > 7.5 ? pt.a - 8.0 : pt.a);
-  float band = floor(sd / 1.3 - 0.7 * uTime + idx * 0.37);
-  ramp = sbFacHue(fac, int(mod(floor(pt.r + 0.5) + band + 60.0, 6.0)), true);
-  light = max(0.11 + uGroundTone.x + flatL * 0.5, 0.28) + 0.06;
-  if (sd < 0.7) light -= 0.11;
+  float hue = floor(pt.r + 0.5);
+  // rings running out from the jet's foot, tinted by the house above (its hue, a step either way), every fifth one foam
+  float dj = length(wp.xz - best.zw);
+  float band = floor(dj / 1.7 - 1.15 * uTime + idx * 0.37);
+  float m4 = mod(band, 4.0);
+  bool foam = mod(band, 5.0) < 0.5;
+  ramp = foam ? sbFacTrim(fac) : sbFacHue(fac, int(mod(hue + (m4 < 0.5 ? 0.0 : m4 < 1.5 ? 1.0 : m4 < 2.5 ? 0.0 : -1.0) + 60.0, 6.0)), true);
+  light = max(0.17 + uGroundTone.x + flatL * 0.5, 0.36) + (foam ? 0.16 : 0.1);
+  glow = 0.4;
+  float shore = sd + ${F(LAKE_FLOOD)};
+  if (shore < 0.9) { light -= 0.12; glow = 0.2; }
+  else if (shore < 1.9) { ramp = sbFacTrim(fac); light += 0.12; }
   else {
-    // (the water's dashes, moving in with the rings)
-    vec2 q = vec2(sd / 1.3 - 0.7 * uTime, (wp.x + wp.z) / 2.6);
+    // (the water's dashes, moving out with the rings)
+    vec2 q = vec2(dj / 1.7 - 1.15 * uTime, (wp.x + wp.z) / 2.6);
     float row = fract(sin(dot(floor(q.yy), vec2(127.1, 311.7))) * 43758.5453);
     float dash = fract(sin(dot(vec2(floor(q.x * 2.0 + row * 7.0), floor(q.y)), vec2(127.1, 311.7))) * 43758.5453);
     if (dash > 0.86 && fract(q.y) < 0.4) light += 0.14;
   }
-  glow = 0.25;
   return true;
 }
 `;

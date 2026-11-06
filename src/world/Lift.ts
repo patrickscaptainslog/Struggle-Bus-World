@@ -8,7 +8,7 @@ import { liftUniforms } from './buildingMaterial';
 import { LiftField, type FieldHouses } from './LiftField';
 import { makeCapGeometry, makeCapMaterial, makeGeysers, makeLiftDepthMaterial, registerLiftWarm, type Jet } from './liftDraw';
 import {
-  hoodStart, liftAmp, liftAt, liftedOn, liftRest, liftSeed, LIFT, slowAt, slowmoOn, SLOW_COOLDOWN, SLOW_HIT, SLOW_WAVE, SQUARE, squareIx, squareIz, squareKey, type LiftHooks,
+  hoodStart, LAKE_FLOOD, liftAmp, liftAt, liftedOn, liftRest, liftSeed, LIFT, slowAt, slowmoOn, SLOW_COOLDOWN, SLOW_HIT, SLOW_WAVE, SQUARE, squareIx, squareIz, squareKey, type LiftHooks,
 } from './liftGlsl';
 
 // The Lift, the first slice of the stages (docs/specs/factions/LIFT.md; FACTIONS.md section 2, Team Super Rainbow's "4 · Liftoff"): behind ?lift,
@@ -97,6 +97,8 @@ export class Lift implements LiftHooks, FieldHouses {
   private readonly lakeW: number;
   private readonly lakeH: number;
   private readonly lakeCell: number;
+  /** the lake's texels on the neighbourhood's squares (it floods them only) */
+  private readonly lakeIn: Uint8Array;
   private lakeDirty = false;
   readonly depthMaterial: THREE.ShaderMaterial;
 
@@ -165,14 +167,21 @@ export class Lift implements LiftHooks, FieldHouses {
     this.tex.generateMipmaps = false;
     this.tex.needsUpdate = true;
 
-    // the lake's mask over the rect, 2 m a texel (coarser past 2 km)
+    // the lake's mask over the rect, 2 m a texel (coarser past 2 km): the nearest liftable house, its edge's signed distance and its jet's foot
     const span = Math.max(this.rect[2] - this.rect[0], this.rect[3] - this.rect[1]);
     this.lakeCell = Math.max(2, Math.ceil(span / 1024));
     this.lakeW = Math.ceil((this.rect[2] - this.rect[0]) / this.lakeCell);
     this.lakeH = Math.ceil((this.rect[3] - this.rect[1]) / this.lakeCell);
-    this.lake = new Float32Array(this.lakeW * this.lakeH * 2);
-    for (let i = 0; i < this.lake.length; i += 2) this.lake[i + 1] = -4;
-    this.lakeTex = new THREE.DataTexture(this.lake, this.lakeW, this.lakeH, THREE.RGFormat, THREE.FloatType);
+    this.lake = new Float32Array(this.lakeW * this.lakeH * 4);
+    for (let i = 0; i < this.lake.length; i += 4) this.lake[i + 1] = -LAKE_FLOOD;
+    this.lakeIn = new Uint8Array(this.lakeW * this.lakeH);
+    for (let j = 0; j < this.lakeH; j++)
+      for (let i = 0; i < this.lakeW; i++) {
+        const px = this.rect[0] + (i + 0.5) * this.lakeCell, pz = this.rect[1] + (j + 0.5) * this.lakeCell;
+        const k = squareKey(Math.floor(px / SQUARE), Math.floor(pz / SQUARE));
+        if (this.squares.has(k) && !this.tagged.has(k)) this.lakeIn[j * this.lakeW + i] = 1;
+      }
+    this.lakeTex = new THREE.DataTexture(this.lake, this.lakeW, this.lakeH, THREE.RGBAFormat, THREE.FloatType);
     this.lakeTex.minFilter = this.lakeTex.magFilter = THREE.NearestFilter;
     this.lakeTex.generateMipmaps = false;
     this.lakeTex.needsUpdate = true;
@@ -292,9 +301,10 @@ export class Lift implements LiftHooks, FieldHouses {
     return { x: at.x, z: at.z, r: Math.min(3.2, Math.max(1.1, 0.11 * Math.sqrt(ref.area))) };
   }
 
-  /** One house's footprint into the lake's mask: its index and the signed distance to its edge (m, + inside), within 4 m outside. */
+  /** One house's footprint into the lake's mask: where it is the nearest, its index, the signed distance to its edge (m, + inside, within LAKE_FLOOD outside) and its jet. */
   private raster(ref: BuildingRef) {
-    const b = ref.tile, c = this.lakeCell, W = this.lakeW, Hh = this.lakeH, ox = this.rect[0], oz = this.rect[1];
+    const b = ref.tile, c = this.lakeCell, W = this.lakeW, Hh = this.lakeH, ox = this.rect[0], oz = this.rect[1], F = LAKE_FLOOD;
+    const jet = this.jetOf(ref);
     for (let k = ref.local; k < ref.local + ref.parts; k++) {
       if (b.tier[k] !== 0) continue;
       const s = b.vertStart[k], e = b.vertStart[k + 1];
@@ -305,10 +315,11 @@ export class Lift implements LiftHooks, FieldHouses {
         z0 = Math.min(z0, b.xz[v * 2 + 1]);
         z1 = Math.max(z1, b.xz[v * 2 + 1]);
       }
-      const i0 = Math.max(0, Math.floor((x0 - 4 - ox) / c)), i1 = Math.min(W - 1, Math.floor((x1 + 4 - ox) / c));
-      const j0 = Math.max(0, Math.floor((z0 - 4 - oz) / c)), j1 = Math.min(Hh - 1, Math.floor((z1 + 4 - oz) / c));
+      const i0 = Math.max(0, Math.floor((x0 - F - ox) / c)), i1 = Math.min(W - 1, Math.floor((x1 + F - ox) / c));
+      const j0 = Math.max(0, Math.floor((z0 - F - oz) / c)), j1 = Math.min(Hh - 1, Math.floor((z1 + F - oz) / c));
       for (let j = j0; j <= j1; j++)
         for (let i = i0; i <= i1; i++) {
+          if (!this.lakeIn[j * W + i]) continue;
           const px = ox + (i + 0.5) * c, pz = oz + (j + 0.5) * c;
           let inside = false, d = Infinity;
           for (let v = s, w = e - 1; v < e; w = v++) {
@@ -318,11 +329,13 @@ export class Lift implements LiftHooks, FieldHouses {
             const t = l2 > 0 ? Math.min(1, Math.max(0, ((px - bx) * ex + (pz - bz) * ez) / l2)) : 0;
             d = Math.min(d, Math.hypot(px - bx - ex * t, pz - bz - ez * t));
           }
-          const sd = inside ? Math.min(d, 40) : -Math.min(d, 4);
-          const o = (j * W + i) * 2;
+          const sd = inside ? Math.min(d, 40) : -Math.min(d, F);
+          const o = (j * W + i) * 4;
           if (sd > this.lake[o + 1]) {
             this.lake[o] = ref.index + 1;
             this.lake[o + 1] = sd;
+            this.lake[o + 2] = jet.x;
+            this.lake[o + 3] = jet.z;
           }
         }
     }
@@ -603,7 +616,8 @@ export class Lift implements LiftHooks, FieldHouses {
   }
 
   /**
-   * The lens kept out of the floating layer (CameraRig.liftClamp): in the low shot 3 m under any house overhead, else out over its top.
+   * The lens kept out of the floating layer (CameraRig.liftClamp): in the low shot 9 m under any house overhead (3 where the ground leaves no
+   * more), else out over its top.
    * Never under the ground's 4 m.
    */
   clampLens(x: number, z: number, y: number, low: number): number {
@@ -618,9 +632,11 @@ export class Lift implements LiftHooks, FieldHouses {
       top = Math.max(top, t);
     }
     if (under === Infinity) return y;
-    if (y < under - 3 || y > top + 3) return y;
+    if (y < under - (low > 0.5 ? 9 : 3) || y > top + 3) return y;
+    // (in the low shot well under them, 9 m: a belly 3 m over the lens filled the top third of the frame, the first outside look)
     const floor = this.g.city.groundAt(x, z) + 4;
-    return low > 0.5 && under - 3 > floor ? under - 3 : top + 3;
+    if (low > 0.5 && under - 3 > floor) return Math.max(floor, under - 9);
+    return top + 3;
   }
 
   /** Where the bus starts: the hood's edge on the sun's side, facing in (`out`: that far from the heart instead). */
