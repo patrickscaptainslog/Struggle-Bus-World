@@ -477,6 +477,11 @@ export const config = {
     climb: 15,
     /** The stick sideways turns on the spot: a full turn in this long at the full stick (s). */
     turn: 5,
+    /** A roof ahead that would lift the bus more than this (m) is a wall, not a step: the drift stops `wallGap` (m, the bus's middle to it)
+     *  short of it, easing in over about `wallEase` s, and the floor's look-ahead leaves it out. A pull climbs it. */
+    wall: 12,
+    wallGap: 10,
+    wallEase: 1.2,
     /** The blimp's bob: its height (m) and rate (Hz), and its slow pitch and roll (deg). */
     bobAmp: 0.9,
     bobHz: 0.2,

@@ -284,6 +284,16 @@ export class Flight {
         this.onPath = false;
       }
       targetSpeed = Z.drift * push * (this.barfing ? S.stallSpeed : 1);
+      // (a wall ahead it can't take in a step stops the drift short of it, nose to it, as a blimp would: a pull climbs it. Without
+      // this the floor's look-ahead found the tower and threw the bus up its face, 150 m in half a second at Salesforce Tower)
+      if (this.speed > 0.01 || targetSpeed > 0) {
+        const wall = this.wallAhead(world, Z.wallGap + Math.max(this.speed, targetSpeed) * Z.wallEase + 4);
+        if (wall < Infinity) {
+          const cap = Math.max(0, wall - Z.wallGap) / Math.max(0.1, Z.wallEase);
+          targetSpeed = Math.min(targetSpeed, cap);
+          if (this.speed > cap) this.speed += (cap - this.speed) * (1 - Math.exp(-8 * dt));
+        }
+      }
     }
     const sk = hover ? 3 / Math.max(0.1, Z.settle) : (this.barfing && !jet) || scaled ? 6 : Tb.rate > 0 ? Tb.rate : F.speedHz * 2.2;
     this.speed += (targetSpeed - this.speed) * (1 - Math.exp(-sk * dt));
@@ -312,13 +322,19 @@ export class Flight {
     // (`speed`, not `ground`: a swoop turns all of it forward, and the floor must already know what lies out there)
     const look = F.altitudeLookAhead;
     let top = -1e9;
+    // (the hover leaves a wall out: it stops short of one, and a turn on the spot beside one mustn't throw the bus up its face)
+    const wallY = hover ? this.y - F.clearance + Z.wall : Infinity;
     for (let i = 0; i <= 6; i++) {
       const d = (i / 6) * this.speed * look + 6;
       // sample a little to each side so we clear wide roofs while turning
       const px = this.x + this.fx * d;
       const pz = this.z + this.fz * d;
       const ox = -this.fz * 6, oz = this.fx * 6;
-      const h = Math.max(world.obstacleAt(px, pz, this.y), world.obstacleAt(px + ox, pz + oz, this.y), world.obstacleAt(px - ox, pz - oz, this.y));
+      let ha = world.obstacleAt(px, pz, this.y), hb = world.obstacleAt(px + ox, pz + oz, this.y), hc = world.obstacleAt(px - ox, pz - oz, this.y);
+      if (ha > wallY) ha = -1e9;
+      if (hb > wallY) hb = -1e9;
+      if (hc > wallY) hc = -1e9;
+      const h = Math.max(ha, hb, hc);
       // nearer samples matter more for hard clearance
       top = Math.max(top, h - i * 0.6);
     }
@@ -522,6 +538,18 @@ export class Flight {
     const lean = hover ? (Z.leanUp * pull - Z.leanDown * push + Z.swayPitch * Math.sin(this.t * Math.PI * 2 * Z.bobHz + 1.2)) * DEG : 0;
     const pitchTarget = Math.min((hover ? lean : climb) + rear, pitchMax);
     this.pitch += (pitchTarget - this.pitch) * (1 - Math.exp(-(this.barfing ? 10 : 5) * dt));
+  }
+
+  /** The hover's wall: how far ahead (m, out to `reach`) a roof stands that would lift the bus more than config.zone.wall, along its
+   *  middle and 4 m to each side; Infinity if none. */
+  private wallAhead(world: WorldQuery, reach: number): number {
+    const wallY = this.y - config.flight.clearance + config.zone.wall;
+    const ox = -this.fz * 4, oz = this.fx * 4;
+    for (let d = 2; d <= reach; d += 2) {
+      const px = this.x + this.fx * d, pz = this.z + this.fz * d;
+      if (world.obstacleAt(px, pz, this.y) > wallY || world.obstacleAt(px + ox, pz + oz, this.y) > wallY || world.obstacleAt(px - ox, pz - oz, this.y) > wallY) return d;
+    }
+    return Infinity;
   }
 
   private avoid(world: WorldQuery): number {

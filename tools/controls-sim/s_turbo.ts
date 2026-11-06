@@ -340,6 +340,39 @@ console.log('world travel:', JSON.stringify({ ...(res.worldTravel as any), log: 
   console.log('school zone:', JSON.stringify(out));
 }
 
+// ---- 11. School Zone at a wall (review of feat/gears, 1): drifting into Salesforce Tower from ~200 m west at the hover's height, the
+// drift stops short of it with nothing thrown up its face; a pull climbs it, and a drift on goes over its top.
+{
+  const out: Record<string, unknown> = {};
+  const W = await session(37.78977, -122.39914, 90);
+  await W.run(3, free, 'cruise');
+  W.drive.rung(-1, W.f);
+  await W.run(3, free, 'zone');
+  const tower = (() => { let h = 0; for (let d = 0; d < 400; d += 4) h = Math.max(h, city.obstacleAt(W.f.x + W.f.fx * d, W.f.z + W.f.fz * d, 0)); return h; })();
+  let vyMax = 0, vyMin = 0, minOver = Infinity;
+  const watch = async (secs: number, inp: () => { sx: number; sy: number; dragging: boolean }, tag: string) => {
+    for (let i = 0; i < Math.round(secs / 0.1); i++) {
+      await W.run(0.1, inp, tag);
+      vyMax = Math.max(vyMax, W.f.vy); vyMin = Math.min(vyMin, W.f.vy);
+      minOver = Math.min(minOver, W.f.y - city.obstacleAt(W.f.x, W.f.z, W.f.y));
+    }
+  };
+  const x0 = W.f.x, z0 = W.f.z, y0 = W.f.y;
+  await watch(30, push, 'zone wall drift');
+  const ahead = (() => { for (let d = 0; d < 60; d += 0.5) if (city.obstacleAt(W.f.x + W.f.fx * d, W.f.z + W.f.fz * d, 0) > tower - 30) return d; return Infinity; })();
+  out.stop = { tower: r1(tower), y0: r1(y0), y: r1(W.f.y), went: r1(Math.hypot(W.f.x - x0, W.f.z - z0)), toWall: r1(ahead), ground: +W.f.ground.toFixed(2), vyMax: r1(vyMax), minOver: r1(minOver) };
+  vyMax = 0;
+  await watch(Math.ceil((tower + 20 - W.f.y) / 14) + 2, pull, 'zone wall climb');
+  await W.run(2, free, 'zone');
+  out.climb = { y: r1(W.f.y), vyMax: r1(vyMax) };
+  vyMax = 0; vyMin = 0; minOver = Infinity;
+  const xc = W.f.x, zc = W.f.z;
+  await watch(20, push, 'zone wall over');
+  out.over = { went: r1(Math.hypot(W.f.x - xc, W.f.z - zc)), y: r1(W.f.y), vyMax: r1(vyMax), vyMin: r1(vyMin), minOver: r1(minOver) };
+  res.zoneWall = out;
+  console.log('school zone at a wall:', JSON.stringify(out));
+}
+
 // ---- the verdicts
 const fails: string[] = [];
 let checks = 0;
@@ -370,6 +403,10 @@ ok((res.worldTravel as any).isStratos && (res.worldTravel as any).topIsWarp, 'wo
   ok(Z.drift.vmax <= 8.05 && Z.drift.vmax > 6 && Z.drift.lowestUnderFloor > -3 && Z.drift.lowestOverRoofs > 3, `School Zone: the stick up drifts at up to 8 m/s, over the roofs, never into one: ${JSON.stringify(Z.drift)}`);
   ok(near(Z.climb.vmax, 15, 1) && Z.climb.forward < 1, `School Zone: the stick down climbs at about 15 m/s: ${JSON.stringify(Z.climb)}`);
   ok(Z.out === true && Z.back.below === 0 && Z.back.gear === 0 && Z.back.speed > 25 && Z.back.lensIn < 0.01, `School Zone: a flick up is Cruise again, the lens back out: ${JSON.stringify(Z.back)}`);
+  const Wl = res.zoneWall as any;
+  ok(Wl.stop.tower > 250 && Wl.stop.ground < 0.3 && Wl.stop.toWall > 4 && Wl.stop.toWall < 14 && Wl.stop.vyMax < 3 && Wl.stop.y < Wl.stop.y0 + 3, `School Zone: a drift into a tower stops short of its wall, nothing thrown up its face: ${JSON.stringify(Wl.stop)}`);
+  ok(Wl.climb.y > Wl.stop.tower && Wl.climb.vyMax < 15.5, `School Zone: a pull climbs the tower at 15 m/s: ${JSON.stringify(Wl.climb)}`);
+  ok(Wl.over.went > 60 && Wl.over.vyMax < 25 && Wl.over.minOver > 2, `School Zone: a drift on from its height goes over its top: ${JSON.stringify(Wl.over)}`);
 }
 console.log(fails.length ? `FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `turbo checks: all ${checks} passed`);
 process.exit(fails.length ? 1 : 0);
