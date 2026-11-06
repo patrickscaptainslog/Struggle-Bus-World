@@ -204,6 +204,14 @@ measure('people', people, () => walkHost.walked.size > 0, walkHost);
     };
     const five = from(5), thirty = from(30);
     row('aim: a car the line of fire misses by 5 m at 90 m is taken, one it misses by 30 m isn\'t', five === key && thirty !== key, { car: key, missBy5: five, missBy30: thirty });
+    // (the cone in pixels, not in a share of the distance: 300 m off, a miss of 12 m is no hit, where 4.5 % of the distance took 18 m; and the nose's ray, ground
+    // false, takes nothing on the ground at all, the first account's life review B1)
+    const far = (side) => {
+      const ox = cx - 290, oy = cy + 80, oz = cz + side, t = carHost.aim(ox, oy, oz, cx - ox, cy + 0.8 - oy, cz + side - oz, 28, 1.5);
+      return t ? t.key : null;
+    };
+    const nose = carHost.aim(cx - 80, cy + 45, cz, 80, -44.2, 0, 28, 0.6, false);
+    row('aim: 300 m off, a miss of 12 m isn\'t taken; along the nose nothing on the ground is', far(12) !== key && far(2) === key && nose === null, { missBy2At300: far(2), missBy12At300: far(12), nose: nose && nose.key });
   }
 }
 {

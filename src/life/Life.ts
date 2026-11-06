@@ -52,11 +52,14 @@ const TRACKS = 48, TRACK_STEP = 2.2, TRACK_M = 0.32, TRACK_PX = 1, TRACK_LIFT = 
 /** a car's lamps over the road (m, the model's: pools.ts) */
 const CAR_LAMP_Y = 0.84;
 /**
- * The aim on what's on the ground (KindInfo's onLine: cars, buses, picnics), taken within this cone of the line of fire (rad, and a metre more) and 1.2 of its half
- * size: the producer couldn't hit a car, "the hit splat forces me to hit the surrounding buildings", where it had to be within its own half size and 2 % of the
- * distance. And its glint, this many of a building's, so a car's shows
+ * The aim on what's on the ground (KindInfo's onLine: cars, buses, picnics): taken within 1.2 of its half size, a metre and GROUND_PX pixels of the line of fire,
+ * so a near miss is a hit at any distance and the cone never grows past what the player sees (the producer couldn't hit a car, "the hit splat forces me to hit the
+ * surrounding buildings"; a cone of 4.5 % of the distance then took shots meant for buildings, the first account's life review B1). And its glint, this many of a
+ * building's, so a car's shows
  */
-const GROUND_CONE = 0.045, GROUND_GLINT = 2;
+const GROUND_PX = 10, GROUND_GLINT = 2;
+/** A truck's length by its look (the heavy pool's models, pools.ts): a bus, a box truck, a semi; the aim and the level of detail read it, not the kind's one size */
+const TRUCK_LEN = [12, 12, 9.3, 9.3, 20.4];
 /** A painted boat's wake (KindInfo's wake): its width at the stern, a share of the boat's length, spreading to three times that at its far end, and how far over the water
  *  it's laid (m) */
 const WAKE_W = 0.3, WAKE_LIFT = 0.15;
@@ -120,9 +123,9 @@ export class LifeHost {
   /** the mover glinting (its key's hash, 0: none), and the aim's answer, one object reused */
   private glintHash = 0;
   private glintKey: string | null = null;
-  private readonly target: MoverTarget = { mover: true, key: '', x: 0, y: 0, z: 0, arrive: 0, pickR: 0, onLine: false };
+  private readonly target: MoverTarget = { mover: true, key: '', x: 0, y: 0, z: 0, arrive: 0, pickR: 0, onLine: false, miss: 0, half: 0 };
   /** hits on their way: each takes at its impact's game time */
-  private readonly hits: Array<{ h: number; key: string; hue: number; level: number; arrive: number; until: number }> = [];
+  private readonly hits: Array<{ h: number; key: string; hue: number; level: number; arrive: number; until: number; kept: boolean }> = [];
   private readonly worker: Worker;
   readonly pools: Pools;
   private readonly store: MoverStore;
@@ -173,7 +176,11 @@ export class LifeHost {
 
   /** What was kept, painted again (bootLife, once the store is read). */
   restore(records: Array<{ key: string; hue: number; level: number }>): void {
-    for (const r of records) this.painted.set(fnv1a(r.key), { hue: r.hue, level: r.level, at: 0 });
+    // (a hit that landed before the store's read came back is newer: it stays)
+    for (const r of records) {
+      const h = fnv1a(r.key);
+      if (!this.painted.has(h)) this.painted.set(h, { hue: r.hue, level: r.level, at: 0 });
+    }
   }
 
   /** Once a rendered frame, by the loop that has the bus (CONTRACT.md section 6). */
@@ -295,8 +302,9 @@ export class LifeHost {
       if (simTime < h.arrive) continue;
       // (a level up keeps its contrail going from when it was first painted)
       this.painted.set(h.h, { hue: h.hue, level: h.level, at: this.painted.get(h.h)?.at ?? this.utc });
-      // (a picnic's paint and a car's are the session's: `picnic:` and `car:` live only while they're near, CONTRACT.md section 3)
-      if (!h.key.startsWith('picnic:') && !h.key.startsWith('car:')) this.store.put({ key: h.key, hue: h.hue, level: h.level, until: h.until, ns: this.ns });
+      // (its kind says whether it's kept, KindInfo's kept: a picnic's paint and a car's are the session's, `picnic:` and `car:` live only while they're near,
+      // CONTRACT.md section 3; a plane's namespace is `earth`, every other the place's)
+      if (h.kept) this.store.put({ key: h.key, hue: h.hue, level: h.level, until: h.until, ns: h.key.startsWith('plane:') ? 'earth' : this.ns });
       this.hits.splice(i, 1);
     }
   }
@@ -418,7 +426,7 @@ export class LifeHost {
         const alive = paint !== undefined && rows[o + Col.KIND] === Kind.PICNIC;
         const dx = x0 - cam.x, dy = y0 - cam.y, dz = z0 - cam.z, d = Math.sqrt(dx * dx + dy * dy + dz * dz);
         let scale = rows[o + Col.SCALE], x = x0, y = y0, z = z0;
-        const px = (info.size * scale) / (Math.max(1, d) * ang);
+        const px = (this.sizeOf(o, info) * scale) / (Math.max(1, d) * ang);
         // (a grey vehicle in its own tone, white, silver, grey or black)
         const ramp = paint ? HUE_RAMPS[paint.hue] : info.track ? VEHICLE_TONES[(rows[o + Col.LOOK] >> 6) & 3] : GREY_RAMP;
         if (d > near) {
@@ -684,7 +692,7 @@ export class LifeHost {
         const lx = x - cam.x, ly = y - cam.y, lz = z - cam.z, d = Math.sqrt(lx * lx + ly * ly + lz * lz);
         const x0 = x, y0 = y, z0 = z;
         let scale = rows[o + Col.SCALE];
-        const px = (info.size * scale) / (Math.max(1, d) * ang), paint = this.painted.get(u32[o + Col.KEY]);
+        const px = (this.sizeOf(o, info) * scale) / (Math.max(1, d) * ang), paint = this.painted.get(u32[o + Col.KEY]);
         const ramp = paint ? HUE_RAMPS[paint.hue] : info.track ? VEHICLE_TONES[(rows[o + Col.LOOK] >> 6) & 3] : GREY_RAMP;
         if (!paint && px < 1) continue;
         if (d > SKY_NEAR) {
@@ -726,17 +734,18 @@ export class LifeHost {
    * flying the whole ray in `travel` s reaches it; within pickR of the line, widening with the distance, plus its own half size. Null: none. The answer is one
    * object, filled again each call.
    */
-  aim(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, pickR: number, travel: number): MoverTarget | null {
+  aim(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, pickR: number, travel: number, ground = true): MoverTarget | null {
     const s = this.snap;
     if (!s) return null;
     const L = Math.sqrt(dx * dx + dy * dy + dz * dz);
     if (L < 1) return null;
     const ux = dx / L, uy = dy / L, uz = dz / L, speed = L / Math.max(0.05, travel), rows = s.rows, u32 = s.rowsU32, n = s.u32[2];
+    const ang = Math.max(1e-6, globals.uPixelAngle.value as number);
     const t0 = (this.utc - s.f64[0]) / 1000;
-    let best = -1, bestD = Infinity, bx = 0, by = 0, bz = 0, bt = 0, bR = 0;
+    let best = -1, bestD = Infinity, bx = 0, by = 0, bz = 0, bt = 0, bR = 0, bHalf = 0;
     for (let i = 0; i < n; i++) {
       const o = i * ROW, info = KINDS[rows[o + Col.KIND]];
-      if (!info) continue;
+      if (!info || (info.onLine && !ground)) continue;
       const vx = rows[o + Col.VX], vy = rows[o + Col.VY], vz = rows[o + Col.VZ];
       let x = rows[o + Col.X] + vx * t0, y = rows[o + Col.Y] + vy * t0, z = rows[o + Col.Z] + vz * t0;
       let along = (x - ox) * ux + (y - oy) * uy + (z - oz) * uz;
@@ -750,8 +759,10 @@ export class LifeHost {
       z += vz * tt;
       along = (x - ox) * ux + (y - oy) * uy + (z - oz) * uz;
       const px = x - ox - ux * along, py = y - oy - uy * along, pz = z - oz - uz * along, d = Math.sqrt(px * px + py * py + pz * pz);
-      const R = info.onLine ? 1 + 0.6 * info.size * rows[o + Col.SCALE] + along * GROUND_CONE : pickR + 0.5 * info.size * rows[o + Col.SCALE] + along * 0.02;
+      const half = 0.5 * this.sizeOf(o, info) * rows[o + Col.SCALE];
+      const R = info.onLine ? 1 + 1.2 * half + along * ang * GROUND_PX : pickR + half + along * 0.02;
       if (d > R || d >= bestD || !this.keys.has(u32[o + Col.KEY])) continue;
+      bHalf = half;
       best = i;
       bestD = d;
       bx = x;
@@ -769,7 +780,15 @@ export class LifeHost {
     t.arrive = this.sim + bt;
     t.pickR = bR;
     t.onLine = KINDS[rows[best * ROW + Col.KIND]]?.onLine === true;
+    t.miss = bestD;
+    t.half = bHalf;
     return t;
+  }
+
+  /** Row o's long size before its scale (m): its kind's, a truck's by its look (the first account's life review, n4: a semi read as 12 m). */
+  private sizeOf(o: number, info: (typeof KINDS)[number]): number {
+    const rows = this.snap!.rows;
+    return rows[o + Col.KIND] === Kind.TRUCK ? TRUCK_LEN[(rows[o + Col.LOOK] & 7) % 5] : info.size;
   }
 
   /**
@@ -810,15 +829,16 @@ export class LifeHost {
     const h = fnv1a(key), was = this.painted.get(h) ?? this.hits.find((x) => x.h === h);
     const level = was ? Math.min(3, was.level + 1) : 1;
     // (how long it's kept: what the row says, its time left over the place, or for a live plane the most)
-    let until = utcMs + 3600000;
+    let until = utcMs + 3600000, kept = !key.startsWith('picnic:') && !key.startsWith('car:');
     const s = this.snap;
     if (s)
       for (let i = 0, n = s.u32[2]; i < n; i++)
         if (s.rowsU32[i * ROW + Col.KEY] === h) {
           until = s.f64[0] + s.rows[i * ROW + Col.UNTIL] * 1000;
+          kept = KINDS[s.rows[i * ROW + Col.KIND]]?.kept ?? kept;
           break;
         }
-    this.hits.push({ h, key, hue: was ? was.hue : color, level, arrive, until });
+    this.hits.push({ h, key, hue: was ? was.hue : color, level, arrive, until, kept });
     this.qa.hits++;
     return !was;
   }

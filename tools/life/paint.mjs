@@ -7,7 +7,8 @@
 //   kept      the page again at the same moment: the plane is still painted, from the test store, and the real store has nothing
 //   picnics   in Mission Dolores Park on a Saturday afternoon, the bus low behind a group with its aim on it: it glints, a real tap paints it, none of it is kept
 //             (picnic:); painted, its people get up and dance (LIVING.md: "stop, look up, wave, dance")
-//   cars      the same with a car on the road: it glints, a tap paints it, none of it kept (car:); painted, it bounces and lays rainbow tyre tracks
+//   cars      the same with a car on the road: it glints, a tap paints it, none of it kept (car:); painted, it bounces and lays rainbow tyre tracks; flown along
+//             its street at 15, 45 and 150 m, a building the line of fire lands on keeps the shot
 // Frames as a player sees them (the first account's GPU review, M1): each glint once the camera has followed the bus, the dance and the car once the spray is gone, the
 // plane's streak three seconds after its hit, the bus following it.
 // Exit 1 if any fails.
@@ -212,6 +213,48 @@ try {
     const b = got?.bounce;
     row('cars: painted, it bounces, squashed as it lands, and lays two rainbow tyre tracks flat on the road', !!b && b.frames >= 20 && b.hop > 0.15 && b.squash < 0.9 && b.tracks >= 1 && b.marks >= 2 && b.hues >= 4 && b.edgesM < 0.01 && b.overRoadM < 1, b);
   }
+  {
+    // (B1, the first account's life review: aimed at a house by a busy street, the car beside it took the shot, and along the nose a car 1.7 km down the road. The bus
+    // flown level along the street the nearest car is on, at 15, 45 and 150 m, 40 frames each, its aim wherever the game puts it: on the frames the line of fire lands
+    // on a building, nothing on the ground glints but what the line runs right over; and nothing on the ground glints past the line's end)
+    const street = await page.evaluate(() => {
+      const g = window.__game, l = g.life, s = l.snap, rows = s.rows, f = g.flight;
+      let best = null;
+      for (let i = 0; i < s.u32[2]; i++) {
+        const o = i * 16, k = rows[o + 1], v = Math.hypot(rows[o + 5], rows[o + 7]);
+        if ((k !== 5 && k !== 9) || v < 3) continue;
+        const d = Math.hypot(rows[o + 2] - f.x, rows[o + 4] - f.z);
+        if (!best || d < best.d) best = { d, x: rows[o + 2], y: rows[o + 3], z: rows[o + 4], ux: rows[o + 5] / v, uz: rows[o + 7] / v };
+      }
+      return best;
+    });
+    const seen = {};
+    if (street)
+      for (const h of [15, 45, 150]) {
+        const heading = Math.atan2(street.ux, -street.uz);
+        let onRoof = 0, stolen = 0, past = 0, groundGlints = 0;
+        for (let k = 0; k < 40; k++) {
+          const back = 120 - k * 3;
+          await page.evaluate((p) => (window.__qa.pin = p), { x: street.x - street.ux * back, y: street.y + h, z: street.z - street.uz * back, heading, nose: 0 });
+          await frames(1);
+          const r = await page.evaluate(() => {
+            const a = window.__game.aimer, m = a.mover, f = window.__game.flight, aim = a.aim;
+            const L = Math.hypot(aim.x - f.x, aim.y - f.y, aim.z - f.z), md = m ? Math.hypot(m.x - f.x, m.y - f.y, m.z - f.z) : 0;
+            return { roof: a.landsOnBuilding(), ground: !!m && m.onLine, over: !!m && m.miss <= m.half, past: !!m && m.onLine && md > L + 60 };
+          });
+          if (r.ground) groundGlints++;
+          if (r.roof) onRoof++;
+          if (r.roof && r.ground && !r.over) stolen++;
+          if (r.past) past++;
+        }
+        seen[h] = { onRoof, stolen, past, groundGlints };
+      }
+    await page.evaluate(() => delete window.__qa.pin);
+    await frames(4);
+    const ok = !!street && Object.values(seen).every((v) => v.stolen === 0 && v.past === 0) && Object.values(seen).some((v) => v.onRoof > 5);
+    row("aim: flown along a busy street at 15, 45 and 150 m, a building the line lands on keeps the shot, and nothing on the ground past the line's end", ok, seen);
+  }
+
   {
     // (a ferry: the bus 40 m up behind the nearest one underway, nose along its way, as a player chasing it holds; tried from 150, 250 and 400 m back. It glints, a
     // real tap paints it, and painted it lays a wake on the water behind it in every hue; its paint is kept, by vessel. A frame of it three seconds on, following it)

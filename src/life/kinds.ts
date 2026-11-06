@@ -47,7 +47,7 @@ export const KINDS: Record<number, KindInfo> = {
   [Kind.CAR]: { pool: Pool.MIDDLE, size: 4.4, lights: true, nose: 2.3, track: true, axle: [1.35, 0.72], kept: false, onLine: true },
   [Kind.TRUCK]: { pool: Pool.HEAVY, size: 12, lights: true, nose: 6, track: true, axle: [3.8, 1.05], kept: false, onLine: true },
   [Kind.FERRY]: { pool: Pool.LARGE, size: 40, lights: true, wake: true, kept: true },
-  [Kind.SAILBOAT]: { pool: Pool.LARGE, size: 11, wake: true, kept: false },
+  [Kind.SAILBOAT]: { pool: Pool.LARGE, size: 11, wake: true, kept: true },
 };
 
 /** A snapshot row (LIFE.md, "The worker"): 16 floats. */

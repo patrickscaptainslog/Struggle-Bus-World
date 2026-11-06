@@ -243,7 +243,7 @@ const snap = (place, t, reach = 80000, bx = 0, bz = 0, ...weather) => {
   let b = readFileSync(`${root}public/city/sf/routes.bin`);
   if (b[0] === 0x1f && b[1] === 0x8b) b = gunzipSync(b);
   const routes = parseCityRoutes(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength), man.origin), lines = ferryLines(routes);
-  const out = new Float32Array(MAX * ROW), u32 = new Uint32Array(out.buffer);
+  const out = new Float32Array(MAX * ROW), u32 = new Uint32Array(out.buffer), keyOf = new Map();
   const ferries = (t) => {
     const k = ferriesOn(lines, t, tz, 0, 0, 200000, out, 0, MAX);
     return { n: k, bytes: Buffer.from(out.buffer, 0, k * ROW * 4) };
@@ -275,6 +275,41 @@ const snap = (place, t, reach = 80000, bx = 0, bz = 0, ...weather) => {
     prev = now;
   }
   row('ferries: none jumps past its speed nor snaps round, a whole day at a 2 s step', pairs > 10000 && jumps === 0 && snaps === 0, { pairs, jumps, worstJumpM: +worstJ.toFixed(2), snaps, worstTurnRad: +worstH.toFixed(3) });
+  // (M1, the first account's life review: no two ferries' hulls inside each other, at any minute of a day: each hull 40 by 10.4 m (pools.ts), turned by its
+  // heading, the two kept apart by one of their four sides' axes, where either is at rest or they're one line's; two lines' boats under way may pass each other on
+  // the bay. And every line's first sailing its own)
+  const hullsMeet = (a, b) => {
+    const box = (o) => [out[o + 2], out[o + 4], Math.cos(out[o + 8]), Math.sin(out[o + 8])], A = box(a), B = box(b), H = [20, 5.2];
+    for (const [ux, uz] of [[A[2], A[3]], [-A[3], A[2]], [B[2], B[3]], [-B[3], B[2]]]) {
+      const r = (q) => H[0] * Math.abs(q[2] * ux + q[3] * uz) + H[1] * Math.abs(-q[3] * ux + q[2] * uz);
+      if (Math.abs((B[0] - A[0]) * ux + (B[1] - A[1]) * uz) > r(A) + r(B)) return false;
+    }
+    return true;
+  };
+  {
+    let pairs = 0, worst = Infinity, at = '', still = 0;
+    for (let t = day0; t < day0 + 86400000; t += 60000) {
+      const k = ferriesOn(lines, t, tz, 0, 0, 200000, out, 0, MAX);
+      for (let p = 0; p < k; p++)
+        for (let q = p + 1; q < k; q++) {
+          const a = p * ROW, b = q * ROW, d = Math.hypot(out[a + 2] - out[b + 2], out[a + 4] - out[b + 4]);
+          const ra = Math.hypot(out[a + 5], out[a + 7]) < 0.5, rb = Math.hypot(out[b + 5], out[b + 7]) < 0.5, rest = ra || rb;
+          if (!rest && Math.hypot(out[a + 5] - out[b + 5], out[a + 7] - out[b + 7]) > 1) continue;
+          if (d < worst) { worst = d; at = new Date(t).toISOString(); }
+          if (hullsMeet(a, b)) {
+            pairs++;
+            if (ra && rb) still++;
+          }
+        }
+    }
+    const firsts = new Set(lines.map((f) => f.first)).size;
+    // (both at rest, never; one sliding into its berth past another already in, a brush, half an hour of the day at the most: from 1,396 minutes before)
+    row('ferries: no two hulls inside each other at rest, any minute of a day; brushing one at a berth on the way in 30 minutes a day at most; sailings staggered', still === 0 && pairs <= 30 && firsts > 1, { bothAtRest: still, brushMinutes: pairs, closestM: +worst.toFixed(1), at, firstSailings: firsts, lines: lines.length });
+    // (M3: keyed by the service day, CONTRACT.md section 3, and kept to its last crossing)
+    const k = ferriesOn(lines, T0, tz, 0, 0, 200000, out, 0, MAX, (h, key) => (keyOf.has(h) ? 0 : keyOf.set(h, key)));
+    const sample = keyOf.get(u32[0]) ?? '', untilH = out[13] / 3600;
+    row('ferries: keyed ferry:<route>:<vessel>:<service day>, kept to the end of that day', /^ferry:[^:]+:\d+:20261105$/.test(sample) && untilH > 12 && untilH < 15 && k > 0, { sample, untilHours: +untilH.toFixed(2) });
+  }
   // (sailboats: each marina's water from the graphs of the regions round it, as the worker builds it)
   const graphOf = new Map();
   const harbours = routes.marinas.map((m) => {
