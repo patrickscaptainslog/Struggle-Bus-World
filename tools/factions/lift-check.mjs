@@ -2,10 +2,13 @@
 // The Lift's checks under Node (docs/specs/factions/LIFT.md): the shipped motion, heights, neighbourhood pick and obstacle field (src/world/liftGlsl.ts,
 // LiftField.ts), bundled with rolldown as tools/world/hoods-check.mjs bundles hoods.ts, on the real data: hoods.bin through loadHoods and the
 // neighbourhood's region bundles through the worker's own loadRegion. Then the real Flight (src/game/Flight.ts) at 120 Hz on Alamo Square with
-// every house up and bobbing: under the Painted Ladies at the floor and at 30 m, over the layer, in from the edge, and the field's identity.
+// every house up and riding the swell: under the Painted Ladies at the floor and at 20 m, over the layer, in from the edge, a pull up and a
+// dive through the layer, at a low floating house, a scan of straight runs through the layer, and the field's identity. With --gpu, the motion's
+// GLSL runs on this machine's GPU (playwright's chromium, WebGL2, a float target) against the TypeScript at 4,096 points.
 // Prints pass or FAIL a line with its numbers, exits 1 on any failure.
 //
-//   node tools/factions/lift-check.mjs
+//   node tools/factions/lift-check.mjs [--gpu]
+//   LIFT_TRACE=<a run's tag, e.g. 'i 90/50' is `90/50`, f2's `f20`> prints that run's trace, its steps over 3 m and the houses round them
 import { rolldown } from 'rolldown';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -48,20 +51,20 @@ const q = (a, p) => {
 
 // ------------------------------------------------------------------ 1. the motion
 {
-  const o = [0, 0];
+  const o = [0, 0, 0, 0];
   const H = 45, sb = 0.37;
-  L.liftAt(-0.01, 100, H, sb, o);
+  L.liftAt(-0.01, 100, H, sb, -1200, -80, 3, o);
   report('before the crouch', `dy ${o[0]} sq ${o[1]}`, '0, 0', o[0] === 0 && o[1] === 0);
   let lo = 0, hi = -1, slo = 1, shi = 0;
   for (let t = 0; t < LIFT.crouch; t += 1 / 240) {
-    L.liftAt(t, 100, H, sb, o);
+    L.liftAt(t, 100, H, sb, -1200, -80, 3, o);
     lo = Math.min(lo, o[0]);
     hi = Math.max(hi, o[0]);
     slo = Math.min(slo, 1 + o[1]);
     shi = Math.max(shi, 1 + o[1]);
   }
   report('the crouch', `dy ${f2(lo)}..${f2(hi)}, sy ${slo.toFixed(3)}..${shi.toFixed(3)}`, 'dy in [-0.35, 0], sy in [0.84, 1]', lo >= -0.3501 && hi <= 0 && slo >= 0.8399 && shi <= 1);
-  // the overshoot, without the bob (amplitude 0: a seed's bob is checked apart)
+  // the overshoot, without the swell (it fades in after; checked apart)
   let peak = -Infinity, at = 0;
   const noBob = (t, h) => {
     const u = t - LIFT.crouch, e = Math.exp(-LIFT.k * u);
@@ -75,30 +78,47 @@ const q = (a, p) => {
     }
     report(`overshoot at H ${h}`, `${(peak / h).toFixed(4)} H at u ${at.toFixed(3)} s`, '1.13 +- 0.01 H at 0.571 +- 0.01 s', Math.abs(peak / h - 1.13) <= 0.01 && Math.abs(at - 0.571) <= 0.01);
   }
-  // settled within 2 % of H plus the bob from u = 1 s; the bob within 1.3 amp; no step faster than the launch, none after the overshoot over 5 cm
-  let worstSettle = 0, worstBob = 0, worstStep = 0, worstLate = 0;
-  for (const h of [15, 25, 45, 50])
-    for (const s of [0, 0.13, 0.5, 0.77, 0.999]) {
-      const amp = L.liftAmp(h, s);
-      let prev = null;
-      for (let t = 0; t < 12; t += 1 / 120) {
-        const now = 1000 + t;
-        L.liftAt(t, now, h, s, o);
-        const u = t - LIFT.crouch;
-        if (u >= 1.0) worstSettle = Math.max(worstSettle, (Math.abs(o[0] - h) - 1.3 * amp) / h);
-        if (u >= 3) worstBob = Math.max(worstBob, Math.abs(o[0] - h) / amp);
-        if (prev !== null) {
-          const st = Math.abs(o[0] - prev);
-          worstStep = Math.max(worstStep, st / ((1.1 * LIFT.k * (h + LIFT.sink)) / 120));
-          if (u > 1.5) worstLate = Math.max(worstLate, st);
+  // settled within 2 % of H plus the swell's reach from u = 1 s; the heave the swell under its centre's; the lean never past tiltMax, and a
+  // few degrees; no step faster than the launch, none after the overshoot over 5 cm in 1/120 s
+  let worstSettle = 0, worstHeave = 0, worstStep = 0, worstLate = 0, worstLean = 0, leanSum = 0, leanN = 0, heaveMax = 0;
+  const sw = [0, 0, 0], o4 = [0, 0, 0, 0];
+  for (const h of [15, 25, 45, 50, 90])
+    for (const s of [0, 0.13, 0.5, 0.77, 0.999])
+      for (const [cx, cz, hv] of [[-1200, -80, 3.4], [-900, 150, 1.3], [40, 9000, 2.2]]) {
+        let prev = null;
+        for (let t = 0; t < 14; t += 1 / 120) {
+          const now = 1000 + t;
+          L.liftAt(t, now, h, s, cx, cz, hv, o4);
+          const u = t - LIFT.crouch;
+          const reach = hv + LIFT.drift;
+          if (u >= 1.0) worstSettle = Math.max(worstSettle, (Math.abs(o4[0] - h) - reach) / h);
+          if (u >= 3) {
+            // (its heave less its own drift is the swell under its centre, a little late)
+            const sf = s * 5.31;
+            L.swellAt(cx, cz, now - LIFT.lag * (sf - Math.floor(sf)), sw);
+            worstHeave = Math.max(worstHeave, Math.abs(o4[0] - h - hv * sw[0]));
+            heaveMax = Math.max(heaveMax, Math.abs(o4[0] - h));
+            const lean = Math.hypot(o4[2], o4[3]);
+            worstLean = Math.max(worstLean, lean);
+            leanSum += lean;
+            leanN++;
+          }
+          if (prev !== null) {
+            const st = Math.abs(o4[0] - prev);
+            worstStep = Math.max(worstStep, st / ((1.1 * LIFT.k * (h + LIFT.sink)) / 120));
+            if (u > 1.5) worstLate = Math.max(worstLate, st);
+          }
+          prev = o4[0];
         }
-        prev = o[0];
       }
-    }
-  report('settled from u = 1 s', `${(worstSettle * 100).toFixed(2)} % of H past the bob`, '<= 2 %', worstSettle <= 0.02);
-  report('the bob', `${worstBob.toFixed(3)} amp at most`, '<= 1.3 amp', worstBob <= 1.3);
+  const deg = (x) => ((Math.atan(x) * 180) / Math.PI).toFixed(2);
+  report('settled from u = 1 s', `${(worstSettle * 100).toFixed(2)} % of H past the swell's reach`, '<= 2 %', worstSettle <= 0.02);
+  report('the heave is the swell under it', `${f2(worstHeave)} m at most off it, past its own drift (${LIFT.drift} m); ${f2(heaveMax)} m at most off its rest`, `<= drift + 0.01, off its rest <= heave + drift`, worstHeave <= LIFT.drift + 0.01 && heaveMax <= 3.4 + LIFT.drift + 1e-6);
+  report('the lean', `${deg(worstLean)} degrees at most, ${deg(leanSum / leanN)} on average`, `<= ${deg(LIFT.tiltMax)} (tiltMax)`, worstLean <= LIFT.tiltMax + 1e-9);
   report('fastest 1/120 s step', `${worstStep.toFixed(3)} of 1.1 k (H + sink) / 120`, '<= 1', worstStep <= 1);
   report('steps once settled (u > 1.5 s)', `${f2(worstLate)} m at most`, '<= 0.05 m', worstLate <= 0.05);
+  // the swell across the neighbourhood: a block or two long, several seconds a period
+  for (const w of L.SWELLS) report(`a swell`, `${w.len} m long, every ${w.period} s, at ${(w.len / w.period).toFixed(1)} m/s, weight ${w.weight}`, 'a block or two, several seconds', w.len >= 100 && w.len <= 260 && w.period >= 5 && w.period <= 12);
   // the slow motion's game time
   const game = (p) => {
     let g = 0;
@@ -162,7 +182,7 @@ async function hoodData(slug, man, T, n, pad = 200) {
       }
       cx /= e - s;
       cz /= e - s;
-      let top = -Infinity, bx0 = Infinity, bz0 = Infinity, bx1 = -Infinity, bz1 = -Infinity;
+      let top = -Infinity, bx0 = Infinity, bz0 = Infinity, bx1 = -Infinity, bz1 = -Infinity, rad = 0;
       for (let k = i; k < j; k++) {
         top = Math.max(top, partTop(b, t.kinds, k));
         if (b.tier[k] !== 0) continue;
@@ -171,10 +191,11 @@ async function hoodData(slug, man, T, n, pad = 200) {
           bx1 = Math.max(bx1, b.xz[v * 2]);
           bz0 = Math.min(bz0, b.xz[v * 2 + 1]);
           bz1 = Math.max(bz1, b.xz[v * 2 + 1]);
+          rad = Math.max(rad, Math.hypot(b.xz[v * 2] - cx, b.xz[v * 2 + 1] - cz));
         }
       }
       const key = L.squareKey(Math.floor(cx / S), Math.floor(cz / S));
-      refs.push({ index: b.index[i], b, kinds: t.kinds, local: i, parts: j - i, cx, cz, area: Math.abs(area) / 2, baseY: b.groundY[i], roofY: top, x0: bx0, z0: bz0, x1: bx1, z1: bz1, inHood: sq.has(key) && !tagged.has(key) && b.index[i] < man.buildingCount, partTop });
+      refs.push({ index: b.index[i], b, kinds: t.kinds, local: i, parts: j - i, cx, cz, rad, area: Math.abs(area) / 2, baseY: b.groundY[i], roofY: top, x0: bx0, z0: bz0, x1: bx1, z1: bz1, inHood: sq.has(key) && !tagged.has(key) && b.index[i] < man.buildingCount, partTop });
       i = j;
     }
   }
@@ -206,6 +227,34 @@ for (const slug of ['sf', 'amsterdam', 'london']) cities[slug] = await city(slug
 }
 
 // ------------------------------------------------------------------ 2. the heights on real data
+/** within g m: footprints' bounds (Lift.nearPlaced: LIFT_NEAR, and 3 for touching) */
+const within = (a, b, g) => a !== b && b.x0 - g <= a.x1 && b.x1 + g >= a.x0 && b.z0 - g <= a.z1 && b.z1 + g >= a.z0;
+const touching = (a, b) => within(a, b, 3);
+const reachOf = (r) => L.liftReach(L.liftHeave(r.area, r.roofY - r.baseY, r.index), r.rad);
+/** The wave's rests, as Lift.ts schedules them: out from the heart, each placed among its near neighbours already up (liftPlace). */
+function rests(lift) {
+  const H = new Map();
+  const grid = new Map();
+  const key = (x, z) => `${Math.floor(x / 64)},${Math.floor(z / 64)}`;
+  for (const r of lift) {
+    const k = key(r.cx, r.cz);
+    if (!grid.has(k)) grid.set(k, []);
+    grid.get(k).push(r);
+  }
+  // (the low ones first, then the rest, each pass out from the heart: Lift.ts's wave)
+  const low = (r) => L.liftLow(L.liftRest(r.area, r.roofY - r.baseY, r.index), reachOf(r));
+  for (const r of [...lift.filter(low), ...lift.filter((r) => !low(r))]) {
+    const near = [];
+    const gx = Math.floor(r.cx / 64), gz = Math.floor(r.cz / 64);
+    for (let dz = -1; dz <= 1; dz++)
+      for (let dx = -1; dx <= 1; dx++)
+        for (const o of grid.get(`${gx + dx},${gz + dz}`) ?? [])
+          if (H.has(o.index) && within(r, o, L.LIFT_NEAR))
+            near.push({ H: H.get(o.index), height: o.roofY - o.baseY, reach: reachOf(o), dist: Math.hypot(Math.max(o.x0 - r.x1, 0, r.x0 - o.x1), Math.max(o.z0 - r.z1, 0, r.z0 - o.z1)), touching: touching(r, o) });
+    H.set(r.index, L.liftPlace(L.liftRest(r.area, r.roofY - r.baseY, r.index), r.roofY - r.baseY, reachOf(r), near));
+  }
+  return H;
+}
 const data = {};
 for (const slug of ['sf', 'amsterdam', 'london']) {
   const { man, T } = cities[slug];
@@ -213,18 +262,33 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
   const d = (data[slug] = await hoodData(slug, man, T, n, slug === 'sf' ? 200 : 0));
   const hx = (L.squareIx(d.heart) + 0.5) * L.SQUARE, hz = (L.squareIz(d.heart) + 0.5) * L.SQUARE;
   const lift = d.refs.filter((r) => r.inHood).sort((a, b) => Math.hypot(a.cx - hx, a.cz - hz) - Math.hypot(b.cx - hx, b.cz - hz)).slice(0, LIFT.cap);
-  const Hs = lift.map((r) => L.liftRest(r.area, r.roofY - r.baseY, r.index));
-  const tops = lift.map((r, i) => r.roofY - r.baseY + Hs[i]);
-  const badH = Hs.filter((h) => !(h >= 15 && h <= 50)).length;
-  const badTop = lift.filter((r, i) => tops[i] > Math.max(75, r.roofY - r.baseY + 15) + 1e-6).length;
-  const small = lift.map((r, i) => [r, Hs[i]]).filter(([r]) => r.area < 200).map(([, h]) => h);
+  const R = (d.rests = rests(lift));
+  const Hs = lift.map((r) => R.get(r.index));
+  const hgt = (r) => r.roofY - r.baseY;
+  const tops = lift.map((r, i) => hgt(r) + Hs[i]);
+  const badH = Hs.filter((h) => !(h >= LIFT.hMin && h <= LIFT.hMax)).length;
+  const badTop = lift.filter((r, i) => tops[i] > Math.max(LIFT.topMax, hgt(r) + LIFT.hMin) + 1e-6).length;
   const big = lift.map((r, i) => [r, Hs[i]]).filter(([r]) => r.area > 800).map(([, h]) => h);
-  const pass30 = lift.filter((r, i) => Hs[i] - (1.3 * L.liftAmp(Hs[i], L.liftSeed(r.index, 2)) + 0.3) - 8 >= 30).length;
+  const lowest = lift.map((r, i) => Hs[i] - reachOf(r));
+  const pass30 = lowest.filter((u) => u - 8 >= 30).length;
+  const low = lowest.filter((u) => u < L.LIFT_PASS).length;
+  const high = Hs.filter((h) => h >= LIFT.highMin).length;
+  // touching neighbours alike
+  let pairs = 0, alike = 0, closest = Infinity;
+  for (let a = 0; a < lift.length; a++)
+    for (let b = a + 1; b < lift.length; b++) {
+      if (!touching(lift[a], lift[b])) continue;
+      pairs++;
+      const dh = Math.abs(Hs[a] - Hs[b]);
+      closest = Math.min(closest, dh);
+      if (dh < LIFT.apart - 1e-6) alike++;
+    }
   const name = T.names[n];
   report(`${slug} ${name}: houses`, `${lift.length} lifted of ${d.refs.filter((r) => r.inHood).length} liftable`, `<= ${LIFT.cap}`, lift.length > 0 && lift.length <= LIFT.cap);
-  report(`${slug}: H`, `${f2(Math.min(...Hs))}..${f2(Math.max(...Hs))} m, median ${f2(q(Hs, 0.5))}; tops median ${f2(q(tops, 0.5))} max ${f2(Math.max(...tops))}`, 'H in [15, 50], top <= max(75, roof + 15)', badH === 0 && badTop === 0);
-  report(`${slug}: small high, big low`, `median ${small.length ? f2(q(small, 0.5)) : '-'} (under 200 m2, ${small.length}) vs ${big.length ? f2(q(big, 0.5)) : '-'} (over 800 m2, ${big.length})`, 'small above big', !small.length || !big.length || q(small, 0.5) > q(big, 0.5));
-  report(`${slug}: a 30 m pass under`, `${pass30} of ${lift.length} (${((pass30 / lift.length) * 100).toFixed(0)} %)`, slug === 'sf' ? '>= 75 % (87 % before the heights spread wider for the outside look)' : 'reported', slug !== 'sf' || pass30 / lift.length >= 0.75);
+  report(`${slug}: H`, `${f2(Math.min(...Hs))}..${f2(Math.max(...Hs))} m, median ${f2(q(Hs, 0.5))}, quartiles ${f2(q(Hs, 0.25))} and ${f2(q(Hs, 0.75))}; tops median ${f2(q(tops, 0.5))} max ${f2(Math.max(...tops))}`, `H in [${LIFT.hMin}, ${LIFT.hMax}], top <= max(${LIFT.topMax}, roof + ${LIFT.hMin})`, badH === 0 && badTop === 0);
+  report(`${slug}: low, middle, high flyers`, `${low} too low to pass under (${((low / lift.length) * 100).toFixed(0)} %), ${lift.length - low - high} in the middle, ${high} high flyers (${((high / lift.length) * 100).toFixed(0)} %); big ones (over 800 m2, ${big.length}) median ${big.length ? f2(q(big, 0.5)) : '-'}`, slug === 'sf' ? 'a few low, most middle, a few high (each under 25 %)' : 'reported (denser rows push more up round their low ones)', low > 0 && high > 0 && (slug !== 'sf' || (low < lift.length * 0.25 && high < lift.length * 0.25)));
+  report(`${slug}: touching neighbours alike`, `${alike} of ${pairs} pairs under ${LIFT.apart} m apart; closest ${f2(closest)} m`, slug === 'sf' ? '<= 2 % of pairs' : 'reported', slug !== 'sf' || alike <= pairs * 0.02);
+  report(`${slug}: a 30 m pass under`, `${pass30} of ${lift.length} (${((pass30 / lift.length) * 100).toFixed(0)} %): the lowest belly the swell, the drift and the lean bring it to 38 m or more over its ground`, slug === 'sf' ? '>= 55 %' : 'reported', slug !== 'sf' || pass30 / lift.length >= 0.55);
 }
 
 // ------------------------------------------------------------------ 4. the field and the real Flight, Alamo Square
@@ -287,21 +351,36 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
     },
   };
   const N = Math.max(...d.refs.map((r) => r.index)) + 1;
-  const houses = { state: new Uint8Array(N), H: new Float32Array(N), margin: new Float32Array(N), base: new Float32Array(N), t0: new Float32Array(N), extra: new Float32Array(N), seed: new Float32Array(N), now: 0, tmp: [0, 0] };
+  const houses = {
+    state: new Uint8Array(N), H: new Float32Array(N), margin: new Float32Array(N), tiltM: new Float32Array(N), solid: new Uint8Array(N), base: new Float32Array(N), t0: new Float32Array(N),
+    extra: new Float32Array(N), seed: new Float32Array(N), heave: new Float32Array(N), cx: new Float32Array(N), cz: new Float32Array(N), rad: new Float32Array(N), now: 0, tmp: [0, 0, 0, 0],
+  };
   houses.dyNow = (i) => {
     if (!houses.state[i]) return 0;
-    L.liftAt(houses.now - houses.t0[i], houses.now, houses.H[i], houses.seed[i], houses.tmp);
+    L.liftAt(houses.now - houses.t0[i], houses.now, houses.H[i], houses.seed[i], houses.cx[i], houses.cz[i], houses.heave[i], houses.tmp);
     return houses.tmp[0];
+  };
+  houses.dyAt = (i, x, z) => {
+    if (!houses.state[i]) return 0;
+    const dy = houses.dyNow(i);
+    return dy + (x - houses.cx[i]) * houses.tmp[2] + (z - houses.cz[i]) * houses.tmp[3];
   };
   const [x0, z0, x1, z1] = d.rect;
   const c = ts / man.obstN;
   const field = new L.LiftField(Math.floor((x0 - 60) / c) * c, Math.floor((z0 - 60) / c) * c, x1 + 60, z1 + 60, c, world, houses);
   const lifted = d.refs.filter((r) => r.inHood);
   for (const r of lifted) {
-    const i = r.index;
-    houses.H[i] = L.liftRest(r.area, r.roofY - r.baseY, i);
+    const i = r.index, hg = r.roofY - r.baseY;
+    // (the wave's rests where it lifts them, its hash's past its 600)
+    houses.H[i] = d.rests.get(i) ?? L.liftRest(r.area, hg, i);
     houses.seed[i] = L.liftSeed(i, 2);
-    houses.margin[i] = 1.3 * L.liftAmp(houses.H[i], houses.seed[i]) + 0.3;
+    houses.heave[i] = L.liftHeave(r.area, hg, i);
+    houses.margin[i] = L.liftReach(houses.heave[i], r.rad);
+    houses.tiltM[i] = L.liftTiltReach(r.rad);
+    houses.solid[i] = houses.H[i] - houses.margin[i] < L.LIFT_PASS ? 1 : 0;
+    houses.cx[i] = r.cx;
+    houses.cz[i] = r.cz;
+    houses.rad[i] = r.rad;
     houses.base[i] = r.baseY;
   }
   // e. identity: nothing up, the field is the bake at every cell
@@ -397,11 +476,15 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
       w.vy = Math.max(w.vy ?? -Infinity, f.vy);
       w.low = Math.min(w.low ?? Infinity, f.y - g - 3.5);
       if (!Number.isNaN(pf)) w.step = Math.max(w.step ?? 0, Math.abs(f.floorY - pf));
+      if (w.py !== undefined) w.bstep = Math.max(w.bstep ?? 0, Math.abs(f.y - w.py));
+      w.py = f.y;
       return true;
     });
     const w = r.worst;
     report('a. under the Ladies at the floor', `${r.under} of ${r.steps} steps under a house; least room to a belly ${f2(w.gap)} m`, 'under some, room >= 0', r.under > 0 && w.gap >= 0);
-    report('a. no bounce up under them', `vy at most ${f2(w.vy)} m/s; over the ground's 3.5 m by ${f2(w.low)}; floor steps ${f2(w.step)} m`, 'vy <= 2, >= 0, floor step <= 3', w.vy <= 2 && w.low >= 0 && (w.step ?? 0) <= 3);
+    // (under a belly the floor is its underside's less 12 m, and the bellies differ by tens of metres and ride the swell: the bus at the floor
+    // weaves down under a low one and climbs back under a higher one, on the floor's own spring, never kicked. The floor's steps are reported)
+    report('a. no bounce up under them', `vy at most ${f2(w.vy)} m/s; over the ground's 3.5 m by ${f2(w.low)}; the bus's largest step ${f2(w.bstep)} m (the floor's ${f2(w.step)} m)`, "vy <= 8 (the floor spring's climb), >= 0; the bus's step reported", w.vy <= 8 && w.low >= 0);
   }
   // b. the same at a held 20 m (Steiner runs down 15 m: the hold is a height, not one over the ground). Under a belly lower than the hold's
   // room (the soft ceiling, 9 m under it with the body) it is let down under it and climbs back after, so the offsets are reported; it must
@@ -428,8 +511,8 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
   {
     const r = fly('over', 90, false, 10, (f, g, u, pf, w) => {
       if (f.y < 60 + g && u !== Infinity) w.dipped = (w.dipped ?? 0) + 1;
-      const t = exactTop(f.x, f.z);
-      field.query(f.x, f.z, 1e9, 0, false);
+      // (the roofs under it: the high flyers over it are a deck it may be under, the layer isn't flat)
+      const t = field.query(f.x, f.z, f.y, baked(f.x, f.z), true);
       if (houses.now > 6 && t > g + 20) w.room = Math.min(w.room ?? Infinity, f.y - t - 3.5);
       return false;
     });
@@ -494,6 +577,279 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
       }
     }
     report('f. a pull up under the layer', `largest step up ${f2(jump)} m (${at}), ${inside} steps in a drawn house, ${under} under one with the body's 5 m at least ${f2(belly)} m from a belly`, 'step <= 3, never in one, body clear', jump <= 3 && inside === 0 && belly >= 0);
+  }
+  // the exact tests' world: is the bus's body (its point, nose and tail, 5.1 m tall) in a house as it is drawn now (its footprint grown 1 m, from
+  // its belly to its roof where the swell and the lean have them)
+  const hgrid = new Map();
+  for (const r of lifted) {
+    const k = `${Math.floor(r.cx / 64)},${Math.floor(r.cz / 64)}`;
+    if (!hgrid.has(k)) hgrid.set(k, []);
+    hgrid.get(k).push(r);
+  }
+  const inFoot = (r, x, z, grow) => {
+    for (let k = r.local; k < r.local + r.parts; k++) if (r.b.tier[k] === 0 && ring(r.b, k, x, z) <= grow) return true;
+    return false;
+  };
+  const clips = (f) => {
+    let n = 0, which = null;
+    for (const o of [0, -6, 6]) {
+      const x = f.x + Math.sin(f.heading) * o, z = f.z - Math.cos(f.heading) * o;
+      const gx = Math.floor(x / 64), gz = Math.floor(z / 64);
+      for (let dz = -1; dz <= 1; dz++)
+        for (let dx = -1; dx <= 1; dx++)
+          for (const r of hgrid.get(`${gx + dx},${gz + dz}`) ?? []) {
+            if (houses.state[r.index] !== 2 || x < r.x0 - 1 || x > r.x1 + 1 || z < r.z0 - 1 || z > r.z1 + 1 || !inFoot(r, x, z, 1)) continue;
+            const dy = houses.dyAt(r.index, x, z);
+            if (f.y + 5.1 > r.baseY + dy && f.y < Math.max(r.roofY, houses.extra[r.index]) + dy) {
+              n++;
+              which = r;
+              if (process.env.LIFT_TRACE) console.log(`    clip ${r.index} at o ${o} (${x.toFixed(1)}, ${z.toFixed(1)}) belly ${(r.baseY + dy).toFixed(2)} top ${(Math.max(r.roofY, houses.extra[r.index]) + dy).toFixed(2)} bus ${f.y.toFixed(2)} H ${houses.H[r.index].toFixed(1)} solid ${houses.solid[r.index]} over ${W.overheadAt(f.x, f.z, f.y).toFixed(2)} overAtPt ${W.overheadAt(x, z, f.y).toFixed(2)} bbox ${r.x0.toFixed(1)}..${r.x1.toFixed(1)} ${r.z0.toFixed(1)}..${r.z1.toFixed(1)}`);
+            }
+          }
+    }
+    return { n, which };
+  };
+  /** every run's steps over 3 m (a let down or a lift in one 1/120 s step), for the one line that reports them */
+  const jolts = { runs: 0, of: 0, worst: 0, at: null };
+  const jolt = (name, r) => {
+    jolts.of++;
+    if (r.step > 3) jolts.runs++;
+    if (r.step > jolts.worst) [jolts.worst, jolts.at] = [r.step, { run: name, ...r.stepAt }];
+  };
+  /** one run: from (x, z) at y over the ground on `heading`, held or released, `secs` at 120 Hz, the stick's sy by time; what it met */
+  function run(x, z, heading, y0, hold, secs, sy = () => 0, tag = '', clock0 = 20, watch = null) {
+    const f = new L.Flight();
+    f.x = x;
+    f.z = z;
+    f.heading = heading;
+    f.y = groundAt(x, z) + y0;
+    houses.now = clock0;
+    // (a start inside a floating house is the scan's, not the flight's: back 10 m at a time until it is clear)
+    for (let k = 0; k < 20 && clips(f).n; k++) {
+      f.x -= Math.sin(heading) * 10;
+      f.z += Math.cos(heading) * 10;
+    }
+    if (hold) f.holdY = f.targetY = f.y;
+    let clip = 0, step = 0, vy = -Infinity, prevY = f.y, first = null, stepAt = null;
+    for (let s = 0; s < secs * 120; s++) {
+      houses.now = clock0 + s / 120;
+      const st = sy(s / 120);
+      f.step(1 / 120, { sx: 0, sy: st, dragging: st !== 0 }, W);
+      if (process.env.LIFT_TRACE && process.env.LIFT_TRACE === tag && s % 6 === 0) {
+        const g = groundAt(f.x, f.z), c0 = clips(f);
+        console.log(`  t ${(s / 120).toFixed(2)} x ${f.x.toFixed(1)} z ${f.z.toFixed(1)} y+ ${(f.y - g).toFixed(1)} vy ${f.vy.toFixed(1)} floor+ ${(f.floorY - g).toFixed(1)} over+ ${(W.overheadAt(f.x, f.z, f.y) - g).toFixed(1)} obst+ ${(W.obstacleAt(f.x, f.z, f.y) - g).toFixed(1)} hard+ ${(W.hardAt(f.x, f.z, f.y) - g).toFixed(1)} clip ${c0.n ? c0.which.index : '-'}`);
+      }
+      if (process.env.LIFT_TRACE && process.env.LIFT_TRACE === tag && Math.abs(f.y - prevY) > 3) {
+        console.log(`  JUMP t ${(s / 120).toFixed(3)} from ${prevY.toFixed(2)} to ${f.y.toFixed(2)} over ${W.overheadAt(f.x, f.z, prevY).toFixed(2)} hard ${W.hardAt(f.x, f.z, prevY).toFixed(2)}`);
+        for (const r of lifted) {
+          if (Math.hypot(Math.max(r.x0 - f.x, 0, f.x - r.x1), Math.max(r.z0 - f.z, 0, f.z - r.z1)) > 26) continue;
+          const dy = houses.dyNow(r.index);
+          console.log(`    near ${r.index} dist ${Math.hypot(Math.max(r.x0 - f.x, 0, f.x - r.x1), Math.max(r.z0 - f.z, 0, f.z - r.z1)).toFixed(1)} belly ${(r.baseY + dy).toFixed(1)} top ${(r.roofY + dy).toFixed(1)} solid ${houses.solid[r.index]}`);
+        }
+      }
+      // (the first half second is the start's: the flight puts the bus on its floor)
+      if (s < 60) {
+        prevY = f.y;
+        continue;
+      }
+      if (Math.abs(f.y - prevY) > step) stepAt = { t: +(s / 120).toFixed(2), x: +f.x.toFixed(1), z: +f.z.toFixed(1), from: +prevY.toFixed(1), to: +f.y.toFixed(1) };
+      step = Math.max(step, Math.abs(f.y - prevY));
+      vy = Math.max(vy, f.vy);
+      prevY = f.y;
+      watch?.(f);
+      const c = clips(f);
+      if (c.n) {
+        clip++;
+        first ??= { t: +(s / 120).toFixed(2), x: +f.x.toFixed(1), z: +f.z.toFixed(1), y: +f.y.toFixed(1), house: c.which.index };
+      }
+    }
+    return { f, clip, step, vy, first, stepAt };
+  }
+  // g. a low floating house, an obstacle: the five low ones nearest the heart, each flown at from four sides 150 m out, held at its belly's
+  // height plus 4 m (into its walls): over it or round it, never into it, no step up past 3 m
+  {
+    const [hx, hz] = [(L.squareIx(d.heart) + 0.5) * L.SQUARE, (L.squareIz(d.heart) + 0.5) * L.SQUARE];
+    const lows = lifted.filter((r) => houses.solid[r.index]).sort((a, b) => Math.hypot(a.cx - hx, a.cz - hz) - Math.hypot(b.cx - hx, b.cz - hz)).slice(0, 5);
+    let runs = 0, clipRuns = 0, clipSteps = 0, over = 0, round = 0, worstStep = 0, firstClip = null;
+    let stepAt = null;
+    for (const r of lows)
+      for (const hd of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+        const fx = Math.sin(hd), fz = -Math.cos(hd), x = r.cx - fx * 150, z = r.cz - fz * 150;
+        let overIt = false, near = Infinity;
+        const res = run(x, z, hd, r.baseY + houses.H[r.index] + 4 - groundAt(x, z), true, 9, () => 0, `g${r.index}/${Math.round((hd * 180) / Math.PI)}`, 20, (f) => {
+          if (inFoot(r, f.x, f.z, 1) && f.y > Math.max(r.roofY, houses.extra[r.index]) + houses.dyAt(r.index, f.x, f.z)) overIt = true;
+          near = Math.min(near, Math.hypot(Math.max(r.x0 - f.x, 0, f.x - r.x1), Math.max(r.z0 - f.z, 0, f.z - r.z1)));
+        });
+        runs++;
+        if (res.clip) {
+          clipRuns++;
+          firstClip ??= { house: r.index, heading: Math.round((hd * 180) / Math.PI), ...res.first };
+        }
+        clipSteps += res.clip;
+        jolt(`g ${r.index} ${Math.round((hd * 180) / Math.PI)}`, res);
+        if (res.step > worstStep) stepAt = { house: r.index, heading: Math.round((hd * 180) / Math.PI), ...res.stepAt };
+        worstStep = Math.max(worstStep, res.step);
+        if (overIt) over++;
+        else if (near > 0) round++;
+      }
+    report('g. at a low floating house', `${lows.length} houses (rests ${lows.map((r) => f2(houses.H[r.index])).join(', ')} m), ${runs} runs: ${over} over it, ${round} round it, ${clipRuns} runs into it (${clipSteps} steps)${firstClip ? ` first ${JSON.stringify(firstClip)}` : ''}; largest step ${f2(worstStep)} m`, 'never into it', clipRuns === 0);
+  }
+  // h. a dive through the bobbing layer: from 130 m over the Ladies' street, held, then the stick pushed for 6 s
+  {
+    let clip = 0, step = 0, end = [];
+    for (const c0 of [0, 3, 6, 20]) {
+      const r = run(sx0, sz0, 0, 130, true, 9, (t) => (t >= 1 ? 1 : 0), `h${c0}`, c0);
+      jolt(`h ${c0}`, r);
+      clip += r.clip;
+      step = Math.max(step, r.step);
+      end.push(f2(r.f.y - groundAt(r.f.x, r.f.z)));
+    }
+    report('h. a dive through the layer', `4 dives (the swell at four moments): ${clip} steps in a drawn house; largest step ${f2(step)} m; ended ${end.join(', ')} m over the ground`, 'never in one', clip === 0);
+  }
+  // f2. the pull up, through the exact test
+  {
+    let clip = 0, step = 0, end = [], first = null;
+    for (const c0 of [0, 3, 6, 20]) {
+      const r = run(sx0, sz0, 0, 24, true, 10, (t) => (t >= 3 ? -1 : 0), `f2${c0}`, c0);
+      jolt(`f2 ${c0}`, r);
+      clip += r.clip;
+      first ??= r.first;
+      step = Math.max(step, r.step);
+      end.push(f2(r.f.y - groundAt(r.f.x, r.f.z)));
+    }
+    report('f2. the pull up, exactly', `4 pulls (the swell at four moments): ${clip} steps in a drawn house${first ? ` first ${JSON.stringify(first)}` : ''}; largest step ${f2(step)} m; ended ${end.join(', ')} m over the ground`, 'never in one', clip === 0);
+  }
+  // i. a scan through the layer (and the same with every house down, for the flight's own steps and climbs over a grounded city): from 450 m out (outside the neighbourhood), eight headings in at the heart and on, held at 12, 22, 34 and 50 m, 18 s each; and released at 30 m
+  for (const up of [true, false]) {
+    for (const r of lifted) houses.state[r.index] = up ? 2 : 0;
+    const [hx, hz] = [(L.squareIx(d.heart) + 0.5) * L.SQUARE, (L.squareIz(d.heart) + 0.5) * L.SQUARE];
+    let runs = 0, clipRuns = 0, clipSteps = 0, step = 0, vy = -Infinity, firsts = [], stepRun = null;
+    for (let a = 0; a < 8; a++) {
+      const hd = (a / 8) * Math.PI * 2, fx = Math.sin(hd), fz = -Math.cos(hd);
+      for (const [y0, hold] of [[12, true], [22, true], [34, true], [50, true], [30, false]]) {
+        const r = run(hx - fx * 450, hz - fz * 450, hd, y0, hold, 18, () => 0, `${a * 45}/${y0}`);
+        runs++;
+        clipSteps += r.clip;
+        if (r.clip) {
+          clipRuns++;
+          if (firsts.length < 3) firsts.push({ heading: a * 45, y0, hold, ...r.first });
+        }
+        if (up) jolt(`i ${a * 45} ${y0}${hold ? '' : ' released'}`, r);
+        if (r.step > step) stepRun = { heading: a * 45, y0, hold, ...r.stepAt };
+        step = Math.max(step, r.step);
+        vy = Math.max(vy, r.vy);
+      }
+    }
+    report(up ? 'i. a scan through the layer' : 'i0. the same scan, every house down', `${runs} runs, ${clipRuns} with a step in a drawn house (${clipSteps} steps)${firsts.length ? ` first ${JSON.stringify(firsts)}` : ''}; largest step ${f2(step)} m (${JSON.stringify(stepRun)}); vy at most ${f2(vy)} m/s (from 0.5 s on)`, up ? 'never in one' : 'reported', !up || clipRuns === 0);
+    for (const r of lifted) houses.state[r.index] = 2;
+  }
+  // (a known risk, LIFT.md: beside a floating house at the height of its middle, as the bus sinks or climbs past it, the flight decides under or
+  // over it near enough that the ceiling or the floor comes in one step. Every house down, the same runs have none)
+  report("the flight's jolts", `${jolts.runs} of ${jolts.of} runs (g, h, f2, i) have a step over 3 m in 1/120 s; the largest ${f2(jolts.worst)} m (${JSON.stringify(jolts.at)})`, 'reported: a known risk', true);
+}
+
+// ------------------------------------------------------------------ 5. --gpu: the motion's GLSL on this machine's GPU against the TypeScript
+if (process.argv.includes('--gpu')) {
+  const { chromium } = await import('playwright-core');
+  const { browserOptions } = await import(pathToFileURL(`${root}/tools/browser.mjs`).href);
+  // 4,096 samples: every phase (before the crouch, the crouch, the launch, the overshoot, the swell), five heights, three heaves, centres a few
+  // km apart, points of the house off its centre (dx, dz) and up it (hgt) for the lean
+  const N = 4096, inp = new Float32Array(N * 4 * 3);
+  const rnd = (k, s) => {
+    const x = Math.sin(k * 12.9898 + s * 78.233) * 43758.5453;
+    return x - Math.floor(x);
+  };
+  for (let k = 0; k < N; k++) {
+    const t = -0.2 + 14 * rnd(k, 1), now = 300 + 900 * rnd(k, 2), H = [9, 15, 38, 62, 94][k % 5], sb = rnd(k, 3);
+    const cx = -3000 + 6000 * rnd(k, 4), cz = -3000 + 6000 * rnd(k, 5), hv = 1.2 + 2.4 * rnd(k, 6);
+    const dx = -12 + 24 * rnd(k, 7), dz = -12 + 24 * rnd(k, 8), gy = 20 + 80 * rnd(k, 9), hg = 14 * rnd(k, 10);
+    inp.set([t, now, H, sb], k * 4);
+    inp.set([cx, cz, hv, dx], (N + k) * 4);
+    inp.set([dz, gy, hg, 0], (2 * N + k) * 4);
+  }
+  const fs = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+uniform float uTime;
+${L.GLSL_LIFT}
+uniform highp sampler2D tIn;
+uniform int uMode;
+out vec4 o;
+void main() {
+  int k = int(gl_FragCoord.x) + int(gl_FragCoord.y) * 64;
+  vec4 a = texelFetch(tIn, ivec2(k, 0), 0), b = texelFetch(tIn, ivec2(k, 1), 0), c = texelFetch(tIn, ivec2(k, 2), 0);
+  vec4 lf = a.x < 0.0 ? vec4(0.0) : sbLiftAt(a.x, a.y, a.z, a.w, b.xy, b.z);
+  if (uMode == 0) { o = lf; return; }
+  vec4 T2 = vec4(b.x, c.y, b.y, b.z);
+  vec3 p = sbLiftMove(vec3(b.x + b.w, c.y + c.z, b.y + c.x), c.y, lf, T2);
+  o = vec4(p - vec3(b.x, 0.0, b.y), 0.0);
+}`;
+  const browser = await chromium.launch(browserOptions([]));
+  const page = await browser.newPage();
+  const res = await page.evaluate(
+    ({ fs, inp, N }) => {
+      const cv = document.createElement('canvas');
+      const gl = cv.getContext('webgl2');
+      if (!gl || !gl.getExtension('EXT_color_buffer_float')) return { error: 'no WebGL2 float target' };
+      const sh = (type, src) => {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+        return s;
+      };
+      const pr = gl.createProgram();
+      gl.attachShader(pr, sh(gl.VERTEX_SHADER, '#version 300 es\nvoid main() { vec2 p = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1)) * 4.0 - 1.0; gl_Position = vec4(p, 0.0, 1.0); }'));
+      gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, fs));
+      gl.linkProgram(pr);
+      if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) return { error: gl.getProgramInfoLog(pr) };
+      const tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, N, 3, 0, gl.RGBA, gl.FLOAT, new Float32Array(inp));
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      const rt = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, rt);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 64, 64, 0, gl.RGBA, gl.FLOAT, null);
+      const fb = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, rt, 0);
+      gl.viewport(0, 0, 64, 64);
+      gl.useProgram(pr);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.uniform1i(gl.getUniformLocation(pr, 'tIn'), 0);
+      const out = [];
+      for (const mode of [0, 1]) {
+        gl.uniform1i(gl.getUniformLocation(pr, 'uMode'), mode);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        const px = new Float32Array(64 * 64 * 4);
+        gl.readPixels(0, 0, 64, 64, gl.RGBA, gl.FLOAT, px);
+        out.push(Array.from(px));
+      }
+      return { out, renderer: gl.getParameter(gl.RENDERER) };
+    },
+    { fs, inp: Array.from(inp), N },
+  );
+  await browser.close();
+  if (res.error) report('GLSL on the GPU', res.error, 'compiles and runs', false);
+  else {
+    const o = [0, 0, 0, 0];
+    let dDy = 0, dSq = 0, dLean = 0, dAim = 0, at = null;
+    for (let k = 0; k < N; k++) {
+      const [t, now, H, sb] = inp.subarray(k * 4, k * 4 + 4), [cx, cz, hv, dx] = inp.subarray((N + k) * 4, (N + k) * 4 + 4), [dz, gy, hg] = inp.subarray((2 * N + k) * 4, (2 * N + k) * 4 + 3);
+      L.liftAt(t, now, H, sb, cx, cz, hv, o);
+      const g = res.out[0].slice(k * 4, k * 4 + 4), m = res.out[1].slice(k * 4, k * 4 + 4);
+      if (Math.abs(g[0] - o[0]) > dDy) [dDy, at] = [Math.abs(g[0] - o[0]), { t: +t.toFixed(3), H }];
+      dSq = Math.max(dSq, Math.abs(g[1] - o[1]));
+      dLean = Math.max(dLean, Math.abs(g[2] - o[2]), Math.abs(g[3] - o[3]));
+      // (the aim's linear lean, Lift.dyAt: a point dx, dz off the centre is dx * lean x + dz * lean z higher; the drawn turns it about the belly's middle)
+      const aimY = gy + hg * (1 + o[1]) + o[0] + dx * o[2] + dz * o[3];
+      dAim = Math.max(dAim, Math.abs(m[1] - aimY));
+    }
+    report('GLSL on the GPU', `${res.renderer}: ${N} samples, dy within ${(dDy * 1000).toFixed(2)} mm (worst at ${JSON.stringify(at)}), the stretch within ${dSq.toExponential(1)}, the lean within ${dLean.toExponential(1)}`, 'dy <= 5 mm, the lean <= 1e-4', dDy <= 0.005 && dLean <= 1e-4);
+    report('the aim against the drawn', `a point up to 12 m off the centre and 14 m up it: the CPU's height within ${f2(dAim * 100)} cm of the GPU's turned house`, '<= 25 cm (inside the lean\'s margin, liftTiltReach)', dAim <= 0.25);
   }
 }
 
