@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ?recess on screen, at a fixed step in software graphics: node tools/recess/screen.mjs <out dir>. BASE is the page (http://localhost:4179/). A short match
-// (&recesslen=30), Learner captains, so one match shows every row. The phone and the GPU are the producer's and the first account's.
+// (&recesslen=45), Learner captains, so one match shows every row. The phone and the GPU are the producer's and the first account's.
 //   kickoff   while the first bell rings, both captains ahead inside 10 degrees of the nose about 500 m off, the camera high behind the bus (kickoff.png)
 //   findable  the lens about 40 degrees, pulled back with a rival near; both captains tagged; the fence up; ribbons behind captains 1.4 times bigger
 //   up        the page boots into the match: two captains' buses in the scene, in their colours, over the arena, the player on its edge, no Golden Gate opening
@@ -52,7 +52,7 @@ try {
   const SAVED = { 'strugglebus.paint.v3': '{"9":[1,2,3]}', 'strugglebus.paint.v1': '{"9":[1,2,3]}', 'strugglebus.landmarks.v1': '{"lm:coit":[1,2,2]}', 'strugglebus.ground.v4:0,0': 'saved', 'strugglebus.ground.v2:0,0': 'saved' };
   await page.evaluate((S) => { for (const [k, v] of Object.entries(S)) localStorage.setItem(k, v); }, SAVED);
   const paintKeys = () => page.evaluate(() => { const o = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (/^strugglebus\.(paint|ground|landmarks)/.test(k)) o[k] = localStorage.getItem(k); } return o; });
-  await open('&recess&recesslen=30&bots=learner');
+  await open('&recess&recesslen=45&bots=learner');
   // (the captains' paint where it landed: the buildings within 25 m of each of their blasts that have landed, painted, and how many are its faction's)
   const landed = (faction) => page.evaluate((h) => {
     const g = window.__game, R = window.__recess, P = g.city.paint, pts = R.painted.filter((p) => p.at < R.now - 1.5 && (h === undefined || p.faction === h));
@@ -211,7 +211,7 @@ try {
     return { phase: R.phase, simT: +R.sim.t.toFixed(1), camAGL: Math.round(c.y - g.city.groundAt(R.cx, R.cz)), camFromMiddle: Math.round(Math.hypot(c.x - R.cx, c.z - R.cz)), score: R.sim.score().filter((_, i) => [1, 2, 5].includes(i)), hud: document.querySelector('[data-hud=recess]')?.childElementCount ?? 0 };
   });
   await page.screenshot({ path: join(dir, 'scoreboard.png') });
-  row('bell: the brain stops, the camera at 1,500 m over the arena, the score up', bell.phase === 'over' && bell.simT <= 30.1 && Math.abs(bell.camAGL - 1500) < 60 && bell.camFromMiddle < 700 && bell.hud === 1, bell);
+  row('bell: the brain stops, the camera at 1,500 m over the arena, the score up', bell.phase === 'over' && bell.simT <= 45.1 && Math.abs(bell.camAGL - 1500) < 60 && bell.camFromMiddle < 700 && bell.hud === 1, bell);
   const programs1 = await page.evaluate(() => window.__game.pipeline.renderer.info.programs.length);
   row('programs: nothing compiled after the warm-up, the whole match on', programs1 === programs0, { atFirst: programs0, atTheEnd: programs1 });
   // ---- B21: the player's saved city untouched by the match, and nothing of it, nor of the match, loaded by the next one ----
