@@ -7,10 +7,26 @@ Tick what you finish, in the commit that finishes it. Add to it when the produce
 The producer approved the factions plan, [specs/factions/FACTIONS.md](specs/factions/FACTIONS.md), all 26 of its picks ("i vote all your recommendations for the rest of the plan"), and asked for a big run tonight on both accounts: "Go for tonight's plan". Two questions stay open with them: 27, how many stages, and 28, territory by neighbourhood. Build nothing that depends on either; every task below holds under any answer. `main` is at 058217c: `feat/life` 92b4884 and the showcase's credit line, so it has everything built so far behind its flags.
 
 **Second account** (logic and tests; no GPU)
-- [ ] `feat/life`: the life review, [reviews/life-cars-2026-11-05.md](reviews/life-cars-2026-11-05.md), B1 first: the aim cone gives shots meant for buildings to vehicles in the street, and the live showcase (`?earth&life`) shows it. Then M1 to M7. Push, and list it here for the first account's re-review and GPU runs.
-- [ ] `feat/recess`, cut from `main` 058217c: factions step 3, the beat clock. One clock the stage-ups, Possessed's hiccups and the music share, at 84 beats a minute (decision 14). Nothing on screen yet.
-- [ ] `feat/recess`: step 4, the areas. The 128 m squares and their stages 1 to 4, a rival's hit knocking a stage off, the five-second wait, the owner's hit healing a crack (decision 16), saving the solo city; in Node, with tests. Which area a god belongs to, a square or a neighbourhood, is decision 28: keep it behind one switch, and stage 5 out until then.
-- [ ] `feat/recess`: step 7, Recess's brain, headless first. The AI captains (Learner, Rival, Veteran, each glinting for a full second before it breathes), the lock and the glint, Possessed (Nonstop in the arena) with Piñata and Bubbled behind the link's switch, the stop-arm shield, no ganging up, WANTED bullies, the new player's shield, and the test that plays thousands of duels and fails if anyone loses the steering or is bullied (FACTIONS.md §3 and §4). What it draws comes after, on the GPU.
+- [x] `feat/life`: the life review, [reviews/life-cars-2026-11-05.md](reviews/life-cars-2026-11-05.md), B1 first: the aim cone gives shots meant for buildings to vehicles in the street, and the live showcase (`?earth&life`) shows it. Then M1 to M7. Push, and list it here for the first account's re-review and GPU runs. **Done 2026-11-06**, `feat/life` 4694f33 to b6383f4:
+  - **Fixed:** B1, M1 to M6; of the minors m3 to m7; nits n4, n7 and n8. `LIFE.md` says what each became.
+  - **B1:** a building the line of fire lands on keeps the shot unless the line runs right over the vehicle. The ground's cone is in pixels. The nose's call is only for the sky.
+  - **M1:** ferries berth side by side along their terminal's axis and raft across their heading. They're double-ended, so they never pivot. Their sailings are staggered at shared terminals.
+  - **M2:** a car behind another shrinks clear of it, 0.8 % drawn inside another where it was one in seven.
+  - **M3:** ferries are keyed `ferry:<route>:<vessel>:<service day>` (C16).
+  - **M4:** picnics are filled nearest the bus first.
+  - **M5:** what's out of the view isn't drawn, the caps are lower, and there's `qa.tris`.
+  - **M6:** wakes are laid on the water where the boat went.
+  - **Left open:**
+    - M7, buses on Market Street, waits on the bus-allowed bit in C14.
+    - Also left: m2, m9 to m13, n1 to n3, n5, n6 and n9 to n12.
+  - **Checked here in software graphics:** determinism and flag-off all pass on it; smoke and paint rerunning on b6383f4 (on 69807e5 smoke failed only its car row and paint three rows, all from rows older than tonight's aim and culling, fixed in b6383f4).
+  - **For the first account:** a re-review of `feat/life` 4694f33 to b6383f4, and the GPU runs: L3's triangles by `qa.tris`, the berths and the wakes seen from the air. Also C16 and C17 in `specs/earth/CONTRACT.md`, proposed, for you to agree.
+- [x] `feat/recess`, cut from `main` 058217c: factions step 3, the beat clock. One clock the stage-ups, Possessed's hiccups and the music share, at 84 beats a minute (decision 14). Nothing on screen yet.
+- [x] `feat/recess`: step 4, the areas. The 128 m squares and their stages 1 to 4, a rival's hit knocking a stage off, the five-second wait, the owner's hit healing a crack (decision 16), saving the solo city; in Node, with tests. Which area a god belongs to, a square or a neighbourhood, is decision 28: keep it behind one switch, and stage 5 out until then.
+- [x] `feat/recess`: step 7, Recess's brain, headless first. The AI captains (Learner, Rival, Veteran, each glinting for a full second before it breathes), the lock and the glint, Possessed (Nonstop in the arena) with Piñata and Bubbled behind the link's switch, the stop-arm shield, no ganging up, WANTED bullies, the new player's shield, and the test that plays thousands of duels and fails if anyone loses the steering or is bullied (FACTIONS.md §3 and §4). What it draws comes after, on the GPU.
+  - **Steps 3, 4 and 7, done 2026-11-06** on `feat/recess` (0d2b250, 84b8270). [specs/factions/BUILT.md](specs/factions/BUILT.md) says what's built and my readings. One of them is for the producer's or the first account's eye: decision 16's "a hit on stage 4 or 5 restarts the five-second wait" read as a crack or a heal restarting it, never an owner's encore.
+  - **The checks:** `tools/factions/check.mjs`, 11 rows, all pass. `tools/recess/duels.mjs`, 10 rule rows and 3,000 duels in 19 s here, all pass. Nobody lost the steering in 8.1 M bus-steps, Bubbled's still three seconds aside, and nobody was bullied.
+  - **For the first account:** a review of `feat/recess` 058217c to 84b8270. Nothing in the game calls it yet.
 - [ ] When step 1 lands on `feat/factions`: merge it into `feat/life` and `feat/recess`, and give cars, ferries and sailboats the owner on their kept paint (`CONTRACT.md`'s C15, which the first account proposes with step 1, for you to agree).
 - [ ] When there's time: review `feat/decks`, 34d55cf to 492a953 (`specs/bridges/BRIDGES.md`'s notes on steps 3 and 4 say what was built and what was checked).
 
