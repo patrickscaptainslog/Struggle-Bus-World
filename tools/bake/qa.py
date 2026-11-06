@@ -95,7 +95,7 @@ QA_DEFAULTS = {
     'tallNothingMax': 0,          # towers and masts in the data of tallNothingHeight or more with nothing drawn
     'tallNothingHeight': 50.0,    # m
     'streetFigureMin': 0.9,       # ratio: the largest street piece drawn, to the largest the full map gives in the frame
-    'atGradeLossMax': 0.005,      # share of the road kept: road surface lost on land, on no bridge
+    'atGradeLossMax': 0.005,      # share of the road kept: a bridge-flagged way's road surface lost on land, on no bridge (bridges only)
     'deckContinuityMax': 3.0,     # m: two decks of one bridge miss by this in plan (or 1.5 m in height)
     'deckClearanceMin': 4.5,      # m between two crossing decks
     'deckBuriedMax': 0.05,        # share of a meshed deck over 0.5 m under the ground, away from a tunnel
@@ -282,7 +282,7 @@ def bridge_checks(cfg, city, osm, ground, Q, ll2xz, lonlat, city_dir, log=_log):
     c_stand = check('standIns', 'baked buildings of 12 m or more standing mostly on a deck, their top within 15 m of it or over', 'count', lim('standInsMax'))
     c_tall = check('tallNothing', f'towers and masts of {Q["tallNothingHeight"]:.0f} m or more in the data with nothing drawn', 'count', lim('tallNothingMax'))
     c_fig = check('streetFigure', 'the largest street piece drawn, to the largest the full map gives', 'ratio', lim('streetFigureMin'), lower=True)
-    c_loss = check('atGradeLoss', 'road surface lost on land, on no bridge, of the road kept', 'share', lim('atGradeLossMax'), 0, 'm2')
+    c_loss = check('atGradeLoss', "a bridge-flagged way's road surface lost on land, on no bridge, of the road kept", 'share', lim('atGradeLossMax'), 0, 'm2')
     c_decks = [check(key, what, 'm' if k in ('deckContinuityMax', 'deckClearanceMin') else 'share' if k == 'deckBuriedMax' else 'grade', lim(k),
                      lower=k == 'deckClearanceMin')
                for key, what, k in (('deckContinuity', 'two decks of one bridge miss each other (plan or height)', 'deckContinuityMax'),

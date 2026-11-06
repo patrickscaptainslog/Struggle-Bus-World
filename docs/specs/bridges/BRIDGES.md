@@ -331,6 +331,7 @@ Bold means the check fails today.
 - `standIns` needs the 12 m floor. Without it Amsterdam's 11 small rail arches are flagged, and they are real.
 - `streetFigure` is relative because a thin map, or a city a river really does split, is correct and has no business failing. Both sides of the ratio come from the same map.
 - `waterRoadNoDeck` and `bridgeNoDeck` count rail as well as road, and skip ways that aren't open.
+- `atGradeLoss` covers bridges only: the road of bridge-flagged segments the bake leaves out on land, off the real bridge, which the infrastructure theme's bridge ways and polygons place apart from the segment's own ranges. A stretch a tunnel, a cover, construction or a level takes off the ground has no second source to measure its cut against, so its stretches at grade are `segcheck.py`'s cases, not a bake check.
 - Limits for `streetFigure` and `atGradeLoss` come from the audit's values. The rest come from the audit's own "none" line (15 m), or from what a player can see.
 
 **Checks for the new decks.** These have nothing to read until step 5. The values are the prototype's.
