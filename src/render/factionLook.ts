@@ -6,7 +6,7 @@ import { HUE_RAMPS, Ramp } from './palette';
 // hues for everything, WHITE trim, YELLOW gold, GREEN leaves, VIOLET bark. No owner (0) or a later build's 6-7 draws as Rainbow's.
 //
 // A look has six slots, as Rainbow's six hues: a blast deals them round its impact as it always has (Splatter), a surface's own slot reads `body`, and its
-// offsets from it (a bay's +1, a gable's and a window's +2, the complement's +3, a roof slope's +5) read `accent`. Rainbow's two are the same six, so its
+// offsets from it (a bay's +1, a gable's +2, the complement's +3, a roof slope's +5) read `accent`, a window's (+2 or +4) `glass`. Rainbow's are the same six, so its
 // offsets are its own hues; the others keep one or two body rows, the one a faction reads by from far off, and their accents mostly in their own family
 // (an accent can be the body's row), so a house's every offset, level 3's bands included, still reads as its faction, with one spice in six.
 //
