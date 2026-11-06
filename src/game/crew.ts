@@ -2,7 +2,8 @@ import { FACTION_MAX, FACTION_RAINBOW } from './factions';
 
 // The testers' faction button (docs/specs/shots/SHOTS.md, "MEGA off, and the faction button"; the producer, 2026-11-06: "i want an easy way to change factions - a
 // button, just for my friends and myself to easily test the factions"). A page whose link carries ?crew (or &crew) turns it on for that phone for good, and the
-// faction picked with it is remembered there too. Without ?crew ever seen, nothing changes: every splat is Rainbow's, as before.
+// faction picked with it is remembered there too. Without ?crew ever seen, nothing changes: every splat is Rainbow's, as before. ?crew=off forgets it all on
+// that phone: no button, and the bus paints as Rainbow again (paint already down keeps its owner).
 //
 // This is the player's faction's one source (game/factions.ts: Splatter.faction and MoonPaint.faction, each a painter's own): main.ts and the flight
 // (sky/moonrun.ts) set their painters from `faction` and again on every change, so a switch takes the next shot, and paint already down keeps its owner.
@@ -24,7 +25,7 @@ class Crew {
   private readonly listeners: Listener[] = [];
   private read = false;
 
-  /** Reads the phone's choice once, and turns the button on for good if this link says ?crew. */
+  /** Reads the phone's choice once, and turns the button on for good if this link says ?crew, or off for good, back to Rainbow, if it says ?crew=off. */
   init(params: URLSearchParams): this {
     if (!this.read) {
       this.read = true;
@@ -39,7 +40,15 @@ class Crew {
         // (storage blocked: the button shows on ?crew pages only, and picks last this page)
       }
     }
-    if (params.has('crew') && !this.on) {
+    if (params.get('crew') === 'off') {
+      this.on = false;
+      this.faction = FACTION_RAINBOW;
+      try {
+        localStorage.removeItem(KEY);
+      } catch {
+        // (storage blocked: nothing was kept)
+      }
+    } else if (params.has('crew') && !this.on) {
       this.on = true;
       this.save();
     }
