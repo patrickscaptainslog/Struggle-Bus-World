@@ -143,7 +143,7 @@ export const LAKE_FLOOD = 12;
  * GLSL: the lake of paint under the floating houses (the terrain's fragment shader, so it lies on any slope and costs no draw). tLake: RGBA32F over
  * the neighbourhood at 1 / uLakeRect.z m a texel from (uLakeRect.x, uLakeRect.y), on its squares only: x the nearest liftable house's index + 1
  * (0 none), y the signed distance to its footprint's edge (m, + inside, down to -LAKE_FLOOD), z and w its jet's foot. Each texel is its nearest
- * house's: once that one is 0.3 m up the ground there is lake, so a lifted block floods as one, yards and streets with it, and a lone house lifted
+ * house's: once that one is 30 ms into its launch the ground there is lake, so a lifted block floods as one, yards and streets with it, and a lone house lifted
  * by a hit leaves a pool to its grounded neighbours' halfway. Rings of the faction's hues, tinted by the house above, run out from each jet's foot,
  * with foam in them and a foam shore; it glows a little, so from a kilometre the lifted block reads as a pool of light. Needs GLSL_LIFT,
  * GLSL_FACTION, uPaint and uPaintW, uGroundTone.
@@ -171,7 +171,8 @@ bool sbLake(vec3 wp, float flatL, out float ramp, out float light, out float glo
   if (idx < 0.0) return false;
   vec4 L = sbLiftTexel(idx);
   float t = uTime - L.x;
-  if (L.y <= 0.0 || t < 0.0 || sbLiftAt(t, uTime, L.y, L.z).x < 0.3) return false;
+  // (once 30 ms into its launch, a metre up for the lowest house: the motion's exp and trig are not run on every lake pixel)
+  if (L.y <= 0.0 || t < ${F(LIFT.crouch)} + 0.03) return false;
   vec4 pt = texelFetch(uPaint, ivec2(int(mod(idx, uPaintW)), int(floor(idx / uPaintW))), 0);
   int fac = sbFac(pt.a > 7.5 ? pt.a - 8.0 : pt.a);
   float hue = floor(pt.r + 0.5);

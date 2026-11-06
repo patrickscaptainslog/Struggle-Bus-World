@@ -460,7 +460,7 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
   }
   // f. a pull up under the layer (the GPU fly's find, 2026-11-06: held under one house, pulled up, the bus came to a lower one and the hard floor
   // put it on that one's roof in one frame, 36 m, through it). Along Steiner held at 24 m for 3 s, then the stick pulled for 7 s: no step up
-  // past 3 m, never in a drawn house, the body (5 m) never in a belly
+  // past 3 m, never in a drawn house, the body (5 m tall, 12 long) never in a belly
   {
     const f = new L.Flight();
     f.x = sx0;
@@ -478,8 +478,12 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
         at = `z ${f2(f.z)}`;
       }
       prevY = f.y;
-      field.query(f.x, f.z, -1e9, 0, true);
-      const u = field.under;
+      // (the bus's point, its nose and its tail: it is 12 m long)
+      let u = Infinity;
+      for (const o of [0, -6, 6]) {
+        field.query(f.x, f.z + o, -1e9, 0, true);
+        u = Math.min(u, field.under);
+      }
       if (u !== Infinity) {
         const t = exactTop(f.x, f.z);
         if (f.y > u && f.y < t) inside++;

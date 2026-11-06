@@ -42,6 +42,8 @@ const NEAR = 2;
 const SLOPE = 2;
 /** the bus's body over its origin (m), less the 1 m the flight's hard clamp leaves: busShape's roof is 3.19 at 1.6 */
 const BODY = 4;
+/** half the bus's length (m) */
+const HALF = 6;
 
 export class LiftField {
   readonly nx: number;
@@ -178,7 +180,7 @@ export class LiftField {
   }
 
   /**
-   * The flight's underside over (x, z) seen from fromY: the lowest belly there or near, a belly d m off counted 2d m higher (so the bus under one
+   * The flight's underside over (x, z) seen from fromY: the lowest belly over the bus (its point, its nose or its tail) or near, a belly d m past those counted 2d m higher (so the bus under one
    * house is let down to a lower one ahead before it gets there, at no step), less the bus's body (it is clamped 1 m under this, its roof 5 m up).
    */
   overhead(x: number, z: number, fromY: number): number {
@@ -191,8 +193,10 @@ export class LiftField {
       for (let di = -NEAR; di <= NEAR; di++) {
         const i = i0 + di;
         if (i < 0 || i >= this.nx || !this.reached[j * this.nx + i]) continue;
-        const cx0 = this.x0 + i * c, d = Math.hypot(Math.max(cx0 - x, 0, x - cx0 - c), dz);
-        if (d >= NEAR * c) continue;
+        const cx0 = this.x0 + i * c, dd = Math.hypot(Math.max(cx0 - x, 0, x - cx0 - c), dz);
+        if (dd >= NEAR * c) continue;
+        // (the bus's nose and tail are 6 m off its point: a belly over either is over the bus)
+        const d = Math.max(0, dd - HALF);
         this.query(cx0 + c * 0.5, cz0 + c * 0.5, fromY, 0, false);
         if (this.under + SLOPE * d < best) best = this.under + SLOPE * d;
       }
