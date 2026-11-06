@@ -44,7 +44,8 @@ order the section's list of fixes needs them:
   rings    each god's ring of 8 its own where it's land: a neighbour's square in it comes over, but a park's (kept
            whole), a heart's ring, or one its neighbour can't spare (0.25 km2, or cut in two)
   tagged   squares where worship, cemetery, memorial, school or hospital cover a quarter of the land: stages 4 and 5 stay off
-A rerun on the same inputs writes the same bytes.
+A rerun on the same inputs writes the same bytes; the log and --json name the libraries it ran on. A city with no
+Overture extract (any of its six files missing) stops with exit 1 and writes nothing.
 
 usage: python -I tools/bake/hoods.py <slug> [--out=DIR] [--json=FILE]
   --out   where hoods.bin and city.json go (default public/city/<slug>/; city.json is read from there if it has one)
@@ -65,7 +66,10 @@ import time
 import unicodedata
 
 import numpy as np
+import pyarrow
 import pyarrow.parquet as pq
+import pyproj
+import scipy
 import shapely
 from pyproj import Transformer
 from scipy import ndimage
@@ -368,8 +372,9 @@ class Hoods:
         infra, ig = self.read('infrastructure', ['id', 'subtype', 'class', 'name', 'tags'])
         bld, bg = self.read('building', ['id', 'subtype', 'class', 'name'],
                             filters=[('subtype', 'in', list(TAG_BUILDING_SUBS) + ['medical'])])
-        if self.missing:
-            self.notes.append(f'not in the extract {self.ov}: {", ".join(self.missing)}')
+        if self.missing:   # a bake from an empty extract names a city after its streets: never write one
+            raise SystemExit(f'hoods: {self.slug} has no Overture extract at {self.ov} ({", ".join(self.missing)} missing): bake '
+                             f'it with tools/bake/overture.py, or point SB_OVERTURE_CACHE at it')
         self.src = dict(divs=(divs, dg), areas=(areas, ag), lu=(lu, lg), land=(land, ng), infra=(infra, ig), bld=(bld, bg))
         log(f'overture {self.release}: {len(divs)} division points, {len(areas)} outlines, {len(lu)} land use, '
             f'{len(land)} land, {len(infra)} infrastructure, {len(bld)} buildings that may be tagged')
@@ -1275,6 +1280,11 @@ class Hoods:
 
     def run(self):
         t0 = time.time()
+        # what a bake ran on: two machines with the same inputs can differ on a square at a border if these do
+        self.libs = dict(python=sys.version.split()[0], numpy=np.__version__, shapely=shapely.__version__,
+                         geos=shapely.geos_version_string, scipy=scipy.__version__, pyproj=pyproj.__version__,
+                         proj=pyproj.proj_version_str, pyarrow=pyarrow.__version__)
+        log('libraries: ' + ', '.join(f'{k} {v}' for k, v in self.libs.items()))
         self.read_tiles()
         self.read_sources()
         self.seeds()
@@ -1389,7 +1399,7 @@ class Hoods:
         self.rows = rows
         self.summary = dict(slug=self.slug, count=n, squares=land, bytes=[len(body), len(gz)], tagged=int(self.tag.sum()),
                             tagged_any=int(self.tag_any.sum()), godless=m['hoods']['godless'], dropped=self.dropped,
-                            missing=self.missing, notes=self.notes, grid=[self.ix0, self.iz0, W, H])
+                            missing=self.missing, notes=self.notes, grid=[self.ix0, self.iz0, W, H], libs=self.libs)
 
 
 def main():

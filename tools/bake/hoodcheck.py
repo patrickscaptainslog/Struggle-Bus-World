@@ -685,6 +685,20 @@ def broken(W, t, man_hoods):
     return out
 
 
+def no_extract(slug):
+    """hoods.py run with an empty folder for its Overture extract: (its exit code, its last line). A bake from no extract
+    names a city after its streets, so it has to stop."""
+    ov = tempfile.mkdtemp(prefix=f'hoods-{slug}-noextract-')
+    out = tempfile.mkdtemp(prefix=f'hoods-{slug}-noextract-out-')
+    r = subprocess.run([sys.executable, '-I', '-B', os.path.join(HERE, 'hoods.py'), slug, f'--out={out}'],
+                       capture_output=True, text=True, encoding='utf-8', env=dict(os.environ, SB_OVERTURE_CACHE=ov))
+    wrote = os.path.exists(os.path.join(out, 'hoods.bin'))
+    shutil.rmtree(ov, ignore_errors=True)
+    shutil.rmtree(out, ignore_errors=True)
+    lines = (r.stdout + r.stderr).strip().splitlines()
+    return r.returncode, wrote, lines[-1] if lines else ''
+
+
 def twice(slug, dirs):
     """hoods.py twice into two fresh folders: (both runs the same, the same as the checked files)."""
     outs = []
@@ -734,6 +748,9 @@ def main():
         for name, target, caught, also in broken(W, t, man.get('hoods')):
             rep(f'broken: {name}', f'{"fails" if caught else "PASSES"} {target}' + (f' (and {", ".join(also)})' if also else ''),
                 'fails', caught)
+        code, wrote, last = no_extract(slug)
+        rep('broken: a bake with no extract', f'exit {code}, {"wrote" if wrote else "no"} hoods.bin: {last[:120]}',
+            'exit 1, nothing written', code != 0 and not wrote)
     print(f'{"FAIL" if rep.failed else "PASS"}: {len(rep.failed)} failed' + (f' ({", ".join(rep.failed)})' if rep.failed else ''), flush=True)
     raise SystemExit(1 if rep.failed else 0)
 
