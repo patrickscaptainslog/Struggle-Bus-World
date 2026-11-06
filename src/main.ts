@@ -47,6 +47,9 @@ import { HeldHour } from './sky/HeldHour';
 import { LiveSky } from './sky/LiveSky';
 import { SkyClock } from './sky/SkyClock';
 import { spanTag } from './sky/Lamps';
+import { hoodStart, liftOn, pickHood } from './world/liftGlsl';
+import { loadHoods, type HoodsRef, type HoodsTable } from './world/hoods';
+import type { Lift } from './world/Lift';
 
 // Struggle Bus — Phase 1 (real SF, solo).
 
@@ -158,6 +161,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // and by the data's id scheme (city.json "ids"): the stores the City opens need it first
   registerCityData(manifest);
   live?.place(manifest.origin, (manifest as { tz?: string }).tz);
+  // ?lift (docs/specs/factions/LIFT.md): the neighbourhood the Lift stages, from hoods.bin (C18's first reader). Without the flag nothing is fetched
+  let liftHood: { hoods: HoodsTable; n: number } | null = null;
+  if (liftOn && !moon) {
+    const hoods = await loadHoods(base, (manifest as { hoods?: HoodsRef }).hoods, dataQuery());
+    const n = hoods ? pickHood(hoods, params.get('hood'), manifest) : -1;
+    if (hoods && n >= 0) liftHood = { hoods, n };
+    else console.warn(hoods ? '?lift: no neighbourhood to lift here' : '?lift: this city has no hoods.bin');
+  }
   if (live) {
     // the stars, the planets and the Moon's map: their draw warms with the scene's, and the files land in it after the city's first tiles (sky/StreetSky.ts, frame())
     scene.add(live.street.object);
@@ -202,6 +213,17 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   flight.x = manifest.start.x;
   flight.z = manifest.start.z;
   flight.heading = manifest.start.heading;
+  /** ?lift: the bus starts at the neighbourhood's edge on the sun's side, facing in (front-lit houses), and no opening under the Golden Gate */
+  let liftPlaced = false;
+  if (liftHood && !params.has('lat')) {
+    updateSun();
+    const s = globals.uSunDir.value, { hoods, n } = liftHood;
+    const at = hoodStart(new Set(hoods.squares[n]), hoods.hearts[n], s.x, s.z);
+    flight.x = at.x;
+    flight.z = at.z;
+    flight.heading = at.heading;
+    liftPlaced = true;
+  }
   if (!moon && params.has('lat') && params.has('lon')) [flight.x, flight.z] = latLonToLocal(Number(params.get('lat')), Number(params.get('lon')), manifest.origin);
   if (params.has('heading')) flight.heading = THREE.MathUtils.degToRad(Number(params.get('heading')));
   if (moon) {
@@ -216,7 +238,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** the opening's gate has opened once: from then a carve shuts it again (it is along the heading) only where the low shot comes back */
   let gateOpened = false;
   // (not on ?earth&resume: the bus comes home from the Moon, wherever the trip brings it down, and the opening's gate and low shot are the first flight's. Review four, 6)
-  if (!params.has('lat') && !resumed && start.opening === 'golden-gate' && ggb?.points) {
+  if (!params.has('lat') && !liftPlaced && !resumed && start.opening === 'golden-gate' && ggb?.points) {
     // thread the gap just north of the south tower so the tower fills the
     // narrow portrait lens as we glide under the deck
     const [, t1, t2] = ggb.points;
@@ -232,6 +254,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const rig = shared?.rig ?? new CameraRig();
   if (openingBridge) rig.openingLow = 1;
   if (moon) rig.floorAt = (x, z) => city.groundAt(x, z);
+  if (liftHood) {
+    // (?lift: the low shot under the houses is longer-lensed and flatter than the opening's, never in the hill, never in a house)
+    rig.floorAt = (x, z) => city.groundAt(x, z);
+    rig.lowDist = 120;
+    rig.lowEl = 3;
+    rig.liftClamp = (x, z, y, low) => lift?.clampLens(x, z, y, low) ?? y;
+  }
   const focus = new THREE.Vector3(flight.x, 60, flight.z);
   // (the first frame streams around the bus: the same want-list, so nothing is asked for twice)
   const primeFocus = focus.clone();
@@ -261,11 +290,37 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const growSprouts = (ref: BuildingRef, hue: number, level: number, start: number) => {
     const rect = city.roofRect(ref);
     // (in its building's faction's colours: the paint texture has it by now, at the impact, or from the save)
-    const top = sprouts.set(ref.index, rect, hue, level, start, city.paint.get(ref.index).faction);
-    if (top > 0) city.raiseRoof(rect, rect.y + top);
+    const top = sprouts.set(ref.index, rect, hue, level, start, city.paint.get(ref.index).faction, liftOn ? ref.baseY : undefined);
+    if (top > 0) {
+      city.raiseRoof(rect, rect.y + top);
+      city.lift?.noteTop(ref.index, rect.y + top);
+    }
     // a tower's own setback gardens, trees and onion domes (baked in its mesh) grow too
     city.growTo(ref, level);
   };
+  // ?lift: the Lift (world/Lift.ts, its own chunk: without the flag it's never fetched)
+  const lift: Lift | null = liftHood
+    ? new (await import('./world/Lift')).Lift({
+        city,
+        scene,
+        sprouts,
+        hoods: liftHood.hoods,
+        hood: liftHood.n,
+        grow: (ref, hue, level, start) => growSprouts(ref, hue, level, start),
+        bump: (x, z, amt) => bumpPaint(x, z, amt),
+        petals: (x, y, z, hue, n) => {
+          const at = new THREE.Vector3(x, y, z);
+          particles.burst(at, hue, 0.6, y);
+          particles.sparkles(at, 3, 2, [hue, (hue + 1) % 6, (hue + 5) % 6], Math.max(1, Math.round(n)));
+        },
+        sound: {
+          wave: () => audio.superMega(0.5),
+          crouch: () => audio.heave(),
+          jump: (n, hue) => audio.bloomBurst(n, hue, 3),
+          note: (i, n, hue) => audio.bloomNote(i, n, hue, 3),
+        },
+      })
+    : null;
   /** 181 Fremont's spire, once its tower streams in: it rides the tower's pop and wobble */
   let spire: SpireRide | null = null;
   /** 181 Fremont's spire binds to its tower (and the roof under it) once both exist (whichever comes last) */
@@ -280,6 +335,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     }
   };
   city.onTile = ({ tx, tz, terrain, refs }) => {
+    lift?.tileIn(tx, tz, refs);
     if (terrain && terrain.trees.length) {
       const list: TreeInstance[] = terrain.trees.map((t) => ({ x: t.x, y: t.y, z: t.z, size: t.size, kind: t.kind }));
       const tf = new TreeField(list);
@@ -1181,7 +1237,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   let skyAsked = !live;
   let firstFrameAt = -1;
 
-  type QA = { sx?: number; sy?: number; holdAt?: number; holdFrames?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null; pin?: { x: number; y: number; z: number; heading: number } | null; noSlide?: boolean };
+  type QA = { sx?: number; sy?: number; holdAt?: number; holdFrames?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null; camAt?: { lat: number; lon: number; h: number; lookLat: number; lookLon: number; lookH: number; hfov?: number } | null; pin?: { x: number; y: number; z: number; heading: number } | null; noSlide?: boolean };
   /** ?moonland: the view the flight left the bus in, for the moments the rig takes to come over from it. */
   let fromSky: (LandEnter & { t: number }) | null = null;
   // ?earth (docs/specs/earth/EARTHFLIGHT.md, E2): the flight's loop, booted behind the street once it's up, and the join between them (sky/EarthLanding.ts). Until it's up the street pumps its own frames
@@ -1277,6 +1333,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       hitStop -= dt;
       dt = 0; // freeze everything: two frames of awe
     }
+    // ?lift: the lift-off's slow motion (decision 13), on the wall clock; the look, the music and the live sky stay on it
+    if (lift) dt *= lift.timeScale(held ? 0 : realDt);
     simTime += dt;
     globals.uTime.value = simTime;
     updateSun(); // cheap; keeps the tuner's light + fog sliders live
@@ -1355,6 +1413,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || leaving || sx !== st.stretch.x }, city);
     // QA: the bus held at a pose, for a look at something from one place
     if (qa?.pin) Object.assign(flight, qa.pin);
+    if (lift) {
+      // (the houses' clocks, the wave, the hold against the bus and last frame's lens, the uploads)
+      lift.busSpeed = flight.ground;
+      lift.frame(renderer, simTime, dt, realDt, { x: flight.x, y: flight.y, z: flight.z, ground: flight.groundUnder }, camera.position, clamp(opening / config.fog.openingDuration, 0, 1));
+    }
     if (!wasFull && flight.fullness >= 1) {
       audio.ready();
       superHint();
@@ -1411,6 +1474,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         rig.openingLow = 0;
         openingBridge = null;
       }
+    } else if (lift) {
+      // ?lift: under the floating houses the camera drops to a low shot, as it does under the Golden Gate
+      rig.openingLow = lift.lowTarget(flight, realDt, rig.lowDist, Math.sin(THREE.MathUtils.degToRad(rig.lowEl)) * rig.lowDist);
     }
     // the look runs on the wall clock (a hit-stop doesn't stall it), and the aim turns with it
     rig.setLook(st.look.on, st.look.x, st.look.y, realDt);
@@ -1455,12 +1521,22 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       camera.lookAt(tx, gy, tz);
       pipeline.focus.set(tx, gy, tz);
     }
+    if (qa?.camAt) {
+      // QA: the lens at a place over the ground, looking at another (?lift's still from the street, under the houses)
+      const c = qa.camAt;
+      const [cx, cz] = latLonToLocal(c.lat, c.lon, manifest.origin);
+      const [lx, lz] = latLonToLocal(c.lookLat, c.lookLon, manifest.origin);
+      camera.position.set(cx, city.groundAt(cx, cz) + c.h, cz);
+      camera.up.set(0, 1, 0);
+      camera.lookAt(lx, city.groundAt(lx, lz) + c.lookH, lz);
+      pipeline.focus.set(lx, city.groundAt(lx, lz), lz);
+    }
     globals.uGroundRef.value = flight.groundUnder - 30;
 
     // ---- altitude: the vista lens, the hero's scale, the marine layer seen from above,
     // streaming ahead under the view, a wider (softer) shadow window
     const vista = rig.vista;
-    pipeline.setHfov(rig.hfov);
+    pipeline.setHfov(qa?.camAt?.hfov ?? rig.hfov);
     bus.root.scale.setScalar(rig.heroScale * superSplat.swell);
     // this frame's matrix now: the breath and the exhaust leave from where the bus IS (not last frame's pose)
     bus.root.updateMatrixWorld(true);
@@ -1579,7 +1655,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       const pick = near[Math.floor(Math.random() * near.length)];
       if (pick && city.paint.level(pick.ref.index) > 0.5) {
         const r = pick.ref;
-        sparkPos.set(r.cx + (Math.random() - 0.5) * 6, r.baseY + Math.random() * (r.roofY - r.baseY + 2), r.cz + (Math.random() - 0.5) * 6);
+        sparkPos.set(r.cx + (Math.random() - 0.5) * 6, r.baseY + Math.random() * (r.roofY - r.baseY + 2) + (lift ? lift.dy(r.index) : 0), r.cz + (Math.random() - 0.5) * 6);
         particles.ambientSparkle(sparkPos, city.paint.get(r.index).color);
       }
     }
@@ -1859,7 +1935,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // (asked for now: there is no asking once the context is gone)
     const lose = renderer.getContext().getExtension('WEBGL_lose_context');
     (window as unknown as Record<string, unknown>).__game = {
-      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: live ?? hour, moon, life,
+      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: live ?? hour, moon, life, lift,
       /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
       get warm() {
         return warm;
