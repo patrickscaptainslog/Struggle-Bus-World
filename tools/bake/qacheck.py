@@ -37,6 +37,10 @@ OVERRIDES = [
     ('woodPerHa', 0.0, False), ('woodPerHa', 20.0, True),
     ('cell', 4096.0, False), ('cell', 32.0, False), ('wcRes', 40.0, False), ('wcRes', 1.0, False),
     ('worst', 100, True), ('crops', 2, True), ('cropMax', 1200.0, True),
+    # (a finite real number only, as json.load reads a config's NaN, Infinity and true: every comparison with NaN is false,
+    # so taken, no check could be over again)
+    ('unsupportedMax', float('nan'), False), ('streetFigureMin', float('nan'), False), ('standInsMax', float('nan'), False),
+    ('deckFreeEndMax', float('-inf'), False), ('streetFigureMin', float('inf'), False), ('minFlagged', True, False),
 ]
 
 
@@ -44,7 +48,7 @@ def overrides(qa):
     why = []
     for k, v, taken in OVERRIDES:
         Q, refused = qa.thresholds({k: v}, log=lambda *a: None)
-        got = Q.get(k) == v
+        got = Q.get(k) is v or Q.get(k) == v  # (is: a NaN taken is never equal to itself)
         listed = any(r[0] == k for r in refused)
         if got != taken or listed == taken:
             why.append(f'{k} {v!r}: ' + ('taken' if got else 'refused') + (', listed' if listed else ', not listed') +

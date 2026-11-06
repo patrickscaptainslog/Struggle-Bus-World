@@ -39,8 +39,8 @@ Exit status: 0 PASS, 3 FAIL (a threshold exceeded; bake.py exits 3 too unless --
 '!!! QA FAIL' block on stdout. Thresholds: QA_DEFAULTS (FAIL when a share exceeds its ...Max and the
 count behind it reaches 'minFlagged' cells / 'minUnsupported' trees: a small --bbox test bake's few
 cells don't fail on one lagoon); a city config's "qa": {...} sets them, but a limit, a floor or how
-strictly a check measures (TIGHTER) only tighter, and how the city is cut up into cells (FIXED) not at
-all: a refused one is ignored, logged and listed in the report. Calibration (2026-10
+strictly a check measures (TIGHTER) only tighter and to a finite number, and how the city is cut up into
+cells (FIXED) not at all: a refused one is ignored, logged and listed in the report. Calibration (2026-10
 test bakes, five frames in San Francisco and London): the old "trees in every park" rule scored
 unsupported 2-39 % (FAIL in three: the Crissy Field frame 39 % with 19 of 65 cells on open land), the
 evidence rule <= 0.11 % and 0 cells; water and sand on all of San Francisco 0.06 % and 0.10 %.
@@ -174,8 +174,8 @@ def load_city(city):
 
 def thresholds(over, log=_log):
     """QA_DEFAULTS with a city config's "qa": a limit, a floor or how strictly a check measures (TIGHTER) only where the
-    config tightens it, and never how the city is cut up (FIXED). A refused one keeps its default, is logged and is
-    listed in the report: [(key, the config's value, the default)]."""
+    config tightens it, and only to a finite number, and never how the city is cut up (FIXED). A refused one keeps its
+    default, is logged and is listed in the report: [(key, the config's value, the default)]."""
     Q = dict(QA_DEFAULTS)
     refused = []
     for k, v in over.items():
@@ -187,7 +187,10 @@ def thresholds(over, log=_log):
             if k == 'bridgeGate':
                 looser = v not in GATE or GATE.index(v) < GATE.index(Q[k])
             else:
-                looser = not isinstance(v, (int, float)) or (v - Q[k]) * TIGHTER[k] < 0
+                # (a finite real number only: json.load reads NaN, and every comparison with it is false, so it never read
+                # as looser and no check could be over again; Infinity is no limit either, and true is an int to Python)
+                looser = (not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v)
+                          or (v - Q[k]) * TIGHTER[k] < 0)
             if looser:
                 refused.append((k, v, Q[k]))
                 log(f'the config\'s "qa" can tighten a limit, never loosen one: {k} {v!r} ignored, {Q[k]!r} stands')
