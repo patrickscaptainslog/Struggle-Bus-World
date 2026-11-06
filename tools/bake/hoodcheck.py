@@ -11,7 +11,8 @@ exit 1 on any failure. Against the city's own baked tiles and Overture extract, 
   sizes    0.25-3 km2; under 0.25 only a whole piece of land, and godless (Alcatraz)
   names    one each, none empty or over 255 bytes, no two that are one place (hoods.norm: Castro, Castro District),
            none with a slash of its own beside another; every place the bake seeds from named on the neighbourhood
-           holding its point, or left off only where that one shows two names already; no place off the map named
+           holding its point, or left off only where that one shows two names already; no place off the map named, and
+           no umbrella beside its own parts (Inner and Outer Sunset beside the Sunset District)
   twice    (--twice) hoods.py run twice, into two folders: the same bytes as each other and as the checked files
   broken   (--broken) every check on a copy of the file broken on purpose, each copy failing the check it breaks
 usage: python -I tools/bake/hoodcheck.py <slug> [--dir=DIR] [--twice] [--broken]
@@ -157,6 +158,16 @@ def digest(tb):
 SPLIT_WORDS = {w for ws in H.STRIPS.values() for w in ws} | set(H.NORTH_SOUTH.values())
 
 
+def base_of(part):
+    """A name without the strip a split gave it ("Outer Richmond West" is Outer Richmond's), else itself."""
+    for w in sorted(SPLIT_WORDS, key=len, reverse=True):
+        if part.endswith(' ' + w):
+            return part[:-len(w) - 1]
+    if len(part.split()) > 1 and part.split()[-1].isdigit():
+        return part.rsplit(' ', 1)[0]
+    return part
+
+
 def carried(names):
     """{a place's name (hoods.norm): the neighbourhoods carrying it}: each name of a merged one, and a split's base
     ("Outer Richmond West" carries Outer Richmond)."""
@@ -164,12 +175,19 @@ def carried(names):
     for k, nm in enumerate(names):
         for part in nm.split(' / '):
             out.setdefault(H.norm(part), set()).add(k)
-            for w in sorted(SPLIT_WORDS, key=len, reverse=True):
-                if part.endswith(' ' + w):
-                    out.setdefault(H.norm(part[:-len(w) - 1]), set()).add(k)
-                    break
-            if part.split()[-1].isdigit():
-                out.setdefault(H.norm(part.rsplit(' ', 1)[0]), set()).add(k)
+            out.setdefault(H.norm(base_of(part)), set()).add(k)
+    return out
+
+
+def umbrellas(names):
+    """Names beside two or more of their own parts called Inner, Outer, Upper, Lower... and the name (the Sunset District
+    beside Inner Sunset and Outer Sunset): the umbrella hoods.py leaves out."""
+    bases = [(k, H.words(base_of(p))) for k, nm in enumerate(names) for p in nm.split(' / ')]
+    out = []
+    for k, w in bases:
+        quals = {v[0] for j, v in bases if j != k and len(v) > 1 and v[1:] == w and v[0] in H.QUALIFIERS}
+        if w and len(quals) >= 2:
+            out.append(f'{names[k]} (beside {len(quals)} of its parts)')
     return out
 
 
@@ -287,6 +305,8 @@ def check(W, t, man_hoods, rep):
     offm = [nm for nm in W.off_map if H.norm(nm) in parts]
     rep('names: a place off the map on a neighbourhood', len(offm), f'0 of {len(W.off_map)} places off the map' +
         (f'; {"; ".join(offm[:6])}' if offm else ''), not offm)
+    umb = umbrellas(tb['names'])
+    rep('names: an umbrella beside its own parts', len(umb), '0' + (f'; {"; ".join(umb[:6])}' if umb else ''), not umb)
     mis, lost, off = places(W, t)
     rep('names: a place named on a neighbourhood that doesn\'t hold its point', len(mis), f'0 of {len(W.places)} places'
         + (f'; {"; ".join(mis[:8])}' if mis else ''), not mis)
@@ -381,6 +401,8 @@ def broken(W, t, man_hoods):
          lambda c, mh: c['names'].__setitem__(slice(0, 2), [c['names'][1], c['names'][0]]))
     case('a name gone', 'names: a place named nowhere, where its neighbourhood had room',
          lambda c, mh: c['names'].__setitem__(0, 'Nowhere At All'))
+    case('an umbrella', 'names: an umbrella beside its own parts',
+         lambda c, mh: c['names'].__setitem__(slice(0, 2), ['Inner ' + base_of(c['names'][2]), 'Outer ' + base_of(c['names'][2])]))
     for name, target, c, mh in cases:
         rep = Report(quiet=True)
         try:

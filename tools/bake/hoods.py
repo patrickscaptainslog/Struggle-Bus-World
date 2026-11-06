@@ -18,7 +18,9 @@ order the section's list of fixes needs them:
            each a neighbourhood of its own. A point or outline named after a whole borough (its name a county's or a locality's,
            or its own outline over 8 km2: London's "City of Westminster") is left out, an outline mostly past the frame
            with under 0.25 km2 of land on the map is a place off the map and left out (London's The Phillimore Estate),
-           and names that are one place (Castro, Castro District) are one seed
+           a suburb's point named as the whole of its parts round it (the Sunset District over Inner Sunset and Outer
+           Sunset) seeds their middle, Central Sunset, or nothing where a Central one is mapped, and names that are one
+           place (Castro, Castro District) are one seed
   sparse   on a piece of land too big for one neighbourhood, a lattice 1.2 km apart on the origin where no point that takes
            squares outside the outlines is within 1.8 km, each point moved to the most open ground within 400 m in no outline
            and no big park, and named from the nearest unused place, park of a hectare or more, or land feature on its piece
@@ -114,6 +116,7 @@ TAG_SUBTYPES = ('religious', 'cemetery')
 TAG_AMENITY = {'place_of_worship', 'grave_yard', 'hospital', 'school', 'university', 'college', 'kindergarten', 'monastery'}
 TAG_BUILDING_SUBS = ('religious', 'education')
 SMALL_MEMORIALS = {'plaque', 'blue_plaque', 'bench', 'stolperstein', 'stone', 'tile'}
+QUALIFIERS = ('inner', 'outer', 'upper', 'lower', 'north', 'south', 'east', 'west', 'central', 'middle', 'mid')
 STRIPS = {2: ('West', 'East'), 3: ('West', 'Central', 'East'), 4: ('West', 'Central West', 'Central East', 'East'),
           5: ('West', 'Central West', 'Central', 'Central East', 'East')}
 NORTH_SOUTH = {'West': 'North', 'East': 'South', 'Central West': 'Central North', 'Central East': 'Central South'}
@@ -132,13 +135,17 @@ def tags_of(v):
         return {}
 
 
-def norm(name):
-    """A name as one place: case, accents, punctuation and spaces gone, 'St.' as 'Saint', and 'the', 'district' and
-    'neighbo(u)rhood' dropped, so Castro District is Castro, and Sea Cliff Seacliff."""
+def words(name):
+    """A name's words as one place: case, accents and punctuation gone, 'St.' as 'Saint', and 'the', 'district' and
+    'neighbo(u)rhood' dropped."""
     s = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode().lower()
     s = re.sub(r'\bst\b\.?', 'saint', s)
-    words = re.sub(r'[^a-z0-9]+', ' ', s).split()
-    return ''.join(w for w in words if w not in ('the', 'district', 'neighborhood', 'neighbourhood'))
+    return [w for w in re.sub(r'[^a-z0-9]+', ' ', s).split() if w not in ('the', 'district', 'neighborhood', 'neighbourhood')]
+
+
+def norm(name):
+    """A name as one place: its words run together, so Castro District is Castro, and Sea Cliff Seacliff."""
+    return ''.join(words(name))
 
 
 def norm_admin(name):
@@ -428,7 +435,14 @@ class Hoods:
             if borough(r, div_m2.get(r.get('id'), 0.0)):
                 self.dropped.append(f'{nm} (named after a whole borough)')
                 continue
-            add(nm, 'point', g.x, g.y, f'division {r["subtype"]} {r.get("osm_id") or r.get("id")}', r['subtype'], div=r.get('id'))
+            over = self.umbrella(nm, g.x, g.y, r['subtype'], S)
+            if over and any(words(p)[0] in ('central', 'middle', 'mid') for p in over):
+                self.dropped.append(f'{nm} (an umbrella over {" and ".join(over)})')
+                continue
+            if over:   # the ground between its parts is their middle: Central Sunset, Central Richmond
+                was, nm = nm, 'Central ' + re.sub(r'^the\s+', '', over[0], flags=re.I).split(' ', 1)[1]
+                self.notes.append(f'{was}: an umbrella over {" and ".join(over)}, its own ground between them {nm}')
+            add(nm, 'point',g.x, g.y, f'division {r["subtype"]} {r.get("osm_id") or r.get("id")}', r['subtype'], div=r.get('id'))
         # outlines, smallest first when they cover a square. A place with an outline of its own holds what it draws and
         # nothing past it, however small it's drawn (Little Saigon, 0.02 km2); an outline with no point of its own seeds
         # only from 0.02 km2 (smaller are plazas)
@@ -503,6 +517,22 @@ class Hoods:
         log(f'seeds: {sum(s["kind"] == "point" for s in S)} points, {sum(s["kind"] == "outline" for s in S)} outlines alone, '
             f'{len(self.outlines)} outlines in all, {len(self.big)} big parks; {len(self.parks)} parks; '
             f'left out: {", ".join(self.dropped) or "none"}')
+
+    def umbrella(self, nm, x, z, sub, S):
+        """The parts a suburb's point names as a whole, when they're named round it: two or more finer points on its piece
+        of land called Inner, Outer, Upper, Lower... and its own name (Inner Sunset and Outer Sunset round the Sunset
+        District), one of them within SPARSE. Its name is theirs already, so it isn't a neighbourhood's beside them: its
+        own ground is their middle, Central Sunset (as the city says it), or nothing where a Central one is mapped. A
+        suburb with one such part (the Mission, with Outer Mission 5.7 km away) is no umbrella."""
+        if sub != 'macrohood':
+            return []
+        core = words(nm)
+        comp = int(self.comp[self.near_land(x, z)[1]])
+        parts = [t for t in S if t['kind'] == 'point' and t['sub'] in ('neighborhood', 'microhood') and t['comp'] == comp
+                 and words(t['name'])[1:] == core and words(t['name'])[0] in QUALIFIERS]
+        if len({words(t['name'])[0] for t in parts}) < 2 or min(math.hypot(t['x'] - x, t['z'] - z) for t in parts) > SPARSE:
+            return []
+        return sorted(t['name'] for t in parts)
 
     def sparse(self):
         """Lattice points on a piece of land too big to be one neighbourhood where no point that takes squares in no outline
