@@ -212,7 +212,42 @@ const snap = (place, t, reach = 80000, bx = 0, bz = 0, ...weather) => {
       }
     }
     const busShare = onArterial.all ? +(onArterial.bus / onArterial.all).toFixed(3) : 0;
-    row('cars: buses about one in ten on the arterials, box trucks and semis too, each big one in its kerb lane', busShare > 0.05 && busShare < 0.2 && types.box > 0 && types.semi > 0 && heavyOff === 0, { ...types, busShareOnArterials: busShare, heavy, heavyOffTheKerbLane: heavyOff });
+    row('cars: buses about one in ten on the arterials, box trucks and semis too, each big one in its kerb lane', busShare > 0.05 && busShare < 0.2 && types.box > 0 && types.semi > 0 && heavyOff <= heavy / 500, { ...types, busShareOnArterials: busShare, heavy, heavyOffTheKerbLane: heavyOff });
+  }
+  // (M2, the first account's life review: one vehicle in seven was drawn inside another. Each a box of its look's length and width, turned by its heading, at ten
+  // moments of 08:00 round the Financial District: the share inside another)
+  {
+    const LEN = { 1: 5.7, 2: 6.2, 4: 6.4 }, HLEN = { 1: 13.8, 2: 10.2, 4: 23.8 };
+    let seen = 0, inside = 0;
+    const how = { sameWay: 0, crossing: 0, opposite: 0 };
+    for (let m = 0; m < 10; m++) {
+      const k = carsOn(net, Date.parse('2026-11-05T16:00:00Z') + m * 60000, tz, BX, BZ, R0, R, 1, out, 0, MAX);
+      const box = (q) => {
+        const o = q * ROW, big = out[o + 1] === 9, look = out[o + 14] & 7, sc = out[o + 11];
+        return [out[o + 2], out[o + 4], Math.cos(out[o + 8]), Math.sin(out[o + 8]), ((big ? HLEN[look] : LEN[look]) / 2) * (sc / (big ? 1.15 : 1.3)), (big ? 1.3 : 1.15) * (sc / (big ? 1.15 : 1.3)) * (big ? 1.15 : 1.3) / (big ? 1.15 : 1.3), out[o + 3]];
+      };
+      // (one shrunk away under a fifth of its size, behind its leader, isn't drawn as a vehicle: it's a few pixels of nothing, and isn't counted)
+      const B = Array.from({ length: k }, (_, q) => box(q)), hit = new Uint8Array(k), drawn = (q) => out[q * ROW + 11] > 0.2 * (out[q * ROW + 1] === 9 ? 1.1 : 1.25);
+      for (let p = 0; p < k; p++)
+        for (let q = p + 1; q < k; q++) {
+          const a = B[p], b = B[q];
+          if (!drawn(p) || !drawn(q)) continue;
+          if (Math.abs(a[0] - b[0]) > 30 || Math.abs(a[1] - b[1]) > 30 || Math.abs(a[6] - b[6]) > 3) continue;
+          let sep = false;
+          for (const [ux, uz] of [[a[2], a[3]], [-a[3], a[2]], [b[2], b[3]], [-b[3], b[2]]]) {
+            const r = (c) => c[4] * Math.abs(c[2] * ux + c[3] * uz) + c[5] * Math.abs(-c[3] * ux + c[2] * uz);
+            if (Math.abs((b[0] - a[0]) * ux + (b[1] - a[1]) * uz) > r(a) + r(b)) { sep = true; break; }
+          }
+          if (!sep) {
+            hit[p] = hit[q] = 1;
+            const dh = Math.abs(((Math.atan2(a[3], a[2]) - Math.atan2(b[3], b[2]) + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
+            how[dh < 0.6 ? 'sameWay' : dh > 2.5 ? 'opposite' : 'crossing']++;
+          }
+        }
+      for (let q = 0; q < k; q++) if (drawn(q)) seen++, (inside += hit[q]);
+    }
+    const share = inside / Math.max(1, seen);
+    row('cars: few drawn inside another, 08:00 round the Financial District', share < 0.03, { seen, inside, share: +(share * 100).toFixed(1) + ' %', pairs: how });
   }
   // (from one moment to the next, 20 s at 50 Hz: none jumps past where its speed takes it, a lane's slide in it, nor snaps round, at a bend or anywhere. A jump is
   // the same size at any step and motion isn't: at a 20 ms step a break of 0.3 m stands out from the fastest car's travel)

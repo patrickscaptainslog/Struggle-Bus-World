@@ -18,7 +18,8 @@ import type { RegionGraph } from '../../world/lifeData';
 
 // (lifeData.ts's values: its file has const enums, which Node's checks can't load, so only its types come in)
 const ROAD = 1, FORWARD = 1, BACKWARD = 2;
-const BRIDGE = 1, TUNNEL = 2, UNDRAWN = 4, NO_CARS = 64;
+const BRIDGE = 1, TUNNEL = 2, UNDRAWN = 4, LINK = 8, NO_CARS = 64;
+const SERVICE = 9, LIVING = 8;
 const TRACK = 10;
 
 /**
@@ -100,10 +101,14 @@ export interface CarNet {
   z0: Float32Array;
   t0: Float32Array;
   t1: Float32Array;
-  /** the ways on from its end: outs[outAt[i]] to outs[outAt[i + 1]], each's weight summed in outW */
+  /** the ways on from its end: outs[outAt[i]] to outs[outAt[i + 1]], each's weight summed in outW, and in outH for a bus or a truck (which keeps off alleys) */
   outAt: Int32Array;
   outs: Int32Array;
   outW: Float32Array;
+  outH: Float32Array;
+  /** its road class and 1 if it's a link (a ramp) */
+  cls: Uint8Array;
+  link: Uint8Array;
   /** the fastest way's speed (m/s): how far a car may have come since it was born */
   vmax: number;
 }
@@ -149,7 +154,8 @@ export function buildNet(graphs: RegionGraph[]): CarNet {
   const net: CarNet = {
     n, graphs, g: new Uint16Array(n), e: new Uint32Array(n), rev: new Uint8Array(n), id: new Uint32Array(n), seed: new Uint32Array(n), len: new Float32Array(n), v: new Float32Array(n),
     lanes: new Uint8Array(n), two: new Uint8Array(n), tunnel: new Uint8Array(n), deck: new Uint8Array(n), head: new Float32Array(n), x0: new Float32Array(n), z0: new Float32Array(n),
-    t0: new Float32Array(n * 2), t1: new Float32Array(n * 2), outAt: new Int32Array(n + 1), outs: new Int32Array(0), outW: new Float32Array(0), vmax: 0,
+    t0: new Float32Array(n * 2), t1: new Float32Array(n * 2), outAt: new Int32Array(n + 1), outs: new Int32Array(0), outW: new Float32Array(0), outH: new Float32Array(0),
+    cls: new Uint8Array(n), link: new Uint8Array(n), vmax: 0,
   };
   const from = new Uint32Array(n), to = new Uint32Array(n);
   let w = 0;
@@ -169,6 +175,8 @@ export function buildNet(graphs: RegionGraph[]): CarNet {
         net.lanes[w] = Math.max(1, E.lanes[i] || LANES[c]);
         net.two[w] = E.dir[i] === FORWARD || E.dir[i] === BACKWARD ? 0 : 1;
         net.tunnel[w] = E.flags[i] & TUNNEL ? 1 : 0;
+        net.cls[w] = c;
+        net.link[w] = E.flags[i] & LINK ? 1 : 0;
         net.deck[w] = E.flags[i] & BRIDGE ? 1 : 0;
         from[w] = N.id[r ? E.b[i] : E.a[i]];
         to[w] = N.id[r ? E.a[i] : E.b[i]];
@@ -209,31 +217,64 @@ export function buildNet(graphs: RegionGraph[]): CarNet {
     else at.set(from[i], [i]);
   }
   for (const l of at.values()) l.sort((p, q) => net.id[p] - net.id[q] || net.rev[p] - net.rev[q]);
-  const outs: number[] = [], outW: number[] = [];
+  const outs: number[] = [], outW: number[] = [], outH: number[] = [];
   for (let i = 0; i < n; i++) {
     net.outAt[i] = outs.length;
-    let sum = 0;
+    let sum = 0, sumH = 0;
     for (const j of at.get(to[i]) ?? []) {
       if (net.id[j] === net.id[i]) continue; // (never back the way it came)
-      // (mostly straight on: a turn a fifth as likely, and one back past 120 degrees, into an alley behind, hardly ever unless it's the only way on)
+      // (mostly straight on: a turn a fifth as likely, and one back past 120 degrees, into an alley behind, hardly ever unless it's the only way on. Onto a smaller
+      // road a third as likely, so the classes keep their traffic; onto a ramp off a road that isn't one a sixth, so an exit takes a tenth or so (the first account's
+      // life review, m4 and m5). A bus or a truck keeps off alleys and living streets but where it's the only way on)
       const c = net.t1[i * 2] * net.t0[j * 2] + net.t1[i * 2 + 1] * net.t0[j * 2 + 1];
-      sum += c < -0.5 ? 0.02 : 0.5 + 2 * Math.max(0, c) ** 4;
+      let wgt = c < -0.5 ? 0.02 : 0.5 + 2 * Math.max(0, c) * Math.max(0, c) * Math.max(0, c) * Math.max(0, c);
+      if (net.cls[j] > net.cls[i] + 1) wgt *= 0.35;
+      if (net.link[j] && !net.link[i]) wgt *= 0.16;
+      sum += wgt;
+      sumH += net.cls[j] === SERVICE || net.cls[j] === LIVING ? wgt * 0.03 : wgt;
       outs.push(j);
       outW.push(sum);
+      outH.push(sumH);
     }
   }
   net.outAt[n] = outs.length;
   net.outs = Int32Array.from(outs);
   net.outW = Float32Array.from(outW);
+  net.outH = Float32Array.from(outH);
+  // (births at a road's real starts only, a junction or a dead end, never at a mere split in one road, the rate a start's its whole run of splits after it: the first
+  // account's life review, M2 and m1, where 63 % of cars grew out of the road mid-street and the streams born at every split ran into each other)
+  const ins = new Uint16Array(n);
+  for (let i = 0; i < n; i++) for (let k = net.outAt[i]; k < net.outAt[i + 1]; k++) ins[net.outs[k]]++;
+  const isSplit = new Uint8Array(n);
+  {
+    // (which way feeds each: the one in, where there's one)
+    const feeder = new Int32Array(n).fill(-1);
+    for (let i = 0; i < n; i++) for (let k = net.outAt[i]; k < net.outAt[i + 1]; k++) feeder[net.outs[k]] = i;
+    for (let w = 0; w < n; w++) isSplit[w] = ins[w] === 1 && feeder[w] >= 0 && net.outAt[feeder[w] + 1] - net.outAt[feeder[w]] === 1 ? 1 : 0;
+  }
+  for (let w = 0; w < n; w++) {
+    if (isSplit[w] || !net.head[w]) {
+      net.head[w] = 0;
+      continue;
+    }
+    let run = net.len[w], x = w;
+    for (let guard = 0; guard < 64 && net.outAt[x + 1] - net.outAt[x] === 1; guard++) {
+      x = net.outs[net.outAt[x]];
+      if (!isSplit[x] || x === w) break;
+      run += net.len[x];
+    }
+    const c = net.cls[w];
+    net.head[w] = Math.max(HEAD_MIN, ((LIFE_MIN + LIFE_MAX) / 2) / ((PEAK[c] * run) / 1000));
+  }
   return net;
 }
 
-/** The way a car of seed `s` takes on from way w, its `step`th choice; -1: none (a dead end, or the graphs loaded end there). */
-function next(net: CarNet, w: number, s: number, step: number): number {
+/** The way a car of seed `s` takes on from way w, its `step`th choice, `heavy` a bus's or a truck's; -1: none (a dead end, or the graphs loaded end there). */
+function next(net: CarNet, w: number, s: number, step: number, heavy: boolean): number {
   const a = net.outAt[w], b = net.outAt[w + 1];
   if (a === b) return -1;
-  const u = unit(mix(s, step, 7)) * net.outW[b - 1];
-  for (let k = a; k < b - 1; k++) if (u < net.outW[k]) return net.outs[k];
+  const W = heavy ? net.outH : net.outW, u = unit(mix(s, step, 7)) * W[b - 1];
+  for (let k = a; k < b - 1; k++) if (u < W[k]) return net.outs[k];
   return net.outs[b - 1];
 }
 
@@ -336,6 +377,57 @@ export function traffic(localHour: number): number {
 export function carsOn(net: CarNet, utcMs: number, tzMin: number, bx: number, bz: number, full: number, reach: number, keep: number, out: Float32Array, at: number,
   max: number, keys?: (hash: number, key: string) => void, ways?: Int32Array): number {
   if (!net.n || keep <= 0) return at;
+  const first = at;
+  at = carsPlaced(net, utcMs, tzMin, bx, bz, full, reach, keep, out, at, max, keys, ways);
+  unoverlap(out, first, at);
+  return at;
+}
+
+/** Each kept vehicle's half length (m, at its scale) and lateral place, by row, for unoverlap (reused). */
+let half = new Float32Array(0);
+/**
+ * The first account's life review, M2: one vehicle in seven was drawn inside another, streams merging at junctions in one lane at one speed. A vehicle that sits
+ * within its leader's length, in its lane and going its way, shrinks just enough to stay clear of the leader's tail as it closes up, and grows back as they part:
+ * continuous in its place, so never a jump, and two bodies are never drawn in one place. Rows `a` to `b` of `out`.
+ */
+function unoverlap(out: Float32Array, a: number, b: number): void {
+  const n = b - a;
+  if (n < 2) return;
+  if (half.length < n) half = new Float32Array(n * 2);
+  const order: number[] = [];
+  for (let q = 0; q < n; q++) {
+    const o = (a + q) * ROW, look = out[o + Col.LOOK] & 7, big = out[o + Col.KIND] === Kind.TRUCK;
+    half[q] = 0.5 * (big ? (look === 1 ? 12 : look === 2 ? 9.3 : 20.4) : 4.4) * out[o + Col.SCALE];
+    order.push(q);
+  }
+  // (near ones first by a coarse cell, then each against the next few along it)
+  order.sort((p, q) => out[(a + p) * ROW + Col.X] - out[(a + q) * ROW + Col.X]);
+  const fade = new Float32Array(n).fill(1);
+  for (let i = 0; i < n; i++) {
+    const p = order[i], op = (a + p) * ROW;
+    for (let k = i + 1; k < n; k++) {
+      const q = order[k], oq = (a + q) * ROW, dx = out[oq + Col.X] - out[op + Col.X];
+      if (dx > 30) break;
+      const dz = out[oq + Col.Z] - out[op + Col.Z];
+      if (dz > 30 || dz < -30 || Math.abs(out[oq + Col.Y] - out[op + Col.Y]) > 3) continue;
+      const hp = out[op + Col.HEADING], hq = out[oq + Col.HEADING], dh = Math.abs(((hp - hq + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
+      if (dh > 0.6) continue;
+      // (along p's way and across it: which is behind, and whether it's in p's lane)
+      const ux = Math.cos(hp), uz = Math.sin(hp), along = dx * ux + dz * uz, across = -dx * uz + dz * ux;
+      if (Math.abs(across) > 1.8) continue;
+      const room = half[p] + half[q] + 1, gap = Math.abs(along);
+      if (gap >= room) continue;
+      // (the one behind shrinks just enough to stay clear of its leader's tail, half a metre off, gone where its middle reaches it)
+      const back = along > 0 ? p : q, lead = back === p ? q : p, f = Math.max(0, Math.min(1, (gap - half[lead] - 0.5) / half[back]));
+      fade[back] = Math.min(fade[back], f);
+    }
+  }
+  for (let q = 0; q < n; q++) if (fade[q] < 1) out[(a + q) * ROW + Col.SCALE] *= Math.max(0.02, fade[q]);
+}
+
+/** carsOn's placing: every vehicle in reach, before unoverlap. */
+function carsPlaced(net: CarNet, utcMs: number, tzMin: number, bx: number, bz: number, full: number, reach: number, keep: number, out: Float32Array, at: number,
+  max: number, keys?: (hash: number, key: string) => void, ways?: Int32Array): number {
   const u32 = new Uint32Array(out.buffer, out.byteOffset, out.length), t = utcMs / 1000, vmax = net.vmax;
   for (let w0 = 0; w0 < net.n && at < max; w0++) {
     const H = net.head[w0];
@@ -350,7 +442,7 @@ export function carsOn(net: CarNet, utcMs: number, tzMin: number, bx: number, bz
       const s = mix(seed, k, 1);
       if (unit(s) >= traffic(tb / 3600 + tzMin / 60)) continue;
       // (what it is; and not born on top of the slot before's, if that one was born: their middles apart by their half lengths and 3 m at the way's speed)
-      const cls = net.graphs[net.g[w0]].edges.cls[net.e[w0]], type = typeOf(s, cls);
+      const cls = net.cls[w0], type = typeOf(s, cls), hv = type >= 3;
       {
         const tp = (k - 1 + 0.5 * unit(mix(seed, k - 1))) * H, sp = mix(seed, k - 1, 1);
         if (unit(sp) < traffic(tp / 3600 + tzMin / 60) && (tb - tp) * net.v[w0] < (LOOK_LEN[typeOf(sp, cls)] + LOOK_LEN[type]) / 2 + 3) continue;
@@ -364,7 +456,7 @@ export function carsOn(net: CarNet, utcMs: number, tzMin: number, bx: number, bz
         const te = net.len[w] / net.v[w];
         if (tau < te) break;
         tau -= te;
-        const nx = next(net, w, s, step);
+        const nx = next(net, w, s, step, hv);
         if (nx < 0 || step > 96) {
           gone = true;
           break;
@@ -375,7 +467,7 @@ export function carsOn(net: CarNet, utcMs: number, tzMin: number, bx: number, bz
       }
       if (gone || net.tunnel[w]) continue;
       // (and how soon its path ends, if within the fade)
-      const nxt = next(net, w, s, step);
+      const nxt = next(net, w, s, step, hv);
       let left = net.len[w] / net.v[w] - tau, endIn = Infinity;
       for (let ahead = nxt, st = step + 1; left < FADE; st++) {
         if (ahead < 0) {
@@ -383,7 +475,7 @@ export function carsOn(net: CarNet, utcMs: number, tzMin: number, bx: number, bz
           break;
         }
         left += net.len[ahead] / net.v[ahead];
-        ahead = next(net, ahead, s, st);
+        ahead = next(net, ahead, s, st, hv);
       }
       // (the path a chord's length either side of it: the ways it came by, and those it will take)
       const at0 = tau * net.v[w];
@@ -400,7 +492,7 @@ export function carsOn(net: CarNet, utcMs: number, tzMin: number, bx: number, bz
           break;
         }
         got += net.len[x];
-        x = next(net, x, s, st++);
+        x = next(net, x, s, st++, hv);
       }
       placeOn(net, at0, type >= 3 ? -1 : mix(s, 4));
       const d = Math.sqrt((C.x - bx) * (C.x - bx) + (C.z - bz) * (C.z - bz));
