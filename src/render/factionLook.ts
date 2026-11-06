@@ -83,16 +83,17 @@ export const FACTION_LOOKS: readonly FactionLook[] = (() => {
     leaf: MAGENTA,
     bark: CHROME,
   };
-  // Inferno: crimson and black glass walls, the flame's gold (YELLOW) on their edges and in a third of the accents (level 3's bands on four houses in six,
-  // the black houses' roofs and gables), its windows flame orange and red (a sixth black glass, none the gold a city's lit window is), black glass domes,
-  // and a sixth of its ground glowing orange where the black glass, near black now, would vanish on asphalt
+  // Inferno: crimson and black glass walls, red-hot trim (RED: a Painted Lady's frames and belts are half its face, too much for the flame's gold, which
+  // made gold houses), the flame's gold (YELLOW) in a sixth of the accents (level 3's zigzag bands on a house in three, a tower's veins), its windows flame
+  // orange and red (a sixth black glass, none the gold a city's lit window is), black glass domes, and a sixth of its ground glowing orange where the black
+  // glass, near black now, would vanish on asphalt
   looks[FACTION_INFERNO] = {
     body: [CRIMSON, OBSIDIAN, CRIMSON, CRIMSON, OBSIDIAN, CRIMSON],
-    accent: [YELLOW, CRIMSON, OBSIDIAN, YELLOW, CRIMSON, OBSIDIAN],
+    accent: [YELLOW, CRIMSON, OBSIDIAN, CRIMSON, CRIMSON, OBSIDIAN],
     glass: [ORANGE, RED, ORANGE, OBSIDIAN, RED, ORANGE],
     ground: [CRIMSON, OBSIDIAN, CRIMSON, ORANGE, CRIMSON, CRIMSON],
     spray: [CRIMSON, YELLOW, CRIMSON, OBSIDIAN, CRIMSON, YELLOW],
-    trim: YELLOW,
+    trim: RED,
     gold: OBSIDIAN,
     leaf: CRIMSON,
     bark: OBSIDIAN,
