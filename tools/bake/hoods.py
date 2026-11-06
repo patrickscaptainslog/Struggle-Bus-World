@@ -19,15 +19,19 @@ order the section's list of fixes needs them:
            or its own outline over 8 km2: London's "City of Westminster") is left out, an outline mostly past the frame
            with under 0.25 km2 of land on the map is a place off the map and left out (London's The Phillimore Estate),
            and names that are one place (Castro, Castro District) are one seed
-  sparse   on a piece of land too big for one neighbourhood, a lattice 1.2 km apart on the origin where no seed is within
-           1.8 km, each point moved to the most open ground within 400 m and named from the nearest unused place, park or
-           land feature on its piece of land, else street; a piece of land with no seed gets one, named for its islands
-  assign   a square to the big park covering half its land, else the smallest outline covering half, else the nearest seed
-           on its piece of land
+  sparse   on a piece of land too big for one neighbourhood, a lattice 1.2 km apart on the origin where no point that takes
+           squares outside the outlines is within 1.8 km, each point moved to the most open ground within 400 m in no outline
+           and no big park, and named from the nearest unused place, park of a hectare or more, or land feature on its piece
+           of land, else street; a piece of land with no seed gets one, named for its islands
+  assign   a square to the big park covering half its land, else, in the smallest outline covering half, the nearest of
+           that outline's own place and the places drawn as points inside it, else the nearest point in no outline on its
+           piece of land; a place with an outline of its own holds no square past it. A place left with no square rides
+           with the neighbourhood holding its point, its name kept
   parks    never cut in two: a park's squares (those it covers a quarter of) go to the neighbourhood its middle is in, a big
            park's to its own; a park of over a quarter of 3 km2 can be split with the neighbourhood it makes
   merge    a neighbourhood's pieces apart from its biggest, and neighbourhoods under 0.25 km2, join the neighbour they share
-           the longest border with, keeping both names ("A / B"); a whole piece of land under it stays, godless (Alcatraz)
+           the longest border with (one of their own place's family first: the outline they're part of and its other
+           parts), keeping both names ("A / B"); a whole piece of land under it stays, godless (Alcatraz)
   split    anything over 3 km2 into strips across its longer side, parks whole, named West and East, or North and South
   hearts   one square each: in its biggest park, else its highest open ground, never on a tagged place, at least 450 m from
            every other heart; a neighbourhood whose heart can't be placed joins the neighbour in its way
@@ -81,12 +85,14 @@ HEARTS_APART = 450.0            # m between hearts' square centres
 BIG_PARK = 0.5e6                # m2 of land: a named park this big is a neighbourhood of its own
 OUTLINE_M2 = (0.02e6, 8e6)      # outlines used: smaller are plazas, bigger a borough
 OFF_MAP = 0.25                  # an outline with less of it in the frame than this, and under 0.25 km2 of land in it, is off the map
+NEST = 0.8                      # an outline with this share of it inside a bigger one is that one's part
 NEAR_LAND = 200.0               # a point this far off the land still seeds (a pier's end, a beach)
 FILL = 1200.0                   # sparse: a lattice this far apart...
 SPARSE = 1.5 * FILL             # ...where no seed is within one and a half of its steps (San Francisco's Sunset, its points
 #                                 1.2-1.4 km apart, isn't sparse; the Marin Headlands, with none, are)
 FILL_MOVE = 400.0               # each lattice point to the most open ground within this
 FILL_NAME = 1500.0              # a lattice point's name from a place, park or land feature this near, else a street's
+NAME_PARK_M2 = 1e4              # a park this big names a lattice point (a pocket park or a garden doesn't name a km2)
 COVER = 0.5                     # a park or an outline takes a square it covers this share of
 PARK_SQUARE = 0.25              # a park's squares, kept in one neighbourhood: those it covers this share of...
 PARK_WHOLE = MAX_SQUARES // 4   # ...up to this many (0.74 km2); a bigger park may be split with the neighbourhood it makes
@@ -377,8 +383,9 @@ class Hoods:
                 squares.add(r['name'])
                 plaza.add(i)
         self.dropped = []
-        S = []   # seeds: dict(name, kind, x, z, comp, ...)
+        S = []   # seeds: dict(name, kind, x, z, comp, at (its land square), ...)
         by_norm = {}
+        by_div = {}   # a division's id: its seed (an outline finds its own point by it)
 
         def borough(r, area_m2):
             nm = r['name']
@@ -389,7 +396,7 @@ class Hoods:
             which names nothing here (London's The Phillimore Estate, 1 % of it on the map)."""
             return float(n.sum()) * STEP * STEP < MIN_SQUARES * SQ * SQ and g.intersection(self.frame).area < OFF_MAP * g.area
 
-        def add(name, kind, x, z, src, sub):
+        def add(name, kind, x, z, src, sub, div=None):
             d, s = self.near_land(x, z)
             if d > NEAR_LAND:
                 return None
@@ -397,9 +404,13 @@ class Hoods:
             comp = int(self.comp[s])
             if key in by_norm and S[by_norm[key]]['comp'] == comp:
                 S[by_norm[key]]['also'].append((name, x, z, src))   # one place, two names or two points: one seed
+                if div:
+                    by_div[div] = by_norm[key]
                 return by_norm[key]
-            S.append(dict(name=name, kind=kind, x=float(x), z=float(z), comp=comp, src=src, sub=sub, also=[], polys=[]))
+            S.append(dict(name=name, kind=kind, x=float(x), z=float(z), comp=comp, at=int(s), src=src, sub=sub, also=[], polys=[]))
             by_norm.setdefault(key, len(S) - 1)
+            if div:
+                by_div[div] = len(S) - 1
             return len(S) - 1
 
         order = sorted(range(len(divs)), key=lambda i: (HOOD_SUBS.index(divs[i]['subtype']) if divs[i]['subtype'] in HOOD_SUBS else 9,
@@ -417,8 +428,10 @@ class Hoods:
             if borough(r, div_m2.get(r.get('id'), 0.0)):
                 self.dropped.append(f'{nm} (named after a whole borough)')
                 continue
-            add(nm, 'point', g.x, g.y, f'division {r["subtype"]} {r.get("osm_id") or r.get("id")}', r['subtype'])
-        # outlines, smallest first when they cover a square
+            add(nm, 'point', g.x, g.y, f'division {r["subtype"]} {r.get("osm_id") or r.get("id")}', r['subtype'], div=r.get('id'))
+        # outlines, smallest first when they cover a square. A place with an outline of its own holds what it draws and
+        # nothing past it, however small it's drawn (Little Saigon, 0.02 km2); an outline with no point of its own seeds
+        # only from 0.02 km2 (smaller are plazas)
         self.outlines = []
         aorder = sorted(range(len(areas)), key=lambda i: (ag[i].area, areas[i].get('name') or ''))
         for i in aorder:
@@ -427,9 +440,8 @@ class Hoods:
             if (r['subtype'] not in HOOD_SUBS or r.get('class') != 'land' or not nm or nm in squares or norm(nm) in own
                     or g.geom_type not in ('Polygon', 'MultiPolygon')):
                 continue
-            if not OUTLINE_M2[0] <= g.area <= OUTLINE_M2[1] or norm_admin(nm) in admin:
-                if g.area > OUTLINE_M2[1] or norm_admin(nm) in admin:
-                    self.dropped.append(f'{nm} outline, {g.area / 1e6:.2f} km2 (a whole borough)')
+            if g.area > OUTLINE_M2[1] or norm_admin(nm) in admin:
+                self.dropped.append(f'{nm} outline, {g.area / 1e6:.2f} km2 (a whole borough)')
                 continue
             sq, n = self.cover(g)
             if not len(sq):
@@ -438,7 +450,11 @@ class Hoods:
                 self.dropped.append(f'{nm} outline, {g.intersection(self.frame).area / g.area:.0%} of it on the map')
                 continue
             key = norm(nm)
-            si = by_norm.get(key)
+            si = by_div.get(r.get('division_id'))
+            if si is None:
+                si = by_norm.get(key)
+            if si is None and g.area < OUTLINE_M2[0]:
+                continue
             if si is None:
                 p = g.representative_point()
                 si = add(nm, 'outline', p.x, p.y, f'division_area {r["subtype"]} {r.get("osm_id") or r.get("id")}', r['subtype'])
@@ -477,8 +493,9 @@ class Hoods:
                 S[si]['park'] = pi
                 self.big.append((pi, si))
                 continue
-            x, z = self.centre(int(p['sq'][np.argmax(p['n'])]))
-            S.append(dict(name=p['name'], kind='park', x=float(x), z=float(z), comp=comp, src=p['src'], sub='park',
+            at = int(p['sq'][np.argmax(p['n'])])
+            x, z = self.centre(at)
+            S.append(dict(name=p['name'], kind='park', x=float(x), z=float(z), comp=comp, at=at, src=p['src'], sub='park',
                           also=[], polys=[], park=pi))
             by_norm.setdefault(norm(p['name']), len(S) - 1)
             self.big.append((pi, len(S) - 1))
@@ -488,13 +505,14 @@ class Hoods:
             f'left out: {", ".join(self.dropped) or "none"}')
 
     def sparse(self):
-        """Lattice points on a piece of land too big to be one neighbourhood where no seed is within SPARSE, and one seed
-        for a piece of land with none (Treasure Island and Yerba Buena Island, Alcatraz)."""
+        """Lattice points on a piece of land too big to be one neighbourhood where no point that takes squares in no outline
+        is within SPARSE (an outline holds only its own, and a big park only its own), each on a square in no outline and
+        no big park; and one seed for a piece of land with none (Treasure Island and Yerba Buena Island, Alcatraz)."""
         S = self.S
-        geoms = [shapely.Point(s['x'], s['z']) for s in S if s['kind'] != 'park']
-        geoms += [self.src['areas'][1][a] for s in S for a in s['polys']]
-        geoms += [self.parks[s['park']]['g'] for s in S if s['kind'] == 'park']
+        self.regions()
+        geoms = [shapely.Point(s['x'], s['z']) for s in S if s['free']]
         tree = shapely.STRtree(geoms) if geoms else None
+        open_sq = (self.region < 0) & ~self.bigsq
         big = np.bincount(self.comp[self.land_idx], minlength=self.ncomp) > MAX_SQUARES
         x0, z0, x1, z1 = self.man['bounds']
         fill = []
@@ -509,10 +527,11 @@ class Hoods:
                     j = tree.query_nearest(p, return_distance=True)
                     if len(j[1]) and j[1][0] <= SPARSE:
                         continue
-                # the most open ground within FILL_MOVE
+                # the most open ground within FILL_MOVE, in no outline and no big park
                 cand = [int(self.land_idx[k]) for k in self.tree.query_ball_point([x, z], FILL_MOVE)]
+                cand = [c for c in cand if open_sq[c]] or ([s] if open_sq[s] else [])
                 if not cand:
-                    cand = [s]
+                    continue
                 best = min(cand, key=lambda c: (-round(self.open[c], 3), math.hypot(self.centre(c)[0] - x, self.centre(c)[1] - z), c))
                 fill.append(best)
         have = {s['comp'] for s in S} | {int(self.comp[f]) for f in fill}
@@ -525,7 +544,8 @@ class Hoods:
         self.fill = sorted(set(fill))
         for s in self.fill:
             x, z = self.centre(s)
-            S.append(dict(name=None, kind='fill', x=x, z=z, comp=int(self.comp[s]), src='lattice', sub='fill', also=[], polys=[]))
+            S.append(dict(name=None, kind='fill', x=x, z=z, comp=int(self.comp[s]), at=int(s), src='lattice', sub='fill', also=[],
+                          polys=[]))
         log(f'sparse: {len(self.fill)} lattice points')
 
     def comps_of(self, g):
@@ -568,7 +588,8 @@ class Hoods:
             if r.get('name') and r['subtype'] in HOOD_SUBS + ('locality',) and r.get('class') != 'city':
                 cands.append((r['name'].strip(), g, 'place'))
         for r, g in zip(lu, lg):
-            if r.get('name') and r.get('subtype') in NAME_PARKS:
+            if r.get('name') and r.get('subtype') in NAME_PARKS and (g.geom_type not in ('Polygon', 'MultiPolygon')
+                                                                    or g.area >= NAME_PARK_M2):
                 cands.append((r['name'].strip(), g, 'park'))
         for r, g in zip(land, ng):
             if r.get('name') and r.get('class') in NAME_LAND:
@@ -634,29 +655,83 @@ class Hoods:
 
     # ------------------------------------------------------------------ assignment
 
+    def regions(self):
+        """Each land square's outline, the smallest covering half its land on its seed's piece of land (-1: none), and
+        who competes where. An outline is a place's whole: it holds its own seed and the places drawn as points inside it
+        (Japantown, the Fillmore and Lower Pacific Heights in the Western Addition; West SoMa in South of Market), each
+        square to the nearest of them; a place with an outline of its own is held to it. A square in no outline goes to
+        the nearest of the points in none."""
+        W, H = self.w, self.h
+        region = np.full(W * H, -1, np.int64)
+        order = sorted(range(len(self.outlines)), key=lambda k: (self.outlines[k][0], self.outlines[k][1]))
+        for k in order:
+            area, si, sq, n, _ = self.outlines[k]
+            m = (n >= COVER * self.landN[sq]) & (region[sq] < 0) & (self.comp[sq] == self.S[si]['comp'])
+            region[sq[m]] = k
+        held = {}
+        for k, o in enumerate(self.outlines):
+            held.setdefault(o[1], []).append(k)
+        groups = {}   # ('o', outline) or ('f', piece of land): the seeds competing for its squares
+        for si, s in enumerate(self.S):
+            s['free'] = False
+            if s['kind'] == 'park':
+                continue
+            if si in held:
+                for k in held[si]:
+                    groups.setdefault(('o', k), []).append(si)
+                s['parent'] = None
+            else:
+                k = int(region[s['at']])
+                s['parent'] = self.outlines[k][1] if k >= 0 else None
+                s['free'] = k < 0
+                groups.setdefault(('o', k) if k >= 0 else ('f', s['comp']), []).append(si)
+        # a place with an outline of its own is a part of the smallest other outline holding most of it (Amsterdam's
+        # Da Costabuurt and Kinkerbuurt in Oud-West), as a point is of the one it's in: a small piece merges in its family
+        for si, ks in held.items():
+            best = None
+            for k in ks:
+                a, _, _, _, g = self.outlines[k]
+                for b, sj, _, _, o in self.outlines:
+                    if (sj != si and b > a and (best is None or b < best[0])
+                            and shapely.make_valid(g).intersection(shapely.make_valid(o)).area >= NEST * a):
+                        best = (b, sj)
+            self.S[si]['parent'] = best[1] if best else None
+        # the squares a big park covers half of: its own, whoever is nearest
+        bigsq = np.zeros(W * H, bool)
+        for pi, si in self.big:
+            p = self.parks[pi]
+            bigsq[p['sq'][(p['n'] >= COVER * self.landN[p['sq']]) & (self.comp[p['sq']] == self.S[si]['comp'])]] = True
+        self.region, self.groups, self.bigsq = region, groups, bigsq
+
+    def group_of(self, s):
+        """The seeds competing for land square s: its outline's, else the free points on its piece of land (else, on a
+        piece with none free, every seed on it; big parks only where there's no other)."""
+        k = int(self.region[s])
+        c = int(self.comp[s])
+        ss = self.groups.get(('o', k) if k >= 0 else ('f', c))
+        if not ss:
+            ss = [i for i, t in enumerate(self.S) if t['comp'] == c and t['kind'] != 'park'] or \
+                 [i for i, t in enumerate(self.S) if t['comp'] == c]
+        return ss
+
     def assign(self):
         W, H = self.w, self.h
         own = np.full(W * H, -1, np.int64)
         land = self.land_idx
-        # nearest seed on the square's piece of land (big parks only on a piece with no other seed)
-        for c in range(self.ncomp):
-            cs = land[self.comp[land] == c]
-            ss = [i for i, s in enumerate(self.S) if s['comp'] == c and s['kind'] != 'park']
-            if not ss:
-                ss = [i for i, s in enumerate(self.S) if s['comp'] == c]
+        self.regions()
+        # each square to the nearest seed of its group
+        keys = {}
+        for s in land.tolist():
+            keys.setdefault(tuple(self.group_of(s)), []).append(s)
+        for ss, cs in sorted(keys.items()):
             if not ss:
                 continue
+            cs = np.array(cs, np.int64)
             pts = np.array([[self.S[i]['x'], self.S[i]['z']] for i in ss])
             xs = (self.ix0 + cs % W + 0.5) * SQ
             zs = (self.iz0 + cs // W + 0.5) * SQ
             _, j = cKDTree(pts).query(np.column_stack([xs, zs]))
             own[cs] = np.array(ss)[j]
-        # outlines, smallest first: a square to the smallest covering half its land
-        taken = np.zeros(W * H, bool)
-        for area, si, sq, n, _ in sorted(self.outlines, key=lambda o: (o[0], o[1])):
-            m = (n >= COVER * self.landN[sq]) & ~taken[sq] & (self.comp[sq] == self.S[si]['comp'])
-            own[sq[m]] = si
-            taken[sq[m]] = True
         # big parks over everything, on their own piece of land
         best = np.zeros(W * H)
         for pi, si in self.big:
@@ -671,19 +746,32 @@ class Hoods:
         for si, s in enumerate(self.S):
             sq = np.nonzero(own == si)[0]
             if len(sq):
-                self.T[si] = dict(parts=[[s['name'], sq]], kind=s['kind'], seed=si, park=s.get('park'), split=None)
+                self.T[si] = dict(parts=[[s['name'], sq]], kind=s['kind'], seed=si, park=s.get('park'), split=None, rides=[])
         log(f'assigned: {len(self.T)} neighbourhoods from {len(self.S)} seeds')
 
-    def owner_at(self, x, z, comp):
-        """The seed a place on piece of land comp goes to by the assignment's rules, for a point: the smallest outline
-        holding it, else the nearest seed (a big park's own, on a piece of land with no other)."""
-        p = shapely.Point(x, z)
-        for area, si, sq, n, g in sorted(self.outlines, key=lambda o: (o[0], o[1])):
-            if self.S[si]['comp'] == comp and g.contains(p):
-                return si
-        ss = [i for i, s in enumerate(self.S) if s['comp'] == comp and s['kind'] != 'park'] or \
-             [i for i, s in enumerate(self.S) if s['comp'] == comp]
+    def owner_at(self, x, z, sq):
+        """The seed a place goes to by the assignment's rules, for a point among land squares sq of one piece of land
+        (a park's): the group of the square nearest it, and that group's seed nearest it."""
+        cx = (self.ix0 + sq % self.w + 0.5) * SQ
+        cz = (self.iz0 + sq // self.w + 0.5) * SQ
+        s = int(sq[np.argmin(np.hypot(cx - x, cz - z))])
+        ss = self.group_of(s)
         return min(ss, key=lambda i: (math.hypot(self.S[i]['x'] - x, self.S[i]['z'] - z), i)) if ss else -1
+
+    def ride(self):
+        """A seed left with no squares (its outline too small to hold one, or every square nearer another) isn't lost:
+        its name rides with the neighbourhood holding its point, and the bake's notes say so."""
+        names = {norm(nm) for t in self.T.values() for nm in [p[0] for p in t['parts']] + [r[0] for r in t['rides']] if nm}
+        for si, s in enumerate(self.S):
+            if si in self.T or not s['name'] or norm(s['name']) in names:
+                continue
+            to = int(self.own[s['at']])
+            if to < 0 or to not in self.T:
+                self.notes.append(f'{s["name"]}: no squares, and its point is in none')
+                continue
+            self.T[to]['rides'].append([s['name'], s['at']])
+            names.add(norm(s['name']))
+            self.notes.append(f'{s["name"]}: no squares of its own; its name rides with {self.S[to]["name"]}')
 
     def parks_whole(self):
         """A park's squares (it covers PARK_SQUARE of their land) to the neighbourhood its middle is in, by the
@@ -700,23 +788,28 @@ class Hoods:
             mid = p['g'].centroid
             for c in sorted(set(self.comp[ps].tolist())):
                 cs = ps[self.comp[ps] == c]
-                to = bigs[pi] if pi in bigs and self.S[bigs[pi]]['comp'] == c else self.owner_at(mid.x, mid.y, c)
+                to = bigs[pi] if pi in bigs and self.S[bigs[pi]]['comp'] == c else self.owner_at(mid.x, mid.y, cs)
                 if to < 0:
                     continue
                 if to not in self.T:   # a seed whose own squares outlines took: the park makes it a neighbourhood
                     s = self.S[to]
-                    self.T[to] = dict(parts=[[s['name'], np.zeros(0, np.int64)]], kind=s['kind'], seed=to, park=s.get('park'), split=None)
+                    self.T[to] = dict(parts=[[s['name'], np.zeros(0, np.int64)]], kind=s['kind'], seed=to, park=s.get('park'),
+                                      split=None, rides=[])
                 moved += int((own[cs] != to).sum())
                 own[cs] = to
         self.rebuild()
+        self.ride()
         log(f'parks whole: {moved} squares moved')
 
     def rebuild(self):
-        """Territories from self.own after squares moved: each part keeps its squares that are still its territory's."""
+        """Territories from self.own after squares moved: each part keeps its squares that are still its territory's. One
+        left with none gives its names to the neighbourhood holding its seed's point."""
         T = {}
+        gone = []
         for ti, t in self.T.items():
             sq = np.nonzero(self.own == ti)[0]
             if not len(sq):
+                gone.append(ti)
                 continue
             mine = set(sq.tolist())
             parts = []
@@ -730,6 +823,13 @@ class Hoods:
             parts = [p for i, p in enumerate(parts) if i == 0 or len(p[1])]
             t = dict(t, parts=parts)
             T[ti] = t
+        for ti in gone:
+            to = int(self.own[self.S[self.T[ti]['seed']]['at']])
+            if to in T:
+                at = self.S[self.T[ti]['seed']]['at']
+                names = [p[0] for p in self.T[ti]['parts'] if p[0]] + [r[0] for r in self.T[ti]['rides']]
+                T[to]['rides'] += [[nm, at] for nm in names]
+                self.notes.append(f'{", ".join(names)}: no squares left; with {self.S[to]["name"]}')
         self.T = T
 
     def squares(self, ti):
@@ -757,7 +857,16 @@ class Hoods:
         """Territory small into big, its parts after big's."""
         self.own[self.own == small] = big
         self.T[big]['parts'] += self.T[small]['parts']
+        self.T[big]['rides'] += self.T[small]['rides']
         del self.T[small]
+
+    def family(self, ti):
+        """The neighbourhoods of ti's own place: its parent's (the outline it's a part of), its own parts, and its
+        parent's other parts. A small piece merges in its family first (Oud-West's remnant into its buurten, not across
+        the canal into the Jordaan)."""
+        par = lambda v: self.S[self.T[v]['seed']].get('parent')
+        mine, up = self.T[ti]['seed'], par(ti)
+        return {v for v in self.T if v != ti and (par(v) == mine or self.T[v]['seed'] == up or (up is not None and par(v) == up))}
 
     def pieces(self, ti):
         sq = self.squares(ti)
@@ -799,7 +908,8 @@ class Hoods:
             if not b:
                 self.small.add(ti)   # a whole piece of land: no god (Alcatraz)
                 continue
-            to = max(sorted(b), key=lambda v: (b[v], -len(self.squares(v))))
+            fam = self.family(ti)
+            to = max(sorted(b), key=lambda v: (v in fam, b[v], -len(self.squares(v))))
             self.join(ti, to)
             joined += 1
         log(f'merged: {exclaves} pieces apart, {joined} neighbourhoods under {MIN_SQUARES} squares; '
@@ -838,7 +948,10 @@ class Hoods:
                     share = [len(np.intersect1d(ps, sq[strip == h])) for h in range(k)]
                     if len(got) and int(np.argmax(share)) == g:
                         parts.append([nm, got])
-                self.T[tg] = dict(t, parts=parts, split=(ti, g, k))
+                # a name riding along goes with the strip nearest its point
+                rides = [r for r in t['rides'] if int(strip[np.argmin(np.abs(sq % self.w - r[1] % self.w) +
+                                                                       np.abs(sq // self.w - r[1] // self.w))]) == g]
+                self.T[tg] = dict(t, parts=parts, split=(ti, g, k), rides=rides)
             n_split += 1
         self.rebuild()
         log(f'split: {n_split} over {MAX_SQUARES} squares, now {len(self.T)} neighbourhoods')
@@ -1078,7 +1191,7 @@ class Hoods:
         "Nieuwmarkt/Lastage") is never joined to another, which would read as three."""
         t = self.T[ti]
         names = [t['parts'][0][0]]
-        for nm, ps in sorted(t['parts'][1:], key=lambda p: (-len(p[1]), p[0])):
+        for nm in [p[0] for p in sorted(t['parts'][1:], key=lambda p: (-len(p[1]), p[0]))] + [r[0] for r in t['rides']]:
             if nm and all(norm(nm) != norm(x) for x in names):
                 names.append(nm)
         if len(names) > 1 and '/' in names[0]:
@@ -1124,7 +1237,7 @@ class Hoods:
             rows.append(dict(id=k, name=names[k], squares=int(len(sq)), km2=round(len(sq) * SQ_KM2, 3),
                              heart=dict(key=self.key(s), ix=self.ix0 + s % W, iz=self.iz0 + s // W, x=x, z=z, kind=kind,
                                         park=what, ground=round(float(self.high[s]), 1) if np.isfinite(self.high[s]) else None),
-                             godless=fl, source=seed['kind'], src=seed['src'], parts=[nm for nm, _ in t['parts']],
+                             godless=fl, source=seed['kind'], src=seed['src'], parts=[nm for nm, _ in t['parts']] + [r[0] for r in t['rides']],
                              split=list(t['split']) if t['split'] else None, piece=int(seed['comp'])))
         body = pack_hoods(dict(ix0=self.ix0, iz0=self.iz0, w=W, h=H, grid=grid, hearts=hearts, flags=flags, tagged=self.tag,
                                names=names))

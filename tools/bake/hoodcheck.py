@@ -9,7 +9,9 @@ exit 1 on any failure. Against the city's own baked tiles and Overture extract, 
            (the Presidio)
   hearts   each on its own neighbourhood's squares, none on a tagged square, at least 450 m apart (the godless aside)
   sizes    0.25-3 km2; under 0.25 only a whole piece of land, and godless (Alcatraz)
-  names    one each, none empty or over 255 bytes, no two that are one place (hoods.norm: Castro, Castro District)
+  names    one each, none empty or over 255 bytes, no two that are one place (hoods.norm: Castro, Castro District),
+           none with a slash of its own beside another; every place the bake seeds from named on the neighbourhood
+           holding its point, or left off only where that one shows two names already; no place off the map named
   twice    (--twice) hoods.py run twice, into two folders: the same bytes as each other and as the checked files
   broken   (--broken) every check on a copy of the file broken on purpose, each copy failing the check it breaks
 usage: python -I tools/bake/hoodcheck.py <slug> [--dir=DIR] [--twice] [--broken]
@@ -25,6 +27,7 @@ import gzip
 import hashlib
 import json
 import math
+import re
 import shutil
 import subprocess
 import tempfile
@@ -88,6 +91,7 @@ class World:
                 if len(sq):
                     parks.append((-float(n.sum()), r.get('name') or '', str(r.get('id')), sq, n))
         parks.sort(key=lambda p: p[:3])
+        hd.read_sources()
         held = np.zeros(self.w * self.h, bool)
         self.parks = []
         for m2, name, pid, sq, n in parks:
@@ -98,8 +102,8 @@ class World:
                 self.parks.append((name or f'park {pid}', own))
         # places off the map: outlines mostly past the frame with under 0.25 km2 of land on it (hoods.OFF_MAP), whose names
         # no neighbourhood carries, unless a point of the same name is on the map
-        areas, ag = hd.read('division_area', ['id', 'subtype', 'class', 'name'])
-        divs, dg = hd.read('division', ['id', 'subtype', 'name'])
+        areas, ag = hd.src['areas']
+        divs, dg = hd.src['divs']
         on_map = {H.norm(r['name']) for r, g in zip(divs, dg) if r.get('name') and g is not None and g.geom_type == 'Point'
                   and hd.frame.contains(g)}
         self.off_map = []
@@ -112,6 +116,11 @@ class World:
             if (len(sq) and float(n.sum()) * H.STEP * H.STEP < H.MIN_SQUARES * H.SQ * H.SQ
                     and g.intersection(hd.frame).area < H.OFF_MAP * g.area):
                 self.off_map.append(nm)
+        # the places hoods.py seeds from (its reading of the extract: points, outlines, big parks), each with the square
+        # its point is on, and their names as a sign shows them (a park "of <the city>" is the park)
+        hd.seeds()
+        self.places = [(re.sub(rf'\s+of\s+{re.escape(hd.city_name)}\b', '', s['name']) if hd.city_name else s['name'],
+                        s['at'], s['kind']) for s in hd.S if s['name']]
         shutil.rmtree(hd.out, ignore_errors=True)
 
     def key(self, s):
@@ -143,6 +152,47 @@ def digest(tb):
     canon = json.dumps([tb['names'], tb['hearts'], [sorted(s) for s in tb['squares']], sorted(tb['tagged']), tb['godless']],
                        separators=(',', ':'), ensure_ascii=False)
     return hashlib.sha256(canon.encode('utf-8')).hexdigest()
+
+
+SPLIT_WORDS = {w for ws in H.STRIPS.values() for w in ws} | set(H.NORTH_SOUTH.values())
+
+
+def carried(names):
+    """{a place's name (hoods.norm): the neighbourhoods carrying it}: each name of a merged one, and a split's base
+    ("Outer Richmond West" carries Outer Richmond)."""
+    out = {}
+    for k, nm in enumerate(names):
+        for part in nm.split(' / '):
+            out.setdefault(H.norm(part), set()).add(k)
+            for w in sorted(SPLIT_WORDS, key=len, reverse=True):
+                if part.endswith(' ' + w):
+                    out.setdefault(H.norm(part[:-len(w) - 1]), set()).add(k)
+                    break
+            if part.split()[-1].isdigit():
+                out.setdefault(H.norm(part.rsplit(' ', 1)[0]), set()).add(k)
+    return out
+
+
+def places(W, t):
+    """(misplaced, lost, left off) for the places the bake seeds from: a name on a neighbourhood that doesn't hold the
+    place's point; a name on none, where the neighbourhood holding the point had room for it; a name on none because
+    that neighbourhood shows two already."""
+    car = carried(t['names'])
+    mis, lost, off = [], [], []
+    for nm, s, kind in W.places:
+        k = int(t['grid'][s]) - 1
+        if k < 0:
+            continue
+        holder = t['names'][k]
+        got = car.get(H.norm(nm))
+        if got:
+            if k not in got:
+                mis.append(f'{nm} (its point in {holder}; on {", ".join(sorted(t["names"][j] for j in got))})')
+        elif ' / ' in holder:
+            off.append(f'{nm} (in {holder})')
+        else:
+            lost.append(f'{nm} (its point in {holder})')
+    return mis, lost, off
 
 
 def check(W, t, man_hoods, rep):
@@ -234,9 +284,15 @@ def check(W, t, man_hoods, rep):
     rep('names: a merged name with a slash of its own in it', len(slash), '0 (it reads as three)' +
         (f'; {"; ".join(slash[:6])}' if slash else ''), not slash)
     parts = {H.norm(p) for nm in tb['names'] for p in nm.split(' / ')}
-    off = [nm for nm in W.off_map if H.norm(nm) in parts]
-    rep('names: a place off the map on a neighbourhood', len(off), f'0 of {len(W.off_map)} places off the map' +
-        (f'; {"; ".join(off[:6])}' if off else ''), not off)
+    offm = [nm for nm in W.off_map if H.norm(nm) in parts]
+    rep('names: a place off the map on a neighbourhood', len(offm), f'0 of {len(W.off_map)} places off the map' +
+        (f'; {"; ".join(offm[:6])}' if offm else ''), not offm)
+    mis, lost, off = places(W, t)
+    rep('names: a place named on a neighbourhood that doesn\'t hold its point', len(mis), f'0 of {len(W.places)} places'
+        + (f'; {"; ".join(mis[:8])}' if mis else ''), not mis)
+    rep('names: a place named nowhere, where its neighbourhood had room', len(lost), '0' +
+        (f'; {"; ".join(lost[:8])}' if lost else ''), not lost)
+    rep('names: a place left off for two names already', len(off), 'reported' + (f'; {"; ".join(off[:8])}' if off else ''), True)
     return tb
 
 
@@ -321,6 +377,10 @@ def broken(W, t, man_hoods):
     if W.off_map:
         case('a place off the map named', 'names: a place off the map on a neighbourhood',
              lambda c, mh: c['names'].__setitem__(0, W.off_map[0]))
+    case('two names swapped', 'names: a place named on a neighbourhood that doesn\'t hold its point',
+         lambda c, mh: c['names'].__setitem__(slice(0, 2), [c['names'][1], c['names'][0]]))
+    case('a name gone', 'names: a place named nowhere, where its neighbourhood had room',
+         lambda c, mh: c['names'].__setitem__(0, 'Nowhere At All'))
     for name, target, c, mh in cases:
         rep = Report(quiet=True)
         try:
