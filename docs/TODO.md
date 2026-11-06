@@ -2,6 +2,27 @@
 
 Tick what you finish, in the commit that finishes it. Add to it when the producer asks for something. Written 2026-11-02.
 
+## Tonight, both accounts (the night of 2026-11-05, Pacific)
+
+The producer approved the factions plan, [specs/factions/FACTIONS.md](specs/factions/FACTIONS.md), all 26 of its picks ("i vote all your recommendations for the rest of the plan"), and asked for a big run tonight on both accounts: "Go for tonight's plan". Two questions stay open with them: 27, how many stages, and 28, territory by neighbourhood. Build nothing that depends on either; every task below holds under any answer. `main` is at 058217c: `feat/life` 92b4884 and the showcase's credit line, so it has everything built so far behind its flags.
+
+**Second account** (logic and tests; no GPU)
+- [ ] `feat/life`: the life review, [reviews/life-cars-2026-11-05.md](reviews/life-cars-2026-11-05.md), B1 first: the aim cone gives shots meant for buildings to vehicles in the street, and the live showcase (`?earth&life`) shows it. Then M1 to M7. Push, and list it here for the first account's re-review and GPU runs.
+- [ ] `feat/recess`, cut from `main` 058217c: factions step 3, the beat clock. One clock the stage-ups, Possessed's hiccups and the music share, at 84 beats a minute (decision 14). Nothing on screen yet.
+- [ ] `feat/recess`: step 4, the areas. The 128 m squares and their stages 1 to 4, a rival's hit knocking a stage off, the five-second wait, the owner's hit healing a crack (decision 16), saving the solo city; in Node, with tests. Which area a god belongs to, a square or a neighbourhood, is decision 28: keep it behind one switch, and stage 5 out until then.
+- [ ] `feat/recess`: step 7, Recess's brain, headless first. The AI captains (Learner, Rival, Veteran, each glinting for a full second before it breathes), the lock and the glint, Possessed (Nonstop in the arena) with Piñata and Bubbled behind the link's switch, the stop-arm shield, no ganging up, WANTED bullies, the new player's shield, and the test that plays thousands of duels and fails if anyone loses the steering or is bullied (FACTIONS.md §3 and §4). What it draws comes after, on the GPU.
+- [ ] When step 1 lands on `feat/factions`: merge it into `feat/life` and `feat/recess`, and give cars, ferries and sailboats the owner on their kept paint (`CONTRACT.md`'s C15, which the first account proposes with step 1, for you to agree).
+- [ ] When there's time: review `feat/decks`, 34d55cf to 492a953 (`specs/bridges/BRIDGES.md`'s notes on steps 3 and 4 say what was built and what was checked).
+
+**First account** (the laptop with the GPU: every look and frame check)
+- [ ] `feat/decks`: the freeways' steps 3 and 4, done and pushed at 492a953 (streets cut only where they're bridge or tunnel, San Francisco re-baked, the bridge gate's fifteen checks in report mode, the tour). Its GPU checks against main finish tonight.
+- [ ] `feat/factions`, cut from `main` 058217c: step 1, paint learns whose it is. An owner on every splat and every saved paint (buildings, ground, the Moon's ground, landmarks and decks), old saves read as Rainbow, nothing on screen changes; C15 proposed for what moves.
+- [ ] `feat/factions`: step 5, the new colours. The five factions' ramps in all seven skies of the live clock, side by side in shade and at dusk, no brown, paint still the only saturated thing.
+- [ ] `feat/factions`: step 6, the fantasy proof, starting with what any answer to 27 keeps: Rainbow's skin (stage 1) and Liftoff (stage 4, the painted houses rising so you fly under them), in one area behind a flag.
+- [ ] Then the freeways' step 5 on `feat/decks`: the decks drawn and paintable, with paint's owner in.
+
+**Tonight's rules**: push a working branch when you're confident in it, no OK needed (`CLAUDE.md`, "Branches"); `main` stays the producer's. The laptop runs one bake and one browser at a time.
+
 ## Afternoon report: the second account (2026-11-05)
 
 The producer's five, in order: main into both branches, the first account's notes, cars, the world's review and C11 to C13, then ferries and sailboats.
@@ -161,7 +182,8 @@ Start with [BRIEF.md](BRIEF.md): what the second account built meanwhile, what i
 - [x] The bus's lane on the street too, in place of the left 42 % look zone? Yes (2026-11-04): "Yes San Francisco should work the same, replacing the left side look". So `feat/thumbs` waits for it before it goes live: it's built on `feat/moonfree` and reaches `feat/thumbs` from there
 - [x] OK for the two-thumb controls to go live: "just go live now" (2026-11-04). Live at 6b494b7, before the second account's review, which is on its list
 - [x] Approve the living Earth plan: "Ok. I love this living earth plan" (2026-11-04)
-- [ ] A used iPhone 13, bought, for the game's floor (LIVING.md's pick: now, about $210-290). The engineers can't buy anything
+- [ ] A used iPhone 13, bought, for the game's floor (LIVING.md's pick: now, about $210-290). The engineers can't buy anything. Approved again with the factions plan (decision 22)
+- [ ] The factions' 27 (how many stages) and 28 (territory by neighbourhood), in `specs/factions/FACTIONS.md` §6
 
 ## Later, in this order
 
