@@ -90,7 +90,8 @@ def primary(k):
 
 
 def write(root, ranged):
-    """The cases as an Overture extract under root (overture.py's columns; the *_rules ones only when ranged)."""
+    """The cases as an Overture extract under root (overture.py's columns; the *_rules ones only when ranged, or those
+    of them ranged names)."""
     cols = {k: [] for k in ('id', 'subtype', 'class', 'subclass', 'geometry', 'name', 'width', 'level_max', 'road_flags',
                             'rail_flags', 'surface', 'road_flag_rules', 'rail_flag_rules', 'level_rules', 'name_rules')}
     for k, c in enumerate(CASES):
@@ -110,7 +111,7 @@ def write(root, ranged):
         cols['level_rules'].append(json.dumps(c['level']) if c['level'] else None)
         cols['name_rules'].append(json.dumps(c['names']) if c['names'] else None)
     types = {'width': pa.float64(), 'level_max': pa.int32(), 'geometry': pa.binary()}
-    keep = [c for c in cols if ranged or not c.endswith('_rules')]
+    keep = [c for c in cols if not c.endswith('_rules') or (c in ranged if isinstance(ranged, tuple) else ranged)]
     t = pa.table({c: pa.array(cols[c], types.get(c, pa.string())) for c in keep})
     d = os.path.join(root, 'test', 'case')
     os.makedirs(d, exist_ok=True)
@@ -197,21 +198,28 @@ def main():
             why = check(m, k, c, got[k])
             fails += bool(why)
             print(('PASS ' if not why else 'FAIL ') + c['what'] + ('' if not why else ': ' + '; '.join(sorted(set(why))[:3])))
-        # an extract written before the ranges were kept: the old rule, the whole segment left out
-        root2 = os.path.join(root, 'old')
-        write(root2, False)
-        got = by_case(segments(m, root2))
-        why = []
-        for k, c in enumerate(CASES):
-            flags = {v for r in (c['road'] or []) + (c['rail'] or []) for v in r['values']}
-            off = bool(flags & OFF) or (bool(c['level']) and max(r['value'] for r in c['level']) != 0)
-            n = len(got[k])
-            if (off and n) or (not off and n != 1):
-                why.append(f'{c["what"]}: {n} entries')
-        fails += bool(why)
-        print(('PASS ' if not why else 'FAIL ') + 'an extract with no ranges leaves a segment off the ground in part out whole' +
-              ('' if not why else ': ' + '; '.join(why[:3])))
-    print(f'{len(CASES) + 1 - fails} of {len(CASES) + 1} pass ({path})')
+        # an extract written before the ranges were kept, or with only some of the rule columns: the old rule, the whole
+        # segment left out
+        for sub, ranged, what in (('old', False, 'an extract with no ranges'),
+                                  ('part', ('road_flag_rules', 'name_rules'), 'an extract with the road rules but not the rail or level ones')):
+            root2 = os.path.join(root, sub)
+            write(root2, ranged)
+            why = []
+            try:
+                got = by_case(segments(m, root2))
+            except Exception as e:  # noqa: BLE001
+                got = None
+                why.append(f'raised {e!r}'[:120])
+            for k, c in enumerate(CASES if got is not None else ()):
+                flags = {v for r in (c['road'] or []) + (c['rail'] or []) for v in r['values']}
+                off = bool(flags & OFF) or (bool(c['level']) and max(r['value'] for r in c['level']) != 0)
+                n = len(got[k])
+                if (off and n) or (not off and n != 1):
+                    why.append(f'{c["what"]}: {n} entries')
+            fails += bool(why)
+            print(('PASS ' if not why else 'FAIL ') + what + ' leaves a segment off the ground in part out whole' +
+                  ('' if not why else ': ' + '; '.join(why[:3])))
+    print(f'{len(CASES) + 2 - fails} of {len(CASES) + 2} pass ({path})')
     sys.exit(1 if fails else 0)
 
 

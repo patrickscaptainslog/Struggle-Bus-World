@@ -450,7 +450,9 @@ class OSM:
         them has no ranges and leaves the whole segment out)."""
         d, g = self.read('segment', SEGMENT_COLUMNS)
         P = self.P
-        ranged = 'road_flag_rules' in d.columns
+        # (the ranges only with all three rule columns: overture.py writes them together, and with one missing where a
+        # stretch is off the ground isn't known, so the segment is left out whole as before them)
+        ranged = all(c in d.columns for c in ('road_flag_rules', 'rail_flag_rules', 'level_rules'))
         named = 'name_rules' in d.columns
         out = []
         part = [0, 0, 0.0]   # segments kept in part: segments, pieces, metres
