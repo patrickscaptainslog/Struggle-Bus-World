@@ -1,6 +1,6 @@
 // The Lift's obstacle field (docs/specs/factions/LIFT.md, "Flight and aim"): the flight's 8 m cells over the lifted neighbourhood, rebuilt
 // without the houses that float. A floating house is a deck: under it the floor is the ground (and whatever still stands on it), over it the
-// floor is its roof. A cell no floating house reaches is never intercepted (the City's own baked cell answers, chimneys and all), so with
+// floor is its roof, both where the swell has it now; one floating too low to pass under is a wall from the ground to its roof. A cell no floating house reaches is never intercepted (the City's own baked cell answers, chimneys and all), so with
 // nothing up the field is exactly today's grid. Cells are built lazily, the first time a query needs one, the way the bake builds a cell
 // (City.stampLift: the highest ground of a 3 x 3 sample, tree crowns, every building's parts grown 3 m, 6 m over 40 m), and kept until a
 // tile under them arrives again. No three.js, no allocation in a query.
@@ -20,8 +20,16 @@ export interface FieldHouses {
   readonly state: Uint8Array;
   /** rest height (m) */
   readonly H: Float32Array;
-  /** the bob's reach margin (m): 1.3 * amp + 0.3 */
+  /** how far the swell, the drift and the lean take any point of it off its centre's rest (m, liftReach): the launch's slab */
   readonly margin: Float32Array;
+  /** how far the lean alone takes a point of it off its centre's height (m, liftTiltReach) */
+  readonly tiltM: Float32Array;
+  /** 1: it floats too low to pass under (LIFT_PASS): a wall from the ground up */
+  readonly solid: Uint8Array;
+  /** its centre (m) and its reach from it */
+  readonly cx: Float32Array;
+  readonly cz: Float32Array;
+  readonly rad: Float32Array;
   /** the house's ground (m ASL) */
   readonly base: Float32Array;
   /** crouch start (game s) */
@@ -30,20 +38,26 @@ export interface FieldHouses {
   readonly extra: Float32Array;
   /** game clock now (s) */
   readonly now: number;
-  /** the drawn lift of a house now (m) */
+  /** the drawn lift of a house's centre now (m) */
   dyNow(index: number): number;
+  /** the drawn lift of a house at (x, z) now, its lean in it (m) */
+  dyAt(index: number, x: number, z: number): number;
 }
 
 const PAIRS = 8;
-/** the first 1.2 s after the launch the overshoot (13 %) is in the conservative top */
+/** the first 1.2 s after the launch the flight sees the launch's whole slab (the overshoot's 13 %, the swell's whole reach); after it the swell as it is */
 const OVERSHOOT_FOR = 1.2;
-/** the bellies counted near the bus's point, in cells each way (16 m), a belly d m off counted SLOPE * d m higher */
-const NEAR = 2;
+/** the flight's look ahead on the heave (m): at most 3 m/s up or down, a frame behind the GPU and a little more */
+const LOOK = 0.5;
+/** the bellies counted near the bus's point, in cells each way (24 m: a belly 36 m under the bus is counted over it as its cell comes in, so the ceiling never steps), a belly d m off counted SLOPE * d m higher */
+const NEAR = 3;
 const SLOPE = 2;
 /** the bus's body over its origin (m), less the 1 m the flight's hard clamp leaves: busShape's roof is 3.19 at 1.6 */
 const BODY = 4;
 /** half the bus's length (m) */
 const HALF = 6;
+/** a floating house is over the bus (a deck) or under it (a roof), and the side is kept once the bus is this near it (m past HALF) */
+const UNDER = 1, OVER = 2, COMMIT = 6;
 
 export class LiftField {
   readonly nx: number;
@@ -59,6 +73,7 @@ export class LiftField {
   private readonly restTmp = new Float32Array(1);
   /** what the last query found: the lowest underside overhead (Infinity: none) */
   under = Infinity;
+
   /** cells built so far (the QA's count) */
   builtCount = 0;
 
@@ -120,6 +135,41 @@ export class LiftField {
     this.builtCount++;
   }
 
+  /**
+   * Is a floating house over the bus (UNDER: a deck) or under it (OVER: a roof)? By its middle, as the bus is when it is still at least COMMIT m
+   * past its half length off the house's reach (`fromBus`: the overhead's, from the bus's point; any other query only reads it), and then kept as it comes in: a bus at the height of its walls
+   * goes the way it was going, never turned round at the wall in one step (its middle crossed as the bus climbs or sinks beside it was the
+   * 6-14 m steps of the first uneven heights). Out past its top or under its belly with the body the side is plain. Forgotten 0.4 s after the
+   * overhead last looked at it.
+   */
+  private side(i: number, fromY: number, u: number, tp: number, fromBus: boolean): number {
+    const h = this.houses;
+    if (!this.sides) {
+      this.sides = new Uint8Array(h.state.length);
+      this.sideT = new Float32Array(h.state.length).fill(-1e9);
+    }
+    const mid = fromY < (u + tp) * 0.5 ? UNDER : OVER;
+    const off = fromBus ? Math.max(0, Math.hypot(this.qx - h.cx[i], this.qz - h.cz[i]) - h.rad[i] - HALF) : -1;
+    if (fromY > tp + 1) return this.commit(i, OVER, off);
+    if (fromY + BODY + 1 < u) return this.commit(i, UNDER, off);
+    const fresh = h.now - this.sideT![i] < 0.4 && this.sides[i] !== 0;
+    if (off >= COMMIT || !fresh) return this.commit(i, mid, off);
+    if (off >= 0) this.sideT![i] = h.now;
+    return this.sides[i];
+  }
+  private commit(i: number, side: number, off: number): number {
+    if (off >= 0) {
+      this.sides![i] = side;
+      this.sideT![i] = this.houses.now;
+    }
+    return side;
+  }
+  private sides: Uint8Array | null = null;
+  /** the bus's point, for the overhead's queries */
+  private qx = 0;
+  private qz = 0;
+  private sideT: Float32Array | null = null;
+
   /** The cell's rebuilt answer with every house on the ground (NaN: too many pairs, or off the field): the check holds it to the bake's rule. */
   rebuilt(x: number, z: number): number {
     const k = this.cellOf(x, z);
@@ -135,9 +185,10 @@ export class LiftField {
    * The obstacle at (x, z) seen from fromY (Infinity: from above), the bake's answer `baked` where nothing floats. `exact`: the house where it is
    * drawn now (the aim); else the flight's conservative slab (its rest height, the bob's whole reach, the overshoot just after the launch).
    * A floating house is seen from below by anything under its middle (a deck: its underside goes in `under`), from above by anything over it
-   * (a roof: its top is the obstacle). Sets `under`, the lowest underside of the houses seen from below there (Infinity: none).
+   * (a roof: its top is the obstacle), and by the side the bus kept as it came in (side()). Sets `under`, the lowest underside of the houses seen
+   * from below there (Infinity: none). `fromBus`: the overhead's, from the bus's point (qx, qz).
    */
-  query(x: number, z: number, fromY: number, baked: number, exact: boolean): number {
+  query(x: number, z: number, fromY: number, baked: number, exact: boolean, fromBus = false): number {
     this.under = Infinity;
     const k = this.cellOf(x, z);
     if (k < 0 || !this.reached[k]) return baked;
@@ -158,16 +209,28 @@ export class LiftField {
       any = true;
       let u: number, tp: number;
       if (exact) {
-        const dy = h.dyNow(i);
+        const dy = h.dyAt(i, x, z);
         u = h.base[i] + dy;
         tp = t + dy;
-      } else {
+      } else if (h.now - h.t0[i] < OVERSHOOT_FOR + 0.3) {
+        // (the launch: its whole slab, the overshoot and the swell's reach)
         const m = h.margin[i];
         u = h.base[i] + h.H[i] - m;
-        tp = t + h.H[i] * (h.now - h.t0[i] < OVERSHOOT_FOR + 0.3 ? 1.14 : 1) + m;
+        tp = t + h.H[i] * 1.14 + m;
+      } else {
+        // (riding the swell: where its centre is now, the lean's reach and a look ahead either side)
+        const dy = h.dyNow(i), m = h.tiltM[i] + LOOK;
+        u = h.base[i] + dy - m;
+        tp = t + dy + m;
       }
-      // (by its middle: a bus pulled up under one house and come to a lower one is under that one too, never put on its roof through it)
-      if (fromY < (u + tp) * 0.5) {
+      if (h.solid[i]) {
+        // (too low to pass under: a wall from the ground to its roof, from any side, as a grounded house is)
+        if (tp > top) top = tp;
+        continue;
+      }
+      // (by its middle: a bus pulled up under one house and come to a lower one is under that one too, never put on its roof through it. And by
+      // the side the bus chose while it was still far: see side())
+      if (this.side(i, fromY, u, tp, fromBus) === UNDER) {
         if (u < under) under = u;
       } else if (tp > top) top = tp;
     }
@@ -186,6 +249,8 @@ export class LiftField {
   overhead(x: number, z: number, fromY: number): number {
     const c = this.c, i0 = Math.floor((x - this.x0) / c), j0 = Math.floor((z - this.z0) / c);
     let best = Infinity;
+    this.qx = x;
+    this.qz = z;
     for (let dj = -NEAR; dj <= NEAR; dj++) {
       const j = j0 + dj;
       if (j < 0 || j >= this.nz) continue;
@@ -197,11 +262,12 @@ export class LiftField {
         if (dd >= NEAR * c) continue;
         // (the bus's nose and tail are 6 m off its point: a belly over either is over the bus)
         const d = Math.max(0, dd - HALF);
-        this.query(cx0 + c * 0.5, cz0 + c * 0.5, fromY, 0, false);
+        this.query(cx0 + c * 0.5, cz0 + c * 0.5, fromY, 0, false, true);
         if (this.under + SLOPE * d < best) best = this.under + SLOPE * d;
       }
     }
     this.under = best === Infinity ? Infinity : best - BODY;
     return this.under;
   }
+
 }

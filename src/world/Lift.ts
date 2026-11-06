@@ -6,14 +6,14 @@ import type { HoodsTable } from './hoods';
 import type { RoofSprouts } from './props/sprouts';
 import { liftUniforms } from './buildingMaterial';
 import { LiftField, type FieldHouses } from './LiftField';
-import { makeCapGeometry, makeCapMaterial, makeGeysers, makeLiftDepthMaterial, registerLiftWarm, type Jet } from './liftDraw';
+import { makeCapGeometry, makeCapMaterial, makeLiftDepthMaterial, registerLiftWarm, type Centre } from './liftDraw';
 import {
-  hoodStart, LAKE_FLOOD, liftAmp, liftAt, liftedOn, liftRest, liftSeed, LIFT, slowAt, slowmoOn, SLOW_COOLDOWN, SLOW_HIT, SLOW_WAVE, SQUARE, squareIx, squareIz, squareKey, type LiftHooks,
+  hoodStart, LAKE_FLOOD, liftAt, liftLow, LIFT_NEAR, liftPlace, type LiftNear, liftedOn, liftHeave, liftReach, liftRest, liftSeed, liftTiltReach, LIFT, slowAt, slowmoOn, SLOW_COOLDOWN, SLOW_HIT, SLOW_WAVE, SQUARE, squareIx, squareIz, squareKey, type LiftHooks,
 } from './liftGlsl';
 
 // The Lift, the first slice of the stages (docs/specs/factions/LIFT.md; FACTIONS.md section 2, Team Super Rainbow's "4 · Liftoff"): behind ?lift,
-// in one neighbourhood. A Rainbow house at level 3 that a Rainbow breath hits again crouches as the shockwave reaches it, leaps on its own rainbow
-// geyser over a lake of paint and floats there, bobbing, and the bus flies under it. &lifted stages the whole neighbourhood at level 3 for the
+// in one neighbourhood. A Rainbow house at level 3 that a Rainbow breath hits again crouches as the shockwave reaches it, leaps and floats over
+// a lake of paint, nothing under it, riding a swell across the neighbourhood like a boat on water, and the bus flies under it. &lifted stages the whole neighbourhood at level 3 for the
 // session and lifts it as a wave out from its heart.
 //
 // Where the lift lives: here, in memory only, never in the paint texel and never in a store. A reload brings every house down. The GPU computes
@@ -39,7 +39,7 @@ export interface LiftGame {
 const ST_GROUND = 0, ST_PENDING = 1, ST_UP = 2;
 /** a house held back from jumping into the bus or the camera waits at most this long (s) */
 const HOLD_MAX = 3;
-const tmp: [number, number] = [0, 0];
+const tmp = [0, 0, 0, 0];
 const petalAt = new Float32Array(16);
 const LENS_RING = [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6]] as const;
 const OVER_RING = [[0, 0], [12, 0], [-12, 0], [0, 12], [0, -12]] as const;
@@ -71,9 +71,21 @@ export class Lift implements LiftHooks, FieldHouses {
   readonly t0: Float32Array;
   readonly extra: Float32Array;
   private readonly seedB: Float32Array;
+  /** its centre (m): the swell under it, its lean's pivot, the lake's rings; and its reach from it */
+  readonly cx: Float32Array;
+  readonly cz: Float32Array;
+  readonly rad: Float32Array;
+  /** its heave with the swell (m, liftHeave) */
+  private readonly heave: Float32Array;
+  /** how far its lean takes a point of it off its centre's height (m) */
+  readonly tiltM: Float32Array;
+  /** 1: it floats too low for the bus to pass under (its lowest belly under LIFT_PASS): an obstacle from the ground up, to fly over or round */
+  readonly solid: Uint8Array;
+  /** the motion's last answer and the game time it's for (the flight asks many times a frame) */
+  private readonly memT: Float64Array;
+  private readonly mem: Float32Array;
   private readonly held: Float32Array;
   private readonly fromHit: Uint8Array;
-  private readonly slot: Int16Array;
   /** &lifted: the hue a house was staged in (-1: not staged); a tile streaming back in stages it again over the save */
   private readonly stagedHue: Int8Array;
   /** liftable houses of the loaded tiles, by index */
@@ -81,7 +93,6 @@ export class Lift implements LiftHooks, FieldHouses {
   private readonly pending = new Int32Array(LIFT.cap);
   private nPending = 0;
   private nUp = 0;
-  private nSlots = 0;
 
   // ---- the GPU's
   private readonly data: Float32Array;
@@ -91,7 +102,6 @@ export class Lift implements LiftHooks, FieldHouses {
   readonly field: LiftField;
   private readonly caps: THREE.Mesh;
   private capsDirty = false;
-  private readonly geysers: THREE.InstancedMesh;
   private readonly lake: Float32Array;
   private readonly lakeTex: THREE.DataTexture;
   private readonly lakeW: number;
@@ -158,16 +168,24 @@ export class Lift implements LiftHooks, FieldHouses {
     this.t0 = new Float32Array(texels);
     this.extra = new Float32Array(texels);
     this.seedB = new Float32Array(texels);
+    this.cx = new Float32Array(texels);
+    this.cz = new Float32Array(texels);
+    this.rad = new Float32Array(texels);
+    this.heave = new Float32Array(texels);
+    this.tiltM = new Float32Array(texels);
+    this.solid = new Uint8Array(texels);
+    this.memT = new Float64Array(texels).fill(NaN);
+    this.mem = new Float32Array(texels * 3);
     this.held = new Float32Array(texels);
     this.fromHit = new Uint8Array(texels);
-    this.slot = new Int16Array(texels).fill(-1);
-    this.data = new Float32Array(texels * 4);
-    this.tex = new THREE.DataTexture(this.data, city.paint.width, city.paint.height, THREE.RGBAFormat, THREE.FloatType);
+    // (two texels a house, the second uLiftRows rows down: its crouch start, rest and seed; its centre, ground and heave)
+    this.data = new Float32Array(texels * 8);
+    this.tex = new THREE.DataTexture(this.data, city.paint.width, city.paint.height * 2, THREE.RGBAFormat, THREE.FloatType);
     this.tex.minFilter = this.tex.magFilter = THREE.NearestFilter;
     this.tex.generateMipmaps = false;
     this.tex.needsUpdate = true;
 
-    // the lake's mask over the rect, 2 m a texel (coarser past 2 km): the nearest liftable house, its edge's signed distance and its jet's foot
+    // the lake's mask over the rect, 2 m a texel (coarser past 2 km): the nearest liftable house, its edge's signed distance and its centre
     const span = Math.max(this.rect[2] - this.rect[0], this.rect[3] - this.rect[1]);
     this.lakeCell = Math.max(2, Math.ceil(span / 1024));
     this.lakeW = Math.ceil((this.rect[2] - this.rect[0]) / this.lakeCell);
@@ -190,6 +208,7 @@ export class Lift implements LiftHooks, FieldHouses {
     u.tLift.value = this.tex;
     u.uLiftRect.value.set(this.rect[0], this.rect[1], this.rect[2], this.rect[3]);
     u.uLiftW.value = city.paint.width;
+    u.uLiftRows.value = city.paint.height;
     u.tLake.value = this.lakeTex;
     u.uLakeRect.value.set(this.rect[0], this.rect[1], 1 / this.lakeCell, 0);
 
@@ -199,11 +218,11 @@ export class Lift implements LiftHooks, FieldHouses {
     this.caps = new THREE.Mesh(new THREE.BufferGeometry(), makeCapMaterial());
     this.caps.frustumCulled = false;
     this.caps.visible = false;
-    this.geysers = makeGeysers(LIFT.cap);
-    g.scene.add(this.caps, this.geysers);
+    g.scene.add(this.caps);
     this.depthMaterial = makeLiftDepthMaterial();
     registerLiftWarm(this.depthMaterial);
-    city.liftShadow = { rect: this.rect, material: this.depthMaterial, grow: 60 };
+    // (bounds grown past the highest flyer's overshoot and heave: a house 100 m up is never culled)
+    city.liftShadow = { rect: this.rect, material: this.depthMaterial, grow: Math.ceil(LIFT.hMax * 1.14 + LIFT.heaveSmall * 1.2 + 2) };
     city.lift = this;
   }
 
@@ -232,14 +251,32 @@ export class Lift implements LiftHooks, FieldHouses {
     return this.field.query(x, z, fromY, baked, true);
   }
 
+  /** the motion now, once a frame a house: mem's dy, lean x, lean z (the offset of its three) */
+  private motion(i: number): number {
+    if (this.memT[i] !== this.now) {
+      liftAt(this.now - this.t0[i], this.now, this.H[i], this.seedB[i], this.cx[i], this.cz[i], this.heave[i], tmp);
+      this.memT[i] = this.now;
+      this.mem[i * 3] = tmp[0];
+      this.mem[i * 3 + 1] = tmp[2];
+      this.mem[i * 3 + 2] = tmp[3];
+    }
+    return i * 3;
+  }
+
   dy(index: number): number {
     if (this.state[index] === ST_GROUND) return 0;
-    liftAt(this.now - this.t0[index], this.now, this.H[index], this.seedB[index], tmp);
-    return tmp[0];
+    return this.mem[this.motion(index)];
   }
 
   dyNow(index: number): number {
     return this.dy(index);
+  }
+
+  /** the drawn lift of the house at (x, z), its lean in it (m): what the aim and the exact field see */
+  dyAt(index: number, x: number, z: number): number {
+    if (this.state[index] === ST_GROUND) return 0;
+    const o = this.motion(index);
+    return this.mem[o] + (x - this.cx[index]) * this.mem[o + 1] + (z - this.cz[index]) * this.mem[o + 2];
   }
 
   reach(index: number): number {
@@ -273,11 +310,15 @@ export class Lift implements LiftHooks, FieldHouses {
       const i = ref.index;
       const fresh = !this.refs.has(i);
       if (fresh) {
-        const H = liftRest(ref.area, ref.roofY - ref.baseY, i);
-        const sb = liftSeed(i, 2);
-        this.H[i] = H;
-        this.seedB[i] = sb;
-        this.margin[i] = 1.3 * liftAmp(H, sb) + 0.3;
+        // (its rest is its hash's until it's scheduled, and then pushed clear of its floating neighbours': liftApart)
+        this.H[i] = liftRest(ref.area, ref.roofY - ref.baseY, i);
+        this.seedB[i] = liftSeed(i, 2);
+        this.heave[i] = liftHeave(ref.area, ref.roofY - ref.baseY, i);
+        this.cx[i] = ref.cx;
+        this.cz[i] = ref.cz;
+        this.rad[i] = ref.rad;
+        this.margin[i] = liftReach(this.heave[i], ref.rad);
+        this.tiltM[i] = liftTiltReach(ref.rad);
       }
       // (the ref is new with each arrival: the tile's records)
       this.refs.set(i, ref);
@@ -299,17 +340,15 @@ export class Lift implements LiftHooks, FieldHouses {
     this.tilesWanted.delete(`${tx},${tz}`);
   }
 
-  /** The jet under a house: at its centroid when that is inside it, else a landing 2.5 m in; its radius from its size. */
-  private jetOf(ref: BuildingRef): Jet {
-    const city = this.g.city;
-    const at = city.contains(ref, ref.cx, ref.cz) ? { x: ref.cx, z: ref.cz } : city.landingOn(ref, ref.cx, ref.cz, 2.5, { x: 0, z: 0 });
-    return { x: at.x, z: at.z, r: Math.min(3.2, Math.max(1.1, 0.11 * Math.sqrt(ref.area))) };
+  /** A house's centre and reach: the swell's, the lean's pivot, the lake's rings and the drips run from it. */
+  private centreOf(ref: BuildingRef): Centre {
+    return { x: ref.cx, z: ref.cz, r: ref.rad };
   }
 
-  /** One house's footprint into the lake's mask: where it is the nearest, its index, the signed distance to its edge (m, + inside, within LAKE_FLOOD outside) and its jet. */
+  /** One house's footprint into the lake's mask: where it is the nearest, its index, the signed distance to its edge (m, + inside, within LAKE_FLOOD outside) and its centre. */
   private raster(ref: BuildingRef) {
     const b = ref.tile, c = this.lakeCell, W = this.lakeW, Hh = this.lakeH, ox = this.rect[0], oz = this.rect[1], F = LAKE_FLOOD;
-    const jet = this.jetOf(ref);
+    const ctr = this.centreOf(ref);
     for (let k = ref.local; k < ref.local + ref.parts; k++) {
       if (b.tier[k] !== 0) continue;
       const s = b.vertStart[k], e = b.vertStart[k + 1];
@@ -339,8 +378,8 @@ export class Lift implements LiftHooks, FieldHouses {
           if (sd > this.lake[o + 1]) {
             this.lake[o] = ref.index + 1;
             this.lake[o + 1] = sd;
-            this.lake[o + 2] = jet.x;
-            this.lake[o + 3] = jet.z;
+            this.lake[o + 2] = ctr.x;
+            this.lake[o + 3] = ctr.z;
           }
         }
     }
@@ -378,32 +417,41 @@ export class Lift implements LiftHooks, FieldHouses {
     const ref = this.refs.get(i);
     // (a house already lifting or up stays as it is: a hit before the wave lifted it, and the wave mustn't drop it to the ground and launch it again)
     if (!ref || this.state[i] !== ST_GROUND || this.nUp + this.nPending >= LIFT.cap) return;
+    // (its height among its neighbours that went before it: never two touching alike, a low one only with room over it: liftPlace)
+    this.H[i] = liftPlace(liftRest(ref.area, ref.roofY - ref.baseY, i), ref.roofY - ref.baseY, this.margin[i], this.nearPlaced(ref));
+    this.solid[i] = liftLow(this.H[i], this.margin[i]) ? 1 : 0;
     this.state[i] = ST_PENDING;
     this.t0[i] = at;
     this.held[i] = 0;
     this.fromHit[i] = by;
     this.pending[this.nPending++] = i;
     this.writeTexel(i);
-    if (this.slot[i] < 0 && this.nSlots < LIFT.cap) {
-      const s = (this.slot[i] = this.nSlots++);
-      const jet = this.jetOf(ref);
-      const gy = this.g.city.groundAt(jet.x, jet.z);
-      const m = this.geysers.instanceMatrix.array as Float32Array;
-      m.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, jet.x, gy, jet.z, 1], s * 16);
-      this.geysers.instanceMatrix.needsUpdate = true;
-      const ga = this.geysers.geometry.getAttribute('aGey') as THREE.InstancedBufferAttribute;
-      (ga.array as Float32Array).set([i, jet.r, ref.baseY - gy], s * 3);
-      ga.needsUpdate = true;
-      this.geysers.count = this.nSlots;
-    }
     this.stats.scheduled++;
   }
 
+  /** the house's near neighbours (their footprints' bounds within LIFT_NEAR m) already lifting or up, as liftPlace reads them */
+  private nearPlaced(ref: BuildingRef): LiftNear[] {
+    const out: LiftNear[] = [], g = LIFT_NEAR;
+    for (const { ref: o } of this.g.city.buildingsWithin(ref.cx, ref.cz, ref.rad + LIFT_NEAR + 40)) {
+      const i = o.index;
+      if (i === ref.index || this.state[i] === ST_GROUND || !this.refs.has(i)) continue;
+      if (o.x0 - g > ref.x1 || o.x1 + g < ref.x0 || o.z0 - g > ref.z1 || o.z1 + g < ref.z0) continue;
+      const dist = Math.hypot(Math.max(o.x0 - ref.x1, 0, ref.x0 - o.x1), Math.max(o.z0 - ref.z1, 0, ref.z0 - o.z1));
+      out.push({ H: this.H[i], height: o.roofY - o.baseY, reach: this.margin[i], dist, touching: dist <= 3 * Math.SQRT2 && o.x0 - 3 <= ref.x1 && o.x1 + 3 >= ref.x0 && o.z0 - 3 <= ref.z1 && o.z1 + 3 >= ref.z0 });
+    }
+    return out;
+  }
+
   private writeTexel(i: number) {
-    const o = i * 4;
+    const o = i * 4, o2 = (this.state.length + i) * 4;
     this.data[o] = this.t0[i];
     this.data[o + 1] = this.H[i];
     this.data[o + 2] = this.seedB[i];
+    this.data[o2] = this.cx[i];
+    this.data[o2 + 1] = this.base[i];
+    this.data[o2 + 2] = this.cz[i];
+    this.data[o2 + 3] = this.heave[i];
+    this.memT[i] = NaN;
     if (i < this.dirty0) this.dirty0 = i;
     if (i > this.dirty1) this.dirty1 = i;
   }
@@ -459,7 +507,11 @@ export class Lift implements LiftHooks, FieldHouses {
     if (liftedOn && !this.staged && this.tilesWanted.size === 0) this.stage();
     if (liftedOn && this.staged && this.waveAt < 0 && fogGone >= 0.5) {
       this.waveAt = now + 0.6;
-      for (const { ref, d } of this.waveList) this.schedule(ref.index, this.waveAt + d / LIFT.wave + LIFT.waveJitter * liftSeed(ref.index, 3), BY_WAVE);
+      // (placed low ones first, out from the heart, then the rest: a low house keeps its room by its neighbours rising round it, liftPlace. The
+      // crouches go by distance whatever the order)
+      const low = (r: BuildingRef) => liftLow(liftRest(r.area, r.roofY - r.baseY, r.index), this.margin[r.index]);
+      for (const pass of [true, false])
+        for (const { ref, d } of this.waveList) if (low(ref) === pass) this.schedule(ref.index, this.waveAt + d / LIFT.wave + LIFT.waveJitter * liftSeed(ref.index, 3), BY_WAVE);
       this.g.sound.wave();
     }
     // the wave's slow motion, as its front comes within 150 m of the bus
@@ -503,8 +555,10 @@ export class Lift implements LiftHooks, FieldHouses {
     // uploads: at most one texSubImage2D a texture a frame
     if (this.dirty1 >= 0) {
       const w = this.g.city.paint.width;
-      const y0 = Math.floor(this.dirty0 / w), y1 = Math.floor(this.dirty1 / w);
+      const y0 = Math.floor(this.dirty0 / w), y1 = Math.floor(this.dirty1 / w), rows = this.g.city.paint.height;
+      // (the rows of both texels: two calls)
       if (!uploadRect(renderer, this.tex, 0, y0, w, y1 - y0 + 1, WebGL2RenderingContext.RGBA, WebGL2RenderingContext.FLOAT, 4)) this.tex.needsUpdate = true;
+      else uploadRect(renderer, this.tex, 0, rows + y0, w, y1 - y0 + 1, WebGL2RenderingContext.RGBA, WebGL2RenderingContext.FLOAT, 4);
       this.dirty0 = Infinity;
       this.dirty1 = -1;
     }
@@ -515,7 +569,7 @@ export class Lift implements LiftHooks, FieldHouses {
     if (this.capsDirty) {
       this.capsDirty = false;
       this.caps.geometry.dispose();
-      this.caps.geometry = makeCapGeometry(this.refs.values(), (r) => this.jetOf(r));
+      this.caps.geometry = makeCapGeometry(this.refs.values(), (r) => this.centreOf(r));
       this.stats.capsTris = (this.caps.geometry.index?.count ?? 0) / 3;
       this.caps.visible = true;
     }

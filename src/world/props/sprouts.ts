@@ -277,8 +277,14 @@ SproutV sproutVertex() {
   o.blobC = c;
   o.blobR = aBlobR * sc;
   o.world = modelMatrix * (instanceMatrix * vec4(p, 1.0));${lifted(`
-  // (a garden rides its floating house: the house's lift, and its stretch at the roof's height)
-  if (aLiftB.x >= 0.0) { vec2 lf = sbLift(aLiftB.x, ipos.xz); o.world.y += lf.x + aLiftB.y * lf.y; }`)}
+  // (a garden rides its floating house: the house's lift, its stretch at the roof's height, and its lean about its belly's middle)
+  if (aLiftB.x >= 0.0) {
+    vec4 lT2;
+    vec4 lf = sbLift(aLiftB.x, ipos.xz, lT2);
+    o.world.y += lf.x + aLiftB.y * lf.y;
+    vec3 piv = vec3(lT2.x, lT2.y + lf.x, lT2.z);
+    o.world.xyz = piv + sbTilt(o.world.xyz - piv, lf.zw);
+  }`)}
   }
   return o;
 }
