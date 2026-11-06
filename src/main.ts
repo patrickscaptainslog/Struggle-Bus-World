@@ -625,8 +625,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       const S = config.splat;
       const k = b.strength;
       moonPaint?.impact(b);
-      // (?life: a MEGA, a hose's every impact and its closer paint every mover in reach, as the buildings in it: CONTRACT.md section 3)
-      if (b.super) life?.blast(b.pos.x, b.pos.y, b.pos.z, b.spec.r, b.spec.hue, b.super, simTime);
+      // (?life: every shot's whole circle paints every mover in it, as the buildings in it: a tap's as a MEGA's, a hose's every impact and its closer
+      // (SHOTS.md, "The shot, reworked"; CONTRACT.md section 3). Its centre is the ground under the impact, so a shot on a tower's roof still takes the
+      // street round its foot. A breath that hit a mover is life's own hit (Aim's mover, life.hit), and its blast paints no other)
+      if (!b.mover) life?.blast(b.spec.x, city.groundAt(b.spec.x, b.spec.z), b.spec.z, b.spec.r, b.spec.hue, b.super ?? undefined, simTime);
       lastBlast.x = b.spec.x;
       lastBlast.z = b.spec.z;
       lastBlast.r = b.spec.r;

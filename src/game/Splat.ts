@@ -36,6 +36,8 @@ export interface Blast {
   dots: BlastDot[];
   /** a firehose impact (BarfOpts.hose): the caller plays its lighter fx */
   hose: boolean;
+  /** ?life: a breath that hit a mover (BarfOpts.mover): life paints that mover itself, and the blast's circle paints nothing else */
+  mover: boolean;
   /** the building it hit, or null */
   primary: BuildingRef | null;
   /** which super splat made this blast, null for a tap (the stage engine's one-hit-per-area rule reads it) */
@@ -250,10 +252,11 @@ export class Splatter {
 
     // every building the blast reaches (its footprint, not its centroid: a big block half inside the radius
     // blooms too), nearest edge first, capped: a house by its centroid less its half-size (as the approved
-    // blast), a big footprint by its true edge distance (its centroid may lie 100 m away). A super's blast is
-    // capped by its area, not its radius: over dense housing it must not leave grey blocks in a rainbow street grid
+    // blast), a big footprint by its true edge distance (its centroid may lie 100 m away). Every blast is
+    // capped by its area, not its radius: over dense housing it must not leave grey blocks in a rainbow street
+    // grid (a tap's 85 m paints every building in it, SHOTS.md; a super's up to megaBuildingsCap, a tap's or a hose's up to maxBuildingsCap)
     const rk = r / S.blastRadius;
-    const cap = opts?.super && !hose ? Math.min(S.megaBuildingsCap, Math.round(S.maxBuildings * rk * rk)) : Math.min(S.maxBuildingsCap, Math.max(1, Math.round(S.maxBuildings * rk)));
+    const cap = Math.min(opts?.super && !hose ? S.megaBuildingsCap : S.maxBuildingsCap, Math.max(1, Math.round(S.maxBuildings * rk * rk)));
     const near = city.buildingsWithin(cx, cz, r + S.smallRad, this.near);
     const reach = this.reachList;
     reach.length = 0;
@@ -315,7 +318,7 @@ export class Splatter {
     const ground = groundless ? null : city.ground.begin(spec, tImpact);
     this.pending.push({
       at: tImpact, plan, ground, hitStop: hose ? 0 : opts?.hitStop ?? S.hitStopFrames,
-      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, primary, super: opts?.super ?? null, tag: opts?.tag },
+      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, mover: false, primary, super: opts?.super ?? null, tag: opts?.tag },
     });
     if (!stream) this.fx.geyser([pos.clone()], [hue]);
     return tImpact;
@@ -333,7 +336,7 @@ export class Splatter {
     spec.faction = this.faction;
     this.pending.push({
       at: tImpact, plan: [], ground: null, hitStop: hose ? 0 : opts.hitStop ?? S.hitStopFrames,
-      blast: { spec, pos, t: tImpact, count: 1, maxLevel: 1, strength: r / S.blastRadius, dots: [], hose, primary: null, super: opts.super ?? null, tag: opts.tag },
+      blast: { spec, pos, t: tImpact, count: 1, maxLevel: 1, strength: r / S.blastRadius, dots: [], hose, mover: true, primary: null, super: opts.super ?? null, tag: opts.tag },
     });
     this.lastMiss = false;
     return tImpact;

@@ -547,17 +547,20 @@ export const config = {
     breathSteerEase: 0.2,
     /** Authored rear-up while breathing (rad, nose up), its rise and its settle. */
     rearUp: 0.2,
-    /** Blast radius around the impact with no drop (m): every building inside blooms. */
-    blastRadius: 60,
+    /** Blast radius around the impact with no drop (m): every building inside blooms. 85 since the shots' rework (docs/specs/shots/SHOTS.md, "The
+     *  shot, reworked", approved 2026-11-06: "The splat grows from 60 m to 85 m"), from 60: the block, not one car. Each tap still climbs one level. */
+    blastRadius: 85,
     /** Radius multiplier at 300 m of drop (bus height above the impact); grows linearly with drop. */
     dropGain300: 2,
     /** Drop beyond this adds nothing (m). */
     dropMax: 600,
     /** Launch speed of the shockwave racing out of the impact (m/s); buildings bloom as it reaches them. */
     waveSpeed: 300,
-    /** Max buildings bloomed per blast at the base radius (scales with the radius, up to maxBuildingsCap). */
-    maxBuildings: 40,
-    maxBuildingsCap: 96,
+    /** Max buildings bloomed per blast at the base radius, and it grows with the blast's area (r squared, as the buildings in reach do), up to
+     *  maxBuildingsCap from up high. High enough that a tap from the rooftops paints every building in its 85 m (SHOTS.md: "It paints every car, person,
+     *  picnic and boat inside it"): it was 40 at 60 m, growing with r alone, which left grey houses inside a dense block's circle. */
+    maxBuildings: 140,
+    maxBuildingsCap: 240,
     /** A super's blast (mega, the firehose's closer): its cap grows with the blast's area, up to this: the buildings in
      *  reach grow with r squared, and the street grid under them is painted to the full radius either way. */
     megaBuildingsCap: 480,
