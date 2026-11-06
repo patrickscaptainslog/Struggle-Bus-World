@@ -38,8 +38,11 @@ order the section's list of fixes needs them:
   split    anything over 3 km2 into strips across its longer side, parks whole, named West and East, or North and South
   hearts   one square each: in its biggest park (on open ground: not a park on a roof), else its highest open ground, else
            its highest square, never on a tagged place, at least 450 m from every other heart; within a park or a tier
-           a square with no tagged place in it first; a neighbourhood whose heart can't be placed joins the neighbour in
-           its way
+           the ring of 8 most on land and most its own first, then a square with no tagged place in it, and a square
+           whose ring reaches past the frame only after every other; a neighbourhood whose heart can't be placed joins
+           the neighbour in its way
+  rings    each god's ring of 8 its own where it's land: a neighbour's square in it comes over, but a park's (kept
+           whole), a heart's ring, or one its neighbour can't spare (0.25 km2, or cut in two)
   tagged   squares where worship, cemetery, memorial, school or hospital cover a quarter of the land: stages 4 and 5 stay off
 A rerun on the same inputs writes the same bytes.
 
@@ -1130,23 +1133,26 @@ class Hoods:
 
     # ------------------------------------------------------------------ hearts
 
+    def ring_squares(self, s):
+        """Square s's ring of 8, those inside the frame."""
+        W = self.w
+        return [(s // W + dj) * W + s % W + di for dj in (-1, 0, 1) for di in (-1, 0, 1)
+                if (di or dj) and 0 <= s % W + di < W and 0 <= s // W + dj < self.h]
+
     def candidates(self, ti):
         """The squares a heart may take, best first, tagged squares never: its biggest park's, its other parks' by size,
         then the highest open ground, then the highest square. A park's square counts only on open ground (a park on a
-        roof is no ground for a god: Salesforce Park), and within a park or a tier a square with no tagged place in it at
-        all comes before one with a sliver of one (a church's corner doesn't push North Beach's heart out of Washington
-        Square onto a roof)."""
+        roof is no ground for a god: Salesforce Park). Within a park or a tier: the ring of 8 most on land, then most its
+        own (every god rises over a ring of floating houses), then a square with no tagged place in it at all before one
+        with a sliver of one (a church's corner doesn't push North Beach's heart out of Washington Square onto a roof).
+        A square whose ring reaches past the frame comes after every other (on a flat map the most open square was the
+        frame's corner)."""
         sq = self.squares(ti)
         mine = set(sq.tolist())
-        W = self.w
-        ring = {}
+        ring = {}   # (its ring's squares in the frame, on land, its own)
         for s in sq.tolist():
-            n = 0
-            for dj in (-1, 0, 1):
-                for di in (-1, 0, 1):
-                    if (di or dj) and 0 <= s % W + di < W and (s + dj * W + di) in mine:
-                        n += 1
-            ring[s] = n
+            rs = self.ring_squares(s)
+            ring[s] = (len(rs), sum(1 for q in rs if self.is_land[q]), sum(1 for q in rs if q in mine))
         tiers = []
         seen = set()
         parks = []
@@ -1162,18 +1168,19 @@ class Hoods:
             p = self.parks[pi]
             mx = np.average([self.centre(s)[0] for s in ps], weights=f)
             mz = np.average([self.centre(s)[1] for s in ps], weights=f)
-            order = sorted(zip(ps.tolist(), f.tolist()), key=lambda t: (bool(self.tag_any[t[0]]), -round(t[1], 2), -ring[t[0]],
-                           round(math.hypot(self.centre(t[0])[0] - mx, self.centre(t[0])[1] - mz), 1), t[0]))
+            order = sorted(zip(ps.tolist(), f.tolist()), key=lambda t: (
+                -ring[t[0]][1], -ring[t[0]][2], bool(self.tag_any[t[0]]), -round(t[1], 2),
+                round(math.hypot(self.centre(t[0])[0] - mx, self.centre(t[0])[1] - mz), 1), t[0]))
             order = [s for s, _ in order if s not in seen]
             tiers += [(s, 'park', p['name'] or 'a park', 0, len(order)) for s in order]
             seen |= set(order)
         high = sorted((s for s in sq.tolist() if s not in seen and not self.tag[s]), key=lambda s: (
-            self.open[s] < OPEN_HEART, bool(self.tag_any[s]), -round(float(self.high[s]) if np.isfinite(self.high[s]) else -1e9, 1),
-            -round(self.open[s], 2), -ring[s], s))
+            self.open[s] < OPEN_HEART, -ring[s][1], -ring[s][2], bool(self.tag_any[s]),
+            -round(float(self.high[s]) if np.isfinite(self.high[s]) else -1e9, 1), -round(self.open[s], 2), s))
         n_open = sum(1 for s in high if self.open[s] >= OPEN_HEART)
         tiers += [(s, 'high ground', None, 1, n_open) if self.open[s] >= OPEN_HEART else (s, 'built ground', None, 2, len(high) - n_open)
                   for s in high]
-        return tiers
+        return [c for c in tiers if ring[c[0]][0] == 8] + [c for c in tiers if ring[c[0]][0] < 8]
 
     def hearts(self):
         """The most hemmed in first: a park heart before high ground, the park with the fewest squares first, the
@@ -1215,6 +1222,51 @@ class Hoods:
         self.heart = placed
         return failed
 
+    def connected(self, sq):
+        """Squares sq in one piece, corners touching."""
+        if not len(sq):
+            return True
+        i, j = sq % self.w, sq // self.w
+        m = np.zeros((j.max() - j.min() + 1, i.max() - i.min() + 1), bool)
+        m[j - j.min(), i - i.min()] = True
+        return ndimage.label(m, structure=np.ones((3, 3)))[1] == 1
+
+    def rings(self):
+        """Each god's ring of 8 its own where it's land (the areas count a god's ring among its own squares): a ring
+        square a neighbour holds comes over, unless a park holds it (kept whole), it's the neighbour's heart or in its
+        heart's ring, the neighbour would fall under MIN_SQUARES or in two, or the god's own would go over MAX_SQUARES;
+        till none can. A heart in a park at its border keeps its park: Mission Dolores Park stays the Mission's, and the
+        Castro's squares round it come over."""
+        park = np.zeros(self.w * self.h, bool)
+        for p in self.parks:
+            park[p['own']] = True
+        gods = {ti: h[0] for ti, h in self.heart.items() if ti in self.T and h[1] != 'none' and ti not in self.small}
+        guard = {u: {s} | set(self.ring_squares(s)) for u, s in gods.items()}
+        size = {ti: len(self.squares(ti)) for ti in self.T}
+        moved = 0
+        while True:
+            was = moved
+            for ti in sorted(gods):
+                for q in self.ring_squares(gods[ti]):
+                    u = int(self.own[q])
+                    if u < 0 or u == ti or park[q] or (u in guard and q in guard[u]):
+                        continue
+                    if size[u] - 1 < MIN_SQUARES or size[ti] + 1 > MAX_SQUARES:
+                        continue
+                    rest = self.squares(u)
+                    if not self.connected(rest[rest != q]):
+                        continue
+                    self.own[q] = ti
+                    size[u] -= 1
+                    size[ti] += 1
+                    moved += 1
+            if moved == was:
+                break
+        self.rebuild()
+        short = sum(1 for ti, s in gods.items() if sum(1 for q in self.ring_squares(s) if self.own[q] == ti) < 8)
+        log(f'rings: {moved} squares came over to their gods\' rings; {short} of {len(gods)} rings short of 8 (the shore, '
+            f'the frame, a park or a neighbour that can\'t spare one)')
+
     # ------------------------------------------------------------------ the whole
 
     def run(self):
@@ -1249,6 +1301,7 @@ class Hoods:
             raise SystemExit(f'hearts: no placement after 12 rounds ({", ".join(self.name(t) for t in failed)})')
         if joins:
             log(f'hearts: no room for {len(joins)}, joined: {"; ".join(joins)}')
+        self.rings()
         self.write(time.time() - t0)
 
     def name(self, ti):

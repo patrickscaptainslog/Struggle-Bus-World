@@ -10,7 +10,9 @@ exit 1 on any failure. Against the city's own baked tiles and Overture extract, 
            Dolores Park by the Mission), the longest name it holds first
   hearts   each on its own neighbourhood's squares, none on a tagged square, at least 450 m apart (the godless aside);
            none on built ground while open ground was clear for it, none out of its parks while one had open, untagged
-           ground clear for it (clear: 450 m from every other god's heart, where the bake could have put it)
+           ground clear for it (clear: 450 m from every other god's heart, where the bake could have put it), none
+           whose ring reaches past the frame while a square off its edge was clear, and no ring square a neighbour holds
+           that could come over to it (not a park's, a heart's ring, a neighbour at 0.25 km2 or cut in two by it)
   sizes    0.25-3 km2; under 0.25 only a whole piece of land, and godless (Alcatraz)
   names    one each, none empty or over 255 bytes, no two that are one place (hoods.norm: Castro, Castro District),
            none with a slash of its own beside another; every place the bake seeds from named on the neighbourhood
@@ -205,19 +207,81 @@ def gods(W, t):
 
 def heart_ground(W, t):
     """(built, off its parks): gods whose heart is on built ground (under a quarter of open ground) while their
-    neighbourhood had open ground clear of the other gods' hearts; gods whose heart is in none of their parks while one
-    had an open, untagged square clear of them."""
+    neighbourhood had open ground clear of the other gods' hearts, off the frame's edge; gods whose heart is in none of
+    their parks while one had an open, untagged square clear of them, off the edge."""
     g = t['grid']
     hc, clear = gods(W, t)
     built, off = [], []
     for k, h in hc.items():
         sq = np.nonzero(g == k + 1)[0]
-        ok = clear(k, sq) & ~t['tagged'][sq] & (W.open[sq] >= H.OPEN_HEART)
+        inner = np.array([len(ring_cells(W, s)) == 8 for s in sq.tolist()], bool)
+        ok = clear(k, sq) & ~t['tagged'][sq] & (W.open[sq] >= H.OPEN_HEART) & inner
         if W.open[h] < H.OPEN_HEART and ok.any():
             built.append(f'{t["names"][k]} (open {W.open[h]:.2f})')
         if not W.parksq[h] and (ok & W.parksq[sq]).any():
             off.append(t['names'][k])
     return built, off
+
+
+def ring_cells(W, c):
+    """Grid cell c's ring of 8, those inside the frame."""
+    i, j = c % W.w, c // W.w
+    return [(j + dj) * W.w + i + di for dj in (-1, 0, 1) for di in (-1, 0, 1)
+            if (di or dj) and 0 <= i + di < W.w and 0 <= j + dj < W.h]
+
+
+def connected(W, cells):
+    """Grid cells in one piece, corners touching."""
+    if not len(cells):
+        return True
+    i, j = cells % W.w, cells // W.w
+    m = np.zeros((j.max() - j.min() + 1, i.max() - i.min() + 1), bool)
+    m[j - j.min(), i - i.min()] = True
+    return ndimage.label(m, structure=np.ones((3, 3)))[1] == 1
+
+
+def heart_rings(W, t):
+    """(at the edge, gaps, short): gods whose heart's ring reaches past the frame while a square of theirs off its edge
+    was clear for them; gods whose ring holds a neighbour's land square that could have come over (not a park's, not
+    the neighbour's heart or in its heart's ring, the neighbour above 0.25 km2 and not cut in two by it, the god under
+    3 km2); and every god's ring short of 8 of its own, with why."""
+    g = t['grid']
+    hc, clear = gods(W, t)
+    size = np.bincount(g, minlength=len(t['names']) + 1)
+    rings = {k: ring_cells(W, h) for k, h in hc.items()}
+    edge, gaps, short = [], [], []
+    for k, h in hc.items():
+        if len(rings[k]) < 8:
+            sq = np.nonzero(g == k + 1)[0]
+            inner = np.array([len(ring_cells(W, s)) == 8 for s in sq.tolist()])
+            if (inner & clear(k, sq) & ~t['tagged'][sq]).any():
+                edge.append(t['names'][k])
+        why = ['frame'] * (8 - len(rings[k]))
+        for q in rings[k]:
+            u = int(g[q]) - 1
+            if u == k:
+                continue
+            if u < 0:
+                why.append('water')
+                continue
+            if W.parksq[q]:
+                why.append('a park')
+                continue
+            if u in hc and (q == hc[u] or q in rings[u]):
+                why.append('a ring')
+                continue
+            if size[u + 1] - 1 < H.MIN_SQUARES or size[k + 1] + 1 > H.MAX_SQUARES:
+                why.append('a size')
+                continue
+            rest = np.nonzero(g == u + 1)[0]
+            if not connected(W, rest[rest != q]):
+                why.append('a neighbour in two')
+                continue
+            gaps.append(f'{t["names"][k]} ({t["names"][u]})')
+            why.append('could come')
+        if why:
+            short.append(f'{t["names"][k]} {8 - len(why)}: {", ".join(sorted(set(why)))}')
+    return edge, gaps, short
 
 
 def contains(pw, w):
@@ -347,6 +411,13 @@ def check(W, t, man_hoods, rep):
             (f'; {"; ".join(built[:8])}' if built else ''), not built)
         rep('hearts: out of their parks while one had open, untagged ground for them', len(offpark), '0' +
             (f'; {"; ".join(offpark[:8])}' if offpark else ''), not offpark)
+        edge, gaps, short = heart_rings(W, t)
+        rep('hearts: ring past the frame while a square off its edge was clear for them', len(edge), '0' +
+            (f'; {"; ".join(edge[:8])}' if edge else ''), not edge)
+        rep('hearts: a ring square a neighbour holds that could come over', len(gaps), '0' +
+            (f'; {"; ".join(gaps[:8])}' if gaps else ''), not gaps)
+        rep('hearts: rings short of 8 of their own', len(short), f'reported, of {len(gods(W, t)[0])} gods' +
+            (f'; {"; ".join(short[:12])}' if short else ''), True)
     near = []
     if len(pts) > 1:
         from scipy.spatial import cKDTree
@@ -473,6 +544,18 @@ def broken(W, t, man_hoods):
                      if there(h, s) and not t['tagged'][s]), None)
         if pick:
             case(f'a heart moved {moved}', target, lambda c, mh, k=pick[0], s=pick[1]: c['hearts'].__setitem__(k, W.key(s)))
+    # a heart moved to the frame's edge, and a god's own ring square given to the neighbour beside it
+    pick = next(((k, int(s)) for k in hc for s in np.nonzero(g == k + 1)[0].tolist()
+                 if len(ring_cells(W, s)) < 8 and not t['tagged'][s]), None)
+    if pick:
+        case('a heart moved to the frame\'s edge', 'hearts: ring past the frame while a square off its edge was clear for them',
+             lambda c, mh, k=pick[0], s=pick[1]: c['hearts'].__setitem__(k, W.key(s)))
+    gap = next(((q, int(g[r]) - 1) for k, h in hc.items() for q in ring_cells(W, h) if g[q] == k + 1 and not W.parksq[q]
+                for r in ring_cells(W, q) if g[r] and g[r] != k + 1 and not (int(g[r]) - 1 in hc and (
+                    q == hc[int(g[r]) - 1] or q in ring_cells(W, hc[int(g[r]) - 1])))), None)
+    if gap:
+        case('a ring square given away', 'hearts: a ring square a neighbour holds that could come over',
+             lambda c, mh, q=gap[0], u=gap[1]: c['grid'].__setitem__(q, u + 1))
     k0 = next(k for k in range(len(t['names'])) if not t['flags'][k])
     case('a heart off its squares', 'hearts: off their own squares',
          lambda c, mh: c['hearts'].__setitem__(k0, t['hearts'][(k0 + 1) % len(t['names'])]))
