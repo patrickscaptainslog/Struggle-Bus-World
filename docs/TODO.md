@@ -19,7 +19,7 @@ The producer approved the factions plan, [specs/factions/FACTIONS.md](specs/fact
   - **Left open:**
     - M7, buses on Market Street, waits on the bus-allowed bit in C14.
     - Also left: m2, m9 to m13, n1 to n3, n5, n6 and n9 to n12.
-  - **Checked here in software graphics:** determinism and flag-off all pass on it; smoke and paint rerunning on b6383f4 (on 69807e5 smoke failed only its car row and paint three rows, all from rows older than tonight's aim and culling, fixed in b6383f4).
+  - **Checked here in software graphics, on b6383f4:** determinism, alloc, flag-off, smoke and paint all pass, and the build parses on Safari 15. On 69807e5 smoke had failed its cars row and paint three rows. The cars row and two of paint's were tests older than tonight's aim and culling. The third, the ferry's wake, was real: too few stretches to show its colours in the test's seconds. All four are fixed in b6383f4.
   - **For the first account:** a re-review of `feat/life` 4694f33 to b6383f4, and the GPU runs: L3's triangles by `qa.tris`, the berths and the wakes seen from the air. Also C16 and C17 in `specs/earth/CONTRACT.md`, proposed, for you to agree.
 - [x] `feat/recess`, cut from `main` 058217c: factions step 3, the beat clock. One clock the stage-ups, Possessed's hiccups and the music share, at 84 beats a minute (decision 14). Nothing on screen yet.
 - [x] `feat/recess`: step 4, the areas. The 128 m squares and their stages 1 to 4, a rival's hit knocking a stage off, the five-second wait, the owner's hit healing a crack (decision 16), saving the solo city; in Node, with tests. Which area a god belongs to, a square or a neighbourhood, is decision 28: keep it behind one switch, and stage 5 out until then.
