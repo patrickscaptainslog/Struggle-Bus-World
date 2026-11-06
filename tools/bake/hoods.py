@@ -1064,17 +1064,25 @@ class Hoods:
 
     def name(self, ti):
         """Its own name, and the biggest it took in by a merge ("Western Addition / Japantown"): two at most, so a sign
-        can hold it; a third is in the bake's log alone."""
+        can hold it; a third is in the bake's log alone. A name that holds a slash of its own (Amsterdam's
+        "Nieuwmarkt/Lastage") is never joined to another, which would read as three."""
         t = self.T[ti]
         names = [t['parts'][0][0]]
         for nm, ps in sorted(t['parts'][1:], key=lambda p: (-len(p[1]), p[0])):
             if nm and all(norm(nm) != norm(x) for x in names):
                 names.append(nm)
-        if len(names) > 2:
-            nt = f'{names[0]}: also takes in {", ".join(names[2:])}, left off its name'
+        if len(names) > 1 and '/' in names[0]:
+            off = names[1:]
+            names = names[:1]
+        else:
+            slash = [x for x in names[1:] if '/' in x]
+            names = [x for x in names if x not in slash]
+            off = names[2:] + slash
+            names = names[:2]
+        if off:
+            nt = f'{names[0]}: also takes in {", ".join(off)}, left off its name'
             if nt not in self.notes:
                 self.notes.append(nt)
-            names = names[:2]
         out = ' / '.join(names)
         # a park "of <the map's city>" is the park ('Presidio of San Francisco' is the Presidio)
         if self.city_name:

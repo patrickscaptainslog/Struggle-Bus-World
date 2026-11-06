@@ -212,8 +212,11 @@ def check(W, t, man_hoods, rep):
         norms.setdefault(H.norm(nm), []).append(nm)
     dup = [' = '.join(v) for v in norms.values() if len(v) > 1]
     blank = [nm for nm in tb['names'] if not nm.strip() or len(nm.encode('utf-8')) > 255]
+    slash = [nm for nm in tb['names'] if len(nm.split(' / ')) > 1 and any('/' in p for p in nm.split(' / '))]
     rep('names: two that are one place', len(dup), '0' + (f'; {"; ".join(dup[:6])}' if dup else ''), not dup)
     rep('names: empty or over 255 bytes', len(blank), '0', not blank)
+    rep('names: a merged name with a slash of its own in it', len(slash), '0 (it reads as three)' +
+        (f'; {"; ".join(slash[:6])}' if slash else ''), not slash)
     return tb
 
 
@@ -293,6 +296,8 @@ def broken(W, t, man_hoods):
              lambda c, mh: c['grid'].__setitem__(sq[:-3], nb[0] + 1))
     case('two names the same', 'names: two that are one place',
          lambda c, mh: c['names'].__setitem__(1, c['names'][0].upper() + ' District'))
+    case('a merged name with a slash', 'names: a merged name with a slash of its own in it',
+         lambda c, mh: c['names'].__setitem__(0, c['names'][0] + ' / North/South'))
     for name, target, c, mh in cases:
         rep = Report(quiet=True)
         try:
