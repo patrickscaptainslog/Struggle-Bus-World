@@ -92,16 +92,24 @@ export function encodeMask(d: Uint8Array): string {
   return code + '~' + base64(OWNERS, fw);
 }
 
-/** Decodes encodeMask() into a mask's data (settled: no reveal, no serial). False if corrupt. Painted pairs past what its owners name are Rainbow's. */
+/**
+ * Decodes encodeMask() into a mask's data (settled: no reveal, no serial). False if corrupt. Painted pairs past what its owners name are Rainbow's, and all
+ * of them are if its owners' part is spoiled: a broken '~' part loses whose the paint is, never the paint.
+ */
 export function decodeMask(str: string, d: Uint8Array): boolean {
-  let bin: string, own = '';
+  let bin: string, own = '', cut: number;
   try {
-    const cut = str.indexOf('~');
+    cut = str.indexOf('~');
     bin = atob(cut < 0 ? str : str.slice(0, cut));
-    if (cut >= 0) own = atob(str.slice(cut + 1));
   } catch {
     return false;
   }
+  if (cut >= 0)
+    try {
+      own = atob(str.slice(cut + 1));
+    } catch {
+      /* spoiled: Rainbow's, all of it */
+    }
   let k = 0, f = 0, left = 0, low = RAINBOW_LOW;
   for (let i = 0; i + 1 < bin.length; i += 2) {
     const v = bin.charCodeAt(i);

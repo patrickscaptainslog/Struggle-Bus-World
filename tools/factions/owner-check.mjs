@@ -12,6 +12,7 @@
 //   same      a Rainbow record saved by this code is byte for byte what main saves
 //   five      each of the five splats, and after a reload reads back as its own, in every store above; another faction's hit on painted paint makes it the hitter's
 //   rollback  main's build reading this code's saves: Rainbow's as its own; another faction's left out or read as Rainbow's, never as other paint
+//   spoiled   a tile's or a picture's code whose owners' part is broken: its paint read whole, Rainbow's, where it lost the whole tile or picture
 //   cost      what it costs: a blast drawn on the ground, a tile's code written and read (ms), a building's paint set (us), for the game as it is (Rainbow alone)
 //             and for five factions. Prints only: run it with --src at main's to compare
 // Life's movers aren't here: their paint is life's, and keeps its faction once C15 (docs/specs/factions/C15.md) is agreed.
@@ -601,6 +602,70 @@ if (!only || only === 'rollback') {
   p.save();
   const oldRead = OLD.strokes(JSON.parse(mem.get('strugglebus.moon.v1.0') ?? '[]'));
   row('a Moon stroke of Hyperglow\'s: main leaves it out, and keeps the Rainbow one', oldRead.length === 1 && oldRead[0].lat === -5, oldRead);
+}
+
+// ---- spoiled
+if (!only || only === 'spoiled') {
+  // a code with owners in it, its owners' part broken two ways atob refuses: cut off mid-character, and junk
+  const spoils = (code) => {
+    const cut = code.indexOf('~'), own = code.slice(cut + 1).replace(/=+$/, '');
+    return { cut: code.slice(0, cut + 1) + own.slice(0, own.length - ((own.length - 1) % 4)), junk: code.slice(0, cut + 1) + '!?' };
+  };
+  mem.clear();
+  const g = new GroundPaint(TS, CITY), tl = tilesAround(500, 500, 200);
+  for (const [a, b] of tl) g.attach(a, b, a * TS, b * TS, uni());
+  g.blast(spec(500, 500, 60, 1), 0);
+  g.blast(spec(540, 500, 40, 3, 4), 0);
+  const [key, m] = [...g.masks].find(([, x]) => encodeMask(x.data).includes('~')), code = encodeMask(m.data), [tx, tz] = key.split(',').map(Number);
+  const want = new Uint8Array(N * N * 4), got = new Uint8Array(N * N * 4), out = {};
+  decodeMask(code, want);
+  let ok = true;
+  for (const [name, s] of Object.entries(spoils(code))) {
+    const read = decodeMask(s, got);
+    let same = read, rainbow = read;
+    for (let t = 0; read && t < got.length; t += 4) {
+      if (got[t] !== want[t] || got[t + 1] >> 5 !== want[t + 1] >> 5) same = false;
+      if (got[t] && (got[t + 1] & 31) !== 16) rainbow = false;
+    }
+    ok &&= read && same && rainbow;
+    out[name] = { read, same, rainbow };
+  }
+  row('a tile\'s code, its owners\' part broken (cut, junk): its paint read whole, Rainbow\'s', ok, out);
+  // the same through the street's ground: a tile saved with it comes back painted as the whole code does, where it came back bare
+  const back = {};
+  for (const [name, s] of Object.entries({ whole: code, ...spoils(code) })) {
+    mem.clear();
+    mem.set(`strugglebus.ground.v4:${key}`, JSON.stringify({ t: 1, m: s, p: [] }));
+    const g2 = new GroundPaint(TS, CITY);
+    g2.attach(tx, tz, tx * TS, tz * TS, uni());
+    settle(g2);
+    const x = texels(g2, tx, tz);
+    back[name] = { painted: x.length, owners: owners(x) };
+  }
+  const n0 = back.whole.painted;
+  row('  a tile saved with it: every painted texel back, Rainbow\'s', n0 > 0 && back.whole.owners[4] > 0 && [back.cut, back.junk].every((b) => b.painted === n0 && Object.keys(b.owners).join() === '1'), back);
+  // and the Moon's pictures: Atlantis's paint folded into them, their codes broken, the page loaded again
+  mem.clear();
+  const rows = new Map(), g1 = await moonPage(rows), mt = tilesAround(0, 0, 150);
+  for (const [a, b] of mt) g1.attach(a, b, a * TS, b * TS, uni());
+  g1.blast(spec(0, 0, 60, 2, 2), 0);
+  await moonFrames(g1);
+  await moonFrames(g1, 70);
+  const intact = await moonPage(new Map(rows));
+  await moonFrames(intact);
+  await moonBack(intact, mt);
+  const had = mt.flatMap(([a, b]) => texels(intact, a, b)).length;
+  let broken = 0;
+  for (const [k, [t, c]] of rows)
+    if (c.includes('~')) {
+      rows.set(k, [t, spoils(c).junk]);
+      broken++;
+    }
+  const g3 = await moonPage(rows);
+  await moonFrames(g3);
+  await moonBack(g3, mt);
+  const mo = mt.flatMap(([a, b]) => texels(g3, a, b));
+  row('the Moon\'s pictures, their owners\' part junk: their paint back, Rainbow\'s', broken > 0 && had > 0 && mo.length >= 0.95 * had && Object.keys(owners(mo)).join() === '1', { pictures: rows.size, broken, had, back: mo.length, owners: owners(mo) });
 }
 
 // ---- cost
