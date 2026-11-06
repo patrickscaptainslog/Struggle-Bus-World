@@ -3,7 +3,7 @@
 // full second of glint before its breath goes at a bus, whatever this says. Seeded, so a match replays.
 
 import type { Area } from '../factions/areas';
-import { areaTune } from '../factions/areas';
+import { areaTune, squareCentre, squareKey } from '../factions/areas';
 import { Recess, recessTune, type Bus, type Hands, type Level } from './recess';
 
 export interface Skill {
@@ -116,24 +116,63 @@ export class Captain {
       else if (me.lock >= 0) h.tap = t - me.lockSince >= T.botGlint;
       else if (!prey) {
         const d = T.aheadMin + me.speed * T.aheadT, ax = me.x + Math.cos(me.heading) * d, az = me.z + Math.sin(me.heading) * d;
-        h.tap = Recess.inside(ax, az) && this.worth(r.areas.get(ax, az), me);
+        h.tap = Recess.inside(ax, az) && this.worth(r.areas.get(ax, az), me, r);
       }
     }
     return h;
   }
 
-  /** Ground worth a breath: grey, a rival's, or its own below the top. */
-  private worth(a: Area | undefined, me: Bus): boolean {
-    return !a || a.faction !== me.faction || a.stage < areaTune.top;
+  /** Ground worth a breath: grey, a rival's, its own below its top, or a heart a god may rise on. */
+  private worth(a: Area | undefined, me: Bus, r?: Recess): boolean {
+    if (!a || a.faction !== me.faction) return true;
+    // (its own in the five seconds' wait: a hit there is only an encore)
+    if (r && r.t - a.last < areaTune.cooldown) return false;
+    if (a.stage < (r ? r.areas.topOf(a.key) : 4)) return true;
+    const R = r?.areas.realm;
+    return !!R && me.home >= 0 && R.heart(me.home) === a.key && a.stage < 5;
   }
 
-  /** Somewhere in the circle to paint, nearer ground first: a few tries at random, the best kept. */
+  /** Somewhere in the circle to paint, nearer ground first: a few tries at random, the best kept. Holding its home, it goes for the heart's ring and the heart. */
   private pickGround(r: Recess, me: Bus): void {
-    const R = recessTune.radius * 0.8;
+    const A = r.areas, R = A.realm;
+    if (R && me.home >= 0) {
+      const s = A.standing(me.home);
+      // (not held yet: its home's squares below the streets, nearest first; held: the heart's ring and the heart)
+      if (s.holder !== me.faction && this.rand() < 0.8) {
+        let best = -1, d0 = Infinity;
+        for (const k of R.squares(me.home)) {
+          const a = A.all.get(k);
+          if (a && a.faction === me.faction && a.stage >= 3) continue;
+          const c = squareCentre(k), d = Math.hypot(c.x - me.x, c.z - me.z) + this.rand() * 150 + (a && r.t - a.last < areaTune.cooldown ? 300 : 0);
+          if (d < d0) {
+            d0 = d;
+            best = k;
+          }
+        }
+        if (best >= 0) {
+          const c = squareCentre(best);
+          this.gx = c.x;
+          this.gz = c.z;
+          return;
+        }
+      }
+      if (s.holder === me.faction && !s.god && this.rand() < 0.8) {
+        const todo = [...A.ring(me.home), R.heart(me.home)].filter((k) => {
+          const a = A.all.get(k);
+          return !a || a.faction !== me.faction || a.stage < A.topOf(k) || k === R.heart(me.home);
+        });
+        const k = todo[Math.floor(this.rand() * todo.length)], c = squareCentre(k);
+        this.gx = c.x;
+        this.gz = c.z;
+        return;
+      }
+    }
+    const rad = recessTune.radius * 0.8;
     let best = Infinity;
     for (let k = 0; k < 6; k++) {
-      const a = this.rand() * Math.PI * 2, d = Math.sqrt(this.rand()) * R, x = Math.cos(a) * d, z = Math.sin(a) * d;
-      const area = r.areas.get(x, z), cost = Math.hypot(x - me.x, z - me.z) + (this.worth(area, me) ? 0 : 800) + (area && area.faction !== me.faction ? -150 : 0);
+      const a = this.rand() * Math.PI * 2, d = Math.sqrt(this.rand()) * rad, x = Math.cos(a) * d, z = Math.sin(a) * d;
+      const area = A.get(x, z), home = R && me.home >= 0 && R.of(squareKey(x, z)) === me.home ? -200 : 0;
+      const cost = Math.hypot(x - me.x, z - me.z) + (this.worth(area, me, r) ? 0 : 800) + (area && area.faction !== me.faction ? -150 : 0) + home;
       if (cost < best) {
         best = cost;
         this.gx = x;

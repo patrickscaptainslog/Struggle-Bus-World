@@ -5,11 +5,14 @@
 // loses the steering (but Bubbled, which stops flight by design: it's the fallback), a hit costs time and never paint, what glints is what a tap hits, both
 // players see it (a function of the seed and the inputs), and no new buttons (a flick is the only gesture past the steering and the tap).
 //
-// Flat, on the game's clock at a fixed step; the areas and the beat are factions' own (src/factions). What it draws comes after, on the GPU. Not here yet:
-// the open city's rules (Jet, the raider flung 2 km, the Crown), the Hearts' stage 5 (decision 27), a teammate in Recess (it's one bus a side; the wash is
-// built and tested on its own).
+// Flat, on the game's clock at a fixed step; the areas and the beat are factions' own (src/factions). The circle's ground is three neighbourhoods (decision
+// 28): the real ones where three of 15-40 squares meet, once the world's files have them, and till then the fallback, three camps of about 36 squares, one a
+// bus, its home (decision 19). A god rises at a camp's heart by the neighbourhoods' rules, and the score is a point a stage a square and 36 a god held. What it
+// draws comes after, on the GPU. Not here yet: the open city's rules (Jet, the raider flung 2 km), the bells and the scoreboard's camera, a teammate in Recess
+// (it's one bus a side; the wash is built and tested on its own).
 
-import { Areas } from '../factions/areas';
+import { Areas, squareKey, type Area } from '../factions/areas';
+import { camps } from '../factions/neighbourhoods';
 import { Beat, BEATS_A_BAR } from '../factions/beat';
 
 export const recessTune = {
@@ -119,6 +122,8 @@ export interface Bus {
   /** a hop under way: s left, and its way (+1 right of the nose) */
   hopLeft: number;
   hopWay: number;
+  /** its camp: the neighbourhood its start is in, -1 for none */
+  home: number;
   /** this step's yaw (rad/s): the driver's, and the arena edge's on top */
   driverYaw: number;
   edgeYaw: number;
@@ -209,7 +214,7 @@ export class Recess {
     this.mode = o.mode ?? 'possessed';
     this.dt = o.dt ?? 1 / 30;
     this.beat = o.beat ?? new Beat();
-    this.areas = o.areas ?? new Areas(this.beat);
+    this.areas = o.areas ?? new Areas(this.beat, camps(recessTune.radius, 0, 0, ['camp 1', 'camp 2', 'camp 3'], -Math.PI / 3));
     this.log = o.log ? [] : null;
     const n = setup.length;
     setup.forEach((s, i) => {
@@ -218,8 +223,10 @@ export class Recess {
       this.buses.push({
         id: i, faction: s.faction, bot: s.bot ?? null, x: s.x ?? Math.cos(a) * r, z: s.z ?? Math.sin(a) * r, heading: s.heading ?? wrap(a + Math.PI), speed: recessTune.gears[0],
         gear: 0, state: 'free', until: 0, by: -1, from: 0, to: 0, newcomer: !!s.newcomer, lessonDone: false, given: 0, wanted: false, belly: 0, mega: 0, superReady: false,
-        lock: -1, lockSince: 0, avenge: -1, avengeUntil: 0, hopLeft: 0, hopWay: 1, driverYaw: 0, edgeYaw: 0,
+        lock: -1, lockSince: 0, avenge: -1, avengeUntil: 0, hopLeft: 0, hopWay: 1, home: -1, driverYaw: 0, edgeYaw: 0,
       });
+      const b = this.buses[i];
+      b.home = this.areas.realm ? this.areas.realm.of(squareKey(b.x, b.z)) : -1;
     });
   }
 
@@ -495,6 +502,11 @@ export class Recess {
     v.state = 'shield';
     v.until = this.t + T.shield;
     v.lock = -1;
+  }
+
+  /** The score: a point a stage a square in the circle, and 36 a god held. */
+  score(): number[] {
+    return this.areas.score((a: Area) => this.areas.realm?.of(a.key) !== -1);
   }
 
   /** Inside the circle. */

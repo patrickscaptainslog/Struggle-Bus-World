@@ -240,7 +240,7 @@ function duel(n) {
   }
   const log = r.log.map((e) => `${e.t.toFixed(4)}${e.kind}${e.a},${e.b}${e.outcome ?? ''}`).join(';');
   return { mode, recess, level, newcomer, bad, rides: rides.length, ridesOnPlayer: rides.filter((x) => x.b === 0).length, hops: kinds(r, 'hop').length, misses: kinds(r, 'miss').length,
-    hits: kinds(r, 'hit').length, lessons: kinds(r, 'lesson').length, hiccups: kinds(r, 'hiccup').length, paints: kinds(r, 'paint').length, score: r.areas.score((a) => Recess.inside(a.ax, a.az) || true), crc: crc(log), seconds };
+    hits: kinds(r, 'hit').length, lessons: kinds(r, 'lesson').length, hiccups: kinds(r, 'hiccup').length, paints: kinds(r, 'paint').length, gods: r.log.filter((e) => e.outcome === 'god').length, topples: r.log.filter((e) => e.outcome === 'topple').length, final: r.score(), score: r.areas.score((a) => Recess.inside(a.ax, a.az) || true), crc: crc(log), seconds };
 }
 
 const t0 = Date.now(), all = [];
@@ -262,6 +262,19 @@ const lr = rate('learner'), rr = rate('rival'), vr = rate('veteran');
 row('duels: the levels climb: a Veteran rides the player more often than a Rival, a Rival than a Learner', lr < rr && rr < vr, { ridesAMinute: { learner: lr, rival: rr, veteran: vr } });
 row('duels: things happen: rides, hops, misses and painting in every mode', MODES.every((m) => all.some((d) => d.mode === m && d.hits > 0)) && sum((d) => d.hops) > 0 && sum((d) => d.paints) > 0,
   { rides: sum((d) => d.hits), aMinute: +(sum((d) => d.hits) / minutes).toFixed(2), hops: sum((d) => d.hops), misses: sum((d) => d.misses), paints: sum((d) => d.paints) });
+// (the camps, decision 28's fallback: a lone captain raises its camp's god by the rules, and the score counts it; in a contested Recess, how often one rises is
+// a number for the studio, printed, not a pass or a fail)
+const lone = ['learner', 'rival', 'veteran'].map((lv, k) => {
+  const r = new Recess([{ faction: A, bot: lv }], { log: true }), c = new Captain(lv, 5 + k);
+  for (let s = 0; s < 30 * 400; s++) {
+    r.step([c.think(r, r.buses[0])]);
+    if (r.events.some((e) => e.outcome === 'god')) return { lv, godS: Math.round(r.t), score: r.score()[A], squares: r.areas.realm.squares(r.buses[0].home).length };
+  }
+  return { lv, godS: null };
+});
+row('recess: three camps; a lone captain raises its camp\'s god by the rules, the score 36 for it', lone.every((l) => l.godS !== null && l.score >= 36), lone);
+const full = all.filter((d) => d.recess);
+console.log(`info  recess contested, 3 minutes: ${full.filter((d) => d.gods > 0).length} of ${full.length} matches raise a god (${sum((d) => d.gods)} gods, ${sum((d) => d.topples)} toppled); best score ${Math.max(...full.map((d) => Math.max(...d.final)))}`);
 // (both players see it: the same seed and hands, the same match)
 const again = [0, 1, 2, 3, 7, 11, 19].map((n) => duel(n).crc === all[n]?.crc);
 row('duels: a match replays the same from its seed, every event at its moment', again.every(Boolean), { replayed: again.length });

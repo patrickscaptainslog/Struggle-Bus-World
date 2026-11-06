@@ -3,16 +3,20 @@
 //   beat     84 a minute, four to a bar; the next beat and the next bar; the beats a tick crosses, none twice or missed over a minute of uneven ticks; a tempo
 //            change keeps the count; the music's clock
 //   slots    two stage changes a second at most, each on a beat, none more than a bar late, across a burst of forty
-//   areas    claim, up to 4 and no further (stage 5 waits on decision 27), encores, the five-second wait whoever moves it, a rival's hit down and the flip at 1,
+//   areas    claim, up to 4 and no further on a square (the god is a neighbourhood's), encores, the five-second wait whoever moves it, a rival's hit down and the flip at 1,
 //            stage 4's crack, the owner's heal and the wait it restarts (decision 16), parries, spills and hiccups only on grey, one hit an area a super,
 //            changes on their beats
-//   partition  decision 28's switch: the same rules over a partition that isn't squares
+//   realm    decision 28, the neighbourhoods: the stand-ins (nearest points, Recess's camps); a god raised at the heart only once its faction holds half the
+//            squares at 3 or more and the ring of 8 is at the Lift, by the owner's next ready hit there and on its beat; not on a godless or tagged heart, nor
+//            off the heart; 5 to 9 hits to topple by the land, the Crown's two fewer, each a crack the owner heals one of, at most one every five seconds, the last
+//            the heart the attacker's at 1; losing the half doesn't topple it; hiccups never call one; the save keeps a god and its cracks; Recess's score
 //   save     what's saved reads back the same, byte for byte; a bad save changes nothing
 // Exit 1 on a failure.
 import { registerHooks } from 'node:module';
 registerHooks({ resolve(spec, ctx, next) { return next(/^\.\.?\//.test(spec) && !/\.[a-z]+$/.test(spec) ? `${spec}.ts` : spec, ctx); } });
 const { Beat, Slots, BPM } = await import('../../src/factions/beat.ts');
-const { Areas, areaTune, squares, Faction } = await import('../../src/factions/areas.ts');
+const { Areas, areaTune, godTune, squareKey, squareCentre, packSquare, Faction } = await import('../../src/factions/areas.ts');
+const { Neighbourhoods, nearest, camps } = await import('../../src/factions/neighbourhoods.ts');
 
 let failed = 0;
 const row = (name, ok, info) => {
@@ -73,7 +77,7 @@ const R = Faction.RAINBOW, A = Faction.ATLANTIS, I = Faction.INFERNO;
   const hit = (f, dt = 0, o) => {
     t += dt;
     const h = g.hit(x, z, f, t, o);
-    log.push(`${h.outcome}:${h.area.stage}${h.area.cracked ? 'x' : ''}`);
+    log.push(`${h.outcome}:${h.area.stage}${h.area.cracks ? 'x' : ''}`);
     return h;
   };
   hit(R);
@@ -126,18 +130,10 @@ const R = Faction.RAINBOW, A = Faction.ATLANTIS, I = Faction.INFERNO;
   // (the squares' keys round trip, negative cells too)
   let keysOk = true;
   for (const [px, pz] of [[0, 0], [-1, -1], [127.9, 128], [-4000.5, 9000], [4095 * 128, -4095 * 128]]) {
-    const k = squares.key(px, pz), c = squares.centre(k);
-    keysOk &&= squares.key(c.x, c.z) === k && Math.abs(c.x - px) <= 64 && Math.abs(c.z - pz) <= 64;
+    const k = squareKey(px, pz), c = squareCentre(k);
+    keysOk &&= squareKey(c.x, c.z) === k && Math.abs(c.x - px) <= 64 && Math.abs(c.z - pz) <= 64;
   }
   row('areas: a square\'s key and its middle agree, either side of the origin', keysOk);
-}
-{
-  // ---- partition: decision 28's switch, a stand-in neighbourhood of 3 x 3 squares ----
-  const blocks = { name: 'test-blocks', key: (x, z) => squares.key(Math.floor(x / 384) * 128, Math.floor(z / 384) * 128), centre: (k) => squares.centre(k) };
-  const g = new Areas(undefined, blocks);
-  g.hit(10, 10, R, 0);
-  const same = g.hit(370, 370, R, 5).outcome, other = g.hit(390, 10, R, 5).outcome;
-  row('partition: the same rules over another partition, one switch', same === 'up' && other === 'claim' && g.all.size === 2, { same, other });
 }
 {
   // ---- save ----
@@ -145,16 +141,97 @@ const R = Faction.RAINBOW, A = Faction.ATLANTIS, I = Faction.INFERNO;
   for (let k = 0; k < 60; k++) g.hit(k * 97 - 3000, k * 61 - 2000, [R, A, I][k % 3], k * 6, { now: 1_762_400_000 + k });
   g.hit(97 * 4 - 3000, 61 * 4 - 2000, R, 1000);
   const a = [...g.all.values()][3];
-  a.stage = 4; a.cracked = true; a.ax = 77; a.az = 12; a.ay = -315;
+  a.stage = 5; a.cracks = 7; a.ax = 77; a.az = 12; a.ay = -315;
   const store = new Map(), ls = { setItem: (k, v) => store.set(k, v), getItem: (k) => store.get(k) ?? null };
   const wrote = g.save(ls, 'sf');
   const h = new Areas(), read = h.load(ls, 'sf');
-  const same = h.encode() === g.encode() && h.all.get(a.key).cracked && h.all.get(a.key).ay === -315;
+  const same = h.encode() === g.encode() && h.all.get(a.key).cracks === 7 && h.all.get(a.key).stage === 5 && h.all.get(a.key).ay === -315;
   const bad = new Areas();
   bad.hit(0, 0, R, 0);
   const before = bad.encode(), r1 = bad.decode('not base64!'), r2 = bad.decode(btoa('short')), r3 = bad.decode(btoa(String.fromCharCode(...new Uint8Array(16).fill(9))));
   row('save: read back byte for byte under its key; a bad save changes nothing', wrote && read && same && !r1 && !r2 && !r3 && bad.encode() === before && store.has('strugglebus.areas.v1:sf'),
     { areas: g.all.size, bytes: atob(g.encode()).length });
+}
+
+// ---- realm: the neighbourhoods (decision 28) ----
+{
+  // (a 7 x 7 neighbourhood, 49 squares, 0.80 km², its heart the middle; a 3 x 3 one beside it, 0.15 km², too small for a god; one tagged square in the first)
+  const sq = (x0, z0, w) => { const o = []; for (let j = 0; j < w; j++) for (let i = 0; i < w; i++) o.push(packSquare(x0 + i, z0 + j)); return o; };
+  const big = sq(0, 0, 7), small = sq(7, 0, 3), tag = packSquare(6, 6);
+  const realm = new Neighbourhoods({ names: ['Test Heights', 'Tiny'], hearts: [packSquare(3, 3), packSquare(8, 1)], squares: [big, small], tagged: [tag] });
+  const crown = godTune.crown;
+  godTune.crown = 0;
+  const g = new Areas(undefined, realm), at = (k) => squareCentre(k);
+  let t = 0;
+  const hit = (k, f) => { const c = at(k); return g.hit(c.x, c.z, f, t); };
+  // (every square in `keys` up to `stage` for f, a round of hits every 5 s)
+  const climb = (keys, f, stage) => {
+    for (let r = 0; r < stage; r++) {
+      t += 5.01;
+      for (const k of keys) if ((g.all.get(k)?.stage ?? 0) < stage) hit(k, f);
+    }
+  };
+  const heart = realm.heart(0), ring = g.ring(0);
+  climb([heart, ...ring], R, 4);
+  t += 5.01;
+  const early = hit(heart, R).outcome, sky0 = g.standing(0).skyMark;
+  const rest = big.filter((k) => k !== heart && !ring.includes(k) && k !== tag).slice(0, 16);
+  climb(rest, R, 3);
+  const st = g.standing(0);
+  t += 5.01;
+  const offHeart = hit(ring[0], R).outcome;
+  const god = hit(heart, R), onBeat = Math.abs(g.beat.phase(god.at)) < 1e-6 || Math.abs(g.beat.phase(god.at) - 1) < 1e-6;
+  row('realm: the god rises at the heart only when the faction holds half at 3+ and the ring is at the Lift, on its beat',
+    early === 'encore' && sky0 === 0 && st.holder === R && st.ringLifted && st.skyMark === R && offHeart === 'encore' && god.outcome === 'god' && god.area.stage === 5 && onBeat && ring.length === 8,
+    { early, held: st.held[R], of: big.length, offHeart, god: god.outcome });
+  // (the topple: 5 hits for 0.8 km², each a crack, one every 5 s at most, the owner's heal undoing one; losing the half leaves it standing)
+  const want = g.toppleHits(0, R), log = [];
+  t += 1;
+  log.push(hit(heart, A).outcome);
+  for (let k = 0; k < 4; k++) { t += 5.01; log.push(hit(heart, A).outcome); }
+  t += 1;
+  log.push(hit(heart, A).outcome);
+  log.push(hit(heart, R).outcome);
+  for (const k of rest) { const a = g.all.get(k); a.stage = 1; }
+  const stands = g.standing(0).god === R && g.standing(0).holder === 0;
+  t += 5.01; log.push(hit(heart, A).outcome);
+  t += 5.01; log.push(hit(heart, A).outcome);
+  const after = g.all.get(heart);
+  row('realm: 5 hits to topple 0.8 km², cracks one every 5 s, the owner heals one, the half lost leaves it, the last gives the heart at 1',
+    want === 5 && log.join(' ') === 'parry crack crack crack crack parry heal crack topple' && stands && after.faction === A && after.stage === 1 && after.cracks === 0, log.join(' '));
+  // (godless and tagged; hiccups never call a god)
+  const tiny = small, th = realm.heart(1);
+  climb(tiny, R, 4);
+  t += 5.01;
+  const tinyHit = hit(th, R).outcome;
+  climb([tag], R, 4);
+  const tagTop = g.all.get(tag).stage;
+  const h2 = new Areas(undefined, realm), c = at(heart), spill = h2.spill(c.x, c.z, R, 0).area.stage;
+  row('realm: no god on a neighbourhood too small; a tagged square stops at the streets; a hiccup only claims at 1',
+    realm.godless(1) && tinyHit === 'encore' && g.standing(1).skyMark === 0 && tagTop === areaTune.tagged && spill === 1, { tinyHit, tagTop, km2: +realm.km2(1).toFixed(3) });
+  // (by size: the topple's hits and the god's height; the Crown's two fewer for the leader)
+  const sizes = [17, 49, 100, 200, 365].map((n) => new Neighbourhoods({ names: ['n'], hearts: [packSquare(0, 0)], squares: [sq(0, 0, Math.ceil(Math.sqrt(n))).slice(0, n)] }));
+  const hits = sizes.map((r) => new Areas(undefined, r).toppleHits(0, R)), tall = sizes.map((r) => Math.round(new Areas(undefined, r).godHeight(0)));
+  godTune.crown = crown;
+  const leaderHits = g.toppleHits(0, g.leader()), otherHits = g.toppleHits(0, I);
+  row('realm: 5 to 9 hits and 250 to 450 m by the land; the leader\'s gods fall to two fewer (the Crown)', hits[0] === 5 && hits[4] === 9 && hits.every((h, i) => !i || h >= hits[i - 1]) &&
+    tall[0] === 248 && tall[4] === 450 && leaderHits === otherHits - 2, { hits, tall, leader: g.leader(), leaderHits, otherHits });
+  // (Recess's score: a point a stage a square, 36 a god)
+  const sc = new Areas(undefined, realm);
+  const hk = realm.heart(0), hc = at(hk);
+  sc.hit(hc.x, hc.z, R, 0);
+  sc.all.get(hk).stage = 5;
+  sc.hit(at(ring[0]).x, at(ring[0]).z, R, 0);
+  row('realm: Recess\'s score, a point a stage a square and 36 a god', sc.score()[R] === 4 + 36 + 1, { score: sc.score()[R] });
+}
+{
+  // ---- the stand-ins: nearest points over a city's bounds, and Recess's three camps ----
+  const n = nearest([{ name: 'West', x: -500, z: 0 }, { name: 'East', x: 600, z: 100 }], { x0: -1024, z0: -512, x1: 1024, z1: 512 });
+  const total = n.squares(0).length + n.squares(1).length, westOk = n.squares(0).every((k) => squareCentre(k).x < 100);
+  const c = camps(750), sizes = [0, 1, 2].map((k) => c.squares(k).length), inCircle = [0, 1, 2].every((k) => c.squares(k).every((q) => Math.hypot(squareCentre(q).x, squareCentre(q).z) <= 750));
+  const heartsIn = [0, 1, 2].every((k) => c.of(c.heart(k)) === k);
+  row('stand-ins: nearest gives every square one neighbourhood; camps give three of about 36 squares, each heart in its own; the first god the nearest under 1 km², not the nearest (West is 1.10 km², East 0.999)',
+    total === 16 * 8 && westOk && sizes.every((s) => Math.abs(s - 36) <= 6) && inCircle && heartsIn && n.firstGod(-500, 0) === 1 && c.firstGod(squareCentre(c.heart(2)).x, squareCentre(c.heart(2)).z) === 2, { nearest: [n.squares(0).length, n.squares(1).length], camps: sizes });
 }
 
 process.exit(failed ? 1 : 0);

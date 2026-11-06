@@ -1,6 +1,6 @@
 # Factions: what's built, steps 3, 4 and 7
 
-*The second account, the night of 2026-11-05, on `feat/recess` cut from `main` 058217c. All of it is logic in Node: nothing draws, nothing plays, and nothing in the game calls it yet. The plan is [FACTIONS.md](FACTIONS.md); the area rules underneath are [STAGES.md](../STAGES.md) section 1, where FACTIONS.md and its decisions change them. Nothing here hangs on decisions 27 or 28.*
+*The second account, the night of 2026-11-05 and the day after, on `feat/recess` cut from `main` 058217c. All of it is logic in Node: nothing draws, nothing plays, and nothing in the game calls it yet. The plan is [FACTIONS.md](FACTIONS.md), with 27 and 28 approved on 2026-11-06 (§1, "The studio's view", and §3, "Neighbourhoods"); the square rules underneath are [STAGES.md](../STAGES.md) section 1, where FACTIONS.md and its decisions change them.*
 
 ## Step 3, the beat: `src/factions/beat.ts`
 
@@ -9,8 +9,7 @@
 
 ## Step 4, the areas: `src/factions/areas.ts`
 
-- **What an area is** goes through one switch, `Partition` (decision 28). `squares` is the only one built: 128 m, world-aligned, the key two 16-bit halves. The test runs the same rules over a stand-in partition of 384 m blocks.
-- **Stages 1 to 4.** Stage 5, the god, stays out until decision 27 (`areaTune.top`).
+- **Squares:** 128 m, world-aligned, the key two 16-bit halves (`squareKey`). Stages 1 to 4: skin, roofs, streets, the Lift (decision 27). A square the map tags worship, cemetery, memorial, school or hospital stops at 3.
 - **Owner's hits:** an owner's ready hit is up; one while cooling, or at the top, is an encore.
 - **Rival's hits:** a rival's ready hit is down, and at stage 1 it's the flip. One while cooling is a parry.
 - **The wait:** five seconds between changes, whoever makes them.
@@ -25,6 +24,40 @@
 - **Not yet:**
   - the host: the tiles, the buildings' levels, `tArea`, the claim line and the debounced writes;
   - old saves seeded from painted buildings, which waits on step 1's owner on the paint.
+
+## The neighbourhood layer (decision 28): `areas.ts`'s `Realm`, `neighbourhoods.ts`
+
+- **A `Realm`** says which neighbourhood a square is in, each one's heart, squares and land, whether a god may stand there, and which squares are tagged. `Neighbourhoods` takes a table: the world's files will give it once the first account bakes them (a contract clause to come).
+- **Two stand-ins until then:**
+  - `nearest`: every square to its nearest named point, as the bake starts before its fixes;
+  - `camps`: Recess's fallback, three thirds of the circle of 37 or 38 squares each, each heart nearest its third's middle.
+- **Raising a god:** the owner's ready hit on the heart raises it to stage 5, on its beat, when three things hold:
+  - its faction holds half the neighbourhood's squares at stage 3 or more;
+  - the heart's ring of 8 (those inside the neighbourhood) is at the Lift;
+  - the heart itself is at 4.
+- **Before that,** `standing()` gives the holder, the ring and the sky mark for the host. An owner hit on a heart at 4 without them is an encore.
+- **No god:**
+  - off the heart;
+  - in a neighbourhood under 0.25 km²;
+  - on a tagged heart.
+  - A hiccup only claims grey at 1, so it can never call one.
+- **Toppling:** 5 rival hits at 0.5 km² or less, 9 at 3 km² or more, rounded between. The Crown takes 2 off for the leading faction's gods (decision 17, `godTune.crown`, 0 for off).
+  - Each hit is a crack, at most one every five seconds, and an owner's hit heals one.
+  - The last hit gives the heart to the attacker at stage 1.
+  - Losing the half doesn't topple it.
+- **A god's height:** 250 to 450 m by the land (`godHeight`).
+- **The first god:** the sky mark points a newcomer at the nearest neighbourhood under 1 km² (`firstGod`).
+- **Recess's score:** a point a stage a square, and 36 a god.
+- **The save** keeps a god and its cracks in the stage byte: the stage in the low 4 bits, the cracks in the high 4.
+
+**For the studio: a god in a contested Recess.**
+- Alone, a captain raises its camp's god in 221 to 257 s.
+- With three captains in three minutes it never happens: 0 of 750 matches. The rivals keep knocking the heart's ring of 8 off the Lift.
+- In matches of three captains alone (150 each), these didn't change that either:
+  - five minutes, or seven;
+  - half held at stage 2 instead of 3;
+  - camps of 17 squares. Only that one, at five minutes, raised a god, once in 150.
+- So under these rules, Recess's 36 points for a god won't come into play against bots. That's for the first account and the producer to weigh: the ring's eight, Recess's length, or captains that defend before they raid. The crowd simulation, my next item, measures the same rule in a shared city.
 
 ## Step 7, Recess's brain: `src/recess/recess.ts`, `captain.ts`
 
@@ -60,14 +93,14 @@
 **The captains** have the player's hands and see what a player's screen shows: Learner, Rival and Veteran, by reaction, dodging, aim, hunting and wobble. They hunt or paint, rerolled every few seconds, and go after their avenger's mark first.
 
 **Not here:**
-- the open city's rules (Jet, the raider flung 2 km, the Crown);
-- the Hearts at stage 5 (decision 27), and the bells and the scoreboard's camera;
+- the open city's rules (Jet, the raider flung 2 km);
+- the bells and the scoreboard's camera, and the real three neighbourhoods where they meet (the camps stand in);
 - a teammate in Recess, which is one bus a side (the wash is built and tested on its own);
 - all the drawing.
 
 ## The checks
 
-- `node --no-warnings tools/factions/check.mjs`: the beat, the slots, the areas, the switch and the save, 11 rows.
+- `node --no-warnings tools/factions/check.mjs`: the beat, the slots, the squares, the neighbourhoods, the stand-ins and the save, 16 rows.
 - `node --no-warnings tools/recess/duels.mjs [3000]`:
   - every rule above one at a time, on scripted buses;
   - then 3,000 duels, in about 20 s here: a player's stand-in against one captain, or Recess's two, every mode, new players among them.
