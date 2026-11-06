@@ -1747,6 +1747,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         input.busZone = busLane;
       }
     }
+    // (the gardens drawn as far as this lens sees them: their budget, world/props/sprouts.ts)
+    sprouts.update(camera);
     pipeline.render(scene);
     framesDrawn++;
     // (a tap in the grey has skipped it already)
@@ -1943,7 +1945,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // (asked for now: there is no asking once the context is gone)
     const lose = renderer.getContext().getExtension('WEBGL_lose_context');
     (window as unknown as Record<string, unknown>).__game = {
-      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: live ?? hour, moon, life, lift,
+      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: live ?? hour, moon, life, lift, sprouts,
       /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
       get warm() {
         return warm;
@@ -1972,6 +1974,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       /** QA: render the frozen frame again (after a tunable change: the same frame, another variant) */
       renderAgain: () => {
         updateSun();
+        sprouts.update(camera);
         pipeline.render(scene);
       },
       lastShot: () => lastShot,
