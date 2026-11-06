@@ -176,7 +176,8 @@ export function makeGeyserMaterial(): THREE.ShaderMaterial {
         vec2 lf = sbLift(aGey.x, base.xz);
         float r = aGey.y;
         float top = aGey.z + lf.x;
-        bool hide = L.y <= 0.0 || uTime < L.x;
+        // (and a jet the lens flies beside, up among the houses: the low shot never looks through a column filling half the frame; one from the street stays)
+        bool hide = L.y <= 0.0 || uTime < L.x || (distance(cameraPosition.xz, base.xz) < 28.0 && cameraPosition.y > base.y + 8.0);
         vec3 p = vec3(0.0);
         float ph = aGey.x * 1.7;
         if (aPart < 0.5) {

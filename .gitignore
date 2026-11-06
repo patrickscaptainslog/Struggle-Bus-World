@@ -9,6 +9,7 @@ tools/feel-sim/.out
 tools/controls-sim/.out
 tools/moon/.out
 tools/world/.out
+tools/factions/.out
 tools/life/.out
 tools/bake/.data
 .vercel

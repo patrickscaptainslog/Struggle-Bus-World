@@ -396,6 +396,9 @@ export class Lift implements LiftHooks, FieldHouses {
       }
       hue.set(ref.index, pick);
       city.paint.stage(ref.index, { faction: FACTION_RAINBOW, color: pick, level: 3, bloomTime: -1000 });
+      // (its garden grows already shed: 400 level-3 gardens in full were 2.06 M triangles in the frame before the wave on this laptop, over the
+      // floor's 1.5 M. The dome or spire, bunting and turf stand; the petals still burst at the jump)
+      this.g.sprouts.shedSet?.add(ref.index);
       this.g.grow(ref, pick, 3, -100);
       this.g.bump(ref.cx, ref.cz, 40);
     }
