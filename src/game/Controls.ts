@@ -13,7 +13,7 @@ import type { Particles } from '../fx/Particles';
 import { TurboFx } from '../fx/Turbo';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import type { BusPose } from '../bus/BusModel';
-import { Coach, TAUGHT, type CoachFrame } from '../ui/Coach';
+import { AIM_LINE, Coach, hintLines, TAUGHT, type CoachFrame } from '../ui/Coach';
 import { Hud, type HudFrame } from '../ui/Hud';
 
 // The controls glue: the scheme (touch or keyboard), the first run, the settings
@@ -35,10 +35,6 @@ import { Hud, type HudFrame } from '../ui/Hud';
 const ARMED = 'GEARS AFTER THE BRIDGE';
 const ARMED_OFF = 'GEAR OFF';
 const CLIMB_GATED = 'CLIMB AFTER THE BRIDGE';
-/** The first run's one mention of the flicks and the look: the gestures are hidden, and this is all the teaching they get. Any thumb flicks, so that comes first; then the bus's lane (Input.busZone):
- *  a touch near the bus or anywhere under it flies it, and one high over it looks (or beside it, which the hint leaves to the thumb to find): just over
- *  the bus is the lane's half disc, and a drag up there is the yoke's nose-down, so the hint says HIGH UP, not ABOVE IT. It fits the toast at 116 of the screen's 131 px. */
-const hint = () => ['FLICK UP FOR GEARS', 'STEER BELOW THE BUS', 'DRAG HIGH UP TO LOOK'];
 const HINT_SECONDS = 6.5;
 /** A flick's answer in the bus's own body: it hiccups, once, on the breath's squash spring. */
 const FLICK_SQUASH = 0.84;
@@ -136,7 +132,7 @@ export class Controls {
     d.input.megaOn = this.megaOn;
     this.hud.megaOn = this.megaOn;
     const off = nohud || d.params.has('nocoach') || (d.params.has('skipintro') && !d.params.has('coach'));
-    this.coach = off ? null : new Coach(this.prefs.taught ?? 0, this.megaOn);
+    this.coach = off ? null : new Coach(this.prefs.taught ?? 0, this.megaOn, d.input.aimOn);
     this.start();
     if (!this.coach) this.hud.arrive();
     if (this.mode === 'keyboard' && !this.prefs.keysShown && !nohud && !d.params.has('skipintro')) this.keysIn = 2.5;
@@ -312,7 +308,10 @@ export class Controls {
       this.hintLeft = Math.max(0, this.hintLeft - dt);
       if (c.hintDue) {
         this.hintLeft = HINT_SECONDS;
-        hud.toast(hint(), HINT_SECONDS);
+        hud.toast(hintLines(input.aimOn), HINT_SECONDS);
+      } else if (c.aimHintDue) {
+        this.hintLeft = 3;
+        hud.toast([AIM_LINE], 3);
       }
     }
     if (c?.dirty) {

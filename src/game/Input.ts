@@ -28,7 +28,13 @@ import { registerTunables } from '../ui/tunables';
 //  - a quick flick is a shift: onTurbo(+1 up / -1 down);
 //  - a tap splats on its lift, up to secondTapMs (stillTapMs with nobody flying):
 //    on the landing nobody can know yet that it isn't a look;
-//  - at rest it does nothing.
+//  - at rest it does nothing, unless it landed off the lane (in the zone): held still for
+//    aimHoldMs there it AIMS (docs/specs/shots/SHOTS.md, decision 4: a tap is up to 0.3 s, a
+//    still hold from 0.35 s aims, in between counts as a tap). From then until its lift it is the
+//    aim hold: state.aim follows it, a drag drags the aim (never the view), and its lift is the
+//    hold's release (onAimEnd), never a tap or a flick. One aims at a time. What it aims is the
+//    shot code's (src/game/Hold.ts): the Hose, or what life or Recess claims. Nobody flies for it,
+//    so the bus flies straight; a thumb landing in the lane beside it still flies.
 // Two fingers tapped together (nobody steering) count as one tap.
 //
 // A lone fresh stroke out of the zone that lifts fast is a flick too, on the firmer
@@ -77,6 +83,9 @@ export interface InputState {
   chargeHeld: number;
   /** The look: `on` while a second thumb (or the right mouse) has the view; x, y = its offset from where it landed, CSS px, +x right, +y UP. 0, 0 when off. */
   look: { on: boolean; x: number; y: number };
+  /** Hold to aim: `on` while a finger that landed off the lane and held still for inputTune.aimHoldMs is down. x, y = where it is now, x0, y0 = where it
+   *  landed (CSS px of the input element); t0 = its landing, at = when it became an aim (ms, the performance clock). Off: all as they were last. */
+  aim: { on: boolean; x: number; y: number; x0: number; y0: number; t0: number; at: number };
 }
 
 /** Live-tunable gesture numbers (tuner group "Input"). */
@@ -129,6 +138,9 @@ export const inputTune = {
   /** A stroke landing this close to the bottom (iOS owns that edge) or to a side is never a command (px). */
   flickBottomPx: 40,
   flickSidePx: 20,
+  /** Hold to aim (SHOTS.md, decision 4): a finger landed off the lane and still inside tapSlopPx this long (ms) aims. Lifted before it with nobody flying, it is a tap
+   *  (the ruling's tap is up to 300 ms, and 300 to 350 counts as one). Beside a flying thumb a tap is still secondTapMs, and 230 to 350 rests as before. */
+  aimHoldMs: 350,
 };
 
 registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
@@ -159,6 +171,7 @@ registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
   loneFlickDeg: [10, 80, 1],
   flickBottomPx: [0, 120, 1],
   flickSidePx: [0, 80, 1],
+  aimHoldMs: [200, 900, 5],
 });
 
 const MAX_POINTERS = 10;
@@ -206,6 +219,8 @@ interface Slot {
   ownsPress: boolean;
   /** It landed in the look zone, as the zone was then (the bus's lane moves with the bus). */
   inLook: boolean;
+  /** It is the aim hold (state.aim): held still off the lane for aimHoldMs. */
+  aiming: boolean;
 }
 
 const enum Src {
@@ -228,8 +243,13 @@ export function readFlick(dx: number, dy: number, ms: number, px: number, maxMs:
 }
 
 export class Input {
-  readonly state: InputState = { dragging: false, thumb: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, look: { on: false, x: 0, y: 0 } };
+  readonly state: InputState = { dragging: false, thumb: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, look: { on: false, x: 0, y: 0 }, aim: { on: false, x: 0, y: 0, x0: 0, y0: 0, t0: 0, at: 0 } };
   onTap: (() => void) | null = null;
+  /** Hold to aim (state.aim): a still finger off the lane became an aim, and its lift (cancelled = lost, three fingers, focus gone). src/game/Hold.ts takes both. */
+  onAimStart: (() => void) | null = null;
+  onAimEnd: ((cancelled: boolean) => void) | null = null;
+  /** Hold to aim is on (main.ts: off on ?moon and in the flight, which have no Hose; off, a still finger off the lane rests as it always did). */
+  aimOn = true;
   /** MEGA is asleep unless this is set (main.ts, from &mega on the link; the producer, 2026-11-06: "lets just remove the mega splat for now"). Off, the
    *  splat press never charges: however long it's held, its lift is a tap, and onChargeStart / onChargeEnd never fire. */
   megaOn = false;
@@ -272,6 +292,8 @@ export class Input {
   /** the flying thumb, and the thumb that has the view */
   private fly: Slot | null = null;
   private looker: Slot | null = null;
+  /** the finger holding to aim (state.aim) */
+  private aimSlot: Slot | null = null;
 
   // the current gesture (from the flying thumb's landing, or a lone second thumb's)
   private gT0 = 0;
@@ -338,7 +360,7 @@ export class Input {
 
   constructor(el: HTMLElement) {
     this.el = el;
-    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false, inLook: false });
+    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false, inLook: false, aiming: false });
 
     const s = el.style as CSSStyleDeclaration & { webkitUserSelect?: string; webkitTouchCallout?: string; webkitTapHighlightColor?: string };
     s.touchAction = 'none';
@@ -460,6 +482,7 @@ export class Input {
     for (let i = 0; i < MAX_POINTERS; i++) {
       const s = this.slots[i];
       if (s.role === Role.Second && !s.looking) this.lookStep(s, now);
+      if (this.canAim(s, now)) this.startAim(s, now);
     }
     const tx = (this.kR ? 1 : 0) - (this.kL ? 1 : 0);
     const ty = (this.kU ? 1 : 0) - (this.kD ? 1 : 0);
@@ -501,7 +524,8 @@ export class Input {
     window.removeEventListener('blur', this.onBlur);
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.releaseAll();
-    this.onTap = this.onTripleFinger = this.onFirstGesture = this.onPress = this.onChargeStart = null;
+    this.onTap = this.onTripleFinger = this.onFirstGesture = this.onPress = this.onChargeStart = this.onAimStart = null;
+    this.onAimEnd = null;
     this.onChargeEnd = null;
     this.onTurbo = null;
   }
@@ -651,6 +675,10 @@ export class Input {
       this.fingerPt.y = y;
       if (!this.pointerDragging && slot.maxDist > inputTune.tapSlopPx) this.commitDrag();
       if (this.pointerDragging) this.applyStretch();
+    } else if (slot === this.aimSlot) {
+      // (an aim's drag drags the aim, never the view)
+      this.state.aim.x = x;
+      this.state.aim.y = y;
     } else if (slot.role === Role.Second) {
       this.lookStep(slot, evTime(e));
     }
@@ -665,10 +693,14 @@ export class Input {
       this.free(slot);
       return;
     }
-    const dir = cancelled ? 0 : this.flickOf(slot, e.clientX - this.rectL, e.clientY - this.rectT, now);
-    const quick = !cancelled && this.isQuick(slot, now);
+    // (an aim's lift is its release, and nothing else: no tap, no flick. One that lifts past the hold before a frame saw it is an aim and its release at once, as the press's is)
+    if (!cancelled && this.canAim(slot, now)) this.startAim(slot, now);
+    const aimed = slot.aiming;
+    if (aimed) this.endAim(slot, cancelled);
+    const dir = cancelled || aimed ? 0 : this.flickOf(slot, e.clientX - this.rectL, e.clientY - this.rectT, now);
+    const quick = !cancelled && !aimed && this.isQuick(slot, now);
     if (!quick) this.gAllQuick = false;
-    const tap = !cancelled && this.secondTap(slot, now);
+    const tap = !cancelled && !aimed && this.secondTap(slot, now);
     const ownsPress = slot.ownsPress, t0 = slot.t0;
     this.free(slot);
 
@@ -754,10 +786,13 @@ export class Input {
     slot.right = false;
     slot.ownsPress = false;
     slot.inLook = false;
+    slot.aiming = false;
   }
 
   private free(s: Slot) {
     if (s.looking) this.endLook(s);
+    // (a lost, swallowed or dropped finger ends its aim cancelled; a lift has ended it already)
+    if (s.aiming) this.endAim(s, true);
     s.role = Role.None;
     s.id = -1;
   }
@@ -814,6 +849,7 @@ export class Input {
   }
 
   private isQuick(s: Slot, now: number): boolean {
+    if (s.aiming) return false;
     const dur = now - s.t0;
     return (dur <= inputTune.stillTapMs && s.maxDist <= inputTune.tapSlopPx) || (dur <= inputTune.quickTapMs && s.maxDist <= inputTune.quickTapSlopPx);
   }
@@ -821,7 +857,8 @@ export class Input {
   /** The second thumb's tap: shorter than the first's, because past it the thumb is resting. With nobody flying, as long as the first's. */
   private secondTap(s: Slot, now: number): boolean {
     const dur = now - s.t0;
-    const limit = this.fly || this.gMulti ? inputTune.secondTapMs : inputTune.stillTapMs;
+    // (off the lane with nobody flying, a still finger aims from aimHoldMs: up to it, it was a tap)
+    const limit = this.fly || this.gMulti ? inputTune.secondTapMs : s.inLook && this.aimOn ? inputTune.aimHoldMs : inputTune.stillTapMs;
     return (dur <= limit && s.maxDist <= inputTune.tapSlopPx) || (dur <= inputTune.quickTapMs && s.maxDist <= inputTune.quickTapSlopPx);
   }
 
@@ -853,6 +890,7 @@ export class Input {
     for (const s of this.slots) {
       if ((s.role !== Role.Fly && s.role !== Role.Second) || s.right) continue;
       if (s.looking) this.endLook(s);
+      if (s.aiming) this.endAim(s, true);
       s.role = Role.Orphan;
     }
     this.onTripleFinger?.();
@@ -910,6 +948,7 @@ export class Input {
 
   /** Should this thumb have the view? Then it does, from where it landed. Only one thumb looks at a time. */
   private lookStep(s: Slot, now: number) {
+    if (s.aiming) return;
     if (!s.looking) {
       if (this.looker) return;
       if (!s.right && (now - s.t0 < inputTune.lookDelayMs || s.maxDist <= inputTune.tapSlopPx)) return;
@@ -919,6 +958,42 @@ export class Input {
     }
     this.state.look.x = s.x - s.x0;
     this.state.look.y = s.y0 - s.y;
+  }
+
+  /**
+   * Hold to aim: a finger off the lane that stayed still aimHoldMs (one that moved first looks, and one looking never aims), with no other aiming. Not one of two fingers
+   * that landed together while the other could still be the rest of a two-finger tap: that's a tap's gesture, and it waits for the other to lift or commit.
+   */
+  private canAim(s: Slot, now: number): boolean {
+    if (s.role !== Role.Second || this.aimSlot || !this.aimOn || !s.inLook || s.right || s.looking || s.maxDist > inputTune.tapSlopPx || now - s.t0 < inputTune.aimHoldMs) return false;
+    if (this.gMulti && !this.gSteered && now - this.gT0 <= inputTune.stillTapMs + 150) {
+      if (this.gAllQuick && this.gMax === 2) return false;
+      for (const o of this.slots) if (o !== s && (o.role === Role.Fly || o.role === Role.Second) && !o.right && this.isQuick(o, now)) return false;
+    }
+    return true;
+  }
+
+  /** A still finger off the lane holds to aim (state.aim), from now until its lift. */
+  private startAim(s: Slot, now: number) {
+    s.aiming = true;
+    this.aimSlot = s;
+    const A = this.state.aim;
+    A.on = true;
+    A.x = s.x;
+    A.y = s.y;
+    A.x0 = s.x0;
+    A.y0 = s.y0;
+    A.t0 = s.t0;
+    A.at = now;
+    this.gAllQuick = false;
+    this.onAimStart?.();
+  }
+
+  private endAim(s: Slot, cancelled: boolean) {
+    s.aiming = false;
+    if (this.aimSlot === s) this.aimSlot = null;
+    this.state.aim.on = false;
+    this.onAimEnd?.(cancelled);
   }
 
   private endLook(s: Slot) {
@@ -1042,6 +1117,7 @@ export class Input {
     this.pressCancel(performance.now());
     for (const s of this.slots) {
       if (s.looking) this.endLook(s);
+      if (s.aiming) this.endAim(s, true);
       s.role = Role.None;
       s.id = -1;
     }

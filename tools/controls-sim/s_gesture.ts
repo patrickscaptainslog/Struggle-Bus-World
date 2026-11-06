@@ -40,6 +40,9 @@ function harness(mode: 'touch' | 'keyboard', fps = 60, world: any = null) {
     shifter.flick(d, flew);
   };
   input.onTripleFinger = () => evs.push(`tuner@${at()}`);
+  // (hold to aim, SHOTS.md decision 4: a still finger off the lane aims from aimHoldMs, and its lift is the hold's release)
+  input.onAimStart = () => evs.push(`aim@${at()}`);
+  input.onAimEnd = (c) => evs.push(`aimEnd${c ? '(cancelled)' : ''}@${at()}`);
   shifter.onAnswer = (a) => evs.push(`${a}@${at()}`);
   drive.onEvent = (ev, g) => evs.push(`${ev}${g}@${at()}`);
   let maxCharge = 0, sawDrag = false, sawThumb = false;
@@ -192,7 +195,8 @@ row('touch', 'second: drag that stays down: looks, the stick untouched', (h) => 
   return { early, L, same, back, after, stillSteering };
 });
 row('touch', 'second: a tap with the first hand while the other looks', (h) => { const b = newId(); h.down(b, LX, LY); h.slide(b, LX, LY, 60, 0, 200); const a = newId(); h.down(a, RX, RY, false); h.wait(90); h.up(a, RX, RY); h.wait(30); const on = h.input.state.look.on; h.up(b, LX + 60, LY); return { on }; });
-row('touch', 'second: rests 500 ms, then drags (a look at once)', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.wait(500); h.slide(b, LX, LY, 30, 0, 100); h.wait(30); const on = h.input.state.look.on; h.up(b, LX + 30, LY); h.up(a, RX + 30, RY); return { on }; });
+row('touch', 'second: rests 300 ms, then drags (a look at once)', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.wait(300); h.slide(b, LX, LY, 30, 0, 100); h.wait(30); const on = h.input.state.look.on; h.up(b, LX + 30, LY); h.up(a, RX + 30, RY); return { on }; });
+row('touch', 'second: rests 500 ms off the lane, then drags: an aim, and its drag drags the aim, never the view', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.wait(500); h.slide(b, LX, LY, 30, 0, 100); h.wait(30); const s = h.input.state, v = { look: s.look.on, aim: s.aim.on, ax: s.aim.x, thumb: s.thumb }; h.up(b, LX + 30, LY); h.up(a, RX + 30, RY); return v; });
 row('touch', 'second: a look does not count as a thumb', (h) => { const a = newId(); h.down(a, X, Y); h.wait(40); const b = newId(); h.down(b, LX, LY, false); h.slide(b, LX, LY, 40, 0, 200); const thumb = h.input.state.thumb; h.up(b, LX + 40, LY); h.up(a, X, Y); return { thumb }; });
 row('touch', 'second: flick up: answered on the lift, the gear with it', (h) => { const a = steer(h); flickUp(h); h.wait(500); h.up(a, RX + 30, RY); });
 row('touch', 'second: flick down at G0 (nothing to do)', (h) => { const a = steer(h); flickDown(h); h.up(a, RX + 30, RY); });
@@ -375,11 +379,13 @@ row('touch', 'left zone: a drag looks, the second thumb\'s wait and all, and the
   return { early, L, back, after: { ...h.input.state.look } };
 });
 row('touch', 'left zone: a slow drag up looks, no command', (h) => { h.stroke(LX, LY, 0, -90, 400); h.wait(400); });
-row('touch', 'left zone: rests 500 ms, then drags (a look at once)', (h) => { const b = newId(); h.down(b, LX, LY); h.wait(500); h.slide(b, LX, LY, 30, 0, 100); h.wait(30); const on = h.input.state.look.on; h.up(b, LX + 30, LY); return { on }; });
+row('touch', 'left zone: rests 300 ms, then drags (a look at once)', (h) => { const b = newId(); h.down(b, LX, LY); h.wait(300); h.slide(b, LX, LY, 30, 0, 100); h.wait(30); const on = h.input.state.look.on; h.up(b, LX + 30, LY); return { on }; });
+row('touch', 'left zone: rests 500 ms, then drags: an aim, never a look', (h) => { const b = newId(); h.down(b, LX, LY); h.wait(500); h.slide(b, LX, LY, 30, 0, 100); h.wait(30); const s = h.input.state, v = { look: s.look.on, aim: s.aim.on, ax: s.aim.x }; h.up(b, LX + 30, LY); return v; });
 row('touch', 'left zone: a look dragged over the line is still a look', (h) => { const b = newId(); h.down(b, LX, LY); h.slide(b, LX, LY, 200, 0, 300); h.wait(30); const s = h.input.state, v = { thumb: s.thumb, look: s.look.on, sx: s.stretch.x, x: Math.round(s.look.x) }; h.up(b, LX + 200, LY); return v; });
 row('touch', 'left zone: two touches there: neither flies, the one that drags looks', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(300); h.down(b, 140, 500, false); h.slide(b, 140, 500, 50, 0, 200); h.wait(30); const s = h.input.state, v = { thumb: s.thumb, look: s.look.on, x: Math.round(s.look.x) }; h.up(b, 190, 500); h.up(a, LX, LY); return v; });
 row('touch', 'left zone: two fingers tapped together there: one splat', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(30); h.down(b, 140, 500, false); h.wait(80); h.up(a, LX, LY); h.up(b, 140, 500); });
-row('touch', 'left zone: two fingers, both lift at 400 ms: one splat, as anywhere', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(30); h.down(b, 140, 500, false); h.wait(370); h.up(a, LX, LY); h.up(b, 140, 500); });
+row('touch', 'left zone: two fingers, both lift at 330 ms: one splat, as anywhere', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(30); h.down(b, 140, 500, false); h.wait(300); h.up(a, LX, LY); h.up(b, 140, 500); });
+row('touch', 'left zone: two fingers, both lift at 400 ms: one splat, as anywhere (two fingers together never aim)', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(30); h.down(b, 140, 500, false); h.wait(370); h.up(a, LX, LY); h.up(b, 140, 500); });
 row('touch', 'left zone: two fingers, both lift at 470 ms: none, as anywhere', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(30); h.down(b, 140, 500, false); h.wait(440); h.up(a, LX, LY); h.up(b, 140, 500); });
 row('touch', 'left zone: a tap there while the other looks fires on its lift', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.slide(a, LX, LY, 60, 0, 200); h.down(b, 140, 500, false); h.wait(90); h.up(b, 140, 500); h.wait(30); const on = h.input.state.look.on, tapped = h.evs.length; h.up(a, LX + 60, LY); return { on, tapped }; });
 row('touch', 'left zone: three fingers there: the tuner', (h) => { const a = newId(), b = newId(), c = newId(); h.down(a, LX, LY); h.down(b, 140, 500, false); h.down(c, 60, 500, false); h.wait(100); h.up(a, LX, LY); h.up(b, 140, 500); h.up(c, 60, 500); });
@@ -539,7 +545,7 @@ row('touch', 'two thumbs: a touch elsewhere while something flies flicks', (h) =
 row('touch', 'two thumbs: a flick from the left beside the flying thumb', (h) => { const a = steer(h); flickUp(h); h.wait(500); const v = both(h); h.up(a, RX + 30, RY); return v; });
 row('touch', 'two thumbs: a right flick beside a resting left thumb steers and never shifts', (h) => { const b = newId(); h.down(b, LX, LY); h.wait(300); h.stroke(RX, RY, 0, -74, 85, false); h.wait(500); h.up(b, LX, LY); });
 row('touch', 'two thumbs: a two-finger tap, the left finger first: one splat, then the right thumb flies', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(40); h.down(b, RX, RY, false); h.wait(60); h.up(a, LX, LY); h.up(b, RX, RY); h.wait(600); return dragAt(h, RX, RY); });
-row('touch', 'two thumbs: a resting left thumb, a tap on the right: on its lift', (h) => { const b = newId(), a = newId(); h.down(b, LX, LY); h.wait(300); h.down(a, RX, RY, false); h.wait(100); h.up(a, RX, RY); h.wait(30); const fired = h.evs.length; h.wait(300); h.up(b, LX, LY); return { fired }; });
+row('touch', 'two thumbs: a resting left thumb, a tap on the right: on its lift', (h) => { const b = newId(), a = newId(); h.down(b, LX, LY); h.wait(300); h.down(a, RX, RY, false); h.wait(100); h.up(a, RX, RY); h.wait(30); const fired = h.evs.filter((e) => e.startsWith('tap')).length; h.wait(300); h.up(b, LX, LY); return { fired }; });
 row('touch', 'a lone right flick flies until its lift', (h) => { const a = newId(); h.down(a, RX, RY); h.slide(a, RX, RY, 0, -74, 85); const thumb = h.input.state.thumb, look = h.input.state.look.on; h.up(a, RX, RY - 74); h.wait(400); return { thumb, look }; });
 row('touch', 'a stray out of the zone during a lone right flick flies, and the next lone touch is a flick', (h) => { const b = flickWith(h, 250, 600, 350, 650); h.wait(100); h.up(b, 350, 650); h.wait(500); h.stroke(RX, RY, 0, -74, 85); h.wait(400); });
 row('touch', 'a fingertip in the far side band during a lone right flick is no thumb: the next one flies', (h) => { const b = flickWith(h, RX, RY, 385, 500); h.wait(100); h.up(b, 385, 500); h.wait(600); return dragAt(h, RX, RY); });
@@ -627,6 +633,39 @@ row('keyboard', 'left mouse: a quick drag on the left is no flick', (h) => { con
 row('keyboard', 'left mouse: a quick drag on the right is no flick', (h) => { const id = newId(); h.down(id, RX, RY, true, mouseL); h.slide(id, RX, RY, 0, -74, 85); h.up(id, RX, RY - 74, mouseL); h.wait(400); });
 row('keyboard', 'middle mouse: nothing', (h) => { const id = newId(); h.down(id, RX, RY, true, { pointerType: 'mouse', button: 1 }); h.wait(60); h.up(id, RX, RY, mouse); });
 
+// ---- hold to aim (docs/specs/shots/SHOTS.md, "The rulings it changes", the first row, and decision 4): a finger off the lane that moves still looks; held still for
+// 0.35 s it aims, and a tap is up to 0.3 s with 0.3 to 0.35 counting as one. The lane and the flicks are untouched. While it aims nobody steers, so the bus flies straight,
+// and a thumb landing in the lane still flies. Off the lane here is over the bus's line out of the half disc (laned), or the left zone (no bus on the screen)
+const AX = 330, AY = 250;
+const pressFor = (h: H, x: number, y: number, ms: number, primary = true) => { const id = newId(); h.down(id, x, y, primary); h.wait(ms); h.up(id, x, y); };
+row('touch', 'aim: a tap off the lane at 120 ms splats', laned((h) => pressFor(h, AX, AY, 120)));
+row('touch', 'aim: lifted at 300 ms off the lane splats', laned((h) => pressFor(h, AX, AY, 300)));
+row('touch', 'aim: lifted at 340 ms off the lane (in between) splats', laned((h) => pressFor(h, AX, AY, 340)));
+row('touch', 'aim: held still 360 ms off the lane aims, and its lift is the release, no splat', laned((h) => pressFor(h, AX, AY, 360)));
+row('touch', 'aim: held 1.2 s off the lane, dragged 120 px: the aim follows, no look, nobody steers', laned((h) => {
+  const id = newId(); h.down(id, AX, AY); h.wait(400);
+  const at = { ...h.input.state.aim };
+  h.slide(id, AX, AY, -120, 60, 600); h.wait(200);
+  const s = h.input.state, v = { at, now: { ...s.aim }, look: s.look.on, dragging: s.dragging, sx: s.stretch.x, sy: s.stretch.y };
+  h.up(id, AX - 120, AY + 60); return v;
+}));
+row('touch', 'aim: a hold that ends in a quick stroke up is no gear', laned((h) => { const id = newId(); h.down(id, AX, AY); h.wait(400); h.slide(id, AX, AY, 0, -80, 60); h.up(id, AX, AY - 80); }));
+row('touch', 'aim: moved 20 px before 350 ms off the lane: a look, never an aim', laned((h) => { const id = newId(); h.down(id, AX, AY); h.wait(150); h.slide(id, AX, AY, 20, 0, 60); h.wait(600); const on = h.input.state.look.on; h.up(id, AX + 20, AY); return { on }; }));
+row('touch', 'aim: a thumb landing in the lane while it aims flies, and the aim holds', laned((h) => {
+  const a = newId(); h.down(a, AX, AY); h.wait(400);
+  const b = newId(); h.down(b, 196, 720, false); h.slide(b, 196, 720, 50, 0, 200); h.wait(50);
+  const s = h.input.state, v = { aim: s.aim.on, thumb: s.thumb, sx: +s.stretch.x.toFixed(2) };
+  h.up(b, 246, 720); h.wait(50); const after = h.input.state.aim.on; h.up(a, AX, AY); return { ...v, after };
+}));
+row('touch', 'aim: beside a flying thumb, a still thumb off the lane aims and the bus flies on', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.wait(420); const s = h.input.state, v = { aim: s.aim.on, thumb: s.thumb }; h.up(b, LX, LY); h.up(a, RX + 30, RY); return v; });
+row('touch', 'aim: in the lane a still thumb never aims: it steers at neutral', laned((h) => { const id = newId(); h.down(id, 196, 720); h.wait(700); const s = h.input.state, v = { aim: s.aim.on, thumb: s.thumb }; h.up(id, 196, 720); return v; }));
+row('touch', 'aim: under the opening gate (lookOff) every touch flies, none aims', laned((h) => { h.input.lookOff = true; const id = newId(); h.down(id, AX, AY); h.wait(700); const s = h.input.state, v = { aim: s.aim.on, thumb: s.thumb }; h.up(id, AX, AY); return v; }));
+row('touch', 'aim: off (aimOn false, the Moon): a still finger off the lane rests, and its lift at 400 ms splats as before', laned((h) => { h.input.aimOn = false; pressFor(h, AX, AY, 400); }));
+row('touch', 'aim: a cancelled touch ends the aim cancelled', laned((h) => { const id = newId(); h.down(id, AX, AY); h.wait(400); h.cancel(id, AX, AY); }));
+row('touch', 'aim: the page losing focus ends the aim cancelled', laned((h) => { const id = newId(); h.down(id, AX, AY); h.wait(400); win.dispatch('blur', {}); h.wait(30); h.up(id, AX, AY); }));
+row('touch', 'aim: one aims at a time: a second still finger off the lane rests', laned((h) => { const a = newId(), b = newId(); h.down(a, AX, AY); h.wait(400); h.down(b, 60, 200, false); h.wait(500); const v = { aim: h.input.state.aim.x0 }; h.up(b, 60, 200); h.up(a, AX, AY); return v; }));
+row('touch', 'aim: at 30 fps, held 360 ms aims, lifted at 330 splats', laned((h) => { pressFor(h, AX, AY, 360); h.wait(500); pressFor(h, AX, AY, 330); }), 30);
+
 // ---- the table's checks
 const OUT = process.env.SB_OUT ?? 'shots/controls/sim';
 mkdirSync(OUT, { recursive: true });
@@ -680,7 +719,11 @@ ok(taps('second: two taps') === 2, 'each tap while steering is a tap');
   const v = note('second: a look held dead still');
   ok(v.at9.on && v.at60.on && Math.round(v.at60.x) === 60 && !v.after.on, `a still look holds until the lift: ${JSON.stringify(v)}`);
 }
-ok(note('second: rests 500').on, 'a rest, then a drag: a look at once');
+ok(note('second: rests 300').on, 'a rest under the hold, then a drag: a look at once');
+{
+  const v = note('second: rests 500 ms off the lane');
+  ok(!v.look && v.aim && v.ax === LX + 30 && v.thumb && n('second: rests 500 ms off the lane', 'aim@') === 1 && taps('second: rests 500 ms off the lane') === 0, `a rest past 350 ms off the lane aims, its drag is the aim's, and the other thumb flies on: ${JSON.stringify(v)}`);
+}
 ok(taps('second: a tap with the first hand') === 1 && note('second: a tap with the first hand').on, 'a tap while the other thumb looks, and the look holds');
 ok(!note('second: a look does not count').thumb, 'a look is never st.thumb');
 ok(atOf('second: flick up', 'go') === atOf('second: flick up', 'flick+'), 'a flick answers on its lift');
@@ -900,7 +943,11 @@ ok(taps('left zone: a quick slight wander') === 1, 'the same quick wander as the
 }
 quiet('left zone: a slow drag up');
 ok(by('left zone: a slow drag up').look !== null, 'slow is a look');
-ok(note('left zone: rests 500').on, 'a rest, then a drag: a look at once');
+ok(note('left zone: rests 300').on, 'a rest under the hold, then a drag: a look at once');
+{
+  const v = note('left zone: rests 500');
+  ok(!v.look && v.aim && v.ax === LX + 30 && by('left zone: rests 500').look === null, `a rest past 350 ms aims, and its drag never looks: ${JSON.stringify(v)}`);
+}
 {
   const v = note('left zone: a look dragged over');
   ok(v.look && !v.thumb && v.sx === 0 && v.x === 200, `only the landing counts: ${JSON.stringify(v)}`);
@@ -908,7 +955,8 @@ ok(note('left zone: rests 500').on, 'a rest, then a drag: a look at once');
   ok(w.look && !w.thumb && w.x === 50, `two touches in the zone, and neither flies: ${JSON.stringify(w)}`);
 }
 ok(taps('left zone: two fingers tapped') === 1, 'two fingers tapped there: one splat');
-ok(taps('left zone: two fingers, both lift at 400') === 1, 'at 400 ms: one splat, as anywhere');
+ok(taps('left zone: two fingers, both lift at 330') === 1, 'at 330 ms: one splat, as anywhere');
+ok(taps('left zone: two fingers, both lift at 400') === 1 && n('left zone: two fingers, both lift at 400', 'aim@') === 0, 'at 400 ms: one splat, as anywhere: two fingers together are a tap, never an aim');
 ok(taps('left zone: two fingers, both lift at 470') === 0, 'at 470 ms: none, as anywhere');
 ok(note('left zone: a tap there while the other').on && note('left zone: a tap there while the other').tapped === 1 && taps('left zone: a tap there while the other') === 1, 'a tap beside a look fires on its own lift, and once');
 for (const g of ['left zone: three fingers', 'left zone: one finger there', 'left zone: two fingers there']) ok(n(g, 'tuner') === 1 && taps(g) === 0, `three fingers are the tuner in any order: ${g}`);
@@ -1154,6 +1202,31 @@ ok(readFlick(36, 0, 80, 36, 200, 0.4, 40) === 0, 'sideways is none');
   ok(hints(first.taught, 30, true).due === 0, 'it never repeats');
   ok(hints(31, 30, true).due === 1, "an old save, TURBO's blink and all, gets it once");
   ok(migratePrefs(null).prefs !== null && !migratePrefs('x').changed && !migratePrefs([1]).changed, 'junk in the save is no save');
+}
+
+// hold to aim
+{
+  const aims = (g: string) => n(g, 'aim@');
+  for (const g of ['aim: a tap off the lane at 120', 'aim: lifted at 300', 'aim: lifted at 340']) ok(taps(g) === 1 && aims(g) === 0, `${g}: one splat, no aim`);
+  const g = 'aim: held still 360';
+  ok(aims(g) === 1 && n(g, 'aimEnd@') === 1 && taps(g) === 0 && atOf(g, 'aim@') >= 350 && atOf(g, 'aim@') <= 370, `held still past 350 ms it aims, at ${atOf(g, 'aim@')} ms, and its lift releases it with no splat`);
+  const v = note('aim: held 1.2 s');
+  ok(v.at.on && v.now.on && Math.round(v.now.x) === AX - 120 && Math.round(v.now.y) === AY + 60 && v.now.x0 === AX && !v.look && !v.dragging && v.sx === 0 && v.sy === 0 && by('aim: held 1.2 s').look === null && taps('aim: held 1.2 s') === 0, `the aim follows its drag, never looks, nobody steers: ${JSON.stringify(v)}`);
+  quiet('aim: a hold that ends in a quick stroke up');
+  ok(taps('aim: a hold that ends in a quick stroke up') === 0 && by('aim: a hold that ends in a quick stroke up').gear === 0, 'a hold that lifts fast is a release, not a flick');
+  ok(note('aim: moved 20 px').on && aims('aim: moved 20 px') === 0, 'a finger that moved first looks, and never aims');
+  const w = note('aim: a thumb landing in the lane');
+  ok(w.aim && w.thumb && w.sx > 0 && w.after && aims('aim: a thumb landing in the lane') === 1 && taps('aim: a thumb landing in the lane') === 0, `a thumb in the lane flies beside the aim: ${JSON.stringify(w)}`);
+  const x = note('aim: beside a flying thumb');
+  ok(x.aim && x.thumb, `a second thumb aims beside the flying one, which flies on: ${JSON.stringify(x)}`);
+  ok(!note('aim: in the lane').aim && note('aim: in the lane').thumb && aims('aim: in the lane') === 0, 'in the lane a still thumb steers, and never aims');
+  ok(!note('aim: under the opening gate').aim && note('aim: under the opening gate').thumb, 'under the opening gate every touch flies');
+  ok(taps('aim: off (aimOn false') === 1 && aims('aim: off (aimOn false') === 0, 'with hold to aim off, a still 400 ms lift splats as it did');
+  ok(n('aim: a cancelled touch', 'aimEnd(cancelled)') === 1 && taps('aim: a cancelled touch') === 0, 'a cancelled touch ends the aim cancelled');
+  ok(n('aim: the page losing focus', 'aimEnd(cancelled)') === 1 && taps('aim: the page losing focus') === 0, 'focus lost ends the aim cancelled');
+  ok(aims('aim: one aims at a time') === 1 && note('aim: one aims at a time').aim === AX, 'one aims at a time');
+  ok(aims('aim: at 30 fps') === 1 && taps('aim: at 30 fps') === 1, 'at 30 fps the same lines hold');
+  for (const r of rows) if (r.gesture.startsWith('the lane')) ok(!r.events.some((e) => e.startsWith('aim')), `the lane never aims: ${r.gesture}`);
 }
 
 for (const r of rows) console.log(`${r.mode.padEnd(8)} | ${r.gesture.padEnd(76)} | ${r.events.join(', ') || '-'}${r.maxChargeHeld ? ` | chargeHeld max ${r.maxChargeHeld}` : ''}${r.thumb ? ' | steering' : ''}${r.look ? ` | look ${r.look.from}-${r.look.to} ms, ${r.look.max} px` : ''}${r.gear ? ` | G${r.gear}` : ''}${r.level ? ` | turbo ${r.level}` : ''}`);
