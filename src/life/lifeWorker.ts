@@ -3,6 +3,7 @@ import { gunzip, isGzip } from '../world/gunzip';
 import { parseCityRoutes, parseRegionGraph, type CityRoutes, type RegionGraph } from '../world/lifeData';
 import { ferriesOn, ferryLines, harbourOf, sailsOn, WATER_R, type FerryLine, type Harbour } from './sim/boats';
 import { buildNet, carsOn, type CarNet } from './sim/cars';
+import { curbLand, curbPath, curbTune } from './sim/curb';
 import { sunsetSec } from './sim/sun';
 import { parkBlocks, picnicsOn, type LawnTile } from './sim/parks';
 import { livePlanes, LIVE_HOLD, scriptedPlanes, type LivePlane } from './sim/planes';
@@ -32,6 +33,25 @@ export interface LifeLawn {
   tile: LawnTile | null;
   tx: number;
   tz: number;
+}
+/** Curb (sim/curb.ts): the lane near (x, z) driven along (fx, fz) within `reach` m, and `length` m of it ahead, at a junction the way nearest `look` if it turns. */
+export interface LifeCurb {
+  type: 'curb';
+  id: number;
+  x: number;
+  z: number;
+  fx: number;
+  fz: number;
+  reach: number;
+  length: number;
+  look: [number, number] | null;
+}
+/** Its answer: the lane's points (x, y, z, the road's speed), none when there's no street there or the roads aren't in yet. */
+export interface LifeCurbAnswer {
+  type: 'curb';
+  id: number;
+  n: number;
+  pts: Float32Array;
 }
 export interface LifeTick {
   type: 'tick';
@@ -285,7 +305,16 @@ function tick(t: LifeTick): void {
   (self as unknown as Worker).postMessage({ type: 'snap', buf: t.buf }, [t.buf]);
 }
 
-self.onmessage = (e: MessageEvent<LifeInit | LifeTick | LifeLawn>) => {
+/** Curb's lane: landed again on every ask, by place, since the net's ways are renumbered whenever a region comes or goes. */
+function curb(m: LifeCurb): void {
+  if (netStale) rebuild();
+  const spot = net ? curbLand(net, m.x, m.z, m.fx, m.fz, m.reach) : null, pts = new Float32Array(Math.ceil(m.length / curbTune.step + 2) * 4);
+  const n = spot && net ? curbPath(net, spot.w, spot.s, m.length, m.look, pts, { w: 0, s: 0 }) : 0;
+  const a: LifeCurbAnswer = { type: 'curb', id: m.id, n, pts };
+  (self as unknown as Worker).postMessage(a, [pts.buffer]);
+}
+
+self.onmessage = (e: MessageEvent<LifeInit | LifeTick | LifeLawn | LifeCurb>) => {
   const m = e.data;
   if (m.type === 'init') {
     place = m;
@@ -302,6 +331,7 @@ self.onmessage = (e: MessageEvent<LifeInit | LifeTick | LifeLawn>) => {
     tzAt = -1;
     tzFmt = null;
   } else if (m.type === 'tick') tick(m);
+  else if (m.type === 'curb') curb(m);
   else if (m.type === 'lawn') {
     if (m.tile) lawns.set(`${m.tx},${m.tz}`, { tile: m.tile, blocks: null });
     else lawns.delete(`${m.tx},${m.tz}`);

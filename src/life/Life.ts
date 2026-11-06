@@ -8,7 +8,8 @@ import { FACTION_RAINBOW, ownerOf } from '../game/factions';
 import { HUE_RAMPS } from '../render/palette';
 import type { Observer } from '../sky/SkyModel';
 import { axesAt, fixToGeodetic, geodeticToFix } from '../sky/WorldFrame';
-import type { LifeLawn, LifeTick } from './lifeWorker';
+import type { LifeCurbAnswer, LifeLawn, LifeTick } from './lifeWorker';
+import { Curb, type CurbPose } from './Curb';
 import { LAWN_CELL, LookBit } from './sim/parks';
 import { Ground } from '../world/tiles';
 import { fnv1a } from './hash';
@@ -101,6 +102,8 @@ export class LifeHost {
   private readonly p = new THREE.Vector3();
   private readonly s = new THREE.Vector3();
   /** QA: the last frame's rows, models and specks, the snapshots taken, the loop that drew it; and the first DRAWN movers drawn, each its key's hash and where (the loop's frame) */
+  /** Curb's road side: the lane the bus lands on and rolls along (Curb.ts) */
+  readonly curb: Curb;
   readonly qa = { rows: 0, models: 0, people: 0, specks: 0, marks: 0, sent: 0, snaps: 0, hits: 0, sky: false, drawn: 0, dancers: 0, cars: 0, heavy: 0, tris: 0, boats: 0, lights: 0, tracks: 0, bouncers: 0 };
   readonly drawn = new Float64Array(DRAWN * 4);
   /** QA: the last painted picnic's dancer drawn this frame: its group's key's hash, where (the hop in it), and its pose (Kind.PERSON or Kind.CHEER) */
@@ -176,8 +179,10 @@ export class LifeHost {
     this.home = pools.group.parent;
     this.trisOf = [pools.small, pools.middle, pools.large, pools.heavy].map((q) => q.mesh.geometry.getAttribute('position').count / 3);
     axesAt(origin[0], origin[1], 0, this.ax);
-    worker.onmessage = (e: MessageEvent<{ type: string; buf: ArrayBuffer }>) => {
-      if (e.data?.type === 'snap') this.took(e.data.buf);
+    this.curb = new Curb((m) => worker.postMessage(m));
+    worker.onmessage = (e: MessageEvent<{ type: string; buf: ArrayBuffer } | LifeCurbAnswer>) => {
+      if (e.data?.type === 'snap') this.took((e.data as { buf: ArrayBuffer }).buf);
+      else if (e.data?.type === 'curb') this.curb.answer(e.data as LifeCurbAnswer);
     };
   }
 
@@ -853,6 +858,15 @@ export class LifeHost {
   private pendingAt(h: number, arrive: number): boolean {
     for (const q of this.hits) if (q.h === h && Math.abs(q.arrive - arrive) < 0.05) return true;
     return false;
+  }
+
+  /**
+   * Curb's road side (Curb.ts; SHOTS.md, "Curb"): one frame of the bus rolling on its lane, pacing the car beside it, into `out`. The first account's Curb flight
+   * calls it after `curb.land(...)` has the lane; false when there's none.
+   */
+  curbRoll(dt: number, push: number, look: number, out: CurbPose): boolean {
+    const s = this.snap;
+    return this.curb.roll(dt, push, look, s, s ? (this.utc - s.f64[0]) / 1000 : 0, this.keys, out);
   }
 
   /** A key's hash, as the rows carry it (QA). */

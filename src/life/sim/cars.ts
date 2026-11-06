@@ -116,7 +116,7 @@ export interface CarNet {
 }
 
 /** Point j of way w (0 its start, pointsOf(w) - 1 its end) into P at q, as x, y, z. */
-function pointAt(net: CarNet, w: number, j: number, P: Float64Array, q: number): void {
+export function pointAt(net: CarNet, w: number, j: number, P: Float64Array, q: number): void {
   const G = net.graphs[net.g[w]], i = net.e[w], m = G.edges.shape[i + 1] - G.edges.shape[i], k = net.rev[w] ? m + 1 - j : j;
   let src: Float32Array, o: number;
   if (k === 0) {
@@ -133,13 +133,13 @@ function pointAt(net: CarNet, w: number, j: number, P: Float64Array, q: number):
   P[q + 1] = src[o + 1];
   P[q + 2] = src[o + 2];
 }
-const pointsOf = (net: CarNet, w: number) => {
+export const pointsOf = (net: CarNet, w: number): number => {
   const G = net.graphs[net.g[w]], i = net.e[w];
   return G.edges.shape[i + 1] - G.edges.shape[i] + 2;
 };
 
 /** A way's lateral place for a car in lane-hash `lh` (m, + to the right of its way); under 0, the kerb's lane (a bus, a truck). */
-function laneOff(net: CarNet, w: number, lh: number): number {
+export function laneOff(net: CarNet, w: number, lh: number): number {
   const L = net.lanes[w], lane = lh < 0 ? L - 1 : lh % L;
   return net.two[w] ? (lane + 0.5) * LANE_W : (lane + 0.5 - L / 2) * LANE_W;
 }

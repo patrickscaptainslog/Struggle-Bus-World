@@ -104,3 +104,22 @@ Painted, a boat rides a swell, about once in 1.6 s, its bow and sides rising and
 | `flag-off.mjs` | browser | W6: the plain page and `?earth` with `?life` off against the same commit built with `SB_NO_LIFE=1`: the same requests and the same programs by their shaders' sources; life's files never asked for; no shared memory in the build |
 
 Not yet: L3, the busiest view's draws and triangles measured, waits for the boats (Draws, above, has the count from the code); 5,000 hits and another place's keys wait for a second place. L6's laptop leg, `warmcheck.mjs` with `?life`, the first account ran on the laptop's GPU on 2026-11-05: 0 programs after the warm-up (`docs/reviews/life-gpu-2026-11-05.md`), before cars.
+
+## Curb's road side (the shots' plan, 2026-11-06)
+
+`docs/specs/shots/SHOTS.md`, "Curb: cruising beside the cars": the bus lands on the street and rolls beside the cars with no steering. The road side is life's; the flight, the camera and the landing are the first account's, and call it.
+
+- **The lane** (`sim/curb.ts`, in the worker, on the cars' own net). `curbLand` finds the kerb lane, the right-most, of the nearest way driven the bus's way within 80 m: a way cars may drive, never a tunnel. `curbPath` gives that lane ahead, a point every 4 m with the road's speed. At a junction it goes straight on, or the way the player looks when the look turns from straight on. It never makes a U-turn, and ends at a dead end. There are no lane changes: the plan's push-back.
+- **The host** (`Curb.ts`, `life.curb` and `life.curbRoll`):
+  - `curb.land(x, z, heading)` asks the worker. `curb.state` goes 'asking', then 'on', or 'none' (FIND A STREET).
+  - `life.curbRoll(dt, push, look, pose)` each frame gives the bus's place on the lane, its heading and its speed. It rolls at the traffic's speed and pulls up beside the nearest car going its way, measured along the lane so a car round a bend counts. A push rolls on past it. At a dead end it slows to a stop at the kerb.
+  - The next 600 m stretch is asked for by place before the bus is 220 m from the end, so the worker's renumbered net can't lose it.
+  - `curb.onBeside(key)` is told once for a car the bus has ridden beside for 1.5 s; the caller paints it (`life.hit` with the splatter's hue and faction).
+  - `curb.leave()` takes the wheels up.
+- **Checked** in Node on San Francisco's own roads round the Financial District (`tools/life/curb.mjs`):
+  - 761 landings from 800 tries, none the wrong way or in a tunnel, 0.8 ms each;
+  - 600 m lanes with no jump or fold-back (12 real corners past 100 degrees);
+  - looks at junctions;
+  - the host pacing a car round a bend and painting it at 6.6 s;
+  - a push past it, and a long roll over several stretches.
+- **Not checked:** in the browser, where the first account's Curb flight will call it.
