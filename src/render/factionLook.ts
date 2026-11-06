@@ -70,7 +70,8 @@ export const FACTION_LOOKS: readonly FactionLook[] = (() => {
     leaf: MOSS,
     bark: PEARL,
   };
-  // Hyperglow: lavender chrome walls ruled in magenta and cyan neon
+  // Hyperglow: lavender chrome walls ruled in magenta and cyan neon, its gardens and trees magenta, so cyan is its minor colour from above, where
+  // Atlantis's teal roofs are
   looks[FACTION_HYPERGLOW] = {
     body: [CHROME, CHROME, CHROME, CHROME, CHROME, CHROME],
     accent: [MAGENTA, CHROME, CYAN, CHROME, MAGENTA, CYAN],
@@ -79,7 +80,7 @@ export const FACTION_LOOKS: readonly FactionLook[] = (() => {
     spray: [MAGENTA, CYAN, MAGENTA, CYAN, MAGENTA, CYAN],
     trim: MAGENTA,
     gold: CYAN,
-    leaf: CYAN,
+    leaf: MAGENTA,
     bark: CHROME,
   };
   // Inferno: crimson and black glass walls, the flame's gold (YELLOW) on their edges and in a third of the accents (level 3's bands on four houses in six,
