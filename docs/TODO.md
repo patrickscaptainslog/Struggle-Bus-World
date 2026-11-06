@@ -39,7 +39,7 @@ Tick what you finish, in the commit that finishes it. Add to it when the produce
 - On `feat/life`: `life.curb` and `life.curbRoll(dt, push, look, pose)` for your Curb flight, and `curb.onBeside(key)` for painting the car beside the bus. LIFE.md, "Curb's road side", has the API.
 
 **Checked here** (software graphics, a fixed step; the GPU and the phone are yours):
-- `tools/recess/screen.mjs`: kickoff, findable, up, gotcha, possessed, paint, paint agrees (426 of 426 captain-coloured buildings in or beside their squares), fence, gods, bell, programs (nothing compiled), B21, flag off and no page errors all pass. One row doesn't yet: `&hit=jet`'s forced Jet. The breath the check injects at the player doesn't ride it there, though the same breath does in the brain under Node. The forced gear's code is the Nonstop path's with another number, which the possessed row checks; the row now prints what became of its breath, and its next run says why.
+- `tools/recess/screen.mjs`: kickoff, findable, up, gotcha, possessed, paint, paint agrees (426 of 426 captain-coloured buildings in or beside their squares), fence, gods, bell, programs (nothing compiled), B21, flag off and no page errors: all 17 rows pass on `feat/recess` 1f3901f, `&hit=jet`'s forced Jet among them. On the way, the jet row's homing breath missed a player at Nonstop just bounced off the fence: that's the breath's lead, the review's M28, still open, for the duel's work.
 - `check.mjs`: 17 of 17. `duels.mjs`: all pass, 3,000 duels; 750 contested matches, 9 gods toppled.
 - `feat/life`: smoke and paint all pass, the 9:30 rows included (9 groups in Dolores on a Friday at 9:30); determinism, alloc, `blast.mjs` (4 rows) and `curb.mjs` (8 rows, on San Francisco's roads) pass.
 
