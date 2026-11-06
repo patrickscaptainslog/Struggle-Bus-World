@@ -15,6 +15,8 @@
 //   (MEGA is asleep since 2026-11-06: give the url &mega for those two).
 // --crew: the url has ?crew: after the blasts, the faction crest switched through all five by real taps (Atlantis, the Elderwood, Hyperglow, Inferno,
 //   Rainbow), each switch followed by three blasts on a fresh block (levels 1-3, the gardens and crowns in that faction's rows), in view.
+// --hose: after the blasts, the shots' step 2 by real touches (CDP) over the Western Addition: a tap off the lane, a hold to aim that pours the Hose,
+//   a sweep, the tank run dry, its refill, a second hold taken through the hook (window.__game.holds.add) that fires a homing shot at a point ahead.
 // Wall clock, real GPU (tools/browser.mjs): meaningful on a laptop, not in the cloud's SwiftShader.
 // `lamps` in the report: when the street lamps' list was asked for and landed, ms after ready (a dusk with them in flight: ?t=2026-11-07T00:01:00Z&rate=120).
 import { chromium } from 'playwright-core';
@@ -254,6 +256,7 @@ if (street) await phase('opening-end');
 if (street) await run(2);
 let blast = null;
 let crewRun = null;
+let hoseRun = null;
 if (street) {
 // the climb to the vista (the yoke pulled: sy -1), and a look around up there
 await phase('climb');
@@ -278,6 +281,69 @@ blast = await page.evaluate(() => {
   for (const n of g.city.buildingsNear(x, z, 40, [])) top = Math.max(top, g.city.paint.level(n.ref.index));
   return { maxLevel: top, ...g.paintedNear(37.7762, -122.43262, 40) };
 });
+// --hose: a tap, a hold to aim and its pour, a sweep, the tank dry and refilled, and a homing shot through the hook, all by real touches
+if (opt.hose) {
+  const cdp = await ctx.newCDPSession(page);
+  const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], i) => ({ x, y, id: i + 1, radiusX: 8, radiusY: 8, force: 1 })) });
+  const wait = (ms) => page.waitForTimeout(ms);
+  const state = () => page.evaluate(() => window.__game.hoseState());
+  hoseRun = {};
+  await phase('hose-tap');
+  await place(37.7752, -122.44, 60, Math.PI / 2 + 0.09);
+  await page.evaluate(() => (window.__qa = null));
+  await settle();
+  await run(1.5);
+  // (a first touch in the lane: the page's first touch runs a long task in its touchstart, and CDP's dispatch waits on it, so a 150 ms tap sent after it
+  // is down for 390 ms by the page's clock: a hold, honestly)
+  await touch('touchStart', [[196, 760]]);
+  await wait(60);
+  await touch('touchEnd', []);
+  await run(1);
+  await page.evaluate(() => window.__game.forceReady());
+  await touch('touchStart', [[300, 300]]);
+  await wait(150);
+  await touch('touchEnd', []);
+  await run(1.5);
+  hoseRun.tap = await page.evaluate(() => ({ last: window.__game.lastShot(), hose: window.__game.hoseState().stats }));
+  await phase('hose-pour');
+  await page.evaluate(() => window.__game.forceReady());
+  await touch('touchStart', [[300, 330]]);
+  await wait(1200);
+  hoseRun.pouring = (await state()).pouring;
+  await phase('hose-sweep');
+  for (let i = 1; i <= 24; i++) {
+    await touch('touchMove', [[300 - 8 * i, 330 + 4 * i]]);
+    await wait(50);
+  }
+  await wait(1200);
+  await touch('touchEnd', []);
+  hoseRun.afterPour = (await state()).stats;
+  await phase('hose-refill');
+  await wait(3500);
+  hoseRun.refilled = (await state()).tank;
+  // the hook: a handler that takes the next hold and fires a homing shot from its release at a point 500 m ahead
+  await phase('hose-homing');
+  await page.evaluate(() => {
+    const g = window.__game, H = (window.__wcHoming = { took: 0, fired: 0, white: 0, hit: 0, miss: null });
+    const off = g.holds.add({
+      name: 'warm-lock',
+      start: () => (H.took++, true),
+      end(h, cancelled) {
+        off();
+        if (cancelled) return;
+        const f = g.flight, x0 = f.x + f.fx * 500, z0 = f.z + f.fz * 500, y0 = Math.max(g.city.groundAt(x0, z0) + 30, f.y - 10);
+        const s = g.holds.fire({ target: (o) => (o.set(x0, y0, z0), true), speed: 300, turn: 2.2, white: 0.7, onWhite: () => H.white++, onHit: () => H.hit++, onMiss: (_a, _s, w) => (H.miss = w) });
+        if (s) H.fired++;
+      },
+    });
+  });
+  await page.evaluate(() => window.__game.forceReady());
+  await touch('touchStart', [[200, 300]]);
+  await wait(700);
+  await touch('touchEnd', []);
+  await wait(3000);
+  hoseRun.homing = await page.evaluate(() => window.__wcHoming);
+}
 // --crew: the faction crest, a real tap on it and on each swatch, and each faction's paint at three levels
 if (opt.crew) {
   await phase('crew');
@@ -362,6 +428,7 @@ const res = {
   programsAtReady: info.programsAtReady,
   blast,
   crew: crewRun,
+  hose: hoseRun,
   low: lowRun,
   programsTotal: W.programs.length,
   programsAfterWarmup: after.length,
