@@ -253,8 +253,9 @@ def bridge_checks(cfg, city, osm, ground, Q, ll2xz, lonlat, city_dir, log=_log):
     minX, minZ, maxX, maxZ = man['bounds']
     out = []
 
-    def check(key, what, unit, limit, floor=1, count_unit='count', lower=False):
-        rec = {'key': key, 'what': what, 'unit': unit, 'limit': limit, 'floor': floor, 'countUnit': count_unit, 'lower': lower,
+    def check(key, what, unit, limit, floor=1, count_unit='count', lower=False, per=None):
+        # (per: a limit that is a multiple of what each thing read has, until it's read: towerOffDeck's, half its deck's width)
+        rec = {'key': key, 'what': what, 'unit': unit, 'limit': limit, 'floor': floor, 'countUnit': count_unit, 'lower': lower, 'per': per,
                'value': None, 'count': None, 'over': False, 'read': False, 'why': '', 'detail': '', 'rows': []}
         out.append(rec)
         return rec
@@ -271,7 +272,7 @@ def bridge_checks(cfg, city, osm, ground, Q, ll2xz, lonlat, city_dir, log=_log):
     # what they all read fails, every one is NOT READ and says why, and the QA goes on
     lim = lambda k: Q[k]  # noqa: E731
     c_hero = check('heroOffData', "a hero row's typed point from the OSM row it names", 'm', lim('heroOffDataMax'))
-    c_tower = check('towerOffDeck', "a drawn tower's centre from its drawn deck's centre line", 'm', lim('towerOffDeckMax'))
+    c_tower = check('towerOffDeck', "a drawn tower's centre from its drawn deck's centre line", 'm', lim('towerOffDeckMax'), per="half its deck's width")
     c_posts = check('deckNoCollision', "a drawn deck's area under no collision post", 'share', lim('deckNoCollisionMax'))
     c_end = check('deckFreeEnd', "a drawn deck's end over the ground, a kept way there or not (no other deck or building by it)", 'm', lim('deckFreeEndMax'))
     c_water = check('waterRoadNoDeck', 'real bridge road and rail over water with no deck or ground bridge', 'share', lim('waterRoadNoDeckMax'),
@@ -1068,7 +1069,10 @@ def draw_cells(cls, res2, flags, scrub_cells, Q, minX, minZ, maxX, maxZ, out):
 
 
 def limit_text(c):
-    """'<= 15.00 m (and >= 50 m)': a bridge check's limit and its floor"""
+    """'<= 15.00 m (and >= 50 m)': a bridge check's limit and its floor ("<= 1 x half its deck's width" for one that is a
+    multiple of what each thing it reads has, until it's read)"""
+    if c.get('per') and not c['read']:
+        return ('>= ' if c['lower'] else '<= ') + f'{c["limit"]:g} x {c["per"]}'
     t = ('>= ' if c['lower'] else '<= ') + fmt(c['limit'], c['unit'])
     if c['floor'] and (c['countUnit'] != 'count' or c['floor'] > 1):
         t += f' (and >= {fmt(c["floor"], c["countUnit"])})'

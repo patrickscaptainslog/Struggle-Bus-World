@@ -111,6 +111,21 @@ def unread(qa):
     return why
 
 
+def limits(qa):
+    """a check NOT READ shows its limit as it measures it: towerOffDeck's is a multiple of half each tower's deck's width
+    until it's read, never metres; the others in their units"""
+    import bridges as B
+    why = []
+    ground = B.Ground((0.0, 0.0, 256.0, 256.0), np.full((128, 128), B.Ground.WATER, np.uint8), 2.0, np.zeros((65, 65), np.float32), 4.0)
+    Q = qa.thresholds({}, log=lambda *a: None)[0]
+    recs, _ = qa.bridge_checks({}, Baked(), Extract(None), ground, Q, lambda lo, la: (lo, -la), lambda x, z: (-z, x), '.', log=lambda *a: None)
+    want = {'towerOffDeck': "<= 1 x half its deck's width", 'heroOffData': '<= 15.00 m', 'streetFigure': '>= 0.900'}
+    for r in recs:
+        if r['key'] in want and qa.limit_text(r) != want[r['key']]:
+            why.append(f'{r["key"]} NOT READ: {qa.limit_text(r)!r}, want {want[r["key"]]!r}')
+    return why
+
+
 def gate(qa):
     """once the gate is 'fail', a check that failed to read fails the bake, where as NOT READ it passed, so a city whose
     bridges.py throws passed all fifteen; one with nothing to read (an empty frame: no hero, no deck) doesn't, nor any in
@@ -208,6 +223,7 @@ CHECKS = [
     ("a city config's \"qa\" tightens a check, never loosens it, and never sets how the city is cut up", overrides),
     ('the bridge checks never stop the QA: what they all read failing makes the fifteen NOT READ', unread),
     ('a fail gate fails a check that failed to read, never one with nothing to read', gate),
+    ('a check NOT READ shows its limit as it measures it (towerOffDeck: a multiple of half its deck\'s width)', limits),
     ("deckFreeEnd measures a drawn deck's end over the ground, a kept way by it or not", deck_ends),
     ("a tower stands over its deck by its top over the sea, not over its own ground (bridges.py's XL)", tower_over),
     ("two decks joined end to end cover the ground each covered, either one run backwards (bridges.py's join)", joined_edges),
