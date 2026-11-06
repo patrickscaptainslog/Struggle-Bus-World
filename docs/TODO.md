@@ -102,9 +102,38 @@ The producer approved the factions plan, [specs/factions/FACTIONS.md](specs/fact
   - **Done and pushed 2026-11-06**, `feat/hoods` 54e3143 to 1390222, built, reviewed and fixed: [reviews/hoods-2026-11-06.md](reviews/hoods-2026-11-06.md). San Francisco's map has 115 neighbourhoods (14 of them in Marin, in the map's frame) and 112 gods, Amsterdam 6, London 6. `tools/bake/hoods.py` bakes them, `public/city/<slug>/hoods.bin` holds them, `src/world/hoods.ts` reads them into `NeighbourhoodTable`, and `hoodcheck.py` and `tools/world/hoods-check.mjs` check them, all passing. Nothing reads them yet, so nothing on screen changes.
   - **C18 is Proposed** in `CONTRACT.md` 0.13, its full text `docs/specs/factions/C18.md` on `feat/hoods`, for the second account to agree or answer, with O17 to O20.
   - **For the producer, in the morning:** the count (115 against the 79 approved), the Mission in two, some names made by a rule, and Mount Davidson's cross, which needs a download to tag.
-- [ ] Tonight, after step 5: step 6's first slice on `feat/factions`, Rainbow's skin and the Lift in one neighbourhood behind a flag, with stills for the producer's phone. **Under way** from c73f3bd: `?lift` in Alamo Square by default (`&hood=<name>` for another, `&lifted` to start with it lifted), planned, built, checked on the GPU, reviewed, looked at once and fixed; its notes will be `docs/specs/factions/LIFT.md` on the branch.
+- [x] Tonight, after step 5: step 6's first slice on `feat/factions`, Rainbow's skin and the Lift in one neighbourhood behind a flag, with stills for the producer's phone.
+  - **Done and pushed 2026-11-06**, `feat/factions` 66b93af to d4f62d4, planned, built, checked on the GPU, reviewed, looked at once and fixed: `docs/specs/factions/LIFT.md` on the branch says what's built, how to try it and what's left. `?lift` in Alamo Square by default (`&hood=<name>` for another, `&lifted` to start with it lifted, `&slowmo=0` without the slow motion). Preview: https://struggle-bus-world-git-feat-factions-patricks-projects-9ff6e721.vercel.app/?lift&lifted
+  - **What it is:** each painted house crouches, jumps and stays up 18 to 50 m, bobbing on its own rainbow geyser over one lake of paint, and the bus flies under them. The lift lives in memory only, never in a store. With the flag off every frame is the same as c73f3bd's.
+  - **Not right yet:** the noon view from 250 m is 1.54 M triangles, over the 1.5 M floor; the `&lifted` climb has frame spikes nobody has traced; Safari reading the lift's float texture in a vertex shader waits on the phone; Rainbow's stage-1 mark, the park as an island, the halo at the heart and the other four factions' ways of lifting are the next slice's.
+- [ ] The rooftop gardens' budget, `src/world/props/sprouts.ts`, on `main` too (the Recess review's M24): a city painted to level 3 grows them to 3 to 5 M triangles and 50 to 83 ms a frame on this laptop, where the floor is 1.0 to 1.5 M. The first account's, next.
 
 **Tonight's rules**: push a working branch when you're confident in it, no OK needed (`CLAUDE.md`, "Branches"); `main` stays the producer's. The laptop runs one bake and one browser at a time.
+
+## Morning report: the first account (2026-11-06)
+
+**Done tonight**, all on working branches; nothing went live.
+- **The Lift, the first look at the stages.** Alamo Square's painted houses jump and stay up, each on its own rainbow fountain over a lake of paint, and the bus flies under them: https://struggle-bus-world-git-feat-factions-patricks-projects-9ff6e721.vercel.app/?lift&lifted. Wait for the fog, fly in low and keep going under the houses. Then try `?lift` alone: breathe on one house four times and it lifts in slow motion (`&slowmo=0` for none). Built, checked on this laptop's GPU, reviewed, looked at once by an outside eye and fixed (`docs/specs/factions/LIFT.md` on `feat/factions`).
+- **The five factions' colours** in all seven skies, after one outside look and its fixes. On the same preview, `&paintas=atlantis` (or `elderwood`, `hyperglow`, `inferno`) paints in that faction.
+- **Paint knows whose it is** (step 1): every store keeps its owner, and old saves read as Rainbow's. Nothing on screen changes.
+- **Every city's neighbourhoods from map data**: 115 in San Francisco's map, 6 each in Amsterdam's and London's, each with its heart, offered to the second account as C18 ([reviews/hoods-2026-11-06.md](reviews/hoods-2026-11-06.md)).
+- **The second account's work, reviewed and run on the GPU**: Recess on screen, two whole matches against the bots ([reviews/recess-screen-2026-11-06.md](reviews/recess-screen-2026-11-06.md)); life's fixes; the freeway checks' fixes, pushed.
+
+**What went wrong, or isn't right yet**
+- Nothing ran on a phone. The frame times are this laptop's.
+- The Lift: from 250 m at noon it's a hair over the drawing budget (1.54 M triangles against 1.5 M); the climb out has stutters nobody has traced; Safari reading the lift's numbers in its shaders is untested until the phone; pulling up under a house keeps the bus under the floating layer, as under the Golden Gate's deck, so to get on top you fly out first.
+- Recess: a match paints over its preview link's saved paint (only that link's, never the live game's), each bot's blast freezes the game a moment, and the painted map and the score disagree. The second account has the list.
+- A slowdown the live game has too: as a city fills with paint at its top level, the rooftop gardens grow to 3 to 5 million triangles, three times the budget. Recess hit it in three minutes. The fix is the first account's, next.
+- The neighbourhoods: Mount Davidson's cross isn't marked (it needs other data, a download), and a few names at the edges are odd ("Ocean Beach", Marin's "Hawk Hill").
+
+**For the producer, one at a time, each with the studio's pick**
+1. The god-healing rule, decision 16. Pick: mending waits for the god's five-second ring, as cracking does, and mends two cracks at once. One defender then holds off one equal raider about four times in five, two raiders take the god in about a minute, and three always do.
+2. The slow motion when a house lifts off, keep it or drop it. Fly `?lift` with and without `&slowmo=0` first. Pick: keep it.
+3. 115 neighbourhoods in San Francisco's map against the 79 approved: 14 across the Golden Gate in Marin, and the Mission in two. Pick: keep them all, since every square you can paint needs one.
+4. At golden hour and dusk the Elderwood's and Inferno's paint is no more vivid than the sky by our measure, though to the eye it still owns the picture. Pick: accept it for now, and let each faction's glow carry the dusk in step 6.
+5. Still open from before: the Cloudflare account for the game's files if it goes viral, and the used iPhone 13 you approved, for the A15 floor (the engineers can't buy it).
+
+**Next for the first account**: the rooftop gardens' budget, then the Lift's next slice (the park as an island, the halo at the heart, Rainbow's stage-1 mark, the other four factions' ways of lifting), then the freeways' step 5.
 
 ## Afternoon report: the second account (2026-11-05)
 
@@ -268,6 +297,9 @@ Start with [BRIEF.md](BRIEF.md): what the second account built meanwhile, what i
 - [ ] A used iPhone 13, bought, for the game's floor (LIVING.md's pick: now, about $210-290). The engineers can't buy anything. Approved again with the factions plan (decision 22)
 - [x] The factions' 27 (how many stages) and 28 (territory by neighbourhood), in `specs/factions/FACTIONS.md` §6. Approved 2026-11-06 as picked: "Regarding 27 and 28, yes I approve both"
 - [ ] The heal, decision 16 ([reviews/recess-screen-2026-11-06.md](reviews/recess-screen-2026-11-06.md), "The heal"). Today a defender who stays by their god and keeps tapping it mends every crack the moment it lands, so a defended god never falls. If mending waited for the god's five-second ring, the way cracking does, one raider would take a defended god about half the time in Recess's three minutes. The studio's pick: mending waits for the ring but mends two cracks at once. Then one defender holds off one equal raider about four times in five, two raiders usually take the god in about a minute, and three nearly always do. Build that?
+- [ ] The Lift's slow motion at a house's lift-off, keep it or drop it (`docs/specs/factions/LIFT.md` on `feat/factions`; fly `?lift` with and without `&slowmo=0`). The studio's pick: keep it
+- [ ] 115 neighbourhoods in San Francisco's map against the 79 approved: 14 across the Golden Gate in Marin, and the Mission in two ([reviews/hoods-2026-11-06.md](reviews/hoods-2026-11-06.md)). The studio's pick: keep them all
+- [ ] The dusk colours: at golden hour and dusk the Elderwood's and Inferno's paint is no more vivid than the sky by the frame's numbers. The studio's pick: accept it for now, and let each faction's glow carry the dusk in step 6
 
 ## Later, in this order
 
