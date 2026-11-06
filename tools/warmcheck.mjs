@@ -283,16 +283,25 @@ if (opt.crew) {
   await phase('crew');
   crewRun = [];
   const tapHud = async (name) => {
-    const b = await page.locator(`[data-hud="${name}"]`).boundingBox();
+    const b = await page.locator(`[data-hud="${name}"]`).boundingBox({ timeout: 8000 }).catch(async (e) => {
+      await page.screenshot({ path: `${out}.fail.png` }).catch(() => {});
+      console.log('[crew]', name, 'not found:', await page.evaluate(() => ({ url: location.href, hud: [...document.querySelectorAll('[data-hud]')].map((x) => x.dataset.hud) })).catch((x) => String(x)));
+      throw e;
+    });
     await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
     await run(0.3);
   };
   const spots = [[37.7762, -122.4306], [37.7762, -122.4286], [37.7776, -122.4326], [37.7748, -122.4326], [37.7776, -122.4306]];
   const keys = ['atlantis', 'elderwood', 'hyperglow', 'inferno', 'rainbow'];
+  // (--crewr=60: the blasts at that radius, today's before the shots' rework, to tell the switch's cost from the bigger splat's)
+  if (opt.crewr) await page.evaluate((r) => (window.__game.config.splat.blastRadius = r), Number(opt.crewr));
+  const now = () => page.evaluate(() => Math.round(performance.now()));
   for (let k = 0; k < keys.length; k++) {
+    const at = { switch: await now(), blasts: [] };
     await tapHud('crew');
     await tapHud(`crew-${keys[k]}`);
     for (let i = 0; i < 3; i++) {
+      at.blasts.push(await now());
       await page.evaluate(([a, b]) => window.__game.barfAtLatLon(a, b), spots[k]);
       await run(2.2);
     }
@@ -306,6 +315,7 @@ if (opt.crew) {
       }
       return { key, faction: g.splatter.faction, maxLevel: top, owners };
     }, [keys[k], spots[k]]));
+    crewRun[k].at = at;
   }
 }
 // the landmarks from altitude: west of the pyramid at 430 m heading east, then Sutro Tower from the east
