@@ -7,6 +7,7 @@
 //   lamps.ts                                  lamps.bin waits for the city and for a Sun low enough that the lamps light soon, holding no copy of far.bin's
 //                                             heights meanwhile
 //   tuner.ts                                  the tuner has no sky.live row, and no saved value turns it
+//   ../factions/colours.ts [--all]            the factions' walls apart in every table, under four kinds of sight (tools/factions/colours.ts)
 import { rolldown } from 'rolldown';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
