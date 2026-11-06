@@ -160,3 +160,34 @@ The producer's goal for 2026-11-06's night: "draw the bots match behind a flag (
   - **programs:** nothing compiled through the match;
   - **flag off,** and no page errors.
   - Its frames, `match.png`, `possessed.png` and `scoreboard.png`, are software graphics.
+
+## 2026-11-06, the day's Recess work (the shots' plan, SHOTS.md, "PvP Recess")
+
+- **B21, a match keeps its paint to itself.** Under `?recess` the paint stores open under a slug of their own (`sf~recess`) that no id scheme is registered for, so they keep paint for the session only and never read or write storage. The landmarks' store, keyed by slug alone, starts empty under it. `screen.mjs`: a stand-in saved city is the same after a match, and the next match starts with nothing painted.
+- **M22, the freezes.**
+  - Captains' blasts, hiccups and hearts carry the tag `QUIET`. `main.ts`'s impact plays no flash, kick, sound or sign for them (`recess.quiet(b.tag)`, a small named hook in the first account's lines). Their hit-stop is 0.
+  - Only hits on or by the player freeze the screen: 5 frames each, at most 2 s a match.
+  - The match runs on the frame's real time through a freeze (`frame(..., clock)`), so its clock never stops.
+- **M23, the paint agrees with the brain.**
+  - A captain's breath paints the city where it lands only when the brain leaves that square the captain's.
+  - Hiccups paint only where the brain claimed grey.
+  - A missed breath at a bus paints where it lands, as the brain counts it.
+  - The player's breath lands as a flash in the air and paints nothing where the brain will parry, crack or knock down the square, or from inside the stop arm or a bubble. It still counts in the brain.
+  - The player's taps outside the circle count nothing, as the captains' don't.
+  - `screen.mjs`: every building in a captain's colour stands in or beside one of its squares, 507 of 507.
+- **The captains' colours.** Since factions' step 5 every paint draws in its owner's look, so a captain's blast only carries its faction. Its bus wears its body colour, Atlantis's teal and Inferno's crimson; `feat/factions` e0f1dde is merged in.
+- **Recess you can find** (SHOTS.md, "Seeing them").
+  - **The lens.** It's about 42° in the match, through the rig's hook (`CameraRig.matchFov`, `matchPull`), pulled back 45 m while a rival is within 900 m, and the street's again at the bell.
+  - **The start.** The captains start 500 m ahead, 9.7° either side of the nose, in their own camps. While the first bell rings the camera is high behind the bus with both captains in frame, then it swoops to the chase in 2 s.
+  - **The captains.** They fly the player's ladder (Cruise 30 m/s), drawn 1.4 times bigger with a 4 s ribbon in their colour. They hunt for the first 10 s.
+  - **Tags.** On screen a captain carries its name and distance in its colour; off screen it's a chevron at the screen's edge. A breath at the player from off screen is a white one.
+  - **The fence.** It's chalk bubbles at 750 m. The bus bounces off it with a BOING, its heading mirrored once; the steering stays the player's.
+- **Being hit, made loud** (SHOTS.md, "Being hit").
+  - A 5-frame freeze, and the hitter's colours flooding the bus front to back in 0.3 s.
+  - One barrel roll with a wobble over 0.8 s, thrown 35 m up and 60 m along the shot's line, with a camera kick.
+  - The forced gear, Nonstop or Jet by `&hit=nonstop` or `&hit=jet`, with a roll on each beat of the ride. DING DING and the colours draining off the back in 0.6 s at the end.
+  - Not built: the GULP and the horn (sound is the first account's), the speed lines, and the Bomb III armed after a ride (the Bomb is the first account's).
+- **The heal, seal two** (decision 16, approved): above, under "The neighbourhood layer"; `areas.ts` and the captains.
+- **Not yet, for the next run:**
+  - the duel: hold to lock and charge, the white window, the dodge and the incoming marker. It waits on the first account's hold to aim (`feat/shots`), and the sideways hop stays until then;
+  - the Crown on Recess's own score (M26), the words' queue (M25), and the lead (M28).
