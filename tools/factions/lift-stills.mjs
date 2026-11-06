@@ -6,7 +6,7 @@
 //   lift-low    the bus at 30 m under the south end of the row, the real rig in its low shot
 //   lift-mid    the start pose's chase camera 1.6 s into the wave: the ring round the park up, its front jumping
 //   lift-250    the bus climbed to 250 m over the ground from 400 m out on the sun's side: the whole neighbourhood floating over its shadows
-//   lift-1k     the same to 1 km, from 900 m out
+//   lift-1k     the same to 1 km, from 1,800 m out
 // Each frame's draws and triangles (__game.perf) and the lift's state go to stills.json.
 //   node tools/factions/lift-stills.mjs <url> <outDir> [--views=under,low,mid,250,1k] [--skies=noon,golden]
 import { chromium } from 'playwright-core';
@@ -87,7 +87,8 @@ for (const sky of skies) {
         await shot(page, name);
         await page.close();
       } else if (v === '250' || v === '1k') {
-        const [out0, h] = v === '250' ? [400, 250] : [900, 1000];
+        // (the 1 km climb flies about 900 m on: from 900 m out it ended over the neighbourhood, which sat on the frame's bottom edge)
+        const [out0, h] = v === '250' ? [400, 250] : [1800, 1000];
         // (placed out on the sun's side by the Lift's own rule, through ?lat=&lon=: a first page reads where that is)
         const probe = await open(q0);
         const ll = await probe.evaluate((d) => {
@@ -121,5 +122,6 @@ for (const sky of skies) {
 await browser.close();
 writeFileSync(`${out}/stills.json`, JSON.stringify(stats, null, 1));
 const files = skies.flatMap((s) => views.map((v) => `${out}/${s}-lift-${v}.png`));
-const r = spawnSync('python', ['-I', `${root}/tools/sky/sheet.py`, `${out}/sheet.png`, ...files], { encoding: 'utf8' });
+// (sheet.py needs PIL: SB_PYTHON names a python that has it)
+const r = spawnSync(process.env.SB_PYTHON || 'python', ['-I', `${root}/tools/sky/sheet.py`, `${out}/sheet.png`, ...files], { encoding: 'utf8' });
 console.log(r.status === 0 ? `sheet: ${out}/sheet.png` : `sheet failed: ${r.stderr || r.stdout}`);

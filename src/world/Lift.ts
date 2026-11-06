@@ -271,7 +271,8 @@ export class Lift implements LiftHooks, FieldHouses {
     for (const ref of refs) {
       if (!this.liftable(ref)) continue;
       const i = ref.index;
-      if (!this.refs.has(i)) {
+      const fresh = !this.refs.has(i);
+      if (fresh) {
         const H = liftRest(ref.area, ref.roofY - ref.baseY, i);
         const sb = liftSeed(i, 2);
         this.H[i] = H;
@@ -283,8 +284,12 @@ export class Lift implements LiftHooks, FieldHouses {
       this.base[i] = ref.baseY;
       // (the save's record came in with the tile over the staging: a staged house keeps its level, hue and faction in the sky)
       if (this.stagedHue[i] >= 0) this.g.city.paint.stage(i, { faction: FACTION_RAINBOW, color: this.stagedHue[i], level: 3, bloomTime: -1000 });
-      this.raster(ref);
-      any = true;
+      // (its lake and its underside are its footprint's, the same at every arrival: a tile streaming back in, as a climb's level of detail
+      // swaps them, rasters and rebuilds nothing. The first warmcheck after the lake flooded wider had frames of 100-134 ms in the climb)
+      if (fresh) {
+        this.raster(ref);
+        any = true;
+      }
     }
     this.field.clear(tx * ts, tz * ts, (tx + 1) * ts, (tz + 1) * ts);
     if (any) {
