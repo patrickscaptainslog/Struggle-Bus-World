@@ -45,6 +45,9 @@ const LENS_RING = [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6]] as const;
 const OVER_RING = [[0, 0], [12, 0], [-12, 0], [0, 12], [0, -12]] as const;
 /** fromHit: a wave's house, a tap's or MEGA's (its slow motion), the firehose's (none: a hose held over level-3 rows never stutters) */
 const BY_WAVE = 0, BY_HIT = 1, BY_HOSE = 2;
+/** nearPlaced's index: its cells (m) */
+const NEAR_CELL = 32;
+const NONE: readonly number[] = [];
 
 /** How far (x, z) is from a house's footprint bounds (m; 0 over it). */
 function nearRef(ref: BuildingRef, x: number, z: number): number {
@@ -90,6 +93,9 @@ export class Lift implements LiftHooks, FieldHouses {
   private readonly stagedHue: Int8Array;
   /** liftable houses of the loaded tiles, by index */
   readonly refs = new Map<number, BuildingRef>();
+  /** the liftable houses by the NEAR_CELL m cell of their centre, and the widest reach among them (m): nearPlaced's index */
+  private readonly nearGrid = new Map<number, number[]>();
+  private nearRad = 0;
   private readonly pending = new Int32Array(LIFT.cap);
   private nPending = 0;
   private nUp = 0;
@@ -319,6 +325,11 @@ export class Lift implements LiftHooks, FieldHouses {
         this.rad[i] = ref.rad;
         this.margin[i] = liftReach(this.heave[i], ref.rad);
         this.tiltM[i] = liftTiltReach(ref.rad);
+        const k = squareKey(Math.floor(ref.cx / NEAR_CELL), Math.floor(ref.cz / NEAR_CELL));
+        let cell = this.nearGrid.get(k);
+        if (!cell) this.nearGrid.set(k, (cell = []));
+        cell.push(i);
+        this.nearRad = Math.max(this.nearRad, ref.rad);
       }
       // (the ref is new with each arrival: the tile's records)
       this.refs.set(i, ref);
@@ -429,16 +440,24 @@ export class Lift implements LiftHooks, FieldHouses {
     this.stats.scheduled++;
   }
 
-  /** the house's near neighbours (their footprints' bounds within LIFT_NEAR m) already lifting or up, as liftPlace reads them */
+  /**
+   * the house's near neighbours (their footprints' bounds within LIFT_NEAR m) already lifting or up, as liftPlace reads them. From the Lift's own
+   * index of its houses, by bounds alone: the City's buildingsWithin measured every building's edge round it, 56-73 ms for the wave's 400 in its
+   * first frame (the review's hitch)
+   */
   private nearPlaced(ref: BuildingRef): LiftNear[] {
-    const out: LiftNear[] = [], g = LIFT_NEAR;
-    for (const { ref: o } of this.g.city.buildingsWithin(ref.cx, ref.cz, ref.rad + LIFT_NEAR + 40)) {
-      const i = o.index;
-      if (i === ref.index || this.state[i] === ST_GROUND || !this.refs.has(i)) continue;
-      if (o.x0 - g > ref.x1 || o.x1 + g < ref.x0 || o.z0 - g > ref.z1 || o.z1 + g < ref.z0) continue;
-      const dist = Math.hypot(Math.max(o.x0 - ref.x1, 0, ref.x0 - o.x1), Math.max(o.z0 - ref.z1, 0, ref.z0 - o.z1));
-      out.push({ H: this.H[i], height: o.roofY - o.baseY, reach: this.margin[i], dist, touching: dist <= 3 * Math.SQRT2 && o.x0 - 3 <= ref.x1 && o.x1 + 3 >= ref.x0 && o.z0 - 3 <= ref.z1 && o.z1 + 3 >= ref.z0 });
-    }
+    const out: LiftNear[] = [], g = LIFT_NEAR, r = g + this.nearRad;
+    const c0x = Math.floor((ref.x0 - r) / NEAR_CELL), c1x = Math.floor((ref.x1 + r) / NEAR_CELL);
+    const c0z = Math.floor((ref.z0 - r) / NEAR_CELL), c1z = Math.floor((ref.z1 + r) / NEAR_CELL);
+    for (let qz = c0z; qz <= c1z; qz++)
+      for (let qx = c0x; qx <= c1x; qx++)
+        for (const i of this.nearGrid.get(squareKey(qx, qz)) ?? NONE) {
+          const o = this.refs.get(i);
+          if (!o || i === ref.index || this.state[i] === ST_GROUND) continue;
+          if (o.x0 - g > ref.x1 || o.x1 + g < ref.x0 || o.z0 - g > ref.z1 || o.z1 + g < ref.z0) continue;
+          const dist = Math.hypot(Math.max(o.x0 - ref.x1, 0, ref.x0 - o.x1), Math.max(o.z0 - ref.z1, 0, ref.z0 - o.z1));
+          out.push({ H: this.H[i], height: o.roofY - o.baseY, reach: this.margin[i], dist, touching: dist <= 3 * Math.SQRT2 && o.x0 - 3 <= ref.x1 && o.x1 + 3 >= ref.x0 && o.z0 - 3 <= ref.z1 && o.z1 + 3 >= ref.z0 });
+        }
     return out;
   }
 
@@ -552,13 +571,16 @@ export class Lift implements LiftHooks, FieldHouses {
     } else if (this.hoseJumps) this.g.sound.jump(this.hoseJumps, this.hitHue);
     this.stats.up = this.nUp;
     this.stats.cells = this.field.builtCount;
-    // uploads: at most one texSubImage2D a texture a frame
+    // uploads: the house texels' changed rows once a frame (two texSubImage2D, a row band of each of its two halves), the lake's whole when it changed
     if (this.dirty1 >= 0) {
       const w = this.g.city.paint.width;
       const y0 = Math.floor(this.dirty0 / w), y1 = Math.floor(this.dirty1 / w), rows = this.g.city.paint.height;
-      // (the rows of both texels: two calls)
-      if (!uploadRect(renderer, this.tex, 0, y0, w, y1 - y0 + 1, WebGL2RenderingContext.RGBA, WebGL2RenderingContext.FLOAT, 4)) this.tex.needsUpdate = true;
-      else uploadRect(renderer, this.tex, 0, rows + y0, w, y1 - y0 + 1, WebGL2RenderingContext.RGBA, WebGL2RenderingContext.FLOAT, 4);
+      // (the rows of both texels: two calls; either refused, the whole texture goes up instead)
+      if (
+        !uploadRect(renderer, this.tex, 0, y0, w, y1 - y0 + 1, WebGL2RenderingContext.RGBA, WebGL2RenderingContext.FLOAT, 4) ||
+        !uploadRect(renderer, this.tex, 0, rows + y0, w, y1 - y0 + 1, WebGL2RenderingContext.RGBA, WebGL2RenderingContext.FLOAT, 4)
+      )
+        this.tex.needsUpdate = true;
       this.dirty0 = Infinity;
       this.dirty1 = -1;
     }
