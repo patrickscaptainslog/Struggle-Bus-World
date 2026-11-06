@@ -175,6 +175,18 @@ export class Areas {
     return a;
   }
 
+  /** A god standing at neighbourhood n's heart for `faction` from the start (Recess: "Each side holds a Heart at stage 5", FACTIONS.md section 4). */
+  setGod(n: number, faction: number): Area {
+    const a = this.make(this.realm!.heart(n));
+    a.faction = faction;
+    a.stage = godTune.stage;
+    a.cracks = 0;
+    a.hits = 0;
+    a.last = -Infinity;
+    this.onChange?.(a);
+    return a;
+  }
+
   /** A square's top: the Lift, or the streets where the map tags it. */
   topOf(key: number): number {
     return Math.min(areaTune.top, this.realm ? this.realm.top(key) : areaTune.top);

@@ -18,12 +18,15 @@ export interface Skill {
   hold: number;
   /** how much its steering wanders (rad of error) */
   wobble: number;
+  /** how often it goes home when its god is cracked or a rival is at its heart, and how often its painting is a raid on a rival's heart */
+  defend: number;
+  raid: number;
 }
 
 export const SKILLS: Record<Level, Skill> = {
-  learner: { react: 0.28, dodge: 0.2, aim: 0.6, hunt: 0.35, hold: 0.4, wobble: 0.25 },
-  rival: { react: 0.18, dodge: 0.5, aim: 0.85, hunt: 0.5, hold: 0.15, wobble: 0.12 },
-  veteran: { react: 0.1, dodge: 0.8, aim: 1, hunt: 0.65, hold: 0.02, wobble: 0.05 },
+  learner: { react: 0.28, dodge: 0.2, aim: 0.6, hunt: 0.35, hold: 0.4, wobble: 0.25, defend: 0.4, raid: 0.15 },
+  rival: { react: 0.18, dodge: 0.5, aim: 0.85, hunt: 0.5, hold: 0.15, wobble: 0.12, defend: 0.7, raid: 0.3 },
+  veteran: { react: 0.1, dodge: 0.8, aim: 1, hunt: 0.65, hold: 0.02, wobble: 0.05, defend: 0.95, raid: 0.35 },
 };
 
 /** A small seeded random (mulberry32). */
@@ -43,7 +46,7 @@ const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
 export class Captain {
   readonly skill: Skill;
   private readonly rand: () => number;
-  private goal: 'hunt' | 'paint' = 'paint';
+  private goal: 'hunt' | 'paint' | 'defend' = 'paint';
   private goalUntil = 0;
   private gx = 0;
   private gz = 0;
@@ -76,14 +79,27 @@ export class Captain {
       h.flick = 1;
       this.flickAt = Infinity;
     }
-    // (what it wants: its avenger's mark first, then a hunt or the ground, rerolled every few seconds)
+    // (what it wants: home when its god is in danger, its avenger's mark, then a hunt or the ground, rerolled every few seconds)
+    const danger = this.danger(r, me);
+    if (danger && this.goal !== 'defend' && this.rand() < S.defend) {
+      this.goal = 'defend';
+      this.goalUntil = t + 4 + this.rand() * 3;
+    }
     if (t >= this.goalUntil) {
       this.goal = this.rand() < S.hunt ? 'hunt' : 'paint';
       this.goalUntil = t + 3 + this.rand() * 4;
       this.pickGround(r, me);
     }
     let prey: Bus | null = null;
-    if (me.avenge >= 0 && t < me.avengeUntil && r.canLock(me, r.buses[me.avenge])) prey = r.buses[me.avenge];
+    if (this.goal === 'defend' && danger) {
+      // (the raider at its heart, or the heart itself to heal its cracks)
+      if (danger !== true && r.canLock(me, danger)) prey = danger;
+      else {
+        const c = squareCentre(r.areas.realm!.heart(me.home));
+        this.gx = c.x;
+        this.gz = c.z;
+      }
+    } else if (me.avenge >= 0 && t < me.avengeUntil && r.canLock(me, r.buses[me.avenge])) prey = r.buses[me.avenge];
     else if (this.goal === 'hunt' && me.state !== 'ride') {
       let d0 = Infinity;
       for (const b of r.buses) {
@@ -122,9 +138,21 @@ export class Captain {
     return h;
   }
 
-  /** Ground worth a breath: grey, a rival's, its own below its top, or a heart a god may rise on. */
+  /** Its god in danger: cracked (true), or a rival bus within 350 m of its heart (that bus); else null. */
+  private danger(r: Recess, me: Bus): Bus | true | null {
+    const R = r.areas.realm;
+    if (!R || me.home < 0) return null;
+    const h = r.areas.all.get(R.heart(me.home));
+    if (!h || h.faction !== me.faction || h.stage < 5) return null;
+    const c = squareCentre(h.key);
+    for (const b of r.buses) if (b.faction !== me.faction && Math.hypot(b.x - c.x, b.z - c.z) < 350) return b;
+    return h.cracks > 0 ? true : null;
+  }
+
+  /** Ground worth a breath: grey, a rival's, its own cracked or below its top, or a heart a god may rise on. */
   private worth(a: Area | undefined, me: Bus, r?: Recess): boolean {
     if (!a || a.faction !== me.faction) return true;
+    if (a.cracks > 0) return true;
     // (its own in the five seconds' wait: a hit there is only an encore)
     if (r && r.t - a.last < areaTune.cooldown) return false;
     if (a.stage < (r ? r.areas.topOf(a.key) : 4)) return true;
@@ -162,6 +190,20 @@ export class Captain {
           return !a || a.faction !== me.faction || a.stage < A.topOf(k) || k === R.heart(me.home);
         });
         const k = todo[Math.floor(this.rand() * todo.length)], c = squareCentre(k);
+        this.gx = c.x;
+        this.gz = c.z;
+        return;
+      }
+    }
+    // (a raid: a rival's god, its heart to crack)
+    if (R && this.rand() < this.skill.raid) {
+      const hearts: number[] = [];
+      for (let n = 0; n < R.count; n++) {
+        const a = A.all.get(R.heart(n));
+        if (a && a.stage === 5 && a.faction !== me.faction) hearts.push(a.key);
+      }
+      if (hearts.length) {
+        const c = squareCentre(hearts[Math.floor(this.rand() * hearts.length)]);
         this.gx = c.x;
         this.gz = c.z;
         return;

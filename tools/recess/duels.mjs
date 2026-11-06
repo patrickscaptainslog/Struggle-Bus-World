@@ -187,6 +187,7 @@ function duel(n) {
   const setup = [{ faction: R, newcomer }, { faction: A, bot: level }];
   if (recess) setup.push({ faction: I, bot: LEVELS[(Math.floor(n / 3) + 1) % 3] });
   const r = new Recess(setup, { mode, log: true });
+  const godsAtStart = [...r.areas.all.values()].filter((a) => a.stage === 5).length;
   const think = (c) => (r, b) => c.think(r, b), brains = [player(n + 1), think(new Captain(level, n * 31 + 7))];
   if (recess) brains.push(think(new Captain(setup[2].bot, n * 31 + 11)));
   const seconds = recess ? T.length : 60;
@@ -240,7 +241,7 @@ function duel(n) {
   }
   const log = r.log.map((e) => `${e.t.toFixed(4)}${e.kind}${e.a},${e.b}${e.outcome ?? ''}`).join(';');
   return { mode, recess, level, newcomer, bad, rides: rides.length, ridesOnPlayer: rides.filter((x) => x.b === 0).length, hops: kinds(r, 'hop').length, misses: kinds(r, 'miss').length,
-    hits: kinds(r, 'hit').length, lessons: kinds(r, 'lesson').length, hiccups: kinds(r, 'hiccup').length, paints: kinds(r, 'paint').length, gods: r.log.filter((e) => e.outcome === 'god').length, topples: r.log.filter((e) => e.outcome === 'topple').length, final: r.score(), score: r.areas.score((a) => Recess.inside(a.ax, a.az) || true), crc: crc(log), seconds };
+    hits: kinds(r, 'hit').length, lessons: kinds(r, 'lesson').length, hiccups: kinds(r, 'hiccup').length, paints: kinds(r, 'paint').length, gods: r.log.filter((e) => e.outcome === 'god').length, topples: r.log.filter((e) => e.outcome === 'topple').length, final: r.score(), godsAtStart, cracks: r.log.filter((e) => e.outcome === 'crack').length, heals: r.log.filter((e) => e.outcome === 'heal').length, godsEnd: [...r.areas.all.values()].filter((a) => a.stage === 5).length, score: r.areas.score((a) => Recess.inside(a.ax, a.az) || true), crc: crc(log), seconds };
 }
 
 const t0 = Date.now(), all = [];
@@ -265,16 +266,17 @@ row('duels: things happen: rides, hops, misses and painting in every mode', MODE
 // (the camps, decision 28's fallback: a lone captain raises its camp's god by the rules, and the score counts it; in a contested Recess, how often one rises is
 // a number for the studio, printed, not a pass or a fail)
 const lone = ['learner', 'rival', 'veteran'].map((lv, k) => {
-  const r = new Recess([{ faction: A, bot: lv }], { log: true }), c = new Captain(lv, 5 + k);
+  const r = new Recess([{ faction: A, bot: lv }], { log: true, gods: false }), c = new Captain(lv, 5 + k);
   for (let s = 0; s < 30 * 400; s++) {
     r.step([c.think(r, r.buses[0])]);
     if (r.events.some((e) => e.outcome === 'god')) return { lv, godS: Math.round(r.t), score: r.score()[A], squares: r.areas.realm.squares(r.buses[0].home).length };
   }
   return { lv, godS: null };
 });
-row('recess: three camps; a lone captain raises its camp\'s god by the rules, the score 36 for it', lone.every((l) => l.godS !== null && l.score >= 36), lone);
-const full = all.filter((d) => d.recess);
-console.log(`info  recess contested, 3 minutes: ${full.filter((d) => d.gods > 0).length} of ${full.length} matches raise a god (${sum((d) => d.gods)} gods, ${sum((d) => d.topples)} toppled); best score ${Math.max(...full.map((d) => Math.max(...d.final)))}`);
+row('recess: three camps; a lone captain on grey raises its camp\'s god by the full rule, the score 36 for it', lone.every((l) => l.godS !== null && l.score >= 36), lone);
+const full = all.filter((d) => d.recess), fsum = (f) => full.reduce((n, d) => n + f(d), 0);
+row('recess: each camp starts with its god (the studio\'s answer); in three minutes some fall, cracks are healed, and the score counts the standing', full.every((d) => d.godsAtStart === 3) && full.some((d) => d.topples > 0) && fsum((d) => d.heals) > 0,
+  { matches: full.length, withATopple: full.filter((d) => d.topples > 0).length, topples: fsum((d) => d.topples), cracks: fsum((d) => d.cracks), heals: fsum((d) => d.heals), raised: fsum((d) => d.gods), godsAtTheBell: fsum((d) => d.godsEnd) });
 // (both players see it: the same seed and hands, the same match)
 const again = [0, 1, 2, 3, 7, 11, 19].map((n) => duel(n).crc === all[n]?.crc);
 row('duels: a match replays the same from its seed, every event at its moment', again.every(Boolean), { replayed: again.length });

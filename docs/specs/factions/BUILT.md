@@ -58,6 +58,8 @@
   - half held at stage 2 instead of 3;
   - camps of 17 squares. Only that one, at five minutes, raised a god, once in 150.
 - So under these rules, Recess's 36 points for a god won't come into play against bots. That's for the first account and the producer to weigh: the ring's eight, Recess's length, or captains that defend before they raid. The crowd simulation, my next item, measures the same rule in a shared city.
+- **The studio's answer** (the first account, 2026-11-06, in `docs/TODO.md`), built: in Recess each camp starts with its god standing at its heart (`Areas.setGod`; FACTIONS.md section 4, "Each side holds a Heart at stage 5"), and a toppled heart rises again only by the full rule. Captains go home when their god is cracked or a rival is within 350 m of their heart, Learners 40 % of the time, Rivals 70 %, Veterans 95 %. There they hunt the raider or heal the cracks. A share of their painting is a raid on a rival's heart: Learners 15 %, Rivals 30 %, Veterans 35 %. The ring of 8 stays the rule outside Recess (`new Recess(..., { gods: false })`).
+- **What it gives, in 750 three-minute matches of three captains** (`duels.mjs`): 2,990 cracks, 1,945 heals and 10 gods toppled, in 10 matches. 2,240 of the 2,250 gods still stand at the bell, and none rose again. A player who raids will topple more than the captains do; how often is for the phone.
 
 ## Step 7, Recess's brain: `src/recess/recess.ts`, `captain.ts`
 
@@ -121,6 +123,7 @@ The producer's goal for 2026-11-06's night: "draw the bots match behind a flag (
 - **Bubbled** holds the bus still for its three seconds.
 - **Words** use the HUD's toast: RECESS!, the bell, GOTCHA, NO BRAKES, FLICK!, WANTED, STOP ARM OUT, BACK TO RECESS. A more important word isn't covered by a lesser one.
 - **The clock and the score** sit top middle.
+- **The gods.** At the first bell each camp's heart takes a big blast of its god's colour, so the field shows whose camp is whose. A crack, a heal, a fall and a god rising again are said in words (YOUR GOD IS CRACKED 2 OF 5, ATLANTIS'S GOD FALLS). A fall or a rise is also a big blast of the new owner's paint on the heart. The score shows a + after a faction while a god of its stands.
 - **At the bell** the brain stops, the gears go back to Cruise, and the camera climbs over 4 s to 1,500 m over the arena. The bus is held over the arena's middle, because the city streams its detail, and its paint, round the bus. The score shows in order.
 - **The game's narrow lens** (24 degrees across) sees about 640 m of the 1.5 km arena from there, tilted to see more of it far. Widening it at the bell is for the phone to judge.
 - **Not yet:**
@@ -152,6 +155,7 @@ The producer's goal for 2026-11-06's night: "draw the bots match behind a flag (
   - **gotcha:** a real tap at a glinting captain rides it;
   - **possessed:** Nonstop, the flick down taken, full right still turning, eight hiccups painting Inferno's red;
   - **paint:** the captains' one hue each where their blasts land (84 % of the buildings within 25 m of them wear it), and the score;
+  - **gods:** each camp's god standing and its heart painted, and one toppled by hits at the heart, said, the heart the attacker's;
   - **bell:** the camera at 1,500 m and the score up;
   - **programs:** nothing compiled through the match;
   - **flag off,** and no page errors.

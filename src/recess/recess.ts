@@ -7,7 +7,8 @@
 //
 // Flat, on the game's clock at a fixed step; the areas and the beat are factions' own (src/factions). The circle's ground is three neighbourhoods (decision
 // 28): the real ones where three of 15-40 squares meet, once the world's files have them, and till then the fallback, three camps of about 36 squares, one a
-// bus, its home (decision 19). A god rises at a camp's heart by the neighbourhoods' rules, and the score is a point a stage a square and 36 a god held. What it
+// bus, its home (decision 19). Each camp starts with its god standing at its heart (FACTIONS.md section 4, "Each side holds a Heart at stage 5"; the studio's
+// answer, 2026-11-06): toppled, it rises again only by the full rule. The score is a point a stage a square and 36 a god held. What it
 // draws comes after, on the GPU. Not here yet: the open city's rules (Jet, the raider flung 2 km), the bells and the scoreboard's camera, a teammate in Recess
 // (it's one bus a side; the wash is built and tested on its own).
 
@@ -214,7 +215,7 @@ export class Recess {
   private readonly pairs = new Map<string, number[]>();
   private readonly crossed: number[] = [];
 
-  constructor(setup: BusSetup[], o: { mode?: Mode; dt?: number; log?: boolean; beat?: Beat; areas?: Areas } = {}) {
+  constructor(setup: BusSetup[], o: { mode?: Mode; dt?: number; log?: boolean; beat?: Beat; areas?: Areas; gods?: boolean } = {}) {
     this.mode = o.mode ?? 'possessed';
     this.dt = o.dt ?? 1 / 30;
     this.beat = o.beat ?? new Beat();
@@ -231,6 +232,8 @@ export class Recess {
       });
       const b = this.buses[i];
       b.home = this.areas.realm ? this.areas.realm.of(squareKey(b.x, b.z)) : -1;
+      // (the studio's answer, 2026-11-06: each camp starts with its god standing, so three minutes are for defending yours, toppling theirs and painting the rest)
+      if (o.gods !== false && b.home >= 0 && !this.areas.realm!.godless(b.home)) this.areas.setGod(b.home, b.faction);
     });
   }
 

@@ -11,7 +11,7 @@
 import * as THREE from 'three';
 import { BusModel, type BusPose } from '../bus/BusModel';
 import { config } from '../config';
-import { Faction } from '../factions/areas';
+import { Faction, squareCentre } from '../factions/areas';
 import type { Flight } from '../game/Flight';
 import { latLonToLocal } from '../game/geo';
 import type { MoverAim, MoverTarget } from '../game/Aim';
@@ -105,6 +105,8 @@ export class RecessGame implements MoverAim {
   private readonly camFrom = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
   private readonly camTo = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
   private readonly m4 = new THREE.Matrix4();
+  /** the camps' hearts as they were last step */
+  private readonly hearts: { n: number; key: number; faction: number; stage: number; cracks: number }[] = [];
   /** QA: the captains' last paint on the city, where and in what hue, landing when */
   readonly painted: { x: number; z: number; hue: number; at: number }[] = [];
   /** QA: what happened, by kind */
@@ -121,6 +123,12 @@ export class RecessGame implements MoverAim {
     // (the player is bus 0, placed from the real flight; a new player's shield only with &newcomer: Recess is where Possessed is learned)
     this.sim = new Recess([{ faction: Faction.RAINBOW, newcomer: p.has('newcomer') }, { faction: Faction.ATLANTIS, bot: bots[0] }, { faction: Faction.INFERNO, bot: bots[1] }], { mode, log: false });
     this.sim.buses[0].external = true;
+    // (each camp's heart, where its god stands from the start: watched each step for its cracks, its fall, a god rising again)
+    const R = this.sim.areas.realm!;
+    for (let n = 0; n < R.count; n++) {
+      const a = this.sim.areas.all.get(R.heart(n));
+      this.hearts.push({ n, key: R.heart(n), faction: a?.faction ?? 0, stage: a?.stage ?? 0, cracks: 0 });
+    }
     bots.forEach((b, i) => this.captains.push(new Captain(b, 0x5eed + i * 101)));
     for (const b of this.sim.buses) {
       if (b.id === 0) {
@@ -222,6 +230,8 @@ export class RecessGame implements MoverAim {
     if (this.phase === 'ready' && simTime >= this.t0) {
       this.phase = 'play';
       this.say(['DING DING DING', `${Math.round(this.length / 60) || 1} MINUTES`], 2, 3);
+      // (each god's heart in its colour, a big blast, so the field shows whose camp is whose)
+      for (const h of this.hearts) if (h.stage === 5) this.heartBlast(h.key, h.faction);
     }
     if (this.phase === 'play') {
       // (the brain at its own step, the player's bus placed from the flight before each)
@@ -239,6 +249,7 @@ export class RecessGame implements MoverAim {
           this.pending.splice(i, 1);
         }
         this.events();
+        this.watchHearts();
         if (this.sim.t >= this.length) this.bell(simTime);
       }
       this.player(dt, f);
@@ -331,6 +342,38 @@ export class RecessGame implements MoverAim {
           break;
       }
     }
+  }
+
+  /** The hearts: a god cracked, healed, fallen or risen again, in words, and a fall or a rise in a big blast of the new owner's paint. */
+  private watchHearts(): void {
+    const A = this.sim.areas, R = A.realm!;
+    for (const h of this.hearts) {
+      const a = A.all.get(h.key);
+      if (!a) continue;
+      const name = SIDES[h.faction]?.name ?? '', mine = h.faction === Faction.RAINBOW;
+      if (h.stage === 5 && a.stage !== 5) {
+        this.count('topple');
+        this.say([mine ? 'YOUR GOD FALLS' : `${name}'S GOD FALLS`, `${SIDES[a.faction]?.name ?? ''} TAKES THE HEART`], 3, 4);
+        this.heartBlast(h.key, a.faction);
+      } else if (h.stage !== 5 && a.stage === 5) {
+        this.count('raise');
+        this.say(['A GOD RISES', SIDES[a.faction]?.name ?? ''], 3, 4);
+        this.heartBlast(h.key, a.faction);
+      } else if (a.stage === 5 && a.cracks > h.cracks) {
+        const need = A.toppleHits(h.n, a.faction);
+        this.say([mine ? 'YOUR GOD IS CRACKED' : `${name}'S GOD CRACKED`, `${a.cracks} OF ${need}`], 1.6, mine ? 2 : 1);
+      } else if (a.stage === 5 && a.cracks < h.cracks && mine) this.say(['HEALED'], 1, 1);
+      h.faction = a.faction;
+      h.stage = a.stage;
+      h.cracks = a.cracks;
+    }
+    void R;
+  }
+
+  /** A big blast of `faction`'s paint on heart square `key`. */
+  private heartBlast(key: number, faction: number): void {
+    const c = squareCentre(key), wx = this.cx + c.x, wz = this.cz + c.z;
+    this.paint(c.x, c.z, faction, 0.4, this.h.groundAt(wx, wz) + 80, 1.5);
   }
 
   /** Paint on the real city at brain point (x, z), `faction`'s: Rainbow's dealt hues, a captain's one. */
@@ -453,6 +496,11 @@ export class RecessGame implements MoverAim {
     this.hud = d;
   }
 
+  /** '+' after a faction's score while a god of its stands. */
+  private godOf(f: number): string {
+    return this.hearts.some((h) => h.stage === 5 && h.faction === f) ? '+' : '';
+  }
+
   private drawHud(): void {
     if (!this.hud) return;
     const s = this.sim.score(), left = this.phase === 'ready' ? this.length : Math.max(0, this.length - this.sim.t);
@@ -462,7 +510,7 @@ export class RecessGame implements MoverAim {
     const big = this.phase === 'over';
     const rows: { t: string; c: number }[] = big
       ? [Faction.RAINBOW, Faction.ATLANTIS, Faction.INFERNO].sort((p, q) => s[q] - s[p]).map((f) => ({ t: `${SIDES[f].name} ${s[f]}`, c: f === Faction.RAINBOW ? C.yellowHi : rgba(SIDES[f].ramp, 6) }))
-      : [{ t: `${clock}  R ${s[Faction.RAINBOW]}  A ${s[Faction.ATLANTIS]}  I ${s[Faction.INFERNO]}`, c: C.text }, ...(gear ? [{ t: gear, c: C.red }] : [])];
+      : [{ t: `${clock}  R ${s[Faction.RAINBOW]}${this.godOf(Faction.RAINBOW)}  A ${s[Faction.ATLANTIS]}${this.godOf(Faction.ATLANTIS)}  I ${s[Faction.INFERNO]}${this.godOf(Faction.INFERNO)}`, c: C.text }, ...(gear ? [{ t: gear, c: C.red }] : [])];
     const key = rows.map((r) => r.t).join('|');
     if (key === this.hudText) return;
     this.hudText = key;
