@@ -178,8 +178,13 @@ try {
     // (homing, as a captain's does, since the player may be flying at Nonstop by now: a fixed breath would land behind it)
     S.breaths.push({ id: 9998, from: 1, target: 0, x: me.x - 30, z: me.z, tx: me.x, tz: me.z, vx: 0, vz: 0, arrive: S.t + 0.6, born: S.t, white: false });
   });
+  const jet0 = await page.evaluate(() => ({ ...window.__recess.counts }));
   await frames(20);
-  const jet = await page.evaluate(() => ({ state: window.__recess.sim.buses[0].state, gear: window.__game.controls.turbo.gear }));
+  const jet = await page.evaluate((c0) => {
+    const R = window.__recess, d = {};
+    for (const k of ['hit', 'miss', 'bounce', 'sparkle', 'whiteHot', 'fire']) d[k] = (R.counts[k] ?? 0) - (c0[k] ?? 0);
+    return { state: R.sim.buses[0].state, gear: window.__game.controls.turbo.gear, phase: R.phase, simT: +R.sim.t.toFixed(1), breathLeft: R.sim.breaths.some((b) => b.id === 9998), ...d };
+  }, jet0);
   row('&hit=jet: the forced gear is Jet', jet.state === 'ride' && jet.gear === 3, jet);
   await page.evaluate(() => (window.__recess.hitGear = 2));
   // ---- the gods: each camp's standing at its heart from the start, painted there; one toppled by five hits at the heart, said, its heart the attacker's ----
