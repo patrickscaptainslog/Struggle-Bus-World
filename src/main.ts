@@ -21,7 +21,7 @@ import { BusModel, busTune, type BusPose } from './bus/BusModel';
 import { Particles } from './fx/Particles';
 import { StreetSigns, signBladeWidth, signTune } from './fx/StreetSign';
 import { Credit } from './ui/Credits';
-import { registerCityData } from './world/PaintState';
+import { landmarkStoreKey, registerCityData } from './world/PaintState';
 import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { paintLandmark, bindLandmarkPaint, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
@@ -155,6 +155,16 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   if (!moon && manifest.slug !== slug) manifest.slug = slug;
   // and by the data's id scheme (city.json "ids"): the stores the City opens need it first
   registerCityData(manifest);
+  // (?recess: a match keeps its paint to itself, the first account's B21. Its paint stores open under a slug of their own, which no id scheme is registered for, so
+  // they keep paint for the session only and never touch storage; the landmarks' store, which keys by slug alone, starts empty under it)
+  if (recessOn && !moon) {
+    manifest.slug = `${manifest.slug}~recess`;
+    try {
+      localStorage.removeItem(landmarkStoreKey(manifest.slug));
+    } catch {
+      /* storage blocked: nothing to clear */
+    }
+  }
   live?.place(manifest.origin, (manifest as { tz?: string }).tz);
   if (live) {
     // the stars, the planets and the Moon's map: their draw warms with the scene's, and the files land in it after the city's first tiles (sky/StreetSky.ts, frame())
@@ -585,6 +595,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         superSplat.impact(b);
         return;
       }
+      // (?recess: a blast the player didn't fire, a captain's, a hiccup's, a heart's, paints and pops but plays no flash, kick, sound or sign, recessBoot's M22)
+      const quiet = !!recess?.quiet(b.tag);
       particles.splash(b.pos, b.spec.hue, 2.2 * Math.sqrt(k));
       particles.burst(b.pos, b.spec.hue, k, city.groundAt(b.pos.x, b.pos.z));
       // paint blobs flung far out, each landing on a spatter dot the ground paint already holds
@@ -596,13 +608,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       }
       paintTrees(b);
       landmarkHit(city, b.pos, b.t);
+      bumpPaint(b.spec.x, b.spec.z, Math.min(255, 30 + 5 * b.count));
+      if (quiet) return;
       audio.splatImpact(k);
       audio.bloomBurst(b.count, b.spec.hue, b.maxLevel);
       // one white-hot frame centered on the blast, a kick, and the fog thins over it
       flashPos.copy(b.pos).project(camera);
       pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, S.flashFrames, S.flashStrength);
       rig.kick(S.kick * Math.sqrt(k));
-      bumpPaint(b.spec.x, b.spec.z, Math.min(255, 30 + 5 * b.count));
       // nothing blooms (open ground with no building in reach): no first bloom will queue a sign, so it queues here
       if (moon ? moon.paint.signDue(b.spec.x, b.spec.z, b.t) : !b.count) queueSign(null, b.spec.hue, b.spec.x, b.spec.z, b.spec.r);
     },
@@ -878,9 +891,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       const ours = shot.mover && recess?.ours(shot.mover.key) ? shot.mover : null;
       if (ours) recess!.playerFire(ours.key, simTime + config.splat.inhale + shot.travel);
       else if (!shot.mover) recess?.playerPaint(shot.x, shot.z, simTime + config.splat.inhale + shot.travel);
+      // (and one the match leaves someone else's square, or from inside the stop arm, lands as a flash in the air and paints nothing: the screen agrees with it, M23)
+      const blocked = !shot.mover && recess?.blocks(shot.x, shot.z, simTime + config.splat.inhale + shot.travel) ? { x: shot.x, y: shot.y ?? city.groundAt(shot.x, shot.z) + 2, z: shot.z } : null;
       const mover = shot.mover && life && !ours ? shot.mover : null;
       const moverFresh = mover ? life!.hit(mover.key, splatter.hueNext, skyClock.now(), simTime + config.splat.inhale + shot.travel) : false;
-      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: flight.y, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, ...moonPaint?.barf(shot, !!mega), ...(mover ? { mover, moverFresh } : ours ? { mover: ours, moverFresh: false } : {}) });
+      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: flight.y, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, ...moonPaint?.barf(shot, !!mega), ...(mover ? { mover, moverFresh } : ours ? { mover: ours, moverFresh: false } : blocked ? { mover: blocked, moverFresh: false } : {}) });
     } finally {
       breathTravel = null;
       breathWidth = 1;
@@ -1569,7 +1584,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     }
     signs.update(dt, camera);
     life?.frame(dt, simTime, skyClock.now(), flight, camera);
-    recess?.frame(dt, simTime, camera);
+    recess?.frame(dt, simTime, camera, held ? 0 : realDt);
 
     // painted neighborhoods hum
     const near = city.buildingsNear(flight.x, flight.z, 90, nearTmp);

@@ -185,6 +185,9 @@ export interface Event {
   b: number;
   /** what the ground did, for paint and hiccup */
   outcome?: string;
+  /** where a breath landed, for paint */
+  x?: number;
+  z?: number;
 }
 
 export interface BusSetup {
@@ -285,9 +288,13 @@ export class Recess {
     }
   }
 
-  private emit(kind: EventKind, a: number, b: number, outcome?: string): void {
+  private emit(kind: EventKind, a: number, b: number, outcome?: string, x?: number, z?: number): void {
     const e: Event = { t: this.t, kind, a, b };
     if (outcome !== undefined) e.outcome = outcome;
+    if (x !== undefined) {
+      e.x = x;
+      e.z = z;
+    }
     this.events.push(e);
     this.log?.push(e);
   }
@@ -450,7 +457,7 @@ export class Recess {
       }
       // (a breath that hits no bus paints where it lands: a hit costs time, never paint)
       const r = this.areas.hit(s.x, s.z, this.buses[s.from].faction, t);
-      this.emit('paint', s.from, -1, r.outcome);
+      this.emit('paint', s.from, -1, r.outcome, s.x, s.z);
     }
   }
 

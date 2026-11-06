@@ -30,7 +30,13 @@ const SIDES: Record<number, { name: string; solo?: number; ramp: number }> = {
   [Faction.INFERNO]: { name: 'INFERNO', solo: 0, ramp: Ramp.RED },
 };
 
+/** The tag a blast the player didn't fire carries (a captain's, a hiccup's, a heart's): main.ts's impact plays no flash, kick, sign or sound for it (M22). */
+export const QUIET = { recess: 'quiet' } as const;
+
 export const recessScreen = {
+  /** the most a match's hits freeze the screen (s), and only hits on or by the player: the first account's M22 */
+  freezeMost: 2,
+  freezeHit: 4 / 60,
   /** s of the first bell's words before the clock starts */
   ready: 2.5,
   /** the camera's climb at the bell (s), and how high over the arena's ground it goes (m) */
@@ -47,7 +53,7 @@ export function arenaFor(manifest: { slug: string; origin: readonly number[]; st
   // (and puts the bus at its start there)
   let x = manifest.start.x, z = manifest.start.z;
   if (params.has('lat') && params.has('lon')) [x, z] = [flight.x, flight.z];
-  else if (manifest.slug === 'sf') [x, z] = latLonToLocal(37.7745, -122.43, manifest.origin);
+  else if (manifest.slug.split('~')[0] === 'sf') [x, z] = latLonToLocal(37.7745, -122.43, manifest.origin);
   const s = 128, cx = Math.round(x / s) * s, cz = Math.round(z / s) * s;
   // (the player's start: the brain's own for bus 0, on the circle's east at 0.6 of its radius, facing in)
   flight.x = cx + recessTune.radius * 0.6;
@@ -98,6 +104,9 @@ export class RecessGame implements MoverAim {
   private saidAt = -Infinity;
   private saidRank = 0;
   private outAt = -Infinity;
+  /** the hit-stops this match has spent (s), and how far the match's clock has run past the game's in them (s) */
+  private frozen = 0;
+  private lag = 0;
   private hud: HTMLDivElement | null = null;
   private hudText = '';
   private readonly pose: BusPose = { squash: 1, eye: 1, fullness: 1, mouth: 0, speed: 0, wheeze: 0, heave: 0 };
@@ -192,13 +201,37 @@ export class RecessGame implements MoverAim {
   /** The player's breath at a captain, let go now, landing at game time `arrive`. */
   playerFire(key: string, arrive: number): void {
     if (this.phase !== 'play') return;
-    this.sim.fireAt(0, Number(key.slice(7)), arrive - this.t0);
+    this.sim.fireAt(0, Number(key.slice(7)), this.simAt(arrive));
   }
 
-  /** The player's breath on the city, landing at (x, z) at game time `arrive`: the square there takes Rainbow's hit then. */
+  /** The player's breath on the city, landing at (x, z) at game time `arrive`: the square there takes Rainbow's hit then, inside the circle (as a captain's). */
   playerPaint(x: number, z: number, arrive: number): void {
-    if (this.phase !== 'play') return;
-    this.pending.push({ x: x - this.cx, z: z - this.cz, at: arrive - this.t0 });
+    if (this.phase !== 'play' || !Recess.inside(x - this.cx, z - this.cz)) return;
+    this.pending.push({ x: x - this.cx, z: z - this.cz, at: this.simAt(arrive) });
+  }
+
+  /**
+   * Whether the player's breath landing at (x, z) at game time `arrive` should paint the city (M23: the screen agrees with the brain): not where the brain will
+   * leave the square someone else's, a parry, a crack or a knock-down, and not from inside the stop arm or a bubble, whose mouth is shut as a captain's is. Those
+   * breaths still count; they land as a flash in the air.
+   */
+  blocks(x: number, z: number, arrive: number): boolean {
+    if (this.phase !== 'play') return false;
+    const sx = x - this.cx, sz = z - this.cz, me = this.sim.buses[0];
+    if (me.state === 'shield' || me.state === 'bubble') return true;
+    if (!Recess.inside(sx, sz)) return false;
+    const o = this.sim.areas.peek(sx, sz, Faction.RAINBOW, this.simAt(arrive));
+    return o === 'parry' || o === 'crack' || o === 'down';
+  }
+
+  /** A blast the match tagged quiet (main.ts's impact): no flash, kick, sign or sound. */
+  quiet(tag: unknown): boolean {
+    return tag === QUIET;
+  }
+
+  /** A game time as the match's clock reads it: from the first bell, plus what the hit-stops froze of the game's and not of the match's. */
+  private simAt(game: number): number {
+    return game - this.t0 + this.lag;
   }
 
   /** A flick, before the gears see it: in a breath's white-hot it hops out of it; in a ride it only wheezes. True: taken. */
@@ -220,7 +253,8 @@ export class RecessGame implements MoverAim {
 
   // ---- the frame ----
 
-  frame(dt: number, simTime: number, camera: THREE.Camera): void {
+  /** `clock`: the frame's real time, which runs on through a hit-stop's frozen frames (dt 0) so the match's never stops; 0 while the game is held. */
+  frame(dt: number, simTime: number, camera: THREE.Camera, clock = dt): void {
     this.now = simTime;
     const f = this.h.flight;
     if (Number.isNaN(this.t0)) {
@@ -235,7 +269,8 @@ export class RecessGame implements MoverAim {
     }
     if (this.phase === 'play') {
       // (the brain at its own step, the player's bus placed from the flight before each)
-      this.acc += dt;
+      this.acc += clock;
+      this.lag += clock - dt;
       const step = this.sim.dt;
       while (this.acc >= step && this.phase === 'play') {
         this.acc -= step;
@@ -252,7 +287,7 @@ export class RecessGame implements MoverAim {
         this.watchHearts();
         if (this.sim.t >= this.length) this.bell(simTime);
       }
-      this.player(dt, f);
+      this.player(clock, f);
     }
     this.draw(dt, simTime);
     if (this.phase === 'over') this.scoreboard(simTime, camera);
@@ -305,20 +340,18 @@ export class RecessGame implements MoverAim {
       this.count(e.kind);
       const a = e.a >= 0 ? S.buses[e.a] : null, b = e.b >= 0 ? S.buses[e.b] : null;
       switch (e.kind) {
-        case 'fire':
-          // (a captain's breath on the ground: its paint on the real city, in its one hue, landing when the brain's breath does)
-          if (a && a.id !== 0 && e.b < 0) {
-            const br = S.breathOf(a.id);
-            if (br) this.paint(br.tx, br.tz, a.faction, br.arrive - S.t, this.ys[a.id]);
-          }
+        case 'paint':
+          // (a breath that landed on the ground, a captain's or a missed one at a bus: the city takes its paint where the brain left the square its shooter's,
+          // and nowhere it parried, cracked or knocked down, so the map from 1,500 m is the score. M23)
+          if (a && e.x !== undefined && S.areas.get(e.x, e.z!)?.faction === a.faction) this.paint(e.x, e.z!, a.faction, 0.05, a.id === 0 ? this.h.flight.y : this.ys[a.id]);
           break;
         case 'hiccup':
-          // (the ridden bus blasts its hitter's paint where it is, on the beat)
-          if (a && b) this.paint(b.x, b.z, a.faction, 0.3, b.id === 0 ? this.h.flight.y : this.ys[b.id], 0.7);
+          // (the ridden bus blasts its hitter's paint where it is, on the beat, where the brain claimed grey for it: nobody else's ground changes)
+          if (a && b && e.outcome === 'claim') this.paint(b.x, b.z, a.faction, 0.3, b.id === 0 ? this.h.flight.y : this.ys[b.id], 0.7);
           break;
         case 'hit':
         case 'lesson':
-          if (b) this.flash(b.id);
+          if (b) this.flash(b.id, a?.id === 0 || b.id === 0);
           if (b?.id === 0) this.say(e.kind === 'lesson' ? ['A LESSON', 'THEY GLINT BEFORE THEY BREATHE'] : ['NO BRAKES', `${sec(e.a).name} HAS YOUR BUS`], 2.4, 3);
           else if (a?.id === 0) this.say(['GOTCHA', `${sec(e.b).name} PAINTS RAINBOW`], 2, 3);
           break;
@@ -384,13 +417,15 @@ export class RecessGame implements MoverAim {
       this.painted.push({ x: wx, z: wz, hue: side.solo, at: this.now + travel });
       if (this.painted.length > 64) this.painted.shift();
     }
-    this.h.barf(wx, wz, { travel: Math.max(0.05, travel), drop, from: fromY, solo: side.solo, faction, ...(size !== 1 ? { radius: config.splat.blastRadius * size, hitStop: 0 } : {}) });
+    this.h.barf(wx, wz, { travel: Math.max(0.05, travel), drop, from: fromY, solo: side.solo, faction, hitStop: 0, tag: QUIET, ...(size !== 1 ? { radius: config.splat.blastRadius * size } : {}) });
   }
 
-  /** A hit's flash on bus `id`, in the air where it is. */
-  private flash(id: number): void {
-    const b = this.sim.buses[id], y = id === 0 ? this.h.flight.y : this.ys[id], wx = this.cx + b.x, wz = this.cz + b.z;
-    this.h.barf(wx, wz, { travel: 0.02, mover: { x: wx, y, z: wz }, moverFresh: false });
+  /** A hit's flash on bus `id`, in the air where it is: a hit on or by the player freezes the screen, at most 2 s a match; one between captains is quiet. */
+  private flash(id: number, player: boolean): void {
+    const b = this.sim.buses[id], y = id === 0 ? this.h.flight.y : this.ys[id], wx = this.cx + b.x, wz = this.cz + b.z, R = recessScreen;
+    const freeze = player && this.frozen + R.freezeHit <= R.freezeMost;
+    if (freeze) this.frozen += R.freezeHit;
+    this.h.barf(wx, wz, { travel: 0.02, mover: { x: wx, y, z: wz }, moverFresh: false, ...(freeze ? {} : { hitStop: 0 }), ...(player ? {} : { tag: QUIET }) });
   }
 
   /** The last bell: the brain stops, and the camera goes up to see the map. */

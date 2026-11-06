@@ -9,6 +9,9 @@
 //   possessed the player ridden: the real gear goes to Nonstop, a flick down only wheezes, full right still turns the bus, its hiccups paint the hitter's hue
 //   gods      each camp's god standing at its heart from the bell, its heart painted; one toppled by hits at the heart, said, and the heart the attacker's
 //   bell      at the last bell the brain stops and the camera climbs to 1,500 m over the arena: the painted map, and the score in order (scoreboard.png)
+//   freezes   captains paint and nothing freezes: 90 frames on, the game's clock and the match's ran every step (M22)
+//   agrees    each building in a captain's colour stands in or beside one of its squares in the brain; the player's own hits froze 2 s at most, the match's clock on (M23)
+//   B21       a stand-in saved city in the paint stores' own keys is the same after a match, nothing was saved for it, and the next match starts with none painted
 //   flag off  the same page without ?recess has no match and no captains
 // A row passes or fails on the numbers printed with it; exit 1 if any fails.
 import { mkdirSync } from 'node:fs';
@@ -40,6 +43,11 @@ try {
     await page.goto(`${BASE}?fixeddt=0.066667&t=2026-11-07T21:00:00Z${q}`, { waitUntil: 'load', timeout: 180000 });
     await page.waitForFunction(() => !!window.__game?.city && window.__qa?.held === true, null, { timeout: 900000, polling: 500 });
   };
+  // (B21: the player's saved city, a stand-in for it in the stores' own keys, on this origin before the match)
+  await page.goto(`${BASE}?fixeddt=0.066667`, { waitUntil: 'commit', timeout: 180000 });
+  const SAVED = { 'strugglebus.paint.v3': '{"9":[1,2,3]}', 'strugglebus.paint.v1': '{"9":[1,2,3]}', 'strugglebus.landmarks.v1': '{"lm:coit":[1,2,2]}', 'strugglebus.ground.v4:0,0': 'saved', 'strugglebus.ground.v2:0,0': 'saved' };
+  await page.evaluate((S) => { for (const [k, v] of Object.entries(S)) localStorage.setItem(k, v); }, SAVED);
+  const paintKeys = () => page.evaluate(() => { const o = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (/^strugglebus\.(paint|ground|landmarks)/.test(k)) o[k] = localStorage.getItem(k); } return o; });
   await open('&recess&recesslen=30&bots=learner');
   // (the captains' paint where it landed: the buildings within 25 m of each of their blasts that have landed, painted, and how many wear its hue)
   const landed = (hue) => page.evaluate((h) => {
@@ -65,6 +73,12 @@ try {
   });
   row('up: the match, two captains over the arena, the player on its edge', up.phase === 'play' && up.captains === 2 && up.at.every((c) => c.r < 900 && c.agl > 20 && c.shown) && up.playerR < 800 && up.camps === 3, up);
   await page.screenshot({ path: join(dir, 'match.png') });
+  // ---- M22: the captains paint without freezing anything: 90 frames on, the game's clock ran every frame's step, and the match's with it ----
+  const c0 = await page.evaluate(() => ({ game: window.__game.clock(), sim: window.__recess.sim.t, paints: window.__recess.counts.paint ?? 0 }));
+  await frames(90);
+  const c1 = await page.evaluate(() => ({ game: window.__game.clock(), sim: window.__recess.sim.t, paints: window.__recess.counts.paint ?? 0, frozen: window.__recess.frozen }));
+  const ran = { game: +(c1.game - c0.game).toFixed(3), match: +(c1.sim - c0.sim).toFixed(3), want: +(90 * 0.066667).toFixed(3), captainPaints: c1.paints - c0.paints, frozenS: c1.frozen };
+  row('freezes: captains paint and nothing stops, the game\'s clock and the match\'s both run all 90 frames', ran.captainPaints > 0 && Math.abs(ran.game - ran.want) < 0.01 && Math.abs(ran.match - ran.want) < 0.1 && c1.frozen === 0, ran);
   // ---- gotcha: behind captain 1, nose on it ----
   let gotcha = null;
   for (let k = 0; k < 3 && !gotcha?.rode; k++) {
@@ -102,6 +116,21 @@ try {
   // ---- paint: the captains' own hues on the city, in the arena, and in the score ----
   const paint = { atlantis: await landed(4), all: await landed(), score: await page.evaluate(() => window.__recess.sim.score().filter((_, i) => [1, 2, 5].includes(i))), paints: await page.evaluate(() => window.__recess.counts.paint ?? 0) };
   row('paint: where a captain\'s blast lands the buildings wear its one hue (Atlantis blue 4, Inferno red 0), and its squares score', paint.atlantis.blasts > 0 && paint.all.share >= 0.6 && paint.score[1] > 0 && paint.score[2] > 0, paint);
+  // ---- M23: the city's paint agrees with the brain: each building a captain's colour owns stands in or beside a square of that faction's ----
+  const agree = await page.evaluate(() => {
+    const g = window.__game, R = window.__recess, A = R.sim.areas, P = g.city.paint;
+    let painted = 0, agrees = 0;
+    for (const { ref } of g.city.buildingsWithin(R.cx, R.cz, 900)) {
+      const r = P.get(ref.index);
+      if (r.level < 0.5 || (r.faction !== 2 && r.faction !== 5)) continue;
+      painted++;
+      let ok = false;
+      for (let dz = -1; dz <= 1 && !ok; dz++) for (let dx = -1; dx <= 1 && !ok; dx++) ok = A.get(ref.cx - R.cx + dx * 128, ref.cz - R.cz + dz * 128)?.faction === r.faction;
+      if (ok) agrees++;
+    }
+    return { painted, agrees, share: painted ? +(agrees / painted).toFixed(3) : 0, frozenS: +R.frozen.toFixed(3), lagS: +R.lag.toFixed(3) };
+  });
+  row('paint agrees: every building in a captain\'s colour is in or beside one of its squares; the player\'s hits froze at most 2 s, the match\'s clock on through them', agree.painted > 0 && agree.share >= 0.97 && agree.frozenS <= 2 && Math.abs(agree.lagS - agree.frozenS) < 0.2, agree);
   // ---- the gods: each camp's standing at its heart from the start, painted there; one toppled by five hits at the heart, said, its heart the attacker's ----
   const gods = await page.evaluate(() => {
     const g = window.__game, R = window.__recess, A = R.sim.areas, realm = A.realm, P = g.city.paint, out = [];
@@ -134,6 +163,13 @@ try {
   row('bell: the brain stops, the camera at 1,500 m over the arena, the score up', bell.phase === 'over' && bell.simT <= 30.1 && Math.abs(bell.camAGL - 1500) < 60 && bell.camFromMiddle < 700 && bell.hud === 1, bell);
   const programs1 = await page.evaluate(() => window.__game.pipeline.renderer.info.programs.length);
   row('programs: nothing compiled after the warm-up, the whole match on', programs1 === programs0, { atFirst: programs0, atTheEnd: programs1 });
+  // ---- B21: the player's saved city untouched by the match, and nothing of it, nor of the match, loaded by the next one ----
+  const after = await paintKeys();
+  await open('&recess&recesslen=30&bots=learner');
+  const again = await page.evaluate(() => { const P = window.__game.city.paint, n = P.data.length >> 2; let k = 0; for (let i = 0; i < n; i++) if (P.get(i).level > 0.5) k++; return { painted: k, phase: window.__recess.phase }; });
+  const same = JSON.stringify(after) === JSON.stringify(SAVED) || Object.entries(SAVED).every(([k, v]) => after[k] === v) && Object.keys(after).every((k) => k in SAVED || k.includes('~recess'));
+  row('B21: the saved city\'s paint the same after a match, nothing saved for it, and the next match starts with none painted', same && Object.keys(after).filter((k) => !(k in SAVED)).every((k) => k.includes('~recess')) && again.painted === 0 && again.phase === 'ready',
+    { saved: Object.keys(SAVED).length, after: Object.keys(after), nextStarts: again });
   // ---- flag off ----
   await open('&lat=37.7745&lon=-122.43');
   const off = await page.evaluate(() => ({ recess: !!window.__recess, captains: [1, 2].filter((i) => window.__game.scene.getObjectByName(`RecessCaptain${i}`)).length, hud: !!document.querySelector('[data-hud=recess]') }));

@@ -192,6 +192,12 @@ export class Areas {
     return Math.min(areaTune.top, this.realm ? this.realm.top(key) : areaTune.top);
   }
 
+  /** What an aimed hit by `faction` at (x, z) at game time t would do, changing nothing (?recess: whether the screen should paint it). */
+  peek(x: number, z: number, faction: number, t: number): Outcome {
+    const a = this.all.get(squareKey(x, z));
+    return a ? this.outcomeOf(a, faction, t) : 'claim';
+  }
+
   /** An aimed hit (a tap's blast, a super's release, the firehose's swath, a closer: STAGES.md 1.2) by `faction` at (x, z), game time t. */
   hit(x: number, z: number, faction: number, t: number, o: HitOptions = {}): HitResult {
     const a = this.make(squareKey(x, z));
@@ -199,6 +205,11 @@ export class Areas {
       if (a.superId === o.superId) return { area: a, outcome: 'none', at: t };
       a.superId = o.superId;
     }
+    const out = this.outcomeOf(a, faction, t);
+    return { area: a, outcome: out, at: this.apply(a, out, faction, t, o.now) };
+  }
+
+  private outcomeOf(a: Area, faction: number, t: number): Outcome {
     const ready = t - a.last >= areaTune.cooldown, own = a.faction === faction;
     let out: Outcome;
     if (a.faction === 0) out = 'claim';
@@ -216,7 +227,7 @@ export class Areas {
     else if (a.stage <= 1) out = 'flip';
     else if (a.cracks + 1 < areaTune.hitsToDrop[a.stage]) out = 'crack';
     else out = 'down';
-    return { area: a, outcome: out, at: this.apply(a, out, faction, t, o.now) };
+    return out;
   }
 
   /** The same blast's spill on a square it isn't aimed at, or a Possessed bus's hiccup: grey becomes `faction`'s at stage 1, ready at once; nobody's ground changes. */
