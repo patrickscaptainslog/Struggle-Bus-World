@@ -453,13 +453,13 @@ class Batch {
       if (old) a.set(old);
       this.lift = new THREE.InstancedBufferAttribute(a, 2);
       this.lift.setUsage(THREE.DynamicDrawUsage);
-      if (!this.liftGeo) {
-        this.liftGeo = new THREE.BufferGeometry();
-        for (const k in this.geo.attributes) this.liftGeo.setAttribute(k, this.geo.attributes[k]);
-        this.liftGeo.setIndex(this.geo.index);
-        this.liftGeo.boundingBox = this.geo.boundingBox;
-        this.liftGeo.boundingSphere = this.geo.boundingSphere;
-      }
+      // (a new one each growth: the last one's own buffer and its vertex arrays go with it)
+      this.dropLiftGeo();
+      this.liftGeo = new THREE.BufferGeometry();
+      for (const k in this.geo.attributes) this.liftGeo.setAttribute(k, this.geo.attributes[k]);
+      this.liftGeo.setIndex(this.geo.index);
+      this.liftGeo.boundingBox = this.geo.boundingBox;
+      this.liftGeo.boundingSphere = this.geo.boundingSphere;
       this.liftGeo.setAttribute('aLiftB', this.lift);
       geo = this.liftGeo;
     }
@@ -572,6 +572,17 @@ class Batch {
       this.caster.removeFromParent();
       this.caster.dispose();
     }
+    this.dropLiftGeo();
+  }
+
+  /** ?lift: this batch's geometry goes, its aLiftB buffer and vertex arrays with it, and never the type's buffers it shares (taken off it first). */
+  private dropLiftGeo() {
+    const g = this.liftGeo;
+    if (!g) return;
+    for (const k in this.geo.attributes) g.deleteAttribute(k);
+    g.setIndex(null);
+    g.dispose();
+    this.liftGeo = null;
   }
 }
 

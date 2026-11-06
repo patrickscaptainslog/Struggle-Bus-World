@@ -42,6 +42,14 @@ const HOLD_MAX = 3;
 const tmp: [number, number] = [0, 0];
 const petalAt = new Float32Array(16);
 const LENS_RING = [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6]] as const;
+const OVER_RING = [[0, 0], [12, 0], [-12, 0], [0, 12], [0, -12]] as const;
+/** fromHit: a wave's house, a tap's or MEGA's (its slow motion), the firehose's (none: a hose held over level-3 rows never stutters) */
+const BY_WAVE = 0, BY_HIT = 1, BY_HOSE = 2;
+
+/** How far (x, z) is from a house's footprint bounds (m; 0 over it). */
+function nearRef(ref: BuildingRef, x: number, z: number): number {
+  return Math.hypot(Math.max(ref.x0 - x, 0, x - ref.x1), Math.max(ref.z0 - z, 0, z - ref.z1));
+}
 
 export class Lift implements LiftHooks, FieldHouses {
   readonly name: string;
@@ -66,6 +74,8 @@ export class Lift implements LiftHooks, FieldHouses {
   private readonly held: Float32Array;
   private readonly fromHit: Uint8Array;
   private readonly slot: Int16Array;
+  /** &lifted: the hue a house was staged in (-1: not staged); a tile streaming back in stages it again over the save */
+  private readonly stagedHue: Int8Array;
   /** liftable houses of the loaded tiles, by index */
   readonly refs = new Map<number, BuildingRef>();
   private readonly pending = new Int32Array(LIFT.cap);
@@ -106,6 +116,7 @@ export class Lift implements LiftHooks, FieldHouses {
   private noteT = 0;
   /** the hit lifts this frame took off, for one sound and one slow motion */
   private hitJumps = 0;
+  private hoseJumps = 0;
   private hitHue = 0;
   private lowK = 0;
   private lowWant = 0;
@@ -137,6 +148,7 @@ export class Lift implements LiftHooks, FieldHouses {
     }
 
     const texels = city.paint.width * city.paint.height;
+    this.stagedHue = new Int8Array(texels).fill(-1);
     this.state = new Uint8Array(texels);
     this.H = new Float32Array(texels);
     this.margin = new Float32Array(texels);
@@ -260,6 +272,8 @@ export class Lift implements LiftHooks, FieldHouses {
       // (the ref is new with each arrival: the tile's records)
       this.refs.set(i, ref);
       this.base[i] = ref.baseY;
+      // (the save's record came in with the tile over the staging: a staged house keeps its level, hue and faction in the sky)
+      if (this.stagedHue[i] >= 0) this.g.city.paint.stage(i, { faction: FACTION_RAINBOW, color: this.stagedHue[i], level: 3, bloomTime: -1000 });
       this.raster(ref);
       any = true;
     }
@@ -321,24 +335,35 @@ export class Lift implements LiftHooks, FieldHouses {
     const i = ref.index;
     if (!this.refs.has(i)) return 0;
     if (this.state[i] !== ST_GROUND) return 2;
-    if (Math.round(level) < 3 || faction !== FACTION_RAINBOW || this.g.city.paint.get(i).faction !== FACTION_RAINBOW) return 0;
-    return this.nUp + this.nPending < LIFT.cap ? 1 : 0;
+    const can = Math.round(level) >= 3 && faction === FACTION_RAINBOW && this.g.city.paint.get(i).faction === FACTION_RAINBOW && this.nUp + this.nPending + this.asked < LIFT.cap;
+    if (can) {
+      // (one blast asks for each of its houses before any starts: the cap counts them as they're asked)
+      this.asked++;
+      return 1;
+    }
+    // (a staged house waiting for its wave is the session's, never the save's: a breath leaves its paint alone, as one does a floating house)
+    return this.stagedHue[i] >= 0 ? 2 : 0;
   }
 
-  /** A hit lifts a house: it crouches at `at` (its bloom's arrival, game clock), as the shockwave reaches it. */
-  start(ref: BuildingRef, at: number) {
+  /** houses a blast asked to lift (wants) that haven't started yet */
+  private asked = 0;
+
+  /** A hit lifts a house: it crouches at `at` (its bloom's arrival, game clock), as the shockwave reaches it. `hose`: a firehose impact's (no slow motion). */
+  start(ref: BuildingRef, at: number, hose = false) {
+    this.asked = Math.max(0, this.asked - 1);
     if (this.state[ref.index] !== ST_GROUND) return;
     if (!this.nPending) this.g.sound.crouch();
-    this.schedule(ref.index, at, true);
+    this.schedule(ref.index, at, hose ? BY_HOSE : BY_HIT);
   }
 
-  private schedule(i: number, at: number, hit: boolean) {
+  private schedule(i: number, at: number, by: number) {
     const ref = this.refs.get(i);
-    if (!ref || this.nPending >= LIFT.cap) return;
+    // (a house already lifting or up stays as it is: a hit before the wave lifted it, and the wave mustn't drop it to the ground and launch it again)
+    if (!ref || this.state[i] !== ST_GROUND || this.nUp + this.nPending >= LIFT.cap) return;
     this.state[i] = ST_PENDING;
     this.t0[i] = at;
     this.held[i] = 0;
-    this.fromHit[i] = hit ? 1 : 0;
+    this.fromHit[i] = by;
     this.pending[this.nPending++] = i;
     this.writeTexel(i);
     if (this.slot[i] < 0 && this.nSlots < LIFT.cap) {
@@ -394,6 +419,7 @@ export class Lift implements LiftHooks, FieldHouses {
         }
       }
       hue.set(ref.index, pick);
+      this.stagedHue[ref.index] = pick;
       city.paint.stage(ref.index, { faction: FACTION_RAINBOW, color: pick, level: 3, bloomTime: -1000 });
       // (its garden grows already shed: 400 level-3 gardens in full were 2.06 M triangles in the frame before the wave on this laptop, over the
       // floor's 1.5 M. The dome or spire, bunting and turf stand; the petals still burst at the jump)
@@ -415,7 +441,7 @@ export class Lift implements LiftHooks, FieldHouses {
     if (liftedOn && !this.staged && this.tilesWanted.size === 0) this.stage();
     if (liftedOn && this.staged && this.waveAt < 0 && fogGone >= 0.5) {
       this.waveAt = now + 0.6;
-      for (const { ref, d } of this.waveList) this.schedule(ref.index, this.waveAt + d / LIFT.wave + LIFT.waveJitter * liftSeed(ref.index, 3), false);
+      for (const { ref, d } of this.waveList) this.schedule(ref.index, this.waveAt + d / LIFT.wave + LIFT.waveJitter * liftSeed(ref.index, 3), BY_WAVE);
       this.g.sound.wave();
     }
     // the wave's slow motion, as its front comes within 150 m of the bus
@@ -428,6 +454,9 @@ export class Lift implements LiftHooks, FieldHouses {
       }
     }
     this.hitJumps = 0;
+    this.hoseJumps = 0;
+    // (a blast's asks are all started in its own update: none carry past a frame)
+    this.asked = 0;
     for (let p = 0; p < this.nPending; ) {
       const i = this.pending[p];
       if (now < this.t0[i] + LIFT.crouch) {
@@ -450,7 +479,7 @@ export class Lift implements LiftHooks, FieldHouses {
     if (this.hitJumps) {
       this.g.sound.jump(this.hitJumps, this.hitHue);
       this.slow(SLOW_HIT);
-    }
+    } else if (this.hoseJumps) this.g.sound.jump(this.hoseJumps, this.hitHue);
     this.stats.up = this.nUp;
     this.stats.cells = this.field.builtCount;
     // uploads: at most one texSubImage2D a texture a frame
@@ -474,12 +503,14 @@ export class Lift implements LiftHooks, FieldHouses {
     }
   }
 
-  /** Would this house, jumping now, rise into the bus or the camera? */
+  /**
+   * Would this house, jumping now, rise into the bus or the camera? It rises straight up its own footprint, overshoot and bob included: only what
+   * is over it, or over its roof and about to be (the bus's next 0.4 s), is in the way. Beside it and under its roof nothing is: it rises past.
+   */
   private blocks(ref: BuildingRef, i: number, bus: { x: number; y: number; z: number }, cam: THREE.Vector3): boolean {
-    const top = ref.roofY + this.H[i];
-    const near = (x: number, z: number) => Math.hypot(Math.max(ref.x0 - x, 0, x - ref.x1), Math.max(ref.z0 - z, 0, z - ref.z1));
-    if (bus.y < top + 8 && near(bus.x, bus.z) < Math.max(8, 0.4 * this.busSpeed)) return true;
-    return cam.y < top + 3 && near(cam.x, cam.z) < 8;
+    const top = ref.roofY + this.H[i] * 1.14 + this.margin[i];
+    if (bus.y < top + 8 && bus.y > ref.roofY - 6 && nearRef(ref, bus.x, bus.z) < Math.max(6, 0.4 * this.busSpeed)) return true;
+    return cam.y < top + 3 && cam.y > ref.roofY - 2 && nearRef(ref, cam.x, cam.z) < 6;
   }
   /** the bus's ground speed (m/s), main's each frame */
   busSpeed = 0;
@@ -492,13 +523,21 @@ export class Lift implements LiftHooks, FieldHouses {
     const hue = Math.round(this.g.city.paint.get(i).color);
     // its small growth goes up as petals: the triangle bound
     const n = this.g.sprouts.shed(i, petalAt);
-    const hit = this.fromHit[i] === 1;
+    const by = this.fromHit[i];
+    // (what it noted over its roof was the whole garden's: what's left, the dome or spire, bunting and turf, notes its own again)
+    if (n) {
+      this.extra[i] = 0;
+      this.g.grow(ref, hue, 3, -100);
+    }
     for (let k = 0; k < Math.max(1, n); k++) {
       const x = n ? petalAt[k * 2] : ref.cx, z = n ? petalAt[k * 2 + 1] : ref.cz;
-      this.g.petals(x, ref.roofY + 0.5, z, hue, hit ? 24 / Math.max(1, n) : 8 / Math.max(1, n));
+      this.g.petals(x, ref.roofY + 0.5, z, hue, (by === BY_WAVE ? 8 : by === BY_HOSE ? 12 : 24) / Math.max(1, n));
     }
-    if (hit) {
+    if (by === BY_HIT) {
       this.hitJumps++;
+      this.hitHue = hue;
+    } else if (by === BY_HOSE) {
+      this.hoseJumps++;
       this.hitHue = hue;
     } else if (this.wall - this.noteT > 1 / 12) {
       this.noteT = this.wall;
@@ -535,7 +574,7 @@ export class Lift implements LiftHooks, FieldHouses {
     let want = 0;
     if (this.nUp) {
       let over = false;
-      for (const [ox, oz] of [[0, 0], [12, 0], [-12, 0], [0, 12], [0, -12]] as const) if (this.overhead(bus.x + ox, bus.z + oz, bus.y) < Infinity) over = true;
+      for (const [ox, oz] of OVER_RING) if (this.overhead(bus.x + ox, bus.z + oz, bus.y) < Infinity) over = true;
       if (over) {
         let clear = true;
         for (let k = 1; k <= 5 && clear; k++) {

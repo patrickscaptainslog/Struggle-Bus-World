@@ -305,7 +305,7 @@ export class Splatter {
       maxLevel = Math.max(maxLevel, level);
       // it pops when the shockwave reaches its near edge
       const flags = (hose ? BLOOM_HOSE : 0) | (lift || (was && level <= Math.round(lv)) ? BLOOM_REPOP : 0);
-      plan.push({ at: tImpact + arrival(ref === primary ? 0 : Math.max(0, n.e), r), ref, order: plan.length, total: 0, hue: h, level, keep: was, ang: 0, pref: 0, at0: ref === primary ? pos : undefined, flags, ...(lift ? { lift } : {}) });
+      plan.push({ at: tImpact + arrival(ref === primary ? 0 : Math.max(0, n.e), r), ref, order: plan.length, total: 0, hue: h, level, keep: was, ang: 0, pref: 0, at0: ref === primary ? pos : undefined, flags, lift: lift || undefined });
     }
     this.deal(plan, spec);
     for (const p of plan) {
@@ -413,7 +413,7 @@ export class Splatter {
       for (const s of p.plan) {
         // (?lift: a lifting house's record isn't rewritten: no second pop on its crouch, and its saved paint is untouched)
         if (s.lift) {
-          if (s.lift === 1) this.city.lift!.start(s.ref, s.at);
+          if (s.lift === 1) this.city.lift!.start(s.ref, s.at, b.hose);
           continue;
         }
         this.city.paint.set(s.ref.index, { faction, color: s.hue, level: s.level, bloomTime: s.at, keep: s.keep });

@@ -260,6 +260,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     rig.lowDist = 120;
     rig.lowEl = 3;
     rig.liftClamp = (x, z, y, low) => lift?.clampLens(x, z, y, low) ?? y;
+    // (the look stays on under the houses: the controls' ruling, one landing near the bus flies and one anywhere else looks, holds there)
+    rig.lookInLow = true;
   }
   const focus = new THREE.Vector3(flight.x, 60, flight.z);
   // (the first frame streams around the bus: the same want-list, so nothing is asked for twice)
@@ -321,6 +323,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         },
       })
     : null;
+  /** what the Lift reads of the bus each frame (one object: no allocation in the loop) */
+  const liftBus = { x: 0, y: 0, z: 0, ground: 0 };
   /** 181 Fremont's spire, once its tower streams in: it rides the tower's pop and wobble */
   let spire: SpireRide | null = null;
   /** 181 Fremont's spire binds to its tower (and the roof under it) once both exist (whichever comes last) */
@@ -1416,7 +1420,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (lift) {
       // (the houses' clocks, the wave, the hold against the bus and last frame's lens, the uploads)
       lift.busSpeed = flight.ground;
-      lift.frame(renderer, simTime, dt, realDt, { x: flight.x, y: flight.y, z: flight.z, ground: flight.groundUnder }, camera.position, clamp(opening / config.fog.openingDuration, 0, 1));
+      liftBus.x = flight.x;
+      liftBus.y = flight.y;
+      liftBus.z = flight.z;
+      liftBus.ground = flight.groundUnder;
+      lift.frame(renderer, simTime, dt, realDt, liftBus, camera.position, clamp(opening / config.fog.openingDuration, 0, 1));
     }
     if (!wasFull && flight.fullness >= 1) {
       audio.ready();

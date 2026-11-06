@@ -95,6 +95,8 @@ export class CameraRig {
   lowEl = 6.5;
   /** ?lift (world/Lift.ts clampLens): where the lens may stand at (x, z), given its height and the low shot's blend. Null otherwise */
   liftClamp: ((x: number, z: number, y: number, low: number) => number) | null = null;
+  /** ?lift: the look stays on in the low shot (under the floating houses it is the whole neighbourhood, not one bridge's few seconds) */
+  lookInLow = false;
   /** Turbo gears (src/fx/Turbo.ts): extra pull-back (m), lens widening (deg), hero scale (x), and leads (m)
    *  added to the follow / look targets that cancel part of the springs' lag at turbo speeds */
   turboPull = 0;
@@ -291,6 +293,11 @@ export class CameraRig {
     this.distance = this.pos.distanceTo(bus);
     focusOut.copy(bus);
     this.applyLook(cam, bus);
+    if (this.lookInLow && this.liftClamp && (this.lookYaw.x !== 0 || this.lookPitch.x !== 0)) {
+      // (?lift: a look swings the lens round the bus, and never into the hill or a floating house)
+      if (this.floorAt) cam.position.y = Math.max(cam.position.y, this.floorAt(cam.position.x, cam.position.z) + 4);
+      cam.position.y = this.liftClamp(cam.position.x, cam.position.z, cam.position.y, this.openingLow);
+    }
   }
 
   /**
@@ -302,7 +309,7 @@ export class CameraRig {
     const C = config.camera;
     const yaw = this.lookYaw, pitch = this.lookPitch;
     if (on) {
-      const k = THREE.MathUtils.DEG2RAD * (1 - this.openingLow);
+      const k = THREE.MathUtils.DEG2RAD * (this.lookInLow ? 1 : 1 - this.openingLow);
       const py = C.lookInvertY ? -y : y;
       if (!this.lookOn) {
         this.lookSlack = 0;
