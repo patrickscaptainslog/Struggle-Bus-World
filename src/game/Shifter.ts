@@ -74,7 +74,8 @@ export class Shifter {
     // that bit inside the stroke bit on the stroke's own pull: it was still lifting when the thumb meant to take it back)
     const bit = d.lifts && d.engaged && !(flew && d.time - d.engagedAt <= inputTune.loneFlickMs / 1000);
     // (into School Zone too: the hover takes the height the bus had before the stroke pulled it)
-    const zone = !waiting && d.gear === 0 && d.level === 0 && d.below === 0 && !this.locked;
+    // (and in it, where a flick down is nothing yet: nothing it does stays, the stroke's pull included)
+    const zone = !waiting && d.gear === 0 && d.level === 0 && (d.below > 0 || !this.locked);
     if (flew && (waiting || d.level > 0 || (d.gear > 0 && !bit) || zone)) this.flight.unpull();
     if (waiting) {
       this.queued--;

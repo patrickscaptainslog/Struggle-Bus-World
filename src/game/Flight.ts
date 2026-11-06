@@ -25,7 +25,9 @@ const ss = (a: number, b: number, x: number) => {
 // School Zone (turbo.hover, docs/specs/shots/GEARS.md): the hover. Let go, the speed eases to nothing in about
 // 1.5 s and the bus holds its height, bobbing like a blimp. The stick works as in every gear: sideways turns on
 // the spot, up noses down and drifts forward (and down) slowly, down climbs at config.zone.climb. The rooftop
-// floor, the ceiling and a deck overhead hold as anywhere; no tower pushes the yaw, since nothing is going anywhere.
+// floor, the ceiling and a deck overhead hold as anywhere; no tower pushes the yaw, since nothing is going anywhere:
+// a wall it can't take in a step stops the drift short of it instead (wallAhead), and a pull climbs it. A tap's
+// breath halves the turn as in every gear, and a lone flick's stroke gives its pull back as at Cruise.
 //
 // heading: compass radians (0 = north = -Z, +pi/2 = east = +X).
 
@@ -301,15 +303,16 @@ export class Flight {
     // ---- steering on a springy bungee
     const sx = inp.dragging ? inp.sx : 0;
     const vScale = clamp(Math.sqrt(F.cruiseSpeed / Math.max(this.barfing ? this.preBarfSpeed : this.speed, 4)), 0.55, 1.35);
-    let yawTarget = sx * F.maxYawRate * vScale * Tb.yaw;
+    // (the hover turns on the spot: a full turn in config.zone.turn; a gear's authority and the breath's plant hold there too)
+    let yawTarget = hover ? (sx * 2 * Math.PI) / Math.max(0.5, Z.turn) : sx * F.maxYawRate * vScale;
+    yawTarget *= Tb.yaw;
     if (this.barfing) {
       // the dragon plants itself to breathe: half the carve until the impact, then it eases back
       const u = clamp((this.barfT - S.impactDelay) / Math.max(0.01, S.breathSteerEase), 0, 1);
       yawTarget *= S.breathSteer + (1 - S.breathSteer) * u * u * (3 - 2 * u);
     }
-    // soft push away from towers taller than we're willing to climb (the hover turns on the spot: a full turn in config.zone.turn)
-    if (hover) yawTarget = (sx * 2 * Math.PI) / Math.max(0.5, Z.turn);
-    else yawTarget += this.avoid(world);
+    // soft push away from towers taller than we're willing to climb (not in the hover: it stops at them, wallAhead)
+    if (!hover) yawTarget += this.avoid(world);
     [this.yawRate, this.yawAcc] = spring(this.yawRate, this.yawAcc, yawTarget, F.bungeeHz, F.bungeeDamping, dt);
     this.heading += this.yawRate * dt;
 
@@ -403,7 +406,10 @@ export class Flight {
         this.vy += (-Z.sink * push * push - this.vy) * kYoke;
         this.holdY = this.y - belly;
       } else {
-        if (this.mode === Yoke.Climb || this.mode === Yoke.Dive) this.holdY = this.y - belly + this.vy / Math.max(0.1, 2 * F.holdGain);
+        // (a lone flick's stroke gives its pull back, here as at Cruise: Shifter.down)
+        if (this.mode === Yoke.Climb || this.mode === Yoke.Dive)
+          this.holdY = this.unpulled && this.holdBefore > -1e8 ? this.holdBefore : this.y - belly + this.vy / Math.max(0.1, 2 * F.holdGain);
+        this.unpulled = false;
         this.mode = Yoke.Hold;
         const bob = Z.bobAmp * (Math.sin(this.t * Math.PI * 2 * Z.bobHz) + 0.35 * Math.sin(this.t * Math.PI * 2 * Z.bobHz * 2.3 + 0.9));
         const tgt = Math.min(Math.max(this.holdY + belly, floor), Math.max(ceil, floor)) + bob;

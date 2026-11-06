@@ -341,7 +341,8 @@ console.log('world travel:', JSON.stringify({ ...(res.worldTravel as any), log: 
 }
 
 // ---- 11. School Zone at a wall (review of feat/gears, 1): drifting into Salesforce Tower from ~200 m west at the hover's height, the
-// drift stops short of it with nothing thrown up its face; a pull climbs it, and a drift on goes over its top.
+// drift stops short of it with nothing thrown up its face; a pull climbs it, and a drift on goes over its top. Then a tap's breath
+// halves the turn on the spot, as in every gear.
 {
   const out: Record<string, unknown> = {};
   const W = await session(37.78977, -122.39914, 90);
@@ -369,6 +370,18 @@ console.log('world travel:', JSON.stringify({ ...(res.worldTravel as any), log: 
   const xc = W.f.x, zc = W.f.z;
   await watch(20, push, 'zone wall over');
   out.over = { went: r1(Math.hypot(W.f.x - xc, W.f.z - zc)), y: r1(W.f.y), vyMax: r1(vyMax), vyMin: r1(vyMin), minOver: r1(minOver) };
+  // the breath's plant on the turn
+  const T = await session(37.7763, -122.4352, 88);
+  await T.run(3, free, 'cruise');
+  T.drive.rung(-1, T.f);
+  await T.run(4, free, 'zone');
+  const right = () => ({ sx: 1, sy: 0, dragging: true });
+  await T.run(2, right, 'zone turn');
+  const steady = T.f.yawRate;
+  T.f.fullness = 1;
+  const breathed = T.f.tryBarf();
+  await T.run(0.4, right, 'zone turn, breathing');
+  out.breath = { breathed, steadyDegPerS: r1((steady * 180) / Math.PI), breathingDegPerS: r1((T.f.yawRate * 180) / Math.PI) };
   res.zoneWall = out;
   console.log('school zone at a wall:', JSON.stringify(out));
 }
@@ -407,6 +420,7 @@ ok((res.worldTravel as any).isStratos && (res.worldTravel as any).topIsWarp, 'wo
   ok(Wl.stop.tower > 250 && Wl.stop.ground < 0.3 && Wl.stop.toWall > 4 && Wl.stop.toWall < 14 && Wl.stop.vyMax < 3 && Wl.stop.y < Wl.stop.y0 + 3, `School Zone: a drift into a tower stops short of its wall, nothing thrown up its face: ${JSON.stringify(Wl.stop)}`);
   ok(Wl.climb.y > Wl.stop.tower && Wl.climb.vyMax < 15.5, `School Zone: a pull climbs the tower at 15 m/s: ${JSON.stringify(Wl.climb)}`);
   ok(Wl.over.went > 60 && Wl.over.vyMax < 25 && Wl.over.minOver > 2, `School Zone: a drift on from its height goes over its top: ${JSON.stringify(Wl.over)}`);
+  ok(Wl.breath.breathed && Wl.breath.steadyDegPerS > 60 && Wl.breath.breathingDegPerS < Wl.breath.steadyDegPerS * 0.7, `School Zone: a tap's breath slows the turn on the spot, as in every gear: ${JSON.stringify(Wl.breath)}`);
 }
 console.log(fails.length ? `FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `turbo checks: all ${checks} passed`);
 process.exit(fails.length ? 1 : 0);
