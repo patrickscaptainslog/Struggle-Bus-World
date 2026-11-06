@@ -4,6 +4,7 @@
 //   hit       a breath's hit takes at its impact, not before: grey until then, then the breath's hue at level 1; a second hit goes up a level and keeps the hue
 //   contrail  the painted plane streams a ribbon of its paint behind it (O6)
 //   tap       the bus put behind a plane with its nose on it: a real tap's breath paints it, and nothing under it
+//   C15       five movers painted one by each faction read back their own through a reload, and a record kept before factions, naming none, reads back Rainbow's
 //   kept      the page again at the same moment: the plane is still painted, from the test store, and the real store has nothing
 //   picnics   in Mission Dolores Park on a Saturday afternoon, the bus low behind a group with its aim on it: it glints, a real tap paints it, none of it is kept
 //             (picnic:); painted, its people get up and dance (LIVING.md: "stop, look up, wave, dance")
@@ -331,12 +332,12 @@ try {
   {
     const r = await page.evaluate((key) => {
       const l = window.__game.life, g = window.__game, now = g.clock();
-      const fresh = l.hit(key, 2, window.__game.life.utc, now + 1);
+      const fresh = l.hit(key, 2, window.__game.life.utc, now + 1, 1);
       return { fresh, before: l.painted.has(window.__game.life.keyHash(key)) };
     }, p.key);
     await frames(40);
     const after = await page.evaluate((key) => window.__game.life.painted.get(window.__game.life.keyHash(key)) ?? null, p.key);
-    const again = await page.evaluate((key) => window.__game.life.hit(key, 5, window.__game.life.utc, window.__game.clock() + 0.2), p.key);
+    const again = await page.evaluate((key) => window.__game.life.hit(key, 5, window.__game.life.utc, window.__game.clock() + 0.2, 1), p.key);
     await frames(20);
     const twice = await page.evaluate((key) => window.__game.life.painted.get(window.__game.life.keyHash(key)) ?? null, p.key);
     row('hit: grey until the impact, then its hue at level 1; again, level 2 and the same hue', r.fresh && !r.before && after?.hue === 2 && after.level === 1 && !again && twice?.hue === 2 && twice.level === 2, { ...r, after, again, twice });
@@ -411,9 +412,37 @@ try {
     row('tap: the bus behind a plane, nose on it: the plane glints, and a real tap paints it', !!tapped && tapped.glint === tapped.key && !!tapped.painted && tapped.painted.level >= 1, tapped);
   }
   await page.screenshot({ path: join(dir, 'painted.png') });
+  // (C15: five kept movers painted one by each faction, and a record kept before factions, naming none, written to the test store as it was)
+  const five = await page.evaluate(() => {
+    const l = window.__game.life, out = [];
+    for (const key of l.keys.values()) {
+      if (out.length >= 5) break;
+      if (!/^(ferry|plane|sail):/.test(key) || l.painted.has(l.keyHash(key))) continue;
+      out.push(key);
+    }
+    out.forEach((key, i) => l.hit(key, (i + 1) % 6, l.utc, window.__game.clock() + 0.1, i + 1));
+    return out;
+  });
+  await page.evaluate(() => new Promise((ok) => {
+    const r = indexedDB.open('strugglebus.life.test.v1', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('paint', { keyPath: 'key' });
+    r.onsuccess = () => {
+      const tx = r.result.transaction('paint', 'readwrite');
+      tx.objectStore('paint').put({ key: 'ferry:before-factions:0:20261107', hue: 3, level: 2, until: 9e15, ns: 'sf' });
+      tx.oncomplete = () => ok(true);
+      tx.onerror = () => ok(false);
+    };
+    r.onerror = () => ok(false);
+  }));
   await frames(30);
   await open(false);
   await frames(30);
+  const owners = await page.evaluate((keys) => {
+    const l = window.__game.life, got = (k) => l.painted.get(l.keyHash(k)) ?? null;
+    return { five: keys.map((k) => got(k)?.faction ?? null), old: got('ferry:before-factions:0:20261107') };
+  }, five);
+  row('C15: five movers painted by each faction read back their own after a reload; a record naming none reads back Rainbow\'s, as it was',
+    five.length === 5 && owners.five.every((f, i) => f === i + 1) && owners.old?.faction === 1 && owners.old.hue === 3 && owners.old.level === 2, { keys: five.length, ...owners });
   const kept = await page.evaluate((key) => ({ painted: window.__game.life.painted.get(window.__game.life.keyHash(key)) ?? null }), p.key);
   const real = await page.evaluate(() => new Promise((ok) => {
     const r = indexedDB.open('strugglebus.life.v1');

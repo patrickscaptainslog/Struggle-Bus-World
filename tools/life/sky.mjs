@@ -44,7 +44,7 @@ try {
     const l = window.__game.life;
     let n = 0;
     for (const key of l.keys.values()) {
-      l.hit(key, n % 6, l.utc, 0);
+      l.hit(key, n % 6, l.utc, 0, 1);
       n++;
     }
     return n;

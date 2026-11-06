@@ -4,6 +4,7 @@ import type { MoverTarget } from '../game/Aim';
 import { latLonToLocal, localToLatLon } from '../game/geo';
 import type { SuperTag } from '../game/Splat';
 import { globals, heldGlobals } from '../render/materials';
+import { FACTION_RAINBOW, ownerOf } from '../game/factions';
 import { HUE_RAMPS } from '../render/palette';
 import type { Observer } from '../sky/SkyModel';
 import { axesAt, fixToGeodetic, geodeticToFix } from '../sky/WorldFrame';
@@ -67,11 +68,13 @@ const TRUCK_LEN = [12, 12, 9.3, 9.3, 20.4];
 const WAKE_W = 0.3, WAKE_LIFT = 0.15;
 const WGS_A = 6378.137, WGS_K = 1 / (1 - 1 / 298.257223563);
 
-/** A mover's paint as drawn: its colour (an index into HUE_RAMPS), level, and the page clock's UTC ms it took it (0: kept from before, its contrail whole). */
+/** A mover's paint as drawn: its colour (an index into HUE_RAMPS), level, the page clock's UTC ms it took it (0: kept from before, its contrail whole), and whose it is. */
 export interface MoverPaint {
   hue: number;
   level: number;
   at: number;
+  /** whose paint it is (C15, src/game/factions.ts) */
+  faction: number;
 }
 
 /** What life asks of the street's world (CONTRACT.md section 6, WorldForLife's first two queries): per query, a few hundred a frame at the most. */
@@ -133,7 +136,7 @@ export class LifeHost {
   private glintKey: string | null = null;
   private readonly target: MoverTarget = { mover: true, key: '', x: 0, y: 0, z: 0, arrive: 0, pickR: 0, onLine: false, miss: 0, half: 0 };
   /** hits on their way: each takes at its impact's game time */
-  private readonly hits: Array<{ h: number; key: string; hue: number; level: number; arrive: number; until: number; kept: boolean }> = [];
+  private readonly hits: Array<{ h: number; key: string; hue: number; level: number; arrive: number; until: number; kept: boolean; faction: number }> = [];
   private readonly worker: Worker;
   readonly pools: Pools;
   private readonly store: MoverStore;
@@ -184,11 +187,11 @@ export class LifeHost {
   }
 
   /** What was kept, painted again (bootLife, once the store is read). */
-  restore(records: Array<{ key: string; hue: number; level: number }>): void {
-    // (a hit that landed before the store's read came back is newer: it stays)
+  restore(records: Array<{ key: string; hue: number; level: number; faction?: number }>): void {
+    // (a hit that landed before the store's read came back is newer: it stays. A record naming no faction is Rainbow's, C15)
     for (const r of records) {
       const h = fnv1a(r.key);
-      if (!this.painted.has(h)) this.painted.set(h, { hue: r.hue, level: r.level, at: 0 });
+      if (!this.painted.has(h)) this.painted.set(h, { hue: r.hue, level: r.level, at: 0, faction: ownerOf(r.faction) });
     }
   }
 
@@ -310,10 +313,10 @@ export class LifeHost {
       const h = this.hits[i];
       if (simTime < h.arrive) continue;
       // (a level up keeps its contrail going from when it was first painted)
-      this.painted.set(h.h, { hue: h.hue, level: h.level, at: this.painted.get(h.h)?.at ?? this.utc });
+      this.painted.set(h.h, { hue: h.hue, level: h.level, at: this.painted.get(h.h)?.at ?? this.utc, faction: h.faction });
       // (its kind says whether it's kept, KindInfo's kept: a picnic's paint and a car's are the session's, `picnic:` and `car:` live only while they're near,
       // CONTRACT.md section 3; a plane's namespace is `earth`, every other the place's)
-      if (h.kept) this.store.put({ key: h.key, hue: h.hue, level: h.level, until: h.until, ns: h.key.startsWith('plane:') ? 'earth' : this.ns });
+      if (h.kept) this.store.put({ key: h.key, hue: h.hue, level: h.level, until: h.until, ns: h.key.startsWith('plane:') ? 'earth' : this.ns, ...(h.faction !== FACTION_RAINBOW ? { faction: h.faction } : {}) });
       this.hits.splice(i, 1);
     }
   }
@@ -820,9 +823,10 @@ export class LifeHost {
 
   /**
    * A MEGA, a super or a hose's blast (CONTRACT.md section 3): every mover within `r` of (x, y, z) when it lands, at `arrive` (game time), takes paint as a building in it
-   * would, a fresh one the blast's hue at level 1 and a painted one a level up. The super's tag is the buildings' business (one hit an area): a mover takes one level a blast.
+   * would, a fresh one the blast's hue at level 1 and a painted one a level up, each the blast's `faction` (C15). The super's tag is the buildings' business (one hit an
+   * area): a mover takes one level a blast.
    */
-  blast(x: number, y: number, z: number, r: number, hue: number, _superTag: SuperTag | undefined, arrive: number): void {
+  blast(x: number, y: number, z: number, r: number, hue: number, _superTag: SuperTag | undefined, arrive: number, faction: number): void {
     const s = this.snap;
     if (!s) return;
     const rows = s.rows, u32 = s.rowsU32, n = s.u32[2], dt = (this.utc - s.f64[0]) / 1000 + Math.max(0, arrive - this.sim);
@@ -832,7 +836,7 @@ export class LifeHost {
       const dx = rows[o + Col.X] + rows[o + Col.VX] * dt - x, dy = rows[o + Col.Y] + rows[o + Col.VY] * dt - y, dz = rows[o + Col.Z] + rows[o + Col.VZ] * dt - z;
       const R = r + 0.5 * info.size * rows[o + Col.SCALE], key = this.keys.get(u32[o + Col.KEY]);
       if (dx * dx + dy * dy + dz * dz > R * R || !key) continue;
-      this.hit(key, hue, this.utc, arrive);
+      this.hit(key, hue, this.utc, arrive, faction);
     }
   }
 
@@ -850,9 +854,9 @@ export class LifeHost {
 
   /**
    * A breath fired at a mover (CONTRACT.md section 3): it takes `color` (an index into HUE_RAMPS) at level 1 if it's fresh, or goes up a level and keeps its own,
-   * when the breath arrives (game time). True: a fresh mover took the colour, and the breath's hue moves on, as for a fresh building.
+   * when the breath arrives (game time); either way it takes the hitter's `faction` (C15, src/game/factions.ts), at level 3 too, as a building does. True: a fresh mover took the colour, and the breath's hue moves on, as for a fresh building.
    */
-  hit(key: string, color: number, utcMs: number, arrive: number): boolean {
+  hit(key: string, color: number, utcMs: number, arrive: number, faction: number): boolean {
     const h = fnv1a(key), was = this.painted.get(h) ?? this.hits.find((x) => x.h === h);
     const level = was ? Math.min(3, was.level + 1) : 1;
     // (how long it's kept: what the row says, its time left over the place, or for a live plane the most)
@@ -865,7 +869,7 @@ export class LifeHost {
           kept = KINDS[s.rows[i * ROW + Col.KIND]]?.kept ?? kept;
           break;
         }
-    this.hits.push({ h, key, hue: was ? was.hue : color, level, arrive, until, kept });
+    this.hits.push({ h, key, hue: was ? was.hue : color, level, arrive, until, kept, faction: ownerOf(faction) });
     this.qa.hits++;
     return !was;
   }
