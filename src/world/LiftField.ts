@@ -56,8 +56,14 @@ const SLOPE = 2;
 const BODY = 4;
 /** half the bus's length (m) */
 const HALF = 6;
-/** a floating house is over the bus (a deck) or under it (a roof), and the side is kept once the bus is this near it (m past HALF) */
+/** a floating house is over the bus (a deck) or under it (a roof); the bus may turn to go over it until it is this near (m past HALF) */
 const UNDER = 1, OVER = 2, COMMIT = 6;
+/**
+ * how much nearer the bus than its reach (m past HALF) the overhead can count one of a house's cells: a cell holds a house its centre is within
+ * 6 m of (stampLift), and the cell's own edge is 5.66 m off its centre. The bus may turn to go under it only while its nearest cell still counts
+ * its belly over the bus
+ */
+const CELL_SLACK = 11.7;
 
 export class LiftField {
   readonly nx: number;
@@ -136,11 +142,13 @@ export class LiftField {
   }
 
   /**
-   * Is a floating house over the bus (UNDER: a deck) or under it (OVER: a roof)? By its middle, as the bus is when it is still at least COMMIT m
-   * past its half length off the house's reach (`fromBus`: the overhead's, from the bus's point; any other query only reads it), and then kept as it comes in: a bus at the height of its walls
-   * goes the way it was going, never turned round at the wall in one step (its middle crossed as the bus climbs or sinks beside it was the
-   * 6-14 m steps of the first uneven heights). Out past its top or under its belly with the body the side is plain. Forgotten 0.4 s after the
-   * overhead last looked at it.
+   * Is a floating house over the bus (UNDER: a deck) or under it (OVER: a roof)? Out past its top or under its belly with the body the side is
+   * plain. Between them (the bus at the height of its walls) it is decided by its middle as it first comes into the overhead's reach (24 m), and
+   * kept as it comes in (`fromBus`: the overhead's, from the bus's point; any other query only reads it). The bus may still turn the way its
+   * middle says while that never jolts it: over the house until it is COMMIT m past its half length off its reach (its top is then no cell under
+   * the bus, so the floor eases up to it), under it only while every cell of it still counts its belly over the bus (CELL_SLACK). A side turned
+   * nearer was the review's 7.85 m let-down in one step: a house heaving past the bus's height beside it, its counted belly put under the bus.
+   * Forgotten 0.4 s after the overhead last looked at it.
    */
   private side(i: number, fromY: number, u: number, tp: number, fromBus: boolean): number {
     const h = this.houses;
@@ -153,8 +161,10 @@ export class LiftField {
     if (fromY > tp + 1) return this.commit(i, OVER, off);
     if (fromY + BODY + 1 < u) return this.commit(i, UNDER, off);
     const fresh = h.now - this.sideT![i] < 0.4 && this.sides[i] !== 0;
-    if (off >= COMMIT || !fresh) return this.commit(i, mid, off);
-    if (off >= 0) this.sideT![i] = h.now;
+    if (!fresh) return this.commit(i, mid, off);
+    if (off < 0) return this.sides[i];
+    if (mid !== this.sides[i] && (mid === OVER ? off >= COMMIT : u + SLOPE * Math.max(0, off - CELL_SLACK) - BODY - 1 >= fromY)) return this.commit(i, mid, off);
+    this.sideT![i] = h.now;
     return this.sides[i];
   }
   private commit(i: number, side: number, off: number): number {

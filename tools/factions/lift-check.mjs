@@ -610,14 +610,21 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
     return { n, which };
   };
   /** every run's steps over 3 m (a let down or a lift in one 1/120 s step), for the one line that reports them */
-  const jolts = { runs: 0, of: 0, worst: 0, at: null };
+  const jolts = { runs: 0, of: 0, worst: 0, at: null, up: 0, down: 0, worstGHI: 0 };
+  let jRuns = 0, jOf = 0;
   const jolt = (name, r) => {
     jolts.of++;
+    if (name.startsWith('j ')) {
+      jOf++;
+      if (r.step > 3) jRuns++;
+    } else jolts.worstGHI = Math.max(jolts.worstGHI, r.step);
     if (r.step > 3) jolts.runs++;
     if (r.step > jolts.worst) [jolts.worst, jolts.at] = [r.step, { run: name, ...r.stepAt }];
+    jolts.up = Math.max(jolts.up, r.up);
+    jolts.down = Math.max(jolts.down, r.down);
   };
   /** one run: from (x, z) at y over the ground on `heading`, held or released, `secs` at 120 Hz, the stick's sy by time; what it met */
-  function run(x, z, heading, y0, hold, secs, sy = () => 0, tag = '', clock0 = 20, watch = null) {
+  function run(x, z, heading, y0, hold, secs, sy = () => 0, tag = '', clock0 = 20, watch = null, sx = () => 0) {
     const f = new L.Flight();
     f.x = x;
     f.z = z;
@@ -630,11 +637,11 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
       f.z += Math.cos(heading) * 10;
     }
     if (hold) f.holdY = f.targetY = f.y;
-    let clip = 0, step = 0, vy = -Infinity, prevY = f.y, first = null, stepAt = null;
+    let clip = 0, step = 0, up = 0, down = 0, vy = -Infinity, prevY = f.y, first = null, stepAt = null;
     for (let s = 0; s < secs * 120; s++) {
       houses.now = clock0 + s / 120;
-      const st = sy(s / 120);
-      f.step(1 / 120, { sx: 0, sy: st, dragging: st !== 0 }, W);
+      const st = sy(s / 120), sxt = sx(s / 120);
+      f.step(1 / 120, { sx: sxt, sy: st, dragging: st !== 0 || sxt !== 0 }, W);
       if (process.env.LIFT_TRACE && process.env.LIFT_TRACE === tag && s % 6 === 0) {
         const g = groundAt(f.x, f.z), c0 = clips(f);
         console.log(`  t ${(s / 120).toFixed(2)} x ${f.x.toFixed(1)} z ${f.z.toFixed(1)} y+ ${(f.y - g).toFixed(1)} vy ${f.vy.toFixed(1)} floor+ ${(f.floorY - g).toFixed(1)} over+ ${(W.overheadAt(f.x, f.z, f.y) - g).toFixed(1)} obst+ ${(W.obstacleAt(f.x, f.z, f.y) - g).toFixed(1)} hard+ ${(W.hardAt(f.x, f.z, f.y) - g).toFixed(1)} clip ${c0.n ? c0.which.index : '-'}`);
@@ -654,6 +661,8 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
       }
       if (Math.abs(f.y - prevY) > step) stepAt = { t: +(s / 120).toFixed(2), x: +f.x.toFixed(1), z: +f.z.toFixed(1), from: +prevY.toFixed(1), to: +f.y.toFixed(1) };
       step = Math.max(step, Math.abs(f.y - prevY));
+      up = Math.max(up, f.y - prevY);
+      down = Math.max(down, prevY - f.y);
       vy = Math.max(vy, f.vy);
       prevY = f.y;
       watch?.(f);
@@ -663,7 +672,7 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
         first ??= { t: +(s / 120).toFixed(2), x: +f.x.toFixed(1), z: +f.z.toFixed(1), y: +f.y.toFixed(1), house: c.which.index };
       }
     }
-    return { f, clip, step, vy, first, stepAt };
+    return { f, clip, step, up, down, vy, first, stepAt };
   }
   // g. a low floating house, an obstacle: the five low ones nearest the heart, each flown at from four sides 150 m out, held at its belly's
   // height plus 4 m (into its walls): over it or round it, never into it, no step up past 3 m
@@ -743,9 +752,44 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
     report(up ? 'i. a scan through the layer' : 'i0. the same scan, every house down', `${runs} runs, ${clipRuns} with a step in a drawn house (${clipSteps} steps)${firsts.length ? ` first ${JSON.stringify(firsts)}` : ''}; largest step ${f2(step)} m (${JSON.stringify(stepRun)}); vy at most ${f2(vy)} m/s (from 0.5 s on)`, up ? 'never in one' : 'reported', !up || clipRuns === 0);
     for (const r of lifted) houses.state[r.index] = 2;
   }
-  // (a known risk, LIFT.md: beside a floating house at the height of its middle, as the bus sinks or climbs past it, the flight decides under or
-  // over it near enough that the ceiling or the floor comes in one step. Every house down, the same runs have none)
-  report("the flight's jolts", `${jolts.runs} of ${jolts.of} runs (g, h, f2, i) have a step over 3 m in 1/120 s; the largest ${f2(jolts.worst)} m (${JSON.stringify(jolts.at)})`, 'reported: a known risk', true);
+  // j. a weave beside the floating houses at the height of their walls, as a thumb flies it (the fly-through's 11.2 m lift in one frame beside a
+  // low one, the review's 7.85 m let-down beside one that passes over): the twelve low ones and the twelve others nearest the heart, passed from
+  // 400 m out on four headings (into the layer from outside it, as the scan does) 4 and 12 m off their bounds, held at their walls' middle, the
+  // stick swinging the bus in and out every 2.4 s
+  {
+    const [hx, hz] = [(L.squareIx(d.heart) + 0.5) * L.SQUARE, (L.squareIz(d.heart) + 0.5) * L.SQUARE];
+    const near = (a, b) => Math.hypot(a.cx - hx, a.cz - hz) - Math.hypot(b.cx - hx, b.cz - hz);
+    const pick = [...lifted.filter((r) => houses.solid[r.index]).sort(near).slice(0, 12), ...lifted.filter((r) => !houses.solid[r.index]).sort(near).slice(0, 12)];
+    let runs = 0, clipRuns = 0, clipSteps = 0, up = 0, down = 0, over3 = 0, firstClip = null, worst = null;
+    for (const r of pick)
+      for (const hd of [0, Math.PI / 2, Math.PI, -Math.PI / 2])
+        for (const side of [4, 12]) {
+          const fx = Math.sin(hd), fz = -Math.cos(hd), half = Math.abs(fx) > 0.5 ? (r.z1 - r.z0) / 2 : (r.x1 - r.x0) / 2;
+          const lat = half + side + 2.5, x = r.cx - fx * 400 - fz * lat, z = r.cz - fz * 400 + fx * lat;
+          const mid = r.baseY + houses.H[r.index] + (r.roofY - r.baseY) / 2;
+          const res = run(x, z, hd, mid - groundAt(x, z), true, 17, () => 0, `j${r.index}/${Math.round((hd * 180) / Math.PI)}/${side}`, 20 + runs * 0.37, null, (t) => 0.55 * Math.sin((t * Math.PI * 2) / 2.4));
+          runs++;
+          if (res.clip) {
+            clipRuns++;
+            firstClip ??= { house: r.index, heading: Math.round((hd * 180) / Math.PI), side, ...res.first };
+          }
+          clipSteps += res.clip;
+          jolt(`j ${r.index} ${Math.round((hd * 180) / Math.PI)} ${side}`, res);
+          if (process.env.LIFT_JLIST && (res.clip || res.step > 3)) console.log(`  j ${r.index} solid ${houses.solid[r.index]} hd ${Math.round((hd * 180) / Math.PI)} side ${side} held+ ${f2(mid - groundAt(x, z))} clip ${res.clip} first ${JSON.stringify(res.first)} up ${f2(res.up)} down ${f2(res.down)} at ${JSON.stringify(res.stepAt)}`);
+          if (res.step > 3) over3++;
+          if (!worst || res.step > worst.step) worst = { step: +res.step.toFixed(2), house: r.index, solid: houses.solid[r.index], heading: Math.round((hd * 180) / Math.PI), side, ...res.stepAt };
+          up = Math.max(up, res.up);
+          down = Math.max(down, res.down);
+        }
+    // (a known risk, LIFT.md: inside the layer at the height of its walls, a house to go over beside one to go under with no room between them,
+    // the 2.5D flight has no height to be at. Before the fixes of the review's let-down the same runs had 9 into one and 25 over 3 m)
+    report("j. a weave beside them at their walls' height", `${runs} runs past ${pick.length} houses: ${clipRuns} into one (${clipSteps} steps)${firstClip ? ` first ${JSON.stringify(firstClip)}` : ''}; ${over3} with a step over 3 m; largest step up ${f2(up)} m, down ${f2(down)} m (${JSON.stringify(worst)})`, 'reported: a known risk (never into one is the aim)', true);
+  }
+  // (the review's let-down: beside a floating house at the height of its middle, a house heaving past the bus's height turned to go under while
+  // its counted belly was already under the bus, 7.85 m in one step in g. LiftField.side now turns it only while that can't happen: g, h, f2
+  // and i hold under 3 m. j's are the layer's known risk, reported with it)
+  report("the flight's jolts, g h f2 i", `${jolts.runs - jRuns} of ${jolts.of - jOf} runs have a step over 3 m in 1/120 s; the largest ${f2(jolts.worstGHI)} m`, '<= 3 m (it was 7.85, 7 runs)', jolts.worstGHI <= 3);
+  report("the flight's jolts, all", `${jolts.runs} of ${jolts.of} runs (g, h, f2, i, j) have a step over 3 m in 1/120 s; the largest ${f2(jolts.worst)} m (${JSON.stringify(jolts.at)}); up at most ${f2(jolts.up)} m, down ${f2(jolts.down)} m`, 'reported: j is a known risk', true);
 }
 
 // ------------------------------------------------------------------ 5. --gpu: the motion's GLSL on this machine's GPU against the TypeScript
