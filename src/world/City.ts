@@ -2472,7 +2472,7 @@ export class City {
       // (seen from fromY: a deck overhead is no building here)
       const lm = r.index >= this.manifest.buildingCount;
       if ((lm || this.lift) && this.lmOverhead(r, x, z, fromY)) continue;
-      const y = lm ? this.ownTop(r, x, z, fromY) : this.lift ? r.roofY + this.lift.dy(r.index) : r.roofY;
+      const y = lm ? this.ownTop(r, x, z, fromY) : this.lift ? r.roofY + this.lift.dyAt(r.index, x, z) : r.roofY;
       if ((!best || y > by) && this.contains(r, x, z)) {
         best = r;
         by = y;
@@ -2661,8 +2661,8 @@ export class City {
       const ry = partRoofAt(b, kinds, k, x, z);
       if (ry > y) y = ry;
     }
-    // (?lift: the roof where it's drawn now)
-    return (y > -Infinity ? y : ref.roofY) + (this.lift ? this.lift.dy(ref.index) : 0);
+    // (?lift: the roof where it's drawn now, its lean in it)
+    return (y > -Infinity ? y : ref.roofY) + (this.lift ? this.lift.dyAt(ref.index, x, z) : 0);
   }
 
   /** Street-facing edge of a building (its ground tier): midpoint, outward normal, length. */

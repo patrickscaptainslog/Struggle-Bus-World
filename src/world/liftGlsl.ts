@@ -505,8 +505,10 @@ export interface LiftHooks {
   overhead(x: number, z: number, fromY: number): number;
   /** where a breath lands at (x, z) seen from fromY, as drawn now (the exact path) */
   surface(x: number, z: number, fromY: number, baked: number): number;
-  /** the drawn lift of a house now (m; 0 on the ground) */
+  /** the drawn lift of a house now (m; 0 on the ground): its centre's */
   dy(index: number): number;
+  /** the drawn lift of a house at (x, z) now, its lean in it (m; 0 on the ground): where its roof is drawn there */
+  dyAt(index: number, x: number, z: number): number;
   /** how far over its roof a house can reach while it's up (m; 0 on the ground): the line-of-fire prefilter */
   reach(index: number): number;
   /** is the house floating wholly over fromY (its drawn underside more than a metre above it): no target from there */
