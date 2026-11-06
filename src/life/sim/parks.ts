@@ -6,7 +6,7 @@ import type { RegionGraph } from '../../world/lifeData';
 // park where it can be a field day any day of the week in the afternoon, people lying on blankets etc. But they need to appear more pixelated and noticeable, more fun".
 // A picnic is a group on a blanket on the grass of a park: the graphs' PARK areas (CONTRACT.md section 1.2) over the host's 2 m sampling of the ground classes, GRASS
 // cells only, so never on a path, a court or a playground. Each 6 m block of park grass may hold one; a park's blocks are a tile's slots, and a slot's group comes on a
-// day by its hash, every one at a weekend and half of them on a weekday, arriving after 11:00 local and staying one to four hours, home by 19:30. Worker-safe and pure:
+// day by its hash, every one at a weekend and half of them on a weekday, arriving from 9:00 local, few at first and more into the afternoon, and staying one to four hours, home by 19:30. Worker-safe and pure:
 // a group is a function of the tile's ground, the park, its slot, the local day and utcMs, so every player sees the same one. Never saved: `picnic:` lives only while
 // it's near (CONTRACT.md section 3).
 
@@ -32,8 +32,11 @@ export const LAWN_CELL = 2;
 export const PICNIC_BLOCK = 3;
 const BLOCK = PICNIC_BLOCK, DENSITY = 0.016, MOST = 300, PICNIC_SCALE = 1.35;
 /** The day: a slot's group comes this share of weekdays (every one at a weekend), arrives from ARRIVE for ARRIVE_SPAN, stays STAY to STAY + STAY_SPAN, leaves by HOME
- *  (local, s from midnight); and grows in and out over FADE (s). */
-const WEEKDAY = 0.5, ARRIVE = 11 * 3600, ARRIVE_SPAN = 5.5 * 3600, STAY = 3600, STAY_SPAN = 3 * 3600, HOME = 19.5 * 3600, FADE = 20;
+ *  (local, s from midnight); and grows in and out over FADE (s). The parks wake up from 9 am (the producer, 2026-11-06: "Yes, from 9 am"): the first come at 8:30, so a few are there by nine, and arrivals ramp up
+ *  through the morning, a share EARLY of them spread evenly and the rest more and more as the day goes on, to the same afternoon peak as when they came after 11. */
+const WEEKDAY = 0.5, ARRIVE = 8.5 * 3600, ARRIVE_SPAN = 8 * 3600, EARLY = 0.25, STAY = 3600, STAY_SPAN = 3 * 3600, HOME = 19.5 * 3600, FADE = 20;
+/** A slot's arrival from its hash's unit u: the arrivals' share by x of the span is EARLY x + (1 - EARLY) x², so few at nine and most after noon. */
+const arriving = (u: number): number => ARRIVE + ARRIVE_SPAN * ((-EARLY + Math.sqrt(EARLY * EARLY + 4 * (1 - EARLY) * u)) / (2 * (1 - EARLY)));
 const PARK = 2;
 
 /** A tile's park grass as blocks of PICNIC_BLOCK cells a side: each block's corner cell (i, j) packed j * n + i, every cell of it grass in a park. */
@@ -117,7 +120,7 @@ export function picnicsOn(t: LawnTile, blocks: Uint32Array, utcMs: number, tzMin
   for (let s = 0; s < slots && at < max; s++) {
     const h = mix(seed, s, 3);
     if (!weekend && unit(h) >= WEEKDAY) continue;
-    const t0 = ARRIVE + unit(mix(h, 4)) * ARRIVE_SPAN, t1 = Math.min(home, t0 + STAY + unit(mix(h, 5)) * STAY_SPAN);
+    const t0 = arriving(unit(mix(h, 4))), t1 = Math.min(home, t0 + STAY + unit(mix(h, 5)) * STAY_SPAN);
     if (sec < t0 || sec > t1) continue;
     const b = blocks[(start + s * stride) % N], bi = b % t.n, bj = (b - bi) / t.n;
     const x = t.x0 + (bi + BLOCK / 2) * t.cell + (unit(mix(h, 6)) - 0.5) * 0.6, z = t.z0 + (bj + BLOCK / 2) * t.cell + (unit(mix(h, 7)) - 0.5) * 0.6;

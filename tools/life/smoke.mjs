@@ -3,7 +3,8 @@
 //   up        the street boots with life: its worker ticks, snapshots come back, planes in them, drawn as models or specks
 //   carried   between snapshots each plane is carried on by its velocity: a plane moves every frame, not every tenth of a second
 //   programs  nothing compiles after the warm-up: the programs at the first frame are the programs 300 frames on (L6's cloud leg)
-//   picnics   in Mission Dolores Park on a Saturday at 15:00: drawn, those within 300 m of the lens as models, each on grass and on the ground there (a frame, picnics.png)
+//   picnics   in Mission Dolores Park on a Saturday at 15:00: drawn, those within 300 m of the lens as models, each on grass and on the ground there (a frame, picnics.png);
+//             and on a Friday at 09:30, a few groups out, the parks awake from 9 am (picnics-0930.png)
 //   cars      on the roads round the bus at 09:30, from the world's graphs, none past 1.2 km, buses and trucks among them: drawn, the near ones as models, each on the
 //             ground's height (but where a drawn deck carries it)
 //   ferries   on their routes from routes.bin, the Ferry Building their hub: out on the water at 09:30, each at the water's height, drawn
@@ -141,6 +142,13 @@ try {
   const pic = await lawn();
   row('picnics: in Dolores Park on a Saturday at 15:00, drawn, the near ones as models, each on grass and on the ground there', pic.groups > 50 && pic.near > 0 && pic.models > 20 && pic.offGrass === 0 && pic.worstYm < 0.5, pic);
   await page.screenshot({ path: join(dir, 'picnics.png') });
+  // (the parks wake up from 9 am, the producer's: the same park on a Friday at 09:30, where the producer found nobody at about nine, has a few groups out)
+  await open('&life', '2026-11-06T17:30:00Z', 'lat=37.7605&lon=-122.4262');
+  for (let i = 0; i < 12 && (await lawn()).groups < 1; i++) await frames(30);
+  await frames(30);
+  const early = await lawn();
+  row('picnics: the same park on a Friday at 09:30, a few groups out, fewer than the Saturday afternoon, on grass', early.groups > 0 && early.groups < pic.groups / 3 && early.offGrass === 0, early);
+  await page.screenshot({ path: join(dir, 'picnics-0930.png') });
   await open('');
   const none = await page.evaluate(() => ({ life: window.__game.life ?? null, workers: performance.getEntriesByType('resource').filter((r) => /lifeWorker|lifeBoot/.test(r.name)).map((r) => r.name.split('/').pop()) }));
   row('no life: the same page without ?life has no life, and fetched none of it', none.life === null && none.workers.length === 0, none);

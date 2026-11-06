@@ -5,7 +5,7 @@
 //   places    two places differ
 //   sky       how many scripted planes are up over the place across a day, and the fewest and most at once
 //   weather   L7: CLEAR and no weather give the same snapshot
-//   picnics   on a park's grass: the same twice, an hour's steps where its jump is, a Saturday fuller than a Thursday and none in the morning or at night, every one
+//   picnics   on a park's grass: the same twice, an hour's steps where its jump is, a Saturday fuller than a Thursday, none before 08:30, a few at 09:30 and none at night, every one
 //             on the park's grass and its ground, none sharing a block, none off a park
 //   cars      on San Francisco's own road graphs round the Financial District, as the worker fills them: the same twice and with the regions loaded in another order, ten minutes' steps where
 //             the jump is, fewer at 3 am than at 8, every one in a lane of a way cars may drive (never UNDRAWN, NO_CARS or in a tunnel), and no jump or snap of its
@@ -101,8 +101,10 @@ const snap = (place, t, reach = 80000, bx = 0, bz = 0, ...weather) => {
   let last = null;
   for (let k = 1; k <= 3600; k++) last = picnics(SAT + k * 1000);
   row("picnics: 3,600 steps of a second end where one hour's jump does", last.bytes.equals(picnics(SAT + 3600000).bytes), { groups: last.n });
-  const thu = picnics(THU).n, morning = picnics(Date.parse('2026-11-07T17:00:00Z')).n, night = picnics(Date.parse('2026-11-08T05:00:00Z')).n;
-  row('picnics: a Saturday afternoon fuller than a Thursday one, none at 09:00 or at 21:00', a.n > thu && thu > 0 && morning === 0 && night === 0, { saturday: a.n, thursday: thu, at0900: morning, at2100: night });
+  const thu = picnics(THU).n, early = picnics(Date.parse('2026-11-07T16:00:00Z')).n, morning = picnics(Date.parse('2026-11-07T17:30:00Z')).n, night = picnics(Date.parse('2026-11-08T05:00:00Z')).n;
+  // (the parks wake up from 9 am, the producer's: a few groups by 09:30, fewer than a fifth of the afternoon's)
+  row('picnics: a Saturday afternoon fuller than a Thursday one; none at 08:00, a few at 09:30, none at 21:00', a.n > thu && thu > 0 && early === 0 && morning > 0 && morning < a.n / 5 && night === 0,
+    { saturday: a.n, thursday: thu, at0800: early, at0930: morning, at2100: night });
   // (every one on the park's grass, its whole block, on its ground, and none on another's block, every 10 minutes of the Saturday afternoon)
   let seen = 0, off = 0, worstY = 0, shared = 0;
   for (let t = Date.parse('2026-11-07T19:00:00Z'); t < Date.parse('2026-11-08T03:30:00Z'); t += 600000) {

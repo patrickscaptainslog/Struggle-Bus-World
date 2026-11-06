@@ -4,6 +4,7 @@
 //   hit       a breath's hit takes at its impact, not before: grey until then, then the breath's hue at level 1; a second hit goes up a level and keeps the hue
 //   contrail  the painted plane streams a ribbon of its paint behind it (O6)
 //   tap       the bus put behind a plane with its nose on it: a real tap's breath paints it, and nothing under it
+//   0930      Dolores at 09:30 on a Friday: a few picnics out, the parks awake from 9 am, and one takes paint from a real tap
 //   C15       five movers painted one by each faction read back their own through a reload, and a record kept before factions, naming none, reads back Rainbow's
 //   kept      the page again at the same moment: the plane is still painted, from the test store, and the real store has nothing
 //   picnics   in Mission Dolores Park on a Saturday afternoon, the bus low behind a group with its aim on it: it glints, a real tap paints it, none of it is kept
@@ -151,6 +152,25 @@ try {
     row('picnics: the bus low behind one, its aim on it: it glints, a real tap paints it, none of it kept', !!got?.painted && got.painted.level >= 1 && picnicKept === 0, { picnics: a.near, tries: a.tries, key: got?.key, painted: got?.painted, picnicKept });
     const dn = got?.dance;
     row('picnics: painted, its people get up and dance, every one of them, a hop with their arms up on its up-beat', !!dn && dn.frames >= 20 && dn.people >= 1 && dn.dancers >= dn.people && dn.hop > 0.15 && dn.poses.length === 2, dn);
+  }
+  {
+    // (the parks wake up from 9 am: Dolores on a Friday at 09:30 has a few groups out, and one of them takes paint as at the afternoon's peak)
+    await open(true, `${BASE}?life&nohud&skipintro&fixeddt=0.033333&t=2026-11-06T17:30:00Z&lat=37.7605&lon=-122.4262`);
+    let out = 0;
+    for (let i = 0; i < 12; i++) {
+      out = await page.evaluate(() => { const s = window.__game.life.snap; let k = 0; for (let i = 0; i < s.u32[2]; i++) if (s.rows[i * 16 + 1] === 8) k++; return k; });
+      if (out >= 1) break;
+      await frames(30);
+    }
+    const a = await aimAt(8, 0.5, 'picnic-0930.png');
+    let painted = null;
+    if (a.key) {
+      await page.evaluate(() => window.__game.tapSplat());
+      await frames(60);
+      painted = await page.evaluate((key) => window.__game.life.painted.get(window.__game.life.keyHash(key)) ?? null, a.key);
+    }
+    await page.evaluate(() => delete window.__qa.pin);
+    row('picnics at 09:30 on a Friday: a few groups out, one glints, and a real tap paints it', out > 0 && !!painted && painted.level >= 1, { groups: out, tries: a.tries, key: a.key, painted });
   }
   // (the rest at the Ferry Building on a Thursday morning)
   await open(true);
