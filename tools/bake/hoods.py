@@ -29,7 +29,8 @@ order the section's list of fixes needs them:
            that outline's own place and the places drawn as points inside it, else the nearest point in no outline on its
            piece of land; a place with an outline of its own holds no square past it. A place left with no square rides
            with the neighbourhood holding its point, its name kept
-  parks    never cut in two: a park's squares (those it covers a quarter of) go to the neighbourhood its middle is in, a big
+  parks    never cut in two: a park's squares (those it covers a quarter of) go to the neighbourhood it's named for if it
+           lies in or touches that one (Mission Dolores Park, the Mission's), else to the one its middle is in, a big
            park's to its own; a park of over a quarter of 3 km2 can be split with the neighbourhood it makes
   merge    a neighbourhood's pieces apart from its biggest, and neighbourhoods under 0.25 km2, join the neighbour they share
            the longest border with (one of their own place's family first: the outline they're part of and its other
@@ -804,9 +805,9 @@ class Hoods:
             self.notes.append(f'{s["name"]}: no squares of its own; its name rides with {self.S[to]["name"]}')
 
     def parks_whole(self):
-        """A park's squares (it covers PARK_SQUARE of their land) to the neighbourhood its middle is in, by the
-        assignment's own rules at its centroid, biggest park first (Dolores Park, between two points, is whole in the one
-        nearer its middle). A big park's squares are its own neighbourhood's. A square a bigger park holds isn't taken
+        """A park's squares (it covers PARK_SQUARE of their land) to the neighbourhood it's named for, if it lies in or
+        touches that one (named_for), else to the one its middle is in, by the assignment's own rules at its centroid,
+        biggest park first. A big park's squares are its own neighbourhood's. A square a bigger park holds isn't taken
         by a smaller one (seeds())."""
         moved = 0
         own = self.own
@@ -818,7 +819,12 @@ class Hoods:
             mid = p['g'].centroid
             for c in sorted(set(self.comp[ps].tolist())):
                 cs = ps[self.comp[ps] == c]
-                to = bigs[pi] if pi in bigs and self.S[bigs[pi]]['comp'] == c else self.owner_at(mid.x, mid.y, cs)
+                if pi in bigs and self.S[bigs[pi]]['comp'] == c:
+                    to = bigs[pi]
+                else:
+                    to = self.named_for(p, cs)
+                    if to is None:
+                        to = self.owner_at(mid.x, mid.y, cs)
                 if to < 0:
                     continue
                 if to not in self.T:   # a seed whose own squares outlines took: the park makes it a neighbourhood
@@ -830,6 +836,33 @@ class Hoods:
         self.rebuild()
         self.ride()
         log(f'parks whole: {moved} squares moved')
+
+    def named_for(self, p, cs):
+        """A park named for a neighbourhood it lies in or touches, its squares cs on one piece of land: that one (Mission
+        Dolores Park is the Mission's, its middle 700 m from the Castro's point and 705 from the Mission's; Potrero Hill
+        Recreation Center is Potrero Hill's), the longest name it holds first, then the nearest place; else None."""
+        pw = words(p['name']) if p['name'] else []
+        if not pw:
+            return None
+        W = self.w
+        near = set(self.own[cs].tolist())
+        i, j = cs % W, cs // W
+        for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            ok = (i + di >= 0) & (i + di < W) & (j + dj >= 0) & (j + dj < self.h)
+            near |= set(self.own[(j[ok] + dj) * W + i[ok] + di].tolist())
+        mid = p['g'].centroid
+        best = None
+        for ti in sorted(near):
+            if ti < 0 or ti not in self.T:
+                continue
+            s = self.S[ti]
+            for nm in (s['name'] or '').split(' / '):
+                w = words(nm)
+                if w and any(pw[k:k + len(w)] == w for k in range(len(pw) - len(w) + 1)):
+                    key = (-len(w), math.hypot(s['x'] - mid.x, s['z'] - mid.y), ti)
+                    if best is None or key < best:
+                        best = key
+        return best[2] if best else None
 
     def rebuild(self):
         """Territories from self.own after squares moved: each part keeps its squares that are still its territory's. One

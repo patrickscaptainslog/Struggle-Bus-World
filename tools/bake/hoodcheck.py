@@ -6,7 +6,8 @@ exit 1 on any failure. Against the city's own baked tiles and Overture extract, 
            in two: the table as src/world/hoods.ts gives it holds every square's key once
   parks    whole: the squares each park holds (it covers a quarter of their land, and no bigger park holds them) in one
            neighbourhood on each piece of land, but a park of more than hoods.PARK_WHOLE squares, which a split may cut
-           (the Presidio)
+           (the Presidio); a park named for a neighbourhood it lies in or touches is held by that one (Mission
+           Dolores Park by the Mission), the longest name it holds first
   hearts   each on its own neighbourhood's squares, none on a tagged square, at least 450 m apart (the godless aside)
   sizes    0.25-3 km2; under 0.25 only a whole piece of land, and godless (Alcatraz)
   names    one each, none empty or over 255 bytes, no two that are one place (hoods.norm: Castro, Castro District),
@@ -179,6 +180,43 @@ def carried(names):
     return out
 
 
+def contains(pw, w):
+    """Words w a run in words pw."""
+    return bool(w) and any(pw[k:k + len(w)] == w for k in range(len(pw) - len(w) + 1))
+
+
+def named_parks(W, t):
+    """Parks kept whole named for a neighbourhood they lie in or touch but held by another: [(park, holder, the ones
+    it's named for)]. hoods.py gives such a park to the one whose name it holds, the longest first (Mission Dolores Park,
+    the Mission's)."""
+    g, names = t['grid'], t['names']
+    out = []
+    for name, own in W.parks:
+        pw = H.words(name) if name and not name.startswith('park ') else []
+        if not pw or len(own) > H.PARK_WHOLE:
+            continue
+        for piece in sorted(set(W.piece[own].tolist())):
+            cs = own[W.piece[own] == piece]
+            holders = set(g[cs].tolist()) - {0}
+            if len(holders) != 1:
+                continue   # (cut: the parks check's)
+            holder = holders.pop()
+            near = {holder}
+            for s in cs.tolist():
+                for q in (s - 1, s + 1, s - W.w, s + W.w):
+                    if 0 <= q < len(g) and abs(q % W.w - s % W.w) <= 1 and g[q]:
+                        near.add(int(g[q]))
+            cands = [(len(H.words(base_of(p))), k) for k in near for p in names[k - 1].split(' / ')
+                     if contains(pw, H.words(base_of(p)))]
+            if not cands:
+                continue
+            top = max(n for n, _ in cands)
+            best = {k for n, k in cands if n == top}
+            if holder not in best:
+                out.append((name, holder, best))
+    return out
+
+
 def umbrellas(names):
     """Names beside two or more of their own parts called Inner, Outer, Upper, Lower... and the name (the Sunset District
     beside Inner Sunset and Outer Sunset): the umbrella hoods.py leaves out."""
@@ -246,6 +284,9 @@ def check(W, t, man_hoods, rep):
     big = sum(1 for _, own in W.parks if len(own) > H.PARK_WHOLE)
     rep('parks: cut in two', len(cut), f'0 of {len(W.parks) - big}, {big} of over {H.PARK_WHOLE} squares aside' +
         (f'; {"; ".join(cut[:6])}' if cut else ''), not cut)
+    npk = [f'{p} in {t["names"][h - 1]}' for p, h, _ in named_parks(W, t)]
+    rep('parks: named for a neighbourhood they touch, held by another', len(npk), '0' +
+        (f'; {"; ".join(npk[:6])}' if npk else ''), not npk)
     # hearts
     off, tag = [], []
     pts = []
@@ -344,6 +385,20 @@ def broken(W, t, man_hoods):
             if other:
                 case(f'{name} cut', 'parks: cut in two', lambda c, mh, s0=s0, other=other: c['grid'].__setitem__(s0, other))
                 break
+    # a park named for the neighbourhood holding it, given to a neighbour named otherwise
+    named = lambda k, pw: any(contains(pw, H.words(base_of(p))) for p in t['names'][k - 1].split(' / '))
+    for name, own in W.parks:
+        pw = H.words(name) if name and not name.startswith('park ') else []
+        k = int(g[own[0]]) if len(own) else 0
+        if (not pw or len(own) > H.PARK_WHOLE or not k or set(g[own].tolist()) != {k} or not named(k, pw)
+                or int((g == k).sum()) <= len(own)):
+            continue
+        nbr = next((int(g[q]) for s in own.tolist() for q in (s - 1, s + 1, s - W.w, s + W.w)
+                    if 0 <= q < len(g) and g[q] and g[q] != k and not named(int(g[q]), pw)), None)
+        if nbr:
+            case(f'{name} given away', 'parks: named for a neighbourhood they touch, held by another',
+                 lambda c, mh, own=own, nbr=nbr: c['grid'].__setitem__(own, nbr))
+            break
     # two hearts close: one neighbourhood's heart moved to its square nearest another's heart
     best = None
     for k in range(len(t['names'])):
