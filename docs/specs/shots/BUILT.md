@@ -32,12 +32,54 @@ What it costs, on this laptop's GPU (an Intel UHD 620), in one build, today's nu
 
 The draws hold. The triangles go up by the gardens alone, and that is where the 1.5 M ceiling is closest: eight blocks at level 3 came to 1.33 M. The gardens' budget (`feat/gardens`) is the answer to that, and this step doesn't touch `src/world/props/sprouts.ts`. On the Moon's paint store (`tools/moon/paint-check.mjs hours`, an hour at Jet) the pictures go from about 9,600 to 14,600, and 14.7 to 18.5 MB of the 64 MB budget.
 
+## Step 2: hold to aim, the hook, the Hose
+
+**Hold to aim** (`968017b`, `src/game/Input.ts`). A finger landing off the lane, where a drag looks, that stays within 12 px for 350 ms aims (`inputTune.aimHoldMs`). Lifted sooner with nobody flying, it's a tap: the ruling's 0.3 s, with 0.3 to 0.35 s counting as one. A finger that moves first still looks. The lane and the flicks are untouched.
+- From then until it lifts it's the aim. `Input.state.aim` follows the finger, a drag never moves the view, and the lift is the release (`onAimStart`, `onAimEnd`), never a tap or a flick. A finger lifted past 350 ms before a frame saw it is an aim and its release at once.
+- Only one finger aims at a time. Two fingers landing together stay a two-finger tap.
+- Nobody steers while it aims, so the bus flies straight. A thumb landing in the lane beside it still flies.
+- Off on the Moon and in the flight, which have no Hose (`Input.aimOn`, carried with their hands).
+- The first run's hint gets a fourth line, HOLD HIGH UP TO AIM. A save that saw the hint before that line gets the line alone, once (`TAUGHT.aim`).
+
+**The hook** (`6b5ad0e`, `src/game/Hold.ts`, written up in `HOOKS.md`).
+- A hold gives the screen point, its ray and where that ray meets the city, how long it has lasted, the drag and the release.
+- Handlers can take a hold at its start or partway through, and can take the next taps. A hold nobody takes goes to the Hose.
+- `Holds.fire` is the homing shot. It leads a moving target with a turn limit and a speed, and goes white-hot and stops steering in its last `white` seconds. The player's shot spends the belly; a captain's needs none and can whistle.
+
+**The Hose** (`4519a4b`, `src/game/Hose.ts`, built from SuperSplat's firehose, which stays asleep). A hold on the city that nobody takes pours 40 m blasts under the finger, and a drag sweeps them.
+- A blast lands each time the stream has moved 0.45 of its radius, or every 0.3 s while it stays put, at most 10 a second.
+- Every blast calls `life.blast` as a tap does, tagged kind `'hose'`. One pour raises each building at most one level (`BarfOpts.pour`).
+- One belly with the tap: a full tank pours 3 s, draining only while the stream flows. Once the pour ends, it refills in 3 s from empty (`Flight.rechargeSeconds`).
+- A hold with under 0.12 of a tank coughs and pours nothing. A pour that runs dry sputters and coughs steam, and that hold pours no more.
+- The tank reads on the bus, with no new button. The belly band drains, the bus rises as it lightens, the hiss and drone climb in pitch as it empties, the stream thins over its last 0.35 s, and the refill ends on the belly's ready chime.
+- The stream lobs from the mouth onto a point that eases after the finger. The bus slows to 0.72 at Cruise and Express (a gear drives through), rears and shudders.
+- It pours in the faction's colours: the breath's palette and the hitter's paint.
+
+**Fixes after looking on the GPU** (`6d685e0`).
+- A hold is armed by the first frame that sees a still finger past 350 ms and starts on the next frame, as the MEGA press was. A lift queued behind one slow frame is still a tap. The page's first touch has a 220 ms long task, and there a CDP tap read as a 0.18 s pour.
+- The homing shot's blob got bigger: a white core and a longer tail. At 500 m it had been a dotted thread.
+
+**The checks** (on `6d685e0`).
+- `tsc` clean at each commit. `vite build` exit 0, and `iosfloor` says "iOS 15.0 parses every chunk".
+- Gesture sim 826 of 826 (332 rows), layout sim 300 of 300, hold sim (`tools/controls-sim/s_hold.ts`) 31 of 31.
+- `owner-check`: its first run failed one row, the Moon's pictures by the journal, which this step doesn't touch. The rerun passed every row.
+
+The flight on this laptop's GPU (Intel UHD 620): real CDP touches on the real page, Western Addition from the rooftops, Inferno and Rainbow, each a fresh page. Its frames and numbers are kept on the laptop, outside the repo.
+- The hint showed its four lines.
+- A still hold off the lane poured a lobbed stream in the faction's colours, onto the point under the finger. The tank ran dry at 3.03 s and 3.00 s, with 11 impacts each.
+- The pour raised 28 (Inferno) and 35 (Rainbow) buildings, none of them more than one level.
+- Programs stayed at 35 before and after. Draws peaked at 142 and triangles at 0.98 M, while it poured and after. Median frame was 26-32 ms, and median work 5-8 ms with the pour or without.
+- A homing shot at a point 420 m ahead, crossing at 20 m/s, went white at 0.90 s and 0.92 s, and hit at 1.56 s and 1.57 s.
+- A tap off the lane after all that splatted, with no pour.
+- Two 404s turned up in the console on both pages. I didn't find which files they were.
+
 ## How to fly it
 
 The branch's preview: `https://struggle-bus-world-git-feat-shots-patricks-projects-9ff6e721.vercel.app/`
 - `?crew`: the faction button. Tap the crest, pick a faction, splat. Then drop `?crew` from the link: the button stays. `?crew=off` takes it away on that phone, and the bus paints as Rainbow again.
 - `?crew&life`: the same with the living city. One tap on a park or a busy street paints the people and cars inside the circle. A tap on one car or a ferry paints the block round it too.
 - `?mega`: MEGA as it was, to compare.
+- Step 2, the Hose: hold a finger still on the city, high over the bus and away from it, for a third of a second. It pours where you hold, and a drag sweeps it. Watch the bus's belly band drain and listen to the hiss climb. A quick tap there still splats. With `?crew`, try it in each faction's colours.
 
 ## What's left of step 1
 
@@ -46,6 +88,18 @@ The branch's preview: `https://struggle-bus-world-git-feat-shots-patricks-projec
 - Movers take a hue and a level but no faction (CONTRACT.md: faction 1). Another faction's tap paints them in Rainbow's colours until life takes the hitter's faction.
 - The Lift lifts only Rainbow on Rainbow, as FACTIONS.md's first slice built it.
 - Nothing here was measured on an A15, or on the producer's phone.
+
+## What's left of step 2
+
+- **A resting thumb off the lane now pours.** That's the ruling ("held still for 0.35 s, it aims"), but a thumb resting high on the screen used to do nothing, and now it empties the tank. A phone will say whether that bites.
+- **Taps in the lane stay at 450 ms.** The ruling's 0.3 s tap applies off the lane, where a hold aims. In the lane, a still thumb past 450 ms steers at neutral, as before (the lane is untouched). Beside a flying thumb, a second thumb's tap is still 230 ms.
+- **No hold to aim on a desktop.** The mouse flies, and its right button looks.
+- **A dry tank ends the hold.** A pour that runs dry stops for that hold, even if the tank refills while the finger stays down. Lift and hold again.
+- **The Hose is new code, built from the firehose, not an extraction of it.** `SuperSplat.ts` stays whole and asleep, so the two share ideas, not a module.
+- **The homing shot spends a breath.** The player's shot stalls the bus for the breath's second, as a tap does, but it has no jet: the blob is the jet.
+- **Not built yet:** the flick's lunge in the white, the Bomb on a hold on the bus, and the HOLD TO LOCK hint. See `HOOKS.md`, "Not here yet".
+- **The hook for the second account.** `docs/TODO.md` (on `feat/earth`) should say that the hook is on `feat/shots`, in `HOOKS.md`. This run didn't write it there.
+- **Not measured** on an A15 or on the producer's phone. Not flown over Recess or `?life` on the GPU.
 
 ## The review of step 1, and what it came to
 
