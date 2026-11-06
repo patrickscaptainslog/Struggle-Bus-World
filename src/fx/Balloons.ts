@@ -44,12 +44,13 @@ function balloonGeometry(): THREE.BufferGeometry {
   const string = new THREE.BoxGeometry(0.1, STRING, 0.1);
   string.translate(0, -STRING / 2, 0);
   parts.push(string);
+  // (one vertex layout for all three parts: unindexed, and counted after the unindexing)
+  const flat = parts.map((p) => (p.index ? p.toNonIndexed() : p));
   let n = 0;
-  for (const p of parts) n += p.getAttribute('position').count;
+  for (const p of flat) n += p.getAttribute('position').count;
   const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), lo = new Float32Array(n), glow = new Float32Array(n);
   let o = 0;
-  parts.forEach((p, k) => {
-    const g = p.index ? p.toNonIndexed() : p;
+  flat.forEach((g, k) => {
     const pa = g.getAttribute('position'), na = g.getAttribute('normal');
     for (let i = 0; i < pa.count; i++, o++) {
       pos.set([pa.getX(i), pa.getY(i), pa.getZ(i)], o * 3);
@@ -64,6 +65,7 @@ function balloonGeometry(): THREE.BufferGeometry {
   geo.setAttribute('lightOffset', new THREE.BufferAttribute(lo.subarray(0, o), 1));
   geo.setAttribute('glow', new THREE.BufferAttribute(glow.subarray(0, o), 1));
   for (const p of parts) p.dispose();
+  for (const p of flat) p.dispose();
   return geo;
 }
 

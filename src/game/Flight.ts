@@ -276,6 +276,8 @@ export class Flight {
     const Z = config.zone;
     const hover = Tb.hover > 0;
     if (hover) {
+      // (a drift at 8 m/s is no surge: the engine hears a fifth of the push)
+      this.surge = push * 0.2;
       // (the hover: the push drifts it forward, nothing else moves it; ~95 % of the way there in `settle`)
       if (this.onPath) {
         this.speed = this.ground;

@@ -13,6 +13,9 @@
 //            view come back pixel for pixel, and does the frame go still? SB_LOOK=street,tap,... runs a part -> look.json
 //   turbo    flicks up the map: a lone left flick into Express (no lift, its surge heard), Nonstop, Jet (the climb, engagement, the
 //            boom), the three turbo rungs, LOCKED, flicks down to Cruise, with shots and a per-frame log -> turbo.json
+//   zone     School Zone with real flicks (docs/specs/shots/GEARS.md): a flick down from Cruise, the hover settling, the lens coming in 30 %, the
+//            paint balloons out of the hatch, a held right thumb turning on the spot, the stick up's drift and down's climb, a flick down in
+//            it (nothing yet), a flick up out (the balloons burst, Cruise again), with shots and the draws and triangles at each -> zone.json
 //   firstrun a first visit: no card, the cues in order (TAP, DRAG, HOLD)                         -> firstrun.json
 //   opening  flicks under the opening's gate: answered, taken back, firing at the gate; two of them. The low shot has no look, so a drag landing over
 //            the bus, out of the lane's half disc, flies until the gate and looks after it. A flick in the grey, before the first frame, waits for
@@ -34,7 +37,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
 
 const [base = 'http://127.0.0.1:5101/', out = 'shots/controls', ...rest] = process.argv.slice(2);
-const modes = new Set((rest.length ? rest : ['touch', 'thumbs', 'look', 'turbo', 'firstrun', 'opening', 'layout', 'states', 'keyboard', 'audio']).map((m) => m.split('=')[0]));
+const modes = new Set((rest.length ? rest : ['touch', 'thumbs', 'look', 'turbo', 'zone', 'firstrun', 'opening', 'layout', 'states', 'keyboard', 'audio']).map((m) => m.split('=')[0]));
 const perfOther = (rest.find((m) => m.startsWith('perf=')) ?? '').slice(5);
 mkdirSync(out, { recursive: true });
 
@@ -820,6 +823,102 @@ if (modes.has('turbo')) {
   res.turbo = { express, expressQuiet, nonstopLifting, nonstop, lifting, down, climbedToGear: climbed, boomed, speeds, end: { gear: s.turbo.gear, level: s.turbo.level, speed: s.flight.speed }, events: ev.map((e) => `${e.k}${e.a[0] > 0 ? '+' : e.a[0] < 0 ? '-' : ''}@${e.t}`), log: log.filter((_, i) => i % 8 === 0) };
   console.log('turbo:', JSON.stringify({ ...res.turbo, log: undefined }));
   writeFileSync(`${out}/turbo.json`, JSON.stringify(res.turbo, null, 1));
+  await page.close();
+}
+
+if (modes.has('zone')) {
+  // (every WebGL program made, counted: none may be made in School Zone, the balloons' included)
+  const page = await open(Q + '&nohud', () => {
+    const P = WebGL2RenderingContext.prototype, cp = P.createProgram;
+    window.__progs = 0;
+    P.createProgram = function () { window.__progs++; return cp.call(this); };
+  });
+  const cdp = await page.context().newCDPSession(page);
+  const H = hand(page, cdp);
+  await wall(1300);
+  const progs0 = await page.evaluate(() => window.__progs);
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.flight.glideSpeed = 0;
+    g.audio.unlock();
+  });
+  await runFor(page, 2);
+  const flick = (dy) => H.stamped(() => H.stroke(1, 100, 520, 0, dy, 85));
+  const st = () => page.evaluate(() => {
+    const g = window.__game, c = g.controls.snapshot(), f = g.flight, p = g.perf;
+    return { below: c.turbo.below, name: c.turbo.name, gear: c.turbo.gear, balloons: c.turbo.balloons, speed: +f.speed.toFixed(2), ground: +f.ground.toFixed(2), y: +f.y.toFixed(1), overFloor: +(f.y - f.floorY).toFixed(1), vy: +f.vy.toFixed(2), mode: f.mode, heading: +((f.heading * 180) / Math.PI).toFixed(1), cam: +c.camera.distance.toFixed(1), zoneIn: +g.rig.zoneIn.toFixed(3), pitch: +((f.pitch * 180) / Math.PI).toFixed(1), calls: p.calls, tris: p.tris };
+  });
+  const R = { cruise: await st() };
+  await page.screenshot({ path: `${out}/zone-0-cruise.png` });
+  await flick(74);
+  await runFor(page, 0.05);
+  R.flicked = await st();
+  await runFor(page, 1.5);
+  R.at15s = await st();
+  await runFor(page, 1.5);
+  await page.screenshot({ path: `${out}/zone-1-hover.png` });
+  R.hover = await st();
+  await runFor(page, 6);
+  await page.screenshot({ path: `${out}/zone-2-balloons.png` });
+  R.balloons = await st();
+  // a held right thumb, sideways: on the spot
+  const h0 = R.balloons.heading;
+  await H.down(2, 300, 640);
+  for (let i = 1; i <= 6; i++) { await H.move(2, 300 + i * 14, 640); await runFor(page, 0.05); }
+  await runFor(page, 2.2);
+  R.turning = await st();
+  await page.screenshot({ path: `${out}/zone-3-turn.png` });
+  await H.up(2);
+  // (the heading is never wrapped: what it turned, whole)
+  R.turnDegPerS = +((R.turning.heading - h0) / 2.5).toFixed(1);
+  await runFor(page, 2);
+  // the stick up: the drift
+  await H.down(2, 300, 640);
+  for (let i = 1; i <= 6; i++) { await H.move(2, 300, 640 - i * 22); await runFor(page, 0.05); }
+  await runFor(page, 3);
+  R.drift = await st();
+  await page.screenshot({ path: `${out}/zone-4-drift.png` });
+  await H.up(2);
+  await runFor(page, 2);
+  // the stick down: the climb
+  await H.down(2, 300, 640);
+  for (let i = 1; i <= 6; i++) { await H.move(2, 300, 640 + i * 22); await runFor(page, 0.05); }
+  await runFor(page, 3);
+  R.climb = await st();
+  await H.up(2);
+  await runFor(page, 4);
+  R.climbHeld = await st();
+  await page.screenshot({ path: `${out}/zone-5-high.png` });
+  // a flick down in it: nothing yet
+  await flick(74);
+  await runFor(page, 0.3);
+  R.downInZone = await st();
+  await runFor(page, 3);
+  R.beforeOut = await st();
+  // a flick up: Cruise, the balloons burst
+  await flick(-74);
+  await runFor(page, 0.1);
+  await page.screenshot({ path: `${out}/zone-6-burst.png` });
+  R.out = await st();
+  await runFor(page, 4);
+  R.cruiseAgain = await st();
+  R.events = (await events(page)).map((e) => `${e.k}${e.a[0] > 0 ? '+' : e.a[0] < 0 ? '-' : ''}@${e.t}`);
+  R.programs = { atReady: progs0, madeAfter: (await page.evaluate(() => window.__progs)) - progs0 };
+  const ok = (c, m) => (R.verdicts ??= []).push(`${c ? 'ok' : 'FAIL'}: ${m}`);
+  ok(R.programs.madeAfter === 0, `nothing compiles in School Zone: ${R.programs.madeAfter} programs made after ready`);
+  ok(R.flicked.below === 1 && R.flicked.name === 'SCHOOL ZONE', 'a real flick down from Cruise is School Zone');
+  ok(R.at15s.speed < 2.5 && R.hover.speed < 0.6, `it eases to a hover in about 1.5 s: ${R.at15s.speed}, ${R.hover.speed} m/s`);
+  ok(Math.abs(R.hover.cam / R.cruise.cam - 0.7) < 0.06, `the lens comes in 30 %: ${R.cruise.cam} to ${R.hover.cam} m`);
+  ok(R.balloons.balloons >= 4 && R.balloons.calls - R.hover.calls <= 2, `balloons out of the hatch (${R.balloons.balloons}), one draw: ${R.hover.calls} to ${R.balloons.calls} draws`);
+  ok(R.turnDegPerS > 50 && R.turning.ground < 1, `a held right thumb sideways turns on the spot: ${R.turnDegPerS} deg/s at ${R.turning.ground} m/s`);
+  ok(R.drift.ground > 4 && R.drift.ground <= 8.05 && R.drift.pitch < -3, `the stick up drifts forward, nose down: ${R.drift.ground} m/s, ${R.drift.pitch} deg`);
+  ok(R.climb.vy > 10 && R.climb.vy <= 15.5 && R.climb.ground < 1, `the stick down climbs at about 15 m/s: ${R.climb.vy}`);
+  ok(R.downInZone.below === 1, 'a flick down in School Zone is nothing yet');
+  ok(R.out.below === 0 && R.out.balloons === 0 && R.beforeOut.balloons > 0, `a flick up is Cruise and the balloons burst: ${R.beforeOut.balloons} to ${R.out.balloons}`);
+  ok(R.cruiseAgain.speed > 25 && R.cruiseAgain.zoneIn < 0.05, `Cruise again, the lens back out: ${R.cruiseAgain.speed} m/s, ${R.cruiseAgain.zoneIn}`);
+  res.zone = R;
+  console.log('zone:', JSON.stringify(R));
+  writeFileSync(`${out}/zone.json`, JSON.stringify(R, null, 1));
   await page.close();
 }
 
