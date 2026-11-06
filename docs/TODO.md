@@ -72,9 +72,10 @@ The producer approved the shots redesign whole ("Everything in the doc is excell
 
 **First account** (the shots, the flight, the camera and the GPU), on `feat/shots`, cut from `feat/factions` e0f1dde:
 - [x] The Lift to the producer's notes: no pillars, a swell like boats, uneven heights. `feat/factions` e0f1dde, pushed; its notes are `docs/specs/factions/LIFT.md` there.
-- [ ] MEGA off and the faction button on `?crew` links.
+- [x] MEGA off and the faction button on `?crew` links. **Done and pushed**, `feat/shots` cce8f3d to f07a16e, reviewed and checked on the GPU: `docs/specs/shots/BUILT.md` there. `&mega` brings MEGA back; `?crew=off` takes the button off a phone.
 - [ ] The rooftop gardens' budget, checked on the GPU over a whole Recess match.
-- [ ] The bigger splat: 85 m at roof height, calling `life.blast` with its whole circle.
+- [x] The bigger splat: 85 m at roof height, calling `life.blast` with its whole circle. **Done and pushed** with the above. A tap on a car, a ferry or a person paints the block round it; a boat in open water is never a miss. It needs the gardens' budget before `main`: Cruise after 20 taps is 1.73 M triangles alone, 0.97 M with `feat/gardens` merged.
+  - **For the second account**, from this step: `life.blast` should test a flat circle on the map, not a sphere, keeping the rule that a shot landing on a bridge deck centres it on the deck; movers carry no faction yet, so another faction's tap paints them Rainbow's colours; Recess should set `crew.locked` during a match, so the faction button waits for the bell.
 - [ ] Hold to aim and the Hose. Then say here that it's pushed, with its hook, for the second account.
 - [ ] The probe that checks every gear, then the Comet.
 - [ ] The Bomb, behind its link until the producer's grip test.
