@@ -407,11 +407,12 @@ def _joined(a, ea, b, eb):
     """deck a's end ea and deck b's end eb joined by a straight gap: one deck"""
     ca, cb = shapely.get_coordinates(a['line']), shapely.get_coordinates(b['line'])
     sa, la, ra = a['s'], a['left'], a['right']
+    # (a deck run backwards turns its normal round: its edges swap sides, left -2 and right +8 become -8 and +2)
     if ea == 0:  # (a runs into the gap)
-        ca, la, ra, sa = ca[::-1], la[::-1], ra[::-1], a['length'] - sa[::-1]
+        ca, la, ra, sa = ca[::-1], -ra[::-1], -la[::-1], a['length'] - sa[::-1]
     sb, lb, rb = b['s'], b['left'], b['right']
     if eb == 1:  # (b runs out of it)
-        cb, lb, rb, sb = cb[::-1], lb[::-1], rb[::-1], b['length'] - sb[::-1]
+        cb, lb, rb, sb = cb[::-1], -rb[::-1], -lb[::-1], b['length'] - sb[::-1]
     gap = float(np.hypot(*(cb[0] - ca[-1])))
     line = LineString(np.vstack([ca, cb[1:]]) if gap < 0.01 else np.vstack([ca, cb]))
     # (edges across the gap: straight from one deck's to the other's)

@@ -156,11 +156,43 @@ def tower_over(qa):
     return why
 
 
+def joined_edges(qa):
+    """two decks joined end to end cover the ground each covered, whichever ends meet: a deck along x from 0 to 100 m
+    over z -2 to +8, and one 20 m on over z -5 to +1, each run either way (a deck's edges are offsets along its normal,
+    which turns round when it's run backwards)"""
+    import bridges as B
+    from shapely.geometry import LineString
+    why = []
+
+    def deck(x0, x1, z0, z1):
+        sg = 1.0 if x1 > x0 else -1.0  # (its normal: +z running east, -z running west)
+        lo, hi = sorted((sg * z0, sg * z1))
+        line = LineString([(x0, 0.0), (x1, 0.0)])
+        return {'line': line, 's': np.array([0.0, line.length]), 'left': np.full(2, lo), 'right': np.full(2, hi), 'length': line.length,
+                'members': [{'ways': []}], 'levels': {1}, 'uses': {'road'}, 'coreLevels': {1}, 'stacked': False, 'name': '', 'tags': {}}
+    for ea in (0, 1):
+        for eb in (0, 1):
+            g0 = 120.0 if ea else -20.0           # (b's end eb meets a's end ea across 20 m)
+            g1 = g0 + (100.0 if ea else -100.0)
+            a = deck(0.0, 100.0, -2.0, 8.0)
+            b = deck(g0, g1, -5.0, 1.0) if eb == 0 else deck(g1, g0, -5.0, 1.0)
+            j = B._joined(a, ea, b, eb)
+            c = np.asarray(j['line'].coords)
+            sg = 1.0 if c[-1][0] > c[0][0] else -1.0
+            for x, want, nm in ((50.0, (-2.0, 8.0), 'a'), ((g0 + g1) / 2, (-5.0, 1.0), 'b')):
+                s = abs(x - c[0][0])
+                got = tuple(sorted(sg * float(np.interp(s, j['s'], j[k])) for k in ('left', 'right')))
+                if max(abs(got[0] - want[0]), abs(got[1] - want[1])) > 1e-6:
+                    why.append(f'a\'s end {ea} to b\'s end {eb}: {nm} covers z {got[0]:g} to {got[1]:g}, want {want[0]:g} to {want[1]:g}')
+    return why
+
+
 CHECKS = [
     ("a city config's \"qa\" tightens a check, never loosens it, and never sets how the city is cut up", overrides),
     ('the bridge checks never stop the QA: what they all read failing makes the fifteen NOT READ', unread),
     ("deckFreeEnd measures a drawn deck's end over the ground, a kept way by it or not", deck_ends),
     ("a tower stands over its deck by its top over the sea, not over its own ground (bridges.py's XL)", tower_over),
+    ("two decks joined end to end cover the ground each covered, either one run backwards (bridges.py's join)", joined_edges),
 ]
 
 
