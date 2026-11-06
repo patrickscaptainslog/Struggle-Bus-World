@@ -6,6 +6,11 @@
 // packs paint, a Rainbow record is packed as it was before factions, and room is left for eight (0-7): a number past the five, a later build's faction, is
 // kept as it is through this one (ownerOf), so a rollback or a stale build never turns it Rainbow's. Nothing draws a faction yet.
 //
+// The player's faction is set in two places, each a painter's own so a bot's bus can paint its own: Splatter.faction, which the street's blasts carry, and
+// with them the Moon's ground and its craters, from up high too (main.ts's paintAt); and MoonPaint.faction, the Moon from orbit's strokes (MoonBreath's, in
+// the flight, which has no Splatter). Rainbow in both until a player can join another (decision 15): whoever builds that sets both, or gives them one
+// source then, with the player's faction saved.
+//
 // No three.js and no DOM: the stores' Node checks and life's worker can read it.
 
 export const FACTION_NONE = 0;

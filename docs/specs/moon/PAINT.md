@@ -38,8 +38,9 @@ On the device, by id, so it comes back on any map of the Moon:
 | Key | What |
 |---|---|
 | `strugglebus.moon.craters.v1` | `[id, level, hue]` a crater, and its faction fourth when it isn't Rainbow's (`src/game/factions.ts`). An invented id is its octave and cell (GROUND.md), a named one `p<place>` |
-| `strugglebus.moon.strokes.v1` | The last 600 blasts on open ground, by latitude and longitude, for the far windows; a faction sixth, as a crater's |
-| `strugglebus.moon.low.v1` | Craters of 1 km radius or more, for the orbit: `[lat, lon, level, seed, km]`, at their true size or a 6 km dot, and a faction sixth. `MoonPaint.load` reads it |
+| `strugglebus.moon.strokes.v1` | The last 600 blasts on open ground, by latitude and longitude, for the far windows: `[lat, lon, r, hue, seed]`, and its faction sixth when it isn't Rainbow's |
+| `strugglebus.moon.low.v1` | Craters of 1 km radius or more, for the orbit: `[lat, lon, level, seed, km]`, at their true size or a 6 km dot, and its faction sixth when it isn't Rainbow's. `MoonPaint.load` reads it |
+| `strugglebus.moon.v1.<k>` | The Moon from orbit's own strokes (`MoonPaint`): chunks of 64 `(lat, lon, level, seed)` fours, 4,096 strokes at most. Whose a stroke is rides in its level's tens: 1-3 Rainbow's, 11-13 Atlantis's, 21-23 the Elderwood's, 31-33 Hyperglow's, 41-43 Inferno's (a later build's to 73). A Rainbow stroke is kept as before factions, and a build from before them, which takes only 1 to 3, leaves the others out |
 | `strugglebus.ground.v2.moon_<lat>_<lon>:` | GroundPaint's masks, as on a street, a map at a time |
 
 ## One-sixth gravity

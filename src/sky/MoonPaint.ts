@@ -179,7 +179,7 @@ export class MoonPaint {
   /** written since the last save */
   private savedTo = 0;
   private readonly store: PaintStore | null;
-  /** The hitter's faction: whose every stroke strike() makes is. Rainbow, until a player can join another (FACTIONS.md, decision 15). */
+  /** The hitter's faction: whose every stroke strike() makes is. Rainbow, until a player can join another (FACTIONS.md, decision 15), and set with Splatter.faction then (game/factions.ts). */
   faction = FACTION_RAINBOW;
   private nextHue = 0;
   private seed = 0;
