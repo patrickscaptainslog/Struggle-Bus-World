@@ -164,7 +164,7 @@
    "mode": "touch",
    "gesture": "canvas: two fingers, both lift at 470 ms",
    "events": [
-    "aim@451ms",
+    "aim@468ms",
     "aimEnd@470ms"
    ],
    "maxChargeHeld": 0,
@@ -231,7 +231,7 @@
    "mode": "touch",
    "gesture": "second: rests 1 s (nothing)",
    "events": [
-    "aim@651ms",
+    "aim@668ms",
     "aimEnd@1300ms"
    ],
    "maxChargeHeld": 0,
@@ -359,7 +359,7 @@
    "mode": "touch",
    "gesture": "second: rests 500 ms off the lane, then drags: an aim, and its drag drags the aim, never the view",
    "events": [
-    "aim@651ms",
+    "aim@668ms",
     "aimEnd@930ms"
    ],
    "maxChargeHeld": 0,
@@ -3195,7 +3195,7 @@
    "mode": "touch",
    "gesture": "left zone: 460 ms, still, does nothing",
    "events": [
-    "aim@351ms",
+    "aim@367ms",
     "aimEnd@460ms"
    ],
    "maxChargeHeld": 0,
@@ -3209,7 +3209,7 @@
    "mode": "touch",
    "gesture": "left zone: rests 1 s (nothing)",
    "events": [
-    "aim@351ms",
+    "aim@367ms",
     "aimEnd@1000ms"
    ],
    "maxChargeHeld": 0,
@@ -3302,7 +3302,7 @@
    "mode": "touch",
    "gesture": "left zone: rests 500 ms, then drags: an aim, never a look",
    "events": [
-    "aim@351ms",
+    "aim@367ms",
     "aimEnd@630ms"
    ],
    "maxChargeHeld": 0,
@@ -3342,7 +3342,7 @@
    "mode": "touch",
    "gesture": "left zone: two touches there: neither flies, the one that drags looks",
    "events": [
-    "aim@351ms",
+    "aim@367ms",
     "aimEnd@530ms"
    ],
    "maxChargeHeld": 0,
@@ -4333,7 +4333,7 @@
    "gesture": "lost tap: a tap just after a thumb that rests fires once, when the rest is past a tap",
    "events": [
     "tap@451ms",
-    "aim@701ms",
+    "aim@718ms",
     "aimEnd@1390ms"
    ],
    "maxChargeHeld": 0,
@@ -4368,7 +4368,7 @@
    "gesture": "lost tap: back down to fly: a tap, then the same thumb down again beside a thumb that landed with it, fires on that landing",
    "events": [
     "tap@250ms",
-    "aim@451ms",
+    "aim@468ms",
     "aimEnd@780ms"
    ],
    "maxChargeHeld": 0,
@@ -4387,7 +4387,7 @@
    "gesture": "lost tap: back down to fly in the lane: the same thumb down again under the bus, beside one over it, fires on that landing",
    "events": [
     "tap@250ms",
-    "aim@451ms",
+    "aim@468ms",
     "aimEnd@780ms"
    ],
    "maxChargeHeld": 0,
@@ -4978,7 +4978,7 @@
    "mode": "touch",
    "gesture": "two thumbs: a right flick beside a resting left thumb steers and never shifts",
    "events": [
-    "aim@351ms",
+    "aim@367ms",
     "aimEnd@885ms"
    ],
    "maxChargeHeld": 0,
@@ -5010,7 +5010,7 @@
    "mode": "touch",
    "gesture": "two thumbs: a resting left thumb, a tap on the right: on its lift",
    "events": [
-    "aim@351ms",
+    "aim@367ms",
     "tap@400ms",
     "aimEnd@730ms"
    ],
@@ -5949,7 +5949,7 @@
    "mode": "touch",
    "gesture": "aim: held still 360 ms off the lane aims, and its lift is the release, no splat",
    "events": [
-    "aim@351ms",
+    "aim@360ms",
     "aimEnd@360ms"
    ],
    "maxChargeHeld": 0,
@@ -5963,7 +5963,7 @@
    "mode": "touch",
    "gesture": "aim: held 1.2 s off the lane, dragged 120 px: the aim follows, no look, nobody steers",
    "events": [
-    "aim@351ms",
+    "aim@367ms",
     "aimEnd@1200ms"
    ],
    "maxChargeHeld": 0,
@@ -5980,7 +5980,7 @@
      "x0": 330,
      "y0": 250,
      "t0": 966269.9999999322,
-     "at": 966620.6999999313
+     "at": 966637.3999999312
     },
     "now": {
      "on": true,
@@ -5989,7 +5989,7 @@
      "x0": 330,
      "y0": 250,
      "t0": 966269.9999999322,
-     "at": 966620.6999999313
+     "at": 966637.3999999312
     },
     "look": false,
     "dragging": false,
@@ -6001,7 +6001,7 @@
    "mode": "touch",
    "gesture": "aim: a hold that ends in a quick stroke up is no gear",
    "events": [
-    "aim@351ms",
+    "aim@367ms",
     "aimEnd@460ms"
    ],
    "maxChargeHeld": 0,
@@ -6033,7 +6033,7 @@
    "mode": "touch",
    "gesture": "aim: a thumb landing in the lane while it aims flies, and the aim holds",
    "events": [
-    "aim@351ms",
+    "aim@367ms",
     "aimEnd@700ms"
    ],
    "maxChargeHeld": 0,
@@ -6053,7 +6053,7 @@
    "mode": "touch",
    "gesture": "aim: beside a flying thumb, a still thumb off the lane aims and the bus flies on",
    "events": [
-    "aim@651ms",
+    "aim@668ms",
     "aimEnd@720ms"
    ],
    "maxChargeHeld": 0,
@@ -6114,7 +6114,7 @@
    "mode": "touch",
    "gesture": "aim: a cancelled touch ends the aim cancelled",
    "events": [
-    "aim@351ms",
+    "aim@367ms",
     "aimEnd(cancelled)@400ms"
    ],
    "maxChargeHeld": 0,
@@ -6128,7 +6128,7 @@
    "mode": "touch",
    "gesture": "aim: the page losing focus ends the aim cancelled",
    "events": [
-    "aim@351ms",
+    "aim@367ms",
     "aimEnd(cancelled)@400ms"
    ],
    "maxChargeHeld": 0,
@@ -6142,7 +6142,7 @@
    "mode": "touch",
    "gesture": "aim: one aims at a time: a second still finger off the lane rests",
    "events": [
-    "aim@351ms",
+    "aim@367ms",
     "aimEnd@900ms"
    ],
    "maxChargeHeld": 0,
@@ -6154,6 +6154,19 @@
    "note": {
     "aim": 330
    }
+  },
+  {
+   "mode": "touch",
+   "gesture": "aim: a tap lifted at 150 ms behind one 450 ms frame is a tap, not an aim",
+   "events": [
+    "tap@450ms"
+   ],
+   "maxChargeHeld": 0,
+   "dragging": false,
+   "thumb": false,
+   "look": null,
+   "gear": 0,
+   "level": 0
   },
   {
    "mode": "touch",

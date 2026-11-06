@@ -664,6 +664,8 @@ row('touch', 'aim: off (aimOn false, the Moon): a still finger off the lane rest
 row('touch', 'aim: a cancelled touch ends the aim cancelled', laned((h) => { const id = newId(); h.down(id, AX, AY); h.wait(400); h.cancel(id, AX, AY); }));
 row('touch', 'aim: the page losing focus ends the aim cancelled', laned((h) => { const id = newId(); h.down(id, AX, AY); h.wait(400); win.dispatch('blur', {}); h.wait(30); h.up(id, AX, AY); }));
 row('touch', 'aim: one aims at a time: a second still finger off the lane rests', laned((h) => { const a = newId(), b = newId(); h.down(a, AX, AY); h.wait(400); h.down(b, 60, 200, false); h.wait(500); const v = { aim: h.input.state.aim.x0 }; h.up(b, 60, 200); h.up(a, AX, AY); return v; }));
+// (a 450 ms frame with the lift at 150 ms queued behind it: the frame arms the aim, and the lift, by its own time, is the tap it was)
+row('touch', 'aim: a tap lifted at 150 ms behind one 450 ms frame is a tap, not an aim', laned((h) => { const id = newId(); h.down(id, AX, AY); const t = clock.ms; clock.ms += 450; h.frame(); h.up(id, AX, AY, { timeStamp: t + 150 } as any); }));
 row('touch', 'aim: at 30 fps, held 360 ms aims, lifted at 330 splats', laned((h) => { pressFor(h, AX, AY, 360); h.wait(500); pressFor(h, AX, AY, 330); }), 30);
 
 // ---- the table's checks
@@ -1225,6 +1227,7 @@ ok(readFlick(36, 0, 80, 36, 200, 0.4, 40) === 0, 'sideways is none');
   ok(n('aim: a cancelled touch', 'aimEnd(cancelled)') === 1 && taps('aim: a cancelled touch') === 0, 'a cancelled touch ends the aim cancelled');
   ok(n('aim: the page losing focus', 'aimEnd(cancelled)') === 1 && taps('aim: the page losing focus') === 0, 'focus lost ends the aim cancelled');
   ok(aims('aim: one aims at a time') === 1 && note('aim: one aims at a time').aim === AX, 'one aims at a time');
+  ok(taps('aim: a tap lifted at 150 ms behind') === 1 && aims('aim: a tap lifted at 150 ms behind') === 0, 'a tap queued behind one slow frame is still a tap');
   ok(aims('aim: at 30 fps') === 1 && taps('aim: at 30 fps') === 1, 'at 30 fps the same lines hold');
   for (const r of rows) if (r.gesture.startsWith('the lane')) ok(!r.events.some((e) => e.startsWith('aim')), `the lane never aims: ${r.gesture}`);
 }

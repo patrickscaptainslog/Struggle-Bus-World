@@ -219,8 +219,9 @@ interface Slot {
   ownsPress: boolean;
   /** It landed in the look zone, as the zone was then (the bus's lane moves with the bus). */
   inLook: boolean;
-  /** It is the aim hold (state.aim): held still off the lane for aimHoldMs. */
+  /** It is the aim hold (state.aim): held still off the lane for aimHoldMs. armed: a frame has seen it past aimHoldMs (the next one starts it). */
   aiming: boolean;
+  aimArmed: boolean;
 }
 
 const enum Src {
@@ -360,7 +361,7 @@ export class Input {
 
   constructor(el: HTMLElement) {
     this.el = el;
-    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false, inLook: false, aiming: false });
+    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false, inLook: false, aiming: false, aimArmed: false });
 
     const s = el.style as CSSStyleDeclaration & { webkitUserSelect?: string; webkitTouchCallout?: string; webkitTapHighlightColor?: string };
     s.touchAction = 'none';
@@ -482,7 +483,11 @@ export class Input {
     for (let i = 0; i < MAX_POINTERS; i++) {
       const s = this.slots[i];
       if (s.role === Role.Second && !s.looking) this.lookStep(s, now);
-      if (this.canAim(s, now)) this.startAim(s, now);
+      // (armed on the first frame that sees it, started on the next that still does: a lift queued behind one slow frame is still a tap, its own time says so, as the press's)
+      if (this.canAim(s, now)) {
+        if (s.aimArmed) this.startAim(s, now);
+        else s.aimArmed = true;
+      }
     }
     const tx = (this.kR ? 1 : 0) - (this.kL ? 1 : 0);
     const ty = (this.kU ? 1 : 0) - (this.kD ? 1 : 0);
@@ -787,6 +792,7 @@ export class Input {
     slot.ownsPress = false;
     slot.inLook = false;
     slot.aiming = false;
+    slot.aimArmed = false;
   }
 
   private free(s: Slot) {

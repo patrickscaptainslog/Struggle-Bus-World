@@ -471,12 +471,15 @@ export class Holds {
   private trail(s: Live, k: number) {
     const P = this.h.particles, size = (s.o.size ?? 1) * (s.white ? 1.5 : 1);
     const ramp = s.white ? Ramp.GLOW_WHITE : s.ramp;
-    const back = Math.min(40, s.o.speed / 60);
-    const n = Math.max(2, Math.min(6, Math.round(back / 3)));
+    // (a blob the size of a car's roof with a glowing core, and a tail a frame's travel long that lingers: from the chase camera at 500 m the first build's
+    // 2.6 sparks read as a dotted thread, GPU frames of step 2)
+    const back = Math.min(60, s.o.speed / 50);
+    const n = Math.max(3, Math.min(8, Math.round(back / 3)));
+    P.comet(s.pos, 0, 0, 0, Ramp.GLOW_WHITE, 4.5 * size * k, 0.06);
     for (let i = 0; i < n; i++) {
       const u = i / n;
       this.w.copy(s.pos).addScaledVector(s.dir, -back * u);
-      P.comet(this.w, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, i === 0 || s.white ? ramp : s.ramp, (i === 0 ? 2.6 : 1.7 - u) * size * k, i === 0 ? 0.12 : 0.3 + 0.25 * Math.random());
+      P.comet(this.w, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, i < 2 || s.white ? ramp : s.ramp, (i === 0 ? 7 : 4.2 - 2.4 * u) * size * k, i === 0 ? 0.08 : 0.35 + 0.35 * Math.random());
     }
   }
 
