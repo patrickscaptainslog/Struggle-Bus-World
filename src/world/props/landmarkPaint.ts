@@ -3,6 +3,7 @@ import { config } from '../../config';
 import { HUE_RAMPS, Ramp } from '../../render/palette';
 import { byHour } from '../../sky/flag';
 import { paintUniforms } from '../buildingMaterial';
+import { PAINT_KEPT } from '../PaintState';
 import type { BuildingRef, City } from '../City';
 
 // Paint for the hand-built landmark props (Transamerica, Sutro Tower, and any
@@ -232,7 +233,7 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
   float tb = uTime - vPaint.b;
   bool painted = uLmIdx >= 0.0 && level > 0.5;
   // an escalation (already painted) stays painted while the blast wave travels to it
-  if (painted && vPaint.a < 1.5) {
+  if (painted && vPaint.a < ${PAINT_KEPT - 0.5}) {
     bool on = false;
     if (tb >= 0.0 && uLmRun.x > 0.0 && uLmHit.w > vPaint.b - ${RUN_MATCH}.0 && uLmHit.w < vPaint.b + 0.3) {
       // a long landmark (a bridge): the paint runs out along it from where the breath hit, its front ragged

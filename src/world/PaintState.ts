@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { uploadRect } from '../render/upload';
+import { FACTION_RAINBOW, ownerOf } from '../game/factions';
 
 // Paint state, keyed by building. This is the array a Phase 2 server will own.
 //
@@ -7,9 +8,10 @@ import { uploadRect } from '../render/upload';
 //   r = color index (0..5 within the faction palette), g = level (0 = grey, 1..3),
 //   b = bloom start time (seconds, globals.uTime clock; may be in the future: a
 //   blast writes its whole wave at impact and the shader times each bloom),
-//   a = faction (0 none, 1 Rainbow) + 2 when the building was already painted
+//   a = faction (0 none, 1-5: game/factions.ts) + PAINT_KEPT when the building was already painted
 //   (an escalation: it stays painted until its new pop instead of going grey)
-// Persistence: localStorage, keyed by the building's stable id, value = [faction, color, level]. Applied
+// Persistence: localStorage, keyed by the building's stable id, value = [faction, color, level] (the faction
+//   since the first build, always Rainbow's 1 until factions: ownerOf reads it). Applied
 //   as tiles stream in. Which store depends on the DATA's id scheme (see IdScheme), never on the code.
 //   Hand-built landmark props (City.addLandmarkBuilding) take texels past the baked buildings and save
 //   under a name key ('lm:transamerica') in a store of their own (landmarkStoreKey), never among the
@@ -80,9 +82,15 @@ export const LANDMARK_KEY_PREFIX = 'lm:';
 export function landmarkStoreKey(slug: string): string {
   return slug === 'sf' ? 'strugglebus.landmarks.v1' : `strugglebus.landmarks.v1:${slug}`;
 }
-export const FACTION_RAINBOW = 1;
+export { FACTION_RAINBOW };
+/**
+ * Added to a texel's faction in a: the building was already painted. The shaders' test for it is a < PAINT_KEPT - 0.5, and the faction is a less it,
+ * so there's room for factions 0-7 under it. (It was 2 over Rainbow's 1; a reader still testing a < 1.5 reads Rainbow's texels as it always did.)
+ */
+export const PAINT_KEPT = 8;
 
 export interface PaintRecord {
+  /** whose paint it is: 0 none, 1-5 (game/factions.ts) */
   faction: number;
   color: number;
   level: number;
@@ -189,7 +197,7 @@ export class PaintState {
       this.data[o] = s[1];
       this.data[o + 1] = s[2];
       this.data[o + 2] = -1000;
-      this.data[o + 3] = s[0];
+      this.data[o + 3] = ownerOf(s[0]);
       this.dirty.add(index);
       return true;
     }
@@ -198,7 +206,8 @@ export class PaintState {
 
   get(index: number): PaintRecord {
     const o = index * 4;
-    return { color: this.data[o], level: this.data[o + 1], bloomTime: this.data[o + 2], faction: this.data[o + 3] % 2 };
+    const a = this.data[o + 3];
+    return { color: this.data[o], level: this.data[o + 1], bloomTime: this.data[o + 2], faction: a >= PAINT_KEPT ? a - PAINT_KEPT : a };
   }
 
   level(index: number): number {
@@ -211,7 +220,7 @@ export class PaintState {
     this.data[o] = rec.color;
     this.data[o + 1] = rec.level;
     this.data[o + 2] = rec.bloomTime;
-    this.data[o + 3] = rec.faction + (rec.keep ? 2 : 0);
+    this.data[o + 3] = rec.faction + (rec.keep ? PAINT_KEPT : 0);
     this.dirty.add(index);
     const sid = this.indexToStable.get(index);
     if (sid !== undefined) {

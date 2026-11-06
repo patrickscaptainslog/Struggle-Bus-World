@@ -1,5 +1,6 @@
 import { config } from '../config';
 import { HUE_COUNT } from '../render/palette';
+import { FACTION_RAINBOW, ownerOf } from './factions';
 
 // The shape of one dragon-breath explosion, shared by the gameplay (which
 // buildings bloom in which hue, when), the ground paint rasterizer and the
@@ -35,6 +36,8 @@ export interface BlastSpec {
   /** layout BANDS: the center of the rainbow rings (see bandHue) */
   ox?: number;
   oz?: number;
+  /** the hitter's faction (game/factions.ts): what it paints is that faction's. None: Rainbow, as every blast before factions */
+  faction?: number;
 }
 
 /** BlastSpec.layout: hue by distance from (ox, oz), not from the impact, so many overlapping blasts paint one picture. */
@@ -61,6 +64,9 @@ export function specToArray(s: BlastSpec): number[] {
   const a = SPEC_FIELDS.map((k) => (k === 'x' || k === 'z' || k === 'r' ? Math.round(s[k] * 10) / 10 : Math.round(s[k] * 1000) / 1000));
   // (two more numbers only for bands: older saves stay readable, and a plain blast saves what it always did)
   if (s.layout === LAYOUT_BANDS) a.push(Math.round((s.ox ?? s.x) * 10) / 10, Math.round((s.oz ?? s.z) * 10) / 10);
+  // (then its faction, only if it isn't Rainbow's: a Rainbow blast saves what it did before factions, and a build from before them reads past it)
+  const f = ownerOf(s.faction);
+  if (f !== FACTION_RAINBOW) a.push(f);
   return a;
 }
 
@@ -68,10 +74,14 @@ export function specFromArray(a: number[]): BlastSpec | null {
   if (!Array.isArray(a) || a.length < SPEC_FIELDS.length || !a.every((v) => Number.isFinite(v))) return null;
   const s = {} as Record<string, number>;
   SPEC_FIELDS.forEach((k, i) => (s[k] = a[i]));
-  if (a.length >= SPEC_FIELDS.length + 2) {
-    s.ox = a[SPEC_FIELDS.length];
-    s.oz = a[SPEC_FIELDS.length + 1];
+  let n = SPEC_FIELDS.length;
+  // (bands' two numbers are only ever written for bands)
+  if (s.layout === LAYOUT_BANDS && a.length >= n + 2) {
+    s.ox = a[n];
+    s.oz = a[n + 1];
+    n += 2;
   }
+  if (a.length > n) s.faction = ownerOf(a[n]);
   return s as unknown as BlastSpec;
 }
 
