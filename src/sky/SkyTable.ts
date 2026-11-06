@@ -1,10 +1,10 @@
 import type * as THREE from 'three';
-import { dayRows, HUE_RAMPS, Ramp, RAMP_COUNT, RAMP_STEPS, writePalette } from '../render/palette';
+import { dayRows, FACTION_RAMPS, HUE_RAMPS, Ramp, RAMP_COUNT, RAMP_STEPS, writePalette } from '../render/palette';
 import { DAWN_TABLE, DAY_EXTRA, GOLDEN_TABLE, MORNING_TABLE, NOON_TABLE, SUNSET_TABLE } from './SkyTables';
 
 // A table is this minute's colours (SKY.md 4): one colour for every (ramp, step) of the frame, so one table re-lights the whole city, far field, water, bus and
 // particles with it. Light moves, tables colour. Every ramp runs dark to light, sky rows too (a band reads step 7 - i of its row), and every keyframe names every
-// row: a pixel on a row its table doesn't name is a hard fail. (24-31, the factions, are reserved and nothing draws them yet.)
+// row: a pixel on a row its table doesn't name is a hard fail. 24-31 are the factions' paint (palette.ts), named and graded in every table as paint is.
 //
 // S1 held one hour, this one. The live sky blends eight (TableBlend below, the others in SkyTables.ts, written by tools/sky/tables.py from this one's rules). World rows are research-art.md's blue table. It stops at 22 of the rows, so the others follow its own
 // make_palette: INK, BUS_BLACK, GRANITE from its city gradient, GLOW_WHITE and WHITE from its glow gradient, SIGN_GREEN its sign rule. Where this differs on purpose:
@@ -40,6 +40,15 @@ export const BLUE_TABLE: Record<number, string[]> = {
   [Ramp.STONE]: ['#0f1539', '#131a43', '#19224f', '#242f64', '#34437c', '#506198', '#7a88b5', '#aab2ce'],
   [Ramp.GRANITE]: ['#080423', '#090527', '#0a072b', '#0b0930', '#0d0b37', '#111141', '#16194f', '#222968'],
   [Ramp.BRIDGE_ORANGE]: ['#120c26', '#1e112f', '#2f193c', '#452247', '#612d52', '#7e3d5c', '#9a5469', '#b27a84'],
+  // (the factions' paint by the same rule as the six hues above, art's paint grade for this hour: tools/sky/tables.py's faction_row)
+  [Ramp.MAGENTA]: ['#330038', '#5b0058', '#88007c', '#b9009f', '#e800b9', '#f74fc3', '#f19ecd', '#ebd1de'],
+  [Ramp.CYAN]: ['#041c3b', '#003757', '#005a7b', '#0080a1', '#00a6c5', '#00cbe6', '#6ee2ee', '#c0e8ea'],
+  [Ramp.TEAL]: ['#001a54', '#004366', '#007d8e', '#009799', '#00bbb1', '#00d6b6', '#95e5d7', '#d3e7e3'],
+  [Ramp.PEARL]: ['#402b57', '#624676', '#836492', '#a485ac', '#bfa3c3', '#d5bbd5', '#e1cfe2', '#e8e3e8'],
+  [Ramp.MOSS]: ['#031312', '#00281c', '#003f04', '#00590c', '#077900', '#609100', '#a4b500', '#d9d769'],
+  [Ramp.CHROME]: ['#261972', '#413799', '#7765e2', '#9790e8', '#bba6e8', '#d1bde8', '#e0dee5', '#e7e6e8'],
+  [Ramp.CRIMSON]: ['#160215', '#30001c', '#480020', '#66001e', '#8b0018', '#b50007', '#e37800', '#e9d69b'],
+  [Ramp.OBSIDIAN]: ['#06020f', '#100221', '#1f0234', '#31014b', '#480664', '#641980', '#8d4aa0', '#b989c4'],
   [Ramp.NIGHT_SKY]: ['#0e154a', '#121b58', '#162164', '#19256d', '#1c2975', '#1f2c7b', '#233080', '#263484'],
   [Ramp.OPEN_SEA]: ['#0c1236', '#101741', '#141c4c', '#192258', '#212b67', '#293477', '#363f86', '#4b4a95'],
   [Ramp.LIMB]: ['#16173f', '#262455', '#36326c', '#484083', '#5a4f9c', '#7269ae', '#8c84bf', '#a79fd0'],
@@ -57,8 +66,8 @@ export const BLUE_TABLE: Record<number, string[]> = {
   [Ramp.SAND]: ['#15173f', '#1f214d', '#2b2c5e', '#3a3a70', '#4c4a82', '#635d94', '#8079a8', '#a39abc'],
 };
 
-/** The day's paint rows, for a blue table with its paint switched off. */
-const DAY_PAINT: Record<number, string[]> = Object.fromEntries(HUE_RAMPS.map((r) => [r, dayRows[r]]));
+/** The day's paint rows, the factions' too, for a blue table with its paint switched off. */
+const DAY_PAINT: Record<number, string[]> = Object.fromEntries([...HUE_RAMPS, ...FACTION_RAMPS].map((r) => [r, dayRows[r]]));
 
 /** FOG's luma against its step (base, slope), what the resolve's value match reads. The day's are the fit it has always had. */
 export function fogLuma(blue: boolean, out: THREE.Vector2): THREE.Vector2 {
@@ -153,7 +162,7 @@ const BANDS = [0, 0, 0, 1, 1, 1, 1];
 const HOUR = [0, 0, 0, 0, 0, 0, 1];
 /** the rows every table names: BLUE_TABLE's */
 const NAMED = Object.keys(BLUE_TABLE).map(Number);
-const PAINTED = new Set<number>(HUE_RAMPS);
+const PAINTED = new Set<number>([...HUE_RAMPS, ...FACTION_RAMPS]);
 const SW = RAMP_STEPS * 3;
 
 const lin = (v: number) => (v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
