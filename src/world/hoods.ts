@@ -78,6 +78,8 @@ export function parseHoods(buf: ArrayBuffer): HoodsTable | null {
   const bitsAt = gridAt + cells * 2;
   const namesAt = (bitsAt + Math.ceil(cells / 8) + 3) & ~3;
   if (count >= 0xffff || namesAt + count > buf.byteLength) return null;
+  // (the file's u16s are little-endian and a typed array reads the platform's order: little-endian on every phone and
+  // browser the game runs on, and gridAt is 4-aligned)
   const grid = new Uint16Array(buf, gridAt, cells);
   const squares: number[][] = [];
   for (let n = 0; n < count; n++) squares.push([]);
