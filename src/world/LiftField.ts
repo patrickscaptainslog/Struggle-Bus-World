@@ -37,6 +37,11 @@ export interface FieldHouses {
 const PAIRS = 8;
 /** the first 1.2 s after the launch the overshoot (13 %) is in the conservative top */
 const OVERSHOOT_FOR = 1.2;
+/** the bellies counted near the bus's point, in cells each way (16 m), a belly d m off counted SLOPE * d m higher */
+const NEAR = 2;
+const SLOPE = 2;
+/** the bus's body over its origin (m), less the 1 m the flight's hard clamp leaves: busShape's roof is 3.19 at 1.6 */
+const BODY = 4;
 
 export class LiftField {
   readonly nx: number;
@@ -88,11 +93,11 @@ export class LiftField {
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) this.reached[j * this.nx + i] = 1;
   }
 
-  /** A tile arrived: its cells are built again on their next query (its buildings and trees are new). */
+  /** A tile arrived: its cells are built again on their next query (its buildings and trees are new), and two cells round it on every side, where its buildings reach across its edges. */
   clear(x0: number, z0: number, x1: number, z1: number) {
     const c = this.c;
-    const i0 = Math.max(0, Math.floor((x0 - this.x0) / c)), i1 = Math.min(this.nx - 1, Math.ceil((x1 - this.x0) / c));
-    const j0 = Math.max(0, Math.floor((z0 - this.z0) / c)), j1 = Math.min(this.nz - 1, Math.ceil((z1 - this.z0) / c));
+    const i0 = Math.max(0, Math.floor((x0 - this.x0) / c) - 2), i1 = Math.min(this.nx - 1, Math.ceil((x1 - this.x0) / c) + 2);
+    const j0 = Math.max(0, Math.floor((z0 - this.z0) / c) - 2), j1 = Math.min(this.nz - 1, Math.ceil((z1 - this.z0) / c) + 2);
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) this.built[j * this.nx + i] = 0;
   }
 
@@ -127,7 +132,8 @@ export class LiftField {
   /**
    * The obstacle at (x, z) seen from fromY (Infinity: from above), the bake's answer `baked` where nothing floats. `exact`: the house where it is
    * drawn now (the aim); else the flight's conservative slab (its rest height, the bob's whole reach, the overshoot just after the launch).
-   * Sets `under`, the lowest underside over fromY there (Infinity: none).
+   * A floating house is seen from below by anything under its middle (a deck: its underside goes in `under`), from above by anything over it
+   * (a roof: its top is the obstacle). Sets `under`, the lowest underside of the houses seen from below there (Infinity: none).
    */
   query(x: number, z: number, fromY: number, baked: number, exact: boolean): number {
     this.under = Infinity;
@@ -158,13 +164,40 @@ export class LiftField {
         u = h.base[i] + h.H[i] - m;
         tp = t + h.H[i] * (h.now - h.t0[i] < OVERSHOOT_FOR + 0.3 ? 1.14 : 1) + m;
       }
-      if (u < under) under = u;
-      if (tp > top) top = tp;
+      // (by its middle: a bus pulled up under one house and come to a lower one is under that one too, never put on its roof through it)
+      if (fromY < (u + tp) * 0.5) {
+        if (u < under) under = u;
+      } else if (tp > top) top = tp;
     }
     if (!any) return baked;
-    // (the cell's tallest still on the ground: the bake's answer holds, the detailed roofs' chimneys and parapets with it)
-    if (tallGround >= tallest) solid = Math.max(solid, baked);
-    if (under > fromY) this.under = under;
-    return fromY >= under ? Math.max(solid, top) : solid;
+    // (the cell's tallest still on the ground: the bake's answer holds, the detailed roofs' chimneys and parapets with it. Where a floating house
+    // is the tallest, the bake's answer is its, but its grounded neighbours' chimneys and parapets stand up to 6 m over the rebuild's tops)
+    solid = tallGround >= tallest ? Math.max(solid, baked) : Math.max(solid, Math.min(baked, tallGround + 6));
+    this.under = under;
+    return Math.max(solid, top);
+  }
+
+  /**
+   * The flight's underside over (x, z) seen from fromY: the lowest belly there or near, a belly d m off counted 2d m higher (so the bus under one
+   * house is let down to a lower one ahead before it gets there, at no step), less the bus's body (it is clamped 1 m under this, its roof 5 m up).
+   */
+  overhead(x: number, z: number, fromY: number): number {
+    const c = this.c, i0 = Math.floor((x - this.x0) / c), j0 = Math.floor((z - this.z0) / c);
+    let best = Infinity;
+    for (let dj = -NEAR; dj <= NEAR; dj++) {
+      const j = j0 + dj;
+      if (j < 0 || j >= this.nz) continue;
+      const cz0 = this.z0 + j * c, dz = Math.max(cz0 - z, 0, z - cz0 - c);
+      for (let di = -NEAR; di <= NEAR; di++) {
+        const i = i0 + di;
+        if (i < 0 || i >= this.nx || !this.reached[j * this.nx + i]) continue;
+        const cx0 = this.x0 + i * c, d = Math.hypot(Math.max(cx0 - x, 0, x - cx0 - c), dz);
+        if (d >= NEAR * c) continue;
+        this.query(cx0 + c * 0.5, cz0 + c * 0.5, fromY, 0, false);
+        if (this.under + SLOPE * d < best) best = this.under + SLOPE * d;
+      }
+    }
+    this.under = best === Infinity ? Infinity : best - BODY;
+    return this.under;
   }
 }

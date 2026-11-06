@@ -203,8 +203,7 @@ export class Lift implements LiftHooks, FieldHouses {
 
   overhead(x: number, z: number, fromY: number): number {
     if (!this.nUp || !this.inRect(x, z)) return Infinity;
-    this.field.query(x, z, fromY, 0, false);
-    return this.field.under;
+    return this.field.overhead(x, z, fromY);
   }
 
   surface(x: number, z: number, fromY: number, baked: number): number {

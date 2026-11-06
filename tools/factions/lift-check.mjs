@@ -355,10 +355,7 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
   const W = {
     obstacleAt: (x, z, fromY) => field.query(x, z, fromY ?? Infinity, baked(x, z), false),
     hardAt: (x, z, fromY) => field.query(x, z, fromY, baked(x, z), false),
-    overheadAt: (x, z, fromY) => {
-      field.query(x, z, fromY, 0, false);
-      return field.under;
-    },
+    overheadAt: (x, z, fromY) => field.overhead(x, z, fromY),
     groundAt,
   };
   const exactUnder = (x, z, y) => {
@@ -406,23 +403,26 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
     report('a. under the Ladies at the floor', `${r.under} of ${r.steps} steps under a house; least room to a belly ${f2(w.gap)} m`, 'under some, room >= 0', r.under > 0 && w.gap >= 0);
     report('a. no bounce up under them', `vy at most ${f2(w.vy)} m/s; over the ground's 3.5 m by ${f2(w.low)}; floor steps ${f2(w.step)} m`, 'vy <= 2, >= 0, floor step <= 3', w.vy <= 2 && w.low >= 0 && (w.step ?? 0) <= 3);
   }
-  // b. the same at a held 30 m: under them it holds its height as it does with nothing up (the hold's own wheezy bob), never pushed down onto a belly
+  // b. the same at a held 20 m (Steiner runs down 15 m: the hold is a height, not one over the ground). Under a belly lower than the hold's
+  // room (the soft ceiling, 9 m under it with the body) it is let down under it and climbs back after, so the offsets are reported; it must
+  // never put the body in a belly, never go under the ground's 3.5 m
   {
     const hold = (f, g, u, pf, w) => {
-      if (u === Infinity && !w.all) return false;
       w.lo = Math.min(w.lo ?? Infinity, f.y - f.holdY);
       w.hi = Math.max(w.hi ?? -Infinity, f.y - f.holdY);
       w.over = Math.min(w.over ?? Infinity, f.y - g);
-      if (u !== Infinity) w.gap = Math.min(w.gap ?? Infinity, u - 1 - f.y);
-      return u !== Infinity;
+      if (u === Infinity) return false;
+      w.gap = Math.min(w.gap ?? Infinity, u - 5 - f.y);
+      w.vy = Math.max(w.vy ?? -Infinity, f.vy);
+      return true;
     };
-    const r = fly('30 m', 30, true, 8, hold);
+    const r = fly('20 m', 20, true, 8, hold);
     const w = r.worst;
     for (const ref of d.refs) houses.state[ref.index] = 0;
-    const base = fly('30 m, nothing up', 30, true, 8, (f, g, u, pf, w2) => hold(f, g, u, pf, Object.assign(w2, { all: true })));
+    const base = fly('20 m, nothing up', 20, true, 8, hold);
     for (const ref of d.refs) if (ref.inHood) houses.state[ref.index] = 2;
     const bw = base.worst;
-    report('b. a held 30 m under them', `${r.under} steps under; ${f2(w.lo)}..+${f2(w.hi)} m off the held height (nothing up: ${f2(bw.lo)}..+${f2(bw.hi)}), ${f2(w.over)} m over the ground at least, least room ${f2(w.gap)} m`, 'no further off than with nothing up (+1 m), room >= 0', r.under > 0 && w.lo >= bw.lo - 1 && w.hi <= bw.hi + 1 && w.gap >= 0);
+    report('b. a held 20 m under them', `${r.under} steps under; ${f2(w.lo)}..+${f2(w.hi)} m off the held height (nothing up: ${f2(bw.lo)}..+${f2(bw.hi)}), ${f2(w.over)} m over the ground at least, vy under a belly at most ${f2(w.vy)} m/s, the body's 5 m at least ${f2(w.gap)} m from a belly`, 'body clear, over the ground >= 3.5 (vy: the hold climbing back under a higher belly)', r.under > 0 && w.gap >= 0 && w.over >= 3.5);
   }
   // c. over the layer, from 90 m, released
   {
@@ -457,6 +457,39 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
       if (field.under !== Infinity && f.y > field.under) over++;
     }
     report('d. in from the edge', `${under} steps under a house, ${over} over or in one; at most ${f2(high)} m over the ground under them`, 'under some, never over', under > 0 && over === 0);
+  }
+  // f. a pull up under the layer (the GPU fly's find, 2026-11-06: held under one house, pulled up, the bus came to a lower one and the hard floor
+  // put it on that one's roof in one frame, 36 m, through it). Along Steiner held at 24 m for 3 s, then the stick pulled for 7 s: no step up
+  // past 3 m, never in a drawn house, the body (5 m) never in a belly
+  {
+    const f = new L.Flight();
+    f.x = sx0;
+    f.z = sz0;
+    f.heading = 0;
+    f.y = groundAt(f.x, f.z) + 24;
+    f.holdY = f.targetY = f.y;
+    let jump = 0, inside = 0, belly = Infinity, under = 0, prevY = f.y, at = '';
+    for (let s = 0; s < 10 * 120; s++) {
+      houses.now = s / 120;
+      const pull = s >= 3 * 120;
+      f.step(1 / 120, { sx: 0, sy: pull ? -1 : 0, dragging: pull }, W);
+      if (f.y - prevY > jump) {
+        jump = f.y - prevY;
+        at = `z ${f2(f.z)}`;
+      }
+      prevY = f.y;
+      field.query(f.x, f.z, -1e9, 0, true);
+      const u = field.under;
+      if (u !== Infinity) {
+        const t = exactTop(f.x, f.z);
+        if (f.y > u && f.y < t) inside++;
+        if (f.y < u) {
+          under++;
+          belly = Math.min(belly, u - f.y - 5);
+        }
+      }
+    }
+    report('f. a pull up under the layer', `largest step up ${f2(jump)} m (${at}), ${inside} steps in a drawn house, ${under} under one with the body's 5 m at least ${f2(belly)} m from a belly`, 'step <= 3, never in one, body clear', jump <= 3 && inside === 0 && belly >= 0);
   }
 }
 
