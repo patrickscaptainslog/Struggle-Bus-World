@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { config } from '../config';
 import { globals, GLSL_COMMON, GLSL_OUT, heldGlobals } from '../render/materials';
-import { HUE_RAMPS, Ramp } from '../render/palette';
+import { GLSL_FACTION } from '../render/factionLook';
+import { Ramp } from '../render/palette';
 import { paintUniforms } from '../world/buildingMaterial';
 import { PAINT_KEPT } from '../world/PaintState';
 import { registerWarm } from '../render/warmup';
@@ -41,7 +42,7 @@ const LAMP_VS = /* glsl */ `
   uniform vec4 uSpanHit[${SPANS}];   // where each bridge's breath hit and when (its material's uLmHit)
   uniform float uSpanRun;     // how fast its paint runs along it (m/s)
   flat out float vRamp;
-  const float SPAN_HUES[6] = float[6](${HUE_RAMPS.map((r) => r.toFixed(1)).join(', ')});
+  ${GLSL_FACTION}
   #endif
   void main() {
     #ifdef SPAN
@@ -72,7 +73,9 @@ const LAMP_VS = /* glsl */ `
       // (an escalation is painted already; a fresh bloom lights up as its run passes, light by light)
       bool run = paint.a < ${PAINT_KEPT - 0.5} && hit.w > paint.b - 4.0 && hit.w < paint.b + 0.3;
       if (paint.g > 0.5 && uTime >= paint.b && (!run || distance(wp, hit.xyz) < uSpanRun * (uTime - hit.w))) {
-        vRamp = SPAN_HUES[int(mod(floor(paint.r + 0.5) + floor(aTag / ${SPANS}.0) + 60.0, 6.0))];
+        // (in its owner's colours, factionLook.ts: the hue's own slot is its body, each step on an accent; Rainbow's both are its six hues)
+        float k = floor(aTag / ${SPANS}.0);
+        vRamp = sbFacHue(sbFac(paint.a > ${PAINT_KEPT - 0.5} ? paint.a - ${PAINT_KEPT}.0 : paint.a), int(mod(floor(paint.r + 0.5) + k + 60.0, 6.0)), mod(k, 6.0) < 0.5);
         vLight = 0.7;
       }
     }

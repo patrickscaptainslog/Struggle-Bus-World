@@ -3,6 +3,7 @@ import { config } from './config';
 import { PixelPipeline } from './render/PixelPipeline';
 import { globals, layerTopBase } from './render/materials';
 import { HUE_RAMPS } from './render/palette';
+import { lookOf } from './render/factionLook';
 import { WarmUp } from './render/warmup';
 import { City, bootFetch, dataQuery, type BuildingRef } from './world/City';
 import { paintUniforms, setFacadeView } from './world/buildingMaterial';
@@ -11,6 +12,7 @@ import { Flight } from './game/Flight';
 import { fadeEnd, floorPastMap, mapReach, nearPlane, snapReach } from './game/Ascent';
 import { CameraRig } from './game/CameraRig';
 import { Splatter, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
+import { FACTIONS } from './game/factions';
 import { Aimer, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
 import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blastLayout';
@@ -258,7 +260,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** Rooftop garden / Hundertwasser crown on a building: drawn, and the flight's obstacle field rises over it. */
   const growSprouts = (ref: BuildingRef, hue: number, level: number, start: number) => {
     const rect = city.roofRect(ref);
-    const top = sprouts.set(ref.index, rect, hue, level, start);
+    // (in its building's faction's colours: the paint texture has it by now, at the impact, or from the save)
+    const top = sprouts.set(ref.index, rect, hue, level, start, city.paint.get(ref.index).faction);
     if (top > 0) city.raiseRoof(rect, rect.y + top);
     // a tower's own setback gardens, trees and onion domes (baked in its mesh) grow too
     city.growTo(ref, level);
@@ -311,7 +314,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       if (!g || g.cov < 0.5 || tf.paintLevel(i) !== 0) continue;
       const near = city.nearestBuilding(list[i].x, list[i].z, 25);
       const lv = near ? Math.round(city.paint.level(near.index)) : 0;
-      tf.setPaint(i, g.hue, Math.min(3, Math.max(1, lv)), -100);
+      tf.setPaint(i, g.hue, Math.min(3, Math.max(1, lv)), -100, g.faction);
     }
   };
   city.onTileUnload = (tx, tz) => {
@@ -543,7 +546,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
           if (d > reach || (freshOnly && tf.paintLevel(i) > 0)) continue;
           const g = city.ground.sample(t.x, t.z);
           if (!g || g.cov < 0.5) continue;
-          tf.setPaint(i, g.hue, Math.min(3, tf.paintLevel(i) + 1), b.t + arrival(d, r));
+          tf.setPaint(i, g.hue, Math.min(3, tf.paintLevel(i) + 1), b.t + arrival(d, r), g.faction);
         }
       }
   };
@@ -614,6 +617,15 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     primary: (ref, hue) => queueSign(ref, hue, lastBlast.x, lastBlast.z, lastBlast.r),
     hitStop: (frames) => (hitStop = frames / 60),
   });
+  // &paintas=atlantis (elderwood, hyperglow, inferno, rainbow: game/factions.ts's keys), FACTIONS.md step 5: the bus paints as that faction, so its
+  // colours can be tried on a phone. It is step 1's owner, so whatever it paints is that faction's in every store, through a reload too, until a
+  // splat of another's takes it (the tuner's reset clears it all). The street only: the Moon draws no faction yet, so there it does nothing.
+  // Without it every splat is Rainbow's, as before.
+  const paintAs = moon ? undefined : FACTIONS.find((f) => f.key === params.get('paintas'));
+  if (paintAs) {
+    splatter.faction = paintAs.id;
+    particles.palette = lookOf(paintAs.id).spray;
+  }
 
   /** QA: the last sign raised (its text, where, and what named it). */
   let lastSign: { text: string; x: number; z: number; from: string; t: number } | null = null;

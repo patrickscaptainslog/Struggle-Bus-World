@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT, SHADOW_LAYER } from '../../render/materials';
+import { FACTION_RAINBOW, FACTION_ROOM } from '../../game/factions';
 import { Ramp } from '../../render/palette';
 import { registerWarm } from '../../render/warmup';
 import { GLSL_MOON_CURVE, moonLow, moonOnly } from '../../sky/flag';
@@ -284,7 +285,7 @@ ${SPROUT_VERTEX}${moonOnly(GLSL_MOON_CURVE)}
 out vec3 vWorldPos;
 out vec3 vWorldNormal;
 out vec3 vLocal;
-flat out vec3 vInfo; // hue, seed, part
+flat out vec3 vInfo; // hue + 8 * (faction - 1), seed, part
 flat out vec3 vBlobC;
 flat out vec3 vBlobR;
 flat out vec3 vCamLocal;
@@ -340,12 +341,15 @@ flat in float vSy;
 flat in vec3 vIPos;
 uniform mat4 projectionMatrix;
 ${GLSL_OUT}
+// (whose garden it is, in the hue's eights: RoofSprouts.set. A flower can't be its leaves' colour: Rainbow's green turns gold)
+int gFac = 1;
 float bloomRamp(float h) {
-  float r = propHueRamp(h);
-  return r == ${Ramp.GREEN}.0 ? ${Ramp.YELLOW}.0 : r;
+  float r = propHueRamp(gFac, h, false);
+  return r == sbFacLeaf(gFac) ? sbFacGold(gFac) : r;
 }
 void main() {
-  float hue = vInfo.x;
+  float hue = mod(vInfo.x, 8.0);
+  gFac = sbFac(1.0 + floor(vInfo.x / 8.0));
   float seed = vInfo.y;
   int part = int(vInfo.z + 0.5);
   vec3 n;
@@ -379,23 +383,23 @@ void main() {
   // (the grain reads the place it's at: on the Moon, past the map's slides)
   vec3 grainAt = wp${moonOnly(' + vec3(uSlide.x, 0.0, uSlide.y)')};
   float nz = pNoise3(grainAt * 1.4 + seed * 13.0) - 0.5;
-  if (part == ${Part.FOLIAGE}) { ramp = ${Ramp.GREEN}.0; lo = -0.03 + nz * 0.12; }
+  if (part == ${Part.FOLIAGE}) { ramp = sbFacLeaf(gFac); lo = -0.03 + nz * 0.12; }
   else if (part == ${Part.TURF}) {
-    ramp = ${Ramp.GREEN}.0;
+    ramp = sbFacLeaf(gFac);
     lo = -0.1 + (pNoise3(vec3((vWorldPos.xz${moonOnly(' + uSlide')}) * 0.45, seed * 9.0)) - 0.5) * 0.18;
   }
   else if (part == ${Part.BLOSSOM}) { ramp = bloomRamp(hue); lo = 0.13; }
   else if (part == ${Part.BLOSSOM2}) {
     float h2 = hue + 1.0;
-    if (propHueRamp(h2) == ${Ramp.GREEN}.0) h2 += 1.0;
+    if (propHueRamp(gFac, h2, false) == sbFacLeaf(gFac)) h2 += 1.0;
     ramp = bloomRamp(h2);
     lo = 0.13;
   }
-  else if (part == ${Part.WOOD}) { ramp = ${Ramp.VIOLET}.0; lo = -0.2; }
-  else if (part == ${Part.GOLD}) { ramp = ${Ramp.YELLOW}.0; lo = 0.1; glow = 0.16; }
-  else if (part == ${Part.WHITE}) { ramp = ${Ramp.WHITE}.0; lo = -0.03; }
-  else if (part == ${Part.BODY}) { ramp = propHueRamp(hue); lo = 0.02; }
-  else { ramp = propHueRamp(hue + 2.0); lo = 0.0; }
+  else if (part == ${Part.WOOD}) { ramp = sbFacBark(gFac); lo = -0.2; }
+  else if (part == ${Part.GOLD}) { ramp = sbFacGold(gFac); lo = 0.1; glow = 0.16; }
+  else if (part == ${Part.WHITE}) { ramp = sbFacTrim(gFac); lo = -0.03; }
+  else if (part == ${Part.BODY}) { ramp = propHueRamp(gFac, hue, true); lo = 0.02; }
+  else { ramp = propHueRamp(gFac, hue + 2.0, false); lo = 0.0; }
   vec3 vn = normalize(mat3(viewMatrix) * n);
   if (part == ${Part.FOLIAGE}) lo -= 0.08 * smoothstep(0.65, 0.97, 1.0 - abs(vn.z));
   float light = sbLight(wp, n, lo, 1.0);
@@ -886,11 +890,13 @@ export class RoofSprouts {
    * the building already had keep their timing (no re-pop); startTime < now
    * (e.g. -100 when restoring saved paint) means already grown. Returns how
    * high the garden stands above the roof (m, with its growth overshoot): the
-   * flight's obstacle field rises to it (domes, spires and garden trees).
+   * flight's obstacle field rises to it (domes, spires and garden trees). `faction`: whose paint the building is (game/factions.ts), which its
+   * garden draws in (the hue's eights, as the shader reads them: Rainbow's leaves the hue as it was).
    */
-  set(buildingIndex: number, roof: RoofRect, hue: number, level: number, startTime: number): number {
+  set(buildingIndex: number, roof: RoofRect, hue: number, level: number, startTime: number, faction = FACTION_RAINBOW): number {
     const lvl = Math.max(1, Math.min(3, Math.round(level)));
     const h = ((Math.round(hue) % 6) + 6) % 6;
+    const owner = 8 * (Math.max(FACTION_RAINBOW, Math.min(FACTION_ROOM, Math.round(faction))) - FACTION_RAINBOW);
     const prev = this.recs.get(buildingIndex);
     const times: [number, number, number] = [startTime, startTime, startTime];
     if (prev) {
@@ -938,7 +944,7 @@ export class RoofSprouts {
       const slot = b.alloc();
       const seed = fract(Math.sin((buildingIndex + 1) * 12.9898 + i * 78.233) * 43758.5453);
       const start = times[e.level - 1] + delay0 + e.delay;
-      b.write(slot, _m, e.hue, seed, e.amp, start);
+      b.write(slot, _m, e.hue + owner, seed, e.amp, start);
       rec.slots.push(e.type, slot);
     }
     this.recs.set(buildingIndex, rec);

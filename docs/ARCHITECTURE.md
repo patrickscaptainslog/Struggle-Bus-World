@@ -182,9 +182,10 @@ They output a ramp index + light level + fog + glow through the GLSL chunks in
   stores ramp/255 and the resolve fetches palette row = ramp, nothing baked
   holds a ramp id). `RAMP_COUNT` is 64 rows (an 8x64 RGBA8 texture, 2 KB):
   0-19 core; 20-23 world materials (GLASS, STONE, GRANITE: tower facades;
-  BRIDGE_ORANGE: painted bridge steel, the Golden Gate); 24-31 reserved for the
-  faction ramps (MAGENTA 24, CYAN 25, AQUA 26, PEARL 27, MOSS 28, BIOLUME 29,
-  FAE_VIOLET 30, SILVERBARK 31: docs/specs/STAGES.md 3.4 rule 7); 32-46 the sky's
+  BRIDGE_ORANGE: painted bridge steel, the Golden Gate); 24-31 the other four
+  factions' paint (MAGENTA 24, CYAN 25, TEAL 26, PEARL 27, MOSS 28, CHROME 29,
+  CRIMSON 30, OBSIDIAN 31: `FACTION_RAMPS`, dealt out by `src/render/factionLook.ts`;
+  paint wherever a table or a check tells paint from the world); 32-46 the sky's
   and world travel's, named in `Ramp` (SKY.md 4, Rows: nothing in the day's frames
   reads them); 47 up spare. Claim a reserved row by adding its name at that number.
 
@@ -933,8 +934,15 @@ impact frame shows the hit.
   escalation), a ground texel's low bits (`texelLow`), the Moon's craters, strokes
   and pictures. A Rainbow record is saved as it was before factions, a save
   that names no faction is Rainbow's, and one a later build made, its sixth or
-  seventh faction, is kept as it is (`ownerOf`, `FACTION_ROOM`). Nothing draws a
-  faction yet.
+  seventh faction, is kept as it is (`ownerOf`, `FACTION_ROOM`). The shaders draw
+  each surface in its owner's colours (`src/render/factionLook.ts`, step 5): buildings,
+  landmarks and the bridges and their span lamps by the texel's alpha, the ground by its
+  texel's low bits, trees by the ground under them, roof gardens by their building,
+  the shockwave ring by its blast (`ringHue`), and the bus's breath and its blast's
+  particles by `Particles.palette`. `?paintas=<key>` makes the bus paint as that faction
+  (the street only). Not yet: the Moon, life's movers, the far field, the bus's own looks.
+  `node tools/sky/run.mjs ../factions/colours.ts` measures the factions apart in every
+  table, `tools/factions/stills.mjs` shoots each under the seven skies.
   Life's movers keep it once C15 (`docs/specs/factions/C15.md`) is agreed.
 - `src/game/Splat.ts`: picks every building the blast reaches, deals the fresh
   ones the rainbow by angle around the impact (touching neighbors differ, never

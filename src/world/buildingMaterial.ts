@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { config } from '../config';
 import { globals, GLSL_COMMON, GLSL_OUT, GLSL_SKY_LIGHT } from '../render/materials';
-import { Ramp, HUE_RAMPS } from '../render/palette';
+import { GLSL_FACTION } from '../render/factionLook';
+import { Ramp } from '../render/palette';
 import { byHour, held, heldOr } from '../sky/flag';
 import { Part } from './BuildingMesher';
 import { Arch } from './tiles';
@@ -71,7 +72,6 @@ export function setFacadeView(high: number, calm: number) {
   facadeUniforms.uCalmF.value = calm;
 }
 
-const HUES = HUE_RAMPS.map((r) => r.toFixed(1)).join(', ');
 const R = (r: number) => r.toFixed(1);
 
 export function makeBuildingMaterial(): THREE.ShaderMaterial {
@@ -199,8 +199,14 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       in float vYRest;
       ${GLSL_OUT}
 
-      const float HUES[6] = float[6](${HUES});
-      float hueRamp(float h) { return HUES[int(mod(h + 60.0, 6.0))]; }
+      ${GLSL_FACTION}
+      // (whose paint this building is, from its texel's alpha: factionLook.ts's rows. A slot's own colour is its body, an offset from it an accent,
+      // and Rainbow's two are its six hues, so for it these are the hue table they replaced)
+      int gFac = 1;
+      float hueRamp(float h) { return sbFacHue(gFac, int(mod(h + 60.0, 6.0)), false); }
+      float bodyRamp(float h) { return sbFacHue(gFac, int(mod(h + 60.0, 6.0)), true); }
+      /** slot h's offset k: the body at k = 0 (and every sixth), an accent otherwise */
+      float cycleRamp(float h, float k) { return mod(k, 6.0) < 0.5 ? bodyRamp(h) : hueRamp(h + k); }
       float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }${held(`
       bool faceLit(float bIdx, vec3 n, float chance) { return h21(vec2(bIdx * 0.37, floor(n.x * 2.99) + 7.0 * floor(n.z * 2.99))) < chance; }`)}
 
@@ -523,6 +529,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           if (tb < 0.0 || (roofY - vYRest) > flood - drip) painted = false;
         }
         float hue = vPaint.r;
+        gFac = sbFac(vPaint.a > ${PAINT_KEPT - 0.5} ? vPaint.a - ${PAINT_KEPT}.0 : vPaint.a);
 
         float tone = (fract(seed * 0.61803) - 0.5) * 0.12; // each house a slightly different grey
         float ramp = ${R(Ramp.GREY)};
@@ -635,7 +642,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           // levels 1-2 are calm Painted Ladies (body, white or one accent trim, belts and cornices only);
           // level 3 is the riot (frames, neighboring hues on bays and gables, wavy bands)
           bool calm = level < 2.5;
-          float body = hueRamp(hue);
+          float body = bodyRamp(hue);
           float trimHue = calm ? (mod(seed, 3.0) < 2.0 ? -1.0 : hue + 3.0) : (mod(seed, 3.0) < 1.0 ? -1.0 : hue + 3.0); // -1 = white trim
           if (isWall) {
             ramp = body;
@@ -645,22 +652,22 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
               float wave = 0.8 * sin(f.x * 0.85 + seed) + 0.45 * sin(f.x * 2.1 + seed * 3.1);
               float band = floor((f.y + wave) / 2.3);
               float off = mod(band + seed, 3.0);
-              ramp = hueRamp(hue + (off < 1.0 ? 0.0 : off < 2.0 ? 1.0 : 5.0));
+              ramp = off < 1.0 ? body : hueRamp(hue + (off < 2.0 ? 1.0 : 5.0));
             }
             if (part == ${R(Part.BAY)}) { if (calm) lo += 0.05; else ramp = hueRamp(hue + 1.0); }
             if (part == ${R(Part.GABLE)} && !calm) ramp = hueRamp(hue + 2.0);
-            if (trimMask > 0.5 && (!calm || beltMask > 0.5)) { ramp = trimHue < 0.0 ? ${R(Ramp.WHITE)} : hueRamp(trimHue); lo = trimHue < 0.0 ? 0.0 : 0.12; }
+            if (trimMask > 0.5 && (!calm || beltMask > 0.5)) { ramp = trimHue < 0.0 ? sbFacTrim(gFac) : hueRamp(trimHue); lo = trimHue < 0.0 ? 0.0 : 0.12; }
           } else if (part == ${R(Part.TRIM)} || part == ${R(Part.STOOP)}) {
-            ramp = trimHue < 0.0 ? ${R(Ramp.WHITE)} : hueRamp(trimHue);
+            ramp = trimHue < 0.0 ? sbFacTrim(gFac) : hueRamp(trimHue);
             lo = 0.08;
           } else if (part == ${R(Part.ROOF)}) {
             if (level > 1.5 && fam > 0.5) {
               // a tower's roofs and setbacks at level 2+: garden turf with flowers in its hue
-              ramp = ${R(Ramp.GREEN)};
+              ramp = sbFacLeaf(gFac);
               vec2 q = floor(vWorldPos.xz / 1.3);
               float fh = h21(q + bIdx);
               lo = -0.04 + (h21(floor(vWorldPos.xz / 5.0)) - 0.5) * 0.12;
-              if (fh > 0.86) { ramp = hueRamp(hue + (fh > 0.93 ? 1.0 : 0.0)); lo = 0.14; }
+              if (fh > 0.86) { ramp = fh > 0.93 ? hueRamp(hue + 1.0) : body; lo = 0.14; }
             } else {
               // the barf landed here: splat blotches + drips across the roof
               vec2 q = vWorldPos.xz * 0.45;
@@ -673,7 +680,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
                   float r = 0.25 + 0.45 * h21(g + 9.1);
                   bl = max(bl, 1.0 - smoothstep(r * 0.7, r, length(q - g - o)));
                 }
-              ramp = hueRamp(hue);
+              ramp = body;
               lo = bl > 0.5 ? 0.16 : -0.02; // wet, brighter splats of the same hue
             }
           } else if (part == ${R(Part.ROOF_SLOPE)}) {
@@ -689,13 +696,13 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           bool tree = (fl & 16) != 0;
           if (part > ${R(Part.DOME - 0.5)}) {
             // golden onion dome on a drum of the building's hue
-            ramp = f.y < 1.2 ? hueRamp(hue) : ${R(Ramp.YELLOW)};
+            ramp = f.y < 1.2 ? bodyRamp(hue) : sbFacGold(gFac);
             lo = 0.04;
           } else {
-            ramp = ${R(Ramp.GREEN)};
+            ramp = sbFacLeaf(gFac);
             lo = tree ? -0.08 : 0.0;
             float bh = h21(floor(n.xz * 3.0 + 3.0) + vec2(bIdx * 0.11, floor(vWorldPos.y)));
-            if (bh > (tree ? 0.8 : 0.6)) { ramp = hueRamp(hue + (bh > 0.9 ? 0.0 : 1.0)); lo = 0.12; }
+            if (bh > (tree ? 0.8 : 0.6)) { ramp = bh > 0.9 ? bodyRamp(hue) : hueRamp(hue + 1.0); lo = 0.12; }
           }
         }
 
@@ -756,18 +763,18 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           glow = fglow;
           if (painted) {
             bool calm = level < 2.5;
-            float body = hueRamp(hue);
+            float body = bodyRamp(hue);
             // trims: white on 2 of 3 towers, the complementary accent on the third
-            float trimR = mod(seed, 3.0) < 2.0 ? ${R(Ramp.WHITE)} : hueRamp(hue + 3.0);
+            float trimR = mod(seed, 3.0) < 2.0 ? sbFacTrim(gFac) : hueRamp(hue + 3.0);
             lw = 0.2 + lw * 0.52;
             bool isGlass = fbase > 0.5 && fbase < 1.5;
             // level 3, Hundertwasser on a skyscraper: floor-tall wavy bands running through all six
             // hues, over the walls and the glass alike
             float wave = 1.6 * sin(f.x * 0.17 + seed) + 0.8 * sin(f.x * 0.47 + seed * 3.1);
-            float h3 = hue + mod(floor((f.y + wave) / 3.8) + floor(seed / 7.0), 6.0);
+            float r3 = cycleRamp(hue, mod(floor((f.y + wave) / 3.8) + floor(seed / 7.0), 6.0));
             if (isGlass && fd > 0.5 && fr != ${R(Ramp.WINDOW)}) {
               // the curtain wall's slab lines and mullions become the stained glass's lead
-              ramp = calm ? body : hueRamp(h3); fbase = 2.0; fd = 2.0; glow = 0.0;
+              ramp = calm ? body : r3; fbase = 2.0; fd = 2.0; glow = 0.0;
             } else if (isGlass) {
               if (calm) {
                 // stained glass: a rainbow ribbon of the tower's hue and its neighbors spiralling up
@@ -775,23 +782,23 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
                 float sf = (vYRest - vBld.z) / 11.7 + f.x / 19.0;
                 float k = mod(floor(sf), 4.0);
                 float off = k < 0.5 ? -1.0 : k < 1.5 ? 0.0 : k < 2.5 ? 1.0 : 0.0;
-                ramp = hueRamp(hue + off);
+                ramp = off == 0.0 ? body : hueRamp(hue + off);
                 fd = 4.0 + (fd < -0.5 ? -1.0 : fd > 0.5 ? 1.0 : 0.0) + (k > 2.5 ? 1.0 : 0.0);
                 glow = uGlassGlow;
               } else {
-                ramp = hueRamp(h3);
+                ramp = r3;
                 fd = 5.0 + (fd < -0.5 ? -1.0 : 0.0);
                 glow = uGlassGlow3;
               }
               fbase = 2.0;
             } else if (fr == ${R(Ramp.GLOW_WHITE)}) {
               // crowns turn gold; Salesforce's LED crown runs the rainbow
-              ramp = crownT == ${Crown.LATTICE} ? hueRamp(hue + floor(f.x / 1.5)) : ${R(Ramp.YELLOW)};
+              ramp = crownT == ${Crown.LATTICE} ? cycleRamp(hue, floor(f.x / 1.5)) : sbFacGold(gFac);
               fd = 5.0;
             } else if (fd > 0.5) {
               ramp = trimR; fd = 0.0; lw = 0.25 + lw * 0.75;
             } else {
-              ramp = calm ? body : hueRamp(h3);
+              ramp = calm ? body : r3;
               fd = min(fd, 0.0) + (calm ? 0.0 : -1.0);
             }
             // level 2+: hanging gardens on every third floor: a white planter rail under a band of green with
@@ -819,9 +826,9 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
               }
               if (q >= 0.0) {
                 float fl2 = wide ? h21(floor(f * vec2(0.8, 1.0)) + bIdx) : 0.0;
-                if (q < rail) { ramp = ${R(Ramp.WHITE)}; fd = 1.0; }
+                if (q < rail) { ramp = sbFacTrim(gFac); fd = 1.0; }
                 else if (fl2 > 0.72) { ramp = hueRamp(hue + (fl2 > 0.86 ? 3.0 : 4.0)); fd = 1.0; }
-                else { ramp = ${R(Ramp.GREEN)}; fd = 0.0; }
+                else { ramp = sbFacLeaf(gFac); fd = 0.0; }
                 fbase = 0.0; glow = 0.0;
               }
             }
@@ -830,7 +837,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
               float colV = floor(f.x / 2.2);
               float drape = 1.5 + 7.0 * pow(h21(vec2(colV, bIdx)), 2.0);
               if (dTop > -0.5 && dTop < drape) {
-                ramp = h21(floor(f * vec2(1.1, 0.9)) + bIdx) > 0.84 ? hueRamp(hue + 1.0) : ${R(Ramp.GREEN)};
+                ramp = h21(floor(f * vec2(1.1, 0.9)) + bIdx) > 0.84 ? hueRamp(hue + 1.0) : sbFacLeaf(gFac);
                 fbase = 0.0; fd = 0.0; glow = 0.0;
               }
             }

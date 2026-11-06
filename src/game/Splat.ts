@@ -3,7 +3,7 @@ import { config } from '../config';
 import { HUE_COUNT } from '../render/palette';
 import type { City, BuildingRef } from '../world/City';
 import { FACTION_RAINBOW } from './factions';
-import { blastUniforms, type GroundJob } from '../world/GroundPaint';
+import { blastUniforms, ringHue, type GroundJob } from '../world/GroundPaint';
 import { arrival, blastRadiusFor, LAYOUT_BANDS, layoutHue, makeBlastSpec, waveMax, wrapHue, type BlastDot, type BlastSpec } from './blastLayout';
 
 // The barf -> blast -> bloom pipeline. Dragon breath: the bus blasts a
@@ -408,7 +408,7 @@ export class Splatter {
       for (const s of p.plan) this.city.paint.set(s.ref.index, { faction, color: s.hue, level: s.level, bloomTime: s.at, keep: s.keep });
       b.dots = p.ground ? this.city.ground.land(p.ground) : [];
       blastUniforms.uBlastRing.value.set(b.spec.x, b.spec.z, b.t, b.spec.r);
-      blastUniforms.uBlastRing2.value.set(b.spec.hue, S.ringWidth * Math.sqrt(b.strength), S.waveSpeed, waveMax(b.spec.r));
+      blastUniforms.uBlastRing2.value.set(ringHue(b.spec.hue, faction), S.ringWidth * Math.sqrt(b.strength), S.waveSpeed, waveMax(b.spec.r));
       this.fx.impact(b);
       if (p.hitStop > 0) this.fx.hitStop(p.hitStop);
       for (const s of p.plan) this.queue.push(s);

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT, SHADOW_LAYER } from '../../render/materials';
+import { FACTION_RAINBOW, FACTION_ROOM } from '../../game/factions';
 import { Ramp } from '../../render/palette';
 import { DEPTH_FS, GLSL_PROPS, hash2, propsTune, treeUniforms, tuneUniform, unitSphere } from './common';
 import { registerWarm } from '../../render/warmup';
@@ -12,8 +13,8 @@ import { registerWarm } from '../../render/warmup';
 // A depth-only twin draws the same shapes into the sun's shadow map.
 //
 // Instance data: instanceMatrix = position + yaw + size,
-// instanceColor = (kind * 8 + hueSlot + 0.9 * seed, level, startTime)
-// where hueSlot 0 = grey, 1..6 = painted with hue (slot - 1).
+// instanceColor = (kind * 8 + hueSlot + 0.9 * seed, level + 4 * (faction - 1), startTime)
+// where hueSlot 0 = grey, 1..6 = painted with hue (slot - 1), and faction is whose paint it is (game/factions.ts: Rainbow's 1 leaves the level as it was).
 
 export interface TreeInstance {
   x: number;
@@ -157,6 +158,7 @@ struct TreeV {
   float variant;
   float hueSlot;
   float level;
+  float fac;
   float start;
   float seed;
   float trunk;
@@ -174,7 +176,7 @@ TreeV treeVertex() {
   float seed = clamp(fract(ic.x) / 0.9, 0.0, 1.0);
   float kind = floor(code / 8.0 + 0.01);
   float hueSlot = code - kind * 8.0;
-  float level = ic.y;
+  float level = mod(ic.y, 4.0);
   float start = ic.z;
   vec3 ipos = instanceMatrix[3].xyz;
   float size = length(instanceMatrix[0].xyz);
@@ -263,6 +265,7 @@ TreeV treeVertex() {
   o.variant = variant;
   o.hueSlot = hueSlot;
   o.level = level;
+  o.fac = 1.0 + floor(ic.y / 4.0);
   o.start = start;
   o.seed = seed;
   o.trunk = (li == 0 || li == 7) ? 1.0 : 0.0;
@@ -279,7 +282,7 @@ ${TREE_VERTEX}
 out vec3 vWorldPos;
 out vec3 vWorldNormal;
 out vec3 vSwayOff;
-flat out vec4 vInfo;   // hueSlot, level, trunk, seed
+flat out vec4 vInfo;   // hueSlot + 8 * (faction - 1), level, trunk, seed
 flat out vec4 vInfo2;  // variant, start, top (m), size
 flat out vec3 vLobeC;
 flat out vec3 vLobeR;
@@ -292,7 +295,7 @@ void main() {
   vWorldPos = t.world.xyz;
   vWorldNormal = normalize(mat3(modelMatrix) * (mat3(instanceMatrix) * t.normal));
   vSwayOff = t.swayOff;
-  vInfo = vec4(t.hueSlot, t.level, t.trunk, t.seed);
+  vInfo = vec4(t.hueSlot + 8.0 * (t.fac - 1.0), t.level, t.trunk, t.seed);
   vInfo2 = vec4(t.variant, t.start, t.top * t.size, t.size);
   vLobeC = t.lobeC;
   vLobeR = max(t.lobeR, vec3(0.01));
@@ -343,7 +346,8 @@ uniform mat4 projectionMatrix;
 ${GLSL_OUT}
 const float VAR_LO[4] = float[4](0.0, 0.035, -0.05, -0.075);
 void main() {
-  float hueSlot = vInfo.x;
+  float hueSlot = mod(vInfo.x, 8.0);
+  int fac = sbFac(1.0 + floor(vInfo.x / 8.0));
   float level = vInfo.y;
   bool trunk = vInfo.z > 0.5;
   float seed = vInfo.w;
@@ -393,10 +397,10 @@ void main() {
   float glow = 0.0;
   bool blossom = false;
   if (trunk) {
-    ramp = painted ? ${Ramp.VIOLET}.0 : ${Ramp.GREY}.0;
+    ramp = painted ? sbFacBark(fac) : ${Ramp.GREY}.0;
     lo = painted ? -0.16 : (vi == 1 ? -0.02 : -0.13);
   } else {
-    ramp = painted ? ${Ramp.GREEN}.0 : ${Ramp.GREEN_GREY}.0;
+    ramp = painted ? sbFacLeaf(fac) : ${Ramp.GREEN_GREY}.0;
     lo = VAR_LO[vi] + (painted ? -0.02 : 0.0);
     // crown self-occlusion: darker underneath, a touch brighter on top
     lo += mix(-uAO, uAO * 0.25, smoothstep(0.25, 0.95, vH01));
@@ -425,9 +429,9 @@ void main() {
       if (h < dens && length(fr - cc) < 0.36) {
         float hue = hueSlot - 1.0;
         if (level > 1.5 && fract(h * 7.31) < 0.3) hue += (fract(h * 3.7) < 0.5 ? 1.0 : -1.0);
-        float br = propHueRamp(hue);
-        // a green tree can't blossom green: pear-white blossoms instead
-        ramp = br == ${Ramp.GREEN}.0 ? ${Ramp.WHITE}.0 : br;
+        float br = propHueRamp(fac, hue, false);
+        // a green tree can't blossom green: pear-white blossoms instead (a blossom its leaves' colour takes its faction's trim)
+        ramp = br == sbFacLeaf(fac) ? sbFacTrim(fac) : br;
         lo = 0.1 + 0.08 * vH01;
         blossom = true;
         if (level > 2.5) glow = 0.22;
@@ -445,8 +449,9 @@ void main() {
   // painted crowns are rainbow-tinted: their shadow side turns to the paint's hue (a clean contour: the
   // screen-anchored checker that softened this edge crawled over the moving crown; -0.02 is its mean)
   if (painted && !trunk && !blossom && light0 + 0.02 < uTint) {
-    float tr = propHueRamp(hueSlot - 1.0);
-    ramp = tr == ${Ramp.GREEN}.0 ? ${Ramp.BLUE}.0 : tr;
+    float tr = propHueRamp(fac, hueSlot - 1.0, true);
+    // (and a tint its leaves' colour takes the next slot's: Rainbow's green is BLUE's neighbour)
+    ramp = tr == sbFacLeaf(fac) ? propHueRamp(fac, hueSlot, false) : tr;
     // keep the tint in the saturated middle of its ramp: the deepest steps of
     // the warm hues read brown on a whole dark crown (a cypress)
     light = (floor((0.4 + 0.4 * light) * 7.0) + 0.25) / 7.0;
@@ -728,7 +733,7 @@ export class TreeField {
    * rainbow-blossomed tree that sways forever. Re-painting at the same or a
    * lower level is ignored (no re-pop while a cascade washes over it).
    */
-  setPaint(index: number, hue: number, level: number, startTime: number): void {
+  setPaint(index: number, hue: number, level: number, startTime: number, faction = FACTION_RAINBOW): void {
     if (this.disposed || index < 0 || index >= this.mesh.count) return;
     const d = this.data;
     const o = index * 3;
@@ -737,10 +742,19 @@ export class TreeField {
     const kind = Math.floor(code / 8 + 0.01);
     const prevSlot = code - kind * 8;
     const lv = Math.max(1, Math.min(3, Math.round(level)));
-    if (prevSlot > 0 && lv <= d[o + 1]) return;
+    // (whose it is in the level's fours: Rainbow's leaves the level as it was)
+    const f = 4 * (Math.max(FACTION_RAINBOW, Math.min(FACTION_ROOM, Math.round(faction))) - FACTION_RAINBOW);
+    if (prevSlot > 0 && lv <= d[o + 1] % 4) {
+      // (no re-pop, but a rival's paint over it is theirs now)
+      if (d[o + 1] - (d[o + 1] % 4) !== f) {
+        d[o + 1] = (d[o + 1] % 4) + f;
+        this.color.needsUpdate = true;
+      }
+      return;
+    }
     const h = ((Math.round(hue) % 6) + 6) % 6;
     d[o] = kind * 8 + (h + 1) + seedPart;
-    d[o + 1] = lv;
+    d[o + 1] = lv + f;
     d[o + 2] = startTime;
     this.color.needsUpdate = true;
   }
@@ -751,7 +765,7 @@ export class TreeField {
     const o = index * 3;
     const code = Math.floor(this.data[o]);
     const slot = code - Math.floor(code / 8 + 0.01) * 8;
-    return slot > 0 ? this.data[o + 1] : 0;
+    return slot > 0 ? this.data[o + 1] % 4 : 0;
   }
 
   /** Back to grey (e.g. paint reset). */

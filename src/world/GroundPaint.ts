@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 import { config } from '../config';
+import { GLSL_FACTION } from '../render/factionLook';
 import { globals } from '../render/materials';
-import { HUE_RAMPS, Ramp } from '../render/palette';
+import { Ramp } from '../render/palette';
 import { uploadRect } from '../render/upload';
 import { arrival, bandHue, blastDots, blastEdge, LAYOUT_BANDS, SHAPE_LUT, specFromArray, specToArray, type BlastDot, type BlastSpec } from '../game/blastLayout';
 import { resolveIdScheme, type CityData, type IdScheme } from './PaintState';
 import { decodeMask, encodeMask, GROUND_N, TEXELS, texelLow, texelOwner, type Prepared } from './groundMask';
-import { ownerOf } from '../game/factions';
+import { FACTION_RAINBOW, FACTION_ROOM, ownerOf } from '../game/factions';
 import { GeoPaint, IdbStore, type GroundGeo, type PicStore } from './GeoPaint';
 
 // Paint on the ground: streets, sidewalks and parks splattered by blasts.
@@ -14,7 +15,7 @@ import { GeoPaint, IdbStore, type GroundGeo, type PicStore } from './GeoPaint';
 // One small RGBA8 mask per terrain tile (128 x 128 texels = 2 m, the same grid
 // as the tile's class texture), created only once paint lands on that tile:
 //   r = coverage (bilinear in the shader + noise threshold -> organic edges)
-//   g = hue * 32 + its faction's texelLow, 16 for Rainbow (nearest, looked up at a noise-warped position; the shader reads the hue)
+//   g = hue * 32 + its faction's texelLow, 16 for Rainbow (nearest, looked up at a noise-warped position; the shader reads the hue and whose it is)
 //   b = reveal delay after impact in 1/100 s, a = live blast serial (0 = settled)
 // A live blast is drawn a few rows per frame while the projectile is in the
 // air (begin -> work), and lands with one texSubImage2D per touched tile
@@ -59,7 +60,7 @@ export { decodeMask, encodeMask, GROUND_N } from './groundMask';
 export const blastUniforms = {
   /** shockwave: center x, z, impact time, blast radius */
   uBlastRing: { value: new THREE.Vector4(0, 0, -1000, 1) },
-  /** shockwave: center hue, ring width (m), launch speed (m/s), max reach (m) */
+  /** shockwave: center hue (and 8 for each faction past Rainbow, whose blast it is: ringHue), ring width (m), launch speed (m/s), max reach (m) */
   uBlastRing2: { value: new THREE.Vector4(0, 9, 300, 90) },
   /** live ground reveals, 4 slots (blasts can overlap in flight): serial, impact time, serial, impact time */
   uGroundLive: { value: new THREE.Vector4(-1, -1000, -1, -1000) },
@@ -68,13 +69,14 @@ export const blastUniforms = {
   uGroundTone: { value: new THREE.Vector4(-0.14, 0.12, 0.7, 0) },
 };
 
-const HUES = HUE_RAMPS.map((r) => r.toFixed(1)).join(', ');
+/** uBlastRing2.x for a blast: its centre hue, and 8 for each faction past Rainbow's, so a Rainbow blast's is the hue it always was. */
+export const ringHue = (hue: number, faction: number) => hue + 8 * Math.max(0, Math.min(FACTION_ROOM, faction) - FACTION_RAINBOW);
 
-/** GLSL: the rainbow shockwave ring racing out across up-facing surfaces. Needs GLSL_COMMON. */
+/** GLSL: the rainbow shockwave ring racing out across up-facing surfaces, in its blast's faction's ground colours. Needs GLSL_COMMON. */
 export const GLSL_BLAST_RING = /* glsl */ `
 uniform vec4 uBlastRing;
 uniform vec4 uBlastRing2;
-const float SB_RING_HUES[6] = float[6](${HUES});
+${GLSL_FACTION}
 float sbRingHash(vec2 p) { return fract(sin(dot(p, vec2(41.31, 289.17))) * 43758.5453); }
 // true where the ring covers this point: ramp / light / glow out
 bool sbRing(vec3 wp, vec3 n, out float ramp, out float light, out float glow) {
@@ -92,7 +94,8 @@ bool sbRing(vec3 wp, vec3 n, out float ramp, out float light, out float glow) {
   // dies by dissolving into pixels (never alpha)
   if (sbRingHash(floor(wp.xz * 0.8)) < k * k * 1.15 - 0.12) return false;
   float band = floor(x * 7.0);
-  ramp = band < 0.5 ? ${Ramp.GLOW_WHITE}.0 : SB_RING_HUES[int(mod(uBlastRing2.x + band - 1.0, 6.0))];
+  float rf = floor(uBlastRing2.x / 8.0);
+  ramp = band < 0.5 ? ${Ramp.GLOW_WHITE}.0 : sbFacGround(sbFac(1.0 + rf), int(mod(uBlastRing2.x - 8.0 * rf + band - 1.0, 6.0)));
   light = band < 0.5 ? 0.95 : 0.78;
   glow = (1.0 - k) * 0.95;
   return true;
@@ -106,7 +109,7 @@ uniform float uGroundOn;
 uniform vec4 uGroundLive;
 uniform vec4 uGroundLive2;
 uniform vec4 uGroundTone;
-const float SB_GROUND_HUES[6] = float[6](${HUES});
+${GLSL_FACTION}
 float sbgHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float sbgNoise(vec2 p) {
   vec2 i = floor(p);
@@ -148,7 +151,9 @@ bool sbGroundPaint(vec3 wp, vec2 uv, out float ramp, out float edge, out float w
   if (w.y > m) { m = w.y; s = s10; age = a10; }
   if (w.z > m) { m = w.z; s = s01; age = a01; }
   if (w.w > m) { s = s11; age = a11; }
-  ramp = SB_GROUND_HUES[int(clamp(floor(s.g * 255.0 / 32.0), 0.0, 5.0))];
+  // (whose it is in g's low bits, texelLow's 14 + 2 f: groundMask.ts)
+  float gb = floor(s.g * 255.0 + 0.5);
+  ramp = sbFacGround(sbFac(floor((mod(gb, 32.0) - 14.0) * 0.5)), int(clamp(floor(s.g * 255.0 / 32.0), 0.0, 5.0)));
   edge = cov - thr;
   // wet blotches: big soft spots a step brighter
   wet = smoothstep(0.62, 0.7, sbgNoise(wp.xz * 0.31 + 7.3));
