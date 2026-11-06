@@ -3,6 +3,7 @@ import { config } from '../config';
 import { globals, GLSL_COMMON, GLSL_OUT, heldGlobals } from '../render/materials';
 import { HUE_RAMPS, Ramp } from '../render/palette';
 import { paintUniforms } from '../world/buildingMaterial';
+import { PAINT_KEPT } from '../world/PaintState';
 import { registerWarm } from '../render/warmup';
 import type { TerrainTile } from '../world/tiles';
 import { skyOn } from './flag';
@@ -69,7 +70,7 @@ const LAMP_VS = /* glsl */ `
       vec4 paint = texelFetch(uPaint, ivec2(int(mod(idx, uPaintW)), int(floor(idx / uPaintW))), 0);
       vec4 hit = uSpanHit[g];
       // (an escalation is painted already; a fresh bloom lights up as its run passes, light by light)
-      bool run = paint.a < 1.5 && hit.w > paint.b - 4.0 && hit.w < paint.b + 0.3;
+      bool run = paint.a < ${PAINT_KEPT - 0.5} && hit.w > paint.b - 4.0 && hit.w < paint.b + 0.3;
       if (paint.g > 0.5 && uTime >= paint.b && (!run || distance(wp, hit.xyz) < uSpanRun * (uTime - hit.w))) {
         vRamp = SPAN_HUES[int(mod(floor(paint.r + 0.5) + floor(aTag / ${SPANS}.0) + 60.0, 6.0))];
         vLight = 0.7;

@@ -1,5 +1,6 @@
-import { dotAt, decodeMask, encodeMask, GROUND_N, splatAt, TEXELS, type Prepared } from './groundMask';
+import { dotAt, decodeMask, encodeMask, GROUND_N, splatAt, TEXELS, texelLow, type Prepared } from './groundMask';
 import type { BlastSpec } from '../game/blastLayout';
+import { FACTION_RAINBOW, ownerOf } from '../game/factions';
 
 // ?moon: the Moon's open-ground paint, kept by place, whatever map it was painted on (GroundPaint.useGeo). DECISIONS.md, "The third review: the pictures' blocker and majors".
 //
@@ -489,7 +490,7 @@ export class GeoPaint {
   private drawSplat(key: number, pic: Pic | null, p: Prepared, from: number, until: number): number {
     const c = this.corners, R = p.max + 3, s = p.spec, r = this.rangeOf(key, s.x - R, s.z - R, s.x + R, s.z + R, c);
     if (!r) return -1;
-    const o = this.t1, out = this.splat;
+    const o = this.t1, out = this.splat, low = texelLow(ownerOf(s.faction));
     let d = pic?.data ?? null, b = Math.max(r[2], from);
     for (; b <= r[3]; b++) {
       for (let a = r[0]; a <= r[1]; a++) {
@@ -498,7 +499,7 @@ export class GeoPaint {
         if (!d) d = this.make(key).data;
         const t = (b * N + a) * 4, cov = Math.round(out.c * 255), old = d[t];
         d[t] = Math.max(old, cov);
-        if (cov >= 128 || cov > old) d[t + 1] = out.hue * 32 + 16;
+        if (cov >= 128 || cov > old) d[t + 1] = out.hue * 32 + low;
       }
       if (b < r[3] && performance.now() >= until) break;
     }
@@ -508,7 +509,7 @@ export class GeoPaint {
 
   /** The spatter drawn into a picture from its dot `from`, a dot at a time until `until`: the dot to go on from, or -1 when it's done. */
   private drawDots(key: number, pic: Pic | null, p: Prepared, from: number, until: number): number {
-    const c = this.corners, dots = p.dots;
+    const c = this.corners, dots = p.dots, low = texelLow(ownerOf(p.spec.faction));
     let d = pic?.data ?? null, any = false, q = from;
     // (the picture's corners once a step, not once a dot: four trig-heavy places a dot were a sixth of a breath's fold. Review four, 27)
     this.cornersOf(key, c);
@@ -527,7 +528,7 @@ export class GeoPaint {
           if (!d) d = this.make(key).data;
           const t = (b * N + a) * 4, cov = Math.round(cv * 255), old = d[t];
           d[t] = Math.max(old, cov);
-          if (cov >= 128 || cov > old) d[t + 1] = dot.hue * 32 + 16;
+          if (cov >= 128 || cov > old) d[t + 1] = dot.hue * 32 + low;
           any = true;
         }
     }
@@ -919,8 +920,11 @@ export class GeoPaint {
     }
   }
 
+  /** A blast as the journal keeps it, its place aside: the spec's 16 numbers, and its faction after them if it isn't Rainbow's (a Rainbow blast as before factions). */
   private toArray(s: BlastSpec): number[] {
-    return [s.x, s.z, s.r, s.hue, s.seed, s.layout, s.sectors, s.ring, s.twist, s.edge, s.ragged, s.rays, s.rayLen, s.reach, s.dots, s.blobs];
+    const a = [s.x, s.z, s.r, s.hue, s.seed, s.layout, s.sectors, s.ring, s.twist, s.edge, s.ragged, s.rays, s.rayLen, s.reach, s.dots, s.blobs], f = ownerOf(s.faction);
+    if (f !== FACTION_RAINBOW) a.push(f);
+    return a;
   }
 
   private fromPlace(b: [number, number, number | null, number | null, number[]]): BlastSpec | null {
@@ -928,6 +932,7 @@ export class GeoPaint {
     const a = b[4], o = this.t0;
     this.geo.toXZ(b[0], b[1], o);
     const s: BlastSpec = { x: o[0], z: o[1], r: a[2], hue: a[3], seed: a[4], layout: a[5], sectors: a[6], ring: a[7], twist: a[8], edge: a[9], ragged: a[10], rays: a[11], rayLen: a[12], reach: a[13], dots: a[14], blobs: a[15] };
+    if (a.length > 16) s.faction = ownerOf(a[16]);
     if (b[2] !== null && b[3] !== null && Number.isFinite(b[2]) && Number.isFinite(b[3])) {
       this.geo.toXZ(b[2], b[3], o);
       s.ox = o[0];

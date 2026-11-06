@@ -6,6 +6,7 @@ import { byHour, held, heldOr } from '../sky/flag';
 import { Part } from './BuildingMesher';
 import { Arch } from './tiles';
 import { blastUniforms, GLSL_BLAST_RING } from './GroundPaint';
+import { PAINT_KEPT } from './PaintState';
 import { Fam, Crown, Variant } from './towerStyles';
 
 // One shader for every building. Grey state: Hopper — cool battleship
@@ -516,7 +517,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         bool painted = level > 0.5;
         float tb = uTime - vPaint.b;
         // escalations (already painted) stay painted while the blast wave travels to them
-        if (painted && vPaint.a < 1.5) {
+        if (painted && vPaint.a < ${PAINT_KEPT - 0.5}) {
           float drip = h21(vec2(floor(f.x * 1.3), bIdx)) * 2.6 + h21(vec2(floor(f.x * 0.4), bIdx + 7.0)) * 1.4;
           float flood = uBloom.w * max(tb, 0.0) + uFloodHead;
           if (tb < 0.0 || (roofY - vYRest) > flood - drip) painted = false;
