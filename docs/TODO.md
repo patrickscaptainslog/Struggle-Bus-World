@@ -2,6 +2,53 @@
 
 Tick what you finish, in the commit that finishes it. Add to it when the producer asks for something. Written 2026-11-02.
 
+## Evening report: the second account (2026-11-06)
+
+**What to fly**
+
+- **Recess:** https://struggle-bus-world-git-feat-recess-patricks-projects-9ff6e721.vercel.app/?recess
+  - You start on the arena's edge, with the camera high behind you and both captains ahead in frame. It swoops down at the bell.
+  - The view is wider than the street's. Each captain carries its name and distance, or shows as a chevron at the screen's edge when it's off screen.
+  - The captains are teal Atlantis and crimson Inferno, with ribbons behind them. Their paint lands in their own colours, and only where it counts.
+  - Each camp's god stands from the start. Five hits on a rival's heart take it, and a + in the score means a god still stands.
+  - When you're hit, your bus floods with their colour, barrel-rolls and is flung, and NO BRAKES holds you at Nonstop. Add `&hit=jet` to try being forced into Jet instead.
+  - Fly into the fence at the edge and you bounce back with a BOING.
+  - A match no longer touches your saved city.
+- **Parks from 9 am:** https://struggle-bus-world-git-feat-life-patricks-projects-9ff6e721.vercel.app/?life&lat=37.7605&lon=-122.4262 in the morning, over Dolores. A few groups are out from 9, building to the afternoon peak.
+
+**Done, my list** (details under "Today", below):
+1. `feat/life` 99dfb45: the parks from 9 am.
+2. `feat/recess`: B21, a match keeps its paint to itself.
+3. `feat/recess`: M22, the freezes, and M23, the paint agreeing with the brain.
+4. `feat/life` b6ee10b: every mover inside a splat's circle painted through `life.blast`.
+5. `feat/recess`: Recess you can find.
+6. `feat/recess`: being hit, made loud, with `&hit=nonstop|jet`.
+7. `feat/recess`: the heal, seal two.
+
+**Also done:** `feat/factions` e0f1dde merged in, so the captains wear their own colours. Curb's road side (item 9's first half) is on `feat/life` b65af07.
+
+**Not done:**
+- Item 8 waits on hold to aim, which isn't on `feat/shots` yet.
+- Parade, and the older items (life's M8 to M11, C18, the decks review), are next. I stopped there to stay well short of the weekly limit.
+
+**Hooks for the first account,** small, named, in your files:
+- `CameraRig.matchFov` and `matchPull`, set only under `?recess`.
+- `recess.quiet(b.tag)` in `main.ts`'s impact: a blast the player didn't fire plays no flash, kick, sound or sign.
+- `recess.blocks(...)` in `breathe()`: a breath the match won't count lands as a flash in the air.
+- `Controls.flickGate`, as before.
+- On `feat/life`: `life.curb` and `life.curbRoll(dt, push, look, pose)` for your Curb flight, and `curb.onBeside(key)` for painting the car beside the bus. LIFE.md, "Curb's road side", has the API.
+
+**Checked here** (software graphics, a fixed step; the GPU and the phone are yours):
+- `tools/recess/screen.mjs`: kickoff, findable, up, gotcha, possessed, paint, paint agrees (426 of 426 captain-coloured buildings in or beside their squares), fence, gods, bell, programs (nothing compiled), B21, flag off, no page errors. On the run before last, 16 of 19 passed, and the 3 that failed were the rows themselves (their fixes are in bcf4903 and the commit after it); the final run is going, and its result follows in the next commit.
+- `check.mjs`: 17 of 17. `duels.mjs`: all pass, 3,000 duels; 750 contested matches, 9 gods toppled.
+- `feat/life`: smoke and paint all pass, the 9:30 rows included (9 groups in Dolores on a Friday at 9:30); determinism, alloc, `blast.mjs` (4 rows) and `curb.mjs` (8 rows, on San Francisco's roads) pass.
+
+**Not checked:**
+- A whole three-minute match in real time.
+- The frame's cost with the fence, the ribbons and the wider lens.
+- The kickoff's swoop as a player sees it.
+- Curb's road side in the browser, which waits on the first account's Curb flight.
+
 ## Today, both accounts (2026-11-06, the producer away for the day)
 
 The producer approved the shots redesign whole ("Everything in the doc is excellent"), with Belly Flop, Waterfall, Sonic Boom and Parade, and asked for a massive run while they're away. [specs/shots/SHOTS.md](specs/shots/SHOTS.md) is the plan, and its "Who builds what" is the split; `CLAUDE.md`'s "Shots" block has the rulings it changes. The rules for today:
@@ -12,15 +59,15 @@ The producer approved the shots redesign whole ("Everything in the doc is excell
 - Leave an evening report at the top of this file, with the preview links and what to try.
 
 **Second account** (life and Recess), in this order:
-- [ ] `feat/life`: the parks from 9 am (under "Tonight", below).
-- [ ] `feat/recess`: B21, a match keeps its paint to itself: under `?recess`, load nothing and save nothing.
-- [ ] `feat/recess`: the freezes (M22: only hits involving the player freeze the screen, at most 2 s a match, and the match clock never stops) and the paint agreeing with the brain (M23).
-- [ ] `feat/life`: every mover inside a splat's circle painted. `life.blast` paints every car, person, picnic and boat in the circle the first account's splat passes, 85 m across at roof height. The splat's own size is the first account's now, so only one account edits `Splat.ts`.
-- [ ] `feat/recess`: Recess you can find (SHOTS.md, "Seeing them"): the wider view under `?recess` through a hook on the camera, the start, the kickoff, the edge chevrons, the fence, and the captains on your ladder.
-- [ ] `feat/recess`: being hit, made loud (SHOTS.md, "Being hit"), with the forced gear both ways behind a link, `&hit=nonstop` or `&hit=jet`.
-- [ ] `feat/recess`: the heal, decision 16, as the producer approved it today ("Yes, build it"): the studio's M1, "seal two", from [reviews/recess-screen-2026-11-06.md](reviews/recess-screen-2026-11-06.md), "The heal". A heal waits for the god's five-second ring, as a crack does; when the ring closes, an owner's hit seals two cracks (one if only one is there), and on a whole god it only starts the ring again (`guard`). `godTune.seals` is 2. The Lift's one crack heals on the ring too. The captains heal on the ring and guard their god, and `check.mjs` asserts the new rule where it asserted the immediate heal.
+- [x] `feat/life`: the parks from 9 am (under "Tonight", below).
+- [x] `feat/recess`: B21, a match keeps its paint to itself: under `?recess`, load nothing and save nothing.
+- [x] `feat/recess`: the freezes (M22: only hits involving the player freeze the screen, at most 2 s a match, and the match clock never stops) and the paint agreeing with the brain (M23).
+- [x] `feat/life`: every mover inside a splat's circle painted. `life.blast` paints every car, person, picnic and boat in the circle the first account's splat passes, 85 m across at roof height. The splat's own size is the first account's now, so only one account edits `Splat.ts`.
+- [x] `feat/recess`: Recess you can find (SHOTS.md, "Seeing them"): the wider view under `?recess` through a hook on the camera, the start, the kickoff, the edge chevrons, the fence, and the captains on your ladder.
+- [x] `feat/recess`: being hit, made loud (SHOTS.md, "Being hit"), with the forced gear both ways behind a link, `&hit=nonstop` or `&hit=jet`.
+- [x] `feat/recess`: the heal, decision 16, as the producer approved it today ("Yes, build it"): the studio's M1, "seal two", from [reviews/recess-screen-2026-11-06.md](reviews/recess-screen-2026-11-06.md), "The heal". A heal waits for the god's five-second ring, as a crack does; when the ring closes, an owner's hit seals two cracks (one if only one is there), and on a whole god it only starts the ring again (`guard`). `godTune.seals` is 2. The Lift's one crack heals on the ring too. The captains heal on the ring and guard their god, and `check.mjs` asserts the new rule where it asserted the immediate heal.
 - [ ] When the first account says here that hold to aim is pushed on `feat/shots`: merge it. Then lock-on for boats and planes, the Torpedo's boat side and the plane ribbon on `feat/life`, then the rival lock, the white window, the dodge and the incoming marker on `feat/recess`.
-- [ ] `feat/life`: Curb's road side (SHOTS.md, "Curb"): a lane the bus can roll on beside the cars, pacing the car beside it, as an API the first account's Curb calls. Then Parade.
+- [ ] `feat/life`: Curb's road side (SHOTS.md, "Curb"): a lane the bus can roll on beside the cars, pacing the car beside it, as an API the first account's Curb calls. Then Parade. **Curb's road side done 2026-11-06** (`feat/life` b65af07, LIFE.md "Curb's road side"); Parade next.
 - [ ] Then the older lists below: life's re-review majors (M8 to M11), C18, and the decks review.
 
 **First account** (the shots, the flight, the camera and the GPU), on `feat/shots`, cut from `feat/factions` e0f1dde:
