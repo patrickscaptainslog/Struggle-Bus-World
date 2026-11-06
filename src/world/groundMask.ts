@@ -1,9 +1,19 @@
 import { bandHue, LAYOUT_BANDS, SHAPE_LUT, type BlastDot, type BlastSpec } from '../game/blastLayout';
+import { FACTION_RAINBOW, ownerOf } from '../game/factions';
 
 // A ground mask's texels and their code, and a blast's settled paint at a point: what GroundPaint.ts draws on a tile, and GeoPaint.ts into the Moon's pictures by place.
 
 /** Texels a side of a tile's mask, and of a picture by place. */
 export const GROUND_N = 128;
+
+/**
+ * A painted texel's g: its hue in the top 3 bits, and its faction in the low 5 as texelLow's 14 + 2 f, room for factions 0-7. Rainbow's is 16, what every
+ * painted texel's was before factions, so a Rainbow mask is the same bytes as then; the ground's shader reads the hue alone, floor(g / 32).
+ */
+export const texelLow = (faction: number) => 14 + 2 * faction;
+/** What a painted texel's g says is its faction (Rainbow for low bits that are none of texelLow's). */
+export const texelOwner = (g: number) => ownerOf(((g & 31) - 14) >> 1);
+const RAINBOW_LOW = texelLow(FACTION_RAINBOW);
 
 /** A blast made ready to draw (GroundPaint.prepare). */
 export interface Prepared {
@@ -23,19 +33,31 @@ export interface Prepared {
 }
 
 export const TEXELS = GROUND_N * GROUND_N;
-/** encoder scratch: worst case one (value, run) pair per texel */
+/** encoder scratch: worst case one (value, run) pair per texel; each painted pair's texelLow; the owners' (faction, run - 1) pairs */
 const RLE = new Uint8Array(TEXELS * 2);
+const LOWS = new Uint8Array(TEXELS);
+const OWNERS = new Uint8Array(TEXELS * 2);
+
+const base64 = (a: Uint8Array, w: number) => {
+  let bin = '';
+  for (let k = 0; k < w; k += 0x2000) bin += String.fromCharCode.apply(null, a.subarray(k, Math.min(w, k + 0x2000)) as unknown as number[]);
+  return btoa(bin);
+};
 
 /**
  * A mask's settled paint as a short string: per texel coverage (5 bits) and
  * hue (3 bits), run-length coded ((value, run - 1) byte pairs), base64.
  * Empty string = nothing painted.
+ * Whose it is: where any painted texel isn't Rainbow's, '~' and a second base64 of (faction, n - 1) byte pairs, the next n painted pairs that
+ * faction's (a run ends where the faction changes too). A mask that's all Rainbow's has none, and is the code it was before factions; a build from before
+ * them can't read a code that has one (atob throws on '~'), and takes it for a broken one.
  */
 export function encodeMask(d: Uint8Array): string {
-  let w = 0, prev = -1, run = 0, any = false;
+  let w = 0, prev = -1, run = 0, any = false, other = false, n = 0;
   for (let k = 0, o = 0; k < TEXELS; k++, o += 4) {
     const q = (d[o] * 31 + 127) / 255 | 0;
-    const v = q > 0 ? (q << 3) | Math.min(5, d[o + 1] >> 5) : 0;
+    // (the texel's byte, and its texelLow over it: one compare a texel, and the byte alone into RLE)
+    const v = q > 0 ? (q << 3) | Math.min(5, d[o + 1] >> 5) | ((d[o + 1] & 31) << 8) : 0;
     if (v === prev && run < 256) {
       run++;
       continue;
@@ -43,33 +65,62 @@ export function encodeMask(d: Uint8Array): string {
     if (run) {
       RLE[w++] = prev;
       RLE[w++] = run - 1;
+      if (prev) LOWS[n++] = prev >> 8;
     }
-    if (v) any = true;
+    if (v) {
+      any = true;
+      if (v >> 8 !== RAINBOW_LOW) other = true;
+    }
     prev = v;
     run = 1;
   }
   RLE[w++] = prev;
   RLE[w++] = run - 1;
+  if (prev) LOWS[n++] = prev >> 8;
   if (!any) return '';
-  let bin = '';
-  for (let k = 0; k < w; k += 0x2000) bin += String.fromCharCode.apply(null, RLE.subarray(k, Math.min(w, k + 0x2000)) as unknown as number[]);
-  return btoa(bin);
+  const code = base64(RLE, w);
+  if (!other) return code;
+  let fw = 0;
+  for (let p = 0; p < n; ) {
+    const low = LOWS[p];
+    let e = p + 1;
+    while (e < n && e - p < 256 && LOWS[e] === low) e++;
+    OWNERS[fw++] = texelOwner(low);
+    OWNERS[fw++] = e - p - 1;
+    p = e;
+  }
+  return code + '~' + base64(OWNERS, fw);
 }
 
-/** Decodes encodeMask() into a mask's data (settled: no reveal, no serial). False if corrupt. */
+/** Decodes encodeMask() into a mask's data (settled: no reveal, no serial). False if corrupt. Painted pairs past what its owners name are Rainbow's. */
 export function decodeMask(str: string, d: Uint8Array): boolean {
-  let bin: string;
+  let bin: string, own = '';
   try {
-    bin = atob(str);
+    const cut = str.indexOf('~');
+    bin = atob(cut < 0 ? str : str.slice(0, cut));
+    if (cut >= 0) own = atob(str.slice(cut + 1));
   } catch {
     return false;
   }
-  let k = 0;
+  let k = 0, f = 0, left = 0, low = RAINBOW_LOW;
   for (let i = 0; i + 1 < bin.length; i += 2) {
     const v = bin.charCodeAt(i);
     const q = v >> 3;
+    if (q) {
+      if (!left) {
+        if (f + 1 < own.length) {
+          low = texelLow(ownerOf(own.charCodeAt(f)));
+          left = own.charCodeAt(f + 1) + 1;
+          f += 2;
+        } else {
+          low = RAINBOW_LOW;
+          left = Infinity;
+        }
+      }
+      left--;
+    }
     const cov = q ? Math.round((q * 255) / 31) : 0;
-    const g = q ? Math.min(5, v & 7) * 32 + 16 : 0;
+    const g = q ? Math.min(5, v & 7) * 32 + low : 0;
     const e = k + bin.charCodeAt(i + 1) + 1;
     if (e > TEXELS) break;
     for (let o = k * 4; k < e; k++, o += 4) {
