@@ -638,10 +638,11 @@ if (!only || only === 'spoiled') {
   for (const [a, b] of tl) g.attach(a, b, a * TS, b * TS, uni());
   g.blast(spec(500, 500, 60, 1), 0);
   g.blast(spec(540, 500, 40, 3, 4), 0);
-  const [key, m] = [...g.masks].find(([, x]) => encodeMask(x.data).includes('~')), code = encodeMask(m.data), [tx, tz] = key.split(',').map(Number);
-  const want = new Uint8Array(N * N * 4), got = new Uint8Array(N * N * 4), out = {};
+  // (a tree from before factions writes no owners: a Rainbow tile's code stands in there, and the rows fail on it)
+  const [key, m] = [...g.masks].find(([, x]) => encodeMask(x.data).includes('~')) ?? [...g.masks][0], code = encodeMask(m.data), [tx, tz] = key.split(',').map(Number);
+  const want = new Uint8Array(N * N * 4), got = new Uint8Array(N * N * 4), out = { owners: code.includes('~') };
   decodeMask(code, want);
-  let ok = true;
+  let ok = out.owners;
   for (const [name, s] of Object.entries(spoils(code))) {
     const read = decodeMask(s, got);
     let same = read, rainbow = read;
