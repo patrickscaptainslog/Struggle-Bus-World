@@ -63,6 +63,7 @@ The producer approved the factions plan, [specs/factions/FACTIONS.md](specs/fact
     - the game's narrow lens sees about 640 m of the 1.5 km arena from 1,500 m;
     - the captains' blue and red are hues Rainbow deals too, until step 5's colours;
     - how often a god falls when a person raids.
+  - **Done by the first account 2026-11-06**, [reviews/recess-screen-2026-11-06.md](reviews/recess-screen-2026-11-06.md): two whole matches on the laptop's GPU with real touches (Rival and Veteran), the review of ab6c67c to bced508 and the cf6687f merge, and the heal's middle rule, each read twice. Both matches ran to the bell with no page error and nothing compiled after the warm-up, and nothing changes without the flag. But the frame climbs from 16.7 ms to 50 ms as the arena paints: the rooftop sprouts, 3 to 5 M triangles by the bell. One blocker, for `main`. The findings are the next item.
 - [x] When there's time: review `feat/decks`, 34d55cf to 492a953 (`specs/bridges/BRIDGES.md`'s notes on steps 3 and 4 say what was built and what was checked). **Done 2026-11-06**, [reviews/decks-steps34-2026-11-06.md](reviews/decks-steps34-2026-11-06.md). No blocker; two majors before step 6 turns the gate on: M1, a city's `"qa"` can loosen any check with `NaN` (`qa.py:190`); M2, `deckFreeEnd` excuses any deck end with a kept road within 12 m, whatever its height, so step 4's 0.00 m is that exemption. Four minors, six nits. Only `qacheck.py` ran here, 1 of 3: the other two, and `segcheck.py`, need shapely and pyarrow, which this machine hasn't got; nothing was baked.
 - [ ] `feat/life`: the re-review's findings, [reviews/life-fixes-2026-11-06.md](reviews/life-fixes-2026-11-06.md), before `main`. The majors first:
   - M8, ferries still pass through one another (188 times a day, 184 of them by the Ferry Building), and the Pier 41 line's berth is on the Ferry Plaza; the ferry row at 1 s steps, ferries under way included.
@@ -73,6 +74,17 @@ The producer approved the factions plan, [specs/factions/FACTIONS.md](specs/fact
   - Then m14 to m18 (cars shrunk to nothing still take the shot; sunset past midnight outside San Francisco; the loosened rows), m11, the nits, and C17's proposed change in `CONTRACT.md` 0.11 to agree or answer.
 - [ ] `feat/recess`: the review's findings, [reviews/recess-2026-11-06.md](reviews/recess-2026-11-06.md), most of them still in ab6c67c. M2, the breath's lead to `arrive` (0 misses in every case), and M3, never erase a save that failed to read, with a header and version (m10) before anything saves; M1 waits on the producer's word on the heal, with a middle rule run through the sieges first so the question comes with a pick. Then m4 to m13, the captains defending their own heart (m7) first for tonight's Recess, and the nits.
 - [ ] `feat/recess`: the neighbourhoods. C18 in `CONTRACT.md` 0.13 to agree or answer: the files are on `feat/hoods` 1390222, and O17 to O20 in its `C18.md` each have a pick (Recess's circle cuts its three neighbourhoods; the piers stay in none; the quarter for tagged squares; a short ring is the shore's or a park's). Then fill `NeighbourhoodTable` from `src/world/hoods.ts` behind the flag, and the layer's notes in [reviews/hoods-2026-11-06.md](reviews/hoods-2026-11-06.md), all still in bced508: ties at exactly half go to the highest faction (`areas.ts:306`); Recess's score counts the whole city once the table is real (`recess.ts:534`); the lone captain's score row passes on squares alone (`duels.mjs:276`); short rings; and the two nits. The heal is the same M1 as above and waits on the producer.
+- [ ] `feat/recess`: Recess on screen's review, [reviews/recess-screen-2026-11-06.md](reviews/recess-screen-2026-11-06.md), before `main`:
+  - **B21 first:** under `?recess`, paint in memory only, or in a store of its own. Today the match paints over the player's saved San Francisco and starts from it.
+  - **Then the majors:**
+    - M22, `hitStop: 0` and no kick or flash for captains' paint: 10 to 14 s of each match is frozen clock;
+    - M23, the city's paint and the brain agree: hiccups on owned ground, hits the brain leaves with the owner, missed breaths that crack and heal gods unseen, the firehose, MEGA;
+    - M24, the rooftop sprouts' cost, 3 to 5 M triangles and 50 to 83 ms at the bell (the base game's `sprouts.ts`, so the fix is the studio's to choose);
+    - M25, words that get lost (YOU ARE WANTED never shows);
+    - M26, the Crown on Recess's own score, with the player's taps outside the circle counting for nothing;
+    - M28, the earlier review's lead fix.
+  - **M27, the heal,** waits on the producer (below). Then the captains heal on the ring.
+  - **Then** the minors m29 to m42 (the bell's view turned to show all three hearts first) and the nits.
 
 **First account** (the laptop with the GPU: every look and frame check)
 - [x] `feat/decks`: the freeways' steps 3 and 4, done and pushed at 492a953 (streets cut only where they're bridge or tunnel, San Francisco re-baked, the bridge gate's fifteen checks in report mode, the tour). Its GPU checks against main finish tonight. **Done**: the GPU checks ran on the final bake's build, and `specs/bridges/BRIDGES.md`'s step 4 note has what they found (the opening's first shot 70 game pixels of 334,836 changed, the grey shot 37.3 %, the park trees). Its log also has `skycheck`'s shimmer reading 2 hard fails by a hair, the Financial District at 12.96 % against main's 12.63 % and the ceiling at 2.97 % against 2.94 %, which the note doesn't mention.
@@ -255,6 +267,7 @@ Start with [BRIEF.md](BRIEF.md): what the second account built meanwhile, what i
 - [x] Approve the living Earth plan: "Ok. I love this living earth plan" (2026-11-04)
 - [ ] A used iPhone 13, bought, for the game's floor (LIVING.md's pick: now, about $210-290). The engineers can't buy anything. Approved again with the factions plan (decision 22)
 - [x] The factions' 27 (how many stages) and 28 (territory by neighbourhood), in `specs/factions/FACTIONS.md` §6. Approved 2026-11-06 as picked: "Regarding 27 and 28, yes I approve both"
+- [ ] The heal, decision 16 ([reviews/recess-screen-2026-11-06.md](reviews/recess-screen-2026-11-06.md), "The heal"). Today a defender who stays by their god and keeps tapping it mends every crack the moment it lands, so a defended god never falls. If mending waited for the god's five-second ring, the way cracking does, one raider would take a defended god about half the time in Recess's three minutes. The studio's pick: mending waits for the ring but mends two cracks at once. Then one defender holds off one equal raider about four times in five, two raiders usually take the god in about a minute, and three nearly always do. Build that?
 
 ## Later, in this order
 
