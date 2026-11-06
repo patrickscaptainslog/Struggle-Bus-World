@@ -4,7 +4,7 @@
 //            change keeps the count; the music's clock
 //   slots    two stage changes a second at most, each on a beat, none more than a bar late, across a burst of forty
 //   areas    claim, up to 4 and no further on a square (the god is a neighbourhood's), encores, the five-second wait whoever moves it, a rival's hit down and the flip at 1,
-//            stage 4's crack, the owner's heal and the wait it restarts (decision 16), parries, spills and hiccups only on grey, one hit an area a super,
+//            stage 4's crack, the owner's heal on the ring only and the wait it restarts (decision 16, seal two), parries, spills and hiccups only on grey, one hit an area a super,
 //            changes on their beats
 //   realm    decision 28, the neighbourhoods: the stand-ins (nearest points, Recess's camps); a god raised at the heart only once its faction holds half the
 //            squares at 3 or more and the ring of 8 is at the Lift, by the owner's next ready hit there and on its beat; not on a godless or tagged heart, nor
@@ -90,7 +90,8 @@ const R = Faction.RAINBOW, A = Faction.ATLANTIS, I = Faction.INFERNO;
   const top = g.get(x, z).stage;
   hit(A, 1); // ready: crack, the wait again
   hit(A, 1); // cooling: parry
-  hit(R, 0.5); // the owner heals, the wait again
+  hit(R, 0.5); // the owner, its ring not closed: only an encore (seal two)
+  hit(R, 3.6); // 5.1 s after the crack, the ring closed: the owner heals, the wait again
   hit(A, 4.6); // 4.6 s after the heal: parry
   hit(A, 0.5); // ready: crack
   hit(A, 5.1); // the fall to 3
@@ -98,8 +99,8 @@ const R = Faction.RAINBOW, A = Faction.ATLANTIS, I = Faction.INFERNO;
   hit(A, 5.1);
   hit(A, 5.1); // the flip
   hit(R, 1); // Rainbow's hit on Atlantis's, cooling: parry
-  const want = 'claim:1 encore:1 up:2 up:3 up:4 encore:4 encore:4 crack:4x parry:4x heal:4 parry:4 crack:4x down:3 down:2 down:1 flip:1 parry:1';
-  row('areas: claim, up to 4, encores, parry, crack, heal, down, flip', log.join(' ') === want && top === areaTune.top && g.get(x, z).faction === A, log.join(' '));
+  const want = 'claim:1 encore:1 up:2 up:3 up:4 encore:4 encore:4 crack:4x parry:4x encore:4x heal:4 parry:4 crack:4x down:3 down:2 down:1 flip:1 parry:1';
+  row('areas: claim, up to 4, encores, parry, crack, the Lift\'s heal on its ring only, down, flip', log.join(' ') === want && top === areaTune.top && g.get(x, z).faction === A, log.join(' '));
   // (the five seconds: from every change, whoever's)
   const h = new Areas();
   h.hit(0, 0, R, 0);
@@ -190,15 +191,24 @@ const R = Faction.RAINBOW, A = Faction.ATLANTIS, I = Faction.INFERNO;
   log.push(hit(heart, A).outcome);
   for (let k = 0; k < 4; k++) { t += 5.01; log.push(hit(heart, A).outcome); }
   t += 1;
-  log.push(hit(heart, A).outcome);
-  log.push(hit(heart, R).outcome);
+  log.push(hit(heart, A).outcome); // (cooling: parry)
+  log.push(hit(heart, R).outcome); // (the owner before the ring closes: only an encore)
+  t += 4.02;
+  log.push(hit(heart, R).outcome); // (the ring closed: the owner seals two of the four cracks)
+  const sealed = g.all.get(heart).cracks;
   for (const k of rest) { const a = g.all.get(k); a.stage = 1; }
   const stands = g.standing(0).god === R && g.standing(0).holder === 0;
   t += 5.01; log.push(hit(heart, A).outcome);
   t += 5.01; log.push(hit(heart, A).outcome);
+  t += 5.01; log.push(hit(heart, A).outcome);
   const after = g.all.get(heart);
-  row('realm: 5 hits to topple 0.8 km², cracks one every 5 s, the owner heals one, the half lost leaves it, the last gives the heart at 1',
-    want === 5 && log.join(' ') === 'parry crack crack crack crack parry heal crack topple' && stands && after.faction === A && after.stage === 1 && after.cracks === 0, log.join(' '));
+  row('realm: 5 hits to topple 0.8 km², cracks one every 5 s, the owner\'s heal on the ring seals two, the half lost leaves it, the last gives the heart at 1',
+    want === 5 && log.join(' ') === 'parry crack crack crack crack parry encore heal crack crack topple' && sealed === 2 && stands && after.faction === A && after.stage === 1 && after.cracks === 0, log.join(' '));
+  // (the guard: a whole god's owner, its ring closed, starts the ring again, and a raider's hit inside it is parried)
+  const gd = new Areas(undefined, realm);
+  gd.setGod(0, R);
+  const gk = at(realm.heart(0)), guard = gd.hit(gk.x, gk.z, R, 10).outcome, inRing = gd.hit(gk.x, gk.z, A, 12).outcome, later = gd.hit(gk.x, gk.z, A, 15.1).outcome;
+  row('realm: a whole god\'s owner on the ring guards it, the ring again: a raider\'s hit inside it parried, after it a crack', guard === 'guard' && inRing === 'parry' && later === 'crack', { guard, inRing, later });
   // (godless and tagged; hiccups never call a god)
   const tiny = small, th = realm.heart(1);
   climb(tiny, R, 4);

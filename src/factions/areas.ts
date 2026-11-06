@@ -1,14 +1,15 @@
 // The areas (FACTIONS.md section 5, step 4, and section 1's "The studio's view" and section 3's "Neighbourhoods", decisions 27 and 28, approved 2026-11-06;
 // STAGES.md section 1 underneath where those don't change it). The city is cut into 128 m squares, one owner each, stage 0 (grey) to 4: skin, roofs, streets,
 // the Lift. An owner's ready hit climbs one stage, a rival's ready hit knocks one off, and the hit that knocks a stage-1 square off takes it over. Stage 4
-// takes two rival hits to lose: the first cracks it, and an owner's hit heals the crack (decision 16). A stage changes at most once every five seconds,
-// whoever moves it; a crack or a heal starts the five seconds again (decision 16). Every change lands on the beat (beat.ts's Slots: two a second across the
+// takes two rival hits to lose: the first cracks it, and an owner's hit heals the crack once its five-second ring has closed (decision 16, "seal two", approved
+// 2026-11-06: "Yes, build it"). A stage changes at most once every five seconds, whoever moves it; a crack or a heal starts the five seconds again. Every change lands on the beat (beat.ts's Slots: two a second across the
 // city, at most a bar late). Solo, nothing decays (STAGES.md 1.3). Saved one city a key, 16 bytes a square.
 //
 // The fifth stage, the god, belongs to a neighbourhood (`Realm`, neighbourhoods.ts): one at most, at its heart. It rises when a faction holds half the
 // neighbourhood's squares at stage 3 or more, the heart's ring of 8 has reached the Lift, and the heart is at 4: its owner's next ready hit on the heart raises
-// it. Toppling it takes 5 to 9 rival hits at the heart by the neighbourhood's size, fewer for the leader's (the Crown, decision 17), each a crack an owner's hit
-// heals one of; the last gives the heart to the attacker at stage 1. Losing the half doesn't topple it. A Possessed bus's hiccups only ever claim grey at
+// it. Toppling it takes 5 to 9 rival hits at the heart by the neighbourhood's size, fewer for the leader's (the Crown, decision 17), each a crack. A heal waits
+// for the god's ring as a crack does: when it closes the next hit counts, whoever's, a raider's cracking the god and its owner's sealing two cracks (one if only
+// one is there), or on a whole god only starting the ring again (`guard`). The last crack gives the heart to the attacker at stage 1. Losing the half doesn't topple it. A Possessed bus's hiccups only ever claim grey at
 // stage 1, so they never call a god. Pure and worker-safe: nothing here draws, and the host shows each change at its `at`.
 
 import { Beat, Slots } from './beat';
@@ -47,6 +48,8 @@ export const godTune = {
   crown: 2,
   /** Recess's score: a point a stage a square, and this a god held */
   godPoints: 36,
+  /** the cracks an owner's ready hit seals on a god (decision 16, "seal two"); the Lift's one crack heals one */
+  seals: 2,
 };
 
 /** A 128 m square's key: ix and iz as two 16-bit halves. */
@@ -111,11 +114,11 @@ export interface Area {
 }
 
 /**
- * What a hit did: claim (grey to stage 1), up, encore (the owner's, cooling or at the top), crack, heal, down, flip (the rival owns it at stage 1),
- * parry (a rival's, cooling), none (a spill or a hiccup on someone's ground, or a repeat of one super); at a heart, god (the god rises) and topple (the last
- * hit on a god: the heart the attacker's at stage 1).
+ * What a hit did: claim (grey to stage 1), up, encore (the owner's, cooling or at the top), crack, heal (the owner's, its ring closed), down, flip (the rival
+ * owns it at stage 1), parry (a rival's, cooling), none (a spill or a hiccup on someone's ground, or a repeat of one super); at a heart, god (the god rises),
+ * guard (its owner's ready hit on a whole god: the ring starts again) and topple (the last hit on a god: the heart the attacker's at stage 1).
  */
-export type Outcome = 'claim' | 'up' | 'encore' | 'crack' | 'heal' | 'down' | 'flip' | 'parry' | 'none' | 'god' | 'topple';
+export type Outcome = 'claim' | 'up' | 'encore' | 'crack' | 'heal' | 'guard' | 'down' | 'flip' | 'parry' | 'none' | 'god' | 'topple';
 
 export interface HitResult {
   area: Area;
@@ -215,11 +218,11 @@ export class Areas {
     if (a.faction === 0) out = 'claim';
     else if (a.stage === godTune.stage) {
       const n = this.realm ? this.realm.of(a.key) : -1;
-      if (own) out = a.cracks > 0 ? 'heal' : 'encore';
+      if (own) out = !ready ? 'encore' : a.cracks > 0 ? 'heal' : 'guard';
       else if (!ready) out = 'parry';
       else out = a.cracks + 1 >= this.toppleHits(n, a.faction) ? 'topple' : 'crack';
     } else if (own) {
-      if (a.cracks > 0) out = 'heal';
+      if (a.cracks > 0) out = ready ? 'heal' : 'encore';
       else if (!ready) out = 'encore';
       else if (a.stage < this.topOf(a.key)) out = 'up';
       else out = this.mayRaise(a, faction) ? 'god' : 'encore';
@@ -256,8 +259,10 @@ export class Areas {
         return t;
       case 'crack':
       case 'heal':
-        a.cracks += out === 'crack' ? 1 : -1;
-        if (out === 'heal') a.hits++;
+      case 'guard':
+        if (out === 'crack') a.cracks++;
+        else if (out === 'heal') a.cracks -= Math.min(a.stage === godTune.stage ? godTune.seals : 1, a.cracks);
+        if (out !== 'crack') a.hits++;
         a.last = t;
         this.onChange?.(a);
         return t;

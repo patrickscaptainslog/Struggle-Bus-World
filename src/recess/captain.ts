@@ -18,15 +18,17 @@ export interface Skill {
   hold: number;
   /** how much its steering wanders (rad of error) */
   wobble: number;
-  /** how often it goes home when its god is cracked or a rival is at its heart, and how often its painting is a raid on a rival's heart */
+  /** how often it goes home when its god is cracked or a rival is at its heart (once a danger), and how often its painting is a raid on a rival's heart */
   defend: number;
   raid: number;
+  /** how often it waits for its god's ring to close before it taps its heart (decision 16, seal two: a heal or a guard counts only then) */
+  timing: number;
 }
 
 export const SKILLS: Record<Level, Skill> = {
-  learner: { react: 0.28, dodge: 0.2, aim: 0.6, hunt: 0.35, hold: 0.4, wobble: 0.25, defend: 0.4, raid: 0.15 },
-  rival: { react: 0.18, dodge: 0.5, aim: 0.85, hunt: 0.5, hold: 0.15, wobble: 0.12, defend: 0.7, raid: 0.3 },
-  veteran: { react: 0.1, dodge: 0.8, aim: 1, hunt: 0.65, hold: 0.02, wobble: 0.05, defend: 0.95, raid: 0.35 },
+  learner: { react: 0.28, dodge: 0.2, aim: 0.6, hunt: 0.35, hold: 0.4, wobble: 0.25, defend: 0.4, raid: 0.15, timing: 0 },
+  rival: { react: 0.18, dodge: 0.5, aim: 0.85, hunt: 0.5, hold: 0.15, wobble: 0.12, defend: 0.7, raid: 0.3, timing: 0.5 },
+  veteran: { react: 0.1, dodge: 0.8, aim: 1, hunt: 0.65, hold: 0.02, wobble: 0.05, defend: 0.95, raid: 0.35, timing: 1 },
 };
 
 /** A small seeded random (mulberry32). */
@@ -47,6 +49,9 @@ export class Captain {
   readonly skill: Skill;
   private readonly rand: () => number;
   private goal: 'hunt' | 'paint' | 'defend' = 'paint';
+  /** a danger to its god seen and rolled for, and whether this defence chases the raider */
+  private alarmed = false;
+  private chase = false;
   private goalUntil = 0;
   private gx = 0;
   private gz = 0;
@@ -80,11 +85,18 @@ export class Captain {
       this.flickAt = Infinity;
     }
     // (what it wants: home when its god is in danger, its avenger's mark, then a hunt or the ground, rerolled every few seconds)
+    // (rolled once a danger, not every step: the first account's review, m33. Home, it hunts the raider one time in seven (the studio's heal study), and
+    // otherwise heals and guards its god on the ring)
     const danger = this.danger(r, me);
-    if (danger && this.goal !== 'defend' && this.rand() < S.defend) {
-      this.goal = 'defend';
-      this.goalUntil = t + 4 + this.rand() * 3;
+    if (danger && !this.alarmed) {
+      this.alarmed = true;
+      if (this.rand() < S.defend) {
+        this.goal = 'defend';
+        this.goalUntil = t + 4 + this.rand() * 3;
+        this.chase = this.rand() < 0.15;
+      }
     }
+    if (!danger) this.alarmed = false;
     if (t >= this.goalUntil) {
       this.goal = this.rand() < S.hunt ? 'hunt' : 'paint';
       this.goalUntil = t + 3 + this.rand() * 4;
@@ -92,8 +104,8 @@ export class Captain {
     }
     let prey: Bus | null = null;
     if (this.goal === 'defend' && danger) {
-      // (the raider at its heart, or the heart itself to heal its cracks)
-      if (danger !== true && r.canLock(me, danger)) prey = danger;
+      // (the raider at its heart, or the heart itself, to heal its cracks and guard it on the ring)
+      if (danger !== true && this.chase && r.canLock(me, danger)) prey = danger;
       else {
         const c = squareCentre(r.areas.realm!.heart(me.home));
         this.gx = c.x;
@@ -152,9 +164,12 @@ export class Captain {
   /** Ground worth a breath: grey, a rival's, its own cracked or below its top, or a heart a god may rise on. */
   private worth(a: Area | undefined, me: Bus, r?: Recess): boolean {
     if (!a || a.faction !== me.faction) return true;
+    // (its own in the five seconds' wait: a hit there is only an encore. A captain that doesn't time the ring taps its cracked god anyway, now and then)
+    const ready = !r || r.t - a.last >= areaTune.cooldown;
+    if (!ready) return a.cracks > 0 && this.rand() >= this.skill.timing && this.rand() < 0.05;
     if (a.cracks > 0) return true;
-    // (its own in the five seconds' wait: a hit there is only an encore)
-    if (r && r.t - a.last < areaTune.cooldown) return false;
+    // (its whole god with a raider near: a guard, the ring again)
+    if (r && a.stage === 5 && this.danger(r, me)) return true;
     if (a.stage < (r ? r.areas.topOf(a.key) : 4)) return true;
     const R = r?.areas.realm;
     return !!R && me.home >= 0 && R.heart(me.home) === a.key && a.stage < 5;
