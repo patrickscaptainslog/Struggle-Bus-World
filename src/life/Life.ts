@@ -593,13 +593,13 @@ export class LifeHost {
    * False: it has no road behind it yet, or no ring is free.
    */
   private tracks(r: number, hash: number, o: number, x: number, y: number, z: number, scale: number, paint: MoverPaint, cam: THREE.Vector3, ang: number, wake = 0): number {
-    // (a wake, `wake` the boat's length: one ribbon from its stern, a point every 0.6 of its length, its width spreading with age, laid on the water where the boat
+    // (a wake, `wake` the boat's length: one ribbon from its stern, a point every 0.3 of its length, its width spreading with age, laid on the water where the boat
     // went, not a bar swung with it: the first account's life review, M6. Its heading is its line either way for a ferry, so its stern is behind its going)
     const R = MARK_POINTS - 1, rows = this.snap!.rows, vx = rows[o + Col.VX], vz = rows[o + Col.VZ], vv = Math.sqrt(vx * vx + vz * vz);
     const h = rows[o + Col.HEADING], fx = wake && vv > 0.3 ? vx / vv : Math.cos(h), fz = wake && vv > 0.3 ? vz / vv : Math.sin(h);
     const kAxle = KINDS[rows[o + Col.KIND]].axle, rear = wake ? wake / (2 * scale) : (kAxle ? kAxle[0] : 1.35), wheel = wake ? 0 : (kAxle ? kAxle[1] : 0.72);
     const ax = x - fx * rear * scale, az = z - fz * rear * scale;
-    const STEP = wake ? Math.max(4, wake * 0.6) : TRACK_STEP, sides = wake ? 1 : 2;
+    const STEP = wake ? Math.max(4, wake * 0.3) : TRACK_STEP, sides = wake ? 1 : 2;
     // (its ring, or a free one: else the one not drawn longest, if it's a second gone)
     let t = -1, old = -1;
     for (let i = 0; i < TRACKS; i++) {

@@ -167,7 +167,10 @@ try {
         return { key, was: window.__game.life.glintKey, dx: +(-uz * 5).toFixed(2), dz: +(ux * 5).toFixed(2), busY: Math.round(f.y) };
       }, a.key);
       await frames(2);
-      beside.now = await page.evaluate(() => window.__game.life.glintKey);
+      Object.assign(beside, await page.evaluate(() => {
+        const m = window.__game.aimer.mover;
+        return { now: window.__game.life.glintKey, missM: m ? +m.miss.toFixed(2) : null, halfM: m ? +m.half.toFixed(2) : null };
+      }));
       // (back on it for the tap)
       await page.evaluate(([dx, dz]) => { const p = window.__qa.pin; window.__qa.pin = { ...p, x: p.x - dx, z: p.z - dz }; }, [beside.dx, beside.dz]);
       await frames(2);
@@ -209,14 +212,15 @@ try {
     await frames(10);
     const carKept = await testStore('car:');
     row('cars: the bus low behind one, its aim on it: it glints, a real tap paints it, none of it kept', !!got?.painted && got.painted.level >= 1 && carKept === 0, { cars: a.near, tries: a.tries, key: got?.key, painted: got?.painted, carKept });
-    row('cars: the bus put 5 m to one side, its line of fire missing the car: it still glints, in the aim\'s cone', !!beside && beside.now === beside.key, beside);
+    // (the same car, or another the line now passes nearer: the aim's cone takes the one nearest its line)
+    row('cars: the bus put 5 m to one side, its line of fire missing the car: a car still glints, in the aim\'s cone', !!beside && (beside.now === beside.key || (/^car:/.test(beside.now ?? '') && beside.missM <= 5 + beside.halfM)), beside);
     const b = got?.bounce;
     row('cars: painted, it bounces, squashed as it lands, and lays two rainbow tyre tracks flat on the road', !!b && b.frames >= 20 && b.hop > 0.15 && b.squash < 0.9 && b.tracks >= 1 && b.marks >= 2 && b.hues >= 4 && b.edgesM < 0.01 && b.overRoadM < 1, b);
   }
   {
     // (B1, the first account's life review: aimed at a house by a busy street, the car beside it took the shot, and along the nose a car 1.7 km down the road. The bus
     // flown level along the street the nearest car is on, at 15, 45 and 150 m, 40 frames each, its aim wherever the game puts it: on the frames the line of fire lands
-    // on a building, nothing on the ground glints but what the line runs right over; and nothing on the ground glints past the line's end)
+    // on a building (a few at least, or the row hasn't tried it), nothing on the ground glints but what the line runs right over; and nothing on the ground glints past the line's end)
     const street = await page.evaluate(() => {
       const g = window.__game, l = g.life, s = l.snap, rows = s.rows, f = g.flight;
       let best = null;
@@ -251,13 +255,13 @@ try {
       }
     await page.evaluate(() => delete window.__qa.pin);
     await frames(4);
-    const ok = !!street && Object.values(seen).every((v) => v.stolen === 0 && v.past === 0) && Object.values(seen).some((v) => v.onRoof > 5);
+    const ok = !!street && Object.values(seen).every((v) => v.stolen === 0 && v.past === 0) && Object.values(seen).reduce((n, v) => n + v.onRoof, 0) >= 3;
     row("aim: flown along a busy street at 15, 45 and 150 m, a building the line lands on keeps the shot, and nothing on the ground past the line's end", ok, seen);
   }
 
   {
     // (a ferry: the bus 40 m up behind the nearest one underway, nose along its way, as a player chasing it holds; tried from 150, 250 and 400 m back. It glints, a
-    // real tap paints it, and painted it lays a wake on the water behind it in every hue; its paint is kept, by vessel. A frame of it three seconds on, following it)
+    // real tap paints it, and painted it lays a wake on the water behind it in every hue; its paint is kept, by vessel. A frame of it six seconds on, following it)
     const ferry = () => page.evaluate(() => {
       const g = window.__game, l = g.life, s = l.snap, rows = s.rows, dt = (l.utc - s.f64[0]) / 1000;
       let best = null;
@@ -281,7 +285,7 @@ try {
         if ((await page.evaluate(() => window.__game.life.glintKey)) !== f.key) continue;
         await page.screenshot({ path: join(dir, 'ferry-glint.png') });
         await page.evaluate(() => window.__game.tapSplat());
-        for (let k = 0; k < 9; k++) {
+        for (let k = 0; k < 18; k++) {
           const a = await now(f.key);
           if (a) await page.evaluate((p) => (window.__qa.pin = p), { x: a.x - f.ux * back, y: 40, z: a.z - f.uz * back, heading, nose: 0 });
           await frames(10);

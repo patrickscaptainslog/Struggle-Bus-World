@@ -58,14 +58,28 @@ try {
   // (cars: on the roads round the bus, each on the ground's height there but where a deck carries it over, and how many of them the graphs' regions in gave)
   const carsNow = () => page.evaluate(() => {
     const g = window.__game, l = g.life, s = l.snap, rows = s.rows, n = s.u32[2], cam = g.camera.position;
-    let cars = 0, near = 0, onGround = 0, worstY = 0, far = 0, decks = 0, offGround = 0, buses = 0, trucks = 0;
+    let cars = 0, near = 0, onGround = 0, worstY = 0, far = 0, decks = 0, offGround = 0, buses = 0, trucks = 0, inView = 0, heavyInView = 0;
+    // (in the camera's view, a few metres' margin: the host culls what's out of it)
+    const vi = g.camera.matrixWorldInverse.elements, pr = g.camera.projectionMatrix.elements;
+    const seen = (x, y, z) => {
+      const ex = vi[0] * x + vi[4] * y + vi[8] * z + vi[12], ey = vi[1] * x + vi[5] * y + vi[9] * z + vi[13], ez = vi[2] * x + vi[6] * y + vi[10] * z + vi[14];
+      if (ez > -1) return false;
+      const w = -ez, px = (pr[0] * ex + pr[8] * ez) / w, py = (pr[5] * ey + pr[9] * ez) / w;
+      return Math.abs(px) < 0.9 && Math.abs(py) < 0.9;
+    };
     for (let i = 0; i < n; i++) {
       const o = i * 16;
       if (rows[o + 1] !== 5 && rows[o + 1] !== 9) continue;
       cars++;
       if (rows[o + 1] === 9) (rows[o + 14] & 7) === 1 ? buses++ : trucks++;
       const x = rows[o + 2], z = rows[o + 4], dy = Math.abs(rows[o + 3] - g.city.groundAt(x, z));
-      if (Math.hypot(x - cam.x, rows[o + 3] - cam.y, z - cam.z) < 300) near++;
+      if (Math.hypot(x - cam.x, rows[o + 3] - cam.y, z - cam.z) < 300) {
+        near++;
+        if (rows[o + 11] > 0.5 && seen(x, rows[o + 3], z)) {
+          inView++;
+          if (rows[o + 1] === 9) heavyInView++;
+        }
+      }
       // (on a drawn deck, flagged by the worker, it may stand over the ground; anywhere else it's on it)
       if (rows[o + 12] & 2) decks++;
       else if (dy < 1) onGround++;
@@ -75,12 +89,12 @@ try {
       }
       far = Math.max(far, Math.hypot(x - g.flight.x, z - g.flight.z));
     }
-    return { cars, buses, trucks, near, drawn: l.qa.cars, heavyModels: l.qa.heavy, lights: l.qa.lights, onGround, decks, offGround, worstOffM: +worstY.toFixed(1), farthestM: Math.round(far) };
+    return { cars, buses, trucks, near, inView, heavyInView, drawn: l.qa.cars, heavyModels: l.qa.heavy, lights: l.qa.lights, onGround, decks, offGround, worstOffM: +worstY.toFixed(1), farthestM: Math.round(far) };
   });
   // (the graphs come in a region at a time after the first ticks: a few seconds of the game's clock)
   for (let i = 0; i < 6 && (await carsNow()).cars < 50; i++) await frames(30);
   const cars = await carsNow();
-  row("cars: on the roads round the bus at 09:30, buses and trucks among them, drawn, the near ones as models, each on the ground's height but on a drawn deck", cars.cars > 50 && cars.near > 0 && cars.drawn > 20 && cars.offGround === 0 && cars.farthestM <= 1200 && cars.lights === 0 && cars.buses > 0 && cars.trucks > 0 && cars.heavyModels > 0, cars);
+  row("cars: on the roads round the bus at 09:30, buses and trucks among them, drawn, the near ones in view as models, each on the ground's height but on a drawn deck", cars.cars > 50 && cars.near > 0 && cars.drawn >= Math.min(20, cars.inView) && cars.offGround === 0 && cars.farthestM <= 1200 && cars.lights === 0 && cars.buses > 0 && cars.trucks > 0 && (cars.heavyInView === 0 || cars.heavyModels > 0), cars);
   // (ferries: every vessel in the snapshot, on the water, the near ones drawn; underway is a speed over 1 m/s)
   const boats = await page.evaluate(() => {
     const g = window.__game, l = g.life, s = l.snap, rows = s.rows, n = s.u32[2];
