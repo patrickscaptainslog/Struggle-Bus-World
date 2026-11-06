@@ -36,8 +36,10 @@ export interface Blast {
   dots: BlastDot[];
   /** a firehose impact (BarfOpts.hose): the caller plays its lighter fx */
   hose: boolean;
-  /** ?life: a breath that hit a mover (BarfOpts.mover): life paints that mover itself, and the blast's circle paints nothing else */
+  /** ?life: a breath that hit a mover in the air (BarfOpts.mover): life paints that mover itself, and the blast's circle paints nothing else */
   mover: boolean;
+  /** ?life: a breath at a boat in open water (BarfOpts.moverBlock), no building in reach: its circle paints the boats in it, and no ground and no sign */
+  afloat: boolean;
   /** the building it hit, or null */
   primary: BuildingRef | null;
   /** which super splat made this blast, null for a tap (the stage engine's one-hit-per-area rule reads it) */
@@ -101,6 +103,10 @@ export interface BarfOpts {
   /** ?life: a mover it hits (src/life): the blast is in the air at (x, opts.y, z), and paints no building and no ground; `moverFresh`, it took the breath's hue */
   mover?: { x: number; y: number; z: number };
   moverFresh?: boolean;
+  /** ?life: a breath at a mover on a floor, a car, a ferry, a person (Splatter.moverOnFloor): the blast is centred on it at (x, opts.y, z) and paints the
+   *  block round it, as a tap's does (SHOTS.md: "A shot that hits a car or a ferry paints the block around it too"); never a miss, as the mover is there,
+   *  and life paints it with the rest of the circle's (main.ts, life.blast). Called with target null and exact */
+  moverBlock?: boolean;
 }
 
 /** BarfOpts.bands */
@@ -271,7 +277,8 @@ export class Splatter {
     reach.sort((a, b) => a.e - b.e);
     // nothing to paint (open water, no building in reach): a miss. It doesn't fake a hit: no flash, boom
     // or hit-stop, just a splash when it comes down (the caller refunds part of the belly)
-    this.lastMiss = reach.length === 0 && city.groundAt(x, z) < S.missWaterY;
+    const open = reach.length === 0 && city.groundAt(x, z) < S.missWaterY;
+    this.lastMiss = open && !opts?.moverBlock;
     if (this.lastMiss) {
       this.misses.push({ at: tImpact, pos, hue: this.nextHue });
       if (!stream) this.fx.geyser([pos.clone()], [this.nextHue]);
@@ -287,7 +294,9 @@ export class Splatter {
       spec.ox = bands.x;
       spec.oz = bands.z;
     }
-    const groundless = opts?.shape?.(spec) === false;
+    // (a boat in open water: the boats in its circle take it, and the water none)
+    const afloat = open && !!opts?.moverBlock;
+    const groundless = opts?.shape?.(spec) === false || afloat;
     const plan: Scheduled[] = [];
     let maxLevel = 1;
     const busy = hose ? this.hoseBusy(paint.data.length >> 2) : null;
@@ -318,14 +327,20 @@ export class Splatter {
     const ground = groundless ? null : city.ground.begin(spec, tImpact);
     this.pending.push({
       at: tImpact, plan, ground, hitStop: hose ? 0 : opts?.hitStop ?? S.hitStopFrames,
-      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, mover: false, primary, super: opts?.super ?? null, tag: opts?.tag },
+      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, mover: false, afloat, primary, super: opts?.super ?? null, tag: opts?.tag },
     });
     if (!stream) this.fx.geyser([pos.clone()], [hue]);
     return tImpact;
   }
 
+  /** ?life: a mover on a floor (the ground, the water, a bridge's deck, a roof), within moverFloor of it: a car, a ferry, a person, not a plane overhead. A breath at
+   *  one is a blast of the block round it (BarfOpts.moverBlock); one at a mover in the air is its own hit alone (barfMover). */
+  moverOnFloor(m: { x: number; y: number; z: number }): boolean {
+    return m.y - this.city.surfaceAt(m.x, m.z, m.y + 2) < config.splat.moverFloor;
+  }
+
   /**
-   * ?life: a breath that hits a mover (CONTRACT.md section 3, O5): a hit's flash and hit-stop at its impact, in the air where the mover will be, and no building or
+   * ?life: a breath that hits a mover in the air (CONTRACT.md section 3, O5): a hit's flash and hit-stop at its impact, in the air where the mover will be, and no building or
    * ground under it painted. Life paints the mover; a fresh one took this breath's hue, so the next breath's moves on, as after a fresh building.
    */
   private barfMover(m: { x: number; y: number; z: number }, tImpact: number, r: number, hose: boolean, fresh: boolean, opts: BarfOpts): number {
@@ -336,7 +351,7 @@ export class Splatter {
     spec.faction = this.faction;
     this.pending.push({
       at: tImpact, plan: [], ground: null, hitStop: hose ? 0 : opts.hitStop ?? S.hitStopFrames,
-      blast: { spec, pos, t: tImpact, count: 1, maxLevel: 1, strength: r / S.blastRadius, dots: [], hose, mover: true, primary: null, super: opts.super ?? null, tag: opts.tag },
+      blast: { spec, pos, t: tImpact, count: 1, maxLevel: 1, strength: r / S.blastRadius, dots: [], hose, mover: true, afloat: false, primary: null, super: opts.super ?? null, tag: opts.tag },
     });
     this.lastMiss = false;
     return tImpact;

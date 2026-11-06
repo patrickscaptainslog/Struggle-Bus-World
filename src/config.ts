@@ -529,6 +529,8 @@ export const config = {
     aimLatch: 0.5,
     /** ?life: how far along the nose the aim looks for a mover past the aim's own ray (m): a plane flown alongside or ahead */
     moverReach: 2500,
+    /** A mover this far over the floor under it (m) or nearer is on it, a car, a ferry, a person: a breath at it paints the block round it. Higher, a plane: its own hit */
+    moverFloor: 40,
     aimLatchCone: 0.2,
     /** Aim glint: light lift on the target (0.125 = one ramp step), the sweep's extra lift, sweeps per second. */
     glintLift: 0.13,

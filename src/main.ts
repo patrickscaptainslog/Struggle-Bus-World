@@ -616,6 +616,12 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const SPARKS_BLAST = 48, SPARKS_MIN = 5;
   /** the blast being shown (impact fires right before its primary's bloom, in the same update) */
   const lastBlast = { x: 0, z: 0, r: config.splat.blastRadius, open: false };
+  /** ?life: the floor a blast's circle is centred on, for an impact at height y over (x, z): the ground, or a bridge's deck when it landed on one
+   *  (an impact at or over a deck's underside there: a tower's roof has no deck under it, so it stays the ground's) */
+  const blastFloor = (x: number, z: number, y: number) => {
+    const ground = city.groundAt(x, z);
+    return y > ground + 4 && city.overheadAt(x, z, ground + 1) <= y ? y - 0.5 : ground;
+  };
   const splatter = new Splatter(city, {
     geyser: (targets, hues) => {
       const S = config.splat;
@@ -629,8 +635,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       moonPaint?.impact(b);
       // (?life: every shot's whole circle paints every mover in it, as the buildings in it: a tap's as a MEGA's, a hose's every impact and its closer
       // (SHOTS.md, "The shot, reworked"; CONTRACT.md section 3). Its centre is the ground under the impact, so a shot on a tower's roof still takes the
-      // street round its foot. A breath that hit a mover is life's own hit (Aim's mover, life.hit), and its blast paints no other)
-      if (!b.mover) life?.blast(b.spec.x, city.groundAt(b.spec.x, b.spec.z), b.spec.z, b.spec.r, b.spec.hue, b.super ?? undefined, simTime);
+      // street round its foot; one that landed on a bridge's deck is centred on the deck, so it takes the deck's cars end to end as the street's. A shot at
+      // a car, a ferry or a person is one of these, centred on it, and takes the block round it too (Splat.barf's moverBlock); only one at a mover in the
+      // air (a plane) is life's own hit alone (Aim's mover, life.hit), and its blast paints no other)
+      if (!b.mover) life?.blast(b.spec.x, blastFloor(b.spec.x, b.spec.z, b.pos.y), b.spec.z, b.spec.r, b.spec.hue, b.super ?? undefined, simTime);
       lastBlast.x = b.spec.x;
       lastBlast.z = b.spec.z;
       lastBlast.r = b.spec.r;
@@ -665,7 +673,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       rig.kick(S.kick * Math.sqrt(k));
       bumpPaint(b.spec.x, b.spec.z, Math.min(255, 30 + 5 * b.count));
       // nothing blooms (open ground with no building in reach): no first bloom will queue a sign, so it queues here
-      if (moon ? moon.paint.signDue(b.spec.x, b.spec.z, b.t) : !b.count) queueSign(null, b.spec.hue, b.spec.x, b.spec.z, b.spec.r);
+      if (moon ? moon.paint.signDue(b.spec.x, b.spec.z, b.t) : !b.count && !b.afloat) queueSign(null, b.spec.hue, b.spec.x, b.spec.z, b.spec.r);
     },
     bloom: (ref, _order, total, hue, level, roof, flags) => {
       if (landmarkBloom(ref, hue, level)) return;
@@ -954,10 +962,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     breathTravel = shot.travel;
     breathWidth = (mega ? mega.width : 1) * (moonPaint?.width(shot, flight) ?? 1);
     try {
-      // (?life: a breath at a mover paints the mover, at the impact's game time, and nothing under it. CONTRACT.md section 3)
+      // (?life: a breath at a car, a ferry or a person is a blast centred on it: it paints the block round it, and life.blast paints it with every mover in the
+      // circle (SHOTS.md, "The shot, reworked"). One at a plane paints the plane, at the impact's game time, and nothing under it. CONTRACT.md section 3)
       const mover = shot.mover && life ? shot.mover : null;
-      const moverFresh = mover ? life!.hit(mover.key, splatter.hueNext, skyClock.now(), simTime + config.splat.inhale + shot.travel) : false;
-      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: flight.y, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, ...moonPaint?.barf(shot, !!mega), ...(mover ? { mover, moverFresh } : {}) });
+      const block = !!mover && splatter.moverOnFloor(mover);
+      const moverFresh = mover && !block ? life!.hit(mover.key, splatter.hueNext, skyClock.now(), simTime + config.splat.inhale + shot.travel) : false;
+      const at = block ? mover! : shot;
+      splatter.barf(at.x, at.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: block ? null : shot.target, y: at.y, exact: block || shot.exact, from: flight.y, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, ...moonPaint?.barf(shot, !!mega), ...(block ? { moverBlock: true } : mover ? { mover, moverFresh } : {}) });
     } finally {
       breathTravel = null;
       breathWidth = 1;
