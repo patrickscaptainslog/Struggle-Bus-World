@@ -128,6 +128,8 @@ interface Scheduled {
   at0?: THREE.Vector3;
   /** SplatFx.bloom flags */
   flags: number;
+  /** ?lift: 1 it lifts at its bloom, 2 it's in the sky already (its paint isn't written either way) */
+  lift?: 1 | 2;
 }
 
 interface PendingBlast {
@@ -293,14 +295,17 @@ export class Splatter {
       // every firehoseRepop s, and never while an earlier impact's pop is still on its way to it)
       if (busy && busy[ref.index] > this.t) continue;
       const lv = paint.level(ref.index);
+      // (?lift: a floating house is in the sky, and takes no part of a blast unless it was the aim; a Rainbow house at level 3 hit by Rainbow lifts)
+      const lift = city.lift ? city.lift.wants(ref, lv, this.faction) : 0;
+      if (lift === 2 && ref !== primary) continue;
       const was = lv > 0.5;
       const level = was ? Math.min(3, Math.round(lv) + 1) : 1;
       // escalating buildings keep their hue, the primary takes the blast's; the rest are dealt below
       const h = was ? wrapHue(paint.get(ref.index).color) : ref === primary ? hue : -1;
       maxLevel = Math.max(maxLevel, level);
       // it pops when the shockwave reaches its near edge
-      const flags = (hose ? BLOOM_HOSE : 0) | (was && level <= Math.round(lv) ? BLOOM_REPOP : 0);
-      plan.push({ at: tImpact + arrival(ref === primary ? 0 : Math.max(0, n.e), r), ref, order: plan.length, total: 0, hue: h, level, keep: was, ang: 0, pref: 0, at0: ref === primary ? pos : undefined, flags });
+      const flags = (hose ? BLOOM_HOSE : 0) | (lift || (was && level <= Math.round(lv)) ? BLOOM_REPOP : 0);
+      plan.push({ at: tImpact + arrival(ref === primary ? 0 : Math.max(0, n.e), r), ref, order: plan.length, total: 0, hue: h, level, keep: was, ang: 0, pref: 0, at0: ref === primary ? pos : undefined, flags, ...(lift ? { lift } : {}) });
     }
     this.deal(plan, spec);
     for (const p of plan) {
@@ -405,7 +410,14 @@ export class Splatter {
       const b = p.blast;
       // the whole wave goes to the GPU now (one upload): the shader times each pop. Its buildings are the hitter's, as it was when it fired
       const faction = b.spec.faction ?? FACTION_RAINBOW;
-      for (const s of p.plan) this.city.paint.set(s.ref.index, { faction, color: s.hue, level: s.level, bloomTime: s.at, keep: s.keep });
+      for (const s of p.plan) {
+        // (?lift: a lifting house's record isn't rewritten: no second pop on its crouch, and its saved paint is untouched)
+        if (s.lift) {
+          if (s.lift === 1) this.city.lift!.start(s.ref, s.at);
+          continue;
+        }
+        this.city.paint.set(s.ref.index, { faction, color: s.hue, level: s.level, bloomTime: s.at, keep: s.keep });
+      }
       b.dots = p.ground ? this.city.ground.land(p.ground) : [];
       blastUniforms.uBlastRing.value.set(b.spec.x, b.spec.z, b.t, b.spec.r);
       blastUniforms.uBlastRing2.value.set(ringHue(b.spec.hue, faction), S.ringWidth * Math.sqrt(b.strength), S.waveSpeed, waveMax(b.spec.r));
@@ -418,7 +430,7 @@ export class Splatter {
       if (this.t >= s.at) {
         this.queue.splice(i, 1);
         // (the primary's sparkles start where the breath hit it)
-        this.fx.bloom(s.ref, s.order, s.total, s.hue, s.level, s.at0 ? this.roofTmp.copy(s.at0) : this.roofTmp.set(s.ref.cx, s.ref.roofY, s.ref.cz), s.flags);
+        this.fx.bloom(s.ref, s.order, s.total, s.hue, s.level, s.at0 ? this.roofTmp.copy(s.at0) : this.roofTmp.set(s.ref.cx, s.ref.roofY + (this.city.lift ? this.city.lift.dy(s.ref.index) : 0), s.ref.cz), s.flags);
         if (s.order === 0 && !(s.flags & BLOOM_HOSE)) this.fx.primary(s.ref, s.hue);
       } else i++;
     }

@@ -19,6 +19,7 @@ import { FAR_STAND_INS, HIDDEN, clearStandInCells, hiddenAt, isSfOrigin, type Hi
 import { gunzip, isGzip } from './gunzip';
 import { registerWarm } from '../render/warmup';
 import { uploadRect } from '../render/upload';
+import type { LiftHooks } from './liftGlsl';
 
 // Streams the baked city around the bus: region bundles are fetched and
 // meshed in a worker, tiles appear inside the fog, far ones are dropped.
@@ -541,6 +542,13 @@ export class City {
    * matches the classic streaming exactly; afterwards adoption is budgeted.
    */
   eager = false;
+  /** ?lift (world/Lift.ts): the floating houses of one neighbourhood. Null with the flag off, and then every query below is the code it always was */
+  lift: LiftHooks | null = null;
+  /**
+   * ?lift: building meshes meeting `rect` (x0, z0, x1, z1) cast through a child twin with the Lift's depth material (their houses float, and so do
+   * their shadows), and a detailed tile there makes no caster proxy. Their bounds grow by `grow` m: a house 50 m up is never culled. Null with the flag off.
+   */
+  liftShadow: { rect: [number, number, number, number]; material: THREE.Material; grow: number } | null = null;
 
   constructor(readonly manifest: CityManifest & { regions: Array<[number, number, number]>; regionSize: number }, readonly baseUrl: string, private readonly moon: CityMoon | null = null) {
     this.paint = new PaintState(manifest.buildingCount + LANDMARK_SLOTS, manifest.slug);
@@ -1507,7 +1515,7 @@ export class City {
     const p: TilePrep = { buildings: null, caster: null, grown: t.grown, terrain: null };
     if (t.mesh) {
       p.buildings = this.makeBuildingMesh(t.mesh, t.sphere, !t.caster);
-      if (t.caster && p.buildings) p.caster = this.makeCasterMesh(t.caster, p.buildings.geometry.boundingSphere!);
+      if (t.caster && p.buildings && !p.buildings.userData.liftTwin) p.caster = this.makeCasterMesh(t.caster, p.buildings.geometry.boundingSphere!);
       this.adoptTops(lt, t.tops);
     }
     lt.grid = t.grid;
@@ -1559,7 +1567,7 @@ export class City {
   private makeTileBuildings(lt: LoadedTile, t: TileResult) {
     if (!t.mesh) return;
     lt.buildings = this.makeBuildingMesh(t.mesh, t.sphere, !t.caster);
-    if (t.caster && lt.buildings) lt.caster = this.makeCasterMesh(t.caster, lt.buildings.geometry.boundingSphere!);
+    if (t.caster && lt.buildings && !lt.buildings.userData.liftTwin) lt.caster = this.makeCasterMesh(t.caster, lt.buildings.geometry.boundingSphere!);
     if (lt.buildings) this.firstDraw(lt.buildings);
     if (lt.caster) this.firstDraw(lt.caster);
   }
@@ -1731,6 +1739,23 @@ export class City {
     // generous bounds: painted buildings pop and wobble a little outside their rest pose, and grown
     // domes / trees reach up to ~20 m over the mesh's highest vertex
     if (g.boundingSphere) g.boundingSphere.radius += growth ? 26 : 6;
+    const ls = this.liftShadow;
+    if (ls && g.boundingSphere) {
+      const s = g.boundingSphere, [x0, z0, x1, z1] = ls.rect;
+      const dx = Math.max(x0 - s.center.x, 0, s.center.x - x1), dz = Math.max(z0 - s.center.z, 0, s.center.z - z1);
+      if (dx * dx + dz * dz <= s.radius * s.radius) {
+        // (its houses may float: the shadow moves with them, through a twin on the sun's layer alone, and the bounds hold them 50 m up)
+        s.radius += ls.grow;
+        mesh.layers.disable(SHADOW_LAYER);
+        const twin = new THREE.Mesh(g, ls.material);
+        twin.layers.set(SHADOW_LAYER);
+        twin.userData.sunCull = true;
+        twin.matrixAutoUpdate = false;
+        twin.matrixWorldAutoUpdate = false;
+        mesh.add(twin);
+        mesh.userData.liftTwin = true;
+      }
+    }
     dropAfterUpload(g);
     this.root.add(mesh);
     return mesh;
@@ -1824,6 +1849,11 @@ export class City {
       }
     }
     if (!coarse) this.adoptTops(lt, t.tops);
+    if (this.liftShadow) {
+      // (?lift: a tile under the floating neighbourhood is never culled as buried: its houses may be 50 m up)
+      const [x0, z0, x1, z1] = this.liftShadow.rect, ts = this.manifest.tileSize;
+      if ((t.tx + 1) * ts >= x0 && t.tx * ts <= x1 && (t.tz + 1) * ts >= z0 && t.tz * ts <= z1) lt.maxY += this.liftShadow.grow;
+    }
     this.tiles.set(key, lt);
     this.tileNum.set(tileKeyNum(t.tx, t.tz), lt);
     // a prop's cells (and its neighbors' buildings in them) are rebuilt with every tile under it
@@ -1981,7 +2011,7 @@ export class City {
   /** Tallest thing (roof, tree, ground, landmark) at a point, in meters. With
    * `fromY`, posts whose open underside is above fromY are ignored (flying under a deck). */
   obstacleAt(x: number, z: number, fromY?: number): number {
-    let top = this.baseObstacleAt(x, z);
+    let top = this.lift ? this.lift.obstacle(x, z, fromY ?? Infinity, this.baseObstacleAt(x, z)) : this.baseObstacleAt(x, z);
     const l = this.posts.size ? this.posts.get((Math.floor(x / 64) + 4096) * 8192 + (Math.floor(z / 64) + 4096)) : undefined;
     if (l)
       for (const p of l) {
@@ -1993,7 +2023,7 @@ export class City {
 
   /** What the hard floor stands on: obstacleAt, with a deck post only up to its roadway, and under a deck no post at all. */
   hardAt(x: number, z: number, fromY: number): number {
-    let top = this.baseObstacleAt(x, z);
+    let top = this.lift ? this.lift.obstacle(x, z, fromY, this.baseObstacleAt(x, z)) : this.baseObstacleAt(x, z);
     const l = this.posts.size ? this.posts.get((Math.floor(x / 64) + 4096) * 8192 + (Math.floor(z / 64) + 4096)) : undefined;
     if (l && this.overheadAt(x, z, fromY) === Infinity)
       for (const p of l) {
@@ -2076,6 +2106,7 @@ export class City {
         if (g[k] !== ref.index || g[k + 1] > level + 0.01) continue;
         any = true;
         this.raiseDisc(g[k + 2], g[k + 3], g[k + 4] + half, g[k + 5] + 0.5);
+        this.lift?.noteTop(ref.index, g[k + 5] + 0.5);
       }
       if (any && !lt.growthShown) {
         lt.growthShown = true;
@@ -2161,11 +2192,55 @@ export class City {
       }
   }
 
+  /**
+   * ?lift (world/LiftField.ts): one 8 m cell built the way the bake builds one (stampProp's rule), its buildings kept apart: each building whose
+   * parts reach the cell's centre (grown 3 m, 6 m over 40 m) is a pair (index, its highest such top), and rest[0] is what stands without them, the
+   * highest ground of a 3 x 3 sample and the tree crowns over the cell. Returns the pairs, or -1 for more than `max` (the bake's cell answers there).
+   */
+  stampLift(x: number, z: number, c: number, idx: Int32Array, top: Float32Array, o: number, max: number, rest: Float32Array): number {
+    let r = -Infinity;
+    for (let sx = -1; sx <= 1; sx++) for (let sz = -1; sz <= 1; sz++) r = Math.max(r, this.groundAt(x + sx * 0.4 * c, z + sz * 0.4 * c));
+    const tr = this.tileAt(x, z)?.terrainData;
+    if (tr)
+      for (const tree of tr.trees) {
+        const cr = treeCrown(tree.kind, tree.size, crownTmp);
+        if (Math.abs(tree.x - x) > cr.r + c / 2 || Math.abs(tree.z - z) > cr.r + c / 2) continue;
+        const qx = Math.min(Math.max(tree.x, x - c / 2), x + c / 2), qz = Math.min(Math.max(tree.z, z - c / 2), z + c / 2);
+        const u = Math.hypot(qx - tree.x, qz - tree.z) / cr.r;
+        if (u < 1) r = Math.max(r, tree.y + cr.mid + (cr.top - cr.mid) * Math.sqrt(1 - u * u));
+      }
+    rest[0] = r;
+    let n = 0;
+    for (const { ref } of this.buildingsWithin(x, z, 6, stampNear)) {
+      if (ref.index >= this.manifest.buildingCount) {
+        // (a landmark never floats: its hull is its post's business, as stampProp leaves it)
+        continue;
+      }
+      const t = ref.tile;
+      let y = -Infinity;
+      for (let k = ref.local; k < ref.local + ref.parts; k++) {
+        const py = partTop(t, ref.roofBuild, k);
+        if (py <= y) continue;
+        // (and anything of it in the cell: the detailed mesh's roofs raise every cell they touch, adoptTops)
+        const grow = Math.max(py - t.baseY[k] > 40 ? 6 : 3, c * 0.71);
+        if (ringContains(t, k, x, z) || ringDist(t, k, x, z) <= grow) y = py;
+      }
+      if (y === -Infinity) continue;
+      if (n >= max) return -1;
+      idx[o + n] = ref.index;
+      top[o + n] = y;
+      n++;
+    }
+    return n;
+  }
+
   /** Tallest roof, tree or ground at a point, without the landmark posts and bridge decks (what a breath lands on).
    * Seen from fromY (m ASL; default from above): a bridge's deck wholly above it is overhead, not under the breath. */
   surfaceAt(x: number, z: number, fromY = Infinity): number {
+    // (?lift: a floating house where it is drawn now, under it from below, on it from above)
+    const base = this.lift ? this.lift.surface(x, z, fromY, this.baseObstacleAt(x, z)) : this.baseObstacleAt(x, z);
     // (and a landmark's real surface: a breath lands on the pyramid's slope, not on its collision post)
-    return this.landmarks.length ? Math.max(this.baseObstacleAt(x, z), this.landmarkSurfaceAt(x, z, fromY)) : this.baseObstacleAt(x, z);
+    return this.landmarks.length ? Math.max(base, this.landmarkSurfaceAt(x, z, fromY)) : base;
   }
 
   /** The highest landmark surface over (x, z), seen from fromY (see surfaceAt), or -Infinity (no allocation). */
@@ -2185,6 +2260,8 @@ export class City {
    * bridge's deck over a bus under it)? What a breath from under a deck never lands on. No allocation.
    */
   lmOverhead(ref: BuildingRef, x: number, z: number, fromY: number): boolean {
+    // (?lift: a house floating over the bus is a deck seen from under it)
+    if (this.lift && this.lift.over(ref.index, ref.baseY, fromY)) return true;
     if (fromY >= ref.roofY || ref.index < this.manifest.buildingCount) return false;
     const lm = this.landmarks[ref.index - this.manifest.buildingCount];
     return !!lm?.overhead && lm.overhead(x, z, fromY);
@@ -2307,7 +2384,7 @@ export class City {
       for (const p of l) {
         if (p.under > fromY && p.under < under && (x - p.x) * (x - p.x) + (z - p.z) * (z - p.z) < p.r * p.r) under = p.under;
       }
-    return under;
+    return this.lift ? Math.min(under, this.lift.overhead(x, z, fromY)) : under;
   }
 
   private baseObstacleAt(x: number, z: number): number {
@@ -2394,8 +2471,8 @@ export class City {
       if (x < r.x0 || x > r.x1 || z < r.z0 || z > r.z1) continue;
       // (seen from fromY: a deck overhead is no building here)
       const lm = r.index >= this.manifest.buildingCount;
-      if (lm && this.lmOverhead(r, x, z, fromY)) continue;
-      const y = lm ? this.ownTop(r, x, z, fromY) : r.roofY;
+      if ((lm || this.lift) && this.lmOverhead(r, x, z, fromY)) continue;
+      const y = lm ? this.ownTop(r, x, z, fromY) : this.lift ? r.roofY + this.lift.dy(r.index) : r.roofY;
       if ((!best || y > by) && this.contains(r, x, z)) {
         best = r;
         by = y;
@@ -2412,7 +2489,9 @@ export class City {
     if (!list) return null;
     let best: BuildingRef | null = null, by = y;
     for (const r of list) {
-      if (r.roofY <= by || x < r.x0 || x > r.x1 || z < r.z0 || z > r.z1) continue;
+      if (r.roofY + (this.lift ? this.lift.reach(r.index) : 0) <= by || x < r.x0 || x > r.x1 || z < r.z0 || z > r.z1) continue;
+      // (?lift: a line of fire passes under a floating house, and stops at its side)
+      if (this.lift && this.lift.over(r.index, r.baseY, fromY)) continue;
       if (!this.contains(r, x, z)) continue;
       // (a landmark by its own surface: nothing of Sutro stands in the line of fire between its legs)
       const ry = r.index >= this.manifest.buildingCount ? this.ownTop(r, x, z, fromY) : this.roofAtPart(r, x, z);
@@ -2582,7 +2661,8 @@ export class City {
       const ry = partRoofAt(b, kinds, k, x, z);
       if (ry > y) y = ry;
     }
-    return y > -Infinity ? y : ref.roofY;
+    // (?lift: the roof where it's drawn now)
+    return (y > -Infinity ? y : ref.roofY) + (this.lift ? this.lift.dy(ref.index) : 0);
   }
 
   /** Street-facing edge of a building (its ground tier): midpoint, outward normal, length. */
