@@ -80,9 +80,10 @@ The producer approved the shots redesign whole ("Everything in the doc is excell
 - [ ] The probe that checks every gear, then the Comet.
 - [ ] The Bomb, behind its link until the producer's grip test.
 - [ ] Streak and the tap's feel pass.
-- [ ] Lob, Cloudburst and School Zone.
+- [ ] Lob, Cloudburst and School Zone. **School Zone is done and pushed** on its own branch, `feat/gears` (1fa8ccf to 3a2b21f, cut from `feat/factions` e0f1dde), reviewed and checked on the GPU: `docs/specs/shots/GEARS.md` there. It merges into `feat/shots` next. Two calls are the producer's: whether pushing forward keeps sinking the bus to the roofs (`config.zone.sink`), and whether it leans 14 degrees spinning on the spot. 1fa8ccf alone throws on page load, and e4d0757 fixes it: don't bisect onto it. Lob and Cloudburst next.
+  - **For the second account:** a gear forced from being hit must go through `TurboDrive.shift` or `arrive`; `rung(1)` out of School Zone only reaches Cruise. The balloons in Recess wear the player's own palette, as every breath does.
 - [ ] Sonic Boom, Belly Flop and Waterfall.
-- [ ] Curb: the street camera preview first, then its flight, camera and landing on the second account's road side.
+- [ ] Curb: the street camera preview first, then its flight, camera and landing on the second account's road side. **The street camera preview is pushed** with School Zone, on `feat/gears`: `?streetcam&lat=&lon=&heading=&skipintro` sets the bus 4 m over a road, with four streets the cars' own road map picks (GEARS.md, "The street camera preview"). From 4 m up the streets are bare grey, with no kerbs or lines: that's the producer's call on street surfaces.
 
 ## Tonight, both accounts (the night of 2026-11-05, Pacific)
 
