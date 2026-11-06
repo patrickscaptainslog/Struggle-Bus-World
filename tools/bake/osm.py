@@ -80,6 +80,7 @@ US_DIR = {'north': 'N', 'south': 'S', 'east': 'E', 'west': 'W'}
 OFF_GROUND = {'is_bridge', 'is_tunnel', 'is_indoor', 'is_covered', 'is_under_construction'}
 CUT_SNAP = 0.05     # m: a cut this close to a vertex is made at the vertex (where the OSM way it stands for ends)
 CUT_SHORTEST = 1.0  # m: a stretch at grade shorter than this, between two cuts or a cut and an end, is left out
+RANGE_TOL = 1e-6    # a range end this far outside 0..1 is the segment's end (a float's rounding), not a range that doesn't read
 # what the ground reads of the segment extract (segments(), qa.py): an extract may hold more, such as the connectors,
 # access restrictions and speed limits overture.py keeps for the world's graphs, the largest columns it has
 SEGMENT_COLUMNS = ('subtype', 'class', 'subclass', 'name', 'width', 'level_max', 'road_flags', 'rail_flags', 'road_flag_rules',
@@ -180,7 +181,7 @@ def off_ground(road_rules, rail_rules, level_rules):
         a, z = 0.0, 1.0
         if isinstance(b, list) and len(b) == 2:
             f0, f1 = num(b[0]), num(b[1])
-            if f0 is not None and f1 is not None and -1e-9 <= f0 < f1 <= 1 + 1e-9:
+            if f0 is not None and f1 is not None and -RANGE_TOL <= f0 < f1 <= 1 + RANGE_TOL:
                 a, z = max(0.0, f0), min(1.0, f1)
         out.append((a, z))
     merged = []

@@ -71,6 +71,8 @@ CASES = [
     case('a sidewalk under cover at one end', [(0, 0), (100, 0)], [(30, 100)], cls='footway', scl='sidewalk',
          road=[flag('is_covered', 0.0, 0.3)]),
     case('a range out of order: all of it', [(0, 0), (100, 0)], [], road=[flag('is_bridge', 0.6, 0.4)]),
+    case('range ends a hair outside 0 and 1 are the ends', [(0, 0), (100, 0)], [(20, 80)], cls='primary',
+         road=[flag('is_bridge', -2e-9, 0.2), flag('is_tunnel', 0.8, 1 + 2e-9)]),
     case('a loop', [(0, 0), (50, 0), (50, 50), (0, 50), (0, 0)], [(0, 50), (100, 200)], cls='service',
          road=[flag('is_bridge', 0.25, 0.5)]),
     case('the stretches at grade of a tunnel take their own names', [(0, 0), (100, 0)], [(0, 30), (80, 100)], cls='primary',
