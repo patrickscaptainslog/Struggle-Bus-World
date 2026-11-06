@@ -96,6 +96,22 @@ class World:
             held[own] = True
             if len(own):
                 self.parks.append((name or f'park {pid}', own))
+        # places off the map: outlines mostly past the frame with under 0.25 km2 of land on it (hoods.OFF_MAP), whose names
+        # no neighbourhood carries, unless a point of the same name is on the map
+        areas, ag = hd.read('division_area', ['id', 'subtype', 'class', 'name'])
+        divs, dg = hd.read('division', ['id', 'subtype', 'name'])
+        on_map = {H.norm(r['name']) for r, g in zip(divs, dg) if r.get('name') and g is not None and g.geom_type == 'Point'
+                  and hd.frame.contains(g)}
+        self.off_map = []
+        for r, g in zip(areas, ag):
+            nm = (r.get('name') or '').strip()
+            if (r.get('subtype') not in H.HOOD_SUBS or r.get('class') != 'land' or not nm or H.norm(nm) in on_map
+                    or g.geom_type not in ('Polygon', 'MultiPolygon')):
+                continue
+            sq, n = hd.cover(g)
+            if (len(sq) and float(n.sum()) * H.STEP * H.STEP < H.MIN_SQUARES * H.SQ * H.SQ
+                    and g.intersection(hd.frame).area < H.OFF_MAP * g.area):
+                self.off_map.append(nm)
         shutil.rmtree(hd.out, ignore_errors=True)
 
     def key(self, s):
@@ -217,6 +233,10 @@ def check(W, t, man_hoods, rep):
     rep('names: empty or over 255 bytes', len(blank), '0', not blank)
     rep('names: a merged name with a slash of its own in it', len(slash), '0 (it reads as three)' +
         (f'; {"; ".join(slash[:6])}' if slash else ''), not slash)
+    parts = {H.norm(p) for nm in tb['names'] for p in nm.split(' / ')}
+    off = [nm for nm in W.off_map if H.norm(nm) in parts]
+    rep('names: a place off the map on a neighbourhood', len(off), f'0 of {len(W.off_map)} places off the map' +
+        (f'; {"; ".join(off[:6])}' if off else ''), not off)
     return tb
 
 
@@ -298,6 +318,9 @@ def broken(W, t, man_hoods):
          lambda c, mh: c['names'].__setitem__(1, c['names'][0].upper() + ' District'))
     case('a merged name with a slash', 'names: a merged name with a slash of its own in it',
          lambda c, mh: c['names'].__setitem__(0, c['names'][0] + ' / North/South'))
+    if W.off_map:
+        case('a place off the map named', 'names: a place off the map on a neighbourhood',
+             lambda c, mh: c['names'].__setitem__(0, W.off_map[0]))
     for name, target, c, mh in cases:
         rep = Report(quiet=True)
         try:

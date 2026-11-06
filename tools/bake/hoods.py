@@ -16,8 +16,9 @@ order the section's list of fixes needs them:
   seeds    the divisions' points (neighbourhoods, quarters, suburbs, and towns, villages and hamlets: never the map's own city)
            within 200 m of land, squares and plazas left out; their outlines of 0.02-8 km2; named parks with 0.5 km2 of land,
            each a neighbourhood of its own. A point or outline named after a whole borough (its name a county's or a locality's,
-           or its own outline over 8 km2: London's "City of Westminster") is left out, and names that are one place
-           (Castro, Castro District) are one seed
+           or its own outline over 8 km2: London's "City of Westminster") is left out, an outline mostly past the frame
+           with under 0.25 km2 of land on the map is a place off the map and left out (London's The Phillimore Estate),
+           and names that are one place (Castro, Castro District) are one seed
   sparse   on a piece of land too big for one neighbourhood, a lattice 1.2 km apart on the origin where no seed is within
            1.8 km, each point moved to the most open ground within 400 m and named from the nearest unused place, park or
            land feature on its piece of land, else street; a piece of land with no seed gets one, named for its islands
@@ -79,6 +80,7 @@ MAX_SQUARES = int(3.0 / SQ_KM2)              # 183: over 3 km2 a neighbourhood s
 HEARTS_APART = 450.0            # m between hearts' square centres
 BIG_PARK = 0.5e6                # m2 of land: a named park this big is a neighbourhood of its own
 OUTLINE_M2 = (0.02e6, 8e6)      # outlines used: smaller are plazas, bigger a borough
+OFF_MAP = 0.25                  # an outline with less of it in the frame than this, and under 0.25 km2 of land in it, is off the map
 NEAR_LAND = 200.0               # a point this far off the land still seeds (a pier's end, a beach)
 FILL = 1200.0                   # sparse: a lattice this far apart...
 SPARSE = 1.5 * FILL             # ...where no seed is within one and a half of its steps (San Francisco's Sunset, its points
@@ -382,6 +384,11 @@ class Hoods:
             nm = r['name']
             return (norm_admin(nm) in admin and r['subtype'] in HOOD_SUBS) or area_m2 > OUTLINE_M2[1]
 
+        def off_map(g, n):
+            """An outline mostly past the frame, with too little land on the map for a neighbourhood: a place off the map,
+            which names nothing here (London's The Phillimore Estate, 1 % of it on the map)."""
+            return float(n.sum()) * STEP * STEP < MIN_SQUARES * SQ * SQ and g.intersection(self.frame).area < OFF_MAP * g.area
+
         def add(name, kind, x, z, src, sub):
             d, s = self.near_land(x, z)
             if d > NEAR_LAND:
@@ -426,6 +433,9 @@ class Hoods:
                 continue
             sq, n = self.cover(g)
             if not len(sq):
+                continue
+            if off_map(g, n):
+                self.dropped.append(f'{nm} outline, {g.intersection(self.frame).area / g.area:.0%} of it on the map')
                 continue
             key = norm(nm)
             si = by_norm.get(key)
