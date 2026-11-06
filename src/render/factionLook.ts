@@ -11,13 +11,16 @@ import { HUE_RAMPS, Ramp } from './palette';
 // (an accent can be the body's row), so a house's every offset, level 3's bands included, still reads as its faction, with one spice in six.
 //
 // Rows 24-31 are the factions' own (palette.ts), and a faction's accents may share a row with another's or with Rainbow's (gold, coral, violet caps): only a
-// body is a faction's main colour, and tools/factions/colours.py measures those apart in all seven of the live sky's tables, under four kinds of sight.
+// body is a faction's main colour, and tools/factions/colours.ts measures those apart in all seven of the live sky's tables, under four kinds of sight.
+// A window reads its own table by the same offsets (`glass`), so a spice can live in the windows alone: an accent lands on whole bands, bays and roofs too.
 
 export interface FactionLook {
   /** a painted wall's own colour, by its slot */
   readonly body: readonly number[];
-  /** what a slot's offsets read: bays, gables, windows, the complement's trim, roof slopes, flowers */
+  /** what a slot's offsets read: bays, gables, the complement's trim, roof slopes, bands, flowers */
   readonly accent: readonly number[];
+  /** a window's glass by the same offsets: a house's and a landmark's (its slot's +2 or +4 at levels 1-2, any at level 3). Rainbow's is its six hues */
+  readonly glass: readonly number[];
   /** the ground's splats, by slot */
   readonly ground: readonly number[];
   /** the breath and its blast's particles, by slot (Particles.palette) */
@@ -32,7 +35,7 @@ export interface FactionLook {
   readonly bark: number;
 }
 
-const RAINBOW: FactionLook = { body: HUE_RAMPS, accent: HUE_RAMPS, ground: HUE_RAMPS, spray: HUE_RAMPS, trim: Ramp.WHITE, gold: Ramp.YELLOW, leaf: Ramp.GREEN, bark: Ramp.VIOLET };
+const RAINBOW: FactionLook = { body: HUE_RAMPS, accent: HUE_RAMPS, glass: HUE_RAMPS, ground: HUE_RAMPS, spray: HUE_RAMPS, trim: Ramp.WHITE, gold: Ramp.YELLOW, leaf: Ramp.GREEN, bark: Ramp.VIOLET };
 
 const { TEAL, PEARL, MOSS, CHROME, MAGENTA, CYAN, CRIMSON, OBSIDIAN, RED, YELLOW, VIOLET, WHITE } = Ramp;
 
@@ -44,6 +47,7 @@ export const FACTION_LOOKS: readonly FactionLook[] = (() => {
   looks[FACTION_ATLANTIS] = {
     body: [TEAL, TEAL, TEAL, TEAL, TEAL, TEAL],
     accent: [PEARL, TEAL, PEARL, TEAL, PEARL, RED],
+    glass: [PEARL, TEAL, PEARL, TEAL, PEARL, RED],
     ground: [TEAL, TEAL, PEARL, TEAL, TEAL, PEARL],
     spray: [TEAL, PEARL, TEAL, WHITE, TEAL, PEARL],
     trim: WHITE,
@@ -55,6 +59,7 @@ export const FACTION_LOOKS: readonly FactionLook[] = (() => {
   looks[FACTION_ELDERWOOD] = {
     body: [MOSS, MOSS, MOSS, MOSS, MOSS, MOSS],
     accent: [MOSS, PEARL, MOSS, YELLOW, MOSS, VIOLET],
+    glass: [MOSS, PEARL, MOSS, YELLOW, MOSS, VIOLET],
     ground: [MOSS, MOSS, VIOLET, MOSS, MOSS, PEARL],
     spray: [MOSS, YELLOW, MOSS, VIOLET, MOSS, YELLOW],
     trim: PEARL,
@@ -66,6 +71,7 @@ export const FACTION_LOOKS: readonly FactionLook[] = (() => {
   looks[FACTION_HYPERGLOW] = {
     body: [CHROME, CHROME, CHROME, CHROME, CHROME, CHROME],
     accent: [MAGENTA, CHROME, CYAN, CHROME, MAGENTA, CYAN],
+    glass: [MAGENTA, CHROME, CYAN, CHROME, MAGENTA, CYAN],
     ground: [CHROME, MAGENTA, CHROME, CYAN, CHROME, MAGENTA],
     spray: [MAGENTA, CYAN, MAGENTA, CYAN, MAGENTA, CYAN],
     trim: MAGENTA,
@@ -77,6 +83,7 @@ export const FACTION_LOOKS: readonly FactionLook[] = (() => {
   looks[FACTION_INFERNO] = {
     body: [CRIMSON, OBSIDIAN, CRIMSON, CRIMSON, OBSIDIAN, CRIMSON],
     accent: [OBSIDIAN, CRIMSON, OBSIDIAN, CRIMSON, YELLOW, OBSIDIAN],
+    glass: [OBSIDIAN, CRIMSON, OBSIDIAN, CRIMSON, YELLOW, OBSIDIAN],
     ground: [CRIMSON, OBSIDIAN, CRIMSON, CRIMSON, OBSIDIAN, CRIMSON],
     spray: [CRIMSON, YELLOW, CRIMSON, OBSIDIAN, CRIMSON, YELLOW],
     trim: OBSIDIAN,
@@ -105,11 +112,13 @@ export const GLSL_FACTION = /* glsl */ `
 #define SB_FACTION
 const float SB_FAC_BODY[${N}] = float[${N}](${table((l) => l.body)});
 const float SB_FAC_ACCENT[${N}] = float[${N}](${table((l) => l.accent)});
+const float SB_FAC_GLASS[${N}] = float[${N}](${table((l) => l.glass)});
 const float SB_FAC_GROUND[${N}] = float[${N}](${table((l) => l.ground)});
 const float SB_FAC_ROLE[${(FACTION_ROOM + 1) * 4}] = float[${(FACTION_ROOM + 1) * 4}](${roles});
 int sbFac(float f) { return clamp(int(f + 0.5), 0, ${FACTION_ROOM}); }
 float sbFacBody(int f, int s) { return SB_FAC_BODY[f * 6 + s]; }
 float sbFacAccent(int f, int s) { return SB_FAC_ACCENT[f * 6 + s]; }
+float sbFacGlass(int f, int s) { return SB_FAC_GLASS[f * 6 + s]; }
 float sbFacGround(int f, int s) { return SB_FAC_GROUND[f * 6 + s]; }
 float sbFacTrim(int f) { return SB_FAC_ROLE[f * 4]; }
 float sbFacGold(int f) { return SB_FAC_ROLE[f * 4 + 1]; }

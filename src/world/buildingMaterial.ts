@@ -205,6 +205,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       int gFac = 1;
       float hueRamp(float h) { return sbFacHue(gFac, int(mod(h + 60.0, 6.0)), false); }
       float bodyRamp(float h) { return sbFacHue(gFac, int(mod(h + 60.0, 6.0)), true); }
+      float glassRamp(float h) { return sbFacGlass(gFac, int(mod(h + 60.0, 6.0))); }
       /** slot h's offset k: the body at k = 0 (and every sixth), an accent otherwise */
       float cycleRamp(float h, float k) { return mod(k, 6.0) < 0.5 ? bodyRamp(h) : hueRamp(h + k); }
       float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }${held(`
@@ -859,7 +860,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
             // every window its own hue with a soft halo at level 3 (Hundertwasser riot)
             float wh = level > 2.5 ? floor(h21(cell + vec2(bIdx * 0.13, 3.0)) * 6.0) : 0.0;
             float accent = mod(seed, 2.0) < 1.0 ? 2.0 : 4.0;
-            ramp = hueRamp(hue + accent + wh);
+            ramp = glassRamp(hue + accent + wh);
             light = (level > 2.5 ? 0.62 : 0.72) + 0.1 * h21(cell + 11.0);
             glow = level > 2.5 ? uGlassGlow3 : uGlassGlow;
           } else {

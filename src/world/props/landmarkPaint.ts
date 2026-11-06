@@ -214,6 +214,7 @@ ${GLSL_FACTION}
 int gLmFac = 1;
 float lmHue(float h) { return sbFacHue(gLmFac, int(mod(floor(h + 0.5) + 60.0, 6.0)), false); }
 float lmBody(float h) { return sbFacHue(gLmFac, int(mod(floor(h + 0.5) + 60.0, 6.0)), true); }
+float lmGlass(float h) { return sbFacGlass(gLmFac, int(mod(floor(h + 0.5) + 60.0, 6.0))); }
 /** slot h's offset k: the body at k = 0 (and every sixth), an accent otherwise */
 float lmCycle(float h, float k) { return mod(k, 6.0) < 0.5 ? lmBody(h) : lmHue(h + k); }
 // a flower's hue: never the leaves' green (a flower its leaves' colour takes the gold)
@@ -325,7 +326,7 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
       if (on && row > 0.5 && mpp < 0.75 * (0.75 + 0.5 * lmH21(cell + 5.3)) && (colm > 0.5 || mpp > 0.3)) {
         float acc = mod(seed, 2.0) < 1.0 ? 2.0 : 4.0;
         float wh = L >= 3.0 ? floor(lmH21(cell + seed * 1.7) * 6.0) : 0.0;
-        o.ramp = lmHue(hue + acc + wh);
+        o.ramp = lmGlass(hue + acc + wh);
         o.mode = 2.0;
         o.light = 0.56 + 0.1 * lmH21(cell + 11.0);
         o.glow = uLmFx.y;
