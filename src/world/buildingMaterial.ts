@@ -9,6 +9,21 @@ import { Arch } from './tiles';
 import { blastUniforms, GLSL_BLAST_RING } from './GroundPaint';
 import { PAINT_KEPT } from './PaintState';
 import { Fam, Crown, Variant } from './towerStyles';
+import { GLSL_LIFT, lifted, liftedOr, liftOn } from './liftGlsl';
+
+/**
+ * ?lift: the Lift's uniforms (world/Lift.ts fills them), spread into every material that moves with a floating house. Null with the flag off, and
+ * then no material has them.
+ */
+export const liftUniforms = liftOn
+  ? {
+      tLift: { value: null as THREE.Texture | null },
+      uLiftRect: { value: new THREE.Vector4(1e9, 1e9, -1e9, -1e9) },
+      uLiftW: { value: 1024 },
+      tLake: { value: null as THREE.Texture | null },
+      uLakeRect: { value: new THREE.Vector4(1e9, 1e9, 0.5, 0) },
+    }
+  : null;
 
 // One shader for every building. Grey state: Hopper — cool battleship
 // greys, lighter trim, dark glass that catches the low sun. Painted state:
@@ -77,7 +92,7 @@ const R = (r: number) => r.toFixed(1);
 export function makeBuildingMaterial(): THREE.ShaderMaterial {
   const mat = new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
-    uniforms: { ...globals, ...paintUniforms, ...facadeUniforms, uBlastRing: blastUniforms.uBlastRing, uBlastRing2: blastUniforms.uBlastRing2 },
+    uniforms: { ...globals, ...paintUniforms, ...facadeUniforms, uBlastRing: blastUniforms.uBlastRing, uBlastRing2: blastUniforms.uBlastRing2, ...(liftUniforms ?? {}) },
     vertexShader: /* glsl */ `
       ${GLSL_COMMON}
       precision highp sampler2D;
@@ -100,7 +115,9 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       out vec3 vWorldPos;
       out vec3 vWorldNormal;
       out vec3 vViewNormal;
-      out float vYRest;
+      out float vYRest;${lifted(`
+      ${GLSL_LIFT}
+      flat out float vLift;`)}
 
       void main() {
         float idx = aBld.x;
@@ -149,7 +166,13 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
             p.x += w * sin(vYRest * 0.33 + position.z * 0.21 + t + seed);
             p.z += w * sin(vYRest * 0.29 + position.x * 0.23 + t * 0.87 + seed * 1.7);
           }
-        }
+        }${lifted(`
+        // ?lift: the whole house (walls, roof, bays, its gardens and domes) crouches, leaps and floats about its base, as one (liftGlsl.ts)
+        vec2 lf = sbLift(idx, vec2(aBld.y, aBld.w));
+        float lsy = 1.0 + lf.y;
+        p.y = baseY + (p.y - baseY) * lsy + lf.x;
+        p.xz = vec2(aBld.y, aBld.w) + (p.xz - vec2(aBld.y, aBld.w)) / sqrt(max(lsy, 0.4));
+        vLift = lf.x;`)}
         vec4 wp = modelMatrix * vec4(p, 1.0);
         vWorldPos = wp.xyz;
         vWorldNormal = normalize(mat3(modelMatrix) * n);
@@ -161,7 +184,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         vBld2 = aBld2;
         // size of a game pixel at this building (m), from the nearest point of its vertical axis; the
         // facade LOD is decided per building with it (jittered per building, so no ring shows)
-        vec3 axis = (modelMatrix * vec4(aBld.y, clamp(cameraPosition.y, baseY, roofY), aBld.w, 1.0)).xyz;
+        vec3 axis = (modelMatrix * vec4(aBld.y, ${liftedOr('clamp(cameraPosition.y - vLift, baseY, roofY) + vLift', 'clamp(cameraPosition.y, baseY, roofY)')}, aBld.w, 1.0)).xyz;
         float jit = 1.0 + uLodJitter * (fract(sin(aBld.x * 12.9898) * 43758.5453) - 0.5);
         vLodPx = length(axis - cameraPosition) * uPixelAngle * jit;
         gl_Position = projectionMatrix * viewMatrix * wp;
@@ -196,7 +219,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       in vec3 vWorldPos;
       in vec3 vWorldNormal;
       in vec3 vViewNormal;
-      in float vYRest;
+      in float vYRest;${lifted(`
+      flat in float vLift;`)}
       ${GLSL_OUT}
 
       ${GLSL_FACTION}
@@ -702,7 +726,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           } else {
             ramp = sbFacLeaf(gFac);
             lo = tree ? -0.08 : 0.0;
-            float bh = h21(floor(n.xz * 3.0 + 3.0) + vec2(bIdx * 0.11, floor(vWorldPos.y)));
+            float bh = h21(floor(n.xz * 3.0 + 3.0) + vec2(bIdx * 0.11, floor(vWorldPos.y${lifted(' - vLift')})));
             if (bh > (tree ? 0.8 : 0.6)) { ramp = bh > 0.9 ? bodyRamp(hue) : hueRamp(hue + 1.0); lo = 0.12; }
           }
         }
@@ -711,7 +735,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         // aim glint: the building a tap would hit lifts a full ramp step (flat walls can't snap it away,
         // painted ones too), and a band of light sweeps up it, starting the moment it became the target
         bool tgt = abs(bIdx - uTarget) < 0.5;
-        float sweep = smoothstep(0.55, 1.0, fract((uTime - uTargetT) * uGlint.z - (vWorldPos.y - vBld.z) * 0.035));
+        float sweep = smoothstep(0.55, 1.0, fract((uTime - uTargetT) * uGlint.z - (vWorldPos.y${lifted(' - vLift')} - vBld.z) * 0.035));
         if (famWall) {
           // ---- a tower facade, in whole ramp steps after the atmospheric perspective
           vec3 dv = normalize(vWorldPos - cameraPosition);
@@ -725,7 +749,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           float bTop = roofY;
           float bH = max(bTop - vBld.z, 1.0);
           // the building's view direction (one per building, so each face is one decision)
-          vec3 vB = normalize(cameraPosition - vec3(vBld.y, clamp(cameraPosition.y, vBld.z, bTop), vBld.w));
+          vec3 vB = normalize(cameraPosition - vec3(vBld.y, ${liftedOr('clamp(cameraPosition.y - vLift, vBld.z, bTop) + vLift', 'clamp(cameraPosition.y, vBld.z, bTop)')}, vBld.w));
           vec3 tU = normalize(vec3(-n.z, 0.0, n.x) + vec3(1e-5));
           float tv = dot(tU, vB);
           float fu = sqrt(max(1.0 - tv * tv, 0.0));
