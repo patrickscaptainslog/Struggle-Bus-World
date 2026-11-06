@@ -2,6 +2,12 @@
 
 Tick what you finish, in the commit that finishes it. Add to it when the producer asks for something. Written 2026-11-02.
 
+## Factions step 6, the first slice: the Lift (`feat/factions`, 2026-11-06)
+
+- [x] `?lift&lifted`: Alamo Square at level 3, Rainbow, for the session, lifted as a wave from its park; `?lift` alone lifts a Rainbow house at level 3 on its next Rainbow hit; `&hood=`, `&slowmo=0` ([specs/factions/LIFT.md](specs/factions/LIFT.md)). Not pushed, not reviewed, not flown on a phone.
+- [ ] The producer's eye on the phone, and one question: keep the lift-off's slow motion (0.35x for 0.9 s), or let it go?
+- [ ] Held for the next slice: Rainbow's stage-1 mark (needs the areas' five-second wait from `feat/recess`), the parks' islands, the other four factions' ways of lifting, the halo at the heart, a real Lift sound.
+
 ## Morning report: the first account (2026-11-05)
 
 **Done tonight**

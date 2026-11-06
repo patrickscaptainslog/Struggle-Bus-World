@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT, SHADOW_LAYER } from '../../render/materials';
+import { FACTION_RAINBOW, FACTION_ROOM } from '../../game/factions';
 import { Ramp } from '../../render/palette';
 import { registerWarm } from '../../render/warmup';
 import { GLSL_MOON_CURVE, moonLow, moonOnly } from '../../sky/flag';
 import { DEPTH_FS, GLSL_PROPS, PartKit, propsTune, rng, tuneUniform, unitSphere } from './common';
+import { GLSL_LIFT, lifted, liftOn } from '../liftGlsl';
+import { liftUniforms } from '../buildingMaterial';
 
 // Rooftop sprouts: what painted buildings grow. Level 1 = flower tufts along
 // the roof edge, level 2 = a rooftop garden (turf, bushes, a little tree,
@@ -231,7 +234,9 @@ const TYPES: TypeDef[] = [
 
 // ---------------------------------------------------------------- shaders
 
-const SPROUT_VERTEX = /* glsl */ `
+const SPROUT_VERTEX = /* glsl */ `${lifted(`
+${GLSL_LIFT}
+in vec2 aLiftB;  // ?lift: the building it grows on, and its roof over that building's ground (-1: none)`)}
 in float aPart;
 in float aSway;
 in vec4 aBlobC;
@@ -271,7 +276,15 @@ SproutV sproutVertex() {
   o.local = p;
   o.blobC = c;
   o.blobR = aBlobR * sc;
-  o.world = modelMatrix * (instanceMatrix * vec4(p, 1.0));
+  o.world = modelMatrix * (instanceMatrix * vec4(p, 1.0));${lifted(`
+  // (a garden rides its floating house: the house's lift, its stretch at the roof's height, and its lean about its belly's middle)
+  if (aLiftB.x >= 0.0) {
+    vec4 lT2;
+    vec4 lf = sbLift(aLiftB.x, ipos.xz, lT2);
+    o.world.y += lf.x + aLiftB.y * lf.y;
+    vec3 piv = vec3(lT2.x, lT2.y + lf.x, lT2.z);
+    o.world.xyz = piv + sbTilt(o.world.xyz - piv, lf.zw);
+  }`)}
   }
   return o;
 }
@@ -284,7 +297,7 @@ ${SPROUT_VERTEX}${moonOnly(GLSL_MOON_CURVE)}
 out vec3 vWorldPos;
 out vec3 vWorldNormal;
 out vec3 vLocal;
-flat out vec3 vInfo; // hue, seed, part
+flat out vec3 vInfo; // hue + 8 * (faction - 1), seed, part
 flat out vec3 vBlobC;
 flat out vec3 vBlobR;
 flat out vec3 vCamLocal;
@@ -340,12 +353,15 @@ flat in float vSy;
 flat in vec3 vIPos;
 uniform mat4 projectionMatrix;
 ${GLSL_OUT}
+// (whose garden it is, in the hue's eights: RoofSprouts.set. A flower can't be its leaves' colour: Rainbow's green turns gold)
+int gFac = 1;
 float bloomRamp(float h) {
-  float r = propHueRamp(h);
-  return r == ${Ramp.GREEN}.0 ? ${Ramp.YELLOW}.0 : r;
+  float r = propHueRamp(gFac, h, false);
+  return r == sbFacLeaf(gFac) ? sbFacGold(gFac) : r;
 }
 void main() {
-  float hue = vInfo.x;
+  float hue = mod(vInfo.x, 8.0);
+  gFac = sbFac(1.0 + floor(vInfo.x / 8.0));
   float seed = vInfo.y;
   int part = int(vInfo.z + 0.5);
   vec3 n;
@@ -379,23 +395,23 @@ void main() {
   // (the grain reads the place it's at: on the Moon, past the map's slides)
   vec3 grainAt = wp${moonOnly(' + vec3(uSlide.x, 0.0, uSlide.y)')};
   float nz = pNoise3(grainAt * 1.4 + seed * 13.0) - 0.5;
-  if (part == ${Part.FOLIAGE}) { ramp = ${Ramp.GREEN}.0; lo = -0.03 + nz * 0.12; }
+  if (part == ${Part.FOLIAGE}) { ramp = sbFacLeaf(gFac); lo = -0.03 + nz * 0.12; }
   else if (part == ${Part.TURF}) {
-    ramp = ${Ramp.GREEN}.0;
+    ramp = sbFacLeaf(gFac);
     lo = -0.1 + (pNoise3(vec3((vWorldPos.xz${moonOnly(' + uSlide')}) * 0.45, seed * 9.0)) - 0.5) * 0.18;
   }
   else if (part == ${Part.BLOSSOM}) { ramp = bloomRamp(hue); lo = 0.13; }
   else if (part == ${Part.BLOSSOM2}) {
     float h2 = hue + 1.0;
-    if (propHueRamp(h2) == ${Ramp.GREEN}.0) h2 += 1.0;
+    if (propHueRamp(gFac, h2, false) == sbFacLeaf(gFac)) h2 += 1.0;
     ramp = bloomRamp(h2);
     lo = 0.13;
   }
-  else if (part == ${Part.WOOD}) { ramp = ${Ramp.VIOLET}.0; lo = -0.2; }
-  else if (part == ${Part.GOLD}) { ramp = ${Ramp.YELLOW}.0; lo = 0.1; glow = 0.16; }
-  else if (part == ${Part.WHITE}) { ramp = ${Ramp.WHITE}.0; lo = -0.03; }
-  else if (part == ${Part.BODY}) { ramp = propHueRamp(hue); lo = 0.02; }
-  else { ramp = propHueRamp(hue + 2.0); lo = 0.0; }
+  else if (part == ${Part.WOOD}) { ramp = sbFacBark(gFac); lo = -0.2; }
+  else if (part == ${Part.GOLD}) { ramp = sbFacGold(gFac); lo = 0.1; glow = 0.16; }
+  else if (part == ${Part.WHITE}) { ramp = sbFacTrim(gFac); lo = -0.03; }
+  else if (part == ${Part.BODY}) { ramp = propHueRamp(gFac, hue, true); lo = 0.02; }
+  else { ramp = propHueRamp(gFac, hue + 2.0, false); lo = 0.0; }
   vec3 vn = normalize(mat3(viewMatrix) * n);
   if (part == ${Part.FOLIAGE}) lo -= 0.08 * smoothstep(0.65, 0.97, 1.0 - abs(vn.z));
   float light = sbLight(wp, n, lo, 1.0);
@@ -417,6 +433,9 @@ class Batch {
   /** slots in use: none, and it draws nothing */
   live = 0;
   private free: number[] = [];
+  /** ?lift: each slot's building and roof height over its ground (aLiftB), on a geometry of this batch's own that shares the type's buffers. Null with the flag off */
+  lift: THREE.InstancedBufferAttribute | null = null;
+  private liftGeo: THREE.BufferGeometry | null = null;
 
   constructor(
     readonly geo: THREE.BufferGeometry,
@@ -431,7 +450,26 @@ class Batch {
   }
 
   private makeMesh(cap: number, oldM: Float32Array | null, oldC: Float32Array | null): THREE.InstancedMesh {
-    const mesh = new THREE.InstancedMesh(this.geo, this.mat, 0);
+    let geo = this.geo;
+    if (liftOn) {
+      // (a per-instance attribute lives on the geometry, and the type's geometry is every cell's: this batch's own shares its buffers, never disposed
+      // as it would take them with it)
+      const old = this.lift?.array as Float32Array | undefined;
+      const a = new Float32Array(cap * 2).fill(-1);
+      if (old) a.set(old);
+      this.lift = new THREE.InstancedBufferAttribute(a, 2);
+      this.lift.setUsage(THREE.DynamicDrawUsage);
+      // (a new one each growth: the last one's own buffer and its vertex arrays go with it)
+      this.dropLiftGeo();
+      this.liftGeo = new THREE.BufferGeometry();
+      for (const k in this.geo.attributes) this.liftGeo.setAttribute(k, this.geo.attributes[k]);
+      this.liftGeo.setIndex(this.geo.index);
+      this.liftGeo.boundingBox = this.geo.boundingBox;
+      this.liftGeo.boundingSphere = this.geo.boundingSphere;
+      this.liftGeo.setAttribute('aLiftB', this.lift);
+      geo = this.liftGeo;
+    }
+    const mesh = new THREE.InstancedMesh(geo, this.mat, 0);
     const m = new Float32Array(cap * 16);
     const c = new Float32Array(cap * 3);
     if (oldM) m.set(oldM);
@@ -446,7 +484,7 @@ class Batch {
     mesh.visible = this.hwm > 0; // no empty draws
     this.group.add(mesh);
     if (this.depth) {
-      const cs = new THREE.InstancedMesh(this.geo, this.depth, 0);
+      const cs = new THREE.InstancedMesh(geo, this.depth, 0);
       cs.instanceMatrix = mesh.instanceMatrix;
       cs.instanceColor = mesh.instanceColor;
       cs.count = this.hwm;
@@ -500,7 +538,18 @@ class Batch {
     ic.needsUpdate = true;
   }
 
+  /** ?lift: the slot grows on building `index`, its roof `h` m over that building's ground (-1: on no building). */
+  setLift(slot: number, index: number, h: number) {
+    const a = this.lift;
+    if (!a) return;
+    (a.array as Float32Array)[slot * 2] = index;
+    (a.array as Float32Array)[slot * 2 + 1] = h;
+    a.addUpdateRange(slot * 2, 2);
+    a.needsUpdate = true;
+  }
+
   release(slot: number) {
+    this.setLift(slot, -1, 0);
     const im = this.mesh.instanceMatrix;
     (im.array as Float32Array).set(ZERO16, slot * 16);
     im.addUpdateRange(slot * 16, 16);
@@ -529,6 +578,17 @@ class Batch {
       this.caster.removeFromParent();
       this.caster.dispose();
     }
+    this.dropLiftGeo();
+  }
+
+  /** ?lift: this batch's geometry goes, its aLiftB buffer and vertex arrays with it, and never the type's buffers it shares (taken off it first). */
+  private dropLiftGeo() {
+    const g = this.liftGeo;
+    if (!g) return;
+    for (const k in this.geo.attributes) g.deleteAttribute(k);
+    g.setIndex(null);
+    g.dispose();
+    this.liftGeo = null;
   }
 }
 
@@ -832,6 +892,7 @@ export class RoofSprouts {
         uAmpMul: tuneUniform(def.tune),
         uCull: tuneUniform('sproutCull'),
         uLeafEdge: tuneUniform('treeLump'),
+        ...(liftUniforms ?? {}),
       };
       const mat = new THREE.ShaderMaterial({
         glslVersion: THREE.GLSL3,
@@ -846,7 +907,7 @@ export class RoofSprouts {
         noCull.set(def.freq, def.dir[0], def.dir[1], 0);
         depth = new THREE.ShaderMaterial({
           glslVersion: THREE.GLSL3,
-          uniforms: { uTime: globals.uTime, uSlide: globals.uSlide, uKind: { value: noCull.clone() }, uAmpMul: uniforms.uAmpMul, uCull: uniforms.uCull },
+          uniforms: { uTime: globals.uTime, uSlide: globals.uSlide, uKind: { value: noCull.clone() }, uAmpMul: uniforms.uAmpMul, uCull: uniforms.uCull, ...(liftUniforms ?? {}) },
           vertexShader: SPROUT_DEPTH_VS,
           fragmentShader: DEPTH_FS,
         });
@@ -876,6 +937,40 @@ export class RoofSprouts {
     return b;
   }
 
+  /** ?lift: buildings whose small growth has gone (shed): set() leaves it out for them */
+  shedSet: Set<number> | null = liftOn ? new Set() : null;
+
+  /**
+   * ?lift: a house leaps: its garden's small growth (tufts, bushes, trees, planters) goes, and its dome or spire, bunting and turf ride up with it.
+   * Under 2 game pixels from 250 m and unseen from below, and most of a level-3 garden's triangles: the Lift's bound (docs/specs/factions/LIFT.md).
+   * Returns the roof points it shed from (x, z pairs, at most 8) for the petals, in `out`; the count.
+   */
+  shed(buildingIndex: number, out?: Float32Array): number {
+    this.shedSet?.add(buildingIndex);
+    const rec = this.recs.get(buildingIndex);
+    const cell = rec ? this.cells.get(rec.cell) : undefined;
+    if (!rec || !cell) return 0;
+    let n = 0;
+    const keep: number[] = [];
+    for (let i = 0; i < rec.slots.length; i += 2) {
+      const type = rec.slots[i], slot = rec.slots[i + 1];
+      if (type > T.PLANTER) {
+        keep.push(type, slot);
+        continue;
+      }
+      const b = cell[type];
+      if (out && n < out.length / 2) {
+        const m = b.mesh.instanceMatrix.array as Float32Array;
+        out[n * 2] = m[slot * 16 + 12];
+        out[n * 2 + 1] = m[slot * 16 + 14];
+        n++;
+      }
+      b.release(slot);
+    }
+    rec.slots = keep;
+    return n;
+  }
+
   /** Painted buildings currently carrying sprouts. */
   get size(): number {
     return this.recs.size;
@@ -886,11 +981,14 @@ export class RoofSprouts {
    * the building already had keep their timing (no re-pop); startTime < now
    * (e.g. -100 when restoring saved paint) means already grown. Returns how
    * high the garden stands above the roof (m, with its growth overshoot): the
-   * flight's obstacle field rises to it (domes, spires and garden trees).
+   * flight's obstacle field rises to it (domes, spires and garden trees). `faction`: whose paint the building is (game/factions.ts), which its
+   * garden draws in (the hue's eights, as the shader reads them: Rainbow's leaves the hue as it was).
    */
-  set(buildingIndex: number, roof: RoofRect, hue: number, level: number, startTime: number): number {
+  set(buildingIndex: number, roof: RoofRect, hue: number, level: number, startTime: number, faction = FACTION_RAINBOW, ground?: number): number {
+    const shed = this.shedSet?.has(buildingIndex) ?? false;
     const lvl = Math.max(1, Math.min(3, Math.round(level)));
     const h = ((Math.round(hue) % 6) + 6) % 6;
+    const owner = 8 * (Math.max(FACTION_RAINBOW, Math.min(FACTION_ROOM, Math.round(faction))) - FACTION_RAINBOW);
     const prev = this.recs.get(buildingIndex);
     const times: [number, number, number] = [startTime, startTime, startTime];
     if (prev) {
@@ -915,6 +1013,8 @@ export class RoofSprouts {
     for (let i = 0; i < elems.length; i++) {
       const e = elems[i];
       if (e.level > showLevel) continue;
+      // (?lift: a floating house's small growth went up as petals at its jump: a tile streaming back in doesn't grow it again)
+      if (shed && e.type <= T.PLANTER) continue;
       top = Math.max(top, e.y + (e.type === T.FLAG ? 0.4 : this.typeTop[e.type]) * e.sy);
       const wx = roof.cx + e.u * ux + e.v * nx;
       const wz = roof.cz + e.u * uz + e.v * nz;
@@ -938,7 +1038,8 @@ export class RoofSprouts {
       const slot = b.alloc();
       const seed = fract(Math.sin((buildingIndex + 1) * 12.9898 + i * 78.233) * 43758.5453);
       const start = times[e.level - 1] + delay0 + e.delay;
-      b.write(slot, _m, e.hue, seed, e.amp, start);
+      b.write(slot, _m, e.hue + owner, seed, e.amp, start);
+      if (ground !== undefined) b.setLift(slot, buildingIndex, roof.y - ground);
       rec.slots.push(e.type, slot);
     }
     this.recs.set(buildingIndex, rec);

@@ -1150,8 +1150,9 @@ void main() {
   if (edgeDark > 0.75) step = max(step - 2.0, 0.0);
   else if (edgeDark > 0.25) step = max(step - 1.0, 0.0);
   else if (crease > 0.5) step = min(step + 1.0, 7.0);${held(`
-  // paint never bleaches: its top two steps are for a glint, what glows hard or isn't a surface
-  float paintTop = ramp > ${Ramp.RED - 0.5} && ramp < ${Ramp.VIOLET + 0.5} && glow < 0.6 && outlineable ? uPaintCap : 7.0;
+  // paint never bleaches: its top two steps are for a glint, what glows hard or isn't a surface (the factions' rows are paint too)
+  bool paintRow = (ramp > ${Ramp.RED - 0.5} && ramp < ${Ramp.VIOLET + 0.5}) || (ramp > ${Ramp.MAGENTA - 0.5} && ramp < ${Ramp.OBSIDIAN + 0.5});
+  float paintTop = paintRow && glow < 0.6 && outlineable ? uPaintCap : 7.0;
   step = min(step, paintTop);`)}
   // the hero always separates: its silhouette is a plum ink line inside its own warm ramp (the bus's
   // ramps are its own), dark against every paint hue and still warm against the grey

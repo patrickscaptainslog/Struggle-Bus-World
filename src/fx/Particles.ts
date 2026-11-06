@@ -360,9 +360,11 @@ flat out vec4 vB;  // N px, keep (dissolve), arm px, fog
 flat out vec4 vC;  // sprite light dir xy, sun shadow, flags
 flat out vec4 vD;  // smear dir xy (sprite space), smear half length px, blob radius px
 
+// (the factions' rows, 24-31, at the step their breath reads brightest without bleaching: Particles.palette)
+const float FAC_STEP[8] = float[8](4.0, 4.0, 4.0, 3.0, 5.0, 3.0, 5.0, 6.0);
 float hueStep(float ramp) {
   int i = int(ramp + 0.5) - ${Ramp.RED};
-  if (i < 0 || i > 5) return 6.0;
+  if (i < 0 || i > 5) return ramp > ${Ramp.MAGENTA - 0.5} && ramp < ${Ramp.OBSIDIAN + 0.5} ? FAC_STEP[int(ramp + 0.5) - ${Ramp.MAGENTA}] : 6.0;
   return uHueStep[i];
 }
 
@@ -697,6 +699,8 @@ export class Particles {
   private readonly uSpk = { value: new THREE.Vector4() };
   private readonly uPuff = { value: new THREE.Vector4() };
   private readonly emitters: Emitter[] = [];
+  /** The six rows a hue index draws in: Rainbow's six, or a faction's spray (factionLook.ts), the bus's breath and its blast's sparkles alike. */
+  palette: readonly number[] = HUE_RAMPS;
   // camera right axis captured at render time (horizontal)
   private readonly camRight = new THREE.Vector3(1, 0, 0);
   private readonly tS = new THREE.Vector3();
@@ -1008,7 +1012,7 @@ export class Particles {
       const vx = V.x * 0.55 + (rnd() - 0.5) * 1.2;
       const vy = Math.min(V.y, 0) * 0.5 - 1.5 - rnd() * 2;
       const vz = V.z * 0.55 + (rnd() - 0.5) * 1.2;
-      const ramp = HUE_RAMPS[wrapHue(e.hue0 + Math.round((rnd() - 0.5) * 2.4))];
+      const ramp = this.palette[wrapHue(e.hue0 + Math.round((rnd() - 0.5) * 2.4))];
       this.writeDrop(mx, my, mz, tj, vx, vy, vz, P1.y, 0, 1, ramp, T.splashSize * (0.7 + 0.6 * rnd()), F_SHADED);
       return;
     }
@@ -1075,7 +1079,7 @@ export class Particles {
       s[6] = s[14] = cdz / tt;
     }
     s[15] = K_RIBBON;
-    s[16] = HUE_RAMPS[hue];
+    s[16] = this.palette[hue];
     s[17] = size;
     s[18] = rnd();
     s[19] = flags;
@@ -1111,7 +1115,7 @@ export class Particles {
     const lz = mz + vz * th - P1.z;
     const ebounce = Math.hypot(lx, lz) > T.roofRadius ? -1 : rnd() < T.splashBounce ? T.restitution : 0;
     const k = side * e.bandSign * (rnd() < 0.6 ? 2 : rnd() < 0.5 ? 1 : 3);
-    const ramp = HUE_RAMPS[wrapHue(e.hue0 + k)];
+    const ramp = this.palette[wrapHue(e.hue0 + k)];
     const r2 = rnd();
     const flags = F_SHADED | (r2 < 0.08 ? F_GLINT : r2 < 0.3 ? F_BRIGHT : 0);
     this.writeDrop(mx, my, mz, tj, vx, vy, vz, P1.y, ebounce, 1, ramp, T.splashSize * (0.55 + 0.7 * rnd()), flags);
@@ -1158,7 +1162,7 @@ export class Particles {
     s[13] = vArr;
     s[14] = uz * chord * 0.35;
     s[15] = K_STREAM;
-    s[16] = HUE_RAMPS[e.hues[i]];
+    s[16] = this.palette[e.hues[i]];
     const roll = rnd();
     const glint = roll < T.glintFrac;
     // the head of each stream is a fat blorp, the body a glossy strand
@@ -1273,7 +1277,7 @@ export class Particles {
       // lands on, with a bright rim + highlight), a few neighbor hues, white foam
       const roll = rnd();
       const own = roll >= 0.1 && roll < 0.8;
-      const ramp = roll < 0.1 ? Ramp.GLOW_WHITE : HUE_RAMPS[own ? h0 : wrapHue(h0 + (roll < 0.86 ? 1 : roll < 0.92 ? -1 : roll < 0.96 ? 2 : -2))];
+      const ramp = roll < 0.1 ? Ramp.GLOW_WHITE : this.palette[own ? h0 : wrapHue(h0 + (roll < 0.86 ? 1 : roll < 0.92 ? -1 : roll < 0.96 ? 2 : -2))];
       let flags = F_SHADED;
       const r2 = rnd();
       if (r2 < 0.07) flags |= F_GLINT;
@@ -1297,7 +1301,7 @@ export class Particles {
     const vx = (to.x - from.x) / ft;
     const vz = (to.z - from.z) / ft;
     const vy = (to.y - from.y + 0.5 * g * ft * ft) / ft;
-    const ramp = HUE_RAMPS[wrapHue(hue)];
+    const ramp = this.palette[wrapHue(hue)];
     const sz = size * T.flingSize;
     this.writeDrop(from.x, from.y, from.z, this.time, vx, vy, vz, to.y, 0, gm, ramp, sz, F_SHADED | (rnd() < 0.25 ? F_BRIGHT : 0));
     // trail: same arc a beat later (lands on the same spot), smaller
@@ -1329,7 +1333,7 @@ export class Particles {
       const h = wrapHue(hue + Math.floor((ang / (Math.PI * 2)) * 6));
       const r2 = rnd();
       const glint = r2 < 0.07;
-      const ramp = glint ? Ramp.GLOW_WHITE : HUE_RAMPS[h];
+      const ramp = glint ? Ramp.GLOW_WHITE : this.palette[h];
       const flags = F_SHADED | (glint ? F_GLINT : r2 < 0.3 ? F_BRIGHT : 0);
       const delay = rnd() * 0.06;
       this.writeDrop(pos.x + Math.cos(a) * 0.8, pos.y + 0.4, pos.z + Math.sin(a) * 0.8, this.time + delay, Math.cos(a) * out, up, Math.sin(a) * out, floorY, 0, 1, ramp, T.burstSize * (0.6 + 0.8 * rnd()) * (glint ? 0.6 : 1), flags);
@@ -1379,7 +1383,7 @@ export class Particles {
       s[13] = 0;
       s[14] = 0;
       s[15] = K_SPARK;
-      s[16] = rnd() < T.sparkWhite || hues.length === 0 ? Ramp.GLOW_WHITE : HUE_RAMPS[wrapHue(hues[Math.floor(rnd() * hues.length)])];
+      s[16] = rnd() < T.sparkWhite || hues.length === 0 ? Ramp.GLOW_WHITE : this.palette[wrapHue(hues[Math.floor(rnd() * hues.length)])];
       s[17] = T.sparkSize * (0.7 + 0.6 * rnd());
       s[18] = rnd();
       s[19] = 0;
@@ -1412,7 +1416,7 @@ export class Particles {
     s[13] = 0;
     s[14] = 0;
     s[15] = K_TWINKLE;
-    s[16] = rnd() < 0.3 ? Ramp.GLOW_WHITE : HUE_RAMPS[wrapHue(hue)];
+    s[16] = rnd() < 0.3 ? Ramp.GLOW_WHITE : this.palette[wrapHue(hue)];
     s[17] = T.sparkSize * (0.65 + 0.3 * rnd());
     s[18] = rnd();
     s[19] = 0;

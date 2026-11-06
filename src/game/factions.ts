@@ -4,7 +4,8 @@
 // Every splat writes its hitter's faction, and every saved paint record keeps it. A record saved before factions names none, or names Rainbow (the
 // buildings' [faction, color, level] has said 1 since the first commit): either way it's Rainbow's (ownerOf), so no old save loses a thing. Where a store
 // packs paint, a Rainbow record is packed as it was before factions, and room is left for eight (0-7): a number past the five, a later build's faction, is
-// kept as it is through this one (ownerOf), so a rollback or a stale build never turns it Rainbow's. Nothing draws a faction yet.
+// kept as it is through this one (ownerOf), so a rollback or a stale build never turns it Rainbow's. What a faction's paint draws in is render/factionLook.ts's
+// (step 5), and a later build's 6-7 draws as Rainbow's there.
 //
 // The player's faction is set in two places, each a painter's own so a bot's bus can paint its own: Splatter.faction, which the street's blasts carry, and
 // with them the Moon's ground and its craters, from up high too (main.ts's paintAt); and MoonPaint.faction, the Moon from orbit's strokes (MoonBreath's, in

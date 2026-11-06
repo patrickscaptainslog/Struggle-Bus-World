@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { registerTunables } from '../../ui/tunables';
-import { HUE_RAMPS } from '../../render/palette';
+import { GLSL_FACTION } from '../../render/factionLook';
 
 // Shared bits for the props module: live tunables (exposed to the shader as
 // getter-backed uniforms, so the tuner edits them with zero per-frame code),
@@ -87,12 +87,11 @@ export const treeUniforms: Record<string, THREE.IUniform> = {
   } as THREE.IUniform,
 };
 
-export const HUES_GLSL = HUE_RAMPS.map((r) => r.toFixed(1)).join(', ');
-
-/** GLSL: hashes, value noise and the paint-pop curve. */
+/** GLSL: hashes, value noise and the paint-pop curve, and a painted prop's rows by whose paint it is (factionLook.ts). */
 export const GLSL_PROPS = /* glsl */ `
-const float PROP_HUES[6] = float[6](${HUES_GLSL});
-float propHueRamp(float h) { return PROP_HUES[int(mod(floor(h + 0.5) + 60.0, 6.0))]; }
+${GLSL_FACTION}
+// (slot h of faction f's look: its body as the prop's own colour, an accent otherwise; Rainbow's both are its six hues)
+float propHueRamp(int f, float h, bool own) { return sbFacHue(f, int(mod(floor(h + 0.5) + 60.0, 6.0)), own); }
 float pHash13(vec3 p3) {
   p3 = fract(p3 * 0.1031);
   p3 += dot(p3, p3.zyx + 31.32);

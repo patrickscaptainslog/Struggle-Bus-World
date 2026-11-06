@@ -90,6 +90,13 @@ export class CameraRig {
   openingPull = 0;
   /** 0..1: low, level cinematic camera for the Golden Gate opening (passes under the deck) */
   openingLow = 0;
+  /** the low shot's distance back (m) and elevation (deg): the opening's 150 and 6.5; ?lift's under the floating houses is longer-lensed and flatter */
+  lowDist = 150;
+  lowEl = 6.5;
+  /** ?lift (world/Lift.ts clampLens): where the lens may stand at (x, z), given its height and the low shot's blend. Null otherwise */
+  liftClamp: ((x: number, z: number, y: number, low: number) => number) | null = null;
+  /** ?lift: the look stays on in the low shot (under the floating houses it is the whole neighbourhood, not one bridge's few seconds) */
+  lookInLow = false;
   /** Turbo gears (src/fx/Turbo.ts): extra pull-back (m), lens widening (deg), hero scale (x), and leads (m)
    *  added to the follow / look targets that cancel part of the springs' lag at turbo speeds */
   turboPull = 0;
@@ -212,8 +219,8 @@ export class CameraRig {
     const barf = this.barfTilt * (1 - v) * (1 - dive); // up high the splat lands mid-screen anyway
     let elev = this.elev + (C.elevationVista - this.elev) * v;
     elev += (C.diveElevation - elev) * dive;
-    const el = THREE.MathUtils.degToRad(elev + 11 * barf + (6.5 - elev) * low);
-    const dist = (C.distance + (C.distanceVista - C.distance) * v + this.openingPull + this.turboPull) * (1 - low) + 150 * low;
+    const el = THREE.MathUtils.degToRad(elev + 11 * barf + (this.lowEl - elev) * low);
+    const dist = (C.distance + (C.distanceVista - C.distance) * v + this.openingPull + this.turboPull) * (1 - low) + this.lowDist * low;
     const fx = Math.sin(this.yaw), fz = -Math.cos(this.yaw);
     const bus = this.bus.set(f.x, f.y, f.z);
     const desired = this.desired.set(bus.x - fx * Math.cos(el) * dist, bus.y + Math.sin(el) * dist, bus.z - fz * Math.cos(el) * dist).addScaledVector(this.turboLead, 1 - this.stiff);
@@ -231,6 +238,14 @@ export class CameraRig {
       if (this.pos.y < y) {
         this.pos.y = y;
         this.posVel.y = Math.max(0, this.posVel.y);
+      }
+    }
+    if (this.liftClamp) {
+      // (?lift: the lens never stands in a floating house)
+      const y = this.liftClamp(this.pos.x, this.pos.z, this.pos.y, this.openingLow);
+      if (y !== this.pos.y) {
+        this.pos.y = y;
+        this.posVel.y = 0;
       }
     }
     const spk = sp / F.cruiseSpeed;
@@ -278,6 +293,11 @@ export class CameraRig {
     this.distance = this.pos.distanceTo(bus);
     focusOut.copy(bus);
     this.applyLook(cam, bus);
+    if (this.lookInLow && this.liftClamp && (this.lookYaw.x !== 0 || this.lookPitch.x !== 0)) {
+      // (?lift: a look swings the lens round the bus, and never into the hill or a floating house)
+      if (this.floorAt) cam.position.y = Math.max(cam.position.y, this.floorAt(cam.position.x, cam.position.z) + 4);
+      cam.position.y = this.liftClamp(cam.position.x, cam.position.z, cam.position.y, this.openingLow);
+    }
   }
 
   /**
@@ -289,7 +309,7 @@ export class CameraRig {
     const C = config.camera;
     const yaw = this.lookYaw, pitch = this.lookPitch;
     if (on) {
-      const k = THREE.MathUtils.DEG2RAD * (1 - this.openingLow);
+      const k = THREE.MathUtils.DEG2RAD * (this.lookInLow ? 1 : 1 - this.openingLow);
       const py = C.lookInvertY ? -y : y;
       if (!this.lookOn) {
         this.lookSlack = 0;

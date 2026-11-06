@@ -233,6 +233,21 @@ export class PaintState {
     if (was && rec.level < 0.5) this.paintedCount--;
   }
 
+  /**
+   * ?lift&lifted (world/Lift.ts): paint for this session only. The texel and the painted count, as set() writes them, and never the saved store or
+   * its timer: a reload, or a page without the flag, has the player's own paint.
+   */
+  stage(index: number, rec: PaintRecord) {
+    const o = index * 4;
+    const was = this.data[o + 1] > 0.5;
+    this.data[o] = rec.color;
+    this.data[o + 1] = rec.level;
+    this.data[o + 2] = rec.bloomTime;
+    this.data[o + 3] = rec.faction + (rec.keep ? PAINT_KEPT : 0);
+    this.dirty.add(index);
+    if (!was && rec.level > 0.5) this.paintedCount++;
+  }
+
   resetAll() {
     this.data.fill(0);
     this.saved = {};
