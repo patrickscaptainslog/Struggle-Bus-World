@@ -3,10 +3,10 @@
 // (&recesslen=30), Learner captains, so one match shows every row. The phone and the GPU are the producer's and the first account's.
 //   up        the page boots into the match: two captains' buses in the scene, in their colours, over the arena, the player on its edge, no Golden Gate opening
 //   programs  nothing compiles after the warm-up: the programs at the first frame are the programs 200 frames on
-//   paint     the captains paint the real city where their blasts land in their own one hue, Atlantis blue and Inferno red, and their squares count in the score
+//   paint     the captains paint the real city where their blasts land, saved as theirs and so drawn in their own colours (factions' step 5), and their squares count
 //             (paint's owner is Rainbow's in PaintState until factions' step 1 teaches it others)
 //   gotcha    the player behind a captain, its glint on it: a real tap's breath at it rides it (Possessed), or it hops out (tried three times)
-//   possessed the player ridden: the real gear goes to Nonstop, a flick down only wheezes, full right still turns the bus, its hiccups paint the hitter's hue
+//   possessed the player ridden: the real gear goes to Nonstop, a flick down only wheezes, full right still turns the bus, its hiccups paint the hitter's, on grey
 //   gods      each camp's god standing at its heart from the bell, its heart painted; one toppled by hits at the heart, said, and the heart the attacker's
 //   bell      at the last bell the brain stops and the camera climbs to 1,500 m over the arena: the painted map, and the score in order (scoreboard.png)
 //   freezes   captains paint and nothing freezes: 90 frames on, the game's clock and the match's ran every step (M22)
@@ -49,19 +49,19 @@ try {
   await page.evaluate((S) => { for (const [k, v] of Object.entries(S)) localStorage.setItem(k, v); }, SAVED);
   const paintKeys = () => page.evaluate(() => { const o = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (/^strugglebus\.(paint|ground|landmarks)/.test(k)) o[k] = localStorage.getItem(k); } return o; });
   await open('&recess&recesslen=30&bots=learner');
-  // (the captains' paint where it landed: the buildings within 25 m of each of their blasts that have landed, painted, and how many wear its hue)
-  const landed = (hue) => page.evaluate((h) => {
-    const g = window.__game, R = window.__recess, P = g.city.paint, pts = R.painted.filter((p) => p.at < R.now - 1.5 && (h === undefined || p.hue === h));
+  // (the captains' paint where it landed: the buildings within 25 m of each of their blasts that have landed, painted, and how many are its faction's)
+  const landed = (faction) => page.evaluate((h) => {
+    const g = window.__game, R = window.__recess, P = g.city.paint, pts = R.painted.filter((p) => p.at < R.now - 1.5 && (h === undefined || p.faction === h));
     let near = 0, same = 0;
     for (const p of pts)
       for (const n of g.city.buildingsWithin(p.x, p.z, 25)) {
         const r = P.get(n.ref.index);
         if (r.level < 0.5) continue;
         near++;
-        if (r.color === p.hue) same++;
+        if (r.faction === p.faction) same++;
       }
     return { blasts: pts.length, near, same, share: near ? +(same / near).toFixed(2) : 0 };
-  }, hue);
+  }, faction);
   const programs0 = await page.evaluate(() => window.__game.pipeline.renderer.info.programs.length);
   // ---- up ----
   await frames(45);
@@ -108,14 +108,14 @@ try {
   await frames(20, { sx: 1, sy: 0 });
   const p2 = await page.evaluate(() => ({ gear: window.__game.controls.turbo.gear, h1: window.__game.flight.heading, hiccups: window.__recess.counts.hiccup ?? 0 }));
   await frames(70);
-  const p3 = { state: await page.evaluate(() => window.__recess.sim.buses[0].state), hiccups: await page.evaluate(() => window.__recess.counts.hiccup ?? 0), inferno: await landed(0) };
+  const p3 = { state: await page.evaluate(() => window.__recess.sim.buses[0].state), hiccups: await page.evaluate(() => window.__recess.counts.hiccup ?? 0), inferno: await landed(5) };
   const turned = Math.abs(Math.atan2(Math.sin(p2.h1 - p1.h0), Math.cos(p2.h1 - p1.h0)));
-  row('possessed: Nonstop, a flick down only wheezes, full right still turns, the hiccups paint the hitter\'s red where they land', p0.state === 'ride' && p1.took && p1.gear === 2 && p2.gear === 2 && turned > 0.1 && p3.hiccups >= 8 && p3.inferno.blasts >= 4 && p3.inferno.share >= 0.6,
+  row('possessed: Nonstop, a flick down only wheezes, full right still turns, the hiccups paint the hitter\'s on grey where they land', p0.state === 'ride' && p1.took && p1.gear === 2 && p2.gear === 2 && turned > 0.1 && p3.hiccups >= 8 && p3.inferno.blasts >= 4 && p3.inferno.share >= 0.6,
     { p0, gear: p1.gear, took: p1.took, turnedRad: +turned.toFixed(2), ...p3 });
   await page.screenshot({ path: join(dir, 'possessed.png') });
   // ---- paint: the captains' own hues on the city, in the arena, and in the score ----
-  const paint = { atlantis: await landed(4), all: await landed(), score: await page.evaluate(() => window.__recess.sim.score().filter((_, i) => [1, 2, 5].includes(i))), paints: await page.evaluate(() => window.__recess.counts.paint ?? 0) };
-  row('paint: where a captain\'s blast lands the buildings wear its one hue (Atlantis blue 4, Inferno red 0), and its squares score', paint.atlantis.blasts > 0 && paint.all.share >= 0.6 && paint.score[1] > 0 && paint.score[2] > 0, paint);
+  const paint = { atlantis: await landed(2), all: await landed(), score: await page.evaluate(() => window.__recess.sim.score().filter((_, i) => [1, 2, 5].includes(i))), paints: await page.evaluate(() => window.__recess.counts.paint ?? 0) };
+  row('paint: where a captain\'s blast lands the buildings are saved as its faction\'s, drawn in its colours, and its squares score', paint.atlantis.blasts > 0 && paint.all.share >= 0.6 && paint.score[1] > 0 && paint.score[2] > 0, paint);
   // ---- M23: the city's paint agrees with the brain: each building a captain's colour owns stands in or beside a square of that faction's ----
   const agree = await page.evaluate(() => {
     const g = window.__game, R = window.__recess, A = R.sim.areas, P = g.city.paint;

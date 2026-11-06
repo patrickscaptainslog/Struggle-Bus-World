@@ -23,13 +23,13 @@ import { C, HUD_FONT, PixelCanvas, rgba, textWidth } from '../ui/pixelUi';
 import { Captain } from './captain';
 import { Recess, recessTune, type Level, type Mode } from './recess';
 
-/** The factions on the field: the player's Rainbow (its own dealt hues), and the two captains in one hue each, Atlantis blue and Inferno red (decision 21). */
-const SIDES: Record<number, { name: string; solo?: number; ramp: number }> = {
+/** The factions on the field (decision 21): the player's Rainbow and the two captains, Atlantis and Inferno. Since factions' step 5 every paint draws in its
+ *  owner's look (render/factionLook.ts), so a captain's blast only carries its faction; its bus wears its body colour, Atlantis's teal and Inferno's crimson. */
+const SIDES: Record<number, { name: string; ramp: number }> = {
   [Faction.RAINBOW]: { name: 'RAINBOW', ramp: Ramp.BUS_YELLOW },
-  [Faction.ATLANTIS]: { name: 'ATLANTIS', solo: 4, ramp: Ramp.BLUE },
-  [Faction.INFERNO]: { name: 'INFERNO', solo: 0, ramp: Ramp.RED },
+  [Faction.ATLANTIS]: { name: 'ATLANTIS', ramp: Ramp.TEAL },
+  [Faction.INFERNO]: { name: 'INFERNO', ramp: Ramp.CRIMSON },
 };
-
 /** The tag a blast the player didn't fire carries (a captain's, a hiccup's, a heart's): main.ts's impact plays no flash, kick, sign or sound for it (M22). */
 export const QUIET = { recess: 'quiet' } as const;
 
@@ -116,8 +116,8 @@ export class RecessGame implements MoverAim {
   private readonly m4 = new THREE.Matrix4();
   /** the camps' hearts as they were last step */
   private readonly hearts: { n: number; key: number; faction: number; stage: number; cracks: number }[] = [];
-  /** QA: the captains' last paint on the city, where and in what hue, landing when */
-  readonly painted: { x: number; z: number; hue: number; at: number }[] = [];
+  /** QA: the captains' last paint on the city, where and whose, landing when */
+  readonly painted: { x: number; z: number; faction: number; at: number }[] = [];
   /** QA: what happened, by kind */
   readonly counts: Record<string, number> = {};
 
@@ -411,13 +411,13 @@ export class RecessGame implements MoverAim {
 
   /** Paint on the real city at brain point (x, z), `faction`'s: Rainbow's dealt hues, a captain's one. */
   private paint(x: number, z: number, faction: number, travel: number, fromY: number, size = 1): void {
-    const wx = this.cx + x, wz = this.cz + z, side = SIDES[faction];
+    const wx = this.cx + x, wz = this.cz + z;
     const drop = Math.max(0, fromY - this.h.groundAt(wx, wz));
-    if (side.solo !== undefined) {
-      this.painted.push({ x: wx, z: wz, hue: side.solo, at: this.now + travel });
+    if (faction !== Faction.RAINBOW) {
+      this.painted.push({ x: wx, z: wz, faction, at: this.now + travel });
       if (this.painted.length > 64) this.painted.shift();
     }
-    this.h.barf(wx, wz, { travel: Math.max(0.05, travel), drop, from: fromY, solo: side.solo, faction, hitStop: 0, tag: QUIET, ...(size !== 1 ? { radius: config.splat.blastRadius * size } : {}) });
+    this.h.barf(wx, wz, { travel: Math.max(0.05, travel), drop, from: fromY, faction, hitStop: 0, tag: QUIET, ...(size !== 1 ? { radius: config.splat.blastRadius * size } : {}) });
   }
 
   /** A hit's flash on bus `id`, in the air where it is: a hit on or by the player freezes the screen, at most 2 s a match; one between captains is quiet. */
