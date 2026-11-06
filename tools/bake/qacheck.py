@@ -111,6 +111,23 @@ def unread(qa):
     return why
 
 
+def gate(qa):
+    """once the gate is 'fail', a check that failed to read fails the bake, where as NOT READ it passed, so a city whose
+    bridges.py throws passed all fifteen; one with nothing to read (an empty frame: no hero, no deck) doesn't, nor any in
+    report mode"""
+    import bridges as B
+    why = []
+    ground = B.Ground((0.0, 0.0, 256.0, 256.0), np.full((128, 128), B.Ground.WATER, np.uint8), 2.0, np.zeros((65, 65), np.float32), 4.0)
+    Q = qa.thresholds({}, log=lambda *a: None)[0]
+    for fail in (None, 'segments', 'read'):
+        recs, _ = qa.bridge_checks({}, Baked(), Extract(fail), ground, Q, lambda lo, la: (lo, -la), lambda x, z: (-z, x), '.', log=lambda *a: None)
+        for g, want in (('fail', 15 if fail else 0), ('report', 0)):
+            n = sum(1 for r in recs if qa.gate_fails(r, g))
+            if n != want:
+                why.append(f'{fail or "an empty frame"}, the gate {g}: {n} of {len(recs)} fail the bake, want {want}')
+    return why
+
+
 
 # ---------------------------------------------------------------- deckFreeEnd: a drawn deck's end over the ground
 def deck_ends(qa):
@@ -190,6 +207,7 @@ def joined_edges(qa):
 CHECKS = [
     ("a city config's \"qa\" tightens a check, never loosens it, and never sets how the city is cut up", overrides),
     ('the bridge checks never stop the QA: what they all read failing makes the fifteen NOT READ', unread),
+    ('a fail gate fails a check that failed to read, never one with nothing to read', gate),
     ("deckFreeEnd measures a drawn deck's end over the ground, a kept way by it or not", deck_ends),
     ("a tower stands over its deck by its top over the sea, not over its own ground (bridges.py's XL)", tower_over),
     ("two decks joined end to end cover the ground each covered, either one run backwards (bridges.py's join)", joined_edges),

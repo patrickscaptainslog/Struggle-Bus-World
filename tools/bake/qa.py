@@ -26,7 +26,8 @@ What it compares (on the city frame, cut into 128 m cells; WorldCover on the bak
           map, what's drawn against the map's bridges, the street figure; bridges.py plans the map's decks. Each
           value carries its unit (m, a share, a count, a ratio); a check with nothing to read prints NOT READ.
           They run first, before the WorldCover reference (a city baked without it gets them too), and fail a
-          bake only once QA_DEFAULTS 'bridgeGate' is 'fail' (step 6): until then they are reported.
+          bake only once QA_DEFAULTS 'bridgeGate' is 'fail' (step 6), a check over its limit or one that failed
+          to read: until then they are reported.
 Writes:
   city.json stats.qa                         the summary (pass, the failed checks, counts, the parks)
   tools/bake/.cache/qa/<name>/report.md      the checks, the worst disagreements with lat / lon and a
@@ -723,7 +724,7 @@ def run(slug, city_dir, log=_log, crops=None):
     # not WorldCover: a city baked without it gets them too)
     bridge, bplan = bridge_checks(cfg, city, osm, B.Ground(man['bounds'], cls, res2, hgt, cell, city), Q, ll2xz, lonlat, city_dir, log)
     del hgt
-    bfailed = [c['key'] for c in bridge if c['over']] if Q['bridgeGate'] == 'fail' else []
+    bfailed = [c['key'] for c in bridge if gate_fails(c, Q['bridgeGate'])]
     for c in bridge:
         log(bridge_line(c, Q['bridgeGate']))
     if cfg.get('worldcover', True) is False:
@@ -1074,10 +1075,17 @@ def limit_text(c):
     return t
 
 
+def gate_fails(c, gate):
+    """a bridge check fails the bake only once the gate is 'fail': when it's over its limit, or failed to read (what it
+    reads threw, as for every check when bridges.py breaks on a city's data: as a pass it would pass that city). One with
+    nothing to read yet, no hero or no bridges.bin, doesn't"""
+    return gate == 'fail' and (c['over'] or (not c['read'] and c['why'].startswith('failed to read')))
+
+
 def bridge_line(c, gate):
     """one bridge check for the log"""
     if not c['read']:
-        return f'bridges: {c["key"]}: NOT READ ({c["why"]})'
+        return f'bridges: {c["key"]}: NOT READ ({c["why"]})' + (': FAIL' if gate_fails(c, gate) else '')
     v = fmt(c['value'], c['unit']) + (f' ({fmt(c["count"], c["countUnit"])})' if c['countUnit'] != 'count' else '')
     state = ('FAIL' if gate == 'fail' else 'OVER (reported, not failed)') if c['over'] else 'ok'
     return f'bridges: {c["key"]} {v}, limit {limit_text(c)}: {state}; {c["what"]}' + (f'; {c["detail"]}' if c['detail'] else '')
@@ -1098,12 +1106,13 @@ def bridge_section(bridge, bplan, Q, refused):
     L = ['## Bridges', '',
          f'The fifteen checks of `docs/specs/bridges/BRIDGES.md` section 4, '
          + ('**failing the bake** when over.' if gate == 'fail' else 'reported, **never failing the bake** (`"bridgeGate": "report"`) until step 6 sets them to fail.')
-         + ' A check is over when its value passes its limit and its count reaches its floor. NOT READ: nothing to read yet, never a pass. Until '
+         + ' A check is over when its value passes its limit and its count reaches its floor. NOT READ: nothing to read yet, never a pass; one '
+         'that failed to read fails the bake once the gate is fail. Until '
          'step 5 the decks drawn are the heroes\' kits (city.json landmark rows with a deck) and the decks of the map are `tools/bake/bridges.py`\'s plan, '
          'its tops by the rule with no LiDAR.', '', '| check | value | limit | | what |', '|---|---|---|---|---|']
     for c in bridge:
         v = fmt(c['value'], c['unit']) + (f' ({fmt(c["count"], c["countUnit"])})' if c['read'] and c['countUnit'] != 'count' else '')
-        st = 'NOT READ' if not c['read'] else ('**FAIL**' if gate == 'fail' else '**over**') if c['over'] else 'ok'
+        st = '**FAIL**' if gate_fails(c, gate) else 'NOT READ' if not c['read'] else '**over**' if c['over'] else 'ok'
         L.append(f'| `{c["key"]}` | {v} | {limit_text(c)} | {st} | {c["what"]}' + (f': {c["detail"]}' if c['detail'] else '')
                  + (f' ({c["why"]})' if not c['read'] else '') + ' |')
     if refused:
