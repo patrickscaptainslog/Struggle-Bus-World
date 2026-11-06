@@ -56,15 +56,17 @@ export const FACTION_LOOKS: readonly FactionLook[] = (() => {
     leaf: TEAL,
     bark: PEARL,
   };
-  // the Elderwood: moss walls, silver-lilac stone and bark, violet caps, lantern gold
+  // the Elderwood: deep moss walls, bands, bays and roofs alike, silver-lilac stone only as trim and bark, violet caps (its domes, a garden's glowing
+  // bits, a flower that would be its leaves' colour), lantern gold in a sixth of the windows, and half its ground silver and violet, so a painted lawn
+  // never reads as grass
   looks[FACTION_ELDERWOOD] = {
     body: [MOSS, MOSS, MOSS, MOSS, MOSS, MOSS],
-    accent: [MOSS, PEARL, MOSS, YELLOW, MOSS, VIOLET],
-    glass: [MOSS, PEARL, MOSS, YELLOW, MOSS, VIOLET],
-    ground: [MOSS, MOSS, VIOLET, MOSS, MOSS, PEARL],
+    accent: [MOSS, MOSS, MOSS, MOSS, MOSS, MOSS],
+    glass: [YELLOW, PEARL, MOSS, PEARL, MOSS, PEARL],
+    ground: [MOSS, PEARL, MOSS, VIOLET, MOSS, PEARL],
     spray: [MOSS, YELLOW, MOSS, VIOLET, MOSS, YELLOW],
     trim: PEARL,
-    gold: YELLOW,
+    gold: VIOLET,
     leaf: MOSS,
     bark: PEARL,
   };
