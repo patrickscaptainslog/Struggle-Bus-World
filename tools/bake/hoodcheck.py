@@ -12,7 +12,8 @@ exit 1 on any failure. Against the city's own baked tiles and Overture extract, 
            none on built ground while open ground was clear for it, none out of its parks while one had open, untagged
            ground clear for it (clear: 450 m from every other god's heart, where the bake could have put it), none
            whose ring reaches past the frame while a square off its edge was clear, and no ring square a neighbour holds
-           that could come over to it (not a park's, a heart's ring, a neighbour at 0.25 km2 or cut in two by it)
+           that could come over to it (not a park's, a heart's ring, a neighbour at 0.25 km2 or cut in two by it); no
+           tagged square in a ring while its park or tier had a clean ring clear for it
   sizes    0.25-3 km2; under 0.25 only a whole piece of land, and godless (Alcatraz)
   names    one each, none empty or over 255 bytes, no two that are one place (hoods.norm: Castro, Castro District),
            none with a slash of its own beside another; every place the bake seeds from named on the neighbourhood
@@ -284,6 +285,28 @@ def heart_rings(W, t):
     return edge, gaps, short
 
 
+def tagged_rings(W, t):
+    """Gods whose ring of 8 holds a tagged square (it stops at the streets: a god over a cemetery's edge) while their own
+    park, or their tier (open ground, built ground), had a square clear for them, off the frame's edge, whose ring held
+    none."""
+    g = t['grid']
+    hc, clear = gods(W, t)
+    park = np.full(len(g), -1)
+    for p, (_, own) in enumerate(W.parks):
+        park[own] = p
+    tier = lambda s: (0, int(park[s])) if park[s] >= 0 and W.open[s] >= H.OPEN_HEART else (1 if W.open[s] >= H.OPEN_HEART else 2, -1)
+    dirty = lambda s: any(t['tagged'][q] for q in ring_cells(W, s))
+    out = []
+    for k, h in hc.items():
+        if not dirty(h):
+            continue
+        sq = np.nonzero(g == k + 1)[0]
+        ok = clear(k, sq) & ~t['tagged'][sq]
+        if any(ok[i] and len(ring_cells(W, s)) == 8 and tier(s) == tier(h) and not dirty(s) for i, s in enumerate(sq.tolist())):
+            out.append(t['names'][k])
+    return out
+
+
 def contains(pw, w):
     """Words w a run in words pw."""
     return bool(w) and any(pw[k:k + len(w)] == w for k in range(len(pw) - len(w) + 1))
@@ -418,6 +441,9 @@ def check(W, t, man_hoods, rep):
             (f'; {"; ".join(gaps[:8])}' if gaps else ''), not gaps)
         rep('hearts: rings short of 8 of their own', len(short), f'reported, of {len(gods(W, t)[0])} gods' +
             (f'; {"; ".join(short[:12])}' if short else ''), True)
+        dirty = tagged_rings(W, t)
+        rep('hearts: a tagged square in the ring while their park or tier had a clean ring clear for them', len(dirty), '0' +
+            (f'; {"; ".join(dirty[:8])}' if dirty else ''), not dirty)
     near = []
     if len(pts) > 1:
         from scipy.spatial import cKDTree
@@ -556,6 +582,22 @@ def broken(W, t, man_hoods):
     if gap:
         case('a ring square given away', 'hearts: a ring square a neighbour holds that could come over',
              lambda c, mh, q=gap[0], u=gap[1]: c['grid'].__setitem__(q, u + 1))
+    # a square of a god's ring tagged, where another square of its tier keeps a clean ring
+    tagq = None
+    for k, h in hc.items():
+        for q in ring_cells(W, h):
+            if g[q] != k + 1 or t['tagged'][q]:
+                continue
+            tt = dict(t, tagged=t['tagged'].copy())
+            tt['tagged'][q] = True
+            if t['names'][k] in tagged_rings(W, tt):
+                tagq = q
+                break
+        if tagq is not None:
+            break
+    if tagq is not None:
+        case('a ring square tagged', 'hearts: a tagged square in the ring while their park or tier had a clean ring clear for them',
+             lambda c, mh, q=tagq: c['tagged'].__setitem__(q, True) or mh.update(tagged=mh['tagged'] + 1))
     k0 = next(k for k in range(len(t['names'])) if not t['flags'][k])
     case('a heart off its squares', 'hearts: off their own squares',
          lambda c, mh: c['hearts'].__setitem__(k0, t['hearts'][(k0 + 1) % len(t['names'])]))

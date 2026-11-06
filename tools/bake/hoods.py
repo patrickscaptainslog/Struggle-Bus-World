@@ -38,9 +38,9 @@ order the section's list of fixes needs them:
   split    anything over 3 km2 into strips across its longer side, parks whole, named West and East, or North and South
   hearts   one square each: in its biggest park (on open ground: not a park on a roof), else its highest open ground, else
            its highest square, never on a tagged place, at least 450 m from every other heart; within a park or a tier
-           the ring of 8 most on land and most its own first, then a square with no tagged place in it, and a square
-           whose ring reaches past the frame only after every other; a neighbourhood whose heart can't be placed joins
-           the neighbour in its way
+           a ring of 8 with no tagged square first, then the one most on land and most its own, then a square with no
+           tagged place in it, and a square whose ring reaches past the frame only after every other; a neighbourhood
+           whose heart can't be placed joins the neighbour in its way
   rings    each god's ring of 8 its own where it's land: a neighbour's square in it comes over, but a park's (kept
            whole), a heart's ring, or one its neighbour can't spare (0.25 km2, or cut in two)
   tagged   squares where worship, cemetery, memorial, school or hospital cover a quarter of the land: stages 4 and 5 stay off
@@ -1142,17 +1142,19 @@ class Hoods:
     def candidates(self, ti):
         """The squares a heart may take, best first, tagged squares never: its biggest park's, its other parks' by size,
         then the highest open ground, then the highest square. A park's square counts only on open ground (a park on a
-        roof is no ground for a god: Salesforce Park). Within a park or a tier: the ring of 8 most on land, then most its
-        own (every god rises over a ring of floating houses), then a square with no tagged place in it at all before one
-        with a sliver of one (a church's corner doesn't push North Beach's heart out of Washington Square onto a roof).
+        roof is no ground for a god: Salesforce Park). Within a park or a tier: a ring of 8 with no tagged square in it
+        (no god rises over a cemetery's edge), then the ring most on land, then most its own (every god rises over a
+        ring of floating houses), then a square with no tagged place in it at all before one with a sliver of one (a
+        church's corner doesn't push North Beach's heart out of Washington Square onto a roof).
         A square whose ring reaches past the frame comes after every other (on a flat map the most open square was the
         frame's corner)."""
         sq = self.squares(ti)
         mine = set(sq.tolist())
-        ring = {}   # (its ring's squares in the frame, on land, its own)
+        ring = {}   # (its ring's squares in the frame, on land, its own, tagged)
         for s in sq.tolist():
             rs = self.ring_squares(s)
-            ring[s] = (len(rs), sum(1 for q in rs if self.is_land[q]), sum(1 for q in rs if q in mine))
+            ring[s] = (len(rs), sum(1 for q in rs if self.is_land[q]), sum(1 for q in rs if q in mine),
+                       sum(1 for q in rs if self.tag[q]))
         tiers = []
         seen = set()
         parks = []
@@ -1169,13 +1171,13 @@ class Hoods:
             mx = np.average([self.centre(s)[0] for s in ps], weights=f)
             mz = np.average([self.centre(s)[1] for s in ps], weights=f)
             order = sorted(zip(ps.tolist(), f.tolist()), key=lambda t: (
-                -ring[t[0]][1], -ring[t[0]][2], bool(self.tag_any[t[0]]), -round(t[1], 2),
+                ring[t[0]][3] > 0, -ring[t[0]][1], -ring[t[0]][2], bool(self.tag_any[t[0]]), -round(t[1], 2),
                 round(math.hypot(self.centre(t[0])[0] - mx, self.centre(t[0])[1] - mz), 1), t[0]))
             order = [s for s, _ in order if s not in seen]
             tiers += [(s, 'park', p['name'] or 'a park', 0, len(order)) for s in order]
             seen |= set(order)
         high = sorted((s for s in sq.tolist() if s not in seen and not self.tag[s]), key=lambda s: (
-            self.open[s] < OPEN_HEART, -ring[s][1], -ring[s][2], bool(self.tag_any[s]),
+            self.open[s] < OPEN_HEART, ring[s][3] > 0, -ring[s][1], -ring[s][2], bool(self.tag_any[s]),
             -round(float(self.high[s]) if np.isfinite(self.high[s]) else -1e9, 1), -round(self.open[s], 2), s))
         n_open = sum(1 for s in high if self.open[s] >= OPEN_HEART)
         tiers += [(s, 'high ground', None, 1, n_open) if self.open[s] >= OPEN_HEART else (s, 'built ground', None, 2, len(high) - n_open)
