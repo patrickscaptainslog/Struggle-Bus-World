@@ -45,6 +45,8 @@ const LENS_RING = [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6]] as const;
 const OVER_RING = [[0, 0], [12, 0], [-12, 0], [0, 12], [0, -12]] as const;
 /** fromHit: a wave's house, a tap's or MEGA's (its slow motion), the firehose's (none: a hose held over level-3 rows never stutters) */
 const BY_WAVE = 0, BY_HIT = 1, BY_HOSE = 2;
+/** &lifted stages this many houses a frame */
+const STAGE_STEP = 50;
 /** nearPlaced's index: its cells (m) */
 const NEAR_CELL = 32;
 const NONE: readonly number[] = [];
@@ -446,19 +448,29 @@ export class Lift implements LiftHooks, FieldHouses {
    * first frame (the review's hitch)
    */
   private nearPlaced(ref: BuildingRef): LiftNear[] {
-    const out: LiftNear[] = [], g = LIFT_NEAR, r = g + this.nearRad;
+    const out: LiftNear[] = [];
+    this.nearEach(ref, LIFT_NEAR, (o) => {
+      const i = o.index;
+      if (this.state[i] === ST_GROUND) return;
+      const dist = Math.hypot(Math.max(o.x0 - ref.x1, 0, ref.x0 - o.x1), Math.max(o.z0 - ref.z1, 0, ref.z0 - o.z1));
+      out.push({ H: this.H[i], height: o.roofY - o.baseY, reach: this.margin[i], dist, touching: dist <= 3 * Math.SQRT2 && o.x0 - 3 <= ref.x1 && o.x1 + 3 >= ref.x0 && o.z0 - 3 <= ref.z1 && o.z1 + 3 >= ref.z0 });
+    });
+    return out;
+  }
+
+  /** Each other liftable house whose footprint's bounds come within g m of ref's, from the Lift's own index. */
+  private nearEach(ref: BuildingRef, g: number, fn: (o: BuildingRef) => void) {
+    const r = g + this.nearRad;
     const c0x = Math.floor((ref.x0 - r) / NEAR_CELL), c1x = Math.floor((ref.x1 + r) / NEAR_CELL);
     const c0z = Math.floor((ref.z0 - r) / NEAR_CELL), c1z = Math.floor((ref.z1 + r) / NEAR_CELL);
     for (let qz = c0z; qz <= c1z; qz++)
       for (let qx = c0x; qx <= c1x; qx++)
         for (const i of this.nearGrid.get(squareKey(qx, qz)) ?? NONE) {
           const o = this.refs.get(i);
-          if (!o || i === ref.index || this.state[i] === ST_GROUND) continue;
+          if (!o || i === ref.index) continue;
           if (o.x0 - g > ref.x1 || o.x1 + g < ref.x0 || o.z0 - g > ref.z1 || o.z1 + g < ref.z0) continue;
-          const dist = Math.hypot(Math.max(o.x0 - ref.x1, 0, ref.x0 - o.x1), Math.max(o.z0 - ref.z1, 0, ref.z0 - o.z1));
-          out.push({ H: this.H[i], height: o.roofY - o.baseY, reach: this.margin[i], dist, touching: dist <= 3 * Math.SQRT2 && o.x0 - 3 <= ref.x1 && o.x1 + 3 >= ref.x0 && o.z0 - 3 <= ref.z1 && o.z1 + 3 >= ref.z0 });
+          fn(o);
         }
-    return out;
   }
 
   private writeTexel(i: number) {
@@ -475,35 +487,34 @@ export class Lift implements LiftHooks, FieldHouses {
     if (i > this.dirty1) this.dirty1 = i;
   }
 
-  /** &lifted: the neighbourhood's houses (the 600 nearest its heart) at level 3, Rainbow, for this session only, and the wave scheduled. */
+  /**
+   * &lifted: the neighbourhood's houses (the 600 nearest its heart) at level 3, Rainbow, for this session only, STAGE_STEP a frame out from the
+   * heart (all 400 in one frame, their gardens grown, were 38-54 ms of it, the frame the wave could start in); the wave waits for the last.
+   */
   private stage() {
-    this.staged = true;
     const city = this.g.city;
     const [hx, hz] = this.heart;
-    const list = [...this.refs.values()].map((ref) => ({ ref, d: Math.hypot(ref.cx - hx, ref.cz - hz) })).sort((a, b) => a.d - b.d).slice(0, LIFT.cap);
-    const hue = new Map<number, number>();
-    for (const { ref } of list) {
+    const list = (this.stageList ??= [...this.refs.values()].map((ref) => ({ ref, d: Math.hypot(ref.cx - hx, ref.cz - hz) })).sort((a, b) => a.d - b.d).slice(0, LIFT.cap));
+    for (const end = Math.min(list.length, this.stageN + STAGE_STEP); this.stageN < end; this.stageN++) {
+      const { ref } = list[this.stageN];
       // its 60-degree wedge round the heart, then the nearest hue no touching neighbour has (Splatter.freeHue's rule)
       const a = Math.atan2(ref.cz - hz, ref.cx - hx);
       const pref = ((Math.floor(((a + Math.PI) / (Math.PI * 2)) * 6) % 6) + 6) % 6;
+      // (the hues its touching neighbours already have, from the Lift's own index: the City's buildingsWithin, six times a house, was most of
+      // the 50 ms this frame took for the wave's 400)
+      let taken = 0;
+      this.nearEach(ref, 2.5, (o) => {
+        const oh = this.stagedHue[o.index];
+        if (oh >= 0) taken |= 1 << oh;
+      });
       let pick = pref;
       for (const off of [0, 1, -1, 2, -2, 3]) {
         const h = (pref + off + 6) % 6;
-        let clash = false;
-        for (const { ref: o } of city.buildingsWithin(ref.cx, ref.cz, ref.rad + 30)) {
-          const oh = hue.get(o.index);
-          if (oh !== h || o === ref) continue;
-          if (o.x0 - 2.5 <= ref.x1 && o.x1 + 2.5 >= ref.x0 && o.z0 - 2.5 <= ref.z1 && o.z1 + 2.5 >= ref.z0) {
-            clash = true;
-            break;
-          }
-        }
-        if (!clash) {
+        if (!(taken & (1 << h))) {
           pick = h;
           break;
         }
       }
-      hue.set(ref.index, pick);
       this.stagedHue[ref.index] = pick;
       city.paint.stage(ref.index, { faction: FACTION_RAINBOW, color: pick, level: 3, bloomTime: -1000 });
       // (its garden grows already shed: 400 level-3 gardens in full were 2.06 M triangles in the frame before the wave on this laptop, over the
@@ -512,9 +523,13 @@ export class Lift implements LiftHooks, FieldHouses {
       this.g.grow(ref, pick, 3, -100);
       this.g.bump(ref.cx, ref.cz, 40);
     }
+    if (this.stageN < list.length) return;
+    this.staged = true;
     this.waveList = list;
   }
   private waveList: Array<{ ref: BuildingRef; d: number }> = [];
+  private stageList: Array<{ ref: BuildingRef; d: number }> | null = null;
+  private stageN = 0;
 
   /**
    * Once a frame, after the flight. `now` the game clock, dt its step, realDt the wall clock's; the bus and the camera, the opening's fog (0..1
