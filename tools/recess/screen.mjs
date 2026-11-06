@@ -175,8 +175,10 @@ try {
     me.state = 'free';
     // (a fresh pair: Atlantis may already have ridden the player twice in two minutes, when the pair rule turns a third away)
     S.pairs.clear();
-    // (homing, as a captain's does, since the player may be flying at Nonstop by now: a fixed breath would land behind it)
-    S.breaths.push({ id: 9998, from: 1, target: 0, x: me.x - 30, z: me.z, tx: me.x, tz: me.z, vx: 0, vz: 0, arrive: S.t + 0.6, born: S.t, white: false });
+    // (landing on the next step where the bus will be then: the player may be at Nonstop just off the fence, where a homing breath's lead misses it, the review's
+    // M28, still open; this row is about the forced gear)
+    const nx = me.x + Math.cos(me.heading) * me.speed * S.dt, nz = me.z + Math.sin(me.heading) * me.speed * S.dt;
+    S.breaths.push({ id: 9998, from: 1, target: 0, x: nx, z: nz, tx: nx, tz: nz, vx: 0, vz: 0, arrive: S.t + S.dt * 0.5, born: S.t - 1, white: true });
   });
   const jet0 = await page.evaluate(() => ({ ...window.__recess.counts }));
   await frames(20);
