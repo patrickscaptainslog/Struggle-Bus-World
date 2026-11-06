@@ -58,6 +58,8 @@ export class SuperSfx {
   private hoseStep = 0;
   private lastHit = -10;
   private lastFizzle = -10;
+  /** the Hose's sound while it pours (pour .. pourStop) */
+  private pouring: { h: Held; bp: BiquadFilterNode; lfo: OscillatorNode; oscs: Array<{ o: OscillatorNode; f0: number }> } | null = null;
 
   constructor(private readonly kit: Kit, private readonly voice: SuperVoice) {}
 
@@ -365,6 +367,111 @@ export class SuperSfx {
       lfo.stop(t + 0.6);
       disposeOnEnd(n, [n, hp, chop, lfo, lg, g, p]);
     }
+  }
+
+  /**
+   * The Hose opens (src/game/Hose.ts): a pressurised hiss (pink noise through a band, gushing at 9 Hz) with a wet spray over it and a low two-saw drone in the
+   * key under it, on until pourStop. pourLevel climbs the band, the gush and the drone as the tank empties, so the tank is heard running down.
+   */
+  pour(t: number): void {
+    this.pourStop(t, false);
+    const { ctx } = this.kit;
+    const A = superAudioTune;
+    const h = this.open(A.level * A.roar * 0.7);
+    const ch = this.voice.chord();
+    const tr = this.voice.transpose();
+    const n = noiseSrc(this.kit, t, 7, true);
+    const bp = mkFilter(ctx, 'bandpass', 900, 0.9);
+    const gush = mkGain(ctx, 0.75);
+    const lfo = mkOsc(ctx, 'sine', 9);
+    const lg = mkGain(ctx, 0.25);
+    lfo.connect(lg).connect(gush.gain);
+    const g = mkGain(ctx, 0);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.7, t + 0.05);
+    n.connect(bp).connect(gush).connect(g).connect(h.bus);
+    const spray = noiseSrc(this.kit, t, 7);
+    const hp = mkFilter(ctx, 'highpass', 3600, 0.7);
+    const sg = mkGain(ctx, 0);
+    sg.gain.setValueAtTime(0, t);
+    sg.gain.linearRampToValueAtTime(0.16, t + 0.08);
+    spray.connect(hp).connect(sg).connect(h.bus);
+    const lp = mkFilter(ctx, 'lowpass', 520, 1.2);
+    const dg = mkGain(ctx, 0);
+    dg.gain.setValueAtTime(0, t);
+    dg.gain.linearRampToValueAtTime(0.09, t + 0.12);
+    const oscs: Array<{ o: OscillatorNode; f0: number }> = [];
+    for (const m of [arpNote(ch, 0) - 24, arpNote(ch, 2) - 24]) {
+      const f0 = mtof(m + tr);
+      const o = mkOsc(ctx, 'sawtooth', f0);
+      o.connect(lp);
+      o.start(t);
+      oscs.push({ o, f0 });
+      h.srcs.push(o);
+      h.nodes.push(o);
+    }
+    lp.connect(dg).connect(h.bus);
+    lfo.start(t);
+    h.srcs.push(n, spray, lfo);
+    h.nodes.push(n, bp, gush, lfo, lg, g, spray, hp, sg, lp, dg);
+    this.pouring = { h, bp, lfo, oscs };
+  }
+
+  /** The tank (1 full, 0 dry): the band from 900 Hz to 2.2 kHz, the gush from 9 to 15 Hz, the drone up a fifth. */
+  pourLevel(t: number, tank: number): void {
+    const p = this.pouring;
+    if (!p) return;
+    const e = 1 - clamp(tank, 0, 1);
+    target(p.bp.frequency, 900 + 1300 * e * e, t, 0.05);
+    target(p.lfo.frequency, 9 + 6 * e, t, 0.05);
+    for (const x of p.oscs) target(x.o.frequency, x.f0 * Math.pow(2, (7 * e) / 12), t, 0.06);
+  }
+
+  /** The Hose closes. Let go: a quick tail. Dry: it sputters three times and gulps, the tank empty. */
+  pourStop(t: number, dry: boolean): void {
+    const p = this.pouring;
+    if (!p) return;
+    this.pouring = null;
+    if (!dry) {
+      this.close(p.h, t, 0.05);
+      return;
+    }
+    const gain = p.h.bus.gain;
+    hold(gain, t);
+    const v = gain.value;
+    for (let i = 0; i < 3; i++) {
+      const tk = t + i * 0.09;
+      gain.setValueAtTime(v * (0.15 + 0.25 * (2 - i)), tk);
+      gain.linearRampToValueAtTime(v * 0.05, tk + 0.06);
+    }
+    this.close(p.h, t + 0.27, 0.03);
+    const { ctx } = this.kit;
+    const o = mkOsc(ctx, 'sine', 240);
+    o.frequency.setValueAtTime(240, t + 0.2);
+    o.frequency.exponentialRampToValueAtTime(70, t + 0.42);
+    const g = mkGain(ctx, 0);
+    envAD(g.gain, t + 0.2, 0.18 * superAudioTune.level, 0.01, 0.08);
+    o.connect(g).connect(this.kit.sfx);
+    o.start(t + 0.2);
+    o.stop(t + 0.8);
+    disposeOnEnd(o, [o, g]);
+  }
+
+  /** A homing shot's last `dur` s (src/game/Hold.ts): a thin whistle rising an octave and a fifth until it lands. */
+  whistle(t: number, dur: number): void {
+    const { ctx } = this.kit;
+    const d = Math.max(0.1, dur);
+    const o = mkOsc(ctx, 'sine', 1100);
+    o.frequency.setValueAtTime(1100, t);
+    o.frequency.exponentialRampToValueAtTime(3300, t + d);
+    const g = mkGain(ctx, 0);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.05 * superAudioTune.level, t + d);
+    g.gain.linearRampToValueAtTime(0, t + d + 0.03);
+    o.connect(g).connect(this.kit.sfx);
+    o.start(t);
+    o.stop(t + d + 0.1);
+    disposeOnEnd(o, [o, g]);
   }
 
   /** Ready again: a rising in-key chime (three bells and a sparkle on top). */

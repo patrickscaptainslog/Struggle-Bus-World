@@ -1428,6 +1428,37 @@ export class Particles {
     this.flush();
   }
 
+  /** A homing shot's blob and trail (src/game/Hold.ts): one glowing mote at pos drifting at (vx, vy, vz), gone in `life` s, in a ramp (a faction's spray row, or GLOW_WHITE in its white window). */
+  comet(pos: THREE.Vector3, vx: number, vy: number, vz: number, ramp: number, size: number, life: number): void {
+    const s = this.s;
+    s[0] = pos.x;
+    s[1] = pos.y;
+    s[2] = pos.z;
+    s[3] = this.time;
+    s[4] = vx;
+    s[5] = vy;
+    s[6] = vz;
+    s[7] = Math.max(0.05, life);
+    s[8] = 2;
+    s[9] = 0;
+    s[10] = 0;
+    s[11] = 0;
+    s[12] = 1;
+    s[13] = 0;
+    s[14] = 0;
+    s[15] = K_TWINKLE;
+    s[16] = ramp;
+    s[17] = fxTune.sparkSize * size;
+    s[18] = rnd();
+    s[19] = 0;
+    s[20] = 0;
+    s[21] = 0;
+    s[22] = 0;
+    s[23] = 0;
+    this.commit(this.time, s[7]);
+    this.flush();
+  }
+
   // ------------------------------------------------------------------ puffs
 
   puff(pos: THREE.Vector3, vel: THREE.Vector3, ramp: number = Ramp.GREY, sizeK = 1): void {

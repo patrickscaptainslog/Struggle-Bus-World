@@ -284,6 +284,31 @@ export class AudioEngine {
     if (g) g.superFx.hoseHit(g.now());
   }
 
+  // ---- the Hose (src/game/Hose.ts) and the homing shot (src/game/Hold.ts)
+  /** The Hose opens: a pressurised hiss over a low drone, until hoseStop. */
+  hosePour(): void {
+    const g = this.live();
+    if (g) g.superFx.pour(g.now());
+  }
+
+  /** How full the tank is (0..1): the hiss and the drone climb as it empties. Every frame or so while it pours. */
+  hoseLevel(tank: number): void {
+    const g = this.live();
+    if (g) g.superFx.pourLevel(g.now(), tank);
+  }
+
+  /** The Hose closes: let go (a quick tail), or run dry (it sputters and gulps). */
+  hoseStop(dry: boolean): void {
+    const g = this.live();
+    if (g) g.superFx.pourStop(g.now(), dry);
+  }
+
+  /** A homing shot's last second: a whistle that rises until it lands. */
+  homingWhistle(seconds: number): void {
+    const g = this.live();
+    if (g) g.superFx.whistle(g.now(), seconds);
+  }
+
   /** Held while cooling down: "not yet". */
   superFizzle(): void {
     const g = this.live();
