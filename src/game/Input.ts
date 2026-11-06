@@ -55,7 +55,8 @@ import { registerTunables } from '../ui/tunables';
 // The splat press (MEGA, or Space): released before config.splat.holdThreshold =
 // onTap; held that long = onChargeStart, then onChargeEnd(heldSeconds, cancelled)
 // on release (cancelled = a lost touch, or focus lost); state.chargeHeld = seconds
-// held while charging, else 0.
+// held while charging, else 0. All of that only with megaOn (&mega on the link):
+// MEGA is off, and without it every press's lift is a tap.
 // The ladder: onTurbo(dir, flew) = a flick, or E / Q, PageUp / PageDown (what it means
 // is src/game/Shifter.ts's).
 
@@ -229,6 +230,9 @@ export function readFlick(dx: number, dy: number, ms: number, px: number, maxMs:
 export class Input {
   readonly state: InputState = { dragging: false, thumb: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, look: { on: false, x: 0, y: 0 } };
   onTap: (() => void) | null = null;
+  /** MEGA is asleep unless this is set (main.ts, from &mega on the link; the producer, 2026-11-06: "lets just remove the mega splat for now"). Off, the
+   *  splat press never charges: however long it's held, its lift is a tap, and onChargeStart / onChargeEnd never fire. */
+  megaOn = false;
   /** The splat press has lasted config.splat.holdThreshold: the super splat charges. */
   onChargeStart: (() => void) | null = null;
   /** The charging press ended: held seconds (from the press), cancelled = a lost touch / focus lost. */
@@ -523,7 +527,7 @@ export class Input {
   private pressTick(now: number) {
     if (this.prSrc === Src.None) return;
     const held = (now - this.prT0) / 1000;
-    if (!this.prCharging && held >= config.splat.holdThreshold) {
+    if (!this.prCharging && this.megaOn && held >= config.splat.holdThreshold) {
       if (!this.prArmed) {
         this.prArmed = true;
         return;
@@ -545,7 +549,7 @@ export class Input {
     this.state.chargeHeld = 0;
     if (charging) this.onChargeEnd?.(held, cancelled);
     else if (!cancelled) {
-      if (held >= config.splat.holdThreshold) {
+      if (this.megaOn && held >= config.splat.holdThreshold) {
         // released after the threshold but before a frame noticed: still a hold, and it reads as one
         this.state.chargeHeld = held;
         this.onChargeStart?.();

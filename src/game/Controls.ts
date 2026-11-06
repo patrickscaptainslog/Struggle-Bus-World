@@ -130,8 +130,13 @@ export class Controls {
     this.hud.setSettings({ muted: !!this.prefs.muted, swap: !!this.prefs.swap });
     const nohud = d.params.has('nohud');
     if (nohud) this.hud.setVisible(false);
+    // MEGA is off (the producer, 2026-11-06: "lets just remove the mega splat for now, i dont think i like the function so much"): no button, no meter, no
+    // charge on any press, no cue for it. &mega on the link wakes all of it, as it was (src/game/SuperSplat.ts)
+    this.megaOn = d.params.has('mega');
+    d.input.megaOn = this.megaOn;
+    this.hud.megaOn = this.megaOn;
     const off = nohud || d.params.has('nocoach') || (d.params.has('skipintro') && !d.params.has('coach'));
-    this.coach = off ? null : new Coach(this.prefs.taught ?? 0);
+    this.coach = off ? null : new Coach(this.prefs.taught ?? 0, this.megaOn);
     this.start();
     if (!this.coach) this.hud.arrive();
     if (this.mode === 'keyboard' && !this.prefs.keysShown && !nohud && !d.params.has('skipintro')) this.keysIn = 2.5;
@@ -141,6 +146,9 @@ export class Controls {
       else this.hud.openSettings();
     });
   }
+
+  /** MEGA is awake on this page (&mega) */
+  readonly megaOn: boolean;
 
   get mode(): InputMode {
     return this.d.input.mode;

@@ -21,6 +21,8 @@ function harness(mode: 'touch' | 'keyboard', fps = 60, world: any = null) {
   const el = new Target();
   const input = new Input(el as unknown as HTMLElement);
   input.setMode(mode);
+  // (the rows test MEGA as it is with &mega on the link; MEGA's off rows below set megaAsleep)
+  input.megaOn = !megaAsleep;
   const flight = new Flight();
   flight.y = 400;
   const drive = new TurboDrive(BOUNDS);
@@ -99,6 +101,8 @@ function harness(mode: 'touch' | 'keyboard', fps = 60, world: any = null) {
 }
 type H = ReturnType<typeof harness>;
 
+/** the next rows run with MEGA off, as every page without &mega (2026-11-06) */
+let megaAsleep = false;
 const rows: Array<{ mode: string; gesture: string; events: string[]; note?: unknown } & ReturnType<H['result']>> = [];
 function row(mode: 'touch' | 'keyboard', gesture: string, fn: (h: H) => unknown, fps = 60) {
   const h = harness(mode, fps);
@@ -550,6 +554,13 @@ row('touch', 'button: hold 600 ms', (h) => { h.input.splatButton(true); h.wait(6
 row('touch', 'button: hold 10 s (full charge)', (h) => { h.input.splatButton(true); h.wait(10000); h.input.splatButton(false); });
 row('touch', 'button: hold 1.5 s then slide off', (h) => { h.input.splatButton(true); h.wait(1500); h.input.splatButton(false, true); });
 row('touch', 'button: 200 ms then slide off (no tap)', (h) => { h.input.splatButton(true); h.wait(200); h.input.splatButton(false, true); });
+// MEGA off (no &mega): a press held any length is a tap on its lift, and never charges
+megaAsleep = true;
+row('touch', 'mega off: button held 600 ms', (h) => { h.input.splatButton(true); h.wait(600); h.input.splatButton(false); });
+row('touch', 'mega off: button held 10 s', (h) => { h.input.splatButton(true); h.wait(10000); h.input.splatButton(false); });
+row('keyboard', 'mega off: Space held 2 s', (h) => { win.dispatch('keydown', key('Space')); h.wait(2000); win.dispatch('keyup', key('Space')); });
+row('touch', 'mega off: canvas held 1 s still', (h) => { const id = newId(); h.down(id, X, Y); h.wait(1000); h.up(id, X, Y); });
+megaAsleep = false;
 row('touch', 'button hold 1 s while steering with the other thumb', (h) => { const a = newId(); h.down(a, X, Y); h.slide(a, X, Y, 70, 0, 200); h.input.splatButton(true); h.wait(1000); h.input.splatButton(false); h.up(a, X + 70, Y); });
 // (the HUD's slide rule, run here against the real adoptThumb)
 const MX = 339, MY = 383;
@@ -1076,6 +1087,8 @@ ok(taps('button: tap') === 1, 'MEGA tap');
 ok(taps('button: 280') === 1, 'just under the threshold');
 ok(n('button: hold 600', 'chargeEnd') === 1 && taps('button: hold 600') === 0, 'MEGA hold');
 ok(taps('button: 200 ms then slide') === 0, 'slide off: no tap');
+for (const g of ['mega off: button held 600', 'mega off: button held 10 s', 'mega off: Space held 2 s']) ok(taps(g) === 1 && !by(g).events.some((e) => e.startsWith('charge')) && !by(g).maxChargeHeld, `${g}: one tap, no charge`);
+ok(taps('mega off: canvas held 1 s') === 0 && !by('mega off: canvas held 1 s').events.some((e) => e.startsWith('charge')), 'mega off: a still press on the canvas neither taps nor charges');
 ok(n('button hold 1 s while steering', 'chargeEnd') === 1, 'charging while steering');
 
 // three fingers

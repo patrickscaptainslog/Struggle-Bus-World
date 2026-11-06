@@ -8,7 +8,7 @@
 //   a beat after the fog    the hint: the flicks and the left side's look, in one toast, once
 //   a glint, no splat yet   TAP: a fingertip ring at the cue slot
 //   first splat             DRAG: two chevrons sway, until a thumb commits or 8 s
-//   third splat, or a still press of 0.6 s   MEGA's face says HOLD
+//   third splat, or a still press of 0.6 s   MEGA's face says HOLD (only with MEGA awake, &mega)
 //
 // The flicks and the look are hidden on purpose: the hint is all the teaching
 // there is, it asks for nothing, and nothing ends it but its own time
@@ -51,7 +51,8 @@ export class Coach {
   private glintT = 0;
   private hintT = 0;
 
-  constructor(taught: number) {
+  /** `mega`: MEGA is awake (&mega). Asleep, its lesson is never due, and never marked learned either, so it still comes the day MEGA does */
+  constructor(taught: number, private readonly mega = true) {
     this.taught = taught | 0;
   }
 
@@ -100,7 +101,7 @@ export class Coach {
       }
     }
 
-    if (!this.has(TAUGHT.mega) && (f.splats >= 3 || f.stillPress >= 0.6) && f.openingOver) {
+    if (this.mega && !this.has(TAUGHT.mega) && (f.splats >= 3 || f.stillPress >= 0.6) && f.openingOver) {
       this.learn(TAUGHT.mega);
       this.megaDue = true;
     }

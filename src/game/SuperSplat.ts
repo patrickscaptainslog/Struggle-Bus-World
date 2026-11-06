@@ -19,6 +19,14 @@ import { registerTunables } from '../ui/tunables';
 // The super splat: hold to charge, let go for a MEGA blast, or hold the whole
 // way for the FIREHOSE. Then a long cooldown, obviously shown.
 //
+// ASLEEP since 2026-11-06: MEGA is off by the producer's ruling, and nothing
+// charges this without &mega on the link (Input.megaOn; the HUD shows neither
+// MEGA nor its meter). It is kept whole, the tuner's numbers too. Its pouring
+// code, the firehose section below (startFirehose, stepHose, hoseAim, impactNow,
+// impact, and Splatter.barf's `hose` and `bands`), is what the Hose of
+// docs/specs/shots/SHOTS.md is to be built from; the mega blast's look is what
+// each faction's Bomb III takes.
+//
 //   ready -> charging (Input.onChargeStart; config.splat.superCharge s to full)
 //     released early (onChargeEnd):  < superMin: a normal splat, no cooldown;
 //                                    else a MEGA blast scaled by the charge

@@ -1079,7 +1079,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     }
   };
   input.onChargeEnd = (held, cancelled) => superSplat.chargeEnd(held, cancelled);
-  // (the slot lives in the HUD's root: ?nohud hides it with the rest)
+  // (the slot lives in the HUD's root: ?nohud hides it with the rest; MEGA asleep, Hud hides the slot)
   const superMeter = new SuperMeter();
   superMeter.mount(controls.hud.slot('super'));
   // the hold is taught by the HOLD cue on MEGA's face (src/ui/Coach.ts); a desktop has no MEGA, so it gets the one line:
@@ -1094,7 +1094,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   }
   if (superHintShown) controls.learnedMega();
   const superHint = () => {
-    if (superHintShown || superSplat.phase !== 'ready' || input.mode !== 'keyboard') return;
+    if (superHintShown || !controls.megaOn || superSplat.phase !== 'ready' || input.mode !== 'keyboard') return;
     superHintShown = true;
     controls.holdHint();
   };

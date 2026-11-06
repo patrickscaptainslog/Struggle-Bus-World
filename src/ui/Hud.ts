@@ -12,7 +12,8 @@ import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth, uiText } from './pixelU
 //
 //  - MEGA (the middle of the right side): tap = splat, hold = charge. The meter
 //    (slot('super'), src/ui/SuperMeter.ts) stands above it and docks on its face
-//    for the cooldown.
+//    for the cooldown. Asleep unless megaOn (&mega on the link): MEGA is off, the
+//    producer's ruling of 2026-11-06, and then neither it nor its meter shows.
 //  - top right: settings. It fades out after a few seconds untouched; a tap in
 //    that corner brings it back.
 //  - the gear readout, only for a moment: while a gear lifts and just after it
@@ -106,6 +107,8 @@ export class Hud {
   L: HudLayout;
   /** MEGA has arrived (fog end or first touch) */
   private arrived = false;
+  /** MEGA is awake (&mega: Controls sets it before the HUD arrives). Off, its button and its meter never show */
+  private megaAwake = false;
 
   private readonly topRight: HTMLDivElement;
   private readonly settingsBtn: PixelCanvas;
@@ -287,7 +290,17 @@ export class Hud {
   private showChrome() {
     const on = this.arrived && this.mode === 'touch';
     this.show(this.topRight, on);
-    this.show(this.megaWrap, on);
+    this.show(this.megaWrap, on && this.megaAwake);
+    this.show(this.superSlot, this.megaAwake);
+  }
+
+  /** MEGA wakes (&mega on the link) or sleeps: its button and its meter show or don't. */
+  set megaOn(v: boolean) {
+    this.megaAwake = v;
+    this.showChrome();
+  }
+  get megaOn(): boolean {
+    return this.megaAwake;
   }
 
   /** The settings button shows for a few seconds more. */
@@ -389,7 +402,7 @@ export class Hud {
     }
     if (f.armed || f.sinceShift < 0.3) this.wakeButtons();
     const rest = now >= this.restAt && this.megaId < 0 && !f.armed;
-    if (this.mode === 'touch' && this.arrived) this.frameMega(dt, now, rest);
+    if (this.mode === 'touch' && this.arrived && this.megaAwake) this.frameMega(dt, now, rest);
     this.frameCue(now);
     if (this.toastEl && now >= this.toastUntil) this.clearToast();
   }
