@@ -66,6 +66,8 @@ const TRUCK_LEN = [12, 12, 9.3, 9.3, 20.4];
 /** A painted boat's wake (KindInfo's wake): its width at the stern, a share of the boat's length, spreading to three times that at its far end, and how far over the water
  *  it's laid (m) */
 const WAKE_W = 0.3, WAKE_LIFT = 0.15;
+/** A blast's column (blast()): how far over its height a mover is in it (m), and how far under: from a roof down to the street, and to a ferry's deck under a pier */
+const BLAST_OVER = 30, BLAST_UNDER = 250;
 const WGS_A = 6378.137, WGS_K = 1 / (1 - 1 / 298.257223563);
 
 /** A mover's paint as drawn: its colour (an index into HUE_RAMPS), level, the page clock's UTC ms it took it (0: kept from before, its contrail whole), and whose it is. */
@@ -822,9 +824,12 @@ export class LifeHost {
   }
 
   /**
-   * A MEGA, a super or a hose's blast (CONTRACT.md section 3): every mover within `r` of (x, y, z) when it lands, at `arrive` (game time), takes paint as a building in it
-   * would, a fresh one the blast's hue at level 1 and a painted one a level up, each the blast's `faction` (C15). The super's tag is the buildings' business (one hit an
-   * area): a mover takes one level a blast.
+   * A splat's blast (CONTRACT.md section 3; the shots' plan, SHOTS.md: "the splat is 85 m across at roof height and paints every car, person, picnic and boat inside
+   * it, each tap still one level"): every mover inside the blast's circle when it lands, at `arrive` (game time), takes paint as a building in it would, a fresh
+   * one the blast's hue at level 1 and a painted one a level up, each the blast's `faction` (C15). The circle is (x, z) and `r` across the ground, a column from
+   * under the street to BLAST_OVER m over the blast's height (y), so a splat on a roof paints the cars in the street below it and never a plane overhead. A mover
+   * the same breath already hit (its pending hit lands at this `arrive`) isn't hit twice. The super's tag is the buildings' business (one hit an area): a mover
+   * takes one level a blast.
    */
   blast(x: number, y: number, z: number, r: number, hue: number, _superTag: SuperTag | undefined, arrive: number, faction: number): void {
     const s = this.snap;
@@ -833,11 +838,21 @@ export class LifeHost {
     for (let i = 0; i < n; i++) {
       const o = i * ROW, info = KINDS[rows[o + Col.KIND]];
       if (!info) continue;
-      const dx = rows[o + Col.X] + rows[o + Col.VX] * dt - x, dy = rows[o + Col.Y] + rows[o + Col.VY] * dt - y, dz = rows[o + Col.Z] + rows[o + Col.VZ] * dt - z;
-      const R = r + 0.5 * info.size * rows[o + Col.SCALE], key = this.keys.get(u32[o + Col.KEY]);
-      if (dx * dx + dy * dy + dz * dz > R * R || !key) continue;
+      const my = rows[o + Col.Y] + rows[o + Col.VY] * dt;
+      if (my > y + BLAST_OVER || my < y - BLAST_UNDER) continue;
+      const dx = rows[o + Col.X] + rows[o + Col.VX] * dt - x, dz = rows[o + Col.Z] + rows[o + Col.VZ] * dt - z;
+      const R = r + 0.5 * info.size * rows[o + Col.SCALE], h = u32[o + Col.KEY];
+      if (dx * dx + dz * dz > R * R) continue;
+      const key = this.keys.get(h);
+      if (!key || this.pendingAt(h, arrive)) continue;
       this.hit(key, hue, this.utc, arrive, faction);
     }
+  }
+
+  /** A hit on mover `h` already on its way, landing at `arrive`. */
+  private pendingAt(h: number, arrive: number): boolean {
+    for (const q of this.hits) if (q.h === h && Math.abs(q.arrive - arrive) < 0.05) return true;
+    return false;
   }
 
   /** A key's hash, as the rows carry it (QA). */
