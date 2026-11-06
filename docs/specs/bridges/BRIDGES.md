@@ -315,7 +315,7 @@ Bold means the check fails today.
 | `heroOffData` | A hero's anchor is over 15 m from its OSM element, or the id is gone | **414.1 m** Golden Gate, **186.6 m** Bay Bridge | No heroes | No heroes | 0, by construction |
 | `towerOffDeck` | A tower's centre is over half the deck's width from the deck's centre, so the deck misses the space between its legs | **87.9 m** against 12, **72.0 m** against 13.5, and W3 and the Golden Gate's south tower now fail too | None | None | 0 on XL heroes |
 | `deckNoCollision` | Over 2 % of a deck's area has no post | **77.6 %**, **69.2 %** | No decks | No decks | 0 %, 100 % covered on both data lines |
-| `deckFreeEnd` | A free end, with no kept way, deck or building within 12 m, has its top over 3 m above the ground | **60.7 m**, **31.7 m** | No decks | No decks | 0.8 m by rule on a kept way. An open end is reported |
+| `deckFreeEnd` | A deck's end with no other deck or building within 12 m has its top over 3 m above the ground. A kept way within 12 m doesn't let it off: it is why the end should land | **60.7 m**, **31.7 m** | No decks | No decks | 0.8 m by rule on a kept way. An open end is reported |
 | `waterRoadNoDeck` | Over 5 % of real bridge road over water has no deck or ground bridge, and at least 50 m | **91.6 %** (8,494 m) | **100 %** (1,796 m) | **100 %** (84 m) | 0 / 3.7 % / 0 % of the audit's runs |
 | `bridgeNoDeck` | Over 5 % of all real bridge road has no deck, and at least 100 m | **98.2 %** of 67.96 km | **100 %** of 2.63 km | **100 %** of 0.17 km | 0, by construction |
 | `bareSupports` | A real support stands in the water with nothing on it | **7** of 8 | 0 of 0 | 0 of 0 | 0 once the east span's tower is drawn |

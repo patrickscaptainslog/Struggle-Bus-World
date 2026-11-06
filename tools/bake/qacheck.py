@@ -64,23 +64,25 @@ class Boom(Exception):
 
 class Extract:
     """the extract as bridge_checks() reads it: an empty frame, or one whose segments(), read() or bridges.py's plan()
-    raises"""
-    def __init__(self, fail):
+    raises; kept: the ground's segments, osm.segments()'s [(line, kind, width, name, cls)]"""
+    def __init__(self, fail, kept=()):
         self.fail = fail
+        self.kept = list(kept)
 
     def segments(self):
         if self.fail == 'segments':
             raise Boom('segments() failed')
-        return []
+        return self.kept
 
-    def read(self, typ):
+    def read(self, typ, columns=None):
         if self.fail == 'read':
             raise Boom(f'read({typ!r}) failed')
         return None, np.array([], dtype=object)
 
 
 class Baked:
-    manifest = {'bounds': [0.0, 0.0, 256.0, 256.0], 'tileSize': 256.0, 'landmarks': []}
+    def __init__(self, landmarks=()):
+        self.manifest = {'bounds': [0.0, 0.0, 256.0, 256.0], 'tileSize': 256.0, 'landmarks': list(landmarks)}
 
 
 def unread(qa):
@@ -110,6 +112,32 @@ def unread(qa):
 
 
 
+# ---------------------------------------------------------------- deckFreeEnd: a drawn deck's end over the ground
+def deck_ends(qa):
+    """a kept way within 12 m is why a drawn deck's end should land, never a pass: a hero's deck from (20, 128) to
+    (236, 128) on flat ground at 0, a path at grade 8 m from each end (or none), its ends 30 m or 0.8 m up; and one whose
+    ends are off the frame, where the ground isn't known, measures neither (no NaN). The deck's other checks read what
+    they read (no towers, no plan): only deckFreeEnd's value is looked at"""
+    import bridges as B
+    from shapely.geometry import LineString
+    why = []
+    ground = B.Ground((0.0, 0.0, 256.0, 256.0), np.full((128, 128), 1, np.uint8), 2.0, np.zeros((65, 65), np.float32), 4.0)
+    Q = qa.thresholds({}, log=lambda *a: None)[0]
+    paths = [(LineString([(12.0, 128.0), (12.0, 250.0)]), 5, 2.8, '', 'footway'), (LineString([(244.0, 128.0), (244.0, 250.0)]), 5, 2.8, '', 'footway')]
+    for top, kept, x0, want, over in ((30.0, paths, 20.0, 30.0, True), (0.8, paths, 20.0, 0.8, False), (30.0, [], 20.0, 30.0, True),
+                                      (0.8, [], 20.0, 0.8, False), (30.0, [], -20.0, 0.0, False)):
+        row = {'kind': 'ggb', 'deck': [[x0, 128.0, top], [128.0, 128.0, 40.0], [256.0 - x0, 128.0, top]]}
+        recs, _ = qa.bridge_checks({}, Baked([row]), Extract(None, kept), ground, Q, lambda lo, la: (lo, -la), lambda x, z: (-z, x), '.',
+                                   log=lambda *a: None)
+        c = next(r for r in recs if r['key'] == 'deckFreeEnd')
+        what = f'ends {top:g} m up' + (' off the frame' if x0 < 0 else '') + ', ' + ('a kept path at each' if kept else 'nothing by them')
+        if not (c['read'] and c['value'] is not None and abs(c['value'] - want) <= 1e-3 and c['over'] == over):  # (a NaN is never within)
+            why.append(f'{what}: ' + (f'{c["value"]:.2f} m, ' + ('over' if c['over'] else 'not over') if c['read'] else f'NOT READ ({c["why"]})')
+                       + f', want {want:g} m, ' + ('over' if over else 'not over'))
+    return why
+
+
+
 # ---------------------------------------------------------------- bridges.py's classes: a tower over its deck
 def tower_over(qa):
     """a tower's height tag is over its own ground, a deck's top is over the sea: a 300 m deck 10 m over ground at 50 m,
@@ -131,6 +159,7 @@ def tower_over(qa):
 CHECKS = [
     ("a city config's \"qa\" tightens a check, never loosens it, and never sets how the city is cut up", overrides),
     ('the bridge checks never stop the QA: what they all read failing makes the fifteen NOT READ', unread),
+    ("deckFreeEnd measures a drawn deck's end over the ground, a kept way by it or not", deck_ends),
     ("a tower stands over its deck by its top over the sea, not over its own ground (bridges.py's XL)", tower_over),
 ]
 
