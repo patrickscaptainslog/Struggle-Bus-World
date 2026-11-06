@@ -567,6 +567,25 @@ if (!only || only === 'five') {
   while (mp2.rebuilding && !mp2.rebuild(1e9, () => performance.now()));
   const sk = mp2.strokes.map((s) => `${s.faction}/${s.level}`);
   row('the Moon from orbit: each faction\'s strokes after a reload, Elderwood\'s a level up', sk.join() === '1/1,2/1,3/1,4/1,5/1,3/2', { strokes: sk, chunk: mem.get('strugglebus.moon.v1.0') });
+
+  // a crater at its top, and one round it at a neighbour's top (2), hit by another faction: the hitter's, as a house at level 3 is (the houses above)
+  mem.clear();
+  const c3 = new CraterPaint(craterDeps()), p1 = c3.named.find((n) => n.id === 'p1');
+  // (one of the generator's craters 300 m off p1, in a breath's reach there)
+  c3.land({ id: c3.askId, n: 1, ids: Int32Array.of(9, 1, 2, 3), data: Float32Array.of(p1.x + 300, p1.z, 20, 0, 0.3, 0.5, 0.5) });
+  const onP1 = (f, t) => c3.impact({ spec: spec(p1.x, p1.z, 60, 0, f), pos: { x: p1.x, y: 0, z: p1.z }, t, count: 0, maxLevel: 1, strength: 1, dots: [], hose: false, primary: null, super: null, tag: p1 });
+  for (const t of [1, 3, 5]) onP1(1, t);
+  // (saved first, so the second save writes only if the new owner alone sets it going)
+  c3.save();
+  const was = [...c3.recs.values()].map((r) => `${r.id}:${r.level}/${r.faction}`).sort();
+  onP1(2, 7);
+  c3.save();
+  const saved = JSON.parse(mem.get('strugglebus.moon.craters.v1') ?? '[]'), nb = saved.find((r) => r[0] === '9.1.2.3');
+  // (an invented crater comes back only with the Moon's albedo, which Node hasn't: its row is read from the save, and p1 through a reload)
+  mem.set('strugglebus.moon.craters.v1', JSON.stringify(saved.filter((r) => r[0].startsWith('p'))));
+  const top = [...new CraterPaint(craterDeps()).recs.values()].find((r) => r.id === 'p1');
+  row('a crater at its top (p1, Rainbow\'s 3) hit by Atlantis: Atlantis\'s, after a reload', was.join() === '9.1.2.3:2/1,p1:3/1' && top?.level === 3 && top.faction === 2, { was, p1: top && `${top.level}/${top.faction}` });
+  row('  one round it at a neighbour\'s top (2): Atlantis\'s, in its saved row', nb?.[1] === 2 && nb[3] === 2, nb ?? null);
 }
 
 // ---- rollback

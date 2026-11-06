@@ -683,12 +683,20 @@ export class CraterPaint {
     if (t0 > 0) this.live.push(rec);
   }
 
-  /** A crater goes up a level, or takes its first: either way it's the hitter's (faction). */
+  /** A crater goes up a level, or takes its first: either way it's the hitter's (faction), at its top too, as a house at level 3 is (Splatter.update). */
   private paint(c: Target, hue: number, t0: number, ix: number, iz: number, top = 3, faction = FACTION_RAINBOW): Rec {
     const key = keyOfId(c.id);
     let rec = this.recs.get(key);
     if (rec) {
-      if (rec.level >= top) return rec;
+      if (rec.level >= top) {
+        // (no higher, and nothing to draw: only whose it is, kept)
+        if (rec.faction !== faction) {
+          rec.faction = faction;
+          this.dirty = true;
+          this.saveAt = 1;
+        }
+        return rec;
+      }
       rec.level = Math.min(top, rec.level + 1);
       rec.faction = faction;
       rec.t0 = t0;
