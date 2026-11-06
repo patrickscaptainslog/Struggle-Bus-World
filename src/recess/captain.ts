@@ -68,6 +68,12 @@ export class Captain {
     this.rand = rng(seed);
   }
 
+  /** The first bell (SHOTS.md, "First contact within 10 s"): the first 10 s hunting, so the duel comes to the player. */
+  kickoff(t: number): void {
+    this.goal = 'hunt';
+    this.goalUntil = t + 10;
+  }
+
   think(r: Recess, me: Bus): Hands {
     const T = recessTune, S = this.skill, t = r.t, h: Hands = { steer: 0, tap: false, flick: 0 };
     // (a breath at me gone white-hot: flick out of it, if I'm quick enough and see it)

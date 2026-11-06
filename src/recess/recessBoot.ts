@@ -16,7 +16,7 @@ import type { Flight } from '../game/Flight';
 import { latLonToLocal } from '../game/geo';
 import type { MoverAim, MoverTarget } from '../game/Aim';
 import type { BarfOpts } from '../game/Splat';
-import { GEAR_NAMES } from '../game/Turbo';
+import { GEAR_NAMES, JET, NONSTOP } from '../game/Turbo';
 import { makeRampMaterial } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { C, HUD_FONT, PixelCanvas, rgba, textWidth } from '../ui/pixelUi';
@@ -34,9 +34,37 @@ const SIDES: Record<number, { name: string; ramp: number }> = {
 export const QUIET = { recess: 'quiet' } as const;
 
 export const recessScreen = {
+  /** the match's lens: this many degrees wider than the street's 24 (SHOTS.md, "Seeing them": about 40-45), and pulled back this far (m) while a rival is
+   *  within `near` (m), easing over `ease` (s) */
+  wider: 18,
+  pull: 45,
+  near: 900,
+  ease: 0.8,
+  /** the kickoff: the camera high behind the bus (m back, m up) with both captains in frame while the first bell rings, then down to the chase in `swoop` s */
+  kickBack: 260,
+  kickUp: 170,
+  swoop: 2,
+  /** the captains drawn this much bigger, with this long a ribbon of their paint behind them (s, sampled every `ribbonStep` s, `ribbonW` m across) */
+  captainScale: 1.4,
+  ribbon: 4,
+  ribbonStep: 0.1,
+  ribbonW: 5,
+  /** the fence: chalk bubbles round the circle every `fenceStep` m, in rows this high over the ground (m), and how far a bounce pushes the bus back in (m) */
+  fenceStep: 14,
+  fenceRows: [35, 85, 135],
+  fenceBack: 8,
   /** the most a match's hits freeze the screen (s), and only hits on or by the player: the first account's M22 */
   freezeMost: 2,
-  freezeHit: 4 / 60,
+  freezeHit: 5 / 60,
+  /** being hit (SHOTS.md, "Being hit"): the hitter's colours flood the bus front to back in `flood` s and drain off its back in `drain` s at the end; one
+   *  barrel roll with a wobble over `fling` s while it's thrown `flingUp` m up and `flingAlong` m along the shot's line; and a roll of `beatRoll` rad on each
+   *  beat of the ride */
+  flood: 0.3,
+  drain: 0.6,
+  fling: 0.8,
+  flingUp: 35,
+  flingAlong: 60,
+  beatRoll: 0.35,
   /** s of the first bell's words before the clock starts */
   ready: 2.5,
   /** the camera's climb at the bell (s), and how high over the arena's ground it goes (m) */
@@ -72,6 +100,10 @@ export interface RecessHost {
   obstacleAt(x: number, z: number): number;
   toast(lines: string[], seconds?: number): void;
   arena: { cx: number; cz: number };
+  /** the camera rig's hooks: a wider lens and a pull-back in the match (CameraRig.matchFov, matchPull), and its kick */
+  rig: { matchFov: number; matchPull: number; kick(k: number): void };
+  /** the player's bus: its colours flood with a hitter's, and it rolls when it's flung (main.ts sets its pose each frame before the match's frame) */
+  bus: BusModel;
 }
 
 type Phase = 'ready' | 'play' | 'over';
@@ -103,7 +135,6 @@ export class RecessGame implements MoverAim {
   private bubbleAt: { x: number; z: number } | null = null;
   private saidAt = -Infinity;
   private saidRank = 0;
-  private outAt = -Infinity;
   /** the hit-stops this match has spent (s), and how far the match's clock has run past the game's in them (s) */
   private frozen = 0;
   private lag = 0;
@@ -114,6 +145,26 @@ export class RecessGame implements MoverAim {
   private readonly camFrom = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
   private readonly camTo = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
   private readonly m4 = new THREE.Matrix4();
+  /** the captains' ribbons, the fence, and the HUD's tags (a name and distance over a captain on screen, a chevron at the edge for one off it or a shot at you) */
+  private readonly ribbons: Ribbon[] = [];
+  private fence: THREE.InstancedMesh | null = null;
+  private readonly tags: Tag[] = [];
+  private readonly v3 = new THREE.Vector3();
+  private readonly rigPos = new THREE.Vector3();
+  private readonly rigQuat = new THREE.Quaternion();
+  private pullNow = 0;
+  /** the forced gear in a ride, by the link (&hit=nonstop or &hit=jet; SHOTS.md, "The forced gear, both ways on your phone") */
+  readonly hitGear: number;
+  /** the player's bus's own colours, where they sit along it, and the flood and fling under way */
+  private readonly busRamp: Float32Array;
+  private readonly busZ: Float32Array;
+  private busZmin = Infinity;
+  private busZmax = -Infinity;
+  private flood: { at: number; ramp: number; drainAt: number; shown: number } | null = null;
+  private fling: { at: number; dx: number; dz: number; e: number } | null = null;
+  private readonly qRoll = new THREE.Quaternion();
+  private readonly zAxis = new THREE.Vector3(0, 0, 1);
+  private bounceAt = -Infinity;
   /** the camps' hearts as they were last step */
   private readonly hearts: { n: number; key: number; faction: number; stage: number; cracks: number }[] = [];
   /** QA: the captains' last paint on the city, where and whose, landing when */
@@ -129,8 +180,22 @@ export class RecessGame implements MoverAim {
     const lv = (v: string | null, d: Level): Level => (v === 'learner' || v === 'rival' || v === 'veteran' ? v : d);
     const bots: [Level, Level] = [lv(p.get('bots'), 'rival'), lv(p.get('bots'), 'learner')];
     this.length = Math.max(5, Number(p.get('recesslen')) || recessTune.length);
+    this.hitGear = p.get('hit') === 'jet' ? JET : NONSTOP;
+    const bg = h.bus.mesh.geometry, ra = bg.getAttribute('ramp') as THREE.BufferAttribute, pa = bg.getAttribute('position') as THREE.BufferAttribute;
+    this.busRamp = Float32Array.from({ length: ra.count }, (_, i) => ra.getX(i));
+    this.busZ = Float32Array.from({ length: pa.count }, (_, i) => pa.getZ(i));
+    for (const z of this.busZ) {
+      this.busZmin = Math.min(this.busZmin, z);
+      this.busZmax = Math.max(this.busZmax, z);
+    }
     // (the player is bus 0, placed from the real flight; a new player's shield only with &newcomer: Recess is where Possessed is learned)
-    this.sim = new Recess([{ faction: Faction.RAINBOW, newcomer: p.has('newcomer') }, { faction: Faction.ATLANTIS, bot: bots[0] }, { faction: Faction.INFERNO, bot: bots[1] }], { mode, log: false });
+    // (the captains start ahead of the player, inside 10 degrees of its nose and about 500 m away, facing it: SHOTS.md, "A closer start". The player starts on
+    // the circle's east at 0.6 of its radius facing west, so ahead is 500 m west of it, 84 m either side, each captain in its own camp)
+    const r0 = recessTune.radius * 0.6, ahead = r0 - 500;
+    this.sim = new Recess(
+      [{ faction: Faction.RAINBOW, newcomer: p.has('newcomer'), x: r0, z: 0, heading: Math.PI }, { faction: Faction.ATLANTIS, bot: bots[0], x: ahead, z: 84, heading: -0.17 }, { faction: Faction.INFERNO, bot: bots[1], x: ahead, z: -84, heading: 0.17 }],
+      { mode, log: false },
+    );
     this.sim.buses[0].external = true;
     // (each camp's heart, where its god stands from the start: watched each step for its cracks, its fall, a god rising again)
     const R = this.sim.areas.realm!;
@@ -145,7 +210,7 @@ export class RecessGame implements MoverAim {
         this.ys.push(h.flight.y);
         continue;
       }
-      const bus = new BusModel();
+      const bus = new BusModel(1.6 * recessScreen.captainScale);
       // (the captain's bus in its faction's colour: the yellow's ramp swapped)
       const ramp = bus.mesh.geometry.getAttribute('ramp') as THREE.BufferAttribute;
       for (let i = 0; i < ramp.count; i++) if (ramp.getX(i) === Ramp.BUS_YELLOW) ramp.setX(i, SIDES[b.faction].ramp);
@@ -154,10 +219,15 @@ export class RecessGame implements MoverAim {
       h.scene.add(bus.root);
       this.models.push(bus);
       this.ys.push(this.altFor(b.x + this.cx, b.z + this.cz));
+      const rib = new Ribbon(SIDES[b.faction].ramp);
+      h.scene.add(rib.mesh);
+      this.ribbons[b.id] = rib;
     }
+    this.fence = makeFence(this.cx, this.cz, (x, z) => h.groundAt(x, z));
+    h.scene.add(this.fence);
     // (breaths in flight and Piñata's drops: toon blobs, one material a hue and a white-hot one)
     const geo = new THREE.IcosahedronGeometry(3.2, 1);
-    for (const ramp of [Ramp.BUS_YELLOW, Ramp.BLUE, Ramp.RED, Ramp.GLOW_WHITE]) this.blobMats.set(ramp, makeRampMaterial({ ramp, glow: 0.7, noOutline: true, shadowMul: 0 }));
+    for (const ramp of [...new Set(Object.values(SIDES).map((x) => x.ramp)), Ramp.GLOW_WHITE]) this.blobMats.set(ramp, makeRampMaterial({ ramp, glow: 0.7, noOutline: true, shadowMul: 0 }));
     for (let i = 0; i < 16; i++) {
       const mesh = new THREE.Mesh(geo, this.blobMats.get(Ramp.BUS_YELLOW)!);
       mesh.visible = i === 0;
@@ -167,7 +237,11 @@ export class RecessGame implements MoverAim {
       h.scene.add(mesh);
       this.blobs.push(mesh);
     }
-    if (typeof document !== 'undefined') this.makeHud();
+    if (typeof document !== 'undefined') {
+      this.makeHud();
+      for (const b of this.sim.buses) if (b.id !== 0) this.tags.push(new Tag(SIDES[b.faction].name, rgba(SIDES[b.faction].ramp, 6), b.id));
+      this.tags.push(new Tag('', C.cream, -1));
+    }
     (globalThis as { __recess?: RecessGame }).__recess = this;
   }
 
@@ -263,6 +337,7 @@ export class RecessGame implements MoverAim {
     }
     if (this.phase === 'ready' && simTime >= this.t0) {
       this.phase = 'play';
+      for (const c of this.captains) c.kickoff(0);
       this.say(['DING DING DING', `${Math.round(this.length / 60) || 1} MINUTES`], 2, 3);
       // (each god's heart in its colour, a big blast, so the field shows whose camp is whose)
       for (const h of this.hearts) if (h.stage === 5) this.heartBlast(h.key, h.faction);
@@ -290,8 +365,96 @@ export class RecessGame implements MoverAim {
       this.player(clock, f);
     }
     this.draw(dt, simTime);
+    this.hitFx(simTime);
+    this.lens(clock);
+    if (this.phase !== 'over') this.kickoff(simTime, camera);
     if (this.phase === 'over') this.scoreboard(simTime, camera);
     this.drawHud();
+    this.drawTags(camera);
+  }
+
+  /** Hit (SHOTS.md, "Being hit"): NO BRAKES, the hitter's colours flood in from the front, and the bus is flung along the shot's line with a barrel roll. */
+  private beHit(by: number): void {
+    const S = this.sim, a = S.buses[by], me = S.buses[0], dx = me.x - a.x, dz = me.z - a.z, l = Math.hypot(dx, dz) || 1;
+    this.flood = { at: this.now, ramp: SIDES[a.faction].ramp, drainAt: Infinity, shown: -1 };
+    this.fling = { at: this.now, dx: dx / l, dz: dz / l, e: 0 };
+    this.h.rig.kick(1.4);
+    this.count('flung');
+  }
+
+  /** The flood's colours on the player's bus, the fling's throw and roll, and the ride's roll on each beat: after main.ts has posed the bus this frame. */
+  private hitFx(simTime: number): void {
+    const R = recessScreen, f = this.h.flight, root = this.h.bus.root, me = this.sim.buses[0];
+    const fl = this.flood;
+    if (fl) {
+      const k = Math.min(1, (simTime - fl.at) / R.flood), kd = Math.max(0, Math.min(1, (simTime - fl.drainAt) / R.drain));
+      // (front to back: the bus's nose is its -z; the drain leaves from its back, +z. Redone only while it moves, in 30 steps)
+      const shown = Math.round(k * 30) + Math.round(kd * 30) * 31;
+      if (shown !== fl.shown) {
+        fl.shown = shown;
+        const ra = this.h.bus.mesh.geometry.getAttribute('ramp') as THREE.BufferAttribute, span = this.busZmax - this.busZmin;
+        const reach = this.busZmin + k * span, gone = this.busZmax - kd * span;
+        for (let i = 0; i < this.busRamp.length; i++) {
+          if (this.busRamp[i] !== Ramp.BUS_YELLOW) continue;
+          const z = this.busZ[i];
+          ra.setX(i, z <= reach && z < gone ? fl.ramp : Ramp.BUS_YELLOW);
+        }
+        ra.needsUpdate = true;
+      }
+      if (kd >= 1) this.flood = null;
+    }
+    let roll = 0;
+    const fg = this.fling;
+    if (fg) {
+      const k = Math.min(1, (simTime - fg.at) / R.fling), e = k * k * (3 - 2 * k), de = e - fg.e;
+      fg.e = e;
+      f.x += fg.dx * R.flingAlong * de;
+      f.z += fg.dz * R.flingAlong * de;
+      f.y += R.flingUp * de;
+      roll = Math.PI * 2 * e + 0.3 * Math.sin(k * Math.PI * 3) * (1 - k);
+      if (k >= 1) this.fling = null;
+    } else if (me.state === 'ride') {
+      // (on each beat of the hitter's music, a quick roll and back)
+      const ph = this.sim.beat.phase(this.sim.t);
+      roll = R.beatRoll * Math.sin(ph * Math.PI * 2) * Math.exp(-ph * 3);
+    }
+    if (roll) root.quaternion.multiply(this.qRoll.setFromAxisAngle(this.zAxis, roll));
+  }
+
+  /** The match's lens (SHOTS.md, "Seeing them"): wider, and pulled back while a rival is near, through the rig's hook; the street's again at the bell. */
+  private lens(dt: number): void {
+    const R = recessScreen, me = this.sim.buses[0];
+    let near = false;
+    for (const b of this.sim.buses) if (b.id !== 0 && Math.hypot(b.x - me.x, b.z - me.z) < R.near) near = true;
+    const k = 1 - Math.exp(-dt / R.ease), on = this.phase === 'over' ? 0 : 1;
+    this.pullNow += ((near ? R.pull : 0) * on - this.pullNow) * k;
+    this.h.rig.matchFov += (R.wider * on - this.h.rig.matchFov) * k;
+    this.h.rig.matchPull = this.pullNow;
+  }
+
+  /** The kickoff: while the first bell rings the camera is high behind the bus with both captains in frame, then it swoops down to the chase in 2 s. */
+  private kickoff(simTime: number, camera: THREE.Camera): void {
+    const R = recessScreen, since = simTime - this.t0;
+    if (since >= R.swoop) return;
+    const f = this.h.flight, fx = Math.sin(f.heading), fz = -Math.cos(f.heading);
+    this.rigPos.copy(camera.position);
+    this.rigQuat.copy(camera.quaternion);
+    // (the middle of the captains, where the camera looks)
+    let mx = 0, mz = 0, my = 0, n = 0;
+    for (const b of this.sim.buses) {
+      if (b.id === 0) continue;
+      mx += this.cx + b.x;
+      mz += this.cz + b.z;
+      my += this.ys[b.id];
+      n++;
+    }
+    this.camTo.p.set(f.x - fx * R.kickBack, f.y + R.kickUp, f.z - fz * R.kickBack);
+    this.m4.lookAt(this.camTo.p, this.v3.set(mx / n, my / n, mz / n), THREE.Object3D.DEFAULT_UP);
+    this.camTo.q.setFromRotationMatrix(this.m4);
+    const k = since <= 0 ? 0 : Math.min(1, since / R.swoop), e = k * k * (3 - 2 * k);
+    camera.position.lerpVectors(this.camTo.p, this.rigPos, e);
+    camera.quaternion.slerpQuaternions(this.camTo.q, this.rigQuat, e);
+    camera.updateMatrixWorld();
   }
 
   /** Bus 0 where the real flight is. */
@@ -300,7 +463,7 @@ export class RecessGame implements MoverAim {
     b.x = f.x - this.cx;
     b.z = f.z - this.cz;
     b.heading = f.heading - Math.PI / 2;
-    b.speed = f.speed;
+    b.speed = f.ground;
     if (b.state === 'bubble' && this.bubbleAt) {
       b.x = this.bubbleAt.x - this.cx;
       b.z = this.bubbleAt.z - this.cz;
@@ -311,7 +474,7 @@ export class RecessGame implements MoverAim {
   private player(dt: number, f: Flight): void {
     const me = this.sim.buses[0], T = this.h.turbo;
     if (me.state === 'ride') {
-      const want = recessTune.rideGear;
+      const want = this.hitGear;
       if (T.gear < want) T.shift(1, f);
       else if (T.gear > want) T.shift(-1, f);
     }
@@ -326,10 +489,20 @@ export class RecessGame implements MoverAim {
       f.x = this.bubbleAt.x;
       f.z = this.bubbleAt.z;
     } else this.bubbleAt = null;
-    const r = Math.hypot(f.x - this.cx, f.z - this.cz);
-    if (r > recessTune.radius * 1.05 && this.now - this.outAt > 4) {
-      this.outAt = this.now;
-      this.say(['BACK TO RECESS', 'THE BELL RINGS IN THERE'], 2, 1);
+    // (the fence: at the circle's edge the bus bounces back in, its heading mirrored off the fence, with a boing. SHOTS.md: "the 750 m edge shows as chalk
+    // bubbles and bounces you back in". The steering stays the player's: only where it's pointed is turned, once)
+    const R = recessTune.radius, dx = f.x - this.cx, dz = f.z - this.cz, r = Math.hypot(dx, dz);
+    if (r > R) {
+      const nx = dx / r, nz = dz / r, fx = Math.sin(f.heading), fz = -Math.cos(f.heading), out = fx * nx + fz * nz;
+      if (out > 0) f.heading = Math.atan2(fx - 2 * out * nx, -(fz - 2 * out * nz));
+      f.x = this.cx + nx * (R - recessScreen.fenceBack);
+      f.z = this.cz + nz * (R - recessScreen.fenceBack);
+      if (this.now - this.bounceAt > 0.5) {
+        this.bounceAt = this.now;
+        this.count('bounce');
+        this.say(['BOING!'], 0.8, 1);
+        this.h.rig.kick(0.6);
+      }
     }
   }
 
@@ -352,6 +525,7 @@ export class RecessGame implements MoverAim {
         case 'hit':
         case 'lesson':
           if (b) this.flash(b.id, a?.id === 0 || b.id === 0);
+          if (b?.id === 0 && a) this.beHit(a.id);
           if (b?.id === 0) this.say(e.kind === 'lesson' ? ['A LESSON', 'THEY GLINT BEFORE THEY BREATHE'] : ['NO BRAKES', `${sec(e.a).name} HAS YOUR BUS`], 2.4, 3);
           else if (a?.id === 0) this.say(['GOTCHA', `${sec(e.b).name} PAINTS RAINBOW`], 2, 3);
           break;
@@ -365,7 +539,10 @@ export class RecessGame implements MoverAim {
           if (e.b === 0) this.say(['SPARKLES', 'NEW BUSES ARE SHIELDED'], 1.2, 2);
           break;
         case 'rideEnd':
-          if (e.b === 0) this.say(['STOP ARM OUT', 'NOW GET THEM BACK'], 2, 2);
+          if (e.b === 0) {
+            this.say(['DING DING', 'STOP ARM OUT'], 2, 2);
+            if (this.flood) this.flood.drainAt = this.now;
+          }
           break;
         case 'wanted':
           this.say([e.a === 0 ? 'YOU ARE WANTED' : `${sec(e.a).name} IS WANTED`], 1.8, 2);
@@ -478,8 +655,13 @@ export class RecessGame implements MoverAim {
       m.update(dt, simTime, p);
       const hg = b.heading + Math.PI / 2, bank = Math.max(-0.5, Math.min(0.5, (b.driverYaw + b.edgeYaw) * 0.45));
       m.root.quaternion.setFromEuler(this.eul.set(0, -hg, -bank, 'YXZ'));
+      if (b.state === 'ride') {
+        const ph = S.beat.phase(S.t);
+        m.root.quaternion.multiply(this.qRoll.setFromAxisAngle(this.zAxis, recessScreen.beatRoll * Math.sin(ph * Math.PI * 2) * Math.exp(-ph * 3)));
+      }
       m.root.position.set(wx, this.ys[b.id], wz);
       m.root.scale.setScalar(glint ? 1.12 : 1);
+      this.ribbons[b.id]?.update(wx, this.ys[b.id], wz, simTime);
     }
     let n = 0;
     for (const s of S.breaths) {
@@ -536,12 +718,60 @@ export class RecessGame implements MoverAim {
     return this.hearts.some((h) => h.stage === 5 && h.faction === f) ? '+' : '';
   }
 
+  /** The captains' tags: over one on screen its name and distance in its colour; for one off it, a chevron at the screen's edge pointing to it, with its
+   *  distance; and a white chevron for a breath coming at the player from off screen (SHOTS.md, "Edge markers"). */
+  private drawTags(camera: THREE.Camera): void {
+    if (!this.tags.length) return;
+    const W = window.innerWidth, H = window.innerHeight, me = this.sim.buses[0], over = this.phase === 'over';
+    for (const tag of this.tags) {
+      let wx: number, wy: number, wz: number, d: number;
+      if (tag.id >= 0) {
+        const b = this.sim.buses[tag.id];
+        wx = this.cx + b.x;
+        wz = this.cz + b.z;
+        wy = this.ys[b.id] + 14;
+        d = Math.hypot(b.x - me.x, b.z - me.z);
+      } else {
+        const s = this.sim.breaths.find((x) => x.target === 0);
+        if (!s || over) {
+          tag.hide();
+          continue;
+        }
+        wx = this.cx + s.x;
+        wz = this.cz + s.z;
+        wy = this.h.flight.y;
+        d = Math.hypot(s.x - me.x, s.z - me.z);
+      }
+      if (over) {
+        tag.hide();
+        continue;
+      }
+      const v = this.v3.set(wx, wy, wz).project(camera), behind = v.z > 1;
+      let x = v.x, y = v.y;
+      if (behind) {
+        x = -x;
+        y = -y;
+      }
+      const onScreen = !behind && Math.abs(x) < 0.92 && Math.abs(y) < 0.92;
+      if (onScreen && tag.id < 0) {
+        tag.hide();
+        continue;
+      }
+      if (onScreen) tag.show((x * 0.5 + 0.5) * W, (0.5 - y * 0.5) * H, null, d);
+      else {
+        // (to the edge, along the way it lies)
+        const k = 0.9 / Math.max(Math.abs(x), Math.abs(y), 1e-6);
+        tag.show((x * k * 0.5 + 0.5) * W, (0.5 - y * k * 0.5) * H, Math.atan2(-y, x), d);
+      }
+    }
+  }
+
   private drawHud(): void {
     if (!this.hud) return;
     const s = this.sim.score(), left = this.phase === 'ready' ? this.length : Math.max(0, this.length - this.sim.t);
     const clock = `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
     const me = this.sim.buses[0];
-    const gear = me.state === 'ride' ? `NO BRAKES ${GEAR_NAMES[recessTune.rideGear]}` : '';
+    const gear = me.state === 'ride' ? `NO BRAKES ${GEAR_NAMES[this.hitGear]}` : '';
     const big = this.phase === 'over';
     const rows: { t: string; c: number }[] = big
       ? [Faction.RAINBOW, Faction.ATLANTIS, Faction.INFERNO].sort((p, q) => s[q] - s[p]).map((f) => ({ t: `${SIDES[f].name} ${s[f]}`, c: f === Faction.RAINBOW ? C.yellowHi : rgba(SIDES[f].ramp, 6) }))
@@ -559,4 +789,113 @@ export class RecessGame implements MoverAim {
 
 export function bootRecess(h: RecessHost): RecessGame {
   return new RecessGame(h);
+}
+
+/** A captain's ribbon of its paint (SHOTS.md, "Easier to see"): the last 4 s of where it flew, a flat band behind it in its colour. One draw a captain. */
+class Ribbon {
+  readonly mesh: THREE.Mesh;
+  private readonly pts: Float32Array;
+  private readonly pos: Float32Array;
+  private n = 0;
+  private lastT = -Infinity;
+
+  constructor(ramp: number) {
+    const R = recessScreen, N = Math.round(R.ribbon / R.ribbonStep) + 1;
+    this.pts = new Float32Array(N * 3);
+    this.pos = new Float32Array(N * 2 * 3);
+    const geo = new THREE.BufferGeometry(), idx: number[] = [];
+    for (let i = 0; i < N - 1; i++) idx.push(2 * i, 2 * i + 1, 2 * i + 2, 2 * i + 1, 2 * i + 3, 2 * i + 2);
+    geo.setIndex(idx);
+    geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(N * 2 * 3).fill(0).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+    this.mesh = new THREE.Mesh(geo, makeRampMaterial({ ramp, glow: 0.45, noOutline: true, shadowMul: 0, side: THREE.DoubleSide }));
+    this.mesh.frustumCulled = false;
+    this.mesh.name = 'RecessRibbon';
+  }
+
+  /** The captain is at (x, y, z) at game time t: a point every ribbonStep s, the newest first, and the band laid along them. */
+  update(x: number, y: number, z: number, t: number): void {
+    const R = recessScreen, P = this.pts, N = P.length / 3;
+    if (t - this.lastT >= R.ribbonStep) {
+      this.lastT = t;
+      P.copyWithin(3, 0, (N - 1) * 3);
+      this.n = Math.min(N, this.n + 1);
+    }
+    P[0] = x;
+    P[1] = y;
+    P[2] = z;
+    const V = this.pos, w = R.ribbonW / 2;
+    for (let i = 0; i < N; i++) {
+      const j = Math.min(i, this.n - 1), a = Math.max(0, j - 1), b = Math.min(this.n - 1, j + 1);
+      let dx = P[a * 3] - P[b * 3], dz = P[a * 3 + 2] - P[b * 3 + 2];
+      const l = Math.hypot(dx, dz) || 1;
+      dx /= l;
+      dz /= l;
+      // (narrowing to nothing at its oldest end)
+      const k = w * (1 - j / Math.max(1, N - 1));
+      V[i * 6] = P[j * 3] - dz * k;
+      V[i * 6 + 1] = P[j * 3 + 1] - 1.5;
+      V[i * 6 + 2] = P[j * 3 + 2] + dx * k;
+      V[i * 6 + 3] = P[j * 3] + dz * k;
+      V[i * 6 + 4] = P[j * 3 + 1] - 1.5;
+      V[i * 6 + 5] = P[j * 3 + 2] - dx * k;
+    }
+    (this.mesh.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+  }
+}
+
+/** The fence (SHOTS.md): chalk bubbles round the arena's edge, in rows over the ground there. One draw. */
+function makeFence(cx: number, cz: number, groundAt: (x: number, z: number) => number): THREE.InstancedMesh {
+  const R = recessScreen, r = recessTune.radius, per = Math.round((Math.PI * 2 * r) / R.fenceStep), rows = R.fenceRows;
+  const mesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(2.6, 0), makeRampMaterial({ ramp: Ramp.GLOW_WHITE, glow: 0.35, noOutline: true, shadowMul: 0 }), per * rows.length);
+  const m = new THREE.Matrix4();
+  let i = 0;
+  for (let k = 0; k < per; k++) {
+    const a = (k / per) * Math.PI * 2, x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r, g = groundAt(x, z);
+    rows.forEach((h, row) => m.makeTranslation(x, g + h + ((k * 7 + row * 3) % 5) * 1.5, z) && mesh.setMatrixAt(i++, m));
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.frustumCulled = false;
+  mesh.name = 'RecessFence';
+  return mesh;
+}
+
+/** A tag on the HUD: a name and distance over a captain, or a chevron at the screen's edge. */
+class Tag {
+  readonly id: number;
+  private readonly el: HTMLDivElement;
+  private readonly name: string;
+  private readonly colour: number;
+  private text = '';
+
+  constructor(name: string, colour: number, id: number) {
+    this.name = name;
+    this.colour = colour;
+    this.id = id;
+    const d = document.createElement('div');
+    Object.assign(d.style, { position: 'fixed', left: '0', top: '0', pointerEvents: 'none', zIndex: '21', display: 'none' });
+    d.dataset.hud = 'recess-tag';
+    document.body.append(d);
+    this.el = d;
+  }
+
+  hide(): void {
+    this.el.style.display = 'none';
+  }
+
+  /** At (x, y) CSS px: over the bus (`angle` null), or at the edge pointing `angle` (rad, 0 to the right, up positive). */
+  show(x: number, y: number, angle: number | null, d: number): void {
+    const t = `${angle === null ? '' : '▲ '}${this.name}${this.name ? ' ' : ''}${Math.round(d / 10) * 10}M`;
+    if (t !== this.text) {
+      this.text = t;
+      const w = textWidth(t, HUD_FONT) + 6, c = new PixelCanvas(w, 12, 2);
+      c.clear();
+      c.textOutlined(t, 3, 2, this.colour, C.ink, HUD_FONT);
+      c.flush();
+      this.el.replaceChildren(c.el);
+    }
+    this.el.style.display = 'block';
+    const rot = angle === null ? '' : ` rotate(${(-angle + Math.PI / 2).toFixed(3)}rad)`;
+    this.el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -100%)${rot}`;
+  }
 }

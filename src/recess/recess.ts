@@ -20,8 +20,8 @@ export const recessTune = {
   /** the arena's radius (m) and a match (s): "Three minutes between two school bells, in a 1.5 km circle" */
   radius: 750,
   length: 180,
-  /** the gears' speeds (m/s) in the arena: Cruise, Express, Nonstop (config.flight.cruiseSpeed doubled, config.turbo's surge and nonstopSpeed) */
-  gears: [60, 112, 225],
+  /** the gears' speeds (m/s) in the arena: Cruise, Express, Nonstop (the player's: config.flight.cruiseSpeed, config.turbo's surge and nonstopSpeed; SHOTS.md, "Captains fly your ladder") */
+  gears: [30, 112, 225],
   /** Possessed's gear: Nonstop (decision 3) */
   rideGear: 2,
   /** the yaw at full stretch (rad/s) at 30 m/s, config.flight.maxYawRate, falling as the square root of the speed over that */

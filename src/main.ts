@@ -1195,6 +1195,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     ? recessMod.bootRecess({
         params, scene, flight, turbo: controls.turbo, arena: recessArena,
         barf: (x, z, o) => void splatter.barf(x, z, o), groundAt: (x, z) => city.groundAt(x, z), obstacleAt: (x, z) => city.obstacleAt(x, z), toast: (l, s) => controls.hud.toast(l, s),
+        rig,
+        bus,
       })
     : null;
   if (recess) {
