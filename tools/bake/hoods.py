@@ -39,8 +39,8 @@ order the section's list of fixes needs them:
   hearts   one square each: in its biggest park (on open ground: not a park on a roof), else its highest open ground, else
            its highest square, never on a tagged place, at least 450 m from every other heart; within a park or a tier
            a ring of 8 with no tagged square first, then the one most on land and most its own, then a square with no
-           tagged place in it, and a square whose ring reaches past the frame only after every other; a neighbourhood
-           whose heart can't be placed joins the neighbour in its way
+           tagged place in it, and a square whose ring reaches past the frame, or a quarter of it water, only after
+           every other; a neighbourhood whose heart can't be placed joins the neighbour in its way
   rings    each god's ring of 8 its own where it's land: a neighbour's square in it comes over, but a park's (kept
            whole), a heart's ring, or one its neighbour can't spare (0.25 km2, or cut in two)
   tagged   squares where worship, cemetery, memorial, school or hospital cover a quarter of the land: stages 4 and 5 stay off
@@ -106,6 +106,7 @@ PARK_SQUARE = 0.25              # a park's squares, kept in one neighbourhood: t
 PARK_WHOLE = MAX_SQUARES // 4   # ...up to this many (0.74 km2); a bigger park may be split with the neighbourhood it makes
 TAGGED = 0.25                   # tagged places covering this share of a square's land: it stops at the streets
 OPEN_HEART = 0.25               # a heart on high ground stands on this share of open ground at least
+HEART_LAND = 0.75               # a heart's own square is this much land, where its neighbourhood has one
 
 HOOD_SUBS = ('neighborhood', 'microhood', 'macrohood')
 TOWN_CLASSES = ('town', 'village', 'hamlet')  # locality points that name a place on a city's map (Sausalito), never 'city'
@@ -1146,8 +1147,8 @@ class Hoods:
         (no god rises over a cemetery's edge), then the ring most on land, then most its own (every god rises over a
         ring of floating houses), then a square with no tagged place in it at all before one with a sliver of one (a
         church's corner doesn't push North Beach's heart out of Washington Square onto a roof).
-        A square whose ring reaches past the frame comes after every other (on a flat map the most open square was the
-        frame's corner)."""
+        A square whose ring reaches past the frame, or that is a quarter water (Rincon Park on the Embarcadero, 0.52 of
+        it land), comes after every other (on a flat map the most open square was the frame's corner)."""
         sq = self.squares(ti)
         mine = set(sq.tolist())
         ring = {}   # (its ring's squares in the frame, on land, its own, tagged)
@@ -1182,7 +1183,8 @@ class Hoods:
         n_open = sum(1 for s in high if self.open[s] >= OPEN_HEART)
         tiers += [(s, 'high ground', None, 1, n_open) if self.open[s] >= OPEN_HEART else (s, 'built ground', None, 2, len(high) - n_open)
                   for s in high]
-        return [c for c in tiers if ring[c[0]][0] == 8] + [c for c in tiers if ring[c[0]][0] < 8]
+        good = [c for c in tiers if ring[c[0]][0] == 8 and self.land[c[0]] >= HEART_LAND]
+        return good + [c for c in tiers if not (ring[c[0]][0] == 8 and self.land[c[0]] >= HEART_LAND)]
 
     def hearts(self):
         """The most hemmed in first: a park heart before high ground, the park with the fewest squares first, the

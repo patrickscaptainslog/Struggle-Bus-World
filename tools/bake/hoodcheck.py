@@ -13,7 +13,9 @@ exit 1 on any failure. Against the city's own baked tiles and Overture extract, 
            ground clear for it (clear: 450 m from every other god's heart, where the bake could have put it), none
            whose ring reaches past the frame while a square off its edge was clear, and no ring square a neighbour holds
            that could come over to it (not a park's, a heart's ring, a neighbour at 0.25 km2 or cut in two by it); no
-           tagged square in a ring while its park or tier had a clean ring clear for it
+           tagged square in a ring while its park or tier had a clean ring clear for it; none a quarter water while
+           a drier square was clear for it (a heart's choices first: untagged, clear, its ring in the frame, three
+           quarters land)
   sizes    0.25-3 km2; under 0.25 only a whole piece of land, and godless (Alcatraz)
   names    one each, none empty or over 255 bytes, no two that are one place (hoods.norm: Castro, Castro District),
            none with a slash of its own beside another; every place the bake seeds from named on the neighbourhood
@@ -206,6 +208,21 @@ def gods(W, t):
     return hc, clear
 
 
+def eligible(W, t, k, cells, clear):
+    """Which of god k's cells the bake takes before any other for a heart: untagged, clear of the other gods' hearts,
+    its ring of 8 inside the frame, and three quarters of it land (hoods.HEART_LAND)."""
+    return (clear(k, cells) & ~t['tagged'][cells] & (W.landshare[cells] >= H.HEART_LAND)
+            & np.array([len(ring_cells(W, s)) == 8 for s in cells.tolist()], bool))
+
+
+def wet_hearts(W, t):
+    """Gods whose heart is a quarter water or more while a square of theirs the bake takes first was clear for them."""
+    g = t['grid']
+    hc, clear = gods(W, t)
+    return [f'{t["names"][k]} (land {W.landshare[h]:.2f})' for k, h in hc.items()
+            if W.landshare[h] < H.HEART_LAND and eligible(W, t, k, np.nonzero(g == k + 1)[0], clear).any()]
+
+
 def heart_ground(W, t):
     """(built, off its parks): gods whose heart is on built ground (under a quarter of open ground) while their
     neighbourhood had open ground clear of the other gods' hearts, off the frame's edge; gods whose heart is in none of
@@ -215,8 +232,7 @@ def heart_ground(W, t):
     built, off = [], []
     for k, h in hc.items():
         sq = np.nonzero(g == k + 1)[0]
-        inner = np.array([len(ring_cells(W, s)) == 8 for s in sq.tolist()], bool)
-        ok = clear(k, sq) & ~t['tagged'][sq] & (W.open[sq] >= H.OPEN_HEART) & inner
+        ok = eligible(W, t, k, sq, clear) & (W.open[sq] >= H.OPEN_HEART)
         if W.open[h] < H.OPEN_HEART and ok.any():
             built.append(f'{t["names"][k]} (open {W.open[h]:.2f})')
         if not W.parksq[h] and (ok & W.parksq[sq]).any():
@@ -254,8 +270,7 @@ def heart_rings(W, t):
     for k, h in hc.items():
         if len(rings[k]) < 8:
             sq = np.nonzero(g == k + 1)[0]
-            inner = np.array([len(ring_cells(W, s)) == 8 for s in sq.tolist()])
-            if (inner & clear(k, sq) & ~t['tagged'][sq]).any():
+            if eligible(W, t, k, sq, clear).any():
                 edge.append(t['names'][k])
         why = ['frame'] * (8 - len(rings[k]))
         for q in rings[k]:
@@ -301,8 +316,8 @@ def tagged_rings(W, t):
         if not dirty(h):
             continue
         sq = np.nonzero(g == k + 1)[0]
-        ok = clear(k, sq) & ~t['tagged'][sq]
-        if any(ok[i] and len(ring_cells(W, s)) == 8 and tier(s) == tier(h) and not dirty(s) for i, s in enumerate(sq.tolist())):
+        ok = eligible(W, t, k, sq, clear)
+        if any(ok[i] and tier(s) == tier(h) and not dirty(s) for i, s in enumerate(sq.tolist())):
             out.append(t['names'][k])
     return out
 
@@ -441,6 +456,9 @@ def check(W, t, man_hoods, rep):
             (f'; {"; ".join(gaps[:8])}' if gaps else ''), not gaps)
         rep('hearts: rings short of 8 of their own', len(short), f'reported, of {len(gods(W, t)[0])} gods' +
             (f'; {"; ".join(short[:12])}' if short else ''), True)
+        wet = wet_hearts(W, t)
+        rep('hearts: a quarter water or more while a drier square was clear for them', len(wet), '0' +
+            (f'; {"; ".join(wet[:8])}' if wet else ''), not wet)
         dirty = tagged_rings(W, t)
         rep('hearts: a tagged square in the ring while their park or tier had a clean ring clear for them', len(dirty), '0' +
             (f'; {"; ".join(dirty[:8])}' if dirty else ''), not dirty)
@@ -598,6 +616,12 @@ def broken(W, t, man_hoods):
     if tagq is not None:
         case('a ring square tagged', 'hearts: a tagged square in the ring while their park or tier had a clean ring clear for them',
              lambda c, mh, q=tagq: c['tagged'].__setitem__(q, True) or mh.update(tagged=mh['tagged'] + 1))
+    # a heart moved onto its own square that's a quarter water or more
+    pick = next(((k, int(s)) for k in hc for s in np.nonzero(g == k + 1)[0].tolist()
+                 if W.landshare[s] < H.HEART_LAND and not t['tagged'][s]), None)
+    if pick:
+        case('a heart moved into the water', 'hearts: a quarter water or more while a drier square was clear for them',
+             lambda c, mh, k=pick[0], s=pick[1]: c['hearts'].__setitem__(k, W.key(s)))
     k0 = next(k for k in range(len(t['names'])) if not t['flags'][k])
     case('a heart off its squares', 'hearts: off their own squares',
          lambda c, mh: c['hearts'].__setitem__(k0, t['hearts'][(k0 + 1) % len(t['names'])]))
