@@ -341,7 +341,7 @@ export class RecessGame implements MoverAim {
       this.painted.push({ x: wx, z: wz, hue: side.solo, at: this.now + travel });
       if (this.painted.length > 64) this.painted.shift();
     }
-    this.h.barf(wx, wz, { travel: Math.max(0.05, travel), drop, from: fromY, solo: side.solo, ...(size !== 1 ? { radius: config.splat.blastRadius * size, hitStop: 0 } : {}) });
+    this.h.barf(wx, wz, { travel: Math.max(0.05, travel), drop, from: fromY, solo: side.solo, faction, ...(size !== 1 ? { radius: config.splat.blastRadius * size, hitStop: 0 } : {}) });
   }
 
   /** A hit's flash on bus `id`, in the air where it is. */

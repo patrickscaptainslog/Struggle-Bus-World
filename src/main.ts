@@ -1856,7 +1856,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         m.paint.fly(x, z, fx, fz, simTime);
       },
       paintAt(lat, lon, hue) {
-        const rec = m.paint.hitAt(lat, lon, simTime, hue);
+        const rec = m.paint.hitAt(lat, lon, simTime, hue, splatter.faction);
         return rec ? rec.r / 1000 : null;
       },
     };

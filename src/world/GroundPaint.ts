@@ -5,7 +5,8 @@ import { HUE_RAMPS, Ramp } from '../render/palette';
 import { uploadRect } from '../render/upload';
 import { arrival, bandHue, blastDots, blastEdge, LAYOUT_BANDS, SHAPE_LUT, specFromArray, specToArray, type BlastDot, type BlastSpec } from '../game/blastLayout';
 import { resolveIdScheme, type CityData, type IdScheme } from './PaintState';
-import { decodeMask, encodeMask, GROUND_N, TEXELS, type Prepared } from './groundMask';
+import { decodeMask, encodeMask, GROUND_N, TEXELS, texelLow, texelOwner, type Prepared } from './groundMask';
+import { ownerOf } from '../game/factions';
 import { GeoPaint, IdbStore, type GroundGeo, type PicStore } from './GeoPaint';
 
 // Paint on the ground: streets, sidewalks and parks splattered by blasts.
@@ -13,7 +14,7 @@ import { GeoPaint, IdbStore, type GroundGeo, type PicStore } from './GeoPaint';
 // One small RGBA8 mask per terrain tile (128 x 128 texels = 2 m, the same grid
 // as the tile's class texture), created only once paint lands on that tile:
 //   r = coverage (bilinear in the shader + noise threshold -> organic edges)
-//   g = hue * 32 + 16 (nearest, looked up at a noise-warped position)
+//   g = hue * 32 + its faction's texelLow, 16 for Rainbow (nearest, looked up at a noise-warped position; the shader reads the hue)
 //   b = reveal delay after impact in 1/100 s, a = live blast serial (0 = settled)
 // A live blast is drawn a few rows per frame while the projectile is in the
 // air (begin -> work), and lands with one texSubImage2D per touched tile
@@ -23,7 +24,7 @@ import { GeoPaint, IdbStore, type GroundGeo, type PicStore } from './GeoPaint';
 //
 // Persistence: the settled result, not the history. Each painted tile is one
 // localStorage entry under a new key prefix: its mask as coverage (5 bits) +
-// hue (3 bits) per texel, run-length coded, base64 (a few KB), decoded in one
+// hue (3 bits) per texel, run-length coded, base64 (a few KB), whose paint it is after a '~' where any of it isn't Rainbow's (encodeMask), decoded in one
 // pass (16k texels) the moment the tile streams in, so saved paint shows up
 // with the tile however many blasts made it. Blasts that reach a tile that
 // isn't loaded are kept on that tile's entry (a handful at most) and drawn
@@ -192,7 +193,7 @@ interface JobTile {
   i0: number;
   i1: number;
   dots: boolean;
-  /** over-paint held back until impact: (offset, coverage, hue) triples */
+  /** over-paint held back until impact: (offset, coverage, g) triples */
   deferred: number[];
 }
 
@@ -618,8 +619,8 @@ export class GroundPaint {
     return this.masks.has(`${tx},${tz}`);
   }
 
-  /** Paint at a world point (CPU, e.g. for trees): coverage 0..1 and hue, or null. */
-  sample(x: number, z: number): { cov: number; hue: number } | null {
+  /** Paint at a world point (CPU, e.g. for trees): coverage 0..1, hue and its faction (where there's coverage), or null. */
+  sample(x: number, z: number): { cov: number; hue: number; faction: number } | null {
     const tx = Math.floor(x / this.tileSize), tz = Math.floor(z / this.tileSize);
     const m = this.masks.get(`${tx},${tz}`);
     if (!m) return null;
@@ -627,7 +628,7 @@ export class GroundPaint {
     const i = Math.min(GROUND_N - 1, Math.max(0, Math.floor((x - ox) / this.cell)));
     const j = Math.min(GROUND_N - 1, Math.max(0, Math.floor((z - oz) / this.cell)));
     const o = (j * GROUND_N + i) * 4;
-    return { cov: m.data[o] / 255, hue: Math.min(5, Math.floor(m.data[o + 1] / 32)) };
+    return { cov: m.data[o] / 255, hue: Math.min(5, Math.floor(m.data[o + 1] / 32)), faction: m.data[o] ? texelOwner(m.data[o + 1]) : 0 };
   }
 
   /**
@@ -1100,6 +1101,7 @@ export class GroundPaint {
     const lutK = SHAPE_LUT / (Math.PI * 2);
     const R2 = R * R;
     const waveK = (WAVE_LUT - 1) / Math.max(1, R);
+    const low = texelLow(ownerOf(s.faction));
     // main splat: soft-edged blob, rainbow layout with a warped (hand-painted)
     // boundary. Hot loop (thousands of texels at impact): LUTs, no hypot/log.
     for (let j = j0; j <= j1; j++) {
@@ -1129,7 +1131,7 @@ export class GroundPaint {
           const off = s.layout === 1 ? ring : s.layout === 2 ? sector + ring : sector;
           hue = (((s.hue + off) % 6) + 6) % 6;
         }
-        this.put(d, (j * GROUND_N + i) * 4, c > 1 ? 1 : c, hue, live ? wave[Math.min(WAVE_LUT - 1, Math.round(dist * waveK))] : 0, serial, under, deferred);
+        this.put(d, (j * GROUND_N + i) * 4, c > 1 ? 1 : c, hue * 32 + low, live ? wave[Math.min(WAVE_LUT - 1, Math.round(dist * waveK))] : 0, serial, under, deferred);
       }
     }
   }
@@ -1141,6 +1143,7 @@ export class GroundPaint {
     const ox = m.ox, oz = m.oz;
     const d = m.data;
     const live = serial !== null;
+    const low = texelLow(ownerOf(s.faction));
     for (const dot of p.dots) {
       const rr = dot.rad * dot.elong + 1.5;
       const di0 = Math.max(0, Math.floor((dot.x - rr - ox) / cs)), di1 = Math.min(GROUND_N - 1, Math.floor((dot.x + rr - ox) / cs));
@@ -1157,7 +1160,7 @@ export class GroundPaint {
           const q = Math.sqrt(along * along + across * across);
           const c = Math.min(1, Math.max(0, (dot.rad - q) / 1.6 + 0.5));
           if (c <= 0.02) continue;
-          this.put(d, (j * GROUND_N + i) * 4, c, dot.hue, rv, serial, true, deferred);
+          this.put(d, (j * GROUND_N + i) * 4, c, dot.hue * 32 + low, rv, serial, true, deferred);
         }
       }
     }
@@ -1182,19 +1185,19 @@ export class GroundPaint {
     this.dirty.push(m);
   }
 
-  /** Write one texel of new paint over whatever is there (bareOnly: only onto bare ground). */
-  private put(d: Uint8Array, o: number, c: number, hue: number, reveal: number, serial: number | null, bareOnly: boolean, deferred: number[] | null) {
+  /** Write one texel of new paint over whatever is there (bareOnly: only onto bare ground). g: its hue and faction (groundMask's texelLow). */
+  private put(d: Uint8Array, o: number, c: number, g: number, reveal: number, serial: number | null, bareOnly: boolean, deferred: number[] | null) {
     const old = d[o] / 255;
     // spatter only lands on bare ground (no confetti inside a splat); a replay under a newer blast likewise
     if (bareOnly && old >= 0.5) return;
-    // over old paint, a live blast changes the hue only at impact
+    // over old paint, a live blast changes the hue (and whose it is) only at impact
     if (deferred && old >= 0.5) {
-      deferred.push(o, c, hue);
+      deferred.push(o, c, g);
       return;
     }
     const nc = Math.max(old, c);
     d[o] = Math.round(nc * 255);
-    if (c >= 0.5 || c > old) d[o + 1] = hue * 32 + 16;
+    if (c >= 0.5 || c > old) d[o + 1] = g;
     if (serial !== null && old < 0.5 && c > 0.2) {
       // freshly painted ground waits for the shockwave; old paint just changes hue under the flash
       const rv = Math.round(Math.min(2.55, reveal) * 100);

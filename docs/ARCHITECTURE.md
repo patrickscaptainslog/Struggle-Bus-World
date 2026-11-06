@@ -925,6 +925,17 @@ impact frame shows the hit.
 - `src/game/blastLayout.ts`: `BlastSpec` (everything a blast paints, a flat
   number array when saved), `arrival(d, r)` (shockwave timing), `layoutHue`
   (pinwheel / rings / spiral), seeded splat edge + spatter dots.
+- `src/game/factions.ts`: whose paint it is, the five named and numbered in one
+  place (0 none, 1 Team Super Rainbow, 2 Atlantis, 3 The Elderwood, 4 Hyperglow,
+  5 Inferno; `docs/specs/factions/FACTIONS.md`). Every splat carries its hitter's
+  (`Splatter.faction`, `BlastSpec.faction`), and every paint store keeps it:
+  PaintState's records and its texture's alpha (faction, plus `PAINT_KEPT` for an
+  escalation), a ground texel's low bits (`texelLow`), the Moon's craters, strokes
+  and pictures. A Rainbow record is saved as it was before factions, a save
+  that names no faction is Rainbow's, and one a later build made, its sixth or
+  seventh faction, is kept as it is (`ownerOf`, `FACTION_ROOM`). Nothing draws a
+  faction yet.
+  Life's movers keep it once C15 (`docs/specs/factions/C15.md`) is agreed.
 - `src/game/Splat.ts`: picks every building the blast reaches, deals the fresh
   ones the rainbow by angle around the impact (touching neighbors differ, never
   the ground's hue under them), escalates painted ones, writes the whole wave to
@@ -935,7 +946,8 @@ impact frame shows the hit.
   per terrain tile on the class grid, `begin` (at the tap) -> `work` (rows per
   frame) -> `land` (at impact, one upload per tile); `sample(x, z)` for CPU
   queries (trees). Saved per tile as its settled mask (`encodeMask` /
-  `decodeMask`: 5-bit coverage + 3-bit hue, run-length, base64) under
+  `decodeMask`: 5-bit coverage + 3-bit hue, run-length, base64, and after a `~`
+  whose paint it is where any of it isn't Rainbow's) under
   `strugglebus.ground.v4:<tx>,<tz>` on OpenStreetMap data (`groundStorePrefix`, see stableIds), decoded when the tile attaches; blasts that
   reach an unloaded tile wait on its entry and replay when it arrives.
   `GLSL_BLAST_RING` (shockwave on up-facing surfaces: terrain + roofs) and

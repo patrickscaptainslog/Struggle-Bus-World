@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { config } from '../config';
 import { HUE_COUNT } from '../render/palette';
 import type { City, BuildingRef } from '../world/City';
-import { FACTION_RAINBOW } from '../world/PaintState';
+import { FACTION_RAINBOW } from './factions';
 import { blastUniforms, type GroundJob } from '../world/GroundPaint';
 import { arrival, blastRadiusFor, LAYOUT_BANDS, layoutHue, makeBlastSpec, waveMax, wrapHue, type BlastDot, type BlastSpec } from './blastLayout';
 
@@ -96,9 +96,10 @@ export interface BarfOpts {
   tag?: unknown;
   /** ?moon: changes the blast before its ground is drawn. False: it draws no ground */
   shape?: (spec: BlastSpec) => boolean;
-  /** ?recess: one hue for all of it, every building and the ground (a rival faction's plain paint, until its stages' looks land). Saved as Rainbow's until
-   *  factions' step 1 teaches PaintState whose paint it is */
+  /** ?recess: one hue for all of it, every building and the ground (a rival faction's plain paint, until its stages' looks land) */
   solo?: number;
+  /** whose blast it is when it isn't this splatter's own `faction` (?recess: a captain's bus) */
+  faction?: number;
   /** ?life: a mover it hits (src/life): the blast is in the air at (x, opts.y, z), and paints no building and no ground; `moverFresh`, it took the breath's hue */
   mover?: { x: number; y: number; z: number };
   moverFresh?: boolean;
@@ -145,6 +146,11 @@ interface PendingBlast {
 const HUE_TRY = [0, 1, -1, 2, -2, 3];
 
 export class Splatter {
+  /**
+   * The hitter's faction (game/factions.ts): every blast this splatter fires carries it (BlastSpec.faction), and every building and ground texel it
+   * paints is saved as that faction's, an escalation's included. Rainbow, until a player can join another (FACTIONS.md, decision 15).
+   */
+  faction = FACTION_RAINBOW;
   private nextHue = Math.floor(Math.random() * HUE_COUNT);
   /** The hue the next fresh hit takes (?life: a mover hit takes it, main.ts). */
   get hueNext(): number {
@@ -274,6 +280,7 @@ export class Splatter {
     if (solo === undefined && !bands && (!pRec || pRec.level < 0.5)) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
     this.seed = (Math.imul(this.seed ^ 0x2545f491, 0x9e3779b1) + 0x7f4a7c15) >>> 0;
     const spec = makeBlastSpec(cx, cz, r, hue, this.seed);
+    spec.faction = opts?.faction ?? this.faction;
     if (solo !== undefined) {
       spec.layout = 0;
       spec.sectors = 1;
@@ -326,6 +333,7 @@ export class Splatter {
     if (fresh) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
     this.seed = (Math.imul(this.seed ^ 0x2545f491, 0x9e3779b1) + 0x7f4a7c15) >>> 0;
     const spec = makeBlastSpec(m.x, m.z, r, hue, this.seed);
+    spec.faction = opts.faction ?? this.faction;
     this.pending.push({
       at: tImpact, plan: [], ground: null, hitStop: hose ? 0 : opts.hitStop ?? S.hitStopFrames,
       blast: { spec, pos, t: tImpact, count: 1, maxLevel: 1, strength: r / S.blastRadius, dots: [], hose, primary: null, super: opts.super ?? null, tag: opts.tag },
@@ -403,8 +411,9 @@ export class Splatter {
       }
       this.pending.splice(i, 1);
       const b = p.blast;
-      // the whole wave goes to the GPU now (one upload): the shader times each pop
-      for (const s of p.plan) this.city.paint.set(s.ref.index, { faction: FACTION_RAINBOW, color: s.hue, level: s.level, bloomTime: s.at, keep: s.keep });
+      // the whole wave goes to the GPU now (one upload): the shader times each pop. Its buildings are the hitter's, as it was when it fired
+      const faction = b.spec.faction ?? FACTION_RAINBOW;
+      for (const s of p.plan) this.city.paint.set(s.ref.index, { faction, color: s.hue, level: s.level, bloomTime: s.at, keep: s.keep });
       b.dots = p.ground ? this.city.ground.land(p.ground) : [];
       blastUniforms.uBlastRing.value.set(b.spec.x, b.spec.z, b.t, b.spec.r);
       blastUniforms.uBlastRing2.value.set(b.spec.hue, S.ringWidth * Math.sqrt(b.strength), S.waveSpeed, waveMax(b.spec.r));
