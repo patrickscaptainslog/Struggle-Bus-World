@@ -97,13 +97,15 @@ function lookOf(h: number): number {
  * Returns the next free row, at most `max`. `keys`, if given, is told each row's key.
  */
 export function picnicsOn(t: LawnTile, blocks: Uint32Array, utcMs: number, tzMin: number, bx: number, bz: number, reach: number, out: Float32Array, at: number, max: number,
-  keys?: (hash: number, key: string) => void): number {
+  keys?: (hash: number, key: string) => void, dusk = Infinity): number {
   const N = blocks.length;
   if (!N) return at;
   const side = t.n * t.cell, cx = t.x0 + side / 2, cz = t.z0 + side / 2, far = reach + side * 0.71;
   if ((cx - bx) * (cx - bx) + (cz - bz) * (cz - bz) > far * far) return at;
   const local = utcMs / 1000 + tzMin * 60, day = Math.floor(local / 86400), sec = local - day * 86400;
-  if (sec < ARRIVE || sec > HOME) return at;
+  // (home by HOME, or by half an hour after the sun's down: `dusk`, the place's sunset that day, local s)
+  const home = Math.min(HOME, dusk + 1800);
+  if (sec < ARRIVE || sec > home) return at;
   // (1970-01-01 was a Thursday: Saturday and Sunday are 2 and 3)
   const wd = ((day % 7) + 7) % 7, weekend = wd === 2 || wd === 3;
   const u32 = new Uint32Array(out.buffer, out.byteOffset, out.length), r2 = reach * reach, area = BLOCK * t.cell * BLOCK * t.cell;
@@ -115,7 +117,7 @@ export function picnicsOn(t: LawnTile, blocks: Uint32Array, utcMs: number, tzMin
   for (let s = 0; s < slots && at < max; s++) {
     const h = mix(seed, s, 3);
     if (!weekend && unit(h) >= WEEKDAY) continue;
-    const t0 = ARRIVE + unit(mix(h, 4)) * ARRIVE_SPAN, t1 = Math.min(HOME, t0 + STAY + unit(mix(h, 5)) * STAY_SPAN);
+    const t0 = ARRIVE + unit(mix(h, 4)) * ARRIVE_SPAN, t1 = Math.min(home, t0 + STAY + unit(mix(h, 5)) * STAY_SPAN);
     if (sec < t0 || sec > t1) continue;
     const b = blocks[(start + s * stride) % N], bi = b % t.n, bj = (b - bi) / t.n;
     const x = t.x0 + (bi + BLOCK / 2) * t.cell + (unit(mix(h, 6)) - 0.5) * 0.6, z = t.z0 + (bj + BLOCK / 2) * t.cell + (unit(mix(h, 7)) - 0.5) * 0.6;

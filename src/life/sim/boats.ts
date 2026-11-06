@@ -339,7 +339,7 @@ export function harbourOf(m: { key: string; x: number; z: number; berths: number
  * till SAIL1 at the latest, growing in and out over a minute at each end.
  */
 export function sailsOn(h: Harbour, utcMs: number, tzMin: number, bx: number, bz: number, reach: number, out: Float32Array, at: number, max: number,
-  keys?: (hash: number, key: string) => void): number {
+  keys?: (hash: number, key: string) => void, dusk = Infinity): number {
   if ((h.x - bx) * (h.x - bx) + (h.z - bz) * (h.z - bz) > (reach + 2 * WATER_R) ** 2) return at;
   const u32 = new Uint32Array(out.buffer, out.byteOffset, out.length), t = utcMs / 1000, local = t + tzMin * 60, day = Math.floor(local / 86400), sec = local - day * 86400;
   // (1970-01-01 was a Thursday: Saturday and Sunday are 2 and 3)
@@ -349,7 +349,7 @@ export function sailsOn(h: Harbour, utcMs: number, tzMin: number, bx: number, bz
     if (!A) continue;
     const s = mix(seed, b);
     if (unit(s) >= (weekend ? 1 : WEEKDAY)) continue;
-    const t0 = SAIL0 + unit(mix(s, 1)) * 4 * 3600, t1 = Math.min(SAIL1, t0 + (2 + 3 * unit(mix(s, 2))) * 3600);
+    const t0 = SAIL0 + unit(mix(s, 1)) * 4 * 3600, t1 = Math.min(SAIL1, dusk, t0 + (2 + 3 * unit(mix(s, 2))) * 3600);
     if (sec < t0 || sec > t1) continue;
     const B = h.loops[b * 5 + 3], rot = h.loops[b * 5 + 4], v = SAIL_V[0] + (SAIL_V[1] - SAIL_V[0]) * unit(mix(s, 3)), dir = unit(mix(s, 4)) < 0.5 ? 1 : -1;
     // (round its loop at about its speed, from a hashed place on it)
@@ -371,8 +371,8 @@ export function sailsOn(h: Harbour, utcMs: number, tzMin: number, bx: number, bz
     out[o + Col.VZ] = (wz / l) * v;
     out[o + Col.HEADING] = heading;
     out[o + Col.PITCH] = 0;
-    // (heeled away from the wind, the most with it on her beam, none running before it)
-    out[o + Col.BANK] = HEEL * Math.sin(heading - WIND);
+    // (heeled away from the wind, the most with it on her beam, none running before it: the mast leans downwind, the first account's life review m3)
+    out[o + Col.BANK] = -HEEL * Math.sin(heading - WIND);
     out[o + Col.SCALE] = Math.max(0.05, Math.min(1, (sec - t0) / 60, (t1 - sec) / 60)) * (0.9 + 0.2 * unit(mix(s, 6)));
     out[o + Col.FLAGS] = 0;
     out[o + Col.UNTIL] = t1 - sec;

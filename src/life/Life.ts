@@ -58,6 +58,8 @@ const CAR_LAMP_Y = 0.84;
  * building's, so a car's shows
  */
 const GROUND_PX = 10, GROUND_GLINT = 2;
+/** Dancers drawn a frame at the most: a MEGA over a crowded park paints thousands (the first account's life review, M5) */
+const DANCERS_MOST = 400;
 /** A truck's length by its look (the heavy pool's models, pools.ts): a bus, a box truck, a semi; the aim and the level of detail read it, not the kind's one size */
 const TRUCK_LEN = [12, 12, 9.3, 9.3, 20.4];
 /** A painted boat's wake (KindInfo's wake): its width at the stern, a share of the boat's length, spreading to three times that at its far end, and how far over the water
@@ -94,7 +96,7 @@ export class LifeHost {
   private readonly p = new THREE.Vector3();
   private readonly s = new THREE.Vector3();
   /** QA: the last frame's rows, models and specks, the snapshots taken, the loop that drew it; and the first DRAWN movers drawn, each its key's hash and where (the loop's frame) */
-  readonly qa = { rows: 0, models: 0, people: 0, specks: 0, marks: 0, sent: 0, snaps: 0, hits: 0, sky: false, drawn: 0, dancers: 0, cars: 0, heavy: 0, boats: 0, lights: 0, tracks: 0, bouncers: 0 };
+  readonly qa = { rows: 0, models: 0, people: 0, specks: 0, marks: 0, sent: 0, snaps: 0, hits: 0, sky: false, drawn: 0, dancers: 0, cars: 0, heavy: 0, tris: 0, boats: 0, lights: 0, tracks: 0, bouncers: 0 };
   readonly drawn = new Float64Array(DRAWN * 4);
   /** QA: the last painted picnic's dancer drawn this frame: its group's key's hash, where (the hop in it), and its pose (Kind.PERSON or Kind.CHEER) */
   readonly danced = new Float64Array(5);
@@ -117,6 +119,12 @@ export class LifeHost {
   /** one car's track's points as laid, the axle first */
   private readonly trackLay = new Float64Array(MARK_POINTS * 3);
   private drawFrames = 0;
+  private dancing = 0;
+  private readonly frustum = new THREE.Frustum();
+  private readonly sphere = new THREE.Sphere();
+  private readonly vp = new THREE.Matrix4();
+  /** each pool's triangles an instance, for qa.tris (L3's count: what's sent, the folded boxes in it) */
+  private readonly trisOf: number[];
   /** the frame's clocks, for the aim between frames */
   private utc = 0;
   private sim = 0;
@@ -161,6 +169,7 @@ export class LifeHost {
     this.ns = ns;
     this.origin = origin;
     this.home = pools.group.parent;
+    this.trisOf = [pools.small, pools.middle, pools.large, pools.heavy].map((q) => q.mesh.geometry.getAttribute('position').count / 3);
     axesAt(origin[0], origin[1], 0, this.ax);
     worker.onmessage = (e: MessageEvent<{ type: string; buf: ArrayBuffer }>) => {
       if (e.data?.type === 'snap') this.took(e.data.buf);
@@ -340,6 +349,7 @@ export class LifeHost {
     this.qa.people = pc[0];
     this.qa.models = pc[0] + pc[1] + pc[2] + pc[3];
     this.qa.heavy = pc[3];
+    this.qa.tris = pc[0] * this.trisOf[0] + pc[1] * this.trisOf[1] + pc[2] * this.trisOf[2] + pc[3] * this.trisOf[3];
     this.qa.specks = ns;
     this.qa.marks = nk;
     this.qa.dancers = this.dancers;
@@ -414,6 +424,10 @@ export class LifeHost {
     pc[0] = pc[1] = pc[2] = pc[3] = 0;
     this.qMap.identity();
     this.drawFrames++;
+    this.dancing = 0;
+    // (the lens's view: what's outside it isn't drawn or uploaded, the first account's life review M5: every instance went up wherever it was)
+    camera.updateMatrixWorld();
+    this.frustum.setFromProjectionMatrix(this.vp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     if (s) {
       const rows = s.rows, u32 = s.rowsU32, dt = (utcMs - s.f64[0]) / 1000, sp = P.specks;
       n = s.u32[2];
@@ -426,7 +440,12 @@ export class LifeHost {
         const alive = paint !== undefined && rows[o + Col.KIND] === Kind.PICNIC;
         const dx = x0 - cam.x, dy = y0 - cam.y, dz = z0 - cam.z, d = Math.sqrt(dx * dx + dy * dy + dz * dz);
         let scale = rows[o + Col.SCALE], x = x0, y = y0, z = z0;
-        const px = (this.sizeOf(o, info) * scale) / (Math.max(1, d) * ang);
+        const size = this.sizeOf(o, info), px = (size * scale) / (Math.max(1, d) * ang);
+        if (d < near) {
+          this.sphere.center.set(x0, y0, z0);
+          this.sphere.radius = size * scale + 2;
+          if (!this.frustum.intersectsSphere(this.sphere)) continue;
+        }
         // (a grey vehicle in its own tone, white, silver, grey or black)
         const ramp = paint ? HUE_RAMPS[paint.hue] : info.track ? VEHICLE_TONES[(rows[o + Col.LOOK] >> 6) & 3] : GREY_RAMP;
         if (d > near) {
@@ -466,10 +485,11 @@ export class LifeHost {
         if (info.track) this.cars++;
         else if (info.wake) this.boats++;
         this.note(nd++, u32[o + Col.KEY], x, y, z);
-        if (paint && info.track && nk + 2 <= MARKS_MAX && this.tracks(nk, u32[o + Col.KEY], o, x0, y0, z0, rows[o + Col.SCALE], paint, cam, ang)) nk += 2;
-        if (paint && (info.mark || info.wake) && nk < MARKS_MAX) {
+        if (paint && info.track && nk + 2 <= MARKS_MAX) nk += this.tracks(nk, u32[o + Col.KEY], o, x0, y0, z0, rows[o + Col.SCALE], paint, cam, ang);
+        if (paint && info.wake && nk < MARKS_MAX) nk += this.tracks(nk, u32[o + Col.KEY], o, x0, y0, z0, rows[o + Col.SCALE], paint, cam, ang, info.size * rows[o + Col.SCALE]);
+        if (paint && info.mark && nk < MARKS_MAX) {
           const vx = rows[o + Col.VX], vy = rows[o + Col.VY], vz = rows[o + Col.VZ], v = Math.sqrt(vx * vx + vy * vy + vz * vz);
-          if (v > 1 && this.trail(nk, x0, y0, z0, vx / v, vy / v, vz / v, v, 0.5 * info.size * rows[o + Col.SCALE], paint, cam, ang, near, info.wake ? info.size * rows[o + Col.SCALE] : 0)) nk++;
+          if (v > 1 && this.trail(nk, x0, y0, z0, vx / v, vy / v, vz / v, v, 0.5 * info.size * rows[o + Col.SCALE], paint, cam, ang, near)) nk++;
         }
       }
     }
@@ -509,7 +529,8 @@ export class LifeHost {
     const P = this.pools.small, rows = this.snap!.rows, look = rows[o + Col.LOOK], h = rows[o + Col.HEADING], c = Math.cos(h), sn = Math.sin(h);
     P.look[k] = look & (LookBit.BASKET | LookBit.UMBRELLA);
     for (let j = 0, b = 1; j < 4; j++, b <<= 1) {
-      if (!(look & b) || this.pc[0] + 1 >= P.max) continue;
+      if (!(look & b) || this.pc[0] + 1 >= P.max || this.dancing >= DANCERS_MOST) continue;
+      this.dancing++;
       const ox = DANCE_AT[j * 2] * scale, oz = DANCE_AT[j * 2 + 1] * scale;
       this.dance(P, ++this.pc[0], o, x + ox * c - oz * sn, y, z + ox * sn + oz * c, scale * DANCER, cam, utcMs, j * DANCE_BEAT);
     }
@@ -571,9 +592,14 @@ export class LifeHost {
    * TRACK_STEP m to MARK_POINTS of them, each stretch its own hue round all six where it was laid, the oldest end fading first. Row `o` at (x, y, z), the street's frame.
    * False: it has no road behind it yet, or no ring is free.
    */
-  private tracks(r: number, hash: number, o: number, x: number, y: number, z: number, scale: number, paint: MoverPaint, cam: THREE.Vector3, ang: number): boolean {
-    const R = MARK_POINTS - 1, rows = this.snap!.rows, h = rows[o + Col.HEADING], fx = Math.cos(h), fz = Math.sin(h);
-    const axle = KINDS[rows[o + Col.KIND]].axle ?? [1.35, 0.72], ax = x - fx * axle[0] * scale, az = z - fz * axle[0] * scale;
+  private tracks(r: number, hash: number, o: number, x: number, y: number, z: number, scale: number, paint: MoverPaint, cam: THREE.Vector3, ang: number, wake = 0): number {
+    // (a wake, `wake` the boat's length: one ribbon from its stern, a point every 0.6 of its length, its width spreading with age, laid on the water where the boat
+    // went, not a bar swung with it: the first account's life review, M6. Its heading is its line either way for a ferry, so its stern is behind its going)
+    const R = MARK_POINTS - 1, rows = this.snap!.rows, vx = rows[o + Col.VX], vz = rows[o + Col.VZ], vv = Math.sqrt(vx * vx + vz * vz);
+    const h = rows[o + Col.HEADING], fx = wake && vv > 0.3 ? vx / vv : Math.cos(h), fz = wake && vv > 0.3 ? vz / vv : Math.sin(h);
+    const kAxle = KINDS[rows[o + Col.KIND]].axle, rear = wake ? wake / (2 * scale) : (kAxle ? kAxle[0] : 1.35), wheel = wake ? 0 : (kAxle ? kAxle[1] : 0.72);
+    const ax = x - fx * rear * scale, az = z - fz * rear * scale;
+    const STEP = wake ? Math.max(4, wake * 0.6) : TRACK_STEP, sides = wake ? 1 : 2;
     // (its ring, or a free one: else the one not drawn longest, if it's a second gone)
     let t = -1, old = -1;
     for (let i = 0; i < TRACKS; i++) {
@@ -584,7 +610,7 @@ export class LifeHost {
       if (old < 0 || this.trackSeen[i] < this.trackSeen[old]) old = i;
     }
     if (t < 0) {
-      if (this.trackOf[old] !== 0 && this.trackSeen[old] > this.drawFrames - 60) return false;
+      if (this.trackOf[old] !== 0 && this.trackSeen[old] > this.drawFrames - 60) return 0;
       t = old;
       this.trackOf[t] = hash;
       this.trackN[t] = this.trackAll[t] = this.trackHead[t] = 0;
@@ -594,8 +620,8 @@ export class LifeHost {
     let q = base + this.trackHead[t] * 3;
     const moved = (ax - T[q]) ** 2 + (az - T[q + 2]) ** 2;
     // (a jump, a car not drawn for a while: its track starts again where it is)
-    if (moved > 9 * TRACK_STEP * TRACK_STEP) this.trackN[t] = 0;
-    if (!this.trackN[t] || moved >= TRACK_STEP * TRACK_STEP) {
+    if (moved > 9 * STEP * STEP) this.trackN[t] = 0;
+    if (!this.trackN[t] || moved >= STEP * STEP) {
       this.trackHead[t] = (this.trackHead[t] + 1) % R;
       q = base + this.trackHead[t] * 3;
       T[q] = ax;
@@ -605,7 +631,7 @@ export class LifeHost {
       this.trackAll[t]++;
     }
     const n = this.trackN[t];
-    if (n < 2) return false;
+    if (n < 2) return 0;
     const K = this.pools.marks, head = this.trackHead[t], all = this.trackAll[t], L = this.trackLay;
     // (point j: the axle now, then the ring newest first; past its oldest, the oldest again, a stretch of nothing)
     L[0] = ax;
@@ -618,7 +644,7 @@ export class LifeHost {
       L[j * 3 + 2] = T[p + 2];
     }
     for (let j = 0; j < MARK_POINTS; j++) {
-      const px = L[j * 3], py = L[j * 3 + 1] + TRACK_LIFT, pz = L[j * 3 + 2], a = Math.max(0, j - 1) * 3, b = Math.min(MARK_POINTS - 1, j + 1) * 3;
+      const px = L[j * 3], py = L[j * 3 + 1] + (wake ? WAKE_LIFT : TRACK_LIFT), pz = L[j * 3 + 2], a = Math.max(0, j - 1) * 3, b = Math.min(MARK_POINTS - 1, j + 1) * 3;
       // (across the road there: square to the way between its neighbours, else the car's)
       let dx = L[a] - L[b], dz = L[a + 2] - L[b + 2];
       const dl = Math.sqrt(dx * dx + dz * dz);
@@ -629,10 +655,11 @@ export class LifeHost {
         dx /= dl;
         dz /= dl;
       }
-      const sx = -dz, sz = dx, d = Math.sqrt((cam.x - px) ** 2 + (cam.y - py) ** 2 + (cam.z - pz) ** 2), w = 0.5 * Math.max(TRACK_M, TRACK_PX * d * ang);
-      const ramp = HUE_RAMPS[(paint.hue + all - Math.min(j, n) + 600) % 6], age = j / (MARK_POINTS - 1);
-      for (let side = 0; side < 2; side++) {
-        const off = (side ? -axle[1] : axle[1]) * scale, cx = px + sx * off, cz = pz + sz * off, v = ((r + side) * MARK_POINTS + j) * 2;
+      const age = j / (MARK_POINTS - 1), sx = -dz, sz = dx, d = Math.sqrt((cam.x - px) ** 2 + (cam.y - py) ** 2 + (cam.z - pz) ** 2);
+      const w = 0.5 * Math.max(wake ? wake * WAKE_W * (1 + 2 * age) : TRACK_M, TRACK_PX * d * ang);
+      const ramp = HUE_RAMPS[(paint.hue + all - Math.min(j, n) + 600) % 6];
+      for (let side = 0; side < sides; side++) {
+        const off = (side ? -wheel : wheel) * scale, cx = px + sx * off, cz = pz + sz * off, v = ((r + side) * MARK_POINTS + j) * 2;
         K.pos[v * 3] = cx - sx * w;
         K.pos[v * 3 + 1] = py;
         K.pos[v * 3 + 2] = cz - sz * w;
@@ -644,7 +671,7 @@ export class LifeHost {
       }
     }
     this.trackRibbons++;
-    return true;
+    return sides;
   }
 
   /** The snapshot's rows Earth fixed, once a snapshot: each place exactly (the map's projection, then the ellipsoid), each velocity along the map's axes at its origin. */

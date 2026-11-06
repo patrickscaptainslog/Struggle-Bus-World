@@ -31,6 +31,8 @@ const KMH = [0, 88, 60, 40, 36, 32, 26, 26, 12, 12, 0, 26];
 const LANES = [0, 3, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1];
 /** The traffic by the local hour, a share of the busiest: the morning's and the evening's peaks, and the small hours' few. Read between the hours. */
 const HOURS = [0.25, 0.17, 0.12, 0.1, 0.12, 0.22, 0.45, 0.8, 1, 0.86, 0.72, 0.75, 0.8, 0.78, 0.8, 0.88, 0.97, 1, 0.9, 0.72, 0.58, 0.5, 0.42, 0.33];
+/** A weekend's: no rush hours, a late morning, a long afternoon and a later night (the first account's life review, m6) */
+const WEEKEND = [0.32, 0.24, 0.18, 0.13, 0.11, 0.12, 0.18, 0.28, 0.42, 0.58, 0.7, 0.78, 0.82, 0.83, 0.82, 0.8, 0.78, 0.74, 0.68, 0.6, 0.52, 0.46, 0.42, 0.37];
 /** A car's life (s), its least headway at the edge's start (s), and how long it grows in and out (s). */
 export const LIFE_MIN = 45, LIFE_MAX = 90;
 const HEAD_MIN = 2, FADE = 1.2;
@@ -364,8 +366,10 @@ function placeOn(net: CarNet, s: number, lh: number): void {
 
 /** The local hour's traffic, a share of the busiest. */
 export function traffic(localHour: number): number {
+  // (a Saturday or a Sunday, 1970-01-01 a Thursday: the local day's)
+  const day = Math.floor(localHour / 24), wd = ((day % 7) + 7) % 7, P = wd === 2 || wd === 3 ? WEEKEND : HOURS;
   const h = ((localHour % 24) + 24) % 24, i = Math.floor(h), f = h - i;
-  return HOURS[i] * (1 - f) + HOURS[(i + 1) % 24] * f;
+  return P[i] * (1 - f) + P[(i + 1) % 24] * f;
 }
 
 /**

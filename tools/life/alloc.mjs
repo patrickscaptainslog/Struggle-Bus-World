@@ -11,6 +11,7 @@
 //            double stored in an object's field, or passed to a call it doesn't inline, is boxed, 16 bytes dropped at once (measured: six doubles to a call not inlined,
 //            96 bytes; six small integers, none), which JavaScriptCore never makes, keeping a double in the value itself
 //   message  what a snapshot's arrival makes, for L2: its views over the new buffer, CONTRACT.md section 2 (printed, not barred: a transfer can't arrive as nothing)
+// (the host draws only what's in the lens's view, so each row's counts are a low lens's share: enough that every path ran)
 // The host as the page has it, on three.js with no GL: the worker a stand-in that keeps its ticks, the store one that keeps nothing. Exit 1 if any fails.
 import { registerHooks } from 'node:module';
 registerHooks({ resolve(spec, ctx, next) { return next(/^\.\.?\//.test(spec) && !/\.[a-z]+$/.test(spec) ? `${spec}.ts` : spec, ctx); } });
@@ -140,7 +141,7 @@ measure('people', people, () => walkHost.walked.size > 0, walkHost);
     wsim += 1 / 60;
     walkHost.frame(1 / 60, wsim, wutc, low, lowCam);
   };
-  measure('dance', dance, () => walkHost.qa.dancers > 20, walkHost);
+  measure('dance', dance, () => walkHost.qa.dancers > 5, walkHost);
   console.log(`      dance: ${n} picnics in the snapshot, every one painted, ${walkHost.qa.dancers} of their people near enough to be drawn dancing`);
 }
 {
@@ -188,15 +189,21 @@ measure('people', people, () => walkHost.walked.size > 0, walkHost);
     csim += 1 / 60;
     carHost.frame(1 / 60, csim, T + 3000 * Math.sin(++i / 200), { x: 100, y: 40, z: 100 }, lowCam);
   };
-  measure('cars', drive, (q) => q.bouncers > 20 && q.tracks > 20 && q.lights > 0 && q.heavy > 0, carHost);
+  measure('cars', drive, (q) => q.bouncers > 5 && q.tracks > 5 && q.lights > 0 && q.heavy > 0, carHost);
   heldGlobals.uLit.value = 0;
   console.log(`      cars: ${n} in the snapshot, every one painted, ${carHost.qa.heavy} of them buses and trucks; ${carHost.qa.bouncers} drawn bouncing, ${carHost.qa.tracks} laying tracks, ${carHost.qa.lights} lit as specks`);
   // (the aim on a car, from 45 m up and 80 m back along a line that misses its middle by 5 m to one side, and by 30: the near miss is the car's, the far one isn't. It
   // used to take a car only within its own half size and 2 % of the distance, under 4 m here)
   {
     const s0 = carHost.snap, rows = s0.rows, dt = (carHost.utc - s0.f64[0]) / 1000;
+    // (a full-size car, none shrunk behind a leader, with no other vehicle within 40 m, so a line beside it can only find it)
     let o = -1;
-    for (let q = 0; q < s0.u32[2] && o < 0; q++) if (rows[q * 16 + 1] === 5) o = q * 16;
+    for (let q = 0; q < s0.u32[2] && o < 0; q++) {
+      if (rows[q * 16 + 1] !== 5 || rows[q * 16 + 11] < 1.2) continue;
+      let alone = true;
+      for (let r = 0; r < s0.u32[2] && alone; r++) if (r !== q && (rows[r * 16 + 1] === 5 || rows[r * 16 + 1] === 9) && Math.hypot(rows[r * 16 + 2] - rows[q * 16 + 2], rows[r * 16 + 4] - rows[q * 16 + 4]) < 40) alone = false;
+      if (alone) o = q * 16;
+    }
     const cx = rows[o + 2] + rows[o + 5] * dt, cy = rows[o + 3], cz = rows[o + 4] + rows[o + 7] * dt, key = carHost.keys.get(s0.rowsU32[o]);
     const from = (side) => {
       const ox = cx - 80, oy = cy + 45, oz = cz + side, t = carHost.aim(ox, oy, oz, cx - ox, cy + 0.8 - oy, cz + side - oz, 28, 0.6);
@@ -204,10 +211,11 @@ measure('people', people, () => walkHost.walked.size > 0, walkHost);
     };
     const five = from(5), thirty = from(30);
     row('aim: a car the line of fire misses by 5 m at 90 m is taken, one it misses by 30 m isn\'t', five === key && thirty !== key, { car: key, missBy5: five, missBy30: thirty });
-    // (the cone in pixels, not in a share of the distance: 300 m off, a miss of 12 m is no hit, where 4.5 % of the distance took 18 m; and the nose's ray, ground
+    // (the cone in pixels, not in a share of the distance: 300 m off, a miss of 12 m is no hit, where 4.5 % of the distance took 18 m, the breath at once so the car
+    // doesn't drive into the line; and the nose's ray, ground
     // false, takes nothing on the ground at all, the first account's life review B1)
     const far = (side) => {
-      const ox = cx - 290, oy = cy + 80, oz = cz + side, t = carHost.aim(ox, oy, oz, cx - ox, cy + 0.8 - oy, cz + side - oz, 28, 1.5);
+      const ox = cx - 290, oy = cy + 80, oz = cz + side, t = carHost.aim(ox, oy, oz, cx - ox, cy + 0.8 - oy, cz + side - oz, 28, 0.05);
       return t ? t.key : null;
     };
     const nose = carHost.aim(cx - 80, cy + 45, cz, 80, -44.2, 0, 28, 0.6, false);
@@ -251,7 +259,7 @@ measure('people', people, () => walkHost.walked.size > 0, walkHost);
     bsim += 1 / 60;
     boatHost.frame(1 / 60, bsim, T + 3000 * Math.sin(++i / 200), { x: 0, y: 60, z: 0 }, lowCam);
   };
-  measure('boats', sail, (q) => q.boats > 10 && q.bouncers > 0 && q.marks > 5, boatHost);
+  measure('boats', sail, (q) => q.boats > 3 && q.bouncers > 0 && q.marks > 3, boatHost);
   console.log(`      boats: ${ferries} ferries and ${n - ferries} sailboats in the snapshot, every one painted; ${boatHost.qa.boats} drawn, ${boatHost.qa.marks} wakes`);
 }
 {
