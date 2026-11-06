@@ -175,7 +175,8 @@ try {
     me.state = 'free';
     // (a fresh pair: Atlantis may already have ridden the player twice in two minutes, when the pair rule turns a third away)
     S.pairs.clear();
-    S.breaths.push({ id: 9998, from: 1, target: 0, x: me.x, z: me.z, tx: me.x, tz: me.z, vx: 0, vz: 0, arrive: S.t + 0.04, born: S.t - 1, white: true });
+    // (homing, as a captain's does, since the player may be flying at Nonstop by now: a fixed breath would land behind it)
+    S.breaths.push({ id: 9998, from: 1, target: 0, x: me.x - 30, z: me.z, tx: me.x, tz: me.z, vx: 0, vz: 0, arrive: S.t + 0.6, born: S.t, white: false });
   });
   await frames(20);
   const jet = await page.evaluate(() => ({ state: window.__recess.sim.buses[0].state, gear: window.__game.controls.turbo.gear }));
