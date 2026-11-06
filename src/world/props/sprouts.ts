@@ -751,6 +751,8 @@ export interface RoofRect {
   w: number;
   d: number;
   yaw: number;
+  /** its building's ground (world y): a low sun throws its garden's shadow from the roof down to it */
+  foot?: number;
 }
 
 const AMP: Record<T, number> = {
@@ -979,6 +981,8 @@ interface Rec extends Holder {
   far: number;
   /** ?lift: its house has leapt, and its bounds stand LIFT_TALL taller (makeTall) */
   tall: boolean;
+  /** how high its roof stands over its ground (m): its shadow can fall that much farther, to the street */
+  fall: number;
 }
 
 /** One element of a garden laid out by hand: where it stands (world), its turn, size and hue; when it springs up (game clock). */
@@ -1320,6 +1324,7 @@ export class RoofSprouts {
       z: roof.cz,
       r: 0.5 * Math.hypot(Math.max(roof.w, 1.2), Math.max(roof.d, 1.2), top) + 1,
       tall: false,
+      fall: Math.max(0, roof.y - (roof.foot ?? ground ?? roof.y)),
       top,
       want: 0,
       far: 0,
@@ -1400,9 +1405,9 @@ export class RoofSprouts {
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
     const B = GARDEN_BUDGET;
     // its shadow: from its middle down the sun's way, as far as its top's can fall. The view sees a garden whose body or shadow it sees: a
-    // capsule from the one to the other, so a low sun's long shadow is in, and a garden it doesn't fall from isn't. (A leapt house's falls from
-    // as high as it rides)
-    const L = this.shadowLen(rec.top + (rec.tall ? LIFT_TALL : 0));
+    // capsule from the one to the other, so a low sun's long shadow is in, and a garden it doesn't fall from isn't. It can fall past its roof to
+    // the street, and a leapt house's falls from as high as it rides
+    const L = this.shadowLen(rec.top + rec.fall + (rec.tall ? LIFT_TALL : 0));
     const ox = -this.sunDir.x * L, oy = -this.sunDir.y * L, oz = -this.sunDir.z * L;
     // (in the view: and the slack round the edges; once in, a little more slack to go out)
     const slack = rec.r + B.slackM + B.slack * dist + (rec.drawn > 0 ? B.hyst + 0.05 * dist : 0);
@@ -1611,7 +1616,7 @@ export class RoofSprouts {
         const body = hull(2, rad);
         let shade = false;
         if (cast && !body) {
-          const roof = rec.y - rec.top / 2 - up / 2, h = y - roof + top, L0 = this.shadowLen(h), L1 = this.shadowLen(h + up);
+          const roof = rec.y - rec.top / 2 - up / 2, h = y - roof + top + rec.fall, L0 = this.shadowLen(h), L1 = this.shadowLen(h + up);
           P.set([x - sd.x * L0, y - sd.y * L0, z - sd.z * L0, x - sd.x * L1, y + up - sd.y * L1, z - sd.z * L1], 6);
           shade = hull(4, rad);
         }

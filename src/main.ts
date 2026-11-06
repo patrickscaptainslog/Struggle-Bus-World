@@ -290,7 +290,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const fogBumped = new Set<number>();
   /** Rooftop garden / Hundertwasser crown on a building: drawn, and the flight's obstacle field rises over it. */
   const growSprouts = (ref: BuildingRef, hue: number, level: number, start: number) => {
-    const rect = city.roofRect(ref);
+    // (with its ground: a low sun throws its garden's shadow off the roof and down to the street)
+    const rect = Object.assign(city.roofRect(ref), { foot: ref.baseY });
     // (in its building's faction's colours: the paint texture has it by now, at the impact, or from the save)
     const top = sprouts.set(ref.index, rect, hue, level, start, city.paint.get(ref.index).faction, liftOn ? ref.baseY : undefined);
     if (top > 0) {
