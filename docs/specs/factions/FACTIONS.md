@@ -1,6 +1,6 @@
 # Five factions
 
-*The plan, as the producer's doc "Five factions" put it to them on 5 November 2026 ("you" is the producer). The same night they approved all 26 picks in §6: "i vote all your recommendations for the rest of the plan". Two questions are open, 27 and 28, at the end of §6. Nothing is built yet. Where this disagrees with `STAGES.md` or `MAGIC-SPEC.md`, this wins.*
+*The plan, as the producer's doc "Five factions" put it to them on 5 November 2026 ("you" is the producer). The same night they approved all 26 picks in §6: "i vote all your recommendations for the rest of the plan". They approved 27 and 28, at the end of §6, on 6 November. Nothing is built yet. Where this disagrees with `STAGES.md` or `MAGIC-SPEC.md`, this wins.*
 
 ## In one minute
 
@@ -18,7 +18,7 @@
 
 **PvP.** Your breath curves after a rival bus. If it lands, their bus floods with your colours, jumps into Jet and can't slow down. For six seconds it hiccups your paint onto the city on every beat, while its driver steers where it lands. That's your idea, which we call Possessed, tuned so nobody ever loses the steering. A bots demo is about 30 agent-days away; two phones, about 40.
 
-**Approved on 5 November:** all 26 picks in §6. **Open:** 27, how many stages, and 28, neighbourhoods. **The producer's to do:** borrow or buy an iPhone 13 or SE to measure on (22).
+**Approved on 5 November:** all 26 picks in §6. **Approved on 6 November:** 27, five stages re-cut, and 28, neighbourhoods. **The producer's to do:** borrow or buy an iPhone 13 or SE to measure on (22).
 
 ## 1. The ladder, for all five
 
@@ -33,6 +33,86 @@ Each stage changes something bigger and keeps everything below it.
 - **5, the god.** A living Wonder, 300-450 m tall, that notices your bus.
 
 Each stage-up lands on the beat, with slow motion at 4 and 5. Cars, people, ships and planes wear the costume of the ground under them. It all comes from map data, so it works in any city. The five cost the same but move differently: Rainbow bounces, Atlantis sways, the Elderwood breathes, Hyperglow snaps, Inferno throbs.
+
+### The studio's view: keep five, but the fifth belongs to the neighbourhood
+
+*Approved by the producer on 6 November 2026 (decisions 27 and 28: "Regarding 27 and 28, yes I approve both"). Where the five-stage list above or the October rules below disagree with this, this wins.*
+
+**Keep five stages, re-cut.** Every 128 m square climbs four, and the fifth, the god, belongs to a whole neighbourhood. That means at most 79 gods in San Francisco, not 7,200.
+
+You wrote that five stages are "overkill", and then "maybe we should keep five". You're right both times. Five on every square is overkill, because the 9-second god arrival would play every minute or two and hundreds of gods would fill the sky.
+
+Five as a ladder is right, though. It matches your October words, "one specific area gets hit 4 or 5 separate times". An ordinary square now takes 4 hits to reach its top, and a neighbourhood's heart takes 5.
+
+| Stage | Where | What gets it there | What you see |
+|---|---|---|---|
+| 1 Skin | every square | the first hit, or a blast spilling onto grey | walls, roofs, ground and trees in the colours; nothing above the roofs |
+| 2 Roofs | every square | an aimed hit, at least 5 s later | growths 20-40 m tall burst off the roofs |
+| 3 Streets | every square | the next aimed hit | the streets become the element and run downhill; this is what counts toward a god |
+| 4 The Lift | every square | the next aimed hit | painted houses and towers rise 15-50 m and stay up; you fly under them |
+| 5 The god | one per neighbourhood, at its heart | your faction holds the neighbourhood, then hits its heart | a god 250-450 m tall, and the neighbourhood's painted towers take its form |
+
+**Each square stage does one job:**
+- **1 stays cheap.** One full MEGA from 300 m up claims about 19 squares at once, so anything tall at stage 1 would sprout everywhere.
+- **2 rewards the first aimed hit,** seen from the street. From 1 km up it's the weakest read, dots of 6-16 px.
+- **3 is the territory read from 1 km up:** the streets become bright lines 4-8 px wide.
+- **4 is the place:** the floating city you fly under.
+- **5 is the flag,** seen from anywhere.
+
+**Rewards come at four speeds.** You get paint on every tap (every 1.6 s), a stage-up about every 3 s, and a Lift every 30-60 s on a square you're working. Alone on fresh ground, a god comes every 1-20 minutes. From claim to Lift takes 3 aimed hits: at least 15 s, and 30-60 s in real play (estimate).
+
+**Three stages per square would save about 2.5 agent-days of art.** It would cost one beat per square and fall short of your "4 or 5". We don't recommend it.
+
+#### Your Elderwood idea: towers into trees
+
+You asked whether that is "too much". It isn't, as long as it happens when the god stands, not on every square. On every stage-3 square it would put hundreds of trees in view and bury the real city in forest.
+
+As the god's skyline, it turns a god standing in a neighbourhood into a neighbourhood that belongs to a god. It reads from 1 km up.
+
+- **Walls:** every building the god's faction has painted in that neighbourhood changes its walls. That's data in the drawing the game already does: 0 triangles, 0 draws, and nothing compiles in flight.
+- **Crowns and roots:** these go on up to 30 towers within about 400 m of the heart, at about 500 triangles each. That's up to 15k triangles a god, and 45k for the nearest 3. We pick them near the heart because in Parkside (4.7 km²) the 30 tallest are low buildings scattered over the whole district.
+- **The real skyline stays readable.** Every tower keeps its real footprint and height, and its crown adds at most 15 %. No crowned tower ever stands above its god. The Salesforce Tower (330 m), with a crown and a 50 m Lift, would reach about 430 m, so its crown shrinks.
+- **The god only changes its own:** its faction's painted buildings, never grey ones or a rival's. The named landmarks (Transamerica, Coit, Sutro, the Ferry Building, the bridges) keep their shape and only take paint.
+
+Each faction gets its own skyline at the same cost:
+- **The Elderwood:** living trees, with bark walls, roots over the pavement and a crown of leaves and lantern fruit.
+- **Team Super Rainbow:** the towers bloom, with a seven-colour spiral up the walls and a giant flower on top.
+- **Atlantis:** coral and conch spires, with pearl and coral-pink walls, kelp from the upper floors and water running up the faces.
+- **Inferno:** black glass horns, with obsidian walls veined with lava and a crown of fire.
+- **Hyperglow:** its upside-down city over the Arc Spire, which you approved (decision 9). It's built from the 30 tallest buildings near the heart.
+
+#### The floating houses stay on every square
+
+You said the houses you fly under are "pretty cool", so every square keeps them at stage 4. Each faction lifts its houses its own way:
+- **Rainbow:** geysers over a paint lake.
+- **The Elderwood:** root stilts.
+- **Hyperglow:** hydraulic legs, and whole towers turning.
+- **Inferno:** rafts on a lake of fire.
+- **Atlantis:** houses on chains, afloat in a sea standing 20-40 m deep in the square.
+
+Atlantis's version is new and unapproved, and nobody has seen it. Flying low over its ground would always be underwater, and every stage edge would become a wall of water. It goes in the stills for you to judge.
+
+The sky marks (Rainbow's halo, Atlantis's sky sea, the sky wood, the Skyway, the black sun) move from every square to the heart. That leaves one per neighbourhood, at 200-250 m, as the sign that a god is coming.
+
+Parks have no houses to lift, so at stage 4 their lawns and trees rise as islands. Parks need their own stages 2 and 3 as well. Five whole territories are parks: 808 squares, 11 % of SF's land.
+
+#### The gods: 250-450 m, by size
+
+**A god stands 250-450 m tall, scaled by its neighbourhood's land.** It's 55 % of full height at 0.5 km² or less and 100 % at 3 km² or more, set by one adjustable number. At the first proposal's 80-100 %, SF would get 79 things taller than the Salesforce Tower, and downtown's six would all stand 360-385 m.
+
+A spread of heights reads as a pantheon, and equal giants read as a pattern. A spread also answers your "not over populated" most directly.
+
+**Hyperglow's holograms get a cap.** Its approved stage 3 prints hologram floors up to four times a tower's height. The Salesforce Tower's would reach 660-1,320 m. Our pick is to cap them at 100 m above the roof, so the high sky stays for sky marks and gods.
+
+**What one screen holds:**
+- Gods: the nearest 3 in full detail within 1.2 km, the next 12 simplified within 4 km, and a picture for each of the rest (about 1,000 triangles for up to 80).
+- Upside-down cities: one at full detail, not three. Three would cost up to 180k triangles, 12 % of the 1.5 M ceiling.
+- Moonroads: the nearest 3 plus the leading faction's, not all 79.
+
+**On the slowest phone, nothing is measured yet.** The ladder adds 60-80k triangles (the technical lead's estimate), and the skylines add up to 45k more. When frames drop, cut in this order:
+- Hyperglow's upside-down city;
+- the skylines' crowns (the walls stay);
+- the undersides of the floating houses beyond the nearest 30.
 
 ## 2. The factions
 
@@ -144,6 +224,83 @@ The fire at the end of the world, and it's gorgeous. Everything burns, nothing i
 
 *You decided the rules in October.* The city is cut into 128 m squares, one owner each. A rival's hit knocks off a stage. Seven hits topple a Wonder, at most one every five seconds.
 
+#### Neighbourhoods: you rule them, and you fight in the squares
+
+*Approved by the producer on 6 November 2026 (decisions 27 and 28: "Regarding 27 and 28, yes I approve both"). Where the five-stage list above or the October rules below disagree with this, this wins.*
+
+**Yes, territory is ruled by neighbourhood: 79 in San Francisco, from map data, with one god at most each.** You still paint and fight square by square, as you decided in October.
+
+You asked: "shouldn't territory ownership be separated by neighbourhoods? mission district vs pac heights etc?" Taken literally, with one owner for a whole neighbourhood, a busy shared city flickers in the crowd model. A neighbourhood changed stage every 13-24 s, and its god lived 21-34 s.
+
+Two levels keep the fight and the calm. A hit moves one square one stage, and the god follows whoever holds the neighbourhood's streets. The Mission is 171 squares (2.7 km²), and Pacific Heights 63 (1.0 km²).
+
+**Where they come from.** Overture maps most SF neighbourhoods as single points, and its drawn outlines cover only 14.3 % of the land. So each patch of land goes to its nearest named point, and drawn outlines and big parks win where they exist. That gives 79 territories of 17-365 squares, 72 at the median.
+
+**Fixes before it's built:**
+- **Split anything over 3 km²:** that's 7 in SF, including the Presidio at 6 km².
+- **Islands:** Treasure Island and Yerba Buena form one 2.25 km² territory. Alcatraz is about 5 squares, too small for a god, so our pick is squares only.
+- **Never cut a park in two.** Dolores Park sits between the Mission's point (694 m away) and the Castro's (715 m).
+- **Hearts stay at least 450 m apart.** Five pairs are closer today, such as Little Saigon and the Tenderloin at 320 m.
+- **One list of names, used everywhere, the street sign included.** Today's list has no "Mission" (it says Mission Dolores), and it carries pairs like Castro and Castro District. The 51 hand-placed SF names go.
+- **A merged territory keeps both names,** such as Japantown inside Western Addition.
+- **Drop points named after a whole borough,** like London's "City of Westminster".
+- **Fill sparse places from a grid.** San Jose has 44 points over 468 km², and Stockton has none. Put points about 1.2 km apart, each moved to open ground within 400 m. Merge pieces under 0.25 km², and name each from the nearest place, park or street.
+
+That gives Amsterdam 6 territories and London 9, with Hyde Park and Kensington Gardens as their own.
+
+**The heart.** Each neighbourhood's heart is one square: its biggest park, or else its highest open ground. The Mission's is Dolores Park, Pacific Heights' is Alta Plaza and Bernal Heights' is Bernal Hill. A 70 m stone ring marks it and fills by each faction's share, at no extra draw.
+
+Gods and stages 4-5 stay off places the map tags as worship, cemetery, memorial, school or hospital. West Portal's highest ground is Mount Davidson. Its summit carries a 31.4 m cross used for Easter sunrise services.
+
+**Raising a god** (solo, the bots demo and two phones):
+- your faction holds half the neighbourhood's squares at stage 3 or higher;
+- the 8 squares around the heart reach the Lift, so every god rises over a ring of floating houses (about 8 more hits, about 25 s);
+- the heart reaches stage 4, and your sky mark rises over it at 200-250 m;
+- your next hit on the heart, at least 5 s later, raises the god, and the 9-second arrival plays.
+
+Alone, the god rises the moment you qualify, with no clock to wait for.
+
+**Toppling a god.** It takes 5 hits at the heart for a neighbourhood of 0.5 km² or less, rising to 9 at 3 km² or more. At most one hit counts every 5 s. As first proposed every god fell to 7, so the Presidio's god was as fragile as Alamo Square's. Scaling the hits is what makes big neighbourhoods fortresses.
+
+Each hit cracks the god in the attacker's colour, and an owner's hit heals one crack. The last hit gives the heart to the attacker at stage 1. Losing the half doesn't topple a god.
+
+The Crown still makes the leader's gods fall faster (decision 17, adjustable). A possessed bus's hiccups only ever claim stage 1, so they can never call a god.
+
+**How long a god takes alone** (estimates, fresh ground):
+- Alamo Square, 17 squares: 1-2 minutes.
+- Pacific Heights, 63: 3-4 minutes.
+- The median, 72: about 4 minutes.
+- The Mission, 171: about 9 minutes.
+- The Presidio, 365: 18-20 minutes, before its split.
+
+**The first god.** SF opens under the Golden Gate into the Presidio, which is the slowest god in the city. Decisions 15 and 18 both wait on that first god. Our pick is for the sky mark to point a newcomer at the nearest neighbourhood under 1 km², near where the bus first reaches land.
+
+**Borders and teaching.** Every neighbourhood's border shows from the air before any god stands. It's a thin neutral ink line, lit in the leading faction's colour. The square fronts keep their looks: steam, and roots cracking circuit boards.
+
+The street sign names the neighbourhood when a hit changes its count or the bus crosses a border. Today it names the street and shows the neighbourhood only when it finds no street.
+
+**Big against small.** Every square costs the same hits, so the work is fair per square. A god's height, its topple hits and the score follow size. The score counts squares and stages, so the Presidio is worth about 21 Alamo Squares.
+
+**Recess, the bots demo.** The game picks a 1.5 km circle where three real neighbourhoods of 15-40 squares meet. In SF that could be Alamo Square (17), the Lower Haight (24) and Hayes Valley (26). If no such spot exists, three camps of about 36 squares each are the fallback. Scoring is 1 point per stage per square, plus 36 per god held.
+
+**A shared city needs a different god rule.** In the crowd model, a fixed half fails a crowd in both directions. The best run decided each neighbourhood's god every 15 minutes, by who held the most of it. The "If it goes viral" tab has the numbers, and the crowd model sets them before any shared server is built.
+
+**What it adds to the plan.**
+- The areas grow from 5 to 7 agent-days: the neighbourhood layer (1.5) and a city-scale crowd simulation (0.5).
+- Neighbourhoods from map data are a new step of 2-3 days. The designer said 1.5, but the list of fixes has grown since, so we take the larger figure.
+- The fantasy proof gains 1.5 days for one Elderwood skyline on a downtown neighbourhood, so you can judge "too much?" on your phone.
+- The bots demo gains 0.5 day, and the rest gains 1.5-4: four skylines and the borders seen from the air.
+- In all it's about 95-105 agent-days. The fantasy proof lands around day 28-29, the bots demo around day 32 and two phones around day 42.
+
+**What it changes in the 26 you approved:**
+- **15 and 18:** "first Wonder" now means your first neighbourhood god.
+- **5:** 450 m stays the ceiling, and gods now run 250-450 m by size.
+- **6:** SF has at most 79 Moonroads, with 3 drawn at a time plus the leader's.
+- **9:** the upside-down city is the 30 tallest buildings near the heart.
+- **16:** the cracks are at the heart.
+- **19:** the bot captains' homes become neighbourhoods.
+- **26:** the Moon's named seas and craters become its neighbourhoods, with a cap, because there are 1,533 named features.
+
 *Proposed:*
 
 - **Borders are fronts:** steam where sea meets lava, roots cracking circuit boards. It's looks and sound only; no faction beats another.
@@ -231,7 +388,7 @@ In all, about 90-100 agent-days. If the slow phone says no, every shape survives
 
 ## 6. Your decisions
 
-The producer approved every pick below on 5 November: "i vote all your recommendations for the rest of the plan". 27 and 28 are open.
+The producer approved every pick below on 5 November: "i vote all your recommendations for the rest of the plan". They approved 27 and 28 on 6 November: "Regarding 27 and 28, yes I approve both".
 
 1. Atlantis in place of The Tide, and Inferno, beside your Team Super Rainbow, Hyperglow and The Elderwood. *Pick: yes.*
 2. Possessed as what a splat does. *Pick: yes; Piñata runner-up, Bubbled fallback.*
@@ -259,5 +416,5 @@ The producer approved every pick below on 5 November: "i vote all your recommend
 24. A small Cloudflare server for two phones, a second exception to "no server". *Pick: yes.*
 25. Owned ground fading back over days. *Pick: only in the shared world, never solo.*
 26. Later: water as territory, and the Moon as each season's scoreboard. *Pick: yes, after the land stages ship.*
-27. How many stages. The producer: "i think five stages for the ladder is overkill but i will wait on your feedback for this. please act as a world class game design studio and give your opinion. but i do like the god idea. and for instance, if you're the elderwood faction... maybe your top stage turns skyscrapers for instance into trees? or is that too much? i do like the floating house/skyscraper idea that you can fly under. thats pretty cool. maybe we should keep five stages." *Open: the first account's answer is with the producer.*
-28. Territory by neighbourhood. The producer: "shouldn't territory ownership be separated by neighbourhoods? mission district vs pac heights etc? that way its not over populated with gods if each neighbourhood is at god level." *Open, the same. Build nothing that depends on 27 or 28 until they're decided.*
+27. How many stages. The producer asked: "i think five stages for the ladder is overkill but i will wait on your feedback for this. please act as a world class game design studio and give your opinion. but i do like the god idea. and for instance, if you're the elderwood faction... maybe your top stage turns skyscrapers for instance into trees? or is that too much? i do like the floating house/skyscraper idea that you can fly under. thats pretty cool. maybe we should keep five stages." The answer: keep five, re-cut. Every 128 m square climbs four: skin, roofs, streets, then the Lift, where its houses float and you fly under them. The fifth, the god, belongs to a whole neighbourhood and stands 250-450 m tall by its size. When it stands, the neighbourhood's painted towers take its form, and the Elderwood's become trees (§1, "The studio's view"). *Approved 6 November: "Regarding 27 and 28, yes I approve both".*
+28. Territory by neighbourhood. The producer asked: "shouldn't territory ownership be separated by neighbourhoods? mission district vs pac heights etc? that way its not over populated with gods if each neighbourhood is at god level." The answer: paint and fight square by square, and rule neighbourhood by neighbourhood. At most one god per neighbourhood, 79 in San Francisco from map data. A god rises at the heart once a faction holds half the neighbourhood's squares at stage 3 or more and lifts the ring around the heart; toppling it takes 5-9 hits, by size. For a shared city, the crowd model sets these numbers before the shared server is built (§3, "Neighbourhoods"). *Approved 6 November.*

@@ -4,7 +4,7 @@ Tick what you finish, in the commit that finishes it. Add to it when the produce
 
 ## Tonight, both accounts (the night of 2026-11-05, Pacific)
 
-The producer approved the factions plan, [specs/factions/FACTIONS.md](specs/factions/FACTIONS.md), all 26 of its picks ("i vote all your recommendations for the rest of the plan"), and asked for a big run tonight on both accounts: "Go for tonight's plan". Two questions stay open with them: 27, how many stages, and 28, territory by neighbourhood. Build nothing that depends on either; every task below holds under any answer. `main` is at 058217c: `feat/life` 92b4884 and the showcase's credit line, so it has everything built so far behind its flags.
+The producer approved the factions plan, [specs/factions/FACTIONS.md](specs/factions/FACTIONS.md), all 26 of its picks ("i vote all your recommendations for the rest of the plan"), and asked for a big run tonight on both accounts: "Go for tonight's plan". On 2026-11-06 they approved 27 and 28 as the first account picked them ("Regarding 27 and 28, yes I approve both"): five stages re-cut, every 128 m square climbing four and the fifth, a god, belonging to a neighbourhood; territory ruled by neighbourhood and fought by square (FACTIONS.md §1, "The studio's view", and §3, "Neighbourhoods"). `main` is at 058217c: `feat/life` 92b4884 and the showcase's credit line, so it has everything built so far behind its flags.
 
 **Second account** (logic and tests; no GPU)
 - [x] `feat/life`: the life review, [reviews/life-cars-2026-11-05.md](reviews/life-cars-2026-11-05.md), B1 first: the aim cone gives shots meant for buildings to vehicles in the street, and the live showcase (`?earth&life`) shows it. Then M1 to M7. Push, and list it here for the first account's re-review and GPU runs. **Done 2026-11-06**, `feat/life` 4694f33 to b6383f4:
@@ -28,6 +28,7 @@ The producer approved the factions plan, [specs/factions/FACTIONS.md](specs/fact
   - **The checks:** `tools/factions/check.mjs`, 11 rows, all pass. `tools/recess/duels.mjs`, 10 rule rows and 3,000 duels in 19 s here, all pass. Nobody lost the steering in 8.1 M bus-steps, Bubbled's still three seconds aside, and nobody was bullied.
   - **For the first account:** a review of `feat/recess` 058217c to 84b8270. Nothing in the game calls it yet.
 - [ ] When step 1 lands on `feat/factions`: merge it into `feat/life` and `feat/recess`, and give cars, ferries and sailboats the owner on their kept paint (`CONTRACT.md`'s C15, which the first account proposes with step 1, for you to agree).
+- [ ] `feat/recess`: the neighbourhood layer on the areas, by decision 28 (FACTIONS.md §3, "Neighbourhoods"): a god only at a neighbourhood's heart, raised once a faction holds half its squares at stage 3 or more and lifts the 8 around the heart, toppled in 5 to 9 hits by size, its cracks at the heart; the squares stop at stage 4. Each square's neighbourhood and each heart come from the world's files once the first account bakes them (a contract clause to come); a stand-in until then. Then the city-scale crowd simulation (§3, the plan's 0.5 day), which sets a shared world's numbers.
 - [x] When there's time: review `feat/decks`, 34d55cf to 492a953 (`specs/bridges/BRIDGES.md`'s notes on steps 3 and 4 say what was built and what was checked). **Done 2026-11-06**, [reviews/decks-steps34-2026-11-06.md](reviews/decks-steps34-2026-11-06.md). No blocker; two majors before step 6 turns the gate on: M1, a city's `"qa"` can loosen any check with `NaN` (`qa.py:190`); M2, `deckFreeEnd` excuses any deck end with a kept road within 12 m, whatever its height, so step 4's 0.00 m is that exemption. Four minors, six nits. Only `qacheck.py` ran here, 1 of 3: the other two, and `segcheck.py`, need shapely and pyarrow, which this machine hasn't got; nothing was baked.
 
 **First account** (the laptop with the GPU: every look and frame check)
@@ -36,6 +37,7 @@ The producer approved the factions plan, [specs/factions/FACTIONS.md](specs/fact
 - [ ] `feat/factions`: step 5, the new colours. The five factions' ramps in all seven skies of the live clock, side by side in shade and at dusk, no brown, paint still the only saturated thing.
 - [ ] `feat/factions`: step 6, the fantasy proof, starting with what any answer to 27 keeps: Rainbow's skin (stage 1) and Liftoff (stage 4, the painted houses rising so you fly under them), in one area behind a flag.
 - [ ] Then the freeways' step 5 on `feat/decks`: the decks drawn and paintable, with paint's owner in.
+- [ ] Neighbourhoods from map data, decision 28's new step (FACTIONS.md §3, 2-3 days): every square of every city given its neighbourhood in the world's files, from Overture's points and outlines and the big parks, with the section's list of fixes, and each neighbourhood's heart; offered to life and the areas as a contract clause.
 
 **Tonight's rules**: push a working branch when you're confident in it, no OK needed (`CLAUDE.md`, "Branches"); `main` stays the producer's. The laptop runs one bake and one browser at a time.
 
@@ -199,7 +201,7 @@ Start with [BRIEF.md](BRIEF.md): what the second account built meanwhile, what i
 - [x] OK for the two-thumb controls to go live: "just go live now" (2026-11-04). Live at 6b494b7, before the second account's review, which is on its list
 - [x] Approve the living Earth plan: "Ok. I love this living earth plan" (2026-11-04)
 - [ ] A used iPhone 13, bought, for the game's floor (LIVING.md's pick: now, about $210-290). The engineers can't buy anything. Approved again with the factions plan (decision 22)
-- [ ] The factions' 27 (how many stages) and 28 (territory by neighbourhood), in `specs/factions/FACTIONS.md` §6
+- [x] The factions' 27 (how many stages) and 28 (territory by neighbourhood), in `specs/factions/FACTIONS.md` §6. Approved 2026-11-06 as picked: "Regarding 27 and 28, yes I approve both"
 
 ## Later, in this order
 
