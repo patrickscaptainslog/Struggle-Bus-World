@@ -409,7 +409,7 @@ def bridge_checks(cfg, city, osm, ground, Q, ll2xz, lonlat, city_dir, log=_log):
         free = [r for r in res if r[0] is not None]
         done(rec, max([r[0] for r in free], default=0.0), sum(1 for r in free if r[0] > rec['limit']),
              f'{len(free)} of {len(res)} drawn deck ends measured, {sum(1 for r in free if r[4])} of them where a kept way meets them and they should land',
-             [f'{kd} end at {where(*e[:2])}: top {e[2]:.1f} m, ground {gy:.1f} m' + (f', {v:.1f} m over it, ' + ('a kept way within 12 m: it should land' if w else 'free')
+             [f'{kd} end at {where(*e[:2])}: top {e[2]:.1f} m, ground {gy:.1f} m' + (f', {abs(v):.1f} m {"over" if v >= 0 else "under"} it, ' + ('a kept way within 12 m: it should land' if w else 'free')
               if v is not None else ': ' + (', '.join(n for n, b in (('a deck', dk), ('a building', b_)) if b) + ' within 12 m' if dk or b_ else 'off the frame'))
               for v, kd, e, gy, w, dk, b_ in res])
 
