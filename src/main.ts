@@ -612,6 +612,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       }
   };
   const bloomHues = [0, 0, 0];
+  /** A blast's sparkles: its buildings share a 48-building blast's (about 1,800 at level 3), and none sparkles fewer than SPARKS_MIN */
+  const SPARKS_BLAST = 48, SPARKS_MIN = 5;
   /** the blast being shown (impact fires right before its primary's bloom, in the same update) */
   const lastBlast = { x: 0, z: 0, r: config.splat.blastRadius, open: false };
   const splatter = new Splatter(city, {
@@ -665,14 +667,17 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       // nothing blooms (open ground with no building in reach): no first bloom will queue a sign, so it queues here
       if (moon ? moon.paint.signDue(b.spec.x, b.spec.z, b.t) : !b.count) queueSign(null, b.spec.hue, b.spec.x, b.spec.z, b.spec.r);
     },
-    bloom: (ref, _order, _total, hue, level, roof, flags) => {
+    bloom: (ref, _order, total, hue, level, roof, flags) => {
       if (landmarkBloom(ref, hue, level)) return;
       const h = ref.roofY - ref.baseY;
-      // (the firehose blooms a dozen blocks a second: fewer sparkles each)
+      // (the firehose blooms a dozen blocks a second: fewer sparkles each. And a blast's buildings share one budget, a 48-building blast's: past it each
+      // sparkles less, so an 85 m tap's 140 buildings, or 240 from up high, sparkle about as much in all as the 60 m tap's 40 did, and two quick taps
+      // stay well inside the particles' 8,000, which would otherwise blink the first's out mid-air. Review of step 1, 2)
       bloomHues[0] = hue;
       bloomHues[1] = (hue + 1) % 6;
       bloomHues[2] = (hue + 5) % 6;
-      particles.sparkles(roof, Math.sqrt(ref.area) * 0.6 + 2, h, bloomHues, flags & BLOOM_HOSE ? 5 + level * 3 : 14 + level * 8);
+      const each = flags & BLOOM_HOSE ? 5 + level * 3 : Math.max(SPARKS_MIN, Math.round((14 + level * 8) * Math.min(1, SPARKS_BLAST / Math.max(1, total))));
+      particles.sparkles(roof, Math.sqrt(ref.area) * 0.6 + 2, h, bloomHues, each);
       fogBumped.add(ref.stableId);
       if (level >= 2 && !(flags & BLOOM_REPOP)) growSprouts(ref, hue, level, globals.uTime.value);
     },
