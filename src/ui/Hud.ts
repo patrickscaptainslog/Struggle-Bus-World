@@ -58,8 +58,10 @@ export interface HudFrame {
   /** seconds since the last shift / LOCKED attempt (Infinity = never) */
   sinceShift: number;
   sinceLocked: number;
-  /** the rung's name, where it isn't rungName's (the flight over Earth, whose two faster gears are over turbo's levels) */
+  /** the rung's name, where it isn't rungName's (the flight over Earth, whose two faster gears are over turbo's levels; School Zone) */
   name?: string;
+  /** what stands before the name, where it isn't the rung's G number ('': nothing, School Zone's) */
+  tag?: string;
 }
 
 export interface HudCallbacks {
@@ -128,6 +130,7 @@ export class Hud {
   // last rendered state (re-render only on change; numbers, not string keys: this runs every frame)
   private gearOn = false;
   private gGear = -1;
+  private gName: string | undefined = undefined;
   private gMax = -1;
   private gMph = -1;
   private gEngaged = false;
@@ -359,7 +362,8 @@ export class Hud {
     }
     if (showGear) {
       const mph = f.mph >= 100 ? Math.round(f.mph / 10) * 10 : Math.round(f.mph);
-      if (f.gear !== this.gGear || f.maxGear !== this.gMax || f.engaged !== this.gEngaged || f.level !== this.gLevel || mph !== this.gMph || f.armed !== this.gArmed || blink !== this.gBlink) {
+      if (f.name !== this.gName || f.gear !== this.gGear || f.maxGear !== this.gMax || f.engaged !== this.gEngaged || f.level !== this.gLevel || mph !== this.gMph || f.armed !== this.gArmed || blink !== this.gBlink) {
+        this.gName = f.name;
         this.gArmed = f.armed;
         this.gBlink = blink;
         this.gGear = f.gear;
@@ -821,9 +825,9 @@ export class Hud {
     // a rung's number is its place on the ladder: the gears, then turbo's levels over the top gear
     const rung = f.gear + f.level;
     const shown = rung + (f.armed ? 1 : 0);
-    const g = `G${shown}`;
-    this.outlineOver(p, g, 2, 2, f.armed ? (blink ? C.yellow : C.dim) : C.yellow);
-    const x = 2 + textWidth(g) + 5;
+    const g = f.tag ?? `G${shown}`;
+    if (g) this.outlineOver(p, g, 2, 2, f.armed ? (blink ? C.yellow : C.dim) : C.yellow);
+    const x = g ? 2 + textWidth(g) + 5 : 2;
     this.outlineOver(p, f.name ?? rungName(f.gear + (f.armed ? 1 : 0), f.level), x, 2, !f.armed && (f.engaged || f.gear === 0) ? C.cream : C.dim);
     // pips: one per rung; lit up to the rung, dim if usable, dark if locked (what's over the top gear in reach comes last)
     const levels = f.levels;

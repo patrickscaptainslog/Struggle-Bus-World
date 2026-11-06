@@ -466,6 +466,34 @@ export const config = {
     rattle: 0.32,
   },
 
+  /** School Zone, the rung under Cruise (docs/specs/shots/SHOTS.md, "School Zone: lingering"; GEARS.md): a hover that bobs like a blimp. */
+  zone: {
+    /** Let go, the speed is ~95 % gone in this long (s): Cruise's 30 m/s eases to a hover. */
+    settle: 1.5,
+    /** The stick up noses down and drifts forward at up to this (m/s), sinking at up to `sink` (m/s) at the full push. */
+    drift: 8,
+    sink: 5,
+    /** The stick down climbs at up to this (m/s): here only, a gentler climb than the ruled 40 (SHOTS.md decision 15). */
+    climb: 15,
+    /** The stick sideways turns on the spot: a full turn in this long at the full stick (s). */
+    turn: 5,
+    /** The blimp's bob: its height (m) and rate (Hz), and its slow pitch and roll (deg). */
+    bobAmp: 0.9,
+    bobHz: 0.2,
+    swayPitch: 2,
+    swayRoll: 3,
+    /** The lean on the stick: nose down at the full push, up at the full pull (deg). */
+    leanDown: 14,
+    leanUp: 9,
+    /** The camera comes in this share of its distance (0..1), easing at this rate (1/s). */
+    camIn: 0.3,
+    camRate: 1.6,
+    /** Paint balloons out of the roof hatch while it hovers: at most this many, one every `every` s once the bus is under `still` m/s. */
+    balloons: 6,
+    every: 1.1,
+    still: 2.5,
+  },
+
   /** What height changes (src/game/Ascent.ts; docs/specs/flight/ASCENT.md for how it runs on to the Moon). */
   ascent: {
     /** From this height above the ground (m) the map's edge gives way: the bus may go this many metres further out per metre of height, up to reachMax (m)

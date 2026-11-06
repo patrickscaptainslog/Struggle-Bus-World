@@ -94,7 +94,7 @@ function harness(mode: 'touch' | 'keyboard', fps = 60, world: any = null) {
       this.up(id, x + dx, y + dy);
     },
     wait, frame,
-    result() { return { events: [...evs], maxChargeHeld: +maxCharge.toFixed(2), dragging: sawDrag, thumb: sawThumb, look: lookFrom < 0 ? null : { from: lookFrom, to: lookTo, max: Math.round(lookMax) }, gear: drive.gear, level: drive.level }; },
+    result() { return { events: [...evs], maxChargeHeld: +maxCharge.toFixed(2), dragging: sawDrag, thumb: sawThumb, look: lookFrom < 0 ? null : { from: lookFrom, to: lookTo, max: Math.round(lookMax) }, gear: drive.gear, level: drive.level, below: drive.below }; },
   };
 }
 type H = ReturnType<typeof harness>;
@@ -191,7 +191,13 @@ row('touch', 'second: a tap with the first hand while the other looks', (h) => {
 row('touch', 'second: rests 500 ms, then drags (a look at once)', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.wait(500); h.slide(b, LX, LY, 30, 0, 100); h.wait(30); const on = h.input.state.look.on; h.up(b, LX + 30, LY); h.up(a, RX + 30, RY); return { on }; });
 row('touch', 'second: a look does not count as a thumb', (h) => { const a = newId(); h.down(a, X, Y); h.wait(40); const b = newId(); h.down(b, LX, LY, false); h.slide(b, LX, LY, 40, 0, 200); const thumb = h.input.state.thumb; h.up(b, LX + 40, LY); h.up(a, X, Y); return { thumb }; });
 row('touch', 'second: flick up: answered on the lift, the gear with it', (h) => { const a = steer(h); flickUp(h); h.wait(500); h.up(a, RX + 30, RY); });
-row('touch', 'second: flick down at G0 (nothing to do)', (h) => { const a = steer(h); flickDown(h); h.up(a, RX + 30, RY); });
+row('touch', 'second: flick down at G0 (School Zone)', (h) => { const a = steer(h); flickDown(h); h.up(a, RX + 30, RY); });
+row('touch', 'zone: a flick down in School Zone is nothing yet (Curb is not built)', (h) => { const a = steer(h); flickDown(h); h.wait(300); const at = h.evs.length; flickDown(h); h.wait(300); const after = h.evs.slice(at); h.up(a, RX + 30, RY); return { after }; });
+row('touch', 'zone: a flick up out of School Zone is Cruise', (h) => { const a = steer(h); flickDown(h); h.wait(300); flickUp(h); h.up(a, RX + 30, RY); });
+row('touch', 'zone: two flicks up out of School Zone are Express', (h) => { const a = steer(h); flickDown(h); h.wait(300); flicks(h, 2); h.up(a, RX + 30, RY); });
+row('touch', 'zone: under the gate a flick down at Cruise is nothing', (h) => { h.shifter.locked = true; const a = steer(h); flickDown(h); h.wait(100); h.shifter.locked = false; h.wait(100); h.up(a, RX + 30, RY); });
+row('touch', 'zone: under the gate a flick up out of School Zone goes at once', (h) => { const a = steer(h); flickDown(h); h.wait(300); h.shifter.locked = true; flickUp(h); h.wait(100); const below = h.drive.below, armed = h.shifter.armed; h.shifter.locked = false; h.wait(100); h.up(a, RX + 30, RY); return { below, armed }; });
+row('touch', 'zone: one right thumb flicks down into it and up out', (h) => { h.stroke(RX, 500, 0, 74, 85); h.wait(300); const b = h.drive.below; h.stroke(RX, 600, 0, -74, 85); return { b }; });
 row('touch', 'second: flick down at G1', (h) => { const a = steer(h); h.drive.shift(1, h.flight); h.wait(50); flickDown(h); h.up(a, RX + 30, RY); });
 row('touch', 'second: flick sideways (nothing)', (h) => { const a = steer(h); h.stroke(LX, LY, 74, 0, 85, false); h.wait(400); h.up(a, RX + 30, RY); });
 row('touch', 'second: slow 60 px in 300 ms (a look, no gear)', (h) => { const a = steer(h); h.stroke(LX, LY, 0, -60, 300, false); h.wait(400); h.up(a, RX + 30, RY); });
@@ -286,7 +292,16 @@ for (const [who, stroke] of [['right', (h: H) => h.stroke(RX, 500, 0, 74, 85)], 
   flown(`flown, ${who}: a turbo level down: on Jet's floor as it was`, (h) => { toJet(h); h.wait(9000); h.drive.rung(1, h.flight); h.wait(3000); const y0 = h.flight.y; stroke(h); h.wait(8000); return { ...flying(h), y0, y: h.flight.y, level: h.drive.level }; });
   flown(`flown, ${who}: a turbo level down, holding: the same hold`, (h) => { holdAt(h, 900); toJet(h); h.wait(6000); h.drive.rung(1, h.flight); h.wait(3000); stroke(h); h.wait(8000); return { ...flying(h), level: h.drive.level }; });
 }
-flown('flown: with nothing to do a quick pull is a quick pull', (h) => { h.stroke(RX, 500, 0, 74, 85); h.wait(8000); return flying(h); });
+flown('flown: a flick down at the rooftops is School Zone, hovering where it skimmed', (h) => { const y0 = h.flight.y, f0 = h.flight.floorY, m0 = h.flight.mode; let top = 0; h.stroke(RX, 500, 0, 74, 85); for (let i = 0; i < 80; i++) { h.wait(100); top = Math.max(top, h.flight.y - y0); } return { ...flying(h), y0: +y0.toFixed(2), floor0: +f0.toFixed(2), m0, rose: +top.toFixed(2), off: +(h.flight.y - y0).toFixed(2), speed: +h.flight.speed.toFixed(2), below: h.drive.below }; });
+// School Zone (GEARS.md): its hover, flown. Each from the rooftops at Cruise, flicked down by one right thumb
+const zoneIn = (h: H) => { h.stroke(RX, 500, 0, 74, 85); h.wait(3000); };
+const stick = (h: H, dx: number, dy: number, ms: number) => { const a = newId(); h.down(a, RX, 600); h.slide(a, RX, 600, dx, dy, 150); h.wait(ms); h.up(a, RX + dx, 600 + dy); };
+flown('zone flown: let go, it eases to a hover', (h) => { const v: number[] = []; h.stroke(RX, 500, 0, 74, 85); for (let i = 0; i < 6; i++) { h.wait(500); v.push(+h.flight.speed.toFixed(2)); } const ys: number[] = []; for (let i = 0; i < 40; i++) { h.wait(250); ys.push(h.flight.y); } return { v, bob: +(Math.max(...ys) - Math.min(...ys)).toFixed(2), below: h.drive.below }; });
+flown('zone flown: the stick sideways turns on the spot', (h) => { zoneIn(h); const x0 = h.flight.x, z0 = h.flight.z, h0 = h.flight.heading; stick(h, 120, 0, 2500); const turned = h.flight.heading - h0; return { degPerS: +((turned * 180) / Math.PI / 2.5).toFixed(1), moved: +Math.hypot(h.flight.x - x0, h.flight.z - z0).toFixed(1) }; });
+flown('zone flown: the stick up drifts forward', (h) => { zoneIn(h); holdAt(h, 120); h.wait(2000); const y0 = h.flight.y; let vmax = 0; const a = newId(); h.down(a, RX, 600); h.slide(a, RX, 600, 0, -200, 150); for (let i = 0; i < 40; i++) { h.wait(100); vmax = Math.max(vmax, h.flight.ground); } const sink = (y0 - h.flight.y) / 4.15; h.up(a, RX, 400); return { vmax: +vmax.toFixed(2), sink: +sink.toFixed(2), pitchDeg: +((h.flight.pitch * 180) / Math.PI).toFixed(1) }; });
+flown('zone flown: the stick down climbs gently', (h) => { zoneIn(h); const a = newId(); h.down(a, RX, 600); h.slide(a, RX, 600, 0, 200, 150); let vmax = 0, gmax = 0; for (let i = 0; i < 50; i++) { h.wait(100); vmax = Math.max(vmax, h.flight.vy); gmax = Math.max(gmax, h.flight.ground); } h.up(a, RX, 800); const y1 = h.flight.y; h.wait(4000); return { vmax: +vmax.toFixed(2), ground: +gmax.toFixed(2), settled: +(h.flight.y - y1).toFixed(1), vy: +h.flight.vy.toFixed(2), mode: h.flight.mode }; });
+flown('zone flown: a flick up is Cruise again, skimming', (h) => { zoneIn(h); h.stroke(RX, 600, 0, -74, 85); h.wait(5000); return { ...flying(h), speed: +h.flight.speed.toFixed(1), below: h.drive.below }; });
+flown('zone flown: a flick up from a held height holds it', (h) => { zoneIn(h); const a = newId(); h.down(a, RX, 600); h.slide(a, RX, 600, 0, 200, 150); h.wait(4000); h.up(a, RX, 800); h.wait(2000); const y = h.flight.y; h.stroke(RX, 600, 0, -74, 85); h.wait(5000); return { ...flying(h), y0: +y.toFixed(1), y: +h.flight.y.toFixed(1), below: h.drive.below }; });
 flown('flown: a stick that moves first has chosen for itself', (h) => { h.drive.shift(1, h.flight); h.wait(3000); h.stroke(RX, 500, 0, 74, 85); h.wait(40); const a = newId(); h.down(a, RX, 500); h.slide(a, RX, 500, 0, 80, 100); h.wait(1000); h.up(a, RX, 580); h.wait(4000); return flying(h); });
 flown('flown: a hard dive let go, a flick down inside its arc: no rebound', (h) => { holdAt(h, 3000); toJet(h); h.wait(9000); h.drive.rung(1, h.flight); h.wait(3000); const a = newId(); h.down(a, RX, 500); h.slide(a, RX, 500, 0, -120, 200); h.wait(1500); h.up(a, RX, 380); h.wait(120); const y0 = h.flight.y; h.stroke(RX, 500, 0, 74, 85); h.wait(8000); return { ...flying(h), y0, y: h.flight.y, level: h.drive.level }; });
 flown('flown: a second thumb flicks down as a long pull lets go: the climb stands', (h) => { h.drive.shift(1, h.flight); h.wait(1000); const a = newId(), b = newId(); h.down(a, RX, 500); h.slide(a, RX, 500, 0, 80, 100); h.wait(1500); h.down(b, LX, 500, false); h.slide(b, LX, 500, 0, 74, 85); h.up(a, RX, 580); h.up(b, LX, 574); h.wait(4000); return flying(h); });
@@ -606,7 +621,8 @@ row('keyboard', 'E: a gear, at once', (h) => { win.dispatch('keydown', key('KeyE
 row('keyboard', 'E twice: two rungs', (h) => { press(h, 'KeyE'); press(h, 'KeyE'); });
 row('keyboard', 'E seven times: the top rung, then LOCKED', (h) => { for (let i = 0; i < 7; i++) press(h, 'KeyE'); });
 row('keyboard', 'E held: auto-repeat is one press', (h) => { win.dispatch('keydown', key('KeyE')); for (let i = 0; i < 5; i++) { h.wait(100); win.dispatch('keydown', key('KeyE', true)); } win.dispatch('keyup', key('KeyE')); });
-row('keyboard', 'Q steps down the ladder, a rung a press', (h) => { for (let i = 0; i < 6; i++) press(h, 'KeyE'); const seen: string[] = []; for (let i = 0; i < 7; i++) { press(h, 'KeyQ'); seen.push(rungName(h.drive.gear, h.drive.level)); } return { seen }; });
+row('keyboard', 'Q steps down the ladder, a rung a press', (h) => { for (let i = 0; i < 6; i++) press(h, 'KeyE'); const seen: string[] = []; for (let i = 0; i < 8; i++) { press(h, 'KeyQ'); seen.push(h.drive.name); } return { seen }; });
+row('keyboard', 'E out of School Zone: Cruise', (h) => { press(h, 'KeyQ'); const a = h.drive.name; press(h, 'KeyE'); return { seen: [a, h.drive.name] }; });
 row('keyboard', 'Shift is no key now', (h) => { win.dispatch('keydown', key('ShiftLeft')); h.wait(300); const boosting = h.drive.boosting; win.dispatch('keyup', key('ShiftLeft')); return { boosting }; });
 const mouse = { pointerType: 'mouse', button: 2 };
 const mouseL = { pointerType: 'mouse', button: 0 };
@@ -676,7 +692,7 @@ ok(atOf('second: flick up', 'go') === atOf('second: flick up', 'flick+'), 'a fli
 ok(atOf('second: flick up', 'up') === atOf('second: flick up', 'flick+'), 'and its gear goes with it: there is nothing to wait for');
 ok(by('second: flick up').gear === 1 && taps('second: flick up') === 0, 'a gear, no tap');
 ok(by('second: flick up').look === null, 'a flick inside the look\'s delay never swings the view');
-ok(by('second: flick down at G0').gear === 0 && n('second: flick down at G0', 'down') === 0, 'nothing to drop');
+ok(by('second: flick down at G0').gear === 0 && by('second: flick down at G0').below === 1 && n('second: flick down at G0', 'zone') === 1 && n('second: flick down at G0', 'down') === 0, 'a flick down at Cruise is School Zone');
 ok(by('second: flick down at G1').gear === 0 && n('second: flick down at G1', 'down') === 1, 'a gear down');
 quiet('second: flick sideways');
 ok(by('second: slow 60').gear === 0 && by('second: slow 60').look !== null, 'slow is a look');
@@ -742,7 +758,13 @@ ok(note('undo: a gear still').lifting && by('undo: a gear still').gear === EXPRE
   ok(v.armed && v.g0 === 0, 'it waits behind the gate');
   ok(by('the gate: a flick is answered').gear === 1, 'and fires when the gate clears');
 }
-ok(by('the gate: a flick down').gear === 0 && n('the gate: a flick down', 'back') === 1, 'taken back behind the gate');
+ok(by('the gate: a flick down').gear === 0 && by('the gate: a flick down').below === 0 && n('the gate: a flick down', 'back') === 1, 'taken back behind the gate');
+ok(by('zone: a flick down in School Zone').below === 1 && note('zone: a flick down in School Zone').after.join() === 'flick-@' + note('zone: a flick down in School Zone').after[0]?.split('@')[1], `a flick down in School Zone does nothing but be read: ${JSON.stringify(note('zone: a flick down in School Zone'))}`);
+ok(by('zone: a flick up out of School Zone is Cruise').below === 0 && by('zone: a flick up out of School Zone is Cruise').gear === 0 && n('zone: a flick up out of School Zone is Cruise', 'unzone') === 1 && n('zone: a flick up out of School Zone is Cruise', 'go') === 1, 'a flick up out of School Zone is Cruise, answered');
+ok(by('zone: two flicks up').below === 0 && by('zone: two flicks up').gear === EXPRESS, 'two flicks up out of School Zone: Cruise, then Express');
+ok(by('zone: under the gate a flick down').below === 0 && n('zone: under the gate a flick down', 'zone') === 0, 'under the gate a flick down at Cruise is nothing: the low shot keeps its glide');
+ok(note('zone: under the gate a flick up').below === 0 && !note('zone: under the gate a flick up').armed, 'under the gate a flick up out of School Zone is Cruise at once: Cruise lifts nothing');
+ok(note('zone: one right thumb').b === 1 && by('zone: one right thumb').below === 0, 'one right thumb, a lone flick each way: into School Zone and out');
 ok(note('the gate: two flicks are one').g0 === 0 && by('the gate: two flicks are one').gear === EXPRESS && n('the gate: two flicks are one', 'gated') === 2, 'behind the gate one rung waits, however many flicks, and each is answered');
 ok(by('the gate: six flicks').gear === EXPRESS && by('the gate: six flicks').level === 0 && n('the gate: six flicks', 'locked') === 0 && n('the gate: six flicks', 'gated') === 6, `six flicks under the gate are Express at the bridge, and say nothing of LOCKED: ${rungName(by('the gate: six flicks').gear, by('the gate: six flicks').level)}`);
 ok(!note('the gate: two flicks and a flick down').armed && by('the gate: two flicks and a flick down').gear === 0 && n('the gate: two flicks and a flick down', 'back') === 1, 'a flick down takes back the one that waits, and nothing is left');
@@ -828,8 +850,20 @@ for (const who of ['right', 'left', 'second']) {
   { const v = note(g('a turbo level down, holding')); ok(v.hold === 900 && v.level === 0, `${who}: and a hold stands: ${JSON.stringify(v)}`); }
 }
 {
-  const v = note('flown: with nothing to do');
-  ok(Number.isFinite(v.hold) && v.mode === 1, `a flick down with nothing to do is the quick pull it looks like: ${JSON.stringify(v)}`);
+  const v = note('flown: a flick down at the rooftops is School Zone');
+  ok(v.below === 1 && Number.isFinite(v.hold) && v.mode === 1 && Math.abs(v.over) < 1.6 && v.rose < 1 && v.speed < 0.5, `a flick down at the rooftops is School Zone, hovering where it skimmed, not where the stroke's pull lifted it: ${JSON.stringify(v)}`);
+  const e = note('zone flown: let go');
+  ok(e.below === 1 && e.v[2] < 30 * 0.12 && e.v[5] < 0.5 && e.bob > 0.6 && e.bob < 3, `School Zone eases to a hover in about 1.5 s and bobs: ${JSON.stringify(e)}`);
+  const t = note('zone flown: the stick sideways');
+  ok(t.degPerS > 55 && t.degPerS < 80 && t.moved < 3, `the stick sideways turns on the spot, a full turn in about 5 s: ${JSON.stringify(t)}`);
+  const u = note('zone flown: the stick up');
+  ok(u.vmax > 6 && u.vmax <= 8.05 && u.sink > 0.5 && u.sink < 5.5 && u.pitchDeg < -5, `the stick up noses down and drifts forward at up to 8 m/s: ${JSON.stringify(u)}`);
+  const c2 = note('zone flown: the stick down');
+  ok(c2.vmax > 12 && c2.vmax <= 15.5 && c2.ground < 1 && c2.settled > 0 && c2.settled < 12 && Math.abs(c2.vy) < 1.5 && c2.mode === 1, `the stick down climbs at about 15 m/s, and let go it coasts to a hold, as every climb does: ${JSON.stringify(c2)}`);
+  const f2 = note('zone flown: a flick up is Cruise');
+  ok(f2.below === 0 && f2.hold === -Infinity && f2.speed > 25 && Math.abs(f2.over) < 4.5, `a flick up is Cruise, skimming the rooftops again: ${JSON.stringify(f2)}`);
+  const g2 = note('zone flown: a flick up from a held');
+  ok(g2.below === 0 && Number.isFinite(g2.hold) && g2.y0 > 60 && Math.abs(g2.y - g2.y0) < 6, `a flick up from a height holds it, at Cruise: ${JSON.stringify(g2)}`);
   const w = note('flown: a stick that moves first');
   ok(Number.isFinite(w.hold) && w.over > 20, `a pull after the flick stands: ${JSON.stringify(w)}`);
   const d = note('flown: a hard dive let go');
@@ -1102,7 +1136,8 @@ ok(by('E: a gear').gear === 1, 'E is a gear');
 ok(by('E twice:').gear === NONSTOP && by('E twice:').level === 0, 'E twice is two rungs');
 ok(by('E seven').gear === JET && by('E seven').level === 3 && n('E seven', 'locked') === 1, 'E climbs the ladder, then LOCKED');
 ok(n('E held', 'flick+') === 1, 'auto-repeat is one press');
-ok(note('Q steps').seen.join() === 'TURBO 2,TURBO,JET,NONSTOP,EXPRESS,CRUISE,CRUISE', `Q steps down it: ${note('Q steps').seen}`);
+ok(note('Q steps').seen.join() === 'TURBO 2,TURBO,JET,NONSTOP,EXPRESS,CRUISE,SCHOOL ZONE,SCHOOL ZONE', `Q steps down it, into School Zone, and Curb isn't built: ${note('Q steps').seen}`);
+ok(note('E out of School Zone').seen.join() === 'SCHOOL ZONE,CRUISE', `E is Cruise again: ${note('E out of School Zone').seen}`);
 ok(!note('Shift is no key').boosting && by('Shift is no key').level === 0, 'Shift is no key: a held boost has nothing to sit on at Cruise');
 {
   const v = note('right mouse drag');

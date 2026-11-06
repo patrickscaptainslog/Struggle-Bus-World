@@ -15,6 +15,8 @@ import { inputTune } from './Input';
 //    back. One rung waits, however many flicks: the gate says when, it isn't a queue,
 //    and six flicks under it were TURBO 3 at the bridge. (Express lifts nothing, but
 //    the gate's one rule stands: no gear under it, and it says so.)
+//  - Under Cruise, a flick down is School Zone, the hover (GEARS.md), and a flick up from it is Cruise. Not under the
+//    gate: the opening's glide is the low shot's, so a flick down there with nothing waiting still does what it always did.
 
 export type ShiftAnswer =
   /** a flick up: a rung goes, now */
@@ -53,7 +55,8 @@ export class Shifter {
   }
 
   private up() {
-    if (this.locked) {
+    // (up out of School Zone is Cruise, which lifts nothing: it never waits for the gate)
+    if (this.locked && this.drive.below === 0) {
       // (one rung, and only if the ladder has one left: a flick under the gate never stacks gears up for later, and LOCKED is a flick's answer at the top, not the gate's)
       if (this.queued < Math.min(1, this.drive.rungsLeft)) this.queued++;
       this.onAnswer?.('gated');
@@ -70,10 +73,12 @@ export class Shifter {
     // that bit it holds the height anyway, and with nothing to do it was only ever a quick pull. A gear still lifting
     // that bit inside the stroke bit on the stroke's own pull: it was still lifting when the thumb meant to take it back)
     const bit = d.lifts && d.engaged && !(flew && d.time - d.engagedAt <= inputTune.loneFlickMs / 1000);
-    if (flew && (waiting || d.level > 0 || (d.gear > 0 && !bit))) this.flight.unpull();
+    // (into School Zone too: the hover takes the height the bus had before the stroke pulled it)
+    const zone = !waiting && d.gear === 0 && d.level === 0 && d.below === 0 && !this.locked;
+    if (flew && (waiting || d.level > 0 || (d.gear > 0 && !bit) || zone)) this.flight.unpull();
     if (waiting) {
       this.queued--;
       this.onAnswer?.('back');
-    } else d.rung(-1, this.flight);
+    } else if (d.gear > 0 || d.level > 0 || !this.locked) d.rung(-1, this.flight);
   }
 }
