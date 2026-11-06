@@ -37,9 +37,9 @@ On the device, by id, so it comes back on any map of the Moon:
 
 | Key | What |
 |---|---|
-| `strugglebus.moon.craters.v1` | `[id, level, hue]` a crater. An invented id is its octave and cell (GROUND.md), a named one `p<place>` |
-| `strugglebus.moon.strokes.v1` | The last 600 blasts on open ground, by latitude and longitude, for the far windows |
-| `strugglebus.moon.low.v1` | Craters of 1 km radius or more, for the orbit: `[lat, lon, level, seed, km]`, at their true size or a 6 km dot. `MoonPaint.load` reads it |
+| `strugglebus.moon.craters.v1` | `[id, level, hue]` a crater, and its faction fourth when it isn't Rainbow's (`src/game/factions.ts`). An invented id is its octave and cell (GROUND.md), a named one `p<place>` |
+| `strugglebus.moon.strokes.v1` | The last 600 blasts on open ground, by latitude and longitude, for the far windows; a faction sixth, as a crater's |
+| `strugglebus.moon.low.v1` | Craters of 1 km radius or more, for the orbit: `[lat, lon, level, seed, km]`, at their true size or a 6 km dot, and a faction sixth. `MoonPaint.load` reads it |
 | `strugglebus.ground.v2.moon_<lat>_<lon>:` | GroundPaint's masks, as on a street, a map at a time |
 
 ## One-sixth gravity

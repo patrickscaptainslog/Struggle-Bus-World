@@ -2,6 +2,7 @@ import { config } from '../config';
 import { blastDots, blastEdge, rng, SHAPE_LUT, wrapHue, type BlastDot, type BlastSpec } from '../game/blastLayout';
 import { LOW_MARK, MOON_LOW_KEY } from './flag';
 import { R_MOON } from './SkyModel';
+import { FACTION_RAINBOW, ownerOf } from '../game/factions';
 
 // Paint on the Moon: the map the resolve reads (skyResolve.ts, spaceMoon), and the strokes it is rebuilt from. Pure TS and no three.js: tools/sky/moon-paint-check.mjs paints in Node.
 //
@@ -21,6 +22,8 @@ import { R_MOON } from './SkyModel';
 // Settling sends one more, on the first level only. See MoonBreath.ts.
 //
 // What is kept is the strokes, not a raster: latitude, longitude, level, seed. The hue is seed % 6. They're rebuilt on load in order, so a level up over an old stroke redraws as it was.
+// Whose paint a stroke is rides in its level's number, in the tens: 1-3 Rainbow's, 11-13 Atlantis's, up to Inferno's 41-43. A Rainbow stroke is kept as it
+// was before factions, and a build from before them, which takes only a level of 1 to 3, leaves another faction's stroke out.
 
 const DEG = Math.PI / 180;
 
@@ -63,6 +66,8 @@ const KEY = 'strugglebus.moon.v1';
 const CHUNK = 64;
 /** About three hours of tapping. Past this a stroke paints, and isn't kept. */
 export const MAX_STROKES = 4096;
+/** A kept stroke's level number: its level, and this much more for each faction after Rainbow. The tens are whose it is, and 4 to 10 are no stroke, as before factions. */
+const LEVEL_STEP = 10;
 
 export interface PaintStroke {
   /** degrees, to 0.01: what is saved is what is drawn */
@@ -73,6 +78,8 @@ export interface PaintStroke {
   seed: number;
   /** the flood's edge (km), if not the level's: a crater painted from low down, at its own size */
   km?: number;
+  /** whose paint it is (game/factions.ts); none: Rainbow's, as every stroke before factions */
+  faction?: number;
 }
 
 export interface PaintMip {
@@ -172,6 +179,8 @@ export class MoonPaint {
   /** written since the last save */
   private savedTo = 0;
   private readonly store: PaintStore | null;
+  /** The hitter's faction: whose every stroke strike() makes is. Rainbow, until a player can join another (FACTIONS.md, decision 15). */
+  faction = FACTION_RAINBOW;
   private nextHue = 0;
   private seed = 0;
   /** floods over the first level, 5 numbers each: where, cos of its radius, level */
@@ -221,8 +230,9 @@ export class MoonPaint {
           const a = JSON.parse(raw) as number[];
           if (!Array.isArray(a)) break;
           for (let i = 0; i + 3 < a.length; i += 4) {
-            const [lat, lon, level, seed] = [a[i], a[i + 1], a[i + 2], a[i + 3]];
-            if (Number.isFinite(lat) && Number.isFinite(lon) && (level === 1 || level === 2 || level === 3) && Number.isFinite(seed)) list.push({ lat, lon, level, seed: seed >>> 0 });
+            const [lat, lon, lv, seed] = [a[i], a[i + 1], a[i + 2], a[i + 3]];
+            const level = lv % LEVEL_STEP;
+            if (Number.isFinite(lat) && Number.isFinite(lon) && (level === 1 || level === 2 || level === 3) && Number.isFinite(seed)) list.push({ lat, lon, level, seed: seed >>> 0, faction: ownerOf(FACTION_RAINBOW + (lv - level) / LEVEL_STEP) });
           }
           if (a.length < CHUNK * 4) break;
         }
@@ -234,8 +244,9 @@ export class MoonPaint {
     try {
       const raw = this.store?.get(MOON_LOW_KEY);
       const low = raw ? (JSON.parse(raw) as number[][]) : null;
-      // (first, so anything from orbit lands on top; they aren't this file's to save, so they stay out of `strokes`)
-      if (Array.isArray(low)) for (const a of low) if (Array.isArray(a) && a.length === 5 && a.every(Number.isFinite)) list.unshift({ lat: a[0], lon: a[1], level: a[2], seed: a[3] >>> 0, km: a[4] });
+      // (first, so anything from orbit lands on top; they aren't this file's to save, so they stay out of `strokes`. A sixth number is the crater's faction, CraterPaint's lowRow)
+      if (Array.isArray(low))
+        for (const a of low) if (Array.isArray(a) && (a.length === 5 || a.length === 6) && a.every(Number.isFinite)) list.unshift({ lat: a[0], lon: a[1], level: a[2], seed: a[3] >>> 0, km: a[4], faction: ownerOf(a[5]) });
     } catch {
       /* the same */
     }
@@ -274,7 +285,7 @@ export class MoonPaint {
     try {
       for (let k = from; k <= to; k++) {
         const a: number[] = [];
-        for (const s of this.strokes.slice(k * CHUNK, Math.min(n, (k + 1) * CHUNK))) a.push(s.lat, s.lon, s.level, s.seed);
+        for (const s of this.strokes.slice(k * CHUNK, Math.min(n, (k + 1) * CHUNK))) a.push(s.lat, s.lon, s.level + LEVEL_STEP * (ownerOf(s.faction) - FACTION_RAINBOW), s.seed);
         this.store.set(`${KEY}.${k}`, JSON.stringify(a));
       }
       this.savedTo = n;
@@ -309,7 +320,7 @@ export class MoonPaint {
     let hue = this.nextHue;
     if (level > 1) hue = hueAt(this.mips[0].data, this.texelAt(lat, lon));
     else this.nextHue = (this.nextHue + 1) % 6;
-    return { lat, lon, level, seed: Math.floor(this.seed / 12) * 6 + hue };
+    return { lat, lon, level, seed: Math.floor(this.seed / 12) * 6 + hue, faction: this.faction };
   }
 
   // ------------------------------------------------------------------ a blast

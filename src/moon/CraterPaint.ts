@@ -7,6 +7,7 @@ import type { Shot } from '../game/Aim';
 import type { Blast, BarfOpts } from '../game/Splat';
 import type { BlastSpec } from '../game/blastLayout';
 import { HUE_COUNT } from '../render/palette';
+import { FACTION_RAINBOW, ownerOf } from '../game/factions';
 import { craterById, cratersNear, mix32, type Age } from './craters';
 import { CRATER_FLOATS, CRATER_INTS } from './gen';
 import { dirOf, latLonToMap, latOf, lonOf, mapOf, type MapFrame, type Place, type WholeMap } from './map';
@@ -72,6 +73,8 @@ export interface Rec extends ClipMark {
   /** a hash of the id, and this session's number for it */
   key: number;
   order: number;
+  /** whose paint it is (game/factions.ts): its last hitter's. Saved after the rest of its row only if it isn't Rainbow's, so a Rainbow row is as before factions */
+  faction: number;
 }
 
 export interface PaintDeps {
@@ -409,21 +412,21 @@ export class CraterPaint {
   }
 
   /** QA: a crater takes a level, as a hit would: an id from `cratersNear`, or a `p` one. */
-  qaHit(id: string, now: number, hue = 0): Rec | null {
+  qaHit(id: string, now: number, hue = 0, faction = FACTION_RAINBOW): Rec | null {
     let c: Target | null = null;
     if (id.startsWith('p')) c = this.named.find((n) => n.id === id) ?? null;
     else {
       const k = craterById(this.d.frame, this.d.albedo, this.d.seed, id);
       if (k) c = { id, x: k.x, z: k.z, r: k.r, a: k.a, b: k.b, c: k.c, age: k.age, kind: 0, name: null, wob: null, turn: 0, rec: null };
     }
-    return c ? this.paint(c, hue, now, 0, 0) : null;
+    return c ? this.paint(c, hue, now, 0, 0, 3, faction) : null;
   }
 
   /**
    * From up high (?moonland, the flight's loop): a breath that came down at (lat, lon) hits the crater there, a level, as one from the low game would, chosen as the aim chooses from HIGH_AIM off.
-   * now: the low game's clock. Null: open ground, or a landing site.
+   * now: the low game's clock; faction: the hitter's. Null: open ground, or a landing site.
    */
-  hitAt(lat: number, lon: number, now: number, hue: number): Rec | null {
+  hitAt(lat: number, lon: number, now: number, hue: number, faction = FACTION_RAINBOW): Rec | null {
     const p = this.v3;
     latLonToMap(this.d.frame, lat, lon, p);
     const x = p[0], z = p[1], d = HIGH_AIM, pref = Math.max(24, 0.14 * d);
@@ -431,7 +434,7 @@ export class CraterPaint {
     // (within the glint, and if there's nothing there, twice as far: a tap from up there paints something, near where it came down, about five times in six at the first reach and nearly always at the second)
     for (const snap of [HIGH_SNAP, 2 * HIGH_SNAP]) {
       const t = this.highPick(x, z, snap, pref);
-      if (t) return this.paint(t, hue, Math.max(now, 1e-3), x, z);
+      if (t) return this.paint(t, hue, Math.max(now, 1e-3), x, z, 3, faction);
     }
     return null;
   }
@@ -637,15 +640,17 @@ export class CraterPaint {
     const was = t ? this.recs.get(keyOfId(t.id)) : undefined;
     const hue = was ? was.hue : this.nextHue;
     if (!was) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
+    // (what it paints is its hitter's: the blast carries it)
+    const faction = ownerOf(b.spec.faction);
     if (t) {
-      this.paint(t, hue, now, cx - t.x, cz - t.z);
+      this.paint(t, hue, now, cx - t.x, cz - t.z, 3, faction);
       // (a super's worth: two levels at a blow)
-      if (big) this.paint(t, hue, now, cx - t.x, cz - t.z);
+      if (big) this.paint(t, hue, now, cx - t.x, cz - t.z, 3, faction);
     } else if (!b.hose) this.stroke(b);
     for (let k = 0; k < hits.length; k++) {
       const { i, d } = hits[k], o = i * CRATER_FLOATS, I = i * CRATER_INTS;
       const c: Target = { id: `${this.ids[I]}.${this.ids[I + 1]}.${this.ids[I + 2]}.${this.ids[I + 3]}`, x: D[o], z: D[o + 1], r: D[o + 2], age: D[o + 3] as Age, a: D[o + 4], b: D[o + 5], c: D[o + 6], kind: 0, name: null, wob: null, turn: 0, rec: null };
-      const rec = this.paint(c, this.listRec[i]?.hue ?? (hue + k + 1) % HUE_COUNT, now + d / v, 0, 0, NEIGHBOUR_TOP);
+      const rec = this.paint(c, this.listRec[i]?.hue ?? (hue + k + 1) % HUE_COUNT, now + d / v, 0, 0, NEIGHBOUR_TOP, faction);
       this.listRec[i] = rec;
     }
     if (t) {
@@ -665,26 +670,27 @@ export class CraterPaint {
     const sp = b.spec;
     // (nothing stays on a crewed site, nor grows there)
     if (this.inSite(sp.x, sp.z)) return;
-    this.markStroke(sp.x, sp.z, sp.r, sp.hue, (sp.seed % 6283) / 1000, b.t);
+    this.markStroke(sp.x, sp.z, sp.r, sp.hue, (sp.seed % 6283) / 1000, b.t, ownerOf(sp.faction));
     this.strokesDirty = true;
     this.saveAt = 1;
   }
 
-  private markStroke(x: number, z: number, r: number, hue: number, seed: number, t0: number) {
-    const rec: Rec = { id: '', name: null, key: 0, x, z, r, reach: r * 1.1, kind: 2, a: 0, b: 0, c: 0, level: 1, hue, t0, T: 0.1, seed, ix: 0, iz: 0, wob: null, turn: 0, order: -1 };
+  private markStroke(x: number, z: number, r: number, hue: number, seed: number, t0: number, faction: number) {
+    const rec: Rec = { id: '', name: null, key: 0, x, z, r, reach: r * 1.1, kind: 2, a: 0, b: 0, c: 0, level: 1, hue, t0, T: 0.1, seed, ix: 0, iz: 0, wob: null, turn: 0, order: -1, faction };
     this.strokes.push(rec);
     this.file(rec);
     if (this.strokes.length > MAX_STROKES) this.unfile(this.strokes.shift()!);
     if (t0 > 0) this.live.push(rec);
   }
 
-  /** A crater goes up a level, or takes its first. */
-  private paint(c: Target, hue: number, t0: number, ix: number, iz: number, top = 3): Rec {
+  /** A crater goes up a level, or takes its first: either way it's the hitter's (faction). */
+  private paint(c: Target, hue: number, t0: number, ix: number, iz: number, top = 3, faction = FACTION_RAINBOW): Rec {
     const key = keyOfId(c.id);
     let rec = this.recs.get(key);
     if (rec) {
       if (rec.level >= top) return rec;
       rec.level = Math.min(top, rec.level + 1);
+      rec.faction = faction;
       rec.t0 = t0;
       rec.ix = ix;
       rec.iz = iz;
@@ -695,7 +701,7 @@ export class CraterPaint {
         this.file(rec);
       }
     } else {
-      rec = { id: c.id, name: c.name, key, x: c.x, z: c.z, r: c.r, reach: reachOf(c.r, 1), kind: c.kind, a: c.a, b: c.b, c: c.c, level: 1, hue, t0, T: landTime(c.r), seed: (mix32(key) % 6283) / 1000, ix, iz, wob: c.wob, turn: c.turn, order: this.order++ };
+      rec = { id: c.id, name: c.name, key, x: c.x, z: c.z, r: c.r, reach: reachOf(c.r, 1), kind: c.kind, a: c.a, b: c.b, c: c.c, level: 1, hue, t0, T: landTime(c.r), seed: (mix32(key) % 6283) / 1000, ix, iz, wob: c.wob, turn: c.turn, order: this.order++, faction };
       this.recs.set(key, rec);
       this.file(rec);
     }
@@ -704,7 +710,7 @@ export class CraterPaint {
     this.saveAt = 1;
     if (t0 > 0 && rec.r >= ORBIT_R && this.onBig) {
       const a = this.lowRow(rec);
-      this.onBig({ lat: a[0], lon: a[1], level: a[2], seed: a[3], km: a[4] });
+      this.onBig({ lat: a[0], lon: a[1], level: a[2], seed: a[3], km: a[4], faction: rec.faction });
     }
     this.rim?.hit(rec, this.busX, this.busZ);
     if (t0 > 0) this.landing.push({ at: t0 + rec.T * (rec.level === 1 ? 0.85 : 0.6), rec, level: rec.level });
@@ -901,7 +907,7 @@ export class CraterPaint {
       return;
     }
     if (!raw) return;
-    let list: Array<[string, number, number]>;
+    let list: Array<[string, number, number, number?]>;
     try {
       list = JSON.parse(raw);
     } catch {
@@ -910,7 +916,8 @@ export class CraterPaint {
     if (!Array.isArray(list)) return;
     const { frame, albedo, seed } = this.d;
     for (const row of list) {
-      const [id, level, hue] = row;
+      // (a fourth number is its faction, if it isn't Rainbow's; a row from before factions has three, and is Rainbow's)
+      const [id, level, hue, faction] = row;
       if (typeof id !== 'string') continue;
       let c: Target | null = null;
       if (id.startsWith('p')) c = this.named.find((n) => n.id === id) ?? null;
@@ -919,7 +926,7 @@ export class CraterPaint {
         if (k) c = { id, x: k.x, z: k.z, r: k.r, a: k.a, b: k.b, c: k.c, age: k.age, kind: 0, name: null, wob: null, turn: 0, rec: null };
       }
       if (!c) continue;
-      const rec = this.paint(c, wrap(hue), -1000, 0, 0);
+      const rec = this.paint(c, wrap(hue), -1000, 0, 0, 3, ownerOf(faction));
       rec.level = Math.min(3, Math.max(1, level | 0));
       this.unfile(rec);
       rec.reach = reachOf(rec.r, rec.level);
@@ -938,28 +945,29 @@ export class CraterPaint {
       for (const a of list) {
         if (!Array.isArray(a) || a.length < 5 || !a.every(Number.isFinite)) continue;
         latLonToMap(this.d.frame, a[0], a[1], t);
-        this.markStroke(t[0], t[1], a[2], wrap(a[3]), a[4], -1000);
+        // (a sixth number is its faction, as a crater's row has a fourth)
+        this.markStroke(t[0], t[1], a[2], wrap(a[3]), a[4], -1000, ownerOf(a[5]));
       }
     } catch {
       /* spoiled or blocked: the far windows go without */
     }
   }
 
-  /** A crater on the orbit's map: [lat, lon, level, seed, km]. */
+  /** A crater on the orbit's map: [lat, lon, level, seed, km], and its faction after them if it isn't Rainbow's. */
   private lowRow(r: Rec): number[] {
     const d = this.tmpDir;
     dirOf(this.d.frame, r.x, r.z, d);
-    return [Math.round(latOf(d) * 100) / 100, Math.round(lonOf(d) * 100) / 100, r.level, Math.floor((r.key >>> 0) / 12) * 6 + r.hue, Math.max(ORBIT_KM, Math.round(r.r / 100) / 10)];
+    return mine([Math.round(latOf(d) * 100) / 100, Math.round(lonOf(d) * 100) / 100, r.level, Math.floor((r.key >>> 0) / 12) * 6 + r.hue, Math.max(ORBIT_KM, Math.round(r.r / 100) / 10)], r.faction);
   }
 
   save() {
     try {
       if (this.dirty) {
         this.dirty = false;
-        const list: Array<[string, number, number]> = [];
+        const list: Array<Array<string | number>> = [];
         const low: number[][] = [];
         for (const r of this.recs.values()) {
-          list.push([r.id, r.level, r.hue]);
+          list.push(mine([r.id, r.level, r.hue], r.faction));
           if (r.r >= ORBIT_R) low.push(this.lowRow(r));
         }
         localStorage.setItem(KEY, JSON.stringify(list));
@@ -970,7 +978,7 @@ export class CraterPaint {
         const d = new Float64Array(3);
         const list = this.strokes.map((r) => {
           dirOf(this.d.frame, r.x, r.z, d);
-          return [Math.round(latOf(d) * 1e4) / 1e4, Math.round(lonOf(d) * 1e4) / 1e4, Math.round(r.r), r.hue, Math.round(r.seed * 100) / 100];
+          return mine([Math.round(latOf(d) * 1e4) / 1e4, Math.round(lonOf(d) * 1e4) / 1e4, Math.round(r.r), r.hue, Math.round(r.seed * 100) / 100], r.faction);
         });
         localStorage.setItem(STROKES_KEY, JSON.stringify(list));
       }
@@ -996,6 +1004,11 @@ export class CraterPaint {
 }
 
 const wrap = (h: number) => ((Math.round(h) % HUE_COUNT) + HUE_COUNT) % HUE_COUNT;
+/** A saved row, with its faction on the end if it isn't Rainbow's: a Rainbow row is what it was before factions, and a build from before them reads past it. */
+function mine<T extends Array<string | number>>(row: T, faction: number): T {
+  if (faction !== FACTION_RAINBOW) row.push(faction);
+  return row;
+}
 const biggestFirst = (a: ClipMark, b: ClipMark) => b.r - a.r;
 
 /** A named crater's wandering rim, as MoonGen.complex rolls it: the same hash, the same harmonics. */
