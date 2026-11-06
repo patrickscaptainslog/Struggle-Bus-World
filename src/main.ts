@@ -35,6 +35,8 @@ import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
 import { tunableGroups } from './ui/tunables';
 import { SuperSplat } from './game/SuperSplat';
+import { Holds } from './game/Hold';
+import { Hose } from './game/Hose';
 import { SuperFx } from './fx/SuperFx';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
@@ -651,7 +653,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         paintTrees(b, true);
         landmarkHit(city, b.pos, b.t);
         bumpPaint(b.spec.x, b.spec.z, Math.min(255, 20 + 3 * b.count));
-        superSplat.impact(b);
+        if (hose.owns(b)) hose.impact(b);
+        else superSplat.impact(b);
         return;
       }
       particles.splash(b.pos, b.spec.hue, 2.2 * Math.sqrt(k));
@@ -996,8 +999,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
 
   // ---- input
   const input = shared?.input ?? new Input(canvas);
+  // (hold to aim, SHOTS.md: the street's; the Moon has no Hose yet, so a still finger off the lane rests there as it always did)
+  input.aimOn = !moon;
   /** ?moonland: what the flight's loop has the thumb doing: everything below takes its place, and gives it back until the bus comes down. */
-  const flightHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd };
+  const flightHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: false };
   const tuner = new Tuner();
   // (the ODbL credit, then the other sources' own: ESA WorldCover's CC BY for where the trees stand)
   const dataCredits = [manifest.attribution ? (moon ? `Data ${manifest.attribution}` : `Map data ${manifest.attribution} (ODbL)`) : '', ...Object.values(manifest.credits ?? {}),
@@ -1062,13 +1067,15 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     } else audio.denied();
   };
   input.onTap = () => {
-    if (tuner.visible || superSplat.hosing) return;
+    if (tuner.visible || superSplat.hosing || hose.pouring) return;
     // (the tap that skips the opening doesn't splat as well)
     if (openingSeen && !openingSkip && opening < config.fog.openingDuration) {
       openingSkip = true;
       controls.hud.clearToast();
       return;
     }
+    // (a lock life or Recess holds takes the tap: its next shot homes, Holds.tap)
+    if (holds.tap()) return;
     tapSplat();
   };
 
@@ -1137,6 +1144,37 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** the bus's pose with the super splat's body language on top (the game's own pose stays its spring state) */
   const superPose: BusPose = { ...pose };
 
+  // ---- hold to aim (src/game/Hold.ts, docs/specs/shots/HOOKS.md): a still finger off the lane aims. Life and Recess add their handlers to `holds` (a lock on
+  // a boat, a plane, a rival bus) and fire its homing shots; a hold nobody takes is the Hose's (src/game/Hose.ts), which pours under the finger
+  const holds = new Holds({
+    input, camera, city, flight, particles, audio,
+    mouth: mouthWorld,
+    view: () => ({ w: window.innerWidth, h: window.innerHeight }),
+    faction: () => splatter.faction,
+    breath: () => {
+      pose.squash = 0.8;
+      squashV = 0;
+      audio.heave();
+      controls.splatted();
+    },
+  });
+  const hose = new Hose({
+    flight, city, splatter, particles, audio, rig,
+    mouth: mouthWorld,
+    busVel,
+    hatch: (out) => bus.root.localToWorld(out.copy(bus.hatchLocal)),
+    flash: (at, frames, strength) => {
+      flashPos.copy(at).project(camera);
+      pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, frames, strength);
+    },
+    sign: queueSign,
+  });
+  holds.add(hose, { last: true });
+  input.onAimStart = () => {
+    if (!tuner.visible) holds.begin();
+  };
+  input.onAimEnd = (cancelled) => holds.end(cancelled);
+
   // ---- resize (applied once per frame: iOS fires bursts of resize / visualViewport events while its toolbars move)
   const onResize = () => {
     pipeline.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1);
@@ -1196,7 +1234,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   warm.add(scene);
   exposeQA();
   /** ?moonland: what the thumb does down here, until it is down here. */
-  const groundHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd };
+  const groundHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn };
   // (and ?earth&resume: the flight has the bus while the street boots behind it)
   if (land || resumed) {
     Object.assign(input, flightHands);
@@ -1481,7 +1519,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     controls.pose(pose);
     superSplat.pose(pose, superPose);
     bus.update(dt, simTime, superPose);
-    eul.set(flight.pitch + superSplat.pitch, -flight.heading, -flight.bank, 'YXZ');
+    eul.set(flight.pitch + superSplat.pitch + hose.pitch, -flight.heading, -flight.bank, 'YXZ');
     q.setFromEuler(eul);
     land?.shown(q, camera, flight.x, flight.y, flight.z, rig.dive);
     bus.root.quaternion.copy(q);
@@ -1489,7 +1527,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       fromSky.t = Math.min(1, fromSky.t + realDt / 2.4);
       bus.root.quaternion.slerpQuaternions(fromSky.busQuat, q, fromSky.t * fromSky.t * (3 - 2 * fromSky.t));
     }
-    bus.root.position.set(flight.x, flight.y, flight.z).add(superSplat.shake);
+    bus.root.position.set(flight.x, flight.y, flight.z).add(superSplat.shake).add(hose.shake);
     controls.afterPose(bus.root);
 
     // drop shadow on whatever is below: the roof of the part under the bus, else the street (under a deck, the water)
@@ -1618,6 +1656,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // the splat before the city's paint upload: the impact frame itself already shows the hit (and the
     // hit-stop frames hold it), instead of the paint reaching the GPU a frame late
     superSplat.update(dt);
+    // (hold to aim: the hold's ray, its handlers, the Hose and the homing shots, after the super, which writes the bus's speed too, and before the blasts land)
+    holds.frame(dt);
+    hose.update(dt);
     splatter.update(dt);
     moonPaint?.update(dt, simTime, flight, aimer.aim.x, aimer.aim.z, Aimer.loaded(flight), steering, flight.y - city.groundAt(flight.x, flight.z));
     if (jet && simTime >= jet.at) {
@@ -1827,7 +1868,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     earthBooting = true;
     if (resumed) skyHands = resumed.hands;
     // (the street's own: on ?earth&resume the flight's are on the thumb by now, so they're the ones kept from before it. The first account's review, 2026-11-04: the street took the flight's for good)
-    streetHands = resumed ? groundHands : { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd };
+    streetHands = resumed ? groundHands : { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn };
     const world: StreetWorld = {
       origin: [manifest.origin[0], manifest.origin[1]],
       // (?life: the movers the flight's loop draws while it has the bus, CONTRACT.md O4)
@@ -1865,7 +1906,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         input.endPress();
         // (and a firehose under way stops with the street's frame, into its cooldown, not frozen to pour on where the bus comes down. Review five, 46)
         superSplat.endHose();
+        hose.stop();
         if (skyHands) Object.assign(input, skyHands);
+        // (the flight has no Hose: a still finger off its lane rests there, as it always did)
+        input.aimOn = false;
         // (the flight's thumb looks wherever it lands off the bus's lane: the street's gate is the street's)
         input.lookOff = false;
         // (and the street's sky writes no table onto the flight's while it has the frame)
@@ -1939,6 +1983,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         input.endPress();
         // (and a firehose under way, as at ?earth's hand-up: review six, 56)
         superSplat.endHose();
+        hose.stop();
         Object.assign(input, flightHands);
         controls.hud.setVisible(false);
         controls.leftGround();
@@ -2018,6 +2063,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       superAudioCheck: () => import('./audio/superAudioCheck').then((m) => m.superAudioCheck()),
       superSplatter: superSplat,
       superMeter,
+      /** QA: hold to aim (Holds: the hold under way, its handlers, the homing shots) and the Hose (its stats; qaPour pours at a world point until the tank runs dry) */
+      holds,
+      hose,
+      hoseState: () => ({ pouring: hose.pouring, tank: flight.fullness, stats: { ...hose.stats }, hold: holds.current ? { ...holds.current, point: holds.current.point.toArray() } : null, holds: { ...holds.stats } }),
       forceReady: () => (flight.fullness = 1),
       /** QA: barf at a lat/lon through the real splat pipeline (blast, blooms, sign, sound). Returns the impact time (game clock). */
       barfAtLatLon: (lat: number, lon: number, drop?: number) => {
@@ -2118,7 +2167,7 @@ async function bootEarthResumed() {
   const street = laterStreet();
   const join = (await bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: shared, earth: street.world, clock: skyClock })) as EarthLanding | null;
   const i = shared.input;
-  const hands: Partial<Input> = { onTap: i.onTap, onTurbo: i.onTurbo, onTripleFinger: i.onTripleFinger, onFirstGesture: i.onFirstGesture, onPress: i.onPress, onChargeStart: i.onChargeStart, onChargeEnd: i.onChargeEnd };
+  const hands: Partial<Input> = { onTap: i.onTap, onTurbo: i.onTurbo, onTripleFinger: i.onTripleFinger, onFirstGesture: i.onFirstGesture, onPress: i.onPress, onChargeStart: i.onChargeStart, onChargeEnd: i.onChargeEnd, onAimStart: i.onAimStart, onAimEnd: i.onAimEnd, aimOn: false };
   if (join) await boot(undefined, shared, { join, hands, attach: street.attach });
 }
 

@@ -101,6 +101,10 @@ export class Flight {
   mode: number = Yoke.Floor;
   /** belly left after this breath ends (a miss refunds part of it), else 0 */
   refund = 0;
+  /** The belly refills in this many s from empty instead of config.splat.recharge, until it is full (the Hose's 3 s refill, src/game/Hose.ts); 0: the tap's. And
+   *  while `pouring` it doesn't refill at all: the Hose drains it. */
+  rechargeSeconds = 0;
+  pouring = false;
   /** 0..1: how full the belly reads right now (drains over the breath: the release is visible as it pours out) */
   belly = 1;
   /** speed multiplier set from outside (the super splat: a charge weighs the bus down, the firehose's recoil) */
@@ -215,8 +219,9 @@ export class Flight {
         this.fullness = clamp(this.refund, 0, 1);
         this.refund = 0;
       }
-    } else if (this.fullness < 1) {
-      this.fullness = Math.min(1, this.fullness + dt / Math.max(0.05, S.recharge));
+    } else if (this.fullness < 1 && !this.pouring) {
+      this.fullness = Math.min(1, this.fullness + dt / Math.max(0.05, this.rechargeSeconds > 0 ? this.rechargeSeconds : S.recharge));
+      if (this.fullness >= 1) this.rechargeSeconds = 0;
     }
     if (this.relief > 0) this.relief = Math.max(0, this.relief - dt);
     const reliefK = this.relief > 0 ? this.relief / S.reliefSeconds : 0;

@@ -89,6 +89,9 @@ export interface BarfOpts {
   /** a firehose impact: no hit-stop or street sign, lighter fx (Blast.hose), and a building that popped
    * less than config.splat.firehoseRepop s ago (or is still waiting for a pop) is left alone */
   hose?: boolean;
+  /** one pour of the Hose (src/game/Hose.ts; its serial, > 0): a building it has raised already is left out of its later impacts, so a pour raises each
+   *  building at most one level (SHOTS.md: "The Hose covers, the Bomb climbs") */
+  pour?: number;
   /** hit-stop frames at the impact, default config.splat.hitStopFrames */
   hitStop?: number;
   /** a super splat's blast (Blast.super) */
@@ -203,6 +206,8 @@ export class Splatter {
   lastMiss = false;
   /** per building (dense index): game time until which firehose impacts leave it alone */
   private hoseUntil: Float32Array | null = null;
+  /** per building (dense index): the last pour (BarfOpts.pour) that raised it */
+  private pourOf: Int32Array | null = null;
 
   constructor(private city: City, private fx: SplatFx) {}
 
@@ -300,12 +305,15 @@ export class Splatter {
     const plan: Scheduled[] = [];
     let maxLevel = 1;
     const busy = hose ? this.hoseBusy(paint.data.length >> 2) : null;
+    const pour = opts?.pour ?? 0;
+    const poured = pour > 0 ? this.pourBusy(paint.data.length >> 2) : null;
     for (const n of reach) {
       if (plan.length >= cap) break;
       const ref = n.ref;
       // (the stream hits the same block a dozen times a second: each building pops, and escalates, at most
       // every firehoseRepop s, and never while an earlier impact's pop is still on its way to it)
       if (busy && busy[ref.index] > this.t) continue;
+      if (poured && poured[ref.index] === pour) continue;
       const lv = paint.level(ref.index);
       // (?lift: a floating house is in the sky, and takes no part of a blast unless it was the aim; a Rainbow house at level 3 hit by Rainbow lifts)
       const lift = city.lift ? city.lift.wants(ref, lv, this.faction) : 0;
@@ -323,6 +331,7 @@ export class Splatter {
     for (const p of plan) {
       p.total = plan.length;
       if (busy) busy[p.ref.index] = p.at + S.firehoseRepop;
+      if (poured) poured[p.ref.index] = pour;
     }
     const ground = groundless ? null : city.ground.begin(spec, tImpact);
     this.pending.push({
@@ -457,6 +466,11 @@ export class Splatter {
   private hoseBusy(n: number): Float32Array {
     if (!this.hoseUntil || this.hoseUntil.length < n) this.hoseUntil = new Float32Array(n);
     return this.hoseUntil;
+  }
+
+  private pourBusy(n: number): Int32Array {
+    if (!this.pourOf || this.pourOf.length < n) this.pourOf = new Int32Array(n);
+    return this.pourOf;
   }
 
   /** Blasts still in flight (their paint isn't applied yet). */

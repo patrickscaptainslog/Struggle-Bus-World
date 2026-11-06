@@ -1,0 +1,747 @@
+{
+ "inputTune": {
+  "stillTapMs": 450,
+  "tapMs": 230,
+  "tapSlopPx": 12,
+  "quickTapMs": 150,
+  "quickTapSlopPx": 26,
+  "tripleWindowMs": 450,
+  "leash": 2.2,
+  "knee": 0.72,
+  "keyRate": 7,
+  "holdSlopPx": 14,
+  "chargeSlopPx": 28,
+  "secondTapMs": 230,
+  "lookDelayMs": 100,
+  "lookZone": 0.42,
+  "laneHalf": 0.27,
+  "laneOpen": 0.25,
+  "laneLow": 0.6,
+  "flickPx": 30,
+  "flickMs": 230,
+  "flickSpeed": 0.25,
+  "flickDeg": 50,
+  "loneFlickPx": 36,
+  "loneFlickMs": 200,
+  "loneFlickSpeed": 0.4,
+  "loneFlickDeg": 40,
+  "flickBottomPx": 40,
+  "flickSidePx": 20,
+  "aimHoldMs": 350
+ },
+ "hoseTune": {
+  "radius": 40,
+  "tank": 3,
+  "refill": 3,
+  "minTank": 0.12,
+  "spacing": 0.45,
+  "every": 0.3,
+  "rate": 10,
+  "reach": 1500,
+  "arc": 0.1,
+  "arcMax": 80,
+  "follow": 14,
+  "travel": 0.2,
+  "speed": 650,
+  "width": 1.9,
+  "widthDrop": 130,
+  "flow": 1.5,
+  "thin": 0.35,
+  "slow": 0.72,
+  "rear": 0.09,
+  "shudder": 0.12,
+  "band": 15,
+  "splash": 0.4,
+  "burst": 0.24,
+  "blobEvery": 5,
+  "shake": 0.45,
+  "flashes": 2
+ },
+ "rows": {
+  "tap: off the lane at 150 ms splats, no hold, no pour": {
+   "note": {
+    "current": null,
+    "pouring": false
+   },
+   "log": [
+    "tap@150ms"
+   ],
+   "barfs": []
+  },
+  "hold to aim, nobody claims: the Hose pours under the finger": {
+   "note": {
+    "owner": "hose",
+    "hit": true,
+    "point": [
+     114,
+     0,
+     -571
+    ],
+    "ray": {
+     "dy": -0.36
+    },
+    "pouring": true,
+    "tank": 0.616,
+    "flightPouring": true,
+    "held": 1.49,
+    "aimed": 1.14,
+    "after": {
+     "pouring": false,
+     "flightPouring": false,
+     "refill": 3,
+     "current": null
+    }
+   },
+   "log": [
+    "aim@351ms",
+    "geyser@351ms",
+    "pour@351ms",
+    "aimEnd@1500ms",
+    "stop@1500ms"
+   ],
+   "barfs": [
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56.00226389469065,
+     "pour": 1,
+     "hose": true,
+     "t": 350.70000000000095
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 651.2999999999984
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 951.8999999999951
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 1252.4999999999918
+    }
+   ]
+  },
+  "the Hose: the tank runs dry at 3 s, it sputters, and this hold pours no more": {
+   "note": {
+    "pouring": false,
+    "tank": 0,
+    "dry": true,
+    "seconds": 3.01
+   },
+   "log": [
+    "aim@351ms",
+    "geyser@351ms",
+    "pour@351ms",
+    "dry@3340ms",
+    "aimEnd@4500ms"
+   ],
+   "barfs": [
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56.00226389469065,
+     "pour": 1,
+     "hose": true,
+     "t": 350.6999999999962
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 651.2999999999929
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 951.8999999999896
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 1252.4999999999864
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 1553.099999999983
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 1853.6999999999798
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 2154.2999999999765
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 2454.8999999999733
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 2755.49999999997
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 3056.0999999999667
+    }
+   ]
+  },
+  "the Hose: after it runs dry the belly refills in 3 s, not the tap's 1.6": {
+   "note": {
+    "fullAfterMs": 3006,
+    "refill": 0
+   },
+   "log": [
+    "aim@351ms",
+    "geyser@351ms",
+    "pour@351ms",
+    "dry@3340ms",
+    "aimEnd@3451ms"
+   ],
+   "barfs": [
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56.00226389469065,
+     "pour": 1,
+     "hose": true,
+     "t": 350.6999999999989
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 651.300000000012
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 951.9000000000251
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 1252.5000000000382
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 1553.1000000000513
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 1853.7000000000644
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 2154.3000000000775
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 2454.9000000000906
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 2755.5000000001037
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 3056.100000000117
+    }
+   ]
+  },
+  "the Hose: let go at 1 s, half a tank refills in 1.5 s": {
+   "note": {
+    "left": 0.666,
+    "fullAfterMs": 1002
+   },
+   "log": [
+    "aim@351ms",
+    "geyser@351ms",
+    "pour@351ms",
+    "aimEnd@1350ms",
+    "stop@1350ms"
+   ],
+   "barfs": [
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56.00226389469065,
+     "pour": 1,
+     "hose": true,
+     "t": 350.7000000000153
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 651.3000000000284
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 951.9000000000415
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 1252.5000000000546
+    }
+   ]
+  },
+  "the Hose: a drag sweeps it, a blast each time it has moved": {
+   "note": {},
+   "log": [
+    "aim@351ms",
+    "geyser@351ms",
+    "pour@351ms",
+    "aimEnd@1900ms",
+    "stop@1900ms"
+   ],
+   "barfs": [
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56.00226389469065,
+     "pour": 1,
+     "hose": true,
+     "t": 350.7000000000153
+    },
+    {
+     "x": 97.71182402010574,
+     "z": -551.1552560746068,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 534.4000000000233
+    },
+    {
+     "x": 79.19734916363865,
+     "z": -529.5419726215472,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 634.6000000000276
+    },
+    {
+     "x": 60.43715811612928,
+     "z": -507.6211474052851,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 734.800000000032
+    },
+    {
+     "x": 42.29552849494329,
+     "z": -486.4563585986871,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 835.0000000000364
+    },
+    {
+     "x": 24.933028421417823,
+     "z": -466.1812799026548,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 935.2000000000407
+    },
+    {
+     "x": 8.348413476040283,
+     "z": -446.80774793384035,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 1035.400000000045
+    },
+    {
+     "x": -10.070183973519429,
+     "z": -425.3070261403716,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 1152.3000000000502
+    },
+    {
+     "x": -27.555773435069693,
+     "z": -404.8887622906919,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 1269.2000000000553
+    },
+    {
+     "x": -44.17767654952122,
+     "z": -385.49298273497715,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 1386.1000000000604
+    },
+    {
+     "x": -62.1922935904023,
+     "z": -364.4393690354394,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 1519.7000000000662
+    },
+    {
+     "x": -79.03972545288596,
+     "z": -344.77372809056556,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 1703.4000000000742
+    }
+   ]
+  },
+  "the Hose: a hold with too little in the tank coughs and pours nothing": {
+   "note": {
+    "pours": 0,
+    "coughs": 1
+   },
+   "log": [
+    "aim@351ms",
+    "cough@351ms",
+    "aimEnd@800ms"
+   ],
+   "barfs": []
+  },
+  "the Hose: a hold on the sky pours nothing until it drags onto the city": {
+   "note": {
+    "sky": {
+     "hit": false,
+     "pouring": false,
+     "owner": "hose"
+    },
+    "then": {
+     "hit": true,
+     "pouring": true
+    }
+   },
+   "log": [
+    "aim@351ms",
+    "geyser@752ms",
+    "pour@752ms",
+    "aimEnd@1200ms",
+    "stop@1200ms"
+   ],
+   "barfs": [
+    {
+     "x": 210.89459927034162,
+     "z": -1373.3198214545064,
+     "r": 56.00327142720157,
+     "pour": 1,
+     "hose": true,
+     "t": 751.5000000000327
+    },
+    {
+     "x": 167.7381096047764,
+     "z": -1014.5282584823663,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 851.7000000000371
+    },
+    {
+     "x": 128.80990865864788,
+     "z": -690.8884202976915,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 951.9000000000415
+    },
+    {
+     "x": 117.8968043207576,
+     "z": -600.1595672511061,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 1052.1000000000458
+    },
+    {
+     "x": 114.88633722901245,
+     "z": -575.1312876789776,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 1185.7000000000517
+    }
+   ]
+  },
+  "a claimed hold: life takes it at its start, and the Hose never pours": {
+   "note": {
+    "seen": [
+     "start 300,300",
+     "move",
+     "end false"
+    ],
+    "pours": 0,
+    "owner": "lock"
+   },
+   "log": [
+    "aim@351ms",
+    "aimEnd@1200ms"
+   ],
+   "barfs": []
+  },
+  "a claimed hold: one that says no leaves it to the Hose": {
+   "note": {
+    "pours": 1,
+    "owner": "hose"
+   },
+   "log": [
+    "aim@351ms",
+    "geyser@351ms",
+    "pour@351ms",
+    "aimEnd@900ms",
+    "stop@900ms"
+   ],
+   "barfs": [
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56.00226389469065,
+     "pour": 1,
+     "hose": true,
+     "t": 350.7000000000153
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 651.3000000000284
+    }
+   ]
+  },
+  "a claimed hold: a watcher claims it mid-pour, and the Hose stops": {
+   "note": {
+    "seen": [
+     "claim true",
+     "end false"
+    ],
+    "pouring": false,
+    "owner": "plane",
+    "tank": 0.94
+   },
+   "log": [
+    "aim@351ms",
+    "geyser@351ms",
+    "pour@351ms",
+    "stop@952ms",
+    "aimEnd@1400ms"
+   ],
+   "barfs": [
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56.00226389469065,
+     "pour": 1,
+     "hose": true,
+     "t": 350.7000000000153
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 651.3000000000284
+    }
+   ]
+  },
+  "a claimed tap: a lock takes the next tap, and nothing splats": {
+   "note": {},
+   "log": [
+    "tap@120ms",
+    "tap taken"
+   ],
+   "barfs": []
+  },
+  "a hold cancelled (the page lost focus) ends cancelled, and the Hose stops": {
+   "note": {
+    "pouring": false,
+    "current": null
+   },
+   "log": [
+    "aim@351ms",
+    "geyser@351ms",
+    "pour@351ms",
+    "aimEnd(cancelled)@800ms",
+    "stop@800ms"
+   ],
+   "barfs": [
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56.00226389469065,
+     "pour": 1,
+     "hose": true,
+     "t": 350.7000000000153
+    },
+    {
+     "x": 114.33807167182839,
+     "z": -570.5731433024459,
+     "r": 56,
+     "pour": 1,
+     "hose": true,
+     "t": 651.3000000000284
+    }
+   ]
+  },
+  "homing: a shot at a boat crossing 15 m/s, 400 m out, hits it": {
+   "note": {
+    "fired": true,
+    "hit": [
+     -78,
+     3,
+     -397
+    ],
+    "tank": true
+   },
+   "log": [
+    "breath@0ms"
+   ],
+   "barfs": []
+  },
+  "homing: a hard break in the white dodges it, and it flies on by": {
+   "note": {
+    "fired": true,
+    "hit": false,
+    "why": "dodged",
+    "white": 567.8000000000247
+   },
+   "log": [
+    "breath@0ms"
+   ],
+   "barfs": []
+  },
+  "homing: the same break before the white is followed, and it hits": {
+   "note": {
+    "hit": true,
+    "why": ""
+   },
+   "log": [
+    "breath@0ms"
+   ],
+   "barfs": []
+  },
+  "homing: a plane 12 km out at 3,500 m/s arrives in under 4 s": {
+   "note": {
+    "hitAtMs": 3440
+   },
+   "log": [
+    "breath@0ms"
+   ],
+   "barfs": []
+  },
+  "homing: no belly loaded, no shot (it coughs); a captain's shot needs none": {
+   "note": {
+    "mine": false,
+    "theirs": true
+   },
+   "log": [
+    "cough@0ms",
+    "whistle@1687ms"
+   ],
+   "barfs": []
+  },
+  "homing: a target that goes (sunk) ends as lost": {
+   "note": {
+    "why": "lost"
+   },
+   "log": [
+    "breath@0ms"
+   ],
+   "barfs": []
+  }
+ }
+}
