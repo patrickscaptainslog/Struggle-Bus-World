@@ -44,7 +44,7 @@ const row = async (name: string, fn: () => Promise<string | null>) => {
 /** a Lamps with its request, as main.ts's line behind far.bin gives it */
 const staged = (): L => {
   const l = new Lamps() as L;
-  l.load('./city/sf/lamps.bin?v=osm3', GROUND, 256);
+  l.load('./city/sf/lamps.bin?v=osm8', GROUND, 256);
   return l;
 };
 
@@ -56,7 +56,7 @@ await row('far.bin in, by day, a thousand frames with the city in: nothing fetch
 });
 await row("far.bin in, by day, the city in: what Lamps keeps is far.bin's own heights, no copy of them (1 MB in San Francisco, held all day)", async () => {
   const l = new Lamps() as L;
-  l.load('./city/sf/lamps.bin?v=osm3', groundGrid(), 256);
+  l.load('./city/sf/lamps.bin?v=osm8', groundGrid(), 256);
   for (let i = 0; i < 1000; i++) ask(l, true, 30);
   await settle();
   const held = (l as unknown as { req?: { ground?: Float32Array } | null }).req?.ground;
@@ -103,7 +103,7 @@ await row('at night, far.bin still coming: QA waits, and the fetch goes once it 
   const l = new Lamps() as L;
   ask(l, true, -10);
   const waited = l.busy;
-  l.load('./city/sf/lamps.bin?v=osm3', GROUND, 256);
+  l.load('./city/sf/lamps.bin?v=osm8', GROUND, 256);
   ask(l, true, -10);
   await settle();
   return !waited ? 'not busy while far.bin came' : fetches.length !== 1 ? `${fetches.length} fetches` : priority(0) !== 'low' ? `priority ${priority(0)}` : null;
