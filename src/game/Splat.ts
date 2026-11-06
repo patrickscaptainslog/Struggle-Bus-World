@@ -96,6 +96,9 @@ export interface BarfOpts {
   tag?: unknown;
   /** ?moon: changes the blast before its ground is drawn. False: it draws no ground */
   shape?: (spec: BlastSpec) => boolean;
+  /** ?recess: one hue for all of it, every building and the ground (a rival faction's plain paint, until its stages' looks land), and the faction it's saved as */
+  solo?: number;
+  faction?: number;
   /** ?life: a mover it hits (src/life): the blast is in the air at (x, opts.y, z), and paints no building and no ground; `moverFresh`, it took the breath's hue */
   mover?: { x: number; y: number; z: number };
   moverFresh?: boolean;
@@ -137,6 +140,8 @@ interface PendingBlast {
   /** its ground paint, drawn while the projectile flies */
   ground: GroundJob | null;
   hitStop: number;
+  /** whose paint it is (PaintState) */
+  faction: number;
 }
 
 const HUE_TRY = [0, 1, -1, 2, -2, 3];
@@ -239,7 +244,8 @@ export class Splatter {
     // the blast's center hue: an escalating primary keeps its color, a fresh one takes the next hue
     const pRec = primary ? paint.get(primary.index) : null;
     const bands = opts?.bands;
-    const hue = bands ? bands.hue : pRec && pRec.level > 0.5 ? wrapHue(pRec.color) : this.nextHue;
+    const solo = opts?.solo;
+    const hue = solo !== undefined ? solo : bands ? bands.hue : pRec && pRec.level > 0.5 ? wrapHue(pRec.color) : this.nextHue;
 
     // every building the blast reaches (its footprint, not its centroid: a big block half inside the radius
     // blooms too), nearest edge first, capped: a house by its centroid less its half-size (as the approved
@@ -263,14 +269,17 @@ export class Splatter {
     // or hit-stop, just a splash when it comes down (the caller refunds part of the belly)
     this.lastMiss = reach.length === 0 && city.groundAt(x, z) < S.missWaterY;
     if (this.lastMiss) {
-      this.misses.push({ at: tImpact, pos, hue: this.nextHue });
-      if (!stream) this.fx.geyser([pos.clone()], [this.nextHue]);
+      this.misses.push({ at: tImpact, pos, hue: solo ?? this.nextHue });
+      if (!stream) this.fx.geyser([pos.clone()], [solo ?? this.nextHue]);
       return tImpact;
     }
-    if (!bands && (!pRec || pRec.level < 0.5)) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
+    if (solo === undefined && !bands && (!pRec || pRec.level < 0.5)) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
     this.seed = (Math.imul(this.seed ^ 0x2545f491, 0x9e3779b1) + 0x7f4a7c15) >>> 0;
     const spec = makeBlastSpec(cx, cz, r, hue, this.seed);
-    if (bands) {
+    if (solo !== undefined) {
+      spec.layout = 0;
+      spec.sectors = 1;
+    } else if (bands) {
       spec.layout = LAYOUT_BANDS;
       spec.ring = bands.width;
       spec.ox = bands.x;
@@ -290,7 +299,7 @@ export class Splatter {
       const was = lv > 0.5;
       const level = was ? Math.min(3, Math.round(lv) + 1) : 1;
       // escalating buildings keep their hue, the primary takes the blast's; the rest are dealt below
-      const h = was ? wrapHue(paint.get(ref.index).color) : ref === primary ? hue : -1;
+      const h = solo !== undefined ? solo : was ? wrapHue(paint.get(ref.index).color) : ref === primary ? hue : -1;
       maxLevel = Math.max(maxLevel, level);
       // it pops when the shockwave reaches its near edge
       const flags = (hose ? BLOOM_HOSE : 0) | (was && level <= Math.round(lv) ? BLOOM_REPOP : 0);
@@ -303,7 +312,7 @@ export class Splatter {
     }
     const ground = groundless ? null : city.ground.begin(spec, tImpact);
     this.pending.push({
-      at: tImpact, plan, ground, hitStop: hose ? 0 : opts?.hitStop ?? S.hitStopFrames,
+      at: tImpact, plan, ground, hitStop: hose ? 0 : opts?.hitStop ?? S.hitStopFrames, faction: opts?.faction ?? FACTION_RAINBOW,
       blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, primary, super: opts?.super ?? null, tag: opts?.tag },
     });
     if (!stream) this.fx.geyser([pos.clone()], [hue]);
@@ -320,7 +329,7 @@ export class Splatter {
     this.seed = (Math.imul(this.seed ^ 0x2545f491, 0x9e3779b1) + 0x7f4a7c15) >>> 0;
     const spec = makeBlastSpec(m.x, m.z, r, hue, this.seed);
     this.pending.push({
-      at: tImpact, plan: [], ground: null, hitStop: hose ? 0 : opts.hitStop ?? S.hitStopFrames,
+      at: tImpact, plan: [], ground: null, hitStop: hose ? 0 : opts.hitStop ?? S.hitStopFrames, faction: opts.faction ?? FACTION_RAINBOW,
       blast: { spec, pos, t: tImpact, count: 1, maxLevel: 1, strength: r / S.blastRadius, dots: [], hose, primary: null, super: opts.super ?? null, tag: opts.tag },
     });
     this.lastMiss = false;
@@ -397,7 +406,7 @@ export class Splatter {
       this.pending.splice(i, 1);
       const b = p.blast;
       // the whole wave goes to the GPU now (one upload): the shader times each pop
-      for (const s of p.plan) this.city.paint.set(s.ref.index, { faction: FACTION_RAINBOW, color: s.hue, level: s.level, bloomTime: s.at, keep: s.keep });
+      for (const s of p.plan) this.city.paint.set(s.ref.index, { faction: p.faction, color: s.hue, level: s.level, bloomTime: s.at, keep: s.keep });
       b.dots = p.ground ? this.city.ground.land(p.ground) : [];
       blastUniforms.uBlastRing.value.set(b.spec.x, b.spec.z, b.t, b.spec.r);
       blastUniforms.uBlastRing2.value.set(b.spec.hue, S.ringWidth * Math.sqrt(b.strength), S.waveSpeed, waveMax(b.spec.r));

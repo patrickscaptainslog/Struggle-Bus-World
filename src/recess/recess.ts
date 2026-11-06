@@ -124,6 +124,8 @@ export interface Bus {
   hopWay: number;
   /** its camp: the neighbourhood its start is in, -1 for none */
   home: number;
+  /** driven from outside (the player's real flight, on screen): the sim steers and moves it not at all, its place set each step */
+  external: boolean;
   /** this step's yaw (rad/s): the driver's, and the arena edge's on top */
   driverYaw: number;
   edgeYaw: number;
@@ -142,6 +144,8 @@ export interface Breath {
   vx: number;
   vz: number;
   arrive: number;
+  /** when it was let go (game s) */
+  born: number;
   white: boolean;
 }
 
@@ -223,7 +227,7 @@ export class Recess {
       this.buses.push({
         id: i, faction: s.faction, bot: s.bot ?? null, x: s.x ?? Math.cos(a) * r, z: s.z ?? Math.sin(a) * r, heading: s.heading ?? wrap(a + Math.PI), speed: recessTune.gears[0],
         gear: 0, state: 'free', until: 0, by: -1, from: 0, to: 0, newcomer: !!s.newcomer, lessonDone: false, given: 0, wanted: false, belly: 0, mega: 0, superReady: false,
-        lock: -1, lockSince: 0, avenge: -1, avengeUntil: 0, hopLeft: 0, hopWay: 1, home: -1, driverYaw: 0, edgeYaw: 0,
+        lock: -1, lockSince: 0, avenge: -1, avengeUntil: 0, hopLeft: 0, hopWay: 1, home: -1, external: false, driverYaw: 0, edgeYaw: 0,
       });
       const b = this.buses[i];
       b.home = this.areas.realm ? this.areas.realm.of(squareKey(b.x, b.z)) : -1;
@@ -288,6 +292,10 @@ export class Recess {
   /** The hands on the bus: the steering always, but in a bubble; a flick hops in the white-hot, wheezes in a ride, or shifts. */
   private drive(b: Bus, h: Hands, dt: number): void {
     const T = recessTune;
+    if (b.external) {
+      b.driverYaw = b.edgeYaw = 0;
+      return;
+    }
     if (h.flick) {
       if (this.whiteAt(b.id) && b.hopLeft <= 0 && b.state !== 'bubble') {
         b.hopLeft = T.hopTime;
@@ -372,6 +380,20 @@ export class Recess {
     }
   }
 
+  /** A breath from `a` at bus `target`, landing at `arrive` (game s): the player's, whose breath the game has already let go and timed. */
+  fireAt(a: number, target: number, arrive: number): void {
+    const b = this.buses[a], v = this.buses[target], fly = Math.max(this.dt, arrive - this.t);
+    b.belly = this.t + recessTune.recharge;
+    this.breaths.push({ id: this.nextBreath++, from: a, target, x: b.x, z: b.z, tx: v.x, tz: v.z, vx: (v.x - b.x) / fly, vz: (v.z - b.z) / fly, arrive: this.t + fly, born: this.t, white: false });
+    this.emit('fire', a, target);
+  }
+
+  /** The newest breath of bus `a`, the one its 'fire' this step let go. */
+  breathOf(a: number): Breath | undefined {
+    for (let i = this.breaths.length - 1; i >= 0; i--) if (this.breaths[i].from === a) return this.breaths[i];
+    return undefined;
+  }
+
   /** A tap: at the locked bus, or the ground ahead. An AI captain's goes at a bus only after its full second of glint. A stop arm's mouth is shut. */
   private fire(a: Bus): void {
     const T = recessTune;
@@ -389,7 +411,7 @@ export class Recess {
       tz = a.z + fz * d;
     }
     const d = Math.hypot(tx - a.x, tz - a.z), fly = T.breathMin + d / T.breathSpeed;
-    this.breaths.push({ id: this.nextBreath++, from: a.id, target, x: a.x, z: a.z, tx, tz, vx: (tx - a.x) / fly, vz: (tz - a.z) / fly, arrive: this.t + fly, white: false });
+    this.breaths.push({ id: this.nextBreath++, from: a.id, target, x: a.x, z: a.z, tx, tz, vx: (tx - a.x) / fly, vz: (tz - a.z) / fly, arrive: this.t + fly, born: this.t, white: false });
     this.emit('fire', a.id, target);
   }
 

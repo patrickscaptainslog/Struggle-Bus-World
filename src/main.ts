@@ -35,7 +35,7 @@ import { SuperSplat } from './game/SuperSplat';
 import { SuperFx } from './fx/SuperFx';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
-import { earthFly, earthResume, heldHour, lifeOn, moonLand, moonLow, moonrun, skyLive } from './sky/flag';
+import { earthFly, earthResume, heldHour, lifeOn, moonLand, moonLow, moonrun, recessOn, skyLive } from './sky/flag';
 import { CUT_NEAR, EARTH_CEILING, H_UP, SKY_FROM, SKY_TOP } from './sky/earthJoin';
 import type { EarthLanding, StreetWorld } from './sky/EarthLanding';
 import { spaceResolveUniforms as spaceU } from './render/skyResolve';
@@ -202,6 +202,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   flight.heading = manifest.start.heading;
   if (!moon && params.has('lat') && params.has('lon')) [flight.x, flight.z] = latLonToLocal(Number(params.get('lat')), Number(params.get('lon')), manifest.origin);
   if (params.has('heading')) flight.heading = THREE.MathUtils.degToRad(Number(params.get('heading')));
+  // (?recess: the bots match, src/recess/recessBoot.ts. The bus starts on its arena's edge facing in, and the opening's Golden Gate and fog are skipped, as under ?lat)
+  const recessMod = recessOn ? await import('./recess/recessBoot') : null;
+  const recessArena = recessMod ? recessMod.arenaFor(manifest, params, flight) : null;
+  if (recessArena) {
+    params.set('lat', '');
+    params.set('skipintro', '');
+  }
   if (moon) {
     flight.y = moon.startY + 30;
     if (land) moon.far!.alloc();
@@ -867,9 +874,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     breathWidth = (mega ? mega.width : 1) * (moonPaint?.width(shot, flight) ?? 1);
     try {
       // (?life: a breath at a mover paints the mover, at the impact's game time, and nothing under it. CONTRACT.md section 3)
-      const mover = shot.mover && life ? shot.mover : null;
+      // (?recess: a breath at a captain is the match's: a hit's flash in the air where it will be, and the match flies it)
+      const ours = shot.mover && recess?.ours(shot.mover.key) ? shot.mover : null;
+      if (ours) recess!.playerFire(ours.key, simTime + config.splat.inhale + shot.travel);
+      else if (!shot.mover) recess?.playerPaint(shot.x, shot.z, simTime + config.splat.inhale + shot.travel);
+      const mover = shot.mover && life && !ours ? shot.mover : null;
       const moverFresh = mover ? life!.hit(mover.key, splatter.hueNext, skyClock.now(), simTime + config.splat.inhale + shot.travel) : false;
-      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: flight.y, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, ...moonPaint?.barf(shot, !!mega), ...(mover ? { mover, moverFresh } : {}) });
+      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: flight.y, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, ...moonPaint?.barf(shot, !!mega), ...(mover ? { mover, moverFresh } : ours ? { mover: ours, moverFresh: false } : {}) });
     } finally {
       breathTravel = null;
       breathWidth = 1;
@@ -1092,6 +1103,18 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     : null;
   // (and the aim asks it for a mover on the line of fire)
   if (life) aimer.life = life;
+  // (?recess: the match, its captains and their breaths in the scene before the warm-up reads it; the aim asks it first, then life)
+  const recess = recessMod && recessArena
+    ? recessMod.bootRecess({
+        params, scene, flight, turbo: controls.turbo, arena: recessArena,
+        barf: (x, z, o) => void splatter.barf(x, z, o), groundAt: (x, z) => city.groundAt(x, z), obstacleAt: (x, z) => city.obstacleAt(x, z), toast: (l, s) => controls.hud.toast(l, s),
+      })
+    : null;
+  if (recess) {
+    recess.life = life;
+    aimer.life = recess;
+    controls.flickGate = (dir) => recess.flick(dir);
+  }
   warm.sourcesOpen = true;
   warm.addSources();
   warm.add(scene);
@@ -1546,6 +1569,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     }
     signs.update(dt, camera);
     life?.frame(dt, simTime, skyClock.now(), flight, camera);
+    recess?.frame(dt, simTime, camera);
 
     // painted neighborhoods hum
     const near = city.buildingsNear(flight.x, flight.z, 90, nearTmp);
