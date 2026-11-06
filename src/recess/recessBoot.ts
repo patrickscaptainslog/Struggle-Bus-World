@@ -105,6 +105,8 @@ export class RecessGame implements MoverAim {
   private readonly camFrom = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
   private readonly camTo = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
   private readonly m4 = new THREE.Matrix4();
+  /** QA: the captains' last paint on the city, where and in what hue, landing when */
+  readonly painted: { x: number; z: number; hue: number; at: number }[] = [];
   /** QA: what happened, by kind */
   readonly counts: Record<string, number> = {};
 
@@ -335,7 +337,11 @@ export class RecessGame implements MoverAim {
   private paint(x: number, z: number, faction: number, travel: number, fromY: number, size = 1): void {
     const wx = this.cx + x, wz = this.cz + z, side = SIDES[faction];
     const drop = Math.max(0, fromY - this.h.groundAt(wx, wz));
-    this.h.barf(wx, wz, { travel: Math.max(0.05, travel), drop, from: fromY, solo: side.solo, faction, ...(size !== 1 ? { radius: config.splat.blastRadius * size, hitStop: 0 } : {}) });
+    if (side.solo !== undefined) {
+      this.painted.push({ x: wx, z: wz, hue: side.solo, at: this.now + travel });
+      if (this.painted.length > 64) this.painted.shift();
+    }
+    this.h.barf(wx, wz, { travel: Math.max(0.05, travel), drop, from: fromY, solo: side.solo, ...(size !== 1 ? { radius: config.splat.blastRadius * size, hitStop: 0 } : {}) });
   }
 
   /** A hit's flash on bus `id`, in the air where it is. */
@@ -348,6 +354,8 @@ export class RecessGame implements MoverAim {
   private bell(simTime: number): void {
     this.phase = 'over';
     this.overAt = simTime;
+    // (recess is over: the gears back to Cruise)
+    for (let k = 0; k < 8 && this.h.turbo.gear > 0; k++) this.h.turbo.shift(-1, this.h.flight);
     const s = this.sim.score(), order = [Faction.RAINBOW, Faction.ATLANTIS, Faction.INFERNO].sort((p, q) => s[q] - s[p]);
     const tie = s[order[0]] === s[order[1]];
     this.say(['THE BELL!', tie ? 'A TIE' : order[0] === Faction.RAINBOW ? 'RAINBOW WINS' : `${SIDES[order[0]].name} WINS`], 4, 4);
@@ -355,6 +363,11 @@ export class RecessGame implements MoverAim {
 
   private scoreboard(simTime: number, camera: THREE.Camera): void {
     const k = Math.min(1, (simTime - this.overAt) / recessScreen.rise), e = k * k * (3 - 2 * k);
+    // (the bus held over the arena's middle: the city streams its detail, and its paint, round the bus, so the map under the camera stays the painted one)
+    const f = this.h.flight;
+    f.x = this.cx;
+    f.z = this.cz;
+    f.speed = Math.min(f.speed, 30);
     if (k === 0 || simTime - this.overAt < 1e-6) {
       this.camFrom.p.copy(camera.position);
       this.camFrom.q.copy(camera.quaternion);

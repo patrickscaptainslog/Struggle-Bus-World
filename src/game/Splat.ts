@@ -96,9 +96,9 @@ export interface BarfOpts {
   tag?: unknown;
   /** ?moon: changes the blast before its ground is drawn. False: it draws no ground */
   shape?: (spec: BlastSpec) => boolean;
-  /** ?recess: one hue for all of it, every building and the ground (a rival faction's plain paint, until its stages' looks land), and the faction it's saved as */
+  /** ?recess: one hue for all of it, every building and the ground (a rival faction's plain paint, until its stages' looks land). Saved as Rainbow's until
+   *  factions' step 1 teaches PaintState whose paint it is */
   solo?: number;
-  faction?: number;
   /** ?life: a mover it hits (src/life): the blast is in the air at (x, opts.y, z), and paints no building and no ground; `moverFresh`, it took the breath's hue */
   mover?: { x: number; y: number; z: number };
   moverFresh?: boolean;
@@ -140,8 +140,6 @@ interface PendingBlast {
   /** its ground paint, drawn while the projectile flies */
   ground: GroundJob | null;
   hitStop: number;
-  /** whose paint it is (PaintState) */
-  faction: number;
 }
 
 const HUE_TRY = [0, 1, -1, 2, -2, 3];
@@ -312,7 +310,7 @@ export class Splatter {
     }
     const ground = groundless ? null : city.ground.begin(spec, tImpact);
     this.pending.push({
-      at: tImpact, plan, ground, hitStop: hose ? 0 : opts?.hitStop ?? S.hitStopFrames, faction: opts?.faction ?? FACTION_RAINBOW,
+      at: tImpact, plan, ground, hitStop: hose ? 0 : opts?.hitStop ?? S.hitStopFrames,
       blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, primary, super: opts?.super ?? null, tag: opts?.tag },
     });
     if (!stream) this.fx.geyser([pos.clone()], [hue]);
@@ -329,7 +327,7 @@ export class Splatter {
     this.seed = (Math.imul(this.seed ^ 0x2545f491, 0x9e3779b1) + 0x7f4a7c15) >>> 0;
     const spec = makeBlastSpec(m.x, m.z, r, hue, this.seed);
     this.pending.push({
-      at: tImpact, plan: [], ground: null, hitStop: hose ? 0 : opts.hitStop ?? S.hitStopFrames, faction: opts.faction ?? FACTION_RAINBOW,
+      at: tImpact, plan: [], ground: null, hitStop: hose ? 0 : opts.hitStop ?? S.hitStopFrames,
       blast: { spec, pos, t: tImpact, count: 1, maxLevel: 1, strength: r / S.blastRadius, dots: [], hose, primary: null, super: opts.super ?? null, tag: opts.tag },
     });
     this.lastMiss = false;
@@ -406,7 +404,7 @@ export class Splatter {
       this.pending.splice(i, 1);
       const b = p.blast;
       // the whole wave goes to the GPU now (one upload): the shader times each pop
-      for (const s of p.plan) this.city.paint.set(s.ref.index, { faction: p.faction, color: s.hue, level: s.level, bloomTime: s.at, keep: s.keep });
+      for (const s of p.plan) this.city.paint.set(s.ref.index, { faction: FACTION_RAINBOW, color: s.hue, level: s.level, bloomTime: s.at, keep: s.keep });
       b.dots = p.ground ? this.city.ground.land(p.ground) : [];
       blastUniforms.uBlastRing.value.set(b.spec.x, b.spec.z, b.t, b.spec.r);
       blastUniforms.uBlastRing2.value.set(b.spec.hue, S.ringWidth * Math.sqrt(b.strength), S.waveSpeed, waveMax(b.spec.r));

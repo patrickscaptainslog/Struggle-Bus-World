@@ -98,6 +98,40 @@
 - a teammate in Recess, which is one bus a side (the wash is built and tested on its own);
 - all the drawing.
 
+## Recess on screen: `?recess` (`src/recess/recessBoot.ts`)
+
+The producer's goal for 2026-11-06's night: "draw the bots match behind a flag (?recess): the player against two AI captains in a 1.5 km arena, three minutes between bells, Possessed when hit, and the painted map from 1,500 m at the bell as the scoreboard."
+
+- **The page.**
+  - `?recess` starts the bus on the arena's edge facing in, with no Golden Gate opening.
+  - In San Francisco the arena is where Alamo Square, the Lower Haight and Hayes Valley meet. Elsewhere it's the city's start, or `?lat&lon`.
+  - Its middle sits on the squares' grid, so the brain's squares are the city's.
+  - A flag of its own, a chunk of its own: off, the page is today's.
+- **The links:**
+  - `&recess=pinata` or `&recess=bubbled` is the link's switch;
+  - `&bots=learner|rival|veteran` sets both captains (by default Atlantis is a Rival, Inferno a Learner);
+  - `&recesslen=<s>` shortens the match, for checks;
+  - `&newcomer` turns the new player's shield on. It's off by default, because Recess is where Possessed is learned.
+- **The match.** The brain steps at its own 30 Hz, the player's bus placed from the real flight each step. The captains are the real bus model with its yellow swapped for their colour, Atlantis blue and Inferno red. They fly 45 m over the ground and 22 m over whatever is under them and ahead.
+- **Breaths.** Breaths in flight are toon blobs in the shooter's colour, white in the last third of a second. A captain's breath on the ground paints the real city where and when the brain's lands.
+- **Paint: plain until the stages' looks land.** Rainbow's is the game's own dealt hues. Atlantis's and Inferno's are one hue each (`Splat.ts`'s `solo`). PaintState keeps only Rainbow or not today, so it saves their paint as Rainbow's until factions' step 1 teaches it whose paint it is. The match's score is the brain's squares, not the saved paint. The six rainbow hues are all there are until step 5's colours, so a captain's blue and red are hues Rainbow uses too: its ground reads as one solid colour against Rainbow's quilt.
+- **The aim.** The aim's mover hand asks the match first: the captain bus 0's lock is on glints (the bus swells), and a tap's breath goes at it. The match flies that breath and decides it, and the city's paint isn't touched. Ground breaths count as Rainbow's hit on their square when they land.
+- **Possessed.** The real gear goes to Nonstop and stays there while the ride lasts. A flick down shows NO BRAKES and changes nothing. The steering is the player's throughout. The hiccups blast the hitter's paint where the bus is, on the beat.
+- **A flick in the white-hot** hops the bus 30 m sideways instead of shifting: Controls' `flickGate`. FLICK! shows as the breath goes white-hot.
+- **Bubbled** holds the bus still for its three seconds.
+- **Words** use the HUD's toast: RECESS!, the bell, GOTCHA, NO BRAKES, FLICK!, WANTED, STOP ARM OUT, BACK TO RECESS. A more important word isn't covered by a lesser one.
+- **The clock and the score** sit top middle.
+- **At the bell** the brain stops, the gears go back to Cruise, and the camera climbs over 4 s to 1,500 m over the arena. The bus is held over the arena's middle, because the city streams its detail, and its paint, round the bus. The score shows in order.
+- **The game's narrow lens** (24 degrees across) sees about 640 m of the 1.5 km arena from there, tilted to see more of it far. Widening it at the bell is for the phone to judge.
+- **Not yet:**
+  - the ornate buses and the stages' looks;
+  - the Hearts;
+  - a ring or posts at the arena's edge;
+  - the real MEGA meter for Piñata's drops;
+  - a way to play again but a reload;
+  - the real three neighbourhoods (the camps stand in);
+  - the GPU and the phone, the producer's and the first account's.
+
 ## The checks
 
 - `node --no-warnings tools/factions/check.mjs`: the beat, the slots, the squares, the neighbourhoods, the stand-ins and the save, 16 rows.
@@ -113,3 +147,12 @@
   - a hiccup changes owned ground;
   - a match doesn't replay from its seed.
 - **They also check** that a Veteran rides the player more often than a Rival, and a Rival than a Learner.
+- `node tools/recess/screen.mjs <out>` (BASE the page): `?recess` at a fixed step in software graphics, a 30 s match with Learner captains, all 8 rows passing on the last build. Its rows:
+  - **up:** two captains over the arena;
+  - **gotcha:** a real tap at a glinting captain rides it;
+  - **possessed:** Nonstop, the flick down taken, full right still turning, eight hiccups painting Inferno's red;
+  - **paint:** the captains' one hue each where their blasts land (84 % of the buildings within 25 m of them wear it), and the score;
+  - **bell:** the camera at 1,500 m and the score up;
+  - **programs:** nothing compiled through the match;
+  - **flag off,** and no page errors.
+  - Its frames, `match.png`, `possessed.png` and `scoreboard.png`, are software graphics.
