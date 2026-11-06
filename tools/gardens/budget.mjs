@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 // The rooftop gardens' triangle budget, measured in the real game on this machine's GPU (docs/specs/gardens/BUDGET.md).
-//   node tools/gardens/budget.mjs <baseUrl> <outDir> [--n=1200] [--line=450000] [--views=street,250,1000] [--time=20]
+//   node tools/gardens/budget.mjs <baseUrl> <outDir> [--n=1200] [--line=450000] [--minhold=0.9] [--views=street,250,1000] [--time=20] [--q=&lift]
 // Paints the n buildings nearest Alamo Square to level 3 and saves it (the game's own store), reloads, so every garden comes back the way a
 // player's does, through the tiles' restore, and then holds the bus at three heights over the square's west side, heading east over it:
 // the street (the bus as it starts), 250 m and 1 km over the ground. Each view: the frame's draws and triangles with the gardens and without
 // them (the RoofSprouts group hidden: the difference is the gardens' own, every pass), the gardens' own census by element type, the frame's
-// GPU time (renders back to back, synced by a readback) with and without them, and a still. Exit 1 when a view's garden triangles pass --line.
+// GPU time (renders back to back, synced by a readback) with and without them, the budget's hold on the reaches, and a still. Then a flight
+// audited every frame, the hold let out again at the street after it, and the lens snapped round at the street. Exit 1 when a view's garden
+// triangles pass --line, when the hold in a view is under --minhold (the line met only by pulling the reaches in), when the flight or a snap
+// finds a pop, when the hold doesn't let out again after the flight, or on a page error.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { browserOptions } from '../browser.mjs';
@@ -19,10 +22,11 @@ const N = Number(opt.n ?? 1200);
 const LINE = Number(opt.line ?? 450000);
 const VIEWS = (opt.views ?? 'street,250,1000').split(',');
 const TIMES = Number(opt.time ?? 20);
+const MINHOLD = Number(opt.minhold ?? 0.9);
 mkdirSync(out, { recursive: true });
 
 // (the west side of Alamo Square, heading east over it: tools/shots.mjs's grey and high poses start here)
-const Q = '?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud&sky=off&fixeddt=0.0333333';
+const Q = '?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud&sky=off&fixeddt=0.0333333' + (opt.q ?? '');
 // (the square's middle, from that pose: 48 m east, 13 m north)
 const CX = 48, CZ = -13;
 // where the bus is held for each view: how far back (m, west) of the square's middle, and how high over the ground. The chase lens looks
@@ -178,7 +182,7 @@ for (const view of VIEWS) {
     window.__qa.held = false;
   });
   report.views[view] = r;
-  console.log(`${view}: bus ${r.above} m up; frame ${r.all.draws} draws ${(r.all.tris / 1e6).toFixed(3)} M tris, ${r.ms.all} ms; without gardens ${r.none.draws} draws ${(r.none.tris / 1e6).toFixed(3)} M, ${r.ms.none} ms; gardens ${r.gardens.draws} draws ${(r.gardens.tris / 1e6).toFixed(3)} M (main ${(r.census.tris / 1e6).toFixed(3)} M in ${r.census.instances} instances, sun ${(r.census.sunTris / 1e6).toFixed(3)} M)`);
+  console.log(`${view}: bus ${r.above} m up; frame ${r.all.draws} draws ${(r.all.tris / 1e6).toFixed(3)} M tris, ${r.ms.all} ms; without gardens ${r.none.draws} draws ${(r.none.tris / 1e6).toFixed(3)} M, ${r.ms.none} ms; gardens ${r.gardens.draws} draws ${(r.gardens.tris / 1e6).toFixed(3)} M (main ${(r.census.tris / 1e6).toFixed(3)} M in ${r.census.instances} instances, sun ${(r.census.sunTris / 1e6).toFixed(3)} M); hold ${r.lod ? r.lod.hold.toFixed(3) : 'none'}`);
 }
 // a flight through it (--flight=0 skips): from the street pose a hard turn, a climbing turn the other way, a dive, a turn. Every frame the
 // gardens are audited against that frame's lens (RoofSprouts.audit): an element that should stand whole and isn't drawn, a far form drawn
@@ -192,7 +196,7 @@ if (opt.flight !== '0')
     g.controls.frozen = false;
     await new Promise((r) => { let n = 60; requestAnimationFrame(function k() { if (--n > 0) requestAnimationFrame(k); else r(); }); });
     const legs = [[1, 0, 120], [-1, -1, 120], [0, 1, 150], [1, 0, 90]];
-    const o = { frames: 0, missing: 0, early: 0, shadow: 0, maxMoved: 0, maxTris: 0, minHold: 1, worst: null };
+    const o = { frames: 0, missing: 0, early: 0, shadow: 0, checked: 0, lifted: 0, maxMoved: 0, maxOuted: 0, maxTris: 0, minHold: 1, worst: null };
     for (const [sx, sy, n] of legs) {
       window.__qa = { sx, sy };
       for (let i = 0; i < n; i++) {
@@ -202,8 +206,11 @@ if (opt.flight !== '0')
         o.missing += a.missing;
         o.early += a.early;
         o.shadow += a.shadow;
+        o.checked += a.checked;
+        o.lifted += a.lifted ?? 0;
         if (a.missing + a.early + a.shadow && !o.worst) o.worst = { frame: o.frames, ...a, y: Math.round(f.y) };
         o.maxMoved = Math.max(o.maxMoved, st.moved);
+        o.maxOuted = Math.max(o.maxOuted, st.outed ?? 0);
         o.maxTris = Math.max(o.maxTris, st.tris + st.sunTris);
         o.minHold = Math.min(o.minHold, st.hold);
       }
@@ -211,7 +218,49 @@ if (opt.flight !== '0')
     window.__qa = {};
     return o;
   }, POSE.street);
-if (report.flight) console.log(`flight: ${report.flight.frames} frames, ${report.flight.missing} missing, ${report.flight.early} early far forms, ${report.flight.shadow} shadows left out; at most ${report.flight.maxMoved} moves a frame and ${report.flight.maxTris} triangles, the reaches held to ${report.flight.minHold.toFixed(3)} at most${report.flight.worst ? `; first at ${JSON.stringify(report.flight.worst)}` : ''}`);
+if (report.flight) console.log(`flight: ${report.flight.frames} frames, ${report.flight.checked} element checks (${report.flight.lifted} lifted), ${report.flight.missing} missing, ${report.flight.early} early far forms, ${report.flight.shadow} shadows left out; at most ${report.flight.maxMoved} moves in and ${report.flight.maxOuted} out a frame and ${report.flight.maxTris} triangles, the reaches held to ${report.flight.minHold.toFixed(3)} at most${report.flight.worst ? `; first at ${JSON.stringify(report.flight.worst)}` : ''}`);
+// the hold after the flight: back at the street pose, it lets out again, to where the street view had it or wherever there's room
+const streetHold = report.views.street?.lod?.hold;
+if (report.flight && streetHold !== undefined) {
+  report.letout = await page.evaluate(async (p) => {
+    const g = window.__game, sp = g.sprouts, { x, z } = window.__sbStart;
+    window.__qa = { pin: { x: x - p.back, y: g.city.groundAt(x - p.back, z) + p.h, z, heading: g.flight.heading } };
+    const at = [];
+    for (let i = 0; i < 12; i++) {
+      await new Promise((r) => { let n = 30; requestAnimationFrame(function k() { if (--n > 0) requestAnimationFrame(k); else r(); }); });
+      const st = sp.stats();
+      at.push([+st.hold.toFixed(3), st.tris + st.sunTris]);
+    }
+    return at;
+  }, POSE.street);
+  console.log(`let out at the street after the flight (hold/triangles every 30 frames): ${report.letout.map(([h, t]) => `${h}/${t}`).join(' ')}; the street view had ${streetHold.toFixed(3)}`);
+}
+// the lens snapped round at the street (a cut, a teleport, a look behind in one frame): one render each, every element audited after it
+if (opt.snap !== '0' && report.flight) {
+  report.snap = await page.evaluate(async () => {
+    const g = window.__game, sp = g.sprouts, cam = g.camera;
+    g.controls.frozen = true;
+    await new Promise((r) => { let n = 60; requestAnimationFrame(function k() { if (--n > 0) requestAnimationFrame(k); else r(); }); });
+    window.__qa.holdAt = g.clock();
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const q0 = cam.quaternion.clone(), up = cam.up.clone().set(0, 1, 0), res = [];
+    for (const yaw of [90, 270, 180, 0, 180, 0]) {
+      cam.quaternion.copy(q0);
+      cam.rotateOnWorldAxis(up, (yaw * Math.PI) / 180);
+      cam.updateMatrixWorld();
+      const t = performance.now();
+      g.renderAgain();
+      const ms = performance.now() - t, a = sp.audit(cam), st = sp.stats();
+      res.push({ yaw, ...a, moved: st.moved, outed: st.outed, pending: st.pending, ms: +ms.toFixed(1) });
+    }
+    cam.quaternion.copy(q0);
+    cam.updateMatrixWorld();
+    delete window.__qa.holdAt;
+    g.controls.frozen = false;
+    return res;
+  });
+  for (const r of report.snap) console.log(`snap to ${r.yaw}: ${r.checked} checked, ${r.missing} missing, ${r.early} early, ${r.shadow} shadows left out; ${r.moved} in, ${r.outed} out, ${r.pending} triangles still to come or go; render ${r.ms} ms`);
+}
 report.programs.end =await page.evaluate(() => window.__game.pipeline.renderer.info.programs.length);
 console.log(`programs: ${report.programs.warm} in the warm-up, ${report.programs.ready} with the city in and the gardens grown, ${report.programs.end} after the views`);
 report.wallSeconds = Math.round((Date.now() - t0) / 1000);
@@ -219,7 +268,18 @@ writeFileSync(`${out}/budget.json`, JSON.stringify(report, null, 1));
 await browser.close();
 const over = Object.entries(report.views).filter(([, v]) => v.gardens.tris > LINE);
 const pops = report.flight ? report.flight.missing + report.flight.early + report.flight.shadow : 0;
-if (pops) console.log(`FAIL: ${pops} pops in the flight`);
-if (errors.length) console.log('page errors:', errors.slice(0, 5).join(' | '));
-console.log(over.length ? `FAIL: the gardens pass ${LINE} triangles in ${over.map(([k, v]) => `${k} (${v.gardens.tris})`).join(', ')}` : `pass: the gardens stay under ${LINE} triangles in every view`);
-process.exit(over.length || pops ? 1 : 0);
+const snapPops = (report.snap ?? []).reduce((n, r) => n + r.missing + r.early + r.shadow, 0);
+const held = Object.entries(report.views).filter(([, v]) => v.lod && v.lod.hold < MINHOLD);
+// (stuck: the hold ends under the street view's, with room left under the line)
+const end = report.letout?.[report.letout.length - 1];
+const stuck = end && end[0] < Math.min(streetHold, 1) - 0.01 && end[1] < LINE * 0.97;
+const fails = [];
+if (pops) fails.push(`${pops} pops in the flight`);
+if (snapPops) fails.push(`${snapPops} pops in the snaps`);
+if (held.length) fails.push(`the hold is under ${MINHOLD} in ${held.map(([k, v]) => `${k} (${v.lod.hold.toFixed(3)})`).join(', ')}`);
+if (stuck) fails.push(`the hold stays at ${end[0]} after the flight with room to let out (${end[1]} triangles)`);
+if (over.length) fails.push(`the gardens pass ${LINE} triangles in ${over.map(([k, v]) => `${k} (${v.gardens.tris})`).join(', ')}`);
+if (errors.length) fails.push(`${errors.length} page errors: ${errors.slice(0, 5).join(' | ')}`);
+for (const f of fails) console.log(`FAIL: ${f}`);
+if (!fails.length) console.log(`pass: the gardens stay under ${LINE} triangles in every view, the hold at ${MINHOLD} or more, no pops in the flight or the snaps, the hold let out after it, no page errors`);
+process.exit(fails.length ? 1 : 0);
