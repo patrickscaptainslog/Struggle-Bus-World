@@ -12,6 +12,7 @@ import { Flight } from './game/Flight';
 import { fadeEnd, floorPastMap, mapReach, nearPlane, snapReach } from './game/Ascent';
 import { CameraRig } from './game/CameraRig';
 import { Splatter, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
+import { crew } from './game/crew';
 import { FACTIONS } from './game/factions';
 import { Aimer, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
@@ -682,10 +683,18 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // splat of another's takes it (the tuner's reset clears it all). The street only: the Moon draws no faction yet, so there it does nothing.
   // Without it every splat is Rainbow's, as before.
   const paintAs = moon ? undefined : FACTIONS.find((f) => f.key === params.get('paintas'));
-  if (paintAs) {
-    splatter.faction = paintAs.id;
-    particles.palette = lookOf(paintAs.id).spray;
-  }
+  /** The bus paints as this faction from its next shot: its blasts carry it (the buildings, the ground, the trees, ?moon's craters and open ground), and its
+   *  breath's particles take its spray. Paint already down keeps its owner. */
+  const paintAsFaction = (f: number) => {
+    splatter.faction = f;
+    particles.palette = lookOf(f).spray;
+  };
+  if (paintAs) paintAsFaction(paintAs.id);
+  // ?crew (game/crew.ts, SHOTS.md "MEGA off, and the faction button"): the testers' faction button. Once a page on this phone has seen ?crew, the faction it
+  // picked is the bus's on every page here, ?moon's ground too (&paintas still wins for its own page), and a switch on the crest is the next shot's
+  crew.init(params);
+  if (crew.on && !paintAs) paintAsFaction(crew.faction);
+  crew.listen(paintAsFaction);
 
   /** QA: the last sign raised (its text, where, and what named it). */
   let lastSign: { text: string; x: number; z: number; from: string; t: number } | null = null;

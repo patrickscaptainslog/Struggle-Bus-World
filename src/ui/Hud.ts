@@ -1,8 +1,11 @@
+import { crew } from '../game/crew';
+import { FACTIONS } from '../game/factions';
 import { inputTune, type Input, type InputMode } from '../game/Input';
 import { GEAR_NAMES, rungName } from '../game/Turbo';
 import { Ramp, rampColor } from '../render/palette';
 import type { Cue } from './Coach';
 import { isCompact, layoutHud, type Control, type HudLayout, type Insets, type Rect } from './hudLayout';
+import { CREST, drawCrest } from './crest';
 import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth, uiText } from './pixelUi';
 
 // The HUD: as little as possible, pixel-styled in palette colors, safe-area
@@ -14,6 +17,8 @@ import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth, uiText } from './pixelU
 //    (slot('super'), src/ui/SuperMeter.ts) stands above it and docks on its face
 //    for the cooldown. Asleep unless megaOn (&mega on the link): MEGA is off, the
 //    producer's ruling of 2026-11-06, and then neither it nor its meter shows.
+//  - top left, on phones that have seen ?crew (game/crew.ts): the player's faction
+//    crest. A tap opens the five under it; a tap on one switches the bus's faction.
 //  - top right: settings. It fades out after a few seconds untouched; a tap in
 //    that corner brings it back.
 //  - the gear readout, only for a moment: while a gear lifts and just after it
@@ -24,7 +29,7 @@ import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth, uiText } from './pixelU
 //  - a desktop has no buttons at all: Esc opens the settings (src/game/Controls.ts).
 //  - setCredits(lines): the data credits, one tap away in settings (MAP DATA), never on the play screen.
 //
-// Only these catch touches: MEGA, settings. Everything else is pointer-events
+// Only these catch touches: MEGA, settings, the crest. Everything else is pointer-events
 // none. Hit wrappers are the rects from hudLayout, and the visuals inside them
 // are pointer-events none, so the 14 px band at the screen's edges stays the
 // canvas's. There is no gear strip and no button for a gear: a flick is the
@@ -122,6 +127,19 @@ export class Hud {
   private readonly cueCanvas: PixelCanvas;
   private readonly cueWrap: HTMLDivElement;
   private readonly superSlot: HTMLDivElement;
+  // the faction crest (?crew) and its picker
+  private readonly crest: PixelCanvas;
+  private readonly crestWrap: HTMLElement;
+  private readonly picker: HTMLDivElement;
+  private readonly swatches: PixelCanvas[] = [];
+  private readonly swatchWraps: HTMLElement[] = [];
+  private crestKey = -1;
+  private pickerOpen = false;
+  private readonly onAway = (e: PointerEvent) => {
+    const t = e.target as Node | null;
+    if (t && (this.picker.contains(t) || this.crestWrap.contains(t))) return;
+    this.closePicker();
+  };
   private panel: HTMLDivElement | null = null;
   private toastEl: HTMLDivElement | null = null;
   /** wall-clock ms when the toast goes (UI time: a slow frame rate must not stretch it) */
@@ -231,8 +249,28 @@ export class Hud {
     this.slots.set('super', this.superSlot);
     root.append(this.superSlot);
 
+    // ---- the faction crest (?crew): the top left, its picker under it
+    crew.init(new URLSearchParams(location.search));
+    this.crest = new PixelCanvas(CREST, CREST, S);
+    css(this.crest.el, { position: 'absolute', pointerEvents: 'none' });
+    this.crestWrap = this.hit(this.crest.el, () => this.tapCrest(), 'crew');
+    css(this.crestWrap, { position: 'absolute', display: 'none' });
+    root.append(this.crestWrap);
+    this.picker = div({ position: 'absolute', left: '0', top: '0', width: '0', height: '0', display: 'none' });
+    this.picker.dataset.hud = 'crew-picker';
+    for (const f of FACTIONS) {
+      const c = new PixelCanvas(CREST, CREST, S);
+      css(c.el, { position: 'absolute', pointerEvents: 'none' });
+      const w = this.hit(c.el, () => this.pick(f.id), `crew-${f.key}`);
+      css(w, { position: 'absolute' });
+      this.swatches.push(c);
+      this.swatchWraps.push(w);
+      this.picker.append(w);
+    }
+    root.append(this.picker);
+
     document.body.append(root);
-    this.L = layoutHud(w0, h0, this.readInsets(), false, this.compact);
+    this.L = layoutHud(w0, h0, this.readInsets(), false, this.compact, crew.on);
     this.layout();
     window.addEventListener('resize', this.onResize);
     window.addEventListener('orientationchange', this.onTurned);
@@ -292,6 +330,9 @@ export class Hud {
     this.show(this.topRight, on);
     this.show(this.megaWrap, on && this.megaAwake);
     this.show(this.superSlot, this.megaAwake);
+    // (the crest is a tester's: on a desktop too, which has no other button)
+    this.show(this.crestWrap, this.arrived && crew.on);
+    if (!(this.arrived && crew.on)) this.closePicker();
   }
 
   /** MEGA wakes (&mega on the link) or sleeps: its button and its meter show or don't. */
@@ -322,9 +363,11 @@ export class Hud {
   }
 
   private layout() {
-    const L = layoutHud(window.innerWidth, window.innerHeight, this.readInsets(), this.settings.swap, this.compact);
+    const L = layoutHud(window.innerWidth, window.innerHeight, this.readInsets(), this.settings.swap, this.compact, crew.on);
     this.L = L;
     this.place(this.settingsWrap, this.settingsBtn, L.settings);
+    this.place(this.crestWrap, this.crest, L.crew);
+    L.swatches.forEach((r, k) => this.place(this.swatchWraps[k], this.swatches[k], { v: r, hit: r }));
     this.place(this.megaWrap, this.mega, L.mega);
     this.box(this.gearWrap, L.readout);
     this.lockedWrap.style.top = `${L.toast.y}px`;
@@ -403,6 +446,7 @@ export class Hud {
     if (f.armed || f.sinceShift < 0.3) this.wakeButtons();
     const rest = now >= this.restAt && this.megaId < 0 && !f.armed;
     if (this.mode === 'touch' && this.arrived && this.megaAwake) this.frameMega(dt, now, rest);
+    if (crew.on && this.arrived) this.frameCrest();
     this.frameCue(now);
     if (this.toastEl && now >= this.toastUntil) this.clearToast();
   }
@@ -423,6 +467,55 @@ export class Hud {
       this.megaKey = key;
       this.drawMega(rest, fire === 1, hold);
     }
+  }
+
+  private frameCrest() {
+    const key = crew.faction * 2 + (crew.locked ? 1 : 0);
+    if (key === this.crestKey) return;
+    this.crestKey = key;
+    this.crest.clear();
+    drawCrest(this.crest, crew.faction, 0, 0, false, crew.locked);
+    this.crest.flush();
+    if (crew.locked) this.closePicker();
+  }
+
+  /** The crest: the picker opens, or closes. In a match it's locked: it says so. */
+  private tapCrest() {
+    if (crew.locked) {
+      this.toast(['AFTER THE MATCH'], 1.4);
+      return;
+    }
+    if (this.pickerOpen) this.closePicker();
+    else this.openPicker();
+  }
+
+  private openPicker() {
+    if (this.pickerOpen) return;
+    this.pickerOpen = true;
+    FACTIONS.forEach((f, k) => {
+      const c = this.swatches[k];
+      c.clear();
+      drawCrest(c, f.id, 0, 0, f.id === crew.faction);
+      c.flush();
+    });
+    this.picker.style.display = 'block';
+    // (a touch anywhere else closes it, and still does what it does)
+    window.addEventListener('pointerdown', this.onAway, true);
+  }
+
+  private closePicker() {
+    if (!this.pickerOpen) return;
+    this.pickerOpen = false;
+    this.picker.style.display = 'none';
+    window.removeEventListener('pointerdown', this.onAway, true);
+  }
+
+  /** A swatch: the bus is that faction's from the next shot on (game/crew.ts tells the painters), and the picker closes with its name. */
+  private pick(faction: number) {
+    this.closePicker();
+    const was = crew.faction;
+    crew.set(faction);
+    if (crew.faction !== was) this.toast([FACTIONS[faction - 1].name], 1.6);
   }
 
   private frameCue(now: number) {

@@ -11,7 +11,10 @@
 //   node tools/warmcheck.mjs <url> <out.json> [--throttle=4] [--late=9000]
 // --late=<ms>: far16.bin held back that long by a route, so it lands in play (City.landFar), and ready waits for it.
 // --moon: the url is ?moonrun: no city, so the phases are the flight's: real flicks, out and home.
-// --low: the url is ?moon, the ground: real touches through a cruise, a surge, Jet, a climb, a dive, a crater taken to level 3, a mega and a firehose.
+// --low: the url is ?moon, the ground: real touches through a cruise, a surge, Jet, a climb, a dive, a crater taken to level 3, a mega and a firehose
+//   (MEGA is asleep since 2026-11-06: give the url &mega for those two).
+// --crew: the url has ?crew: after the blasts, the faction crest switched through all five by real taps (Atlantis, the Elderwood, Hyperglow, Inferno,
+//   Rainbow), each switch followed by three blasts on a fresh block (levels 1-3, the gardens and crowns in that faction's rows), in view.
 // Wall clock, real GPU (tools/browser.mjs): meaningful on a laptop, not in the cloud's SwiftShader.
 // `lamps` in the report: when the street lamps' list was asked for and landed, ms after ready (a dusk with them in flight: ?t=2026-11-07T00:01:00Z&rate=120).
 import { chromium } from 'playwright-core';
@@ -250,6 +253,7 @@ const street = !opt.moon && !opt.low;
 if (street) await phase('opening-end');
 if (street) await run(2);
 let blast = null;
+let crewRun = null;
 if (street) {
 // the climb to the vista (the yoke pulled: sy -1), and a look around up there
 await phase('climb');
@@ -274,6 +278,36 @@ blast = await page.evaluate(() => {
   for (const n of g.city.buildingsNear(x, z, 40, [])) top = Math.max(top, g.city.paint.level(n.ref.index));
   return { maxLevel: top, ...g.paintedNear(37.7762, -122.43262, 40) };
 });
+// --crew: the faction crest, a real tap on it and on each swatch, and each faction's paint at three levels
+if (opt.crew) {
+  await phase('crew');
+  crewRun = [];
+  const tapHud = async (name) => {
+    const b = await page.locator(`[data-hud="${name}"]`).boundingBox();
+    await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
+    await run(0.3);
+  };
+  const spots = [[37.7762, -122.4306], [37.7762, -122.4286], [37.7776, -122.4326], [37.7748, -122.4326], [37.7776, -122.4306]];
+  const keys = ['atlantis', 'elderwood', 'hyperglow', 'inferno', 'rainbow'];
+  for (let k = 0; k < keys.length; k++) {
+    await tapHud('crew');
+    await tapHud(`crew-${keys[k]}`);
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate(([a, b]) => window.__game.barfAtLatLon(a, b), spots[k]);
+      await run(2.2);
+    }
+    crewRun.push(await page.evaluate(([key, [la, lo]]) => {
+      const g = window.__game, [x, z] = window.__ll(la, lo), owners = {};
+      let top = 0;
+      for (const n of g.city.buildingsNear(x, z, 40, [])) {
+        const r = g.city.paint.get(n.ref.index);
+        top = Math.max(top, r.level);
+        if (r.level > 0.5) owners[r.faction] = (owners[r.faction] ?? 0) + 1;
+      }
+      return { key, faction: g.splatter.faction, maxLevel: top, owners };
+    }, [keys[k], spots[k]]));
+  }
+}
 // the landmarks from altitude: west of the pyramid at 430 m heading east, then Sutro Tower from the east
 await phase('landmarks');
 await place(37.7952, -122.4130, 430, Math.PI / 2);
@@ -316,6 +350,7 @@ const res = {
   warm: info.report && { programs: info.report.programs, draws: info.report.draws, doneMs: info.report.doneMs },
   programsAtReady: info.programsAtReady,
   blast,
+  crew: crewRun,
   low: lowRun,
   programsTotal: W.programs.length,
   programsAfterWarmup: after.length,
