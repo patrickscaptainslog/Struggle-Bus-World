@@ -931,8 +931,10 @@ impact frame shows the hit.
   (`Splatter.faction`, `BlastSpec.faction`), and every paint store keeps it:
   PaintState's records and its texture's alpha (faction, plus `PAINT_KEPT` for an
   escalation), a ground texel's low bits (`texelLow`), the Moon's craters, strokes
-  and pictures. A Rainbow record is saved as it was before factions, and a save
-  that names no faction is Rainbow's (`ownerOf`). Nothing draws a faction yet.
+  and pictures. A Rainbow record is saved as it was before factions, a save
+  that names no faction is Rainbow's, and one a later build made, its sixth or
+  seventh faction, is kept as it is (`ownerOf`, `FACTION_ROOM`). Nothing draws a
+  faction yet.
   Life's movers keep it once C15 (`docs/specs/factions/C15.md`) is agreed.
 - `src/game/Splat.ts`: picks every building the blast reaches, deals the fresh
   ones the rainbow by angle around the impact (touching neighbors differ, never

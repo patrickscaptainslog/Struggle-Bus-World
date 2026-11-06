@@ -22,7 +22,7 @@ import { FACTION_RAINBOW, ownerOf } from '../game/factions';
 // Settling sends one more, on the first level only. See MoonBreath.ts.
 //
 // What is kept is the strokes, not a raster: latitude, longitude, level, seed. The hue is seed % 6. They're rebuilt on load in order, so a level up over an old stroke redraws as it was.
-// Whose paint a stroke is rides in its level's number, in the tens: 1-3 Rainbow's, 11-13 Atlantis's, up to Inferno's 41-43. A Rainbow stroke is kept as it
+// Whose paint a stroke is rides in its level's number, in the tens: 1-3 Rainbow's, 11-13 Atlantis's, up to Inferno's 41-43 (and a later build's to 73). A Rainbow stroke is kept as it
 // was before factions, and a build from before them, which takes only a level of 1 to 3, leaves another faction's stroke out.
 
 const DEG = Math.PI / 180;

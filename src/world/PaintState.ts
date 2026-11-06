@@ -8,7 +8,7 @@ import { FACTION_RAINBOW, ownerOf } from '../game/factions';
 //   r = color index (0..5 within the faction palette), g = level (0 = grey, 1..3),
 //   b = bloom start time (seconds, globals.uTime clock; may be in the future: a
 //   blast writes its whole wave at impact and the shader times each bloom),
-//   a = faction (0 none, 1-5: game/factions.ts) + PAINT_KEPT when the building was already painted
+//   a = faction (0 none, 1-5, and room for a later build's 6-7: game/factions.ts) + PAINT_KEPT when the building was already painted
 //   (an escalation: it stays painted until its new pop instead of going grey)
 // Persistence: localStorage, keyed by the building's stable id, value = [faction, color, level] (the faction
 //   since the first build, always Rainbow's 1 until factions: ownerOf reads it). Applied
@@ -90,7 +90,7 @@ export { FACTION_RAINBOW };
 export const PAINT_KEPT = 8;
 
 export interface PaintRecord {
-  /** whose paint it is: 0 none, 1-5 (game/factions.ts) */
+  /** whose paint it is: 0 none, 1-5, or a later build's 6-7 (game/factions.ts) */
   faction: number;
   color: number;
   level: number;

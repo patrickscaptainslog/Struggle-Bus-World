@@ -3,7 +3,8 @@
 //   node tools/factions/owner-check.mjs [row] [--src=<dir>]
 // --src: the source tree to check, the repo's src/ by default. Given a checkout of main from before factions (058217c), it says what main can't do: every
 //   row fails there but those main already did, its own old saves read back and Rainbow's bytes.
-//   numbers   the five, named and numbered in one place (src/game/factions.ts); a record naming none, or one this build doesn't know, read as Rainbow's
+//   numbers   the five, named and numbered in one place (src/game/factions.ts); a record naming none, or one past the stores' room (0-7), read as Rainbow's,
+//             and one this build doesn't know but has room for (6, 7) as it is
 //   gpu       the buildings' texture: each faction, fresh and already painted, read back, and the shaders' test for "already painted" right for each; no shader
 //             left testing a < 1.5
 //   old       every store's save as main writes it, loaded by this code: every record there as it was, and Rainbow's. The buildings, landmarks and bridges; the
@@ -13,6 +14,7 @@
 //   five      each of the five splats, and after a reload reads back as its own, in every store above; another faction's hit on painted paint makes it the hitter's
 //   rollback  main's build reading this code's saves: Rainbow's as its own; another faction's left out or read as Rainbow's, never as other paint
 //   spoiled   a tile's or a picture's code whose owners' part is broken: its paint read whole, Rainbow's, where it lost the whole tile or picture
+//   later     a later build's factions, 6 and 7, saved in these formats: each store reads them back as they are and saves them again, where they turned Rainbow's
 //   cost      what it costs: a blast drawn on the ground, a tile's code written and read (ms), a building's paint set (us), for the game as it is (Rainbow alone)
 //             and for five factions. Prints only: run it with --src at main's to compare
 // Life's movers aren't here: their paint is life's, and keeps its faction once C15 (docs/specs/factions/C15.md) is agreed.
@@ -53,7 +55,7 @@ const { PaintState } = PS;
 const { GroundPaint } = await import(SRC + 'world/GroundPaint.ts');
 const { MemoryStore } = await import(SRC + 'world/GeoPaint.ts');
 const { encodeMask, decodeMask } = await import(SRC + 'world/groundMask.ts');
-const { makeBlastSpec, specToArray, LAYOUT_BANDS } = await import(SRC + 'game/blastLayout.ts');
+const { makeBlastSpec, specToArray, specFromArray, LAYOUT_BANDS } = await import(SRC + 'game/blastLayout.ts');
 const { Splatter } = await import(SRC + 'game/Splat.ts');
 const { CraterPaint } = await import(SRC + 'moon/CraterPaint.ts');
 const { MoonPaint } = await import(SRC + 'sky/MoonPaint.ts');
@@ -298,8 +300,8 @@ const breathe = (sp, city, faction, x, z) => {
 if (!only || only === 'numbers') {
   const names = F ? F.FACTIONS.map((f) => `${f.id} ${f.name}`) : null;
   row('the five, named and numbered in one place (game/factions.ts)', !!F && F.FACTION_NONE === 0 && F.FACTIONS.length === 5 && F.FACTIONS.every((f, i) => f.id === i + 1) && new Set(F.FACTIONS.map((f) => f.key)).size === 5, names);
-  const read = F ? [undefined, null, 0, 1, 2, 3, 4, 5, 6, 7, 2.5, '3', NaN, -1].map((v) => F.ownerOf(v)) : null;
-  row('a record read: 1-5 its own, none or unknown Rainbow (undefined null 0 1-5 6 7 2.5 "3" NaN -1)', !!read && read.join() === '1,1,1,1,2,3,4,5,1,1,1,1,1,1', read);
+  const read = F ? [undefined, null, 0, 1, 2, 3, 4, 5, 6, 7, 8, 2.5, '3', NaN, -1].map((v) => F.ownerOf(v)) : null;
+  row('a record read: 1-7 its own, none or past the room Rainbow (undefined null 0 1-7 8 2.5 "3" NaN -1)', !!read && read.join() === '1,1,1,1,2,3,4,5,6,7,1,1,1,1,1', read);
 }
 
 // ---- gpu
@@ -307,7 +309,8 @@ if (!only || only === 'gpu') {
   const p = new PaintState(16, 'gpu_check', 'rank');
   const kept = PS.PAINT_KEPT ?? 2, out = [];
   let ok = true;
-  for (const f of [0, ...FIVE])
+  // (and a later build's two, 6 and 7, the room left)
+  for (const f of [0, ...FIVE, 6, 7])
     for (const keep of [false, true]) {
       const i = f * 2 + (keep ? 1 : 0);
       p.set(i, { faction: f, color: 2, level: 1, bloomTime: 0, keep });
@@ -685,6 +688,109 @@ if (!only || only === 'spoiled') {
   await moonBack(g3, mt);
   const mo = mt.flatMap(([a, b]) => texels(g3, a, b));
   row('the Moon\'s pictures, their owners\' part junk: their paint back, Rainbow\'s', broken > 0 && had > 0 && mo.length >= 0.95 * had && Object.keys(owners(mo)).join() === '1', { pictures: rows.size, broken, had, back: mo.length, owners: owners(mo) });
+}
+
+// ---- later
+if (!only || only === 'later') {
+  // what a build with a sixth and a seventh faction saves in these formats, read by this one, which has room for them and no name: kept as they are, through a
+  // reload and a save in every store, so a rollback or a stale build never makes them Rainbow's
+  // the buildings: one of 6's, one of 7's, and a Rainbow one hit again
+  mem.clear();
+  const bld = { 900001: [6, 2, 1], 900002: [7, 3, 2], 900003: [1, 0, 1] };
+  mem.set('strugglebus.paint.v3', JSON.stringify(bld));
+  const p = new PaintState(64, CITY);
+  Object.keys(bld).forEach((id, i) => p.register(i, Number(id)));
+  const got = [0, 1, 2].map((i) => p.get(i).faction), alpha = [0, 1, 2].map((i) => p.data[i * 4 + 3]);
+  p.set(2, { faction: 1, color: 0, level: 2, bloomTime: 0, keep: true });
+  p.persist();
+  const after = JSON.parse(mem.get('strugglebus.paint.v3'));
+  row('buildings of 6\'s and 7\'s: read back as theirs, the texture\'s too, and saved again', got.join() === '6,7,1' && alpha.join() === '6,7,1' && after[900001].join() === '6,2,1' && after[900002].join() === '7,3,2', { got, alpha, after });
+
+  // a ground tile: a patch of 6's and one of 7's, coded as that build would (main's colour part, then (faction, n - 1) runs over its painted pairs), a Rainbow blast after
+  mem.clear();
+  const d = new Uint8Array(N * N * 4);
+  for (let k = 0; k < 1000; k++) {
+    d[k * 4] = d[(2000 + k) * 4] = 255;
+    d[k * 4 + 1] = 2 * 32 + 14 + 2 * 6;
+    d[(2000 + k) * 4 + 1] = 3 * 32 + 14 + 2 * 7;
+  }
+  const colour = OLD.encodeMask(d), bin = atob(colour), own = [];
+  for (let i = 0, k = 0; i < bin.length; i += 2) {
+    if (bin.charCodeAt(i) >> 3) {
+      const f = ((d[k * 4 + 1] & 31) - 14) >> 1, last = own.length - 2;
+      if (last >= 0 && own[last] === f && own[last + 1] < 255) own[last + 1]++;
+      else own.push(f, 0);
+    }
+    k += bin.charCodeAt(i + 1) + 1;
+  }
+  const code = `${colour}~${btoa(String.fromCharCode(...own))}`;
+  mem.set('strugglebus.ground.v4:3,0', JSON.stringify({ t: 1, m: code, p: [] }));
+  const at = (g, k) => g.sample(3 * TS + ((k % N) + 0.5) * CELL, (Math.floor(k / N) + 0.5) * CELL)?.faction ?? null;
+  const g1 = new GroundPaint(TS, CITY);
+  g1.attach(3, 0, 3 * TS, 0, uni());
+  const read1 = [at(g1, 500), at(g1, 2500)];
+  g1.blast(spec(3 * TS + 200, 200, 30, 4), 0);
+  g1.persist();
+  const g2 = new GroundPaint(TS, CITY);
+  g2.attach(3, 0, 3 * TS, 0, uni());
+  settle(g2);
+  const read2 = [at(g2, 500), at(g2, 2500), at(g2, 100 * N + 100)];
+  row('a ground tile of 6\'s and 7\'s: theirs, and after a Rainbow blast on it saved and read again', read1.join() === '6,7' && read2.join() === '6,7,1', { read1, read2 });
+
+  // a blast of 6's kept for a tile that wasn't in: kept as 6's, and drawn as 6's when the tile comes
+  mem.clear();
+  const a6 = [...OLD.specToArray(spec(5 * TS + 100, 100, 50, 1)), 6], back6 = specToArray(specFromArray(a6));
+  mem.set('strugglebus.ground.v4:5,0', JSON.stringify({ t: 2, m: '', p: [a6] }));
+  const g3 = new GroundPaint(TS, CITY);
+  g3.attach(5, 0, 5 * TS, 0, uni());
+  settle(g3);
+  const drawn6 = g3.sample(5 * TS + 102, 102)?.faction ?? null;
+  row('a blast of 6\'s kept for a tile that wasn\'t in: kept as 6\'s, drawn as 6\'s', back6.length === 17 && back6[16] === 6 && drawn6 === 6, { kept: back6.length, faction: back6[16] ?? null, drawn: drawn6 });
+
+  // the Moon's pictures, by the journal: a blast of 7's that landed and wasn't in them when the page went, then those pictures on a page of their own
+  mem.clear();
+  const rows = new Map(), geo = geoAt(-20, 30), ll = [0, 0], j7 = spec(0, 0, 50, 3), mt = tilesAround(0, 0, 100);
+  geo.toLatLon(0, 0, ll);
+  mem.set('strugglebus.moonpaint.journal.v1', JSON.stringify({ pics: [], blasts: [[ll[0], ll[1], null, null, [...OLD.FIELDS.map((k) => j7[k]), 7]]] }));
+  const gm = await moonPage(rows);
+  await moonFrames(gm);
+  await moonBack(gm, mt);
+  const pic7 = gm.sample(2, 2)?.faction ?? null, named7 = [...rows.values()].filter(([, c]) => c.includes('~')).length;
+  mem.clear();
+  const gm2 = await moonPage(new Map(rows));
+  await moonFrames(gm2);
+  await moonBack(gm2, mt);
+  const pic7b = gm2.sample(2, 2)?.faction ?? null;
+  row('a Moon blast of 7\'s in the journal: drawn as 7\'s, and its pictures 7\'s on a page of their own', pic7 === 7 && named7 > 0 && pic7b === 7, { drawn: pic7, named: named7, again: pic7b });
+
+  // the Moon's craters, strokes and the orbit map's crater, 6's and 7's, and a Rainbow hit after
+  mem.clear();
+  mem.set('strugglebus.moon.craters.v1', JSON.stringify([['p1', 2, 3, 6], ['p2', 1, 0, 7], ['p5', 1, 4, 6]]));
+  mem.set('strugglebus.moon.strokes.v1', JSON.stringify([[-19.5, 30.5, 60, 2, 1.25, 6], [-19.4, 30.4, 90, 4, 3.5, 7]]));
+  const c = new CraterPaint(craterDeps()), t3 = c.named.find((n) => n.id === 'p3');
+  const read = [...c.recs.values()].map((r) => `${r.id}:${r.faction}`).sort(), sread = c.strokes.map((r) => r.faction);
+  c.impact({ spec: spec(t3.x, t3.z, 60, 0, 1), pos: { x: t3.x, y: 0, z: t3.z }, t: 1, count: 0, maxLevel: 1, strength: 1, dots: [], hose: false, primary: null, super: null, tag: t3 });
+  c.strokesDirty = true;
+  c.save();
+  const cr = JSON.parse(mem.get('strugglebus.moon.craters.v1')).map((r) => `${r[0]}:${r[3] ?? 1}`).sort(), st = JSON.parse(mem.get('strugglebus.moon.strokes.v1')).map((r) => r[5] ?? 1);
+  const low = JSON.parse(mem.get('strugglebus.moon.low.v1') ?? '[]');
+  row('the Moon\'s craters of 6\'s and 7\'s: theirs, and saved again after a Rainbow hit', read.join() === 'p1:6,p2:7,p5:6' && cr.join() === 'p1:6,p2:7,p3:1,p5:6', { read, saved: cr });
+  row('  its strokes, and the orbit map\'s crater (p5)', sread.join() === '6,7' && st.join() === '6,7' && low.length === 1 && low[0][5] === 6, { strokes: sread, saved: st, low });
+
+  // the Moon from orbit: a stroke of 6's at level 1 (51) and one of 7's at 3 (63), the orbit map's crater of 7's, and a Rainbow stroke after
+  for (const k of [...mem.keys()]) if (k.startsWith('strugglebus.moon.')) mem.delete(k);
+  mem.set('strugglebus.moon.v1.0', JSON.stringify([10, 20, 51, 6001, 10.2, 20, 63, 6007]));
+  mem.set('strugglebus.moon.low.v1', JSON.stringify([[-19.75, 30, 1, 1618578300, 9, 7]]));
+  const mp = new MoonPaint({ get: (k) => mem.get(k) ?? null, set: (k, v) => mem.set(k, String(v)) }, 1);
+  mp.load();
+  const lows = mp.queue.filter((s) => s.km !== undefined).map((s) => s.faction);
+  while (mp.rebuilding && !mp.rebuild(1e9, () => performance.now()));
+  const sk = mp.strokes.map((s) => `${s.faction}/${s.level}`), job = mp.begin(mp.strike(-30, 60), true);
+  mp.work(job, Infinity);
+  mp.settle(job);
+  mp.save();
+  const levels = JSON.parse(mem.get('strugglebus.moon.v1.0') ?? '[]').filter((_, i) => i % 4 === 2);
+  row('the Moon from orbit: 6\'s and 7\'s strokes and orbit crater theirs, and saved again after a Rainbow one', sk.join() === '6/1,7/3' && lows.join() === '7' && levels.join() === '51,63,1', { strokes: sk, lows, levels });
 }
 
 // ---- cost
