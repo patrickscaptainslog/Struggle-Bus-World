@@ -915,10 +915,13 @@ export const config = {
     close: 0.75,
     /** Motes in its streak over its whole flight, three times the Comet's time aloft and more (the Comet's 400). */
     motes: 700,
-    /** Its throw: a puff of this many motes of its paint off the mouth, up its way at about puffSpeed m/s, and the recoil's kick (config.comet.kickLight 1.2). */
-    puff: 28,
-    puffSpeed: 16,
-    kick: 0.8,
+    /** Its throw: a cloud of this many puffs of its paint out of the roof hatch at about puffSpeed m/s, each puffSize x a smoke puff's (CometFx.lobPuff), and
+     *  the bus dips this far (m) under it and back over dipTime s (main.ts): no hit-stop, no kick. */
+    puff: 16,
+    puffSpeed: 7,
+    puffSize: 2.4,
+    dip: 1.2,
+    dipTime: 0.45,
   },
 
   /** The Bomb (docs/specs/shots/SHOTS.md, "The modes"; src/game/Bomb.ts), behind &bomb: a still hold on the bus, then the lift. "2" is Bomb II's, "3" Bomb III's. */

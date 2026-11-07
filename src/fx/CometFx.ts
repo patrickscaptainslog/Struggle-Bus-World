@@ -283,13 +283,15 @@ registerWarm('comet', () => {
 });
 
 /** The sounds and the kick (main.ts): the launch's whoosh; the boom where it reaches the bus (soft: the lighter show's; moon: no air, a ground thump). A Lob's:
- *  its thunk and whistle over its `travel` s, and its whump (src/audio/lobSfx.ts). */
+ *  its thunk and whistle over its `travel` s, and its whump (src/audio/lobSfx.ts); its throw's dip of the bus, and where the bus's roof hatch is. */
 export interface CometSounds {
   launch(k: number): void;
   boom(k: number, soft: boolean, moon: boolean): void;
   kick(m: number): void;
   lob?(travel: number): void;
   whump?(k: number, moon: boolean): void;
+  dip?(): void;
+  hatch?(out: THREE.Vector3): THREE.Vector3;
 }
 
 interface Live {
@@ -338,6 +340,7 @@ export class CometFx {
   private readonly m = new THREE.Matrix4();
   private readonly p = new THREE.Vector3();
   private readonly q = new THREE.Vector3();
+  private readonly v = new THREE.Vector3();
   private readonly side = new THREE.Vector3();
   private readonly up = new THREE.Vector3();
 
@@ -635,18 +638,20 @@ export class CometFx {
     this.stats.motes += n + 1;
   }
 
-  /** A Lob leaving: a puff of its faction's paint thrown off the mouth up its way, and the recoil, a light kick (the outside look: two white sparkles over the
-   *  bus were all its throw had). The streak's motes, their one program. */
+  /** A Lob leaving: a cloud of its faction's paint out of the roof hatch, the mortar's smoke, and the bus dips under the throw (main.ts), no hit-stop and no
+   *  kick (the outside look: two white sparkles over the bus were all its throw had, then sparkles up its way, a stand-in). The particles' puffs, their one
+   *  program; at the mouth with no hatch given. */
   private lobPuff(c: Live) {
-    const L = config.lob, pal = this.particles.palette;
-    this.at(c, Math.min(1, 12 / Math.max(12, c.from.distanceTo(c.to))), this.q);
-    this.up.copy(this.q).sub(c.from).normalize();
+    const L = config.lob, pal = this.particles.palette, at = this.sounds.hatch ? this.sounds.hatch(this.q) : this.q.copy(c.from);
+    this.up.copy(c.to).sub(c.from).setY(0).normalize();
     for (let i = 0; i < L.puff; i++) {
-      const a = (i / L.puff) * Math.PI * 2, sp = L.puffSpeed * (0.4 + 0.6 * Math.random()), out = L.puffSpeed * 0.45;
-      this.particles.comet(c.from, this.up.x * sp + Math.cos(a) * out, this.up.y * sp + (Math.random() - 0.3) * out, this.up.z * sp + Math.sin(a) * out, pal[(c.hue + i) % 6], 4 + 2 * Math.random(), 0.45 + 0.35 * Math.random());
+      const a = (i / L.puff) * Math.PI * 2, out = L.puffSpeed * (0.35 + 0.4 * Math.random());
+      // (up and a little back off the way it flies, spread round: a cloud that rolls off behind the bus)
+      this.v.set(Math.cos(a) * out - this.up.x * L.puffSpeed * 0.3, L.puffSpeed * (0.5 + 0.5 * Math.random()), Math.sin(a) * out - this.up.z * L.puffSpeed * 0.3);
+      this.particles.puff(at, this.v, pal[(c.hue + i) % 6], L.puffSize * (0.7 + 0.6 * Math.random()));
     }
     this.stats.motes += L.puff;
-    this.sounds.kick(L.kick);
+    this.sounds.dip?.();
   }
 
   /** The arc at u (0 the mouth, 1 the landing). */

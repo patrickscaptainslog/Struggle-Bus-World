@@ -661,7 +661,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     return y > ground + 4 && city.overheadAt(x, z, ground + 1) <= y ? y - 0.5 : ground;
   };
   // the Comet's looks (src/fx/CometFx.ts): its streak, its pillar of paint light, drops on the lens and its late boom with the camera's kick
-  const cometFx = new CometFx(particles, { launch: (k) => audio.cometLaunch(k), boom: (k, soft, still) => audio.cometBoom(k, soft, still), kick: (m) => rig.kick(m), lob: (travel) => audio.lobLaunch(travel), whump: (k, still) => audio.lobWhump(k, still) }, mouthWorld);
+  const cometFx = new CometFx(particles, { launch: (k) => audio.cometLaunch(k), boom: (k, soft, still) => audio.cometBoom(k, soft, still), kick: (m) => rig.kick(m), lob: (travel) => audio.lobLaunch(travel), whump: (k, still) => audio.lobWhump(k, still), dip: () => (lobDipAt = simTime), hatch: (out) => bus.root.localToWorld(out.copy(bus.hatchLocal)) }, mouthWorld);
   cometFx.moon = !!moon;
   scene.add(cometFx.pillars, cometFx.drops);
   const cometBus = new THREE.Vector3();
@@ -1321,6 +1321,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const lobRing = { x: 0, y: 0, z: 0, r: 1, k: 0, until: -1 };
   const lobsUp: Array<{ x: number; y: number; z: number; r: number; from: number; until: number; hue: number }> = [];
   const lobOnto = { x: 0, y: 0, z: 0 };
+  /** when the last Lob left the mouth (game s): the bus's dip under its throw */
+  let lobDipAt = -1e9;
   /** where the view keeps a Lob in flight, and the bus, in the lens's space (the tip after its star) */
   const lobSeen = new THREE.Vector3(), lobBusSeen = new THREE.Vector3();
 
@@ -1755,6 +1757,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       bus.root.quaternion.slerpQuaternions(fromSky.busQuat, q, fromSky.t * fromSky.t * (3 - 2 * fromSky.t));
     }
     bus.root.position.set(flight.x, flight.y, flight.z).add(superSplat.shake).add(hose.shake);
+    // (a Lob's throw: the bus dips under it, quick down and eased back, its look alone)
+    {
+      const u = (simTime - lobDipAt) / config.lob.dipTime;
+      if (u >= 0 && u < 1) bus.root.position.y -= config.lob.dip * Math.min(1, u * 6) * (1 - u) * (1 - u);
+    }
     controls.afterPose(bus.root);
 
     // drop shadow on whatever is below: the roof of the part under the bus, else the street (under a deck, the water)
