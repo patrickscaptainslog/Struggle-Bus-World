@@ -1312,20 +1312,21 @@ void main() {
       }
     }
   }
-  // the Lob's ring where it will land (uBombRing.w under 0): dots of the same rows marching round it at their brightest, its band at least a game pixel
-  // either side however far off it is (a pixel's metres at that depth, uInvProj), so from the roofs a kilometre off it's a dotted oval on the skyline
-  if (uBombRing.w < -0.01 && outlineable && !fogged && !heroRamp) {
+  // the Lob's ring where it will land (uBombRing.w under 0): dots of the same rows marching round it, each a step over its row's rest, its band two game
+  // pixels either side on the screen however far off and however flat it lies (the ring's own gradient across the screen, fwidth, taken in a uniform
+  // branch: a band in metres was under a pixel tall a kilometre off from the roofs), through the fog and on the far field (no normal to face up with
+  // there): from the roofs it's a dotted oval on the skyline. (A depth edge's gradient is huge: the band never takes more than an eighth of the radius)
+  if (uBombRing.w < -0.01) {
     vec3 cfb = -normalize(vec3(uCamWorld[2].xyz));
-    float dz = depth / max(dot(dir, cfb), 0.05);
-    vec3 Pb = uCamPos + dir * dz;
+    vec3 Pb = uCamPos + dir * (depth / max(dot(dir, cfb), 0.05));
     vec2 bq = (Pb.xz - uBombRing.xy) / uBombRing.z;
-    float br = length(bq), bpx = depth * 2.0 * uInvProj[1][1] / uSize.y;
-    if (abs(br - 0.975) < max(0.03, 1.2 * bpx / uBombRing.z) && (mat3(uCamWorld) * octDecode(a.rg)).y > 0.5) {
-      float bn = max(12.0, floor(uBombRing.z * 0.42)), bs = atan(bq.y, bq.x) * 0.159155 * bn - uTime * 1.5;
-      if (fract(bs) < 0.55 && (uBombRing.w < -0.85 || ((int(gl_FragCoord.x) + int(gl_FragCoord.y)) & 1) == 0)) {
+    float br = length(bq), bw = min(fwidth(br), 0.125);
+    if (!heroRamp && abs(br - 0.975) < max(0.03, 2.0 * bw) && (!outlineable || (mat3(uCamWorld) * octDecode(a.rg)).y > 0.5)) {
+      float bn = max(12.0, floor(uBombRing.z * 0.32)), bs = atan(bq.y, bq.x) * 0.159155 * bn - uTime * 1.5;
+      if (fract(bs) < 0.6 && (uBombRing.w < -0.85 || ((int(gl_FragCoord.x) + int(gl_FragCoord.y)) & 1) == 0)) {
         vec3 brow = uBombRows[int(mod(floor(bs), 6.0))];
         oRamp = brow.x;
-        oStep = brow.z;
+        oStep = min(brow.z, brow.y + 1.0);
         col = pal(oRamp, oStep);
       }
     }
