@@ -737,6 +737,18 @@ export class GroundPaint {
     return this.land(this.begin(spec, tImpact));
   }
 
+  /**
+   * A small blast painted settled, now (Curb's lane behind the bus, a dab every few metres): no reveal and no live slot, so a breath on its way
+   * keeps its own and shows nothing early. Kept as any blast is.
+   */
+  dab(spec: BlastSpec): void {
+    if (this.onTilesTouched) {
+      const reach = spec.r * Math.max(spec.reach, spec.edge * (1 + spec.ragged) + spec.rayLen) + 4; // (as prepare)
+      this.onTilesTouched(this.tilesOf({ minX: spec.x - reach, minZ: spec.z - reach, maxX: spec.x + reach, maxZ: spec.z + reach }));
+    }
+    this.land({ spec, tImpact: 0, serial: null, p: null, tiles: [], only: null, under: false });
+  }
+
   /** Upload dirty masks (one texSubImage2D each); save changed tiles, one per frame, on a debounce. */
   flush(renderer: THREE.WebGLRenderer, dt: number) {
     const S = config.splat;

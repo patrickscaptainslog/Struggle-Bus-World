@@ -89,6 +89,8 @@ export class Aimer {
   shownSince = 0;
   /** how far off the nose the breath goes (rad, +right): the look's, per frame (main.ts) */
   lookYaw = 0;
+  /** Curb (main.ts, per frame): the side of the lane a tap's drive-by takes, +1 right, -1 left, 0 off the street. There the front that way glints, and no mover */
+  street = 0;
   /** the way the breath goes, flat: the nose, turned by the look */
   fx = 0;
   fz = 1;
@@ -300,6 +302,7 @@ export class Aimer {
       this.target = this.latchRef = this.wallRef = null;
       return this.noteShown(null);
     }
+    if (this.street !== 0) return this.noteShown(this.streetFront(f));
     this.point(f);
     const r = this.splatter.pickRadius(this.aim.drop);
     const k = this.aim.drop > 40 ? 1 + this.aim.drop / 150 : 1;
@@ -368,6 +371,32 @@ export class Aimer {
       if (ref && ref.roofY - ref.baseY >= S.minTargetHeight) return false;
     }
     return true;
+  }
+
+  /**
+   * Curb: the house front a drive-by takes, config.curb.front m to the street side and within frontR of there, the breath going that way. On the
+   * street there's no wall in the line of fire to find (every front is one), no latch and no mover: the car beside is the drive-by's own (main.ts).
+   */
+  private streetFront(f: Flight): BuildingRef | null {
+    const K = config.curb, s = this.street, aim = this.aim;
+    this.wallRef = this.latchRef = null;
+    this.mover = this.moverLatch = null;
+    this.life?.glint(null);
+    const sx = -f.fz * s, sz = f.fx * s, x = f.x + sx * K.front, z = f.z + sz * K.front;
+    this.target = this.city.nearestBuilding(x, z, K.frontR, config.splat.minTargetHeight, f.y);
+    this.x0 = f.x;
+    this.y0 = f.y;
+    this.z0 = f.z;
+    this.fx = sx;
+    this.fz = sz;
+    aim.x = x;
+    aim.z = z;
+    aim.y = this.city.groundAt(x, z);
+    aim.dist = K.front;
+    aim.drop = 0;
+    aim.wall = false;
+    aim.travel = this.travelFor(aim.dist, f.ground);
+    return this.target;
   }
 
   /** A touch went down that may become a tap: freeze what glints (taps fire on the lift). */

@@ -99,6 +99,8 @@ export interface BarfOpts {
   /** ?life: a mover it hits (src/life): the blast is in the air at (x, opts.y, z), and paints no building and no ground; `moverFresh`, it took the breath's hue */
   mover?: { x: number; y: number; z: number };
   moverFresh?: boolean;
+  /** Curb's drive-by: only buildings on this side of the lane bloom (their middles past the line through (x, z), along its normal (nx, nz)) */
+  side?: { x: number; z: number; nx: number; nz: number };
 }
 
 /** BarfOpts.bands */
@@ -153,6 +155,10 @@ export class Splatter {
   /** The hue the next fresh hit takes (?life: a mover hit takes it, main.ts). */
   get hueNext(): number {
     return this.nextHue;
+  }
+  /** ?life, Curb: a car took hueNext fresh with no breath of this splatter's (painted riding beside it, or the drive-by's): the next one moves on. */
+  dealHue(): void {
+    this.nextHue = (this.nextHue + 1) % HUE_COUNT;
   }
   private queue: Scheduled[] = [];
   private pending: PendingBlast[] = [];
@@ -257,10 +263,13 @@ export class Splatter {
     const near = city.buildingsWithin(cx, cz, r + S.smallRad, this.near);
     const reach = this.reachList;
     reach.length = 0;
+    const side = opts?.side;
     for (const n of near) {
       // (a landmark standing wholly over the bus where the breath comes down, a deck seen from under, is out of its reach, as `from` keeps the landing off it: a
       // breath from under the Golden Gate into the water no longer takes the bridge up a level. Seen from its height or above, it's in reach as it always was)
       if (n.ref !== primary && city.lmOverhead(n.ref, cx, cz, from)) continue;
+      // (Curb's drive-by: the fronts on the side it looks, not the street's other side)
+      if (side && n.ref !== primary && (n.ref.cx - side.x) * side.nx + (n.ref.cz - side.z) * side.nz < 0) continue;
       const e = n.ref.rad <= S.smallRad ? Math.hypot(n.ref.cx - cx, n.ref.cz - cz) - 0.55 * Math.sqrt(n.ref.area) : n.d;
       if (e <= r) reach.push({ ref: n.ref, d: n.d, e: n.ref === primary ? -1e9 : e });
     }

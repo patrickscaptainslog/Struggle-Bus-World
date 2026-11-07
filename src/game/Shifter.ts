@@ -17,6 +17,7 @@ import { inputTune } from './Input';
 //    the gate's one rule stands: no gear under it, and it says so.)
 //  - Under Cruise, a flick down is School Zone, the hover (GEARS.md), and a flick up from it is Cruise. Not under the
 //    gate: the opening's glide is the low shot's, so a flick down there with nothing waiting still does what it always did.
+//    In School Zone a flick down asks Curb to land (?life, TurboDrive.onCurb), and a flick up off Curb is School Zone.
 
 export type ShiftAnswer =
   /** a flick up: a rung goes, now */

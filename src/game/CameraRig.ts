@@ -109,6 +109,14 @@ export class CameraRig {
   zoneIn = 0;
   /** ?streetcam (StreetCam.ts): the lens at street height behind a bus set down on a road, instead of the chase. Null: the chase */
   street: { back: number; eye: number; ahead: number; at: number; hfov: number; floor: (x: number, z: number) => number } | null = null;
+  /** Curb (CurbFlight, per frame): 1 brings the lens down to the kerb chase, `curbLens` (back, eye over the road, ahead, at, width; the road is
+   *  config.curb.ride under the bus), never under `curbFloor` + config.curb.camFloor; curbIn is where it is now, eased in and out */
+  curb = 0;
+  curbIn = 0;
+  curbLens: { back: number; eye: number; ahead: number; at: number; fov: number } | null = null;
+  curbFloor: ((x: number, z: number) => number) | null = null;
+  private readonly curbPos = new THREE.Vector3();
+  private readonly curbLook = new THREE.Vector3();
   /** The live sky's lift (SKY.md 4.15): the view tips up toward this (deg), eased, and holds there; skyLift is where it is now */
   skyLiftTarget = 0;
   skyLift = 0;
@@ -299,6 +307,21 @@ export class CameraRig {
     const dl2 = Math.max(0, lift) - this.skyLift;
     this.skyLift = Math.abs(dl2) < 0.02 ? Math.max(0, lift) : this.skyLift + dl2 * (1 - Math.exp(-config.sky.liftRate * dt));
     if (this.skyLift !== 0) cam.rotateX(THREE.MathUtils.degToRad(this.skyLift));
+    // Curb: the chase comes down to the kerb, a dolly with no cut, on the rig's own yaw so a turn still sweeps; out again, a crane up to the chase
+    const dc = this.curb - this.curbIn;
+    this.curbIn = Math.abs(dc) < 1e-3 ? this.curb : this.curbIn + dc * (1 - Math.exp(-(dc > 0 ? config.curb.camIn : config.curb.camOut) * dt));
+    if (this.curbIn > 0 && this.curbLens) {
+      const L = this.curbLens, e = smooth01(0, 1, this.curbIn), road = bus.y - config.curb.ride;
+      const p = this.curbPos.set(bus.x - fx * L.back, road + L.eye, bus.z - fz * L.back);
+      if (this.curbFloor) p.y = Math.max(p.y, this.curbFloor(p.x, p.z) + config.curb.camFloor);
+      // (from the chase as it stands: its place, and a look point as far along its view as the bus is from it)
+      const chase = cam.getWorldDirection(this.curbLook).multiplyScalar(cam.position.distanceTo(bus)).add(cam.position);
+      chase.lerp(this.lookTarget.set(bus.x + fx * L.ahead, road + L.at, bus.z + fz * L.ahead), e);
+      cam.position.lerp(p, e);
+      cam.up.set(0, 1, 0);
+      cam.lookAt(chase);
+      this.hfov += (L.fov - this.hfov) * e;
+    }
     if (this.street) {
       // ?streetcam: the lens stands behind the bus at street height (the road is 4 m under the bus), looking down the road
       const S = this.street;
@@ -310,7 +333,7 @@ export class CameraRig {
       cam.lookAt(this.look);
       this.hfov = S.hfov;
     }
-    this.distance = this.pos.distanceTo(bus);
+    this.distance = this.curbIn > 0 ? cam.position.distanceTo(bus) : this.pos.distanceTo(bus);
     focusOut.copy(bus);
     this.applyLook(cam, bus);
     if (this.lookInLow && this.liftClamp && (this.lookYaw.x !== 0 || this.lookPitch.x !== 0)) {

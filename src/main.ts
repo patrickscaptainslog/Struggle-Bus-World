@@ -16,10 +16,13 @@ import { FACTIONS } from './game/factions';
 import { Aimer, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
 import { ownerOf } from './game/factions';
-import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blastLayout';
+import { arrival, blastRadiusFor, blobFlight, LAYOUT_BANDS, makeBlastSpec } from './game/blastLayout';
 import { Input, inputTune } from './game/Input';
 import { Controls } from './game/Controls';
 import { StreetCam } from './game/StreetCam';
+import { CurbFlight, type CurbEvent } from './game/CurbFlight';
+import { curbBoing, curbChirp, curbTicks, curbToot } from './audio/curbSfx';
+import { LOOKAHEAD } from './audio/dsp';
 import { WARP } from './game/Turbo';
 import { BusModel, busTune, type BusPose } from './bus/BusModel';
 import { Particles } from './fx/Particles';
@@ -929,6 +932,22 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     return true;
   }
 
+  /** ?life: Curb, the rung under School Zone, on life's lane (src/game/CurbFlight.ts; made once life is up). Null: no life, no Curb */
+  let curbFlight: CurbFlight | null = null;
+  const curbStick = { sx: 0, sy: 0, dragging: false };
+  /** Curb's drive-by, a tap on the street: the car beside the bus takes the breath at its impact (fresh, the next hue moves on), and the fronts bloom on
+   *  the side the breath went (Aimer.street), the street's other side left alone: the half-plane it hands the splatter. */
+  const bySide = { x: 0, z: 0, nx: 0, nz: 0 };
+  const curbDriveBy = (shot: Shot) => {
+    const key = life?.curb.beside;
+    if (key && life!.hit(key, splatter.hueNext, skyClock.now(), simTime + config.splat.inhale + shot.travel, splatter.faction)) splatter.dealHue();
+    const s = curbFlight!.side;
+    bySide.x = flight.x;
+    bySide.z = flight.z;
+    bySide.nx = -flight.fz * s;
+    bySide.nz = flight.fx * s;
+    return bySide;
+  };
   /** What a super splat's mega blast adds to a breath. */
   type MegaBreath = { radius: number; width: number; hitStop: number; tag: SuperTag };
   // Dragon breath aim (src/game/Aim.ts): the building that glints is the one a tap hits.
@@ -943,7 +962,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       // (?life: a breath at a mover paints the mover, at the impact's game time, and nothing under it. CONTRACT.md section 3)
       const mover = shot.mover && life ? shot.mover : null;
       const moverFresh = mover ? life!.hit(mover.key, splatter.hueNext, skyClock.now(), simTime + config.splat.inhale + shot.travel, splatter.faction) : false;
-      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: flight.y, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, ...moonPaint?.barf(shot, !!mega), ...(mover ? { mover, moverFresh } : {}) });
+      // (Curb's drive-by: the car beside takes it too, and the fronts on the side it looks, that side only)
+      const by = curbFlight?.state === 'on' && !mega ? curbDriveBy(shot) : null;
+      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: flight.y, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, ...moonPaint?.barf(shot, !!mega), ...(mover ? { mover, moverFresh } : {}), ...(by ? { radius: config.curb.byR, side: by } : {}) });
     } finally {
       breathTravel = null;
       breathWidth = 1;
@@ -1074,7 +1095,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // (the charge's press: Input decides what a hold is, on MEGA or Space. Held past the threshold it charges; let go
   // under superMin it is still a splat, so no press is ever dead)
   input.onChargeStart = () => {
-    if (tuner.visible) return;
+    // (MEGA is off on the street: the plan's, SHOTS.md "MEGA off")
+    if (tuner.visible || curbFlight?.rolling) return;
     superSplat.chargeStart(input.state.chargeHeld);
     if (superSplat.phase === 'charging') {
       // (the line that teaches the hold ends the moment it is learned)
@@ -1168,6 +1190,65 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     : null;
   // (and the aim asks it for a mover on the line of fire)
   if (life) aimer.life = life;
+  if (life) {
+    // (Curb, on life's lane: the landing, the roll and its paint, src/game/CurbFlight.ts. Off under the opening's gate, the street preview, a match, the Moon)
+    let curbHue = 0, curbSeed = 0x6a09e667;
+    const curbAt = new THREE.Vector3();
+    const curbVel = new THREE.Vector3();
+    const kit = () => audio.voiceKit();
+    const curbEvent = (ev: CurbEvent, k: number) => {
+      const a = kit(), t = a ? a.ctx.currentTime + LOOKAHEAD : 0;
+      if (ev === 'land') curbHue = splatter.hueNext;
+      else if (ev === 'touch') {
+        // (the tyres: a chirp, louder off a faster arc, the springs' squash, a puff of dust at each wheel, a jolt)
+        if (a) curbChirp(a, t, clamp(k / 8, 0, 1));
+        pose.squash = Math.min(pose.squash, 0.86);
+        squashV = 0;
+        rig.kick(0.4);
+        for (let i = 0; i < 4; i++) {
+          bus.root.localToWorld(curbAt.set(i & 1 ? 1.6 : -1.6, -2.4, i & 2 ? 3.9 : -7.2));
+          particles.puff(curbAt, curbVel.set((i & 1 ? 1 : -1) * 1.5 * Math.cos(flight.heading), 0.6, (i & 1 ? 1 : -1) * 1.5 * Math.sin(flight.heading)));
+        }
+      } else if (ev === 'none') {
+        if (a) curbBoing(a, t);
+        pose.squash = Math.min(pose.squash, 0.84);
+        squashV = 0;
+        controls.noStreet();
+      } else if (ev === 'pass') {
+        if (a) curbToot(a, t);
+      } else if (ev === 'turn') {
+        if (a) curbTicks(a, t);
+      }
+    };
+    curbFlight = new CurbFlight(flight, controls.turbo, rig, life, city, {
+      hint: (learn) => controls.curbHint(learn),
+      event: curbEvent,
+      // (the lane paints itself: a small dab every few metres, in rainbow rings round where the wheels came down, the splatter's faction's)
+      dab: (x, z, ox, oz) => {
+        const K = config.curb;
+        curbSeed = (Math.imul(curbSeed ^ 0x2545f491, 0x9e3779b1) + 0x7f4a7c15) >>> 0;
+        const spec = makeBlastSpec(x, z, K.dabR, curbHue, curbSeed);
+        spec.layout = LAYOUT_BANDS;
+        spec.ring = K.dabRing;
+        spec.ox = ox;
+        spec.oz = oz;
+        spec.rays = 0;
+        spec.rayLen = 0;
+        spec.dots = 0;
+        spec.blobs = 0;
+        spec.faction = splatter.faction;
+        city.ground.dab(spec);
+      },
+    }, { off: () => controls.gearsLocked || !!streetCam || params.has('recess') || !!moon, wide: params.get('curblens') === 'wide', rear: bus.length * 0.5 + config.curb.dabR });
+    // (riding beside a car 1.5 s paints it: life says which, the caller paints it. Its place isn't said yet, so the splash is at the bus's side: docs/TODO.md's H4)
+    life.curb.onBeside = (key) => {
+      const fresh = life.hit(key, splatter.hueNext, skyClock.now(), simTime, splatter.faction);
+      const hue = splatter.hueNext;
+      if (fresh) splatter.dealHue();
+      particles.splash(curbAt.set(flight.x + flight.fz * 3.2, flight.y, flight.z - flight.fx * 3.2), hue, 0.6);
+      audio.bloomBurst(1, hue, 1);
+    };
+  }
   warm.sourcesOpen = true;
   warm.addSources();
   warm.add(scene);
@@ -1418,7 +1499,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const pastMap = floorPastMap(ex + ez);
     if (pastMap > 0) flight.turbo.floor = Math.max(flight.turbo.floor, pastMap);
     const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
-    for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || leaving || sx !== st.stretch.x }, city);
+    // (?life, Curb: on the street life's lane has the bus instead of the flight's steps; the wheels going up hand it back this frame)
+    curbStick.sx = sx;
+    curbStick.sy = sy;
+    curbStick.dragging = dragging || leaving || sx !== st.stretch.x;
+    if (curbFlight?.rolling) curbFlight.roll(dt, curbStick);
+    if (!curbFlight?.rolling) for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || leaving || sx !== st.stretch.x }, city);
+    curbFlight?.watch(dt, curbStick);
     streetCam?.hold(flight, city);
     // QA: the bus held at a pose, for a look at something from one place
     if (qa?.pin) Object.assign(flight, qa.pin);
@@ -1494,6 +1581,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // the look runs on the wall clock (a hit-stop doesn't stall it), and the aim turns with it
     rig.setLook(st.look.on, st.look.x, st.look.y, realDt);
     aimer.lookYaw = rig.aimYaw;
+    // (on the street a tap is a drive-by on the side the look is, else the kerb's)
+    aimer.street = curbFlight?.state === 'on' ? curbFlight.side : 0;
     // aim glint on the building a tap would hit (picked every frame), only while a breath is loaded
     // (a committed thumb thaws the glint, as keys and a QA stick do; and a press that fires on its lift
     // keeps what it froze, whatever else is steering)
@@ -1627,8 +1716,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (puffTimer <= 0 && dt > 0) {
       puffTimer = (0.35 + 0.9 * (1 - flight.fullness) + Math.random() * 0.25) * (1 - 0.7 * flight.strain);
       bus.root.localToWorld(puffPos.copy(bus.exhaustLocal));
-      puffVel.set(-flight.fx * 4 + (Math.random() - 0.5) * 2, 1.2 + Math.random(), -flight.fz * 4 + (Math.random() - 0.5) * 2);
-      particles.puff(puffPos, puffVel);
+      // (on the street a wisp, half the size and rising, left where it was breathed out: from the kerb chase the flying puff was a grey disc)
+      if (curbFlight?.rolling) puffVel.set((Math.random() - 0.5) * 0.6, 2.5, (Math.random() - 0.5) * 0.6);
+      else puffVel.set(-flight.fx * 4 + (Math.random() - 0.5) * 2, 1.2 + Math.random(), -flight.fz * 4 + (Math.random() - 0.5) * 2);
+      particles.puff(puffPos, puffVel, undefined, curbFlight?.rolling ? 0.5 : 1);
     }
     particles.update(dt);
     // (?moon: a place the bus has come to says so)
@@ -1949,6 +2040,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const lose = renderer.getContext().getExtension('WEBGL_lose_context');
     (window as unknown as Record<string, unknown>).__game = {
       flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: live ?? hour, moon, life, lift,
+      /** QA, ?life: Curb (src/game/CurbFlight.ts): its state and its qa */
+      get curb() {
+        return curbFlight;
+      },
       /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
       get warm() {
         return warm;

@@ -529,6 +529,12 @@ export class TurboFx {
     } else if (ev === 'unzone') {
       rig.kick(0.6);
       this.backfire(bus, f, 4);
+    } else if (ev === 'curb') {
+      // (down onto the street: the engine coughs into the road's gear; the touchdown's own jolt is Curb's, at the wheels)
+      this.backfire(bus, f, 2);
+    } else if (ev === 'uncurb') {
+      rig.kick(0.6);
+      this.backfire(bus, f, 4);
     }
   }
 

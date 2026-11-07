@@ -1,5 +1,5 @@
 import { config } from '../config';
-import { clamp, spring } from './springs';
+import { angleDelta, clamp, spring } from './springs';
 
 const ss = (a: number, b: number, x: number) => {
   const t = clamp((x - a) / (b - a), 0, 1);
@@ -28,6 +28,9 @@ const ss = (a: number, b: number, x: number) => {
 // floor, the ceiling and a deck overhead hold as anywhere; no tower pushes the yaw, since nothing is going anywhere:
 // a wall it can't take in a step stops the drift short of it instead (wallAhead), and a pull climbs it. A tap's
 // breath halves the turn as in every gear, and a lone flick's stroke gives its pull back as at Cruise.
+//
+// Curb (src/game/CurbFlight.ts, ?life): on the street ride() has the bus instead of step(), where life's lane puts it,
+// and leaves everything as if it skimmed there, so step() takes it back with nothing jumping.
 //
 // heading: compass radians (0 = north = -Z, +pi/2 = east = +X).
 
@@ -147,6 +150,9 @@ export class Flight {
   };
   /** School Zone's hover is flying the bus (it was last step) */
   hovering = false;
+  /** Curb's dive (CurbFlight, ?life): the road under the bus while the stick is held pushed low over it (m ASL), and the floor comes down to it,
+   *  config.curb.dip over it, whatever holds it up ahead. NaN: none, the floor as ever */
+  street = NaN;
 
   get fx() {
     return Math.sin(this.heading);
@@ -216,20 +222,7 @@ export class Flight {
     this.t += dt;
 
     // ---- belly + barf rhythm
-    if (this.barfT >= 0) {
-      this.barfT += dt;
-      if (this.barfT >= S.duration) {
-        // release: recoil up, zip off lighter
-        this.barfT = -1;
-        this.vy += S.recoilUp;
-        this.relief = S.reliefSeconds;
-        this.fullness = clamp(this.refund, 0, 1);
-        this.refund = 0;
-      }
-    } else if (this.fullness < 1) {
-      this.fullness = Math.min(1, this.fullness + dt / Math.max(0.05, S.recharge));
-    }
-    if (this.relief > 0) this.relief = Math.max(0, this.relief - dt);
+    this.breathClock(dt);
     const reliefK = this.relief > 0 ? this.relief / S.reliefSeconds : 0;
     // the belly drains over the breath (the sag lifts as it pours out, no 6 m hop on the tap frame)
     const drain = this.barfT >= 0 ? 1 - ss(S.inhale, S.duration, this.barfT) : 1;
@@ -351,7 +344,8 @@ export class Flight {
     const over = world.overheadAt ? world.overheadAt(this.x, this.z, this.y) : Infinity;
     // (a turbo gear's floor sits above the rooftops: the bus rides it like a higher roof; nothing, not a gear and not a tower
     // in the look-ahead, lifts it into a deck: what it can't climb under one, underDeck() steers it around)
-    const floor = Math.min(Math.max(roofFloor, Tb.floor), over - DECK_GAP);
+    // (and Curb's dive held over a road takes it down to the street)
+    const floor = Math.min(Math.max(roofFloor, Tb.floor), over - DECK_GAP, Number.isNaN(this.street) ? Infinity : this.street + config.curb.dip);
     this.floorY = floor;
     // the vertical spring chases a floor whose rises are eased (a roof edge entering the look-ahead
     // steps it by whole storeys; chased raw, that kicked vy by up to 30 m/s in one frame); it falls at once
@@ -544,6 +538,81 @@ export class Flight {
     const lean = hover ? (Z.leanUp * pull - Z.leanDown * push + Z.swayPitch * Math.sin(this.t * Math.PI * 2 * Z.bobHz + 1.2)) * DEG : 0;
     const pitchTarget = Math.min((hover ? lean : climb) + rear, pitchMax);
     this.pitch += (pitchTarget - this.pitch) * (1 - Math.exp(-(this.barfing ? 10 : 5) * dt));
+  }
+
+  /** The belly's clock: a breath runs out (its recoil up, the relief), and an empty belly fills. */
+  private breathClock(dt: number) {
+    const S = config.splat;
+    if (this.barfT >= 0) {
+      this.barfT += dt;
+      if (this.barfT >= S.duration) {
+        // release: recoil up, zip off lighter
+        this.barfT = -1;
+        this.vy += S.recoilUp;
+        this.relief = S.reliefSeconds;
+        this.fullness = clamp(this.refund, 0, 1);
+        this.refund = 0;
+      }
+    } else if (this.fullness < 1) {
+      this.fullness = Math.min(1, this.fullness + dt / Math.max(0.05, S.recharge));
+    }
+    if (this.relief > 0) this.relief = Math.max(0, this.relief - dt);
+  }
+
+  /**
+   * Curb (CurbFlight): one frame on the street, instead of step(). `p` is where the bus's middle is to be (on the lane, or the arc down to it), its
+   * heading and its speed along the lane; `push` is the stick's, for the engine. The heading follows on a spring, since the lane turns in 4 m steps;
+   * the bus banks into a turn, pitches with the road and rears on a breath (a wheelie), and the belly's clock runs as in flight. Everything step()
+   * reads is left as if the bus skimmed here (the floor, no hold, off the path, out of the hover), so step() takes it back with nothing jumping.
+   */
+  ride(dt: number, p: { x: number; y: number; z: number; heading: number; speed: number }, push: number, world: WorldQuery) {
+    const F = config.flight, S = config.splat, C = config.curb;
+    this.t += dt;
+    this.breathClock(dt);
+    const drain = this.barfT >= 0 ? 1 - ss(S.inhale, S.duration, this.barfT) : 1;
+    this.belly = this.fullness * drain;
+    const y0 = this.y;
+    this.x = p.x;
+    this.y = p.y;
+    this.z = p.z;
+    this.vy = dt > 0 ? (p.y - y0) / dt : 0;
+    const dh = angleDelta(this.heading, p.heading), k = 1 - Math.exp(-C.turnRate * dt);
+    this.yawRate = dt > 0 ? (dh * k) / dt : 0;
+    this.yawAcc = 0;
+    this.heading += dh * k;
+    this.speed = p.speed;
+    this.surge = push;
+    this.glideSpeed = 0;
+    // (as if it skimmed here: step() finds the floor under it and no hold, off the path and out of the hover, and its floor's rise starts again)
+    this.onPath = false;
+    this.pathVy = 0;
+    this.holdY = -Infinity;
+    this.holdBefore = -Infinity;
+    this.unpulled = false;
+    this.hovering = false;
+    this.mode = Yoke.Floor;
+    this.vyYoke = this.vy;
+    this.targetY = this.y;
+    this.floorRise = NaN;
+    this.groundUnder = world.groundAt(this.x, this.z);
+    this.obstacleUnder = world.obstacleAt(this.x, this.z, this.y);
+    this.street = NaN;
+    const belly = F.lightLift * (1 - this.belly) - F.fullSag * this.belly;
+    this.floorY = this.obstacleUnder + F.clearance + belly;
+    this.floorSmooth = this.floorY;
+    this.lift = 0;
+    const B = 220;
+    const gb = (this.groundUnder + world.groundAt(this.x + B, this.z) + world.groundAt(this.x - B, this.z) + world.groundAt(this.x, this.z + B) + world.groundAt(this.x, this.z - B)) / 5;
+    this.groundBroad = Number.isNaN(this.groundBroad) ? gb : this.groundBroad + (gb - this.groundBroad) * (1 - Math.exp(-0.5 * dt));
+    this.height = Math.max(0, this.y - this.groundBroad);
+    this.strain += (0 - this.strain) * (1 - Math.exp(-3 * dt));
+    this.nose = Math.atan2(this.vy, Math.max(this.speed, 1));
+    // (a bus on its wheels leans into a turn a little, and rides the road's grade; a breath rears it onto its back wheels)
+    const mb = Math.max(0.01, C.bankMax * DEG);
+    [this.bank, this.bankVel] = spring(this.bank, this.bankVel, mb * Math.tanh((this.speed * this.yawRate * C.bankPer) / mb), F.bankHz, F.bankDamping, dt);
+    const grade = Math.atan2(this.vy, Math.max(this.speed, 4));
+    const rear = this.barfing ? S.rearUp * ss(0, 0.1, this.barfT) * (1 - ss(0.6, S.duration, this.barfT)) : 0;
+    this.pitch += (Math.min(grade + rear, F.pitchMax * DEG) - this.pitch) * (1 - Math.exp(-(this.barfing ? 10 : 5) * dt));
   }
 
   /** The hover's wall: how far ahead (m, out to `reach`) a roof stands that would lift the bus more than config.zone.wall, along its

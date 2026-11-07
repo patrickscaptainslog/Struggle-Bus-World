@@ -2376,6 +2376,19 @@ export class City {
     this.areaCells(ref, true);
   }
 
+  /** A bridge deck's roadway under (x, z), below fromY (m: a deck post's hard floor, less its 1.5 m), or -Infinity. Curb lands on a deck as on a street. */
+  roadwayAt(x: number, z: number, fromY: number): number {
+    const l = this.posts.size ? this.posts.get((Math.floor(x / 64) + 4096) * 8192 + (Math.floor(z / 64) + 4096)) : undefined;
+    let road = -Infinity;
+    if (l)
+      for (const p of l) {
+        if (p.hard === undefined) continue;
+        const r = p.hard - 1.5;
+        if (r < fromY && r > road && (x - p.x) * (x - p.x) + (z - p.z) * (z - p.z) < p.r * p.r) road = r;
+      }
+    return road;
+  }
+
   /** Lowest underside of a deck overhead (above fromY) at a point, or Infinity: a climb stops under it. */
   overheadAt(x: number, z: number, fromY: number): number {
     const l = this.posts.size ? this.posts.get((Math.floor(x / 64) + 4096) * 8192 + (Math.floor(z / 64) + 4096)) : undefined;

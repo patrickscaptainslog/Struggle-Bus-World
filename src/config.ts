@@ -499,6 +499,79 @@ export const config = {
     still: 2.5,
   },
 
+  /** Curb, the rung under School Zone (docs/specs/shots/SHOTS.md, "Curb: cruising beside the cars"; CURB.md): the wheels on the street beside
+   *  the cars, on life's lane (src/life/Curb.ts), with no steering. ?life only: with no life there's no Curb. */
+  curb: {
+    /** The band: low over a road at School Zone, Cruise or Express, at most `over` m over it (skimming, the floor over a street is 7 to 28 m, by
+     *  the trees and roofs beside it and the belly), the road going on `ahead` m (a street crossed square isn't one), the push past the dead band
+     *  at least `push`, held `hold` s (a crossing's cell may break it for `grace` s) lands. While it's held the floor comes down to `dip` m over
+     *  the road: the dive to the street. The first time the bus is in the band `hintAfter` s, the hint. */
+    over: 30,
+    ahead: 15,
+    dip: 5,
+    push: 0.25,
+    hold: 0.5,
+    grace: 0.15,
+    hintAfter: 0.3,
+    /** How long the hint and FIND A STREET stay up (s). */
+    hintFor: 3.2,
+    noneFor: 1.8,
+    /** The surge down a street lands (false), or only a dive from a held height and School Zone's sink (true): the producer's call on the phone. */
+    diveOnly: false,
+    /** In School Zone a flick down lands from at most this high over the ground (m); the lane is the worker's to find, within 80 m. */
+    flickOver: 150,
+    /** No answer from life in this long is no street (s). */
+    askFor: 1.2,
+    /** The bus's middle over the lane (m): its tyres on the asphalt (BusModel's at its 1.6 scale stand 2.53 m under its middle; StreetCam's 4 m floats them). */
+    ride: 2.55,
+    /** The arc down onto the lane: T = clamp(arcBase + |offset| / arcPer, arcBase, arcMax) s. */
+    arcBase: 0.45,
+    arcPer: 45,
+    arcMax: 1.8,
+    /** The heading follows the lane's 4 m steps on a spring this fast (1/s), banking into the turns at this much per (rad/s * m/s), at most `bankMax` deg. */
+    turnRate: 6,
+    bankPer: 0.02,
+    bankMax: 9,
+    /** Off: the stick pulled past `pullOff` for `pullFor` s (a flick's stroke is shorter), or a flick up. Leaving lifts vy by `leaveVy` m/s and lands
+     *  nothing for `quiet` s; a bounce (no street) by `bounceVy`, `bounceQuiet` s. */
+    pullOff: 0.5,
+    pullFor: 0.25,
+    leaveVy: 3,
+    quiet: 1,
+    bounceVy: 5,
+    bounceQuiet: 2,
+    /** The look past `lookDeg` held `lookFor` s takes the next junction its way. */
+    lookDeg: 20,
+    lookFor: 0.25,
+    /** The kerb chase (GEARS.md's chase lens): back, eye height over the road, how far ahead it looks and at what height (m), its width (deg);
+     *  &curblens=wide the ride-along. In at `camIn`, out at `camOut` (1/s); never under the road or a deck + `camFloor` m. */
+    camBack: 34,
+    camEye: 7.5,
+    camAhead: 90,
+    camAt: 3.5,
+    camFov: 34,
+    wideBack: 16,
+    wideEye: 3.2,
+    wideAhead: 60,
+    wideAt: 3,
+    wideFov: 58,
+    camIn: 1.2,
+    camOut: 1.2,
+    camFloor: 2.5,
+    /** The lane paints itself: a dab every `dabEvery` m behind the rear bumper, `dabR` m across, in rainbow rings `dabRing` m wide round the landing. */
+    dabEvery: 3,
+    dabR: 2.2,
+    dabRing: 14,
+    /** The drive-by: the look past `sideDeg` picks its side, else the kerb's; the front `front` m that way within `frontR` m glints, and the
+     *  breath there is `byR` m across, on that side of the lane only. */
+    sideDeg: 25,
+    front: 12,
+    frontR: 16,
+    byR: 24,
+    /** Two toots passing a car, at most every `tootEvery` s. */
+    tootEvery: 2,
+  },
+
   /** What height changes (src/game/Ascent.ts; docs/specs/flight/ASCENT.md for how it runs on to the Moon). */
   ascent: {
     /** From this height above the ground (m) the map's edge gives way: the bus may go this many metres further out per metre of height, up to reachMax (m)

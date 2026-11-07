@@ -16,7 +16,8 @@
 //
 // No DOM: it reads a frame's facts and leaves what is due in its fields.
 
-export const TAUGHT = { tap: 1, drag: 2, mega: 8, thumbs: 32 } as const;
+/** (curb: Curb's one-time hint, the first time the bus is low over a road, Controls.curbHint: not a first-run cue, so ?skipintro shows it) */
+export const TAUGHT = { tap: 1, drag: 2, mega: 8, thumbs: 32, curb: 64 } as const;
 
 /** The hint, a beat after the fog has lifted (s). */
 const HINT_AFTER = 0.7;
