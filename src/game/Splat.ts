@@ -5,7 +5,7 @@ import type { City, BuildingRef } from '../world/City';
 import { FACTION_RAINBOW } from './factions';
 import { blastUniforms, ringHue, type GroundJob } from '../world/GroundPaint';
 import type { CometPlan } from './Comet';
-import { arrival, blastCap, blastRadiusFor, LAYOUT_BANDS, layoutHue, makeBlastSpec, waveMax, wrapHue, type BlastDot, type BlastSpec } from './blastLayout';
+import { arrival, blastCap, blastRadiusFor, groundDeadline, LAYOUT_BANDS, layoutHue, makeBlastSpec, waveMax, wrapHue, type BlastDot, type BlastSpec } from './blastLayout';
 import { setPogo } from '../world/pogo';
 
 // The barf -> blast -> bloom pipeline. Dragon breath: the bus blasts a
@@ -372,7 +372,8 @@ export class Splatter {
       if (busy) busy[p.ref.index] = p.at + S.firehoseRepop;
       if (poured) poured[p.ref.index] = pour;
     }
-    const ground = groundless ? null : city.ground.begin(spec, tImpact);
+    // (a Bomb's ground is drawn by when its wave reaches its rim, not by its impact: groundDeadline; a tap's as before)
+    const ground = groundless ? null : city.ground.begin(spec, tImpact, jump > 1 ? groundDeadline(r) : 0);
     this.pending.push({
       at: tImpact, plan, ground, hitStop: hose ? 0 : opts?.hitStop ?? S.hitStopFrames,
       blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, mover: false, afloat, primary, super: opts?.super ?? null, tag: opts?.tag, comet: opts?.comet ?? null, jump },

@@ -4,7 +4,7 @@ import { GLSL_FACTION } from '../render/factionLook';
 import { globals } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { uploadRect } from '../render/upload';
-import { arrival, bandHue, blastDots, blastEdge, LAYOUT_BANDS, SHAPE_LUT, specFromArray, specToArray, type BlastDot, type BlastSpec } from '../game/blastLayout';
+import { arrival, bandHue, blastDots, blastEdge, LAYOUT_BANDS, SHAPE_LUT, specFromArray, specToArray, waveAt, type BlastDot, type BlastSpec } from '../game/blastLayout';
 import { resolveIdScheme, type CityData, type IdScheme } from './PaintState';
 import { decodeMask, encodeMask, GROUND_N, TEXELS, texelLow, texelOwner, type Prepared } from './groundMask';
 import { FACTION_RAINBOW, FACTION_ROOM, ownerOf } from '../game/factions';
@@ -188,6 +188,9 @@ interface SavedTile {
 }
 
 const WAVE_LUT = 64;
+/** A wide blast (GroundJob.wide) draws what its wave reaches this long ahead (s), and this far past it (m: the reveal LUT's step, a dot's length, a texel). */
+const WIDE_LEAD = 0.1;
+const WIDE_MARGIN = 16;
 
 interface JobTile {
   key: string;
@@ -200,6 +203,35 @@ interface JobTile {
   dots: boolean;
   /** over-paint held back until impact: (offset, coverage, g) triples */
   deferred: number[];
+  /** a wide blast's: rows lo..hi drawn (nearest first, so one run), upLo..upHi of them uploaded; and what its dots drew before it landed, as one rect */
+  lo: number;
+  hi: number;
+  upLo: number;
+  upHi: number;
+  dx0: number;
+  dz0: number;
+  dx1: number;
+  dz1: number;
+}
+
+/**
+ * A wide blast's ground (begin's deadline: a Bomb's, groundDeadline), drawn by when its wave reaches its rim rather than by its impact: drawn whole in flight, a
+ * Bomb III's 306 m circle is a 24-37 ms frame. Its rows go nearest first, each tile's row by its nearest texel, so the wave never meets a texel not drawn yet;
+ * each dot once the rows under it are. It lands with what's drawn, its over-paint so far under the flash, and the rest goes up as it's drawn (flush's bands).
+ */
+interface WideJob {
+  /** game time it's all drawn by */
+  due: number;
+  /** its rows nearest first (tile index * 256 + row), each one's nearest texel (m from the centre), the texels from each on; the next to draw */
+  order: Int32Array;
+  near: Float32Array;
+  rest: Float64Array;
+  at: number;
+  /** its dots (into Prepared.dots) by their farthest texel, and that (m); the next to draw */
+  dots: Uint16Array;
+  far: Float32Array;
+  dotAt: number;
+  landed: boolean;
 }
 
 /**
@@ -219,6 +251,8 @@ export interface GroundJob {
   /** replay: the one tile it redraws */
   only: string | null;
   under: boolean;
+  /** drawn by when its wave reaches its rim, nearest first (begin's deadline) */
+  wide?: WideJob;
 }
 
 
@@ -270,6 +304,12 @@ export class GroundPaint {
   /** tiles whose saved paint just went on screen: onTileReady fires for them on the next work() */
   private readonly ready: string[] = [];
   private landed = 0;
+  /** a landed wide blast's rows and dots drawn since the last frame: each its own upload (flush) */
+  private readonly bands: Array<{ m: TileMask; x0: number; z0: number; x1: number; z1: number }> = [];
+  /** a dot's texel rect on the tile it was drawn on (dot) */
+  private readonly rect = new Int32Array(4);
+  /** QA: a wide blast's rows or dots drawn after its wave had reached them (0: the wave never met a hole), when the last one was due and when it was all down */
+  readonly wideQa = { late: 0, due: 0, done: 0 };
   /** A tile's saved paint is on screen (trees standing in it can be painted now). */
   onTileReady: ((tx: number, tz: number) => void) | null = null;
   /** A new blast will paint these tiles (keys "tx,tz"); called before its paint is drawn. */
@@ -639,8 +679,21 @@ export class GroundPaint {
   /**
    * A projectile is in the air and will explode on spec at tImpact (game
    * clock): its paint is drawn by work() over the next frames, hidden.
+   * deadline > 0 (s after the impact, groundDeadline): a wide blast, drawn
+   * nearest first until then, so its impact needn't wait for the whole of it.
    */
-  begin(spec: BlastSpec, tImpact: number): GroundJob {
+  begin(spec: BlastSpec, tImpact: number, deadline = 0): GroundJob {
+    // (a wide blast still drawing is finished first, so paint stacks in order: a Bomb's own refill outlasts its wave, so only another's blast comes this soon)
+    for (let k = this.jobs.length - 1; k >= 0; k--) {
+      const o = this.jobs[k];
+      if (!o.wide) continue;
+      if (!o.p) this.start(o);
+      this.stepWide(o, Infinity);
+      if (!o.wide.landed) continue;
+      this.shipWide(o);
+      this.jobs.splice(k, 1);
+      this.settle(o, false);
+    }
     // live serial (1..255) in one of four uniform slots
     this.serial = (this.serial % 255) + 1;
     const ser = this.serial;
@@ -652,6 +705,11 @@ export class GroundPaint {
     else L.set(L.x, L.y, ser, tImpact);
     this.liveSlot = (this.liveSlot + 1) % 4;
     const job: GroundJob = { spec, tImpact, serial: ser, p: null, tiles: [], only: null, under: false };
+    if (deadline > 0) {
+      job.wide = { due: tImpact + deadline, order: new Int32Array(0), near: new Float32Array(0), rest: new Float64Array(1), at: 0, dots: new Uint16Array(0), far: new Float32Array(0), dotAt: 0, landed: false };
+      this.wideQa.due = job.wide.due;
+      this.wideQa.done = 0;
+    }
     this.jobs.push(job);
     if (this.onTilesTouched) {
       const reach = spec.r * Math.max(spec.reach, spec.edge * (1 + spec.ragged) + spec.rayLen) + 4; // (as prepare)
@@ -674,6 +732,8 @@ export class GroundPaint {
       }
       this.ready.length = 0;
     }
+    // (a landed wide blast draws what its wave reaches by the next frame first, whatever else the queue holds)
+    for (const job of this.jobs) if (job.wide?.landed) this.stepWide(job, 0);
     for (let n = 0; n < this.jobs.length && budget > 0; ) {
       const job = this.jobs[n];
       if (!job.p) {
@@ -681,12 +741,17 @@ export class GroundPaint {
         this.start(job);
         return;
       }
-      if (job.serial !== null) budget = Math.max(budget, this.left(job) / Math.max(1, (job.tImpact - globals.uTime.value) * 30));
+      if (job.serial !== null) budget = Math.max(budget, this.left(job) / Math.max(1, ((job.wide ? job.wide.due : job.tImpact) - globals.uTime.value) * 30));
       budget = this.step(job, budget);
       if (job.serial === null && this.finished(job)) {
         // a replay is done: off the queue, its tile shows it and saves
         this.jobs.splice(n, 1);
         this.replayed(job);
+      } else if (job.wide?.landed && this.finished(job)) {
+        // a wide blast is all down: its last rows go up, and it settles
+        this.shipWide(job);
+        this.jobs.splice(n, 1);
+        this.settle(job, false);
       } else n++;
     }
   }
@@ -700,9 +765,44 @@ export class GroundPaint {
    */
   land(job: GroundJob): BlastDot[] {
     if (!job.p) this.start(job);
+    const w = job.wide;
+    if (w) {
+      // (a wide blast: what its wave reaches first is drawn now, its over-paint so far goes on under the flash, and what's drawn goes up, a rect a tile; the
+      // rest is drawn ahead of the wave and goes up as it's drawn, and it settles once it's all down: work)
+      w.landed = true;
+      this.stepWide(job, 0);
+      for (const t of job.tiles) {
+        if (this.masks.get(t.key) !== t.m) continue;
+        const d = t.m.data, q = t.deferred;
+        for (let k = 0; k < q.length; k += 3) this.put(d, q[k], q[k + 1], q[k + 2], 0, null, false, null);
+        q.length = 0;
+        const rows = t.lo <= t.hi;
+        if (rows || t.dx0 <= t.dx1)
+          this.bands.push({ m: t.m, x0: rows ? Math.min(t.i0, t.dx0) : t.dx0, z0: rows ? Math.min(t.lo, t.dz0) : t.dz0, x1: rows ? Math.max(t.i1, t.dx1) : t.dx1, z1: rows ? Math.max(t.hi, t.dz1) : t.dz1 });
+        t.upLo = t.lo;
+        t.upHi = t.hi;
+      }
+      this.landed++;
+      if (this.finished(job)) {
+        const i = this.jobs.indexOf(job);
+        if (i >= 0) this.jobs.splice(i, 1);
+        this.settle(job, false);
+      }
+      return job.p!.dots;
+    }
     const i = this.jobs.indexOf(job);
     if (i >= 0) this.jobs.splice(i, 1);
     this.step(job, Infinity);
+    this.settle(job, true);
+    this.landed++;
+    return job.p!.dots;
+  }
+
+  /**
+   * A blast's paint is all down: its over-paint on, its tiles marked for an upload each (`upload`: a wide blast's went up as it was drawn) and for saving,
+   * and the tiles it reaches that it couldn't draw get it as a replay.
+   */
+  private settle(job: GroundJob, upload: boolean) {
     const p = job.p!;
     const touched: string[] = [];
     for (const t of job.tiles) {
@@ -710,10 +810,11 @@ export class GroundPaint {
       const d = t.m.data, q = t.deferred;
       for (let k = 0; k < q.length; k += 3) this.put(d, q[k], q[k + 1], q[k + 2], 0, null, false, null);
       q.length = 0;
-      this.markDirty(t.m, p);
+      if (upload) this.markDirty(t.m, p);
       touched.push(t.key);
       if (!this.pics) this.queueSave(t.key);
     }
+    if (job.wide) this.wideQa.done = globals.uTime.value;
     if (job.serial !== null) this.serialTiles.set(job.serial, touched);
     if (this.pics) {
       // (kept by place, drawn into the pictures over the frames after this; a tile here that it couldn't draw has it now, and one that comes in before it's drawn in draws it itself)
@@ -728,8 +829,6 @@ export class GroundPaint {
         }
     } else for (const key of this.tilesOf(p)) if (touched.indexOf(key) < 0) this.addPending(key, job.spec);
     this.saveTimer = 0.8;
-    this.landed++;
-    return p.dots;
   }
 
   /** Paint a blast immediately, with no reveal (tests / tools). */
@@ -755,6 +854,14 @@ export class GroundPaint {
         this.saveSet.delete(key);
         break;
       }
+    }
+    // (a landed wide blast's rows and dots drawn since the last frame, a band each: what's up already isn't sent again)
+    for (const job of this.jobs) if (job.wide?.landed) this.shipWide(job);
+    if (this.bands.length) {
+      const gl = renderer.getContext() as WebGL2RenderingContext;
+      for (const b of this.bands)
+        if (!b.m.gone && !uploadRect(renderer, b.m.tex, b.x0, b.z0, b.x1 - b.x0 + 1, b.z1 - b.z0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, 4)) b.m.tex.needsUpdate = true;
+      this.bands.length = 0;
     }
     if (!this.dirty.length) return;
     const gl = renderer.getContext() as WebGL2RenderingContext;
@@ -995,6 +1102,36 @@ export class GroundPaint {
     const p = this.prepare(job.spec);
     job.p = p;
     for (const key of job.only ? [job.only] : this.tilesOf(p)) if (this.loaded.has(key)) this.joinTile(job, key);
+    if (job.wide) this.orderWide(job);
+  }
+
+  /** A wide blast's rows nearest first, each tile's row by its nearest texel, and its dots by their farthest (stepWide). */
+  private orderWide(job: GroundJob) {
+    const w = job.wide!, p = job.p!, s = p.spec, cs = this.cell;
+    let n = 0;
+    for (const t of job.tiles) n += Math.max(0, t.j1 - t.j + 1);
+    const key = new Int32Array(n), near = new Float32Array(n);
+    let k = 0;
+    job.tiles.forEach((t, ti) => {
+      const xa = t.m.ox + (t.i0 + 0.5) * cs - s.x, xb = t.m.ox + (t.i1 + 0.5) * cs - s.x;
+      const dx = xa > 0 ? xa : xb < 0 ? -xb : 0;
+      for (let j = t.j; j <= t.j1; j++, k++) {
+        key[k] = ti * 256 + j;
+        near[k] = Math.hypot(dx, t.m.oz + (j + 0.5) * cs - s.z);
+      }
+    });
+    const by = Array.from({ length: n }, (_, i) => i).sort((a, b) => near[a] - near[b]);
+    w.order = Int32Array.from(by, (i) => key[i]);
+    w.near = Float32Array.from(by, (i) => near[i]);
+    w.rest = new Float64Array(n + 1);
+    for (let i = n - 1; i >= 0; i--) {
+      const t = job.tiles[w.order[i] >> 8];
+      w.rest[i] = w.rest[i + 1] + t.i1 - t.i0 + 1;
+    }
+    const far = p.dots.map((d) => Math.hypot(d.x - s.x, d.z - s.z) + d.rad * d.elong + 1.5 + cs);
+    const dots = Array.from({ length: far.length }, (_, i) => i).sort((a, b) => far[a] - far[b]);
+    w.dots = Uint16Array.from(dots);
+    w.far = Float32Array.from(dots, (i) => far[i]);
   }
 
   /** A started job takes a loaded tile: the rows and columns of its mask the blast reaches. */
@@ -1006,11 +1143,12 @@ export class GroundPaint {
     const s = job.spec, cs = this.cell, R = job.p!.max + 3;
     const i0 = Math.max(0, Math.floor((s.x - R - m.ox) / cs)), i1 = Math.min(GROUND_N - 1, Math.floor((s.x + R - m.ox) / cs));
     const j0 = Math.max(0, Math.floor((s.z - R - m.oz) / cs)), j1 = Math.min(GROUND_N - 1, Math.floor((s.z + R - m.oz) / cs));
-    job.tiles.push({ key, m, j: j0, j1: i0 > i1 ? j0 - 1 : j1, i0, i1, dots: false, deferred: [] });
+    job.tiles.push({ key, m, j: j0, j1: i0 > i1 ? j0 - 1 : j1, i0, i1, dots: false, deferred: [], lo: GROUND_N, hi: -1, upLo: GROUND_N, upHi: -1, dx0: GROUND_N, dz0: GROUND_N, dx1: -1, dz1: -1 });
   }
 
   /** Draw up to `budget` texels of a started job; returns the budget left. */
   private step(job: GroundJob, budget: number): number {
+    if (job.wide) return this.stepWide(job, budget);
     const p = job.p!;
     const live = job.serial !== null;
     for (const t of job.tiles) {
@@ -1030,8 +1168,75 @@ export class GroundPaint {
     return budget;
   }
 
+  /**
+   * A wide blast's slice: its rows nearest first, up to `budget` texels and, once it's landed, at least those its wave reaches by the next frame, whatever
+   * the budget; each dot once every row under it is drawn. Over old paint it changes the hue at the impact (the over-paint so far) and as it's drawn after.
+   */
+  private stepWide(job: GroundJob, budget: number): number {
+    const w = job.wide!, p = job.p!, r = p.spec.r;
+    const since = globals.uTime.value - job.tImpact;
+    const need = w.landed ? waveAt(since + WIDE_LEAD, r) + WIDE_MARGIN : -1;
+    // (QA: the wave's reach now, less half a step of the reveal's LUT)
+    const met = w.landed ? waveAt(since, r) - (p.max + 3) / (WAVE_LUT - 1) / 2 : -1;
+    const n = w.order.length;
+    while (w.at < n && (budget > 0 || w.near[w.at] <= need)) {
+      const e = w.order[w.at], t = job.tiles[e >> 8];
+      if (this.masks.get(t.key) === t.m) {
+        const j = e & 255;
+        if (w.near[w.at] < met) this.wideQa.late++;
+        this.rows(t.m, p, job.serial, j, j, w.landed ? null : t.deferred, job.under);
+        if (j < t.lo) t.lo = j;
+        if (j > t.hi) t.hi = j;
+        budget -= t.i1 - t.i0 + 1;
+      }
+      w.at++;
+      budget -= this.wideDots(job, w.at < n ? w.near[w.at] : Infinity, since);
+    }
+    if (w.at >= n) budget -= this.wideDots(job, Infinity, since);
+    return budget;
+  }
+
+  /** A wide blast's dots whose farthest texel is nearer than every row still to draw (`front`); returns their cost. Landed, each goes up as its own band. */
+  private wideDots(job: GroundJob, front: number, since: number): number {
+    const w = job.wide!, p = job.p!, s = p.spec;
+    let used = 0;
+    while (w.dotAt < w.dots.length && w.far[w.dotAt] < front) {
+      const dot = p.dots[w.dots[w.dotAt++]];
+      if (w.landed && (dot.blob ? config.splat.blobTime + config.splat.blobTimePerM * dot.d : arrival(dot.d, s.r)) < since) this.wideQa.late++;
+      for (const t of job.tiles) {
+        if (this.masks.get(t.key) !== t.m || !this.dot(t.m, p, dot, job.serial)) continue;
+        const q = this.rect;
+        if (w.landed) this.bands.push({ m: t.m, x0: q[0], z0: q[1], x1: q[2], z1: q[3] });
+        else {
+          t.dx0 = Math.min(t.dx0, q[0]);
+          t.dz0 = Math.min(t.dz0, q[1]);
+          t.dx1 = Math.max(t.dx1, q[2]);
+          t.dz1 = Math.max(t.dz1, q[3]);
+        }
+      }
+      used += 4;
+    }
+    return used;
+  }
+
+  /** A landed wide blast's rows drawn since its last upload go up (flush): on a tile, those nearer the centre than what's up and those farther, a band each. */
+  private shipWide(job: GroundJob) {
+    for (const t of job.tiles) {
+      if (this.masks.get(t.key) !== t.m || t.lo > t.hi) continue;
+      if (t.upLo > t.upHi) this.bands.push({ m: t.m, x0: t.i0, z0: t.lo, x1: t.i1, z1: t.hi });
+      else {
+        if (t.lo < t.upLo) this.bands.push({ m: t.m, x0: t.i0, z0: t.lo, x1: t.i1, z1: t.upLo - 1 });
+        if (t.hi > t.upHi) this.bands.push({ m: t.m, x0: t.i0, z0: t.upHi + 1, x1: t.i1, z1: t.hi });
+      }
+      t.upLo = t.lo;
+      t.upHi = t.hi;
+    }
+  }
+
   /** Texels a started job still has to draw. */
   private left(job: GroundJob): number {
+    const w = job.wide;
+    if (w) return w.rest[Math.min(w.at, w.rest.length - 1)] + (w.dots.length - w.dotAt) * 4;
     let n = 0;
     for (const t of job.tiles) if (this.masks.get(t.key) === t.m) n += Math.max(0, t.j1 - t.j + 1) * (t.i1 - t.i0 + 1) + (t.dots ? 0 : 150);
     return n;
@@ -1039,6 +1244,8 @@ export class GroundPaint {
 
   /** Every tile of the job drawn (or gone). */
   private finished(job: GroundJob): boolean {
+    const w = job.wide;
+    if (w) return w.at >= w.order.length && w.dotAt >= w.dots.length;
     for (const t of job.tiles) if (this.masks.get(t.key) === t.m && (t.j <= t.j1 || !t.dots)) return false;
     return true;
   }
@@ -1143,32 +1350,41 @@ export class GroundPaint {
 
   /** Spatter dots stretched along their flight direction, on one tile. */
   private dots(m: TileMask, p: Prepared, serial: number | null, deferred: number[] | null) {
+    for (const dot of p.dots) this.dot(m, p, dot, serial, deferred);
+  }
+
+  /** One spatter dot on one tile: false if it misses the tile, else the texels it may cover are this.rect (x0, z0, x1, z1). */
+  private dot(m: TileMask, p: Prepared, dot: BlastDot, serial: number | null, deferred: number[] | null = null): boolean {
     const s = p.spec;
     const cs = this.cell;
     const ox = m.ox, oz = m.oz;
     const d = m.data;
     const live = serial !== null;
     const low = texelLow(ownerOf(s.faction));
-    for (const dot of p.dots) {
-      const rr = dot.rad * dot.elong + 1.5;
-      const di0 = Math.max(0, Math.floor((dot.x - rr - ox) / cs)), di1 = Math.min(GROUND_N - 1, Math.floor((dot.x + rr - ox) / cs));
-      const dj0 = Math.max(0, Math.floor((dot.z - rr - oz) / cs)), dj1 = Math.min(GROUND_N - 1, Math.floor((dot.z + rr - oz) / cs));
-      if (di0 > di1 || dj0 > dj1) continue;
-      const ca = Math.cos(dot.ang), sa = Math.sin(dot.ang);
-      const rv = live ? (dot.blob ? config.splat.blobTime + config.splat.blobTimePerM * dot.d : arrival(dot.d, s.r)) : 0;
-      for (let j = dj0; j <= dj1; j++) {
-        const wz = oz + (j + 0.5) * cs - dot.z;
-        for (let i = di0; i <= di1; i++) {
-          const wx = ox + (i + 0.5) * cs - dot.x;
-          const along = (wx * ca + wz * sa) / dot.elong;
-          const across = -wx * sa + wz * ca;
-          const q = Math.sqrt(along * along + across * across);
-          const c = Math.min(1, Math.max(0, (dot.rad - q) / 1.6 + 0.5));
-          if (c <= 0.02) continue;
-          this.put(d, (j * GROUND_N + i) * 4, c, dot.hue * 32 + low, rv, serial, true, deferred);
-        }
+    const rr = dot.rad * dot.elong + 1.5;
+    const di0 = Math.max(0, Math.floor((dot.x - rr - ox) / cs)), di1 = Math.min(GROUND_N - 1, Math.floor((dot.x + rr - ox) / cs));
+    const dj0 = Math.max(0, Math.floor((dot.z - rr - oz) / cs)), dj1 = Math.min(GROUND_N - 1, Math.floor((dot.z + rr - oz) / cs));
+    if (di0 > di1 || dj0 > dj1) return false;
+    const ca = Math.cos(dot.ang), sa = Math.sin(dot.ang);
+    const rv = live ? (dot.blob ? config.splat.blobTime + config.splat.blobTimePerM * dot.d : arrival(dot.d, s.r)) : 0;
+    for (let j = dj0; j <= dj1; j++) {
+      const wz = oz + (j + 0.5) * cs - dot.z;
+      for (let i = di0; i <= di1; i++) {
+        const wx = ox + (i + 0.5) * cs - dot.x;
+        const along = (wx * ca + wz * sa) / dot.elong;
+        const across = -wx * sa + wz * ca;
+        const q = Math.sqrt(along * along + across * across);
+        const c = Math.min(1, Math.max(0, (dot.rad - q) / 1.6 + 0.5));
+        if (c <= 0.02) continue;
+        this.put(d, (j * GROUND_N + i) * 4, c, dot.hue * 32 + low, rv, serial, true, deferred);
       }
     }
+    const q = this.rect;
+    q[0] = di0;
+    q[1] = dj0;
+    q[2] = di1;
+    q[3] = dj1;
+    return true;
   }
 
   /** Grow the tile's dirty rect by everything this blast can touch on it (dots fly past the splat). */

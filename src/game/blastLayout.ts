@@ -131,6 +131,12 @@ export function arrival(d: number, r: number): number {
   return -(R / v0) * Math.log(1 - Math.min(Math.max(d, 0), 0.985 * R) / R);
 }
 
+/** How far the shockwave has gone t s after the impact (m): arrival's inverse. */
+export function waveAt(t: number, r: number): number {
+  const R = waveMax(r);
+  return t > 0 ? R * (1 - Math.exp((-Math.max(1, config.splat.waveSpeed) * t) / R)) : 0;
+}
+
 export const wrapHue = (h: number) => ((Math.round(h) % HUE_COUNT) + HUE_COUNT) % HUE_COUNT;
 
 /**
