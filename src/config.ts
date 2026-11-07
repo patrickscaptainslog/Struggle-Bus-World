@@ -901,8 +901,13 @@ export const config = {
     levelSlack: 3,
     /** Its whump comes when its sound reaches the bus, but at most this long after the impact (s): 1.6 km is 4.7 s of sound. */
     boomLate: 1.2,
-    /** The view tips up this far (degrees) while it climbs, the sky lift's way, and back down while it falls (main.ts). */
+    /** The view tips up this far (degrees) while it climbs, the sky lift's way, and back down while it falls (main.ts); further, as far as keeps its arc's
+     *  top and then its star tipTop degrees under the frame's top, but the bus never lower than tipBus of the half height under the middle (85 % down the
+     *  screen), eased at tipRate (1/s; the sky lift's 1.6). */
     tip: 10,
+    tipTop: 3,
+    tipBus: 0.7,
+    tipRate: 3,
     /** Motes in its streak over its whole flight, three times the Comet's time aloft and more (the Comet's 400). */
     motes: 700,
     /** Its throw: a puff of this many motes of its paint off the mouth, up its way at about puffSpeed m/s, and the recoil's kick (config.comet.kickLight 1.2). */

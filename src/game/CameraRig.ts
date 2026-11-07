@@ -132,6 +132,8 @@ export class CameraRig {
   /** The live sky's lift (SKY.md 4.15): the view tips up toward this (deg), eased, and holds there; skyLift is where it is now */
   skyLiftTarget = 0;
   skyLift = 0;
+  /** ...eased at this rate (1/s), config.sky.liftRate when 0 (a Lob's tip follows its star faster: main.ts) */
+  skyLiftRate = 0;
   /** the look (setLook): how far a thumb has the view off the rig (rad, x = +right, y = +up; exactly 0 once home) */
   private readonly lookYaw = { x: 0, v: 0 };
   private readonly lookPitch = { x: 0, v: 0 };
@@ -317,7 +319,7 @@ export class CameraRig {
     // (it moves briefly, then holds still and exactly: a rotation can't be snapped, so the frame swims only while it moves; never so far that the bus leaves the frame)
     const lift = Math.min(this.skyLiftTarget, cam.fov / 2 - 6);
     const dl2 = Math.max(0, lift) - this.skyLift;
-    this.skyLift = Math.abs(dl2) < 0.02 ? Math.max(0, lift) : this.skyLift + dl2 * (1 - Math.exp(-config.sky.liftRate * dt));
+    this.skyLift = Math.abs(dl2) < 0.02 ? Math.max(0, lift) : this.skyLift + dl2 * (1 - Math.exp(-(this.skyLiftRate || config.sky.liftRate) * dt));
     if (this.skyLift !== 0) cam.rotateX(THREE.MathUtils.degToRad(this.skyLift));
     // Curb: the chase comes down to the kerb, a dolly with no cut, on the rig's own yaw so a turn still sweeps; out again, a crane up to the chase
     const dc = this.curb - this.curbIn;

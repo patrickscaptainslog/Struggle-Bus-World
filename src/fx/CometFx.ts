@@ -362,6 +362,18 @@ export class CometFx {
     return false;
   }
 
+  /** A Lob up (the first thrown of those in flight): what the view keeps under its top, written to out: its arc's top while it climbs to it, then its star
+   *  falling, and from 0.85 of its flight where it lands (the hit is what comes next). False: none up. */
+  lobFrame(now: number, out: THREE.Vector3): boolean {
+    let first: Live | null = null;
+    for (const c of this.live) if (c.on && c.lob && now < c.t1 && (!first || c.t1 < first.t1)) first = c;
+    if (!first) return false;
+    const c = first, u = Math.max(0, (now - c.t0) / (c.t1 - c.t0)), rise = c.to.y - c.from.y;
+    const top = c.arc > 0 ? Math.min(1, Math.max(0, 0.5 + rise / (8 * c.arc))) : 0;
+    this.at(c, u < top ? top : u < 0.85 ? u : 1, out);
+    return true;
+  }
+
   /** The full show for this one: the first in config.comet.showEvery s, or a streak on. */
   private show(now: number): boolean {
     return now - this.lastFull >= config.comet.showEvery || !!this.streakOn?.();

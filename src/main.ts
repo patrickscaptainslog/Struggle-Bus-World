@@ -1321,6 +1321,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const lobRing = { x: 0, y: 0, z: 0, r: 1, k: 0, until: -1 };
   const lobsUp: Array<{ x: number; y: number; z: number; r: number; until: number }> = [];
   const lobOnto = { x: 0, y: 0, z: 0 };
+  /** where the view keeps a Lob in flight, and the bus, in the lens's space (the tip after its star) */
+  const lobSeen = new THREE.Vector3(), lobBusSeen = new THREE.Vector3();
 
   // ---- resize (applied once per frame: iOS fires bursts of resize / visualViewport events while its toolbars move)
   const onResize = () => {
@@ -1799,9 +1801,18 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     paintUniforms.uFloodHead.value = config.bloom.floodHead;
     // (the live sky's lift: pulling at the ceiling, the view tips up to the sky the bus can't reach yet, SKY.md 4.15)
     if (live) rig.skyLiftTarget = flight.strain > 0.3 && flight.y > config.sky.liftFrom ? config.sky.liftPull : 0;
-    // (a Lob climbing: the view tips up after it, the sky lift's way, and comes back down as it falls onto its ring)
-    if (cometFx.lobClimbing(simTime)) rig.skyLiftTarget = Math.max(rig.skyLiftTarget, config.lob.tip);
-    else if (!live) rig.skyLiftTarget = 0;
+    // (a Lob up: the view tips up after it, the sky lift's way, at least config.lob.tip while it climbs and as far as keeps its arc's top, then its star,
+    // config.lob.tipTop under the frame's top, but never so far the bus sinks lower than tipBus of the half height under the middle; down again as it falls
+    // onto its ring. From the roofs the star left the frame by 0.3 of its flight, its top 13-25 degrees over the frame, and nothing showed for 1.4 s)
+    rig.skyLiftRate = 0;
+    if (cometFx.lobFrame(simTime, lobSeen)) {
+      const L = config.lob, half = camera.fov / 2, D = 180 / Math.PI;
+      const up = (p: THREE.Vector3) => (p.applyMatrix4(camera.matrixWorldInverse), Math.atan2(p.y, -p.z) * D + rig.skyLift);
+      const star = up(lobSeen), busUp = up(lobBusSeen.set(flight.x, flight.y, flight.z));
+      const want = Math.min(star - half + L.tipTop, busUp + half * L.tipBus);
+      rig.skyLiftTarget = Math.max(rig.skyLiftTarget, cometFx.lobClimbing(simTime) ? L.tip : 0, want);
+      rig.skyLiftRate = L.tipRate;
+    } else if (!live) rig.skyLiftTarget = 0;
     rig.update(camera, focus, flight, dt);
     superSplat.camera(camera, focus, dt);
     rig.applyKick(camera, realDt);
