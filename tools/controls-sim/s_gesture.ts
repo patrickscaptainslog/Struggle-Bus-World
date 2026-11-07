@@ -641,32 +641,36 @@ const pressFor = (h: H, x: number, y: number, ms: number, primary = true) => { c
 row('touch', 'aim: a tap off the lane at 120 ms splats', laned((h) => pressFor(h, AX, AY, 120)));
 row('touch', 'aim: lifted at 300 ms off the lane splats', laned((h) => pressFor(h, AX, AY, 300)));
 row('touch', 'aim: lifted at 340 ms off the lane (in between) splats', laned((h) => pressFor(h, AX, AY, 340)));
-row('touch', 'aim: held still 360 ms off the lane aims, and its lift is the release, no splat', laned((h) => pressFor(h, AX, AY, 360)));
+row('touch', 'aim: held still 380 ms off the lane, lifted before its aim began, splats', laned((h) => pressFor(h, AX, AY, 380)));
+row('touch', 'aim: held still 450 ms off the lane aims, and its lift is the release, no splat', laned((h) => pressFor(h, AX, AY, 450)));
 row('touch', 'aim: held 1.2 s off the lane, dragged 120 px: the aim follows, no look, nobody steers', laned((h) => {
-  const id = newId(); h.down(id, AX, AY); h.wait(400);
+  const id = newId(); h.down(id, AX, AY); h.wait(500);
   const at = { ...h.input.state.aim };
   h.slide(id, AX, AY, -120, 60, 600); h.wait(200);
   const s = h.input.state, v = { at, now: { ...s.aim }, look: s.look.on, dragging: s.dragging, sx: s.stretch.x, sy: s.stretch.y };
   h.up(id, AX - 120, AY + 60); return v;
 }));
-row('touch', 'aim: a hold that ends in a quick stroke up is no gear', laned((h) => { const id = newId(); h.down(id, AX, AY); h.wait(400); h.slide(id, AX, AY, 0, -80, 60); h.up(id, AX, AY - 80); }));
+row('touch', 'aim: a hold that ends in a quick stroke up is no gear', laned((h) => { const id = newId(); h.down(id, AX, AY); h.wait(500); h.slide(id, AX, AY, 0, -80, 60); h.up(id, AX, AY - 80); }));
 row('touch', 'aim: moved 20 px before 350 ms off the lane: a look, never an aim', laned((h) => { const id = newId(); h.down(id, AX, AY); h.wait(150); h.slide(id, AX, AY, 20, 0, 60); h.wait(600); const on = h.input.state.look.on; h.up(id, AX + 20, AY); return { on }; }));
 row('touch', 'aim: a thumb landing in the lane while it aims flies, and the aim holds', laned((h) => {
-  const a = newId(); h.down(a, AX, AY); h.wait(400);
+  const a = newId(); h.down(a, AX, AY); h.wait(500);
   const b = newId(); h.down(b, 196, 720, false); h.slide(b, 196, 720, 50, 0, 200); h.wait(50);
   const s = h.input.state, v = { aim: s.aim.on, thumb: s.thumb, sx: +s.stretch.x.toFixed(2) };
   h.up(b, 246, 720); h.wait(50); const after = h.input.state.aim.on; h.up(a, AX, AY); return { ...v, after };
 }));
-row('touch', 'aim: beside a flying thumb, a still thumb off the lane aims and the bus flies on', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.wait(420); const s = h.input.state, v = { aim: s.aim.on, thumb: s.thumb }; h.up(b, LX, LY); h.up(a, RX + 30, RY); return v; });
+row('touch', 'aim: beside a flying thumb, a still thumb off the lane aims and the bus flies on', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.wait(500); const s = h.input.state, v = { aim: s.aim.on, thumb: s.thumb }; h.up(b, LX, LY); h.up(a, RX + 30, RY); return v; });
 row('touch', 'aim: in the lane a still thumb never aims: it steers at neutral', laned((h) => { const id = newId(); h.down(id, 196, 720); h.wait(700); const s = h.input.state, v = { aim: s.aim.on, thumb: s.thumb }; h.up(id, 196, 720); return v; }));
 row('touch', 'aim: under the opening gate (lookOff) every touch flies, none aims', laned((h) => { h.input.lookOff = true; const id = newId(); h.down(id, AX, AY); h.wait(700); const s = h.input.state, v = { aim: s.aim.on, thumb: s.thumb }; h.up(id, AX, AY); return v; }));
 row('touch', 'aim: off (aimOn false, the Moon): a still finger off the lane rests, and its lift at 400 ms splats as before', laned((h) => { h.input.aimOn = false; pressFor(h, AX, AY, 400); }));
-row('touch', 'aim: a cancelled touch ends the aim cancelled', laned((h) => { const id = newId(); h.down(id, AX, AY); h.wait(400); h.cancel(id, AX, AY); }));
-row('touch', 'aim: the page losing focus ends the aim cancelled', laned((h) => { const id = newId(); h.down(id, AX, AY); h.wait(400); win.dispatch('blur', {}); h.wait(30); h.up(id, AX, AY); }));
-row('touch', 'aim: one aims at a time: a second still finger off the lane rests', laned((h) => { const a = newId(), b = newId(); h.down(a, AX, AY); h.wait(400); h.down(b, 60, 200, false); h.wait(500); const v = { aim: h.input.state.aim.x0 }; h.up(b, 60, 200); h.up(a, AX, AY); return v; }));
+row('touch', 'aim: a cancelled touch ends the aim cancelled', laned((h) => { const id = newId(); h.down(id, AX, AY); h.wait(500); h.cancel(id, AX, AY); }));
+row('touch', 'aim: the page losing focus ends the aim cancelled', laned((h) => { const id = newId(); h.down(id, AX, AY); h.wait(500); win.dispatch('blur', {}); h.wait(30); h.up(id, AX, AY); }));
+row('touch', 'aim: one aims at a time: a second still finger off the lane rests', laned((h) => { const a = newId(), b = newId(); h.down(a, AX, AY); h.wait(500); h.down(b, 60, 200, false); h.wait(500); const v = { aim: h.input.state.aim.x0 }; h.up(b, 60, 200); h.up(a, AX, AY); return v; }));
 // (a 450 ms frame with the lift at 150 ms queued behind it: the frame arms the aim, and the lift, by its own time, is the tap it was)
 row('touch', 'aim: a tap lifted at 150 ms behind one 450 ms frame is a tap, not an aim', laned((h) => { const id = newId(); h.down(id, AX, AY); const t = clock.ms; clock.ms += 450; h.frame(); h.up(id, AX, AY, { timeStamp: t + 150 } as any); }));
-row('touch', 'aim: at 30 fps, held 360 ms aims, lifted at 330 splats', laned((h) => { pressFor(h, AX, AY, 360); h.wait(500); pressFor(h, AX, AY, 330); }), 30);
+row('touch', 'aim: at 30 fps, held 480 ms aims, lifted at 330 splats', laned((h) => { pressFor(h, AX, AY, 480); h.wait(500); pressFor(h, AX, AY, 330); }), 30);
+row('touch', 'aim: at 30 fps, held 370 ms splats (its aim had not begun)', laned((h) => pressFor(h, AX, AY, 370)), 30);
+// (the GPU flight's tap: down 337 ms by its own time, its lift reaching the page 69 ms late, two frames at 30 fps)
+row('touch', 'aim: at 30 fps, a tap lifted at 337 ms reaching the page at 406 ms is a tap, not a pour', laned((h) => { const id = newId(); h.down(id, AX, AY); const t = clock.ms; h.wait(406); h.up(id, AX, AY, { timeStamp: t + 337 } as any); }), 30);
 
 // ---- the table's checks
 const OUT = process.env.SB_OUT ?? 'shots/controls/sim';
@@ -1209,9 +1213,9 @@ ok(readFlick(36, 0, 80, 36, 200, 0.4, 40) === 0, 'sideways is none');
 // hold to aim
 {
   const aims = (g: string) => n(g, 'aim@');
-  for (const g of ['aim: a tap off the lane at 120', 'aim: lifted at 300', 'aim: lifted at 340']) ok(taps(g) === 1 && aims(g) === 0, `${g}: one splat, no aim`);
-  const g = 'aim: held still 360';
-  ok(aims(g) === 1 && n(g, 'aimEnd@') === 1 && taps(g) === 0 && atOf(g, 'aim@') >= 350 && atOf(g, 'aim@') <= 370, `held still past 350 ms it aims, at ${atOf(g, 'aim@')} ms, and its lift releases it with no splat`);
+  for (const g of ['aim: a tap off the lane at 120', 'aim: lifted at 300', 'aim: lifted at 340', 'aim: held still 380', 'aim: at 30 fps, held 370', 'aim: at 30 fps, a tap lifted at 337']) ok(taps(g) === 1 && aims(g) === 0, `${g}: one splat, no aim`);
+  const g = 'aim: held still 450';
+  ok(aims(g) === 1 && n(g, 'aimEnd@') === 1 && taps(g) === 0 && atOf(g, 'aim@') >= 420 && atOf(g, 'aim@') <= 440, `held still past 350 ms it aims, begun at ${atOf(g, 'aim@')} ms (aimLagMs past the hold), and its lift releases it with no splat`);
   const v = note('aim: held 1.2 s');
   ok(v.at.on && v.now.on && Math.round(v.now.x) === AX - 120 && Math.round(v.now.y) === AY + 60 && v.now.x0 === AX && !v.look && !v.dragging && v.sx === 0 && v.sy === 0 && by('aim: held 1.2 s').look === null && taps('aim: held 1.2 s') === 0, `the aim follows its drag, never looks, nobody steers: ${JSON.stringify(v)}`);
   quiet('aim: a hold that ends in a quick stroke up');

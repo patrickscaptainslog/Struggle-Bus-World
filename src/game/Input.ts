@@ -30,7 +30,9 @@ import { registerTunables } from '../ui/tunables';
 //    on the landing nobody can know yet that it isn't a look;
 //  - at rest it does nothing, unless it landed off the lane (in the zone): held still for
 //    aimHoldMs there it AIMS (docs/specs/shots/SHOTS.md, decision 4: a tap is up to 0.3 s, a
-//    still hold from 0.35 s aims, in between counts as a tap). From then until its lift it is the
+//    still hold from 0.35 s aims, in between counts as a tap). The aim begins aimLagMs later, on
+//    a frame after one that saw it: lifted before it began, it is a tap, so a late lift's tap
+//    never pours and no press does nothing. From then until its lift it is the
 //    aim hold: state.aim follows it, a drag drags the aim (never the view), and its lift is the
 //    hold's release (onAimEnd), never a tap or a flick. One aims at a time. What it aims is the
 //    shot code's (src/game/Hold.ts): the Hose, or what life or Recess claims. Nobody flies for it,
@@ -141,6 +143,10 @@ export const inputTune = {
   /** Hold to aim (SHOTS.md, decision 4): a finger landed off the lane and still inside tapSlopPx this long (ms) aims. Lifted before it with nobody flying, it is a tap
    *  (the ruling's tap is up to 300 ms, and 300 to 350 counts as one). Beside a flying thumb a tap is still secondTapMs, and 230 to 350 rests as before. */
   aimHoldMs: 350,
+  /** ...and the aim begins this much later (ms), on a frame after one that saw it past aimHoldMs: a lift that reaches the page late (behind a slow frame, or two at
+   *  30 fps: a real touch's lift can arrive 70 ms after its own time) is still the tap its own time says. Lifted still before the aim began, with nobody flying, it is
+   *  a tap: nothing poured yet, so the player sees the splat they asked for, never a press that does nothing (review of step 2, 4, and the GPU flight's 337 ms tap). */
+  aimLagMs: 70,
 };
 
 registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
@@ -172,6 +178,7 @@ registerTunables('Input', inputTune as unknown as Record<string, unknown>, {
   flickBottomPx: [0, 120, 1],
   flickSidePx: [0, 80, 1],
   aimHoldMs: [200, 900, 5],
+  aimLagMs: [0, 200, 5],
 });
 
 const MAX_POINTERS = 10;
@@ -483,11 +490,12 @@ export class Input {
     for (let i = 0; i < MAX_POINTERS; i++) {
       const s = this.slots[i];
       if (s.role === Role.Second && !s.looking) this.lookStep(s, now);
-      // (armed on the first frame that sees it, started on the next that still does: a lift queued behind one slow frame is still a tap, its own time says so, as the press's)
+      // (armed on the first frame that sees it, started on a later one that still does, aimLagMs past the hold: a lift queued behind a slow frame or two is still a
+      // tap, its own time says so)
       if (this.canAim(s, now)) {
-        if (s.aimArmed) this.startAim(s, now);
+        if (s.aimArmed && now - s.t0 >= inputTune.aimHoldMs + inputTune.aimLagMs) this.startAim(s, now);
         else s.aimArmed = true;
-      }
+      } else s.aimArmed = false;
     }
     const tx = (this.kR ? 1 : 0) - (this.kL ? 1 : 0);
     const ty = (this.kU ? 1 : 0) - (this.kD ? 1 : 0);
@@ -698,8 +706,7 @@ export class Input {
       this.free(slot);
       return;
     }
-    // (an aim's lift is its release, and nothing else: no tap, no flick. One that lifts past the hold before a frame saw it is an aim and its release at once, as the press's is)
-    if (!cancelled && this.canAim(slot, now)) this.startAim(slot, now);
+    // (an aim's lift is its release, and nothing else: no tap, no flick. One that lifts still before its aim began is a tap: secondTap)
     const aimed = slot.aiming;
     if (aimed) this.endAim(slot, cancelled);
     const dir = cancelled || aimed ? 0 : this.flickOf(slot, e.clientX - this.rectL, e.clientY - this.rectT, now);
@@ -863,8 +870,8 @@ export class Input {
   /** The second thumb's tap: shorter than the first's, because past it the thumb is resting. With nobody flying, as long as the first's. */
   private secondTap(s: Slot, now: number): boolean {
     const dur = now - s.t0;
-    // (off the lane with nobody flying, a still finger aims from aimHoldMs: up to it, it was a tap)
-    const limit = this.fly || this.gMulti ? inputTune.secondTapMs : s.inLook && this.aimOn ? inputTune.aimHoldMs : inputTune.stillTapMs;
+    // (off the lane with nobody flying, a still finger aims from aimHoldMs: up to it, it was a tap, and one that could aim but whose aim hadn't begun is one too)
+    const limit = this.fly || this.gMulti ? inputTune.secondTapMs : s.inLook && this.aimOn ? (s.aimArmed || this.canAim(s, now) ? Infinity : inputTune.aimHoldMs) : inputTune.stillTapMs;
     return (dur <= limit && s.maxDist <= inputTune.tapSlopPx) || (dur <= inputTune.quickTapMs && s.maxDist <= inputTune.quickTapSlopPx);
   }
 
