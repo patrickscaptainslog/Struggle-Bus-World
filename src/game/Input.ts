@@ -39,6 +39,15 @@ import { registerTunables } from '../ui/tunables';
 //    so the bus flies straight; a thumb landing in the lane beside it still flies.
 // Two fingers tapped together (nobody steering) count as one tap.
 //
+// THE BOMB (bombOn, &bomb on the link; docs/specs/shots/SHOTS.md, "The modes"): the flying thumb landing on the bus itself (busBox, set every frame by main.ts)
+// and held still charges a Bomb, while it steers as any thumb does. Still is within tapSlopPx of the landing until Bomb II shows, then chargeSlopPx. The charge
+// begins aimHoldMs in with a full belly (bombFull: a tier waits for one, and the charge's clock starts when it's there), Bomb II is judged at bombTwoMs and
+// Bomb III at bombThreeMs from that start, and each shows aimLagMs later, on a frame after one that saw it, as the aim begins: a lift queued behind a slow frame
+// is what its own time says. A still lift before II shows is a tap (no press does nothing); after, the Bomb (onBombEnd); held on, it stays III and never fires
+// by itself. Each cancel is a fizzle that keeps the belly: moving past the slop, three fingers, a lost touch or lost focus, a hand-over (endPress), another
+// thumb's tap. Only the flying thumb charges: it needn't be alone, and another thumb's look or flick doesn't stop it, but there's no charge while it could
+// still be one of a two-finger tap, and a second thumb on the bus never charges. Only the landing counts: one under the bus is a thumb at rest.
+//
 // A lone fresh stroke out of the zone that lifts fast is a flick too, on the firmer
 // rule. It steers until the lift decides: steering never waits for a verdict, and a
 // thumb that stays down never shifts. A stroke in the zone steers nothing, so the
@@ -88,6 +97,9 @@ export interface InputState {
   /** Hold to aim: `on` while a finger that landed off the lane and held still for inputTune.aimHoldMs is down. x, y = where it is now, x0, y0 = where it
    *  landed (CSS px of the input element); t0 = its landing, at = when it became an aim (ms, the performance clock). Off: all as they were last. */
   aim: { on: boolean; x: number; y: number; x0: number; y0: number; t0: number; at: number };
+  /** The Bomb: `on` while a still hold on the bus charges one (from the charge's start until its end); tier 1 charging, 2 Bomb II, 3 Bomb III (as shown); t0 = its
+   *  landing, at = when the charge's clock began (ms, the performance clock). Off: all as they were last. */
+  bomb: { on: boolean; tier: number; t0: number; at: number };
 }
 
 /** Live-tunable gesture numbers (tuner group "Input"). */
@@ -229,6 +241,12 @@ interface Slot {
   /** It is the aim hold (state.aim): held still off the lane for aimHoldMs. armed: a frame has seen it past aimHoldMs (the next one starts it). */
   aiming: boolean;
   aimArmed: boolean;
+  /** The Bomb: the flying thumb landed on the bus with bombOn, and may still charge (moving past the slop ends that, for the touch); bombFrom = the charge's
+   *  clock start (ms; -1: the belly isn't full yet); bombTier = the tier shown (0 none, 1 charging, 2, 3); bombArm = the tier a frame has seen it reach */
+  onBus: boolean;
+  bombFrom: number;
+  bombTier: number;
+  bombArm: number;
 }
 
 const enum Src {
@@ -251,7 +269,7 @@ export function readFlick(dx: number, dy: number, ms: number, px: number, maxMs:
 }
 
 export class Input {
-  readonly state: InputState = { dragging: false, thumb: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, look: { on: false, x: 0, y: 0 }, aim: { on: false, x: 0, y: 0, x0: 0, y0: 0, t0: 0, at: 0 } };
+  readonly state: InputState = { dragging: false, thumb: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, look: { on: false, x: 0, y: 0 }, aim: { on: false, x: 0, y: 0, x0: 0, y0: 0, t0: 0, at: 0 }, bomb: { on: false, tier: 0, t0: 0, at: 0 } };
   onTap: (() => void) | null = null;
   /** Hold to aim (state.aim): a still finger off the lane became an aim, and its lift (cancelled = lost, three fingers, focus gone). src/game/Hold.ts takes both. */
   onAimStart: (() => void) | null = null;
@@ -271,6 +289,22 @@ export class Input {
   onPress: (() => void) | null = null;
   onTripleFinger: (() => void) | null = null;
   onFirstGesture: (() => void) | null = null;
+  /** The Bomb (&bomb on the link, src/game/Bomb.ts sets it): off, a thumb on the bus is the flying thumb as it always was, and the onBomb* callbacks never fire. */
+  bombOn = false;
+  /** The bus's own box, CSS px of the input element, set every frame by main.ts: its eight corners through this frame's camera, grown a little, at least a thumb's size.
+   *  Only a flying thumb landing in it charges a Bomb. Null: nowhere. */
+  busBox: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  /** Per frame from the Bomb: a tier may show (the belly is full; a gift's, no breath under way), the gift's tier (0 none: the next still hold on the bus is that
+   *  tier at aimHoldMs + aimLagMs), and when II and III are judged (ms from the charge's start, the bank's taken off). */
+  bombFull = false;
+  bombGift = 0;
+  bombTwoMs = 600;
+  bombThreeMs = 1200;
+  /** The Bomb's charge began (aimHoldMs into a still hold on the bus with a full belly), a tier showed (2, 3), and it ended: the tier it had (a lift under 2 is a
+   *  tap, which onTap fires after this), or cancelled (a fizzle). */
+  onBombCharge: (() => void) | null = null;
+  onBombTier: ((tier: number) => void) | null = null;
+  onBombEnd: ((tier: number, cancelled: boolean) => void) | null = null;
   /** BUTTONS: SWAP: the look zone is on the right instead of the left. */
   swapped = false;
   /**
@@ -368,7 +402,7 @@ export class Input {
 
   constructor(el: HTMLElement) {
     this.el = el;
-    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false, inLook: false, aiming: false, aimArmed: false });
+    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false, inLook: false, aiming: false, aimArmed: false, onBus: false, bombFrom: -1, bombTier: 0, bombArm: 0 });
 
     const s = el.style as CSSStyleDeclaration & { webkitUserSelect?: string; webkitTouchCallout?: string; webkitTapHighlightColor?: string };
     s.touchAction = 'none';
@@ -480,6 +514,8 @@ export class Input {
     this.pressTick(now);
     const st = this.state;
     const p = this.fly;
+    // (the Bomb: a still hold on the bus charges, while the thumb steers as any thumb does)
+    if (p && p.onBus) this.bombStep(p, now);
     // A thumb resting still past the tap window is steering (at neutral).
     if (p && !this.pointerDragging && now - p.t0 >= inputTune.stillTapMs) this.commitDrag();
     // A tap waiting on two fingers together, with nobody flying: once no finger still down can be the other half of one, it was a tap of its own
@@ -605,6 +641,8 @@ export class Input {
    *  and its sound stops: a MEGA held through the hand-up drones on in space and fired by itself at the hand-down. Review four, 20 */
   endPress(): void {
     this.pressCancel(performance.now());
+    // (and a Bomb charging: a hand-over is a fizzle)
+    if (this.fly) this.bombEnd(this.fly, true);
     // (and no finger owns it after: a MEGA finger carried off the button into steering, on through the hand-overs, would end the next MEGA held when it lifts. Review five, 51)
     for (const s of this.slots) s.ownsPress = false;
   }
@@ -667,6 +705,11 @@ export class Input {
     // The flying thumb.
     this.setSlot(slot, e, now, Role.Fly);
     if (others === 0 && !mouse && this.commands(slot)) slot.flick = Flick.Firm;
+    // (on the bus itself it may charge a Bomb: only the landing counts. Its clock starts now if the belly is full already)
+    if (this.bombOn && !mouse && this.onBusBox(slot.x0, slot.y0)) {
+      slot.onBus = true;
+      slot.bombFrom = this.bombFull ? now : -1;
+    }
     this.beginFly(slot, now);
     this.gMax = others + 1;
     this.gMulti = recent;
@@ -686,6 +729,7 @@ export class Input {
     if (slot === this.fly) {
       this.fingerPt.x = x;
       this.fingerPt.y = y;
+      if (slot.onBus && slot.maxDist > this.bombSlop(slot)) this.bombOff(slot);
       if (!this.pointerDragging && slot.maxDist > inputTune.tapSlopPx) this.commitDrag();
       if (this.pointerDragging) this.applyStretch();
     } else if (slot === this.aimSlot) {
@@ -709,8 +753,12 @@ export class Input {
     // (an aim's lift is its release, and nothing else: no tap, no flick. One that lifts still before its aim began is a tap: secondTap)
     const aimed = slot.aiming;
     if (aimed) this.endAim(slot, cancelled);
-    const dir = cancelled || aimed ? 0 : this.flickOf(slot, e.clientX - this.rectL, e.clientY - this.rectT, now);
-    const quick = !cancelled && !aimed && this.isQuick(slot, now);
+    // (the Bomb's: let go at II or III it fires, and is nothing else; a still lift on the bus before II shows is a tap, however long it was held)
+    const bombed = !cancelled && slot.bombTier >= 2;
+    const bombTap = !cancelled && slot.onBus && !bombed && slot.maxDist <= inputTune.tapSlopPx;
+    if (slot.bombTier > 0) this.bombEnd(slot, cancelled);
+    const dir = cancelled || aimed || bombed ? 0 : this.flickOf(slot, e.clientX - this.rectL, e.clientY - this.rectT, now);
+    const quick = !cancelled && !aimed && !bombed && (this.isQuick(slot, now) || bombTap);
     if (!quick) this.gAllQuick = false;
     const tap = !cancelled && !aimed && this.secondTap(slot, now);
     const ownsPress = slot.ownsPress, t0 = slot.t0;
@@ -800,12 +848,17 @@ export class Input {
     slot.inLook = false;
     slot.aiming = false;
     slot.aimArmed = false;
+    slot.onBus = false;
+    slot.bombFrom = -1;
+    slot.bombTier = 0;
+    slot.bombArm = 0;
   }
 
   private free(s: Slot) {
     if (s.looking) this.endLook(s);
-    // (a lost, swallowed or dropped finger ends its aim cancelled; a lift has ended it already)
+    // (a lost, swallowed or dropped finger ends its aim cancelled; a lift has ended it already. Its Bomb fizzles)
     if (s.aiming) this.endAim(s, true);
+    this.bombEnd(s, true);
     s.role = Role.None;
     s.id = -1;
   }
@@ -890,6 +943,8 @@ export class Input {
 
   /** The one tap a multi-finger gesture is allowed. */
   private answer() {
+    // (another thumb's tap: a Bomb charging fizzles, and the tap is the tap)
+    if (this.fly) this.bombEnd(this.fly, true);
     this.gAnswered = true;
     this.gPendingTap = false;
     this.onTap?.();
@@ -904,6 +959,7 @@ export class Input {
       if ((s.role !== Role.Fly && s.role !== Role.Second) || s.right) continue;
       if (s.looking) this.endLook(s);
       if (s.aiming) this.endAim(s, true);
+      this.bombEnd(s, true);
       s.role = Role.Orphan;
     }
     this.onTripleFinger?.();
@@ -979,11 +1035,83 @@ export class Input {
    */
   private canAim(s: Slot, now: number): boolean {
     if (s.role !== Role.Second || this.aimSlot || !this.aimOn || !s.inLook || s.right || s.looking || s.maxDist > inputTune.tapSlopPx || now - s.t0 < inputTune.aimHoldMs) return false;
+    return !this.twoTapOpen(s, now);
+  }
+
+  /** `s` could still be one of two fingers tapped together: another landed with it and could yet lift as the rest of that tap. */
+  private twoTapOpen(s: Slot, now: number): boolean {
     if (this.gMulti && !this.gSteered && now - this.gT0 <= inputTune.stillTapMs + 150) {
-      if (this.gAllQuick && this.gMax === 2) return false;
-      for (const o of this.slots) if (o !== s && (o.role === Role.Fly || o.role === Role.Second) && !o.right && this.isQuick(o, now)) return false;
+      if (this.gAllQuick && this.gMax === 2) return true;
+      for (const o of this.slots) if (o !== s && (o.role === Role.Fly || o.role === Role.Second) && !o.right && this.isQuick(o, now)) return true;
     }
-    return true;
+    return false;
+  }
+
+  // ---------------------------------------------------------------- the Bomb
+
+  /** A landing on the bus's own box. */
+  private onBusBox(x: number, y: number): boolean {
+    const b = this.busBox;
+    return !!b && x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1;
+  }
+
+  /** How far a thumb on the bus may move from its landing and still charge: the tap's slop until Bomb II shows, MEGA's charge slop after. */
+  private bombSlop(s: Slot): number {
+    return s.bombTier >= 2 ? inputTune.chargeSlopPx : inputTune.tapSlopPx;
+  }
+
+  /** The thumb on the bus moved past its slop: a charge fizzles, and for the rest of the touch it's the flying thumb as any. */
+  private bombOff(s: Slot) {
+    this.bombEnd(s, true);
+    s.onBus = false;
+  }
+
+  /** Once a frame for the flying thumb on the bus: the charge's start and its tiers. */
+  private bombStep(s: Slot, now: number) {
+    if (s.maxDist > this.bombSlop(s)) return this.bombOff(s);
+    if (!this.bombFull) {
+      // (a tier waits for a full belly: one gone mid-charge, a lock's shot that spent it, fizzles, and the clock starts again when it's back)
+      this.bombEnd(s, true);
+      s.bombFrom = -1;
+      return;
+    }
+    if (s.bombFrom < 0) s.bombFrom = now;
+    const T = inputTune, k = now - s.bombFrom;
+    if (s.bombTier === 0) {
+      // (not while it could still be one of a two-finger tap: that waits for the other to lift or commit)
+      if (k < T.aimHoldMs || this.twoTapOpen(s, now)) return;
+      s.bombTier = 1;
+      const B = this.state.bomb;
+      B.on = true;
+      B.tier = 1;
+      B.t0 = s.t0;
+      B.at = s.bombFrom;
+      this.onBombCharge?.();
+    }
+    // (armed on the first frame that sees it, shown on a later one that still does, aimLagMs past its time: a lift queued behind a slow frame is what its own time says)
+    const gift = this.bombGift >= 2 ? this.bombGift : 0;
+    const two = gift ? T.aimHoldMs : this.bombTwoMs, three = gift ? T.aimHoldMs : this.bombThreeMs;
+    const reached = gift || (k >= three ? 3 : k >= two ? 2 : 1);
+    if (reached > s.bombArm) {
+      s.bombArm = reached;
+      return;
+    }
+    if (s.bombArm > s.bombTier && k >= (s.bombArm >= 3 ? three : two) + T.aimLagMs) {
+      s.bombTier = s.bombArm;
+      this.state.bomb.tier = s.bombTier;
+      this.onBombTier?.(s.bombTier);
+    }
+  }
+
+  /** The charge ends, if it began: with the tier it had, or cancelled. */
+  private bombEnd(s: Slot, cancelled: boolean) {
+    const tier = s.bombTier;
+    s.bombArm = 0;
+    if (tier === 0) return;
+    s.bombTier = 0;
+    this.state.bomb.on = false;
+    this.state.bomb.tier = 0;
+    this.onBombEnd?.(tier, cancelled);
   }
 
   /** A still finger off the lane holds to aim (state.aim), from now until its lift. */
@@ -1131,6 +1259,7 @@ export class Input {
     for (const s of this.slots) {
       if (s.looking) this.endLook(s);
       if (s.aiming) this.endAim(s, true);
+      this.bombEnd(s, true);
       s.role = Role.None;
       s.id = -1;
     }

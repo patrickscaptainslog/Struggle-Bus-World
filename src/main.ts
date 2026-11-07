@@ -22,6 +22,7 @@ import { Controls } from './game/Controls';
 import { StreetCam } from './game/StreetCam';
 import { WARP } from './game/Turbo';
 import { BusModel, busTune, type BusPose } from './bus/BusModel';
+import { D as BUS_DIM } from './bus/busShape';
 import { Particles } from './fx/Particles';
 import { StreetSigns, signBladeWidth, signTune } from './fx/StreetSign';
 import { Credit } from './ui/Credits';
@@ -482,6 +483,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const busOnScreen = new THREE.Vector3();
   /** the bus's lane, handed to the thumbs each frame (Input.busZone): one object, filled in place */
   const busLane = { x: 0, y: 0, r: 0, open: 0 };
+  /** the bus's own box on the screen, the Bomb's (Input.busBox), and a corner of it on its way through the lens */
+  const busBox = { x0: 0, y0: 0, x1: 0, y1: 0 };
+  const busCorner = new THREE.Vector3();
   scene.add(bus.root);
 
   // drop shadow straight below the bus: grounds the hero (how high it flies). No decal: the resolve pass
@@ -1687,6 +1691,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // hit-stop frames hold it), instead of the paint reaching the GPU a frame late
     superSplat.update(dt);
     // (hold to aim: the hold's ray, its handlers, the Hose and the homing shots, after the super, which writes the bus's speed too, and before the blasts land)
+    // (a Bomb charging on the bus: a hold off the lane coughs)
+    hose.bombing = input.state.bomb.on;
     holds.frame(dt);
     hose.update(dt);
     splatter.update(dt);
@@ -1844,6 +1850,26 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         busLane.r = inputTune.laneHalf * Math.min(W, H);
         busLane.open = inputTune.laneOpen * H;
         input.busZone = busLane;
+      }
+      // (the bus itself, the Bomb's: its eight corners through this frame's lens, 10 px more a side and at least 48 x 56 px, the size of a thumb's landing. Only
+      // a thumb landing in it charges; behind the lens there is none)
+      if (input.bombOn) {
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (let i = 0; i < 8; i++) {
+          busCorner.set(i & 1 ? BUS_DIM.bandX : -BUS_DIM.bandX, BUS_DIM.OY + (i & 2 ? BUS_DIM.roofTop : 0), i & 4 ? BUS_DIM.zRear : BUS_DIM.zFront);
+          bus.mesh.localToWorld(busCorner).project(camera);
+          const sx = ((busCorner.x + 1) / 2) * W, sy = ((1 - busCorner.y) / 2) * H;
+          x0 = Math.min(x0, sx);
+          x1 = Math.max(x1, sx);
+          y0 = Math.min(y0, sy);
+          y1 = Math.max(y1, sy);
+        }
+        const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, hw = Math.max(24, (x1 - x0) / 2 + 10), hh = Math.max(28, (y1 - y0) / 2 + 10);
+        busBox.x0 = cx - hw;
+        busBox.x1 = cx + hw;
+        busBox.y0 = cy - hh;
+        busBox.y1 = cy + hh;
+        input.busBox = v.z < 1 ? busBox : null;
       }
     }
     // (the gardens drawn as far as this lens sees them: their budget, world/props/sprouts.ts)

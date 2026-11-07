@@ -143,6 +143,9 @@ export class Hose implements HoldHandler {
   readonly name = 'hose';
   /** the stream is on (taps wait: the mouth is busy) */
   pouring = false;
+  /** a Bomb is charging on the bus (main.ts, per frame from Input.state.bomb): a hold now coughs and pours nothing, so the Hose can't drain the belly the
+   *  Bomb's tiers wait for */
+  bombing = false;
   /** outputs, applied by main.ts on the bus every frame: extra nose-up (rad), jitter (m) */
   pitch = 0;
   readonly shake = new THREE.Vector3();
@@ -228,7 +231,7 @@ export class Hose implements HoldHandler {
 
   private tankOk(): boolean {
     const f = this.h.flight;
-    return f.barfT < 0 && f.fullness >= hoseTune.minTank;
+    return !this.bombing && f.barfT < 0 && f.fullness >= hoseTune.minTank;
   }
 
   private refuse() {
