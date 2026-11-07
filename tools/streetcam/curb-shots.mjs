@@ -22,7 +22,8 @@ const hours = [
   { name: 'noon', t: `${date}T20:00:00Z` },
   { name: 'golden', t: `${next}T00:20:00Z` },
 ];
-const WIDE = { back: 16, eye: 3.2, ahead: 60, at: 3, fov: 58 };
+// (as CurbFlight's &curblens=wide: the ride-along stands on the bus's line, side 0. Without it the lens was NaN and the run stood at the first wide still)
+const WIDE = { back: 16, eye: 3.2, ahead: 60, at: 3, fov: 58, side: 0 };
 
 const browser = await chromium.launch(browserOptions());
 const rows = [];
