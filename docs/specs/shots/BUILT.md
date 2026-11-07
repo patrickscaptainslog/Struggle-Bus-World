@@ -561,6 +561,59 @@ The first `gate.sh all` ran with the arterial row and passed 14 of 15, that row 
 - Curb's hint and the Bomb's sharing the toast;
 - anything on an A15 or the producer's phone.
 
+## The Lob and feat/shots together
+
+`feat/lob` (`67907bc`) merged `feat/shots` (`fd6d413`: the Bomb's last fixes `8a03780` and `7d67c14`, and Curb, merged there at `644c40d`) at `33cb48f`. Both start from `feat/bomb` `ed3e5b0`.
+
+**What conflicted, and how each was kept** (three files, each with both sides):
+- `Coach.ts`: `TAUGHT` holds aim 64, curb 128, the Bomb 256 and the Lob 1024, each on its own bit, with Curb's note on why 128. Streak's lock still takes 512.
+- `tools/controls.mjs`: the header has both the lob and curb modes. The Lob's mode block is closed before Curb's begins.
+- `tools/warmcheck.mjs`: the header has both the `--lob` and `--curb` lines.
+
+**Read where it merged clean:**
+- `Aim.ts`: Curb's street front returns before the aim's own pick, the Comet and the Lob's slot, so the street has no Comet and no Lob. (The integration's note that a `comet.lob(f)` came before any street check was about the Bomb's old slot. The Lob replaced that slot with `aimer.lob`.)
+- `main.ts`: `aimer.street` is set before `aimer.update`, so the ring, the Lob's hint and `lobState` see no Lob on the street. Curb's drive-by sits in the tap's barf next to the Lob's shot.
+- `Controls.ts`, `config.ts`, and the docs: BUILT.md keeps the Lob's sections and "The Bomb and Curb together", and HOOKS.md keeps the Lob's section and the Bomb's watch `tap`.
+
+**The street gate** (added in the merge): the Lob is gated on `aimer.street` in `Aim.ts`. On Curb's street no Lob is planned, and none is latched at a lift or a press, even with the nose up. The tap is the drive-by, as it is with no Lob. HOOKS.md's Lob section says so.
+
+`s_lob --street` is its row. It flies Curb's street (`aimer.street` set, as main.ts sets it while Curb rolls) nose up at Cruise and Express, with one thumb and two:
+- It printed "lob checks: all 24 passed": splats at the front, pull 0 of 120 frames, and `{"planned":0,"fired":0}`.
+- With the street return and the gate taken out, it fails: Lobs thrown, planned 51-101 times.
+
+**The proof** (the laptop's `sb-checks/shots/lobmerge/`; `gates.txt` there, its rows run one at a time by `gate.sh`):
+- `tsc` is clean.
+- *The three-way rule*, the integration's `three-way.py` pointed at these trees. It covers every Node sim, probe and check of the Lob's gates and Curb's: 29 of them with `tsc`, `s_curb` and life's `curb.mjs` and `blast.mjs`. The trees were B0 `ed3e5b0` (the Lob's base run), A `67907bc`, C `fd6d413` and M. Byte for byte, what varies run to run masked:
+  - the integration's masks;
+  - the Lob's sims' aimMs and row times, found from two runs of A;
+  - `s_bomb`'s `liftGc`, whether the collector ran in the lift's frame (true on one row of B0 and another of A, none in C or M);
+  - `s_bomb`'s and `s_lob`'s wall-clock rows, read apart.
+  
+  It printed "three-way: 82 of 82 outputs pass": 68 unchanged by all four, 6 the Lob's own (`s_lob`, `s_shots --lob`), 6 Curb's own, and `s_shots`' rows and log the Lob's change alone (its kind 'lob' rows). No output was changed by both.
+- `s_lob` (851 of 851), `s_lob --street` (24 of 24) and `s_shots --lob` (90 of 90) pass as rows of their own.
+- *`vite build` and `iosfloor`:* "iOS 15.0 parses every chunk".
+- *The `--det` views*, sky off and golden hour, against the builds of B0 (`sb-build-lob-base`), A (the Lob's build, taken before this one replaced it) and C (`sb-build-int`): 8 of 8 each, all four alike pixel for pixel.
+
+*On this laptop's GPU* (the merge's build):
+- `warmcheck` plain, `--comet`, `--crew --lob` and `--curb`: 38, 38, 38 and 41 programs at ready, 0 after. The Lob was thrown 10 of 10 in five factions at Cruise and Express, 1,580-1,606 m out, at the body to 0.1 degree.
+- `warmcheck --crew --bomb`:
+  - Its first run: 19 of 20 Bombs. Rainbow's II read as a tap (`taps 1, fired 0`), run beside the three-way's sims and the extras' browsers.
+  - The rerun, with the sims done: all 20 at their tier, 0 programs after ready.
+- `controls.mjs lob` (evening): 27 of 27. Lobs on the street at Cruise, Express and Nonstop, with `?life` and on the Moon, at 43-105 draws and at most 0.68 M triangles, with 0 programs made after ready.
+- The noon row (`noon-own.mjs`): its own draws 2 at Cruise and Express, the frame 126 and 188.
+- `controls.mjs bomb`: 38 of 38, at 50-125 draws and at most 1.00 M triangles.
+- `controls.mjs zone curb` on the residential street: 11 of 11 and 15 of 15. On the street 94-140 draws, 0.97 M triangles at most, 0 programs after ready.
+- `gardens/budget.mjs`, plain and `--bomb`: both pass, with 35 programs throughout.
+- The Bomb's hint: due 2.4 s after the third splat (taught 97, then 355).
+
+The three-way first ran as one row and passed `gate.sh`'s 40 minutes on the shared laptop (`s_shots` alone took 709 s). Its last four sims were run after, into the same M. It is two rows now: the probes, then the rest and the compare.
+
+*Not checked:*
+- a real touch nose up on Curb's street in the browser (`controls.mjs curb` doesn't pull up there);
+- Curb's hint and the Lob's sharing the toast;
+- the sound;
+- anything on an A15 or the producer's phone.
+
 ## The gardens' budget (feat/gardens)
 
 The shots paint more and faster, so the rooftop gardens have a triangle budget first. Before it, 1,146 level-3 roofs in a Recess match drew 4.04 M triangles of gardens alone.
