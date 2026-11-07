@@ -601,7 +601,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const flashPos = new THREE.Vector3();
   /** Where a flung blob comes down: the roof it hits, else the ground (seen from fromY: never on a deck over it). */
   const landingY = (x: number, z: number, fromY: number) => city.roofAt(x, z, fromY) ?? city.groundAt(x, z);
-  /** Trees standing in the blast's fresh ground paint bloom (or escalate) as the shockwave reaches them. */
+  /** Trees standing in the blast's fresh ground paint bloom (or escalate) as the shockwave reaches them: a level, or a Bomb's jump, never past 3. */
   const paintTrees = (b: Blast, freshOnly = false) => {
     const ts = manifest.tileSize;
     const { x, z, r } = b.spec;
@@ -618,7 +618,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
           if (d > reach || (freshOnly && tf.paintLevel(i) > 0)) continue;
           const g = city.ground.sample(t.x, t.z);
           if (!g || g.cov < 0.5) continue;
-          tf.setPaint(i, g.hue, Math.min(3, tf.paintLevel(i) + 1), b.t + arrival(d, r), g.faction);
+          tf.setPaint(i, g.hue, Math.min(3, tf.paintLevel(i) + b.jump), b.t + arrival(d, r), g.faction);
         }
       }
   };
@@ -970,8 +970,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     return true;
   }
 
-  /** What a super splat's mega blast adds to a breath. */
-  type MegaBreath = { radius: number; width: number; hitStop: number; tag: SuperTag };
+  /** What a super splat's mega blast adds to a breath (a Bomb's: the stages its buildings jump). */
+  type MegaBreath = { radius: number; width: number; hitStop: number; tag: SuperTag; jump?: number };
   // Dragon breath aim (src/game/Aim.ts): the building that glints is the one a tap hits.
   const aimer = new Aimer(city, splatter);
   // the Comet (src/game/Comet.ts): with a gear at speed a tap flies ahead and lands in view of the lens the player sees (the camera as last drawn)
@@ -999,6 +999,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       if (block) Object.assign(o, { target: null, y: at.y, exact: true, moverBlock: true });
       else if (mover) Object.assign(o, { mover, moverFresh });
       if (mega) Object.assign(o, { radius: mega.radius, hitStop: mega.hitStop, super: mega.tag });
+      if (mega?.jump) o.jump = mega.jump;
       Object.assign(o, moonPaint?.barf(shot, !!mega));
       landsAt = splatter.barf(at.x, at.z, o);
     } finally {
@@ -1216,7 +1217,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const bomb = new Bomb({
     input, flight, aimer, audio, fx: superFx, rig, busVel,
     breathe: (shot, b) => {
-      const at = breatheNow(shot, { radius: b.radius, width: b.width, hitStop: b.hitStop, tag: b.tag });
+      const at = breatheNow(shot, { radius: b.radius, width: b.width, hitStop: b.hitStop, tag: b.tag, jump: b.jump });
       controls.splatted();
       controls.bombed();
       return at;

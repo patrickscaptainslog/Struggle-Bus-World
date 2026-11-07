@@ -49,6 +49,8 @@ export interface Blast {
   tag?: unknown;
   /** a Comet's blast (BarfOpts.comet): its pillar and its late boom are the caller's (src/fx/CometFx.ts) */
   comet: CometPlan | null;
+  /** the stages each building it reaches climbs (BarfOpts.jump): 1, a Bomb's 2 or 3. Its trees take as many */
+  jump: number;
 }
 
 export interface SplatFx {
@@ -106,6 +108,9 @@ export interface BarfOpts {
   tag?: unknown;
   /** a Comet's flight (src/game/Comet.ts), handed back on the Blast */
   comet?: CometPlan;
+  /** the stages each building it reaches climbs, never past 3: 1 (every tap and pour), a Bomb's 2 or 3 (src/game/Bomb.ts). Over 1 it never asks the Lift: a
+   *  Bomb lifts nothing, and a house up already is out of it, as a tap's is */
+  jump?: number;
   /** > 0: plan the blast only this long (s) before its impact, with what's loaded then (a Comet whose landing's tile wasn't in at the tap). A miss then
    *  is told through onLateMiss */
   late?: number;
@@ -329,6 +334,7 @@ export class Splatter {
     let maxLevel = 1;
     const busy = hose ? this.hoseBusy(paint.data.length >> 2) : null;
     const pour = opts?.pour ?? 0;
+    const jump = Math.max(1, Math.min(3, Math.round(opts?.jump ?? 1)));
     const poured = pour > 0 ? this.pourBusy(paint.data.length >> 2) : null;
     for (const n of reach) {
       if (plan.length >= cap) break;
@@ -338,11 +344,13 @@ export class Splatter {
       if (busy && busy[ref.index] > this.t) continue;
       if (poured && poured[ref.index] === pour) continue;
       const lv = paint.level(ref.index);
-      // (?lift: a floating house is in the sky, and takes no part of a blast unless it was the aim; a Rainbow house at level 3 hit by Rainbow lifts)
-      const lift = city.lift ? city.lift.wants(ref, lv, this.faction) : 0;
+      // (?lift: a floating house is in the sky, and takes no part of a blast unless it was the aim; a Rainbow house at level 3 hit by Rainbow lifts. A Bomb asks
+      // only whether it's up: it lifts none, and one up is out of it, the aim too)
+      if (jump > 1 && city.lift?.aloft(ref)) continue;
+      const lift = city.lift && jump === 1 ? city.lift.wants(ref, lv, this.faction) : 0;
       if (lift === 2 && ref !== primary) continue;
       const was = lv > 0.5;
-      const level = was ? Math.min(3, Math.round(lv) + 1) : 1;
+      const level = Math.min(3, (was ? Math.round(lv) : 0) + jump);
       // escalating buildings keep their hue, the primary takes the blast's; the rest are dealt below
       const h = was ? wrapHue(paint.get(ref.index).color) : ref === primary ? hue : -1;
       maxLevel = Math.max(maxLevel, level);
@@ -359,7 +367,7 @@ export class Splatter {
     const ground = groundless ? null : city.ground.begin(spec, tImpact);
     this.pending.push({
       at: tImpact, plan, ground, hitStop: hose ? 0 : opts?.hitStop ?? S.hitStopFrames,
-      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, mover: false, afloat, primary, super: opts?.super ?? null, tag: opts?.tag, comet: opts?.comet ?? null },
+      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, mover: false, afloat, primary, super: opts?.super ?? null, tag: opts?.tag, comet: opts?.comet ?? null, jump },
     });
     if (!stream) this.fx.geyser([pos.clone()], [hue]);
     return tImpact;
@@ -383,7 +391,7 @@ export class Splatter {
     spec.faction = this.faction;
     this.pending.push({
       at: tImpact, plan: [], ground: null, hitStop: hose ? 0 : opts.hitStop ?? S.hitStopFrames,
-      blast: { spec, pos, t: tImpact, count: 1, maxLevel: 1, strength: r / S.blastRadius, dots: [], hose, mover: true, afloat: false, primary: null, super: opts.super ?? null, tag: opts.tag, comet: opts.comet ?? null },
+      blast: { spec, pos, t: tImpact, count: 1, maxLevel: 1, strength: r / S.blastRadius, dots: [], hose, mover: true, afloat: false, primary: null, super: opts.super ?? null, tag: opts.tag, comet: opts.comet ?? null, jump: 1 },
     });
     this.lastMiss = false;
     return tImpact;

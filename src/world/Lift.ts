@@ -415,6 +415,13 @@ export class Lift implements LiftHooks, FieldHouses {
     return this.stagedHue[i] >= 0 ? 2 : 0;
   }
 
+  /** A house is lifting or up already, or staged for its wave: what wants() answers 2 for, asked of nothing else, so it starts no lift and counts toward no cap
+   *  (a Bomb's question: it jumps a house two or three stages and lifts none, SHOTS.md: "the Lift and the gods stay earned by aimed hits"). */
+  aloft(ref: { index: number }): boolean {
+    const i = ref.index;
+    return this.refs.has(i) && (this.state[i] !== ST_GROUND || this.stagedHue[i] >= 0);
+  }
+
   /** houses a blast asked to lift (wants) that haven't started yet */
   private asked = 0;
 
