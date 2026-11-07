@@ -39,6 +39,8 @@ import { SuperSplat } from './game/SuperSplat';
 import { Holds } from './game/Hold';
 import { Hose } from './game/Hose';
 import { SuperFx } from './fx/SuperFx';
+import { CometFx } from './fx/CometFx';
+import { Comet } from './game/Comet';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
 import { earthFly, earthResume, heldHour, lifeOn, moonLand, moonLow, moonrun, skyLive } from './sky/flag';
@@ -626,6 +628,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const ground = city.groundAt(x, z);
     return y > ground + 4 && city.overheadAt(x, z, ground + 1) <= y ? y - 0.5 : ground;
   };
+  // the Comet's looks (src/fx/CometFx.ts): its streak, its pillar of paint light, drops on the lens and its late boom with the camera's kick
+  const cometFx = new CometFx(particles, { launch: (k) => audio.cometLaunch(k), boom: (k, soft, still) => audio.cometBoom(k, soft, still), kick: (m) => rig.kick(m) }, mouthWorld);
+  cometFx.moon = !!moon;
+  scene.add(cometFx.pillars, cometFx.drops);
+  const cometBus = new THREE.Vector3();
   const splatter = new Splatter(city, {
     geyser: (targets, hues) => {
       const S = config.splat;
@@ -670,12 +677,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       }
       paintTrees(b);
       landmarkHit(city, b.pos, b.t);
-      audio.splatImpact(k);
+      // (a Comet's boom comes late, when its sound reaches the bus, with the camera's kick; its pillar rises now, and the bloom's notes are on time)
+      if (b.comet) cometFx.impact(b, simTime, cometBus.set(flight.x, flight.y, flight.z), busVel(), city.groundAt(b.pos.x, b.pos.z));
+      else audio.splatImpact(k);
       audio.bloomBurst(b.count, b.spec.hue, b.maxLevel);
       // one white-hot frame centered on the blast, a kick, and the fog thins over it
       flashPos.copy(b.pos).project(camera);
       pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, S.flashFrames, S.flashStrength);
-      rig.kick(S.kick * Math.sqrt(k));
+      if (!b.comet) rig.kick(S.kick * Math.sqrt(k));
       bumpPaint(b.spec.x, b.spec.z, Math.min(255, 30 + 5 * b.count));
       // nothing blooms (open ground with no building in reach): no first bloom will queue a sign, so it queues here
       if (moon ? moon.paint.signDue(b.spec.x, b.spec.z, b.t) : !b.count && !b.afloat) queueSign(null, b.spec.hue, b.spec.x, b.spec.z, b.spec.r);
@@ -960,6 +969,12 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   type MegaBreath = { radius: number; width: number; hitStop: number; tag: SuperTag };
   // Dragon breath aim (src/game/Aim.ts): the building that glints is the one a tap hits.
   const aimer = new Aimer(city, splatter);
+  // the Comet (src/game/Comet.ts): with a gear at speed a tap flies ahead and lands in view of the lens the player sees (the camera as last drawn)
+  const comet = new Comet(city, splatter);
+  comet.lens = camera;
+  aimer.comet = comet;
+  // (a Comet planned late, its landing's tile not in at the tap, that comes down on the water: part of the belly back, as for any miss)
+  splatter.onLateMiss = () => (flight.refund = config.splat.missRefund);
   /** (?moon: the craters are the buildings here, src/moon/CraterPaint.ts) */
   const moonPaint = moon?.paint ?? null;
   /** Breathe a shot: the blast is timed to the projectile's flight (inhale + travel), at the glinting building. */
@@ -1064,8 +1079,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     moonPaint?.aim(shot, flight, aimer.aim.x, aimer.aim.z, simTime, !!mega);
     const tgt = shot.target;
     const iy = shot.y ?? (tgt ? city.roofAtPart(tgt, shot.x, shot.z, flight.y) + 0.5 : city.groundAt(shot.x, shot.z));
-    lastShot = { t: simTime, aim: [shot.x, iy, shot.z], travel: config.splat.inhale + shot.travel, drop: shot.drop, busY: flight.y, wall: shot.exact, target: tgt ? { index: tgt.index, cx: tgt.cx, cz: tgt.cz, roofY: tgt.roofY } : null, mega: mega?.radius };
+    lastShot = { t: simTime, aim: [shot.x, iy, shot.z], travel: config.splat.inhale + shot.travel, drop: shot.drop, busY: flight.y, wall: shot.exact, target: tgt ? { index: tgt.index, cx: tgt.cx, cz: tgt.cz, roofY: tgt.roofY } : null, mega: mega?.radius, comet: shot.comet ? { ...shot.comet, target: tgt ? tgt.index : null } : null };
+    const hue = splatter.hueNext;
     breathe(shot, mega);
+    // (a Comet: its streak leaves the mouth after the inhale, and lands with its blast)
+    if (shot.comet) cometFx.launch(shot.comet, simTime + config.splat.inhale, simTime + config.splat.inhale + shot.travel, splatter.faction, hue, simTime);
     if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
   };
   const tapSplat = () => {
@@ -1363,6 +1381,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     lastBlast.x -= dx;
     lastBlast.z -= dz;
     if (jet) for (const t of jet.targets) t.set(t.x - dx, t.y, t.z - dz);
+    cometFx.slide(dx, dz);
     slides++;
   };
   let slides = 0;
@@ -1704,6 +1723,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       puffVel.set(-flight.fx * 4 + (Math.random() - 0.5) * 2, 1.2 + Math.random(), -flight.fz * 4 + (Math.random() - 0.5) * 2);
       particles.puff(puffPos, puffVel);
     }
+    cometFx.update(dt, simTime, cometBus.set(flight.x, flight.y, flight.z), camera);
     particles.update(dt);
     // (?moon: a place the bus has come to says so)
     const passing = moonPaint?.passing(dt, simTime, flight, flight.y - city.groundAt(flight.x, flight.z));
@@ -2028,7 +2048,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // (asked for now: there is no asking once the context is gone)
     const lose = renderer.getContext().getExtension('WEBGL_lose_context');
     (window as unknown as Record<string, unknown>).__game = {
-      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: live ?? hour, moon, life, lift, sprouts,
+      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, particles, sky: live ?? hour, moon, life, lift, sprouts,
       /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
       get warm() {
         return warm;
@@ -2080,6 +2100,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       /** QA: hold to aim (Holds: the hold under way, its handlers, the homing shots) and the Hose (its stats; qaPour pours at a world point until the tank runs dry) */
       holds,
       hose,
+      /** QA: the Comet (src/game/Comet.ts): its plan this frame (where a tap now lands, null when it's the classic shot), and its looks' counts */
+      comet,
+      cometFx,
+      cometState: () => ({ plan: aimer.planned ? { ...aimer.planned, target: aimer.planned.target ? aimer.planned.target.index : null } : null, gear: controls.turbo.name, speed: flight.ground, drive: flight.turbo.speed, ...cometFx.stats }),
       hoseState: () => ({ pouring: hose.pouring, tank: flight.fullness, stats: { ...hose.stats }, hold: holds.current ? { ...holds.current, point: holds.current.point.toArray() } : null, holds: { ...holds.stats } }),
       forceReady: () => (flight.fullness = 1),
       /** QA: barf at a lat/lon through the real splat pipeline (blast, blooms, sign, sound). Returns the impact time (game clock). */

@@ -1,5 +1,6 @@
 import { SoundGraph } from './SoundGraph';
-import { synthAll, type Kit, type SynthData } from './dsp';
+import { LOOKAHEAD, synthAll, type Kit, type SynthData } from './dsp';
+import { cometBoom, cometLaunch } from './cometSfx';
 import { audioTune, registerAudioTunables } from './tune';
 
 // Struggle Bus audio: a fully synthesized WebAudio engine (no sample files).
@@ -226,6 +227,18 @@ export class AudioEngine {
   splatImpact(strength: number): void {
     const g = this.live();
     if (g) g.splatImpact(g.now(), strength);
+  }
+
+  /** The Comet leaves the mouth (src/audio/cometSfx.ts): its whoosh, k ~1 for the full show. */
+  cometLaunch(k = 1): void {
+    const g = this.live();
+    if (g) cometLaunch(g.voiceKit, g.voiceKit.ctx.currentTime + LOOKAHEAD, k);
+  }
+
+  /** The Comet's boom, late: when the sound of its landing reaches the bus (k ~ its strength; soft: the lighter show's; moon: a ground thump, no air). */
+  cometBoom(k: number, soft: boolean, moon: boolean): void {
+    const g = this.live();
+    if (g) cometBoom(g.voiceKit, g.voiceKit.ctx.currentTime + LOOKAHEAD, k, soft, moon);
   }
 
   /** A whole blast blooms: one capped, fast arpeggio of the next chord (count = buildings, hue 0..5, level 1..3). */
