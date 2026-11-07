@@ -1398,6 +1398,8 @@ export class GroundPaint {
         const d2 = wx * wx + wz * wz;
         if (d2 > R2) continue;
         const dist = Math.sqrt(d2);
+        // (&boom's ring: its hole, more than its edge's warp in, is bare, and over half its texels)
+        if (s.layout === LAYOUT_RING && dist < s.ring - 3) continue;
         const a = Math.atan2(wz, wx);
         let f = a * lutK;
         if (f < 0) f += SHAPE_LUT;
