@@ -145,6 +145,15 @@ With `&bomb` on the link, the flying thumb held still on the bus itself charges 
 - **Its blast** carries `Blast.super` `{ kind: 'bomb', charge: 0.5 or 1, id }` and `Blast.jump` (2 or 3), so `life.blast` hears it with its whole circle as it hears a tap's; movers in it take one level, as the contract says. A Bomb at Comet range carries `Blast.comet` too.
 - **The ask for Recess** (the producer's fourth call): `areas.hit(…, { superId, jump, cap: 3 })` on `feat/recess`. The aimed square jumps at once, past the 5 s wait, never past 3; a rival's square takes one hit; the grey squares in the circle spill at stage 1. It can read the release from `watch` or the blast's `super.kind === 'bomb'`.
 
+## Sonic Boom and the Waterfall (the extras)
+
+Both are behind their links, `&boom` and `&falls` (`docs/specs/shots/BUILT.md`, "The extras"). Neither needs anything new from life to work: each paints through `life.blast` as a tap does.
+
+- **Sonic Boom** (`src/game/Boom.ts`): the flick into Turbo 3 lands a ring of paint where the bus will be 1.3 s on (more from higher up). Its blast carries `Blast.super` `{ kind: 'boom', charge: 1, id, inner }`: `life.blast` hears its whole circle, centre and radius as a tap's, and `inner` is the radius of its hole (0.75 of its radius), where no building or ground is painted. `window.__game.boom` is the Boom, `boomState()` says what it did last.
+- **The Waterfall** (`src/fx/Falls.ts`): a tower hit 40 m up or more runs with paint, and as the runs reach the street a pool lands round its foot (the footprint's radius + 10 m, one hue, the tower's). The pool calls `life.blast(x, groundY, z, r, hue, { kind: 'falls', charge: 0, id }, arrive, faction)` on its own, after the tap's blast that struck the tower. `window.__game.falls` is the Waterfall, its `stats` its counts.
+- **The ask for life (`SuperTag.inner`)**: when `superTag.inner` is set, leave the movers within `inner` of the blast's centre alone, so a ring paints only the cars, people and boats under its band. Without it the whole disc's movers are painted, the hole's too. A pool's movers are all of its circle's, as now. Optional, life's call: cars driving through a pool for 20 s after it lands take its paint.
+- **The ask for Recess (the producer's fifth call)**: `areas.hit` takes no square from a blast whose `super.kind` is `'boom'` or `'falls'`: the ring and the pool paint but take no ground in a match. A tap that struck the tower is a tap, its one hit on its square, as always.
+
 ## Not here yet
 
 - The flick's lunge and brake-hop in the white, and the white never shifting a gear (SHOTS.md, "Dodging"): the flight's, so the first account's, and the duel's dodge waits on it. Until then a dodge is a hard turn.
