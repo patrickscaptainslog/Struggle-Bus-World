@@ -621,19 +621,22 @@ export class CraterPaint {
   impact(b: Blast): Target | null {
     const S = config.splat, t = (b.tag as Target | null) ?? null, now = b.t;
     this.hitName = t?.name ?? null;
-    const cx = b.spec.x, cz = b.spec.z, big = !!b.super, base = t ? t.r + (big ? b.spec.r * 0.9 : 40) : b.spec.r * 0.8;
+    const cx = b.spec.x, cz = b.spec.z, big = !!b.super, base = t ? t.r + (big ? b.spec.r * 0.9 : 40) : b.spec.r * (b.super?.inner ? 1 : 0.8);
     // the wave a crater's size: it crosses the bowl in half a second, whatever the bowl
     const R = (t && !big ? t.r * 1.25 + 30 : Math.max(b.spec.r, t?.r ?? 0)) * S.ringReach, v = Math.max(S.waveSpeed, R / 0.5);
     blastUniforms.uBlastRing2.value.set(b.spec.hue, S.ringWidth * Math.sqrt(Math.max(1, R / 100)), v, R);
     const hits: Array<{ i: number; d: number; ang: number }> = [];
     const D = this.data;
     const maxR = t ? Math.max(30, t.r * 1.4) : base;
+    const hole = b.super?.inner ?? 0;
     for (let i = 0; i < this.n; i++) {
       const o = i * CRATER_FLOATS, r = D[o + 2];
       if (r > maxR || r < 8) continue;
       const dx = D[o] - cx, dz = D[o + 1] - cz, d = Math.hypot(dx, dz);
       if (d - r > base) continue;
       if (t && Math.abs(D[o] - t.x) < 0.5 && Math.abs(D[o + 1] - t.z) < 0.5) continue;
+      // (&boom's ring, src/game/Boom.ts: a crater wholly in its hole is out of it)
+      if (hole > 0 && d + r < hole) continue;
       if (this.sites.length && this.inSite(D[o], D[o + 1])) continue;
       // (a firehose lands a dozen times a second: a crater goes up once a second at most)
       const was = this.listRec[i];
@@ -679,6 +682,18 @@ export class CraterPaint {
     const sp = b.spec;
     // (nothing stays on a crewed site, nor grows there)
     if (this.inSite(sp.x, sp.z)) return;
+    const hole = b.super?.inner ?? 0;
+    if (hole > 0) {
+      // (&boom's ring: twelve strokes round its band, each in its hue there, and none in its hole)
+      const m = (sp.r + hole) * 0.5, w = (sp.r - hole) * 0.6;
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2, x = sp.x + Math.cos(a) * m, z = sp.z + Math.sin(a) * m;
+        if (!this.inSite(x, z)) this.markStroke(x, z, w, (sp.hue + Math.floor(k / 2)) % HUE_COUNT, (sp.seed % 6283) / 1000 + k, b.t, ownerOf(sp.faction));
+      }
+      this.strokesDirty = true;
+      this.saveAt = 1;
+      return;
+    }
     this.markStroke(sp.x, sp.z, sp.r, sp.hue, (sp.seed % 6283) / 1000, b.t, ownerOf(sp.faction));
     this.strokesDirty = true;
     this.saveAt = 1;
