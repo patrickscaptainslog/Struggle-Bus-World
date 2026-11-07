@@ -3,6 +3,8 @@ import { gunzip, isGzip } from '../world/gunzip';
 import { parseCityRoutes, parseRegionGraph, type CityRoutes, type RegionGraph } from '../world/lifeData';
 import { ferriesOn, ferryLines, harbourOf, sailsOn, WATER_R, type FerryLine, type Harbour } from './sim/boats';
 import { buildNet, carsOn, type CarNet } from './sim/cars';
+import { curbLand, curbPath, curbTune } from './sim/curb';
+import { sunsetSec } from './sim/sun';
 import { parkBlocks, picnicsOn, type LawnTile } from './sim/parks';
 import { livePlanes, LIVE_HOLD, scriptedPlanes, type LivePlane } from './sim/planes';
 import { MAX_ROWS, view, writeKey } from './snapshot';
@@ -32,6 +34,25 @@ export interface LifeLawn {
   tx: number;
   tz: number;
 }
+/** Curb (sim/curb.ts): the lane near (x, z) driven along (fx, fz) within `reach` m, and `length` m of it ahead, at a junction the way nearest `look` if it turns. */
+export interface LifeCurb {
+  type: 'curb';
+  id: number;
+  x: number;
+  z: number;
+  fx: number;
+  fz: number;
+  reach: number;
+  length: number;
+  look: [number, number] | null;
+}
+/** Its answer: the lane's points (x, y, z, the road's speed), none when there's no street there or the roads aren't in yet. */
+export interface LifeCurbAnswer {
+  type: 'curb';
+  id: number;
+  n: number;
+  pts: Float32Array;
+}
 export interface LifeTick {
   type: 'tick';
   utcMs: number;
@@ -47,8 +68,8 @@ export interface LifeTick {
 
 const RELAY_MS = 10000;
 /** People are filled this far round the bus (m): a picnic is 2 px at about 1.2 km on the portrait lens. At most PICNICS_MOST of them, the nearest tiles' first (the
- *  host samples the nearest first): Golden Gate Park's meadows would be thousands, and 276 triangles each */
-const PEOPLE_REACH = 800, PICNICS_MOST = 1200;
+ *  host samples the nearest first): Golden Gate Park's meadows would be thousands, and 276 triangles each (800, the first account's life review M5) */
+const PEOPLE_REACH = 800, PICNICS_MOST = 800;
 /** O9: with no geoid for the place, no live plane is drawn under this (m) */
 const NO_GEOID_FLOOR = 1000;
 /** Cars round the bus (m): every one in CAR_FULL, fewer on out to none at CAR_REACH (3.5 px on the portrait lens), all of them while the bus is under CAR_THIN and fewer
@@ -71,6 +92,8 @@ let askedAt = -Infinity;
 const sent = new Set<number>();
 /** the grass round the bus, by tile, and its park grass in blocks once its region's graph is in (null till then) */
 const lawns = new Map<string, { tile: LawnTile; blocks: Uint32Array | null }>();
+/** the lawns this tick, nearest first (reused) */
+const byNear: Array<{ tile: LawnTile; blocks: Uint32Array | null }> = [];
 /** the road graphs by region ("rx,rz"): loaded, being fetched, or failed (null: not asked again); the net cars drive, built from those loaded when they change */
 const graphs = new Map<string, RegionGraph | 'asking' | null>();
 let fetching = 0;
@@ -243,14 +266,22 @@ function tick(t: LifeTick): void {
     n = fresh ? livePlanes(live, t.utcMs, t.x, t.z, t.reach, v.rows, 0, MAX_ROWS, keys) : scriptedPlanes(place.slug, t.utcMs, t.x, t.z, t.reach, v.rows, 0, MAX_ROWS, keys, weather);
     // (people picnicking in the parks round the bus, low enough to see them, by the place's day and hour; a tile's park grass once its region's graph is in)
     if (t.y < 1500 && place.graphs) {
-      const tz = zoneOffset(t.utcMs), M = place.graphs.regionM, n0 = n;
-      for (const l of lawns.values()) {
+      const tz = zoneOffset(t.utcMs), M = place.graphs.regionM, n0 = n, dusk = sunsetSec(place.origin[0], place.origin[1], Math.floor((t.utcMs / 1000 + tz * 60) / 86400), tz);
+      // (the lawns nearest the bus first, so the cap leaves the far ones bare, not the grass under the bus: the first account's life review, M4)
+      byNear.length = 0;
+      for (const l of lawns.values()) byNear.push(l);
+      const dist = (l: { tile: LawnTile }) => {
+        const side = l.tile.n * l.tile.cell, cx = l.tile.x0 + side / 2 - t.x, cz = l.tile.z0 + side / 2 - t.z;
+        return cx * cx + cz * cz;
+      };
+      byNear.sort((p, q) => dist(p) - dist(q));
+      for (const l of byNear) {
         if (!l.blocks) {
           const side = l.tile.n * l.tile.cell, g = graphs.get(`${Math.floor((l.tile.tx * side) / M)},${Math.floor((l.tile.tz * side) / M)}`);
           if (g === undefined || g === 'asking') continue;
           l.blocks = g ? parkBlocks(l.tile, [g]) : new Uint32Array(0);
         }
-        n = picnicsOn(l.tile, l.blocks, t.utcMs, tz, t.x, t.z, PEOPLE_REACH, v.rows, n, Math.min(MAX_ROWS, n0 + PICNICS_MOST), keys);
+        n = picnicsOn(l.tile, l.blocks, t.utcMs, tz, t.x, t.z, PEOPLE_REACH, v.rows, n, Math.min(MAX_ROWS, n0 + PICNICS_MOST), keys, dusk);
       }
     }
     // (ferries on their routes, whatever the height: a ferry is 2 px at about 19 km; sailboats off the marinas near the bus)
@@ -259,7 +290,7 @@ function tick(t: LifeTick): void {
     if (lines.length) n = ferriesOn(lines, t.utcMs, tz, t.x, t.z, t.reach, v.rows, n, MAX_ROWS, keys);
     for (const m of marinas) {
       const h = harbourFor(m);
-      if (h) n = sailsOn(h, t.utcMs, tz, t.x, t.z, BOAT_REACH, v.rows, n, MAX_ROWS, keys);
+      if (h) n = sailsOn(h, t.utcMs, tz, t.x, t.z, BOAT_REACH, v.rows, n, MAX_ROWS, keys, sunsetSec(place.origin[0], place.origin[1], Math.floor((t.utcMs / 1000 + tz * 60) / 86400), tz));
     }
     roads(t.x, t.y, t.z, marinas);
     // (cars on the roads round the bus, fewer as it climbs away from them, by the place's hour)
@@ -274,7 +305,16 @@ function tick(t: LifeTick): void {
   (self as unknown as Worker).postMessage({ type: 'snap', buf: t.buf }, [t.buf]);
 }
 
-self.onmessage = (e: MessageEvent<LifeInit | LifeTick | LifeLawn>) => {
+/** Curb's lane: landed again on every ask, by place, since the net's ways are renumbered whenever a region comes or goes. */
+function curb(m: LifeCurb): void {
+  if (netStale) rebuild();
+  const spot = net ? curbLand(net, m.x, m.z, m.fx, m.fz, m.reach) : null, pts = new Float32Array(Math.ceil(m.length / curbTune.step + 2) * 4);
+  const n = spot && net ? curbPath(net, spot.w, spot.s, m.length, m.look, pts, { w: 0, s: 0 }) : 0;
+  const a: LifeCurbAnswer = { type: 'curb', id: m.id, n, pts };
+  (self as unknown as Worker).postMessage(a, [pts.buffer]);
+}
+
+self.onmessage = (e: MessageEvent<LifeInit | LifeTick | LifeLawn | LifeCurb>) => {
   const m = e.data;
   if (m.type === 'init') {
     place = m;
@@ -291,6 +331,7 @@ self.onmessage = (e: MessageEvent<LifeInit | LifeTick | LifeLawn>) => {
     tzAt = -1;
     tzFmt = null;
   } else if (m.type === 'tick') tick(m);
+  else if (m.type === 'curb') curb(m);
   else if (m.type === 'lawn') {
     if (m.tile) lawns.set(`${m.tx},${m.tz}`, { tile: m.tile, blocks: null });
     else lawns.delete(`${m.tx},${m.tz}`);

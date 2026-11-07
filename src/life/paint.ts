@@ -1,5 +1,5 @@
-// A mover's paint, kept (LIFE.md, "Paint on a mover"; CONTRACT.md section 3, O14): one record a painted mover, its key, hue, level, `until` (UTC ms on the page's
-// clock, which is the real one but under ?t=) and the namespace that placed it, in a database of its own in IndexedDB. 2,000 records and 256 KB at most, the soonest `until` first out.
+// A mover's paint, kept (LIFE.md, "Paint on a mover"; CONTRACT.md section 3, O14 and C15): one record a painted mover, its key, hue, level, `until` (UTC ms on the page's
+// clock, which is the real one but under ?t=), the namespace that placed it and, when it isn't Rainbow's, whose paint it is, in a database of its own in IndexedDB. 2,000 records and 256 KB at most, the soonest `until` first out.
 // Under ?t=, ?rate= or ?fixeddt a test store of its own, so a test never expires or purges the real one. Blocked IndexedDB: the paint lasts the session.
 
 export interface PaintRecord {
@@ -8,6 +8,8 @@ export interface PaintRecord {
   level: number;
   until: number;
   ns: string;
+  /** whose paint it is (C15, src/game/factions.ts), only when it isn't Rainbow's: a Rainbow record is what it was, and one without reads back Rainbow's */
+  faction?: number;
 }
 
 const MAX_RECORDS = 2000;

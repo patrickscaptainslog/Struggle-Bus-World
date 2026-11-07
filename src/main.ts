@@ -15,6 +15,7 @@ import { Splatter, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './
 import { FACTIONS } from './game/factions';
 import { Aimer, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
+import { ownerOf } from './game/factions';
 import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blastLayout';
 import { Input, inputTune } from './game/Input';
 import { Controls } from './game/Controls';
@@ -626,7 +627,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       const k = b.strength;
       moonPaint?.impact(b);
       // (?life: a MEGA, a hose's every impact and its closer paint every mover in reach, as the buildings in it: CONTRACT.md section 3)
-      if (b.super) life?.blast(b.pos.x, b.pos.y, b.pos.z, b.spec.r, b.spec.hue, b.super, simTime);
+      if (b.super) life?.blast(b.pos.x, b.pos.y, b.pos.z, b.spec.r, b.spec.hue, b.super, simTime, ownerOf(b.spec.faction));
       lastBlast.x = b.spec.x;
       lastBlast.z = b.spec.z;
       lastBlast.r = b.spec.r;
@@ -941,7 +942,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     try {
       // (?life: a breath at a mover paints the mover, at the impact's game time, and nothing under it. CONTRACT.md section 3)
       const mover = shot.mover && life ? shot.mover : null;
-      const moverFresh = mover ? life!.hit(mover.key, splatter.hueNext, skyClock.now(), simTime + config.splat.inhale + shot.travel) : false;
+      const moverFresh = mover ? life!.hit(mover.key, splatter.hueNext, skyClock.now(), simTime + config.splat.inhale + shot.travel, splatter.faction) : false;
       splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: flight.y, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, ...moonPaint?.barf(shot, !!mega), ...(mover ? { mover, moverFresh } : {}) });
     } finally {
       breathTravel = null;
