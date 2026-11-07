@@ -25,6 +25,7 @@ import { curbBoing, curbChirp, curbTicks, curbToot } from './audio/curbSfx';
 import { LOOKAHEAD } from './audio/dsp';
 import { WARP } from './game/Turbo';
 import { BusModel, busTune, type BusPose } from './bus/BusModel';
+import { D as busShape } from './bus/busShape';
 import { Particles } from './fx/Particles';
 import { StreetSigns, signBladeWidth, signTune } from './fx/StreetSign';
 import { Credit } from './ui/Credits';
@@ -648,9 +649,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       }
       particles.splash(b.pos, b.spec.hue, 2.2 * Math.sqrt(k));
       particles.burst(b.pos, b.spec.hue, k, city.groundAt(b.pos.x, b.pos.z));
-      // paint blobs flung far out, each landing on a spatter dot the ground paint already holds
+      // paint blobs flung far out, each landing on a spatter dot the ground paint already holds (Curb's drive-by: only on the side it blooms)
       for (const dot of b.dots) {
-        if (!dot.blob) continue;
+        if (!dot.blob || (b.side && (dot.x - b.side.x) * b.side.nx + (dot.z - b.side.z) * b.side.nz < 0)) continue;
         flingFrom.set(b.pos.x + (Math.random() - 0.5) * 3, b.pos.y + 0.8 + Math.random() * 1.5, b.pos.z + (Math.random() - 0.5) * 3);
         flingTo.set(dot.x, landingY(dot.x, dot.z, flingFrom.y) + 0.15, dot.z);
         particles.fling(flingFrom, flingTo, blobFlight(dot), dot.hue, 0.7 + dot.rad * 0.5);
@@ -861,7 +862,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
             if (city.groundClassAt(x, z) === Ground.WATER) continue; // (not in the bay: the Ferry Building's far side)
             const y = city.groundAt(x, z);
             const dist = camera.position.distanceTo(signPos.set(x, y + T.poleHeight + 5, z));
-            const scale = clamp((T.minFontPx * pipeline.pixelWorldSize(dist)) / Math.max(0.05, T.texelW), 1, moon ? 60 : 4);
+            // (from the kerb chase, at a tenth of the air's distance, the air's blade was a billboard: on the street it may come down to config.curb.signMin)
+            const scale = clamp((T.minFontPx * pipeline.pixelWorldSize(dist)) / Math.max(0.05, T.texelW), curbFlight?.rolling ? config.curb.signMin : 1, moon ? 60 : 4);
             // the foot of the pole in view, or how much taller the pole must be for a meter of it to
             // show under the blade above the roofs in front
             const yb = y + (T.poleHeight - 1) * scale, cx0 = sx * hw * scale, cz0 = sz * hw * scale;
@@ -1239,13 +1241,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         spec.faction = splatter.faction;
         city.ground.dab(spec);
       },
-    }, { off: () => controls.gearsLocked || !!streetCam || params.has('recess') || !!moon, wide: params.get('curblens') === 'wide', rear: bus.length * 0.5 + config.curb.dabR });
-    // (riding beside a car 1.5 s paints it: life says which, the caller paints it. Its place isn't said yet, so the splash is at the bus's side: docs/TODO.md's H4)
+    }, { off: () => controls.gearsLocked || !!streetCam || params.has('recess') || !!moon, wide: params.get('curblens') === 'wide', rear: busShape.axleR * bus.scale });
+    // (riding beside a car 1.5 s paints it: life says which, the caller paints it. Its place isn't said yet, so the splash is at the bus's traffic side, a
+    // lane over: docs/TODO.md's H4)
     life.curb.onBeside = (key) => {
       const fresh = life.hit(key, splatter.hueNext, skyClock.now(), simTime, splatter.faction);
-      const hue = splatter.hueNext;
+      const hue = splatter.hueNext, s = -curbFlight!.kerb * 3.2;
       if (fresh) splatter.dealHue();
-      particles.splash(curbAt.set(flight.x + flight.fz * 3.2, flight.y, flight.z - flight.fx * 3.2), hue, 0.6);
+      particles.splash(curbAt.set(flight.x - flight.fz * s, flight.y, flight.z + flight.fx * s), hue, 0.6);
       audio.bloomBurst(1, hue, 1);
     };
   }

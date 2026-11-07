@@ -382,24 +382,25 @@ export class Aimer {
     this.wallRef = this.latchRef = null;
     this.mover = this.moverLatch = null;
     this.life?.glint(null);
-    const sx = -f.fz * s, sz = f.fx * s;
-    let x = f.x + sx * K.front, z = f.z + sz * K.front;
+    // (a little on along the street, so the front blooms in the kerb chase's view and not past its edge, beside the bus)
+    const sx = -f.fz * s, sz = f.fx * s, ax = f.fx * K.frontAhead, az = f.fz * K.frontAhead;
+    let x = f.x + sx * K.front + ax, z = f.z + sz * K.front + az;
     this.target = this.city.nearestBuilding(x, z, K.frontR, config.splat.minTargetHeight, f.y);
     // (a wide street, or fronts set back: once more, twice as far out, as far again round it)
     if (!this.target) {
-      x = f.x + sx * K.front * 2.5;
-      z = f.z + sz * K.front * 2.5;
+      x = f.x + sx * K.front * 2.5 + ax;
+      z = f.z + sz * K.front * 2.5 + az;
       this.target = this.city.nearestBuilding(x, z, K.frontR * 1.5, config.splat.minTargetHeight, f.y);
     }
     this.x0 = f.x;
     this.y0 = f.y;
     this.z0 = f.z;
-    this.fx = sx;
-    this.fz = sz;
+    aim.dist = Math.hypot(x - f.x, z - f.z);
+    this.fx = (x - f.x) / Math.max(1e-3, aim.dist);
+    this.fz = (z - f.z) / Math.max(1e-3, aim.dist);
     aim.x = x;
     aim.z = z;
     aim.y = this.city.groundAt(x, z);
-    aim.dist = Math.hypot(x - f.x, z - f.z);
     aim.drop = 0;
     aim.wall = false;
     aim.travel = this.travelFor(aim.dist, f.ground);

@@ -42,6 +42,8 @@ export interface Blast {
   super: SuperTag | null;
   /** ?moon: what it was aimed at (BarfOpts.tag) */
   tag?: unknown;
+  /** Curb's drive-by (BarfOpts.side): the side of the lane it blooms, which its flung blobs keep to */
+  side?: { x: number; z: number; nx: number; nz: number };
 }
 
 export interface SplatFx {
@@ -324,7 +326,7 @@ export class Splatter {
     const ground = groundless ? null : city.ground.begin(spec, tImpact);
     this.pending.push({
       at: tImpact, plan, ground, hitStop: hose ? 0 : opts?.hitStop ?? S.hitStopFrames,
-      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, primary, super: opts?.super ?? null, tag: opts?.tag },
+      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, primary, super: opts?.super ?? null, tag: opts?.tag, ...(side ? { side: { ...side } } : {}) },
     });
     if (!stream) this.fx.geyser([pos.clone()], [hue]);
     return tImpact;
