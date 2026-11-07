@@ -1797,7 +1797,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     holds.frame(dt);
     hose.update(dt);
     splatter.update(dt);
-    moonPaint?.update(dt, simTime, flight, aimer.aim.x, aimer.aim.z, Aimer.loaded(flight), steering, flight.y - city.groundAt(flight.x, flight.z));
+    const lobAt = aimer.lobPlan;
+    moonPaint?.update(dt, simTime, flight, aimer.aim.x, aimer.aim.z, Aimer.loaded(flight), steering, flight.y - city.groundAt(flight.x, flight.z), lobAt ? Math.hypot(lobAt.x - flight.x, lobAt.z - flight.z) : 0);
     if (jet && simTime >= jet.at) {
       // the inhale is over: the jet leaves the mouth and lands exactly at the impact
       particles.geyser({ source: mouthWorld, sourceVel: busVel, targets: jet.targets, duration: Math.max(0.05, jet.end - simTime), travelTime: Math.max(0.05, jet.impact - simTime), hues: jet.hues, width: jet.width, arc: moonPaint?.arc(mouthWorld(), jet.targets[0]) });

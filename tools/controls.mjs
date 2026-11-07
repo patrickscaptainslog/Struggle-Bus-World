@@ -1187,7 +1187,8 @@ if (modes.has('lob')) {
       if (rung === 'nonstop') ok(row.kind === 'lob' || row.kind === 'comet', `${key}: a Lob, or the Comet where it lands farther (${row.kind}, ${row.reach} m)`);
       else ok(row.kind === 'lob' && row.lobs === 1, `${key}: a Lob (${row.kind}, ${row.lobs} thrown, the body ${row.body} at the lift)`);
       if (row.kind === 'lob') {
-        ok(pull.plan?.kind === 'lob' && row.ringK > 0.9, `${key}: its ring showed while pulled (planned ${JSON.stringify(pull.plan)}, ring ${row.ringK})`);
+        // (at Nonstop, pulling, the Comet's landing can be the farther, or the Lob's not yet over the bus while it climbs: its ring may come only as the thumb lifts)
+        if (rung !== 'nonstop' || pull.plan) ok(pull.plan?.kind === 'lob' && row.ringK > 0.9, `${key}: its ring showed while pulled (planned ${JSON.stringify(pull.plan)}, ring ${row.ringK})`);
         ok(Math.abs(row.angle - Math.min(70, row.body)) <= 1.5, `${key}: thrown at the body as the thumb lifted (${row.angle} for ${row.body})`);
       }
       if (where === 'moon') ok(row.craters > 0 && row.craterTwo === 0, `${key}: craters a level each (${row.craters}, ${row.craterTwo} two)`);

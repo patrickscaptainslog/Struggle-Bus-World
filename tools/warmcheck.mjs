@@ -557,23 +557,32 @@ if (opt.lob) {
       await page.evaluate(() => window.__game.forceReady());
       await run(0.3);
       const a = await state();
-      // the pull: a thumb down in the lane under the bus, drawn 60 px down (most of the stick), held
-      await touch('touchStart', [[196, 690, 1]]);
-      for (let i = 1; i <= 6; i++) {
-        await page.waitForTimeout(25);
-        await touch('touchMove', [[196, 690 + i * 10, 1]]);
+      // the pull: a thumb down in the lane under the bus, drawn 60 px down (most of the stick), held; then the lift and the tap. (Once more if nothing was
+      // thrown: in one run a 367 ms frame after the faction's switch swallowed the tap, and the row says so)
+      let lift = 0, b = a, tries = 0;
+      while (tries < 2 && b.lobs === a.lobs) {
+        tries++;
+        if (tries > 1) {
+          await page.evaluate(() => window.__game.forceReady());
+          await run(0.5);
+        }
+        await touch('touchStart', [[196, 690, 1]]);
+        for (let i = 1; i <= 6; i++) {
+          await page.waitForTimeout(25);
+          await touch('touchMove', [[196, 690 + i * 10, 1]]);
+        }
+        await run(1.8);
+        lift = await page.evaluate(() => window.__game.flight.pitch);
+        await touch('touchEnd', []);
+        await page.waitForTimeout(100);
+        await touch('touchStart', [[300, 300, 2]]);
+        await page.waitForTimeout(70);
+        await touch('touchEnd', []);
+        await run(4.2);
+        b = await state();
       }
-      await run(1.8);
-      const lift = await page.evaluate(() => window.__game.flight.pitch);
-      await touch('touchEnd', []);
-      await page.waitForTimeout(100);
-      await touch('touchStart', [[300, 300, 2]]);
-      await page.waitForTimeout(70);
-      await touch('touchEnd', []);
-      await run(4.2);
-      const b = await state();
       const c = b.last;
-      lobRun.push({ key, rung, faction: b.faction, gear: b.gear, bodyLift: +((lift * 180) / Math.PI).toFixed(1), kind: c?.kind ?? (c ? 'comet' : 'splat'), angle: c?.angle !== undefined ? +((c.angle * 180) / Math.PI).toFixed(1) : null, reach: c ? Math.round(c.reach) : null, travel: c ? +c.travel.toFixed(2) : null, miss: b.miss, fired: b.lobs - a.lobs, full: b.full - a.full, pillars: b.pillars - a.pillars, booms: b.booms - a.booms });
+      lobRun.push({ key, rung, faction: b.faction, gear: b.gear, bodyLift: +((lift * 180) / Math.PI).toFixed(1), kind: c?.kind ?? (c ? 'comet' : 'splat'), angle: c?.angle !== undefined ? +((c.angle * 180) / Math.PI).toFixed(1) : null, reach: c ? Math.round(c.reach) : null, travel: c ? +c.travel.toFixed(2) : null, miss: b.miss, fired: b.lobs - a.lobs, full: b.full - a.full, pillars: b.pillars - a.pillars, booms: b.booms - a.booms, tries });
     }
   }
 }

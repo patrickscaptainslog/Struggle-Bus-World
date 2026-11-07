@@ -795,13 +795,14 @@ export class CraterPaint {
   // ------------------------------------------------------------------ a frame
 
   /** After the splats, before the frame's draw. */
-  update(dt: number, now: number, f: Flight, ax: number, az: number, loaded: boolean, dragging: boolean, height: number) {
+  update(dt: number, now: number, f: Flight, ax: number, az: number, loaded: boolean, dragging: boolean, height: number, far = 0) {
     this.busX = f.x;
     this.busZ = f.z;
     // (up high the aim tips down: what it picks is under the view, a throw it can make, not at the horizon)
     const up = Math.min(1, Math.max(0, (height - 300) / 2700));
     config.splat.aimDown = 20 + 16 * up * up * (3 - 2 * up);
-    const reach = Math.max(120, Math.min(26000, height * 3)) + 60;
+    // (`far`: a Lob's landing, 1-1.9 km out from low down, where the craters asked round the bus didn't reach: it came down on open ground)
+    const reach = Math.max(120, Math.min(26000, height * 3), far) + 60;
     this.ask(f, reach);
     if (dragging) this.latchTo = 0;
     else if (this.wasDrag) this.latch(now);
