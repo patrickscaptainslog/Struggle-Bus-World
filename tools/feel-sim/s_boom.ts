@@ -22,6 +22,9 @@ const ok = (c: boolean, m: string) => { checks++; if (!c) fails.push(m); };
 const rows: unknown[] = [];
 const r1 = (x: number) => Math.round(x * 10) / 10, r2 = (x: number) => Math.round(x * 100) / 100;
 const dt = 1 / 60;
+/** where the ring's middle sits on the screen at most as its band blooms (of the height down): from 150 m it blooms round the bus at 0.66, and the outside look
+ *  asked that every height get that frame (from 300 and 490 m it bloomed at 0.75 or lower, its band at the frame's bottom edge as it came up) */
+const BLOOM_Y = 0.7;
 const PLACES: Array<[string, number, number]> = [['western-addition', 37.7795, -122.4335], ['downtown', 37.7905, -122.4035]];
 const counting = { properties: { get: () => ({}) }, getContext: () => ({ texSubImage2D() {} }), state: { activeTexture() {}, bindTexture() {}, pixelStorei() {} } } as any;
 
@@ -147,7 +150,7 @@ await flick('warm-up', PLACES[0][1] - 0.01, PLACES[0][2] - 0.02, 500);
 rows.length = 0;
 for (const [place, lat, lon] of PLACES) {
   // (the 500 m row is flown at 490 over the ground where it starts: the ground under it a second on is a few metres either way, and over 500 it's the crack alone)
-  for (const over of [150, 490]) {
+  for (const over of [150, 300, 490]) {
     const { row, plan } = await flick(place, lat, lon, over);
     const L = `${place} ${over} m`;
     // (a frame over 8 ms is flown again and the lower counts, as s_bomb's: on the laptop beside the Lob's run a frame with nothing but the flight in it took
@@ -158,7 +161,7 @@ for (const [place, lat, lon] of PLACES) {
     ok(row.band > 0 && row.up1 === row.band, `${L}: every building in the band one level up (${row.up1} of ${row.band})`);
     ok(row.wrong === 0, `${L}: none in the hole or past the rim changed (${row.hole} in the hole, ${row.outside} past it)`);
     ok(row.gBand >= 0.6 && row.gHole === 0, `${L}: the ground painted in the band and not in the hole (${row.gBand} of the band's samples, ${row.gHole} of the hole's)`);
-    ok(row.bloom[0] > 0.05 && row.bloom[0] < 0.95 && row.bloom[1] >= 0.5 && row.bloom[1] < 1, `${L}: in the frame's lower half as its band blooms (centre ${row.bloom.join(', ')})`);
+    ok(row.bloom[0] > 0.05 && row.bloom[0] < 0.95 && row.bloom[1] >= 0.5 && row.bloom[1] <= BLOOM_Y, `${L}: in the frame's lower half as its band blooms, its middle ${BLOOM_Y} of the height down at most, as from 150 m (centre ${row.bloom.join(', ')})`);
     ok(!!plan && row.busMin < plan.inner, `${L}: the bus flies over its hole (${row.busMin} m from its middle at the nearest, the hole ${row.inner})`);
     ok(worst <= 8, `${L}: no frame over 8 ms (${row.worstMs}${again === null ? '' : `, flown again ${again}`}, ${row.gcFrames} with the collector left out)`);
   }

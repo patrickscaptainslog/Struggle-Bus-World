@@ -5,7 +5,7 @@ import { blastUniforms } from '../world/GroundPaint';
 import type { Flight } from '../game/Flight';
 import type { Shot } from '../game/Aim';
 import type { Blast, BarfOpts } from '../game/Splat';
-import type { BlastSpec } from '../game/blastLayout';
+import { layoutHue, type BlastSpec } from '../game/blastLayout';
 import { HUE_COUNT } from '../render/palette';
 import { FACTION_RAINBOW, ownerOf } from '../game/factions';
 import { craterById, cratersNear, mix32, type Age } from './craters';
@@ -684,11 +684,12 @@ export class CraterPaint {
     if (this.inSite(sp.x, sp.z)) return;
     const hole = b.super?.inner ?? 0;
     if (hole > 0) {
-      // (&boom's ring: twelve strokes round its band, each in its hue there, and none in its hole)
-      const m = (sp.r + hole) * 0.5, w = (sp.r - hole) * 0.6;
-      for (let k = 0; k < 12; k++) {
-        const a = (k / 12) * Math.PI * 2, x = sp.x + Math.cos(a) * m, z = sp.z + Math.sin(a) * m;
-        if (!this.inSite(x, z)) this.markStroke(x, z, w, (sp.hue + Math.floor(k / 2)) % HUE_COUNT, (sp.seed % 6283) / 1000 + k, b.t, ownerOf(sp.faction));
+      // (&boom's ring: eighteen strokes round its band, overlapping into an unbroken ring, each in the pinwheel's hue there as the near band has it, and
+      // none in its hole past 0.04 of the radius)
+      const m = (sp.r + hole) * 0.5, w = (sp.r - hole) * 0.66;
+      for (let k = 0; k < 18; k++) {
+        const a = (k / 18) * Math.PI * 2, dx = Math.cos(a) * m, dz = Math.sin(a) * m;
+        if (!this.inSite(sp.x + dx, sp.z + dz)) this.markStroke(sp.x + dx, sp.z + dz, w, layoutHue(sp, dx, dz), (sp.seed % 6283) / 1000 + k, b.t, ownerOf(sp.faction));
       }
       this.strokesDirty = true;
       this.saveAt = 1;

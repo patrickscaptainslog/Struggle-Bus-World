@@ -52,9 +52,9 @@ export const turboFxTune = {
   hoopR1: 92,
   hoopBack: 150,
   /** &boom's hoop landing as the ring (src/game/Boom.ts): over the ground by at least this (m; over the band's rooftops, Boom's plan.top), and how long it
-   *  lingers there, tearing (s) */
+   *  lingers there, tearing (s): 1.1, not 0.55, so it's still tearing as the bus crosses the band (the outside look: "the payoff is a blink") */
   hoopLift: 14,
-  hoopLinger: 0.55,
+  hoopLinger: 1.1,
   /** fov kick spring (Hz) */
   kickHz: 2.2,
 };
@@ -722,11 +722,19 @@ export class TurboFx {
     if (this.rattleRoll !== 0) root.rotateZ(this.rattleRoll);
   }
 
-  /** ?moon: the map slid by (dx, dz) (main.ts): the trail lies where it lay, by the new map. */
+  /** ?moon: the map slid by (dx, dz) (main.ts): the trail lies where it lay, by the new map, and &boom's hoop flies on to its ring there. */
   slide(dx: number, dz: number) {
     for (let i = 0; i < TRAIL_N; i++) {
       this.tx[i] -= dx;
       this.tz[i] -= dz;
+    }
+    if (this.hoopTo) {
+      this.hoopTo.x -= dx;
+      this.hoopTo.z -= dz;
+      this.hoopFrom.x -= dx;
+      this.hoopFrom.z -= dz;
+      this.hoop.position.x -= dx;
+      this.hoop.position.z -= dz;
     }
   }
 

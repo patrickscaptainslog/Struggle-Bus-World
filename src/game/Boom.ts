@@ -23,11 +23,13 @@ export const boomTune = {
   cooldown: 10,
   /** where the ring lands: where the bus will be this long after the flick (s) from Jet's floor (150 m over the ground), and `leadK` s more a metre over
    *  that, up to leadMax (s): higher, the frame sees farther ahead. The plan's 1 s had its band bloom at the frame's bottom edge as the bus crossed it, half
-   *  out of the frame on the GPU's stills; at 1.3 it blooms in the lower half and the bus crosses its crown half a second later */
+   *  out of the frame on the GPU's stills; at 1.3 it blooms in the lower half and the bus crosses its crown half a second later. 1/220 s a metre (not 1/375)
+   *  so it blooms as high on the screen from every height (s_boom: its middle 0.65-0.66 of the height down from 150 m, 0.61-0.65 from 300, 0.60-0.62 from
+   *  490, where 1/375 had 0.71-0.79 and its band at the frame's bottom edge: the outside look) */
   lead: 1.3,
   leadFrom: 150,
-  leadK: 1 / 375,
-  leadMax: 2.25,
+  leadK: 1 / 220,
+  leadMax: 3,
   /** the spool's share counted in that distance: the bus speeds up from Turbo 2's 720 m/s toward Turbo 3's 900 over the second */
   spoolK: 0.3,
   /** the ring: its outer radius x the tap's circle from the height over it (blastRadiusFor), and its inner edge x its radius */

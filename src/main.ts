@@ -1359,7 +1359,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       }
     },
   });
-  boom.on = boomOn;
+  // (not in Recess until its areas.hit takes no square from a ring: HOOKS.md, the producer's fifth call; the guard goes with that hook)
+  boom.on = boomOn && !params.has('recess');
   controls.onRung = (ev, n) => {
     if (ev === 'turbo' && n === config.turbo.levels.length) boom.flick(flight, driveSpeed(controls.turbo.gear, n, true));
   };
