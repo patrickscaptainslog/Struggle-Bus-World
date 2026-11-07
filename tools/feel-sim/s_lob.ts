@@ -51,7 +51,7 @@ type Place = keyof typeof PLACES;
 const RUNGS: Record<string, [number, number]> = { zone: [-1, 0], cruise: [0, 0], express: [EXPRESS, 0], nonstop: [NONSTOP, 0], jet: [JET, 0] };
 /** a case: where, how high ('floor': the rung's own; m over the ground), the rung, the pull (0-1 of the stick past its dead band) held `hold` s, one thumb or
  *  two, and what it should be: a Lob, none, or a Lob's miss in the water. mode: a flick's stroke (the whole pull for 0.15 s), out of a dive, a Bomb after */
-interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer' | 'wall'; mode?: 'flick' | 'dive' | 'bomb' | 'street'; hold?: number; tap?: 'late' | 'slid'; gap?: number; dur?: number }
+interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer' | 'wall'; mode?: 'flick' | 'dive' | 'bomb' | 'street'; hold?: number; tap?: 'late' | 'slid'; gap?: number; dur?: number; pin?: boolean }
 const CASES: Case[] = [];
 for (const place of ['wa'] as const)
   for (const h of ['floor', 300] as const)
@@ -88,6 +88,10 @@ for (const [place, h, rung, pull] of [['wa', 'floor', 'cruise', 0.75], ['wa', 'f
 for (const gap of [0.1, 0.3, 0.5, 0.7, 0.9])
   for (const dur of [1 / 15, 0.25])
     CASES.push({ key: `wa-floor/cruise/p0.75/1t/gap${gap}/${dur < 0.1 ? 'quick' : 'slow'}`, place: 'wa', h: 'floor', rung: 'cruise', pull: 0.75, thumbs: 1, want: gap < 0.8 ? 'lob' : 'none', gap, dur });
+// (the roofs stage, the bare tower: pinned over Alamo Square heading east as controls.mjs flies it, 1.5 s on and a 1.8 s pull, the landing 1.57 km off
+// stood behind the 129 m tower at Van Ness, which hid it from the lens and stayed bare. The tower takes it, and its circle paints all a tap's would)
+CASES.push({ key: 'pin-floor/cruise/p0.65/1t/tower', place: 'wa', h: 'floor', rung: 'cruise', pull: 0.65, thumbs: 1, want: 'lob', pin: true, hold: 1.8 });
+CASES.push({ key: 'pin-floor/express/p0.65/2t/tower', place: 'wa', h: 'floor', rung: 'express', pull: 0.65, thumbs: 2, want: 'lob', pin: true, hold: 1.8 });
 // (from Justin Herman Plaza 50 m up, at the Embarcadero Center tower that stands highest over a 26 degree climb from there, 150-500 m out)
 CASES.push({ key: 'fidi-50/cruise/p0.35/2t', place: 'fidi', h: 50, rung: 'cruise', pull: 0.35, thumbs: 2, want: 'wall' });
 // (--street: Curb's street in their place)
@@ -169,8 +173,8 @@ async function run(c: Case, dt: number, slot = true) {
   city.paint.resetAll();
   const v0 = gear > 0 && gear !== EXPRESS ? driveSpeed(gear, level, true) : gear === EXPRESS ? config.flight.surgeSpeed : config.flight.cruiseSpeed;
   const hold = c.hold ?? 2;
-  const lead = c.place === 'gg' ? 0.6 : 3;
-  const back = gear < 0 ? 20 : c.place === 'gg' ? 30 : v0 * (lead + hold);
+  const lead = c.pin ? 1.5 : c.place === 'gg' ? 0.6 : 3;
+  const back = c.pin ? 0 : gear < 0 ? 20 : c.place === 'gg' ? 30 : v0 * (lead + hold);
   f.x = px - fx * back;
   f.z = pz - fz * back;
   f.heading = Math.atan2(fx, -fz);
@@ -297,6 +301,14 @@ async function run(c: Case, dt: number, slot = true) {
   const after = city.paint.data;
   // (the buildings whose middle is well inside its circle: each should take a level, up to the blast's cap)
   const inside = impact && !miss ? Math.min(city.buildingsNear(at.x, at.z, 0.8 * (impact.r as number)).length, blastCap(impact.r as number, config.splat.maxBuildingsCap)) : 0;
+  // (what a tap's circle of its size holds there, by Splatter.barf's own reach, up to its cap; and the building it struck, with its level)
+  let holds = 0;
+  if (impact && !miss) {
+    const rr = impact.r as number, S = config.splat;
+    for (const n of city.buildingsWithin(at.x, at.z, rr + S.smallRad, [])) if ((n.ref.rad <= S.smallRad ? Math.hypot(n.ref.cx - at.x, n.ref.cz - at.z) - 0.55 * Math.sqrt(n.ref.area) : n.d) <= rr) holds++;
+    holds = Math.min(holds, blastCap(rr, S.maxBuildingsCap));
+  }
+  const struck = res.target ? { h: r1(res.target.roofY - res.target.baseY), lv: r1(city.paint.data[res.target.index * 4 + 1] - before[res.target.index * 4 + 1]) } : null;
   let painted = 0, two = 0;
   for (let i = 1; i < after.length; i += 4) {
     const d = after[i] - before[i];
@@ -323,7 +335,7 @@ async function run(c: Case, dt: number, slot = true) {
     agl: r1(tap.y - city.groundAt(tap.x, tap.z)),
     impactScreen: scr,
     radius: impact && !miss ? r1(impact.r as number) : null, wantRadius: r1(lob ? lobRadius(plan) : blastRadiusFor(Math.max(0, tap.y - at.y))),
-    painted, inside, raisedTwo: two, ringAtPress, refund: r2(refund), climb: r1(climb), lobReach, pull: { lob: pullLob, of: pullN, flips: pullFlips },
+    painted, inside, holds, struck, raisedTwo: two, ringAtPress, refund: r2(refund), climb: r1(climb), lobReach, pull: { lob: pullLob, of: pullN, flips: pullFlips },
     hitStops: g.events.slice(ev0).filter((e) => e.ev === 'hitstop').length,
     top: top === null ? null : r1(top), underGround: plan ? r1(underGround) : null,
     on: miss ? 'water' : res.wall ? 'wall' : res.target ? 'roof' : 'ground',
@@ -362,6 +374,8 @@ for (const r of rows) {
     ok(r.radius !== null && Math.abs(r.radius - r.wantRadius) <= 1, `${id}: its radius its fall's from the arc's top, lobRadius (${r.radius} against ${r.wantRadius})`);
     ok((r.on === 'ground' || r.painted >= 5) && r.raisedTwo === 0, `${id}: a level each, none two (${r.painted} painted on ${r.on}, ${r.raisedTwo} two)`);
     ok(r.painted >= r.inside, `${id}: every building well inside its circle a level (${r.painted} painted, ${r.inside} inside 0.8 of it, up to its cap)`);
+    ok(r.painted >= r.holds && (!r.struck || r.struck.lv >= 0.5), `${id}: all a tap's circle of its size holds, the building it struck among them (${r.painted} painted of ${r.holds}, struck ${JSON.stringify(r.struck)})`);
+    if (r.key.endsWith('/tower')) ok(r.on !== 'ground' && !!r.struck && r.struck.h >= 100 && r.struck.lv >= 0.5, `${id}: the tower that hid its landing takes it (struck ${JSON.stringify(r.struck)} on ${r.on}, ${r.from} m out)`);
     if (r.want === 'lob' && !r.key.includes('nonstop')) ok(r.pull.flips <= 1, `${id}: in the pull, once it shows the Lob stays (${r.pull.lob} of ${r.pull.of} frames, ${r.pull.flips} flips)`);
     ok(r.hitStops === 0, `${id}: no hit-stop (${r.hitStops})`);
     ok(r.underGround <= 2, `${id}: its arc never 2 m into the ground (${r.underGround})`);

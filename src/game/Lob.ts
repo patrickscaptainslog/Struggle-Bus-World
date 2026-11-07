@@ -72,6 +72,8 @@ export class Lob {
   private heldY = 0;
   private heldZ = 0;
   private heldT: BuildingRef | null = null;
+  /** ...taken from the landing it hid (land: its own face in the climb still takes it) */
+  private heldHid = false;
   private heldAngle = 0;
   /** the last plan's landing after its march (a wall's face, a hillside), for the landing held: a latch keeps it whole, so a grazed wall can't come and go */
   private lastOk = false;
@@ -82,6 +84,7 @@ export class Lob {
   private lastWall = false;
   private lastShare = 1;
   private readonly v = new THREE.Vector3();
+  private readonly eye = new THREE.Vector3();
   private readonly landPt = { x: 0, z: 0 };
   private readonly pt = { x: 0, z: 0 };
   /** this plan's lens moved on by the bus's travel to the impact (m), and the bus's height on it (NDC) */
@@ -188,12 +191,28 @@ export class Lob {
       z = l.z;
       y = this.city.roofAtPart(r, x, z, f.y) + 0.5;
     } else y = this.city.groundAt(x, z);
+    this.heldHid = false;
     this.heldOk = true;
     this.heldX = x;
     this.heldY = y;
     this.heldZ = z;
     this.heldT = r;
     return true;
+  }
+
+  /** The building that hides (x, y, z) from the lens, the nearest the lens of those standing over its line of sight from config.lob.hideFrom m past the
+   *  bus to config.lob.hideClear m short of it (nearer, the blast reaches it), or null. */
+  private hider(f: Flight, x: number, y: number, z: number, target: BuildingRef | null): BuildingRef | null {
+    if (!this.lens) return null;
+    const L = config.lob, c = this.eye.setFromMatrixPosition(this.lens.matrixWorld);
+    const dx = x - c.x, dy = y - c.y, dz = z - c.z, D = Math.hypot(dx, dz);
+    const s0 = Math.hypot(f.x - c.x, f.z - c.z) + L.hideFrom;
+    for (let s = s0; s < D - L.hideClear; s += L.hideStep) {
+      const u = s / D, px = c.x + dx * u, pz = c.z + dz * u;
+      const ref = this.city.buildingAbove(px, pz, c.y + dy * u);
+      if (ref && ref !== target && ref.roofY - ref.baseY >= config.splat.minTargetHeight) return ref;
+    }
+    return null;
   }
 
   /**
@@ -251,26 +270,46 @@ export class Lob {
     let x = this.heldX, y = this.heldY, z = this.heldZ, target = this.heldT;
     // its arc from the mouth: a wall or the ground standing into it takes it on its face, where it meets it
     const x0 = f.x + fx * launch, z0 = f.z + fz * launch, y0 = f.y + f.vy * S.inhale;
-    const Lh = Math.hypot(x - x0, z - z0), arc = lobArc(Lh, a, y0 - y);
-    let wall: BuildingRef | null = null, hill = false, ws = frozen ? Lh : 0, prevY = y0;
-    for (let s = 8; !frozen && s < Lh - S.wallSkip; s += 8) {
-      const u = s / Lh, ay = y0 + (y - y0) * u + arc * 4 * u * (1 - u), px = x0 + (x - x0) * u, pz = z0 + (z - z0) * u;
-      if (ay < city.groundAt(px, pz) + S.wallClear) {
-        hill = true;
+    let Lh = 0, arc = 0, wall: BuildingRef | null = null, hill = false, ws = 0;
+    for (let pass = 0; pass < 2; pass++) {
+      Lh = Math.hypot(x - x0, z - z0);
+      arc = lobArc(Lh, a, y0 - y);
+      wall = null;
+      hill = false;
+      ws = frozen ? Lh : 0;
+      let prevY = y0;
+      for (let s = 8; !frozen && s < Lh - S.wallSkip; s += 8) {
+        const u = s / Lh, ay = y0 + (y - y0) * u + arc * 4 * u * (1 - u), px = x0 + (x - x0) * u, pz = z0 + (z - z0) * u;
+        if (ay < city.groundAt(px, pz) + S.wallClear) {
+          hill = true;
+          ws = s;
+          break;
+        }
+        // (a deck it would pass through, climbing or falling: no Lob, as under one. Asked at the bus alone, a throw just short of the Golden Gate climbed
+        // through its deck)
+        if (city.overheadAt(px, pz, Math.min(prevY, ay)) <= Math.max(prevY, ay) + S.wallClear) return this.none();
+        prevY = ay;
+        // (a wall standing into it, climbing or falling, takes it on its face: asked in its fall alone, a tower 200-400 m out downtown was flown through on
+        // the way up. The tower that hid the landing, taken on its roof, still takes it on its face where it stands in the climb)
+        const ref = city.buildingAbove(px, pz, ay + S.wallClear, ay);
+        if (!ref || (ref === target && !this.heldHid) || ref.roofY - ref.baseY < S.minTargetHeight) continue;
+        wall = ref;
         ws = s;
         break;
       }
-      // (a deck it would pass through, climbing or falling: no Lob, as under one. Asked at the bus alone, a throw just short of the Golden Gate climbed
-      // through its deck)
-      if (city.overheadAt(px, pz, Math.min(prevY, ay)) <= Math.max(prevY, ay) + S.wallClear) return this.none();
-      prevY = ay;
-      // (a wall standing into it, climbing or falling, takes it on its face: asked in its fall alone, a tower 200-400 m out downtown was flown through on
-      // the way up)
-      const ref = city.buildingAbove(px, pz, ay + S.wallClear, ay);
-      if (!ref || ref === target || ref.roofY - ref.baseY < S.minTargetHeight) continue;
-      wall = ref;
-      ws = s;
-      break;
+      // (clear all the way, but a tower standing in front of it on the screen takes it, on its roof at its middle, while that shows, and its arc is asked
+      // again: from the roofs a landing 1.5 km off is seen 3-5 degrees under the eye, a tower 250-400 m nearer stood over its ring, and the blast came down
+      // out of sight behind it, the tower bare. Its middle, as where the eye's line met it moved with the lens, 12 m apart at 30 and 60 fps)
+      if (pass > 0 || frozen || wall || hill || this.heldHid) break;
+      const h = this.hider(f, x, y, z, target);
+      if (!h) break;
+      const l = city.landingOn(h, h.cx, h.cz, S.landInset, this.landPt, S.smallRad), hy = city.roofAtPart(h, l.x, l.z) + 0.5;
+      if (this.showsAt(l.x, hy, l.z) < L.aboveNew) break;
+      x = this.heldX = l.x;
+      y = this.heldY = hy;
+      z = this.heldZ = l.z;
+      target = this.heldT = h;
+      this.heldHid = true;
     }
     let lt = Lh, larc = arc;
     if (frozen && this.lastShare < 1) {

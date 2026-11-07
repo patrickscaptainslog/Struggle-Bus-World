@@ -881,6 +881,12 @@ export const config = {
     /** Its blast is a tap's for its fall from the arc's top (Lob.ts's lobRadius, 220-560 m of fall from the roofs), at most this (m): a 300 m tap's, the
      *  best a tap has, so it lands as big from the roofs as from 300 m. The producer's call (BUILT.md, the roofs stage). */
     radius: 170,
+    /** A tower over its landing's line of sight from the lens takes it (Lob.ts's hider): asked from this far past the bus (m) to this far short of the
+     *  landing (inside it the blast reaches it), every hideStep m: in the distance, where a Lob lands (s_lob's 600 m). Nearer, one taken on its roof is
+     *  flown to in the whole flight's time (1.4 s for 209 m from Justin Herman Plaza). */
+    hideFrom: 600,
+    hideClear: 120,
+    hideStep: 12,
     /** It must show at least this share of the height over the bus by the lens moved on to the impact (config.comet.above is the Comet's), and a landing
      *  picked afresh `aboveNew`: held or latched it stays while it shows `above`, so one picked on the edge doesn't move off it before the tap. */
     above: 0.05,
