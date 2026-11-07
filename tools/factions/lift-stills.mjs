@@ -9,7 +9,8 @@
 //   street  from the street about 200 m from the heart on the sun's side (Lift.skyEye), looking up at the houses and the faction's sky piece over the heart (45 degrees)
 //   250     the bus climbed to 250 m over the ground from 400 m out on the sun's side: the whole neighbourhood floating over its shadows
 //   1k      the same to 1 km, from 1,800 m out
-//   gif     the street view's camera, 28 frames 0.25 s of game time apart from 6 s into the wave, into <faction>-motion.gif at one pixel a game pixel
+//   gif     the street view's camera from half a second into the wave to 12 s (the piece forming, then moving), a frame each 0.25 s of game time
+//           (Hyperglow's each 0.125 s, so its 0.09 s snaps show), into <faction>-motion.gif at one pixel a game pixel, played in real time
 // Each frame's draws and triangles (__game.perf), the frame time over 90 frames before it (median and 95th, ms) and the lift's state go to
 // stills.json. Exit 1 if a view failed or a page threw.
 //   node tools/factions/lift-stills.mjs <url> <outDir> [--views=under,low,mid,street,250,1k] [--skies=noon,golden] [--factions=rainbow,atlantis,...]
@@ -88,7 +89,7 @@ async function shot(page, name, file = `${out}/${name}.png`, quiet = false) {
   await page.waitForFunction(() => window.__qa.held === true, null, { timeout: 30000 });
   const s = await page.evaluate(() => {
     const g = window.__game, l = g.lift;
-    return { clock: +g.splatter.clock.toFixed(2), waveAt: +l.waveAt.toFixed(2), up: l.up, held: l.stats.held, capsTris: l.stats.capsTris, skyTris: l.stats.skyTris, calls: g.perf.calls, tris: g.perf.tris, busY: +g.flight.y.toFixed(1), busH: +g.flight.height.toFixed(1), low: +g.rig.openingLow.toFixed(2) };
+    return { clock: +g.splatter.clock.toFixed(2), waveAt: +l.waveAt.toFixed(2), up: l.up, held: l.stats.held, capsTris: l.stats.capsTris, skyTris: l.stats.skyTris, skyMs: l.stats.skyMs, calls: g.perf.calls, tris: g.perf.tris, busY: +g.flight.y.toFixed(1), busH: +g.flight.height.toFixed(1), low: +g.rig.openingLow.toFixed(2) };
   });
   if (ft) Object.assign(s, { frameP50: ft.p50, frameP95: ft.p95 });
   await page.screenshot({ path: file });
@@ -98,11 +99,11 @@ async function shot(page, name, file = `${out}/${name}.png`, quiet = false) {
   }
   return s;
 }
-/** the street view's lens: 170 m from the heart on the sun's side, 2.5 m over the ground, looking up at the sky piece */
+/** the street view's lens: about 200 m from the heart on the sun's side, 2.5 m over the ground, looking up at the sky piece */
 async function streetCam(page) {
   await page.evaluate(() => {
     const g = window.__game, l = g.lift, h = g.flight.heading;
-    // (240 m out on the sun's side, clear of the falls and the columns: Lift.skyEye)
+    // (about 200 m out on the sun's side, clear of the falls and the columns: Lift.skyEye)
     const [hx, hz] = l.heart;
     const [x, z] = l.skyEye(200);
     window.__qa.camAt = { x, z, h: 2.5, lookX: hx, lookZ: hz, lookH: 140, hfov: 45 };
@@ -157,17 +158,18 @@ for (const fac of factions) {
             const dir = `${out}/${fac}-gif`;
             mkdirSync(dir, { recursive: true });
             const list = [];
-            for (let k = 0; k < 28; k++) {
+            const step = fac === 'hyperglow' ? 0.125 : 0.25;
+            for (let k = 0; k * step <= 11.5; k++) {
               const f = `${dir}/${String(k).padStart(2, '0')}.png`;
               await page.evaluate((t) => {
                 window.__qa.held = false;
                 window.__qa.holdAt = t;
-              }, w + 6.5 + k * 0.25);
+              }, w + 0.5 + k * step);
               await page.waitForFunction(() => window.__qa.held === true, null, { timeout: 60000 });
               await page.screenshot({ path: f });
               list.push(f);
             }
-            const r = spawnSync(PY, ['-I', `${root}/tools/factions/gif.py`, `${out}/${fac}-motion.gif`, ...list], { encoding: 'utf8' });
+            const r = spawnSync(PY, ['-I', `${root}/tools/factions/gif.py`, `--ms=${step * 1000}`, `${out}/${fac}-motion.gif`, ...list], { encoding: 'utf8' });
             if (r.status !== 0) throw new Error(`gif.py: ${r.stderr || r.stdout}`);
             console.log(name, `${out}/${fac}-motion.gif`);
           }
