@@ -1,6 +1,6 @@
-// Sonic Boom on the real city (src/game/Boom.ts, &boom; docs/specs/shots/BUILT.md, "Step 8"): the flick into Turbo 3 from Turbo 2's 720 m/s at 150 and 500 m
+// Sonic Boom on the real city (src/game/Boom.ts, &boom; docs/specs/shots/BUILT.md, "The extras"): the flick into Turbo 3 from Turbo 2's 720 m/s at 150 and 500 m
 // over the ground, 1 km and 16 km, over the Western Addition and downtown, through the real Flight, TurboDrive, TurboLens, CameraRig and Splatter at 1/60 s.
-// From 150 and 500 m a ring lands where the bus will be about a second on: every building reaching into its band (0.75 to 1 of its radius, 0.94 times the
+// From 150 and 500 m a ring lands where the bus will be 1.3 s on or so: every building reaching into its band (0.75 to 1 of its radius, 0.94 times the
 // tap's circle from there) goes up one level, none in its hole or past its rim does, its ground is painted in the band and not in the hole; the ring is in
 // the frame's lower half as its band blooms, and the bus flies over its hole; no frame passes 8 ms (the flick's frame, with its barf, included), leaving out
 // a frame Node's collector ran in. From 1 and 16 km, the crack alone: nothing painted. Over the bay, a ring of spray, nothing painted, and the 10 s unspent.

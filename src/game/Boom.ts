@@ -5,9 +5,9 @@ import type { City } from '../world/City';
 import type { Splatter, SuperTag } from './Splat';
 import { arrival, blastRadiusFor, layoutHue, type BlastSpec } from './blastLayout';
 
-// Sonic Boom (docs/specs/shots/BUILT.md, "Step 8"; the extras' plan): behind &boom on the link. The flick into Turbo 3 breaks the barrier again: Mach 1's
+// Sonic Boom (docs/specs/shots/BUILT.md, "The extras"; the extras' plan): behind &boom on the link. The flick into Turbo 3 breaks the barrier again: Mach 1's
 // set piece cracks the sky round the bus (the cone, the vapor ring, the flash, the kick and the N-wave), and its hoop flies ahead and down to land flat as a
-// ring of paint where the bus will be a second on, so it flies through it: the shock lands 0.3 s after the flick, its band, 0.75 to 1 of 0.94 times the
+// ring of paint where the bus will be 1.3 s on (more from higher), so it flies through it: the shock lands 0.3 s after the flick, its band, 0.75 to 1 of 0.94 times the
 // tap's circle from there, blooms behind the shockwave as it races out, and the bus crosses its middle as a crown of the band's colours goes up. At most
 // once in 10 s; inside them the flick is today's. It paints from Jet's floor to 500 m over the ground; higher, the crack alone. Over open water a ring of
 // spray, and the 10 s aren't spent, as a Comet's miss keeps its full show. No geyser, hit-stop or belly: the ring is the flick's, not the breath's.
@@ -22,11 +22,12 @@ export const boomTune = {
   /** seconds between two rings, at least */
   cooldown: 10,
   /** where the ring lands: where the bus will be this long after the flick (s) from Jet's floor (150 m over the ground), and `leadK` s more a metre over
-   *  that, up to leadMax (s): higher, the frame sees farther ahead (tools/feel-sim/s_boom.ts's in-frame rows set them) */
-  lead: 1,
+   *  that, up to leadMax (s): higher, the frame sees farther ahead. The plan's 1 s had its band bloom at the frame's bottom edge as the bus crossed it, half
+   *  out of the frame on the GPU's stills; at 1.3 it blooms in the lower half and the bus crosses its crown half a second later */
+  lead: 1.3,
   leadFrom: 150,
   leadK: 1 / 375,
-  leadMax: 1.95,
+  leadMax: 2.25,
   /** the spool's share counted in that distance: the bus speeds up from Turbo 2's 720 m/s toward Turbo 3's 900 over the second */
   spoolK: 0.3,
   /** the ring: its outer radius x the tap's circle from the height over it (blastRadiusFor), and its inner edge x its radius */
@@ -50,6 +51,8 @@ export interface BoomPlan {
   x: number;
   y: number;
   z: number;
+  /** where the hoop lies down: over the band's rooftops (their median, or 14 m over the ground where they're low), so towers don't bury it */
+  top: number;
   /** outer and inner radius (m) */
   r: number;
   inner: number;
@@ -116,7 +119,7 @@ export class Boom {
     const drop = Math.max(0, f.y - y);
     const r = B.radiusK * blastRadiusFor(drop);
     const t0 = this.t, land = t0 + B.travel;
-    const plan: BoomPlan = { x, y, z, r, inner: B.innerK * r, t0, land, bloom: land + arrival(r * (1 + B.innerK) * 0.5, r), kind: 'ring', spec: null, crowned: false };
+    const plan: BoomPlan = { x, y, z, top: y + 14, r, inner: B.innerK * r, t0, land, bloom: land + arrival(r * (1 + B.innerK) * 0.5, r), kind: 'ring', spec: null, crowned: false };
     this.plan = plan;
     if (over > B.paintTop + 1) {
       plan.kind = 'high';
@@ -125,6 +128,14 @@ export class Boom {
       this.hooks.crack(null);
       return plan;
     }
+    // (the band's rooftops, at twelve points round it)
+    const roofs: number[] = [];
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2, m = (plan.r + plan.inner) * 0.5;
+      roofs.push(this.city.roofAt(x + Math.cos(a) * m, z + Math.sin(a) * m) ?? y);
+    }
+    roofs.sort((p, q) => p - q);
+    plan.top = Math.max(y + 14, (roofs[5] + roofs[6]) * 0.5 + 4);
     const tag: SuperTag = { kind: 'boom', charge: 1, id: ++this.serial, inner: plan.inner };
     this.splatter.barf(x, z, { target: null, exact: true, y: y + 0.5, drop, radius: r, inner: plan.inner, travel: B.travel, stream: true, hitStop: 0, super: tag });
     if (this.splatter.lastMiss) {

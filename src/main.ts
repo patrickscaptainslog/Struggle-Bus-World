@@ -1338,8 +1338,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   };
   bombLook(splatter.faction);
 
-  // ---- Sonic Boom (src/game/Boom.ts, behind &boom): the flick into Turbo 3 cracks the sky, and its hoop lands as a ring of paint where the bus will be a
-  // second on, which it flies through as the band's crown goes up. On the Moon's ground too, where its craters in the hole are left out (CraterPaint)
+  // ---- Sonic Boom (src/game/Boom.ts, behind &boom): the flick into Turbo 3 cracks the sky, and its hoop lands as a ring of paint where the bus will be
+  // 1.3 s on, which it flies through as the band's crown goes up. On the Moon's ground too, where its craters in the hole are left out (CraterPaint)
   const crownAt = new THREE.Vector3(), crownV = new THREE.Vector3();
   const boom = new Boom(city, splatter, {
     crack: (p) => controls.crack(p, boom.time),

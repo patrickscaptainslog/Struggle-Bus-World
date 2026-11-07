@@ -51,7 +51,8 @@ export const turboFxTune = {
   hoopR0: 9,
   hoopR1: 92,
   hoopBack: 150,
-  /** &boom's hoop landing as the ring (src/game/Boom.ts): over the ground by this (m, over the rooftops), and how long it lingers there, tearing (s) */
+  /** &boom's hoop landing as the ring (src/game/Boom.ts): over the ground by at least this (m; over the band's rooftops, Boom's plan.top), and how long it
+   *  lingers there, tearing (s) */
   hoopLift: 14,
   hoopLinger: 0.55,
   /** fov kick spring (Hz) */
@@ -576,7 +577,7 @@ export class TurboFx {
     const L = this.hoopTo!, X = turboFxTune, U = this.boomU!;
     L.t += dt;
     const u = L.t / L.secs, band = 1 - L.inner / L.r;
-    const ty = L.y + X.hoopLift;
+    const ty = Math.max(L.top, L.y + X.hoopLift);
     if (u < 1) {
       // (on ahead of the bus, dropping faster as it goes: a slam, not a glide; it opens to the ring's size, lies down, and its band narrows to the ring's)
       this.hoop.position.set(this.hoopFrom.x + (L.x - this.hoopFrom.x) * u, this.hoopFrom.y + (ty - this.hoopFrom.y) * u * u, this.hoopFrom.z + (L.z - this.hoopFrom.z) * u);
