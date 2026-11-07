@@ -522,6 +522,13 @@ export class TurboFx {
       this.backfire(bus, f, 4);
     } else if (ev === 'locked') {
       this.backfire(bus, f, 2);
+    } else if (ev === 'zone') {
+      // (down into School Zone: a soft settle, the engine coughing down to an idle)
+      rig.kick(0.5);
+      this.backfire(bus, f, 2);
+    } else if (ev === 'unzone') {
+      rig.kick(0.6);
+      this.backfire(bus, f, 4);
     }
   }
 

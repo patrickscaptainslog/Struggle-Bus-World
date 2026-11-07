@@ -104,6 +104,11 @@ export class CameraRig {
   turboHero = 1;
   readonly turboLead = new THREE.Vector3();
   readonly turboLookLead = new THREE.Vector3();
+  /** School Zone (Controls, per frame): 1 brings the lens in by config.zone.camIn of its distance; zoneIn is where that is now, eased */
+  zone = 0;
+  zoneIn = 0;
+  /** ?streetcam (StreetCam.ts): the lens at street height behind a bus set down on a road, instead of the chase. Null: the chase */
+  street: { back: number; eye: number; ahead: number; at: number; hfov: number; floor: (x: number, z: number) => number } | null = null;
   /** The live sky's lift (SKY.md 4.15): the view tips up toward this (deg), eased, and holds there; skyLift is where it is now */
   skyLiftTarget = 0;
   skyLift = 0;
@@ -220,7 +225,11 @@ export class CameraRig {
     let elev = this.elev + (C.elevationVista - this.elev) * v;
     elev += (C.diveElevation - elev) * dive;
     const el = THREE.MathUtils.degToRad(elev + 11 * barf + (this.lowEl - elev) * low);
-    const dist = (C.distance + (C.distanceVista - C.distance) * v + this.openingPull + this.turboPull) * (1 - low) + this.lowDist * low;
+    // (School Zone comes in, at a pace of its own: never a cut)
+    const dz = this.zone - this.zoneIn;
+    this.zoneIn = Math.abs(dz) < 1e-3 ? this.zone : this.zoneIn + dz * (1 - Math.exp(-config.zone.camRate * dt));
+    const zin = 1 - config.zone.camIn * this.zoneIn * (1 - low);
+    const dist = ((C.distance + (C.distanceVista - C.distance) * v + this.openingPull + this.turboPull) * (1 - low) + this.lowDist * low) * zin;
     const fx = Math.sin(this.yaw), fz = -Math.cos(this.yaw);
     const bus = this.bus.set(f.x, f.y, f.z);
     const desired = this.desired.set(bus.x - fx * Math.cos(el) * dist, bus.y + Math.sin(el) * dist, bus.z - fz * Math.cos(el) * dist).addScaledVector(this.turboLead, 1 - this.stiff);
@@ -249,7 +258,7 @@ export class CameraRig {
       }
     }
     const spk = sp / F.cruiseSpeed;
-    let la = C.lookAhead * (C.lookAheadSlow + (1 - C.lookAheadSlow) * clamp(spk, 0, 1) + 0.4 * clamp(spk - 1, 0, 1)) * (1 - 0.65 * barf) * (1 - dive);
+    let la = C.lookAhead * (C.lookAheadSlow + (1 - C.lookAheadSlow) * clamp(spk, 0, 1) + 0.4 * clamp(spk - 1, 0, 1)) * (1 - 0.65 * barf) * (1 - dive) * zin;
     let pitch = 0;
     const divePitch = THREE.MathUtils.degToRad(C.divePitch);
     if (v > 0) {
@@ -290,6 +299,17 @@ export class CameraRig {
     const dl2 = Math.max(0, lift) - this.skyLift;
     this.skyLift = Math.abs(dl2) < 0.02 ? Math.max(0, lift) : this.skyLift + dl2 * (1 - Math.exp(-config.sky.liftRate * dt));
     if (this.skyLift !== 0) cam.rotateX(THREE.MathUtils.degToRad(this.skyLift));
+    if (this.street) {
+      // ?streetcam: the lens stands behind the bus at street height (the road is 4 m under the bus), looking down the road
+      const S = this.street;
+      this.pos.set(bus.x - fx * S.back, bus.y - 4 + S.eye, bus.z - fz * S.back);
+      this.pos.y = Math.max(this.pos.y, S.floor(this.pos.x, this.pos.z) + 2.5);
+      this.posVel.set(0, 0, 0);
+      this.look.set(bus.x + fx * S.ahead, bus.y - 4 + S.at, bus.z + fz * S.ahead);
+      cam.position.copy(this.pos);
+      cam.lookAt(this.look);
+      this.hfov = S.hfov;
+    }
     this.distance = this.pos.distanceTo(bus);
     focusOut.copy(bus);
     this.applyLook(cam, bus);

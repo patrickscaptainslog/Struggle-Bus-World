@@ -3,7 +3,7 @@ import { migratePrefs, type Prefs } from './controlPrefs';
 import type { Input, InputMode } from './Input';
 import { Shifter, type ShiftAnswer } from './Shifter';
 import { clamp } from './springs';
-import { TurboDrive, type TurboEvent } from './Turbo';
+import { SCHOOL_ZONE, TurboDrive, type TurboEvent } from './Turbo';
 import type { Flight } from './Flight';
 import type { CameraRig } from './CameraRig';
 import type { AudioEngine } from '../audio/AudioEngine';
@@ -11,6 +11,8 @@ import { LOOKAHEAD } from '../audio/dsp';
 import { TurboVoice } from '../audio/turboVoice';
 import type { Particles } from '../fx/Particles';
 import { TurboFx } from '../fx/Turbo';
+import { Balloons } from '../fx/Balloons';
+import { balloonPop, balloonSqueak } from '../audio/balloonSfx';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import type { BusPose } from '../bus/BusModel';
 import { AIM_LINE, Coach, hintLines, TAUGHT, type CoachFrame } from '../ui/Coach';
@@ -50,7 +52,7 @@ export interface ControlsDeps {
   pipeline: PixelPipeline;
   camera: THREE.PerspectiveCamera;
   scene: THREE.Scene;
-  bus: { root: THREE.Object3D; length: number; exhaustLocal: THREE.Vector3 };
+  bus: { root: THREE.Object3D; length: number; exhaustLocal: THREE.Vector3; hatchLocal: THREE.Vector3 };
   /** the city map [minX, minZ, maxX, maxZ] (m) */
   bounds: readonly number[];
   params: URLSearchParams;
@@ -61,6 +63,8 @@ export class Controls {
   /** what a flick means */
   readonly shifter: Shifter;
   readonly fx: TurboFx;
+  /** School Zone's paint balloons */
+  readonly balloons: Balloons;
   readonly hud: Hud;
   readonly voice = new TurboVoice();
   /** the fog is still lifting, and a building is glinting (main.ts, per frame) */
@@ -100,6 +104,17 @@ export class Controls {
     this.shifter = new Shifter(this.turbo, d.flight);
     this.fx = new TurboFx(d.particles, d.bus.length, d.bus.exhaustLocal);
     d.scene.add(this.fx.object);
+    this.balloons = new Balloons(d.particles, {
+      squeak: (i) => {
+        const kit = d.audio.voiceKit();
+        if (kit) balloonSqueak(kit, kit.ctx.currentTime + LOOKAHEAD, 0.9 + 0.07 * (i % 4));
+      },
+      pop: (i) => {
+        const kit = d.audio.voiceKit();
+        if (kit) balloonPop(kit, kit.ctx.currentTime + LOOKAHEAD + i * 0.045);
+      },
+    });
+    d.scene.add(this.balloons.object);
     this.hud = new Hud(d.input, {
       onMute: (m) => {
         d.audio.setMuted(m);
@@ -227,6 +242,8 @@ export class Controls {
     // (the rung went: the line that said it must wait is no longer true)
     if (waited && !this.shifter.armed) this.hud.clearToast();
     this.turbo.update(dt, this.d.flight);
+    // (School Zone brings the lens in: CameraRig eases it)
+    this.d.rig.zone = this.turbo.below === SCHOOL_ZONE ? 1 : 0;
   }
 
   /** Before bus.update: the bus strains (wheeze, squint) and goes wide-eyed at speed. */
@@ -251,6 +268,7 @@ export class Controls {
   frame(dt: number, realDt: number) {
     const d = this.d, T = this.turbo, f = d.flight;
     this.fx.update(dt, realDt, T, f, d.bus.root, d.camera, d.rig, d.pipeline.pixelWorldSize(1));
+    this.balloons.update(dt, T.below === SCHOOL_ZONE, f.ground, d.bus.root, d.bus.hatchLocal, f.obstacleUnder);
     const kit = d.audio.voiceKit();
     if (kit) {
       const t = kit.ctx.currentTime + LOOKAHEAD;
@@ -280,6 +298,9 @@ export class Controls {
     // (?moonland: the way out is a gear's floor lifting the bus, and that's no part of `speed`)
     h.mph = (T.top && f.turbo.floor > f.y ? Math.hypot(f.ground, f.vy) : f.speed) * 2.23694;
     h.armed = this.shifter.armed;
+    // (under Cruise the rung has a name and no gear's number)
+    h.name = T.below > 0 ? T.name : undefined;
+    h.tag = T.below > 0 ? '' : undefined;
     h.sinceShift = T.time - Math.max(T.shiftedAt, T.engagedAt);
     h.sinceLocked = T.time - T.lockedAt;
     this.firstRun(realDt);
@@ -346,12 +367,12 @@ export class Controls {
   private onTurbo(ev: TurboEvent, gear: number) {
     const d = this.d;
     this.fx.event(ev, d.bus.root, d.flight, d.rig, this.onFlash);
-    if (ev === 'flick' || ev === 'back' || ev === 'turbo') this.hiccup = true;
+    if (ev === 'flick' || ev === 'back' || ev === 'turbo' || ev === 'zone') this.hiccup = true;
     const kit = d.audio.voiceKit();
     if (kit) {
       const t = kit.ctx.currentTime + LOOKAHEAD;
       if (!this.voice.attached) this.voice.attach(kit, t);
-      if (ev === 'up' || ev === 'down') this.voice.shift(t, ev === 'up' ? 1 : -1);
+      if (ev === 'up' || ev === 'down' || ev === 'zone' || ev === 'unzone') this.voice.shift(t, ev === 'up' || ev === 'unzone' ? 1 : -1);
       else if (ev === 'engage' || ev === 'turbo') this.voice.engage(t);
       else if (ev === 'turbo-down') this.voice.shift(t, -1);
       else if (ev === 'flick' || ev === 'back') this.voice.armed(t);
@@ -366,7 +387,7 @@ export class Controls {
     const T = this.turbo, f = this.d.flight;
     return {
       mode: this.mode,
-      turbo: { gear: T.gear, level: T.level, engaged: T.engaged, strain: T.strain, speedK: T.speedK, boosting: T.boosting, edge: T.edge, armed: this.shifter.armed },
+      turbo: { gear: T.gear, level: T.level, below: T.below, name: T.name, balloons: this.balloons.count, engaged: T.engaged, strain: T.strain, speedK: T.speedK, boosting: T.boosting, edge: T.edge, armed: this.shifter.armed },
       flight: { speed: f.speed, y: f.y, agl: f.y - f.groundBroad, mode: f.mode },
       camera: { pull: this.fx.lens.pull, fov: this.fx.lens.fov, hfov: this.d.rig.hfov, distance: this.d.rig.distance },
       hud: { settings: this.hud.settingsOpen },

@@ -22,6 +22,13 @@ const ss = (a: number, b: number, x: number) => {
 // over the ground (`ground`). Whatever limits the climb or the dive turns the
 // nose, so the flare is a swoop and the ceiling a level-off (docs/specs/flight/NOSE.md).
 //
+// School Zone (turbo.hover, docs/specs/shots/GEARS.md): the hover. Let go, the speed eases to nothing in about
+// 1.5 s and the bus holds its height, bobbing like a blimp. The stick works as in every gear: sideways turns on
+// the spot, up noses down and drifts forward (and down) slowly, down climbs at config.zone.climb. The rooftop
+// floor, the ceiling and a deck overhead hold as anywhere; no tower pushes the yaw, since nothing is going anywhere:
+// a wall it can't take in a step stops the drift short of it instead (wallAhead), and a pull climbs it. A tap's
+// breath halves the turn as in every gear, and a lone flick's stroke gives its pull back as at Cruise.
+//
 // heading: compass radians (0 = north = -Z, +pi/2 = east = +X).
 
 export interface WorldQuery {
@@ -139,7 +146,11 @@ export class Flight {
     ceiling: 0,
     /** steering authority (x) */
     yaw: 1,
+    /** 1: School Zone's hover (0: the gears) */
+    hover: 0,
   };
+  /** School Zone's hover is flying the bus (it was last step) */
+  hovering = false;
 
   get fx() {
     return Math.sin(this.heading);
@@ -269,20 +280,44 @@ export class Flight {
     if (!this.driven) targetSpeed *= this.speedScale;
     // (letting go arcs the bus level with its speed kept: the classic chase takes it from there)
     if (this.onPath && pull === 0 && push === 0 && !this.driven && !this.barfing && !scaled) targetSpeed = Math.max(targetSpeed, this.speed);
-    const sk = (this.barfing && !jet) || scaled ? 6 : Tb.rate > 0 ? Tb.rate : F.speedHz * 2.2;
+    const Z = config.zone;
+    const hover = Tb.hover > 0;
+    if (hover) {
+      // (a drift at 8 m/s is no surge: the engine hears a fifth of the push)
+      this.surge = push * 0.2;
+      // (the hover: the push drifts it forward, nothing else moves it; ~95 % of the way there in `settle`)
+      if (this.onPath) {
+        this.speed = this.ground;
+        this.onPath = false;
+      }
+      targetSpeed = Z.drift * push * (this.barfing ? S.stallSpeed : 1);
+      // (a wall ahead it can't take in a step stops the drift short of it, nose to it, as a blimp would: a pull climbs it. Without
+      // this the floor's look-ahead found the tower and threw the bus up its face, 150 m in half a second at Salesforce Tower)
+      if (this.speed > 0.01 || targetSpeed > 0) {
+        const wall = this.wallAhead(world, Z.wallGap + Math.max(this.speed, targetSpeed) * Z.wallEase + 4);
+        if (wall < Infinity) {
+          const cap = Math.max(0, wall - Z.wallGap) / Math.max(0.1, Z.wallEase);
+          targetSpeed = Math.min(targetSpeed, cap);
+          if (this.speed > cap) this.speed += (cap - this.speed) * (1 - Math.exp(-8 * dt));
+        }
+      }
+    }
+    const sk = hover ? 3 / Math.max(0.1, Z.settle) : (this.barfing && !jet) || scaled ? 6 : Tb.rate > 0 ? Tb.rate : F.speedHz * 2.2;
     this.speed += (targetSpeed - this.speed) * (1 - Math.exp(-sk * dt));
 
     // ---- steering on a springy bungee
     const sx = inp.dragging ? inp.sx : 0;
     const vScale = clamp(Math.sqrt(F.cruiseSpeed / Math.max(this.barfing ? this.preBarfSpeed : this.speed, 4)), 0.55, 1.35);
-    let yawTarget = sx * F.maxYawRate * vScale * Tb.yaw;
+    // (the hover turns on the spot: a full turn in config.zone.turn; a gear's authority and the breath's plant hold there too)
+    let yawTarget = hover ? (sx * 2 * Math.PI) / Math.max(0.5, Z.turn) : sx * F.maxYawRate * vScale;
+    yawTarget *= Tb.yaw;
     if (this.barfing) {
       // the dragon plants itself to breathe: half the carve until the impact, then it eases back
       const u = clamp((this.barfT - S.impactDelay) / Math.max(0.01, S.breathSteerEase), 0, 1);
       yawTarget *= S.breathSteer + (1 - S.breathSteer) * u * u * (3 - 2 * u);
     }
-    // soft push away from towers taller than we're willing to climb
-    yawTarget += this.avoid(world);
+    // soft push away from towers taller than we're willing to climb (not in the hover: it stops at them, wallAhead)
+    if (!hover) yawTarget += this.avoid(world);
     [this.yawRate, this.yawAcc] = spring(this.yawRate, this.yawAcc, yawTarget, F.bungeeHz, F.bungeeDamping, dt);
     this.heading += this.yawRate * dt;
 
@@ -295,13 +330,19 @@ export class Flight {
     // (`speed`, not `ground`: a swoop turns all of it forward, and the floor must already know what lies out there)
     const look = F.altitudeLookAhead;
     let top = -1e9;
+    // (the hover leaves a wall out: it stops short of one, and a turn on the spot beside one mustn't throw the bus up its face)
+    const wallY = hover ? this.y - F.clearance + Z.wall : Infinity;
     for (let i = 0; i <= 6; i++) {
       const d = (i / 6) * this.speed * look + 6;
       // sample a little to each side so we clear wide roofs while turning
       const px = this.x + this.fx * d;
       const pz = this.z + this.fz * d;
       const ox = -this.fz * 6, oz = this.fx * 6;
-      const h = Math.max(world.obstacleAt(px, pz, this.y), world.obstacleAt(px + ox, pz + oz, this.y), world.obstacleAt(px - ox, pz - oz, this.y));
+      let ha = world.obstacleAt(px, pz, this.y), hb = world.obstacleAt(px + ox, pz + oz, this.y), hc = world.obstacleAt(px - ox, pz - oz, this.y);
+      if (ha > wallY) ha = -1e9;
+      if (hb > wallY) hb = -1e9;
+      if (hc > wallY) hc = -1e9;
+      const h = Math.max(ha, hb, hc);
       // nearer samples matter more for hard clearance
       top = Math.max(top, h - i * 0.6);
     }
@@ -342,8 +383,49 @@ export class Flight {
     const flare = Math.max(F.diveFlare, this.speed / Math.max(0.1, F.diveFlareT));
     const climbing = pull > 0 && ceil > floor + 2;
     const diving = push > 0 && this.holdY > -1e8 && this.y > floor + 0.5;
-    const wantPath = (climbing && Tb.speed > 0) || diving;
-    if (wantPath && !this.onPath) {
+    const wantPath = !hover && ((climbing && Tb.speed > 0) || diving);
+    if (hover && !this.hovering) {
+      // into the hover: it holds the height the bus had, before a flick's own pull lifted it (Shifter: a flick down is a pull too)
+      this.holdY = this.unpulled ? (Number.isNaN(this.holdBefore) ? this.y - belly : this.holdBefore > -1e8 ? this.holdBefore : floorV - belly) : this.y - belly;
+      this.unpulled = false;
+      // (and a pull or a dive it came in on is over: nothing coasts the hold on from here)
+      if (pull === 0 && push === 0) this.mode = Yoke.Hold;
+    } else if (!hover && this.hovering) {
+      // out of it: holding a height, or back on the rooftops if it was riding them
+      if (this.holdY + belly <= floor + 1) this.holdY = -Infinity;
+      this.mode = this.holdY > -1e8 ? Yoke.Hold : Yoke.Floor;
+      this.vyYoke = this.vy;
+    }
+    this.hovering = hover;
+    if (hover) {
+      // ---- School Zone: climb on the pull, sink a little on the push, else hold with the blimp's bob
+      const room = clamp((ceil - this.y) / Math.max(1, F.ceilingSoft), 0, 1);
+      if (pull > 0) {
+        this.mode = Yoke.Climb;
+        strain = pull * (1 - room) * (1 - room);
+        const rate = this.y > ceil ? -(this.y - ceil) * 0.8 : Z.climb * Math.pow(pull, F.climbCurve) * Math.pow(room, 0.65);
+        this.vy += (rate - this.vy) * kYoke;
+        this.holdY = this.y - belly;
+      } else if (push > 0) {
+        this.mode = Yoke.Dive;
+        this.vy += (-Z.sink * push * push - this.vy) * kYoke;
+        this.holdY = this.y - belly;
+      } else {
+        // (a lone flick's stroke gives its pull back, here as at Cruise: Shifter.down)
+        if (this.mode === Yoke.Climb || this.mode === Yoke.Dive)
+          this.holdY = this.unpulled && this.holdBefore > -1e8 ? this.holdBefore : this.y - belly + this.vy / Math.max(0.1, 2 * F.holdGain);
+        this.unpulled = false;
+        this.mode = Yoke.Hold;
+        const bob = Z.bobAmp * (Math.sin(this.t * Math.PI * 2 * Z.bobHz) + 0.35 * Math.sin(this.t * Math.PI * 2 * Z.bobHz * 2.3 + 0.9));
+        const tgt = Math.min(Math.max(this.holdY + belly, floor), Math.max(ceil, floor)) + bob;
+        const g = F.holdGain;
+        const want = clamp((tgt - this.y) * g, -F.maxSink, Z.climb);
+        this.vy += (want - this.vy) * (1 - Math.exp(-4 * g * dt));
+        this.targetY = tgt;
+      }
+      if (floor > this.y) this.vy = Math.max(this.vy, vyFloor(this.vy));
+      this.vyYoke = this.vy;
+    } else if (wantPath && !this.onPath) {
       // on to the path, from the way the bus is actually going: nothing jumps
       this.nose = Math.atan2(this.vy, this.speed);
       this.speed = Math.hypot(this.speed, this.vy);
@@ -375,6 +457,8 @@ export class Flight {
         this.speed = this.ground;
         this.onPath = false;
       }
+    } else if (hover) {
+      // (the hover's, above)
     } else if (climbing) {
       // ---- climb: harder pull = faster climb, fading into a struggle near the ceiling
       this.mode = Yoke.Climb;
@@ -449,6 +533,8 @@ export class Flight {
     let bankTarget = mb * Math.tanh((lateral * F.bankPerAccel + this.yawRate * F.bankPerYaw) / mb);
     // (the full-belly wallow fades as the carve takes over, so a gentle nudge still reads as a nudge)
     bankTarget += Math.sin(this.t * Math.PI * 2 * F.wallowHz) * F.wallowAmp * wallowK * (1 - Math.abs(bankTarget) / mb);
+    // (the blimp's slow roll, out of step with its bob)
+    if (hover) bankTarget += Z.swayRoll * DEG * Math.sin(this.t * Math.PI * 2 * Z.bobHz * 0.7 + 2.1);
     [this.bank, this.bankVel] = spring(this.bank, this.bankVel, bankTarget, F.bankHz, F.bankDamping, dt);
     // pitch follows the climb gently (floored at 24 m/s: a roof or a hill mustn't stand a slow bus on its nose), but on the yoke it
     // shows the way the bus is really going: all of it on the path, and on the plain pull as much as the stick is held. Breathing
@@ -459,8 +545,22 @@ export class Flight {
     const pitchMax = F.pitchMax * DEG;
     const climb = calm + (clamp(this.nose, -pitchMax, pitchMax) - calm) * yoke;
     const rear = this.barfing ? S.rearUp * ss(0, 0.1, this.barfT) * (1 - ss(0.6, S.duration, this.barfT)) : 0;
-    const pitchTarget = Math.min(climb + rear, pitchMax);
+    // (the hover leans on the stick, nose down to drift and up to climb, and rocks slowly with its bob)
+    const lean = hover ? (Z.leanUp * pull - Z.leanDown * push + Z.swayPitch * Math.sin(this.t * Math.PI * 2 * Z.bobHz + 1.2)) * DEG : 0;
+    const pitchTarget = Math.min((hover ? lean : climb) + rear, pitchMax);
     this.pitch += (pitchTarget - this.pitch) * (1 - Math.exp(-(this.barfing ? 10 : 5) * dt));
+  }
+
+  /** The hover's wall: how far ahead (m, out to `reach`) a roof stands that would lift the bus more than config.zone.wall, along its
+   *  middle and 4 m to each side; Infinity if none. */
+  private wallAhead(world: WorldQuery, reach: number): number {
+    const wallY = this.y - config.flight.clearance + config.zone.wall;
+    const ox = -this.fz * 4, oz = this.fx * 4;
+    for (let d = 2; d <= reach; d += 2) {
+      const px = this.x + this.fx * d, pz = this.z + this.fz * d;
+      if (world.obstacleAt(px, pz, this.y) > wallY || world.obstacleAt(px + ox, pz + oz, this.y) > wallY || world.obstacleAt(px - ox, pz - oz, this.y) > wallY) return d;
+    }
+    return Infinity;
   }
 
   private avoid(world: WorldQuery): number {

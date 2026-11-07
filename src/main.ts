@@ -19,6 +19,7 @@ import { latLonToLocal } from './game/geo';
 import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blastLayout';
 import { Input, inputTune } from './game/Input';
 import { Controls } from './game/Controls';
+import { StreetCam } from './game/StreetCam';
 import { WARP } from './game/Turbo';
 import { BusModel, busTune, type BusPose } from './bus/BusModel';
 import { Particles } from './fx/Particles';
@@ -1029,6 +1030,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   });
   // touch / keyboard, the turbo gears and the HUD (src/game/Controls.ts)
   const controls = new Controls({ input, flight, rig, audio, particles, pipeline, camera, scene, bus, bounds: manifest.bounds, params });
+  // (?streetcam: the bus set down on a road, the lens at street height behind it: src/game/StreetCam.ts)
+  const streetCam = params.has('streetcam') ? new StreetCam(params, flight, rig, city) : null;
   // (the Moon's map slides under the bus: it has no edge to hold a gear back)
   if (moon) controls.turbo.edgeless = true;
   // (?earth: past Turbo 3 a flick is nothing, not LOCKED: the way on is up, a climb to the flight. The first review's minor)
@@ -1481,6 +1484,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (pastMap > 0) flight.turbo.floor = Math.max(flight.turbo.floor, pastMap);
     const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
     for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || leaving || sx !== st.stretch.x }, city);
+    streetCam?.hold(flight, city);
     // QA: the bus held at a pose, for a look at something from one place
     if (qa?.pin) Object.assign(flight, qa.pin);
     if (lift) {
