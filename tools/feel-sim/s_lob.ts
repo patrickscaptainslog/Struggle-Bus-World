@@ -8,6 +8,10 @@
 // hit-stop; its arc never 2 m into the ground.
 // None: from a flick's stroke, in School Zone, out of a dive, under the Golden Gate, from 1.5 km up, at Jet. Over the bay from Fort Mason: a Lob's miss, with
 // its refund. A Bomb let go after a pull lands where it would with no Lob at all (the slot off). And the aim's cost a frame while it plans the Lob.
+// After the review (sb-checks' lob fixes): a one-thumb tap lifted 0.53 s after the steering thumb (late: the press runs the latch on) and one that slides
+// past the tap slop (slid: it commits as a steering thumb, lifted inside quickTapMs), each a Lob at the body as the steering thumb lifted; a tower in the climb
+// (the Financial District's, toward Salesforce Tower) takes it on its face; at Cruise and Express, once the Lob shows in a pull it stays; and every building
+// whose middle is within 0.8 of its circle takes a level, up to the blast's cap.
 //   node tools/feel-sim/run.mjs s_lob.ts [--only=<substring>]
 // Results in SB_OUT (shots/feel/sim)/lob.json, a table on stdout; exit 1 when a check fails.
 import { newCity, pump, ll, makeGame, config, manifest, type Game } from './lib';
@@ -15,7 +19,7 @@ import { CameraRig } from '@src/game/CameraRig';
 import { EXPRESS, JET, NONSTOP, SCHOOL_ZONE, TurboDrive, driveSpeed } from '@src/game/Turbo';
 import { TurboLens } from '@src/fx/Turbo';
 import { lensFov } from '@src/render/PixelPipeline';
-import { blastRadiusFor } from '@src/game/blastLayout';
+import { blastCap, blastRadiusFor } from '@src/game/blastLayout';
 import { Bomb } from '@src/game/Bomb';
 import { tapOpts } from '@src/game/Aim';
 import { makeGoldenGate, bridgeObstacles, paintBridge } from '@src/world/Bridges';
@@ -36,13 +40,14 @@ const PLACES = {
   dt: { lat: 37.7752, lon: -122.4193, hdg: 45 },
   water: { lat: 37.8065, lon: -122.43, hdg: 0 },
   glen: { lat: 37.733, lon: -122.44, hdg: 300 },
+  fidi: { lat: 37.795, lon: -122.395, hdg: 225 },
   gg: { lat: 0, lon: 0, hdg: 0 },
 } as const;
 type Place = keyof typeof PLACES;
 const RUNGS: Record<string, [number, number]> = { zone: [-1, 0], cruise: [0, 0], express: [EXPRESS, 0], nonstop: [NONSTOP, 0], jet: [JET, 0] };
 /** a case: where, how high ('floor': the rung's own; m over the ground), the rung, the pull (0-1 of the stick past its dead band) held `hold` s, one thumb or
  *  two, and what it should be: a Lob, none, or a Lob's miss in the water. mode: a flick's stroke (the whole pull for 0.15 s), out of a dive, a Bomb after */
-interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer'; mode?: 'flick' | 'dive' | 'bomb'; hold?: number }
+interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer' | 'wall'; mode?: 'flick' | 'dive' | 'bomb'; hold?: number; tap?: 'late' | 'slid' }
 const CASES: Case[] = [];
 for (const place of ['wa'] as const)
   for (const h of ['floor', 300] as const)
@@ -71,6 +76,11 @@ CASES.push({ key: 'wa-300/express/bomb', place: 'wa', h: 300, rung: 'express', p
 // (last: the Golden Gate's obstacles join the city for it)
 CASES.push({ key: 'gg-under/cruise/p0.75/2t', place: 'gg', h: 26, rung: 'cruise', pull: 0.75, thumbs: 2, want: 'none' });
 CASES.push({ key: 'gg-under/cruise/p0.75/1t', place: 'gg', h: 26, rung: 'cruise', pull: 0.75, thumbs: 1, want: 'none' });
+// (after the review: the tap late or slid, and a tower in the climb)
+for (const [place, h, rung, pull] of [['wa', 'floor', 'cruise', 0.75], ['wa', 'floor', 'express', 0.75], ['wa', 300, 'cruise', 0.5]] as const)
+  for (const tap of ['late', 'slid'] as const) CASES.push({ key: `${place}-${h}/${rung}/p${pull}/1t/${tap}`, place, h, rung, pull, thumbs: 1, want: 'lob', tap });
+// (from Justin Herman Plaza 50 m up, at the Embarcadero Center tower that stands highest over a 26 degree climb from there, 150-500 m out)
+CASES.push({ key: 'fidi-50/cruise/p0.35/2t', place: 'fidi', h: 50, rung: 'cruise', pull: 0.35, thumbs: 2, want: 'wall' });
 
 const stick = (pull: number) => -(config.flight.yokeDead + pull * (1 - config.flight.yokeDead));
 /** the stick for a path `deg` down with a gear in (s_shots' stickFor) */
@@ -100,6 +110,8 @@ function bombShot(g: Game) {
 }
 
 let ggDone = false;
+/** the fidi row's tower: how far its roof stands over a 26 degree climb from the plaza (m) */
+let tower: number | null = null;
 let gg = { x: 0, z: 0, ux: 0, uz: 1 };
 async function run(c: Case, dt: number, slot = true) {
   const [gear, level] = RUNGS[c.rung];
@@ -124,6 +136,17 @@ async function run(c: Case, dt: number, slot = true) {
     [px, pz] = ll(P.lat, P.lon);
     fx = Math.sin(P.hdg * DEG);
     fz = -Math.cos(P.hdg * DEG);
+    if (c.place === 'fidi') {
+      // (toward the tower standing highest over the climb: its roof over 50 m and a 26 degree slope from the plaza)
+      await pump(city, px, pz);
+      const y0 = city.groundAt(px, pz) + (c.h as number);
+      let best = -Infinity;
+      for (const { ref, d } of city.buildingsNear(px, pz, 500)) {
+        const over = d < 150 ? -Infinity : ref.roofY - (y0 + d * Math.tan(26 * DEG));
+        if (over > best) [best, fx, fz] = [over, (ref.cx - px) / d, (ref.cz - pz) / d];
+      }
+      tower = r1(best);
+    }
   }
   const drive = new TurboDrive([-1e7, -1e7, 1e7, 1e7]);
   const g = makeGame(city, drive);
@@ -178,6 +201,7 @@ async function run(c: Case, dt: number, slot = true) {
     cam.updateMatrixWorld(true);
   };
   const idle = { sx: 0, sy: 0, dragging: false };
+  let pullLob = 0, pullFlips = 0, pullN = 0, pullWas = false;
   // ---- level in, then the pull (a dive first, from 800 m: 45 degrees down for 2 s, then the whole pull for 0.3 s)
   for (let j = 0; j < Math.round(lead / dt); j++) await frame(idle);
   if (c.mode === 'dive') {
@@ -185,7 +209,15 @@ async function run(c: Case, dt: number, slot = true) {
     for (let j = 0; j < Math.round(0.3 / dt); j++) await frame({ sx: 0, sy: stick(1), dragging: true });
   } else {
     const held = c.mode === 'flick' ? 0.15 : hold;
-    for (let j = 0; j < Math.round(held / dt); j++) await frame({ sx: 0, sy: stick(c.pull), dragging: true });
+    for (let j = 0; j < Math.round(held / dt); j++) {
+      await frame({ sx: 0, sy: stick(c.pull), dragging: true });
+      // (the Lob's frames in the pull, and how often it came and went)
+      const lp = g.aimer.lobPlan !== null;
+      if (lp) pullLob++;
+      if (j > 0 && lp !== pullWas) pullFlips++;
+      pullWas = lp;
+      pullN++;
+    }
   }
   const pulled = { sx: 0, sy: c.mode === 'dive' ? stick(1) : stick(c.pull), dragging: true };
   const bodyLift = f.pitch / DEG, noseLift = f.nose / DEG;
@@ -193,9 +225,11 @@ async function run(c: Case, dt: number, slot = true) {
   const fps = Math.round(1 / dt);
   const steps = (s: number) => Math.max(1, Math.round(s / dt));
   if (c.thumbs === 1) {
-    for (let j = 0; j < steps(0.1); j++) await frame(idle);
+    // (late: the finger lands 28/60 s after the lift, its tap's lift 0.53 s after it; slid: it slides past the tap slop from its second frame, a steering thumb
+    // committed, and lifts as a quick tap, the stick still centred)
+    for (let j = 0; j < steps(c.tap === 'late' ? 28 / 60 : 0.1); j++) await frame(idle);
     g.press();
-    for (let j = 0; j < steps(1 / 15); j++) await frame(idle);
+    for (let j = 0; j < steps(1 / 15); j++) await frame(c.tap === 'slid' && j >= 1 ? { sx: 0, sy: 0, dragging: true } : idle);
   } else {
     g.press();
     for (let j = 0; j < steps(1 / 15); j++) await frame(pulled);
@@ -245,6 +279,8 @@ async function run(c: Case, dt: number, slot = true) {
     }
   }
   const after = city.paint.data;
+  // (the buildings whose middle is well inside its circle: each should take a level, up to the blast's cap)
+  const inside = impact && !miss ? Math.min(city.buildingsNear(at.x, at.z, 0.8 * (impact.r as number)).length, blastCap(impact.r as number, config.splat.maxBuildingsCap)) : 0;
   let painted = 0, two = 0;
   for (let i = 1; i < after.length; i += 4) {
     const d = after[i] - before[i];
@@ -271,7 +307,7 @@ async function run(c: Case, dt: number, slot = true) {
     agl: r1(tap.y - city.groundAt(tap.x, tap.z)),
     impactScreen: scr,
     radius: impact && !miss ? r1(impact.r as number) : null, wantRadius: r1(blastRadiusFor(Math.max(0, tap.y - at.y))),
-    painted, raisedTwo: two, refund: r2(refund), climb: r1(climb), lobReach,
+    painted, inside, raisedTwo: two, refund: r2(refund), climb: r1(climb), lobReach, pull: { lob: pullLob, of: pullN, flips: pullFlips },
     hitStops: g.events.slice(ev0).filter((e) => e.ev === 'hitstop').length,
     top: top === null ? null : r1(top), underGround: plan ? r1(underGround) : null,
     on: miss ? 'water' : res.wall ? 'wall' : res.target ? 'roof' : 'ground',
@@ -296,22 +332,26 @@ const ok = (c: boolean, m: string) => { checks++; if (!c) fails.push(m); };
 const most = config.lob.most;
 for (const r of rows) {
   const id = `${r.key}@${r.fps}${r.slot ? '' : ' (no Lob)'}`;
-  console.log(`${id.padEnd(34)} ${r.kind.padEnd(8)} body ${String(r.body.lift).padStart(5)}/${String(r.body.tap).padStart(5)} at ${String(r.body.angle).padStart(5)} t ${String(r.tImpact).padStart(6)} (${r.planTravel}) from ${String(r.from).padStart(7)} up ${String(r.impactScreen?.above ?? '-').padStart(6)} climb ${r.climb} (plan ${r.planAbove}) in ${r.impactScreen?.in ? 'y' : 'n'} r ${r.radius} (${r.wantRadius}) painted ${r.painted} two ${r.raisedTwo} top ${r.top} under ${r.underGround} on ${r.on} agl ${r.agl} aim ${r.aimMs} ms`);
+  console.log(`${id.padEnd(34)} ${r.kind.padEnd(8)} body ${String(r.body.lift).padStart(5)}/${String(r.body.tap).padStart(5)} at ${String(r.body.angle).padStart(5)} t ${String(r.tImpact).padStart(6)} (${r.planTravel}) from ${String(r.from).padStart(7)} up ${String(r.impactScreen?.above ?? '-').padStart(6)} climb ${r.climb} (plan ${r.planAbove}) in ${r.impactScreen?.in ? 'y' : 'n'} r ${r.radius} (${r.wantRadius}) painted ${r.painted} (${r.inside} inside) two ${r.raisedTwo} pull ${r.pull.lob}/${r.pull.of} ${r.pull.flips} top ${r.top} under ${r.underGround} on ${r.on} agl ${r.agl} aim ${r.aimMs} ms`);
   if (!r.slot) continue;
   // (at Nonstop the Comet applies too: the farther wins, chooseShot. A Comet there must land farther than this frame's Lob would)
   if (r.want === 'longer' && r.kind === 'comet') ok(r.lobReach === null || r.from + 1 >= r.lobReach, `${id}: the Comet, farther than the Lob (${r.from} against ${r.lobReach})`);
   if (r.want === 'lob' || (r.want === 'longer' && r.kind !== 'comet')) {
     ok(r.kind === 'lob', `${id}: a Lob (${r.kind}, the body ${r.body.lift} at the lift, ${r.body.tap} at the tap)`);
     if (r.kind !== 'lob') continue;
-    const want = Math.min(most, r.key.endsWith('/1t') ? r.body.lift : r.body.tap);
-    ok(Math.abs(r.body.angle - want) <= 0.15, `${id}: thrown at the body ${r.key.endsWith('/1t') ? 'as the steering thumb lifted' : 'at the tap, live'} (${r.body.angle} against ${want}; at the tap ${r.body.tap})`);
+    const one = r.key.includes('/1t'), want = Math.min(most, one ? r.body.lift : r.body.tap);
+    ok(Math.abs(r.body.angle - want) <= 0.15, `${id}: thrown at the body ${one ? 'as the steering thumb lifted' : 'at the tap, live'} (${r.body.angle} against ${want}; at the tap ${r.body.tap})`);
     ok(r.tImpact !== null && Math.abs(r.tImpact - r.planTravel) <= 0.05, `${id}: lands on its flight's time (${r.tImpact} against ${r.planTravel})`);
     ok(!!r.impactScreen?.in && r.impactScreen.above >= config.comet.above, `${id}: in frame at the impact, ${config.comet.above * 100} % or more over the bus (${JSON.stringify(r.impactScreen)}, planned ${r.planAbove})`);
     ok(r.radius !== null && Math.abs(r.radius - r.wantRadius) <= 1, `${id}: its radius blastRadiusFor(drop) (${r.radius} against ${r.wantRadius})`);
     ok((r.on === 'ground' || r.painted >= 5) && r.raisedTwo === 0, `${id}: a level each, none two (${r.painted} painted on ${r.on}, ${r.raisedTwo} two)`);
+    ok(r.painted >= r.inside, `${id}: every building well inside its circle a level (${r.painted} painted, ${r.inside} inside 0.8 of it, up to its cap)`);
+    if (r.want === 'lob' && !r.key.includes('nonstop')) ok(r.pull.flips <= 1, `${id}: in the pull, once it shows the Lob stays (${r.pull.lob} of ${r.pull.of} frames, ${r.pull.flips} flips)`);
     ok(r.hitStops === 0, `${id}: no hit-stop (${r.hitStops})`);
     ok(r.underGround <= 2, `${id}: its arc never 2 m into the ground (${r.underGround})`);
     ok(r.from >= 600 && r.from <= config.comet.reach + 1, `${id}: lands in the distance, 600-${config.comet.reach} m (${r.from})`);
+  } else if (r.want === 'wall') {
+    ok(r.kind === 'lob' && r.on === 'wall' && r.from < 600 && r.underGround <= 2, `${id}: a tower in its climb takes it on its face (${r.kind} on ${r.on}, ${r.from} m out; the tower's roof ${tower} m over a 26 degree climb)`);
   } else if (r.want === 'miss') {
     ok(r.kind === 'lob-miss' && r.refund >= config.splat.missRefund - 0.02, `${id}: the bay is a Lob's miss, with its refund (${r.kind}, belly after ${r.refund})`);
   } else {
