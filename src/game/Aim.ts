@@ -352,7 +352,7 @@ export class Aimer {
     // (the Lob's body: as it was last frame, with the thumb down, when it lifts; live while it's down. The body drops as soon as the thumb lifts, at Cruise
     // 72 to 41 degrees in 0.2 s, and a frame's drop at 30 fps put a throw tens of metres from 60's). On Curb's street it latches nothing: there's no Lob there
     if (this.lob && this.street === 0) {
-      if (this.wasThumb && !thumb) this.lob.latch(this.bodyWas, this.noseWas, t, t + S.aimLatch, false, t - this.thumbAt <= inputTune.quickTapMs / 1000);
+      if (this.wasThumb && !thumb) this.lob.latch(this.bodyWas, this.noseWas, t, t + config.lob.latch, false, t - this.thumbAt <= inputTune.quickTapMs / 1000);
       if (thumb) this.lob.unlatch(t);
     }
     if (thumb && !this.wasThumb) this.thumbAt = t;
@@ -521,7 +521,7 @@ export class Aimer {
   press(): void {
     // (the Lob's body, the steering thumb up: as it is now, or as it was when the thumb lifted if that's latched still. With the steering thumb down a second
     // thumb's tap reads it live. On Curb's street, none)
-    if (this.lob && !this.wasThumb && this.street === 0) this.lob.latch(this.bodyWas, this.noseWas, this.t, this.t + config.splat.aimLatch, true);
+    if (this.lob && !this.wasThumb && this.street === 0) this.lob.latch(this.bodyWas, this.noseWas, this.t, this.t + config.lob.latch, true);
     if (this.mover && !this.moverLatch) {
       // (a mover held as it glinted: a copy, since the aim's answer is filled again next frame)
       Object.assign(this.moverHeld, this.mover);

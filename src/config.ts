@@ -875,6 +875,9 @@ export const config = {
     most: 70,
     range: 1600,
     stretch: 60,
+    /** The body latched as the steering thumb lifts (or a tap's finger lands) is what a tap throws for this long (s), where the aim's latch is
+     *  config.splat.aimLatch's 0.5: a tap 0.5 s after the lift found the body dropped and threw a plain splat, the ring still up the frame before. */
+    latch: 0.8,
     /** It must show at least this share of the height over the bus by the lens moved on to the impact (config.comet.above is the Comet's), and a landing
      *  picked afresh `aboveNew`: held or latched it stays while it shows `above`, so one picked on the edge doesn't move off it before the tap. */
     above: 0.05,

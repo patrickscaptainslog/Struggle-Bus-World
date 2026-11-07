@@ -50,7 +50,7 @@ type Place = keyof typeof PLACES;
 const RUNGS: Record<string, [number, number]> = { zone: [-1, 0], cruise: [0, 0], express: [EXPRESS, 0], nonstop: [NONSTOP, 0], jet: [JET, 0] };
 /** a case: where, how high ('floor': the rung's own; m over the ground), the rung, the pull (0-1 of the stick past its dead band) held `hold` s, one thumb or
  *  two, and what it should be: a Lob, none, or a Lob's miss in the water. mode: a flick's stroke (the whole pull for 0.15 s), out of a dive, a Bomb after */
-interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer' | 'wall'; mode?: 'flick' | 'dive' | 'bomb' | 'street'; hold?: number; tap?: 'late' | 'slid' }
+interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer' | 'wall'; mode?: 'flick' | 'dive' | 'bomb' | 'street'; hold?: number; tap?: 'late' | 'slid'; gap?: number; dur?: number }
 const CASES: Case[] = [];
 for (const place of ['wa'] as const)
   for (const h of ['floor', 300] as const)
@@ -82,6 +82,11 @@ CASES.push({ key: 'gg-under/cruise/p0.75/1t', place: 'gg', h: 26, rung: 'cruise'
 // (after the review: the tap late or slid, and a tower in the climb)
 for (const [place, h, rung, pull] of [['wa', 'floor', 'cruise', 0.75], ['wa', 'floor', 'express', 0.75], ['wa', 300, 'cruise', 0.5]] as const)
   for (const tap of ['late', 'slid'] as const) CASES.push({ key: `${place}-${h}/${rung}/p${pull}/1t/${tap}`, place, h, rung, pull, thumbs: 1, want: 'lob', tap });
+// (the roofs stage, a throw that doesn't fire: one thumb from the roofs at Cruise, the tap's finger landing `gap` s after the lift and down `dur` s, quick
+// and a little slow. Each a Lob while its ring is up, config.lob.latch (0.8 s) from the lift; at 0.9 s the ring is gone and the tap is today's)
+for (const gap of [0.1, 0.3, 0.5, 0.7, 0.9])
+  for (const dur of [1 / 15, 0.25])
+    CASES.push({ key: `wa-floor/cruise/p0.75/1t/gap${gap}/${dur < 0.1 ? 'quick' : 'slow'}`, place: 'wa', h: 'floor', rung: 'cruise', pull: 0.75, thumbs: 1, want: gap < 0.8 ? 'lob' : 'none', gap, dur });
 // (from Justin Herman Plaza 50 m up, at the Embarcadero Center tower that stands highest over a 26 degree climb from there, 150-500 m out)
 CASES.push({ key: 'fidi-50/cruise/p0.35/2t', place: 'fidi', h: 50, rung: 'cruise', pull: 0.35, thumbs: 2, want: 'wall' });
 // (--street: Curb's street in their place)
@@ -231,13 +236,15 @@ async function run(c: Case, dt: number, slot = true) {
   const bodyLift = f.pitch / DEG, noseLift = f.nose / DEG;
   // ---- the tap: one thumb, the lift, a finger down 0.1 s later and up 0.08 s after; two thumbs, a finger down and up while the other pulls
   const fps = Math.round(1 / dt);
+  let ringAtPress = false;
   const steps = (s: number) => Math.max(1, Math.round(s / dt));
   if (c.thumbs === 1) {
     // (late: the finger lands 28/60 s after the lift, its tap's lift 0.53 s after it; slid: it slides past the tap slop from its second frame, a steering thumb
     // committed, and lifts as a quick tap, the stick still centred)
-    for (let j = 0; j < steps(c.tap === 'late' ? 28 / 60 : 0.1); j++) await frame(idle);
+    for (let j = 0; j < steps(c.gap ?? (c.tap === 'late' ? 28 / 60 : 0.1)); j++) await frame(idle);
+    ringAtPress = g.aimer.lobPlan !== null;
     g.press();
-    for (let j = 0; j < steps(1 / 15); j++) await frame(c.tap === 'slid' && j >= 1 ? { sx: 0, sy: 0, dragging: true } : idle);
+    for (let j = 0; j < steps(c.dur ?? 1 / 15); j++) await frame(c.tap === 'slid' && j >= 1 ? { sx: 0, sy: 0, dragging: true } : idle);
   } else {
     g.press();
     for (let j = 0; j < steps(1 / 15); j++) await frame(pulled);
@@ -315,7 +322,7 @@ async function run(c: Case, dt: number, slot = true) {
     agl: r1(tap.y - city.groundAt(tap.x, tap.z)),
     impactScreen: scr,
     radius: impact && !miss ? r1(impact.r as number) : null, wantRadius: r1(blastRadiusFor(Math.max(0, tap.y - at.y))),
-    painted, inside, raisedTwo: two, refund: r2(refund), climb: r1(climb), lobReach, pull: { lob: pullLob, of: pullN, flips: pullFlips },
+    painted, inside, raisedTwo: two, ringAtPress, refund: r2(refund), climb: r1(climb), lobReach, pull: { lob: pullLob, of: pullN, flips: pullFlips },
     hitStops: g.events.slice(ev0).filter((e) => e.ev === 'hitstop').length,
     top: top === null ? null : r1(top), underGround: plan ? r1(underGround) : null,
     on: miss ? 'water' : res.wall ? 'wall' : res.target ? 'roof' : 'ground',
@@ -366,6 +373,8 @@ for (const r of rows) {
     ok(!r.kind.startsWith('lob'), `${id}: no Lob (${r.kind}, the body ${r.body.lift} at the lift, ${r.body.tap} at the tap)`);
     if (r.key.endsWith('/street')) ok(r.pull.lob === 0 && r.lobStats?.planned === 0 && r.lobStats?.fired === 0, `${id}: on Curb's street no Lob planned, in the pull or at the tap (${r.pull.lob} of ${r.pull.of} frames, ${JSON.stringify(r.lobStats)})`);
   }
+  // (the roofs stage: the ring up at the finger's landing is a Lob at its lift, and gone it's today's tap: never a ring that throws nothing)
+  if (r.key.includes('/gap')) ok(r.ringAtPress === (r.want === 'lob') && (r.kind === 'lob') === r.ringAtPress, `${id}: the ring ${r.ringAtPress ? 'up' : 'gone'} at the finger, ${r.kind} thrown (${r.key.split('/').slice(-2).join(' ')})`);
   if (r.key.includes('/bomb')) {
     const base = rows.find((q) => q.key === r.key && !q.slot);
     const d = base ? Math.hypot(r.landing[0] - base.landing[0], r.landing[1] - base.landing[1], r.landing[2] - base.landing[2]) : Infinity;

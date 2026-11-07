@@ -14,8 +14,9 @@ import { inputTune } from './Input';
 // shows where (main.ts, PixelPipeline's ring dotted), and the hit is a tap's blast with the Comet's core, ring and pillar, the full show every time.
 //
 // The body latches: lifted, the steering thumb lets the bus level out under the eyes (at Cruise 72 to 41 degrees in 0.2 s), so the body as it was when the
-// steering thumb lifted, or when the tap's finger landed with no steering thumb down, is what a tap throws for config.splat.aimLatch s, as the aim latches
-// what glints; the tap's finger landing inside a latch keeps its body and runs it on aimLatch from there, as the Comet's latch is renewed at the press. A
+// steering thumb lifted, or when the tap's finger landed with no steering thumb down, is what a tap throws for config.lob.latch s (0.8, where the aim
+// latches what glints for config.splat.aimLatch's 0.5: a tap half a second after the lift threw a plain splat); the tap's finger landing inside a latch
+// keeps its body and runs it on config.lob.latch from there, as the Comet's latch is renewed at the press. A
 // finger that slides past the tap slop commits as a steering thumb, but lifted within inputTune.quickTapMs it's still a tap: for that long the latch it
 // found stays the body a tap throws. A second thumb's tap, the first still steering, reads it live.
 //

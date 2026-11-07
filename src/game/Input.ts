@@ -753,9 +753,12 @@ export class Input {
       this.free(slot);
       return;
     }
-    // (an aim's lift is its release, and nothing else: no tap, no flick. One that lifts still before its aim began is a tap: secondTap)
-    const aimed = slot.aiming;
-    if (aimed) this.endAim(slot, cancelled);
+    // (an aim's lift is its release, and nothing else: no tap, no flick. One that lifts still before its aim began is a tap: secondTap. So is one whose aim a
+    // frame began only because its lift reached the page late, its own time inside aimHoldMs: behind a run of slow frames a 60 ms tap's lift came 450 ms
+    // after its landing, the aim began in between, and a Lob's tap threw nothing (the Lob's roofs stage). Its aim ends cancelled, and it is the tap it was)
+    const lateTap = slot.aiming && !cancelled && now - slot.t0 < inputTune.aimHoldMs && slot.maxDist <= inputTune.tapSlopPx;
+    const aimed = slot.aiming && !lateTap;
+    if (slot.aiming) this.endAim(slot, cancelled || lateTap);
     // (the Bomb's: let go at II or III it fires, and is nothing else; a still lift on the bus before II shows is a tap, as long as the charge has run, or with none
     // begun (the belly refilling) up to when II would have shown: a rest past that does nothing, as off the link, where any rest's lift was a tap with the
     // belly's "not yet" (the Bomb's play review, 2). By the lift's own time: one queued behind a frame that showed a tier after it is what showed when it lifted)
