@@ -793,6 +793,10 @@ export const config = {
     tip: 10,
     /** Motes in its streak over its whole flight, three times the Comet's time aloft and more (the Comet's 400). */
     motes: 700,
+    /** Its throw: a puff of this many motes of its paint off the mouth, up its way at about puffSpeed m/s, and the recoil's kick (config.comet.kickLight 1.2). */
+    puff: 28,
+    puffSpeed: 16,
+    kick: 0.8,
   },
 
   /** The Bomb (docs/specs/shots/SHOTS.md, "The modes"; src/game/Bomb.ts), behind &bomb: a still hold on the bus, then the lift. "2" is Bomb II's, "3" Bomb III's. */

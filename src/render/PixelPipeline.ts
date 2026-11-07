@@ -1331,8 +1331,10 @@ void main() {
       float bn = max(12.0, floor(uBombRing.z * 0.32)), bs = atan(bq.y, bq.x) * 0.159155 * bn - uTime * 1.5;
       if (fract(bs) < 0.6 && (uBombRing.w < -0.85 || ((int(gl_FragCoord.x) + int(gl_FragCoord.y)) & 1) == 0)) {
         vec3 brow = uBombRows[int(mod(floor(bs), 6.0))];
+        // (at the paint's full strength: a faction's row at its brightest, its FACTION_STEP; Rainbow's rows, at rest 5 and brightest 7, at their step 4,
+        // where a step over the rest read as washed-out pastels on a pastel city, the outside look's)
         oRamp = brow.x;
-        oStep = min(brow.z, brow.y + 1.0);
+        oStep = brow.z > 6.5 ? 4.0 : brow.z;
         col = pal(oRamp, oStep);
       }
     }

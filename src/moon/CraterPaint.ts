@@ -565,8 +565,7 @@ export class CraterPaint {
     if (mega && !this.target) this.pick(ax, az, Math.max(40, Math.hypot(ax - f.x, az - f.z, shot.drop)), f, now);
     const t = this.target;
     if (!t) return;
-    const q = Math.hypot(ax - t.x, az - t.z) / t.r;
-    const x = t.r > 120 && q < 0.8 ? ax : t.x, z = t.r > 120 && q < 0.8 ? az : t.z, y = this.groundAt(x, z);
+    const { x, z, y } = this.onto(ax, az, this.onPt)!;
     shot.x = x;
     shot.z = z;
     shot.y = y + 0.5;
@@ -582,6 +581,20 @@ export class CraterPaint {
       relob(shot.comet);
     } else shot.travel = this.travelFor(Math.hypot(x - f.x, z - f.z, f.y - y));
     shot.crater = t;
+  }
+
+  private readonly onPt = { x: 0, y: 0, z: 0 };
+
+  /** Where a shot aimed at (ax, az) comes down on the crater glinting (aim's rule: anywhere well inside a big one, else its middle), or null with none. The
+   *  Lob's ring shows it there before the tap (main.ts), where it showed the landing before aim moved it. */
+  onto(ax: number, az: number, out: { x: number; y: number; z: number }): { x: number; y: number; z: number } | null {
+    const t = this.target;
+    if (!t) return null;
+    const q = Math.hypot(ax - t.x, az - t.z) / t.r;
+    out.x = t.r > 120 && q < 0.8 ? ax : t.x;
+    out.z = t.r > 120 && q < 0.8 ? az : t.z;
+    out.y = this.groundAt(out.x, out.z);
+    return out;
   }
 
   /** How high a breath lobs (m over its chord): a hill of a thing, in proportion to the throw. */

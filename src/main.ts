@@ -1140,7 +1140,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (shot.comet) cometFx.launch(shot.comet, simTime + config.splat.inhale, simTime + config.splat.inhale + shot.travel, splatter.faction, hue, simTime, mega?.tag.kind === 'bomb');
     if (shot.comet?.kind === 'lob') {
       controls.lobbed();
-      Object.assign(lobRing, { x: shot.comet.x, y: shot.comet.y, z: shot.comet.z, r: blastRadiusFor(shot.drop), until: simTime + config.splat.inhale + shot.travel });
+      // (each one thrown keeps its landing until it lands, the first up first: a second thrown before the first came down took the ring off it)
+      const up = lobsUp.find((u) => u.until <= simTime) ?? (lobsUp.length < 4 ? lobsUp[lobsUp.push({ x: 0, y: 0, z: 0, r: 1, until: -1 }) - 1] : lobsUp[0]);
+      Object.assign(up, { x: shot.comet.x, y: shot.comet.y, z: shot.comet.z, r: blastRadiusFor(shot.drop), until: simTime + config.splat.inhale + shot.travel });
     }
     if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
     return landsAt;
@@ -1290,8 +1292,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (bomb.on) superFx.palette = spray;
   };
   bombLook(splatter.faction);
-  /** the Lob's ring where it will land, eased in and out (main.ts's frame) */
+  /** the Lob's ring where it will land, eased in and out (main.ts's frame), and the landings of those thrown, each until it lands */
   const lobRing = { x: 0, y: 0, z: 0, r: 1, k: 0, until: -1 };
+  const lobsUp: Array<{ x: number; y: number; z: number; r: number; until: number }> = [];
+  const lobOnto = { x: 0, y: 0, z: 0 };
 
   // ---- resize (applied once per frame: iOS fires bursts of resize / visualViewport events while its toolbars move)
   const onResize = () => {
@@ -1476,6 +1480,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     lob.slide(dx, dz);
     lobRing.x -= dx;
     lobRing.z -= dz;
+    for (const u of lobsUp) {
+      u.x -= dx;
+      u.z -= dz;
+    }
     slides++;
   };
   let slides = 0;
@@ -1904,14 +1912,21 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       pipeline.setHeroCircle(superSplat.circle, superSplat.circleSpin, sz, sz * 0.5);
       const R = bomb.ring;
       // (the Lob's ring where it will land, dotted, while one is planned with a full belly: the Bomb's ring has the slot while it charges)
-      // (and on after the tap, where the one thrown comes down, until it lands)
-      const L = aimer.lobPlan, flying = simTime < lobRing.until;
+      // (and on after the tap, where the one thrown comes down, until it lands: the first thrown of those still up. Not while a hold aims: its lift is
+      // its own shot)
+      let first: (typeof lobsUp)[number] | null = null;
+      for (const u of lobsUp) if (u.until > simTime && (!first || u.until < first.until)) first = u;
+      const L = input.state.aim.on ? null : aimer.lobPlan, flying = first !== null;
       lobRing.k = (L || flying) && R.k < 0.01 ? Math.min(1, lobRing.k + realDt * 6) : Math.max(0, lobRing.k - realDt * 6);
-      if (L && !flying && R.k < 0.01) {
-        lobRing.x = L.x;
-        lobRing.y = L.y;
-        lobRing.z = L.z;
-        lobRing.r = blastRadiusFor(L.drop);
+      if (first) {
+        Object.assign(lobRing, { x: first.x, y: first.y, z: first.z, r: first.r, until: first.until });
+      } else if (L && R.k < 0.01) {
+        // (on the Moon's ground, on the crater the tap will move it onto: CraterPaint.aim's rule)
+        const on = moonPaint?.onto(L.x, L.z, lobOnto);
+        lobRing.x = on ? on.x : L.x;
+        lobRing.y = on ? on.y + 0.5 : L.y;
+        lobRing.z = on ? on.z : L.z;
+        lobRing.r = blastRadiusFor(on ? Math.max(0, flight.y - on.y) : L.drop);
       }
       if (R.k > 0.01 || lobRing.k <= 0) pipeline.setBombRing(R.x, R.z, R.r, R.k, R.pulse);
       else pipeline.setBombRing(lobRing.x, lobRing.z, lobRing.r, lobRing.k, 0, true, lobRing.y);

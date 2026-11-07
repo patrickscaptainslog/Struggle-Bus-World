@@ -387,7 +387,8 @@ export class CometFx {
     l.full = full || l.lob || this.show(now);
     if (l.lob) this.stats.lobs++;
     if (l.full) {
-      this.lastFull = now;
+      // (a Lob's full show is its own: it doesn't spend the Comet's, which a Comet after it within showEvery got the lighter one for)
+      if (!l.lob) this.lastFull = now;
       l.fullAt = now;
       this.stats.full++;
     }
@@ -411,7 +412,7 @@ export class CometFx {
     const l = this.liveOf(p), full = l ? l.full : false;
     if (l) {
       l.on = false;
-      if (l.full && this.lastFull === l.fullAt) this.lastFull = l.prevFull;
+      if (l.full && !l.lob && this.lastFull === l.fullAt) this.lastFull = l.prevFull;
     }
     const n = Math.round(C.splash * (full ? 1 : 0.5)), pal = this.particles.palette;
     for (let k = 0; k < n; k++) {
@@ -561,6 +562,7 @@ export class CometFx {
       c.launched = true;
       if (c.lob && this.sounds.lob) this.sounds.lob(c.t1 - c.t0);
       else this.sounds.launch(c.full ? 1 : 0.6);
+      if (c.lob) this.lobPuff(c);
     }
     // (a frozen frame, a hit-stop or a held game, moves nothing: no motes piled up at the head. The review of step 3, 9)
     if (dt <= 0) return;
@@ -594,6 +596,20 @@ export class CometFx {
       this.particles.comet(this.q, (Math.random() - 0.5) * 3, vy + (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, i < 2 ? Ramp.GLOW_WHITE : ramp, i === 0 ? 6.5 : size, life);
     }
     this.stats.motes += n + 1;
+  }
+
+  /** A Lob leaving: a puff of its faction's paint thrown off the mouth up its way, and the recoil, a light kick (the outside look: two white sparkles over the
+   *  bus were all its throw had). The streak's motes, their one program. */
+  private lobPuff(c: Live) {
+    const L = config.lob, pal = this.particles.palette;
+    this.at(c, Math.min(1, 12 / Math.max(12, c.from.distanceTo(c.to))), this.q);
+    this.up.copy(this.q).sub(c.from).normalize();
+    for (let i = 0; i < L.puff; i++) {
+      const a = (i / L.puff) * Math.PI * 2, sp = L.puffSpeed * (0.4 + 0.6 * Math.random()), out = L.puffSpeed * 0.45;
+      this.particles.comet(c.from, this.up.x * sp + Math.cos(a) * out, this.up.y * sp + (Math.random() - 0.3) * out, this.up.z * sp + Math.sin(a) * out, pal[(c.hue + i) % 6], 4 + 2 * Math.random(), 0.45 + 0.35 * Math.random());
+    }
+    this.stats.motes += L.puff;
+    this.sounds.kick(L.kick);
   }
 
   /** The arc at u (0 the mouth, 1 the landing). */
