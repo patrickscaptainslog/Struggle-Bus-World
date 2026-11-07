@@ -322,6 +322,31 @@ export class AudioEngine {
     if (g) g.superFx.whistle(g.now(), seconds);
   }
 
+  // ---- the Bomb (src/game/Bomb.ts): MEGA's sounds
+  /** The charge begins (III in `full` s): the riser and an inhale. */
+  bombCharge(full: number): void {
+    const g = this.live();
+    if (g) g.superFx.bombStart(g.now(), full);
+  }
+
+  /** A tier shows: its clunk (and III's bell). */
+  bombTier(tier: number): void {
+    const g = this.live();
+    if (g) g.superFx.bombTier(g.now(), tier);
+  }
+
+  /** One of III's heartbeats. */
+  bombBeat(): void {
+    const g = this.live();
+    if (g) g.superFx.bombBeat(g.now());
+  }
+
+  /** The charge ends: fired (cut into the blast, or the tap that follows) or a fizzle (the power-down). */
+  bombStop(fired: boolean): void {
+    const g = this.live();
+    if (g) g.superFx.chargeStop(g.now(), fired);
+  }
+
   /** Held while cooling down: "not yet". */
   superFizzle(): void {
     const g = this.live();

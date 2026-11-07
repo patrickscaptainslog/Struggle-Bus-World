@@ -15,7 +15,7 @@ import { Balloons } from '../fx/Balloons';
 import { balloonPop, balloonSqueak } from '../audio/balloonSfx';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import type { BusPose } from '../bus/BusModel';
-import { AIM_LINE, Coach, hintLines, TAUGHT, type CoachFrame } from '../ui/Coach';
+import { AIM_LINE, BOMB_LINES, Coach, hintLines, TAUGHT, type CoachFrame } from '../ui/Coach';
 import { Hud, type HudFrame } from '../ui/Hud';
 
 // The controls glue: the scheme (touch or keyboard), the first run, the settings
@@ -70,6 +70,8 @@ export class Controls {
   /** the fog is still lifting, and a building is glinting (main.ts, per frame) */
   opening = true;
   glinting = false;
+  /** the Bomb's hint may come: a painted building glints with a full belly under 300 m (main.ts, per frame, with &bomb) */
+  bombGlint = false;
   /** QA: the game holds (dt 0) while this is set: tools/shots.mjs --det stands the clock on it, tools/contextloss.mjs too */
   frozen = false;
   private readonly d: ControlsDeps;
@@ -90,6 +92,7 @@ export class Controls {
   private readonly cf: CoachFrame = { glinting: false, openingOver: false, splats: 0, thumb: false, stillPress: 0, charged: false };
   private splats = 0;
   private chargedOnce = false;
+  private bombedOnce = false;
   private thumbOnce = false;
   private gestured = false;
   private readonly onFlash = (pos: THREE.Vector3, strength: number) => {
@@ -146,8 +149,10 @@ export class Controls {
     this.megaOn = d.params.has('mega');
     d.input.megaOn = this.megaOn;
     this.hud.megaOn = this.megaOn;
+    // the Bomb, a still hold on the bus and the lift (SHOTS.md, "The modes"), is behind &bomb, read as &mega is, until the producer's grip test (src/game/Bomb.ts)
+    this.bombOn = d.params.has('bomb');
     const off = nohud || d.params.has('nocoach') || (d.params.has('skipintro') && !d.params.has('coach'));
-    this.coach = off ? null : new Coach(this.prefs.taught ?? 0, this.megaOn, d.input.aimOn);
+    this.coach = off ? null : new Coach(this.prefs.taught ?? 0, this.megaOn, d.input.aimOn, this.bombOn);
     this.start();
     if (!this.coach) this.hud.arrive();
     if (this.mode === 'keyboard' && !this.prefs.keysShown && !nohud && !d.params.has('skipintro')) this.keysIn = 2.5;
@@ -160,6 +165,8 @@ export class Controls {
 
   /** MEGA is awake on this page (&mega) */
   readonly megaOn: boolean;
+  /** the Bomb is on this page (&bomb) */
+  readonly bombOn: boolean;
 
   get mode(): InputMode {
     return this.d.input.mode;
@@ -174,6 +181,11 @@ export class Controls {
   /** A breath left (main.ts). */
   splatted() {
     this.splats++;
+  }
+
+  /** A Bomb was let go: its hint is learned. */
+  bombed() {
+    this.bombedOnce = true;
   }
 
   /** The super charged: the HOLD cue (and the keyboard's line) are over. */
@@ -323,6 +335,8 @@ export class Controls {
       cf.thumb = this.thumbOnce;
       cf.stillPress = input.stillFor(performance.now());
       cf.charged = this.chargedOnce;
+      cf.bombGlint = this.bombGlint;
+      cf.bombed = this.bombedOnce;
       c.frame(dt, cf);
       hud.setCue(c.cue);
       if (c.megaDue) hud.megaHoldCue();
@@ -333,6 +347,9 @@ export class Controls {
       } else if (c.aimHintDue) {
         this.hintLeft = 3;
         hud.toast([AIM_LINE], 3);
+      } else if (c.bombHintDue) {
+        this.hintLeft = 3;
+        hud.toast(BOMB_LINES, 3);
       }
     }
     if (c?.dirty) {

@@ -745,6 +745,30 @@ export const config = {
     kickLight: 1.2,
   },
 
+  /** The Bomb (docs/specs/shots/SHOTS.md, "The modes"; src/game/Bomb.ts), behind &bomb: a still hold on the bus, then the lift. "2" is Bomb II's, "3" Bomb III's. */
+  bomb: {
+    /** The tiers (s from the charge's start, the still hold on the bus with a full belly): each shows inputTune.aimLagMs later, on a frame. */
+    two: 0.6,
+    three: 1.2,
+    /** A bank of 1 (ten caught drops) brings the tiers this much sooner (s), never before inputTune.aimHoldMs. */
+    bankGain: 1.2,
+    /** The stages each building climbs (never past 3), its circle x the tap's (blastRadiusFor(drop)), the breath's jet x, the hit-stop's frames, the belly's refill (s). */
+    jump2: 2,
+    jump3: 3,
+    radius2: 1.4,
+    radius3: 1.8,
+    width2: 1.5,
+    width3: 2.4,
+    hitStop2: 6,
+    hitStop3: 9,
+    recharge2: 3,
+    recharge3: 4.5,
+    /** The tell: the bus's swell at II and III (x 1 +, its look alone), and the energy motes a second at III (half at II). */
+    swell2: 0.06,
+    swell3: 0.12,
+    motes: 420,
+  },
+
   facade: {
     /** Tower facades show their columns while a column module is at least this many game pixels wide on screen... */
     colPx: 3,

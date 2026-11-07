@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Input } from './Input';
 import type { Flight } from './Flight';
 import { hoseTune } from './Hose';
+import type { BombHook } from './Bomb';
 import type { City } from '../world/City';
 import type { Particles } from '../fx/Particles';
 import type { AudioEngine } from '../audio/AudioEngine';
@@ -153,6 +154,9 @@ export interface HoldHost {
   breath(): void;
 }
 
+/** holds.bomb before main.ts sets it (a harness, a tool): nothing. */
+const BOMB_ASLEEP: BombHook = { gift() {}, bank() {}, charge: 0, tier: 0, watch: () => () => {} };
+
 /** How far a hold's ray looks for the city (m from the camera). */
 const REACH = 6000;
 /** homing shots in flight at once: the player's (from the belly), and everyone else's (captains), each their own */
@@ -179,6 +183,8 @@ export class Holds {
   readonly shots: readonly HomingShot[];
   /** QA: what holds and shots came to */
   readonly stats = { holds: 0, claimed: 0, hits: 0, misses: 0, fired: 0, refused: 0, errors: 0, lastOwner: '' };
+  /** The Bomb's side (src/game/Bomb.ts, HOOKS.md): gift, bank, charge, tier, watch. main.ts sets it; without &bomb on the link all of it does nothing */
+  bomb: BombHook = BOMB_ASLEEP;
 
   private readonly h: HoldHost;
   private readonly handlers: Array<{ h: HoldHandler; last: boolean; watch: boolean }> = [];

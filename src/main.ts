@@ -39,6 +39,7 @@ import { tunableGroups } from './ui/tunables';
 import { SuperSplat } from './game/SuperSplat';
 import { Holds } from './game/Hold';
 import { Hose } from './game/Hose';
+import { Bomb } from './game/Bomb';
 import { SuperFx } from './fx/SuperFx';
 import { CometFx } from './fx/CometFx';
 import { Comet } from './game/Comet';
@@ -982,7 +983,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** (?moon: the craters are the buildings here, src/moon/CraterPaint.ts) */
   const moonPaint = moon?.paint ?? null;
   /** Breathe a shot: the blast is timed to the projectile's flight (inhale + travel), at the glinting building. */
-  const breathe = (shot: Shot, mega?: MegaBreath) => {
+  const breathe = (shot: Shot, mega?: MegaBreath): number => {
+    let landsAt = simTime;
     breathTravel = shot.travel;
     breathWidth = (mega ? mega.width : 1) * (moonPaint?.width(shot, flight) ?? 1);
     try {
@@ -998,13 +1000,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       else if (mover) Object.assign(o, { mover, moverFresh });
       if (mega) Object.assign(o, { radius: mega.radius, hitStop: mega.hitStop, super: mega.tag });
       Object.assign(o, moonPaint?.barf(shot, !!mega));
-      splatter.barf(at.x, at.z, o);
+      landsAt = splatter.barf(at.x, at.z, o);
     } finally {
       breathTravel = null;
       breathWidth = 1;
     }
     // a breath into open water paints nothing: part of the belly comes back
     if (splatter.lastMiss) flight.refund = config.splat.missRefund;
+    return landsAt;
   };
 
   /** QA: the last breath (aim point, flight time, drop, the building it should bloom). */
@@ -1029,7 +1032,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // (hold to aim, SHOTS.md: the street's; the Moon has no Hose yet, so a still finger off the lane rests there as it always did)
   input.aimOn = !moon;
   /** ?moonland: what the flight's loop has the thumb doing: everything below takes its place, and gives it back until the bus comes down. */
-  const flightHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: false };
+  const flightHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: false, bombOn: false };
   const tuner = new Tuner();
   // (the ODbL credit, then the other sources' own: ESA WorldCover's CC BY for where the trees stand)
   const dataCredits = [manifest.attribution ? (moon ? `Data ${manifest.attribution}` : `Map data ${manifest.attribution} (ODbL)`) : '', ...Object.values(manifest.credits ?? {}),
@@ -1076,7 +1079,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     moonPaint?.latch(simTime);
   };
   /** A breath leaves now: anticipation (the bus squashes on this very frame, inhales, then the jet leaves), then the shot. */
-  const breatheNow = (shot: Shot, mega?: MegaBreath) => {
+  const breatheNow = (shot: Shot, mega?: MegaBreath): number => {
     pose.squash = mega ? 0.72 : 0.8;
     squashV = 0;
     audio.heave();
@@ -1085,10 +1088,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const iy = shot.y ?? (tgt ? city.roofAtPart(tgt, shot.x, shot.z, flight.y) + 0.5 : city.groundAt(shot.x, shot.z));
     lastShot = { t: simTime, aim: [shot.x, iy, shot.z], travel: config.splat.inhale + shot.travel, drop: shot.drop, busY: flight.y, wall: shot.exact, target: tgt ? { index: tgt.index, cx: tgt.cx, cz: tgt.cz, roofY: tgt.roofY } : null, mega: mega?.radius, comet: shot.comet ? { ...shot.comet, target: tgt ? tgt.index : null } : null };
     const hue = splatter.hueNext;
-    breathe(shot, mega);
+    const landsAt = breathe(shot, mega);
     // (a Comet: its streak leaves the mouth after the inhale, and lands with its blast)
     if (shot.comet) cometFx.launch(shot.comet, simTime + config.splat.inhale, simTime + config.splat.inhale + shot.travel, splatter.faction, hue, simTime);
     if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
+    return landsAt;
   };
   const tapSplat = () => {
     // (taps fire between frames: what fire() hands over is exactly the building on screen glinting)
@@ -1206,6 +1210,21 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (!tuner.visible) holds.begin();
   };
   input.onAimEnd = (cancelled) => holds.end(cancelled);
+
+  // ---- the Bomb (src/game/Bomb.ts, behind &bomb until the producer's grip test): a still hold on the bus charges it, and the lift lets it go as MEGA's
+  // breath where the tap would land. The street's: the Moon's craters take it with the second half of its build
+  const bomb = new Bomb({
+    input, flight, aimer, audio, fx: superFx, rig, busVel,
+    breathe: (shot, b) => {
+      const at = breatheNow(shot, { radius: b.radius, width: b.width, hitStop: b.hitStop, tag: b.tag });
+      controls.splatted();
+      controls.bombed();
+      return at;
+    },
+    busy: () => hose.pouring || superSplat.hosing,
+  });
+  bomb.on = controls.bombOn && !moon;
+  holds.bomb = bomb;
 
   // ---- resize (applied once per frame: iOS fires bursts of resize / visualViewport events while its toolbars move)
   const onResize = () => {
@@ -1463,7 +1482,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       if (sx || sz) slideMap(sx, sz);
     }
 
-    // input -> flight (substeps keep springs stable on slow frames)
+    // input -> flight (substeps keep springs stable on slow frames). The Bomb's tiers wait on the belly: it says so first
+    bomb.update(dt);
     input.update(dt);
     controls.preFlight(dt);
     const st = input.state;
@@ -1552,6 +1572,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     pose.eye = barfing ? 0.25 : flight.relief > 0 ? 1 : 0.55 + 0.45 * (1 - flight.fullness * 0.6);
     controls.pose(pose);
     superSplat.pose(pose, superPose);
+    bomb.pose(superPose);
     bus.update(dt, simTime, superPose);
     eul.set(flight.pitch + superSplat.pitch + hose.pitch, -flight.heading, -flight.bank, 'YXZ');
     q.setFromEuler(eul);
@@ -1594,6 +1615,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const steering = (qaStick || st.thumb || (st.dragging && input.mode === 'keyboard')) && !input.pressHeld;
     const glint = aimer.update(flight, simTime, steering);
     controls.glinting = glint !== null || !!moonPaint?.target || aimer.moverGlinting;
+    // (the Bomb's hint: a painted building glints, with a full belly, the bus under 300 m)
+    if (bomb.on) controls.bombGlint = glint !== null && city.paint.level(glint.index) > 0.5 && flight.y - flight.groundBroad < 300;
     paintUniforms.uTarget.value = glint ? glint.index : -1;
     paintUniforms.uTargetT.value = aimer.shownSince;
     paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);
@@ -1644,7 +1667,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // streaming ahead under the view, a wider (softer) shadow window
     const vista = rig.vista;
     pipeline.setHfov(qa?.camAt?.hfov ?? rig.hfov);
-    bus.root.scale.setScalar(rig.heroScale * superSplat.swell);
+    bus.root.scale.setScalar(rig.heroScale * superSplat.swell * bomb.swell);
     // this frame's matrix now: the breath and the exhaust leave from where the bus IS (not last frame's pose)
     bus.root.updateMatrixWorld(true);
     controls.frame(dt, realDt);
@@ -1799,6 +1822,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     {
       const sz = 5.6 * rig.heroScale * (1 + 2.4 * superSplat.circle);
       pipeline.setHeroCircle(superSplat.circle, superSplat.circleSpin, sz, sz * 0.5);
+      const R = bomb.ring;
+      pipeline.setBombRing(R.x, R.z, R.r, R.k, R.pulse);
     }
     // the eye's beam, from the lens along the nose, a little down: wide open on relief, a sliver
     // while barfing (it squints); the bus's matrix is final here
@@ -2125,6 +2150,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       superMeter,
       /** QA: hold to aim (Holds: the hold under way, its handlers, the homing shots) and the Hose (its stats; qaPour pours at a world point until the tank runs dry) */
       holds,
+      bomb,
+      bombState: () => ({ on: bomb.on, tier: bomb.tier, charge: bomb.charge, input: { ...input.state.bomb }, box: input.busBox ? { ...input.busBox } : null, stats: { ...bomb.stats } }),
       hose,
       /** QA: the Comet (src/game/Comet.ts): its plan this frame (where a tap now lands, null when it's the classic shot), and its looks' counts */
       comet,
@@ -2231,7 +2258,7 @@ async function bootEarthResumed() {
   const street = laterStreet();
   const join = (await bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: shared, earth: street.world, clock: skyClock })) as EarthLanding | null;
   const i = shared.input;
-  const hands: Partial<Input> = { onTap: i.onTap, onTurbo: i.onTurbo, onTripleFinger: i.onTripleFinger, onFirstGesture: i.onFirstGesture, onPress: i.onPress, onChargeStart: i.onChargeStart, onChargeEnd: i.onChargeEnd, onAimStart: i.onAimStart, onAimEnd: i.onAimEnd, aimOn: false };
+  const hands: Partial<Input> = { onTap: i.onTap, onTurbo: i.onTurbo, onTripleFinger: i.onTripleFinger, onFirstGesture: i.onFirstGesture, onPress: i.onPress, onChargeStart: i.onChargeStart, onChargeEnd: i.onChargeEnd, onAimStart: i.onAimStart, onAimEnd: i.onAimEnd, aimOn: false, bombOn: false };
   if (join) await boot(undefined, shared, { join, hands, attach: street.attach });
 }
 

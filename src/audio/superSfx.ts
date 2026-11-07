@@ -7,6 +7,9 @@ import { registerTunables } from '../ui/tunables';
 // AudioEngine): the charge's riser and heartbeat, the cancel's power-down, the
 // mega blast's thunder, the firehose's roaring bed with its closing crescendo
 // and the arpeggio its impacts ring, the "not yet" fizzle and the ready chime.
+// And the Bomb's (src/game/Bomb.ts), which are MEGA's: the riser with an inhale
+// on it, a clunk at each tier (a bell on III's), and III's heartbeat, a beat at
+// a time for as long as it's held.
 //
 // Long sounds (the riser, the heartbeat, the roar) are a handful of nodes for
 // their whole length, scheduled ahead as automation at the start (no per-frame
@@ -84,7 +87,7 @@ export class SuperSfx {
    * The charge begins (it will be full `full` s after t): a two-octave riser (detuned saws through a
    * resonant sweep, and a hiss climbing above it) and a heartbeat that races as it fills.
    */
-  chargeStart(t: number, full: number): void {
+  chargeStart(t: number, full: number, heart = true): void {
     if (this.charge) this.close(this.charge, t, 0.02);
     const { ctx } = this.kit;
     const A = superAudioTune;
@@ -143,7 +146,7 @@ export class SuperSfx {
       h.nodes.push(n, hp, g);
     }
     // heartbeat: lub-dub, one sine thump (+ an octave-up triangle a phone can play) automated per beat
-    {
+    if (heart) {
       const o = mkOsc(ctx, 'sine', 58);
       const o2 = mkOsc(ctx, 'triangle', 116);
       const g = mkGain(ctx, 0);
@@ -178,7 +181,7 @@ export class SuperSfx {
       h.nodes.push(o, o2, g, g2);
     }
     // the last stretch: chord tones shimmering above it all (tremolo bells), tightening
-    {
+    if (heart) {
       const ch = this.voice.chord();
       const t0 = t + this.chargeFull * 0.62;
       for (let i = 0, tk = t0; tk < end - 0.05; i++) {
@@ -187,6 +190,74 @@ export class SuperSfx {
         tk += 0.34 - 0.24 * c;
       }
     }
+  }
+
+  /** The Bomb's charge begins (III `full` s after t): MEGA's riser and hiss, no heartbeat yet, and an inhale, a breath of noise rising through a bandpass. */
+  bombStart(t: number, full: number): void {
+    this.chargeStart(t, full, false);
+    const { ctx } = this.kit;
+    const n = noiseSrc(this.kit, t, 0.6);
+    const bp = mkFilter(ctx, 'bandpass', 700, 2.2);
+    bp.frequency.setValueAtTime(600, t);
+    bp.frequency.exponentialRampToValueAtTime(2600, t + 0.32);
+    const g = mkGain(ctx, 0);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.16 * superAudioTune.level, t + 0.26);
+    target(g.gain, 0, t + 0.3, 0.05);
+    n.connect(bp).connect(g).connect(this.kit.sfx);
+    disposeOnEnd(n, [n, bp, g]);
+  }
+
+  /** A tier shows: a clunk, the bus locking bigger (a thump falling through a metal click), deeper at III, which rings a bell of the chord over it. */
+  bombTier(t: number, tier: number): void {
+    const { ctx } = this.kit;
+    const big = tier >= 3, a = (big ? 0.62 : 0.42) * superAudioTune.level;
+    const o = mkOsc(ctx, 'sine', big ? 120 : 160);
+    o.frequency.setValueAtTime(big ? 120 : 160, t);
+    o.frequency.exponentialRampToValueAtTime(big ? 38 : 55, t + 0.18);
+    const og = mkGain(ctx, 0);
+    envAD(og.gain, t, a, 0.004, big ? 0.16 : 0.1);
+    o.connect(og).connect(this.kit.sfx);
+    o.start(t);
+    o.stop(t + 0.6);
+    disposeOnEnd(o, [o, og]);
+    const n = noiseSrc(this.kit, t, 0.12);
+    const bp = mkFilter(ctx, 'bandpass', big ? 2300 : 3100, 5);
+    const ng = mkGain(ctx, 0);
+    envAD(ng.gain, t, a * 0.5, 0.002, 0.03);
+    n.connect(bp).connect(ng).connect(this.kit.sfx);
+    disposeOnEnd(n, [n, bp, ng]);
+    if (big) this.voice.bell(t + 0.02, arpNote(this.voice.chord(), 8) + this.voice.transpose(), 0.34 * superAudioTune.level, 0);
+  }
+
+  /** One of III's heartbeats at a full charge: the lub-dub of the riser's, a beat at a time while the Bomb is held. */
+  bombBeat(t: number): void {
+    const { ctx } = this.kit;
+    const o = mkOsc(ctx, 'sine', 76);
+    const o2 = mkOsc(ctx, 'triangle', 152);
+    const g = mkGain(ctx, 0);
+    const g2 = mkGain(ctx, 0);
+    for (let k = 0; k < 2; k++) {
+      const tk = t + k * 0.09, ak = 0.55 * superAudioTune.heart * (k ? 0.62 : 1);
+      o.frequency.setValueAtTime(76, tk);
+      o.frequency.setTargetAtTime(41, tk + 0.003, 0.05);
+      o2.frequency.setValueAtTime(152, tk);
+      o2.frequency.setTargetAtTime(84, tk + 0.003, 0.04);
+      g.gain.setValueAtTime(0, tk);
+      g.gain.linearRampToValueAtTime(ak, tk + 0.006);
+      g.gain.setTargetAtTime(0, tk + 0.006, 0.07);
+      g2.gain.setValueAtTime(0, tk);
+      g2.gain.linearRampToValueAtTime(ak * 0.45, tk + 0.005);
+      g2.gain.setTargetAtTime(0, tk + 0.005, 0.045);
+    }
+    o.connect(g).connect(this.kit.sfx);
+    o2.connect(g2).connect(this.kit.sfx);
+    o.start(t);
+    o2.start(t);
+    o.stop(t + 0.7);
+    o2.stop(t + 0.7);
+    disposeOnEnd(o, [o, g]);
+    disposeOnEnd(o2, [o2, g2]);
   }
 
   /** The charge ends: fired (cut straight into the blast) or cancelled (a sad power-down from wherever the riser got to). */

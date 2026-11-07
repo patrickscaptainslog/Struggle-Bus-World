@@ -66,7 +66,7 @@ export interface SplatFx {
 
 /** A blast of a super splat: its kind, the charge, and the super's serial (a firehose's impacts and closer share one). */
 export interface SuperTag {
-  kind: 'mega' | 'hose' | 'closer';
+  kind: 'mega' | 'hose' | 'closer' | 'bomb';
   charge: number;
   id: number;
 }

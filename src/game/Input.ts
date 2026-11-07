@@ -753,10 +753,12 @@ export class Input {
     // (an aim's lift is its release, and nothing else: no tap, no flick. One that lifts still before its aim began is a tap: secondTap)
     const aimed = slot.aiming;
     if (aimed) this.endAim(slot, cancelled);
-    // (the Bomb's: let go at II or III it fires, and is nothing else; a still lift on the bus before II shows is a tap, however long it was held)
-    const bombed = !cancelled && slot.bombTier >= 2;
+    // (the Bomb's: let go at II or III it fires, and is nothing else; a still lift on the bus before II shows is a tap, however long it was held. By the lift's own
+    // time: one queued behind a frame that showed a tier it hadn't reached is what its time says)
+    const tierAt = cancelled ? slot.bombTier : this.bombAt(slot, now);
+    const bombed = tierAt >= 2;
     const bombTap = !cancelled && slot.onBus && !bombed && slot.maxDist <= inputTune.tapSlopPx;
-    if (slot.bombTier > 0) this.bombEnd(slot, cancelled);
+    if (slot.bombTier > 0) this.bombEnd(slot, cancelled, tierAt);
     const dir = cancelled || aimed || bombed ? 0 : this.flickOf(slot, e.clientX - this.rectL, e.clientY - this.rectT, now);
     const quick = !cancelled && !aimed && !bombed && (this.isQuick(slot, now) || bombTap);
     if (!quick) this.gAllQuick = false;
@@ -1071,7 +1073,10 @@ export class Input {
     if (s.maxDist > this.bombSlop(s)) return this.bombOff(s);
     if (!this.bombFull) {
       // (a tier waits for a full belly: one gone mid-charge, a lock's shot that spent it, fizzles, and the clock starts again when it's back)
-      this.bombEnd(s, true);
+      if (s.bombTier > 0) {
+        this.bombEnd(s, true);
+        s.onBus = true;
+      }
       s.bombFrom = -1;
       return;
     }
@@ -1103,12 +1108,23 @@ export class Input {
     }
   }
 
-  /** The charge ends, if it began: with the tier it had, or cancelled. */
-  private bombEnd(s: Slot, cancelled: boolean) {
-    const tier = s.bombTier;
+  /** The tier a lift at `now`, its own time, lets go: the highest one shown whose time (aimLagMs past its judging) it's past. */
+  private bombAt(s: Slot, now: number): number {
+    if (s.bombTier < 2) return s.bombTier;
+    const T = inputTune, k = now - s.bombFrom, gift = this.bombGift >= 2;
+    if (gift) return k >= T.aimHoldMs + T.aimLagMs ? s.bombTier : 1;
+    if (s.bombTier >= 3 && k >= this.bombThreeMs + T.aimLagMs) return 3;
+    return k >= this.bombTwoMs + T.aimLagMs ? 2 : 1;
+  }
+
+  /** The charge ends, if it began: with the tier it had (or the one its lift's own time says), or cancelled. */
+  private bombEnd(s: Slot, cancelled: boolean, at = s.bombTier) {
     s.bombArm = 0;
-    if (tier === 0) return;
+    if (s.bombTier === 0) return;
+    const tier = at;
     s.bombTier = 0;
+    // (a fizzle is the end of it for this touch: it's the flying thumb as any until it lifts)
+    if (cancelled) s.onBus = false;
     this.state.bomb.on = false;
     this.state.bomb.tier = 0;
     this.onBombEnd?.(tier, cancelled);

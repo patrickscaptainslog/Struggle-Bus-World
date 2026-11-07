@@ -162,6 +162,9 @@ export class PixelPipeline implements WarmPipeline {
   private readonly heroShadow = new THREE.Vector4();
   private readonly heroShadowAxes = new THREE.Vector4(0, 1, 1, 1);
   private readonly heroCircle = new THREE.Vector4();
+  /** the Bomb's ring where it will land (center x, z, radius m, strength; 0 = off) and its heartbeat's pulse */
+  private readonly bombRing = new THREE.Vector4();
+  private bombPulse = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -218,6 +221,8 @@ export class PixelPipeline implements WarmPipeline {
         uHeroShadow: { value: new THREE.Vector4() },
         uHeroShadowAxes: { value: new THREE.Vector4(0, 1, 1, 1) },
         uHeroCircle: { value: new THREE.Vector4() },
+        uBombRing: { value: new THREE.Vector4() },
+        uBombPulse: { value: 0 },
         uFlash: { value: new THREE.Vector4() },
         uSkyCut: { value: this.skyCut },
         ...(skyOn ? heldResolveUniforms : {}),
@@ -412,6 +417,15 @@ export class PixelPipeline implements WarmPipeline {
    */
   setHeroCircle(charge: number, spin: number, halfLength: number, halfWidth: number) {
     this.heroCircle.set(charge, spin, Math.max(0.1, halfLength), Math.max(0.1, halfWidth));
+  }
+
+  /**
+   * The Bomb's ring (src/game/Bomb.ts): where it will land, its whole circle (m), on whatever faces up there, the hero circle's way: in the resolve, a band of
+   * paint's colours stippled in as `k` grows (0 = off), wider and a step brighter on each heartbeat (`pulse` 0-1). No decal, no draw, no program of its own.
+   */
+  setBombRing(x: number, z: number, r: number, k: number, pulse: number) {
+    this.bombRing.set(x, z, Math.max(1, r), k);
+    this.bombPulse = pulse;
   }
 
   /** The far plane moves (?farfade): the sky is the clear flag alone from here on, or the far fade ends in a hard cut. */
@@ -697,6 +711,8 @@ export class PixelPipeline implements WarmPipeline {
     ru.uHeroShadow.value.copy(this.heroShadow);
     ru.uHeroShadowAxes.value.copy(this.heroShadowAxes);
     ru.uHeroCircle.value.copy(this.heroCircle);
+    ru.uBombRing.value.copy(this.bombRing);
+    ru.uBombPulse.value = this.bombPulse;
     if (this.flashLeft > 0) {
       ru.uFlash.value.copy(this.flashU);
       this.flashLeft--;
@@ -878,6 +894,8 @@ uniform vec4 uBeamShape; // half width at the lens / at the tip (px), strength, 
 uniform vec4 uHeroShadow;     // hero drop shadow: center xz, underside y (m), ramp steps (0 = off)
 uniform vec4 uHeroShadowAxes; // ...its oval: forward axis xz, half length, half width (m)
 uniform vec4 uHeroCircle;     // the charge's pinwheel around it: charge (0 = off), spin (arms), half length, half width (m)
+uniform vec4 uBombRing;       // the Bomb's ring where it lands: center xz, radius (m), strength (0 = off)
+uniform float uBombPulse;     // ...its heartbeat, 0-1
 uniform vec4 uFlash;     // impact flash: buffer uv, strength, white-hot radius (fraction of the height)
 uniform float uSkyCut;   // depth at and past which geometry still turns to sky (over 1: never)${held(GLSL_SKY_HELD_UNIFORMS)}${space(GLSL_SPACE_UNIFORMS)}
 in vec2 vUv;
@@ -1260,6 +1278,22 @@ void main() {
     if (below && dot(bo, bo) < 1.0) {
       oStep = max(oStep - uHeroShadow.w, 0.0);
       col = pal(oRamp, oStep);
+    }
+  }
+  // the Bomb's ring where it will land, the circle it paints: a band of the rainbow on whatever faces up there, its arcs turning, stippled in as it comes
+  // and a step brighter and a little wider on each of III's heartbeats. The hero's own pixels and fog are left alone
+  if (uBombRing.w > 0.01 && outlineable && !fogged && !heroRamp) {
+    vec3 cfb = -normalize(vec3(uCamWorld[2].xyz));
+    vec3 Pb = uCamPos + dir * (depth / max(dot(dir, cfb), 0.05));
+    vec2 bq = (Pb.xz - uBombRing.xy) / uBombRing.z;
+    float br = length(bq);
+    if (abs(br - 0.985) < 0.03 + 0.02 * uBombPulse && (mat3(uCamWorld) * octDecode(a.rg)).y > 0.5) {
+      float bs = atan(bq.y, bq.x) * 1.909859 + uTime * 0.8;
+      if (uBombRing.w > 0.85 || ((int(gl_FragCoord.x) + int(gl_FragCoord.y)) & 1) == 0) {
+        oRamp = ${HUE_RAMPS[0]}.0 + mod(floor(bs), 6.0);
+        oStep = 5.0 + floor(1.6 * uBombPulse + 0.5);
+        col = pal(oRamp, oStep);
+      }
     }
   }
   // the hero's headlight: what lies ahead of the lens (beyond the bus) is lit a step or two up its own
