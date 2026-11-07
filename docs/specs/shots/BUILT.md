@@ -1,6 +1,6 @@
 # Shots: what's built
 
-`docs/specs/shots/SHOTS.md` (on `feat/earth`) is the plan the producer approved on 2026-11-06. This file says what of it stands on `feat/shots`, how to fly it, and what's left. The first account's list, step 1.
+`docs/specs/shots/SHOTS.md` (on `feat/earth`) is the plan the producer approved on 2026-11-06. This file says what of it stands on `feat/shots`, how to fly it, and what's left. The first account's list, steps 1 to 3.
 
 ## Step 1: MEGA off, the faction button, the bigger splat
 
@@ -73,6 +73,89 @@ The flight on this laptop's GPU (Intel UHD 620): real CDP touches on the real pa
 - A tap off the lane after all that splatted, with no pour.
 - Two 404s turned up in the console on both pages. I didn't find which files they were.
 
+## Step 3: the probe and the Comet
+
+This step's plan was written on the laptop from SHOTS.md, outside the repo; where this departs from it, it says so below.
+
+**The probe** (`34e4293`, `tools/controls-sim/s_shots.ts`). A tap at every rung and pose over the real baked city, through the real Flight, TurboDrive, TurboLens, CameraRig, Aimer and Splatter, at 1/60 and 1/30 s: 122 rows. The rungs are School Zone, Cruise, Express, Nonstop, Jet and Turbo 1-3, and Jet and Turbo 1-3 at 16 km. The poses are level over the Western Addition (Alamo Square, east) at the rung's floor (the roofs, Nonstop's 60 m, 150 m from Jet up), at 300, 1,500 and 6,000 m; the floor downtown (Market from Van Ness); over water (north from Fort Mason); the nose 30 and 75 degrees up; a 45 degree dive tapped at 800 m.
+- It taps through `tools/feel-sim/loop.ts`, which gains the drive and takes main.ts's own barf (`Aim.tapOpts`), so a Node tap is the page's. The lens projects as the page's does at 393 x 852 (`PixelPipeline`'s `lensFov`).
+- A row says what the tap fired, when it landed, where (from the tap, ahead of the bus at the impact, on what), its screen point at the tap and at the impact (in frame, how far above the bus, clear of the HUD's top band), when the bus passes it, the radius, the buildings painted and any raised two, and whether its tile was in.
+- `tools/controls-sim/shots-baseline.json` is today's shot, run on c09e415 with only the probe's refactors in. Once the Comet is in, every row that isn't a Comet must be the baseline's.
+
+What today's shot does, at 60 fps (the plan worked these out by hand; the probe measured them):
+
+| | Lands from the tap | Ahead of the bus at the impact | Passed after the impact | On the screen at the impact |
+|---|---|---|---|---|
+| Nonstop, at 50 m | 214 m | 112 m | 0.54 s | 5 % under the bus |
+| Jet, at 154 m | 441 m | 166 m | 0.40 s | 24 % under it |
+| Turbo 3, at 149 m | 468 m | 86 m | 0.10 s | 36 % under it |
+| Turbo 3, at 300 m | 898 m | 86 m | 0.11 s | out of the frame, under it |
+| Turbo 3, at 6 km | 1,563 m | 4,678 m behind, 7.1 s after the tap | | |
+| Turbo 3, at 16 km | 1,563 m | 15,043 m behind, 18.6 s after the tap | | |
+
+So in a gear today's shot lands 0.1-0.5 s ahead, under the bus, where the thumb is. The plan had Jet's at 140 m; the aim's ray 20 degrees down from 154 m reaches the ground at 423 m.
+
+**The Comet** (`3baf3d3`, `src/game/Comet.ts`; the page's in `bad1288`).
+- **When.** A tap while a gear drives the bus at 225 m/s or more (`Flight.turbo.speed`): Nonstop engaged, Jet, Turbo 1-3, on the street and on the Moon. School Zone, Cruise and Express never fire one.
+- **Where.** Along the aim's flat way (the nose, turned by a look), as far as the bus flies from the tap to 1.5 s after the impact, at most 1.9 km (`config.city.loadRadiusHigh`). The breath's stall is in it: the drive's spool and the breath's 0.85, stepped as Flight and TurboDrive step them. The probe's passes come within 0.01 s of the plan's own.
+- **In view.** By the lens the player sees, moved on by the bus's travel to the impact, it must land at least 5 % of the height above the bus (`config.comet.above`). Where it doesn't it moves out 20 m at a time, and where it never does within 1.9 km the tap is the classic shot.
+- **The flight.** 0.6 s after the 0.09 s inhale, whatever its length, on an arc topping 6 % of its chord. A building standing into the arc takes it on its face, on an 8 m march. One less than 0.5 s of the bus's travel ahead of it at the impact is lobbed over instead: the arc tops out higher, up to 30 % of the chord.
+- **The splat.** A tap's barf at the landing: `blastRadiusFor(drop)`, `life.blast` with the whole circle, one level a building, no ribbon from the mouth and no hit-stop. Over water it's a miss with its refund. A landing whose tile isn't in at the tap is planned 0.2 s before the impact (`BarfOpts.late`).
+- **What glints** with a gear at speed is the Comet's landing. The aim's own pick runs on under it, so where the Comet stops applying, the tap is exactly the classic one.
+- **The seam.** `Comet.ts` chooses the tap's shot in one place (`chooseShot`), with the Lob's slot: when both apply, the farther landing wins. Recess's `Comet.clamp`, and a captain's Comet, are in `HOOKS.md`.
+
+**Its looks** (`bad1288`, `src/fx/CometFx.ts`, `src/audio/cometSfx.ts`). Each part is in the faction's own paint rows.
+- **The streak.** A white-hot head and a tail of motes along each frame's stretch of the arc (`Particles.comet`, as the homing shot's), 400 a Comet. Rainbow's tail is six bands side by side, Atlantis's a foam helix, the Elderwood's leaves falling off it, Hyperglow's a zigzag, Inferno's embers rising.
+- **The impact.** The flash and the bloom's notes on time; no kick or hit-stop that far off.
+- **The pillar.** 200 m of paint light standing on where it landed, up in 0.35 s and stippled away over 2.5 s, with a crown of spray at its top. Rainbow's is a hexagonal prism of six bands under a crown of stars; Atlantis's a foam helix opening into a sea geyser that rains back; the Elderwood's a vine spiralling up into blossom; Hyperglow's a zigzag bolt re-rolled 20 times a second; Inferno's a licking flame column flecked with obsidian.
+- **The lens.** The bus within 40 m of its axis, under its top, gets 8 to 14 drops on the glass, which run down and fade in 0.5 s.
+- **The late boom.** When the sound of the landing would reach the bus (the distance over 343 m/s plus the bus flying into it): a crack over a rumble, and the camera's kick. A whoosh off the mouth at the launch.
+- **Lighter.** The full show plays on the first Comet in 20 s, and while Streak's seam (`cometFx.streakOn`) says a streak is on. The rest get a 120 m pillar for 1.2 s, half the motes, no drops and a softer boom.
+- **The cost.** The pillars are one InstancedMesh (576 triangles each, up to four) and the drops another, made at boot and warmed (`registerWarm('comet')`). A pillar's faction, hue and shape are numbers per instance into constant tables in its one program, so one program each covers all five factions. The streak and the crown are the particles' own program. Two draws at most while they show.
+
+**The Moon** (`1495faa`). `CraterPaint.aim` moves a shot onto the crater that glints, as before, but a Comet keeps its 0.6 s flight and its arc there, where every other shot lobs for up to 2.6 s. The crater at the landing glints by itself, since it reads the aim point. `CometFx` slides with the Moon's map, and the boom there is a thump through the ground. `src/moon` is in neither account's list: this is the shots' Moon side.
+
+**Where this departs from the plan.**
+- The landing is the middle of a stretch of its way 0.12 s of the bus's travel either side, anchored to the map, where the plan held what glints while the landing stayed near it. A held glint made 30 and 60 fps land 40-190 m apart, so the plan's own 2 m gate failed; anchored, they land within 2 m. What glints changes at most every 0.24 s.
+- A wall less than 0.5 s ahead at the impact is lobbed over, where the plan let any wall take it. The plan's downtown gate wants the wall 0.5 s ahead.
+- The probe's gate takes a wall 0.5 s ahead anywhere at the floor, not only downtown: from the Western Addition, Turbo 1-3 reach the Civic Center's towers.
+- `controls.mjs` has no `comet` mode. The GPU flight is a scratch script, kept on the laptop with its frames, as step 2's was.
+- Not flown on `?life` or `?moon`.
+
+**The checks** (on `b18be07`; the first GPU round on `dc88168`'s build, the second on `b18be07`'s).
+- `tsc` clean at each commit. `vite build` exit 0, and `iosfloor` says "iOS 15.0 parses every chunk", on both builds.
+- The gesture sim 860 of 860 (349 rows), turbo 37 of 37, hold 41 of 41 (28 rows), layout 300 of 300: what the merges' check had.
+- The probe, 122 rows in 182 s, exit 1: 32 of its 364 checks fail, all the in-view rule's and the gates' own numbers (below). Every row that isn't a Comet lands where the baseline's did (82 rows, within 0.5 m and 0.02 s); School Zone, Cruise and Express never fire one; every Comet lands 0.70 s after the tap (0.72 over water), 30 and 60 fps within 2 m; over water it's a miss with its refund (the belly back at 0.5); the dive's is ahead and in frame; no building rose two levels anywhere. The aim's frame, the Comet's plan in it, took 0.04 ms (median) to 0.15 ms in Node.
+
+The Comet in the probe, at 60 fps (the pass is when the bus passes the landing, after the impact):
+
+| | Lands from the tap | Ahead at the impact | Passed after | Above the bus at the impact | Painted |
+|---|---|---|---|---|---|
+| Nonstop, the floor | 551 m | 399 m | 1.87 s | 6.8 % | 82 |
+| Jet, the floor | 1,337 m | 1,034 m | 2.40 s | 7.3 % | 31 |
+| Turbo 1, the floor | 1,395 m, a wall | 1,001 m | 1.80 s | 7.5 % | 28 |
+| Turbo 3, the floor | 1,537 m, a wall | 931 m | 1.11 s | 10.8 % | 20 |
+| Jet, 300 m | 1,548 m | 1,245 m | 2.87 s | 6.4 % | 25 |
+| Turbo 1-3, 300 m | no Comet: the classic shot | | | | |
+| Nonstop, downtown | 404 m, a wall | 252 m | 1.20 s | 14.7 % | 11 |
+| Turbo 3, downtown | 1,795 m | 1,188 m | 1.41 s | 9.4 % | 37 |
+| Turbo 3, over water | 1,785 m, a miss | 1,165 m | 1.38 s | 7.7 % | 0 |
+
+What fails: at the floor the in-view rule moves Nonstop's landing out to a 1.87 s pass and Jet's to 2.40 s, and downtown Jet's to 2.11 s (the gate is 1.3-1.7 s: the plan's risk 3, the margin against the pass); at 300 m Turbo 1-3 find nothing 5 % over the bus within 1.9 km, so the tap there is the classic shot, which lands under the bus and out of the frame; downtown a Nonstop Comet on a tower's face paints 11 buildings (the gate is 20; today's tap there paints 6 to 22).
+
+On this laptop's GPU (Intel UHD 620), the built page, one browser at a time under the lock. Frames and logs are kept on the laptop, outside the repo.
+- `warmcheck --comet`: 38 programs at ready (36 before: the pillars and the drops), none after the warm-up. At Jet the full show's Comet boomed and put 11 drops on the lens as the bus flew through its pillar; the lighter one boomed and put none.
+- `warmcheck --crew --comet`, all five factions, a full and a lighter Comet each: 38 at ready, none after, in all three runs. In the first two, two factions' Comets came down with no pillar and no boom: the check let the bus fly on at Jet while the city settled after its jump back, out over the bay, where a Comet is a miss (the second run's rows say so: ground 0, no tile, 3.4-5.7 km east). With the bus held at its spot until the city settles, the third run: all ten Comets landed on the city with a pillar and a boom, and the three full shows (Atlantis, Hyperglow, Rainbow, the first in 20 s each) put 12, 10 and 14 drops on the lens. That run had four frames of 233-817 ms in Hyperglow's and Inferno's phases, which hold the jump back of 4 km and the city streaming in as well as the Comets; no program was made in them, and the flights' Comets had no frame over 100 ms.
+- The flights, with real CDP taps and real flicks (`tools/flick.mjs`), golden hour: east from Ocean Beach in Atlantis (a plain tap at Cruise, then Nonstop twice and Jet), Turbo 3 in Inferno from Lands End, and north over the bay at Jet in Inferno.
+  - Nonstop, the first: the full show, its boom, 9 drops as the bus flew through, 90 buildings painted; it landed 487 m out, passed 1.60 s after its impact. Nonstop, the next: the lighter show, 453 m, 1.44 s. Jet: 1,489 m, 2.76 s. Turbo 3, the first: the full show, 12 drops, 165 buildings, 1,687 m, 1.32 s; the next, 1,712 m, 1.34 s. Over the bay at Jet: a miss, no pillar and no boom, as planned (water is the Torpedo's later).
+  - On the page's own lens, at the frame of each impact, the landing sat 11.8 % (Nonstop, the first), 9.6 % (the next), 7.7 % (Jet) and 6.9 % (Turbo 3) of the height above the bus. The probe's lens put them lower: its camera isn't the page's to the pixel.
+  - 0 programs made after the start in any flight; 0 page errors; the console's two 404s are `/favicon.ico`.
+  - A Comet's frames against a plain tap's at Cruise: the tap's work 8.4 ms median, 44.1 ms at most, 143 draws at most, 0.93 M triangles, 3,430 particles. Nonstop's lighter Comet: 4.1 ms, 28.3 ms at most, 129 draws, 0.93 M, 3,115 particles, the frame 23.2 ms median and 47.8 at most. Turbo 3's: 2.3 ms, 18 ms, 79 draws, 0.67 M, 3,349 particles. The frames of each impact: 59 to 127 draws, 0.67 to 0.90 M triangles. No frame over 100 ms outside the screenshots.
+- `shots.mjs --det` with the sky off, this build against the merge's (c09e415's): all eight views identical, as they should be: none fires a Comet.
+
+- The second build (`b18be07`'s, the pillar in its paint's colour and wider), on the same laptop: `warmcheck --comet` 38 programs at ready, none after, the full show's Comet 10 drops. The flights again, east in Atlantis and Turbo 3 in Inferno: Nonstop's passes 1.63 and 1.42 s, Jet's 2.60 s, Turbo 3's 1.49 and 1.50 s; 0 programs made after the start, 0 page errors.
+- Stills at 1179 x 2556 of the first Comet over the Western Addition in Atlantis, stepped two frames at a time, and of Turbo 3's in Inferno, with a GIF of the first, are kept on the laptop. The streak is a glittering column from the bus up to where it lands, and there's a burst there. Then a 200 m helix of teal and pearl rises over the block it painted, and the bus flies into it. At Turbo 3 the landing is 1.1-1.3 km ahead, just over the bus on the screen, and its pillar is a thin flame there.
+
 ## How to fly it
 
 The branch's preview: `https://struggle-bus-world-git-feat-shots-patricks-projects-9ff6e721.vercel.app/`
@@ -80,6 +163,7 @@ The branch's preview: `https://struggle-bus-world-git-feat-shots-patricks-projec
 - `?crew&life`: the same with the living city. One tap on a park or a busy street paints the people and cars inside the circle. A tap on one car or a ferry paints the block round it too.
 - `?mega`: MEGA as it was, to compare.
 - Step 2, the Hose: hold a finger still on the city, high over the bus and away from it, for a bit under half a second. It pours where you hold, and a drag sweeps it. Hold on the sky and it throws as far as it reaches that way. Watch the bus's belly band drain and listen to the hiss climb. A quick tap there still splats. With `?crew`, try it in each faction's colours.
+- Step 3, the Comet: flick up twice from Cruise for Nonstop, or on to Jet and Turbo, and tap high on the screen, off the bus. A streak flies ahead and lands where you'll be in a second and a half or so, a pillar of paint light goes up there, and you fly through its spray; the boom comes a beat later. The first in 20 s is the full show, the next ones lighter. With `?crew`, try each faction's.
 
 ## What's left of step 1
 
@@ -103,6 +187,16 @@ The branch's preview: `https://struggle-bus-world-git-feat-shots-patricks-projec
 - **Not built yet:** the flick's lunge in the white, the Bomb on a hold on the bus, and the HOLD TO LOCK hint. See `HOOKS.md`, "Not here yet".
 - **The hook for the second account.** `docs/TODO.md` (on `feat/earth`) should say that the hook is on `feat/shots`, in `HOOKS.md`. Neither run wrote it there: it's off this branch.
 - **Not measured** on an A15 or on the producer's phone. Not flown over Recess or `?life` on the GPU.
+
+## What's left of step 3
+
+- **The margin against the pass** (the plan's risk 3). The in-view rule, 5 % of the height over the bus by the lens moved on, moves the landing out past the 1.5 s at Jet's floor: 2.40 s in the probe, 2.60-2.76 s on the page. At Nonstop's floor 1.87 s in the probe, 1.42-1.63 s on the page. It's `config.comet.above`: the producer trades the two on the phone.
+- **No Comet in turbo from about 300 m up.** At 300 m Turbo 1-3 find no landing 5 % over the bus within 1.9 km, so the tap there is the classic shot, which lands under the bus and out of the frame. The plan worked out 1.1-1.4 km by hand; at speed the chase lens sits low behind the bus, with the horizon only about 10-15 % of the height over it. Ways on, the producer's: a smaller margin; a reach that grows with the height, since the city loads 950 m further ahead up high; the Lob's step answering taps up there.
+- **The page's lens and the probe's differ.** At each impact on the page the landing sat 7-12 % over the bus; the probe's lens had it 6-8 %. The probe drives the real CameraRig and TurboLens, but not in the page's order to the frame.
+- **Downtown, a Comet on a tower's face paints few buildings:** 11 at Nonstop (the gate is 20; today's tap there paints 6 to 22).
+- **Over water** the Comet's a miss with its refund: no pillar and no boom. Water is the Torpedo's later.
+- **What glints changes at most every 0.24 s** at speed (the stretches the landing snaps to), where a strobe would be every frame.
+- **Not flown** on `?life`, `?moon` (the Moon's side is built, not flown), in Recess, on an A15 or on the producer's phone. The boom wasn't listened to. `controls.mjs` has no `comet` mode yet.
 
 ## The review of step 2, and what it came to
 

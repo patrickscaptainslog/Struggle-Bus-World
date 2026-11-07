@@ -414,15 +414,17 @@ if (opt.comet) {
       await tapCrest(`crew-${key}`);
     }
     await phase(`comet-${key ?? 'plain'}`);
+    // (held there while the city streams in: at Jet a long settle flew the bus kilometres on, over the bay, where a Comet is a miss)
     await page.evaluate(() => {
       const g = window.__game;
       const [x, z] = window.__ll(37.7756, -122.4655);
       const y = g.city.groundAt(x, z) + 150;
-      window.__qa = null;
+      window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
       Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0, speed: 450 });
       g.controls.turbo.arrive(3, 0);
     });
     await settle();
+    await page.evaluate(() => (window.__qa = null));
     await run(2.5);
     for (const show of ['full', 'light']) {
       await page.evaluate(() => window.__game.forceReady());
