@@ -10,6 +10,7 @@ import { blastUniforms, GLSL_BLAST_RING } from './GroundPaint';
 import { PAINT_KEPT } from './PaintState';
 import { Fam, Crown, Variant } from './towerStyles';
 import { GLSL_LIFT, lifted, liftedOr, liftOn } from './liftGlsl';
+import { GLSL_POGO, pogoed, pogoedOr, pogoUniforms } from './pogo';
 
 /**
  * ?lift: the Lift's uniforms (world/Lift.ts fills them), spread into every material that moves with a floating house. Null with the flag off, and
@@ -93,9 +94,9 @@ const R = (r: number) => r.toFixed(1);
 export function makeBuildingMaterial(): THREE.ShaderMaterial {
   const mat = new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
-    uniforms: { ...globals, ...paintUniforms, ...facadeUniforms, uBlastRing: blastUniforms.uBlastRing, uBlastRing2: blastUniforms.uBlastRing2, ...(liftUniforms ?? {}) },
+    uniforms: { ...globals, ...paintUniforms, ...facadeUniforms, uBlastRing: blastUniforms.uBlastRing, uBlastRing2: blastUniforms.uBlastRing2, ...(liftUniforms ?? {}), ...(pogoUniforms ?? {}) },
     vertexShader: /* glsl */ `
-      ${GLSL_COMMON}
+      ${GLSL_COMMON}${pogoed(GLSL_POGO)}
       precision highp sampler2D;
       uniform sampler2D uPaint;
       uniform float uPaintW;
@@ -150,15 +151,18 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           float tb = uTime - paint.b;
           if (tb >= 0.0) {
             // squash & stretch pop about the base, volume-preserving-ish
-            float pop = 0.0;
-            if (tb < uBloom.x * 1.6) {
-              float k = tb / uBloom.x;
+            float pop = 0.0;${pogoed(`
+            // (a Bomb's stage: the house hops first, and lands in the pop's squash. world/pogo.ts)
+            float tr;
+            float hop = sbPogo(vec2(aBld.y, aBld.w), paint.b, hgt, tb, tr);`)}
+            if (${pogoedOr('tr >= 0.0 && tr', 'tb')} < uBloom.x * 1.6) {
+              float k = ${pogoedOr('tr', 'tb')} / uBloom.x;
               pop = -uBloom.y * exp(-7.0 * k) * cos(10.5 * k) + uBloom.z * exp(-5.0 * k) * sin(10.5 * k);
             }
             float sy = 1.0 + pop;
             float sxz = 1.0 / sqrt(max(sy, 0.4));
             vec2 c = vec2(aBld.y, aBld.w);
-            p.y = baseY + (p.y - baseY) * sy;
+            p.y = baseY + (p.y - baseY) * sy${pogoed(' + hop')};
             p.xz = c + (p.xz - c) * sxz;
             // gentle wobble: a continuous world-space field, so parts of one building never crack apart
             float h01 = clamp((vYRest - baseY) / hgt, 0.0, 1.0);

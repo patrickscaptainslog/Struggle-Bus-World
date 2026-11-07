@@ -92,6 +92,23 @@ export function blastRadiusFor(drop = 0): number {
   return S.blastRadius * (1 + ((S.dropGain300 - 1) * d) / 300);
 }
 
+/**
+ * The most buildings a blast of radius r paints: config.splat.maxBuildings at the tap's 85 m, growing with the circle's area (the buildings in reach do), up
+ * to `most`: a tap's maxBuildingsCap, a super's megaBuildingsCap, a Bomb's config.bomb.cap (900: a Bomb III from 300 m reaches 540-750 over dense housing).
+ */
+export function blastCap(r: number, most: number): number {
+  const rk = r / config.splat.blastRadius;
+  return Math.min(most, Math.max(1, Math.round(config.splat.maxBuildings * rk * rk)));
+}
+
+/**
+ * When a blast's ground must be drawn by, s after its impact: at the impact, or for a circle wider than `over` m (config.bomb.rimOver), when its wave reaches
+ * the rim, arrival(r, r) (0.9-1.6 s for a Bomb III): drawn in flight to the impact, a 306 m circle is a 24-37 ms frame. Streak's wide taps take it too.
+ */
+export function groundDeadline(r: number, over = config.bomb.rimOver): number {
+  return r > over ? arrival(r, r) : 0;
+}
+
 export function makeBlastSpec(x: number, z: number, r: number, hue: number, seed: number): BlastSpec {
   const S = config.splat;
   return {

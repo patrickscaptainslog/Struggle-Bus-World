@@ -6,7 +6,8 @@ import { registerWarm } from '../../render/warmup';
 import { GLSL_MOON_CURVE, moonLow, moonOnly } from '../../sky/flag';
 import { DEPTH_FS, GLSL_PROPS, PartKit, propsTune, rng, tuneUniform, unitSphere } from './common';
 import { GLSL_LIFT, lifted, liftOn } from '../liftGlsl';
-import { liftUniforms } from '../buildingMaterial';
+import { liftUniforms, paintUniforms } from '../buildingMaterial';
+import { GLSL_POGO, pogoed, pogoOn, pogoUniforms } from '../pogo';
 
 // Rooftop sprouts: what painted buildings grow. Level 1 = flower tufts along
 // the roof edge, level 2 = a rooftop garden (turf, bushes, a little tree,
@@ -267,8 +268,10 @@ const TYPES: TypeDef[] = [
 // ---------------------------------------------------------------- shaders
 
 const SPROUT_VERTEX = /* glsl */ `${lifted(`
-${GLSL_LIFT}
-in vec2 aLiftB;  // ?lift: the building it grows on, and its roof over that building's ground (-1: none)`)}
+${GLSL_LIFT}`)}${liftOn || pogoOn ? `
+in vec2 aLiftB;  // ?lift and &bomb: the building it grows on, and its roof over that building's ground (-1: none)` : ''}${pogoed(`${GLSL_POGO}
+uniform sampler2D uPaint;
+uniform float uPaintW;`)}
 in float aPart;
 in float aSway;
 in vec4 aBlobC;
@@ -338,6 +341,12 @@ ${
     o.world.y += lf.x + aLiftB.y * lf.y;
     vec3 piv = vec3(lT2.x, lT2.y + lf.x, lT2.z);
     o.world.xyz = piv + sbTilt(o.world.xyz - piv, lf.zw);
+  }`)}${pogoed(`
+  // (&bomb: a Bomb's stage hops its house, world/pogo.ts, and the garden rides the hop)
+  if (aLiftB.x >= 0.0) {
+    vec4 pt = texelFetch(uPaint, ivec2(int(mod(aLiftB.x, uPaintW)), int(floor(aLiftB.x / uPaintW))), 0);
+    float tr;
+    if (pt.g > 0.5 && uTime >= pt.b) o.world.y += sbPogo(ipos.xz, pt.b, aLiftB.y, uTime - pt.b, tr);
   }`)}
   }
   return o;
@@ -521,7 +530,8 @@ class Batch {
 
   private makeMesh(cap: number, oldM: Float32Array | null, oldC: Float32Array | null): THREE.InstancedMesh {
     let geo = this.geo;
-    if (liftOn) {
+    // (the building each garden grows on: the Lift's, and the Bomb's pogo, which it rides)
+    if (liftOn || pogoOn) {
       // (a per-instance attribute lives on the geometry, and the type's geometry is every cell's: this batch's own shares its buffers, never disposed
       // as it would take them with it)
       const old = this.lift?.array as Float32Array | undefined;
@@ -1118,6 +1128,7 @@ export class RoofSprouts {
         uLeafEdge: tuneUniform('treeLump'),
         ...reach,
         ...(liftUniforms ?? {}),
+        ...(pogoUniforms ? { uPaint: paintUniforms.uPaint, uPaintW: paintUniforms.uPaintW, ...pogoUniforms } : {}),
       };
       const mat = new THREE.ShaderMaterial({
         glslVersion: THREE.GLSL3,
@@ -1133,7 +1144,7 @@ export class RoofSprouts {
         noCull.set(def.freq, def.dir[0], def.dir[1], 0);
         depth = new THREE.ShaderMaterial({
           glslVersion: THREE.GLSL3,
-          uniforms: { uTime: globals.uTime, uSlide: globals.uSlide, uKind: moonLow ? { value: noCull.clone() } : uniforms.uKind, uAmpMul: uniforms.uAmpMul, uCull: uniforms.uCull, ...reach, ...(liftUniforms ?? {}) },
+          uniforms: { uTime: globals.uTime, uSlide: globals.uSlide, uKind: moonLow ? { value: noCull.clone() } : uniforms.uKind, uAmpMul: uniforms.uAmpMul, uCull: uniforms.uCull, ...reach, ...(liftUniforms ?? {}), ...(pogoUniforms ? { uPaint: paintUniforms.uPaint, uPaintW: paintUniforms.uPaintW, ...pogoUniforms } : {}) },
           vertexShader: SPROUT_DEPTH_VS,
           fragmentShader: DEPTH_FS,
         });

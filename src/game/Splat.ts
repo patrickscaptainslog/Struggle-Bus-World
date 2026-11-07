@@ -5,7 +5,8 @@ import type { City, BuildingRef } from '../world/City';
 import { FACTION_RAINBOW } from './factions';
 import { blastUniforms, ringHue, type GroundJob } from '../world/GroundPaint';
 import type { CometPlan } from './Comet';
-import { arrival, blastRadiusFor, LAYOUT_BANDS, layoutHue, makeBlastSpec, waveMax, wrapHue, type BlastDot, type BlastSpec } from './blastLayout';
+import { arrival, blastCap, blastRadiusFor, LAYOUT_BANDS, layoutHue, makeBlastSpec, waveMax, wrapHue, type BlastDot, type BlastSpec } from './blastLayout';
+import { setPogo } from '../world/pogo';
 
 // The barf -> blast -> bloom pipeline. Dragon breath: the bus blasts a
 // rainbow projectile forward; it snaps to the building at the aim point and
@@ -133,9 +134,10 @@ export interface GroundBands {
   hue: number;
 }
 
-/** SplatFx.bloom flags. */
+/** SplatFx.bloom flags. BLOOM_BOMB: one of a Bomb's stages (its sparkles are shared by every stage of every building in it). */
 export const BLOOM_HOSE = 1;
 export const BLOOM_REPOP = 2;
+export const BLOOM_BOMB = 4;
 
 interface Scheduled {
   at: number;
@@ -154,6 +156,8 @@ interface Scheduled {
   flags: number;
   /** ?lift: 1 it lifts at its bloom, 2 it's in the sky already (its paint isn't written either way) */
   lift?: 1 | 2;
+  /** a Bomb's: the levels of its later stages (its first is `level`), each a pop config.bomb.stageGap s after the last */
+  more?: number;
 }
 
 interface PendingBlast {
@@ -180,6 +184,9 @@ export class Splatter {
   }
   private queue: Scheduled[] = [];
   private pending: PendingBlast[] = [];
+  /** a Bomb's later stages, waiting for their band (config.bomb.stageBand) to be written; and when the next band is */
+  private staged: Array<Scheduled & { faction: number }> = [];
+  private nextBand = 0;
   /** barfs held to be planned later (BarfOpts.late) */
   private held: Array<{ at: number; x: number; z: number; opts: BarfOpts }> = [];
   /** A held barf (BarfOpts.late) came down on nothing paintable when it was planned: the caller refunds part of the belly, as for lastMiss. */
@@ -294,8 +301,8 @@ export class Splatter {
     // blast), a big footprint by its true edge distance (its centroid may lie 100 m away). Every blast is
     // capped by its area, not its radius: over dense housing it must not leave grey blocks in a rainbow street
     // grid (a tap's 85 m paints every building in it, SHOTS.md; a super's up to megaBuildingsCap, a tap's or a hose's up to maxBuildingsCap)
-    const rk = r / S.blastRadius;
-    const cap = Math.min(opts?.super && !hose ? S.megaBuildingsCap : S.maxBuildingsCap, Math.max(1, Math.round(S.maxBuildings * rk * rk)));
+    const jump = Math.max(1, Math.min(3, Math.round(opts?.jump ?? 1)));
+    const cap = blastCap(r, jump > 1 ? config.bomb.cap : opts?.super && !hose ? S.megaBuildingsCap : S.maxBuildingsCap);
     const near = city.buildingsWithin(cx, cz, r + S.smallRad, this.near);
     const reach = this.reachList;
     reach.length = 0;
@@ -334,7 +341,6 @@ export class Splatter {
     let maxLevel = 1;
     const busy = hose ? this.hoseBusy(paint.data.length >> 2) : null;
     const pour = opts?.pour ?? 0;
-    const jump = Math.max(1, Math.min(3, Math.round(opts?.jump ?? 1)));
     const poured = pour > 0 ? this.pourBusy(paint.data.length >> 2) : null;
     for (const n of reach) {
       if (plan.length >= cap) break;
@@ -350,13 +356,15 @@ export class Splatter {
       const lift = city.lift && jump === 1 ? city.lift.wants(ref, lv, this.faction) : 0;
       if (lift === 2 && ref !== primary) continue;
       const was = lv > 0.5;
-      const level = Math.min(3, (was ? Math.round(lv) : 0) + jump);
+      // (a Bomb's jump is a stage at a time, each its own pop: the first with the wave, as a tap's level, the rest after it)
+      const base = was ? Math.round(lv) : 0;
+      const level = Math.min(3, base + 1), last = Math.min(3, base + jump);
       // escalating buildings keep their hue, the primary takes the blast's; the rest are dealt below
       const h = was ? wrapHue(paint.get(ref.index).color) : ref === primary ? hue : -1;
-      maxLevel = Math.max(maxLevel, level);
+      maxLevel = Math.max(maxLevel, last);
       // it pops when the shockwave reaches its near edge
-      const flags = (hose ? BLOOM_HOSE : 0) | (lift || (was && level <= Math.round(lv)) ? BLOOM_REPOP : 0);
-      plan.push({ at: tImpact + arrival(ref === primary ? 0 : Math.max(0, n.e), r), ref, order: plan.length, total: 0, hue: h, level, keep: was, ang: 0, pref: 0, at0: ref === primary ? pos : undefined, flags, lift: lift || undefined });
+      const flags = (hose ? BLOOM_HOSE : 0) | (jump > 1 ? BLOOM_BOMB : 0) | (lift || (was && level <= Math.round(lv)) ? BLOOM_REPOP : 0);
+      plan.push({ at: tImpact + arrival(ref === primary ? 0 : Math.max(0, n.e), r), ref, order: plan.length, total: 0, hue: h, level, keep: was, ang: 0, pref: 0, at0: ref === primary ? pos : undefined, flags, lift: lift || undefined, more: last > level ? last - level : undefined });
     }
     this.deal(plan, spec);
     for (const p of plan) {
@@ -478,6 +486,7 @@ export class Splatter {
       const b = p.blast;
       // the whole wave goes to the GPU now (one upload): the shader times each pop. Its buildings are the hitter's, as it was when it fired
       const faction = b.spec.faction ?? FACTION_RAINBOW;
+      let lastStage = 0;
       for (const s of p.plan) {
         // (?lift: a lifting house's record isn't rewritten: no second pop on its crouch, and its saved paint is untouched)
         if (s.lift) {
@@ -485,13 +494,36 @@ export class Splatter {
           continue;
         }
         this.city.paint.set(s.ref.index, { faction, color: s.hue, level: s.level, bloomTime: s.at, keep: s.keep });
+        // (a Bomb's later stages, each its own write and pop, config.bomb.stageGap s apart: written in their bands, update())
+        for (let k = 1; k <= (s.more ?? 0); k++) {
+          const at = s.at + config.bomb.stageGap * k;
+          this.staged.push({ ...s, at, level: s.level + k, keep: true, flags: s.flags & ~BLOOM_REPOP, at0: undefined, more: undefined, faction });
+          lastStage = Math.max(lastStage, at);
+        }
       }
+      // (the pogo: the buildings in its circle hop as each stage pops them, world/pogo.ts)
+      if (lastStage > 0) setPogo(b.spec.x, b.spec.z, b.spec.r + S.smallRad, b.t, lastStage);
       b.dots = p.ground ? this.city.ground.land(p.ground) : [];
       blastUniforms.uBlastRing.value.set(b.spec.x, b.spec.z, b.t, b.spec.r);
       blastUniforms.uBlastRing2.value.set(ringHue(b.spec.hue, faction), S.ringWidth * Math.sqrt(b.strength), S.waveSpeed, waveMax(b.spec.r));
       this.fx.impact(b);
       if (p.hitStop > 0) this.fx.hitStop(p.hitStop);
       for (const s of p.plan) this.queue.push(s);
+    }
+    // a Bomb's later stages: written a band ahead of their pops (one paint upload a band), each then blooming as its own
+    if (this.staged.length && this.t >= this.nextBand) {
+      const until = this.t + config.bomb.stageBand;
+      for (let i = 0; i < this.staged.length; ) {
+        const s = this.staged[i];
+        if (s.at >= until) {
+          i++;
+          continue;
+        }
+        this.staged.splice(i, 1);
+        this.city.paint.set(s.ref.index, { faction: s.faction, color: s.hue, level: s.level, bloomTime: s.at, keep: true });
+        this.queue.push(s);
+      }
+      this.nextBand = until;
     }
     for (let i = 0; i < this.queue.length; ) {
       const s = this.queue[i];
@@ -517,6 +549,11 @@ export class Splatter {
   /** Blasts still in flight (their paint isn't applied yet). */
   get inFlight(): number {
     return this.pending.length + this.held.length;
+  }
+
+  /** A Bomb's stages still to be written (QA: tools/feel-sim/s_bomb.ts). */
+  get stagesLeft(): number {
+    return this.staged.length;
   }
 
   /** Game clock (s), the same clock as globals.uTime. */

@@ -11,7 +11,8 @@ import { Ground, type CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
 import { fadeEnd, floorPastMap, mapReach, nearPlane, snapReach } from './game/Ascent';
 import { CameraRig } from './game/CameraRig';
-import { Splatter, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
+import { Splatter, BLOOM_BOMB, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
+import { pogoOn } from './world/pogo';
 import { crew } from './game/crew';
 import { FACTIONS } from './game/factions';
 import { Aimer, tapOpts, type Shot } from './game/Aim';
@@ -301,7 +302,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // (with its ground: a low sun throws its garden's shadow off the roof and down to the street)
     const rect = Object.assign(city.roofRect(ref), { foot: ref.baseY });
     // (in its building's faction's colours: the paint texture has it by now, at the impact, or from the save)
-    const top = sprouts.set(ref.index, rect, hue, level, start, city.paint.get(ref.index).faction, liftOn ? ref.baseY : undefined);
+    const top = sprouts.set(ref.index, rect, hue, level, start, city.paint.get(ref.index).faction, liftOn || pogoOn ? ref.baseY : undefined);
     if (top > 0) {
       city.raiseRoof(rect, rect.y + top);
       city.lift?.noteTop(ref.index, rect.y + top);
@@ -703,7 +704,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       bloomHues[0] = hue;
       bloomHues[1] = (hue + 1) % 6;
       bloomHues[2] = (hue + 5) % 6;
-      const each = flags & BLOOM_HOSE ? 5 + level * 3 : Math.max(SPARKS_MIN, Math.round((14 + level * 8) * Math.min(1, SPARKS_BLAST / Math.max(1, total))));
+      // (a Bomb's stages share one such budget over all of them, about 1,800: its hundreds of buildings and three pops each, each on its chance)
+      const bombK = (14 + level * 8) * Math.min(1, SPARKS_BLAST / Math.max(1, total * 3));
+      const each = flags & BLOOM_HOSE ? 5 + level * 3 : flags & BLOOM_BOMB ? Math.floor(bombK) + (Math.random() < bombK % 1 ? 1 : 0) : Math.max(SPARKS_MIN, Math.round((14 + level * 8) * Math.min(1, SPARKS_BLAST / Math.max(1, total))));
       particles.sparkles(roof, Math.sqrt(ref.area) * 0.6 + 2, h, bloomHues, each);
       fogBumped.add(ref.stableId);
       if (level >= 2 && !(flags & BLOOM_REPOP)) growSprouts(ref, hue, level, globals.uTime.value);

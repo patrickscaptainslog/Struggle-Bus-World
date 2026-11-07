@@ -767,6 +767,13 @@ export const config = {
     swell2: 0.06,
     swell3: 0.12,
     motes: 420,
+    /** The stages: each its own write and pop this long apart (s) from the wave's arrival, the later ones written in bands this long ahead of their pops. */
+    stageGap: 0.4,
+    stageBand: 0.1,
+    /** The most buildings a Bomb paints: blastCap's, maxBuildings x (r / blastRadius)^2 up to this (a tap's stays maxBuildingsCap). */
+    cap: 900,
+    /** A circle wider than this (m) has its wave reaching the rim as its ground's deadline, not its impact (groundDeadline). */
+    rimOver: 160,
   },
 
   facade: {
