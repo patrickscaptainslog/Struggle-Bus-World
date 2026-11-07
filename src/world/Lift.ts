@@ -323,12 +323,13 @@ export class Lift implements LiftHooks, FieldHouses {
   }
 
   /** A tile arrived (main's onTile): its liftable houses, their lakes and undersides; the field there is built again. */
-  tileIn(tx: number, tz: number, refs: BuildingRef[], streets?: ReadonlyArray<{ rank: number; xz: Float32Array }>) {
+  tileIn(tx: number, tz: number, refs: BuildingRef[], streets?: ReadonlyArray<{ rank: number; xz: Float32Array }>, trees?: ReadonlyArray<{ x: number; z: number }>) {
     const ts = this.g.city.manifest.tileSize;
     if ((tx + 1) * ts < this.rect[0] || tx * ts > this.rect[2] || (tz + 1) * ts < this.rect[1] || tz * ts > this.rect[3]) return;
     // (its streets through the squares, once a tile: the sky piece's)
     if (streets && !this.streetTiles.has(`${tx},${tz}`)) {
       this.streetTiles.add(`${tx},${tz}`);
+      for (const t of trees ?? []) if (this.inRect(t.x, t.z)) this.trees.push(t.x, t.z);
       for (const ln of streets)
         for (let k = 0; k + 1 < ln.xz.length; k += 2)
           if (this.squares.has(squareKey(Math.floor(ln.xz[k] / SQUARE), Math.floor(ln.xz[k + 1] / SQUARE)))) {
@@ -574,29 +575,42 @@ export class Lift implements LiftHooks, FieldHouses {
   }
 
   /**
-   * QA: where to stand to look up at the sky piece, about `d` m from the heart (the stills' street view): on the neighbourhood's squares, the sun's
-   * side first, turned 10 degrees at a time and moved in or out, until no fall or column stands within 60 m and no grounded building within 30.
+   * QA: where to stand to look up at the sky piece, about `d` m from the heart (the stills' street view): a point on one of the neighbourhood's
+   * streets, the nearest to `d` m out on the sun's side, with no fall or column within 60 m, no grounded building within 30 and no tree within 32.
    */
   skyEye(d: number): [number, number] {
     const [hx, hz] = this.heart, a0 = Math.atan2(this.g.sun[1], this.g.sun[0]);
     const feet = this.sky?.feet ?? [];
     const city = this.g.city;
-    for (const dd of [d, d - 30, d + 30, d - 60, d + 60])
-      for (let k = 0; k < 36; k++) {
-        const a = a0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.1745;
-        const x = hx + Math.cos(a) * dd, z = hz + Math.sin(a) * dd;
-        if (!this.squares.has(squareKey(Math.floor(x / SQUARE), Math.floor(z / SQUARE)))) continue;
-        if (!feet.every(([fx, fz]) => Math.hypot(fx - x, fz - z) > 60)) continue;
-        let open = true;
-        for (let q = 0; q < 17 && open; q++) {
-          const r = q ? (q < 9 ? 15 : 30) : 0, b = (q * Math.PI) / 4;
-          const px = x + Math.cos(b) * r, pz = z + Math.sin(b) * r;
-          if (this.solidAt(px, pz, city.groundAt(px, pz) + 3)) open = false;
+    const cand: Array<[number, number, number]> = [];
+    for (const { rank, xz } of this.streets)
+      for (let k = 0; rank === 0 && k + 3 < xz.length; k += 2) {
+        const len = Math.hypot(xz[k + 2] - xz[k], xz[k + 3] - xz[k + 1]);
+        for (let t = 0; t <= len; t += 8) {
+          const x = xz[k] + ((xz[k + 2] - xz[k]) * t) / Math.max(len, 1e-6), z = xz[k + 1] + ((xz[k + 3] - xz[k + 1]) * t) / Math.max(len, 1e-6);
+          const da = Math.abs(((Math.atan2(z - hz, x - hx) - a0 + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+          cand.push([x, z, Math.abs(Math.hypot(x - hx, z - hz) - d) + da * 120]);
         }
-        if (open) return [x, z];
       }
+    cand.sort((a, b) => a[2] - b[2]);
+    for (const [x, z] of cand) {
+      if (!this.squares.has(squareKey(Math.floor(x / SQUARE), Math.floor(z / SQUARE)))) continue;
+      if (!feet.every(([fx, fz]) => Math.hypot(fx - x, fz - z) > 60)) continue;
+      let tree = false;
+      for (let t = 0; t < this.trees.length && !tree; t += 2) tree = Math.hypot(this.trees[t] - x, this.trees[t + 1] - z) < 32;
+      if (tree) continue;
+      let open = true;
+      for (let q = 0; q < 17 && open; q++) {
+        const r = q ? (q < 9 ? 15 : 30) : 0, b = (q * Math.PI) / 4;
+        const px = x + Math.cos(b) * r, pz = z + Math.sin(b) * r;
+        if (this.solidAt(px, pz, city.groundAt(px, pz) + 3)) open = false;
+      }
+      if (open) return [x, z];
+    }
     return [hx + Math.cos(a0) * d, hz + Math.sin(a0) * d];
   }
+  /** the trees round the neighbourhood (x, z pairs, from its tiles): skyEye stands clear of them */
+  private readonly trees: number[] = [];
 
   /** How far (x, z) is from the nearest liftable house's footprint bounds (m; 30 when none is that near). */
   private clearOf(x: number, z: number): number {

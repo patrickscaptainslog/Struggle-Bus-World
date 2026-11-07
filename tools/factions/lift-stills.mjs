@@ -105,7 +105,7 @@ async function streetCam(page) {
     // (240 m out on the sun's side, clear of the falls and the columns: Lift.skyEye)
     const [hx, hz] = l.heart;
     const [x, z] = l.skyEye(200);
-    window.__qa.camAt = { x, z, h: 2.5, lookX: hx, lookZ: hz, lookH: 200, hfov: 45 };
+    window.__qa.camAt = { x, z, h: 2.5, lookX: hx, lookZ: hz, lookH: 140, hfov: 45 };
     // (the bus held behind the lens, out of the frame)
     const bx = x - (hx - x) * 0.15, bz = z - (hz - z) * 0.15;
     window.__qa.pin = { x: bx, y: g.city.groundAt(bx, bz) + 3, z: bz, heading: Math.atan2(-(hx - x), hz - z) };

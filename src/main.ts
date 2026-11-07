@@ -340,7 +340,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     }
   };
   city.onTile = ({ tx, tz, terrain, refs }) => {
-    lift?.tileIn(tx, tz, refs, terrain?.streets);
+    lift?.tileIn(tx, tz, refs, terrain?.streets, terrain?.trees);
     if (terrain && terrain.trees.length) {
       const list: TreeInstance[] = terrain.trees.map((t) => ({ x: t.x, y: t.y, z: t.z, size: t.size, kind: t.kind }));
       const tf = new TreeField(list);
