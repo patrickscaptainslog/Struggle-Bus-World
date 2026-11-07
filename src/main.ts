@@ -46,6 +46,7 @@ import { Holds } from './game/Hold';
 import { Hose } from './game/Hose';
 import { Bomb } from './game/Bomb';
 import { Boom, boomOn, boomTune } from './game/Boom';
+import { Falls } from './fx/Falls';
 import { SuperFx } from './fx/SuperFx';
 import { CometFx } from './fx/CometFx';
 import { Comet } from './game/Comet';
@@ -665,6 +666,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   cometFx.moon = !!moon;
   scene.add(cometFx.pillars, cometFx.drops);
   const cometBus = new THREE.Vector3();
+  // the Waterfall (src/fx/Falls.ts, behind &falls): a tower hit 40 m up or more runs with paint, its drops fall off its edges and a pool spreads at its foot
+  const falls = new Falls(city, particles, {
+    landing: (x, z, fromY) => landingY(x, z, fromY),
+    pool: (x, y, z, r, hue, tag, arrive, faction) => life?.blast(x, y, z, r, hue, tag, arrive, ownerOf(faction)),
+    trickle: (secs) => audio.fallsTrickle(secs),
+    plop: (delay) => audio.fallsPlop(delay),
+    slap: () => audio.fallsSlap(),
+  });
   const splatter = new Splatter(city, {
     geyser: (targets, hues) => {
       const S = config.splat;
@@ -693,6 +702,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       lastBlast.open = b.pos.y < city.groundAt(b.pos.x, b.pos.z) + 1;
       // (&boom's ring: its own landing, src/game/Boom.ts)
       if (b.super?.kind === 'boom') return boomImpact(b);
+      // (&falls: a tower struck 40 m up or more runs)
+      falls.impact(b, simTime);
       if (b.hose) {
         // a firehose impact: the super splat plays its own (lighter) fx; trees take their first colour only
         // (a dozen impacts a second would run a tree through every level at once)
@@ -1921,6 +1932,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     hose.update(dt);
     splatter.update(dt);
     boom.update(dt);
+    falls.update(simTime);
     moonPaint?.update(dt, simTime, flight, aimer.aim.x, aimer.aim.z, Aimer.loaded(flight), steering, flight.y - city.groundAt(flight.x, flight.z));
     if (jet && simTime >= jet.at) {
       // the inhale is over: the jet leaves the mouth and lands exactly at the impact
@@ -2362,6 +2374,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       bomb,
       /** QA: &boom (src/game/Boom.ts): its last plan and counts */
       boom,
+      /** QA: &falls (src/fx/Falls.ts): its counts */
+      falls,
       boomState: () => ({ on: boom.on, last: boom.last, time: boom.time, plan: boom.plan ? { ...boom.plan, spec: null } : null, stats: { ...boom.stats } }),
       bombState: () => ({ on: bomb.on, tier: bomb.tier, charge: bomb.charge, input: { ...input.state.bomb }, box: input.busBox ? { ...input.busBox } : null, stats: { ...bomb.stats } }),
       hose,

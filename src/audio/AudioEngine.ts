@@ -1,6 +1,7 @@
 import { SoundGraph } from './SoundGraph';
 import { LOOKAHEAD, synthAll, type Kit, type SynthData } from './dsp';
 import { cometBoom, cometLaunch } from './cometSfx';
+import { fallsPlop, fallsSlap, fallsTrickle } from './fallsSfx';
 import { audioTune, registerAudioTunables } from './tune';
 
 // Struggle Bus audio: a fully synthesized WebAudio engine (no sample files).
@@ -239,6 +240,20 @@ export class AudioEngine {
   cometBoom(k: number, soft: boolean, moon: boolean): void {
     const g = this.live();
     if (g) cometBoom(g.voiceKit, g.voiceKit.ctx.currentTime + LOOKAHEAD, k, soft, moon);
+  }
+
+  /** &falls (src/audio/fallsSfx.ts): the runs' trickle for `secs`, a drop's plop `delay` s on, the pool's slap and its falling notes. */
+  fallsTrickle(secs: number): void {
+    const g = this.live();
+    if (g) fallsTrickle(g.voiceKit, g.voiceKit.ctx.currentTime + LOOKAHEAD, secs);
+  }
+  fallsPlop(delay = 0): void {
+    const g = this.live();
+    if (g) fallsPlop(g.voiceKit, g.voiceKit.ctx.currentTime + LOOKAHEAD + Math.max(0, delay));
+  }
+  fallsSlap(): void {
+    const g = this.live();
+    if (g) fallsSlap(g.voiceKit, g.voiceKit.ctx.currentTime + LOOKAHEAD);
   }
 
   /** A whole blast blooms: one capped, fast arpeggio of the next chord (count = buildings, hue 0..5, level 1..3). */
