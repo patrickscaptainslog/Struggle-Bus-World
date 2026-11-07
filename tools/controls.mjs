@@ -1004,8 +1004,8 @@ if (modes.has('bomb')) {
           window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
           Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0 });
         });
+        // (held there through the Bomb, so it lands on Noe's houses: let go 1 s before it at Jet, it came down 1.2 km east among a few warehouses)
         await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
-        await page.evaluate(() => (window.__qa = null));
         await runFor(page, 1);
       }
       await page.evaluate(() => window.__game.forceReady());
@@ -1029,7 +1029,9 @@ if (modes.has('bomb')) {
       await H.up(1);
       await runFor(page, 1.2);
       await page.screenshot({ path: `${out}/bomb-${key}-2-landed.png` });
-      await runFor(page, 2.6);
+      // (from 600 m its shot flies about a second and its 456 m circle's rim takes its third stage 3.1 s after the impact)
+      await runFor(page, rung === 'high' ? 4.6 : 2.6);
+      if (rung === 'high') await page.evaluate(() => (window.__qa = null));
       const b = await page.evaluate(() => {
         const g = window.__game, s = g.bombState(), l = g.lastShot(), d = g.city.paint.data, d0 = window.__lv0, m = g.moon?.paint;
         const jump = s.stats.jump;
