@@ -16,6 +16,11 @@
 //   zone     School Zone with real flicks (docs/specs/shots/GEARS.md): a flick down from Cruise, the hover settling, the lens coming in 30 %, the
 //            paint balloons out of the hatch, a held right thumb turning on the spot, the stick up's drift and down's climb, a flick down in
 //            it (nothing yet), a flick up out (the balloons burst, Cruise again), with shots and the draws and triangles at each -> zone.json
+//   bomb     the Bomb (&bomb; docs/specs/shots/SHOTS.md, "The modes"; not in the default list) by real CDP touches held still on the bus itself
+//            (Input.busBox): a Bomb II and a III at Cruise, a III in School Zone, at Jet (where the Comet lands, its full show), with ?life and on ?moon's
+//            ground. Each: its tier and stages, every building it raised at min(3, before + jump) and none past 3 (?moon: the craters), the frame's draws
+//            and triangles each frame from the lift through its stages and the pogo (at most 200 and 1.5 M), no program made after ready, and a still
+//            as it lands. Exits 1 when a row fails                                                                     -> bomb.json
 //   firstrun a first visit: no card, the cues in order (TAP, DRAG, HOLD)                         -> firstrun.json
 //   opening  flicks under the opening's gate: answered, taken back, firing at the gate; two of them. The low shot has no look, so a drag landing over
 //            the bus, out of the lane's half disc, flies until the gate and looks after it. A flick in the grey, before the first frame, waits for
@@ -927,6 +932,129 @@ if (modes.has('zone')) {
   console.log('zone:', JSON.stringify(R));
   writeFileSync(`${out}/zone.json`, JSON.stringify(R, null, 1));
   await page.close();
+}
+
+if (modes.has('bomb')) {
+  const R = { rows: [], verdicts: [] };
+  const ok = (c, m) => R.verdicts.push(`${c ? 'ok' : 'FAIL'}: ${m}`);
+  const progInit = () => {
+    const P = WebGL2RenderingContext.prototype, cp = P.createProgram;
+    window.__progs = 0;
+    P.createProgram = function () { window.__progs++; return cp.call(this); };
+  };
+  // (one page each: the street at Cruise, School Zone and Jet; ?life; ?moon's ground at Tycho)
+  const pages = [
+    ['street', Q + '&bomb', [['cruise', 'II', 1000], ['cruise', 'III', 1700], ['zone', 'III', 1700], ['jet', 'III', 1700]]],
+    ['life', Q + '&bomb&life', [['cruise', 'III', 1700]]],
+    ['moon', '?moon&site=TYCHO&skipintro&fixeddt=0.05&bomb', [['cruise', 'III', 1700]]],
+  ];
+  for (const [where, query, rows] of pages) {
+    const page = await open(query, progInit);
+    const cdp = await page.context().newCDPSession(page);
+    const H = hand(page, cdp);
+    await wall(1300);
+    await page.evaluate(() => {
+      const g = window.__game, p = g.perf, orig = p.frame.bind(p);
+      g.flight.glideSpeed = 0;
+      g.audio.unlock();
+      // (every frame's draws and triangles, the fps meter's counters, from when __bombTrace is set)
+      p.frame = (dt, work) => {
+        orig(dt, work);
+        if (window.__bombTrace) window.__bombTrace.push([p.calls, p.tris]);
+      };
+    });
+    await runFor(page, 2);
+    // (the page's first touch runs a long task in its touchstart: one in the lane first)
+    await H.down(1, 196, 780);
+    await wall(60);
+    await H.up(1);
+    await runFor(page, 1);
+    const progs0 = await page.evaluate(() => window.__progs);
+    for (const [rung, tier, ms] of rows) {
+      const key = `${where}-${rung}-${tier}`;
+      if (rung === 'zone') {
+        await H.stamped(() => H.stroke(1, 100, 520, 0, 74, 85));
+        await runFor(page, 3.5);
+      }
+      if (rung === 'jet') {
+        // (a flick up out of School Zone first: Cruise again, then three gears up)
+        await H.stamped(() => H.stroke(1, 100, 520, 0, -74, 85));
+        await runFor(page, 2);
+        await toJet(page);
+        // (held over the Richmond heading east, 150 m up, while the city streams in, as warmcheck --comet does: flown on from Alamo Square, Jet's Comet
+        // came down in the bay, a splash with nothing to raise)
+        await page.evaluate(() => {
+          const g = window.__game, o = g.city.manifest.origin, r = Math.PI / 180, x = (-122.4655 - o[1]) * r * 6378137 * Math.cos(o[0] * r), z = -(37.7756 - o[0]) * r * 6378137;
+          const y = g.city.groundAt(x, z) + 150;
+          window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
+          Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0 });
+        });
+        await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+        await page.evaluate(() => (window.__qa = null));
+        await runFor(page, 2.5);
+      }
+      await page.evaluate(() => window.__game.forceReady());
+      await runFor(page, 0.5);
+      const a = await page.evaluate(() => {
+        const g = window.__game, s = g.bombState(), m = g.moon?.paint;
+        window.__lv0 = g.city.paint.data.slice();
+        window.__cr0 = m ? new Map([...m.recs].map(([k, r]) => [k, r.level])) : null;
+        return { stats: s.stats, box: s.box, gear: g.controls.turbo.name, full: g.cometState().full };
+      });
+      if (!a.box) { ok(false, `${key}: the bus's box is set`); continue; }
+      const x = Math.round((a.box.x0 + a.box.x1) / 2), y = Math.round((a.box.y0 + a.box.y1) / 2);
+      await H.down(1, x, y);
+      await wall(ms - 150);
+      // (no still while it's held: a 3x screenshot takes long enough to carry a Bomb II past III's 1.29 s)
+      const charging = await page.evaluate(() => ({ tier: window.__game.bomb.tier, ring: { ...window.__game.bomb.ring } }));
+      await wall(150);
+      await page.evaluate(() => (window.__bombTrace = []));
+      await H.up(1);
+      await runFor(page, 1.2);
+      await page.screenshot({ path: `${out}/bomb-${key}-2-landed.png` });
+      await runFor(page, 2.6);
+      const b = await page.evaluate(() => {
+        const g = window.__game, s = g.bombState(), l = g.lastShot(), d = g.city.paint.data, d0 = window.__lv0, m = g.moon?.paint;
+        const jump = s.stats.jump;
+        let raised = 0, wrong = 0, past3 = 0;
+        for (let i = 1; i < d.length; i += 4) {
+          if (d[i] === d0[i]) continue;
+          raised++;
+          if (d[i] > 3) past3++;
+          if (d[i] !== Math.min(3, d0[i] + jump)) wrong++;
+        }
+        let craters = 0, craterTop = 0, craterJump = 0;
+        if (m) for (const [k, r] of m.recs) {
+          const was = window.__cr0.get(k) ?? 0;
+          if (r.level === was) continue;
+          craters++;
+          craterTop = Math.max(craterTop, r.level);
+          craterJump = Math.max(craterJump, r.level - was);
+        }
+        const tr = window.__bombTrace;
+        window.__bombTrace = null;
+        return { stats: s.stats, comet: !!l?.comet, full: g.cometState().full, raised, wrong, past3, craters, craterTop, craterJump, frames: tr.length, draws: Math.max(...tr.map((t) => t[0])), tris: Math.max(...tr.map((t) => t[1])) };
+      });
+      const row = { key, gear: a.gear, at: [x, y], held: ms, charging, fired: b.stats.fired - a.stats.fired, fizzles: b.stats.fizzles - a.stats.fizzles, tier: b.stats.tier, radius: Math.round(b.stats.radius), jump: b.stats.jump, comet: b.comet, full: b.full - a.full, raised: b.raised, wrong: b.wrong, past3: b.past3, craters: b.craters, craterTop: b.craterTop, craterJump: b.craterJump, frames: b.frames, draws: b.draws, tris: b.tris };
+      R.rows.push(row);
+      console.log('bomb:', JSON.stringify(row));
+      const want = tier === 'III' ? 3 : 2;
+      ok(row.fired === 1 && row.fizzles === 0 && row.tier === want && charging.tier === want, `${key}: held ${ms} ms on the bus, a Bomb ${tier} (fired ${row.fired}, tier ${row.tier}, charging ${charging.tier}, fizzles ${row.fizzles})`);
+      ok(charging.ring.k > 0.5 && charging.ring.r > 0, `${key}: its ring shows while it charges (k ${charging.ring.k.toFixed(2)}, ${Math.round(charging.ring.r)} m)`);
+      if (where === 'moon') ok(row.craters > 0 && row.craterTop <= 3 && row.craterJump >= 2, `${key}: craters take its jump, none past 3 (${row.craters}, top ${row.craterTop}, jump ${row.craterJump})`);
+      else ok(row.raised > 0 && row.wrong === 0 && row.past3 === 0, `${key}: every building it raised at min(3, before + ${row.jump}), none past 3 (${row.raised}, ${row.wrong} not, ${row.past3} past)`);
+      if (rung === 'jet') ok(row.comet && row.full === 1, `${key}: at Jet the Comet's landing, with its full show (comet ${row.comet}, full ${row.full})`);
+      ok(row.frames > 10 && row.draws <= 200 && row.tris <= 1.5e6, `${key}: through its stages and the pogo at most 200 draws and 1.5 M triangles (${row.frames} frames, ${row.draws} draws, ${(row.tris / 1e6).toFixed(3)} M)`);
+    }
+    const made = (await page.evaluate(() => window.__progs)) - progs0;
+    R[where] = { programsAtReady: progs0, madeAfter: made };
+    ok(made === 0, `${where}: nothing compiles: ${made} programs made after ready`);
+    await page.close();
+  }
+  res.bomb = R;
+  console.log('bomb:', R.verdicts.join('\n  '));
+  writeFileSync(`${out}/bomb.json`, JSON.stringify(R, null, 1));
+  if (R.verdicts.some((v) => v.startsWith('FAIL'))) process.exitCode = 1;
 }
 
 if (modes.has('firstrun')) {
