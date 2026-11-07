@@ -1140,7 +1140,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (shot.comet) cometFx.launch(shot.comet, simTime + config.splat.inhale, simTime + config.splat.inhale + shot.travel, splatter.faction, hue, simTime, mega?.tag.kind === 'bomb');
     if (shot.comet?.kind === 'lob') {
       controls.lobbed();
-      Object.assign(lobRing, { x: shot.comet.x, z: shot.comet.z, r: blastRadiusFor(shot.drop), until: simTime + config.splat.inhale + shot.travel });
+      Object.assign(lobRing, { x: shot.comet.x, y: shot.comet.y, z: shot.comet.z, r: blastRadiusFor(shot.drop), until: simTime + config.splat.inhale + shot.travel });
     }
     if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
     return landsAt;
@@ -1291,7 +1291,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   };
   bombLook(splatter.faction);
   /** the Lob's ring where it will land, eased in and out (main.ts's frame) */
-  const lobRing = { x: 0, z: 0, r: 1, k: 0, until: -1 };
+  const lobRing = { x: 0, y: 0, z: 0, r: 1, k: 0, until: -1 };
 
   // ---- resize (applied once per frame: iOS fires bursts of resize / visualViewport events while its toolbars move)
   const onResize = () => {
@@ -1909,11 +1909,12 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       lobRing.k = (L || flying) && R.k < 0.01 ? Math.min(1, lobRing.k + realDt * 6) : Math.max(0, lobRing.k - realDt * 6);
       if (L && !flying && R.k < 0.01) {
         lobRing.x = L.x;
+        lobRing.y = L.y;
         lobRing.z = L.z;
         lobRing.r = blastRadiusFor(L.drop);
       }
       if (R.k > 0.01 || lobRing.k <= 0) pipeline.setBombRing(R.x, R.z, R.r, R.k, R.pulse);
-      else pipeline.setBombRing(lobRing.x, lobRing.z, lobRing.r, lobRing.k, 0, true);
+      else pipeline.setBombRing(lobRing.x, lobRing.z, lobRing.r, lobRing.k, 0, true, lobRing.y);
     }
     // the eye's beam, from the lens along the nose, a little down: wide open on relief, a sliver
     // while barfing (it squints); the bus's matrix is final here
