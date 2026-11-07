@@ -6,7 +6,7 @@ It all lives in `src/game/Hold.ts`. `main.ts` makes one `Holds` and hands it now
 
 ## What a hold is
 
-A finger that lands off the bus's lane (where a drag looks) and stays within 12 px for 350 ms (`inputTune.aimHoldMs`) becomes a hold. Lifted sooner it was a tap, and a finger that moved first looks, as before. The lane and the flicks are untouched. While a hold is down nobody steers, so the bus flies straight; a second thumb landing in the lane still flies.
+A finger that lands off the bus's lane (where a drag looks) and stays within 12 px for 350 ms (`inputTune.aimHoldMs`) becomes a hold. The hold begins 70 ms later (`inputTune.aimLagMs`), on a frame after one that saw it, so it begins at about 0.42-0.45 s: a lift that reaches the page late is still the tap its own time says. A still finger lifted before its hold began is a tap, and a finger that moved first looks, as before. The lane and the flicks are untouched. While a hold is down nobody steers, so the bus flies straight; a second thumb landing in the lane still flies.
 
 The `Hold` object (one, filled in place every frame; keep the reference if you like):
 
@@ -16,13 +16,13 @@ The `Hold` object (one, filled in place every frame; keep the reference if you l
 | `down` | true while the finger is on the glass; false in `end` |
 | `x`, `y`, `x0`, `y0` | where the finger is now and where it landed, CSS px of the canvas, +y down |
 | `dragX`, `dragY` | how far it has moved since it landed (CSS px, +y down) |
-| `held`, `aimed` | seconds since it landed, and since it became a hold (wall clock, like a thumb) |
+| `held`, `aimed` | seconds since it landed, and since its hold began (wall clock, like a thumb): `aimed` is about `held` - 0.42 |
 | `ray` | the ray under the finger: `ox, oy, oz` the camera, `dx, dy, dz` a unit direction (world m) |
 | `hit`, `point` | where that ray first meets the city (a roof, a tree, the ground, the water) within 6 km of the camera, when `hit` |
 | `range` | metres from the bus to `point` (Infinity without a hit) |
 | `owner` | the name of the handler that has it, or null |
 
-Helpers on `Holds`: `rayAt(sx, sy, out)` gives the ray under any screen point; `screenOf(worldPoint, out)` gives a world point's screen point (CSS px) and says whether it's on the screen, which is what the 48 px pick needs; `landing(ray, out, reach?)` marches a ray onto the city.
+Helpers on `Holds`: `rayAt(sx, sy, out)` gives the ray under any screen point; `screenOf(worldPoint, out)` gives a world point's screen point (CSS px) and says whether it's on the screen, which is what the 48 px pick needs; `landing(ray, out, reach?)` marches a ray onto the city; `inSight(worldPoint)` says nothing of the city stands between the camera and it ("until ... a building hides it"); `bus(out)` is the player's bus now, for a captain's aim and the incoming marker. None of them allocate.
 
 ## Taking a hold
 
@@ -42,7 +42,8 @@ const off = holds.add({
 - **`start`** is asked once, the moment the hold begins, in the order handlers were added. The first to return true has it and nobody after is asked. The Hose is added with `{ last: true }`, so it's always asked last: a hold you don't take pours.
 - **`move`** runs every frame for whoever has the hold. With `{ watch: true }` it runs for you on every hold, whoever has it: a lock that waits for a plane to come under the finger.
 - **`holds.claim(name)`** takes the hold under way. The one that had it gets `lost`, so the Hose stops pouring the moment you claim. `holds.release(name)` lets it go to nobody (the finger stays down and nothing pours).
-- **`end`** goes only to whoever has the hold. `cancelled` means the touch was lost, three fingers came down, or the page lost focus: don't fire on it.
+- **`end`** goes to whoever has the hold, and to every `{ watch: true }` handler. A watcher that doesn't have it sees `h.owner` naming someone else: reset what you kept for `h.id`, and don't fire. `cancelled` means the touch was lost, three fingers came down, or the page lost focus: don't fire on it.
+- **A handler that throws** doesn't stop the game. Every call into a handler, and every homing shot's `target` and callbacks, is caught: the error is printed on the console once per handler (`Holds: handler 'name' threw`), `holds.stats.errors` counts them, and the Hose, the splats and the frame go on. A shot whose callback throws ends there.
 - **`tap`** is asked before every tap splats (in the order added). Return true and nothing splats: fire your own shot instead. That's how "the lock holds 4 s, so your next taps go to the same target" is built.
 
 Example, a lock on a ferry (the pick is yours; the numbers are SHOTS.md's):
@@ -67,13 +68,13 @@ holds.add({
 });
 ```
 
-A plane that comes under a resting finger mid-pour:
+A plane that comes under a resting finger mid-pour (the Hose has been pouring, so the belly is part drained: the lock's shot takes what's left, below):
 
 ```ts
 holds.add({
   name: 'plane-lock',
   move(h) { if (h.owner !== 'plane-lock' && life.planeNear(h.x, h.y, 48, holds)) holds.claim('plane-lock'); },
-  end(h, cancelled) { if (!cancelled) fireAtPlane(); },
+  end(h, cancelled) { if (h.owner === 'plane-lock' && !cancelled) fireAtPlane(); },   // a watcher hears every hold's end
 }, { watch: true });
 ```
 
@@ -91,14 +92,14 @@ holds.add({
 | `maxTime` | seconds before it ends as a miss, default 8 |
 | `from`, `dir` | where it leaves from (default the bus's mouth) and its first heading (default straight at the target) |
 | `faction`, `hue` | whose colours it flies in (default the player's) and which of the six |
-| `belly` | it spends the belly like a tap; with none loaded `fire` returns null and the bus coughs. Default true when `from` is unset (the player's shot), false otherwise (a captain's) |
+| `belly` | it spends the belly: whatever is in it, as long as that's at least the Hose's 12 % (`hoseTune.minTank`), and the belly refills as after a tap. So a lock that took a hold mid-pour still fires (SHOTS.md: "Nothing is wasted"). Under 12 %, or with a breath under way, `fire` returns null and the bus coughs. Default true when `from` is unset (the player's shot), false otherwise (a captain's) |
 | `whistle` | a whistle rises over its last second (for the shot at the player's bus) |
 | `size` | the blob's size x |
 | `onHit(at, shot)` | it reached the target. Paint, possess, whatever a hit does |
 | `onWhite(shot)` | it went white-hot |
 | `onMiss(at, shot, why)` | `dodged` (it passed the target in the white), `lost`, `ground` (it flew into the city), `time` |
 
-It returns a `HomingShot` (`id`, `pos`, `dir`, `t`, `ttg`, `white`, `done`, `cancel()`), or null. `holds.shots` lists those in flight: the incoming marker reads it. At most eight fly at once.
+It returns a `HomingShot` (`id`, `pos`, `dir`, `t`, `ttg`, `white`, `done`, `cancel()`), or null. `holds.shots` lists those in flight: the incoming marker reads it. At most four of the player's (`belly`) fly at once, and eight of everyone else's, each count its own; a player's shot refused for that coughs too (`holds.stats.refused`).
 
 Before the white it leads the target (its velocity, smoothed), turning at most `turn`; a break before the white is followed, so too early fails, as SHOTS.md has it. In the white it flies straight, so a hard turn or a flick then beats it. A dodge is the target moving out of `hitRadius` of a straight line; how far a flick lunges the bus is the flight's, and comes with the rival lock (not built).
 
@@ -113,7 +114,7 @@ holds.fire({
 });
 holds.fire({
   from: captain.mouth, faction: captain.faction, belly: false, whistle: true,
-  target: (out) => (out.copy(bus.position), true),   // the player's bus: main.ts can pass you a getter
+  target: (out) => (holds.bus(out), true),            // the player's bus
   speed: 380, turn: 1.8, white: 0.7,
   onHit: () => recess.hitPlayer(captain),
 });
@@ -121,10 +122,10 @@ holds.fire({
 
 ## The Hose, which takes what you don't
 
-A hold nobody takes is the Hose's (`src/game/Hose.ts`). It pours 40 m blasts under the finger from the bus's mouth on a lob, a 3 s tank out of the belly the tap uses, refilling in 3 s once it stops. Every impact calls `life.blast` like a tap's, with `Blast.super` of kind `'hose'`, so movers in its circles are painted. A pour raises each building at most one level. `window.__qa.hoseState()` says what it's doing.
+A hold nobody takes is the Hose's (`src/game/Hose.ts`). It pours 40 m blasts under the finger from the bus's mouth on a lob (on the sky, or on the city past its 1,500 m reach, it pours as far as it reaches that way; from more than 1,500 m over the ground it coughs), a 3 s tank out of the belly the tap uses, refilling in 3 s once it stops. Every impact calls `life.blast` like a tap's, with `Blast.super` of kind `'hose'`, so movers in its circles are painted. A pour raises each building at most one level. `window.__qa.hoseState()` says what it's doing.
 
 ## Not here yet
 
-- The flick's lunge and brake-hop in the white, and the white never shifting a gear (SHOTS.md, "Dodging"): the flight's, with the rival lock.
+- The flick's lunge and brake-hop in the white, and the white never shifting a gear (SHOTS.md, "Dodging"): the flight's, so the first account's, and the duel's dodge waits on it. Until then a dodge is a hard turn.
 - The HOLD TO LOCK hint for the first boat in reach: one line from Recess or life through `controls.hud.toast`, once.
 - A hold on the bus itself charges the Bomb: the lane still flies, as today, until the Bomb (after the producer's grip test).
