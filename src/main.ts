@@ -1106,8 +1106,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     lastShot = { t: simTime, aim: [shot.x, iy, shot.z], travel: config.splat.inhale + shot.travel, drop: shot.drop, busY: flight.y, wall: shot.exact, target: tgt ? { index: tgt.index, cx: tgt.cx, cz: tgt.cz, roofY: tgt.roofY } : null, mega: mega?.radius, comet: shot.comet ? { ...shot.comet, target: tgt ? tgt.index : null } : null };
     const hue = splatter.hueNext;
     const landsAt = breathe(shot, mega);
-    // (a Comet: its streak leaves the mouth after the inhale, and lands with its blast)
-    if (shot.comet) cometFx.launch(shot.comet, simTime + config.splat.inhale, simTime + config.splat.inhale + shot.travel, splatter.faction, hue, simTime);
+    // (a Comet: its streak leaves the mouth after the inhale, and lands with its blast. A Bomb's at Comet range plays the full show, every time)
+    if (shot.comet) cometFx.launch(shot.comet, simTime + config.splat.inhale, simTime + config.splat.inhale + shot.travel, splatter.faction, hue, simTime, mega?.tag.kind === 'bomb');
     if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
     return landsAt;
   };
@@ -1229,7 +1229,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   input.onAimEnd = (cancelled) => holds.end(cancelled);
 
   // ---- the Bomb (src/game/Bomb.ts, behind &bomb until the producer's grip test): a still hold on the bus charges it, and the lift lets it go as MEGA's
-  // breath where the tap would land. The street's: the Moon's craters take it with the second half of its build
+  // breath where the tap would land (at Nonstop and faster, the Comet's landing). The street's: the Moon's craters take it with the second half of its build
   const bomb = new Bomb({
     input, flight, aimer, audio, fx: superFx, rig, busVel,
     breathe: (shot, b) => {

@@ -23,7 +23,7 @@ import type { Particles } from './Particles';
 //   and fade;
 // - the late boom: when its sound would reach the bus (CometSounds.boom), with the camera's kick then.
 // Into the water it's a miss: a splash thrown up there and a soft boom, and the full show it would have played is still to come.
-// The full show plays on the first Comet in config.comet.showEvery s, and while Streak's seam says a streak is on; the rest get the lighter one: a
+// The full show plays on the first Comet in config.comet.showEvery s, on every Bomb's, and while Streak's seam says a streak is on; the rest get the lighter one: a
 // config.comet.pillarLight m pillar for config.comet.fadeLight s (you fly over it), half the motes, no drops, a softer boom.
 //
 // The pillars are one InstancedMesh and the drops another, both made at boot and warmed (registerWarm). A pillar's faction, hue and shape are numbers
@@ -354,8 +354,8 @@ export class CometFx {
     return now - this.lastFull >= config.comet.showEvery || !!this.streakOn?.();
   }
 
-  /** A Comet leaves the mouth at t0 (after the inhale) and lands at t1 (the blast's impact time), on its plan's arc. */
-  launch(p: CometPlan, t0: number, t1: number, faction: number, hue: number, now: number): void {
+  /** A Comet leaves the mouth at t0 (after the inhale) and lands at t1 (the blast's impact time), on its plan's arc. full: the full show whatever its clock (a Bomb's). */
+  launch(p: CometPlan, t0: number, t1: number, faction: number, hue: number, now: number, full = false): void {
     const l = this.live.find((c) => !c.on) ?? this.live[0];
     l.on = true;
     l.t0 = t0;
@@ -369,7 +369,7 @@ export class CometFx {
     l.hue = hue;
     l.plan = p;
     l.prevFull = this.lastFull;
-    l.full = this.show(now);
+    l.full = full || this.show(now);
     if (l.full) {
       this.lastFull = now;
       l.fullAt = now;

@@ -20,7 +20,9 @@ import type { BusPose } from '../bus/BusModel';
 // tell and fires: MEGA's riser and an inhale at the start; at II a clunk, the bus 6 % bigger and a ring 1.4 times the tap's circle where it will land; at III a
 // bigger clunk and a bell, MEGA's heartbeat and motes, 12 % and the ring at 1.8 times, pulsing. Nothing it does moves a flight or camera number: the swell is
 // the bus's look alone. Let go at II or III, it is MEGA's breath (main.ts's breatheNow) where the tap would land, 1.4 or 1.8 times blastRadiusFor(drop),
-// each building jumping two or three stages, never past 3, and the belly refills in 3 or 4.5 s. A lift before II is the tap, held on it stays III and never
+// each building jumping two or three stages, never past 3, and the belly refills in 3 or 4.5 s. At Nonstop and faster that's where the Comet would land
+// (Comet.ts's plan and chooseShot, through Aimer.fire): ahead, in view, with the Comet's full show every time and no hit-stop that far off. A lift
+// before II is the tap, held on it stays III and never
 // fires by itself, and a cancel fizzles with the belly kept.
 //
 // The hooks (holds.bomb, docs/specs/shots/HOOKS.md): gift(3), a Bomb III at 0.42 s on the next still hold on the bus (being hit, Recess's); bank(0.1), a
@@ -267,9 +269,11 @@ export class Bomb implements BombHook {
     const R = this.ring;
     R.k = this.ringK;
     if (T >= 2) {
-      R.x = A.aim.x;
-      R.z = A.aim.z;
-      R.r = blastRadiusFor(A.aim.drop) * (T >= 3 ? B.radius3 : B.radius2);
+      // (at Nonstop and faster where the Comet would land, ahead in view: Comet.ts's plan this frame, the shot Aimer.fire hands over)
+      const P = A.planned;
+      R.x = P ? P.x : A.aim.x;
+      R.z = P ? P.z : A.aim.z;
+      R.r = blastRadiusFor(P ? P.drop : A.aim.drop) * (T >= 3 ? B.radius3 : B.radius2);
     }
     this.beatK *= Math.exp(-dt * 9);
     R.pulse = T >= 3 ? this.beatK : 0;

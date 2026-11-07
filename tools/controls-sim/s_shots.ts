@@ -19,6 +19,12 @@
 //   node tools/controls-sim/run.mjs s_shots.ts [--save-baseline] [--only=<substring>]
 // --save-baseline writes tools/controls-sim/shots-baseline.json, today's shot (c09e415), which the gates read: every row that isn't a Comet must be the
 // baseline's. Without a baseline file it only reports. Results in SB_OUT (shots/controls/sim)/shots.json, a table on stdout; exit 1 when a gate fails.
+// --bomb flies the Bomb's rows instead (SHOTS.md, "The modes"; src/game/Bomb.ts), into shots-bomb.json, and gates only them: at Nonstop, Jet and Turbo 3,
+// at the floor and 300 m over the Western Addition and at the floor downtown, the rung's tap as above, then a Bomb II and a Bomb III let go at the same
+// moment through the real Bomb, with main.ts's breath (MEGA's radius, hit-stop and tag, the stages it jumps). Its paint starts at level 0 or 1 by turns,
+// building by building, so a jump shows whole and the top too. Each Bomb lands within 2 m of that tap's Comet and when it does, 1.4 or 1.8 times its
+// radius, every building it reaches at min(3, before + jump) and none past 3, in frame at the impact and with no hit-stop; none of the taps raised two.
+// Where the tap is the classic shot (Turbo 3 from 300 m) so is the Bomb, on the tap's landing, with its hit-stop.
 import { newCity, pump, ll, makeGame } from '../feel-sim/lib';
 import { config } from '@src/config';
 import { CameraRig } from '@src/game/CameraRig';
@@ -27,6 +33,8 @@ import { TurboLens } from '@src/fx/Turbo';
 import { lensFov } from '@src/render/PixelPipeline';
 import { layoutHud } from '@src/ui/hudLayout';
 import { blastRadiusFor } from '@src/game/blastLayout';
+import { Bomb } from '@src/game/Bomb';
+import { tapOpts } from '@src/game/Aim';
 import * as THREE from 'three';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -34,6 +42,7 @@ import { fileURLToPath } from 'node:url';
 const args = process.argv.slice(2);
 const SAVE = args.includes('--save-baseline');
 const ONLY = args.find((a) => a.startsWith('--only='))?.slice(7) ?? '';
+const BOMB = args.includes('--bomb');
 // (the bundle runs from tools/controls-sim/.out/s_shots_ts/)
 const BASE_FILE = fileURLToPath(new URL('../../shots-baseline.json', import.meta.url));
 const city = await newCity();
@@ -96,7 +105,36 @@ function screen(cam: THREE.PerspectiveCamera, inner: { x: number; y: number }, p
   return { x: r3(a.x), y: r3(a.y), in: inFrame, above: r3(b.y - a.y), clear: inFrame && a.y > BAND };
 }
 
-async function run(rung: [string, number, number], pose: Pose, dt: number) {
+/** --bomb: a Bomb let go now through the real Bomb on the probe's game (Input's lift at its tier, onBombEnd), with main.ts's breath for it: the tap's barf
+ *  (Aim.tapOpts) with MEGA's radius, hit-stop and tag, and the stages its buildings jump. What it fired, as Game.tap says it */
+function bombTap(g: ReturnType<typeof makeGame>, tier: 2 | 3) {
+  const f = g.flight, nop = () => {};
+  const input = { state: { bomb: { on: false, at: 0 } } } as any;
+  let shot: any = null;
+  const bomb = new Bomb({
+    input, flight: f, aimer: g.aimer,
+    audio: { bombCharge: nop, bombTier: nop, bombStop: nop, bombBeat: nop, superMega: nop } as any,
+    fx: { motes: nop, halo: nop, sparks: nop } as any,
+    rig: { kick: nop } as any,
+    busVel: () => new THREE.Vector3(),
+    breathe: (s, b) => {
+      shot = s;
+      const o = tapOpts(s, f.y);
+      Object.assign(o, { radius: b.radius, hitStop: b.hitStop, super: b.tag, jump: b.jump });
+      const at = g.splatter.barf(s.x, s.z, o);
+      if (g.splatter.lastMiss) f.refund = config.splat.missRefund;
+      return at;
+    },
+    busy: () => false,
+  });
+  bomb.on = true;
+  input.onBombEnd(tier, false);
+  const s = shot ?? { target: null, x: f.x, z: f.z, exact: false, drop: 0, travel: 0 };
+  const landing = { x: s.x, y: s.y ?? (s.target ? city.roofAtPart(s.target, s.x, s.z, f.y) + 0.5 : city.groundAt(s.x, s.z)), z: s.z };
+  return { fired: !!shot, target: shot ? s.target : null, glint: s.target, shot: s, landing, wall: !!s.exact, bomb: bomb.stats };
+}
+
+async function run(rung: [string, number, number], pose: Pose, dt: number, tier: 0 | 2 | 3 = 0) {
   const [rname, gear, level] = rung;
   const P = PLACES[pose.place];
   const [px, pz] = ll(P.lat, P.lon);
@@ -105,8 +143,9 @@ async function run(rung: [string, number, number], pose: Pose, dt: number) {
   const g = makeGame(city, drive);
   const f = g.flight;
   city.paint.resetAll();
-  // (level 1 everywhere: a tap's blast takes each building to 2, so one it raised two shows as a 3. The review of step 3, 7)
-  for (let i = 1; i < city.paint.data.length; i += 4) city.paint.data[i] = 1;
+  // (level 1 everywhere: a tap's blast takes each building to 2, so one it raised two shows as a 3. The review of step 3, 7. A Bomb's rows: 0 and 1 by
+  // turns, so its jump shows whole from 0 and its top from 1)
+  for (let i = 1, k = 0; i < city.paint.data.length; i += 4, k++) city.paint.data[i] = tier ? k % 2 : 1;
   const ceiling = config.flight.ceiling;
   if (pose.asl) config.flight.ceiling = 20000; // (?earth's ceiling: past 15 km)
   const v0 = gear > 0 && gear !== EXPRESS ? driveSpeed(gear, level, true) : gear === EXPRESS ? config.flight.surgeSpeed : config.flight.cruiseSpeed;
@@ -169,7 +208,7 @@ async function run(rung: [string, number, number], pose: Pose, dt: number) {
   const tap = { x: f.x, y: f.y, z: f.z, t: g.t, speed: f.ground, agl: f.y - city.groundAt(f.x, f.z), nose: f.nose / DEG, fx: f.fx, fz: f.fz };
   const before = city.paint.data.slice();
   const ev0 = g.events.length;
-  const res = g.tap();
+  const res = tier ? bombTap(g, tier) : g.tap();
   const comet = (res.shot as any).comet ?? null;
   const at = new THREE.Vector3(res.landing.x, res.landing.y, res.landing.z);
   const busV = new THREE.Vector3(f.x, f.y, f.z);
@@ -206,16 +245,24 @@ async function run(rung: [string, number, number], pose: Pose, dt: number) {
       if (ahead <= 0) pass = -ahead / Math.max(1, f.ground);
       else if (now <= 0) pass = g.t - (impact.t as number) - (dt * -now) / Math.max(1e-3, was - now);
     }
-    if (impact && (pass !== null || g.t - (impact.t as number) > 3) && refund >= 0) break;
+    // (a Bomb: until its last stage is down, its third 2 x stageGap after the wave reaches the rim)
+    if (impact && (pass !== null || g.t - (impact.t as number) > 3) && refund >= 0 && (!tier || g.t - (impact.t as number) > 3.2)) break;
   }
-  // ---- what it painted: every building whose level rose, and any that rose two
+  // ---- what it painted: every building whose level rose, and any that rose two (a Bomb's: by how much, and any not at min(3, before + jump) or past 3)
   const after = city.paint.data;
-  let painted = 0, two = 0;
+  const jump = tier === 3 ? config.bomb.jump3 : config.bomb.jump2;
+  let painted = 0, two = 0, wrong = 0, past3 = 0;
+  const rose = [0, 0, 0, 0];
   for (let i = 1; i < after.length; i += 4) {
     const d = after[i] - before[i];
     if (d > 0.5) painted++;
     if (d > 1.5) two++;
+    if (!tier || d < 0.5) continue;
+    rose[Math.min(3, Math.round(d))]++;
+    if (after[i] > 3) past3++;
+    if (after[i] !== Math.min(3, before[i] + jump)) wrong++;
   }
+  const hitStops = g.events.slice(ev0).filter((e) => e.ev === 'hitstop').length;
   config.flight.ceiling = ceiling;
   // a Comet's arc (Comet.ts and CometFx.at: the chord, topped by arc 4u(1-u)) against the ground, every 4 m, at its worst
   let underGround = -Infinity;
@@ -247,19 +294,55 @@ async function run(rung: [string, number, number], pose: Pose, dt: number) {
     hiddenBy: impact ? r1(hiddenBy) : null,
     glintsPerS: turn ? r2(glints / TURN_S) : null,
     aimMs: r3(aimMs / Math.max(1, aimN)),
+    ...(tier ? { bomb: tier, rose: rose.slice(1), wrong, past3, hitStops } : {}),
   };
 }
 
 const rows: any[] = [];
 const t0 = Date.now();
+const OUT = process.env.SB_OUT ?? 'shots/controls/sim';
+mkdirSync(OUT, { recursive: true });
+if (BOMB) {
+  // ---- the Bomb's rows: each pose's tap, then a Bomb II and III let go at the same moment, and their gates alone
+  for (const key of ['wa-floor', 'wa-300', 'dt-floor'])
+    for (const name of ['nonstop', 'jet', 't3']) {
+      const pose = POSES.find((p) => p.pose.key === key)!.pose, rung = RUNGS.find((r) => r[0] === name)!;
+      if (ONLY && !`${key}/${name}`.includes(ONLY)) continue;
+      for (const dt of [1 / 60, 1 / 30]) for (const tier of [0, 2, 3] as const) rows.push(await run(rung, pose, dt, tier));
+    }
+  writeFileSync(`${OUT}/shots-bomb.json`, JSON.stringify({ band: r3(BAND), rows }, null, 1));
+  const fails: string[] = [];
+  let checks = 0;
+  const ok = (c: boolean, m: string) => { checks++; if (!c) fails.push(m); };
+  for (const r of rows) {
+    const id = `${r.key}@${r.fps}${r.bomb ? ` Bomb ${r.bomb === 3 ? 'III' : 'II'}` : ''}`;
+    const t = rows.find((q) => q.key === r.key && q.fps === r.fps && !q.bomb);
+    console.log(`${id.padEnd(30)} ${r.kind.padEnd(6)} t ${String(r.tImpact).padStart(6)} at ${JSON.stringify(r.landing)} r ${r.radius} (tap ${t?.radius}) painted ${r.painted} rose ${JSON.stringify(r.rose ?? null)} two ${r.raisedTwo} in ${r.impactScreen?.in ? 'y' : 'n'} up ${r.impactScreen?.above}`);
+    // ("none raised two" stays for taps)
+    if (!r.bomb) { ok(r.raisedTwo === 0, `${id}: the tap raised none two (${r.raisedTwo})`); continue; }
+    const k = r.bomb === 3 ? config.bomb.radius3 : config.bomb.radius2;
+    const d = t ? Math.hypot(r.landing[0] - t.landing[0], r.landing[1] - t.landing[1], r.landing[2] - t.landing[2]) : Infinity;
+    // (where the tap is the classic shot, at Turbo 3 from 300 m (BUILT.md: no Comet in turbo from about 300 m up, the producer's call), so is the Bomb, with
+    // its hit-stop; the Comet's own gates are where the tap's a Comet)
+    const comet = t?.kind === 'comet';
+    ok(r.kind === t?.kind, `${id}: the tap's shot (${r.kind}, tap ${t?.kind})`);
+    ok(d <= 2 && Math.abs((r.tImpact ?? 9) - (t?.tImpact ?? 0)) <= 0.05, `${id}: lands within 2 m and 0.05 s of the tap's ${comet ? 'Comet' : 'shot'} (${r1(d)} m, ${r.tImpact} against ${t?.tImpact} s)`);
+    ok(r.radius !== null && t?.radius != null && Math.abs(r.radius - k * t.radius) <= k, `${id}: ${k} times the tap's radius (${r.radius} against ${t?.radius})`);
+    ok(r.painted > 0 && r.painted >= (t?.painted ?? Infinity) && r.wrong === 0 && r.past3 === 0, `${id}: as many buildings as the tap or more, each at min(3, before + ${r.bomb === 3 ? config.bomb.jump3 : config.bomb.jump2}), none past 3 (${r.painted} against ${t?.painted}, ${r.wrong} not, ${r.past3} past)`);
+    ok(r.rose[1] > 0 && (r.bomb === 3 ? r.rose[2] > 0 && r.rose[0] === 0 : r.rose[2] === 0 && r.rose[0] === 0), `${id}: raised 2${r.bomb === 3 ? ' and 3' : ''} levels, never 1${r.bomb === 3 ? '' : ' or 3'} (${JSON.stringify(r.rose)} raised 1, 2, 3)`);
+    if (comet) ok(!!r.impactScreen?.in, `${id}: in frame at the impact (${JSON.stringify(r.impactScreen)})`);
+    ok(r.hitStops === (comet ? 0 : 1), `${id}: ${comet ? 'no hit-stop at Comet range' : "the classic shot's hit-stop"} (${r.hitStops})`);
+  }
+  console.log(`${rows.length} rows in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+  console.log(fails.length ? `BOMB FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `bomb checks: all ${checks} passed`);
+  process.exit(fails.length ? 1 : 0);
+}
 for (const { pose, rungs } of POSES)
   for (const name of rungs) {
     const rung = RUNGS.find((r) => r[0] === name)!;
     if (ONLY && !`${pose.key}/${name}`.includes(ONLY)) continue;
     for (const dt of [1 / 60, 1 / 30]) rows.push(await run(rung, pose, dt));
   }
-const OUT = process.env.SB_OUT ?? 'shots/controls/sim';
-mkdirSync(OUT, { recursive: true });
 writeFileSync(`${OUT}/shots.json`, JSON.stringify({ band: r3(BAND), rows }, null, 1));
 const fmt = (r: any) =>
   `${r.key.padEnd(18)} ${String(r.fps).padStart(2)} ${r.kind.padEnd(6)} t ${String(r.tImpact).padStart(6)} from ${String(r.from).padStart(7)} ahead ${String(r.ahead).padStart(8)} pass ${String(r.pass).padStart(6)} on ${r.on.padEnd(6)} up ${String(r.impactScreen?.above ?? '-').padStart(6)} in ${r.impactScreen?.in ? 'y' : 'n'}${r.impactScreen?.clear ? 'c' : '-'} r ${String(r.radius).padStart(5)} painted ${String(r.painted).padStart(3)} two ${r.raisedTwo} loaded ${r.loaded ? 'y' : 'n'} agl ${r.tap.agl} v ${r.tap.speed} off ${r.off}` +
