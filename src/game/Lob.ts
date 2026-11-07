@@ -4,7 +4,7 @@ import { clamp } from './springs';
 import type { City, BuildingRef } from '../world/City';
 import type { Flight } from './Flight';
 import type { Splatter } from './Splat';
-import type { Comet, CometPlan } from './Comet';
+import { Comet, type CometPlan } from './Comet';
 
 // The Lob (docs/specs/shots/SHOTS.md, "The modes"; sb-checks' lob plan): "i want a splat where if i am pointed up, i can shoot upwards into the sky and it
 // will land in the distance". A tap with the bus's body as you see it (Flight.pitch) more than config.lob.from up throws the breath off the nose like a mortar:
@@ -81,12 +81,17 @@ export class Lob {
   private oz = 0;
   private busY = 0;
   readonly stats = { planned: 0, fired: 0 };
+  /** its own table of the bus's travel (Comet.flown): the Comet's is filled for the speed it was last asked, within 0.5 m/s, and asking it at another
+   *  moved a Comet's landing 0.2 m in the probe */
+  private readonly travel: Comet;
 
   constructor(
     private readonly city: City,
     private readonly splatter: Splatter,
     private readonly comet: Comet,
-  ) {}
+  ) {
+    this.travel = new Comet(city, splatter);
+  }
 
   /** The steering thumb lifted (the body and path as they were with it down: Aimer.update), or a tap's finger landed with none down (Aimer.press): that body
    *  is what a tap throws until game time `until`. keep: a press inside a latch keeps it, the body having dropped since the lift. */
@@ -177,7 +182,7 @@ export class Lob {
     // (the bus's travel to the impact at the speed it flies once the nose is down: up steep its speed over the ground is a fraction of it, 64 of Nonstop's 225
     // m/s at 73 degrees, and the lens moved on that little put a landing on the screen that came down under the bus)
     const vt = Math.max(v, f.turbo.speed > 0 ? f.turbo.speed : f.speed);
-    const atImp = this.comet.flown(vt, tImp), launch = this.comet.flown(v, S.inhale);
+    const atImp = this.travel.flown(vt, tImp), launch = this.travel.flown(v, S.inhale);
     // (the lens moved on by the bus's travel to the impact, a climb in it: the Comet's)
     this.ox = fx * atImp;
     this.oz = fz * atImp;
@@ -199,7 +204,7 @@ export class Lob {
       let found = false;
       for (let dc = (k + 0.5) * Ls - odo; dc <= C.reach; dc += Ls, k++) {
         if (!this.land(f, fx, fz, dc)) return this.none();
-        if (this.showsAt(this.heldX, this.heldY, this.heldZ) >= L.above) {
+        if (this.showsAt(this.heldX, this.heldY, this.heldZ) >= L.aboveNew) {
           found = true;
           break;
         }

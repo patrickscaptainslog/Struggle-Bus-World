@@ -1138,7 +1138,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const landsAt = breathe(shot, mega);
     // (a Comet: its streak leaves the mouth after the inhale, and lands with its blast. A Bomb's at Comet range plays the full show, every time)
     if (shot.comet) cometFx.launch(shot.comet, simTime + config.splat.inhale, simTime + config.splat.inhale + shot.travel, splatter.faction, hue, simTime, mega?.tag.kind === 'bomb');
-    if (shot.comet?.kind === 'lob') controls.lobbed();
+    if (shot.comet?.kind === 'lob') {
+      controls.lobbed();
+      Object.assign(lobRing, { x: shot.comet.x, z: shot.comet.z, r: blastRadiusFor(shot.drop), until: simTime + config.splat.inhale + shot.travel });
+    }
     if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
     return landsAt;
   };
@@ -1288,7 +1291,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   };
   bombLook(splatter.faction);
   /** the Lob's ring where it will land, eased in and out (main.ts's frame) */
-  const lobRing = { x: 0, z: 0, r: 1, k: 0 };
+  const lobRing = { x: 0, z: 0, r: 1, k: 0, until: -1 };
 
   // ---- resize (applied once per frame: iOS fires bursts of resize / visualViewport events while its toolbars move)
   const onResize = () => {
@@ -1900,9 +1903,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       pipeline.setHeroCircle(superSplat.circle, superSplat.circleSpin, sz, sz * 0.5);
       const R = bomb.ring;
       // (the Lob's ring where it will land, dotted, while one is planned with a full belly: the Bomb's ring has the slot while it charges)
-      const L = aimer.lobPlan;
-      lobRing.k = L && R.k < 0.01 ? Math.min(1, lobRing.k + realDt * 6) : Math.max(0, lobRing.k - realDt * 6);
-      if (L && R.k < 0.01) {
+      // (and on after the tap, where the one thrown comes down, until it lands)
+      const L = aimer.lobPlan, flying = simTime < lobRing.until;
+      lobRing.k = (L || flying) && R.k < 0.01 ? Math.min(1, lobRing.k + realDt * 6) : Math.max(0, lobRing.k - realDt * 6);
+      if (L && !flying && R.k < 0.01) {
         lobRing.x = L.x;
         lobRing.z = L.z;
         lobRing.r = blastRadiusFor(L.drop);

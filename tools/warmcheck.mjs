@@ -22,6 +22,8 @@
 // --bomb: the url has &bomb: after the blasts (and --crew's factions, --comet's Comets), the Bomb (src/game/Bomb.ts) by real touches (CDP) held still on the
 //   bus itself (Input.busBox): at Cruise over the Western Addition a Bomb II and a Bomb III, at Jet a Bomb III where the Comet lands (its full show), and a
 //   gift (holds.bomb.gift(3)) let go at III; with --crew in each of the five factions, switched on the crest.
+// --lob: after the rest, the Lob (src/game/Lob.ts) by real touches (CDP): a pull held in the lane, the steering thumb lifted and a tap 0.1 s later, from the
+//   roofs over the Western Addition at Cruise and at Express; with --crew in each of the five factions, switched on the crest.
 // Wall clock, real GPU (tools/browser.mjs): meaningful on a laptop, not in the cloud's SwiftShader.
 // `lamps` in the report: when the street lamps' list was asked for and landed, ms after ready (a dusk with them in flight: ?t=2026-11-07T00:01:00Z&rate=120).
 import { chromium } from 'playwright-core';
@@ -264,6 +266,7 @@ let crewRun = null;
 let hoseRun = null;
 let cometRun = null;
 let bombRun = null;
+let lobRun = null;
 if (street) {
 // the climb to the vista (the yoke pulled: sy -1), and a look around up there
 await phase('climb');
@@ -516,6 +519,64 @@ if (opt.bomb) {
     await bombHold(key, 'jet', 1700);
   }
 }
+// --lob: a pull held in the lane, the steering thumb lifted, a tap 0.1 s later: a Lob from the roofs at Cruise and at Express, in every faction with --crew
+if (opt.lob) {
+  const cdp = await ctx.newCDPSession(page);
+  const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y, id]) => ({ x, y, id, radiusX: 8, radiusY: 8, force: 1 })) });
+  const tapCrest = async (name) => {
+    const b = await page.locator(`[data-hud="${name}"]`).boundingBox({ timeout: 8000 });
+    await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
+    await run(0.3);
+  };
+  const state = () => page.evaluate(() => {
+    const g = window.__game, s = g.lobState(), c = g.cometState(), l = g.lastShot();
+    return { ...s, fired: c.fired, full: c.full, pillars: c.pillars, booms: c.booms, gear: g.controls.turbo.name, faction: g.splatter.faction, last: l?.comet ?? null, miss: !!l?.miss };
+  });
+  lobRun = [];
+  await touch('touchStart', [[196, 760, 1]]);
+  await page.waitForTimeout(60);
+  await touch('touchEnd', []);
+  for (const key of opt.crew ? ['atlantis', 'elderwood', 'hyperglow', 'inferno', 'rainbow'] : [null]) {
+    if (key) {
+      await tapCrest('crew');
+      await tapCrest(`crew-${key}`);
+    }
+    for (const rung of ['cruise', 'express']) {
+      await phase(`lob-${key ?? 'plain'}-${rung}`);
+      // (over the Western Addition at the roofs heading east, held while the city streams in: Express one gear up)
+      await place(37.7763, -122.4352, 90, Math.PI / 2 - 0.03);
+      await page.evaluate((up) => {
+        const g = window.__game, f = g.flight;
+        Object.assign(f, { y: g.city.obstacleAt(f.x, f.z) + 12, holdY: -Infinity, mode: 0, glideSpeed: 0 });
+        while (g.controls.turbo.gear > 0) g.controls.turbo.shift(-1, g.flight);
+        if (up) g.controls.turbo.shift(1, g.flight);
+      }, rung === 'express');
+      await settle();
+      await page.evaluate(() => (window.__qa = null));
+      await run(1.2);
+      await page.evaluate(() => window.__game.forceReady());
+      await run(0.3);
+      const a = await state();
+      // the pull: a thumb down in the lane under the bus, drawn 60 px down (most of the stick), held
+      await touch('touchStart', [[196, 690, 1]]);
+      for (let i = 1; i <= 6; i++) {
+        await page.waitForTimeout(25);
+        await touch('touchMove', [[196, 690 + i * 10, 1]]);
+      }
+      await run(1.8);
+      const lift = await page.evaluate(() => window.__game.flight.pitch);
+      await touch('touchEnd', []);
+      await page.waitForTimeout(100);
+      await touch('touchStart', [[300, 300, 2]]);
+      await page.waitForTimeout(70);
+      await touch('touchEnd', []);
+      await run(4.2);
+      const b = await state();
+      const c = b.last;
+      lobRun.push({ key, rung, faction: b.faction, gear: b.gear, bodyLift: +((lift * 180) / Math.PI).toFixed(1), kind: c?.kind ?? (c ? 'comet' : 'splat'), angle: c?.angle !== undefined ? +((c.angle * 180) / Math.PI).toFixed(1) : null, reach: c ? Math.round(c.reach) : null, travel: c ? +c.travel.toFixed(2) : null, miss: b.miss, fired: b.lobs - a.lobs, full: b.full - a.full, pillars: b.pillars - a.pillars, booms: b.booms - a.booms });
+    }
+  }
+}
 // the landmarks from altitude: west of the pyramid at 430 m heading east, then Sutro Tower from the east
 await phase('landmarks');
 await place(37.7952, -122.4130, 430, Math.PI / 2);
@@ -562,6 +623,7 @@ const res = {
   hose: hoseRun,
   comet: cometRun,
   bomb: bombRun,
+  lob: lobRun,
   low: lowRun,
   programsTotal: W.programs.length,
   programsAfterWarmup: after.length,

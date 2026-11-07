@@ -21,6 +21,10 @@
 //            ground. Each: its tier and stages, every building it raised at min(3, before + jump) and none past 3 (?moon: the craters), the frame's draws
 //            and triangles each frame from the lift through its stages and the pogo (at most 200 and 1.5 M), no program made after ready, and a still
 //            as it lands. Exits 1 when a row fails                                                                     -> bomb.json
+//   lob      the Lob (src/game/Lob.ts; not in the default list) by real CDP touches: a pull held in the lane under the bus, the steering thumb lifted, a tap
+//            0.1 s later, at Cruise, Express and Nonstop (where the Comet lands farther, the Comet), with ?life and on ?moon's ground. Each: a Lob at the body
+//            as it was at the lift, every building it raised (?moon: the craters) a level and no more, and from the tap to 1.5 s after it lands the frame's
+//            draws, triangles and particles (at most 200, 1.5 M and 8,000), no program made after ready, and stills of its ring and its landing -> lob.json
 //   firstrun a first visit: no card, the cues in order (TAP, DRAG, HOLD)                         -> firstrun.json
 //   opening  flicks under the opening's gate: answered, taken back, firing at the gate; two of them. The low shot has no look, so a drag landing over
 //            the bus, out of the lane's half disc, flies until the gate and looks after it. A flick in the grey, before the first frame, waits for
@@ -1076,6 +1080,128 @@ if (modes.has('bomb')) {
   res.bomb = R;
   console.log('bomb:', R.verdicts.join('\n  '));
   writeFileSync(`${out}/bomb.json`, JSON.stringify(R, null, 1));
+  if (R.verdicts.some((v) => v.startsWith('FAIL'))) process.exitCode = 1;
+}
+
+if (modes.has('lob')) {
+  const R = { rows: [], verdicts: [] };
+  const ok = (c, m) => R.verdicts.push(`${c ? 'ok' : 'FAIL'}: ${m}`);
+  const progInit = () => {
+    const P = WebGL2RenderingContext.prototype, cp = P.createProgram;
+    window.__progs = 0;
+    P.createProgram = function () { window.__progs++; return cp.call(this); };
+  };
+  const pages = [
+    ['street', Q, ['cruise', 'express', 'nonstop']],
+    ['life', Q + '&life', ['cruise']],
+    ['moon', '?moon&site=TYCHO&skipintro&fixeddt=0.05', ['cruise']],
+  ];
+  for (const [where, query, rungs] of pages) {
+    const page = await open(query, progInit);
+    const cdp = await page.context().newCDPSession(page);
+    const H = hand(page, cdp);
+    await wall(1300);
+    await page.evaluate(() => {
+      const g = window.__game, p = g.perf, orig = p.frame.bind(p);
+      g.flight.glideSpeed = 0;
+      g.audio.unlock();
+      // (every frame's draws, triangles and live particles, from when __lobTrace is set)
+      p.frame = (dt, work) => {
+        orig(dt, work);
+        if (window.__lobTrace) window.__lobTrace.push([p.calls, p.tris, g.particles.alive]);
+      };
+    });
+    await runFor(page, 2);
+    await H.down(1, 196, 780);
+    await wall(60);
+    await H.up(1);
+    await runFor(page, 1);
+    const progs0 = await page.evaluate(() => window.__progs);
+    for (const rung of rungs) {
+      const key = `${where}-${rung}`;
+      await page.evaluate((r) => {
+        const g = window.__game;
+        while (g.controls.turbo.gear > 0) g.controls.turbo.shift(-1, g.flight);
+        for (let i = 0; i < (r === 'express' ? 1 : r === 'nonstop' ? 2 : 0); i++) g.controls.turbo.shift(1, g.flight);
+      }, rung);
+      if (where !== 'moon') {
+        // (back over the Western Addition heading east at the roofs, held while the city streams in: flown on, a row ended over the bay)
+        await page.evaluate(() => {
+          const g = window.__game, o = g.city.manifest.origin, r = Math.PI / 180, x = (-122.4352 - o[1]) * r * 6378137 * Math.cos(o[0] * r), z = -(37.7763 - o[0]) * r * 6378137;
+          const y = g.city.obstacleAt(x, z) + 12;
+          window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
+          Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0 });
+        });
+        await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+        await page.evaluate(() => (window.__qa = null));
+      }
+      await runFor(page, rung === 'nonstop' ? 2.5 : 1.2);
+      await page.evaluate(() => window.__game.forceReady());
+      await runFor(page, 0.3);
+      await page.evaluate(() => {
+        const g = window.__game, m = g.moon?.paint;
+        window.__lv0 = g.city.paint.data.slice();
+        window.__cr0 = m ? new Map([...m.recs].map(([k, r]) => [k, r.level])) : null;
+        window.__lob0 = { lobs: g.lobState().lobs, fired: g.cometState().fired };
+      });
+      // the pull: a thumb down in the lane under the bus, drawn 60 px down (most of the stick), held 1.8 s on the game's clock
+      await H.down(1, 196, 690);
+      for (let i = 1; i <= 6; i++) {
+        await wall(25);
+        await H.move(1, 196, 690 + i * 10);
+      }
+      await runFor(page, 1.8);
+      const pull = await page.evaluate(() => { const g = window.__game, s = g.lobState(); return { body: (g.flight.pitch * 180) / Math.PI, plan: s.plan && { x: s.plan.x, z: s.plan.z, reach: s.plan.reach, kind: s.plan.kind }, ring: s.ring }; });
+      await page.screenshot({ path: `${out}/lob-${key}-1-ring.png` });
+      await page.evaluate(() => (window.__lobTrace = []));
+      await H.up(1);
+      await runFor(page, 0.1);
+      await H.down(2, 300, 300);
+      await wall(60);
+      await H.up(2);
+      await until(page, 'g.lastShot() && g.clock() - g.lastShot().t > g.lastShot().travel - 0.05', 6);
+      await page.screenshot({ path: `${out}/lob-${key}-2-landed.png` });
+      await runFor(page, 1.5);
+      const b = await page.evaluate(() => {
+        const g = window.__game, l = g.lastShot(), c = l?.comet, d = g.city.paint.data, d0 = window.__lv0, m = g.moon?.paint;
+        let raised = 0, two = 0;
+        for (let i = 1; i < d.length; i += 4) {
+          if (d[i] === d0[i]) continue;
+          raised++;
+          if (d[i] - d0[i] > 1) two++;
+        }
+        let craters = 0, craterTwo = 0;
+        if (m) for (const [k, r] of m.recs) {
+          const was = window.__cr0.get(k) ?? 0;
+          if (r.level === was) continue;
+          craters++;
+          if (r.level - was > 1) craterTwo++;
+        }
+        const tr = window.__lobTrace;
+        window.__lobTrace = null;
+        return { kind: c?.kind ?? (c ? 'comet' : 'splat'), angle: c?.angle !== undefined ? (c.angle * 180) / Math.PI : null, reach: c ? c.reach : null, crater: !!l?.crater, miss: !!l?.miss, lobs: g.lobState().lobs - window.__lob0.lobs, raised, two, craters, craterTwo, frames: tr.length, draws: Math.max(...tr.map((t) => t[0])), tris: Math.max(...tr.map((t) => t[1])), particles: Math.max(...tr.map((t) => t[2])) };
+      });
+      const row = { key, body: +pull.body.toFixed(1), planned: pull.plan, ringK: +pull.ring.k.toFixed(2), ...b, angle: b.angle === null ? null : +b.angle.toFixed(1), reach: b.reach === null ? null : Math.round(b.reach) };
+      R.rows.push(row);
+      console.log('lob:', JSON.stringify(row));
+      if (rung === 'nonstop') ok(row.kind === 'lob' || row.kind === 'comet', `${key}: a Lob, or the Comet where it lands farther (${row.kind}, ${row.reach} m)`);
+      else ok(row.kind === 'lob' && row.lobs === 1, `${key}: a Lob (${row.kind}, ${row.lobs} thrown, the body ${row.body} at the lift)`);
+      if (row.kind === 'lob') {
+        ok(pull.plan?.kind === 'lob' && row.ringK > 0.9, `${key}: its ring showed while pulled (planned ${JSON.stringify(pull.plan)}, ring ${row.ringK})`);
+        ok(Math.abs(row.angle - Math.min(70, row.body)) <= 1.5, `${key}: thrown at the body as the thumb lifted (${row.angle} for ${row.body})`);
+      }
+      if (where === 'moon') ok(row.craters > 0 && row.craterTwo === 0, `${key}: craters a level each (${row.craters}, ${row.craterTwo} two)`);
+      else ok(row.raised > 0 && row.two === 0, `${key}: every building it raised a level, none two (${row.raised}, ${row.two} two)`);
+      ok(row.frames > 10 && row.draws <= 200 && row.tris <= 1.5e6 && row.particles <= 8000, `${key}: through its flight and landing at most 200 draws, 1.5 M triangles and 8,000 particles (${row.frames} frames, ${row.draws} draws, ${(row.tris / 1e6).toFixed(3)} M, ${row.particles} particles)`);
+    }
+    const made = (await page.evaluate(() => window.__progs)) - progs0;
+    R[where] = { programsAtReady: progs0, madeAfter: made };
+    ok(made === 0, `${where}: nothing compiles: ${made} programs made after ready`);
+    await page.close();
+  }
+  res.lob = R;
+  console.log('lob:', R.verdicts.join('\n  '));
+  writeFileSync(`${out}/lob.json`, JSON.stringify(R, null, 1));
   if (R.verdicts.some((v) => v.startsWith('FAIL'))) process.exitCode = 1;
 }
 

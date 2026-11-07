@@ -775,8 +775,10 @@ export const config = {
     most: 70,
     range: 1600,
     stretch: 60,
-    /** It must show at least this share of the height over the bus by the lens moved on to the impact (config.comet.above is the Comet's). */
+    /** It must show at least this share of the height over the bus by the lens moved on to the impact (config.comet.above is the Comet's), and a landing
+     *  picked afresh `aboveNew`: held or latched it stays while it shows `above`, so one picked on the edge doesn't move off it before the tap. */
     above: 0.05,
+    aboveNew: 0.07,
     /** Its flight after the inhale at 45 degrees (s), x sin θ / sin 45 at θ: 1.43-3.19 s from 25 to 70. */
     flight: 2.4,
     /** The lens moved on to the impact climbs with the bus for this long at most (s): a thumb lifted levels it out in about that. */
