@@ -206,8 +206,38 @@ const moonRows: unknown[] = [];
   });
 }
 console.log('the Moon:', JSON.stringify(moonRows));
+// ---- the swell (Bomb.look): the bus 6 and 12 % bigger at II and III, a little past and settling, at any frame's step. Stepped once a frame it grew by a
+// quarter a frame at 30 fps, and on the page the bus's box flew up the screen
+const { Bomb } = await import('@src/game/Bomb');
+const { Flight } = await import('@src/game/Flight');
+const swellRows: unknown[] = [];
+for (const dt of [1 / 60, 1 / 30, 1 / 20]) {
+  const nop = () => {};
+  const input: any = { state: { bomb: { on: false, at: 0 } } };
+  const f = new Flight();
+  f.fullness = 1;
+  const bomb = new Bomb({ input, flight: f, aimer: { planned: null, aim: { x: 0, z: 0, drop: 40 } } as any, audio: { bombCharge: nop, bombTier: nop, bombStop: nop, bombBeat: nop, superMega: nop } as any, fx: { motes: nop, halo: nop, sparks: nop } as any, rig: { kick: nop } as any, busVel: () => null as any, breathe: () => 0, busy: () => false });
+  bomb.on = true;
+  let most = 1;
+  const go = (s: number) => { for (let k = 0; k < Math.round(s / dt); k++) { bomb.update(dt); most = Math.max(most, bomb.swell); } };
+  input.onBombCharge();
+  go(0.35);
+  input.onBombTier(2);
+  go(0.6);
+  const at2 = bomb.swell;
+  input.onBombTier(3);
+  go(1);
+  const at3 = bomb.swell;
+  input.onBombEnd(3, true);
+  go(1);
+  const fps = Math.round(1 / dt), r4 = (x: number) => Math.round(x * 1e4) / 1e4;
+  swellRows.push({ fps, at2: r4(at2), at3: r4(at3), most: r4(most), end: r4(bomb.swell) });
+  ok(Math.abs(at2 - 1.06) < 0.005 && Math.abs(at3 - 1.12) < 0.005 && most < 1.14 && Math.abs(bomb.swell - 1) < 0.002, `the swell at ${fps} fps: 6 % at II and 12 % at III, a little past, back to 1 (${r4(at2)}, ${r4(at3)}, most ${r4(most)}, end ${r4(bomb.swell)})`);
+}
+console.log('the swell:', JSON.stringify(swellRows));
 save('bomb', rows);
 save('bomb-lift', liftRows);
 save('bomb-moon', moonRows);
+save('bomb-swell', swellRows);
 console.log(fails.length ? `[${MODE}] FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `[${MODE}] bomb checks: all ${checks} passed (${rows.length} rows)`);
 process.exit(fails.length ? 1 : 0);

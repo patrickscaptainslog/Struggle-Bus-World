@@ -256,10 +256,13 @@ export class Bomb implements BombHook {
   private look(dt: number) {
     const T = this.tierV, B = config.bomb, A = this.h.aimer;
     this.swellTo = T >= 3 ? 1 + B.swell3 : T >= 2 ? 1 + B.swell2 : 1;
-    // (a stiff spring: the clunk is the bus snapping bigger, a little past, and settling)
-    const w = 2 * Math.PI * 6;
-    this.swellV += (w * w * (this.swellTo - this.swell) - 2 * 0.55 * w * this.swellV) * dt;
-    this.swell += this.swellV * dt;
+    // (a stiff spring: the clunk is the bus snapping bigger, a little past, and settling. Stepped at 1/120 s at most: in one step of a 30 fps frame it
+    // grew by a quarter a frame, and the bus with it, off the screen in a second)
+    const w = 2 * Math.PI * 6, steps = Math.max(1, Math.ceil(dt * 120 - 1e-9)), h = dt / steps;
+    for (let i = 0; i < steps; i++) {
+      this.swellV += (w * w * (this.swellTo - this.swell) - 2 * 0.55 * w * this.swellV) * h;
+      this.swell += this.swellV * h;
+    }
     if (T === 0 && Math.abs(this.swell - 1) < 1e-4 && Math.abs(this.swellV) < 1e-4) {
       this.swell = 1;
       this.swellV = 0;
