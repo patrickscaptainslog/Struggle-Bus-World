@@ -134,8 +134,18 @@ A tap while a gear drives the bus at 225 m/s or more (Nonstop engaged, Jet, Turb
 - **`comet.lob`** is the Lob's slot (step 7): when it returns a shot and the Comet applies too, the farther landing wins (`chooseShot`).
 - **`cometFx.streakOn`** is Streak's seam (step 5): while it returns true every Comet plays the full show.
 
+## The Bomb (step 4)
+
+With `&bomb` on the link, the flying thumb held still on the bus itself charges a Bomb (`src/game/Bomb.ts`): Bomb II shows at 0.69 s and Bomb III at 1.29, and the lift lets it go as MEGA's breath where the tap would land (at Nonstop and faster, where the Comet would), 1.4 or 1.8 times the tap's circle, each building in it jumping two or three stages, never past 3, and never asking the Lift. A lift before II is the tap. `holds.bomb` is its side for life and Recess (`src/game/Hold.ts`: a do-nothing one until main.ts sets it, and without `&bomb` every call does nothing). `window.__game.bomb` is the Bomb, `bombState()` says what it's doing.
+
+- **`holds.bomb.gift(3)`**, after being hit: the next still hold on the bus is a Bomb III at 0.42 s (`aimHoldMs` and `aimLagMs`), one time, whatever the belly holds. `gift(2)` is a Bomb II. A second gift before the hold keeps the higher.
+- **`holds.bomb.bank(0.1)`**, a caught drop: each 0.1 brings the next charge's tiers 0.12 s sooner (`config.bomb.bankGain`, 1.2 s for a bank of 1), never before the riser's 0.35 s; the bank is spent by the next Bomb let go.
+- **`holds.bomb.charge`** (0 to 1, 1 at III) and **`holds.bomb.tier`** (0 none, 1 charging, 2, 3), read any frame.
+- **`holds.bomb.watch({ tier(t), release(r), cancel() })`**, every method optional, returns its remover: `tier` as each shows (1 the charge began), `release({ tier, x, z, r, arrive, id })` when one is let go (where it lands in world m, its circle, the game time it lands on the Splatter's clock, its `SuperTag`'s id), `cancel` for a fizzle (moved off, three fingers, a lost touch, a hand-over, another thumb's tap), the belly kept.
+- **Its blast** carries `Blast.super` `{ kind: 'bomb', charge: 0.5 or 1, id }` and `Blast.jump` (2 or 3), so `life.blast` hears it with its whole circle as it hears a tap's; movers in it take one level, as the contract says. A Bomb at Comet range carries `Blast.comet` too.
+- **The ask for Recess** (the producer's fourth call): `areas.hit(…, { superId, jump, cap: 3 })` on `feat/recess`. The aimed square jumps at once, past the 5 s wait, never past 3; a rival's square takes one hit; the grey squares in the circle spill at stage 1. It can read the release from `watch` or the blast's `super.kind === 'bomb'`.
+
 ## Not here yet
 
 - The flick's lunge and brake-hop in the white, and the white never shifting a gear (SHOTS.md, "Dodging"): the flight's, so the first account's, and the duel's dodge waits on it. Until then a dodge is a hard turn.
 - The HOLD TO LOCK hint for the first boat in reach: one line from Recess or life through `controls.hud.toast`, once.
-- A hold on the bus itself charges the Bomb: the lane still flies, as today, until the Bomb (after the producer's grip test).
