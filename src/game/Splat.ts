@@ -173,6 +173,63 @@ interface PendingBlast {
 
 const HUE_TRY = [0, 1, -1, 2, -2, 3];
 
+/** deal's neighbours from a grid of the plan past this many buildings (a Bomb's), in cells this wide (m) */
+const DEAL_GRID = 256;
+const DEAL_CELL = 24;
+
+/** A plan's buildings in every cell their touching reach (half their footprint's side and 1.25 m) covers: two that touch share a cell. */
+interface DealGrid {
+  x0: number;
+  z0: number;
+  nx: number;
+  nz: number;
+  cells: Array<Scheduled[] | undefined>;
+}
+
+function dealGrid(plan: Scheduled[]): DealGrid {
+  let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+  for (const p of plan) {
+    const r = Math.sqrt(p.ref.area) * 0.5 + 1.25;
+    x0 = Math.min(x0, p.ref.cx - r);
+    z0 = Math.min(z0, p.ref.cz - r);
+    x1 = Math.max(x1, p.ref.cx + r);
+    z1 = Math.max(z1, p.ref.cz + r);
+  }
+  const nx = Math.floor((x1 - x0) / DEAL_CELL) + 1, nz = Math.floor((z1 - z0) / DEAL_CELL) + 1;
+  const g: DealGrid = { x0, z0, nx, nz, cells: new Array(nx * nz) };
+  for (const p of plan) {
+    const r = Math.sqrt(p.ref.area) * 0.5 + 1.25;
+    const i0 = Math.floor((p.ref.cx - r - x0) / DEAL_CELL), i1 = Math.min(nx - 1, Math.floor((p.ref.cx + r - x0) / DEAL_CELL));
+    const j0 = Math.floor((p.ref.cz - r - z0) / DEAL_CELL), j1 = Math.min(nz - 1, Math.floor((p.ref.cz + r - z0) / DEAL_CELL));
+    for (let j = Math.max(0, j0); j <= j1; j++)
+      for (let i = Math.max(0, i0); i <= i1; i++) {
+        const a = g.cells[j * nx + i];
+        if (a) a.push(p);
+        else g.cells[j * nx + i] = [p];
+      }
+  }
+  return g;
+}
+
+/** The plan's buildings touching ref, from the grid (as the plan's scan reaches them), into `out`: freeHue tries their hues as they are then. */
+function gridNear(g: DealGrid, ref: BuildingRef, ra: number, out: Scheduled[]): Scheduled[] {
+  out.length = 0;
+  const r = ra + 1.25;
+  const i0 = Math.max(0, Math.floor((ref.cx - r - g.x0) / DEAL_CELL)), i1 = Math.min(g.nx - 1, Math.floor((ref.cx + r - g.x0) / DEAL_CELL));
+  const j0 = Math.max(0, Math.floor((ref.cz - r - g.z0) / DEAL_CELL)), j1 = Math.min(g.nz - 1, Math.floor((ref.cz + r - g.z0) / DEAL_CELL));
+  for (let j = j0; j <= j1; j++)
+    for (let i = i0; i <= i1; i++) {
+      const a = g.cells[j * g.nx + i];
+      if (!a) continue;
+      for (const p of a) {
+        // (squared: Math.hypot was most of it)
+        const dx = p.ref.cx - ref.cx, dz = p.ref.cz - ref.cz, reach = ra + Math.sqrt(p.ref.area) * 0.5 + 2.5;
+        if (p.ref !== ref && dx * dx + dz * dz < reach * reach) out.push(p);
+      }
+    }
+  return out;
+}
+
 export class Splatter {
   /**
    * The hitter's faction (game/factions.ts): every blast this splatter fires carries it (BlastSpec.faction), and every building and ground texel it
@@ -226,6 +283,8 @@ export class Splatter {
   private near: Array<{ ref: BuildingRef; d: number }> = [];
   private reachList: Array<{ ref: BuildingRef; d: number; e: number }> = [];
   private fresh: Scheduled[] = [];
+  /** freeHue's neighbours of one building from deal's grid */
+  private readonly dealNear: Scheduled[] = [];
   private misses: Array<{ at: number; pos: THREE.Vector3; hue: number; comet: CometPlan | null }> = [];
   /** where the last barf comes down (its blast's or its miss's), for a late plan's SplatFx.late */
   private lastPos: THREE.Vector3 | null = null;
@@ -438,24 +497,30 @@ export class Splatter {
       const n = fresh.length;
       for (let k = 0; k < n; k++) fresh[k].pref = wrapHue(spec.hue + shift + (mode === 1 ? k : Math.floor((k * HUE_COUNT) / n)));
     }
-    for (const p of plan) if (p.hue < 0) p.hue = this.freeHue(p.pref, p.ref, plan, layoutHue(spec, p.ref.cx - spec.x, p.ref.cz - spec.z));
+    // (a Bomb's plan, up to config.bomb.cap: each building's neighbours from a grid of it, where each against the whole plan was 21-27 ms of the lift's frame
+    // over fresh housing from 300 m: the Bomb's world review. The same neighbours; a tap's plan stays the scan it was)
+    const grid = plan.length > DEAL_GRID ? dealGrid(plan) : null;
+    for (const p of plan) if (p.hue < 0) p.hue = this.freeHue(p.pref, p.ref, plan, layoutHue(spec, p.ref.cx - spec.x, p.ref.cz - spec.z), grid);
   }
 
   /** The preferred hue unless a touching neighbor already has it (or it's the ground's): then the nearest free hue. */
-  private freeHue(pref: number, ref: BuildingRef, plan: Scheduled[], ground: number): number {
+  private freeHue(pref: number, ref: BuildingRef, plan: Scheduled[], ground: number, grid: DealGrid | null = null): number {
     const ra = Math.sqrt(ref.area) * 0.5;
+    const near = grid ? gridNear(grid, ref, ra, this.dealNear) : null;
     for (const off of HUE_TRY) {
       const h = wrapHue(pref + off);
       if (h === ground) continue;
       let clash = false;
-      for (const p of plan) {
-        if (p.hue !== h) continue;
-        const reach = ra + Math.sqrt(p.ref.area) * 0.5 + 2.5;
-        if (Math.hypot(p.ref.cx - ref.cx, p.ref.cz - ref.cz) < reach) {
-          clash = true;
-          break;
+      if (near) clash = near.some((p) => p.hue === h);
+      else
+        for (const p of plan) {
+          if (p.hue !== h) continue;
+          const reach = ra + Math.sqrt(p.ref.area) * 0.5 + 2.5;
+          if (Math.hypot(p.ref.cx - ref.cx, p.ref.cz - ref.cz) < reach) {
+            clash = true;
+            break;
+          }
         }
-      }
       if (!clash) return h;
     }
     return pref;
@@ -495,7 +560,10 @@ export class Splatter {
       const b = p.blast;
       // the whole wave goes to the GPU now (one upload): the shader times each pop. Its buildings are the hitter's, as it was when it fired
       const faction = b.spec.faction ?? FACTION_RAINBOW;
-      let lastStage = 0;
+      // (a Bomb's pogo: until the last pop of any of its buildings, the first stages' too, over a circle round every one of them and the gardens on them. Set
+      // only when some building had a later stage, a block at level 2 hopped not at all, and the houses at the rim of one half at 2 missed theirs: the Bomb's
+      // world review)
+      let pogoUntil = 0, pogoR = 0;
       for (const s of p.plan) {
         // (?lift: a lifting house's record isn't rewritten: no second pop on its crouch, and its saved paint is untouched)
         if (s.lift) {
@@ -503,15 +571,18 @@ export class Splatter {
           continue;
         }
         this.city.paint.set(s.ref.index, { faction, color: s.hue, level: s.level, bloomTime: s.at, keep: s.keep });
+        if (b.jump > 1) {
+          pogoUntil = Math.max(pogoUntil, s.at + config.bomb.stageGap * (s.more ?? 0));
+          pogoR = Math.max(pogoR, Math.hypot(s.ref.cx - b.spec.x, s.ref.cz - b.spec.z) + s.ref.rad);
+        }
         // (a Bomb's later stages, each its own write and pop, config.bomb.stageGap s apart: written in their bands, update())
         for (let k = 1; k <= (s.more ?? 0); k++) {
           const at = s.at + config.bomb.stageGap * k;
           this.staged.push({ ...s, at, level: s.level + k, keep: true, flags: s.flags & ~BLOOM_REPOP, at0: undefined, more: undefined, faction });
-          lastStage = Math.max(lastStage, at);
         }
       }
       // (the pogo: the buildings in its circle hop as each stage pops them, world/pogo.ts)
-      if (lastStage > 0) setPogo(b.spec.x, b.spec.z, b.spec.r + S.smallRad, b.t, lastStage);
+      if (pogoUntil > 0) setPogo(b.spec.x, b.spec.z, pogoR + 2, b.t, pogoUntil);
       b.dots = p.ground ? this.city.ground.land(p.ground) : [];
       blastUniforms.uBlastRing.value.set(b.spec.x, b.spec.z, b.t, b.spec.r);
       blastUniforms.uBlastRing2.value.set(ringHue(b.spec.hue, faction), S.ringWidth * Math.sqrt(b.strength), S.waveSpeed, waveMax(b.spec.r));
@@ -522,27 +593,31 @@ export class Splatter {
     // a Bomb's later stages: written a band ahead of their pops (one paint upload a band), each then blooming as its own
     if (this.staged.length && this.t >= this.nextBand) {
       const until = this.t + config.bomb.stageBand;
-      for (let i = 0; i < this.staged.length; ) {
-        const s = this.staged[i];
+      // (what's left kept in its order, not spliced out one at a time: a Bomb's thousands of stages)
+      let k = 0;
+      for (const s of this.staged) {
         if (s.at >= until) {
-          i++;
+          this.staged[k++] = s;
           continue;
         }
-        this.staged.splice(i, 1);
         this.city.paint.set(s.ref.index, { faction: s.faction, color: s.hue, level: s.level, bloomTime: s.at, keep: true });
         this.queue.push(s);
       }
+      this.staged.length = k;
       this.nextBand = until;
     }
-    for (let i = 0; i < this.queue.length; ) {
-      const s = this.queue[i];
-      if (this.t >= s.at) {
-        this.queue.splice(i, 1);
-        // (the primary's sparkles start where the breath hit it)
-        this.fx.bloom(s.ref, s.order, s.total, s.hue, s.level, s.at0 ? this.roofTmp.copy(s.at0) : this.roofTmp.set(s.ref.cx, s.ref.roofY + (this.city.lift ? this.city.lift.dy(s.ref.index) : 0), s.ref.cz), s.flags);
-        if (s.order === 0 && !(s.flags & BLOOM_HOSE)) this.fx.primary(s.ref, s.hue);
-      } else i++;
+    // (blooming in the queue's order, what's left kept in it: the same as splicing each out, without the Bomb's thousands of moves a frame)
+    let k = 0;
+    for (const s of this.queue) {
+      if (this.t < s.at) {
+        this.queue[k++] = s;
+        continue;
+      }
+      // (the primary's sparkles start where the breath hit it)
+      this.fx.bloom(s.ref, s.order, s.total, s.hue, s.level, s.at0 ? this.roofTmp.copy(s.at0) : this.roofTmp.set(s.ref.cx, s.ref.roofY + (this.city.lift ? this.city.lift.dy(s.ref.index) : 0), s.ref.cz), s.flags);
+      if (s.order === 0 && !(s.flags & BLOOM_HOSE)) this.fx.primary(s.ref, s.hue);
     }
+    this.queue.length = k;
   }
 
   private hoseBusy(n: number): Float32Array {

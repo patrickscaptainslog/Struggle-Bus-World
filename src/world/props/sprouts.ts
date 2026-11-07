@@ -342,8 +342,9 @@ ${
     vec3 piv = vec3(lT2.x, lT2.y + lf.x, lT2.z);
     o.world.xyz = piv + sbTilt(o.world.xyz - piv, lf.zw);
   }`)}${pogoed(`
-  // (&bomb: a Bomb's stage hops its house, world/pogo.ts, and the garden rides the hop)
-  if (aLiftB.x >= 0.0) {
+  // (&bomb: a Bomb's stage hops its house, world/pogo.ts, and the garden rides the hop. Its paint is read only in the Bomb's circle while its pops last, not by
+  // every garden every frame)
+  if (aLiftB.x >= 0.0 && uBombPogo.w > 0.0 && uTime <= uBombPogoT.x + uBombPogoT.y + 0.05 && distance(ipos.xz, uBombPogo.xy) <= uBombPogo.z) {
     vec4 pt = texelFetch(uPaint, ivec2(int(mod(aLiftB.x, uPaintW)), int(floor(aLiftB.x / uPaintW))), 0);
     float tr;
     if (pt.g > 0.5 && uTime >= pt.b) o.world.y += sbPogo(ipos.xz, pt.b, aLiftB.y, uTime - pt.b, tr);

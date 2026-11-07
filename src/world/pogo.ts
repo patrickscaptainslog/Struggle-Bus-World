@@ -20,8 +20,12 @@ export const POGO = { k: 0.3, min: 2, max: 6, tower: 40, hop: 0.24 };
 /** uBombPogo: the last Bomb's circle (centre x, z, radius m) and its impact's game time (0: none); uBombPogoT: its last stage's bloom time, and the hop's length. */
 export const pogoUniforms = pogoOn ? { uBombPogo: { value: new THREE.Vector4() }, uBombPogoT: { value: new THREE.Vector2(0, POGO.hop) } } : null;
 
+/** QA (tools/feel-sim/s_bomb.ts): the last setPogo's circle and window, flag or none. */
+export const pogoLast = { x: 0, z: 0, r: 0, t0: 0, t1: 0 };
+
 /** A Bomb landed (Splatter): the buildings in its circle blooming from `t0` to `t1` (game clock) hop. Off the flag, nothing. */
 export function setPogo(x: number, z: number, r: number, t0: number, t1: number): void {
+  Object.assign(pogoLast, { x, z, r, t0, t1 });
   if (!pogoUniforms) return;
   pogoUniforms.uBombPogo.value.set(x, z, r, Math.max(1e-3, t0));
   pogoUniforms.uBombPogoT.value.set(t1, POGO.hop);
