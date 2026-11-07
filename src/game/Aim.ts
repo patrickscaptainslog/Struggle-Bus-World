@@ -382,8 +382,15 @@ export class Aimer {
     this.wallRef = this.latchRef = null;
     this.mover = this.moverLatch = null;
     this.life?.glint(null);
-    const sx = -f.fz * s, sz = f.fx * s, x = f.x + sx * K.front, z = f.z + sz * K.front;
+    const sx = -f.fz * s, sz = f.fx * s;
+    let x = f.x + sx * K.front, z = f.z + sz * K.front;
     this.target = this.city.nearestBuilding(x, z, K.frontR, config.splat.minTargetHeight, f.y);
+    // (a wide street, or fronts set back: once more, twice as far out, as far again round it)
+    if (!this.target) {
+      x = f.x + sx * K.front * 2.5;
+      z = f.z + sz * K.front * 2.5;
+      this.target = this.city.nearestBuilding(x, z, K.frontR * 1.5, config.splat.minTargetHeight, f.y);
+    }
     this.x0 = f.x;
     this.y0 = f.y;
     this.z0 = f.z;
@@ -392,7 +399,7 @@ export class Aimer {
     aim.x = x;
     aim.z = z;
     aim.y = this.city.groundAt(x, z);
-    aim.dist = K.front;
+    aim.dist = Math.hypot(x - f.x, z - f.z);
     aim.drop = 0;
     aim.wall = false;
     aim.travel = this.travelFor(aim.dist, f.ground);
