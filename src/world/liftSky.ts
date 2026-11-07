@@ -3,7 +3,7 @@ import { FACTION_ATLANTIS, FACTION_ELDERWOOD, FACTION_HYPERGLOW, FACTION_INFERNO
 import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { registerWarm } from '../render/warmup';
-import { liftSeed, SQUARE, squareIx, squareIz, squareKey } from './liftGlsl';
+import { LIFT, LIFT_TURN, liftSeed, SQUARE, squareIx, squareIz, squareKey } from './liftGlsl';
 
 // Stage 4's sky marks in the other four factions (docs/specs/factions/LIFT.md, "Stage 4 in the other factions"; FACTIONS.md section 2): the set
 // piece over a lifted neighbourhood's heart, 220 m over its ground, one draw and one program, made only for the faction ?lift&lifted=<key> names.
@@ -13,9 +13,10 @@ import { liftSeed, SQUARE, squareIx, squareIz, squareKey } from './liftGlsl';
 //
 // Everything comes from the neighbourhood's data: its heart square and its squares (hoods.bin), its streets (the tiles' OpenStreetMap
 // centrelines) and its houses (where a fall or a column may stand: on a street, clear of them), so any city gets its own. Nothing here touches a
-// floating house or holds one up (the producer's ruling: they float). The geometry is built once, when the neighbourhood's tiles are in; the
-// motion is in the vertex shader, on the game clock, from uSkyT0 (the wave's start: it forms after it). No shadow, no paint, nothing the flight
-// sees: the bus flies through the Sea and the Skyway.
+// floating house or holds one up (the producer's ruling: they float): a fall or a column rises straight up through the houses' layer from a
+// street point clear of them, and bends only over it; the islands never come down into it. The geometry is built once, when the
+// neighbourhood's tiles are in; the motion is in the vertex shader, on the game clock, from uSkyT0 (the wave's start: it forms after it). No
+// shadow, no paint, nothing the flight sees: the bus flies through the Sea, the islands, the Skyway and the sun.
 
 /** What a set piece is placed from. */
 export interface SkyPlace {
@@ -35,8 +36,17 @@ export interface SkyPlace {
 
 /** The set pieces' height over the heart's ground (m): FACTIONS.md section 1's sky marks, at 200-250 m. */
 export const SKY_Y = 220;
+/**
+ * The top of the floating houses' layer over the ground (m): no roof rests over LIFT.topMax, then the more of the jump's overshoot (13 % of the
+ * highest rest, before the swell has it) and its heave on the swell's crest, and a margin for a neighbour's ground a little higher. Nothing of a
+ * set piece leans, swings or bends below it.
+ */
+const LAYER = LIFT.topMax + Math.max(0.13 * LIFT.hMax, LIFT.heaveSmall * (1 + LIFT.heaveSpread / 2)) + 8;
 
 const R = (r: number) => r.toFixed(1);
+
+/** a unit icosahedron's faces' corners a detail (Geo.blob) */
+const ICO: Float32Array[] = [];
 
 /** One mesh's buffers: a point, its normal, aK (kind and three numbers its shader reads) and aE (three more, varying). */
 class Geo {
@@ -84,21 +94,24 @@ class Geo {
   }
   /** A low blob: an icosahedron's 20 faces (detail 0) or 80 (1), squashed by sy, its faces' own normals. */
   blob(cx: number, cy: number, cz: number, r: number, sy: number, detail: number, k: readonly number[], e: readonly number[]) {
-    const g = new THREE.IcosahedronGeometry(1, detail).toNonIndexed();
-    const p = g.attributes.position;
-    const va = new THREE.Vector3(), vb = new THREE.Vector3(), vc = new THREE.Vector3(), fn = new THREE.Vector3();
-    for (let f = 0; f < p.count; f += 3) {
-      va.fromBufferAttribute(p, f);
-      vb.fromBufferAttribute(p, f + 1);
-      vc.fromBufferAttribute(p, f + 2);
-      for (const v of [va, vb, vc]) v.set(v.x * r, v.y * r * sy, v.z * r);
-      fn.copy(vb).sub(va).cross(vc.clone().sub(va)).normalize();
-      const i0 = this.v(cx + va.x, cy + va.y, cz + va.z, fn.x, fn.y, fn.z, k, e);
-      const i1 = this.v(cx + vb.x, cy + vb.y, cz + vb.z, fn.x, fn.y, fn.z, k, e);
-      const i2 = this.v(cx + vc.x, cy + vc.y, cz + vc.z, fn.x, fn.y, fn.z, k, e);
+    // (the unit one's corners once a detail: making an IcosahedronGeometry a blob was most of the Sky Wood's 120-280 ms build)
+    const p = (ICO[detail] ??= new THREE.IcosahedronGeometry(1, detail).toNonIndexed().attributes.position.array as Float32Array);
+    for (let f = 0; f < p.length; f += 9) {
+      const ax = p[f] * r, ay = p[f + 1] * r * sy, az = p[f + 2] * r;
+      const bx = p[f + 3] * r, by = p[f + 4] * r * sy, bz = p[f + 5] * r;
+      const qx = p[f + 6] * r, qy = p[f + 7] * r * sy, qz = p[f + 8] * r;
+      // (the face's normal: (b - a) x (c - a))
+      const ux = bx - ax, uy = by - ay, uz = bz - az, wx = qx - ax, wy = qy - ay, wz = qz - az;
+      let nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+      const l = Math.hypot(nx, ny, nz) || 1;
+      nx /= l;
+      ny /= l;
+      nz /= l;
+      const i0 = this.v(cx + ax, cy + ay, cz + az, nx, ny, nz, k, e);
+      const i1 = this.v(cx + bx, cy + by, cz + bz, nx, ny, nz, k, e);
+      const i2 = this.v(cx + qx, cy + qy, cz + qz, nx, ny, nz, k, e);
       this.tri(i0, i1, i2);
     }
-    g.dispose();
   }
   build(): THREE.BufferGeometry {
     const g = new THREE.BufferGeometry();
@@ -118,36 +131,101 @@ class Geo {
 const hoodRadius = (p: SkyPlace) => Math.sqrt((p.squares.size * SQUARE * SQUARE) / Math.PI);
 
 /**
- * n points on its streets, about `r` m from the heart, spread round it (the first toward the sun's side, turned by `turn`), each at least `gap` m
- * clear of every liftable house: where a fall or a column of lava rises. Falls back to the nearest street point, then to a point on the circle.
+ * Up to n points on its streets, about `r` m from the heart, spread round it (the first toward the sun's side, turned by `turn`), each at least
+ * `gap` m clear of every liftable house, its ground no more than `rise` m over the heart's (so it has the height to rise through the floating
+ * houses straight before it bends: riser): where a fall or a column of lava rises. Each takes
+ * the best clear street point in its own share of the way round, then in anyone's not too near another, then any clear open ground on the
+ * neighbourhood's squares (a park, a plaza); a point with none of those isn't placed.
  */
-function streetPoints(p: SkyPlace, n: number, r: number, gap: number, turn: number): Array<[number, number]> {
-  const cand: Array<[number, number, number, number]> = [];
+function streetPoints(p: SkyPlace, n: number, r: number, gap: number, turn: number, rise: number): Array<[number, number]> {
+  // (x, z, distance from the heart, its way round, how clear it is: each candidate's clearance once, not once a point it's scored for)
+  const cand: Array<[number, number, number, number, number]> = [];
   const [hx, hz] = p.heart;
+  const inHood = (x: number, z: number) => p.squares.has(squareKey(Math.floor(x / SQUARE), Math.floor(z / SQUARE)));
+  const add = (x: number, z: number) => {
+    const d = Math.hypot(x - hx, z - hz);
+    if (d < r * 0.4 || d > r * 1.6 || !inHood(x, z) || p.groundAt(x, z) > p.ground + rise) return;
+    const c = p.clear(x, z);
+    if (c >= gap) cand.push([x, z, d, Math.atan2(z - hz, x - hx), c]);
+  };
   for (const { rank, xz } of p.streets)
     for (let k = 0; rank === 0 && k + 3 < xz.length; k += 2) {
       const ax = xz[k], az = xz[k + 1], bx = xz[k + 2], bz = xz[k + 3];
       const len = Math.hypot(bx - ax, bz - az);
-      for (let s = 0; s <= len; s += 6) {
-        const x = ax + ((bx - ax) * s) / Math.max(len, 1e-6), z = az + ((bz - az) * s) / Math.max(len, 1e-6);
-        cand.push([x, z, Math.hypot(x - hx, z - hz), Math.atan2(z - hz, x - hx)]);
-      }
+      for (let s = 0; s <= len; s += 6) add(ax + ((bx - ax) * s) / Math.max(len, 1e-6), az + ((bz - az) * s) / Math.max(len, 1e-6));
     }
+  const nStreet = cand.length;
+  // (open ground, for a neighbourhood whose streets are all too narrow: a grid of points 8 m apart on a ring round r, only once one is needed)
+  const open = () => {
+    for (let z = hz - r * 1.4; z <= hz + r * 1.4; z += 8)
+      for (let x = hx - r * 1.4; x <= hx + r * 1.4; x += 8) {
+        const d = Math.hypot(x - hx, z - hz);
+        if (d > r * 0.6 && d < r * 1.4) add(x, z);
+      }
+  };
+  let opened = false;
   const a0 = Math.atan2(p.face[1], p.face[0]) + turn;
   const out: Array<[number, number]> = [];
+  const way = (a: number, b: number) => Math.abs(((a - b + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
   for (let i = 0; i < n; i++) {
     const a = a0 + (i / n) * Math.PI * 2;
-    let best: [number, number] | null = null, bs = Infinity;
-    for (const [x, z, d, ca] of cand) {
-      const da = Math.abs(((ca - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
-      if (da > Math.PI / n) continue;
-      const score = Math.abs(d - r) + da * r * 0.5 + (p.clear(x, z) < gap ? 1e4 : 0);
-      if (score < bs) [bs, best] = [score, [x, z]];
+    let best: [number, number] | null = null;
+    for (const pass of [0, 1, 2]) {
+      if (pass === 2 && !opened) {
+        opened = true;
+        open();
+      }
+      let bs = Infinity;
+      for (let c = pass === 2 ? nStreet : 0; c < (pass === 2 ? cand.length : nStreet); c++) {
+        const [x, z, d, ca] = cand[c];
+        const da = way(ca, a);
+        if (pass === 0 && da > Math.PI / n) continue;
+        // (out of its share: no nearer than half a share to another's)
+        if (pass > 0 && out.some(([ox, oz]) => way(Math.atan2(oz - hz, ox - hx), ca) < Math.PI / n)) continue;
+        const score = Math.abs(d - r) + da * r * 0.5;
+        if (score < bs) [bs, best] = [score, [x, z]];
+      }
+      if (best) break;
     }
-    out.push(best ?? [hx + Math.cos(a) * r, hz + Math.sin(a) * r]);
+    if (best) out.push(best);
   }
   return out;
 }
+
+/**
+ * A rising path from its foot on the street up to `top`: straight up through the floating houses' layer (to LAYER over the foot's ground),
+ * and only over it bending in to the top. `at(t, v)` its centre at t 0..1 of its height; `over(t)` 0..1 of the
+ * way from the layer's top to its own.
+ */
+function riser(foot: THREE.Vector3, top: THREE.Vector3) {
+  const tL = LAYER / Math.max(LAYER + 20, top.y - foot.y);
+  const over = (t: number) => Math.max(0, (t - tL) / (1 - tL));
+  return {
+    tL,
+    over,
+    at(t: number, v: THREE.Vector3) {
+      const s = over(t), e = s * s * (3 - 2 * s);
+      return v.set(foot.x + (top.x - foot.x) * e, foot.y + (top.y - foot.y) * t, foot.z + (top.z - foot.z) * e);
+    },
+  };
+}
+/** a riser's centre and reach (its radius and `move`, how far its shader moves it) at 41 heights: x, y, z, reach (m) */
+function sampleRiser(path: ReturnType<typeof riser>, rad: (t: number) => number, move: (t: number) => number): number[] {
+  const out: number[] = [], v = new THREE.Vector3();
+  for (let k = 0; k <= 40; k++) {
+    path.at(k / 40, v);
+    out.push(v.x, v.y, v.z, rad(k / 40) + move(k / 40));
+  }
+  return out;
+}
+/**
+ * A fall's radius through the houses (m) and how clear of every house its foot stands (m): the radius, its ripple (1.1), a floating house's
+ * lean and give at its walls (4) and a margin. A column of lava's, with its throb (2.2).
+ */
+const FALL_R = 4.2;
+const FALL_GAP = FALL_R + 1.1 + 4 + 1.5;
+const COL_R = 4.6;
+const COL_GAP = COL_R + 2.2 + 4 + 1.5;
 
 /** The Sky Wood's island i: its radius and its height (m) */
 const isleR = (i: number) => (i === 0 ? 72 : 32 + 16 * liftSeed(i, 31));
@@ -211,7 +289,7 @@ const HIDE = 'gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return;';
 
 // ---------------------------------------------------------------- Atlantis: the Sky Sea
 
-function atlantisGeo(p: SkyPlace, g: Geo): Built {
+function* atlantisGeo(p: SkyPlace, g: Geo): Steps {
   const [hx, hz] = p.heart, Y = p.ground + SKY_Y;
   const Rl = Math.min(190, Math.max(90, hoodRadius(p) * 0.62));
   const TB = 34, TT = 14;
@@ -236,29 +314,34 @@ function atlantisGeo(p: SkyPlace, g: Geo): Built {
       g.quad(a, a + 1, b + 1, b);
     }
   const belly = (r: number) => Y - TB * Math.sqrt(Math.max(0, 1 - (r / Rl) ** 2));
-  // the falls: the canals pour up from the streets into it, curving in as they rise, twisting (aK.y their seed)
-  const pts = streetPoints(p, 5, Rl * 0.75, 10, 0.35);
-  pts.forEach(([x, z], i) => {
+  // the falls: the canals pour up from the streets into it, waterspouts: a skirt of foam on the street, a narrow rope of water straight up
+  // through the floating houses, and over them a funnel flaring out as it bends in to meet the Sea (aK.y their seed, aK.z the foot, aK.w the top)
+  const pts = streetPoints(p, 5, Rl * 0.75, FALL_GAP, 0.35, SKY_Y - TB - LAYER - 25);
+  const cols: number[][] = [];
+  yield;
+  for (let i = 0; i < pts.length; i++) {
+    const [x, z] = pts[i];
     const gy = p.groundAt(x, z);
     const dx = x - hx, dz = z - hz, d = Math.hypot(dx, dz) || 1;
     const top = new THREE.Vector3(hx + (dx / d) * Math.min(d, Rl) * 0.62, 0, hz + (dz / d) * Math.min(d, Rl) * 0.62);
     top.y = belly(Math.min(d, Rl) * 0.62) + 6;
     const foot = new THREE.Vector3(x, gy - 1, z);
-    const c = new THREE.Vector3(), up = new THREE.Vector3(), c2 = new THREE.Vector3();
-    const at = (t: number, v: THREE.Vector3) => {
-      // (rising straight off the street first, then bending in to the Sea)
-      const e = t * t * (3 - 2 * t);
-      v.set(foot.x + (top.x - foot.x) * e, foot.y + (top.y - foot.y) * t, foot.z + (top.z - foot.z) * e);
-      return v;
+    const path = riser(foot, top);
+    const rad = (t: number) => {
+      const h = (top.y - foot.y) * t, s = path.over(t);
+      return FALL_R + 6 * Math.max(0, 1 - h / 4) + 24 * s * s;
     };
-    g.tube(26, 10, (t) => {
-      at(t, c);
-      at(Math.min(1, t + 0.02), c2);
-      up.copy(c2).sub(at(Math.max(0, t - 0.02), new THREE.Vector3())).normalize();
-      const r = 5.5 - 2.8 * Math.sin(Math.PI * Math.min(1, t * 1.15)) + (8 * Math.max(0, t - 0.85)) / 0.15 + (t < 0.05 ? (0.05 - t) * 110 : 0);
-      return { c: c.clone(), r, up: up.clone() };
+    const c = new THREE.Vector3(), c1 = new THREE.Vector3(), c2 = new THREE.Vector3();
+    g.tube(30, 10, (t) => {
+      path.at(t, c);
+      path.at(Math.min(1, t + 0.02), c2);
+      path.at(Math.max(0, t - 0.02), c1);
+      return { c: c.clone(), r: rad(t), up: c2.clone().sub(c1).normalize() };
     }, [1, liftSeed(i, 21), foot.y, top.y]);
-  });
+    // (its centreline and its reach at 41 heights, the shader's ripple and, over the layer, its sway in: what a check holds the houses to)
+    cols.push(sampleRiser(path, rad, (t) => 1.1 + (path.over(t) > 0 ? 3 : 0)));
+    yield;
+  }
   // two whales: one breaches out of the top, one plunges out of the belly and back, by turns (aK.y which, aK.zw its arc's way on the ground)
   for (let w = 0; w < 2; w++) {
     const a = Math.atan2(p.face[1], p.face[0]) + (w ? 2.2 : 0.5);
@@ -291,7 +374,7 @@ function atlantisGeo(p: SkyPlace, g: Geo): Built {
         g.tri(i0, i2, i1);
       }
   }
-  return { R: Rl, Y, feet: pts };
+  return { R: Rl, Y, feet: pts, cols };
 }
 
 const ATLANTIS_VS = /* glsl */ `
@@ -314,18 +397,21 @@ void main() {
     p.y += 2.0 * sin(uTime * 0.45);
     p.xz += 1.5 * vec2(sin(uTime * 0.3), cos(uTime * 0.37));
   } else if (kind < 1.5) {
-    // a fall: the water climbs up it from the street (aE.x 0..1 along it), and once it's in the Sea it thins to a steady pour
+    // a fall: the water climbs up it from the street (aE.x 0..1 along it), rippling; only over the houses' layer does it sway, so it rises
+    // through them straight, clear of every one
     float rise = sbForm(0.0, 1.8);
     if (aE.x > rise + 0.02) { ${HIDE} }
     float w = sin(aE.y * 6.2832 * 3.0 + uTime * 6.0 + aK.y * 20.0) * 0.6 + sin(aE.x * 30.0 - uTime * 9.0) * 0.5;
     p += n * w;
-    p.xz += vec2(sin(aE.x * 7.0 + uTime * 1.3 + aK.y * 9.0), cos(aE.x * 6.0 + uTime * 1.1)) * 3.0 * sin(3.1416 * aE.x);
+    float ov = smoothstep(${F(LAYER)}, ${F(LAYER)} + 25.0, position.y - aK.z);
+    p.xz += vec2(sin(aE.x * 7.0 + uTime * 1.3 + aK.y * 9.0), cos(aE.x * 6.0 + uTime * 1.1)) * 3.0 * ov;
   } else {
-    // a whale (2) or its foam (3): its arc, 13 s round, the two out of step; out of the top (aK.y 0) or the belly (1)
+    // a whale (2) or its foam (3): its arc, 13 s round, the two half a round apart; out of the top (aK.y 0) or the belly (1). The first, from the
+    // belly, plunges three seconds after the Sea has formed (7-11 s into the wave), the other breaches out of the top at 13.6 s
     float wh = aK.y;
     float P = 13.0;
-    float u = fract((uTime - uSkyT0 - 5.6) / P + (wh > 0.5 ? 0.0 : 0.3));
-    if (uTime < uSkyT0 + 5.6) { ${HIDE} }
+    float u = fract((uTime - uSkyT0 - 5.6) / P + (wh > 0.5 ? 0.967 : 0.467));
+    if (uTime < uSkyT0 + 4.6) { ${HIDE} }
     vec2 dir = aK.zw;
     vec2 side = vec2(-dir.y, dir.x);
     float sgn = wh > 0.5 ? -1.0 : 1.0;
@@ -374,39 +460,44 @@ void main() {
   float ramp = ${R(Ramp.TEAL)}, light = 0.4, glow = 0.12;
   if (kind < 0.5) {
     if (vE.x < 0.0) {
-      // the belly: the sea seen from under it, deep, a net of light wandering over it, schools of fish turning in it, foam at the rim
-      vec2 q = vWorldPos.xz * 0.09;
-      float c1 = sin(q.x + 1.7 * sin(q.y * 0.71 + uTime * 0.6) + uTime * 0.7);
-      float c2 = sin(q.y * 1.13 + 1.6 * sin(q.x * 0.83 - uTime * 0.5) - uTime * 0.65);
-      float e = abs(c1 + c2);
-      light = 0.3 + 0.18 * vE.z;
-      glow = 0.18;
-      if (e < 0.12) { light = 0.66; glow = 0.4; }
-      else if (e < 0.4) light += 0.1;
+      // the belly: the sea seen from under it, deep, the sun's shafts fanning out from its middle and bands of light running out with the swell
+      // (not the bellies' net of light: the houses under it have that), schools of fish turning in it, foam at the rim
       vec2 f = vWorldPos.xz - uSkyC.xz;
       float a = atan(f.y, f.x), r = length(f);
+      float shaft = sbH2(vec2(floor(a * 7.0 + uTime * 0.04 + 0.6 * sin(uTime * 0.13)), 3.0));
+      float band = fract(r * 0.035 - uTime * 0.18 + 0.15 * sin(a * 5.0 + uTime * 0.3));
+      light = 0.2 + 0.16 * (1.0 - vE.z);
+      glow = 0.16;
+      if (shaft > 0.62) { light += 0.12 * (1.0 - vE.z); glow = 0.24; }
+      if (band < 0.1) { light += 0.16; glow = 0.32; }
       vec2 fq = vec2(a * 18.0 - uTime * 0.35, r * 0.14 + 0.8 * sin(a * 3.0 + uTime * 0.2));
       float fish = sbH2(floor(fq * vec2(1.0, 2.0)));
-      if (fish > 0.93 && fract(fq.y * 2.0) < 0.45 && r < uSkyC.w * 0.8) { ramp = ${R(Ramp.TEAL)}; light = 0.08; glow = 0.0; }
+      if (fish > 0.93 && fract(fq.y * 2.0) < 0.45 && r < uSkyC.w * 0.8) { ramp = ${R(Ramp.TEAL)}; light = 0.06; glow = 0.0; }
       if (vE.z > 0.93) { ramp = ${R(Ramp.PEARL)}; light = 0.74; glow = 0.3; }
       else if (vE.z > 0.86 && sbH2(floor(vWorldPos.xz / 3.0)) > 0.5) { ramp = ${R(Ramp.WHITE)}; light = 0.7; glow = 0.2; }
     } else {
-      // the top: open sea in the sun, foam on its crests and at its rim
-      light = sbLit(n) * 0.75 + 0.12;
+      // the top: open sea in the sun, waves running across it, their crests bent by a second set, foam broken along them in streaks (not a
+      // lattice of spots where two straight sets cross), glints, going deep indigo toward its rim (you look into it there), a pearl lip
+      vec2 q = vWorldPos.xz;
+      float w2 = sin(dot(q, vec2(-0.05, 0.11)) - uTime * 0.6);
+      float w1 = sin(dot(q, vec2(0.16, 0.07)) + 1.8 * w2 + 0.9 * sin(dot(q, vec2(0.031, -0.047)) + uTime * 0.2) - uTime * 1.3);
+      light = sbLit(n) * 0.6 + 0.18 + 0.05 * w1 + 0.03 * w2 - 0.2 * smoothstep(0.5, 0.92, vE.z);
       glow = 0.1;
-      float cr = sin(dot(vWorldPos.xz, vec2(0.031, 0.018)) - uTime * 0.7);
-      if (cr > 0.85 && sbH2(floor(vWorldPos.xz / 2.5)) > 0.4) { ramp = ${R(Ramp.WHITE)}; light = 0.82; }
-      if (vE.z > 0.92) { ramp = ${R(Ramp.PEARL)}; light = 0.8; }
+      if (w1 > 0.9 && sbH2(floor(q / vec2(2.0, 2.0)) + floor(w2 * 3.0)) > 0.4) { ramp = ${R(Ramp.WHITE)}; light = 0.84; glow = 0.2; }
+      else if (w1 > 0.7) light += 0.1;
+      float wv = w1;
+      if (wv > 0.2 && sbH2(floor(vWorldPos.xz / 1.5) + floor(uTime * 3.0)) > 0.985) { ramp = ${R(Ramp.WHITE)}; light = 0.95; glow = 0.5; }
+      if (vE.z > 0.95) { ramp = ${R(Ramp.PEARL)}; light = 0.8; }
     }
   } else if (kind < 1.5) {
-    // a fall: water running up it in streaks, lit from inside, flecks of foam racing up, a churn of foam at its foot
+    // a fall: water running up it in streaks, lit from inside, flecks of foam racing up, a churn of foam at its foot, spray where it meets the Sea
     float col = floor(vE.y * 18.0);
     float streak = fract(vE.x * (5.0 + 3.0 * sbH2(vec2(col, vK.y))) - uTime * (0.9 + 0.5 * sbH2(vec2(col, 3.0))) + sbH2(vec2(col, 7.0)));
     light = 0.5 + 0.2 * sbLit(n);
     glow = 0.3;
     if (streak < 0.12) { light = 0.7; glow = 0.4; }
     if (streak < 0.035) { ramp = ${R(Ramp.WHITE)}; light = 0.9; glow = 0.4; }
-    if (vE.x < 0.06 && sbH2(floor(vWorldPos.xz * 0.7) + floor(uTime * 6.0)) > 0.3) { ramp = ${R(Ramp.WHITE)}; light = 0.88; }
+    if ((vWorldPos.y - vK.z < 5.0 || vE.x > 0.9) && sbH2(floor(vWorldPos.xz * 0.7) + floor(vWorldPos.y * 0.7) + floor(uTime * 6.0)) > 0.3) { ramp = ${R(Ramp.WHITE)}; light = 0.88; glow = 0.4; }
   } else if (kind < 2.5) {
     // the whale: a deep back, a pearl belly and fins, barnacle flecks
     float under = vE.x > 0.5 ? 1.0 : smoothstep(0.1, -0.4, sin(vE.y * 6.2832 + 1.57));
@@ -425,13 +516,31 @@ void main() {
 
 // ---------------------------------------------------------------- the Elderwood: the Sky Wood
 
-function elderwoodGeo(p: SkyPlace, g: Geo): Built {
-  const cs = spreadSquares(p, 7);
+/**
+ * The Sky Wood's islands, over the squares farthest apart from the heart: each one's centre, its turf's height, its radius and its rock's
+ * depth (m), the top of the floating houses' layer under it (`floor`: its ground's highest under its rim, plus LAYER) and how far it rises
+ * into place (m). Its rock, its roots and its rise all stay over that floor: an island over a square higher than the heart floats higher.
+ */
+function isles(p: SkyPlace) {
   const Y = p.ground + SKY_Y;
-  cs.forEach(([x, z], i) => {
+  return spreadSquares(p, 7).map(([x, z], i) => {
+    const r = isleR(i), depth = r * 0.55;
+    let g = p.groundAt(x, z);
+    for (let k = 0; k < 8; k++) g = Math.max(g, p.groundAt(x + Math.cos((k * Math.PI) / 4) * r, z + Math.sin((k * Math.PI) / 4) * r));
+    const floor = g + LAYER;
+    // (its rock's crags reach 1.15 of its depth and it breathes 3 m; it rises scaled up from small, so from at most `room` below it clears too)
+    const y = Math.max(isleY(i, Y), floor + depth * 1.15 + 3 + 4);
+    const room = y - floor - 3 - depth * 1.15;
+    return { x, z, y, r, depth, floor, rise: Math.max(0, Math.min(40, room)) };
+  });
+}
+
+function* elderwoodGeo(p: SkyPlace, g: Geo): Steps {
+  const Y = p.ground + SKY_Y;
+  const all = isles(p);
+  for (let i = 0; i < all.length; i++) {
+    const { x, z, y, r, depth, floor } = all[i];
     const heart = i === 0;
-    const r = isleR(i);
-    const y = isleY(i, Y);
     const k = (part: number, a = 0) => [part, i, a, liftSeed(i, 33)];
     // the turf: a domed top with a jagged rim (aE.z its distance out, 0..1)
     const sides = heart ? 22 : 14;
@@ -448,38 +557,40 @@ function elderwoodGeo(p: SkyPlace, g: Geo): Built {
       g.tri(top, ring1[s + 1], ring1[s]);
       g.quad(ring1[s], ring1[s + 1], ring2[s + 1], ring2[s]);
     }
-    // the rock under it: an inverted crag, rings narrowing to a point 1.3 radii down, knobbly (aE.x its depth 0..1)
-    const depth = r * 0.95;
-    let prev = rim.map((rr, s) => [Math.cos((s / sides) * Math.PI * 2) * rr, 0, Math.sin((s / sides) * Math.PI * 2) * rr]);
-    const prevIds = (pts: number[][], t: number) =>
-      pts.concat([pts[0]]).map((q, s) => {
-        const l = Math.hypot(q[0], q[2]) || 1;
-        return g.v(x + q[0], y + q[1], z + q[2], q[0] / l, -0.5, q[2] / l, k(0), [t, s / sides, 0]);
-      });
-    let ids = prevIds(prev, 0);
-    for (let ring = 1; ring <= 4; ring++) {
-      const t = ring / 4;
-      const pts = prev.map((q, s) => {
-        const sh = (1 - t) ** 1.4 * (0.75 + 0.5 * liftSeed(i * 97 + s * 7 + ring, 35));
-        const a = (s / sides) * Math.PI * 2 + 0.2 * ring;
-        return [Math.cos(a) * r * sh, -depth * t * (0.85 + 0.3 * liftSeed(s + ring * 13 + i, 36)), Math.sin(a) * r * sh];
-      });
-      const nid = prevIds(pts, t);
+    // the rock under it: a mesa, its sides stepping in at ledges of strata down to a craggy base, not a point (aE.x its depth 0..1). The
+    // profile: each ring's depth and its radius, as shares
+    const prof = [[0.16, 0.95], [0.22, 0.84], [0.46, 0.79], [0.52, 0.63], [0.76, 0.56], [0.83, 0.38], [1, 0.2]];
+    let ids = rim.concat([rim[0]]).map((rr, s) => {
+      const a = (s / sides) * Math.PI * 2;
+      return g.v(x + Math.cos(a) * rr, y, z + Math.sin(a) * rr, Math.cos(a), -0.3, Math.sin(a), k(0), [0, s / sides, 0]);
+    });
+    prof.forEach(([t, sh], ring) => {
+      const nid: number[] = [];
+      for (let s = 0; s <= sides; s++) {
+        const j = s % sides, a = (j / sides) * Math.PI * 2 + 0.12 * ring;
+        const rr = rim[j] * sh * (0.85 + 0.3 * liftSeed(i * 97 + j * 7 + ring, 35));
+        const dd = depth * t * (0.92 + 0.16 * liftSeed(j + ring * 13 + i, 36));
+        // (a ledge, where it steps in, faces down)
+        const ny = ring % 2 ? -0.8 : -0.25;
+        nid.push(g.v(x + Math.cos(a) * rr, y - dd, z + Math.sin(a) * rr, Math.cos(a), ny, Math.sin(a), k(0), [t, s / sides, 0]));
+      }
       for (let s = 0; s < sides; s++) g.quad(ids[s], nid[s], nid[s + 1], ids[s + 1]);
       ids = nid;
-      prev = pts;
-    }
-    // the roots: glowing, hanging from its belly 30-60 m, swaying (aE.x along 0..1)
-    const nRoots = heart ? 12 : 6;
+    });
+    const base = g.v(x, y - depth * 1.12, z, 0, -1, 0, k(0), [1, 0, 0]);
+    for (let s = 0; s < sides; s++) g.tri(ids[s], base, ids[s + 1]);
+    // the roots: long, thin and glowing, hanging straight from its belly and swaying, never down into the houses' layer (aE.x along 0..1)
+    const nRoots = heart ? 16 : 8;
     for (let j = 0; j < nRoots; j++) {
       const a = (j / nRoots) * Math.PI * 2 + liftSeed(j + i * 20, 37);
-      const r0 = r * (0.25 + 0.45 * liftSeed(j + i * 20, 38));
-      const y0 = y - depth * (1 - r0 / r) * 0.9;
-      const len = (heart ? 30 : 22) + 14 * liftSeed(j + i * 20, 39);
-      const hook = 4 + 6 * liftSeed(j, 40);
-      g.tube(9, 4, (t) => ({
-        c: new THREE.Vector3(x + Math.cos(a) * (r0 + hook * Math.sin(t * 2.2)), y0 - len * t, z + Math.sin(a) * (r0 + hook * Math.sin(t * 2.2))),
-        r: 2.2 * (1 - t * 0.8),
+      const r0 = r * (0.12 + 0.42 * liftSeed(j + i * 20, 38));
+      const y0 = y - depth * (1 - 0.6 * (r0 / r));
+      const len = Math.min(42 + 30 * liftSeed(j + i * 20, 39), y0 - 3 - floor);
+      if (len < 10) continue;
+      const bend = 2 + 3 * liftSeed(j, 40);
+      g.tube(8, 4, (t) => ({
+        c: new THREE.Vector3(x + Math.cos(a) * (r0 + bend * Math.sin(t * 3.1)), y0 - len * t, z + Math.sin(a) * (r0 + bend * Math.sin(t * 3.1))),
+        r: 1.1 * (1 - t * 0.7),
         up: new THREE.Vector3(0, -1, 0),
       }), [6, i, j, liftSeed(j + i * 20, 41)]);
     }
@@ -503,44 +614,53 @@ function elderwoodGeo(p: SkyPlace, g: Geo): Built {
         const off = b ? crown * 0.62 : 0;
         g.blob(cx + Math.cos(q) * off, cy + (b ? -crown * 0.25 : crown * 0.15), cz + Math.sin(q) * off, crown * (b ? 0.62 : 0.85), 0.72, 1, [3, i, b, liftSeed(i * 9 + j * 5 + b, 46)], [0, 0, 0]);
       }
-      for (let f = 0; f < (heart && !j ? 26 : 9); f++) {
+      // (lantern fruit big enough to read gold from the climb)
+      for (let f = 0; f < (heart && !j ? 34 : 14); f++) {
         const q = f * 2.399 + j;
         const rr = crown * (0.7 + 0.5 * liftSeed(f, 47));
-        g.blob(cx + Math.cos(q) * rr, cy - crown * 0.55 - 2 * liftSeed(f, 48), cz + Math.sin(q) * rr, 1.3, 1.4, 0, [4, i, f, liftSeed(f + i * 30, 49)], [0, 0, 0]);
+        g.blob(cx + Math.cos(q) * rr, cy - crown * 0.55 - 2 * liftSeed(f, 48), cz + Math.sin(q) * rr, 2.1, 1.4, 0, [4, i, f, liftSeed(f + i * 30, 49)], [0, 0, 0]);
       }
     }
-    // a ring of rune stones on its turf's edge, leaning, runes glowing on their faces
+    // a ring of standing stones on its turf's edge: tall, tapering to a broken top, leaning, glyphs glowing on their broad faces
     const nStones = heart ? 9 : 5;
     for (let j = 0; j < nStones; j++) {
       const a = (j / nStones) * Math.PI * 2 + 0.3;
       const sx = x + Math.cos(a) * r * 0.72, sz = z + Math.sin(a) * r * 0.72, sy = y + r * 0.03;
-      const w = 3.2, hgt = heart ? 15 : 10, d = 1.8;
+      const w = 3.4, hgt = (heart ? 19 : 13) * (0.85 + 0.3 * liftSeed(j + i * 11, 51)), d = 1.9;
       const ca = Math.cos(a), sa = Math.sin(a), lean = 0.12 * (liftSeed(j + i * 11, 50) - 0.5);
-      const pt = (u: number, v: number, h: number) => [sx + ca * d * u - sa * w * v + ca * lean * h, sy + h, sz + sa * d * u + ca * w * v + sa * lean * h];
-      const face = (q: number[][], nx: number, nz: number, rune: number) => {
-        const ii = q.map((c, m) => g.v(c[0], c[1], c[2], nx, 0, nz, [5, i, j, rune], [m === 1 || m === 2 ? 1 : 0, m >= 2 ? 1 : 0, 0]));
+      // (u across its thickness, v along its face, h up it: it narrows to 0.6 at the top, one shoulder broken lower)
+      const pt = (u: number, v: number, h: number) => {
+        const tp = 1 - 0.4 * (h / hgt), hh = v > 0 ? h : h * 0.86;
+        return [sx + ca * d * u * tp - sa * w * v * tp + ca * lean * hh, sy + hh, sz + sa * d * u * tp + ca * w * v * tp + sa * lean * hh];
+      };
+      const face = (q: number[][], nx: number, ny: number, nz: number, rune: number) => {
+        const ii = q.map((c, m) => g.v(c[0], c[1], c[2], nx, ny, nz, [5, i, j, rune], [m === 1 || m === 2 ? 1 : 0, m >= 2 ? 1 : 0, 0]));
         g.quad(ii[0], ii[1], ii[2], ii[3]);
       };
-      // (its two broad faces carry the runes; the narrow ones and the top are plain)
-      face([pt(1, -1, 0), pt(1, 1, 0), pt(1, 1, hgt), pt(1, -1, hgt * 0.92)], ca, sa, 1);
-      face([pt(-1, 1, 0), pt(-1, -1, 0), pt(-1, -1, hgt * 0.92), pt(-1, 1, hgt)], -ca, -sa, 1);
-      face([pt(-1, -1, 0), pt(1, -1, 0), pt(1, -1, hgt * 0.92), pt(-1, -1, hgt * 0.92)], sa, -ca, 0);
-      face([pt(1, 1, 0), pt(-1, 1, 0), pt(-1, 1, hgt), pt(1, 1, hgt)], -sa, ca, 0);
+      // (its two broad faces carry the glyphs; the narrow ones and the top are plain)
+      face([pt(1, -1, 0), pt(1, 1, 0), pt(1, 1, hgt), pt(1, -1, hgt)], ca, 0, sa, 1);
+      face([pt(-1, 1, 0), pt(-1, -1, 0), pt(-1, -1, hgt), pt(-1, 1, hgt)], -ca, 0, -sa, 1);
+      face([pt(-1, -1, 0), pt(1, -1, 0), pt(1, -1, hgt), pt(-1, -1, hgt)], sa, 0, -ca, 0);
+      face([pt(1, 1, 0), pt(-1, 1, 0), pt(-1, 1, hgt), pt(1, 1, hgt)], -sa, 0, ca, 0);
+      face([pt(1, -1, hgt), pt(1, 1, hgt), pt(-1, 1, hgt), pt(-1, -1, hgt)], 0, 1, 0, 0);
     }
-  });
-  return { R: hoodRadius(p), Y, feet: [] };
+    yield;
+  }
+  return { R: hoodRadius(p), Y, feet: [], cols: [] };
 }
 
 const ELDERWOOD_VS = /* glsl */ `
 ${VS_HEAD}
-uniform vec4 uIsles[7]; // each island's centre x, y, z, and 1 when it's there
+uniform vec4 uIsles[7]; // each island's centre x, y, z, and how far it rises into place (m: isles())
 void main() {
   float kind = aK.x, isle = aK.y;
   vec3 p = position, n = normal;
   vec4 c = uIsles[int(isle + 0.5)];
-  // each island rises out of the haze over the houses, one after another, and then breathes: a slow rise and fall, a slow turn
+  // each island rises into place over the houses, one after another, growing out of the haze as it comes (it never comes down into their
+  // layer), then lets its roots down, and then breathes: a slow rise and fall, a slow turn
   float rise = sbForm(0.4 + isle * 0.35, 3.6 + isle * 0.35);
   if (rise <= 0.0) { ${HIDE} }
+  if (kind > 5.5 && aE.x > sbForm(3.6 + isle * 0.35, 6.0 + isle * 0.35)) { ${HIDE} }
   float e = 1.0 - pow(1.0 - rise, 3.0);
   float br = sin(uTime * 0.52 + isle * 1.9) * 3.0;
   vec3 d = p - c.xyz;
@@ -558,7 +678,7 @@ void main() {
   } else if (kind > 3.5 && kind < 4.5) {
     d.x += sin(uTime * 1.7 + aK.w * 20.0) * 0.5;
   }
-  p = c.xyz + d + vec3(0.0, br - (1.0 - e) * 140.0, 0.0);
+  p = c.xyz + d * (0.15 + 0.85 * e) + vec3(0.0, br - (1.0 - e) * c.w, 0.0);
   ${VS_TAIL}
 }
 `;
@@ -593,20 +713,21 @@ void main() {
   } else if (kind < 3.5) {
     ramp = ${R(Ramp.MOSS)};
     light = 0.2 + 0.5 * lit + 0.08 * (vK.w - 0.5);
-    if (sbH2(floor(vWorldPos.xz / 1.8) + floor(vWorldPos.y / 1.8)) > 0.9) { ramp = ${R(Ramp.VIOLET)}; light = 0.5 + 0.2 * lit; }
+    // (blossom: violet in patches big enough to read from the climb, so it isn't a park's green)
+    if (sbH2(floor(vWorldPos.xz / 5.0) + floor(vWorldPos.y / 5.0)) > 0.74) { ramp = ${R(Ramp.VIOLET)}; light = 0.46 + 0.26 * lit; glow = 0.1; }
   } else if (kind < 4.5) {
     // lantern fruit, glowing gold, pulsing out of step
     ramp = ${R(Ramp.YELLOW)};
     light = 0.78 + 0.14 * sin(uTime * 2.0 + vK.w * 30.0);
     glow = 0.7;
   } else if (kind < 5.5) {
-    // a rune stone: silver stone, its broad faces cut with runes that glow lime, breathing
-    light = 0.24 + 0.42 * lit;
+    // a standing stone: weathered grey-lilac stone, darker than the bark, mottled, its broad faces cut with glyphs that glow lime, breathing
+    light = 0.12 + 0.3 * lit + 0.05 * (sbH2(floor(vWorldPos.xz * 1.5 + vWorldPos.y * 1.5)) - 0.5);
     if (vK.w > 0.5) {
-      vec2 g = floor(vE.xy * vec2(4.0, 7.0));
+      vec2 g = floor(vE.xy * vec2(3.0, 5.0));
       float r = sbH2(g + vK.yz * 3.1);
-      vec2 f = fract(vE.xy * vec2(4.0, 7.0));
-      bool cut = r > 0.45 && (abs(f.x - 0.5) < 0.14 || (r > 0.75 && abs(f.y - 0.5) < 0.12)) && vE.y > 0.08 && vE.y < 0.9 && vE.x > 0.1 && vE.x < 0.9;
+      vec2 f = fract(vE.xy * vec2(3.0, 5.0));
+      bool cut = r > 0.3 && (abs(f.x - 0.5) < 0.16 || (r > 0.6 && abs(f.y - 0.5) < 0.14) || (r > 0.85 && abs(f.x - f.y) < 0.12)) && vE.y > 0.08 && vE.y < 0.88 && vE.x > 0.12 && vE.x < 0.88;
       if (cut) { ramp = ${R(Ramp.MOSS)}; light = 0.8 + 0.12 * sin(uTime * 1.3 + vK.z); glow = 0.55; }
     }
   } else {
@@ -622,7 +743,7 @@ void main() {
 
 // ---------------------------------------------------------------- Hyperglow: the Skyway
 
-function hyperglowGeo(p: SkyPlace, g: Geo): Built {
+function* hyperglowGeo(p: SkyPlace, g: Geo): Steps {
   const [hx, hz] = p.heart, Y = p.ground + SKY_Y;
   const inHood = (x: number, z: number) => p.squares.has(squareKey(Math.floor(x / SQUARE), Math.floor(z / SQUARE)));
   const ends = new Map<string, [number, number, number]>();
@@ -632,7 +753,8 @@ function hyperglowGeo(p: SkyPlace, g: Geo): Built {
     if (e) e[2]++;
     else ends.set(key, [x, z, 1]);
   };
-  // a lane a street's segment: a flat ribbon, aE (across -1..1, its length along the street m, its distance from the heart m)
+  // a lane a street's segment: a ribbon of light with depth, aE (across -1..1, its length along the street m, its distance from the heart m), and
+  // under each edge a glowing side 3 m deep (kind 3)
   for (const { rank, xz } of p.streets) {
     // (a street's lanes 16 m across, a path's 5)
     const W = rank ? 2.5 : 8;
@@ -654,48 +776,42 @@ function hyperglowGeo(p: SkyPlace, g: Geo): Built {
       const i2 = g.v(bx + ex - nx * W, Y, bz + ez - nz * W, 0, 1, 0, kk, [-1, s + len, db]);
       const i3 = g.v(bx + ex + nx * W, Y, bz + ez + nz * W, 0, 1, 0, kk, [1, s + len, db]);
       g.quad(i0, i1, i2, i3);
+      if (!rank)
+        for (const sd of [1, -1]) {
+          const kd = [3, 0, 0, 0];
+          const ox = nx * W * sd, oz = nz * W * sd;
+          const j0 = g.v(ax - ex + ox, Y, az - ez + oz, nx * sd, 0, nz * sd, kd, [sd, s, da]);
+          const j1 = g.v(bx + ex + ox, Y, bz + ez + oz, nx * sd, 0, nz * sd, kd, [sd, s + len, db]);
+          const j2 = g.v(bx + ex + ox, Y - 3, bz + ez + oz, nx * sd, 0, nz * sd, kd, [sd, s + len, db]);
+          const j3 = g.v(ax - ex + ox, Y - 3, az - ez + oz, nx * sd, 0, nz * sd, kd, [sd, s, da]);
+          g.quad(j0, j1, j2, j3);
+        }
       s += len;
       if (!rank && k === 0) node(ax, az);
       if (!rank && k + 4 >= xz.length) node(bx, bz);
     }
   }
-  // the junctions: a diamond of light where streets meet (their ends, met by more than one)
+  // the junctions: a ring of light where streets meet (their ends, met by more than one), aE.xy across it -1..1
   for (const [x, z, c] of ends.values()) {
     if (c < 2) continue;
-    const d = Math.hypot(x - hx, z - hz), r = 14;
-    const ids = [0, 1, 2, 3].map((q) => g.v(x + Math.cos((q * Math.PI) / 2) * r, Y + 0.3, z + Math.sin((q * Math.PI) / 2) * r, 0, 1, 0, [1, 0, 0, 0], [q === 0 || q === 2 ? 1 : -1, 0, d]));
-    g.quad(ids[0], ids[1], ids[2], ids[3]);
+    const d = Math.hypot(x - hx, z - hz), r = 11;
+    const ids = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => g.v(x + u * r, Y + 0.3, z + v * r, 0, 1, 0, [1, 0, 0, 0], [u, v, d]));
+    g.quad(ids[0], ids[3], ids[2], ids[1]);
   }
-  // the neighbourhood's edge, a fence of light along every square side it shares with the outside (aE.x across, aE.y along)
-  for (const key of p.squares) {
-    const ix = squareIx(key), iz = squareIz(key);
-    for (const [ox, oz, x0, z0, x1, z1] of [
-      [1, 0, 1, 0, 1, 1], [-1, 0, 0, 0, 0, 1], [0, 1, 0, 1, 1, 1], [0, -1, 0, 0, 1, 0],
-    ] as const) {
-      if (p.squares.has(squareKey(ix + ox, iz + oz))) continue;
-      const ax = (ix + x0) * SQUARE, az = (iz + z0) * SQUARE, bx = (ix + x1) * SQUARE, bz = (iz + z1) * SQUARE;
-      const d = Math.hypot((ax + bx) / 2 - hx, (az + bz) / 2 - hz);
-      const ids = [
-        g.v(ax, Y - 0.2, az, ox, 0, oz, [2, 0, 0, 0], [0, 0, d]),
-        g.v(bx, Y - 0.2, bz, ox, 0, oz, [2, 0, 0, 0], [0, SQUARE, d]),
-        g.v(bx, Y + 16, bz, ox, 0, oz, [2, 0, 0, 0], [1, SQUARE, d]),
-        g.v(ax, Y + 16, az, ox, 0, oz, [2, 0, 0, 0], [1, 0, d]),
-      ];
-      g.quad(ids[0], ids[1], ids[2], ids[3]);
-    }
-  }
-  return { R: hoodRadius(p), Y, feet: [] };
+  // (no fence round the neighbourhood's edge: from a kilometre it framed the Skyway like a selection box)
+  return { R: hoodRadius(p), Y, feet: [], cols: [] };
 }
 
-/** Hyperglow's beat (s): the Skyway snaps out on it, the houses turn on it (Lift.ts, liftGlsl's sbYawAt). */
-export const HYPER_BEAT = 0.5;
+/** Hyperglow's beat (s): the Skyway snaps out on it and pulses on it, the houses turn on it (liftGlsl's LIFT_TURN, sbYawAt), on the same clock. */
+const HYPER_BEAT = LIFT_TURN.beat;
 
 const HYPERGLOW_VS = /* glsl */ `
 ${VS_HEAD}
 void main() {
   vec3 p = position, n = normal;
-  // it snaps out from the heart on the beat, 70 m a beat, each lane the moment the front passes its nearer end
-  float beats = floor((uTime - uSkyT0 - 0.8) / ${F(HYPER_BEAT)});
+  // it snaps out from the heart on the beat, 70 m a beat, each lane the moment the front passes its nearer end: the game clock's beats, the ones
+  // the houses snap round on, from the first after the wave's start
+  float beats = floor(uTime / ${F(HYPER_BEAT)}) - ceil((uSkyT0 + 0.8) / ${F(HYPER_BEAT)});
   if (beats < 0.0 || beats * 70.0 < aE.z) { ${HIDE} }
   ${VS_TAIL}
 }
@@ -708,9 +824,11 @@ void main() {
   vec3 n = vec3(0.0, 1.0, 0.0);
   float fog = sbFog(vWorldPos);
   float ramp = ${R(Ramp.CYAN)}, light = 0.66, glow = 0.55;
-  float beats = (uTime - uSkyT0 - 0.8) / ${F(HYPER_BEAT)};
+  float beats = uTime / ${F(HYPER_BEAT)} - ceil((uSkyT0 + 0.8) / ${F(HYPER_BEAT)});
   // (the beat's flash as the front passes, a tick of white-hot then the lane's own light)
   float since = beats - vE.z / 70.0;
+  // (and on every beat after, a pulse running out from the heart along every lane at once, 400 m a second)
+  bool pulseB = abs(vE.z - fract(beats) * 200.0) < 4.0;
   if (kind < 0.5) {
     float ac = abs(vE.x);
     if (vK.y > 0.5) { ramp = ${R(Ramp.MAGENTA)}; light = 0.7; glow = 0.5; }
@@ -723,19 +841,24 @@ void main() {
       glow = mark ? 0.65 : 0.4;
       float pulse = fract((vE.y + (vE.x > 0.0 ? -1.0 : 1.0) * uTime * 45.0) / 70.0);
       if (pulse < 0.12 && ac > 0.33) { ramp = vE.x > 0.0 ? ${R(Ramp.CYAN)} : ${R(Ramp.MAGENTA)}; light = 0.95; glow = 0.8; }
+      if (pulseB) { ramp = ${R(Ramp.CHROME)}; light = 0.95; glow = 0.85; }
     }
   } else if (kind < 1.5) {
+    // a junction: a ring of light, beating
+    float r = length(vE.xy);
+    if (r > 1.0 || r < 0.62) discard;
     ramp = ${R(Ramp.MAGENTA)};
     light = 0.8 + 0.12 * step(0.5, fract(uTime / ${F(HYPER_BEAT)} * 0.5));
     glow = 0.7;
   } else {
-    // the fence: scanlines rising, a glitch now and then
+    // a lane's side: its glow falling off down it, broken up into a dither at the bottom; the beat's pulse runs along it too
+    float v = (uSkyC.y - vWorldPos.y) / 3.0;
     ramp = ${R(Ramp.MAGENTA)};
-    float sl = fract(vE.x * 6.0 - uTime * 1.5);
-    light = 0.5 + (sl < 0.3 ? 0.35 : 0.0) * (1.0 - vE.x);
-    glow = 0.45 * (1.0 - vE.x * 0.6);
-    if (vE.x > 0.55 && sl > 0.3) discard;
-    if (sbH2(vec2(floor(vE.y / 8.0), floor(uTime * 8.0))) > 0.985) { ramp = ${R(Ramp.CYAN)}; light = 0.9; }
+    light = 0.86 - 0.36 * v;
+    glow = 0.6 - 0.3 * v;
+    if (v > 0.55 && mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0) > 0.5) discard;
+    if (pulseB) { ramp = ${R(Ramp.CHROME)}; light = 0.95; glow = 0.85; }
+    n = normalize(vN);
   }
   if (since >= 0.0 && since < 1.0) { ramp = ${R(Ramp.CHROME)}; light = 0.97; glow = 0.9; }
   sbWrite(ramp, light, fog, glow, mat3(viewMatrix) * n, 0.53, 0.5);
@@ -744,58 +867,54 @@ void main() {
 
 // ---------------------------------------------------------------- Inferno: the Hellmouth
 
-function infernoGeo(p: SkyPlace, g: Geo): Built {
+/** The black sun's radius (m) and how far out its corona's square reaches (in its radii) */
+const RS_ = 60;
+const HALO = 1.85;
+
+function* infernoGeo(p: SkyPlace, g: Geo): Steps {
   const [hx, hz] = p.heart, Y = p.ground + SKY_Y;
-  const RS = 60;
+  const RS = RS_;
   // the black sun (aE: its latitude 0..1, its longitude 0..1)
   g.tube(18, 28, (t) => {
     const lat = Math.PI * t;
     return { c: new THREE.Vector3(hx, Y - RS * Math.cos(lat), hz), r: Math.max(0.01, RS * Math.sin(lat)), up: new THREE.Vector3(0, 1, 0) };
   }, [0]);
-  // the corona: tongues of flame off its limb, each two crossed blades (aK.y its seed; aE.x 0 at its root, 1 at its tip)
-  const n = 90;
-  for (let j = 0; j < n; j++) {
-    const u = liftSeed(j, 61), v = liftSeed(j, 62);
-    const th = Math.acos(1 - 2 * u), ph = v * Math.PI * 2;
-    const d = new THREE.Vector3(Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph));
-    const a = new THREE.Vector3(0, 1, 0).cross(d);
-    if (a.lengthSq() < 1e-4) a.set(1, 0, 0);
-    a.normalize();
-    const b = d.clone().cross(a).normalize();
-    for (const side of [a, b]) {
-      const w = 5 + 4 * liftSeed(j, 63);
-      const r0 = new THREE.Vector3(hx, Y, hz).addScaledVector(d, RS * 0.96);
-      const k = [1, liftSeed(j, 64), d.x, d.z];
-      const i0 = g.v(r0.x + side.x * w, r0.y + side.y * w, r0.z + side.z * w, d.x, d.y, d.z, k, [0, 0, d.y]);
-      const i1 = g.v(r0.x - side.x * w, r0.y - side.y * w, r0.z - side.z * w, d.x, d.y, d.z, k, [0, 1, d.y]);
-      const i2 = g.v(r0.x, r0.y, r0.z, d.x, d.y, d.z, k, [1, 0.5, d.y]);
-      g.tri(i0, i1, i2);
-    }
+  // the corona: one square facing the eye, behind the sun, drawn as an eclipse's ring: a thin gold rim, tongues of flame licking off it, and
+  // stepped crimson halos fading out (aE.xy across it -1..1; its half width is HALO suns' radii)
+  {
+    const ids = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => g.v(hx, Y, hz, 0, 0, 1, [1, 0, 0, 0], [u, v, 0]));
+    g.quad(ids[0], ids[1], ids[2], ids[3]);
   }
-  // the four columns: lava rising from the lake at the street, twisting up into the sun's belly (aE.x along 0..1)
-  const pts = streetPoints(p, 4, 120, 9, 0.8);
-  pts.forEach(([x, z], i) => {
+  // the four columns: lava rising from the lake at the street, flaring there, straight up through the floating houses and over them twisting in
+  // to the sun's belly; once the sun has formed they pour up into it and are gone (aE.x along 0..1)
+  const pts = streetPoints(p, 4, 120, COL_GAP, 0.8, SKY_Y - RS * 0.85 - LAYER - 25);
+  const cols: number[][] = [];
+  yield;
+  for (let i = 0; i < pts.length; i++) {
+    const [x, z] = pts[i];
     const gy = p.groundAt(x, z);
     const dx = x - hx, dz = z - hz, d = Math.hypot(dx, dz) || 1;
     const top = new THREE.Vector3(hx + (dx / d) * 22, Y - RS * 0.85, hz + (dz / d) * 22);
     const foot = new THREE.Vector3(x, gy - 1, z);
-    const sw = (i % 2 ? 1 : -1) * 0.9;
-    const at = (t: number) => {
-      const e = Math.pow(t, 1.6);
-      const tw = Math.sin(t * Math.PI) * 18;
-      const ox = -dz / d, oz = dx / d;
-      return new THREE.Vector3(
-        foot.x + (top.x - foot.x) * e + ox * tw * sw,
-        foot.y + (top.y - foot.y) * t,
-        foot.z + (top.z - foot.z) * e + oz * tw * sw,
-      );
+    const path = riser(foot, top);
+    const sw = (i % 2 ? 1 : -1) * 0.9, ox = -dz / d, oz = dx / d;
+    const at = (t: number, v: THREE.Vector3) => {
+      path.at(t, v);
+      // (its twist, over the layer only)
+      const tw = Math.sin(path.over(t) * Math.PI) * 18 * sw;
+      return v.set(v.x + ox * tw, v.y, v.z + oz * tw);
+    };
+    const rad = (t: number) => {
+      const h = (top.y - foot.y) * t;
+      return COL_R + 9 * Math.max(0, 1 - h / 4) + (t > 0.9 ? (t - 0.9) * 60 : 0);
     };
     g.tube(30, 10, (t) => {
-      const c = at(t), c2 = at(Math.min(1, t + 0.02)), c1 = at(Math.max(0, t - 0.02));
-      const r = 7 - 3 * Math.sin(Math.PI * t) + (t < 0.05 ? (0.05 - t) * 160 : 0) + (t > 0.9 ? (t - 0.9) * 60 : 0);
-      return { c, r, up: c2.sub(c1).normalize() };
+      const c = at(t, new THREE.Vector3()), c2 = at(Math.min(1, t + 0.02), new THREE.Vector3()), c1 = at(Math.max(0, t - 0.02), new THREE.Vector3());
+      return { c, r: rad(t), up: c2.sub(c1).normalize() };
     }, [2, liftSeed(i, 65), foot.y, top.y]);
-  });
+    cols.push(sampleRiser({ ...path, at }, rad, () => 2.2));
+    yield;
+  }
   // embers: chips rising from the lake round the heart and up the columns, and drifting off the sun (aK.y their seed)
   const R0 = hoodRadius(p) * 0.8;
   for (let j = 0; j < 260; j++) {
@@ -829,7 +948,7 @@ function infernoGeo(p: SkyPlace, g: Geo): Built {
       // (wound to face down)
       g.quad(a, b, b + 1, a + 1);
     }
-  return { R: hoodRadius(p), Y, feet: pts };
+  return { R: hoodRadius(p), Y, feet: pts, cols };
 }
 
 const INFERNO_VS = /* glsl */ `
@@ -838,24 +957,26 @@ void main() {
   float kind = aK.x;
   vec3 p = position, n = normal;
   vec3 sc = vec3(uSkyC.x, uSkyC.y, uSkyC.z);
-  // the columns rise first (0-2.4 s), the sun swells out of where they meet (1.8-4 s); it throbs (Inferno throbs) on a slow heartbeat
+  // the columns rise first (0-2.4 s), the sun swells out of where they meet (1.8-4.2 s), its corona flares (2.2-4.6 s) and the columns pour up
+  // into it and are gone (4.4-6.4 s: FACTIONS.md's "fuses into a black sun"); it throbs (Inferno throbs) on a slow heartbeat
   float beat = pow(max(0.0, sin(uTime * 2.4)), 8.0);
-  if (kind < 0.5 || (kind > 0.5 && kind < 1.5)) {
+  if (kind < 0.5) {
     float g = sbForm(1.8, 4.2);
     if (g <= 0.0) { ${HIDE} }
-    float s = g * (1.0 + 0.025 * beat);
-    if (kind > 0.5) {
-      // a tongue: it licks out and back, its tip flickering
-      float fl = 0.55 + 0.45 * sin(uTime * (4.0 + aK.y * 5.0) + aK.y * 40.0) * sin(uTime * 1.7 + aK.y * 13.0);
-      float len = (14.0 + 30.0 * aK.y) * fl * g;
-      vec3 d = normalize(p - sc);
-      p += d * len * aE.x;
-      p += vec3(aK.w, 0.0, -aK.z) * sin(uTime * 3.0 + aK.y * 9.0) * 3.0 * aE.x;
-    }
-    p = sc + (p - sc) * s;
+    p = sc + (p - sc) * g * (1.0 + 0.025 * beat);
+  } else if (kind < 1.5) {
+    // the corona's square: facing the eye, a little behind the sun's middle, growing with it
+    float g = sbForm(2.2, 4.6);
+    if (g <= 0.0) { ${HIDE} }
+    vec3 v = normalize(cameraPosition - sc);
+    vec3 rt = normalize(cross(abs(v.y) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0), v));
+    vec3 up = cross(v, rt);
+    p = sc - v * 6.0 + (rt * aE.x + up * aE.y) * ${F(HALO * RS_)} * g;
+    n = v;
   } else if (kind < 2.5) {
+    // a column: it rises (0-2.4 s), and once the sun has swollen out of where they meet it pours up into it, its foot rising after it
     float rise = sbForm(0.0, 2.4);
-    if (aE.x > rise + 0.02) { ${HIDE} }
+    if (aE.x > rise + 0.02 || aE.x < sbForm(4.4, 6.4) * 1.02 - 0.02) { ${HIDE} }
     float w = sin(aE.y * 6.2832 * 2.0 + uTime * 5.0 + aK.y * 20.0) * 0.5 + sin(aE.x * 25.0 - uTime * 6.0) * 0.6;
     p += n * w * (1.0 + beat);
   } else if (kind < 3.5) {
@@ -899,24 +1020,40 @@ void main() {
     if (c < 0.12) { ramp = ${R(Ramp.CRIMSON)}; light = 0.62 + 0.3 * beat; glow = 0.5 + 0.3 * beat; }
     if (n.y < -0.55) { ramp = ${R(Ramp.CRIMSON)}; light = max(light, 0.3 + 0.2 * beat); glow = max(glow, 0.2); }
   } else if (kind < 1.5) {
-    // a tongue: gold at its root, through orange, to crimson at the tip
-    float t = vE.x;
-    ramp = t < 0.3 ? ${R(Ramp.YELLOW)} : t < 0.65 ? ${R(Ramp.ORANGE)} : ${R(Ramp.CRIMSON)};
-    light = 0.9 - 0.25 * t;
-    glow = 0.8 - 0.4 * t;
+    // the corona, an eclipse's: out from the sun's limb (r in its radii) a thin gold rim, then tongues of flame licking out of it (gold, orange,
+    // crimson), then crimson halos stepping down in light, broken into a dither as they fade
+    float r = length(vE.xy) * ${F(HALO)};
+    float a = atan(vE.y, vE.x);
+    float lick = 0.5 + 0.5 * sin(a * 9.0 + 2.0 * sin(a * 4.0 - uTime * 1.3) + uTime * 2.1) * sin(a * 5.0 - uTime * 1.7 + 1.3);
+    float tip = 1.05 + 0.32 * lick * (0.85 + 0.15 * beat);
+    if (r < 0.98) discard;
+    float dith = mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0);
+    if (r < 1.05) { ramp = ${R(Ramp.YELLOW)}; light = 0.96; glow = 0.9; }
+    else if (r < tip) {
+      float u = (r - 1.05) / max(tip - 1.05, 1e-3);
+      ramp = u < 0.3 ? ${R(Ramp.YELLOW)} : ${R(Ramp.CRIMSON)};
+      light = u < 0.3 ? 0.92 : 0.74 - 0.2 * (u - 0.3);
+      glow = 0.8 - 0.35 * u;
+    } else {
+      float ring = floor((r - 1.05) / 0.14);
+      if (ring > 4.0 || (ring > 2.0 && dith > 0.5) || (ring > 3.0 && mod(floor(gl_FragCoord.x * 0.5) + floor(gl_FragCoord.y), 2.0) > 0.5)) discard;
+      ramp = ${R(Ramp.CRIMSON)};
+      light = 0.66 - 0.1 * ring + 0.08 * beat;
+      glow = 0.42 - 0.08 * ring;
+    }
   } else if (kind < 2.5) {
-    // a column: molten, rushing up, under a broken black crust
+    // a column: molten scarlet, rushing up, gold in its brightest bands, under a broken black crust
     float b = fract(vE.x * 10.0 - uTime * 1.2 + vK.y);
     float crust = sbH2(floor(vec2(vE.y * 7.0 + floor(vE.x * 16.0 - uTime * 1.9) * 0.37, vE.x * 16.0 - uTime * 1.9)));
-    ramp = ${R(Ramp.ORANGE)};
-    light = 0.78 + 0.1 * beat;
+    ramp = ${R(Ramp.CRIMSON)};
+    light = 0.7 + 0.06 * beat;
     glow = 0.6;
     if (b < 0.18) { ramp = ${R(Ramp.YELLOW)}; light = 0.92; glow = 0.8; }
     else if (crust > 0.84) { ramp = ${R(Ramp.OBSIDIAN)}; light = 0.22; glow = 0.0; }
-    else if (crust > 0.62) { ramp = ${R(Ramp.CRIMSON)}; light = 0.66; glow = 0.45; }
+    else if (crust > 0.62) { ramp = ${R(Ramp.CRIMSON)}; light = 0.5; glow = 0.35; }
   } else if (kind < 3.5) {
-    ramp = vK.w > 0.5 ? ${R(Ramp.YELLOW)} : ${R(Ramp.ORANGE)};
-    light = 0.9;
+    ramp = vK.w > 0.5 ? ${R(Ramp.YELLOW)} : ${R(Ramp.CRIMSON)};
+    light = vK.w > 0.5 ? 0.9 : 0.74;
     glow = 0.7;
   } else {
     // the smoke: from under it only; black-violet, lit red from the fire under it, more toward its middle; its edge breaks up into the sky
@@ -931,7 +1068,7 @@ void main() {
     if (red > 0.75) { ramp = ${R(Ramp.CRIMSON)}; light = 0.42 + 0.1 * beat; glow = 0.15; }
     else if (red > 0.55) { ramp = ${R(Ramp.CRIMSON)}; light = 0.3; }
   }
-  sbWrite(ramp, light, fog, glow, mat3(viewMatrix) * n, fract(vK.x * 0.19 + vK.y * 0.5 + 0.13), kind > 0.5 && kind < 1.5 || kind > 2.5 && kind < 3.5 ? 0.5 : 1.0);
+  sbWrite(ramp, light, fog, glow, mat3(viewMatrix) * n, fract(vK.x * 0.19 + vK.y * 0.5 + 0.13), kind > 2.5 && kind < 3.5 ? 0.5 : 1.0);
 }
 `;
 
@@ -941,14 +1078,19 @@ function F(x: number) {
 
 // ---------------------------------------------------------------- the piece
 
+/** A piece's builder: it yields between its parts (an island, a fall, a column), so it's built a part a frame, and returns what Built says. */
+type Steps = Generator<undefined, Built, undefined>;
+
 /** what a piece's builder gives back: its size (m, the shader's uSkyC.w), its height and where anything of it stands on the ground */
 interface Built {
   R: number;
   Y: number;
   feet: Array<[number, number]>;
+  /** each fall's or column's centre and reach at 41 heights (x, y, z, m: sampleRiser), for the checks */
+  cols: number[][];
 }
 
-const PIECES: Record<number, { geo: (p: SkyPlace, g: Geo) => Built; vs: string; fs: string }> = {
+const PIECES: Record<number, { geo: (p: SkyPlace, g: Geo) => Steps; vs: string; fs: string }> = {
   [FACTION_ATLANTIS]: { geo: atlantisGeo, vs: ATLANTIS_VS, fs: ATLANTIS_FS },
   [FACTION_ELDERWOOD]: { geo: elderwoodGeo, vs: ELDERWOOD_VS, fs: ELDERWOOD_FS },
   [FACTION_HYPERGLOW]: { geo: hyperglowGeo, vs: HYPERGLOW_VS, fs: HYPERGLOW_FS },
@@ -969,19 +1111,39 @@ function material(faction: number): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms, side: THREE.DoubleSide, vertexShader: P.vs, fragmentShader: P.fs });
 }
 
-/** The faction's set piece over the place (one mesh, hidden until `start`), or null for a faction with none. */
-export function makeSkyPiece(faction: number, place: SkyPlace): { mesh: THREE.Mesh; tris: number; feet: Array<[number, number]>; start(t: number): void } | null {
+/** A built set piece: its one mesh (hidden until `start`), its triangles, where it stands on the ground and its risers (Built). */
+export interface SkyPiece {
+  mesh: THREE.Mesh;
+  tris: number;
+  feet: Array<[number, number]>;
+  cols: number[][];
+  start(t: number): void;
+}
+
+/**
+ * The faction's set piece over the place, built a part a frame: `step()` builds the next (an island, a fall or a column: a few ms, where the
+ * whole was 120-280 ms in one frame for the Sky Wood) and gives the piece once it's whole. Null for a faction with none.
+ */
+export function makeSkyPiece(faction: number, place: SkyPlace): { step(): SkyPiece | null } | null {
   const P = PIECES[faction];
   if (!P) return null;
   const g = new Geo();
-  const { R: size, Y, feet } = P.geo(place, g);
+  const it = P.geo(place, g);
+  return {
+    step: () => {
+      const r = it.next();
+      return r.done ? finish(faction, place, g, r.value) : null;
+    },
+  };
+}
+
+function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, cols }: Built): SkyPiece {
   const mat = material(faction);
   (mat.uniforms.uSkyC.value as THREE.Vector4).set(place.heart[0], Y, place.heart[1], size);
   if (faction === FACTION_ELDERWOOD) {
-    // (each island's centre, its pieces moved about it: the same order elderwoodGeo built them in)
-    const cs = spreadSquares(place, 7);
+    // (each island's centre, its pieces moved about it, and its rise: the same isles() elderwoodGeo built them from)
     const v = mat.uniforms.uIsles.value as THREE.Vector4[];
-    cs.forEach(([x, z], i) => v[i].set(x, isleY(i, Y), z, 1));
+    isles(place).forEach(({ x, y, z, rise }, i) => v[i].set(x, y, z, rise));
   }
   const mesh = new THREE.Mesh(g.build(), mat);
   mesh.frustumCulled = false;
@@ -990,6 +1152,7 @@ export function makeSkyPiece(faction: number, place: SkyPlace): { mesh: THREE.Me
     mesh,
     tris: g.idx.length / 3,
     feet,
+    cols,
     start: (t: number) => {
       mat.uniforms.uSkyT0.value = t;
     },

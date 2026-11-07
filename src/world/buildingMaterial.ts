@@ -119,6 +119,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       out float vYRest;${lifted(`
       ${GLSL_LIFT}
       flat out float vLift;
+      flat out float vSnap;
       out vec3 vLiftD;`)}
 
       void main() {
@@ -175,8 +176,9 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         vec4 lf = sbLift(idx, vec2(aBld.y, aBld.w), lT2);
         vec3 lp = p;
         p = sbLiftMove(p, baseY, lf, lT2);
-        // (a turning house's walls face where it turned: Hyperglow's)
+        // (a turning house's walls face where it turned, and flash as it snaps: Hyperglow's)
         n = sbYaw(n);
+        vSnap = sbSnapNow;
         vLiftD = p - lp;
         vLift = lf.x;`)}
         vec4 wp = modelMatrix * vec4(p, 1.0);
@@ -227,6 +229,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       in vec3 vViewNormal;
       in float vYRest;${lifted(`
       flat in float vLift;
+      flat in float vSnap;
       in vec3 vLiftD;`)}
       ${GLSL_OUT}
 
@@ -917,7 +920,9 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         if (!gl_FrontFacing) n = -n;
         // the blast's shockwave ring races across the roofs
         float rr, rl, rg;
-        if (sbRing(vWorldPos, n, rr, rl, rg)) { ramp = rr; light = rl; glow = rg; }
+        if (sbRing(vWorldPos, n, rr, rl, rg)) { ramp = rr; light = rl; glow = rg; }${lifted(`
+        // (a Hyperglow house's snap on the beat: its walls flash white-hot and fade over a quarter second)
+        if (vSnap > 0.0) { light = mix(light, 1.0, 0.6 * vSnap); glow = max(glow, 0.7 * vSnap); }`)}
         float sid = fract(bIdx * 0.6180339 + 0.1);
         sbWrite(ramp, light, fog, glow, vViewNormal, sid, 1.0);
       }

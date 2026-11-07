@@ -6,7 +6,7 @@ import { FACTION_ATLANTIS, FACTION_ELDERWOOD, FACTION_HYPERGLOW, FACTION_INFERNO
 import { registerWarm } from '../render/warmup';
 import { DEPTH_FS } from './props/common';
 import { liftUniforms, paintUniforms } from './buildingMaterial';
-import { GLSL_LIFT } from './liftGlsl';
+import { GLSL_LIFT, LIFT_TURN } from './liftGlsl';
 import type { BuildingRef } from './City';
 
 // What the Lift draws besides the houses themselves (docs/specs/factions/LIFT.md, "What's drawn"), one draw: the undersides (one mesh of every
@@ -56,15 +56,13 @@ export function makeCapMaterial(): THREE.ShaderMaterial {
         vec3 p = position;
         // (the paint drips off the edge: it stretches and gives as the house rides the swell, longer as it settles)
         float k = fract(sin(dot(position.xz, vec2(12.9898, 78.233))) * 43758.5453);
-        // (by its owner: water's a little longer, the Elderwood's are roots, hanging at most 35 % of the way to the ground and swaying, Hyperglow's
-        // short beads of light, Inferno's molten and long)
+        // (by its owner: water's a little longer, the Elderwood's are roots, swaying, Hyperglow's short beads of light, Inferno's molten and long;
+        // the other four's never more than 35 % of the way to the ground, so a low house in the swell's trough, leaning, keeps them off it)
         int dfac; float dhue;
         sbOwner(aCap.x, dfac, dhue);
         float dl = aDrip.x * (dfac == ${FACTION_ATLANTIS} ? 1.3 : dfac == ${FACTION_ELDERWOOD} ? 4.5 : dfac == ${FACTION_HYPERGLOW} ? 0.5 : dfac == ${FACTION_INFERNO} ? 1.7 : 1.0);
-        if (dfac == ${FACTION_ELDERWOOD}) {
-          dl = min(dl, 0.35 * lf.x);
-          p.xz += aDrip.yz * (aDrip.x > 0.0 ? 0.6 * sin(1.3 * uTime + 6.2832 * k) : 0.0);
-        }
+        if (dfac == ${FACTION_ATLANTIS} || dfac == ${FACTION_ELDERWOOD} || dfac == ${FACTION_HYPERGLOW} || dfac == ${FACTION_INFERNO}) dl = min(dl, 0.35 * lf.x);
+        if (dfac == ${FACTION_ELDERWOOD}) p.xz += aDrip.yz * (aDrip.x > 0.0 ? 0.6 * sin(1.3 * uTime + 6.2832 * k) : 0.0);
         p.y -= dl * smoothstep(0.0, 1.6, uTime - sbLiftTexel(aCap.x).x) * (0.82 + 0.18 * sin(2.1 * uTime + 6.2832 * k));
         p = sbLiftMove(p, position.y, lf, T2);
         vWorldPos = p;
@@ -95,7 +93,7 @@ export function makeCapMaterial(): THREE.ShaderMaterial {
           // (the other four: a root's lime glow, a bead of cyan light, a molten drop)
           if (fac == ${FACTION_ELDERWOOD}) { sbWrite(${R(Ramp.MOSS)}, 0.72 + 0.1 * rim, fog, 0.45, mat3(viewMatrix) * vec3(vDrip.y, 0.0, vDrip.z), fract(vCap.x * 0.618 + 0.37), 1.0); return; }
           if (fac == ${FACTION_HYPERGLOW}) { sbWrite(${R(Ramp.CYAN)}, 0.86, fog, 0.7, mat3(viewMatrix) * vec3(vDrip.y, 0.0, vDrip.z), fract(vCap.x * 0.618 + 0.37), 0.5); return; }
-          if (fac == ${FACTION_INFERNO}) { sbWrite(${R(Ramp.ORANGE)}, 0.86, fog, 0.7, mat3(viewMatrix) * vec3(vDrip.y, 0.0, vDrip.z), fract(vCap.x * 0.618 + 0.37), 0.5); return; }
+          if (fac == ${FACTION_INFERNO}) { sbWrite(${R(Ramp.CRIMSON)}, 0.74, fog, 0.7, mat3(viewMatrix) * vec3(vDrip.y, 0.0, vDrip.z), fract(vCap.x * 0.618 + 0.37), 0.5); return; }
           sbWrite(body, 0.5 + 0.22 * rim + 0.06 * near, fog, 0.1 + 0.2 * rim, mat3(viewMatrix) * vec3(vDrip.y, 0.0, vDrip.z), fract(vCap.x * 0.618 + 0.37), 1.0);
           return;
         }
@@ -125,18 +123,25 @@ export function makeCapMaterial(): THREE.ShaderMaterial {
           light = e < 0.16 ? 0.7 + 0.12 * near : 0.24 + 0.06 * near;
           glow = e < 0.16 ? 0.4 : 0.04;
         } else if (fac == ${FACTION_HYPERGLOW}) {
-          // dark chrome, ruled in the mirror's cyan grid, a magenta underglow toward its middle
+          // dark chrome, a circuit: ruled in the mirror's cyan grid, a magenta pad in each square, and on every beat a pulse of white running out
+          // along it from the middle (not a disc of magenta: from under them they read as stickers)
           vec2 gq = abs(fract(vWorldPos.xz / 4.0) - 0.5);
           ramp = ${R(Ramp.CHROME)};
-          light = 0.16;
+          light = 0.16 + 0.04 * near;
           glow = 0.05;
-          if (min(gq.x, gq.y) < 0.05) { ramp = ${R(Ramp.CYAN)}; light = 0.7; glow = 0.5; }
-          else if (length(vWorldPos.xz - vCap.yz) < vCap.w * 0.35) { ramp = ${R(Ramp.MAGENTA)}; light = 0.5 + 0.2 * near; glow = 0.4; }
+          float rr = length(vWorldPos.xz - vCap.yz) / max(vCap.w, 1.0);
+          if (min(gq.x, gq.y) > 0.4) { ramp = ${R(Ramp.MAGENTA)}; light = 0.62 + 0.16 * near; glow = 0.45; }
+          else if (min(gq.x, gq.y) < 0.05) {
+            ramp = ${R(Ramp.CYAN)};
+            light = 0.66;
+            glow = 0.45;
+            if (abs(rr - fract(uTime / ${LIFT_TURN.beat.toFixed(3)}) * 1.2) < 0.06) { ramp = ${R(Ramp.CHROME)}; light = 0.96; glow = 0.85; }
+          }
         } else if (fac == ${FACTION_INFERNO}) {
-          // black glass lit from the fire under it: crimson, flickering, the net of the lake's cracks orange
+          // black glass lit from the fire under it: crimson, flickering, the net of the lake's cracks molten scarlet
           float fl = 0.5 + 0.5 * sin(uTime * 7.0 + vCap.x) * sin(uTime * 3.1);
-          ramp = e < 0.16 ? ${R(Ramp.ORANGE)} : ${R(Ramp.CRIMSON)};
-          light = e < 0.16 ? 0.8 : 0.36 + 0.14 * near + 0.08 * fl;
+          ramp = ${R(Ramp.CRIMSON)};
+          light = e < 0.16 ? 0.72 : 0.36 + 0.14 * near + 0.08 * fl;
           glow = e < 0.16 ? 0.6 : 0.2 + 0.15 * near;
         }
         sbWrite(ramp, light, fog, glow, mat3(viewMatrix) * vec3(0.0, -1.0, 0.0), fract(vCap.x * 0.618 + 0.37), 1.0);

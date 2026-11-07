@@ -79,7 +79,8 @@ bool sbLakeOf(int fac, vec3 wp, float flatL, float shore, float sw, float hv, fl
     if (shore < 1.2) { ramp = ${R(Ramp.MAGENTA)}; light = 0.8; glow = 0.6; }
     return true;
   }
-  // Inferno: the lake of fire, floes of black glass drifting on it with the swell, molten gold in the cracks between, the fire throbbing
+  // Inferno: the lake of fire, floes of black glass drifting on it with the swell, molten scarlet between them and gold only in the brightest
+  // cracks (FACTIONS.md's crimson and wine, gold only in the brightest flame: not Rainbow's orange), the fire throbbing
   vec2 p = wp.xz / 10.0 + 0.04 * vec2(uTime, uTime * 0.7) + 0.08 * sw;
   vec2 ip = floor(p), fp = fract(p);
   float f1 = 9.0, f2 = 9.0, open = 0.0;
@@ -96,7 +97,7 @@ bool sbLakeOf(int fac, vec3 wp, float flatL, float shore, float sw, float hv, fl
   ramp = ${R(Ramp.OBSIDIAN)};
   light = 0.16 + 0.1 * sw;
   glow = 0.05;
-  if (open < 0.22 || crack < 0.1) { ramp = ${R(Ramp.ORANGE)}; light = 0.82 + 0.08 * beat; glow = 0.65; }
+  if (open < 0.22 || crack < 0.1) { ramp = ${R(Ramp.CRIMSON)}; light = 0.7 + 0.06 * beat; glow = 0.65; }
   if (crack < 0.05) { ramp = ${R(Ramp.YELLOW)}; light = 0.94; glow = 0.85; }
   else if (open < 0.22 && sbLkH(floor(wp.xz / 4.0) + floor(uTime * 2.0)) > 0.85) { ramp = ${R(Ramp.CRIMSON)}; light = 0.72; }
   float ring = fract(dj / 3.0 - 1.4 * uTime - 0.6 * hv);

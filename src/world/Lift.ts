@@ -7,7 +7,7 @@ import type { RoofSprouts } from './props/sprouts';
 import { liftUniforms } from './buildingMaterial';
 import { LiftField, type FieldHouses } from './LiftField';
 import { makeCapGeometry, makeCapMaterial, makeLiftDepthMaterial, registerLiftWarm, type Centre } from './liftDraw';
-import { makeSkyPiece, registerSkyWarm } from './liftSky';
+import { makeSkyPiece, registerSkyWarm, type SkyPiece } from './liftSky';
 import {
   hoodStart, LAKE_FLOOD, liftAt, liftFaction, liftTurnCode, liftLow, LIFT_NEAR, liftPlace, type LiftNear, liftedOn, liftHeave, liftReach, liftRest, liftSeed, liftTiltReach, LIFT, slowAt, slowmoOn, SLOW_COOLDOWN, SLOW_HIT, SLOW_WAVE, SQUARE, squareIx, squareIz, squareKey, type LiftHooks,
 } from './liftGlsl';
@@ -149,12 +149,14 @@ export class Lift implements LiftHooks, FieldHouses {
   private lowWant = 0;
   private lowFail = 0;
   /** what the QA reads */
-  readonly stats = { scheduled: 0, up: 0, held: 0, cells: 0, capsTris: 0, skyTris: 0, turning: 0 };
+  readonly stats = { scheduled: 0, up: 0, held: 0, cells: 0, capsTris: 0, skyTris: 0, skyMs: 0, skySteps: 0, turning: 0 };
   /** the neighbourhood's streets (its tiles' OpenStreetMap centrelines through its squares), for the sky piece; the tiles they came from */
   private readonly streets: Array<{ rank: number; xz: Float32Array }> = [];
   private readonly streetTiles = new Set<string>();
   /** the faction's sky piece over the heart (liftSky.ts), once its tiles are in; null for Rainbow (its halo isn't built) */
-  private sky: ReturnType<typeof makeSkyPiece> = null;
+  private sky: SkyPiece | null = null;
+  /** the sky piece being built, a part a frame (frame()), from the frame after staging's last */
+  private skyBuild: ReturnType<typeof makeSkyPiece> = null;
 
   constructor(private readonly g: LiftGame) {
     const { city, hoods, hood } = g;
@@ -552,15 +554,16 @@ export class Lift implements LiftHooks, FieldHouses {
     if (this.stageN < list.length) return;
     this.staged = true;
     this.waveList = list;
+    // (the sky piece from the next frame on, a part a frame: not on top of this one's 50 houses, nor the wave's)
     this.buildSky();
   }
 
-  /** The faction's sky piece over the heart, from the neighbourhood's squares, its streets and its houses (liftSky.ts). */
+  /** Starts the faction's sky piece over the heart, from the neighbourhood's squares, its streets and its houses (liftSky.ts): skyStep builds it. */
   private buildSky() {
     const city = this.g.city;
     const [hx, hz] = this.heart;
     const l = Math.hypot(this.g.sun[0], this.g.sun[1]) || 1;
-    this.sky = makeSkyPiece(this.faction, {
+    this.skyBuild = makeSkyPiece(this.faction, {
       heart: [hx, hz],
       ground: city.groundAt(hx, hz),
       squares: this.squares,
@@ -569,9 +572,20 @@ export class Lift implements LiftHooks, FieldHouses {
       groundAt: (x, z) => city.groundAt(x, z),
       clear: (x, z) => this.clearOf(x, z),
     });
-    if (!this.sky) return;
-    this.g.scene.add(this.sky.mesh);
-    this.stats.skyTris = this.sky.tris;
+  }
+  /** One part of the sky piece (a frame's share); once it's whole, it goes in the scene. stats.skyMs is the longest part's ms. */
+  private skyStep() {
+    const t0 = performance.now();
+    const piece = this.skyBuild!.step();
+    this.stats.skyMs = Math.max(this.stats.skyMs, +(performance.now() - t0).toFixed(1));
+    this.stats.skySteps++;
+    if (!piece) return;
+    this.skyBuild = null;
+    this.sky = piece;
+    this.g.scene.add(piece.mesh);
+    this.stats.skyTris = piece.tris;
+    // (the wave can start the frame staging ends, before the piece is whole: it forms from the wave's start all the same)
+    if (this.waveAt >= 0) piece.start(this.waveAt);
   }
 
   /**
@@ -626,10 +640,12 @@ export class Lift implements LiftHooks, FieldHouses {
   }
 
   /**
-   * Hyperglow's turns (liftGlsl's LIFT_TURN): each house of the wave turns on the beat, where its turn can't cut a neighbour floating at its
-   * height (any part of its height and reach) within its own reach of it. Drawn only: the flight sees it unturned.
+   * Hyperglow's turns (liftGlsl's LIFT_TURN): each house of the wave turns on the beat, where its turn can't cut a neighbour at its height (any
+   * part of its height and reach) within its own reach of it: one floating, or one on the ground from its base to its roof, lifted by the Lift
+   * or not. Drawn only: the flight sees it unturned.
    */
   private turns() {
+    const city = this.g.city, near: Array<{ ref: BuildingRef; d: number }> = [];
     for (const { ref } of this.waveList) {
       const i = ref.index;
       if (this.state[i] === ST_GROUND) continue;
@@ -637,9 +653,19 @@ export class Lift implements LiftHooks, FieldHouses {
       let ok = true;
       this.nearEach(ref, ref.rad, (o) => {
         const j = o.index;
-        if (!ok || this.state[j] === ST_GROUND) return;
-        if (o.baseY + this.H[j] - this.margin[j] < hi && o.roofY + this.H[j] + this.margin[j] > lo) ok = false;
+        if (!ok) return;
+        const down = this.state[j] === ST_GROUND;
+        if ((down ? o.baseY : o.baseY + this.H[j] - this.margin[j]) < hi && (down ? o.roofY : o.roofY + this.H[j] + this.margin[j]) > lo) ok = false;
       });
+      // (the buildings it doesn't lift, from the City's index: only for a house still turning, a few dozen once at the wave)
+      if (ok)
+        for (const { ref: o } of city.buildingsWithin(ref.cx, ref.cz, ref.rad + 40, near)) {
+          if (o.index === ref.index || this.refs.has(o.index) || o.baseY >= hi || o.roofY <= lo) continue;
+          if (Math.hypot(Math.max(o.x0 - ref.cx, 0, ref.cx - o.x1), Math.max(o.z0 - ref.cz, 0, ref.cz - o.z1)) < ref.rad) {
+            ok = false;
+            break;
+          }
+        }
       if (!ok) continue;
       this.turn[i] = liftTurnCode(i, ref.area > 700 || ref.roofY - ref.baseY > 24);
       this.writeTexel(i);
@@ -657,8 +683,13 @@ export class Lift implements LiftHooks, FieldHouses {
   frame(renderer: THREE.WebGLRenderer, now: number, dt: number, realDt: number, bus: { x: number; y: number; z: number; ground: number }, cam: THREE.Vector3, fogGone: number) {
     this.now = now;
     this.wall += realDt;
+    let busy = false;
     if (liftedOn && !this.staged && this.tilesWanted.size === 0) this.stage();
-    if (liftedOn && this.staged && this.waveAt < 0 && fogGone >= 0.5) {
+    else if (this.skyBuild) {
+      this.skyStep();
+      busy = true;
+    }
+    if (!busy && liftedOn && this.staged && this.waveAt < 0 && fogGone >= 0.5) {
       this.waveAt = now + 0.6;
       // (placed low ones first, out from the heart, then the rest: a low house keeps its room by its neighbours rising round it, liftPlace. The
       // crouches go by distance whatever the order)
