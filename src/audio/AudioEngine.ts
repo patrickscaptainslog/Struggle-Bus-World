@@ -1,6 +1,7 @@
 import { SoundGraph } from './SoundGraph';
 import { LOOKAHEAD, synthAll, type Kit, type SynthData } from './dsp';
 import { cometBoom, cometLaunch } from './cometSfx';
+import { lobLaunch, lobWhump } from './lobSfx';
 import { audioTune, registerAudioTunables } from './tune';
 
 // Struggle Bus audio: a fully synthesized WebAudio engine (no sample files).
@@ -239,6 +240,18 @@ export class AudioEngine {
   cometBoom(k: number, soft: boolean, moon: boolean): void {
     const g = this.live();
     if (g) cometBoom(g.voiceKit, g.voiceKit.ctx.currentTime + LOOKAHEAD, k, soft, moon);
+  }
+
+  /** The Lob off the mouth (src/audio/lobSfx.ts): a mortar's thunk, and its whistle up and down over its `travel` s. */
+  lobLaunch(travel: number): void {
+    const g = this.live();
+    if (g) lobLaunch(g.voiceKit, g.voiceKit.ctx.currentTime + LOOKAHEAD, travel);
+  }
+
+  /** The Lob's whump where it lands, its sound at most config.lob.boomLate late (k ~ its strength; moon: the thud alone). */
+  lobWhump(k: number, moon: boolean): void {
+    const g = this.live();
+    if (g) lobWhump(g.voiceKit, g.voiceKit.ctx.currentTime + LOOKAHEAD, k, moon);
   }
 
   /** A whole blast blooms: one capped, fast arpeggio of the next chord (count = buildings, hue 0..5, level 1..3). */

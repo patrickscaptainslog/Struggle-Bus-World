@@ -425,9 +425,10 @@ export class PixelPipeline implements WarmPipeline {
   /**
    * The Bomb's ring (src/game/Bomb.ts): where it will land, its whole circle (m), on whatever faces up there, the hero circle's way: in the resolve, a band of
    * paint's colours stippled in as `k` grows (0 = off), wider and a step brighter on each heartbeat (`pulse` 0-1). No decal, no draw, no program of its own.
+   * `dotted`: the Lob's (src/game/Lob.ts), dots of its rows marching round it at their brightest, never under 2 game px across however far off it lies.
    */
-  setBombRing(x: number, z: number, r: number, k: number, pulse: number) {
-    this.bombRing.set(x, z, Math.max(1, r), k);
+  setBombRing(x: number, z: number, r: number, k: number, pulse: number, dotted = false) {
+    this.bombRing.set(x, z, Math.max(1, r), dotted ? -k : k);
     this.bombPulse = pulse;
   }
 
@@ -906,7 +907,7 @@ uniform vec4 uBeamShape; // half width at the lens / at the tip (px), strength, 
 uniform vec4 uHeroShadow;     // hero drop shadow: center xz, underside y (m), ramp steps (0 = off)
 uniform vec4 uHeroShadowAxes; // ...its oval: forward axis xz, half length, half width (m)
 uniform vec4 uHeroCircle;     // the charge's pinwheel around it: charge (0 = off), spin (arms), half length, half width (m)
-uniform vec4 uBombRing;       // the Bomb's ring where it lands: center xz, radius (m), strength (0 = off)
+uniform vec4 uBombRing;       // the Bomb's ring where it lands: center xz, radius (m), strength (0 = off; under 0, the Lob's, dotted)
 uniform float uBombPulse;     // ...its heartbeat, 0-1
 uniform vec3 uBombRows[6];    // ...its six rows of paint: ramp, its step at rest, its brightest
 uniform vec4 uFlash;     // impact flash: buffer uv, strength, white-hot radius (fraction of the height)
@@ -1307,6 +1308,24 @@ void main() {
         vec3 brow = uBombRows[int(mod(floor(bs), 6.0))];
         oRamp = brow.x;
         oStep = min(brow.z, brow.y + floor(1.6 * uBombPulse + 0.5));
+        col = pal(oRamp, oStep);
+      }
+    }
+  }
+  // the Lob's ring where it will land (uBombRing.w under 0): dots of the same rows marching round it at their brightest, its band at least a game pixel
+  // either side however far off it is (a pixel's metres at that depth, uInvProj), so from the roofs a kilometre off it's a dotted oval on the skyline
+  if (uBombRing.w < -0.01 && outlineable && !fogged && !heroRamp) {
+    vec3 cfb = -normalize(vec3(uCamWorld[2].xyz));
+    float dz = depth / max(dot(dir, cfb), 0.05);
+    vec3 Pb = uCamPos + dir * dz;
+    vec2 bq = (Pb.xz - uBombRing.xy) / uBombRing.z;
+    float br = length(bq), bpx = depth * 2.0 * uInvProj[1][1] / uSize.y;
+    if (abs(br - 0.975) < max(0.03, 1.2 * bpx / uBombRing.z) && (mat3(uCamWorld) * octDecode(a.rg)).y > 0.5) {
+      float bn = max(12.0, floor(uBombRing.z * 0.42)), bs = atan(bq.y, bq.x) * 0.159155 * bn - uTime * 1.5;
+      if (fract(bs) < 0.55 && (uBombRing.w < -0.85 || ((int(gl_FragCoord.x) + int(gl_FragCoord.y)) & 1) == 0)) {
+        vec3 brow = uBombRows[int(mod(floor(bs), 6.0))];
+        oRamp = brow.x;
+        oStep = brow.z;
         col = pal(oRamp, oStep);
       }
     }

@@ -12,6 +12,7 @@
 //   third splat, or a still press of 0.6 s   MEGA's face says HOLD (only with MEGA awake, &mega)
 //   third splat, then the first painted building glinting with a full belly under 300 m   HOLD THE BUS STILL / LIFT TO BOMB,
 //                           once (only with the Bomb on, &bomb; a Bomb let go first teaches it)
+//   third splat, then the first Lob's ring with a full belly, the nose up   TAP TO LOB IT / INTO THE RING, once (a Lob thrown first teaches it)
 //
 // The flicks and the look are hidden on purpose: the hint is all the teaching
 // there is, it asks for nothing, and nothing ends it but its own time
@@ -19,7 +20,7 @@
 //
 // No DOM: it reads a frame's facts and leaves what is due in its fields.
 
-export const TAUGHT = { tap: 1, drag: 2, mega: 8, thumbs: 32, aim: 64, bomb: 256 } as const;
+export const TAUGHT = { tap: 1, drag: 2, mega: 8, thumbs: 32, aim: 64, bomb: 256, lob: 1024 } as const;
 
 /** The first run's one mention of the flicks and the look: the gestures are hidden, and this is all the teaching they get. Any thumb flicks, so that comes first; then the bus's lane (Input.busZone):
  *  a touch near the bus or anywhere under it flies it, and one high over it looks (or beside it, which the hint leaves to the thumb to find): just over
@@ -29,6 +30,8 @@ export const hintLines = (aim: boolean): string[] => (aim ? ['FLICK UP FOR GEARS
 export const AIM_LINE = 'HOLD HIGH UP TO AIM';
 /** The Bomb's one hint (SHOTS.md: "before the first Bomb"), in the toast's slot, when a painted building glints, where a Bomb's jump means most. */
 export const BOMB_LINES = ['HOLD THE BUS STILL', 'LIFT TO BOMB'];
+/** The Lob's one hint (src/game/Lob.ts), when its dotted ring first shows: the nose is up already, and a tap now throws it there. */
+export const LOB_LINES = ['TAP TO LOB IT', 'INTO THE RING'];
 
 /** The hint, a beat after the fog has lifted (s). */
 const HINT_AFTER = 0.7;
@@ -50,6 +53,9 @@ export interface CoachFrame {
   /** the Bomb (&bomb): a painted building glints with a full belly, the bus under 300 m over the ground; and a Bomb has been let go this session */
   bombGlint?: boolean;
   bombed?: boolean;
+  /** the Lob's ring shows (the body nose up, a full belly); and a Lob has been thrown this session */
+  lobRing?: boolean;
+  lobbed?: boolean;
 }
 
 export class Coach {
@@ -64,6 +70,8 @@ export class Coach {
   aimHintDue = false;
   /** the same, the Bomb's hint (BOMB_LINES), once ever */
   bombHintDue = false;
+  /** the same, the Lob's (LOB_LINES), once ever */
+  lobHintDue = false;
   /** a bit changed: Controls saves */
   dirty = false;
   private dragT = 0;
@@ -95,6 +103,8 @@ export class Coach {
     this.hintDue = false;
     this.aimHintDue = false;
     this.bombHintDue = false;
+    this.lobHintDue = false;
+    if (f.lobbed) this.learn(TAUGHT.lob);
     if (f.thumb) this.learn(TAUGHT.drag);
     if (f.bombed) this.learn(TAUGHT.bomb);
     if (f.splats > 0) this.learn(TAUGHT.tap);
@@ -134,6 +144,11 @@ export class Coach {
     if (this.bomb && !this.has(TAUGHT.bomb) && f.openingOver && !f.gated && f.splats >= 3 && f.bombGlint) {
       this.learn(TAUGHT.bomb);
       this.bombHintDue = true;
+    }
+    // (after three taps, the first time its ring shows: the nose is up, and a tap now lobs it there)
+    if (!this.has(TAUGHT.lob) && f.openingOver && !f.gated && f.splats >= 3 && f.lobRing) {
+      this.learn(TAUGHT.lob);
+      this.lobHintDue = true;
     }
   }
 }
