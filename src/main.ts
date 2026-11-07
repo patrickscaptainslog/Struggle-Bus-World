@@ -17,7 +17,7 @@ import { crew } from './game/crew';
 import { FACTIONS } from './game/factions';
 import { Aimer, tapOpts, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
-import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blastLayout';
+import { arrival, blastRadiusFor, blobFlight, groundDeadline, makeBlastSpec } from './game/blastLayout';
 import { Input, inputTune } from './game/Input';
 import { Controls } from './game/Controls';
 import { StreetCam } from './game/StreetCam';
@@ -607,6 +607,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const ts = manifest.tileSize;
     const { x, z, r } = b.spec;
     const reach = r * b.spec.reach;
+    // (a Bomb's wide ground is drawn by its deadline, nearest first: at its impact the outer rows aren't down, so a tree there waits for its wave, treesDue)
+    const wide = b.jump > 1 && groundDeadline(r) > 0;
     for (let tz = Math.floor((z - reach) / ts); tz <= Math.floor((z + reach) / ts); tz++)
       for (let tx = Math.floor((x - reach) / ts); tx <= Math.floor((x + reach) / ts); tx++) {
         const key = `${tx},${tz}`;
@@ -618,10 +620,29 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
           const d = Math.hypot(t.x - x, t.z - z);
           if (d > reach || (freshOnly && tf.paintLevel(i) > 0)) continue;
           const g = city.ground.sample(t.x, t.z);
-          if (!g || g.cov < 0.5) continue;
+          if (!g || g.cov < 0.5) {
+            if (wide) treesDue.push({ key, tf, i, x: t.x, z: t.z, at: b.t + arrival(d, r), jump: b.jump });
+            continue;
+          }
           tf.setPaint(i, g.hue, Math.min(3, tf.paintLevel(i) + b.jump), b.t + arrival(d, r), g.faction);
         }
       }
+  };
+  /** A wide Bomb's trees whose ground wasn't drawn at its impact, each painted from the ground under it as its wave reaches it (the ground is drawn
+   *  GroundPaint's WIDE_LEAD ahead of the wave): painted at the impact, 1-52 % of those whose ground ended painted stayed grey (the Bomb's world review) */
+  const treesDue: Array<{ key: string; tf: TreeField; i: number; x: number; z: number; at: number; jump: number }> = [];
+  const paintTreesDue = () => {
+    let k = 0;
+    for (const q of treesDue) {
+      if (simTime + 0.05 < q.at) {
+        treesDue[k++] = q;
+        continue;
+      }
+      if (treeFields.get(q.key) !== q.tf) continue;
+      const g = city.ground.sample(q.x, q.z);
+      if (g && g.cov >= 0.5) q.tf.setPaint(q.i, g.hue, Math.min(3, q.tf.paintLevel(q.i) + q.jump), q.at, g.faction);
+    }
+    treesDue.length = k;
   };
   const bloomHues = [0, 0, 0];
   /** A blast's sparkles: its buildings share a 48-building blast's (about 1,800 at level 3), and none sparkles fewer than SPARKS_MIN */
@@ -1754,6 +1775,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     }
     superFx.update(dt, mouthWorld(), bus.root.matrixWorld);
     city.update(streamCenter, renderer, dt);
+    if (treesDue.length) paintTreesDue();
     spire?.update(city.paint.data, globals.uTime.value);
     // tree LOD by distance from the lens (fog eats far groves anyway; a wider view keeps simple canopies farther)
     lodTimer -= dt;
@@ -2216,12 +2238,19 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
             const g = city.ground.sample(x + dx, z + dz);
             if (g && g.cov >= 0.5) ground++;
           }
-        let trees = 0;
+        // (and the trees standing on painted ground there, which a blast paints)
+        let trees = 0, onPaint = 0;
         for (const [k, list] of treeIndex) {
           const tf = treeFields.get(k);
-          if (tf) for (let i = 0; i < list.length; i++) if (Math.hypot(list[i].x - x, list[i].z - z) < r && tf.paintLevel(i) > 0) trees++;
+          if (tf)
+            for (let i = 0; i < list.length; i++) {
+              if (Math.hypot(list[i].x - x, list[i].z - z) >= r) continue;
+              if (tf.paintLevel(i) > 0) trees++;
+              const g = city.ground.sample(list[i].x, list[i].z);
+              if (g && g.cov >= 0.5) onPaint++;
+            }
         }
-        return { buildings: near.length, painted, groundShare: cells ? ground / cells : 0, paintedTrees: trees, savedTiles: city.ground.tileCount, landed: city.ground.landedCount, queued: city.ground.queued };
+        return { buildings: near.length, painted, groundShare: cells ? ground / cells : 0, paintedTrees: trees, treesOnPaint: onPaint, savedTiles: city.ground.tileCount, landed: city.ground.landedCount, queued: city.ground.queued };
       },
     };
   }
