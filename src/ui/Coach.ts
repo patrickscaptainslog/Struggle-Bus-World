@@ -56,6 +56,8 @@ export interface CoachFrame {
   /** the Lob's ring shows (the body nose up, a full belly); and a Lob has been thrown this session */
   lobRing?: boolean;
   lobbed?: boolean;
+  /** a toast is on screen (the HUD's): a hint of the Bomb's or the Lob's waits for it */
+  toastUp?: boolean;
 }
 
 export class Coach {
@@ -140,13 +142,16 @@ export class Coach {
       this.learn(TAUGHT.mega);
       this.megaDue = true;
     }
+    // (the Bomb's and the Lob's hints wait while another is due or a toast is up: shown over it, one replaced it, and two due in a frame lost the second for
+    // good, learned but never shown)
+    const busy = !!f.toastUp || this.hintDue || this.aimHintDue;
     // (after three taps, the first time a painted building glints with a full belly under 300 m: a Bomb there jumps it two or three stages)
-    if (this.bomb && !this.has(TAUGHT.bomb) && f.openingOver && !f.gated && f.splats >= 3 && f.bombGlint) {
+    if (this.bomb && !this.has(TAUGHT.bomb) && f.openingOver && !f.gated && f.splats >= 3 && f.bombGlint && !busy) {
       this.learn(TAUGHT.bomb);
       this.bombHintDue = true;
     }
     // (after three taps, the first time its ring shows: the nose is up, and a tap now lobs it there)
-    if (!this.has(TAUGHT.lob) && f.openingOver && !f.gated && f.splats >= 3 && f.lobRing) {
+    if (!this.has(TAUGHT.lob) && f.openingOver && !f.gated && f.splats >= 3 && f.lobRing && !busy && !this.bombHintDue) {
       this.learn(TAUGHT.lob);
       this.lobHintDue = true;
     }

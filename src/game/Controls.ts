@@ -347,6 +347,7 @@ export class Controls {
       cf.bombed = this.bombedOnce;
       cf.lobRing = this.lobRing;
       cf.lobbed = this.lobbedOnce;
+      cf.toastUp = hud.toastUp;
       c.frame(dt, cf);
       hud.setCue(c.cue);
       if (c.megaDue) hud.megaHoldCue();
