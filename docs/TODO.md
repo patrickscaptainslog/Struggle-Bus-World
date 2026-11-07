@@ -4,7 +4,7 @@ Tick what you finish, in the commit that finishes it. Add to it when the produce
 
 ## Evening report: the first account (2026-11-06)
 
-Everything is on working branches; nothing went live. The links open after Vercel's sign-in, as before. Two more runs are still going (the Comet and Curb), and this report is updated as each lands.
+Everything is on working branches; nothing went live. The links open after Vercel's sign-in, as before. Curb has landed on its own branch. The Comet is in its last checks, and this report is updated when it lands.
 
 **What to fly**
 - **The shots so far:** https://struggle-bus-world-git-feat-shots-patricks-projects-9ff6e721.vercel.app/?crew&life
@@ -14,12 +14,17 @@ Everything is on working branches; nothing went live. The links open after Verce
   - **School Zone:** flick down from Cruise. The bus hovers, and paint balloons pop out of the roof one by one. Steer sideways to turn on the spot, push to drift forward (it sinks gently toward the roofs), pull to climb at a gentle 15 m/s. Flick up and the balloons burst into a rainbow.
   - Painting a lot at the top level no longer slows everything down: the rooftop gardens keep to a budget. A whole Recess match ran at a 33 ms median frame where it was 50.
 - **The street camera preview**, the bus 4 m over a street on a hill, as Curb will see it: https://struggle-bus-world-git-feat-shots-patricks-projects-9ff6e721.vercel.app/?streetcam&lat=37.754863&lon=-122.428367&heading=85.4&skipintro (`?streetcam=wide` for a wider lens). The streets are bare grey from down there: question 1 below.
+- **Curb, rolling down a street beside the cars**, on its own branch: https://struggle-bus-world-git-feat-curb-patricks-projects-9ff6e721.vercel.app/?life&lat=37.736181&lon=-122.426973&heading=227&skipintro
+  - Flick down for School Zone, then flick down again: the bus arcs onto the street and its wheels touch the road. At Cruise, a push held along a street lands you too (question 9).
+  - Ride beside a car for a second and a half and it takes your colour. Push to roll on to the next one. Your paint trail runs out from under the bus.
+  - Drag high above the bus to one side to look that way, then tap within a second: the house fronts on that side bloom. That's best on the residential street: the same link with `lat=37.732412&lon=-122.388112&heading=305.6`.
+  - Flick up to hop off, or pull back and hold to climb away. Where the road runs out, you lift off after a second.
 
 **What went wrong, or isn't right yet**
 - Nothing ran on a phone. The frame times are this laptop's, shared with other runs.
 - Our own clean-up of a test copy emptied the laptop's shared install twice today. Both times it came back from the laptop's own files, with no download, and one check was rerun. Every brief now has the rule that stops it.
 - School Zone's first commit broke the page on load; the next one fixed it.
-- Curb's road side, the second account's part, isn't ready yet: in today's review the bus rides inside the car it's pacing on half the frames, and your look picks a turn 220 to 600 m on, not the one in front. It's at the top of their list.
+- Curb rides on the second account's road side, and three things there still show: on most streets the bus rides inside the car it's pacing; a look's turn comes up to 600 m later, not at the junction ahead; and where a lane ends the bus stops dead for a second before it lifts off. They're at the top of the other account's list. On the laptop a long frame (0.4 s once, 1.5 s once) came now and then while rolling, with none of Curb's code running long; plain flight gets them too on this shared laptop, so it needs the phone to say. From the street the roads are bare grey, with only your trail on them: question 1.
 - Recess, from today's review of the second account's day ([reviews/recess-life-day-2026-11-06.md](reviews/recess-life-day-2026-11-06.md)): two whole matches ran clean on the laptop, and a match no longer touches your saved city. Five things you'd notice need fixing first: the arrows at the screen's edge point the wrong way for a rival behind you, the match's words cover the clock, rival paint spills onto your buildings, rival shots seem to spray out of your own bus, and rivals stop defending their gods. The parks wake at nine, though Dolores has only one group then and doesn't fill until about half past.
 
 **For the producer, one at a time, each with the studio's pick**
@@ -31,9 +36,10 @@ Everything is on working branches; nothing went live. The links open after Verce
 6. **The Hose coughs when the bus is more than 1.5 km up.** Pick: keep it.
 7. **The floating houses**: in 8 of 192 test weaves at their walls' height the bus ends up inside one. Pick: the houses make way, nudged aside like boats bumped on water.
 8. **Two downloads still wait for your OK**: BBBike's San Francisco map extract, 33,058,412 bytes from download.bbbike.org, for the bus routes; and Amsterdam's and London's road data from Overture's 2026-10-21.0 release, about 44 MB, for their bridges and raised roads. Pick: yes to both.
+9. **Curb: a quick push along a street at Cruise lands you on it**, as it's set now. Pick: only a dive from above the roofs, or School Zone's sink, should land you, so a surge down a street stays a surge. It's one switch.
 
 **What to paste into the other account:**
-> Read `docs/TODO.md` on `feat/earth` from the top. Do today's review first (`docs/reviews/recess-life-day-2026-11-06.md`): B2, M12 and M13 on `feat/life` before anything else, since the first account's Curb flight rides on them; then merge `feat/shots` (hold to aim is pushed, with `HOOKS.md`) and build lock-on for boats and planes; then Recess's six majors. Push your branches when you're confident; `main` stays mine.
+> Read `docs/TODO.md` on `feat/earth` from the top. Do today's review first (`docs/reviews/recess-life-day-2026-11-06.md`): B2, M12 and M13 on `feat/life` before anything else. The first account's Curb flight is pushed on `feat/curb` and rides on them; `docs/specs/shots/CURB.md` there lists its small asks of `src/life` (H1 to H8). Then merge `feat/shots` (hold to aim is pushed, with `HOOKS.md`) and build lock-on for boats and planes; then Recess's six majors. Push your branches when you're confident; `main` stays mine.
 
 ## Evening report: the second account (2026-11-06)
 
@@ -121,7 +127,7 @@ The producer approved the shots redesign whole ("Everything in the doc is excell
 - [ ] Lob, Cloudburst and School Zone. **School Zone is done and pushed** on its own branch, `feat/gears` (1fa8ccf to 3a2b21f, cut from `feat/factions` e0f1dde), reviewed and checked on the GPU: `docs/specs/shots/GEARS.md` there. It merges into `feat/shots` next. Two calls are the producer's: whether pushing forward keeps sinking the bus to the roofs (`config.zone.sink`), and whether it leans 14 degrees spinning on the spot. 1fa8ccf alone throws on page load, and e4d0757 fixes it: don't bisect onto it. Lob and Cloudburst next.
   - **For the second account:** a gear forced from being hit must go through `TurboDrive.shift` or `arrive`; `rung(1)` out of School Zone only reaches Cruise. The balloons in Recess wear the player's own palette, as every breath does.
 - [ ] Sonic Boom, Belly Flop and Waterfall.
-- [ ] Curb: the street camera preview first, then its flight, camera and landing on the second account's road side. **The street camera preview is pushed** with School Zone, on `feat/gears`: `?streetcam&lat=&lon=&heading=&skipintro` sets the bus 4 m over a road, with four streets the cars' own road map picks (GEARS.md, "The street camera preview"). From 4 m up the streets are bare grey, with no kerbs or lines: that's the producer's call on street surfaces.
+- [ ] Curb: the street camera preview first, then its flight, camera and landing on the second account's road side. **The street camera preview is pushed** with School Zone, on `feat/gears`: `?streetcam&lat=&lon=&heading=&skipintro` sets the bus 4 m over a road, with four streets the cars' own road map picks (GEARS.md, "The street camera preview"). From 4 m up the streets are bare grey, with no kerbs or lines: that's the producer's call on street surfaces. **Curb's flight is pushed** on its own branch, `feat/curb` (13f762f to 6e2334d: `feat/gears` 3a2b21f with `feat/life` b65af07 merged), reviewed, checked on the GPU with real touches, looked at from outside and fixed: `docs/specs/shots/CURB.md` there. It merges into `feat/shots` after the Bomb, where the Hose's belly changes move into `Flight.breathClock()`. Its asks of the second account are H1 to H8 in CURB.md; the producer's calls are street surfaces and `config.curb.diveOnly`.
 
 ## Tonight, both accounts (the night of 2026-11-05, Pacific)
 
