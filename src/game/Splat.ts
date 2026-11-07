@@ -4,6 +4,7 @@ import { HUE_COUNT } from '../render/palette';
 import type { City, BuildingRef } from '../world/City';
 import { FACTION_RAINBOW } from './factions';
 import { blastUniforms, ringHue, type GroundJob } from '../world/GroundPaint';
+import type { CometPlan } from './Comet';
 import { arrival, blastRadiusFor, LAYOUT_BANDS, layoutHue, makeBlastSpec, waveMax, wrapHue, type BlastDot, type BlastSpec } from './blastLayout';
 
 // The barf -> blast -> bloom pipeline. Dragon breath: the bus blasts a
@@ -46,6 +47,8 @@ export interface Blast {
   super: SuperTag | null;
   /** ?moon: what it was aimed at (BarfOpts.tag) */
   tag?: unknown;
+  /** a Comet's blast (BarfOpts.comet): its pillar and its late boom are the caller's (src/fx/CometFx.ts) */
+  comet: CometPlan | null;
 }
 
 export interface SplatFx {
@@ -101,6 +104,11 @@ export interface BarfOpts {
   bands?: GroundBands;
   /** ?moon: handed back on the Blast */
   tag?: unknown;
+  /** a Comet's flight (src/game/Comet.ts), handed back on the Blast */
+  comet?: CometPlan;
+  /** > 0: plan the blast only this long (s) before its impact, with what's loaded then (a Comet whose landing's tile wasn't in at the tap). A miss then
+   *  is told through onLateMiss */
+  late?: number;
   /** ?moon: changes the blast before its ground is drawn. False: it draws no ground */
   shape?: (spec: BlastSpec) => boolean;
   /** ?life: a mover it hits (src/life): the blast is in the air at (x, opts.y, z), and paints no building and no ground; `moverFresh`, it took the breath's hue */
@@ -167,9 +175,17 @@ export class Splatter {
   }
   private queue: Scheduled[] = [];
   private pending: PendingBlast[] = [];
+  /** barfs held to be planned later (BarfOpts.late) */
+  private held: Array<{ at: number; x: number; z: number; opts: BarfOpts }> = [];
+  /** A held barf (BarfOpts.late) came down on nothing paintable when it was planned: the caller refunds part of the belly, as for lastMiss. */
+  onLateMiss: (() => void) | null = null;
 
   /** ?moon: the map slid by (dx, dz) (main.ts): a breath on its way lands where it was going, by the new map, on the crater it was for. `moved`: what's been moved already, each once. */
   slide(dx: number, dz: number, moved: Set<object>) {
+    for (const h of this.held) {
+      h.x -= dx;
+      h.z -= dz;
+    }
     for (const p of this.pending) {
       const b = p.blast;
       b.pos.x -= dx;
@@ -240,6 +256,13 @@ export class Splatter {
    */
   barf(x: number, z: number, opts?: BarfOpts): number {
     const S = config.splat;
+    if (opts?.late && opts.late > 0 && (opts.travel ?? S.impactDelay) > opts.late + 0.02) {
+      // (planned later, when what it lands on has loaded: the building is picked then, but a wall's face stays the wall's)
+      const travel = opts.travel ?? S.impactDelay;
+      this.held.push({ at: this.t + travel - opts.late, x, z, opts: { ...opts, travel: opts.late, late: 0, target: opts.exact ? opts.target : undefined } });
+      this.lastMiss = false;
+      return this.t + travel;
+    }
     const city = this.city;
     const paint = city.paint;
     const drop = opts?.drop ?? 0;
@@ -336,7 +359,7 @@ export class Splatter {
     const ground = groundless ? null : city.ground.begin(spec, tImpact);
     this.pending.push({
       at: tImpact, plan, ground, hitStop: hose ? 0 : opts?.hitStop ?? S.hitStopFrames,
-      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, mover: false, afloat, primary, super: opts?.super ?? null, tag: opts?.tag },
+      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, mover: false, afloat, primary, super: opts?.super ?? null, tag: opts?.tag, comet: opts?.comet ?? null },
     });
     if (!stream) this.fx.geyser([pos.clone()], [hue]);
     return tImpact;
@@ -360,7 +383,7 @@ export class Splatter {
     spec.faction = this.faction;
     this.pending.push({
       at: tImpact, plan: [], ground: null, hitStop: hose ? 0 : opts.hitStop ?? S.hitStopFrames,
-      blast: { spec, pos, t: tImpact, count: 1, maxLevel: 1, strength: r / S.blastRadius, dots: [], hose, mover: true, afloat: false, primary: null, super: opts.super ?? null, tag: opts.tag },
+      blast: { spec, pos, t: tImpact, count: 1, maxLevel: 1, strength: r / S.blastRadius, dots: [], hose, mover: true, afloat: false, primary: null, super: opts.super ?? null, tag: opts.tag, comet: opts.comet ?? null },
     });
     this.lastMiss = false;
     return tImpact;
@@ -418,6 +441,16 @@ export class Splatter {
   update(dt: number) {
     this.t += dt;
     const S = config.splat;
+    for (let i = 0; i < this.held.length; ) {
+      const h = this.held[i];
+      if (this.t < h.at) {
+        i++;
+        continue;
+      }
+      this.held.splice(i, 1);
+      this.barf(h.x, h.z, h.opts);
+      if (this.lastMiss) this.onLateMiss?.();
+    }
     for (let i = 0; i < this.misses.length; ) {
       const m = this.misses[i];
       if (this.t < m.at) {
@@ -475,7 +508,7 @@ export class Splatter {
 
   /** Blasts still in flight (their paint isn't applied yet). */
   get inFlight(): number {
-    return this.pending.length;
+    return this.pending.length + this.held.length;
   }
 
   /** Game clock (s), the same clock as globals.uTime. */

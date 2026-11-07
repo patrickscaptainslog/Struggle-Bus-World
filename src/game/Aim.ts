@@ -3,6 +3,7 @@ import { clamp } from './springs';
 import type { City, BuildingRef } from '../world/City';
 import type { Flight } from './Flight';
 import type { BarfOpts, Splatter } from './Splat';
+import { chooseShot, type Comet, type CometPlan } from './Comet';
 
 // Dragon-breath aim. One source of truth: the building that glints is the
 // building a tap hits.
@@ -62,11 +63,17 @@ export interface Shot {
   travel: number;
   /** ?moon: the crater it lands on (src/moon/CraterPaint.ts), which gives the shot its place and its time */
   crater?: unknown;
+  /** a Comet's flight (src/game/Comet.ts): a gear at speed flies it ahead, in view */
+  comet?: CometPlan | null;
 }
 
 /** The barf a tap's shot fires (main.ts's breathe, and tools/feel-sim/loop.ts's tap, so a Node tap is the page's): timed to its flight, at what glints, seen from the bus's height. */
 export function tapOpts(shot: Shot, busY: number): BarfOpts {
-  return { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: busY };
+  const o: BarfOpts = { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: busY };
+  // (a Comet: no ribbon from the mouth, its streak is the jet, and no hit-stop that far off; its tile not in yet, it's planned just before it lands)
+  const c = shot.comet;
+  if (c) Object.assign(o, { stream: true, hitStop: 0, comet: c, late: c.loaded ? 0 : config.comet.late });
+  return o;
 }
 
 const F_CLEAR = 12; // the classic shot drops about this far onto the roofs (m)
@@ -79,6 +86,10 @@ export class Aimer {
   target: BuildingRef | null = null;
   /** ?life: the movers (main.ts sets it under the flag; with none the aim is the street's as it was) */
   life: MoverAim | null = null;
+  /** The Comet (src/game/Comet.ts; main.ts and the probe make it): with a gear at speed it plans the tap's shot, and what glints is its landing */
+  comet: Comet | null = null;
+  private cometPlan: CometPlan | null = null;
+  private readonly cometOut = {} as CometPlan;
   /** the mover this frame's aim takes, and one held by a press, as the building latch is */
   private mover: MoverTarget | null = null;
   private moverLatch: MoverTarget | null = null;
@@ -92,6 +103,8 @@ export class Aimer {
   fx = 0;
   fz = 1;
   private latchRef: BuildingRef | null = null;
+  /** what the aim's own pick glinted last frame (the latch freezes it; the Comet's glint is the Comet's) */
+  private lastAim: BuildingRef | null = null;
   private latchUntil = 0;
   private wasDrag = false;
   private wallRef: BuildingRef | null = null;
@@ -108,6 +121,11 @@ export class Aimer {
   private sa = 0;
 
   constructor(private readonly city: City, private readonly splatter: Splatter) {}
+
+  /** The Comet a tap now fires (planned this frame), or null: the classic shot. */
+  get planned(): CometPlan | null {
+    return this.cometPlan;
+  }
 
   /** A breath can fire right now (Flight.tryBarf's own test). */
   static loaded(f: Flight): boolean {
@@ -288,18 +306,44 @@ export class Aimer {
     const S = config.splat;
     this.t = t;
     this.ready = Aimer.loaded(f);
+    this.cometPlan = null;
     // thumb lifted (to tap): freeze what glints while the bus straightens out under it
-    if (this.wasDrag && !dragging && this.ready && this.lastShown) {
-      this.latchRef = this.lastShown;
+    if (this.wasDrag && !dragging && this.ready && this.lastAim) {
+      this.latchRef = this.lastAim;
       this.latchUntil = t + S.aimLatch;
     }
     if (dragging) this.latchRef = null;
     this.wasDrag = dragging;
     if (!this.ready) {
-      this.target = this.latchRef = this.wallRef = null;
+      this.target = this.latchRef = this.wallRef = this.lastAim = null;
       return this.noteShown(null);
     }
     this.point(f);
+    const own = this.aimOwn(f, t);
+    this.lastAim = own;
+    // the Comet: a gear at speed lands the tap ahead of the bus, in view, and what glints is where it lands. (The aim's own pick above runs on under
+    // it as it always has, so where the Comet stops applying, high up or slowing, the tap is exactly the classic one)
+    const c = this.comet ? this.comet.plan(f, this.fx, this.fz, this.cometOut) : null;
+    if (!c) return this.noteShown(own);
+    this.cometPlan = c;
+    const aim = this.aim;
+    aim.x = c.x;
+    aim.y = c.y;
+    aim.z = c.z;
+    aim.wall = c.wall;
+    aim.drop = c.drop;
+    aim.travel = c.travel;
+    aim.dist = Math.hypot(c.x - f.x, c.z - f.z, f.y - c.y);
+    if (this.life) {
+      this.mover = null;
+      this.life.glint(null);
+    }
+    return this.noteShown(c.target);
+  }
+
+  /** The aim's own pick this frame (update's): the target, held; the latch; a wall in the line of fire; ?life's mover. Returns what it would glint. */
+  private aimOwn(f: Flight, t: number): BuildingRef | null {
+    const S = config.splat;
     const r = this.splatter.pickRadius(this.aim.drop);
     const k = this.aim.drop > 40 ? 1 + this.aim.drop / 150 : 1;
     const hold = Math.min(r, S.aimHold * k);
@@ -308,8 +352,8 @@ export class Aimer {
     // from altitude is wider than the pick radius: the bungee settles a few degrees after the thumb lifts)
     if (this.latchRef && (t >= this.latchUntil || !this.holds(this.latchRef, Math.max(r, S.aimLatchCone * this.horiz), S.aimHoldAlong))) this.latchRef = null;
     this.occlude(this.latchRef ?? this.target);
-    if (this.life) return this.noteShown(this.pickMover(f, t, r));
-    return this.noteShown(this.shown());
+    if (this.life) return this.pickMover(f, t, r);
+    return this.shown();
   }
 
   /**
@@ -367,7 +411,8 @@ export class Aimer {
       return;
     }
     if (!this.ready || this.latchRef) return;
-    const s = this.shown();
+    // (the aim's own: a Comet's glint isn't latched, it's planned again at the tap from where the bus is)
+    const s = this.wallRef ?? this.target;
     if (!s) return;
     this.latchRef = s;
     this.latchUntil = this.t + config.splat.aimLatch;
@@ -381,6 +426,7 @@ export class Aimer {
   /** The building glinting right now (the latch while it holds, else the live target). */
   shown(): BuildingRef | null {
     if (!this.ready) return null;
+    if (this.cometPlan) return this.cometPlan.target;
     // a wall in the line of fire always wins: the jet couldn't get past it
     return this.wallRef ?? this.latchRef ?? this.target;
   }
@@ -395,6 +441,17 @@ export class Aimer {
 
   /** The shot a tap fires now: at the glinting building (call before Flight.tryBarf, between frames), or ?life's glinting mover. */
   fire(f: Flight): Shot {
+    // (the tap's shot is chosen in one place, Comet.ts: the Comet's when a gear is at speed, and the Lob's slot)
+    const lob = this.comet?.lob?.(f) ?? null;
+    if (this.comet && this.cometPlan) {
+      const s = this.comet.shotOf(this.cometPlan);
+      return chooseShot(f, s, s, lob);
+    }
+    return lob ? chooseShot(f, this.fireAim(f), null, lob) : this.fireAim(f);
+  }
+
+  /** The aim's own shot: at the glinting building, or ?life's glinting mover. */
+  private fireAim(f: Flight): Shot {
     if (this.mover) {
       const m = this.mover, shot = this.shotAt(f, null);
       shot.mover = m;

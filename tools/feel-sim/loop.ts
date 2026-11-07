@@ -6,6 +6,7 @@ import { Flight } from '@src/game/Flight';
 import { Splatter } from '@src/game/Splat';
 import { Aimer, tapOpts, type Shot } from '@src/game/Aim';
 import type { TurboDrive } from '@src/game/Turbo';
+import { Comet } from '@src/game/Comet';
 import type { City, BuildingRef } from '@src/world/City';
 
 export interface Ev { t: number; ev: string; [k: string]: unknown }
@@ -43,6 +44,9 @@ export function makeGame(city: City, drive: TurboDrive | null = null): Game {
   };
   const splatter = new Splatter(city, fx as any);
   const aimer = new Aimer(city, splatter);
+  // (the Comet's lens is the caller's: the probe sets its own, tools/controls-sim/s_shots.ts)
+  aimer.comet = new Comet(city, splatter);
+  splatter.onLateMiss = () => (flight.refund = config.splat.missRefund);
   let squashV = 0;
   Object.assign(g, {
     flight, splatter, city, t: 0, events, squash: 1, bellyUi: 1, jetAt: -1, aimer, drive,

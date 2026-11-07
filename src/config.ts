@@ -696,6 +696,55 @@ export const config = {
     superSpent: 4,
   },
 
+  /** The Comet (src/game/Comet.ts, docs/specs/shots/SHOTS.md "The modes", BUILT.md step 3): a tap while a gear drives the bus at `speed` or more flies ahead on
+   *  a shallow arc and lands where the bus will be `pass` s after the impact, in view. Its looks are src/fx/CometFx.ts's. */
+  comet: {
+    /** A gear driving the bus at this or more (m/s): Nonstop engaged, Jet, Turbo 1-3. */
+    speed: 225,
+    /** Its flight after the inhale (s), and its arc's top over its chord (share of the chord). */
+    flight: 0.6,
+    arc: 0.06,
+    /** It lands where the bus will be this long after the impact (s)... */
+    pass: 1.5,
+    /** ...at most this far from the tap (m): config.city.loadRadiusHigh, how far the city loads. */
+    reach: 1900,
+    /** By this frame's lens moved on by the bus's travel to the impact it lands at least this share of the height above the bus; where it doesn't it
+     *  moves out along its line `outStep` m at a time, and where it never does by `reach` the tap is the classic shot. */
+    above: 0.05,
+    outStep: 20,
+    /** A wall standing into the arc less than this many s of the bus's travel ahead of it at the impact is lobbed over: the arc tops out higher, up to
+     *  `arcMax` of the chord. Farther, it takes the Comet on its face. */
+    wallAhead: 0.5,
+    arcMax: 0.3,
+    /** It lands in the middle of a stretch of its way this many s of the bus's travel either side, anchored to the map (s): what glints holds while the
+     *  bus crosses it, so it doesn't strobe at Turbo 3, and a tap lands the same at 30 and 60 fps. */
+    hold: 0.12,
+    /** Its landing's tile isn't in at the tap (the edge of what's loaded): its blast is planned this long before the impact instead (s). */
+    late: 0.2,
+    // ---- its looks (src/fx/CometFx.ts)
+    /** The full show plays on the first Comet in this long (s), the lighter one on the rest. */
+    showEvery: 20,
+    /** The pillar of paint light: height (m), up in `rise` s, gone over `fade` s; the lighter one's height and fade. Its radius at the foot (m). */
+    pillar: 200,
+    pillarLight: 120,
+    rise: 0.35,
+    fade: 2.5,
+    fadeLight: 1.2,
+    pillarRadius: 13,
+    /** Motes in the streak (the lighter one half of them), and in the crown. */
+    motes: 400,
+    crown: 420,
+    /** The bus within this of the pillar's axis (m), under its top: this many drops splat on the lens, run and fade in `dropLife` s (the full show). */
+    lensReach: 40,
+    dropsMin: 8,
+    dropsMax: 14,
+    dropLife: 0.5,
+    /** The boom comes when its sound would reach the bus (m/s, with the bus flying into it); the camera's kick then (m), the lighter one's. */
+    sound: 343,
+    kick: 3.2,
+    kickLight: 1.2,
+  },
+
   facade: {
     /** Tower facades show their columns while a column module is at least this many game pixels wide on screen... */
     colPx: 3,

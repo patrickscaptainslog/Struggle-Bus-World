@@ -241,10 +241,12 @@ for (const r of rows) {
   const gated = isComet && (r.pose === 'wa-floor' || r.pose === 'wa-300' || r.pose === 'dt-floor');
   const v = r.tap.speed;
   if (gated) {
-    const passOk = r.pose === 'wa-300' ? r.pass !== null && r.pass >= 1.3 : r.pose === 'dt-floor' && r.on === 'wall' ? r.ahead >= 0.5 * v : r.pass !== null && r.pass >= 1.3 && r.pass <= 1.7;
+    // (a wall that takes it at the floor, downtown or where Turbo's reach gets there from the Western Addition, at least 0.5 s ahead of the bus at the impact)
+    // (at 300 m the bus may not reach it in the run's 6 s: what's ahead of it at the impact says how long it has)
+    const passOk = r.on === 'wall' ? r.ahead >= 0.5 * v : r.pose === 'wa-300' ? (r.pass ?? r.ahead / Math.max(1, v)) >= 1.3 : r.pass !== null && r.pass >= 1.3 && r.pass <= 1.7;
     ok(r.kind === 'comet', `${r.key}@${r.fps}: a Comet (${r.kind})`);
     ok(r.tImpact !== null && r.tImpact >= 0.6 && r.tImpact <= 0.8, `${r.key}@${r.fps}: lands 0.6-0.8 s after the tap (${r.tImpact})`);
-    ok(passOk, `${r.key}@${r.fps}: passed ${r.pose === 'wa-300' ? 'at least 1.3' : '1.3-1.7'} s after the impact, or a wall 0.5 s ahead downtown (pass ${r.pass}, ahead ${r.ahead}, on ${r.on})`);
+    ok(passOk, `${r.key}@${r.fps}: passed ${r.pose === 'wa-300' ? 'at least 1.3' : '1.3-1.7'} s after the impact, or a wall 0.5 s ahead (pass ${r.pass}, ahead ${r.ahead}, on ${r.on})`);
     ok(r.from <= config.city.loadRadiusHigh + 1, `${r.key}@${r.fps}: within ${config.city.loadRadiusHigh} m of the tap (${r.from})`);
     ok(!!r.impactScreen && r.impactScreen.above >= 0.05 && r.impactScreen.clear, `${r.key}@${r.fps}: at the impact 5 % or more above the bus, clear of the HUD band (${JSON.stringify(r.impactScreen)})`);
     ok(r.painted >= 20 && r.raisedTwo === 0, `${r.key}@${r.fps}: 20 or more buildings, none raised two (${r.painted}, ${r.raisedTwo})`);
