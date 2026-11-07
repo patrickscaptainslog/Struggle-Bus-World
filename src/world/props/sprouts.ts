@@ -283,7 +283,7 @@ SproutV sproutVertex() {
     vec4 lf = sbLift(aLiftB.x, ipos.xz, lT2);
     o.world.y += lf.x + aLiftB.y * lf.y;
     vec3 piv = vec3(lT2.x, lT2.y + lf.x, lT2.z);
-    o.world.xyz = piv + sbTilt(o.world.xyz - piv, lf.zw);
+    o.world.xyz = piv + sbTilt(sbYaw(o.world.xyz - piv), lf.zw);
   }`)}
   }
   return o;

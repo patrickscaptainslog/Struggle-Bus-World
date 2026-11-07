@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FACTION_RAINBOW } from '../game/factions';
+import { FACTION_HYPERGLOW } from '../game/factions';
 import { uploadRect } from '../render/upload';
 import type { BuildingRef, City } from './City';
 import type { HoodsTable } from './hoods';
@@ -7,8 +7,9 @@ import type { RoofSprouts } from './props/sprouts';
 import { liftUniforms } from './buildingMaterial';
 import { LiftField, type FieldHouses } from './LiftField';
 import { makeCapGeometry, makeCapMaterial, makeLiftDepthMaterial, registerLiftWarm, type Centre } from './liftDraw';
+import { makeSkyPiece, registerSkyWarm } from './liftSky';
 import {
-  hoodStart, LAKE_FLOOD, liftAt, liftLow, LIFT_NEAR, liftPlace, type LiftNear, liftedOn, liftHeave, liftReach, liftRest, liftSeed, liftTiltReach, LIFT, slowAt, slowmoOn, SLOW_COOLDOWN, SLOW_HIT, SLOW_WAVE, SQUARE, squareIx, squareIz, squareKey, type LiftHooks,
+  hoodStart, LAKE_FLOOD, liftAt, liftFaction, liftTurnCode, liftLow, LIFT_NEAR, liftPlace, type LiftNear, liftedOn, liftHeave, liftReach, liftRest, liftSeed, liftTiltReach, LIFT, slowAt, slowmoOn, SLOW_COOLDOWN, SLOW_HIT, SLOW_WAVE, SQUARE, squareIx, squareIz, squareKey, type LiftHooks,
 } from './liftGlsl';
 
 // The Lift, the first slice of the stages (docs/specs/factions/LIFT.md; FACTIONS.md section 2, Team Super Rainbow's "4 · Liftoff"): behind ?lift,
@@ -34,6 +35,8 @@ export interface LiftGame {
   /** petals at a jump: a burst and sparkles in the house's hue */
   petals(x: number, y: number, z: number, hue: number, n: number): void;
   sound: { wave(): void; crouch(): void; jump(n: number, hue: number): void; note(i: number, n: number, hue: number): void };
+  /** the sun's way on the ground (x, z) at boot: the side the sky piece faces */
+  sun: [number, number];
 }
 
 const ST_GROUND = 0, ST_PENDING = 1, ST_UP = 2;
@@ -58,6 +61,8 @@ function nearRef(ref: BuildingRef, x: number, z: number): number {
 
 export class Lift implements LiftHooks, FieldHouses {
   readonly name: string;
+  /** whose the neighbourhood is (&lifted=<faction>; Rainbow without), and whose paint on whose lifts */
+  readonly faction = liftFaction;
   /** the heart square's centre (m) */
   readonly heart: [number, number];
   /** the squares' bounds (m): x0, z0, x1, z1 */
@@ -91,6 +96,8 @@ export class Lift implements LiftHooks, FieldHouses {
   private readonly mem: Float32Array;
   private readonly held: Float32Array;
   private readonly fromHit: Uint8Array;
+  /** tLift's first texel's w: a Hyperglow house's turn (liftTurnCode), 0 for none */
+  private readonly turn: Float32Array;
   /** &lifted: the hue a house was staged in (-1: not staged); a tile streaming back in stages it again over the save */
   private readonly stagedHue: Int8Array;
   /** liftable houses of the loaded tiles, by index */
@@ -142,7 +149,12 @@ export class Lift implements LiftHooks, FieldHouses {
   private lowWant = 0;
   private lowFail = 0;
   /** what the QA reads */
-  readonly stats = { scheduled: 0, up: 0, held: 0, cells: 0, capsTris: 0 };
+  readonly stats = { scheduled: 0, up: 0, held: 0, cells: 0, capsTris: 0, skyTris: 0, turning: 0 };
+  /** the neighbourhood's streets (its tiles' OpenStreetMap centrelines through its squares), for the sky piece; the tiles they came from */
+  private readonly streets: Array<{ rank: number; xz: Float32Array }> = [];
+  private readonly streetTiles = new Set<string>();
+  /** the faction's sky piece over the heart (liftSky.ts), once its tiles are in; null for Rainbow (its halo isn't built) */
+  private sky: ReturnType<typeof makeSkyPiece> = null;
 
   constructor(private readonly g: LiftGame) {
     const { city, hoods, hood } = g;
@@ -186,6 +198,7 @@ export class Lift implements LiftHooks, FieldHouses {
     this.mem = new Float32Array(texels * 3);
     this.held = new Float32Array(texels);
     this.fromHit = new Uint8Array(texels);
+    this.turn = new Float32Array(texels);
     // (two texels a house, the second uLiftRows rows down: its crouch start, rest and seed; its centre, ground and heave)
     this.data = new Float32Array(texels * 8);
     this.tex = new THREE.DataTexture(this.data, city.paint.width, city.paint.height * 2, THREE.RGBAFormat, THREE.FloatType);
@@ -229,6 +242,7 @@ export class Lift implements LiftHooks, FieldHouses {
     g.scene.add(this.caps);
     this.depthMaterial = makeLiftDepthMaterial();
     registerLiftWarm(this.depthMaterial);
+    registerSkyWarm(this.faction);
     // (bounds grown past the highest flyer's overshoot and heave: a house 100 m up is never culled)
     city.liftShadow = { rect: this.rect, material: this.depthMaterial, grow: Math.ceil(LIFT.hMax * 1.14 + LIFT.heaveSmall * 1.2 + 2) };
     city.lift = this;
@@ -309,9 +323,19 @@ export class Lift implements LiftHooks, FieldHouses {
   }
 
   /** A tile arrived (main's onTile): its liftable houses, their lakes and undersides; the field there is built again. */
-  tileIn(tx: number, tz: number, refs: BuildingRef[]) {
+  tileIn(tx: number, tz: number, refs: BuildingRef[], streets?: ReadonlyArray<{ rank: number; xz: Float32Array }>) {
     const ts = this.g.city.manifest.tileSize;
     if ((tx + 1) * ts < this.rect[0] || tx * ts > this.rect[2] || (tz + 1) * ts < this.rect[1] || tz * ts > this.rect[3]) return;
+    // (its streets through the squares, once a tile: the sky piece's)
+    if (streets && !this.streetTiles.has(`${tx},${tz}`)) {
+      this.streetTiles.add(`${tx},${tz}`);
+      for (const ln of streets)
+        for (let k = 0; k + 1 < ln.xz.length; k += 2)
+          if (this.squares.has(squareKey(Math.floor(ln.xz[k] / SQUARE), Math.floor(ln.xz[k + 1] / SQUARE)))) {
+            this.streets.push({ rank: ln.rank, xz: ln.xz });
+            break;
+          }
+    }
     let any = false;
     for (const ref of refs) {
       if (!this.liftable(ref)) continue;
@@ -337,7 +361,7 @@ export class Lift implements LiftHooks, FieldHouses {
       this.refs.set(i, ref);
       this.base[i] = ref.baseY;
       // (the save's record came in with the tile over the staging: a staged house keeps its level, hue and faction in the sky)
-      if (this.stagedHue[i] >= 0) this.g.city.paint.stage(i, { faction: FACTION_RAINBOW, color: this.stagedHue[i], level: 3, bloomTime: -1000 });
+      if (this.stagedHue[i] >= 0) this.g.city.paint.stage(i, { faction: this.faction, color: this.stagedHue[i], level: 3, bloomTime: -1000 });
       // (its lake and its underside are its footprint's, the same at every arrival: a tile streaming back in, as a climb's level of detail
       // swaps them, rasters and rebuilds nothing. The first warmcheck after the lake flooded wider had frames of 100-134 ms in the climb)
       if (fresh) {
@@ -400,12 +424,12 @@ export class Lift implements LiftHooks, FieldHouses {
 
   // ------------------------------------------------------------ lifting
 
-  /** Splat's question for a building a blast reaches (0 no, 1 it lifts now, 2 it's lifting or up already): Rainbow on Rainbow, level 3 before the blast. */
+  /** Splat's question for a building a blast reaches (0 no, 1 it lifts now, 2 it's lifting or up already): the Lift's faction on its own, level 3 before the blast. */
   wants(ref: BuildingRef, level: number, faction: number): 0 | 1 | 2 {
     const i = ref.index;
     if (!this.refs.has(i)) return 0;
     if (this.state[i] !== ST_GROUND) return 2;
-    const can = Math.round(level) >= 3 && faction === FACTION_RAINBOW && this.g.city.paint.get(i).faction === FACTION_RAINBOW && this.nUp + this.nPending + this.asked < LIFT.cap;
+    const can = Math.round(level) >= 3 && faction === this.faction && this.g.city.paint.get(i).faction === this.faction && this.nUp + this.nPending + this.asked < LIFT.cap;
     if (can) {
       // (one blast asks for each of its houses before any starts: the cap counts them as they're asked)
       this.asked++;
@@ -478,6 +502,7 @@ export class Lift implements LiftHooks, FieldHouses {
     this.data[o] = this.t0[i];
     this.data[o + 1] = this.H[i];
     this.data[o + 2] = this.seedB[i];
+    this.data[o + 3] = this.turn[i];
     this.data[o2] = this.cx[i];
     this.data[o2 + 1] = this.base[i];
     this.data[o2 + 2] = this.cz[i];
@@ -516,7 +541,7 @@ export class Lift implements LiftHooks, FieldHouses {
         }
       }
       this.stagedHue[ref.index] = pick;
-      city.paint.stage(ref.index, { faction: FACTION_RAINBOW, color: pick, level: 3, bloomTime: -1000 });
+      city.paint.stage(ref.index, { faction: this.faction, color: pick, level: 3, bloomTime: -1000 });
       // (its garden grows already shed: 400 level-3 gardens in full were 2.06 M triangles in the frame before the wave on this laptop, over the
       // floor's 1.5 M. The dome or spire, bunting and turf stand; the petals still burst at the jump)
       this.g.sprouts.shedSet?.add(ref.index);
@@ -526,6 +551,86 @@ export class Lift implements LiftHooks, FieldHouses {
     if (this.stageN < list.length) return;
     this.staged = true;
     this.waveList = list;
+    this.buildSky();
+  }
+
+  /** The faction's sky piece over the heart, from the neighbourhood's squares, its streets and its houses (liftSky.ts). */
+  private buildSky() {
+    const city = this.g.city;
+    const [hx, hz] = this.heart;
+    const l = Math.hypot(this.g.sun[0], this.g.sun[1]) || 1;
+    this.sky = makeSkyPiece(this.faction, {
+      heart: [hx, hz],
+      ground: city.groundAt(hx, hz),
+      squares: this.squares,
+      streets: this.streets,
+      face: [this.g.sun[0] / l, this.g.sun[1] / l],
+      groundAt: (x, z) => city.groundAt(x, z),
+      clear: (x, z) => this.clearOf(x, z),
+    });
+    if (!this.sky) return;
+    this.g.scene.add(this.sky.mesh);
+    this.stats.skyTris = this.sky.tris;
+  }
+
+  /**
+   * QA: where to stand to look up at the sky piece, about `d` m from the heart (the stills' street view): on the neighbourhood's squares, the sun's
+   * side first, turned 10 degrees at a time and moved in or out, until no fall or column stands within 60 m and no grounded building within 30.
+   */
+  skyEye(d: number): [number, number] {
+    const [hx, hz] = this.heart, a0 = Math.atan2(this.g.sun[1], this.g.sun[0]);
+    const feet = this.sky?.feet ?? [];
+    const city = this.g.city;
+    for (const dd of [d, d - 30, d + 30, d - 60, d + 60])
+      for (let k = 0; k < 36; k++) {
+        const a = a0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.1745;
+        const x = hx + Math.cos(a) * dd, z = hz + Math.sin(a) * dd;
+        if (!this.squares.has(squareKey(Math.floor(x / SQUARE), Math.floor(z / SQUARE)))) continue;
+        if (!feet.every(([fx, fz]) => Math.hypot(fx - x, fz - z) > 60)) continue;
+        let open = true;
+        for (let q = 0; q < 17 && open; q++) {
+          const r = q ? (q < 9 ? 15 : 30) : 0, b = (q * Math.PI) / 4;
+          const px = x + Math.cos(b) * r, pz = z + Math.sin(b) * r;
+          if (this.solidAt(px, pz, city.groundAt(px, pz) + 3)) open = false;
+        }
+        if (open) return [x, z];
+      }
+    return [hx + Math.cos(a0) * d, hz + Math.sin(a0) * d];
+  }
+
+  /** How far (x, z) is from the nearest liftable house's footprint bounds (m; 30 when none is that near). */
+  private clearOf(x: number, z: number): number {
+    let d = 30;
+    const r = 30 + this.nearRad;
+    for (let qz = Math.floor((z - r) / NEAR_CELL); qz <= Math.floor((z + r) / NEAR_CELL); qz++)
+      for (let qx = Math.floor((x - r) / NEAR_CELL); qx <= Math.floor((x + r) / NEAR_CELL); qx++)
+        for (const i of this.nearGrid.get(squareKey(qx, qz)) ?? NONE) {
+          const o = this.refs.get(i);
+          if (o) d = Math.min(d, nearRef(o, x, z));
+        }
+    return d;
+  }
+
+  /**
+   * Hyperglow's turns (liftGlsl's LIFT_TURN): each house of the wave turns on the beat, where its turn can't cut a neighbour floating at its
+   * height (any part of its height and reach) within its own reach of it. Drawn only: the flight sees it unturned.
+   */
+  private turns() {
+    for (const { ref } of this.waveList) {
+      const i = ref.index;
+      if (this.state[i] === ST_GROUND) continue;
+      const lo = ref.baseY + this.H[i] - this.margin[i], hi = ref.roofY + this.H[i] + this.margin[i];
+      let ok = true;
+      this.nearEach(ref, ref.rad, (o) => {
+        const j = o.index;
+        if (!ok || this.state[j] === ST_GROUND) return;
+        if (o.baseY + this.H[j] - this.margin[j] < hi && o.roofY + this.H[j] + this.margin[j] > lo) ok = false;
+      });
+      if (!ok) continue;
+      this.turn[i] = liftTurnCode(i, ref.area > 700 || ref.roofY - ref.baseY > 24);
+      this.writeTexel(i);
+      this.stats.turning++;
+    }
   }
   private waveList: Array<{ ref: BuildingRef; d: number }> = [];
   private stageList: Array<{ ref: BuildingRef; d: number }> | null = null;
@@ -546,6 +651,8 @@ export class Lift implements LiftHooks, FieldHouses {
       const low = (r: BuildingRef) => liftLow(liftRest(r.area, r.roofY - r.baseY, r.index), this.margin[r.index]);
       for (const pass of [true, false])
         for (const { ref, d } of this.waveList) if (low(ref) === pass) this.schedule(ref.index, this.waveAt + d / LIFT.wave + LIFT.waveJitter * liftSeed(ref.index, 3), BY_WAVE);
+      if (this.faction === FACTION_HYPERGLOW) this.turns();
+      this.sky?.start(this.waveAt);
       this.g.sound.wave();
     }
     // the wave's slow motion, as its front comes within 150 m of the bus

@@ -7,6 +7,7 @@ import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from './GroundPaint
 import { GLSL_LAKE, GLSL_LIFT, lifted } from './liftGlsl';
 import { liftUniforms, paintUniforms } from './buildingMaterial';
 import { GLSL_FACTION } from '../render/factionLook';
+import { GLSL_LAKE_LOOKS } from './liftLakes';
 
 // Ground: asphalt streets, lighter sidewalks, grey lawns, still water; with OpenStreetMap also pale
 // plazas and park paths, darker woods and garden yards, warm pale sand, dark rail beds, light rock.
@@ -73,6 +74,7 @@ const FS = /* glsl */ `
   uniform float uPaintW;
   ${GLSL_FACTION}
   ${GLSL_LIFT}
+  ${GLSL_LAKE_LOOKS}
   ${GLSL_LAKE}`)}
   in vec3 vWorldPos;
   in vec3 vWorldNormal;

@@ -175,6 +175,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         vec4 lf = sbLift(idx, vec2(aBld.y, aBld.w), lT2);
         vec3 lp = p;
         p = sbLiftMove(p, baseY, lf, lT2);
+        // (a turning house's walls face where it turned: Hyperglow's)
+        n = sbYaw(n);
         vLiftD = p - lp;
         vLift = lf.x;`)}
         vec4 wp = modelMatrix * vec4(p, 1.0);

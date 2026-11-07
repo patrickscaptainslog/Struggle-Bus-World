@@ -47,7 +47,7 @@ import { HeldHour } from './sky/HeldHour';
 import { LiveSky } from './sky/LiveSky';
 import { SkyClock } from './sky/SkyClock';
 import { spanTag } from './sky/Lamps';
-import { hoodStart, liftOn, pickHood } from './world/liftGlsl';
+import { hoodStart, liftedOn, liftFaction, liftOn, pickHood } from './world/liftGlsl';
 import { loadHoods, type HoodsRef, type HoodsTable } from './world/hoods';
 import type { Lift } from './world/Lift';
 
@@ -321,6 +321,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
           jump: (n, hue) => audio.bloomBurst(n, hue, 3),
           note: (i, n, hue) => audio.bloomNote(i, n, hue, 3),
         },
+        sun: [globals.uSunDir.value.x, globals.uSunDir.value.z],
       })
     : null;
   /** what the Lift reads of the bus each frame (one object: no allocation in the loop) */
@@ -339,7 +340,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     }
   };
   city.onTile = ({ tx, tz, terrain, refs }) => {
-    lift?.tileIn(tx, tz, refs);
+    lift?.tileIn(tx, tz, refs, terrain?.streets);
     if (terrain && terrain.trees.length) {
       const list: TreeInstance[] = terrain.trees.map((t) => ({ x: t.x, y: t.y, z: t.z, size: t.size, kind: t.kind }));
       const tf = new TreeField(list);
@@ -681,7 +682,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // colours can be tried on a phone. It is step 1's owner, so whatever it paints is that faction's in every store, through a reload too, until a
   // splat of another's takes it (the tuner's reset clears it all). The street only: the Moon draws no faction yet, so there it does nothing.
   // Without it every splat is Rainbow's, as before.
-  const paintAs = moon ? undefined : FACTIONS.find((f) => f.key === params.get('paintas'));
+  // (?lift&lifted=<faction>: the bus paints as the neighbourhood's faction, so its petals and its breath are that faction's, unless &paintas says)
+  const paintAs = moon ? undefined : FACTIONS.find((f) => f.key === params.get('paintas')) ?? (liftedOn && liftFaction !== FACTIONS[0].id ? FACTIONS[liftFaction - 1] : undefined);
   if (paintAs) {
     splatter.faction = paintAs.id;
     particles.palette = lookOf(paintAs.id).spray;
@@ -1241,7 +1243,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   let skyAsked = !live;
   let firstFrameAt = -1;
 
-  type QA = { sx?: number; sy?: number; holdAt?: number; holdFrames?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null; camAt?: { lat: number; lon: number; h: number; lookLat: number; lookLon: number; lookH: number; hfov?: number } | null; pin?: { x: number; y: number; z: number; heading: number } | null; noSlide?: boolean };
+  type QA = { sx?: number; sy?: number; holdAt?: number; holdFrames?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null; camAt?: { lat?: number; lon?: number; x?: number; z?: number; h: number; lookLat?: number; lookLon?: number; lookX?: number; lookZ?: number; lookH: number; hfov?: number } | null; pin?: { x: number; y: number; z: number; heading: number } | null; noSlide?: boolean };
   /** ?moonland: the view the flight left the bus in, for the moments the rig takes to come over from it. */
   let fromSky: (LandEnter & { t: number }) | null = null;
   // ?earth (docs/specs/earth/EARTHFLIGHT.md, E2): the flight's loop, booted behind the street once it's up, and the join between them (sky/EarthLanding.ts). Until it's up the street pumps its own frames
@@ -1532,8 +1534,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (qa?.camAt) {
       // QA: the lens at a place over the ground, looking at another (?lift's still from the street, under the houses)
       const c = qa.camAt;
-      const [cx, cz] = latLonToLocal(c.lat, c.lon, manifest.origin);
-      const [lx, lz] = latLonToLocal(c.lookLat, c.lookLon, manifest.origin);
+      // (by latitude and longitude, or by the map's own x and z)
+      const [cx, cz] = c.x !== undefined && c.z !== undefined ? [c.x, c.z] : latLonToLocal(c.lat!, c.lon!, manifest.origin);
+      const [lx, lz] = c.lookX !== undefined && c.lookZ !== undefined ? [c.lookX, c.lookZ] : latLonToLocal(c.lookLat!, c.lookLon!, manifest.origin);
       camera.position.set(cx, city.groundAt(cx, cz) + c.h, cz);
       camera.up.set(0, 1, 0);
       camera.lookAt(lx, city.groundAt(lx, lz) + c.lookH, lz);
