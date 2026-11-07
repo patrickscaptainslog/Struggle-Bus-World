@@ -15,6 +15,8 @@
 //   (MEGA is asleep since 2026-11-06: give the url &mega for those two).
 // --crew: the url has ?crew: after the blasts, the faction crest switched through all five by real taps (Atlantis, the Elderwood, Hyperglow, Inferno,
 //   Rainbow), each switch followed by three blasts on a fresh block (levels 1-3, the gardens and crowns in that faction's rows), in view.
+// --comet: after the blasts (and --crew's factions), the shots' step 3 by real taps (CDP): at Jet over the Western Addition a Comet with the full show
+//   (the first) and one with the lighter (the next), its pillar flown through; with --crew in each of the five factions, switched on the crest.
 // --hose: after the blasts, the shots' step 2 by real touches (CDP) over the Western Addition: a tap off the lane, a hold to aim that pours the Hose,
 //   a sweep, the tank run dry, its refill, a second hold taken through the hook (window.__game.holds.add) that fires a homing shot at a point ahead.
 // Wall clock, real GPU (tools/browser.mjs): meaningful on a laptop, not in the cloud's SwiftShader.
@@ -257,6 +259,7 @@ if (street) await run(2);
 let blast = null;
 let crewRun = null;
 let hoseRun = null;
+let cometRun = null;
 if (street) {
 // the climb to the vista (the yoke pulled: sy -1), and a look around up there
 await phase('climb');
@@ -386,6 +389,52 @@ if (opt.crew) {
     crewRun[k].at = at;
   }
 }
+// --comet: a Comet's full show and its lighter one at Jet, by real taps off the lane, in every faction with --crew
+if (opt.comet) {
+  const cdp = await ctx.newCDPSession(page);
+  const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], i) => ({ x, y, id: i + 1, radiusX: 8, radiusY: 8, force: 1 })) });
+  const tapAt = async (x, y) => {
+    await touch('touchStart', [[x, y]]);
+    await page.waitForTimeout(110);
+    await touch('touchEnd', []);
+  };
+  const tapCrest = async (name) => {
+    const b = await page.locator(`[data-hud="${name}"]`).boundingBox({ timeout: 8000 });
+    await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
+    await run(0.3);
+  };
+  cometRun = [];
+  // (the page's first touch runs a long task: one in the lane first, as --hose does)
+  await touch('touchStart', [[196, 760]]);
+  await page.waitForTimeout(60);
+  await touch('touchEnd', []);
+  for (const key of opt.crew ? ['atlantis', 'elderwood', 'hyperglow', 'inferno', 'rainbow'] : [null]) {
+    if (key) {
+      await tapCrest('crew');
+      await tapCrest(`crew-${key}`);
+    }
+    await phase(`comet-${key ?? 'plain'}`);
+    await page.evaluate(() => {
+      const g = window.__game;
+      const [x, z] = window.__ll(37.7756, -122.4655);
+      const y = g.city.groundAt(x, z) + 150;
+      window.__qa = null;
+      Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0, speed: 450 });
+      g.controls.turbo.arrive(3, 0);
+    });
+    await settle();
+    await run(2.5);
+    for (const show of ['full', 'light']) {
+      await page.evaluate(() => window.__game.forceReady());
+      await run(0.4);
+      const before = await page.evaluate(() => window.__game.cometState());
+      await tapAt(300, 300);
+      await run(3.4);
+      const after = await page.evaluate(() => ({ ...window.__game.cometState(), last: window.__game.lastShot() }));
+      cometRun.push({ key, show, planned: !!before.plan, fired: after.fired - before.fired, full: after.full - before.full, booms: after.booms - before.booms, drops: after.drops - before.drops, pillars: after.pillars - before.pillars, gear: after.gear, last: after.last && { comet: !!after.last.comet, reach: after.last.comet?.reach, pass: after.last.comet?.pass } });
+    }
+  }
+}
 // the landmarks from altitude: west of the pyramid at 430 m heading east, then Sutro Tower from the east
 await phase('landmarks');
 await place(37.7952, -122.4130, 430, Math.PI / 2);
@@ -430,6 +479,7 @@ const res = {
   blast,
   crew: crewRun,
   hose: hoseRun,
+  comet: cometRun,
   low: lowRun,
   programsTotal: W.programs.length,
   programsAfterWarmup: after.length,

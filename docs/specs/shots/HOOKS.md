@@ -124,6 +124,15 @@ holds.fire({
 
 A hold nobody takes is the Hose's (`src/game/Hose.ts`). It pours 40 m blasts under the finger from the bus's mouth on a lob (on the sky, or on the city past its 1,500 m reach, it pours as far as it reaches that way; from more than 1,500 m over the ground it coughs), a 3 s tank out of the belly the tap uses, refilling in 3 s once it stops. Every impact calls `life.blast` like a tap's, with `Blast.super` of kind `'hose'`, so movers in its circles are painted. A pour raises each building at most one level. `window.__qa.hoseState()` says what it's doing.
 
+## The Comet (step 3)
+
+A tap while a gear drives the bus at 225 m/s or more (Nonstop engaged, Jet, Turbo 1-3) is a Comet (`src/game/Comet.ts`): it flies ahead on a shallow arc and lands where the bus will be 1.5 s after the impact, in view, at most 1.9 km out. Its blast is a tap's, so `life.blast` hears it with its whole circle as it hears a tap: life needs nothing new. `window.__game.comet` is the Comet, `cometState()` says what a tap would fire now.
+
+- **`comet.clamp`** is Recess's: `comet.clamp = (p) => { ...; return true }` gets the landing (`p.x`, `p.z`, world m) before anything is picked there. Move it inside the 750 m fence in place, or return false for no Comet (the tap is the classic shot). Null, the default, is the city's whole map.
+- **A captain's Comet**: `new Comet(city, splatter)` with `lens` left null (no in-view rule: that's the player's screen), then `plan(captainFlight, fx, fz, out)` with the captain's own `Flight` (a gear at speed in its `turbo.speed`) and its way flat (`fx`, `fz`). It returns a `CometPlan` (where it leaves and lands, the building, its arc, its flight time) or null. Fire it with `splatter.barf(p.x, p.z, tapOpts(comet.shotOf(p), captainFlight.y))` and `cometFx.launch(...)` for its streak, or ask here for a one-line helper.
+- **`comet.lob`** is the Lob's slot (step 7): when it returns a shot and the Comet applies too, the farther landing wins (`chooseShot`).
+- **`cometFx.streakOn`** is Streak's seam (step 5): while it returns true every Comet plays the full show.
+
 ## Not here yet
 
 - The flick's lunge and brake-hop in the white, and the white never shifting a gear (SHOTS.md, "Dodging"): the flight's, so the first account's, and the duel's dodge waits on it. Until then a dodge is a hard turn.
