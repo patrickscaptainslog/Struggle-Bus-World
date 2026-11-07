@@ -5,6 +5,7 @@ import type { City, BuildingRef } from '../world/City';
 import type { Flight } from './Flight';
 import type { Splatter } from './Splat';
 import { Comet, type CometPlan } from './Comet';
+import { inputTune } from './Input';
 
 // The Lob (docs/specs/shots/SHOTS.md, "The modes"; sb-checks' lob plan): "i want a splat where if i am pointed up, i can shoot upwards into the sky and it
 // will land in the distance". A tap with the bus's body as you see it (Flight.pitch) more than config.lob.from up throws the breath off the nose like a mortar:
@@ -14,7 +15,9 @@ import { Comet, type CometPlan } from './Comet';
 //
 // The body latches: lifted, the steering thumb lets the bus level out under the eyes (at Cruise 72 to 41 degrees in 0.2 s), so the body as it was when the
 // steering thumb lifted, or when the tap's finger landed with no steering thumb down, is what a tap throws for config.splat.aimLatch s, as the aim latches
-// what glints. A second thumb's tap, the first still steering, reads it live.
+// what glints; the tap's finger landing inside a latch keeps its body and runs it on aimLatch from there, as the Comet's latch is renewed at the press. A
+// finger that slides past the tap slop commits as a steering thumb, but lifted within inputTune.quickTapMs it's still a tap: for that long the latch it
+// found stays the body a tap throws. A second thumb's tap, the first still steering, reads it live.
 //
 // In view: by the lens moved on by the bus's travel to the impact, it must land config.comet.above of the height over the bus, the Comet's rule; where it
 // doesn't it moves out along its line a stretch at a time, and past config.comet.reach the tap is today's. The landing is the middle of a stretch of its way
@@ -25,11 +28,11 @@ import { Comet, type CometPlan } from './Comet';
 // screen it stays, the bus flying on under it.
 //
 // Its flight is a CometPlan (CometFx draws its arc true): config.lob.flight x sin θ / sin 45 s after the inhale, a parabola leaving the mouth at θ, whose
-// top over its chord is (L tan θ + drop) / 4. A wall standing into its fall takes it there, on its face, and the ground standing into it anywhere (a hill);
-// the climb goes over what's under the bus (a tower downtown took it 200 m out). Water is a miss with its refund.
+// top over its chord is (L tan θ + drop) / 4. A wall standing into it, climbing or falling, takes it there, on its face, and the ground standing into it
+// anywhere (a hill). Water is a miss with its refund.
 //
 // Never: in School Zone's hover (its body leans 11 degrees at most, its path reads 90 on the bob), in a dive (the path under level: Belly Flop's, later),
-// under a deck, and while a Bomb charges (its shot skips it, Aimer.fire). Recess's comet.clamp is told it's a Lob (HOOKS.md).
+// under a deck or through one, and while a Bomb charges (its shot skips it, Aimer.fire). Recess's comet.clamp is told it's a Lob (HOOKS.md).
 
 const DEG = Math.PI / 180;
 
@@ -56,9 +59,13 @@ export class Lob {
   private latched = 0;
   private latchedDive = false;
   private latchUntil = -1;
-  /** the landing held: its stretch, where it is, what it's on */
+  /** a latch a steering stroke found (game s it began, -1 none): while the stroke may still be a quick tap, it's the body a tap throws */
+  private parked = 0;
+  private parkedDive = false;
+  private parkedAt = -1;
+  /** the landing held: the stretch its search began from (the throw's own), where it is, what it's on */
   private heldOk = false;
-  private heldK = 0;
+  private heldK0 = 0;
   private heldX = 0;
   private heldY = 0;
   private heldZ = 0;
@@ -94,27 +101,50 @@ export class Lob {
   }
 
   /** The steering thumb lifted (the body and path as they were with it down: Aimer.update), or a tap's finger landed with none down (Aimer.press): that body
-   *  is what a tap throws until game time `until`. keep: a press inside a latch keeps it, the body having dropped since the lift. */
-  latch(body: number, nose: number, t: number, until: number, keep = false): void {
-    if (keep && t < this.latchUntil) return;
+   *  is what a tap throws until game time `until`. keep: a press inside a latch keeps its body, the body having dropped since the lift, and runs it on to
+   *  `until` (a tap lifted 0.53 s after the steering thumb threw the dropped body, a plain splat at 60 fps and a Lob at 30). quick: the steering stroke
+   *  lifting was short enough to be a tap (Aimer.update): the latch it found as it began, if any, is the one. */
+  latch(body: number, nose: number, t: number, until: number, keep = false, quick = false): void {
+    const parked = quick && this.parkedAt >= 0;
+    this.parkedAt = -1;
+    if (parked) {
+      this.latched = this.parked;
+      this.latchedDive = this.parkedDive;
+      this.latchUntil = until;
+      return;
+    }
+    if (keep && t < this.latchUntil) {
+      this.latchUntil = Math.max(this.latchUntil, until);
+      return;
+    }
     this.latched = body;
     this.latchedDive = nose < -config.lob.levelSlack * DEG;
     this.latchUntil = until;
   }
 
-  /** Steering again: the latch lets go, and a tap reads the body live. */
-  unlatch(): void {
+  /** Steering again: the latch lets go, and a tap reads the body live, but for a stroke's first inputTune.quickTapMs (a slid tap: parked). */
+  unlatch(t: number): void {
+    if (t < this.latchUntil) {
+      this.parked = this.latched;
+      this.parkedDive = this.latchedDive;
+      this.parkedAt = t;
+    }
     this.latchUntil = -1;
   }
 
-  /** The body a tap throws now (rad): latched, or live. */
+  /** A latch parked by a stroke that may still be a quick tap. */
+  private parkedNow(t: number): boolean {
+    return this.parkedAt >= 0 && t - this.parkedAt <= inputTune.quickTapMs / 1000;
+  }
+
+  /** The body a tap throws now (rad): latched, parked, or live. */
   body(f: Flight, t: number): number {
-    return t < this.latchUntil ? this.latched : f.pitch;
+    return t < this.latchUntil ? this.latched : this.parkedNow(t) ? this.parked : f.pitch;
   }
 
   /** The path under level, as the body reads (a dive never lobs). */
   private diving(f: Flight, t: number): boolean {
-    return t < this.latchUntil ? this.latchedDive : f.nose < -config.lob.levelSlack * DEG;
+    return t < this.latchUntil ? this.latchedDive : this.parkedNow(t) ? this.parkedDive : f.nose < -config.lob.levelSlack * DEG;
   }
 
   /** No Lob now: nothing held. */
@@ -198,8 +228,11 @@ export class Lob {
     if (hold && latched && (this.heldX - f.x) * fx + (this.heldZ - f.z) * fz > atImp && this.showsAt(this.heldX, this.heldY, this.heldZ) >= L.above) {
       // (latched: the landing as it was, while it's ahead of the bus at the impact and shows over it, its march's too)
       frozen = this.lastOk;
-    } else if (hold && this.heldK === k && this.showsAt(this.heldX, this.heldY, this.heldZ) >= L.above) {
-      // (the same stretch and the same throw: the same landing, nothing picked again)
+    } else if (this.heldOk && this.heldK0 === k && this.showsAt(this.heldX, this.heldY, this.heldZ) >= L.above) {
+      // (the throw's own stretch the same: the same landing, nothing picked again, while it shows `above`, a pull's body changing or not. One moved out a
+      // stretch or more to show is held by the stretch its search began from. Held by where it ended, and only for the same body to 1e-6, every frame of a
+      // pull searched afresh against aboveNew)
+      this.heldAngle = a;
     } else {
       let found = false;
       for (let dc = (k + 0.5) * Ls - odo; dc <= C.reach; dc += Ls, k++) {
@@ -210,20 +243,14 @@ export class Lob {
         }
       }
       if (!found) return this.none();
-      this.heldK = k;
+      this.heldK0 = Math.round((odo + d0) / Ls - 0.5);
       this.heldAngle = a;
     }
     let x = this.heldX, y = this.heldY, z = this.heldZ, target = this.heldT;
     // its arc from the mouth: a wall or the ground standing into it takes it on its face, where it meets it
     const x0 = f.x + fx * launch, z0 = f.z + fz * launch, y0 = f.y + f.vy * S.inhale;
     const Lh = Math.hypot(x - x0, z - z0), arc = lobArc(Lh, a, y0 - y);
-    let wall: BuildingRef | null = null, hill = false, ws = frozen ? Lh : 0;
-    const uTop = arc > 0 ? 0.5 - (y0 - y) / (8 * arc) : 0;
-    const into = (s: number, ref: BuildingRef | null) => {
-      const u = s / Lh, ay = y0 + (y - y0) * u + arc * 4 * u * (1 - u), px = x0 + (x - x0) * u, pz = z0 + (z - z0) * u;
-      if (ref) return city.contains(ref, px, pz);
-      return ay < city.groundAt(px, pz) + S.wallClear;
-    };
+    let wall: BuildingRef | null = null, hill = false, ws = frozen ? Lh : 0, prevY = y0;
     for (let s = 8; !frozen && s < Lh - S.wallSkip; s += 8) {
       const u = s / Lh, ay = y0 + (y - y0) * u + arc * 4 * u * (1 - u), px = x0 + (x - x0) * u, pz = z0 + (z - z0) * u;
       if (ay < city.groundAt(px, pz) + S.wallClear) {
@@ -231,8 +258,12 @@ export class Lob {
         ws = s;
         break;
       }
-      // (a wall only in its fall: past the top, where the arc's slope turns down)
-      if (u < uTop) continue;
+      // (a deck it would pass through, climbing or falling: no Lob, as under one. Asked at the bus alone, a throw just short of the Golden Gate climbed
+      // through its deck)
+      if (city.overheadAt(px, pz, Math.min(prevY, ay)) <= Math.max(prevY, ay) + S.wallClear) return this.none();
+      prevY = ay;
+      // (a wall standing into it, climbing or falling, takes it on its face: asked in its fall alone, a tower 200-400 m out downtown was flown through on
+      // the way up)
       const ref = city.buildingAbove(px, pz, ay + S.wallClear, ay);
       if (!ref || ref === target || ref.roofY - ref.baseY < S.minTargetHeight) continue;
       wall = ref;
@@ -253,7 +284,7 @@ export class Lob {
       let lo = ws - 8, hi = ws;
       for (let i = 0; i < 6; i++) {
         const m = (lo + hi) * 0.5;
-        if (into(m, wall)) hi = m;
+        if (this.into(m, wall, x0, y0, z0, x, y, z, Lh, arc)) hi = m;
         else lo = m;
       }
       const w = Math.max(4, lo - 0.6), u = w / Lh;
@@ -299,10 +330,19 @@ export class Lob {
     return out;
   }
 
-  /** ?moon: the map slid by (dx, dz). */
+  /** Is the arc from (x0, y0, z0) to (x, y, z), Lh m long and `arc` over its chord, into `ref` (a wall's) or the ground s m along? */
+  private into(s: number, ref: BuildingRef | null, x0: number, y0: number, z0: number, x: number, y: number, z: number, Lh: number, arc: number): boolean {
+    const u = s / Lh, ay = y0 + (y - y0) * u + arc * 4 * u * (1 - u), px = x0 + (x - x0) * u, pz = z0 + (z - z0) * u;
+    if (ref) return this.city.contains(ref, px, pz);
+    return ay < this.city.groundAt(px, pz) + config.splat.wallClear;
+  }
+
+  /** ?moon: the map slid by (dx, dz). The march's landing slides with the landing held: a latch hands it back whole. */
   slide(dx: number, dz: number): void {
     this.heldX -= dx;
     this.heldZ -= dz;
+    this.lastX -= dx;
+    this.lastZ -= dz;
   }
 
   /** The shot a plan throws (Aimer.fire): the next one is picked afresh. */

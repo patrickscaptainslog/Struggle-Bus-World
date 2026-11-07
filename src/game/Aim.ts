@@ -5,6 +5,7 @@ import type { Flight } from './Flight';
 import type { BarfOpts, Splatter } from './Splat';
 import { chooseShot, type Comet, type CometPlan } from './Comet';
 import type { Lob } from './Lob';
+import { inputTune } from './Input';
 
 // Dragon-breath aim. One source of truth: the building that glints is the
 // building a tap hits.
@@ -107,6 +108,8 @@ export class Aimer {
   private wasThumb = false;
   private bodyWas = 0;
   private noseWas = 0;
+  /** when the steering thumb went down (game s): a stroke lifted within inputTune.quickTapMs may be a slid tap, and keeps the Lob's latch it found */
+  private thumbAt = 0;
   /** the mover this frame's aim takes, and one held by a press, as the building latch is */
   private mover: MoverTarget | null = null;
   private moverLatch: MoverTarget | null = null;
@@ -341,9 +344,10 @@ export class Aimer {
     // (the Lob's body: as it was last frame, with the thumb down, when it lifts; live while it's down. The body drops as soon as the thumb lifts, at Cruise
     // 72 to 41 degrees in 0.2 s, and a frame's drop at 30 fps put a throw tens of metres from 60's)
     if (this.lob) {
-      if (this.wasThumb && !thumb) this.lob.latch(this.bodyWas, this.noseWas, t, t + S.aimLatch);
-      if (thumb) this.lob.unlatch();
+      if (this.wasThumb && !thumb) this.lob.latch(this.bodyWas, this.noseWas, t, t + S.aimLatch, false, t - this.thumbAt <= inputTune.quickTapMs / 1000);
+      if (thumb) this.lob.unlatch(t);
     }
+    if (thumb && !this.wasThumb) this.thumbAt = t;
     this.wasThumb = thumb;
     this.bodyWas = f.pitch;
     this.noseWas = f.nose;
