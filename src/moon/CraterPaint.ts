@@ -648,15 +648,18 @@ export class CraterPaint {
     if (!was) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
     // (what it paints is its hitter's: the blast carries it)
     const faction = ownerOf(b.spec.faction);
+    // (a Bomb's jump, BarfOpts.jump: the crater it hit and each neighbour climb two or three levels at a blow, never past their tops, landing with the
+    // wave as one level does. Craters don't hop: that's the street's houses, src/world/pogo.ts)
+    const jump = b.jump > 1 ? b.jump : 1;
     if (t) {
-      this.paint(t, hue, now, cx - t.x, cz - t.z, 3, faction);
+      this.paint(t, hue, now, cx - t.x, cz - t.z, 3, faction, jump);
       // (a super's worth: two levels at a blow)
-      if (big) this.paint(t, hue, now, cx - t.x, cz - t.z, 3, faction);
+      if (big && jump === 1) this.paint(t, hue, now, cx - t.x, cz - t.z, 3, faction);
     } else if (!b.hose) this.stroke(b);
     for (let k = 0; k < hits.length; k++) {
       const { i, d } = hits[k], o = i * CRATER_FLOATS, I = i * CRATER_INTS;
       const c: Target = { id: `${this.ids[I]}.${this.ids[I + 1]}.${this.ids[I + 2]}.${this.ids[I + 3]}`, x: D[o], z: D[o + 1], r: D[o + 2], age: D[o + 3] as Age, a: D[o + 4], b: D[o + 5], c: D[o + 6], kind: 0, name: null, wob: null, turn: 0, rec: null };
-      const rec = this.paint(c, this.listRec[i]?.hue ?? (hue + k + 1) % HUE_COUNT, now + d / v, 0, 0, NEIGHBOUR_TOP, faction);
+      const rec = this.paint(c, this.listRec[i]?.hue ?? (hue + k + 1) % HUE_COUNT, now + d / v, 0, 0, NEIGHBOUR_TOP, faction, jump);
       this.listRec[i] = rec;
     }
     if (t) {
@@ -689,8 +692,8 @@ export class CraterPaint {
     if (t0 > 0) this.live.push(rec);
   }
 
-  /** A crater goes up a level, or takes its first: either way it's the hitter's (faction), at its top too, as a house at level 3 is (Splatter.update). */
-  private paint(c: Target, hue: number, t0: number, ix: number, iz: number, top = 3, faction = FACTION_RAINBOW): Rec {
+  /** A crater goes up a level (a Bomb's: `levels`), or takes its first: either way it's the hitter's (faction), at its top too, as a house at level 3 is (Splatter.update). */
+  private paint(c: Target, hue: number, t0: number, ix: number, iz: number, top = 3, faction = FACTION_RAINBOW, levels = 1): Rec {
     const key = keyOfId(c.id);
     let rec = this.recs.get(key);
     if (rec) {
@@ -703,7 +706,7 @@ export class CraterPaint {
         }
         return rec;
       }
-      rec.level = Math.min(top, rec.level + 1);
+      rec.level = Math.min(top, rec.level + levels);
       rec.faction = faction;
       rec.t0 = t0;
       rec.ix = ix;
@@ -715,7 +718,8 @@ export class CraterPaint {
         this.file(rec);
       }
     } else {
-      rec = { id: c.id, name: c.name, key, x: c.x, z: c.z, r: c.r, reach: reachOf(c.r, 1), kind: c.kind, a: c.a, b: c.b, c: c.c, level: 1, hue, t0, T: landTime(c.r), seed: (mix32(key) % 6283) / 1000, ix, iz, wob: c.wob, turn: c.turn, order: this.order++, faction };
+      const level = Math.max(1, Math.min(top, levels));
+      rec = { id: c.id, name: c.name, key, x: c.x, z: c.z, r: c.r, reach: reachOf(c.r, level), kind: c.kind, a: c.a, b: c.b, c: c.c, level, hue, t0, T: landTime(c.r), seed: (mix32(key) % 6283) / 1000, ix, iz, wob: c.wob, turn: c.turn, order: this.order++, faction };
       this.recs.set(key, rec);
       this.file(rec);
     }

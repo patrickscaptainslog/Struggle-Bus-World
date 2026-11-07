@@ -1229,7 +1229,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   input.onAimEnd = (cancelled) => holds.end(cancelled);
 
   // ---- the Bomb (src/game/Bomb.ts, behind &bomb until the producer's grip test): a still hold on the bus charges it, and the lift lets it go as MEGA's
-  // breath where the tap would land (at Nonstop and faster, the Comet's landing). The street's: the Moon's craters take it with the second half of its build
+  // breath where the tap would land (at Nonstop and faster, the Comet's landing). On the Moon's ground too, where the craters take its jumps (CraterPaint)
   const bomb = new Bomb({
     input, flight, aimer, audio, fx: superFx, rig, busVel,
     breathe: (shot, b) => {
@@ -1240,7 +1240,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     },
     busy: () => hose.pouring || superSplat.hosing,
   });
-  bomb.on = controls.bombOn && !moon;
+  bomb.on = controls.bombOn;
   holds.bomb = bomb;
   // (&bomb: MEGA's look, the Bomb's, in the bus's faction's spray: SuperFx's motes, halo and sparks, and the ring where it lands. Without the link both stay
   // Rainbow's, and with it Rainbow's spray is the rainbow: one program each either way, warmed at boot)
@@ -1642,8 +1642,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const steering = (qaStick || st.thumb || (st.dragging && input.mode === 'keyboard')) && !input.pressHeld;
     const glint = aimer.update(flight, simTime, steering);
     controls.glinting = glint !== null || !!moonPaint?.target || aimer.moverGlinting;
-    // (the Bomb's hint: a painted building glints, with a full belly, the bus under 300 m)
-    if (bomb.on) controls.bombGlint = glint !== null && city.paint.level(glint.index) > 0.5 && flight.y - flight.groundBroad < 300;
+    // (the Bomb's hint: a painted building glints, with a full belly, the bus under 300 m; on the Moon a painted crater)
+    if (bomb.on) controls.bombGlint = (moonPaint ? (moonPaint.target?.rec?.level ?? 0) > 0.5 : glint !== null && city.paint.level(glint.index) > 0.5) && flight.y - flight.groundBroad < 300;
     paintUniforms.uTarget.value = glint ? glint.index : -1;
     paintUniforms.uTargetT.value = aimer.shownSince;
     paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);

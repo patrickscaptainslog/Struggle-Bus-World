@@ -21,8 +21,8 @@ import type { BusPose } from '../bus/BusModel';
 // bigger clunk and a bell, MEGA's heartbeat and motes, 12 % and the ring at 1.8 times, pulsing. Nothing it does moves a flight or camera number: the swell is
 // the bus's look alone. Let go at II or III, it is MEGA's breath (main.ts's breatheNow) where the tap would land, 1.4 or 1.8 times blastRadiusFor(drop),
 // each building jumping two or three stages, never past 3, and the belly refills in 3 or 4.5 s. At Nonstop and faster that's where the Comet would land
-// (Comet.ts's plan and chooseShot, through Aimer.fire): ahead, in view, with the Comet's full show every time and no hit-stop that far off. A lift
-// before II is the tap, held on it stays III and never
+// (Comet.ts's plan and chooseShot, through Aimer.fire): ahead, in view, with the Comet's full show every time and no hit-stop that far off. On the
+// Moon's ground its craters take the jumps (CraterPaint), all with the wave. A lift before II is the tap, held on it stays III and never
 // fires by itself, and a cancel fizzles with the belly kept.
 //
 // The hooks (holds.bomb, docs/specs/shots/HOOKS.md): gift(3), a Bomb III at 0.42 s on the next still hold on the bus (being hit, Recess's); bank(0.1), a

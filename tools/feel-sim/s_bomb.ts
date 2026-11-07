@@ -9,6 +9,8 @@
 // Then ?lift: with the Splatter's Lift answering as the page's would (LiftHooks: every house in reach would lift if a blast asked, ten of them up already), a
 // Bomb III from 300 m over each place asks none to lift and starts none, and the ten up are out of it, while a tap there asks and lifts (the control). The
 // Lift itself, its motion and Lift.aloft's own answer, is tools/factions/lift-check.mjs's and the page's.
+// Then the Moon (src/moon/CraterPaint.ts): six named craters on a Moon page with nothing round them (as tools/factions/owner-check.mjs makes one), each hit
+// on its middle: a tap a level and MEGA two, as before; a Bomb II two levels and a Bomb III three, from 0 and from 2, all with its wave, never past 3.
 //   node tools/feel-sim/run.mjs s_bomb.ts
 import { newCity, pump, ll, makeGame, save, MODE, config, fakeRenderer, type Game } from './lib';
 import { blastCap, blastRadiusFor, groundDeadline } from '@src/game/blastLayout';
@@ -182,7 +184,30 @@ for (const [name, lat, lon] of PLACES) {
   ok(bombAsked.aloft > 0 && upHit === 0, `${tag}: the ten up already are out of it (${upHit} of ${up.size} bloomed)`);
   ok(tapAsked.wants > 0 && tapAsked.start > 0, `?lift, ${name}: a tap there asks and lifts, so the Lift was asked as the page's (${tapAsked.wants} asked, ${tapAsked.start} started)`);
 }
+// ---- the Moon: the craters take the jumps (craters don't hop: the pogo is the street's houses')
+const { CraterPaint } = await import('@src/moon/CraterPaint');
+const { makeFrame } = await import('@src/moon/map');
+const { makeBlastSpec } = await import('@src/game/blastLayout');
+const moonRows: unknown[] = [];
+{
+  const places = [1, 2, 3, 4, 5, 6].map((f) => ({ id: f, name: `TEST ${f}`, type: 'crater', lat: -20 + f * 0.05, lon: 30, km: 10, az: null, d: [0, 0, 1], e: [1, 0, 0], n: [0, 1, 0], R: 400 }));
+  const c = new CraterPaint({ renderer: {}, post() {}, frame: makeFrame(-20, 30), albedo: null, places, names: [], seed: 1, paintRocks() {} } as any);
+  // [what hits it, the crater's level first (taps), a super, its jump, the level it ends at]
+  const cases: Array<[string, number, boolean, number, number]> = [['a tap', 0, false, 1, 1], ['MEGA', 0, true, 1, 2], ['Bomb II from 0', 0, true, 2, 2], ['Bomb III from 0', 0, true, 3, 3], ['Bomb II from 2', 2, true, 2, 3], ['Bomb III from 2', 2, true, 3, 3]];
+  cases.forEach(([name, from, sup, jump, want], i) => {
+    const t: any = c.named.find((n: any) => n.id === `p${i + 1}`);
+    const hit = (s: boolean, j: number, at: number) => c.impact({ spec: makeBlastSpec(t.x, t.z, 60, 0, 11 + i * 7 + at), pos: { x: t.x, y: 0, z: t.z }, t: at, count: 0, maxLevel: 1, strength: 1, dots: [], hose: false, mover: false, afloat: false, primary: null, super: s ? { kind: j > 1 ? 'bomb' : 'mega', charge: 1, id: i + 1 } : null, tag: t, comet: null, jump: j } as any);
+    for (let k = 0; k < from; k++) hit(false, 1, 1 + 2 * k);
+    const before = t.rec?.level ?? 0;
+    hit(sup, jump, 10);
+    const after = t.rec?.level ?? 0;
+    moonRows.push({ name, before, after, want });
+    ok(before === from && after === want, `the Moon, ${name}: its crater ${before} to ${after}, not past 3 (wanted ${from} to ${want})`);
+  });
+}
+console.log('the Moon:', JSON.stringify(moonRows));
 save('bomb', rows);
 save('bomb-lift', liftRows);
+save('bomb-moon', moonRows);
 console.log(fails.length ? `[${MODE}] FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `[${MODE}] bomb checks: all ${checks} passed (${rows.length} rows)`);
 process.exit(fails.length ? 1 : 0);
