@@ -403,6 +403,78 @@ So this branch alone is over the 1.5 M ceiling at Cruise over painted blocks, an
 
 **The checks after the fixes** (on `75475dd`): `tsc` clean, `vite build` exit 0, `iosfloor` "iOS 15.0 parses every chunk". The gesture sim 752 of 752, the layout sim 295 of 295, owner-check all passed. The `--det` views, both skies, against step 1's build (3fbffc6): all eight identical. `warmcheck` on `?crew`, and on `?crew --crew` through all five: 35 programs, none after the warm-up; each faction's spot owned by that faction alone, at level 3. The one long task is still the page's first touch (220 ms at the first crest tap). The stills (from the street and from 250 m) paint the same buildings as step 1's, 44 and 170. The Moon's `paint-check` runs only timing rows that fail with another run's browser beside it; none of its code changed here.
 
+## The Bomb and Curb together
+
+`feat/shots` went to the Bomb (`feat/bomb` `7d67c14`, a fast-forward from `808a83a`), then merged Curb (`feat/curb` `6e2334d`, `docs/specs/shots/CURB.md`) at `644c40d`. Curb brings the second account's road side from `feat/life` `b65af07` (`src/life`), taken as committed. Both start from `feat/gears` `3a2b21f`.
+
+**What conflicted, and how each was kept** (seven files, each with both sides' intent):
+- `Flight.ts`: the Hose's belly (no refill while it pours, its 3 s refill after) moved into Curb's `breathClock()`, which `ride()` shares. Without that, the belly refilled on the street while the Hose poured.
+- `Coach.ts`: `TAUGHT` holds aim 64, curb 128 and the Bomb 256, each on its own bit. Streak's lock takes 512 later, and the Lob 1024.
+- `Controls.ts`: the Coach is made with MEGA's, the aim's and the Bomb's flags, and Curb's hint is off under `?nohud` and `?nocoach`.
+- `Splat.ts`: `Blast` and `BarfOpts` carry the Comet's plan, the Bomb's jump and the moverBlock alongside Curb's `side`. The blast hands back the side next to the Comet and the jump.
+- `main.ts`, five places:
+  - The imports: `groundDeadline` with `LAYOUT_BANDS`, and `busShape`'s `D` as `BUS_DIM` for Curb's rear axle too.
+  - Every blast but a plane's paints the movers in its circle, as the shots' 85 m does, now with its hitter's faction (life's C15).
+  - Curb's drive-by sits in the tap's own barf (`Aim.tapOpts`) and widens it to `config.curb.byR` on the look's side.
+  - `__game` keeps `particles` and `sprouts` and gains Curb's getter.
+- `tools/controls.mjs` and `tools/warmcheck.mjs`: both the bomb and curb modes, and both header lines.
+
+**Read where it merged clean:**
+- `Aim.ts`: Curb's street front returns before the aim's own pick and the Comet, so the street has no Comet. Life's B1 fix sits in `pickMover`, under the Comet.
+- `GroundPaint.ts`: Curb's `dab` lands as a small settled blast, never a wide one, next to the Bomb's deadline and `widen`.
+- `config.ts`, the exhaust puff, the street sign's scale, and MEGA's charge, which stays off on the street.
+
+After the merge, `4664190` fixed Curb's stills tool. Its wide lens had no `side`, which the kerb chase took in `0d72f38`, so the lens went to NaN. The run stood at its first wide still on `6e2334d`'s build just as on the merge's.
+
+**The proof** (the laptop's `sb-checks/shots/integrate/`, `gates.txt` run by `gate.sh all`).
+
+`tsc` is clean.
+
+*The three-way rule.* Every Node sim, probe and check ran on four trees, 25 of them: the Bomb's gates.txt set, `s_curb`, and life's `curb.mjs` and `blast.mjs`. The trees were B0 `3a2b21f`, A `7d67c14`, C `6e2334d` and M, the merge. The rule, byte for byte:
+- where A equals B0, M must equal C;
+- where C equals B0, M must equal A;
+- where both changed an output, M must be the clean three-way line merge of the two.
+
+What varies between two runs of one tree is found from two runs of M and masked:
+- the probe's aimMs and row times;
+- `s_bomb`'s ms keys;
+- feel-cost, feel-mesh's l0/l1 ms, feel-pick's pickUs and feel-super's timings;
+- owner's cost line and row stamp;
+- life-curb's msEach.
+
+`s_bomb`'s wall-clock rows ("ms at most", "no frame over 8 ms") follow the laptop's load, not the code. A's ref failed 5 of 385 on them and M's runs 0, 5 and 2. Those rows are read apart, and any other failing row stands.
+
+It printed `three-way: 74 of 74 outputs pass`:
+- 40 unchanged by both;
+- 10 the Bomb's change alone;
+- 18 the Bomb's own sims, `s_hold`, the probe, `--bomb` and `s_bomb`, equal to A;
+- 6 Curb's own, `s_curb`, `curb.mjs` and `blast.mjs`, equal to C.
+
+No output was changed by both, so the rule's third case never came up. Curb changes none of the shared sims, as CURB.md says of `s_gesture` and `s_turbo`. Where the two meet on the street, the belly's clock in `ride()` among it, the proof is `s_curb` equal to C's byte for byte, and the GPU rows.
+
+*`vite build` and `iosfloor`:* "iOS 15.0 parses every chunk".
+
+*The `--det` views,* sky off and golden hour, against the builds of B0, A and C, by the same rule pixel for pixel: 8 of 8 pass each time. The Bomb changed `painted` and `swap`, about 1.21 M and 11.8 k pixels, Curb none. M is A's on those two and all four's on the rest.
+
+*On this laptop's GPU:*
+- `warmcheck` plain, `--hose`, `--comet` and `--crew --bomb`: 38 programs at ready and 0 after. All 20 Bombs at their tier.
+- `warmcheck --curb` on the arterial with `?life`: 41 at ready, 0 after. It landed, its lane painted itself, and it got off by a pull.
+- `controls.mjs bomb`: 38 of 38. Bomb IIIs raised 135-1,458 buildings at 93-128 draws and at most 1.03 M triangles.
+- `controls.mjs zone curb`: zone 11 of 11, curb 15 of 15. Curb drew 95-143 draws and 0.94 M triangles at most on the street, painted two cars, and made 0 programs.
+- `gardens/budget.mjs --bomb`: passes, with 35 programs throughout.
+- The Bomb's hint: due 2.4 s after the third splat.
+- Curb's stills (`curb-shots.mjs`, now fixed): exit 0. All 16 are on the street, the bus's middle 2.55-2.76 m over the road, at 87-121 draws.
+
+The curb row runs on GEARS.md's residential street at 16:20 SF time. On the arterial, Curb's lane ends about 14 s in (by design), and the row rolls a minute: there it failed 4 of 15 on C's own build and on M's alike. With the real clock at 5 am no car came beside.
+
+The first `gate.sh all` ran with the arterial row and passed 14 of 15, that row failing. The second passed 14 of 15 too, with the hint the one fail: its first tap read as a drag, the Bomb's own tool's first touch. A rerun of that row passed.
+
+*Not checked:*
+- the Hose poured on the street (it pours from its usual mouth, not CURB.md's window, which is still to build);
+- a Bomb charged on the street;
+- Curb's hint and the Bomb's sharing the toast;
+- anything on an A15 or the producer's phone.
+
 ## The gardens' budget (feat/gardens)
 
 The shots paint more and faster, so the rooftop gardens have a triangle budget first. Before it, 1,146 level-3 roofs in a Recess match drew 4.04 M triangles of gardens alone.
