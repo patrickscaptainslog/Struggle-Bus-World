@@ -124,6 +124,9 @@ export class CameraRig {
   curbBlock: ((x: number, z: number, y: number) => boolean) | null = null;
   /** how far in from where it would stand the lens is pulled (m): at once to clear what's in the way, eased back out */
   private curbPull = 0;
+  /** how much of a look's swing round the bus the street leaves it (0..1): taken back at once, given back eased */
+  private curbSwing = 1;
+  private readonly curbTry = new THREE.Vector3();
   private readonly curbPos = new THREE.Vector3();
   private readonly curbLook = new THREE.Vector3();
   /** The live sky's lift (SKY.md 4.15): the view tips up toward this (deg), eased, and holds there; skyLift is where it is now */
@@ -418,32 +421,56 @@ export class CameraRig {
   }
 
   /**
-   * Curb, on the finished pose: the lens over the road and under a deck where the look swung it, then out from the bus to it a step at a time; the
-   * first step in something solid (a front, the hill) brings the lens in short of it, at once, and it goes back out eased, so a look round a narrow
-   * street or a sweep past a gap between two houses never has the lens in a house nor a house between it and the bus (the review of feat/curb, B1).
-   * Along the line to the bus, so the bus stays where it stands in the frame.
+   * Curb, on the finished pose: a narrow street first takes back as much of a look's swing round the bus as would bring the lens nearer than
+   * config.curb.armKeep; then the lens over the road and under a deck where the look left it, and out from the bus to it a step at a time, the
+   * first step in something solid (a front, the hill) bringing the lens in short of it, at once, to go back out eased. So a look round a narrow
+   * street or a sweep past a gap between two houses never has the lens in a house nor a house between it and the bus (the review of feat/curb, B1),
+   * nor the bus a wall of yellow filling the frame. The pull is along the line to the bus, so the bus stays where it stands in the frame.
    */
   private curbClear(cam: THREE.PerspectiveCamera, bus: THREE.Vector3, dt: number) {
-    const K = config.curb, block = this.curbBlock!, road = bus.y - K.ride;
-    if (this.lookYaw.x !== 0 || this.lookPitch.x !== 0) this.curbHeight(cam.position, road);
+    const K = config.curb, road = bus.y - K.ride, yaw = this.lookYaw.x;
+    if (yaw !== 0) {
+      // (the swing that fits, tried a quarter at a time, taken back at once and given back eased: the view turns less there. The drive-by's side
+      // and the turn read the look as the thumb has it, not as the street leaves the view)
+      let fit = 0;
+      for (let k = 1; k > 0; k -= 0.25) {
+        const p = this.curbTry.copy(cam.position).sub(bus).applyAxisAngle(UP, yaw * (1 - k)).add(bus);
+        this.curbHeight(p, road);
+        if (this.curbRoom(bus, p, 1, 0) >= Math.min(K.armKeep, p.distanceTo(bus))) {
+          fit = k;
+          break;
+        }
+      }
+      this.curbSwing = fit <= this.curbSwing ? fit : this.curbSwing + (fit - this.curbSwing) * (1 - Math.exp(-K.armOut * dt));
+      if (this.curbSwing < 1) {
+        const q = this.lookQ.setFromAxisAngle(UP, yaw * (1 - this.curbSwing));
+        cam.position.sub(bus).applyQuaternion(q).add(bus);
+        cam.quaternion.premultiply(q);
+      }
+    } else this.curbSwing = 1;
+    if (yaw !== 0 || this.lookPitch.x !== 0) this.curbHeight(cam.position, road);
     const v = this.lookV.copy(cam.position).sub(bus), len = v.length();
     if (len < 1e-3) return;
-    let room = len;
-    // (the line tried a little wide either side, so a corner or a bay window it grazes between two steps still counts, and the lens's own place
-    // last, a step can fall short of it; what's hit, a face is somewhere in the step before it, so it stands a margin short)
-    const hl = Math.max(1e-3, Math.hypot(v.x, v.z)), wx = (-v.z / hl) * CURB_WIDE, wz = (v.x / hl) * CURB_WIDE;
-    for (let d = CURB_STEP; ; d = Math.min(len, d + CURB_STEP)) {
-      const k = d / len, x = bus.x + v.x * k, y = bus.y + v.y * k, z = bus.z + v.z * k;
-      if (block(x, z, y) || block(x + wx, z + wz, y) || block(x - wx, z - wz, y)) {
-        room = Math.max(0, d - 2 * CURB_STEP);
-        break;
-      }
-      if (d >= len) break;
-    }
-    const want = len - room;
+    const want = len - this.curbRoom(bus, cam.position, CURB_STEP, CURB_WIDE);
     this.curbPull = want >= this.curbPull ? want : this.curbPull + (want - this.curbPull) * (1 - Math.exp(-K.armOut * dt));
     const arm = Math.max(Math.min(K.armMin, len), len - this.curbPull * smooth01(0, 1, this.curbIn));
     if (arm < len) cam.position.copy(bus).addScaledVector(v, arm / len);
+  }
+
+  /**
+   * Curb: how far out from the bus toward p the line is clear (m; all of it, the distance to p, if nothing's in the way), tried every `step` m and
+   * `wide` m either side, so a corner or a bay window it grazes between two steps still counts, and at p itself last, a step can fall short of it.
+   * What's hit, a face is somewhere in the step before it, so it stands a margin short.
+   */
+  private curbRoom(bus: THREE.Vector3, p: THREE.Vector3, step: number, wide: number): number {
+    const block = this.curbBlock!, vx = p.x - bus.x, vy = p.y - bus.y, vz = p.z - bus.z, len = Math.hypot(vx, vy, vz);
+    if (len < 1e-3) return len;
+    const hl = Math.max(1e-3, Math.hypot(vx, vz)), wx = (-vz / hl) * wide, wz = (vx / hl) * wide;
+    for (let d = step; ; d = Math.min(len, d + step)) {
+      const k = d / len, x = bus.x + vx * k, y = bus.y + vy * k, z = bus.z + vz * k;
+      if (block(x, z, y) || (wide > 0 && (block(x + wx, z + wz, y) || block(x - wx, z - wz, y)))) return Math.max(0, d - 2 * step);
+      if (d >= len) return len;
+    }
   }
 
   /** The finished pose, turned by the look. Nothing to do at home, so home is exactly the rig. */

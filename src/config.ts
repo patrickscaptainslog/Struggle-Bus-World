@@ -561,7 +561,7 @@ export const config = {
      *  wider (the outside look of feat/curb: its horizon stood mid-screen, half the phone sky). &curblens=wide the ride-along. In at `camIn`, out at
      *  `camOut` (1/s); never under the road or the deck the bus is on + `camFloor` m, nor within `roofGap` m of a deck over it. Anything solid
      *  between the bus and the lens (a front a look swings it into, the hill) pulls it in short of it at once, to no nearer than `armMin` m, and it
-     *  goes out again at `armOut` (1/s). */
+     *  goes out again at `armOut` (1/s); first, a narrow street takes back as much of a look's swing as would bring it nearer than `armKeep` m. */
     camBack: 34,
     camEye: 11,
     camAhead: 40,
@@ -578,6 +578,7 @@ export const config = {
     camFloor: 2.5,
     roofGap: 1,
     armMin: 8,
+    armKeep: 20,
     armOut: 2,
     /** The lane paints itself: a dab every `dabEvery` m at the rear axle (so it comes out from under the bus), `dabR` m round, in rainbow rings
      *  `dabRing` m wide round the landing. */
