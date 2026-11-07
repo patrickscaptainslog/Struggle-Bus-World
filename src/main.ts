@@ -48,7 +48,7 @@ import { Bomb } from './game/Bomb';
 import { SuperFx } from './fx/SuperFx';
 import { CometFx } from './fx/CometFx';
 import { Comet } from './game/Comet';
-import { Lob } from './game/Lob';
+import { Lob, lobRadius } from './game/Lob';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
 import { earthFly, earthResume, heldHour, lifeOn, moonLand, moonLow, moonrun, skyLive } from './sky/flag';
@@ -1166,7 +1166,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       controls.lobbed();
       // (each one thrown keeps its landing until it lands, the first up first: a second thrown before the first came down took the ring off it)
       const up = lobsUp.find((u) => u.until <= simTime) ?? (lobsUp.length < 4 ? lobsUp[lobsUp.push({ x: 0, y: 0, z: 0, r: 1, until: -1 }) - 1] : lobsUp[0]);
-      Object.assign(up, { x: shot.comet.x, y: shot.comet.y, z: shot.comet.z, r: blastRadiusFor(shot.drop), until: simTime + config.splat.inhale + shot.travel });
+      Object.assign(up, { x: shot.comet.x, y: shot.comet.y, z: shot.comet.z, r: lobRadius(shot.comet), until: simTime + config.splat.inhale + shot.travel });
     }
     if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
     return landsAt;
@@ -2021,7 +2021,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         lobRing.x = on ? on.x : L.x;
         lobRing.y = on ? on.y + 0.5 : L.y;
         lobRing.z = on ? on.z : L.z;
-        lobRing.r = blastRadiusFor(on ? Math.max(0, flight.y - on.y) : L.drop);
+        lobRing.r = lobRadius(L);
       }
       if (R.k > 0.01 || lobRing.k <= 0) pipeline.setBombRing(R.x, R.z, R.r, R.k, R.pulse);
       else pipeline.setBombRing(lobRing.x, lobRing.z, lobRing.r, lobRing.k, 0, true, lobRing.y);

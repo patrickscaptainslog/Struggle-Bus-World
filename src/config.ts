@@ -878,6 +878,9 @@ export const config = {
     /** The body latched as the steering thumb lifts (or a tap's finger lands) is what a tap throws for this long (s), where the aim's latch is
      *  config.splat.aimLatch's 0.5: a tap 0.5 s after the lift found the body dropped and threw a plain splat, the ring still up the frame before. */
     latch: 0.8,
+    /** Its blast is a tap's for its fall from the arc's top (Lob.ts's lobRadius, 220-560 m of fall from the roofs), at most this (m): a 300 m tap's, the
+     *  best a tap has, so it lands as big from the roofs as from 300 m. The producer's call (BUILT.md, the roofs stage). */
+    radius: 170,
     /** It must show at least this share of the height over the bus by the lens moved on to the impact (config.comet.above is the Comet's), and a landing
      *  picked afresh `aboveNew`: held or latched it stays while it shows `above`, so one picked on the edge doesn't move off it before the tap. */
     above: 0.05,

@@ -4,7 +4,7 @@
 // second one taps (whole frames at 30 and 60 fps, so both tap at the same game time). Every row starts on paint at level 0, so a building a tap raised two shows.
 // Lobs at Cruise, Express and Nonstop (where the Comet applies too: the farther of the two) over the Western Addition from the roofs and from 300 m, and downtown and over Glen Park's hills: each a Lob, at the
 // body as it was when the steering thumb lifted (one thumb) or at the tap (two), clamped to config.lob.most; 30 and 60 fps within 2 m and 0.05 s; at the
-// impact in frame and config.comet.above of the height over the bus; its radius blastRadiusFor(drop), every building it reached a level, none two; no
+// impact in frame and config.comet.above of the height over the bus; its radius lobRadius (its fall from the arc's top, at most config.lob.radius), every building it reached a level, none two; no
 // hit-stop; its arc never 2 m into the ground.
 // None: from a flick's stroke, in School Zone, out of a dive, under the Golden Gate, from 1.5 km up, at Jet. Over the bay from Fort Mason: a Lob's miss, with
 // its refund. A Bomb let go after a pull lands where it would with no Lob at all (the slot off). And the aim's cost a frame while it plans the Lob.
@@ -24,6 +24,7 @@ import { lensFov } from '@src/render/PixelPipeline';
 import { blastCap, blastRadiusFor } from '@src/game/blastLayout';
 import { Bomb } from '@src/game/Bomb';
 import { tapOpts } from '@src/game/Aim';
+import { lobRadius } from '@src/game/Lob';
 import { makeGoldenGate, bridgeObstacles, paintBridge } from '@src/world/Bridges';
 import * as THREE from 'three';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -321,7 +322,7 @@ async function run(c: Case, dt: number, slot = true) {
     from: r1(Math.hypot(at.x - tap.x, at.z - tap.z)),
     agl: r1(tap.y - city.groundAt(tap.x, tap.z)),
     impactScreen: scr,
-    radius: impact && !miss ? r1(impact.r as number) : null, wantRadius: r1(blastRadiusFor(Math.max(0, tap.y - at.y))),
+    radius: impact && !miss ? r1(impact.r as number) : null, wantRadius: r1(lob ? lobRadius(plan) : blastRadiusFor(Math.max(0, tap.y - at.y))),
     painted, inside, raisedTwo: two, ringAtPress, refund: r2(refund), climb: r1(climb), lobReach, pull: { lob: pullLob, of: pullN, flips: pullFlips },
     hitStops: g.events.slice(ev0).filter((e) => e.ev === 'hitstop').length,
     top: top === null ? null : r1(top), underGround: plan ? r1(underGround) : null,
@@ -358,7 +359,7 @@ for (const r of rows) {
     ok(Math.abs(r.body.angle - want) <= 0.15, `${id}: thrown at the body ${one ? 'as the steering thumb lifted' : 'at the tap, live'} (${r.body.angle} against ${want}; at the tap ${r.body.tap})`);
     ok(r.tImpact !== null && Math.abs(r.tImpact - r.planTravel) <= 0.05, `${id}: lands on its flight's time (${r.tImpact} against ${r.planTravel})`);
     ok(!!r.impactScreen?.in && r.impactScreen.above >= config.comet.above, `${id}: in frame at the impact, ${config.comet.above * 100} % or more over the bus (${JSON.stringify(r.impactScreen)}, planned ${r.planAbove})`);
-    ok(r.radius !== null && Math.abs(r.radius - r.wantRadius) <= 1, `${id}: its radius blastRadiusFor(drop) (${r.radius} against ${r.wantRadius})`);
+    ok(r.radius !== null && Math.abs(r.radius - r.wantRadius) <= 1, `${id}: its radius its fall's from the arc's top, lobRadius (${r.radius} against ${r.wantRadius})`);
     ok((r.on === 'ground' || r.painted >= 5) && r.raisedTwo === 0, `${id}: a level each, none two (${r.painted} painted on ${r.on}, ${r.raisedTwo} two)`);
     ok(r.painted >= r.inside, `${id}: every building well inside its circle a level (${r.painted} painted, ${r.inside} inside 0.8 of it, up to its cap)`);
     if (r.want === 'lob' && !r.key.includes('nonstop')) ok(r.pull.flips <= 1, `${id}: in the pull, once it shows the Lob stays (${r.pull.lob} of ${r.pull.of} frames, ${r.pull.flips} flips)`);

@@ -28,7 +28,7 @@
 // --lob flies the Lob's rows instead (src/game/Lob.ts), into shots-lob.json, and gates only them: the nose 30 and 75 degrees up from 300 m and 40 from the
 // roofs, the stick held through the tap (a second thumb's tap, the body read live) and let go 0.3 s after it, at every rung from Cruise to Turbo 3. At Cruise and Express each is a
 // Lob, at Jet and faster never; a Lob lands in frame config.comet.above or more over the bus at the impact, on its flight's time, within 2 m and 0.05 s at 30
-// and 60 fps, a level each and blastRadiusFor(drop), with no hit-stop. Where a Comet applies too, the farther wins (chooseShot). Without --lob a row the Lob
+// and 60 fps, a level each and lobRadius (its fall from the arc's top, at most config.lob.radius), with no hit-stop. Where a Comet applies too, the farther wins (chooseShot). Without --lob a row the Lob
 // throws (kind 'lob') is the Lob's, not the baseline's.
 import { newCity, pump, ll, makeGame } from '../feel-sim/lib';
 import { config } from '@src/config';
@@ -40,6 +40,7 @@ import { layoutHud } from '@src/ui/hudLayout';
 import { blastRadiusFor } from '@src/game/blastLayout';
 import { Bomb } from '@src/game/Bomb';
 import { tapOpts } from '@src/game/Aim';
+import { lobRadius } from '@src/game/Lob';
 import * as THREE from 'three';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -294,7 +295,7 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
     on: miss ? 'water' : res.wall ? 'wall' : res.target ? 'roof' : 'ground',
     target: res.target ? res.target.index : null,
     tapScreen: tapScr, impactScreen: impactScr,
-    radius: impact && !miss ? r1(impact.r as number) : null, wantRadius: r1(blastRadiusFor(Math.max(0, tap.y - at.y))),
+    radius: impact && !miss ? r1(impact.r as number) : null, wantRadius: r1(comet?.kind === 'lob' ? lobRadius(comet) : blastRadiusFor(Math.max(0, tap.y - at.y))),
     painted, raisedTwo: two, loaded, refund: r2(refund),
     plan: comet ? { reach: r1(comet.reach), ahead: r1(comet.ahead), pass: r2(comet.pass), above: r3(comet.above), arc: r1(comet.arc), arcShare: r3(comet.arc / Math.max(1, Math.hypot(comet.x - comet.x0, comet.z - comet.z0, comet.y - comet.y0))), loaded: comet.loaded } : null,
     off: r1(Math.abs((at.x - tap.x) * tap.fz - (at.z - tap.z) * tap.fx)),
@@ -369,7 +370,7 @@ if (LOB) {
     ok(Math.abs(r.angle - Math.min(config.lob.most, r.body)) <= 0.15, `${id}: thrown at the body, at most ${config.lob.most} (${r.angle} for ${r.body})`);
     ok(r.tImpact !== null && Math.abs(r.tImpact - r.planTravel) <= 0.05, `${id}: lands on its flight's time (${r.tImpact} against ${r.planTravel})`);
     ok(!!r.impactScreen?.in && r.impactScreen.above >= config.comet.above, `${id}: in frame at the impact, ${config.comet.above * 100} % or more over the bus (${JSON.stringify(r.impactScreen)})`);
-    ok(r.radius !== null && Math.abs(r.radius - r.wantRadius) <= 1, `${id}: its radius blastRadiusFor(drop) (${r.radius} against ${r.wantRadius})`);
+    ok(r.radius !== null && Math.abs(r.radius - r.wantRadius) <= 1, `${id}: its radius its fall's from the arc's top, lobRadius (${r.radius} against ${r.wantRadius})`);
     ok(r.raisedTwo === 0 && r.hitStops === 0, `${id}: a level each and no hit-stop (${r.raisedTwo} raised two, ${r.hitStops} hit-stops)`);
     const s30 = r.fps === 60 ? rows.find((q) => q.key === r.key && q.fps === 30) : null;
     if (s30) ok(s30.kind === r.kind && Math.hypot(s30.landing[0] - r.landing[0], s30.landing[1] - r.landing[1], s30.landing[2] - r.landing[2]) <= 2 && Math.abs((s30.tImpact ?? 0) - (r.tImpact ?? 0)) <= 0.05, `${r.key}: 30 and 60 fps within 2 m and 0.05 s (${JSON.stringify([r.kind, r.landing, r.tImpact])} against ${JSON.stringify([s30.kind, s30.landing, s30.tImpact])})`);

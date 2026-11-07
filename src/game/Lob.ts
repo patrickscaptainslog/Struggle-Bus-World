@@ -6,6 +6,7 @@ import type { Flight } from './Flight';
 import type { Splatter } from './Splat';
 import { Comet, type CometPlan } from './Comet';
 import { inputTune } from './Input';
+import { blastRadiusFor } from './blastLayout';
 
 // The Lob (docs/specs/shots/SHOTS.md, "The modes"; sb-checks' lob plan): "i want a splat where if i am pointed up, i can shoot upwards into the sky and it
 // will land in the distance". A tap with the bus's body as you see it (Flight.pitch) more than config.lob.from up throws the breath off the nose like a mortar:
@@ -352,6 +353,18 @@ export class Lob {
     this.latchUntil = -1;
     this.stats.fired++;
   }
+}
+
+/** How far a Lob falls from its arc's top onto where it lands (m): the parabola's highest point over its landing. */
+export function lobFall(p: CometPlan): number {
+  const rise = p.y - p.y0, u = p.arc > 0 ? clamp(0.5 + rise / (8 * p.arc), 0, 1) : rise > 0 ? 1 : 0;
+  return Math.max(0, p.y0 + rise * u + p.arc * 4 * u * (1 - u) - p.y);
+}
+
+/** Its blast's radius (m): a tap's for the fall from its top (blastRadiusFor(lobFall)), at most config.lob.radius. Sized by the bus's height over the
+ *  landing (a tap's), a throw from the roofs onto a roof as high came down 85-89 m wide, where the plan has it falling hundreds of metres. */
+export function lobRadius(p: CometPlan): number {
+  return Math.min(config.lob.radius, blastRadiusFor(lobFall(p)));
 }
 
 /** A Lob's arc onto a point it was moved to (CraterPaint.aim: the crater in its ring): the same throw's parabola, from its mouth to there. */
