@@ -1172,7 +1172,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     return landsAt;
   };
   const tapSplat = () => {
-    // (taps fire between frames: what fire() hands over is exactly the building on screen glinting)
+    // (taps fire between frames: what fire() hands over is exactly the building on screen glinting; an aim not ready with the belly full again, refreshed)
+    aimer.refresh(flight);
     const shot = aimer.fire(flight);
     if (flight.tryBarf()) {
       breatheNow(shot);

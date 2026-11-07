@@ -55,6 +55,9 @@ export const hoseTune = {
   /** a full tank pours this long (s), and refills from empty in this long once the pour ends */
   tank: 3,
   refill: 3,
+  /** A hold ended cancelled this soon after its pour opened (game s) gives the tank back: Input's late tap, a lift that reached the page behind slow frames
+   *  after its aim began, its own time a tap's (the Lob's roofs stage: the pour drained the belly and the tap it was found it not yet full) */
+  lateTap: 0.5,
   /** a hold with less than this share of the tank coughs and pours nothing */
   minTank: 0.12,
   /** a new impact once the stream has moved this share of the radius, or after `every` s where it stays; at most `rate` a second */
@@ -274,7 +277,8 @@ export class Hose implements HoldHandler {
     this.close(false);
   }
 
-  end(_h: Hold, _cancelled: boolean): void {
+  end(_h: Hold, cancelled: boolean): void {
+    if (cancelled && this.pouring && this.pourT <= hoseTune.lateTap) this.h.flight.fullness = Math.max(this.h.flight.fullness, this.stats.startTank);
     this.close(false);
   }
 

@@ -519,6 +519,12 @@ export class Aimer {
     return this.target;
   }
 
+  /** Before a tap fires: an aim this frame found not ready, the belly full again since (a pour given back by Input's late tap, Hose.end), plans again,
+   *  as it stood, so the tap throws what it would have (the Lob's roofs stage: the late tap found no plan and threw a plain splat). */
+  refresh(f: Flight): void {
+    if (!this.ready && Aimer.loaded(f)) this.update(f, this.t, this.wasDrag, this.wasThumb);
+  }
+
   /** A touch went down that may become a tap: freeze what glints (taps fire on the lift). */
   press(): void {
     // (the Lob's body, the steering thumb up: as it is now, or as it was when the thumb lifted if that's latched still. With the steering thumb down a second
