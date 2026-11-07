@@ -285,6 +285,29 @@ export class Holds {
     return q.z < 1 && q.z > -1 && q.x >= -1 && q.x <= 1 && q.y >= -1 && q.y <= 1;
   }
 
+  /** The player's bus now (world m, into `out`): what a captain's shot and the incoming marker aim at. */
+  bus(out: THREE.Vector3): THREE.Vector3 {
+    const f = this.h.flight;
+    return out.set(f.x, f.y, f.z);
+  }
+
+  /** Nothing of the city stands between the camera and `p` (SHOTS.md, Lock-on: "until ... a building hides it"). Within 8 m of `p` doesn't count. No allocation. */
+  inSight(p: THREE.Vector3): boolean {
+    const r = this.sight;
+    this.h.camera.getWorldPosition(this.w);
+    const d = this.w.distanceTo(p);
+    if (d <= 8) return true;
+    r.ox = this.w.x;
+    r.oy = this.w.y;
+    r.oz = this.w.z;
+    r.dx = (p.x - this.w.x) / d;
+    r.dy = (p.y - this.w.y) / d;
+    r.dz = (p.z - this.w.z) / d;
+    return !this.landing(r, this.sightAt, d - 8);
+  }
+  private readonly sight: HoldRay = { ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: -1 };
+  private readonly sightAt = new THREE.Vector3();
+
   /** Where a ray meets the city (roofs, trees, the ground, the water) within `reach` m, into `out`: false if it doesn't. No allocation. */
   landing(r: HoldRay, out: THREE.Vector3, reach = REACH): boolean {
     const city = this.h.city;

@@ -862,6 +862,20 @@
    ],
    "barfs": []
   },
+  "the hook: holds.bus is the player bus, holds.inSight says a building hides a target": {
+   "note": {
+    "bus": [
+     0,
+     120,
+     0
+    ],
+    "open": true,
+    "walled": false,
+    "over": true
+   },
+   "log": [],
+   "barfs": []
+  },
   "a claimed tap: a lock takes the next tap, and nothing splats": {
    "note": {},
    "log": [

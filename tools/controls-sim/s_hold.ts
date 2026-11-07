@@ -203,6 +203,17 @@ row('homing: the player shots past four at once are refused, with a cough', (h) 
   for (let i = 0; i < 5; i++) { h.flight.barfT = -1; h.flight.fullness = 1; if (h.holds.fire({ target: (o) => (o.set(0, 2, -3000), true), speed: 100, turn: 1, white: 0.5 })) n++; }
   return { fired: n, refused: h.holds.stats.refused, coughs: h.log.filter((x) => x.startsWith('cough@')).length };
 });
+// (the review's "is the hook enough": the player's bus for a captain's aim, and a building hiding a target)
+row('the hook: holds.bus is the player bus, holds.inSight says a building hides a target', (h) => {
+  const city = (h.holds as any).h.city, was = city.surfaceAt;
+  const boat = new THREE.Vector3(0, 2, -800), bus = h.holds.bus(new THREE.Vector3()).toArray();
+  const open = h.holds.inSight(boat);
+  // (a 200 m wall 400 m ahead, between the camera (300 m up) and the boat: the line passes it at 121 m)
+  city.surfaceAt = (_x: number, z: number) => (z < -380 && z > -420 ? 200 : 0);
+  const walled = h.holds.inSight(boat), over = h.holds.inSight(new THREE.Vector3(0, 400, -800));
+  city.surfaceAt = was;
+  return { bus, open, walled, over };
+});
 row('a claimed tap: a lock takes the next tap, and nothing splats', (h) => { h.holds.add({ name: 'lock', tap: () => true }); hold(h, 120); return {}; });
 row('a hold cancelled (the page lost focus) ends cancelled, and the Hose stops', (h) => { const id = newId(); h.down(id, AX, AY); h.wait(800); win.dispatch('blur', {}); h.wait(50); const v = { pouring: h.hose.pouring, current: h.holds.current }; h.up(id, AX, AY); return v; });
 
@@ -294,6 +305,8 @@ const has = (k: string, e: string) => N(k).log.some((x: string) => x.startsWith(
   ok(th.pouring && th.owner === 'hose' && th.blasts >= 2 && th.told === 1 && th.errors >= 10 && !th.after && has('a handler that throws', 'tap@'), `a handler that throws is told once, and the Hose and the frame go on: ${JSON.stringify(th)}`);
   const wa = N('a watcher that never').note;
   ok(wa.seen.join() === 'move,end hose false', `a watcher hears the end, with whose it was: ${JSON.stringify(wa)}`);
+  const hk = N('the hook: holds.bus').note;
+  ok(hk.bus.join() === '0,120,0' && hk.open && !hk.walled && hk.over, `holds.bus and holds.inSight: ${JSON.stringify(hk)}`);
   const cap = N('homing: the player shots').note;
   ok(cap.fired === 4 && cap.refused === 1 && cap.coughs === 1, `four of the player's shots at once, the fifth coughs: ${JSON.stringify(cap)}`);
   const q = N('a hold cancelled');
