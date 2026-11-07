@@ -28,7 +28,11 @@ import { registerTunables } from '../ui/tunables';
 //    belly's band), the bus rises as it lightens, the hiss and the drone climb as it empties
 //    (superSfx.pour), the stream thins over its last hoseTune.thin s, and the refill ends on
 //    the belly's own ready chime.
-//  - The stream arcs from the mouth onto the point under the finger (the geyser's lob, its
+//  - Every hold that isn't empty pours. On the city within hoseTune.reach it comes down under
+//    the finger; on the sky, or on the city past the reach, it comes down as far as it
+//    reaches that way, on the ground there (a hose aimed high throws its farthest). Only a bus
+//    more than the reach over the ground has nothing in reach: that hold coughs.
+//  - The stream arcs from the mouth onto that point (the geyser's lob, its
 //    height a share of the distance), which eases after the finger, so a sweep is
 //    water swinging, not a cursor. A blast of hoseTune.radius lands where it comes down
 //    each time it has moved a share of that radius, or every hoseTune.every s while it
@@ -57,7 +61,7 @@ export const hoseTune = {
   spacing: 0.45,
   every: 0.3,
   rate: 10,
-  /** the stream reaches this far from the bus (m) */
+  /** the stream reaches this far from the bus (m): a finger on the sky or on the city past it pours as far as it reaches that way */
   reach: 1500,
   /** the lob: this many m over the chord per m of it, at most arcMax m */
   arc: 0.1,
@@ -148,9 +152,16 @@ export class Hose implements HoldHandler {
   private readonly h: HoseHost;
   private serial = 0;
   private tag: SuperTag = { kind: 'hose', charge: 1, id: 0 };
+  /** every pour's tag (SuperSplat's asleep firehose tags its own 'hose' too): a pour's impacts still in flight when the next opens are still the Hose's */
+  private readonly tags = new WeakSet<SuperTag>();
   /** this hold coughed, or ran dry: it pours no more */
   private spent = false;
-  private readonly live: GeyserLive = { target: new THREE.Vector3(), travel: 0.3, rate: 0, width: 1 };
+  /** the hold this is about (Hold.id): one handed to the Hose by claim(), not start(), is a fresh one */
+  private holdId = 0;
+  /** the stream's live controls, a new one each pour: open while it pours (Particles' GeyserLive.open), so a pour paused on the sky keeps its stream */
+  private live: GeyserLive = { target: new THREE.Vector3(), travel: 0.3, rate: 0, width: 1, open: false };
+  /** where the stream comes down for the finger now (reachOf) */
+  private readonly goal = new THREE.Vector3();
   private readonly tgt = [new THREE.Vector3()];
   private readonly hueOne = [0];
   private readonly bands: GroundBands = { x: 0, z: 0, width: 15, hue: 0 };
@@ -175,40 +186,85 @@ export class Hose implements HoldHandler {
 
   /** This blast is one of the Hose's (main.ts routes its impact here). */
   owns(b: Blast): boolean {
-    return b.super !== null && b.super === this.tag;
+    return b.super !== null && this.tags.has(b.super);
   }
 
   // ------------------------------------------------------------------ the hold (Holds)
 
-  start(_h: Hold): boolean {
-    const f = this.h.flight;
+  start(h: Hold): boolean {
+    this.holdId = h.id;
     this.spent = false;
     // (a breath under way, or too little in the tank: a cough, and this hold pours nothing)
-    if (f.barfT >= 0 || f.fullness < hoseTune.minTank) {
-      this.cough();
-      this.spent = true;
-    }
+    if (!this.tankOk()) this.refuse();
     return true;
   }
 
   move(h: Hold, dt: number): void {
+    // (a hold another handler let go of and handed here: as new, the tank asked again before it pours. Review of step 2: a 5 % tank poured)
+    if (h.id !== this.holdId) {
+      this.holdId = h.id;
+      this.spent = false;
+    }
     if (this.spent) return;
-    const can = h.hit && h.range <= hoseTune.reach;
+    const can = this.reachOf(h);
     if (!this.pouring) {
-      if (can) this.open(h);
+      // (nothing in reach, the bus too high over the ground, or the tank gone low since: a cough, never a hold that silently does nothing)
+      if (!can || !this.tankOk()) this.refuse();
+      else this.open();
       return;
     }
     if (!can) {
-      // (the finger is on the sky, or past the stream's reach: it stops flowing, and the tank waits)
+      // (the bus has climbed past the reach over the ground: it stops flowing, and the tank waits)
       this.flowing = false;
       return;
     }
     this.flowing = true;
     // the landing follows the finger's point, easing in (water swinging, not a cursor), and comes down on what is there
     if (dt > 0) {
-      this.at.lerp(h.point, 1 - Math.exp(-hoseTune.follow * dt));
-      this.at.y = this.h.city.surfaceAt(this.at.x, this.at.z, Math.max(h.point.y, this.at.y) + 3);
+      this.at.lerp(this.goal, 1 - Math.exp(-hoseTune.follow * dt));
+      this.at.y = this.h.city.surfaceAt(this.at.x, this.at.z, Math.max(this.goal.y, this.at.y) + 3);
     }
+  }
+
+  private tankOk(): boolean {
+    const f = this.h.flight;
+    return f.barfT < 0 && f.fullness >= hoseTune.minTank;
+  }
+
+  private refuse() {
+    this.cough();
+    this.spent = true;
+  }
+
+  /**
+   * Where the stream comes down for this hold, into `goal`: the finger's point on the city within the reach, or else, the way the finger points (toward the point
+   * past the reach, or along the ray on the sky), as far as the reach goes, on the ground there. False: nothing is in reach (the bus is more than the reach over it).
+   */
+  private reachOf(h: Hold): boolean {
+    const f = this.h.flight, city = this.h.city, R = hoseTune.reach, g = this.goal;
+    if (h.hit && h.range <= R) {
+      g.copy(h.point);
+      return true;
+    }
+    let dx = h.hit ? h.point.x - f.x : h.ray.dx, dz = h.hit ? h.point.z - f.z : h.ray.dz;
+    let l = Math.hypot(dx, dz);
+    if (l < 1e-4) {
+      // (straight up or down: ahead)
+      dx = f.fx;
+      dz = f.fz;
+      l = Math.hypot(dx, dz) || 1;
+    }
+    dx /= l;
+    dz /= l;
+    // (out along that way until the stream's length from the bus is the reach: three passes settle it over hills)
+    let s = R;
+    for (let i = 0; i < 3; i++) {
+      const drop = f.y - city.surfaceAt(f.x + dx * s, f.z + dz * s, f.y);
+      if (drop >= R * 0.98) return false;
+      s = Math.sqrt(R * R - drop * drop) * 0.98;
+    }
+    g.set(f.x + dx * s, city.surfaceAt(f.x + dx * s, f.z + dz * s, f.y), f.z + dz * s);
+    return true;
   }
 
   lost(_h: Hold): void {
@@ -270,16 +326,18 @@ export class Hose implements HoldHandler {
 
   /** QA: a pour held at a world point for `seconds` (no finger): the hold a finger would make, aimed there. */
   qaPour(x: number, y: number, z: number): Hold {
-    const fake = { id: -1, down: true, x: 0, y: 0, x0: 0, y0: 0, dragX: 0, dragY: 0, held: 0.35, aimed: 0, ray: { ox: 0, oy: 0, oz: 0, dx: 0, dy: -1, dz: 0 }, hit: true, point: new THREE.Vector3(x, y, z), range: 0, owner: 'hose' };
+    const fake = { id: --this.qaId, down: true, x: 0, y: 0, x0: 0, y0: 0, dragX: 0, dragY: 0, held: 0.35, aimed: 0, ray: { ox: 0, oy: 0, oz: 0, dx: 0, dy: -1, dz: 0 }, hit: true, point: new THREE.Vector3(x, y, z), range: 0, owner: 'hose' };
     fake.range = Math.hypot(x - this.h.flight.x, y - this.h.flight.y, z - this.h.flight.z);
     this.start(fake);
     this.move(fake, 0);
     return fake;
   }
 
+  private qaId = 0;
+
   // ------------------------------------------------------------------ the pour
 
-  private open(h: Hold) {
+  private open() {
     const H = this.h, f = H.flight, T = hoseTune;
     this.pouring = true;
     this.flowing = true;
@@ -287,10 +345,13 @@ export class Hose implements HoldHandler {
     this.pourT = 0;
     this.lastHood = -1;
     this.lastSign = -10;
-    this.at.copy(h.point);
+    this.at.copy(this.goal);
     this.last.set(Infinity, 0, Infinity);
     this.sinceImpact = Infinity;
     this.tag = { kind: 'hose', charge: 1, id: ++this.serial };
+    this.tags.add(this.tag);
+    // (a new stream's controls: the last pour's emitter, if it is still finishing, keeps its own, closed)
+    this.live = { target: new THREE.Vector3(), travel: 0.3, rate: 0, width: 1, open: true };
     this.hueOne[0] = H.splatter.hueNext % HUE_COUNT;
     const aim = this.aimNow();
     this.tgt[0].copy(aim.p);
@@ -322,6 +383,7 @@ export class Hose implements HoldHandler {
     f.rechargeSeconds = hoseTune.refill;
     f.speedScale = 1;
     this.live.rate = 0;
+    this.live.open = false;
     this.spent = this.spent || dry;
     this.stats.dry = dry;
     this.stats.endTank = f.fullness;

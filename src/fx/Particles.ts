@@ -277,6 +277,11 @@ export interface GeyserLive {
   rate: number;
   /** width multiplier (replaces the geyser's own width while it pours) */
   width: number;
+  /**
+   * Set (the Hose): the stream lasts while this is true, however long past its duration (a pour paused on the sky comes back with its stream), with no thinning
+   * of its own (the caller thins it by `rate`), and ends on the frame it turns false. Unset: the duration is the stream's life.
+   */
+  open?: boolean;
 }
 
 interface Emitter {
@@ -904,7 +909,10 @@ export class Particles {
 
   private updateEmitter(e: Emitter, t1: number, dt: number) {
     const T = fxTune;
-    const end = e.start + e.duration;
+    const held = e.live ? e.live.open : undefined;
+    const end = held === true ? t1 + 1 : held === false ? Math.min(t1 - dt, e.start + e.duration) : e.start + e.duration;
+    // (held open, the gush stays the opening's and no tail comes: the caller thins it)
+    const xMax = held === undefined ? Infinity : e.taper;
     if (e.live) {
       e.targets[0].copy(e.live.target);
       e.travel = Math.max(0.05, e.live.travel);
@@ -943,7 +951,7 @@ export class Particles {
     }
     if (b > a) {
       const span = t1 - e.lastT;
-      const xm = ((a + b) * 0.5 - e.start) / e.duration;
+      const xm = Math.min(xMax, ((a + b) * 0.5 - e.start) / e.duration);
       // gush at the start, thinning dribble at the end
       const gush = xm < 0.12 ? 1 - xm / 0.12 : 0;
       const tail = xm > e.taper ? (xm - e.taper) / (1 - e.taper) : 0;
@@ -954,7 +962,7 @@ export class Particles {
       for (let j = 0; j < count; j++) {
         const tj = a + ((j + rnd()) / count) * (b - a);
         const f = span > 1e-6 ? (tj - e.lastT) / span : 1;
-        this.emitRibbon(e, tj, f, S, V, (tj - e.start) / e.duration);
+        this.emitRibbon(e, tj, f, S, V, Math.min(xMax, (tj - e.start) / e.duration));
       }
       // droplets flicked off the flanks
       nf = T.flickRate * (b - a) * (1 + gush - 0.5 * tail) * e.aimFlow * flow + e.carryFlick;
